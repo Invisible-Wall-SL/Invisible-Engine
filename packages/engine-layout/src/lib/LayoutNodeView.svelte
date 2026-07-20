@@ -563,6 +563,15 @@
 				effDefaultAnimation &&
 				effDefaultAnimation !== sigAnim.animation
 			)}
+			<!--
+				A signal cue is an EVENT: firing it again asks for a REPLAY, even though the animation
+				name is unchanged. Hand its fire token to the track so the repeat is distinguishable
+				from a re-render — without it the second fire compares equal, the track is left as-is,
+				and a finished one-shot rig sits frozen on its last frame for the rest of the session.
+				Only while the cue is the ACTIVE override: a button state animation drives the track
+				declaratively and must keep the plain value comparison.
+			-->
+			{@const replay = stateAnim ? undefined : sigAnim?.fire}
 			{#if anim}
 				<SpineTrack
 					trackIndex={0}
@@ -570,6 +579,7 @@
 					loop={handsOffToIdle ? false : (override?.loop ?? effLoop ?? true)}
 					then={handsOffToIdle ? effDefaultAnimation : undefined}
 					thenLoop={effLoop ?? true}
+					{replay}
 				/>
 			{/if}
 			<!--

@@ -13,6 +13,11 @@
 		then?: string;
 		/** Loop the queued {@link then} animation (default `true` — the idle/resting loop). */
 		thenLoop?: boolean;
+		/** Monotonic FIRE token for event-driven animation (a "Plays on signal" spine cue). Bump it
+		 * to re-apply `animationName` from the top even when the name is unchanged — a repeat cue is
+		 * otherwise indistinguishable from a no-op re-render and leaves a finished one-shot track
+		 * frozen on its last frame. Omit for a declarative binding (unchanged behaviour). */
+		replay?: number;
 	};
 </script>
 
@@ -21,11 +26,13 @@
 
 	import { propsSyncEffect } from '../utils.svelte';
 	import { getContextSpine } from '../context.svelte';
+	import { shouldApplySpineAnimation } from '../spineTrackReplay';
 
 	const props: Props = $props();
 	const spine = getContextSpine();
 
 	let track = $state(spine.state.tracks[props.trackIndex]);
+	let appliedReplay: number | undefined = undefined;
 
 	// Fall back to the skeleton's first animation when no name is given — matches the
 	// Symbols tool's "(first animation)" option and its preview (SymbolSpinePreview),
@@ -37,14 +44,23 @@
 	);
 
 	$effect(() => {
-		// Re-apply only when the INTENDED animation changes — NOT when the live track has
-		// advanced to the queued `then` animation (`addAnimation` below), which would
-		// otherwise restart the primary in a loop. With no `then`, `props.then` is undefined
-		// so the extra clause is always true and the guard is byte-identical to before.
+		// Re-apply when the INTENDED animation changes, or when an event-driven cue FIRES AGAIN
+		// (`replay`) — but NOT when the live track has merely advanced to the queued `then`
+		// animation (`addAnimation` below), which would otherwise restart the primary in a loop.
+		// The decision lives in `shouldApplySpineAnimation` so it is testable without a renderer.
 		if (
-			props.trackIndex !== track?.trackIndex ||
-			(resolvedAnimationName !== track?.animation?.name && props.then !== track?.animation?.name)
+			shouldApplySpineAnimation({
+				trackIndex: props.trackIndex,
+				animationName: resolvedAnimationName,
+				then: props.then,
+				replay: props.replay,
+				appliedReplay,
+				track: track
+					? { trackIndex: track.trackIndex, animationName: track.animation?.name }
+					: null,
+			})
 		) {
+			appliedReplay = props.replay;
 			if (track) spine.state.setEmptyAnimation(track.trackIndex, 0);
 			if (!resolvedAnimationName) return; // skeleton has no animations — nothing to play
 			try {
@@ -75,7 +91,7 @@
 	propsSyncEffect({
 		props,
 		target: () => track,
-		ignore: ['trackIndex', 'animationName', 'then', 'thenLoop'],
+		ignore: ['trackIndex', 'animationName', 'then', 'thenLoop', 'replay'],
 	});
 
 	onDestroy(() => {

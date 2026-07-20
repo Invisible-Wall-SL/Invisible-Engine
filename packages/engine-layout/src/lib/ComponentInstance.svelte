@@ -35,7 +35,7 @@
 		MAX_COMPONENT_DEPTH,
 	} from './componentInstanceContext';
 	import { setComponentParams } from './componentParamsContext';
-	import { setComponentSignalAnims } from './componentSignalContext';
+	import { setComponentSignalAnims, type ComponentSignalAnim } from './componentSignalContext';
 	import { resolveComponentParams } from './componentParams';
 	import {
 		resolveButtonStateImage,
@@ -382,7 +382,19 @@
 		return map;
 	})();
 
-	let signalAnims = $state<Record<string, { animation: string; loop?: boolean }>>({});
+	let signalAnims = $state<Record<string, ComponentSignalAnim>>({});
+	// A cue is an EVENT delivered as STATE, so every fire must be distinguishable from the last:
+	// re-firing the same cue writes the same animation name, and the spine's value comparison then
+	// reads "already playing" and never replays it (a second free-spin feature in one session left
+	// the rig frozen on its finished track). This monotonic token rides along and forces the
+	// re-apply. Per instance, so two placements of one def can't interfere.
+	let signalFire = 0;
+	const fireCue = (targets: { nodeId: string; animation: string; loop?: boolean }[]): void => {
+		signalFire += 1;
+		for (const t of targets) {
+			signalAnims[t.nodeId] = { animation: t.animation, loop: t.loop, fire: signalFire };
+		}
+	};
 	// One `$effect` (re)subscribes to every referenced signal and returns a combined
 	// cleanup — `$effect` can't live inside a loop, so iterate the precomputed map
 	// inside it and collect each unsubscribe. A signal with no registered source is
@@ -392,13 +404,7 @@
 		for (const [signalKey, targets] of signalToTargets) {
 			const source = getComponentSignal(signalKey);
 			if (!source) continue;
-			unsubs.push(
-				source.subscribe(() => {
-					for (const t of targets) {
-						signalAnims[t.nodeId] = { animation: t.animation, loop: t.loop };
-					}
-				}),
-			);
+			unsubs.push(source.subscribe(() => fireCue(targets)));
 		}
 		return () => {
 			for (const unsub of unsubs) unsub();
@@ -426,9 +432,9 @@
 	let wasVisible = false;
 	$effect(() => {
 		if (selfVisible && !wasVisible) {
-			for (const t of signalToTargets.get('enter') ?? []) {
-				signalAnims[t.nodeId] = { animation: t.animation, loop: t.loop };
-			}
+			// Through `fireCue` too: a screen gated "Shows during …" can open a SECOND time (free
+			// spins entered twice in one session), and a value-identical re-write would not replay.
+			fireCue(signalToTargets.get('enter') ?? []);
 		}
 		wasVisible = selfVisible;
 	});
