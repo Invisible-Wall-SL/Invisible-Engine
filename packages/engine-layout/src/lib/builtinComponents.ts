@@ -1,3 +1,4 @@
+import { BUILTIN_REGION } from './builtinRegions';
 import { TEXT_SOURCE_KEYS, VALUE_SOURCE_KEYS, VISIBILITY_SOURCE_KEYS } from './componentCatalog';
 import type { ComponentDef } from './types';
 
@@ -381,8 +382,8 @@ export const FREE_SPIN_COUNTER_DEF: ComponentDef = {
 				x: 0,
 				y: 0,
 				anchor: { x: 0, y: 0 },
-				assetKey: 'Frame_FSCounter.png',
-				region: 'Frame_FSCounter.png',
+				assetKey: BUILTIN_REGION.freeSpinCounterFrame,
+				region: BUILTIN_REGION.freeSpinCounterFrame,
 				width: FS_PANEL_WIDTH,
 				height: FS_PANEL_HEIGHT,
 				// Bind the frame texture to the `frameImage` param so the author can swap the
@@ -453,7 +454,12 @@ export const FREE_SPIN_COUNTER_DEF: ComponentDef = {
 		// use a custom frame (e.g. a WANTED poster) on the BUILT-IN counter, so a custom
 		// frame no longer requires forking a project copy. Default = the game-bundled
 		// `Frame_FSCounter.png` (parity).
-		{ key: 'frameImage', kind: 'image', default: 'Frame_FSCounter.png', label: 'frame image' },
+		{
+			key: 'frameImage',
+			kind: 'image',
+			default: BUILTIN_REGION.freeSpinCounterFrame,
+			label: 'frame image',
+		},
 		{ key: 'fill', kind: 'color', default: HUD_FILL },
 		{ key: 'fontSize', kind: 'number', default: FS_FONT_SIZE },
 		{ key: 'fontFamily', kind: 'string', default: FS_FONT_FAMILY },
@@ -668,21 +674,21 @@ export const LOADING_INTRO_DEF: ComponentDef = {
 		{
 			key: 'imageBackground',
 			kind: 'image',
-			default: 'progressBarBackground.png',
+			default: BUILTIN_REGION.progressBarTrack,
 			group: 'Progress bar',
 			label: 'track',
 		},
 		{
 			key: 'imageProgress',
 			kind: 'image',
-			default: 'progressBar.png',
+			default: BUILTIN_REGION.progressBarFill,
 			group: 'Progress bar',
 			label: 'fill',
 		},
 		{
 			key: 'imageFrame',
 			kind: 'image',
-			default: 'progressBarFrame.png',
+			default: BUILTIN_REGION.progressBarFrame,
 			group: 'Progress bar',
 			label: 'frame',
 		},
@@ -959,21 +965,21 @@ export const LOADING_BAR_DEF: ComponentDef = {
 		{
 			key: 'imageBackground',
 			kind: 'image',
-			default: 'progressBarBackground.png',
+			default: BUILTIN_REGION.progressBarTrack,
 			group: 'Progress bar',
 			label: 'track',
 		},
 		{
 			key: 'imageProgress',
 			kind: 'image',
-			default: 'progressBar.png',
+			default: BUILTIN_REGION.progressBarFill,
 			group: 'Progress bar',
 			label: 'fill',
 		},
 		{
 			key: 'imageFrame',
 			kind: 'image',
-			default: 'progressBarFrame.png',
+			default: BUILTIN_REGION.progressBarFrame,
 			group: 'Progress bar',
 			label: 'frame',
 		},

@@ -24,7 +24,12 @@
  * asset under the node's `assetKey` — the same value `LayoutNodeView` looks up.
  */
 import type { ComponentDef, LayoutDoc, LayoutNode } from 'engine-layout';
-import { collectComponentIds, collectComponentPins, parseScopedFrameRef } from 'engine-layout';
+import {
+	collectComponentIds,
+	collectComponentPins,
+	isBuiltinRegion,
+	parseScopedFrameRef,
+} from 'engine-layout';
 import { EDITOR_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import { sheetVersion } from './assetVersion';
 import { loadComponent } from './componentStorage';
@@ -526,7 +531,18 @@ export async function exportEditorArt(
 	// engine warns at boot) instead of surfacing only as a runtime lookup miss. Image
 	// keys (standalone dropped pages) resolve by full assetKey, not a region name, so
 	// they're excluded — only frame/region references can dangle this way.
-	const danglingRegions = [...refs.usedRegions].filter((r) => !coveredRegions.has(r)).sort();
+	//
+	// The engine's BUILT-IN regions are excluded too (`isBuiltinRegion`). They are the
+	// coded-default art of the built-in components — `Frame_FSCounter.png` on the
+	// free-spin counter, the `progressBar*.png` trio on the loading bar — and every game
+	// app bundles + registers their sheets (`static/assets/sprites/{reelsFrame,progressBar}`
+	// in `game/assets.ts`), so they ARE in `loadedAssets` at runtime and render correctly.
+	// This guard only knows about R2 atlases, so it used to report all four as "in NO
+	// shipped atlas and will render blank" on every project — a false alarm that pointed
+	// authors at re-packing an atlas for art that was never missing.
+	const danglingRegions = [...refs.usedRegions]
+		.filter((r) => !coveredRegions.has(r) && !isBuiltinRegion(r))
+		.sort();
 
 	// The same guard, attributed PER CLIP — because the bake BAILS on this rather than warning.
 	// A flat name list can't tell an author which animation broke, and unlike a blank sprite a

@@ -5,6 +5,8 @@
 		backgroundFit,
 		boundComponentDefault,
 		boundComponentRidesBone,
+		builtinSheetIdForRegion,
+		builtinSheetKey,
 		computeOverlayPlacement,
 		coverTransform,
 		isHudScene,
@@ -41,6 +43,7 @@
 	import {
 		clearRegionCache,
 		fetchRegions,
+		isStaticPageKey,
 		regionNaturalSize,
 		type EditorRegion,
 		type RegionDragPayload,
@@ -1011,7 +1014,11 @@
 			console.warn('[editor] image load failed', key);
 		};
 		const v = pageVersionByKey.get(key) ?? String(assetVersion);
-		img.src = `/api/editor/asset?key=${encodeURIComponent(key)}&v=${encodeURIComponent(v)}`;
+		// A vendored built-in sheet's page is a launcher-static path, not an R2 key — the
+		// R2-gated proxy would 404 on it, so serve it directly.
+		img.src = isStaticPageKey(key)
+			? key
+			: `/api/editor/asset?key=${encodeURIComponent(key)}&v=${encodeURIComponent(v)}`;
 		return null;
 	}
 
@@ -1128,6 +1135,19 @@
 			if (altRegion) return { set: altSet, region: altRegion };
 		} else if (!indexed) {
 			ensureRegionIndex(); // build the index, then a later redraw resolves
+		}
+		// Last resort: the engine's BUILT-IN sheets. A coded-default region
+		// (`Frame_FSCounter.png`, the `progressBar*.png` trio) is engine art every game app
+		// bundles + registers, so it renders fine in the shipped game — but it lives in no
+		// project atlas, so the scan above can never find it and the canvas drew a
+		// placeholder. Resolved from the launcher's vendored copy (the built-in SPINE
+		// precedent). Deliberately AFTER the project index, so a project atlas that packs the
+		// same name still wins and an author's own art keeps overriding the engine default.
+		const builtinId = builtinSheetIdForRegion(lookupName);
+		if (builtinId) {
+			const bSet = ensureRegionSet(builtinSheetKey(builtinId));
+			const bRegion = bSet?.regions.find((r) => r.name === lookupName);
+			if (bRegion) return { set: bSet, region: bRegion };
 		}
 		return null;
 	}

@@ -1,3 +1,4 @@
+import { BUILTIN_REGION } from './builtinRegions';
 import type { LayoutNode, LayoutType, Scene } from './types';
 
 /**
@@ -140,7 +141,7 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 	FreeSpinCounter: {
 		space: 'canvas',
 		placement: 'boardLeft',
-		preview: { kind: 'sprite', region: 'Frame_FSCounter.png' },
+		preview: { kind: 'sprite', region: BUILTIN_REGION.freeSpinCounterFrame },
 	},
 	FreeSpinIntro: {
 		space: 'canvas',
