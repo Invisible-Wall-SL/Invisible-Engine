@@ -5,3 +5,4 @@ packages:
   - "tools/generic-mount-spike"
   - "tools/flow-spike"
   - "tools/fx-spike"
+  - "tools/flipbook-spike"

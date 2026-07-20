@@ -1316,6 +1316,21 @@ importers:
         specifier: workspace:*
         version: link:../eslint-config-custom
 
+  packages/engine-flipbook:
+    devDependencies:
+      config-ts:
+        specifier: workspace:*
+        version: link:../config-ts
+      eslint:
+        specifier: 9.21.0
+        version: 9.21.0(jiti@1.21.7)
+      eslint-config-custom:
+        specifier: workspace:*
+        version: link:../eslint-config-custom
+      typescript:
+        specifier: 5.8.3
+        version: 5.8.3
+
   packages/engine-flow:
     dependencies:
       engine-layout:
@@ -2051,6 +2066,15 @@ importers:
       engine-layout:
         specifier: workspace:*
         version: link:../../packages/engine-layout
+      tsx:
+        specifier: 4.19.2
+        version: 4.19.2
+
+  tools/flipbook-spike:
+    devDependencies:
+      engine-flipbook:
+        specifier: workspace:*
+        version: link:../../packages/engine-flipbook
       tsx:
         specifier: 4.19.2
         version: 4.19.2

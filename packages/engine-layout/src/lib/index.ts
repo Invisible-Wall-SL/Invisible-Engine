@@ -32,6 +32,7 @@ export * from './registerBoundComponents';
 export * from './registerComponents';
 export * from './registerEffects';
 export * from './registerRigFx';
+export * from './registerFlipbooks';
 export * from './registerComponentValues';
 export * from './registerComponentActions';
 export * from './registerComponentVisibility';

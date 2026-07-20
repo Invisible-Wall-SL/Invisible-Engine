@@ -1,0 +1,14 @@
+{
+	"name": "flipbook-spike",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"doc": "tsx docModel.ts",
+		"registry": "tsx registry.ts"
+	},
+	"devDependencies": {
+		"tsx": "4.19.2",
+		"engine-flipbook": "workspace:*"
+	}
+}
