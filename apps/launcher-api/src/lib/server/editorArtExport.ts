@@ -29,6 +29,7 @@ import { EDITOR_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import { sheetVersion } from './assetVersion';
 import { loadComponent } from './componentStorage';
 import { loadDoc } from './editorStorage';
+import { loadFlipbookDoc } from './flipbookStorage';
 import { listEffects, loadEffect } from './fxStorage';
 import { loadRegionSet, type EditorRegionSet } from './editorRegions';
 import { listProjectAssets } from './projectAssets';
@@ -85,6 +86,12 @@ export interface EditorArtIndex {
 	 *  guard) so a re-authored atlas that dropped/renamed a placed region is caught at
 	 *  publish instead of silently in-game. */
 	missing: string[];
+	/** Per Invisible Flipbook clip, the frames no shipped sheet packs. A subset of `missing`,
+	 *  attributed to its clip — the bake BAILS on this instead of warning (design doc
+	 *  §"What this design does about it" #2): a dangling sprite region renders an invisible
+	 *  node, but a dangling clip frame silently SHORTENS an animation that still plays and
+	 *  still looks plausible, so it must not be shippable. Empty when nothing dangles. */
+	clipMissing: { clipId: string; frames: string[] }[];
 }
 
 /** A doc `assetKey` that names an R2 atlas/sheet manifest (vs a game-bundled
@@ -316,6 +323,26 @@ export async function exportEditorArt(
 		// Effects are additive art — never let them break the sprite/spine export.
 	}
 
+	// Same idea for Invisible Flipbook CLIPS: a clip is an ordered run of region names within one
+	// sheet, referenced by `assetKey`. Ship that sheet (so the clip's frames have textures) and
+	// count every frame as a used region, so a renamed/deleted region surfaces in the dangling
+	// report below. A clip's degradation is nastier than a sprite's: a missing sprite region draws
+	// nothing (obvious), but a missing clip frame silently SHORTENS an animation that still plays
+	// and still looks plausible — which is why the bake treats `clipMissing` as FATAL. Best-effort:
+	// a listing/parse failure must never break the editor-art export.
+	const clipFrames: { clipId: string; frames: string[] }[] = [];
+	try {
+		for (const clip of (await loadFlipbookDoc(clientKey, projectKey)).clips) {
+			if (!isManifestAssetKey(clip.assetKey)) continue;
+			refs.manifestKeys.add(clip.assetKey);
+			const frames = clip.frames.filter((f) => !!f);
+			for (const frame of frames) refs.usedRegions.add(frame);
+			clipFrames.push({ clipId: clip.id, frames });
+		}
+	} catch {
+		// Clips are additive art — never let them break the sprite/spine export.
+	}
+
 	const deployPrefix = `${SUB.deploy(clientKey, projectKey)}/`;
 	const artPrefix = `${deployPrefix}editor-art/`;
 
@@ -478,12 +505,24 @@ export async function exportEditorArt(
 	// they're excluded — only frame/region references can dangle this way.
 	const danglingRegions = [...refs.usedRegions].filter((r) => !coveredRegions.has(r)).sort();
 
+	// The same guard, attributed PER CLIP — because the bake BAILS on this rather than warning.
+	// A flat name list can't tell an author which animation broke, and unlike a blank sprite a
+	// short clip still plays and still looks plausible, so the report has to name the clip.
+	const clipMissing = clipFrames
+		.map(({ clipId, frames }) => ({
+			clipId,
+			frames: [...new Set(frames.filter((f) => !coveredRegions.has(f)))].sort(),
+		}))
+		.filter((c) => c.frames.length > 0)
+		.sort((a, b) => a.clipId.localeCompare(b.clipId));
+
 	const index: EditorArtIndex = {
 		sheets,
 		images,
 		spines,
 		collisions,
 		missing: danglingRegions,
+		clipMissing,
 	};
 	const indexKey = `${artPrefix}index.json`;
 	await putObjectText(indexKey, JSON.stringify(index, null, '\t'), 'application/json');

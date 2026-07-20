@@ -2,10 +2,18 @@
 
 > Design: [docs/design/invisible-flipbook.md](../design/invisible-flipbook.md) · Guide: [docs/tools/flipbook.md](../tools/flipbook.md) · Agent: _none yet — use `engine-pixi-svelte` + `atlas-python-tools`_
 
-**One-line state:** Authoring works end-to-end; **nothing ships**. Clips can be created, ordered, previewed and saved at `/flipbook`, but no consumer reads a clip and the export→bake→pull→register chain is unwired, so a clip still renders nowhere in a game.
+**One-line state:** Authoring **and shipping** work end-to-end; **no consumer reads a clip yet**. Clips are created at `/flipbook`, travel the full export→bake→pull→register chain, and are registered at boot — but nothing resolves a `clipId`, so a clip still renders nowhere in a game. Step 6 (consumers) is the only thing between a clip and pixels.
 
 ## Current state
-Live on `main` (steps 1–4 of the design doc's build plan):
+Live on `main` (steps 1–5 + 7 of the design doc's build plan):
+
+- **Step 7 — the ship chain (rule 8)** is wired: a clip now travels export→`deploy/clips/`→bake→pull→register.
+  - **`flipbookExport.ts` + `/api/editor/export-clips`** mirror `effectExport.ts` + `/api/editor/export-effects` exactly (same deploy token `?k=` gate, same per-doc file + `index.json`, same stale-object prune, idempotent). A clip carries **no binary assets** — its frames are regions of a sheet the editor-art export already ships — so this is a pure-JSON copy.
+  - **Deliberate divergence: clips are NOT reachability-pruned.** The bake prunes unreachable *effects*; an equivalent filter for clips would ship **zero**, because no consumer references a `clipId` until step 6 lands. A clip is a name list plus two numbers, so shipping all of them is negligible. Documented in the exporter's header; add the filter once consumers exist.
+  - **Clip frames are now real references.** `editorArtExport` adds each clip's `assetKey` to the manifests it ships and every frame to `usedRegions`, so a clip's sheet auto-ships and a renamed/deleted region is visible to the dangling guard (the same fix already applied to FX `art.frames[]`).
+  - **A dangling clip frame is FATAL at bake**, not a warning — the one place clips deliberately differ from sprite regions. New `EditorArtIndex.clipMissing` (`{clipId, frames}[]`) attributes each missing frame to its clip, and the bake `bail()`s naming both. Rationale (design §"What this design does about it" #2): a dangling *sprite* region draws an invisible node — obvious; a dangling *clip frame* silently **shortens** an animation that still plays and still looks plausible, so it can pass review and ship wrong.
+  - **Bundle parity holds.** `flipbooks` is omitted from the baked bundle entirely when a project has no clips, so a no-clip game's bundle stays byte-identical. `apps/lines` gains `bakedFlipbooks()` (same runtime→baked→empty resolution as `bakedRigFx()`) and calls `registerFlipbooks(bakedFlipbooks())` at boot beside `registerEffects`/`registerRigFx`.
+  - `clips` was added to the pull script's `GENERATED_SUBTREES` so a deleted clip's stale mirrored file is pruned like a deleted effect's.
 
 - **`/flipbook` tool (step 4)** — three-column authoring page in the launcher. Left: saved-clip rail + Name / Save / Save As / Delete. Centre: the ordered frame list (HTML5 drag-reorder, numbered 1..N, per-frame duplicate = a HOLD and remove) under a playback preview with play/pause, a frame scrubber, fps and loop. Right: source-sheet select over the project's `manifests/*.json` + a filterable region grid that click-appends frames.
   - **No new rendering code.** The preview and every thumbnail reuse the editor's `RegionThumb.svelte` (shared page-image decode + the rotated-region un-rotation); playback is just an accumulator-clocked rAF advancing an index, so no second PIXI app and no duplicated cropping routine. Region rects come from the existing `/api/editor/regions`; the page image from `/api/editor/asset` — both gained `flipbook` as an `altTool` beside `fx`/`rigger` (entitlement only; the R2 prefix allow-list is unchanged).
@@ -13,22 +21,24 @@ Live on `main` (steps 1–4 of the design doc's build plan):
   - **Author-time dangling detection** (design §"Referential integrity") — opening a clip re-reads its sheet's live region set; a frame whose region is gone is struck through in red and counted in a tool-bar pill. A silently shortened animation looks plausible, so it is surfaced at author time rather than discovered at bake.
   - `engine-flipbook` was missing from `apps/launcher-api/package.json`, so `flipbookStorage.ts` could not resolve at build; added as `workspace:*`.
 
+- **Step 5 — runtime playback seam.** `<Flipbook clip={…}>` in `pixi-svelte` gives `AnimatedSprite` its FIRST call site (it and `SpriteSheet` had worked with zero consumers because nothing upstream produced frame order). `resolveClipFrames` in `engine-flipbook` owns the editor-art scoped→bare key precedence and is offline-fixtured. `animationSpeed = fps/60`. **Deliberately NO whole-sheet fallback** — `ParticleEmitter` binds the entire sheet when a layer resolves nothing, which sprays arbitrary wrong art; an unresolvable clip renders NOTHING and reports its missing frames once.
 - **`packages/engine-flipbook`** — `FlipbookDoc` / `FlipbookClip` types + `normalizeFlipbookDoc`, mirroring `engine-fx`. Deliberately dependency-free so it stays Node-resolvable for fixtures. `registerFlipbooks` / `resolveFlipbook` live in `engine-layout` beside `registerEffects` / `registerRigFx` (same module-scoped `Map`, same latest-wins).
-- **`tools/flipbook-spike`** — offline fixtures (`run doc`, `run registry`), since the launcher build is not a type check. Assert frame order survives verbatim, duplicate frames are kept (a held frame), a bad fps falls back to the default, normalization is idempotent, and a dangling `clipId` resolves to `undefined` rather than throwing.
+- **`tools/flipbook-spike`** — offline fixtures (`run doc`, `run registry`, `run frames`), since the launcher build is not a type check. Assert frame order survives verbatim, duplicate frames are kept (a held frame), a bad fps falls back to the default, normalization is idempotent, and a dangling `clipId` resolves to `undefined` rather than throwing.
 - **FX flipbook honesty fix** — `bindArt` no longer emits a dead `loop: true` alongside `framerate: -1` (the library coerces it to `false`, so flipbook particles have always played once per lifetime, contrary to the old doc comment). Both fx-spike fixtures now assert `loop` stays absent. **Not a behaviour change** — making looping real would silently restyle every authored effect in a shipped game.
 - **Dangling FX frame names are now reported** — `editorArtExport` counts a layer's `art.frames[]` as used regions, so a renamed/deleted region shows up in `index.missing`. Previously invisible at every stage, degrading to `EffectLayer` dropping frames or `ParticleEmitter` binding the whole sheet.
 - **Sheet Maker natural ordering** — upload order drives region order drives manifest order, which the clip editor reads; see [sheet-maker status](sheet-maker.md).
 
 ## Open items / next
-1. **Step 5 — runtime playback seam.** Resolve a clip's ordered frames to textures and feed `AnimatedSprite` (which works but has **zero call sites** today). Editor-art registers as `sprites` (flat map), so resolve frame-by-frame via `editorArtTextureKey` rather than relying on `spriteSheet`'s ordered array.
-3. **Step 6 — consumers**, ascending risk: FX (`clipId?` on `EmitterArt`) → Symbols (widen `symbolCellSchema.type`) → Scene Editor (`FlipbookNode` in the `LayoutNode` union). **Owner has not yet picked whether Symbols or Scene Editor comes first.**
-4. **Step 7 — export/bake/pull/register wiring** (rule 8). Clip frames must become real refs and the bake must `bail()` on a dangling one, not warn.
-5. **Rename-repair hint is unconfirmed** — `src` survives a rename, but `sheet_session.json` is one open sheet's working state, so per-sheet durable recovery of `src` must be verified before the tool promises "did you mean…".
+1. **Step 6 — consumers**, ascending risk: FX (`clipId?` on `EmitterArt`) → Symbols (widen `symbolCellSchema.type`) → Scene Editor (`FlipbookNode` in the `LayoutNode` union). **Owner has not yet picked whether Symbols or Scene Editor comes first.** This is now the ONLY gap between an authored clip and pixels — the clip already reaches the game and is registered.
+2. **Add the clip reachability filter** once step 6 lands, so an orphan/scratch clip stops shipping (parity with the effects prune in `bake-editor-doc.mjs`).
+3. **Rename-repair hint is unconfirmed** — `src` survives a rename, but `sheet_session.json` is one open sheet's working state, so per-sheet durable recovery of `src` must be verified before the tool promises "did you mean…".
 
 ## Blocked (owner / external)
-- Nothing flipbook-specific. Note `main`'s launcher build is red for an unrelated reason (`symbols/+page.svelte` imports `builtinSpineKey` / `hasBuiltinSpine`, absent from `editorSpine.client.ts`) — being handled separately, but it blocks build-verifying any launcher-side flipbook work.
+- Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-07-20 — step 7: clips travel export→bake→pull→register; dangling clip frames are FATAL at bake.
+- 2026-07-20 — step 5: `<Flipbook>` runtime playback seam (`b1d73bf`).
 - 2026-07-20 — the `/flipbook` tool + its save/delete endpoints + `docs/tools/flipbook.md`.
 - 2026-07-20 — sheet-tool natural sprite ordering (`d7107f4`).
 - 2026-07-20 — `FlipbookDoc` schema, canonicalizer, clip registry + fixtures (`54e3e25`).

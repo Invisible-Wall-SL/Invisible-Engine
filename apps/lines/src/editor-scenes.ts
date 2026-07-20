@@ -3,6 +3,7 @@ import type { FlowDoc as FlowDocV2, FunctionLibraryDoc as FlowV2LibraryDoc } fro
 import type { EffectDoc } from 'engine-fx';
 import type {
 	ComponentDef,
+	FlipbookClipEntry,
 	FontCatalog,
 	LayoutDoc,
 	LayoutNode,
@@ -88,6 +89,15 @@ type BakedBundle = {
 	 * game registers it via `registerRigFx(bakedRigFx())`, and each `<RiggedEffect>` plays its effect
 	 * on the beat of the rig's event. Absent/empty ⇒ `resolveRigFx()` returns [] (parity). */
 	rigFx?: Record<string, RigFxBinding[]>;
+	/** Invisible Flipbook clips (`invisible-flipbook.md` §"Travel"). The authored frame animations
+	 * from `/flipbook`, exported to `deploy/clips/` and frozen into the bundle by
+	 * `bake-editor-doc.mjs`. Each is an ORDERED run of region names within one sheet — a sheet the
+	 * editor-art export already ships, so a clip introduces no new asset. Registered at boot via
+	 * `registerFlipbooks(bakedFlipbooks())`; a consumer resolves `clipId` → clip. Unlike `effects`
+	 * these are NOT reachability-pruned at bake (no consumer references a clipId yet).
+	 * Absent/empty ⇒ `resolveFlipbook()` returns undefined and every consumer renders its static
+	 * fallback (parity). */
+	flipbooks?: FlipbookClipEntry[];
 	/** Symbol→state asset bindings (Invisible Symbols State Machine output) + the index
 	 * of any sprite sheets / images / spine bundles those bindings introduce, exported to
 	 * `deploy/editor-symbols/` and mirrored into `static/assets/` by the deploy pull. The
@@ -355,6 +365,20 @@ export function bakedRigFx(): Record<string, RigFxBinding[]> {
 	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
 	if (!source) return {};
 	return source.rigFx ?? {};
+}
+
+/**
+ * The Invisible Flipbook clips baked for this project (`invisible-flipbook.md` §"Travel"): each an
+ * ORDERED, timed run of region names within one sheet — the sheet the editor-art export already
+ * ships, so a clip introduces no new asset. Registered at boot via
+ * `registerFlipbooks(bakedFlipbooks())`; a consumer resolves `clipId` → clip through
+ * `resolveFlipbook`. Mirrors `bakedEffects`'s runtime→baked→empty resolution. Empty when un-baked
+ * / a project authored no clips (dev parity — the checked-in placeholder has none).
+ */
+export function bakedFlipbooks(): FlipbookClipEntry[] {
+	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
+	if (!source) return [];
+	return source.flipbooks ?? [];
 }
 
 /**

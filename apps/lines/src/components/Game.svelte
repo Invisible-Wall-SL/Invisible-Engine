@@ -54,6 +54,7 @@
 		registerBoundComponents,
 		registerComponents,
 		registerEffects,
+		registerFlipbooks,
 		registerRigFx,
 		registerComponentValues,
 		registerComponentActions,
@@ -146,6 +147,7 @@
 		bakedFontCatalog,
 		bakedFontSrcBase,
 		bakedEffects,
+		bakedFlipbooks,
 		bakedRigFx,
 		bakedSymbolAssets,
 		fallbackEditorScenes,
@@ -427,6 +429,10 @@
 	// beat of its own animation events (`registerRigFx`/`resolveRigFx`; `LayoutNodeView` mounts a
 	// `<RiggedEffect>` per binding). No-op when un-baked / no rig has a bound event (parity).
 	registerRigFx(bakedRigFx());
+	// Register the project's baked Invisible Flipbook clips so anything referencing one by `clipId`
+	// resolves it → its ordered frames at render (`registerFlipbooks`/`resolveFlipbook`). No-op when
+	// un-baked / no clips (parity).
+	registerFlipbooks(bakedFlipbooks());
 	// Layout-doc text localization (§18): any doc text matching a catalog key —
 	// code catalogs + the baked Localization-tool strings — renders translated.
 	registerEditorTextLocalization(messagesMap);

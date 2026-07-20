@@ -230,6 +230,23 @@ async function main() {
 				// Placed regions no shipped atlas packs — carried so the game warns at boot.
 				missing: Array.isArray(art?.missing) ? art.missing : [],
 			};
+			// FATAL, unlike every other dangling report here. A dangling sprite region renders an
+			// invisible node — obvious on screen. A dangling CLIP frame silently SHORTENS an
+			// animation that still plays and still looks plausible, so it can pass review and ship
+			// wrong. Refuse the bake and name each clip + its missing frames.
+			const clipMissing = Array.isArray(art?.clipMissing) ? art.clipMissing : [];
+			if (clipMissing.length) {
+				const detail = clipMissing
+					.map((c) => `  • clip "${c.clipId}" is missing: ${c.frames.join(', ')}`)
+					.join('\n');
+				bail(
+					`${clipMissing.length} flipbook clip(s) reference frames that NO shipped sheet packs.\n` +
+						`${detail}\n` +
+						'A missing clip frame does not fail loudly — it silently SHORTENS the animation, ' +
+						'which still plays and still looks right. Re-pick the frames in /flipbook, or ' +
+						're-pack the sheet so it contains them, then bake again.',
+				);
+			}
 			// Loud (non-fatal) warning when two referenced sheets share a region name.
 			// Rendering is correct (each sheet is scoped by its manifest), but it
 			// usually means a superseded sheet is still referenced — name the overlap
@@ -491,6 +508,35 @@ async function main() {
 			);
 		}
 
+	// Export the project's Invisible Flipbook clips into R2 `deploy/clips/` so the deploy mirror
+	// pulls them, and embed them so the game registers each clip (`registerFlipbooks`). A clip
+	// ships no new assets — its frames are regions of an atlas the editor-art export already
+	// ships. Unlike effects, clips are NOT reachability-pruned: no consumer references a clipId
+	// yet, so a filter would ship zero (see flipbookExport.ts's header).
+	let flipbooks;
+	const clipsUrl =
+		`${base}/api/editor/export-clips?project=${encodeURIComponent(project)}` +
+		`&k=${encodeURIComponent(token)}`;
+	if (dryRun) {
+		console.info('(dry run) skipping the clips export — it writes to R2 deploy/.');
+	} else
+		try {
+			const clipRes = await fetchRetry(clipsUrl, { method: 'POST' }, 'clips export');
+			if (!clipRes.ok) {
+				bail(`Clips export failed: HTTP ${clipRes.status} — ${await bodySnippet(clipRes)}`);
+			}
+			const cl = await clipRes.json();
+			const list = Array.isArray(cl?.clips) ? cl.clips : [];
+			// Only embed when the project authored at least one clip, keeping the bundle
+			// byte-identical for every game with no flipbook work (parity).
+			if (list.length > 0) flipbooks = list;
+		} catch (err) {
+			if (err instanceof BakeBail) throw err;
+			bail(
+				`Could not reach ${base}/api/editor/export-clips — ${err instanceof Error ? err.message : err}`,
+			);
+		}
+
 	// Dangling-assetKey guard (§8 — the particle analogue of the geometry-less-manifest
 	// gotcha): each effect layer references its particle art by `art.assetKey`, an atlas
 	// MANIFEST key the editor-art export ships as a sheet (`editorArt.sheets[].key`). The
@@ -618,12 +664,14 @@ async function main() {
 		const collectEffectNodeIds = (nodes, ids) => {
 			if (!Array.isArray(nodes)) return;
 			for (const n of nodes) {
-				if (n.kind === 'effect' && typeof n.effectId === 'string' && n.effectId) ids.add(n.effectId);
+				if (n.kind === 'effect' && typeof n.effectId === 'string' && n.effectId)
+					ids.add(n.effectId);
 				else if (n.kind === 'container') collectEffectNodeIds(n.children, ids);
 			}
 		};
 		const placed = new Set();
-		for (const sc of Array.isArray(doc.scenes) ? doc.scenes : []) collectEffectNodeIds(sc.nodes, placed);
+		for (const sc of Array.isArray(doc.scenes) ? doc.scenes : [])
+			collectEffectNodeIds(sc.nodes, placed);
 		const defs = [
 			...Object.values(data.componentDefs ?? {}),
 			...(Array.isArray(data.componentVersions) ? data.componentVersions : []),
@@ -682,6 +730,10 @@ async function main() {
 		// rig has ≥1 bound event — `bakedRigFx()` returns {} when absent, so `resolveRigFx()` yields
 		// [] and nothing new mounts (parity).
 		...(rigFx ? { rigFx } : {}),
+		// The authored frame animations (Invisible Flipbook). Omitted unless the project authored
+		// ≥1 clip, keeping the bundle byte-identical for every game with no flipbook work —
+		// `bakedFlipbooks()` returns [] when absent (parity).
+		...(flipbooks ? { flipbooks } : {}),
 	};
 
 	const sceneCount = doc.scenes.length;
@@ -699,6 +751,7 @@ async function main() {
 		? ` flow={${flow.screens?.length ?? 0} screens/${flow.transitions?.length ?? 0} transitions/${flow.events?.length ?? 0} events},`
 		: '';
 	const effectsNote = effects ? ` effects={${effects.length}},` : '';
+	const flipbooksNote = flipbooks ? ` flipbooks={${flipbooks.length}},` : '';
 	const highlightNote = symbols.highlight
 		? ` highlight=${symbols.highlight.assetKey}/${symbols.highlight.animationName ?? '(first)'},`
 		: '';
@@ -725,7 +778,7 @@ async function main() {
 			`\nWould write ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 				` (${sceneCount} scenes, ${defCount} component defs${pinnedNote}, ${defaultCount} default sets,` +
 				` ${artCount} editor-art sheets, ${fontCount} fonts,` +
-				`${highlightNote}${winLineNote}${settingsNote}${flowNote}${effectsNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
+				`${highlightNote}${winLineNote}${settingsNote}${flowNote}${effectsNote}${flipbooksNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 		);
 		return;
 	}
