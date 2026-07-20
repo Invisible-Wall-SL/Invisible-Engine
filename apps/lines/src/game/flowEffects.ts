@@ -47,7 +47,12 @@ import { eventEmitter } from './eventEmitter';
 import { stateApp } from './stateApp';
 import { winLevelMap, type WinLevel, type WinLevelData } from './winLevelMap';
 import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
-import { awaitCue, rearmSlamForSpin } from './unskippablePresentation';
+import {
+	awaitCue,
+	rearmSlamForSpin,
+	slamHold,
+	SLAM_MESSAGE_HOLD_MS,
+} from './unskippablePresentation';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
 import { PADDING_REELS, BOARD_DIMENSIONS } from './constants';
@@ -135,9 +140,46 @@ export const winningPositionsOf = (win: { positions: Position[]; kind: number })
  * The excluded-symbol rule lives in `engine-layout` (`symbolDrawsWinLine`) rather than as a
  * literal here, because the `/win-text` grid needs the SAME answer to avoid offering a cell that
  * can never render. One fact, one home.
+ *
+ * A SLAMMED spin draws no line at all. The line is the beat the player pressed to skip — and its
+ * stamped amount is the count-up in miniature — so the slam summary keeps only the lit symbols and
+ * the message. Note this makes the answer TIME-DEPENDENT, which is why `hideWinLine` is
+ * unconditional: a press landing between a win's show and its hide must not strand the line.
  */
 export const winLineEnabledForWin = (win: { symbol: SymbolName }): boolean =>
-	symbolDrawsWinLine(win.symbol) && bakedWinLineEnabled();
+	!roundSkip.isSkipped() && symbolDrawsWinLine(win.symbol) && bakedWinLineEnabled();
+
+/**
+ * Show the info message for ONE win — the text half of the win-info presentation, resolved through
+ * the Invisible Win Text contract (`resolveToastTemplate` picks the branch matching the vars
+ * supplied; `formatWinText` localizes the template BEFORE interpolating, the order that makes it
+ * translatable). The SHARED leaf behind both the flow-authored `showMessage` effect and the coded
+ * `winInfo` handler's slam summary, so a slammed spin says exactly what an authored toast says.
+ *
+ * Returns whether anything was actually shown, so a caller can hold only for a real message.
+ */
+export const showWinInfoMessage = ({
+	amount,
+	kind,
+	messageKind = 'info',
+	durationMs,
+}: {
+	amount?: number;
+	kind?: number;
+	messageKind?: GameMessageKind;
+	durationMs?: number;
+}): boolean => {
+	const vars = {
+		amount: amount === undefined ? undefined : bookEventAmountToCurrencyString(amount),
+		count: kind,
+	};
+	const template = resolveToastTemplate(bakedWinText(), vars);
+	if (!template) return false;
+	const text = formatWinText(template, vars);
+	if (!text) return false;
+	showGameMessage(text, { kind: messageKind, durationMs });
+	return true;
+};
 
 /**
  * The board-local centre points the line traces: `getSymbolX(reel)` + the live symbol centre Y.
@@ -454,22 +496,19 @@ const effects: Record<string, FlowEffect> = {
 	 * "Win $1.00 — 2 of a kind"; with only `amount`, "Win $1.00". Auto-clears via the state timer
 	 * (`messageKind` selects the toast style, default `info`; `durationMs` overrides the hold).
 	 */
-	showMessage: (payload) => {
-		const vars = {
-			amount:
-				typeof payload.amount === 'number'
-					? bookEventAmountToCurrencyString(payload.amount)
-					: undefined,
-			count: typeof payload.kind === 'number' ? payload.kind : undefined,
-		};
-		const template = resolveToastTemplate(bakedWinText(), vars);
-		if (!template) return;
-		const text = formatWinText(template, vars);
-		if (!text) return;
-		showGameMessage(text, {
-			kind: (payload.messageKind as GameMessageKind) ?? 'info',
+	showMessage: async (payload) => {
+		const shown = showWinInfoMessage({
+			amount: typeof payload.amount === 'number' ? payload.amount : undefined,
+			kind: typeof payload.kind === 'number' ? payload.kind : undefined,
+			messageKind: (payload.messageKind as GameMessageKind) ?? 'info',
 			durationMs: payload.durationMs as number | undefined,
 		});
+		// Slam minimum display: both reference choreographies fire this once per win, so without a
+		// hold every message of a multi-win spin is overwritten within the same frame and only the
+		// last one is ever seen. The hold is a bare timer (`slamHold`) — it settles regardless of
+		// anything the slam suppressed. Unslammed this is a no-op and the effect stays synchronous
+		// in effect, so the authored pacing is untouched.
+		if (shown && roundSkip.isSkipped()) await slamHold(SLAM_MESSAGE_HOLD_MS);
 	},
 
 	/**
@@ -519,11 +558,15 @@ const effects: Record<string, FlowEffect> = {
 
 	/**
 	 * `winInfo` WIN-LINE leaf (hide) — clear the traced line + stamped amount after the win's symbol
-	 * animation. Gated by the same scatter / overlay-enabled check as the show, so a no-op show has a
-	 * no-op hide.
+	 * animation.
+	 *
+	 * UNCONDITIONAL, unlike the show. It used to re-evaluate `winLineEnabledForWin`, which is fine
+	 * while that answer is constant but not now the slam suppresses the line: a press landing between
+	 * a win's show and its hide would flip the gate to false and leave the drawn line on screen for
+	 * the rest of the round. Clearing a line that was never shown is a no-op (`WinLine.svelte` just
+	 * re-empties already-empty points), so the safe direction is to always clear.
 	 */
-	hideWinLine: (payload) => {
-		if (!winLineEnabledForWin({ symbol: payload.symbol as SymbolName })) return;
+	hideWinLine: () => {
 		eventEmitter.broadcast({ type: 'winLineHide' });
 	},
 

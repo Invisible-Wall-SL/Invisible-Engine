@@ -29,6 +29,13 @@
  * is sticky and was re-armed only per bet. It is now re-armed at the START of each spin of a bonus
  * book ({@link rearmSlamForSpin}), so a press slams the spin that is rolling and the feature resumes
  * at full pace — normal roll, normal anticipation, normal count-up — until the next press.
+ *
+ * A SLAM IS NOT A BLANK (owner direction 2026-07-20). Collapsing every wait to zero made a winning
+ * slammed spin unreadable: the win symbols lit and the toast fired, but the whole `winInfo` sequence
+ * ran inside a couple of frames, so the player saw the balance move and nothing else. The slammed
+ * path therefore keeps a MINIMUM DISPLAY — the lit win symbols ({@link SLAM_SYMBOL_HOLD_MS}) and the
+ * per-win info message ({@link SLAM_MESSAGE_HOLD_MS}) — while the win LINE and the amount count-up
+ * stay fully skipped. See {@link slamHold} for why this cannot hang.
  */
 
 import { roundSkip } from 'utils-shared/skipToken';
@@ -57,6 +64,38 @@ export const PLAYER_GATED_CUES: ReadonlySet<string> = new Set([
 	'bookRevealGateShow',
 	'freeSpinOutroCountUp',
 ]);
+
+/**
+ * Cues a slam SHORTENS instead of collapsing — the minimum-display set.
+ *
+ * `boardWithAnimateSymbols` is the ONE cue every path funnels its win-symbol animation through: the
+ * coded handler (`animateSymbols` → `awaitPresentation`), the v1 flow (`broadcastAsync`) and the v2
+ * flow (`broadcast`) all reach it via {@link awaitCue}, so holding here lights the win symbols on a
+ * slammed spin in all three without touching `Board.svelte`. The board subscriber still runs
+ * DETACHED exactly as it does under the plain race — it sets `win`, awaits its own spine and lands on
+ * `postWinStatic` on its own — so nothing here can leave a symbol lit forever.
+ */
+export const SLAM_MINIMUM_DISPLAY_CUES: ReadonlySet<string> = new Set(['boardWithAnimateSymbols']);
+
+/** How long a slammed spin holds on its lit win symbols, per win. Long enough to register a cluster,
+ *  short enough to stay a slam. */
+export const SLAM_SYMBOL_HOLD_MS = 200;
+
+/** How long a slammed spin holds on one win's info message, per win — the readable part of the
+ *  summary. 400ms reads a short template ("Win $1.20 — 3 of a kind") without stalling the round;
+ *  combined with {@link SLAM_SYMBOL_HOLD_MS} a win costs 600ms against several seconds unslammed. */
+export const SLAM_MESSAGE_HOLD_MS = 400;
+
+/**
+ * A minimum-display hold on the slammed path.
+ *
+ * Deliberately a bare `waitForTimeout` and NOT `roundSkip.wait`: the token is already tripped, so the
+ * token's own wait would collapse to zero and there would be nothing to display. That also makes it
+ * the only kind of hold THE HANG RULE allows to be added under a tripped token — a `setTimeout`
+ * settles on its own schedule with no dependency on a subscriber, a spine `complete` or a player
+ * press, i.e. on nothing the slam suppressed.
+ */
+export const slamHold = (time: number): Promise<void> => waitForTimeout(time);
 
 // Book events are dispatched strictly serially (`createPlayBookUtils`' `sequence`), so a plain
 // counter is enough to scope one dispatch — and it nests safely for the resume path, where
@@ -87,10 +126,18 @@ export const runBookEventPresentation = async (
 /** Await an emitter cue's subscribers: fully inside an unskippable presentation (unless the cue is
  *  player-gated), raced against the slam token everywhere else. The single wrapper every awaited
  *  `broadcastAsync` in the game goes through — coded handler, effect registry, both flow runtimes. */
-export const awaitCue = (cue: string, subscribers: Promise<unknown>): Promise<void> =>
-	inUnskippablePresentation() && !PLAYER_GATED_CUES.has(cue)
-		? subscribers.then(() => undefined)
-		: roundSkip.race(subscribers);
+export const awaitCue = (cue: string, subscribers: Promise<unknown>): Promise<void> => {
+	if (inUnskippablePresentation() && !PLAYER_GATED_CUES.has(cue)) {
+		return subscribers.then(() => undefined);
+	}
+	// Already slammed AND this cue owns a minimum display ⇒ hold for a fixed beat instead of
+	// collapsing to zero, so the win symbols are actually seen. Not yet slammed ⇒ the plain race,
+	// which still releases the instant the player presses mid-animation (unchanged).
+	if (roundSkip.isSkipped() && SLAM_MINIMUM_DISPLAY_CUES.has(cue)) {
+		return slamHold(SLAM_SYMBOL_HOLD_MS);
+	}
+	return roundSkip.race(subscribers);
+};
 
 /** A presentation delay — a real wait inside an unskippable presentation (an authored intro Delay
  *  paces a rig that nothing cancels), collapsed by the slam token everywhere else. */

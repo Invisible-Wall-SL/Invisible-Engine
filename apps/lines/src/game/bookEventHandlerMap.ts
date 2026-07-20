@@ -10,7 +10,12 @@ import { SECOND } from 'constants-shared/time';
 
 import { eventEmitter } from './eventEmitter';
 import { getFlowV2 } from './flowV2InterpreterHolder';
-import { awaitCue, rearmSlamForSpin } from './unskippablePresentation';
+import {
+	awaitCue,
+	rearmSlamForSpin,
+	slamHold,
+	SLAM_MESSAGE_HOLD_MS,
+} from './unskippablePresentation';
 import { playBookEvent } from './utils';
 import { winLevelMap, type WinLevel } from './winLevelMap';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
@@ -22,6 +27,7 @@ import {
 	winLineEnabledForWin,
 	winLinePointsFor,
 	winLineTextFor,
+	showWinInfoMessage,
 } from './flowEffects';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
 import { PADDING_REELS, BOARD_DIMENSIONS } from './constants';
@@ -60,9 +66,9 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 				// Awaited: when the line is configured to animate, WinLine.svelte resolves this
 				// only after the line has drawn first→last and the amount is revealed, so the
 				// symbol glow follows. Non-animated draws resolve immediately, keeping the
-				// original timing (line + amount instant, symbols animate alongside). Raced against
-				// the slam token: a slammed round shows the line COMPLETE (WinLine skips its draw
-				// tween) instead of waiting for it to trace.
+				// original timing (line + amount instant, symbols animate alongside). Unreachable on
+				// a slammed spin — `winLineEnabledForWin` is false there, since the line and its
+				// stamped amount are exactly what the press asked to skip.
 				await roundSkip.race(
 					eventEmitter.broadcastAsync({
 						type: 'winLineShow',
@@ -80,6 +86,21 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 			await animateSymbols({ positions: winningPositions });
 
 			if (showWinLine) eventEmitter.broadcast({ type: 'winLineHide' });
+
+			// SLAM MINIMUM DISPLAY — slammed spins only, so the unslammed coded path is untouched.
+			// `animateSymbols` has just held on the lit symbols (`SLAM_MINIMUM_DISPLAY_CUES`); this
+			// adds the per-win info message, which the coded path otherwise never shows at all (it is
+			// authored as a `showMessage` node in both reference choreographies, and those flows keep
+			// owning it — this handler does not run when a flow owns `winInfo`). Held on a bare timer
+			// so several wins read one after another instead of overwriting each other in one frame.
+			if (roundSkip.isSkipped()) {
+				const shown = showWinInfoMessage({
+					amount: win.win,
+					kind: win.kind,
+					messageKind: 'win',
+				});
+				if (shown) await slamHold(SLAM_MESSAGE_HOLD_MS);
+			}
 		});
 	},
 	setTotalWin: async (bookEvent: BookEventOfType<'setTotalWin'>) => {
