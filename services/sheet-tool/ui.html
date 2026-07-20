@@ -140,6 +140,12 @@
   .cwd{font-family:monospace;font-size:11px;color:#888;margin-bottom:6px;word-break:break-all}
   .geo{color:#777;font-family:monospace;font-size:11px;white-space:nowrap}
   .hint{font-size:11px;color:#777;margin:-2px 0 8px}
+  /* File pickers stack their label ABOVE the input: two bare "Choose file" buttons in a row
+     are indistinguishable, and the accept= filter only reveals itself after you click. */
+  .filefield{margin-bottom:9px}
+  .filefield>label{display:block;font-size:12px;color:#ddd;margin-bottom:2px}
+  .filefield .ffhint{font-size:11px;color:#777;line-height:1.35;margin-bottom:4px}
+  .filefield input[type=file]{width:100%}
 </style></head>
 <body>
 <header class="iw-toolbar">
@@ -253,8 +259,17 @@
             <code>.plist</code> and its page image. The page is copied byte-for-byte and every
             rect is converted, never re-packed, so a game already bound to those coordinates
             keeps rendering.</div>
-          <input type="file" id="plistfile" accept=".plist" style="width:100%;margin-bottom:6px">
-          <input type="file" id="plistpage" accept=".png,.webp" style="width:100%;margin-bottom:6px">
+          <div class="filefield">
+            <label for="plistfile">1 · Coordinates file — <b>.plist</b></label>
+            <div class="ffhint">The cocos2d/TexturePacker file listing every frame's rect.</div>
+            <input type="file" id="plistfile" accept=".plist">
+          </div>
+          <div class="filefield">
+            <label for="plistpage">2 · Page image — <b>.png</b> or <b>.webp</b></label>
+            <div class="ffhint">The packed sheet. The .plist names it inside — match that
+              exactly. Not JPEG: no alpha channel.</div>
+            <input type="file" id="plistpage" accept=".png,.webp">
+          </div>
           <div class="field"><label>Sheet name</label><input id="plistsheet" placeholder="(from the .plist name)"></div>
           <div class="field"><label><input type="checkbox" id="plistlock" checked> Read-only (recommended)</label></div>
           <div class="field"><label><input type="checkbox" id="plisteditable" onchange="onPlistEditable()"> Import as editable (loses trim offsets)</label></div>
