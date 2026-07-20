@@ -20,9 +20,12 @@ export type SymbolState = SpinningReelSymbolState | (typeof SYMBOL_STATES)[numbe
  * Structural twin of a `SYMBOL_INFO_MAP` cell — authored by the Invisible Symbols State
  * Machine (docs/design/invisible-symbols-state-machine.md). */
 export type SymbolCellInfo = {
-	type: 'sprite' | 'spine';
+	type: 'sprite' | 'spine' | 'flipbook';
 	assetKey: string;
 	animationName?: string;
+	/** `flipbook` cells only: the authored Invisible Flipbook clip this state plays. The clip
+	 * names its own sheet(s), so `assetKey` merely holds its primary one. */
+	clipId?: string;
 	/** Per-cell size. Optional on a baked OVERRIDE cell (absent = inherit the global
 	 *  `defaultSizeRatios`); the coded `SYMBOL_INFO_MAP` always supplies it. Render code
 	 *  reads the resolved size via `getSymbolInfo` (see `resolveSymbolSizeRatios`). */
