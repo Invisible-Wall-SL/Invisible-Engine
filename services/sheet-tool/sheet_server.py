@@ -1331,13 +1331,18 @@ def _variant_id(path: Path) -> str | None:
 
 
 def _variant_files(batch_dir: Path, name: str) -> list[Path]:
-    """All variant PNGs for EXACTLY this region, sorted ascending by name.
+    """All variant PNGs for EXACTLY this region, sorted ascending by variant id.
     Require the region name to be followed immediately by the numeric variant
     id so region '10x' never picks up '10x_shine_*.png' (and since 's' > '0'
-    those would otherwise sort last and steal 'latest')."""
+    those would otherwise sort last and steal 'latest').
+
+    Ordered with `natural_key`, NOT lexicographically: callers take `files[-1]`
+    as the latest variant, and a plain name sort puts `region_10_.png` before
+    `region_9_.png` — so past nine renders 'latest' silently froze on variant 9
+    while newer ones existed."""
     pat = re.compile(rf"^{re.escape(name)}_\d+_?\.png$", re.IGNORECASE)
     return sorted((p for p in batch_dir.glob(f"{name}_*.png") if pat.match(p.name)),
-                  key=lambda p: p.name)
+                  key=lambda p: natural_key(p.name))
 
 
 def _seed_in_png(path: Path) -> int | None:
@@ -1370,7 +1375,8 @@ def _pick_variant_png(batch_dir: Path, region: dict) -> Path | None:
     1. the committed 'variant' id (authoritative — a locked seed is reused
        across renders so many variants share one seed);
     2. else the variant whose embedded KSampler seed matches a locked 'seed';
-    3. else the latest (lexically-last) variant."""
+    3. else the latest — the HIGHEST-numbered variant (natural order, so v10
+       beats v9; this was a lexical sort and froze on v9 past nine renders)."""
     files = _variant_files(batch_dir, region.get("name", ""))
     if not files:
         return None
