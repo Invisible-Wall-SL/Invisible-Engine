@@ -8,7 +8,6 @@
 <script lang="ts">
 	import { MainContainer } from 'components-layout';
 	import { FadeContainer } from 'components-pixi';
-	import { stateUi } from 'state-shared';
 
 	import { getContext } from '../game/context';
 	import { SYMBOL_SIZE } from '../game/constants';
@@ -37,16 +36,9 @@
 
 	const fontSize = SYMBOL_SIZE * 0.275;
 
-	// SEEDED from `stateUi`, then kept live by the cues. `subscribeOnMount` has no replay, so a
-	// `freeSpinCounterUpdate` that fires while a flow has this container hidden is lost forever —
-	// and a slam collapses the show/hide timing enough for that to happen on every spin, which is
-	// why the counter stopped counting up. The book-event handlers write the state alongside every
-	// cue, so seeding recovers the true value on each remount.
-	// NOT `$derived` on the state: a flow's generic `broadcast(cue)` fires these cues WITHOUT
-	// writing `stateUi`, so an authored show/hide must still be able to drive this directly.
-	let show = $state(stateUi.freeSpinCounterShow);
-	let current = $state(stateUi.freeSpinCounterCurrent);
-	let total = $state(stateUi.freeSpinCounterTotal);
+	let show = $state(false);
+	let current = $state(0);
+	let total = $state(0);
 	let titleSizes: Sizes = $state({ width: 0, height: 0 });
 	let counterSizes: Sizes = $state({ width: 0, height: 0 });
 
