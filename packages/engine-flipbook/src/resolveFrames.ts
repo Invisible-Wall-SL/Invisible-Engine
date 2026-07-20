@@ -15,6 +15,55 @@ import type { FlipbookClip } from './types';
  * stays dependency-free. */
 const isManifestAssetKey = (k: string): boolean => k.includes('/') && k.endsWith('.json');
 
+/**
+ * Split a frame entry into its sheet + region. A bare name returns no `assetKey`, so the caller
+ * falls back to the clip's primary sheet — which is how a single-sheet clip keeps behaving
+ * exactly as it did.
+ *
+ * Mirrors `engine-layout`'s `parseScopedFrameRef`, inlined so this package stays
+ * dependency-free. Kept deliberately strict: the prefix must look like a manifest path, so a
+ * region whose NAME merely contains `::` is read as a bare name rather than a broken sheet ref.
+ */
+export function parseFrameRef(value: string): { assetKey?: string; region: string } {
+	if (typeof value !== 'string' || value === '') return { region: value ?? '' };
+	const i = value.indexOf('::');
+	if (i <= 0) return { region: value };
+	const assetKey = value.slice(0, i);
+	const region = value.slice(i + 2);
+	if (!region || !isManifestAssetKey(assetKey)) return { region: value };
+	return { assetKey, region };
+}
+
+/**
+ * Every sheet a clip's frames actually reference — its primary `assetKey` plus any sheet a
+ * scoped frame names. The exporter MUST walk this rather than `clip.assetKey` alone: a clip
+ * spanning four pages would otherwise ship one page and silently lose three quarters of the
+ * animation, which is exactly the dangling-frame failure the bake is meant to catch.
+ */
+export function clipSheetKeys(clip: Pick<FlipbookClip, 'assetKey' | 'frames'>): string[] {
+	const keys = new Set<string>();
+	if (clip.assetKey) keys.add(clip.assetKey);
+	for (const frame of clip.frames ?? []) {
+		const ref = parseFrameRef(frame);
+		if (ref.assetKey) keys.add(ref.assetKey);
+	}
+	return [...keys];
+}
+
+/**
+ * A clip's frames as `(sheet, region)` pairs with the primary-sheet fallback already applied —
+ * what a dangling-reference check needs, since a bare name and a scoped name for the same
+ * region must be validated against different sheets.
+ */
+export function clipFrameRefs(
+	clip: Pick<FlipbookClip, 'assetKey' | 'frames'>,
+): { assetKey: string; region: string; entry: string }[] {
+	return (clip.frames ?? []).map((entry) => {
+		const ref = parseFrameRef(entry);
+		return { assetKey: ref.assetKey ?? clip.assetKey, region: ref.region, entry };
+	});
+}
+
 export interface ResolvedClipFrames {
 	/** Textures for the frames that resolved, in AUTHORED ORDER. */
 	textures: unknown[];
@@ -42,12 +91,18 @@ export function resolveClipFrames(
 	const frames = clip.frames ?? [];
 	if (frames.length === 0) return { textures: [], missing: [] };
 	const loaded = loadedAssets ?? {};
-	const scoped = isManifestAssetKey(clip.assetKey);
 	const textures: unknown[] = [];
 	const missing: string[] = [];
 	for (const frame of frames) {
-		const tex = (scoped ? loaded[`${clip.assetKey}::${frame}`] : undefined) ?? loaded[frame];
+		// A frame may name its OWN sheet (`<assetKey>::<region>`); a bare name falls back to the
+		// clip's primary sheet. That fallback is what lets a single-sheet clip resolve unchanged.
+		const ref = parseFrameRef(frame);
+		const sheet = ref.assetKey ?? clip.assetKey;
+		const scoped = isManifestAssetKey(sheet);
+		const tex = (scoped ? loaded[`${sheet}::${ref.region}`] : undefined) ?? loaded[ref.region];
 		if (tex !== undefined && tex !== null) textures.push(tex);
+		// Report the ENTRY as authored, not the parsed region — the author needs to know which
+		// sheet's frame vanished, and a bare region name alone is ambiguous across sheets.
 		else missing.push(frame);
 	}
 	return { textures, missing };

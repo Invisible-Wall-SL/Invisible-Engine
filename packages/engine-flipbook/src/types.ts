@@ -38,10 +38,25 @@ export interface FlipbookClip {
 	id: string;
 	/** Author-facing label. Free to change without breaking a reference. */
 	name: string;
-	/** Manifest key of the source sheet. One sheet per clip in v1: a cross-sheet clip would need
-	 * multi-atlas texture resolution at every consumer, which v1 does not earn. */
+	/**
+	 * Manifest key of the clip's PRIMARY sheet — the default a bare frame name resolves against,
+	 * and what the picker starts on. Frames may override it individually (see {@link frames}).
+	 */
 	assetKey: string;
-	/** Ordered region names. Duplicates are legal — holding a frame is a real animation technique. */
+	/**
+	 * Ordered frames. Duplicates are legal — holding a frame is a real animation technique.
+	 *
+	 * An entry is EITHER a bare region name (resolved against {@link assetKey}) OR an
+	 * atlas-scoped ref `<assetKey>::<region>`, so ONE clip can span SEVERAL sheets. That is not
+	 * a nicety: a real multipacked export routinely interleaves an animation across pages — a
+	 * 49-frame sequence arrived split over four, frame 0 on page 0, frames 1-7 on page 1, frame
+	 * 11 on page 3 — so a single-sheet clip simply cannot express it.
+	 *
+	 * The `<assetKey>::<region>` encoding is the SAME one the Scene Editor's image params use
+	 * (`scopedFrameRef` / `parseScopedFrameRef` in `engine-layout`), and the same key the
+	 * editor-art loader registers textures under — so a scoped frame needs no new resolution
+	 * path, and a bare name still behaves exactly as before.
+	 */
 	frames: string[];
 	/** Playback rate. Absent ⇒ {@link DEFAULT_FLIPBOOK_FPS}. */
 	fps?: number;

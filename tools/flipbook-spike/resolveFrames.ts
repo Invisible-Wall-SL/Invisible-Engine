@@ -12,7 +12,7 @@
  * fallback, the failure mode that makes a broken FX layer spray arbitrary wrong art.
  */
 
-import { resolveClipFrames } from 'engine-flipbook';
+import { clipFrameRefs, clipSheetKeys, resolveClipFrames } from 'engine-flipbook';
 
 let failures = 0;
 const assert = (cond: boolean, msg: string): void => {
@@ -98,6 +98,88 @@ const nulled = resolveClipFrames(clip(['a', 'b']), { a: null, b: 'B' });
 assert(
 	nulled.textures.join(',') === 'B' && nulled.missing.join(',') === 'a',
 	'a null entry counts as missing, not as a texture',
+);
+
+// ---------------------------------------------------------------------------
+// Multi-sheet clips. A real multipacked export interleaves an animation across pages — the
+// 49-frame sample arrived split over four — so a clip must be able to span sheets.
+// ---------------------------------------------------------------------------
+console.log('flipbook frames — a clip spanning several sheets');
+const P0 = 'c/p/manifests/atlas_manifest_page0.json';
+const P1 = 'c/p/manifests/atlas_manifest_page1.json';
+
+const spanning = {
+	assetKey: P0,
+	// f0 bare (⇒ primary sheet), f1 scoped to a DIFFERENT sheet, f2 scoped to the primary.
+	frames: ['f0', `${P1}::f1`, `${P0}::f2`],
+};
+const spanned = resolveClipFrames(spanning, {
+	[`${P0}::f0`]: 'P0_F0',
+	[`${P1}::f1`]: 'P1_F1',
+	[`${P0}::f2`]: 'P0_F2',
+});
+assert(
+	spanned.textures.join(',') === 'P0_F0,P1_F1,P0_F2',
+	'frames resolve against their OWN sheet, in authored order',
+);
+assert(spanned.missing.length === 0, 'nothing is reported missing when every sheet resolves');
+
+// The failure this guards: a same-named region on two sheets must not cross-resolve.
+const collide = resolveClipFrames(
+	{ assetKey: P0, frames: [`${P1}::shared`] },
+	{ [`${P0}::shared`]: 'WRONG_SHEET', [`${P1}::shared`]: 'RIGHT_SHEET' },
+);
+assert(
+	collide.textures.join(',') === 'RIGHT_SHEET',
+	'a scoped frame never picks up the same region name from another sheet',
+);
+
+// A missing scoped frame is reported AS AUTHORED, so the author can tell which sheet failed.
+const goneScoped = resolveClipFrames({ assetKey: P0, frames: [`${P1}::nope`] }, {});
+assert(
+	goneScoped.missing.join(',') === `${P1}::nope`,
+	'a missing scoped frame reports the full ref, not just the bare region',
+);
+
+// Single-sheet clips must behave EXACTLY as before — this is the back-compat guarantee.
+const legacy = resolveClipFrames(
+	{ assetKey: P0, frames: ['a', 'b'] },
+	{
+		[`${P0}::a`]: 'A',
+		[`${P0}::b`]: 'B',
+	},
+);
+assert(legacy.textures.join(',') === 'A,B', 'a bare-name clip resolves against its primary sheet');
+
+console.log('flipbook frames — sheet collection for the exporter');
+assert(
+	clipSheetKeys(spanning).sort().join(',') === [P0, P1].sort().join(','),
+	'clipSheetKeys returns EVERY sheet a clip touches, deduped',
+);
+assert(
+	clipSheetKeys({ assetKey: P0, frames: ['a', 'b'] }).join(',') === P0,
+	'a single-sheet clip yields just its primary sheet',
+);
+const refs = clipFrameRefs(spanning);
+assert(
+	refs.map((r) => r.assetKey).join(',') === `${P0},${P1},${P0}`,
+	'clipFrameRefs applies the primary-sheet fallback to bare names',
+);
+assert(
+	refs.map((r) => r.region).join(',') === 'f0,f1,f2',
+	'clipFrameRefs strips the sheet prefix from the region',
+);
+
+console.log('flipbook frames — a region name containing :: is not a sheet ref');
+const weird = resolveClipFrames(
+	{ assetKey: P0, frames: ['odd::name'] },
+	{
+		[`${P0}::odd::name`]: 'TREATED_AS_BARE',
+	},
+);
+assert(
+	weird.textures.join(',') === 'TREATED_AS_BARE',
+	'a `::` in a region name is only a sheet ref when the prefix is a manifest path',
 );
 
 console.log('');

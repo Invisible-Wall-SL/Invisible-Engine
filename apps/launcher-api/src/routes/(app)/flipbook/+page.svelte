@@ -11,7 +11,13 @@
 	 * a still-frame flipbook would buy nothing.
 	 */
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
-	import { DEFAULT_FLIPBOOK_FPS, detectSequences, type FlipbookClip } from 'engine-flipbook';
+	import {
+		DEFAULT_FLIPBOOK_FPS,
+		clipSheetKeys,
+		detectSequences,
+		parseFrameRef,
+		type FlipbookClip,
+	} from 'engine-flipbook';
 	import { fetchRegions, type RegionSet } from '../editor/editorRegions.client';
 	import RegionThumb from '../editor/RegionThumb.svelte';
 	import type { PageData } from './$types';
@@ -172,32 +178,59 @@
 	const openClip = (id: string): void =>
 		void (window.location.href = `/flipbook?clip=${encodeURIComponent(id)}`);
 
-	// --- source sheet + regions -------------------------------------------------
+	// --- source sheets + regions ------------------------------------------------
+	// A clip may span SEVERAL sheets: a multipacked export routinely interleaves one animation
+	// across pages (a 49-frame sequence arrived split over four). So region sets are cached PER
+	// SHEET — the picker shows the selected sheet, but the frame list and preview each resolve
+	// against whichever sheet their own frame names.
 	let sheetKey = $state<string>(data.openedClip?.assetKey ?? data.atlases[0]?.manifestKey ?? '');
-	let regionSet = $state<RegionSet | null>(null);
+	let regionSets = $state<Record<string, RegionSet>>({});
 	let regionFilter = $state('');
 
-	$effect(() => {
-		const key = sheetKey;
-		if (!key) {
-			regionSet = null;
-			return;
-		}
-		let live = true;
+	/** Fetch a sheet's regions once; repeat calls for a cached sheet are no-ops. */
+	function ensureRegions(key: string): void {
+		if (!key || regionSets[key]) return;
 		void fetchRegions(key).then((set) => {
-			if (live) regionSet = set;
+			if (set) regionSets = { ...regionSets, [key]: set };
 		});
-		return () => {
-			live = false;
-		};
+	}
+
+	// The selected sheet (for the picker) plus every sheet the clip's frames already reference,
+	// so a reopened multi-sheet clip renders all its thumbnails rather than only the primary's.
+	$effect(() => {
+		ensureRegions(sheetKey);
+		for (const key of clipSheetKeys(clip)) ensureRegions(key);
 	});
 
-	const regionsByName = $derived(new Map((regionSet?.regions ?? []).map((r) => [r.name, r])));
+	const regionSet = $derived(regionSets[sheetKey] ?? null);
 	const visibleRegions = $derived(
 		(regionSet?.regions ?? []).filter((r) =>
 			regionFilter ? r.name.toLowerCase().includes(regionFilter.toLowerCase()) : true,
 		),
 	);
+
+	/** Resolve a frame ENTRY to the sheet it names and that sheet's region record. `set` is null
+	 * while the sheet is still fetching — which must read as "not loaded yet", never as missing. */
+	function frameLookup(entry: string): {
+		assetKey: string;
+		region: string;
+		set: RegionSet | null;
+		record: RegionSet['regions'][number] | null;
+	} {
+		const ref = parseFrameRef(entry);
+		const assetKey = ref.assetKey ?? clip.assetKey;
+		const set = regionSets[assetKey] ?? null;
+		return {
+			assetKey,
+			region: ref.region,
+			set,
+			record: set ? (set.regions.find((r) => r.name === ref.region) ?? null) : null,
+		};
+	}
+
+	/** True once EVERY sheet this clip references has loaded — the only point at which a missing
+	 * frame is a real finding rather than a pending fetch. */
+	const allSheetsLoaded = $derived(clipSheetKeys(clip).every((k) => !!regionSets[k]));
 
 	/**
 	 * Author-time dangling detection (design doc §"Referential integrity"): a clip joins its sheet
@@ -205,31 +238,26 @@
 	 * the author opens the clip is the whole point — a silently shortened animation looks
 	 * plausible, so it must never be discovered at bake.
 	 *
-	 * Only meaningful once the region set for the clip's OWN sheet has loaded; while the author is
-	 * previewing a different sheet we do not accuse the frames of being missing.
+	 * Checked PER SHEET: a frame scoped to page 1 must not be excused by a same-named region on
+	 * page 0, which is exactly the cross-sheet mix-up scoped refs exist to prevent.
 	 */
-	const framesResolved = $derived(regionSet !== null && sheetKey === clip.assetKey);
 	const missingFrames = $derived(
-		framesResolved ? clip.frames.filter((f) => !regionsByName.has(f)) : [],
+		allSheetsLoaded ? clip.frames.filter((f) => frameLookup(f).record === null) : [],
 	);
 
-	/** Switching sheets is destructive: v1 is one sheet per clip, so the existing frame names
-	 * cannot be resolved against the new page. Confirm rather than silently dangle them all. */
+	/** Sheets this clip draws from — used to decide whether to label rows by sheet at all. */
+	const clipSheets = $derived(clipSheetKeys(clip));
+	/** Short label for a sheet, matching the picker's. */
+	const sheetLabel = (key: string): string =>
+		data.atlases.find((a) => a.manifestKey === key)?.label ?? key.split('/').pop() ?? key;
+
+	/** Switching sheets is NON-destructive now: it is the normal way to add frames from another
+	 * page of a multipacked atlas. The primary `assetKey` only follows the picker while the clip
+	 * is still empty; after that, frames from other sheets are stored as scoped refs. */
 	function pickSheet(key: string): void {
 		if (key === sheetKey) return;
-		if (
-			clip.frames.length &&
-			key !== clip.assetKey &&
-			!window.confirm(
-				'A clip draws its frames from ONE sheet. Switching sheets clears the ' +
-					`${clip.frames.length} frame${clip.frames.length === 1 ? '' : 's'} in this clip.`,
-			)
-		) {
-			return;
-		}
 		sheetKey = key;
-		if (key !== clip.assetKey) clip = { ...clip, assetKey: key, frames: [] };
-		frameIndex = 0;
+		if (clip.frames.length === 0) clip = { ...clip, assetKey: key };
 	}
 
 	// --- ordered frame list -----------------------------------------------------
@@ -238,9 +266,14 @@
 		if (frameIndex >= frames.length) frameIndex = Math.max(0, frames.length - 1);
 	}
 
+	/** Append from the SELECTED sheet. A frame from the clip's primary sheet stores a bare name
+	 * (so a single-sheet clip's doc is unchanged); anything else stores `<assetKey>::<region>` so
+	 * it resolves against its own page and can never pick up a same-named region elsewhere. */
 	const appendFrame = (name: string): void => {
-		if (clip.assetKey !== sheetKey) clip = { ...clip, assetKey: sheetKey };
-		setFrames([...clip.frames, name]);
+		if (clip.frames.length === 0 && clip.assetKey !== sheetKey) {
+			clip = { ...clip, assetKey: sheetKey };
+		}
+		setFrames([...clip.frames, sheetKey === clip.assetKey ? name : `${sheetKey}::${name}`]);
 	};
 
 	const removeFrame = (i: number): void => setFrames(clip.frames.filter((_, n) => n !== i));
@@ -311,7 +344,7 @@
 	const fps = $derived(clip.fps ?? DEFAULT_FLIPBOOK_FPS);
 	const loop = $derived(clip.loop !== false);
 	const currentName = $derived(clip.frames[frameIndex] ?? '');
-	const currentRegion = $derived(currentName ? (regionsByName.get(currentName) ?? null) : null);
+	const current = $derived(currentName ? frameLookup(currentName) : null);
 
 	/**
 	 * The playback clock. Deliberately accumulator-based rather than `setInterval(1000/fps)` so a
@@ -418,8 +451,8 @@
 		<section class="center">
 			<div class="preview">
 				<div class="stage">
-					{#if regionSet && currentRegion}
-						<RegionThumb set={regionSet} region={currentRegion} size={240} />
+					{#if current?.set && current.record}
+						<RegionThumb set={current.set} region={current.record} size={240} />
 					{:else}
 						<div class="ph">
 							{clip.frames.length ? 'Frame not found in this sheet' : 'Add frames to preview'}
@@ -478,13 +511,13 @@
 				<h3>Frames — drag to reorder</h3>
 				<ol class="framelist">
 					{#each clip.frames as name, i (i)}
-						{@const region = regionsByName.get(name)}
+						{@const look = frameLookup(name)}
 						<li
 							draggable="true"
 							class:dragging={dragFrom === i}
 							class:over={dragOver === i}
 							class:current={i === frameIndex}
-							class:missing={framesResolved && !region}
+							class:missing={allSheetsLoaded && !look.record}
 							ondragstart={() => (dragFrom = i)}
 							ondragend={() => {
 								dragFrom = null;
@@ -501,8 +534,8 @@
 						>
 							<span class="ord">{i + 1}</span>
 							<span class="thumb">
-								{#if regionSet && region}
-									<RegionThumb set={regionSet} {region} size={40} />
+								{#if look.set && look.record}
+									<RegionThumb set={look.set} region={look.record} size={40} />
 								{:else}
 									<span class="noart">?</span>
 								{/if}
@@ -513,8 +546,13 @@
 								onclick={() => {
 									playing = false;
 									frameIndex = i;
-								}}>{name}</button
+								}}>{look.region}</button
 							>
+							<!-- Which PAGE this frame lives on. Shown only when the clip actually spans
+							     sheets, so a normal single-sheet clip gains no clutter. -->
+							{#if clipSheets.length > 1}
+								<span class="sheetchip" title={look.assetKey}>{sheetLabel(look.assetKey)}</span>
+							{/if}
 							<button
 								class="mini"
 								title="Duplicate (hold this frame)"
@@ -940,6 +978,20 @@
 		flex: none;
 		color: #8aa0b6;
 		font-size: 11px;
+	}
+	.sheetchip {
+		flex: none;
+		margin-left: 6px;
+		padding: 1px 6px;
+		border-radius: 999px;
+		border: 1px solid #2f4459;
+		background: #14202c;
+		color: #8fb3d0;
+		font-size: 10px;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 110px;
 	}
 	.grid {
 		flex: 1;

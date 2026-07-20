@@ -33,7 +33,7 @@
  * numbers, so shipping them all costs negligible bytes. Add the filter here once consumers exist
  * and a clip can actually be shown to be referenced.
  */
-import type { FlipbookClip } from 'engine-flipbook';
+import { clipSheetKeys, type FlipbookClip } from 'engine-flipbook';
 import { loadFlipbookDoc } from './flipbookStorage';
 import { SUB } from './projectPaths';
 import { deleteObjects, listAllKeys, putObjectText } from './r2';
@@ -81,7 +81,9 @@ export async function exportClips(
 	await deleteObjects(stale);
 
 	const referenced = new Set<string>();
-	for (const clip of clips) if (clip.assetKey) referenced.add(clip.assetKey);
+	// EVERY sheet a clip touches, not just its primary: a clip may span pages via scoped
+	// frames, and shipping only the primary would lose the rest of the animation.
+	for (const clip of clips) for (const key of clipSheetKeys(clip)) referenced.add(key);
 
 	return { clips, referencedAssetKeys: [...referenced] };
 }

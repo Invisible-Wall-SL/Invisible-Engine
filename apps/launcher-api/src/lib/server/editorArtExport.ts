@@ -29,6 +29,7 @@ import { EDITOR_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import { sheetVersion } from './assetVersion';
 import { loadComponent } from './componentStorage';
 import { loadDoc } from './editorStorage';
+import { clipFrameRefs, clipSheetKeys } from 'engine-flipbook';
 import { loadFlipbookDoc } from './flipbookStorage';
 import { listEffects, loadEffect } from './fxStorage';
 import { loadRegionSet, type EditorRegionSet } from './editorRegions';
@@ -323,21 +324,33 @@ export async function exportEditorArt(
 		// Effects are additive art — never let them break the sprite/spine export.
 	}
 
-	// Same idea for Invisible Flipbook CLIPS: a clip is an ordered run of region names within one
-	// sheet, referenced by `assetKey`. Ship that sheet (so the clip's frames have textures) and
-	// count every frame as a used region, so a renamed/deleted region surfaces in the dangling
-	// report below. A clip's degradation is nastier than a sprite's: a missing sprite region draws
-	// nothing (obvious), but a missing clip frame silently SHORTENS an animation that still plays
-	// and still looks plausible — which is why the bake treats `clipMissing` as FATAL. Best-effort:
+	// Same idea for Invisible Flipbook CLIPS: an ordered run of frames, each either a bare region
+	// name (resolved against the clip's primary `assetKey`) or an atlas-scoped `<assetKey>::<region>`
+	// ref — because a real multipacked export interleaves an animation across several pages. Ship
+	// EVERY sheet a clip touches (`clipSheetKeys`), not just its primary, or a four-page clip would
+	// ship one page and silently lose three quarters of its frames.
+	//
+	// Note `usedRegions` takes the PARSED region, never the raw entry: a scoped entry contains
+	// `::` and would never match a covered region name, so every scoped frame would report as
+	// dangling. Validation itself is per-sheet (see `clipRefs` below), which the flat
+	// `coveredRegions` can't express.
+	//
+	// A clip's degradation is nastier than a sprite's: a missing sprite region draws nothing
+	// (obvious), but a missing clip frame silently SHORTENS an animation that still plays and
+	// still looks plausible — which is why the bake treats `clipMissing` as FATAL. Best-effort:
 	// a listing/parse failure must never break the editor-art export.
-	const clipFrames: { clipId: string; frames: string[] }[] = [];
+	const clipRefs: {
+		clipId: string;
+		refs: { assetKey: string; region: string; entry: string }[];
+	}[] = [];
 	try {
 		for (const clip of (await loadFlipbookDoc(clientKey, projectKey)).clips) {
-			if (!isManifestAssetKey(clip.assetKey)) continue;
-			refs.manifestKeys.add(clip.assetKey);
-			const frames = clip.frames.filter((f) => !!f);
-			for (const frame of frames) refs.usedRegions.add(frame);
-			clipFrames.push({ clipId: clip.id, frames });
+			for (const key of clipSheetKeys(clip)) {
+				if (isManifestAssetKey(key)) refs.manifestKeys.add(key);
+			}
+			const frameRefs = clipFrameRefs(clip).filter((r) => !!r.region);
+			for (const r of frameRefs) refs.usedRegions.add(r.region);
+			clipRefs.push({ clipId: clip.id, refs: frameRefs });
 		}
 	} catch {
 		// Clips are additive art — never let them break the sprite/spine export.
@@ -354,6 +367,11 @@ export async function exportEditorArt(
 	/** Region names per exported sheet (by stem) — used to detect cross-sheet name
 	 * collisions for the build warning. */
 	const sheetRegionNames: { stem: string; names: string[] }[] = [];
+	/** Covered regions keyed by MANIFEST, so a clip frame can be validated against the sheet it
+	 * actually names. The flat `coveredRegions` above is sheet-blind: a clip scoped to page 1
+	 * would be satisfied by a same-named region on page 0 and the dangling frame would slip
+	 * through — precisely the cross-sheet mix-up scoped refs exist to prevent. */
+	const coveredBySheet = new Map<string, Set<string>>();
 
 	const exportManifest = async (
 		manifestKey: string,
@@ -395,6 +413,7 @@ export async function exportEditorArt(
 		sheets.push({ key: manifestKey, json: jsonRel, frames: set.regions.length });
 		sheetRegionNames.push({ stem, names: set.regions.map((r) => r.name) });
 		for (const r of set.regions) coveredRegions.add(r.name);
+		coveredBySheet.set(manifestKey, new Set(set.regions.map((r) => r.name)));
 	};
 
 	for (const manifestKey of refs.manifestKeys) {
@@ -512,10 +531,22 @@ export async function exportEditorArt(
 	// The same guard, attributed PER CLIP — because the bake BAILS on this rather than warning.
 	// A flat name list can't tell an author which animation broke, and unlike a blank sprite a
 	// short clip still plays and still looks plausible, so the report has to name the clip.
-	const clipMissing = clipFrames
-		.map(({ clipId, frames }) => ({
+	//
+	// Validated PER SHEET, not against the flat `coveredRegions`: a frame scoped to page 1 must
+	// not be satisfied by a same-named region on page 0. A sheet that never exported (missing
+	// page, unreadable manifest) has no entry, so every frame naming it correctly reports as
+	// missing rather than silently passing. Reported as AUTHORED (`entry`) so the message names
+	// the sheet the author actually referenced.
+	const clipMissing = clipRefs
+		.map(({ clipId, refs: frameRefs }) => ({
 			clipId,
-			frames: [...new Set(frames.filter((f) => !coveredRegions.has(f)))].sort(),
+			frames: [
+				...new Set(
+					frameRefs
+						.filter((r) => !(coveredBySheet.get(r.assetKey)?.has(r.region) ?? false))
+						.map((r) => r.entry),
+				),
+			].sort(),
 		}))
 		.filter((c) => c.frames.length > 0)
 		.sort((a, b) => a.clipId.localeCompare(b.clipId));
