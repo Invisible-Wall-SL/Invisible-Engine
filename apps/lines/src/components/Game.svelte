@@ -21,12 +21,7 @@
 		UI_FEATURES_UK,
 	} from 'state-shared';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
-	import {
-		getSpinButtonKey,
-		getSpinPressSound,
-		runSpinOrSlamStop,
-		type SpinButtonKey,
-	} from 'utils-shared/spinStop';
+	import { getSpinButtonKey, runSpinOrSlamStop, type SpinButtonKey } from 'utils-shared/spinStop';
 
 	import {
 		UI,
@@ -374,17 +369,15 @@
 	// double-fire); un-owned / no v2 doc ⇒ `resolveFlowV2Press` returns undefined ⇒ the coded press runs
 	// unchanged (parity). Consulted at click time, so it tracks the live handle regardless of boot order.
 	// Flow routing SKIPS the coded `onpress`, which is where the press-feedback SOUND is broadcast — so
-	// replay it here before dispatching (faithful mapping: spin → the shared bet/slam cue, every other
-	// HUD button → `soundPressGeneral`), else a flow-owned button press would be silent.
+	// replay it here before dispatching (faithful mapping: spin → `soundPressBet`, every other HUD button
+	// → `soundPressGeneral`), else a flow-owned button press would be silent.
 	registerFlowPress((componentId, action) => {
 		const routed = resolveFlowV2Press(componentId, action);
 		if (!routed) return undefined;
 		return () => {
-			context.eventEmitter.broadcast(
-				action === 'spin'
-					? getSpinPressSound({ isIdle: context.stateXstateDerived.isIdle() })
-					: { type: 'soundPressGeneral' },
-			);
+			context.eventEmitter.broadcast({
+				type: action === 'spin' ? 'soundPressBet' : 'soundPressGeneral',
+			});
 			routed();
 		};
 	});
@@ -1038,21 +1031,6 @@
 	const isSpinning = () =>
 		context.stateXstateDerived.isPlaying() && !stateBetDerived.hasAutoBetCounter();
 
-	// The flow EVENT a spin-button press dispatches. The button is bet-or-slam, and the vocabulary
-	// has always declared BOTH `spin` and `stop` intents — but nothing ever dispatched `stop`, so a
-	// mid-round press was indistinguishable from a bet in the flow and the slam could carry no
-	// authored sound/FX of its own. A press while the round rolls now dispatches `stop` instead.
-	//
-	// Gated on the flow actually AUTHORING a `stop` event: with no `stop` event node the pin stays
-	// `spin` and `routeActionThroughFlow` behaves exactly as it did (v2 `spin` chain → v1 action →
-	// coded body). So this can only ADD a hook, never take the slam away.
-	//
-	// A flow that DOES author `stop` owns the press outright, so — exactly like `spin` today — its
-	// chain must run an intent-invoking action (`Stop Spin` → the `stop` intent → `invokeHostIntent`
-	// → `doSpinBetOrStop`) or the reels won't actually snap.
-	const spinActionPin = (): string =>
-		!context.stateXstateDerived.isIdle() && getFlowV2()?.ownsEvent('stop') ? 'stop' : 'spin';
-
 	// Phase B6.2 — register the 7 Borut button actions beside the value feed above.
 	// Each entry LIFTS the coded HUD button's `onpress`/`disabled`/`active` logic
 	// verbatim (from `components-ui-pixi`), wired to the SAME `context`
@@ -1128,10 +1106,7 @@
 	// EXACT coded behaviour. An unknown intent is a safe no-op (parity §8.8). Shared with the
 	// `onMount` interpreter build below so there is ONE dispatch table.
 	const invokeHostIntent = (intent: string): void => {
-		// `spin` and `stop` are the SAME bet-or-slam body — the coded helper decides by state. Two
-		// intent names so an author can react to the two presses separately in the flow; the
-		// mechanic they invoke is one.
-		if (intent === 'spin' || intent === 'stop') doSpinBetOrStop();
+		if (intent === 'spin') doSpinBetOrStop();
 		else if (intent === 'increase') doIncreaseBet();
 		else if (intent === 'decrease') doDecreaseBet();
 		else if (intent === 'turbo') doToggleTurbo();
@@ -1311,13 +1286,11 @@
 		// markup below, gated on the same flag.
 		spin: {
 			onpress: () => {
-				context.eventEmitter.broadcast(
-					getSpinPressSound({ isIdle: context.stateXstateDerived.isIdle() }),
-				);
-				// Functional action pin (design doc §8.5): an authored `spin`/`stop` action → intent
-				// edge routes the press THROUGH the flow; unwired / inert ⇒ the coded bet/stop runs
+				context.eventEmitter.broadcast({ type: 'soundPressBet' });
+				// Functional action pin (design doc §8.5): an authored `spin` action → intent edge
+				// routes the press THROUGH the flow; unwired / inert ⇒ the coded bet/stop runs
 				// exactly as today (parity §8.8). Same shared helper the other HUD actions use.
-				routeActionThroughFlow(spinActionPin(), doSpinBetOrStop);
+				routeActionThroughFlow('spin', doSpinBetOrStop);
 			},
 			disabled: boolSource(() => getSpinKey() === 'spin_disabled'),
 			spinning: boolSource(isSpinning),
@@ -1339,9 +1312,7 @@
 	// runs the continue-press only.
 	const spinHotkeyDisabled = $derived(getSpinKey() === 'spin_disabled' || hasContinuePress());
 	const spinHotkeyPress = () => {
-		context.eventEmitter.broadcast(
-			getSpinPressSound({ isIdle: context.stateXstateDerived.isIdle() }),
-		);
+		context.eventEmitter.broadcast({ type: 'soundPressBet' });
 		doSpinBetOrStop();
 	};
 

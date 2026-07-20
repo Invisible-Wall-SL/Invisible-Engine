@@ -37,15 +37,6 @@
 		},
 		soundPressGeneral: () => sound.players.once.play({ name: 'sfx_btn_general' }),
 		soundPressBet: () => sound.players.once.play({ name: 'sfx_btn_spin' }),
-		// The SLAM press. `sfx_btn_stop` is a STAND-IN region (see docs/status/engine.md): it currently
-		// points at the same short UI click as `sfx_btn_general`, chosen because it is a real press cue,
-		// is unmistakably not the 1s spin whoosh, and won't muddy the `sfx_reel_stop_*` thunks a slam
-		// fires right after. A game whose audiosprite predates the region falls back to the spin cue
-		// rather than going silent (howler declines an unknown sprite key without erroring).
-		soundPressStop: () =>
-			sound.players.once.play({
-				name: sound.hasSound('sfx_btn_stop') ? 'sfx_btn_stop' : 'sfx_btn_spin',
-			}),
 		// scatterCounter
 		soundScatterCounterIncrease: () => (context.stateGame.scatterCounter = context.stateGame.scatterCounter + 1), // prettier-ignore
 		soundScatterCounterClear: () => (context.stateGame.scatterCounter = 0),

@@ -16,7 +16,6 @@
 
 <script lang="ts">
 	import { waitForResolve } from 'utils-shared/wait';
-	import { roundSkip } from 'utils-shared/skipToken';
 	import { BoardContext } from 'components-shared';
 
 	import { getContext } from '../game/context';
@@ -38,12 +37,7 @@
 				symbolPositions.map(async (position) => {
 					const reelSymbol = context.stateGame.board[position.reel].reelState.symbols[position.row];
 					reelSymbol.symbolState = 'win';
-					// Raced against the slam token: the caller of this broadcast is itself raced, so on a
-					// slam it walks on while this body is still parked on `oncomplete` — a resolver only the
-					// (now cut short) win animation calls. Without the race the symbol never leaves `win`
-					// and stays lit through the rest of the round. `postWinStatic` is the FINAL value either
-					// way, so skipping only removes the time spent getting there.
-					await roundSkip.race(waitForResolve((resolve) => (reelSymbol.oncomplete = resolve)));
+					await waitForResolve((resolve) => (reelSymbol.oncomplete = resolve));
 					reelSymbol.symbolState = 'postWinStatic';
 				});
 

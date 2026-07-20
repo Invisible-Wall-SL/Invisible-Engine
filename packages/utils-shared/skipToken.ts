@@ -107,11 +107,7 @@ export const createSkipToken = (): SkipToken => {
  * THE round token. One per running game (a browser runs one game), so any package — the reels
  * (`utils-slots`), the count-up providers (`components-pixi`), the book-event handlers — can ask
  * whether the player has slammed the current round without threading a parameter through every
- * layer. Tripped by the spin/stop press (`spinStop.ts`), re-armed ONLY by each app's `playBet` —
- * once at the start of the bet and once in its `finally`.
- *
- * Deliberately NOT re-armed per free spin or per `stopButtonEnable`: a bonus book is ONE round, so
- * the trip has to stay sticky across every remaining free spin for a single press to fast-forward
- * the whole feature to its final total instead of costing the player a press per spin.
+ * layer. Tripped by the spin/stop press (`spinStop.ts`), re-armed at the start of each bet and on
+ * every `stopButtonEnable` (which already means "a new skippable segment begins").
  */
 export const roundSkip = createSkipToken();
