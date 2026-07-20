@@ -1,6 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
+import { listClips } from '$lib/server/flipbookStorage';
 import { resolveEditorFonts } from '$lib/server/fonts';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
@@ -37,12 +38,16 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		sessionToken: cookies.get(SESSION_COOKIE),
 		user: locals.user,
 	});
-	const [loaded, assets, gameType, published, fonts] = await Promise.all([
+	const [loaded, assets, gameType, published, fonts, clips] = await Promise.all([
 		loadSymbolsDocWithEtag(clientKey, projectKey),
 		listProjectAssets(clientKey, projectKey),
 		projectGameType(projectKey),
 		loadPublishedSymbolDefaults(clientKey, projectKey),
 		resolveEditorFonts(clientKey, projectKey),
+		// Invisible Flipbook clips — the third binding kind a cell can take, alongside a
+		// sprite frame and a spine animation. Rows only (id/name/frame count/primary sheet/
+		// first frame); the clip's full ordered frame list is the /flipbook tool's business.
+		listClips(clientKey, projectKey),
 	]);
 	// Win-amount text is bitmap text, so the font dropdown lists the project's BITMAP
 	// fonts (Font Maker output). The four engine builtins (gold/goldblur/silver/purple)
@@ -72,5 +77,6 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		defaults,
 		assets,
 		fonts: bitmapFonts,
+		clips,
 	};
 };

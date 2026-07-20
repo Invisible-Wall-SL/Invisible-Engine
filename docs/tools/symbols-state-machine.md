@@ -1,18 +1,24 @@
 # Invisible Symbols State Machine
 
 The editable twin of the in-game **Symbol Debug** grid: for each symbol, in each
-animation state, rebind the cell to a sprite frame or a spine animation that already
-lives in R2 — then ship those bindings to the game through the standard deploy chain.
+animation state, rebind the cell to a sprite frame, a spine animation, or an Invisible
+Flipbook clip that already lives in R2 — then ship those bindings to the game through the
+standard deploy chain.
 
 ## What it is
 
 A grid editor for a game's `symbol × state → asset` map. Every game hardcodes a
 `SYMBOL_INFO_MAP` — a binding for each symbol (e.g. `H1…H5`, `L1…L5`, `W`, `S`) in each
 of six animation **states** (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`).
-This tool turns that map into an editable surface: each cell is either a **sprite** (a
-sheet frame) or a **spine** (a bundle + animation name) with width/height size ratios.
-Edits are stored as a **sparse override doc** in R2 — only the cells you change are
-recorded; everything else falls through to the game's coded default.
+This tool turns that map into an editable surface: each cell is a **sprite** (a sheet
+frame), a **spine** (a bundle + animation name), or a **flipbook** (an Invisible Flipbook
+clip — an ordered, timed run of atlas frames). Edits are stored as a **sparse override
+doc** in R2 — only the cells you change are recorded; everything else falls through to the
+game's coded default.
+
+A `sprite` cell is ONE frozen frame, so Spine used to be the only way to animate a
+Spin/Land/Win state. A flipbook clip is far cheaper than a skeleton, and is the fallback
+for the Tier-C spine-particle perf ceiling tracked in `docs/status/fx.md`.
 
 It mirrors the live in-game Symbol Debug overlay (`SymbolDebugOverlay.svelte`, gated on
 `localStorage.IE_DEBUG=1` + the `d` hotkey), which renders this exact grid read-only.
@@ -47,22 +53,38 @@ tool top bar). Switch projects from the launcher before opening the tool.
    (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`). Each cell shows its
    **effective binding** — your override if you've made one, otherwise the game's coded
    default. Sprite cells render a frame thumbnail; spine cells render a live animation
-   on the shared spine canvas (a chip labels the bundle + animation). A cell with no
-   binding shows `unset`.
+   on the shared spine canvas (a chip labels the bundle + animation); flipbook cells render
+   the clip's **first frame** as a still, captioned with the clip name + frame count. A cell
+   with no binding shows `unset`.
+
+   Flipbook cells are deliberately *not* animated in the grid: N per-cell tickers would cost
+   far more than the one shared spine canvas, and the question the grid answers is "which
+   clip is bound here", which the first frame plus the clip name answers. If a clip is
+   deleted in `/flipbook` after being bound here, the cell's caption reads
+   `<clipId> (missing)` rather than going quietly blank.
 2. **Spot your edits.** A cell you've overridden gets a blue border and an **edited**
    badge. A small **↺** button in its corner **resets that cell to the coded default**
    (removing the override). The whole grid scrolls vertically; cells resize with the
    window.
 3. **Open the cell editor.** Click any cell to open the side panel for that
    `symbol · state`. The panel loads a draft of the cell's current binding.
-4. **Choose the type.** Toggle between **Sprite** and **Spine**. Switching type clears
-   the asset binding, since a frame name is not a spine bundle.
+4. **Choose the type.** Toggle between **Sprite**, **Spine**, and **Flipbook**. Switching
+   type clears the asset binding *and* every field that no longer applies (the animation
+   name when you leave Spine, the clip when you leave Flipbook), since a frame name is not
+   a spine bundle is not a clip.
    - **Sprite:** use the **Frame** picker (the same `RegionPicker` the editor uses) to
      choose a frame from any of the project's atlases/sheets.
    - **Spine:** pick a **Spine bundle** from the project's (and shared) bundles, then pick
      an **Animation**. Once the bundle loads, the animation list is populated from the
      skeleton; if it hasn't loaded yet you can type the animation name. Leaving it blank
      plays the skeleton's first animation. A live **Preview** plays the chosen animation.
+   - **Flipbook:** pick a **Clip** from the project's Invisible Flipbook clips (each
+     listed with its frame count). Picking a clip sets the cell's `clipId` *and* its
+     `assetKey` to the clip's primary sheet, so the cell is never assetless. The panel
+     shows the clip's **first frame** as a still — it is not a player; scrub playback
+     lives in [Invisible Flipbook](/docs/flipbook), which owns the clip.
+     If the project has **no clips yet**, the Flipbook button is disabled with a pointer
+     at `/flipbook` rather than an empty dropdown.
 5. **Apply.** **Apply** writes the draft into the working doc as an override (it requires
    an asset to be chosen). The cell updates immediately and is marked **edited**. The
    panel also has a **Reset to default** action for an overridden cell.
@@ -190,7 +212,10 @@ game it must travel the standard live-assets chain, exactly like editor art and 
 - **Export** — the bound assets are mirrored into the project's `deploy/editor-symbols/`
   subtree: sprite cells export the frame's sheet (TexturePacker JSON + page); spine cells
   copy the bundle's atlas + skeleton(s) + page(s) verbatim so the relative names still
-  resolve. An `index.json` records what was exported. Triggered by
+  resolve. **Flipbook cells are skipped here on purpose** — a clip's art ships through the
+  Invisible Flipbook export path, which owns the clip's full ordered frame list; this
+  exporter only sees the cell's primary-sheet `assetKey`. An `index.json` records what was
+  exported. Triggered by
   `POST /api/editor/export-symbols` (deploy-token gated), which `bake-editor-doc.mjs`
   calls alongside the other exports.
 - **Bake** — the baked bundle gains a `symbols: { map, index }` field (the authored

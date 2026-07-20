@@ -41,11 +41,31 @@ export interface SizeRatios {
 	height: number;
 }
 
-/** A single symbol×state binding — sprite frame or spine animation. */
+/** The three binding kinds a cell can take. Derived from ONE exported VALUE rather than a
+ *  hand-copied union, so a future kind can't be silently missed by a list that only a type
+ *  guards — the launcher build transpiles TS without checking it. Mirrors the server's
+ *  `symbolCellSchema.type` enum in `$lib/server/symbolsStorage`. */
+export const SYMBOL_CELL_TYPES = ['sprite', 'spine', 'flipbook'] as const;
+export type SymbolCellType = (typeof SYMBOL_CELL_TYPES)[number];
+
+/** Human labels for the binding-kind selector. */
+export const SYMBOL_CELL_TYPE_LABELS: Record<SymbolCellType, string> = {
+	sprite: 'Sprite',
+	spine: 'Spine',
+	flipbook: 'Flipbook',
+};
+
+/** A single symbol×state binding — a static sprite frame, a spine animation, or an Invisible
+ *  Flipbook clip. A `sprite` cell is ONE frozen frame, so before flipbooks Spine was the only
+ *  way to animate a Spin/Land/Win state. */
 export interface SymbolCell {
-	type: 'sprite' | 'spine';
+	type: SymbolCellType;
 	assetKey: string;
 	animationName?: string;
+	/** REQUIRED when `type === 'flipbook'` (the server schema `.refine()`s on it) and never set
+	 *  otherwise — the authored clip this cell plays. For a flipbook cell `assetKey` holds the
+	 *  clip's PRIMARY sheet manifest key, so the cell is never assetless. */
+	clipId?: string;
 	/** Tool-only spine resolver hint (`<folder>/<stem>`, e.g. `symbols/h1`) on a
 	 *  DEFAULT cell, so the grid previews the specific skeleton of a shared-atlas
 	 *  bundle. Display/preview only — `applyDraft` never copies it into an override. */

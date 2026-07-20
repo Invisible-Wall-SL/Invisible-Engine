@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { parseScopedFrameRef } from 'engine-layout';
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import RegionPicker from '../editor/RegionPicker.svelte';
@@ -27,8 +28,11 @@
 		setWinLineLine,
 		setWinLineText,
 		winLineEnabled,
+		SYMBOL_CELL_TYPES,
+		SYMBOL_CELL_TYPE_LABELS,
 		type BoardGlowConfig,
 		type SymbolCell,
+		type SymbolCellType,
 		type SymbolState,
 		type SymbolsDoc,
 	} from './symbols.client';
@@ -83,6 +87,34 @@
 
 	/** Spine bundles available for spine cells (project + shared). */
 	const spineBundles = $derived(data.assets.spines.map((s) => ({ name: s.name, key: s.key })));
+
+	/** Invisible Flipbook clips available for flipbook cells. Empty for a project that has
+	 *  never authored one — the Flipbook option then shows disabled with a pointer at /flipbook
+	 *  rather than an empty select the author can't act on. */
+	const clips = $derived(data.clips);
+	const clipsById = $derived(new Map(clips.map((c) => [c.id, c])));
+
+	/**
+	 * The region name a flipbook cell previews — its clip's FIRST frame. A frame may be a bare
+	 * region name or an `<assetKey>::<region>` scoped ref (a clip can span several sheets), and
+	 * `spriteIndex` is keyed by BARE region name, so the scope is stripped here.
+	 */
+	function clipFirstFrame(clipId: string | undefined): string {
+		if (!clipId) return '';
+		const clip = clipsById.get(clipId);
+		if (!clip?.firstFrame) return '';
+		return parseScopedFrameRef(clip.firstFrame).region;
+	}
+
+	/** A clip's author-facing label with its frame count, for the picker + cell chips. */
+	function clipLabel(clipId: string | undefined): string {
+		if (!clipId) return 'no clip';
+		const clip = clipsById.get(clipId);
+		// A clip deleted in /flipbook after being bound here leaves a dangling id — say so
+		// loudly instead of rendering a blank option the author reads as "fine".
+		if (!clip) return `${clipId} (missing)`;
+		return `${clip.name} · ${clip.frames} frame${clip.frames === 1 ? '' : 's'}`;
+	}
 
 	/**
 	 * The bundle used to PREVIEW a coded default (the board glow, the win frame). Prefers a real R2
@@ -190,21 +222,44 @@
 		draftAnimations = [];
 	}
 
-	function setDraftType(type: 'sprite' | 'spine'): void {
+	function setDraftType(type: SymbolCellType): void {
 		if (!draft || draft.type === type) return;
-		// Switching type clears the asset binding (a frame name ≠ a spine bundle).
+		// Switching kind clears the asset binding (a frame name ≠ a spine bundle ≠ a clip's
+		// sheet) AND every field that no longer applies. That last part is load-bearing: the
+		// server schema is `.strict()` with a `.refine()` rejecting a flipbook cell without a
+		// `clipId`, so a leftover `animationName` (or a stale `clipId` on a sprite cell) would
+		// 400 a save the author has every reason to think is valid.
 		draft = {
 			type,
 			assetKey: '',
 			animationName: type === 'spine' ? '' : undefined,
+			clipId: undefined,
 			sizeRatios: draft.sizeRatios,
 		};
 		draftAnimations = [];
 	}
 
+	/** Bind the draft to a clip: the clip supplies BOTH the `clipId` and the `assetKey` (its
+	 *  primary sheet), so a flipbook cell is never assetless and every consumer reading
+	 *  `assetKey` keeps working. */
+	function setDraftClip(clipId: string): void {
+		if (!draft) return;
+		const clip = clipsById.get(clipId);
+		draft.clipId = clipId || undefined;
+		draft.assetKey = clip?.assetKey ?? '';
+	}
+
+	/** A draft is bindable once it has an asset — and, for a flipbook, a clip (the server
+	 *  `.refine()` rejects a clip-less flipbook cell, so the button gates on it too). */
+	const draftBindable = $derived(
+		!!draft?.assetKey && (draft.type !== 'flipbook' || !!draft.clipId),
+	);
+
 	function applyDraft(): void {
-		if (!focus || !draft) return;
-		if (!draft.assetKey) return;
+		if (!focus || !draft || !draftBindable) return;
+		// Rebuilt field-by-field rather than spread: the schema is `.strict()`, so this is the
+		// whitelist that keeps tool-only state (`previewKey`) and stale kind-specific fields out
+		// of the saved doc.
 		const cell: SymbolCell = {
 			type: draft.type,
 			assetKey: draft.assetKey,
@@ -218,6 +273,7 @@
 			};
 		}
 		if (draft.type === 'spine' && draft.animationName) cell.animationName = draft.animationName;
+		if (draft.type === 'flipbook' && draft.clipId) cell.clipId = draft.clipId;
 		doc = setOverride(doc, focus.symbol, focus.state, cell);
 		closeCell();
 	}
@@ -269,11 +325,12 @@
 		return cell.type === 'spine' ? (trimmed.split('/').pop() ?? trimmed) : trimmed;
 	}
 
-	/** Short binding label for a cell chip (`type · assetKey · anim`). */
+	/** Short binding label for a cell chip (`type · assetKey · anim|clip`). */
 	function cellLabel(cell: SymbolCell | undefined): string {
 		if (!cell) return 'unset';
 		const parts = [cell.type, cell.assetKey];
 		if (cell.animationName) parts.push(cell.animationName);
+		if (cell.type === 'flipbook') parts.push(clipLabel(cell.clipId));
 		return parts.join(' · ');
 	}
 
@@ -957,6 +1014,28 @@
 															index={spriteIndex}
 															size={previewSize}
 														/>
+													{:else if eff.cell.type === 'flipbook'}
+														<!-- A STILL first frame, not a player. Grid spine cells animate (via the
+														     shared <SymbolSpineStage> WebGL surface); a flipbook deliberately does
+														     not: N cells each running their own ticker would cost far more than the
+														     one spine stage, and the thing the grid has to answer is "which clip is
+														     bound here", which a first frame + the clip's name answers. Scrub
+														     playback lives in /flipbook, which owns the clip. -->
+														{@const frame = clipFirstFrame(eff.cell.clipId)}
+														<div class="flipbook-cell">
+															{#if frame}
+																<SymbolSpritePreview
+																	{frame}
+																	index={spriteIndex}
+																	size={previewSize}
+																/>
+															{:else}
+																<span class="chip" title={cellLabel(eff.cell)}>no frames</span>
+															{/if}
+															<span class="chip flip" title={cellLabel(eff.cell)}>
+																{clipLabel(eff.cell.clipId)}
+															</span>
+														</div>
 													{:else}
 														<div
 															class="spine-target"
@@ -1008,17 +1087,23 @@
 				<div class="field">
 					<span class="label">Type</span>
 					<div class="seg">
-						<button
-							type="button"
-							class:active={draft.type === 'sprite'}
-							onclick={() => setDraftType('sprite')}>Sprite</button
-						>
-						<button
-							type="button"
-							class:active={draft.type === 'spine'}
-							onclick={() => setDraftType('spine')}>Spine</button
-						>
+						{#each SYMBOL_CELL_TYPES as kind (kind)}
+							{@const noClips = kind === 'flipbook' && clips.length === 0}
+							<button
+								type="button"
+								class:active={draft.type === kind}
+								disabled={noClips}
+								title={noClips ? 'This project has no Flipbook clips yet' : ''}
+								onclick={() => setDraftType(kind)}>{SYMBOL_CELL_TYPE_LABELS[kind]}</button
+							>
+						{/each}
 					</div>
+					{#if clips.length === 0}
+						<p class="hint">
+							No Flipbook clips in this project yet — author one in
+							<a href="/flipbook">Invisible Flipbook</a>, then it appears here.
+						</p>
+					{/if}
 				</div>
 
 				{#if draft.type === 'sprite'}
@@ -1032,6 +1117,40 @@
 							}}
 						/>
 					</div>
+				{:else if draft.type === 'flipbook'}
+					<div class="field">
+						<span class="label">Clip</span>
+						<select
+							value={draft.clipId ?? ''}
+							onchange={(e) => setDraftClip(e.currentTarget.value)}
+						>
+							<option value="">Pick a clip…</option>
+							{#each clips as c (c.id)}
+								<option value={c.id}>{clipLabel(c.id)}</option>
+							{/each}
+						</select>
+					</div>
+					{#if draft.clipId}
+						{@const frame = clipFirstFrame(draft.clipId)}
+						<div class="field">
+							<span class="label">Preview</span>
+							<div class="panel-preview">
+								<!-- First frame only — a still is fine and preferable here. The panel's SPINE
+								     preview is live because a spine cell's binding is (bundle, animation) and you
+								     cannot tell those apart without playing them; a clip's identity is its name +
+								     frame count, both shown above. /flipbook owns scrub playback. -->
+								{#if frame}
+									<SymbolSpritePreview {frame} index={spriteIndex} size={120} />
+								{:else}
+									<span class="chip">no frames</span>
+								{/if}
+							</div>
+						</div>
+						<p class="hint">
+							Sheet: <code>{draft.assetKey || '—'}</code> — the clip's primary sheet, stored as this
+							cell's asset key.
+						</p>
+					{/if}
 				{:else}
 					<div class="field">
 						<span class="label">Spine bundle</span>
@@ -1102,7 +1221,7 @@
 							onclick={() => resetCell(focus!.symbol, focus!.state)}>Reset to default</button
 						>
 					{/if}
-					<button type="button" class="apply" disabled={!draft.assetKey} onclick={applyDraft}>
+					<button type="button" class="apply" disabled={!draftBindable} onclick={applyDraft}>
 						Apply
 					</button>
 				</div>
@@ -1284,6 +1403,30 @@
 		border-color: #2e2e6a;
 		background: #15152a;
 	}
+	/* A flipbook cell = the clip's first frame with the clip name captioned over its foot, so
+	   the grid reads "which clip is bound" at a glance without a per-cell player. */
+	.flipbook-cell {
+		position: relative;
+		display: grid;
+		place-items: center;
+	}
+	.chip.flip {
+		position: absolute;
+		inset: auto 0 0 0;
+		width: auto;
+		height: auto;
+		flex-direction: row;
+		border-style: solid;
+		border-color: #2a5a46;
+		background: #0f2018e6;
+		color: #9fd8c0;
+		padding: 1px 4px;
+		border-radius: 0 0 6px 6px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: clamp(8px, calc(var(--cell, 56px) * 0.1), 12px);
+	}
 	.chip-key {
 		font-weight: 600;
 		color: #b9b9e0;
@@ -1363,10 +1506,6 @@
 		flex-direction: column;
 		gap: 5px;
 	}
-	.field.row {
-		flex-direction: row;
-		gap: 10px;
-	}
 	.label {
 		font-size: 11px;
 		color: #8a8a96;
@@ -1392,9 +1531,24 @@
 		background: #1b2236;
 		color: #cfe0ff;
 	}
+	.seg button:disabled {
+		opacity: 0.45;
+		cursor: not-allowed;
+	}
+	.hint {
+		margin: 6px 0 0;
+		font-size: 11px;
+		line-height: 1.4;
+		color: #7a7a88;
+	}
+	.hint code {
+		color: #b9b9c4;
+	}
+	.hint a {
+		color: #8fb0ff;
+	}
 	select,
-	input[type='text'],
-	input[type='number'] {
+	input[type='text'] {
 		width: 100%;
 		padding: 6px 8px;
 		background: #16161c;
@@ -1402,13 +1556,6 @@
 		border-radius: 5px;
 		color: #d8d8e0;
 		font-size: 12px;
-	}
-	.num {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		gap: 5px;
-		min-width: 0;
 	}
 	.panel-preview {
 		display: grid;

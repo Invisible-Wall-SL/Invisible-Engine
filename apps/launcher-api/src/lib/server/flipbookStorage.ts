@@ -33,6 +33,17 @@ export interface FlipbookClipRow {
 	name: string;
 	/** Frame count, so the picker can show "12 frames" without loading every doc's array. */
 	frames: number;
+	/**
+	 * The clip's PRIMARY sheet manifest key. Carried on the row because a consumer that binds a
+	 * clip still has to record an `assetKey` — the Symbols State Machine's `symbolCellSchema`
+	 * requires one on every cell kind, so a flipbook cell stores this.
+	 */
+	assetKey: string;
+	/**
+	 * First frame of the ordered run (a bare region name, or an `<assetKey>::<region>` scoped ref
+	 * for a multi-sheet clip). Lets a picker show a STILL thumbnail without loading the whole doc.
+	 */
+	firstFrame: string;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -56,19 +67,26 @@ export async function listClips(clientKey: string, projectKey: string): Promise<
 		if (!id) continue;
 		let name = id;
 		let frames = 0;
+		let assetKey = '';
+		let firstFrame = '';
 		const raw = await getObjectText(key);
 		if (raw) {
 			try {
 				const parsed = JSON.parse(raw) as unknown;
 				if (isObject(parsed)) {
 					if (typeof parsed.name === 'string' && parsed.name) name = parsed.name;
-					if (Array.isArray(parsed.frames)) frames = parsed.frames.length;
+					if (typeof parsed.assetKey === 'string') assetKey = parsed.assetKey;
+					if (Array.isArray(parsed.frames)) {
+						frames = parsed.frames.length;
+						const first = parsed.frames[0];
+						if (typeof first === 'string') firstFrame = first;
+					}
 				}
 			} catch {
 				// keep the id as the label — a corrupt doc still lists so it can be opened + fixed
 			}
 		}
-		rows.push({ id, name, frames });
+		rows.push({ id, name, frames, assetKey, firstFrame });
 	}
 	rows.sort((a, b) => a.name.localeCompare(b.name));
 	return rows;

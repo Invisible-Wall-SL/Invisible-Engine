@@ -29,17 +29,33 @@ const sizeRatiosSchema = z.object({
 	height: z.number(),
 });
 
-/** A single symbol×state binding — sprite frame or spine animation. `sizeRatios` is
- *  OPTIONAL on an override cell: absent means the cell inherits the doc-level
- *  `defaultSizeRatios` global (and, failing that, the coded map size). */
+/** A single symbol×state binding — a static sprite frame, a spine animation, or an Invisible
+ *  Flipbook clip. `sizeRatios` is OPTIONAL on an override cell: absent means the cell inherits
+ *  the doc-level `defaultSizeRatios` global (and, failing that, the coded map size).
+ *
+ *  `flipbook` exists because Spine was previously the ONLY way to animate a state: a `sprite`
+ *  cell is one frozen frame, so any moving Spin/Land/Win had to be a skeleton. A frame animation
+ *  off an atlas is far cheaper — and it is the cheaper fallback for the Tier-C spine-particle
+ *  perf ceiling tracked in docs/status/fx.md.
+ *
+ *  A flipbook cell carries `clipId` instead of leaning on `assetKey`; the clip already names its
+ *  own sheets (and may span several). `assetKey` stays required so a cell is never assetless —
+ *  for a flipbook it holds the clip's primary sheet, which keeps every existing consumer that
+ *  reads `assetKey` working. */
 const symbolCellSchema = z
 	.object({
-		type: z.enum(['sprite', 'spine']),
+		type: z.enum(['sprite', 'spine', 'flipbook']),
 		assetKey: z.string().min(1),
 		animationName: z.string().min(1).optional(),
+		/** Required in practice for `type: 'flipbook'` — the authored clip this cell plays. */
+		clipId: z.string().min(1).optional(),
 		sizeRatios: sizeRatiosSchema.optional(),
 	})
-	.strict();
+	.strict()
+	.refine((c) => c.type !== 'flipbook' || !!c.clipId, {
+		message: 'a flipbook cell needs a clipId',
+		path: ['clipId'],
+	});
 
 /** State → binding, sparse over the fixed v1 state set. */
 const symbolStatesSchema = z.record(z.enum(SYMBOL_STATES), symbolCellSchema);

@@ -137,6 +137,12 @@ function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 	for (const states of Object.values(doc.symbols)) {
 		for (const cell of Object.values(states)) {
 			if (!cell?.assetKey) continue;
+			// A FLIPBOOK cell owns no frame of its own: its art is the clip's, and every clip's
+			// sheets already ship via `editorArtExport`'s clip walk. Its `assetKey` is the clip's
+			// primary MANIFEST key, so filing it as a frame name would send the resolver hunting
+			// for a region called `…/atlas_manifest_page0.json`, never find one, and report a
+			// dangling symbol binding that is not actually broken.
+			if (cell.type === 'flipbook') continue;
 			if (cell.type === 'spine') refs.spineKeys.add(cell.assetKey);
 			else refs.frameNames.add(cell.assetKey);
 		}
