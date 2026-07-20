@@ -192,15 +192,19 @@
 	// same normalisation and the same guards as a hand-authored one.
 	let importing = $state(false);
 	let importNote = $state('');
+	/** Import failures render IN the plist box, not through `saveError`. `saveError` surfaces in
+	 * the tool bar's meta pill — top-right, far from the button that was just clicked — so a
+	 * refused import read as "nothing happened" rather than as the explanation it actually was. */
+	let importError = $state('');
 
 	async function importAnimationPlist(file: File): Promise<void> {
 		importing = true;
 		importNote = '';
-		saveError = '';
+		importError = '';
 		try {
 			const doc = parseAnimationPlist(await file.text());
 			if (doc.animations.length === 0) {
-				saveError = 'That plist has no animations in it.';
+				importError = 'That plist has no animations in it.';
 				return;
 			}
 			const sheets = data.atlases.map((a) => ({ assetKey: a.manifestKey, regions: a.regions }));
@@ -234,9 +238,9 @@
 				ok++;
 			}
 			importNote = `Imported ${ok} of ${incoming.length} animation(s).`;
-			if (ok < incoming.length) saveError = 'Some animations could not be saved.';
+			if (ok < incoming.length) importError = 'Some animations could not be saved.';
 		} catch (e) {
-			saveError =
+			importError =
 				e instanceof Error ? e.message : 'That file could not be read as an animation plist.';
 		} finally {
 			importing = false;
@@ -523,6 +527,18 @@
 					the Sheet Maker.
 				</p>
 				{#if importNote}<p class="pnote">{importNote}</p>{/if}
+				{#if importError}
+					<p class="perr">{importError}</p>
+					{#if /sprite-SHEET/.test(importError)}
+						<!-- The overwhelmingly likely mistake, so name the fix rather than the fault: a
+						     sheet plist and an animation plist look identical from the outside. -->
+						<p class="phint">
+							That is the file the <b>Sheet Maker</b> takes — it lists frame rectangles, not a
+							sequence. An animation plist has an <code>animations</code> key and is written by the game
+							project or cocos tooling, not by TexturePacker.
+						</p>
+					{/if}
+				{/if}
 			</div>
 			<ul class="cliplist">
 				{#each clips as row (row.id)}
@@ -1098,6 +1114,16 @@
 		margin: 5px 0 0;
 		font-size: 11px;
 		color: #7dd3fc;
+	}
+	.perr {
+		margin: 6px 0 0;
+		padding: 5px 7px;
+		border-radius: 5px;
+		border: 1px solid #7f2d2d;
+		background: #23100f;
+		color: #fca5a5;
+		font-size: 11px;
+		line-height: 1.35;
 	}
 	.seqs {
 		flex: none;
