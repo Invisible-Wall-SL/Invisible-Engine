@@ -21,5 +21,6 @@ Works today on `main` / live:
 - None outstanding. (The service is deployed and auto-deploys from `main`; the guide's "Railway service still needs creating" note is stale.)
 
 ## Recent changes
+- 2026-07-20 — uploaded sprites now order **naturally** (`explosion_2` before `explosion_10`), on the saved batch, the accumulated pile, and loose-sprite recovery. Step 3 of [invisible-flipbook](../design/invisible-flipbook.md) — upload order drives region order drives manifest order, which the clip editor reads (`d7107f4`).
 - 2026-07-08 — fixed duplicate FX-child names + stale glow/shine after an Atlas-Maker round-trip (`d13a7c7`) ([detail in history](../history.md)).
 - 2026-07-06 — per-sprite FX-layer picker (auto-spawns same-size FX sibling cells) ([detail in history](../history.md)).
