@@ -74,8 +74,15 @@ export function weightedTextures(textures: unknown[], weights?: number[]): unkno
  * - 1 texture, or >1 non-animated ⇒ `textureRandom` (a static particle, random of the set —
  *   WEIGHTED by `weights` when given, via a repeated-texture multiset).
  * - >1 texture + `animated` ⇒ `animatedSingle` flipbook (`framerate: -1` = match particle
- *   life, the same `matchLife` default `upgradeConfig` would produce; `loop` true). `weights`
- *   are ignored here (a flipbook particle plays every frame).
+ *   life, the same `matchLife` default `upgradeConfig` would produce). `weights` are ignored
+ *   here (a flipbook particle plays every frame).
+ *
+ * NOTE on looping: we deliberately do NOT pass `loop`. The library forces `loop: false` whenever
+ * `framerate <= 0` (`particle-emitter.es.js`: `loop: framerate > 0 ? !!anim.loop : false`), so a
+ * `loop: true` here was dead config that read as if flipbooks looped when they never have — each
+ * particle plays the sequence exactly once over its life. Authored `fps`/`loop` arrive with the
+ * flipbook clip doc (`docs/design/invisible-flipbook.md`); until then match-life is the contract,
+ * and changing it would silently restyle every already-authored effect in a shipped game.
  *
  * `textures` are real PIXI `Texture` objects (typed opaquely here so this module stays free
  * of a PixiJS import and unit-coverable in `tools/fx-spike`). `bindArt` clones the
@@ -95,7 +102,7 @@ export function bindArt(
 			animated && textures.length > 1
 				? {
 						type: 'animatedSingle',
-						config: { anim: { framerate: -1, loop: true, textures } },
+						config: { anim: { framerate: -1, textures } },
 					}
 				: { type: 'textureRandom', config: { textures: weightedTextures(textures, weights) } };
 		behaviors.push(art);

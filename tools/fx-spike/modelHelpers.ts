@@ -258,7 +258,7 @@ assert(
 	'textureRandom carries the live texture (not JSON-cloned away)',
 );
 
-// >1 textures + animated ⇒ animatedSingle flipbook (framerate -1 = match-life, loop true).
+// >1 textures + animated ⇒ animatedSingle flipbook (framerate -1 = match-life).
 const fourTex = tex(4);
 const boundAnim = bindArt(baseBind, fourTex, true);
 const abAnim = artBehaviors(boundAnim);
@@ -266,11 +266,15 @@ assert(
 	abAnim.length === 1 && abAnim[0].type === 'animatedSingle',
 	'>1 textures + animated ⇒ animatedSingle',
 );
-const anim = abAnim[0].config.anim as { framerate: number; loop: boolean; textures: unknown[] };
+const anim = abAnim[0].config.anim as { framerate: number; loop?: boolean; textures: unknown[] };
 assert(
-	anim.framerate === -1 && anim.loop === true && anim.textures.length === 4,
-	'animatedSingle anim is match-life, looped, carries all frames',
+	anim.framerate === -1 && anim.textures.length === 4,
+	'animatedSingle anim is match-life, carries all frames',
 );
+// `loop` must stay ABSENT: the library forces loop:false whenever framerate <= 0, so emitting
+// `loop: true` was dead config that misread as "flipbooks loop". Authored looping arrives with
+// the clip doc (docs/design/invisible-flipbook.md).
+assert(!('loop' in anim), 'animatedSingle does NOT emit a dead loop flag');
 
 // >1 textures but NOT animated ⇒ textureRandom (random static of the set).
 assert(

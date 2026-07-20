@@ -192,7 +192,9 @@ assert(artAnim?.type === 'animatedSingle', '>1 texture + animated ⇒ an animate
 const anim = (
 	artAnim?.config as { anim?: { framerate?: number; loop?: boolean; textures?: unknown[] } }
 ).anim;
-assert(anim?.framerate === -1 && anim?.loop === true, 'flipbook matches particle life + loops');
+assert(anim?.framerate === -1, 'flipbook matches particle life');
+// No `loop`: the library coerces loop:false at framerate <= 0, so emitting it was dead config.
+assert(anim !== undefined && !('loop' in anim), 'flipbook does NOT emit a dead loop flag');
 assert(anim?.textures === tex, 'flipbook carries the live textures');
 
 // A static multi-frame layer's per-frame WEIGHTS (art.weights) flow through the player: EffectLayer
