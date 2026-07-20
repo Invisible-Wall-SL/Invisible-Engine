@@ -38,7 +38,8 @@ build pill, Atlas-Maker-link status), then three columns:
   resize; the width is remembered per browser.
 
 - **Source:** `services/sheet-tool/` (stdlib `http.server` + Pillow; UI in
-  `ui.html`, packing in `packer.py`, export in `atlas_writers.py`).
+  `ui.html`, packing in `packer.py`, export in `atlas_writers.py`, verbatim
+  `.plist` import in `plist_import.py`).
 - **Where it runs:** cloud, on Railway — a port that mirrors the Atlas Maker
   (R2-backed staging + write-through). Opened full-page from the launcher at
   `/sheet` (no iframe), behind the auth + role gate, like `/atlas`.
@@ -104,6 +105,49 @@ existing sprite replaces its pixels.
 The right panel's **Import** tab is for bringing in a packed sheet or coords file
 from elsewhere (`.atlas` / TexturePacker JSON / manifest) — **Save As** keeps it
 as a project sheet.
+
+### Importing a pre-packed cocos2d atlas (`.plist`) — verbatim
+
+The **Import** tab's lower half takes an existing packed atlas: pick the
+`.plist` and its `.png`/`.webp` page, optionally set a sheet name (default: the
+plist's file name), and click **Import .plist atlas** (`/api/import-plist`).
+
+The atlas is reused **as is** — the page is written **byte-for-byte** (never
+re-encoded) and every rect is *converted*, never re-packed, so a game already
+bound to those coordinates keeps rendering. The import writes
+`sheets/<sheet>/<sheet>.png`, a TexturePacker JSON, and
+`manifests/atlas_manifest_<sheet>.json`, all mirrored to R2.
+
+Only TexturePacker's **cocos2d format 3** is supported; formats 0–2 store rects
+under different keys and are refused with a message telling you to re-export.
+The import also **refuses** when the rects don't check out against their own
+page (out-of-bounds, or any overlap — a packer never emits overlapping rects, so
+an overlap means the geometry decoded wrong). Refusing beats importing an atlas
+that renders as sliced-up garbage and reads as bad *art* rather than a bad
+import.
+
+After a successful import the panel reports the frame count, how many frames are
+rotated, and every **detected sequence** (`anim-sym-pic1: 49 frames` — a
+consecutively-numbered run). Sequences are recorded in the manifest's
+`sequences` key as the hint the Flipbook tool reads to offer "create clip from
+sequence".
+
+**Read-only (recommended)** — checked by default — sets `"locked": true` on the
+manifest. The rail marks locked sheets 🔒 and the server **refuses**
+auto-arrange, Save and FX layers on them, because each of those re-packs the
+page and rewrites coordinates. **Save As** under a new name is still allowed
+(it copies rather than overwriting). If you really mean to re-author it in
+place, select it in the rail and use **🔓 Unlock…** (`/api/unlock-sheet`) — the
+lock is a guard, not a one-way door, but the original coordinates do not survive
+the next Save.
+
+**Import as editable (loses trim offsets)** re-slices the frames into ordinary
+loose sprites and opens them on the canvas, and does *not* lock the sheet. This
+is lossy on purpose: the region model centres art inside its cell and cannot
+represent an off-centre **trim offset**, and in a real animated sheet those
+per-frame offsets *are* the animation (art that scales frame-to-frame stays
+anchored only because each frame carries its own offset). Use it only when you
+intend to re-author the sheet, never to "open and check" a shipped atlas.
 
 ### Renaming a sheet
 

@@ -222,6 +222,10 @@
         <button class="sec" onclick="clearCache(this)" title="Discard the local copy and re-download from R2, matching the cloud exactly. Unsaved local work is lost.">↺ Reset</button>
       </div>
       <button class="sec wide" onclick="renameSheet()" title="Rename the selected sheet — moves its files + manifest and updates internal references.">Rename…</button>
+      <div id="lockbar" style="display:none">
+        <div class="note" id="lockmsg"></div>
+        <button class="sec wide" onclick="unlockSheet()" title="Clear the verbatim-import lock so this sheet can be re-packed. Its coordinates will change on the next Save.">🔓 Unlock…</button>
+      </div>
     </div>
     <div class="leftcards">
       <div class="card">
@@ -244,6 +248,18 @@
           <div class="cwd" id="cwd"></div>
           <div class="browser" id="browser"></div>
           <div id="loadmsg" class="muted" style="margin-top:6px"></div>
+          <div style="border-top:1px solid #333;margin:10px 0 8px"></div>
+          <div class="hint"><b>Import a packed atlas (.plist)</b> — pick the cocos2d
+            <code>.plist</code> and its page image. The page is copied byte-for-byte and every
+            rect is converted, never re-packed, so a game already bound to those coordinates
+            keeps rendering.</div>
+          <input type="file" id="plistfile" accept=".plist" style="width:100%;margin-bottom:6px">
+          <input type="file" id="plistpage" accept=".png,.webp" style="width:100%;margin-bottom:6px">
+          <div class="field"><label>Sheet name</label><input id="plistsheet" placeholder="(from the .plist name)"></div>
+          <div class="field"><label><input type="checkbox" id="plistlock" checked> Read-only (recommended)</label></div>
+          <div class="field"><label><input type="checkbox" id="plisteditable" onchange="onPlistEditable()"> Import as editable (loses trim offsets)</label></div>
+          <button class="wide" onclick="importPlist()">Import .plist atlas</button>
+          <div id="plistmsg" class="muted" style="margin-top:6px"></div>
         </div>
       </div>
 
@@ -979,7 +995,7 @@ function renderSheetList(){
     it.className='it'+(s===selectedSheet?' sel':'');
     it.title=s;
     const nm=document.createElement('span');
-    nm.className='nm'; nm.textContent=s;
+    nm.className='nm'; nm.textContent=(isLocked(s)?'🔒 ':'')+s;
     nm.onclick=()=>{ selectedSheet=s; renderSheetList(); };
     nm.ondblclick=()=>{ selectedSheet=s; loadSheet(); };
     const del=document.createElement('button');
@@ -989,6 +1005,87 @@ function renderSheetList(){
     it.appendChild(nm); it.appendChild(del);
     box.appendChild(it);
   });
+  updateLockUi();
+}
+
+/* ---------- verbatim (.plist) import + the lock it sets ----------
+   A locked sheet was imported byte-for-byte from an atlas a shipped game may
+   already depend on, so the server refuses arrange / save / FX on it. The rail
+   marks it 🔒 and offers the (recoverable) Unlock. */
+function lockedSheets(){ return (STATE && Array.isArray(STATE.locked_sheets)) ? STATE.locked_sheets : []; }
+function isLocked(name){ return !!name && lockedSheets().indexOf(name)>=0; }
+function setLocked(name,on){
+  if(!STATE || !name) return;
+  if(!Array.isArray(STATE.locked_sheets)) STATE.locked_sheets=[];
+  const i=STATE.locked_sheets.indexOf(name);
+  if(on && i<0) STATE.locked_sheets.push(name);
+  if(!on && i>=0) STATE.locked_sheets.splice(i,1);
+}
+function updateLockUi(){
+  const bar=$('lockbar'), msg=$('lockmsg'); if(!bar||!msg) return;
+  const name=selectedSheet||activeSheet;
+  if(!isLocked(name)){ bar.style.display='none'; return; }
+  bar.style.display='';
+  msg.textContent='🔒 "'+name+'" is read-only — imported verbatim. Auto-arrange, '
+    +'Save and FX layers are blocked so its coordinates cannot drift. Save As a new '
+    +'copy to work from it, or Unlock to re-author it in place.';
+}
+async function unlockSheet(){
+  const name=selectedSheet||activeSheet;
+  const m=$('railmsg');
+  if(!name){ if(m){ m.className='note'; m.textContent='Pick a sheet first.'; } return; }
+  if(!confirm('Unlock "'+name+'"?\n\nIt was imported verbatim from a packed atlas. '
+    +'Once unlocked, saving RE-PACKS the page and rewrites every rect — any game '
+    +'bound to the original coordinates will break. This cannot be undone by '
+    +'re-locking; only a fresh import restores the original.')) return;
+  const j=await jpost('/api/unlock-sheet',{sheet:name});
+  if(j.error){ if(m){ m.className='err'; m.textContent=j.error; } return; }
+  setLocked(name,false);
+  renderSheetList();
+  if(m){ m.className='note'; m.textContent=j.note||('"'+name+'" unlocked.'); }
+}
+function onPlistEditable(){
+  // Editable and read-only are mutually exclusive: an editable import re-packs
+  // on the next Save, so locking it would guard coordinates that are already gone.
+  const ed=$('plisteditable'), lk=$('plistlock');
+  if(ed.checked){ lk.checked=false; lk.disabled=true; } else { lk.disabled=false; lk.checked=true; }
+}
+async function importPlist(){
+  const m=$('plistmsg');
+  const pf=$('plistfile').files[0], pg=$('plistpage').files[0];
+  if(!pf||!pg){ m.className='err'; m.textContent='Pick both the .plist and its .png/.webp page.'; return; }
+  const fd=new FormData();
+  fd.append('sheet',$('plistsheet').value.trim());
+  fd.append('lock',$('plistlock').checked?'1':'0');
+  fd.append('editable',$('plisteditable').checked?'1':'0');
+  fd.append('plist',pf,pf.name);
+  fd.append('page',pg,pg.name);
+  m.className='muted'; m.textContent='Importing…';
+  let j;
+  try{ j=await (await fetch('/api/import-plist',{method:'POST',body:fd})).json(); }
+  catch(e){ m.className='err'; m.textContent='Import request failed: '+e; return; }
+  if(j.error){ m.className='err'; m.textContent=j.error; return; }
+  let h='<div class="ok">Imported "'+esc(j.sheet)+'" — '+j.frames+' frame(s), '
+    +(j.rotated?j.rotated+' rotated':'none rotated')+(j.locked?' · read-only 🔒':'')+'</div>';
+  const seqs=j.sequences||[];
+  h+=seqs.length
+    ? '<div class="hint">Sequences found (the Flipbook tool can turn these into clips):</div>'
+      +'<div class="geo">'+seqs.map(s=>esc(s.stem)+': '+s.frames.length+' frames').join('<br>')+'</div>'
+    : '<div class="hint">No numbered frame sequences detected.</div>';
+  (j.warnings||[]).forEach(w=>{ h+='<div class="note">'+esc(w)+'</div>'; });
+  m.className=''; m.innerHTML=h;
+  if(STATE){
+    if(!Array.isArray(STATE.sheets)) STATE.sheets=[];
+    if(!STATE.sheets.includes(j.sheet)){ STATE.sheets.push(j.sheet); STATE.sheets.sort(); }
+    setLocked(j.sheet,!!j.locked);
+    selectedSheet=j.sheet;
+    renderSheetList();
+  }
+  $('plistfile').value=''; $('plistpage').value='';
+  // An editable import already sliced the frames into loose sprites + wrote the
+  // session, so open it on the canvas. A verbatim one is deliberately NOT opened:
+  // the editor cannot represent its trim offsets.
+  if(j.editable) await loadSheet();
 }
 async function loadSheet(){
   const name=selectedSheet;
@@ -1023,7 +1120,12 @@ async function loadSheet(){
     if(j.skipped && j.skipped.length) msg+=' · skipped '+j.skipped.length+' empty region(s): '+j.skipped.slice(0,5).join(', ')+(j.skipped.length>5?'…':'');
     if(j.missing && j.missing.length) msg+=' · '+j.missing.length+' sprite source(s) missing: '+j.missing.slice(0,5).join(', ')+(j.missing.length>5?'…':'');
   }
-  const noted=j.recovered||(j.skipped&&j.skipped.length)||(j.missing&&j.missing.length);
+  setLocked(j.sheet,!!j.locked);
+  renderSheetList();               // refresh the 🔒 marker + the Unlock bar
+  if(j.locked) msg='🔒 "'+j.name+'" is READ-ONLY (imported verbatim) — '+j.count
+    +' region(s) shown for reference. Auto-arrange, Save and FX are blocked; '
+    +'Save As a new copy, or Unlock to re-author it.';
+  const noted=j.recovered||j.locked||(j.skipped&&j.skipped.length)||(j.missing&&j.missing.length);
   m.className=noted?'note':'ok'; m.textContent=msg;
   fitView();
   if(j.recovered) doArrange();   // pack the recovered loose sprites for the user

@@ -17,6 +17,7 @@ Zero external deps beyond Pillow + boto3 (stdlib http.server).
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
@@ -32,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cloud_paths as project_paths  # noqa: E402
 import packer              # noqa: E402
 import atlas_writers       # noqa: E402
+import plist_import        # noqa: E402  (verbatim cocos2d .plist atlas import)
 import storage             # noqa: E402  (R2 object storage + staging mirror)
 from iw_common.splash import splash_html  # noqa: E402  (shared CRT boot splash)
 from iw_common import imgcache  # noqa: E402  (ETag/304 cache headers for images)
@@ -395,6 +397,9 @@ def api_state() -> dict:
         # land in the shared manifests/ folder both tools read.
         "atlas_maker_found": bool(_ctx()["r2_prefix"]),
         "sheets": sheets,
+        # Sheets imported VERBATIM (a `.plist` atlas): the rail marks them and
+        # every geometry write refuses until they're unlocked.
+        "locked_sheets": [s for s in sheets if _is_locked(s)],
         "session": session,
         "defaults": {
             "canvas_w": cfg.get("width", 1024),
@@ -423,6 +428,11 @@ def api_fx_sync(payload: dict) -> dict:
     be named for the Atlas Maker's FX convention. Returns each live child's
     file name + measured size so the client can register/refresh its region."""
     sheet = safe_name(payload.get("sheet", "sheet"))
+    # FX cells are new sprites that must be PACKED into the page to exist, so
+    # spawning them on a verbatim import can only end in a re-pack.
+    blocked = _locked_error(sheet, "Adding FX layers")
+    if blocked:
+        return {"error": blocked}
     base_src = safe_name(Path(str(payload.get("base_src") or "")).name, "")
     if not base_src:
         return {"error": "No base sprite given."}
@@ -495,10 +505,85 @@ def api_upload(fields: dict, files: list) -> dict:
     return {"sheet": sheet, "saved": saved, "sprites": sprites}
 
 
+# ---------------------------------------------------------------------------
+# Sheet lock — a VERBATIM import must not have its geometry rewritten
+# ---------------------------------------------------------------------------
+#
+# A sheet imported from a `.plist` describes an atlas that ALREADY SHIPPED: the
+# page bytes and every rect were reused unchanged precisely so a game bound to
+# those coordinates keeps rendering. Re-packing it (arrange / save) silently
+# invalidates that contract — the sheet still looks right in this tool while the
+# game's frames land somewhere else. So the manifest carries `"locked": true`
+# and every geometry-writing path refuses until the author explicitly unlocks.
+
+def _manifest_path_for(sheet: str) -> Path:
+    """Path of a sheet's AI manifest in the shared manifests/ folder."""
+    ctx = _ctx()
+    key = safe_name(sheet, "")
+    out = project_paths.resolve()["output_root"] / key
+    man_dir = Path(ctx["manifest_dir"]) if ctx.get("manifest_dir") else out
+    return man_dir / f"atlas_manifest_{key}.json"
+
+
+def _read_manifest(sheet: str) -> dict | None:
+    """A sheet's manifest, or None when absent/corrupt (never raises)."""
+    if not safe_name(sheet, ""):
+        return None
+    try:
+        data = json.loads(_manifest_path_for(sheet).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _is_locked(sheet: str) -> bool:
+    return bool((_read_manifest(sheet) or {}).get("locked"))
+
+
+def _locked_error(sheet: str, action: str) -> str:
+    """The refusal message for a locked sheet, or "" when it may be written."""
+    man = _read_manifest(sheet)
+    if not man or not man.get("locked"):
+        return ""
+    imp = man.get("import") or {}
+    src = imp.get("source") or "an existing packed atlas"
+    return (f"Sheet '{safe_name(sheet)}' is read-only — it was imported VERBATIM from "
+            f"{src}, so its page and every rect are byte-identical to the original. "
+            f"{action} would re-pack it and rewrite coordinates a shipped game may "
+            "already depend on. Unlock it first (Unlock button / POST "
+            "/api/unlock-sheet) if you really mean to re-author it, or Save As a "
+            "new copy to leave the import untouched.")
+
+
+def api_unlock_sheet(payload: dict) -> dict:
+    """Clear a sheet's verbatim-import lock so it can be re-packed again."""
+    sheet = safe_name(payload.get("sheet", ""), "")
+    if not sheet:
+        return {"error": "No sheet name given."}
+    man = _read_manifest(sheet)
+    if man is None:
+        return {"error": f"Sheet '{sheet}' has no manifest to unlock (looked for "
+                f"atlas_manifest_{sheet}.json in manifests/)."}
+    if not man.get("locked"):
+        return {"sheet": sheet, "locked": False,
+                "note": f"'{sheet}' was not locked."}
+    man["locked"] = False
+    mp = _manifest_path_for(sheet)
+    atlas_writers.write_manifest(mp, man)
+    _mirror(mp)
+    return {"sheet": sheet, "locked": False,
+            "note": f"'{sheet}' unlocked — saving it now RE-PACKS the page and "
+                    "rewrites every rect. The original coordinates are gone once "
+                    "you save."}
+
+
 def api_arrange(payload: dict) -> dict:
     """Free-canvas auto-arrange: pack only the UNLOCKED sprites into the space
     left by the locked ones, inside a fixed canvas. Identity is the uploaded
     filename (`src`); display names are tracked client-side."""
+    blocked = _locked_error(str(payload.get("sheet") or ""), "Auto-arranging")
+    if blocked:
+        return {"error": blocked}
     canvas_w = int(payload.get("canvas_w", 1024))
     canvas_h = int(payload.get("canvas_h", 1024))
     padding = int(payload.get("padding", 2))
@@ -529,6 +614,13 @@ def api_export(payload: dict) -> dict:
     """Compose the sheet from the client's current canvas geometry and write
     the selected formats. Stateless: geometry comes entirely from the payload."""
     sheet = safe_name(payload.get("sheet", "sheet"))
+    # Saving IS the re-pack: compose() redraws the page and every writer below
+    # emits fresh geometry. A verbatim import must be unlocked (or saved under a
+    # new name) first. Gated on the TARGET sheet, so "Save As" to a new name is
+    # still allowed — that copies rather than overwriting the import.
+    blocked = _locked_error(sheet, "Saving")
+    if blocked:
+        return {"error": blocked}
     basename = sheet
     dest_dir = (payload.get("dest_dir") or "").strip()
     fmts = payload.get("formats", {})
@@ -1810,7 +1902,184 @@ def api_load_sheet(payload: dict) -> dict:
             "skipped": skipped, "missing": missing,
             "source_path": str(coords.resolve()), "source_dir": str(out.resolve()),
             "name": sheet,
+            "locked": _is_locked(sheet),
             "is_project": coords.name.startswith("atlas_manifest_")}
+
+
+# ---------------------------------------------------------------------------
+# Verbatim .plist import
+# ---------------------------------------------------------------------------
+
+_PAGE_EXTS = (".png", ".webp")
+
+
+def api_import_plist(fields: dict, files: list) -> dict:
+    """Import a pre-packed cocos2d atlas (`.plist` + its page) VERBATIM.
+
+    The point is REUSE, not re-authoring: the page is written byte-for-byte and
+    every rect is converted rather than repacked, so a game already bound to
+    these coordinates keeps rendering. See plist_import.py for the two
+    conversions that are easy to get wrong (rotated footprint, trim origin).
+
+    `editable=1` opts into the lossy path instead — the frames are re-sliced
+    into ordinary loose sprites and opened on the canvas, which drops per-frame
+    trim offsets (the region model centres art in its cell and cannot express an
+    off-centre offset). That sheet is NOT locked, because it is no longer the
+    original atlas."""
+    plist_file = next((f for f in files
+                       if Path(f["filename"]).suffix.lower() == ".plist"), None)
+    page_file = next((f for f in files
+                      if Path(f["filename"]).suffix.lower() in _PAGE_EXTS), None)
+    if plist_file is None or page_file is None:
+        return {"error": "Pick exactly two files: the .plist and its .png/.webp page."}
+    if len(files) != 2:
+        return {"error": f"Expected exactly two files (.plist + its page), got "
+                f"{len(files)}: " + ", ".join(f["filename"] for f in files)}
+
+    sheet = safe_name(fields.get("sheet", "").strip()
+                      or Path(plist_file["filename"]).stem)
+    editable = str(fields.get("editable", "0")).strip().lower() not in ("", "0", "false")
+    lock = str(fields.get("lock", "1")).strip().lower() not in ("0", "false")
+    if editable:
+        # An editable import has already lost the verbatim guarantee, so locking
+        # it would protect coordinates that are about to be re-packed anyway.
+        lock = False
+
+    # parse_plist takes a path; stage the upload, parse, then drop it — the
+    # `.plist` itself is not part of the project (the JSON + manifest replace it).
+    tmp_dir = Path(project_paths.resolve()["staging_root"]) / "_import_tmp"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    tmp_plist = tmp_dir / safe_name(Path(plist_file["filename"]).name, "import.plist")
+    try:
+        tmp_plist.write_bytes(plist_file["data"])
+        parsed = plist_import.parse_plist(tmp_plist)
+    except plist_import.PlistImportError as e:
+        # Verbatim message — it already names the unsupported format and the fix.
+        return {"error": str(e)}
+    finally:
+        tmp_plist.unlink(missing_ok=True)
+
+    warnings: list[str] = []
+    try:
+        with Image.open(io.BytesIO(page_file["data"])) as im:
+            page_w, page_h = im.size
+    except Exception as e:  # noqa: BLE001 — bad page upload, report it
+        return {"error": f"{page_file['filename']}: not a readable image ({e})"}
+    if not parsed["width"] or not parsed["height"]:
+        # No `metadata.size` — trust the actual page so validate() can still
+        # bounds-check the rects.
+        parsed["width"], parsed["height"] = page_w, page_h
+    elif (parsed["width"], parsed["height"]) != (page_w, page_h):
+        warnings.append(
+            f"The plist declares a {parsed['width']}x{parsed['height']} page but "
+            f"{page_file['filename']} is {page_w}x{page_h} — check you paired the "
+            "right two files.")
+
+    problems = plist_import.validate(parsed)
+    if problems:
+        # Overlapping rects mean the geometry decoded WRONG. Importing anyway
+        # would ship an atlas that renders as sliced-up garbage and reads as bad
+        # art rather than a bad import, so refuse while the message can say so.
+        return {"error": "Refusing to import — the geometry doesn't check out "
+                "against its own page, so the rects are probably being misread: "
+                + "; ".join(problems[:6])
+                + ("…" if len(problems) > 6 else "")}
+
+    frames = parsed["frames"]
+    if not frames:
+        return {"error": "That plist has no frames."}
+    sequences = plist_import.detect_sequences([f["name"] for f in frames])
+
+    # --- write the page BYTE-FOR-BYTE (never re-encoded: a re-encode would
+    # change pixels the source game may depend on) --------------------------
+    ext = Path(page_file["filename"]).suffix.lower()
+    out = output_dir(sheet)
+    page_path = out / f"{sheet}{ext}"
+    page_path.write_bytes(page_file["data"])
+    _mirror(page_path)
+    written = [str(page_path)]
+
+    # --- TexturePacker JSON: the coords file the rest of the pipeline reads --
+    # `meta.image` must name the page as WE stored it, not the original
+    # textureFileName, or the coords point at a file that isn't here.
+    original_image = parsed.get("image", "")
+    parsed["image"] = page_path.name
+    json_path = out / f"{sheet}.json"
+    json_path.write_text(
+        json.dumps(plist_import.to_texturepacker(parsed), indent=2), encoding="utf-8")
+    _mirror(json_path)
+    written.append(str(json_path))
+
+    # --- the AI manifest, in exactly build_manifest's shape ------------------
+    ctx = _ctx()
+    r2_prefix = ctx["r2_prefix"]
+    try:
+        out_rel = out.resolve().relative_to(
+            Path(project_paths.resolve()["staging_root"]).resolve()).as_posix()
+    except ValueError:
+        out_rel = f"sheets/{sheet}"
+    export_prefix = f"{r2_prefix}/{out_rel}" if r2_prefix else ""
+    source_image_key = f"{export_prefix}/{page_path.name}" if export_prefix else ""
+    tp_json_key = f"{export_prefix}/{json_path.name}" if export_prefix else ""
+    man_regions = [{"name": f["name"], "x": f["x"], "y": f["y"],
+                    "w": f["w"], "h": f["h"], "rotated": f["rotated"]}
+                   for f in frames]
+    manifest = atlas_writers.build_manifest(
+        sheet_image=str(page_path), width=parsed["width"], height=parsed["height"],
+        regions=man_regions, deploy_basename=sheet,
+        export_prefix=export_prefix,
+        source_image_path=source_image_key,
+        texturepacker_json=tp_json_key)
+    manifest["locked"] = bool(lock)
+    manifest["import"] = {"kind": "plist",
+                          "source": Path(plist_file["filename"]).name,
+                          "verbatim": True}
+    # The hint the /flipbook tool reads to offer "create clip from sequence".
+    # Recorded, not acted on, here.
+    manifest["sequences"] = sequences
+    if original_image and original_image != page_path.name:
+        manifest["import"]["original_image"] = original_image
+    man_dir = Path(ctx["manifest_dir"]) if ctx.get("manifest_dir") else out
+    man_dir.mkdir(parents=True, exist_ok=True)
+    mp = man_dir / f"atlas_manifest_{sheet}.json"
+    atlas_writers.write_manifest(mp, manifest)
+    _mirror(mp)
+    written.append(str(mp))
+
+    if editable:
+        warnings.append(
+            "Editable import: per-frame TRIM OFFSETS are LOST. The editor centres "
+            "each sprite in its cell and cannot represent an off-centre offset, so "
+            "art that scales frame-to-frame will jitter. Saving re-packs the page — "
+            "the original coordinates do not survive.")
+        # Re-slice the frames into ordinary loose sprites and open them on the
+        # canvas. api_load_sheet already does exactly this (crop the packed
+        # rect, un-rotate, fall back to the page when no loose sprite exists),
+        # so reuse it rather than duplicating the crop maths.
+        loaded = api_load_sheet({"sheet": sheet})
+        if loaded.get("error"):
+            warnings.append("Could not open it in the editor: " + loaded["error"])
+        else:
+            api_session({
+                "sheet": sheet, "display_name": sheet, "active_sheet": sheet,
+                "canvas_w": loaded.get("canvas_w", parsed["width"]),
+                "canvas_h": loaded.get("canvas_h", parsed["height"]),
+                "padding": 2, "allow_rotation": True,
+                "loaded": {"path": loaded.get("source_path"),
+                           "dir": loaded.get("source_dir"),
+                           "name": sheet, "is_project": True},
+                "regions": loaded.get("regions") or [],
+            })
+
+    return {"sheet": sheet,
+            "frames": len(frames),
+            "rotated": sum(1 for f in frames if f["rotated"]),
+            "sequences": sequences,
+            "locked": bool(lock),
+            "editable": editable,
+            "warnings": warnings,
+            "written": written,
+            "page": str(page_path)}
 
 
 # ---------------------------------------------------------------------------
@@ -2010,6 +2279,10 @@ class Handler(BaseHTTPRequestHandler):
                 fields, files = parse_multipart(self._body(), ctype)
                 self._send_json(api_upload(fields, files))
                 return
+            if path == "/api/import-plist":
+                fields, files = parse_multipart(self._body(), ctype)
+                self._send_json(api_import_plist(fields, files))
+                return
             payload = {}
             raw = self._body()
             if raw:
@@ -2026,6 +2299,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(api_load_sheet(payload))
             elif path == "/api/rename-sheet":
                 self._send_json(api_rename_sheet(payload))
+            elif path == "/api/unlock-sheet":
+                self._send_json(api_unlock_sheet(payload))
             elif path == "/api/delete-sheet":
                 self._send_json(api_delete_sheet(payload))
             elif path == "/api/session":
