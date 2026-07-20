@@ -120,6 +120,44 @@ check(fr["sourceSize"] == {"w": 200, "h": 200}, "sourceSize is the UNTRIMMED siz
 check(fr["spriteSourceSize"]["x"] == 55 and fr["spriteSourceSize"]["y"] == 30, "trim -> top-left origin")
 check(tp["meta"]["size"] == {"w": 512, "h": 512}, "page size carried into meta")
 
+print("plist import — rotated blocks are reoriented 180 (cocos CCW vs our CW)")
+try:
+    from PIL import Image
+
+    from plist_import import reorient_rotated_regions
+
+    # A 4x2 block at (0,0) marked rotated (so its on-page footprint is h x w = 4 x 2), plus an
+    # untouched 2x2 block beside it. Distinct pixels make the 180 flip and the no-touch
+    # guarantee both checkable exactly.
+    page = Image.new("RGBA", (8, 4), (0, 0, 0, 0))
+    for x in range(4):
+        page.putpixel((x, 0), (x * 10 + 10, 0, 0, 255))
+        page.putpixel((x, 1), (0, x * 10 + 10, 0, 255))
+    for x in range(6, 8):
+        page.putpixel((x, 0), (9, 9, 9, 255))
+    before_neighbour = [page.getpixel((x, 0)) for x in range(6, 8)]
+    before_block = [[page.getpixel((x, y)) for x in range(4)] for y in range(2)]
+
+    frames = [
+        {"name": "r", "x": 0, "y": 0, "w": 2, "h": 4, "rotated": True},
+        {"name": "n", "x": 6, "y": 0, "w": 2, "h": 2, "rotated": False},
+    ]
+    out, n = reorient_rotated_regions(page, frames)
+    check(n == 1, "reports how many regions it reoriented")
+    after_block = [[out.getpixel((x, y)) for x in range(4)] for y in range(2)]
+    expected = [list(reversed(before_block[1])), list(reversed(before_block[0]))]
+    check(after_block == expected, "the rotated block is flipped exactly 180 degrees")
+    check(
+        [out.getpixel((x, 0)) for x in range(6, 8)] == before_neighbour,
+        "a neighbouring unrotated region is untouched (180 preserves the bounding box)",
+    )
+    # Nothing rotated ⇒ untouched, so the caller can still write the original bytes verbatim.
+    plain = Image.new("RGBA", (4, 4), (1, 2, 3, 255))
+    same, n2 = reorient_rotated_regions(plain, [{"x": 0, "y": 0, "w": 2, "h": 2, "rotated": False}])
+    check(n2 == 0 and same is plain, "a sheet with no rotated frames is returned untouched")
+except ImportError:  # pragma: no cover — Pillow absent
+    check(False, "Pillow is required for the reorient checks")
+
 print("plist import — refuses what it cannot read")
 for bad_meta, label in [({**META, "format": 2}, "format 2"), ({**META, "format": 0}, "format 0")]:
     try:

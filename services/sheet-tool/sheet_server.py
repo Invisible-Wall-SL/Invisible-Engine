@@ -2011,12 +2011,29 @@ def api_import_plist(fields: dict, files: list) -> dict:
         return {"error": "That plist has no frames."}
     sequences = plist_import.detect_sequences([f["name"] for f in frames])
 
-    # --- write the page BYTE-FOR-BYTE (never re-encoded: a re-encode would
-    # change pixels the source game may depend on) --------------------------
+    # --- write the page ------------------------------------------------------
+    # Byte-for-byte when nothing is rotated. When frames ARE rotated we must flip each
+    # rotated block 180° first: cocos2d rotates packed frames the opposite way round from
+    # this pipeline, so without it every rotated frame renders upside down (measured — see
+    # plist_import.reorient_rotated_regions). 180° preserves the bounding box, so no rect
+    # moves. The re-encode is LOSSLESS and to the same format, so only the rotated blocks
+    # differ from the source.
     ext = Path(page_file["filename"]).suffix.lower()
     out = output_dir(sheet)
     page_path = out / f"{sheet}{ext}"
-    page_path.write_bytes(page_file["data"])
+    reoriented = 0
+    if any(f.get("rotated") for f in frames):
+        try:
+            with Image.open(io.BytesIO(page_file["data"])) as src:
+                img, reoriented = plist_import.reorient_rotated_regions(src.convert("RGBA"), frames)
+                if ext == ".webp":
+                    img.save(page_path, lossless=True)
+                else:
+                    img.save(page_path)
+        except Exception as e:  # noqa: BLE001 — a bad page must fail the import, not the server
+            return {"error": f"Could not reorient the rotated frames on the page ({e})."}
+    else:
+        page_path.write_bytes(page_file["data"])
     _mirror(page_path)
     written = [str(page_path)]
 
@@ -2095,6 +2112,7 @@ def api_import_plist(fields: dict, files: list) -> dict:
     return {"sheet": sheet,
             "frames": len(frames),
             "rotated": sum(1 for f in frames if f["rotated"]),
+            "reoriented": reoriented,
             "sequences": sequences,
             "locked": bool(lock),
             "editable": editable,
