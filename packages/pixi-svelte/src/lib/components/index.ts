@@ -6,6 +6,7 @@ import Circle, { type Props as CircleProps } from './Circle.svelte';
 import Graphics, { type Props as GraphicsProps } from './Graphics.svelte';
 import AnimatedSprite, { type Props as AnimatedSpriteProps } from './AnimatedSprite.svelte';
 import SpriteSheet, { type Props as SpriteSheetProps } from './SpriteSheet.svelte';
+import Flipbook, { type Props as FlipbookProps, type FlipbookClip } from './Flipbook.svelte';
 import Sprite, { type Props as SpriteProps } from './Sprite.svelte';
 import BaseSprite, { type Props as BaseSpriteProps } from './BaseSprite.svelte';
 import BaseSpineProvider, {
@@ -37,6 +38,7 @@ export {
 	Graphics,
 	AnimatedSprite,
 	SpriteSheet,
+	Flipbook,
 	Sprite,
 	BaseSprite,
 	BaseSpineProvider,
@@ -62,6 +64,8 @@ export type {
 	GraphicsProps,
 	AnimatedSpriteProps,
 	SpriteSheetProps,
+	FlipbookProps,
+	FlipbookClip,
 	SpriteProps,
 	BaseSpriteProps,
 	BaseSpineProviderProps,

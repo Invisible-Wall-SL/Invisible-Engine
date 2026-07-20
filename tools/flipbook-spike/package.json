@@ -5,7 +5,8 @@
 	"type": "module",
 	"scripts": {
 		"doc": "tsx docModel.ts",
-		"registry": "tsx registry.ts"
+		"registry": "tsx registry.ts",
+		"frames": "tsx resolveFrames.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",

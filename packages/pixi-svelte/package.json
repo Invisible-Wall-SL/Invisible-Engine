@@ -43,7 +43,8 @@
 		"svelte": "5.35.1",
 		"utils-event-emitter": "workspace:*",
 		"vite": "6.2.0",
-		"webfontloader": "1.6.28"
+		"webfontloader": "1.6.28",
+		"engine-flipbook": "workspace:*"
 	},
 	"exports": {
 		".": {
