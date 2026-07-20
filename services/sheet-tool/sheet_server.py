@@ -210,6 +210,11 @@ def api_session(payload: dict) -> dict:
 
 _SAFE = re.compile(r"[^A-Za-z0-9_.-]+")
 
+# The only page/sprite formats the pipeline accepts. Both carry an ALPHA channel, which cut-out
+# sprite art requires: a format without one (JPEG) would box every frame in an opaque rectangle,
+# and its lossy edges would bleed colour across the exact rects an atlas slices on.
+_PAGE_EXTS = (".png", ".webp")
+
 
 def safe_name(s: str, default: str = "sheet") -> str:
     s = _SAFE.sub("_", (s or "").strip()).strip("_.")
@@ -477,11 +482,28 @@ def api_fx_sync(payload: dict) -> dict:
 def api_upload(fields: dict, files: list) -> dict:
     sheet = safe_name(fields.get("sheet", "sheet"))
     d = uploads_dir(sheet)
-    saved = []
+
+    # REFUSE an unsupported format; never rename it into one. This used to append ".png" to
+    # anything else, so `photo.jpg` was stored as `photo.jpg.png` — a JPEG carrying a PNG
+    # extension. Pillow sniffs content, so the tool looked fine, but PIXI picks its loader by
+    # EXTENSION, so the mislabelled page shipped and failed in the game. (JPEG is also the wrong
+    # format for sprite art: no alpha, and lossy ringing bleeds colour across packed rects.)
+    #
+    # The whole batch is validated BEFORE anything is written, so one bad file cannot leave half
+    # an upload on disk and in R2 — same discipline as the .plist import.
+    names: list[str] = []
     for f in files:
         fn = safe_name(Path(f["filename"]).name, "sprite.png")
-        if not fn.lower().endswith((".png", ".webp")):
-            fn += ".png"
+        if not fn.lower().endswith(_PAGE_EXTS):
+            return {
+                "error": f"{Path(f['filename']).name}: unsupported image format. "
+                f"Sprites must be {' or '.join(e.lstrip('.').upper() for e in _PAGE_EXTS)} — "
+                f"formats without an alpha channel (JPEG) cannot hold cut-out sprite art."
+            }
+        names.append(fn)
+
+    saved = []
+    for f, fn in zip(files, names):
         dst = d / fn
         dst.write_bytes(f["data"])
         try:
@@ -1910,7 +1932,6 @@ def api_load_sheet(payload: dict) -> dict:
 # Verbatim .plist import
 # ---------------------------------------------------------------------------
 
-_PAGE_EXTS = (".png", ".webp")
 
 
 def api_import_plist(fields: dict, files: list) -> dict:
