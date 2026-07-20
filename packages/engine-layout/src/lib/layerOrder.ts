@@ -46,6 +46,13 @@ export const LAYER_BAND_BACKGROUND_CODED = -900;
 export const LAYER_BAND_BEHIND = -500;
 /** Base zIndex of the layerable band — above the base game (0), below the pinned band. */
 export const LAYER_BAND_BASE = 100;
+/** Fixed z for the WIN PRESENTATION — the win line and the amount it stamps. Treated as HUD
+ *  chrome rather than board furniture: above EVERY list-ordered layerable screen (the HUD, the
+ *  base-game overlays, the author's own overlays), so no board-game layer can bury the line or
+ *  its amount. It used to ride the board's `<MainContainer>` at the implicit 0, which put it
+ *  under the whole {@link LAYER_BAND_BASE} band. Still BELOW the pinned band, so a takeover
+ *  celebration and the engine's round-blocking gates continue to cover it. */
+export const LAYER_BAND_WIN_PRESENTATION = 8_000;
 /** Base zIndex of the PINNED band — where a screen the author ticked "Always on top"
  *  ({@link Scene.alwaysOnTop}) mounts, above every list-ordered screen and below the engine
  *  top band. For a transient overlay that must never be buried (the loading splash at boot,

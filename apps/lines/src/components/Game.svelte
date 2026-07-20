@@ -99,6 +99,7 @@
 		LAYER_BAND_BACKGROUND_CODED,
 		LAYER_BAND_TAKEOVER,
 		LAYER_BAND_TOP,
+		LAYER_BAND_WIN_PRESENTATION,
 		sceneByRole,
 		loadingSceneId,
 		basegameSceneId,
@@ -1537,7 +1538,6 @@
 				<BoardFrame active={boardGlowActive} />
 			{/if}
 			<Board />
-			<WinLine />
 			<Anticipations />
 		</MainContainer>
 
@@ -1548,6 +1548,26 @@
 		{:else if basegameAboveReel && basegameAboveReel.nodes.length}
 			<LayoutScene scene={basegameAboveReel} />
 		{/if}
+
+		<!-- The win line + the amount it stamps are HUD chrome, not board furniture: they read as
+				 the game TELLING the player what they won, so nothing the author layers over the board
+				 may bury them. They used to live inside the board `<MainContainer>` above (implicit z 0),
+				 which put them under every list-ordered screen — the HUD, the base-game overlays, an
+				 author's own above-reel art. Now they mount as their OWN board-space layer at
+				 `LAYER_BAND_WIN_PRESENTATION`, above that whole band and still below the pinned
+				 takeovers + the engine's round-blocking gates.
+
+				 `<WinLine>` positions through `<BoardContainer>` (board-local coords), so it needs the
+				 game-space transform its old parent gave it — hence its own `<MainContainer>` here.
+				 `<MainContainer>` is pure derived layout, so a second instance costs nothing and
+				 reproduces the identical transform: the line lands in exactly the same PLACE, only
+				 higher in the stack. Still inside the base-game gate, so it unmounts with the board
+				 exactly as before. -->
+		<Container zIndex={LAYER_BAND_WIN_PRESENTATION}>
+			<MainContainer>
+				<WinLine />
+			</MainContainer>
+		</Container>
 	{/if}
 
 	<!--
