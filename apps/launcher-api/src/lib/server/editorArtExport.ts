@@ -372,7 +372,11 @@ export async function exportEditorArt(
 		const version = await sheetVersion(set);
 		if (!version) return;
 
-		const pageExt = set.pageKey.toLowerCase().endsWith('.webp') ? 'webp' : 'png';
+		// Carry the page's REAL extension. The page is copied byte-for-byte below, so defaulting
+		// anything non-`.webp` to `png` shipped a mislabelled file whenever the source wasn't a
+		// PNG — and `isImageAssetKey` above accepts `.jpg`/`.jpeg`, so the two halves disagreed.
+		// PIXI picks its loader by extension, so the lie only surfaces in the game.
+		const pageExt = /\.(png|webp|jpe?g)$/i.exec(set.pageKey)?.[1].toLowerCase() ?? 'png';
 		const pageFile = `${stem}.${version}.${pageExt}`;
 		const jsonRel = `editor-art/${stem}/${stem}.${version}.json`;
 		const pageRel = `editor-art/${stem}/${pageFile}`;
