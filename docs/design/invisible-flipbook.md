@@ -89,6 +89,61 @@ Mirrors the effects chain verbatim:
 - **register:** boot calls `registerFlipbooks(map)`; runtime `resolveFlipbook(clipId)` — a
   module-scoped `Map`, mirroring `registerRigFx.ts` / `registerEffects.ts` exactly.
 
+## Referential integrity — the join is by NAME
+
+A clip stores region **names**, so the whole design hinges on how stable a name is. Verified
+2026-07-20:
+
+**Repack is safe.** `api_arrange` (`sheet_server.py:463`) never sees display names — its identity
+is `src`, the uploaded filename (`:476`), and it returns only `{src,x,y,w,h,rotated,locked}`
+(`:488`). `api_export` re-emits `r["name"]` verbatim with fresh geometry. So re-authoring a sheet
+— adding sprites, resizing the canvas, toggling rotation — absorbs all geometry drift and leaves
+every clip intact. **This is the common case and it needs no special handling.**
+
+**Rename and delete are hard breaks, with no hook to intercept them.** Renaming a region is
+`renameSel()` in `ui.html:862` — an in-memory array mutation with **no rename endpoint**. It
+reaches the server only through `api_session`'s blind whole-doc overwrite (`:165,204`), which
+performs no diff. The server therefore *cannot know a rename occurred*; a rename is
+indistinguishable from delete-plus-add from outside the Python tool. `deleteSel()`
+(`ui.html:895`) is the same, minus even the duplicate-name check. Neither notifies any consumer —
+`sheet_server.py` contains no reference to editor, symbol, or fx docs.
+
+### The cautionary precedent: FX `art.frames[]` is unguarded today
+
+The exact analogue of a clip's frame list has **zero detection at any stage**.
+`effectExport.ts:50-59` collects only `assetKey`; `editorArtExport.ts:295-305` never adds FX frame
+names to `refs.usedRegions`, so the dangling guard at `:461-474` structurally cannot see them.
+
+The runtime degradation is silent and actively wrong (`EffectLayer.svelte:95-115`): missing frames
+are dropped from the array, so *some* missing ⇒ a quietly shortened animation and
+uniform-degraded weights; *all* missing ⇒ `undefined` ⇒ `ParticleEmitter.svelte:120-122` binds
+**the entire sheet**, spraying random wrong textures rather than failing.
+
+Elsewhere the guards exist but only warn: bake `console.warn`s dangling regions
+(`bake-editor-doc.mjs:242,381`) and never `bail()`s — contrast `bail()` at `:259` for an
+unreachable endpoint. In-game a missing sprite region is `Texture.EMPTY` (`Sprite.svelte:29-33`):
+the node mounts, holds its transform, draws nothing. In the Scene Editor it's a grey placeholder
+(`EditorCanvas.svelte:2133`) easily misread as "still loading", and `contentWarnings`
+(`editor/+page.svelte:325-350`) validates `assetKey` only — never `node.region`.
+
+### What this design does about it
+
+1. **Clip frames become real references** — added to `refs.usedRegions` in `editorArtExport.ts`
+   so the existing dangling guard covers them. Fix the FX `art.frames[]` omission in the same
+   change; it is the same one-line class of bug.
+2. **Fatal for clips, not a warning.** A silently shortened animation is a wrong result that
+   looks plausible. The bake `bail()`s on a clip with a missing frame.
+3. **Author-time detection in `/flipbook`** — the tool re-reads the live region set on load, so a
+   dangling frame is caught the moment the author opens it, not at publish.
+4. **Rename-repair hint (design option, unconfirmed).** `src` is the identity that survives a
+   rename, so recording each frame's `src` at author time would let the tool offer "region X is
+   gone — did you mean Y?". **Caveat:** `sheet_session.json` is the working state of one open
+   sheet, so per-sheet durable recovery of `src` must be confirmed before relying on this.
+
+No downstream validation makes rename *safe* — only *loud*. The durable fix is a rename endpoint
+in the Sheet Maker emitting a change record; deferred past v1 as a Python-tool change with its
+own cost.
+
 ## Two traps that must be designed around
 
 1. **The namespacing straddle.** Editor-art registers frames *scoped*
@@ -109,6 +164,10 @@ Mirrors the effects chain verbatim:
    framerate ≤ 0 (`particle-emitter.es.js:840`) — so every FX flipbook plays exactly once per
    particle lifetime regardless of intent, and the `bindArt` doc comment claiming otherwise is
    wrong. Fix the comment; make the coercion explicit.
+1b. **Close the FX frame-name guard gap** (independent, ships with 1). Add `layer.art.frames` to
+   `refs.usedRegions` in `editorArtExport.ts:295-305` so dangling FX frames are reported like
+   dangling sprite regions. Today they are invisible to every guard and degrade to a whole-sheet
+   texture fallback.
 2. **`packages/engine-flipbook`** — `FlipbookDoc` types, a normalizer (mirroring
    `engine-fx/normalize.ts`), and `registerFlipbooks` / `resolveFlipbook`.
 3. **Sheet Maker sequence import** — numeric-suffix grouping (`explosion_001.png…`) on
