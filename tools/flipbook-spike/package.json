@@ -7,7 +7,8 @@
 		"doc": "tsx docModel.ts",
 		"registry": "tsx registry.ts",
 		"frames": "tsx resolveFrames.ts",
-		"sequences": "tsx sequences.ts"
+		"sequences": "tsx sequences.ts",
+		"anim": "tsx animationPlist.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",
