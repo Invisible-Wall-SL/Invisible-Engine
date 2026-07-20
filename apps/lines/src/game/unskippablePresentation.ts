@@ -26,9 +26,20 @@
  *
  * THE SPIN IS THE SKIPPABLE UNIT, not the round (owner direction 2026-07-20, reversing the original
  * whole-feature choice). One press used to fast-forward every remaining free spin, because the token
- * is sticky and was re-armed only per bet. It is now re-armed at the START of each spin of a bonus
- * book ({@link rearmSlamForSpin}), so a press slams the spin that is rolling and the feature resumes
- * at full pace — normal roll, normal anticipation, normal count-up — until the next press.
+ * is sticky and was re-armed only per bet. It is now re-armed at the START of each free spin
+ * ({@link rearmSlamForSpin}), so a press slams the spin that is rolling and the feature resumes at
+ * full pace — normal roll, normal anticipation, normal count-up — until the next press.
+ *
+ * WHERE the re-arm goes is load-bearing, and getting it wrong is invisible in state. A free spin's
+ * book events are `updateFreeSpin` → `reveal` → …, so the counter update LEADS the spin it labels.
+ * Re-arming at the `reveal` therefore left the token tripped across the FOLLOWING spin's
+ * `updateFreeSpin`: its state write still landed (it is synchronous, which is why a state-level test
+ * passes), but its PRESENTATION was processed under a tripped token on every spin after a slam — the
+ * counter's cue collapsed, and under a screen-driving flow a `showContainer{awaitComplete}` on that
+ * chain was auto-completed by the slam-aware mount and the following `hideContainer` took the counter
+ * down. The re-arm is therefore keyed to {@link SPIN_REARM_BOOK_EVENTS} and applied by
+ * {@link runBookEventPresentation} BEFORE the dispatch, so it covers the coded, v1-flow and v2-flow
+ * paths at one seam and is fresh before anything the spin presents.
  *
  * A SLAM IS NOT A BLANK (owner direction 2026-07-20). Collapsing every wait to zero made a winning
  * slammed spin unreadable: the win symbols lit and the toast fired, but the whole `winInfo` sequence
@@ -52,6 +63,19 @@ export const UNSKIPPABLE_BOOK_EVENTS: ReadonlySet<string> = new Set([
 	'setExpandingSymbol',
 	'freeSpinTrigger',
 ]);
+
+/**
+ * The book event that STARTS one free spin — where the slam token is re-armed.
+ *
+ * `updateFreeSpin` is the first event of every free spin and, checked across the 10,100 reference
+ * books, it appears ONLY inside a free-spin feature: never without a `freeSpinTrigger`, never before
+ * one, and exactly once per free spin. So keying the re-arm to it scopes the per-spin unit to free
+ * spins by construction — the base game (whose order is `reveal` → `setTotalWin` → `freeSpinTrigger`)
+ * never re-arms mid-round and keeps exactly the round-scoped slam the owner approved. A RETRIGGER
+ * needs no special case for the same reason: extra free spins arrive as more `updateFreeSpin` events,
+ * each re-arming its own spin.
+ */
+export const SPIN_REARM_BOOK_EVENTS: ReadonlySet<string> = new Set(['updateFreeSpin']);
 
 /**
  * Cues whose awaited hold is resolved ONLY by a player press. These keep racing the token even
@@ -105,12 +129,20 @@ let depth = 0;
 /** True while the round is inside a presentation that must run to completion. */
 export const inUnskippablePresentation = (): boolean => depth > 0;
 
-/** Run `dispatch` with the unskippable scope open iff this book event owns an unskippable
- *  presentation. Any other event runs untouched, so the base game keeps fast-forwarding. */
+/**
+ * The per-book-event SLAM POLICY, applied around one dispatch: re-arm the token when this event
+ * starts a new free spin ({@link SPIN_REARM_BOOK_EVENTS}), then run `dispatch` with the unskippable
+ * scope open iff the event owns an unskippable presentation. Any other event runs untouched, so the
+ * base game keeps fast-forwarding.
+ *
+ * The re-arm runs BEFORE the dispatch — not inside a handler leaf — so the whole of the spin's first
+ * event, cues included, is presented with a fresh token on every path (coded, v1 flow, v2 flow).
+ */
 export const runBookEventPresentation = async (
 	bookEventType: string,
 	dispatch: () => Promise<void>,
 ): Promise<void> => {
+	if (SPIN_REARM_BOOK_EVENTS.has(bookEventType)) rearmSlamForSpin();
 	if (!UNSKIPPABLE_BOOK_EVENTS.has(bookEventType)) {
 		await dispatch();
 		return;
@@ -145,22 +177,20 @@ export const waitPresentation = (time: number): Promise<void> =>
 	inUnskippablePresentation() ? waitForTimeout(time) : roundSkip.wait(time);
 
 /**
- * Re-arm the slam token for the spin that is ABOUT to roll — the per-spin unit of skippability.
- * Called at the top of the `reveal` leaf (coded handler + `revealBoard` effect) when the book holds
- * MORE THAN ONE reveal, i.e. this is a bonus book and each reveal is one free spin. A single-reveal
- * base-game book never calls it, so the base game keeps exactly the round-scoped behaviour the owner
- * approved.
+ * Re-arm the slam token for the free spin that is ABOUT to be presented — the per-spin unit of
+ * skippability. Driven by {@link runBookEventPresentation} off {@link SPIN_REARM_BOOK_EVENTS}, so it
+ * fires once per free spin on every dispatch path, ahead of that spin's first cue.
  *
- * It is a DELIBERATE call at the site that owns the spin lifecycle, rather than a subscription to
- * the `stopButtonEnable` broadcast that used to carry it: that made the re-arm an invisible side
- * effect of a UI-enable event which ALSO fires from `playBet`'s `finally` (round end), where
- * re-arming means nothing.
+ * It is a DELIBERATE call from the dispatch seam, rather than a subscription to the
+ * `stopButtonEnable` broadcast that used to carry it: that made the re-arm an invisible side effect
+ * of a UI-enable event which ALSO fires from `playBet`'s `finally` (round end), where re-arming
+ * means nothing.
  *
  * Re-arming can only ever return the token to the state an un-slammed round is already in, so it
  * cannot strand a wait: every hold reached after it behaves exactly as it does when nobody pressed.
  * It also cannot race the unskippable carve-out — the scope is opened and closed inside a SINGLE
- * book-event dispatch, book events are strictly serial, and `reveal` is a different dispatch from
- * the `setExpandingSymbol` / `freeSpinTrigger` that own the reveal and intro. The carve-out drops
- * the race outright rather than reading the token, so its behaviour does not depend on this at all.
+ * book-event dispatch, book events are strictly serial, and `updateFreeSpin` is a different dispatch
+ * from the `setExpandingSymbol` / `freeSpinTrigger` that own the reveal and intro. The carve-out
+ * drops the race outright rather than reading the token, so it does not depend on this at all.
  */
 export const rearmSlamForSpin = (): void => roundSkip.reset();

@@ -47,12 +47,7 @@ import { eventEmitter } from './eventEmitter';
 import { stateApp } from './stateApp';
 import { winLevelMap, type WinLevel, type WinLevelData } from './winLevelMap';
 import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
-import {
-	awaitCue,
-	rearmSlamForSpin,
-	slamHold,
-	SLAM_MESSAGE_HOLD_MS,
-} from './unskippablePresentation';
+import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
 import { PADDING_REELS, BOARD_DIMENSIONS } from './constants';
@@ -157,6 +152,15 @@ export const winLineEnabledForWin = (win: { symbol: SymbolName }): boolean =>
  * `winInfo` handler's slam summary, so a slammed spin says exactly what an authored toast says.
  *
  * Returns whether anything was actually shown, so a caller can hold only for a real message.
+ *
+ * FAULT-ISOLATED, because this runs INSIDE the awaited book-event chain. Everything it touches is
+ * data the game does not control end-to-end — `Intl` via the currency formatter (a `RangeError` on
+ * an unexpected currency/locale), the baked win-text doc, an authored template — and a throw here
+ * propagates out of the handler, out of `sequence`, and ABORTS `playBookEvents`. Every remaining
+ * book event is then silently dropped: the free-spin counter freezes on the spin the round died on,
+ * `freeSpinEnd` never runs, and the game is left in `freegame` with no outro. A toast is pure
+ * presentation and must never cost the player the rest of the round, so it degrades to "showed
+ * nothing" and reports on the console instead.
  */
 export const showWinInfoMessage = ({
 	amount,
@@ -169,16 +173,21 @@ export const showWinInfoMessage = ({
 	messageKind?: GameMessageKind;
 	durationMs?: number;
 }): boolean => {
-	const vars = {
-		amount: amount === undefined ? undefined : bookEventAmountToCurrencyString(amount),
-		count: kind,
-	};
-	const template = resolveToastTemplate(bakedWinText(), vars);
-	if (!template) return false;
-	const text = formatWinText(template, vars);
-	if (!text) return false;
-	showGameMessage(text, { kind: messageKind, durationMs });
-	return true;
+	try {
+		const vars = {
+			amount: amount === undefined ? undefined : bookEventAmountToCurrencyString(amount),
+			count: kind,
+		};
+		const template = resolveToastTemplate(bakedWinText(), vars);
+		if (!template) return false;
+		const text = formatWinText(template, vars);
+		if (!text) return false;
+		showGameMessage(text, { kind: messageKind, durationMs });
+		return true;
+	} catch (error) {
+		console.error('showWinInfoMessage failed; the round continues without a message', error);
+		return false;
+	}
 };
 
 /**
@@ -291,8 +300,8 @@ const effects: Record<string, FlowEffect> = {
 		const bookEvents = payload.bookEvents as BookEvent[];
 		const isBonusGame = checkIsMultipleRevealEvents({ bookEvents });
 		if (isBonusGame) {
-			// Per-spin slam re-arm — the coded `reveal` handler's twin (parity by construction).
-			rearmSlamForSpin();
+			// The per-spin slam re-arm is NOT here — it hangs off `updateFreeSpin`, the free spin's
+			// FIRST event (`unskippablePresentation.ts`). The coded `reveal` handler's twin, verbatim.
 			eventEmitter.broadcast({ type: 'stopButtonEnable' });
 			recordBookEvent({ bookEvent });
 		}

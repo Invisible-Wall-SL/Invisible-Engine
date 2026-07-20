@@ -10,12 +10,7 @@ import { SECOND } from 'constants-shared/time';
 
 import { eventEmitter } from './eventEmitter';
 import { getFlowV2 } from './flowV2InterpreterHolder';
-import {
-	awaitCue,
-	rearmSlamForSpin,
-	slamHold,
-	SLAM_MESSAGE_HOLD_MS,
-} from './unskippablePresentation';
+import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { playBookEvent } from './utils';
 import { winLevelMap, type WinLevel } from './winLevelMap';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
@@ -36,10 +31,11 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	reveal: async (bookEvent: BookEventOfType<'reveal'>, { bookEvents }: BookEventContext) => {
 		const isBonusGame = checkIsMultipleRevealEvents({ bookEvents });
 		if (isBonusGame) {
-			// The SPIN is the skippable unit: re-arm before this free spin rolls so a press slams
-			// only the one that is playing and the rest of the feature keeps its full pacing —
-			// roll, anticipation and count-up — until the player presses again.
-			rearmSlamForSpin();
+			// The per-spin slam re-arm is NOT here: a free spin's first event is `updateFreeSpin`, not
+			// `reveal`, so re-arming here left the counter update of the next spin to be presented under
+			// the previous spin's tripped token (`unskippablePresentation.ts`). The multiple-reveal guard
+			// still governs these two, which genuinely belong to the reveal: the stop button is enabled
+			// for the roll, and `recordBookEvent` records THIS reveal's index for the resume path.
 			eventEmitter.broadcast({ type: 'stopButtonEnable' });
 			recordBookEvent({ bookEvent });
 		}
