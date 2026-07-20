@@ -21,7 +21,12 @@
 		UI_FEATURES_UK,
 	} from 'state-shared';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
-	import { getSpinButtonKey, runSpinOrSlamStop, type SpinButtonKey } from 'utils-shared/spinStop';
+	import {
+		getSpinButtonKey,
+		getSpinPressSound,
+		runSpinOrSlamStop,
+		type SpinButtonKey,
+	} from 'utils-shared/spinStop';
 
 	import {
 		UI,
@@ -369,15 +374,17 @@
 	// double-fire); un-owned / no v2 doc ⇒ `resolveFlowV2Press` returns undefined ⇒ the coded press runs
 	// unchanged (parity). Consulted at click time, so it tracks the live handle regardless of boot order.
 	// Flow routing SKIPS the coded `onpress`, which is where the press-feedback SOUND is broadcast — so
-	// replay it here before dispatching (faithful mapping: spin → `soundPressBet`, every other HUD button
-	// → `soundPressGeneral`), else a flow-owned button press would be silent.
+	// replay it here before dispatching (faithful mapping: spin → the shared bet/slam cue, every other
+	// HUD button → `soundPressGeneral`), else a flow-owned button press would be silent.
 	registerFlowPress((componentId, action) => {
 		const routed = resolveFlowV2Press(componentId, action);
 		if (!routed) return undefined;
 		return () => {
-			context.eventEmitter.broadcast({
-				type: action === 'spin' ? 'soundPressBet' : 'soundPressGeneral',
-			});
+			context.eventEmitter.broadcast(
+				action === 'spin'
+					? getSpinPressSound({ isIdle: context.stateXstateDerived.isIdle() })
+					: { type: 'soundPressGeneral' },
+			);
 			routed();
 		};
 	});
@@ -1286,7 +1293,9 @@
 		// markup below, gated on the same flag.
 		spin: {
 			onpress: () => {
-				context.eventEmitter.broadcast({ type: 'soundPressBet' });
+				context.eventEmitter.broadcast(
+					getSpinPressSound({ isIdle: context.stateXstateDerived.isIdle() }),
+				);
 				// Functional action pin (design doc §8.5): an authored `spin` action → intent edge
 				// routes the press THROUGH the flow; unwired / inert ⇒ the coded bet/stop runs
 				// exactly as today (parity §8.8). Same shared helper the other HUD actions use.
@@ -1312,7 +1321,9 @@
 	// runs the continue-press only.
 	const spinHotkeyDisabled = $derived(getSpinKey() === 'spin_disabled' || hasContinuePress());
 	const spinHotkeyPress = () => {
-		context.eventEmitter.broadcast({ type: 'soundPressBet' });
+		context.eventEmitter.broadcast(
+			getSpinPressSound({ isIdle: context.stateXstateDerived.isIdle() }),
+		);
 		doSpinBetOrStop();
 	};
 

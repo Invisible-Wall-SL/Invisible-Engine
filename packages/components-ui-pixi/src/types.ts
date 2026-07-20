@@ -60,6 +60,7 @@ export type EmitterEventUi =
 	| { type: 'soundBetMode'; betModeKey: string }
 	| { type: 'soundPressGeneral' }
 	| { type: 'soundPressBet' }
+	| { type: 'soundPressStop' }
 	// bet services
 	| { type: 'resumeBet' }
 	| { type: 'autoBet' }

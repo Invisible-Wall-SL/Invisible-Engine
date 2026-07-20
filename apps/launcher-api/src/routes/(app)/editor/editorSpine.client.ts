@@ -63,68 +63,7 @@ function placeholderImage(): HTMLCanvasElement {
 	return placeholderCanvas;
 }
 
-/**
- * The engine's BUILT-IN spines, vendored into the launcher's `static/` so a tool can preview a
- * coded default. These ship as LOCAL game assets (`apps/lines/static/assets/spines/…`), so they
- * are not in R2 and `/api/editor/spine` cannot resolve them — without a copy here the Symbols SM
- * could only ever show a "can't be previewed" placeholder for the defaults it documents.
- * Keep in sync with the coded keys: `reelhouse` = `BoardFrame.svelte`'s free-spin board glow,
- * `anticipation` = the `payframe` win-frame highlight.
- */
-const BUILTIN_PREFIX = 'builtin:';
-const BUILTIN_SPINES: Record<string, { dir: string; skeleton: string; atlas: string }> = {
-	reelhouse: {
-		dir: '/builtin/spines/reelhouse',
-		skeleton: 'reelhouse_glow.json',
-		atlas: 'reelhouse_glow.atlas',
-	},
-	anticipation: {
-		dir: '/builtin/spines/anticipation',
-		skeleton: 'anticipation.json',
-		atlas: 'anticipation.atlas',
-	},
-};
-
-/** Prefix a key so {@link loadSpineInstance} resolves it from the vendored built-ins. */
-export const builtinSpineKey = (id: string): string => `${BUILTIN_PREFIX}${id}`;
-/** Whether this project ships a vendored copy of the coded default `id`. */
-export const hasBuiltinSpine = (id: string): boolean => id in BUILTIN_SPINES;
-
-/**
- * Synthesize the descriptor `/api/editor/spine` would return, from the vendored static files.
- * Page names come from the atlas itself (the un-indented image lines) and `pma` from the same
- * `pma: true` header rule the server-side index uses, so a built-in renders byte-identically to
- * the R2 path — no premultiply/halo divergence.
- */
-async function builtinDescriptor(id: string): Promise<SpineDescriptor | null> {
-	const entry = BUILTIN_SPINES[id];
-	if (!entry) return null;
-	const res = await fetch(`${entry.dir}/${entry.atlas}`);
-	if (!res.ok) return null;
-	const atlasText = await res.text();
-	const pageNames = atlasText
-		.split(/\r?\n/)
-		.filter((line) => line === line.trimStart() && /\.(webp|png|jpe?g)$/i.test(line.trim()))
-		.map((line) => line.trim());
-	return {
-		found: true,
-		folder: entry.dir,
-		format: 'json',
-		// Both vendored skeletons are exported from Spine 4.1; the loader keeps the first
-		// runtime line a page loads, so this must match what the rest of the page uses.
-		runtime: '4.1',
-		pma: /^\s*pma\s*:\s*true\s*$/im.test(atlasText.slice(0, 2000)),
-		atlasText,
-		skeletonUrl: `${entry.dir}/${entry.skeleton}`,
-		pageNames,
-		pageUrls: pageNames.map((name) => `${entry.dir}/${name}`),
-	};
-}
-
 async function fetchDescriptor(assetKey: string): Promise<SpineDescriptor | null> {
-	if (assetKey.startsWith(BUILTIN_PREFIX)) {
-		return builtinDescriptor(assetKey.slice(BUILTIN_PREFIX.length));
-	}
 	const res = await fetch(`/api/editor/spine?key=${encodeURIComponent(assetKey)}`);
 	if (!res.ok) return null;
 	const body = (await res.json()) as { found?: boolean } & Partial<SpineDescriptor>;
