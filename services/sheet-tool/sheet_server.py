@@ -214,6 +214,36 @@ def safe_name(s: str, default: str = "sheet") -> str:
     return s or default
 
 
+_DIGITS = re.compile(r"(\d+)")
+
+
+def natural_key(name: str) -> list:
+    """Sort key that compares NUMERIC runs numerically, so `f2` precedes `f10`.
+
+    Plain lexicographic order gets an image sequence wrong the moment it passes
+    9 frames and isn't zero-padded: `explosion_1, explosion_10, explosion_2`.
+    Frame ORDER is the whole contract a flipbook clip is built on (a sheet is
+    otherwise an unordered bag of cells), and the order sprites land in here
+    flows straight through — `api_upload`'s list drives the client's `regions`
+    array, which drives the manifest's region order, which is what the clip
+    editor reads. So a mis-sorted upload silently authors a scrambled animation.
+
+    Case-insensitive on the text runs so `Frame_2` and `frame_10` interleave the
+    way an author expects. See docs/design/invisible-flipbook.md.
+
+    Each part is a UNIFORMLY-TYPED tuple rather than a bare int-or-str: mixing the
+    two raises `TypeError: '<' not supported between 'str' and 'int'` the moment a
+    name starting with a digit is sorted against one starting with a letter
+    (`01_intro.png` vs `boom.png` — a completely ordinary pair to drop into one
+    sheet, which would 500 the upload).
+    """
+    return [
+        (0, int(part), "") if part.isdigit() else (1, 0, part.lower())
+        for part in _DIGITS.split(name or "")
+        if part != ""
+    ]
+
+
 def uploads_dir(sheet: str) -> Path:
     # The uploaded sprite pile hydrates lazily (cloud_paths excludes sheet_src/
     # from the eager pull). Pull it on first access for this (client, project)
@@ -451,9 +481,14 @@ def api_upload(fields: dict, files: list) -> dict:
             return {"error": f"{fn}: not a readable image ({e})"}
         _mirror(dst)
         saved.append({"file": fn, "w": w, "h": h})
+    # Order the just-saved batch NATURALLY rather than leaving it in whatever order the
+    # browser's file input handed us. The client pushes `saved` straight into its `regions`
+    # array, so this IS the authored order of an imported image sequence — and an unsorted
+    # (or lexicographic) batch lands `frame_10` before `frame_2`.
+    saved.sort(key=lambda s: natural_key(s["file"]))
     # Full current sprite list for the sheet (so re-uploads accumulate).
     sprites = []
-    for p in sorted(d.glob("*")):
+    for p in sorted(d.glob("*"), key=lambda p: natural_key(p.name)):
         if p.suffix.lower() in (".png", ".webp"):
             w, h = packer.measure(p)
             sprites.append({"file": p.name, "w": w, "h": h})
@@ -1552,8 +1587,12 @@ def _recover_sheet_from_sprites(sheet: str) -> dict | None:
     None when there's nothing to recover, so the caller can fall back to the
     hard error."""
     up = uploads_dir(sheet)            # hydrates sheet_src/<sheet>/ from R2
-    sprites = sorted(p for p in up.glob("*")
-                     if p.suffix.lower() in (".png", ".webp"))
+    # Natural order, matching api_upload: a recovered sheet must rebuild its regions in the
+    # same sequence the author originally uploaded, or a frame animation authored over it
+    # silently scrambles on recovery.
+    sprites = sorted((p for p in up.glob("*")
+                      if p.suffix.lower() in (".png", ".webp")),
+                     key=lambda p: natural_key(p.name))
     if not sprites:
         return None
     regions_out = []
