@@ -95,8 +95,9 @@ Above the grid is a dedicated **Highlight (win frame)** section. The highlight i
 single, **global** spine (not per-symbol, not per-state) that loops over the winning
 symbols during a win — the win-frame animation. Every game ships a built-in default:
 the local `payframe` animation (spine key `anticipation`), which lives in the game's own
-repo, NOT in R2, so the tool can't preview it. It is shown as a clear **Default
-(payframe)** placeholder with an explanatory note.
+repo, NOT in R2. The launcher vendors its own copy (`static/builtin/spines/`), so the
+default still **previews live** and is labelled **Default (payframe)**. A project that
+carries its own matching R2 bundle previews that one instead.
 
 - **Change** opens an inline editor: pick a **Spine bundle** from the project's (and
   shared) R2 bundles — the same library the grid's spine cells use — then pick an
@@ -119,9 +120,10 @@ highlight pointer so the game loads the authored win frame by `assetKey`.
 Below the highlight is the **Free-spin board glow** section. The board glow is the
 single, **global** spine that lights up *behind the reels* for the duration of a
 free-spin session — the pink "reelhouse" backdrop in a stock game. Like the highlight, the
-built-in default (spine key `reelhouse`) lives in the game's own repo, NOT in R2, so it
-shows as a **Default (reelhouse)** placeholder unless the project happens to have a
-matching R2 bundle.
+built-in default (spine key `reelhouse`) lives in the game's own repo, NOT in R2 — and like
+the highlight it **previews live** from the launcher's vendored copy
+(`static/builtin/spines/`), labelled **Default (reelhouse)**. A project carrying its own
+matching R2 bundle previews that one instead.
 
 - **Change** opens an inline editor: pick a **Spine bundle** from the project's (and
   shared) R2 bundles — **including a rig exported from the Invisible Rigger**, which ships

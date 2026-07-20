@@ -4,6 +4,7 @@
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import RegionPicker from '../editor/RegionPicker.svelte';
 	import { fetchRegions, type EditorRegion, type RegionSet } from '../editor/editorRegions.client';
+	import { builtinSpineKey, hasBuiltinSpine } from '../editor/editorSpine.client';
 	import SymbolSpinePreview from './SymbolSpinePreview.svelte';
 	import SymbolSpineStage from './SymbolSpineStage.svelte';
 	import SymbolSpritePreview from './SymbolSpritePreview.svelte';
@@ -82,6 +83,23 @@
 
 	/** Spine bundles available for spine cells (project + shared). */
 	const spineBundles = $derived(data.assets.spines.map((s) => ({ name: s.name, key: s.key })));
+
+	/**
+	 * The bundle used to PREVIEW a coded default (the board glow, the win frame). Prefers a real R2
+	 * bundle matching the key, so a project carrying its own copy previews THAT; otherwise falls back
+	 * to the engine spine vendored into the launcher's `static/builtin/`. The coded defaults ship as
+	 * local game assets and are not in R2, so before that fallback they could only ever render a
+	 * "not in R2, can't be previewed" placeholder — the tool documented a default it couldn't show.
+	 */
+	function resolveBuiltinBundle(assetKey: string): { key: string; name: string } | undefined {
+		const fromR2 = spineBundles.find(
+			(b) => b.name === assetKey || b.key === assetKey || b.key.split('/').includes(assetKey),
+		);
+		if (fromR2) return fromR2;
+		return hasBuiltinSpine(assetKey)
+			? { key: builtinSpineKey(assetKey), name: assetKey }
+			: undefined;
+	}
 
 	// Frame name → its region, built ONCE for the whole grid by fetching every sheet
 	// in PARALLEL. Previously each sprite cell scanned the sheet list itself, and
@@ -274,14 +292,7 @@
 	// The project's R2 bundle that matches the built-in default frame, if any (matched by
 	// name/key so we don't depend on the exact prefix). Used to preview the default.
 	const defaultFrameBundle = $derived(
-		highlight.overridden
-			? undefined
-			: spineBundles.find(
-					(b) =>
-						b.name === BUILTIN_FRAME.assetKey ||
-						b.key === BUILTIN_FRAME.assetKey ||
-						b.key.split('/').includes(BUILTIN_FRAME.assetKey),
-				),
+		highlight.overridden ? undefined : resolveBuiltinBundle(BUILTIN_FRAME.assetKey),
 	);
 	let highlightEditing = $state(false);
 	let highlightDraft = $state<SymbolCell | null>(null);
@@ -347,14 +358,7 @@
 		{ track: 'exit', label: 'Exit animation' },
 	] as const;
 	const defaultGlowBundle = $derived(
-		doc.boardGlow
-			? undefined
-			: spineBundles.find(
-					(b) =>
-						b.name === BUILTIN_GLOW.assetKey ||
-						b.key === BUILTIN_GLOW.assetKey ||
-						b.key.split('/').includes(BUILTIN_GLOW.assetKey),
-				),
+		doc.boardGlow ? undefined : resolveBuiltinBundle(BUILTIN_GLOW.assetKey),
 	);
 	let glowEditing = $state(false);
 	let glowDraft = $state<BoardGlowConfig | null>(null);
@@ -547,8 +551,8 @@
 								<div class="hl-meta">
 									<span class="hl-label">Default (payframe)</span>
 									<span class="hl-note">
-										Built-in local spine — not in R2, so it can't be previewed here. Pick an R2
-										spine to override it.
+										The coded default ships with the game and still renders in-game; the launcher
+										just has no copy to preview. Pick an R2 spine to override it.
 									</span>
 								</div>
 							{/if}
@@ -689,8 +693,8 @@
 								<div class="hl-meta">
 									<span class="hl-label">Default (reelhouse)</span>
 									<span class="hl-note">
-										Built-in local spine — not in R2, so it can't be previewed here. Pick an R2
-										spine to override it.
+										The coded default ships with the game and still renders in-game; the launcher
+										just has no copy to preview. Pick an R2 spine to override it.
 									</span>
 								</div>
 							{/if}
