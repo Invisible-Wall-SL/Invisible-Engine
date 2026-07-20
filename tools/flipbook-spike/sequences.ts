@@ -11,7 +11,7 @@
  * The two rules that matter: numeric (not lexicographic) ordering, and a gap SPLITS a run.
  */
 
-import { detectSequences } from 'engine-flipbook';
+import { detectSequences, detectSequencesAcross } from 'engine-flipbook';
 
 let failures = 0;
 const assert = (cond: boolean, msg: string): void => {
@@ -81,6 +81,77 @@ assert(
 	detectSequences(['sym1_0', 'sym1_1', 'sym1_2'])[0].stem === 'sym1',
 	'a digit INSIDE the stem is not mistaken for the index',
 );
+
+// ---------------------------------------------------------------------------
+// Cross-sheet detection — the form that matches a real multipacked export.
+// ---------------------------------------------------------------------------
+console.log('sequences — across sheets (the real 4-page export)');
+const K = (n: number): string => `c/p/manifests/atlas_manifest_page${n}.json`;
+const F = (i: number): string => `anim-sym-pic1_${String(i).padStart(2, '0')}`;
+
+// The ACTUAL frame→page distribution of the owner's export.
+const PAGES: Record<number, number[]> = {
+	0: [0, 13, 21, 29, 30, 32, 40, 41, 42, 43, 44, 45, 48],
+	1: [1, 2, 3, 4, 5, 6, 7, 14, 15, 22, 26, 27, 28, 36, 37, 38, 39],
+	2: [8, 9, 10, 12, 16, 17, 18, 24, 25, 31, 33, 34, 35, 46],
+	3: [11, 19, 20, 23, 47],
+};
+const sheets = Object.entries(PAGES).map(([p, idx]) => ({
+	assetKey: K(Number(p)),
+	regions: idx.map(F),
+}));
+
+// Per sheet, page 0 offers only 40..45 — six frames — because nothing else on it is
+// consecutive. That is correct and useless, and is why the cross-sheet form exists.
+const page0Only = detectSequences(PAGES[0].map(F));
+assert(
+	page0Only.length === 1 && page0Only[0].frames.length === 6,
+	'per-sheet detection on page 0 finds only the 6-frame fragment (40..45)',
+);
+
+const across = detectSequencesAcross(sheets);
+assert(across.length === 1, 'across all four pages there is exactly ONE animation');
+assert(across[0].frames.length === 49, 'it recovers all 49 frames');
+assert(across[0].sheets.length === 4, 'and reports that it spans 4 sheets');
+
+// Order must be the ANIMATION's, not any page's.
+const regionOf = (entry: string): string => (entry.includes('::') ? entry.split('::')[1] : entry);
+assert(
+	across[0].frames.map(regionOf).join(',') === Array.from({ length: 49 }, (_, i) => F(i)).join(','),
+	'frames come back in animation order 00..48, ignoring page boundaries',
+);
+
+// Primary = the sheet with the most frames (page 1, 17 of them) ⇒ fewest scoped refs.
+assert(across[0].primary === K(1), 'the primary sheet is the one contributing the most frames');
+const bare = across[0].frames.filter((f) => !f.includes('::'));
+assert(bare.length === 17, 'frames on the primary sheet stay bare (17 of them)');
+assert(across[0].frames.length - bare.length === 32, 'the other 32 are scoped to their own page');
+// Every scoped ref must name the page that actually holds it.
+const wrong = across[0].frames.filter((f) => {
+	if (!f.includes('::')) return false;
+	const [key, region] = [f.slice(0, f.indexOf('::')), regionOf(f)];
+	const page = Number(region.split('_').pop());
+	return key !== K(Number(Object.entries(PAGES).find(([, v]) => v.includes(page))![0]));
+});
+assert(wrong.length === 0, 'every scoped frame names the page that actually packs it');
+
+console.log('sequences — across sheets, edge cases');
+// A run wholly on one sheet stores NO scoped refs — a single-sheet clip is unchanged.
+const single = detectSequencesAcross([{ assetKey: K(0), regions: ['x_0', 'x_1', 'x_2'] }]);
+assert(
+	single[0].frames.join(',') === 'x_0,x_1,x_2' && single[0].sheets.length === 1,
+	'a run confined to one sheet produces bare names and one sheet',
+);
+// The same index on two sheets is ambiguous — it must break the run, not be guessed at.
+const dupeAcross = detectSequencesAcross([
+	{ assetKey: K(0), regions: ['y_0', 'y_1', 'y_2', 'y_3'] },
+	{ assetKey: K(1), regions: ['y_2'] },
+]);
+assert(
+	dupeAcross.every((s) => s.frames.length < 4),
+	'a duplicated index across sheets breaks the run rather than picking a page',
+);
+assert(detectSequencesAcross([]).length === 0, 'no sheets yields nothing');
 
 console.log('');
 if (failures > 0) {

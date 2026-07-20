@@ -14,7 +14,7 @@
 	import {
 		DEFAULT_FLIPBOOK_FPS,
 		clipSheetKeys,
-		detectSequences,
+		detectSequencesAcross,
 		parseFrameRef,
 		type FlipbookClip,
 	} from 'engine-flipbook';
@@ -285,15 +285,30 @@
 	// authored sheet gets the same offer as one imported verbatim from a .plist — the hint stays
 	// provenance. `detectSequences` is held to parity with the Sheet Maker's Python twin by
 	// `tools/flipbook-spike/sequences.ts`.
-	const sequences = $derived(detectSequences((regionSet?.regions ?? []).map((r) => r.name)));
+	// Detected across EVERY sheet in the project, not just the selected one. A multipacked export
+	// scatters one animation over its pages, so per-sheet detection finds only fragments: the
+	// owner's real 4-page export offered runs of 6, then 7/4/3, then 3/3/3, then nothing — while
+	// the union is the single 49-frame animation that was actually authored.
+	const sequences = $derived(
+		detectSequencesAcross(
+			data.atlases.map((a) => ({ assetKey: a.manifestKey, regions: a.regions })),
+		),
+	);
 	/** Runs not already exactly loaded — a run the author just applied stops being an offer. */
 	const sequenceOffers = $derived(
-		sequences.filter((s) => s.frames.join(' ') !== clip.frames.join(' ')),
+		sequences.filter((s) => s.frames.join(' ') !== clip.frames.join(' ')),
 	);
 
 	/** Replace (not append) the frame list with a detected run. Appending would silently produce
-	 * a double-length clip when clicked twice, and the run IS the animation — so it is the list. */
-	function useSequence(seq: { stem: string; frames: string[] }): void {
+	 * a double-length clip when clicked twice, and the run IS the animation — so it is the list.
+	 * The run carries its own `primary` sheet (the one holding the most of its frames, so the
+	 * stored doc needs the fewest scoped refs), which becomes the clip's `assetKey`. */
+	function useSequence(seq: {
+		stem: string;
+		primary: string;
+		frames: string[];
+		sheets: string[];
+	}): void {
 		if (
 			clip.frames.length > 0 &&
 			!confirm(
@@ -305,12 +320,13 @@
 		}
 		clip = {
 			...clip,
-			assetKey: sheetKey,
+			assetKey: seq.primary,
 			// Only name the clip after the run when it is still unnamed/untitled — never clobber
 			// a name the author chose.
 			name: clip.name && clip.id !== UNTITLED_CLIP_ID ? clip.name : seq.stem,
 			frames: [...seq.frames],
 		};
+		sheetKey = seq.primary;
 		frameIndex = 0;
 	}
 
@@ -591,12 +607,17 @@
 				<div class="seqs">
 					<h4>Detected animation{sequenceOffers.length === 1 ? '' : 's'}</h4>
 					<p class="seqhint">
-						These regions are numbered consecutively, so they are probably one animation.
+						Consecutively-numbered regions across the whole project — probably one animation each,
+						even when a multipacked atlas split it over several sheets.
 					</p>
 					{#each sequenceOffers as seq (seq.stem)}
 						<button class="seq" onclick={() => useSequence(seq)}>
 							<span class="sqn">{seq.stem}</span>
-							<span class="sqc">{seq.frames.length} frames</span>
+							<span class="sqc"
+								>{seq.frames.length} frames{seq.sheets.length > 1
+									? ` · ${seq.sheets.length} sheets`
+									: ''}</span
+							>
 						</button>
 					{/each}
 				</div>
