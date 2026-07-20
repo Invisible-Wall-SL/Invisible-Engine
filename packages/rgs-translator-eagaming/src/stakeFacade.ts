@@ -319,16 +319,23 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 	// front and emit its `updateFreeSpin` BEFORE the reveal instead, so "N OF total" is on screen
 	// while spin N actually plays. `played`/`left` are read from `playedBonusSpin`, so any
 	// retrigger that already grew `left` this response is reflected in the total. Non-free-spin
-	// responses (no `playedBonusSpin`) leave `bonusSpin` undefined ⇒ nothing changes.
-	const bonusSpin = events.find((e) => e.event === 'playedBonusSpin')?.context as
-		| { played?: number; left?: number }
-		| undefined;
-	let bonusCounterEmitted = false;
+	// responses (no `playedBonusSpin`) leave the list empty ⇒ nothing changes.
+	//
+	// ONE COUNTER PER SPIN, consumed in order. A response is NOT guaranteed to carry a single free
+	// spin — a whole feature can arrive in one batch, with a `playedBonusSpin` per spin. Reading
+	// only the FIRST and latching after one emit collapsed the entire feature to a single tick, so
+	// the panel sat on "1 OF 10" for all ten spins.
+	const bonusSpins = events
+		.filter((e) => e.event === 'playedBonusSpin')
+		.map((e) => e.context as { played?: number; left?: number } | undefined);
+	let bonusCursor = 0;
+	let bonusSeen = 0;
 	const emitBonusCounter = () => {
-		if (bonusCounterEmitted || !bonusSpin) return;
-		bonusCounterEmitted = true;
-		const played = bonusSpin.played ?? 0;
-		const left = bonusSpin.left ?? 0;
+		const spin = bonusSpins[bonusCursor];
+		if (!spin) return;
+		bonusCursor += 1;
+		const played = spin.played ?? 0;
+		const left = spin.left ?? 0;
 		push({ type: 'updateFreeSpin', amount: Math.max(0, played - 1), total: played + left });
 	};
 
@@ -481,8 +488,11 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 			case 'playedBonusSpin': {
 				// Normally the reveal above already emitted this spin's counter (leading the board).
 				// This is the fallback for a malformed response that carries the counter but no
-				// `playedSpin` — emit it here so the count is never simply dropped.
-				emitBonusCounter();
+				// `playedSpin` — emit it here so the count is never simply dropped. Gated on the
+				// cursor still trailing this spin, so a response WITH reveals doesn't emit the NEXT
+				// spin's number early.
+				bonusSeen += 1;
+				if (bonusCursor < bonusSeen) emitBonusCounter();
 				break;
 			}
 			case 'playedBonusSpins':
