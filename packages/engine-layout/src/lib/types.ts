@@ -211,6 +211,8 @@ export interface ButtonStateAnimations {
 	selected?: SpineStateAnimation;
 	disabled?: SpineStateAnimation;
 	spinning?: SpineStateAnimation;
+	spinningHover?: SpineStateAnimation;
+	spinningPressed?: SpineStateAnimation;
 }
 
 export interface SpineNode extends BaseNode {

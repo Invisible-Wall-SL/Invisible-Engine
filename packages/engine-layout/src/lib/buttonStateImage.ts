@@ -18,6 +18,13 @@
  * `spinning` is checked FIRST because a single bet's roll sets BOTH `spinning`
  * and `disabled` (the button is inert while one spin rolls — there is nothing to
  * stop) and the rotating spin frame must win over the downstate grey.
+ *
+ * Since slam-stop the spinning button is no longer inert — it is a live STOP —
+ * so it needs its own hover/press feedback. Those are DEDICATED states
+ * (`imageSpinningHover`, `imageSpinningPressed`) rather than a reuse of
+ * `imageHover`/`imagePressed`: the resting frames depict SPIN, and showing them
+ * over a STOP button would change the look of already-authored buttons. Unset ⇒
+ * the plain spinning frame, i.e. byte-identical to before.
  */
 
 import type { ButtonStateAnimations, SpineStateAnimation } from './types';
@@ -32,7 +39,14 @@ export interface ButtonStateFlags {
 
 /** The non-resting button states the cascade resolves, in priority order. The
  * resting state (`image` / `defaultAnimation`) is the caller's fallback, not a key. */
-export type ButtonVisualState = 'spinning' | 'disabled' | 'pressed' | 'hover' | 'selected';
+export type ButtonVisualState =
+	| 'spinning'
+	| 'spinningHover'
+	| 'spinningPressed'
+	| 'disabled'
+	| 'pressed'
+	| 'hover'
+	| 'selected';
 
 /**
  * The shared button-state cascade, parameterised over the looked-up value type so
@@ -45,13 +59,18 @@ export type ButtonVisualState = 'spinning' | 'disabled' | 'pressed' | 'hover' | 
  *
  * `spinning` is checked FIRST because a single bet's roll sets BOTH `spinning` and
  * `disabled` (the button is inert while one spin rolls) and the spinning visual must
- * win over the downstate.
+ * win over the downstate. Within it, the slam-stop button's own hover/press states
+ * fall back to the plain spinning frame when unauthored.
  */
 export function resolveButtonState<T>(
 	get: (state: ButtonVisualState) => T | undefined,
 	state: ButtonStateFlags,
 ): T | undefined {
-	if (state.spinning) return get('spinning');
+	if (state.spinning) {
+		if (state.pressed) return get('spinningPressed') ?? get('spinning');
+		if (state.hovered) return get('spinningHover') ?? get('spinning');
+		return get('spinning');
+	}
 	if (state.disabled) return get('disabled');
 	const selected = state.active ? get('selected') : undefined;
 	if (state.pressed) return get('pressed') ?? get('hover') ?? selected;
@@ -67,11 +86,15 @@ export const BUTTON_STATE_IMAGE_KEYS = [
 	'imageSelected',
 	'imageDisabled',
 	'imageSpinning',
+	'imageSpinningHover',
+	'imageSpinningPressed',
 ] as const;
 
 /** State → the `image*` param key that holds its frame ref. */
 const IMAGE_KEY: Record<ButtonVisualState, string> = {
 	spinning: 'imageSpinning',
+	spinningHover: 'imageSpinningHover',
+	spinningPressed: 'imageSpinningPressed',
 	disabled: 'imageDisabled',
 	pressed: 'imagePressed',
 	hover: 'imageHover',

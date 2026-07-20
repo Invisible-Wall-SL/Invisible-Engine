@@ -248,6 +248,22 @@ export const BUTTON_DEF: ComponentDef = {
 		// of the resting one and rotates it continuously until the flag clears. A
 		// circular/radially-symmetric icon reads best. Absent ⇒ no swap, no rotation.
 		{ key: 'imageSpinning', kind: 'image', group: 'State images', label: 'spinning' },
+		// Hover/press feedback for the SLAM-STOP button — while the reels roll the spin
+		// button is a live STOP, so it needs its own rollover and pressed frames. Kept
+		// separate from `imageHover`/`imagePressed`, which depict the resting SPIN look.
+		// Absent ⇒ the plain `imageSpinning` frame, exactly as before.
+		{
+			key: 'imageSpinningHover',
+			kind: 'image',
+			group: 'State images',
+			label: 'stop hover',
+		},
+		{
+			key: 'imageSpinningPressed',
+			kind: 'image',
+			group: 'State images',
+			label: 'stop pressed',
+		},
 		{ key: 'disabled', kind: 'boolean', engineProvided: true },
 		{ key: 'active', kind: 'boolean', engineProvided: true },
 		{ key: 'spinning', kind: 'boolean', engineProvided: true },
