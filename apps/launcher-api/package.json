@@ -40,6 +40,7 @@
 		"@sveltejs/kit": "2.17.3",
 		"@xyflow/svelte": "^1.6.1",
 		"drizzle-orm": "0.39.3",
+		"engine-flipbook": "workspace:*",
 		"engine-flow": "workspace:*",
 		"engine-flow-migrate": "workspace:*",
 		"engine-flow-v2": "workspace:*",

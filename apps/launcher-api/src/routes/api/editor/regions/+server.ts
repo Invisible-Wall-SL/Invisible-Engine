@@ -16,7 +16,7 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	const { clientKey, projectKey, prefixes } = await gate(locals, cookies, {
 		tool: 'editor',
-		altTools: ['fx', 'rigger'],
+		altTools: ['fx', 'rigger', 'flipbook'],
 		forbiddenMessage: 'Your role does not have access to the project assets.',
 		includeSharedSpines: true,
 	});

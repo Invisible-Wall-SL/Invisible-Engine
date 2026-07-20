@@ -132,6 +132,12 @@ export const TOOL_ICONS: Record<string, string> = {
 			'<path d="M5.6 5.6l2.8 2.8"/><path d="M15.6 15.6l2.8 2.8"/>' +
 			'<path d="M18.4 5.6l-2.8 2.8"/><path d="M8.4 15.6l-2.8 2.8"/><circle cx="12" cy="12" r="1.6"/>',
 	),
+	// film strip with sprocket holes (frame-by-frame animation)
+	flipbook: I(
+		'<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/>' +
+			'<path d="M7 5v4"/><path d="M11 5v4"/><path d="M15 5v4"/><path d="M7 15v4"/>' +
+			'<path d="M11 15v4"/><path d="M15 15v4"/>',
+	),
 	// speech bubble over a coin (what the game SAYS about a win)
 	winText: I(
 		'<path d="M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2z"/>' +
@@ -308,6 +314,16 @@ export const TOOLS: Record<string, ToolDef> = {
 		url: '/fx',
 		icon: TOOL_ICONS.fx,
 	},
+	flipbook: {
+		id: 'flipbook',
+		name: 'Invisible Flipbook',
+		barName: 'Flipbook',
+		description:
+			'Author frame animations from an atlas sheet — order the frames, set the rate, preview it playing, and save a clip that FX, symbols and scenes can all reference.',
+		kind: 'online',
+		url: '/flipbook',
+		icon: TOOL_ICONS.flipbook,
+	},
 };
 
 /**
@@ -322,6 +338,7 @@ export const TOOL_BAR_ORDER: string[] = [
 	'editor',
 	'flow',
 	'fx',
+	'flipbook',
 	'symbols',
 	'sheetMaker',
 	'atlasTool',
@@ -362,6 +379,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'editor',
 		'flow',
 		'fx',
+		'flipbook',
 		'symbols',
 		'componentEditor',
 		'fontMaker',
@@ -377,6 +395,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'editor',
 		'flow',
 		'fx',
+		'flipbook',
 		'symbols',
 		'componentEditor',
 		'fontMaker',
@@ -555,6 +574,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	gameMaker: 'game-maker',
 	flow: 'flow',
 	fx: 'fx',
+	flipbook: 'flipbook',
 };
 
 /**

@@ -29,7 +29,12 @@ const bool = (v: unknown): boolean | undefined => (typeof v === 'boolean' ? v : 
 const fps = (v: unknown): number | undefined =>
 	typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : undefined;
 
-const normalizeClip = (raw: unknown): FlipbookClip | undefined => {
+/**
+ * Canonicalize ONE clip, or `undefined` when it is unusable. Exported because storage is
+ * per-clip (`<id>.clip.json`) while {@link normalizeFlipbookDoc} canonicalizes the assembled
+ * collection — the save path needs the single-clip gate, the bake needs the collection.
+ */
+export const normalizeFlipbookClip = (raw: unknown): FlipbookClip | undefined => {
 	if (!isObject(raw)) return undefined;
 	const id = str(raw.id);
 	const assetKey = str(raw.assetKey);
@@ -61,7 +66,7 @@ const normalizeClip = (raw: unknown): FlipbookClip | undefined => {
 export const normalizeFlipbookDoc = (raw: unknown): FlipbookDoc => {
 	const obj = isObject(raw) ? raw : {};
 	const list = Array.isArray(obj.clips)
-		? obj.clips.map(normalizeClip).filter((c): c is FlipbookClip => c !== undefined)
+		? obj.clips.map(normalizeFlipbookClip).filter((c): c is FlipbookClip => c !== undefined)
 		: [];
 	const byId = new Map<string, FlipbookClip>();
 	for (const clip of list) byId.set(clip.id, clip);

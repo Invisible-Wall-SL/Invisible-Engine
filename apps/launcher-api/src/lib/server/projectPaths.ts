@@ -248,6 +248,29 @@ export const FX_DOC_SUFFIX = '.fx.json';
 export const FX_META_SUFFIX = '.fx.meta.json';
 
 /**
+ * Per-CLIP Invisible Flipbook document — `<client>/<project>/clips/<id>.clip.json` (design doc
+ * `invisible-flipbook.md`). One file per clip, mirroring `fxDocKey`'s multi-doc layout rather
+ * than the single-doc `flowDocKey` shape: clips are independently authored, so a per-clip file
+ * gives each its own compare-and-swap guard and two authors editing DIFFERENT clips never
+ * collide. (The design doc's "one doc per project" line predates this; `FlipbookDoc` is the
+ * ASSEMBLED collection the bake emits and `registerFlipbooks` consumes, not the storage unit.)
+ *
+ * Their own `clips/` subfolder rather than the project root — unlike effects, which sit loose —
+ * so listing is a cheap prefix scan and the FTP browser shows them grouped.
+ */
+export function clipDocKey(client: string, project: string, id: string): string {
+	return `${projectPrefix(client, project)}/clips/${r2Slug(id)}.clip.json`;
+}
+
+/** Prefix holding a project's clip docs — the listing root for the clip picker. */
+export function clipsPrefix(client: string, project: string): string {
+	return `${projectPrefix(client, project)}/clips`;
+}
+
+/** The `<id>.clip.json` suffix that marks a FlipbookClip doc. */
+export const CLIP_DOC_SUFFIX = '.clip.json';
+
+/**
  * Per-project Invisible Flow document — `<client>/<project>/editor/flow.json` — the
  * authored presentation graph (macro transition graph + per-screen choreography),
  * sibling to the Scene Editor's `scenes.json` (design doc `invisible-flow.md` §7/§12).

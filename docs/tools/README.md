@@ -20,6 +20,7 @@ full-page — never in an iframe). Local tools you install on your own machine.
 | **Invisible Scene Editor** | `/editor` | admin · developer · artist | [invisible-editor.md](invisible-editor.md) |
 | **Invisible Flow** | `/flow-v2` | admin · developer · artist | [flow.md](flow.md) |
 | **Invisible FX** | `/fx` | admin · developer · artist | [fx.md](fx.md) |
+| **Invisible Flipbook** | `/flipbook` | admin · developer · artist | [flipbook.md](flipbook.md) |
 | **Invisible Symbols State Machine** | `/symbols` | admin · developer · artist | [symbols-state-machine.md](symbols-state-machine.md) |
 | **Invisible Sheet Maker** | `/sheet` | admin · artist | [sheet-maker.md](sheet-maker.md) |
 | **Invisible Atlas Maker** | `/atlas` | admin · developer · artist | [atlas-maker.md](atlas-maker.md) |
