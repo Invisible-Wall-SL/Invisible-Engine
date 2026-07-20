@@ -263,31 +263,59 @@ export const createLinesFlowV2 = (
 		z: sceneLayerZIndex(editorDoc.scenes, container.sceneId) ?? container.z,
 	}));
 	const rawMount = createContainerMountModel(layeredContainers, onContainersChange);
+	// SLAM-AWARE ROUND-BLOCK HOLD. `showContainer{awaitComplete}` was the ONLY await left in the
+	// round chain that a slam could not release: every cue, delay and cut-short effect races
+	// `roundSkip` (see `broadcast` / `waitForTimeout` below), but this hold is resolved solely by a
+	// player tap on a `tapToContinue` overlay. That stalls a slammed round on the free-spin outro —
+	// and the spin button the player presses next is INERT there (`runSpinOrSlamStop` early-returns
+	// once the token is tripped) and, being drawn above the overlay, swallows the very tap that
+	// would have released it. The round then never completes, so `playBet` never returns, the
+	// machine never reaches idle and the game reads as frozen.
+	//
+	// Completing the hold is EXACTLY what the tap does — `complete` releases it and the SAME exec
+	// chain resumes linearly (show → hide → next) — so no beat, state write or win is dropped; only
+	// the wait for a press the player has already implicitly given.
+	const slamAwareMount: ContainerMountModel = {
+		...rawMount,
+		awaitComplete: (id) => {
+			const held = rawMount.awaitComplete(id);
+			// Subscribed AFTER the hold is registered, because `onSkip` fires SYNCHRONOUSLY when the
+			// token is already tripped — the common case here, since the slam usually lands several
+			// book events before the outro. Registering first is what makes that immediate release
+			// find a hold to release.
+			const unsubscribe = roundSkip.onSkip(() => void rawMount.complete(id));
+			return held.then(() => {
+				unsubscribe();
+			});
+		},
+	};
 	// When tracing, wrap the mount so show/hide/HOLD/RELEASE/complete are visible + ordered in the log.
 	const mount: ContainerMountModel = FLOW_LOG
 		? {
 				show: (id) => {
 					trace('show', id);
-					rawMount.show(id);
+					slamAwareMount.show(id);
 				},
 				hide: (id) => {
 					trace('hide', id);
-					rawMount.hide(id);
+					slamAwareMount.hide(id);
 				},
-				isShown: (id) => rawMount.isShown(id),
-				ordered: () => rawMount.ordered(),
+				isShown: (id) => slamAwareMount.isShown(id),
+				ordered: () => slamAwareMount.ordered(),
 				awaitComplete: (id) => {
 					trace('HOLD', id, '⏸ awaiting complete (tap)');
-					return rawMount.awaitComplete(id).then(() => trace('RELEASE', id, '▶ chain resumes'));
+					return slamAwareMount
+						.awaitComplete(id)
+						.then(() => trace('RELEASE', id, '▶ chain resumes'));
 				},
 				complete: (id) => {
-					const released = rawMount.complete(id);
+					const released = slamAwareMount.complete(id);
 					trace('complete', id, released ? '✓ released a hold' : '· (nothing held here)');
 					return released;
 				},
-				heldContainers: () => rawMount.heldContainers(),
+				heldContainers: () => slamAwareMount.heldContainers(),
 			}
-		: rawMount;
+		: slamAwareMount;
 	const env = createFlowV2Env({
 		mount,
 		// The game-side effect registry — the SAME closed map of named effects the v1/coded path
