@@ -1,21 +1,9 @@
 import { error, json } from '@sveltejs/kit';
-import { loadRegionSet } from '$lib/server/editorRegions';
 import { SUB } from '$lib/server/projectPaths';
-import {
-	deleteObject,
-	getObjectBytes,
-	getObjectText,
-	putObjectBytes,
-	putObjectText,
-} from '$lib/server/r2';
-import { regionsToSpineAtlas, reorientRotatedRegionsForSpine } from '$lib/server/spine';
+import { getObjectText } from '$lib/server/r2';
+import { ensureBundleAtlasFresh } from '$lib/server/spineBundleSync';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
-
-const basename = (k: string): string => {
-	const i = k.lastIndexOf('/');
-	return i === -1 ? k : k.slice(i + 1);
-};
 
 /**
  * Re-sync a rig's atlas: re-pull the latest packed page image AND re-synthesise the
@@ -64,59 +52,36 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 	const spinesPrefix = SUB.spines(clientKey, projectKey);
 	const bundlePrefix = dir ? `${spinesPrefix}/${dir}` : spinesPrefix;
 
-	// Resolve the source manifest: body override, else the remembered sidecar.
-	let manifestKey = typeof body.manifestKey === 'string' ? body.manifestKey : '';
-	if (!manifestKey) {
-		const sidecar = await getObjectText(`${bundlePrefix}/source.json`);
-		if (sidecar) {
-			try {
-				const parsed = JSON.parse(sidecar) as { manifestKey?: unknown };
-				if (typeof parsed.manifestKey === 'string') manifestKey = parsed.manifestKey;
-			} catch {
-				/* corrupt sidecar → fall through to the picker */
-			}
+	// Resolve the source manifest: body override (the re-pick picker), else the remembered
+	// sidecar — used only to decide the `needsAtlas` prompt. The actual source resolution +
+	// the sidecar (re)write happen inside `ensureBundleAtlasFresh`, which writes it ONLY on a
+	// successful sync (no revision-less window on a bail).
+	let sidecarKey = '';
+	const sidecar = await getObjectText(`${bundlePrefix}/source.json`);
+	if (sidecar) {
+		try {
+			const parsed = JSON.parse(sidecar) as { manifestKey?: unknown };
+			if (typeof parsed.manifestKey === 'string') sidecarKey = parsed.manifestKey;
+		} catch {
+			/* corrupt sidecar → fall through to the picker */
 		}
 	}
+	const manifestKey = typeof body.manifestKey === 'string' ? body.manifestKey : sidecarKey;
 	// No source known (e.g. an upload-image rig, or a rig from before the sidecar) →
 	// tell the client to show the atlas picker. Not a 4xx: this is an expected path.
 	if (!manifestKey) return json({ ok: false, needsAtlas: true });
 
-	const rs = await loadRegionSet(manifestKey, clientKey, projectKey);
-	if (!rs.regions.length) throw error(400, 'that atlas has no regions');
-	if (!rs.pageKey) throw error(400, "couldn't resolve the atlas page image");
-	if (!rs.pageWidth || !rs.pageHeight) throw error(400, 'atlas manifest is missing the page size');
-
-	const page = await getObjectBytes(rs.pageKey);
-	if (!page) throw error(404, 'atlas page image not found in R2');
-	const pageName = basename(rs.pageKey);
-
-	// Read the bundle's CURRENT atlas to find the old page filename (first non-empty
-	// trimmed line). If the page name changed, delete the orphaned old image AFTER the
-	// new page is written so a failure can't leave the rig with no page at all.
-	const oldAtlas = await getObjectText(`${bundlePrefix}/${atlasFile}`);
-	const oldPageName = oldAtlas
-		? (oldAtlas
-				.split(/\r?\n/)
-				.map((l) => l.trim())
-				.find((l) => l !== '') ?? '')
-		: '';
-
-	const atlasText = regionsToSpineAtlas(pageName, rs.pageWidth, rs.pageHeight, rs.regions);
-	// Re-orient CW-packed rotated regions to Spine's CCW `rotate:90` convention so they
-	// don't render upside down in the Rigger (no-op when no region is rotated).
-	const pageBody = await reorientRotatedRegionsForSpine(page.body, rs.regions);
-	await putObjectBytes(`${bundlePrefix}/${pageName}`, pageBody, page.contentType);
-	await putObjectText(`${bundlePrefix}/${atlasFile}`, atlasText, 'text/plain; charset=utf-8');
-	// Refresh the sidecar so a picked source becomes remembered (one-click next time).
-	await putObjectText(
-		`${bundlePrefix}/source.json`,
-		JSON.stringify({ manifestKey, pageName }),
-		'application/json',
-	);
-
-	if (oldPageName && oldPageName !== pageName) {
-		await deleteObject(`${bundlePrefix}/${oldPageName}`);
+	// `force` because this is the explicit user action: always re-pull, even when the revision
+	// matches. The shared helper re-synthesises the bundle `.atlas` + page from the live
+	// manifest and stamps a fresh revision into `source.json` (one writer, shared with `new`
+	// + the self-healing read/bake paths).
+	const res = await ensureBundleAtlasFresh(clientKey, projectKey, bundlePrefix, atlasFile, {
+		force: true,
+		manifestKey,
+	});
+	if (!res) {
+		throw error(400, "that atlas has no regions, or its page image couldn't be resolved");
 	}
 
-	return json({ ok: true, pageName, regions: rs.regions.length });
+	return json({ ok: true, regions: res.regions });
 };

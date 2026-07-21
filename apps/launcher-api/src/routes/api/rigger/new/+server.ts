@@ -4,6 +4,7 @@ import { resolveRigSkeletonBody } from '$lib/server/riggerNewRig';
 import { SUB } from '$lib/server/projectPaths';
 import { getObjectBytes, putObjectBytes, putObjectText } from '$lib/server/r2';
 import { regionsToSpineAtlas, reorientRotatedRegionsForSpine } from '$lib/server/spine';
+import { bundleRevision } from '$lib/server/spineBundleSync';
 import { buildSkeletonsIndex, spineBundleNameTaken } from '$lib/server/spineIndex';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
@@ -91,10 +92,16 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		// don't render upside down in the Rigger (no-op when no region is rotated).
 		pageBody = await reorientRotatedRegionsForSpine(page.body, rs.regions);
 		// Remember the source atlas so a future "⟳ Re-sync atlas" is one click (re-pull
-		// the latest page + re-synth the .atlas after the source is recoloured/edited).
+		// the latest page + re-synth the .atlas after the source is recoloured/edited) AND
+		// so consumers can detect a re-packed sheet: `geometryRevision` is the baseline the
+		// self-healing sync (`ensureBundleAtlasFresh`) compares the live manifest against.
 		// Ignored by buildSkeletonsIndex (only skeleton/atlas files are indexed) and a
 		// valid `/spine/file` name.
-		sidecar = JSON.stringify({ manifestKey, pageName });
+		sidecar = JSON.stringify({
+			manifestKey,
+			pageName,
+			geometryRevision: await bundleRevision(rs),
+		});
 	}
 
 	await putObjectBytes(`${bundle}/${pageName}`, pageBody, pageContentType);

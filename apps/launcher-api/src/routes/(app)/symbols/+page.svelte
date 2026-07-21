@@ -4,7 +4,12 @@
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import RegionPicker from '../editor/RegionPicker.svelte';
-	import { fetchRegions, type EditorRegion, type RegionSet } from '../editor/editorRegions.client';
+	import {
+		clearRegionCache,
+		fetchRegions,
+		type EditorRegion,
+		type RegionSet,
+	} from '../editor/editorRegions.client';
 	import { builtinSpineKey, hasBuiltinSpine } from '../editor/editorSpine.client';
 	import SymbolSpinePreview from './SymbolSpinePreview.svelte';
 	import SymbolSpineStage from './SymbolSpineStage.svelte';
@@ -185,6 +190,11 @@
 		if (reloading) return;
 		reloading = true;
 		reloadToken++;
+		// Drop the module-level region cache (keyed by sheet key, survives `invalidateAll`)
+		// so the sprite-cell rects + page keys re-resolve from R2 — otherwise a re-authored
+		// sheet stays stale on the sprite path until a hard page reload. The spine path is
+		// busted by `reloadToken`; the server self-heals the frozen bundle geometry.
+		clearRegionCache();
 		try {
 			await invalidateAll();
 		} finally {

@@ -14,6 +14,7 @@ import {
 	type ListedObject,
 } from './r2';
 import { getRoleOverrides } from './roleToolAccess';
+import { ensureBundleAtlasFresh } from './spineBundleSync';
 import { getToolOverrides } from './userToolAccess';
 
 export async function requireSpineAccess(locals: App.Locals): Promise<void> {
@@ -436,6 +437,15 @@ export async function resolveEditorSpine(
 				entries.find((e) => stemOf(e.skeleton_file) === assetKey.toLowerCase()));
 	if (!entry) return null;
 
+	const prefix = await resolveBundlePrefix(clientKey, projectKey, entry.folder, entry.atlas_file);
+	if (!prefix) return null;
+
+	// Self-heal the frozen bundle geometry: if the source sheet was re-packed since this rig
+	// was last synced, re-derive the bundle `.atlas` + page from the live manifest BEFORE we
+	// read it, so the preview always reflects the current sheet (no manual `⟳ Re-sync`). A
+	// no-op when the geometry is unchanged; leaves the bundle untouched when it has no source.
+	await ensureBundleAtlasFresh(clientKey, projectKey, prefix, entry.atlas_file).catch(() => null);
+
 	const atlas = await fetchSpineBundleFile(
 		clientKey,
 		projectKey,
@@ -444,9 +454,6 @@ export async function resolveEditorSpine(
 		preferPng,
 	);
 	if (!atlas || typeof atlas.body !== 'string') return null;
-
-	const prefix = await resolveBundlePrefix(clientKey, projectKey, entry.folder, entry.atlas_file);
-	if (!prefix) return null;
 
 	const pageNames = atlasPageNames(atlas.body);
 	return {
@@ -586,6 +593,12 @@ export async function exportSpineBundle(opts: {
 
 	const prefix = await resolveBundlePrefix(clientKey, projectKey, folder, entry.atlas_file);
 	if (!prefix) return null;
+
+	// Ship the CURRENT sheet geometry, not the rig's creation-time snapshot: self-heal the
+	// bundle `.atlas` + page from the live manifest before copying it into `deploy/`. Without
+	// this a re-packed sheet would ship stale rects to the game even though Symbols/Editor
+	// (which self-heal on read) show it correctly — the "shows in editor ≠ ships" trap.
+	await ensureBundleAtlasFresh(clientKey, projectKey, prefix, entry.atlas_file).catch(() => null);
 
 	const atlasText = await getObjectText(`${prefix}/${entry.atlas_file}`);
 	if (atlasText === null) return null;

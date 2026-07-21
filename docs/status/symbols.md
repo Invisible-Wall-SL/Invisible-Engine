@@ -23,6 +23,17 @@ Working on `main`:
 - **↻ Reload from R2** — re-fetches spine bundles + previews and re-reads the project's
   bundle list, dropping the per-bundle skeleton/page HTTP cache so a re-rigged (Invisible
   Rigger) or replaced bundle shows its new art + animation names; unsaved edits preserved.
+  Now **also clears the module-level region cache** (`clearRegionCache()`) so the SPRITE
+  path's rects/page keys re-resolve too — previously a re-authored sheet stayed stale on
+  sprite cells (and the Scene Editor, which shares that cache) until a hard page reload.
+- **Regenerated-sheet self-heal (2026-07-21).** Spine cells read geometry through the rig
+  bundle's FROZEN `.atlas`, so a re-packed sheet used to show old rects until the rig was
+  manually `⟳ Re-sync`ed. `resolveEditorSpine` now calls `ensureBundleAtlasFresh`
+  (`$lib/server/spineBundleSync.ts`), which re-derives the bundle `.atlas` + page from the
+  live manifest when a **revision** (geometry hash + page ETag in the bundle's `source.json`)
+  drifts — geometry (Sheet-Maker re-pack) AND art (Atlas-Maker recolour) now propagate to
+  the grid with no manual step. The same helper runs at bake so the shipped game matches.
+  See [docs/status/rigger.md](rigger.md).
 - **Per-project defaults auto-publish** — each game publishes its coded `SYMBOL_INFO_MAP`
   to R2 at build (`publish-symbol-defaults.mjs`, chained into `build` by `new-game.mjs`);
   the tool reads it, **filtered to the in-play set** from `src/game/config.ts` (drops dead
