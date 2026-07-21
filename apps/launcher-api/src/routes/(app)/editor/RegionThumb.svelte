@@ -48,12 +48,26 @@
 			const c = canvas.getContext('2d');
 			if (!c) return;
 			c.clearRect(0, 0, canvas.width, canvas.height);
-			// `region.w/h` are the upright (unrotated) size; contain-fit into the size×size box.
-			const scale = Math.min(size / region.w, size / region.h);
+			// A TRIMMED frame is smaller than its original: `w/h` is the tight packed rect,
+			// `origW/origH` is the untrimmed canvas, and `offX/offY` is where the packed rect
+			// sits inside it. Contain-fitting the TRIMMED rect (the old behaviour) scaled every
+			// frame to fill the box independently, so a frame trimmed to a small bright core
+			// ballooned while a loosely-trimmed one shrank — the animation "pulsed" and drifted.
+			// Fit the ORIGINAL canvas instead and place the packed rect at its offset, so every
+			// frame is anchored in the same space. For an untrimmed frame (origW==w, off==0) this
+			// is byte-identical to the old centring.
+			const ow = region.origW ?? region.w;
+			const oh = region.origH ?? region.h;
+			const offX = region.offX ?? 0;
+			const offY = region.offY ?? 0;
+			const scale = Math.min(size / ow, size / oh);
+			// Top-left of the centred original canvas, then the trimmed rect's place within it.
+			const baseX = (size - ow * scale) / 2;
+			const baseY = (size - oh * scale) / 2;
 			const dw = region.w * scale;
 			const dh = region.h * scale;
-			const dx = (size - dw) / 2;
-			const dy = (size - dh) / 2;
+			const dx = baseX + offX * scale;
+			const dy = baseY + offY * scale;
 			// On-page packed rect: a `rotated` frame is stored (h × w) — swap, then
 			// un-rotate (+90° clockwise) so the thumbnail shows it upright, matching
 			// the slicer's PIL rotate(-90).
