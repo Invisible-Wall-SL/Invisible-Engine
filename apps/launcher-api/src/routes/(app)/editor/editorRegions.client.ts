@@ -164,3 +164,13 @@ export function isStaticPageKey(pageKey: string): boolean {
 export function regionNaturalSize(r: EditorRegion): { w: number; h: number } {
 	return { w: r.origW ?? r.w, h: r.origH ?? r.h };
 }
+
+/**
+ * Extension-stripped, lowercased frame STEM — the case/extension-insensitive key that
+ * lets a coded-default cell (`w.png`, `explodedW.png`, `H1`) resolve against a synced
+ * atlas region carrying a different extension or casing (`w.webp`, `h1.png`, `W`).
+ * Mirrors the server-side stem in `server/editorRegions.ts`'s `backfillMissingGeometry`.
+ */
+export function frameStem(name: string): string {
+	return name.replace(/\.[^.]+$/, '').toLowerCase();
+}

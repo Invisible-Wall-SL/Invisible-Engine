@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { parseScopedFrameRef } from 'engine-layout';
-	import { type EditorRegion, type RegionSet } from '../editor/editorRegions.client';
+	import { frameStem, type EditorRegion, type RegionSet } from '../editor/editorRegions.client';
 	import RegionThumb from '../editor/RegionThumb.svelte';
 	import CellLoading from './CellLoading.svelte';
 
@@ -19,7 +19,13 @@
 	}
 	let { frame, index, size }: Props = $props();
 
-	const hit = $derived(index?.get(frame) ?? index?.get(parseScopedFrameRef(frame).region) ?? null);
+	// Exact ref, then bare region, then an extension/case-insensitive STEM — the last
+	// resolves a coded default (`w.png`) against a region synced under a different
+	// extension or casing (`w.webp`, `W`) instead of drawing a blank placeholder.
+	const region = $derived(parseScopedFrameRef(frame).region);
+	const hit = $derived(
+		index?.get(frame) ?? index?.get(region) ?? index?.get(frameStem(region)) ?? null,
+	);
 </script>
 
 {#if hit}

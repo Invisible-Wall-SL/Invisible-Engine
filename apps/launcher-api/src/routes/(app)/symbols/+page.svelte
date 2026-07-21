@@ -7,6 +7,7 @@
 	import {
 		clearRegionCache,
 		fetchRegions,
+		frameStem,
 		type EditorRegion,
 		type RegionSet,
 	} from '../editor/editorRegions.client';
@@ -158,6 +159,14 @@
 			const idx = new Map<string, { set: RegionSet; region: EditorRegion }>();
 			list.forEach((s, i) => {
 				const set = sets[i];
+				// Stems that are UNIQUE within THIS sheet. A stem shared by two regions
+				// (e.g. `w.png` + `w.webp`) is ambiguous, so its key is skipped below rather
+				// than risk previewing the wrong frame.
+				const stemCount = new Map<string, number>();
+				for (const region of set.regions) {
+					const st = frameStem(region.name);
+					stemCount.set(st, (stemCount.get(st) ?? 0) + 1);
+				}
 				for (const region of set.regions) {
 					// Key by the resolved MANIFEST (`set.assetKey`, a `.json`), the picker's SOURCE key
 					// (`s.key` — a `.json` manifest OR a Sheet-Maker prefix `.../sheets/S_Lotus/`, which
@@ -169,6 +178,12 @@
 					if (!idx.has(byManifest)) idx.set(byManifest, { set, region });
 					if (!idx.has(bySource)) idx.set(bySource, { set, region });
 					if (!idx.has(region.name)) idx.set(region.name, { set, region });
+					// Extension/case-insensitive fallback so a coded default (`w.png`, `explodedW.png`,
+					// `H1`) resolves against a region synced under a different extension or casing
+					// (`w.webp`, `h1.png`). Only for stems unique in this sheet; first sheet wins across
+					// sheets, mirroring the bare-name rule above.
+					const st = frameStem(region.name);
+					if (stemCount.get(st) === 1 && !idx.has(st)) idx.set(st, { set, region });
 				}
 			});
 			spriteIndex = idx;
