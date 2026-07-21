@@ -44,5 +44,7 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		pageWidth: set.pageWidth,
 		pageHeight: set.pageHeight,
 		regions: set.regions,
+		// Rotated frames use the TexturePacker (PIXI-native) direction — RegionThumb un-rotates to match.
+		...(set.tpRotated ? { tpRotated: true } : {}),
 	});
 };

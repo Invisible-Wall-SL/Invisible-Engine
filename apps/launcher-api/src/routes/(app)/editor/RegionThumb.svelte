@@ -68,15 +68,24 @@
 			const dh = region.h * scale;
 			const dx = baseX + offX * scale;
 			const dy = baseY + offY * scale;
-			// On-page packed rect: a `rotated` frame is stored (h × w) — swap, then
-			// un-rotate (+90° clockwise) so the thumbnail shows it upright, matching
-			// the slicer's PIL rotate(-90).
+			// On-page packed rect: a `rotated` frame is stored (h × w) — swap, then un-rotate 90°.
+			// DIRECTION matters and the two sources disagree: a Sheet-Maker-packed frame un-rotates
+			// CW (matching that packer + its own slicer's PIL rotate(-90)); a verbatim cocos2d
+			// `.plist` import un-rotates the OTHER way (the TexturePacker convention PIXI uses in the
+			// game), flagged by `set.tpRotated`. Getting this wrong renders the frame 180° out.
 			const pw = region.rotated ? region.h : region.w;
 			const ph = region.rotated ? region.w : region.h;
 			if (region.rotated) {
 				c.save();
-				c.translate(dx + dw, dy);
-				c.rotate(Math.PI / 2);
+				if (set.tpRotated) {
+					// CCW — the mirror of the CW branch (corner + sign both flipped), verified by
+					// mapping the drawn rect's corners onto the dest box.
+					c.translate(dx, dy + dh);
+					c.rotate(-Math.PI / 2);
+				} else {
+					c.translate(dx + dw, dy);
+					c.rotate(Math.PI / 2);
+				}
 				c.drawImage(img, region.x, region.y, pw, ph, 0, 0, dh, dw);
 				c.restore();
 			} else {

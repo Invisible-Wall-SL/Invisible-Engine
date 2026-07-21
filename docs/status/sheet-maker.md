@@ -12,16 +12,15 @@ Works today on `main` / live:
 - **Delete-verifies-R2** — delete re-lists R2 and fails loud rather than trusting local staging.
 - **FX-layer picker** — per-sprite checkboxes (`shine`/`glow`/`shadow`/`blur`/`zoom`/`colour`) spawn same-size sibling cells named for the Atlas Maker's FX convention, slaved to the base (cascade rename/resize/delete); export propagates each cell's `mode` so the Atlas Maker opens it in the matching local-FX mode.
 - **Verbatim `.plist` import** — `POST /api/import-plist` (Import tab) takes a cocos2d
-  format-3 `.plist` + its page and reuses the atlas **as is**: never re-packed, so every rect
-  stays exactly where it was and a shipped game bound to those coordinates can't break.
-  **Rotated frames are flipped 180° in place** — cocos2d rotates packed frames the opposite way
-  round from this pipeline (restore is 90° CCW; `RegionThumb` and the slicer both restore CW), so
-  without it every rotated frame rendered upside down. Same fix and reasoning as
-  `reorientRotatedRegionsForSpine`; 180° preserves the bounding box, so no rect moves. Measured
-  on a real 49-frame sheet: slicing `_42` (rotated) against `_43` (not, same size, adjacent) gave
-  mean abs pixel diff 72.5 CW vs 6.2 CCW, and the vertical alpha centroid over all 49 frames sat
-  at 0.411 unrotated vs 0.544 CW / 0.453 CCW — 0.544 + 0.453 ≈ 1.0, the signature of a 180° flip.
-  A sheet with **no** rotated frames is still written byte-for-byte. Writes the page, a TexturePacker JSON and the AI manifest (all
+  format-3 `.plist` + its page and reuses the atlas **as is**: the page is written **byte-for-byte**
+  and never re-packed OR re-encoded, so every rect stays exactly where it was and a shipped game
+  bound to those coordinates can't break — rotated frames included. cocos2d packs a rotated frame
+  the SAME way PIXI un-rotates it (both the TexturePacker convention), so the game renders it
+  correctly from the untouched page; the `/flipbook` preview reconciles via `loadRegionSet`'s
+  `tpRotated` flag → `RegionThumb` un-rotates the TexturePacker way (the Sheet Maker's own packer
+  goes the other way). _(An earlier version flipped each rotated block 180° to satisfy the preview
+  — that FIXED the preview and BROKE the game, which showed rotated frames upside down; reverted.)_
+  Writes the page, a TexturePacker JSON and the AI manifest (all
   mirrored to R2); the manifest gains `locked` / `import` / `sequences`. Refuses format 0–2
   and any atlas whose rects fail `plist_import.validate` (out-of-bounds / overlap = misread
   geometry). Detected numeric runs are recorded in `sequences` as the hint the /flipbook tool

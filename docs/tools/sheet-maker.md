@@ -112,16 +112,13 @@ The **Import** tab's lower half takes an existing packed atlas: pick the
 `.plist` and its `.png`/`.webp` page, optionally set a sheet name (default: the
 plist's file name), and click **Import .plist atlas** (`/api/import-plist`).
 
-The atlas is reused **as is** — every rect is *converted*, never re-packed, so a
-game already bound to those coordinates keeps rendering.
-
-One thing does change in the pixels: **cocos2d rotates packed frames the opposite
-way round from this pipeline**, so each rotated frame's block is flipped 180° in
-place on import. Without it every rotated frame renders upside down. A 180°
-rotation preserves the bounding box exactly, so no rect moves and no neighbouring
-frame is touched, and the re-encode is lossless to the same format. A sheet with
-**no** rotated frames is written byte-for-byte, untouched. The result line reports
-how many frames were reoriented.
+The atlas is reused **as is** — the page is written **byte-for-byte** (never
+re-encoded) and every rect stays exactly where it was, so a game already bound to
+those coordinates keeps rendering, rotated frames included. cocos2d packs a
+rotated frame the same way the game runtime (PIXI) un-rotates it, so it renders
+correctly straight from the untouched page; the `/flipbook` preview un-rotates it
+the matching way via the `tpRotated` flag (the Sheet Maker's own packer goes the
+opposite way). No pixels are changed on import.
 
 The import writes
 `sheets/<sheet>/<sheet>.png`, a TexturePacker JSON, and
