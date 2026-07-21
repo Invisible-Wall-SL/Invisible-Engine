@@ -136,8 +136,15 @@
 				{animationName}
 				loop={animationName === idleAnimation}
 				listener={{
-					complete: () => {
-						if (phase === 'intro') {
+					// React ONLY to the INTRO animation completing. Once the reveal hands off to a
+					// LOOPING idle, Spine fires `complete` at the end of every idle cycle. On a second
+					// free-spin feature `play()` flips `phase` to 'intro' synchronously, but the
+					// `<SpineTrack>` effect applies the intro a tick later; a stray idle-loop completion
+					// landing in that window would otherwise run the hand-off against an intro that never
+					// played — settling the reveal early and freezing the rig on idle for the rest of the
+					// feature. Gating on the completing animation's name makes each reveal self-contained.
+					complete: (entry) => {
+						if (phase === 'intro' && entry?.animation?.name === introAnimation) {
 							phase = 'idle';
 							animationName = idleAnimation;
 							settleReveal();
