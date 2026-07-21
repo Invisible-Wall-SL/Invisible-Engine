@@ -20,6 +20,7 @@
 		Rectangle,
 		RiggedEffect,
 		Sprite,
+		SpineBoneAttach,
 		SpineProvider,
 		SpineTrack,
 		getContextApp,
@@ -595,6 +596,30 @@
 					<EffectPlayer doc={fxDoc} />
 				{/if}
 			{/each}
+			<!--
+				Reveal-symbol rider: ride the chosen `stateGame.specialSymbol` on a named bone of THIS
+				rig (`SpineNode.revealSymbolBone`) — the on-node alternative to the rig-spawning
+				`freeSpinIntroSymbolReveal` component. Same bone-hosting mechanism as `attachedEffects`
+				above: mount the game's registered `revealSymbolRider` on the bone via `<SpineBoneAttach>`
+				so the symbol banks/scales with the rig. Unset bone, or a game that didn't register the
+				rider ⇒ nothing mounts (parity).
+			-->
+			{#if node.revealSymbolBone}
+				{@const RevealRider = getBoundComponent('revealSymbolRider')}
+				{#if RevealRider}
+					<SpineBoneAttach
+						boneName={node.revealSymbolBone}
+						offset={{ x: node.revealSymbolOffsetX ?? 0, y: node.revealSymbolOffsetY ?? 0 }}
+						followRotation={node.revealSymbolFollowRotation ?? true}
+						followScale={node.revealSymbolFollowScale ?? true}
+					>
+						<RevealRider
+							state={node.revealSymbolState ?? 'bookIdle'}
+							scale={node.revealSymbolScale ?? 1}
+						/>
+					</SpineBoneAttach>
+				{/if}
+			{/if}
 			<!--
 				Rig-timeline direct FX binding: effects the Rigger bound DIRECTLY on this rig's
 				animation event keys (`event.fx`, baked into the `rigFx` manifest, keyed by this rig's

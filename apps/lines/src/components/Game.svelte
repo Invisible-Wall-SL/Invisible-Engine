@@ -182,6 +182,7 @@
 	import FreeSpinIntroSymbolReveal from './FreeSpinIntroSymbolReveal.svelte';
 	import BookRevealGate from './BookRevealGate.svelte';
 	import ExpandingSymbol from './ExpandingSymbol.svelte';
+	import RevealSymbolRider from './RevealSymbolRider.svelte';
 	import TapToContinue from './TapToContinue.svelte';
 	import Transition from './Transition.svelte';
 	import Effects from './Effects.svelte';
@@ -270,6 +271,12 @@
 		// chosen `stateGame.specialSymbol` on a named bone, driven by the same awaited
 		// `specialBookReveal` cue. The reusable "flip through → land on YOUR symbol" reveal node.
 		FreeSpinIntroSymbolReveal,
+		// Rides the chosen `stateGame.specialSymbol` on a bone of a PLACED spine node that sets
+		// `revealSymbolBone` — the on-node alternative to `FreeSpinIntroSymbolReveal` that brings NO
+		// rig of its own (the author places their own rig, e.g. `R_Cage_Freespin`, and the symbol
+		// shows on its `Socket` bone). `<LayoutNodeView>` mounts it via `<SpineBoneAttach>`; the key
+		// MUST be `revealSymbolRider` to match `getBoundComponent('revealSymbolRider')`.
+		revealSymbolRider: RevealSymbolRider,
 		// The ONE coded part of the `loadingIntro` splash def — the masked progress
 		// fill the static node model can't express (the logo + percentage around it are
 		// editor-native nodes). Reads `loadingProgress`/`loaded` off `stateApp` + its

@@ -239,6 +239,32 @@ export interface SpineNode extends BaseNode {
 	 * spine's `componentInstance` owns the press (an `action` feed, no coded bind part);
 	 * a scene-level spine ignores it (parity). */
 	stateAnimations?: ButtonStateAnimations;
+	/**
+	 * Reveal-symbol rider — ride the chosen "reveal" symbol (`stateGame.specialSymbol`) on
+	 * one of THIS spine's OWN bones, WITHOUT spawning a second rig or a bound component. When
+	 * set to a bone name AND the game registered a `revealSymbolRider` bound component,
+	 * `<LayoutNodeView>` mounts that rider on the named bone via `<SpineBoneAttach>` (the same
+	 * bone-hosting mechanism {@link EffectNode.hostSpineId} uses for effects), so the special
+	 * symbol banks/scales with the rig's animation. Lets an author place e.g. `R_Cage_Freespin`
+	 * as a normal spine node and show the book symbol on its `Socket` bone — the on-node
+	 * alternative to the rig-spawning `freeSpinIntroSymbolReveal` component. Absent ⇒ no rider
+	 * mounts, byte-identical to today (parity). */
+	revealSymbolBone?: string;
+	/** Symbol state-machine state the rider renders in (e.g. `'bookIdle'`). Typed as string —
+	 * the concrete `SymbolState` set is game-side. Absent ⇒ the rider's `'bookIdle'` default. */
+	revealSymbolState?: string;
+	/** Uniform scale of the ridden symbol, applied on the rider's own container. Absent ⇒ 1. */
+	revealSymbolScale?: number;
+	/** Pixel offset added to the bone position (spine-local space), forwarded to
+	 * `<SpineBoneAttach offset>`. Absent ⇒ 0. */
+	revealSymbolOffsetX?: number;
+	revealSymbolOffsetY?: number;
+	/** Rotate the ridden symbol with the bone's world rotation (`<SpineBoneAttach followRotation>`).
+	 * Absent ⇒ true. */
+	revealSymbolFollowRotation?: boolean;
+	/** Scale the ridden symbol with the bone's world scale (`<SpineBoneAttach followScale>`).
+	 * Absent ⇒ true. */
+	revealSymbolFollowScale?: boolean;
 }
 
 /**
