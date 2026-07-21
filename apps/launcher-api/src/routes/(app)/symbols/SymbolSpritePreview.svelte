@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { parseScopedFrameRef } from 'engine-layout';
 	import { type EditorRegion, type RegionSet } from '../editor/editorRegions.client';
 	import RegionThumb from '../editor/RegionThumb.svelte';
 	import CellLoading from './CellLoading.svelte';
@@ -18,7 +19,7 @@
 	}
 	let { frame, index, size }: Props = $props();
 
-	const hit = $derived(index?.get(frame) ?? null);
+	const hit = $derived(index?.get(frame) ?? index?.get(parseScopedFrameRef(frame).region) ?? null);
 </script>
 
 {#if hit}

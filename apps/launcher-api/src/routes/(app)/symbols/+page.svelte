@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { parseScopedFrameRef } from 'engine-layout';
+	import { parseScopedFrameRef, scopedFrameRef } from 'engine-layout';
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import RegionPicker from '../editor/RegionPicker.svelte';
@@ -100,15 +100,18 @@
 	const clipsById = $derived(new Map(clips.map((c) => [c.id, c])));
 
 	/**
-	 * The region name a flipbook cell previews — its clip's FIRST frame. A frame may be a bare
-	 * region name or an `<assetKey>::<region>` scoped ref (a clip can span several sheets), and
-	 * `spriteIndex` is keyed by BARE region name, so the scope is stripped here.
+	 * The frame a flipbook cell previews — its clip's FIRST frame, returned as an
+	 * `<assetKey>::<region>` SCOPED ref so it hits the clip's own sheet (mirroring the runtime's
+	 * scoped-then-bare precedence). A frame may itself be scoped (a clip can span several sheets);
+	 * its embedded sheet wins, falling back to the clip's primary `assetKey`. `spriteIndex` carries
+	 * both a scoped and a bare entry per region, so the returned ref resolves without collision.
 	 */
 	function clipFirstFrame(clipId: string | undefined): string {
 		if (!clipId) return '';
 		const clip = clipsById.get(clipId);
 		if (!clip?.firstFrame) return '';
-		return parseScopedFrameRef(clip.firstFrame).region;
+		const parsed = parseScopedFrameRef(clip.firstFrame);
+		return scopedFrameRef(parsed.assetKey ?? clip.assetKey, parsed.region);
 	}
 
 	/** A clip's author-facing label with its frame count, for the picker + cell chips. */
@@ -155,6 +158,8 @@
 			const idx = new Map<string, { set: RegionSet; region: EditorRegion }>();
 			for (const set of sets) {
 				for (const region of set.regions) {
+					const scoped = scopedFrameRef(set.assetKey, region.name);
+					if (!idx.has(scoped)) idx.set(scoped, { set, region });
 					if (!idx.has(region.name)) idx.set(region.name, { set, region });
 				}
 			}
