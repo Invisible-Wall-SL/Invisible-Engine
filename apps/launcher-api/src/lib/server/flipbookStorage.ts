@@ -4,7 +4,7 @@ import {
 	type FlipbookClip,
 	type FlipbookDoc,
 } from 'engine-flipbook';
-import { CLIP_DOC_SUFFIX, clipDocKey, clipsPrefix, r2Slug } from './projectPaths';
+import { CLIP_DOC_SUFFIX, clipDocKey, clipsPrefix, r2Slug, SUB } from './projectPaths';
 import {
 	deleteObject,
 	getObjectText,
@@ -157,10 +157,82 @@ export async function deleteClip(
 	return { id };
 }
 
+/** An atlas ref (a clip's `assetKey`, or a scoped frame's prefix) that names a manifest by its
+ *  BARE BASENAME — ends in `.json` but carries no path segment. The runtime's `isManifestAssetKey`
+ *  requires a `/`, so a basename ref makes `resolveClipFrames` SKIP the atlas-scoped lookup and
+ *  fall through to the flat bare-name texture cache — where two single-page clips that reuse a
+ *  frame name (e.g. `frame_0000`) on DISTINCT atlases collide (last-loaded sheet wins). The
+ *  runtime cannot repair this itself (it has no R2 listing to map basename → real key), so the
+ *  pipeline does it here — the one place both `exportClips` and the editor-art clip walk read
+ *  through. See `docs/design/invisible-flipbook.md` (referential integrity). */
+const isBareManifestBasename = (ref: string): boolean =>
+	!ref.includes('/') && ref.toLowerCase().endsWith('.json');
+
+/** Map each project manifest's BASENAME → its full R2 key, so a clip that stored a bare basename
+ *  as its atlas can be repaired to the key the editor-art export registers textures under. A
+ *  basename shared by two manifests is AMBIGUOUS, so it is dropped (left as-is) rather than
+ *  guessed. */
+async function manifestBasenameMap(
+	clientKey: string,
+	projectKey: string,
+): Promise<Map<string, string>> {
+	const prefix = `${SUB.manifests(clientKey, projectKey)}/`;
+	const listed = await listObjects(prefix, 1000);
+	const map = new Map<string, string>();
+	const ambiguous = new Set<string>();
+	for (const key of listed.keys) {
+		if (!key.toLowerCase().endsWith('.json')) continue;
+		const base = key.slice(key.lastIndexOf('/') + 1);
+		if (map.has(base)) ambiguous.add(base);
+		else map.set(base, key);
+	}
+	for (const base of ambiguous) map.delete(base);
+	return map;
+}
+
+/** Resolve one atlas ref to its full manifest key when it is a bare basename we recognise;
+ *  otherwise return it untouched (a correctly-authored full key, or an unknown basename). */
+const canonicalizeAtlasRef = (ref: string, byBasename: Map<string, string>): string =>
+	isBareManifestBasename(ref) ? (byBasename.get(ref) ?? ref) : ref;
+
+/** Rewrite a clip's `assetKey` and any scoped frame prefixes from a bare manifest basename to the
+ *  full R2 key. Bare (unscoped) frames are left alone — they scope against `assetKey` at resolve
+ *  time, so repairing `assetKey` restores their scope too. */
+function canonicalizeClipAtlasKeys(clip: FlipbookClip, byBasename: Map<string, string>): FlipbookClip {
+	const assetKey = canonicalizeAtlasRef(clip.assetKey, byBasename);
+	const frames = clip.frames.map((frame) => {
+		const i = frame.indexOf('::');
+		if (i <= 0) return frame; // bare frame — scoped by `assetKey`, not a per-frame atlas ref
+		const prefix = frame.slice(0, i);
+		const full = canonicalizeAtlasRef(prefix, byBasename);
+		return full === prefix ? frame : `${full}::${frame.slice(i + 2)}`;
+	});
+	return { ...clip, assetKey, frames };
+}
+
+/** True when any clip carries a bare-basename atlas ref that needs repairing — gates the R2
+ *  manifest listing so a correctly-authored project pays nothing. */
+function anyBareManifestRef(clips: FlipbookClip[]): boolean {
+	return clips.some(
+		(c) =>
+			isBareManifestBasename(c.assetKey) ||
+			c.frames.some((f) => {
+				const i = f.indexOf('::');
+				return i > 0 && isBareManifestBasename(f.slice(0, i));
+			}),
+	);
+}
+
 /**
  * Assemble every clip in the project into one `FlipbookDoc` — what the bake embeds and
  * `registerFlipbooks` consumes at boot. Runs the collection normalizer so duplicate ids
  * collapse (last wins) exactly as the runtime registry would resolve them.
+ *
+ * Bare-basename atlas refs are repaired to full manifest keys (see `isBareManifestBasename`) so
+ * the runtime's atlas-scoped frame lookup engages — without this two single-page clips reusing a
+ * frame name on distinct sheets collide in the flat texture cache. Both ship-path readers
+ * (`exportClips` and the editor-art clip walk) go through here, so the editor-art export then
+ * ships each repaired sheet SCOPED under the same full key the runtime looks up.
  */
 export async function loadFlipbookDoc(clientKey: string, projectKey: string): Promise<FlipbookDoc> {
 	const prefix = `${clipsPrefix(clientKey, projectKey)}/`;
@@ -176,5 +248,9 @@ export async function loadFlipbookDoc(clientKey: string, projectKey: string): Pr
 			// ship-time gate, and one bad file must not block every other clip from shipping.
 		}
 	}
-	return normalizeFlipbookDoc({ clips });
+	const doc = normalizeFlipbookDoc({ clips });
+	if (!anyBareManifestRef(doc.clips)) return doc;
+	const byBasename = await manifestBasenameMap(clientKey, projectKey);
+	if (byBasename.size === 0) return doc;
+	return { ...doc, clips: doc.clips.map((c) => canonicalizeClipAtlasKeys(c, byBasename)) };
 }
