@@ -102,6 +102,9 @@ interface RawManifest {
 	deploy_basename?: unknown;
 	deploy_path?: unknown;
 	regions?: unknown;
+	/** Set by a verbatim `.plist` import (`{kind:'plist'}`) — the only manifests whose frames may
+	 * be TRIMMED, so the only ones that need trim pulled from the TexturePacker JSON. */
+	import?: { kind?: unknown };
 }
 
 function num(v: unknown): number | undefined {
@@ -334,16 +337,19 @@ function texturePackerToInvisible(raw: unknown): RawManifest | null {
 }
 
 /**
- * A region LISTED in the Invisible manifest but WITHOUT packed geometry (no
- * `x/y/w/h`) is dropped by `parseRegions` — this happens when a sprite is added
- * to the sheet but the atlas manifest isn't re-composed afterwards, so the entry
- * exists (name + style/output refs) yet never received coordinates. The geometry
- * DOES exist in the sheet's TexturePacker JSON, which the manifest already
- * references as `atlas.texturepacker_json` and whose frames share the manifest's
- * exact coordinate space + page. Backfill those regions from it by name so
- * consumers (Rigger, editor) don't silently lose a sprite that's already packed
- * on the page. Mutates `regions` in place. One extra R2 read, and only when some
- * region is actually missing geometry (the normal case fetches nothing).
+ * Backfill from the sheet's TexturePacker JSON two things the Invisible manifest can lack:
+ *
+ *  1. GEOMETRY for a region listed but WITHOUT `x/y/w/h` — a sprite added to the sheet before
+ *     the atlas was re-composed, so the entry exists yet never got coordinates.
+ *  2. TRIM (`offX/offY/origW/origH`) for a region that HAS geometry but no trim — the case
+ *     that matters for a plist import. `build_manifest` writes only `x/y/w/h`, so a trimmed
+ *     frame arrives with its tight packed size and no idea it sits inside a larger canvas, and
+ *     every renderer contain-fits the tight rect independently → the art pulses in size. The
+ *     trim DOES exist, in the `atlas.texturepacker_json` the manifest already references (its
+ *     `spriteSourceSize`/`sourceSize`), so pull it in by name.
+ *
+ * Mutates `regions` in place. One extra R2 read, and only when some region is missing geometry
+ * OR missing trim (a fully self-describing manifest fetches nothing).
  */
 async function backfillMissingGeometry(man: RawManifest, regions: EditorRegion[]): Promise<void> {
 	const tpKey = str(man.atlas?.texturepacker_json);
@@ -354,7 +360,13 @@ async function backfillMissingGeometry(man: RawManifest, regions: EditorRegion[]
 	const missing = listed
 		.map((r) => str(r.name))
 		.filter((n): n is string => !!n && !have.has(stem(n)));
-	if (!missing.length) return;
+	// Trim backfill applies ONLY to a verbatim plist import — the sole path that trims a frame.
+	// Every normal Sheet Maker sheet centres art in its cell (untrimmed), so gating here spares
+	// them the extra TP-JSON read on every load. A region with geometry but no `origW` never
+	// learned its untrimmed size.
+	const isPlistImport = isRecord(man.import) && man.import.kind === 'plist';
+	const needTrim = isPlistImport ? regions.filter((r) => r.origW === undefined) : [];
+	if (!missing.length && !needTrim.length) return;
 
 	const text = await getObjectText(tpKey);
 	if (!text) return;
@@ -367,6 +379,16 @@ async function backfillMissingGeometry(man: RawManifest, regions: EditorRegion[]
 	const conv = texturePackerToInvisible(tp);
 	if (!conv) return;
 	const tpByStem = new Map(parseRegions(conv.regions).map((r) => [stem(r.name), r]));
+	// Copy trim onto the regions that have geometry but lack it. The TP JSON shares the
+	// manifest's coordinate space, so its `offX/offY/origW/origH` apply as-is.
+	for (const r of needTrim) {
+		const tpR = tpByStem.get(stem(r.name));
+		if (!tpR || tpR.origW === undefined) continue;
+		r.offX = tpR.offX;
+		r.offY = tpR.offY;
+		r.origW = tpR.origW;
+		r.origH = tpR.origH;
+	}
 	for (const name of missing) {
 		const found = tpByStem.get(stem(name));
 		if (found) regions.push({ ...found, name }); // keep the manifest's (extensionless) name
