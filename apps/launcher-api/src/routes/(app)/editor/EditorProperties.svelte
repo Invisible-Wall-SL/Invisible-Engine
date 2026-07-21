@@ -1149,6 +1149,44 @@
 		markDirty();
 	}
 
+	// ---------- reveal-symbol rider (SpineNode.revealSymbol*) ----------
+	// Ride the game's chosen "reveal" symbol on one of THIS spine's OWN bones — no
+	// second rig, no bound component. `revealSymbolBone` is the enable switch: set = on,
+	// cleared = off (parity). The rest are optional tuning with engine defaults (state
+	// 'bookIdle', scale 1, offsets 0, follow* true); we store a field only when it
+	// differs from that default so an untouched node round-trips byte-identical.
+	function setRevealBone(n: SpineNode, bone: string): void {
+		const trimmed = bone.trim();
+		if (trimmed) n.revealSymbolBone = trimmed;
+		else delete n.revealSymbolBone;
+		markDirty();
+	}
+	function setRevealState(n: SpineNode, state: string): void {
+		if (state) n.revealSymbolState = state;
+		else delete n.revealSymbolState;
+		markDirty();
+	}
+	function setRevealNumber(
+		n: SpineNode,
+		key: 'revealSymbolScale' | 'revealSymbolOffsetX' | 'revealSymbolOffsetY',
+		raw: number,
+	): void {
+		if (Number.isNaN(raw)) delete n[key];
+		else n[key] = raw;
+		markDirty();
+	}
+	// `revealSymbolFollowRotation` / `revealSymbolFollowScale` default TRUE — store the
+	// flag only when the author turns it OFF so the default stays implicit (sparse doc).
+	function setRevealFollow(
+		n: SpineNode,
+		key: 'revealSymbolFollowRotation' | 'revealSymbolFollowScale',
+		on: boolean,
+	): void {
+		if (on) delete n[key];
+		else n[key] = false;
+		markDirty();
+	}
+
 	// ---------- button-state spine animations ----------
 	// The INTERACTION analogue of the per-state IMAGE cascade: map each button state to
 	// an animation this spine plays while that state is active (resting = the spine's
@@ -2635,6 +2673,129 @@
 				natural bounds). Leave blank to size by <strong>scale</strong> instead; setting a size resets
 				scale to 1 so the number is exact.
 			</p>
+			<h4 class="sub-h">Reveal symbol on bone</h4>
+			<p class="muted small">
+				Ride the game's chosen <strong>reveal symbol</strong> (the special / book symbol) on one of
+				this rig's own bones — no second rig or bound component. Pick a <strong>bone</strong> to
+				switch it on; leave it blank for off. The symbol then banks and scales with the rig's
+				animation.
+			</p>
+			<div class="row">
+				<label class="field wide">
+					<span>bone</span>
+					{#if meta?.bones?.length}
+						<select
+							value={node.revealSymbolBone ?? ''}
+							onchange={(e) => setRevealBone(node as SpineNode, e.currentTarget.value)}
+						>
+							<option value="">— off (no rider) —</option>
+							{#if node.revealSymbolBone && !meta.bones.includes(node.revealSymbolBone)}
+								<option value={node.revealSymbolBone}>{node.revealSymbolBone} (missing)</option>
+							{/if}
+							{#each meta.bones as b (b)}
+								<option value={b}>{b}</option>
+							{/each}
+						</select>
+					{:else}
+						<input
+							type="text"
+							placeholder="bone name (off when blank)"
+							value={node.revealSymbolBone ?? ''}
+							oninput={(e) => setRevealBone(node as SpineNode, e.currentTarget.value)}
+						/>
+					{/if}
+				</label>
+			</div>
+			{#if node.revealSymbolBone}
+				<div class="row">
+					<label class="field wide">
+						<span>symbol state</span>
+						<select
+							value={node.revealSymbolState ?? ''}
+							onchange={(e) => setRevealState(node as SpineNode, e.currentTarget.value)}
+						>
+							<option value="">(default: bookIdle)</option>
+							{#each SYMBOL_STATES as s (s)}
+								<option value={s}>{SYMBOL_STATE_LABELS[s]}</option>
+							{/each}
+							{#if node.revealSymbolState && !SYMBOL_STATES.some((s) => s === node.revealSymbolState)}
+								<option value={node.revealSymbolState}>{node.revealSymbolState} (custom)</option>
+							{/if}
+						</select>
+					</label>
+				</div>
+				<div class="row">
+					<label class="field">
+						<span>scale</span>
+						<input
+							type="number"
+							step="0.01"
+							placeholder="1"
+							value={node.revealSymbolScale ?? ''}
+							oninput={(e) =>
+								setRevealNumber(node as SpineNode, 'revealSymbolScale', e.currentTarget.valueAsNumber)}
+						/>
+					</label>
+					<label class="field">
+						<span>offset X</span>
+						<input
+							type="number"
+							step="1"
+							placeholder="0"
+							value={node.revealSymbolOffsetX ?? ''}
+							oninput={(e) =>
+								setRevealNumber(
+									node as SpineNode,
+									'revealSymbolOffsetX',
+									e.currentTarget.valueAsNumber,
+								)}
+						/>
+					</label>
+					<label class="field">
+						<span>offset Y</span>
+						<input
+							type="number"
+							step="1"
+							placeholder="0"
+							value={node.revealSymbolOffsetY ?? ''}
+							oninput={(e) =>
+								setRevealNumber(
+									node as SpineNode,
+									'revealSymbolOffsetY',
+									e.currentTarget.valueAsNumber,
+								)}
+						/>
+					</label>
+				</div>
+				<div class="row">
+					<label class="field check">
+						<input
+							type="checkbox"
+							checked={node.revealSymbolFollowRotation ?? true}
+							onchange={(e) =>
+								setRevealFollow(
+									node as SpineNode,
+									'revealSymbolFollowRotation',
+									e.currentTarget.checked,
+								)}
+						/>
+						<span>follows bone rotation</span>
+					</label>
+					<label class="field check">
+						<input
+							type="checkbox"
+							checked={node.revealSymbolFollowScale ?? true}
+							onchange={(e) =>
+								setRevealFollow(
+									node as SpineNode,
+									'revealSymbolFollowScale',
+									e.currentTarget.checked,
+								)}
+						/>
+						<span>follows bone scale</span>
+					</label>
+				</div>
+			{/if}
 			{#if componentSignals.length > 0}
 				<h4 class="sub-h">Plays on signal</h4>
 				<p class="muted small">
