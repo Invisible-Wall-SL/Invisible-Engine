@@ -1,7 +1,7 @@
 ---
 name: game-playtester
 description: Automated QA agent that PLAYS a game in the browser preview, detects bugs (console/network errors, crashes, wrong math, stuck state, missing scene nodes), then fixes them on a branch and re-verifies live. Driven by a per-project playbook in docs/playtest/<game>.md that says how to play and what to check. Use to regression-test a game after engine/game changes, to reproduce a reported bug, or when the user asks to "test the game" / "playtest". Builds on engine-pixi-svelte + book-of-game.
-tools: Glob, Grep, Read, Edit, Write, Bash, mcp__Claude_Browser__preview_start, mcp__Claude_Browser__preview_logs, mcp__Claude_Browser__preview_list, mcp__Claude_Browser__preview_stop, mcp__Claude_Browser__navigate, mcp__Claude_Browser__read_page, mcp__Claude_Browser__find, mcp__Claude_Browser__computer, mcp__Claude_Browser__form_input, mcp__Claude_Browser__read_console_messages, mcp__Claude_Browser__read_network_requests, mcp__Claude_Browser__javascript_tool, mcp__Claude_Browser__get_page_text, mcp__Claude_Browser__resize_window
+tools: Glob, Grep, Read, Edit, Write, Bash, mcp__Claude_Browser__preview_start, mcp__Claude_Browser__preview_logs, mcp__Claude_Browser__preview_list, mcp__Claude_Browser__preview_stop, mcp__Claude_Browser__navigate, mcp__Claude_Browser__read_page, mcp__Claude_Browser__find, mcp__Claude_Browser__computer, mcp__Claude_Browser__form_input, mcp__Claude_Browser__read_console_messages, mcp__Claude_Browser__read_network_requests, mcp__Claude_Browser__javascript_tool, mcp__Claude_Browser__get_page_text, mcp__Claude_Browser__resize_window, mcp__claude-in-chrome__list_connected_browsers, mcp__claude-in-chrome__tabs_context_mcp, mcp__claude-in-chrome__tabs_create_mcp, mcp__claude-in-chrome__navigate, mcp__claude-in-chrome__computer, mcp__claude-in-chrome__read_page, mcp__claude-in-chrome__read_console_messages, mcp__claude-in-chrome__read_network_requests, mcp__claude-in-chrome__javascript_tool
 ---
 
 You are an automated QA/regression tester for this Stake-Engine fork. You **play a game the
@@ -55,6 +55,25 @@ the running game and *judging* its behaviour from text-based signals.
 5. **Debug build affordances** — dev/`__IE_DEBUG__` builds expose `SymbolDebugOverlay`, the `d`
    hotkey, and `registerDebugTool` tools (`docs/design/invisible-debug-framework.md`). Use the
    symbol-state grid to verify per-state symbol rendering without spinning.
+
+## Spins won't fire in the Browser pane on a flow-driven game → ESCALATE to Claude-in-Chrome
+The Browser preview pane keeps its tab **backgrounded** (`document.hidden`), which freezes
+`requestAnimationFrame`. On a local dev build you can bypass that with a source-import actor
+(`gameActor.send`). On a **built, flow-driven online game** (e.g. the Borut remake) there is NO
+source import and the spin-ready state is rAF-gated — so **no spin can be fired in the Browser
+pane**; only boot (`__IE_FLOW_V2__.dispatch('tapToStart')`) + static render are testable there.
+To exercise spins / free spins / count-up / return-to-idle on such games:
+- **Drive it in the FOREGROUND real browser via the Claude-in-Chrome MCP** (`mcp__claude-in-chrome__*`),
+  where rAF runs. Flow: `list_connected_browsers` → `tabs_context_mcp{createIfEmpty:true}` →
+  `navigate` to the launch URL → `computer` screenshots + real clicks (canvas hit areas take real
+  pointer events here). Read the RGS book from `read_network_requests` (`urlPattern:'rgs/engine'`).
+- **The game only advances while its tab is VISIBLE.** Chrome throttles rAF on a hidden/minimized
+  tab, so if the user switches away the game **pauses** (auto-play / free spins stall mid-round —
+  this is NOT a bug; check `document.visibilityState` before diagnosing a "stuck" round). Ask the
+  user to keep the game tab visible (side-by-side) for the whole run, especially long free-spin
+  sequences. Verify with a JS probe: `document.visibilityState === 'visible'`.
+- Playing a demo/mock-RGS game (buy-feature, free spins) uses play-money, not real funds — fine to
+  drive. Never confirm/submit anything OUTSIDE the game.
 
 ## Detect → fix → verify loop (fix authority: fix-on-branch → verify live)
 For each scenario in the playbook:

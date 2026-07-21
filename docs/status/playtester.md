@@ -64,14 +64,16 @@ fix-worker) are designed, not built.
   Money math + book-vs-render are verifiable; the idle-return / animation assertions need a way to
   drive Svelte's rAF (unsolved) or human eyes.
 
-## Structural limit — the Browser pane can't drive spins on a FLOW-DRIVEN game
-The preview pane backgrounds the tab (`document.hidden`), freezing rAF. On the local `lines` dev
-build we bypassed that with `gameActor.send({type:'BET'})` (source import). On a **built, flow-driven
-online game** (the Borut remake) there is NO source import and the spin-ready state is rAF-gated, so
-**no spin can be fired in the Browser pane** — only the boot (`__IE_FLOW_V2__.dispatch('tapToStart')`)
-and static render are testable. **To exercise spins / free spins / count-up / return-to-idle on such
-games, drive them in a FOREGROUND real browser via the Claude-in-Chrome MCP (rAF runs there), or add
-a headless-render path.** This is the top harness gap for online-game coverage.
+## Driving spins on a FLOW-DRIVEN online game — use Claude-in-Chrome (SOLVED 2026-07-21)
+The Browser preview pane backgrounds its tab (`document.hidden`), freezing rAF; a built online game
+has no source-import actor and its spin-ready state is rAF-gated, so **spins can't be fired in the
+Browser pane** (only boot + static render). **Fix: drive the game in the FOREGROUND real browser via
+the Claude-in-Chrome MCP** — the `game-playtester` agent now has those tools + the escalation rule.
+Confirmed working on the Borut remake: tap-to-start, base spins, BUY FEATURE, full free-spin round.
+**Caveat:** Chrome throttles rAF on a hidden tab, so the game **pauses whenever its tab loses
+visibility** — the user must keep the game tab visible (side-by-side) for the whole run, and a
+"stuck" round is usually just `document.visibilityState==='hidden'`, not a bug. Remaining gap: a
+**headless** path (for unattended/CI runs where no human keeps a tab focused).
 
 ## Recent changes
 - 2026-07-21 — Phase 1 built: `game-playtester` subagent + `docs/playtest/` playbook format +
@@ -86,3 +88,12 @@ a headless-render path.** This is the top harness gap for online-game coverage.
   ~15s `/api/editor/runtime` assemble (inside the 502/stale-fallback danger window — cf. game-maker
   status open item 6) and minor boot warnings (duplicate texture/bitmap-font registration;
   `[stake-facade] paylines: ? declared`). No edits/commits/ship (detect-only).
+- 2026-07-21 — **FULL live playtest of `bookofborutremake` via Claude-in-Chrome** (S2/S3 unblocked).
+  Verified end-to-end with real clicks + screenshots: tap-to-start → base game; base spin debits the
+  exact bet ($52,904.50→$52,903.50, Win $0, RGS `bet` 200); BUY FEATURE debits exactly 100× ($100);
+  free-spin round with the expanding special symbol (sheriff), free-spin counter, **retrigger 10→20**,
+  win accumulating to ~$36,129 (~36,000×, near max-win), symbol-explosion FX — all rendering correctly.
+  **Everything works.** Content bug found: the BUY FEATURE menu tiles show off-theme placeholder copy
+  ("SAMURAI SPIN", "mothership Land values") — recorded as a regression guard in the remake playbook.
+  Wired the Claude-in-Chrome tools + escalation rule into the agent so it does this automatically next
+  time. Round pause at 18/20 was the tab going hidden (visibility throttle), not a bug.

@@ -35,8 +35,16 @@ The Browser preview pane keeps the tab **backgrounded** (`document.hidden === tr
   out ~30s); synthetic canvas `PointerEvent`s dispatch but don't advance (rAF-gated); invoking the
   spin widget's handlers produces **no bet POST** because spin-ready is an rAF/GSAP idle state the
   frozen ticker never reaches. **→ S2/S3 (spin math, free spins, count-up, return-to-idle) are BLOCKED
-  in the Browser pane. To exercise them, drive the game in a FOREGROUND real browser via the
-  Claude-in-Chrome MCP (`mcp__claude-in-chrome__*`), where rAF runs, or a headless-render path.**
+  in the Browser pane. Drive them in a FOREGROUND real browser via the Claude-in-Chrome MCP.**
+
+### Claude-in-Chrome drive path (CONFIRMED 2026-07-21 — this is the way to run S2/S3)
+`list_connected_browsers` → `tabs_context_mcp{createIfEmpty:true}` → `navigate` to the launch URL →
+`computer` screenshots + **real clicks** (Chrome canvas hit areas take real pointer events). Read the
+book from `read_network_requests{urlPattern:'rgs/engine'}`. **The tab MUST stay VISIBLE the whole run**
+— Chrome throttles rAF on a hidden tab, so if focus leaves the tab the auto-play / free-spin round
+**pauses mid-round** (not a bug — check `document.visibilityState==='visible'` before calling it stuck).
+At 1512×812 the controls sit at: Spin = revolver cylinder ~(756,715); BUY FEATURE ~(1318,740); tap-to-
+start = anywhere. Boot takes ~15s (runtime assemble) — wait before the first screenshot.
 - **You CANNOT force outcomes.** `BIG_WIN`/`FORCE_TRIGGER` are local-mock CLI levers; production's
   mock RGS won't honor them. Money-math rides RNG — but **book-vs-render verifies on every spin, win
   or lose** (read the bet response book; compare to rendered Balance/Win) once a spin CAN be fired.
@@ -70,3 +78,11 @@ The Browser preview pane keeps the tab **backgrounded** (`document.hidden === tr
 - **Do:** inspect the stage graph after a spin settles (pump `app.ticker.update()` to sample a frame).
 - **Expect:** the board has the expected symbol sprites/spines (no placeholder dots, no missing-glyph
   black screen). **human-eyes:** actual art fidelity.
+
+## Known issues / regression guards (found 2026-07-21 via Claude-in-Chrome)
+- **BUY FEATURE menu copy is off-theme placeholder text (CONTENT BUG).** The five feature tiles read
+  *"SAMURAI SPIN is AWESOME!"*, *"Enter the mothership Land values and multiply them with action
+  symbols"*, etc. — leftover generic/other-template copy that doesn't belong in a western Book-of game.
+  (The BONUS confirm dialog copy IS correctly themed.) Likely the engine's default feature-buy strings
+  showing because per-game config isn't in R2 yet (Game Maker Phase 2). Regression guard: the buy menu
+  tiles must use Borut/western copy. Report if still present.
