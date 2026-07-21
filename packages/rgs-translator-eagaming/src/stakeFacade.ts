@@ -114,25 +114,20 @@ const runConfigCrossCheck = (sid: string, cfg: Play4FunConfigContext): void => {
 	const declared = new Set(cfg.symbols ?? []);
 	const known = new Set(Object.keys(activeMapping.symbols));
 
-	const unmapped: string[] = [];
-	for (const s of declared) if (!known.has(s)) unmapped.push(s);
-
-	const orphaned: string[] = [];
-	for (const s of known) if (!declared.has(s)) orphaned.push(s);
+	const unmapped = [...declared].filter((s) => !known.has(s));
+	const orphaned = [...known].filter((s) => !declared.has(s));
 
 	const gridReels = cfg.window?.reels;
 	const gridRows = cfg.window?.rows;
 	const gridOk = gridReels === 5 && gridRows === 3;
 
-	const wildCount = cfg.wildSymbols?.length ?? 0;
+	// Only surface the cross-check when something is actually WRONG. A healthy config
+	// previously dumped a full multi-line report (grid/paylines/wilds) to the console
+	// EVERY session — pure noise in a shipped game. Stay silent when all checks pass.
+	if (gridOk && !unmapped.length && !orphaned.length) return;
 
-	const lines: string[] = [];
-	lines.push(`[stake-facade] config cross-check for sid=${sid}`);
-	lines.push(`  grid: ${gridReels}×${gridRows}${gridOk ? ' ✓' : ' ✗ (expected 5×3)'}`);
-	lines.push(`  paylines: ${cfg.paylines?.length ?? '?'} declared`);
-	lines.push(
-		`  wilds: ${wildCount === 0 ? 'none ✓ (no wild substitution active)' : cfg.wildSymbols!.join(', ')}`,
-	);
+	const lines: string[] = [`[stake-facade] config cross-check for sid=${sid}`];
+	if (!gridOk) lines.push(`  grid: ${gridReels}×${gridRows} ✗ (expected 5×3)`);
 	if (unmapped.length)
 		lines.push(`  unmapped server symbols (will pass through): ${unmapped.join(', ')}`);
 	if (orphaned.length)

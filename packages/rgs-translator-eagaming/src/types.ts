@@ -59,8 +59,10 @@ export interface Play4FunConfigContext {
 	symbols: string[];
 	/** Visible grid dimensions. */
 	window: { reels: number; rows: number };
-	/** Active paylines. Each entry is one row-index per reel. */
-	paylines: number[][];
+	/** Active paylines — the real Play4Fun wire field is `availablePayLines`
+	 *  (NOT `paylines`, which is the per-round *bet* event's field). Each entry is
+	 *  one row-index per reel. */
+	availablePayLines: number[][];
 	/** Wild-acting symbols. Hot Fruits sends []. */
 	wildSymbols: string[];
 	/** Per-symbol payout table. */

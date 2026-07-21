@@ -38,6 +38,18 @@ type BookEventUpdateFreeSpin = {
 	total: number;
 };
 
+// 3+ scatters landed DURING a free spin → +extraFs more spins (facade emits it on
+// the `retrigger` event). `total` = the new played+left total. This game shows NO
+// retrigger celebration (owner decision) — the handler exists only so the event is
+// consumed cleanly instead of throwing "Missing bookEventHandler". See
+// bookEventHandlerMap.freeSpinRetrigger.
+type BookEventFreeSpinRetrigger = {
+	index: number;
+	type: 'freeSpinRetrigger';
+	extraFs: number;
+	total: number;
+};
+
 type BookEventSetWin = {
 	index: number;
 	type: 'setWin';
@@ -109,6 +121,7 @@ export type BookEvent =
 	| BookEventFreeSpinEnd
 	| BookEventSetExpandingSymbol
 	| BookEventExpandBookColumns
+	| BookEventFreeSpinRetrigger
 	// customised
 	| BookEventCreateBonusSnapshot;
 

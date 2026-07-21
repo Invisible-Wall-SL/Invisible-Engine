@@ -84,17 +84,19 @@ The full Claude-in-Chrome run found these. **Do NOT re-report the by-design / kn
 note them as expected. Owner dispositions:
 - **Retrigger "+10 free spins" overlay is absent — BY DESIGN (NOT a bug).** The owner decided there is
   no retrigger celebration. The counter still reaches the correct total via the following
-  `updateFreeSpin`. **Residual (open, minor):** the runtime still logs `Missing bookEventHandler …
-  freeSpinRetrigger` on every retrigger because there's no handler at all — an optional cleanup is a
-  no-op/counter-only `freeSpinRetrigger` handler to silence the console error (no overlay). Don't file
-  the *missing overlay* as a bug; the console-error noise is the only open thread.
+  `updateFreeSpin`. **Residual FIXED 2026-07-21:** a no-op counter-only `freeSpinRetrigger` handler now
+  consumes the event (sets the counter total, presents nothing), so the `Missing bookEventHandler …
+  freeSpinRetrigger` console error no longer fires (`apps/lines/src/game/bookEventHandlerMap.ts` +
+  `typesBookEvent.ts`). Still no overlay, by design.
 - **Menu (hamburger, top-right) does nothing — KNOWN, NOT a bug yet.** The settings/info submenu isn't
   built. Expected until it is. Don't re-report as broken.
 - **Fatal crash on a mid-round refresh / empty balance response — test-env artifact, NOT prioritized.**
   It was the ephemeral mock RGS restarting mid-round (`undefined.balance`). Owner deprioritized. (A real
   RGS 5xx mid-round would still crash; if that's ever seen on a real backend, revisit.)
-- **`paylines: ? declared` warning — cosmetic** (facade reads `cfg.paylines`; field is `availablePayLines`).
-  Payline math is server-side and correct. Low priority.
+- **`paylines: ? declared` warning — FIXED 2026-07-21.** The facade config cross-check now (a) reads the
+  correct wire field `availablePayLines` (renamed in `types.ts`), and (b) only logs when there's ACTUAL
+  drift (grid mismatch / unmapped / orphaned symbols) instead of dumping a full report every session —
+  a healthy config is now silent (`stakeFacade.ts` `runConfigCrossCheck`). Payline math was always fine.
 
 ## Known issues / regression guards (found 2026-07-21 via Claude-in-Chrome)
 - **BUY FEATURE menu copy is off-theme placeholder text (CONTENT BUG).** The five feature tiles read

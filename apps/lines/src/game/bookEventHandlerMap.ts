@@ -228,6 +228,15 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		stateUi.freeSpinCounterCurrent = bookEvent.amount + 1;
 		stateUi.freeSpinCounterTotal = bookEvent.total;
 	},
+	freeSpinRetrigger: async (bookEvent: BookEventOfType<'freeSpinRetrigger'>) => {
+		// Retrigger (3+ scatters during a free spin → +extraFs spins). This game shows NO
+		// retrigger celebration by design, so there is no "+N free spins" overlay. We still
+		// register a handler — a bare `bookEventHandlerMap` miss logs a console ERROR on every
+		// retrigger (`utils-book/createPlayBookUtils`) and drops the event. Consume it cleanly:
+		// keep the counter total in sync (the following `updateFreeSpin` also carries it) and
+		// present nothing.
+		stateUi.freeSpinCounterTotal = bookEvent.total;
+	},
 	freeSpinEnd: async (bookEvent: BookEventOfType<'freeSpinEnd'>) => {
 		const winLevelData = winLevelMap[bookEvent.winLevel as WinLevel];
 
