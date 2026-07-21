@@ -33,9 +33,40 @@ fix-worker) are designed, not built.
    into a permanent regression scenario.
 
 ## ⏳ Live-verify
-- End-to-end Phase-1 run (agent drives `lines`, finds a seeded bug, fixes + re-verifies) not yet
-  exercised — owner to trigger the agent on a real target to shake out the browser-driving handles.
+- Play→detect loop **exercised** on `lines` (2026-07-21 smoke run): `window.__PIXI_APP__` handle,
+  `gameActor.send` spin path, and book-vs-render money math all confirmed; harness gaps found +
+  folded into `docs/playtest/lines.md` (mock-RGS wiring, deterministic `BIG_WIN`/`FORCE_TRIGGER`
+  levers, human-eyes for animation/idle-return).
+- **Not yet exercised:** a full fix run (agent finds a real bug → fixes on a branch → re-verifies
+  live → runtime-release). The frozen-rAF limit means animation/return-to-idle assertions still
+  need a solution or stay human-eyes.
+
+## Harness notes (from smoke runs — bake these into the playbook)
+- **Browser handle:** `window.__PIXI_APP__` works directly (`__PIXI_DEVTOOLS__.app` is unset in
+  the dev `lines` build). Walk the full graph (depth ≥ 12) — pixi-svelte nodes are unlabelled
+  (`_Container`), so locate the board/HUD by structure + `Text.text`, not `.label`.
+- **The `lines` launch config does NOT wire the mock RGS.** `preview_start {name:'lines'}` boots
+  the game but the play4fun facade posts same-origin `/rgs/engine` (vite 404s), so it comes up with
+  Balance $0.00, no reel symbols, and a failed request. To play, start the mock manually
+  (`PORT=7788 node scripts/mock-rgs-server-book.mjs`, default balance $5000) and load the game with
+  `?sessionID=dev&rgs_url=localhost:7788&lang=en&currency=USD&device=desktop`. Then auth 200s,
+  Balance shows $5,000.00. **Playbook should either add a `mock-rgs` launch entry or document these
+  query params up front.**
+- **Drive Spin without canvas clicks:** `import('/src/game/actor.ts').gameActor.send({type:'BET'})`
+  (state `idle → bet`, balance debits). Read the money math from the bet POST body (the book:
+  `gameEnd.win`, `gameRoundOver.win`, `platform.balance`). The facade's `requestEndRound` is a
+  local no-op (no second network call) — both interim + final balance come from the single
+  Play4Fun round-trip; can't observe the two-step split on a zero-win.
+- **Return-to-idle is NOT observable under automation.** Reel-stop is a `svelte/motion` `Tween`
+  (`utils-slots/createReelForSpinning`) on Svelte's own rAF loop; the Browser pane backgrounds the
+  tab (`document.hidden`), freezing rAF, so the Tween never completes and the machine parks in
+  `bet`. Pumping `app.ticker.update()` advances Pixi's ticker but NOT the Svelte/GSAP rAF clock.
+  Money math + book-vs-render are verifiable; the idle-return / animation assertions need a way to
+  drive Svelte's rAF (unsolved) or human eyes.
 
 ## Recent changes
 - 2026-07-21 — Phase 1 built: `game-playtester` subagent + `docs/playtest/` playbook format +
   `lines` starter playbook; design doc + this status registered.
+- 2026-07-21 — Smoke run of `lines` S1/S2 (dry run, no fixes): validated the play→detect loop and
+  `window.__PIXI_APP__` handle; surfaced the mock-RGS-not-wired harness gap and the frozen-rAF
+  return-to-idle limit (see Harness notes). Boot + money-math verified; RGS 404 with default config.
