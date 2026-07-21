@@ -405,7 +405,17 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 				// always carries the natural board (base game and free spins alike).
 				// Tick the free-spin counter to THIS spin's number FIRST (see `bonusSpin`
 				// above), so it leads the board rather than trailing it by a spin.
-				emitBonusCounter();
+				//
+				// ONLY on FREE-SPIN reveals. The response also carries the TRIGGER (base)
+				// reveal that landed the scatters — its `playedSpin` runs this same case
+				// while `gameType` is still 'basegame' (it flips to 'freegame' on the later
+				// `enterBonus`). There are exactly N `playedBonusSpin` counters for N free
+				// spins, but N+1 reveals (trigger + N). Ticking on the trigger reveal
+				// consumed counter[0] one reveal early, so free spin 1 read "2 OF N", every
+				// spin was off by one, and the last two both sat on "N OF N" (the +1th
+				// reveal found no counter left). Gate on freegame so the N free reveals
+				// consume exactly the N counters, 1:1.
+				if (gameType === 'freegame') emitBonusCounter();
 				push({
 					type: 'reveal',
 					board: reels.map((reel) =>
