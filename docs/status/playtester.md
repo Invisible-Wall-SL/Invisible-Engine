@@ -64,9 +64,25 @@ fix-worker) are designed, not built.
   Money math + book-vs-render are verifiable; the idle-return / animation assertions need a way to
   drive Svelte's rAF (unsolved) or human eyes.
 
+## Structural limit — the Browser pane can't drive spins on a FLOW-DRIVEN game
+The preview pane backgrounds the tab (`document.hidden`), freezing rAF. On the local `lines` dev
+build we bypassed that with `gameActor.send({type:'BET'})` (source import). On a **built, flow-driven
+online game** (the Borut remake) there is NO source import and the spin-ready state is rAF-gated, so
+**no spin can be fired in the Browser pane** — only the boot (`__IE_FLOW_V2__.dispatch('tapToStart')`)
+and static render are testable. **To exercise spins / free spins / count-up / return-to-idle on such
+games, drive them in a FOREGROUND real browser via the Claude-in-Chrome MCP (rAF runs there), or add
+a headless-render path.** This is the top harness gap for online-game coverage.
+
 ## Recent changes
 - 2026-07-21 — Phase 1 built: `game-playtester` subagent + `docs/playtest/` playbook format +
   `lines` starter playbook; design doc + this status registered.
 - 2026-07-21 — Smoke run of `lines` S1/S2 (dry run, no fixes): validated the play→detect loop and
   `window.__PIXI_APP__` handle; surfaced the mock-RGS-not-wired harness gap and the frozen-rAF
   return-to-idle limit (see Harness notes). Boot + money-math verified; RGS 404 with default config.
+- 2026-07-21 — LIVE detect run of `bookofborutremake` (online generic runtime). **Game healthy + on
+  LIVE data** (`__IE_RUNTIME_STALE__` null, runtime 200, "live bundle ready", correct config/balance);
+  static board renders real symbols (no placeholders). S1 + static-render PASS; **S2/S3 BLOCKED** by
+  the frozen-rAF limit above. Confirmed boot handle `__IE_FLOW_V2__.dispatch('tapToStart')`. Flagged:
+  ~15s `/api/editor/runtime` assemble (inside the 502/stale-fallback danger window — cf. game-maker
+  status open item 6) and minor boot warnings (duplicate texture/bitmap-font registration;
+  `[stake-facade] paylines: ? declared`). No edits/commits/ship (detect-only).
