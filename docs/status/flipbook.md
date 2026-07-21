@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-flipbook.md](../design/invisible-flipbook.md) · Guide: [docs/tools/flipbook.md](../tools/flipbook.md) · Agent: _none yet — use `engine-pixi-svelte` + `atlas-python-tools`_
 
-**One-line state:** Authoring **and shipping** work end-to-end; **no consumer reads a clip yet**. Clips are created at `/flipbook`, travel the full export→bake→pull→register chain, and are registered at boot — but nothing resolves a `clipId`, so a clip still renders nowhere in a game. Step 6 (consumers) is the only thing between a clip and pixels.
+**One-line state:** _(2026-07-21)_ First consumer LIVE — a flipbook clip binds as a symbol state and renders in the runtime. Was: Authoring **and shipping** work end-to-end; **no consumer reads a clip yet**. Clips are created at `/flipbook`, travel the full export→bake→pull→register chain, and are registered at boot — but nothing resolves a `clipId`, so a clip still renders nowhere in a game. Step 6 (consumers) is the only thing between a clip and pixels.
 
 ## Current state
 Live on `main` (steps 1–5 + 7 of the design doc's build plan):
@@ -38,6 +38,8 @@ Live on `main` (steps 1–5 + 7 of the design doc's build plan):
 - Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-07-21 — flipbook clips now feed the LIVE runtime bundle (`assembleRuntimeBundle` runs `exportClips`), so `resolveFlipbook` resolves in the `?runtime=1` authoring preview, not only from a baked bundle. Paired with a `_runtime/lines` runtime release carrying the `SymbolFlipbook` dispatch — without both, a flipbook symbol cell fell through to the Spine renderer (`0853895`).
+- 2026-07-21 — trim now flows atlas→manifest→tool so plist-imported frames stop pulsing: RegionThumb honours `offX/offY/origW/origH`, `build_manifest` carries them, and `loadRegionSet` backfills them from the TexturePacker JSON for existing imports.
 - 2026-07-20 — step 7: clips travel export→bake→pull→register; dangling clip frames are FATAL at bake.
 - 2026-07-20 — step 5: `<Flipbook>` runtime playback seam (`b1d73bf`).
 - 2026-07-20 — the `/flipbook` tool + its save/delete endpoints + `docs/tools/flipbook.md`.
