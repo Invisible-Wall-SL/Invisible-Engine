@@ -211,28 +211,38 @@ export async function loadSpineInstance(
 	if (!descriptor) return null;
 	const spine = await loadSpineRuntime(descriptor.runtime);
 	// Cache-bust token from the editor's "Reload art" — forces a fresh fetch of
-	// the skeleton + page textures after the underlying R2 art changed.
-	const bust = (u: string): string => (version ? `${u}&v=${version}` : u);
+	// the skeleton + page textures after the underlying R2 art changed. Use the
+	// right separator: builtin spine URLs (`/builtin/spines/…`) carry no query, so
+	// a bare `&v=` would land in the PATH and 404 the asset.
+	const bust = (u: string): string =>
+		version ? `${u}${u.includes('?') ? '&' : '?'}v=${version}` : u;
 
-	const [skeletonBytes, ...images] = await Promise.all([
-		descriptor.format === 'skel'
-			? fetch(bust(descriptor.skeletonUrl)).then((r) => {
-					if (!r.ok) throw new Error('skeleton fetch failed');
-					return r.arrayBuffer();
-				})
-			: fetch(bust(descriptor.skeletonUrl)).then((r) => {
-					if (!r.ok) throw new Error('skeleton fetch failed');
-					return r.text();
-				}),
-		...descriptor.pageUrls.map((u) => loadImage(bust(u))),
-	]);
+	// A fetch/parse failure returns null (the documented contract) rather than
+	// throwing — otherwise one bad asset becomes an uncaught rejection that stalls
+	// the caller's whole load batch, blanking every OTHER cell in the grid too.
+	try {
+		const [skeletonBytes, ...images] = await Promise.all([
+			descriptor.format === 'skel'
+				? fetch(bust(descriptor.skeletonUrl)).then((r) => {
+						if (!r.ok) throw new Error('skeleton fetch failed');
+						return r.arrayBuffer();
+					})
+				: fetch(bust(descriptor.skeletonUrl)).then((r) => {
+						if (!r.ok) throw new Error('skeleton fetch failed');
+						return r.text();
+					}),
+			...descriptor.pageUrls.map((u) => loadImage(bust(u))),
+		]);
 
-	const pageImages = new Map<string, HTMLImageElement | null>();
-	descriptor.pageNames.forEach((name, i) =>
-		pageImages.set(name, images[i] as HTMLImageElement | null),
-	);
+		const pageImages = new Map<string, HTMLImageElement | null>();
+		descriptor.pageNames.forEach((name, i) =>
+			pageImages.set(name, images[i] as HTMLImageElement | null),
+		);
 
-	return buildSkeleton(spine, gl, descriptor, pageImages, skeletonBytes);
+		return buildSkeleton(spine, gl, descriptor, pageImages, skeletonBytes);
+	} catch {
+		return null;
+	}
 }
 
 /** Dispose an instance's GPU + atlas resources. Safe to call once per instance. */
