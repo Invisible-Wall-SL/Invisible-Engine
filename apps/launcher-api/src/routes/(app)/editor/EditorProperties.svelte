@@ -3,6 +3,7 @@
 		backgroundCoverScale,
 		backgroundFit,
 		BUTTON_STATE_PARAMS,
+		BUTTON_VISUAL_STATES,
 		defaultHudText,
 		ENGINE_ACTION_CATALOG,
 		ENGINE_ACTION_LABELS,
@@ -1153,15 +1154,12 @@
 	// an animation this spine plays while that state is active (resting = the spine's
 	// `defaultAnimation`). Authored as `node.stateAnimations`; only meaningful inside an
 	// interactive button component (one declaring an `action` variable). Same cascade as
-	// the state images — an unset state falls back to a neighbour (pressed→hover→selected).
-	const BUTTON_ANIM_STATES = [
-		{ key: 'hover', label: 'hover' },
-		{ key: 'pressed', label: 'pressed' },
-		{ key: 'selected', label: 'selected' },
-		{ key: 'disabled', label: 'downstate' },
-		{ key: 'spinning', label: 'spinning' },
-	] as const;
-	type ButtonAnimState = (typeof BUTTON_ANIM_STATES)[number]['key'];
+	// the state images — an unset state falls back to a neighbour (pressed→hover→selected,
+	// stop hover/pressed→spinning). DERIVED from the shared `BUTTON_VISUAL_STATES` so the
+	// animation picker offers exactly the states the runtime cascade resolves (incl. the
+	// slam-stop `spinningHover`/`spinningPressed`) and can't drift from the image side.
+	const BUTTON_ANIM_STATES = BUTTON_VISUAL_STATES;
+	type ButtonAnimState = (typeof BUTTON_VISUAL_STATES)[number]['key'];
 
 	/** True when the open component is an interactive button (declares an `action`
 	 * variable) — only then do button-state spine animations apply at runtime. */

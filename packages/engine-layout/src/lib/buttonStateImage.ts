@@ -79,26 +79,54 @@ export function resolveButtonState<T>(
 }
 
 /**
+ * THE single source of truth for the button's non-resting VISUAL STATES, in the
+ * order the editor lists them (hover → pressed → selected → downstate → spinning →
+ * stop hover → stop pressed). The resting state (`image` / `defaultAnimation`) is
+ * the caller's fallback, not an entry here. Both authoring surfaces — the per-state
+ * IMAGE picker AND the per-state spine ANIMATION picker — derive their lists from
+ * this array so a newly added state can't reach one surface without the other
+ * (8a2573a added the three `imageSpinning*` states to the cascade + built-in def but
+ * MISSED the authored-def picker; the anim UI in turn lacked the two `spinning*`
+ * feedback states even though the runtime cascade played them). `label` is the
+ * editor field name; `key` is the cascade {@link ButtonVisualState}.
+ *
+ * Every entry's `key` is exactly one {@link ButtonVisualState}, and the set of keys
+ * is exactly the states {@link resolveButtonState} resolves — a Node fixture proves
+ * both by driving the cascade over all flag combinations.
+ */
+export const BUTTON_VISUAL_STATES: readonly { key: ButtonVisualState; label: string }[] = [
+	{ key: 'hover', label: 'hover' },
+	{ key: 'pressed', label: 'pressed' },
+	{ key: 'selected', label: 'selected' },
+	{ key: 'disabled', label: 'downstate' },
+	{ key: 'spinning', label: 'spinning' },
+	{ key: 'spinningHover', label: 'stop hover' },
+	{ key: 'spinningPressed', label: 'stop pressed' },
+];
+
+/** A visual state's `image*` param key (`hover` → `imageHover`, `spinningPressed` →
+ * `imageSpinningPressed`). The resting frame is the bare `image` param. */
+function imageKeyOf(state: ButtonVisualState): string {
+	return `image${state[0].toUpperCase()}${state.slice(1)}`;
+}
+
+/**
  * The button's state-image params — the resting frame (`image`) plus the seven
  * interaction states, in the order the editor lists them. THE single source for
- * the three surfaces that must agree, each of which DERIVES from this array so a
- * newly added state can't be offered-but-not-rendered or rendered-but-not-offered
+ * the three IMAGE surfaces that must agree, each of which DERIVES from this array so
+ * a newly added state can't be offered-but-not-rendered or rendered-but-not-offered
  * (8a2573a added the three `imageSpinning*` states to the cascade + built-in def
  * but MISSED the authored-def picker, making the STOP look impossible to author):
  * - {@link BUTTON_STATE_IMAGE_KEYS} — the cascade's key list (below);
  * - the built-in `button` def's inline state-image params (`builtinComponents.ts`);
  * - `BUTTON_STATE_PARAMS` (`componentCatalog.ts`) — the authored-def picker.
- * `label` is the editor field name; `key` is the stored `image*` param.
+ * `label` is the editor field name; `key` is the stored `image*` param. Derived from
+ * {@link BUTTON_VISUAL_STATES} (prefixing the resting `image` entry) so the image and
+ * animation authoring surfaces share ONE ordered list of states.
  */
 export const BUTTON_STATE_IMAGE_PARAMS: readonly { key: string; label: string }[] = [
 	{ key: 'image', label: 'normal' },
-	{ key: 'imageHover', label: 'hover' },
-	{ key: 'imagePressed', label: 'pressed' },
-	{ key: 'imageSelected', label: 'selected' },
-	{ key: 'imageDisabled', label: 'downstate' },
-	{ key: 'imageSpinning', label: 'spinning' },
-	{ key: 'imageSpinningHover', label: 'stop hover' },
-	{ key: 'imageSpinningPressed', label: 'stop pressed' },
+	...BUTTON_VISUAL_STATES.map((s) => ({ key: imageKeyOf(s.key), label: s.label })),
 ];
 
 /** The `button` def's state-image param keys (resting + the seven states), derived
@@ -107,16 +135,11 @@ export const BUTTON_STATE_IMAGE_KEYS: readonly string[] = BUTTON_STATE_IMAGE_PAR
 	(p) => p.key,
 );
 
-/** State → the `image*` param key that holds its frame ref. */
-const IMAGE_KEY: Record<ButtonVisualState, string> = {
-	spinning: 'imageSpinning',
-	spinningHover: 'imageSpinningHover',
-	spinningPressed: 'imageSpinningPressed',
-	disabled: 'imageDisabled',
-	pressed: 'imagePressed',
-	hover: 'imageHover',
-	selected: 'imageSelected',
-};
+/** State → the `image*` param key that holds its frame ref, derived from
+ * {@link BUTTON_VISUAL_STATES} so it can't drift from the shared state list. */
+const IMAGE_KEY = Object.fromEntries(
+	BUTTON_VISUAL_STATES.map((s) => [s.key, imageKeyOf(s.key)]),
+) as Record<ButtonVisualState, string>;
 
 function imageParam(params: Record<string, unknown>, key: string): string | undefined {
 	const value = params[key];
