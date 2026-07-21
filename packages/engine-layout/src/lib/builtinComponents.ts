@@ -1,6 +1,7 @@
 import { BUILTIN_REGION } from './builtinRegions';
+import { BUTTON_STATE_IMAGE_PARAMS } from './buttonStateImage';
 import { TEXT_SOURCE_KEYS, VALUE_SOURCE_KEYS, VISIBILITY_SOURCE_KEYS } from './componentCatalog';
-import type { ComponentDef } from './types';
+import type { ComponentDef, ComponentParam } from './types';
 
 /**
  * Built-in component defs — the code path that makes a {@link ComponentDef}
@@ -236,35 +237,21 @@ export const BUTTON_DEF: ComponentDef = {
 		// Per-state background IMAGES (atlas frame names — `kind: 'image'` renders the
 		// editor's region picker). `ButtonFrame` swaps its bg by interaction state:
 		// `image` is the resting look, `imageSelected` shows while the engine `active`
-		// flag is on, `imageDisabled` is the downstate (engine `disabled` flag), and a
-		// missing `imagePressed` falls back to `imageHover` then `image`. All absent ⇒
-		// the coded variant tile renders unchanged (parity).
-		{ key: 'image', kind: 'image', group: 'State images', label: 'normal' },
-		{ key: 'imageHover', kind: 'image', group: 'State images', label: 'hover' },
-		{ key: 'imagePressed', kind: 'image', group: 'State images', label: 'pressed' },
-		{ key: 'imageSelected', kind: 'image', group: 'State images', label: 'selected' },
-		{ key: 'imageDisabled', kind: 'image', group: 'State images', label: 'downstate' },
-		// The round-in-progress frame: while the engine `spinning` flag is on (the
-		// spin button's reels are rolling), `ButtonFrame` renders this frame INSTEAD
-		// of the resting one and rotates it continuously until the flag clears. A
-		// circular/radially-symmetric icon reads best. Absent ⇒ no swap, no rotation.
-		{ key: 'imageSpinning', kind: 'image', group: 'State images', label: 'spinning' },
-		// Hover/press feedback for the SLAM-STOP button — while the reels roll the spin
-		// button is a live STOP, so it needs its own rollover and pressed frames. Kept
-		// separate from `imageHover`/`imagePressed`, which depict the resting SPIN look.
-		// Absent ⇒ the plain `imageSpinning` frame, exactly as before.
-		{
-			key: 'imageSpinningHover',
-			kind: 'image',
-			group: 'State images',
-			label: 'stop hover',
-		},
-		{
-			key: 'imageSpinningPressed',
-			kind: 'image',
-			group: 'State images',
-			label: 'stop pressed',
-		},
+		// flag is on, `imageDisabled` is the downstate (engine `disabled` flag), a missing
+		// `imagePressed` falls back to `imageHover` then `image`, and while the engine
+		// `spinning` flag is on the button renders `imageSpinning` (rotated) — the live
+		// SLAM-STOP frame — with its own `imageSpinningHover`/`imageSpinningPressed`
+		// feedback (each falling back to `imageSpinning`). All absent ⇒ the coded variant
+		// tile renders unchanged (parity). DERIVED from the shared source-of-truth so this
+		// def, the picker (`BUTTON_STATE_PARAMS`) and the cascade key list can't drift.
+		...BUTTON_STATE_IMAGE_PARAMS.map(
+			(p): ComponentParam => ({
+				key: p.key,
+				kind: 'image',
+				group: 'State images',
+				label: p.label,
+			}),
+		),
 		{ key: 'disabled', kind: 'boolean', engineProvided: true },
 		{ key: 'active', kind: 'boolean', engineProvided: true },
 		{ key: 'spinning', kind: 'boolean', engineProvided: true },

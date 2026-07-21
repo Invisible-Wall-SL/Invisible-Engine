@@ -78,17 +78,34 @@ export function resolveButtonState<T>(
 	return selected;
 }
 
-/** The `button` def's state-image param keys (resting + the five states). */
-export const BUTTON_STATE_IMAGE_KEYS = [
-	'image',
-	'imageHover',
-	'imagePressed',
-	'imageSelected',
-	'imageDisabled',
-	'imageSpinning',
-	'imageSpinningHover',
-	'imageSpinningPressed',
-] as const;
+/**
+ * The button's state-image params — the resting frame (`image`) plus the seven
+ * interaction states, in the order the editor lists them. THE single source for
+ * the three surfaces that must agree, each of which DERIVES from this array so a
+ * newly added state can't be offered-but-not-rendered or rendered-but-not-offered
+ * (8a2573a added the three `imageSpinning*` states to the cascade + built-in def
+ * but MISSED the authored-def picker, making the STOP look impossible to author):
+ * - {@link BUTTON_STATE_IMAGE_KEYS} — the cascade's key list (below);
+ * - the built-in `button` def's inline state-image params (`builtinComponents.ts`);
+ * - `BUTTON_STATE_PARAMS` (`componentCatalog.ts`) — the authored-def picker.
+ * `label` is the editor field name; `key` is the stored `image*` param.
+ */
+export const BUTTON_STATE_IMAGE_PARAMS: readonly { key: string; label: string }[] = [
+	{ key: 'image', label: 'normal' },
+	{ key: 'imageHover', label: 'hover' },
+	{ key: 'imagePressed', label: 'pressed' },
+	{ key: 'imageSelected', label: 'selected' },
+	{ key: 'imageDisabled', label: 'downstate' },
+	{ key: 'imageSpinning', label: 'spinning' },
+	{ key: 'imageSpinningHover', label: 'stop hover' },
+	{ key: 'imageSpinningPressed', label: 'stop pressed' },
+];
+
+/** The `button` def's state-image param keys (resting + the seven states), derived
+ * from {@link BUTTON_STATE_IMAGE_PARAMS} so the key list can't drift from it. */
+export const BUTTON_STATE_IMAGE_KEYS: readonly string[] = BUTTON_STATE_IMAGE_PARAMS.map(
+	(p) => p.key,
+);
 
 /** State → the `image*` param key that holds its frame ref. */
 const IMAGE_KEY: Record<ButtonVisualState, string> = {

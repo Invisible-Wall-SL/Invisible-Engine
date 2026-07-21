@@ -1,3 +1,4 @@
+import { BUTTON_STATE_IMAGE_PARAMS } from './buttonStateImage';
 import type { ComponentParam } from './types';
 
 /**
@@ -221,22 +222,26 @@ export const ENGINE_ACTION_LABELS: Record<string, string> = {
 
 /**
  * The button STATE-IMAGE params an author exposes on a from-scratch button via the
- * Component Editor's "Show button params" picker. Mirrors the built-in `BUTTON_DEF`
- * state images (same keys/labels/group) so a hand-built button drives the SAME
- * {@link import('./buttonStateImage').resolveButtonStateImage} cascade. `author: true`
+ * Component Editor's "Show button params" picker. DERIVED from the shared
+ * {@link import('./buttonStateImage').BUTTON_STATE_IMAGE_PARAMS} (same keys/labels/
+ * group as the built-in `BUTTON_DEF`) so a hand-built button offers — and drives —
+ * the SAME {@link import('./buttonStateImage').resolveButtonStateImage} cascade, and
+ * a new state can't reach the def/cascade without also reaching this picker. `author: true`
  * → each shows in the Defaults panel (with a region picker) and per-instance; tick
  * only the states you need — the cascade falls back for the absent ones (a missing
  * `imagePressed` → `imageHover` → resting `image`). The author binds their bg sprite's
  * `region` → `image`, and the engine swaps it per interaction state. See
  * `docs/design/invisible-editor.md` §8.5.
  */
-export const BUTTON_STATE_PARAMS: ComponentParam[] = [
-	{ key: 'image', kind: 'image', group: 'State images', label: 'normal', author: true },
-	{ key: 'imageHover', kind: 'image', group: 'State images', label: 'hover', author: true },
-	{ key: 'imagePressed', kind: 'image', group: 'State images', label: 'pressed', author: true },
-	{ key: 'imageSelected', kind: 'image', group: 'State images', label: 'selected', author: true },
-	{ key: 'imageDisabled', kind: 'image', group: 'State images', label: 'downstate', author: true },
-];
+export const BUTTON_STATE_PARAMS: ComponentParam[] = BUTTON_STATE_IMAGE_PARAMS.map(
+	(p): ComponentParam => ({
+		key: p.key,
+		kind: 'image',
+		group: 'State images',
+		label: p.label,
+		author: true,
+	}),
+);
 
 /**
  * Signals a component's spine can play a cue on. Tick one here, then on a spine node add
