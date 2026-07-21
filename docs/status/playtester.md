@@ -32,6 +32,19 @@ fix-worker) are designed, not built.
 3. **Grow the `lines` playbook** and add `borut.md` as scenarios surface; convert each fixed bug
    into a permanent regression scenario.
 
+## 2026-07-21 — full live checklist run of the Borut remake (via Claude-in-Chrome)
+Tiled-windows side-by-side kept the tab `visible` for a continuous ~20-min run covering the whole
+checklist. **PASS:** balance re-sync on first live spin (stale-client vs restarted-mock theory
+confirmed), payline win amounts = paytable×betPerLine, full free-spin flow + credit, win-count-up
+skippability (tap fast-forwards), boot/look coherence, and Spin/Bet±/Auto/BuyFeature buttons.
+**Findings + owner triage:** retrigger "+10 fs" overlay absent = **by design** (residual: a
+`freeSpinRetrigger` console error still fires — optional no-op handler to silence); mid-round
+refresh crash (`undefined.balance`) = **test-env artifact, deprioritized**; Menu button inert =
+**known, submenu not built**; buy-feature copy off-theme = open content task; `paylines: ? declared`
+= cosmetic. All dispositions recorded in `docs/playtest/borut-remake.md` so the agent won't re-flag
+the by-design/known items. Couldn't verify: rigorous paylineId-vs-drawn-line (game fetch un-hookable
+without a source-map build), loading-bar fill, turbo effect, fullscreen — human-eyes/blocked.
+
 ## ⏳ Live-verify
 - Play→detect loop **exercised** on `lines` (2026-07-21 smoke run): `window.__PIXI_APP__` handle,
   `gameActor.send` spin path, and book-vs-render money math all confirmed; harness gaps found +

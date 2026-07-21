@@ -79,10 +79,32 @@ start = anywhere. Boot takes ~15s (runtime assemble) — wait before the first s
 - **Expect:** the board has the expected symbol sprites/spines (no placeholder dots, no missing-glyph
   black screen). **human-eyes:** actual art fidelity.
 
+## Triage of the 2026-07-21 live findings — READ before re-reporting (owner-decided)
+The full Claude-in-Chrome run found these. **Do NOT re-report the by-design / known items as bugs** —
+note them as expected. Owner dispositions:
+- **Retrigger "+10 free spins" overlay is absent — BY DESIGN (NOT a bug).** The owner decided there is
+  no retrigger celebration. The counter still reaches the correct total via the following
+  `updateFreeSpin`. **Residual (open, minor):** the runtime still logs `Missing bookEventHandler …
+  freeSpinRetrigger` on every retrigger because there's no handler at all — an optional cleanup is a
+  no-op/counter-only `freeSpinRetrigger` handler to silence the console error (no overlay). Don't file
+  the *missing overlay* as a bug; the console-error noise is the only open thread.
+- **Menu (hamburger, top-right) does nothing — KNOWN, NOT a bug yet.** The settings/info submenu isn't
+  built. Expected until it is. Don't re-report as broken.
+- **Fatal crash on a mid-round refresh / empty balance response — test-env artifact, NOT prioritized.**
+  It was the ephemeral mock RGS restarting mid-round (`undefined.balance`). Owner deprioritized. (A real
+  RGS 5xx mid-round would still crash; if that's ever seen on a real backend, revisit.)
+- **`paylines: ? declared` warning — cosmetic** (facade reads `cfg.paylines`; field is `availablePayLines`).
+  Payline math is server-side and correct. Low priority.
+
 ## Known issues / regression guards (found 2026-07-21 via Claude-in-Chrome)
 - **BUY FEATURE menu copy is off-theme placeholder text (CONTENT BUG).** The five feature tiles read
   *"SAMURAI SPIN is AWESOME!"*, *"Enter the mothership Land values and multiply them with action
   symbols"*, etc. — leftover generic/other-template copy that doesn't belong in a western Book-of game.
-  (The BONUS confirm dialog copy IS correctly themed.) Likely the engine's default feature-buy strings
-  showing because per-game config isn't in R2 yet (Game Maker Phase 2). Regression guard: the buy menu
-  tiles must use Borut/western copy. Report if still present.
+  (The BONUS confirm dialog copy IS correctly themed, though it cites a "Global Multiplier 64x" that
+  isn't the book-of expanding-symbol mechanic.) Likely the engine's default feature-buy strings showing
+  because per-game config isn't in R2 yet (Game Maker Phase 2). Regression guard: the buy menu tiles
+  must use Borut/western copy. Report if still present.
+- **Verified working (regression guards):** balance re-syncs to server on the first live spin; free-spin
+  flow (intro → special-symbol reveal → counter → column expansion → win-level celebration → outro →
+  credit → idle); win count-ups are skippable (tap fast-forwards, no input block); Spin / Bet± / Auto /
+  Buy Feature buttons function.
