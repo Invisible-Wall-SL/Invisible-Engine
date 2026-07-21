@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { SYMBOL_STATES } from 'engine-layout';
+import { canonicalizeAtlasRef, manifestBasenameMap } from './manifestBasename';
 import { symbolsDocKey } from './projectPaths';
 import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
@@ -217,6 +218,56 @@ export async function loadSymbolsDocWithEtag(
 	} catch {
 		return { doc: emptySymbolsDoc(), etag: obj.etag };
 	}
+}
+
+/** A sprite cell's assetKey that pins its atlas by a bare-basename scoped ref — `<basename>::region`
+ *  where the basename has no `/`. `parseScopedFrameRef` refuses it (its `isManifestAssetKey` needs a
+ *  `/`), so the runtime treats the whole thing as a bare region and the atlas-scoped lookup never
+ *  engages — the same miss the flipbook clips had. Split it here so the manifest can be repaired. */
+function splitBasenameScopedRef(assetKey: string): { basename: string; region: string } | null {
+	const i = assetKey.indexOf('::');
+	if (i <= 0) return null;
+	const basename = assetKey.slice(0, i);
+	if (basename.includes('/') || !basename.toLowerCase().endsWith('.json')) return null;
+	return { basename, region: assetKey.slice(i + 2) };
+}
+
+/**
+ * Repair every SPRITE cell whose scoped `<manifest>::<region>` assetKey names its atlas by a bare
+ * manifest basename → the full R2 key, so `exportEditorSymbols` ships the right sheet and the
+ * runtime's atlas-scoped texture lookup engages. Without this two symbols that pick a same-named
+ * frame (`frame_0000`) on DISTINCT atlases collide in the flat bare texture cache (the idle board
+ * shows one shared sprite). Mirrors `flipbookStorage`'s clip repair; the export layer is the only
+ * place with the R2 listing to map basename → real key.
+ *
+ * A BARE (unscoped) sprite ref carries no atlas, so it cannot be repaired here — it is left as-is
+ * (the tool now stores scoped refs, so re-picking a frame heals it). Gated: a doc with no
+ * basename-scoped sprite ref pays nothing (no R2 listing). Non-sprite cells are untouched.
+ */
+export async function canonicalizeSymbolsDocForExport(
+	doc: SymbolsDoc,
+	clientKey: string,
+	projectKey: string,
+): Promise<SymbolsDoc> {
+	const hasBasenameScopedSprite = Object.values(doc.symbols).some((states) =>
+		Object.values(states).some((c) => c?.type === 'sprite' && !!splitBasenameScopedRef(c.assetKey)),
+	);
+	if (!hasBasenameScopedSprite) return doc;
+	const byBasename = await manifestBasenameMap(clientKey, projectKey);
+	if (byBasename.size === 0) return doc;
+
+	const symbols: SymbolsDoc['symbols'] = {};
+	for (const [name, states] of Object.entries(doc.symbols)) {
+		const nextStates = { ...states } as Record<string, SymbolCell>;
+		for (const [state, cell] of Object.entries(nextStates)) {
+			const split = cell.type === 'sprite' ? splitBasenameScopedRef(cell.assetKey) : null;
+			if (!split) continue;
+			const full = canonicalizeAtlasRef(split.basename, byBasename);
+			if (full !== split.basename) nextStates[state] = { ...cell, assetKey: `${full}::${split.region}` };
+		}
+		symbols[name] = nextStates as SymbolsDoc['symbols'][string];
+	}
+	return { ...doc, symbols };
 }
 
 /**

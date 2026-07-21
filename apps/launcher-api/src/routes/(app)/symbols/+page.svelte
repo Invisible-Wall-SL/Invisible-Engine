@@ -1124,7 +1124,11 @@
 				{#if draft.type === 'sprite'}
 					<div class="field">
 						<span class="label">Frame</span>
+						<!-- `scoped`: store `<manifest>::<region>` so a region name packed by several
+						     atlases stays unambiguous. A bare name would collapse every symbol that reused
+						     it (e.g. `frame_0000`) onto one shared texture in the game's flat cache. -->
 						<RegionPicker
+							scoped
 							sheets={pickSheets}
 							value={draft.assetKey}
 							onSelect={(region) => {

@@ -46,7 +46,12 @@ import { SUB } from './projectPaths';
 import { exportSpineBundle, loadSkeletonIndex } from './spine';
 import { SYMBOL_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
-import { loadSymbolsDoc, type SymbolsDoc } from './symbolsStorage';
+import {
+	canonicalizeSymbolsDocForExport,
+	loadSymbolsDoc,
+	type SymbolsDoc,
+} from './symbolsStorage';
+import { parseScopedFrameRef, scopedFrameRef } from 'engine-layout';
 
 /** A sprite sheet a symbol binding references. `key` is the source manifest (kept
  *  for the exporter's dedup); the sheet's frames register under their OWN names, so
@@ -124,16 +129,26 @@ export interface SymbolExportResult {
 const EXPORT_SUBTREE = 'editor-symbols';
 
 interface SymbolRefs {
-	/** Sprite-cell frame names (e.g. `h1.webp`) → resolve to a containing sheet. */
+	/** BARE sprite-cell frame names (e.g. `h1.webp`) → resolve to a containing sheet by name.
+	 *  Ambiguous when a name is packed by several atlases (the collision this whole fix is about),
+	 *  but kept for legacy/coded cells that carry no atlas. */
 	frameNames: Set<string>;
+	/** Manifest keys named by a SCOPED sprite ref (`<manifest>::<region>`). The atlas is pinned, so
+	 *  ship exactly that sheet and register its frames scoped — two symbols reusing a region name on
+	 *  DISTINCT atlases then resolve to distinct textures. */
+	spriteManifests: Set<string>;
 	/** Spine-cell `assetKey`s (full R2 bundle prefixes). */
 	spineKeys: Set<string>;
 }
 
-/** Walk the (sparse) symbol map and split its cells into sprite frame names vs
- *  spine bundle keys. */
+/** Walk the (sparse) symbol map and split its cells into bare sprite frame names, scoped sprite
+ *  atlases, and spine bundle keys. */
 function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
-	const refs: SymbolRefs = { frameNames: new Set(), spineKeys: new Set() };
+	const refs: SymbolRefs = {
+		frameNames: new Set(),
+		spriteManifests: new Set(),
+		spineKeys: new Set(),
+	};
 	for (const states of Object.values(doc.symbols)) {
 		for (const cell of Object.values(states)) {
 			if (!cell?.assetKey) continue;
@@ -143,8 +158,24 @@ function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 			// for a region called `…/atlas_manifest_page0.json`, never find one, and report a
 			// dangling symbol binding that is not actually broken.
 			if (cell.type === 'flipbook') continue;
-			if (cell.type === 'spine') refs.spineKeys.add(cell.assetKey);
-			else refs.frameNames.add(cell.assetKey);
+			if (cell.type === 'spine') {
+				refs.spineKeys.add(cell.assetKey);
+				continue;
+			}
+			// A SCOPED sprite ref (`<manifest>::<region>`) pins its atlas, so ship that exact sheet;
+			// a bare name has no atlas and falls back to the by-name scan (legacy).
+			const parsed = parseScopedFrameRef(cell.assetKey);
+			if (parsed.assetKey) {
+				refs.spriteManifests.add(parsed.assetKey);
+			} else {
+				// A `::`-bearing ref whose prefix ISN'T a recognized full manifest (a Sheet-Maker
+				// output prefix, or a basename `canonicalizeSymbolsDocForExport` couldn't map) still
+				// ships via the by-name scan on its REGION part rather than dangling on the whole
+				// string. It resolves only bare in-game (so it can still collide, exactly as today),
+				// but an atlas-manifest source — the common case — is fully disambiguated above.
+				const sep = cell.assetKey.indexOf('::');
+				refs.frameNames.add(sep > 0 ? cell.assetKey.slice(sep + 2) : cell.assetKey);
+			}
 		}
 	}
 	// The global highlight is a spine bundle too — export it like any per-symbol
@@ -177,9 +208,12 @@ interface TexturePackerFrame {
 	sourceSize: { w: number; h: number };
 }
 
-/** Build the TexturePacker json-hash the engine's `sprites` loader parses, keyed
- *  by the sheet's own frame names — the exact keys a sprite cell's `assetKey`
- *  references (mirrors `editorArtExport.toTexturePackerJson`). */
+/** Build the TexturePacker json-hash the engine's `sprites` loader parses. Each frame is keyed
+ *  BOTH by its bare name (what a legacy/coded bare `assetKey` looks up) AND by the atlas-scoped
+ *  key `<manifest>::<region>` (what a SCOPED sprite cell looks up). The scoped key carries the
+ *  manifest, so two symbols reusing a name on distinct atlases resolve to distinct textures — the
+ *  symbol-path analogue of `editorArtNamespace`'s dual registration, baked into the sheet the game
+ *  loads with no namespace, so no game change is needed. */
 function toTexturePackerJson(set: EditorRegionSet, pageFile: string): string {
 	const frames: Record<string, TexturePackerFrame> = {};
 	for (const r of set.regions) {
@@ -187,13 +221,15 @@ function toTexturePackerJson(set: EditorRegionSet, pageFile: string): string {
 		const origH = r.origH ?? r.h;
 		const offX = r.offX ?? 0;
 		const offY = r.offY ?? 0;
-		frames[r.name] = {
+		const entry: TexturePackerFrame = {
 			frame: { x: r.x, y: r.y, w: r.w, h: r.h },
 			rotated: r.rotated === true,
 			trimmed: offX !== 0 || offY !== 0 || origW !== r.w || origH !== r.h,
 			spriteSourceSize: { x: offX, y: offY, w: r.w, h: r.h },
 			sourceSize: { w: origW, h: origH },
 		};
+		frames[r.name] = entry;
+		frames[scopedFrameRef(set.assetKey, r.name)] = entry;
 	}
 	return JSON.stringify(
 		{
@@ -221,7 +257,14 @@ export async function exportEditorSymbols(
 	clientKey: string,
 	projectKey: string,
 ): Promise<SymbolExportResult> {
-	const doc = await loadSymbolsDoc(clientKey, projectKey);
+	// Repair any sprite cell whose scoped atlas ref names its manifest by a bare basename (the same
+	// naming problem the flipbook clips had), so a pinned atlas resolves to the full manifest key
+	// the sheet ships under. A correctly-authored doc pays nothing.
+	const doc = await canonicalizeSymbolsDocForExport(
+		await loadSymbolsDoc(clientKey, projectKey),
+		clientKey,
+		projectKey,
+	);
 	const refs = collectSymbolRefs(doc);
 
 	const deployPrefix = `${SUB.deploy(clientKey, projectKey)}/`;
@@ -279,6 +322,15 @@ export async function exportEditorSymbols(
 		sheetFrameNames.push({ stem, names: set.regions.map((r) => r.name) });
 		for (const r of set.regions) coveredFrames.add(r.name);
 	};
+
+	// ── Scoped sprite cells: ship exactly the atlas each one pins ──
+	// A scoped ref (`<manifest>::<region>`) names its sheet, so load + export it directly rather
+	// than guess via the ambiguous by-name scan below. `toTexturePackerJson` emits the scoped key,
+	// so the cell resolves uniquely in-game even when another atlas reuses the region name — this is
+	// what stops the idle-board static sprites from collapsing to one shared texture.
+	for (const manifestKey of refs.spriteManifests) {
+		await exportSheet(await loadRegionSet(manifestKey, clientKey, projectKey));
+	}
 
 	if (refs.frameNames.size > 0) {
 		const { atlases, sheets: sheetItems } = await listProjectAssets(clientKey, projectKey);
