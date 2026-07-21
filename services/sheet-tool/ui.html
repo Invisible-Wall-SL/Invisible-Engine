@@ -256,11 +256,9 @@
           <div id="loadmsg" class="muted" style="margin-top:6px"></div>
           <div style="border-top:1px solid #333;margin:10px 0 8px"></div>
           <div class="hint"><b>Import a packed atlas (.plist)</b> — pick the cocos2d
-            <code>.plist</code> and its page image. The sheet is never re-packed: every rect stays
-            exactly where it was, so a game already bound to those coordinates keeps rendering.
-            (cocos2d rotates packed frames the opposite way round from this pipeline, so rotated
-            frames are flipped 180° in place on import — otherwise they'd render upside down.
-            That preserves every rect.)</div>
+            <code>.plist</code> and its page image. The page is stored <b>byte-for-byte</b> and no
+            rect moves, so a game already bound to those coordinates keeps rendering — rotated
+            frames included (the runtime un-rotates them the cocos way natively).</div>
           <div class="filefield">
             <label for="plistfile">1 · Coordinates file — <b>.plist</b></label>
             <div class="ffhint">The cocos2d/TexturePacker file listing every frame's rect.</div>

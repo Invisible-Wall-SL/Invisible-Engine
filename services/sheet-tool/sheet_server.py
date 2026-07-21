@@ -2011,29 +2011,19 @@ def api_import_plist(fields: dict, files: list) -> dict:
         return {"error": "That plist has no frames."}
     sequences = plist_import.detect_sequences([f["name"] for f in frames])
 
-    # --- write the page ------------------------------------------------------
-    # Byte-for-byte when nothing is rotated. When frames ARE rotated we must flip each
-    # rotated block 180° first: cocos2d rotates packed frames the opposite way round from
-    # this pipeline, so without it every rotated frame renders upside down (measured — see
-    # plist_import.reorient_rotated_regions). 180° preserves the bounding box, so no rect
-    # moves. The re-encode is LOSSLESS and to the same format, so only the rotated blocks
-    # differ from the source.
+    # --- write the page BYTE-FOR-BYTE ----------------------------------------
+    # Stored verbatim, rotated frames and all. cocos2d packs a rotated frame in the SAME
+    # direction PIXI un-rotates it (both are the TexturePacker convention), so the runtime
+    # renders a rotated frame correctly straight from the untouched page. An earlier version
+    # flipped each rotated block 180° to satisfy the tool PREVIEW (whose RegionThumb un-rotates
+    # the OTHER way, matching the Sheet Maker's own packer) — but that broke the GAME, which
+    # showed rotated frames upside down. The preview is reconciled instead: `loadRegionSet` marks
+    # a plist import so RegionThumb un-rotates it the TexturePacker way. So: never re-encode here,
+    # and the "reuse the atlas exactly as is" promise holds for rotated frames too.
     ext = Path(page_file["filename"]).suffix.lower()
     out = output_dir(sheet)
     page_path = out / f"{sheet}{ext}"
-    reoriented = 0
-    if any(f.get("rotated") for f in frames):
-        try:
-            with Image.open(io.BytesIO(page_file["data"])) as src:
-                img, reoriented = plist_import.reorient_rotated_regions(src.convert("RGBA"), frames)
-                if ext == ".webp":
-                    img.save(page_path, lossless=True)
-                else:
-                    img.save(page_path)
-        except Exception as e:  # noqa: BLE001 — a bad page must fail the import, not the server
-            return {"error": f"Could not reorient the rotated frames on the page ({e})."}
-    else:
-        page_path.write_bytes(page_file["data"])
+    page_path.write_bytes(page_file["data"])
     _mirror(page_path)
     written = [str(page_path)]
 
@@ -2119,7 +2109,6 @@ def api_import_plist(fields: dict, files: list) -> dict:
     return {"sheet": sheet,
             "frames": len(frames),
             "rotated": sum(1 for f in frames if f["rotated"]),
-            "reoriented": reoriented,
             "sequences": sequences,
             "locked": bool(lock),
             "editable": editable,

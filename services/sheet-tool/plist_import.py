@@ -4,14 +4,16 @@ Design: docs/design/invisible-flipbook.md ("Importing a pre-packed atlas").
 
 A `.plist` describes an atlas that ALREADY EXISTS and that a shipped game may already
 depend on. So this converts the coordinate file into the formats the rest of the pipeline
-already reads (TexturePacker JSON + our AI manifest) and never re-packs the page: EVERY RECT
-STAYS EXACTLY WHERE IT WAS, which is what "reuse it as is" has to mean.
+already reads (TexturePacker JSON + our AI manifest) and never re-packs OR re-encodes the
+page: the pixels are byte-identical and EVERY RECT STAYS EXACTLY WHERE IT WAS, which is what
+"reuse it as is" has to mean — rotated frames included.
 
-The pixels are byte-identical too — with one measured exception. cocos2d rotates packed
-frames the opposite way round from this pipeline, so each rotated region's block is flipped
-180° in place on import (`reorient_rotated_regions`); without it every rotated frame renders
-upside down. 180° preserves the bounding box, so no rect moves and no neighbour is touched.
-A sheet with no rotated frames is written byte-for-byte, untouched.
+Rotation note: cocos2d packs a rotated frame the SAME way PIXI (the game runtime) un-rotates
+it — both are the TexturePacker convention — so a rotated frame renders correctly in-game
+straight from the untouched page. The Sheet Maker's OWN packer/preview un-rotates the other
+way, so the `/flipbook` tool preview reconciles by marking a plist-imported sheet (see the
+launcher's `loadRegionSet` / `RegionThumb`). No pixels are flipped here; an earlier 180°
+in-place flip did the opposite — it fixed the preview and broke the game.
 
 Deliberately NOT routed through the Sheet Maker's editable region model. That model draws
 an image of `iw/ih` CENTRED inside a `w/h` cell, so it cannot represent an off-centre trim
@@ -182,38 +184,6 @@ def to_texturepacker(parsed: dict) -> dict:
             "scale": "1",
         },
     }
-
-
-def reorient_rotated_regions(page, frames: list[dict]):
-    """Rotate every ROTATED region's on-page block 180° so cocos2d's packing matches ours.
-
-    cocos2d and this pipeline rotate packed frames in OPPOSITE directions. A cocos frame is
-    restored by rotating 90° CCW; every renderer here restores with 90° CW (`RegionThumb`, and
-    the slicer's `PIL rotate(-90)`), so an imported rotated frame renders exactly 180° out.
-
-    Measured on the real 49-frame sheet, both ways round:
-      - slicing frame `_42` (rotated) against `_43` (not, same size, adjacent in the animation):
-        mean abs pixel diff 72.5 restoring CW vs 6.2 restoring CCW;
-      - vertical alpha centroid over all 49 frames — 33 unrotated frames average 0.411, rotated
-        frames restore to 0.453 CCW but 0.544 CW, and 0.544 + 0.453 ≈ 1.0, the signature of a
-        180° flip.
-
-    Same fix, and same reasoning, as `reorientRotatedRegionsForSpine` in the launcher: 180°
-    preserves the bounding box exactly, so this is an in-place pixel reversal that never
-    disturbs a neighbouring region or any rect. Every coordinate the plist declares stays
-    valid — which is what "reuse it as is" actually has to mean.
-
-    Returns `(image, rotated_count)`. With nothing rotated the image is returned untouched so
-    the caller can still write the original bytes byte-for-byte.
-    """
-    rotated = [f for f in frames if f.get("rotated")]
-    if not rotated:
-        return page, 0
-    for f in rotated:
-        # On-page footprint of a rotated frame is (h x w) — the swap `validate` proves correct.
-        box = (f["x"], f["y"], f["x"] + f["h"], f["y"] + f["w"])
-        page.paste(page.crop(box).rotate(180), box)
-    return page, len(rotated)
 
 
 def validate(parsed: dict) -> list[str]:
