@@ -1,6 +1,11 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { parseScopedFrameRef, scopedFrameRef } from 'engine-layout';
+	import {
+		BUILTIN_SHEETS,
+		builtinSheetKey,
+		parseScopedFrameRef,
+		scopedFrameRef,
+	} from 'engine-layout';
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import RegionPicker from '../editor/RegionPicker.svelte';
@@ -91,6 +96,16 @@
 		...data.assets.sheets.map((s) => ({ key: s.key, name: s.name })),
 	]);
 
+	/** The engine's BUILT-IN sheets, which carry the coded-default symbol art (`w.png`,
+	 * `s.png`, `explodedW.png`, the h1-h5 / l1-l4 frames) — engine art every game bundles +
+	 * registers (so it renders in-game) but that lives in NO project atlas. Vendored under the
+	 * launcher's `/builtin/sheets/`; folded into the preview index only (not the author's source
+	 * picker) so a coded-default sprite cell resolves. Mirrors the editor canvas' fallback. */
+	const builtinSheets = Object.keys(BUILTIN_SHEETS).map((id) => ({
+		key: builtinSheetKey(id),
+		name: id,
+	}));
+
 	/** Spine bundles available for spine cells (project + shared). */
 	const spineBundles = $derived(data.assets.spines.map((s) => ({ name: s.name, key: s.key })));
 
@@ -150,7 +165,9 @@
 	// O(1) lookups. `null` while the first build is in flight → cells show a loading bar.
 	let spriteIndex = $state<Map<string, { set: RegionSet; region: EditorRegion }> | null>(null);
 	$effect(() => {
-		const list = pickSheets;
+		// Project sheets FIRST, built-ins appended — the `!idx.has` first-wins guards then let a
+		// project atlas packing the same name override the engine default, matching EditorCanvas.
+		const list = [...pickSheets, ...builtinSheets];
 		let cancelled = false;
 		spriteIndex = null;
 		void (async () => {

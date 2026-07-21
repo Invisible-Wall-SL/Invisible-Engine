@@ -59,6 +59,30 @@ export const BUILTIN_SHEETS: Readonly<Record<string, BuiltinSheet>> = {
 			'pressanywhere_fade.png',
 		],
 	},
+	symbolsStatic: {
+		id: 'symbolsStatic',
+		json: 'symbolsStatic.json',
+		page: 'symbolsStatic.webp',
+		regions: [
+			'explodedW.png',
+			'h1.webp',
+			'h2.webp',
+			'h3.webp',
+			'h4.webp',
+			'h5.webp',
+			'l1.webp',
+			'l2.webp',
+			'l3.webp',
+			'l4.webp',
+			'm1_2x.png',
+			'm1_4x.png',
+			'm2_5x.png',
+			'm2_7x.png',
+			'm3_10x.png',
+			's.png',
+			'w.png',
+		],
+	},
 };
 
 /**
