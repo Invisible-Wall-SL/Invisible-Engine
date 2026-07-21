@@ -28,6 +28,7 @@
 import { type FlowDoc, isAuthoredFlow } from 'engine-flow';
 import type { FlowDoc as FlowDocV2, FunctionLibraryDoc as FlowV2LibraryDoc } from 'engine-flow-v2';
 import type { EffectDoc } from 'engine-fx';
+import type { FlipbookClip } from 'engine-flipbook';
 import {
 	applyHudGameNameDefault,
 	collectComponentIds,
@@ -47,6 +48,7 @@ import { exportEditorFlow } from './flowExport';
 import { exportEditorFlowV2 } from './flowV2Export';
 import { exportEditorFonts } from './fontExport';
 import { exportEffects } from './effectExport';
+import { exportClips } from './flipbookExport';
 import { loadDoc as loadLocalizationDoc } from './localization';
 import { UNASSIGNED_CLIENT } from './projectPaths';
 import { projectClientKey, projectName } from './projects';
@@ -87,6 +89,12 @@ export interface RuntimeBundle {
 	 * runtime assetKey. Omitted unless a rig has ≥1 bound event — absent ⇒ `bakedRigFx()` returns {}
 	 * (parity). Mirrors the offline bake (`scripts/bake-editor-doc.mjs`). */
 	rigFx?: Record<string, RigFxBinding[]>;
+	/** The authored Invisible Flipbook clips, the live twin of the offline bake's `flipbooks`
+	 * (`bake-editor-doc.mjs`). Fed here so `resolveFlipbook(clipId)` resolves in authoring/runtime
+	 * mode — without it a `flipbook` symbol cell registers nothing and renders its static fallback.
+	 * A clip's sheets already ship via `editorArt` (the clip walk in `exportEditorArt`), so this is
+	 * a pure-JSON add. Omitted when un-authored ⇒ `bakedFlipbooks()` returns [] (parity). */
+	flipbooks?: FlipbookClip[];
 	/** The authored win-text templates (Invisible Win Text). Pure config, no assets, so it is read
 	 * straight from R2 with no export step — the live twin of the offline bake's
 	 * `/api/win-text/doc` fetch. Omitted when un-authored ⇒ `bakedWinText()` yields the coded
@@ -295,12 +303,14 @@ async function assembleRuntimeBundle(
 		localization,
 		effectIndex,
 		rigFx,
+		clipIndex,
 		winTextDoc,
 	] = await Promise.all([
 		ensureDeployExports(projectKey, clientKey, timings),
 		step('localization', timings, () => loadLocalizationMessages(clientKey, projectKey)),
 		step('effects', timings, () => exportEffects(clientKey, projectKey)),
 		step('rigFx', timings, () => exportRigFx(clientKey, projectKey)),
+		step('flipbooks', timings, () => exportClips(clientKey, projectKey)),
 		step('winText', timings, () => loadWinTextDoc(clientKey, projectKey)),
 	]);
 	// Only ship a doc that authors something: `loadWinTextDoc` returns `{version:1}` for a
@@ -346,6 +356,10 @@ async function assembleRuntimeBundle(
 		// offline bake does (`bake-editor-doc.mjs` ~575/579): absent ⇒ bakedEffects()/bakedRigFx() [].
 		...(effects.length ? { effects } : {}),
 		...(Object.keys(rigFx).length ? { rigFx } : {}),
+		// Invisible Flipbook — omit when no clips so a no-clip project stays byte-identical and
+		// `bakedFlipbooks()` returns [] (parity). Unlike effects, clips are NOT reachability-pruned
+		// (no consumer walk exists yet — see the exporter header); a clip is a name list, negligible.
+		...(clipIndex.clips.length ? { flipbooks: clipIndex.clips } : {}),
 		// Invisible Win Text — omit when un-authored so the bundle stays byte-identical and
 		// `bakedWinText()` falls back to the coded defaults (parity), exactly as the offline bake does.
 		...(winText ? { winText } : {}),
