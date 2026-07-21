@@ -1,6 +1,7 @@
 import { z } from 'zod';
-import { SYMBOL_STATES } from 'engine-layout';
-import { canonicalizeAtlasRef, manifestBasenameMap } from './manifestBasename';
+import { isManifestAssetKey, SYMBOL_STATES } from 'engine-layout';
+import { resolveManifestKey } from './editorRegions';
+import { isBareManifestBasename, manifestBasenameMap } from './manifestBasename';
 import { symbolsDocKey } from './projectPaths';
 import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
@@ -224,46 +225,67 @@ export async function loadSymbolsDocWithEtag(
  *  where the basename has no `/`. `parseScopedFrameRef` refuses it (its `isManifestAssetKey` needs a
  *  `/`), so the runtime treats the whole thing as a bare region and the atlas-scoped lookup never
  *  engages — the same miss the flipbook clips had. Split it here so the manifest can be repaired. */
-function splitBasenameScopedRef(assetKey: string): { basename: string; region: string } | null {
+function splitNonManifestScopedRef(assetKey: string): { prefix: string; region: string } | null {
 	const i = assetKey.indexOf('::');
 	if (i <= 0) return null;
-	const basename = assetKey.slice(0, i);
-	if (basename.includes('/') || !basename.toLowerCase().endsWith('.json')) return null;
-	return { basename, region: assetKey.slice(i + 2) };
+	const prefix = assetKey.slice(0, i);
+	// A FULL `.json` manifest ref is already correct (the working `.json` scoped path). Only a bare
+	// manifest basename (no `/`) or a Sheet-Maker OUTPUT PREFIX (`.../sheets/S_Lotus/`, no `.json`)
+	// needs resolving to the real manifest key the sheet ships + registers under.
+	if (isManifestAssetKey(prefix)) return null;
+	return { prefix, region: assetKey.slice(i + 2) };
 }
 
 /**
- * Repair every SPRITE cell whose scoped `<manifest>::<region>` assetKey names its atlas by a bare
- * manifest basename → the full R2 key, so `exportEditorSymbols` ships the right sheet and the
- * runtime's atlas-scoped texture lookup engages. Without this two symbols that pick a same-named
- * frame (`frame_0000`) on DISTINCT atlases collide in the flat bare texture cache (the idle board
- * shows one shared sprite). Mirrors `flipbookStorage`'s clip repair; the export layer is the only
- * place with the R2 listing to map basename → real key.
+ * Repair every SPRITE cell whose scoped `<prefix>::<region>` assetKey names its atlas by anything
+ * OTHER than a full `.json` manifest key — a bare manifest basename OR a Sheet-Maker output prefix
+ * (`.../sheets/S_Lotus/`) — by resolving the prefix to the real `.json` manifest the sheet ships +
+ * registers under. Without this the flat `<prefix>::region` key the tool stored never lands in the
+ * game's `loadedAssets` (the sprite renders blank), and same-named frames on DISTINCT atlases
+ * collide. The export layer is the only place with the R2 listing to resolve a prefix → real key.
  *
- * A BARE (unscoped) sprite ref carries no atlas, so it cannot be repaired here — it is left as-is
- * (the tool now stores scoped refs, so re-picking a frame heals it). Gated: a doc with no
- * basename-scoped sprite ref pays nothing (no R2 listing). Non-sprite cells are untouched.
+ * Basename → `manifestBasenameMap`; sheet prefix → `resolveManifestKey` (the same resolution the
+ * region picker used to preview the sheet). A BARE (unscoped) ref carries no atlas and is left
+ * as-is. Gated: a doc with only full-`.json` (or bare) refs pays nothing. Non-sprite cells untouched.
  */
 export async function canonicalizeSymbolsDocForExport(
 	doc: SymbolsDoc,
 	clientKey: string,
 	projectKey: string,
 ): Promise<SymbolsDoc> {
-	const hasBasenameScopedSprite = Object.values(doc.symbols).some((states) =>
-		Object.values(states).some((c) => c?.type === 'sprite' && !!splitBasenameScopedRef(c.assetKey)),
-	);
-	if (!hasBasenameScopedSprite) return doc;
-	const byBasename = await manifestBasenameMap(clientKey, projectKey);
-	if (byBasename.size === 0) return doc;
+	const prefixes = new Set<string>();
+	for (const states of Object.values(doc.symbols)) {
+		for (const cell of Object.values(states)) {
+			if (cell?.type !== 'sprite') continue;
+			const split = splitNonManifestScopedRef(cell.assetKey);
+			if (split) prefixes.add(split.prefix);
+		}
+	}
+	if (prefixes.size === 0) return doc;
+
+	// Resolve each distinct prefix → its full `.json` manifest key. Basenames need the project's
+	// manifest listing; sheet prefixes resolve by listing their own folder. Both are cached here so
+	// a prefix reused across states/symbols costs one lookup.
+	const byBasename = [...prefixes].some(isBareManifestBasename)
+		? await manifestBasenameMap(clientKey, projectKey)
+		: new Map<string, string>();
+	const resolved = new Map<string, string>();
+	for (const prefix of prefixes) {
+		const manifest = isBareManifestBasename(prefix)
+			? (byBasename.get(prefix) ?? null)
+			: await resolveManifestKey(prefix);
+		if (manifest && manifest !== prefix) resolved.set(prefix, manifest);
+	}
+	if (resolved.size === 0) return doc;
 
 	const symbols: SymbolsDoc['symbols'] = {};
 	for (const [name, states] of Object.entries(doc.symbols)) {
 		const nextStates = { ...states } as Record<string, SymbolCell>;
 		for (const [state, cell] of Object.entries(nextStates)) {
-			const split = cell.type === 'sprite' ? splitBasenameScopedRef(cell.assetKey) : null;
-			if (!split) continue;
-			const full = canonicalizeAtlasRef(split.basename, byBasename);
-			if (full !== split.basename) nextStates[state] = { ...cell, assetKey: `${full}::${split.region}` };
+			if (cell.type !== 'sprite') continue;
+			const split = splitNonManifestScopedRef(cell.assetKey);
+			const manifest = split && resolved.get(split.prefix);
+			if (split && manifest) nextStates[state] = { ...cell, assetKey: `${manifest}::${split.region}` };
 		}
 		symbols[name] = nextStates as SymbolsDoc['symbols'][string];
 	}

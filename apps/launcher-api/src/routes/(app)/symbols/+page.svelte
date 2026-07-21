@@ -156,13 +156,21 @@
 			const sets = await Promise.all(list.map((s) => fetchRegions(s.key)));
 			if (cancelled) return;
 			const idx = new Map<string, { set: RegionSet; region: EditorRegion }>();
-			for (const set of sets) {
+			list.forEach((s, i) => {
+				const set = sets[i];
 				for (const region of set.regions) {
-					const scoped = scopedFrameRef(set.assetKey, region.name);
-					if (!idx.has(scoped)) idx.set(scoped, { set, region });
+					// Key by the resolved MANIFEST (`set.assetKey`, a `.json`), the picker's SOURCE key
+					// (`s.key` — a `.json` manifest OR a Sheet-Maker prefix `.../sheets/S_Lotus/`, which
+					// is exactly what a picked sprite cell stored), and the bare region. So a cell
+					// resolves whether it stored a manifest-scoped, sheet-prefix-scoped, or bare ref —
+					// no more blank preview for a sheet-prefix source.
+					const byManifest = scopedFrameRef(set.assetKey, region.name);
+					const bySource = scopedFrameRef(s.key, region.name);
+					if (!idx.has(byManifest)) idx.set(byManifest, { set, region });
+					if (!idx.has(bySource)) idx.set(bySource, { set, region });
 					if (!idx.has(region.name)) idx.set(region.name, { set, region });
 				}
-			}
+			});
 			spriteIndex = idx;
 		})();
 		return () => {

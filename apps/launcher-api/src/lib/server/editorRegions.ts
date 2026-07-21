@@ -139,8 +139,12 @@ function isManifestKey(key: string): boolean {
  * - An `atlas-manifest` library item already IS the manifest key (`*.json`).
  * - A `sheet` library item is the output prefix `…/output/<sheet>/`; the
  *   manifest there is `atlas_manifest_<basename>.json` (Sheet Maker naming).
+ *
+ * Exported so the Symbols export can canonicalize a sprite cell's sheet-prefix scoped ref
+ * (`.../sheets/S_Lotus/::region`) to the real `.json` manifest key the sheet ships + registers
+ * under — otherwise the flat `<prefix>::region` key it stored never lands in `loadedAssets`.
  */
-async function resolveManifestKey(sheet: string): Promise<string | null> {
+export async function resolveManifestKey(sheet: string): Promise<string | null> {
 	if (isManifestKey(sheet)) return sheet;
 	const prefix = sheet.endsWith('/') ? sheet : `${sheet}/`;
 	const listed = await listObjects(prefix, 500);
