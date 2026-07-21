@@ -2059,8 +2059,15 @@ def api_import_plist(fields: dict, files: list) -> dict:
     export_prefix = f"{r2_prefix}/{out_rel}" if r2_prefix else ""
     source_image_key = f"{export_prefix}/{page_path.name}" if export_prefix else ""
     tp_json_key = f"{export_prefix}/{json_path.name}" if export_prefix else ""
+    # Carry the TRIM through: `w/h` is the tight packed rect, but a trimmed frame sits inside a
+    # larger `orig_w × orig_h` canvas at `off_x/off_y`, and WITHOUT that every renderer scales the
+    # tight rect to fill its box independently so the art pulses. build_manifest emits these as
+    # offX/offY/origW/origH, which the launcher's parseRegions reads. (parse_plist already y-flips
+    # the cocos centre-origin offset into top-left space.)
     man_regions = [{"name": f["name"], "x": f["x"], "y": f["y"],
-                    "w": f["w"], "h": f["h"], "rotated": f["rotated"]}
+                    "w": f["w"], "h": f["h"], "rotated": f["rotated"],
+                    "off_x": f["trim_x"], "off_y": f["trim_y"],
+                    "orig_w": f["source_w"], "orig_h": f["source_h"]}
                    for f in frames]
     manifest = atlas_writers.build_manifest(
         sheet_image=str(page_path), width=parsed["width"], height=parsed["height"],

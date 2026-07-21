@@ -140,6 +140,15 @@ def build_manifest(sheet_image: str, width: int, height: int,
             # distorting. fit_mode is a creative field, so it survives
             # merge_atlas_regions and overrides the spine-slot `fill` default.
             "fit_mode": "contain",
+            # TRIM: where the packed rect sits inside its untrimmed canvas. Off/orig default to
+            # no-trim (offset 0, orig == w/h), so a normally-packed sheet is unchanged — only a
+            # trimmed frame (a .plist import) carries real values. The launcher's parseRegions
+            # reads these as offX/offY/origW/origH so every renderer anchors the frame correctly
+            # instead of scaling its tight rect to fill the box (which made trimmed art pulse).
+            "offX": int(r.get("off_x", 0)),
+            "offY": int(r.get("off_y", 0)),
+            "origW": int(r.get("orig_w", r["w"])),
+            "origH": int(r.get("orig_h", r["h"])),
         }
         # FX placeholder cells (Sheet Maker's per-sprite FX picker) carry the
         # local-FX mode their `<base>_<mode>` name encodes, so the Atlas Maker
