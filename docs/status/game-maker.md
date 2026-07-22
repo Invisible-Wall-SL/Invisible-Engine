@@ -30,6 +30,7 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
 - Publish pin fix: rebuild a non-active project → selection lands on it (owner verify owed).
 
 ## Recent changes
+- 2026-07-22 — **symmetric publish guard**: the desktop launcher's `POST /api/launcher/register-game` now refuses (409) to overwrite a card that was published online (its URL carries `?runtime=1`, detected by `isOnlineRuntimeGameUrl`). Mirrors the `hasOwnBuiltBundle` guard `publishGame.ts` already applies in the other direction, so online and desktop publishes can never clobber each other's card on a same-key mistake. Convention: keep the two keys distinct — `<game>` for the desktop build, `<game>remake` for the online one (as Borut already does: `bookofborut` desktop vs `bookofborutremake` online).
 - 2026-07-17 — `/api/editor/runtime` single-flight + 10s cache + game-side retry + author-only stale banner + per-exporter timing logs. Root-caused from "a duplicated FX node only shows once in the game": the node had saved and published correctly — the game had never received the live doc, because the endpoint 502'd and fell back to baked data silently ([detail in history](../history.md))
 - 2026-07-02 — Publish now pins the session to the project it built (`setActiveProjectKey`) ([detail in history](../history.md))
 - 2026-06-26 — fixed the runtime symbol-map boot-order race (online game rendered template symbols, ignoring authored Symbols State Machine bindings); shared `_runtime/lines` bundle republished ([detail in history](../history.md))

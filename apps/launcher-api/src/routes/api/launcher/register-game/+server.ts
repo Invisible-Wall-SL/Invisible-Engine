@@ -3,7 +3,8 @@ import { validateSession } from '$lib/server/auth';
 import { purgeGameCache, type PurgeResult } from '$lib/server/cfPurge';
 import {
 	createGame,
-	gameExists,
+	getGame,
+	isOnlineRuntimeGameUrl,
 	isValidGameKey,
 	isValidGameUrl,
 	renameGame,
@@ -98,8 +99,28 @@ export const POST: RequestHandler = async ({ request }) => {
 	}
 	const projectKey = project;
 
+	// GUARD (mirror of `hasOwnBuiltBundle` in publishGame.ts): never let a desktop
+	// publish overwrite a card that was published ENTIRELY online (the generic runtime,
+	// URL carries `?runtime=1`). Stamping a desktop bundle URL over it would shadow the
+	// live-fetch game with a stale compiled build under the same key. Keep the two keys
+	// distinct instead (`<game>` desktop, `<game>remake` online). 409 so the launcher
+	// explains it rather than silently clobbering.
+	const existing = await getGame(key);
+	if (existing && isOnlineRuntimeGameUrl(existing.url)) {
+		return json(
+			{
+				error:
+					`"${key}" is published online (Invisible Game Maker runtime), so the desktop ` +
+					`launcher won't overwrite its card with a desktop build. Publish the desktop ` +
+					`build under a different key (e.g. keep "${key}" for the online game and use a ` +
+					`separate key for the desktop build).`,
+			},
+			{ status: 409, headers: NO_STORE },
+		);
+	}
+
 	// Upsert: update an existing game's name + url (+ scope), else create it.
-	if (await gameExists(key)) {
+	if (existing) {
 		await setGameUrl(key, url);
 		await renameGame(key, name);
 		await setGameProject(key, projectKey);

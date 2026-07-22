@@ -49,6 +49,28 @@ export async function gameExists(key: string): Promise<boolean> {
 	return Boolean(row);
 }
 
+export async function getGame(key: string): Promise<Game | undefined> {
+	const [row] = await getDb().select().from(games).where(eq(games.key, key));
+	return row;
+}
+
+/**
+ * True when a game's launch URL is the Invisible Game Maker's generic online runtime
+ * (it carries `?runtime=1`). Those cards are published ENTIRELY online — no per-key
+ * built bundle — and boot the shared `_runtime/*` bundle against live R2 authoring
+ * data. The desktop launcher's `register-game` uses this to refuse overwriting an
+ * online card with a desktop build (the mirror of the `hasOwnBuiltBundle` guard the
+ * online `publishGame` already applies in the other direction). Keep the two keys
+ * distinct instead: `<game>` for the desktop build, `<game>remake` for the online one.
+ */
+export function isOnlineRuntimeGameUrl(url: string): boolean {
+	try {
+		return new URL(url).searchParams.get('runtime') === '1';
+	} catch {
+		return /[?&]runtime=1(?:&|$)/.test(url);
+	}
+}
+
 /** Build metadata stamped by the desktop launcher at publish time. All optional;
  *  `builtAt` accepts an ISO string or Date and is stored as a Date (null when absent). */
 export type GameBuildInfo = {
