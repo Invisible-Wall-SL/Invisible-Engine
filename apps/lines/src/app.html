@@ -5,6 +5,86 @@
 		<link rel="icon" href="%sveltekit.assets%/favicon.svg" />
 		<link rel="stylesheet" href="https://use.typekit.net/aba0ebl.css" />
 		<meta name="viewport" content="width=device-width" />
+
+		<!--
+			Boot loading-screen API. Defined in <head> — BEFORE SvelteKit's deferred module
+			bootstrap and before `+layout.ts`'s `load()` runs — so `window.__ieBoot` always
+			exists when the engine calls it. (When this lived at the end of <body> it lost a
+			race: on a slow online boot `load()` fired `phase('Fetching from R2…')` at ~7s while
+			the parser hadn't yet reached the body script, so the call no-op'd through optional
+			chaining and the splash stayed on the bare "Loading".) Methods look elements up
+			lazily and buffer state, so calls before the overlay markup is parsed still apply
+			once it exists (via `__ieBootApply`, called right after the markup + on DOMContentLoaded).
+		-->
+		<script>
+			(function () {
+				var s = { title: '', phase: '', progress: null, finished: false };
+				function el(id) {
+					return document.getElementById(id);
+				}
+				function apply() {
+					if (s.finished) return;
+					var t = el('ie-boot-title');
+					if (t && s.title) {
+						t.textContent = s.title;
+						t.classList.add('ie-show');
+					}
+					var st = el('ie-boot-status');
+					if (st && s.phase) st.textContent = s.phase;
+					var f = el('ie-boot-fill');
+					if (f && s.progress !== null) {
+						f.classList.remove('ie-indet');
+						f.style.width = s.progress + '%';
+					}
+					var p = el('ie-boot-pct');
+					if (p && s.progress !== null) p.textContent = Math.round(s.progress) + '%';
+				}
+				function done() {
+					if (s.finished) return;
+					s.finished = true;
+					var root = el('ie-boot');
+					if (!root) return;
+					root.classList.add('ie-boot-done');
+					setTimeout(function () {
+						if (root && root.parentNode) root.parentNode.removeChild(root);
+					}, 500);
+				}
+				window.__ieBoot = {
+					title: function (x) {
+						if (s.finished || !x) return;
+						s.title = String(x);
+						apply();
+					},
+					phase: function (x) {
+						if (s.finished || !x) return;
+						s.phase = String(x);
+						apply();
+					},
+					progress: function (x) {
+						if (s.finished) return;
+						s.progress = Math.max(0, Math.min(100, Number(x) || 0));
+						apply();
+					},
+					done: done,
+				};
+				window.__ieBootApply = apply;
+				// Runtime (online) boot: the dominant cost is the JS hydrate (~7s) THEN the
+				// `/api/editor/runtime` assemble (~17s cold) — ~24s before any asset loads. Name that
+				// whole stretch up front so it never reads as a bare "Loading"; the engine refines it
+				// to "Loading assets…" once the bundle lands. Guarded ⇒ offline/dev keeps the default.
+				try {
+					if (new URLSearchParams(location.search).get('runtime') === '1')
+						s.phase = 'Fetching from R2…';
+				} catch (e) {}
+				if (document.readyState === 'loading')
+					document.addEventListener('DOMContentLoaded', apply, { once: true });
+				else apply();
+				// Safety net: never let a wiring bug pin the splash over a live game. A cold online
+				// boot (hydrate + assemble + asset wave) can run ~30s, so give generous margin.
+				setTimeout(done, 60000);
+			})();
+		</script>
+
 		%sveltekit.head%
 	</head>
 	<body style="margin: 0; padding: 0; overflow: hidden; background-color: black">
@@ -122,52 +202,17 @@
 					</g>
 				</svg>
 				<div class="ie-boot-title" id="ie-boot-title"></div>
-				<div class="ie-boot-status" id="ie-boot-status">Loading</div>
+				<div class="ie-boot-status" id="ie-boot-status">Loading…</div>
 				<div class="ie-boot-track">
 					<div class="ie-boot-fill ie-indet" id="ie-boot-fill"></div>
 				</div>
 				<div class="ie-boot-pct" id="ie-boot-pct"></div>
 			</div>
 		</div>
+		<!-- Apply any state buffered by the <head> API (e.g. the runtime-mode phase) the instant
+		     the overlay markup exists, so the long pre-asset stretch is labelled from first paint. -->
 		<script>
-			(function () {
-				var root = document.getElementById('ie-boot');
-				var titleEl = document.getElementById('ie-boot-title');
-				var statusEl = document.getElementById('ie-boot-status');
-				var fillEl = document.getElementById('ie-boot-fill');
-				var pctEl = document.getElementById('ie-boot-pct');
-				var finished = false;
-				function done() {
-					if (finished || !root) return;
-					finished = true;
-					root.classList.add('ie-boot-done');
-					setTimeout(function () {
-						if (root && root.parentNode) root.parentNode.removeChild(root);
-					}, 500);
-				}
-				window.__ieBoot = {
-					title: function (text) {
-						if (finished || !titleEl || !text) return;
-						titleEl.textContent = text;
-						titleEl.classList.add('ie-show');
-					},
-					phase: function (text) {
-						if (finished || !statusEl || !text) return;
-						statusEl.textContent = text;
-					},
-					progress: function (pct) {
-						if (finished || !fillEl) return;
-						var v = Math.max(0, Math.min(100, Number(pct) || 0));
-						fillEl.classList.remove('ie-indet');
-						fillEl.style.width = v + '%';
-						if (pctEl) pctEl.textContent = Math.round(v) + '%';
-					},
-					done: done,
-				};
-				// Safety net: never let a wiring bug leave the splash pinned over a live game.
-				// The real load is ~5s; a warm boot calls done() long before this fires.
-				setTimeout(done, 30000);
-			})();
+			window.__ieBootApply && window.__ieBootApply();
 		</script>
 	</body>
 </html>
