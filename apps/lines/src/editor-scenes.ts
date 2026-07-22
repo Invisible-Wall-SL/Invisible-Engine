@@ -898,9 +898,11 @@ export async function prepareRuntimeBundle(): Promise<boolean> {
 		// `stateApp.loadingProgress` into `__ieBoot.progress`).
 		if (typeof data.name === 'string' && data.name) window.__ieBoot?.title(data.name);
 		window.__ieBoot?.phase('Loading assets…');
-		console.info(
-			`[runtime] live runtime bundle ready for "${project}" — generic-bundle boot active`,
-		);
+		if (__IE_DEBUG__) {
+			console.info(
+				`[runtime] live runtime bundle ready for "${project}" — generic-bundle boot active`,
+			);
+		}
 		return true;
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
@@ -942,7 +944,8 @@ export async function loadEditorScenes(): Promise<LayoutDoc> {
 	// registrations above are already reading from the same bundle. Off mode (no
 	// `?runtime=1` / failed fetch) leaves `runtimeBundle` null and this is skipped.
 	if (hasRuntimeBundle()) {
-		console.info('[runtime] using live runtime bundle doc — editor edits are active');
+		if (__IE_DEBUG__)
+			console.info('[runtime] using live runtime bundle doc — editor edits are active');
 		return runtimeBundle!.doc as LayoutDoc;
 	}
 	// Build-time freeze: a baked doc is the authored layout snapshotted into the
@@ -955,7 +958,8 @@ export async function loadEditorScenes(): Promise<LayoutDoc> {
 		// is the exact failure this reports; it is decided HERE, not at fetch-failure time, because
 		// a failed runtime fetch alone can still end on live data via `/api/editor/doc` below.
 		if (runtimeFetchFailure) markRuntimeStale(runtimeFetchFailure);
-		console.info('[editor] using baked layout doc (frozen at build) — live fetch skipped');
+		if (__IE_DEBUG__)
+			console.info('[editor] using baked layout doc (frozen at build) — live fetch skipped');
 		return bakedBundle.doc as LayoutDoc;
 	}
 	if (typeof window === 'undefined') return fallbackEditorScenes;
@@ -982,7 +986,8 @@ export async function loadEditorScenes(): Promise<LayoutDoc> {
 		registerComponentDefaults(data.componentDefaults ?? {});
 		const doc = data.doc;
 		if (doc && Array.isArray(doc.scenes) && doc.scenes.some((scene) => scene.id === 'basegame')) {
-			console.info(`[editor] loaded live layout doc for "${project}" — editor edits are active`);
+			if (__IE_DEBUG__)
+				console.info(`[editor] loaded live layout doc for "${project}" — editor edits are active`);
 			return doc;
 		}
 		return fellBack('fetched doc has no `basegame` scene (schema/validation rejected)');
