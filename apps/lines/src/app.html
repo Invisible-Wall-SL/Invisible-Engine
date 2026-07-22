@@ -142,6 +142,42 @@
 				0%, 100% { opacity: 1; }
 				50% { opacity: 0.35; }
 			}
+			#ie-boot .ie-boot-lockup {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				gap: 16px;
+			}
+			#ie-boot .ie-boot-brand {
+				font-size: 15px;
+				font-weight: 600;
+				letter-spacing: 0.42em;
+				padding-left: 0.42em;
+				text-transform: uppercase;
+				white-space: nowrap;
+				color: #cfcdc4;
+				animation: ie-brand-in 0.9s ease both;
+			}
+			/* Shimmer the wordmark where text-clipped gradients are supported; the base rule
+			   above is the fallback (fade-in only, always visible). */
+			@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+				#ie-boot .ie-boot-brand {
+					background: linear-gradient(100deg, #6f6d66 33%, #f4f2ea 50%, #6f6d66 67%);
+					background-size: 220% 100%;
+					-webkit-background-clip: text;
+					background-clip: text;
+					color: transparent;
+					animation: ie-brand-in 0.9s ease both, ie-brand-shimmer 3.4s linear infinite 0.9s;
+				}
+			}
+			@keyframes ie-brand-in {
+				from { opacity: 0; transform: translateY(6px); }
+				to { opacity: 1; transform: translateY(0); }
+			}
+			@keyframes ie-brand-shimmer {
+				0% { background-position: 210% 0; }
+				100% { background-position: -110% 0; }
+			}
 			#ie-boot .ie-boot-title {
 				font-size: 20px;
 				font-weight: 500;
@@ -195,12 +231,15 @@
 		</style>
 		<div id="ie-boot">
 			<div class="ie-boot-inner">
-				<svg viewBox="0 0 366 304" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-					<g fill="currentColor">
-						<polygon class="ie-arm-a" points="20,50 40,73 336,9 336,5" />
-						<polygon class="ie-arm-b" points="13,55 28,80 21,278 17,278" />
-					</g>
-				</svg>
+				<div class="ie-boot-lockup">
+					<svg viewBox="0 0 366 304" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+						<g fill="currentColor">
+							<polygon class="ie-arm-a" points="20,50 40,73 336,9 336,5" />
+							<polygon class="ie-arm-b" points="13,55 28,80 21,278 17,278" />
+						</g>
+					</svg>
+					<div class="ie-boot-brand">Invisible Wall</div>
+				</div>
 				<div class="ie-boot-title" id="ie-boot-title"></div>
 				<div class="ie-boot-status" id="ie-boot-status">Loading…</div>
 				<div class="ie-boot-track">
