@@ -9,5 +9,165 @@
 	</head>
 	<body style="margin: 0; padding: 0; overflow: hidden; background-color: black">
 		<div>%sveltekit.body%</div>
+
+		<!--
+			Boot loading screen. Lives in the static HTML shell (NOT a Svelte component) so
+			it paints on the very first frame — before hydration and before `+layout.ts`'s
+			blocking `load()` (the cross-origin `/api/editor/runtime` fetch) resolves. That
+			pre-mount window is exactly when the online/`?runtime=1` build used to show a
+			bare black screen: the in-canvas `LoadingBar` can't exist until Pixi mounts, which
+			is after the runtime doc + R2 asset wave. The overlay is driven by `window.__ieBoot`
+			(phase text + progress + game name), and removes itself on `done()`. Offline/dev
+			(no `?runtime=1`) hits `done()` almost immediately, so it's a no-op flash there.
+		-->
+		<style>
+			#ie-boot {
+				position: fixed;
+				inset: 0;
+				z-index: 99999;
+				background: #0a0a0c;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				font-family: 'proxima-nova', system-ui, -apple-system, sans-serif;
+				transition: opacity 0.45s ease;
+			}
+			#ie-boot.ie-boot-done {
+				opacity: 0;
+				pointer-events: none;
+			}
+			#ie-boot .ie-boot-inner {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				gap: 26px;
+				width: min(340px, 62vw);
+			}
+			#ie-boot svg {
+				width: 84px;
+				height: auto;
+				color: #e9e7df;
+			}
+			#ie-boot .ie-arm-a {
+				animation: ie-pulse-a 1.6s ease-in-out infinite;
+			}
+			#ie-boot .ie-arm-b {
+				animation: ie-pulse-b 1.6s ease-in-out infinite;
+			}
+			@keyframes ie-pulse-a {
+				0%, 100% { opacity: 0.35; }
+				50% { opacity: 1; }
+			}
+			@keyframes ie-pulse-b {
+				0%, 100% { opacity: 1; }
+				50% { opacity: 0.35; }
+			}
+			#ie-boot .ie-boot-title {
+				font-size: 20px;
+				font-weight: 500;
+				letter-spacing: 0.04em;
+				color: #f2f0e8;
+				opacity: 0;
+				transition: opacity 0.5s ease;
+				text-align: center;
+				min-height: 1em;
+			}
+			#ie-boot .ie-boot-title.ie-show {
+				opacity: 1;
+			}
+			#ie-boot .ie-boot-status {
+				font-size: 12px;
+				letter-spacing: 0.16em;
+				text-transform: uppercase;
+				color: #8a887f;
+				text-align: center;
+				min-height: 1em;
+			}
+			#ie-boot .ie-boot-track {
+				width: 100%;
+				height: 5px;
+				border-radius: 5px;
+				background: #1c1c20;
+				overflow: hidden;
+			}
+			#ie-boot .ie-boot-fill {
+				height: 100%;
+				border-radius: 5px;
+				background: #e9e7df;
+				width: 12%;
+				transition: width 0.3s ease;
+			}
+			#ie-boot .ie-boot-fill.ie-indet {
+				width: 35%;
+				transition: none;
+				animation: ie-indet 1.15s ease-in-out infinite;
+			}
+			@keyframes ie-indet {
+				0% { margin-left: -35%; }
+				100% { margin-left: 100%; }
+			}
+			#ie-boot .ie-boot-pct {
+				font-family: ui-monospace, 'SF Mono', 'Consolas', monospace;
+				font-size: 12px;
+				color: #5f5e5a;
+				min-height: 1em;
+			}
+		</style>
+		<div id="ie-boot">
+			<div class="ie-boot-inner">
+				<svg viewBox="0 0 366 304" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+					<g fill="currentColor">
+						<polygon class="ie-arm-a" points="20,50 40,73 336,9 336,5" />
+						<polygon class="ie-arm-b" points="13,55 28,80 21,278 17,278" />
+					</g>
+				</svg>
+				<div class="ie-boot-title" id="ie-boot-title"></div>
+				<div class="ie-boot-status" id="ie-boot-status">Loading</div>
+				<div class="ie-boot-track">
+					<div class="ie-boot-fill ie-indet" id="ie-boot-fill"></div>
+				</div>
+				<div class="ie-boot-pct" id="ie-boot-pct"></div>
+			</div>
+		</div>
+		<script>
+			(function () {
+				var root = document.getElementById('ie-boot');
+				var titleEl = document.getElementById('ie-boot-title');
+				var statusEl = document.getElementById('ie-boot-status');
+				var fillEl = document.getElementById('ie-boot-fill');
+				var pctEl = document.getElementById('ie-boot-pct');
+				var finished = false;
+				function done() {
+					if (finished || !root) return;
+					finished = true;
+					root.classList.add('ie-boot-done');
+					setTimeout(function () {
+						if (root && root.parentNode) root.parentNode.removeChild(root);
+					}, 500);
+				}
+				window.__ieBoot = {
+					title: function (text) {
+						if (finished || !titleEl || !text) return;
+						titleEl.textContent = text;
+						titleEl.classList.add('ie-show');
+					},
+					phase: function (text) {
+						if (finished || !statusEl || !text) return;
+						statusEl.textContent = text;
+					},
+					progress: function (pct) {
+						if (finished || !fillEl) return;
+						var v = Math.max(0, Math.min(100, Number(pct) || 0));
+						fillEl.classList.remove('ie-indet');
+						fillEl.style.width = v + '%';
+						if (pctEl) pctEl.textContent = Math.round(v) + '%';
+					},
+					done: done,
+				};
+				// Safety net: never let a wiring bug leave the splash pinned over a live game.
+				// The real load is ~5s; a warm boot calls done() long before this fires.
+				setTimeout(done, 30000);
+			})();
+		</script>
 	</body>
 </html>

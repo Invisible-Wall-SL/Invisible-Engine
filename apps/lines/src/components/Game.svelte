@@ -218,6 +218,18 @@
 		resetSymbolMapCache();
 	}
 
+	// Boot loading screen (defined in the HTML shell, `app.html`): feed real asset-load
+	// progress into the pre-mount splash and dismiss it once the game's assets are ready.
+	// The splash covered the black window BEFORE Pixi + the in-canvas `LoadingBar` existed
+	// (the `?runtime=1` runtime-doc + R2 asset wait); from `loaded` on, the in-canvas visuals
+	// own the screen. Optional-chained ⇒ inert in Storybook / any host without the shell.
+	$effect(() => {
+		const boot = window.__ieBoot;
+		if (!boot) return;
+		boot.progress(stateApp.loadingProgress);
+		if (stateApp.loaded) boot.done();
+	});
+
 	// `HudTicker`/`HudCaption`/`HudValue` are the three coded parts the `hudReadout`
 	// ComponentDef MOUNTS (§14.3 separate-coded-parts path): the def's `root` has one
 	// `bind` child per part by name, so each must be in the bound-component registry

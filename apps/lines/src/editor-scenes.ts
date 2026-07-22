@@ -194,7 +194,7 @@ const bakedBundle = bakedBundleJson as unknown as BakedBundle;
  * absent this stays `null` and EVERY function below is byte-identical to today
  * (baked-doc games and `apps/lines` live `/api/editor/doc` dev are untouched).
  */
-type RuntimeBundle = BakedBundle & { assetBase: string };
+type RuntimeBundle = BakedBundle & { assetBase: string; name?: string };
 let runtimeBundle: RuntimeBundle | null = null;
 
 /** True only when `?runtime=1` is in the game URL — the single opt-in gate. Absent
@@ -704,6 +704,19 @@ declare global {
 	 *  "the game never received it". Undefined on a healthy boot. */
 	// eslint-disable-next-line no-var
 	var __IE_RUNTIME_STALE__: { reason: string; at: string } | undefined;
+	/** Boot loading-screen handle defined in the static HTML shell (`app.html`). Drives the
+	 *  pre-mount splash (phase text, progress %, game name) that covers the black window before
+	 *  Pixi + the in-canvas `LoadingBar` exist. Optional-chained everywhere — undefined in
+	 *  Storybook / SSR / any host without the shell overlay. */
+	// eslint-disable-next-line no-var
+	var __ieBoot:
+		| {
+				title: (text: string) => void;
+				phase: (text: string) => void;
+				progress: (pct: number) => void;
+				done: () => void;
+		  }
+		| undefined;
 }
 
 /** Backoff before each retry. See {@link fetchRuntimeWithRetry} for why retrying pays. */
@@ -850,6 +863,9 @@ export async function prepareRuntimeBundle(): Promise<boolean> {
 		const url =
 			`${base}/api/editor/runtime?project=${encodeURIComponent(project)}` +
 			`&k=${encodeURIComponent(token)}`;
+		// The boot splash (app.html) is already painting; name the phase the player is
+		// waiting on — this fetch is the long cross-origin call that used to be a black screen.
+		window.__ieBoot?.phase('Fetching from R2…');
 		const res = await fetchRuntimeWithRetry(url);
 		if (!res.ok) {
 			console.error(
@@ -877,6 +893,11 @@ export async function prepareRuntimeBundle(): Promise<boolean> {
 			return false;
 		}
 		runtimeBundle = data as RuntimeBundle;
+		// Boot splash: reveal the game name (the launcher's project display name) and move to
+		// the asset phase. Real 0–100 progress takes over from here (Game.svelte feeds
+		// `stateApp.loadingProgress` into `__ieBoot.progress`).
+		if (typeof data.name === 'string' && data.name) window.__ieBoot?.title(data.name);
+		window.__ieBoot?.phase('Loading assets…');
 		console.info(
 			`[runtime] live runtime bundle ready for "${project}" — generic-bundle boot active`,
 		);
