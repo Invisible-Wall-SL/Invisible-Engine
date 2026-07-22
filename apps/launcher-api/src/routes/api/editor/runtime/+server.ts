@@ -1,7 +1,12 @@
 import { error, json } from '@sveltejs/kit';
 import { getDeployToken } from '$lib/server/appSettings';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { DEFAULT_PROJECT_KEY, projectAllowsRead, projectClientKey } from '$lib/server/projects';
+import {
+	DEFAULT_PROJECT_KEY,
+	projectAllowsRead,
+	projectClientKey,
+	projectName,
+} from '$lib/server/projects';
 import { getRuntimeBundle } from '$lib/server/runtimeBundleCache';
 import type { RequestHandler } from './$types';
 
@@ -66,7 +71,11 @@ export const GET: RequestHandler = async ({ url }) => {
 			`${url.origin}/api/deploy/f/${encodeURIComponent(token)}` +
 			`/${encodeURIComponent(clientKey)}/${encodeURIComponent(projectKey)}/`;
 
-		return json({ assetBase, ...bundle }, { headers: CORS_HEADERS });
+		// The launcher's project display name, so the boot loading screen can show the real
+		// game title (e.g. "Book of Borut") instead of the bare slug. Falls back to the key.
+		const name = (await projectName(projectKey)) ?? projectKey;
+
+		return json({ assetBase, name, ...bundle }, { headers: CORS_HEADERS });
 	} catch (e) {
 		console.error('runtime bundle failed:', e);
 		throw error(502, 'Failed to assemble the runtime bundle.');
