@@ -7,6 +7,7 @@
 <script lang="ts">
 	import AnimatedSprite from './AnimatedSprite.svelte';
 	import { getContextApp } from '../context.svelte';
+	import { warnMissingAsset } from '../missingAsset';
 	import type { LoadedSpriteSheet } from '../types';
 
 	const context = getContextApp();
@@ -20,8 +21,7 @@
 	 done — during the load window a sheet mounted by the (now generically mounted) game
 	 tree resolves later. See Sprite.svelte for the rationale. -->
 {#if !isValid && context.stateApp.loaded}
-	{console.error(`SpriteSheet: key "${key}" is not found in loadedAssets`)}
-	{console.log('loadedAssets', $state.snapshot(context).stateApp.loadedAssets)}
+	{warnMissingAsset(`SpriteSheet: key "${key}" is not found in loadedAssets`)}
 {/if}
 
 <AnimatedSprite {...animateSpriteProps} textures={isValid ? textures : []} />

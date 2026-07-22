@@ -12,6 +12,7 @@
 <script lang="ts">
 	import type { LoadedSprite } from '../types';
 	import { getContextApp, getContextParticleParent } from '../context.svelte';
+	import { warnMissingAsset } from '../missingAsset';
 
 	const props: Props = $props();
 	const context = getContextApp();
@@ -38,6 +39,5 @@
 <!-- Load-aware diagnostic: only flag a missing key once loading is done (a particle
 	 mounted during the asset-load window resolves later). See Sprite.svelte. -->
 {#if texture === PIXI.Texture.EMPTY && context.stateApp.loaded}
-	{console.error(`Particle: key "${props.key}" is not found in the loadedAssets`)}
-	{console.log('loadedAssets', $state.snapshot(context.stateApp).loadedAssets)}
+	{warnMissingAsset(`Particle: key "${props.key}" is not found in the loadedAssets`)}
 {/if}

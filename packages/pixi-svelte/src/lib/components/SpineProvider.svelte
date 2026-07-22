@@ -16,6 +16,7 @@
 	import BaseSpineProvider from './BaseSpineProvider.svelte';
 	import { anchorToPivot } from '../utils.svelte';
 	import { getContextApp } from '../context.svelte';
+	import { warnMissingAsset } from '../missingAsset';
 
 	const { debug, key, anchor, children, scale: scaleProp, ...baseSpineProps }: Props = $props();
 	const context = getContextApp();
@@ -57,10 +58,10 @@
 	 during the asset-load window has no `spineData` yet and resolves once its bundle
 	 arrives — only flag it as missing once loading is done. See Sprite.svelte. -->
 {#if !spineData && context.stateApp.loaded}
-	{console.error(`Spine: key "${key}" is not found in loadedAssets`)}
+	{warnMissingAsset(`Spine: key "${key}" is not found in loadedAssets`)}
 {/if}
 
-{#if (!spineData && context.stateApp.loaded) || debug}
+{#if debug}
 	{console.log('loadedAssets', $state.snapshot(context.stateApp).loadedAssets)}
 {/if}
 
