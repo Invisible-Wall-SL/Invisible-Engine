@@ -1012,10 +1012,17 @@ export const LOADING_BAR_DEF: ComponentDef = {
 	version: 1,
 	scope: 'shared',
 	category: 'overlay',
-	// Seed the flow-advance capability on a freshly-dropped instance, so the bar IS a
-	// flow-driven loading gate out of the box (the editor still surfaces the shared toggle,
-	// so the author can clear it). Not declared in `params` — it's the shared overlay param.
-	defaultInstanceParams: { completeOnLoaded: true },
+	// The loading gate's default capabilities, applied at RUNTIME (see `resolveComponentParams`),
+	// so the bar IS a flow-driven loading gate out of the box on EVERY project — hand-authored
+	// scaffold nodes included, not just editor-dropped ones. Both are shared `overlay` params (not
+	// declared in `params`); the editor surfaces the toggles so an author can clear either.
+	//  - `completeOnLoaded`: AUTO-advance the flow the moment boot assets finish (no tap needed).
+	//  - `tapToContinue`: the RELIABLE FALLBACK — a real player tap advances the flow too (the way
+	//    Book of Borut's loading works). The boot splash covers the canvas until assets load, so the
+	//    tap can only land post-load ⇒ it never advances prematurely. If `completeOnLoaded` fires
+	//    first (the normal case) the loading screen unmounts before the tap prompt is ever seen;
+	//    if it somehow doesn't, the prompt appears and the tap still gets the player into the game.
+	defaultInstanceParams: { completeOnLoaded: true, tapToContinue: true },
 	root: {
 		id: 'loadingBar-root',
 		kind: 'container',

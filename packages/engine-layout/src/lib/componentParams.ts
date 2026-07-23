@@ -5,9 +5,21 @@ import type { ComponentDef, LayoutNode } from './types';
  * Merge precedence, low → high:
  *
  *   `def.params[i].default` (keyed by `.key`, when defined)
+ *     ◁ `def.defaultInstanceParams` (the def's per-instance seed defaults, e.g. the
+ *        Loading Bar's `completeOnLoaded: true` — SHARED overlay params NOT declared in
+ *        `def.params`; see below)
  *     ◁ `projectDefaults` (the per-project component-defaults store, B3 — passed
  *        `undefined` by B1 callers)
  *     ◁ `instanceParams` (the {@link ComponentInstanceNode.params} overrides)
+ *
+ * `defaultInstanceParams` used to be applied ONLY when the editor DROPPED an instance
+ * (written into `node.params`), NOT here — so a HAND-AUTHORED instance (a reference-layout
+ * scaffold node, or any project seeded from one) never received it. That silently disabled
+ * `LOADING_BAR_DEF`'s `completeOnLoaded` on every scaffolded/existing project: the loading
+ * gate never enabled, so a driven flow stranded on the loading screen. Applying it here makes
+ * it a true RUNTIME default (its documented intent — "the bar IS a flow-driven loading gate
+ * out of the box"), overridable by a project default or an explicit instance param (clearing a
+ * toggle writes an explicit `false`, which wins over the seed).
  *
  * `undefined` values are SKIPPED at every layer, so a higher layer never erases a
  * lower default by carrying an explicit `undefined`. Pure + Svelte-free so both
@@ -24,6 +36,7 @@ export function resolveComponentParams(
 			out[param.key] = param.default;
 		}
 	}
+	mergeDefined(out, def.defaultInstanceParams);
 	mergeDefined(out, projectDefaults);
 	mergeDefined(out, instanceParams);
 	return out;
