@@ -931,6 +931,9 @@ export const WIN_DEF: ComponentDef = {
 			default: 'slot_win_count',
 			label: 'count slot',
 		},
+		// The coin-fountain particles, now part of the placeable visual (position/scale follow the
+		// `win` instance node). Default true ⇒ parity with the coded gate that used to own them.
+		{ key: 'showCoins', kind: 'boolean', default: true, label: 'coin fountain' },
 		// Shared set — applies to ALL tiers unless a per-tier group below overrides it. Empty ⇒ the
 		// per-tier `winLevelMap` convention (parity).
 		{

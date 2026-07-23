@@ -12,23 +12,27 @@
 	import { getContext } from '../game/context';
 	import { SYMBOL_SIZE } from '../game/constants';
 	import WinAnimation from './WinAnimation.svelte';
+	import WinCoins from './WinCoins.svelte';
 	import { winState } from '../game/winState.svelte';
 	import { bakedWinText } from '../editor-scenes';
 
 	// The board-relative VISUAL of the WIN overlay (big-win presentation): the tier spine (via
 	// `WinAnimation`) + the count number in the spine's slot, PLUS the small/medium plain-number
-	// path + the authored win-level caption (Invisible Win Text). Reads `winLevelData`/`amount`/
-	// `countUpAmount` from `winState` (the GATE publishes them). `boundToInstance` makes it render
-	// at the `win` instance node's position; absent (the OFF composer) ⇒ it self-centres on the
-	// board. The gate owns the dim / press / round-await / count-up driver / `WinCoins`.
+	// path + the authored win-level caption (Invisible Win Text) + the coin-fountain `WinCoins`
+	// (authorable via `showCoins`). Reads `winLevelData`/`amount`/`countUpAmount`/`coinsEmit` from
+	// `winState` (the GATE publishes them). `boundToInstance` makes it render at the `win` instance
+	// node's position; absent (the OFF composer) ⇒ it self-centres on the board. The gate owns the
+	// dim / press / round-await / count-up driver.
 	const {
 		boundToInstance = false,
 		winSpine: winSpineProp = 'bigwin',
 		slotName: slotNameProp = 'slot_win_count',
+		showCoins: showCoinsProp = true,
 	}: {
 		boundToInstance?: boolean;
 		winSpine?: string;
 		slotName?: string;
+		showCoins?: boolean;
 	} = $props();
 
 	const context = getContext();
@@ -37,9 +41,14 @@
 		const value = getComponentParams()[key];
 		return typeof value === 'string' && value.length > 0 ? value : undefined;
 	};
+	const booleanParam = (key: string): boolean | undefined => {
+		const value = getComponentParams()[key];
+		return typeof value === 'boolean' ? value : undefined;
+	};
 
 	const winSpine = $derived(stringParam('winSpine') ?? winSpineProp);
 	const slotName = $derived(stringParam('slotName') ?? slotNameProp);
+	const showCoins = $derived(booleanParam('showCoins') ?? showCoinsProp);
 
 	let show = $state(true);
 
@@ -96,6 +105,13 @@
 </script>
 
 {#snippet content()}
+	<!-- Behind the tier spine / count number (rendered first), matching the pre-move z-order where
+		the gate's coins sat behind the later-mounted visual. Emit while the count-up runs
+		(`winState.coinsEmit`); `showCoins` false ⇒ no fountain. -->
+	{#if showCoins}
+		<WinCoins emit={winState.coinsEmit} levelAlias={winLevelData?.alias} />
+	{/if}
+
 	{#if resolvedAnimationMap}
 		<WinAnimation animationMap={resolvedAnimationMap} key={winSpine} {slotName}>
 			{#if levelCaption}

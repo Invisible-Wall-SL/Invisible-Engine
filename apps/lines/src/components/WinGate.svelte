@@ -9,16 +9,16 @@
 	import { getContext } from '../game/context';
 	import { flowV2DrivesScreens } from '../game/flowV2Runtime.svelte';
 	import PressToContinue from './PressToContinue.svelte';
-	import WinCoins from './WinCoins.svelte';
 	import WinStatePublisher from './WinStatePublisher.svelte';
 	import { winState } from '../game/winState.svelte';
 
 	// The full-screen GATE of the WIN overlay (big-win presentation): the `winShow/winHide/winUpdate`
 	// book-event subscription, the count-up driver (`WinCountUpProvider` + `OnMount startCountUp`),
-	// the big-win `CanvasSizeRectangle` dim scrim, the board-centred `WinCoins` particles, the
-	// press-to-continue — and it OWNS the round-blocking await. Publishes the win level + final
-	// amount + the live count-up amount to `winState` so the positionable VISUAL (`WinVisual`)
-	// renders the spine + count number. Stays full-screen (`canvas`), never editor-positioned.
+	// the big-win `CanvasSizeRectangle` dim scrim, the press-to-continue — and it OWNS the
+	// round-blocking await. Publishes the win level + final amount + the live count-up amount + the
+	// coin-fountain emit signal (`coinsEmit`) to `winState` so the positionable VISUAL (`WinVisual`)
+	// renders the spine + count number + the now-authorable `WinCoins` fountain. Stays full-screen
+	// (`canvas`), never editor-positioned.
 	const context = getContext();
 
 	// Under a v2 flow that DRIVES the screens, the authored container's `tapToContinue` overlay is
@@ -66,10 +66,9 @@
 					}}
 				/>
 
-				<!-- Publish the live count-up amount to the positionable VISUAL's count text. -->
-				<WinStatePublisher {countUpAmount} />
-
-				<WinCoins emit={!countUpCompleted} levelAlias={winLevelData?.alias} />
+				<!-- Publish the live count-up amount + the coin-fountain emit signal (emit while the
+					count-up runs) to the positionable VISUAL, which draws the count text + `WinCoins`. -->
+				<WinStatePublisher {countUpAmount} coinsEmit={!countUpCompleted} />
 
 				{#if codedPressOwned}
 					<PressToContinue onpress={() => (countUpCompleted ? oncomplete() : finishCountUp())} />
