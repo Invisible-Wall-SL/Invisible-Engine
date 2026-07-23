@@ -1349,18 +1349,34 @@
 	 * anchor whose resolved preview art is a spine)? Only such scenes mount a
 	 * (WebGL) spine sublayer in their group, so contexts stay bounded. */
 	function sceneHasSpine(s: Scene): boolean {
-		return nodesHaveSpine(s.nodes, 0, []);
+		return nodesHaveSpine(s.nodes, 0, [], undefined);
 	}
-	function nodesHaveSpine(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
+	function nodesHaveSpine(
+		nodes: LayoutNode[],
+		depth: number,
+		stack: string[],
+		/** The enclosing componentInstance's AUTHORED preview spine bundle (its first `spine`-kind
+		 * param value), threaded EXACTLY like `collectNestedSpines` in `EditorSpineLayer`. Without it
+		 * this check resolved only the FIXED catalog bundle (the win overlay's `bigwin`); a project
+		 * whose authored rig differs (Borut's `R_WinScreen`) and that has no `bigwin` spine looked
+		 * "spine-less", so the WebGL spine layer never mounted and the authored rig showed only its 2D
+		 * placeholder — even though the renderer WOULD have drawn it. Mirrors the renderer so the
+		 * layer mounts exactly when there is real spine work. */
+		instanceSpineBundle: string | undefined,
+	): boolean {
 		for (const n of nodes) {
 			if (n.kind === 'spine') return true;
-			const art = anchorArt(n);
+			const art = anchorArt(n, instanceSpineBundle);
 			if (art?.kind === 'spine' && art.assetKey) return true;
-			if (n.kind === 'container' && nodesHaveSpine(n.children, depth, stack)) return true;
+			if (n.kind === 'container' && nodesHaveSpine(n.children, depth, stack, instanceSpineBundle))
+				return true;
 			if (n.kind === 'componentInstance') {
 				const def = componentMap.get(n.componentId);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
-				if (nodesHaveSpine(def.root.children, depth + 1, [...stack, def.id])) return true;
+				const params = resolveComponentParams(def, n.params, undefined);
+				const spineBundle = instancePreviewSpineBundle(def, params);
+				if (nodesHaveSpine(def.root.children, depth + 1, [...stack, def.id], spineBundle))
+					return true;
 			}
 		}
 		return false;
