@@ -297,20 +297,29 @@
 	let loadedSeeded = false;
 	let wasLoaded = false;
 	let fired = false;
+	const fireLoaded = (): void => {
+		fired = true;
+		const flow = getFlowComplete();
+		flow?.completeActiveScreen();
+		if (loadedSignal) flow?.emitSignal(loadedSignal);
+	};
 	$effect(() => {
 		if (!loadedSource) return;
 		return loadedSource.subscribe((value) => {
 			if (!loadedSeeded) {
 				loadedSeeded = true;
 				wasLoaded = value;
+				// ALREADY loaded when this gate mounted ⇒ advance NOW. Under a v2 flow that DRIVES
+				// screens the loading screen is mounted by `showContainer(loading)` AFTER boot assets
+				// have settled, so `assetsLoaded` is already true on the first (synchronous) emit and
+				// there is no later false→true edge to wait for. Firing on the seed makes the flow's
+				// `complete` edge fire instead of stranding on loading. The CODED path mounts loading
+				// at boot (assets not yet loaded ⇒ first emit false), so it is byte-identical — only a
+				// gate that mounts post-load changes, and a stray fire matches nothing (see below).
+				if (value && !fired) fireLoaded();
 				return;
 			}
-			if (value && !wasLoaded && !fired) {
-				fired = true;
-				const flow = getFlowComplete();
-				flow?.completeActiveScreen();
-				if (loadedSignal) flow?.emitSignal(loadedSignal);
-			}
+			if (value && !wasLoaded && !fired) fireLoaded();
 			wasLoaded = value;
 		});
 	});
