@@ -64,8 +64,9 @@ if (tapToStartMusic.entry)
 	});
 
 /** The canonical reference v2 book-of flow — every presentation event, built from the template's
- *  canonical `BOOK_OF_CHOREO`. Validates 0 issues vs `BOOK_OF_VOCAB`. Treat as IMMUTABLE: seed a
- *  deep clone (`freshBookOfFlowDoc`) before editing so a fresh project owns its own copy. */
+ *  canonical `BOOK_OF_CHOREO`. Validates 0 issues vs `BOOK_OF_VOCAB`. This is the `apps/lines`
+ *  book-events-only reference (`LINES_FLOW_V2_DOC`); the fully-driven NEW-PROJECT seed is the
+ *  separate `BOOK_OF_DRIVEN_SEED_DOC` (`drivenSeed.ts`). */
 export const BOOK_OF_REFERENCE_DOC: FlowDoc = {
 	version: 2,
 	templateId: 'bookOf',
@@ -78,9 +79,3 @@ export const BOOK_OF_REFERENCE_DOC: FlowDoc = {
 
 /** The canonical reference v2 function library (empty — the events are linear/forEach chains). */
 export const BOOK_OF_REFERENCE_LIBRARY: FunctionLibraryDoc = { version: 2, functions: [] };
-
-/** A fresh DEEP CLONE of {@link BOOK_OF_REFERENCE_DOC} — the doc a new project is seeded with so it
- *  owns an independent copy the editor can mutate + save without touching the shared reference. */
-export function freshBookOfFlowDoc(): FlowDoc {
-	return JSON.parse(JSON.stringify(BOOK_OF_REFERENCE_DOC)) as FlowDoc;
-}

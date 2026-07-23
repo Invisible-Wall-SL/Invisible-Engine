@@ -1,4 +1,4 @@
-import { freshBookOfFlowDoc, type FlowDoc as FlowDocV2 } from 'engine-flow-v2';
+import { freshBookOfDrivenSeedDoc, type FlowDoc as FlowDocV2 } from 'engine-flow-v2';
 import { flowV2DocKey } from './projectPaths';
 import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
@@ -17,10 +17,10 @@ import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
  *    or malformed. The BAKE/EXPORT + FX consumers rely on this: an un-authored project must FALL
  *    THROUGH to the coded handlers, never bake a substituted reference (that would break §7 parity).
  *  - {@link loadFlowV2DocForEditor} NEVER returns null — a project with no stored doc is SEEDED with
- *    a deep clone of the canonical reference flow (`freshBookOfFlowDoc`), so the `/flow-v2` editor
- *    opens on a real, editable, saveable loading→tap→basegame→win flow (not a throwaway sample) and
- *    the author's first edit persists it. Seeding is editor-only; it never reaches the ship chain
- *    until the author actually saves.
+ *    a deep clone of the fully FLOW-DRIVEN starter (`freshBookOfDrivenSeedDoc`), so the `/flow-v2`
+ *    editor opens on a real, editable, saveable loading→tap→basegame flow that drives the whole game
+ *    (reel + HUD + free-spins) once saved (not a throwaway sample). Seeding is editor-only; it never
+ *    reaches the ship chain until the author actually saves.
  *
  * OUT OF SCOPE (later increment): the template VOCABULARY + shared FUNCTION LIBRARY still come
  * from the client-side `sample.ts` (`BOOK_OF_VOCAB`, `LIBRARY`); only the project's FlowDoc
@@ -74,8 +74,8 @@ export async function loadFlowV2DocWithEtag(
 /**
  * EDITOR read path — like {@link loadFlowV2DocWithEtag} but NEVER returns a null doc. When the
  * project has no stored (or a malformed) `flow-v2.json`, the doc is SEEDED with a fresh deep clone
- * of the canonical reference flow so the `/flow-v2` canvas opens on a real, editable, saveable flow
- * instead of a client-side throwaway sample.
+ * of the fully FLOW-DRIVEN starter so the `/flow-v2` canvas opens on a real, editable, saveable flow
+ * that drives the whole game (reel + HUD + free-spins) instead of a client-side throwaway sample.
  *
  * `seeded` tells the client the doc it holds is not yet stored (drives the "new · unsaved" pill),
  * while `etag` preserves the correct first-save precondition:
@@ -92,7 +92,7 @@ export async function loadFlowV2DocForEditor(
 ): Promise<{ doc: FlowDocV2; etag: string | null; seeded: boolean }> {
 	const { doc, etag } = await loadFlowV2DocWithEtag(clientKey, projectKey);
 	if (doc) return { doc, etag, seeded: false };
-	return { doc: freshBookOfFlowDoc(), etag, seeded: true };
+	return { doc: freshBookOfDrivenSeedDoc(), etag, seeded: true };
 }
 
 /**
