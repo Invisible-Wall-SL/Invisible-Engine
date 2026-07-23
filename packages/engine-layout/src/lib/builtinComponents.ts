@@ -875,10 +875,30 @@ export const FREE_SPIN_OUTRO_VISUAL_DEF: ComponentDef = {
  * self-centring on the board — drag/scale the instance to move the big-win art. The full-screen GATE
  * (dim + count-up driver + WinCoins + press + round-await) stays the coded `canvas` bind `WinGate`.
  *
- * CONVENTION-BASED params: the 5 tiers' animation names (big/super/mega/epic/max, each `intro`/
- * `idle`/`outro`) stay convention-driven from `winLevelMap`, so the def exposes just TWO params —
- * the big-win spine bundle + the count slot — rather than 15 per-tier fields.
+ * ANIMATION cues — the 5 big tiers (big/super/mega/epic/max) each play `intro` → `idle` (loop) →
+ * `exit`. Resolution per tier is: a PER-TIER override (`<tier>Intro`/`Idle`/`Exit`, in that tier's
+ * group) ?? the SHARED set (`introAnimation`/`idleAnimation`/`exitAnimation`, applies to every tier)
+ * ?? the coded `winLevelMap` convention default (`big_win_intro`, …). Every field is empty by
+ * default, so an un-authored instance falls all the way through to the convention ⇒ parity. The
+ * shared set covers the common "one animation for all tiers" spine in three fields; the per-tier
+ * groups exist for a spine with distinct art per tier. All are `spineAnimation` dropdowns of
+ * `winSpine`'s real animations (no blind typing). {@link mergeBuiltinCodedParams} unions these onto
+ * an already-placed pinned instance at resolve time, so adding them needs no version bump.
  */
+const WIN_TIER_ANIMATION_PARAMS: ComponentParam[] = (
+	[
+		['big', 'Big win'],
+		['super', 'Super win'],
+		['mega', 'Mega win'],
+		['epic', 'Epic win'],
+		['max', 'Max win'],
+	] as const
+).flatMap(([prefix, group]): ComponentParam[] => [
+	{ key: `${prefix}Intro`, kind: 'spineAnimation', spineParam: 'winSpine', group, label: 'intro' },
+	{ key: `${prefix}Idle`, kind: 'spineAnimation', spineParam: 'winSpine', group, label: 'idle' },
+	{ key: `${prefix}Exit`, kind: 'spineAnimation', spineParam: 'winSpine', group, label: 'exit' },
+]);
+
 export const WIN_DEF: ComponentDef = {
 	id: 'win',
 	name: 'Win Overlay',
@@ -911,6 +931,31 @@ export const WIN_DEF: ComponentDef = {
 			default: 'slot_win_count',
 			label: 'count slot',
 		},
+		// Shared set — applies to ALL tiers unless a per-tier group below overrides it. Empty ⇒ the
+		// per-tier `winLevelMap` convention (parity).
+		{
+			key: 'introAnimation',
+			kind: 'spineAnimation',
+			spineParam: 'winSpine',
+			group: 'Animations (all tiers)',
+			label: 'intro',
+		},
+		{
+			key: 'idleAnimation',
+			kind: 'spineAnimation',
+			spineParam: 'winSpine',
+			group: 'Animations (all tiers)',
+			label: 'idle',
+		},
+		{
+			key: 'exitAnimation',
+			kind: 'spineAnimation',
+			spineParam: 'winSpine',
+			group: 'Animations (all tiers)',
+			label: 'exit',
+		},
+		// Per-tier overrides — optional. Empty ⇒ use the shared set above (or the convention).
+		...WIN_TIER_ANIMATION_PARAMS,
 	],
 };
 

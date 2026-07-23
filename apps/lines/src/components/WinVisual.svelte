@@ -47,6 +47,30 @@
 	const amount = $derived(winState.amount);
 	const countUpAmount = $derived(winState.countUpAmount);
 
+	// Per-tier animation-name resolution (see `WIN_DEF`): for the active tier, a PER-TIER override
+	// (`<prefix>Intro/Idle/Exit`) ?? the SHARED set (`introAnimation`/`idleAnimation`/`exitAnimation`)
+	// ?? the coded `winLevelMap` convention default. Only the 5 big tiers carry `.animation`; each
+	// maps to its param prefix. All params empty ⇒ pure convention ⇒ byte-identical to before.
+	const TIER_PREFIX: Record<string, string> = {
+		big: 'big',
+		superwin: 'super',
+		mega: 'mega',
+		epic: 'epic',
+		max: 'max',
+	};
+	const resolvedAnimationMap = $derived.by(() => {
+		const convention = winLevelData?.animation;
+		if (!convention) return undefined;
+		const prefix = TIER_PREFIX[winLevelData?.alias ?? ''];
+		const pick = (suffix: string, sharedKey: string, fallback: string) =>
+			(prefix ? stringParam(`${prefix}${suffix}`) : undefined) ?? stringParam(sharedKey) ?? fallback;
+		return {
+			intro: pick('Intro', 'introAnimation', convention.intro),
+			idle: pick('Idle', 'idleAnimation', convention.idle),
+			outro: pick('Exit', 'exitAnimation', convention.outro),
+		};
+	});
+
 	/**
 	 * The authored win-level caption (Invisible Win Text) for this tier, e.g. `big` → "BIG WIN",
 	 * localized + interpolated by `formatWinText`.
@@ -72,8 +96,8 @@
 </script>
 
 {#snippet content()}
-	{#if winLevelData?.animation}
-		<WinAnimation animationMap={winLevelData.animation} key={winSpine} {slotName}>
+	{#if resolvedAnimationMap}
+		<WinAnimation animationMap={resolvedAnimationMap} key={winSpine} {slotName}>
 			{#if levelCaption}
 				<Container y={-SYMBOL_SIZE * 2.6}>
 					<ResponsiveBitmapText

@@ -8,15 +8,13 @@
 	type AnimationState = 'intro' | 'idle' | 'outro';
 
 	type Props = {
+		// Resolved intro/idle/outro animation names for the active tier — the coded `winLevelMap`
+		// convention by default, or author-picked per-tier/shared overrides (see `WIN_DEF`), so any
+		// string the `winSpine` bundle exposes is valid (no longer the fixed convention literals).
 		animationMap: {
-			intro:
-				| 'big_win_intro'
-				| 'epic_win_intro'
-				| 'max_win_intro'
-				| 'mega_win_intro'
-				| 'super_win_intro';
-			idle: 'big_win_idle' | 'epic_win_idle' | 'max_win_idle' | 'mega_win_idle' | 'super_win_idle';
-			outro: 'big_win_exit' | 'epic_win_exit' | 'max_win_exit' | 'mega_win_exit' | 'super_win_exit';
+			intro: string;
+			idle: string;
+			outro: string;
 		};
 		/** The big-win spine bundle + the slot the count number is injected into. Configurable so a
 		 * game can point the shared `win` component at its own art; the coded defaults reproduce the
