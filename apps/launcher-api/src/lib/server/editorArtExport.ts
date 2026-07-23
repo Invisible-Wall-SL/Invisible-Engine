@@ -22,6 +22,15 @@
  * (via the shared `exportSpineBundle`, which also renames a Rigger `.irig` skeleton
  * to `.json`) and listed in `index.spines`, which the game registers as a spine
  * asset under the node's `assetKey` — the same value `LayoutNodeView` looks up.
+ *
+ * Spine bundles a componentInstance references through a `spine`-KIND PARAM (the Win
+ * Overlay's `winSpine`, the free-spin visuals' `introSpine`/`outroSpine`, …) ride the
+ * SAME chain — discovered generically off `ComponentParam.kind === 'spine'` (def
+ * defaults + instance overrides). A spine param stores the bundle NAME (not a full
+ * assetKey), so its name is reconstructed into a project-rooted assetKey for the shared
+ * export path and registered back under the NAME — the exact value `<SpineProvider
+ * key={…}>` looks up. A coded/game-bundled default (`bigwin`, `fsIntroNumber`) has no
+ * R2 bundle, so it resolves to nothing and is skipped (the game registers it itself).
  */
 import type { ComponentDef, LayoutDoc, LayoutNode } from 'engine-layout';
 import {
@@ -120,6 +129,12 @@ interface ArtRefs {
 	/** `spine`-node `assetKey`s (full R2 bundle prefixes). A coded spine key (no R2
 	 * bundle) resolves to nothing in `exportSpineBundle` and is skipped there. */
 	spineKeys: Set<string>;
+	/** Bundle NAMES referenced by `spine`-kind component params (def defaults + instance
+	 * overrides). A param stores the bare bundle name (`EditorProperties` `<option
+	 * value={s.name}>`), not an assetKey, so each is reconstructed into a project-rooted
+	 * assetKey below and registered back under the NAME. A game-bundled name (`bigwin`,
+	 * `fsIntroNumber`) has no R2 bundle and is skipped in `exportSpineBundle`. */
+	spineNames: Set<string>;
 	/** Region names referenced ONLY by name (image-kind component params) — their
 	 * containing manifest must be found among the project's atlases. */
 	regionNames: Set<string>;
@@ -157,19 +172,26 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 		manifestKeys: new Set(),
 		imageKeys: new Set(),
 		spineKeys: new Set(),
+		spineNames: new Set(),
 		regionNames: new Set(),
 		usedRegions: new Set(),
 	};
 	const imageParamKeys = new Map<string, Set<string>>();
+	const spineParamKeys = new Map<string, Set<string>>();
 	for (const [id, def] of Object.entries(defs)) {
-		const keys = new Set<string>();
+		const imgKeys = new Set<string>();
+		const spineKeys = new Set<string>();
 		for (const p of def.params ?? []) {
 			if (p.kind === 'image') {
-				keys.add(p.key);
+				imgKeys.add(p.key);
 				if (typeof p.default === 'string' && p.default) addImageRef(refs, p.default);
+			} else if (p.kind === 'spine') {
+				spineKeys.add(p.key);
+				if (typeof p.default === 'string' && p.default) refs.spineNames.add(p.default);
 			}
 		}
-		imageParamKeys.set(id, keys);
+		imageParamKeys.set(id, imgKeys);
+		spineParamKeys.set(id, spineKeys);
 	}
 
 	const visit = (node: LayoutNode): void => {
@@ -184,11 +206,12 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 			refs.spineKeys.add(node.assetKey);
 		}
 		if (node.kind === 'componentInstance' && node.params) {
-			const keys = imageParamKeys.get(node.componentId);
-			if (keys) {
-				for (const [k, v] of Object.entries(node.params)) {
-					if (keys.has(k) && typeof v === 'string' && v) addImageRef(refs, v);
-				}
+			const imgKeys = imageParamKeys.get(node.componentId);
+			const spineKeys = spineParamKeys.get(node.componentId);
+			for (const [k, v] of Object.entries(node.params)) {
+				if (typeof v !== 'string' || !v) continue;
+				if (imgKeys?.has(k)) addImageRef(refs, v);
+				else if (spineKeys?.has(k)) refs.spineNames.add(v);
 			}
 		}
 	};
@@ -458,14 +481,28 @@ export async function exportEditorArt(
 		images.push({ key: imageKey, file });
 	}
 
-	// Spine nodes: copy each referenced bundle into deploy/editor-art/ via the shared
+	// Spine bundles: copy each referenced bundle into deploy/editor-art/ via the shared
 	// helper (atlas + skeleton + pages; a Rigger `.irig` skeleton is shipped as `.json`
-	// so PIXI's loader can parse it). `key` is the node's full R2 bundle-prefix
-	// `assetKey` — the same value `LayoutNodeView` hands `<SpineProvider>`. A coded
-	// spine key (no R2 bundle) resolves to nothing and is skipped. Stems share the
-	// `usedStems` pool with the sheets so a spine/sheet name clash can't collide.
+	// so PIXI's loader can parse it). Two reference kinds feed one export path:
+	//   - NODES store the full R2 bundle-prefix `assetKey`;
+	//   - `spine`-kind component PARAMS store the bare bundle NAME (`refs.spineNames`),
+	//     reconstructed here into a project-rooted assetKey so `bundleFromAssetKey` →
+	//     `resolveBundlePrefix` (inside `exportSpineBundle`) finds the files, whether the
+	//     bundle lives in the project or the shared `_shared/spines/` root.
+	// Either way the entry registers under the plain bundle NAME: for a node that is its
+	// `assetKey` rewritten by `resolveSpineKeysForGame` (`runtimeBundle.ts` +
+	// `api/editor/doc`) and handed to `<SpineProvider>` by `LayoutNodeView`; for a param it
+	// is the value stored, the exact key `<SpineProvider key={…}>` looks up (e.g. the win
+	// overlay's `winSpine`). A coded/game-bundled key (no R2 bundle — `bigwin`,
+	// `fsIntroNumber`) resolves to nothing and is skipped (the game registers it itself).
+	// Stems share the `usedStems` pool with the sheets so a spine/sheet name clash can't
+	// collide.
 	const spines: EditorArtSpine[] = [];
-	if (refs.spineKeys.size > 0) {
+	const spineAssetKeys = [
+		...refs.spineKeys,
+		...[...refs.spineNames].map((name) => `${SUB.spines(clientKey, projectKey)}/${name}/`),
+	];
+	if (spineAssetKeys.length > 0) {
 		const skeletonIndex = await loadSkeletonIndex(clientKey, projectKey);
 		const exportedSpines = new Set<string>();
 		const spineStem = (assetKey: string): string => {
@@ -473,9 +510,14 @@ export async function exportEditorArt(
 			const tail = base.slice(base.lastIndexOf('/') + 1).replace(/[^a-zA-Z0-9_-]/g, '_');
 			return tail || 'spine';
 		};
-		for (const assetKey of refs.spineKeys) {
-			if (exportedSpines.has(assetKey)) continue;
-			exportedSpines.add(assetKey);
+		for (const assetKey of spineAssetKeys) {
+			// Dedup by the REGISTRATION key (the bundle NAME) so a bundle referenced by BOTH a
+			// node (full assetKey) and a param (name → synthetic assetKey) exports once; a coded
+			// key with no R2 bundle falls back to its assetKey.
+			const gameKey = bundleFromAssetKey(clientKey, projectKey, assetKey);
+			const dedupKey = gameKey ?? assetKey;
+			if (exportedSpines.has(dedupKey)) continue;
+			exportedSpines.add(dedupKey);
 			let stem = spineStem(assetKey);
 			for (let i = 2; usedStems.has(stem); i++) stem = `${spineStem(assetKey)}_${i}`;
 			usedStems.add(stem);
@@ -490,12 +532,8 @@ export async function exportEditorArt(
 				scale: EDITOR_SPINE_LOAD_SCALE,
 			});
 			if (!result) continue;
-			// The game's doc has this spine node's `assetKey` rewritten from the full R2
-			// bundle prefix down to the plain bundle NAME (`resolveSpineKeysForGame` in
-			// `runtimeBundle.ts` + `api/editor/doc`), and `LayoutNodeView` looks the asset
-			// up by that name. Register under the SAME key — not the full prefix — or the
+			// Register under the plain bundle NAME — not the full prefix — or the runtime
 			// lookup misses and the spine never loads in the built game.
-			const gameKey = bundleFromAssetKey(clientKey, projectKey, assetKey);
 			if (gameKey) result.entry.key = gameKey;
 			for (const k of result.written) written.add(k);
 			spines.push(result.entry);
