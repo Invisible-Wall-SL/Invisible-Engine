@@ -112,7 +112,10 @@ class FlowInterpreter {
 
 	private readonly doc: FlowDoc;
 
-	constructor(doc: FlowDoc, private readonly ctx: RunContext) {
+	constructor(
+		doc: FlowDoc,
+		private readonly ctx: RunContext,
+	) {
 		// §5.2: FLATTEN all `group` nodes back into their bodies BEFORE interpreting — a group is a pure
 		// fold, semantically identical to its expanded form, so the interpreter never sees one. Function
 		// bodies may also carry groups, so flatten those too.
@@ -660,4 +663,46 @@ export const flowOwnsSignal = (doc: FlowDoc, eventName: string): boolean => {
 	return doc.graph.exec.some(
 		(e) => e.from.pin === eventName && nodesById.get(e.from.node)?.kind === 'gameSignals',
 	);
+};
+
+/**
+ * Lifecycle signals that MOUNT SCREENS. They only take effect when the flow DRIVES SCREENS (i.e. it
+ * owns `load`, so `flowV2DrivesScreens` is true and the mount model's shown set becomes the active
+ * screen set). A flow that owns one of these WITHOUT owning `load` cannot mount the screen it points
+ * at — yet its ownership still SUPPRESSES the coded lifecycle path — which is the "half-on" dead
+ * state that silently hides the game (e.g. the basegame board / reel never mounts). Book events are
+ * deliberately NOT here: they present OVER whatever screen is mounted (driven or coded), so their
+ * ownership is always safe.
+ */
+export const SCREEN_LIFECYCLE_SIGNALS: ReadonlySet<string> = new Set(['load', 'tapToStart']);
+
+/** A FlowDoc's screen-driving posture — see {@link flowScreenDrivingStatus}. */
+export interface FlowScreenDrivingStatus {
+	/** The flow authors the `load` entry (an `event` node with `ref: 'load'` OR a wired `gameSignals`
+	 *  `load` exec pin) ⇒ it is the SOLE screen renderer (`flowV2DrivesScreens`). */
+	drivesScreens: boolean;
+	/** The flow has `showContainer`/`hideContainer` nodes ⇒ it INTENDS to mount/unmount screens. */
+	hasContainerNodes: boolean;
+	/** HALF-ON: screen-driving intent (container nodes) but it does NOT own `load`, so it cannot
+	 *  actually mount screens while its ownership suppresses the coded path — the dead state a game
+	 *  must guard against. */
+	halfOn: boolean;
+}
+
+/**
+ * Classify a FlowDoc's screen-driving posture (a pure graph read). `halfOn` is the dangerous state
+ * an engine must guard: `showContainer`/`hideContainer` nodes are present (so the author intends to
+ * drive screens) but the flow does NOT own `load` (so `flowV2DrivesScreens` is false and those
+ * container shows never reach the active screen set). Owning `tapToStart` ALONE (e.g. to unlock
+ * audio) is deliberately NOT half-on — only a container node signals an intent to MOUNT a screen, so
+ * a purely audio/book-event flow that happens to wire `tapToStart` is never flagged.
+ */
+export const flowScreenDrivingStatus = (doc: FlowDoc): FlowScreenDrivingStatus => {
+	const drivesScreens =
+		doc.graph.nodes.some((n) => n.kind === 'event' && n.ref === 'load') ||
+		flowOwnsSignal(doc, 'load');
+	const hasContainerNodes = doc.graph.nodes.some(
+		(n) => n.kind === 'showContainer' || n.kind === 'hideContainer',
+	);
+	return { drivesScreens, hasContainerNodes, halfOn: !drivesScreens && hasContainerNodes };
 };

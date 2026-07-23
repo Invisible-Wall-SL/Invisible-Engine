@@ -33,8 +33,10 @@ import {
 	createFlowV2Env,
 	flowOwnsContainerEvent,
 	flowOwnsSignal,
+	flowScreenDrivingStatus,
 	runFlowContainerEvent,
 	runFlowEvent,
+	SCREEN_LIFECYCLE_SIGNALS,
 	templateVocabulary,
 	type ContainerMountModel,
 	type FlowDoc as FlowDocV2,
@@ -228,6 +230,28 @@ export const createLinesFlowV2 = (
 	const vocab = templateVocabulary(doc.templateId);
 	assertVocabBacked(vocab); // dev: warn if the vocabulary declares an action the game doesn't implement.
 
+	// HALF-ON GUARD (safety net). A flow that has `showContainer`/`hideContainer` nodes (so the author
+	// INTENDS to drive screens) but does NOT own `load` cannot actually mount those screens —
+	// `flowV2DrivesScreens` (= `ownsEvent('load')`) is false, so a `showContainer` never reaches the
+	// active screen set (Game.svelte gates that on `flowV2DrivesScreens`). Yet the flow still OWNS its
+	// screen-lifecycle signals (e.g. `tapToStart`), which would SUPPRESS the coded lifecycle transition
+	// (loading → tap → basegame) the game otherwise runs — so NEITHER path mounts basegame and the reel
+	// silently vanishes. When detected, we (1) shout a single loud line and (2) refuse to let the flow
+	// OWN the screen-lifecycle signals (below), so the coded/v1 screen path stays in control and the
+	// board mounts. Book-event ownership (reveal/winInfo/…) is UNTOUCHED — only screen lifecycle is
+	// guarded. A genuinely book-events-only flow (no container nodes) and a genuinely driven flow (owns
+	// `load`) are both unaffected.
+	const screenStatus = flowScreenDrivingStatus(doc);
+	if (screenStatus.halfOn) {
+		console.error(
+			'[flow-v2] HALF-ON FLOW IGNORED: this flow has showContainer/hideContainer nodes but does NOT ' +
+				'own `load`, so it cannot drive screens (basegame/reel would never mount). Its screen-lifecycle ' +
+				'signals are being ignored so the coded loading→tap→basegame path still runs. FIX: wire the ' +
+				'gameSignals `load` pin (or add a `load` event node) to drive screens, or remove the ' +
+				'showContainer/hideContainer nodes to stay book-events-only.',
+		);
+	}
+
 	const FLOW_LOG = flowV2LogOptIn();
 	// Boot confirmation — v2 is ACTIVE and will drive the events it authors. In DEV always; in a shipped
 	// build only with `?flowlog=1`, so live-debugging a published game is one URL param away.
@@ -380,7 +404,15 @@ export const createLinesFlowV2 = (
 		// surfaces every book+lifecycle event, but only wired ones are owned — an UNWIRED signal stays
 		// un-owned so its coded handler still runs (parity). `dispatch` (`runFlowEvent`) then walks the
 		// gameSignals pin (Part 1), so a wired mechanic signal drives v2 with its coded twin suppressed.
-		ownsEvent: (eventType) => ownedEvents.has(eventType) || flowOwnsSignal(doc, eventType),
+		//
+		// HALF-ON GUARD: a flow that intends to drive screens but can't (no `load`) must NOT own its
+		// SCREEN-LIFECYCLE signals — else it suppresses the coded loading→basegame path and the reel
+		// vanishes (see the loud warning above). Report those as un-owned so they fall through to the
+		// coded path; book events are unaffected, so migrated presentation still works.
+		ownsEvent: (eventType) => {
+			if (screenStatus.halfOn && SCREEN_LIFECYCLE_SIGNALS.has(eventType)) return false;
+			return ownedEvents.has(eventType) || flowOwnsSignal(doc, eventType);
+		},
 		dispatch: (eventName, payload, context) => {
 			trace('event ▶', eventName);
 			return runFlowEvent(doc, ctx, eventName, payload, context);
