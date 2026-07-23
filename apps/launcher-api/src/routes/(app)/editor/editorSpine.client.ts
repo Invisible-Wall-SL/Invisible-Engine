@@ -208,7 +208,14 @@ export async function loadSpineInstance(
 	version = 0,
 ): Promise<SpineInstance | null> {
 	const descriptor = await fetchDescriptor(assetKey);
-	if (!descriptor) return null;
+	if (!descriptor) {
+		// The bundle couldn't be resolved for RENDER (unknown key / no `skeletons.json` entry /
+		// missing atlas). Silent-null used to leave a bare placeholder with no clue why — log it so a
+		// spine that previews in the picker (its meta resolved) but won't render on the canvas is
+		// diagnosable in-browser instead of an invisible dead end.
+		console.warn(`[editor] spine "${assetKey}" could not be resolved for render (no descriptor)`);
+		return null;
+	}
 	const spine = await loadSpineRuntime(descriptor.runtime);
 	// Cache-bust token from the editor's "Reload art" — forces a fresh fetch of
 	// the skeleton + page textures after the underlying R2 art changed. Use the
@@ -240,7 +247,12 @@ export async function loadSpineInstance(
 		);
 
 		return buildSkeleton(spine, gl, descriptor, pageImages, skeletonBytes);
-	} catch {
+	} catch (e) {
+		// A skeleton/atlas fetch or PARSE error (e.g. a runtime-version mismatch, or an `.irig`
+		// structure the vendored runtime can't read) — the descriptor resolved but the bundle
+		// wouldn't build. Log it (with the bundle format) so a rig that ships + renders in-game but
+		// fails to preview in the editor is diagnosable, instead of a silent placeholder.
+		console.warn(`[editor] spine "${assetKey}" failed to build (format ${descriptor.format})`, e);
 		return null;
 	}
 }
