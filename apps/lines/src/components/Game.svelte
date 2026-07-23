@@ -657,6 +657,22 @@
 	const fsOutroScene = $derived(
 		editorDoc.scenes.find((scene) => scene.id === 'freeSpinOutro') ?? fallbackFsOutro,
 	);
+	// Whether the shown `freeSpinOutro` scene STILL carries a coded outro GATE bind — the reference
+	// layout's shapes: `bind:FreeSpinOutro` (the composer, gate + visual) or `bind:FreeSpinOutroGate`
+	// (the bare full-screen gate). When it does, THAT gate is the sole `freeSpinOutroCountUp`
+	// `waitForResolve` subscriber, so the engine-owned flow gate (mounted below) must NOT also mount —
+	// two subscribers would each hold the round on `freeSpinOutroCountUp` and hang it. Book of Borut
+	// binds the `FreeSpinOutro` COMPOSER in this container, so this is TRUE there ⇒ the engine gate
+	// stands down and Borut's live outro is untouched. The canonical DRIVEN SEED binds only
+	// `FreeSpinOutroVisual` (no gate), so this is FALSE ⇒ the engine gate becomes the sole
+	// count-up/`freeSpinOutroState`/round-block driver. Mirrors `basegameOverlaysHasCodedWinGate`; the
+	// engine gate is flow-gated regardless, so a non-flow game is unaffected either way (parity).
+	const freeSpinOutroHasCodedGate = $derived(
+		fsOutroScene.nodes.some(
+			(node) =>
+				node.bind?.component === 'FreeSpinOutro' || node.bind?.component === 'FreeSpinOutroGate',
+		),
+	);
 	// §17 Phase 3 — the board-relative VISUAL scene of the split outro (`game`-space).
 	// Present only when the overlays are split; `undefined` otherwise ⇒ no mount (the OFF
 	// composer `FreeSpinOutro` draws the visual itself). Parity-safe.
@@ -1013,6 +1029,12 @@
 		return Math.min(bar ?? Number.MAX_SAFE_INTEGER, corners ?? Number.MAX_SAFE_INTEGER);
 	});
 	const basegameOverlaysZIndex = $derived(sceneLayerZIndex(editorDoc.scenes, 'basegameOverlays'));
+	// The engine-owned flow outro gate mounts at the `freeSpinOutro` scene's OWN band (its authored
+	// container's z), and BEFORE `<FlowV2Mount>` in markup — so its dim scrim sits behind the authored
+	// `freeSpinOutroVisual` (same-z, insertion-order tiebreak), exactly as the win engine gate sits
+	// below the win visual. Kept off the fixed `LAYER_BAND_TOP` (where the coded gate lives) precisely
+	// so the dim cannot bury the placed visual.
+	const freeSpinOutroZIndex = $derived(sceneLayerZIndex(editorDoc.scenes, 'freeSpinOutro'));
 	const specialBookZIndex = $derived(sceneLayerZIndex(editorDoc.scenes, 'specialBook'));
 	// The active-screen TAKEOVER layers like every other screen: by its position in the editor's
 	// screen list, unless the author ticked "Always on top" (`Scene.alwaysOnTop` ⇒ the fixed
@@ -1719,6 +1741,40 @@
 	{#if flowV2DrivesScreens && !basegameOverlaysHasCodedWinGate}
 		<Container zIndex={basegameOverlaysZIndex}>
 			<WinGate />
+		</Container>
+	{/if}
+	<!--
+			Flow-driven FREE-SPIN OUTRO gate — the count-up + `freeSpinOutroState` + round-block DRIVER,
+			mounted ENGINE-OWNED, the twin of the WIN engine gate above (and the latent bug the WIN fix
+			flagged, `drivenSeed.ts`). Under a v2 flow that DRIVES the screens the canonical driven seed
+			binds ONLY the `FreeSpinOutroVisual` in the shown `freeSpinOutro` container — NO gate — so
+			NOTHING subscribes to the flow's awaited `freeSpinOutroCountUp` action (`flowEffects` →
+			`awaitPresentation` broadcast): the count-up never runs, `freeSpinOutroState` is never written
+			(so `FreeSpinOutroVisual` draws nothing), and the round is not held for the presentation. This
+			gate is the missing subscriber — it OWNS the `WinCountUpProvider` count-up, writes the win
+			level + live count-up amount to `freeSpinOutroState` for the VISUAL to read, and holds the
+			round on `freeSpinOutroCountUp` until the player taps to continue.
+
+			UNLIKE the win gate it is NOT reduced to a pure driver here: `FreeSpinOutroGate` has no
+			`OnMount` self-resolve (its round-block is released ONLY by the tap — see `flowEffects`
+			`freeSpinOutroCountUp`), and it is the SAME component Book of Borut's `FreeSpinOutro` composer
+			mounts, so suppressing its dim/press under flow would both hang this round AND strip Borut's
+			live outro of its scrim + tap. So it mounts intact: its full-screen `PressToContinue` is the
+			SOLE tap surface the driven outro has (the seed authors no `tapToContinue`), matching Borut's
+			proven tap-to-continue outro.
+
+			Placed at `freeSpinOutroZIndex` (the outro container's OWN band) and BEFORE `<FlowV2Mount>`, so
+			its dim scrim sits BEHIND the authored `FreeSpinOutroVisual` (same-z, insertion-order tiebreak)
+			exactly as the WIN engine gate sits below the win visual — no dim burying the placed spine.
+			Skipped when the shown `freeSpinOutro` scene STILL binds the `FreeSpinOutro` composer or a bare
+			`FreeSpinOutroGate` (Book of Borut): that gate is already the sole `freeSpinOutroCountUp`
+			subscriber, so an engine gate too would double the round-block. Gated on `flowV2DrivesScreens`,
+			so a non-flow / book-events-only game never mounts it — the coded gate at `LAYER_BAND_TOP`
+			below owns it there ⇒ byte-identical to today.
+		-->
+	{#if flowV2DrivesScreens && !freeSpinOutroHasCodedGate}
+		<Container zIndex={freeSpinOutroZIndex}>
+			<FreeSpinOutroGate />
 		</Container>
 	{/if}
 	<Container zIndex={basegameOverlaysZIndex}>
