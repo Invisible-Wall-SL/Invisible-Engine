@@ -7,6 +7,7 @@
 		boundComponentRidesBone,
 		computeOverlayPlacement,
 		coverTransform,
+		instancePreviewSpineBundle,
 		resolveAnchorPreviewArt,
 		resolveComponentParams,
 		resolveTransform,
@@ -440,12 +441,13 @@
 				// a placed component's spine only ever shows its 2D placeholder box. Each
 				// nested spine's world transform is composed from its ancestor chain.
 				if (n.kind === 'container') {
-					collectNestedSpines(n.children, sc, out, [n], 0, [], undefined);
+					collectNestedSpines(n.children, sc, out, [n], 0, [], undefined, undefined);
 				} else if (n.kind === 'componentInstance') {
 					const def = componentMap.get(n.componentId);
 					if (def) {
 						const params = resolveComponentParams(def, n.params, undefined);
-						collectNestedSpines(def.root.children, sc, out, [n], 1, [def.id], params);
+						const spineBundle = instancePreviewSpineBundle(def, params);
+						collectNestedSpines(def.root.children, sc, out, [n], 1, [def.id], params, spineBundle);
 					}
 				}
 			}
@@ -472,6 +474,12 @@
 		 * mirroring how the 2D canvas threads `instanceParams` through `drawNode`. Undefined for a
 		 * plain container subtree (no enclosing instance ⇒ no rider). */
 		instanceParams: Record<string, unknown> | undefined,
+		/** The ENCLOSING instance's AUTHORED preview spine bundle (its first `spine`-kind param
+		 * value; see `instancePreviewSpineBundle`) — makes a nested bound-component that previews a
+		 * SPINE (the win / free-spin VISUAL) render that rig instead of its fixed catalog bundle, so
+		 * the real art shows AND its live meta populates the animation dropdowns. Undefined when the
+		 * def declares no spine param ⇒ nested binds render exactly as before (parity). */
+		instanceSpineBundle: string | undefined,
 	): void {
 		for (const n of nodes) {
 			if (!resolveTransform(n, layoutType).visible) continue;
@@ -486,17 +494,73 @@
 				if (target) out.push(target);
 				continue;
 			}
+			// A nested `bind` whose catalog preview is a SPINE (the win / free-spin VISUAL), inside an
+			// instance that declares a spine param: render the AUTHORED rig (`instanceSpineBundle`,
+			// else the catalog bundle) so it shows on the canvas + publishes live meta. Gated on the
+			// enclosing spine param so every other nested bind stays a spine-less container (parity).
+			if (n.bind && instanceSpineBundle !== undefined) {
+				const art = resolveAnchorPreviewArt(n, assets, undefined, instanceSpineBundle);
+				if (art?.kind === 'spine' && art.assetKey) {
+					out.push(bindSpineTarget(n, sc, nextChain, art.assetKey));
+					continue;
+				}
+			}
 			if (n.kind === 'spine') {
 				out.push(nestedSpineTarget(n, sc, nextChain));
 			} else if (n.kind === 'container') {
-				collectNestedSpines(n.children, sc, out, nextChain, depth, stack, instanceParams);
+				collectNestedSpines(n.children, sc, out, nextChain, depth, stack, instanceParams, instanceSpineBundle);
 			} else if (n.kind === 'componentInstance') {
 				const def = componentMap.get(n.componentId);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
 				const params = resolveComponentParams(def, n.params, undefined);
-				collectNestedSpines(def.root.children, sc, out, nextChain, depth + 1, [...stack, def.id], params);
+				const spineBundle = instancePreviewSpineBundle(def, params);
+				collectNestedSpines(
+					def.root.children,
+					sc,
+					out,
+					nextChain,
+					depth + 1,
+					[...stack, def.id],
+					params,
+					spineBundle,
+				);
 			}
 		}
+	}
+
+	/**
+	 * Build a render target for a nested bound-component that previews a SPINE (the win /
+	 * free-spin VISUAL inside a positioned componentInstance): its world transform composed from
+	 * the ancestor `chain` exactly like {@link nestedSpineTarget}, but with the rig `assetKey`
+	 * resolved from the enclosing instance's authored spine param (else the catalog bundle). Idle-
+	 * loops (no cue), so the author sees the real art; publishing its meta populates the animation
+	 * dropdowns. `assetKey` keys the same `SpineMeta` map the Properties panel reads.
+	 */
+	function bindSpineTarget(
+		node: LayoutNode,
+		sc: Scene,
+		chain: LayoutNode[],
+		assetKey: string,
+	): SpineRenderTarget {
+		const [a, b, c, d, tx, ty] = composeWorldMatrix(
+			chain,
+			(top) => worldTransformOf(top, sc),
+			(child) => childLocalTransform(child, layoutType, sc.space, frameWidth, frameHeight),
+		);
+		const sx = Math.hypot(a, b) || 1;
+		const sy = Math.hypot(c, d) || 1;
+		const det = a * d - b * c;
+		const nt = resolveTransform(node, layoutType);
+		return {
+			nodeId: node.id,
+			assetKey,
+			loop: true,
+			width: nt.width,
+			height: nt.height,
+			transform: nt,
+			space: sc.space,
+			world: { x: tx, y: ty, scaleX: sx, scaleY: det < 0 ? -sy : sy },
+		};
 	}
 
 	/**

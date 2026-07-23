@@ -337,7 +337,12 @@
 		const keys = new Set<string>();
 		if (node?.kind === 'spine' && node.assetKey) keys.add(node.assetKey);
 		for (const sp of instanceSpineNodes) if (sp.assetKey) keys.add(sp.assetKey);
-		for (const p of componentParams) {
+		// Component mode: the OPEN component's draft params. Scene mode: the SELECTED instance's own
+		// author params (`authorParams` — the ones rendered as `paramField` dropdowns), whose bundle
+		// comes from `effectiveSpineBundle` reading the instance's spine param. Without this scene-mode
+		// prefetch the win overlay's `introAnimation`/`bigIntro`/… fields had no manifest fallback, so
+		// on a custom `winSpine` (no live render either) they silently dropped to a free-text box.
+		for (const p of [...componentParams, ...authorParams]) {
 			if (p.kind === 'spineAnimation' || p.kind === 'spineSlot' || p.kind === 'spineBone') {
 				const k = resolveSpineAssetKey(effectiveSpineBundle(p));
 				if (k) keys.add(k);

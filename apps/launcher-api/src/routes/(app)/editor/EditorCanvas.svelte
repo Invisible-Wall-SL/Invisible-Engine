@@ -9,6 +9,7 @@
 		builtinSheetKey,
 		computeOverlayPlacement,
 		coverTransform,
+		instancePreviewSpineBundle,
 		isHudScene,
 		MAX_COMPONENT_DEPTH,
 		parseScopedFrameRef,
@@ -1210,8 +1211,8 @@
 	 * against the project's assets). The 2D canvas + the spine overlay both resolve
 	 * through this so they agree on ONE art per anchor. Triggers the lazy sprite-region
 	 * scan when a node's catalog default is a sprite the index hasn't located yet. */
-	function anchorArt(node: LayoutNode): ResolvedPreviewArt | undefined {
-		const art = resolveAnchorPreviewArt(node, assets, spriteRegionIndex);
+	function anchorArt(node: LayoutNode, previewSpineBundle?: string): ResolvedPreviewArt | undefined {
+		const art = resolveAnchorPreviewArt(node, assets, spriteRegionIndex, previewSpineBundle);
 		if (art?.kind === 'sprite' && !art.assetKey) ensureRegionIndex();
 		return art;
 	}
@@ -1731,6 +1732,14 @@
 		 * canvas + overlay + game runtime land every nested node identically.
 		 */
 		nested = false,
+		/**
+		 * The ENCLOSING componentInstance's AUTHORED preview spine bundle (its first `spine`-kind
+		 * param value; see `instancePreviewSpineBundle`) — so a nested bound-component that previews a
+		 * SPINE (the win / free-spin VISUAL) stands in the authored rig, and its readiness check keys
+		 * the SAME bundle the WebGL layer renders. Undefined for a top-level node or an instance
+		 * whose def declares no spine param ⇒ the catalog default (parity).
+		 */
+		instanceSpineBundle?: string,
 	): void {
 		const t = nested
 			? childLocalTransform(node, layoutType, sceneCtx.space, frameWidth, frameHeight)
@@ -1753,7 +1762,7 @@
 			// until ready, like a spine node); sprite art is drawn here on the 2D canvas.
 			// HUD elements carry `preview.style` so we draw a faithful chip; others get
 			// a plain placeholder.
-			const art = anchorArt(node);
+			const art = anchorArt(node, instanceSpineBundle);
 			if (art?.kind === 'spine') {
 				// A bone-riding bind (the Scene Editor reveal preview) renders its rig from the
 				// ENCLOSING instance's spine param, not the catalog default — so check THAT key
@@ -1921,7 +1930,16 @@
 			ctx.fillRect(-w * ax, -h * ay, w, h);
 		} else if (node.kind === 'container') {
 			for (const child of node.children)
-				drawNode(ctx, child, sceneCtx, componentDepth, componentStack, instanceParams, true);
+				drawNode(
+					ctx,
+					child,
+					sceneCtx,
+					componentDepth,
+					componentStack,
+					instanceParams,
+					true,
+					instanceSpineBundle,
+				);
 		} else if (node.kind === 'componentInstance') {
 			drawComponentInstance(ctx, node, sceneCtx, componentDepth, componentStack);
 		} else if (node.kind === 'reelGrid') {
@@ -2111,8 +2129,12 @@
 		// def defaults + node.params (the `componentParams` prop is the Component Editor's
 		// open-component preview, a different concern), so pass `undefined`.
 		const params = resolveComponentParams(def, node.params, undefined);
+		// A nested bound-component that previews a SPINE (the win / free-spin VISUAL) renders the
+		// instance's AUTHORED rig (its first `spine`-kind param value, else the catalog bundle), so
+		// the real art shows here + its readiness key matches the rig the WebGL layer draws.
+		const spineBundle = instancePreviewSpineBundle(def, params);
 		for (const child of def.root.children) {
-			drawNode(ctx, child, sceneCtx, componentDepth + 1, stack, params, true);
+			drawNode(ctx, child, sceneCtx, componentDepth + 1, stack, params, true, spineBundle);
 		}
 	}
 

@@ -1,5 +1,5 @@
 import { BUILTIN_REGION } from './builtinRegions';
-import type { LayoutNode, LayoutType, Scene } from './types';
+import type { ComponentDef, LayoutNode, LayoutType, Scene } from './types';
 
 /**
  * Shared, game-agnostic catalog of how the editor treats well-known **coded**
@@ -229,6 +229,28 @@ export function boundComponentDefault(name: string): BoundComponentDefault | und
 }
 
 /**
+ * EDITOR-PREVIEW ONLY: the spine bundle NAME a componentInstance should preview its bound
+ * spine art from — the VALUE of its def's FIRST `spine`-kind param, read from the instance's
+ * already-resolved params (def defaults ◁ instance overrides). This lets the Scene Editor
+ * render the AUTHORED rig (the win overlay's `winSpine`, the free-spin visuals' `introSpine`/
+ * `outroSpine`) on the canvas — which publishes its live `SpineMeta`, so the instance's
+ * `spineAnimation`/`spineSlot`/`spineBone` param dropdowns populate for a custom rig instead
+ * of degrading to free-text. Discovered generically off `kind:'spine'` (no per-component id),
+ * so every def that declares a spine param benefits. Returns `undefined` when the def declares
+ * no spine param, or the value isn't a non-empty string — the caller then previews the fixed
+ * catalog bundle (parity). Never written to the layout doc; a purely editor affordance.
+ */
+export function instancePreviewSpineBundle(
+	def: ComponentDef,
+	params: Record<string, unknown>,
+): string | undefined {
+	const key = def.params?.find((p) => p.kind === 'spine')?.key;
+	if (!key) return undefined;
+	const value = params[key];
+	return typeof value === 'string' && value ? value : undefined;
+}
+
+/**
  * The bone-rider binding a coded component declares (see {@link BoneRiderBinding}), or
  * `undefined` for a component that doesn't ride a bone. Keyed off the `bind.component` name so
  * the editor stays data-driven — it never hardcodes `freeSpinIntroSymbolReveal`.
@@ -415,6 +437,13 @@ export function resolveAnchorPreviewArt(
 	node: LayoutNode,
 	assets: PreviewAssets,
 	spriteRegionIndex?: Map<string, string>,
+	/** EDITOR-PREVIEW ONLY: a spine bundle NAME that overrides the catalog `bundle` for
+	 * this node's spine preview — the AUTHORED spine of the enclosing componentInstance
+	 * (its `spine`-kind param value; see {@link instancePreviewSpineBundle}). Tried FIRST,
+	 * then the catalog `bundle` + `fallbackBundles`, so a custom rig (e.g. the win overlay's
+	 * `winSpine`) renders in place of the fixed stand-in; an unset / not-in-project name
+	 * falls back to the catalog default (parity). Ignored for sprite previews. */
+	previewSpineBundle?: string,
 ): ResolvedPreviewArt | undefined {
 	// 1. Explicit per-node override wins. Its simple `fit` maps to a placement
 	//    (cover → cover, anything else → centred); a node needing a board-relative
@@ -435,7 +464,7 @@ export function resolveAnchorPreviewArt(
 	if (!preview) return undefined;
 	const placement: OverlayPlacement = def?.placement ?? 'centre';
 	if (preview.kind === 'spine') {
-		const bundles = [preview.bundle, ...(preview.fallbackBundles ?? [])].filter(
+		const bundles = [previewSpineBundle, preview.bundle, ...(preview.fallbackBundles ?? [])].filter(
 			(b): b is string => !!b,
 		);
 		const match = bundles.map((name) => assets.spines.find((s) => s.name === name)).find((m) => m);
