@@ -1,7 +1,6 @@
 <script lang="ts">
 	import { Flipbook, Sprite } from 'pixi-svelte';
 	import { resolveFlipbook } from 'engine-layout';
-	import { onMount } from 'svelte';
 
 	import { getContext } from '../game/context';
 	import { getSymbolInfo } from '../game/utils';
@@ -44,15 +43,34 @@
 		}
 	});
 
-	// A symbol state is a beat in a sequence: whatever is waiting on this state must be released
-	// even when the clip is a one-shot the renderer never reports on. Mirrors `SymbolSprite`,
-	// which completes immediately for exactly the same reason.
-	onMount(() => {
-		props.oncomplete?.();
-	});
+	/**
+	 * A flipbook symbol state COMPLETES when its clip has played through ONCE — the frame-animation
+	 * analogue of a spine symbol firing `complete` at the end of its win animation (`SymbolSpine`),
+	 * NOT immediately on mount like `SymbolSprite` (a frozen frame with nothing to play).
+	 *
+	 * `Board.svelte`'s `boardWithAnimateSymbols` sets a winning cell to `win`, AWAITS `oncomplete`,
+	 * then reverts it to `postWinStatic`. Firing `oncomplete` on mount advanced that revert in the
+	 * SAME tick, so the win clip never got to play — the win animation "didn't show" (spine wins were
+	 * unaffected, which is why Book of Borut worked). Completing after one CYCLE also means a
+	 * `loop:true` win clip can never hang the presentation: the sprite's own looped playback never
+	 * reports completion, so the beat is timed off the clip's length instead of waiting on an event
+	 * that never fires. A missing clip (the Sprite fallback below) has nothing to play, so it
+	 * completes at once — `SymbolSprite` parity.
+	 */
+	const DEFAULT_FPS = 24;
+	const cycleMs = $derived(
+		clip ? Math.max(1, Math.round((clip.frames.length / (clip.fps ?? DEFAULT_FPS)) * 1000)) : 0,
+	);
+
 	$effect(() => {
+		// Re-run whenever the bound state/clip changes — each new state is a fresh beat to complete.
 		props.symbolInfo;
-		props.oncomplete?.();
+		if (!clip) {
+			props.oncomplete?.();
+			return;
+		}
+		const id = setTimeout(() => props.oncomplete?.(), cycleMs);
+		return () => clearTimeout(id);
 	});
 </script>
 
