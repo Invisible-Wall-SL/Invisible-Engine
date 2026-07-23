@@ -1217,8 +1217,11 @@
 		return art;
 	}
 
-	/** Natural draw size for a node — region size for region sprites, page/native otherwise. */
-	function naturalSize(node: LayoutNode): NaturalSize | null {
+	/** Natural draw size for a node — region size for region sprites, page/native otherwise.
+	 * `instanceSpineBundle` (threaded by `nodeBox`/`componentInstanceContentBox`) resolves a
+	 * nested spine bind's stand-in to the ENCLOSING instance's AUTHORED rig, so its box tracks
+	 * that rig's natural bounds instead of the fixed catalog bundle. */
+	function naturalSize(node: LayoutNode, instanceSpineBundle?: string): NaturalSize | null {
 		// A placed effect's "natural size" is its live particle SPREAD, reported by the overlay
 		// (`EditorEffectLayer` → `effectBounds`) in node-local / scene-world units. The spread is
 		// OFFSET from the node origin (a burst fanning upward has particles above/left of it), so we
@@ -1253,7 +1256,7 @@
 		}
 		// A `preview.art` bind anchor borrows the art's natural size (so box/hit-test
 		// math frames the rendered art, not an empty container).
-		const art = artNaturalSize(node);
+		const art = artNaturalSize(node, instanceSpineBundle);
 		if (art) return art;
 		if (node.kind === 'sprite' && node.region) {
 			const found = findRegion(node.assetKey, node.region);
@@ -1280,8 +1283,11 @@
 	 * - sprite art: the atlas region's native size (resolved like a region sprite);
 	 * - spine art: the skeleton's setup-pose bounds, reported by the WebGL overlay
 	 *   (the 2D canvas can't measure a skeleton). `null` until it resolves. */
-	function artNaturalSize(node: LayoutNode): { w: number; h: number } | null {
-		const art = anchorArt(node);
+	function artNaturalSize(
+		node: LayoutNode,
+		instanceSpineBundle?: string,
+	): { w: number; h: number } | null {
+		const art = anchorArt(node, instanceSpineBundle);
 		if (!art) return null;
 		if (art.kind === 'sprite' && art.region && art.assetKey) {
 			const found = findRegion(art.assetKey, art.region);

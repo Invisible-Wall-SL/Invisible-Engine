@@ -1,6 +1,9 @@
 import {
 	MAX_COMPONENT_DEPTH,
 	anchoredPosition,
+	boundComponentRidesBone,
+	instancePreviewSpineBundle,
+	resolveComponentParams,
 	resolveTransform,
 	type BoneRiderBinding,
 	type ComponentDef,
@@ -132,9 +135,15 @@ export interface NaturalSize {
 export function nodeBox(
 	node: LayoutNode,
 	t: ResolvedTransform,
-	naturalSize: (node: LayoutNode) => NaturalSize | null,
+	naturalSize: (node: LayoutNode, instanceSpineBundle?: string) => NaturalSize | null,
 	componentMap?: Map<string, ComponentDef>,
 	layoutType?: LayoutType,
+	/** The ENCLOSING componentInstance's AUTHORED preview spine bundle (its first `spine`-kind
+	 * param value; see `instancePreviewSpineBundle`), threaded by {@link componentInstanceContentBox}
+	 * so a nested SPINE bind (the win / free-spin VISUAL) frames its selection box at the AUTHORED
+	 * rig's natural bounds — the SAME size the spine layer renders it at — instead of the generic
+	 * 160×100 chip. Undefined for a top-level node or a non-spine-param instance ⇒ prior box (parity). */
+	instanceSpineBundle?: string,
 ): NodeBox {
 	const ax = t.anchor?.x ?? (node.kind === 'sprite' ? 0 : 0.5);
 	const ay = t.anchor?.y ?? (node.kind === 'sprite' ? 0 : 0.5);
@@ -147,6 +156,25 @@ export function nodeBox(
 	if (node.kind === 'componentInstance' && componentMap && layoutType !== undefined) {
 		const content = componentInstanceContentBox(node, naturalSize, componentMap, layoutType, 0, []);
 		if (content) return content;
+	}
+	// A nested SPINE bind (the win / free-spin VISUAL inside a spine-param componentInstance): frame
+	// the selection box at the AUTHORED rig's natural bounds so it matches what the spine layer draws
+	// (natural size, no fit — see `bindSpineTarget`). Without this the box stayed the generic 160×100
+	// while the rig rendered huge, so the instance couldn't be sized/placed. Gated on a plain
+	// (non-riding, non-chip, unsized) bind inside a spine-param instance so HUD chips, sized binds and
+	// the bone-riding symbol reveal keep their existing box (parity). The bone-rider selects at its
+	// ridden SYMBOL, not the backdrop rig, so it is excluded here.
+	if (
+		node.bind &&
+		instanceSpineBundle !== undefined &&
+		!boundComponentRidesBone(node.bind.component) &&
+		!node.preview?.art &&
+		!node.preview?.style &&
+		t.width === undefined &&
+		t.height === undefined
+	) {
+		const nat = naturalSize(node, instanceSpineBundle);
+		if (nat && nat.w > 0 && nat.h > 0) return { w: nat.w, h: nat.h, ax, ay };
 	}
 	// A preview-art anchor selects at the RENDERED art's box. The art may be an
 	// explicit `node.preview.art` OR a catalog default resolved live (no baked
@@ -231,7 +259,7 @@ export function nodeBox(
  */
 function componentInstanceContentBox(
 	node: Extract<LayoutNode, { kind: 'componentInstance' }>,
-	naturalSize: (node: LayoutNode) => NaturalSize | null,
+	naturalSize: (node: LayoutNode, instanceSpineBundle?: string) => NaturalSize | null,
 	componentMap: Map<string, ComponentDef>,
 	layoutType: LayoutType,
 	depth: number,
@@ -241,6 +269,11 @@ function componentInstanceContentBox(
 	if (!def) return null;
 	if (depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) return null;
 	const childStack = [...stack, def.id];
+	// This instance's AUTHORED preview spine bundle (its first `spine`-kind param value), resolved
+	// EXACTLY like the spine layer's `collectNestedSpines`, so a nested spine bind's box tracks the
+	// authored rig's natural bounds (matching what the spine layer renders). Undefined ⇒ parity.
+	const params = resolveComponentParams(def, node.params, undefined);
+	const spineBundle = instancePreviewSpineBundle(def, params);
 
 	let minX = Infinity;
 	let minY = Infinity;
@@ -257,8 +290,8 @@ function componentInstanceContentBox(
 						layoutType,
 						depth + 1,
 						childStack,
-					) ?? nodeBox(child, ct, naturalSize, componentMap, layoutType))
-				: nodeBox(child, ct, naturalSize, componentMap, layoutType);
+					) ?? nodeBox(child, ct, naturalSize, componentMap, layoutType, spineBundle))
+				: nodeBox(child, ct, naturalSize, componentMap, layoutType, spineBundle);
 		// The child's box (already including its anchor) is placed at its local x/y and
 		// scaled by its own scale — match drawNode's transform so the union frames the
 		// drawn art. Rotation is ignored here (HUD content is axis-aligned); the union is

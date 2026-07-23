@@ -334,6 +334,18 @@ export function atlasPageNames(atlasText: string): string[] {
 	return out;
 }
 
+/** Whether an atlas declares ANY rotated region (a `rotate:90` / `rotate: true` line).
+ * The Atlas/Sheet packers store a rotated region's pixels 90° CLOCKWISE (the PixiJS
+ * spritesheet convention); Spine's atlas parser expects the OPPOSITE (CCW), so a
+ * rotated region only renders upright once its page pixels are reoriented 180°
+ * (`reorientRotatedRegionsForSpine`). This flag lets the editor pick the reoriented
+ * BUNDLE page over the raw (CW) deployed sheet page for such an atlas — see
+ * {@link resolveSpinePageKeys} / {@link resolveEditorSpine}. Matches only a standalone
+ * `rotate` property line so a region NAMED e.g. `rotate_icon` can't false-positive. */
+export function atlasHasRotatedRegion(atlasText: string): boolean {
+	return /^[ \t]*rotate[ \t]*:[ \t]*(?:true|90)[ \t]*$/im.test(atlasText);
+}
+
 /** Region names declared by an atlas (the Rigger lists these so a new rig can attach
  * packed images). A page block starts at file start / after a blank line with the
  * image filename, then page properties (`size:`…); every other non-indented, no-`:`
@@ -456,6 +468,15 @@ export async function resolveEditorSpine(
 	if (!atlas || typeof atlas.body !== 'string') return null;
 
 	const pageNames = atlasPageNames(atlas.body);
+	// A ROTATED-region atlas must serve the bundle's OWN page, which `ensureBundleAtlasFresh`
+	// (called above) reorients 180° from the CW-packed source into Spine's CCW `rotate:90`
+	// convention. The DEPLOYED sheet page (deploy/sprites/…) is still CW-packed — serving it
+	// would render every rotated region upside-down in the editor's spine-webgl runtime, unlike
+	// in-game (which loads the reoriented deploy/editor-art bundle copy). Non-rotated atlases
+	// keep preferring the latest deploy page (reorientation is a no-op there, so it's byte-safe).
+	const pageKeys = atlasHasRotatedRegion(atlas.body)
+		? pageNames.map((n) => `${prefix}/${n}`)
+		: await resolveSpinePageKeys(pageNames, clientKey, projectKey, prefix);
 	return {
 		folder: entry.folder,
 		format: entry.format,
@@ -463,12 +484,7 @@ export async function resolveEditorSpine(
 		pma: Boolean(entry.pma),
 		atlasText: atlas.body,
 		skeletonKey: `${prefix}/${entry.skeleton_file}`,
-		// Prefer the DEPLOYED page (deploy/ = what the game loads) so a spine-backed
-		// screen (e.g. the Background) reflects the latest Atlas Maker deploy too —
-		// matching the region-sprite path. The atlas geometry is unchanged, so this is
-		// safe for the "regenerate page, don't override the .json" workflow (same
-		// layout); falls back to the spine bundle's own page when nothing is deployed.
-		pageKeys: await resolveSpinePageKeys(pageNames, clientKey, projectKey, prefix),
+		pageKeys,
 		pageNames,
 	};
 }
