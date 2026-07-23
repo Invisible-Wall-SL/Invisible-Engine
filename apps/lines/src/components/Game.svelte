@@ -609,6 +609,19 @@
 	const basegameOverlaysScene = $derived(
 		editorDoc.scenes.find((scene) => scene.id === 'basegameOverlays') ?? fallbackOverlays,
 	);
+	// Whether the (unconditionally-mounted) `basegameOverlays` scene STILL carries a coded WIN gate
+	// bind — the reference layout's `WIN_INSTANCE` shapes: `bind:Win` (the OFF composer, gate +
+	// visual) or `bind:WinGate` (the ON full-screen gate). When it does, THAT gate is the sole
+	// `winUpdate` `waitForResolve` subscriber, so the engine-owned flow gate (mounted below) must NOT
+	// also mount — two subscribers would each hold the round on `winUpdate` and hang it. Book of
+	// Borut authored the gate OUT and placed just the `win` VISUAL componentInstance, so this is
+	// false there ⇒ the engine gate becomes the sole count-up/`winState`/round-block driver. The
+	// engine gate is flow-gated regardless, so a non-flow game is unaffected either way (parity).
+	const basegameOverlaysHasCodedWinGate = $derived(
+		basegameOverlaysScene.nodes.some(
+			(node) => node.bind?.component === 'Win' || node.bind?.component === 'WinGate',
+		),
+	);
 	// The board-relative VISUAL scene of the split WIN overlay (`game`-space, so <LayoutScene>
 	// wraps it in its own MainContainer for main-scaling). Present only when the overlay is split
 	// (the `WIN_INSTANCE` fallback emits it, or the owner authored a `win` component in the editor);
@@ -1680,6 +1693,34 @@
 			</Container>
 		{/if}
 	{/each}
+	<!--
+			Flow-driven WIN gate — the count-up + `winState` + round-block DRIVER, mounted ENGINE-OWNED
+			(mirroring the free-spin gates' engine ownership, but the INVERSE flow gate: it must run UNDER
+			a driven flow, not off it). Under a v2 flow that DRIVES the screens the owner authors the coded
+			`bind:Win`/`bind:WinGate` OUT and places just the `win` VISUAL componentInstance, so NOTHING
+			subscribes to the flow's awaited `winUpdate` action (`flowEffects.winUpdate` → `awaitPresentation`
+			broadcast): `winState` is never written, the count-up never runs, the round never blocks, and the
+			placed visual draws nothing (the reported "big win never shows"). This gate is the missing
+			subscriber — it OWNS the `WinCountUpProvider` count-up, writes the win level / amount /
+			`countUpAmount` to `winState` for the VISUAL to read, and holds the round on `winUpdate` until the
+			count-up self-resolves (its `OnMount startCountUp`, not a tap). It is a DRIVER, not a screen-gate:
+			its `PressToContinue` already self-suppresses under flow (`codedPressOwned = !flowV2DrivesScreens()`),
+			so it adds no second tap surface the author never asked for.
+
+			Placed at `basegameOverlaysZIndex` (the coded composer's own band) and BEFORE the overlays scene,
+			so the big-win dim scrim sits BEHIND the placed `win` visual exactly as the coded composer stacks
+			gate-then-visual — no double dim, right band. Skipped when `basegameOverlays` STILL carries a coded
+			`Win`/`WinGate` bind (the reference `WIN_INSTANCE` paths): that gate is already the sole `winUpdate`
+			subscriber, so an engine gate too would double the round-block. Gated on `flowV2DrivesScreens`, so a
+			non-flow / book-events-only game never mounts it ⇒ byte-identical to today (the coded paths own the
+			gate). See the free-spin outro's twin latent bug (`drivenSeed.ts`): the same driver/screen-gate
+			split, left unfixed here (WIN is the priority).
+		-->
+	{#if flowV2DrivesScreens && !basegameOverlaysHasCodedWinGate}
+		<Container zIndex={basegameOverlaysZIndex}>
+			<WinGate />
+		</Container>
+	{/if}
 	<Container zIndex={basegameOverlaysZIndex}>
 		<LayoutScene scene={basegameOverlaysScene} />
 	</Container>
