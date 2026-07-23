@@ -47,6 +47,7 @@
 		"v2fullscreen": "tsx flowV2Fullscreen.ts",
 		"v2optional": "tsx flowV2OptionalParams.ts",
 		"v2halfon": "tsx flowV2HalfOn.ts",
+		"v2drivenseed": "tsx flowV2DrivenSeed.ts",
 		"slamcounter": "tsx slamCounter.ts"
 	},
 	"devDependencies": {

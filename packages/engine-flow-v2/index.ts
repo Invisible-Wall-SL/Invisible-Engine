@@ -13,3 +13,4 @@ export * from './src/reference/bookOf';
 export * from './src/reference/bookOfChoreo';
 export * from './src/reference/registry';
 export * from './src/reference/starterDoc';
+export * from './src/reference/drivenSeed';
