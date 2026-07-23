@@ -28,6 +28,7 @@ import {
 	HUD_BUTTON_INSTANCES,
 	TRANSITION_INSTANCE,
 	FREE_SPIN_OVERLAY_INSTANCES,
+	WIN_INSTANCE,
 } from './game/editorFlags';
 import type { SymbolInfoMap } from './game/types';
 
@@ -669,6 +670,7 @@ export const fallbackEditorScenes: LayoutDoc = defaultLayout('lines', {
 	buttons: HUD_BUTTON_INSTANCES,
 	transition: TRANSITION_INSTANCE,
 	freeSpinOverlays: FREE_SPIN_OVERLAY_INSTANCES,
+	winInstance: WIN_INSTANCE,
 });
 
 /**

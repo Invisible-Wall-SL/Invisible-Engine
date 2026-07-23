@@ -176,6 +176,14 @@ export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
 		placement: 'boardCentre',
 		preview: { kind: 'spine', bundle: 'fsOutro', fallbackBundles: ['fsIntro'] },
 	},
+	// The board-relative VISUAL half of the WIN overlay split (a `game`-space componentInstance the
+	// owner positions), previewed at board centre with the `bigwin` spine — mirroring the coded
+	// `Win` anchor's own preview so the editor default matches the in-game default.
+	WinVisual: {
+		space: 'game',
+		placement: 'boardCentre',
+		preview: { kind: 'spine', bundle: 'bigwin' },
+	},
 	SpecialBook: {
 		// The expanding-symbol reveal sits on the board centre; its art is the chosen
 		// symbol's spine (state machine), so there's no fixed preview bundle — the editor

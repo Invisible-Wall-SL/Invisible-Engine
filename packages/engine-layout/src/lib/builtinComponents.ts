@@ -867,6 +867,54 @@ export const FREE_SPIN_OUTRO_VISUAL_DEF: ComponentDef = {
 };
 
 /**
+ * The board-relative VISUAL of the WIN overlay (big-win presentation) — the editor-positioned
+ * half of the win gate/visual split, mirroring {@link FREE_SPIN_OUTRO_VISUAL_DEF}. Wraps the coded
+ * `WinVisual` (the tier spine via `WinAnimation` + the count number in its slot, reading the gate's
+ * published count-up amount + win level from `winState`) as a `bind` child with
+ * `boundToInstance:true`, so the coded part renders at THIS instance's node position instead of
+ * self-centring on the board — drag/scale the instance to move the big-win art. The full-screen GATE
+ * (dim + count-up driver + WinCoins + press + round-await) stays the coded `canvas` bind `WinGate`.
+ *
+ * CONVENTION-BASED params: the 5 tiers' animation names (big/super/mega/epic/max, each `intro`/
+ * `idle`/`outro`) stay convention-driven from `winLevelMap`, so the def exposes just TWO params —
+ * the big-win spine bundle + the count slot — rather than 15 per-tier fields.
+ */
+export const WIN_DEF: ComponentDef = {
+	id: 'win',
+	name: 'Win Overlay',
+	version: 1,
+	scope: 'shared',
+	category: 'overlay',
+	root: {
+		id: 'win-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'win-anim',
+				label: 'Win Overlay',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				bind: { component: 'WinVisual', props: { boundToInstance: true } },
+				children: [],
+			},
+		],
+	},
+	params: [
+		{ key: 'winSpine', kind: 'spine', default: 'bigwin', label: 'big-win spine bundle' },
+		{
+			key: 'slotName',
+			kind: 'spineSlot',
+			spineParam: 'winSpine',
+			default: 'slot_win_count',
+			label: 'count slot',
+		},
+	],
+};
+
+/**
  * A droppable full-screen TAP-TO-CONTINUE overlay (Invisible Flow §6.2). An author
  * drops this on ANY Flow screen from the Scene Editor palette to get a full-screen
  * tap-to-continue that advances the flow (`completeActiveScreen` + optional
@@ -1132,6 +1180,7 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	TRANSITION_DEF,
 	FREE_SPIN_INTRO_VISUAL_DEF,
 	FREE_SPIN_OUTRO_VISUAL_DEF,
+	WIN_DEF,
 	TAP_TO_CONTINUE_DEF,
 	LOADING_BAR_DEF,
 	EXPANDING_SYMBOL_DEF,

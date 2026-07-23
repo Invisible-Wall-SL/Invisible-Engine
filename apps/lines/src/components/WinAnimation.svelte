@@ -18,20 +18,25 @@
 			idle: 'big_win_idle' | 'epic_win_idle' | 'max_win_idle' | 'mega_win_idle' | 'super_win_idle';
 			outro: 'big_win_exit' | 'epic_win_exit' | 'max_win_exit' | 'mega_win_exit' | 'super_win_exit';
 		};
+		/** The big-win spine bundle + the slot the count number is injected into. Configurable so a
+		 * game can point the shared `win` component at its own art; the coded defaults reproduce the
+		 * original hardcodes (`bigwin` / `slot_win_count`), so an un-authored game renders identically. */
+		key?: string;
+		slotName?: string;
 		children: Snippet;
 	};
 
-	const props: Props = $props();
+	const { animationMap, key = 'bigwin', slotName = 'slot_win_count', children }: Props = $props();
 	const context = getContext();
 
 	let oncomplete = $state(() => {});
 	let animationState = $state<AnimationState>('intro');
 </script>
 
-<SpineProvider width={context.stateGameDerived.boardLayout().width} key="bigwin">
+<SpineProvider width={context.stateGameDerived.boardLayout().width} {key}>
 	<SpineTrack
 		trackIndex={0}
-		animationName={props.animationMap[animationState]}
+		animationName={animationMap[animationState]}
 		loop={animationState === 'idle'}
 		listener={{
 			complete: () => {
@@ -40,7 +45,7 @@
 			},
 		}}
 	/>
-	<SpineSlot slotName="slot_win_count">
-		{@render props.children()}
+	<SpineSlot {slotName}>
+		{@render children()}
 	</SpineSlot>
 </SpineProvider>

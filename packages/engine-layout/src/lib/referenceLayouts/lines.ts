@@ -97,6 +97,13 @@ export interface DefaultLayoutOptions {
 	 * `FREE_SPIN_OVERLAY_INSTANCES` flag.
 	 */
 	freeSpinOverlays?: boolean;
+	/**
+	 * Split the WIN overlay (big-win presentation) into a full-screen GATE (`canvas`
+	 * `bind:WinGate`) + an editor-positioned VISUAL (a `game`-space `componentInstance(win)`,
+	 * defaulted to board-centre), mirroring `freeSpinOverlays`. Default-OFF = the single composer
+	 * `bind:Win` in `basegameOverlays` (parity); `apps/lines` forwards its `WIN_INSTANCE` flag.
+	 */
+	winInstance?: boolean;
 }
 
 export function defaultLayout(gameType: string, options: DefaultLayoutOptions = {}): LayoutDoc {
@@ -189,6 +196,64 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				},
 				children: [],
 			};
+
+	// The WIN overlay node in `basegameOverlays`: the direct coded composer `bind:Win` by default
+	// (parity), or the full-screen GATE `bind:WinGate` when `options.winInstance` is set. Both are
+	// `canvas`-space container binds at (0,0) — the coded part self-positions in canvas coords. The
+	// positionable VISUAL is a SEPARATE `game`-space `componentInstance(win)` scene below (emitted
+	// only ON). Mirrors the free-spin gate/visual split; the win level / amount / count-up bridge
+	// via `winState`. Reversible (drop the flag).
+	const winNode: LayoutNode = options.winInstance
+		? {
+				id: 'bound-win-gate',
+				slotId: 'Win',
+				label: 'Win gate (coded)',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				bind: { component: 'WinGate' },
+				children: [],
+			}
+		: {
+				id: 'bound-win',
+				slotId: 'Win',
+				label: 'Win overlay (coded)',
+				kind: 'container',
+				x: 0,
+				y: 0,
+				bind: { component: 'Win' },
+				children: [],
+			};
+
+	// The positionable WIN VISUAL scene, emitted only when the overlay is split (ON). `game`-space
+	// so the scene's `<MainContainer>` scales it; the `componentInstance(win)` is defaulted to
+	// board-centre (its `WinVisual` renders at the node origin under `boundToInstance`), so the ON
+	// default reproduces the OFF board-centred placement. The owner drags to move it. Params default
+	// the shared `bigwin` spine + `slot_win_count` slot (the coded hardcodes), so parity holds.
+	const winVisualScenes: Scene[] = options.winInstance
+		? [
+				{
+					id: 'winVisual',
+					name: sceneName('winVisual'),
+					space: 'game',
+					nodes: [
+						{
+							id: 'win-visual',
+							slotId: 'Win',
+							label: 'Win overlay',
+							kind: 'componentInstance',
+							componentId: 'win',
+							x: centre.x,
+							y: centre.y,
+							params: {
+								winSpine: 'bigwin',
+								slotName: 'slot_win_count',
+							},
+						},
+					],
+				},
+			]
+		: [];
 
 	// The positionable VISUAL scene(s), emitted only when the overlays are split (ON).
 	// `game`-space so the scene's `<MainContainer>` scales them; the instance is defaulted to
@@ -358,20 +423,9 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 				// whose bound Win/Transition render their OWN MainContainer internally.
 				// `canvas` space = no wrapper, so we don't double-transform them.
 				space: 'canvas',
-				nodes: [
-					{
-						id: 'bound-win',
-						slotId: 'Win',
-						label: 'Win overlay (coded)',
-						kind: 'container',
-						x: 0,
-						y: 0,
-						bind: { component: 'Win' },
-						children: [],
-					},
-					transitionNode,
-				],
+				nodes: [winNode, transitionNode],
 			},
+			...winVisualScenes,
 			{
 				id: 'freeSpinIntro',
 				name: sceneName('freeSpinIntro'),

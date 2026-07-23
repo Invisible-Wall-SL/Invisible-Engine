@@ -76,6 +76,7 @@
 		TRANSITION_DEF,
 		FREE_SPIN_INTRO_VISUAL_DEF,
 		FREE_SPIN_OUTRO_VISUAL_DEF,
+		WIN_DEF,
 		EXPANDING_SYMBOL_DEF,
 		FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF,
 		TAP_TO_CONTINUE_DEF,
@@ -170,6 +171,8 @@
 	import WinLine from './WinLine.svelte';
 	import Anticipations from './Anticipations.svelte';
 	import Win from './Win.svelte';
+	import WinGate from './WinGate.svelte';
+	import WinVisual from './WinVisual.svelte';
 	import FreeSpinIntro from './FreeSpinIntro.svelte';
 	import FreeSpinIntroGate from './FreeSpinIntroGate.svelte';
 	import FreeSpinIntroFlowGate from './FreeSpinIntroFlowGate.svelte';
@@ -239,6 +242,12 @@
 	// def now.
 	registerBoundComponents({
 		Win,
+		// The WIN overlay split (gate + positionable visual), mirroring the free-spin outro split:
+		// the full-screen GATE (dim + count-up driver + WinCoins + press + round-await) and the
+		// board-relative VISUAL (the `win` componentInstance mounts `WinVisual`, positioned by its
+		// node). Registered for the ON path; the OFF composer `Win` mounts both itself.
+		WinGate,
+		WinVisual,
 		Transition,
 		HudReadout,
 		HudTicker,
@@ -343,6 +352,12 @@
 		[FREE_SPIN_INTRO_VISUAL_DEF.id]: FREE_SPIN_INTRO_VISUAL_DEF,
 		// §17 Phase 3 — same for the outro's positionable visual.
 		[FREE_SPIN_OUTRO_VISUAL_DEF.id]: FREE_SPIN_OUTRO_VISUAL_DEF,
+		// Makes `getComponent('win')` resolve so the `winVisual` `game`-space scene (emitted only
+		// when the win overlay is split) expands into its bound `WinVisual` part, positioned by the
+		// editor node. Pure registration otherwise (no scene references it ⇒ no render change — the
+		// OFF composer `bind:Win` renders unchanged). Book of Borut opts in by placing the `win`
+		// component in the editor (the shared def carries `boundToInstance:true`).
+		[WIN_DEF.id]: WIN_DEF,
 		// Book-reveal authoring — makes `getComponent('expandingSymbol')` resolve so an
 		// `expandingSymbol` instance expands into its bound `ExpandingSymbol` part (the chosen
 		// symbol's art), positioned by the editor node. Placeable so an author renders the landed
@@ -593,6 +608,15 @@
 	);
 	const basegameOverlaysScene = $derived(
 		editorDoc.scenes.find((scene) => scene.id === 'basegameOverlays') ?? fallbackOverlays,
+	);
+	// The board-relative VISUAL scene of the split WIN overlay (`game`-space, so <LayoutScene>
+	// wraps it in its own MainContainer for main-scaling). Present only when the overlay is split
+	// (the `WIN_INSTANCE` fallback emits it, or the owner authored a `win` component in the editor);
+	// `undefined` otherwise ⇒ the mount renders nothing (the OFF composer `Win` draws the visual
+	// itself). Mirrors `fsOutroVisualScene`. Parity-safe.
+	const winVisualScene = $derived(
+		editorDoc.scenes.find((scene) => scene.id === 'winVisual') ??
+			fallbackEditorScenes.scenes.find((s) => s.id === 'winVisual'),
 	);
 	// Move 3 Phase A — free-spin overlays as editor scenes (the fallback layout
 	// ships them, so the `!` is safe + a no-doc boot is parity). Each is a
@@ -912,6 +936,7 @@
 	const RESERVED_SCENE_IDS = [
 		'basegame',
 		'basegameOverlays',
+		'winVisual',
 		'freeSpinIntro',
 		'freeSpinIntroVisual',
 		'freeSpinCounter',
@@ -1658,6 +1683,16 @@
 	<Container zIndex={basegameOverlaysZIndex}>
 		<LayoutScene scene={basegameOverlaysScene} />
 	</Container>
+	<!-- The split WIN overlay's board-relative VISUAL (`game`-space `componentInstance(win)`).
+			 Present only when the overlay is split (`WIN_INSTANCE` ON, or a `win` component authored in
+			 the editor); the full-screen `WinGate` is the `basegameOverlays` scene bind above. Empty ⇒
+			 renders nothing (the OFF composer `bind:Win` draws the visual itself) — byte-identical to
+			 `main` (parity). Mirrors the free-spin outro VISUAL scene. -->
+	{#if winVisualScene && winVisualScene.nodes.length}
+		<Container zIndex={LAYER_BAND_WIN_PRESENTATION}>
+			<LayoutScene scene={winVisualScene} />
+		</Container>
+	{/if}
 	<!--
 			§20.1 — generic doc-driven scene mounting. Mount every AUTHOR-created screen the
 			game doesn't already handle (custom-id scenes from the Scene Editor), as an overlay
