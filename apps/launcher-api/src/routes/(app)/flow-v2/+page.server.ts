@@ -1,7 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
-import { loadFlowV2DocWithEtag } from '$lib/server/flowV2Storage';
+import { loadFlowV2DocForEditor } from '$lib/server/flowV2Storage';
 import { loadFlowV2LibraryWithEtag } from '$lib/server/flowV2LibraryStorage';
 import { loadDoc } from '$lib/server/editorStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
@@ -22,9 +22,12 @@ import type { PageServerLoad } from './$types';
  *
  * Persistence: this loader mirrors v1 `/flow`'s scope resolution (`resolveToolScope` +
  * the `flow` role gate — `/flow-v2` has no registry entry of its own, so it reuses v1
- * Flow's entitlement) and loads the project's v2 FlowDoc from R2 at `flowV2DocKey`. When
- * no project is selected OR the object is absent/malformed, `doc` is `null` and the page
- * falls back to its built-in `SAMPLE_DOC` (so the dev route still works standalone).
+ * Flow's entitlement) and loads the project's v2 FlowDoc from R2 at `flowV2DocKey`. The
+ * `(app)` route ALWAYS resolves a real `(client, project)`, so a project is always bound and
+ * saving is always enabled. When the object is absent or malformed, `loadFlowV2DocForEditor`
+ * SEEDS a deep clone of the canonical reference flow (`seeded: true`) — a real, editable,
+ * saveable loading→tap→basegame→win flow — instead of a throwaway sample, and the author's
+ * first edit persists it (create-on-first-save via the null `etag`).
  *
  * The shared FUNCTION LIBRARY is loaded here too, from the GLOBAL key
  * `_shared/flow-v2/functions.json` (project-agnostic — "Collapse to Function" grows one
@@ -50,7 +53,7 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 	// sync below MUTATES `doc`, so the client doc deliberately differs from the stored
 	// bytes — the etag guards the stored OBJECT, and must not be re-derived from the
 	// payload.
-	const { doc, etag: docEtag } = await loadFlowV2DocWithEtag(clientKey, projectKey);
+	const { doc, etag: docEtag, seeded } = await loadFlowV2DocForEditor(clientKey, projectKey);
 	const { lib: library, etag: libraryEtag } = await loadFlowV2LibraryWithEtag();
 	// The Scene Editor's friendly screen NAMES, keyed by scene id — so the container nodes
 	// (show/hideContainer) can label themselves "HUD - Bottom BAR" instead of the raw id
@@ -66,20 +69,19 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 	// scene missing from `containers` (id = sceneId; a placeholder z appended after the last — the
 	// runtime re-derives the real z from the Scene-Editor order, so this z is only a tiebreak). Returning
 	// the merged doc means the palette offers every screen immediately, and a Save persists the ones the
-	// author actually shows. New/standalone project (doc === null) still falls back to the client sample.
-	if (doc) {
-		const seen = new Set(doc.containers.map((c) => c.sceneId));
-		let z = doc.containers.reduce((m, c) => Math.max(m, c.z), 0);
-		for (const scene of layout.scenes ?? []) {
-			if (seen.has(scene.id)) continue;
-			// A `space:'background'` scene is a PERSISTENT full-bleed backdrop (§persistent-bg-scene) with
-			// its OWN engine render path (behind everything, always-on) — it is NOT a flow screen, so it
-			// must never surface as a show/hide container (that misleads the author into flow-wiring a
-			// backdrop that the engine already draws). Skip it.
-			if ((scene as { space?: string }).space === 'background') continue;
-			z += 10;
-			doc.containers.push({ id: scene.id, sceneId: scene.id, z });
-		}
+	// author actually shows. `doc` is never null (a fresh project is SEEDED with the reference flow), so
+	// a brand-new project's own scenes still surface here.
+	const seen = new Set(doc.containers.map((c) => c.sceneId));
+	let z = doc.containers.reduce((m, c) => Math.max(m, c.z), 0);
+	for (const scene of layout.scenes ?? []) {
+		if (seen.has(scene.id)) continue;
+		// A `space:'background'` scene is a PERSISTENT full-bleed backdrop (§persistent-bg-scene) with
+		// its OWN engine render path (behind everything, always-on) — it is NOT a flow screen, so it
+		// must never surface as a show/hide container (that misleads the author into flow-wiring a
+		// backdrop that the engine already draws). Skip it.
+		if ((scene as { space?: string }).space === 'background') continue;
+		z += 10;
+		doc.containers.push({ id: scene.id, sceneId: scene.id, z });
 	}
 
 	// §6.1 — the container-event surface, keyed by ContainerId. For each of the FlowDoc's
@@ -87,11 +89,10 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 	// minimal `ConfiguredComponentEvent` shape (any node with a non-empty universal `action` binding
 	// contributes `{ componentId: node.id, event: <action> }`), then aggregate via
 	// `deriveContainerEvents`. The fused `showContainer` node reads its container's decls from this
-	// surface (`derivePins`). Best-effort: no project / no saved FlowDoc ⇒ `doc` is null ⇒ empty map,
-	// and the client's `SAMPLE_DOC` surfaces its own sample decls instead.
+	// surface (`derivePins`). Best-effort: an unsaved project with no scenes yields an empty map.
 	const scenesById = new Map((layout.scenes ?? []).map((s) => [s.id, s]));
 	const containerEvents: Record<string, ContainerEventDecl[]> = {};
-	for (const container of doc?.containers ?? []) {
+	for (const container of doc.containers) {
 		const scene = scenesById.get(container.sceneId);
 		if (!scene) continue;
 		const configured: ConfiguredComponentEvent[] = (scene.nodes ?? []).map((node) => {
@@ -104,5 +105,15 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		containerEvents[container.id] = deriveContainerEvents(configured);
 	}
 
-	return { clientKey, projectKey, doc, docEtag, library, libraryEtag, sceneNames, containerEvents };
+	return {
+		clientKey,
+		projectKey,
+		doc,
+		docEtag,
+		seeded,
+		library,
+		libraryEtag,
+		sceneNames,
+		containerEvents,
+	};
 };

@@ -24,7 +24,7 @@
 		type PinContext,
 		type PinDir,
 	} from 'engine-flow-v2';
-	import { LIBRARY, SAMPLE_CONTAINER_EVENTS, SAMPLE_DOC } from './sample';
+	import { LIBRARY } from './sample';
 	import { typeColor } from './palette';
 	import {
 		addDataEdgeIn,
@@ -49,11 +49,12 @@
 
 	let { data }: { data: PageData } = $props();
 
-	// The FlowDoc is the single source of truth. It initializes from the project's saved v2
-	// FlowDoc (loaded server-side from R2 at `flowV2DocKey`); when the project has none — or
-	// this is the standalone dev route with no project — the server sends `doc: null` and we
-	// fall back to the built-in `SAMPLE_DOC`. Every editing gesture (wire/add/delete/move/drop)
-	// mutates this and triggers the debounced auto-save below.
+	// The FlowDoc is the single source of truth. The `(app)` route always resolves a real project,
+	// so the server always sends a real `doc` (loaded from R2 at `flowV2DocKey`, or — for a project
+	// with no stored doc yet — SEEDED with a deep clone of the canonical reference flow, flagged by
+	// `data.seeded`). There is no throwaway sample: a fresh project opens on a working
+	// loading→tap→basegame→win flow, and its first edit persists it. Every editing gesture
+	// (wire/add/delete/move/drop) mutates this and triggers the debounced auto-save below.
 	//
 	// The template VOCABULARY (`BOOK_OF_VOCAB`) is the SHARED, single-source-of-truth contract
 	// shipped from `engine-flow-v2` (Phase 4c) — the SAME vocab the apps/lines runtime backs —
@@ -61,8 +62,7 @@
 	// PERSISTS (Part 2c): it initializes from the GLOBAL `_shared/flow-v2/functions.json`
 	// (`data.library`), falling back to the sample `LIBRARY` when absent, and grows via the
 	// "Collapse to Function" gesture below.
-	const initialDoc = (data.doc ?? SAMPLE_DOC) as FlowDoc;
-	let doc = $state<FlowDoc>(JSON.parse(JSON.stringify(initialDoc)) as FlowDoc);
+	let doc = $state<FlowDoc>(JSON.parse(JSON.stringify(data.doc)) as FlowDoc);
 
 	// The live function library — the single source of truth for the palette's Functions section,
 	// the inspector's functionCall ref dropdown, and `derivePins` on functionCall nodes. Held in
@@ -78,13 +78,12 @@
 	// Only `book-of` exists today; an unknown id falls back to it (registry-side).
 	const vocab = $derived(templateVocabulary(doc.templateId));
 
-	// §6.1 — the container-event surface (ContainerId → its configured component-event decls). On a
-	// real project the server projects the actual Scene-Editor scenes (`data.containerEvents`); on the
-	// standalone dev route (server sent `doc: null`) we fall back to the sample surface so the fused
-	// exec-out pins still demonstrate. Threaded through `ctx` below so `derivePins` fuses them onto the
+	// §6.1 — the container-event surface (ContainerId → its configured component-event decls). The
+	// server projects the actual Scene-Editor scenes (`data.containerEvents`); an unsaved project with
+	// no scenes yields an empty map. Threaded through `ctx` below so `derivePins` fuses them onto the
 	// matching `showContainer` node, and into `validateFlowDoc` (4th arg) + the preview.
 	const containerEvents = $derived<Record<string, ContainerEventDecl[]>>(
-		data.doc === null ? SAMPLE_CONTAINER_EVENTS : (data.containerEvents ?? {}),
+		data.containerEvents ?? {},
 	);
 
 	// `ctx` reads the LIVE `library` state (a getter, not a snapshot), so every consumer —
@@ -404,13 +403,18 @@
 	// --- Persistence: debounced auto-save to R2 (Phase 2a persistence) ----------
 	// Mirrors the Scene Editor's autosave feel: a mutation marks the doc dirty, which (re)starts
 	// an ~800ms debounce; when it fires we POST the current doc to `/api/flow-v2/save` (which
-	// gates on the `flow` tool + session-bound project and writes `flowV2DocKey`). Only a REAL
-	// project persists — the standalone dev sample (server sent `doc: null`) is never saved.
+	// gates on the `flow` tool + session-bound project and writes `flowV2DocKey`). The `(app)`
+	// route ALWAYS resolves a real project, so saving is always enabled — including for a fresh
+	// project whose doc was SEEDED (no stored bytes yet): the first edit creates it in R2 (the
+	// null `docEtag` becomes an `ifNoneMatch: '*'` create precondition server-side).
 	const AUTOSAVE_MS = 800;
-	const hasProject = data.doc !== null;
+	const hasProject = data.projectKey.length > 0;
 	type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'conflict' | 'scope-mismatch';
 	let saveStatus = $state<SaveStatus>('idle');
 	let dirty = $state(false);
+	// `true` once the doc exists in R2 — false only for a freshly SEEDED, never-stored doc, so the
+	// status pill can say "new · unsaved" until the first autosave lands (then it flips true).
+	let storedInR2 = $state(!data.seeded);
 	/** ETag of the stored doc — sent on save, re-adopted from each response. */
 	let docEtag = $state<string | null>(data.docEtag);
 	/** Server-supplied explanation for a conflict / scope-mismatch banner. */
@@ -421,7 +425,7 @@
 	// Every editing gesture calls this after mutating `doc`. It arms the debounce; a fresh
 	// gesture within the window resets it (coalescing a burst of edits into one save).
 	function markDirty(): void {
-		if (!hasProject) return; // standalone sample — never persist.
+		if (!hasProject) return; // no project bound — nothing to persist to.
 		dirty = true;
 		// A conflicted (or wrong-project) doc must not re-arm: the write can only lose
 		// again, so this would 409 every 800ms until the author resolves it. Edits kept.
@@ -469,6 +473,7 @@
 			const out = (await res.json()) as { etag?: string | null };
 			docEtag = out.etag ?? null;
 			dirty = false;
+			storedInR2 = true; // a seeded doc is now persisted — the pill drops "new".
 			saveStatus = 'saved';
 		} catch {
 			saveStatus = 'error';
@@ -481,10 +486,9 @@
 	}
 
 	// --- Persistence: debounced auto-save for the shared FUNCTION LIBRARY --------
-	// The library is GLOBAL (not project-scoped), but we still only persist when a flow scope
-	// exists (`hasProject`) — the standalone dev sample must not write the shared library. A
-	// mutation (only "Collapse to Function" today) calls `markLibraryDirty`, which debounces a
-	// POST to `/api/flow-v2/library/save` writing the fixed `_shared/flow-v2/functions.json`.
+	// The library is GLOBAL (not project-scoped), but we still only persist when a project scope
+	// exists (`hasProject`). A mutation (only "Collapse to Function" today) calls `markLibraryDirty`,
+	// which debounces a POST to `/api/flow-v2/library/save` writing `_shared/flow-v2/functions.json`.
 	let librarySaveStatus = $state<SaveStatus>('idle');
 	let libraryDirty = $state(false);
 	let libraryAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
@@ -493,7 +497,7 @@
 	let libraryEtag = $state<string | null>(data.libraryEtag);
 
 	function markLibraryDirty(): void {
-		if (!hasProject) return; // standalone sample — never persist the shared library.
+		if (!hasProject) return; // no project bound — never persist the shared library.
 		libraryDirty = true;
 		if (librarySaveStatus === 'conflict') return;
 		if (libraryAutosaveTimer) clearTimeout(libraryAutosaveTimer);
@@ -1292,13 +1296,15 @@
 				>
 			{:else if dirty}
 				<span class="save-pill dirty">Unsaved changes</span>
+			{:else if !storedInR2}
+				<span
+					class="save-pill dirty"
+					title="This project was seeded with the reference flow. It saves automatically on your first edit."
+					>New — unsaved</span
+				>
 			{:else}
 				<span class="save-pill ok">Saved</span>
 			{/if}
-		{:else}
-			<span class="save-pill ok" title="Standalone dev sample — no project bound, not persisted"
-				>sample · not saved</span
-			>
 		{/if}
 		{#if hasProject && librarySaveStatus !== 'idle'}
 			{#if librarySaveStatus === 'saving'}

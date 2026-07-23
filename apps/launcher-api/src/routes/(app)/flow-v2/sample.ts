@@ -1,41 +1,26 @@
 /**
- * Invisible Flow v2 — the DEV route `/flow-v2` fallback fixtures.
+ * Invisible Flow v2 — the DEV route `/flow-v2` shared-library fallback.
  *
- * The template VOCABULARY is now the SHARED, single-source-of-truth `BOOK_OF_VOCAB` shipped from
+ * The template VOCABULARY is the SHARED, single-source-of-truth `BOOK_OF_VOCAB` shipped from
  * `engine-flow-v2` (Phase 4c) — the SAME contract the apps/lines runtime BACKS — re-exported here so
- * the page's import path is unchanged. `SAMPLE_DOC` + `LIBRARY` are the FALLBACKS used when a project
- * has no saved doc/library; both are authored against (and validate clean with 0 issues against) the
- * real `BOOK_OF_VOCAB`.
+ * the page's import path is unchanged. `LIBRARY` is the FALLBACK used when the GLOBAL function library
+ * has no saved doc yet; it validates clean (0 issues) against the real `BOOK_OF_VOCAB`.
  *
- * The sample is the book-of reveal, using the real vocab:
- *
- *   event `reveal`
- *     →(exec) functionCall `StaggerStop`   (reels ← $engine.reels; step ← literal 120ms)
- *     →(exec) action `setSpecialSymbol`     (symbol ← literal SymbolName 'S')
- *     →(exec) fireCue `specialBookReveal`   (symbol ← literal SymbolName 'S')
+ * (The project FlowDoc no longer has a client-side sample fallback: a fresh project is SEEDED
+ * server-side with the canonical reference flow — see `flowV2Storage.loadFlowV2DocForEditor`.)
  *
  * The `StaggerStop` body is the per-reel stagger:
  *   Entry → ForEach(reels) →(body) compute($index × step) → Delay(ms ← compute) → stopReel($item.index)
- *
- * (The reels come from the `$engine.reels` collection, not the `reveal` event — the real `reveal`
- * book event carries `gameType`, not a reels list.)
  */
 
-import { BOOK_OF_VOCAB, deriveContainerEvents } from 'engine-flow-v2';
-import type {
-	ContainerEventDecl,
-	FlowDoc,
-	FunctionDef,
-	FunctionLibraryDoc,
-	TypeRef,
-} from 'engine-flow-v2';
+import { BOOK_OF_VOCAB } from 'engine-flow-v2';
+import type { FunctionDef, FunctionLibraryDoc, TypeRef } from 'engine-flow-v2';
 
 // Re-export the shared template vocabulary so the page keeps importing it from `./sample`.
 export { BOOK_OF_VOCAB };
 
 const REEL: TypeRef = { t: 'struct', name: 'Reel' };
 const LIST_REEL: TypeRef = { t: 'list', of: REEL };
-const SYMBOL_NAME: TypeRef = { t: 'enum', name: 'SymbolName' };
 
 // ---------------------------------------------------------------------------
 // StaggerStop(reels, step) — the reusable reel-stagger function (§5). Body:
@@ -94,75 +79,3 @@ const STAGGER_STOP: FunctionDef = {
 };
 
 export const LIBRARY: FunctionLibraryDoc = { version: 2, functions: [STAGGER_STOP] };
-
-// ---------------------------------------------------------------------------
-// The FlowDoc: reveal → StaggerStop(reels ← $engine.reels) → setSpecialSymbol → fireCue.
-// ---------------------------------------------------------------------------
-
-export const SAMPLE_DOC: FlowDoc = {
-	version: 2,
-	templateId: 'bookOf',
-	graph: {
-		nodes: [
-			{ id: 'onReveal', kind: 'event', pos: { x: 40, y: 160 }, ref: 'reveal' },
-			// The base container's Show node — fuses its scene's configured component events
-			// (`SAMPLE_CONTAINER_EVENTS['base']`) as exec-out pins (onSpin/onIncrease/…), so the
-			// standalone dev route DEMONSTRATES the fused-pin model without a real project.
-			{ id: 'showBase', kind: 'showContainer', pos: { x: 40, y: 420 }, ref: 'base' },
-			// The single mechanic-signal SOURCE node — surfaces every book+lifecycle event as an
-			// exec-out (§6.2). Wiring ONE pin (`freeSpinTrigger` → showBase) demonstrates the model on
-			// the standalone dev route; unwired signals stay parity-safe no-ops at runtime.
-			{ id: 'signals', kind: 'gameSignals', pos: { x: 40, y: 640 } },
-			{
-				id: 'stagger',
-				kind: 'functionCall',
-				pos: { x: 360, y: 120 },
-				ref: 'fn.staggerStop',
-				inputs: {
-					reels: { kind: 'accessor', path: { on: 'engine', key: 'reels' } },
-					step: { kind: 'literal', type: { t: 'ms' }, value: 120 },
-				},
-			},
-			{
-				id: 'setSpecial',
-				kind: 'action',
-				pos: { x: 700, y: 120 },
-				ref: 'setSpecialSymbol',
-				inputs: { symbol: { kind: 'literal', type: SYMBOL_NAME, value: 'S' } },
-			},
-			{
-				id: 'revealCue',
-				kind: 'fireCue',
-				pos: { x: 1020, y: 120 },
-				ref: 'specialBookReveal',
-				inputs: { symbol: { kind: 'literal', type: SYMBOL_NAME, value: 'S' } },
-			},
-		],
-		exec: [
-			{ from: { node: 'onReveal', pin: 'exec' }, to: { node: 'stagger', pin: 'exec' } },
-			{ from: { node: 'stagger', pin: 'exec' }, to: { node: 'setSpecial', pin: 'exec' } },
-			{ from: { node: 'setSpecial', pin: 'exec' }, to: { node: 'revealCue', pin: 'exec' } },
-			// One WIRED mechanic signal: the game's `freeSpinTrigger` book event → show the base
-			// container (the gameSignals node is a source, so the walk continues from `showBase`).
-			{ from: { node: 'signals', pin: 'freeSpinTrigger' }, to: { node: 'showBase', pin: 'exec' } },
-		],
-		data: [],
-	},
-	containers: [{ id: 'base', sceneId: 'basegame', z: 0 }],
-};
-
-// ---------------------------------------------------------------------------
-// §6.1 sample container-event surface — keyed by the SAMPLE_DOC container's `ContainerId` (`base`), so
-// the standalone dev route demonstrates the FUSED exec-out pins (mount + all its buttons in one node)
-// without a real project. On a real project the server projects the actual scene → this map instead.
-// ---------------------------------------------------------------------------
-
-export const SAMPLE_CONTAINER_EVENTS: Record<string, ContainerEventDecl[]> = {
-	base: deriveContainerEvents([
-		{ componentId: 'spinButton', event: 'spin' },
-		{ componentId: 'increaseButton', event: 'increase' },
-		{ componentId: 'decreaseButton', event: 'decrease' },
-		{ componentId: 'soundToggle', event: 'soundToggle' },
-		{ componentId: 'settingsButton', event: 'settings' },
-	]),
-};
