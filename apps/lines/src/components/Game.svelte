@@ -1650,8 +1650,17 @@
 
 			FULL-REPLACE (§16): when the author authored replacement HUD screen(s) (`suppressCodedHud`),
 			the coded `<UI>` is suppressed entirely and the `authoredHud` scenes below BECOME the HUD.
+
+			V2 SUPPRESSION: `<UI>` renders the `hudBar`/`hudCorners` scenes itself, and a v2 flow that
+			drives the screens mounts those SAME scenes as containers through `<FlowV2Mount>` — so
+			without this guard the whole HUD mounts TWICE (verified live: two centre-anchored copies of
+			every readout on the same pixel, whose independent count-up `Tween`s disagree mid-change and
+			overhang each other by the width difference). Neither existing condition catches it:
+			`isHudFlowManaged` reads the V1 mounter only, and `suppressCodedHud` is keyed on `hud_*`
+			scenes, never the canonical `hudBar`. Same guard the `authoredHud` + `extraScenes` blocks
+			below already carry — under a driven v2 flow `<FlowV2Mount>` is the SOLE scene renderer.
 		-->
-	{#if (!isHudFlowManaged || isHudActive) && !suppressCodedHud}
+	{#if (!isHudFlowManaged || isHudActive) && !suppressCodedHud && !flowV2DrivesScreens}
 		<!-- Cross-screen z-order (§11.5-C): the HUD chrome paints at its doc-list position via
 				 `hudZIndex`. Leaving it where the reference layout places it (before the win/bonus
 				 overlays) reproduces today's stacking; moving it in the editor re-layers it. -->
