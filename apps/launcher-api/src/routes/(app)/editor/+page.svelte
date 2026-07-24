@@ -1596,8 +1596,10 @@
 	// The doc's `mainSizesMap[layoutType]` IS the game's MAIN box the runtime scales to
 	// the window (via `<MainContainer>`). Editing it here routes through `markDirty()` so
 	// it coalesces into ONE undo step + autosaves; the canvas already reacts to the
-	// `mainSizesMap` `$state`. A fresh project now SEEDS this from the game-type reference
-	// (server), but older docs can still drift — see the mismatch warning below.
+	// `mainSizesMap` `$state`. A fresh project SEEDS this from the game-type reference
+	// (server); the runtime ADOPTS whatever the doc ships (`setAuthoredMainSizesMap`), so a
+	// drifted box no longer means "editor ≠ game" — it only moves the coded parts that are
+	// laid out relative to the box (the reel board). See the mismatch warning below.
 	function setCanvasDimension(dim: 'width' | 'height', value: number): void {
 		if (!Number.isFinite(value) || value <= 0) return;
 		const next = Math.round(value);
@@ -2912,12 +2914,13 @@
 										>{mainSizesMap[currentLayoutType].width}×{mainSizesMap[currentLayoutType]
 											.height}</strong
 									>
-									doesn't match the {authoringGameType} game box
+									doesn't match the {authoringGameType} reference box
 									<strong
 										>{referenceMainSizes[currentLayoutType]?.width}×{referenceMainSizes[
 											currentLayoutType
 										]?.height}</strong
-									> — the game will render at a different size.
+									> — the game renders YOUR box, so coded parts (the reel board) sit where this box puts
+									them, not the reference's.
 								</p>
 								<button type="button" class="cs-warn-fix" onclick={matchGameBox}>
 									Match game box

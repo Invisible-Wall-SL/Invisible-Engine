@@ -19,6 +19,62 @@ const getRatio = (value: Sizes) => value.width / (value.height || 1);
 
 type MainSizesMap = typeof STANDARD_MAIN_SIZES_MAP;
 
+/**
+ * The AUTHORED main box — `LayoutDoc.mainSizesMap`, published by the game once its
+ * editor doc resolves (`loadEditorScenes()`).
+ *
+ * Why it exists: the Scene Editor previews every `game`-space node against the DOC's
+ * box, while the runtime scaled a per-game box hard-coded in `stateLayout.ts` and read
+ * the doc's box nowhere. A doc whose Canvas Size drifted from the coded one therefore
+ * rendered every authored node at a different SIZE *and* a different POSITION in the
+ * game than in the editor — silently, because `<MainContainer>` still filled the
+ * window. `canvas`-space screens (the free-spin intro / book reveal) never touch this
+ * box, so they stayed pixel-perfect: exactly the "only some screens are off" symptom.
+ * The doc is the authoring surface, so the doc owns the box.
+ *
+ * Unset (a game that ships no doc, or a doc with no usable box) ⇒ the coded map, so
+ * every existing game whose doc box already equals its coded box is byte-identical.
+ */
+let authoredMainSizesMap = $state<Partial<MainSizesMap> | undefined>(undefined);
+
+const isUsableSizes = (value: unknown): value is { width: number; height: number } => {
+	if (typeof value !== 'object' || value === null) return false;
+	const { width, height } = value as { width?: unknown; height?: unknown };
+	return (
+		typeof width === 'number' &&
+		typeof height === 'number' &&
+		Number.isFinite(width) &&
+		Number.isFinite(height) &&
+		width > 0 &&
+		height > 0
+	);
+};
+
+/**
+ * Publish the authored doc's main box to the runtime. Called once at boot with
+ * `doc.mainSizesMap`; a partial/garbage map is rejected per-layoutType (a bad entry
+ * falls back to the coded box rather than collapsing the game to a zero-sized stage).
+ * Pass `undefined` to clear.
+ */
+export const setAuthoredMainSizesMap = (input: unknown): void => {
+	if (input === undefined) {
+		authoredMainSizesMap = undefined;
+		return;
+	}
+	if (typeof input !== 'object' || input === null) return;
+	const source = input as Record<string, unknown>;
+	const next: Partial<MainSizesMap> = {};
+	for (const layoutType of Object.keys(STANDARD_MAIN_SIZES_MAP) as (keyof MainSizesMap)[]) {
+		const sizes = source[layoutType];
+		if (isUsableSizes(sizes)) next[layoutType] = { width: sizes.width, height: sizes.height };
+	}
+	authoredMainSizesMap = Object.keys(next).length ? next : undefined;
+};
+
+/** The authored box currently in force (diagnostics — e.g. the debug overlay). */
+export const getAuthoredMainSizesMap = (): Partial<MainSizesMap> | undefined =>
+	authoredMainSizesMap;
+
 export const createLayout = (layoutOptions: {
 	backgroundRatio: {
 		normal: number;
@@ -50,25 +106,31 @@ export const createLayout = (layoutOptions: {
 	};
 	const isStacked = () => ['portrait', 'almostSquare'].includes(layoutType());
 
-	const createMainLayout = (mainSizesMap: MainSizesMap) => () => {
-		const x = canvasSizes().width * 0.5;
-		const y = canvasSizes().height * 0.5;
-		const mainSizes = mainSizesMap[layoutType()];
-		const widthScale = canvasSizes().width / mainSizes.width;
-		const heightScale = canvasSizes().height / mainSizes.height;
-		const scale = Math.min(widthScale, heightScale);
+	// `authored` = the GAME box (the one the Scene Editor lays nodes out against), so a
+	// published `doc.mainSizesMap` overrides it. The STANDARD box is the fixed HUD design
+	// box (`STANDARD_MAIN_SIZES_MAP`) shared by every game — never doc-driven.
+	const createMainLayout =
+		(mainSizesMap: MainSizesMap, authored = false) =>
+		() => {
+			const x = canvasSizes().width * 0.5;
+			const y = canvasSizes().height * 0.5;
+			const mainSizes =
+				(authored ? authoredMainSizesMap?.[layoutType()] : undefined) ?? mainSizesMap[layoutType()];
+			const widthScale = canvasSizes().width / mainSizes.width;
+			const heightScale = canvasSizes().height / mainSizes.height;
+			const scale = Math.min(widthScale, heightScale);
 
-		return {
-			x,
-			y,
-			scale,
-			width: mainSizes.width,
-			height: mainSizes.height,
-			anchor: 0.5,
+			return {
+				x,
+				y,
+				scale,
+				width: mainSizes.width,
+				height: mainSizes.height,
+				anchor: 0.5,
+			};
 		};
-	};
 
-	const mainLayout = createMainLayout(layoutOptions.mainSizesMap);
+	const mainLayout = createMainLayout(layoutOptions.mainSizesMap, true);
 
 	const mainLayoutStandard = createMainLayout(STANDARD_MAIN_SIZES_MAP);
 

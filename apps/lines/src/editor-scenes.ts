@@ -20,6 +20,7 @@ import {
 	resolveWinText,
 } from 'engine-layout';
 import { stateI18nDerived, stateUrlDerived } from 'state-shared';
+import { setAuthoredMainSizesMap } from 'utils-layout';
 import type { MessagesMap } from 'utils-shared/i18n';
 
 import bakedBundleJson from './baked-editor-bundle.json';
@@ -960,6 +961,20 @@ function fellBack(reason: string): LayoutDoc {
 }
 
 export async function loadEditorScenes(): Promise<LayoutDoc> {
+	const doc = await resolveEditorDoc();
+	// The doc's Canvas Size IS the box the Scene Editor laid every `game`-space node out
+	// against, so it must be the box `<MainContainer>` scales to the window — otherwise the
+	// game renders the authored nodes at a different size AND position than the editor
+	// showed (while `canvas`-space screens, which never use this box, stay pixel-perfect).
+	// The coded `stateLayout.ts` map stays the fallback for a doc that declares no box.
+	setAuthoredMainSizesMap(doc.mainSizesMap);
+	if (__IE_DEBUG__) {
+		console.info('[layout] main box adopted from the editor doc:', doc.mainSizesMap);
+	}
+	return doc;
+}
+
+async function resolveEditorDoc(): Promise<LayoutDoc> {
 	// Live runtime (Game Maker, Phase 0): `prepareRuntimeBundle()` already fetched +
 	// validated the doc (it has a `basegame` scene), so render it directly. The asset
 	// registrations above are already reading from the same bundle. Off mode (no
