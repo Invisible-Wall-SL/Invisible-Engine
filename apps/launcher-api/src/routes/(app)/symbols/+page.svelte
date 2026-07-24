@@ -35,14 +35,14 @@
 		setBoardGlow,
 		setHighlight,
 		setOverride,
+		setWinCycleDelay,
+		setWinCycleEnabled,
 		setWinLineEnabled,
 		setWinLineLine,
-		setWinLineLoop,
-		setWinLineLoopDelay,
 		setWinLineText,
+		winCycleEnabled,
 		winLineEnabled,
-		winLineLoop,
-		WIN_LINE_LOOP_DELAY_DEFAULT,
+		WIN_CYCLE_DELAY_DEFAULT,
 		SYMBOL_CELL_TYPES,
 		SYMBOL_CELL_TYPE_LABELS,
 		type BoardGlowConfig,
@@ -570,10 +570,12 @@
 		doc = setWinLineEnabled(doc, enabled);
 	}
 
-	// Replay-until-next-spin (the game's win-line cycle). Behaviour, not style, so "Reset
-	// win-line style" leaves it alone.
-	const wlLoop = $derived(winLineLoop(doc));
-	const wlLoopDelay = $derived(doc.winLine?.loopDelay ?? WIN_LINE_LOOP_DELAY_DEFAULT);
+	// ── Winning-symbol replay (the game's win-symbol cycle) ───────────────────
+	// Its OWN section, not part of the win-line block: the replay re-animates the winning
+	// symbols only — it never redraws the line or its stamped amount — so it stays available
+	// with win lines switched off.
+	const wcOn = $derived(winCycleEnabled(doc));
+	const wcDelay = $derived(doc.winCycle?.delay ?? WIN_CYCLE_DELAY_DEFAULT);
 
 	function resetWinLineStyle(): void {
 		doc = clearWinLineStyle(doc);
@@ -990,37 +992,7 @@
 											oninput={(e) => patchWinLineLine({ speed: Number(e.currentTarget.value) })}
 										/>
 									</label>
-									<div class="field">
-										<span class="label">Loop until next spin</span>
-										<label class="switch sm" class:on={wlLoop}>
-											<input
-												type="checkbox"
-												checked={wlLoop}
-												onchange={(e) => (doc = setWinLineLoop(doc, e.currentTarget.checked))}
-											/>
-											<span class="track"><span class="knob"></span></span>
-											<span class="switch-label">{wlLoop ? 'On' : 'Off'}</span>
-										</label>
-									</div>
-									<label class="field" class:disabled={!wlLoop}>
-										<span class="label">Loop gap {wlLoopDelay.toFixed(2)}s</span>
-										<input
-											type="range"
-											min="0"
-											max="3"
-											step="0.05"
-											disabled={!wlLoop}
-											value={wlLoopDelay}
-											oninput={(e) =>
-												(doc = setWinLineLoopDelay(doc, Number(e.currentTarget.value)))}
-										/>
-									</label>
 								</div>
-								<p class="wl-note">
-									With the loop on, the round's winning lines keep cycling on the resting board —
-									line, amount and lit symbols — until the player spins again. Autoplay and
-									space-hold skip the replay, since the next spin is already on its way.
-								</p>
 							</div>
 
 							<div class="wl-group">
@@ -1067,6 +1039,49 @@
 							<button type="button" class="ghost wl-reset" onclick={resetWinLineStyle}>
 								Reset win-line style
 							</button>
+						</div>
+					{/if}
+				</section>
+
+				<section class="winline" class:expanded={wcOn}>
+					<div class="wl-head">
+						<div class="wl-text">
+							<h2>Winning symbols after the spin</h2>
+							<p class="wl-sub">
+								Keep the round's winning symbols animating on the resting board until the player
+								spins again, instead of freezing on their post-win frame. Symbols only — the win
+								line and its stamped amount are not redrawn. Autoplay and space-hold skip it, since
+								the next spin is already on its way.
+							</p>
+						</div>
+						<label class="switch" class:on={wcOn}>
+							<input
+								type="checkbox"
+								checked={wcOn}
+								onchange={(e) => (doc = setWinCycleEnabled(doc, e.currentTarget.checked))}
+							/>
+							<span class="track"><span class="knob"></span></span>
+							<span class="switch-label">{wcOn ? 'On' : 'Off'}</span>
+						</label>
+					</div>
+
+					{#if wcOn}
+						<div class="wl-config">
+							<div class="wl-group">
+								<div class="wl-fields">
+									<label class="field">
+										<span class="label">Gap between passes {wcDelay.toFixed(2)}s</span>
+										<input
+											type="range"
+											min="0"
+											max="3"
+											step="0.05"
+											value={wcDelay}
+											oninput={(e) => (doc = setWinCycleDelay(doc, Number(e.currentTarget.value)))}
+										/>
+									</label>
+								</div>
+							</div>
 						</div>
 					{/if}
 				</section>

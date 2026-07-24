@@ -46,11 +46,7 @@ import { SUB } from './projectPaths';
 import { exportSpineBundle, loadSkeletonIndex } from './spine';
 import { SYMBOL_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
-import {
-	canonicalizeSymbolsDocForExport,
-	loadSymbolsDoc,
-	type SymbolsDoc,
-} from './symbolsStorage';
+import { canonicalizeSymbolsDocForExport, loadSymbolsDoc, type SymbolsDoc } from './symbolsStorage';
 import { parseScopedFrameRef, scopedFrameRef } from 'engine-layout';
 
 /** A sprite sheet a symbol binding references. `key` is the source manifest (kept
@@ -124,6 +120,9 @@ export interface SymbolExportResult {
 	 *  (no asset work — the chosen text font travels via the font pipeline). Absent → the
 	 *  game keeps all its coded defaults. */
 	winLine?: SymbolsDoc['winLine'];
+	/** The resting-board win-SYMBOL replay config, passed through VERBATIM (no asset work).
+	 *  Absent → the game keeps its coded defaults (replay on, 0.4s between passes). */
+	winCycle?: SymbolsDoc['winCycle'];
 }
 
 const EXPORT_SUBTREE = 'editor-symbols';
@@ -437,6 +436,10 @@ export async function exportEditorSymbols(
 	// all its coded defaults.
 	const winLine = doc.winLine;
 
+	// Sibling pass-through of the win-SYMBOL replay (also assetless). Kept separate from
+	// `winLine` on purpose: the replay never draws the line, so the two are independent switches.
+	const winCycle = doc.winCycle;
+
 	// The free-spin board glow. Like `highlight`, its bundle already shipped via `refs.spineKeys`
 	// into `index.spines` under this same `assetKey`, so this is just the pointer + its sparse
 	// animation/size overrides, forwarded verbatim.
@@ -448,5 +451,6 @@ export async function exportEditorSymbols(
 		...(highlight ? { highlight } : {}),
 		...(boardGlow ? { boardGlow } : {}),
 		...(winLine ? { winLine } : {}),
+		...(winCycle ? { winCycle } : {}),
 	};
 }

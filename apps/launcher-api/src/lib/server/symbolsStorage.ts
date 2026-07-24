@@ -132,16 +132,22 @@ const winLineTextSchema = z
 	})
 	.strict();
 
-/** `loop` keeps replaying the round's winning lines on the resting board until the next spin
- *  (the game's `winLineCycle`); absent means ON, `false` turns the replay off. `loopDelay` is
- *  the pause in SECONDS between two passes. */
 const winLineSchema = z
 	.object({
 		enabled: z.boolean().optional(),
-		loop: z.boolean().optional(),
-		loopDelay: z.number().optional(),
 		line: winLineLineSchema.optional(),
 		text: winLineTextSchema.optional(),
+	})
+	.strict();
+
+/** Resting-board replay of the winning SYMBOLS (the game's `winSymbolCycle`): keep them
+ *  animating until the next spin. `enabled` absent means ON; `delay` is the pause in SECONDS
+ *  between two passes. Deliberately a SIBLING of `winLine`, not a field inside it — the replay
+ *  never draws the line or its stamped amount, so turning the line off must not stop it. */
+const winCycleSchema = z
+	.object({
+		enabled: z.boolean().optional(),
+		delay: z.number().optional(),
 	})
 	.strict();
 
@@ -152,6 +158,7 @@ export const symbolsDocSchema = z
 		highlight: highlightCellSchema.optional(),
 		boardGlow: boardGlowSchema.optional(),
 		winLine: winLineSchema.optional(),
+		winCycle: winCycleSchema.optional(),
 		updatedAt: z.string().optional(),
 	})
 	.strip();
@@ -170,8 +177,6 @@ function pruneWinLine(winLine: SymbolsDoc['winLine']): SymbolsDoc['winLine'] {
 	if (!winLine) return undefined;
 	const next: NonNullable<SymbolsDoc['winLine']> = {};
 	if (winLine.enabled === false) next.enabled = false;
-	if (winLine.loop === false) next.loop = false;
-	if (winLine.loopDelay !== undefined) next.loopDelay = winLine.loopDelay;
 	if (winLine.line && Object.keys(winLine.line).length) next.line = winLine.line;
 	if (winLine.text && Object.keys(winLine.text).length) next.text = winLine.text;
 	return Object.keys(next).length ? next : undefined;
@@ -196,6 +201,12 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	if (doc.boardGlow) next.boardGlow = doc.boardGlow;
 	const winLine = pruneWinLine(doc.winLine);
 	if (winLine) next.winLine = winLine;
+	// Sparse like `winLine.enabled`: only the non-default (off) flag persists, but an authored
+	// delay always does — its default is a number the author may legitimately re-pick.
+	const winCycle: NonNullable<SymbolsDoc['winCycle']> = {};
+	if (doc.winCycle?.enabled === false) winCycle.enabled = false;
+	if (doc.winCycle?.delay !== undefined) winCycle.delay = doc.winCycle.delay;
+	if (Object.keys(winCycle).length) next.winCycle = winCycle;
 	return next;
 }
 

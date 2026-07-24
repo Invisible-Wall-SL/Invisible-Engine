@@ -145,13 +145,13 @@ type BakedBundle = {
 		 * defaults resolved in `bakedWinLineConfig()`. The shared-engine renderer is
 		 * `components/WinLine.svelte` (driven by the `winInfo` handler), so every game on
 		 * the `runtime:lines` bundle draws it. */
+		/** Resting-board replay of the winning SYMBOLS (Invisible Symbols State Machine output,
+		 * `winSymbolCycle.ts`): keep them animating until the next spin. Deliberately NOT part of
+		 * `winLine` — it never touches the line or its stamped amount. Sparse; `enabled` absent
+		 * ⇒ on. */
+		winCycle?: { enabled?: boolean; delay?: number };
 		winLine?: {
 			enabled?: boolean;
-			/** Keep replaying the round's winning lines on the resting board until the next spin
-			 *  (`winLineCycle.ts`). Absent ⇒ on. */
-			loop?: boolean;
-			/** Seconds between two cycled passes. */
-			loopDelay?: number;
 			line?: {
 				color?: string;
 				width?: number;
@@ -477,10 +477,6 @@ export function bakedWinLineEnabled(): boolean {
  * The Invisible Symbols State Machine authors the overrides. */
 export type ResolvedWinLine = {
 	enabled: boolean;
-	/** Whether the resting board keeps cycling the round's winning lines until the next spin. */
-	loop: boolean;
-	/** Seconds of blank board between two cycled passes (floored by the cycle's own minimum). */
-	loopDelay: number;
 	line: {
 		color: string;
 		width: number;
@@ -501,8 +497,6 @@ export function bakedWinLineConfig(): ResolvedWinLine {
 	const color = w?.line?.color ?? '#ffcc00';
 	return {
 		enabled: w?.enabled ?? true,
-		loop: w?.loop ?? true,
-		loopDelay: w?.loopDelay ?? 0.4,
 		line: {
 			color,
 			width: w?.line?.width ?? 0.03,
@@ -517,6 +511,20 @@ export function bakedWinLineConfig(): ResolvedWinLine {
 			color: w?.text?.color ?? '#ffffff',
 		},
 	};
+}
+
+/** The resting-board WIN-SYMBOL replay, fully RESOLVED (`winSymbolCycle.ts`): whether the round's
+ * winning symbols keep animating until the next spin, and the pause in SECONDS between two passes
+ * (floored by the cycle's own minimum). Defaults to on / 0.4s. Sibling of
+ * {@link bakedWinLineConfig} by design — that owns the LINE, this owns the symbols, and turning
+ * the line off must not stop the symbols. */
+export function bakedWinCycleConfig(): { enabled: boolean; delay: number } {
+	const c = hasRuntimeBundle()
+		? runtimeBundle!.symbols?.winCycle
+		: hasBakedDoc()
+			? bakedBundle.symbols?.winCycle
+			: undefined;
+	return { enabled: c?.enabled ?? true, delay: c?.delay ?? 0.4 };
 }
 
 /**

@@ -13,7 +13,7 @@ import { bookEventHandlerMap } from './bookEventHandlerMap';
 import { getFlowInterpreter } from './flowInterpreterHolder';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { runBookEventPresentation } from './unskippablePresentation';
-import { recordWinLineCycleWins, startWinLineCycle, stopWinLineCycle } from './winLineCycle';
+import { recordWinCycleWins, startWinCycle, stopWinCycle } from './winSymbolCycle';
 import type { RawSymbol, SymbolState } from './types';
 
 // general utils
@@ -40,9 +40,9 @@ const dispatchBookEvent = async (
 	bookEvent: BookEvent,
 	context: { bookEvents: BookEvent[] },
 ): Promise<void> => {
-	// Recorded HERE, ahead of dispatch, so the idle win-line cycle sees every spin's wins whichever
+	// Recorded HERE, ahead of dispatch, so the idle win-symbol cycle sees every spin's wins whichever
 	// path presents them — a flow-owned `winInfo` never reaches the coded handler map.
-	recordWinLineCycleWins(bookEvent);
+	recordWinCycleWins(bookEvent);
 
 	// Invisible Flow v2 — EVENT OWNERSHIP (the incremental v1→v2 migration mechanism). When a v2 flow
 	// authors this event (`ownsEvent`), v2 drives it ALONE and the coded/v1 twin is SUPPRESSED — so a
@@ -87,9 +87,9 @@ export const playBookEvents = async (
 };
 
 export const playBet = async (bet: Bet) => {
-	// The previous round's idle win lines are the FIRST thing a new bet clears — before the reels
-	// move, so the board never rolls under a line left over from the last result.
-	stopWinLineCycle();
+	// The previous round's idle symbol replay is the FIRST thing a new bet ends — before the reels
+	// move, so nothing keeps re-lighting cells the spin is about to overwrite.
+	stopWinCycle();
 	// The slam token is scoped to the ROUND — re-armed here and nowhere else (owner direction). A
 	// bonus book is ONE round, so a single press fast-forwards every remaining free spin in it
 	// straight to the final total, rather than costing the player a press per spin.
@@ -104,10 +104,9 @@ export const playBet = async (bet: Bet) => {
 		// an aborted round cannot leave the board's slam checks reading a stale trip.
 		roundSkip.reset();
 		eventEmitter.broadcast({ type: 'stopButtonEnable' });
-		// The round is presented; replay its winning lines on the resting board until the next bet.
-		// Deliberately NOT awaited — it runs until `stopWinLineCycle` above ends it — and started
-		// after the token reset so the cycle draws the full line even on a slammed round.
-		void startWinLineCycle();
+		// The round is presented; keep its winning SYMBOLS animating on the resting board until the
+		// next bet. Deliberately NOT awaited — it runs until `stopWinCycle` above ends it.
+		void startWinCycle();
 	}
 };
 

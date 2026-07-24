@@ -229,14 +229,15 @@ export function winLineEnabled(doc: SymbolsDoc): boolean {
 	return doc.winLine?.enabled ?? true;
 }
 
-/** The effective "keep replaying the win lines until the next spin" flag — the game's
- *  `winLineCycle`. Defaults to `true`, matching the engine's resolved default. */
-export function winLineLoop(doc: SymbolsDoc): boolean {
-	return doc.winLine?.loop ?? true;
+/** The effective "keep the winning SYMBOLS animating until the next spin" flag — the game's
+ *  `winSymbolCycle`. Defaults to `true`, matching the engine's resolved default. Independent of
+ *  {@link winLineEnabled}: the replay never draws the line. */
+export function winCycleEnabled(doc: SymbolsDoc): boolean {
+	return doc.winCycle?.enabled ?? true;
 }
 
-/** The engine's default pause (seconds) between two cycled win-line passes. */
-export const WIN_LINE_LOOP_DELAY_DEFAULT = 0.4;
+/** The engine's default pause (seconds) between two win-symbol replay passes. */
+export const WIN_CYCLE_DELAY_DEFAULT = 0.4;
 
 /** Drop blank style fields (empty string / undefined / null) and empty `line`/`text`
  *  objects, returning a sparse `winLine` (or undefined when nothing remains). Keeps the
@@ -252,10 +253,6 @@ function pruneWinLine(winLine: WinLineConfig | undefined): WinLineConfig | undef
 	};
 	const next: WinLineConfig = {};
 	if (winLine.enabled === false) next.enabled = false;
-	// Sparse like `enabled`: only the non-default (off) loop persists, but an authored delay
-	// always does — its default is a number the author may legitimately re-pick.
-	if (winLine.loop === false) next.loop = false;
-	if (typeof winLine.loopDelay === 'number') next.loopDelay = winLine.loopDelay;
 	const line = prune(winLine.line);
 	const text = prune(winLine.text);
 	if (line) next.line = line;
@@ -282,21 +279,30 @@ export function setWinLineEnabled(doc: SymbolsDoc, enabled: boolean): SymbolsDoc
 	return withWinLine(doc, winLine);
 }
 
-/** Set the "keep replaying until the next spin" flag. Kept sparse: ON drops the field. New doc. */
-export function setWinLineLoop(doc: SymbolsDoc, loop: boolean): SymbolsDoc {
-	const winLine: WinLineConfig = { ...(doc.winLine ?? {}) };
-	if (loop) delete winLine.loop;
-	else winLine.loop = false;
-	return withWinLine(doc, winLine);
+/** Drop a now-empty `winCycle` so an untouched/reset project ships nothing (sparse). */
+function withWinCycle(doc: SymbolsDoc, winCycle: NonNullable<SymbolsDoc['winCycle']>): SymbolsDoc {
+	const next = { ...doc };
+	if (Object.keys(winCycle).length) next.winCycle = winCycle;
+	else delete next.winCycle;
+	return next;
 }
 
-/** Set the pause (seconds) between two cycled win-line passes. `undefined` resets to the
+/** Set the "keep the winning symbols animating until the next spin" flag. Kept sparse: ON drops
+ *  the field. New doc. */
+export function setWinCycleEnabled(doc: SymbolsDoc, enabled: boolean): SymbolsDoc {
+	const winCycle = { ...(doc.winCycle ?? {}) };
+	if (enabled) delete winCycle.enabled;
+	else winCycle.enabled = false;
+	return withWinCycle(doc, winCycle);
+}
+
+/** Set the pause (seconds) between two win-symbol replay passes. `undefined` resets to the
  *  engine default. New doc. */
-export function setWinLineLoopDelay(doc: SymbolsDoc, seconds: number | undefined): SymbolsDoc {
-	const winLine: WinLineConfig = { ...(doc.winLine ?? {}) };
-	if (seconds === undefined) delete winLine.loopDelay;
-	else winLine.loopDelay = seconds;
-	return withWinLine(doc, winLine);
+export function setWinCycleDelay(doc: SymbolsDoc, seconds: number | undefined): SymbolsDoc {
+	const winCycle = { ...(doc.winCycle ?? {}) };
+	if (seconds === undefined) delete winCycle.delay;
+	else winCycle.delay = seconds;
+	return withWinCycle(doc, winCycle);
 }
 
 /** Merge a patch into `winLine.line` (line style). Pass a field as `undefined` to reset
@@ -349,11 +355,12 @@ export function docSignature(doc: SymbolsDoc): string {
 	const winLine = doc.winLine
 		? {
 				enabled: doc.winLine.enabled ?? null,
-				loop: doc.winLine.loop ?? null,
-				loopDelay: doc.winLine.loopDelay ?? null,
 				line: sortKeys(doc.winLine.line),
 				text: sortKeys(doc.winLine.text),
 			}
+		: null;
+	const winCycle = doc.winCycle
+		? { enabled: doc.winCycle.enabled ?? null, delay: doc.winCycle.delay ?? null }
 		: null;
 	// Listed here or an edit never marks the page dirty and Save stays disabled.
 	const boardGlow = doc.boardGlow
@@ -364,7 +371,7 @@ export function docSignature(doc: SymbolsDoc): string {
 				sizeRatios: sortKeys(doc.boardGlow.sizeRatios),
 			}
 		: null;
-	return JSON.stringify({ symbols, highlight, boardGlow, winLine });
+	return JSON.stringify({ symbols, highlight, boardGlow, winLine, winCycle });
 }
 
 /** Raised when a save lost to a concurrent author, so the page can offer a choice

@@ -180,8 +180,7 @@ project. When it's on, two groups of controls appear:
 - **Line** — **Colour**; **Thickness** (a fraction of the symbol size); **Glow** on/off
   and its **Glow colour**; **Animated draw** on/off (the line draws from the first paying
   tile to the last, *then* the amount appears) and its **Speed** (a draw-speed multiplier;
-  disabled unless Animated is on); **Loop until next spin** on/off and its **Loop gap**
-  (seconds of blank board between two passes; disabled unless Loop is on).
+  disabled unless Animated is on).
 - **Win amount text** — **Font** (chosen from the project's bitmap fonts — the engine
   builtins `gold`/`goldblur`/`silver`/`purple` plus any Font-Maker fonts); **Size** (a
   fraction of the symbol size); **Colour**. Because the amount is bitmap text, the colour
@@ -189,18 +188,10 @@ project. When it's on, two groups of controls appear:
   darkens it, so to recolour cleanly pick a differently-coloured font.
 
 A **Reset win-line style** button clears the style back to the game's coded defaults while
-leaving the on/off state alone (Loop is behaviour, not style, so it is left alone too).
-
-**Loop until next spin** (on by default) is what keeps the result readable after the round
-ends: once the whole book has been presented, the game replays that spin's winning lines —
-line, stamped amount and lit symbols, exactly as the round itself drew them — over and over
-on the resting board, and stops the moment the next bet starts. A free-spin feature replays
-its **last** spin's wins. The replay is skipped while autoplay or space-hold is running,
-since the next spin is already on its way.
+leaving the on/off state alone.
 
 Every field is optional and **sparse**: only the on/off (when off) and the fields you
-actually change are written, under `winLine: { enabled?, loop?, loopDelay?, line?, text? }`
-on the doc.
+actually change are written, under `winLine: { enabled?, line?, text? }` on the doc.
 Colours are CSS hex strings; `width`/`size` are multiples of the symbol size; `speed`
 scales the animated-draw duration. The game applies its coded defaults for every field the
 bundle omits, so a project that never opens this section is byte-identical to before and
@@ -212,6 +203,29 @@ The win-line renderer lives in the **shared engine** (ported 2026-07-14), so eve
 `runtime:lines` game — including the `apps/lines` reference — draws it from this config via
 `bakedWinLineConfig()`. (Historically the renderer was per-game in Book of Borut only; that
 is no longer the case.)
+
+### Winning symbols after the spin
+
+A separate section with its own on/off toggle (**on by default**) plus a **Gap between
+passes** slider. With it on, once the round's whole book has been presented the game keeps
+the winning symbols animating on the resting board — re-playing their Win state over and
+over — and stops the instant the next bet starts. Without it the symbols freeze on their
+post-win frame the moment the round ends.
+
+**Symbols only.** The win line and its stamped amount are *not* redrawn: that pair is the
+round's own per-win narration ("this line paid this much"), and repeating it at rest just
+re-tells a story the player has read. That is also why this is its own section rather than a
+win-line setting — turning the line off has no effect on it, and vice versa.
+
+A free-spin feature replays its **last** spin's wins, and every winning cell of that spin
+lights together on each pass (several wins routinely share a symbol). The replay is skipped
+while autoplay or space-hold is running, since the next spin is already on its way.
+
+Stored sparsely as `winCycle: { enabled?, delay? }` (only the OFF flag and an authored delay
+persist; `delay` is in seconds), passed straight through to `bundle.symbols.winCycle` at
+export/bake and resolved by the engine's `bakedWinCycleConfig()` (defaults: on, 0.4s). The
+replay itself is `apps/lines/src/game/winSymbolCycle.ts`, so every `runtime:lines` game has
+it.
 
 ### Saving is not the last step — shipping a rebind
 
