@@ -1107,10 +1107,10 @@
 									</div>
 								</div>
 								<p class="wl-note">
-									Off (the default), the replay re-animates the winning symbols only and leaves the
-									board's line as the spin left it. On, each pass also draws that line and stamps
-									its amount — the full per-win narration on repeat. The Win lines section above
-									still has the final say: with the overlay off, nothing is drawn either way, and a
+									On (the default), each pass also draws that line and stamps its amount — the full
+									per-win narration on repeat. Off, the replay re-animates the winning symbols only
+									and leaves the board's line as the spin left it. The Win lines section above still
+									has the final say: with the overlay off, nothing is drawn either way, and a
 									scatter win never draws a line but still lights its symbols.
 								</p>
 							</div>

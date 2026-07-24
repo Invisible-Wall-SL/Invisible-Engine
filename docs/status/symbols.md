@@ -64,13 +64,13 @@ Working on `main`:
   the first (`delay` is the gap between lines). The wins are ACCUMULATED across a spin's
   `winInfo` events, deduped: the reference books put every win in one event, but the
   Play4Fun facade the shipped games run on flushes one event per win, and assigning kept
-  only the last line there. **Symbols only by default** — the line and its stamped amount are
-  not redrawn (replaying the per-win narration at rest re-tells a story the player has read) —
-  but `showLine` (tool switch "Replay the win line too", default OFF) puts the line + amount
-  back on each pass, cleared between passes and on stop. `winLineEnabledForWin` is the shared
-  gate, so the Win-lines toggle still has the final say and a scatter win lights symbols with
-  no line. Its OWN section in the tool ("Winning symbols after the spin"), NOT a `winLine`
-  field, so switching the overlay off can never stop the symbols.
+  only the last line there. **The line rides along by default** — `showLine` (tool switch
+  "Replay the win line too", default ON) draws each win's line + stamped amount on its pass,
+  cleared between passes and on stop; off ⇒ symbols only, and the cycle then emits no line cues
+  at all. `winLineEnabledForWin` is the shared gate, so the Win-lines toggle still has the final
+  say and a scatter win lights symbols with no line. Its OWN section in the tool ("Winning
+  symbols after the spin"), NOT a `winLine` field, so switching the overlay off can never stop
+  the symbols.
 - **Full deploy chain** (export → `deploy/editor-symbols/` → bake → pull → register):
   spine-aware `symbolExport.ts`, `POST /api/editor/export-symbols`, `bake-editor-doc.mjs`
   wiring, `pull-project-assets.mjs` prune entry, `bakedSymbolMap()` / `bakedSymbolAssets()`.
@@ -98,6 +98,10 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+
+- 2026-07-24 — **`/symbols` never SAVED any `winCycle` setting** (found when an author flipped "Replay the win line too" on and Save put it back): `saveSymbolsDoc` in `symbols.client.ts` built the PUT body from a hand-copied field list (`version`/`symbols`/`highlight`/`boardGlow`/`winLine`), so the whole `winCycle` object — replay on/off, gap AND `showLine` — never left the browser; the server echoed a doc without it and the UI reset. The three older fields only survived because they predate the list. Fixed by spreading the doc (`{...doc, version: 1, …envelope}`) instead of enumerating it — the server re-validates and rebuilds from its own whitelist (`normalizeSymbolsDoc`, schema `.strip()`), so extra keys are harmless and a future doc-level field can't rot the same way. This is the third instance of the hand-copied-allowlist trap in this app (see `launcher-api/CLAUDE.md`); the guard is a Node fixture that stubs `fetch`, calls the REAL `saveSymbolsDoc` and feeds the captured body to the REAL `normalizeSymbolsDoc` — the earlier fixture only tested the server half, which is why this slipped through. `showLine` also flipped to **default ON** (owner request), so sparse persistence now keeps only the OFF.
+
+
 - 2026-07-24 — **Symbols carry a DISPLAY NAME** (`names: { H1: { singular, plural } }`), authored
   in two boxes under each row's id. This tool already owns what a symbol *is*, so it now also owns
   what the game **calls** it: Invisible Win Text prints it as `{symbolName}`, which is what let win
