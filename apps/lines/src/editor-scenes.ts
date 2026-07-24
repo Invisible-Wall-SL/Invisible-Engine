@@ -148,9 +148,9 @@ type BakedBundle = {
 		 * the `runtime:lines` bundle draws it. */
 		/** Resting-board replay of the winning SYMBOLS (Invisible Symbols State Machine output,
 		 * `winSymbolCycle.ts`): keep them animating until the next spin. Deliberately NOT part of
-		 * `winLine` — it never touches the line or its stamped amount. Sparse; `enabled` absent
-		 * ⇒ on. */
-		winCycle?: { enabled?: boolean; delay?: number };
+		 * `winLine` — the line is a separate switch and the replay only draws it when
+		 * `showLine` is authored on. Sparse; `enabled` absent ⇒ on, `showLine` absent ⇒ off. */
+		winCycle?: { enabled?: boolean; delay?: number; showLine?: boolean };
 		winLine?: {
 			enabled?: boolean;
 			line?: {
@@ -515,17 +515,18 @@ export function bakedWinLineConfig(): ResolvedWinLine {
 }
 
 /** The resting-board WIN-SYMBOL replay, fully RESOLVED (`winSymbolCycle.ts`): whether the round's
- * winning symbols keep animating until the next spin, and the pause in SECONDS between two passes
- * (floored by the cycle's own minimum). Defaults to on / 0.4s. Sibling of
- * {@link bakedWinLineConfig} by design — that owns the LINE, this owns the symbols, and turning
- * the line off must not stop the symbols. */
-export function bakedWinCycleConfig(): { enabled: boolean; delay: number } {
+ * winning symbols keep animating until the next spin, the pause in SECONDS between two passes
+ * (floored by the cycle's own minimum), and whether each pass ALSO redraws that win's line +
+ * stamped amount. Defaults to on / 0.4s / no line. Sibling of {@link bakedWinLineConfig} by
+ * design — that owns the line's existence and style, this owns the replay; `showLine` only asks
+ * the replay to reuse the line, and the win-line toggle still has the final say. */
+export function bakedWinCycleConfig(): { enabled: boolean; delay: number; showLine: boolean } {
 	const c = hasRuntimeBundle()
 		? runtimeBundle!.symbols?.winCycle
 		: hasBakedDoc()
 			? bakedBundle.symbols?.winCycle
 			: undefined;
-	return { enabled: c?.enabled ?? true, delay: c?.delay ?? 0.4 };
+	return { enabled: c?.enabled ?? true, delay: c?.delay ?? 0.4, showLine: c?.showLine ?? false };
 }
 
 /**

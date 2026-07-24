@@ -57,17 +57,20 @@ Working on `main`:
   `806d6cf`), so every `runtime:lines` game draws it (default-on) — Book of Borut _remake_
   now included. ⏳ owner confirm the drawn line on a real win.
 - **Winning SYMBOLS keep animating until the next spin** (2026-07-24, default ON). Doc-level
-  `winCycle: { enabled?, delay? }` (seconds, default `0.4`) authors the engine's
+  `winCycle: { enabled?, delay?, showLine? }` (seconds, default `0.4`) authors the engine's
   `winSymbolCycle`: once a round's book is fully presented the game re-lights that spin's
   winning cells via the same `animateSymbols` leaf the round used, until the next bet stops
   it — **stepping through the paying lines one at a time** in book order and looping back to
   the first (`delay` is the gap between lines). The wins are ACCUMULATED across a spin's
   `winInfo` events, deduped: the reference books put every win in one event, but the
   Play4Fun facade the shipped games run on flushes one event per win, and assigning kept
-  only the last line there. **Symbols only** — the line and its stamped amount
-  are NOT redrawn (owner correction: replaying the per-win narration at rest re-tells a story
-  the player has read). Its OWN section in the tool ("Winning symbols after the spin"), NOT a
-  `winLine` field, so the line toggle and the replay are independent.
+  only the last line there. **Symbols only by default** — the line and its stamped amount are
+  not redrawn (replaying the per-win narration at rest re-tells a story the player has read) —
+  but `showLine` (tool switch "Replay the win line too", default OFF) puts the line + amount
+  back on each pass, cleared between passes and on stop. `winLineEnabledForWin` is the shared
+  gate, so the Win-lines toggle still has the final say and a scatter win lights symbols with
+  no line. Its OWN section in the tool ("Winning symbols after the spin"), NOT a `winLine`
+  field, so switching the overlay off can never stop the symbols.
 - **Full deploy chain** (export → `deploy/editor-symbols/` → bake → pull → register):
   spine-aware `symbolExport.ts`, `POST /api/editor/export-symbols`, `bake-editor-doc.mjs`
   wiring, `pull-project-assets.mjs` prune entry, `bakedSymbolMap()` / `bakedSymbolAssets()`.

@@ -6,10 +6,13 @@
  * so this module re-lights them on a loop from the moment the round's presentation finishes until
  * the next bet starts.
  *
- * SYMBOLS ONLY — deliberately. The win LINE and its stamped amount belong to the round's own
- * per-win narration (draw the line, show what it paid, move to the next win); replaying them at
- * rest re-narrates a story the player has already read. So the cycle touches neither: it never
- * broadcasts `winLineShow`/`winLineHide`, and whatever the round left on screen stays as it was.
+ * SYMBOLS BY DEFAULT, LINE OPTIONALLY. The win LINE and its stamped amount belong to the round's
+ * own per-win narration (draw the line, show what it paid, move to the next win), so replaying
+ * them at rest re-narrates a story the player has already read — the default is symbols alone, and
+ * the cycle then never broadcasts `winLineShow`/`winLineHide` at all, leaving whatever the round
+ * put on screen exactly as it was. Authors who DO want the full narration on repeat turn on
+ * `winCycle.showLine` (Symbols State Machine), and each pass then draws that line and stamps its
+ * amount alongside the symbols, clearing it again between passes.
  *
  * WHY IT LIVES OUTSIDE THE HANDLER. The cycle is not part of any book event: it starts after the
  * whole book has been presented and must survive as long as nothing else is happening. It is
@@ -28,7 +31,14 @@ import { stateBetDerived } from 'state-shared';
 import { SECOND } from 'constants-shared/time';
 import { waitForTimeout } from 'utils-shared/wait';
 
-import { animateSymbols, winningPositionsOf } from './flowEffects';
+import { eventEmitter } from './eventEmitter';
+import {
+	animateSymbols,
+	winLineEnabledForWin,
+	winLinePointsFor,
+	winLineTextFor,
+	winningPositionsOf,
+} from './flowEffects';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position } from './types';
 import { bakedWinCycleConfig } from '../editor-scenes';
@@ -86,18 +96,34 @@ export const recordWinCycleWins = (bookEvent: BookEvent): void => {
 	}
 };
 
+/** Whether a line THIS cycle drew is currently on screen — so it is cleared exactly once, by
+ *  whoever ends the pass, and a cycle that never draws one leaves the round's own line alone. */
+let lineOnScreen = false;
+
+/** Clear a line this cycle drew (no-op otherwise — never touches a line the round left). */
+const clearCycleLine = (): void => {
+	if (!lineOnScreen) return;
+	lineOnScreen = false;
+	eventEmitter.broadcast({ type: 'winLineHide' });
+};
+
 /** Stop a running cycle. Idempotent — safe to call when nothing is running. */
 export const stopWinCycle = (): void => {
 	generation += 1;
+	// A stop can land mid-pass with the line drawn; without this it would survive into the spin.
+	clearCycleLine();
 };
 
 /**
- * The per-win cell groups the cycle steps through, in book order — one entry per PAYING win, each
- * holding just that win's own cells. Wins that trace no cells are dropped so a stray entry can't
- * introduce a blank beat in the rotation.
+ * The per-win entries the cycle steps through, in book order — one per PAYING win, carrying both
+ * its traced cells and the win itself (the line's points, amount and message are derived from it
+ * when `showLine` is on). Wins that trace no cells are dropped so a stray entry can't introduce a
+ * blank beat in the rotation.
  */
-const cycleGroups = (): Position[][] =>
-	wins.map((win) => winningPositionsOf(win)).filter((positions) => positions.length > 0);
+const cycleEntries = (): { win: CycleWin; positions: Position[] }[] =>
+	wins
+		.map((win) => ({ win, positions: winningPositionsOf(win) }))
+		.filter((entry) => entry.positions.length > 0);
 
 /**
  * Start cycling the recorded wins' symbols. NOT awaited by the caller — it only ends when
@@ -111,18 +137,39 @@ export const startWinCycle = async (): Promise<void> => {
 	if (!cfg.enabled) return;
 	if (stateBetDerived.isContinuousBet()) return;
 
-	const groups = cycleGroups();
-	if (!groups.length) return;
+	const entries = cycleEntries();
+	if (!entries.length) return;
 
 	generation += 1;
 	const token = generation;
 	const gapMs = Math.max(MIN_GAP_MS, cfg.delay * SECOND);
 
 	while (token === generation) {
-		for (const positions of groups) {
+		for (const { win, positions } of entries) {
 			if (token !== generation) return;
+			// `winLineEnabledForWin` is the SAME gate the round uses, so the replay inherits its
+			// rules for free: a scatter pays "anywhere" and draws no line, and the whole overlay
+			// obeys the Symbols-State-Machine win-line toggle. Those wins still light their symbols.
+			const withLine = cfg.showLine && winLineEnabledForWin(win);
+			if (withLine) {
+				lineOnScreen = true;
+				// Awaited like the round's own draw, so an animated line finishes tracing and stamps
+				// its amount before the symbols are lit — same beat order the spin played.
+				await eventEmitter.broadcastAsync({
+					type: 'winLineShow',
+					points: winLinePointsFor(positions),
+					...winLineTextFor({
+						symbol: win.symbol,
+						kind: win.kind,
+						amount: win.win,
+						line: win.meta?.lineIndex,
+					}),
+				});
+				if (token !== generation) return;
+			}
 			await animateSymbols({ positions });
 			if (token !== generation) return;
+			clearCycleLine();
 			await waitForTimeout(gapMs);
 		}
 	}

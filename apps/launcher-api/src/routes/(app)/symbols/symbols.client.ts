@@ -239,6 +239,12 @@ export function winCycleEnabled(doc: SymbolsDoc): boolean {
 /** The engine's default pause (seconds) between two win-symbol replay passes. */
 export const WIN_CYCLE_DELAY_DEFAULT = 0.4;
 
+/** The effective "also redraw the win line + amount on each replay pass" flag. Defaults to
+ *  `false` — the replay is symbols-only unless the author asks for the line back. */
+export function winCycleShowLine(doc: SymbolsDoc): boolean {
+	return doc.winCycle?.showLine ?? false;
+}
+
 /** Drop blank style fields (empty string / undefined / null) and empty `line`/`text`
  *  objects, returning a sparse `winLine` (or undefined when nothing remains). Keeps the
  *  doc minimal so an untouched/reset project ships no `winLine`. */
@@ -305,6 +311,15 @@ export function setWinCycleDelay(doc: SymbolsDoc, seconds: number | undefined): 
 	return withWinCycle(doc, winCycle);
 }
 
+/** Set the "also redraw the win line + amount on each replay pass" flag. Kept sparse: OFF (the
+ *  default) drops the field. New doc. */
+export function setWinCycleShowLine(doc: SymbolsDoc, showLine: boolean): SymbolsDoc {
+	const winCycle = { ...(doc.winCycle ?? {}) };
+	if (showLine) winCycle.showLine = true;
+	else delete winCycle.showLine;
+	return withWinCycle(doc, winCycle);
+}
+
 /** Merge a patch into `winLine.line` (line style). Pass a field as `undefined` to reset
  *  it to the coded default. New doc. */
 export function setWinLineLine(doc: SymbolsDoc, patch: Partial<WinLineLineStyle>): SymbolsDoc {
@@ -360,7 +375,11 @@ export function docSignature(doc: SymbolsDoc): string {
 			}
 		: null;
 	const winCycle = doc.winCycle
-		? { enabled: doc.winCycle.enabled ?? null, delay: doc.winCycle.delay ?? null }
+		? {
+				enabled: doc.winCycle.enabled ?? null,
+				delay: doc.winCycle.delay ?? null,
+				showLine: doc.winCycle.showLine ?? null,
+			}
 		: null;
 	// Listed here or an edit never marks the page dirty and Save stays disabled.
 	const boardGlow = doc.boardGlow
