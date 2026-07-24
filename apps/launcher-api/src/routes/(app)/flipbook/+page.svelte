@@ -357,13 +357,18 @@
 	// Detected across EVERY sheet in the project, not just the selected one. A multipacked export
 	// scatters one animation over its pages, so per-sheet detection finds only fragments: the
 	// owner's real 4-page export offered runs of 6, then 7/4/3, then 3/3/3, then nothing — while
-	// the union is the single 49-frame animation that was actually authored.
+	// the union is the single 49-frame animation that was actually authored. `detectSequencesAcross`
+	// only merges across sheets when the indices are UNIQUE (a real multipack); sheets that reuse
+	// the same numbering — every Sheet-Maker sheet is `frame_0000…` — are detected separately, so an
+	// offer can never splice one symbol's frames into another's clip.
 	const sequences = $derived(
 		detectSequencesAcross(
 			data.atlases.map((a) => ({ assetKey: a.manifestKey, regions: a.regions })),
 		),
 	);
-	/** Runs not already exactly loaded — a run the author just applied stops being an offer. */
+	/** Runs not already exactly loaded — a run the author just applied stops being an offer.
+	 *  Labelled by SHEET in the list below (`sheetLabel`), never by stem alone: every Sheet-Maker
+	 *  sheet detects under the same stem (`frame`), so the stem cannot tell two symbols apart. */
 	const sequenceOffers = $derived(
 		sequences.filter((s) => s.frames.join(' ') !== clip.frames.join(' ')),
 	);
@@ -382,7 +387,7 @@
 			clip.frames.length > 0 &&
 			!confirm(
 				`Replace the ${clip.frames.length} frame(s) in this clip with the ${seq.frames.length}-frame ` +
-					`sequence "${seq.stem}"?`,
+					`sequence "${seq.stem}" from ${seq.sheets.map(sheetLabel).join(' + ')}?`,
 			)
 		) {
 			return;
@@ -714,14 +719,22 @@
 				<div class="seqs">
 					<h4>Detected animation{sequenceOffers.length === 1 ? '' : 's'}</h4>
 					<p class="seqhint">
-						Consecutively-numbered regions across the whole project — probably one animation each,
-						even when a multipacked atlas split it over several sheets.
+						Consecutively-numbered regions — probably one animation each. Sheets are combined only
+						when their frame numbers do NOT overlap (a multipacked atlas); sheets that reuse the
+						same numbering each get their own run, so a clip never mixes two symbols.
 					</p>
-					{#each sequenceOffers as seq (seq.stem)}
-						<button class="seq" onclick={() => useSequence(seq)}>
-							<span class="sqn">{seq.stem}</span>
+					<!-- Keyed by sheet + FIRST FRAME, not by stem: one sheet can offer several runs of the
+					     same stem (a gap splits a run), and every Sheet-Maker sheet uses the stem `frame`,
+					     so a stem key collides and Svelte drops rows. A run's first frame is unique. -->
+					{#each sequenceOffers as seq (`${seq.primary}::${seq.frames[0]}`)}
+						<button
+							class="seq"
+							class:seqhere={seq.primary === sheetKey}
+							onclick={() => useSequence(seq)}
+						>
+							<span class="sqn">{seq.sheets.map(sheetLabel).join(' + ')}</span>
 							<span class="sqc"
-								>{seq.frames.length} frames{seq.sheets.length > 1
+								>{seq.stem} · {seq.frames.length} frames{seq.sheets.length > 1
 									? ` · ${seq.sheets.length} sheets`
 									: ''}</span
 							>
@@ -1165,6 +1178,11 @@
 	.seq:hover {
 		border-color: #3f6f9c;
 		background: #16283a;
+	}
+	/* The run belonging to the sheet currently open in the picker — the one the author is
+	   most likely reaching for now that every sheet offers its own. */
+	.seqhere {
+		border-color: #3f6f9c;
 	}
 	.sqn {
 		font-weight: 600;

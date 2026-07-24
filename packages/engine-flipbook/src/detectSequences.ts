@@ -90,6 +90,56 @@ export function detectSequences(names: string[], minLength = 3): DetectedSequenc
 	return out;
 }
 
+interface AcrossItem {
+	num: number;
+	region: string;
+	assetKey: string;
+}
+
+/**
+ * Walk one already-sorted stem group into runs, emitting a `DetectedSequenceAcross` per run.
+ * Shared by the merged (multipack) and per-sheet paths so both split runs identically.
+ */
+function flushRuns(
+	stem: string,
+	items: AcrossItem[],
+	minLength: number,
+	out: DetectedSequenceAcross[],
+): void {
+	let run: AcrossItem[] = [];
+	const flush = (): void => {
+		if (run.length < minLength) return;
+		// Primary = the sheet contributing the most frames, so the stored doc needs the fewest
+		// scoped refs (and a run that happens to sit on one sheet stores no scoped refs at all).
+		const tally = new Map<string, number>();
+		for (const i of run) tally.set(i.assetKey, (tally.get(i.assetKey) ?? 0) + 1);
+		let primary = run[0].assetKey;
+		let best = -1;
+		for (const [key, n] of tally) {
+			if (n > best) {
+				best = n;
+				primary = key;
+			}
+		}
+		out.push({
+			stem,
+			primary,
+			frames: run.map((i) => (i.assetKey === primary ? i.region : `${i.assetKey}::${i.region}`)),
+			sheets: [...tally.keys()],
+		});
+	};
+	for (const item of items) {
+		// A gap SPLITS a run, and a DUPLICATE index breaks it too — two frames claiming the same
+		// index are ambiguous, not a sequence.
+		if (run.length > 0 && item.num !== run[run.length - 1].num + 1) {
+			flush();
+			run = [];
+		}
+		run.push(item);
+	}
+	flush();
+}
+
 /**
  * The same detection run across SEVERAL sheets at once — the form an author actually needs.
  *
@@ -98,6 +148,22 @@ export function detectSequences(names: string[], minLength = 3): DetectedSequenc
  * of 6, then 7/4/3, then 3/3/3, then nothing — while the union is the single 49-frame animation
  * that was authored. Detecting per sheet is technically correct and practically useless.
  *
+ * BUT a shared stem across sheets does NOT always mean one split animation. The Sheet Maker names
+ * EVERY sheet's regions `frame_0000…`, so every symbol's sheet lands in the same stem group with
+ * the same index range. Merging those interleaves unrelated animations: each sheet's index N
+ * breaks the run at the next sheet's index N, the surviving run is an arbitrary tail, and its
+ * `primary` — which becomes `clip.assetKey` — can be a DIFFERENT SYMBOL'S SHEET. That authored
+ * the wrong animation silently and is exactly how one symbol ended up playing another's clip
+ * (reported on `test1`: H3 "Lotus" playing H4's frames while its static sprite stayed correct).
+ *
+ * So the two cases are told apart by the numbering itself:
+ *
+ * - **Indices UNIQUE across the sheets** ⇒ a genuine multipack (page 0 holds 00, page 1 holds
+ *   01–07, …). Merge, exactly as before.
+ * - **Any index on TWO OR MORE sheets** ⇒ separate animations that merely share a naming
+ *   convention. Detect each sheet INDEPENDENTLY, so every sheet offers its own complete run and
+ *   no run ever crosses a sheet boundary.
+ *
  * Frames come back as clip entries (bare on `primary`, scoped elsewhere), so the result drops
  * straight into `clip.frames`.
  */
@@ -105,7 +171,7 @@ export function detectSequencesAcross(
 	sheets: SheetRegions[],
 	minLength = 3,
 ): DetectedSequenceAcross[] {
-	const groups = new Map<string, { num: number; region: string; assetKey: string }[]>();
+	const groups = new Map<string, AcrossItem[]>();
 	for (const sheet of sheets) {
 		for (const region of sheet.regions ?? []) {
 			const m = typeof region === 'string' ? SEQ.exec(region) : null;
@@ -120,39 +186,34 @@ export function detectSequencesAcross(
 	const out: DetectedSequenceAcross[] = [];
 	for (const [stem, items] of groups) {
 		items.sort((a, b) => a.num - b.num);
-		let run: typeof items = [];
-		const flush = (): void => {
-			if (run.length < minLength) return;
-			// Primary = the sheet contributing the most frames, so the stored doc needs the fewest
-			// scoped refs (and a run that happens to sit on one sheet stores no scoped refs at all).
-			const tally = new Map<string, number>();
-			for (const i of run) tally.set(i.assetKey, (tally.get(i.assetKey) ?? 0) + 1);
-			let primary = run[0].assetKey;
-			let best = -1;
-			for (const [key, n] of tally) {
-				if (n > best) {
-					best = n;
-					primary = key;
-				}
-			}
-			out.push({
-				stem,
-				primary,
-				frames: run.map((i) => (i.assetKey === primary ? i.region : `${i.assetKey}::${i.region}`)),
-				sheets: [...tally.keys()],
-			});
-		};
+
+		// Does any index appear on more than one sheet? That is the signature of separate
+		// animations sharing a naming convention, NOT of one animation split over pages.
+		const sheetsByNum = new Map<number, Set<string>>();
+		let collides = false;
 		for (const item of items) {
-			// A duplicate index breaks the run exactly as in the single-sheet case — but here it is
-			// the likelier failure, since two sheets can legitimately carry the same region name.
-			// Guessing which one belongs to the animation would silently author the wrong frame.
-			if (run.length > 0 && item.num !== run[run.length - 1].num + 1) {
-				flush();
-				run = [];
+			let set = sheetsByNum.get(item.num);
+			if (!set) sheetsByNum.set(item.num, (set = new Set()));
+			set.add(item.assetKey);
+			if (set.size > 1) {
+				collides = true;
+				break;
 			}
-			run.push(item);
 		}
-		flush();
+
+		if (!collides) {
+			flushRuns(stem, items, minLength, out);
+			continue;
+		}
+
+		// Per sheet, in the order the sheets were supplied, so the offers stay stable.
+		const bySheet = new Map<string, AcrossItem[]>();
+		for (const item of items) {
+			const list = bySheet.get(item.assetKey);
+			if (list) list.push(item);
+			else bySheet.set(item.assetKey, [item]);
+		}
+		for (const [, sheetItems] of bySheet) flushRuns(stem, sheetItems, minLength, out);
 	}
 	out.sort((a, b) => b.frames.length - a.frames.length || a.stem.localeCompare(b.stem));
 	return out;

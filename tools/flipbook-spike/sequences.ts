@@ -142,15 +142,91 @@ assert(
 	single[0].frames.join(',') === 'x_0,x_1,x_2' && single[0].sheets.length === 1,
 	'a run confined to one sheet produces bare names and one sheet',
 );
-// The same index on two sheets is ambiguous — it must break the run, not be guessed at.
+// The same index on two sheets means these are NOT pages of one animation — they are separate
+// animations that share a naming convention. Detect each sheet on its own; never merge, and never
+// let a run cross the boundary (the old behaviour shredded both runs instead).
 const dupeAcross = detectSequencesAcross([
 	{ assetKey: K(0), regions: ['y_0', 'y_1', 'y_2', 'y_3'] },
-	{ assetKey: K(1), regions: ['y_2'] },
+	{ assetKey: K(1), regions: ['y_0', 'y_1', 'y_2'] },
 ]);
 assert(
-	dupeAcross.every((s) => s.frames.length < 4),
-	'a duplicated index across sheets breaks the run rather than picking a page',
+	dupeAcross.length === 2 && dupeAcross.every((s) => s.sheets.length === 1),
+	'a duplicated index across sheets ⇒ one run PER SHEET, never a merged one',
 );
+assert(
+	dupeAcross[0].frames.join(',') === 'y_0,y_1,y_2,y_3' && dupeAcross[0].primary === K(0),
+	'each run keeps ALL of its own sheet’s frames and names its OWN sheet as primary',
+);
+assert(
+	dupeAcross.every((s) => s.frames.every((f) => !f.includes('::'))),
+	'a per-sheet run stores bare names — nothing points at the other sheet',
+);
+
+// ---------------------------------------------------------------------------
+// The reported bug (project `test1`, symbol H3 "Lotus"). Every Sheet-Maker sheet names its
+// regions `frame_0000…`, so all of them land in ONE stem group with the SAME index range.
+// Merged, the indices interleave: each sheet's index N is broken by the next sheet's index N, the
+// only surviving run is an arbitrary tail, and its `primary` — which becomes `clip.assetKey` —
+// could be a DIFFERENT SYMBOL'S SHEET. Clicking the single offer while looking at the Lotus sheet
+// then authored an H4 clip, so H3 played H4's animation while its static sprite stayed correct.
+// ---------------------------------------------------------------------------
+console.log('sequences — Sheet-Maker sheets all named frame_0000…');
+const pad = (n: number) => `frame_${String(n).padStart(4, '0')}`;
+const sheetOf = (assetKey: string, count: number) => ({
+	assetKey,
+	regions: Array.from({ length: count }, (_, i) => pad(i)),
+});
+const LOTUS = 'c/p/sheets/S_Lotus/atlas_manifest_S_Lotus.json';
+const GEM = 'c/p/sheets/S_Gem/atlas_manifest_S_Gem.json';
+const CROWN = 'c/p/sheets/S_Crown/atlas_manifest_S_Crown.json';
+
+const symbolSheets = detectSequencesAcross([
+	sheetOf(LOTUS, 49),
+	sheetOf(GEM, 30),
+	sheetOf(CROWN, 20),
+]);
+assert(symbolSheets.length === 3, 'three symbol sheets ⇒ three offers, one per sheet');
+assert(
+	symbolSheets.every((s) => s.sheets.length === 1),
+	'no offer draws from more than one sheet',
+);
+assert(
+	symbolSheets.map((s) => s.frames.length).join(',') === '49,30,20',
+	'each sheet offers its COMPLETE run, not a truncated tail',
+);
+const lotusOffer = symbolSheets.find((s) => s.primary === LOTUS);
+assert(
+	lotusOffer?.frames[0] === pad(0) && lotusOffer?.frames.at(-1) === pad(48),
+	'the Lotus offer starts at frame 0 and ends at its own last frame',
+);
+assert(
+	symbolSheets.every((s) => s.frames.every((f) => !f.includes('::'))),
+	'no offer references another symbol’s sheet — the wrong-animation bug',
+);
+// Equal-length sheets used to detect NOTHING at all (every run capped at 2 by the interleave).
+const equalLength = detectSequencesAcross([sheetOf(LOTUS, 49), sheetOf(GEM, 49)]);
+assert(
+	equalLength.length === 2 && equalLength.every((s) => s.frames.length === 49),
+	'two equally-long sheets still offer both full runs (they used to offer none)',
+);
+
+// The `/flipbook` offer list keys its `{#each}` by `primary::frames[0]`. That must be unique for
+// every shape — including one sheet holding TWO runs of the same stem (a gap splits a run), which
+// a stem-only key collided on (Svelte then drops rows).
+const gapped = detectSequencesAcross([
+	sheetOf(LOTUS, 6),
+	{ assetKey: GEM, regions: [0, 1, 2, 10, 11, 12].map(pad) },
+]);
+const offerKeys = gapped.map((s) => `${s.primary}::${s.frames[0]}`);
+assert(
+	new Set(offerKeys).size === offerKeys.length,
+	'every offer has a UNIQUE primary::firstFrame key, even two runs of one stem on one sheet',
+);
+assert(
+	gapped.filter((s) => s.primary === GEM).length === 2,
+	'a gap still splits one sheet into two offers',
+);
+
 assert(detectSequencesAcross([]).length === 0, 'no sheets yields nothing');
 
 console.log('');
