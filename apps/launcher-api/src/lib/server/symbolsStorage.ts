@@ -161,12 +161,14 @@ const winLineSchema = z
 
 /** Resting-board replay of the winning SYMBOLS (the game's `winSymbolCycle`): keep them
  *  animating until the next spin. `enabled` absent means ON; `delay` is the pause in SECONDS
- *  between two passes. Deliberately a SIBLING of `winLine`, not a field inside it — the replay
- *  never draws the line or its stamped amount, so turning the line off must not stop it. */
+ *  between two passes; `showLine` (absent ⇒ OFF) also redraws each win's line + stamped amount on
+ *  its pass. Deliberately a SIBLING of `winLine`, not a field inside it — the replay is a separate
+ *  switch from the line's existence and style, and `showLine` only asks it to reuse the line. */
 const winCycleSchema = z
 	.object({
 		enabled: z.boolean().optional(),
 		delay: z.number().optional(),
+		showLine: z.boolean().optional(),
 	})
 	.strict();
 
@@ -240,6 +242,7 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	const winCycle: NonNullable<SymbolsDoc['winCycle']> = {};
 	if (doc.winCycle?.enabled === false) winCycle.enabled = false;
 	if (doc.winCycle?.delay !== undefined) winCycle.delay = doc.winCycle.delay;
+	if (doc.winCycle?.showLine === true) winCycle.showLine = true;
 	if (Object.keys(winCycle).length) next.winCycle = winCycle;
 	return next;
 }

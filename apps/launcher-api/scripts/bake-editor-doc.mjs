@@ -388,6 +388,7 @@ async function main() {
 				const out = {};
 				if (c.enabled === false) out.enabled = false;
 				if (typeof c.delay === 'number') out.delay = c.delay;
+				if (c.showLine === true) out.showLine = true;
 				return Object.keys(out).length ? out : undefined;
 			})();
 			// Symbol DISPLAY NAMES (`H1` → "Banana"), pure text. Invisible Win Text reads these as

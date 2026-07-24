@@ -143,10 +143,10 @@ export interface SymbolsDoc {
 	 *  defaults when unset. */
 	winLine?: WinLineConfig;
 	/** Resting-board replay of the winning SYMBOLS. Sparse (`enabled` absent = ON); a sibling of
-	 *  `winLine`, never a field inside it — the replay never draws the line. Was USED by the
-	 *  helpers below without ever being declared here, which type-checks nowhere because the
-	 *  launcher build only transpiles. */
-	winCycle?: { enabled?: boolean; delay?: number };
+	 *  `winLine`, never a field inside it — the replay is about the SYMBOLS, and `showLine` only
+	 *  opts the line back into each pass. Was USED by the helpers below without ever being
+	 *  declared here, which type-checks nowhere because the launcher build only transpiles. */
+	winCycle?: { enabled?: boolean; delay?: number; showLine?: boolean };
 	updatedAt?: string;
 }
 
@@ -251,6 +251,12 @@ export function winCycleEnabled(doc: SymbolsDoc): boolean {
 /** The engine's default pause (seconds) between two win-symbol replay passes. */
 export const WIN_CYCLE_DELAY_DEFAULT = 0.4;
 
+/** The effective "also redraw the win line + amount on each replay pass" flag. Defaults to
+ *  `false` — the replay is symbols-only unless the author asks for the line back. */
+export function winCycleShowLine(doc: SymbolsDoc): boolean {
+	return doc.winCycle?.showLine ?? false;
+}
+
 /** Drop blank style fields (empty string / undefined / null) and empty `line`/`text`
  *  objects, returning a sparse `winLine` (or undefined when nothing remains). Keeps the
  *  doc minimal so an untouched/reset project ships no `winLine`. */
@@ -314,6 +320,15 @@ export function setWinCycleDelay(doc: SymbolsDoc, seconds: number | undefined): 
 	const winCycle = { ...(doc.winCycle ?? {}) };
 	if (seconds === undefined) delete winCycle.delay;
 	else winCycle.delay = seconds;
+	return withWinCycle(doc, winCycle);
+}
+
+/** Set the "also redraw the win line + amount on each replay pass" flag. Kept sparse: OFF (the
+ *  default) drops the field. New doc. */
+export function setWinCycleShowLine(doc: SymbolsDoc, showLine: boolean): SymbolsDoc {
+	const winCycle = { ...(doc.winCycle ?? {}) };
+	if (showLine) winCycle.showLine = true;
+	else delete winCycle.showLine;
 	return withWinCycle(doc, winCycle);
 }
 
@@ -397,7 +412,11 @@ export function docSignature(doc: SymbolsDoc): string {
 			}
 		: null;
 	const winCycle = doc.winCycle
-		? { enabled: doc.winCycle.enabled ?? null, delay: doc.winCycle.delay ?? null }
+		? {
+				enabled: doc.winCycle.enabled ?? null,
+				delay: doc.winCycle.delay ?? null,
+				showLine: doc.winCycle.showLine ?? null,
+			}
 		: null;
 	// Listed here or an edit never marks the page dirty and Save stays disabled.
 	const boardGlow = doc.boardGlow

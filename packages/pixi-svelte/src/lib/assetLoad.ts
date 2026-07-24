@@ -1,5 +1,6 @@
 import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
 import type { RawType, RawAsset, RawSpine, RawSprites, SpineSrc, RawAudio } from './types';
+import { setSpineLoadScale } from './spineLoadScale';
 
 const PROCESS_METHOD_MAP = {
 	spine: ({ key, rawAsset, src }: { key: string; rawAsset: RawSpine; src: SpineSrc }) => {
@@ -12,6 +13,9 @@ const PROCESS_METHOD_MAP = {
 				: new SPINE_PIXI.SkeletonJson(attachmentLoader);
 		const scale = src?.scale ?? 1;
 		parser.scale = scale;
+		// Remember it: the skeleton's `data.width/height` come through UNSCALED, so nothing
+		// downstream can infer the load scale from the loaded data (see `spineLoadScale.ts`).
+		setSpineLoadScale(key, scale);
 		const skeletonData = parser.readSkeletonData(skeletonAsset);
 
 		return { [key]: skeletonData };

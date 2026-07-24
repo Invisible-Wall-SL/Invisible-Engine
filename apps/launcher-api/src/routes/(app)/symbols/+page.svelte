@@ -38,10 +38,12 @@
 		setSymbolName,
 		setWinCycleDelay,
 		setWinCycleEnabled,
+		setWinCycleShowLine,
 		setWinLineEnabled,
 		setWinLineLine,
 		setWinLineText,
 		winCycleEnabled,
+		winCycleShowLine,
 		winLineEnabled,
 		WIN_CYCLE_DELAY_DEFAULT,
 		SYMBOL_CELL_TYPES,
@@ -579,6 +581,7 @@
 	// with win lines switched off.
 	const wcOn = $derived(winCycleEnabled(doc));
 	const wcDelay = $derived(doc.winCycle?.delay ?? WIN_CYCLE_DELAY_DEFAULT);
+	const wcShowLine = $derived(winCycleShowLine(doc));
 
 	function resetWinLineStyle(): void {
 		doc = clearWinLineStyle(doc);
@@ -1060,8 +1063,8 @@
 								Keep the round's winning symbols animating on the resting board until the player
 								spins again, instead of freezing on their post-win frame. A spin that paid several
 								lines steps through them one line at a time, in the order the round paid them, then
-								starts over. Symbols only — the win line and its stamped amount are not redrawn.
-								Autoplay and space-hold skip it, since the next spin is already on its way.
+								starts over. Autoplay and space-hold skip it, since the next spin is already on its
+								way.
 							</p>
 						</div>
 						<label class="switch" class:on={wcOn}>
@@ -1090,7 +1093,26 @@
 											oninput={(e) => (doc = setWinCycleDelay(doc, Number(e.currentTarget.value)))}
 										/>
 									</label>
+									<div class="field">
+										<span class="label">Replay the win line too</span>
+										<label class="switch sm" class:on={wcShowLine}>
+											<input
+												type="checkbox"
+												checked={wcShowLine}
+												onchange={(e) => (doc = setWinCycleShowLine(doc, e.currentTarget.checked))}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label">{wcShowLine ? 'On' : 'Off'}</span>
+										</label>
+									</div>
 								</div>
+								<p class="wl-note">
+									Off (the default), the replay re-animates the winning symbols only and leaves the
+									board's line as the spin left it. On, each pass also draws that line and stamps
+									its amount — the full per-win narration on repeat. The Win lines section above
+									still has the final say: with the overlay off, nothing is drawn either way, and a
+									scatter win never draws a line but still lights its symbols.
+								</p>
 							</div>
 						</div>
 					{/if}

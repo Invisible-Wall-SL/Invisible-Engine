@@ -72,7 +72,9 @@
 		if (!convention) return undefined;
 		const prefix = TIER_PREFIX[winLevelData?.alias ?? ''];
 		const pick = (suffix: string, sharedKey: string, fallback: string) =>
-			(prefix ? stringParam(`${prefix}${suffix}`) : undefined) ?? stringParam(sharedKey) ?? fallback;
+			(prefix ? stringParam(`${prefix}${suffix}`) : undefined) ??
+			stringParam(sharedKey) ??
+			fallback;
 		return {
 			intro: pick('Intro', 'introAnimation', convention.intro),
 			idle: pick('Idle', 'idleAnimation', convention.idle),
@@ -113,7 +115,15 @@
 	{/if}
 
 	{#if resolvedAnimationMap}
-		<WinAnimation animationMap={resolvedAnimationMap} key={winSpine} {slotName}>
+		<!-- Size base: the OFF composer keeps the coded board-width fit (parity); the AUTHORED
+			instance passes no width, so the rig renders at the natural size the Scene Editor
+			previews — the instance node's transform is then the only thing that sizes/places it. -->
+		<WinAnimation
+			animationMap={resolvedAnimationMap}
+			key={winSpine}
+			{slotName}
+			width={boundToInstance ? undefined : context.stateGameDerived.boardLayout().width}
+		>
 			{#if levelCaption}
 				<Container y={-SYMBOL_SIZE * 2.6}>
 					<ResponsiveBitmapText
