@@ -217,13 +217,11 @@ the rotation starts over: line 1's symbols, gap, line 2's symbols, gap, … so e
 combination is legible on its own rather than the whole board lighting at once. The slider
 is that gap. A one-line win is just the same rotation with a single entry.
 
-**Symbols only, or the whole narration.** By default the win line and its stamped amount are
-*not* redrawn — that pair is the round's own per-win narration ("this line paid this much"),
-and repeating it at rest re-tells a story the player has read — so the replay leaves the
-board's line exactly as the spin left it. Turn **Replay the win line too** on and each pass
-also draws that win's line and stamps its amount, in the same beat order the spin played
-(line traces and the amount appears, then the symbols light), clearing it again between
-passes.
+**The line rides along by default.** Each pass draws that win's line and stamps its amount in
+the same beat order the spin played (the line traces and the amount appears, then the symbols
+light), clearing it again before the next line's turn — so the rotation reads as the round's
+own per-win narration on repeat. Turn **Replay the win line too** off and the replay
+re-animates the winning symbols only, leaving the board's line exactly as the spin left it.
 
 That switch only asks the replay to *reuse* the line; the **Win lines** section above still
 owns whether a line exists at all. With the overlay off nothing is drawn either way, and a
@@ -234,11 +232,11 @@ switching the overlay off must not stop the symbols.
 A free-spin feature replays its **last** spin's wins. The replay is skipped while autoplay or
 space-hold is running, since the next spin is already on its way.
 
-Stored sparsely as `winCycle: { enabled?, delay?, showLine? }` (only the OFF flag, an authored
-delay and an ON `showLine` persist; `delay` is in seconds), passed straight through to
+Stored sparsely as `winCycle: { enabled?, delay?, showLine? }` — both switches default ON, so
+only an OFF and an authored `delay` (in seconds) persist — passed straight through to
 `bundle.symbols.winCycle` at export/bake and resolved by the engine's `bakedWinCycleConfig()`
-(defaults: on, 0.4s, no line). The replay itself is `apps/lines/src/game/winSymbolCycle.ts`,
-so every `runtime:lines` game has it.
+(defaults: on, 0.4s, line drawn). The replay itself is
+`apps/lines/src/game/winSymbolCycle.ts`, so every `runtime:lines` game has it.
 
 ### Saving is not the last step — shipping a rebind
 

@@ -240,9 +240,9 @@ export function winCycleEnabled(doc: SymbolsDoc): boolean {
 export const WIN_CYCLE_DELAY_DEFAULT = 0.4;
 
 /** The effective "also redraw the win line + amount on each replay pass" flag. Defaults to
- *  `false` — the replay is symbols-only unless the author asks for the line back. */
+ *  `true` — the replay narrates each line the way the spin did unless the author turns it off. */
 export function winCycleShowLine(doc: SymbolsDoc): boolean {
-	return doc.winCycle?.showLine ?? false;
+	return doc.winCycle?.showLine ?? true;
 }
 
 /** Drop blank style fields (empty string / undefined / null) and empty `line`/`text`
@@ -311,12 +311,12 @@ export function setWinCycleDelay(doc: SymbolsDoc, seconds: number | undefined): 
 	return withWinCycle(doc, winCycle);
 }
 
-/** Set the "also redraw the win line + amount on each replay pass" flag. Kept sparse: OFF (the
- *  default) drops the field. New doc. */
+/** Set the "also redraw the win line + amount on each replay pass" flag. Kept sparse: ON (the
+ *  default) drops the field, only OFF persists `showLine: false`. New doc. */
 export function setWinCycleShowLine(doc: SymbolsDoc, showLine: boolean): SymbolsDoc {
 	const winCycle = { ...(doc.winCycle ?? {}) };
-	if (showLine) winCycle.showLine = true;
-	else delete winCycle.showLine;
+	if (showLine) delete winCycle.showLine;
+	else winCycle.showLine = false;
 	return withWinCycle(doc, winCycle);
 }
 
@@ -418,12 +418,16 @@ export async function saveSymbolsDoc(
 	const res = await fetch(`/api/editor/symbols?project=${encodeURIComponent(project)}`, {
 		method: 'PUT',
 		headers: { 'content-type': 'application/json' },
+		// The WHOLE doc goes on the wire — deliberately a spread, never a hand-copied field list.
+		// It used to enumerate `symbols`/`highlight`/`boardGlow`/`winLine`, so `winCycle` (added
+		// later) was silently dropped on every save: the tool showed the author's choice, the PUT
+		// never carried it, and the server's response put the default back. Any doc-level field
+		// added from here on would have rotted the same way. The server re-validates and rebuilds
+		// the doc from its own whitelist (`normalizeSymbolsDoc`, schema `.strip()`), so sending
+		// extra keys — `updatedAt`, and the `baseEtag`/`force` envelope below — is safe.
 		body: JSON.stringify({
+			...doc,
 			version: 1,
-			symbols: doc.symbols,
-			...(doc.highlight ? { highlight: doc.highlight } : {}),
-			...(doc.boardGlow ? { boardGlow: doc.boardGlow } : {}),
-			...(doc.winLine ? { winLine: doc.winLine } : {}),
 			...(force ? { force: true } : { baseEtag }),
 		}),
 	});

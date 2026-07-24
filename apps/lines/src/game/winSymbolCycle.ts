@@ -6,13 +6,12 @@
  * so this module re-lights them on a loop from the moment the round's presentation finishes until
  * the next bet starts.
  *
- * SYMBOLS BY DEFAULT, LINE OPTIONALLY. The win LINE and its stamped amount belong to the round's
- * own per-win narration (draw the line, show what it paid, move to the next win), so replaying
- * them at rest re-narrates a story the player has already read — the default is symbols alone, and
- * the cycle then never broadcasts `winLineShow`/`winLineHide` at all, leaving whatever the round
- * put on screen exactly as it was. Authors who DO want the full narration on repeat turn on
- * `winCycle.showLine` (Symbols State Machine), and each pass then draws that line and stamps its
- * amount alongside the symbols, clearing it again between passes.
+ * THE LINE RIDES ALONG, unless switched off. Each pass draws that win's line and stamps its
+ * amount before lighting its symbols — the same beat order the spin played — and clears it again
+ * between passes, so the rotation reads as the round's own per-win narration on repeat. Turning
+ * `winCycle.showLine` off (Symbols State Machine) makes the replay symbols-only, and the cycle
+ * then never broadcasts `winLineShow`/`winLineHide` at all, leaving whatever the round put on
+ * screen exactly as it was.
  *
  * WHY IT LIVES OUTSIDE THE HANDLER. The cycle is not part of any book event: it starts after the
  * whole book has been presented and must survive as long as nothing else is happening. It is
