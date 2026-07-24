@@ -61,8 +61,10 @@ Working on `main`:
   `winSymbolCycle`: once a round's book is fully presented the game re-lights that spin's
   winning cells via the same `animateSymbols` leaf the round used, until the next bet stops
   it — **stepping through the paying lines one at a time** in book order and looping back to
-  the first (the wins all ride ONE `winInfo` event, so a multi-line spin rotates through
-  them; `delay` is the gap between lines). **Symbols only** — the line and its stamped amount
+  the first (`delay` is the gap between lines). The wins are ACCUMULATED across a spin's
+  `winInfo` events, deduped: the reference books put every win in one event, but the
+  Play4Fun facade the shipped games run on flushes one event per win, and assigning kept
+  only the last line there. **Symbols only** — the line and its stamped amount
   are NOT redrawn (owner correction: replaying the per-win narration at rest re-tells a story
   the player has read). Its OWN section in the tool ("Winning symbols after the spin"), NOT a
   `winLine` field, so the line toggle and the replay are independent.

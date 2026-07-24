@@ -48,14 +48,42 @@ let wins: CycleWin[] = [];
 /** Bumped by every start/stop; a running loop exits as soon as its own token is stale. */
 let generation = 0;
 
+/** Identity of a win, for the accumulate-without-doubling guard below. A payline is defined by the
+ *  cells it pays on, so the traced positions (plus the symbol/count) name it even when the source
+ *  book carries no `lineIndex`. */
+const winKey = (win: CycleWin): string =>
+	`${win.symbol}|${win.kind}|${win.meta?.lineIndex ?? ''}|${win.positions
+		.map((position) => `${position.reel}:${position.row}`)
+		.join(',')}`;
+
 /**
  * Record the wins the cycle will replay. Called for EVERY book event on every dispatch path:
  * `reveal` clears (a new spin's board invalidates the previous spin's wins — this is what makes a
- * free-spin feature cycle its LAST spin rather than the whole book), `winInfo` sets.
+ * free-spin feature cycle its LAST spin rather than the whole book), `winInfo` ACCUMULATES.
+ *
+ * Accumulates, rather than assigns, because the number of `winInfo` events per spin is a property
+ * of the SOURCE BOOK, not of the game. The reference books put every win in ONE event
+ * (`wins: [w1, w2, w3]`), but the Play4Fun facade — which is what the shipped Book of Borut runs on
+ * — flushes one event PER win (`reveal → winInfo×N → setTotalWin`, `stakeFacade.adaptEventsForStake`).
+ * Assigning therefore kept only the LAST line on exactly the games that pay several, which is the
+ * bug this fixes. Both shapes now land the same list.
+ *
+ * De-duplicated by {@link winKey} so a book that emits per-line events AND a summary event cannot
+ * make a line appear twice in the rotation.
  */
 export const recordWinCycleWins = (bookEvent: BookEvent): void => {
-	if (bookEvent.type === 'reveal') wins = [];
-	else if (bookEvent.type === 'winInfo') wins = bookEvent.wins;
+	if (bookEvent.type === 'reveal') {
+		wins = [];
+		return;
+	}
+	if (bookEvent.type !== 'winInfo') return;
+	const seen = new Set(wins.map(winKey));
+	for (const win of bookEvent.wins) {
+		const key = winKey(win);
+		if (seen.has(key)) continue;
+		seen.add(key);
+		wins.push(win);
+	}
 };
 
 /** Stop a running cycle. Idempotent — safe to call when nothing is running. */
