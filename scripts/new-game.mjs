@@ -61,6 +61,9 @@ const ENGINE_PACKAGES = [
 	'rgs-requests',
 	'rgs-translator-eagaming',
 	'engine-layout',
+	'engine-flow',
+	'engine-flow-v2',
+	'engine-fx',
 	'pixi-svelte',
 	'state-shared',
 	'constants-shared',
@@ -165,11 +168,30 @@ const files = {
 					...Object.fromEntries(ENGINE_CONFIGS.map((p) => [p, 'workspace:*'])),
 				},
 				dependencies: {
-					svelte: '5.20.5',
+					// Match the engine packages (they all declare 5.35.1) and therefore the
+					// pnpm.overrides below — svelte and its parser/printer are ONE set. A stale
+					// 5.20.5 here paired with the engine's esrap fails on kit's own error.svelte
+					// with "Not implemented: Program".
+					svelte: '5.35.1',
 					vite: '6.2.0',
 					'@sveltejs/kit': '2.17.3',
 					'@lingui/core': '5.2.0',
 					...Object.fromEntries(ENGINE_PACKAGES.map((p) => [p, 'workspace:*'])),
+				},
+				// Svelte depends on its parser/printer through CARET ranges, and a brand-new
+				// standalone repo has no lockfile — so a fresh install floats them to the
+				// newest release while the engine monorepo stays on what its committed
+				// lockfile resolved. That drift is not cosmetic: esrap 2.3.0 prints the
+				// TypeScript optional-parameter marker into compiled JS (`function f(x?)`),
+				// which is invalid JavaScript, and rollup dies with "Expected ',', got '?'"
+				// on any component using a typed snippet parameter. Pin them to the versions
+				// the engine builds against; re-check these when bumping svelte.
+				pnpm: {
+					overrides: {
+						esrap: '2.0.1',
+						acorn: '8.15.0',
+						'@sveltejs/acorn-typescript': '1.0.5',
+					},
 				},
 			},
 			null,
@@ -177,6 +199,11 @@ const files = {
 		) + '\n',
 
 	'svelte.config.js': `// @ts-ignore\nimport config from 'config-svelte';\n\nexport default config();\n`,
+
+	// REQUIRED, not optional: `config-vite` always registers the lingui() plugin, which
+	// aborts the build with "No Lingui config found" when this file is absent. Same
+	// one-liner every shipped game uses.
+	'lingui.config.ts': `import config from 'config-lingui';\n\nexport default config;\n`,
 
 	'vite.config.js': `// Don't convert this to a .ts file (https://github.com/vitejs/vite/issues/5370)
 import { fileURLToPath } from 'node:url';
@@ -217,12 +244,16 @@ export default defineConfig(({ mode }) => {
 });
 `,
 
+	// Resolve config-ts by PACKAGE NAME (it's a workspace dep), the same way every
+	// shipped game does. A relative `./engine/packages/config-ts/svelte.json` path was
+	// wrong twice over: that file does not exist (the package ships `base.json`), and
+	// vite:esbuild fails the build outright on an unresolvable `extends`.
 	'tsconfig.json':
 		JSON.stringify(
 			{
-				extends: './engine/packages/config-ts/svelte.json',
-				compilerOptions: { baseUrl: '.' },
-				include: ['src/**/*.ts', 'src/**/*.svelte'],
+				extends: 'config-ts/base.json',
+				include: ['.'],
+				exclude: ['dist', 'build', 'node_modules'],
 			},
 			null,
 			'\t',
@@ -244,6 +275,21 @@ export default defineConfig(({ mode }) => {
 `,
 
 	'src/routes/+layout.svelte': `<script>\n\tlet { children } = $props();\n</script>\n\n{@render children()}\n`,
+
+	// REQUIRED by adapter-static (config-svelte's adapter): without `prerender` the
+	// build fails at the adapter step with "Encountered dynamic routes". `ssr = false`
+	// because the game is a client-rendered pixi canvas. Same file every shipped game has.
+	'src/routes/+layout.ts': `// Emit a static html file for the page.
+// https://kit.svelte.dev/docs/page-options#prerender
+export const prerender = true;
+
+// The game is a client-side pixi canvas — there is nothing to server-render.
+// https://kit.svelte.dev/docs/page-options#ssr
+export const ssr = false;
+
+// https://kit.svelte.dev/docs/page-options#trailingslash
+export const trailingSlash = 'ignore';
+`,
 
 	'src/routes/+page.svelte': `<script>\n\t// Minimal placeholder. Replace with the game's root component, or copy\n\t// src/ from an existing game (e.g. Book of Borut) to start from real code.\n</script>\n\n<h1>${name}</h1>\n<p>Engine submodule wired. Fill in src/ to build the game.</p>\n`,
 
