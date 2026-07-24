@@ -9,6 +9,7 @@ export * from './symbolStates';
 // copy lives in constants-shared so utils-layout (runtime) shares the one source.
 export { STANDARD_MAIN_SIZES_MAP } from 'constants-shared/layout';
 export * from './editorArtKey';
+export * from './spineLoadScale';
 export * from './builtinRegions';
 export * from './coverTransform';
 export * from './componentDesignSize';

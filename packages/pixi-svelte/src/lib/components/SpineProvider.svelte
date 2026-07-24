@@ -7,6 +7,18 @@
 		key: string;
 		anchor?: PixiPoint;
 		scale?: PixiPoint;
+		/**
+		 * Render this rig as if its skeleton had been read at THIS load scale, whatever
+		 * `parser.scale` its bundle was actually loaded with (`setSpineLoadScale`).
+		 *
+		 * The Spine readers scale the skeleton geometry but leave `skeleton.data.width/height`
+		 * un-scaled, so the load scale is a bare multiplier that NO sizing path cancels — a
+		 * bundle read at 2 is twice the size of the same bundle read at 1, both at natural size
+		 * and at any requested `width`. A surface that must be pixel-identical with an authoring
+		 * tool (which loads every rig at its own fixed scale) passes that scale here and stops
+		 * caring what the game's asset index happens to say. Absent ⇒ factor 1 ⇒ unchanged.
+		 */
+		loadScaleBase?: number;
 	};
 </script>
 
@@ -16,29 +28,51 @@
 	import BaseSpineProvider from './BaseSpineProvider.svelte';
 	import { anchorToPivot } from '../utils.svelte';
 	import { getContextApp } from '../context.svelte';
+	import { getSpineLoadScale } from '../spineLoadScale';
 	import { warnMissingAsset } from '../missingAsset';
 
-	const { debug, key, anchor, children, scale: scaleProp, ...baseSpineProps }: Props = $props();
+	const {
+		debug,
+		key,
+		anchor,
+		children,
+		scale: scaleProp,
+		loadScaleBase,
+		...baseSpineProps
+	}: Props = $props();
 	const context = getContextApp();
-	const spineData = $derived.by(() => {
+	// Resolved bundle + the key it is REGISTERED under (they differ for a doc-stored R2
+	// prefix), so the load scale is read under the same key `assetLoad` recorded it with.
+	const resolved = $derived.by(() => {
 		const assets = context.stateApp.loadedAssets;
 		const direct = assets?.[key] as SPINE_PIXI.SkeletonData | undefined;
-		if (direct) return direct;
+		if (direct) return { data: direct, assetKey: key };
 		// Editor scene docs store a spine key as its R2 bundle PREFIX
 		// (`<client>/<project>/spines/<bundle>/`) so the editor can preview it from
 		// R2; games register the spine under the plain `<bundle>` key. Fall back to
 		// that so doc-driven spine nodes resolve in-game.
 		const bundle = key.match(/(?:^|\/)spines\/(.+?)\/?$/)?.[1];
-		return bundle ? (assets?.[bundle] as SPINE_PIXI.SkeletonData | undefined) : undefined;
+		const data = bundle ? (assets?.[bundle] as SPINE_PIXI.SkeletonData | undefined) : undefined;
+		return data && bundle ? { data, assetKey: bundle } : undefined;
 	});
+	const spineData = $derived(resolved?.data);
 
 	// `width`/`height` → scale is resolved in `BaseSpineProvider` (it sizes against the
 	// pose-independent authored bounds, robust to animation/skin-driven art whose setup
 	// pose is empty). Here we only forward the caller's raw `scale`; BaseSpineProvider
-	// folds the size scale into it.
+	// folds the size scale into it — plus, when the caller asked for one, the load-scale
+	// correction (see `loadScaleBase`). Absent ⇒ 1 ⇒ byte-identical to before.
+	const loadScaleFix = $derived(
+		loadScaleBase === undefined || !resolved
+			? 1
+			: loadScaleBase / getSpineLoadScale(resolved.assetKey),
+	);
 	const scale = $derived.by(() => {
-		if (typeof scaleProp === 'number') return { x: scaleProp, y: scaleProp };
-		return { x: scaleProp?.x ?? 1, y: scaleProp?.y ?? 1 };
+		const base =
+			typeof scaleProp === 'number'
+				? { x: scaleProp, y: scaleProp }
+				: { x: scaleProp?.x ?? 1, y: scaleProp?.y ?? 1 };
+		return { x: base.x * loadScaleFix, y: base.y * loadScaleFix };
 	});
 
 	const pivot = $derived.by(() => {
