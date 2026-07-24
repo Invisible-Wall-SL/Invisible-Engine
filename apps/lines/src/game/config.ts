@@ -345,9 +345,6 @@ export default {
 					name: 'L3',
 				},
 				{
-					name: 'W',
-				},
-				{
 					name: 'H4',
 				},
 				{
@@ -661,9 +658,6 @@ export default {
 				},
 				{
 					name: 'L4',
-				},
-				{
-					name: 'W',
 				},
 				{
 					name: 'L3',
@@ -1226,9 +1220,6 @@ export default {
 					name: 'H1',
 				},
 				{
-					name: 'W',
-				},
-				{
 					name: 'L2',
 				},
 				{
@@ -1374,9 +1365,6 @@ export default {
 				},
 				{
 					name: 'L3',
-				},
-				{
-					name: 'W',
 				},
 				{
 					name: 'L1',
@@ -1912,9 +1900,6 @@ export default {
 					name: 'L3',
 				},
 				{
-					name: 'W',
-				},
-				{
 					name: 'L1',
 				},
 				{
@@ -2102,9 +2087,6 @@ export default {
 				},
 				{
 					name: 'L2',
-				},
-				{
-					name: 'W',
 				},
 				{
 					name: 'H4',
@@ -2241,9 +2223,6 @@ export default {
 					name: 'H4',
 				},
 				{
-					name: 'W',
-				},
-				{
 					name: 'L3',
 				},
 				{
@@ -2611,9 +2590,6 @@ export default {
 				},
 				{
 					name: 'L5',
-				},
-				{
-					name: 'W',
 				},
 				{
 					name: 'H1',
@@ -2894,9 +2870,6 @@ export default {
 					name: 'H1',
 				},
 				{
-					name: 'W',
-				},
-				{
 					name: 'H4',
 				},
 				{
@@ -3252,9 +3225,6 @@ export default {
 				},
 				{
 					name: 'L3',
-				},
-				{
-					name: 'W',
 				},
 				{
 					name: 'L3',
@@ -3894,9 +3864,6 @@ export default {
 					name: 'H3',
 				},
 				{
-					name: 'W',
-				},
-				{
 					name: 'H3',
 				},
 				{
@@ -3937,9 +3904,6 @@ export default {
 				},
 				{
 					name: 'L5',
-				},
-				{
-					name: 'W',
 				},
 				{
 					name: 'L2',
@@ -4577,9 +4541,6 @@ export default {
 					name: 'H4',
 				},
 				{
-					name: 'W',
-				},
-				{
 					name: 'L2',
 				},
 				{
@@ -4641,9 +4602,6 @@ export default {
 				},
 				{
 					name: 'L3',
-				},
-				{
-					name: 'W',
 				},
 				{
 					name: 'H3',
@@ -5105,9 +5063,6 @@ export default {
 				},
 				{
 					name: 'H4',
-				},
-				{
-					name: 'W',
 				},
 				{
 					name: 'L4',
@@ -5610,9 +5565,6 @@ export default {
 					name: 'L3',
 				},
 				{
-					name: 'W',
-				},
-				{
 					name: 'L3',
 				},
 				{
@@ -5836,9 +5788,6 @@ export default {
 				},
 				{
 					name: 'H1',
-				},
-				{
-					name: 'W',
 				},
 				{
 					name: 'H1',
@@ -6194,9 +6143,6 @@ export default {
 					name: 'H3',
 				},
 				{
-					name: 'W',
-				},
-				{
 					name: 'L2',
 				},
 				{
@@ -6441,9 +6387,6 @@ export default {
 				},
 				{
 					name: 'L3',
-				},
-				{
-					name: 'W',
 				},
 				{
 					name: 'L1',
