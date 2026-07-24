@@ -24,6 +24,31 @@ export function isManifestAssetKey(assetKey: unknown): assetKey is string {
 	return typeof assetKey === 'string' && assetKey.includes('/') && assetKey.endsWith('.json');
 }
 
+/** An atlas ref that names its manifest by BARE BASENAME — ends in `.json` but carries no path
+ * segment (`atlas_manifest_S_Gem.json`). Fails {@link isManifestAssetKey}, so the scoped lookup
+ * skips it. */
+export function isBareManifestBasename(ref: unknown): ref is string {
+	return typeof ref === 'string' && !ref.includes('/') && ref.toLowerCase().endsWith('.json');
+}
+
+/**
+ * Whether an atlas ref must be REPAIRED to a full manifest key before the runtime can scope frames
+ * by it. True for the two forms an authoring tool can store that {@link isManifestAssetKey}
+ * rejects: a bare manifest basename, and a Sheet-Maker OUTPUT PREFIX
+ * (`<client>/<project>/sheets/S_Gem/` — a path with no `.json`).
+ *
+ * Both make the scoped lookup fall through to the flat bare-name texture cache, where two clips or
+ * symbols reusing a frame name (`frame_0000`) on DISTINCT atlases collide and one silently renders
+ * the other's art. Lives HERE, beside `isManifestAssetKey`, so the pipeline's repair pass and the
+ * runtime's lookup can never disagree about what "scopeable" means — the disagreement IS the bug.
+ *
+ * A game-bundled key like `symbolsStatic` matches neither form and needs no repair.
+ */
+export function needsAtlasRefRepair(ref: unknown): ref is string {
+	if (typeof ref !== 'string' || ref === '' || isManifestAssetKey(ref)) return false;
+	return isBareManifestBasename(ref) || ref.includes('/');
+}
+
 /** The per-sheet key PREFIX (separator included) the editor-art `sprites` loader
  * prepends to every frame name. Pass as the asset's `namespace`. */
 export function editorArtNamespace(assetKey: string): string {

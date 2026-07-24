@@ -54,21 +54,27 @@
 	 * unaffected, which is why Book of Borut worked). Completing after one CYCLE also means a
 	 * `loop:true` win clip can never hang the presentation: the sprite's own looped playback never
 	 * reports completion, so the beat is timed off the clip's length instead of waiting on an event
-	 * that never fires. A missing clip (the Sprite fallback below) has nothing to play, so it
-	 * completes at once — `SymbolSprite` parity.
+	 * that never fires.
+	 *
+	 * A MISSING clip (the Sprite fallback below) has nothing to play, but it must NOT complete in the
+	 * same tick the way `SymbolSprite` does. `winInfo` shows the win line, awaits the symbols, then
+	 * hides it — and the line is not animated by default — so a same-tick completion draws and clears
+	 * the line inside one frame and the player never sees the payline at all. A broken binding then
+	 * reads as "this symbol has no win line" rather than as a broken symbol. Holding {@link
+	 * MISSING_CLIP_HOLD_MS} keeps the beat visible and the failure honest (the console error above
+	 * says which clip). Only a dangling clip pays it — a real clip is timed off its own length.
 	 */
 	const DEFAULT_FPS = 24;
+	const MISSING_CLIP_HOLD_MS = 700;
 	const cycleMs = $derived(
-		clip ? Math.max(1, Math.round((clip.frames.length / (clip.fps ?? DEFAULT_FPS)) * 1000)) : 0,
+		clip
+			? Math.max(1, Math.round((clip.frames.length / (clip.fps ?? DEFAULT_FPS)) * 1000))
+			: MISSING_CLIP_HOLD_MS,
 	);
 
 	$effect(() => {
 		// Re-run whenever the bound state/clip changes — each new state is a fresh beat to complete.
 		props.symbolInfo;
-		if (!clip) {
-			props.oncomplete?.();
-			return;
-		}
 		const id = setTimeout(() => props.oncomplete?.(), cycleMs);
 		return () => clearTimeout(id);
 	});

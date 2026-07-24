@@ -8,10 +8,12 @@
 		"registry": "tsx registry.ts",
 		"frames": "tsx resolveFrames.ts",
 		"sequences": "tsx sequences.ts",
-		"anim": "tsx animationPlist.ts"
+		"anim": "tsx animationPlist.ts",
+		"atlas-ref": "tsx atlasRefRepair.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",
-		"engine-flipbook": "workspace:*"
+		"engine-flipbook": "workspace:*",
+		"engine-layout": "workspace:*"
 	}
 }

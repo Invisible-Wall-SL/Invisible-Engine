@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { isManifestAssetKey, SYMBOL_STATES } from 'engine-layout';
-import { resolveManifestKey } from './editorRegions';
-import { isBareManifestBasename, manifestBasenameMap } from './manifestBasename';
+import { createAtlasRefResolver } from './manifestBasename';
 import { symbolsDocKey } from './projectPaths';
 import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
@@ -262,9 +261,10 @@ function splitNonManifestScopedRef(assetKey: string): { prefix: string; region: 
  * game's `loadedAssets` (the sprite renders blank), and same-named frames on DISTINCT atlases
  * collide. The export layer is the only place with the R2 listing to resolve a prefix → real key.
  *
- * Basename → `manifestBasenameMap`; sheet prefix → `resolveManifestKey` (the same resolution the
- * region picker used to preview the sheet). A BARE (unscoped) ref carries no atlas and is left
- * as-is. Gated: a doc with only full-`.json` (or bare) refs pays nothing. Non-sprite cells untouched.
+ * Both forms go through the shared `createAtlasRefResolver` (the same resolution the Flipbook ship
+ * path uses, and the same the region picker used to preview the sheet). A BARE (unscoped) ref
+ * carries no atlas and is left as-is. Gated: a doc with only full-`.json` (or bare) refs pays
+ * nothing. Non-sprite cells untouched.
  */
 export async function canonicalizeSymbolsDocForExport(
 	doc: SymbolsDoc,
@@ -281,18 +281,15 @@ export async function canonicalizeSymbolsDocForExport(
 	}
 	if (prefixes.size === 0) return doc;
 
-	// Resolve each distinct prefix → its full `.json` manifest key. Basenames need the project's
-	// manifest listing; sheet prefixes resolve by listing their own folder. Both are cached here so
-	// a prefix reused across states/symbols costs one lookup.
-	const byBasename = [...prefixes].some(isBareManifestBasename)
-		? await manifestBasenameMap(clientKey, projectKey)
-		: new Map<string, string>();
+	// Resolve each distinct prefix → its full `.json` manifest key. The shared resolver owns both
+	// forms (bare basename via the project's manifest listing + the Sheet-Maker sheet folders;
+	// output prefix by listing its own folder) and caches, so a prefix reused across
+	// states/symbols costs one lookup — see `manifestBasename.ts`.
+	const resolve = createAtlasRefResolver(clientKey, projectKey);
 	const resolved = new Map<string, string>();
 	for (const prefix of prefixes) {
-		const manifest = isBareManifestBasename(prefix)
-			? (byBasename.get(prefix) ?? null)
-			: await resolveManifestKey(prefix);
-		if (manifest && manifest !== prefix) resolved.set(prefix, manifest);
+		const manifest = await resolve(prefix);
+		if (manifest !== prefix) resolved.set(prefix, manifest);
 	}
 	if (resolved.size === 0) return doc;
 

@@ -5,11 +5,7 @@ import {
 	type FlipbookDoc,
 } from 'engine-flipbook';
 import { CLIP_DOC_SUFFIX, clipDocKey, clipsPrefix, r2Slug } from './projectPaths';
-import {
-	canonicalizeAtlasRef,
-	isBareManifestBasename,
-	manifestBasenameMap,
-} from './manifestBasename';
+import { createAtlasRefResolver, needsAtlasRefRepair } from './manifestBasename';
 import {
 	deleteObject,
 	getObjectText,
@@ -162,30 +158,37 @@ export async function deleteClip(
 	return { id };
 }
 
-/** Rewrite a clip's `assetKey` and any scoped frame prefixes from a bare manifest basename to the
- *  full R2 key. Bare (unscoped) frames are left alone — they scope against `assetKey` at resolve
- *  time, so repairing `assetKey` restores their scope too. */
-function canonicalizeClipAtlasKeys(clip: FlipbookClip, byBasename: Map<string, string>): FlipbookClip {
-	const assetKey = canonicalizeAtlasRef(clip.assetKey, byBasename);
-	const frames = clip.frames.map((frame) => {
+/** Rewrite a clip's `assetKey` and any scoped frame prefixes from a bare manifest basename OR a
+ *  Sheet-Maker output prefix to the full `.json` R2 key. Bare (unscoped) frames are left alone —
+ *  they scope against `assetKey` at resolve time, so repairing `assetKey` restores their scope too. */
+async function canonicalizeClipAtlasKeys(
+	clip: FlipbookClip,
+	resolve: (ref: string) => Promise<string>,
+): Promise<FlipbookClip> {
+	const assetKey = await resolve(clip.assetKey);
+	const frames: string[] = [];
+	for (const frame of clip.frames) {
 		const i = frame.indexOf('::');
-		if (i <= 0) return frame; // bare frame — scoped by `assetKey`, not a per-frame atlas ref
+		if (i <= 0) {
+			frames.push(frame); // bare frame — scoped by `assetKey`, not a per-frame atlas ref
+			continue;
+		}
 		const prefix = frame.slice(0, i);
-		const full = canonicalizeAtlasRef(prefix, byBasename);
-		return full === prefix ? frame : `${full}::${frame.slice(i + 2)}`;
-	});
+		const full = await resolve(prefix);
+		frames.push(full === prefix ? frame : `${full}::${frame.slice(i + 2)}`);
+	}
 	return { ...clip, assetKey, frames };
 }
 
-/** True when any clip carries a bare-basename atlas ref that needs repairing — gates the R2
- *  manifest listing so a correctly-authored project pays nothing. */
-function anyBareManifestRef(clips: FlipbookClip[]): boolean {
+/** True when any clip carries an atlas ref the runtime cannot scope by — gates the R2 lookups so a
+ *  correctly-authored project pays nothing. */
+function anyRepairableAtlasRef(clips: FlipbookClip[]): boolean {
 	return clips.some(
 		(c) =>
-			isBareManifestBasename(c.assetKey) ||
+			needsAtlasRefRepair(c.assetKey) ||
 			c.frames.some((f) => {
 				const i = f.indexOf('::');
-				return i > 0 && isBareManifestBasename(f.slice(0, i));
+				return i > 0 && needsAtlasRefRepair(f.slice(0, i));
 			}),
 	);
 }
@@ -195,11 +198,13 @@ function anyBareManifestRef(clips: FlipbookClip[]): boolean {
  * `registerFlipbooks` consumes at boot. Runs the collection normalizer so duplicate ids
  * collapse (last wins) exactly as the runtime registry would resolve them.
  *
- * Bare-basename atlas refs are repaired to full manifest keys (see `isBareManifestBasename`) so
- * the runtime's atlas-scoped frame lookup engages — without this two single-page clips reusing a
- * frame name on distinct sheets collide in the flat texture cache. Both ship-path readers
- * (`exportClips` and the editor-art clip walk) go through here, so the editor-art export then
- * ships each repaired sheet SCOPED under the same full key the runtime looks up.
+ * Atlas refs the runtime cannot scope by — a bare manifest basename, or a Sheet-Maker output
+ * prefix — are repaired to full manifest keys (see `needsAtlasRefRepair`) so the runtime's
+ * atlas-scoped frame lookup engages. Without this two single-page clips reusing a frame name on
+ * distinct sheets collide in the flat texture cache and one symbol plays the other's animation.
+ * Both ship-path readers (`exportClips` and the editor-art clip walk) go through here, so the
+ * editor-art export then ships each repaired sheet SCOPED under the same full key the runtime
+ * looks up.
  */
 export async function loadFlipbookDoc(clientKey: string, projectKey: string): Promise<FlipbookDoc> {
 	const prefix = `${clipsPrefix(clientKey, projectKey)}/`;
@@ -216,8 +221,9 @@ export async function loadFlipbookDoc(clientKey: string, projectKey: string): Pr
 		}
 	}
 	const doc = normalizeFlipbookDoc({ clips });
-	if (!anyBareManifestRef(doc.clips)) return doc;
-	const byBasename = await manifestBasenameMap(clientKey, projectKey);
-	if (byBasename.size === 0) return doc;
-	return { ...doc, clips: doc.clips.map((c) => canonicalizeClipAtlasKeys(c, byBasename)) };
+	if (!anyRepairableAtlasRef(doc.clips)) return doc;
+	const resolve = createAtlasRefResolver(clientKey, projectKey);
+	const repaired: FlipbookClip[] = [];
+	for (const clip of doc.clips) repaired.push(await canonicalizeClipAtlasKeys(clip, resolve));
+	return { ...doc, clips: repaired };
 }
