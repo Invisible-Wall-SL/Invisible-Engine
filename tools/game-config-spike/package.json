@@ -4,7 +4,8 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"doc": "tsx docModel.ts"
+		"doc": "tsx docModel.ts",
+		"inspect": "tsx inspect.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",
