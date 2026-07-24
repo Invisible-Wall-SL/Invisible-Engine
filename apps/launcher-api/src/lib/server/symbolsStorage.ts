@@ -132,9 +132,14 @@ const winLineTextSchema = z
 	})
 	.strict();
 
+/** `loop` keeps replaying the round's winning lines on the resting board until the next spin
+ *  (the game's `winLineCycle`); absent means ON, `false` turns the replay off. `loopDelay` is
+ *  the pause in SECONDS between two passes. */
 const winLineSchema = z
 	.object({
 		enabled: z.boolean().optional(),
+		loop: z.boolean().optional(),
+		loopDelay: z.number().optional(),
 		line: winLineLineSchema.optional(),
 		text: winLineTextSchema.optional(),
 	})
@@ -165,6 +170,8 @@ function pruneWinLine(winLine: SymbolsDoc['winLine']): SymbolsDoc['winLine'] {
 	if (!winLine) return undefined;
 	const next: NonNullable<SymbolsDoc['winLine']> = {};
 	if (winLine.enabled === false) next.enabled = false;
+	if (winLine.loop === false) next.loop = false;
+	if (winLine.loopDelay !== undefined) next.loopDelay = winLine.loopDelay;
 	if (winLine.line && Object.keys(winLine.line).length) next.line = winLine.line;
 	if (winLine.text && Object.keys(winLine.text).length) next.text = winLine.text;
 	return Object.keys(next).length ? next : undefined;
@@ -285,7 +292,8 @@ export async function canonicalizeSymbolsDocForExport(
 			if (cell.type !== 'sprite') continue;
 			const split = splitNonManifestScopedRef(cell.assetKey);
 			const manifest = split && resolved.get(split.prefix);
-			if (split && manifest) nextStates[state] = { ...cell, assetKey: `${manifest}::${split.region}` };
+			if (split && manifest)
+				nextStates[state] = { ...cell, assetKey: `${manifest}::${split.region}` };
 		}
 		symbols[name] = nextStates as SymbolsDoc['symbols'][string];
 	}

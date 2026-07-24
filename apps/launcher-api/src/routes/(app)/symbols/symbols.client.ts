@@ -229,6 +229,15 @@ export function winLineEnabled(doc: SymbolsDoc): boolean {
 	return doc.winLine?.enabled ?? true;
 }
 
+/** The effective "keep replaying the win lines until the next spin" flag — the game's
+ *  `winLineCycle`. Defaults to `true`, matching the engine's resolved default. */
+export function winLineLoop(doc: SymbolsDoc): boolean {
+	return doc.winLine?.loop ?? true;
+}
+
+/** The engine's default pause (seconds) between two cycled win-line passes. */
+export const WIN_LINE_LOOP_DELAY_DEFAULT = 0.4;
+
 /** Drop blank style fields (empty string / undefined / null) and empty `line`/`text`
  *  objects, returning a sparse `winLine` (or undefined when nothing remains). Keeps the
  *  doc minimal so an untouched/reset project ships no `winLine`. */
@@ -243,6 +252,10 @@ function pruneWinLine(winLine: WinLineConfig | undefined): WinLineConfig | undef
 	};
 	const next: WinLineConfig = {};
 	if (winLine.enabled === false) next.enabled = false;
+	// Sparse like `enabled`: only the non-default (off) loop persists, but an authored delay
+	// always does — its default is a number the author may legitimately re-pick.
+	if (winLine.loop === false) next.loop = false;
+	if (typeof winLine.loopDelay === 'number') next.loopDelay = winLine.loopDelay;
 	const line = prune(winLine.line);
 	const text = prune(winLine.text);
 	if (line) next.line = line;
@@ -266,6 +279,23 @@ export function setWinLineEnabled(doc: SymbolsDoc, enabled: boolean): SymbolsDoc
 	const winLine: WinLineConfig = { ...(doc.winLine ?? {}) };
 	if (enabled) delete winLine.enabled;
 	else winLine.enabled = false;
+	return withWinLine(doc, winLine);
+}
+
+/** Set the "keep replaying until the next spin" flag. Kept sparse: ON drops the field. New doc. */
+export function setWinLineLoop(doc: SymbolsDoc, loop: boolean): SymbolsDoc {
+	const winLine: WinLineConfig = { ...(doc.winLine ?? {}) };
+	if (loop) delete winLine.loop;
+	else winLine.loop = false;
+	return withWinLine(doc, winLine);
+}
+
+/** Set the pause (seconds) between two cycled win-line passes. `undefined` resets to the
+ *  engine default. New doc. */
+export function setWinLineLoopDelay(doc: SymbolsDoc, seconds: number | undefined): SymbolsDoc {
+	const winLine: WinLineConfig = { ...(doc.winLine ?? {}) };
+	if (seconds === undefined) delete winLine.loopDelay;
+	else winLine.loopDelay = seconds;
 	return withWinLine(doc, winLine);
 }
 
@@ -319,6 +349,8 @@ export function docSignature(doc: SymbolsDoc): string {
 	const winLine = doc.winLine
 		? {
 				enabled: doc.winLine.enabled ?? null,
+				loop: doc.winLine.loop ?? null,
+				loopDelay: doc.winLine.loopDelay ?? null,
 				line: sortKeys(doc.winLine.line),
 				text: sortKeys(doc.winLine.text),
 			}

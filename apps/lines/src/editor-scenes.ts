@@ -147,6 +147,11 @@ type BakedBundle = {
 		 * the `runtime:lines` bundle draws it. */
 		winLine?: {
 			enabled?: boolean;
+			/** Keep replaying the round's winning lines on the resting board until the next spin
+			 *  (`winLineCycle.ts`). Absent ⇒ on. */
+			loop?: boolean;
+			/** Seconds between two cycled passes. */
+			loopDelay?: number;
 			line?: {
 				color?: string;
 				width?: number;
@@ -472,6 +477,10 @@ export function bakedWinLineEnabled(): boolean {
  * The Invisible Symbols State Machine authors the overrides. */
 export type ResolvedWinLine = {
 	enabled: boolean;
+	/** Whether the resting board keeps cycling the round's winning lines until the next spin. */
+	loop: boolean;
+	/** Seconds of blank board between two cycled passes (floored by the cycle's own minimum). */
+	loopDelay: number;
 	line: {
 		color: string;
 		width: number;
@@ -492,6 +501,8 @@ export function bakedWinLineConfig(): ResolvedWinLine {
 	const color = w?.line?.color ?? '#ffcc00';
 	return {
 		enabled: w?.enabled ?? true,
+		loop: w?.loop ?? true,
+		loopDelay: w?.loopDelay ?? 0.4,
 		line: {
 			color,
 			width: w?.line?.width ?? 0.03,

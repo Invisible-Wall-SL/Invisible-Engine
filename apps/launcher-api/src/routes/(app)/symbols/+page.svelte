@@ -37,8 +37,12 @@
 		setOverride,
 		setWinLineEnabled,
 		setWinLineLine,
+		setWinLineLoop,
+		setWinLineLoopDelay,
 		setWinLineText,
 		winLineEnabled,
+		winLineLoop,
+		WIN_LINE_LOOP_DELAY_DEFAULT,
 		SYMBOL_CELL_TYPES,
 		SYMBOL_CELL_TYPE_LABELS,
 		type BoardGlowConfig,
@@ -566,6 +570,11 @@
 		doc = setWinLineEnabled(doc, enabled);
 	}
 
+	// Replay-until-next-spin (the game's win-line cycle). Behaviour, not style, so "Reset
+	// win-line style" leaves it alone.
+	const wlLoop = $derived(winLineLoop(doc));
+	const wlLoopDelay = $derived(doc.winLine?.loopDelay ?? WIN_LINE_LOOP_DELAY_DEFAULT);
+
 	function resetWinLineStyle(): void {
 		doc = clearWinLineStyle(doc);
 	}
@@ -981,7 +990,37 @@
 											oninput={(e) => patchWinLineLine({ speed: Number(e.currentTarget.value) })}
 										/>
 									</label>
+									<div class="field">
+										<span class="label">Loop until next spin</span>
+										<label class="switch sm" class:on={wlLoop}>
+											<input
+												type="checkbox"
+												checked={wlLoop}
+												onchange={(e) => (doc = setWinLineLoop(doc, e.currentTarget.checked))}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label">{wlLoop ? 'On' : 'Off'}</span>
+										</label>
+									</div>
+									<label class="field" class:disabled={!wlLoop}>
+										<span class="label">Loop gap {wlLoopDelay.toFixed(2)}s</span>
+										<input
+											type="range"
+											min="0"
+											max="3"
+											step="0.05"
+											disabled={!wlLoop}
+											value={wlLoopDelay}
+											oninput={(e) =>
+												(doc = setWinLineLoopDelay(doc, Number(e.currentTarget.value)))}
+										/>
+									</label>
 								</div>
+								<p class="wl-note">
+									With the loop on, the round's winning lines keep cycling on the resting board —
+									line, amount and lit symbols — until the player spins again. Autoplay and
+									space-hold skip the replay, since the next spin is already on its way.
+								</p>
 							</div>
 
 							<div class="wl-group">

@@ -180,7 +180,8 @@ project. When it's on, two groups of controls appear:
 - **Line** — **Colour**; **Thickness** (a fraction of the symbol size); **Glow** on/off
   and its **Glow colour**; **Animated draw** on/off (the line draws from the first paying
   tile to the last, *then* the amount appears) and its **Speed** (a draw-speed multiplier;
-  disabled unless Animated is on).
+  disabled unless Animated is on); **Loop until next spin** on/off and its **Loop gap**
+  (seconds of blank board between two passes; disabled unless Loop is on).
 - **Win amount text** — **Font** (chosen from the project's bitmap fonts — the engine
   builtins `gold`/`goldblur`/`silver`/`purple` plus any Font-Maker fonts); **Size** (a
   fraction of the symbol size); **Colour**. Because the amount is bitmap text, the colour
@@ -188,10 +189,18 @@ project. When it's on, two groups of controls appear:
   darkens it, so to recolour cleanly pick a differently-coloured font.
 
 A **Reset win-line style** button clears the style back to the game's coded defaults while
-leaving the on/off state alone.
+leaving the on/off state alone (Loop is behaviour, not style, so it is left alone too).
+
+**Loop until next spin** (on by default) is what keeps the result readable after the round
+ends: once the whole book has been presented, the game replays that spin's winning lines —
+line, stamped amount and lit symbols, exactly as the round itself drew them — over and over
+on the resting board, and stops the moment the next bet starts. A free-spin feature replays
+its **last** spin's wins. The replay is skipped while autoplay or space-hold is running,
+since the next spin is already on its way.
 
 Every field is optional and **sparse**: only the on/off (when off) and the fields you
-actually change are written, under `winLine: { enabled?, line?, text? }` on the doc.
+actually change are written, under `winLine: { enabled?, loop?, loopDelay?, line?, text? }`
+on the doc.
 Colours are CSS hex strings; `width`/`size` are multiples of the symbol size; `speed`
 scales the animated-draw duration. The game applies its coded defaults for every field the
 bundle omits, so a project that never opens this section is byte-identical to before and
