@@ -2,9 +2,9 @@
 
 > Design: [docs/design/invisible-game-config.md](../design/invisible-game-config.md) · Guide: — (due with Phase 4) · Agent: `.claude/agents/invisible-game-config.md`
 
-**One-line state:** Phases 1–2 landed — the schema, the in-play gate, the validator, R2 storage and
-the per-template seed exist and are fixture-verified; **the game still doesn't read any of it**, so
-every online project runs the one compiled `apps/lines/src/game/config.ts` until Phase 3.
+**One-line state:** Phases 1–3 landed — a project's authored config now **reaches the running
+game** and drives its paytable, line count, paylines and reel strips. The remaining gap is the tool
+(Phase 4): there is no `/config` page, so a config can only arrive by writing the R2 doc directly.
 
 ## Current state
 
@@ -49,6 +49,44 @@ every online project runs the one compiled `apps/lines/src/game/config.ts` until
 - The spike re-derives the committed JSON and compares bytes, so drift fails a fixture run even if
   nobody runs `--check` — a generator nobody runs is a generator that lies. 44 checks, all passing.
 
+**Phase 3 — the runtime carries it (done).** The risky one; it landed with the compile-time
+guarantee traded for a runtime one, as planned.
+- `config` joins the bundle on BOTH paths — `assembleRuntimeBundle` (live) and
+  `bake-editor-doc.mjs` via the new token-gated `GET /api/game-config/doc` (baked). Omitted when
+  un-authored, so an un-authored project's bundle is byte-identical and the game runs its compiled
+  `config.ts`. Neither path seeds the template default: the default is what the TOOL opens with, so
+  an author adopts it knowingly rather than having it ship the day a template changes.
+- `bakedGameConfig()` in `editor-scenes.ts` beside `bakedSymbolMap()`; `game/gameConfig.ts` owns the
+  `runtime → baked → compiled` resolution behind a memoised `getActiveGameConfig()`, with
+  `resetGameConfigCache()` wired into `Game.svelte` next to `resetSymbolMapCache()` — without that
+  reset an online game freezes to the template, which is the exact bug this tool exists to kill.
+- **`SymbolName` widened from `keyof typeof config.symbols` to `string`.** The compile-time union
+  described the *sample* game, so it would have rejected a correct symbol id from an authored
+  config. `BetMode`/`GameType` deliberately did NOT widen — they are shared vocabulary with the RGS,
+  so they can't be freely invented per project.
+- The lost guarantee is replaced by `warnOnGameConfigIssues()` at boot: every validator issue, plus
+  an ERROR naming any symbol the strips deal that has no art (it would render as nothing mid-spin —
+  the most expensive failure to diagnose).
+- Consumers now read the active config instead of importing `config.ts`: `paytable.ts` (`NUM_LINES`
+  → `numLines()`, `PAYTABLE` → `paytable()`), `constants.ts` (`PADDING_REELS` → `paddingReels()`,
+  4 call sites), `infoManifest.ts` (config-derived fields are accessors now). They HAD to stop being
+  module-scope constants: those evaluate before the async runtime bundle resolves.
+- The paytable's display order became a PREFERENCE, not a filter — the old
+  `LINE_ORDER.filter(...)` would have rendered an empty paytable for any project whose symbols
+  aren't named `H1..L5`.
+- **Verified in the running game** (`pnpm --filter lines dev`, modules imported live in the page):
+  with no authored config it resolves the template (20 lines, 5×217-cell strips, paytable without
+  the wild); with `bakedGameConfig()` temporarily stubbed to an authored 3-reel `ACE/KING/SCAT`
+  config, the identity, line count (2), paytable rows, strips and the whole info manifest all
+  followed, and the boot check correctly errored that the three symbols have no art. Stub reverted;
+  re-verified back to template values.
+
+**Still hardcoded, on purpose:** grid dimensions. `BOARD_DIMENSIONS`/`BOARD_SIZES` derive from
+`INITIAL_BOARD`, not from `numReels`/`numRows`, so an authored grid size does NOT yet resize the
+board — scene geometry and layout coordinates are pinned to it, and that deserves its own change.
+The scatter paytable row is also still synthesized (`[2, 20, 200]`) because those multipliers have
+no home in the Stake config shape; only the scatter's SYMBOL is read from the config now.
+
 **Deviation from the design doc, deliberate:** Phase 1 called for a Zod `GameConfigDoc` in the
 launcher. It has none. A Zod mirror would be a second, hand-copied answer to "what is a valid
 config" inside an app whose `build` is not a type-check — the `COMPONENT_PARAM_KINDS` failure mode
@@ -57,23 +95,30 @@ better 400s. Reversible if a use case demands Zod.
 
 ## Open items / next
 
-1. **Phase 3 — the runtime carries it.** `config` into `assembleRuntimeBundle` + the bake,
-   `bakedGameConfig()` beside `bakedSymbolMap()`, resolution `runtime → baked → compiled template`.
-   **The risky phase:** `SymbolName` is `keyof typeof config.symbols`, a COMPILE-TIME type imported
-   at module scope by `types.ts` / `constants.ts` / `paytable.ts`. It must widen to `string` at the
-   boundary, with runtime validation + a loud boot warning replacing the lost guarantee. Do it
-   behind a memoised `getActiveGameConfig()` reset on runtime-bundle apply. `resolveGameConfig()`
-   from Phase 2 is what the bundle assembly should call — don't re-implement the precedence.
-2. **Phase 4 — the tool** (`/config` + `roles.ts` + `docs/tools/game-config.md` in the SAME change,
-   repo rule 9).
-3. **Phase 5 — retire the duplication**, incl. pointing `publish-symbol-defaults.mjs` at the
-   authored doc rather than the compiled module.
+1. **Phase 4 — the tool** (`/config` + `roles.ts` + `docs/tools/game-config.md` in the SAME change,
+   repo rule 9). The page loads via `resolveGameConfig()`, which already returns the doc, its
+   provenance and its ETag — don't re-implement the precedence or the compare-and-swap.
+   **This is now the only thing standing between the plumbing and an author using it.**
+2. **Phase 5 — retire the duplication**, incl. pointing `publish-symbol-defaults.mjs` at the
+   authored doc rather than the compiled module, and `packages/game-spec`'s generator, which still
+   emits const-based `paytable.ts`/`infoManifest.ts` for a scaffolded game and so would ignore the
+   authored config.
+3. **Grid dimensions from the config** — `BOARD_DIMENSIONS` still derives from `INITIAL_BOARD`, so
+   an authored `numReels`/`numRows` doesn't resize the board (see above). Its own change.
+4. **Validate against the RGS** (design doc open decision 3) — compare the config's symbol set to
+   the first `reveal` and warn on a mismatch. `warnOnGameConfigIssues()` is the natural home; it
+   would have caught the wild on the first spin.
 
 ## Blocked (owner / external)
 
-- Nothing. Phases 3–5 are ours to build.
+- Nothing. Phases 4–5 are ours to build.
 
 ## Recent changes
+
+- 2026-07-24 — Phase 3: `config` in both bundle paths + `GET /api/game-config/doc`,
+  `bakedGameConfig()`, `game/gameConfig.ts` (memoised resolution + boot validation), `SymbolName`
+  widened to `string`, and the paytable/strips/info-manifest consumers moved off the compiled
+  module. Verified live in the running game.
 
 - 2026-07-24 — Phase 2: `generate-game-config-defaults.ts` + the committed
   `$lib/data/gameConfig/lines.json`, `gameConfigDefaults.ts` (`resolveGameConfig` owns the

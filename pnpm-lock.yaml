@@ -283,6 +283,9 @@ importers:
       envs:
         specifier: workspace:*
         version: link:../../packages/envs
+      game-config:
+        specifier: workspace:*
+        version: link:../../packages/game-config
       lodash:
         specifier: 4.17.16
         version: 4.17.16

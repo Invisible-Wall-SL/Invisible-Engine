@@ -674,6 +674,36 @@ async function main() {
 		}
 	}
 
+	// Invisible Game Config — the project's own math contract (symbol dictionary + paytable,
+	// paylines, grid, bet modes, cosmetic reel strips). Pure config, no assets, so like win text it
+	// travels verbatim with no export/pull step. Absent/unauthored stays `undefined`, which is what
+	// keeps an un-authored project byte-identical: `bakedGameConfig()` is then undefined and the game
+	// runs its compiled `game/config.ts`. Deliberately NOT seeded from the game-type template default
+	// — see the endpoint header. Mirrors the live path in `lib/server/runtimeBundle.ts`.
+	let gameConfig;
+	if (!dryRun) {
+		try {
+			const gcRes = await fetchRetry(
+				`${base}/api/game-config/doc?project=${encodeURIComponent(project)}` +
+					`&k=${encodeURIComponent(token)}`,
+				undefined,
+				'game-config fetch',
+			);
+			if (gcRes.ok) {
+				const gc = await gcRes.json();
+				if (gc?.doc) gameConfig = gc.doc;
+			} else {
+				console.warn(
+					`⚠ bake-doc: game-config fetch HTTP ${gcRes.status} — baking without a game config.`,
+				);
+			}
+		} catch (err) {
+			console.warn(
+				`⚠ bake-doc: game-config fetch failed (${err instanceof Error ? err.message : err}) — baking without a game config.`,
+			);
+		}
+	}
+
 	// Ship only REACHABLE effects — an orphan/scratch effect that nothing mounts must not reach the
 	// game. Keep in sync with apps/launcher-api/src/lib/server/effectReachability.ts
 	// (`pruneUnreachableEffects`, the runtime-bundle path) and the render-time guardrail in
@@ -741,6 +771,10 @@ async function main() {
 		// authored something, keeping the bundle byte-identical for every game with no win-text
 		// work — `bakedWinText()` applies the coded defaults when absent (parity).
 		...(winText ? { winText } : {}),
+		// The authored game config (Invisible Game Config). Omitted unless the project authored one,
+		// keeping the bundle byte-identical for every game that hasn't — `bakedGameConfig()` is then
+		// undefined and the game runs its compiled `game/config.ts` (parity).
+		...(gameConfig ? { config: gameConfig } : {}),
 		// The authored presentation graph (Invisible Flow). Omitted unless the project
 		// authored a non-empty flow, keeping the bundle byte-identical for every game
 		// with no flow work — the §7 fall-through (absent ⇒ interpreter inert).

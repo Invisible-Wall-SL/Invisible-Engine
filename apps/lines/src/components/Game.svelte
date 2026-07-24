@@ -108,8 +108,9 @@
 	} from 'engine-layout';
 	import type { Scene } from 'engine-layout';
 
+	import { resetGameConfigCache, warnOnGameConfigIssues } from '../game/gameConfig';
 	import { infoManifest } from '../game/infoManifest';
-	import { resetSymbolMapCache } from '../game/symbolMap';
+	import { getActiveSymbolInfoMap, resetSymbolMapCache } from '../game/symbolMap';
 	import {
 		createLinesFlow,
 		linesValueResolver,
@@ -219,7 +220,20 @@
 		// overrides are live, so the first reel render recomputes the merge WITH them.
 		// Otherwise an online game shows the template defaults despite a baked symbols doc.
 		resetSymbolMapCache();
+		// Same trap, same fix, for the authored game config: `paytable.ts` / `infoManifest.ts` read
+		// it through `getActiveGameConfig()`, which memoises on first read — before this bundle
+		// landed. Without this the game would spin the TEMPLATE's strips and show the template's
+		// paytable despite having authored its own, which is the entire failure Invisible Game
+		// Config exists to fix.
+		resetGameConfigCache();
 	}
+
+	// Say out loud what the active config gets wrong — a payline off the grid, a symbol dealt by the
+	// strips with no art. This replaces a guarantee Phase 3 gave up on purpose: `SymbolName` used to
+	// be a compile-time union over the compiled config, so an undrawable symbol was a build error;
+	// an authored config is only known here, at runtime. Runs after the runtime-bundle branch above
+	// so it inspects the config the game will actually run, not the one it booted with.
+	warnOnGameConfigIssues(getActiveSymbolInfoMap());
 
 	// Boot loading screen (defined in the HTML shell, `app.html`): feed real asset-load
 	// progress into the pre-mount splash and dismiss it once the game's assets are ready.

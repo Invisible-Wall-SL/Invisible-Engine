@@ -25,7 +25,7 @@ import {
 	showWinInfoMessage,
 } from './flowEffects';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
-import { PADDING_REELS, BOARD_DIMENSIONS } from './constants';
+import { paddingReels, BOARD_DIMENSIONS } from './constants';
 
 export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {
 	reveal: async (bookEvent: BookEventOfType<'reveal'>, { bookEvents }: BookEventContext) => {
@@ -43,7 +43,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		stateGame.gameType = bookEvent.gameType;
 		await stateGameDerived.enhancedBoard.spin({
 			revealEvent: bookEvent,
-			paddingBoard: PADDING_REELS[bookEvent.gameType],
+			paddingBoard: paddingReels(bookEvent.gameType),
 			forceSequentialStop: stateGame.sequentialReelStop,
 		});
 		eventEmitter.broadcast({ type: 'soundScatterCounterClear' });

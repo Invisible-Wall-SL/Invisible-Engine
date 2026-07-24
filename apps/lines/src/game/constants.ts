@@ -1,13 +1,23 @@
 import _ from 'lodash';
 
-import config from './config';
+import { getPaddingReels } from './gameConfig';
 import type { RawSymbol, SymbolState, GameType } from './types';
 
-// Reel-strip padding boards, typed. config.ts is a plain data export so its
-// symbol `name`s widen to `string`; the strips only ever hold real symbol ids,
-// so we assert the engine's `RawSymbol[][]` shape once here instead of at each
-// call site (the board API wants `RawSymbol[][]`, not `{ name: string }[][]`).
-export const PADDING_REELS = config.paddingReels as Record<GameType, RawSymbol[][]>;
+/**
+ * The cosmetic reel strips for a game type — the blur filler the spinning reel cycles through, and
+ * the client's only statement of which symbols reach the board.
+ *
+ * A FUNCTION, not the old `PADDING_REELS` constant. The constant read the compiled `config.ts` at
+ * import time, which is before the live runtime bundle resolves, so an online game spun the sample
+ * game's strips — that is exactly how a wild nobody's math emits kept rolling past the board.
+ * Resolved per call against the active config instead.
+ *
+ * The `RawSymbol[][]` assertion stays here rather than at each call site: the config's cells are
+ * `{ name: string }` and the board API wants `RawSymbol[][]`, and the strips only ever hold real
+ * symbol ids.
+ */
+export const paddingReels = (gameType: GameType): RawSymbol[][] =>
+	getPaddingReels(gameType) as RawSymbol[][];
 
 export const SYMBOL_SIZE = 120;
 

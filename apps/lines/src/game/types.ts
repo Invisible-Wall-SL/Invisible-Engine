@@ -4,13 +4,33 @@ import type config from './config';
 
 export { SYMBOL_STATES };
 
-export type SymbolName = keyof typeof config.symbols;
+/**
+ * A symbol id. WIDE (`string`) on purpose, and this is a deliberate loss of a guarantee.
+ *
+ * It used to be `keyof typeof config.symbols` — a compile-time union derived from the compiled
+ * template — so naming a symbol the game could not draw was a build error. Since Phase 3 of
+ * `docs/design/invisible-game-config.md` the config is authored per project and known only at
+ * RUNTIME, so that union became a lie: it would describe the sample game while the project runs
+ * its own, and would have REJECTED a correct symbol id from an authored config. The check moves to
+ * `warnOnGameConfigIssues()`, which compares the active config's in-play set against the symbol map
+ * at boot and reports a symbol with no art as an error.
+ */
+export type SymbolName = string;
 export type RawSymbol = {
 	name: SymbolName;
 	multiplier?: number;
 	scatter?: boolean;
 	wild?: boolean;
 };
+/**
+ * Bet mode / game type stay bound to the COMPILED config, unlike {@link SymbolName}.
+ *
+ * Not an oversight: these two are shared vocabulary with the RGS — the server names the game type
+ * on every `reveal` and prices the bet mode — so they cannot be freely invented per project the way
+ * a symbol id can, and widening them would erase real checking across the bet selector and the
+ * state machine for no gain. An authored config that adds a mode is a coordinated RGS change, and
+ * the day one appears this is the line to revisit.
+ */
 export type BetMode = keyof typeof config.betModes;
 export type GameType = keyof typeof config.paddingReels;
 
