@@ -66,6 +66,15 @@ const SCATTER_PAY_TABLE = {
 	5: 100,  // 5 SCAT → 100× total stake
 };
 
+/** Free-spin feature. A lines game triggers on SCAT count alone — there is no
+ *  book-of expanding special symbol here, so the mock never emits `pickRandomly`
+ *  (→ no `setExpandingSymbol` book event). The free spins are otherwise the same
+ *  multi-request round the facade already drives off `enterBonus`. */
+const FS_TRIGGER_MIN = 3;
+const TOTAL_FS = 10;
+/** Extra free spins when FS_TRIGGER_MIN+ SCAT land DURING a free spin. */
+const RETRIGGER_FS = 5;
+
 function hashStr(s) {
 	let h = 2166136261 >>> 0;
 	for (let i = 0; i < s.length; i++) {
@@ -131,30 +140,69 @@ const dedupeCoincidingWins = (wins) => {
 	);
 };
 
+const scatterPositions = (reels) => {
+	const pos = [];
+	for (let reel = 0; reel < reels.length; reel++)
+		for (let row = 0; row < reels[reel].length; row++)
+			if (reels[reel][row] === 'SCAT') pos.push({ reel, row });
+	return pos;
+};
+
 /** Evaluate scatter pays. SCATs pay anywhere on the board (not bound to a
- *  payline). Returns at most one win event with all scatter positions. */
+ *  payline). Returns `{ win, count }` — the count also drives the free-spin
+ *  trigger, so the caller needs it even when the pay table has no entry.
+ *
+ *  `context` is a BARE ARRAY of positions, matching the verified Play4Fun shape
+ *  (and the book-of mock). It used to be `{ positions }`, which the facade's
+ *  `winPositions()` cannot read — it looks for an array or a `payline`, so an
+ *  object fell through to `[]` and every scatter win animated NO symbols. That
+ *  also left `freeSpinTrigger.positions` empty, so the scatters wouldn't glow
+ *  before the intro. */
 const evaluateScatters = (reels, totalStake) => {
-	const positions = [];
-	for (let reel = 0; reel < reels.length; reel++) {
-		for (let row = 0; row < reels[reel].length; row++) {
-			if (reels[reel][row] === 'SCAT') {
-				positions.push({ reel, row });
-			}
-		}
-	}
+	const positions = scatterPositions(reels);
 	const count = positions.length;
 	const mult = SCATTER_PAY_TABLE[count];
-	if (!mult) return null;
-	return {
-		what: 'SCAT',
-		occurs: count,
-		mode: 'scatter',
-		pay: mult * totalStake,
-		mpInfo: { mp: 1, replacements: 0 },
-		mpBonusInfo: null,
-		context: { positions },
-	};
+	const win = mult
+		? {
+				what: 'SCAT',
+				occurs: count,
+				mode: 'scatter',
+				pay: mult * totalStake,
+				mpInfo: { mp: 1, replacements: 0 },
+				mpBonusInfo: null,
+				context: positions,
+			}
+		: null;
+	return { win, count };
 };
+
+/** Free-spin state snapshot, faithful to the Play4Fun `playedBonusSpin` /
+ *  `enterBonus` shape. The facade reads `played` + `left` to drive the counter. */
+const bonusSnapshot = (round, extra = {}) => ({
+	prob: 1,
+	additionalPrice: 0,
+	triggers: 1,
+	played: round.bonus.played,
+	left: round.bonus.left,
+	multiplier: {},
+	bonusTriggers: { feature: 1 },
+	bonusPlayed: {
+		feature: { count: round.bonus.played, base: { count: 0, multiplierCount: 0 }, states: {} },
+	},
+	spins:
+		round.bonus.left > 0
+			? [
+					{
+						spins: round.bonus.left,
+						bonus: 'feature',
+						trigger: { occurs: [FS_TRIGGER_MIN], of: 'SCAT', mode: 'scatter', from: '' },
+					},
+				]
+			: [],
+	playing: 'feature',
+	trigger: { occurs: [FS_TRIGGER_MIN], of: 'SCAT', mode: 'scatter', from: '' },
+	...extra,
+});
 
 // ---------- pure HTTP plumbing ----------
 
@@ -230,6 +278,8 @@ export function createMockRgs(opts = {}) {
 	 *  10000 = $100 — matches what we observed from the live Hot Fruits server. */
 	const startBalance = Number(opts.startBalance ?? process.env.START_BALANCE ?? 10_000);
 	const seed = opts.seed ?? process.env.SEED;
+	/** FORCE_TRIGGER=1 → every base spin enters the free-spin feature. Testing aid. */
+	const forceTrigger = opts.forceTrigger ?? process.env.FORCE_TRIGGER === '1';
 	const label = opts.label ?? 'mock';
 
 	/** sid -> { balance, round | null, configSent } */
@@ -257,6 +307,14 @@ export function createMockRgs(opts = {}) {
 	};
 	/** 5 reels × 3 visible rows */
 	const spinReels = () => Array.from({ length: 5 }, () => Array.from({ length: 3 }, pickSymbol));
+	/** Force exactly `n` SCAT onto distinct reels — a guaranteed feature trigger. */
+	const spinReelsWithScatters = (n = FS_TRIGGER_MIN) => {
+		const reels = spinReels();
+		for (let reel = 0; reel < reels.length && reel < n; reel++) {
+			reels[reel][Math.floor(nextRand() * 3)] = 'SCAT';
+		}
+		return reels;
+	};
 
 	const handleEngine = async (req, res, url) => {
 		const sid = url.searchParams.get('sid');
@@ -336,8 +394,10 @@ export function createMockRgs(opts = {}) {
 						betPerLine,
 						linesOrConfig,
 						total,
+						baseBet: total,
 						win: 0,
 						reels: null,
+						bonus: null,
 						closed: false,
 					};
 					events.push({
@@ -356,15 +416,7 @@ export function createMockRgs(opts = {}) {
 							platform: {},
 						});
 					}
-					const reels = spinReels();
-					pendingRound.reels = reels;
-					const lineWins = evaluatePaylines(reels, pendingRound.betPerLine);
-					const scatterWin = evaluateScatters(reels, pendingRound.total);
-					const wins = scatterWin ? [...lineWins, scatterWin] : lineWins;
-					const totalWin = wins.reduce((s, w) => s + w.pay, 0);
-					pendingRound.win = totalWin;
-
-					events.push({
+					const spinStart = {
 						event: 'spinStart',
 						context: {
 							symbols: SYMBOLS,
@@ -373,8 +425,96 @@ export function createMockRgs(opts = {}) {
 							lineAlign: 'left',
 							lineCoinciding: LINE_COINCIDING,
 						},
-					});
+					};
+
+					// ----- FREE SPIN (round already in the feature) -----
+					// The round STAYS OPEN across free spins: the facade keeps POSTing
+					// `play` until it sees `gameEnd`, then `collect`s. So `gameEnd` must
+					// NOT be emitted until the last free spin has played.
+					if (pendingRound.bonus?.active) {
+						const reels = spinReels();
+						pendingRound.reels = reels;
+						events.push(spinStart);
+						const scat = evaluateScatters(reels, pendingRound.total);
+						const wins = evaluatePaylines(reels, pendingRound.betPerLine);
+						if (scat.win) wins.push(scat.win);
+						for (const w of wins) {
+							events.push({
+								event: 'bonusWin',
+								context: { bonus: 'feature', pay: w.pay, isSpinWin: true },
+							});
+							events.push({ event: 'spinWin', context: w });
+							pendingRound.win += w.pay;
+						}
+						events.push({ event: 'playedSpin', context: reels });
+						pendingRound.bonus.played += 1;
+						pendingRound.bonus.left -= 1;
+						// RETRIGGER: scatters landing during a free spin award more spins,
+						// added to the remaining count (chains without limit). Emitted BEFORE
+						// playedBonusSpin so the counter total already includes them.
+						if (scat.count >= FS_TRIGGER_MIN) {
+							pendingRound.bonus.left += RETRIGGER_FS;
+							pendingRound.bonus.total += RETRIGGER_FS;
+							events.push({
+								event: 'retrigger',
+								context: {
+									spins: RETRIGGER_FS,
+									occurs: scat.count,
+									total: pendingRound.bonus.total,
+									left: pendingRound.bonus.left,
+									bonus: 'feature',
+								},
+							});
+						}
+						events.push({ event: 'playedBonusSpin', context: bonusSnapshot(pendingRound) });
+						if (pendingRound.bonus.left <= 0) {
+							pendingRound.bonus.active = false;
+							events.push({ event: 'playedBonusSpins', context: bonusSnapshot(pendingRound) });
+							events.push({ event: 'gameEnd', context: { win: pendingRound.win } });
+						}
+						break;
+					}
+
+					// ----- BASE SPIN -----
+					const reels = forceTrigger ? spinReelsWithScatters() : spinReels();
+					pendingRound.reels = reels;
+					const lineWins = evaluatePaylines(reels, pendingRound.betPerLine);
+					const scat = evaluateScatters(reels, pendingRound.total);
+					const wins = scat.win ? [...lineWins, scat.win] : lineWins;
+					const totalWin = wins.reduce((s, w) => s + w.pay, 0);
+					pendingRound.win = totalWin;
+
+					events.push(spinStart);
 					for (const w of wins) events.push({ event: 'spinWin', context: w });
+
+					// FEATURE TRIGGER. The scatters pay their scatter win AND award free
+					// spins — the pay and the trigger are independent, as in the base game.
+					if (scat.count >= FS_TRIGGER_MIN || forceTrigger) {
+						pendingRound.bonus = {
+							active: true,
+							total: TOTAL_FS,
+							played: 0,
+							left: TOTAL_FS,
+						};
+						events.push({
+							event: 'spinTrigger',
+							context: {
+								spins: [{ prob: 1, spins: TOTAL_FS }],
+								occurs: scat.count,
+								bonus: 'feature',
+								trigger: { occurs: [3, 4, 5], of: 'SCAT', mode: 'scatter', from: '' },
+							},
+						});
+						events.push({ event: 'playedSpin', context: reels });
+						events.push({
+							event: 'enterBonus',
+							context: bonusSnapshot(pendingRound, { played: 0, left: TOTAL_FS }),
+						});
+						// No `pickRandomly`: a lines game has no expanding special symbol.
+						// Do NOT credit and do NOT close — free spins + collect follow.
+						break;
+					}
+
 					events.push({ event: 'playedSpin', context: reels });
 					events.push({ event: 'gameEnd', context: { win: totalWin } });
 
