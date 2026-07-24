@@ -207,19 +207,23 @@ is no longer the case.)
 ### Winning symbols after the spin
 
 A separate section with its own on/off toggle (**on by default**) plus a **Gap between
-passes** slider. With it on, once the round's whole book has been presented the game keeps
+lines** slider. With it on, once the round's whole book has been presented the game keeps
 the winning symbols animating on the resting board — re-playing their Win state over and
 over — and stops the instant the next bet starts. Without it the symbols freeze on their
 post-win frame the moment the round ends.
+
+**Several paying lines step through one at a time**, in the order the round paid them, then
+the rotation starts over: line 1's symbols, gap, line 2's symbols, gap, … so each winning
+combination is legible on its own rather than the whole board lighting at once. The slider
+is that gap. A one-line win is just the same rotation with a single entry.
 
 **Symbols only.** The win line and its stamped amount are *not* redrawn: that pair is the
 round's own per-win narration ("this line paid this much"), and repeating it at rest just
 re-tells a story the player has read. That is also why this is its own section rather than a
 win-line setting — turning the line off has no effect on it, and vice versa.
 
-A free-spin feature replays its **last** spin's wins, and every winning cell of that spin
-lights together on each pass (several wins routinely share a symbol). The replay is skipped
-while autoplay or space-hold is running, since the next spin is already on its way.
+A free-spin feature replays its **last** spin's wins. The replay is skipped while autoplay or
+space-hold is running, since the next spin is already on its way.
 
 Stored sparsely as `winCycle: { enabled?, delay? }` (only the OFF flag and an authored delay
 persist; `delay` is in seconds), passed straight through to `bundle.symbols.winCycle` at

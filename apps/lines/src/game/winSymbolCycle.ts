@@ -17,9 +17,11 @@
  * paths — coded handler, v1 flow, v2 flow — at one seam, and the wins are recorded in
  * `dispatchBookEvent` for the same reason: a flow-owned `winInfo` never reaches the coded handler.
  *
- * One pass lights EVERY winning cell of the spin at once (the union across wins), rather than
- * stepping win-by-win the way the round does. Without a line to say which win is being shown,
- * sequential groups just read as symbols blinking in and out for no reason.
+ * ONE WIN PER PASS, in book order, looping back to the first — the same order the round narrated
+ * (owner direction 2026-07-24: "go through all the winning lines sequentially"). A spin with three
+ * paying lines therefore shows line 1's symbols, then line 2's, then line 3's, then line 1 again,
+ * so each combination is legible on its own. A single-win spin is the degenerate case: one win in
+ * the list, replayed over and over.
  */
 
 import { stateBetDerived } from 'state-shared';
@@ -61,20 +63,13 @@ export const stopWinCycle = (): void => {
 	generation += 1;
 };
 
-/** Every winning cell of the spin, deduped — several wins routinely share a symbol. */
-const cyclePositions = (): Position[] => {
-	const seen = new Set<string>();
-	const positions: Position[] = [];
-	for (const win of wins) {
-		for (const position of winningPositionsOf(win)) {
-			const key = `${position.reel}:${position.row}`;
-			if (seen.has(key)) continue;
-			seen.add(key);
-			positions.push(position);
-		}
-	}
-	return positions;
-};
+/**
+ * The per-win cell groups the cycle steps through, in book order — one entry per PAYING win, each
+ * holding just that win's own cells. Wins that trace no cells are dropped so a stray entry can't
+ * introduce a blank beat in the rotation.
+ */
+const cycleGroups = (): Position[][] =>
+	wins.map((win) => winningPositionsOf(win)).filter((positions) => positions.length > 0);
 
 /**
  * Start cycling the recorded wins' symbols. NOT awaited by the caller — it only ends when
@@ -88,16 +83,19 @@ export const startWinCycle = async (): Promise<void> => {
 	if (!cfg.enabled) return;
 	if (stateBetDerived.isContinuousBet()) return;
 
-	const positions = cyclePositions();
-	if (!positions.length) return;
+	const groups = cycleGroups();
+	if (!groups.length) return;
 
 	generation += 1;
 	const token = generation;
 	const gapMs = Math.max(MIN_GAP_MS, cfg.delay * SECOND);
 
 	while (token === generation) {
-		await animateSymbols({ positions });
-		if (token !== generation) return;
-		await waitForTimeout(gapMs);
+		for (const positions of groups) {
+			if (token !== generation) return;
+			await animateSymbols({ positions });
+			if (token !== generation) return;
+			await waitForTimeout(gapMs);
+		}
 	}
 };

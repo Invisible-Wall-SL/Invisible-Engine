@@ -1049,9 +1049,10 @@
 							<h2>Winning symbols after the spin</h2>
 							<p class="wl-sub">
 								Keep the round's winning symbols animating on the resting board until the player
-								spins again, instead of freezing on their post-win frame. Symbols only — the win
-								line and its stamped amount are not redrawn. Autoplay and space-hold skip it, since
-								the next spin is already on its way.
+								spins again, instead of freezing on their post-win frame. A spin that paid several
+								lines steps through them one line at a time, in the order the round paid them, then
+								starts over. Symbols only — the win line and its stamped amount are not redrawn.
+								Autoplay and space-hold skip it, since the next spin is already on its way.
 							</p>
 						</div>
 						<label class="switch" class:on={wcOn}>
@@ -1070,7 +1071,7 @@
 							<div class="wl-group">
 								<div class="wl-fields">
 									<label class="field">
-										<span class="label">Gap between passes {wcDelay.toFixed(2)}s</span>
+										<span class="label">Gap between lines {wcDelay.toFixed(2)}s</span>
 										<input
 											type="range"
 											min="0"
