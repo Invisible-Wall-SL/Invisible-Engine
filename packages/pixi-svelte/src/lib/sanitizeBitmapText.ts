@@ -93,6 +93,73 @@ export function ensureBitmapFontSpaceGlyph(font: PIXI.BitmapFont | undefined): v
 	}
 }
 
+/** The metric fields pixi declares `readonly` on `AbstractBitmapFont` but writes as plain
+ *  instance properties in the `BitmapFont` constructor — i.e. readonly to TS only. */
+type MutableFontMetrics = {
+	lineHeight: number;
+	baseLineOffset: number;
+	baseMeasurementFontSize: number;
+};
+
+/** Fonts whose metrics have been inspected — the correction must run exactly once per font. */
+const measuredFonts = new WeakSet<PIXI.BitmapFont>();
+
+/** How far the glyphs may overflow the declared line box before the descriptor is treated as
+ *  WRONG rather than as ordinary overshoot (a real font's descenders stay inside it). */
+const GLYPH_OVERFLOW_TOLERANCE = 1.1;
+
+/**
+ * Correct a static bitmap font whose descriptor UNDER-REPORTS its own glyph box, so
+ * `fontSize` means the same thing for every font.
+ *
+ * pixi 8 derives everything about a bitmap font from two descriptor numbers (verified against
+ * 8.8.1): `getBitmapTextLayout` draws at `scale = style.fontSize / font.baseMeasurementFontSize`
+ * (`<info size>`) and advances each new line by `font.lineHeight` (`<common lineHeight>`).
+ * `style.lineHeight` is never consulted. A descriptor whose glyphs are actually TALLER than
+ * those numbers therefore breaks twice over, and neither is fixable from the call site:
+ *   - every glyph renders `glyphBox / size` times bigger than the requested `fontSize`, so an
+ *     authored size control appears not to work (the engine's bundled `silver` font declares
+ *     `size=97` for ~168px glyphs → ~1.7× too big);
+ *   - multi-line text advances by less than a glyph is tall → the lines OVERLAP.
+ *
+ * The fix rescales both numbers by the font's measured glyph box, which restores the invariant
+ * every correct descriptor already satisfies (`lineHeight ≈ tallest glyph`): text draws at the
+ * requested `fontSize` and one line clears the next. `baseLineOffset` rides the same factor as
+ * it is expressed in the same units.
+ *
+ * Idempotent + defensive: no-op for an unresolved font, a DYNAMIC font (its glyphs are minted
+ * from a real font file, so its metrics are correct by construction and its char set keeps
+ * growing), a descriptor that already fits its glyphs, or any unexpected error.
+ */
+export function normalizeBitmapFontMetrics(font: PIXI.BitmapFont | undefined): void {
+	if (!font || measuredFonts.has(font)) return;
+	if (typeof (font as { ensureCharacters?: unknown }).ensureCharacters === 'function') return;
+	try {
+		const metrics = font as unknown as MutableFontMetrics;
+		const { lineHeight, baseMeasurementFontSize } = metrics;
+		if (!(lineHeight > 0) || !(baseMeasurementFontSize > 0)) return;
+
+		// The box the glyphs actually occupy below the line's top edge. Textureless glyphs (a
+		// synthesised space) carry no box and are skipped.
+		let glyphBox = 0;
+		for (const key in font.chars) {
+			const char = font.chars[key];
+			const height = char?.texture?.frame?.height ?? 0;
+			if (height > 0) glyphBox = Math.max(glyphBox, (char.yOffset || 0) + height);
+		}
+
+		measuredFonts.add(font);
+		if (!(glyphBox > lineHeight * GLYPH_OVERFLOW_TOLERANCE)) return;
+
+		const correction = glyphBox / lineHeight;
+		metrics.lineHeight = glyphBox;
+		metrics.baseMeasurementFontSize = baseMeasurementFontSize * correction;
+		metrics.baseLineOffset *= correction;
+	} catch {
+		// Never let the guard itself crash the render loop.
+	}
+}
+
 /** True for characters that must always survive sanitisation (space, tab, CR, LF, …). */
 const isWhitespace = (char: string): boolean => /\s/.test(char);
 

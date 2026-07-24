@@ -24,6 +24,7 @@
 		TextStyle,
 		type ColorSource,
 	} from 'pixi.js';
+	import { normalizeBitmapFontMetrics, resolveBitmapFont } from 'pixi-svelte';
 	import {
 		ensureBitmapFont,
 		ensureWebFont,
@@ -348,6 +349,10 @@
 		font: EditorFont,
 	): BitmapText {
 		const existing = objects.get(key);
+		// Same descriptor correction the game applies in `pixi-svelte`'s <BitmapText> — a font
+		// that under-reports its glyph box otherwise draws bigger here (and overlaps its own
+		// lines) than in the game, so `fontSize` would mean two different things.
+		normalizeBitmapFontMetrics(resolveBitmapFont(font.name));
 		const obj = existing instanceof BitmapText ? existing : new BitmapText({ text });
 		obj.text = text;
 		obj.style = {

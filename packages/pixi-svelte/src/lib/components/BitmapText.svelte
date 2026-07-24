@@ -15,6 +15,7 @@
 	import { getContextParent } from '../context.svelte';
 	import {
 		ensureBitmapFontSpaceGlyph,
+		normalizeBitmapFontMetrics,
 		resolveBitmapFont,
 		sanitizeBitmapText,
 	} from '../sanitizeBitmapText';
@@ -32,9 +33,12 @@
 	//   2. sanitizeBitmapText — drop any remaining unbaked glyph so it degrades to "not
 	//      drawn" rather than a blank-space fallback.
 	// No-op until the font resolves / for dynamic/system fonts ⇒ text passes through.
+	// The third call is not a crash guard: it makes `style.fontSize` mean the same thing for
+	// every bitmap font by correcting a descriptor that under-reports its glyph box.
 	const safeText = $derived.by(() => {
 		const font = resolveBitmapFont(props.style?.fontFamily);
 		ensureBitmapFontSpaceGlyph(font);
+		normalizeBitmapFontMetrics(font);
 		return sanitizeBitmapText(props.text, font);
 	});
 
