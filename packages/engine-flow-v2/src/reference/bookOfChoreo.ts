@@ -169,7 +169,7 @@ export const BOOK_OF_CHOREO: Record<string, ChoreoStep[]> = {
 
 	// `winInfo` — a win-level sfx, then a serial forEach over `$trigger.wins`. Per win: show the
 	// board, trace the win line + stamp its amount (awaited so an animated line finishes first),
-	// animate the winning cells, show a transient "Win $X — N of a kind" toast, then hide the line.
+	// animate the winning cells, show a transient "You win $X with N Bananas" toast, then hide the line.
 	// The win line (`showWinLine`/`hideWinLine`) and the toast (`showMessage`) are BOTH kept.
 	winInfo: [
 		{
@@ -205,7 +205,12 @@ export const BOOK_OF_CHOREO: Record<string, ChoreoStep[]> = {
 				{
 					k: 'action',
 					ref: 'showMessage',
-					inputs: { amount: itemA('win'), kind: itemA('kind'), messageKind: str('win') },
+					inputs: {
+						amount: itemA('win'),
+						kind: itemA('kind'),
+						symbol: itemA('symbol'),
+						messageKind: str('win'),
+					},
 				},
 				{ k: 'action', ref: 'hideWinLine', inputs: { symbol: itemA('symbol') } },
 			],

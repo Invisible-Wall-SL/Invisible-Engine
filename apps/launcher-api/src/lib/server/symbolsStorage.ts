@@ -64,6 +64,26 @@ const symbolStatesSchema = z.record(z.enum(SYMBOL_STATES), symbolCellSchema);
 /** Symbol name → state → binding. Symbol keys are arbitrary, sparse. */
 const symbolMapSchema = z.record(z.string().min(1), symbolStatesSchema);
 
+/**
+ * A symbol's DISPLAY NAME — the human word the game says for the id (`H1` → "Banana"). Lives in
+ * THIS doc because this tool already owns what a symbol is; Invisible Win Text reads it as
+ * `{symbolName}` rather than keeping a second, drift-prone symbol list of its own.
+ *
+ * Both forms are authored and neither is auto-derived: `"{count} {symbolName}"` is read with a
+ * number in front of it, and guessing an English `+s` produces "Cherrys" (and means nothing in a
+ * translated build). `plural` unset falls back to `singular`, which is right for the many names
+ * that don't inflect. See `engine-layout/symbolNames.ts` for the resolution both tools share.
+ */
+const symbolNameSchema = z
+	.object({
+		singular: z.string().min(1).optional(),
+		plural: z.string().min(1).optional(),
+	})
+	.strict();
+
+/** Symbol id → display name. Sparse: an unnamed symbol is simply absent and falls back to its id. */
+const symbolNamesSchema = z.record(z.string().min(1), symbolNameSchema);
+
 /** Global win-frame ("highlight") override — a single spine that loops over winning
  *  symbols. Optional + spine-only: absent means the game uses its built-in default. */
 const highlightCellSchema = z
@@ -154,6 +174,7 @@ export const symbolsDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
 		symbols: symbolMapSchema.default({}),
+		names: symbolNamesSchema.optional(),
 		highlight: highlightCellSchema.optional(),
 		boardGlow: boardGlowSchema.optional(),
 		winLine: winLineSchema.optional(),
@@ -193,7 +214,21 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	for (const [name, states] of Object.entries(doc.symbols)) {
 		if (states && Object.keys(states).length > 0) symbols[name] = states;
 	}
+	// Names: drop a blank/whitespace form and then a now-empty entry, so clearing the boxes leaves
+	// no key and the symbol falls back to its id (the same sparse-round-trip rule as `symbols`).
+	const names: SymbolsDoc['names'] = {};
+	for (const [symbol, entry] of Object.entries(doc.names ?? {})) {
+		const singular = entry?.singular?.trim();
+		const plural = entry?.plural?.trim();
+		const kept: NonNullable<SymbolsDoc['names']>[string] = {};
+		if (singular) kept.singular = singular;
+		if (plural) kept.plural = plural;
+		if (Object.keys(kept).length) names[symbol] = kept;
+	}
 	const next: SymbolsDoc = { version: 1, symbols };
+	// Sparse like every other optional field: a project that never named a symbol persists no
+	// `names` key at all, so its doc stays byte-identical to before this existed.
+	if (Object.keys(names).length) next.names = names;
 	if (doc.highlight) next.highlight = doc.highlight;
 	// Copied explicitly — this rebuild is a whitelist, so a field that passes Zod but isn't listed
 	// here is still dropped on save (the silent round-trip trap).

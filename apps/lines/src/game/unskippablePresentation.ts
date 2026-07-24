@@ -106,7 +106,7 @@ export const SLAM_MINIMUM_DISPLAY_CUES: ReadonlySet<string> = new Set(['boardWit
 export const SLAM_SYMBOL_HOLD_MS = 200;
 
 /** How long a slammed spin holds on one win's info message, per win — the readable part of the
- *  summary. 400ms reads a short template ("Win $1.20 — 3 of a kind") without stalling the round;
+ *  summary. 400ms reads a short template ("You win $1.20 with 3 Bananas") without stalling the round;
  *  combined with {@link SLAM_SYMBOL_HOLD_MS} a win costs 600ms against several seconds unslammed. */
 export const SLAM_MESSAGE_HOLD_MS = 400;
 

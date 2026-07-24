@@ -4,7 +4,9 @@
 
 **One-line state:** Built on `main` — W1–W8 (doc/storage, endpoints, engine resolver, the four
 families, the `/win-text` page, registry + docs, the Localization `winText` origin, bake +
-runtime-bundle wiring) are in; ⏳ owner visual-verify the page and a real authored win in-game.
+runtime-bundle wiring) are in, plus **W9: win text now NAMES the paying symbol** (`{symbolName}`,
+authored in `/symbols`) and "N of a kind" is gone from every default; ⏳ owner visual-verify the
+page and a real authored win in-game.
 
 ## Current state
 
@@ -47,6 +49,37 @@ Invisible Localization for translation.
   chain, localize-then-interpolate (incl. a translation reordering tokens), and unknown-token
   robustness.
 
+### W9 — the text names the symbol (2026-07-24)
+
+The tool shipped with the engine's old literals as its DEFAULTS, so every unauthored game still
+said "Win $1.00 — 2 of a kind". That is jargon, and it was the only thing the text *could* say:
+a symbol id (`H1`) is unspeakable, so there was no word to put in a sentence.
+
+- **`SymbolsDoc.names`** — `H1 → { singular: 'Banana', plural: 'Bananas' }`, authored on each row
+  of the `/symbols` grid (two boxes under the id). Both forms authored, never derived — `+s`
+  guessing gives "Cherrys" and means nothing translated; unset `plural` reuses `singular`.
+- **`engine-layout/symbolNames.ts`** is the shared resolver (game + both tools). An unnamed
+  symbol resolves to its own **id**, so there is no "unnamed" branch anywhere — only a
+  provisional-looking word. The name is localized **inside** the resolver, because
+  `formatWinText` interpolates after localizing and a raw substitution would never translate.
+- **New defaults**: `You win {amount} with {count} {symbolName}` / `You win {amount}` /
+  `{count} {symbolName}`. This is a deliberate BREAK of the byte-identical-defaults contract —
+  the whole point was to stop shipping the jargon; an authored doc is untouched.
+- **`resolveToastTemplate` now requires a symbol** before it picks a count-bearing branch, so a
+  generic `showMessage` with only an amount falls to `amountOnly` instead of printing a bare
+  `{symbolName}`.
+- **Plumbing**: `showMessage` gained a `symbol` param in `BOOK_OF_VOCAB` + both reference
+  choreographies; `showWinInfoMessage`/`winLineTextFor` resolve the name. Graphs authored BEFORE
+  the pin existed (the published ones) still name correctly via `rememberWinSymbol` — the symbol
+  the immediately-preceding `showWinLine` announced, read only when the counts match. Wiring the
+  pin makes that fallback unused.
+- **Travel**: `symbolExport` passes `names` through verbatim (assetless, sparse, omitted when
+  empty) → `bakedSymbolNames()`. While wiring the bake whitelist, **`winCycle` turned out to be
+  missing from it entirely** — the runtime-bundle path carried it but the bake path didn't, so a
+  project that turned the win-symbol replay off shipped it ON. Fixed in the same pass.
+- **26 offline checks** over the real modules:
+  `node packages/engine-layout/scripts/test-win-text-symbol-names.mjs`.
+
 ### Two findings that shaped the build
 1. **`winLevelMap[].text` is DEAD DATA** — nothing reads it. The tier words players see are
    painted into the big-win SPINE ART; `Win.svelte` draws only the count-up amount. So
@@ -79,5 +112,8 @@ Invisible Localization for translation.
 - Nothing.
 
 ## Recent changes
+- 2026-07-24 — W9: win text names the paying symbol (`{symbolName}` from `SymbolsDoc.names`);
+  every "N of a kind" default replaced; `showMessage` gained a `symbol` pin; `winCycle` bake gap
+  fixed on the way past.
 - 2026-07-16 — tool built: doc/storage/endpoints, engine resolver + the four families, `/win-text`
   page, registry + docs, Localization `winText` origin, bake + runtime-bundle wiring.
