@@ -72,13 +72,43 @@ presentation, already has a home, and one fact keeps one home.
 
 | Token | Value | Notes |
 |---|---|---|
-| `{count}` | the win's `kind` | the N of "N of a kind" |
+| `{count}` | the win's `kind` | how many symbols matched |
 | `{amount}` | `bookEventAmountToCurrencyString(win)` | already currency+locale formatted |
-| `{symbol}` | the win's `symbol` id | e.g. `H1` |
+| `{symbolName}` | `resolveSymbolName(names, symbol, count)` | the symbol's authored NAME, inflected + localized |
+| `{symbol}` | the win's `symbol` id | e.g. `H1` — raw; prefer `{symbolName}` |
 | `{line}` | `meta.lineIndex` | the payline index |
 | `{message}` | the resolved win-line message | **toast template only** |
 
 An unknown token renders verbatim (no throw) — a typo must never black-screen a game.
+
+### 2.2 `{symbolName}` — the text says WHICH symbol paid
+
+The original design could only express *how many* matched ("3 of a kind") because a symbol id
+(`H1`) is unspeakable — there was no word to substitute. That is jargon the player has to
+decode, and it was the DEFAULT, so every game shipped it.
+
+Symbols now carry a **display name**, authored in the Invisible Symbols State Machine
+(`SymbolsDoc.names`, the tool that already owns what a symbol is) and resolved by the shared
+`engine-layout/symbolNames.ts`:
+
+```ts
+type SymbolNameEntry = { singular?: string; plural?: string };   // H1 -> Banana / Bananas
+```
+
+- **Singular + plural are both authored, never derived.** `"{count} {symbolName}"` always reads
+  with a number in front of it; English `+s` guessing yields "Cherrys" and means nothing in a
+  translated build. An unset `plural` falls back to `singular` (right for "Wild", "Bonus", "7").
+- **An unnamed symbol resolves to its own ID.** Visible and obviously provisional — the honest
+  failure for a name not filled in yet, and identical to what the text could say before.
+- **The name is localized at its own source**, inside `resolveSymbolName`, because
+  `formatWinText` interpolates *after* localizing the template — a raw substitution would be the
+  one word in the sentence that never translates.
+- It lives in the symbols doc, not here, so there is **one** symbol list. `/win-text` reads it
+  read-only to preview and to label its grid rows.
+
+`resolveToastTemplate` will not pick a count-bearing branch without a symbol: a generic
+`showMessage` that knows only an amount falls to `amountOnly` rather than rendering a bare
+`{symbolName}`.
 
 ## 3. The doc
 
@@ -97,23 +127,25 @@ type WinTextDoc = {
   amountFormat?: string;                 // "{amount}"
   winLevels?: Record<string, string>;    // "big"   -> "BIG WIN"   (key = winLevelMap alias; opt-in, §1.2)
   toast?: {                              // THREE branches, not one — see below
-    full?: string;                       // "Win {amount} — {count} of a kind"
-    amountOnly?: string;                 // "Win {amount}"
-    countOnly?: string;                  // "{count} of a kind"
+    full?: string;                       // "You win {amount} with {count} {symbolName}"
+    amountOnly?: string;                 // "You win {amount}"          (no symbol known)
+    countOnly?: string;                  // "{count} {symbolName}"
   };
   updatedAt?: string;
 };
 ```
 
 **The toast is three templates, not one.** `showMessage` is deliberately generic ("any FlowDoc
-can invoke it") and assembles from whichever of `amount`/`kind` it was handed — a call with only
-an amount says "Win $1.00". A single template can't express that without conditional syntax, and
-one field per branch is simpler *and* honest: each is independently translatable, and the three
-map 1:1 onto the legacy `parts` branches.
+can invoke it") and assembles from whichever of `amount`/`kind`/`symbol` it was handed — a call
+with only an amount says "You win $1.00". A single template can't express that without
+conditional syntax, and one field per branch is simpler *and* honest: each is independently
+translatable.
 
-**Defaults reproduce the prior literals** (`WIN_TEXT_DEFAULTS`), except where there was no prior
-literal: `lineMessage.default` is `''` (the win line had no message layer) and `winLevels` is
-`{}` (§1.2). Empty template ⇒ nothing rendered ⇒ parity.
+**Defaults NAME the symbol** (`WIN_TEXT_DEFAULTS.toast`) — they are the one place the old "N of
+a kind" literals survived, and they were the default, so every unauthored game said it. They now
+read "You win {amount} with {count} {symbolName}" (§2.2). Where there was no prior literal at
+all the default stays empty: `lineMessage.default` is `''` (the win line had no message layer)
+and `winLevels` is `{}` (§1.2). Empty template ⇒ nothing rendered ⇒ parity.
 
 **Sparse, every field optional.** A field the doc omits falls through to the coded default,
 which mirrors today's literal — so an un-baked or unauthored project renders byte-identically

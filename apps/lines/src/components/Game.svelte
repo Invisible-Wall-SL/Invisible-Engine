@@ -507,7 +507,7 @@
 		// the same `<Symbol>` + `getActiveSymbolInfoMap()` path the coded `SpecialBook` uses).
 		specialSymbol: textSource(() => stateGame.specialSymbol ?? ''),
 		// Composed-string feed for the `infoBar` def's `value` param — the transient
-		// `showMessage` toast text (e.g. "Win $1.00 — 2 of a kind"). A string source, so
+		// `showMessage` toast text (e.g. "You win $1.00 with 2 Bananas"). A string source, so
 		// it renders verbatim through the text path. The `infoBar` scene's componentInstance
 		// binds its message node to this via `params.source: 'message'`. Empty until a game
 		// calls `showMessage`, gated invisible by `messageShow` below.

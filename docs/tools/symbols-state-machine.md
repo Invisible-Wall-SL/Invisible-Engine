@@ -99,6 +99,25 @@ tool top bar). Switch projects from the launcher before opening the tool.
    animation names) and re-reads the project's bundle list (a brand-new bundle appears in
    the spine pickers). Your unsaved cell edits are preserved.
 
+### Naming a symbol (what the game calls it out loud)
+
+Each row's left-hand label carries two boxes under the symbol id: **Name** and **Plural**.
+This is the word the game *says* for that symbol — `H1` → "Banana" / "Bananas". The id never
+changes; bindings, book events and every other tool keep referring to `H1`.
+
+[Invisible Win Text](./win-text.md) prints it as `{symbolName}`, so with `H1` named a win
+reads **"You win $4.00 with 4 Bananas"** instead of naming an id nobody can read. Rename a
+symbol here and every win message follows — there is nothing to edit in the other tool.
+
+- **Plural** is used whenever the count isn't 1. Leave it blank for names that don't inflect
+  ("Wild", "Bonus", "7") and it reuses the Name.
+- A symbol with no name falls back to its id, so an unnamed project still says something
+  sensible ("4 H1") — it just isn't a word.
+- Names are **text only** — no asset, no export step. They ship with the next
+  build/publish like the rest of this doc.
+- Names are translatable: they go through the same text resolver as every other authored
+  string, so a translated build can say "4 Plátanos".
+
 ### Symbol size lives on the reel, not here
 
 This tool no longer sets symbol size — size is a *layout* concern. To change how big the

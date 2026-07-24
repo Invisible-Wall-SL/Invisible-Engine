@@ -1,6 +1,9 @@
 <script lang="ts">
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import {
+		formatWinText,
+		resolveSymbolName,
+		resolveToastTemplate,
 		resolveWinText,
 		resolveWinLineMessage,
 		symbolDrawsWinLine,
@@ -48,7 +51,34 @@
 	 */
 	const WIN_LEVEL_ALIASES = ['big', 'superwin', 'mega', 'epic', 'max'];
 
-	const TOKEN_HELP = '{count} {amount} {symbol} {line}';
+	const TOKEN_HELP = '{amount} {count} {symbolName} {line}';
+
+	/**
+	 * A concrete rendering of a template, using the FIRST named symbol (or the first symbol at
+	 * all) at 3 of a kind — the same `formatWinText` the game calls, so the preview can't drift
+	 * from what ships. Localization is a no-op here (the launcher registers no catalog), which is
+	 * exactly right: this previews the SOURCE language the templates are written in.
+	 */
+	const previewSymbol = $derived(
+		data.symbols.find((s) => data.symbolNames[s]?.singular) ?? data.symbols[0] ?? 'H1',
+	);
+	const PREVIEW_COUNT = 3;
+	const previewVars = $derived({
+		amount: '$4.00',
+		count: PREVIEW_COUNT,
+		symbol: previewSymbol,
+		symbolName: resolveSymbolName(data.symbolNames, previewSymbol, PREVIEW_COUNT),
+		line: 1,
+	});
+	const preview = (template: string): string => formatWinText(template, previewVars);
+
+	/** How many of the project's symbols have a name — the whole `{symbolName}` feature is dark
+	 *  until at least one does, so the page says so rather than silently previewing ids. */
+	const namedCount = $derived(data.symbols.filter((s) => data.symbolNames[s]?.singular).length);
+
+	/** The exact branch + text the info bar will show for a normal symbol win, resolved by the
+	 *  game's own `resolveToastTemplate`. */
+	const toastPreview = $derived(preview(resolveToastTemplate(resolved, previewVars) ?? ''));
 
 	/**
 	 * The symbols that can actually carry a win-line message. A scatter pays "anywhere" rather
@@ -172,10 +202,20 @@
 		<p class="intro">
 			What the game <em>says</em> about a win. Every field is a <strong>template</strong> — write
 			<code>{TOKEN_HELP}</code>
-			and the game fills them in. Templates are translated in
+			and the game fills them in. <code>{'{symbolName}'}</code> becomes the symbol's own name
+			(plural when the count isn't 1), which you write in
+			<a href="/symbols">Invisible Symbols</a> — rename a symbol there and every message here
+			follows, with no edit. Templates are translated in
 			<a href="/localization">Invisible Localization</a>; the currency in
 			<code>{'{amount}'}</code> follows the player's own locale automatically.
 		</p>
+		{#if namedCount === 0}
+			<p class="warn">
+				<strong>None of this game's symbols has a name yet.</strong> Until you name them in
+				<a href="/symbols">Invisible Symbols</a>, <code>{'{symbolName}'}</code> falls back to the
+				raw id and the game will say “You win $4.00 with 4 {previewSymbol}”.
+			</p>
+		{/if}
 
 		<section>
 			<h2>Win-line message</h2>
@@ -186,10 +226,10 @@
 				the grey text shows what it will inherit.
 				{#if excludedSymbols.length}
 					<br />
-					<strong>{excludedSymbols.join(', ')}</strong> {excludedSymbols.length === 1
-						? 'is not listed'
-						: 'are not listed'}: a scatter pays anywhere rather than along a line, so the game draws
-					no win line for it and this message would never appear. Use the
+					<strong>{excludedSymbols.join(', ')}</strong>
+					{excludedSymbols.length === 1 ? 'is not listed' : 'are not listed'}: a scatter pays
+					anywhere rather than along a line, so the game draws no win line for it and this message
+					would never appear. Use the
 					<em>Info-bar message</em> below for those wins.
 				{/if}
 			</p>
@@ -200,7 +240,7 @@
 						<tr>
 							<th class="corner-head">Symbol</th>
 							{#each COUNTS as count (count)}
-								<th>{count} of a kind</th>
+								<th>{count} matching</th>
 							{/each}
 							<th class="any">Any count</th>
 						</tr>
@@ -221,15 +261,22 @@
 								<input
 									class="default-input"
 									value={doc.lineMessage?.default ?? ''}
-									placeholder="Default — e.g. {'{count}'} OF A KIND"
+									placeholder="Default — e.g. {'{count}'} {'{symbolName}'}"
 									oninput={(e) => setDefault(e.currentTarget.value)}
 								/>
 							</td>
 						</tr>
 
 						{#each lineSymbols as symbol (symbol)}
+							{@const name = data.symbolNames[symbol]?.singular}
 							<tr>
-								<th class="row-head">{symbol}</th>
+								<th class="row-head">
+									{symbol}
+									<!-- The name is READ-ONLY here: `/symbols` owns it (one fact, one home). Shown
+									     so the author can tell at a glance which rows will speak a word and which
+									     will fall back to the id. -->
+									{#if name}<span class="row-name">{name}</span>{/if}
+								</th>
 								{#each COUNTS as count (count)}
 									{@const eff = effective(symbol, count)}
 									<td>
@@ -240,7 +287,11 @@
 												? 'Set here'
 												: `Inherited from ${eff.source === 'default' ? 'the default' : eff.source}`}
 											oninput={(e) =>
-												setLineMessage('byCell', winTextCellKey(symbol, count), e.currentTarget.value)}
+												setLineMessage(
+													'byCell',
+													winTextCellKey(symbol, count),
+													e.currentTarget.value,
+												)}
 										/>
 									</td>
 								{/each}
@@ -277,14 +328,22 @@
 		<section>
 			<h2>Info-bar message</h2>
 			<p class="hint">
-				The transient message shown when a win pays. Three separate lines because the game shows
-				whichever fits what it knows — a win with no match count can't say “of a kind”.
+				The transient message shown when a win pays. It <strong>names the symbol</strong> that paid
+				— write <code>{'{symbolName}'}</code> and the game fills in the name from
+				<a href="/symbols">Invisible Symbols</a>, so a win reads
+				<em>“You win $4.00 with 4 Bananas”</em>. Three separate lines because the game shows
+				whichever fits what it knows: a message fired without a symbol (any flow can fire one) falls
+				back to the amount-only line rather than printing a blank name.
+			</p>
+			<p class="hint">
+				Live preview for <code>{previewSymbol}</code> × {PREVIEW_COUNT}:
+				<strong class="preview">{toastPreview || '—'}</strong>
 			</p>
 			<label class="single">
-				<span>Amount + count</span>
+				<span>Amount + symbol</span>
 				<input
 					value={doc.toast?.full ?? ''}
-					placeholder={'Win {amount} — {count} of a kind'}
+					placeholder={resolved.toast.full}
 					oninput={(e) => setToast('full', e.currentTarget.value)}
 				/>
 			</label>
@@ -292,15 +351,15 @@
 				<span>Amount only</span>
 				<input
 					value={doc.toast?.amountOnly ?? ''}
-					placeholder={'Win {amount}'}
+					placeholder={resolved.toast.amountOnly}
 					oninput={(e) => setToast('amountOnly', e.currentTarget.value)}
 				/>
 			</label>
 			<label class="single">
-				<span>Count only</span>
+				<span>Symbol only</span>
 				<input
 					value={doc.toast?.countOnly ?? ''}
-					placeholder={'{count} of a kind'}
+					placeholder={resolved.toast.countOnly}
 					oninput={(e) => setToast('countOnly', e.currentTarget.value)}
 				/>
 			</label>
@@ -309,8 +368,8 @@
 		<section>
 			<h2>Win-level captions</h2>
 			<p class="warn">
-				<strong>Usually leave these blank.</strong> In most games the tier words are painted into the
-				big-win artwork, and the game draws only the amount — so filling one in adds a
+				<strong>Usually leave these blank.</strong> In most games the tier words are painted into
+				the big-win artwork, and the game draws only the amount — so filling one in adds a
 				<em>second</em> caption on top of art that already says it. Fill these in only for a game whose
 				big-win art carries no words (which is also what lets the tier be translated without re-cutting
 				the art per language).
@@ -419,6 +478,21 @@
 		color: #c8a3ff;
 		background: #101017;
 		border-right: 1px solid #1c1c24;
+	}
+	.row-name {
+		display: block;
+		margin-top: 2px;
+		font-family: inherit;
+		font-weight: 500;
+		text-transform: none;
+		letter-spacing: 0;
+		color: #7ee0c0;
+	}
+	.preview {
+		color: #7ee0c0;
+	}
+	.warn a {
+		color: #e3c48f;
 	}
 	.any-row td {
 		background: #121019;

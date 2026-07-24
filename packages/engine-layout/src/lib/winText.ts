@@ -14,11 +14,19 @@
  * amount, so it could never be harvested as a key nor match a catalog entry. Localization was
  * structurally out of reach.
  *
- * A TEMPLATE (`"{count} OF A KIND"`) is stable, finite and harvestable, so it can be the key.
+ * A TEMPLATE (`"{count} {symbolName}"`) is stable, finite and harvestable, so it can be the key.
  * {@link formatWinText} therefore localizes the template FIRST and interpolates AFTER. The
- * interpolated values need no translation: `{amount}` arrives already currency+locale
- * formatted (`bookEventAmountToCurrencyString` → `Intl` with the URL's currency), `{count}`
- * is a numeral. Never interpolate, then localize.
+ * interpolated values need no translation *here*: `{amount}` arrives already currency+locale
+ * formatted (`bookEventAmountToCurrencyString` → `Intl` with the URL's currency), `{count}` is a
+ * numeral, and `{symbolName}` was localized at its own source by `resolveSymbolName`. Never
+ * interpolate, then localize.
+ *
+ * ## Symbols are NAMED, never counted-as-jargon
+ *
+ * The text says WHICH symbol paid ("4 Bananas"), not how many matched in the abstract ("4 of a
+ * kind"). The name comes from the Invisible Symbols State Machine (`SymbolsDoc.names`, resolved by
+ * `symbolNames.ts`) — so renaming `H1` to "Banana" in that tool changes every sentence the game
+ * says about an `H1` win, with no template edit.
  *
  * See `docs/design/invisible-win-text.md`.
  */
@@ -56,17 +64,17 @@ export type WinTextDoc = {
  * The info-bar toast, as THREE templates rather than one.
  *
  * `showMessage` is deliberately generic ("any FlowDoc can invoke it; it is NOT winInfo-specific")
- * and assembles its text from whichever of `amount`/`kind` it was handed — so a call with only an
- * amount says "Win $1.00", not "Win $1.00 — {count} of a kind". A single template can't express
- * that without conditional syntax, and one field per branch is both simpler and honest: each is a
- * separate, independently translatable string. The branches map 1:1 onto the legacy `parts` logic.
+ * and assembles its text from whichever of `amount`/`kind`/`symbol` it was handed — so a call with
+ * only an amount says "You win $1.00", not "You win $1.00 with {count} {symbolName}". A single
+ * template can't express that without conditional syntax, and one field per branch is both simpler
+ * and honest: each is a separate, independently translatable string.
  */
 export type WinTextToast = {
-	/** Both an amount and a count. */
+	/** An amount, a count AND a named symbol — the full "you win X with N Y" sentence. */
 	full?: string;
-	/** An amount, no count. */
+	/** An amount with no symbol to name. */
 	amountOnly?: string;
-	/** A count, no amount. */
+	/** A count + symbol, no amount. */
 	countOnly?: string;
 };
 
@@ -79,9 +87,13 @@ export type ResolvedWinText = {
 };
 
 /**
- * The coded defaults — chosen so an unauthored project is byte-identical to the engine before
- * this tool existed:
- * - `toast` ⇒ the three `flowEffects.showMessage` branches, verbatim.
+ * The coded defaults:
+ * - `toast` ⇒ the SYMBOL-NAMED sentence. These used to be the "N of a kind" literals the engine
+ *   hardcoded, which is jargon a player shouldn't have to decode and — worse — the only thing the
+ *   text could say, because a raw symbol id (`H1`) is unspeakable. With
+ *   `resolveSymbolName` (symbolNames.ts) there is a real word for the symbol, so the default now names it:
+ *   "You win $4.00 with 4 Bananas". A project that never names its symbols still reads sensibly —
+ *   the name falls back to the id ("…with 4 H1"), which is a prompt to go name it, not a crash.
  * - `amountFormat` ⇒ `'{amount}'`, the bare currency string `WinLine.svelte` stamped.
  * - `lineMessage.default` ⇒ EMPTY. The win line had no message layer at all, so there is no
  *   prior literal to reproduce; an empty template renders nothing. Author it to turn it on.
@@ -96,9 +108,9 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 	amountFormat: '{amount}',
 	winLevels: {},
 	toast: {
-		full: 'Win {amount} — {count} of a kind',
-		amountOnly: 'Win {amount}',
-		countOnly: '{count} of a kind',
+		full: 'You win {amount} with {count} {symbolName}',
+		amountOnly: 'You win {amount}',
+		countOnly: '{count} {symbolName}',
 	},
 };
 
@@ -141,19 +153,23 @@ export function resolveWinText(doc: WinTextDoc | undefined): ResolvedWinText {
 }
 
 /**
- * Pick the toast template for the vars actually supplied, mirroring the legacy `showMessage`
- * branches exactly: both ⇒ `full`, amount only ⇒ `amountOnly`, count only ⇒ `countOnly`,
- * neither ⇒ `undefined` (the caller shows nothing, as the legacy empty-`parts` guard did).
+ * Pick the toast template for the vars actually supplied.
+ *
+ * The count-bearing branches (`full`, `countOnly`) now also require a SYMBOL, because a count on
+ * its own can only be spoken as "N of a kind" — the jargon this contract exists to remove. So a
+ * call that knows the amount but not which symbol paid (the generic `showMessage` any FlowDoc can
+ * fire) falls to `amountOnly` rather than rendering "You win $4.00 with 4 {symbolName}". Nothing
+ * at all ⇒ `undefined`, and the caller shows no toast.
  */
 export function resolveToastTemplate(
 	resolved: ResolvedWinText,
-	vars: { amount?: string; count?: number },
+	vars: { amount?: string; count?: number; symbolName?: string },
 ): string | undefined {
 	const hasAmount = vars.amount !== undefined;
-	const hasCount = vars.count !== undefined;
-	if (hasAmount && hasCount) return resolved.toast.full;
+	const named = vars.count !== undefined && vars.symbolName !== undefined;
+	if (hasAmount && named) return resolved.toast.full;
 	if (hasAmount) return resolved.toast.amountOnly;
-	if (hasCount) return resolved.toast.countOnly;
+	if (named) return resolved.toast.countOnly;
 	return undefined;
 }
 
@@ -190,12 +206,16 @@ export function resolveWinLineMessage(
 /** The values a win-text template can interpolate. A token with no value here renders
  *  verbatim (see {@link formatWinText}). */
 export type WinTextVars = {
-	/** The win's `kind` — the N of "N of a kind". */
+	/** How many symbols formed the paying combination. */
 	count?: number;
 	/** Already currency+locale formatted (`bookEventAmountToCurrencyString`). */
 	amount?: string;
-	/** The paying symbol id, e.g. `H1`. */
+	/** The paying symbol id, e.g. `H1`. Raw — usually you want `{symbolName}`. */
 	symbol?: string;
+	/** The paying symbol's authored DISPLAY NAME, already inflected for `count` and localized
+	 *  (`resolveSymbolName` (symbolNames.ts)). Falls back to the id for an unnamed symbol, so a template
+	 *  using it never renders a bare token. */
+	symbolName?: string;
 	/** The payline index (`meta.lineIndex`). */
 	line?: number;
 	/** The resolved win-line message — toast template only. */
@@ -242,7 +262,7 @@ export function collectWinTextTemplates(
 	};
 	add(doc?.lineMessage?.default, 'Win line — default');
 	for (const [count, tpl] of Object.entries(doc?.lineMessage?.byCount ?? {})) {
-		add(tpl, `Win line — ${count} of a kind`);
+		add(tpl, `Win line — ${count} matching`);
 	}
 	for (const [symbol, tpl] of Object.entries(doc?.lineMessage?.bySymbol ?? {})) {
 		add(tpl, `Win line — ${symbol}`);
@@ -254,8 +274,8 @@ export function collectWinTextTemplates(
 	for (const [alias, tpl] of Object.entries(doc?.winLevels ?? {})) {
 		add(tpl, `Win level — ${alias}`);
 	}
-	add(doc?.toast?.full, 'Info-bar message — amount + count');
+	add(doc?.toast?.full, 'Info-bar message — amount + symbol');
 	add(doc?.toast?.amountOnly, 'Info-bar message — amount only');
-	add(doc?.toast?.countOnly, 'Info-bar message — count only');
+	add(doc?.toast?.countOnly, 'Info-bar message — symbol only');
 	return out;
 }

@@ -9,6 +9,7 @@ import type {
 	LayoutNode,
 	ResolvedWinText,
 	RigFxBinding,
+	SymbolNameMap,
 	WinTextDoc,
 } from 'engine-layout';
 import {
@@ -122,6 +123,11 @@ type BakedBundle = {
 			 * in-game. The dangling-binding guard warns about these at boot. */
 			missing?: string[];
 		};
+		/** Symbol DISPLAY NAMES (Invisible Symbols State Machine output) — the human word the game
+		 * says for an id (`H1` → "Banana"), singular + plural. Pure text, no asset. Invisible Win
+		 * Text interpolates them as `{symbolName}`, so renaming a symbol in `/symbols` rewrites
+		 * every win sentence with no template edit. Absent → each symbol speaks as its own id. */
+		names?: SymbolNameMap;
 		/** Single GLOBAL win-highlight frame (Invisible Symbols State Machine output). `assetKey`
 		 * is the engine spine-asset key the bundle registers — the highlight spine bundle is
 		 * exported to `deploy/editor-symbols/` and registered via `index.spines` exactly like the
@@ -434,6 +440,20 @@ export function bakedSymbolMap(): SymbolInfoMap | undefined {
 	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.map;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.symbols?.map;
+}
+
+/**
+ * The authored symbol DISPLAY NAMES (Invisible Symbols State Machine). `H1` → "Banana"/"Bananas",
+ * the word every win sentence prints for that symbol (`{symbolName}` in Invisible Win Text).
+ *
+ * Returns `{}` — not undefined — when un-baked or unauthored, because `resolveSymbolName` falls
+ * back to the symbol ID per-symbol anyway: there is no "the game has no names" branch to take, only
+ * "this symbol isn't named yet". Mirrors `bakedSymbolMap`'s runtime→baked resolution.
+ */
+export function bakedSymbolNames(): SymbolNameMap {
+	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.names ?? {};
+	if (!hasBakedDoc()) return {};
+	return bakedBundle.symbols?.names ?? {};
 }
 
 /**

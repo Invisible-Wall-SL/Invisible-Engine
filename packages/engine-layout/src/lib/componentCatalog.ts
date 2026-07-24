@@ -62,7 +62,7 @@ export const ENGINE_PARAM_CATALOG: EngineParamEntry[] = [
 		key: 'message',
 		kind: 'string',
 		label: 'Message',
-		note: 'Transient win/info-bar text — the `showMessage` toast feed (e.g. "Win $1.00 — 2 of a kind").',
+		note: 'Transient win/info-bar text — the `showMessage` toast feed (e.g. "You win $1.00 with 2 Bananas").',
 	},
 	{
 		key: 'loadingProgress',

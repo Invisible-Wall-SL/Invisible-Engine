@@ -11,8 +11,11 @@ import {
 	BOOK_SYMBOL_STATES,
 	SYMBOL_STATE_LABELS,
 	SYMBOL_STATES,
+	type SymbolNameEntry,
 	type SymbolStateName,
 } from 'engine-layout';
+
+export type { SymbolNameEntry };
 
 export { SYMBOL_STATES };
 export type SymbolState = SymbolStateName;
@@ -120,6 +123,10 @@ export interface BoardGlowConfig {
 export interface SymbolsDoc {
 	version: 1;
 	symbols: Record<string, SymbolStateMap>;
+	/** Symbol id → the human word the game says for it (`H1` → "Banana"). Sparse: an unnamed
+	 *  symbol is absent and every sentence falls back to printing its id. Read by Invisible Win
+	 *  Text as `{symbolName}`; the shared resolution lives in `engine-layout/symbolNames.ts`. */
+	names?: Record<string, SymbolNameEntry>;
 	/** Global win-frame spine that loops over winning symbols. Absent = the game's
 	 *  built-in default (a local `payframe` spine). Set ONLY when the user overrides
 	 *  it with an R2 spine bundle; never written for the default. */
@@ -135,6 +142,11 @@ export interface SymbolsDoc {
 	 *  is `doc.winLine?.enabled ?? true`; every style field falls through to coded
 	 *  defaults when unset. */
 	winLine?: WinLineConfig;
+	/** Resting-board replay of the winning SYMBOLS. Sparse (`enabled` absent = ON); a sibling of
+	 *  `winLine`, never a field inside it — the replay is about the SYMBOLS, and `showLine` only
+	 *  opts the line back into each pass. Was USED by the helpers below without ever being
+	 *  declared here, which type-checks nowhere because the launcher build only transpiles. */
+	winCycle?: { enabled?: boolean; delay?: number; showLine?: boolean };
 	updatedAt?: string;
 }
 
@@ -320,6 +332,31 @@ export function setWinCycleShowLine(doc: SymbolsDoc, showLine: boolean): Symbols
 	return withWinCycle(doc, winCycle);
 }
 
+/**
+ * Set one form of a symbol's display name. Blank clears that form, and an entry left with no
+ * forms is dropped entirely — so clearing the boxes returns the symbol to speaking as its id
+ * rather than persisting `{ singular: '' }` (the server prunes identically; both sides must agree
+ * or the page reads dirty right after a clean save). New doc.
+ */
+export function setSymbolName(
+	doc: SymbolsDoc,
+	symbol: string,
+	form: 'singular' | 'plural',
+	value: string,
+): SymbolsDoc {
+	const names = { ...(doc.names ?? {}) };
+	const entry: SymbolNameEntry = { ...(names[symbol] ?? {}) };
+	const trimmed = value.trim();
+	if (trimmed) entry[form] = trimmed;
+	else delete entry[form];
+	if (Object.keys(entry).length) names[symbol] = entry;
+	else delete names[symbol];
+	const next = { ...doc };
+	if (Object.keys(names).length) next.names = names;
+	else delete next.names;
+	return next;
+}
+
 /** Merge a patch into `winLine.line` (line style). Pass a field as `undefined` to reset
  *  it to the coded default. New doc. */
 export function setWinLineLine(doc: SymbolsDoc, patch: Partial<WinLineLineStyle>): SymbolsDoc {
@@ -390,7 +427,13 @@ export function docSignature(doc: SymbolsDoc): string {
 				sizeRatios: sortKeys(doc.boardGlow.sizeRatios),
 			}
 		: null;
-	return JSON.stringify({ symbols, highlight, boardGlow, winLine, winCycle });
+	// Sorted, so a name typed into an arbitrary row order still yields a stable signature.
+	const names: Record<string, unknown> = {};
+	for (const symbol of Object.keys(doc.names ?? {}).sort()) {
+		const entry = doc.names![symbol];
+		names[symbol] = { singular: entry.singular ?? null, plural: entry.plural ?? null };
+	}
+	return JSON.stringify({ symbols, names, highlight, boardGlow, winLine, winCycle });
 }
 
 /** Raised when a save lost to a concurrent author, so the page can offer a choice

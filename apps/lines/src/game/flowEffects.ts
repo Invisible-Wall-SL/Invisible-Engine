@@ -38,6 +38,7 @@ import { SECOND } from 'constants-shared/time';
 import type { FlowEffect } from 'engine-flow';
 import {
 	formatWinText,
+	resolveSymbolName,
 	resolveToastTemplate,
 	resolveWinLineMessage,
 	symbolDrawsWinLine,
@@ -51,7 +52,7 @@ import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentat
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
 import { PADDING_REELS, BOARD_DIMENSIONS } from './constants';
-import { bakedWinLineEnabled, bakedWinText } from '../editor-scenes';
+import { bakedSymbolNames, bakedWinLineEnabled, bakedWinText } from '../editor-scenes';
 
 // ---------------------------------------------------------------------------
 // Shared leaves — the SAME helpers the coded handlers use. The coded
@@ -145,6 +146,30 @@ export const winLineEnabledForWin = (win: { symbol: SymbolName }): boolean =>
 	!roundSkip.isSkipped() && symbolDrawsWinLine(win.symbol) && bakedWinLineEnabled();
 
 /**
+ * The symbol + count of the win the flow most recently ANNOUNCED (`showWinLine`), so the toast that
+ * follows it in the same `winInfo` iteration can name that symbol even when its own `symbol` pin is
+ * unwired.
+ *
+ * This exists because the `showMessage` node predates the `symbol` param: every FlowDoc authored
+ * before it — including the ones already published — wires only `amount` + `kind`, and without a
+ * symbol the toast can say nothing about WHAT paid, which is the entire point of the named text. A
+ * graph re-saved with the pin wired passes its own symbol and never consults this.
+ *
+ * Deliberately narrow, because a stale value would put the wrong word in an unrelated message:
+ * - Only `showWinLine` writes it — the per-win leaf, fed the current forEach item.
+ * - It is only read when the toast's `kind` MATCHES the remembered one, so a generic
+ *   `showMessage` (no count, or a different count) can never pick it up.
+ */
+let lastWinSymbol: { symbol: SymbolName; kind: number } | undefined;
+
+const rememberWinSymbol = (symbol: SymbolName, kind: number): void => {
+	lastWinSymbol = symbol ? { symbol, kind } : undefined;
+};
+
+const rememberedWinSymbol = (kind: number | undefined): SymbolName | undefined =>
+	kind !== undefined && lastWinSymbol?.kind === kind ? lastWinSymbol.symbol : undefined;
+
+/**
  * Show the info message for ONE win — the text half of the win-info presentation, resolved through
  * the Invisible Win Text contract (`resolveToastTemplate` picks the branch matching the vars
  * supplied; `formatWinText` localizes the template BEFORE interpolating, the order that makes it
@@ -165,11 +190,13 @@ export const winLineEnabledForWin = (win: { symbol: SymbolName }): boolean =>
 export const showWinInfoMessage = ({
 	amount,
 	kind,
+	symbol,
 	messageKind = 'info',
 	durationMs,
 }: {
 	amount?: number;
 	kind?: number;
+	symbol?: SymbolName;
 	messageKind?: GameMessageKind;
 	durationMs?: number;
 }): boolean => {
@@ -177,6 +204,12 @@ export const showWinInfoMessage = ({
 		const vars = {
 			amount: amount === undefined ? undefined : bookEventAmountToCurrencyString(amount),
 			count: kind,
+			symbol,
+			// The word the player reads for this symbol, inflected for `kind` and localized. Absent
+			// when the caller doesn't know which symbol paid — `resolveToastTemplate` then picks a
+			// branch that doesn't name one, instead of printing a bare `{symbolName}`.
+			symbolName:
+				symbol === undefined ? undefined : resolveSymbolName(bakedSymbolNames(), symbol, kind),
 		};
 		const template = resolveToastTemplate(bakedWinText(), vars);
 		if (!template) return false;
@@ -229,6 +262,7 @@ export const winLineTextFor = ({
 	const vars = {
 		count: kind,
 		symbol,
+		symbolName: resolveSymbolName(bakedSymbolNames(), symbol, kind),
 		line,
 		amount: bookEventAmountToCurrencyString(amount),
 	};
@@ -495,20 +529,29 @@ const effects: Record<string, FlowEffect> = {
 	 * The bounded accessor model can't template a string (§11.4), so the TEXT is assembled HERE
 	 * from the structured payload — but from an AUTHORED template (Invisible Win Text), not an
 	 * English literal. `resolveToastTemplate` picks the branch matching the payload it actually
-	 * got (both ⇒ `full`, amount only ⇒ `amountOnly`, count only ⇒ `countOnly`, neither ⇒ no
-	 * message), and `formatWinText` localizes that template BEFORE interpolating `{amount}` /
-	 * `{count}` — the order that makes it translatable at all (see `engine-layout/winText.ts`).
-	 * `{amount}` interpolates the SAME currency formatter the win-meter uses, so it matches the
-	 * game's formatting and follows the URL's currency.
+	 * got (amount + a named symbol ⇒ `full`, amount alone ⇒ `amountOnly`, a named symbol alone ⇒
+	 * `countOnly`, nothing ⇒ no message), and `formatWinText` localizes that template BEFORE
+	 * interpolating `{amount}` / `{count}` / `{symbolName}` — the order that makes it translatable
+	 * at all (see `engine-layout/winText.ts`). `{amount}` interpolates the SAME currency formatter
+	 * the win-meter uses, so it matches the game's formatting and follows the URL's currency.
 	 *
-	 * Unauthored, the defaults reproduce the previous literals exactly: a `winInfo` win renders
-	 * "Win $1.00 — 2 of a kind"; with only `amount`, "Win $1.00". Auto-clears via the state timer
-	 * (`messageKind` selects the toast style, default `info`; `durationMs` overrides the hold).
+	 * `symbol` is what lets the message NAME what paid ("4 Bananas") instead of counting in the
+	 * abstract; wire it from the `winInfo` forEach item. Unwired, it falls back to the win the last
+	 * `showWinLine` announced (`rememberWinSymbol`) before degrading to the amount-only branch.
+	 *
+	 * Unauthored, the defaults render a `winInfo` win as "You win $1.00 with 2 Bananas"; with only
+	 * `amount`, "You win $1.00". Auto-clears via the state timer (`messageKind` selects the toast
+	 * style, default `info`; `durationMs` overrides the hold).
 	 */
 	showMessage: async (payload) => {
+		const kind = typeof payload.kind === 'number' ? payload.kind : undefined;
 		const shown = showWinInfoMessage({
 			amount: typeof payload.amount === 'number' ? payload.amount : undefined,
-			kind: typeof payload.kind === 'number' ? payload.kind : undefined,
+			kind,
+			symbol:
+				typeof payload.symbol === 'string'
+					? (payload.symbol as SymbolName)
+					: rememberedWinSymbol(kind),
 			messageKind: (payload.messageKind as GameMessageKind) ?? 'info',
 			durationMs: payload.durationMs as number | undefined,
 		});
@@ -552,6 +595,9 @@ const effects: Record<string, FlowEffect> = {
 			kind: payload.kind as number,
 			symbol: payload.symbol as SymbolName,
 		};
+		// Remembered BEFORE the gate, so a scatter win (which draws no line) still names itself in the
+		// toast that follows — see `rememberWinSymbol`.
+		rememberWinSymbol(win.symbol, win.kind);
 		if (!winLineEnabledForWin(win)) return;
 		await awaitPresentation({
 			type: 'winLineShow',

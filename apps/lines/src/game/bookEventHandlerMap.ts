@@ -93,6 +93,9 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 				const shown = showWinInfoMessage({
 					amount: win.win,
 					kind: win.kind,
+					// Names the paying symbol in the message ("4 Bananas") — the coded path has the whole
+					// win in hand, so it never needs the flow's remembered-symbol fallback.
+					symbol: win.symbol,
 					messageKind: 'win',
 				});
 				if (shown) await slamHold(SLAM_MESSAGE_HOLD_MS);

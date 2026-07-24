@@ -74,8 +74,8 @@ const revealChoreography: ChoreographyNode = seq(
 
 /** `winInfo` — a win level sfx, then a serial ForEach over `$trigger.wins`, each animating
  *  its positions (boardShow + awaited boardWithAnimateSymbols = the `animateSymbols` leaf) and
- *  showing a transient "Win $X — N of a kind" toast for that win (the generic `showMessage`
- *  effect; text assembled in `flowEffects.ts` from the win's `win`/`kind`). */
+ *  showing a transient "You win $X with N Bananas" toast for that win (the generic `showMessage`
+ *  effect; text assembled in `flowEffects.ts` from the win's `win`/`kind`/`symbol`). */
 const winInfoChoreography: ChoreographyNode = seq(
 	broadcast('soundOnce', { name: lit('sfx_winlevel_small') }),
 	{
@@ -88,6 +88,7 @@ const winInfoChoreography: ChoreographyNode = seq(
 			effect('showMessage', {
 				amount: item('win'),
 				kind: item('kind'),
+				symbol: item('symbol'),
 				messageKind: lit('win'),
 			}),
 		),

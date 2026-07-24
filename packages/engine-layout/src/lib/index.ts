@@ -3,6 +3,7 @@
 // pixi-svelte. For the runtime `<LayoutScene>` component, use the
 // `engine-layout/svelte` subpath.
 export * from './types';
+export * from './symbolNames';
 export * from './symbolStates';
 // The HUD's standard design box, re-exported so the editor (which has no live
 // layout context) can frame `space: 'standard' | 'canvas'` scenes. Canonical

@@ -397,14 +397,21 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 		{ name: 'winHide', params: [], category: 'effect' },
 		// Generic transient-message ("toast") effect — populates `stateMessage.current`, the feed the
 		// Info Bar's `message` value + `messageShow` gate read. The TEXT is assembled game-side from the
-		// structured params (the accessor model can't template a string): `amount` (a book-event amount)
-		// formats through the win-meter's currency formatter, `kind` appends "N of a kind", `messageKind`
-		// selects the toast style. Any flow can invoke it; `winInfo` fires it per win.
+		// structured params (the accessor model can't template a string) out of the templates authored
+		// in Invisible Win Text: `amount` (a book-event amount) formats through the win-meter's currency
+		// formatter, `symbol` + `kind` become "4 Bananas" via the symbol's authored display name, and
+		// `messageKind` selects the toast style. Any flow can invoke it; `winInfo` fires it per win.
 		{
 			name: 'showMessage',
 			params: [
 				{ name: 'amount', type: FLOAT },
 				{ name: 'kind', type: INT },
+				{
+					name: 'symbol',
+					type: SYMBOL,
+					description:
+						"The win's symbol — the message NAMES it ('4 Bananas') using the display name authored in the Symbols tool. Unwired, the toast can only state the amount.",
+				},
 				{ name: 'messageKind', type: { t: 'string' } },
 			],
 			category: 'effect',

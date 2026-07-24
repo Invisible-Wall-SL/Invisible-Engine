@@ -312,9 +312,11 @@ async function main() {
 	let symbols = {
 		map: {},
 		index: { sheets: [], images: [], spines: [], collisions: [] },
+		names: undefined,
 		highlight: undefined,
 		boardGlow: undefined,
 		winLine: undefined,
+		winCycle: undefined,
 	};
 	const symbolsUrl =
 		`${base}/api/editor/export-symbols?project=${encodeURIComponent(project)}` +
@@ -376,6 +378,25 @@ async function main() {
 				if (w.text && typeof w.text === 'object' && Object.keys(w.text).length) out.text = w.text;
 				return Object.keys(out).length ? out : undefined;
 			})();
+			// The resting-board win-symbol replay — assetless config, sparse, forwarded verbatim like
+			// `winLine`. It was MISSING from this whitelist while the runtime-bundle path carried it, so
+			// a `/symbols` project that turned the replay off or retuned its delay silently shipped the
+			// coded default through the bake path (the "must reach BOTH bundle paths" rule).
+			const winCycle = (() => {
+				const c = s?.winCycle;
+				if (!c || typeof c !== 'object') return undefined;
+				const out = {};
+				if (c.enabled === false) out.enabled = false;
+				if (typeof c.delay === 'number') out.delay = c.delay;
+				if (c.showLine === true) out.showLine = true;
+				return Object.keys(out).length ? out : undefined;
+			})();
+			// Symbol DISPLAY NAMES (`H1` → "Banana"), pure text. Invisible Win Text reads these as
+			// `{symbolName}`, so without them here every baked win sentence would name the raw id.
+			const names =
+				s?.names && typeof s.names === 'object' && Object.keys(s.names).length
+					? s.names
+					: undefined;
 			symbols = {
 				map: s?.map && typeof s.map === 'object' ? s.map : {},
 				index: {
@@ -386,9 +407,11 @@ async function main() {
 					// Bound frames no shipped atlas packs — carried so the game warns at boot.
 					missing: Array.isArray(s?.index?.missing) ? s.index.missing : [],
 				},
+				names,
 				highlight,
 				boardGlow,
 				winLine,
+				winCycle,
 			};
 			// Dangling-binding guard: a bound sprite frame no shipped atlas packs renders
 			// blank in-game ("… is not found in the loadedAssets"). Warn loudly so a
