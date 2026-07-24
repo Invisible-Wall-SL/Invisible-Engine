@@ -35,12 +35,15 @@
 		setBoardGlow,
 		setHighlight,
 		setOverride,
+		setSymbolName,
 		setWinCycleDelay,
 		setWinCycleEnabled,
+		setWinCycleShowLine,
 		setWinLineEnabled,
 		setWinLineLine,
 		setWinLineText,
 		winCycleEnabled,
+		winCycleShowLine,
 		winLineEnabled,
 		WIN_CYCLE_DELAY_DEFAULT,
 		SYMBOL_CELL_TYPES,
@@ -69,7 +72,9 @@
 	// stay large and legible; clamped so they're crisp on small screens and don't blow
 	// up on ultra-wide ones. A ResizeObserver on the scroll area tracks window resize +
 	// the side panel opening/closing live.
-	const LABEL_COL = 92;
+	// Wide enough for the row head's display-name boxes, not just the id — the grid's cell sizing
+	// divides what's left, so this must match the `th.rowhead` width in the stylesheet.
+	const LABEL_COL = 148;
 	const GRID_GAP = 10;
 	const GRID_PAD = 36;
 	const MIN_CELL = 72;
@@ -576,9 +581,16 @@
 	// with win lines switched off.
 	const wcOn = $derived(winCycleEnabled(doc));
 	const wcDelay = $derived(doc.winCycle?.delay ?? WIN_CYCLE_DELAY_DEFAULT);
+	const wcShowLine = $derived(winCycleShowLine(doc));
 
 	function resetWinLineStyle(): void {
 		doc = clearWinLineStyle(doc);
+	}
+
+	/** Rename a symbol for the PLAYER (the id never changes — bindings, book events and every
+	 *  other tool keep referring to `H1`). Feeds Invisible Win Text's `{symbolName}`. */
+	function setName(symbol: string, form: 'singular' | 'plural', value: string): void {
+		doc = setSymbolName(doc, symbol, form, value);
 	}
 </script>
 
@@ -1051,8 +1063,8 @@
 								Keep the round's winning symbols animating on the resting board until the player
 								spins again, instead of freezing on their post-win frame. A spin that paid several
 								lines steps through them one line at a time, in the order the round paid them, then
-								starts over. Symbols only — the win line and its stamped amount are not redrawn.
-								Autoplay and space-hold skip it, since the next spin is already on its way.
+								starts over. Autoplay and space-hold skip it, since the next spin is already on its
+								way.
 							</p>
 						</div>
 						<label class="switch" class:on={wcOn}>
@@ -1081,7 +1093,26 @@
 											oninput={(e) => (doc = setWinCycleDelay(doc, Number(e.currentTarget.value)))}
 										/>
 									</label>
+									<div class="field">
+										<span class="label">Replay the win line too</span>
+										<label class="switch sm" class:on={wcShowLine}>
+											<input
+												type="checkbox"
+												checked={wcShowLine}
+												onchange={(e) => (doc = setWinCycleShowLine(doc, e.currentTarget.checked))}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label">{wcShowLine ? 'On' : 'Off'}</span>
+										</label>
+									</div>
 								</div>
+								<p class="wl-note">
+									On (the default), each pass also draws that line and stamps its amount — the full
+									per-win narration on repeat. Off, the replay re-animates the winning symbols only
+									and leaves the board's line as the spin left it. The Win lines section above still
+									has the final say: with the overlay off, nothing is drawn either way, and a
+									scatter win never draws a line but still lights its symbols.
+								</p>
 							</div>
 						</div>
 					{/if}
@@ -1101,8 +1132,31 @@
 						</thead>
 						<tbody>
 							{#each symbolNames as symbol (symbol)}
+								{@const named = doc.names?.[symbol]}
 								<tr>
-									<th class="rowhead">{symbol}</th>
+									<th class="rowhead">
+										<span class="sym-id">{symbol}</span>
+										<!-- The DISPLAY NAME: what the game calls this symbol out loud. Invisible Win
+										     Text prints it as {symbolName}, so a win says "4 Bananas" instead of the
+										     unspeakable id — or "4 of a kind", which is what it had to say before a
+										     symbol had a word. Both forms are typed because "{count} {symbolName}"
+										     always reads with a number in front of it and guessed plurals are wrong
+										     ("Cherrys"); plural left blank just reuses the singular. -->
+										<input
+											class="sym-name"
+											value={named?.singular ?? ''}
+											placeholder="Name"
+											title="What the game calls {symbol} in win messages (singular)"
+											oninput={(e) => setName(symbol, 'singular', e.currentTarget.value)}
+										/>
+										<input
+											class="sym-name plural"
+											value={named?.plural ?? ''}
+											placeholder={named?.singular ? `${named.singular} (plural)` : 'Plural'}
+											title="The plural form, used whenever the count isn't 1. Blank reuses the name."
+											oninput={(e) => setName(symbol, 'plural', e.currentTarget.value)}
+										/>
+									</th>
 									{#each visibleStates as state (state)}
 										{@const eff = effectiveCell(doc, data.defaults, symbol, state)}
 										<td>
@@ -1438,7 +1492,7 @@
 	}
 	.grid th.corner,
 	.grid th.rowhead {
-		width: 92px;
+		width: 148px;
 	}
 	.grid th.corner {
 		text-align: left;
@@ -1451,6 +1505,34 @@
 		position: sticky;
 		left: 0;
 		background: #0b0b0f;
+	}
+	.sym-id {
+		display: block;
+		margin-bottom: 4px;
+	}
+	.sym-name {
+		display: block;
+		width: 100%;
+		margin-top: 3px;
+		padding: 4px 6px;
+		border-radius: 5px;
+		border: 1px solid #24242e;
+		background: #0e0e13;
+		color: #e8e8ee;
+		font-size: 11px;
+		font-weight: 500;
+		text-align: right;
+	}
+	.sym-name.plural {
+		color: #b9b9c4;
+	}
+	.sym-name::placeholder {
+		color: #4d4d5a;
+		font-style: italic;
+	}
+	.sym-name:focus {
+		outline: none;
+		border-color: #7ee0c0;
 	}
 	.grid td {
 		position: relative;

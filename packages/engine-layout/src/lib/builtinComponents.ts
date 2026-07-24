@@ -460,7 +460,7 @@ export const FREE_SPIN_COUNTER_DEF: ComponentDef = {
 const INFO_BAR_FONT_SIZE = 36;
 /**
  * Gold (`MessageToast` `.win` fill `#ffe9a8`) — the colour the toast used for win
- * lines, the common case the bar shows ("Win $1.00 — 2 of a kind").
+ * lines, the common case the bar shows ("You win $1.00 with 2 Bananas").
  */
 const INFO_BAR_FILL = 0xffe9a8;
 
@@ -526,7 +526,10 @@ export const INFO_BAR_DEF: ComponentDef = {
 				x: 0,
 				y: 0,
 				anchor: { x: 0.5, y: 0.5 },
-				text: 'Win $1.00 - 2 of a kind',
+				// Sample text for the EDITOR only (the engine feeds the real string through
+				// `paramBindings.text`). Kept in step with the Invisible Win Text defaults, so the
+				// editor previews a sentence the game can actually say.
+				text: 'You win $1.00 with 2 Bananas',
 				style: {
 					fontFamily: HUD_FONT_FAMILY,
 					fontSize: INFO_BAR_FONT_SIZE,

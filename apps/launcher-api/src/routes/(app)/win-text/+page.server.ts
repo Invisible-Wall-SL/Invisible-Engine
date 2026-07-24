@@ -4,6 +4,7 @@ import { SESSION_COOKIE } from '$lib/server/auth';
 import { projectGameType, projectName } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
+import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import { loadWinTextDocWithEtag } from '$lib/server/winTextStorage';
@@ -36,10 +37,15 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		user: locals.user,
 	});
 
-	const [{ doc, etag }, gameType, published] = await Promise.all([
+	const [{ doc, etag }, gameType, published, symbolsDoc] = await Promise.all([
 		loadWinTextDocWithEtag(clientKey, projectKey),
 		projectGameType(projectKey),
 		loadPublishedSymbolDefaults(clientKey, projectKey),
+		// The DISPLAY NAMES authored next door in `/symbols` — read-only here. This page previews
+		// what a template will actually render, and `{symbolName}` is the one token whose value
+		// lives in another tool's doc; without it the preview would show a bare token and the
+		// author couldn't tell a named symbol from an unnamed one.
+		loadSymbolsDoc(clientKey, projectKey),
 	]);
 	const defaults = published ?? symbolDefaultsFor(gameType);
 
@@ -57,5 +63,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// `symbols`/`highlight`) and would label the grid's rows with those keys. `Object.keys` on
 		// the wrapper type-checks fine, so only the rendered grid shows the mistake.
 		symbols: Object.keys(defaults.symbols),
+		/** Symbol id → its authored name, straight from the symbols doc. Sparse — an absent id
+		 *  is an unnamed symbol, which the shared resolver renders as the id itself. */
+		symbolNames: symbolsDoc.names ?? {},
 	};
 };

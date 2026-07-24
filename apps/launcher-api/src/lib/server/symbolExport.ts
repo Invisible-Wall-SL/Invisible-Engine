@@ -110,6 +110,11 @@ export interface SymbolExportResult {
 	 *  index keys, so the engine's `bakedSymbolMap()` needs zero rewriting). */
 	map: SymbolsDoc['symbols'];
 	index: SymbolExportIndex;
+	/** The authored symbol DISPLAY NAMES (`H1` → "Banana"), passed through VERBATIM — pure text,
+	 *  no asset. Invisible Win Text interpolates them as `{symbolName}`, so a rename in `/symbols`
+	 *  rewrites every win sentence with no template edit. Absent/empty → every symbol speaks as
+	 *  its own id. */
+	names?: SymbolsDoc['names'];
 	/** The authored global highlight override (absent → game uses built-in payframe). */
 	highlight?: SymbolExportHighlight;
 	/** The authored free-spin board glow (absent → game uses its coded `reelhouse` spine).
@@ -445,9 +450,14 @@ export async function exportEditorSymbols(
 	// animation/size overrides, forwarded verbatim.
 	const boardGlow = doc.boardGlow;
 
+	// Display names — another assetless pass-through, omitted when nothing is named so an
+	// un-authored project's bundle stays byte-identical.
+	const names = doc.names && Object.keys(doc.names).length ? doc.names : undefined;
+
 	return {
 		map: doc.symbols,
 		index,
+		...(names ? { names } : {}),
 		...(highlight ? { highlight } : {}),
 		...(boardGlow ? { boardGlow } : {}),
 		...(winLine ? { winLine } : {}),

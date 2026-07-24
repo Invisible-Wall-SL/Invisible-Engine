@@ -16,21 +16,34 @@ field is a **template**, and every template is picked up automatically by
 You don't write the finished sentence — you write a **template** with placeholders,
 and the game fills them in:
 
-| Placeholder | Becomes |
-|---|---|
-| `{count}` | the match count — the N in "N of a kind" |
-| `{amount}` | the pay amount, already in the player's currency |
-| `{symbol}` | the paying symbol's id, e.g. `H1` |
-| `{line}` | the payline number |
+| Placeholder    | Becomes                                                                                          |
+| -------------- | ------------------------------------------------------------------------------------------------ |
+| `{amount}`     | the pay amount, already in the player's currency                                                 |
+| `{count}`      | how many symbols matched                                                                         |
+| `{symbolName}` | **the symbol's name** — "Banana"/"Bananas", from [Invisible Symbols](./symbols-state-machine.md) |
+| `{symbol}`     | the paying symbol's raw id, e.g. `H1` (you usually want `{symbolName}`)                          |
+| `{line}`       | the payline number                                                                               |
 
-So `{count} OF A KIND` shows as **3 OF A KIND** on a three-symbol win and **5 OF A
-KIND** on a five.
+So `You win {amount} with {count} {symbolName}` shows as **You win $4.00 with 4
+Bananas**.
+
+### Name your symbols first
+
+`{symbolName}` is the whole point: the game says **which** symbol paid, not how
+many matched in the abstract. The names live in **Invisible Symbols** — each symbol
+row in that tool has a **Name** and a **Plural** box (`H1` → "Banana" / "Bananas").
+
+- Rename a symbol there and **every** message here follows, with no edit.
+- The plural is used whenever the count isn't 1. Leave it blank for names that
+  don't change ("Wild", "Bonus").
+- A symbol you haven't named falls back to its raw id — the message still works, it
+  just says "4 H1". This tool tells you when nothing is named yet.
 
 This is also what makes win text **translatable**. A translator translates the
-template once (`{count} OF A KIND` → `{count} GLEICHE`), and the game fills the
-number in afterwards — so one translation covers every win. A finished sentence
-like "Win $1.00 — 2 of a kind" could never be translated, because there'd have to
-be a separate translation for every possible amount.
+template once (`{count} {symbolName}` → `{count} × {symbolName}`) and the name
+once, and the game fills them in afterwards — so one translation covers every win.
+A finished sentence like "You win $1.00 with 2 Bananas" could never be translated,
+because there'd have to be a separate translation for every possible amount.
 
 You never need to translate the currency: `{amount}` is formatted for the player's
 own locale and currency automatically, from the game URL.
@@ -51,16 +64,16 @@ exactly what that win will say instead.
 That means the common cases are one edit:
 
 - **Change what every win says** — type in the corner box (**Any symbol × Any
-  count**), e.g. `{count} OF A KIND`.
-- **Change just "2 of a kind"** — type in the **Any symbol** row under the **2 of a
-  kind** column, e.g. `PAIR!`.
+  count**), e.g. `{count} {symbolName}`.
+- **Change just two-symbol wins** — type in the **Any symbol** row under the **2
+  matching** column, e.g. `PAIR!`.
 - **Give one symbol its own line** — type in that symbol's **Any count** box, e.g.
   `SCATTER` for `S`.
 - **Call out one exact win** — type in that symbol's box under that count, e.g.
   `JACKPOT LINE!` for `H1 × 5`.
 
 A symbol rule beats a count rule: `S` → `SCATTER` wins over `2` → `PAIR!`, because
-a scatter pays anywhere and isn't really a "2 of a kind" at all.
+a scatter pays anywhere rather than in a run along a line.
 
 ## Win amount
 
@@ -69,18 +82,26 @@ How the pay amount is stamped on the win line. Default is just `{amount}`; make 
 
 ## Info-bar message
 
-The message that flashes when a win pays. There are **three** boxes because the
-game says whatever fits what it knows about the win:
+The message that flashes when a win pays — this is the one that **names the symbol**.
+There are **three** boxes because the game says whatever fits what it knows about
+the win:
 
-- **Amount + count** — the normal case: `Win {amount} — {count} of a kind`
-- **Amount only** — a win with no match count: `Win {amount}`
-- **Count only** — `{count} of a kind`
+- **Amount + symbol** — the normal case: `You win {amount} with {count} {symbolName}`
+- **Amount only** — a message fired without a symbol (any flow can fire one):
+  `You win {amount}`
+- **Symbol only** — no amount: `{count} {symbolName}`
+
+The page shows a **live preview** of what the current templates will actually say,
+using one of your real symbols.
+
+If a message is fired with no symbol, the game uses **Amount only** rather than
+printing an empty name — so you never see a blank or a stray `{symbolName}`.
 
 ## Win-level captions
 
 **Usually leave these blank.** In most games the tier words (BIG WIN, MEGA WIN…)
 are painted into the **big-win artwork**, and the game draws only the amount on
-top. If you fill one of these in, you'll get a *second* caption over art that
+top. If you fill one of these in, you'll get a _second_ caption over art that
 already says it.
 
 Fill them in only for a game whose big-win art carries **no words** — which is also

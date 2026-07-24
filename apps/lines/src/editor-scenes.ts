@@ -9,6 +9,7 @@ import type {
 	LayoutNode,
 	ResolvedWinText,
 	RigFxBinding,
+	SymbolNameMap,
 	WinTextDoc,
 } from 'engine-layout';
 import {
@@ -122,6 +123,11 @@ type BakedBundle = {
 			 * in-game. The dangling-binding guard warns about these at boot. */
 			missing?: string[];
 		};
+		/** Symbol DISPLAY NAMES (Invisible Symbols State Machine output) — the human word the game
+		 * says for an id (`H1` → "Banana"), singular + plural. Pure text, no asset. Invisible Win
+		 * Text interpolates them as `{symbolName}`, so renaming a symbol in `/symbols` rewrites
+		 * every win sentence with no template edit. Absent → each symbol speaks as its own id. */
+		names?: SymbolNameMap;
 		/** Single GLOBAL win-highlight frame (Invisible Symbols State Machine output). `assetKey`
 		 * is the engine spine-asset key the bundle registers — the highlight spine bundle is
 		 * exported to `deploy/editor-symbols/` and registered via `index.spines` exactly like the
@@ -148,9 +154,9 @@ type BakedBundle = {
 		 * the `runtime:lines` bundle draws it. */
 		/** Resting-board replay of the winning SYMBOLS (Invisible Symbols State Machine output,
 		 * `winSymbolCycle.ts`): keep them animating until the next spin. Deliberately NOT part of
-		 * `winLine` — it never touches the line or its stamped amount. Sparse; `enabled` absent
-		 * ⇒ on. */
-		winCycle?: { enabled?: boolean; delay?: number };
+		 * `winLine` — the line is a separate switch and the replay only draws it when
+		 * `showLine` is on. Sparse; both `enabled` and `showLine` absent ⇒ on. */
+		winCycle?: { enabled?: boolean; delay?: number; showLine?: boolean };
 		winLine?: {
 			enabled?: boolean;
 			line?: {
@@ -437,6 +443,20 @@ export function bakedSymbolMap(): SymbolInfoMap | undefined {
 }
 
 /**
+ * The authored symbol DISPLAY NAMES (Invisible Symbols State Machine). `H1` → "Banana"/"Bananas",
+ * the word every win sentence prints for that symbol (`{symbolName}` in Invisible Win Text).
+ *
+ * Returns `{}` — not undefined — when un-baked or unauthored, because `resolveSymbolName` falls
+ * back to the symbol ID per-symbol anyway: there is no "the game has no names" branch to take, only
+ * "this symbol isn't named yet". Mirrors `bakedSymbolMap`'s runtime→baked resolution.
+ */
+export function bakedSymbolNames(): SymbolNameMap {
+	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.names ?? {};
+	if (!hasBakedDoc()) return {};
+	return bakedBundle.symbols?.names ?? {};
+}
+
+/**
  * The GLOBAL win-highlight frame authored in the Invisible Symbols State Machine. When set,
  * `SymbolSpine.svelte` draws this spine/animation for the win frame instead of the coded
  * `anticipation`/`payframe`. Its spine bundle rides `symbols.index.spines` (registered like a
@@ -515,17 +535,18 @@ export function bakedWinLineConfig(): ResolvedWinLine {
 }
 
 /** The resting-board WIN-SYMBOL replay, fully RESOLVED (`winSymbolCycle.ts`): whether the round's
- * winning symbols keep animating until the next spin, and the pause in SECONDS between two passes
- * (floored by the cycle's own minimum). Defaults to on / 0.4s. Sibling of
- * {@link bakedWinLineConfig} by design — that owns the LINE, this owns the symbols, and turning
- * the line off must not stop the symbols. */
-export function bakedWinCycleConfig(): { enabled: boolean; delay: number } {
+ * winning symbols keep animating until the next spin, the pause in SECONDS between two passes
+ * (floored by the cycle's own minimum), and whether each pass ALSO redraws that win's line +
+ * stamped amount. Defaults to on / 0.4s / line drawn. Sibling of {@link bakedWinLineConfig} by
+ * design — that owns the line's existence and style, this owns the replay; `showLine` only asks
+ * the replay to reuse the line, and the win-line toggle still has the final say. */
+export function bakedWinCycleConfig(): { enabled: boolean; delay: number; showLine: boolean } {
 	const c = hasRuntimeBundle()
 		? runtimeBundle!.symbols?.winCycle
 		: hasBakedDoc()
 			? bakedBundle.symbols?.winCycle
 			: undefined;
-	return { enabled: c?.enabled ?? true, delay: c?.delay ?? 0.4 };
+	return { enabled: c?.enabled ?? true, delay: c?.delay ?? 0.4, showLine: c?.showLine ?? true };
 }
 
 /**
