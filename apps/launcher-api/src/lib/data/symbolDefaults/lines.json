@@ -483,59 +483,6 @@
         }
       }
     },
-    "W": {
-      "explosion": {
-        "type": "spine",
-        "assetKey": "explosion",
-        "animationName": "explosion",
-        "sizeRatios": {
-          "width": 1,
-          "height": 1
-        }
-      },
-      "postWinStatic": {
-        "type": "sprite",
-        "assetKey": "explodedW.png",
-        "sizeRatios": {
-          "width": 0.85,
-          "height": 0.85
-        }
-      },
-      "static": {
-        "type": "sprite",
-        "assetKey": "w.png",
-        "sizeRatios": {
-          "width": 1.12,
-          "height": 1.12
-        }
-      },
-      "spin": {
-        "type": "sprite",
-        "assetKey": "w.png",
-        "sizeRatios": {
-          "width": 1.12,
-          "height": 1.12
-        }
-      },
-      "win": {
-        "type": "spine",
-        "assetKey": "W",
-        "animationName": "wild_dynamite",
-        "sizeRatios": {
-          "width": 1.35,
-          "height": 1.15
-        }
-      },
-      "land": {
-        "type": "spine",
-        "assetKey": "W",
-        "animationName": "wild_dynamite_land",
-        "sizeRatios": {
-          "width": 1.35,
-          "height": 1.15
-        }
-      }
-    },
     "S": {
       "explosion": {
         "type": "spine",

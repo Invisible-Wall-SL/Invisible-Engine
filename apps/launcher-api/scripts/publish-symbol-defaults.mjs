@@ -5,12 +5,15 @@
 // the tool's `+page.server.ts` reads it per-project (falling back to the coded
 // `lines` set when un-published). Mirrors bake-editor-doc.mjs's transport.
 //
-// The published set is filtered to the symbols the game actually USES, read from
-// the game config module (`--config`, default ./src/game/config.ts → its
-// default-export `symbols` keys). `SYMBOL_INFO_MAP` holds visual defaults for
-// every symbol the engine *can* render (e.g. an unused H5); the config is the
-// authoritative in-play set, so the tool grid mirrors the built game. Disable
-// with --no-config-filter.
+// The published set is filtered to the symbols the game actually PLAYS, read
+// from the game config module (`--config`, default ./src/game/config.ts): a
+// symbol must be in its `symbols` dictionary AND appear on its `paddingReels`
+// strips. `SYMBOL_INFO_MAP` holds visual defaults for every symbol the engine
+// *can* render (e.g. an unused H5); the dictionary alone is not enough either,
+// since it legitimately describes symbols a given game never deals (the Stake
+// sample's `W` wild, which no RGS here emits). The STRIPS are what reaches the
+// board, so the tool grid mirrors the built game. Disable with
+// --no-config-filter.
 // See docs/design/invisible-symbols-state-machine.md.
 //
 // HTTP only: no R2 creds, no aws-sdk. A build runner needs the shared token +
@@ -210,27 +213,58 @@ async function enrichSpinePreviewKeys(symbols) {
 }
 
 /**
- * Restrict the published symbol set to the symbols the game actually USES, read
- * from the game config module's default-export `symbols` map (the same data the
- * game builds against). `SYMBOL_INFO_MAP` carries the visual/animation defaults
- * for every symbol the engine *can* render (e.g. an unused `H5`); the config's
- * `symbols` keys are the authoritative in-play set, so the Symbols tool grid
- * mirrors the game instead of showing dead rows.
+ * Every symbol name appearing on a config's reel strips — what the game can
+ * actually DEAL. Returns null when the config has no usable strips, so the
+ * caller falls back to the dictionary rather than dropping everything.
+ */
+function symbolsOnReels(cfg) {
+	const strips = cfg?.paddingReels;
+	if (!strips || typeof strips !== 'object') return null;
+	const names = new Set();
+	for (const reels of Object.values(strips)) {
+		for (const reel of Array.isArray(reels) ? reels : []) {
+			for (const symbol of Array.isArray(reel) ? reel : []) {
+				if (symbol && typeof symbol.name === 'string') names.add(symbol.name);
+			}
+		}
+	}
+	return names.size > 0 ? names : null;
+}
+
+/**
+ * Restrict the published symbol set to the symbols the game actually PLAYS, so
+ * the Symbols tool grid mirrors the game instead of showing dead rows.
+ *
+ * Two gates, both from the game config module:
+ *  - `symbols` is the DICTIONARY — art, properties, payouts. Necessary but not
+ *    sufficient: it legitimately describes symbols a given game never deals.
+ *  - `paddingReels` are the REEL STRIPS — the one client-side statement of what
+ *    reaches the board. This is the real in-play set.
+ *
+ * The dictionary alone was the wrong gate: the upstream Stake sample declares a
+ * `W` wild+multiplier that neither RGS the engine talks to ever emits, so the
+ * grid offered a W row (dynamite art) for a symbol that could never land — the
+ * same stale-sample leak that put W on the spinning reels and in the paytable.
+ * Self-maintaining: a game whose math DOES deal a wild has it in its strips, and
+ * the row comes back with no code change.
  *
  * Mutates `symbols` in place, preserving `SYMBOL_INFO_MAP`'s ordering (only
  * dropping keys absent from the config). Best-effort: a missing/odd config
  * module, an empty `symbols` map, or `--no-config-filter` leaves the full set
  * (prior behaviour) so a build never loses symbols to a config it couldn't read.
+ * A config with no readable strips falls back to the dictionary gate alone.
  */
 async function filterToGameConfig(symbols) {
 	if (!configFilter) {
 		console.info('Config filter disabled (--no-config-filter) — publishing every symbol.');
 		return;
 	}
+	let cfg;
 	let used;
 	try {
 		const mod = await import(pathToFileURL(configPath).href);
-		used = (mod?.default ?? mod)?.symbols;
+		cfg = mod?.default ?? mod;
+		used = cfg?.symbols;
 	} catch {
 		console.warn(
 			`⚠ publish-symbols: could not import game config ${configPath} — publishing every` +
@@ -246,7 +280,15 @@ async function filterToGameConfig(symbols) {
 		return;
 	}
 
-	const inPlay = new Set(Object.keys(used));
+	const onReels = symbolsOnReels(cfg);
+	if (!onReels) {
+		console.warn(
+			`⚠ publish-symbols: game config ${configPath} has no readable reel strips` +
+				' (`paddingReels`) — filtering by the symbol dictionary alone, which can keep a row' +
+				' for a symbol the game never deals.',
+		);
+	}
+	const inPlay = new Set(Object.keys(used).filter((name) => !onReels || onReels.has(name)));
 	const dropped = Object.keys(symbols).filter((name) => !inPlay.has(name));
 	for (const name of dropped) delete symbols[name];
 
@@ -341,7 +383,9 @@ async function main() {
 		`${base}/api/editor/symbol-defaults?project=${encodeURIComponent(project)}` +
 		`&k=${encodeURIComponent(token)}`;
 
-	console.info(`Publishing ${symbolNames.length} symbols → ${base}/api/editor/symbol-defaults [${project}]`);
+	console.info(
+		`Publishing ${symbolNames.length} symbols → ${base}/api/editor/symbol-defaults [${project}]`,
+	);
 
 	let res;
 	try {
