@@ -50,6 +50,7 @@ export const SUB = {
 	fonts: (c: string, p: string) => `${projectPrefix(c, p)}/fonts`,
 	symbols: (c: string, p: string) => `${projectPrefix(c, p)}/symbols`,
 	winText: (c: string, p: string) => `${projectPrefix(c, p)}/win-text`,
+	config: (c: string, p: string) => `${projectPrefix(c, p)}/config`,
 	storybook: (c: string, p: string) => `${projectPrefix(c, p)}/storybook`,
 } as const;
 
@@ -218,6 +219,22 @@ export function editorDocKey(client: string, project: string): string {
  */
 export function winTextDocKey(client: string, project: string): string {
 	return `${SUB.winText(client, project)}/win-text.json`;
+}
+
+/**
+ * `<client>/<project>/config/config.json` — the Invisible Game Config doc: the project's
+ * GAME MATH CONTRACT (symbol dictionary + paytable, paylines, grid, bet modes, identity/RTP,
+ * the cosmetic reel strips). It replaces the ONE `apps/lines/src/game/config.ts` compiled into
+ * the shared `_runtime/lines` bundle, which every online project currently shares.
+ *
+ * Its OWN `config/` subfolder rather than sharing `editor/`: this is the math contract, not a
+ * layout, and the Scene Editor's `scenes.json` neighbours would imply otherwise. Pure config, no
+ * assets, so like `winTextDocKey` it travels verbatim and needs no `deploy/` export step. Same
+ * client/project slug-underscore convention as `editorDocKey`.
+ * See `docs/design/invisible-game-config.md`.
+ */
+export function gameConfigDocKey(client: string, project: string): string {
+	return `${SUB.config(client, project)}/config.json`;
 }
 
 /**

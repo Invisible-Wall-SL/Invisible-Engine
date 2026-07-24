@@ -1,7 +1,7 @@
 # Invisible Game Config — the game's math contract, authored online
 
-> Status: **PLAN ONLY — nothing built.** Living state will go in `docs/status/game-config.md`
-> once the first phase lands. Related: [invisible-game-maker.md](invisible-game-maker.md),
+> Status: living state in **[docs/status/game-config.md](../status/game-config.md)** — read that for
+> how far this plan got. Related: [invisible-game-maker.md](invisible-game-maker.md),
 > [invisible-symbols-state-machine.md](invisible-symbols-state-machine.md),
 > [live-assets.md](live-assets.md).
 
