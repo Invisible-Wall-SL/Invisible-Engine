@@ -59,7 +59,14 @@ export function createEnhanceBoardSpin<TReel extends Reel<any, any>>({
 			// Sequential-stop forces every NON-anticipated reel to stop consecutively via the
 			// timing-only `sequential` spinType; a genuinely book-anticipated reel keeps its
 			// existing `anticipated` behaviour (anticipation wins). Falsy ⇒ untouched.
-			const useSequential = Boolean(forceSequentialStop) && !isAnticipated;
+			//
+			// TURBO WINS over it. Sequential stop is a PACING choice the feature makes on the
+			// player's behalf (each reel settles a beat after the last, at the slower default
+			// spin options — `sequential` is not a `fast` spinType, so it reads SPIN_OPTIONS_DEFAULT);
+			// turbo is the player explicitly asking for that pacing to be dropped. Without this the
+			// free-spin mode silently overrode a held turbo for every spin of the feature — turbo
+			// worked in the base game and stopped working the moment free spins started.
+			const useSequential = Boolean(forceSequentialStop) && !isAnticipated && !stateBet.isTurbo;
 			const noStop = useSequential
 				? true
 				: globalHasAnticipation && reelIndex >= firstAnticipatedReelIndex;
