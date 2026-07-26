@@ -38,7 +38,7 @@
 	const modalName = $derived(stateModal.modal?.name);
 	const show = $derived(modalName === 'payTable' || modalName === 'gameRules');
 	const isInfo = $derived(modalName === 'gameRules');
-	const pages = $derived(isInfo ? ['PAYLINES', 'GAME RULES'] : ['PAYTABLE']);
+	const pages = $derived(isInfo ? ['GAME RULES', 'PAYLINES'] : ['PAYTABLE']);
 
 	let page = $state(0);
 	// reset to the first page whenever the modal opens, closes, or switches button

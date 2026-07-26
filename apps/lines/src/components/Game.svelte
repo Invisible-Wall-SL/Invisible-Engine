@@ -1175,6 +1175,10 @@
 	const doToggleFullscreen = (): void => {
 		toggleFullscreen();
 	};
+	const doOpenPayTable = (): void => {
+		stateUi.menuOpen = false;
+		stateModal.modal = { name: 'payTable' };
+	};
 	const doOpenGameRules = (): void => {
 		stateUi.menuOpen = false;
 		stateModal.modal = { name: 'gameRules' };
@@ -1205,6 +1209,7 @@
 		else if (intent === 'menu') doOpenMenu();
 		else if (intent === 'menuClose') doCloseMenu();
 		else if (intent === 'buyBonus') stateModal.modal = { name: 'buyBonus' };
+		else if (intent === 'payTable') doOpenPayTable();
 		else if (intent === 'gameRules') doOpenGameRules();
 		else if (intent === 'settings') doOpenSettings();
 		else if (intent === 'soundToggle') doToggleSound();
@@ -1274,8 +1279,7 @@
 		payTable: {
 			onpress: () => {
 				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
-				stateUi.menuOpen = false;
-				stateModal.modal = { name: 'payTable' };
+				doOpenPayTable();
 			},
 		},
 		gameRules: {

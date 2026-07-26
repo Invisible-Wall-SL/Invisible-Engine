@@ -135,6 +135,7 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 		{ name: 'autoSpin', payload: [], category: 'intent' },
 		{ name: 'settings', payload: [], category: 'intent' },
 		{ name: 'soundToggle', payload: [], category: 'intent' },
+		{ name: 'payTable', payload: [], category: 'intent' },
 		{ name: 'gameRules', payload: [], category: 'intent' },
 		// --- book events (the RGS `BookEvent` union) ---
 		{
@@ -502,6 +503,7 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 		{ name: 'increaseBet', params: [], category: 'command' },
 		{ name: 'decreaseBet', params: [], category: 'command' },
 		{ name: 'toggleTurbo', params: [], category: 'command' },
+		{ name: 'openPayTable', params: [], category: 'command' },
 		{ name: 'openGameRules', params: [], category: 'command' },
 		{ name: 'openSettings', params: [], category: 'command' },
 		{ name: 'toggleSound', params: [], category: 'command' },
