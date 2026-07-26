@@ -255,5 +255,80 @@ if (committedRaw !== null) {
 	);
 }
 
+// ---------------------------------------------------------------------------
+// 8. The /config PAGE's field parsers. The Svelte page can't be rendered without the launcher's
+// DB + R2 + a login session, but the transforms it runs on every keystroke are pure and testable:
+// the "count:×" paytable field, the whitespace-separated strip editor, and the raw-JSON paste. If
+// these round-trip through the real package the page edits a valid doc; the DOM around them is the
+// only unverified part. Kept in lockstep with `+page.svelte` (setPaytable / setStrip / applyRaw).
+// ---------------------------------------------------------------------------
+console.log('\n/config page field parsers');
+
+// setPaytable: "5:20, 4:10, 3:5" → canonical single-entry rows, and paytableText back.
+const parsePaytable = (text: string) =>
+	text
+		.split(',')
+		.map((pair) => pair.trim())
+		.filter(Boolean)
+		.flatMap((pair) => {
+			const [count, pay] = pair.split(':').map((s) => s.trim());
+			const c = Number(count);
+			const p = Number(pay);
+			return Number.isFinite(c) && c > 0 && Number.isFinite(p) ? [{ [String(c)]: p }] : [];
+		});
+const paytableRows = parsePaytable('5:20, 4:10, 3:5');
+assert(
+	eq(paytableRows, [{ '5': 20 }, { '4': 10 }, { '3': 5 }]),
+	'paytable field "5:20, 4:10, 3:5" parses to single-entry rows',
+);
+assert(eq(parsePaytable('garbage, 3:x, 0:5'), []), 'a nonsense paytable field parses to nothing');
+
+// setStrip: free text (spaces / commas / newlines) → { name }[].
+const parseStrip = (text: string) =>
+	text
+		.split(/[\s,]+/)
+		.map((s) => s.trim())
+		.filter(Boolean)
+		.map((name) => ({ name }));
+assert(
+	eq(parseStrip('H1 H2\nSCAT, H1'), [
+		{ name: 'H1' },
+		{ name: 'H2' },
+		{ name: 'SCAT' },
+		{ name: 'H1' },
+	]),
+	'strip field splits on spaces, commas and newlines and keeps order + duplicates',
+);
+
+// The whole page edits a doc built from these parsers; feed one through normalize as the save would.
+const pageEdited = normalizeGameConfigDoc({
+	providerName: 'p',
+	gameName: 'g',
+	gameID: 'id',
+	rtp: 0.95,
+	numReels: 3,
+	numRows: [3, 3, 3],
+	betModes: { base: { cost: 1, feature: false, buyBonus: false, rtp: 0.95, max_win: 500 } },
+	paylines: { '1': [0, 0, 0] },
+	symbols: {
+		H1: { paytable: paytableRows },
+		SCAT: { special_properties: 'scatter'.split(',').map((s) => s.trim()) },
+	},
+	paddingReels: {
+		basegame: [parseStrip('H1 SCAT H1'), parseStrip('SCAT, H1, H1'), parseStrip('H1\nH1\nSCAT')],
+	},
+});
+assert(
+	pageEdited !== undefined && gameConfigErrors(pageEdited).length === 0,
+	'a doc assembled from the page parsers normalizes with no errors',
+);
+
+// applyRaw is just normalizeGameConfigDoc on JSON.parse — proven above; assert the failure path the
+// modal shows.
+assert(
+	normalizeGameConfigDoc(JSON.parse('{"symbols":{"H1":{}}}')) === undefined,
+	'raw-JSON apply rejects a config with no strips (the modal error path)',
+);
+
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nall checks passed');
 process.exit(failures ? 1 : 0);

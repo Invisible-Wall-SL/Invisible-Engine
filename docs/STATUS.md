@@ -33,7 +33,7 @@ change piled back into one file. See [`docs/status/README.md`](status/README.md)
 | **Sheet Maker** | [status/sheet-maker](status/sheet-maker.md) | — | [tools/sheet-maker](tools/sheet-maker.md) | `atlas-python-tools` |
 | **Font Maker** | [status/font-maker](status/font-maker.md) | [design/invisible-font-maker](design/invisible-font-maker.md) | [tools/font-maker](tools/font-maker.md) | `atlas-python-tools` |
 | **Game Maker** | [status/game-maker](status/game-maker.md) | [design/invisible-game-maker](design/invisible-game-maker.md) | [tools/game-maker](tools/game-maker.md) | `invisible-game-maker` |
-| **Game Config** (schema only) | [status/game-config](status/game-config.md) | [design/invisible-game-config](design/invisible-game-config.md) | — (unbuilt) | `invisible-game-config` |
+| **Game Config** | [status/game-config](status/game-config.md) | [design/invisible-game-config](design/invisible-game-config.md) | [tools/game-config](tools/game-config.md) | `invisible-game-config` |
 | **Localization** | [status/localization](status/localization.md) | — | [tools/localization](tools/localization.md) | `invisible-localization` |
 | **Win Text** | [status/win-text](status/win-text.md) | [design/invisible-win-text](design/invisible-win-text.md) | [tools/win-text](tools/win-text.md) | — |
 | **FTP Browser** | [status/ftp-browser](status/ftp-browser.md) | — | [tools/ftp-browser](tools/ftp-browser.md) | `invisible-ftp-browser` |
@@ -70,13 +70,13 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
    across every client and project**, so two users on unrelated projects silently drop each other's
    rows today. Then Phase 1 (`If-Match` through `r2.ts`) + Phase 2 (doc lease + presence).
    ([design/multi-user-concurrency](design/multi-user-concurrency.md))
-2. **Invisible Game Config — a per-project config (NEW TOOL, owner-requested 2026-07-24).**
-   Every online Game Maker project runs the shared `_runtime/lines` bundle and the runtime bundle
-   carries **no config**, so they ALL share `apps/lines`' sample symbols, paylines and reel strips
-   — nothing a project authors can change them. This is what put a wild (`W`) on a Lines game's
-   spinning reels that its math can never deal. Templates seed their Stake-Engine default; the
-   owner edits it online at `/config`. Phased plan (schema → seed → runtime bundle → tool → retire
-   duplication) in [design/invisible-game-config](design/invisible-game-config.md).
+2. **Invisible Game Config — Phase 5 + live-verify (mostly SHIPPED 2026-07-24).** Phases 1–4 are
+   in: a project authors its own symbols/paylines/grid/bet-modes/strips at `/config` and the game
+   runs that instead of `apps/lines`' shared sample — the fix for the wild (`W`) that rolled past a
+   Lines game's reels its math never deals. Left: retire the remaining duplication (Phase 5 —
+   `publish-symbol-defaults.mjs` + `game-spec`'s generator still read the compiled module), and the
+   owner click-through of the `/config` page (it renders only in the deployed launcher). See
+   [status/game-config](status/game-config.md).
 3. **Ship-from-Rigger (rule 8)** — a rigged skeleton only `.irig`-saves to R2; there is no
    export→deploy→bake→pull→register wiring, so a Rigger rig never reaches a game.
    ([status/rigger](status/rigger.md))

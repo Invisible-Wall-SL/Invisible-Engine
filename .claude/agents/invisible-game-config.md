@@ -13,8 +13,8 @@ consumers (see `engine-pixi-svelte`).
 - **`docs/design/invisible-game-config.md`** — the plan: why it exists (the `W` bug), what is in
   and out of scope, the 5 phases, the open decisions. Read it FIRST; it is the plan, not a log.
 - **`docs/status/game-config.md`** — the LIVING current state. Update THIS when you finish work.
-- **`docs/tools/game-config.md`** — the user guide, due in the SAME change as the `/config`
-  route registration (CLAUDE.md rule 9). Does not exist until Phase 4.
+- **`docs/tools/game-config.md`** — the user guide for the `/config` page (CLAUDE.md rule 9).
+  Keep it in sync on any UI change.
 
 ## What the tool IS
 - The **frontend's contract with the math** — NOT the math. The RGS stays the authority on
@@ -61,7 +61,11 @@ consumers (see `engine-pixi-svelte`).
 - **The template being replaced:** `apps/lines/src/game/config.ts`; its three module-scope
   consumers `apps/lines/src/game/{types,constants,paytable}.ts`.
 - **Bundle:** `apps/launcher-api/src/lib/server/runtimeBundle.ts` (`assembleRuntimeBundle`).
-- **Register:** `bakedGameConfig()` beside `bakedSymbolMap()` in `apps/lines/src/editor-scenes.ts`.
+- **Register:** `bakedGameConfig()` beside `bakedSymbolMap()` in `apps/lines/src/editor-scenes.ts`;
+  `apps/lines/src/game/gameConfig.ts` owns the `runtime → baked → compiled` resolution + boot
+  validation, reset in `Game.svelte` beside `resetSymbolMapCache()`.
+- **Tool page:** `apps/launcher-api/src/routes/(app)/config/` + `POST/GET /api/game-config` (session
+  gate) and `GET /api/game-config/doc` (deploy-token gate, for the bake). Registered in `roles.ts`.
 - **Strip consumer:** `packages/utils-slots/src/createReelForSpinning.svelte.ts`.
 - **Related but NOT this:** `packages/game-spec` is the offline CLI spec that *generates*
   `paytable.ts`/`infoManifest.ts` at scaffold time. Game Config is the *online, per-project,

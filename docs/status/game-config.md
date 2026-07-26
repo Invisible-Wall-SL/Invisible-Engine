@@ -1,10 +1,11 @@
 # Invisible Game Config — status
 
-> Design: [docs/design/invisible-game-config.md](../design/invisible-game-config.md) · Guide: — (due with Phase 4) · Agent: `.claude/agents/invisible-game-config.md`
+> Design: [docs/design/invisible-game-config.md](../design/invisible-game-config.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) · Agent: `.claude/agents/invisible-game-config.md`
 
-**One-line state:** Phases 1–3 landed — a project's authored config now **reaches the running
-game** and drives its paytable, line count, paylines and reel strips. The remaining gap is the tool
-(Phase 4): there is no `/config` page, so a config can only arrive by writing the R2 doc directly.
+**One-line state:** Phases 1–4 landed — the `/config` tool exists and an authored config reaches
+the running game. Only Phase 5 (retiring the duplication) remains. **Live-verify owed:** the page
+renders only inside the launcher (Postgres + R2 + a login session), so it has NOT been rendered yet
+— build + pure logic are verified; the rendered page + save round-trip are the owner's click-through.
 
 ## Current state
 
@@ -95,10 +96,10 @@ better 400s. Reversible if a use case demands Zod.
 
 ## Open items / next
 
-1. **Phase 4 — the tool** (`/config` + `roles.ts` + `docs/tools/game-config.md` in the SAME change,
-   repo rule 9). The page loads via `resolveGameConfig()`, which already returns the doc, its
-   provenance and its ETag — don't re-implement the precedence or the compare-and-swap.
-   **This is now the only thing standing between the plumbing and an author using it.**
+1. **Live-verify the page** (owner click-through) — render `/config` in the deployed launcher,
+   confirm it loads a project's config, the panels edit it, an off-grid payline blocks the save, a
+   paste-in through the raw-JSON hatch validates, and a save round-trips (then re-fetch to confirm
+   the game runs it). This is the one thing offline verification couldn't reach.
 2. **Phase 5 — retire the duplication**, incl. pointing `publish-symbol-defaults.mjs` at the
    authored doc rather than the compiled module, and `packages/game-spec`'s generator, which still
    emits const-based `paytable.ts`/`infoManifest.ts` for a scaffolded game and so would ignore the
@@ -111,9 +112,16 @@ better 400s. Reversible if a use case demands Zod.
 
 ## Blocked (owner / external)
 
-- Nothing. Phases 4–5 are ours to build.
+- **Phase 4 live-verify** waits on a launcher deploy + a click-through — the page can't render
+  locally (Postgres + R2 + session). Not blocking the merge; it's a post-deploy check.
 
 ## Recent changes
+
+- 2026-07-24 — Phase 4: the `/config` tool — `roles.ts` registration (icon, TOOLS, ROLE_TOOLS,
+  TOOL_BAR_ORDER, TOOL_DOC_SLUG), the page (Identity/Grid/Bet modes/Symbols/Paylines/Reel
+  strips/raw-JSON panels, in-play badges + strip frequencies from the gate, inline validation), the
+  session-gated `PUT/GET /api/game-config`, and the `docs/tools/game-config.md` guide. Page render +
+  save round-trip are live-verify owed (needs the launcher); build + parsers fixture-verified.
 
 - 2026-07-24 — Phase 3: `config` in both bundle paths + `GET /api/game-config/doc`,
   `bakedGameConfig()`, `game/gameConfig.ts` (memoised resolution + boot validation), `SymbolName`
