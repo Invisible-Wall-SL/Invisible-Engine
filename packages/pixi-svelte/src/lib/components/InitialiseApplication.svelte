@@ -27,7 +27,12 @@
 			multiView: false,
 			antialias: true,
 			clearBeforeRender: true,
-			preference: 'webgpu',
+			// WebGL, not WebGPU. On some Android GPUs (notably the Pixel 9 Pro's Mali/
+			// Immortalis) PixiJS 8's WebGPU path creates a context successfully — so Pixi's
+			// built-in "WebGPU unavailable → WebGL" fallback never fires — yet composites a
+			// solid black frame (game boots, audio + input work, screen stays black). WebGL is
+			// universally reliable across mobile GPUs and costs nothing visible for a 2D slot.
+			preference: 'webgl',
 			powerPreference: 'high-performance',
 			// Cap the backing-store resolution at 2. On high-DPR phones (iPhone 16 = 3)
 			// an uncapped DPR allocates every framebuffer + render-texture at 9× the pixel
