@@ -117,17 +117,17 @@ const runConfigCrossCheck = (sid: string, cfg: Play4FunConfigContext): void => {
 	const unmapped = [...declared].filter((s) => !known.has(s));
 	const orphaned = [...known].filter((s) => !declared.has(s));
 
-	const gridReels = cfg.window?.reels;
-	const gridRows = cfg.window?.rows;
-	const gridOk = gridReels === 5 && gridRows === 3;
+	// The declared grid is whatever the game's config says now (Invisible Game Config drives the
+	// mock's numReels/numRows), so there is no fixed "expected" size to flag — a 6×4 board is as
+	// valid as 5×3. The cross-check is about SYMBOL vocabulary, the one thing the facade must map;
+	// the grid dimensions flow through untouched (`padReel` adds ±1 for any row count).
 
 	// Only surface the cross-check when something is actually WRONG. A healthy config
 	// previously dumped a full multi-line report (grid/paylines/wilds) to the console
 	// EVERY session — pure noise in a shipped game. Stay silent when all checks pass.
-	if (gridOk && !unmapped.length && !orphaned.length) return;
+	if (!unmapped.length && !orphaned.length) return;
 
 	const lines: string[] = [`[stake-facade] config cross-check for sid=${sid}`];
-	if (!gridOk) lines.push(`  grid: ${gridReels}×${gridRows} ✗ (expected 5×3)`);
 	if (unmapped.length)
 		lines.push(`  unmapped server symbols (will pass through): ${unmapped.join(', ')}`);
 	if (orphaned.length)

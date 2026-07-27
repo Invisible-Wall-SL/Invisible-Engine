@@ -37,7 +37,13 @@ const LINE_SYMBOLS = SYMBOLS.filter((s) => s !== 'SCAT');
 // lands on the IDENTICAL cells are one win — pay it once, not once per crossing
 // line. See dedupeCoincidingWins below.
 const LINE_COINCIDING = false;
-const PAYLINES = [
+// DEFAULT grid + paylines — the faithful Hot Fruits 5×3 board. `createMockRgs` accepts
+// `{ reels, rows, paylines }` overrides so the test server can deal the game's AUTHORED grid
+// (Invisible Game Config's numReels/numRows/paylines) and a spin shows the board the game draws,
+// not a fixed 5×3. Absent overrides ⇒ these values ⇒ byte-identical to before.
+const DEFAULT_REELS = 5;
+const DEFAULT_ROWS = 3;
+const DEFAULT_PAYLINES = [
 	[1, 1, 1, 1, 1],
 	[0, 0, 0, 0, 0],
 	[2, 2, 2, 2, 2],
@@ -61,9 +67,9 @@ const PAY_TABLE = {
  *  Multiplied by TOTAL stake, not betPerLine. Values are placeholders;
  *  real Hot Fruits values to be confirmed from a live session capture. */
 const SCATTER_PAY_TABLE = {
-	3: 2,    // 3 SCAT → 2× total stake
-	4: 10,   // 4 SCAT → 10× total stake
-	5: 100,  // 5 SCAT → 100× total stake
+	3: 2, // 3 SCAT → 2× total stake
+	4: 10, // 4 SCAT → 10× total stake
+	5: 100, // 5 SCAT → 100× total stake
 };
 
 function hashStr(s) {
@@ -75,12 +81,12 @@ function hashStr(s) {
 	return h;
 }
 
-/** Evaluate paylines. Each payline is 5 row-indices (one per reel).
+/** Evaluate paylines. Each payline is one row-index per reel.
  *  A win occurs when the leftmost N matching symbols form a run. */
-const evaluatePaylines = (reels, betPerLine) => {
+const evaluatePaylines = (reels, betPerLine, paylines) => {
 	const wins = [];
-	for (let p = 0; p < PAYLINES.length; p++) {
-		const line = PAYLINES[p];
+	for (let p = 0; p < paylines.length; p++) {
+		const line = paylines[p];
 		const seq = line.map((row, reel) => reels[reel][row]);
 		const first = seq[0];
 		if (!PAY_TABLE[first]) continue;
@@ -171,7 +177,7 @@ const corsHeaders = (req) => {
 			'Access-Control-Allow-Credentials': 'true',
 			'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
 			'Access-Control-Allow-Headers': 'Content-Type',
-			'Vary': 'Origin',
+			Vary: 'Origin',
 		};
 	}
 	return {
@@ -232,6 +238,15 @@ export function createMockRgs(opts = {}) {
 	const seed = opts.seed ?? process.env.SEED;
 	const label = opts.label ?? 'mock';
 
+	// Grid the mock deals — the game's authored grid when the test server injects it, else the
+	// faithful Hot Fruits 5×3. `paylines` MUST be numReels-wide (one row index per reel); an
+	// injected set out of sync with `reels` would index off the board, so the test server passes
+	// the config's own paylines alongside its dimensions.
+	const reelCount = Math.max(1, Math.round(Number(opts.reels ?? DEFAULT_REELS)));
+	const rowCount = Math.max(1, Math.round(Number(opts.rows ?? DEFAULT_ROWS)));
+	const paylines =
+		Array.isArray(opts.paylines) && opts.paylines.length ? opts.paylines : DEFAULT_PAYLINES;
+
 	/** sid -> { balance, round | null, configSent } */
 	const sessions = new Map();
 	const getSession = (sid) => {
@@ -250,20 +265,22 @@ export function createMockRgs(opts = {}) {
 		// Weighted draw favouring low-pay symbols, occasional scatter, rare PIC7.
 		const r = nextRand();
 		if (r < 0.04) return 'SCAT';
-		if (r < 0.4) return LINE_SYMBOLS[Math.floor(nextRand() * 3)];      // PIC1/2/3
+		if (r < 0.4) return LINE_SYMBOLS[Math.floor(nextRand() * 3)]; // PIC1/2/3
 		if (r < 0.75) return LINE_SYMBOLS[3 + Math.floor(nextRand() * 2)]; // PIC4/5
 		if (r < 0.95) return LINE_SYMBOLS[5 + Math.floor(nextRand() * 1)]; // PIC6
 		return 'PIC7';
 	};
 	/** 5 reels × 3 visible rows */
-	const spinReels = () => Array.from({ length: 5 }, () => Array.from({ length: 3 }, pickSymbol));
+	const spinReels = () =>
+		Array.from({ length: reelCount }, () => Array.from({ length: rowCount }, pickSymbol));
 
 	const handleEngine = async (req, res, url) => {
 		const sid = url.searchParams.get('sid');
 		const seq = Number(url.searchParams.get('seq') ?? 0);
 		const gid = url.searchParams.get('gid');
 
-		if (!sid) return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'missing sid' } });
+		if (!sid)
+			return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'missing sid' } });
 
 		const session = getSession(sid);
 		const bodyText = await readBody(req);
@@ -271,13 +288,19 @@ export function createMockRgs(opts = {}) {
 		try {
 			actions = bodyText ? JSON.parse(bodyText) : [];
 		} catch {
-			return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'body must be JSON array' } });
+			return sendJson(req, res, 400, {
+				error: { code: 'ERR_VAL', message: 'body must be JSON array' },
+			});
 		}
 		if (!Array.isArray(actions)) {
-			return sendJson(req, res, 400, { error: { code: 'ERR_VAL', message: 'body must be an array' } });
+			return sendJson(req, res, 400, {
+				error: { code: 'ERR_VAL', message: 'body must be an array' },
+			});
 		}
 
-		console.log(`[${label}] sid=${sid} seq=${seq} gid=${gid ?? '-'} actions=${JSON.stringify(actions.map((a) => a.action))}`);
+		console.log(
+			`[${label}] sid=${sid} seq=${seq} gid=${gid ?? '-'} actions=${JSON.stringify(actions.map((a) => a.action))}`,
+		);
 
 		const events = [];
 
@@ -290,12 +313,14 @@ export function createMockRgs(opts = {}) {
 				event: 'config',
 				context: {
 					symbols: SYMBOLS,
-					window: { reels: 5, rows: 3 },
-					paylines: PAYLINES,
+					window: { reels: reelCount, rows: rowCount },
+					paylines,
 					wildSymbols: [],
 					paytable: Object.fromEntries(
 						Object.entries(PAY_TABLE).map(([sym, byCount]) => {
-							const counts = Object.keys(byCount).map(Number).sort((a, b) => a - b);
+							const counts = Object.keys(byCount)
+								.map(Number)
+								.sort((a, b) => a - b);
 							return [
 								sym,
 								{
@@ -342,7 +367,7 @@ export function createMockRgs(opts = {}) {
 					};
 					events.push({
 						event: 'bet',
-						context: { total, betPerLine, paylines: PAYLINES, maxWinCap: 0 },
+						context: { total, betPerLine, paylines, maxWinCap: 0 },
 					});
 					events.push({ event: 'gameStart', context: { totalBet: total, betPerLine } });
 					break;
@@ -358,7 +383,7 @@ export function createMockRgs(opts = {}) {
 					}
 					const reels = spinReels();
 					pendingRound.reels = reels;
-					const lineWins = evaluatePaylines(reels, pendingRound.betPerLine);
+					const lineWins = evaluatePaylines(reels, pendingRound.betPerLine, paylines);
 					const scatterWin = evaluateScatters(reels, pendingRound.total);
 					const wins = scatterWin ? [...lineWins, scatterWin] : lineWins;
 					const totalWin = wins.reduce((s, w) => s + w.pay, 0);
@@ -396,7 +421,8 @@ export function createMockRgs(opts = {}) {
 					if (!pendingRound || pendingRound.id !== gid) {
 						return sendJson(req, res, 200, {
 							result: 0,
-							error: 'error executing requested actions: unexpected action: collect (was expecting: play)',
+							error:
+								'error executing requested actions: unexpected action: collect (was expecting: play)',
 							errorCode: 110,
 							platform: {},
 						});
@@ -475,18 +501,22 @@ if (isMainModule) {
 	});
 	server.listen(PORT, () => {
 		// Standard Invisible Wall startup banner (compact corner bracket).
-		console.log([
-			'',
-			'   ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-			'   ┃   I N V I S I B L E   W A L L   S L',
-			'   ┃   ────────────────────────────────────────',
-			'   ┃   MOCK RGS   ·   Play4Fun',
-			'   ┃',
-			`        http://localhost:${PORT}   ·   Ctrl+C to stop`,
-			'',
-		].join('\n'));
+		console.log(
+			[
+				'',
+				'   ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+				'   ┃   I N V I S I B L E   W A L L   S L',
+				'   ┃   ────────────────────────────────────────',
+				'   ┃   MOCK RGS   ·   Play4Fun',
+				'   ┃',
+				`        http://localhost:${PORT}   ·   Ctrl+C to stop`,
+				'',
+			].join('\n'),
+		);
 		console.log(`[mock] Play4Fun RGS mock listening on http://localhost:${PORT}`);
-		console.log(`[mock] starting balance: ${mock.startBalance}, seed: ${mock.seed ?? '(time-based)'}`);
+		console.log(
+			`[mock] starting balance: ${mock.startBalance}, seed: ${mock.seed ?? '(time-based)'}`,
+		);
 		console.log(`[mock] try: curl -X POST http://localhost:${PORT}/rgs/engine?sid=test`);
 	});
 }

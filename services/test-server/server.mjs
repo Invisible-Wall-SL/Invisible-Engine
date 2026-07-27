@@ -52,7 +52,8 @@ const FAVICONS = (() => {
 		'favicon.png': load('favicon-32.png', 'image/png'),
 	};
 })();
-const FAVICON_DEFAULT = FAVICONS['favicon.svg'] ?? FAVICONS['favicon.png'] ?? FAVICONS['favicon.ico'];
+const FAVICON_DEFAULT =
+	FAVICONS['favicon.svg'] ?? FAVICONS['favicon.png'] ?? FAVICONS['favicon.ico'];
 
 const PORT = Number(process.env.PORT ?? 8080);
 const MANIFEST_KEY = 'test_server/games.json';
@@ -65,7 +66,9 @@ const bucket = process.env.R2_BUCKET;
 const accessKeyId = process.env.R2_ACCESS_KEY_ID;
 const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
 if (!LOCAL_DIR && (!endpoint || !bucket || !accessKeyId || !secretAccessKey)) {
-	console.error('[test-server] missing R2_ENDPOINT / R2_BUCKET / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY (or set TEST_SERVER_LOCAL for local dev)');
+	console.error(
+		'[test-server] missing R2_ENDPOINT / R2_BUCKET / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY (or set TEST_SERVER_LOCAL for local dev)',
+	);
 	process.exit(1);
 }
 
@@ -117,10 +120,38 @@ const MIME = {
 	'.wav': 'audio/wav',
 	'.atlas': 'text/plain; charset=utf-8',
 };
-const mimeFor = (relPath, fallback) => MIME[extname(relPath).toLowerCase()] ?? fallback ?? 'application/octet-stream';
+const mimeFor = (relPath, fallback) =>
+	MIME[extname(relPath).toLowerCase()] ?? fallback ?? 'application/octet-stream';
+
+/**
+ * The lines game's authored grid, from the committed Game Config template default
+ * (`gameConfig/lines.json`, generated from `apps/lines`' `config.ts` and drift-gated to match it).
+ * The lines mock deals THIS grid so a spin shows the board the game draws (Invisible Game Config's
+ * numReels/numRows/paylines) — the mock/game agree on dimensions AND paylines instead of the mock's
+ * old fixed 5×3 + 5-line subset. Unreadable/odd JSON ⇒ null ⇒ the mock keeps its faithful defaults.
+ *
+ * Paylines come from the config as `{ id: rows[] }`; the mock wants `rows[][]`. They MUST be
+ * numReels-wide — the config validator guarantees that, and passing them together with the reel
+ * count keeps the two in lock-step.
+ */
+const linesGrid = (() => {
+	try {
+		const path = join(HERE, '../../apps/launcher-api/src/lib/data/gameConfig/lines.json');
+		const doc = JSON.parse(readFileSync(path, 'utf8'));
+		const reels = Math.max(1, Math.round(Number(doc.numReels)));
+		const rows = Math.max(1, Math.round(Math.max(...(doc.numRows ?? [3]))));
+		const paylines = Object.values(doc.paylines ?? {});
+		if (!Number.isFinite(reels) || !paylines.length) return null;
+		return { reels, rows, paylines };
+	} catch {
+		return null;
+	}
+})();
 
 const makeMock = (protocol, label) =>
-	protocol === 'book' ? createBookMock({ label }) : createLinesMock({ label });
+	protocol === 'book'
+		? createBookMock({ label })
+		: createLinesMock({ label, ...(linesGrid ?? {}) });
 
 const streamToBuffer = async (stream) => {
 	const chunks = [];
@@ -152,7 +183,9 @@ async function loadSource() {
 						out.push([rel, { body: await readFile(file), contentType: mimeFor(rel) }]);
 					}
 				} catch (e) {
-					console.warn(`[test-server] no local files for '${key}' under ${base} (${e.code ?? e.message})`);
+					console.warn(
+						`[test-server] no local files for '${key}' under ${base} (${e.code ?? e.message})`,
+					);
 				}
 				return out;
 			},
@@ -177,7 +210,10 @@ async function loadSource() {
 					if (obj.Key.endsWith('/')) continue;
 					const rel = obj.Key.slice(prefix.length);
 					const got = await client.send(new GetObjectCommand({ Bucket: bucket, Key: obj.Key }));
-					out.push([rel, { body: await streamToBuffer(got.Body), contentType: mimeFor(rel, got.ContentType) }]);
+					out.push([
+						rel,
+						{ body: await streamToBuffer(got.Body), contentType: mimeFor(rel, got.ContentType) },
+					]);
 				}
 				token = list.IsTruncated ? list.NextContinuationToken : undefined;
 			} while (token);
@@ -210,10 +246,14 @@ async function hydrate() {
 		if (runtime) {
 			// Served from the shared runtime bundle (loaded once below) — no per-key files.
 			runtimeIds.add(runtime);
-			console.info(`[test-server] registered '${key}' (${protocol}) → runtime '_runtime/${runtime}'`);
+			console.info(
+				`[test-server] registered '${key}' (${protocol}) → runtime '_runtime/${runtime}'`,
+			);
 		} else {
 			nextBundles[key] = Object.fromEntries(await source.readFiles(key));
-			console.info(`[test-server] hydrated '${key}' (${protocol}) — ${Object.keys(nextBundles[key]).length} file(s)`);
+			console.info(
+				`[test-server] hydrated '${key}' (${protocol}) — ${Object.keys(nextBundles[key]).length} file(s)`,
+			);
 		}
 	}
 
@@ -222,7 +262,10 @@ async function hydrate() {
 	for (const id of runtimeIds) {
 		nextRuntimeBundles[id] = Object.fromEntries(await source.readFiles(`_runtime/${id}`));
 		const n = Object.keys(nextRuntimeBundles[id]).length;
-		if (n === 0) console.warn(`[test-server] runtime '_runtime/${id}' has 0 files — games using it won't load until it's published`);
+		if (n === 0)
+			console.warn(
+				`[test-server] runtime '_runtime/${id}' has 0 files — games using it won't load until it's published`,
+			);
 		else console.info(`[test-server] hydrated runtime '_runtime/${id}' — ${n} file(s)`);
 	}
 
@@ -231,7 +274,10 @@ async function hydrate() {
 	bundles = nextBundles;
 	runtimeBundles = nextRuntimeBundles;
 	mocks = Object.fromEntries(
-		Object.entries(nextRegistry).map(([key, meta]) => [key, makeMock(meta.protocol, `mock:${key}`)]),
+		Object.entries(nextRegistry).map(([key, meta]) => [
+			key,
+			makeMock(meta.protocol, `mock:${key}`),
+		]),
 	);
 }
 
@@ -241,7 +287,8 @@ const send = (res, status, contentType, body) => {
 	res.writeHead(status, { 'Content-Type': contentType, 'Content-Length': Buffer.byteLength(body) });
 	res.end(body);
 };
-const sendJson = (res, status, obj) => send(res, status, 'application/json; charset=utf-8', JSON.stringify(obj));
+const sendJson = (res, status, obj) =>
+	send(res, status, 'application/json; charset=utf-8', JSON.stringify(obj));
 
 const indexPage = () => {
 	const rows = Object.entries(registry)
@@ -279,9 +326,10 @@ const handleRequest = async (req, res) => {
 	if ((req.method === 'GET' || req.method === 'HEAD') && FAVICON_DEFAULT) {
 		const baseName = (pathname.split('/').pop() || '').toLowerCase();
 		if (/^(favicon\.(ico|svg|png)|apple-touch-icon[\w-]*\.png)$/.test(baseName)) {
-			const fav = own(FAVICONS, baseName)
-				?? (baseName.endsWith('.png') ? FAVICONS['favicon.png'] : FAVICON_DEFAULT)
-				?? FAVICON_DEFAULT;
+			const fav =
+				own(FAVICONS, baseName) ??
+				(baseName.endsWith('.png') ? FAVICONS['favicon.png'] : FAVICON_DEFAULT) ??
+				FAVICON_DEFAULT;
 			res.writeHead(200, {
 				'Content-Type': fav.contentType,
 				'Content-Length': fav.body.length,
@@ -333,10 +381,15 @@ const handleRequest = async (req, res) => {
 		// A game with a `runtime` is served from the shared generic bundle; otherwise
 		// from its own per-key files. Resolving via the registry keeps an unknown key 404.
 		const meta = own(registry, gameKey);
-		const files = meta ? (meta.runtime ? own(runtimeBundles, meta.runtime) : own(bundles, gameKey)) : undefined;
+		const files = meta
+			? meta.runtime
+				? own(runtimeBundles, meta.runtime)
+				: own(bundles, gameKey)
+			: undefined;
 		if (files) {
 			const rel = segments.slice(1).join('/') || 'index.html';
-			const file = own(files, rel) ?? (rel.endsWith('/') ? own(files, `${rel}index.html`) : undefined);
+			const file =
+				own(files, rel) ?? (rel.endsWith('/') ? own(files, `${rel}index.html`) : undefined);
 			if (file) {
 				// Content-hashed bundle files (SvelteKit `_app/immutable/…`) get a new
 				// URL on every build, so they're safe to cache forever. Everything else
@@ -381,15 +434,17 @@ hydrate()
 	.catch((e) => console.error('[test-server] initial hydrate failed:', e))
 	.finally(() => {
 		server.listen(PORT, () => {
-			console.log([
-				'',
-				'   ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
-				'   ┃   I N V I S I B L E   W A L L   S L',
-				'   ┃   ────────────────────────────────────────',
-				'   ┃   INVISIBLE TEST SERVER',
-				'   ┃',
-				`        :${PORT}   ·   games: ${Object.keys(registry).join(', ') || '(none)'}`,
-				'',
-			].join('\n'));
+			console.log(
+				[
+					'',
+					'   ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━',
+					'   ┃   I N V I S I B L E   W A L L   S L',
+					'   ┃   ────────────────────────────────────────',
+					'   ┃   INVISIBLE TEST SERVER',
+					'   ┃',
+					`        :${PORT}   ·   games: ${Object.keys(registry).join(', ') || '(none)'}`,
+					'',
+				].join('\n'),
+			);
 		});
 	});
