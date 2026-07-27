@@ -25,7 +25,7 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 
 ## Blocked (owner / external)
 - **Security rotation (owner, Railway/CF):** rotate the shared R2 token (read+write whole bucket, used by 4 services), Postgres password, and CF Access service-token secret; rotate `EDITOR_DOC_SECRET` (deploy token — was plaintext in local config / screenshot-exposed). See `docs/INFRA.md` "Security / secret rotation".
-- Env vars the portal degrades gracefully without until set: `ANTHROPIC_API_KEY` (Localization Translate), `GAMES_BASE_URL` (legacy home Games bridge), tool URLs/secrets (`SHEET_TOOL_URL`, `ATLAS_TOOL_SECRET`, …).
+- Env vars the portal degrades gracefully without until set: `ANTHROPIC_API_KEY` (Localization Translate), `GAMES_BASE_URL` (legacy home Games bridge), `GITHUB_ENGINE_READ_TOKEN` (engine "release pending" pill — absent ⇒ the pill never shows pending), tool URLs/secrets (`SHEET_TOOL_URL`, `ATLAS_TOOL_SECRET`, …).
 
 ## Key lessons / gotchas
 - **Never `db:push` on prod** — it replays from 0000 on an empty `__drizzle_migrations` (500s) and reports spurious PK-recreate drift; baseline/reconcile instead. (`gotcha_drizzle_automigrate_baseline`)
@@ -33,6 +33,7 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 - More done-work detail (B12/B16/B17/B22, admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation) is archived in [../history.md](../history.md).
 
 ## Recent changes
+- 2026-07-27 — Engine deploy pill gained a **"release pending" (C2)** state: `$lib/server/engineSource.ts#enginePending` compares the live runtime bundle's stamped commit against engine `main` (GitHub compare API, path-filtered to `apps/lines/`+`packages/`, cached ~60s, 4s timeout), merged into `EngineDeployStatus` by the `(app)` layout load. Distinct non-pulsing amber pill (`.engine-pending`). Gated on `GITHUB_ENGINE_READ_TOKEN` (falls back to `GIT_CLONE_TOKEN`); absent ⇒ identical to before (green, never "pending").
 - 2026-07-27 — Online tools grouped by game-making **stage** (`TOOL_STAGES` in `roles.ts`, single source; `TOOL_BAR_ORDER` derived from it): home grid renders one colour-accented section per stage; top-bar switcher tints each icon by stage. The `tools=` payload now bakes a per-tool `accent`, so the four HTML twins (atlas/sheet/rigger/spine) tint their icons to match. (Remaining: the twins' partial `TOOL_ICONS` mirrors — icon-less tools render label-only. See unified-tool-bar.)
 - 2026-06-20 — Prod `app_settings` created + migrator hardened (`reconcilePushProvisioned` replaces baseline-overshoot). ([history](../history.md))
 - 2026-06-14 — Launcher now serves the tool guides at `/docs/[slug]`; onboarding links fixed; CLAUDE rule #9 institutionalized. ([history](../history.md))

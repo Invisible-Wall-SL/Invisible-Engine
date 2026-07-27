@@ -17,9 +17,7 @@
 	const stageSections = $derived.by<(ToolStage & { items: ToolDef[] })[]>(() => {
 		const placed = new Set<string>();
 		const sections = TOOL_STAGES.map((s) => {
-			const items = s.tools
-				.map((id) => availableOnline.get(id))
-				.filter((t): t is ToolDef => !!t);
+			const items = s.tools.map((id) => availableOnline.get(id)).filter((t): t is ToolDef => !!t);
 			items.forEach((t) => placed.add(t.id));
 			return { ...s, items };
 		}).filter((s) => s.items.length > 0);
@@ -177,11 +175,28 @@
 		return Number.isFinite(ms) ? new Date(ms).toLocaleString() : '';
 	}
 
+	// True only when a source-compare actually ran AND found un-released engine changes. `pending`
+	// is `undefined` when the compare was skipped (no token / GitHub hiccup) — that must never read
+	// as "pending" NOR as "up to date"; we simply keep today's deployed appearance in that case.
+	const isPending = $derived(engine.status === 'deployed' && engine.pending === true);
+	const first7 = (sha: string | undefined) => (sha ? sha.slice(0, 7) : '');
+
+	// CSS class drives the palette: a distinct non-pulsing amber for `pending` (vs the pulsing amber
+	// `building`), otherwise the base per-status class.
+	const engineClass = $derived(isPending ? 'engine-pending' : `engine-${engine.status}`);
+
 	const engineLabel = $derived.by(() => {
 		if (engine.status === 'building') return 'Releasing engine…';
 		if (engine.status === 'deployed') {
+			if (isPending) {
+				const ahead = engine.aheadBy && engine.aheadBy > 0 ? ` · ${engine.aheadBy} ahead` : '';
+				return `Release pending${ahead}`;
+			}
 			const rel = relativeTime(engine.builtAt);
-			return ['Engine deployed', engine.shortCommit, rel].filter(Boolean).join(' · ');
+			// Only claim "up to date" when a compare actually ran (pending === false). If the compare
+			// was skipped (undefined), keep exactly today's label — don't imply we checked.
+			const upToDate = engine.pending === false ? ' · up to date' : '';
+			return ['Engine deployed', engine.shortCommit, rel].filter(Boolean).join(' · ') + upToDate;
 		}
 		return 'Engine status unknown';
 	});
@@ -193,6 +208,13 @@
 			return parts.join(' ');
 		}
 		if (engine.status === 'deployed') {
+			if (isPending) {
+				return (
+					'engine main has changes not in the live bundle — merge already auto-releases; this ' +
+					`clears when the release finishes. deployed ${first7(engine.commit)} · ` +
+					`main ${first7(engine.mainCommit)}`
+				);
+			}
 			const parts: string[] = [];
 			if (engine.commit && engine.commit !== 'unknown') parts.push(`commit ${engine.commit}`);
 			const abs = absoluteTime(engine.builtAt);
@@ -257,11 +279,7 @@
 	<header>
 		<div class="brand">
 			<Emblem height={18} /> INVISIBLE WALL
-			<span
-				class="engine-pill engine-{engine.status}"
-				role="status"
-				title={engineTitle}
-			>
+			<span class="engine-pill {engineClass}" role="status" title={engineTitle}>
 				<span class="engine-dot"></span>
 				{engineLabel}
 			</span>
@@ -331,9 +349,9 @@
 	<section class="sec sec-local">
 		<h2>Local tools</h2>
 		<p class="sechelp">
-			Installed on <em>your</em> machine. The launcher can't see your disk — the path below
-			is a personal bookmark of where you put the tool (for your own reference + the
-			download flow), not something it verifies or runs.
+			Installed on <em>your</em> machine. The launcher can't see your disk — the path below is a personal
+			bookmark of where you put the tool (for your own reference + the download flow), not something
+			it verifies or runs.
 		</p>
 		<div class="grid wide">
 			{#each local as tool (tool.id)}
@@ -351,7 +369,12 @@
 							</span>
 						</div>
 						{#if tool.install?.download}
-							<a class="download muted-link" href={tool.install.download} target="_blank" rel="noopener">
+							<a
+								class="download muted-link"
+								href={tool.install.download}
+								target="_blank"
+								rel="noopener"
+							>
 								Re-download installer →
 							</a>
 						{/if}
@@ -449,6 +472,13 @@
 	.engine-building .engine-dot {
 		box-shadow: 0 0 0 3px #e2b23a33;
 		animation: engine-pulse 1.2s ease-in-out infinite;
+	}
+	/* Release pending (C2): amber like `building` but NON-pulsing — a steady "owed a release"
+	   state, distinct from the in-flight pulse. */
+	.engine-pending {
+		color: #e2b23a;
+		border-color: #6b5320;
+		background: #251d0d;
 	}
 	.engine-unknown {
 		color: #7a7a86;

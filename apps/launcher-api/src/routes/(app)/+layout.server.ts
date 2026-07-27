@@ -8,6 +8,7 @@ import {
 	ensureDefaultProject,
 } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { enginePending } from '$lib/server/engineSource';
 import { engineDeployStatus, type EngineDeployStatus } from '$lib/server/testServerManifest';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { LayoutServerLoad } from './$types';
@@ -48,15 +49,23 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 		engine = { status: 'unknown' };
 	}
 
+	// C2 (bundle-vs-source "release pending"): if the bundle is deployed with a known commit, compare
+	// it against the engine repo's `main` HEAD. Best-effort + cached in `engineSource.ts`; a missing
+	// token or any GitHub hiccup returns null → we merge nothing → the pill degrades to today's green.
+	if (engine.status === 'deployed' && engine.commit && engine.commit !== 'unknown') {
+		try {
+			const p = await enginePending(engine.commit);
+			if (p)
+				engine = { ...engine, pending: p.pending, aheadBy: p.aheadBy, mainCommit: p.mainCommit };
+		} catch {
+			// ignore — the pill stays green
+		}
+	}
+
 	return {
 		user: locals.user,
 		tools: manifestForRole(locals.user.role, roleOverrides, overrides),
-		canAdmin: roleHasCapability(
-			locals.user.role,
-			ADMIN_PANEL_CAPABILITY,
-			roleOverrides,
-			overrides,
-		),
+		canAdmin: roleHasCapability(locals.user.role, ADMIN_PANEL_CAPABILITY, roleOverrides, overrides),
 		projects,
 		activeProjectKey,
 		engine,
