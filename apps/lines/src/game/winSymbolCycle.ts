@@ -14,6 +14,11 @@
  * screen exactly as it was. `winCycle.showText` gates ONLY the stamped amount, INDEPENDENTLY of
  * the line: off keeps the line replaying but drops the amount text.
  *
+ * THE INFO TOAST rides along too, but only when `winCycle.showMessage` is on — and unlike the line
+ * it defaults OFF, because the toast never replayed before this switch existed, so leaving it unset
+ * keeps a project byte-identical (the message shows once, during the round's own presentation). On,
+ * each pass re-fires that win's "You win $X with N Bananas" toast alongside its symbols.
+ *
  * WHY IT LIVES OUTSIDE THE HANDLER. The cycle is not part of any book event: it starts after the
  * whole book has been presented and must survive as long as nothing else is happening. It is
  * driven from `playBet` (start in `finally`, stop at the top) so it covers all three dispatch
@@ -34,6 +39,7 @@ import { waitForTimeout } from 'utils-shared/wait';
 import { eventEmitter } from './eventEmitter';
 import {
 	animateSymbols,
+	showWinInfoMessage,
 	winLineEnabledForWin,
 	winLineFullPointsFor,
 	winLinePointsFor,
@@ -177,6 +183,20 @@ export const startWinCycle = async (): Promise<void> => {
 			}
 			await animateSymbols({ positions });
 			if (token !== generation) return;
+			// Re-show that win's info toast on this pass — the SAME "You win $X with N Bananas"
+			// (`messageKind: 'win'`) the round narrated, so the message rides the replay just like the
+			// line + amount do. Gated by `showMessage` (default OFF, so a project that never authored
+			// it keeps the toast to the round's first presentation). Fired after the symbols light —
+			// the round's own beat order (line → symbols → message → hide) — and NOT awaited: it is a
+			// transient toast that auto-clears, not a beat the cycle should pace on.
+			if (cfg.showMessage) {
+				showWinInfoMessage({
+					amount: win.win,
+					kind: win.kind,
+					symbol: win.symbol,
+					messageKind: 'win',
+				});
+			}
 			clearCycleLine();
 			await waitForTimeout(gapMs);
 		}

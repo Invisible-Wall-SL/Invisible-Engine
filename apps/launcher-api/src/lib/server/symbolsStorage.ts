@@ -180,6 +180,10 @@ const winCycleSchema = z
 		 *  line): absent ⇒ ON, so the text repeats exactly as it did before this switch existed.
 		 *  `{ showText: false }` keeps the line replaying while dropping the stamped amount. */
 		showText: z.boolean().optional(),
+		/** Also re-show that win's INFO TOAST on each replay pass. Absent ⇒ OFF (the toast never
+		 *  replayed before this switch), so `{ showMessage: true }` opts a project into the looping
+		 *  message. */
+		showMessage: z.boolean().optional(),
 	})
 	.strict();
 
@@ -255,6 +259,8 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	if (doc.winCycle?.delay !== undefined) winCycle.delay = doc.winCycle.delay;
 	if (doc.winCycle?.showLine === false) winCycle.showLine = false;
 	if (doc.winCycle?.showText === false) winCycle.showText = false;
+	// INVERSE of its siblings: `showMessage` defaults OFF, so only the ON flag persists.
+	if (doc.winCycle?.showMessage === true) winCycle.showMessage = true;
 	if (Object.keys(winCycle).length) next.winCycle = winCycle;
 	return next;
 }
