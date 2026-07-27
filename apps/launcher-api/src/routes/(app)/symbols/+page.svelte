@@ -37,6 +37,7 @@
 		setOverride,
 		setSymbolName,
 		setWinCycleDelay,
+		setWinCycleDimNonWinning,
 		setWinCycleEnabled,
 		setWinCycleShowLine,
 		setWinCycleShowMessage,
@@ -44,6 +45,7 @@
 		setWinLineEnabled,
 		setWinLineLine,
 		setWinLineText,
+		winCycleDimNonWinning,
 		winCycleEnabled,
 		winCycleShowLine,
 		winCycleShowMessage,
@@ -627,6 +629,7 @@
 	const wcShowLine = $derived(winCycleShowLine(doc));
 	const wcShowText = $derived(winCycleShowText(doc));
 	const wcShowMessage = $derived(winCycleShowMessage(doc));
+	const wcDim = $derived(winCycleDimNonWinning(doc));
 
 	function resetWinLineStyle(): void {
 		doc = clearWinLineStyle(doc);
@@ -1196,6 +1199,32 @@
 							<span class="track"><span class="knob"></span></span>
 							<span class="switch-label">{wcOn ? 'On' : 'Off'}</span>
 						</label>
+					</div>
+
+					<div class="wl-config">
+						<div class="wl-group">
+							<div class="wl-fields">
+								<div class="field">
+									<span class="label">Darken the non-winning symbols</span>
+									<label class="switch sm" class:on={wcDim}>
+										<input
+											type="checkbox"
+											checked={wcDim}
+											onchange={(e) =>
+												(doc = setWinCycleDimNonWinning(doc, e.currentTarget.checked))}
+										/>
+										<span class="track"><span class="knob"></span></span>
+										<span class="switch-label">{wcDim ? 'On' : 'Off'}</span>
+									</label>
+								</div>
+							</div>
+							<p class="wl-note">
+								While the win is celebrated — and until the player spins again — every symbol that
+								is not part of a paying line is drawn darkened, so the winning line stands out. This
+								is independent of the replay above: it applies even with "Winning symbols after the
+								spin" off. A losing spin leaves the whole board at full brightness.
+							</p>
+						</div>
 					</div>
 
 					{#if wcOn}

@@ -47,6 +47,7 @@ import {
 	winLineTextFor,
 	winningPositionsOf,
 } from './flowEffects';
+import { setWinDim, winDimCellKey } from './stateGame.svelte';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position } from './types';
 import { bakedWinCycleConfig } from '../editor-scenes';
@@ -92,6 +93,9 @@ const winKey = (win: CycleWin): string =>
 export const recordWinCycleWins = (bookEvent: BookEvent): void => {
 	if (bookEvent.type === 'reveal') {
 		wins = [];
+		// The next spin's board invalidates the previous round's win-dim — clear it here (the same
+		// "until the next spin" boundary that resets `wins`), so a losing spin's board is full-bright.
+		setWinDim(false, {});
 		return;
 	}
 	if (bookEvent.type !== 'winInfo') return;
@@ -102,6 +106,28 @@ export const recordWinCycleWins = (bookEvent: BookEvent): void => {
 		seen.add(key);
 		wins.push(win);
 	}
+	// The win celebration has begun (or grown, on a per-line facade): light the paying cells and dim
+	// the rest. A no-op unless the author turned the switch on.
+	refreshWinDim();
+};
+
+/**
+ * Recompute the win-celebration DIM set from the recorded wins and publish it (`stateGame.winDim`).
+ * Gated by the `winCycle.dimNonWinning` switch — off ⇒ it never activates, so the board stays
+ * full-bright (byte-parity). The lit set is exactly the PAYING cells (`winningPositionsOf`, the same
+ * cells the round + resting cycle animate), so a symbol reads bright iff it is part of a paying line
+ * and every other symbol is darkened. Intentionally INDEPENDENT of `winCycle.enabled`: the dim is a
+ * property of the whole board, not the replay, so it holds even when the replay cycle is off.
+ */
+const refreshWinDim = (): void => {
+	if (!bakedWinCycleConfig().dimNonWinning) return;
+	const cells: Record<string, boolean> = {};
+	for (const win of wins) {
+		for (const position of winningPositionsOf(win)) {
+			cells[winDimCellKey(position.reel, position.row)] = true;
+		}
+	}
+	setWinDim(true, cells);
 };
 
 /** Whether a line THIS cycle drew is currently on screen — so it is cleared exactly once, by

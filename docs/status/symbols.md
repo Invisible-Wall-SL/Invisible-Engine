@@ -108,6 +108,20 @@ Working on `main`:
   presentation). Independent of `showLine` (it is the toast, not the line). Consumed in
   `winSymbolCycle.ts` via `showWinInfoMessage`; travels the full chain (client setter/accessor,
   `.strict` schema, sparse sanitize, `bake-editor-doc.mjs` whitelist all inverted for default-OFF).
+- **Darken the non-winning symbols** (2026-07-27, default OFF, tool switch "Darken the
+  non-winning symbols" in the "Winning symbols after the spin" section). `winCycle.dimNonWinning`:
+  from the win celebration until the next spin, every symbol that is NOT part of a paying line is
+  drawn darkened (Pixi v8 `Container.tint = 0x666666` on `SymbolWrap`, cascading to the sprite /
+  spine / flipbook child), so the winning line stands out. Driven from
+  `winSymbolCycle.recordWinCycleWins`: a `winInfo` refreshes the lit set to the round's paying
+  cells (`refreshWinDim` → `stateGame.winDim`), a `reveal` (the next spin) clears it, so a losing
+  spin's board is full-bright. Read by `ReelSymbol` (`stateGame.winDim.active && !cells[reel:row]`).
+  **Independent of `enabled`** — the dim is a property of the whole board, not the replay, so its
+  tool toggle sits outside the replay's `enabled` gate and applies even with the replay off.
+  Persists sparsely on the ON state like `showMessage` (default-OFF ⇒ byte-parity: `SYMBOL_DIM_TINT`
+  const, `.strict` schema field, sparse sanitize, verbatim through `symbolExport.ts`). Tint cascade
+  verified live in the dev bundle (`_Container.tint` → child `_Spine.groupColor`); ⏳ owner
+  visual-verify on a real winning spin.
 - **Full deploy chain** (export → `deploy/editor-symbols/` → bake → pull → register):
   spine-aware `symbolExport.ts`, `POST /api/editor/export-symbols`, `bake-editor-doc.mjs`
   wiring, `pull-project-assets.mjs` prune entry, `bakedSymbolMap()` / `bakedSymbolAssets()`.

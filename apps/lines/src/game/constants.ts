@@ -19,6 +19,15 @@ export const SYMBOL_SPINE_FILL = 0.5;
 
 export const REEL_PADDING = 0.53;
 
+/**
+ * The tint applied to a NON-winning symbol while the win-celebration dim is on (Invisible Symbols
+ * State Machine → `winCycle.dimNonWinning`). A Pixi v8 `Container.tint` multiplies down to every
+ * child (sprite / spine / flipbook alike), so `0x666666` darkens a losing symbol to ~40% brightness
+ * — dark enough to recede behind the lit paying line, bright enough to stay legible. `0xffffff` (the
+ * default tint) is the untouched, full-bright symbol.
+ */
+export const SYMBOL_DIM_TINT = 0x666666;
+
 // The board GRID (dimensions, pixel size, pre-spin fill) moved to `boardDimensions()` /
 // `boardSizes()` / `initialBoard()` in `./gameConfig` — they derive from the active game config
 // (Invisible Game Config's numReels/numRows), so authoring the grid resizes the board. Kept OUT
