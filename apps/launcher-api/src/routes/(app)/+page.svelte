@@ -149,6 +149,58 @@
 		selectedProject = next;
 		if (next && next !== data.activeProjectKey) form?.requestSubmit();
 	}
+
+	// --- Engine deploy status pill (bundle-vs-source axis) --------------------
+	// Which engine commit the live shared runtime bundle was built from + whether a release is
+	// building right now. Distinct from the per-game `engineStale` badge in Game Maker.
+	const engine = $derived(data.engine);
+
+	// "3 hours ago" / "just now" from an ISO timestamp; empty when absent/unparseable.
+	function relativeTime(iso: string | undefined): string {
+		if (!iso) return '';
+		const ms = Date.parse(iso);
+		if (!Number.isFinite(ms)) return '';
+		const diff = Date.now() - ms;
+		if (diff < 60_000) return 'just now';
+		const mins = Math.floor(diff / 60_000);
+		if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`;
+		const hours = Math.floor(mins / 60);
+		if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+		const days = Math.floor(hours / 24);
+		return `${days} day${days === 1 ? '' : 's'} ago`;
+	}
+
+	// Absolute local timestamp for the pill's tooltip; empty when absent/unparseable.
+	function absoluteTime(iso: string | undefined): string {
+		if (!iso) return '';
+		const ms = Date.parse(iso);
+		return Number.isFinite(ms) ? new Date(ms).toLocaleString() : '';
+	}
+
+	const engineLabel = $derived.by(() => {
+		if (engine.status === 'building') return 'Releasing engine…';
+		if (engine.status === 'deployed') {
+			const rel = relativeTime(engine.builtAt);
+			return ['Engine deployed', engine.shortCommit, rel].filter(Boolean).join(' · ');
+		}
+		return 'Engine status unknown';
+	});
+
+	const engineTitle = $derived.by(() => {
+		if (engine.status === 'building') {
+			const parts = ['A runtime release is currently building.'];
+			if (engine.commit && engine.commit !== 'unknown') parts.push(`commit ${engine.commit}`);
+			return parts.join(' ');
+		}
+		if (engine.status === 'deployed') {
+			const parts: string[] = [];
+			if (engine.commit && engine.commit !== 'unknown') parts.push(`commit ${engine.commit}`);
+			const abs = absoluteTime(engine.builtAt);
+			if (abs) parts.push(`built ${abs}`);
+			return parts.length ? parts.join('\n') : 'Live engine runtime bundle.';
+		}
+		return 'No engine release stamp found for the live runtime bundle.';
+	});
 </script>
 
 {#snippet projectSelector()}
@@ -203,7 +255,17 @@
 
 <div class="shell">
 	<header>
-		<div class="brand"><Emblem height={18} /> INVISIBLE WALL</div>
+		<div class="brand">
+			<Emblem height={18} /> INVISIBLE WALL
+			<span
+				class="engine-pill engine-{engine.status}"
+				role="status"
+				title={engineTitle}
+			>
+				<span class="engine-dot"></span>
+				{engineLabel}
+			</span>
+		</div>
 		<div class="user">
 			{@render projectSelector()}
 			<span>{data.user.name ?? data.user.email} · <span class="role">{data.user.role}</span></span>
@@ -350,6 +412,57 @@
 		letter-spacing: 0.14em;
 		color: #7ee0c0;
 		font-size: 15px;
+	}
+	/* Engine deploy status (bundle-vs-source axis). Reuses the game-maker .stale/.fresh
+	   palette: green = deployed, amber (pulsing) = releasing, muted = unknown. */
+	.engine-pill {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		margin-left: 4px;
+		padding: 3px 10px;
+		border-radius: 999px;
+		font-size: 11px;
+		font-weight: 600;
+		letter-spacing: 0.02em;
+		border: 1px solid transparent;
+		cursor: default;
+		white-space: nowrap;
+	}
+	.engine-dot {
+		flex: none;
+		width: 7px;
+		height: 7px;
+		border-radius: 999px;
+		background: currentColor;
+	}
+	.engine-deployed {
+		color: #6c8a7e;
+		border-color: #2b3a30;
+		background: #16211b;
+	}
+	.engine-building {
+		color: #e2b23a;
+		border-color: #6b5320;
+		background: #251d0d;
+	}
+	.engine-building .engine-dot {
+		box-shadow: 0 0 0 3px #e2b23a33;
+		animation: engine-pulse 1.2s ease-in-out infinite;
+	}
+	.engine-unknown {
+		color: #7a7a86;
+		border-color: #26262f;
+		background: #16161c;
+	}
+	@keyframes engine-pulse {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.35;
+		}
 	}
 	.user {
 		display: flex;

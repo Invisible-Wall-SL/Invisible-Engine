@@ -63,6 +63,21 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Advisory: mark the runtime as "building" BEFORE the (multi-minute) build so the launcher can
+      # show "Releasing engine…" while it runs. `continue-on-error` — the stamp must never fail a
+      # release; the final `released` stamp (after upload) is the one that matters.
+      - name: Stamp release as building
+        continue-on-error: true
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          node apps/launcher-api/scripts/publish-runtime-bundle.mjs \
+            "${{ env.RUNTIME }}" --status building
+
       # The workspace `dist` outputs the game build consumes are NOT rebuilt by the app's own vite
       # build — a stale dist silently ships old engine code (the "stale engine dist" trap).
       - name: Build workspace packages
@@ -77,6 +92,7 @@ jobs:
 
       - name: Publish to _runtime/${{ env.RUNTIME }}
         env:
+          GITHUB_SHA: ${{ github.sha }}
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}

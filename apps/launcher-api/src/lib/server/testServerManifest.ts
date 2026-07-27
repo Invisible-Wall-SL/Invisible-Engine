@@ -33,6 +33,88 @@ export async function runtimeBundleReleasedAt(runtimeId: string): Promise<number
 	return head && head.lastModified > 0 ? head.lastModified : null;
 }
 
+/**
+ * The advisory release stamp `publish-runtime-bundle.mjs` writes next to a runtime bundle
+ * (`test_server/_runtime/<id>/release.json`). It records which engine commit the LIVE shared
+ * bundle was built from + when, and whether a release is currently building — the bundle-vs-source
+ * axis (distinct from the per-game `engineStale` axis, which compares a game's publish time to the
+ * bundle's). `status: 'building'` is written up-front, then overwritten with `'released'` after the
+ * upload lands. Older bundles predate the stamp, so callers fall back to `runtimeBundleReleasedAt`.
+ */
+export interface RuntimeRelease {
+	runtimeId: string;
+	commit: string;
+	shortCommit: string;
+	builtAt: string;
+	status: 'released' | 'building';
+}
+
+/** Read + parse `release.json` for a runtime. Returns null when absent or unparseable. */
+export async function runtimeRelease(runtimeId: string): Promise<RuntimeRelease | null> {
+	const raw = await getObjectText(`test_server/_runtime/${runtimeId}/release.json`);
+	if (!raw) return null;
+	try {
+		return JSON.parse(raw) as RuntimeRelease;
+	} catch {
+		return null;
+	}
+}
+
+/** Time-boxed window for a `building` stamp to still count as an active release (ms). */
+const BUILDING_STALE_MS = 30 * 60 * 1000;
+
+export interface EngineDeployStatus {
+	status: 'building' | 'deployed' | 'unknown';
+	commit?: string;
+	shortCommit?: string;
+	builtAt?: string;
+}
+
+/**
+ * Derive the launcher's engine-deploy indicator for a runtime from its release stamp, with a
+ * graceful fallback for bundles published before stamping existed:
+ * - `building` stamp within the last 30 min → 'building' (a release is in flight). An OLDER
+ *   `building` stamp is treated as stale/unknown: a crashed/superseded release could otherwise
+ *   wedge the pill on "building" forever (per the concurrency note — releases don't cancel-in-progress).
+ * - `released` stamp → 'deployed' with its commit + builtAt.
+ * - no stamp but the bundle exists (`runtimeBundleReleasedAt`) → 'deployed', builtAt from the mtime.
+ * - otherwise → 'unknown'.
+ */
+export async function engineDeployStatus(runtimeId: string): Promise<EngineDeployStatus> {
+	const release = await runtimeRelease(runtimeId);
+	if (release) {
+		if (release.status === 'building') {
+			const startedAt = Date.parse(release.builtAt);
+			const fresh = Number.isFinite(startedAt) && Date.now() - startedAt < BUILDING_STALE_MS;
+			if (fresh) {
+				return {
+					status: 'building',
+					commit: release.commit,
+					shortCommit: release.shortCommit,
+					builtAt: release.builtAt,
+				};
+			}
+			// A stale 'building' stamp: fall through to the mtime fallback below.
+		} else if (release.status === 'released') {
+			return {
+				status: 'deployed',
+				commit: release.commit,
+				shortCommit: release.shortCommit,
+				builtAt: release.builtAt,
+			};
+		}
+	}
+
+	// No usable stamp — an older bundle. The bundle's own mtime still proves it's deployed.
+	const releasedAt = await runtimeBundleReleasedAt(runtimeId);
+	if (releasedAt) return { status: 'deployed', builtAt: new Date(releasedAt).toISOString() };
+
+	// TODO(engine-source-compare, C2): compare the deployed `commit` against the engine repo's
+	// current `main` HEAD to also flag "bundle is behind source" here. Needs a read token scoped
+	// to the engine repo (GitHub API), which the launcher does not yet hold — wire it in when it does.
+	return { status: 'unknown' };
+}
+
 export type MockProtocol = 'lines' | 'book';
 
 export interface TestServerGameEntry {
