@@ -57,19 +57,37 @@ every Domain-A consumer is inside launcher-api — same as `$lib/Emblem.svelte`.
   absent from every tool manifest. No change needed; do not add it to the bar.
 - **Overflow:** icon-only when tight (labels drop before anything collapses).
 
-## Switcher order
+## Stage grouping, order & colour coding (2026-07-27)
 
-Fixed, online-only, declared once as `TOOL_BAR_ORDER` in `roles.ts`:
+Tools are grouped by **game-making stage** — the single source of truth is
+`TOOL_STAGES` in `roles.ts`, an ordered list of `{ id, label, accent, tools[] }`:
 
-```
-editor → sheetMaker → atlasTool → componentEditor → storybook
-  → spineViewer → fontMaker → localization → ftpBrowser
-```
+| Stage | Accent | Tools |
+|---|---|---|
+| **Create** | `#7ee787` green | gameMaker, gameConfig |
+| **Assets** | `#f5b95c` amber | atlasTool, sheetMaker, fontMaker, rigger, flipbook, fx |
+| **Build** | `#6ea8ff` blue | editor, flow, symbols, componentEditor, winText, localization |
+| **Files & Reference** | `#9aa4b8` slate | spineViewer, storybook, ftpBrowser |
 
-The bar renders this order, filtered to the tools the user actually has, with the
-current tool removed. (`spineViewer` is the online viewer; the local Spine Editor
-is excluded.) The launcher home grid keeps its own ordering — this constant only
-drives the bar.
+`TOOL_BAR_ORDER` is **derived** from this (`TOOL_STAGES.flatMap(s => s.tools)`), so a
+tool is placed, ordered, and coloured by editing ONE list — the bar and the home
+grid can never disagree. (Publishing lives inside Game Maker, so there's no separate
+Publish stage; the text tools sit under Build.)
+
+Two surfaces consume it differently, per owner decision (2026-07-27):
+
+- **Top bar** — flat switcher, **no section chrome**; each tool's icon is *tinted*
+  with its stage accent (`toolAccent(id)`). Because same-stage tools sit adjacent,
+  the tints read as colour bands. Renders `TOOL_BAR_ORDER`, filtered to the user's
+  tools, current removed.
+- **Home grid** — one **labelled, colour-accented `.sec` section per stage** (border
+  + header + card-icon tint via `--accent`). Stages with no entitled tools are
+  dropped; any online tool not placed in a stage falls into a trailing **Other**
+  bucket so it can never silently vanish.
+
+> ⚠️ The Python twin (atlas/sheet) does **not** yet carry the icon tint — the baked
+> `tools=` payload has no accent field. Follow-up: add `accent` per tool to the
+> payload + mirror the tint in `ui.html`, or the twin bar stays monochrome.
 
 ## Data flow for the Python tools
 

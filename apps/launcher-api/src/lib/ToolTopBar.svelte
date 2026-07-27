@@ -5,7 +5,7 @@
 	// (atlas/sheet) render a visually identical HTML twin fed by the launcher.
 	// See docs/design/unified-tool-bar.md.
 	import Emblem from '$lib/Emblem.svelte';
-	import { TOOLS, toolBarItems, type ToolDef } from '$lib/roles';
+	import { TOOLS, toolBarItems, toolAccent, type ToolDef } from '$lib/roles';
 	import { untrack, type Snippet } from 'svelte';
 
 	// `clientKey`/`projectKey` are the loudly-shown active project (project-explicit
@@ -81,7 +81,7 @@
 		<nav class="switcher" class:compact bind:this={nav} aria-label="Switch tool">
 			{#each items as tool (tool.id)}
 				<a class="tool" href={tool.url} title={tool.name}>
-					{#if tool.icon}<span class="ic">{@html tool.icon}</span>{/if}
+					{#if tool.icon}<span class="ic" style="color:{toolAccent(tool.id)}">{@html tool.icon}</span>{/if}
 					<span class="label">{tool.barName ?? tool.name.replace(/^Invisible /, '')}</span>
 				</a>
 			{/each}

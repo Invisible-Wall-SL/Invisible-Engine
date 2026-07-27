@@ -2,20 +2,33 @@
 	import { enhance } from '$app/forms';
 	import type { PageData, ActionData } from './$types';
 	import Emblem from '$lib/Emblem.svelte';
-	import { TOOL_BAR_ORDER } from '$lib/roles';
+	import { TOOL_STAGES, type ToolDef, type ToolStage } from '$lib/roles';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	// Online tools follow the same canonical order as the shared top-bar switcher
-	// (`TOOL_BAR_ORDER`); any online tool not listed there falls to the end so it
-	// can never silently disappear from the home grid.
-	const barRank = (id: string) => {
-		const i = TOOL_BAR_ORDER.indexOf(id);
-		return i === -1 ? Number.MAX_SAFE_INTEGER : i;
-	};
-	const online = $derived(
-		data.tools.filter((t) => t.kind === 'online').sort((a, b) => barRank(a.id) - barRank(b.id)),
+	// Online tools are grouped into one section per game-making stage (`TOOL_STAGES`),
+	// in declared order. A stage the user has no tools for is dropped; any online tool
+	// not placed in a stage lands in a trailing "Other" bucket so it can never silently
+	// disappear from the home grid. The colour-coded top-bar switcher reads off the same
+	// source, so the two surfaces always agree.
+	const availableOnline = $derived(
+		new Map(data.tools.filter((t) => t.kind === 'online').map((t) => [t.id, t])),
 	);
+	const stageSections = $derived.by<(ToolStage & { items: ToolDef[] })[]>(() => {
+		const placed = new Set<string>();
+		const sections = TOOL_STAGES.map((s) => {
+			const items = s.tools
+				.map((id) => availableOnline.get(id))
+				.filter((t): t is ToolDef => !!t);
+			items.forEach((t) => placed.add(t.id));
+			return { ...s, items };
+		}).filter((s) => s.items.length > 0);
+		const others = [...availableOnline.values()].filter((t) => !placed.has(t.id));
+		if (others.length) {
+			sections.push({ id: 'other', label: 'Other', accent: '#8a8a93', tools: [], items: others });
+		}
+		return sections;
+	});
 	const local = $derived(data.tools.filter((t) => t.kind === 'local'));
 
 	// A local tool is "configured" once the user has saved an install path for it.
@@ -204,21 +217,26 @@
 		</div>
 	</header>
 
-	<section class="sec sec-online">
-		<h2>Online tools</h2>
-		<div class="grid">
-			{#each online as tool (tool.id)}
-				<a class="tool" href={tool.url}>
-					<span class="ico">{@html tool.icon ?? ''}</span>
-					<strong>{tool.name}</strong>
-					<span class="muted">{tool.description}</span>
-					<span class="tag online">open</span>
-				</a>
-			{:else}
-				<p class="muted">No online tools for your role.</p>
-			{/each}
-		</div>
-	</section>
+	{#each stageSections as stage (stage.id)}
+		<section class="sec sec-stage" style="--accent: {stage.accent}">
+			<h2>{stage.label}</h2>
+			<div class="grid">
+				{#each stage.items as tool (tool.id)}
+					<a class="tool" href={tool.url}>
+						<span class="ico">{@html tool.icon ?? ''}</span>
+						<strong>{tool.name}</strong>
+						<span class="muted">{tool.description}</span>
+						<span class="tag online">open</span>
+					</a>
+				{/each}
+			</div>
+		</section>
+	{:else}
+		<section class="sec sec-stage">
+			<h2>Online tools</h2>
+			<p class="muted">No online tools for your role.</p>
+		</section>
+	{/each}
 
 	<section class="sec sec-games">
 		<h2>Games</h2>
@@ -400,8 +418,8 @@
 		border-radius: 14px;
 		background: #131318;
 	}
-	.sec-online {
-		--accent: #7ee787;
+	.sec-stage {
+		--accent: #8a8a93;
 	}
 	.sec-local {
 		--accent: #c8a3ff;

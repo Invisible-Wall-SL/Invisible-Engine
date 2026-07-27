@@ -339,32 +339,66 @@ export const TOOLS: Record<string, ToolDef> = {
 	},
 };
 
+export type ToolStage = {
+	id: string;
+	/** Section heading in the home grid. */
+	label: string;
+	/** Accent colour: the home section's border/header, and the tool's icon tint in the top bar. */
+	accent: string;
+	/** Online tool ids in this stage, in display order. */
+	tools: string[];
+};
+
 /**
- * Order of the cross-tool switcher in the shared top bar (`ToolTopBar`). Lists
- * ONLY the online tools (local installs have no in-browser URL and are excluded);
- * the launcher home grid keeps its own ordering. The Python tools mirror this
- * order via the launcher-baked `tools=` redirect param. See
- * `docs/design/unified-tool-bar.md`.
+ * Online tools grouped by game-making stage. This is the SINGLE source of truth for
+ * both grouping and ordering: the home grid renders one labelled, colour-accented
+ * section per stage, and the top-bar switcher colour-codes each tool's icon by its
+ * stage accent (no section chrome in the bar itself — just the tint; stages sit
+ * adjacent so the colours read as bands). `TOOL_BAR_ORDER` is DERIVED from this, so
+ * a tool is placed, ordered, and coloured by editing ONE list. Any online tool
+ * missing from every stage falls into a synthetic "Other" bucket at the end (see the
+ * home grid) so it can never silently vanish. See `docs/design/unified-tool-bar.md`.
  */
-export const TOOL_BAR_ORDER: string[] = [
-	'gameMaker',
-	'editor',
-	'flow',
-	'fx',
-	'flipbook',
-	'symbols',
-	'sheetMaker',
-	'atlasTool',
-	'componentEditor',
-	'storybook',
-	'spineViewer',
-	'rigger',
-	'fontMaker',
-	'winText',
-	'gameConfig',
-	'localization',
-	'ftpBrowser',
+export const TOOL_STAGES: ToolStage[] = [
+	{ id: 'create', label: 'Create', accent: '#7ee787', tools: ['gameMaker', 'gameConfig'] },
+	{
+		id: 'assets',
+		label: 'Assets',
+		accent: '#f5b95c',
+		tools: ['atlasTool', 'sheetMaker', 'fontMaker', 'rigger', 'flipbook', 'fx'],
+	},
+	{
+		id: 'build',
+		label: 'Build',
+		accent: '#6ea8ff',
+		tools: ['editor', 'flow', 'symbols', 'componentEditor', 'winText', 'localization'],
+	},
+	{
+		id: 'reference',
+		label: 'Files & Reference',
+		accent: '#9aa4b8',
+		tools: ['spineViewer', 'storybook', 'ftpBrowser'],
+	},
 ];
+
+/** The stage a tool belongs to, or `undefined` if it isn't placed in one. */
+export function stageOfTool(id: string): ToolStage | undefined {
+	return TOOL_STAGES.find((s) => s.tools.includes(id));
+}
+
+/** Stage accent colour for a tool — used to tint the top-bar switcher icon. */
+export function toolAccent(id: string): string {
+	return stageOfTool(id)?.accent ?? '#8a8a93';
+}
+
+/**
+ * Order of the cross-tool switcher in the shared top bar (`ToolTopBar`). Derived
+ * from `TOOL_STAGES` (stage order, then within-stage order) so it stays a single
+ * source with the home grid; lists ONLY online tools (local installs have no
+ * in-browser URL). The Python tools mirror this order via the launcher-baked
+ * `tools=` redirect param.
+ */
+export const TOOL_BAR_ORDER: string[] = TOOL_STAGES.flatMap((s) => s.tools);
 
 /**
  * The switcher items for the top bar: the user's online tools in
