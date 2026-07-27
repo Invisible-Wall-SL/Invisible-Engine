@@ -394,6 +394,9 @@ async function main() {
 				// re-enabling the line replay through a bake.
 				if (c.showLine === false) out.showLine = false;
 				if (c.showText === false) out.showText = false;
+				// `showMessage` INVERTS the default: it is OFF unless authored, so ONLY the ON state
+				// persists (matching the exporter's sparse doc + `bakedWinCycleConfig`'s `?? false`).
+				if (c.showMessage === true) out.showMessage = true;
 				return Object.keys(out).length ? out : undefined;
 			})();
 			// Symbol DISPLAY NAMES (`H1` → "Banana"), pure text. Invisible Win Text reads these as

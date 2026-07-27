@@ -81,6 +81,14 @@ Working on `main`:
   decouples the stamped amount from the line:** with `showLine` on, `showText` off keeps the
   line replaying but drops the win-amount text (the cycle sends empty strings, so `WinLine`
   draws the line with no stamp). Independent switches; unset ⇒ both on (prior behaviour).
+  **`showMessage` (2026-07-27, default OFF, tool switch "Replay the win message too")** re-shows
+  that win's info toast ("You win $X with N Bananas", `messageKind: 'win'`) on each replay pass —
+  the toast riding along with the symbols, just as the line/amount do. UNLIKE its siblings it
+  defaults OFF and persists sparsely on the ON state (the toast never replayed before this switch,
+  so an unset project stays byte-identical — the message shows once at the round's first
+  presentation). Independent of `showLine` (it is the toast, not the line). Consumed in
+  `winSymbolCycle.ts` via `showWinInfoMessage`; travels the full chain (client setter/accessor,
+  `.strict` schema, sparse sanitize, `bake-editor-doc.mjs` whitelist all inverted for default-OFF).
 - **Full deploy chain** (export → `deploy/editor-symbols/` → bake → pull → register):
   spine-aware `symbolExport.ts`, `POST /api/editor/export-symbols`, `bake-editor-doc.mjs`
   wiring, `pull-project-assets.mjs` prune entry, `bakedSymbolMap()` / `bakedSymbolAssets()`.

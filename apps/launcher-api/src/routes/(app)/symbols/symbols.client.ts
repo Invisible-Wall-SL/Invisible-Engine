@@ -151,7 +151,13 @@ export interface SymbolsDoc {
 	 *  `winLine`, never a field inside it — the replay is about the SYMBOLS, and `showLine` only
 	 *  opts the line back into each pass. Was USED by the helpers below without ever being
 	 *  declared here, which type-checks nowhere because the launcher build only transpiles. */
-	winCycle?: { enabled?: boolean; delay?: number; showLine?: boolean; showText?: boolean };
+	winCycle?: {
+		enabled?: boolean;
+		delay?: number;
+		showLine?: boolean;
+		showText?: boolean;
+		showMessage?: boolean;
+	};
 	updatedAt?: string;
 }
 
@@ -269,6 +275,13 @@ export function winCycleShowText(doc: SymbolsDoc): boolean {
 	return doc.winCycle?.showText ?? true;
 }
 
+/** The effective "also re-show that win's INFO TOAST on each replay pass" flag. Defaults to `false`,
+ *  UNLIKE its `showLine`/`showText` siblings: the toast never replayed before this switch existed, so
+ *  an unset project keeps the message to the round's first presentation (byte-identical). */
+export function winCycleShowMessage(doc: SymbolsDoc): boolean {
+	return doc.winCycle?.showMessage ?? false;
+}
+
 /** Drop blank style fields (empty string / undefined / null) and empty `line`/`text`
  *  objects, returning a sparse `winLine` (or undefined when nothing remains). Keeps the
  *  doc minimal so an untouched/reset project ships no `winLine`. */
@@ -350,6 +363,15 @@ export function setWinCycleShowText(doc: SymbolsDoc, showText: boolean): Symbols
 	const winCycle = { ...(doc.winCycle ?? {}) };
 	if (showText) delete winCycle.showText;
 	else winCycle.showText = false;
+	return withWinCycle(doc, winCycle);
+}
+
+/** Toggle re-showing the win's info TOAST on each replay pass. INVERSE persistence to its siblings:
+ *  `showMessage` defaults OFF, so ON persists `showMessage: true` and OFF drops the field. New doc. */
+export function setWinCycleShowMessage(doc: SymbolsDoc, showMessage: boolean): SymbolsDoc {
+	const winCycle = { ...(doc.winCycle ?? {}) };
+	if (showMessage) winCycle.showMessage = true;
+	else delete winCycle.showMessage;
 	return withWinCycle(doc, winCycle);
 }
 
@@ -438,6 +460,7 @@ export function docSignature(doc: SymbolsDoc): string {
 				delay: doc.winCycle.delay ?? null,
 				showLine: doc.winCycle.showLine ?? null,
 				showText: doc.winCycle.showText ?? null,
+				showMessage: doc.winCycle.showMessage ?? null,
 			}
 		: null;
 	// Listed here or an edit never marks the page dirty and Save stays disabled.

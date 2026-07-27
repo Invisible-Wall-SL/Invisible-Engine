@@ -39,12 +39,14 @@
 		setWinCycleDelay,
 		setWinCycleEnabled,
 		setWinCycleShowLine,
+		setWinCycleShowMessage,
 		setWinCycleShowText,
 		setWinLineEnabled,
 		setWinLineLine,
 		setWinLineText,
 		winCycleEnabled,
 		winCycleShowLine,
+		winCycleShowMessage,
 		winCycleShowText,
 		winLineEnabled,
 		WIN_CYCLE_DELAY_DEFAULT,
@@ -587,6 +589,7 @@
 	const wcDelay = $derived(doc.winCycle?.delay ?? WIN_CYCLE_DELAY_DEFAULT);
 	const wcShowLine = $derived(winCycleShowLine(doc));
 	const wcShowText = $derived(winCycleShowText(doc));
+	const wcShowMessage = $derived(winCycleShowMessage(doc));
 
 	function resetWinLineStyle(): void {
 		doc = clearWinLineStyle(doc);
@@ -1157,6 +1160,19 @@
 											<span class="switch-label">{wcShowText ? 'On' : 'Off'}</span>
 										</label>
 									</div>
+									<div class="field">
+										<span class="label">Replay the win message too</span>
+										<label class="switch sm" class:on={wcShowMessage}>
+											<input
+												type="checkbox"
+												checked={wcShowMessage}
+												onchange={(e) =>
+													(doc = setWinCycleShowMessage(doc, e.currentTarget.checked))}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label">{wcShowMessage ? 'On' : 'Off'}</span>
+										</label>
+									</div>
 								</div>
 								<p class="wl-note">
 									On (the default), each pass also draws that line and stamps its amount — the full
@@ -1165,7 +1181,9 @@
 									just the stamped amount, so you can keep the line replaying without the number.
 									The Win lines section above still has the final say: with the overlay off, nothing
 									is drawn either way, and a scatter win never draws a line but still lights its
-									symbols.
+									symbols. "Replay the win message too" is independent of the line and defaults OFF:
+									turn it on to re-show that win's info toast ("You win $X with N Bananas") on every
+									pass, otherwise the message only shows once when the round first presents.
 								</p>
 							</div>
 						</div>

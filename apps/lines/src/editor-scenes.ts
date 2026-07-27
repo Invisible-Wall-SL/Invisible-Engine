@@ -157,7 +157,13 @@ type BakedBundle = {
 		 * `winSymbolCycle.ts`): keep them animating until the next spin. Deliberately NOT part of
 		 * `winLine` — the line is a separate switch and the replay only draws it when
 		 * `showLine` is on. Sparse; both `enabled` and `showLine` absent ⇒ on. */
-		winCycle?: { enabled?: boolean; delay?: number; showLine?: boolean; showText?: boolean };
+		winCycle?: {
+			enabled?: boolean;
+			delay?: number;
+			showLine?: boolean;
+			showText?: boolean;
+			showMessage?: boolean;
+		};
 		winLine?: {
 			enabled?: boolean;
 			line?: {
@@ -571,14 +577,18 @@ export function bakedWinLineConfig(): ResolvedWinLine {
  * winning symbols keep animating until the next spin, the pause in SECONDS between two passes
  * (floored by the cycle's own minimum), and whether each pass ALSO redraws that win's line +
  * stamped amount. `showText` gates ONLY the stamped amount, independently of `showLine`. Defaults
- * to on / 0.4s / line drawn / text drawn. Sibling of {@link bakedWinLineConfig} by design — that
- * owns the line's existence and style, this owns the replay; `showLine`/`showText` only ask the
- * replay to reuse the line + amount, and the win-line toggle still has the final say. */
+ * to on / 0.4s / line drawn / text drawn. `showMessage` re-shows that win's info toast on each pass
+ * and defaults to OFF — the toast never rode along with the replay before this switch, so an
+ * un-authored project stays byte-identical. Sibling of {@link bakedWinLineConfig} by design — that
+ * owns the line's existence and style, this owns the replay; `showLine`/`showText`/`showMessage`
+ * only ask the replay to reuse the line + amount + toast, and the win-line toggle still has the
+ * final say over the line. */
 export function bakedWinCycleConfig(): {
 	enabled: boolean;
 	delay: number;
 	showLine: boolean;
 	showText: boolean;
+	showMessage: boolean;
 } {
 	const c = hasRuntimeBundle()
 		? runtimeBundle!.symbols?.winCycle
@@ -590,6 +600,7 @@ export function bakedWinCycleConfig(): {
 		delay: c?.delay ?? 0.4,
 		showLine: c?.showLine ?? true,
 		showText: c?.showText ?? true,
+		showMessage: c?.showMessage ?? false,
 	};
 }
 
