@@ -88,6 +88,30 @@ URL beneath. The game also appears in the launcher portal's **Games** section, a
 plays at `https://games.invisiblewall.org/<key>/`, spinning against the mock RGS
 (fake money, no real spend).
 
+### Engine update available (the staleness badge)
+
+Online games all run **one shared engine runtime bundle**, not a per-game build,
+so an engine change reaches a live game only through a **Runtime release** — not
+your Publish. To stop the "my fix built and shipped but the game still runs the
+old behavior" ghost-chase, each published project row shows an engine-freshness
+signal:
+
+- **Amber "Engine update available" badge** — the shared engine runtime shipped
+  *after* this game was last published, so the running game may still be on the
+  old engine. It carries a **Republish + Reconcile** button (the same publish flow
+  as above — it re-exports the project and refreshes the test server, which
+  re-hydrates it against the current runtime). Admins also get a *"still stale?
+  purge edge cache"* link to `/admin` for the rarer case where the Cloudflare edge
+  is holding a stale file. The badge clears itself once you republish. Hover it for
+  the exact runtime-release vs. last-publish dates.
+- **Subtle "engine up to date"** — the game was published against (or after) the
+  current runtime; nothing to do.
+- **Nothing** — the tool can't compare (e.g. the game has no shared-runtime entry,
+  or timestamps are missing); it deliberately stays silent rather than false-alarm.
+
+This is a read-only indicator: it never changes how a game runs, only tells you
+when a republish would pick up newer engine code.
+
 ## The model (no repo, no build)
 
 A game does **not** need rebuilding to change its art, layout, fonts, strings,

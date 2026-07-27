@@ -12,9 +12,26 @@
  * RGS is still selected per-key by `protocol`. The merge is non-destructive: it
  * preserves every OTHER game's entry (a clobbering write once dropped games).
  */
-import { getObjectText, putObjectText } from './r2';
+import { getObjectText, headObject, putObjectText } from './r2';
 
 export const TEST_SERVER_MANIFEST_KEY = 'test_server/games.json';
+
+/**
+ * Epoch-ms when a generic runtime bundle was last published to R2 — read from the
+ * `last-modified` of `test_server/_runtime/<id>/index.html`, which a Runtime release
+ * (`publish-runtime-bundle.mjs`) re-uploads every time the engine ships. Returns
+ * `null` when the bundle isn't present (nothing to compare against).
+ *
+ * This is the ENGINE-version signal the Game Maker compares against a game's last
+ * publish (`updatedAt`, below) to flag a game whose RUNNING engine is behind the
+ * current one — so an author republishes (which re-hydrates the test server) instead
+ * of chasing a "my change isn't showing" ghost. It reuses an existing R2 signal on
+ * purpose: no new stamp file, and it updates automatically on every runtime release.
+ */
+export async function runtimeBundleReleasedAt(runtimeId: string): Promise<number | null> {
+	const head = await headObject(`test_server/_runtime/${runtimeId}/index.html`);
+	return head && head.lastModified > 0 ? head.lastModified : null;
+}
 
 export type MockProtocol = 'lines' | 'book';
 

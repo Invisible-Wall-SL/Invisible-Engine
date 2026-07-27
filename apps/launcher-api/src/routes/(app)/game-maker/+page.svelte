@@ -101,6 +101,18 @@
 	 *  NOT applied to the copied/displayed URL — that one is for players. */
 	const playUrl = (url: string) => `${url}${url.includes('?') ? '&' : '?'}ie_authoring=1`;
 
+	// "Jul 27" / "Jul 27 2025" from epoch-ms — for the staleness tooltip.
+	function shortDate(ms: number | null): string {
+		if (!ms) return 'unknown';
+		const d = new Date(ms);
+		const now = new Date();
+		const opts: Intl.DateTimeFormatOptions =
+			d.getFullYear() === now.getFullYear()
+				? { month: 'short', day: 'numeric' }
+				: { month: 'short', day: 'numeric', year: 'numeric' };
+		return d.toLocaleDateString(undefined, opts);
+	}
+
 	async function copyUrl(url: string, projectKey: string) {
 		try {
 			await navigator.clipboard.writeText(url);
@@ -251,6 +263,34 @@
 								{/if}
 								{#if publishErr[p.key]}<span class="err">{publishErr[p.key]}</span>{/if}
 							</div>
+							{#if p.published && p.engineStale}
+								<div
+									class="stale"
+									role="status"
+									title={`Engine runtime released ${shortDate(p.runtimeReleasedAt)}; this game was last published ${shortDate(p.publishedAt)}.`}
+								>
+									<span class="stale-dot"></span>
+									<div class="stale-body">
+										<strong>Engine update available.</strong>
+										The shared engine runtime shipped after this game was last published, so the
+										running game may still be on the old engine. Republish to re-hydrate it.
+									</div>
+									<button
+										class="stale-cta"
+										onclick={() => requestPublish(p)}
+										disabled={publishing[p.key]}
+									>
+										{publishing[p.key] ? 'Republishing…' : 'Republish + Reconcile'}
+									</button>
+									{#if data.canPurgeCache}
+										<a class="stale-link" href="/admin">still stale? purge edge cache</a>
+									{/if}
+								</div>
+							{:else if p.published && p.engineComparable}
+								<span class="fresh" title={`Last published ${shortDate(p.publishedAt)}.`}>
+									engine up to date
+								</span>
+							{/if}
 							{#if p.published && p.url}
 								<a class="url" href={p.url} target="_blank" rel="noopener noreferrer">{p.url}</a>
 							{/if}
@@ -469,6 +509,56 @@
 		align-items: center;
 		gap: 10px;
 		flex-wrap: wrap;
+	}
+	.stale {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		flex-wrap: wrap;
+		border: 1px solid #6b5320;
+		background: #251d0d;
+		border-radius: 8px;
+		padding: 8px 12px;
+	}
+	.stale-dot {
+		flex: none;
+		width: 8px;
+		height: 8px;
+		border-radius: 999px;
+		background: #e2b23a;
+		box-shadow: 0 0 0 3px #e2b23a33;
+	}
+	.stale-body {
+		flex: 1 1 260px;
+		font-size: 12px;
+		line-height: 1.45;
+		color: #e7d3a3;
+	}
+	.stale-body strong {
+		color: #f4dfa8;
+	}
+	.stale-cta {
+		flex: none;
+		background: #7a5c12;
+		border-color: #a67c1a;
+		color: #fff5dc;
+	}
+	.stale-cta:hover:not(:disabled) {
+		background: #916d16;
+		border-color: #c8961f;
+	}
+	.stale-link {
+		flex: none;
+		font-size: 11px;
+		color: #c9a24a;
+		text-decoration: none;
+	}
+	.stale-link:hover {
+		text-decoration: underline;
+	}
+	.fresh {
+		font-size: 11px;
+		color: #6c8a7e;
 	}
 	.modal-backdrop {
 		position: fixed;
