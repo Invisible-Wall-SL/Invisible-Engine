@@ -49,6 +49,13 @@ const USAGE =
 	'  --no-prune                    keep local generated files the deploy dropped\n' +
 	'                                (default: prune stale editor-art/, editor-fonts/,\n' +
 	'                                 editor-symbols/)\n' +
+	'  --optimize                    OPT-IN: after mirroring, trim provably-redundant\n' +
+	'                                bytes for a lean STANDALONE build — drop dead\n' +
+	'                                image twins + extra audio formats (online is\n' +
+	'                                unaffected; it never runs this). See\n' +
+	'                                optimize-build-assets.mjs.\n' +
+	'  --audio-formats <csv>         with --optimize: audio formats to keep, priority\n' +
+	'                                order (default mp3,ogg; pass `mp3` for max savings)\n' +
 	'  --optional                    NO-token build only: warn + keep the checked-in\n' +
 	'                                assets (exit 0). WITH a token (a real publish) a\n' +
 	'                                missing/unreachable/empty deploy is a HARD failure\n' +
@@ -79,6 +86,15 @@ const token = getFlag('token') || process.env.EDITOR_DOC_SECRET || process.env.L
 const dryRun = hasFlag('dry-run');
 const optional = hasFlag('optional');
 const noPrune = hasFlag('no-prune');
+// Enable via the flag OR the IE_OPTIMIZE_ASSETS env var — the desktop launcher's
+// "Optimize" build toggle injects the env var (like PUBLIC_IE_DEBUG) rather than
+// editing the project's build_cmd.
+const envTruthy = (v) => ['1', 'true', 'yes', 'on'].includes(String(v || '').toLowerCase());
+const optimize = hasFlag('optimize') || envTruthy(process.env.IE_OPTIMIZE_ASSETS);
+const audioFormats = (getFlag('audio-formats') || process.env.IE_OPTIMIZE_AUDIO_FORMATS || 'mp3,ogg')
+	.split(',')
+	.map((s) => s.trim())
+	.filter(Boolean);
 
 // `--optional` stays lenient ONLY when there's NO token (a dev / no-credentials build
 // that keeps the checked-in assets). When a TOKEN is present we are doing a REAL PUBLISH:
@@ -223,4 +239,30 @@ if (dryRun) {
 	console.info(
 		`\nPulled ${pulled} file(s), ${(bytes / 1024 / 1024).toFixed(1)} MB into ${destDisplay}${pruneNote}.`,
 	);
+}
+
+// OPT-IN standalone-build optimization. Kept OUT of the default path so the
+// online publish always mirrors deploy/ verbatim; only a build that explicitly
+// asks (`--optimize`) trims the mirrored tree. See optimize-build-assets.mjs.
+if (optimize) {
+	const { optimizeBuildAssets } = await import('./optimize-build-assets.mjs');
+	console.info(`\nOptimizing build assets${dryRun ? ' (dry run)' : ''} [audio: ${audioFormats.join(', ')}]`); // prettier-ignore
+	const s = await optimizeBuildAssets({
+		dir: dest,
+		audioFormats,
+		dryRun,
+		log: (m) => console.info(m),
+	});
+	const mb = (b) => `${(b / 1024 / 1024).toFixed(2)} MB`;
+	console.info(
+		`${dryRun ? 'Would reclaim' : 'Reclaimed'} ${mb(s.bytesSaved)} — ` +
+			`${s.imagesDeleted.length} image twin(s), ${s.audioDeleted.length} audio file(s), ` +
+			`${s.manifestsRewritten.length} manifest(s) rewritten.`,
+	);
+	if (s.unreferenced.length) {
+		console.info(
+			`${s.unreferenced.length} image(s) referenced by NO descriptor (review — may load dynamically):`,
+		);
+		for (const u of s.unreferenced) console.info(`  ? ${u}`);
+	}
 }
