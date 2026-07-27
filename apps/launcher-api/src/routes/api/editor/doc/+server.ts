@@ -6,7 +6,12 @@ import { loadComponent } from '$lib/server/componentStorage';
 import { listComponentDefaults } from '$lib/server/componentDefaultsStorage';
 import { loadDoc } from '$lib/server/editorStorage';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
-import { DEFAULT_PROJECT_KEY, projectClientKey, projectName } from '$lib/server/projects';
+import {
+	DEFAULT_PROJECT_KEY,
+	projectAllowsRead,
+	projectClientKey,
+	projectName,
+} from '$lib/server/projects';
 import { bundleFromAssetKey } from '$lib/server/spine';
 import type { RequestHandler } from './$types';
 
@@ -109,13 +114,17 @@ async function resolveReferencedDefs(
  * Read-only layout-doc endpoint for running games to fetch at boot.
  *
  * A deployed game runs on its own origin with no launcher session, so this is
- * NOT cookie-authed. Instead it is gated by a shared read token (`?k=`, matched
- * against `EDITOR_DOC_SECRET`) — the same pattern the atlas/sheet tools use.
- * A `LayoutDoc` is non-sensitive scenery data (sprite keys + positions), and
- * the token is client-visible to anyone the game is served to; the gate exists
- * to keep the docs from being read by anonymous/external callers. When the
- * secret is unset the endpoint refuses to serve (503) so it is never public.
- * CORS is open because the token, not the origin, is the gate.
+ * NOT cookie-authed. Instead it is gated by a read token (`?k=`) accepted by
+ * `projectAllowsRead`: EITHER the shared build/deploy token (build CI) OR the
+ * project's OWN per-project read token — the same gate as `/api/editor/runtime`.
+ * This matters because the public game URL embeds the per-project read-only token
+ * (`getOrMintReadToken`), never the shared deploy secret; checking only the deploy
+ * token here 401'd every launcher-launched game. A `LayoutDoc` is non-sensitive
+ * scenery data (sprite keys + positions), and the token is client-visible to anyone
+ * the game is served to; the gate exists to keep docs from anonymous/external
+ * callers. When no deploy token is configured at all the endpoint refuses to serve
+ * (503) so it is never public. CORS is open because the token, not the origin, is
+ * the gate.
  */
 const CORS_HEADERS = {
 	'Access-Control-Allow-Origin': '*',
@@ -126,9 +135,13 @@ const CORS_HEADERS = {
 export const GET: RequestHandler = async ({ url }) => {
 	const secret = await getDeployToken();
 	if (!secret) throw error(503, 'Layout-doc endpoint is not configured.');
-	if (url.searchParams.get('k') !== secret) throw error(401, 'Invalid or missing token.');
-
 	const projectKey = url.searchParams.get('project') || DEFAULT_PROJECT_KEY;
+	// Accept the shared deploy token (build CI) OR this project's own read token —
+	// the public game URL embeds the per-project read-only token, never the shared
+	// build/deploy secret. Mirrors `/api/editor/runtime` (projectAllowsRead).
+	const token = url.searchParams.get('k') ?? '';
+	if (!(await projectAllowsRead(projectKey, token))) throw error(401, 'Invalid or missing token.');
+
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 
 	try {
