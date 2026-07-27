@@ -2802,7 +2802,8 @@ def main() -> None:
             except OSError:
                 pass
             print(f"WARNING: WEBP not written ({type(e).__name__}: {e}); "
-                  f"PNG-only page")
+                  f"PNG-only page — deploy will ship this game page as .png "
+                  f"(no WebP twin to prefer)")
         return
 
     # ---- generation mode: produce per-region variant PNGs only (no atlas) ----
