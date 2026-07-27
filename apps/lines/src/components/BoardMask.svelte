@@ -2,7 +2,8 @@
 	import { Rectangle } from 'pixi-svelte';
 
 	import { getContext } from '../game/context';
-	import { SYMBOL_SIZE, BOARD_DIMENSIONS } from '../game/constants';
+	import { SYMBOL_SIZE } from '../game/constants';
+	import { boardDimensions } from '../game/gameConfig';
 
 	type Props = { debug?: boolean };
 
@@ -15,7 +16,7 @@
 	// pitch lets a padding row leak through. No override ⇒ rowPitchLocal ===
 	// SYMBOL_SIZE ⇒ identical to `boardLayout().height` (byte-parity).
 	const windowHeight = $derived(
-		BOARD_DIMENSIONS.y * context.stateGameDerived.boardGeometry().rowPitchLocal,
+		boardDimensions().y * context.stateGameDerived.boardGeometry().rowPitchLocal,
 	);
 
 	// Visible window width = the flush board width GROWN by the horizontal gap spread.
@@ -26,7 +27,7 @@
 	// (byte-parity). This is the horizontal analogue of `windowHeight` above.
 	const windowWidth = $derived(
 		context.stateGameDerived.boardLayout().width +
-			(BOARD_DIMENSIONS.x - 1) * context.stateGameDerived.boardGeometry().columnExtraLocal,
+			(boardDimensions().x - 1) * context.stateGameDerived.boardGeometry().columnExtraLocal,
 	);
 </script>
 

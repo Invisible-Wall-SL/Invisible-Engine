@@ -13,7 +13,8 @@
 	import { EDITOR_SPINE_LOAD_SCALE } from 'engine-layout';
 
 	import { getContext } from '../game/context';
-	import { SYMBOL_SIZE, BOARD_DIMENSIONS } from '../game/constants';
+	import { SYMBOL_SIZE } from '../game/constants';
+	import { boardDimensions } from '../game/gameConfig';
 
 	type Props = {
 		children: Snippet<[{ sizes: Sizes }]>;
@@ -42,14 +43,14 @@
 
 	const context = getContext();
 	const BACKGROUND_RATIO = 920 / 720;
-	const BACKGROUND_WIDTH = SYMBOL_SIZE * BOARD_DIMENSIONS.x;
+	const BACKGROUND_WIDTH = SYMBOL_SIZE * boardDimensions().x;
 	const BACKGROUND_SIZES = {
 		width: BACKGROUND_WIDTH,
 		height: BACKGROUND_WIDTH / BACKGROUND_RATIO,
 	};
 	const PANEL_SIZES = {
-		width: SYMBOL_SIZE * BOARD_DIMENSIONS.x,
-		height: SYMBOL_SIZE * BOARD_DIMENSIONS.x,
+		width: SYMBOL_SIZE * boardDimensions().x,
+		height: SYMBOL_SIZE * boardDimensions().x,
 	};
 
 	let animationName = $state<AnimationName>('intro');

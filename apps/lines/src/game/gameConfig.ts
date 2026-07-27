@@ -7,6 +7,7 @@ import {
 
 import { bakedGameConfig } from '../editor-scenes';
 import compiledConfig from './config';
+import { SYMBOL_SIZE } from './constants';
 import type { GameType, RawSymbol } from './types';
 
 /**
@@ -101,6 +102,53 @@ export function getPaylines(): number[][] {
 /** Visible rows on the first reel — the info page's grid height. */
 export function getNumRows(): number {
 	return getActiveGameConfig().numRows[0] ?? 3;
+}
+
+/**
+ * The board's grid COUNT — `{ x: columns/reels, y: visible rows }` — from the active config, the
+ * single source of truth that used to be the hardcoded `BOARD_DIMENSIONS` derived from
+ * `INITIAL_BOARD` in `constants.ts`. Authoring `numReels`/`numRows` in Invisible Game Config now
+ * resizes the board (`docs/design/invisible-game-config.md`, grid-dimensions enhancement).
+ *
+ * `y` is the MAX over `numRows`: the board is a rectangle wide/tall enough to hold a stepped grid,
+ * and every current game is uniform so this equals `numRows[0]`. The whole board — geometry, mask,
+ * win lines, initial fill — sizes off this. Like every config read it must be a FUNCTION, not a
+ * const: the live online config resolves after module init (see the header), so a const would
+ * freeze to the compiled template.
+ */
+export function boardDimensions(): { x: number; y: number } {
+	const config = getActiveGameConfig();
+	return { x: config.numReels, y: Math.max(...config.numRows, 1) };
+}
+
+/** The board's PIXEL footprint (gap-less) — `SYMBOL_SIZE × the grid count`. The old
+ *  `BOARD_SIZES` const, now config-driven. */
+export function boardSizes(): { width: number; height: number } {
+	const { x, y } = boardDimensions();
+	return { width: SYMBOL_SIZE * x, height: SYMBOL_SIZE * y };
+}
+
+/**
+ * The static board shown BEFORE the first spin — one column per reel, each `rows + 2` cells (the
+ * ±1 padding the reel animation buffers above/below the visible window). It replaces the hand-
+ * curated `INITIAL_BOARD` literal, seeding each column from the top of that reel's basegame strip
+ * so the pre-spin display uses the game's OWN in-play symbols instead of the sample's.
+ *
+ * The strip is cycled when shorter than the window (a short authored strip still fills the column),
+ * and a game type with no strips falls back to the first dictionary symbol so the board is never
+ * empty — a blank initial cell renders as nothing, the failure `warnOnGameConfigIssues` guards.
+ */
+export function initialBoard(): RawSymbol[][] {
+	const { x, y } = boardDimensions();
+	const strips = paddingReels('basegame');
+	const fallback = Object.keys(getActiveGameConfig().symbols)[0] ?? 'H1';
+	const cells = y + 2;
+	return Array.from({ length: x }, (_unused, reel) => {
+		const strip = strips[reel] ?? [];
+		return Array.from({ length: cells }, (_c, i) =>
+			strip.length ? strip[i % strip.length] : { name: fallback },
+		);
+	});
 }
 
 let warned = false;

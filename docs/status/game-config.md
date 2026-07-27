@@ -2,10 +2,11 @@
 
 > Design: [docs/design/invisible-game-config.md](../design/invisible-game-config.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) · Agent: `.claude/agents/invisible-game-config.md`
 
-**One-line state:** All five phases landed — the `/config` tool exists, an authored config reaches
-the running game, and the symbol-defaults publish gates on the authored config. **Live-verify
-owed:** the `/config` page renders only inside the launcher (Postgres + R2 + a login session), so it
-has NOT been rendered yet — build + pure logic are verified; the rendered page + save round-trip are
+**One-line state:** All five build-plan phases landed AND the grid-dimensions enhancement — an
+authored config now drives the symbols/paytable/paylines/bet-modes AND resizes the board in the
+game, the mock RGS and the Scene Editor preview. **Live-verify owed:** the `/config` + `/editor`
+pages render only inside the launcher (Postgres + R2 + session), and a non-5×3 end-to-end spin needs
+the test-server; the game-board resize and the mock are verified locally, the launcher surfaces are
 the owner's click-through.
 
 ## Current state
@@ -95,18 +96,38 @@ config" inside an app whose `build` is not a type-check — the `COMPONENT_PARAM
 (see `apps/launcher-api/CLAUDE.md`). The canonicalizer + validator are that one answer and produce
 better 400s. Reversible if a use case demands Zod.
 
-All five build-plan phases are done. What remains is verification the environment couldn't reach,
-plus two follow-ups the plan deliberately deferred.
+All five build-plan phases are done, plus the grid-dimensions enhancement. What remains is
+verification the local environment couldn't reach, plus one deferred follow-up.
+
+## The grid-dimensions enhancement (numReels/numRows resize the board)
+
+Authoring the grid now resizes the board everywhere, not just in the `/config` Grid panel. Three
+commits, three surfaces:
+- **Game** (`game-config-grid` Phase 1) — `boardDimensions()`/`boardSizes()`/`initialBoard()` in
+  `gameConfig.ts` replace the hardcoded `BOARD_DIMENSIONS`/`INITIAL_BOARD`; `stateGame`'s board is a
+  `buildBoard()` factory rebuilt by `Game.svelte`'s `rebuildBoard()` after the runtime bundle lands
+  (the online async-freeze pattern). ~9 consumers read the accessors. **Verified in-browser**: a
+  stubbed 6×4 config rebuilt the board to 6 reels × (4+2) cells; reverting → 5×3 (parity).
+- **Mock RGS** (Phase 2) — `createMockRgs({ reels, rows, paylines })`; the test-server injects the
+  config's grid from `lines.json`. The Play4Fun facade's one 5×3 assumption (a warning) is dropped;
+  `clampBoardToGrid`/`padReel` already generalized. **Verified** with a node harness: a 6×4 reveal is
+  6×4, defaults stay 5×3.
+- **Scene Editor** (Phase 3) — `drawReelGrid` draws the config's grid count (node still owns layout);
+  `reelGridWarnings` compares the node to the config, not the template. Build-verified; the rendered
+  preview is owner-verify-owed (launcher-only).
+
+**Deliberately still hardcoded:** grid dimensions are the board COUNT + pixel size. Nothing else
+about the grid (the scene-geometry anchors, the HUD layout) is config-driven — those remain authored
+in the Scene Editor per game.
 
 ## Open items / next
 
-1. **Live-verify the page** (owner click-through) — render `/config` in the deployed launcher,
-   confirm it loads a project's config, the panels edit it, an off-grid payline blocks the save, a
-   paste-in through the raw-JSON hatch validates, and a save round-trips (then re-fetch to confirm
-   the game runs it). This is the one thing offline verification couldn't reach.
-2. **Grid dimensions from the config** — `BOARD_DIMENSIONS` still derives from `INITIAL_BOARD`, so
-   an authored `numReels`/`numRows` doesn't resize the board. Its own change.
-3. **Validate against the RGS** (design doc open decision 3) — compare the config's symbol set to
+1. **Live-verify the launcher surfaces** (owner click-through) — render `/config` (load a config,
+   edit panels, off-grid payline blocks save, raw-JSON paste validates, save round-trips) AND
+   `/editor` (the reelGrid preview draws the authored grid; a mismatched node warns). Plus a non-5×3
+   end-to-end spin via the test-server + a dev game. The only things offline verification couldn't
+   reach.
+2. **Validate against the RGS** (design doc open decision 3) — compare the config's symbol set to
    the first `reveal` and warn on a mismatch. `warnOnGameConfigIssues()` is the natural home; it
    would have caught the wild on the first spin.
 
@@ -122,6 +143,11 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-07-27 — Grid-dimensions enhancement (branch `game-config-grid`): the authored numReels/numRows
+  resize the board in the game (`boardDimensions()` + `rebuildBoard()`), the mock RGS (parameterized
+  `createMockRgs`), and the Scene Editor preview (`drawReelGrid` from config, `reelGridWarnings` vs
+  config). Fixed a latent CRLF drift-gate bug (`.gitattributes` `eol=lf` for the generated config
+  JSON). Game + mock verified locally; launcher surfaces owner-verify-owed.
 - 2026-07-24 — Phase 5: `publish-symbol-defaults.mjs` now gates its symbol set on the AUTHORED game
   config (fetched from `GET /api/game-config/doc`) when a project has one, falling back to the
   compiled module — so the Symbols grid mirrors what actually ships. Fixed a self-inflicted

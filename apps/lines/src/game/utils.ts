@@ -5,7 +5,7 @@ import { createGetEmptyPaddedBoard } from 'utils-slots';
 import { sequence } from 'utils-shared/sequence';
 import { roundSkip } from 'utils-shared/skipToken';
 
-import { BOARD_DIMENSIONS } from './constants';
+import { boardDimensions } from './gameConfig';
 import { getActiveSymbolInfoMap, resolveSymbolSizeRatios } from './symbolMap';
 import { eventEmitter } from './eventEmitter';
 import type { Bet, BookEvent, BookEventOfType } from './typesBookEvent';
@@ -16,8 +16,11 @@ import { runBookEventPresentation } from './unskippablePresentation';
 import { recordWinCycleWins, startWinCycle, stopWinCycle } from './winSymbolCycle';
 import type { RawSymbol, SymbolState } from './types';
 
-// general utils
-export const { getEmptyBoard } = createGetEmptyPaddedBoard({ reelsDimensions: BOARD_DIMENSIONS });
+// general utils. A function (not a memoised `getEmptyBoard`) so the padded board is sized from the
+// CURRENT active config each call — the online config resolves after this module evaluates, so a
+// board factory captured at import would freeze to the compiled template's grid.
+export const getEmptyBoard = () =>
+	createGetEmptyPaddedBoard({ reelsDimensions: boardDimensions() }).getEmptyBoard();
 const coded = createPlayBookUtils({ bookEventHandlerMap });
 
 /**

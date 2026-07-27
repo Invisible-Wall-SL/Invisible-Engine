@@ -5,7 +5,7 @@
 	import { getContextBoard } from 'components-shared';
 
 	import { getContext } from '../game/context';
-	import { BOARD_DIMENSIONS } from '../game/constants';
+	import { boardDimensions } from '../game/gameConfig';
 
 	type Props = {
 		debug?: boolean;
@@ -28,7 +28,7 @@
 	// the window. No override ⇒ rowPitchLocal === SYMBOL_SIZE (byte-parity).
 	const top = 0;
 	const bottom = $derived(
-		BOARD_DIMENSIONS.y * context.stateGameDerived.boardGeometry().rowPitchLocal,
+		boardDimensions().y * context.stateGameDerived.boardGeometry().rowPitchLocal,
 	);
 	const inFrame = $derived(props.y >= top && props.y <= bottom);
 </script>

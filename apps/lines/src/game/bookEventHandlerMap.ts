@@ -25,8 +25,7 @@ import {
 	showWinInfoMessage,
 } from './flowEffects';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
-import { BOARD_DIMENSIONS } from './constants';
-import { paddingReels } from './gameConfig';
+import { boardDimensions, paddingReels } from './gameConfig';
 
 export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {
 	reveal: async (bookEvent: BookEventOfType<'reveal'>, { bookEvents }: BookEventContext) => {
@@ -128,7 +127,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_scatter_win_v2' });
 
 		// Visible rows only: the reveal pads the reel top+bottom by one row, so the
-		// on-screen cells are symbol indices 1..BOARD_DIMENSIONS.y. For each cell the
+		// on-screen cells are symbol indices 1..boardDimensions().y. For each cell the
 		// OLD symbol first plays its `explosion` spine (every symbol carries one); once
 		// that completes the cell swaps to the special and plays its `land` spine — so
 		// it reads as "symbol explodes → book appears". Staggered one cell at a time.
@@ -136,7 +135,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 			const reel = stateGame.board[reelIndex];
 			if (!reel) continue;
 			const symbols = reel.reelState.symbols;
-			for (let row = 1; row <= BOARD_DIMENSIONS.y && row < symbols.length - 1; row++) {
+			for (let row = 1; row <= boardDimensions().y && row < symbols.length - 1; row++) {
 				const reelSymbol = symbols[row];
 				if (!reelSymbol || reelSymbol.rawSymbol.name === special) continue;
 				// 1. Explode the existing symbol and wait for the spine to finish. A slammed round

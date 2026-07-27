@@ -51,8 +51,7 @@ import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
-import { BOARD_DIMENSIONS } from './constants';
-import { paddingReels } from './gameConfig';
+import { boardDimensions, paddingReels } from './gameConfig';
 import { bakedSymbolNames, bakedWinLineEnabled, bakedWinText } from '../editor-scenes';
 
 // ---------------------------------------------------------------------------
@@ -289,7 +288,7 @@ const numberOrUndefined = (value: unknown): number | undefined =>
  */
 const toReelOverrides = (value: unknown): number[] | null => {
 	if (Array.isArray(value)) return value.length ? (value as number[]) : null;
-	if (typeof value === 'number') return Array(BOARD_DIMENSIONS.x).fill(value);
+	if (typeof value === 'number') return Array(boardDimensions().x).fill(value);
 	return null;
 };
 
@@ -392,7 +391,7 @@ const effects: Record<string, FlowEffect> = {
 			const reel = stateGame.board[reelIndex];
 			if (!reel) continue;
 			const symbols = reel.reelState.symbols;
-			for (let row = 1; row <= BOARD_DIMENSIONS.y && row < symbols.length - 1; row++) {
+			for (let row = 1; row <= boardDimensions().y && row < symbols.length - 1; row++) {
 				const reelSymbol = symbols[row];
 				if (!reelSymbol || reelSymbol.rawSymbol.name === special) continue;
 				eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_wild_explode' });
