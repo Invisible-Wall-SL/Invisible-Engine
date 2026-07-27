@@ -29,7 +29,11 @@
 			clearBeforeRender: true,
 			preference: 'webgpu',
 			powerPreference: 'high-performance',
-			resolution: devicePixelRatio.current,
+			// Cap the backing-store resolution at 2. On high-DPR phones (iPhone 16 = 3)
+			// an uncapped DPR allocates every framebuffer + render-texture at 9× the pixel
+			// area, which blows past iOS Safari's per-tab memory cap and crashes the
+			// WebContent process ("A problem repeatedly occurred"). 2 is visually identical.
+			resolution: Math.min(devicePixelRatio.current ?? 1, 2),
 			resizeTo: window,
 		});
 
