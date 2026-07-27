@@ -14,6 +14,7 @@ import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
 import { ConflictError, formBaseEtag } from '$lib/server/r2';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { resolveGameConfig } from '$lib/server/gameConfigDefaults';
 import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
 import { loadTemplate, loadTemplateWithEtag } from '$lib/server/templateStorage';
@@ -98,8 +99,16 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// `templateEtag` guards the GLOBAL `_shared/editor-templates/<gameType>.json`;
 	// null = no R2 override yet (the built-in fallback), so a save creates.
 	const { template, etag: templateEtag } = await loadTemplateWithEtag(resolvedGameType);
+	// The board grid COUNT comes from the project's authored Game Config (numReels/numRows) — the
+	// same source the game runs on — so the editor preview draws the real grid and the reelGrid node
+	// is validated against it. `resolveGameConfig` prefers the authored doc, else the game-type
+	// template default; `null` (no default at all) ⇒ the reelGrid node keeps its own reels/rows.
+	const { doc: gameConfigDoc } = await resolveGameConfig(clientKey, projectKey, resolvedGameType);
+	const gridDimensions = gameConfigDoc
+		? { reels: gameConfigDoc.numReels, rows: Math.max(...gameConfigDoc.numRows, 1) }
+		: undefined;
 	const warnings = template
-		? [...findUnfilledRequiredSlots(doc, template), ...reelGridWarnings(doc, template)]
+		? [...findUnfilledRequiredSlots(doc, template), ...reelGridWarnings(doc, gridDimensions)]
 		: [];
 	// The project display name — the default for the HUD game-name (shown in the
 	// editor as a fallback, NOT written to the doc, so it tracks the project name
@@ -131,6 +140,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		symbolDefaults,
 		symbolsDoc,
 		referenceMainSizes,
+		// The authored board grid the canvas draws the reelGrid at (config's numReels/numRows). Null
+		// when no config resolves ⇒ the canvas falls back to the reelGrid node's own reels/rows.
+		gridDimensions: gridDimensions ?? null,
 	};
 };
 
@@ -178,9 +190,16 @@ export const actions: Actions = {
 		}
 		// Non-blocking template validation (§7.1): flag any required slot the
 		// saved doc leaves unfilled, surfaced to the editor without rejecting.
-		const template = await loadTemplate(saved.gameType ?? (await projectGameType(projectKey)));
+		const savedGameType = saved.gameType ?? (await projectGameType(projectKey));
+		const template = await loadTemplate(savedGameType);
+		// Same config-grid source as the load, so the save round-trip re-checks the reelGrid node
+		// against the authored numReels/numRows rather than a stale template board.
+		const { doc: savedGameConfig } = await resolveGameConfig(clientKey, projectKey, savedGameType);
+		const savedGrid = savedGameConfig
+			? { reels: savedGameConfig.numReels, rows: Math.max(...savedGameConfig.numRows, 1) }
+			: undefined;
 		const warnings = template
-			? [...findUnfilledRequiredSlots(saved, template), ...reelGridWarnings(saved, template)]
+			? [...findUnfilledRequiredSlots(saved, template), ...reelGridWarnings(saved, savedGrid)]
 			: [];
 		return {
 			action: 'save' as const,

@@ -2673,6 +2673,7 @@
 					assets={data.assets}
 					symbolDefaults={data.symbolDefaults}
 					symbolsDoc={data.symbolsDoc}
+					gridDimensions={data.gridDimensions}
 					{componentMap}
 					{onSpawn}
 					bind:selectedIds

@@ -118,6 +118,10 @@
 		/** The Symbols State Machine override doc — sparse per-symbol/state overrides
 		 * layered OVER `symbolDefaults` (parity with the tool's effective binding). */
 		symbolsDoc?: SymbolsDocView | null;
+		/** The board grid COUNT from the project's Game Config (numReels/max(numRows)). The reelGrid
+		 * preview draws THIS many cells — the config is the single source of truth for the grid, the
+		 * same one the game sizes off. `null` ⇒ fall back to the reelGrid node's own reels/rows. */
+		gridDimensions?: { reels: number; rows: number } | null;
 		/** Loaded component defs by id (§8.4) — lets the canvas resolve + draw a
 		 * `componentInstance` node by expanding `def.root` under the instance transform.
 		 * The editor canvas is its OWN renderer, so it reads this map (NOT the engine
@@ -185,6 +189,7 @@
 		assets,
 		symbolDefaults = null,
 		symbolsDoc = null,
+		gridDimensions = null,
 		componentMap = new Map(),
 		onSpawn,
 		selectedIds = $bindable([]),
@@ -1211,7 +1216,10 @@
 	 * against the project's assets). The 2D canvas + the spine overlay both resolve
 	 * through this so they agree on ONE art per anchor. Triggers the lazy sprite-region
 	 * scan when a node's catalog default is a sprite the index hasn't located yet. */
-	function anchorArt(node: LayoutNode, previewSpineBundle?: string): ResolvedPreviewArt | undefined {
+	function anchorArt(
+		node: LayoutNode,
+		previewSpineBundle?: string,
+	): ResolvedPreviewArt | undefined {
 		const art = resolveAnchorPreviewArt(node, assets, spriteRegionIndex, previewSpineBundle);
 		if (art?.kind === 'sprite' && !art.assetKey) ensureRegionIndex();
 		return art;
@@ -2003,8 +2011,11 @@
 		node: Extract<LayoutNode, { kind: 'reelGrid' }>,
 		t: ResolvedTransform,
 	): void {
-		const reels = Math.max(1, Math.round(node.reels));
-		const rows = Math.max(1, Math.round(node.rows));
+		// The grid COUNT comes from the Game Config (the same source the game sizes off), so the
+		// preview always matches the real board. The node still owns LAYOUT (cell size, gaps,
+		// position) below. Falls back to the node's own reels/rows when no config resolved.
+		const reels = Math.max(1, Math.round(gridDimensions?.reels ?? node.reels));
+		const rows = Math.max(1, Math.round(gridDimensions?.rows ?? node.rows));
 		const cellW = node.cellWidth && node.cellWidth > 0 ? node.cellWidth : node.cellSize;
 		const cellH = node.cellHeight && node.cellHeight > 0 ? node.cellHeight : node.cellSize;
 		const gapX = Number.isFinite(node.gapX) ? (node.gapX as number) : 0;

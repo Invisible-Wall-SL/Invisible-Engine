@@ -1,7 +1,6 @@
 import { resolveTransform } from './resolveTransform';
 import type {
 	AnticipationProfile,
-	GameTemplate,
 	LayoutDoc,
 	LayoutType,
 	ReelGridNode,
@@ -162,23 +161,32 @@ export function resolveAnticipationProfile(
 	return Object.keys(out).length ? out : undefined;
 }
 
+/** The board's grid COUNT — `{ reels, rows }`. The one dimension both the game and the editor now
+ *  size off: Invisible Game Config's `numReels` / `max(numRows)`. */
+export interface GridDimensions {
+	reels: number;
+	rows: number;
+}
+
 /**
- * Non-blocking editor validation: a `reelGrid` node whose `reels`/`rows` diverge
- * from the game's real board ({@link GameTemplate.board}) is flagged at save.
- * Phase 2 drives only LAYOUT (cell size / padding / position) into the live
- * board; reels/rows are RGS/data-coupled and stay descriptive, so a mismatch is
- * a warning (the editor preview would show a different grid than the game). No
- * template board or no node → no warning.
+ * Non-blocking editor validation: a `reelGrid` node whose `reels`/`rows` diverge from the
+ * AUTHORED game config (Invisible Game Config's `numReels`/`numRows`) is flagged at save.
+ *
+ * The board count is driven by the config now — both the game and the editor preview size off it,
+ * so the node's `reels`/`rows` are descriptive (the node still owns LAYOUT: cell size, gaps,
+ * position). A mismatch means the author left stale numbers on the node; the config wins either
+ * way, so it is a warning, not an error. No grid or no node → no warning.
  */
-export function reelGridWarnings(doc: LayoutDoc, template: GameTemplate): string[] {
-	if (!template.board) return [];
+export function reelGridWarnings(doc: LayoutDoc, grid: GridDimensions | undefined): string[] {
+	if (!grid) return [];
 	const node = findReelGridNode(doc);
 	if (!node) return [];
 	const reels = Math.max(1, Math.round(node.reels));
 	const rows = Math.max(1, Math.round(node.rows));
-	if (reels === template.board.reels && rows === template.board.rows) return [];
+	if (reels === grid.reels && rows === grid.rows) return [];
 	return [
-		`Reel grid is ${reels}×${rows} but the game's board is ${template.board.reels}×${template.board.rows}. ` +
-			`Cell size, padding and position drive the live board; reels/rows are descriptive only.`,
+		`Reel grid node is ${reels}×${rows} but the game config is ${grid.reels}×${grid.rows}. ` +
+			`The config drives the board size (cell size, padding and position still come from the node); ` +
+			`update the node's reels/rows to match, or leave it — the config wins.`,
 	];
 }
