@@ -5433,6 +5433,16 @@ class Handler(BaseHTTPRequestHandler):
         copied = []
         page_src = None  # the deployed page image the .json should point at
         skipped_empty = []
+        # WEBP-ONLY GAME PAGES: compose writes BOTH `<stem>_new.png` (always) and
+        # `<stem>_new.webp` (best-effort). Historically deploy shipped both, so a
+        # game ended up with a dead `.png` twin next to the `.webp` it actually
+        # loads (e.g. `SD2_Coin.png` beside `SD2_Coin.webp`). When a NON-EMPTY
+        # `.webp` page is present we ship WebP-only: skip the `.png` page here and
+        # delete any stale `.png` sibling from R2 below. The 0-byte guard still
+        # falls back to the PNG page if the WebP is missing/broken (never ship a
+        # dead page). `.atlas` (spine geometry) is unaffected and still copied.
+        have_webp_page = any(
+            s.suffix.lower() == ".webp" and s.read_bytes() for s in sources)
         for src in sources:
             data = src.read_bytes()
             # NEVER deploy a 0-byte page (e.g. a failed WEBP encode): meta.image
@@ -5441,6 +5451,9 @@ class Handler(BaseHTTPRequestHandler):
             # (PNG) is used instead.
             if src.suffix.lower() in {".png", ".webp"} and not data:
                 skipped_empty.append(src.name)
+                continue
+            # Skip the PNG page when a valid WebP page exists — WebP-only pages.
+            if src.suffix.lower() == ".png" and have_webp_page:
                 continue
             key = f"{dest_prefix}/{out_base}{src.suffix}"
             try:
@@ -5454,6 +5467,11 @@ class Handler(BaseHTTPRequestHandler):
                 page_src = src  # prefer the .webp the game loads
             elif suf == ".png" and page_src is None:
                 page_src = src
+        # Remove a stale `.png` page left by a previous (dual-format) deploy so it
+        # stops lingering beside the WebP the game now loads. Best-effort:
+        # storage.delete already swallows errors.
+        if have_webp_page:
+            storage.delete(f"{dest_prefix}/{out_base}.png")
         # Additionally emit the game-loadable TexturePacker spritesheet
         # (<base>.json), so deploy/ holds exactly the frames+meta format the
         # engine loads (live-assets.md step 1). Geometry comes from the BOUND
