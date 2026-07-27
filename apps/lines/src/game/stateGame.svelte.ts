@@ -12,15 +12,13 @@ import { winLevelMap } from './winLevelMap';
 import { eventEmitter } from './eventEmitter';
 import {
 	SYMBOL_SIZE,
-	BOARD_SIZES,
 	REEL_PADDING,
-	INITIAL_BOARD,
-	BOARD_DIMENSIONS,
 	SPIN_OPTIONS_DEFAULT,
 	SPIN_OPTIONS_FAST,
 	INITIAL_SYMBOL_STATE,
 	SCATTER_LAND_SOUND_MAP,
 } from './constants';
+import { boardDimensions, boardSizes, initialBoard } from './gameConfig';
 
 const onSymbolLand = ({ rawSymbol }: { rawSymbol: RawSymbol }) => {
 	if (rawSymbol.name === 'S') {
@@ -144,51 +142,60 @@ const getSymbolLead = () => {
 	);
 };
 
-const board = _.range(BOARD_DIMENSIONS.x).map((reelIndex) => {
-	const reel = createReelForSpinning({
-		reelIndex,
-		symbolHeight: () => boardGeometry().rowPitchLocal,
-		symbolLead: () => getSymbolLead(),
-		initialSymbols: INITIAL_BOARD[reelIndex],
-		initialSymbolState: INITIAL_SYMBOL_STATE,
-		onReelStopping: () => {
-			eventEmitter.broadcast({
-				type: 'soundOnce',
-				name: 'sfx_reel_stop_1',
-				forcePlay: !stateBet.isTurbo,
-			});
-		},
-		onSymbolLand,
-	});
+/**
+ * Build one spinning reel per column, sized + seeded from the ACTIVE game config (Invisible Game
+ * Config). A FACTORY, not a module-scope const, so it can be re-run after the live runtime bundle
+ * lands — see {@link rebuildBoard}: the online config resolves asynchronously AFTER this module
+ * evaluates, so a board built once at import would freeze to the compiled template's grid.
+ */
+const buildBoard = () => {
+	const init = initialBoard();
+	return _.range(boardDimensions().x).map((reelIndex) => {
+		const reel = createReelForSpinning({
+			reelIndex,
+			symbolHeight: () => boardGeometry().rowPitchLocal,
+			symbolLead: () => getSymbolLead(),
+			initialSymbols: init[reelIndex],
+			initialSymbolState: INITIAL_SYMBOL_STATE,
+			onReelStopping: () => {
+				eventEmitter.broadcast({
+					type: 'soundOnce',
+					name: 'sfx_reel_stop_1',
+					forcePlay: !stateBet.isTurbo,
+				});
+			},
+			onSymbolLand,
+		});
 
-	reel.reelState.spinOptions = () => {
-		const isFast = reel.reelState.spinType === 'fast';
-		const base = isFast ? SPIN_OPTIONS_FAST : SPIN_OPTIONS_DEFAULT;
-		// Editor spin-FEEL override (reactive): merge the authored profile over the
-		// coded options. No node / no spin ⇒ undefined ⇒ coded constants (parity).
-		const override = resolveReelSpinProfile(
-			boardOverride.node ?? undefined,
-			isFast ? 'fast' : 'normal',
-		);
-		const merged = override ? { ...base, ...override } : base;
-		// Flow-authored PER-REEL sequential-stop knobs (from the `enableSequentialReelStop` effect
-		// payload) win for this reel's two sequential fields. The getter closes over `reelIndex`, so
-		// each reel reads its own array entry; a missing/undefined entry ⇒ fall back to the coded
-		// constant, so an un-authored spin is byte-identical to the constants.
-		const gapForReel = stateGame.sequentialGapOverrides?.[reelIndex];
-		const speedForReel = stateGame.sequentialSpeedOverrides?.[reelIndex];
-		if (gapForReel == null && speedForReel == null) return merged;
-		return {
-			...merged,
-			...(gapForReel != null && { reelPaddingMultiplierSequential: gapForReel }),
-			...(speedForReel != null && { reelSpinSpeedSequential: speedForReel }),
+		reel.reelState.spinOptions = () => {
+			const isFast = reel.reelState.spinType === 'fast';
+			const base = isFast ? SPIN_OPTIONS_FAST : SPIN_OPTIONS_DEFAULT;
+			// Editor spin-FEEL override (reactive): merge the authored profile over the
+			// coded options. No node / no spin ⇒ undefined ⇒ coded constants (parity).
+			const override = resolveReelSpinProfile(
+				boardOverride.node ?? undefined,
+				isFast ? 'fast' : 'normal',
+			);
+			const merged = override ? { ...base, ...override } : base;
+			// Flow-authored PER-REEL sequential-stop knobs (from the `enableSequentialReelStop` effect
+			// payload) win for this reel's two sequential fields. The getter closes over `reelIndex`, so
+			// each reel reads its own array entry; a missing/undefined entry ⇒ fall back to the coded
+			// constant, so an un-authored spin is byte-identical to the constants.
+			const gapForReel = stateGame.sequentialGapOverrides?.[reelIndex];
+			const speedForReel = stateGame.sequentialSpeedOverrides?.[reelIndex];
+			if (gapForReel == null && speedForReel == null) return merged;
+			return {
+				...merged,
+				...(gapForReel != null && { reelPaddingMultiplierSequential: gapForReel }),
+				...(speedForReel != null && { reelSpinSpeedSequential: speedForReel }),
+			};
 		};
-	};
 
-	return reel;
-});
+		return reel;
+	});
+};
 
-export type Reel = (typeof board)[number];
+export type Reel = ReturnType<typeof buildBoard>[number];
 export type ReelSymbol = Reel['reelState']['symbols'][number];
 
 export type MultiplierSymbol = {
@@ -202,7 +209,7 @@ export type MultiplierSymbol = {
 };
 
 export const stateGame = $state({
-	board,
+	board: buildBoard(),
 	gameType: 'basegame' as GameType,
 	multiplierBoard: [] as (MultiplierSymbol | undefined)[][],
 	scatterCounter: 0,
@@ -215,9 +222,24 @@ export const stateGame = $state({
 	sequentialSpeedOverrides: null as number[] | null,
 });
 
+/**
+ * Rebuild the board from the CURRENT active config, replacing `stateGame.board`. Called once from
+ * `Game.svelte` right after the live runtime bundle is applied (beside `resetGameConfigCache()`),
+ * so an online project whose config resolved asynchronously gets its authored grid — without this
+ * the board stays the compiled template's size, the same freeze `resetGameConfigCache` fixes for
+ * the symbol map. A no-op in effect for baked/dev (the board was already built with the right
+ * config at import), preserving parity. Safe to call at boot: no spin has run, so no reel holds
+ * in-flight animation state.
+ */
+export function rebuildBoard(): void {
+	stateGame.board = buildBoard();
+}
+
 const boardLayout = () => {
 	const centreX = stateLayoutDerived.mainLayout().width * 0.5;
 	const centreY = stateLayoutDerived.mainLayout().height * 0.5;
+	const sizes = boardSizes();
+	const dims = boardDimensions();
 	const override = resolveReelGridFromNode(
 		boardOverride.node ?? undefined,
 		stateLayoutDerived.layoutType(),
@@ -229,8 +251,8 @@ const boardLayout = () => {
 			y: centreY,
 			scale: 1,
 			anchor: { x: 0.5, y: 0.5 },
-			pivot: { x: BOARD_SIZES.width / 2, y: BOARD_SIZES.height / 2 },
-			...BOARD_SIZES,
+			pivot: { x: sizes.width / 2, y: sizes.height / 2 },
+			...sizes,
 		};
 	}
 
@@ -252,8 +274,8 @@ const boardLayout = () => {
 	// + createReelForSpinning's `symbolY`). No override ⇒ both extras are 0 ⇒ pivot
 	// is byte-identical to the flush case.
 	const { columnExtraLocal, rowPitchLocal } = boardGeometry();
-	const pivotX = BOARD_SIZES.width / 2 + ((BOARD_DIMENSIONS.x - 1) / 2) * columnExtraLocal;
-	const pivotY = BOARD_SIZES.height / 2 + (BOARD_DIMENSIONS.y / 2) * (rowPitchLocal - SYMBOL_SIZE);
+	const pivotX = sizes.width / 2 + ((dims.x - 1) / 2) * columnExtraLocal;
+	const pivotY = sizes.height / 2 + (dims.y / 2) * (rowPitchLocal - SYMBOL_SIZE);
 
 	return {
 		x: override.x + override.boardNudgeX,
@@ -261,7 +283,7 @@ const boardLayout = () => {
 		scale,
 		anchor: { x: 0.5, y: 0.5 },
 		pivot: { x: pivotX, y: pivotY },
-		...BOARD_SIZES,
+		...sizes,
 	};
 };
 

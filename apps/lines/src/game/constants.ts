@@ -1,6 +1,4 @@
-import _ from 'lodash';
-
-import type { RawSymbol, SymbolState } from './types';
+import type { SymbolState } from './types';
 
 // The reel strips moved to `paddingReels()` in `./gameConfig` — deliberately NOT re-exported from
 // here. `constants.ts` must stay import-light: the build-time `publish-symbol-defaults.mjs` imports
@@ -21,101 +19,12 @@ export const SYMBOL_SPINE_FILL = 0.5;
 
 export const REEL_PADDING = 0.53;
 
-// initial board (padded top and bottom)
-export const INITIAL_BOARD: RawSymbol[][] = [
-	[
-		{
-			name: 'L2',
-		},
-		{
-			name: 'L1',
-		},
-		{
-			name: 'L4',
-		},
-		{
-			name: 'H2',
-		},
-		{
-			name: 'L1',
-		},
-	],
-	[
-		{
-			name: 'H1',
-		},
-		{
-			name: 'L5',
-		},
-		{
-			name: 'L2',
-		},
-		{
-			name: 'H3',
-		},
-		{
-			name: 'L4',
-		},
-	],
-	[
-		{
-			name: 'L3',
-		},
-		{
-			name: 'L5',
-		},
-		{
-			name: 'L3',
-		},
-		{
-			name: 'H4',
-		},
-		{
-			name: 'L4',
-		},
-	],
-	[
-		{
-			name: 'H4',
-		},
-		{
-			name: 'H3',
-		},
-		{
-			name: 'L4',
-		},
-		{
-			name: 'L5',
-		},
-		{
-			name: 'L1',
-		},
-	],
-	[
-		{
-			name: 'H3',
-		},
-		{
-			name: 'L3',
-		},
-		{
-			name: 'L3',
-		},
-		{
-			name: 'H1',
-		},
-		{
-			name: 'H1',
-		},
-	],
-];
-
-export const BOARD_DIMENSIONS = { x: INITIAL_BOARD.length, y: INITIAL_BOARD[0].length - 2 };
-
-export const BOARD_SIZES = {
-	width: SYMBOL_SIZE * BOARD_DIMENSIONS.x,
-	height: SYMBOL_SIZE * BOARD_DIMENSIONS.y,
-};
+// The board GRID (dimensions, pixel size, pre-spin fill) moved to `boardDimensions()` /
+// `boardSizes()` / `initialBoard()` in `./gameConfig` — they derive from the active game config
+// (Invisible Game Config's numReels/numRows), so authoring the grid resizes the board. Kept OUT
+// of this module for the same reason the strips are: `publish-symbol-defaults.mjs` imports
+// `constants.ts` standalone for SYMBOL_INFO_MAP, and a `gameConfig` import would drag the whole
+// engine graph into it.
 
 export const BACKGROUND_RATIO = 2039 / 1000;
 export const PORTRAIT_BACKGROUND_RATIO = 1242 / 2208;

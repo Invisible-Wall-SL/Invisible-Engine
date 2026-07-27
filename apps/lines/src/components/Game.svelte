@@ -138,7 +138,7 @@
 		freeSpinsRemaining,
 		freeSpinsTotal,
 	} from '../game/freeSpinCounterValues';
-	import { setBoardOverride, stateGame } from '../game/stateGame.svelte';
+	import { rebuildBoard, setBoardOverride, stateGame } from '../game/stateGame.svelte';
 	import { valueSource } from '../game/valueSource.svelte';
 	import { boolSource } from '../game/boolSource.svelte';
 	import { textSource } from '../game/textSource.svelte';
@@ -226,6 +226,11 @@
 		// paytable despite having authored its own, which is the entire failure Invisible Game
 		// Config exists to fix.
 		resetGameConfigCache();
+		// The board was built at `stateGame` module init from the compiled template's grid — before
+		// this bundle landed. Rebuild it now the authored config is live, so an online project's
+		// numReels/numRows actually resizes the board (grid-dimensions enhancement). No-op in effect
+		// for baked/dev, where the board was already built with the right config (parity).
+		rebuildBoard();
 	}
 
 	// Say out loud what the active config gets wrong — a payline off the grid, a symbol dealt by the

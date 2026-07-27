@@ -48,7 +48,7 @@ import { stateBet, stateBetDerived } from 'state-shared';
 import { awaitCue, waitPresentation } from './unskippablePresentation';
 
 import { bakedFlowDoc } from '../editor-scenes';
-import { BOARD_DIMENSIONS } from './constants';
+import { boardDimensions } from './gameConfig';
 import { eventEmitter } from './eventEmitter';
 import { getFlowInterpreter } from './flowInterpreterHolder';
 import { stateGame } from './stateGame.svelte';
@@ -169,9 +169,9 @@ export const linesEngineReader = (key: string): unknown => {
 			return freeSpinsTotal();
 		case 'reels': {
 			// The `reels` collection: one `{ index }` per board reel. Prefer the live board length
-			// (post-spin), else the static reel count (BOARD_DIMENSIONS.x) so `$engine.reels` is a
+			// (post-spin), else the static reel count (boardDimensions().x) so `$engine.reels` is a
 			// usable list even before the first reveal.
-			const count = stateGame.board?.length || BOARD_DIMENSIONS.x;
+			const count = stateGame.board?.length || boardDimensions().x;
 			return Array.from({ length: count }, (_unused, index) => ({ index }));
 		}
 		default:

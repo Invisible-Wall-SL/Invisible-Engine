@@ -7,6 +7,11 @@
 apps/lines/src/game/emitterVocabulary.ts text eol=lf
 apps/launcher-api/src/lib/emitterVocabularies.ts text eol=lf
 
+# Generated Game Config template defaults — same reason: `generate-game-config-defaults.ts`
+# writes LF and `check:game-config-defaults` (+ the game-config-spike drift check) compare bytes,
+# so a CRLF checkout on Windows would falsely report drift.
+apps/launcher-api/src/lib/data/gameConfig/*.json text eol=lf
+
 # Binary assets — never line-ending normalize (prevents corruption)
 *.pdf binary
 *.png binary

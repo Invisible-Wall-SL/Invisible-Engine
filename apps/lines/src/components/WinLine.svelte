@@ -14,7 +14,8 @@
 
 	import { getContext } from '../game/context';
 	import BoardContainer from './BoardContainer.svelte';
-	import { SYMBOL_SIZE, BOARD_DIMENSIONS } from '../game/constants';
+	import { SYMBOL_SIZE } from '../game/constants';
+	import { boardDimensions } from '../game/gameConfig';
 	import { bakedWinLineConfig } from '../editor-scenes';
 
 	type DrawGraphics = Parameters<GraphicsProps['draw']>[0];
@@ -84,11 +85,11 @@
 	// hardcoded board size. `WinLine` mounts OUTSIDE the mask (a sibling of `Board`), so nothing
 	// clips the amount for us: staying inside is this component's job.
 	const windowHeight = $derived(
-		BOARD_DIMENSIONS.y * context.stateGameDerived.boardGeometry().rowPitchLocal,
+		boardDimensions().y * context.stateGameDerived.boardGeometry().rowPitchLocal,
 	);
 	const windowWidth = $derived(
 		context.stateGameDerived.boardLayout().width +
-			(BOARD_DIMENSIONS.x - 1) * context.stateGameDerived.boardGeometry().columnExtraLocal,
+			(boardDimensions().x - 1) * context.stateGameDerived.boardGeometry().columnExtraLocal,
 	);
 
 	/** The amount's RENDERED box, reported by `ResponsiveBitmapText` (its `maxWidth` is only the cap,
