@@ -12,6 +12,9 @@
 		x: number;
 		y: number;
 		animating: boolean;
+		/** Multiplied down to every child (sprite / spine / flipbook) by Pixi v8's cascading
+		 *  `Container.tint`. Drives the win-celebration dim; `0xffffff` (the default) is untouched. */
+		tint?: number;
 		children: Snippet;
 	};
 
@@ -34,7 +37,7 @@
 </script>
 
 {#if props.debug || (show && inFrame)}
-	<Container x={props.x} y={props.y}>
+	<Container x={props.x} y={props.y} tint={props.tint ?? 0xffffff}>
 		{@render props.children()}
 	</Container>
 {/if}

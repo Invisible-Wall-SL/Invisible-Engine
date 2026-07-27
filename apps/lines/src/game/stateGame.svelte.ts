@@ -227,7 +227,25 @@ export const stateGame = $state({
 	// to the payline win" hook. A plain reactive field, not an event, so a late-mounting component
 	// still sees the colour of a win already in progress.
 	winLineColor: null as string | null,
+	// Win-celebration DIM (Invisible Symbols State Machine → `winCycle.dimNonWinning`). When the switch
+	// is on, every symbol that is NOT part of a paying line is drawn darkened from the win celebration
+	// until the next spin, so the winning line stands out. `active` gates it; `cells` marks the paying
+	// cells by `reel:row` key. Both are driven from `winSymbolCycle.recordWinCycleWins` (a `winInfo`
+	// refreshes the lit set, a `reveal` — the next spin — clears it) and read by `ReelSymbol` to tint
+	// the losing symbols. Reassigned wholesale (see {@link setWinDim}) so the $state proxy re-renders.
+	// Off ⇒ `active` never becomes true ⇒ every symbol stays full-bright (byte-parity).
+	winDim: { active: false, cells: {} as Record<string, boolean> },
 });
+
+/** Key a board cell for the win-dim membership set (`reel:row`). Shared by the writer
+ *  (`winSymbolCycle`) and the reader (`ReelSymbol`) so the two can never drift on the format. */
+export const winDimCellKey = (reel: number, row: number): string => `${reel}:${row}`;
+
+/** Publish the win-celebration dim state (see `stateGame.winDim`). Reassigns the whole object so
+ *  every reading symbol re-renders — a mutated-in-place `cells` map would not. */
+export const setWinDim = (active: boolean, cells: Record<string, boolean>): void => {
+	stateGame.winDim = { active, cells };
+};
 
 /**
  * Rebuild the board from the CURRENT active config, replacing `stateGame.board`. Called once from

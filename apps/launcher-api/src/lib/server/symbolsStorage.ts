@@ -194,6 +194,10 @@ const winCycleSchema = z
 		 *  replayed before this switch), so `{ showMessage: true }` opts a project into the looping
 		 *  message. */
 		showMessage: z.boolean().optional(),
+		/** Darken every non-winning symbol from the win celebration until the next spin, so the
+		 *  paying line stands out. Absent ⇒ OFF (byte-parity). Independent of `enabled` — the dim is
+		 *  about the whole board, not the replay. */
+		dimNonWinning: z.boolean().optional(),
 	})
 	.strict();
 
@@ -271,6 +275,9 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	if (doc.winCycle?.showText === false) winCycle.showText = false;
 	// INVERSE of its siblings: `showMessage` defaults OFF, so only the ON flag persists.
 	if (doc.winCycle?.showMessage === true) winCycle.showMessage = true;
+	// Same inverse-of-default persistence as `showMessage`: `dimNonWinning` defaults OFF, so only the
+	// ON flag is written and OFF round-trips to no key.
+	if (doc.winCycle?.dimNonWinning === true) winCycle.dimNonWinning = true;
 	if (Object.keys(winCycle).length) next.winCycle = winCycle;
 	return next;
 }
