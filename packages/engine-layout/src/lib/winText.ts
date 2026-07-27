@@ -245,8 +245,14 @@ export function formatWinText(template: string, vars: WinTextVars = {}): string 
 /**
  * Every authored template in a doc, flattened for Invisible Localization's harvest. Emits the
  * EXACT untrimmed string as both key and source (matching `harvestSceneText`'s contract — the
- * resolver looks up by the raw literal, so a trimmed key would never match). Blank templates
- * and defaults are skipped: only what the author actually wrote is translatable.
+ * resolver looks up by the raw literal, so a trimmed key would never match).
+ *
+ * The `lineMessage`/`amountFormat`/`winLevels` fields are read from the sparse doc: only what the
+ * author actually wrote is harvested (their defaults are either empty or a bare `{amount}` token
+ * that needs no translation). The three info-bar TOASTS are different — their coded defaults are
+ * real, player-facing sentences ("You win {amount} with {count} {symbolName}"), so they resolve
+ * through {@link resolveWinText} and are harvested even when the author never retyped them.
+ * Otherwise the built-in win message could never be translated.
  *
  * `label` is the human hint shown in the tool's Win-text section.
  */
@@ -274,8 +280,9 @@ export function collectWinTextTemplates(
 	for (const [alias, tpl] of Object.entries(doc?.winLevels ?? {})) {
 		add(tpl, `Win level — ${alias}`);
 	}
-	add(doc?.toast?.full, 'Info-bar message — amount + symbol');
-	add(doc?.toast?.amountOnly, 'Info-bar message — amount only');
-	add(doc?.toast?.countOnly, 'Info-bar message — symbol only');
+	const toast = resolveWinText(doc).toast;
+	add(toast.full, 'Info-bar message — amount + symbol');
+	add(toast.amountOnly, 'Info-bar message — amount only');
+	add(toast.countOnly, 'Info-bar message — symbol only');
 	return out;
 }
