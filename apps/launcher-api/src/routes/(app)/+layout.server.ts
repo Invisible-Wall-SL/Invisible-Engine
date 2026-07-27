@@ -8,6 +8,7 @@ import {
 	ensureDefaultProject,
 } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { engineDeployStatus, type EngineDeployStatus } from '$lib/server/testServerManifest';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { LayoutServerLoad } from './$types';
 
@@ -37,6 +38,16 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 	const activeProjectKey =
 		stored && projects.some((p) => p.key === stored) ? stored : DEFAULT_PROJECT_KEY;
 
+	// Which engine commit the live shared `lines` runtime bundle was built from + whether a release
+	// is building right now (the bundle-vs-source axis). Best-effort + a single R2 read: a test-server
+	// or R2 hiccup must never break the whole app shell, so any failure degrades to 'unknown'.
+	let engine: EngineDeployStatus;
+	try {
+		engine = await engineDeployStatus('lines');
+	} catch {
+		engine = { status: 'unknown' };
+	}
+
 	return {
 		user: locals.user,
 		tools: manifestForRole(locals.user.role, roleOverrides, overrides),
@@ -48,5 +59,6 @@ export const load: LayoutServerLoad = async ({ locals, cookies }) => {
 		),
 		projects,
 		activeProjectKey,
+		engine,
 	};
 };

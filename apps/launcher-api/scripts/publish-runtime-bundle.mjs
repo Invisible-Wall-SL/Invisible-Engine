@@ -23,13 +23,39 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { join, extname, relative, sep } from 'node:path';
 
 const args = process.argv.slice(2);
-const positional = args.filter((a) => !a.startsWith('--'));
+
+// `--status building` (or RELEASE_STATUS=building) is the EARLY-STAMP mode: write only
+// `release.json` with status:'building' and exit WITHOUT building or uploading the bundle,
+// so the launcher can show "Releasing engine…" while the real upload runs. The normal path
+// (no flag) does the full upload and then stamps status:'released'.
+function flagValue(name) {
+	const i = args.indexOf(name);
+	return i >= 0 && i + 1 < args.length ? args[i + 1] : undefined;
+}
+const statusFlag = flagValue('--status') ?? process.env.RELEASE_STATUS;
+const buildingOnly = statusFlag === 'building';
+
+// Positional args, skipping flags AND the value consumed by `--status`.
+const positional = [];
+for (let i = 0; i < args.length; i++) {
+	if (args[i] === '--status') {
+		i++;
+		continue;
+	}
+	if (args[i].startsWith('--')) continue;
+	positional.push(args[i]);
+}
 const runtimeId = positional[0];
 const buildDir = positional[1];
-if (!runtimeId || !buildDir) {
+if (!runtimeId || (!buildingOnly && !buildDir)) {
 	console.error('Usage: node publish-runtime-bundle.mjs <runtimeId> <buildDir>  (e.g. lines apps/lines/build)');
 	process.exit(1);
 }
+
+// Commit the bundle was built from — GitHub Actions injects GITHUB_SHA; a local run has none.
+const commit = process.env.GITHUB_SHA || 'unknown';
+const shortCommit = commit === 'unknown' ? 'unknown' : commit.slice(0, 7);
+const builtAt = new Date().toISOString();
 
 const RUNTIME_ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 if (!RUNTIME_ID_RE.test(runtimeId)) {
@@ -46,11 +72,13 @@ if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) {
 	process.exit(1);
 }
 
-try {
-	await stat(join(buildDir, 'index.html'));
-} catch {
-	console.error(`No index.html in '${buildDir}'. Build the runtime first (e.g. pnpm --filter lines build).`);
-	process.exit(1);
+if (!buildingOnly) {
+	try {
+		await stat(join(buildDir, 'index.html'));
+	} catch {
+		console.error(`No index.html in '${buildDir}'. Build the runtime first (e.g. pnpm --filter lines build).`);
+		process.exit(1);
+	}
 }
 
 const MIME = {
@@ -88,6 +116,29 @@ const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
 const s3 = new S3Client({ region: 'auto', endpoint, credentials: { accessKeyId, secretAccessKey } });
 
 const PREFIX = `test_server/_runtime/${runtimeId}/`;
+
+// Advisory stamp the launcher reads to tell "what engine commit is live + is a release
+// building right now" (the bundle-vs-source axis). Shape is consumed by
+// `testServerManifest.ts` → `runtimeRelease` / `engineDeployStatus`.
+async function stampRelease(status) {
+	const release = { runtimeId, commit, shortCommit, builtAt, status };
+	await s3.send(
+		new PutObjectCommand({
+			Bucket: bucket,
+			Key: `${PREFIX}release.json`,
+			Body: JSON.stringify(release, null, 2),
+			ContentType: 'application/json; charset=utf-8',
+		}),
+	);
+	console.info(`Stamped ${PREFIX}release.json → status='${status}' commit=${shortCommit}`);
+}
+
+if (buildingOnly) {
+	await stampRelease('building');
+	console.info('Early stamp only (--status building) — skipping build + upload.');
+	process.exit(0);
+}
+
 let uploaded = 0;
 let bytes = 0;
 for await (const file of walk(buildDir)) {
@@ -108,4 +159,7 @@ for await (const file of walk(buildDir)) {
 	}
 }
 console.info(`Uploaded ${uploaded} file(s), ${(bytes / 1024 / 1024).toFixed(1)} MB to ${bucket}/${PREFIX}`);
+
+await stampRelease('released');
+
 console.info(`\nNext: POST /refresh the test server so it picks up the runtime bundle.`);
