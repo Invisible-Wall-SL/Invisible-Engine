@@ -45,11 +45,23 @@
 			// A spin press during the win presentation queued a respin (see `stopButtonClick`). The
 			// slam has now fast-forwarded that round to idle — fire the next bet automatically so one
 			// press both clears the win and starts spinning again. Cleared first so a queue can only
-			// fire once, and re-checked for validity because balance/modal state can change while the
-			// round settles.
+			// fire once.
+			//
+			// Fire it EXACTLY like a normal spin: a `bet` broadcast (the same event the spin button
+			// sends), deferred out of this subscription callback with `queueMicrotask`. Sending
+			// `gameActor.send('BET')` DIRECTLY from inside the callback re-enters the actor mid-
+			// notification, and that mis-sequenced the respin round's own presentation — its first
+			// winline + text was suppressed while only the resting cycle drew. Deferring + going
+			// through the normal `bet` path makes the respin byte-identical to a press from idle, so it
+			// presents like any other spin. Re-checked at fire time because balance/modal/idle state
+			// can change while the microtask waits.
 			if (respinAfterRound && context.stateXstateDerived.isIdle()) {
 				respinAfterRound = false;
-				if (canStartBet()) gameActor.send({ type: 'BET' });
+				if (canStartBet())
+					queueMicrotask(() => {
+						if (context.stateXstateDerived.isIdle() && canStartBet())
+							context.eventEmitter.broadcast({ type: 'bet' });
+					});
 			}
 		});
 
