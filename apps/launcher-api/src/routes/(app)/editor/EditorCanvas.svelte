@@ -9,6 +9,7 @@
 		builtinSheetKey,
 		computeOverlayPlacement,
 		coverTransform,
+		hostedComponentSpace,
 		instancePreviewSpineBundle,
 		isHudScene,
 		MAX_COMPONENT_DEPTH,
@@ -297,6 +298,26 @@
 			if (placement) {
 				return placedArtTransform(node, t, placement);
 			}
+		}
+		// A componentInstance hosting a board-relative overlay (catalog `space:'game'` — the win /
+		// free-spin VISUALS) is framed against the MAIN box regardless of the host screen's space,
+		// mirroring the runtime `LayoutNodeView` game-frame override, so the preview matches the
+		// game in ANY screen space. A `game` scene already maps it below (identical result); a
+		// `background` scene cover-fits — leave those two alone (parity).
+		if (
+			node.kind === 'componentInstance' &&
+			space !== 'game' &&
+			space !== 'background' &&
+			hostedComponentSpace(componentMap.get(node.componentId)) === 'game'
+		) {
+			const s = mainScale();
+			const world = mainToWorld({ x: t.x, y: t.y });
+			return {
+				...t,
+				x: world.x,
+				y: world.y,
+				scale: { x: (t.scale?.x ?? 1) * s, y: (t.scale?.y ?? 1) * s },
+			};
 		}
 		if (space === 'standard') {
 			return standardToWorld(t, sceneCtx);
@@ -636,6 +657,16 @@
 	 * inverses below match it. Canvas/standard/background spaces + preview-art anchors take
 	 * other paths and are NOT main-scaled. */
 	function isGameSpaceNode(node: LayoutNode): boolean {
+		// A componentInstance hosting a board-relative overlay (catalog `space:'game'`) is ALWAYS
+		// game-framed by `nodeTransform` (main→window mapping) regardless of the host scene's space,
+		// so its drag/scale writeback must invert that mapping too — mirror the override there.
+		if (
+			node.kind === 'componentInstance' &&
+			scene.space !== 'background' &&
+			hostedComponentSpace(componentMap.get(node.componentId)) === 'game'
+		) {
+			return true;
+		}
 		if (scene.space === 'standard' || scene.space === 'background' || scene.space === 'canvas') {
 			return false;
 		}

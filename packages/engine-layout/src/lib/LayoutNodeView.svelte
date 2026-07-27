@@ -38,6 +38,7 @@
 		coverTransform,
 	} from './coverTransform';
 	import { componentDesignSize } from './componentDesignSize';
+	import { hostedComponentSpace } from './boundComponentCatalog';
 	import { resolveComponent } from './registerComponents';
 	import { resolveEffect } from './registerEffects';
 	import { resolveRigFx } from './registerRigFx';
@@ -85,6 +86,36 @@
 	const pos = $derived(anchoredPosition(transform, space, canvas.width, canvas.height));
 	const posX = $derived(pos.x);
 	const posY = $derived(pos.y);
+
+	// A componentInstance that HOSTS a board-relative overlay (the win / free-spin VISUALS,
+	// catalog `space:'game'`) must be framed against the MAIN box even when the author drops it
+	// on a `canvas`/`standard` screen — which provides NO game-space `<MainContainer>`. Without
+	// this the game draws such an overlay at raw window pixels (smaller + offset to the upper-
+	// left of the main-scaled board) while the Scene Editor previews it board-centred. We
+	// re-apply the SAME main→window mapping `<MainContainer>` uses (and the editor mirrors via
+	// `mainToWorld`/`mainScale`), so the overlay renders identically in both, in ANY screen
+	// space. Gated to a non-`game`/non-`background` host scene (a `game` scene already frames
+	// it; a `background` scene cover-fits) ⇒ every existing placement is byte-identical (parity).
+	const hostedSpace = $derived(
+		node.kind === 'componentInstance'
+			? hostedComponentSpace(resolveComponent(node.componentId, node.componentVersion).def)
+			: undefined,
+	);
+	const gameFrameOverlay = $derived(
+		hostedSpace === 'game' && space !== 'game' && space !== 'background',
+	);
+	const gameFrame = $derived.by(() => {
+		if (!gameFrameOverlay) return undefined;
+		const ml = layoutContext.stateLayoutDerived.mainLayout();
+		return {
+			x: ml.x + ml.scale * (transform.x - ml.width / 2),
+			y: ml.y + ml.scale * (transform.y - ml.height / 2),
+			scale: {
+				x: (transform.scale?.x ?? 1) * ml.scale,
+				y: (transform.scale?.y ?? 1) * ml.scale,
+			},
+		};
+	});
 
 	// `background`-space sprites/spine cover- or contain-fit the canvas, driven by the
 	// SAME canonical doc readers the editor preview uses (`backgroundCoverScale` =
@@ -432,9 +463,9 @@
 			used verbatim (byte-identical parity).
 		-->
 		<Container
-			x={bgComponent ? bgComponent.x : posX}
-			y={bgComponent ? bgComponent.y : posY}
-			scale={bgComponent ? bgComponent.scale : transform.scale}
+			x={gameFrame ? gameFrame.x : bgComponent ? bgComponent.x : posX}
+			y={gameFrame ? gameFrame.y : bgComponent ? bgComponent.y : posY}
+			scale={gameFrame ? gameFrame.scale : bgComponent ? bgComponent.scale : transform.scale}
 			rotation={transform.rotation}
 			alpha={transform.alpha}
 			zIndex={transform.zIndex}

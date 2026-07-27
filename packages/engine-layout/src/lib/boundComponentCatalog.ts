@@ -229,6 +229,35 @@ export function boundComponentDefault(name: string): BoundComponentDefault | und
 }
 
 /**
+ * The coordinate SPACE the overlay a componentInstance HOSTS is designed for — the catalog
+ * {@link BoundComponentDefault.space} of the FIRST bound component in the def's tree (walking
+ * containers), or `undefined` when the def hosts no catalogued bind.
+ *
+ * A board-relative overlay (the win / free-spin VISUALS declare `space:'game'`) is authored as
+ * a `componentInstance` the owner drops on ANY screen. On a `game`-space screen it inherits the
+ * scene's `<MainContainer>` (main→window scale + board mapping) and previews == ships. But on a
+ * `canvas`-space screen there is NO `<MainContainer>`, so the game draws the overlay at RAW
+ * window pixels — smaller, and offset to the upper-left of the (main-scaled) board — while the
+ * Scene Editor previews it board-centred. Both surfaces read this to re-apply the SAME main
+ * framing regardless of the host screen's space, so a game-space overlay is WYSIWYG wherever it
+ * is placed. A def hosting a `canvas`/no-catalog bind returns that (⇒ no main framing — parity).
+ */
+export function hostedComponentSpace(def: ComponentDef | undefined): Scene['space'] | undefined {
+	if (!def) return undefined;
+	let space: Scene['space'] | undefined;
+	const walk = (node: LayoutNode): void => {
+		if (space !== undefined) return;
+		if (node.bind) {
+			space = boundComponentDefault(node.bind.component)?.space;
+			if (space !== undefined) return;
+		}
+		if (node.kind === 'container') for (const child of node.children) walk(child);
+	};
+	walk(def.root);
+	return space;
+}
+
+/**
  * EDITOR-PREVIEW ONLY: the spine bundle NAME a componentInstance should preview its bound
  * spine art from — the VALUE of its def's FIRST `spine`-kind param, read from the instance's
  * already-resolved params (def defaults ◁ instance overrides). This lets the Scene Editor
