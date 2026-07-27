@@ -68,6 +68,15 @@ export interface EngineDeployStatus {
 	commit?: string;
 	shortCommit?: string;
 	builtAt?: string;
+	/**
+	 * C2 (bundle-vs-source): set by the `(app)` layout load from `engineSource.ts#enginePending`
+	 * when a read token is configured. `pending === true` ⇒ engine `main` has un-released ENGINE
+	 * changes ahead of the deployed bundle; `false` ⇒ a compare ran and it's up to date; `undefined`
+	 * ⇒ no compare ran (feature off / degraded) — the UI must treat that as "don't imply anything".
+	 */
+	pending?: boolean;
+	aheadBy?: number;
+	mainCommit?: string;
 }
 
 /**
@@ -109,9 +118,8 @@ export async function engineDeployStatus(runtimeId: string): Promise<EngineDeplo
 	const releasedAt = await runtimeBundleReleasedAt(runtimeId);
 	if (releasedAt) return { status: 'deployed', builtAt: new Date(releasedAt).toISOString() };
 
-	// TODO(engine-source-compare, C2): compare the deployed `commit` against the engine repo's
-	// current `main` HEAD to also flag "bundle is behind source" here. Needs a read token scoped
-	// to the engine repo (GitHub API), which the launcher does not yet hold — wire it in when it does.
+	// The bundle-vs-source "release pending" axis (C2) lives in `engineSource.ts#enginePending` and
+	// is merged in by the `(app)` layout load — kept OUT of here so this helper stays R2-only.
 	return { status: 'unknown' };
 }
 

@@ -122,4 +122,18 @@ export const ENV = {
 	get GIT_CLONE_USERNAME() {
 		return env.GIT_CLONE_USERNAME ?? 'x-access-token';
 	},
+	// GitHub read-only token used ONLY to compare the deployed runtime bundle's commit against
+	// the engine repo's `main` HEAD (the "release pending" pill — see `engineSource.ts`). Use a
+	// fine-grained PAT with read-only "Contents" on `Invisible-Wall-SL/Invisible-Engine`.
+	// Secret: no code default. Absent → the compare is skipped and the pill never shows
+	// "release pending" (it degrades to exactly the pre-C2 behaviour). NOT a substitute for
+	// GIT_CLONE_TOKEN, which is scoped to the game repos; engineSource.ts falls back to it only
+	// as a best-effort convenience and any read failure just disables the feature.
+	get GITHUB_ENGINE_READ_TOKEN() {
+		return env.GITHUB_ENGINE_READ_TOKEN ?? '';
+	},
+	// The engine repo the pending-compare runs against. Non-secret → code default; env overrides.
+	get GITHUB_ENGINE_REPO() {
+		return env.GITHUB_ENGINE_REPO ?? 'Invisible-Wall-SL/Invisible-Engine';
+	},
 };
