@@ -86,8 +86,12 @@ const token = getFlag('token') || process.env.EDITOR_DOC_SECRET || process.env.L
 const dryRun = hasFlag('dry-run');
 const optional = hasFlag('optional');
 const noPrune = hasFlag('no-prune');
-const optimize = hasFlag('optimize');
-const audioFormats = (getFlag('audio-formats') || 'mp3,ogg')
+// Enable via the flag OR the IE_OPTIMIZE_ASSETS env var — the desktop launcher's
+// "Optimize" build toggle injects the env var (like PUBLIC_IE_DEBUG) rather than
+// editing the project's build_cmd.
+const envTruthy = (v) => ['1', 'true', 'yes', 'on'].includes(String(v || '').toLowerCase());
+const optimize = hasFlag('optimize') || envTruthy(process.env.IE_OPTIMIZE_ASSETS);
+const audioFormats = (getFlag('audio-formats') || process.env.IE_OPTIMIZE_AUDIO_FORMATS || 'mp3,ogg')
 	.split(',')
 	.map((s) => s.trim())
 	.filter(Boolean);
