@@ -24,11 +24,19 @@ export function isValidGameUrl(value: string): boolean {
  *  (R2 `test_server/<key>/` behind Cloudflare). Used as the auto-fill when a game is
  *  created without an explicit URL. Mirrors the live games' pattern: the page under
  *  `<base>/<key>/`, a `demo` session, and the game's own RGS proxy at `<host>/api/<key>`.
- *  The launcher appends `?project=` (and `&k=`) at click time; this supplies the rest. */
+ *  The launcher appends `?project=` (and `&k=`) at click time; this supplies the rest.
+ *
+ *  `runtime=1` is REQUIRED and easy to forget: it is what makes the shared engine bundle
+ *  fetch the project's live authoring data (`/api/editor/runtime`) — the ONLY path that carries
+ *  the authored Invisible Game Config (grid/paylines/paytable/strips) into the game. WITHOUT it
+ *  the game falls back to the lighter `/api/editor/doc` fetch (scene layout only) and runs the
+ *  compiled 5×3 template, silently ignoring everything authored in `/config`. `publishGame`
+ *  already includes it; a card auto-created here must too, or an admin-created online game shows
+ *  the template board no matter what its config says. */
 export function defaultGameUrl(key: string, gamesBaseUrl: string): string {
 	const base = gamesBaseUrl.replace(/\/+$/, '');
 	const host = base.replace(/^https?:\/\//, '');
-	return `${base}/${key}/?sessionID=demo&rgs_url=${host}/api/${key}&lang=en`;
+	return `${base}/${key}/?runtime=1&sessionID=demo&rgs_url=${host}/api/${key}&lang=en`;
 }
 
 export async function listGames(): Promise<Game[]> {
