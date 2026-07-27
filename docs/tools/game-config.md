@@ -28,7 +28,9 @@ before — an un-authored project still runs the compiled template.
 
 - **Identity** — provider, game name, game ID, RTP. Shown on the info page and used
   in the RGS handshake.
-- **Grid** — reel count and visible rows (per reel, so a stepped grid works).
+- **Grid** — reel count and visible rows (per reel, so a stepped grid works). This
+  is the board's size everywhere: the game renders this many reels and rows, the
+  Scene Editor draws its preview at this size, and a dev game's mock RGS deals it.
   Changing the reel count re-shapes the row list but leaves paylines and strips
   alone — mismatches surface as errors rather than silently trimming your work.
 - **Bet modes** — each entry in the bet selector / buy-bonus menu (cost, feature,
