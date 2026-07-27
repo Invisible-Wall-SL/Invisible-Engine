@@ -1,7 +1,7 @@
 import type { InfoManifest, InfoSymbolIcon } from 'components-ui-pixi';
 
-import config from './config';
-import { PAYTABLE, NUM_LINES } from './paytable';
+import { getNumRows, getPaylines } from './gameConfig';
+import { numLines, paytable } from './paytable';
 import { getSymbolInfo } from './utils';
 import { SYMBOL_SIZE } from './constants';
 import type { SymbolName } from './types';
@@ -16,10 +16,10 @@ import type { SymbolName } from './types';
 // template bindings (and also memoise the symbol map to them — see `symbolMap.ts`). The
 // overlay reads `manifest.symbols` only when the info page opens (a user action, long after
 // the runtime bundle is applied), so deferring the build to access time resolves the
-// authored bindings. Recomputed per access (PAYTABLE is small); no memo to go stale.
+// authored bindings. Recomputed per access (the paytable is small); no memo to go stale.
 function buildSymbols(): Record<string, InfoSymbolIcon> {
 	const symbols: Record<string, InfoSymbolIcon> = {};
-	for (const entry of PAYTABLE) {
+	for (const entry of paytable()) {
 		const info = getSymbolInfo({
 			rawSymbol: { name: entry.on.of as SymbolName },
 			state: 'static',
@@ -39,11 +39,24 @@ function buildSymbols(): Record<string, InfoSymbolIcon> {
 	return symbols;
 }
 
+// Every config-derived field is an ACCESSOR, for the same reason `symbols` already was: this
+// module is imported at boot, long before the live runtime bundle's async fetch resolves, so a
+// plain value here would capture the compiled template's paytable, line count and paylines and the
+// info page would show the sample game's numbers forever. Deferring to access time — the overlay
+// only reads these when the player opens the info page — resolves the authored config.
 export const infoManifest: InfoManifest = {
-	paytable: PAYTABLE,
-	numLines: NUM_LINES,
-	paylines: Object.values(config.paylines) as number[][],
-	numRows: config.numRows[0] ?? 3,
+	get paytable() {
+		return paytable();
+	},
+	get numLines() {
+		return numLines();
+	},
+	get paylines() {
+		return getPaylines();
+	},
+	get numRows() {
+		return getNumRows();
+	},
 	symbolSize: SYMBOL_SIZE,
 	get symbols() {
 		return buildSymbols();

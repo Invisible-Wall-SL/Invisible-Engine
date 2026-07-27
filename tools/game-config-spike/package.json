@@ -1,0 +1,14 @@
+{
+	"name": "game-config-spike",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"doc": "tsx docModel.ts",
+		"inspect": "tsx inspect.ts"
+	},
+	"devDependencies": {
+		"tsx": "4.19.2",
+		"game-config": "workspace:*"
+	}
+}

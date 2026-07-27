@@ -1,0 +1,130 @@
+/**
+ * Invisible Game Config — the LOUD half. {@link normalizeGameConfigDoc} silently drops what cannot
+ * be interpreted; this reports what is merely wrong, so the author sees it in the tool and the bake
+ * can refuse to ship it.
+ *
+ * The split exists because a canonicalizer runs at SAVE time, when the author may be mid-edit —
+ * deleting their half-typed payline would destroy work. A validator runs when it matters (on the
+ * page, at bake, at boot) and only ever talks.
+ *
+ * Severity is the whole point of the return shape:
+ *  - `error` — the game will visibly misbehave (a payline pointing off the grid draws off-board).
+ *  - `warning` — a config that renders but lies (a paytable row for a symbol no strip deals is the
+ *    `W` bug verbatim: an advertised payout nobody can win).
+ * Phase 3 turns the boot-time symbol check into the "loud warning for a symbol with no art" the
+ * design doc calls for; the same function serves it.
+ */
+
+import { symbolsInPlay } from './inPlay';
+import type { GameConfigDoc } from './types';
+
+export type GameConfigIssueSeverity = 'error' | 'warning';
+
+export type GameConfigIssue = {
+	severity: GameConfigIssueSeverity;
+	/** Dotted path into the doc, e.g. `paylines.7` or `symbols.W.paytable` — the tool uses it to
+	 *  jump to the offending field. */
+	path: string;
+	message: string;
+};
+
+/**
+ * Check a normalized doc against itself. Everything here is INTERNAL consistency; nothing needs
+ * the RGS, the art, or the network, which is what makes it runnable in a fixture and at boot.
+ *
+ * Deliberately NOT checked: whether a symbol has art. That needs the symbol/asset registry, lives
+ * on the other side of the bake, and belongs to the Symbols SM's surface — one fact, one home.
+ */
+export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => {
+	const issues: GameConfigIssue[] = [];
+	const inPlay = new Set(symbolsInPlay(doc));
+	const maxRows = Math.max(...doc.numRows, 0);
+
+	if (doc.numReels <= 0) {
+		issues.push({ severity: 'error', path: 'numReels', message: 'Grid has no reels.' });
+	}
+
+	for (const [gameType, strips] of Object.entries(doc.paddingReels)) {
+		if (strips.length !== doc.numReels) {
+			issues.push({
+				severity: 'error',
+				path: `paddingReels.${gameType}`,
+				message: `${gameType} has ${strips.length} reel strips but the grid is ${doc.numReels} reels wide.`,
+			});
+		}
+		strips.forEach((strip, reel) => {
+			// A strip shorter than the visible window cannot fill the column while spinning.
+			if (strip.length && strip.length < maxRows) {
+				issues.push({
+					severity: 'error',
+					path: `paddingReels.${gameType}.${reel}`,
+					message: `Reel ${reel + 1} strip has ${strip.length} cells, fewer than the ${maxRows} visible rows.`,
+				});
+			}
+		});
+	}
+
+	for (const [id, rows] of Object.entries(doc.paylines)) {
+		if (rows.length !== doc.numReels) {
+			issues.push({
+				severity: 'error',
+				path: `paylines.${id}`,
+				message: `Payline ${id} covers ${rows.length} reels but the grid is ${doc.numReels} wide.`,
+			});
+			continue;
+		}
+		rows.forEach((row, reel) => {
+			const height = doc.numRows[reel] ?? 0;
+			if (row >= height) {
+				issues.push({
+					severity: 'error',
+					path: `paylines.${id}`,
+					message: `Payline ${id} points at row ${row + 1} on reel ${reel + 1}, which has ${height} rows.`,
+				});
+			}
+		});
+	}
+
+	// The `W` bug, generalized: a payout advertised for a symbol the game never deals.
+	for (const [name, symbol] of Object.entries(doc.symbols)) {
+		if (inPlay.has(name)) continue;
+		if (symbol.paytable?.length) {
+			issues.push({
+				severity: 'warning',
+				path: `symbols.${name}.paytable`,
+				message: `${name} pays in the paytable but appears on no reel strip, so the payout can never be won.`,
+			});
+		} else {
+			issues.push({
+				severity: 'warning',
+				path: `symbols.${name}`,
+				message: `${name} is in the dictionary but appears on no reel strip.`,
+			});
+		}
+	}
+
+	// The inverse, and the more dangerous one: the strips deal something the board cannot draw.
+	for (const name of inPlay) {
+		if (!doc.symbols[name]) {
+			issues.push({
+				severity: 'error',
+				path: `symbols.${name}`,
+				message: `${name} appears on a reel strip but has no entry in the symbol dictionary.`,
+			});
+		}
+	}
+
+	if (!Object.keys(doc.betModes).length) {
+		issues.push({
+			severity: 'error',
+			path: 'betModes',
+			message: 'No bet modes — the bet selector would have nothing to offer.',
+		});
+	}
+
+	return issues;
+};
+
+/** Only the blocking issues — what a bake or a publish refuses to ship. */
+export const gameConfigErrors = (doc: GameConfigDoc): GameConfigIssue[] =>
+	validateGameConfigDoc(doc).filter((issue) => issue.severity === 'error');

@@ -149,6 +149,11 @@ export const TOOL_ICONS: Record<string, string> = {
 			'<line x1="8" y1="11" x2="8" y2="13"/><circle cx="15.5" cy="11" r="0.9" fill="currentColor" stroke="none"/>' +
 			'<circle cx="17.5" cy="13" r="0.9" fill="currentColor" stroke="none"/>',
 	),
+	// reel grid with a sliders overlay (the game's math contract: symbols, paylines, strips)
+	gameConfig: I(
+		'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="M15 4v16"/>' +
+			'<path d="M3 9.5h18"/><path d="M3 14.5h18"/>',
+	),
 };
 
 /** Registry of every tool the platform knows about. */
@@ -234,6 +239,14 @@ export const TOOLS: Record<string, ToolDef> = {
 		kind: 'online',
 		url: '/win-text',
 		icon: TOOL_ICONS.winText,
+	},
+	gameConfig: {
+		id: 'gameConfig',
+		name: 'Invisible Game Config',
+		description: "The game's math contract: symbols, paytable, paylines, grid, bet modes, strips.",
+		kind: 'online',
+		url: '/config',
+		icon: TOOL_ICONS.gameConfig,
 	},
 	editor: {
 		id: 'editor',
@@ -348,6 +361,7 @@ export const TOOL_BAR_ORDER: string[] = [
 	'rigger',
 	'fontMaker',
 	'winText',
+	'gameConfig',
 	'localization',
 	'ftpBrowser',
 ];
@@ -376,6 +390,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'invisibleLauncher',
 		'localization',
 		'winText',
+		'gameConfig',
 		'editor',
 		'flow',
 		'fx',
@@ -392,6 +407,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'sheetMaker',
 		'localization',
 		'winText',
+		'gameConfig',
 		'editor',
 		'flow',
 		'fx',
@@ -565,6 +581,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	sheetMaker: 'sheet-maker',
 	localization: 'localization',
 	winText: 'win-text',
+	gameConfig: 'game-config',
 	editor: 'invisible-editor',
 	ftpBrowser: 'ftp-browser',
 	componentEditor: 'component-editor',

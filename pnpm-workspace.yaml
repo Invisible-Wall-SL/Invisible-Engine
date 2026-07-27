@@ -6,3 +6,4 @@ packages:
   - "tools/flow-spike"
   - "tools/fx-spike"
   - "tools/flipbook-spike"
+  - "tools/game-config-spike"

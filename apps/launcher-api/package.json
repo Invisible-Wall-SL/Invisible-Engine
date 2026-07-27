@@ -19,6 +19,8 @@
 		"db:migrate": "drizzle-kit migrate",
 		"db:push": "drizzle-kit push",
 		"db:seed": "node scripts/seed.mjs",
+		"gen:game-config-defaults": "tsx scripts/generate-game-config-defaults.ts",
+		"check:game-config-defaults": "tsx scripts/generate-game-config-defaults.ts --check",
 		"r2:sync-spines": "node scripts/r2-sync-spines.mjs",
 		"pull:assets": "node scripts/pull-project-assets.mjs"
 	},
@@ -29,7 +31,8 @@
 		"config-ts": "workspace:*",
 		"drizzle-kit": "0.30.5",
 		"eslint": "9.21.0",
-		"eslint-config-custom": "workspace:*"
+		"eslint-config-custom": "workspace:*",
+		"tsx": "4.19.2"
 	},
 	"dependencies": {
 		"@anthropic-ai/sdk": "^0.100.1",
@@ -46,6 +49,7 @@
 		"engine-flow-v2": "workspace:*",
 		"engine-fx": "workspace:*",
 		"engine-layout": "workspace:*",
+		"game-config": "workspace:*",
 		"marked": "^18.0.5",
 		"opentype.js": "^2.0.0",
 		"pixi-svelte": "workspace:*",

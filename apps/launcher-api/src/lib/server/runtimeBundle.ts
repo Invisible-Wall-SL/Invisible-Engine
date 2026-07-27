@@ -39,6 +39,7 @@ import {
 	type RigFxBinding,
 	type WinTextDoc,
 } from 'engine-layout';
+import type { GameConfigDoc } from 'game-config';
 import { listComponentDefaults } from './componentDefaultsStorage';
 import { loadComponent } from './componentStorage';
 import { exportEditorArt, type EditorArtIndex } from './editorArtExport';
@@ -53,6 +54,7 @@ import { loadDoc as loadLocalizationDoc } from './localization';
 import { UNASSIGNED_CLIENT } from './projectPaths';
 import { projectClientKey, projectName } from './projects';
 import { exportRigFx } from './rigFxExport';
+import { loadGameConfigDoc } from './gameConfigStorage';
 import { loadWinTextDoc } from './winTextStorage';
 import { bundleFromAssetKey } from './spine';
 import { exportEditorSymbols, type SymbolExportResult } from './symbolExport';
@@ -100,6 +102,17 @@ export interface RuntimeBundle {
 	 * `/api/win-text/doc` fetch. Omitted when un-authored ⇒ `bakedWinText()` yields the coded
 	 * defaults (parity). See `docs/design/invisible-win-text.md`. */
 	winText?: WinTextDoc;
+	/** The project's AUTHORED game config (Invisible Game Config) — symbol dictionary + paytable,
+	 * paylines, grid, bet modes, identity/RTP, cosmetic reel strips. Pure config, no assets, so it
+	 * is read straight from R2 with no export step, like `winText`.
+	 *
+	 * Omitted when un-authored ⇒ `bakedGameConfig()` is undefined ⇒ the game runs its compiled
+	 * `game/config.ts` (parity). Deliberately NOT seeded from the per-game-type template default
+	 * here: the template default is what the TOOL opens with, so an author sees it and saves it
+	 * knowingly. Shipping it implicitly would make "never authored" and "authored something
+	 * identical to the template" indistinguishable in the bundle, and would silently start shipping
+	 * a config the day a template changed. See `docs/design/invisible-game-config.md`. */
+	config?: GameConfigDoc;
 }
 
 /**
@@ -305,6 +318,7 @@ async function assembleRuntimeBundle(
 		rigFx,
 		clipIndex,
 		winTextDoc,
+		gameConfig,
 	] = await Promise.all([
 		ensureDeployExports(projectKey, clientKey, timings),
 		step('localization', timings, () => loadLocalizationMessages(clientKey, projectKey)),
@@ -312,6 +326,10 @@ async function assembleRuntimeBundle(
 		step('rigFx', timings, () => exportRigFx(clientKey, projectKey)),
 		step('flipbooks', timings, () => exportClips(clientKey, projectKey)),
 		step('winText', timings, () => loadWinTextDoc(clientKey, projectKey)),
+		// `loadGameConfigDoc` (not `resolveGameConfigDoc`) on purpose: it returns null for a project
+		// that has never authored, and null must stay null here so the bundle omits `config` and the
+		// game runs its compiled template. See the `config` field's note on the bundle type.
+		step('gameConfig', timings, () => loadGameConfigDoc(clientKey, projectKey)),
 	]);
 	// Only ship a doc that authors something: `loadWinTextDoc` returns `{version:1}` for a
 	// never-authored project, which would otherwise add a no-op key to the bundle. Mirrors the
@@ -363,6 +381,9 @@ async function assembleRuntimeBundle(
 		// Invisible Win Text — omit when un-authored so the bundle stays byte-identical and
 		// `bakedWinText()` falls back to the coded defaults (parity), exactly as the offline bake does.
 		...(winText ? { winText } : {}),
+		// Invisible Game Config — omit when un-authored so the bundle stays byte-identical and the
+		// game keeps running its compiled `game/config.ts` (parity).
+		...(gameConfig ? { config: gameConfig } : {}),
 	};
 }
 

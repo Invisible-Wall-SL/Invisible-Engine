@@ -1,6 +1,7 @@
 import type { FlowDoc } from 'engine-flow';
 import type { FlowDoc as FlowDocV2, FunctionLibraryDoc as FlowV2LibraryDoc } from 'engine-flow-v2';
 import type { EffectDoc } from 'engine-fx';
+import type { GameConfigDoc } from 'game-config';
 import type {
 	ComponentDef,
 	FlipbookClipEntry,
@@ -178,6 +179,15 @@ type BakedBundle = {
 	 * `localization.messages`, and `formatWinText` resolves template → translation →
 	 * interpolation at render. See `docs/design/invisible-win-text.md`. */
 	winText?: WinTextDoc;
+	/** The project's authored GAME CONFIG (Invisible Game Config output) — symbol dictionary +
+	 * paytable, paylines, grid, bet modes, identity/RTP, and the cosmetic reel strips. Pure config,
+	 * no assets, so like `winText` there is no export/pull step; it travels verbatim.
+	 *
+	 * DENSE, unlike every other doc here: it REPLACES the compiled `game/config.ts` rather than
+	 * layering over it, because a half-merged config is a config with a missing symbol dictionary.
+	 * Absent ⇒ `getActiveGameConfig()` resolves the compiled template and the game is byte-identical
+	 * (parity). See `docs/design/invisible-game-config.md`. */
+	config?: GameConfigDoc;
 	/** The authored presentation graph (Invisible Flow output), exported to
 	 * `deploy/flow.json` and embedded by `bake-editor-doc.mjs`. When present the
 	 * runtime interpreter (engine-flow) mounts authored screens + runs authored
@@ -440,6 +450,21 @@ export function bakedSymbolMap(): SymbolInfoMap | undefined {
 	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.map;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.symbols?.map;
+}
+
+/**
+ * The project's authored GAME CONFIG (Invisible Game Config). Resolved by `game/gameConfig.ts` as
+ * `runtime → baked → compiled template`; undefined here means the last of those, so the game runs
+ * `game/config.ts` byte-for-byte exactly as it did before this doc existed (dev parity).
+ *
+ * Deliberately NOT normalized here — `getActiveGameConfig()` owns that, so the canonicalizer runs
+ * in exactly one place on exactly one path and a runtime doc cannot be treated differently from a
+ * baked one.
+ */
+export function bakedGameConfig(): GameConfigDoc | undefined {
+	if (hasRuntimeBundle()) return runtimeBundle!.config;
+	if (!hasBakedDoc()) return undefined;
+	return bakedBundle.config;
 }
 
 /**

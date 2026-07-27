@@ -1,13 +1,12 @@
 import _ from 'lodash';
 
-import config from './config';
-import type { RawSymbol, SymbolState, GameType } from './types';
+import type { RawSymbol, SymbolState } from './types';
 
-// Reel-strip padding boards, typed. config.ts is a plain data export so its
-// symbol `name`s widen to `string`; the strips only ever hold real symbol ids,
-// so we assert the engine's `RawSymbol[][]` shape once here instead of at each
-// call site (the board API wants `RawSymbol[][]`, not `{ name: string }[][]`).
-export const PADDING_REELS = config.paddingReels as Record<GameType, RawSymbol[][]>;
+// The reel strips moved to `paddingReels()` in `./gameConfig` — deliberately NOT re-exported from
+// here. `constants.ts` must stay import-light: the build-time `publish-symbol-defaults.mjs` imports
+// this module standalone to read `SYMBOL_INFO_MAP`, and pulling in `gameConfig` → `editor-scenes`
+// would drag the whole engine graph (`state-shared`, …) into that import and the publish would bail.
+// Consumers import the strips straight from `./gameConfig`.
 
 export const SYMBOL_SIZE = 120;
 
