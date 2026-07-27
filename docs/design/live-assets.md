@@ -217,6 +217,31 @@ Surfaced loudly at both ends: `bake-editor-doc.mjs` warns per publish, and the g
 warns once at boot (`warnMissingAssets` in `editor-scenes.ts`) — turning a silent
 runtime lookup-miss into an explicit "re-pack the atlas or re-pick the frame".
 
+## Standalone-build optimization (opt-in) — added 2026-07-27
+
+The pull mirrors `deploy/` **verbatim** on purpose — the ONLINE runtime must stay faithful to
+what the editor shows, so it ships assets uncompressed/redundant (both `.png` + `.webp` twins,
+audiosprites in every format Howler can fall back to). A shipped **standalone** build doesn't
+need that redundancy, so an **opt-in** pass trims the provably-dead bytes without touching the
+online path.
+
+- **`apps/launcher-api/scripts/optimize-build-assets.mjs`** — runs over a mirrored
+  `static/assets/` in place. Two safe, idempotent transforms, plus a report:
+  1. **Dead image twins.** When `<name>.png` and `<name>.webp` sit together and only ONE is
+     referenced by any atlas / sprite descriptor / loader `import`, delete the other. Both (or
+     neither) referenced → leave alone. Reference detection is a generic basename scan over
+     `.atlas`/`.json`/`.ts`/`.js`/`.svelte`, so no per-game hardcoding.
+  2. **Redundant audio formats.** Keep only the requested formats (default `mp3,ogg`; `mp3`
+     alone for max savings), delete the rest, and rewrite the audiosprite manifest `src` so the
+     loader never chases a removed file.
+  3. **Reports** (never deletes) images referenced by no descriptor — genuinely-unused art that
+     may still be loaded dynamically by name, so a human decides.
+- **`pull-project-assets.mjs --optimize [--audio-formats mp3,ogg]`** runs the same pass right
+  after the mirror, so a lean build is one command. **Never in the default path** — online
+  publishes and the runtime override are untouched.
+- Measured on Book of Borut (2026-07-27): 61 MB → ~26 MB static/assets (28 dead PNG twins +
+  2 audio formats = 34.8 MB), with the `mmBG.*` authoring duplicate surfaced for review.
+
 ## The shared build/deploy token (admin-managed)
 
 All of the build-time endpoints above (`/api/deploy`, `/api/editor/doc`,
