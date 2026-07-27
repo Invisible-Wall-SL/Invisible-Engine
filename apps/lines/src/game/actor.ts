@@ -8,7 +8,7 @@ import type { Bet } from './typesBookEvent';
 import { stateXstateDerived } from './stateXstate';
 import { playBet, convertTorResumableBet } from './utils';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
-import { paddingReels } from './constants';
+import { paddingReels } from './gameConfig';
 
 const primaryMachines = createPrimaryMachines<Bet>({
 	onResumeGameActive: (betToResume) => convertTorResumableBet(betToResume),

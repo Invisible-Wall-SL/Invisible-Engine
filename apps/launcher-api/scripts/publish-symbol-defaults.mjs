@@ -5,16 +5,21 @@
 // the tool's `+page.server.ts` reads it per-project (falling back to the coded
 // `lines` set when un-published). Mirrors bake-editor-doc.mjs's transport.
 //
-// The published set is filtered to the symbols the game actually PLAYS, read
-// from the game config module (`--config`, default ./src/game/config.ts): a
-// symbol must be in its `symbols` dictionary AND appear on its `paddingReels`
-// strips. `SYMBOL_INFO_MAP` holds visual defaults for every symbol the engine
-// *can* render (e.g. an unused H5); the dictionary alone is not enough either,
-// since it legitimately describes symbols a given game never deals (the Stake
-// sample's `W` wild, which no RGS here emits). The STRIPS are what reaches the
-// board, so the tool grid mirrors the built game. Disable with
-// --no-config-filter.
-// See docs/design/invisible-symbols-state-machine.md.
+// The published set is filtered to the symbols the game actually PLAYS: a symbol
+// must be in the `symbols` dictionary AND appear on the `paddingReels` strips.
+// `SYMBOL_INFO_MAP` holds visual defaults for every symbol the engine *can*
+// render (e.g. an unused H5); the dictionary alone is not enough either, since it
+// legitimately describes symbols a given game never deals (the Stake sample's `W`
+// wild, which no RGS here emits). The STRIPS are what reaches the board, so the
+// tool grid mirrors the built game. Disable with --no-config-filter.
+//
+// The gate reads the AUTHORED game config (Invisible Game Config) when the project
+// has one — fetched from `GET /api/game-config/doc`, the same doc the game runs —
+// so the grid mirrors what actually ships, not the compiled template. It falls
+// back to the local compiled module (`--config`, default ./src/game/config.ts)
+// when the project has authored no config, or the launcher can't be reached, or no
+// token is available (dry runs). Same shape either way, so one gate, two sources.
+// See docs/design/invisible-symbols-state-machine.md + invisible-game-config.md.
 //
 // HTTP only: no R2 creds, no aws-sdk. A build runner needs the shared token +
 // network access to app.invisiblewall.org.
@@ -110,8 +115,9 @@ const USAGE =
 	'  --assets <path>               the game asset registry for spine previewKeys\n' +
 	'                                (default ./src/game/assets.ts)\n' +
 	`  --export <name>               named export to read (default ${DEFAULT_EXPORT})\n` +
-	`  --config <path>               the game config module whose default-export\n` +
-	`                                \`symbols\` keys select which symbols are in play\n` +
+	`  --config <path>               FALLBACK game config module, used only when the\n` +
+	`                                project has authored no config in the launcher;\n` +
+	`                                its \`symbols\`/\`paddingReels\` gate the in-play set\n` +
 	`                                (default ${DEFAULT_CONFIG})\n` +
 	'  --no-config-filter            publish every symbol in the map, unfiltered\n' +
 	'  --game-type <type>            informational gameType to stamp (default the project key)\n' +
@@ -232,10 +238,55 @@ function symbolsOnReels(cfg) {
 }
 
 /**
+ * The game config to gate on — the AUTHORED doc when the project has one, else the
+ * local compiled module. Returns `{ cfg, source }`, or null when neither is usable.
+ *
+ * Authored-first is the point of Phase 5 (`invisible-game-config.md`): the game runs
+ * the authored config, so the tool grid must too, or a symbol the project ADDED (or
+ * removed) would be missing from (or dead in) the grid. The fetch is the token-gated
+ * `GET /api/game-config/doc`, the SAME endpoint the bake reads. A null `doc` there
+ * means "never authored" — not an error — so we quietly fall back to the module.
+ *
+ * The two configs are the same shape, so everything downstream (`symbolsOnReels`,
+ * the dictionary gate) is source-agnostic — one gate, two sources, no second answer.
+ */
+async function loadGateConfig() {
+	if (token && base) {
+		try {
+			const url =
+				`${base}/api/game-config/doc?project=${encodeURIComponent(project)}` +
+				`&k=${encodeURIComponent(token)}`;
+			const res = await fetch(url);
+			if (res.ok) {
+				const body = await res.json();
+				if (body?.doc && typeof body.doc === 'object') {
+					return { cfg: body.doc, source: 'authored game config' };
+				}
+			} else {
+				console.warn(
+					`⚠ publish-symbols: game-config fetch HTTP ${res.status} — falling back to ${configPath}.`,
+				);
+			}
+		} catch (err) {
+			console.warn(
+				`⚠ publish-symbols: could not fetch the authored game config (${err instanceof Error ? err.message : err})` +
+					` — falling back to ${configPath}.`,
+			);
+		}
+	}
+	try {
+		const mod = await import(pathToFileURL(configPath).href);
+		return { cfg: mod?.default ?? mod, source: `compiled ${configPath}` };
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Restrict the published symbol set to the symbols the game actually PLAYS, so
  * the Symbols tool grid mirrors the game instead of showing dead rows.
  *
- * Two gates, both from the game config module:
+ * Two gates, both from the game config (authored doc first, else compiled module):
  *  - `symbols` is the DICTIONARY — art, properties, payouts. Necessary but not
  *    sufficient: it legitimately describes symbols a given game never deals.
  *  - `paddingReels` are the REEL STRIPS — the one client-side statement of what
@@ -249,32 +300,30 @@ function symbolsOnReels(cfg) {
  * the row comes back with no code change.
  *
  * Mutates `symbols` in place, preserving `SYMBOL_INFO_MAP`'s ordering (only
- * dropping keys absent from the config). Best-effort: a missing/odd config
- * module, an empty `symbols` map, or `--no-config-filter` leaves the full set
- * (prior behaviour) so a build never loses symbols to a config it couldn't read.
- * A config with no readable strips falls back to the dictionary gate alone.
+ * dropping keys absent from the config). Best-effort: a missing/odd config,
+ * an empty `symbols` map, or `--no-config-filter` leaves the full set (prior
+ * behaviour) so a build never loses symbols to a config it couldn't read. A
+ * config with no readable strips falls back to the dictionary gate alone.
  */
 async function filterToGameConfig(symbols) {
 	if (!configFilter) {
 		console.info('Config filter disabled (--no-config-filter) — publishing every symbol.');
 		return;
 	}
-	let cfg;
-	let used;
-	try {
-		const mod = await import(pathToFileURL(configPath).href);
-		cfg = mod?.default ?? mod;
-		used = cfg?.symbols;
-	} catch {
+	const gate = await loadGateConfig();
+	if (!gate) {
 		console.warn(
-			`⚠ publish-symbols: could not import game config ${configPath} — publishing every` +
-				' symbol (no config filter). Pass --config <path> or --no-config-filter to silence.',
+			`⚠ publish-symbols: could not read a game config (no authored doc, and ${configPath} failed` +
+				' to import) — publishing every symbol. Pass --config <path> or --no-config-filter to silence.',
 		);
 		return;
 	}
+	const { cfg, source } = gate;
+	const used = cfg?.symbols;
+	console.info(`Config filter: gating on the ${source}.`);
 	if (!used || typeof used !== 'object' || Object.keys(used).length === 0) {
 		console.warn(
-			`⚠ publish-symbols: game config ${configPath} has no \`symbols\` map — publishing` +
+			`⚠ publish-symbols: the ${source} has no \`symbols\` map — publishing` +
 				' every symbol (no config filter).',
 		);
 		return;
@@ -283,7 +332,7 @@ async function filterToGameConfig(symbols) {
 	const onReels = symbolsOnReels(cfg);
 	if (!onReels) {
 		console.warn(
-			`⚠ publish-symbols: game config ${configPath} has no readable reel strips` +
+			`⚠ publish-symbols: the ${source} has no readable reel strips` +
 				' (`paddingReels`) — filtering by the symbol dictionary alone, which can keep a row' +
 				' for a symbol the game never deals.',
 		);
@@ -297,11 +346,11 @@ async function filterToGameConfig(symbols) {
 
 	if (dropped.length) {
 		console.info(
-			`Config filter: dropped ${dropped.length} unused symbol(s) not in ${configPath} — ` +
+			`Config filter: dropped ${dropped.length} unused symbol(s) not in the ${source} — ` +
 				`${dropped.join(', ')}.`,
 		);
 	} else {
-		console.info(`Config filter: all mapped symbols are in play per ${configPath}.`);
+		console.info(`Config filter: all mapped symbols are in play per the ${source}.`);
 	}
 	if (missingArt.length) {
 		console.warn(

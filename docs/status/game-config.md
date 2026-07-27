@@ -2,10 +2,11 @@
 
 > Design: [docs/design/invisible-game-config.md](../design/invisible-game-config.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) · Agent: `.claude/agents/invisible-game-config.md`
 
-**One-line state:** Phases 1–4 landed — the `/config` tool exists and an authored config reaches
-the running game. Only Phase 5 (retiring the duplication) remains. **Live-verify owed:** the page
-renders only inside the launcher (Postgres + R2 + a login session), so it has NOT been rendered yet
-— build + pure logic are verified; the rendered page + save round-trip are the owner's click-through.
+**One-line state:** All five phases landed — the `/config` tool exists, an authored config reaches
+the running game, and the symbol-defaults publish gates on the authored config. **Live-verify
+owed:** the `/config` page renders only inside the launcher (Postgres + R2 + a login session), so it
+has NOT been rendered yet — build + pure logic are verified; the rendered page + save round-trip are
+the owner's click-through.
 
 ## Current state
 
@@ -94,28 +95,39 @@ config" inside an app whose `build` is not a type-check — the `COMPONENT_PARAM
 (see `apps/launcher-api/CLAUDE.md`). The canonicalizer + validator are that one answer and produce
 better 400s. Reversible if a use case demands Zod.
 
+All five build-plan phases are done. What remains is verification the environment couldn't reach,
+plus two follow-ups the plan deliberately deferred.
+
 ## Open items / next
 
 1. **Live-verify the page** (owner click-through) — render `/config` in the deployed launcher,
    confirm it loads a project's config, the panels edit it, an off-grid payline blocks the save, a
    paste-in through the raw-JSON hatch validates, and a save round-trips (then re-fetch to confirm
    the game runs it). This is the one thing offline verification couldn't reach.
-2. **Phase 5 — retire the duplication**, incl. pointing `publish-symbol-defaults.mjs` at the
-   authored doc rather than the compiled module, and `packages/game-spec`'s generator, which still
-   emits const-based `paytable.ts`/`infoManifest.ts` for a scaffolded game and so would ignore the
-   authored config.
-3. **Grid dimensions from the config** — `BOARD_DIMENSIONS` still derives from `INITIAL_BOARD`, so
-   an authored `numReels`/`numRows` doesn't resize the board (see above). Its own change.
-4. **Validate against the RGS** (design doc open decision 3) — compare the config's symbol set to
+2. **Grid dimensions from the config** — `BOARD_DIMENSIONS` still derives from `INITIAL_BOARD`, so
+   an authored `numReels`/`numRows` doesn't resize the board. Its own change.
+3. **Validate against the RGS** (design doc open decision 3) — compare the config's symbol set to
    the first `reveal` and warn on a mismatch. `warnOnGameConfigIssues()` is the natural home; it
    would have caught the wild on the first spin.
 
+**Not a gap:** `packages/game-spec`'s generator emits const-based `paytable.ts`/`infoManifest.ts`,
+but it is a standalone CLI that `new-game.mjs` does NOT call — the scaffold copies `src/` from an
+existing game (now `apps/lines`, with the accessor-based files), so a new game inherits the authored
+-config wiring automatically. Left as-is on purpose.
+
 ## Blocked (owner / external)
 
-- **Phase 4 live-verify** waits on a launcher deploy + a click-through — the page can't render
+- **Live-verify** waits on a launcher deploy + a click-through — the `/config` page can't render
   locally (Postgres + R2 + session). Not blocking the merge; it's a post-deploy check.
 
 ## Recent changes
+
+- 2026-07-24 — Phase 5: `publish-symbol-defaults.mjs` now gates its symbol set on the AUTHORED game
+  config (fetched from `GET /api/game-config/doc`) when a project has one, falling back to the
+  compiled module — so the Symbols grid mirrors what actually ships. Fixed a self-inflicted
+  regression: `constants.ts` (imported standalone by that script) must not pull in
+  `gameConfig`→`editor-scenes`, so the `paddingReels()` accessor moved to `gameConfig.ts` and its
+  consumers import it there.
 
 - 2026-07-24 — Phase 4: the `/config` tool — `roles.ts` registration (icon, TOOLS, ROLE_TOOLS,
   TOOL_BAR_ORDER, TOOL_DOC_SLUG), the page (Identity/Grid/Bet modes/Symbols/Paylines/Reel

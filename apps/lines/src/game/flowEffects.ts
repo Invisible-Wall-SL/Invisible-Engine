@@ -51,7 +51,8 @@ import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
-import { paddingReels, BOARD_DIMENSIONS } from './constants';
+import { BOARD_DIMENSIONS } from './constants';
+import { paddingReels } from './gameConfig';
 import { bakedSymbolNames, bakedWinLineEnabled, bakedWinText } from '../editor-scenes';
 
 // ---------------------------------------------------------------------------

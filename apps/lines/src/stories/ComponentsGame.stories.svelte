@@ -18,7 +18,7 @@
 	import Game from '../components/Game.svelte';
 	import { setContext } from '../game/context';
 	import { eventEmitter } from '../game/eventEmitter';
-	import { paddingReels } from '../game/constants';
+	import { paddingReels } from '../game/gameConfig';
 
 	setContext();
 </script>

@@ -1,23 +1,12 @@
 import _ from 'lodash';
 
-import { getPaddingReels } from './gameConfig';
-import type { RawSymbol, SymbolState, GameType } from './types';
+import type { RawSymbol, SymbolState } from './types';
 
-/**
- * The cosmetic reel strips for a game type — the blur filler the spinning reel cycles through, and
- * the client's only statement of which symbols reach the board.
- *
- * A FUNCTION, not the old `PADDING_REELS` constant. The constant read the compiled `config.ts` at
- * import time, which is before the live runtime bundle resolves, so an online game spun the sample
- * game's strips — that is exactly how a wild nobody's math emits kept rolling past the board.
- * Resolved per call against the active config instead.
- *
- * The `RawSymbol[][]` assertion stays here rather than at each call site: the config's cells are
- * `{ name: string }` and the board API wants `RawSymbol[][]`, and the strips only ever hold real
- * symbol ids.
- */
-export const paddingReels = (gameType: GameType): RawSymbol[][] =>
-	getPaddingReels(gameType) as RawSymbol[][];
+// The reel strips moved to `paddingReels()` in `./gameConfig` — deliberately NOT re-exported from
+// here. `constants.ts` must stay import-light: the build-time `publish-symbol-defaults.mjs` imports
+// this module standalone to read `SYMBOL_INFO_MAP`, and pulling in `gameConfig` → `editor-scenes`
+// would drag the whole engine graph (`state-shared`, …) into that import and the publish would bail.
+// Consumers import the strips straight from `./gameConfig`.
 
 export const SYMBOL_SIZE = 120;
 

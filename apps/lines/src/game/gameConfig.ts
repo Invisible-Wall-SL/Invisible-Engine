@@ -7,6 +7,7 @@ import {
 
 import { bakedGameConfig } from '../editor-scenes';
 import compiledConfig from './config';
+import type { GameType, RawSymbol } from './types';
 
 /**
  * The game config the game actually runs on — Phase 3 of `docs/design/invisible-game-config.md`.
@@ -73,6 +74,18 @@ export function getSymbolsInPlay(): string[] {
  *  crash mid-spin. */
 export function getPaddingReels(gameType: string): Array<Array<{ name: string }>> {
 	return getActiveGameConfig().paddingReels[gameType] ?? [];
+}
+
+/**
+ * The cosmetic reel strips for a game type, typed for the board API. The one home for the strips
+ * now that they come from the active config, NOT `constants.ts` — which stays import-light so the
+ * build-time symbol-defaults publish can import it standalone (see the note there).
+ *
+ * The `RawSymbol[][]` assertion lives here rather than at each call site: the config's cells are
+ * `{ name: string }`, the board wants `RawSymbol[][]`, and the strips only ever hold real symbol ids.
+ */
+export function paddingReels(gameType: GameType): RawSymbol[][] {
+	return getPaddingReels(gameType) as RawSymbol[][];
 }
 
 /** Line count — the bet-per-line divisor (`total bet / numLines`). */

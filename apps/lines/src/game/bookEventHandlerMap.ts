@@ -25,7 +25,8 @@ import {
 	showWinInfoMessage,
 } from './flowEffects';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
-import { paddingReels, BOARD_DIMENSIONS } from './constants';
+import { BOARD_DIMENSIONS } from './constants';
+import { paddingReels } from './gameConfig';
 
 export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {
 	reveal: async (bookEvent: BookEventOfType<'reveal'>, { bookEvents }: BookEventContext) => {
