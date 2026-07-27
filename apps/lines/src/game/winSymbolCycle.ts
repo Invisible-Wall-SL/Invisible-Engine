@@ -32,7 +32,7 @@
  * the list, replayed over and over.
  */
 
-import { stateBetDerived } from 'state-shared';
+import { stateBetDerived, clearMessage } from 'state-shared';
 import { SECOND } from 'constants-shared/time';
 import { waitForTimeout } from 'utils-shared/wait';
 
@@ -120,6 +120,25 @@ export const stopWinCycle = (): void => {
 	generation += 1;
 	// A stop can land mid-pass with the line drawn; without this it would survive into the spin.
 	clearCycleLine();
+};
+
+/**
+ * Wipe the previous round's win presentation the instant the next spin starts — the win line, its
+ * stamped amount/message, AND the info toast — so the reels roll onto a clean board. Called from the
+ * spin-start seam (`onNewGameStart`), which fires on the BUTTON PRESS, before the RGS responds, so
+ * nothing lingers during the request.
+ *
+ * Unlike {@link clearCycleLine} this is UNCONDITIONAL: it hides whatever line is on screen — one the
+ * cycle drew OR one the round left — because the previous round is over and its presentation must not
+ * survive into the spin. It also stops the running cycle so no pass re-draws behind the clear, and
+ * clears the transient toast (`showWinInfoMessage`), which auto-clears on its own timer and would
+ * otherwise outlive the button press.
+ */
+export const clearWinPresentation = (): void => {
+	stopWinCycle();
+	lineOnScreen = false;
+	eventEmitter.broadcast({ type: 'winLineHide' });
+	clearMessage();
 };
 
 /**

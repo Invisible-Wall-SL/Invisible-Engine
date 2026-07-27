@@ -48,7 +48,7 @@ import { eventEmitter } from './eventEmitter';
 import { stateApp } from './stateApp';
 import { winLevelMap, type WinLevel, type WinLevelData } from './winLevelMap';
 import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
-import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
+import { awaitCue } from './unskippablePresentation';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
 import { boardDimensions, paddingReels, paylineColor } from './gameConfig';
@@ -571,8 +571,16 @@ const effects: Record<string, FlowEffect> = {
 	 * style, default `info`; `durationMs` overrides the hold).
 	 */
 	showMessage: async (payload) => {
+		// A SLAM suppresses the win-info message, symmetric with the win LINE (`winLineEnabledForWin`
+		// is false when slammed): the player pressed to skip this win's narration, so the toast that
+		// names it is skipped too and the info bar stays clear. This is what makes "a spin press clears
+		// ALL win feedback, message included" hold on the fast-forward — a press mid-presentation would
+		// otherwise re-pop this per remaining win. (Owner direction 2026-07-27, superseding the earlier
+		// slam minimum-display for the message; the slam still holds the lit win symbols, so it is not
+		// a blank — see `SLAM_MINIMUM_DISPLAY_CUES`.)
+		if (roundSkip.isSkipped()) return;
 		const kind = typeof payload.kind === 'number' ? payload.kind : undefined;
-		const shown = showWinInfoMessage({
+		showWinInfoMessage({
 			amount: typeof payload.amount === 'number' ? payload.amount : undefined,
 			kind,
 			symbol:
@@ -582,12 +590,6 @@ const effects: Record<string, FlowEffect> = {
 			messageKind: (payload.messageKind as GameMessageKind) ?? 'info',
 			durationMs: payload.durationMs as number | undefined,
 		});
-		// Slam minimum display: both reference choreographies fire this once per win, so without a
-		// hold every message of a multi-win spin is overwritten within the same frame and only the
-		// last one is ever seen. The hold is a bare timer (`slamHold`) — it settles regardless of
-		// anything the slam suppressed. Unslammed this is a no-op and the effect stays synchronous
-		// in effect, so the authored pacing is untouched.
-		if (shown && roundSkip.isSkipped()) await slamHold(SLAM_MESSAGE_HOLD_MS);
 	},
 
 	/**

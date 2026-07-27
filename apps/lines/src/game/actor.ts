@@ -7,6 +7,7 @@ import { createPrimaryMachines, createIntermediateMachines, createGameActor } fr
 import type { Bet } from './typesBookEvent';
 import { stateXstateDerived } from './stateXstate';
 import { playBet, convertTorResumableBet } from './utils';
+import { clearWinPresentation } from './winSymbolCycle';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
 import { paddingReels } from './gameConfig';
 
@@ -21,6 +22,11 @@ const primaryMachines = createPrimaryMachines<Bet>({
 		if (lastRevealEvent) stateGameDerived.enhancedBoard.settle(lastRevealEvent.board);
 	},
 	onNewGameStart: async () => {
+		// The reels are about to roll — clear the previous round's win line, stamped amount/message
+		// and info toast NOW (on the button press, before the RGS responds) so the board is clean the
+		// instant the spin starts. Runs BEFORE the continuous-bet guard below so autoplay/space-hold
+		// rounds clean up too.
+		clearWinPresentation();
 		if ((stateBet.isTurbo && stateXstateDerived.isAutoBetting()) || stateBet.isSpaceHold) return;
 		stateBet.winBookEventAmount = 0;
 		await stateGameDerived.enhancedBoard.preSpin({

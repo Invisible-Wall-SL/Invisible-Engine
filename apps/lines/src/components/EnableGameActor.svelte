@@ -4,6 +4,7 @@
 	import { Text } from 'pixi-svelte';
 
 	import { gameActor } from '../game/actor';
+	import { clearWinPresentation } from '../game/winSymbolCycle';
 	import { getContext } from '../game/context';
 
 	type Props = {
@@ -34,6 +35,13 @@
 		bet: () => gameActor.send({ type: 'BET' }),
 		autoBet: () => gameActor.send({ type: 'AUTO_BET' }),
 		resumeBet: () => gameActor.send({ type: 'RESUME_BET' }),
+		// A SLAM press (`stopButtonClick`, fired while a round is rolling/presenting) wipes the
+		// previous win's line + stamped amount + info-bar message NOW, so any spin press clears the
+		// board — not just a new bet at rest (which clears via `onNewGameStart`). The win LINE is
+		// already slam-gated (`winLineEnabledForWin`) so no later payline redraws behind this; here we
+		// clear the currently-drawn one instantly instead of one-win-later. A no-op when there is
+		// nothing on screen (a slam during the reel roll, before any win).
+		stopButtonClick: () => clearWinPresentation(),
 	});
 </script>
 
