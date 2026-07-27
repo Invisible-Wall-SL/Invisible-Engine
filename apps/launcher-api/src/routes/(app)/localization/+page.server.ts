@@ -7,11 +7,13 @@ import { loadDocWithEtag, normalizeDoc, saveDoc } from '$lib/server/localization
 import type { LocalizationDoc } from '$lib/server/localization';
 import {
 	harvestSceneText,
+	harvestSymbolNames,
 	harvestWinText,
 	reconcileWithEditor,
 } from '$lib/server/localizationHarvest';
 import { ConflictError, formBaseEtag } from '$lib/server/r2';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { TranslateError, translateBatch } from '$lib/server/translate';
 import { getToolOverrides } from '$lib/server/userToolAccess';
@@ -56,13 +58,15 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		user: locals.user,
 	});
 	// Auto-collect the project's text and fold it into the doc as read-only entries owned by the
-	// tool that authored them: the Scene Editor's text nodes (grouped by scene) and Invisible Win
-	// Text's templates (one "Win text" section). A missing doc on either side harvests nothing —
-	// the tool behaves exactly as before.
-	const [loaded, editorDoc, winTextDoc] = await Promise.all([
+	// tool that authored them: the Scene Editor's text nodes (grouped by scene), Invisible Win
+	// Text's templates (one "Win text" section), and the Invisible Symbols State Machine's display
+	// names (one "Symbol names" section). A missing doc on any side harvests nothing — the tool
+	// behaves exactly as before.
+	const [loaded, editorDoc, winTextDoc, symbolsDoc] = await Promise.all([
 		loadDocWithEtag(clientKey, projectKey),
 		loadEditorDoc(clientKey, projectKey),
 		loadWinTextDoc(clientKey, projectKey),
+		loadSymbolsDoc(clientKey, projectKey),
 	]);
 	// The client doc deliberately differs from the stored bytes (auto-collected entries
 	// are folded in below), so the etag guards the stored OBJECT and must not be
@@ -71,6 +75,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	const sections = [
 		...(await harvestSceneText(editorDoc, (id, version) => loadComponent(id, projectKey, version))),
 		...harvestWinText(winTextDoc),
+		...harvestSymbolNames(symbolsDoc),
 	];
 	const { entries, display } = reconcileWithEditor(doc, sections);
 	return { projectKey, doc: { ...doc, entries }, docEtag, sections: display };

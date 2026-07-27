@@ -18,15 +18,17 @@ export interface LocalizationEntry {
 	 *
 	 * `'editor'` = auto-collected from the project's Scene Editor text components.
 	 * `'winText'` = auto-collected from Invisible Win Text's templates (`{count} OF A KIND`, …).
-	 * Both are AUTO origins: the source is read-only here (the owning tool edits it), the rows are
-	 * re-derived on every load, and an untranslated one is not persisted.
+	 * `'symbols'` = auto-collected from the Invisible Symbols State Machine's display names
+	 * (`SymbolsDoc.names`, e.g. `H1` → "Banana"/"Bananas").
+	 * All three are AUTO origins: the source is read-only here (the owning tool edits it), the rows
+	 * are re-derived on every load, and an untranslated one is not persisted.
 	 * `'manual'` = hand-authored in this table; this tool owns it, so it is editable and always
 	 * persisted. Defaults to `'manual'` so legacy docs (no field) round-trip as before.
 	 *
 	 * Anything that is not `'manual'` is an auto origin — prefer testing for that rather than
 	 * listing origins, so a future collector doesn't silently fall into the manual bucket.
 	 */
-	origin: 'manual' | 'editor' | 'winText';
+	origin: 'manual' | 'editor' | 'winText' | 'symbols';
 }
 
 /** The whole per-project localization document stored as JSON in R2. */
@@ -117,6 +119,9 @@ function normalizeEntry(input: unknown, targetLangs: string[]): LocalizationEntr
 			translations[lang] = { text: t.text, reviewed: t.reviewed === true };
 		}
 	}
-	const origin = e.origin === 'editor' || e.origin === 'winText' ? e.origin : 'manual';
+	const origin =
+		e.origin === 'editor' || e.origin === 'winText' || e.origin === 'symbols'
+			? e.origin
+			: 'manual';
 	return { id, key, source, translations, origin };
 }

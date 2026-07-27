@@ -1,6 +1,7 @@
 import type { ComponentDef, ComponentParam, LayoutDoc, LayoutNode, WinTextDoc } from 'engine-layout';
 import { collectWinTextTemplates } from 'engine-layout';
 import type { LocalizationDoc, LocalizationEntry } from './localization';
+import type { SymbolsDoc } from './symbolsStorage';
 
 /**
  * Auto-collect the human-readable text the author placed in the Scene Editor and
@@ -29,8 +30,8 @@ export interface HarvestSection {
 	sceneName: string;
 	items: HarvestedItem[];
 	/** Which tool owns these sources — stamped onto every entry the section reconciles.
-	 *  Defaults to `'editor'` (the original, and only, collector). */
-	origin?: 'editor' | 'winText';
+	 *  Defaults to `'editor'` (the original collector). */
+	origin?: 'editor' | 'winText' | 'symbols';
 }
 
 /** Display grouping handed to the page: a section is a list of entry keys, in order. */
@@ -198,6 +199,42 @@ export function harvestWinText(doc: WinTextDoc | undefined): HarvestSection[] {
 	if (items.length === 0) return [];
 	return [
 		{ sceneId: WIN_TEXT_SECTION_ID, sceneName: 'Win text', items, origin: 'winText' },
+	];
+}
+
+/** The synthetic section id the symbol display names are grouped under (see {@link WIN_TEXT_SECTION_ID}). */
+export const SYMBOL_NAMES_SECTION_ID = '__symbolNames';
+
+/**
+ * Collect the Invisible Symbols State Machine's authored DISPLAY NAMES as one translatable section
+ * — so "Banana"/"Bananas" (the words a game says for `H1`) are localizable, not just the win
+ * templates that interpolate them. Without this a translated info-bar line still reads "…4 Bananas"
+ * in English, because the template translates but the name substituted into it does not.
+ *
+ * Source-as-key, but keyed on the TRIMMED name: unlike scene/win text (looked up by the exact raw
+ * literal), `resolveSymbolName` trims before it calls `resolveLocalizedText` (symbolNames.ts), so a
+ * padded key would never match. `normalizeSymbolsDoc` already stores trimmed names; we trim again to
+ * stay honest against the resolver's contract. Only AUTHORED names are emitted — an unnamed symbol
+ * resolves to its bare id (`H1`), which must never become a translatable row. Numeric-only names
+ * ("7") are dropped by {@link isLocalizableText} (they need no translation). Each row is labelled
+ * with the symbol id + form so the same word on two symbols is still traceable.
+ */
+export function harvestSymbolNames(doc: SymbolsDoc | undefined): HarvestSection[] {
+	const items: HarvestedItem[] = [];
+	const seen = new Set<string>();
+	const add = (raw: string | undefined, label: string): void => {
+		const source = raw?.trim();
+		if (!source || !isLocalizableText(source) || seen.has(source)) return;
+		seen.add(source);
+		items.push({ key: source, source, label });
+	};
+	for (const [symbol, entry] of Object.entries(doc?.names ?? {})) {
+		add(entry?.singular, `${symbol} — singular`);
+		add(entry?.plural, `${symbol} — plural`);
+	}
+	if (items.length === 0) return [];
+	return [
+		{ sceneId: SYMBOL_NAMES_SECTION_ID, sceneName: 'Symbol names', items, origin: 'symbols' },
 	];
 }
 
