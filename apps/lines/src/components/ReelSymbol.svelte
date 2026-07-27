@@ -26,6 +26,7 @@
 	<Symbol
 		state={props.reelSymbol.symbolState}
 		rawSymbol={props.reelSymbol.rawSymbol}
+		winLineColor={props.reelSymbol.winLineColor}
 		oncomplete={() => {
 			if (props.reelSymbol.symbolState === 'win') props.reelSymbol.oncomplete();
 			if (props.reelSymbol.symbolState === 'explosion') props.reelSymbol.oncomplete();

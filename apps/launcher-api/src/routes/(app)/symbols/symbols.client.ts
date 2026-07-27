@@ -82,6 +82,21 @@ export interface SymbolCell {
 /** Symbol name → state → binding (sparse for the override doc, dense for defaults). */
 export type SymbolStateMap = Partial<Record<SymbolState, SymbolCell>>;
 
+/** How the global win-frame highlight tints the winning symbols underneath it.
+ *  `'fixed'` multiplies by {@link HighlightCell.tintColor}; `'winLine'` multiplies by the paying
+ *  line's authored colour (Invisible Game Config `paylineColors`, resolved at win time). Absent ⇒
+ *  no tint (the symbol renders untinted, byte-identical to before). */
+export type HighlightTintMode = 'fixed' | 'winLine';
+
+/** The global win-frame highlight cell. A spine {@link SymbolCell} plus an optional MULTIPLY tint
+ *  the frame applies to the winning symbols it loops over. Lives ONLY on `doc.highlight` — the
+ *  generic per-cell `SymbolCell` grid schema is deliberately untouched. */
+export type HighlightCell = SymbolCell & {
+	tintMode?: HighlightTintMode;
+	/** `#rrggbb`, used only when `tintMode === 'fixed'`. */
+	tintColor?: string;
+};
+
 /** Win-line overlay style — the line drawn across paying symbols. All optional/sparse:
  *  unset fields fall through to the game's coded defaults. Colours are CSS hex strings;
  *  `width` is a multiple of the symbol size; `speed` is a draw-speed multiplier. */
@@ -134,8 +149,9 @@ export interface SymbolsDoc {
 	names?: Record<string, SymbolNameEntry>;
 	/** Global win-frame spine that loops over winning symbols. Absent = the game's
 	 *  built-in default (a local `payframe` spine). Set ONLY when the user overrides
-	 *  it with an R2 spine bundle; never written for the default. */
-	highlight?: SymbolCell;
+	 *  it with an R2 spine bundle; never written for the default. Carries an optional
+	 *  MULTIPLY tint (`tintMode`/`tintColor`) applied to the symbols it frames. */
+	highlight?: HighlightCell;
 	/** Global free-spin board-glow spine — the reel-house backdrop behind the reels. Absent =
 	 *  the game's coded `reelhouse` glow. Set ONLY when the user swaps in an R2 spine bundle
 	 *  (a Rigger `.irig` rig included); never written for the default. `animations` renames the
@@ -167,7 +183,7 @@ export interface SymbolDefaults {
 	symbols: Record<string, SymbolStateMap>;
 	/** The game's built-in win-frame default — display only, so the tool can show
 	 *  "current = default (payframe)". Never forced into an override doc. */
-	highlight?: SymbolCell;
+	highlight?: HighlightCell;
 }
 
 /** The effective binding for a cell = override ?? coded default (may be absent). */
@@ -216,13 +232,14 @@ export function clearOverride(doc: SymbolsDoc, symbol: string, state: SymbolStat
 export function effectiveHighlight(
 	doc: SymbolsDoc,
 	defaults: SymbolDefaults,
-): { cell: SymbolCell | undefined; overridden: boolean } {
+): { cell: HighlightCell | undefined; overridden: boolean } {
 	if (doc.highlight) return { cell: doc.highlight, overridden: true };
 	return { cell: defaults.highlight, overridden: false };
 }
 
-/** Set the global highlight override, returning a NEW doc (immutable update). */
-export function setHighlight(doc: SymbolsDoc, cell: SymbolCell): SymbolsDoc {
+/** Set the global highlight override, returning a NEW doc (immutable update). The `cell` carries
+ *  its own `tintMode`/`tintColor`, so the tint choice travels with the frame binding. */
+export function setHighlight(doc: SymbolsDoc, cell: HighlightCell): SymbolsDoc {
 	return { ...doc, highlight: cell };
 }
 
@@ -438,6 +455,8 @@ export function docSignature(doc: SymbolsDoc): string {
 				type: doc.highlight.type,
 				assetKey: doc.highlight.assetKey,
 				animationName: doc.highlight.animationName ?? '',
+				tintMode: doc.highlight.tintMode ?? '',
+				tintColor: doc.highlight.tintColor ?? '',
 			}
 		: null;
 	// Sort style keys so the signature is stable regardless of how fields were merged in.

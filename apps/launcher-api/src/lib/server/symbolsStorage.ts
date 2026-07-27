@@ -85,13 +85,23 @@ const symbolNameSchema = z
 const symbolNamesSchema = z.record(z.string().min(1), symbolNameSchema);
 
 /** Global win-frame ("highlight") override — a single spine that loops over winning
- *  symbols. Optional + spine-only: absent means the game uses its built-in default. */
+ *  symbols. Optional + spine-only: absent means the game uses its built-in default.
+ *
+ *  `tintMode`/`tintColor` are a MULTIPLY tint the frame applies to the symbols it loops over:
+ *  `'fixed'` uses `tintColor` (a `#rrggbb` hex); `'winLine'` uses the paying line's authored colour
+ *  (`paylineColors`, resolved at win time). Both absent ⇒ no tint (byte-identical to before). Added
+ *  ONLY here on the dedicated highlight schema — the generic per-cell schema is untouched. */
 const highlightCellSchema = z
 	.object({
 		type: z.literal('spine'),
 		assetKey: z.string().min(1),
 		animationName: z.string().min(1).optional(),
 		sizeRatios: sizeRatiosSchema,
+		tintMode: z.enum(['fixed', 'winLine']).optional(),
+		tintColor: z
+			.string()
+			.regex(/^#[0-9a-fA-F]{6}$/)
+			.optional(),
 	})
 	.strict();
 

@@ -49,6 +49,25 @@ Working on `main`:
   `/api/editor/rig-fx`). The overlay applies the **full bone transform** (position +
   rotation + per-axis scale via `setFromMatrix` / `FxTransform`), so `/symbols`, `/rigger`,
   and the running game agree on rotated/scaled bones. ⏳ owner visual-verify.
+- **Highlight tint** (2026-07-27, default = no tint). The `highlight` cell gained two sparse
+  fields on its dedicated schema — `tintMode: 'fixed' | 'winLine'` and `tintColor` (`#rrggbb`,
+  `fixed` only) — a MULTIPLY tint the win-frame overlay applies to the winning symbols.
+  `fixed` uses the authored swatch; `winLine` picks up each paying line's colour from the game
+  config's `paylineColors` (resolved at win time, so no bake dependency). The `/symbols`
+  highlight editor gained a "Tint" mode select + a colour picker (shown for `fixed`). Runtime:
+  a new `tint?: number` prop on pixi-svelte `BaseSpineProvider`/`SpineProvider` applies it via
+  the spine `skeleton.color` (multiply, NOT sprite `.tint`); `SymbolSpine.svelte` resolves the
+  number from `tintMode`. The per-win line colour is threaded to the frame through
+  `animateSymbols({color})` → `boardWithAnimateSymbols.winLineColor` → the reel cell
+  (`utils-slots` `winLineColor`) → `ReelSymbol`/`Symbol` → `SymbolSpine` (coded `winInfo`, the
+  post-win replay, and the flow-v2 `animateWinSymbols` leaf all pass it). Threaded the full
+  chain per rule 8: Zod (`.strict`) + client type/`setHighlight`/`docSignature`/PUT body →
+  `SymbolExportHighlight` → `bake-editor-doc.mjs` whitelist → `BakedBundle.symbols.highlight`
+  → `bakedHighlight()`. Verified offline against the schema (accept+preserve both modes,
+  `.strict` rejects unknown keys, bad hex/mode rejected) + the bake whitelist; `pixi-svelte`,
+  `lines`, and `launcher-api` all build clean. ⏳ owner visual-verify a tinted win frame + a
+  `winLine`-tinted frame on a multi-colour-payline config. **Engine change — needs a Borut
+  submodule bump + runtime release to reach the remake.**
 - **Doc-level globals** (design §S6): `highlight` (win-frame spine, sparse, spine-only,
   default = built-in `payframe`) and `winLine` (payline overlay on/off + line/text style,
   sparse config, no asset). Both travel verbatim through `symbolExport.ts` →

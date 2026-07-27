@@ -109,14 +109,23 @@ export const winLevelSoundsStop = () => {
 const awaitPresentation = (emitterEvent: Parameters<typeof eventEmitter.broadcastAsync>[0]) =>
 	awaitCue(emitterEvent.type, eventEmitter.broadcastAsync(emitterEvent));
 
-/** The awaited symbol-spine animation — the `winInfo` / `freeSpinTrigger` leaf. */
-export const animateSymbols = async ({ positions }: { positions: Position[] }) => {
+/** The awaited symbol-spine animation — the `winInfo` / `freeSpinTrigger` leaf. `color` (the paying
+ *  line's authored colour, `#rrggbb`) is threaded onto the lit cells so a `winLine`-tinted highlight
+ *  frame glows in that line's colour; absent ⇒ the frame renders untinted (byte-identical). */
+export const animateSymbols = async ({
+	positions,
+	color,
+}: {
+	positions: Position[];
+	color?: string;
+}) => {
 	eventEmitter.broadcast({ type: 'boardShow' });
 	// The symbols are only PRESENTATION — the win amount is carried by `setTotalWin` / `setWin`,
 	// which still run — so releasing early cannot drop a win.
 	await awaitPresentation({
 		type: 'boardWithAnimateSymbols',
 		symbolPositions: positions,
+		winLineColor: color,
 	});
 };
 
@@ -615,6 +624,9 @@ const effects: Record<string, FlowEffect> = {
 				positions: payload.positions as Position[],
 				kind: payload.kind as number,
 			}),
+			// Same per-line colour the sibling `showWinLine` uses, so a `winLine`-tinted highlight glows
+			// in this line's colour on the v2 path too; absent `line` ⇒ undefined ⇒ untinted.
+			color: winLineColorFor(payload.line as number | undefined),
 		});
 	},
 

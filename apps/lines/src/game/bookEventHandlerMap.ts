@@ -83,7 +83,12 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 				);
 			}
 
-			await animateSymbols({ positions: winningPositions });
+			await animateSymbols({
+				positions: winningPositions,
+				// Same colour fed to the line draw above (line 75) — reused so a `winLine`-tinted
+				// highlight frame glows in this paying line's colour; undefined ⇒ untinted.
+				color: winLineColorFor(win.meta?.lineIndex),
+			});
 
 			if (showWinLine) eventEmitter.broadcast({ type: 'winLineHide' });
 
