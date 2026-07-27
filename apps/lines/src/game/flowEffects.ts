@@ -52,7 +52,12 @@ import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentat
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
 import { boardDimensions, paddingReels } from './gameConfig';
-import { bakedSymbolNames, bakedWinLineEnabled, bakedWinText } from '../editor-scenes';
+import {
+	bakedSymbolNames,
+	bakedWinLineConfig,
+	bakedWinLineEnabled,
+	bakedWinText,
+} from '../editor-scenes';
 
 // ---------------------------------------------------------------------------
 // Shared leaves — the SAME helpers the coded handlers use. The coded
@@ -232,6 +237,19 @@ export const winLinePointsFor = (positions: Position[]) =>
 		x: getSymbolX(position.reel),
 		y: stateGame.board[position.reel].reelState.symbols[position.row].symbolY(),
 	}));
+
+/**
+ * The FULL payline's points (all reels), for the optional "Show full payline" underlay drawn
+ * beneath the winning segment (Invisible Symbols State Machine → `winLine.line.fullPayline`).
+ * Returns `undefined` when the author hasn't enabled it, so parity is preserved and the caller
+ * simply omits the field. The full path is `win.positions` sorted by reel — a superset of the
+ * paying `winningPositionsOf`. Fed to `winLineShow.fullPoints`, which `WinLine.svelte` draws.
+ */
+export const winLineFullPointsFor = (win: { positions: Position[] }) => {
+	if (!bakedWinLineConfig().line.fullPayline) return undefined;
+	const full = [...win.positions].sort((a, b) => a.reel - b.reel);
+	return full.length >= 2 ? winLinePointsFor(full) : undefined;
+};
 
 /**
  * The single source of truth for the win line's TEXT — the `amount` stamp plus the authored
@@ -602,6 +620,7 @@ const effects: Record<string, FlowEffect> = {
 		await awaitPresentation({
 			type: 'winLineShow',
 			points: winLinePointsFor(winningPositionsOf(win)),
+			fullPoints: winLineFullPointsFor(win),
 			...winLineTextFor({
 				symbol: win.symbol,
 				kind: win.kind,

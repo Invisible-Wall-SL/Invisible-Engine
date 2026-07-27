@@ -2,7 +2,16 @@
 	export type WinLinePoint = { x: number; y: number };
 
 	export type EmitterEventWinLine =
-		| { type: 'winLineShow'; points: WinLinePoint[]; amount: string; message: string }
+		| {
+				type: 'winLineShow';
+				points: WinLinePoint[];
+				amount: string;
+				message: string;
+				/** The WHOLE payline (all reels), drawn as a static underlay beneath the winning
+				 *  segment when the author enabled "Show full payline". Absent ⇒ nothing extra is
+				 *  drawn (byte-identical to before). */
+				fullPoints?: WinLinePoint[];
+		  }
 		| { type: 'winLineHide' };
 </script>
 
@@ -29,6 +38,8 @@
 	const text = cfg.text;
 
 	let points = $state<WinLinePoint[]>([]);
+	// The whole payline (all reels), drawn as a static underlay when "Show full payline" is on.
+	let fullPoints = $state<WinLinePoint[]>([]);
 	let amount = $state('');
 	/** The authored per-win message (Invisible Win Text), already localized + interpolated by
 	 *  `winLineTextFor`. Empty unless authored — that is the parity default, since the win line
@@ -52,6 +63,7 @@
 	context.eventEmitter.subscribeOnMount({
 		winLineShow: async (emitterEvent) => {
 			points = emitterEvent.points;
+			fullPoints = emitterEvent.fullPoints ?? [];
 			amount = emitterEvent.amount;
 			message = emitterEvent.message;
 			// A slammed round draws the line COMPLETE at once (final state, not a dropped line).
@@ -73,6 +85,7 @@
 		},
 		winLineHide: () => {
 			points = [];
+			fullPoints = [];
 			amount = '';
 			message = '';
 			revealed = true;
@@ -164,9 +177,23 @@
 	// redraws the growing line (the closure captures the current progress value).
 	const draw = $derived.by(() => {
 		const pts = points;
+		const full = fullPoints;
 		const p = progress.current;
 		const coreWidth = SYMBOL_SIZE * line.width;
 		return (graphics: DrawGraphics) => {
+			// Optional full-payline underlay: the WHOLE path (all reels), drawn COMPLETE (no
+			// animated reveal — it is context, not the win) BENEATH the winning segment, in its own
+			// colour. Off by default, so an un-authored game draws nothing here.
+			if (line.fullPayline && full.length >= 2) {
+				tracePath(graphics, full, 1);
+				graphics.stroke({
+					color: line.fullPaylineColor,
+					width: coreWidth,
+					alpha: 0.85,
+					cap: 'round',
+					join: 'round',
+				});
+			}
 			if (pts.length < 2) return;
 			// Optional glow: a soft halo built from a few progressively wider, fainter
 			// strokes in the glow colour under the core line (no filter dependency).
@@ -203,7 +230,7 @@
 	<BoardContainer>
 		<Graphics {draw} />
 
-		{#if label && revealed}
+		{#if label && revealed && labelText}
 			<Container x={label.x} y={label.y}>
 				<ResponsiveBitmapText
 					anchor={{ x: 0.5, y: 0 }}

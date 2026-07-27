@@ -56,6 +56,13 @@ Working on `main`:
   **shared engine** (`apps/lines/components/WinLine.svelte` + `bakedWinLineConfig()`,
   `806d6cf`), so every `runtime:lines` game draws it (default-on) — Book of Borut _remake_
   now included. ⏳ owner confirm the drawn line on a real win.
+- **Show full payline** (2026-07-27, default OFF). `winLine.line.fullPayline` +
+  `line.fullPaylineColor` (coded default `#4a90d9`): when on, the line is traced across the
+  WHOLE payline (all reels) as a static underlay beneath the winning segment, in the chosen
+  colour; off ⇒ winning segment only (byte-identical). Rides `winLine.line` verbatim through
+  export/bake; the renderer gets the full path as `winLineShow.fullPoints`
+  (`flowEffects#winLineFullPointsFor`, gated on the flag), fed by BOTH the coded `winInfo`
+  handler and the post-win replay. ⏳ owner visual-verify.
 - **Winning SYMBOLS keep animating until the next spin** (2026-07-24, default ON). Doc-level
   `winCycle: { enabled?, delay?, showLine? }` (seconds, default `0.4`) authors the engine's
   `winSymbolCycle`: once a round's book is fully presented the game re-lights that spin's
@@ -70,7 +77,10 @@ Working on `main`:
   at all. `winLineEnabledForWin` is the shared gate, so the Win-lines toggle still has the final
   say and a scatter win lights symbols with no line. Its OWN section in the tool ("Winning
   symbols after the spin"), NOT a `winLine` field, so switching the overlay off can never stop
-  the symbols.
+  the symbols. **`showText` (2026-07-27, default ON, tool switch "Replay the win text too")
+  decouples the stamped amount from the line:** with `showLine` on, `showText` off keeps the
+  line replaying but drops the win-amount text (the cycle sends empty strings, so `WinLine`
+  draws the line with no stamp). Independent switches; unset ⇒ both on (prior behaviour).
 - **Full deploy chain** (export → `deploy/editor-symbols/` → bake → pull → register):
   spine-aware `symbolExport.ts`, `POST /api/editor/export-symbols`, `bake-editor-doc.mjs`
   wiring, `pull-project-assets.mjs` prune entry, `bakedSymbolMap()` / `bakedSymbolAssets()`.
@@ -98,6 +108,29 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+
+- 2026-07-27 — **Two owner-requested win-line options, wired end-to-end.** (A) **"Show full
+  payline"** in the Win lines section — `winLine.line.fullPayline` (bool, default OFF) +
+  `line.fullPaylineColor` (coded default `#4a90d9`): draws the WHOLE payline across all reels as
+  a static underlay beneath the winning segment. Rides `winLine.line` verbatim through
+  export/bake; both the coded `winInfo` handler and the post-win replay pass the full path as
+  `winLineShow.fullPoints` via `flowEffects#winLineFullPointsFor` (gated on the flag), and
+  `WinLine.svelte` strokes it complete under the animated winning line. (B) **"Replay the win
+  text too"** in the "Winning symbols after the spin" section — `winCycle.showText` (bool,
+  default ON) decouples the stamped amount from the line so the author can keep the line
+  replaying without the number; `winSymbolCycle.ts` sends empty strings when off (`WinLine`'s
+  label is now gated on non-empty text). **Two latent bake-path bugs fixed on the way past:**
+  (1) `POST /api/editor/export-symbols` was dropping `winCycle` AND `names` from its response
+  destructure, so the win-symbol replay settings and symbol display names never reached the
+  BAKE path (only the live runtime path, which uses the full `SymbolExportResult`, carried
+  them) — both now forwarded; (2) `bake-editor-doc.mjs`'s winCycle whitelist tested
+  `showLine === true`, inverted for the default-ON/sparse-off semantics, so a project that
+  switched the line replay OFF re-enabled it through a bake — now `=== false` (and `showText`
+  matches). Verified: `pnpm --filter launcher-api build` + `pnpm --filter lines build` green;
+  14/14 offline checks over the REAL `normalizeSymbolsDoc` (fullPayline/fullPaylineColor +
+  showText round-trip, sparse-default pruning, `.strict` rejects unknown keys). ⏳ **Owner
+  visual-verify** (auth-gated tool + the drawn line on a real win). **Book of Borut (separate
+  repo) needs an engine-submodule bump** to pick up the shared-engine renderer changes.
 
 - 2026-07-24 — **`/symbols` never SAVED any `winCycle` setting** (found when an author flipped "Replay the win line too" on and Save put it back): `saveSymbolsDoc` in `symbols.client.ts` built the PUT body from a hand-copied field list (`version`/`symbols`/`highlight`/`boardGlow`/`winLine`), so the whole `winCycle` object — replay on/off, gap AND `showLine` — never left the browser; the server echoed a doc without it and the UI reset. The three older fields only survived because they predate the list. Fixed by spreading the doc (`{...doc, version: 1, …envelope}`) instead of enumerating it — the server re-validates and rebuilds from its own whitelist (`normalizeSymbolsDoc`, schema `.strip()`), so extra keys are harmless and a future doc-level field can't rot the same way. This is the third instance of the hand-copied-allowlist trap in this app (see `launcher-api/CLAUDE.md`); the guard is a Node fixture that stubs `fetch`, calls the REAL `saveSymbolsDoc` and feeds the captured body to the REAL `normalizeSymbolsDoc` — the earlier fixture only tested the server half, which is why this slipped through. `showLine` also flipped to **default ON** (owner request), so sparse persistence now keeps only the OFF.
 

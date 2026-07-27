@@ -22,11 +22,24 @@ export const POST: RequestHandler = async ({ url }) => {
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 
 	try {
-		const { map, index, highlight, boardGlow, winLine } = await exportEditorSymbols(
+		// Forward the WHOLE export result's config fields. `winCycle` + `names` were previously
+		// dropped by this destructure, so the win-symbol replay settings (on/off, gap, replay
+		// line/text) and the symbol display names never reached the BAKE path (`bake-editor-doc.mjs`
+		// reads them off this response) — only the live runtime path, which uses the full
+		// `SymbolExportResult`, carried them. Both bundle paths must agree (the "reach both" rule).
+		const { map, index, names, highlight, boardGlow, winLine, winCycle } =
+			await exportEditorSymbols(clientKey, projectKey);
+		return json({
 			clientKey,
 			projectKey,
-		);
-		return json({ clientKey, projectKey, map, index, highlight, boardGlow, winLine });
+			map,
+			index,
+			names,
+			highlight,
+			boardGlow,
+			winLine,
+			winCycle,
+		});
 	} catch (e) {
 		console.error('export-symbols failed:', e);
 		throw error(502, 'Failed to export the symbol-bound assets.');

@@ -157,7 +157,7 @@ type BakedBundle = {
 		 * `winSymbolCycle.ts`): keep them animating until the next spin. Deliberately NOT part of
 		 * `winLine` — the line is a separate switch and the replay only draws it when
 		 * `showLine` is on. Sparse; both `enabled` and `showLine` absent ⇒ on. */
-		winCycle?: { enabled?: boolean; delay?: number; showLine?: boolean };
+		winCycle?: { enabled?: boolean; delay?: number; showLine?: boolean; showText?: boolean };
 		winLine?: {
 			enabled?: boolean;
 			line?: {
@@ -167,6 +167,8 @@ type BakedBundle = {
 				glowColor?: string;
 				animated?: boolean;
 				speed?: number;
+				fullPayline?: boolean;
+				fullPaylineColor?: string;
 			};
 			text?: { font?: string; size?: number; color?: string };
 		};
@@ -530,6 +532,10 @@ export type ResolvedWinLine = {
 		glowColor: string;
 		animated: boolean;
 		speed: number;
+		/** Trace the whole payline (all reels) as an underlay, not just the winning segment. */
+		fullPayline: boolean;
+		/** Colour of that full-payline underlay. */
+		fullPaylineColor: string;
 	};
 	text: { font: string; size: number; color: string };
 };
@@ -550,6 +556,8 @@ export function bakedWinLineConfig(): ResolvedWinLine {
 			glowColor: w?.line?.glowColor ?? color,
 			animated: w?.line?.animated ?? false,
 			speed: w?.line?.speed ?? 1,
+			fullPayline: w?.line?.fullPayline ?? false,
+			fullPaylineColor: w?.line?.fullPaylineColor ?? '#4a90d9',
 		},
 		text: {
 			font: w?.text?.font ?? 'gold',
@@ -562,16 +570,27 @@ export function bakedWinLineConfig(): ResolvedWinLine {
 /** The resting-board WIN-SYMBOL replay, fully RESOLVED (`winSymbolCycle.ts`): whether the round's
  * winning symbols keep animating until the next spin, the pause in SECONDS between two passes
  * (floored by the cycle's own minimum), and whether each pass ALSO redraws that win's line +
- * stamped amount. Defaults to on / 0.4s / line drawn. Sibling of {@link bakedWinLineConfig} by
- * design — that owns the line's existence and style, this owns the replay; `showLine` only asks
- * the replay to reuse the line, and the win-line toggle still has the final say. */
-export function bakedWinCycleConfig(): { enabled: boolean; delay: number; showLine: boolean } {
+ * stamped amount. `showText` gates ONLY the stamped amount, independently of `showLine`. Defaults
+ * to on / 0.4s / line drawn / text drawn. Sibling of {@link bakedWinLineConfig} by design — that
+ * owns the line's existence and style, this owns the replay; `showLine`/`showText` only ask the
+ * replay to reuse the line + amount, and the win-line toggle still has the final say. */
+export function bakedWinCycleConfig(): {
+	enabled: boolean;
+	delay: number;
+	showLine: boolean;
+	showText: boolean;
+} {
 	const c = hasRuntimeBundle()
 		? runtimeBundle!.symbols?.winCycle
 		: hasBakedDoc()
 			? bakedBundle.symbols?.winCycle
 			: undefined;
-	return { enabled: c?.enabled ?? true, delay: c?.delay ?? 0.4, showLine: c?.showLine ?? true };
+	return {
+		enabled: c?.enabled ?? true,
+		delay: c?.delay ?? 0.4,
+		showLine: c?.showLine ?? true,
+		showText: c?.showText ?? true,
+	};
 }
 
 /**

@@ -11,7 +11,8 @@
  * between passes, so the rotation reads as the round's own per-win narration on repeat. Turning
  * `winCycle.showLine` off (Symbols State Machine) makes the replay symbols-only, and the cycle
  * then never broadcasts `winLineShow`/`winLineHide` at all, leaving whatever the round put on
- * screen exactly as it was.
+ * screen exactly as it was. `winCycle.showText` gates ONLY the stamped amount, INDEPENDENTLY of
+ * the line: off keeps the line replaying but drops the amount text.
  *
  * WHY IT LIVES OUTSIDE THE HANDLER. The cycle is not part of any book event: it starts after the
  * whole book has been presented and must survive as long as nothing else is happening. It is
@@ -34,6 +35,7 @@ import { eventEmitter } from './eventEmitter';
 import {
 	animateSymbols,
 	winLineEnabledForWin,
+	winLineFullPointsFor,
 	winLinePointsFor,
 	winLineTextFor,
 	winningPositionsOf,
@@ -152,17 +154,24 @@ export const startWinCycle = async (): Promise<void> => {
 			const withLine = cfg.showLine && winLineEnabledForWin(win);
 			if (withLine) {
 				lineOnScreen = true;
+				// The stamped AMOUNT is gated INDEPENDENTLY of the line (`showText`): the author can
+				// keep the line replaying while dropping the amount. Off ⇒ empty strings ⇒
+				// `WinLine.svelte` draws the line but no stamp. Default on ⇒ the full narration.
+				const stamp = cfg.showText
+					? winLineTextFor({
+							symbol: win.symbol,
+							kind: win.kind,
+							amount: win.win,
+							line: win.meta?.lineIndex,
+						})
+					: { amount: '', message: '' };
 				// Awaited like the round's own draw, so an animated line finishes tracing and stamps
 				// its amount before the symbols are lit — same beat order the spin played.
 				await eventEmitter.broadcastAsync({
 					type: 'winLineShow',
 					points: winLinePointsFor(positions),
-					...winLineTextFor({
-						symbol: win.symbol,
-						kind: win.kind,
-						amount: win.win,
-						line: win.meta?.lineIndex,
-					}),
+					fullPoints: winLineFullPointsFor(win),
+					...stamp,
 				});
 				if (token !== generation) return;
 			}

@@ -388,7 +388,12 @@ async function main() {
 				const out = {};
 				if (c.enabled === false) out.enabled = false;
 				if (typeof c.delay === 'number') out.delay = c.delay;
-				if (c.showLine === true) out.showLine = true;
+				// `showLine`/`showText` default ON, so ONLY the off-state persists (matching the
+				// exporter's sparse doc + `bakedWinCycleConfig`'s `?? true`). The prior `=== true`
+				// tests were inverted for the default-ON flip and silently dropped the OFF state,
+				// re-enabling the line replay through a bake.
+				if (c.showLine === false) out.showLine = false;
+				if (c.showText === false) out.showText = false;
 				return Object.keys(out).length ? out : undefined;
 			})();
 			// Symbol DISPLAY NAMES (`H1` → "Banana"), pure text. Invisible Win Text reads these as
