@@ -11,6 +11,10 @@
 				 *  segment when the author enabled "Show full payline". Absent ⇒ nothing extra is
 				 *  drawn (byte-identical to before). */
 				fullPoints?: WinLinePoint[];
+				/** The winning payline's authored colour (`#rrggbb`, Invisible Game Config). When set,
+				 *  the line draws in this colour instead of the single Symbols-tool default, and it is
+				 *  published as the reusable win colour for assets on this win. Absent ⇒ the default. */
+				color?: string;
 		  }
 		| { type: 'winLineHide' };
 </script>
@@ -40,6 +44,9 @@
 	let points = $state<WinLinePoint[]>([]);
 	// The whole payline (all reels), drawn as a static underlay when "Show full payline" is on.
 	let fullPoints = $state<WinLinePoint[]>([]);
+	/** The winning payline's authored colour (Invisible Game Config), when it has one. Overrides the
+	 *  single Symbols-tool line colour for this win; `undefined` ⇒ the authored default draws. */
+	let winColor = $state<string | undefined>(undefined);
 	let amount = $state('');
 	/** The authored per-win message (Invisible Win Text), already localized + interpolated by
 	 *  `winLineTextFor`. Empty unless authored — that is the parity default, since the win line
@@ -66,6 +73,10 @@
 			fullPoints = emitterEvent.fullPoints ?? [];
 			amount = emitterEvent.amount;
 			message = emitterEvent.message;
+			winColor = emitterEvent.color;
+			// Publish the reusable win colour so any asset shown on this win can tint itself to the
+			// winning payline. Cleared on hide. `null` when the line has no authored colour.
+			context.stateGame.winLineColor = emitterEvent.color ?? null;
 			// A slammed round draws the line COMPLETE at once (final state, not a dropped line).
 			if (line.animated && !roundSkip.isSkipped() && emitterEvent.points.length >= 2) {
 				revealed = false;
@@ -88,6 +99,8 @@
 			fullPoints = [];
 			amount = '';
 			message = '';
+			winColor = undefined;
+			context.stateGame.winLineColor = null;
 			revealed = true;
 			progress.set(1, { duration: 0 });
 		},
@@ -180,6 +193,10 @@
 		const full = fullPoints;
 		const p = progress.current;
 		const coreWidth = SYMBOL_SIZE * line.width;
+		// The winning payline's authored colour overrides BOTH the core line and its glow halo, so the
+		// whole line reads as that colour; un-coloured wins keep the single Symbols-tool defaults.
+		const coreColor = winColor ?? line.color;
+		const haloColor = winColor ?? line.glowColor;
 		return (graphics: DrawGraphics) => {
 			// Optional full-payline underlay: the WHOLE path (all reels), drawn COMPLETE (no
 			// animated reveal — it is context, not the win) BENEATH the winning segment, in its own
@@ -206,7 +223,7 @@
 				for (const halo of halos) {
 					tracePath(graphics, pts, p);
 					graphics.stroke({
-						color: line.glowColor,
+						color: haloColor,
 						width: halo.w,
 						alpha: halo.a,
 						cap: 'round',
@@ -216,7 +233,7 @@
 			}
 			tracePath(graphics, pts, p);
 			graphics.stroke({
-				color: line.color,
+				color: coreColor,
 				width: coreWidth,
 				alpha: 0.95,
 				cap: 'round',

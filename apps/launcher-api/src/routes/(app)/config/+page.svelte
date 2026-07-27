@@ -75,6 +75,39 @@
 		doc.numRows = doc.numRows.map(() => r);
 	}
 
+	/**
+	 * Any strip set or payline whose width no longer matches `numReels` — the exact thing the
+	 * validator errors on after a reel-count change. Drives the "Match grid" button so the author has
+	 * a one-click fix instead of a dead-end error (the reason `setNumReels` deliberately doesn't touch
+	 * strips/paylines is to avoid silent data loss, NOT to leave them unrepairable).
+	 */
+	const gridMismatch = $derived(
+		gameTypes.some((g) => (doc.paddingReels[g]?.length ?? 0) !== doc.numReels) ||
+			Object.keys(doc.paylines).some((id) => doc.paylines[id].length !== doc.numReels),
+	);
+
+	/**
+	 * Pad or truncate every strip set and every payline to the current reel count. Growing a strip set
+	 * CLONES the last existing reel (a copy is a sane cosmetic default and keeps the new reels dealing
+	 * the same in-play symbols); new payline cells default to the top row (0). Shrinking drops the
+	 * extra reels. This is the "recalculate after a board resize" action — it never invents symbols,
+	 * only re-shapes what's already authored to the new grid.
+	 */
+	function matchGridWidth() {
+		const n = doc.numReels;
+		for (const key of Object.keys(doc.paddingReels)) {
+			const strips = doc.paddingReels[key];
+			const template = strips[strips.length - 1] ?? [];
+			while (strips.length < n) strips.push(template.map((cell) => ({ ...cell })));
+			strips.length = n;
+		}
+		for (const id of Object.keys(doc.paylines)) {
+			const line = doc.paylines[id];
+			while (line.length < n) line.push(0);
+			line.length = n;
+		}
+	}
+
 	// ── Bet modes ────────────────────────────────────────────────────────────────
 	let newBetMode = $state('');
 	function addBetMode() {
@@ -142,6 +175,28 @@
 	}
 	function removePayline(id: string) {
 		delete doc.paylines[id];
+		clearPaylineColor(id);
+	}
+
+	// ── Payline colours ────────────────────────────────────────────────────────────
+	// OPTIONAL per-line colour (an Invisible-Engine extension of the Stake config). When a line has
+	// one, the game draws its win line in that colour AND broadcasts it so assets shown on the win can
+	// tint to match — see `paylineColor()` / `stateGame.winLineColor` in the engine. Stored sparsely:
+	// a line with no colour has no entry, so an un-coloured config is byte-identical to a Stake export.
+	const DEFAULT_PAYLINE_COLOR = '#7ee0c0';
+	function hasPaylineColor(id: string): boolean {
+		return Boolean(doc.paylineColors?.[id]);
+	}
+	function paylineColorValue(id: string): string {
+		return doc.paylineColors?.[id] ?? DEFAULT_PAYLINE_COLOR;
+	}
+	function setPaylineColor(id: string, value: string) {
+		(doc.paylineColors ??= {})[id] = value;
+	}
+	function clearPaylineColor(id: string) {
+		if (!doc.paylineColors) return;
+		delete doc.paylineColors[id];
+		if (!Object.keys(doc.paylineColors).length) delete doc.paylineColors;
 	}
 	/** Click a cell in the visual editor: set this line's row on this reel. The whole point of the
 	 *  panel — a payline is row-indices-per-reel, unreadable as raw JSON. */
@@ -371,7 +426,8 @@
 			<p class="hint">
 				Reels and visible rows. Changing the reel count re-shapes the row list but leaves paylines
 				and strips alone — mismatches show up as errors below rather than silently trimming your
-				work.
+				work. Use <strong>Match grid</strong> to resize every strip and payline to the new reel count
+				in one step (new reels clone the last reel; new payline cells start on the top row).
 			</p>
 			<div class="fields">
 				<label
@@ -403,6 +459,15 @@
 					>
 				{/each}
 			</div>
+			{#if gridMismatch}
+				<div class="grid-fix">
+					<span
+						>Strips or paylines don't match the {doc.numReels}-reel grid — the config can't ship
+						until they line up.</span
+					>
+					<button onclick={matchGridWidth}>Match grid ({doc.numReels} reels)</button>
+				</div>
+			{/if}
 		</section>
 
 		<!-- Bet modes -------------------------------------------------------------->
@@ -520,22 +585,42 @@
 		<section>
 			<h2>Paylines</h2>
 			<p class="hint">
-				Each line is one cell per reel. Click a cell to move the line through that reel's rows.
+				Each line is one cell per reel. Click a cell to move the line through that reel's rows. The
+				swatch sets an optional <strong>line colour</strong>: the game draws that line's win in this
+				colour and broadcasts it so assets shown on the win can pick it up (leave it unset to use
+				the single default from the Symbols tool).
 			</p>
 			<div class="paylines">
 				{#each Object.keys(doc.paylines) as id (id)}
+					{@const tint = hasPaylineColor(id) ? paylineColorValue(id) : null}
 					<div class="payline">
 						<div class="payline-head">
-							<span class="payline-id">Line {id}</span>
-							<button class="del" title="Remove" onclick={() => removePayline(id)}>×</button>
+							<span class="payline-id" style={tint ? `color:${tint}` : ''}>Line {id}</span>
+							<div class="payline-tools">
+								<input
+									class="swatch"
+									type="color"
+									value={paylineColorValue(id)}
+									oninput={(e) => setPaylineColor(id, e.currentTarget.value)}
+									title="Line colour"
+								/>
+								{#if tint}
+									<button class="del" title="Clear colour" onclick={() => clearPaylineColor(id)}
+										>⌫</button
+									>
+								{/if}
+								<button class="del" title="Remove" onclick={() => removePayline(id)}>×</button>
+							</div>
 						</div>
 						<div class="payline-grid" style="grid-template-columns: repeat({doc.numReels}, 1fr);">
 							{#each Array(doc.numReels) as _, reel (reel)}
 								<div class="reel-col">
 									{#each Array(doc.numRows[reel] ?? maxRows) as _, row (row)}
+										{@const on = doc.paylines[id][reel] === row}
 										<button
 											class="cell"
-											class:on={doc.paylines[id][reel] === row}
+											class:on
+											style={on && tint ? `background:${tint};border-color:${tint}` : ''}
 											aria-label="Line {id} reel {reel + 1} row {row + 1}"
 											onclick={() => setPaylineCell(id, reel, row)}
 										></button>
@@ -573,7 +658,7 @@
 						>
 					</div>
 					<div class="strip-cols">
-						{#each doc.paddingReels[gameType] as _strip, reel (reel)}
+						{#each Array(doc.numReels) as _, reel (reel)}
 							<div class="strip-col">
 								<div class="strip-label">Reel {reel + 1}</div>
 								<textarea
@@ -751,6 +836,30 @@
 		margin-top: 12px;
 		flex-wrap: wrap;
 	}
+	.grid-fix {
+		display: flex;
+		align-items: center;
+		gap: 12px;
+		margin-top: 14px;
+		padding: 10px 14px;
+		border: 1px solid #5a4520;
+		border-radius: 8px;
+		background: #1e1810;
+		color: #d3b483;
+		font-size: 12px;
+		line-height: 1.5;
+		flex-wrap: wrap;
+	}
+	.grid-fix button {
+		background: #1b2a24;
+		border: 1px solid #2f4a3f;
+		color: #7ee0c0;
+		border-radius: 6px;
+		padding: 6px 14px;
+		font-size: 12px;
+		cursor: pointer;
+		white-space: nowrap;
+	}
 	.grid-wrap {
 		overflow-x: auto;
 		border: 1px solid #1c1c24;
@@ -874,6 +983,27 @@
 		color: #8b8b98;
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
+	}
+	.payline-tools {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+	.swatch {
+		width: 22px;
+		height: 18px;
+		padding: 0;
+		border: 1px solid #26262f;
+		border-radius: 4px;
+		background: none;
+		cursor: pointer;
+	}
+	.swatch::-webkit-color-swatch-wrapper {
+		padding: 2px;
+	}
+	.swatch::-webkit-color-swatch {
+		border: none;
+		border-radius: 2px;
 	}
 	.payline-grid {
 		display: grid;

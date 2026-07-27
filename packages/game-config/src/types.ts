@@ -89,6 +89,15 @@ export type GameConfigDoc = {
 	/** The symbol DICTIONARY — art/properties/payouts. Not the in-play set. */
 	symbols: Record<string, GameConfigSymbol>;
 	paddingReels: PaddingReels;
+	/**
+	 * OPTIONAL per-payline colour, keyed by the SAME payline id as {@link paylines}, as a `#rrggbb`
+	 * hex string. An INVISIBLE-ENGINE extension, not part of the Stake export — a paste-in config
+	 * simply omits it. When set for a line, the win line draws in this colour instead of the single
+	 * Symbols-tool default, and the colour is broadcast so assets shown on that win can pick it up
+	 * (the reusable win-colour hook). A line with no entry falls back to the default, so leaving it
+	 * empty is byte-identical to before.
+	 */
+	paylineColors?: Record<string, string>;
 	updatedAt?: string;
 };
 

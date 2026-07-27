@@ -40,6 +40,7 @@ import { eventEmitter } from './eventEmitter';
 import {
 	animateSymbols,
 	showWinInfoMessage,
+	winLineColorFor,
 	winLineEnabledForWin,
 	winLineFullPointsFor,
 	winLinePointsFor,
@@ -177,6 +178,7 @@ export const startWinCycle = async (): Promise<void> => {
 					type: 'winLineShow',
 					points: winLinePointsFor(positions),
 					fullPoints: winLineFullPointsFor(win),
+					color: winLineColorFor(win.meta?.lineIndex),
 					...stamp,
 				});
 				if (token !== generation) return;

@@ -23,6 +23,7 @@ import {
 	winLineFullPointsFor,
 	winLinePointsFor,
 	winLineTextFor,
+	winLineColorFor,
 	showWinInfoMessage,
 } from './flowEffects';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
@@ -71,6 +72,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 						type: 'winLineShow',
 						points: winLinePointsFor(winningPositions),
 						fullPoints: winLineFullPointsFor(win),
+						color: winLineColorFor(win.meta?.lineIndex),
 						...winLineTextFor({
 							symbol: win.symbol,
 							kind: win.kind,

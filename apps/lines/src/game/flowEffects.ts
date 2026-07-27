@@ -51,7 +51,7 @@ import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
-import { boardDimensions, paddingReels } from './gameConfig';
+import { boardDimensions, paddingReels, paylineColor } from './gameConfig';
 import {
 	bakedSymbolNames,
 	bakedWinLineConfig,
@@ -250,6 +250,15 @@ export const winLineFullPointsFor = (win: { positions: Position[] }) => {
 	const full = [...win.positions].sort((a, b) => a.reel - b.reel);
 	return full.length >= 2 ? winLinePointsFor(full) : undefined;
 };
+
+/**
+ * The authored per-payline colour (Invisible Game Config) for a win, by its `meta.lineIndex`, fed
+ * to `winLineShow.color`. `undefined` when the line isn't coloured (or no config authored it), so
+ * `WinLine.svelte` falls back to the single Symbols-tool win-line colour — parity preserved. Shared
+ * by all three win-line dispatch sites (coded handler, flow effect, resting cycle) so the drawn
+ * line and the broadcast reusable colour always agree.
+ */
+export const winLineColorFor = (line: number | undefined): string | undefined => paylineColor(line);
 
 /**
  * The single source of truth for the win line's TEXT — the `amount` stamp plus the authored
@@ -621,6 +630,7 @@ const effects: Record<string, FlowEffect> = {
 			type: 'winLineShow',
 			points: winLinePointsFor(winningPositionsOf(win)),
 			fullPoints: winLineFullPointsFor(win),
+			color: winLineColorFor(payload.line as number | undefined),
 			...winLineTextFor({
 				symbol: win.symbol,
 				kind: win.kind,
