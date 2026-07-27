@@ -57,14 +57,16 @@
 
 	// ── Grid ────────────────────────────────────────────────────────────────────
 	// Reel count is the spine of the config: paylines and strips are indexed by it. Changing it
-	// re-shapes `numRows` (pad with the first reel's height / truncate) so the grid stays fully
-	// described, but it deliberately does NOT touch paylines or strips — those become validation
-	// errors the author resolves, rather than silent data loss from an auto-trim.
+	// re-shapes `numRows` (pad with the first reel's height / truncate) AND auto-GROWS the strips and
+	// paylines to match, so widening the grid fills the new reels for you — no per-cell clicking, no
+	// dead-end error. Only growth is automatic (see `growGridToWidth`); shrinking would drop authored
+	// reels and the input fires per keystroke, so trimming stays on the explicit "Match grid" button.
 	function setNumReels(n: number) {
 		const next = Math.max(1, Math.floor(n) || 1);
 		const fill = doc.numRows[0] ?? 3;
 		doc.numReels = next;
 		doc.numRows = Array.from({ length: next }, (_, i) => doc.numRows[i] ?? fill);
+		growGridToWidth();
 	}
 	function setRows(reel: number, rows: number) {
 		doc.numRows[reel] = Math.max(1, Math.floor(rows) || 1);
@@ -76,10 +78,29 @@
 	}
 
 	/**
-	 * Any strip set or payline whose width no longer matches `numReels` — the exact thing the
-	 * validator errors on after a reel-count change. Drives the "Match grid" button so the author has
-	 * a one-click fix instead of a dead-end error (the reason `setNumReels` deliberately doesn't touch
-	 * strips/paylines is to avoid silent data loss, NOT to leave them unrepairable).
+	 * Pad every strip set and payline UP TO `numReels` — never truncates, so it is always safe to run
+	 * (including on every keystroke of the reel input, where "10" passes through "1"). A new reel's
+	 * strip CLONES the last existing reel (keeps the same in-play symbols) and a new payline cell
+	 * REPEATS the line's last row (a straight line stays straight, rather than jagging to the top).
+	 */
+	function growGridToWidth() {
+		const n = doc.numReels;
+		for (const key of Object.keys(doc.paddingReels)) {
+			const strips = doc.paddingReels[key];
+			const template = strips[strips.length - 1] ?? [];
+			while (strips.length < n) strips.push(template.map((cell) => ({ ...cell })));
+		}
+		for (const id of Object.keys(doc.paylines)) {
+			const line = doc.paylines[id];
+			while (line.length < n) line.push(line[line.length - 1] ?? 0);
+		}
+	}
+
+	/**
+	 * Any strip set or payline whose width still doesn't match `numReels` — only ever true after a
+	 * SHRINK (auto-grow already handles widening) or a raw-JSON paste that arrived mismatched. Drives
+	 * the "Match grid" button, the deliberate one-click fix for those, since trimming reels is real
+	 * data loss the author should trigger rather than have happen mid-type.
 	 */
 	const gridMismatch = $derived(
 		gameTypes.some((g) => (doc.paddingReels[g]?.length ?? 0) !== doc.numReels) ||
@@ -87,25 +108,15 @@
 	);
 
 	/**
-	 * Pad or truncate every strip set and every payline to the current reel count. Growing a strip set
-	 * CLONES the last existing reel (a copy is a sane cosmetic default and keeps the new reels dealing
-	 * the same in-play symbols); new payline cells default to the top row (0). Shrinking drops the
-	 * extra reels. This is the "recalculate after a board resize" action — it never invents symbols,
-	 * only re-shapes what's already authored to the new grid.
+	 * Make every strip set and payline EXACTLY `numReels` — grow (as above) then TRUNCATE the extra
+	 * reels. The explicit fix for a still-mismatched grid; unlike {@link growGridToWidth} it drops
+	 * reels, which is why it is a button press and not automatic.
 	 */
 	function matchGridWidth() {
+		growGridToWidth();
 		const n = doc.numReels;
-		for (const key of Object.keys(doc.paddingReels)) {
-			const strips = doc.paddingReels[key];
-			const template = strips[strips.length - 1] ?? [];
-			while (strips.length < n) strips.push(template.map((cell) => ({ ...cell })));
-			strips.length = n;
-		}
-		for (const id of Object.keys(doc.paylines)) {
-			const line = doc.paylines[id];
-			while (line.length < n) line.push(0);
-			line.length = n;
-		}
+		for (const key of Object.keys(doc.paddingReels)) doc.paddingReels[key].length = n;
+		for (const id of Object.keys(doc.paylines)) doc.paylines[id].length = n;
 	}
 
 	// ── Bet modes ────────────────────────────────────────────────────────────────
@@ -424,10 +435,10 @@
 		<section>
 			<h2>Grid</h2>
 			<p class="hint">
-				Reels and visible rows. Changing the reel count re-shapes the row list but leaves paylines
-				and strips alone — mismatches show up as errors below rather than silently trimming your
-				work. Use <strong>Match grid</strong> to resize every strip and payline to the new reel count
-				in one step (new reels clone the last reel; new payline cells start on the top row).
+				Reels and visible rows. <strong>Widening</strong> the grid auto-fills the new reels — strips
+				clone the last reel and paylines keep their shape — so you never re-enter them by hand.
+				<strong>Shrinking</strong> leaves the extra reels in place (trimming loses authored strips);
+				use <strong>Match grid</strong> to drop them down to the new count.
 			</p>
 			<div class="fields">
 				<label
