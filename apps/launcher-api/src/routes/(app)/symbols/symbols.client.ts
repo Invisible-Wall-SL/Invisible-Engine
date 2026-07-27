@@ -92,6 +92,11 @@ export interface WinLineLineStyle {
 	glowColor?: string;
 	animated?: boolean;
 	speed?: number;
+	/** Trace the WHOLE payline (all reels), not just the winning segment. Absent ⇒ off ⇒
+	 *  the line stops at the win's end (byte-identical to before). */
+	fullPayline?: boolean;
+	/** Colour of the full-payline underlay (its only style option). Unset ⇒ coded default. */
+	fullPaylineColor?: string;
 }
 
 /** Win-amount text style (a bitmap font, so `color` is a tint multiply). `size` is a
@@ -146,7 +151,7 @@ export interface SymbolsDoc {
 	 *  `winLine`, never a field inside it — the replay is about the SYMBOLS, and `showLine` only
 	 *  opts the line back into each pass. Was USED by the helpers below without ever being
 	 *  declared here, which type-checks nowhere because the launcher build only transpiles. */
-	winCycle?: { enabled?: boolean; delay?: number; showLine?: boolean };
+	winCycle?: { enabled?: boolean; delay?: number; showLine?: boolean; showText?: boolean };
 	updatedAt?: string;
 }
 
@@ -251,10 +256,17 @@ export function winCycleEnabled(doc: SymbolsDoc): boolean {
 /** The engine's default pause (seconds) between two win-symbol replay passes. */
 export const WIN_CYCLE_DELAY_DEFAULT = 0.4;
 
-/** The effective "also redraw the win line + amount on each replay pass" flag. Defaults to
- *  `true` — the replay narrates each line the way the spin did unless the author turns it off. */
+/** The effective "also redraw the win LINE on each replay pass" flag. Defaults to `true` — the
+ *  replay narrates each line the way the spin did unless the author turns it off. */
 export function winCycleShowLine(doc: SymbolsDoc): boolean {
 	return doc.winCycle?.showLine ?? true;
+}
+
+/** The effective "also re-stamp the win AMOUNT TEXT on each replay pass" flag. Defaults to `true`
+ *  (the text repeated before this switch existed). Independent of {@link winCycleShowLine}: the
+ *  author can keep the line replaying while dropping the stamped amount. */
+export function winCycleShowText(doc: SymbolsDoc): boolean {
+	return doc.winCycle?.showText ?? true;
 }
 
 /** Drop blank style fields (empty string / undefined / null) and empty `line`/`text`
@@ -323,12 +335,21 @@ export function setWinCycleDelay(doc: SymbolsDoc, seconds: number | undefined): 
 	return withWinCycle(doc, winCycle);
 }
 
-/** Set the "also redraw the win line + amount on each replay pass" flag. Kept sparse: ON (the
- *  default) drops the field, only OFF persists `showLine: false`. New doc. */
+/** Set the "also redraw the win line on each replay pass" flag. Kept sparse: ON (the default)
+ *  drops the field, only OFF persists `showLine: false`. New doc. */
 export function setWinCycleShowLine(doc: SymbolsDoc, showLine: boolean): SymbolsDoc {
 	const winCycle = { ...(doc.winCycle ?? {}) };
 	if (showLine) delete winCycle.showLine;
 	else winCycle.showLine = false;
+	return withWinCycle(doc, winCycle);
+}
+
+/** Set the "also re-stamp the win amount text on each replay pass" flag. Kept sparse: ON (the
+ *  default) drops the field, only OFF persists `showText: false`. New doc. */
+export function setWinCycleShowText(doc: SymbolsDoc, showText: boolean): SymbolsDoc {
+	const winCycle = { ...(doc.winCycle ?? {}) };
+	if (showText) delete winCycle.showText;
+	else winCycle.showText = false;
 	return withWinCycle(doc, winCycle);
 }
 
@@ -416,6 +437,7 @@ export function docSignature(doc: SymbolsDoc): string {
 				enabled: doc.winCycle.enabled ?? null,
 				delay: doc.winCycle.delay ?? null,
 				showLine: doc.winCycle.showLine ?? null,
+				showText: doc.winCycle.showText ?? null,
 			}
 		: null;
 	// Listed here or an edit never marks the page dirty and Save stays disabled.

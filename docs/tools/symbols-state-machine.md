@@ -199,7 +199,11 @@ project. When it's on, two groups of controls appear:
 - **Line** — **Colour**; **Thickness** (a fraction of the symbol size); **Glow** on/off
   and its **Glow colour**; **Animated draw** on/off (the line draws from the first paying
   tile to the last, *then* the amount appears) and its **Speed** (a draw-speed multiplier;
-  disabled unless Animated is on).
+  disabled unless Animated is on); **Show full payline** on/off and its **Full payline
+  colour**. Off (default) the line traces only the winning symbols, up to where the amount is
+  stamped; on, the WHOLE payline is drawn across all reels in the chosen colour, with the
+  winning segment on top (the colour is that underlay's only style option; disabled unless
+  the toggle is on).
 - **Win amount text** — **Font** (chosen from the project's bitmap fonts — the engine
   builtins `gold`/`goldblur`/`silver`/`purple` plus any Font-Maker fonts); **Size** (a
   fraction of the symbol size); **Colour**. Because the amount is bitmap text, the colour
@@ -212,7 +216,8 @@ leaving the on/off state alone.
 Every field is optional and **sparse**: only the on/off (when off) and the fields you
 actually change are written, under `winLine: { enabled?, line?, text? }` on the doc.
 Colours are CSS hex strings; `width`/`size` are multiples of the symbol size; `speed`
-scales the animated-draw duration. The game applies its coded defaults for every field the
+scales the animated-draw duration; `line.fullPayline`/`line.fullPaylineColor` carry the full
+payline option. The game applies its coded defaults for every field the
 bundle omits, so a project that never opens this section is byte-identical to before and
 the overlay stays on with its default gold line. On export/bake the config is passed
 straight through to `bundle.symbols.winLine` (omitted when untouched) — there is no asset
@@ -226,7 +231,8 @@ is no longer the case.)
 ### Winning symbols after the spin
 
 A separate section with its own on/off toggle (**on by default**) plus a **Gap between
-lines** slider and a **Replay the win line too** switch. With it on, once the round's whole
+lines** slider, a **Replay the win line too** switch and a **Replay the win text too**
+switch. With it on, once the round's whole
 book has been presented the game keeps the winning symbols animating on the resting board —
 re-playing their Win state over and over — and stops the instant the next bet starts. Without
 it the symbols freeze on their post-win frame the moment the round ends.
@@ -241,6 +247,12 @@ the same beat order the spin played (the line traces and the amount appears, the
 light), clearing it again before the next line's turn — so the rotation reads as the round's
 own per-win narration on repeat. Turn **Replay the win line too** off and the replay
 re-animates the winning symbols only, leaving the board's line exactly as the spin left it.
+
+**Replay the win text too** (on by default) gates just the stamped win **amount**,
+independently of the line: keep **Replay the win line too** on but turn this off and each pass
+still draws the line — just without the number under it. (It's disabled when the line replay is
+off, since there's no line for the amount to sit under.) Stored as `winCycle.showText` (only
+the off-state persists).
 
 That switch only asks the replay to *reuse* the line; the **Win lines** section above still
 owns whether a line exists at all. With the overlay off nothing is drawn either way, and a

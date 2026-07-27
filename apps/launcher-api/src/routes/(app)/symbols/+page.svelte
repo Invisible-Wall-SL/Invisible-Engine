@@ -39,11 +39,13 @@
 		setWinCycleDelay,
 		setWinCycleEnabled,
 		setWinCycleShowLine,
+		setWinCycleShowText,
 		setWinLineEnabled,
 		setWinLineLine,
 		setWinLineText,
 		winCycleEnabled,
 		winCycleShowLine,
+		winCycleShowText,
 		winLineEnabled,
 		WIN_CYCLE_DELAY_DEFAULT,
 		SYMBOL_CELL_TYPES,
@@ -547,6 +549,8 @@
 		glowColor: '#ffcc00',
 		animated: false,
 		speed: 1,
+		fullPayline: false,
+		fullPaylineColor: '#4a90d9',
 		font: 'gold',
 		size: 0.5,
 		textColor: '#ffffff',
@@ -582,6 +586,7 @@
 	const wcOn = $derived(winCycleEnabled(doc));
 	const wcDelay = $derived(doc.winCycle?.delay ?? WIN_CYCLE_DELAY_DEFAULT);
 	const wcShowLine = $derived(winCycleShowLine(doc));
+	const wcShowText = $derived(winCycleShowText(doc));
 
 	function resetWinLineStyle(): void {
 		doc = clearWinLineStyle(doc);
@@ -1004,7 +1009,41 @@
 											oninput={(e) => patchWinLineLine({ speed: Number(e.currentTarget.value) })}
 										/>
 									</label>
+									<div class="field">
+										<span class="label">Show full payline</span>
+										<label
+											class="switch sm"
+											class:on={wlLine.fullPayline ?? WL_DEFAULTS.fullPayline}
+										>
+											<input
+												type="checkbox"
+												checked={wlLine.fullPayline ?? WL_DEFAULTS.fullPayline}
+												onchange={(e) => patchWinLineLine({ fullPayline: e.currentTarget.checked })}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label"
+												>{(wlLine.fullPayline ?? WL_DEFAULTS.fullPayline) ? 'On' : 'Off'}</span
+											>
+										</label>
+									</div>
+									<label
+										class="field"
+										class:disabled={!(wlLine.fullPayline ?? WL_DEFAULTS.fullPayline)}
+									>
+										<span class="label">Full payline colour</span>
+										<input
+											type="color"
+											disabled={!(wlLine.fullPayline ?? WL_DEFAULTS.fullPayline)}
+											value={wlLine.fullPaylineColor ?? WL_DEFAULTS.fullPaylineColor}
+											oninput={(e) => patchWinLineLine({ fullPaylineColor: e.currentTarget.value })}
+										/>
+									</label>
 								</div>
+								<p class="wl-note">
+									Off (the default), the line traces only the winning symbols, up to where the
+									amount is stamped. On, the WHOLE payline is drawn across all reels in the colour
+									above, with the winning segment on top.
+								</p>
 							</div>
 
 							<div class="wl-group">
@@ -1105,13 +1144,28 @@
 											<span class="switch-label">{wcShowLine ? 'On' : 'Off'}</span>
 										</label>
 									</div>
+									<div class="field" class:disabled={!wcShowLine}>
+										<span class="label">Replay the win text too</span>
+										<label class="switch sm" class:on={wcShowText && wcShowLine}>
+											<input
+												type="checkbox"
+												disabled={!wcShowLine}
+												checked={wcShowText}
+												onchange={(e) => (doc = setWinCycleShowText(doc, e.currentTarget.checked))}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label">{wcShowText ? 'On' : 'Off'}</span>
+										</label>
+									</div>
 								</div>
 								<p class="wl-note">
 									On (the default), each pass also draws that line and stamps its amount — the full
 									per-win narration on repeat. Off, the replay re-animates the winning symbols only
-									and leaves the board's line as the spin left it. The Win lines section above still
-									has the final say: with the overlay off, nothing is drawn either way, and a
-									scatter win never draws a line but still lights its symbols.
+									and leaves the board's line as the spin left it. "Replay the win text too" gates
+									just the stamped amount, so you can keep the line replaying without the number.
+									The Win lines section above still has the final say: with the overlay off, nothing
+									is drawn either way, and a scatter win never draws a line but still lights its
+									symbols.
 								</p>
 							</div>
 						</div>

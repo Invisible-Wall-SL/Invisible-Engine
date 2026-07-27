@@ -118,7 +118,8 @@ to also carry line + text **style**. It is still **pure config — no asset, no 
   "winLine": {
     "enabled": false,                       // present ONLY when turned OFF
     "line": { "color": "#ff3366", "width": 0.04, "glow": true, "glowColor": "#ff88aa",
-              "animated": true, "speed": 1.5 },
+              "animated": true, "speed": 1.5,
+              "fullPayline": true, "fullPaylineColor": "#4a90d9" },
     "text": { "font": "silver", "size": 0.6, "color": "#ffffff" }
   }
 }
@@ -133,6 +134,13 @@ to also carry line + text **style**. It is still **pure config — no asset, no 
 - **Sparse on purpose.** Default (on, default style) writes nothing. Only the off-state
   (`enabled: false`) and the individual fields the author changes are persisted; "Reset
   win-line style" clears `line`/`text`; turning the toggle back on clears `enabled`.
+- **Show full payline (added 2026-07-27).** `line.fullPayline` (bool, default off) draws the
+  WHOLE payline across all reels — not just the winning segment — as a static underlay beneath
+  the winning line, in `line.fullPaylineColor` (its ONLY style option, coded default `#4a90d9`).
+  Off ⇒ byte-identical to before (winning segment only). The full path is `win.positions`
+  sorted by reel (a superset of the paying run); the renderer receives it as
+  `winLineShow.fullPoints` (`flowEffects.ts#winLineFullPointsFor`, gated on the flag) and draws
+  it complete under the animated winning segment. Rides `line` verbatim through export/bake.
 - **Export/bake.** `symbolExport.ts` passes `winLine` straight through verbatim (no asset);
   `bake-editor-doc.mjs` embeds it at `bundle.symbols.winLine`, OMITTING it when absent.
 - **Renderer (shared engine).** `apps/lines/src/components/WinLine.svelte` reads the resolved

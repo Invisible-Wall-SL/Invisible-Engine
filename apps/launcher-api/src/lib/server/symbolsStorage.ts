@@ -140,6 +140,13 @@ const winLineLineSchema = z
 		glowColor: z.string().optional(),
 		animated: z.boolean().optional(),
 		speed: z.number().optional(),
+		/** Trace the WHOLE payline (all reels), not just the winning segment. Off (absent) ⇒
+		 *  the line stops at the win's end where the amount is stamped, byte-identical to before.
+		 *  When on, the full path is drawn UNDERNEATH the winning segment in `fullPaylineColor`. */
+		fullPayline: z.boolean().optional(),
+		/** Colour of the full-payline underlay (only style option for it). Unset ⇒ the coded
+		 *  default resolved in `bakedWinLineConfig()`. */
+		fullPaylineColor: z.string().optional(),
 	})
 	.strict();
 
@@ -169,6 +176,10 @@ const winCycleSchema = z
 		enabled: z.boolean().optional(),
 		delay: z.number().optional(),
 		showLine: z.boolean().optional(),
+		/** Also re-stamp the win AMOUNT TEXT on each replay pass. Independent of `showLine` (the
+		 *  line): absent ⇒ ON, so the text repeats exactly as it did before this switch existed.
+		 *  `{ showText: false }` keeps the line replaying while dropping the stamped amount. */
+		showText: z.boolean().optional(),
 	})
 	.strict();
 
@@ -243,6 +254,7 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	if (doc.winCycle?.enabled === false) winCycle.enabled = false;
 	if (doc.winCycle?.delay !== undefined) winCycle.delay = doc.winCycle.delay;
 	if (doc.winCycle?.showLine === false) winCycle.showLine = false;
+	if (doc.winCycle?.showText === false) winCycle.showText = false;
 	if (Object.keys(winCycle).length) next.winCycle = winCycle;
 	return next;
 }

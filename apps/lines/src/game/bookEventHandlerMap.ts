@@ -20,6 +20,7 @@ import {
 	animateSymbols,
 	winningPositionsOf,
 	winLineEnabledForWin,
+	winLineFullPointsFor,
 	winLinePointsFor,
 	winLineTextFor,
 	showWinInfoMessage,
@@ -69,6 +70,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 					eventEmitter.broadcastAsync({
 						type: 'winLineShow',
 						points: winLinePointsFor(winningPositions),
+						fullPoints: winLineFullPointsFor(win),
 						...winLineTextFor({
 							symbol: win.symbol,
 							kind: win.kind,
