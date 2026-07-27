@@ -397,6 +397,9 @@ async function main() {
 				// `showMessage` INVERTS the default: it is OFF unless authored, so ONLY the ON state
 				// persists (matching the exporter's sparse doc + `bakedWinCycleConfig`'s `?? false`).
 				if (c.showMessage === true) out.showMessage = true;
+				// `dimNonWinning` also defaults OFF, so ONLY the ON state persists (same as
+				// `showMessage`; `bakedWinCycleConfig`'s `?? false`).
+				if (c.dimNonWinning === true) out.dimNonWinning = true;
 				return Object.keys(out).length ? out : undefined;
 			})();
 			// Symbol DISPLAY NAMES (`H1` → "Banana"), pure text. Invisible Win Text reads these as

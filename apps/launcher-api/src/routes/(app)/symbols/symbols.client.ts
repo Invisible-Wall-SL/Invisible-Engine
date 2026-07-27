@@ -157,6 +157,7 @@ export interface SymbolsDoc {
 		showLine?: boolean;
 		showText?: boolean;
 		showMessage?: boolean;
+		dimNonWinning?: boolean;
 	};
 	updatedAt?: string;
 }
@@ -282,6 +283,14 @@ export function winCycleShowMessage(doc: SymbolsDoc): boolean {
 	return doc.winCycle?.showMessage ?? false;
 }
 
+/** The effective "darken the non-winning symbols during the win celebration" flag. Defaults to
+ *  `false` (byte-parity — the board stayed full-bright before this switch). Independent of
+ *  {@link winCycleEnabled}: the dim is about the whole board, not the replay, so it applies even
+ *  when the replay cycle is off. */
+export function winCycleDimNonWinning(doc: SymbolsDoc): boolean {
+	return doc.winCycle?.dimNonWinning ?? false;
+}
+
 /** Drop blank style fields (empty string / undefined / null) and empty `line`/`text`
  *  objects, returning a sparse `winLine` (or undefined when nothing remains). Keeps the
  *  doc minimal so an untouched/reset project ships no `winLine`. */
@@ -375,6 +384,16 @@ export function setWinCycleShowMessage(doc: SymbolsDoc, showMessage: boolean): S
 	return withWinCycle(doc, winCycle);
 }
 
+/** Toggle darkening the non-winning symbols during the win celebration. Same INVERSE persistence as
+ *  `showMessage` — `dimNonWinning` defaults OFF, so ON persists `dimNonWinning: true` and OFF drops
+ *  the field (sparse). New doc. */
+export function setWinCycleDimNonWinning(doc: SymbolsDoc, dimNonWinning: boolean): SymbolsDoc {
+	const winCycle = { ...(doc.winCycle ?? {}) };
+	if (dimNonWinning) winCycle.dimNonWinning = true;
+	else delete winCycle.dimNonWinning;
+	return withWinCycle(doc, winCycle);
+}
+
 /**
  * Set one form of a symbol's display name. Blank clears that form, and an entry left with no
  * forms is dropped entirely — so clearing the boxes returns the symbol to speaking as its id
@@ -461,6 +480,7 @@ export function docSignature(doc: SymbolsDoc): string {
 				showLine: doc.winCycle.showLine ?? null,
 				showText: doc.winCycle.showText ?? null,
 				showMessage: doc.winCycle.showMessage ?? null,
+				dimNonWinning: doc.winCycle.dimNonWinning ?? null,
 			}
 		: null;
 	// Listed here or an edit never marks the page dirty and Save stays disabled.

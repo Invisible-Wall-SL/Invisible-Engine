@@ -163,6 +163,12 @@ type BakedBundle = {
 			showLine?: boolean;
 			showText?: boolean;
 			showMessage?: boolean;
+			/** Darken every NON-winning symbol from the win celebration until the next spin, so the
+			 * paying line stands out (`winSymbolCycle.ts` → `stateGame.winDim` → `ReelSymbol`). Absent
+			 * ⇒ off (byte-parity — the board stayed full-bright before this switch). Independent of
+			 * `enabled`: the dim is a property of the board, not the replay, so it applies even with
+			 * the replay cycle off. */
+			dimNonWinning?: boolean;
 		};
 		winLine?: {
 			enabled?: boolean;
@@ -589,6 +595,7 @@ export function bakedWinCycleConfig(): {
 	showLine: boolean;
 	showText: boolean;
 	showMessage: boolean;
+	dimNonWinning: boolean;
 } {
 	const c = hasRuntimeBundle()
 		? runtimeBundle!.symbols?.winCycle
@@ -601,6 +608,7 @@ export function bakedWinCycleConfig(): {
 		showLine: c?.showLine ?? true,
 		showText: c?.showText ?? true,
 		showMessage: c?.showMessage ?? false,
+		dimNonWinning: c?.dimNonWinning ?? false,
 	};
 }
 
