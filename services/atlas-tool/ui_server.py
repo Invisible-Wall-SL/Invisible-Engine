@@ -2034,6 +2034,7 @@ IW_TOOLBAR = """<header class="iw-toolbar">
       var ic = document.createElement('span');
       ic.className = 'ic';
       ic.innerHTML = svg(t.id);
+      if (/^#[0-9a-fA-F]{6}$/.test(t.accent || '')) ic.style.color = t.accent;
       var lb = document.createElement('span');
       lb.className = 'label';
       lb.textContent = (t.name || '').replace(/^Invisible /, '');

@@ -33,7 +33,7 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 - More done-work detail (B12/B16/B17/B22, admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation) is archived in [../history.md](../history.md).
 
 ## Recent changes
-- 2026-07-27 — Online tools grouped by game-making **stage** (`TOOL_STAGES` in `roles.ts`, single source; `TOOL_BAR_ORDER` derived from it): home grid renders one colour-accented section per stage; top-bar switcher tints each icon by stage. (Python twin bar not yet tinted — see unified-tool-bar follow-up.)
+- 2026-07-27 — Online tools grouped by game-making **stage** (`TOOL_STAGES` in `roles.ts`, single source; `TOOL_BAR_ORDER` derived from it): home grid renders one colour-accented section per stage; top-bar switcher tints each icon by stage. The `tools=` payload now bakes a per-tool `accent`, so the four HTML twins (atlas/sheet/rigger/spine) tint their icons to match. (Remaining: the twins' partial `TOOL_ICONS` mirrors — icon-less tools render label-only. See unified-tool-bar.)
 - 2026-06-20 — Prod `app_settings` created + migrator hardened (`reconcilePushProvisioned` replaces baseline-overshoot). ([history](../history.md))
 - 2026-06-14 — Launcher now serves the tool guides at `/docs/[slug]`; onboarding links fixed; CLAUDE rule #9 institutionalized. ([history](../history.md))
 - 2026-06-12 — Deploy token moved to admin-managed `app_settings` + `gamePublish`-gated route. ([history](../history.md))

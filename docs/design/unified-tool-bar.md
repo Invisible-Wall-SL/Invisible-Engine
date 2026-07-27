@@ -85,9 +85,16 @@ Two surfaces consume it differently, per owner decision (2026-07-27):
   dropped; any online tool not placed in a stage falls into a trailing **Other**
   bucket so it can never silently vanish.
 
-> ⚠️ The Python twin (atlas/sheet) does **not** yet carry the icon tint — the baked
-> `tools=` payload has no accent field. Follow-up: add `accent` per tool to the
-> payload + mirror the tint in `ui.html`, or the twin bar stays monochrome.
+The **HTML twins carry the tint too** (2026-07-27): `toolBarParams` bakes an
+`accent` per tool into the `tools=` payload, and each twin
+(`services/atlas-tool/ui_server.py`, `services/sheet-tool/ui.html`,
+`static/rigger/view.html`, `static/spine/view.html`) sets `ic.style.color = accent`
+(hex-validated) after building the icon — so the twin bar matches the Svelte bar.
+
+> ⚠️ Remaining gap (pre-existing, not colour-specific): each twin keeps its OWN
+> partial mirror of `TOOL_ICONS` (~9 of the 17 tools). A tool missing from a twin's
+> `ICON` map renders label-only there — no icon, so no visible tint. Completing the
+> four mirrored maps (or serving one shared icon set) is the real fix.
 
 ## Data flow for the Python tools
 
@@ -95,8 +102,9 @@ The launcher is the single source of truth for the role-gated tool list. It bake
 the list into the redirect (extending B24's `home`/`sibling` params):
 
 - `home=<ENV.ORIGIN>` — emblem target (already present).
-- `tools=<url-encoded JSON>` — `[{ id, name, url }]` for every online tool the
-  user has, in `TOOL_BAR_ORDER`. Python siblings carry their own baked
+- `tools=<url-encoded JSON>` — `[{ id, name, url, accent }]` for every online tool
+  the user has, in `TOOL_BAR_ORDER` (`accent` = the tool's stage colour, added
+  2026-07-27). Python siblings carry their own baked
   `?k=`+client+project; launcher tools are `ENV.ORIGIN + /editor` etc.
 - **No icons in the URL** (the SVGs are bulky). The Python tool keeps a mirrored
   copy of `TOOL_ICONS`, keyed by tool `id` — same pattern as the emblem mirrored
