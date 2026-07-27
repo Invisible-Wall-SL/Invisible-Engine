@@ -181,13 +181,13 @@ export const startWinCycle = async (): Promise<void> => {
 				});
 				if (token !== generation) return;
 			}
-			await animateSymbols({ positions });
-			if (token !== generation) return;
-			// Re-show that win's info toast on this pass — the SAME "You win $X with N Bananas"
+			// Re-show that win's info toast for this pass — the SAME "You win $X with N Bananas"
 			// (`messageKind: 'win'`) the round narrated, so the message rides the replay just like the
 			// line + amount do. Gated by `showMessage` (default OFF, so a project that never authored
-			// it keeps the toast to the round's first presentation). Fired after the symbols light —
-			// the round's own beat order (line → symbols → message → hide) — and NOT awaited: it is a
+			// it keeps the toast to the round's first presentation). Fired HERE — with the line, BEFORE
+			// the symbols light — so it is on screen for the FIRST pass alongside the line, matching the
+			// line's start-of-pass timing (firing it after `animateSymbols` delayed it a whole symbol
+			// animation, which read as the toast only starting on the second loop). NOT awaited: it is a
 			// transient toast that auto-clears, not a beat the cycle should pace on.
 			if (cfg.showMessage) {
 				showWinInfoMessage({
@@ -197,6 +197,8 @@ export const startWinCycle = async (): Promise<void> => {
 					messageKind: 'win',
 				});
 			}
+			await animateSymbols({ positions });
+			if (token !== generation) return;
 			clearCycleLine();
 			await waitForTimeout(gapMs);
 		}
