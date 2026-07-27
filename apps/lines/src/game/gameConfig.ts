@@ -99,6 +99,20 @@ export function getPaylines(): number[][] {
 	return Object.values(getActiveGameConfig().paylines);
 }
 
+/**
+ * The authored colour (`#rrggbb`) for a payline by its 0-based DECLARATION index — the same index a
+ * win reports in `meta.lineIndex`. `paylines`/`paylineColors` are both keyed by payline id, so the
+ * index is mapped through `Object.keys(paylines)`. Returns `undefined` when the line isn't coloured
+ * (or the config predates the field), so the caller falls back to the single Symbols-tool win-line
+ * colour — an un-coloured game is byte-identical to before.
+ */
+export function paylineColor(lineIndex: number | undefined): string | undefined {
+	if (lineIndex === undefined || lineIndex < 0) return undefined;
+	const config = getActiveGameConfig();
+	const id = Object.keys(config.paylines)[lineIndex];
+	return id === undefined ? undefined : config.paylineColors?.[id];
+}
+
 /** Visible rows on the first reel — the info page's grid height. */
 export function getNumRows(): number {
 	return getActiveGameConfig().numRows[0] ?? 3;

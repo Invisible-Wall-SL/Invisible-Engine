@@ -126,7 +126,9 @@ in the Scene Editor per game.
    edit panels, off-grid payline blocks save, raw-JSON paste validates, save round-trips) AND
    `/editor` (the reelGrid preview draws the authored grid; a mismatched node warns). Plus a non-5×3
    end-to-end spin via the test-server + a dev game. The only things offline verification couldn't
-   reach.
+   reach. **New this pass:** change the reel count → `Match grid` clears the errors and the new
+   reels get strip boxes; colour a payline → its win line (and glow) draws in that colour in-game and
+   `stateGame.winLineColor` carries it for the round.
 2. **Validate against the RGS** (design doc open decision 3) — compare the config's symbol set to
    the first `reveal` and warn on a mismatch. `warnOnGameConfigIssues()` is the natural home; it
    would have caught the wild on the first spin.
@@ -142,6 +144,29 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   locally (Postgres + R2 + session). Not blocking the merge; it's a post-deploy check.
 
 ## Recent changes
+
+- 2026-07-27 — **Grid-resize repair UX + per-payline colours** (this change; launcher surface
+  owner-verify-owed, engine + schema build + typecheck-verified):
+  - **`/config` Grid** — a `Match grid` button appears whenever a strip set or payline no longer
+    matches `numReels` (the state a reel-count change leaves), padding/truncating every strip and
+    payline to the grid in one click (new reels clone the last reel; new payline cells start on row
+    0). The Reel-strips editor now renders a column PER `numReels`, not per existing strip entry, so
+    the reels a widen added are authorable instead of a dead-end error. Fixes the "changed board
+    size → error with no way to add strips" report.
+  - **Per-payline colour** — new OPTIONAL `paylineColors: Record<lineId, '#rrggbb'>` on
+    `GameConfigDoc` (an Invisible-Engine extension, NOT part of the Stake export; a paste-in config
+    omits it). `normalizePaylineColors` keeps only colours for a line that exists and is a valid hex
+    (`#rgb`/`#rrggbb`, expanded), so it's idempotent and an un-coloured config is byte-identical to
+    before. Rides the existing config bake→pull chain — no new asset class. `/config` Paylines panel
+    gets a colour swatch per line (tints the line id + active cells; ⌫ clears).
+  - **Runtime** — `paylineColor(lineIndex)` in `game/gameConfig.ts` maps a win's `meta.lineIndex` →
+    payline id → colour. `winLineColorFor()` in `flowEffects.ts` feeds it to all three `winLineShow`
+    dispatch sites (coded `winInfo` handler, `showWinLine` flow effect, resting win cycle) as a new
+    `winLineShow.color`. `WinLine.svelte` draws the core line + glow in that colour when set (else
+    the single Symbols-tool default → parity), and publishes it as `stateGame.winLineColor` (cleared
+    on hide) — the REUSABLE win-colour hook any asset component can read to tint itself to the
+    winning line. `apps/lines` build passes; `game-config` typecheck + spike pass (the pre-existing
+    CRLF `lines.json` byte-identical drift check is unrelated).
 
 - 2026-07-27 — **Fix: online reel stopped rolling.** The grid-dimensions `rebuildBoard()` reassigned
   `stateGame.board = buildBoard()`, orphaning the `enhancedBoard` (createEnhanceBoard) that closes

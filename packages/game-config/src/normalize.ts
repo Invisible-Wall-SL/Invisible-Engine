@@ -160,6 +160,36 @@ const normalizePaylines = (raw: unknown): Paylines => {
 	return lines;
 };
 
+/** A `#rgb` / `#rrggbb` hex colour, expanded to the canonical 6-digit lower-case form. Anything
+ *  else is dropped — a malformed colour must not reach the renderer, where it would throw. */
+const hexColor = (v: unknown): string | undefined => {
+	const s = str(v)?.trim().toLowerCase();
+	if (!s) return undefined;
+	if (/^#[0-9a-f]{6}$/.test(s)) return s;
+	if (/^#[0-9a-f]{3}$/.test(s)) return `#${[...s.slice(1)].map((c) => c + c).join('')}`;
+	return undefined;
+};
+
+/**
+ * Per-payline colours. Kept only for a line that actually EXISTS (`validIds`) and only when the
+ * value is a real hex colour — a colour for a deleted line, or a typo, is silently dropped rather
+ * than shipped to the renderer. Returns `undefined` (the field is then omitted) when nothing valid
+ * survives, so an un-coloured config stays byte-identical to before.
+ */
+const normalizePaylineColors = (
+	raw: unknown,
+	validIds: Set<string>,
+): Record<string, string> | undefined => {
+	if (!isObject(raw)) return undefined;
+	const colors: Record<string, string> = {};
+	for (const [id, value] of Object.entries(raw)) {
+		if (!validIds.has(id)) continue;
+		const color = hexColor(value);
+		if (color) colors[id] = color;
+	}
+	return Object.keys(colors).length ? colors : undefined;
+};
+
 /**
  * Rows per reel. Accepts a scalar (`3` ⇒ every reel 3 rows) as well as the per-reel list, and
  * pads/truncates to `numReels` so the grid is always fully described — a short `numRows` would
@@ -194,6 +224,8 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 	const declaredReels = count(raw.numReels);
 	const numReels = declaredReels && declaredReels > 0 ? declaredReels : stripReels;
 
+	const paylines = normalizePaylines(raw.paylines);
+
 	const doc: GameConfigDoc = {
 		version: GAME_CONFIG_DOC_VERSION,
 		providerName: str(raw.providerName) ?? '',
@@ -203,10 +235,13 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 		numReels,
 		numRows: normalizeNumRows(raw.numRows, numReels),
 		betModes: normalizeBetModes(raw.betModes),
-		paylines: normalizePaylines(raw.paylines),
+		paylines,
 		symbols,
 		paddingReels,
 	};
+
+	const paylineColors = normalizePaylineColors(raw.paylineColors, new Set(Object.keys(paylines)));
+	if (paylineColors) doc.paylineColors = paylineColors;
 
 	const updatedAt = str(raw.updatedAt);
 	if (updatedAt) doc.updatedAt = updatedAt;

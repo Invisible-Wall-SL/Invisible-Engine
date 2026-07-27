@@ -220,6 +220,13 @@ export const stateGame = $state({
 	// `enableSequentialReelStop`'s `gaps`/`speeds` payload, cleared on disable.
 	sequentialGapOverrides: null as number[] | null,
 	sequentialSpeedOverrides: null as number[] | null,
+	// The REUSABLE win colour: the authored colour (`#rrggbb`, Invisible Game Config) of the payline
+	// whose win is CURRENTLY on screen, published by `WinLine.svelte` on `winLineShow` and cleared on
+	// `winLineHide`. `null` when no coloured win is showing (an un-coloured line, or no win). Any asset
+	// component can read it reactively to tint itself to the winning line — the "colour-correct assets
+	// to the payline win" hook. A plain reactive field, not an event, so a late-mounting component
+	// still sees the colour of a win already in progress.
+	winLineColor: null as string | null,
 });
 
 /**
@@ -295,9 +302,7 @@ const boardLayout = () => {
 };
 
 const boardRaw = () =>
-	stateGame.board.map((reel) =>
-		reel.reelState.symbols.map((reelSymbol) => reelSymbol.rawSymbol),
-	);
+	stateGame.board.map((reel) => reel.reelState.symbols.map((reelSymbol) => reelSymbol.rawSymbol));
 
 const scatterLandIndex = () => {
 	if (stateGame.scatterCounter > 5) return 5;
