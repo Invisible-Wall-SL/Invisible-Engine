@@ -15,7 +15,7 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 - **Tool registry + docs** — `roles.ts` is the single registry; the launcher **serves the guides** at authed `/docs/[slug]` (rendered from `docs/tools/*.md`), and `/onboarding` links to them. CLAUDE.md rule #9 keeps a new/renamed tool from shipping doc-less.
 - **Download links / install paths** — desktop **Invisible Launcher** (`.exe`, separate `invisible-launcher` repo) served over open routes `/api/launcher/download` + `/api/launcher/latest` (no session — the desktop app has none); it self-updates via the manifest. Also `/api/launcher/projects` (session-scoped project sync) + `/api/launcher/deploy-token` (`gamePublish`-gated).
 - **DB migrations** — on-boot migrator with the prod-safety discipline: **`db:push` is BANNED on prod** (use `db:generate` + the migrator); `reconcilePushProvisioned` replays every journal migration tolerating duplicate-object errors so a push-provisioned DB reconciles with no baseline overshoot.
-- **UI** — full-bleed home (Online tools / Local tools), Invisible Wall emblem branding, DNS-only (grey-cloud) CNAME to Railway (proxying breaks Railway TLS).
+- **UI** — full-bleed home: online tools grouped into **game-making stage sections** (Create / Assets / Build / Files & Reference) plus Games and Local tools, Invisible Wall emblem branding, DNS-only (grey-cloud) CNAME to Railway (proxying breaks Railway TLS). Stages are the single source `TOOL_STAGES` in `roles.ts`; the top-bar switcher tints each tool icon by its stage accent (see unified-tool-bar).
 
 ## Open items / next
 1. **Onboarding** is a basic first version — a fuller per-role walkthrough is planned (backlog B6).
@@ -33,6 +33,7 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 - More done-work detail (B12/B16/B17/B22, admin panel, per-client R2 isolation, role→tool matrix, Railway consolidation) is archived in [../history.md](../history.md).
 
 ## Recent changes
+- 2026-07-27 — Online tools grouped by game-making **stage** (`TOOL_STAGES` in `roles.ts`, single source; `TOOL_BAR_ORDER` derived from it): home grid renders one colour-accented section per stage; top-bar switcher tints each icon by stage. The `tools=` payload now bakes a per-tool `accent`, so the four HTML twins (atlas/sheet/rigger/spine) tint their icons to match. (Remaining: the twins' partial `TOOL_ICONS` mirrors — icon-less tools render label-only. See unified-tool-bar.)
 - 2026-06-20 — Prod `app_settings` created + migrator hardened (`reconcilePushProvisioned` replaces baseline-overshoot). ([history](../history.md))
 - 2026-06-14 — Launcher now serves the tool guides at `/docs/[slug]`; onboarding links fixed; CLAUDE rule #9 institutionalized. ([history](../history.md))
 - 2026-06-12 — Deploy token moved to admin-managed `app_settings` + `gamePublish`-gated route. ([history](../history.md))

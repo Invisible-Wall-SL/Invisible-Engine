@@ -1,4 +1,4 @@
-import { toolBarItems, type ToolDef } from '$lib/roles';
+import { toolAccent, toolBarItems, type ToolDef } from '$lib/roles';
 import { ENV } from './env';
 
 /**
@@ -24,6 +24,8 @@ export function toolBarParams(tools: ToolDef[], currentId: string): URLSearchPar
 		// (it strips a leading "Invisible " itself; an explicit `barName` has none).
 		name: t.barName ?? t.name,
 		url: origin + (t.url ?? '/'),
+		// Stage accent so the HTML twins can tint the icon exactly like the Svelte bar.
+		accent: toolAccent(t.id),
 	}));
 	const params = new URLSearchParams();
 	params.set('home', origin);
