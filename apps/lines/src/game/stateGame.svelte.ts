@@ -232,7 +232,14 @@ export const stateGame = $state({
  * in-flight animation state.
  */
 export function rebuildBoard(): void {
-	stateGame.board = buildBoard();
+	// Rebuild the reels IN PLACE, preserving the array's identity — do NOT reassign `stateGame.board`
+	// to a fresh array. `enhancedBoard` (createEnhanceBoard, below) closes over THIS exact array at
+	// module init and drives every preSpin/spin/settle/stop by iterating it — it never re-reads
+	// `stateGame.board`. A reassignment would leave the rendered board (which reads `stateGame.board`
+	// live) resized to the new array while the reels that actually roll stay the old, orphaned ones —
+	// so an online project's board would settle its result yet never spin. Splicing the contents keeps
+	// both the render and `enhancedBoard` on the same reels.
+	stateGame.board.splice(0, stateGame.board.length, ...buildBoard());
 }
 
 const boardLayout = () => {
@@ -288,7 +295,9 @@ const boardLayout = () => {
 };
 
 const boardRaw = () =>
-	board.map((reel) => reel.reelState.symbols.map((reelSymbol) => reelSymbol.rawSymbol));
+	stateGame.board.map((reel) =>
+		reel.reelState.symbols.map((reelSymbol) => reelSymbol.rawSymbol),
+	);
 
 const scatterLandIndex = () => {
 	if (stateGame.scatterCounter > 5) return 5;

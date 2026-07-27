@@ -143,6 +143,14 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-07-27 — **Fix: online reel stopped rolling.** The grid-dimensions `rebuildBoard()` reassigned
+  `stateGame.board = buildBoard()`, orphaning the `enhancedBoard` (createEnhanceBoard) that closes
+  over the board array at module init and drives every preSpin/spin/settle — so online (the only path
+  that calls `rebuildBoard`, after the live bundle lands) the rendered reels were static while spin
+  animated the old detached reels. Fixed by rebuilding IN PLACE (`stateGame.board.splice(0, len,
+  ...buildBoard())`) so render + enhancedBoard stay on the same reels. Also repointed the dangling
+  `boardRaw()` `board` reference (left undeclared when #97 removed `const board`) to `stateGame.board`.
+  Ships to online games via a Runtime release.
 - 2026-07-27 — Grid-dimensions enhancement (branch `game-config-grid`): the authored numReels/numRows
   resize the board in the game (`boardDimensions()` + `rebuildBoard()`), the mock RGS (parameterized
   `createMockRgs`), and the Scene Editor preview (`drawReelGrid` from config, `reelGridWarnings` vs
