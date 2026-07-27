@@ -1,6 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { getDeployToken } from '$lib/server/appSettings';
 import { exportEditorFlow } from '$lib/server/flowExport';
+import { exportEditorFlowV2 } from '$lib/server/flowV2Export';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
 import type { RequestHandler } from './$types';
@@ -23,8 +24,15 @@ export const POST: RequestHandler = async ({ url }) => {
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 
 	try {
+		// v1 flow + v2 flow are both exported here so ONE bake call covers both. The v2
+		// pair (`flowV2` / `flowV2Library`) is what a flow-v2 game needs to drive its
+		// screens; without it the desktop bake embedded only v1 and a v2-authored game
+		// ran inert (static scene-editor placement, no flow). Each export self-gates on
+		// "authored", so an un-authored side contributes nothing (parity). Mirrors what
+		// the online runtime bundle already assembles (`runtimeBundle.ts`).
 		const index = await exportEditorFlow(clientKey, projectKey);
-		return json({ clientKey, projectKey, ...index });
+		const indexV2 = await exportEditorFlowV2(clientKey, projectKey);
+		return json({ clientKey, projectKey, ...index, ...indexV2 });
 	} catch (e) {
 		console.error('export-flow failed:', e);
 		throw error(502, 'Failed to export the project flow.');
