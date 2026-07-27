@@ -6,8 +6,11 @@
 # R2 keys on a developer's machine; running it here means the keys live in GitHub's encrypted
 # secrets and a release is a button, not a local shell.
 #
-# Deliberately MANUAL (`workflow_dispatch`) — a runtime release re-points every online game at new
-# engine code, so it is an explicit act, not a side effect of merging to `main`.
+# AUTOMATIC on merge — a `push` to `main` that touches the engine (`apps/lines/**` or `packages/**`)
+# auto-builds + publishes the `lines` runtime, so a merged engine fix reaches the online games with
+# no extra step. Still `workflow_dispatch` too, for a manual release or to publish a different
+# runtime id. Note the blast radius: a release re-points EVERY online game on that runtime at the new
+# engine code, so an unverified engine commit on `main` goes live to all of them.
 #
 # One-time setup — add these under Settings → Secrets and variables → Actions:
 #   R2_ENDPOINT, R2_BUCKET, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY   (Railway → Invisible launcher
@@ -16,6 +19,13 @@
 name: Runtime release
 
 on:
+  # Auto-release the `lines` runtime whenever engine code merges to main. Path-filtered so a
+  # docs/launcher-only merge doesn't trigger a pointless rebuild.
+  push:
+    branches: [main]
+    paths:
+      - 'apps/lines/**'
+      - 'packages/**'
   workflow_dispatch:
     inputs:
       runtime:
@@ -29,13 +39,18 @@ on:
         default: true
 
 concurrency:
-  group: runtime-release-${{ inputs.runtime }}
+  # `inputs.runtime` is empty on a push event → fall back to 'lines' so a push- and a dispatch-
+  # triggered release for the same runtime still serialize into one group.
+  group: runtime-release-${{ inputs.runtime || 'lines' }}
   cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # One knob both triggers read: the dispatched runtime id, or 'lines' for an auto push-release.
+    env:
+      RUNTIME: ${{ inputs.runtime || 'lines' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -51,16 +66,16 @@ jobs:
       # The workspace `dist` outputs the game build consumes are NOT rebuilt by the app's own vite
       # build — a stale dist silently ships old engine code (the "stale engine dist" trap).
       - name: Build workspace packages
-        run: pnpm --filter "${{ inputs.runtime }}^..." build
+        run: pnpm --filter "${{ env.RUNTIME }}^..." build
 
       # PUBLIC_RGS_TRANSPORT=play4fun is REQUIRED: the test server's mock RGS speaks Play4Fun, and a
       # bundle built without it never completes the handshake and hangs on a blank loading screen.
-      - name: Build the ${{ inputs.runtime }} runtime
+      - name: Build the ${{ env.RUNTIME }} runtime
         env:
           PUBLIC_RGS_TRANSPORT: play4fun
-        run: pnpm --filter ${{ inputs.runtime }} build
+        run: pnpm --filter ${{ env.RUNTIME }} build
 
-      - name: Publish to _runtime/${{ inputs.runtime }}
+      - name: Publish to _runtime/${{ env.RUNTIME }}
         env:
           R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
@@ -68,7 +83,7 @@ jobs:
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           node apps/launcher-api/scripts/publish-runtime-bundle.mjs \
-            "${{ inputs.runtime }}" "apps/${{ inputs.runtime }}/build"
+            "${{ env.RUNTIME }}" "apps/${{ env.RUNTIME }}/build"
 
       # The test server hydrates every bundle from R2 on boot; without this the new engine only goes
       # live on its next redeploy. It answers 202 immediately and hydrates in the background.
@@ -76,7 +91,8 @@ jobs:
       # RETRIED: this endpoint returns a transient 502 fairly often (the upload has already landed by
       # then, so failing the whole release on one is a false alarm that reads as a broken publish).
       - name: Refresh the test server
-        if: ${{ inputs.refresh }}
+        # Auto push-releases always refresh; a manual dispatch honours its refresh checkbox.
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.refresh }}
         env:
           TEST_SERVER_SECRET: ${{ secrets.TEST_SERVER_SECRET }}
         run: |
