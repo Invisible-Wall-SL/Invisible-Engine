@@ -133,8 +133,16 @@ type BakedBundle = {
 		 * is the engine spine-asset key the bundle registers — the highlight spine bundle is
 		 * exported to `deploy/editor-symbols/` and registered via `index.spines` exactly like the
 		 * per-symbol spine cells, so it is already loadable under its `assetKey`. Absent →
-		 * `SymbolSpine.svelte` keeps the coded `anticipation`/`payframe` frame. */
-		highlight?: { assetKey: string; animationName: string };
+		 * `SymbolSpine.svelte` keeps the coded `anticipation`/`payframe` frame. `tintMode`/`tintColor`
+		 * (both optional) are the MULTIPLY tint the frame applies to the symbols it loops over:
+		 * `'fixed'` uses `tintColor`; `'winLine'` uses the paying line's authored colour, resolved at
+		 * win time. Both absent → no tint. */
+		highlight?: {
+			assetKey: string;
+			animationName: string;
+			tintMode?: 'fixed' | 'winLine';
+			tintColor?: string;
+		};
 		/** Free-spin BOARD GLOW (Invisible Symbols State Machine output) — the reel-house
 		 * backdrop spine behind the reels. `assetKey` is the engine spine-asset key the bundle
 		 * registers: like `highlight`, its bundle is exported to `deploy/editor-symbols/` and
@@ -496,7 +504,7 @@ export function bakedSymbolNames(): SymbolNameMap {
  * per-symbol spine cell), so the `assetKey` is already loadable. Mirrors `bakedSymbolMap`'s
  * runtime→baked→undefined resolution; undefined → the coded default frame.
  */
-export function bakedHighlight(): { assetKey: string; animationName: string } | undefined {
+export function bakedHighlight(): BakedBundle['symbols']['highlight'] {
 	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.highlight;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.symbols?.highlight;

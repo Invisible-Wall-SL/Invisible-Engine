@@ -99,10 +99,16 @@ export interface SymbolExportIndex {
 /** The global win-frame highlight, passed through to the bundle so the game can
  *  render the authored win frame instead of its built-in `payframe`. Only present
  *  when the author overrode it; `assetKey` is the FULL R2 spine bundle prefix (its
- *  bundle is exported alongside the per-symbol spines, keyed the same way). */
+ *  bundle is exported alongside the per-symbol spines, keyed the same way).
+ *
+ *  `tintMode`/`tintColor` are the MULTIPLY tint the frame applies to the symbols it loops over
+ *  (`'fixed'` → `tintColor`; `'winLine'` → the paying line's authored colour, resolved in-game).
+ *  Both absent ⇒ no tint. */
 export interface SymbolExportHighlight {
 	assetKey: string;
 	animationName?: string;
+	tintMode?: 'fixed' | 'winLine';
+	tintColor?: string;
 }
 
 export interface SymbolExportResult {
@@ -433,7 +439,12 @@ export async function exportEditorSymbols(
 	// this same `assetKey`; we only surface the pointer for the bundle's top level.
 	const highlight: SymbolExportHighlight | undefined =
 		doc.highlight?.type === 'spine' && doc.highlight.assetKey
-			? { assetKey: doc.highlight.assetKey, animationName: doc.highlight.animationName }
+			? {
+					assetKey: doc.highlight.assetKey,
+					animationName: doc.highlight.animationName,
+					...(doc.highlight.tintMode ? { tintMode: doc.highlight.tintMode } : {}),
+					...(doc.highlight.tintColor ? { tintColor: doc.highlight.tintColor } : {}),
+				}
 			: undefined;
 
 	// The global win-line config — a pure pass-through (no asset). The doc is already

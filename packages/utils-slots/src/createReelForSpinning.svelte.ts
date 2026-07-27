@@ -31,6 +31,10 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 			symbolState,
 			symbolY,
 			oncomplete,
+			// Per-cell presentation tint hint (a `#rrggbb` hex) set alongside the `win` state when the
+			// win frame is configured to pick up the paying line's colour. Optional + undefined by
+			// default, so a game that never sets it is byte-identical.
+			winLineColor: undefined as string | undefined,
 		});
 
 		return reelSymbol;

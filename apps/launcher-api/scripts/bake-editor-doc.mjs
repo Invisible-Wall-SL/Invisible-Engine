@@ -341,6 +341,14 @@ async function main() {
 							...(typeof s.highlight.animationName === 'string'
 								? { animationName: s.highlight.animationName }
 								: {}),
+							// MULTIPLY tint the frame applies to the symbols it loops over — carried through
+							// only when authored, so an untouched project ships no tint and renders untinted.
+							...(s.highlight.tintMode === 'fixed' || s.highlight.tintMode === 'winLine'
+								? { tintMode: s.highlight.tintMode }
+								: {}),
+							...(typeof s.highlight.tintColor === 'string'
+								? { tintColor: s.highlight.tintColor }
+								: {}),
 						}
 					: undefined;
 			// The free-spin board glow (absent → game keeps its coded `reelhouse` spine). Like

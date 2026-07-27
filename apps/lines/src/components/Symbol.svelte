@@ -13,6 +13,9 @@
 		state: SymbolState;
 		rawSymbol: RawSymbol;
 		oncomplete?: () => void;
+		/** The paying line's authored colour for the current win (`#rrggbb`), forwarded to the win
+		 *  frame so a `winLine`-tinted highlight glows in that line's colour. */
+		winLineColor?: string;
 		loop?: boolean;
 	};
 
@@ -34,6 +37,7 @@
 		x={props.x}
 		y={props.y}
 		showWinFrame={props.state === 'win' && !['S', 'M'].includes(props.rawSymbol.name)}
+		winLineColor={props.winLineColor}
 		listener={{
 			complete: props.oncomplete,
 			event: (_, event) => {

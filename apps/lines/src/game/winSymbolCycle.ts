@@ -218,7 +218,7 @@ export const startWinCycle = async (): Promise<void> => {
 					messageKind: 'win',
 				});
 			}
-			await animateSymbols({ positions });
+			await animateSymbols({ positions, color: winLineColorFor(win.meta?.lineIndex) });
 			if (token !== generation) return;
 			clearCycleLine();
 			await waitForTimeout(gapMs);

@@ -18,6 +18,13 @@
 		// after construction. Absent = the runtime's default-skin behaviour (untouched).
 		skin?: string;
 		/**
+		 * MULTIPLY tint applied to the whole skeleton, as an `0xRRGGBB` number. Applied via the
+		 * spine-pixi-v8 skeleton COLOUR (`skeleton.color`, a per-vertex multiply on every slot), NOT
+		 * the sprite `.tint` path — a `Spine` is not a `Sprite`. Reactive: a change re-applies, and
+		 * clearing it (undefined) resets to white `0xffffff` (no tint), byte-identical to before.
+		 */
+		tint?: number;
+		/**
 		 * Opt-in: rebroadcast this rig's fired Spine ANIMATION EVENTS onto the shared
 		 * `utils-event-emitter` bus (`{ type: <event name>, int, float, string }`), so an FX layer
 		 * (or anything) subscribed to that name fires exactly when the animation reaches the event
@@ -31,6 +38,7 @@
 
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import * as PIXI from 'pixi.js';
 	import { getContextEventEmitter, type EmitterEventBase } from 'utils-event-emitter';
 
 	import { propsSyncEffect, spineSizeScale } from '../utils.svelte';
@@ -87,9 +95,19 @@
 			'scale',
 			'fit',
 			'skin',
+			'tint',
 			'anchorFallback',
 			'rebroadcastEvents',
 		],
+	});
+
+	// MULTIPLY tint via the skeleton COLOUR (a `Spine` is not a `Sprite`, so `.tint` does not apply).
+	// Reactive: re-applies when `tint` changes; clearing it resets to white (no tint). `PIXI.Color`
+	// turns the `0xRRGGBB` number into the 0..1 float channels `skeleton.color.set` expects, keeping
+	// the alpha at 1 so only the colour multiplies.
+	$effect(() => {
+		const c = new PIXI.Color(props.tint ?? 0xffffff);
+		spine.skeleton.color.set(c.red, c.green, c.blue, 1);
 	});
 
 	// Apply an authored skeleton skin by name. Reactive (re-applies if `skin` changes),

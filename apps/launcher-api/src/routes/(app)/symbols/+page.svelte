@@ -53,6 +53,8 @@
 		SYMBOL_CELL_TYPES,
 		SYMBOL_CELL_TYPE_LABELS,
 		type BoardGlowConfig,
+		type HighlightCell,
+		type HighlightTintMode,
 		type SymbolCell,
 		type SymbolCellType,
 		type SymbolState,
@@ -420,8 +422,19 @@
 		highlight.overridden ? undefined : resolveBuiltinBundle(BUILTIN_FRAME.assetKey),
 	);
 	let highlightEditing = $state(false);
-	let highlightDraft = $state<SymbolCell | null>(null);
+	let highlightDraft = $state<HighlightCell | null>(null);
 	let highlightAnimations = $state<string[]>([]);
+
+	/** The highlight tint MODE the draft's radio group binds to. `'none'` is the UI-only absence of a
+	 *  tint — it maps to `tintMode: undefined` on the saved cell (kept sparse). */
+	type HighlightTintChoice = 'none' | HighlightTintMode;
+	const HIGHLIGHT_TINT_CHOICES: { value: HighlightTintChoice; label: string }[] = [
+		{ value: 'none', label: 'No tint' },
+		{ value: 'fixed', label: 'Fixed colour' },
+		{ value: 'winLine', label: 'Win-line colour' },
+	];
+	/** The default swatch shown when the author first switches to Fixed with no colour yet. */
+	const HIGHLIGHT_TINT_DEFAULT_COLOR = '#ffffff';
 
 	function openHighlight(): void {
 		// Seed the draft from an existing override, else a blank spine cell (we never
@@ -429,10 +442,26 @@
 		// `$state.snapshot` (NOT `structuredClone`): `doc.highlight` is a `$state` proxy and
 		// `structuredClone` throws `DataCloneError` on a proxy (same bug as `openCell`).
 		highlightDraft = doc.highlight
-			? ($state.snapshot(doc.highlight) as SymbolCell)
+			? ($state.snapshot(doc.highlight) as HighlightCell)
 			: { type: 'spine', assetKey: '', animationName: '', sizeRatios: { width: 1, height: 1 } };
 		highlightAnimations = [];
 		highlightEditing = true;
+	}
+
+	/** Switch the draft's tint mode. Fixed seeds a colour so the picker never opens on an empty
+	 *  value; None/Win-line drop the fixed colour so a reset stays sparse. */
+	function setHighlightTintChoice(choice: HighlightTintChoice): void {
+		if (!highlightDraft) return;
+		if (choice === 'none') {
+			highlightDraft.tintMode = undefined;
+			highlightDraft.tintColor = undefined;
+		} else if (choice === 'fixed') {
+			highlightDraft.tintMode = 'fixed';
+			highlightDraft.tintColor = highlightDraft.tintColor || HIGHLIGHT_TINT_DEFAULT_COLOR;
+		} else {
+			highlightDraft.tintMode = 'winLine';
+			highlightDraft.tintColor = undefined;
+		}
 	}
 
 	function closeHighlight(): void {
@@ -444,7 +473,7 @@
 	function applyHighlight(): void {
 		if (!highlightDraft || !highlightDraft.assetKey) return;
 		const sr = highlightDraft.sizeRatios ?? { width: 1, height: 1 };
-		const cell: SymbolCell = {
+		const cell: HighlightCell = {
 			type: 'spine',
 			assetKey: highlightDraft.assetKey,
 			sizeRatios: {
@@ -453,6 +482,14 @@
 			},
 		};
 		if (highlightDraft.animationName) cell.animationName = highlightDraft.animationName;
+		// Carry the tint choice, kept sparse: only a chosen mode persists, and `tintColor` only rides
+		// the `fixed` mode (`winLine` reads its colour from the config at win time).
+		if (highlightDraft.tintMode === 'fixed') {
+			cell.tintMode = 'fixed';
+			cell.tintColor = highlightDraft.tintColor || HIGHLIGHT_TINT_DEFAULT_COLOR;
+		} else if (highlightDraft.tintMode === 'winLine') {
+			cell.tintMode = 'winLine';
+		}
 		doc = setHighlight(doc, cell);
 		closeHighlight();
 	}
@@ -672,6 +709,18 @@
 									{#if highlight.cell.animationName}
 										<span class="hl-anim">{highlight.cell.animationName}</span>
 									{/if}
+									{#if highlight.cell.tintMode === 'winLine'}
+										<span class="hl-anim">tint: win-line colour</span>
+									{:else if highlight.cell.tintMode === 'fixed'}
+										<span class="hl-anim">
+											tint:
+											<span
+												class="hl-swatch"
+												style={`background:${highlight.cell.tintColor ?? '#ffffff'}`}
+											></span>
+											{highlight.cell.tintColor}
+										</span>
+									{/if}
 								</div>
 							{:else if defaultFrameBundle}
 								<div class="hl-preview">
@@ -758,6 +807,35 @@
 											/>
 										</div>
 									</div>
+									<div class="field">
+										<span class="label">Tint</span>
+										<select
+											value={highlightDraft.tintMode ?? 'none'}
+											onchange={(e) =>
+												setHighlightTintChoice(e.currentTarget.value as HighlightTintChoice)}
+										>
+											{#each HIGHLIGHT_TINT_CHOICES as choice (choice.value)}
+												<option value={choice.value}>{choice.label}</option>
+											{/each}
+										</select>
+										<span class="hl-note">
+											Multiplies the win frame's colour over the winning symbols. "Win-line colour"
+											uses each paying line's colour from the game config; "Fixed colour" uses the
+											swatch below.
+										</span>
+									</div>
+									{#if highlightDraft.tintMode === 'fixed'}
+										<div class="field">
+											<span class="label">Tint colour</span>
+											<input
+												type="color"
+												value={highlightDraft.tintColor ?? HIGHLIGHT_TINT_DEFAULT_COLOR}
+												oninput={(e) => {
+													if (highlightDraft) highlightDraft.tintColor = e.currentTarget.value;
+												}}
+											/>
+										</div>
+									{/if}
 								{/if}
 								<button
 									type="button"
@@ -1952,6 +2030,14 @@
 	.hl-anim {
 		font-size: 12px;
 		color: #9a9aa6;
+	}
+	.hl-swatch {
+		display: inline-block;
+		width: 11px;
+		height: 11px;
+		border-radius: 3px;
+		border: 1px solid #4a4a58;
+		vertical-align: middle;
 	}
 	.hl-note {
 		font-size: 11px;

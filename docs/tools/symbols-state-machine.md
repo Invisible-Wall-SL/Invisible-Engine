@@ -144,17 +144,28 @@ carries its own matching R2 bundle previews that one instead.
   shared) R2 bundles — the same library the grid's spine cells use — then pick an
   **Animation** (or type the name; blank plays the bundle's first animation). A live
   **Preview** plays the chosen animation.
-- **Apply highlight** records the override; the section then shows the override preview
-  and an **overridden** badge.
+- **Tint** (below Preview) multiplies a colour over the winning symbols the frame loops
+  over. Three modes:
+  - **No tint** (default) — the frame renders untinted, byte-identical to before.
+  - **Fixed colour** — reveals a colour swatch; the frame tints every win in that one
+    colour.
+  - **Win-line colour** — the frame tints each win in that paying line's colour, taken from
+    the game config's per-payline colours (Invisible Game Config → `paylineColors`). A line
+    with no configured colour falls through to no tint.
+- **Apply highlight** records the override; the section then shows the override preview,
+  an **overridden** badge, and the tint choice (a swatch for fixed, or "win-line colour").
 - **Reset to default** removes the override, returning to the built-in `payframe`.
 
 The override is a single optional top-level field on the doc:
-`highlight: { type: 'spine', assetKey: <full R2 bundle prefix>, animationName }`. When no
-override is set, nothing is written and the game keeps its built-in `payframe` — so a
-project that never touches this section is byte-identical to before. On export/bake the
-chosen spine bundle travels the same chain as a per-symbol spine cell (its bundle is
-copied into `deploy/editor-symbols/` and registered), and the bundle records the
-highlight pointer so the game loads the authored win frame by `assetKey`.
+`highlight: { type: 'spine', assetKey: <full R2 bundle prefix>, animationName, tintMode?,
+tintColor? }`. `tintMode` is `'fixed'` or `'winLine'`; `tintColor` (a `#rrggbb` hex) rides
+only the `fixed` mode. When no override is set, nothing is written and the game keeps its
+built-in `payframe` — so a project that never touches this section is byte-identical to
+before. On export/bake the chosen spine bundle travels the same chain as a per-symbol spine
+cell (its bundle is copied into `deploy/editor-symbols/` and registered), and the bundle
+records the highlight pointer + tint so the game loads the authored win frame by `assetKey`
+and multiplies the tint via the spine's skeleton colour. The **win-line colour** is resolved
+in-game per win, so it needs no bake step — it reads the live game config at win time.
 
 ### Free-spin board glow
 
