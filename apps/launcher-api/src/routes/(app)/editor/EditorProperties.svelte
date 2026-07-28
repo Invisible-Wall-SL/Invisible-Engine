@@ -601,6 +601,16 @@
 		onDirty?.();
 	}
 
+	// Reveal gate (Invisible Flow — intro-complete sequencing): hide this node until a named
+	// component-scoped signal fires (e.g. a sibling spine's `completeSignal`). Blank ⇒ always
+	// visible (parity).
+	function setHiddenUntilSignal(n: LayoutNode, value: string): void {
+		const trimmed = value.trim();
+		if (trimmed) n.hiddenUntilSignal = trimmed;
+		else delete n.hiddenUntilSignal;
+		markDirty();
+	}
+
 	// Spin-FEEL tuning fields (reelGrid node, advanced). Each maps to a
 	// `SpinningReelSpinOptions` key; blank = the game's coded default for that
 	// profile. Authored under `node.spin.{normal,fast}`.
@@ -2148,6 +2158,26 @@
 	{/if}
 
 	<section>
+		<h3>Reveal</h3>
+		<div class="row">
+			<label class="field wide">
+				<span>hidden until signal</span>
+				<input
+					type="text"
+					placeholder="e.g. introDone (blank = always shown)"
+					value={node.hiddenUntilSignal ?? ''}
+					oninput={(e) => setHiddenUntilSignal(node, e.currentTarget.value)}
+				/>
+			</label>
+		</div>
+		<p class="muted small">
+			Keep this node hidden until the named signal fires for the instance — e.g. a sibling spine's
+			<strong>fire signal on complete</strong>, so the amount / tap appears only after the intro
+			plays. Only inside a component instance. Blank ⇒ always shown.
+		</p>
+	</section>
+
+	<section>
 		<h3>Transform</h3>
 
 		<div class="row">
@@ -2889,6 +2919,20 @@
 								onclick={() => removeCue(node as SpineNode, i)}>×</button
 							>
 						</label>
+						{#if !(cue.loop ?? false)}
+							<label class="field wide">
+								<span>fire signal on complete</span>
+								<input
+									type="text"
+									placeholder="e.g. introDone"
+									value={cue.completeSignal ?? ''}
+									oninput={(e) =>
+										updateCue(node as SpineNode, i, {
+											completeSignal: e.currentTarget.value.trim() || undefined,
+										})}
+								/>
+							</label>
+						{/if}
 					</div>
 				{/each}
 				<button type="button" class="ghost-sm" onclick={() => addCue(node as SpineNode)}>

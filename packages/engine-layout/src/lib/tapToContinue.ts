@@ -33,6 +33,12 @@ export const TAP_DIM_COLOR_PARAM = 'tapDimColor';
  * a dim by setting alpha > 0. */
 export const TAP_DIM_ALPHA_PARAM = 'tapDimAlpha';
 
+/** Param key: ARM the tap surface only AFTER the named component-scoped signal has fired for this
+ * instance (e.g. a sibling spine's `completeSignal` — so "tap to continue" is dead until the intro
+ * finishes). Empty/absent ⇒ armed on mount (parity — today's behaviour); before it fires, taps are
+ * ignored (the hit surface is not mounted). */
+export const TAP_ARM_AFTER_SIGNAL_PARAM = 'tapArmAfterSignal';
+
 /** Param key: SHOW the engine's default press-to-continue prompt graphic over the tap
  * surface (`boolean`, default true — prompt SHOWN). History: made opt-in (default false)
  * on 2026-07-14 on the theory a flow-authored overlay always draws its own prompt; reverted
@@ -64,6 +70,7 @@ export const TAP_TO_CONTINUE_PARAMS: ComponentParam[] = [
 	{ key: TAP_SIGNAL_PARAM, kind: 'string', label: 'Tap signal' },
 	{ key: TAP_DIM_COLOR_PARAM, kind: 'color', label: 'Dim colour' },
 	{ key: TAP_DIM_ALPHA_PARAM, kind: 'number', label: 'Dim opacity (0–1)' },
+	{ key: TAP_ARM_AFTER_SIGNAL_PARAM, kind: 'string', label: 'Arm tap after signal' },
 	{ key: TAP_SHOW_PROMPT_PARAM, kind: 'boolean', default: true, label: 'Show engine prompt' },
 ];
 
@@ -92,6 +99,12 @@ export function tapDimColorOf(params: Record<string, unknown>): number {
 export function tapDimAlphaOf(params: Record<string, unknown>): number {
 	const value = params[TAP_DIM_ALPHA_PARAM];
 	return typeof value === 'number' ? value : 0;
+}
+
+/** Read the named signal a tap surface must wait for before arming (trimmed; '' ⇒ arm on mount). */
+export function tapArmAfterSignalOf(params: Record<string, unknown>): string {
+	const value = params[TAP_ARM_AFTER_SIGNAL_PARAM];
+	return typeof value === 'string' ? value.trim() : '';
 }
 
 /** Read whether the tap surface should SHOW the engine's default prompt graphic. Default

@@ -46,6 +46,8 @@
 	import { getComponentSignalAnims } from './componentSignalContext';
 	import { getComponentStateAnims } from './componentStateAnimContext';
 	import { getComponentSpineRest } from './componentSpineRestContext';
+	import { getComponentFiredSignals } from './componentFiredSignalsContext';
+	import { isNodeRevealed } from './signalGates';
 	import { resolveBoundValue } from './componentParams';
 	import { editorArtTextureKey, isManifestAssetKey, parseScopedFrameRef } from './editorArtKey';
 	import ComponentInstance from './ComponentInstance.svelte';
@@ -72,6 +74,17 @@
 	// node id. `undefined` for a scene-level spine or a placement with no overrides — the
 	// spine then uses its static def values (byte-identical parity).
 	const spineRest = getComponentSpineRest();
+	// Fired-signal bus of the owning `componentInstance` (Invisible Flow — intro-complete
+	// sequencing). `undefined` for a top-level scene node with no instance ancestor ⇒ the reveal
+	// gate below stays OPEN and a spine `completeSignal` fires nothing (byte-identical parity).
+	const firedSignals = getComponentFiredSignals();
+	// Reveal gate: a node with `hiddenUntilSignal` renders only once that component-scoped signal has
+	// fired for the instance (e.g. show the free-spin amount + tap only AFTER a sibling spine's intro
+	// completes). Reactive read of the instance's `counts` proxy, so it flips when the signal fires;
+	// re-arms on a fresh mount (a new instance ⇒ empty counts). Unset ⇒ always revealed (parity).
+	const revealed = $derived(
+		!firedSignals || isNodeRevealed(node.hiddenUntilSignal, firedSignals.counts),
+	);
 
 	const transform = $derived(resolveTransform(node, layoutContext.stateLayoutDerived.layoutType()));
 
@@ -394,7 +407,7 @@
 	const rectColor = $derived(node.kind === 'rect' ? (node.color ?? 0xffffff) : 0xffffff);
 </script>
 
-{#if transform.visible}
+{#if transform.visible && revealed}
 	{#if Bound}
 		<!--
 			Bound-component contract (read before migrating a coded component to a
@@ -605,6 +618,14 @@
 			-->
 			{@const replay = stateAnim ? undefined : sigAnim?.fire}
 			{#if anim}
+				<!--
+					Completion signal (Invisible Flow — intro-complete sequencing): when the ACTIVE signal
+					cue names a `completeSignal`, fire it on the instance's fired-signal bus the moment this
+					one-shot finishes — so sibling nodes gated by `hiddenUntilSignal` reveal + a tap arms.
+					Only for a signal cue (`sigAnim`), never a button-state animation; only when the owning
+					instance provides the bus. Absent ⇒ no listener (parity).
+				-->
+				{@const completeSignal = stateAnim ? undefined : sigAnim?.completeSignal}
 				<SpineTrack
 					trackIndex={0}
 					animationName={anim}
@@ -612,6 +633,9 @@
 					then={handsOffToIdle ? effDefaultAnimation : undefined}
 					thenLoop={effLoop ?? true}
 					{replay}
+					oncomplete={completeSignal && firedSignals
+						? () => firedSignals.fire(completeSignal)
+						: undefined}
 				/>
 			{/if}
 			<!--

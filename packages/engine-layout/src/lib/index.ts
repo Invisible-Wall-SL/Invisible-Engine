@@ -21,6 +21,7 @@ export * from './layerOrder';
 export * from './resolveTransform';
 export * from './componentParams';
 export * from './tapToContinue';
+export * from './signalGates';
 export * from './completeOnLoaded';
 export * from './engineBindings';
 export * from './sceneRole';

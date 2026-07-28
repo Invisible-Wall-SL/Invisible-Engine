@@ -59,9 +59,12 @@
 		tapSignalOf,
 		tapDimColorOf,
 		tapDimAlphaOf,
+		tapArmAfterSignalOf,
 		tapShowPromptOf,
 		TAP_TO_CONTINUE_COMPONENT,
 	} from './tapToContinue';
+	import { setComponentFiredSignals } from './componentFiredSignalsContext';
+	import { isTapArmed } from './signalGates';
 	import { isCompleteOnLoadedEnabled, loadedSignalOf } from './completeOnLoaded';
 	import { getFlowComplete } from './registerFlowComplete';
 	import { getTapPortal } from './tapPortalContext';
@@ -162,6 +165,12 @@
 	// the same static params as `tapSignal`.
 	const tapDimColor = tapEnabled ? tapDimColorOf(staticParams) : 0x000000;
 	const tapDimAlpha = tapEnabled ? tapDimAlphaOf(staticParams) : 0;
+	// Arm-after-signal (Invisible Flow — intro-complete sequencing): when set, the tap surface stays
+	// inert (not mounted, taps pass through) until this named component-scoped signal has fired for
+	// the instance — e.g. a sibling spine's `completeSignal`, so "tap to continue" is dead until the
+	// intro finishes. Empty ⇒ armed on mount (parity, today's behaviour). Read off the same static
+	// params as `tapSignal`.
+	const tapArmSignal = tapEnabled ? tapArmAfterSignalOf(staticParams) : '';
 	// The coded press surface takes `hidePrompt`; the instance param is the INVERSE
 	// `tapShowPrompt` (default TRUE ⇒ prompt shown). So hide only when the author explicitly
 	// turned the engine prompt OFF (they draw their own continue graphic). A freshly-enabled
@@ -336,9 +345,12 @@
 	// nothing is ever written and the spine uses `defaultAnimation` (parity).
 	const signalToTargets = ((): Map<
 		string,
-		{ nodeId: string; animation: string; loop?: boolean }[]
+		{ nodeId: string; animation: string; loop?: boolean; completeSignal?: string }[]
 	> => {
-		const map = new Map<string, { nodeId: string; animation: string; loop?: boolean }[]>();
+		const map = new Map<
+			string,
+			{ nodeId: string; animation: string; loop?: boolean; completeSignal?: string }[]
+		>();
 		if (!allowed || !def) return map;
 		const walk = (n: LayoutNode): void => {
 			if (n.kind === 'spine' && n.cues?.length) {
@@ -352,7 +364,12 @@
 					// verbatim (parity).
 					const signal = rebinds?.[cue.signal] || cue.signal;
 					const targets = map.get(signal) ?? [];
-					targets.push({ nodeId: n.id, animation: cue.animation, loop: cue.loop });
+					targets.push({
+						nodeId: n.id,
+						animation: cue.animation,
+						loop: cue.loop,
+						completeSignal: cue.completeSignal,
+					});
 					map.set(signal, targets);
 				}
 			} else if (n.kind === 'container') {
@@ -398,12 +415,35 @@
 	// the rig frozen on its finished track). This monotonic token rides along and forces the
 	// re-apply. Per instance, so two placements of one def can't interfere.
 	let signalFire = 0;
-	const fireCue = (targets: { nodeId: string; animation: string; loop?: boolean }[]): void => {
+	const fireCue = (
+		targets: { nodeId: string; animation: string; loop?: boolean; completeSignal?: string }[],
+	): void => {
 		signalFire += 1;
 		for (const t of targets) {
-			signalAnims[t.nodeId] = { animation: t.animation, loop: t.loop, fire: signalFire };
+			signalAnims[t.nodeId] = {
+				animation: t.animation,
+				loop: t.loop,
+				fire: signalFire,
+				completeSignal: t.completeSignal,
+			};
 		}
 	};
+	// Fired-signal bus (Invisible Flow — intro-complete sequencing): a per-instance fire-count per
+	// component-scoped signal name. `enter` bumps it on the visible edge, a game-registered signal
+	// bumps it when its book event arrives, and a spine one-shot's `completeSignal` bumps it on
+	// completion (a descendant spine calls `fireComponentSignal` via context). Nodes gated by
+	// `hiddenUntilSignal` read it to reveal; the tap surface reads it to arm. Reset per fresh mount
+	// (a new `$state({})`), so a re-entered free-spin screen re-hides + re-arms. Provided to the
+	// rendered sub-tree via context (the `$state` proxy, so descendant reads stay reactive).
+	let firedSignals = $state<Record<string, number>>({});
+	const fireComponentSignal = (signal: string | undefined): void => {
+		if (!signal) return;
+		firedSignals[signal] = (firedSignals[signal] ?? 0) + 1;
+	};
+	setComponentFiredSignals({ counts: firedSignals, fire: fireComponentSignal });
+	// The tap surface arms once its gate signal has fired (or immediately when none is set). Reactive
+	// so the tap-registration `$effect` below re-runs when the arming signal fires (e.g. intro done).
+	const tapArmed = $derived(isTapArmed(tapArmSignal, firedSignals));
 	// One `$effect` (re)subscribes to every referenced signal and returns a combined
 	// cleanup — `$effect` can't live inside a loop, so iterate the precomputed map
 	// inside it and collect each unsubscribe. A signal with no registered source is
@@ -413,7 +453,14 @@
 		for (const [signalKey, targets] of signalToTargets) {
 			const source = getComponentSignal(signalKey);
 			if (!source) continue;
-			unsubs.push(source.subscribe(() => fireCue(targets)));
+			unsubs.push(
+				source.subscribe(() => {
+					fireCue(targets);
+					// Also record the fire on the per-instance bus so a `hiddenUntilSignal`/`tapArmAfterSignal`
+					// gate can key on a game signal (e.g. `win`), not only a spine `completeSignal`.
+					fireComponentSignal(signalKey);
+				}),
+			);
 		}
 		return () => {
 			for (const unsub of unsubs) unsub();
@@ -444,6 +491,9 @@
 			// Through `fireCue` too: a screen gated "Shows during …" can open a SECOND time (free
 			// spins entered twice in one session), and a value-identical re-write would not replay.
 			fireCue(signalToTargets.get('enter') ?? []);
+			// Record the `enter` fire on the per-instance bus so a `hiddenUntilSignal`/`tapArmAfterSignal`
+			// gate can key on `enter` directly (appear on mount) as well as on a spine `completeSignal`.
+			fireComponentSignal('enter');
 		}
 		wasVisible = selfVisible;
 	});
@@ -652,7 +702,11 @@
 	// sibling hoist. OFF (no tap) ⇒ nothing registered and `tap` undefined ⇒ byte-identical.
 	const tapPortal = getTapPortal();
 	$effect(() => {
-		if (!tapComponent) {
+		// Not a tap overlay, OR the tap is gated on a signal that hasn't fired yet ⇒ mount NOTHING,
+		// so taps pass straight through until the arming signal (e.g. the intro's `completeSignal`)
+		// fires. `tapArmed` is reactive, so this effect re-runs and registers the surface the moment
+		// it arms. Un-gated (no `tapArmAfterSignal`) ⇒ `tapArmed` is true from the start (parity).
+		if (!tapComponent || !tapArmed) {
 			tap = undefined;
 			return;
 		}
