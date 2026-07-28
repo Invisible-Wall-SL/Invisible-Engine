@@ -68,6 +68,12 @@
 	const stacked = $derived(['portrait', 'almostSquare'].includes(stateLayoutDerived.layoutType()));
 	const symCols = $derived(stacked ? 2 : 3);
 	const plCols = $derived(stacked ? 2 : 5);
+
+	// Spine icons contain-fit the SAME box as sprites, but their bounds are tight to the art
+	// (no transparent padding), so at an equal box they read bigger than a padded sprite. This
+	// factor (< 1) shrinks the spine box to sit visually among the sprite icons — the paytable
+	// twin of the reel's SYMBOL_SPINE_FILL, kept local so this shared component stays game-agnostic.
+	const SPINE_ICON_FILL = 0.82;
 </script>
 
 <FadeContainer {show}>
@@ -143,7 +149,18 @@
 							     it here made symbols render at wildly different sizes. -->
 							<Sprite key={icon.assetKey} anchor={0.5} x={iconX} y={cy} width={iconBox} height={iconBox} contain />
 						{:else}
-							<SpineProvider key={icon.assetKey} anchor={0.5} x={iconX} y={cy} height={iconBox}>
+							<!-- Contain-fit the rig's bounds to the box (with the spine-only shrink), like the
+							     reel's SymbolSpineMain — WITHOUT `fit="contain"` + a width cap the poster rigs
+							     rendered ~3x the sprites and clipped off the left edge. -->
+							<SpineProvider
+								key={icon.assetKey}
+								anchor={0.5}
+								x={iconX}
+								y={cy}
+								width={iconBox * SPINE_ICON_FILL}
+								height={iconBox * SPINE_ICON_FILL}
+								fit="contain"
+							>
 								<SpineTrack trackIndex={0} animationName={icon.animationName ?? ''} loop={true} />
 							</SpineProvider>
 						{/if}
