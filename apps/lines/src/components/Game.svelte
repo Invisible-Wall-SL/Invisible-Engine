@@ -1048,6 +1048,17 @@
 		}
 		return Math.min(bar ?? Number.MAX_SAFE_INTEGER, corners ?? Number.MAX_SAFE_INTEGER);
 	});
+	// The HUD's menu drawer (its dim + PayTable/Rules/Settings buttons) lives INSIDE the
+	// `<UI>` chrome, so it can never out-z a SIBLING container — and the win line is fixed
+	// above the HUD at `LAYER_BAND_WIN_PRESENTATION` (deliberately, so board art can't bury
+	// it). That leaves the win line bleeding through the menu's dim while it's open. While —
+	// and only while — the drawer is open, lift the whole chrome above the win band so it
+	// covers the line; a closed menu is byte-identical to before (parity). `Math.max` never
+	// LOWERS an already-pinned HUD, and the lift stays below the pinned takeover band + the
+	// engine top band, so a big-win takeover / round-blocking gate still covers the menu.
+	const hudZIndexEffective = $derived(
+		stateUi.menuOpen ? Math.max(hudZIndex, LAYER_BAND_WIN_PRESENTATION + 1) : hudZIndex,
+	);
 	const basegameOverlaysZIndex = $derived(sceneLayerZIndex(editorDoc.scenes, 'basegameOverlays'));
 	// The engine-owned flow outro gate mounts at the `freeSpinOutro` scene's OWN band (its authored
 	// container's z), and BEFORE `<FlowV2Mount>` in markup — so its dim scrim sits behind the authored
@@ -1688,7 +1699,7 @@
 		<!-- Cross-screen z-order (§11.5-C): the HUD chrome paints at its doc-list position via
 				 `hudZIndex`. Leaving it where the reference layout places it (before the win/bonus
 				 overlays) reproduces today's stacking; moving it in the editor re-layers it. -->
-		<Container zIndex={hudZIndex}>
+		<Container zIndex={hudZIndexEffective}>
 			<!-- The HUD is rendered by `<UI>`, not a `<LayoutScene>`, so it can't use
 					 `<FlowScreenMount>`; `<FlowFade>` wraps the chrome the same way (mount-hidden alpha
 					 0→1) when its activating edge carried an entrance transition, else renders it
