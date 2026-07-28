@@ -117,8 +117,10 @@
 		onLoadingChange?.({ started: loadStarted, settled: loadSettled });
 	}
 
-	/** Catalog of the project's fonts, by family name. Empty until fetched. */
-	let byName = new Map<string, EditorFont>();
+	/** Catalog of the project's fonts, by unique id. Empty until fetched. Keyed by
+	 * `id` (NOT `name`) so same-face variants all survive — a by-name map collapses
+	 * them to one, leaving the others unresolvable → a system-font fallback. */
+	let fontsById = new Map<string, EditorFont>();
 	/** Font IDS whose load resolved (bitmap registered / web face added). Keyed by the
 	 *  unique `id` so same-face variants track independently. */
 	let loadedFonts = new Set<string>();
@@ -441,7 +443,7 @@
 
 		for (const { key, id, node, scene, chain, text, style } of targets) {
 			const font = findFont(
-				{ prefix: '', fonts: [...byName.values()] } as FontCatalog,
+				{ prefix: '', fonts: [...fontsById.values()] } as FontCatalog,
 				style?.fontFamily,
 			);
 			// A catalog font (bitmap OR web) needs an async load — kick it off, but DON'T
@@ -530,7 +532,7 @@
 		loadedFonts = new Set();
 		fontLoads.clear();
 		void fetchFontCatalog().then((cat) => {
-			byName = cat.byName;
+			fontsById = cat.byId;
 			rebuild();
 		});
 	});
@@ -574,7 +576,7 @@
 					ro.observe(host);
 				}
 				void fetchFontCatalog().then((cat) => {
-					byName = cat.byName;
+					fontsById = cat.byId;
 					rebuild();
 				});
 			});
