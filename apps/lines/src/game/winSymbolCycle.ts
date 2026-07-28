@@ -111,6 +111,43 @@ export const recordWinCycleWins = (bookEvent: BookEvent): void => {
 	refreshWinDim();
 };
 
+/** A position-set key, order-independent — names the cells a broadcast lit so they can be matched
+ *  back to the recorded win that owns them. */
+const positionsKey = (positions: Position[]): string =>
+	positions
+		.map((position) => `${position.reel}:${position.row}`)
+		.sort()
+		.join(',');
+
+/**
+ * The paying line's colour for a set of just-lit cells, looked up from the recorded {@link wins} by
+ * the cells themselves — the reliable, FlowDoc-independent source the win-frame tint falls back to.
+ *
+ * WHY THIS EXISTS. The tint colour normally rides the `boardWithAnimateSymbols` broadcast
+ * (`winLineColor`, set from `win.meta.lineIndex`). But the FIRST presentation on a flow-driven game
+ * is the baked FlowDoc's RAW `boardWithAnimateSymbols` node, which wires only `symbolPositions` — no
+ * colour reaches the frame, so a `winLine`-tinted highlight renders untinted there (while the coded
+ * resting cycle tints fine). Rather than depend on every FlowDoc author wiring a colour pin,
+ * `Board.svelte` derives it here from the same wins the cycle replays — recorded in
+ * `dispatchBookEvent` (`utils.playBookEvent`) BEFORE the flow presents the event, so the owning win
+ * is always already in the list.
+ *
+ * Matches the FULL payline path (the raw broadcast lights `positions`) OR the sliced paying prefix
+ * (`winningPositionsOf`, what the coded / `animateWinSymbols` path lights), so it resolves whichever
+ * cell set the broadcast carried. Undefined when nothing matches (e.g. a non-win animation) ⇒ no
+ * tint, exactly as before.
+ */
+export const winLineColorForPositions = (positions: Position[]): string | undefined => {
+	if (!positions.length) return undefined;
+	const target = positionsKey(positions);
+	const match = wins.find(
+		(win) =>
+			positionsKey(win.positions) === target ||
+			positionsKey(winningPositionsOf(win)) === target,
+	);
+	return match ? winLineColorFor(match.meta?.lineIndex) : undefined;
+};
+
 /**
  * Recompute the win-celebration DIM set from the recorded wins and publish it (`stateGame.winDim`).
  * Gated by the `winCycle.dimNonWinning` switch — off ⇒ it never activates, so the board stays
