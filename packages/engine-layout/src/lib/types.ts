@@ -145,6 +145,17 @@ interface BaseNode {
 	 * node with no bindings, renders exactly as today — parity).
 	 */
 	paramBindings?: Record<string, string>;
+	/**
+	 * Reveal gate (Invisible Flow — intro-complete sequencing). When set, this node starts HIDDEN
+	 * and becomes visible only once the named component-scoped signal has FIRED for this instance —
+	 * so a "free spin amount" text or a tap prompt appears only AFTER a sibling spine's one-shot
+	 * completes (its {@link SpineCue.completeSignal}). The signal may also be a declared component
+	 * signal (e.g. `enter`, `win`). Re-arms on each fresh mount (re-hides on the next free-spin
+	 * entry). Only meaningful inside a `componentInstance` expansion (which provides the fired-signal
+	 * context); a top-level scene node has no provider ⇒ always visible. Absent ⇒ always visible
+	 * (parity — byte-identical to today).
+	 */
+	hiddenUntilSignal?: string;
 }
 
 export interface ContainerNode extends BaseNode {
@@ -191,6 +202,15 @@ export interface SpineCue {
 	/** Animation name on this spine to play when the signal fires. */
 	animation: string;
 	loop?: boolean;
+	/**
+	 * Author-named component-scoped signal FIRED when this cue's one-shot animation COMPLETES —
+	 * the moment a non-looping cue (e.g. `enter → intro`) finishes and hands off to the resting
+	 * loop. Sibling nodes can gate on it via {@link BaseNode.hiddenUntilSignal} (reveal the free-spin
+	 * amount + a tap prompt only AFTER the intro plays), and a tap surface can arm on it
+	 * (`tapArmAfterSignal`). Purely a NOTIFIER — it plays no animation itself. Absent ⇒ nothing is
+	 * fired on completion (parity). Ignored for a looping cue (a loop has no single completion).
+	 */
+	completeSignal?: string;
 }
 
 /** One state's playback: the animation to play (+ whether it loops while held). */

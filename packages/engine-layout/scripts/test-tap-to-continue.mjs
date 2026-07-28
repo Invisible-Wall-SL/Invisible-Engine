@@ -20,11 +20,13 @@ const bundled = await esbuild.build({
 			TAP_TO_CONTINUE_PARAM,
 			TAP_SIGNAL_PARAM,
 			TAP_SHOW_PROMPT_PARAM,
+			TAP_ARM_AFTER_SIGNAL_PARAM,
 			TAP_TO_CONTINUE_COMPONENT,
 			TAP_TO_CONTINUE_PARAMS,
 			isTapToContinueEnabled,
 			tapSignalOf,
 			tapShowPromptOf,
+			tapArmAfterSignalOf,
 			resolveComponentParams,
 		} from '../src/lib/index.ts';`,
 		resolveDir: HERE,
@@ -88,12 +90,25 @@ assert(mod.TAP_TO_CONTINUE_COMPONENT === 'TapToContinue', 'bound-component name 
 // dim colour/opacity + the opt-in engine-prompt show flag) ---
 const keys = mod.TAP_TO_CONTINUE_PARAMS.map((p) => p.key);
 assert(
-	keys.length === 5 &&
+	keys.length === 6 &&
 		keys.includes(mod.TAP_TO_CONTINUE_PARAM) &&
 		keys.includes(mod.TAP_SIGNAL_PARAM) &&
-		keys.includes(mod.TAP_SHOW_PROMPT_PARAM),
-	'catalog exposes the tapToContinue + tapSignal + tapShowPrompt params',
+		keys.includes(mod.TAP_SHOW_PROMPT_PARAM) &&
+		keys.includes(mod.TAP_ARM_AFTER_SIGNAL_PARAM),
+	'catalog exposes the tapToContinue + tapSignal + tapShowPrompt + tapArmAfterSignal params',
 );
+// --- arm-after-signal reader (trim + empty-safe), and its catalog param is a string ---
+assert(mod.tapArmAfterSignalOf({}) === '', 'arm-after-signal is empty when unset (arms on mount)');
+assert(
+	mod.tapArmAfterSignalOf({ [mod.TAP_ARM_AFTER_SIGNAL_PARAM]: '  introDone  ' }) === 'introDone',
+	'arm-after-signal is trimmed',
+);
+assert(
+	mod.tapArmAfterSignalOf({ [mod.TAP_ARM_AFTER_SIGNAL_PARAM]: 7 }) === '',
+	'arm-after-signal is empty for a non-string',
+);
+const armParam = mod.TAP_TO_CONTINUE_PARAMS.find((p) => p.key === mod.TAP_ARM_AFTER_SIGNAL_PARAM);
+assert(armParam?.kind === 'string', 'arm-after-signal param is a string');
 const showPrompt = mod.TAP_TO_CONTINUE_PARAMS.find((p) => p.key === mod.TAP_SHOW_PROMPT_PARAM);
 assert(
 	showPrompt?.kind === 'boolean' && showPrompt.default === true,

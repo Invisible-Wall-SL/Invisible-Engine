@@ -17,7 +17,16 @@ import { setContext, getContext } from 'svelte';
  */
 const NS = '@@engine_layout_component_signal_anims';
 
-export type ComponentSignalAnim = { animation: string; loop?: boolean; fire: number };
+export type ComponentSignalAnim = {
+	animation: string;
+	loop?: boolean;
+	fire: number;
+	/** Author-named signal to FIRE when this (non-looping) cue animation completes — the one-shot →
+	 *  idle hand-off moment. Carried through so `LayoutNodeView` can wire the spine's `oncomplete` to
+	 *  the instance's fired-signal bus (reveals `hiddenUntilSignal` siblings, arms the tap). Absent ⇒
+	 *  nothing fires on completion (parity). */
+	completeSignal?: string;
+};
 
 export function setComponentSignalAnims(map: Record<string, ComponentSignalAnim>): void {
 	setContext(NS, map);

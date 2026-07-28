@@ -18,6 +18,11 @@
 		 * otherwise indistinguishable from a no-op re-render and leaves a finished one-shot track
 		 * frozen on its last frame. Omit for a declarative binding (unchanged behaviour). */
 		replay?: number;
+		/** Called when a ONE-SHOT (non-looping) primary animation COMPLETES — the moment it hands off
+		 * to the queued {@link then}. Used by the free-spin-intro pattern to fire an author-named
+		 * completion signal (reveal the amount + tap only after the intro plays). Attached only when
+		 * `loop` is falsy (a loop has no single completion). Omit ⇒ no listener (unchanged behaviour). */
+		oncomplete?: () => void;
 	};
 </script>
 
@@ -65,6 +70,14 @@
 			if (!resolvedAnimationName) return; // skeleton has no animations — nothing to play
 			try {
 				track = spine.state.setAnimation(props.trackIndex, resolvedAnimationName, props.loop);
+				// Completion NOTIFIER (free-spin-intro sequencing): fire `oncomplete` once a ONE-SHOT
+				// primary animation finishes (its hand-off to the queued `then`). Attached to THIS entry
+				// only — never the queued `then` — and only for a non-looping primary (a loop's `complete`
+				// fires every cycle). The author-named completion signal it drives reveals the amount/tap.
+				if (props.oncomplete && !props.loop) {
+					const fire = props.oncomplete;
+					track.listener = { complete: () => fire() };
+				}
 				// Queue the follow-up (e.g. idle) right after the primary (intro) finishes.
 				if (props.then) {
 					spine.state.addAnimation(props.trackIndex, props.then, props.thenLoop ?? true, 0);
@@ -91,7 +104,7 @@
 	propsSyncEffect({
 		props,
 		target: () => track,
-		ignore: ['trackIndex', 'animationName', 'then', 'thenLoop', 'replay'],
+		ignore: ['trackIndex', 'animationName', 'then', 'thenLoop', 'replay', 'oncomplete'],
 	});
 
 	onDestroy(() => {
