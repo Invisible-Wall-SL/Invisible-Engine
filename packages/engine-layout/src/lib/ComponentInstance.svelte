@@ -379,6 +379,25 @@
 		walk(def.root);
 		return map;
 	})();
+	// Gate-referenced signals (Invisible Flow — intro-complete sequencing / FS-7 outro): the set of
+	// component-scoped signals named by a `hiddenUntilSignal` on ANY node in the def tree, plus the
+	// instance's own `tapArmAfterSignal`. A gate keyed on a GAME-registered signal (e.g. the FS-7
+	// `freeSpinOutroBigWin`) that NO spine cue also references would otherwise never be recorded on the
+	// per-instance bus — so plain art (a sprite) gated by `hiddenUntilSignal` would stay hidden forever.
+	// Collecting them here lets the subscription `$effect` below also listen on those registered signals
+	// (recording the fire without playing any cue). Empty when no gate is set ⇒ no new subscription
+	// (parity). `enter` has no game source (fired by the visible-edge effect), so it's skipped there.
+	const gateSignals = ((): Set<string> => {
+		const set = new Set<string>();
+		if (!allowed || !def) return set;
+		const walk = (n: LayoutNode): void => {
+			if (n.hiddenUntilSignal) set.add(n.hiddenUntilSignal);
+			if (n.kind === 'container') for (const child of n.children) walk(child);
+		};
+		walk(def.root);
+		if (tapArmSignal) set.add(tapArmSignal);
+		return set;
+	})();
 	// Button-state-driven spine animations (the interaction analogue of the signal
 	// cues above). Walk `def.root` once at init for `spine` nodes carrying a
 	// `stateAnimations` map; index them by node id. Each interaction-state change then
@@ -461,6 +480,15 @@
 					fireComponentSignal(signalKey);
 				}),
 			);
+		}
+		// Gate-only signals: a `hiddenUntilSignal`/`tapArmAfterSignal` keyed on a registered signal that
+		// NO spine cue references (plain art gated on e.g. `freeSpinOutroBigWin`). Subscribe to RECORD the
+		// fire on the per-instance bus (no cue to play). Skip any already handled above (they record too).
+		for (const signalKey of gateSignals) {
+			if (signalToTargets.has(signalKey)) continue;
+			const source = getComponentSignal(signalKey);
+			if (!source) continue;
+			unsubs.push(source.subscribe(() => fireComponentSignal(signalKey)));
 		}
 		return () => {
 			for (const unsub of unsubs) unsub();

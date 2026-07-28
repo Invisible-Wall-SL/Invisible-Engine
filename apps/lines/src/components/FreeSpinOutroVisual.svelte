@@ -8,6 +8,7 @@
 	import { getContext } from '../game/context';
 	import FreeSpinAnimation from './FreeSpinAnimation.svelte';
 	import { freeSpinOutroState } from '../game/freeSpinOutroState.svelte';
+	import type { WinLevelAlias } from '../game/winLevelMap';
 
 	type AnimationName = string;
 
@@ -37,11 +38,33 @@
 		const value = getComponentParams()[key];
 		return typeof value === 'string' && value.length > 0 ? value : undefined;
 	};
+	const numberParam = (key: string): number | undefined => {
+		const value = getComponentParams()[key];
+		return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+	};
+	const booleanParam = (key: string): boolean | undefined => {
+		const value = getComponentParams()[key];
+		return typeof value === 'boolean' ? value : undefined;
+	};
 
 	const outroSpine = $derived(stringParam('outroSpine') ?? outroSpineProp);
 	const outroAnimation = $derived(stringParam('outroAnimation') ?? outroAnimationProp);
 	const idleAnimation = $derived(stringParam('idleAnimation') ?? idleAnimationProp);
 	const slotName = $derived(stringParam('slotName') ?? slotNameProp);
+
+	// FS-7 decision 2 — the coin-fountain config knobs (the fountain itself stays BAKED in the outro
+	// driver/gate, never placed/FX). Publish the author's params to `freeSpinOutroState.coins`; the
+	// headless `FreeSpinOutroDriver` reads them. The un-authored FALLBACK `<FreeSpinOutroGate>` ignores
+	// this state (its own `WinCoins` is unchanged), so publishing here is parity-safe. Unset params ⇒
+	// the current-behaviour defaults (fountain on, driver origin, level derived from the win).
+	$effect(() => {
+		freeSpinOutroState.coins = {
+			show: booleanParam('showCoins') ?? true,
+			x: numberParam('coinsX') ?? 0,
+			y: numberParam('coinsY') ?? 0,
+			levelAlias: (stringParam('coinsLevel') as WinLevelAlias | undefined) ?? undefined,
+		};
+	});
 
 	let show = $state(true);
 	let animationName = $state<AnimationName>(outroAnimationProp);

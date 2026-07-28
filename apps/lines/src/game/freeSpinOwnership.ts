@@ -149,6 +149,77 @@ export const resolveFreeSpinOwnership = (
  * KEPT VERBATIM (decision 1, parity-by-non-change) — lines does NOT route through the generic
  * `gateOverlayOwnership`; this proven set-filtering body stays byte-identical.
  */
+/** The coded outro bind-anchor component names — the reference/driven-seed `freeSpinOutro` scene
+ *  carries one of these (`FreeSpinOutro` composer, the bare `FreeSpinOutroGate`, or the split
+ *  `FreeSpinOutroVisual`). A node bound to any of them is coded scaffolding, NOT authored content. */
+const FS_OUTRO_CODED_ANCHORS = [
+	'FreeSpinOutro',
+	'FreeSpinOutroGate',
+	'FreeSpinOutroVisual',
+] as const;
+
+/**
+ * FS-7 (design doc §14, outro step) — does the `freeSpinOutro` scene carry AUTHOR-REBUILT content
+ * (≥1 top-level node that is NOT a coded outro bind-anchor)? This is the v2-applicable twin of the v1
+ * `ownsOutro` content test (`ownsOutro` is a v1-FlowDoc read, inert under v2): when TRUE, the author
+ * has rebuilt the outro from primitives (own spine / count text / big-small art / tap), so the engine
+ * mounts the HEADLESS `<FreeSpinOutroDriver>` (count-up + state publish + baked fountain only) and lets
+ * the authored screen own the dim / tap / hold / art. When FALSE — the driven-seed / reference scene
+ * binds only `FreeSpinOutroVisual` (or nothing) — the engine keeps the full `<FreeSpinOutroGate>`
+ * (dim + press + fountain), so Book of Borut's proven tap-to-continue outro is byte-identical. Mirrors
+ * `hasAuthoredBookReveal`; a game with no `freeSpinOutro` scene ⇒ `false` (parity).
+ */
+export const hasAuthoredFreeSpinOutro = (scenes: readonly Scene[]): boolean => {
+	const scene = scenes.find((s) => s.id === FREE_SPIN_STEPS.outro.screen);
+	if (!scene) return false;
+	return scene.nodes.some(
+		(node) =>
+			!(
+				node.bind?.component &&
+				(FS_OUTRO_CODED_ANCHORS as readonly string[]).includes(node.bind.component)
+			),
+	);
+};
+
+/** What the engine mounts at each of the two free-spin OUTRO bands. `null` = nothing at that band.
+ *  `band` is the outro container's OWN z (v2); `top` is the fixed `LAYER_BAND_TOP` (v1 / fallback). */
+export interface FreeSpinOutroMount {
+	/** v2 (`flowV2DrivesScreens`), the container's band: the headless `driver` when author-rebuilt, the
+	 *  full `gate` for the driven-seed / `FreeSpinOutroVisual` path, `null` when Borut's composer owns it. */
+	band: 'driver' | 'gate' | null;
+	/** v1 / fallback, the top band: the `driver-transfer` when `ownsOutro`, the full `gate` when not
+	 *  (and not v2), `null` under v2 (the container band above owns it). */
+	top: 'driver-transfer' | 'gate' | null;
+}
+
+/**
+ * FS-7 (design doc §14, outro step) — the SINGLE decision for which free-spin OUTRO surface mounts,
+ * shared by `Game.svelte`'s two mount sites so the markup can't drift from the invariant. It encodes
+ * decision B's NON-NEGOTIABLE rule: there is ALWAYS EXACTLY ONE `freeSpinOutroCountUp` subscriber —
+ * the mounted `driver` OR `gate` here, OR (when `freeSpinOutroHasCodedGate`) Book of Borut's own
+ * composer gate mounted through its container. Two subscribers would each hold the round on
+ * `freeSpinOutroCountUp` and HANG it; zero would silently no-op the count-up. `v1` (`ownsOutro`) and
+ * `v2` (`flowV2DrivesScreens`) are mutually exclusive, so exactly one band is ever non-null.
+ *
+ * The `freeSpinOutroCountUp` SUBSCRIBER COUNT for any input is
+ * `(band ? 1 : 0) + (top ? 1 : 0) + (flowV2DrivesScreens && freeSpinOutroHasCodedGate ? 1 : 0)`, which
+ * this function guarantees is exactly 1 (asserted headlessly, `fs7FreeSpinOutro`).
+ */
+export const resolveFreeSpinOutroMount = (ctx: {
+	flowV2DrivesScreens: boolean;
+	freeSpinOutroHasCodedGate: boolean;
+	freeSpinOutroAuthored: boolean;
+	ownsOutro: boolean;
+}): FreeSpinOutroMount => ({
+	band:
+		ctx.flowV2DrivesScreens && !ctx.freeSpinOutroHasCodedGate
+			? ctx.freeSpinOutroAuthored
+				? 'driver'
+				: 'gate'
+			: null,
+	top: ctx.ownsOutro ? 'driver-transfer' : ctx.flowV2DrivesScreens ? null : 'gate',
+});
+
 export const gateFreeSpinOwnership = (doc: FlowDoc, ownership: FreeSpinOwnership): FlowDoc => {
 	// The overlay screen ids to strip: every un-owned step's screen + the FS-4 seam.
 	const strippedScreens = new Set<string>([FREE_SPIN_SEAM_SCREEN]);

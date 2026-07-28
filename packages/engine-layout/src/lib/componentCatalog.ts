@@ -47,6 +47,12 @@ export const ENGINE_PARAM_CATALOG: EngineParamEntry[] = [
 		note: 'Total free spins awarded — the intro headline count (available during the intro).',
 	},
 	{
+		key: 'freeSpinOutroTotalWin',
+		kind: 'number',
+		label: 'Free-spin Outro Total',
+		note: 'The LIVE counting-up free-spin total the outro shows (the count-up tween value, not the static final total). Bind an outro count text to this.',
+	},
+	{
 		key: 'freeSpinsRemaining',
 		kind: 'number',
 		label: 'Free Spins Remaining',
@@ -270,6 +276,16 @@ export const ENGINE_SIGNAL_CATALOG: EngineSignalEntry[] = [
 		key: 'freeSpinEnd',
 		label: 'Free-spin end',
 		note: 'The free-spin outro presents (free spins finished).',
+	},
+	{
+		key: 'freeSpinOutroBigWin',
+		label: 'Free-spin outro — big win',
+		note: 'The free-spin outro count-up begins on a BIG win tier. Gate big-win art with "hidden until signal", or play a big-win spine cue.',
+	},
+	{
+		key: 'freeSpinOutroSmallWin',
+		label: 'Free-spin outro — small win',
+		note: 'The free-spin outro count-up begins on a non-big (small) win tier. Gate small-win art with "hidden until signal", or play a small-win spine cue.',
 	},
 	{
 		key: 'specialBookReveal',
