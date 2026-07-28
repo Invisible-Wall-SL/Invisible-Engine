@@ -37,6 +37,11 @@ export type InfoManifest = {
 	paytable: ServerPayEntry[];
 	numLines: number;
 	paylines: number[][];
+	/** OPTIONAL per-payline colour (`#rrggbb`), aligned to {@link paylines} by declaration index —
+	 *  the authored Invisible Game Config colour for each line, the SAME colour its win line draws in.
+	 *  A line with no authored colour is `undefined` and the grid falls back to the theme accent, so an
+	 *  un-coloured game renders exactly as before. */
+	paylineColors?: (string | undefined)[];
 	numRows: number;
 	symbolSize: number;
 	// symbol id -> static icon descriptor (resolved from the game's getSymbolInfo)
