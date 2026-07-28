@@ -13,7 +13,9 @@
 	"scripts": {
 		"gen:scenes": "node scripts/gen-scene-sets.mjs",
 		"gen:scenes:check": "node scripts/gen-scene-sets.mjs --check",
-		"build": "node scripts/gen-scene-sets.mjs && svelte-package",
+		"gen:builtin-spines": "node scripts/gen-builtin-spines.mjs",
+		"gen:builtin-spines:check": "node scripts/gen-builtin-spines.mjs --check",
+		"build": "node scripts/gen-scene-sets.mjs && node scripts/gen-builtin-spines.mjs && svelte-package",
 		"format": "prettier --write --ignore-path=../../.prettierignore .",
 		"lint": "eslint \"src\""
 	},

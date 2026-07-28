@@ -2,6 +2,8 @@
 	import {
 		backgroundCoverScale,
 		backgroundFit,
+		builtinSpineMeta,
+		BUILTIN_SPINE_NAMES,
 		BUTTON_STATE_PARAMS,
 		BUTTON_VISUAL_STATES,
 		defaultHudText,
@@ -295,8 +297,18 @@
 	 * the lookup is the same `name` match. Returns `''` when no bundle matches. */
 	function resolveSpineAssetKey(bundleName: string | undefined): string {
 		if (!bundleName) return '';
-		return spines.find((s) => s.name === bundleName)?.key ?? '';
+		const projectKey = spines.find((s) => s.name === bundleName)?.key;
+		if (projectKey) return projectKey;
+		// A builtin component's coded DEFAULT spine (e.g. `fsIntroNumber`, `bigwin`) has no
+		// R2 presence, so it isn't in `spines` and the canvas can't render it for live meta.
+		// Its animation/slot/bone names ship with the engine — key them under a synthetic
+		// `builtin:` namespace so the dropdowns resolve instead of degrading to free-text.
+		if (builtinSpineMeta(bundleName)) return `builtin:${bundleName}`;
+		return '';
 	}
+
+	/** Synthetic-key prefix for engine-shipped coded spine meta (see `resolveSpineAssetKey`). */
+	const BUILTIN_SPINE_KEY = 'builtin:';
 
 	/** The effective spine bundle a `spineAnimation`/`spineSlot` param reads its options
 	 * from: the value of its sibling `spineParam` on the selected instance, falling back to
@@ -325,6 +337,12 @@
 	 * uses so they all populate from whichever source has the names. */
 	function spineMetaFor(key: string | undefined): SpineMeta | undefined {
 		if (!key) return undefined;
+		if (key.startsWith(BUILTIN_SPINE_KEY)) {
+			const m = builtinSpineMeta(key.slice(BUILTIN_SPINE_KEY.length));
+			// `SpineBundleMeta` is a structural subset of `SpineMeta` (same name lists) —
+			// the dropdowns only read animations/skins/slots/bones.
+			return m ? { ...m } : undefined;
+		}
 		return spineMeta.get(key) ?? staticSpineMeta.get(key);
 	}
 
@@ -356,6 +374,9 @@
 	 * gains live meta is simply skipped (the resolver prefers it anyway). */
 	$effect(() => {
 		for (const key of neededSpineKeys) {
+			// A builtin coded spine resolves from the engine registry (`spineMetaFor`) — there's
+			// no R2 skeleton to fetch, so never hit the endpoint for it.
+			if (key.startsWith(BUILTIN_SPINE_KEY)) continue;
 			// Skip only when LIVE meta already has names (the resolver prefers it) — a bundle
 			// that rendered "ready" with an empty animation list still needs the manifest.
 			if (spineMeta.get(key)?.animations.length || requestedSpineMetaKeys.has(key)) continue;
@@ -1759,7 +1780,13 @@
 								{#each spines as s (s.key)}
 									<option value={s.name}>{s.name}{s.shared ? ' [shared]' : ''}</option>
 								{/each}
-								{#if cur && !spines.some((s) => s.name === cur)}
+								<!-- Engine-shipped coded bundles (the builtin components' defaults). Listed so a
+								     coded default is a real, pickable option — not a mystery free-text value. A
+								     project spine of the same name wins (dropped from this list to avoid a dupe). -->
+								{#each BUILTIN_SPINE_NAMES.filter((n) => !spines.some((s) => s.name === n)) as n (n)}
+									<option value={n}>{n} [coded]</option>
+								{/each}
+								{#if cur && !spines.some((s) => s.name === cur) && !BUILTIN_SPINE_NAMES.includes(cur)}
 									<option value={cur}>{cur} (custom)</option>
 								{/if}
 							</select>
@@ -2681,9 +2708,8 @@
 			<h4 class="sub-h">Reveal symbol on bone</h4>
 			<p class="muted small">
 				Ride the game's chosen <strong>reveal symbol</strong> (the special / book symbol) on one of
-				this rig's own bones — no second rig or bound component. Pick a <strong>bone</strong> to
-				switch it on; leave it blank for off. The symbol then banks and scales with the rig's
-				animation.
+				this rig's own bones — no second rig or bound component. Pick a <strong>bone</strong> to switch
+				it on; leave it blank for off. The symbol then banks and scales with the rig's animation.
 			</p>
 			<div class="row">
 				<label class="field wide">
@@ -2738,7 +2764,11 @@
 							placeholder="1"
 							value={node.revealSymbolScale ?? ''}
 							oninput={(e) =>
-								setRevealNumber(node as SpineNode, 'revealSymbolScale', e.currentTarget.valueAsNumber)}
+								setRevealNumber(
+									node as SpineNode,
+									'revealSymbolScale',
+									e.currentTarget.valueAsNumber,
+								)}
 						/>
 					</label>
 					<label class="field">
