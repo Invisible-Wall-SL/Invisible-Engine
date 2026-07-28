@@ -12,6 +12,7 @@ export { STANDARD_MAIN_SIZES_MAP } from 'constants-shared/layout';
 export * from './editorArtKey';
 export * from './spineLoadScale';
 export * from './builtinRegions';
+export * from './builtinSpineMeta';
 export * from './coverTransform';
 export * from './componentDesignSize';
 export * from './backgroundScenes';

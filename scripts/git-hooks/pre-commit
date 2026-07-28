@@ -14,3 +14,14 @@ if git diff --cached --name-only | grep -qE '^packages/engine-layout/(src/lib/(r
 		exit 1
 	}
 fi
+
+# The builtin spine metadata (packages/engine-layout/src/lib/builtinSpineMeta.generated.ts)
+# is GENERATED from the reference game's coded spine bundles so the Scene Editor can offer
+# animation/slot/bone dropdowns for a builtin component's coded default spine. If a coded
+# spine bundle or the generator/registry is staged, verify the committed file isn't stale.
+if git diff --cached --name-only | grep -qE '^apps/lines/static/assets/spines/|^packages/engine-layout/(scripts/gen-builtin-spines|src/lib/builtinSpineMeta)'; then
+	node packages/engine-layout/scripts/gen-builtin-spines.mjs --check || {
+		echo "→ run: pnpm --filter engine-layout gen:builtin-spines  (then: git add packages/engine-layout/src/lib/builtinSpineMeta.generated.ts)"
+		exit 1
+	}
+fi
