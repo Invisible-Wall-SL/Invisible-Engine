@@ -29,11 +29,14 @@
 			clearBeforeRender: true,
 			preference: 'webgpu',
 			powerPreference: 'high-performance',
-			// Cap the backing-store resolution at 2. On high-DPR phones (iPhone 16 = 3)
-			// an uncapped DPR allocates every framebuffer + render-texture at 9× the pixel
-			// area, which blows past iOS Safari's per-tab memory cap and crashes the
-			// WebContent process ("A problem repeatedly occurred"). 2 is visually identical.
-			resolution: Math.min(devicePixelRatio.current ?? 1, 2),
+			// Clamp the backing-store resolution to [1, 2]. Upper cap: on high-DPR phones
+			// (iPhone 16 = 3) an uncapped DPR allocates every framebuffer + render-texture at
+			// 9× the pixel area, which blows past iOS Safari's per-tab memory cap and crashes
+			// the WebContent process ("A problem repeatedly occurred"); 2 is visually identical.
+			// Lower floor: a DPR below 1 (a zoomed-out / fractional-scaled display) would render
+			// the whole scene SUB-native, so thin antialiased text ghosts into a faint echo that
+			// reads as "double text". Never render below 1:1.
+			resolution: Math.min(Math.max(devicePixelRatio.current ?? 1, 1), 2),
 			resizeTo: window,
 		});
 

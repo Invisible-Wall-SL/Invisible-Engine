@@ -120,9 +120,10 @@
 			{@const nRows = Math.ceil(rows.length / symCols)}
 			{@const cellW = W / symCols}
 			{@const cellH = (contentBottom - contentTop) / nRows}
-			{@const iconBox = Math.min(cellW * 0.24, cellH * 0.7)}
-			{@const fontSize = Math.min(cellW * 0.072, cellH * 0.16)}
-			{@const lineH = fontSize * 1.3}
+			{@const colPad = cellW * 0.07}
+			{@const iconBox = Math.min(cellW * 0.22, cellH * 0.72)}
+			{@const fontSize = Math.min(cellW * 0.07, cellH * 0.15)}
+			{@const lineH = fontSize * 1.35}
 
 			<Container eventMode="none">
 				{#each rows as row, i}
@@ -130,16 +131,19 @@
 					{@const r = Math.floor(i / symCols)}
 					{@const cellX = cellW * col}
 					{@const cy = contentTop + cellH * r + cellH * 0.5}
-					{@const iconX = cellX + cellW * 0.16}
-					{@const textX = cellX + cellW * 0.34}
+					{@const iconX = cellX + colPad + iconBox * 0.5}
+					{@const textX = cellX + colPad + iconBox + cellW * 0.05}
 					{@const blockTop = cy - ((row.payouts.length - 1) / 2) * lineH}
 					{@const icon = props.manifest.symbols[row.symbol]}
 
 					{#if icon}
 						{#if icon.type === 'sprite'}
-							<Sprite key={icon.assetKey} anchor={0.5} x={iconX} y={cy} width={iconBox * icon.sizeRatios.width} height={iconBox * icon.sizeRatios.height} />
+							<!-- Contain-fit to a uniform square box (aspect preserved), matching the reel's
+							     art-driven fit. sizeRatios is vestigial for the reel now, so multiplying by
+							     it here made symbols render at wildly different sizes. -->
+							<Sprite key={icon.assetKey} anchor={0.5} x={iconX} y={cy} width={iconBox} height={iconBox} contain />
 						{:else}
-							<SpineProvider key={icon.assetKey} anchor={0.5} x={iconX} y={cy} height={props.manifest.symbolSize * icon.sizeRatios.height}>
+							<SpineProvider key={icon.assetKey} anchor={0.5} x={iconX} y={cy} height={iconBox}>
 								<SpineTrack trackIndex={0} animationName={icon.animationName ?? ''} loop={true} />
 							</SpineProvider>
 						{/if}
