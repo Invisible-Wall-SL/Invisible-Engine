@@ -60,6 +60,11 @@
 		sceneFilter?: Set<string> | null;
 		/** Bumped by "Reload art" — re-fetches the catalog + reloads fonts. */
 		reloadToken?: number;
+		/** Bumped on ANY property-panel edit (the page's `canvasRedrawNonce`). The
+		 * overlay does NOT deep-track per-node `params`/`style`/`bind.props`, so a font
+		 * (or text) edit on a component instance would otherwise not repaint until a full
+		 * page reload — the 2D canvas already tracks this nonce, so mirror it here. */
+		redrawNonce?: number;
 		/** Monotonic font-load tally, folded into the 2D canvas's progress overlay. */
 		onLoadingChange?: (counts: { started: number; settled: number }) => void;
 		/** Reports which text NODE ids the overlay now renders with a real font, so the
@@ -92,6 +97,7 @@
 		hiddenSceneIds = new Set<string>(),
 		sceneFilter = null,
 		reloadToken = 0,
+		redrawNonce = 0,
 		onLoadingChange,
 		onReadyIdsChange,
 		projectGameName = null,
@@ -520,6 +526,10 @@
 		void componentMap;
 		void frameWidth;
 		void frameHeight;
+		// Force a rebuild on any property-panel edit — the font/text/colour of a component
+		// instance lives in per-node `params`/`bind.props`, which this effect does NOT
+		// deep-track, so without the nonce a font change wouldn't repaint until reload.
+		void redrawNonce;
 		rebuild();
 	});
 
