@@ -73,7 +73,7 @@
 	// (no transparent padding), so at an equal box they read bigger than a padded sprite. This
 	// factor (< 1) shrinks the spine box to sit visually among the sprite icons — the paytable
 	// twin of the reel's SYMBOL_SPINE_FILL, kept local so this shared component stays game-agnostic.
-	const SPINE_ICON_FILL = 0.82;
+	const SPINE_ICON_FILL = 0.55;
 </script>
 
 <FadeContainer {show}>
