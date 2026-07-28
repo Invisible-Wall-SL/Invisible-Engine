@@ -132,7 +132,12 @@
 		dispatchFlowV2Event,
 		resolveFlowV2Press,
 	} from '../game/flowV2InterpreterHolder';
-	import { FREE_SPIN_STEPS } from '../game/freeSpinOwnership';
+	import {
+		FREE_SPIN_STEPS,
+		hasAuthoredFreeSpinOutro,
+		resolveFreeSpinOutroMount,
+	} from '../game/freeSpinOwnership';
+	import { freeSpinOutroState } from '../game/freeSpinOutroState.svelte';
 	import {
 		freeSpinsCurrent,
 		freeSpinsRemaining,
@@ -181,6 +186,7 @@
 	import FreeSpinCounter from './FreeSpinCounter.svelte';
 	import FreeSpinOutro from './FreeSpinOutro.svelte';
 	import FreeSpinOutroGate from './FreeSpinOutroGate.svelte';
+	import FreeSpinOutroDriver from './FreeSpinOutroDriver.svelte';
 	import FreeSpinOutroVisual from './FreeSpinOutroVisual.svelte';
 	import SpecialBook from './SpecialBook.svelte';
 	import FreeSpinIntroSymbolReveal from './FreeSpinIntroSymbolReveal.svelte';
@@ -294,6 +300,9 @@
 		FreeSpinOutro,
 		// §17 Phase 3 — the outro split (gate + positionable visual), mirroring the intro.
 		FreeSpinOutroGate,
+		// FS-7 — the HEADLESS outro driver mounted when the authored `freeSpinOutro` screen owns
+		// the outro (count-up + `freeSpinOutroState` publish + baked fountain; no dim/press/sprites).
+		FreeSpinOutroDriver,
 		FreeSpinOutroVisual,
 		// Special-Book bonus overlay — board-centred, self-shows/animates off the
 		// `specialBookReveal`/`specialBookHide` book events; the doc owns only placement.
@@ -504,6 +513,15 @@
 		// `freeSpinTrigger` handler (before the intro shows) so it's populated while the intro
 		// is on screen, unlike the `freeSpins` counter string which is "current OF total".
 		freeSpinsWon: valueSource(() => stateUi.freeSpinCounterTotal),
+		// FS-7 decision C — the LIVE counting-up free-spin OUTRO total (the count-up tween value the
+		// gate/driver publishes per frame to `freeSpinOutroState.countUpAmount`), currency-formatted.
+		// An authored outro count text binds `source: 'freeSpinOutroTotalWin'` to it, so a fully
+		// author-rebuilt outro shows the number ticking up without the coded `FreeSpinOutroVisual`.
+		// Unlike `totalWin` (the static final `winBookEventAmount`) this is the ANIMATING value.
+		freeSpinOutroTotalWin: valueSource(
+			() => freeSpinOutroState.countUpAmount,
+			bookEventAmountToCurrencyString,
+		),
 		// The two HALVES of the `freeSpins` string as bindable numbers, so an authored counter can
 		// choose its own direction + layout instead of inheriting the composed "current OF total".
 		// Both read `freeSpinCounterValues` — the same module the flow's `$engine.freeSpinsRemaining`
@@ -693,6 +711,13 @@
 				node.bind?.component === 'FreeSpinOutro' || node.bind?.component === 'FreeSpinOutroGate',
 		),
 	);
+	// FS-7 (design doc §14, outro step) — whether the `freeSpinOutro` scene is AUTHOR-REBUILT from
+	// primitives (own spine / count text / big-small art / tap), as opposed to the driven-seed /
+	// reference scene that binds only `FreeSpinOutroVisual`. When true, the engine mounts the HEADLESS
+	// `<FreeSpinOutroDriver>` (count-up + `freeSpinOutroState` publish + baked fountain; NO dim / press
+	// / coded sprites) so it does not fight the authored screen; when false, the full `<FreeSpinOutroGate>`
+	// stays (Book of Borut's tap-to-continue outro byte-identical). See `hasAuthoredFreeSpinOutro`.
+	const freeSpinOutroAuthored = $derived(hasAuthoredFreeSpinOutro(editorDoc.scenes));
 	// §17 Phase 3 — the board-relative VISUAL scene of the split outro (`game`-space).
 	// Present only when the overlays are split; `undefined` otherwise ⇒ no mount (the OFF
 	// composer `FreeSpinOutro` draws the visual itself). Parity-safe.
@@ -884,6 +909,21 @@
 	// round-block the instant the screen leaves the set (its Complete pin fired via tap-to-continue).
 	// Un-owned intro ⇒ the flow gate is not mounted, so this drives nothing (parity §7).
 	const isFreeSpinIntroActive = $derived(activeScreenIds.includes(FREE_SPIN_STEPS.intro.screen));
+	// FS-7 (design doc §14, outro step) — whether the authored `freeSpinOutro` overlay screen is in the
+	// interpreter's active set. The v1 headless `<FreeSpinOutroDriver holdUntilComplete>` reads this to
+	// release the round-block the instant the screen leaves the set (its Complete pin, tap-to-continue).
+	const isFreeSpinOutroActive = $derived(activeScreenIds.includes(FREE_SPIN_STEPS.outro.screen));
+	// FS-7 (design doc §14, outro step) — the SINGLE source of truth for which outro surface mounts at
+	// each band, so the two mount sites below can't drift from the exactly-one-`freeSpinOutroCountUp`-
+	// subscriber invariant (decision B). See `resolveFreeSpinOutroMount`.
+	const outroMount = $derived(
+		resolveFreeSpinOutroMount({
+			flowV2DrivesScreens,
+			freeSpinOutroHasCodedGate,
+			freeSpinOutroAuthored,
+			ownsOutro: freeSpinOwnership.ownsOutro,
+		}),
+	);
 	// The base-game screen's resolved scene for the generic mounter. Resolved whenever the
 	// base-game screen is ACTIVE (in the active set) — NOT only when it is the topmost screen —
 	// so an overlay layered ON TOP (a celebration) never drops the base's authored below/above-reel
@@ -1106,6 +1146,25 @@
 		),
 		freeSpinEnd: eventSignal((run) =>
 			context.eventEmitter.subscribe({ freeSpinOutroShow: () => run() }),
+		),
+		// FS-7 decision D — the outro WIN-LEVEL branch, fired off the SAME `freeSpinOutroCountUp`
+		// broadcast the driver drives the count-up from (so the art reveals in lockstep with the
+		// count). Big vs small mirrors the `bigWin` signal's `winLevelData.type` test. An authored
+		// outro gates its big/small art with `hiddenUntilSignal: 'freeSpinOutroBigWin'`/`'…SmallWin'`
+		// (plain art) or plays a spine cue on them. Un-authored ⇒ nothing subscribes ⇒ inert (parity).
+		freeSpinOutroBigWin: eventSignal((run) =>
+			context.eventEmitter.subscribe({
+				freeSpinOutroCountUp: (e) => {
+					if (e.winLevelData?.type === 'big') run();
+				},
+			}),
+		),
+		freeSpinOutroSmallWin: eventSignal((run) =>
+			context.eventEmitter.subscribe({
+				freeSpinOutroCountUp: (e) => {
+					if (e.winLevelData?.type !== 'big') run();
+				},
+			}),
 		),
 		// The book expanding-symbol reveal lifecycle — an authored spine cue on the author's own
 		// reveal component plays with the mechanic (mirrors `freeSpinStart`/`freeSpinEnd`). These
@@ -1815,10 +1874,24 @@
 			subscriber, so an engine gate too would double the round-block. Gated on `flowV2DrivesScreens`,
 			so a non-flow / book-events-only game never mounts it — the coded gate at `LAYER_BAND_TOP`
 			below owns it there ⇒ byte-identical to today.
+
+			FS-7 (design doc §14, outro step) — when the `freeSpinOutro` scene is AUTHOR-REBUILT from
+			primitives (`freeSpinOutroAuthored`) the engine mounts the HEADLESS `<FreeSpinOutroDriver>`
+			INSTEAD of the full gate: it still OWNS the count-up + `freeSpinOutroState` publish + the (now
+			toggleable) baked fountain, but draws NO dim, NO coded sprites and NO full-screen press — the
+			authored screen supplies dim / tap / hold (its `tapToContinue` + `showContainer{awaitComplete}`,
+			the SAME model the INTRO uses under v2) / count text / big-small art. It SELF-RESOLVES the
+			`freeSpinOutroCountUp` hold on count-up completion (mirrors `<WinGate>`), so it stays the SOLE
+			subscriber and never fights the authored tap. Un-rebuilt (driven seed binds only
+			`FreeSpinOutroVisual`) ⇒ the full `<FreeSpinOutroGate>` as before — Borut byte-identical.
 		-->
-	{#if flowV2DrivesScreens && !freeSpinOutroHasCodedGate}
+	{#if outroMount.band}
 		<Container zIndex={freeSpinOutroZIndex}>
-			<FreeSpinOutroGate />
+			{#if outroMount.band === 'driver'}
+				<FreeSpinOutroDriver />
+			{:else}
+				<FreeSpinOutroGate />
+			{/if}
 		</Container>
 	{/if}
 	<Container zIndex={basegameOverlaysZIndex}>
@@ -1923,7 +1996,18 @@
 		{:else if !flowV2DrivesScreens}
 			<FreeSpinIntroGate />
 		{/if}
-		{#if !flowV2DrivesScreens}
+		<!-- FS-7 (design doc §14, outro step) — the round-block OWNER swaps by v1 per-step ownership so
+				 there is ALWAYS EXACTLY ONE `freeSpinOutroCountUp` subscriber. OWNED (v1 `ownsOutro`) ⇒ the
+				 HEADLESS `<FreeSpinOutroDriver holdUntilComplete>` runs the count-up + publishes state +
+				 emits the (toggleable) fountain, and TRANSFERS the round-block to the authored screen's
+				 Complete pin (releases when it leaves the active set — its tap), early-mounting it on
+				 `freeSpinOutroShow` (mirrors `<FreeSpinIntroFlowGate>`). NOT owned ⇒ the full
+				 `<FreeSpinOutroGate>` owns dim + press + fountain + two-stage tap exactly as today
+				 (byte-parity §7). Suppressed under v2 (the engine gate/driver at `freeSpinOutroZIndex`
+				 above owns it there). -->
+		{#if outroMount.top === 'driver-transfer'}
+			<FreeSpinOutroDriver holdUntilComplete outroScreenActive={isFreeSpinOutroActive} />
+		{:else if outroMount.top === 'gate'}
 			<FreeSpinOutroGate />
 		{/if}
 		<!--

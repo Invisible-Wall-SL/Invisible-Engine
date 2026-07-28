@@ -346,10 +346,28 @@ choreographies (they still broadcast `freeSpinIntroShow`/`Hide`/`Update` + `free
 `CountUp`, which ARM the kept `FreeSpinIntroGate`/`FreeSpinOutroGate` — dim + `waitForResolve` +
 outro count-up — and carry the load-bearing `gameType`/counter/sound state). No-double is achieved by
 MOUNT-GATING only the coded VISUAL + COUNTER scenes off. (FS-6 build detail: see [docs/history.md](../history.md).) **FS-7
-(future):** move the round-gate + count-up OWNERSHIP itself into the authored screens (a flow-driven
-`waitForResolve`/press-to-continue/count-up), retiring `FreeSpinIntroGate`/`FreeSpinOutroGate`; only
-then do the `*Show`/`*CountUp` broadcasts become droppable. Keep exactly one `waitForResolve`
-subscriber or the round hangs.
+(in progress):** move the round-gate + count-up OWNERSHIP into the authored screens (a flow-driven
+`waitForResolve`/press-to-continue/count-up), retiring `FreeSpinIntroGate`/`FreeSpinOutroGate`. Keep
+exactly one `waitForResolve` subscriber or the round hangs.
+- **INTRO step ✅ LANDED** — `FreeSpinIntroFlowGate` transfers the round-block to the authored screen's
+  Complete pin under v1 `ownsIntro`; under v2 the authored container's `tapToContinue` +
+  `showContainer{awaitComplete}` owns it (the coded gate suppressed).
+- **OUTRO step ✅ LANDED (headless, 2026-07-28)** — full-primitive authoring parity with the intro +
+  book reveal. The LOAD-BEARING core of `FreeSpinOutroGate` (count-up `WinCountUpProvider` + publish to
+  `freeSpinOutroState` + baked coin fountain) is extracted as a HEADLESS `FreeSpinOutroDriver` (no dim /
+  press / coded sprites). When the `freeSpinOutro` scene is AUTHOR-REBUILT (`hasAuthoredFreeSpinOutro`)
+  the engine mounts ONLY the driver; the authored screen supplies dim / tap / hold (its `tapToContinue`
+  + `showContainer{awaitComplete}`, the same v2 model as the intro) / count text (new
+  `freeSpinOutroTotalWin` value source) / big-small art (new `freeSpinOutroBigWin`/`freeSpinOutroSmallWin`
+  signals + `hiddenUntilSignal`). The driver SELF-RESOLVES the `freeSpinOutroCountUp` hold on count-up
+  completion under v2 (mirrors `WinGate`) or TRANSFERS it to the screen's Complete pin under v1
+  `ownsOutro` (mirrors `FreeSpinIntroFlowGate`). `resolveFreeSpinOutroMount` is the single mount
+  decision guaranteeing EXACTLY ONE `freeSpinOutroCountUp` subscriber across both bands + Borut's
+  composer. Coin fountain KEPT baked in the driver, `showCoins`/position/tier authorable via
+  `FreeSpinOutroVisual`'s params (decision 2). `FreeSpinOutroGate` KEPT intact as the un-authored
+  fallback ⇒ byte-parity. Verified: `flow-spike run fs7outro`. (Build detail: [docs/history.md](../history.md).)
+- **REMAINING** — retire the coded `FreeSpinIntroGate`/`FreeSpinOutroGate`/`BookRevealGate` (a hard cut
+  gated on every shipped game being v2-driven for the steps it uses).
 
 > Build status: see [docs/status/flow.md](../status/flow.md); detailed done-log in [docs/history.md](../history.md).
 
