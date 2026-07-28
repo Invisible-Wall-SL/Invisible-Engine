@@ -9,7 +9,8 @@
 		y: number;
 		cell: number; // cell pitch in px
 		label: string;
-		accentColor: number;
+		// the line's colour — a theme accent (number) or an authored `#rrggbb` payline colour (string)
+		accentColor: number | string;
 		fontFamily: string;
 		// draws a red line through the line's cells (for marketing/spec screenshots)
 		showLine?: boolean;
@@ -24,7 +25,12 @@
 	y={props.y + (props.rows * props.cell) / 2}
 	anchor={{ x: 1, y: 0.5 }}
 	text={props.label}
-	style={{ fontFamily: props.fontFamily, fontSize: props.cell * 0.7, fontWeight: '700', fill: props.accentColor }}
+	style={{
+		fontFamily: props.fontFamily,
+		fontSize: props.cell * 0.7,
+		fontWeight: '700',
+		fill: props.accentColor,
+	}}
 />
 
 {#each props.line as row, reel}
@@ -54,7 +60,12 @@
 			}));
 			g.moveTo(pts[0].px, pts[0].py);
 			for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].px, pts[i].py);
-			g.stroke({ color: props.lineColor ?? 0xff2a2a, width: Math.max(c * 0.13, 2), cap: 'round', join: 'round' });
+			g.stroke({
+				color: props.lineColor ?? 0xff2a2a,
+				width: Math.max(c * 0.13, 2),
+				cap: 'round',
+				join: 'round',
+			});
 		}}
 	/>
 {/if}

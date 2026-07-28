@@ -163,7 +163,8 @@
 					{@const r = Math.floor(i / plCols)}
 					{@const gridX = col * colW + colW * 0.22}
 					{@const gridY = contentTop + r * rowH + (rowH - cell * props.manifest.numRows) / 2}
-					<InfoPaylineGrid {line} rows={props.manifest.numRows} x={gridX} y={gridY} {cell} label={`${i + 1}`} accentColor={accent} fontFamily={font} showLine={screenshotMode} />
+					{@const lineColor = props.manifest.paylineColors?.[i] ?? accent}
+					<InfoPaylineGrid {line} rows={props.manifest.numRows} x={gridX} y={gridY} {cell} label={`${i + 1}`} accentColor={lineColor} fontFamily={font} showLine={screenshotMode} />
 				{/each}
 			</Container>
 		{:else}

@@ -1,6 +1,6 @@
 import type { InfoManifest, InfoSymbolIcon } from 'components-ui-pixi';
 
-import { getNumRows, getPaylines } from './gameConfig';
+import { getNumRows, getPaylines, paylineColor } from './gameConfig';
 import { numLines, paytable } from './paytable';
 import { getSymbolInfo } from './utils';
 import { SYMBOL_SIZE } from './constants';
@@ -53,6 +53,13 @@ export const infoManifest: InfoManifest = {
 	},
 	get paylines() {
 		return getPaylines();
+	},
+	// The authored per-line colours (Invisible Game Config), aligned to `paylines` by declaration
+	// index — the SAME index `paylineColor` maps to a line id — so the rules-page grid draws each
+	// line in the colour its win line uses. `undefined` for an un-coloured line ⇒ the grid falls
+	// back to the theme accent, keeping an un-coloured game byte-identical to before.
+	get paylineColors() {
+		return getPaylines().map((_line, i) => paylineColor(i));
 	},
 	get numRows() {
 		return getNumRows();
