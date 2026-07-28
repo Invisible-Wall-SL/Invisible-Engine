@@ -209,4 +209,10 @@
 	.switcher.compact .tool {
 		padding: 6px;
 	}
+	/* If even the icon-only row can't fit, scroll it rather than clipping tools
+	   off the end (the HTML twins in atlas/sheet/spine/rigger mirror this). */
+	.switcher.compact {
+		overflow-x: auto;
+		overflow-y: hidden;
+	}
 </style>
