@@ -37,6 +37,21 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-07-28 — **Save can no longer silently un-ship a rig.** `POST /api/rigger/save` rebuilt
+  the WHOLE project index via `buildSkeletonsIndex` and overwrote `skeletons.json`; that scan
+  SILENTLY DROPS any skeleton folder whose `.atlas` is missing (`if (!atlases.length) continue`
+  in `spineIndex.ts`). So re-saving an atlas-less rig un-shipped it (blank in the editor, gone
+  from the editor-art export + game), and saving rig A could drop a DIFFERENT atlas-less rig B.
+  Now `save` goes through **`reindexSkeletonsPreserving`** (`spineIndex.ts`): Layer 1 re-derives
+  a missing `.atlas` from the folder's `source.json` via `ensureBundleAtlasFresh` (the `⟳ Re-sync
+  atlas` path); Layer 2 preserves the prior `skeletons.json` entry for any folder it still can't
+  rebuild (never drops) and, for the folder being SAVED, **fails 400 loudly** ("…has no atlas and
+  no source to rebuild it — re-sync an atlas first") instead of writing a self-dropping index. A
+  healthy save is byte-identical to before (parity fast-path). Offline proof:
+  `tools/rigger-spike/reindex-preserve.mjs` (esbuild-bundles the real helpers; 21/21).
+  **Still-risky (noted, not yet fixed):** `rigger/{new,upload,delete}` and `editor/spines/reindex`
+  do the same project-wide `buildSkeletonsIndex` overwrite, so any of them can drop an atlas-less
+  rig B. Route them through `reindexSkeletonsPreserving` (or a preserve-only variant) next.
 - 2026-07-16 — **Rig + animation library catalogs are Postgres rows, not R2 blobs.** The
   `_shared/{rigs,animations}/index.json` blobs were read-modify-written by four endpoints with
   no guard, and are GLOBAL (not project-scoped) — so two users on *unrelated* projects silently
