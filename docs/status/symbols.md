@@ -122,6 +122,28 @@ Working on `main`:
   const, `.strict` schema field, sparse sanitize, verbatim through `symbolExport.ts`). Tint cascade
   verified live in the dev bundle (`_Container.tint` → child `_Spine.groupColor`); ⏳ owner
   visual-verify on a real winning spin.
+- **Book-symbol VFX** (2026-07-28, default OFF). Doc-level global `bookVfx: { background?, foreground? }`
+  — two authored layers drawn behind / in front of the game-selected book symbol
+  (`stateGame.specialSymbol`) **during free spins only**. Each layer is a `BookVfxLayer`
+  (`kind: 'sprite' | 'spine' | 'flipbook' | 'fx'` + `assetKey`/`animationName`/`clipId`/`effectId`
+  + optional `sizeRatios`/`offset` × cell). Authored in the tool's **"Book symbol VFX"** panel
+  (between Free-spin board glow and Win lines) — kind toggle + the existing RegionPicker (sprite) /
+  spine bundle+animation / clip select (flipbook) / a new effect `<select>` (fx). Sparse, modelled on
+  `boardGlow`: absent ⇒ byte-identical. Full chain — `.strict` schema + `.refine` (per-kind required
+  field) in `symbolsStorage.ts`, client type/setters/`docSignature`, `symbolExport.ts` (routes each
+  layer's asset into the shared `refs`; fx rides `bakedEffects()`), `export-symbols` response (both
+  runtime + bake destructure), `bake-editor-doc.mjs` (`bundle.symbols.bookVfx`). Engine side
+  (`apps/lines`): `bakedBookVfx()` + `bakedBookVfxAssets()` in `editor-scenes.ts`, `BookVfx.svelte`
+  mounted in `Board.svelte` (bg zIndex −1 / fg +1 around each matching cell), each kind rendered by
+  its proven component (Sprite / SpineProvider+SpineTrack / Flipbook / EffectPlayer). **Effect-pruning
+  gotcha closed:** a bookVfx `fx` effect is a fourth reachability source in BOTH bundle paths — the bake
+  path (`bake-editor-doc.mjs` keep-set) AND the runtime path (`pruneUnreachableEffects` gained an
+  `extraReachable` param, fed the bookVfx fx effectIds at the `runtimeBundle.ts` call site) — else an
+  otherwise-unreachable book effect would ship in the tool but get stripped from the live bundle.
+  Offline fixtures: 13/13 over the real `normalizeSymbolsDoc` (4-kind round-trip, sparse pruning,
+  `.strict`/`.refine` rejections) + 3/3 over the real `pruneUnreachableEffects` (keep-set rescues the
+  exact id only). ⏳ **Owner visual-verify** (auth-gated tool + needs a book into free spins with the
+  special symbol on the board). **Book of Borut needs an `engine` submodule bump** to receive it.
 - **Full deploy chain** (export → `deploy/editor-symbols/` → bake → pull → register):
   spine-aware `symbolExport.ts`, `POST /api/editor/export-symbols`, `bake-editor-doc.mjs`
   wiring, `pull-project-assets.mjs` prune entry, `bakedSymbolMap()` / `bakedSymbolAssets()`.
@@ -149,6 +171,16 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+
+- 2026-07-28 — **Book-symbol VFX (background + foreground) during free spins.** New sparse doc-global
+  `bookVfx: { background?, foreground? }` on the symbols doc; each layer is sprite/spine/flipbook/fx,
+  authored in a new "Book symbol VFX" panel and drawn behind / in front of the game-selected book
+  symbol (`stateGame.specialSymbol`) on the resting board during free spins only. Full chain end to
+  end (tool → export → bake + runtime bundle → engine `BookVfx.svelte`), modelled on `boardGlow`;
+  default-OFF ⇒ byte-parity. Closed an effect-pruning gap on the way: a bookVfx `fx` layer's effect is
+  now a keep-source in both the bake path and the runtime-bundle `pruneUnreachableEffects`. See the
+  "Book-symbol VFX" bullet under Current state. ⏳ owner visual-verify; **Book of Borut needs an engine
+  submodule bump.**
 
 - 2026-07-27 — **Two owner-requested win-line options, wired end-to-end.** (A) **"Show full
   payline"** in the Win lines section — `winLine.line.fullPayline` (bool, default OFF) +

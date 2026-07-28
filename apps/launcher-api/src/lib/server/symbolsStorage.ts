@@ -201,6 +201,62 @@ const winCycleSchema = z
 	})
 	.strict();
 
+/**
+ * Book-symbol VFX — two authored presentation LAYERS the game draws BEHIND (`background`) and IN
+ * FRONT OF (`foreground`) the book symbol during free spins. Sparse + optional, mirroring every other
+ * doc-global here: an absent `bookVfx`, or an absent layer, persists nothing and ships byte-identical
+ * to a game with no book VFX. Passed through VERBATIM to `bundle.symbols.bookVfx` (same as
+ * `boardGlow`/`winLine`); the engine render half consumes it.
+ *
+ * A layer is one of four kinds, each carrying only the field it needs — a `.refine()` enforces that
+ * required field is present so a half-authored layer can never round-trip:
+ *   sprite   → `assetKey` (a sheet frame key)
+ *   spine    → `assetKey` (bundle prefix) + `animationName`
+ *   flipbook → `clipId` (the Invisible Flipbook clip; `assetKey` optionally holds its primary sheet)
+ *   fx       → `effectId` (an Invisible FX effect)
+ * `sizeRatios`/`offset` are OPTIONAL fit hints (× cell), like `boardGlow.sizeRatios`.
+ */
+const offsetSchema = z.object({
+	x: z.number(),
+	y: z.number(),
+});
+
+const bookVfxLayerSchema = z
+	.object({
+		kind: z.enum(['sprite', 'spine', 'flipbook', 'fx']),
+		assetKey: z.string().min(1).optional(),
+		animationName: z.string().min(1).optional(),
+		clipId: z.string().min(1).optional(),
+		effectId: z.string().min(1).optional(),
+		sizeRatios: sizeRatiosSchema.optional(),
+		offset: offsetSchema.optional(),
+	})
+	.strict()
+	.refine(
+		(l) => {
+			switch (l.kind) {
+				case 'spine':
+					return !!l.assetKey && !!l.animationName;
+				case 'flipbook':
+					return !!l.clipId;
+				case 'sprite':
+					return !!l.assetKey;
+				case 'fx':
+					return !!l.effectId;
+				default:
+					return false;
+			}
+		},
+		{ message: 'a book-vfx layer is missing the field its kind requires' },
+	);
+
+const bookVfxSchema = z
+	.object({
+		background: bookVfxLayerSchema.optional(),
+		foreground: bookVfxLayerSchema.optional(),
+	})
+	.strict();
+
 export const symbolsDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
@@ -210,6 +266,7 @@ export const symbolsDocSchema = z
 		boardGlow: boardGlowSchema.optional(),
 		winLine: winLineSchema.optional(),
 		winCycle: winCycleSchema.optional(),
+		bookVfx: bookVfxSchema.optional(),
 		updatedAt: z.string().optional(),
 	})
 	.strip();
@@ -279,6 +336,15 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	// ON flag is written and OFF round-trips to no key.
 	if (doc.winCycle?.dimNonWinning === true) winCycle.dimNonWinning = true;
 	if (Object.keys(winCycle).length) next.winCycle = winCycle;
+	// Sparse whitelist like `boardGlow`: each layer already passed the schema `.refine()` (so a
+	// half-authored layer never reaches here), so copy the present ones and drop a now-empty
+	// `bookVfx` — leaving a slot unset writes nothing and round-trips to no key (byte-parity).
+	if (doc.bookVfx) {
+		const bookVfx: NonNullable<SymbolsDoc['bookVfx']> = {};
+		if (doc.bookVfx.background) bookVfx.background = doc.bookVfx.background;
+		if (doc.bookVfx.foreground) bookVfx.foreground = doc.bookVfx.foreground;
+		if (Object.keys(bookVfx).length) next.bookVfx = bookVfx;
+	}
 	return next;
 }
 

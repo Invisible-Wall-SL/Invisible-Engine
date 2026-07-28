@@ -14,6 +14,10 @@
  *   2. RIG-BOUND — its id is referenced by any `rigFx` binding (a rig timeline event → effect).
  *   3. EVENT-TRIGGERED — it has a layer with `trigger.on === 'event'` and an `eventType` (the Flow
  *      Broadcast pattern). IDENTICAL to `isEventReachable` in `apps/lines/src/components/Effects.svelte`.
+ *   4. EXTERNALLY-REACHED — its id is in the caller-supplied `extraReachable` set: a reference from a
+ *      surface this module doesn't walk (currently a Book-symbol VFX `kind:'fx'` layer, keyed by
+ *      `bookVfx.{background,foreground}.effectId`). The caller owns that walk; keep in sync with the
+ *      bake path's inline keep-set in `scripts/bake-editor-doc.mjs`.
  *
  * CONSERVATIVE RULE: when uncertain, KEEP. We only drop ids that are DEFINITELY none of the above —
  * never risk pruning a used effect. Both bundle-assembly paths (`buildRuntimeBundle` for `?runtime=1`
@@ -82,22 +86,28 @@ export interface EffectPruneResult {
  *                      effects). Pass latest defs + any pinned versions — extra defs only widen the
  *                      KEEP set (conservative).
  * @param rigFx         the rig→FX binding manifest (rig-bound reachability).
+ * @param extraReachable additional effect ids the caller already knows are reachable from a surface
+ *                       this module doesn't walk (Book-symbol VFX fx layers). Conservative — only
+ *                       widens the KEEP set. Optional; omitting it is the previous behaviour.
  */
 export function pruneUnreachableEffects(
 	effects: EffectDoc[],
 	scenes: Scene[],
 	componentDefs: ComponentDef[],
 	rigFx: Record<string, RigFxBinding[]>,
+	extraReachable?: Iterable<string>,
 ): EffectPruneResult {
 	const placed = placedEffectIds(scenes, componentDefs);
 	const rigBound = new Set<string>();
 	for (const binds of Object.values(rigFx)) {
 		for (const b of binds) if (b.effectId) rigBound.add(b.effectId);
 	}
+	const external = new Set<string>(extraReachable ?? []);
 	const kept: EffectDoc[] = [];
 	const prunedIds: string[] = [];
 	for (const doc of effects) {
-		if (placed.has(doc.id) || rigBound.has(doc.id) || isEventReachable(doc)) kept.push(doc);
+		if (placed.has(doc.id) || rigBound.has(doc.id) || external.has(doc.id) || isEventReachable(doc))
+			kept.push(doc);
 		else prunedIds.push(doc.id);
 	}
 	return { effects: kept, prunedIds };
