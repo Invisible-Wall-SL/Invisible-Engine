@@ -1,4 +1,5 @@
 import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
+import { BitmapFont, Cache } from 'pixi.js';
 import type { RawType, RawAsset, RawSpine, RawSprites, SpineSrc, RawAudio } from './types';
 import { setSpineLoadScale } from './spineLoadScale';
 
@@ -47,14 +48,23 @@ export const getProcessed = ({
 	rawAsset,
 	src,
 	namespace,
+	family,
 }: {
 	key: string;
 	type: RawType;
 	rawAsset: RawAsset;
 	src: string | SpineSrc;
 	namespace?: string;
+	family?: string;
 }) => {
-	if (type === 'font') return; // No need to process raw font data and add it to the loaded assets.
+	if (type === 'font') {
+		// pixi's font loader already cached the `BitmapFont` under its `<info face>`, but
+		// several fonts can share one face (gradient variants). When the asset declares an
+		// explicit `family` (its unique id), ALSO register it under `${family}-bitmap` so
+		// each variant resolves independently — the key `<BitmapText fontFamily={id}>` uses.
+		if (family && rawAsset instanceof BitmapFont) Cache.set(`${family}-bitmap`, rawAsset);
+		return; // No processed asset to add to the loaded-assets map.
+	}
 	const processMethod = PROCESS_METHOD_MAP[type];
 	if (!processMethod)
 		throw Error('No asset process method found, please check the type of the asset.');

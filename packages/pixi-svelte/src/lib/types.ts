@@ -40,6 +40,11 @@ export type Asset = {
 	 * don't clobber each other in the flat map. Used by editor-art registration to
 	 * scope each sheet by its manifest. See engine-layout `editorArtKey.ts`. */
 	namespace?: string;
+	/** `font` only: register the loaded `BitmapFont` under `` `${family}-bitmap` `` in
+	 * addition to pixi's own `<info face>` key. Lets several fonts that share one face
+	 * (gradient variants) each resolve by a UNIQUE family. See engine-layout
+	 * `bakedFontAssets` (passes the font's `id`). */
+	family?: string;
 };
 export type Assets = PIXI.Dict<Asset>;
 

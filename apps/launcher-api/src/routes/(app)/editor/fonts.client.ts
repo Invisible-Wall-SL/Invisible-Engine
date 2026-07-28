@@ -16,10 +16,23 @@ export { ensureWebFont } from '$lib/fontLoad.client';
 /** A catalog bitmap font, registered with PIXI under its `name`. See the shared module. */
 export const ensureBitmapFont = loadCatalogBitmapFont;
 
-/** The font catalog as the overlay consumes it: a list + a by-name index. */
+/** The font catalog as the overlay consumes it: a list + by-id / by-name indexes.
+ *  A stored `style.fontFamily` resolves by `id` first (so same-face variants stay
+ *  distinct), then by `name` (legacy docs + built-ins). */
 export interface FontCatalogResult {
 	fonts: EditorFont[];
+	byId: Map<string, EditorFont>;
 	byName: Map<string, EditorFont>;
+}
+
+/** Resolve a stored font reference (`style.fontFamily`) to its catalog entry —
+ *  `id` first, then `name`. Mirrors engine-layout's `findFont`. */
+export function resolveFontRef(
+	cat: FontCatalogResult,
+	ref: string | null | undefined,
+): EditorFont | undefined {
+	if (!ref) return undefined;
+	return cat.byId.get(ref) ?? cat.byName.get(ref);
 }
 
 let catalogPromise: Promise<FontCatalogResult> | null = null;
@@ -30,14 +43,18 @@ export function fetchFontCatalog(): Promise<FontCatalogResult> {
 	catalogPromise = (async (): Promise<FontCatalogResult> => {
 		try {
 			const res = await fetch('/api/editor/fonts');
-			if (!res.ok) return { fonts: [], byName: new Map() };
+			if (!res.ok) return { fonts: [], byId: new Map(), byName: new Map() };
 			const body = (await res.json()) as { fonts?: EditorFont[] };
 			const fonts = body.fonts ?? [];
+			const byId = new Map<string, EditorFont>();
 			const byName = new Map<string, EditorFont>();
-			for (const f of fonts) byName.set(f.name, f);
-			return { fonts, byName };
+			for (const f of fonts) {
+				byId.set(f.id, f);
+				byName.set(f.name, f);
+			}
+			return { fonts, byId, byName };
 		} catch {
-			return { fonts: [], byName: new Map() };
+			return { fonts: [], byId: new Map(), byName: new Map() };
 		}
 	})();
 	return catalogPromise;

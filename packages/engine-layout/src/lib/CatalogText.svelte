@@ -13,7 +13,7 @@
 <script lang="ts">
 	import { BitmapText, Text } from 'pixi-svelte';
 
-	import { isBitmapFont } from './fontCatalog';
+	import { findFont, fontFamilyForRef } from './fontCatalog';
 	import { getFontCatalog } from './registerFontCatalog';
 
 	/**
@@ -33,17 +33,28 @@
 	 */
 	const props: Props = $props();
 
-	const family = $derived.by(() => {
+	// The doc stores a font REFERENCE (a Font Maker `id`, a built-in family, or a
+	// system face). `fontFamily` may be a fallback list; the first entry decides,
+	// matching pixi's own resolution.
+	const ref = $derived.by(() => {
 		const f = props.style?.fontFamily;
 		return Array.isArray(f) ? f[0] : f;
 	});
-	const isBitmap = $derived(
-		isBitmapFont(getFontCatalog(), typeof family === 'string' ? family : undefined),
-	);
+	const entry = $derived(findFont(getFontCatalog(), typeof ref === 'string' ? ref : undefined));
+	const isBitmap = $derived(entry?.kind === 'bitmap');
+	// Rewrite the reference to the actual registered family before handing it to pixi:
+	// a bitmap font resolves to its unique `id` (the `${id}-bitmap` cache key), a web
+	// font to its CSS `name`, and an unlisted family passes through unchanged. Without
+	// this a same-face bitmap VARIANT would resolve to whichever variant loaded last.
+	const resolvedStyle = $derived.by(() => {
+		if (!entry || !props.style) return props.style;
+		const family = fontFamilyForRef(getFontCatalog(), typeof ref === 'string' ? ref : undefined);
+		return family === undefined ? props.style : { ...props.style, fontFamily: family };
+	});
 </script>
 
 {#if isBitmap}
-	<BitmapText {...props} />
+	<BitmapText {...props} style={resolvedStyle} />
 {:else}
-	<Text {...props} />
+	<Text {...props} style={resolvedStyle} />
 {/if}

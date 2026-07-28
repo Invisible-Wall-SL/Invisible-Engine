@@ -76,19 +76,46 @@ export interface FontCatalog {
 	fonts: FontEntry[];
 }
 
-/** Find a catalog entry by the name a text node stores in `style.fontFamily`. */
+/**
+ * Find a catalog entry by the reference a text node stores in `style.fontFamily`.
+ * The reference is the font's unique `id` (so two fonts that share a family `name`
+ * — e.g. gradient variants of one typeface — stay independently selectable). The
+ * `name` is matched as a FALLBACK for docs authored before id-keying, and for the
+ * built-in fonts whose `id` and `name` are the same string. `id` wins on a tie.
+ */
 export function findFont(
 	catalog: FontCatalog | null | undefined,
-	name: string | null | undefined,
+	ref: string | null | undefined,
 ): FontEntry | undefined {
-	if (!catalog || !name) return undefined;
-	return catalog.fonts.find((f) => f.name === name);
+	if (!catalog || !ref) return undefined;
+	return catalog.fonts.find((f) => f.id === ref) ?? catalog.fonts.find((f) => f.name === ref);
 }
 
-/** True when the named font exists in the catalog and is a bitmap font. */
+/** True when the referenced font exists in the catalog and is a bitmap font. */
 export function isBitmapFont(
 	catalog: FontCatalog | null | undefined,
-	name: string | null | undefined,
+	ref: string | null | undefined,
 ): boolean {
-	return findFont(catalog, name)?.kind === 'bitmap';
+	return findFont(catalog, ref)?.kind === 'bitmap';
+}
+
+/**
+ * The family string to hand PIXI for a stored font reference — the sibling of
+ * {@link findFont} that resolves a doc's `style.fontFamily` to the key the runtime
+ * actually registered the face under:
+ *   - BITMAP → the entry's unique `id`. Both the editor preview and the game install
+ *     the `BitmapFont` under `` `${id}-bitmap` `` (the editor builds it explicitly; the
+ *     game passes `family: id` to the pixi font asset), so `<BitmapText fontFamily={id}>`
+ *     resolves the RIGHT variant even when several share a `<info face>`.
+ *   - WEB → the entry's `name` (the CSS `@font-face` family the browser knows).
+ *   - No catalog entry (built-in/system family, or an un-synced project) → the raw
+ *     `ref` unchanged, so the common `proxima-nova`/system-font case is untouched.
+ */
+export function fontFamilyForRef(
+	catalog: FontCatalog | null | undefined,
+	ref: string | null | undefined,
+): string | undefined {
+	const entry = findFont(catalog, ref);
+	if (!entry) return ref ?? undefined;
+	return entry.kind === 'bitmap' ? entry.id : entry.name;
 }

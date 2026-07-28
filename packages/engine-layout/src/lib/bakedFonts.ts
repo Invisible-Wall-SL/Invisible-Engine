@@ -17,17 +17,23 @@ export interface BakedFontAsset {
 	type: 'font';
 	src: string;
 	preload: boolean;
+	/** The family key to register the loaded `BitmapFont` under — the font's unique
+	 *  `id`, so variants sharing a `<info face>` don't collide (see `bakedFontAssets`). */
+	family: string;
 }
 
 /**
  * Bitmap fonts from a baked catalog as pixi `{type:'font'}` asset entries, keyed
  * `bakedFont/<id>`. Spread into `createApp({assets})`: `AssetsLoader` preloads the
- * descriptor before first paint and pixi installs the `BitmapFont` under its
- * `<info face>` — exactly what `<BitmapText fontFamily={name}>` then resolves. The
- * `src` is `<srcBase><prefix>/<folder>/<descriptor>`; `srcBase` defaults to the
- * page-relative `assets/` (the deploy mirror), and the live-runtime path
- * (Invisible Game Maker) passes the launcher's absolute `/api/deploy?…&rel=` base
- * so a cross-origin generic bundle resolves the same files. Web fonts load via
+ * descriptor before first paint. pixi's font loader installs the `BitmapFont` under
+ * its `<info face>`, but several fonts can share one face (gradient variants of a
+ * typeface), so that key collides. The `family: f.id` here tells `AssetsLoader` to
+ * ALSO register the loaded font under `` `${id}-bitmap` `` — the unique key
+ * `<CatalogText>`/`fontFamilyForRef` resolves — so `<BitmapText>` picks the right
+ * variant. The `src` is `<srcBase><prefix>/<folder>/<descriptor>`; `srcBase` defaults
+ * to the page-relative `assets/` (the deploy mirror), and the live-runtime path
+ * (Invisible Game Maker) passes the launcher's absolute `/api/deploy?…&rel=` base so a
+ * cross-origin generic bundle resolves the same files. Web fonts load via
  * {@link registerBakedWebFonts}. Empty catalog (un-baked / no fonts) ⇒ `{}`.
  */
 export function bakedFontAssets(
@@ -42,6 +48,7 @@ export function bakedFontAssets(
 			type: 'font',
 			src: `${srcBase}${catalog.prefix}/${f.folder}/${f.descriptorFile}`,
 			preload: true,
+			family: f.id,
 		};
 	}
 	return out;
@@ -49,17 +56,19 @@ export function bakedFontAssets(
 
 /**
  * Merge a baked project font catalog over the game's built-in font entries for
- * `registerFontCatalog`. A baked entry overrides a built-in of the same family
- * `name`; un-baked ⇒ just the built-ins (parity). `prefix` is irrelevant to the
- * engine's bitmap-vs-`<Text>` decision (it keys on `name`/`kind`), so it is left
- * empty here — the per-font `folder` in {@link bakedFontAssets} drives loading.
+ * `registerFontCatalog`. Keyed by the unique `id`: a baked entry overrides a built-in
+ * of the SAME id, and two fonts that share a family `name` (gradient variants) both
+ * survive instead of one clobbering the other. Un-baked ⇒ just the built-ins (parity).
+ * `prefix` is irrelevant to the engine's bitmap-vs-`<Text>` decision (it keys on
+ * `id`/`kind`), so it is left empty here — the per-font `folder` in
+ * {@link bakedFontAssets} drives loading.
  */
 export function mergeBakedFontCatalog(
 	builtins: FontEntry[],
 	baked: FontCatalog | undefined,
 ): FontCatalog {
-	const merged = new Map<string, FontEntry>(builtins.map((f) => [f.name, f]));
-	for (const f of baked?.fonts ?? []) merged.set(f.name, f);
+	const merged = new Map<string, FontEntry>(builtins.map((f) => [f.id, f]));
+	for (const f of baked?.fonts ?? []) merged.set(f.id, f);
 	return { prefix: '', fonts: [...merged.values()] };
 }
 
