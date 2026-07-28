@@ -172,6 +172,16 @@ Working on `main`:
 
 ## Recent changes
 
+- 2026-07-28 — **Scatter now gets the win-highlight frame when it pays.** The `highlight` win frame
+  (`bakedHighlight()`) is drawn on any symbol reaching `state === 'win'`, but `Symbol.svelte` was
+  gating it behind `!['S', 'M']` — so the scatter (`S`), which reaches `'win'` via
+  `animateSymbols` → `Board.svelte` like every paying cell, never got a border even when it
+  participated in a win (owner request: "the scatter should also get a border since it participates
+  in the win"). Dropped `'S'` from the exclusion (`props.rawSymbol.name !== 'M'`); the scatter now
+  shows the same frame as the other winning symbols. One-line coded gate in `apps/lines`, no
+  doc/schema/bake change. Verified the game boots clean with the change (dev bundle, mock RGS);
+  ⏳ owner visual-verify on a real scatter win.
+
 - 2026-07-28 — **Book-symbol VFX (background + foreground) during free spins.** New sparse doc-global
   `bookVfx: { background?, foreground? }` on the symbols doc; each layer is sprite/spine/flipbook/fx,
   authored in a new "Book symbol VFX" panel and drawn behind / in front of the game-selected book
