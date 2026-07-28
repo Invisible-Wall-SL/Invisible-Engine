@@ -650,13 +650,30 @@
 	// The project's font catalog (the same `/api/editor/fonts` the editor canvas
 	// renders from), so the font dropdown offers exactly the fonts that will show.
 	let fontList = $state<EditorFont[]>([]);
+	let fontById = $state<Map<string, EditorFont>>(new Map());
 	let fontByName = $state<Map<string, EditorFont>>(new Map());
+
+	/** Resolve a stored `style.fontFamily` reference to its catalog entry — the unique
+	 *  `id` first (so same-face variants stay distinct), then `name` (legacy docs +
+	 *  built-ins). Mirrors engine-layout's `findFont`. */
+	function resolveFont(ref: string | null | undefined): EditorFont | undefined {
+		if (!ref) return undefined;
+		return fontById.get(ref) ?? fontByName.get(ref);
+	}
+
+	/** Dropdown label — the family `name`, plus the `id` when it differs (so two fonts
+	 *  sharing a face, e.g. gradient variants, are distinguishable), plus the kind. */
+	function fontOptionLabel(f: EditorFont): string {
+		const idPart = f.id === f.name ? '' : ` · ${f.id}`;
+		return `${f.name}${idPart} [${f.kind}]`;
+	}
 	// The project's authored Invisible FX effects (id + name), for the `effect` node's
 	// picker — the same list `/api/editor/effects` gives the Library's Effects section.
 	let effectList = $state<{ id: string; name: string }[]>([]);
 	onMount(() => {
 		void fetchFontCatalog().then((c) => {
 			fontList = c.fonts;
+			fontById = c.byId;
 			fontByName = c.byName;
 		});
 		void fetch('/api/editor/effects')
@@ -677,16 +694,16 @@
 	 * style controls that don't apply to `<BitmapText>` are gated off below. */
 	const selectedFontKind = $derived.by(() => {
 		if (!node || node.kind !== 'text') return null;
-		const fam = node.style?.fontFamily;
-		return fam ? (fontByName.get(fam)?.kind ?? null) : null;
+		return resolveFont(node.style?.fontFamily)?.kind ?? null;
 	});
 	const isBitmapSelected = $derived(selectedFontKind === 'bitmap');
-	/** A non-empty current family the catalog doesn't list — kept as a "(custom)"
-	 * option so picking from the dropdown never silently drops an authored family. */
+	/** A non-empty current family the catalog doesn't list (by id OR name) — kept as a
+	 * "(custom)" option so picking from the dropdown never silently drops an authored
+	 * family (also holds legacy docs that stored the face name until re-picked). */
 	const customFamily = $derived.by(() => {
 		if (!node || node.kind !== 'text') return '';
 		const fam = node.style?.fontFamily ?? '';
-		return fam && !fontByName.has(fam) ? fam : '';
+		return fam && !resolveFont(fam) ? fam : '';
 	});
 
 	// ---- Universal bound-component params (auto-rendered from the engine schema) ----
@@ -748,10 +765,11 @@
 		const value = parseHex(trimmed);
 		if (value !== undefined) writeParam(n, p, value);
 	}
-	/** A current font family the catalog doesn't list — kept as a "(custom)" option. */
+	/** A current font family the catalog doesn't list (by id OR name) — kept as a
+	 * "(custom)" option. */
 	function paramFontCustom(n: LayoutNode | null, p: EditableParam): string {
 		const fam = readParam(n, p);
-		return typeof fam === 'string' && fam && !fontByName.has(fam) ? fam : '';
+		return typeof fam === 'string' && fam && !resolveFont(fam) ? fam : '';
 	}
 
 	const overrideKeys = [
@@ -1367,9 +1385,9 @@
 										>
 											<option value="">(game default)</option>
 											{#each fontList as f (f.id)}
-												<option value={f.name}>{f.name} [{f.kind}]</option>
+												<option value={f.id}>{fontOptionLabel(f)}</option>
 											{/each}
-											{#if cur && !fontList.some((f) => f.name === cur)}
+											{#if cur && !resolveFont(cur)}
 												<option value={cur}>{cur} (custom)</option>
 											{/if}
 										</select>
@@ -1836,9 +1854,9 @@
 										: '(inherit default)'}</option
 								>
 								{#each fontList as f (f.id)}
-									<option value={f.name}>{f.name} [{f.kind}]</option>
+									<option value={f.id}>{fontOptionLabel(f)}</option>
 								{/each}
-								{#if cur && !fontList.some((f) => f.name === cur)}
+								{#if cur && !resolveFont(cur)}
 									<option value={cur}>{cur} (custom)</option>
 								{/if}
 							</select>
@@ -2393,7 +2411,7 @@
 							>
 								<option value="">(coded default)</option>
 								{#each fontList as f (f.id)}
-									<option value={f.name}>{f.name} [{f.kind}]</option>
+									<option value={f.id}>{fontOptionLabel(f)}</option>
 								{/each}
 								{#if custom}
 									<option value={custom}>{custom} (custom)</option>
@@ -3268,7 +3286,7 @@
 						>
 							<option value="">(game default)</option>
 							{#each fontList as f (f.id)}
-								<option value={f.name}>{f.name} [{f.kind}]</option>
+								<option value={f.id}>{fontOptionLabel(f)}</option>
 							{/each}
 							{#if customFamily}
 								<option value={customFamily}>{customFamily} (custom)</option>

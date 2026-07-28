@@ -119,22 +119,23 @@
 
 	/** Catalog of the project's fonts, by family name. Empty until fetched. */
 	let byName = new Map<string, EditorFont>();
-	/** Font names whose load resolved (bitmap registered / web face added). */
+	/** Font IDS whose load resolved (bitmap registered / web face added). Keyed by the
+	 *  unique `id` so same-face variants track independently. */
 	let loadedFonts = new Set<string>();
-	/** Font names whose load is in flight (so we kick each off exactly once). */
+	/** Font ids whose load is in flight (so we kick each off exactly once). */
 	const fontLoads = new Set<string>();
 
 	/** Kick off a font load once; on success mark it loaded + trigger a rebuild. */
 	function ensureFont(font: EditorFont): void {
-		if (fontLoads.has(font.name)) return;
-		fontLoads.add(font.name);
+		if (fontLoads.has(font.id)) return;
+		fontLoads.add(font.id);
 		loadStarted++;
 		reportLoading();
-		const done = (name: string | null): void => {
+		const done = (loaded: string | null): void => {
 			loadSettled++;
 			reportLoading();
-			if (name) {
-				loadedFonts.add(name);
+			if (loaded) {
+				loadedFonts.add(font.id);
 				rebuild();
 			}
 		};
@@ -351,12 +352,13 @@
 		const existing = objects.get(key);
 		// Same descriptor correction the game applies in `pixi-svelte`'s <BitmapText> — a font
 		// that under-reports its glyph box otherwise draws bigger here (and overlaps its own
-		// lines) than in the game, so `fontSize` would mean two different things.
-		normalizeBitmapFontMetrics(resolveBitmapFont(font.name));
+		// lines) than in the game, so `fontSize` would mean two different things. Keyed by the
+		// unique `id` (the `${id}-bitmap` cache key `loadCatalogBitmapFont` registered).
+		normalizeBitmapFontMetrics(resolveBitmapFont(font.id));
 		const obj = existing instanceof BitmapText ? existing : new BitmapText({ text });
 		obj.text = text;
 		obj.style = {
-			fontFamily: font.name,
+			fontFamily: font.id,
 			fontSize: style?.fontSize ?? 24,
 			align: style?.align ?? 'left',
 			letterSpacing: style?.letterSpacing ?? 0,
@@ -445,7 +447,7 @@
 			// A catalog font (bitmap OR web) needs an async load — kick it off, but DON'T
 			// skip: render a default `<Text>` now (system fallback) so the node is never
 			// blank, then this rebuild re-runs on load and swaps in the real font.
-			const fontLoading = !!font && !loadedFonts.has(font.name);
+			const fontLoading = !!font && !loadedFonts.has(font.id);
 			if (fontLoading && font) ensureFont(font);
 			const useBitmap = !!font && !fontLoading && font.kind === 'bitmap';
 
@@ -455,8 +457,15 @@
 			else if (!useBitmap && existing instanceof BitmapText) dropObject(key);
 
 			seen.add(key);
+			// The node stores a font REFERENCE (a catalog `id`). A bitmap font renders via
+			// `buildBitmap` (keyed on `font.id`); a WEB font's `FontFace` is registered under
+			// its family `name` (see `ensureWebFont`), so rewrite the ref → name for the
+			// `<Text>` path — otherwise the browser can't resolve the id and falls back to a
+			// system face. A system/unlisted family passes through unchanged.
+			const textStyle =
+				font && font.kind === 'web' && style ? { ...style, fontFamily: font.name } : style;
 			const obj =
-				useBitmap && font ? buildBitmap(key, text, style, font) : buildText(key, text, style);
+				useBitmap && font ? buildBitmap(key, text, style, font) : buildText(key, text, textStyle);
 			if (obj.parent !== world) world.addChild(obj);
 
 			// WORLD matrix from the ancestor chain (top-level framed via the canvas's

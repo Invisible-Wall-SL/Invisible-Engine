@@ -455,8 +455,9 @@
 	// The game's built-in bitmap fonts (shipped in `assets.ts`). Merged with the
 	// baked per-project font catalog (Font Maker output, frozen into the bundle by
 	// `bake-editor-doc.mjs`) via the engine's shared `mergeBakedFontCatalog` so an
-	// editor-authored font reaches the shipped game; a baked font with the same
-	// family name overrides a built-in. Bitmap fonts load as `{type:'font'}` assets
+	// editor-authored font reaches the shipped game; keyed by unique `id`, so a baked
+	// font overrides a built-in of the same id and same-face VARIANTS both survive.
+	// Bitmap fonts load as `{type:'font'}` assets that register under `${id}-bitmap`
 	// (`bakedFontAssets` in `stateApp.ts`); web fonts load via `registerBakedWebFonts`.
 	const builtinFonts = [
 		{ id: 'gold', name: 'gold', kind: 'bitmap' as const, folder: '' },

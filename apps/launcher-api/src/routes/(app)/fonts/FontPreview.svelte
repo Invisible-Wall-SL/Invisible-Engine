@@ -29,9 +29,11 @@
 			obj = null;
 		}
 		if (font.kind === 'bitmap') {
+			// Registered under the unique `id` (see `loadCatalogBitmapFont`), so a variant
+			// that shares a `<info face>` with another still previews its OWN atlas.
 			obj = new BitmapText({
 				text: sample,
-				style: { fontFamily: font.name, fontSize: size },
+				style: { fontFamily: font.id, fontSize: size },
 			});
 		} else {
 			obj = new Text({

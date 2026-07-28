@@ -208,13 +208,15 @@ export async function loadLocalBitmapFont(args: {
 const bitmapLoads = new Map<string, Promise<string | null>>();
 
 /**
- * Ensure a CATALOG bitmap font is registered with PIXI under its catalog `name`, so a
- * `BitmapText({ style: { fontFamily: name } })` resolves it. Fetches the raw
+ * Ensure a CATALOG bitmap font is registered with PIXI under its unique catalog `id`
+ * (NOT the BMFont `<info face>`), so a `BitmapText({ style: { fontFamily: id } })`
+ * resolves the RIGHT font even when several catalog entries share a face (gradient
+ * variants of one typeface — the whole reason this keys on `id`). Fetches the raw
  * descriptor text and maps each declared page to the catalog's gated page URL, then
- * builds the font via `loadLocalBitmapFont` (no descriptor-relative page resolution —
- * see the module header). Resolves to the family name on success, `null` on failure.
- * Idempotent per font id (shared across tools — a font loaded once stays in the global
- * PIXI cache).
+ * builds the font via `loadLocalBitmapFont` under `` `${id}-bitmap` `` (no
+ * descriptor-relative page resolution — see the module header). Resolves to the `id`
+ * on success, `null` on failure. Idempotent per font id (shared across tools — a font
+ * loaded once stays in the global PIXI cache).
  */
 export function loadCatalogBitmapFont(font: CatalogFont): Promise<string | null> {
 	const hit = bitmapLoads.get(font.id);
@@ -228,14 +230,14 @@ export function loadCatalogBitmapFont(font: CatalogFont): Promise<string | null>
 			const pageUrls: Record<string, string> = {};
 			for (const page of font.pages ?? []) pageUrls[page.file] = page.url;
 			await loadLocalBitmapFont({
-				family: font.name,
+				family: font.id,
 				descriptorText,
 				descriptorFormat: font.descriptorFormat ?? 'xml',
 				pageUrls,
 			});
-			return font.name;
+			return font.id;
 		} catch (e) {
-			console.warn('[fonts] bitmap font load failed', font.name, e);
+			console.warn('[fonts] bitmap font load failed', font.id, e);
 			return null;
 		}
 	})();
