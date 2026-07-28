@@ -134,6 +134,12 @@ export interface SymbolExportResult {
 	/** The resting-board win-SYMBOL replay config, passed through VERBATIM (no asset work).
 	 *  Absent → the game keeps its coded defaults (replay on, 0.4s between passes). */
 	winCycle?: SymbolsDoc['winCycle'];
+	/** The Book-symbol VFX layers (background + foreground), passed through VERBATIM. Each layer's
+	 *  asset rides the same channels as the per-cell bindings: a spine layer's bundle + a sprite
+	 *  layer's sheet ship via `refs` into `index.spines`/`index.sheets` under the same key; a flipbook
+	 *  layer's clip ships via the editor-art clip walk (no ref here); an fx layer references an effect
+	 *  the effects export ships (kept reachable at bake). Absent → the game renders no book VFX. */
+	bookVfx?: SymbolsDoc['bookVfx'];
 }
 
 const EXPORT_SUBTREE = 'editor-symbols';
@@ -198,7 +204,36 @@ function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 	if (doc.boardGlow?.type === 'spine' && doc.boardGlow.assetKey) {
 		refs.spineKeys.add(doc.boardGlow.assetKey);
 	}
+	// Book-symbol VFX layers carry the same asset kinds as a per-cell binding, so route each layer's
+	// asset through the SAME refs — a spine layer's bundle + a sprite layer's sheet must ship or the
+	// game loads nothing under the key (rule 8). A flipbook layer's clip ships via the editor-art clip
+	// walk (like a flipbook cell, skipped here); an fx layer's effect ships via the effects export.
+	addBookVfxLayerRefs(doc.bookVfx?.background, refs);
+	addBookVfxLayerRefs(doc.bookVfx?.foreground, refs);
 	return refs;
+}
+
+/** Route one Book-VFX layer's asset into the shared `refs` — spine bundle or sprite sheet frame, the
+ *  same split `collectSymbolRefs` applies to a per-cell sprite/spine binding. Flipbook + fx layers
+ *  ship no asset through this exporter (clip art via editor-art; effect via the effects export). */
+function addBookVfxLayerRefs(
+	layer: NonNullable<SymbolsDoc['bookVfx']>[keyof NonNullable<SymbolsDoc['bookVfx']>] | undefined,
+	refs: SymbolRefs,
+): void {
+	if (!layer) return;
+	if (layer.kind === 'spine') {
+		if (layer.assetKey) refs.spineKeys.add(layer.assetKey);
+		return;
+	}
+	if (layer.kind === 'sprite' && layer.assetKey) {
+		const parsed = parseScopedFrameRef(layer.assetKey);
+		if (parsed.assetKey) {
+			refs.spriteManifests.add(parsed.assetKey);
+		} else {
+			const sep = layer.assetKey.indexOf('::');
+			refs.frameNames.add(sep > 0 ? layer.assetKey.slice(sep + 2) : layer.assetKey);
+		}
+	}
 }
 
 /** `atlas_manifest_symbols.json` → `symbols`; `…/spines/W/` → `W` (a safe stem). */
@@ -461,6 +496,12 @@ export async function exportEditorSymbols(
 	// animation/size overrides, forwarded verbatim.
 	const boardGlow = doc.boardGlow;
 
+	// The Book-symbol VFX layers. Each layer's asset already shipped via `refs` above (spine bundle →
+	// `index.spines`, sprite sheet → `index.sheets`, both keyed by the layer's own `assetKey`) or via
+	// a sibling export (flipbook clip / fx effect), so this is a verbatim pass-through of the sparse
+	// authored config, exactly like `boardGlow`. Absent → the game renders no book VFX.
+	const bookVfx = doc.bookVfx;
+
 	// Display names — another assetless pass-through, omitted when nothing is named so an
 	// un-authored project's bundle stays byte-identical.
 	const names = doc.names && Object.keys(doc.names).length ? doc.names : undefined;
@@ -473,5 +514,6 @@ export async function exportEditorSymbols(
 		...(boardGlow ? { boardGlow } : {}),
 		...(winLine ? { winLine } : {}),
 		...(winCycle ? { winCycle } : {}),
+		...(bookVfx ? { bookVfx } : {}),
 	};
 }

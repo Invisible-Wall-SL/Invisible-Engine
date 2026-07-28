@@ -1,7 +1,12 @@
 import { bakedFontAssets } from 'engine-layout';
 import { createApp } from 'pixi-svelte';
 
-import { bakedEditorArtAssets, bakedFontCatalog, bakedSymbolAssets } from '../editor-scenes';
+import {
+	bakedBookVfxAssets,
+	bakedEditorArtAssets,
+	bakedFontCatalog,
+	bakedSymbolAssets,
+} from '../editor-scenes';
 import assets from './assets';
 
 // Editor-art sheets (atlases the baked layout doc references) + baked project
@@ -16,5 +21,6 @@ export const { stateApp } = createApp({
 		...bakedEditorArtAssets(),
 		...bakedFontAssets(bakedFontCatalog()),
 		...bakedSymbolAssets(),
+		...bakedBookVfxAssets(),
 	},
 });

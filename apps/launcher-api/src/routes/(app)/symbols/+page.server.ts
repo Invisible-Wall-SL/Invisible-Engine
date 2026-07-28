@@ -3,6 +3,7 @@ import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listClips } from '$lib/server/flipbookStorage';
 import { resolveEditorFonts } from '$lib/server/fonts';
+import { listEffects } from '$lib/server/fxStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
@@ -38,7 +39,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		sessionToken: cookies.get(SESSION_COOKIE),
 		user: locals.user,
 	});
-	const [loaded, assets, gameType, published, fonts, clips] = await Promise.all([
+	const [loaded, assets, gameType, published, fonts, clips, effects] = await Promise.all([
 		loadSymbolsDocWithEtag(clientKey, projectKey),
 		listProjectAssets(clientKey, projectKey),
 		projectGameType(projectKey),
@@ -48,6 +49,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// sprite frame and a spine animation. Rows only (id/name/frame count/primary sheet/
 		// first frame); the clip's full ordered frame list is the /flipbook tool's business.
 		listClips(clientKey, projectKey),
+		// Invisible FX effects (id + name) — the fourth kind a Book-symbol VFX layer can take.
+		// Same list the editor's effect-node picker uses (`/api/editor/effects`).
+		listEffects(clientKey, projectKey),
 	]);
 	// Win-amount text is bitmap text, so the font dropdown lists the project's BITMAP
 	// fonts (Font Maker output). The four engine builtins (gold/goldblur/silver/purple)
@@ -78,5 +82,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		assets,
 		fonts: bitmapFonts,
 		clips,
+		// id + name only — the Book-VFX FX picker is a plain select; the effect's layers live in /fx.
+		effects: effects.map((e) => ({ id: e.id, name: e.name })),
 	};
 };
