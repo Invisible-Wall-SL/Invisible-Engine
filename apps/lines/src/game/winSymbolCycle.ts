@@ -196,12 +196,19 @@ export const stopWinCycle = (): void => {
  * survive into the spin. It also stops the running cycle so no pass re-draws behind the clear, and
  * clears the transient toast (`showWinInfoMessage`), which auto-clears on its own timer and would
  * otherwise outlive the button press.
+ *
+ * The non-winning-symbol DIM is lifted here too, so the whole board brightens in one beat ON THE
+ * BUTTON PRESS — before the reels roll — rather than only on the later `reveal`, which lands after
+ * the spin has already started (owner direction 2026-07-28: "better to have them all go away at the
+ * same time"). The `reveal` clear in {@link recordWinCycleWins} stays: it is the seam for a free
+ * spin's INTERNAL reveals, which have no button press to run this.
  */
 export const clearWinPresentation = (): void => {
 	stopWinCycle();
 	lineOnScreen = false;
 	eventEmitter.broadcast({ type: 'winLineHide' });
 	clearMessage();
+	setWinDim(false, {});
 };
 
 /**
