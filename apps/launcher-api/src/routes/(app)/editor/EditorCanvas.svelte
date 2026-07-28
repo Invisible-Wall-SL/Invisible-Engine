@@ -3446,6 +3446,7 @@
 					{frameWidth}
 					{frameHeight}
 					reloadToken={fontReload}
+					{redrawNonce}
 					onLoadingChange={(c) => {
 						mergeFontLoading(s.id, c);
 					}}
@@ -3551,6 +3552,7 @@
 				{frameWidth}
 				{frameHeight}
 				reloadToken={fontReload}
+				{redrawNonce}
 				onLoadingChange={(c) => {
 					mergeFontLoading(HUD_TEXT_KEY, c);
 				}}
