@@ -23,7 +23,13 @@
   .iw-tool:hover{background:#26262d;border-color:#2a2a31;color:#fff}
   .iw-tool .ic{display:inline-flex;width:16px;height:16px}
   .iw-tool .ic svg{width:16px;height:16px;display:block}
-  @media (max-width:1100px){.iw-tool .label{display:none} .iw-tool{padding:6px}}
+  /* Collapse to icon-only when the labelled row would overflow the bar's own track
+     (measured in JS), not at a blunt viewport breakpoint; scroll if even icon-only
+     overflows rather than clipping tools off the edge. */
+  .iw-switcher.compact .iw-tool .label{display:none}
+  .iw-switcher.compact .iw-tool{padding:6px}
+  /* icon-only still overflows → scroll rather than clipping tools off the edge */
+  .iw-switcher.compact{overflow-x:auto;overflow-y:hidden}
   .pill{font-size:11px;padding:2px 7px;border-radius:10px;background:#26262d;color:#9ad}
   .ok{color:#6c6}.err{color:#e66}.note{color:#cc9}
   main{flex:1;min-height:0;display:flex}
@@ -185,7 +191,15 @@
     spineViewer: '<circle cx="6" cy="18" r="2.2"/><circle cx="18" cy="6" r="2.2"/><line x1="7.6" y1="16.4" x2="16.4" y2="7.6"/><circle cx="12" cy="12" r="1.3"/>',
     fontMaker: '<path d="M5 17 9.5 6h1L15 17"/><line x1="6.7" y1="13" x2="13.3" y2="13"/><line x1="4" y1="20" x2="20" y2="20"/>',
     localization: '<circle cx="12" cy="12" r="9"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M12 3c2.6 2.6 2.6 15.4 0 18"/><path d="M12 3c-2.6 2.6-2.6 15.4 0 18"/>',
-    ftpBrowser: '<circle cx="5" cy="6" r="1"/><line x1="9" y1="6" x2="20" y2="6"/><circle cx="5" cy="12" r="1"/><line x1="9" y1="12" x2="20" y2="12"/><circle cx="5" cy="18" r="1"/><line x1="9" y1="18" x2="20" y2="18"/>'
+    ftpBrowser: '<circle cx="5" cy="6" r="1"/><line x1="9" y1="6" x2="20" y2="6"/><circle cx="5" cy="12" r="1"/><line x1="9" y1="12" x2="20" y2="12"/><circle cx="5" cy="18" r="1"/><line x1="9" y1="18" x2="20" y2="18"/>',
+    gameMaker: '<rect x="2" y="7" width="20" height="10" rx="4"/><line x1="7" y1="12" x2="9" y2="12"/><line x1="8" y1="11" x2="8" y2="13"/><circle cx="15.5" cy="11" r="0.9" fill="currentColor" stroke="none"/><circle cx="17.5" cy="13" r="0.9" fill="currentColor" stroke="none"/>',
+    gameConfig: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="M15 4v16"/><path d="M3 9.5h18"/><path d="M3 14.5h18"/>',
+    flow: '<rect x="3" y="4" width="6" height="5" rx="1"/><rect x="15" y="9" width="6" height="5" rx="1"/><rect x="3" y="15" width="6" height="5" rx="1"/><path d="M9 6.5h3a2 2 0 0 1 2 2v1"/><path d="M9 17.5h3a2 2 0 0 0 2-2v-1"/>',
+    fx: '<path d="M12 3v4"/><path d="M12 17v4"/><path d="M3 12h4"/><path d="M17 12h4"/><path d="M5.6 5.6l2.8 2.8"/><path d="M15.6 15.6l2.8 2.8"/><path d="M18.4 5.6l-2.8 2.8"/><path d="M8.4 15.6l-2.8 2.8"/><circle cx="12" cy="12" r="1.6"/>',
+    flipbook: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M7 5v4"/><path d="M11 5v4"/><path d="M15 5v4"/><path d="M7 15v4"/><path d="M11 15v4"/><path d="M15 15v4"/>',
+    winText: '<path d="M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2z"/><line x1="7" y1="8" x2="17" y2="8"/><line x1="7" y1="11.5" x2="13" y2="11.5"/>',
+    rigger: '<circle cx="5" cy="19" r="1.8"/><line x1="6.3" y1="17.7" x2="11.5" y2="12.5"/><circle cx="13" cy="11" r="1.8"/><line x1="14.3" y1="9.7" x2="17" y2="7"/><rect x="16" y="4" width="3.5" height="3.5" rx="0.6"/>',
+    symbols: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/><rect x="9.6" y="9.6" width="4.8" height="4.8" rx="0.6" fill="currentColor" stroke="none"/>'
   };
   function svg(id) {
     var b = ICON[id];
@@ -214,6 +228,30 @@
       a.appendChild(lb);
       nav.appendChild(a);
     });
+  }
+  // Responsive collapse — mirrors $lib/ToolTopBar.svelte. Drop the labels to an
+  // icon-only row only when the labelled row would actually overflow its track
+  // (measured, with hysteresis so it re-expands once room returns); if the
+  // icon-only row still overflows, scroll it rather than clipping tools.
+  if (nav) {
+    var compact = false, naturalWidth = 0;
+    var measure = function () {
+      if (compact) {
+        if (naturalWidth && nav.clientWidth >= naturalWidth + 8) {
+          compact = false;
+          nav.classList.remove('compact');
+        }
+      } else {
+        naturalWidth = nav.scrollWidth;
+        if (nav.scrollWidth > nav.clientWidth + 1) {
+          compact = true;
+          nav.classList.add('compact');
+        }
+      }
+    };
+    if (window.ResizeObserver) new ResizeObserver(measure).observe(nav);
+    else window.addEventListener('resize', measure);
+    measure();
   }
 })();
 </script>
