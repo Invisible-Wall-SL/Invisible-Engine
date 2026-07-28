@@ -48,7 +48,7 @@ import { eventEmitter } from './eventEmitter';
 import { stateApp } from './stateApp';
 import { winLevelMap, type WinLevel, type WinLevelData } from './winLevelMap';
 import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
-import { awaitCue } from './unskippablePresentation';
+import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
 import { boardDimensions, paddingReels, paylineColor } from './gameConfig';
@@ -151,13 +151,16 @@ export const winningPositionsOf = (win: { positions: Position[]; kind: number })
  * literal here, because the `/win-text` grid needs the SAME answer to avoid offering a cell that
  * can never render. One fact, one home.
  *
- * A SLAMMED spin draws no line at all. The line is the beat the player pressed to skip — and its
- * stamped amount is the count-up in miniature — so the slam summary keeps only the lit symbols and
- * the message. Note this makes the answer TIME-DEPENDENT, which is why `hideWinLine` is
- * unconditional: a press landing between a win's show and its hide must not strand the line.
+ * A SLAM DRAWS THE LINE TOO — just fast, not skipped (owner direction 2026-07-28). It draws
+ * INSTANT-complete (`WinLine.svelte` gates its animated reveal on `!roundSkip.isSkipped()`) and stays
+ * on screen for the slam's minimum symbol-hold (`SLAM_SYMBOL_HOLD_MS`, held by the following
+ * `animateWinSymbols`), so a slammed win still shows its line + stamped amount + message — the whole
+ * point of "a slam shows the win faster, it doesn't hide it". This gate is therefore NO LONGER
+ * time-dependent (it ignores the slam token); `hideWinLine` stays unconditional anyway, which is
+ * harmless. Reverses the earlier "a slammed spin draws no line" choice.
  */
 export const winLineEnabledForWin = (win: { symbol: SymbolName }): boolean =>
-	!roundSkip.isSkipped() && symbolDrawsWinLine(win.symbol) && bakedWinLineEnabled();
+	symbolDrawsWinLine(win.symbol) && bakedWinLineEnabled();
 
 /**
  * The symbol + count of the win the flow most recently ANNOUNCED (`showWinLine`), so the toast that
@@ -580,16 +583,8 @@ const effects: Record<string, FlowEffect> = {
 	 * style, default `info`; `durationMs` overrides the hold).
 	 */
 	showMessage: async (payload) => {
-		// A SLAM suppresses the win-info message, symmetric with the win LINE (`winLineEnabledForWin`
-		// is false when slammed): the player pressed to skip this win's narration, so the toast that
-		// names it is skipped too and the info bar stays clear. This is what makes "a spin press clears
-		// ALL win feedback, message included" hold on the fast-forward — a press mid-presentation would
-		// otherwise re-pop this per remaining win. (Owner direction 2026-07-27, superseding the earlier
-		// slam minimum-display for the message; the slam still holds the lit win symbols, so it is not
-		// a blank — see `SLAM_MINIMUM_DISPLAY_CUES`.)
-		if (roundSkip.isSkipped()) return;
 		const kind = typeof payload.kind === 'number' ? payload.kind : undefined;
-		showWinInfoMessage({
+		const shown = showWinInfoMessage({
 			amount: typeof payload.amount === 'number' ? payload.amount : undefined,
 			kind,
 			symbol:
@@ -599,6 +594,12 @@ const effects: Record<string, FlowEffect> = {
 			messageKind: (payload.messageKind as GameMessageKind) ?? 'info',
 			durationMs: payload.durationMs as number | undefined,
 		});
+		// SLAM SHOWS THE MESSAGE TOO — just held briefly, not skipped (owner direction 2026-07-28,
+		// paired with the win LINE now drawing on a slam; see `winLineEnabledForWin`). Without a hold
+		// each win's message of a multi-win slam would overwrite the previous within one frame and only
+		// the last be seen, so a bare timer (`slamHold`, settles regardless of what the slam collapsed)
+		// keeps each readable. Unslammed this never runs, so the authored pacing is untouched.
+		if (shown && roundSkip.isSkipped()) await slamHold(SLAM_MESSAGE_HOLD_MS);
 	},
 
 	/**
