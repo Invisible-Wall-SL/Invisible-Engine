@@ -317,6 +317,7 @@ async function main() {
 		boardGlow: undefined,
 		winLine: undefined,
 		winCycle: undefined,
+		bookVfx: undefined,
 	};
 	const symbolsUrl =
 		`${base}/api/editor/export-symbols?project=${encodeURIComponent(project)}` +
@@ -404,6 +405,14 @@ async function main() {
 			})();
 			// Symbol DISPLAY NAMES (`H1` → "Banana"), pure text. Invisible Win Text reads these as
 			// `{symbolName}`, so without them here every baked win sentence would name the raw id.
+			const bookVfx = (() => {
+				const b = s?.bookVfx;
+				if (!b || typeof b !== 'object') return undefined;
+				const out = {};
+				if (b.background && typeof b.background === 'object') out.background = b.background;
+				if (b.foreground && typeof b.foreground === 'object') out.foreground = b.foreground;
+				return Object.keys(out).length ? out : undefined;
+			})();
 			const names =
 				s?.names && typeof s.names === 'object' && Object.keys(s.names).length
 					? s.names
@@ -423,6 +432,7 @@ async function main() {
 				boardGlow,
 				winLine,
 				winCycle,
+				bookVfx,
 			};
 			// Dangling-binding guard: a bound sprite frame no shipped atlas packs renders
 			// blank in-game ("… is not found in the loadedAssets"). Warn loudly so a
@@ -761,12 +771,24 @@ async function main() {
 		for (const binds of Object.values(rigFx ?? {})) {
 			for (const b of binds) if (b?.effectId) rigBound.add(b.effectId);
 		}
+		// A Book-symbol VFX layer of kind 'fx' references an effect by `effectId` — that reference is a
+		// FOURTH reachability source (alongside placed / rig-bound / event-triggered), so the effect
+		// must NOT be pruned as an orphan. The runtime path does the same via `pruneUnreachableEffects`'s
+		// `extraReachable` arg (effectReachability.ts + runtimeBundle.ts) — keep the two keep-sets in sync.
+		const bookVfxBound = new Set();
+		for (const slot of ['background', 'foreground']) {
+			const layer = symbols.bookVfx?.[slot];
+			if (layer && layer.kind === 'fx' && typeof layer.effectId === 'string' && layer.effectId) {
+				bookVfxBound.add(layer.effectId);
+			}
+		}
 		const isEventReachable = (d) =>
 			Array.isArray(d.layers) &&
 			d.layers.some((l) => l.trigger?.on === 'event' && !!l.trigger?.eventType);
 		const prunedIds = [];
 		effects = effects.filter((d) => {
-			const keep = placed.has(d.id) || rigBound.has(d.id) || isEventReachable(d);
+			const keep =
+				placed.has(d.id) || rigBound.has(d.id) || bookVfxBound.has(d.id) || isEventReachable(d);
 			if (!keep) prunedIds.push(d.id);
 			return keep;
 		});

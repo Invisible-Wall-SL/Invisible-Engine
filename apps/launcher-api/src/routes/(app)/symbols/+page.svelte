@@ -24,6 +24,7 @@
 		STATE_LABELS,
 		visibleStatesFor,
 		clearBoardGlow,
+		clearBookVfxLayer,
 		clearHighlight,
 		clearOverride,
 		clearWinLineStyle,
@@ -33,6 +34,7 @@
 		saveSymbolsDoc,
 		SymbolsConflictError,
 		setBoardGlow,
+		setBookVfxLayer,
 		setHighlight,
 		setOverride,
 		setSymbolName,
@@ -54,7 +56,12 @@
 		WIN_CYCLE_DELAY_DEFAULT,
 		SYMBOL_CELL_TYPES,
 		SYMBOL_CELL_TYPE_LABELS,
+		BOOK_VFX_KINDS,
+		BOOK_VFX_KIND_LABELS,
 		type BoardGlowConfig,
+		type BookVfxKind,
+		type BookVfxLayer,
+		type BookVfxSlot,
 		type SymbolCell,
 		type SymbolCellType,
 		type SymbolState,
@@ -537,6 +544,139 @@
 		glowDraft.animations = { ...(glowDraft.animations ?? {}), [track]: value };
 	}
 
+	// ── Book-symbol VFX (background + foreground layers) ───────────────────────
+	// Two authored presentation layers the game draws BEHIND / IN FRONT OF the book symbol during
+	// free spins. Each layer is one of four kinds (sprite / spine / flipbook / fx) and REUSES the
+	// pickers already on this page — RegionPicker (sprite), the spine-bundle select + animation
+	// (spine), the clip select (flipbook), plus a plain effect select (fx). Sparse: an unset slot
+	// writes nothing; each layer carries only its kind's fields (the server `.refine()` enforces it).
+	const BOOK_VFX_SLOT_META: { slot: BookVfxSlot; label: string; sub: string }[] = [
+		{ slot: 'background', label: 'Background', sub: 'Drawn BEHIND the book symbol.' },
+		{ slot: 'foreground', label: 'Foreground', sub: 'Drawn IN FRONT of the book symbol.' },
+	];
+
+	/** The project's Invisible FX effects, for the fx-kind picker. */
+	const effects = $derived(data.effects);
+
+	/** A short chip label for an authored Book-VFX layer. */
+	function bookVfxLabel(layer: BookVfxLayer): string {
+		switch (layer.kind) {
+			case 'spine':
+				return `${displayKey({ type: 'spine', assetKey: layer.assetKey ?? '' })}${
+					layer.animationName ? ` · ${layer.animationName}` : ''
+				}`;
+			case 'flipbook':
+				return clipLabel(layer.clipId);
+			case 'fx':
+				return effects.find((e) => e.id === layer.effectId)?.name ?? layer.effectId ?? 'no effect';
+			default:
+				return layer.assetKey ?? 'unset';
+		}
+	}
+
+	let bookVfxEditing = $state<BookVfxSlot | null>(null);
+	let bookVfxDraft = $state<BookVfxLayer | null>(null);
+	let bookVfxAnimations = $state<string[]>([]);
+
+	function openBookVfx(slot: BookVfxSlot): void {
+		// `$state.snapshot` (NOT `structuredClone`) — `doc.bookVfx` is a `$state` proxy (same trap as
+		// `openCell`/`openHighlight`/`openGlow`).
+		const existing = doc.bookVfx?.[slot];
+		bookVfxDraft = existing ? ($state.snapshot(existing) as BookVfxLayer) : { kind: 'sprite' };
+		bookVfxAnimations = [];
+		bookVfxEditing = slot;
+	}
+
+	function closeBookVfx(): void {
+		bookVfxEditing = null;
+		bookVfxDraft = null;
+		bookVfxAnimations = [];
+	}
+
+	/** Switch the draft's kind, dropping every field the new kind doesn't use (keeping the optional
+	 *  size/offset hints) so a stale `animationName`/`clipId`/`effectId` can't 400 the save. */
+	function setBookVfxKind(kind: BookVfxKind): void {
+		if (!bookVfxDraft || bookVfxDraft.kind === kind) return;
+		bookVfxDraft = { kind, sizeRatios: bookVfxDraft.sizeRatios, offset: bookVfxDraft.offset };
+		bookVfxAnimations = [];
+	}
+
+	/** Bind the draft to a clip: the clip supplies both `clipId` and its primary sheet `assetKey`. */
+	function setBookVfxClip(clipId: string): void {
+		if (!bookVfxDraft) return;
+		const clip = clipsById.get(clipId);
+		bookVfxDraft.clipId = clipId || undefined;
+		bookVfxDraft.assetKey = clip?.assetKey ?? undefined;
+	}
+
+	/** A draft is bindable once it has the field its kind requires (mirrors the server `.refine()`). */
+	const bookVfxBindable = $derived.by(() => {
+		const l = bookVfxDraft;
+		if (!l) return false;
+		switch (l.kind) {
+			case 'sprite':
+				return !!l.assetKey;
+			case 'spine':
+				return !!l.assetKey && !!l.animationName;
+			case 'flipbook':
+				return !!l.clipId;
+			case 'fx':
+				return !!l.effectId;
+			default:
+				return false;
+		}
+	});
+
+	/** Rebuild the layer field-by-field (a whitelist, like `applyDraft`): only the kind's own fields
+	 *  plus the optional size/offset hints reach the saved doc. */
+	function applyBookVfx(): void {
+		if (!bookVfxEditing || !bookVfxDraft || !bookVfxBindable) return;
+		const l = bookVfxDraft;
+		const layer: BookVfxLayer = { kind: l.kind };
+		if (l.kind === 'sprite') {
+			layer.assetKey = l.assetKey;
+		} else if (l.kind === 'spine') {
+			layer.assetKey = l.assetKey;
+			layer.animationName = l.animationName;
+		} else if (l.kind === 'flipbook') {
+			layer.clipId = l.clipId;
+			if (l.assetKey) layer.assetKey = l.assetKey;
+		} else if (l.kind === 'fx') {
+			layer.effectId = l.effectId;
+		}
+		const sr = l.sizeRatios;
+		if (sr && Number(sr.width) > 0 && Number(sr.height) > 0) {
+			layer.sizeRatios = { width: Number(sr.width), height: Number(sr.height) };
+		}
+		const off = l.offset;
+		if (off && (Number(off.x) || Number(off.y))) {
+			layer.offset = { x: Number(off.x) || 0, y: Number(off.y) || 0 };
+		}
+		doc = setBookVfxLayer(doc, bookVfxEditing, layer);
+		closeBookVfx();
+	}
+
+	function resetBookVfx(slot: BookVfxSlot): void {
+		doc = clearBookVfxLayer(doc, slot);
+		if (bookVfxEditing === slot) closeBookVfx();
+	}
+
+	/** Set one axis of the draft's optional × cell size hint. Blank ⇒ clear (falls back to unset). */
+	function setBookVfxSize(axis: 'width' | 'height', value: string): void {
+		if (!bookVfxDraft) return;
+		const cur = bookVfxDraft.sizeRatios ?? { width: 0, height: 0 };
+		const next = { ...cur, [axis]: value === '' ? 0 : Number(value) };
+		bookVfxDraft.sizeRatios = next.width || next.height ? next : undefined;
+	}
+
+	/** Set one axis of the draft's optional × cell offset hint. Blank/zero both ⇒ clear. */
+	function setBookVfxOffset(axis: 'x' | 'y', value: string): void {
+		if (!bookVfxDraft) return;
+		const cur = bookVfxDraft.offset ?? { x: 0, y: 0 };
+		const next = { ...cur, [axis]: value === '' ? 0 : Number(value) };
+		bookVfxDraft.offset = next.x || next.y ? next : undefined;
+	}
+
 	// ── Global win-line overlay (on/off + style) ──────────────────────────────
 	// A plain on/off plus line + win-amount-text styling for the in-game winning-payline
 	// overlay (pure config, no asset). Effective on/off defaults to ON when the doc has no
@@ -914,6 +1054,264 @@
 								</button>
 							</div>
 						{/if}
+					</div>
+				</section>
+
+				<section class="bookvfx">
+					<div class="hl-head">
+						<div class="hl-title">
+							<h2>Book symbol VFX</h2>
+							<p class="hl-sub">
+								Two layers drawn behind and in front of the book symbol during free spins. Each can be
+								a sprite frame, a spine animation, an Invisible Flipbook clip, or an Invisible FX
+								effect. Leave a layer unset to draw nothing.
+							</p>
+						</div>
+					</div>
+
+					<div class="bv-slots">
+						{#each BOOK_VFX_SLOT_META as meta (meta.slot)}
+							{@const layer = doc.bookVfx?.[meta.slot]}
+							{@const editing = bookVfxEditing === meta.slot}
+							<div class="bv-slot" class:editing>
+								<div class="bv-slot-head">
+									<div class="bv-slot-title">
+										<h3>{meta.label}</h3>
+										<p class="bv-sub">{meta.sub}</p>
+									</div>
+									<div class="hl-actions">
+										{#if layer}<span class="badge">set</span>{/if}
+										{#if editing}
+											<button type="button" class="ghost" onclick={closeBookVfx}>Cancel</button>
+										{:else}
+											<button type="button" class="hl-change" onclick={() => openBookVfx(meta.slot)}>
+												{layer ? 'Change' : 'Add'}
+											</button>
+											{#if layer}
+												<button type="button" class="ghost" onclick={() => resetBookVfx(meta.slot)}>
+													↺ Clear
+												</button>
+											{/if}
+										{/if}
+									</div>
+								</div>
+
+								<div class="bv-current">
+									{#if layer}
+										<span class="hl-label">{BOOK_VFX_KIND_LABELS[layer.kind]}</span>
+										<span class="hl-chip">{bookVfxLabel(layer)}</span>
+									{:else}
+										<span class="hl-note">No layer — the game draws nothing here.</span>
+									{/if}
+								</div>
+
+								{#if editing && bookVfxDraft}
+									<div class="bv-editor">
+										<div class="field">
+											<span class="label">Type</span>
+											<div class="seg">
+												{#each BOOK_VFX_KINDS as kind (kind)}
+													{@const noClips = kind === 'flipbook' && clips.length === 0}
+													{@const noFx = kind === 'fx' && effects.length === 0}
+													<button
+														type="button"
+														class:active={bookVfxDraft.kind === kind}
+														disabled={noClips || noFx}
+														title={noClips
+															? 'This project has no Flipbook clips yet'
+															: noFx
+																? 'This project has no FX effects yet'
+																: ''}
+														onclick={() => setBookVfxKind(kind)}>{BOOK_VFX_KIND_LABELS[kind]}</button
+													>
+												{/each}
+											</div>
+										</div>
+
+										{#if bookVfxDraft.kind === 'sprite'}
+											<div class="field">
+												<span class="label">Frame</span>
+												<RegionPicker
+													scoped
+													sheets={pickSheets}
+													value={bookVfxDraft.assetKey ?? ''}
+													onSelect={(region) => {
+														if (bookVfxDraft) bookVfxDraft.assetKey = region;
+													}}
+												/>
+											</div>
+											{#if bookVfxDraft.assetKey}
+												<div class="field">
+													<span class="label">Preview</span>
+													<div class="panel-preview">
+														<SymbolSpritePreview
+															frame={bookVfxDraft.assetKey}
+															index={spriteIndex}
+															size={110}
+														/>
+													</div>
+												</div>
+											{/if}
+										{:else if bookVfxDraft.kind === 'spine'}
+											<div class="field">
+												<span class="label">Spine bundle</span>
+												<select
+													value={bookVfxDraft.assetKey ?? ''}
+													onchange={(e) => {
+														if (!bookVfxDraft) return;
+														bookVfxDraft.assetKey = e.currentTarget.value || undefined;
+														bookVfxDraft.animationName = undefined;
+														bookVfxAnimations = [];
+													}}
+												>
+													<option value="">Pick a bundle…</option>
+													{#each spineBundles as b (b.key)}
+														<option value={b.key}>{b.name}</option>
+													{/each}
+												</select>
+											</div>
+											{#if bookVfxDraft.assetKey}
+												<div class="field">
+													<span class="label">Animation</span>
+													{#if bookVfxAnimations.length}
+														<select
+															value={bookVfxDraft.animationName ?? ''}
+															onchange={(e) => {
+																if (bookVfxDraft)
+																	bookVfxDraft.animationName = e.currentTarget.value || undefined;
+															}}
+														>
+															<option value="">Pick an animation…</option>
+															{#each bookVfxAnimations as anim (anim)}
+																<option value={anim}>{anim}</option>
+															{/each}
+														</select>
+													{:else}
+														<input
+															type="text"
+															placeholder="animation name"
+															value={bookVfxDraft.animationName ?? ''}
+															oninput={(e) => {
+																if (bookVfxDraft)
+																	bookVfxDraft.animationName = e.currentTarget.value || undefined;
+															}}
+														/>
+													{/if}
+												</div>
+												<div class="field">
+													<span class="label">Preview</span>
+													<div class="panel-preview">
+														<SymbolSpinePreview
+															assetKey={bookVfxDraft.assetKey}
+															animationName={bookVfxDraft.animationName}
+															size={110}
+															{reloadToken}
+															onAnimations={(names) => (bookVfxAnimations = names)}
+														/>
+													</div>
+												</div>
+											{/if}
+										{:else if bookVfxDraft.kind === 'flipbook'}
+											<div class="field">
+												<span class="label">Clip</span>
+												<select
+													value={bookVfxDraft.clipId ?? ''}
+													onchange={(e) => setBookVfxClip(e.currentTarget.value)}
+												>
+													<option value="">Pick a clip…</option>
+													{#each clips as c (c.id)}
+														<option value={c.id}>{clipLabel(c.id)}</option>
+													{/each}
+												</select>
+											</div>
+											{#if bookVfxDraft.clipId}
+												{@const frame = clipFirstFrame(bookVfxDraft.clipId)}
+												<div class="field">
+													<span class="label">Preview</span>
+													<div class="panel-preview">
+														{#if frame}
+															<SymbolSpritePreview {frame} index={spriteIndex} size={110} />
+														{:else}
+															<span class="chip">no frames</span>
+														{/if}
+													</div>
+												</div>
+											{/if}
+										{:else}
+											<div class="field">
+												<span class="label">Effect</span>
+												<select
+													value={bookVfxDraft.effectId ?? ''}
+													onchange={(e) => {
+														if (bookVfxDraft) bookVfxDraft.effectId = e.currentTarget.value || undefined;
+													}}
+												>
+													<option value="">Pick an effect…</option>
+													{#each effects as fx (fx.id)}
+														<option value={fx.id}>{fx.name}</option>
+													{/each}
+												</select>
+												<p class="hint">
+													The effect plays from Invisible FX — open <a href="/fx">Invisible FX</a> to edit it.
+												</p>
+											</div>
+										{/if}
+
+										<div class="bv-fit">
+											<div class="field">
+												<span class="label">Size × cell (w × h)</span>
+												<div class="bv-pair">
+													<input
+														type="number"
+														step="0.05"
+														min="0"
+														placeholder="auto"
+														value={bookVfxDraft.sizeRatios?.width ?? ''}
+														oninput={(e) => setBookVfxSize('width', e.currentTarget.value)}
+													/>
+													<input
+														type="number"
+														step="0.05"
+														min="0"
+														placeholder="auto"
+														value={bookVfxDraft.sizeRatios?.height ?? ''}
+														oninput={(e) => setBookVfxSize('height', e.currentTarget.value)}
+													/>
+												</div>
+											</div>
+											<div class="field">
+												<span class="label">Offset × cell (x, y)</span>
+												<div class="bv-pair">
+													<input
+														type="number"
+														step="0.05"
+														placeholder="0"
+														value={bookVfxDraft.offset?.x ?? ''}
+														oninput={(e) => setBookVfxOffset('x', e.currentTarget.value)}
+													/>
+													<input
+														type="number"
+														step="0.05"
+														placeholder="0"
+														value={bookVfxDraft.offset?.y ?? ''}
+														oninput={(e) => setBookVfxOffset('y', e.currentTarget.value)}
+													/>
+												</div>
+											</div>
+										</div>
+
+										<button
+											type="button"
+											class="apply"
+											disabled={!bookVfxBindable}
+											onclick={applyBookVfx}
+										>
+											Apply {meta.label.toLowerCase()}
+										</button>
+									</div>
+								{/if}
+							</div>
+						{/each}
 					</div>
 				</section>
 
@@ -2004,6 +2402,82 @@
 		border-radius: 3px;
 		padding: 2px 6px;
 		align-self: center;
+	}
+
+	.bookvfx {
+		margin-bottom: 16px;
+		padding: 14px 16px;
+		background: #101018;
+		border: 1px solid #24242e;
+		border-radius: 10px;
+	}
+	.bookvfx .badge {
+		font-size: 9px;
+		color: #9fb4ff;
+		background: #1c2240;
+		border-radius: 3px;
+		padding: 2px 6px;
+		align-self: center;
+	}
+	.bv-slots {
+		display: flex;
+		gap: 16px;
+		margin-top: 14px;
+		flex-wrap: wrap;
+	}
+	.bv-slot {
+		flex: 1 1 300px;
+		min-width: 280px;
+		padding: 12px 14px;
+		background: #0d0d14;
+		border: 1px solid #1d1d26;
+		border-radius: 8px;
+	}
+	.bv-slot.editing {
+		border-color: #4d6bd8;
+	}
+	.bv-slot-head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 12px;
+	}
+	.bv-slot-title h3 {
+		margin: 0;
+		font-size: 13px;
+		color: #e0e0e8;
+	}
+	.bv-sub {
+		margin: 2px 0 0;
+		font-size: 11px;
+		color: #8a8a96;
+	}
+	.bv-current {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		margin-top: 10px;
+		flex-wrap: wrap;
+	}
+	.bv-editor {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		margin-top: 12px;
+		padding-top: 12px;
+		border-top: 1px solid #1d1d26;
+	}
+	.bv-fit {
+		display: flex;
+		gap: 12px;
+		flex-wrap: wrap;
+	}
+	.bv-pair {
+		display: flex;
+		gap: 6px;
+	}
+	.bv-pair input {
+		width: 72px;
 	}
 
 	.winline {

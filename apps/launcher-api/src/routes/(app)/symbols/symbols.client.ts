@@ -82,6 +82,46 @@ export interface SymbolCell {
 /** Symbol name → state → binding (sparse for the override doc, dense for defaults). */
 export type SymbolStateMap = Partial<Record<SymbolState, SymbolCell>>;
 
+/** The four kinds a Book-symbol VFX layer can take. Derived from ONE exported VALUE (the
+ *  `SYMBOL_CELL_TYPES` / `COMPONENT_PARAM_KINDS` precedent) so the kind toggle can't drift from a
+ *  hand-copied union the launcher build never type-checks. Mirrors the server's `bookVfxLayerSchema`
+ *  `kind` enum in `$lib/server/symbolsStorage`. */
+export const BOOK_VFX_KINDS = ['sprite', 'spine', 'flipbook', 'fx'] as const;
+export type BookVfxKind = (typeof BOOK_VFX_KINDS)[number];
+
+/** Human labels for the Book-VFX kind toggle. */
+export const BOOK_VFX_KIND_LABELS: Record<BookVfxKind, string> = {
+	sprite: 'Sprite',
+	spine: 'Spine',
+	flipbook: 'Flipbook',
+	fx: 'FX',
+};
+
+/** The two Book-VFX layer slots (drawn behind / in front of the book symbol). */
+export const BOOK_VFX_SLOTS = ['background', 'foreground'] as const;
+export type BookVfxSlot = (typeof BOOK_VFX_SLOTS)[number];
+
+/** A single Book-symbol VFX layer. Only the field its `kind` needs is set (the server `.refine()`
+ *  enforces this): sprite ⇒ `assetKey`, spine ⇒ `assetKey`+`animationName`, flipbook ⇒ `clipId`
+ *  (`assetKey` optionally its primary sheet), fx ⇒ `effectId`. `sizeRatios`/`offset` are optional
+ *  × cell fit hints. Mirrors the server `bookVfxLayerSchema`. */
+export interface BookVfxLayer {
+	kind: BookVfxKind;
+	assetKey?: string;
+	animationName?: string;
+	clipId?: string;
+	effectId?: string;
+	sizeRatios?: SizeRatios;
+	offset?: { x: number; y: number };
+}
+
+/** The Book-symbol VFX doc-global — background + foreground layers, both sparse. Mirrors the server
+ *  `bookVfxSchema`. */
+export interface BookVfxConfig {
+	background?: BookVfxLayer;
+	foreground?: BookVfxLayer;
+}
+
 /** Win-line overlay style — the line drawn across paying symbols. All optional/sparse:
  *  unset fields fall through to the game's coded defaults. Colours are CSS hex strings;
  *  `width` is a multiple of the symbol size; `speed` is a draw-speed multiplier. */
@@ -159,6 +199,10 @@ export interface SymbolsDoc {
 		showMessage?: boolean;
 		dimNonWinning?: boolean;
 	};
+	/** Book-symbol VFX — background/foreground presentation layers the game draws behind/in front of
+	 *  the book symbol during free spins. Sparse: an absent config, or an absent slot, ships nothing
+	 *  and renders byte-identical. Passed through verbatim to `bundle.symbols.bookVfx`. */
+	bookVfx?: BookVfxConfig;
 	updatedAt?: string;
 }
 
@@ -245,6 +289,31 @@ export function clearBoardGlow(doc: SymbolsDoc): SymbolsDoc {
 	if (!doc.boardGlow) return doc;
 	const next = { ...doc };
 	delete next.boardGlow;
+	return next;
+}
+
+/** Set one Book-symbol VFX layer (background or foreground), returning a NEW doc (immutable
+ *  update). The caller passes a layer already reduced to its kind's fields (the server `.refine()`
+ *  rejects a half-authored one). */
+export function setBookVfxLayer(
+	doc: SymbolsDoc,
+	slot: BookVfxSlot,
+	layer: BookVfxLayer,
+): SymbolsDoc {
+	const bookVfx: BookVfxConfig = { ...(doc.bookVfx ?? {}) };
+	bookVfx[slot] = layer;
+	return { ...doc, bookVfx };
+}
+
+/** Clear one Book-symbol VFX layer, pruning a now-empty `bookVfx` so an untouched/reset project
+ *  ships nothing (sparse). New doc. */
+export function clearBookVfxLayer(doc: SymbolsDoc, slot: BookVfxSlot): SymbolsDoc {
+	if (!doc.bookVfx?.[slot]) return doc;
+	const bookVfx: BookVfxConfig = { ...doc.bookVfx };
+	delete bookVfx[slot];
+	const next = { ...doc };
+	if (Object.keys(bookVfx).length) next.bookVfx = bookVfx;
+	else delete next.bookVfx;
 	return next;
 }
 
@@ -498,7 +567,26 @@ export function docSignature(doc: SymbolsDoc): string {
 		const entry = doc.names![symbol];
 		names[symbol] = { singular: entry.singular ?? null, plural: entry.plural ?? null };
 	}
-	return JSON.stringify({ symbols, names, highlight, boardGlow, winLine, winCycle });
+	// Listed here or an edit to a Book-VFX layer never marks the page dirty and Save stays disabled.
+	const bookVfxLayer = (l: BookVfxLayer | undefined): Record<string, unknown> | null =>
+		l
+			? {
+					kind: l.kind,
+					assetKey: l.assetKey ?? null,
+					animationName: l.animationName ?? null,
+					clipId: l.clipId ?? null,
+					effectId: l.effectId ?? null,
+					sizeRatios: sortKeys(l.sizeRatios),
+					offset: sortKeys(l.offset),
+				}
+			: null;
+	const bookVfx = doc.bookVfx
+		? {
+				background: bookVfxLayer(doc.bookVfx.background),
+				foreground: bookVfxLayer(doc.bookVfx.foreground),
+			}
+		: null;
+	return JSON.stringify({ symbols, names, highlight, boardGlow, winLine, winCycle, bookVfx });
 }
 
 /** Raised when a save lost to a concurrent author, so the page can offer a choice

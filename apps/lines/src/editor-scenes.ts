@@ -36,6 +36,30 @@ import {
 import type { SymbolInfoMap } from './game/types';
 
 /**
+ * One authored free-spin BOOK VFX layer (Invisible Symbols State Machine output). A decorative
+ * effect drawn on the book/special symbol during free spins — one behind (`background`) and one in
+ * front (`foreground`) of the symbol art. Kind-tagged so each renders through the SAME path the
+ * game already uses for that asset class:
+ * - `sprite`   — `assetKey` is a sheet FRAME key (a single static frame).
+ * - `spine`    — `assetKey` is the spine bundle key; `animationName` is the looping animation.
+ * - `flipbook` — `clipId` is the Invisible Flipbook clip (`assetKey` merely its primary sheet).
+ * - `fx`       — `effectId` references a baked Invisible FX effect ({@link bakedEffects}); rides the
+ *                FX pipeline, so it introduces NO asset here.
+ * `sizeRatios` (× cell, default {1,1}) and `offset` (× cell, default {0,0}) place + scale the layer
+ * against the matching cell's live geometry. Any sprite/spine/flipbook asset it introduces travels
+ * via `symbols.index` exactly like a per-cell binding, so {@link bakedBookVfxAssets} registers it.
+ */
+export type BookVfxLayer = {
+	kind: 'sprite' | 'spine' | 'flipbook' | 'fx';
+	assetKey?: string;
+	animationName?: string;
+	clipId?: string;
+	effectId?: string;
+	sizeRatios?: { width: number; height: number };
+	offset?: { x: number; y: number };
+};
+
+/**
  * Build-time freeze (see docs/design/live-assets.md → "Layout-doc bake").
  * `bake-editor-doc.mjs` overwrites `baked-editor-bundle.json` with the frozen doc + the
  * referenced ComponentDefs. A non-null `doc` flips the game to the baked path:
@@ -146,6 +170,16 @@ type BakedBundle = {
 			assetKey: string;
 			animations?: { start?: string; idle?: string; exit?: string };
 			sizeRatios?: { width: number; height: number };
+		};
+		/** Free-spin BOOK VFX (Invisible Symbols State Machine output): a two-layer effect drawn on
+		 * the book/special symbol during free spins — `background` behind the symbol art,
+		 * `foreground` in front. `components/BookVfx.svelte` renders it per matching cell; any
+		 * sprite/spine/flipbook asset either layer introduces rides `symbols.index` (registered by
+		 * {@link bakedBookVfxAssets}), an `fx` layer rides {@link bakedEffects}. Absent ⇒ nothing
+		 * renders (parity). See {@link BookVfxLayer}. */
+		bookVfx?: {
+			background?: BookVfxLayer;
+			foreground?: BookVfxLayer;
 		};
 		/** Global win-line overlay config (Invisible Symbols State Machine output): on/off
 		 * plus line + win-amount-text style. Pure config, no asset (the chosen `text.font`
@@ -523,6 +557,19 @@ export function bakedBoardGlow(): BakedBundle['symbols']['boardGlow'] {
 }
 
 /**
+ * The free-spin BOOK VFX authored in the Invisible Symbols State Machine — the `background`/
+ * `foreground` layers drawn on the book/special symbol during free spins. When set,
+ * `components/BookVfx.svelte` mounts them per matching board cell; the asset side is registered by
+ * {@link bakedBookVfxAssets}. Mirrors `bakedBoardGlow`'s runtime→baked→undefined resolution;
+ * undefined ⇒ `BookVfx.svelte` renders nothing, byte-identical to an un-authored game (parity).
+ */
+export function bakedBookVfx(): NonNullable<BakedBundle['symbols']>['bookVfx'] | undefined {
+	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.bookVfx;
+	if (!hasBakedDoc()) return undefined;
+	return bakedBundle.symbols?.bookVfx;
+}
+
+/**
  * Whether the win-line overlay is drawn — the Invisible Symbols State Machine's global toggle.
  * Defaults to `true` (un-baked or unauthored keeps showing it); the author can turn it off.
  */
@@ -705,6 +752,65 @@ export function bakedSymbolAssets(): Record<string, SymbolAssetEntry> {
 			},
 			preload: true,
 		};
+	}
+	return out;
+}
+
+/**
+ * Asset entries for any sprite sheet / image / spine bundle the free-spin BOOK VFX
+ * ({@link bakedBookVfx}) introduces that `bakedSymbolAssets()` did NOT already register. The
+ * bookVfx layers reference the SAME `symbols.index` the per-cell symbol bindings do, and
+ * `bakedSymbolAssets()` registers that whole index — so in practice this returns nothing and only
+ * exists to keep the guarantee honest (and future-proof if that base registration ever becomes
+ * selective). An `fx` layer needs nothing here: it rides {@link bakedEffects}. Empty when un-baked /
+ * no bookVfx (dev parity — `bakedBookVfx()` is undefined ⇒ this returns `{}`).
+ */
+export function bakedBookVfxAssets(): Record<string, SymbolAssetEntry> {
+	const out: Record<string, SymbolAssetEntry> = {};
+	const vfx = bakedBookVfx();
+	if (!vfx) return out;
+	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
+	const index = source?.symbols?.index;
+	if (!index) return out;
+	const already = bakedSymbolAssets();
+	const base = srcBase();
+
+	// The asset KEYS the bg/fg layers name directly (`assetKey`). A spine layer's key IS a spine
+	// bundle key / a standalone image key; a sprite/flipbook layer's key is a sheet FRAME key that
+	// lives inside a sheet (handled below).
+	const layers = [vfx.background, vfx.foreground];
+	const keys = new Set<string>();
+	for (const layer of layers) if (layer?.assetKey) keys.add(layer.assetKey);
+
+	for (const spine of index.spines ?? []) {
+		if (!keys.has(spine.key) || spine.key in already || spine.key in out) continue;
+		out[spine.key] = {
+			type: 'spine',
+			src: {
+				atlas: `${base}${spine.atlas}`,
+				skeleton: `${base}${spine.skeleton}`,
+				scale: spine.scale ?? 2,
+			},
+			preload: true,
+		};
+	}
+	for (const image of index.images ?? []) {
+		if (!keys.has(image.key) || image.key in already || image.key in out) continue;
+		out[image.key] = { type: 'sprite', src: `${base}${image.file}`, preload: true };
+	}
+	// A sprite/flipbook layer's `assetKey`/clip frame is a sheet FRAME, not a sheet key, and a frame
+	// can't be mapped to its sheet without reading the sheet json — so a bg/fg sprite/flipbook needs
+	// the SHEET(s) that hold its frames. Register every index sheet `bakedSymbolAssets()` didn't (it
+	// registers them all, so the dedup empties this in practice; it stays correct if that changes).
+	const needsSheets = layers.some(
+		(layer) => layer?.kind === 'sprite' || layer?.kind === 'flipbook',
+	);
+	if (needsSheets) {
+		for (const sheet of index.sheets ?? []) {
+			const key = `editorSymbols/${sheet.json}`;
+			if (key in already || key in out) continue;
+			out[key] = { type: 'sprites', src: `${base}${sheet.json}`, preload: true };
+		}
 	}
 	return out;
 }
