@@ -15,17 +15,23 @@
  *     bookEvent edge is wired + (iii) its backing scene carries REAL authored content. Vary each of
  *     the three knobs to prove EACH condition independently gates its OWN step (and only its own).
  *  B. GATE per-step atomic strip — `gateFreeSpinOwnership(doc, ownership)` keeps each OWNED step's
- *     event + overlay screen + transitions and STRIPS every UN-owned step's (independently), always
- *     stripping the `freeSpinRetrigger` FS-4 seam. Non-free-spin content is untouched.
- *  C. INTERPRETER per-combo — for the SIX per-step combinations (intro-only, counter-only,
- *     outro-only, intro+outro, all-three, none) drive the interpreter over the gated doc + synthetic
- *     book events, turbo on/off. For each combo assert PER STEP:
+ *     event + overlay screen + transitions and STRIPS every UN-owned step's (independently). Since
+ *     FS-4 landed, `freeSpinRetrigger` is one of those per-step overlays — a LAYERING-ONLY 4th step
+ *     (LAYER edge + screen, but NO `freeSpinRetrigger` event choreography and no coded handler) —
+ *     kept iff owned, stripped iff un-owned, exactly like the rest. Non-free-spin content untouched.
+ *  C. INTERPRETER per-combo — over a spread of per-step combinations (each single step alone,
+ *     mixed, all-four, none) drive the interpreter over the gated doc + synthetic book events, turbo
+ *     on/off. For the three CHOREOGRAPHED steps (intro/counter/outro) assert PER STEP:
  *       - OWNED  ⇒ event AUTHORED (coded handler skipped, no double), overlay screen SURVIVES the gate
  *                  and LAYERS over the persistent base, and its load-bearing effects run.
  *       - UN-OWNED ⇒ event FALLS THROUGH (coded handler ran), overlay screen STRIPPED (no layering).
  *     Plus: the load-bearing gameType/counter chain is byte-identical to the fully-coded run;
  *     whichever of intro/outro is PRESENT still ARMS its round-gate (the `*Show`/`*CountUp`
  *     broadcasts fire on WHICHEVER path runs — authored OR coded); no step is double-present.
+ *     The layering-only `retrigger` step is driven too: it has NO authored choreography, so its coded
+ *     handler ALWAYS runs (the always-coded state path the game registers) — ownership only controls
+ *     the SCREEN. OWNED ⇒ its LAYER edge fires and its screen LAYERS over base (on top of the coded
+ *     handler); UN-OWNED ⇒ the gate stripped its screen so the coded handler runs alone, nothing layers.
  *  D. ATOMIC-FLIP per step — for the SAME resolved doc + scenes, per step: event-authoring in the
  *     gated doc ⟺ `Game.svelte`'s coded-mount suppression ⟺ `ownership.owns(step)`. Never one
  *     without the other, independently per step.
@@ -36,19 +42,16 @@
 import { createEventEmitter } from 'utils-event-emitter';
 import {
 	createFlowInterpreter,
-	excludeCodedComponents,
 	gateOverlayOwnership,
 	resolveOverlayOwnership,
 	type FlowDoc,
 	type FlowRuntime,
 	type MountableScene,
 	type OverlayScene,
-	type OverlayStep,
 } from 'engine-flow';
 import type { LayoutNode, Scene } from 'engine-layout';
 
 import { LINES_FLOW_FREESPIN_DOC } from '../../apps/lines/src/game/flowDoc';
-import { BOOK_OVERLAY_STEPS, type BookStep } from '../../apps/lines/src/game/bookOwnership';
 import {
 	FREE_SPIN_STEPS,
 	FS_OVERLAY_STEPS,
@@ -57,10 +60,6 @@ import {
 	type FreeSpinOwnership,
 	type FreeSpinStep,
 } from '../../apps/lines/src/game/freeSpinOwnership';
-// FS-6 drift cross-check (decision 2) — the launcher's SERIALIZABLE step table (the DATA the `/flow`
-// editor reads). Fed through `excludeCodedComponents`, it must produce the SAME `OverlayStep[]` the
-// game uses (`FS_OVERLAY_STEPS`). Imported by relative path (the file imports only `engine-flow`).
-import { resolveOverlayStepTable } from '../../apps/launcher-api/src/lib/flowOverlaySteps';
 
 // ---------------------------------------------------------------------------
 // Recording rig — logs broadcasts AND which named effects ran (the load-bearing state leaves).
@@ -153,19 +152,27 @@ const codedCounterScene = (): Scene => ({
 	],
 });
 
-/** The coded FALLBACK backing scene for a step (anchor/counter scaffolding only) — fails (iii). */
+/** A scene PRESENT but carrying NO authored content (empty node list) — the faithful un-owned
+ *  fixture for a step whose coded fallback is a present-nothing NO-OP. `retrigger` (FS-4) has NO
+ *  coded visual/anchor, so ANY node in its scene would count as content (its content rule excludes
+ *  nothing) — the ONLY way it resolves un-owned is a genuinely content-free scene. */
+const unauthoredScene = (id: string): Scene => ({ id, name: id, space: 'canvas', nodes: [] });
+
+/** The coded FALLBACK backing scene for a step — fails (iii). Intro/counter/outro carry a coded
+ *  bind-anchor / counter scaffold; `retrigger` has no coded visual, so its fallback is content-free. */
 const fallbackSceneFor = (step: FreeSpinStep): Scene => {
 	if (step === 'intro') return codedAnchorScene('freeSpinIntro', 'FreeSpinIntroVisual');
 	if (step === 'counter') return codedCounterScene();
+	if (step === 'retrigger') return unauthoredScene('freeSpinRetrigger');
 	return codedAnchorScene('freeSpinOutro', 'FreeSpinOutroVisual');
 };
 
-/** Build the LIVE scenes so `resolveFreeSpinOwnership` sees each step authored or fallback. The
- *  retrigger scene is always fallback (FS-4 seam) so it never satisfies (iii). */
+/** Build the LIVE scenes so `resolveFreeSpinOwnership` sees each of the FOUR steps authored or
+ *  fallback (retrigger included — FS-4 made it a first-class per-step overlay). */
 const scenesFor = (owned: Record<FreeSpinStep, boolean>): Scene[] => [
 	owned.intro ? authoredScene('freeSpinIntro') : fallbackSceneFor('intro'),
 	owned.counter ? authoredScene('freeSpinCounter') : fallbackSceneFor('counter'),
-	codedAnchorScene('freeSpinRetrigger', 'FreeSpinRetriggerVisual'),
+	owned.retrigger ? authoredScene('freeSpinRetrigger') : fallbackSceneFor('retrigger'),
 	owned.outro ? authoredScene('freeSpinOutro') : fallbackSceneFor('outro'),
 ];
 
@@ -175,12 +182,13 @@ const scenesFor = (owned: Record<FreeSpinStep, boolean>): Scene[] => [
 const ownershipFor = (owned: Record<FreeSpinStep, boolean>): FreeSpinOwnership =>
 	resolveFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, scenesFor(owned));
 
-const ALL_STEPS: FreeSpinStep[] = ['intro', 'counter', 'outro'];
+const ALL_STEPS: FreeSpinStep[] = ['intro', 'counter', 'retrigger', 'outro'];
 const combo = (
 	intro: boolean,
 	counter: boolean,
+	retrigger: boolean,
 	outro: boolean,
-): Record<FreeSpinStep, boolean> => ({ intro, counter, outro });
+): Record<FreeSpinStep, boolean> => ({ intro, counter, retrigger, outro });
 
 const makeInterp = (
 	doc: FlowDoc,
@@ -196,6 +204,11 @@ const makeInterp = (
 		codedHandlers: {
 			freeSpinTrigger: async () => void codedRan.push('freeSpinTrigger'),
 			updateFreeSpin: async () => void codedRan.push('updateFreeSpin'),
+			// The game registers a `freeSpinRetrigger` coded handler on purpose (keeps the counter total
+			// in sync + presents nothing) so a bare handler-miss can't log a console error every retrigger.
+			// Retrigger has NO authored choreography, so this coded handler ALWAYS runs — ownership only
+			// controls whether the overlay screen layers ON TOP of it. Mirror the game's registration here.
+			freeSpinRetrigger: async () => void codedRan.push('freeSpinRetrigger'),
 			freeSpinEnd: async () => void codedRan.push('freeSpinEnd'),
 			reveal: async () => void codedRan.push('reveal'),
 		},
@@ -222,6 +235,9 @@ const assert = (label: string, ok: boolean, detail?: string) => {
 const OWNED_EFFECTS: Record<FreeSpinStep, string[]> = {
 	intro: ['setFreeGameType', 'setFreeSpinCounterTotalOnly'],
 	counter: ['updateFreeSpinCounter'],
+	// `retrigger` is layering-only — LINES_FLOW_FREESPIN_DOC wires its LAYER edge but carries no
+	// `freeSpinRetrigger` event choreography, so its OWNED path runs NO load-bearing effects.
+	retrigger: [],
 	outro: ['enterFreeSpinOutro', 'exitFreeSpinOutro', 'freeSpinOutroCountUp'],
 };
 // Per-step round-gate ARM broadcasts (the `*Show`/`*CountUp` events that arm the kept
@@ -237,16 +253,16 @@ const main = async () => {
 	// --- A. predicate per-step conjunction — each condition gates its OWN step independently ---
 	console.log('A. predicate per-step conjunction (resolveFreeSpinOwnership):');
 	{
-		// All three authored + fully wired ⇒ all three owned.
-		const all = ownershipFor(combo(true, true, true));
+		// All four authored + fully wired ⇒ all four owned.
+		const all = ownershipFor(combo(true, true, true, true));
 		assert(
-			'all authored + wired ⇒ intro+counter+outro ALL owned',
-			all.ownsIntro && all.ownsCounter && all.ownsOutro && !all.none,
+			'all authored + wired ⇒ intro+counter+retrigger+outro ALL owned',
+			all.ownsIntro && all.ownsCounter && all.ownsRetrigger && all.ownsOutro && !all.none,
 		);
 
-		// (iii) content knob: flip ONE step's scene to the coded fallback ⇒ ONLY that step drops.
+		// (iii) content knob: flip ONE step's scene to its un-owned fallback ⇒ ONLY that step drops.
 		for (const step of ALL_STEPS) {
-			const owned = combo(true, true, true);
+			const owned = combo(true, true, true, true);
 			owned[step] = false;
 			const o = ownershipFor(owned);
 			assert(
@@ -262,10 +278,10 @@ const main = async () => {
 				...LINES_FLOW_FREESPIN_DOC,
 				screens: LINES_FLOW_FREESPIN_DOC.screens.filter((s) => s.id !== 'freeSpinIntro'),
 			};
-			const o = resolveFreeSpinOwnership(docNoIntroScreen, scenesFor(combo(true, true, true)));
+			const o = resolveFreeSpinOwnership(docNoIntroScreen, scenesFor(combo(true, true, true, true)));
 			assert(
-				'placement: doc omits freeSpinIntro screen ⇒ intro OFF (i fails), counter+outro ON',
-				!o.ownsIntro && o.ownsCounter && o.ownsOutro,
+				'placement: doc omits freeSpinIntro screen ⇒ intro OFF (i fails), counter+retrigger+outro ON',
+				!o.ownsIntro && o.ownsCounter && o.ownsRetrigger && o.ownsOutro,
 			);
 		}
 
@@ -279,59 +295,62 @@ const main = async () => {
 						!(t.trigger.kind === 'bookEvent' && t.trigger.event === FREE_SPIN_STEPS.outro.event),
 				),
 			};
-			const o = resolveFreeSpinOwnership(docNoOutroEdge, scenesFor(combo(true, true, true)));
+			const o = resolveFreeSpinOwnership(docNoOutroEdge, scenesFor(combo(true, true, true, true)));
 			assert(
-				'wiring: doc omits freeSpinEnd edge ⇒ outro OFF (ii fails), intro+counter ON',
-				o.ownsIntro && o.ownsCounter && !o.ownsOutro,
+				'wiring: doc omits freeSpinEnd edge ⇒ outro OFF (ii fails), intro+counter+retrigger ON',
+				o.ownsIntro && o.ownsCounter && o.ownsRetrigger && !o.ownsOutro,
 			);
 		}
 
 		// No doc ⇒ every step OFF (coded, parity).
-		const noDoc = resolveFreeSpinOwnership(undefined, scenesFor(combo(true, true, true)));
+		const noDoc = resolveFreeSpinOwnership(undefined, scenesFor(combo(true, true, true, true)));
 		assert(
 			'undefined doc ⇒ none owned',
-			noDoc.none && !noDoc.ownsIntro && !noDoc.ownsCounter && !noDoc.ownsOutro,
+			noDoc.none &&
+				!noDoc.ownsIntro &&
+				!noDoc.ownsCounter &&
+				!noDoc.ownsRetrigger &&
+				!noDoc.ownsOutro,
 		);
 	}
 
-	// --- B. gate strips each UN-owned step independently, always strips the FS-4 seam ---
-	console.log('\nB. gateFreeSpinOwnership — per-step strip + always-strip FS-4 seam:');
+	// --- B. gate strips each UN-owned step independently (retrigger now one of those steps) ---
+	console.log('\nB. gateFreeSpinOwnership — per-step keep-if-owned / strip-if-un-owned:');
 	{
-		for (const [intro, counter, outro] of [
-			[true, false, false],
-			[false, true, false],
-			[false, false, true],
-			[true, false, true],
-			[true, true, true],
-			[false, false, false],
+		for (const [intro, counter, retrigger, outro] of [
+			[true, false, false, false],
+			[false, true, false, false],
+			[false, false, true, false],
+			[false, false, false, true],
+			[true, false, true, true],
+			[true, true, true, true],
+			[false, false, false, false],
 		] as const) {
-			const ownership = ownershipFor(combo(intro, counter, outro));
+			const ownership = ownershipFor(combo(intro, counter, retrigger, outro));
 			const gated = gateFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, ownership);
-			const tag = `intro=${intro} counter=${counter} outro=${outro}`;
+			const tag = `intro=${intro} counter=${counter} retrigger=${retrigger} outro=${outro}`;
 			let ok = true;
 			for (const step of ALL_STEPS) {
 				const { screen, event } = FREE_SPIN_STEPS[step];
 				const screenKept = gated.screens.some((s) => s.id === screen);
-				const eventKept = (gated.events ?? []).some((e) => e.event === event);
 				const edgesKept = gated.transitions.some((t) => t.from === screen || t.to === screen);
 				const want = ownership.owns(step);
-				// Owned ⇒ screen + event + its transitions all survive; un-owned ⇒ all three gone.
-				if (screenKept !== want || eventKept !== want || edgesKept !== want) ok = false;
+				// Owned ⇒ screen + its transitions survive; un-owned ⇒ both gone.
+				if (screenKept !== want || edgesKept !== want) ok = false;
+				// Only the CHOREOGRAPHED steps carry a bookEvent choreography in `doc.events`; the
+				// layering-only `retrigger` step has no event entry, so its event is never kept OR
+				// stripped (structurally absent) — check `eventKept === want` only when the event exists.
+				const eventInDoc = (LINES_FLOW_FREESPIN_DOC.events ?? []).some((e) => e.event === event);
+				if (eventInDoc) {
+					const eventKept = (gated.events ?? []).some((e) => e.event === event);
+					if (eventKept !== want) ok = false;
+				}
 			}
-			// The FS-4 seam is ALWAYS stripped regardless of any step's ownership.
-			const seamStripped =
-				!gated.screens.some((s) => s.id === 'freeSpinRetrigger') &&
-				!gated.transitions.some(
-					(t) => t.from === 'freeSpinRetrigger' || t.to === 'freeSpinRetrigger',
-				);
 			// Non-free-spin content untouched (basegame screen + reveal event survive every combo).
 			const baseKept =
 				gated.screens.some((s) => s.id === 'basegame') &&
 				(gated.events ?? []).some((e) => e.event === 'reveal');
-			assert(
-				`gate keeps owned / strips un-owned per step + always strips seam (${tag})`,
-				ok && seamStripped && baseKept,
-			);
+			assert(`gate keeps owned / strips un-owned per step (${tag})`, ok && baseKept);
 		}
 	}
 
@@ -342,11 +361,12 @@ const main = async () => {
 	// EXACTLY one path (authored effect ran ⟺ owned; coded handler ran ⟺ un-owned) — never both,
 	// never neither. That is the byte-identical-to-fully-coded guarantee, per step.
 	const COMBOS: [FreeSpinStep[], string][] = [
-		[['intro'], 'intro-only (counter+outro coded)'],
-		[['counter'], 'counter-only (intro+outro coded)'],
-		[['outro'], 'outro-only (intro+counter coded)'],
-		[['intro', 'outro'], 'intro+outro (counter coded)'],
-		[['intro', 'counter', 'outro'], 'all-three'],
+		[['intro'], 'intro-only (rest coded)'],
+		[['counter'], 'counter-only (rest coded)'],
+		[['retrigger'], 'retrigger-only (layering-only step owned, rest coded)'],
+		[['outro'], 'outro-only (rest coded)'],
+		[['intro', 'retrigger', 'outro'], 'intro+retrigger+outro (counter coded)'],
+		[['intro', 'counter', 'retrigger', 'outro'], 'all-four'],
 		[[], 'none (all coded)'],
 	];
 
@@ -356,6 +376,7 @@ const main = async () => {
 			const owned = combo(
 				ownedSteps.includes('intro'),
 				ownedSteps.includes('counter'),
+				ownedSteps.includes('retrigger'),
 				ownedSteps.includes('outro'),
 			);
 			const ownership = ownershipFor(owned);
@@ -428,8 +449,46 @@ const main = async () => {
 				}
 			};
 
+			// The layering-only retrigger step: it carries NO event choreography, so it is NEVER an
+			// authored event — its coded handler ALWAYS runs (the always-coded state path, mirrored in
+			// `codedHandlers` above). Ownership ONLY controls the overlay SCREEN: owned ⇒ the gate kept
+			// its screen + LAYER edge, so the dispatch fires the transition and it layers over base
+			// (on top of the coded state handler); un-owned ⇒ stripped ⇒ the coded handler runs alone,
+			// nothing layers.
+			const dispatchRetrigger = async () => {
+				const { event, screen } = FREE_SPIN_STEPS.retrigger;
+				const want = ownership.owns('retrigger');
+				assert(
+					`retrigger: never an authored event — no choreography, always coded (${tag})`,
+					!interp.isAuthoredEvent(event),
+				);
+				await interp.dispatchBookEvent({ type: event }, CONTEXT);
+				await settle();
+				const layered = interp.activeScreenIds.includes(screen);
+				assert(
+					`retrigger: overlay ${want ? 'LAYERS' : 'does NOT layer (stripped)'} over persistent base (${tag})`,
+					layered === want && interp.activeScreenIds.includes('basegame'),
+				);
+				// The coded state handler runs on EVERY dispatch (owned or not); no authored choreography
+				// effects ever run (ownership adds only the screen, not a choreography).
+				assert(
+					`retrigger: coded state handler ran + no choreography effects (${tag})`,
+					codedRan.includes(event) && OWNED_EFFECTS.retrigger.length === 0,
+				);
+				if (layered) {
+					await interp.completeActiveScreen();
+					await settle();
+					assert(
+						`retrigger: owned overlay dismisses itself on Complete, base remains (${tag})`,
+						!interp.activeScreenIds.includes(screen) && interp.activeScreenIds.includes('basegame'),
+					);
+				}
+			};
+
+			// Fire the four fs steps in lifecycle order (retrigger sits between the counter and outro).
 			await dispatchAndDismiss('intro');
 			await dispatchAndDismiss('counter');
+			await dispatchRetrigger();
 			await dispatchAndDismiss('outro');
 
 			// basegame never left the active set through the whole lifecycle (DECISION-1, per combo).
@@ -440,10 +499,11 @@ const main = async () => {
 				JSON.stringify(setChanges),
 			);
 
-			// E (per combo): the FS-4 seam never layered (its screen was always stripped).
+			// E (per combo): retrigger layered IFF it was owned — when un-owned its screen was stripped
+			// so it never entered the active set (parity: an un-authored game shows no retrigger).
 			assert(
-				`freeSpinRetrigger NEVER layered (FS-4 seam always stripped) (${comboLabel}, ${tag})`,
-				setChanges.every((s) => !s.includes('freeSpinRetrigger')),
+				`freeSpinRetrigger layered only when owned (${comboLabel}, ${tag})`,
+				setChanges.some((s) => s.includes('freeSpinRetrigger')) === ownership.owns('retrigger'),
 			);
 		}
 	}
@@ -456,7 +516,7 @@ const main = async () => {
 		const rig = makeRig(false);
 		const setChanges: string[][] = [];
 		const codedRan: string[] = [];
-		const ownership = ownershipFor(combo(false, false, false));
+		const ownership = ownershipFor(combo(false, false, false, false));
 		const gated = gateFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, ownership);
 		const interp = makeInterp(gated, rig, setChanges, codedRan);
 		await interp.start();
@@ -468,12 +528,16 @@ const main = async () => {
 		);
 		await interp.dispatchBookEvent({ type: 'freeSpinTrigger' }, CONTEXT);
 		await interp.dispatchBookEvent({ type: 'updateFreeSpin' }, CONTEXT);
+		// Retrigger is un-owned too ⇒ its screen was stripped, so nothing layers. Its coded handler
+		// still runs (retrigger is always coded — no authored choreography), consuming the event cleanly.
+		await interp.dispatchBookEvent({ type: 'freeSpinRetrigger' }, CONTEXT);
 		await interp.dispatchBookEvent({ type: 'freeSpinEnd' }, CONTEXT);
 		await settle();
 		assert(
-			'NONE: coded handlers ran for all 3 fs events, no authored effects, base stayed alone',
+			'NONE: coded handlers ran for all 4 fs events, no authored effects, base stayed alone',
 			codedRan.includes('freeSpinTrigger') &&
 				codedRan.includes('updateFreeSpin') &&
+				codedRan.includes('freeSpinRetrigger') &&
 				codedRan.includes('freeSpinEnd') &&
 				rig.effectsRan.length === 0 &&
 				eqJson(interp.activeScreenIds, ['basegame']) &&
@@ -485,12 +549,14 @@ const main = async () => {
 	// The FS-6 refactor made `resolveFreeSpinOwnership`/`gateFreeSpinOwnership` thin wrappers over the
 	// generic `resolveOverlayOwnership`/`gateOverlayOwnership`. This block proves the GENERIC core, run
 	// DIRECTLY over the lines step table (`FS_OVERLAY_STEPS`), returns byte-identical results to the
-	// legacy wrappers across all six combos AND the three condition (i/ii/iii) knobs — so the wrapper
-	// added no divergence (parity-by-construction). The legacy assertions above are the oracle; this
-	// asserts the generic path === that oracle.
-	console.log('\nF. generic engine-flow core === legacy lines predicate (all six combos + knobs):');
+	// legacy wrappers across a spread of per-step combos AND the three condition (i/ii/iii) knobs — so
+	// the wrapper added no divergence (parity-by-construction). The legacy assertions above are the
+	// oracle; this asserts the generic path === that oracle.
+	console.log('\nF. generic engine-flow core === legacy lines predicate (per-step combos + knobs):');
 	{
-		const FS_SEAM = ['freeSpinRetrigger'];
+		// No always-stripped seam any more — since FS-4, `freeSpinRetrigger` is a first-class step in
+		// `FS_OVERLAY_STEPS` (stripped iff un-owned by the generic gate, exactly as the legacy gate does).
+		const FS_SEAM: string[] = [];
 		// Compare a legacy FreeSpinOwnership against a generic OverlayOwnership: same owned set.
 		const sameOwned = (legacy: FreeSpinOwnership, generic: { owns: (k: FreeSpinStep) => boolean }) =>
 			ALL_STEPS.every((s) => legacy.owns(s) === generic.owns(s));
@@ -509,18 +575,22 @@ const main = async () => {
 				b.transitions.map((t) => t.id).sort(),
 			);
 
-		// All six combos: resolve + gate via BOTH paths over the SAME doc + scenes, assert identical.
-		const COMBOS6: [boolean, boolean, boolean][] = [
-			[true, false, false],
-			[false, true, false],
-			[false, false, true],
-			[true, false, true],
-			[true, true, true],
-			[false, false, false],
+		// A spread of combos over the FOUR steps: resolve + gate via BOTH paths, assert identical.
+		const COMBOS_ALL: [boolean, boolean, boolean, boolean][] = [
+			[true, false, false, false],
+			[false, true, false, false],
+			[false, false, true, false],
+			[false, false, false, true],
+			[true, false, true, true],
+			[true, true, true, true],
+			[false, false, false, false],
 		];
-		for (const [i, c, o] of COMBOS6) {
-			const scenes = scenesFor(combo(i, c, o)) as unknown as OverlayScene[];
-			const legacyOwn = resolveFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, scenesFor(combo(i, c, o)));
+		for (const [i, c, r, o] of COMBOS_ALL) {
+			const scenes = scenesFor(combo(i, c, r, o)) as unknown as OverlayScene[];
+			const legacyOwn = resolveFreeSpinOwnership(
+				LINES_FLOW_FREESPIN_DOC,
+				scenesFor(combo(i, c, r, o)),
+			);
 			const genericOwn = resolveOverlayOwnership<FreeSpinStep>(
 				LINES_FLOW_FREESPIN_DOC,
 				scenes,
@@ -533,7 +603,7 @@ const main = async () => {
 				FS_OVERLAY_STEPS,
 				FS_SEAM,
 			);
-			const tag = `intro=${i} counter=${c} outro=${o}`;
+			const tag = `intro=${i} counter=${c} retrigger=${r} outro=${o}`;
 			assert(
 				`resolve: generic === legacy owned set (${tag})`,
 				sameOwned(legacyOwn, genericOwn) && legacyOwn.none === genericOwn.none,
@@ -549,7 +619,7 @@ const main = async () => {
 				...LINES_FLOW_FREESPIN_DOC,
 				screens: LINES_FLOW_FREESPIN_DOC.screens.filter((s) => s.id !== 'freeSpinIntro'),
 			};
-			const s = scenesFor(combo(true, true, true));
+			const s = scenesFor(combo(true, true, true, true));
 			const legacy = resolveFreeSpinOwnership(docNoIntro, s);
 			const generic = resolveOverlayOwnership<FreeSpinStep>(
 				docNoIntro,
@@ -566,7 +636,7 @@ const main = async () => {
 					(t) => !(t.trigger.kind === 'bookEvent' && t.trigger.event === FREE_SPIN_STEPS.outro.event),
 				),
 			};
-			const s = scenesFor(combo(true, true, true));
+			const s = scenesFor(combo(true, true, true, true));
 			const legacy = resolveFreeSpinOwnership(docNoOutroEdge, s);
 			const generic = resolveOverlayOwnership<FreeSpinStep>(
 				docNoOutroEdge,
@@ -578,7 +648,7 @@ const main = async () => {
 		{
 			// (iii) content: each step's scene flipped to the coded fallback independently.
 			for (const step of ALL_STEPS) {
-				const owned = combo(true, true, true);
+				const owned = combo(true, true, true, true);
 				owned[step] = false;
 				const s = scenesFor(owned);
 				const legacy = resolveFreeSpinOwnership(LINES_FLOW_FREESPIN_DOC, s);
@@ -592,7 +662,7 @@ const main = async () => {
 		}
 		// undefined doc: both paths ⇒ none owned.
 		{
-			const s = scenesFor(combo(true, true, true));
+			const s = scenesFor(combo(true, true, true, true));
 			const legacy = resolveFreeSpinOwnership(undefined, s);
 			const generic = resolveOverlayOwnership<FreeSpinStep>(
 				undefined,
@@ -600,175 +670,6 @@ const main = async () => {
 				FS_OVERLAY_STEPS,
 			);
 			assert('knob: undefined doc ⇒ both none', legacy.none && generic.none && sameOwned(legacy, generic));
-		}
-	}
-
-	// --- G. LAUNCHER-TABLE CROSS-CHECK (drift guard, decision 2) ---
-	// The `/flow` editor reads a SERIALIZABLE step table (`flowOverlaySteps.ts`), not the game's. This
-	// asserts that table for `lines`, fed through `excludeCodedComponents`, produces `OverlayStep[]`
-	// that resolve IDENTICALLY to the game's step tables — so the editor's per-step readout can never
-	// silently drift from what the runtime decides. The launcher table now carries BOTH the free-spin
-	// steps (intro/counter/outro) AND the book-reveal step (reveal), so it is split into those two
-	// subsets and each is cross-checked against its OWN game table (`FS_OVERLAY_STEPS` /
-	// `BOOK_OVERLAY_STEPS`) — structurally + behaviourally (the content rule is a function, so we
-	// compare RESOLVED ownership, not function identity).
-	console.log('\nG. launcher step table === game step tables (drift guard):');
-	{
-		const table = resolveOverlayStepTable('lines');
-		assert('launcher exposes a `lines` overlay-step table', table !== undefined);
-		if (table) {
-			// Split the launcher steps into the free-spin subset (intro/counter/outro) and the book
-			// subset (reveal), then cross-check EACH against its own game table.
-			const FS_KEYS = new Set<string>(['intro', 'counter', 'outro']);
-			const BOOK_KEYS = new Set<string>(['reveal']);
-			const fsTableSteps = table.steps.filter((s) => FS_KEYS.has(s.key));
-			const bookTableSteps = table.steps.filter((s) => BOOK_KEYS.has(s.key));
-
-			assert(
-				'launcher seam screens = [freeSpinRetrigger]',
-				eqJson(table.seamScreens ?? [], ['freeSpinRetrigger']),
-			);
-
-			// --- G.1 free-spin subset === game FS_OVERLAY_STEPS ---
-			{
-				// Rebuild runtime OverlayStep[] from the launcher's serialized data (mirrors the editor's
-				// `overlayStepsFromTable`), keying the step union back to FreeSpinStep for the resolver.
-				const launcherFsSteps: OverlayStep<FreeSpinStep>[] = fsTableSteps.map((s) => ({
-					key: s.key as FreeSpinStep,
-					screen: s.screen,
-					event: s.event,
-					contentRule: excludeCodedComponents({
-						excludeBindComponents: s.excludeBindComponents,
-						excludeComponentIds: s.excludeComponentIds,
-					}),
-				}));
-				// Structural agreement: same key/screen/event per step, in order.
-				const structOk =
-					launcherFsSteps.length === FS_OVERLAY_STEPS.length &&
-					launcherFsSteps.every(
-						(l, idx) =>
-							l.key === FS_OVERLAY_STEPS[idx].key &&
-							l.screen === FS_OVERLAY_STEPS[idx].screen &&
-							l.event === FS_OVERLAY_STEPS[idx].event,
-					);
-				assert('launcher FS steps match game FS steps (key/screen/event, in order)', structOk);
-				// Behavioural agreement: the content rule resolves the same ownership across all six combos.
-				const COMBOS6: [boolean, boolean, boolean][] = [
-					[true, false, false],
-					[false, true, false],
-					[false, false, true],
-					[true, false, true],
-					[true, true, true],
-					[false, false, false],
-				];
-				let behOk = true;
-				for (const [i, c, o] of COMBOS6) {
-					const scenes = scenesFor(combo(i, c, o)) as unknown as OverlayScene[];
-					const gameOwn = resolveOverlayOwnership<FreeSpinStep>(
-						LINES_FLOW_FREESPIN_DOC,
-						scenes,
-						FS_OVERLAY_STEPS,
-					);
-					const launcherOwn = resolveOverlayOwnership<FreeSpinStep>(
-						LINES_FLOW_FREESPIN_DOC,
-						scenes,
-						launcherFsSteps,
-					);
-					if (!ALL_STEPS.every((s) => gameOwn.owns(s) === launcherOwn.owns(s))) behOk = false;
-				}
-				assert('launcher FS content rule resolves identical ownership (all six combos)', behOk);
-			}
-
-			// --- G.2 book subset === game BOOK_OVERLAY_STEPS ---
-			// The book reveal is ONE step (`reveal`, screen `specialBook`, event `setExpandingSymbol`)
-			// whose ownership flips on the SAME three knobs: (i) its screen placed, (ii) its
-			// `setExpandingSymbol` LAYER edge wired, (iii) its `specialBook` scene carries authored
-			// content (≥1 node that is NOT the coded `SpecialBook` bind anchor). We exercise all three.
-			{
-				// Rebuild runtime OverlayStep[] from the launcher's serialized data, keyed to BookStep.
-				const launcherBookSteps: OverlayStep<BookStep>[] = bookTableSteps.map((s) => ({
-					key: s.key as BookStep,
-					screen: s.screen,
-					event: s.event,
-					contentRule: excludeCodedComponents({
-						excludeBindComponents: s.excludeBindComponents,
-						excludeComponentIds: s.excludeComponentIds,
-					}),
-				}));
-				// Structural agreement: same key/screen/event, in order.
-				const structOk =
-					launcherBookSteps.length === BOOK_OVERLAY_STEPS.length &&
-					launcherBookSteps.every(
-						(l, idx) =>
-							l.key === BOOK_OVERLAY_STEPS[idx].key &&
-							l.screen === BOOK_OVERLAY_STEPS[idx].screen &&
-							l.event === BOOK_OVERLAY_STEPS[idx].event,
-					);
-				assert('launcher book step matches game book step (key/screen/event, in order)', structOk);
-
-				// A fully-wired book doc: places the `specialBook` screen + wires the `setExpandingSymbol`
-				// LAYER edge (so knobs (i)+(ii) hold and scene content is the flipped knob), reusing the
-				// same layer/return edge shape as the free-spin overlays.
-				const bookDoc: FlowDoc = {
-					...LINES_FLOW_FREESPIN_DOC,
-					screens: [...LINES_FLOW_FREESPIN_DOC.screens, { id: 'specialBook' }],
-					transitions: [
-						...LINES_FLOW_FREESPIN_DOC.transitions,
-						{
-							id: 'basegame→specialBook',
-							from: 'basegame',
-							to: 'specialBook',
-							trigger: { kind: 'bookEvent', event: 'setExpandingSymbol' },
-						},
-						{ id: 'specialBook→basegame', from: 'specialBook', to: 'basegame', trigger: { kind: 'complete' } },
-					],
-				};
-				// The `specialBook` scene toggled between authored content and the coded `SpecialBook`
-				// bind-anchor fallback (knob iii). The other scenes are irrelevant to the reveal step.
-				const bookScenesFor = (authored: boolean): OverlayScene[] =>
-					[
-						authored ? authoredScene('specialBook') : codedAnchorScene('specialBook', 'SpecialBook'),
-					] as unknown as OverlayScene[];
-
-				let behOk = true;
-				// (iii) content: authored ⇒ owned; coded anchor only ⇒ un-owned. Game === launcher.
-				for (const authored of [true, false]) {
-					const scenes = bookScenesFor(authored);
-					const gameOwn = resolveOverlayOwnership<BookStep>(bookDoc, scenes, BOOK_OVERLAY_STEPS);
-					const launcherOwn = resolveOverlayOwnership<BookStep>(bookDoc, scenes, launcherBookSteps);
-					if (gameOwn.owns('reveal') !== authored || launcherOwn.owns('reveal') !== authored) {
-						behOk = false;
-					}
-					if (gameOwn.owns('reveal') !== launcherOwn.owns('reveal')) behOk = false;
-				}
-				// (i) placement: doc omits the `specialBook` screen ⇒ un-owned even with authored content.
-				{
-					const docNoScreen: FlowDoc = {
-						...bookDoc,
-						screens: bookDoc.screens.filter((s) => s.id !== 'specialBook'),
-					};
-					const scenes = bookScenesFor(true);
-					const gameOwn = resolveOverlayOwnership<BookStep>(docNoScreen, scenes, BOOK_OVERLAY_STEPS);
-					const launcherOwn = resolveOverlayOwnership<BookStep>(docNoScreen, scenes, launcherBookSteps);
-					if (gameOwn.owns('reveal') || launcherOwn.owns('reveal')) behOk = false;
-					if (gameOwn.owns('reveal') !== launcherOwn.owns('reveal')) behOk = false;
-				}
-				// (ii) wiring: doc omits the `setExpandingSymbol` edge ⇒ un-owned even with authored content.
-				{
-					const docNoEdge: FlowDoc = {
-						...bookDoc,
-						transitions: bookDoc.transitions.filter(
-							(t) => !(t.trigger.kind === 'bookEvent' && t.trigger.event === 'setExpandingSymbol'),
-						),
-					};
-					const scenes = bookScenesFor(true);
-					const gameOwn = resolveOverlayOwnership<BookStep>(docNoEdge, scenes, BOOK_OVERLAY_STEPS);
-					const launcherOwn = resolveOverlayOwnership<BookStep>(docNoEdge, scenes, launcherBookSteps);
-					if (gameOwn.owns('reveal') || launcherOwn.owns('reveal')) behOk = false;
-					if (gameOwn.owns('reveal') !== launcherOwn.owns('reveal')) behOk = false;
-				}
-				assert('launcher book content rule resolves identical ownership (all three knobs)', behOk);
-			}
 		}
 	}
 
