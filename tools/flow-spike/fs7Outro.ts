@@ -20,9 +20,16 @@
  *  C. The win-level fired signals (`freeSpinOutroBigWin` / `freeSpinOutroSmallWin`) drive the pure
  *     `isNodeRevealed` gate exactly as the per-instance bus records them — so authored big/small art
  *     gated by `hiddenUntilSignal` reveals on the matching tier and stays hidden on the other.
+ *
+ *  D. The count-up-complete fired signal (`freeSpinOutroCountUpComplete`, broadcast by the driver when
+ *     `startCountUp()` resolves) arms a `tapArmAfterSignal` tap + reveals a `hiddenUntilSignal` prompt
+ *     ONLY after the count-up finishes — the FS-7 follow-up seam that gates the tap on the count.
+ *
+ * NOTE: the FS-7 baked coin fountain was REMOVED from the driver (the author places their own), so the
+ * mount/subscriber invariants in B are unaffected — routing never depended on the fountain.
  */
 
-import { isNodeRevealed } from '../../packages/engine-layout/src/lib/signalGates';
+import { isNodeRevealed, isTapArmed } from '../../packages/engine-layout/src/lib/signalGates';
 import type { Scene } from '../../packages/engine-layout/src/lib/types';
 import {
 	hasAuthoredFreeSpinOutro,
@@ -204,6 +211,21 @@ assert(
 );
 // Ungated node (no hiddenUntilSignal) is always revealed (parity — the count text / spine).
 assert('ungated node always revealed', isNodeRevealed(undefined, {}) === true);
+
+// ---------------------------------------------------------------------------
+// D. freeSpinOutroCountUpComplete arms the tap / reveals the prompt only AFTER the count-up.
+// ---------------------------------------------------------------------------
+console.log('\nD. freeSpinOutroCountUpComplete gates tap-arm + prompt reveal:');
+const COMPLETE = 'freeSpinOutroCountUpComplete';
+// Before the count-up finishes the bus has no fire ⇒ tap inert, prompt hidden.
+assert('tap NOT armed before count-up completes', isTapArmed(COMPLETE, {}) === false);
+assert('prompt hidden before count-up completes', isNodeRevealed(COMPLETE, {}) === false);
+// The driver broadcasts the event on `startCountUp()` resolve ⇒ the per-instance bus records it.
+const doneBus = { [COMPLETE]: 1 };
+assert('tap armed after count-up completes', isTapArmed(COMPLETE, doneBus) === true);
+assert('prompt revealed after count-up completes', isNodeRevealed(COMPLETE, doneBus) === true);
+// An un-gated tap (no `tapArmAfterSignal`) is armed on mount (parity — today's behaviour).
+assert('un-gated tap armed on mount (parity)', isTapArmed(undefined, {}) === true);
 
 console.log(failed ? '\nFS-7 outro harness: FAIL' : '\nFS-7 outro harness: PASS');
 if (failed) process.exit(1);
