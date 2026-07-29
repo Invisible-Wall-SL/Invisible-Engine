@@ -8,13 +8,14 @@
 	import { MainContainer } from 'components-layout';
 	import { Container } from 'pixi-svelte';
 
-	import { untrack, type Snippet } from 'svelte';
+	import { untrack } from 'svelte';
 
 	import LayoutNodeView from './LayoutNodeView.svelte';
 	import type { EffectNode } from './types';
 	import { getComponentVisibility, type BoolSource } from './registerComponentVisibility';
 	import { setSceneVisibleContext } from './sceneVisibilityContext';
-	import { setTapPortal } from './tapPortalContext';
+	import { setTapPortal, type TapPortalEntry } from './tapPortalContext';
+	import { tapDimBehind } from './tapToContinue';
 
 	const { scene }: Props = $props();
 
@@ -28,22 +29,36 @@
 	// `MainContainer` wrapper, so it sits in true canvas space exactly like the engine-owned
 	// free-spin gate. Keyed by instance id (replace, not duplicate). Empty ⇒ nothing extra
 	// renders (parity — a scene with no tap-enabled overlay is byte-identical to before).
-	let tapSurfaces = $state<{ id: string; snippet: Snippet }[]>([]);
+	let tapSurfaces = $state<({ id: string } & TapPortalEntry)[]>([]);
 	// register/unregister are imperative portal ops called from a descendant
 	// `ComponentInstance`'s `$effect`. Reading `tapSurfaces` here would make that read a
 	// dependency of the CALLER's effect, and the reassignment on the next line would then
 	// re-invalidate it — a self-referential effect loop (`effect_update_depth_exceeded`).
 	// `untrack` the reads so the mutation never leaks a dependency back into the caller.
 	setTapPortal({
-		register: (id, snippet) => {
+		register: (id, entry) => {
 			const next = untrack(() => tapSurfaces).filter((t) => t.id !== id);
-			next.push({ id, snippet });
+			next.push({ id, ...entry });
 			tapSurfaces = next;
 		},
 		unregister: (id) => {
 			tapSurfaces = untrack(() => tapSurfaces).filter((t) => t.id !== id);
 		},
 	});
+
+	// A registered tap node's DIM sits BEHIND the scene content when the author placed any node
+	// AFTER it in the outline (paint order) — i.e. it is not the topmost node. A `game`/`standard`
+	// dim is canvas-space and can't interleave with the scaled `MainContainer` nodes, so it goes
+	// wholly behind (celebration screen: dim under the content) or wholly in front (topmost tap:
+	// byte-identical to before). Only TOP-LEVEL scene nodes carry an order here; a tap registered
+	// from a nested instance isn't found ⇒ defaults to in-front (the safe legacy placement).
+	const orderedNodeIds = $derived(scene.nodes.map((n) => n.id));
+	const dimsBehind = $derived(
+		tapSurfaces.filter((t) => t.dim && tapDimBehind(orderedNodeIds, t.id)),
+	);
+	const dimsInFront = $derived(
+		tapSurfaces.filter((t) => t.dim && !tapDimBehind(orderedNodeIds, t.id)),
+	);
 
 	// Per-rig bone hosting: an `effect` node with a `hostSpineId` that names a placed spine in THIS
 	// scene is mounted INSIDE that rig's `<SpineProvider>` (so a bone layer rides the rig's bone + the
@@ -124,17 +139,25 @@
 {/snippet}
 
 {#snippet body()}
-	{@render framed()}
 	<!--
-		Hoisted tap-to-continue surfaces (tapPortalContext): rendered at the SCENE's top
-		level — a sibling of `framed()`, OUTSIDE its `MainContainer` — so a full-screen
-		dim/hit surface authored on a `game`/`standard`-space screen covers the true canvas
-		instead of the scaled design box (the "dim doesn't fit / darkens the logo" bug).
-		Drawn AFTER the scene content so the gate paints on top, and inside the same
-		visibility gate so it follows the screen's own `visibleSource`. Empty ⇒ parity.
+		Hoisted tap-to-continue surfaces (tapPortalContext): rendered at the SCENE's top level —
+		siblings of `framed()`, OUTSIDE its `MainContainer` — so a full-screen dim/hit surface
+		authored on a `game`/`standard`-space screen covers the true canvas instead of the scaled
+		design box (the "dim doesn't fit / darkens the logo" bug). SPLIT so the authored layer order
+		is honoured: a dim whose tap node has content painted ABOVE it draws BEHIND the scene content
+		(a celebration screen shows over its dim); a topmost tap's dim stays in FRONT (byte-identical
+		to before). The interactive hit area + prompt ALWAYS paint on top so a tap anywhere dismisses
+		the screen and the prompt stays visible. All inside the same visibility gate. Empty ⇒ parity.
 	-->
-	{#each tapSurfaces as tap (tap.id)}
-		{@render tap.snippet()}
+	{#each dimsBehind as t (t.id)}
+		{@render t.dim?.()}
+	{/each}
+	{@render framed()}
+	{#each dimsInFront as t (t.id)}
+		{@render t.dim?.()}
+	{/each}
+	{#each tapSurfaces as t (t.id)}
+		{@render t.tap()}
 	{/each}
 {/snippet}
 

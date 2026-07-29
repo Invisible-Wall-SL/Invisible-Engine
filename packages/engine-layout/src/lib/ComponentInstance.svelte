@@ -26,6 +26,7 @@
 
 <script lang="ts">
 	import { Container } from 'pixi-svelte';
+	import { CanvasSizeRectangle } from 'components-layout';
 
 	import LayoutNodeView from './LayoutNodeView.svelte';
 	import { resolveComponent } from './registerComponents';
@@ -724,10 +725,17 @@
 	// over the logo). Preferred path: register with the scene's tap PORTAL
 	// (`tapPortalContext`), which `LayoutScene` renders at its own top level, outside the
 	// `MainContainer`, in true canvas space (parity with the engine-owned free-spin gate).
-	// When registered we leave the bindable `tap` UNDEFINED so `LayoutNodeView` does NOT
-	// also render it inline (no double). FALLBACK: no scene portal in scope (an instance
-	// used outside any `LayoutScene`) ⇒ hand `tapSurface` up via `tap` for the legacy
-	// sibling hoist. OFF (no tap) ⇒ nothing registered and `tap` undefined ⇒ byte-identical.
+	// SPLIT so the authored layer order is honoured: the `dim` backdrop is registered
+	// separately (`LayoutScene` draws it BEHIND the scene content when the author placed
+	// content above this tap node, else in front — visually unchanged for a topmost tap) while
+	// the interactive hit area + prompt (`tapInteractive`, with the dim turned OFF here so it
+	// isn't double-drawn) ALWAYS paint on top. (For a topmost tap with a dim the surface is
+	// visually/functionally identical to before, not literally byte-identical: `tapInteractive`
+	// carries an extra alpha-0 rect. The transparent-tap loading screen IS byte-identical.) When registered we leave the bindable `tap` UNDEFINED so `LayoutNodeView`
+	// does NOT also render it inline (no double). FALLBACK: no scene portal in scope (an
+	// instance used outside any `LayoutScene`) ⇒ hand the WHOLE `tapSurface` (dim + hit +
+	// prompt together) up via `tap` for the legacy sibling hoist, byte-identical to before.
+	// OFF (no tap) ⇒ nothing registered and `tap` undefined ⇒ byte-identical.
 	const tapPortal = getTapPortal();
 	$effect(() => {
 		// Not a tap overlay, OR the tap is gated on a signal that hasn't fired yet ⇒ mount NOTHING,
@@ -740,7 +748,12 @@
 		}
 		if (tapPortal) {
 			tap = undefined;
-			tapPortal.register(node.id, tapSurface);
+			// Only hand up a dim when it would actually draw something (alpha > 0), so a fully
+			// transparent tap registers no backdrop — nothing renders behind the content.
+			tapPortal.register(node.id, {
+				dim: tapDimAlpha > 0 ? tapDim : undefined,
+				tap: tapInteractive,
+			});
 			return () => tapPortal.unregister(node.id);
 		}
 		tap = tapSurface;
@@ -754,6 +767,22 @@
 			signal={tapSignal}
 			dimColor={tapDimColor}
 			dimAlpha={tapDimAlpha}
+			hidePrompt={tapHidePrompt}
+		/>
+	{/if}
+{/snippet}
+
+{#snippet tapDim()}
+	<CanvasSizeRectangle backgroundColor={tapDimColor} backgroundAlpha={tapDimAlpha} />
+{/snippet}
+
+{#snippet tapInteractive()}
+	{#if tapComponent}
+		{@const TapComponent = tapComponent}
+		<TapComponent
+			signal={tapSignal}
+			dimColor={tapDimColor}
+			dimAlpha={0}
 			hidePrompt={tapHidePrompt}
 		/>
 	{/if}
