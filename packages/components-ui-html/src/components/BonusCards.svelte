@@ -25,6 +25,12 @@
 {#each props.list as betModeData}
 	{#if betModeData.type !== 'default'}
 		<BonusCard>
+			{#snippet icon()}
+				{#if betModeData.assets.icon}
+					<img class="icon" src={betModeData.assets.icon} alt="" />
+				{/if}
+			{/snippet}
+
 			{#snippet title()}
 				<div class="title">
 					{translate(betModeData.text.title)}
@@ -66,6 +72,14 @@
 {/each}
 
 <style lang="scss">
+	.icon {
+		display: block;
+		width: 100%;
+		max-height: 5rem;
+		object-fit: contain;
+		margin: 0 auto;
+	}
+
 	.title {
 		font-size: 1rem;
 		line-height: 1rem;

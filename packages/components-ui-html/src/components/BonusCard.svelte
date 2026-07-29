@@ -6,6 +6,8 @@
 		description: Snippet;
 		price: Snippet;
 		button: Snippet;
+		/** Optional card art (Invisible Game Config bet-mode icon). Omitted when the mode has no icon. */
+		icon?: Snippet;
 	};
 
 	const props: Props = $props();
@@ -13,6 +15,9 @@
 
 <div class="bonus-card-wrap">
 	<div class="info">
+		{#if props.icon}
+			{@render props.icon()}
+		{/if}
 		{@render props.title()}
 		{@render props.description()}
 		{@render props.price()}

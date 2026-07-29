@@ -39,6 +39,13 @@
 			<BaseTitle>
 				{translate(stateBonusDerived.selectedBetModeData().text.title)}
 			</BaseTitle>
+			{#if stateBonusDerived.selectedBetModeData().assets.dialogImage}
+				<img
+					src={stateBonusDerived.selectedBetModeData().assets.dialogImage}
+					alt=""
+					style="display:block; width:100%; max-height:12rem; object-fit:contain; margin:0 auto;"
+				/>
+			{/if}
 			<BaseScrollable type="column">
 				{translate(stateBonusDerived.selectedBetModeData().text.dialog)}
 			</BaseScrollable>
