@@ -772,8 +772,8 @@
 	{/if}
 {/snippet}
 
-{#snippet tapDim()}
-	<CanvasSizeRectangle backgroundColor={tapDimColor} backgroundAlpha={tapDimAlpha} />
+{#snippet tapDim(zIndex: number)}
+	<CanvasSizeRectangle {zIndex} backgroundColor={tapDimColor} backgroundAlpha={tapDimAlpha} />
 {/snippet}
 
 {#snippet tapInteractive()}

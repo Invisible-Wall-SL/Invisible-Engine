@@ -52,6 +52,13 @@
 	// wholly behind (celebration screen: dim under the content) or wholly in front (topmost tap:
 	// byte-identical to before). Only TOP-LEVEL scene nodes carry an order here; a tap registered
 	// from a nested instance isn't found ⇒ defaults to in-front (the safe legacy placement).
+	//
+	// Placement is by zIndex, NOT render order: pixi-svelte adds every child with `addChild`
+	// (append) then `sortChildren()`, and the dim registers LATE (a descendant `$effect`, after the
+	// content has mounted). At an equal zIndex it would therefore tie with the content and win on
+	// mount order — landing ON TOP wherever it sits in the tree. So a behind-dim is drawn at a
+	// NEGATIVE zIndex to sink below the default-`0` scene content; a front-dim keeps `0` (on top).
+	const DIM_BEHIND_Z = -1;
 	const orderedNodeIds = $derived(scene.nodes.map((n) => n.id));
 	const dimsBehind = $derived(
 		tapSurfaces.filter((t) => t.dim && tapDimBehind(orderedNodeIds, t.id)),
@@ -150,11 +157,11 @@
 		the screen and the prompt stays visible. All inside the same visibility gate. Empty ⇒ parity.
 	-->
 	{#each dimsBehind as t (t.id)}
-		{@render t.dim?.()}
+		{@render t.dim?.(DIM_BEHIND_Z)}
 	{/each}
 	{@render framed()}
 	{#each dimsInFront as t (t.id)}
-		{@render t.dim?.()}
+		{@render t.dim?.(0)}
 	{/each}
 	{#each tapSurfaces as t (t.id)}
 		{@render t.tap()}
