@@ -47,6 +47,18 @@ export const ENGINE_PARAM_CATALOG: EngineParamEntry[] = [
 		note: 'Total free spins awarded — the intro headline count (available during the intro).',
 	},
 	{
+		key: 'freeSpinsAdded',
+		kind: 'number',
+		label: 'Extra Free Spins',
+		note: 'Extra free spins won on a mid-feature RETRIGGER — the bare count (e.g. 10; add your own "+" in a label). For the full localized "You won +10 Extra Free Spins" sentence bind `freeSpinsAddedText`.',
+	},
+	{
+		key: 'freeSpinsAddedText',
+		kind: 'string',
+		label: 'Extra Free Spins (sentence)',
+		note: 'The localized retrigger sentence (win-text `freeSpins.retrigger`, default "You won +{count} Extra Free Spins"), extra count interpolated. Author the copy in /win-text, translate in /localization.',
+	},
+	{
 		key: 'freeSpinOutroTotalWin',
 		kind: 'number',
 		label: 'Free-spin Outro Total',
@@ -104,7 +116,7 @@ export const VALUE_SOURCE_CATALOG: EngineParamEntry[] = ENGINE_PARAM_CATALOG.fil
  * they're kept OUT of the numeric-only {@link VALUE_SOURCE_CATALOG} but still listed
  * here so the editor's Source dropdown lists them.
  */
-const COMPOSED_STRING_SOURCE_KEYS = ['freeSpins', 'message', 'specialSymbol'];
+const COMPOSED_STRING_SOURCE_KEYS = ['freeSpins', 'freeSpinsAddedText', 'message', 'specialSymbol'];
 export const VALUE_SOURCE_KEYS: string[] = [
 	...VALUE_SOURCE_CATALOG.map((p) => p.key),
 	...COMPOSED_STRING_SOURCE_KEYS,

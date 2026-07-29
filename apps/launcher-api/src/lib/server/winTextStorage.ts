@@ -43,6 +43,12 @@ const toastSchema = z
 	})
 	.strict();
 
+const freeSpinsSchema = z
+	.object({
+		retrigger: templateSchema.optional(),
+	})
+	.strict();
+
 export const winTextDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
@@ -50,6 +56,7 @@ export const winTextDocSchema = z
 		amountFormat: templateSchema.optional(),
 		winLevels: z.record(z.string().min(1), templateSchema).optional(),
 		toast: toastSchema.optional(),
+		freeSpins: freeSpinsSchema.optional(),
 		updatedAt: z.string().optional(),
 	})
 	.strip();
@@ -92,6 +99,13 @@ function pruneToast(input: WinTextDoc['toast']): WinTextDoc['toast'] {
 	return Object.keys(next).length ? next : undefined;
 }
 
+function pruneFreeSpins(input: WinTextDoc['freeSpins']): WinTextDoc['freeSpins'] {
+	if (!input) return undefined;
+	const next: NonNullable<WinTextDoc['freeSpins']> = {};
+	if (input.retrigger?.trim()) next.retrigger = input.retrigger;
+	return Object.keys(next).length ? next : undefined;
+}
+
 /**
  * Validate + normalize arbitrary parsed/posted data into a {@link WinTextDoc}, pruning blanks
  * so a reset round-trips to "unset". Throws `ZodError` on invalid input — the PUT endpoint maps
@@ -111,6 +125,8 @@ export function normalizeWinTextDoc(input: unknown): WinTextDoc {
 	if (winLevels) next.winLevels = winLevels;
 	const toast = pruneToast(doc.toast);
 	if (toast) next.toast = toast;
+	const freeSpins = pruneFreeSpins(doc.freeSpins);
+	if (freeSpins) next.freeSpins = freeSpins;
 	return next;
 }
 

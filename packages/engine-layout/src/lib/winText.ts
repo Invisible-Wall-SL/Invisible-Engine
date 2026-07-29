@@ -57,7 +57,21 @@ export type WinTextDoc = {
 	/** `winLevelMap` alias (`big`, `mega`, …) → template. */
 	winLevels?: Record<string, string>;
 	toast?: WinTextToast;
+	/** Free-spin feature copy. Localize-then-interpolate, one coherent sentence per field. */
+	freeSpins?: WinTextFreeSpins;
 	updatedAt?: string;
+};
+
+/**
+ * Free-spin feature templates. `retrigger` is the "+N extra free spins won mid-feature" celebration
+ * sentence, interpolating `{count}` = the extra spins awarded (the `freeSpinRetrigger` book event's
+ * `extraFs`). Authored as ONE sentence so it localizes correctly (localize the template, THEN drop
+ * the number in — a per-value sentence can never be a translation key). Bound in a scene via the
+ * `freeSpinsAddedText` composed-string source.
+ */
+export type WinTextFreeSpins = {
+	/** "You won +{count} Extra Free Spins" — shown on the retrigger celebration screen. */
+	retrigger?: string;
 };
 
 /**
@@ -84,6 +98,7 @@ export type ResolvedWinText = {
 	amountFormat: string;
 	winLevels: Record<string, string>;
 	toast: Required<WinTextToast>;
+	freeSpins: Required<WinTextFreeSpins>;
 };
 
 /**
@@ -111,6 +126,9 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 		full: 'You win {amount} with {count} {symbolName}',
 		amountOnly: 'You win {amount}',
 		countOnly: '{count} {symbolName}',
+	},
+	freeSpins: {
+		retrigger: 'You won +{count} Extra Free Spins',
 	},
 };
 
@@ -148,6 +166,9 @@ export function resolveWinText(doc: WinTextDoc | undefined): ResolvedWinText {
 			full: doc?.toast?.full ?? WIN_TEXT_DEFAULTS.toast.full,
 			amountOnly: doc?.toast?.amountOnly ?? WIN_TEXT_DEFAULTS.toast.amountOnly,
 			countOnly: doc?.toast?.countOnly ?? WIN_TEXT_DEFAULTS.toast.countOnly,
+		},
+		freeSpins: {
+			retrigger: doc?.freeSpins?.retrigger ?? WIN_TEXT_DEFAULTS.freeSpins.retrigger,
 		},
 	};
 }
@@ -280,9 +301,12 @@ export function collectWinTextTemplates(
 	for (const [alias, tpl] of Object.entries(doc?.winLevels ?? {})) {
 		add(tpl, `Win level — ${alias}`);
 	}
-	const toast = resolveWinText(doc).toast;
-	add(toast.full, 'Info-bar message — amount + symbol');
-	add(toast.amountOnly, 'Info-bar message — amount only');
-	add(toast.countOnly, 'Info-bar message — symbol only');
+	const resolved = resolveWinText(doc);
+	add(resolved.toast.full, 'Info-bar message — amount + symbol');
+	add(resolved.toast.amountOnly, 'Info-bar message — amount only');
+	add(resolved.toast.countOnly, 'Info-bar message — symbol only');
+	// The retrigger sentence has a real coded default (a player-facing sentence), so — like the
+	// toasts — it is harvested from the RESOLVED doc so it can be translated even if never retyped.
+	add(resolved.freeSpins.retrigger, 'Free spins — retrigger (+N extra)');
 	return out;
 }

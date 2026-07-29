@@ -105,6 +105,7 @@
 		sceneByRole,
 		loadingSceneId,
 		basegameSceneId,
+		formatWinText,
 	} from 'engine-layout';
 	import type { Scene } from 'engine-layout';
 
@@ -157,6 +158,7 @@
 		bakedFlipbooks,
 		bakedRigFx,
 		bakedSymbolAssets,
+		bakedWinText,
 		fallbackEditorScenes,
 		isRuntimeBundleActive,
 		loadEditorScenes,
@@ -513,6 +515,15 @@
 		// `freeSpinTrigger` handler (before the intro shows) so it's populated while the intro
 		// is on screen, unlike the `freeSpins` counter string which is "current OF total".
 		freeSpinsWon: valueSource(() => stateUi.freeSpinCounterTotal),
+		// The RETRIGGER delta — extra free spins won mid-feature. Set universally at dispatch
+		// (`game/utils.ts`) so it's populated whether the flow or the coded path presents the retrigger.
+		// `freeSpinsAdded` is the bare COUNT (e.g. `10` — add your own "+" in a label); bind
+		// `freeSpinsAddedText` for the whole localized sentence (the win-text `freeSpins.retrigger`
+		// template, localize-then-interpolate — e.g. "You won +10 Extra Free Spins").
+		freeSpinsAdded: valueSource(() => stateUi.freeSpinsAdded),
+		freeSpinsAddedText: textSource(() =>
+			formatWinText(bakedWinText().freeSpins.retrigger, { count: stateUi.freeSpinsAdded }),
+		),
 		// FS-7 decision C — the LIVE counting-up free-spin OUTRO total (the count-up tween value the
 		// gate/driver publishes per frame to `freeSpinOutroState.countUpAmount`), currency-formatted.
 		// An authored outro count text binds `source: 'freeSpinOutroTotalWin'` to it, so a fully

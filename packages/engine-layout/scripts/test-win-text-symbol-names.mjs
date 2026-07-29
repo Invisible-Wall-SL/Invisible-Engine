@@ -157,19 +157,57 @@ assert(
 );
 mod.clearTextResolver();
 
+// --- free-spin RETRIGGER sentence ("You won +N Extra Free Spins") ------------
+console.info('free spins retrigger');
+assert(
+	mod.WIN_TEXT_DEFAULTS.freeSpins.retrigger === 'You won +{count} Extra Free Spins',
+	'the retrigger default is the "+{count}" celebration sentence',
+);
+assert(
+	mod.resolveWinText(undefined).freeSpins.retrigger === 'You won +{count} Extra Free Spins',
+	'an unauthored doc resolves the retrigger default',
+);
+assert(
+	mod.resolveWinText({ freeSpins: { retrigger: 'Nice — {count} more spins!' } }).freeSpins
+		.retrigger === 'Nice — {count} more spins!',
+	'an authored retrigger template overrides the default',
+);
+assert(
+	mod.formatWinText(mod.resolveWinText(undefined).freeSpins.retrigger, { count: 10 }) ===
+		'You won +10 Extra Free Spins',
+	'the retrigger sentence interpolates the extra-spins count',
+);
+// localize the TEMPLATE first, THEN interpolate — the number sits inside the translated sentence.
+mod.registerTextResolver(
+	(key) => ({ 'You won +{count} Extra Free Spins': 'Has ganado +{count} giros gratis extra' })[key],
+);
+assert(
+	mod.formatWinText(mod.resolveWinText(undefined).freeSpins.retrigger, { count: 10 }) ===
+		'Has ganado +10 giros gratis extra',
+	'the retrigger sentence localizes the template, then drops the number into the translation',
+);
+mod.clearTextResolver();
+
 // --- harvest labels carry no jargon either -----------------------------------
 console.info('harvest');
 const harvested = mod.collectWinTextTemplates({
 	lineMessage: { byCount: { 3: '{count} {symbolName}' } },
 	toast: { full: 'You win {amount} with {count} {symbolName}' },
 });
-assert(
-	harvested.length === 2 && !harvested.some((h) => /of a kind/i.test(h.label)),
-	'no harvest label says "of a kind"',
-);
+assert(!harvested.some((h) => /of a kind/i.test(h.label)), 'no harvest label says "of a kind"');
 assert(
 	harvested.every((h) => h.key === h.source),
 	'the harvest key IS the untrimmed source text (the resolver looks up by literal)',
+);
+assert(
+	new Set(harvested.map((h) => h.source)).size === harvested.length,
+	'harvest de-duplicates — a countOnly default equal to a byCount template appears once',
+);
+// The retrigger sentence has a coded default, so it is harvested even when never retyped (like the
+// toasts) — otherwise the built-in retrigger copy could never be translated.
+assert(
+	harvested.some((h) => h.source === 'You won +{count} Extra Free Spins'),
+	'the retrigger default is harvested for translation even when the author never retyped it',
 );
 
 console.info(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) FAILED.`);

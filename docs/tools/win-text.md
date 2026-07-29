@@ -97,6 +97,19 @@ using one of your real symbols.
 If a message is fired with no symbol, the game uses **Amount only** rather than
 printing an empty name — so you never see a blank or a stray `{symbolName}`.
 
+## Free spins
+
+The celebration line for a **retrigger** — when a player wins **extra free spins in
+the middle of the feature**. Write `{count}` where the number of extra spins goes:
+
+- **Retrigger** — `You won +{count} Extra Free Spins`
+
+It's one sentence on purpose, so it **translates** as a whole (word order and where
+the number sits are the translator's to decide). To show it in a game, author a
+retrigger screen and bind a text node's **source** to `freeSpinsAddedText` — you keep
+full control of the font, size, colour and position, exactly like any other text box.
+(For a bare "+10" number with no words, bind `freeSpinsAdded` instead.)
+
 ## Win-level captions
 
 **Usually leave these blank.** In most games the tier words (BIG WIN, MEGA WIN…)
