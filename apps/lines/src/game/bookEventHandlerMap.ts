@@ -1,7 +1,7 @@
 import _ from 'lodash';
 
 import { recordBookEvent, checkIsMultipleRevealEvents, type BookEventHandlerMap } from 'utils-book';
-import { stateBet, stateUi } from 'state-shared';
+import { stateBet, stateUi, showMessage } from 'state-shared';
 import { sequence } from 'utils-shared/sequence';
 import { waitForResolve } from 'utils-shared/wait';
 import { roundSkip } from 'utils-shared/skipToken';
@@ -22,6 +22,7 @@ import {
 	winLineEnabledForWin,
 	winLineFullPointsFor,
 	winLinePointsFor,
+	winLineColumnWinFor,
 	winLineTextFor,
 	winLineColorFor,
 	showWinInfoMessage,
@@ -71,6 +72,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 					eventEmitter.broadcastAsync({
 						type: 'winLineShow',
 						points: winLinePointsFor(winningPositions),
+						columnWin: winLineColumnWinFor(winningPositions),
 						fullPoints: winLineFullPointsFor(win),
 						color: winLineColorFor(win.meta?.lineIndex),
 						...winLineTextFor({
@@ -175,6 +177,19 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		// `presentIntro` true ⇒ every block below runs in its original order, byte-identical to
 		// before (parity §7).
 		const presentIntro = !(getFlowV2()?.ownsEvent('load') ?? false);
+
+		// Info-bar note: the scatter/book match is the TRIGGER for the feature (it no
+		// longer pays out), so tell the player what it awarded — "N Scatters award N
+		// Free Spins". Shown regardless of flow mode; it's a transient info line, not a
+		// screen the flow owns.
+		const scatterCount = bookEvent.positions.length;
+		const freeSpins = bookEvent.totalFs;
+		showMessage(
+			`${scatterCount} ${scatterCount === 1 ? 'Scatter' : 'Scatters'} award ${freeSpins} Free ${
+				freeSpins === 1 ? 'Spin' : 'Spins'
+			}`,
+			{ kind: 'info' },
+		);
 
 		if (presentIntro) {
 			// animate scatters

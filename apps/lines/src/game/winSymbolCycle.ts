@@ -44,6 +44,7 @@ import {
 	winLineEnabledForWin,
 	winLineFullPointsFor,
 	winLinePointsFor,
+	winLineColumnWinFor,
 	winLineTextFor,
 	winningPositionsOf,
 } from './flowEffects';
@@ -266,6 +267,7 @@ export const startWinCycle = async (): Promise<void> => {
 				await eventEmitter.broadcastAsync({
 					type: 'winLineShow',
 					points: winLinePointsFor(positions),
+					columnWin: winLineColumnWinFor(positions),
 					fullPoints: winLineFullPointsFor(win),
 					color: winLineColorFor(win.meta?.lineIndex),
 					...stamp,

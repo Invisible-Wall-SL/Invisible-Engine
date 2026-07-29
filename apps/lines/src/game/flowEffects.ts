@@ -251,6 +251,24 @@ export const winLinePointsFor = (positions: Position[]) =>
 	}));
 
 /**
+ * Whether a win is a COLUMN (cluster) win rather than an ordinary single-row payline — i.e. at least
+ * one reel contributes more than one paying cell. That is the shape a Book-of expansion produces:
+ * the special symbol fills whole reels, so the scatter-style win carries several cells per column.
+ * Tracing those as one connected polyline (sorted by reel) draws the unreadable criss-cross zig-zag;
+ * `WinLine.svelte` instead draws a disconnected vertical bar per winning cell when this is true.
+ *
+ * A normal payline has exactly one cell per reel ⇒ `false` ⇒ the connected diagonal is unchanged.
+ */
+export const winLineColumnWinFor = (positions: Position[]): boolean => {
+	const seen = new Set<number>();
+	for (const position of positions) {
+		if (seen.has(position.reel)) return true;
+		seen.add(position.reel);
+	}
+	return false;
+};
+
+/**
  * The FULL payline's points (all reels), for the optional "Show full payline" underlay drawn
  * beneath the winning segment (Invisible Symbols State Machine → `winLine.line.fullPayline`).
  * Returns `undefined` when the author hasn't enabled it, so parity is preserved and the caller
@@ -644,6 +662,7 @@ const effects: Record<string, FlowEffect> = {
 		await awaitPresentation({
 			type: 'winLineShow',
 			points: winLinePointsFor(winningPositionsOf(win)),
+			columnWin: winLineColumnWinFor(winningPositionsOf(win)),
 			fullPoints: winLineFullPointsFor(win),
 			color: winLineColorFor(payload.line as number | undefined),
 			...winLineTextFor({

@@ -15,6 +15,11 @@
 				 *  the line draws in this colour instead of the single Symbols-tool default, and it is
 				 *  published as the reusable win colour for assets on this win. Absent ⇒ the default. */
 				color?: string;
+				/** A COLUMN (cluster) win — at least one reel pays more than one cell, the shape a Book-of
+				 *  expansion makes. Drawn as DISCONNECTED vertical bars (one per winning cell, merging
+				 *  within a column) with the amount stamped ONCE, centred — never the criss-cross zig-zag
+				 *  a connected polyline traces through scattered cells. Absent/false ⇒ ordinary payline. */
+				columnWin?: boolean;
 		  }
 		| { type: 'winLineHide' };
 </script>
@@ -47,6 +52,9 @@
 	/** The winning payline's authored colour (Invisible Game Config), when it has one. Overrides the
 	 *  single Symbols-tool line colour for this win; `undefined` ⇒ the authored default draws. */
 	let winColor = $state<string | undefined>(undefined);
+	// A column/cluster win (Book-of expansion): vertical bars, not a connected diagonal. See the
+	// `columnWin` field on `winLineShow`.
+	let columnWin = $state(false);
 	let amount = $state('');
 	/** The authored per-win message (Invisible Win Text), already localized + interpolated by
 	 *  `winLineTextFor`. Empty unless authored — that is the parity default, since the win line
@@ -74,11 +82,19 @@
 			amount = emitterEvent.amount;
 			message = emitterEvent.message;
 			winColor = emitterEvent.color;
+			columnWin = emitterEvent.columnWin ?? false;
 			// Publish the reusable win colour so any asset shown on this win can tint itself to the
 			// winning payline. Cleared on hide. `null` when the line has no authored colour.
 			context.stateGame.winLineColor = emitterEvent.color ?? null;
-			// A slammed round draws the line COMPLETE at once (final state, not a dropped line).
-			if (line.animated && !roundSkip.isSkipped() && emitterEvent.points.length >= 2) {
+			// A slammed round draws the line COMPLETE at once (final state, not a dropped line). A
+			// column win never head-traces (there is no single path to sweep) — its bars all appear
+			// together, so it takes the instant branch too.
+			if (
+				line.animated &&
+				!roundSkip.isSkipped() &&
+				!columnWin &&
+				emitterEvent.points.length >= 2
+			) {
 				revealed = false;
 				progress.set(0, { duration: 0 });
 				// ~220ms per 4 symbol-widths of line, scaled by speed, clamped to a sane range.
@@ -100,6 +116,7 @@
 			amount = '';
 			message = '';
 			winColor = undefined;
+			columnWin = false;
 			context.stateGame.winLineColor = null;
 			revealed = true;
 			progress.set(1, { duration: 0 });
@@ -117,6 +134,10 @@
 		context.stateGameDerived.boardLayout().width +
 			(boardDimensions().x - 1) * context.stateGameDerived.boardGeometry().columnExtraLocal,
 	);
+
+	/** Half a cell's height — a column-win bar spans one full cell centred on each winning symbol, so
+	 *  cells stacked in the same reel merge into one continuous vertical bar. */
+	const cellHalf = $derived(context.stateGameDerived.boardGeometry().rowPitchLocal / 2);
 
 	/** The amount's RENDERED box, reported by `ResponsiveBitmapText` (its `maxWidth` is only the cap,
 	 *  not the drawn width). Until it has measured, a font-size estimate keeps the FIRST frame close
@@ -150,12 +171,24 @@
 	 */
 	const label = $derived.by(() => {
 		if (!points.length) return undefined;
-		const last = points[points.length - 1];
 		const { width, height } = labelBox;
-		let y = last.y + LABEL_GAP;
-		if (y + height > windowHeight) y = last.y - LABEL_GAP - height;
+		// A column win stamps ONCE, centred over the winning columns (their x-extent) just beneath the
+		// lowest bar; an ordinary payline stamps at its last paying symbol. Both then flip-above +
+		// clamp to stay inside the reel window, exactly as before.
+		const anchorX = columnWin
+			? (Math.min(...points.map((pt) => pt.x)) + Math.max(...points.map((pt) => pt.x))) / 2
+			: points[points.length - 1].x;
+		const anchorBottom = columnWin
+			? Math.max(...points.map((pt) => pt.y)) + cellHalf
+			: points[points.length - 1].y;
+		// Where the flipped-above stamp sits: clear of the bars' TOP for a column win, else the point.
+		const anchorTop = columnWin
+			? Math.min(...points.map((pt) => pt.y)) - cellHalf
+			: points[points.length - 1].y;
+		let y = anchorBottom + LABEL_GAP;
+		if (y + height > windowHeight) y = anchorTop - LABEL_GAP - height;
 		return {
-			x: clamp(last.x, width / 2, Math.max(width / 2, windowWidth - width / 2)),
+			x: clamp(anchorX, width / 2, Math.max(width / 2, windowWidth - width / 2)),
 			y: clamp(y, 0, Math.max(0, windowHeight - height)),
 		};
 	});
@@ -186,22 +219,39 @@
 		}
 	}
 
+	/** A column win's bars: one vertical segment per winning cell, from its centre ± half a cell.
+	 *  Sub-paths in a single stroke, so cells stacked in a reel merge and separate columns stay
+	 *  disconnected — the readable "these whole columns pay" shape, not a criss-cross zig-zag. */
+	function traceColumns(graphics: DrawGraphics, pts: WinLinePoint[], half: number): void {
+		for (const pt of pts) {
+			graphics.moveTo(pt.x, pt.y - half);
+			graphics.lineTo(pt.x, pt.y + half);
+		}
+	}
+
 	// Re-created whenever the points or the draw progress change, so the <Graphics>
 	// redraws the growing line (the closure captures the current progress value).
 	const draw = $derived.by(() => {
 		const pts = points;
 		const full = fullPoints;
 		const p = progress.current;
+		const isColumns = columnWin;
+		const half = cellHalf;
 		const coreWidth = SYMBOL_SIZE * line.width;
 		// The winning payline's authored colour overrides BOTH the core line and its glow halo, so the
 		// whole line reads as that colour; un-coloured wins keep the single Symbols-tool defaults.
 		const coreColor = winColor ?? line.color;
 		const haloColor = winColor ?? line.glowColor;
+		// Stamp the current shape into the path: disconnected vertical bars for a column win, the
+		// progressive polyline otherwise. Called once per stroke so the halo + core layer up.
+		const trace = (graphics: DrawGraphics) =>
+			isColumns ? traceColumns(graphics, pts, half) : tracePath(graphics, pts, p);
 		return (graphics: DrawGraphics) => {
 			// Optional full-payline underlay: the WHOLE path (all reels), drawn COMPLETE (no
 			// animated reveal — it is context, not the win) BENEATH the winning segment, in its own
-			// colour. Off by default, so an un-authored game draws nothing here.
-			if (line.fullPayline && full.length >= 2) {
+			// colour. Off by default, so an un-authored game draws nothing here. Skipped for a column
+			// win — a "full payline" is a connected-line notion that a cluster win has no analogue for.
+			if (!isColumns && line.fullPayline && full.length >= 2) {
 				tracePath(graphics, full, 1);
 				graphics.stroke({
 					color: line.fullPaylineColor,
@@ -221,7 +271,7 @@
 					{ w: coreWidth * 1.8, a: 0.2 },
 				];
 				for (const halo of halos) {
-					tracePath(graphics, pts, p);
+					trace(graphics);
 					graphics.stroke({
 						color: haloColor,
 						width: halo.w,
@@ -231,7 +281,7 @@
 					});
 				}
 			}
-			tracePath(graphics, pts, p);
+			trace(graphics);
 			graphics.stroke({
 				color: coreColor,
 				width: coreWidth,
