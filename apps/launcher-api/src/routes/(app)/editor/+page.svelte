@@ -729,6 +729,15 @@
 		const art = resolveAnchorPreviewArt(node, data.assets);
 		if (art && art.placement === 'cover') return true;
 		if (node.preview?.art?.fit) return true;
+		// A `canvas`-space `coverFit` sprite/spine covers the window with the SAME cover
+		// math — so it needs the SAME cover controls (scale + fit + Transform stretch).
+		if (
+			activeScene?.space === 'canvas' &&
+			node.coverFit &&
+			(node.kind === 'sprite' || node.kind === 'spine')
+		) {
+			return true;
+		}
 		return (
 			activeScene?.space === 'background' &&
 			(node.kind === 'sprite' || node.kind === 'spine' || node.kind === 'componentInstance')

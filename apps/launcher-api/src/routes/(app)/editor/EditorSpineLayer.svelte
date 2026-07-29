@@ -344,6 +344,11 @@
 		coverScale?: number;
 		stretch?: { x: number; y: number };
 		fit?: 'cover' | 'contain';
+		/** A `canvas`-space spine node with `node.coverFit`: cover-fit the window with the
+		 * SAME true-cover branch a `background`-space spine uses (target = the frame/window),
+		 * but the scene stays flow-gated (not a persistent background) — mirrors the runtime
+		 * `LayoutNodeView` (`isCanvasCoverFit`). Absent ⇒ the node's normal space mapping. */
+		coverFit?: boolean;
 		/** A spine nested inside a container / component instance: its WORLD transform
 		 * (canvas coords, pre pan/zoom) already composed from the ancestor chain via
 		 * {@link composeWorldMatrix}, so the renderer places it directly and skips the
@@ -413,6 +418,7 @@
 						coverScale: backgroundCoverScale(n),
 						stretch: backgroundCoverStretch(n),
 						fit: backgroundFit(n),
+						coverFit: sc.space === 'canvas' && n.coverFit === true,
 					});
 				} else {
 					// Resolve the anchor's stand-in art the SAME way the 2D canvas does
@@ -508,7 +514,16 @@
 			if (n.kind === 'spine') {
 				out.push(nestedSpineTarget(n, sc, nextChain));
 			} else if (n.kind === 'container') {
-				collectNestedSpines(n.children, sc, out, nextChain, depth, stack, instanceParams, instanceSpineBundle);
+				collectNestedSpines(
+					n.children,
+					sc,
+					out,
+					nextChain,
+					depth,
+					stack,
+					instanceParams,
+					instanceSpineBundle,
+				);
 			} else if (n.kind === 'componentInstance') {
 				const def = componentMap.get(n.componentId);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
@@ -869,9 +884,11 @@
 					target.stretch ?? { x: 1, y: 1 },
 					target.fit ?? 'cover',
 				);
-			} else if (target.space === 'background') {
+			} else if (target.space === 'background' || target.coverFit) {
 				// Full-bleed cover of the fixed window (§10.2) — same true-cover helper the
-				// game runtime + 2D canvas use. Art is centred on the skeleton origin.
+				// game runtime + 2D canvas use. Art is centred on the skeleton origin. Also
+				// taken by a `canvas`-space `coverFit` spine (flow-gated full-screen fill),
+				// checked BEFORE the plain canvas/standard branch below so it cover-fits.
 				const nat = naturalSizeOf(inst);
 				const bgStretch = target.stretch ?? { x: 1, y: 1 };
 				const cover = coverTransform({
@@ -917,7 +934,8 @@
 			if (
 				(target.width !== undefined || target.height !== undefined) &&
 				!target.placement &&
-				target.space !== 'background'
+				target.space !== 'background' &&
+				!target.coverFit
 			) {
 				const nat = naturalSizeOf(inst);
 				if (nat && nat.w > 0 && nat.h > 0) {
@@ -1001,9 +1019,7 @@
 						// adds it to the container's parent-space position, not to the bone frame.
 						const wx = riderSk0.x + bone.worldX * riderSk0.scaleX + spec.offsetX * absRigX;
 						const wy = riderSk0.y + bone.worldY * riderSk0.scaleY + spec.offsetY * absRigY;
-						const rotation = spec.followRotation
-							? -bone.getWorldRotationX() * RIDER_DEG_TO_RAD
-							: 0;
+						const rotation = spec.followRotation ? -bone.getWorldRotationX() * RIDER_DEG_TO_RAD : 0;
 						const scaleX = spec.symbolScale * (spec.followScale ? bone.getWorldScaleX() : 1);
 						const scaleY = spec.symbolScale * (spec.followScale ? bone.getWorldScaleY() : 1);
 						boneRiders.set(spec.hostNodeId, {
