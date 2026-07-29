@@ -68,6 +68,9 @@
 	context.eventEmitter.subscribeOnMount({
 		freeSpinOutroShow: () => {
 			show = true;
+			// Reset the count-up-complete latch at the EARLIEST outro signal — before the authored
+			// screen subscribes — so a stale `true` from a prior outro can't pre-arm this one's tap.
+			freeSpinOutroState.countUpComplete = false;
 			// EARLY MOUNT (v1 only) — activate the authored outro overlay the instant its `*Show`
 			// broadcasts, before the round-block below (the choreography shows THEN counts up). Only the
 			// macro `bookEvent` transition, never the presentation, so the running choreography is not
@@ -110,7 +113,11 @@
 						// completion is completion). Fire the component-scoped `freeSpinOutroCountUpComplete`
 						// signal ONCE per outro, so an authored `tapToContinue` / prompt with
 						// `tapArmAfterSignal: 'freeSpinOutroCountUpComplete'` arms only now (never before the
-						// count). Un-authored ⇒ nothing subscribes ⇒ inert (parity).
+						// count). Un-authored ⇒ nothing subscribes ⇒ inert (parity). Latch it FIRST (before
+						// the broadcast) so a screen that subscribes late — a zero/instant count-up finishes in
+						// the same tick it mounts — seeds from the latch and still arms (the emitter has no
+						// replay, so a fire-before-subscribe would otherwise be lost → the stuck outro).
+						freeSpinOutroState.countUpComplete = true;
 						context.eventEmitter.broadcast({ type: 'freeSpinOutroCountUpComplete' });
 						// v2: the count-up has finished ⇒ release the round; the authored screen's tap owns
 						// the wait-for-tap. v1: keep holding until the screen completes (the `$effect` above
