@@ -15,9 +15,9 @@
  *  B. `basegame` NEVER leaves the active set across the whole lifecycle (the DECISION-1 invariant).
  *  C. The counter PERSISTS — a second `updateFreeSpin` while the counter is already layered is a
  *     `changesActiveSet` no-op (no re-enter, no re-notify) — the counter stays up, no flicker.
- *  D. The `retrigger` LAYER edge is INERT until the FS-4 event exists (an edge naming a
- *     never-arriving event never fires) — parity-safe; a synthetic `retrigger` DOES layer it,
- *     proving the wiring is correct for when FS-4 lands.
+ *  D. The retrigger LAYER edge (FS-4, landed) fires on the REAL `freeSpinRetrigger` book event: an
+ *     unrelated event never layers it (parity), while a `freeSpinRetrigger` DOES layer it over the
+ *     persistent base + counter, and its Complete dismisses it — the reconciled seam wiring.
  *  E. EVENT-AUTHORING — since FS-6, the RAW `LINES_FLOW_FREESPIN_DOC` AUTHORS the free-spin book
  *     events (the full Phase-5 choreographies), so `dispatchBookEvent` runs the interpreter (not the
  *     coded handler) — the flow owns the presentation. The OWNERSHIP GATING (OFF ⇒ these fall
@@ -103,9 +103,9 @@ const makeInterp = (
 			updateFreeSpin: async () => void codedRan.push('updateFreeSpin'),
 			freeSpinEnd: async () => void codedRan.push('freeSpinEnd'),
 			reveal: async () => void codedRan.push('reveal'),
-			// FS-4 will register the real `retrigger` handler; a no-op here keeps the dispatcher quiet
-			// while case D drives a SYNTHETIC `retrigger` to prove the (orthogonal) transition wiring.
-			retrigger: async () => void codedRan.push('retrigger'),
+			// FS-4 (landed): the retrigger fires on the real `freeSpinRetrigger` event. A no-op coded
+			// twin keeps the dispatcher quiet for an un-authored game (present-nothing parity).
+			freeSpinRetrigger: async () => void codedRan.push('freeSpinRetrigger'),
 		},
 	});
 
@@ -230,14 +230,13 @@ const main = async () => {
 			// even though the transition no-ops the re-layer. (No coded handler runs — flow owns it.)
 			assert(
 				`authored updateFreeSpin ran on the repeat (number updates via the effect) (${tag})`,
-				rig.effectsRan.includes('updateFreeSpinCounter') &&
-					!codedRan.includes('updateFreeSpin'),
+				rig.effectsRan.includes('updateFreeSpinCounter') && !codedRan.includes('updateFreeSpin'),
 			);
 		}
 
-		// --- D. the retrigger edge is inert until FS-4, but wired correctly ---
+		// --- D. the retrigger edge (FS-4, landed) fires on the real `freeSpinRetrigger` event ---
 		console.log(
-			`D. retrigger edge — inert on a normal stream, layers on a synthetic event (${tag}):`,
+			`D. retrigger edge — inert on unrelated events, layers on freeSpinRetrigger (${tag}):`,
 		);
 		{
 			const rig = makeRig(turbo);
@@ -246,20 +245,19 @@ const main = async () => {
 			const interp = makeInterp(LINES_FLOW_FREESPIN_DOC, rig, setChanges, codedRan);
 			await interp.start();
 
-			// No `retrigger` handler + no `retrigger` in the normal stream ⇒ the edge never fires.
+			// An unrelated event in the normal stream ⇒ the retrigger edge never fires.
 			await interp.dispatchBookEvent({ type: 'updateFreeSpin' }, CONTEXT);
 			await settle();
 			assert(
-				`no retrigger event ⇒ freeSpinRetrigger NEVER layers (inert until FS-4) (${tag})`,
+				`unrelated event ⇒ freeSpinRetrigger NEVER layers (${tag})`,
 				!interp.activeScreenIds.includes('freeSpinRetrigger'),
 			);
 
-			// A synthetic `retrigger` (what FS-4 will emit) DOES layer the retrigger overlay — the
-			// wiring is correct, only the emitting handler is missing today.
-			await interp.dispatchBookEvent({ type: 'retrigger' }, CONTEXT);
+			// The real `freeSpinRetrigger` event (the facade's type) DOES layer the retrigger overlay.
+			await interp.dispatchBookEvent({ type: 'freeSpinRetrigger' }, CONTEXT);
 			await settle();
 			assert(
-				`synthetic retrigger ⇒ LAYERS freeSpinRetrigger over base + counter (wiring correct) (${tag})`,
+				`freeSpinRetrigger ⇒ LAYERS freeSpinRetrigger over base + counter (wiring correct) (${tag})`,
 				interp.activeScreenIds.includes('freeSpinRetrigger') &&
 					interp.activeScreenIds.includes('basegame'),
 			);
@@ -273,7 +271,9 @@ const main = async () => {
 		}
 
 		// --- E. event-authoring — the RAW (ownership-ON) fixture AUTHORS the free-spin events ---
-		console.log(`E. raw fixture authors the free-spin events (flow owns; ownership gating = fs6) (${tag}):`);
+		console.log(
+			`E. raw fixture authors the free-spin events (flow owns; ownership gating = fs6) (${tag}):`,
+		);
 		{
 			const rig = makeRig(turbo);
 			const codedRan: string[] = [];

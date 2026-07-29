@@ -461,10 +461,10 @@ export const LINES_FLOW_COND_DOC: FlowDoc = {
 //     is a `changesActiveSet` no-op (the target is already active), so its `enter` never replays
 //     and the counter stays up. Its displayed NUMBER updates through the `updateFreeSpin` event
 //     choreography + the `freeSpins` value pin, NOT a re-enter — the correct active-set behaviour.
-//   - `basegame --retrigger (bookEvent, LAYER)--> freeSpinRetrigger` — layers the "extra free
-//     spin" flourish. `retrigger` is the FS-4 dedicated event, NOT YET emitted by any handler, so
-//     this edge is INERT until FS-4 lands (an edge naming a never-arriving event never fires —
-//     parity-safe). It is authored now so the scene-id contract + graph shape are complete.
+//   - `basegame --freeSpinRetrigger (bookEvent, LAYER)--> freeSpinRetrigger` — layers the "extra
+//     free spins" flourish. `freeSpinRetrigger` is the FS-4 dedicated event (LANDED — emitted by
+//     the facade when 3+ scatters land mid free spin); the step is owned only when the owner places
+//     the screen + wires this edge + authors the scene, else stripped to the coded no-op (parity).
 //   - `freeSpinRetrigger --complete--> basegame` — dismisses the flourish back to the base.
 //   - `basegame --freeSpinEnd (bookEvent, LAYER)--> freeSpinOutro` — layers the outro.
 //   - `freeSpinOutro --complete--> basegame` — dismisses the outro back to the plain base.
@@ -563,7 +563,7 @@ export const LINES_FLOW_FREESPIN_DOC: FlowDoc = {
 		// LAYER edges INTO the overlays (basegame persists under each).
 		freeSpinLayerEdge('freeSpinTrigger', 'freeSpinIntro'),
 		freeSpinLayerEdge('updateFreeSpin', 'freeSpinCounter'),
-		freeSpinLayerEdge('retrigger', 'freeSpinRetrigger'), // FS-4 seam — inert until `retrigger` exists.
+		freeSpinLayerEdge('freeSpinRetrigger', 'freeSpinRetrigger'), // FS-4 (landed) — the retrigger flourish.
 		freeSpinLayerEdge('freeSpinEnd', 'freeSpinOutro'),
 		// HANDOFF (self-complete) edges back to the persistent base.
 		freeSpinReturnEdge('freeSpinIntro'),
