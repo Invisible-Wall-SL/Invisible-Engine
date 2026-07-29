@@ -1179,6 +1179,22 @@
 		markDirty();
 	}
 
+	// ---------- per-node cover / full-screen fill (canvas-space, flow-gated) ----------
+	// A sprite/spine in a `canvas`-space (flow-gated) scene can opt into true cover-fit
+	// (`node.coverFit`) — the SAME cover math a `background` scene applies, but WITHOUT the
+	// always-on persistent mounting, so the flow still shows/hides the screen. Turning it on
+	// reveals the "Background" cover section (scale + fit) via `isBackgroundCover`. Not needed
+	// for a `background` scene (that already covers) or non-sprite/spine kinds.
+	const canCoverFit = $derived(
+		sceneSpace === 'canvas' && (node?.kind === 'sprite' || node?.kind === 'spine'),
+	);
+	const coverFitOn = $derived(node?.coverFit === true);
+	function setCoverFitFlag(n: LayoutNode, on: boolean): void {
+		if (on) n.coverFit = true;
+		else delete n.coverFit;
+		markDirty();
+	}
+
 	// ---------- spine signal cues (§8.5, narrowed) ----------
 	// When the owning component's named signal fires (the game wires it to a book
 	// event via `registerComponentSignals`), this spine plays the chosen animation.
@@ -2410,6 +2426,24 @@
 			</div>
 		{/if}
 	</section>
+
+	{#if canCoverFit}
+		<section class="bg-section">
+			<h3>Fill</h3>
+			<label class="field check">
+				<input
+					type="checkbox"
+					checked={coverFitOn}
+					onchange={(e) => setCoverFitFlag(node, e.currentTarget.checked)}
+				/>
+				<span>Cover / full-screen fill</span>
+			</label>
+			<p class="muted small">
+				Aspect-preserving fill of the game window, like a background — but this screen stays
+				flow-gated (shown/hidden by the flow), never always-on. Tune the fill below.
+			</p>
+		</section>
+	{/if}
 
 	{#if isBackgroundCover}
 		<section class="bg-section">
