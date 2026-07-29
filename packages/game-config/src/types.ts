@@ -103,6 +103,23 @@ export type BetModePresentation = {
 	/** Menu order, ascending. Ties (and unset) fall back to the order the mode appears in `betModes`. */
 	order?: number;
 	text?: BetModeText;
+	art?: BetModeArt;
+};
+
+/**
+ * A bet mode's ART, by editor-art asset KEY (Invisible Game Config Phase 7 — bet-mode assets).
+ * Each field holds an EXISTING editor-art key (the same key space the Scene Editor / component art
+ * uses), NOT a literal URL: the runtime resolves it to the already-baked texture, so the art rides
+ * the live-asset chain (export → deploy → bake → pull → register) for free. Absent ⇒ no art (the
+ * menu falls back to text). Kept separate from `text` so a copy-only edit never touches art.
+ */
+export type BetModeArt = {
+	/** The mode's menu/selector icon. */
+	icon?: string;
+	/** The buy/confirm dialog's hero image. */
+	dialogImage?: string;
+	/** The volatility indicator art. */
+	volatility?: string;
 };
 
 /** Presentation overrides keyed by the SAME mode key as {@link GameConfigDoc.betModes}. */
@@ -128,6 +145,10 @@ export type ResolvedBetMode = {
 	dialog: string;
 	/** The HUD bet-readout label. Empty when unauthored, so the HUD keeps its generic "BET". */
 	betAmountLabel: string;
+	/** Editor-art asset keys for the mode's art, RESOLVED — empty strings when unauthored, so a
+	 *  consumer renders nothing rather than a broken texture. The runtime maps these into
+	 *  `BetModeData.assets` and resolves each key to its baked texture. */
+	art: { icon: string; dialogImage: string; volatility: string };
 };
 
 /**
