@@ -1,13 +1,15 @@
 import { fromPromise } from 'xstate';
 
 import { API_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
-import { stateBet, stateUrlDerived, stateModal } from 'state-shared';
+import { stateBet, stateBetDerived, stateUrlDerived, stateModal } from 'state-shared';
 import { requestBet, requestEndRound } from 'rgs-requests';
 
 import type { BaseBet } from './types';
 
 const handleRequestBet = async ({ onError }: { onError: () => void }) => {
 	try {
+		const isBuyMode = stateBetDerived.activeBetMode()?.type === 'buy';
+
 		const data = await requestBet({
 			rgsUrl: stateUrlDerived.rgsUrl(),
 			sessionID: stateUrlDerived.sessionID(),
@@ -22,6 +24,9 @@ const handleRequestBet = async ({ onError }: { onError: () => void }) => {
 
 		if (data?.round?.state && data?.round?.state?.length > 0) {
 			stateBet.wageredBetAmount = stateBet.betAmount;
+			// Capture that this committed round was a bought bonus, so the one-shot
+			// reset at round end fires even if betModeMeta no longer resolves to 'buy'.
+			stateBet.pendingRoundIsBuy = isBuyMode;
 
 			return data;
 		} else {
