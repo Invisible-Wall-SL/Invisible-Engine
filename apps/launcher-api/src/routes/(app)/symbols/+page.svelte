@@ -17,6 +17,7 @@
 		type RegionSet,
 	} from '../editor/editorRegions.client';
 	import { builtinSpineKey, hasBuiltinSpine } from '../editor/editorSpine.client';
+	import SymbolFxPreview from './SymbolFxPreview.svelte';
 	import SymbolSpinePreview from './SymbolSpinePreview.svelte';
 	import SymbolSpineStage from './SymbolSpineStage.svelte';
 	import SymbolSpritePreview from './SymbolSpritePreview.svelte';
@@ -1147,6 +1148,24 @@
 						</div>
 					</div>
 
+					{#snippet bookVfxThumb(layer: BookVfxLayer, size: number)}
+						{#if layer.kind === 'sprite' && layer.assetKey}
+							<SymbolSpritePreview frame={layer.assetKey} index={spriteIndex} {size} />
+						{:else if layer.kind === 'spine' && layer.assetKey}
+							<SymbolSpinePreview
+								assetKey={layer.assetKey}
+								animationName={layer.animationName}
+								{size}
+								{reloadToken}
+							/>
+						{:else if layer.kind === 'flipbook' && layer.clipId}
+							{@const frame = clipFirstFrame(layer.clipId)}
+							{#if frame}<SymbolSpritePreview {frame} index={spriteIndex} {size} />{/if}
+						{:else if layer.kind === 'fx' && layer.effectId}
+							<SymbolFxPreview effectId={layer.effectId} {size} />
+						{/if}
+					{/snippet}
+
 					<div class="bv-slots">
 						{#each BOOK_VFX_SLOT_META as meta (meta.slot)}
 							{@const layer = doc.bookVfx?.[meta.slot]}
@@ -1176,8 +1195,11 @@
 
 								<div class="bv-current">
 									{#if layer}
-										<span class="hl-label">{BOOK_VFX_KIND_LABELS[layer.kind]}</span>
-										<span class="hl-chip">{bookVfxLabel(layer)}</span>
+										<div class="bv-thumb">{@render bookVfxThumb(layer, 72)}</div>
+										<div class="bv-meta">
+											<span class="hl-label">{BOOK_VFX_KIND_LABELS[layer.kind]}</span>
+											<span class="hl-chip">{bookVfxLabel(layer)}</span>
+										</div>
 									{:else}
 										<span class="hl-note">No layer — the game draws nothing here.</span>
 									{/if}
@@ -1331,8 +1353,19 @@
 												</select>
 												<p class="hint">
 													The effect plays from Invisible FX — open <a href="/fx">Invisible FX</a> to edit it.
+													For an FX layer, <strong>Size</strong> below is a scale multiplier on the effect's
+													authored size (1 = as authored), not a cell fit — so 10 is 10× (huge); dial it
+													down (e.g. 0.5) to fit the cell.
 												</p>
 											</div>
+											{#if bookVfxDraft.effectId}
+												<div class="field">
+													<span class="label">Preview</span>
+													<div class="panel-preview">
+														<SymbolFxPreview effectId={bookVfxDraft.effectId} size={140} />
+													</div>
+												</div>
+											{/if}
 										{/if}
 
 										<div class="bv-fit">
@@ -2543,6 +2576,25 @@
 		align-items: center;
 		gap: 10px;
 		margin-top: 10px;
+		flex-wrap: wrap;
+	}
+	/* At-a-glance thumbnail of the SET layer, shown without opening the editor. */
+	.bv-thumb {
+		display: grid;
+		place-items: center;
+		width: 72px;
+		height: 72px;
+		flex: none;
+		padding: 4px;
+		background: #0b0b10;
+		border: 1px solid #1d1d26;
+		border-radius: 6px;
+		overflow: hidden;
+	}
+	.bv-meta {
+		display: flex;
+		align-items: center;
+		gap: 10px;
 		flex-wrap: wrap;
 	}
 	.bv-editor {
