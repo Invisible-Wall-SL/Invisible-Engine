@@ -80,5 +80,11 @@ export function buildBetModeMeta(): BetModeMeta {
  * (compiled-template) menu. Idempotent: it always rebuilds from the current active config.
  */
 export function syncBetModeMeta(): void {
-	stateMeta.betModeMeta = buildBetModeMeta();
+	const meta = buildBetModeMeta();
+	// A config with no authored bet modes must never blank the selector: leave the existing
+	// (default) meta in place rather than hand the game an empty menu with no selectable mode.
+	// A well-formed Invisible Game Config always has `betModes` (the math contract), so this only
+	// guards a malformed/empty config — but it does so for every online project on the shared bundle.
+	if (Object.keys(meta).length === 0) return;
+	stateMeta.betModeMeta = meta;
 }
