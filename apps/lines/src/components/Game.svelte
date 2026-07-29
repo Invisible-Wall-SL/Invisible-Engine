@@ -1187,10 +1187,16 @@
 		// FS-7 follow-up — fired when the outro count-up FINISHES (the driver broadcasts
 		// `freeSpinOutroCountUpComplete`). An authored `tapToContinue` / prompt sets
 		// `tapArmAfterSignal: 'freeSpinOutroCountUpComplete'` (or `hiddenUntilSignal`) so it appears only
-		// after the count. Un-authored ⇒ nothing subscribes ⇒ inert (parity).
-		freeSpinOutroCountUpComplete: eventSignal((run) =>
-			context.eventEmitter.subscribe({ freeSpinOutroCountUpComplete: () => run() }),
-		),
+		// after the count. Un-authored ⇒ nothing subscribes ⇒ inert (parity). SEED off the driver's
+		// `countUpComplete` latch on subscribe: a ZERO / instant count-up (level 1 `'zero'`, `amount:0`)
+		// finishes in the same tick the authored screen mounts, so the broadcast can fire BEFORE this
+		// subscribes and the emitter has no replay (the fire is lost ⇒ the tap never arms ⇒ stuck outro).
+		// Seeding a late subscriber from the latch makes arming order-independent; a real win's long
+		// count-up keeps the latch false until well after the screen subscribes, so it is unaffected.
+		freeSpinOutroCountUpComplete: eventSignal((run) => {
+			if (freeSpinOutroState.countUpComplete) run();
+			return context.eventEmitter.subscribe({ freeSpinOutroCountUpComplete: () => run() });
+		}),
 		// The book expanding-symbol reveal lifecycle — an authored spine cue on the author's own
 		// reveal component plays with the mechanic (mirrors `freeSpinStart`/`freeSpinEnd`). These
 		// are payload-less: the chosen symbol comes from the `specialSymbol` value source + the

@@ -227,5 +227,60 @@ assert('prompt revealed after count-up completes', isNodeRevealed(COMPLETE, done
 // An un-gated tap (no `tapArmAfterSignal`) is armed on mount (parity — today's behaviour).
 assert('un-gated tap armed on mount (parity)', isTapArmed(undefined, {}) === true);
 
+// ---------------------------------------------------------------------------
+// E. The `countUpComplete` latch makes tap-arm ORDER-INDEPENDENT (the stuck-outro fix).
+// A ZERO / instant count-up (level 1 `'zero'`, amount:0, presentDuration:0) finishes in the same
+// tick the authored screen mounts, so the driver's `freeSpinOutroCountUpComplete` broadcast can fire
+// BEFORE the screen subscribes. The emitter has NO replay (a fire with no subscriber is lost), so
+// without the fix the per-instance bus never records it and `isTapArmed` stays false ⇒ stuck outro.
+// The fix: the driver latches `freeSpinOutroState.countUpComplete=true` before broadcasting, and the
+// registered signal source seeds `if (latch) run()` on subscribe — so a LATE subscriber still arms.
+// This models that exact mechanism (record-on-fire only while subscribed + seed-on-subscribe) and
+// asserts it against the REAL `isTapArmed`.
+// ---------------------------------------------------------------------------
+console.log('\nE. countUpComplete latch seeds a LATE subscriber (order-independent tap-arm):');
+const armModel = (latch: { countUpComplete: boolean }, seedOnSubscribe: boolean) => {
+	const bus: Record<string, number> = {};
+	let subscribed = false;
+	const record = () => (bus[COMPLETE] = (bus[COMPLETE] ?? 0) + 1);
+	return {
+		broadcast: () => subscribed && record(), // no replay: a fire with no live subscriber is lost
+		subscribe: () => {
+			subscribed = true;
+			if (seedOnSubscribe && latch.countUpComplete) record(); // the fix's seed
+		},
+		armed: () => isTapArmed(COMPLETE, bus),
+	};
+};
+// Zero/instant win — completion broadcasts BEFORE the screen subscribes.
+{
+	const latch = { countUpComplete: false };
+	const a = armModel(latch, false); // WITHOUT the seed
+	latch.countUpComplete = true;
+	a.broadcast();
+	a.subscribe();
+	assert(
+		'no seed + completion-before-subscribe ⇒ tap NEVER arms (reproduces the stuck outro)',
+		a.armed() === false,
+	);
+}
+{
+	const latch = { countUpComplete: false };
+	const a = armModel(latch, true); // WITH the seed (the fix)
+	latch.countUpComplete = true;
+	a.broadcast();
+	a.subscribe();
+	assert('seed + completion-before-subscribe ⇒ tap ARMS (the fix)', a.armed() === true);
+}
+// Real win — the screen subscribes BEFORE the long count-up completes ⇒ armed either way.
+{
+	const latch = { countUpComplete: false };
+	const a = armModel(latch, true);
+	a.subscribe();
+	latch.countUpComplete = true;
+	a.broadcast();
+	assert('real win (subscribe-before-broadcast) arms', a.armed() === true);
+}
+
 console.log(failed ? '\nFS-7 outro harness: FAIL' : '\nFS-7 outro harness: PASS');
 if (failed) process.exit(1);
