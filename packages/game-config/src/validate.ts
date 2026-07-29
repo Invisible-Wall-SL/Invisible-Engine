@@ -122,6 +122,26 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 		});
 	}
 
+	// Bet-mode presentation is optional, but when authored it can contradict the math it decorates.
+	for (const [mode, presentation] of Object.entries(doc.betModePresentation ?? {})) {
+		const math = doc.betModes[mode];
+		// normalize already drops presentation for a non-existent mode, so `math` is present here.
+		if (presentation.kind === 'buy' && math && !math.buyBonus) {
+			issues.push({
+				severity: 'warning',
+				path: `betModePresentation.${mode}.kind`,
+				message: `${mode} is shown as a "buy" card but its math is not a buyBonus mode — the purchase would not trigger the feature.`,
+			});
+		}
+		if (presentation.kind === 'ante' && !presentation.text?.title) {
+			issues.push({
+				severity: 'warning',
+				path: `betModePresentation.${mode}.text`,
+				message: `${mode} is an ante mode with no title — it will fall back to its id in the menu.`,
+			});
+		}
+	}
+
 	return issues;
 };
 

@@ -110,6 +110,7 @@
 	import type { Scene } from 'engine-layout';
 
 	import { resetGameConfigCache, warnOnGameConfigIssues } from '../game/gameConfig';
+	import { syncBetModeMeta } from '../game/betModeMeta';
 	import { infoManifest } from '../game/infoManifest';
 	import { getActiveSymbolInfoMap, resetSymbolMapCache } from '../game/symbolMap';
 	import {
@@ -247,6 +248,12 @@
 	// an authored config is only known here, at runtime. Runs after the runtime-bundle branch above
 	// so it inspects the config the game will actually run, not the one it booted with.
 	warnOnGameConfigIssues(getActiveSymbolInfoMap());
+
+	// Build the bet-selector / buy-bonus menu from the ACTIVE config (Invisible Game Config Phase 6),
+	// replacing the shared `DEFAULT_BET_MODE_META` placeholder for this game. Runs after the
+	// runtime-bundle branch above so it reads the config the game will actually run — an online
+	// project's authored bet modes, cost and copy — not the one it booted with.
+	syncBetModeMeta();
 
 	// Boot loading screen (defined in the HTML shell, `app.html`): feed real asset-load
 	// progress into the pre-mount splash and dismiss it once the game's assets are ready.

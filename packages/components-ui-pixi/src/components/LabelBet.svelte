@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Container } from 'pixi-svelte';
-	import { stateBetDerived, stateModal } from 'state-shared';
+	import { stateBetDerived, stateModal, stateI18nDerived } from 'state-shared';
 	import { numberToCurrencyString } from 'utils-shared/amount';
 
 	import UiLabel from './UiLabel.svelte';
@@ -10,7 +10,12 @@
 
 	const props: UiLabelArgs = $props();
 	const context = getContext();
-	const label = $derived(stateBetDerived.activeBetMode()?.text.betAmountLabel || i18nDerived.bet());
+	// The active mode's label is an authored SOURCE string (Invisible Game Config); translate it so an
+	// ante badge localizes, falling back to the generic "BET" when the mode sets none.
+	const betAmountLabel = $derived(stateBetDerived.activeBetMode()?.text.betAmountLabel);
+	const label = $derived(
+		betAmountLabel ? stateI18nDerived.translate(betAmountLabel) : i18nDerived.bet(),
+	);
 	const value = $derived(numberToCurrencyString(stateBetDerived.betCost()));
 	const disabled = $derived(!context.stateXstateDerived.isIdle());
 

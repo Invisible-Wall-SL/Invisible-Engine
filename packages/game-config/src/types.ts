@@ -65,6 +65,72 @@ export type BetMode = {
 };
 
 /**
+ * How a bet mode presents in the menu:
+ * - `base` — the default stake; no card, it's just the game.
+ * - `ante` — a persistent boost the player toggles on and leaves on (Stake calls it "activate").
+ * - `buy` — a one-shot purchase of the feature.
+ *
+ * `ante` is EXPLICIT-only: the two math booleans (`feature`/`buyBonus`) cannot express it (the base
+ * mode itself is `feature: true`), so an ante mode has to be marked here. `base`/`buy` are derived
+ * from `buyBonus` when unset — see `resolveBetModes`.
+ */
+export type BetModeKind = 'base' | 'ante' | 'buy';
+
+/**
+ * The player-facing copy for a bet mode. Every field is a **source string in the base language** —
+ * the runtime renders it through the i18n resolver, whose key IS the source text, so these strings
+ * localize exactly like scene text does. Sparse: an unauthored field falls back to a derived default
+ * (see `resolveBetModes`), so a config need only override what it wants to change.
+ */
+export type BetModeText = {
+	title?: string;
+	description?: string;
+	button?: string;
+	dialog?: string;
+	/** The label the bet readout shows while this mode is the active stake (an ante's persistent
+	 *  badge, e.g. "DOUBLE CHANCE"). Unset ⇒ the HUD falls back to the generic "BET". */
+	betAmountLabel?: string;
+};
+
+/**
+ * The PRESENTATION of a bet mode — kind, menu order, and copy. An INVISIBLE-ENGINE extension, NOT
+ * part of the Stake export (which owns only the math half, {@link BetMode}); a paste-in config
+ * simply omits it, exactly like {@link GameConfigDoc.paylineColors}. Kept OUT of `betModes` so those
+ * entries round-trip a math export byte-for-byte.
+ */
+export type BetModePresentation = {
+	kind?: BetModeKind;
+	/** Menu order, ascending. Ties (and unset) fall back to the order the mode appears in `betModes`. */
+	order?: number;
+	text?: BetModeText;
+};
+
+/** Presentation overrides keyed by the SAME mode key as {@link GameConfigDoc.betModes}. */
+export type BetModePresentationMap = Record<string, BetModePresentation>;
+
+/**
+ * A bet mode folded into what the menu needs: the math from {@link BetMode} + the presentation from
+ * {@link BetModePresentation}, with every default already resolved. The ONE shape the runtime maps
+ * into its `BetModeMeta` — see `resolveBetModes`. Text fields are still SOURCE strings (the runtime
+ * translates them at render).
+ */
+export type ResolvedBetMode = {
+	mode: string;
+	kind: BetModeKind;
+	/** What the bet selector multiplies the base bet by — the config's `cost`. */
+	costMultiplier: number;
+	maxWin: number;
+	rtp: number;
+	order: number;
+	title: string;
+	description: string;
+	button: string;
+	dialog: string;
+	/** The HUD bet-readout label. Empty when unauthored, so the HUD keeps its generic "BET". */
+	betAmountLabel: string;
+};
+
+/**
  * A payline as ROW INDICES, one per reel: `[0, 1, 2, 1, 0]` on a 5-reel game. Keyed by line id
  * (a stringified number in every config seen so far, but treated as an opaque string here).
  */
@@ -85,6 +151,13 @@ export type GameConfigDoc = {
 	/** Visible rows per reel — one entry per reel, so a stepped grid is expressible. */
 	numRows: number[];
 	betModes: Record<string, BetMode>;
+	/**
+	 * OPTIONAL per-mode presentation (kind / order / copy) for the bet-selector + buy-bonus menu, keyed
+	 * by the SAME mode id as {@link betModes}. An INVISIBLE-ENGINE extension, not part of the Stake
+	 * export — a paste-in config omits it and the runtime derives sane defaults (see `resolveBetModes`).
+	 * Sparse: only modes with an override appear.
+	 */
+	betModePresentation?: BetModePresentationMap;
 	paylines: Paylines;
 	/** The symbol DICTIONARY — art/properties/payouts. Not the in-play set. */
 	symbols: Record<string, GameConfigSymbol>;

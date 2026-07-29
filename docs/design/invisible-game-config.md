@@ -114,6 +114,67 @@ the math team — that is how a Stake config actually arrives.
 per-consumer workarounds it replaces and point `publish-symbol-defaults.mjs`'s filter at the
 authored doc rather than the compiled module.
 
+**Phase 6 — bet modes become authorable + localizable (the buy-features/bonus surface).**
+
+The problem this closes: the buy-bonus / ante menu the player sees (`ModalBuyBonus` → `BonusCards`)
+reads `stateMeta.betModeMeta`, and that is only ever the hardcoded `DEFAULT_BET_MODE_META` in
+`packages/state-shared/src/constants.ts` — placeholder titles (`SAMURAI SPIN`, `SUPER BONUS`),
+`test-fart-cdn` S3 URLs, `example banner text`. **Nothing per-project ever reassigns it** (verified:
+the only write is the initializer). So every project ships the same placeholder buy menu — the exact
+"one hardcoded blob for everyone" disease this whole tool exists to cure (the `W`-never-lands bug,
+in the bet-mode surface).
+
+The math half is *already* here: `betModes[mode] = { cost, feature, buyBonus, rtp, max_win }`. What is
+missing is (a) the presentation — which modes are a **buy** vs a persistent **ante**, their display
+order, and their **text** — and (b) routing that text through localization.
+
+Split by *one fact, one home*:
+
+| Piece | Home |
+|---|---|
+| Which modes exist (the count), `cost`, `rtp`, `max_win`, `feature`/`buyBonus` | **config** `betModes` (already) |
+| `kind` (base/ante/buy), display `order`, **source** `text` (title/description/button/dialog) | **config** — new `betModePresentation` |
+| Translations of that text | **localization** (auto-collected; source read-only, config owns it) |
+| Icon / dialog image / volatility art | **deferred** — an asset class, referenced by key via the live-asset pipeline, NOT literal URLs |
+
+**Decision (was open #-none; made here):** the presentation is a NEW OPTIONAL top-level field, NOT
+extra keys on each `BetMode`. `betModes` is byte-compatible with the Stake math export on purpose, so
+its entries must round-trip a paste-in untouched. This mirrors the `paylineColors` precedent exactly —
+an Invisible-Engine extension a paste-in simply omits:
+
+```ts
+betModePresentation?: Record<string, {         // keyed by the SAME mode key as betModes
+	kind?: 'base' | 'ante' | 'buy';            // default DERIVED: buyBonus→'buy', else feature→'base';
+	order?: number;                            //   'ante' (persistent toggle) is explicit-only —
+	text?: {                                   //   the two booleans can't express it
+		title?: string;                        // SOURCE strings (base language). The runtime renders
+		description?: string;                  //   them through translate(), so localization picks
+		button?: string;                       //   them up — the "key IS the source text" model,
+		dialog?: string;                       //   identical to how scene text localizes.
+	};
+}>;
+```
+
+Sub-phases, each shippable green:
+
+- **6a — schema + resolver (game-config, dependency-free, offline-verified).** Add the field +
+  `normalizeBetModePresentation` (sparse, drops entries for a mode that doesn't exist, mirrors
+  `normalizePaylineColors`). Add `resolveBetModes(doc)` — the ONE place that folds `betModes` (math)
+  + `betModePresentation` (display) into the ordered presentation list the UI needs, owning the
+  boolean→`kind` derivation and the default title (the mode key). Validator: an `ante` with no
+  authored title warns (it would render its raw key). Extend `game-config-spike`. Nothing consumes it.
+- **6b — runtime assembly.** `betModeMeta()` in `game/gameConfig.ts` builds `BetModeMeta` from
+  `resolveBetModes(getActiveGameConfig())`, text passed through `translate()`; `Game.svelte` seeds
+  `stateMeta.betModeMeta` from it (reset on runtime-bundle apply, like the symbol map). Delete the
+  placeholder `DEFAULT_BET_MODE_META`; the un-authored fallback is *derived from the template config's
+  own `betModes`* (a `buyBonus` mode → a buy card titled from its key), so an un-authored game still
+  has a working menu — just without the fake Samurai copy. Verify in the running game.
+- **6c — the tool.** The `/config` Bet modes panel gains, per mode: a `kind` select, an `order`, and
+  the text fields (title/description/button/dialog). Numbers (`cost`/`max_win`) already there.
+- **6d — localization auto-collect.** `/localization` grows a **Bet modes** section that collects the
+  config's `betModePresentation` source strings (read-only source, config owns), same pattern as its
+  per-screen scene sections — so bet-mode copy translates like everything else.
+
 ## Open decisions
 
 1. **Does the config gate the Symbols SM grid directly?** Phase 4 makes the grid derivable from

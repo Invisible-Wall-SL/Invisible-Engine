@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { WHITE } from 'constants-shared/colors';
-	import { stateBetDerived } from 'state-shared';
+	import { stateBetDerived, stateI18nDerived } from 'state-shared';
 	import { CatalogText, getComponentParams } from 'engine-layout/svelte';
 	import type { ResolvedTransform } from 'engine-layout';
 
@@ -40,8 +40,11 @@
 		switch (source) {
 			case 'win':
 				return i18nDerived.win();
-			case 'bet':
-				return stateBetDerived.activeBetMode()?.text.betAmountLabel || i18nDerived.bet();
+			case 'bet': {
+				// Authored bet-mode label (Invisible Game Config) is a source string — translate it.
+				const betLabel = stateBetDerived.activeBetMode()?.text.betAmountLabel;
+				return betLabel ? stateI18nDerived.translate(betLabel) : i18nDerived.bet();
+			}
 			case 'balance':
 			default:
 				return i18nDerived.balance();
@@ -67,9 +70,20 @@
 	const align = $derived(stringParam('captionAlign'));
 	const halfW = $derived((numberParam('alignWidth') ?? 0) / 2);
 	const anchorX = $derived(
-		align === 'left' ? 0 : align === 'right' ? 1 : align === 'center' ? 0.5 : (transform?.anchor?.x ?? 0.5),
+		align === 'left'
+			? 0
+			: align === 'right'
+				? 1
+				: align === 'center'
+					? 0.5
+					: (transform?.anchor?.x ?? 0.5),
 	);
 	const offsetX = $derived(align === 'left' ? -halfW : align === 'right' ? halfW : 0);
 </script>
 
-<CatalogText x={offsetX} anchor={{ x: anchorX, y: transform?.anchor?.y ?? 0 }} text={caption} {style} />
+<CatalogText
+	x={offsetX}
+	anchor={{ x: anchorX, y: transform?.anchor?.y ?? 0 }}
+	text={caption}
+	{style}
+/>

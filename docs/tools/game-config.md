@@ -33,8 +33,10 @@ before — an un-authored project still runs the compiled template.
   Scene Editor draws its preview at this size, and a dev game's mock RGS deals it.
   Changing the reel count re-shapes the row list but leaves paylines and strips
   alone — mismatches surface as errors rather than silently trimming your work.
-- **Bet modes** — each entry in the bet selector / buy-bonus menu (cost, feature,
-  buy-bonus, RTP, max win).
+- **Bet modes** — each entry in the bet selector / buy-bonus menu, edited as a
+  per-mode card: the **math** (cost, feature, buy-bonus, RTP, max win) plus the
+  **presentation** (kind, menu order, and the copy the card shows). See _Bet
+  modes: math + presentation_ below.
 - **Symbols** — the symbol **dictionary**: properties and paytable per symbol
   (`count:multiplier` pairs, e.g. `5:20, 4:10, 3:5`). Each row carries an
   **in play** / **unused** badge (see below).
@@ -58,6 +60,36 @@ advertising symbols it never deals.
 > weighted math strips (the math team owns those, and they never reach the client). A
 > symbol's frequency here is only how often it flickers past during a spin, not a hit
 > rate or an RTP contribution.
+
+## Bet modes: math + presentation
+
+Each bet mode is a card with two halves. The **math** — Cost × (a multiple of the
+base bet), RTP, Max win ×, and the **Feature** / **Buy bonus** toggles — is the
+Stake-export shape the math team ships. The **presentation** is ours: how the mode
+looks in the player-facing menu.
+
+- **Kind** — `base`, a persistent `ante`, or a one-shot `buy`. Leave it on
+  **auto → <derived>** and the tool derives it from the math (a Buy-bonus mode ⇒
+  `buy`, otherwise `base`). `ante` — a stake toggle that stays on across spins —
+  **must be set explicitly**; the math's two booleans can't express a persistent
+  toggle, so nothing derives it for you.
+- **Order** — the mode's position in the menu. Leave it blank (**auto**) and the
+  card keeps its authoring order; set a number on one card to move just that one
+  without renumbering the rest.
+- **Copy** — the text the card shows: **Title**, **Button** (the call-to-action,
+  e.g. PLAY / BUY / ACTIVATE), **Bet label** (the HUD "BET" caption), plus a
+  **Description** and a **Dialog** (the buy-confirmation body). Blank fields fall
+  back to a legible default — the mode's key as its title and a verb matched to
+  its kind — so an un-authored mode still renders a working menu.
+
+Above the cards, a read-only **menu preview** shows the resolved, ordered menu as
+chips — each chip shows the resolved **title** and **cost×**, coloured and
+labelled (on hover) by its **kind** — so you can see the effect of your Kind and
+Order choices as you edit, exactly as the game will build the menu.
+
+The copy is authored here as **source text** only. It's translated in the
+**Invisible Localization** tool, which auto-collects these strings into its "Bet
+modes" section; a translation you write there lands in-game.
 
 ## Pasting in a config from the math team
 

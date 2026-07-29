@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { stateBet, stateModal, type BetModeData } from 'state-shared';
+	import { stateBet, stateModal, stateI18nDerived, type BetModeData } from 'state-shared';
 	import { Button } from 'components-shared';
 	import { getContextEventEmitter } from 'utils-event-emitter';
 	import { numberToCurrencyString } from 'utils-shared/amount';
@@ -16,6 +16,10 @@
 
 	const props: Props = $props();
 	const { eventEmitter } = getContextEventEmitter<EmitterEventModal>();
+
+	// Bet-mode copy is authored in Invisible Game Config as SOURCE strings; translate at render so it
+	// localizes (the key IS the source text). An untranslated string returns itself unchanged.
+	const translate = (value: string) => stateI18nDerived.translate(value);
 </script>
 
 {#each props.list as betModeData}
@@ -23,14 +27,14 @@
 		<BonusCard>
 			{#snippet title()}
 				<div class="title">
-					{betModeData.text.title}
+					{translate(betModeData.text.title)}
 				</div>
 			{/snippet}
 
 			{#snippet description()}
 				{#if betModeData?.text?.description}
 					<div class="description">
-						{betModeData.text.description}
+						{translate(betModeData.text.description)}
 					</div>
 				{/if}
 			{/snippet}
@@ -53,7 +57,7 @@
 				>
 					<BaseIcon width="100%" height="2rem" border="2px solid white;" />
 					<BaseButtonContent>
-						<span style="font-size: 1rem;">{betModeData.text.button}</span>
+						<span style="font-size: 1rem;">{translate(betModeData.text.button)}</span>
 					</BaseButtonContent>
 				</Button>
 			{/snippet}
