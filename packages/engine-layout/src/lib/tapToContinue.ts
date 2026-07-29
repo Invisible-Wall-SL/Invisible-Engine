@@ -113,3 +113,16 @@ export function tapArmAfterSignalOf(params: Record<string, unknown>): string {
 export function tapShowPromptOf(params: Record<string, unknown>): boolean {
 	return params[TAP_SHOW_PROMPT_PARAM] !== false;
 }
+
+/**
+ * Whether a tap-to-continue node's DIM backdrop should render BEHIND the scene content: true iff
+ * the tap node is NOT the topmost (last-painted) node — i.e. the author placed content ABOVE it in
+ * the outline (the paint order `LayoutScene` walks). `orderedNodeIds` is the scene's top-level node
+ * ids in that paint order. A tap id not present (a nested instance) ⇒ false, the safe legacy
+ * in-front placement. Lives here (not inline in `LayoutScene`) so the layer-order rule is unit
+ * testable and can't silently drift.
+ */
+export function tapDimBehind(orderedNodeIds: readonly string[], tapId: string): boolean {
+	const index = orderedNodeIds.indexOf(tapId);
+	return index >= 0 && index < orderedNodeIds.length - 1;
+}

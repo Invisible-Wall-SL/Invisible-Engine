@@ -27,6 +27,7 @@ const bundled = await esbuild.build({
 			tapSignalOf,
 			tapShowPromptOf,
 			tapArmAfterSignalOf,
+			tapDimBehind,
 			resolveComponentParams,
 		} from '../src/lib/index.ts';`,
 		resolveDir: HERE,
@@ -139,6 +140,31 @@ assert(mod.tapSignalOf(resolved) === 'go', 'resolved params carry the signal');
 assert(
 	mod.isTapToContinueEnabled(mod.resolveComponentParams(def, undefined)) === false,
 	'no instance params ⇒ tap off (parity)',
+);
+
+// --- tapDimBehind: the DIM sits behind the scene content iff the tap node is NOT the topmost
+// (last-painted) node — the author placed content ABOVE it in the outline. This is the layer-order
+// rule LayoutScene splits the surface on, so a celebration screen shows over its dim. ---
+const order = ['tap', 'gunshots', 'retriggerArt', 'gunshots2'];
+assert(
+	mod.tapDimBehind(order, 'tap') === true,
+	'a tap FIRST in paint order (content above it) ⇒ dim BEHIND the content',
+);
+assert(
+	mod.tapDimBehind(order, 'retriggerArt') === true,
+	'a tap in the MIDDLE with a later sibling (content still above it) ⇒ dim behind',
+);
+assert(
+	mod.tapDimBehind(['bg', 'art', 'tap'], 'tap') === false,
+	'a tap LAST in paint order (topmost, nothing above) ⇒ dim IN FRONT (legacy parity)',
+);
+assert(
+	mod.tapDimBehind(['tap'], 'tap') === false,
+	'the ONLY node ⇒ dim in front (nothing to sit behind) — parity',
+);
+assert(
+	mod.tapDimBehind(order, 'nested') === false,
+	'a tap id not among the top-level nodes (a nested instance) ⇒ in front (safe legacy default)',
 );
 
 if (failures > 0) {
