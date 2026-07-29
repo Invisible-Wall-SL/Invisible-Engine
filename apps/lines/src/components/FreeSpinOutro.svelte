@@ -4,7 +4,11 @@
 	export type EmitterEventFreeSpinOutro =
 		| { type: 'freeSpinOutroShow' }
 		| { type: 'freeSpinOutroHide' }
-		| { type: 'freeSpinOutroCountUp'; amount: number; winLevelData: WinLevelData };
+		| { type: 'freeSpinOutroCountUp'; amount: number; winLevelData: WinLevelData }
+		// FS-7 follow-up — broadcast by the headless outro DRIVER the moment its count-up finishes
+		// (natural, slammed, or hold-fast-forwarded). Drives the `freeSpinOutroCountUpComplete`
+		// component signal so an authored tap/prompt arms only after the count. Payload-less.
+		| { type: 'freeSpinOutroCountUpComplete' };
 </script>
 
 <script lang="ts">

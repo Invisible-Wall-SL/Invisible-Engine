@@ -1,27 +1,27 @@
 <script lang="ts">
 	import { FadeContainer, WinCountUpProvider } from 'components-pixi';
-	import { Container } from 'pixi-svelte';
+	import { CanvasSizeRectangle } from 'components-layout';
 	import { waitForResolve } from 'utils-shared/wait';
 	import { roundSkip } from 'utils-shared/skipToken';
-	import { OnMount } from 'components-shared';
+	import { OnMount, OnHotkey } from 'components-shared';
 	import type { WinLevelData } from '../game/winLevelMap';
 
 	import { getContext } from '../game/context';
 	import { FREE_SPIN_STEPS } from '../game/freeSpinOwnership';
 	import { getFlowInterpreter } from '../game/flowInterpreterHolder';
-	import WinCoins from './WinCoins.svelte';
 	import OutroStatePublisher from './OutroStatePublisher.svelte';
 	import { freeSpinOutroState } from '../game/freeSpinOutroState.svelte';
 
 	// FS-7 (design doc §14, outro step) — the HEADLESS free-spin OUTRO driver: the LOAD-BEARING core
 	// of `<FreeSpinOutroGate>` (subscribe `freeSpinOutro*`, run the `WinCountUpProvider` count-up,
-	// publish the win level + live count-up amount to `freeSpinOutroState`, emit the baked coin
-	// fountain) with NO dim, NO coded sprites and NO full-screen `PressToContinue`. Mounted in place of
-	// the full gate WHEN the authored `freeSpinOutro` screen owns the outro (full primitive parity,
-	// decision 1): the author supplies the dim / tap / hold / count text (bound to the
-	// `freeSpinOutroTotalWin` value source) / big-small art (gated on the `freeSpinOutroBigWin`/
-	// `freeSpinOutroSmallWin` signals). `<FreeSpinOutroGate>` stays intact as the un-authored FALLBACK
-	// (dim + fountain + press + two-stage tap), so a non-authored game is byte-identical (§7).
+	// publish the win level + live count-up amount to `freeSpinOutroState`) with NO dim, NO coded
+	// sprites, NO coin fountain and NO full-screen `PressToContinue`. Mounted in place of the full gate
+	// WHEN the authored `freeSpinOutro` screen owns the outro (full primitive parity, decision 1): the
+	// author supplies the dim / tap / hold / count text (bound to the `freeSpinOutroTotalWin` value
+	// source) / big-small art (gated on the `freeSpinOutroBigWin`/`freeSpinOutroSmallWin` signals) —
+	// and their OWN coin fountain (FX / particle / spine) if they want one; the driver never emits coins.
+	// `<FreeSpinOutroGate>` stays intact as the un-authored FALLBACK (dim + fountain + press + two-stage
+	// tap), so a non-authored game is byte-identical (§7).
 	//
 	// EXACTLY-ONE `freeSpinOutroCountUp` SUBSCRIBER (decision B) — this driver is that subscriber
 	// whenever an authored screen owns the outro; the coded `<FreeSpinOutroGate>` is suppressed at the
@@ -56,6 +56,15 @@
 	// `FreeSpinIntroFlowGate` so a spurious re-run can never resolve early.
 	let releaseRoundBlock: (() => void) | undefined;
 
+	// HOLD-TO-FAST-FORWARD (CHANGE 3) — while the player HOLDS a pointer (the canvas-space surface
+	// below) OR the Space key (via the engine's global keyboard broadcast, `<EnableHotkey>`), the
+	// count-up runs `HOLD_SPEED_SCALE`× faster; on release it eases back to normal speed. Continuous
+	// acceleration, NOT an instant skip — a slam (`roundSkip`) still snaps to the total independently.
+	const HOLD_SPEED_SCALE = 6;
+	let pointerHeld = $state(false);
+	let keyHeld = $state(false);
+	const speedScale = $derived(pointerHeld || keyHeld ? HOLD_SPEED_SCALE : 1);
+
 	context.eventEmitter.subscribeOnMount({
 		freeSpinOutroShow: () => {
 			show = true;
@@ -87,18 +96,22 @@
 			resolve();
 		}
 	});
-
-	const coins = $derived(freeSpinOutroState.coins);
 </script>
 
 <FadeContainer {show}>
 	{#if winLevelData}
 		{@const duration = winLevelData.presentDuration}
-		<WinCountUpProvider {amount} {duration}>
+		<WinCountUpProvider {amount} {duration} {speedScale}>
 			{#snippet children({ countUpAmount, startCountUp, countUpCompleted })}
 				<OnMount
 					onmount={async () => {
 						await startCountUp();
+						// CHANGE 2 — the count-up has finished (natural, slammed, or hold-fast-forwarded:
+						// completion is completion). Fire the component-scoped `freeSpinOutroCountUpComplete`
+						// signal ONCE per outro, so an authored `tapToContinue` / prompt with
+						// `tapArmAfterSignal: 'freeSpinOutroCountUpComplete'` arms only now (never before the
+						// count). Un-authored ⇒ nothing subscribes ⇒ inert (parity).
+						context.eventEmitter.broadcast({ type: 'freeSpinOutroCountUpComplete' });
 						// v2: the count-up has finished ⇒ release the round; the authored screen's tap owns
 						// the wait-for-tap. v1: keep holding until the screen completes (the `$effect` above
 						// releases). Raced via `roundSkip` so a slammed round never stalls waiting here.
@@ -113,16 +126,26 @@
 					 the `freeSpinOutroTotalWin` value source, or the coded `FreeSpinOutroVisual` reads it). -->
 				<OutroStatePublisher {countUpAmount} />
 
-				<!-- The baked coin fountain — KEPT in the driver (decision 2), authorable via
-					 `freeSpinOutroState.coins` (the optional `FreeSpinOutroCoins` marker). Default config
-					 (`show:true`, origin 0,0, level derived) reproduces today's fountain. -->
-				{#if coins.show}
-					<Container x={coins.x} y={coins.y}>
-						<WinCoins
-							emit={!countUpCompleted}
-							levelAlias={coins.levelAlias ?? winLevelData.alias}
-						/>
-					</Container>
+				<!-- Hold-to-fast-forward input surfaces (CHANGE 3), mounted ONLY while the count-up runs so
+					 they never intercept the authored tap-to-continue that arms on completion. The
+					 canvas-space rectangle detects a pointer hold; `<OnHotkey>` detects a Space hold off the
+					 engine's global keyboard broadcast. -->
+				{#if !countUpCompleted}
+					<CanvasSizeRectangle
+						eventMode="static"
+						cursor="pointer"
+						backgroundColor={0xffffff}
+						backgroundAlpha={0.001}
+						onpointerdown={() => (pointerHeld = true)}
+						onpointerup={() => (pointerHeld = false)}
+						onpointerupoutside={() => (pointerHeld = false)}
+					/>
+					<OnHotkey
+						hotkey="Space"
+						onpress={() => (keyHeld = true)}
+						onpressend={() => (keyHeld = false)}
+						onholdend={() => (keyHeld = false)}
+					/>
 				{/if}
 			{/snippet}
 		</WinCountUpProvider>

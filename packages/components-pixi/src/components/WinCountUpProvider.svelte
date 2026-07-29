@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Tween } from 'svelte/motion';
-	import { type Snippet } from 'svelte';
+	import { untrack, type Snippet } from 'svelte';
 
 	import { createInterruptible } from 'utils-shared/interruptible';
 	import { roundSkip } from 'utils-shared/skipToken';
@@ -8,6 +8,14 @@
 	type Props = {
 		amount: number;
 		duration: number;
+		/**
+		 * Opt-in continuous speed multiplier for the count-up (e.g. hold-to-fast-forward). `> 1`
+		 * shortens the REMAINING time proportionally IN REAL TIME and may change mid-count-up (hold /
+		 * release); `1` is normal speed. OMITTING it keeps the single fixed-duration tween unchanged —
+		 * so the WIN overlay and the fallback outro gate (neither passes it) are byte-identical. This is
+		 * true acceleration, not a snap: `finishCountUp` / `roundSkip` still own the instant slam.
+		 */
+		speedScale?: number;
 		/** Optional: the count-up's completion is observable through the snippet's
 		 *  `countUpCompleted`, so a consumer that only renders from that needs no callback. */
 		oncomplete?: () => void;
@@ -29,12 +37,56 @@
 
 	let countUpCompleted = $state(false);
 
+	// Whether this consumer opted into a dynamic speed. Read once (a consumer either always passes
+	// `speedScale` or never does): when absent the ORIGINAL single-tween path below runs verbatim.
+	const acceleratable = props.speedScale !== undefined;
+	const scale = $derived(Math.max(props.speedScale ?? 1, 0.0001));
+
 	const countUp = () =>
 		countUpAmount.set(props.amount, { duration: roundSkip.isSkipped() ? 0 : props.duration });
 	const resetCountUp = () => countUpAmount.set(props.amount, { duration: 0 });
 	const finishCountUp = () => interruptible.interrupt();
+
+	// --- Accelerated path (only when `speedScale` is provided) ---------------------------------------
+	// svelte's `Tween.set` aborts the previous task WITHOUT resolving its promise, so re-issuing the
+	// tween on a speed change would strand the awaited promise. Instead the owner tracks completion by
+	// watching `current` reach the target, and re-targets the tween whenever the speed changes.
+	let running = $state(false);
+	let onSettle: (() => void) | undefined;
+
+	// Re-issue the tween from wherever it is now, at the CURRENT speed. Linear easing ⇒ remaining time
+	// is proportional to remaining value; `roundSkip` collapses it to instant.
+	const retarget = () => {
+		if (roundSkip.isSkipped() || props.amount <= 0) {
+			void countUpAmount.set(props.amount, { duration: 0 });
+			return;
+		}
+		const remaining = props.amount - countUpAmount.current;
+		const baseRemaining = props.duration * (remaining / props.amount);
+		void countUpAmount.set(props.amount, { duration: Math.max(baseRemaining, 0) / scale });
+	};
+	// Re-target on every speed change (hold / release) while a count-up is running; `current` is read
+	// untracked so this fires on the speed edge, not every frame.
+	$effect(() => {
+		void scale;
+		if (!running) return;
+		untrack(retarget);
+	});
+	// Own completion: settle the moment the value reaches the target (the tween lands exactly on it).
+	$effect(() => {
+		if (!running) return;
+		if (countUpAmount.current >= props.amount) onSettle?.();
+	});
+
 	const startCountUp = async () => {
-		await interruptible.add(countUp);
+		if (!acceleratable) {
+			await interruptible.add(countUp);
+		} else {
+			running = true;
+			await interruptible.add(() => new Promise<void>((resolve) => (onSettle = resolve)));
+			running = false;
+			onSettle = undefined;
+		}
 		resetCountUp();
 		countUpCompleted = true;
 		props.oncomplete?.();

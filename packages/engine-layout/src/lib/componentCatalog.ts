@@ -301,6 +301,11 @@ export const ENGINE_SIGNAL_CATALOG: EngineSignalEntry[] = [
 		note: 'The free-spin outro count-up begins on a non-big (small) win tier. Gate small-win art with "hidden until signal", or play a small-win spine cue.',
 	},
 	{
+		key: 'freeSpinOutroCountUpComplete',
+		label: 'Free-spin outro — count-up complete',
+		note: 'The free-spin outro count-up has finished. Arm a "tap to continue" with "arm after signal", or reveal a continue prompt with "hidden until signal", so the tap appears only after the count.',
+	},
+	{
 		key: 'specialBookReveal',
 		label: 'Book reveal',
 		note: 'The book expanding-symbol reveal presents (a symbol was chosen).',

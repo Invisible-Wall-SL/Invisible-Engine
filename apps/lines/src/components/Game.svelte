@@ -1177,6 +1177,13 @@
 				},
 			}),
 		),
+		// FS-7 follow-up — fired when the outro count-up FINISHES (the driver broadcasts
+		// `freeSpinOutroCountUpComplete`). An authored `tapToContinue` / prompt sets
+		// `tapArmAfterSignal: 'freeSpinOutroCountUpComplete'` (or `hiddenUntilSignal`) so it appears only
+		// after the count. Un-authored ⇒ nothing subscribes ⇒ inert (parity).
+		freeSpinOutroCountUpComplete: eventSignal((run) =>
+			context.eventEmitter.subscribe({ freeSpinOutroCountUpComplete: () => run() }),
+		),
 		// The book expanding-symbol reveal lifecycle — an authored spine cue on the author's own
 		// reveal component plays with the mechanic (mirrors `freeSpinStart`/`freeSpinEnd`). These
 		// are payload-less: the chosen symbol comes from the `specialSymbol` value source + the

@@ -392,11 +392,9 @@ export const BOUND_COMPONENT_PARAMS: Record<string, EditableParam[]> = {
 		{ key: 'idleAnimation', kind: 'string', label: 'Idle animation', placeholder: 'idle' },
 		{ key: 'slotName', kind: 'string', label: 'Number slot', placeholder: 'slot_number' },
 	],
-	// §17 Phase 3 outro VISUAL — the outro spine/animation knobs (as the composer) PLUS the FS-7
-	// coin-fountain config (decision 2): the fountain stays BAKED in the outro driver/gate; these
-	// params only TOGGLE/POSITION it (published to `freeSpinOutroState.coins`, read by the driver).
-	// `showCoins` defaults ON, position defaults to the driver origin, level defaults to the win's —
-	// so leaving them unset is byte-identical to today.
+	// §17 Phase 3 outro VISUAL — the outro spine/animation knobs (as the composer). The headless
+	// authored-outro driver emits NO coin fountain; an author who wants coins places their own
+	// (FX / particle / spine), so there are no fountain params here.
 	FreeSpinOutroVisual: [
 		{
 			key: 'outroSpine',
@@ -407,10 +405,6 @@ export const BOUND_COMPONENT_PARAMS: Record<string, EditableParam[]> = {
 		{ key: 'outroAnimation', kind: 'string', label: 'Outro animation', placeholder: 'intro' },
 		{ key: 'idleAnimation', kind: 'string', label: 'Idle animation', placeholder: 'idle' },
 		{ key: 'slotName', kind: 'string', label: 'Number slot', placeholder: 'slot_number' },
-		{ key: 'showCoins', kind: 'boolean', label: 'Show coin fountain' },
-		{ key: 'coinsX', kind: 'number', label: 'Coin fountain X', placeholder: '0' },
-		{ key: 'coinsY', kind: 'number', label: 'Coin fountain Y', placeholder: '0' },
-		{ key: 'coinsLevel', kind: 'string', label: 'Coin tier override' },
 	],
 	// Special-Book bonus overlay — only a placement scale knob. The reveal symbol + its
 	// animations come from the symbol state machine (`bookIntro`/`bookIdle`), never params.
