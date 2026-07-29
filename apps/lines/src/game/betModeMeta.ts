@@ -2,6 +2,21 @@ import { resolveBetModes, type BetModeKind, type ResolvedBetMode } from 'game-co
 import { stateMeta, type BetModeData, type BetModeMeta } from 'state-shared';
 
 import { getActiveGameConfig } from './gameConfig';
+import { bakedEditorArtAssets } from '../editor-scenes';
+
+/**
+ * Resolve a bet-mode art KEY (an editor-art asset key, Phase 7) to a renderable image URL. A bet-mode
+ * icon is a single image, so only the `'sprite'` entry has a usable URL — its `.src` is the same file
+ * URL the engine loads. A `'sprites'` sheet (`.src` is the atlas JSON) or a `'spine'` skeleton can't be
+ * an `<img>`, so they resolve to empty. An unauthored/unshipped key (absent from the baked art index —
+ * e.g. not yet reachable in the bundle) is empty too, so a consumer draws nothing rather than a broken
+ * image. Matches the `BetModeData.assets.*` = URL convention the old `DEFAULT_BET_MODE_META` used.
+ */
+function artUrl(key: string): string {
+	if (!key) return '';
+	const entry = bakedEditorArtAssets()[key];
+	return entry?.type === 'sprite' && typeof entry.src === 'string' ? entry.src : '';
+}
 
 /**
  * Build the bet-selector / buy-bonus menu from the ACTIVE game config, replacing the hardcoded
@@ -50,13 +65,14 @@ function toBetModeData(mode: ResolvedBetMode): BetModeData {
 		type: KIND_TO_TYPE[mode.kind],
 		parent: '',
 		children: '',
-		// Art carries the authored editor-art KEYS (empty when unauthored); the render layer resolves
-		// each to its baked texture. `button`/`dialogVolatility` have no config home yet, so stay empty.
+		// Art keys are resolved HERE to image URLs (the `assets.* = URL` convention), so the HTML menu
+		// renders them with a plain `<img>`. `button`/`dialogVolatility` have no config home yet, so
+		// stay empty.
 		assets: {
 			...EMPTY_ASSETS,
-			icon: mode.art.icon,
-			dialogImage: mode.art.dialogImage,
-			volatility: mode.art.volatility,
+			icon: artUrl(mode.art.icon),
+			dialogImage: artUrl(mode.art.dialogImage),
+			volatility: artUrl(mode.art.volatility),
 		},
 		text: {
 			title: mode.title,
