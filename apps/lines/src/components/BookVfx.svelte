@@ -93,7 +93,17 @@
 		{:else if layer.kind === 'fx' && layer.effectId}
 			{@const doc = effectById(layer.effectId)}
 			{#if doc}
-				<EffectPlayer {doc} />
+				<!--
+					A particle effect has no intrinsic width/height to fit to a cell (its layers are
+					authored in absolute pixels), so — like the placed-effect path in
+					`LayoutNodeView` — it scales via a wrapping <Container>. `sizeRatios` is that
+					scale multiplier (default 1 = the effect's authored scale, so an un-sized layer
+					renders exactly as authored / byte-parity). This is why the width/height above
+					feed a SPRITE/SPINE/FLIPBOOK's pixel size but the FX layer's own `scale`.
+				-->
+				<Container scale={{ x: layer.sizeRatios?.width ?? 1, y: layer.sizeRatios?.height ?? 1 }}>
+					<EffectPlayer {doc} />
+				</Container>
 			{/if}
 		{/if}
 	</Container>
