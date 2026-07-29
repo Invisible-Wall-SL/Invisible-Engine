@@ -78,6 +78,18 @@ interface BaseNode {
 	 */
 	fit?: 'cover' | 'contain';
 	/**
+	 * Per-node opt-in to true cover-fit (aspect-preserving fill to the canvas/window)
+	 * for a sprite/spine node in a normal `canvas`-space (flow-gated) scene — the SAME
+	 * cover math the `background` space applies ({@link coverTransform} +
+	 * {@link BaseNode.coverScale}/{@link BaseNode.fit}/`scale` stretch), but WITHOUT the
+	 * always-on persistent-background mounting of `Scene.space === 'background'`. So a
+	 * flow screen (free-spin intro, etc.) can host a full-screen stretched animation that
+	 * the flow still shows/hides. Orthogonal to `background` space (a `coverFit` node is
+	 * NOT persistent). Ignored for a `background`-space node (that already covers) and for
+	 * non-sprite/spine kinds. Additive — absent = today's authored transform (parity).
+	 */
+	coverFit?: boolean;
+	/**
 	 * Editor-only: when true the editor disables selection/drag/transform of this
 	 * node. The engine ignores it (purely an authoring affordance).
 	 */

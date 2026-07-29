@@ -142,6 +142,19 @@
 	// and feeds the per-axis cover scale to the `<Sprite>`. A background skeleton is
 	// authored around its own origin, matching apps/lines `Background.svelte`.
 	const isBackground = $derived(space === 'background');
+	// Per-node cover-fit opt-in (`node.coverFit`) for a sprite/spine in a normal
+	// `canvas`-space (flow-gated) scene: it runs the SAME cover path as `background`
+	// space (target = the canvas/window, same cover inputs) but the scene stays flow-
+	// gated (NOT a persistent background). `isCover` is the unified trigger every cover
+	// derived below reads, so a `background` scene AND every non-cover node are byte-
+	// identical to before (parity). Scoped to sprite/spine — a `componentInstance` cover
+	// stays `background`-only (see `bgComponent`), matching the editor toggle's scope.
+	const isCanvasCoverFit = $derived(
+		space === 'canvas' &&
+			node.coverFit === true &&
+			(node.kind === 'sprite' || node.kind === 'spine'),
+	);
+	const isCover = $derived(isBackground || isCanvasCoverFit);
 	const bgCoverScale = $derived(backgroundCoverScale(node));
 	const bgStretch = $derived(backgroundCoverStretch(node));
 	const bgFit = $derived(backgroundFit(node));
@@ -155,7 +168,7 @@
 	// editor's 2D draw (`natural × scale`). Until the texture resolves, natural dims are
 	// `0` and `coverTransform` falls back to a centred `coverScale × stretch`.
 	const bgTexture = $derived.by(() => {
-		if (!isBackground || node.kind !== 'sprite') return undefined;
+		if (!isCover || node.kind !== 'sprite') return undefined;
 		const assets = appContext.stateApp.loadedAssets;
 		const tex =
 			(spriteKey ? assets?.[spriteKey] : undefined) ??
@@ -163,7 +176,7 @@
 		return tex as unknown as { width?: number; height?: number } | undefined;
 	});
 	const bg = $derived.by(() => {
-		if (!isBackground || node.kind !== 'sprite') return undefined;
+		if (!isCover || node.kind !== 'sprite') return undefined;
 		const canvasBox = layoutContext.stateLayoutDerived.canvasSizes();
 		const artWidth = bgTexture?.width && bgTexture.width > 0 ? bgTexture.width : 0;
 		const artHeight = bgTexture?.height && bgTexture.height > 0 ? bgTexture.height : 0;
@@ -208,11 +221,23 @@
 	// onto the `fit` scale (`spine.scale.set(baseX * sizeScale.x, …)`), so default
 	// stretch {1,1} is byte-identical to before.
 	const bgSpineBox = $derived.by(() => {
-		if (!isBackground) return undefined;
+		if (!isCover || node.kind !== 'spine') return undefined;
 		const c = layoutContext.stateLayoutDerived.canvasSizes();
 		return { width: c.width * bgCoverScale, height: c.height * bgCoverScale };
 	});
-	const bgSpineScale = $derived(isBackground ? bgStretch : undefined);
+	const bgSpineScale = $derived(bgSpineBox ? bgStretch : undefined);
+	// A `coverFit` (canvas) spine CENTERS on the canvas — `SpineProvider` places the art
+	// centre at (x, y), so the cover must sit at the canvas centre (the same point the
+	// sprite cover's `coverTransform` returns), NOT the node's authored x/y. Without this a
+	// spine placed anywhere in a flow screen would render its full-canvas fill offset by
+	// that position (editor centres it via `backgroundTransform`, so the two would disagree).
+	// Background spines are LEFT on `posX`/`posY` (their authored-at-centre convention) —
+	// `isCanvasCoverFit` is false for them, so this is undefined and the path is byte-identical.
+	const spineCoverCenter = $derived.by(() => {
+		if (!isCanvasCoverFit || node.kind !== 'spine') return undefined;
+		const c = layoutContext.stateLayoutDerived.canvasSizes();
+		return { x: c.width / 2, y: c.height / 2 };
+	});
 
 	// A background COMPONENT INSTANCE covers the canvas as ONE composed unit: a
 	// `componentInstance` placed in a `background`-space scene (e.g. a backdrop +
@@ -574,9 +599,9 @@
 		-->
 		<SpineProvider
 			key={node.assetKey}
-			x={bg ? bg.x : posX}
-			y={bg ? bg.y : posY}
-			anchor={isBackground ? transform.anchor : undefined}
+			x={bg ? bg.x : spineCoverCenter ? spineCoverCenter.x : posX}
+			y={bg ? bg.y : spineCoverCenter ? spineCoverCenter.y : posY}
+			anchor={isCover ? transform.anchor : undefined}
 			scale={bgSpineBox ? bgSpineScale : sizedScale}
 			rotation={transform.rotation}
 			alpha={transform.alpha}
