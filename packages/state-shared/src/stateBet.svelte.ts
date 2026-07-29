@@ -12,6 +12,10 @@ export const stateBet = $state({
 	wageredBetAmount: 1,
 	betToResume: null as BetToResume,
 	activeBetModeKey: 'BASE' as BetModeKey,
+	// Captured at bet-submit time: was the in-flight round bought via a `buy`-type
+	// mode? A bought bonus is one-shot — this drives the reset back to BASE at round
+	// end, independent of whether the live betModeMeta lookup still resolves to 'buy'.
+	pendingRoundIsBuy: false,
 	winBookEventAmount: 0,
 	autoSpinsLoss: 0,
 	autoSpinsCounter: 0,

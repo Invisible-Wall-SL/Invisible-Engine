@@ -6,12 +6,17 @@ import { context, type Context } from './machineContext';
 import type { PrimaryMachines } from './types';
 
 const checkSpaceHold = fromPromise(async () => {
-	if (stateBet.isSpaceHold) {
-		if (stateBetDerived.activeBetMode()?.type === 'buy') {
-			stateBet.activeBetModeKey = 'BASE';
-			return;
-		}
+	// A bought (`buy`-type) bonus is one-shot: consume it exactly once, then fall
+	// back to BASE so the next spin isn't silently re-bought. `pendingRoundIsBuy` is
+	// captured at bet-submit time; fall back to the live lookup for robustness.
+	const wasBuy = stateBet.pendingRoundIsBuy || stateBetDerived.activeBetMode()?.type === 'buy';
+	stateBet.pendingRoundIsBuy = false;
 
+	if (wasBuy) {
+		stateBet.activeBetModeKey = 'BASE';
+	}
+
+	if (stateBet.isSpaceHold) {
 		return;
 	}
 	throw Error('end bet');
