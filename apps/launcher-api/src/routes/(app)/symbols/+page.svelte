@@ -17,6 +17,7 @@
 		type RegionSet,
 	} from '../editor/editorRegions.client';
 	import { builtinSpineKey, hasBuiltinSpine } from '../editor/editorSpine.client';
+	import SymbolFxPreview from './SymbolFxPreview.svelte';
 	import SymbolSpinePreview from './SymbolSpinePreview.svelte';
 	import SymbolSpineStage from './SymbolSpineStage.svelte';
 	import SymbolSpritePreview from './SymbolSpritePreview.svelte';
@@ -1336,6 +1337,14 @@
 													down (e.g. 0.5) to fit the cell.
 												</p>
 											</div>
+											{#if bookVfxDraft.effectId}
+												<div class="field">
+													<span class="label">Preview</span>
+													<div class="panel-preview">
+														<SymbolFxPreview effectId={bookVfxDraft.effectId} size={140} />
+													</div>
+												</div>
+											{/if}
 										{/if}
 
 										<div class="bv-fit">
