@@ -120,6 +120,78 @@ commits, three surfaces:
 about the grid (the scene-geometry anchors, the HUD layout) is config-driven — those remain authored
 in the Scene Editor per game.
 
+## Phase 6 — bet modes authorable + localizable (the buy-features/bonus surface)
+
+The buy-bonus / ante menu the player sees was hardcoded: `ModalBuyBonus` → `BonusCards` read
+`stateMeta.betModeMeta`, and that was only ever `DEFAULT_BET_MODE_META` in `state-shared/constants.ts`
+(placeholder `SAMURAI SPIN` copy, `test-fart-cdn` URLs). **Nothing per-project ever reassigned it** —
+the bet-mode face of the "one hardcoded blob for everyone" bug. Design: `invisible-game-config.md`
+Phase 6. **All four sub-phases (6a schema · 6b runtime · 6c tool panel · 6d localization) are done**;
+6a/6b engine-verified live, 6c/6d build-verified (launcher render owner-verify-owed, as with the rest
+of the tool).
+
+**6a — schema + resolver (done, offline-verified).**
+- `packages/game-config`: new OPTIONAL top-level `betModePresentation?: Record<mode, { kind?, order?,
+  text? }>` on `GameConfigDoc` — an Invisible-Engine extension a Stake paste-in omits, mirroring
+  `paylineColors` (kept OFF `betModes` so those entries round-trip a math export byte-for-byte).
+  `kind` = `base | ante | buy`; `text` = title/description/button/dialog/betAmountLabel SOURCE strings.
+- `normalizeBetModePresentation` — sparse, drops an entry for a mode not in `betModes` (like a colour
+  for a deleted line); the whole map omitted when un-authored ⇒ byte-identical to a Stake export.
+- `betModes.ts` — `resolveBetModes(doc)`: the ONE place folding math + presentation into the ordered
+  `ResolvedBetMode[]` the menu needs, owning the `buyBonus→kind` derivation (`ante` is explicit-only —
+  the two booleans can't express a persistent toggle) and the default copy (id as title, verb per
+  kind). The 6d Localization collector (`harvestBetModes`) reads `resolveBetModes` directly so each
+  string keeps a per-field label.
+- `validate.ts` — warns on a `buy` card over non-buyBonus math, and an `ante` with no title.
+- `game-config-spike` — 14 new checks (resolve/order/derivation/warnings/collection/idempotence), all
+  pass. (The lone spike failure is the **pre-existing CRLF `lines.json` drift**, unrelated — the file
+  is git-clean and differs only in line endings.)
+
+**6b — runtime assembly (done, verified in the running game).**
+- `apps/lines/src/game/betModeMeta.ts` — `buildBetModeMeta()`/`syncBetModeMeta()` map
+  `resolveBetModes(getActiveGameConfig())` into state-shared's `BetModeMeta` and push it into
+  `stateMeta.betModeMeta`. The ONE bridge from the leaf `game-config` shape into Svelte state.
+  - **Keys UPPERCASED** (`base`→`BASE`) so the wire value sent to the RGS (`mode:
+    activeBetModeKey`) and the `activeBetModeKey='BASE'` resets stay byte-identical to the placeholder;
+    consistent with the case-insensitive lookups that already exist (`stateBet.activeBetMode`).
+  - **Text stays SOURCE strings**; the bonus components translate at render (the "key IS source text"
+    i18n model), so a language set after boot still localizes — no boot-order coupling.
+  - Assets (icon/dialog art) left empty on purpose — an asset class for the live-asset pipeline, a
+    later phase; nothing renders bet-mode `assets.*` as sprites today, so empty is inert.
+- `Game.svelte` calls `syncBetModeMeta()` at boot after the runtime-bundle branch (beside
+  `resetGameConfigCache`), so an online project's authored modes/cost/copy take effect.
+- **`DEFAULT_BET_MODE_META` kept, not deleted** — the other dev apps (cluster/scatter/…) still seed
+  from it and aren't wired yet. `apps/lines` OVERRIDES `betModeMeta` from its config at boot; deleting
+  the shared placeholder is a later cleanup once every app seeds from config.
+- Render-time `translate()` added to `BonusCards` (title/description/button), `ModalBuyBonusConfirm`
+  (title/dialog), and the HUD `betAmountLabel` sites (`LabelBet`/`HudCaption`/`HudReadout`). Untranslated
+  strings return themselves, so other apps' placeholder copy is visually unchanged.
+- **Verified live** (`apps/lines` dev + mock, buy menu opened): `betModeMeta` resolved to `BASE`
+  (default/PLAY/1×) + `BONUS` (buy/BUY/100×) from the lines config; the rendered card showed
+  **BONUS · $100.00 · BUY** (= $1 base × 100). Placeholder cards gone. Build passes; no new console
+  errors (the two pre-existing empty-sprite-key warnings are unrelated — no code reads bet-mode assets).
+
+**6c — the tool panel (done, build-verified).** The `/config` Bet modes panel is now a per-mode card
+(was a flat math table): the math fields (cost/rtp/max_win/feature/buyBonus) plus **Kind** (a
+base/ante/buy select, "auto → <derived>" when unset), **Order**, and the **copy** fields
+(title/button/bet-label + description/dialog textareas). A read-only **menu preview** shows the
+resolved, ordered menu (title · cost× · kind), so the author sees the effect of `resolveBetModes`.
+Presentation is written SPARSELY (setters prune an emptied entry / map, mirroring the payline-colour
+helpers) so an un-presented config stays byte-identical to a paste-in; `removeBetMode` drops the
+presentation with the mode. Inline `betModePresentation` validator issues render under the panel.
+
+**6d — Localization auto-collect (done, build-verified).** `/localization` grows a **Bet modes**
+section, exactly like its Win Text section:
+- `harvestBetModes(config)` in `localizationHarvest.ts` collects the RESOLVED bet-mode source strings
+  (`resolveBetModes` — same strings the runtime renders, so a translation authored here lands in-game),
+  deduped, under synthetic section id `__betModes`, `origin: 'gameConfig'`.
+- New `'gameConfig'` origin added to `LocalizationEntry.origin` + `normalizeEntry` + `HarvestSection`.
+  It's an AUTO origin, so the page (which gates read-only + "no longer in scenes" by `=== 'manual'`)
+  needed **no changes**, and the save action's `=== 'manual'` prune already drops untranslated rows.
+- The loader harvests from the **authored** config only (`loadGameConfigDoc`, no template fallback) —
+  parity with the scene/win-text collectors: a project that hasn't authored a config shows no bet-mode
+  rows until it does.
+
 ## Open items / next
 
 1. **Live-verify the launcher surfaces** (owner click-through) — render `/config` (load a config,
@@ -144,6 +216,23 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   locally (Postgres + R2 + session). Not blocking the merge; it's a post-deploy check.
 
 ## Recent changes
+
+- 2026-07-28 — **Phase 6 (all four sub-phases): bet modes authorable + localizable.** Engine +
+  schema build + typecheck + spike verified; 6a/6b verified live in the running game; 6c/6d
+  build-verified (launcher render owner-verify-owed).
+  - **6a** `betModePresentation` schema + `resolveBetModes` + validator warnings
+    in `packages/game-config` (14 new spike checks).
+  - **6b** `apps/lines/src/game/betModeMeta.ts` builds `stateMeta.betModeMeta` from the active config
+    (uppercased keys preserve the RGS wire contract; source strings translated at render); `Game.svelte`
+    seeds it at boot; render-time `translate()` in `BonusCards`/`ModalBuyBonusConfirm`/HUD
+    `betAmountLabel`. Live buy menu shows the config's BONUS·$100·BUY card, not the placeholder.
+    `DEFAULT_BET_MODE_META` kept for the un-wired dev apps.
+  - **6c** the `/config` Bet modes panel becomes per-mode cards with kind/order/copy + a resolved-menu
+    preview; presentation written sparsely.
+  - **6d** `/localization` auto-collects the bet-mode copy into a "Bet modes" section (`harvestBetModes`,
+    new `gameConfig` origin), read-only source, same pattern as its Win Text section.
+  - See Phase 6 above. Remaining Phase-6 follow-up: bet-mode ASSETS (icon/dialog art) via the
+    live-asset pipeline, and retiring `DEFAULT_BET_MODE_META` once every dev app seeds from config.
 
 - 2026-07-27 — **Grid-resize repair UX + per-payline colours** (this change; launcher surface
   owner-verify-owed, engine + schema build + typecheck-verified):

@@ -2,9 +2,11 @@
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import {
 		normalizeGameConfigDoc,
+		resolveBetModes,
 		symbolFrequencies,
 		symbolsInPlay,
 		validateGameConfigDoc,
+		type BetModeKind,
 		type GameConfigDoc,
 		type GameConfigIssue,
 	} from 'game-config';
@@ -120,6 +122,11 @@
 	}
 
 	// ── Bet modes ────────────────────────────────────────────────────────────────
+	// A mode has TWO halves: the math (`betModes[key]` — cost/feature/buyBonus/rtp/max_win, the
+	// Stake-export shape) and the OPTIONAL presentation (`betModePresentation[key]` — kind/order/copy,
+	// an Invisible-Engine extension). The presentation is stored SPARSELY, exactly like payline
+	// colours: an unset field has no entry, so a config with no authored presentation is byte-identical
+	// to a math-only paste-in. `resolveBetModes` folds the two into the ordered menu the game renders.
 	let newBetMode = $state('');
 	function addBetMode() {
 		const key = newBetMode.trim();
@@ -129,6 +136,86 @@
 	}
 	function removeBetMode(key: string) {
 		delete doc.betModes[key];
+		// Drop the presentation with it, and the whole map when it empties — the removePayline/colour
+		// pattern, so a removed mode leaves nothing sparse behind.
+		if (doc.betModePresentation) {
+			delete doc.betModePresentation[key];
+			if (!Object.keys(doc.betModePresentation).length) delete doc.betModePresentation;
+		}
+	}
+
+	/** The resolved, ORDERED menu the game will build — math + presentation folded with every default
+	 *  applied. Drives the read-only preview so the author sees order + derived kinds + default copy. */
+	const resolvedBetModes = $derived(resolveBetModes(snapshot));
+
+	/** The kind a mode gets when Kind is left on "auto" — mirrors `resolveBetModes` (buyBonus ⇒ buy). */
+	function derivedKind(key: string): BetModeKind {
+		return doc.betModes[key]?.buyBonus ? 'buy' : 'base';
+	}
+	/** The default button verb for a mode's effective kind — shown as the Button field's placeholder. */
+	function defaultButtonHint(key: string): string {
+		const kind = betModeKindValue(key) || derivedKind(key);
+		return kind === 'buy' ? 'BUY' : kind === 'ante' ? 'ACTIVATE' : 'PLAY';
+	}
+
+	type BetModeTextField = 'title' | 'description' | 'button' | 'dialog' | 'betAmountLabel';
+
+	/** The presentation entry for a mode, created on demand for a write. */
+	function ensurePresentation(key: string) {
+		const map = (doc.betModePresentation ??= {});
+		return (map[key] ??= {});
+	}
+	/** Drop empty presentation state so the doc stays sparse: an entry with no kind/order/text goes,
+	 *  and the map goes when it empties — keeps the live doc byte-identical to what a save persists. */
+	function prunePresentation(key: string) {
+		const map = doc.betModePresentation;
+		if (!map) return;
+		const entry = map[key];
+		if (entry) {
+			if (entry.text && !Object.keys(entry.text).length) delete entry.text;
+			if (!entry.kind && entry.order === undefined && !entry.text) delete map[key];
+		}
+		if (!Object.keys(map).length) delete doc.betModePresentation;
+	}
+
+	function betModeKindValue(key: string): BetModeKind | '' {
+		return doc.betModePresentation?.[key]?.kind ?? '';
+	}
+	function setBetModeKind(key: string, value: string) {
+		if (value === 'base' || value === 'ante' || value === 'buy')
+			ensurePresentation(key).kind = value;
+		else {
+			const entry = doc.betModePresentation?.[key];
+			if (entry) delete entry.kind;
+			prunePresentation(key);
+		}
+	}
+
+	function betModeOrderValue(key: string): number | '' {
+		return doc.betModePresentation?.[key]?.order ?? '';
+	}
+	function setBetModeOrder(key: string, value: string) {
+		const n = value.trim() === '' ? undefined : Number(value);
+		if (n !== undefined && Number.isFinite(n)) ensurePresentation(key).order = n;
+		else {
+			const entry = doc.betModePresentation?.[key];
+			if (entry) delete entry.order;
+			prunePresentation(key);
+		}
+	}
+
+	function betModeTextValue(key: string, field: BetModeTextField): string {
+		return doc.betModePresentation?.[key]?.text?.[field] ?? '';
+	}
+	function setBetModeText(key: string, field: BetModeTextField, value: string) {
+		if (value) {
+			const entry = ensurePresentation(key);
+			(entry.text ??= {})[field] = value;
+		} else {
+			const text = doc.betModePresentation?.[key]?.text;
+			if (text) delete text[field];
+			prunePresentation(key);
+		}
 	}
 
 	// ── Symbols ──────────────────────────────────────────────────────────────────
@@ -484,48 +571,138 @@
 		<!-- Bet modes -------------------------------------------------------------->
 		<section>
 			<h2>Bet modes</h2>
-			<p class="hint">Each entry in the bet selector / buy-bonus menu.</p>
-			<div class="grid-wrap">
-				<table class="grid">
-					<thead>
-						<tr>
-							<th>Mode</th>
-							<th>Cost</th>
-							<th>Feature</th>
-							<th>Buy bonus</th>
-							<th>RTP</th>
-							<th>Max win (×)</th>
-							<th></th>
-						</tr>
-					</thead>
-					<tbody>
-						{#each Object.keys(doc.betModes) as key (key)}
-							<tr>
-								<th class="row-head">{key}</th>
-								<td><input type="number" step="0.01" bind:value={doc.betModes[key].cost} /></td>
-								<td class="center"
-									><input type="checkbox" bind:checked={doc.betModes[key].feature} /></td
+			<p class="hint">
+				Each entry in the bet selector / buy-bonus menu. The <strong>math</strong> (cost × the base
+				bet, RTP, max win, and whether the mode has the feature / is a bought bonus) is the Stake
+				export shape. The <strong>presentation</strong> is ours: <strong>Kind</strong> —
+				<code>base</code>, a persistent <code>ante</code>, or a one-shot <code>buy</code> (leave on
+				<em>auto</em> to derive it from the math) — a menu <strong>Order</strong>, and the
+				<strong>copy</strong> the card shows. Copy is authored here as source text and translated in
+				the <strong>Invisible Localization</strong> tool.
+			</p>
+
+			{#if resolvedBetModes.length}
+				<div class="menu-preview" aria-label="Resolved menu order">
+					{#each resolvedBetModes as m (m.mode)}
+						<span class="mp-chip mp-{m.kind}" title="{m.kind} · {m.costMultiplier}× bet"
+							>{m.title}<b>{m.costMultiplier}×</b></span
+						>
+					{/each}
+				</div>
+			{/if}
+
+			<div class="betmodes">
+				{#each Object.keys(doc.betModes) as key (key)}
+					<div class="betmode">
+						<div class="betmode-head">
+							<span class="betmode-key">{key}</span>
+							<button class="del" title="Remove" onclick={() => removeBetMode(key)}>×</button>
+						</div>
+
+						<div class="betmode-row">
+							<label class="mini"
+								><span>Cost ×</span><input
+									type="number"
+									step="0.01"
+									bind:value={doc.betModes[key].cost}
+								/></label
+							>
+							<label class="mini"
+								><span>RTP</span><input
+									type="number"
+									step="0.001"
+									bind:value={doc.betModes[key].rtp}
+								/></label
+							>
+							<label class="mini"
+								><span>Max win ×</span><input
+									type="number"
+									step="1"
+									bind:value={doc.betModes[key].max_win}
+								/></label
+							>
+							<label class="check"
+								><input type="checkbox" bind:checked={doc.betModes[key].feature} /><span
+									>Feature</span
+								></label
+							>
+							<label class="check"
+								><input type="checkbox" bind:checked={doc.betModes[key].buyBonus} /><span
+									>Buy bonus</span
+								></label
+							>
+							<label class="mini"
+								><span>Kind</span><select
+									value={betModeKindValue(key)}
+									onchange={(e) => setBetModeKind(key, e.currentTarget.value)}
 								>
-								<td class="center"
-									><input type="checkbox" bind:checked={doc.betModes[key].buyBonus} /></td
-								>
-								<td><input type="number" step="0.001" bind:value={doc.betModes[key].rtp} /></td>
-								<td><input type="number" step="1" bind:value={doc.betModes[key].max_win} /></td>
-								<td class="center"
-									><button class="del" title="Remove" onclick={() => removeBetMode(key)}>×</button
-									></td
-								>
-							</tr>
-						{/each}
-					</tbody>
-				</table>
+									<option value="">auto → {derivedKind(key)}</option>
+									<option value="base">base</option>
+									<option value="ante">ante</option>
+									<option value="buy">buy</option>
+								</select></label
+							>
+							<label class="mini"
+								><span>Order</span><input
+									type="number"
+									step="1"
+									placeholder="auto"
+									value={betModeOrderValue(key)}
+									oninput={(e) => setBetModeOrder(key, e.currentTarget.value)}
+								/></label
+							>
+						</div>
+
+						<div class="betmode-text">
+							<label
+								><span>Title</span><input
+									value={betModeTextValue(key, 'title')}
+									placeholder={key.toUpperCase()}
+									oninput={(e) => setBetModeText(key, 'title', e.currentTarget.value)}
+								/></label
+							>
+							<label
+								><span>Button</span><input
+									value={betModeTextValue(key, 'button')}
+									placeholder={defaultButtonHint(key)}
+									oninput={(e) => setBetModeText(key, 'button', e.currentTarget.value)}
+								/></label
+							>
+							<label
+								><span>Bet label</span><input
+									value={betModeTextValue(key, 'betAmountLabel')}
+									placeholder="HUD “BET”"
+									oninput={(e) => setBetModeText(key, 'betAmountLabel', e.currentTarget.value)}
+								/></label
+							>
+							<label class="wide"
+								><span>Description</span><textarea
+									rows="2"
+									value={betModeTextValue(key, 'description')}
+									oninput={(e) => setBetModeText(key, 'description', e.currentTarget.value)}
+								></textarea></label
+							>
+							<label class="wide"
+								><span>Dialog</span><textarea
+									rows="3"
+									value={betModeTextValue(key, 'dialog')}
+									oninput={(e) => setBetModeText(key, 'dialog', e.currentTarget.value)}
+								></textarea></label
+							>
+						</div>
+					</div>
+				{/each}
 			</div>
+
 			<div class="add">
 				<input placeholder="new mode key (e.g. base)" bind:value={newBetMode} />
 				<button onclick={addBetMode} disabled={!newBetMode.trim()}>Add mode</button>
 			</div>
 			{#each issuesFor('betModes') as issue (issue.message)}
 				<p class="inline-issue {issue.severity}">{issue.message}</p>
+			{/each}
+			{#each issuesFor('betModePresentation') as issue (issue.path + issue.message)}
+				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 			{/each}
 		</section>
 
@@ -926,6 +1103,109 @@
 	.badge.out {
 		background: #33231a;
 		color: #d39b6f;
+	}
+	/* Bet modes: the resolved-menu preview + per-mode cards. */
+	.menu-preview {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 6px;
+		margin-bottom: 14px;
+	}
+	.mp-chip {
+		font-size: 11px;
+		padding: 3px 9px;
+		border-radius: 999px;
+		border: 1px solid #26262f;
+		background: #14141b;
+		color: #b9b9c4;
+		display: inline-flex;
+		gap: 6px;
+		align-items: baseline;
+	}
+	.mp-chip b {
+		color: #7ee0c0;
+		font-size: 10px;
+	}
+	.mp-chip.mp-buy {
+		border-color: #4a3a1e;
+		background: #1c1710;
+		color: #e0b878;
+	}
+	.mp-chip.mp-ante {
+		border-color: #2f4a3f;
+		background: #101c17;
+		color: #7ee0c0;
+	}
+	.betmodes {
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
+	}
+	.betmode {
+		border: 1px solid #1c1c24;
+		border-radius: 10px;
+		padding: 12px;
+		background: #0e0e14;
+	}
+	.betmode-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 10px;
+	}
+	.betmode-key {
+		font-family: ui-monospace, monospace;
+		color: #c8a3ff;
+		font-size: 13px;
+	}
+	.betmode-row {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 12px 16px;
+		align-items: flex-end;
+		margin-bottom: 12px;
+	}
+	.betmode-row select {
+		background: #101017;
+		border: 1px solid #26262f;
+		border-radius: 6px;
+		color: #e8e8ee;
+		padding: 7px 9px;
+		font-size: 13px;
+		font-family: inherit;
+	}
+	.betmode-row select:focus {
+		outline: none;
+		border-color: #7ee0c0;
+	}
+	label.check {
+		flex-direction: row;
+		align-items: center;
+		gap: 6px;
+		text-transform: none;
+		letter-spacing: 0;
+		font-size: 12px;
+		color: #b9b9c4;
+	}
+	.betmode-text {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 10px 14px;
+	}
+	.betmode-text label {
+		flex: 1;
+		min-width: 150px;
+	}
+	.betmode-text label.wide {
+		flex-basis: 100%;
+	}
+	.betmode-text input,
+	.betmode-text textarea {
+		width: 100%;
+	}
+	.betmode-text textarea {
+		resize: vertical;
+		line-height: 1.5;
 	}
 	.add {
 		display: flex;

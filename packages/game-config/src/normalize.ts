@@ -22,6 +22,10 @@
 import {
 	GAME_CONFIG_DOC_VERSION,
 	type BetMode,
+	type BetModeKind,
+	type BetModePresentation,
+	type BetModePresentationMap,
+	type BetModeText,
 	type GameConfigDoc,
 	type GameConfigSymbol,
 	type PaddingReels,
@@ -146,6 +150,48 @@ const normalizeBetModes = (raw: unknown): Record<string, BetMode> => {
 	return modes;
 };
 
+const BET_MODE_KINDS: readonly BetModeKind[] = ['base', 'ante', 'buy'];
+const betModeKind = (v: unknown): BetModeKind | undefined =>
+	BET_MODE_KINDS.includes(v as BetModeKind) ? (v as BetModeKind) : undefined;
+
+/** Bet-mode copy — the four known source-string fields, empty strings dropped so an unset field
+ *  falls through to the derived default rather than shipping a blank title. */
+const normalizeBetModeText = (raw: unknown): BetModeText | undefined => {
+	if (!isObject(raw)) return undefined;
+	const text: BetModeText = {};
+	for (const key of ['title', 'description', 'button', 'dialog', 'betAmountLabel'] as const) {
+		const value = str(raw[key])?.trim();
+		if (value) text[key] = value;
+	}
+	return Object.keys(text).length ? text : undefined;
+};
+
+/**
+ * Per-mode presentation. Kept only for a mode that actually EXISTS in `betModes` (`validModes`) and
+ * only the fields that carry meaning — a `kind`, an `order`, and non-empty copy. An entry that
+ * resolves to nothing is dropped, so the whole map is omitted when un-authored and an un-presented
+ * config stays byte-identical to a Stake export. Mirrors `normalizePaylineColors`.
+ */
+const normalizeBetModePresentation = (
+	raw: unknown,
+	validModes: Set<string>,
+): BetModePresentationMap | undefined => {
+	if (!isObject(raw)) return undefined;
+	const map: BetModePresentationMap = {};
+	for (const [mode, entry] of Object.entries(raw)) {
+		if (!validModes.has(mode) || !isObject(entry)) continue;
+		const presentation: BetModePresentation = {};
+		const kind = betModeKind(entry.kind);
+		if (kind) presentation.kind = kind;
+		const order = num(entry.order);
+		if (order !== undefined) presentation.order = order;
+		const text = normalizeBetModeText(entry.text);
+		if (text) presentation.text = text;
+		if (Object.keys(presentation).length) map[mode] = presentation;
+	}
+	return Object.keys(map).length ? map : undefined;
+};
+
 const normalizePaylines = (raw: unknown): Paylines => {
 	if (!isObject(raw)) return {};
 	const lines: Paylines = {};
@@ -239,6 +285,12 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 		symbols,
 		paddingReels,
 	};
+
+	const betModePresentation = normalizeBetModePresentation(
+		raw.betModePresentation,
+		new Set(Object.keys(doc.betModes)),
+	);
+	if (betModePresentation) doc.betModePresentation = betModePresentation;
 
 	const paylineColors = normalizePaylineColors(raw.paylineColors, new Set(Object.keys(paylines)));
 	if (paylineColors) doc.paylineColors = paylineColors;
