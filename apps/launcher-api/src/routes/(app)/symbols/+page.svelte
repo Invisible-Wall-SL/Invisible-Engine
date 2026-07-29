@@ -1331,6 +1331,9 @@
 												</select>
 												<p class="hint">
 													The effect plays from Invisible FX — open <a href="/fx">Invisible FX</a> to edit it.
+													For an FX layer, <strong>Size</strong> below is a scale multiplier on the effect's
+													authored size (1 = as authored), not a cell fit — so 10 is 10× (huge); dial it
+													down (e.g. 0.5) to fit the cell.
 												</p>
 											</div>
 										{/if}
