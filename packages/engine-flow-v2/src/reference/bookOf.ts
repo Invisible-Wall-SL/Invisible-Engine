@@ -273,6 +273,24 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 				'The free-spin counter advanced. Use it to update the "X of Y" free-spin counter each spin.',
 		},
 		{
+			name: 'freeSpinRetrigger',
+			payload: [
+				{
+					name: 'extraFs',
+					type: INT,
+					description: 'How many EXTRA free spins were just awarded — the "+N" to celebrate.',
+				},
+				{
+					name: 'total',
+					type: INT,
+					description: 'The new total free spins for the session, after the extra spins are added.',
+				},
+			],
+			category: 'book',
+			description:
+				'Extra free spins were won DURING the feature (a retrigger — 3+ scatters landed mid free spin). Use it to layer a "+N extra free spins" celebration; pair the screen with a tap-to-continue hold (`showContainer{awaitComplete}`) to FREEZE the free-spin sequence until the player continues.',
+		},
+		{
 			name: 'freeSpinEnd',
 			payload: [
 				{ name: 'amount', type: FLOAT, description: "The free-spin session's total win." },

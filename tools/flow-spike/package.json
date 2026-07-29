@@ -21,6 +21,7 @@
 		"transition": "tsx phase8Transition.ts",
 		"actionintent": "tsx phase8ActionIntent.ts",
 		"fs1": "tsx fs1FreeSpins.ts",
+		"fs4": "tsx fs4Retrigger.ts",
 		"fs6": "tsx fs6FreeSpinOwnership.ts",
 		"fs7": "tsx fs7EarlyMount.ts",
 		"fs7outro": "tsx fs7Outro.ts",

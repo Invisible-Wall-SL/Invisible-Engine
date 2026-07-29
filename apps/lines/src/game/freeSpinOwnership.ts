@@ -33,8 +33,9 @@
  * counter number / sounds) runs regardless, because each event runs EITHER its full authored
  * choreography OR its coded handler — each of which does THAT step's own state (self-contained per
  * event), so the cross-event chain (intro sets gameType=freegame, outro sets it back) holds under any
- * mix. `freeSpinRetrigger` is the FS-4 seam — never flow-owned yet (its `retrigger` event never
- * fires), so its screen/transitions are ALWAYS stripped; it joins the step set when FS-4 lands.
+ * mix. `freeSpinRetrigger` (FS-4, landed) is a first-class optional step like the others — owned
+ * only when its screen is placed + its `freeSpinRetrigger` edge is wired + its scene is authored,
+ * else stripped so the coded no-op handler runs (parity: an un-authored game shows no retrigger).
  */
 
 import type { FlowDoc } from 'engine-flow';
@@ -46,26 +47,28 @@ import {
 } from 'engine-flow';
 import type { Scene } from 'engine-layout';
 
-/** A per-step free-spin overlay whose ownership is decided independently. */
-export type FreeSpinStep = 'intro' | 'counter' | 'outro';
+/** A per-step free-spin overlay whose ownership is decided independently. `retrigger` is the FS-4
+ *  "extra free spins won" flourish (landed) — optional, owned/stripped per-step like the rest. */
+export type FreeSpinStep = 'intro' | 'counter' | 'retrigger' | 'outro';
 
 /** The per-step (screen id, bookEvent type) contract — the owner authors the scene at `screen`
  *  with the id verbatim and wires the `bookEvent` LAYER edge on `event`. */
 export const FREE_SPIN_STEPS: Record<FreeSpinStep, { screen: string; event: string }> = {
 	intro: { screen: 'freeSpinIntro', event: 'freeSpinTrigger' },
 	counter: { screen: 'freeSpinCounter', event: 'updateFreeSpin' },
+	retrigger: { screen: 'freeSpinRetrigger', event: 'freeSpinRetrigger' },
 	outro: { screen: 'freeSpinOutro', event: 'freeSpinEnd' },
 };
 
-const ALL_STEPS: FreeSpinStep[] = ['intro', 'counter', 'outro'];
-
-/** The FS-4 seam overlay — always stripped (never flow-owned until the `retrigger` event exists). */
-const FREE_SPIN_SEAM_SCREEN = 'freeSpinRetrigger';
+const ALL_STEPS: FreeSpinStep[] = ['intro', 'counter', 'retrigger', 'outro'];
 
 /** The coded engine bind-anchor component names + the coded counter component id the reference
  *  FALLBACK fs scenes carry — a node of one of these is coded scaffolding, NOT authored content.
  *  Exported so the headless spike can rebuild an equivalent content rule from the launcher's
- *  serialized lists (the drift cross-check) against the SAME data the game uses. */
+ *  serialized lists (the drift cross-check) against the SAME data the game uses.
+ *  NOTE — `retrigger` has NO coded visual/anchor (its coded fallback is the present-nothing no-op),
+ *  so ANY node in a `freeSpinRetrigger` scene counts as authored content. If a coded retrigger
+ *  reference visual is ever introduced, add its component name here so `ownsRetrigger` stays honest. */
 export const FS_EXCLUDE_BIND_COMPONENTS = ['FreeSpinIntroVisual', 'FreeSpinOutroVisual'] as const;
 export const FS_EXCLUDE_COMPONENT_IDS = ['freeSpinCounter'] as const;
 
@@ -102,6 +105,7 @@ export interface FreeSpinOwnership {
 	owns: (step: FreeSpinStep) => boolean;
 	ownsIntro: boolean;
 	ownsCounter: boolean;
+	ownsRetrigger: boolean;
 	ownsOutro: boolean;
 	/** True iff NO step is flow-owned (the whole free-spin lifecycle is coded — byte-parity). */
 	none: boolean;
@@ -131,6 +135,7 @@ export const resolveFreeSpinOwnership = (
 		owns: (step) => ownership.owns(step),
 		ownsIntro: ownership.owns('intro'),
 		ownsCounter: ownership.owns('counter'),
+		ownsRetrigger: ownership.owns('retrigger'),
 		ownsOutro: ownership.owns('outro'),
 		none: ownership.none,
 		steps: ownership.ownedKeys,
@@ -141,7 +146,7 @@ export const resolveFreeSpinOwnership = (
  * FS-6 PER-STEP atomic flip — strip each un-owned step's event + overlay screen + its transitions
  * INDEPENDENTLY, so an un-owned step falls through to its coded handler (byte-identical to a doc that
  * never wired it) while an OWNED step keeps its authored event + screen + transitions. Mixed states
- * are valid. The `freeSpinRetrigger` seam screen/transitions are ALWAYS stripped (FS-4). Non-free-spin
+ * are valid. `freeSpinRetrigger` (FS-4) is now one of those steps — stripped iff un-owned. Non-free-spin
  * screens/transitions/events (loading, base, win, reveal, …) are untouched. `basegame` is never
  * stripped even though owned steps' LAYER edges source from it — only the OVERLAY endpoints are
  * matched. So a transition is dropped iff its overlay endpoint belongs to an un-owned/seam step.
@@ -221,8 +226,8 @@ export const resolveFreeSpinOutroMount = (ctx: {
 });
 
 export const gateFreeSpinOwnership = (doc: FlowDoc, ownership: FreeSpinOwnership): FlowDoc => {
-	// The overlay screen ids to strip: every un-owned step's screen + the FS-4 seam.
-	const strippedScreens = new Set<string>([FREE_SPIN_SEAM_SCREEN]);
+	// The overlay screen ids to strip: every un-owned step's screen (retrigger included — FS-4).
+	const strippedScreens = new Set<string>();
 	const strippedEvents = new Set<string>();
 	for (const step of ALL_STEPS) {
 		if (!ownership.owns(step)) {

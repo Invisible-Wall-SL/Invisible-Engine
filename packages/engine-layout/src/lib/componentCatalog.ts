@@ -259,9 +259,10 @@ export const BUTTON_STATE_PARAMS: ComponentParam[] = BUTTON_STATE_IMAGE_PARAMS.m
  * `exit`/`idle` placeholders were removed — nothing fired them: an instant-hide gate cuts an
  * exit animation and idle had no trigger.)
  *
- * FS-4 seam: `freeSpinRetrigger` joins this list once the dedicated `retrigger` event exists
- * (design doc §14) — an additive entry here + a matching `registerComponentSignals` wire, no
- * other change.
+ * FS-4 (landed): the `freeSpinRetrigger` event + step now exist, so a retrigger screen is
+ * authorable (LAYER edge + `extraFs` readout + tap-to-continue). A dedicated `freeSpinRetrigger`
+ * SPINE-CUE signal is still a future additive step here (an entry + a `registerComponentSignals`
+ * wire + a runtime broadcast) — not needed for the screen itself, only for a spine burst on it.
  */
 export const ENGINE_SIGNAL_CATALOG: EngineSignalEntry[] = [
 	{ key: 'enter', label: 'Enter', note: 'Played when the component appears (mount / gate opens).' },
