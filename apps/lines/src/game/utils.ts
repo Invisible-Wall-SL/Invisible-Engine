@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import { stateBet } from 'state-shared';
+import { stateBet, stateUi } from 'state-shared';
 import { createPlayBookUtils } from 'utils-book';
 import { createGetEmptyPaddedBoard } from 'utils-slots';
 import { sequence } from 'utils-shared/sequence';
@@ -46,6 +46,12 @@ const dispatchBookEvent = async (
 	// Recorded HERE, ahead of dispatch, so the idle win-symbol cycle sees every spin's wins whichever
 	// path presents them — a flow-owned `winInfo` never reaches the coded handler map.
 	recordWinCycleWins(bookEvent);
+
+	// Capture the retrigger's extra-spins count for the `freeSpinsAdded` / `freeSpinsAddedText` value
+	// sources — universally (ahead of dispatch) so it's populated whichever path presents the retrigger:
+	// a flow-owned `freeSpinRetrigger` suppresses the coded handler, so the coded handler alone can't own
+	// this. Purely a display value (not load-bearing game state), so a single set point here is safe.
+	if (bookEvent.type === 'freeSpinRetrigger') stateUi.freeSpinsAdded = bookEvent.extraFs;
 
 	// Invisible Flow v2 — EVENT OWNERSHIP (the incremental v1→v2 migration mechanism). When a v2 flow
 	// authors this event (`ownsEvent`), v2 drives it ALONE and the coded/v1 twin is SUPPRESSED — so a

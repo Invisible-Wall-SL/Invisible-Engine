@@ -112,6 +112,16 @@ a symbol id (`H1`) is unspeakable, so there was no word to put in a sentence.
 - Nothing.
 
 ## Recent changes
+- 2026-07-29 — added a **Free spins** family: the `freeSpins.retrigger` template (default
+  `You won +{count} Extra Free Spins`), authored in `/win-text` and auto-harvested into
+  `/localization` like the toasts. Backs a free-spin RETRIGGER celebration screen: a new
+  `freeSpinsAddedText` composed-string value source renders the localized sentence with the extra
+  count interpolated (`{count}` = the `freeSpinRetrigger` book event's `extraFs`, captured at
+  dispatch in `apps/lines/src/game/utils.ts`), plus a `freeSpinsAdded` number source for a bare
+  "+N" badge. Touches `winText.ts` (doc/defaults/resolve/harvest), `winTextStorage.ts` (schema +
+  prune), the `/win-text` page, `componentCatalog.ts` (source keys), `Game.svelte`/`stateUi`.
+  Verified `node scripts/test-win-text-symbol-names.mjs` (retrigger default/override/interpolate/
+  localize + harvest) + `engine-layout` build. Pairs with Invisible Flow FS-4 (retrigger authorable).
 - 2026-07-24 — W9: win text names the paying symbol (`{symbolName}` from `SymbolsDoc.names`);
   every "N of a kind" default replaced; `showMessage` gained a `symbol` pin; `winCycle` bake gap
   fixed on the way past.

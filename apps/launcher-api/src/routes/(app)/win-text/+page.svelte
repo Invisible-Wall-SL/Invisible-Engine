@@ -116,6 +116,12 @@
 		else delete toast[branch];
 	}
 
+	function setFreeSpins(branch: 'retrigger', value: string) {
+		const freeSpins = (doc.freeSpins ??= {});
+		if (value.trim()) freeSpins[branch] = value;
+		else delete freeSpins[branch];
+	}
+
 	function setAmountFormat(value: string) {
 		if (value.trim()) doc.amountFormat = value;
 		else delete doc.amountFormat;
@@ -361,6 +367,25 @@
 					value={doc.toast?.countOnly ?? ''}
 					placeholder={resolved.toast.countOnly}
 					oninput={(e) => setToast('countOnly', e.currentTarget.value)}
+				/>
+			</label>
+		</section>
+
+		<section>
+			<h2>Free spins</h2>
+			<p class="hint">
+				The celebration line shown when a player wins <strong>extra free spins mid-feature</strong>
+				(a retrigger). Write <code>{'{count}'}</code> where the number of extra spins goes, so it
+				reads <em>“You won +10 Extra Free Spins”</em>. Authored as one sentence so it
+				<a href="/localization">translates</a> correctly. Bind a text node's source to
+				<code>freeSpinsAddedText</code> to show it (or <code>freeSpinsAdded</code> for a bare number).
+			</p>
+			<label class="single">
+				<span>Retrigger (+N extra)</span>
+				<input
+					value={doc.freeSpins?.retrigger ?? ''}
+					placeholder={resolved.freeSpins.retrigger}
+					oninput={(e) => setFreeSpins('retrigger', e.currentTarget.value)}
 				/>
 			</label>
 		</section>
