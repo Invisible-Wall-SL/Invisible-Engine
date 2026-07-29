@@ -48,6 +48,7 @@ const resolveOne = (
 ): ResolvedBetMode => {
 	const kind = presentation?.kind ?? deriveKind(math);
 	const text = presentation?.text ?? {};
+	const art = presentation?.art ?? {};
 	return {
 		mode,
 		kind,
@@ -61,6 +62,13 @@ const resolveOne = (
 		button: text.button || defaultButton(kind),
 		dialog: text.dialog ?? '',
 		betAmountLabel: text.betAmountLabel ?? '',
+		// Art is an editor-art KEY, not a URL — resolved to a texture by the runtime. Empty when
+		// unauthored so a consumer draws nothing rather than a broken texture.
+		art: {
+			icon: art.icon ?? '',
+			dialogImage: art.dialogImage ?? '',
+			volatility: art.volatility ?? '',
+		},
 	};
 };
 

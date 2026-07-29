@@ -50,7 +50,14 @@ function toBetModeData(mode: ResolvedBetMode): BetModeData {
 		type: KIND_TO_TYPE[mode.kind],
 		parent: '',
 		children: '',
-		assets: { ...EMPTY_ASSETS },
+		// Art carries the authored editor-art KEYS (empty when unauthored); the render layer resolves
+		// each to its baked texture. `button`/`dialogVolatility` have no config home yet, so stay empty.
+		assets: {
+			...EMPTY_ASSETS,
+			icon: mode.art.icon,
+			dialogImage: mode.art.dialogImage,
+			volatility: mode.art.volatility,
+		},
 		text: {
 			title: mode.title,
 			description: mode.description,
