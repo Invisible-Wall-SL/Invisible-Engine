@@ -41,8 +41,13 @@ const TAP_PORTAL_KEY = Symbol('engine-layout:tapPortal');
 
 /** A registered tap surface, split into its backdrop `dim` and its interactive `tap`. */
 export type TapPortalEntry = {
-	/** Full-canvas dim backdrop; absent when fully transparent. Placed by layer order. */
-	dim?: Snippet;
+	/** Full-canvas dim backdrop; absent when fully transparent. `LayoutScene` renders it with a
+	 *  `zIndex` argument that decides its stack position: a NEGATIVE z sinks it BELOW the scene
+	 *  content (a celebration screen's dim), `0` keeps it on top (a topmost tap — legacy). The
+	 *  zIndex — NOT render order — is what places it: pixi-svelte adds every child with `addChild`
+	 *  (append) then `sortChildren()`, so a dim registered AFTER the content mounts would otherwise
+	 *  tie at z 0 and win on mount order (appear on top) no matter where it sits in the tree. */
+	dim?: Snippet<[number]>;
 	/** Full-canvas hit area + prompt; always drawn on top. */
 	tap: Snippet;
 };
