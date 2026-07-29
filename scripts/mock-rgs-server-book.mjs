@@ -195,16 +195,19 @@ const scatterPositions = (reels) => {
 	return pos;
 };
 
-const evaluateScatterTrigger = (reels, totalStake) => {
+const evaluateScatterTrigger = (reels) => {
 	const pos = scatterPositions(reels);
-	const mult = SCATTER_PAY[pos.length];
-	if (!mult) return null;
+	// SCATTER_PAY is now only the qualifying-count gate (3/4/5) — the scatter/book
+	// match TRIGGERS the free-spins feature, it does NOT pay out. The win is kept
+	// as a zero-pay entry so the scatter symbols still glow on the trigger spin and
+	// the trigger count/positions still flow to the client (freeSpinTrigger).
+	if (!SCATTER_PAY[pos.length]) return null;
 	return {
 		win: {
 			what: 'SCAT',
 			occurs: pos.length,
 			mode: 'scatter',
-			pay: mult * totalStake,
+			pay: 0,
 			mpInfo: { mp: 1, replacements: 0 },
 			mpBonusInfo: null,
 			context: pos,
@@ -541,7 +544,7 @@ export function createMockRgs(opts = {}) {
 						// Only the scatter retriggers — the special expanding symbol never does.
 						// Emitted BEFORE playedBonusSpin so the counter (total = played + left)
 						// already reflects the new total on this spin.
-						const retrig = evaluateScatterTrigger(reels, round.total);
+						const retrig = evaluateScatterTrigger(reels);
 						if (retrig && retrig.count >= 3) {
 							round.bonus.left += RETRIGGER_FS;
 							round.bonus.total += RETRIGGER_FS;
@@ -583,7 +586,7 @@ export function createMockRgs(opts = {}) {
 							: spinReels();
 					events.push(spinStartEvent(round));
 					const lineWins = evaluatePaylines(reels, round.betPerLine);
-					const scat = evaluateScatterTrigger(reels, round.total);
+					const scat = evaluateScatterTrigger(reels);
 					const wins = scat ? [...lineWins, scat.win] : lineWins;
 					for (const w of wins) {
 						events.push({ event: 'spinWin', context: w });
