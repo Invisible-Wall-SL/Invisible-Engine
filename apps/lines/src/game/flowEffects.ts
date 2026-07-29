@@ -134,13 +134,31 @@ export const animateSymbols = async ({
  * `bookEventHandlerMap.winInfo` handler (win line + symbol animation) AND the `showWinLine` /
  * `hideWinLine` flow effects, so both draw byte-identically (parity by construction).
  *
- * The server reports the FULL payline path in `positions`, but only the leftmost `kind` symbols
- * form the paying combination (a left-to-right line starts on reel 1 and stops at the first
- * non-matching reel). Trace just those — sorting by reel + slicing is a harmless no-op for a
- * scatter win (its `positions.length === kind`).
+ * For a LINE win the server reports the FULL payline path in `positions`, but only the leftmost
+ * `kind` symbols form the paying combination (a left-to-right line starts on reel 1 and stops at the
+ * first non-matching reel). Trace just those.
+ *
+ * A SCATTER / expanding-special win is different: `positions` already lists EXACTLY the paying cells
+ * — and for the Book-of expanding special that is several cells per reel (whole columns), while
+ * `kind` is the number of REELS covered, NOT the number of cells. Slicing to `kind` there keeps only
+ * the first covered reel's cells and silently drops every other expanded column from the highlight
+ * and the win line — the "only the first column paid" bug. So the slice is applied ONLY to a true
+ * line win; a cluster win (any reel paying more than one cell — impossible for a single payline)
+ * keeps all its positions.
  */
-export const winningPositionsOf = (win: { positions: Position[]; kind: number }): Position[] =>
-	[...win.positions].sort((a, b) => a.reel - b.reel).slice(0, win.kind);
+export const winningPositionsOf = (win: { positions: Position[]; kind: number }): Position[] => {
+	const sorted = [...win.positions].sort((a, b) => a.reel - b.reel);
+	const reelsSeen = new Set<number>();
+	let isCluster = false;
+	for (const position of sorted) {
+		if (reelsSeen.has(position.reel)) {
+			isCluster = true;
+			break;
+		}
+		reelsSeen.add(position.reel);
+	}
+	return isCluster ? sorted : sorted.slice(0, win.kind);
+};
 
 /**
  * Whether a win draws the traced line + stamped amount + authored message: scatter pays
