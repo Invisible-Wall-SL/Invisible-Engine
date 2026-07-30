@@ -28,6 +28,7 @@ import type {
 	Compare,
 	ComputeNode,
 	ComputeOp,
+	ContainerId,
 	DataSource,
 	FlowDoc,
 	ForEachNode,
@@ -705,4 +706,19 @@ export const flowScreenDrivingStatus = (doc: FlowDoc): FlowScreenDrivingStatus =
 		(n) => n.kind === 'showContainer' || n.kind === 'hideContainer',
 	);
 	return { drivesScreens, hasContainerNodes, halfOn: !drivesScreens && hasContainerNodes };
+};
+
+/**
+ * PURE graph read — the set of container ids that some `showContainer{awaitComplete}` node targets,
+ * i.e. the containers that CAN register a round-block hold. The mount model uses this to SCOPE its
+ * order-independent completion latch: a `complete(id)` that arrives before its hold is registered is
+ * only latched for one of these declared targets, so a persistent container (basegame/hudBar — never
+ * an await target) is never spuriously latched and a later `awaitComplete` on it can't pre-resolve.
+ */
+export const awaitCompleteContainerIds = (doc: FlowDoc): Set<ContainerId> => {
+	const ids = new Set<ContainerId>();
+	for (const node of doc.graph.nodes) {
+		if (node.kind === 'showContainer' && node.awaitComplete) ids.add(node.ref);
+	}
+	return ids;
 };

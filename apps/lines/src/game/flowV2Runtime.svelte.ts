@@ -29,6 +29,7 @@ import type { LayoutDoc, Scene } from 'engine-layout';
 import { sceneLayerZIndex } from 'engine-layout';
 import type { MountedContainerRef } from 'engine-layout/svelte';
 import {
+	awaitCompleteContainerIds,
 	createContainerMountModel,
 	createFlowV2Env,
 	flowOwnsContainerEvent,
@@ -288,7 +289,18 @@ export const createLinesFlowV2 = (
 		...container,
 		z: sceneLayerZIndex(editorDoc.scenes, container.sceneId) ?? container.z,
 	}));
-	const rawMount = createContainerMountModel(layeredContainers, onContainersChange);
+	// Scope the mount model's order-independent completion latch to the containers a
+	// `showContainer{awaitComplete}` node actually targets — so a tap that lands BEFORE the hold is
+	// registered (e.g. the free-spin outro: the driver arms `freeSpinOutroCountUpComplete` ~300ms
+	// before the `showContainer{awaitComplete}` node registers its hold) is latched and consumed by the
+	// imminent `awaitComplete`, rather than silently dropped ⇒ the screen never hides. Persistent
+	// containers (basegame/hudBar) are NOT targets, so the tap dispatcher's top-down `complete` probe
+	// can't spuriously latch them.
+	const rawMount = createContainerMountModel(
+		layeredContainers,
+		onContainersChange,
+		awaitCompleteContainerIds(doc),
+	);
 	// SLAM-AWARE ROUND-BLOCK HOLD. `showContainer{awaitComplete}` was the ONLY await left in the
 	// round chain that a slam could not release: every cue, delay and cut-short effect races
 	// `roundSkip` (see `broadcast` / `waitForTimeout` below), but this hold is resolved solely by a
