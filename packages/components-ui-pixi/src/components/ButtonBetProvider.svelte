@@ -9,6 +9,7 @@
 	import {
 		getSpinButtonKey,
 		getSpinPressSound,
+		isSpinButtonDisabled,
 		runSpinOrSlamStop,
 		type SpinButtonKey,
 	} from 'utils-shared/spinStop';
@@ -45,7 +46,8 @@
 	// key/press decision lives in `utils-shared/spinStop` so this provider and the flow-driven
 	// spin action in the game can't drift.
 	const key = $derived(getSpinButtonKey({ isIdle: context.stateXstateDerived.isIdle() }));
-	const disabled = $derived(key === 'spin_disabled');
+	// `stop_disabled` (celebration lock) as well as `spin_disabled` (unaffordable) make it inert.
+	const disabled = $derived(isSpinButtonDisabled(key));
 	// Reels rolling on a plain bet (NOT an autoplay sequence) → the spin frame spins.
 	const spinning = $derived(
 		context.stateXstateDerived.isPlaying() && !stateBetDerived.hasAutoBetCounter(),

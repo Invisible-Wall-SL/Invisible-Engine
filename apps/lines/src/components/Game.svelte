@@ -24,6 +24,7 @@
 	import {
 		getSpinButtonKey,
 		getSpinPressSound,
+		isSpinButtonDisabled,
 		runSpinOrSlamStop,
 		type SpinButtonKey,
 	} from 'utils-shared/spinStop';
@@ -1516,7 +1517,7 @@
 				// exactly as today (parity §8.8). Same shared helper the other HUD actions use.
 				routeActionThroughFlow('spin', doSpinBetOrStop);
 			},
-			disabled: boolSource(() => getSpinKey() === 'spin_disabled'),
+			disabled: boolSource(() => isSpinButtonDisabled(getSpinKey())),
 			spinning: boolSource(isSpinning),
 			label: textSource(() =>
 				getSpinKey().startsWith('spin_') ? i18nDerived.bet() : i18nDerived.stop(),
@@ -1534,7 +1535,7 @@
 	// `hasContinuePress()` mirrors `ButtonBetProvider`'s `hotkeyDisabled`: while a
 	// press-to-continue overlay is up it OWNS Space, so this stands down and one keypress
 	// runs the continue-press only.
-	const spinHotkeyDisabled = $derived(getSpinKey() === 'spin_disabled' || hasContinuePress());
+	const spinHotkeyDisabled = $derived(isSpinButtonDisabled(getSpinKey()) || hasContinuePress());
 	const spinHotkeyPress = () => {
 		context.eventEmitter.broadcast(
 			getSpinPressSound({ isIdle: context.stateXstateDerived.isIdle() }),

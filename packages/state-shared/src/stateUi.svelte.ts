@@ -132,6 +132,16 @@ export const stateUi = $state({
  *  `stateUi.continuePressCount`). */
 export const hasContinuePress = () => stateUi.continuePressCount > 0;
 
+/**
+ * Whether a non-skippable celebration presentation currently owns the screen: the
+ * free-spin intro, the free-spin outro, or a big win. While true the spin button locks
+ * (goes inert) so a press can't slam-fast-forward the celebration — read by
+ * `utils-shared/spinStop`. A REGULAR win count-up (`winShow` without `bigWinShow`) is
+ * deliberately NOT included, so an ordinary spin stays slammable.
+ */
+export const hasCelebrationOverlay = () =>
+	stateUi.bigWinShow || stateUi.freeSpinIntroShow || stateUi.freeSpinOutroShow;
+
 /** Merge a partial feature profile into the live UI config (e.g. a game's setup or
  * the editor-authored game settings supplying a jurisdiction preset). */
 export const setUiFeatures = (features: Partial<UIFeatureFlags>) => {
