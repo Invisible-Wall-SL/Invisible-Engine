@@ -19,7 +19,6 @@
 		setUiFeatures,
 		hasContinuePress,
 		hasCelebrationOverlay,
-		resetCelebrationLock,
 		UI_FEATURES_UK,
 	} from 'state-shared';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
@@ -1251,62 +1250,31 @@
 	// broadcast on all paths. `reveal` resets each spin, so a hide that a flow-v2 doc
 	// routes through a `hideContainer` (e.g. the intro) instead of a `*Hide` cue can never
 	// leave the button stuck inert — the celebration always ends before its next reveal.
-	// TEMP DIAGNOSTIC (remove once the lock is confirmed on the remake): the WebGL game
-	// state is unreadable from the console, so surface the celebration lock. Run
-	// `__IE_CEL__()` for the current latch, watch `[IE-CEL]` console lines for each cue.
-	const celDbg = (evt: string) => {
-		if (typeof window === 'undefined') return;
-		const snap = { ...stateUi.celebrationLock, locked: hasCelebrationOverlay() };
-		console.info(`[IE-CEL] ${evt} →`, JSON.stringify(snap));
-	};
-	if (typeof window !== 'undefined') {
-		(window as unknown as { __IE_CEL__?: () => unknown }).__IE_CEL__ = () => {
-			let screens: unknown = 'n/a';
-			try {
-				screens = activeScreenIds;
-			} catch {
-				screens = 'unavailable';
-			}
-			return {
-				latch: { ...stateUi.celebrationLock },
-				overlay: hasCelebrationOverlay(),
-				continuePress: hasContinuePress(),
-				activeScreens: screens,
-				idle: context.stateXstateDerived.isIdle(),
-			};
-		};
-	}
-
-	context.eventEmitter.subscribeOnMount({
-		reveal: () => {
-			resetCelebrationLock();
-			celDbg('reveal(reset)');
-		},
-		freeSpinIntroShow: () => {
-			stateUi.celebrationLock.intro = true;
-			celDbg('freeSpinIntroShow');
-		},
-		freeSpinIntroHide: () => {
-			stateUi.celebrationLock.intro = false;
-			celDbg('freeSpinIntroHide');
-		},
-		freeSpinOutroShow: () => {
-			stateUi.celebrationLock.outro = true;
-			celDbg('freeSpinOutroShow');
-		},
-		freeSpinOutroHide: () => {
-			stateUi.celebrationLock.outro = false;
-			celDbg('freeSpinOutroHide');
-		},
-		winShow: () => {
-			stateUi.celebrationLock.win = true;
-			celDbg('winShow');
-		},
-		winHide: () => {
-			stateUi.celebrationLock.win = false;
-			celDbg('winHide');
-		},
+	// Drive the celebration lock off `activeScreenIds` (the flow screens actually mounted),
+	// NOT the `*Show` emitter cues: a flow-v2 authored game mounts its intro/outro via
+	// `showContainer` and never broadcasts `freeSpinIntroShow`, so a cue subscription stays
+	// deaf (verified live on the Book-of-Borut remake — the intro screen was up for its full
+	// duration with no cue and the latch never set). The ids are the engine's canonical flow
+	// screen ids (`flowDoc.ts`: `freeSpinIntro` / `freeSpinOutro` / `bigWin`). A big win whose
+	// presentation is a HUD count-up + tap (no `bigWin` screen mounted) is caught instead by
+	// `hasContinuePress()`, OR'd in at the spinStop chokepoint.
+	$effect(() => {
+		const ids = new Set(activeScreenIds);
+		stateUi.celebrationLock.intro = ids.has('freeSpinIntro');
+		stateUi.celebrationLock.outro = ids.has('freeSpinOutro');
+		stateUi.celebrationLock.win = ids.has('bigWin');
 	});
+
+	// TEMP diagnostic (remove after live-verify): expose the lock signals to the console.
+	if (typeof window !== 'undefined') {
+		(window as unknown as { __IE_CEL__?: () => unknown }).__IE_CEL__ = () => ({
+			latch: { ...stateUi.celebrationLock },
+			overlay: hasCelebrationOverlay(),
+			continuePress: hasContinuePress(),
+			activeScreens: activeScreenIds,
+			idle: context.stateXstateDerived.isIdle(),
+		});
+	}
 
 	// §16.4 B6.4 — the spin/stop state machine. The decision itself lives ONCE in
 	// `utils-shared/spinStop`, shared with `ButtonBetProvider.svelte`, so the parametric
