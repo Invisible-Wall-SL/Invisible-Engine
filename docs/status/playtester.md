@@ -110,3 +110,13 @@ visibility** — the user must keep the game tab visible (side-by-side) for the 
   ("SAMURAI SPIN", "mothership Land values") — recorded as a regression guard in the remake playbook.
   Wired the Claude-in-Chrome tools + escalation rule into the agent so it does this automatically next
   time. Round pause at 18/20 was the tab going hidden (visibility throttle), not a bug.
+
+- **2026-07-30 — lines slam-never-skips-a-celebration (verify-only)** — verified the 2026-07-30
+  change in `apps/lines/src/game/unskippablePresentation.ts` (`startsCelebration` + `opensCelebration`
+  re-arm) and `apps/lines/src/game/utils.ts` (`playBookEvent` passes `startsCelebration(bookEvent)`).
+  Boot clean on the flow-v1 path (default local; `getFlowV2()` undefined). Exercised the real
+  `roundSkip` singleton in the running build: `startsCelebration` classifies freeSpinEnd / freeSpinRetrigger /
+  setWin(big≥6) = true and setWin(small/medium) / reveal / OOB-winLevel = false; `runBookEventPresentation`
+  re-arms (un-trips) the token before a big-win/outro/retrigger/updateFreeSpin dispatch and LEAVES it
+  tripped for ordinary setWin + reveal; unskippable-depth opens/closes balanced. No defects; the animated
+  play-in-full + tap-gate is human-eyes (frozen rAF in the Browser pane — needs foreground Claude-in-Chrome).

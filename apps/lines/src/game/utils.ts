@@ -12,7 +12,7 @@ import type { Bet, BookEvent, BookEventOfType } from './typesBookEvent';
 import { bookEventHandlerMap } from './bookEventHandlerMap';
 import { getFlowInterpreter } from './flowInterpreterHolder';
 import { getFlowV2 } from './flowV2InterpreterHolder';
-import { runBookEventPresentation } from './unskippablePresentation';
+import { runBookEventPresentation, startsCelebration } from './unskippablePresentation';
 import { recordWinCycleWins, startWinCycle, stopWinCycle } from './winSymbolCycle';
 import type { RawSymbol, SymbolState } from './types';
 
@@ -36,8 +36,14 @@ export const playBookEvent = (
 ): Promise<void> =>
 	// The UNSKIPPABLE carve-out is opened HERE, around the whole dispatch, so it covers whichever of
 	// the three paths below drives the event (coded / v1 flow / v2 flow) — the book reveal and the
-	// free-spin intro run to completion under a slam on all of them.
-	runBookEventPresentation(bookEvent.type, () => dispatchBookEvent(bookEvent, context));
+	// free-spin intro run to completion under a slam on all of them. `startsCelebration` additionally
+	// re-arms the slam token before a big win / free-spin outro / retrigger, so those present un-slammed
+	// (the same three paths) — celebrations are never fast-forwarded.
+	runBookEventPresentation(
+		bookEvent.type,
+		() => dispatchBookEvent(bookEvent, context),
+		startsCelebration(bookEvent),
+	);
 
 const dispatchBookEvent = async (
 	bookEvent: BookEvent,

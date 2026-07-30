@@ -47,10 +47,26 @@
  * path therefore keeps a MINIMUM DISPLAY — the lit win symbols ({@link SLAM_SYMBOL_HOLD_MS}) and the
  * per-win info message ({@link SLAM_MESSAGE_HOLD_MS}) — while the win LINE and the amount count-up
  * stay fully skipped. See {@link slamHold} for why this cannot hang.
+ *
+ * A SLAM NEVER SKIPS A CELEBRATION (owner direction 2026-07-30). The big-win overlay, the free-spin
+ * outro panel and the retrigger flourish must play in FULL after a slam — a slam snaps the reels, it
+ * does not fast-forward the show. These are NOT added to {@link UNSKIPPABLE_BOOK_EVENTS}: that
+ * mechanism keeps the token TRIPPED and only makes cues/delays run long, so it can't protect the
+ * outro's player-gated count-up or a `showContainer{awaitComplete}` hold (both are deliberately
+ * released-on-skip to avoid the slam hang). Instead the token is RE-ARMED right before a celebration
+ * ({@link startsCelebration}), so it presents with a fresh token — byte-identical to a round nobody
+ * slammed: cues wait in full, player-gated holds wait for the real tap, and nothing can hang because
+ * the hang only exists while the token is tripped. The button stays inert over the celebration via the
+ * celebration LOCK (`isCelebrationLocked` in `spinStop.ts`), so the player still can't slam the
+ * celebration itself. ORDINARY wins (win line + amount count-up) are NOT celebrations and keep
+ * fast-forwarding — only a `big`-level {@link startsCelebration} `setWin` re-arms.
  */
 
 import { roundSkip } from 'utils-shared/skipToken';
 import { waitForTimeout } from 'utils-shared/wait';
+
+import type { BookEvent } from './typesBookEvent';
+import { winLevelMap, type WinLevel } from './winLevelMap';
 
 /**
  * The book events whose whole presentation is unskippable.
@@ -76,6 +92,35 @@ export const UNSKIPPABLE_BOOK_EVENTS: ReadonlySet<string> = new Set([
  * each re-arming its own spin.
  */
 export const SPIN_REARM_BOOK_EVENTS: ReadonlySet<string> = new Set(['updateFreeSpin']);
+
+/**
+ * Does this book event OPEN A CELEBRATION the player must actually watch — the one a slam must never
+ * fast-forward? The slam token is re-armed right before it ({@link runBookEventPresentation}) so it
+ * presents on a fresh token, exactly like an un-slammed round (see "A SLAM NEVER SKIPS A CELEBRATION"
+ * above).
+ *
+ *  - `freeSpinEnd` — the free-spin OUTRO panel ("You won X"), always a celebration.
+ *  - `freeSpinRetrigger` — the retrigger flourish (+N free spins). The coded reference presents
+ *    nothing here, so the re-arm is a harmless no-op there; a flow that authors a retrigger screen
+ *    gets it played in full.
+ *  - `setWin` — the win overlay fires for EVERY win, so it is a celebration ONLY at a `big` win level
+ *    ({@link winLevelMap}). A small / medium win keeps fast-forwarding (owner direction: ordinary
+ *    wins still slam).
+ *
+ * The free-spin INTRO (`freeSpinTrigger`) and the book reveal (`setExpandingSymbol`) are NOT here —
+ * they are already protected by {@link UNSKIPPABLE_BOOK_EVENTS} and stay on that mechanism.
+ */
+export const startsCelebration = (bookEvent: BookEvent): boolean => {
+	switch (bookEvent.type) {
+		case 'freeSpinEnd':
+		case 'freeSpinRetrigger':
+			return true;
+		case 'setWin':
+			return winLevelMap[bookEvent.winLevel as WinLevel]?.type === 'big';
+		default:
+			return false;
+	}
+};
 
 /**
  * Cues whose awaited hold is resolved ONLY by a player press. These keep racing the token even
@@ -131,9 +176,10 @@ export const inUnskippablePresentation = (): boolean => depth > 0;
 
 /**
  * The per-book-event SLAM POLICY, applied around one dispatch: re-arm the token when this event
- * starts a new free spin ({@link SPIN_REARM_BOOK_EVENTS}), then run `dispatch` with the unskippable
- * scope open iff the event owns an unskippable presentation. Any other event runs untouched, so the
- * base game keeps fast-forwarding.
+ * starts a new free spin ({@link SPIN_REARM_BOOK_EVENTS}) OR opens a celebration (`opensCelebration`,
+ * from {@link startsCelebration}) — so a celebration presents un-slammed — then run `dispatch` with
+ * the unskippable scope open iff the event owns an unskippable presentation. Any other event runs
+ * untouched, so the base game keeps fast-forwarding.
  *
  * The re-arm runs BEFORE the dispatch — not inside a handler leaf — so the whole of the spin's first
  * event, cues included, is presented with a fresh token on every path (coded, v1 flow, v2 flow).
@@ -141,8 +187,12 @@ export const inUnskippablePresentation = (): boolean => depth > 0;
 export const runBookEventPresentation = async (
 	bookEventType: string,
 	dispatch: () => Promise<void>,
+	/** Whether this dispatch OPENS A CELEBRATION (from {@link startsCelebration}) — re-arm the token so
+	 *  it plays on a fresh token, un-slammed. Defaulted so a caller that only cares about the per-spin
+	 *  re-arm (e.g. the flow-spike harness) stays source-compatible. */
+	opensCelebration = false,
 ): Promise<void> => {
-	if (SPIN_REARM_BOOK_EVENTS.has(bookEventType)) rearmSlamForSpin();
+	if (SPIN_REARM_BOOK_EVENTS.has(bookEventType) || opensCelebration) rearmSlamForSpin();
 	if (!UNSKIPPABLE_BOOK_EVENTS.has(bookEventType)) {
 		await dispatch();
 		return;
