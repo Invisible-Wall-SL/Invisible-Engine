@@ -62,6 +62,7 @@
  * fast-forwarding — only a `big`-level {@link startsCelebration} `setWin` re-arms.
  */
 
+import { stateUi } from 'state-shared';
 import { roundSkip } from 'utils-shared/skipToken';
 import { waitForTimeout } from 'utils-shared/wait';
 
@@ -99,6 +100,12 @@ export const SPIN_REARM_BOOK_EVENTS: ReadonlySet<string> = new Set(['updateFreeS
  * presents on a fresh token, exactly like an un-slammed round (see "A SLAM NEVER SKIPS A CELEBRATION"
  * above).
  *
+ *  - `freeSpinTrigger` — the free-spin INTRO. It is ALSO in {@link UNSKIPPABLE_BOOK_EVENTS}, but that
+ *    alone does not protect it: its scatter-match animation runs BEFORE the intro screen mounts (so
+ *    the screen-driven celebration lock is still open) and its `freeSpinIntroUpdate` tap-hold is
+ *    player-gated (races the token), so an upstream reel-roll slam collapsed the intro. Re-arming here
+ *    clears that upstream trip; the button lock over the whole unskippable window
+ *    (`hasUnskippablePresentation`) stops a fresh slam during the scatter match.
  *  - `freeSpinEnd` — the free-spin OUTRO panel ("You won X"), always a celebration.
  *  - `freeSpinRetrigger` — the retrigger flourish (+N free spins). The coded reference presents
  *    nothing here, so the re-arm is a harmless no-op there; a flow that authors a retrigger screen
@@ -107,11 +114,12 @@ export const SPIN_REARM_BOOK_EVENTS: ReadonlySet<string> = new Set(['updateFreeS
  *    ({@link winLevelMap}). A small / medium win keeps fast-forwarding (owner direction: ordinary
  *    wins still slam).
  *
- * The free-spin INTRO (`freeSpinTrigger`) and the book reveal (`setExpandingSymbol`) are NOT here —
- * they are already protected by {@link UNSKIPPABLE_BOOK_EVENTS} and stay on that mechanism.
+ * The book reveal (`setExpandingSymbol`) is NOT here — it has no reel-roll ahead of it that a slam
+ * would legitimately stop, so the unskippable scope + the window lock already cover it.
  */
 export const startsCelebration = (bookEvent: BookEvent): boolean => {
 	switch (bookEvent.type) {
+		case 'freeSpinTrigger':
 		case 'freeSpinEnd':
 		case 'freeSpinRetrigger':
 			return true;
@@ -174,6 +182,21 @@ let depth = 0;
 /** True while the round is inside a presentation that must run to completion. */
 export const inUnskippablePresentation = (): boolean => depth > 0;
 
+// Mirror the depth into a reactive flag the spin button reads (`state-shared`
+// `hasUnskippablePresentation` → `utils-shared/spinStop`), so the button is inert for the WHOLE
+// unskippable window — including the free-spin intro's scatter-match phase and the book reveal, which
+// run BEFORE any celebration screen mounts. Without this the button is a live STOP in that gap and a
+// slam there trips the round token, collapsing the intro's player-gated tap-hold. Set only on the
+// 0↔1 edges so nested opens (the resume path replays `freeSpinTrigger`) don't clear it early.
+const enterUnskippable = (): void => {
+	depth += 1;
+	if (depth === 1) stateUi.unskippablePresentationActive = true;
+};
+const exitUnskippable = (): void => {
+	depth -= 1;
+	if (depth === 0) stateUi.unskippablePresentationActive = false;
+};
+
 /**
  * The per-book-event SLAM POLICY, applied around one dispatch: re-arm the token when this event
  * starts a new free spin ({@link SPIN_REARM_BOOK_EVENTS}) OR opens a celebration (`opensCelebration`,
@@ -183,6 +206,12 @@ export const inUnskippablePresentation = (): boolean => depth > 0;
  *
  * The re-arm runs BEFORE the dispatch — not inside a handler leaf — so the whole of the spin's first
  * event, cues included, is presented with a fresh token on every path (coded, v1 flow, v2 flow).
+ *
+ * Opening the unskippable scope ALSO locks the spin button for the whole window
+ * ({@link enterUnskippable} → `stateUi.unskippablePresentationActive`), so a slam during the intro's
+ * scatter-match phase (before the intro screen mounts, when the screen-driven celebration lock is
+ * still open) can't trip the token and skip the intro. Re-arm handles the UPSTREAM slam (the reel
+ * roll that landed the trigger); the window lock handles a slam WITHIN the window.
  */
 export const runBookEventPresentation = async (
 	bookEventType: string,
@@ -197,11 +226,11 @@ export const runBookEventPresentation = async (
 		await dispatch();
 		return;
 	}
-	depth += 1;
+	enterUnskippable();
 	try {
 		await dispatch();
 	} finally {
-		depth -= 1;
+		exitUnskippable();
 	}
 };
 
