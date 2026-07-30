@@ -625,6 +625,11 @@
 		// `componentInstance(button)` turbo/auto-spin hides when the config disables the feature.
 		turboFeature: boolSource(() => stateUi.config.features.turbo),
 		autoplayFeature: boolSource(() => stateUi.config.features.autoplay),
+		// True when NO full-screen tap-to-continue overlay is up (`continuePressCount === 0`). Bind an
+		// authored ambient/background node (e.g. drifting smoke) to this so it hides during any
+		// tap-to-continue celebration — the authored-scene equivalent of the coded `Background` dust
+		// fade, which auto-hides on the same signal so the dimmed board stays clean, not murky.
+		tapOverlayIdle: boolSource(() => stateUi.continuePressCount === 0),
 	});
 
 	const fallbackBasegame = fallbackEditorScenes.scenes.find((scene) => scene.id === 'basegame')!;
