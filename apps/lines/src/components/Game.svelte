@@ -18,12 +18,15 @@
 		isFullscreenSupported,
 		setUiFeatures,
 		hasContinuePress,
+		hasCelebrationOverlay,
+		resetCelebrationLock,
 		UI_FEATURES_UK,
 	} from 'state-shared';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
 	import {
 		getSpinButtonKey,
 		getSpinPressSound,
+		isSpinButtonDisabled,
 		runSpinOrSlamStop,
 		type SpinButtonKey,
 	} from 'utils-shared/spinStop';
@@ -1239,6 +1242,61 @@
 		boardFrameGlowHide: () => (boardGlowActive = false),
 	});
 
+	// SPIN-BUTTON CELEBRATION LOCK — maintain `stateUi.celebrationLock` off the EMITTER
+	// cues so `hasCelebrationOverlay()` (read by `utils-shared/spinStop`) is correct on
+	// every presentation path. The coded book-event handlers + flow-v1 effects set the
+	// `*Show` FLAGS, but a flow-v2 authored game fires only the `fireCue` (visual) and
+	// omits the flag-setting `effect` node — so keying the lock off those flags left the
+	// button live during the intro + win on the Book-of-Borut remake. These cues ARE
+	// broadcast on all paths. `reveal` resets each spin, so a hide that a flow-v2 doc
+	// routes through a `hideContainer` (e.g. the intro) instead of a `*Hide` cue can never
+	// leave the button stuck inert — the celebration always ends before its next reveal.
+	// TEMP DIAGNOSTIC (remove once the lock is confirmed on the remake): the WebGL game
+	// state is unreadable from the console, so surface the celebration lock. Run
+	// `__IE_CEL__()` for the current latch, watch `[IE-CEL]` console lines for each cue.
+	const celDbg = (evt: string) => {
+		if (typeof window === 'undefined') return;
+		const snap = { ...stateUi.celebrationLock, locked: hasCelebrationOverlay() };
+		console.info(`[IE-CEL] ${evt} →`, JSON.stringify(snap));
+	};
+	if (typeof window !== 'undefined') {
+		(window as unknown as { __IE_CEL__?: () => unknown }).__IE_CEL__ = () => ({
+			...stateUi.celebrationLock,
+			locked: hasCelebrationOverlay(),
+		});
+	}
+
+	context.eventEmitter.subscribeOnMount({
+		reveal: () => {
+			resetCelebrationLock();
+			celDbg('reveal(reset)');
+		},
+		freeSpinIntroShow: () => {
+			stateUi.celebrationLock.intro = true;
+			celDbg('freeSpinIntroShow');
+		},
+		freeSpinIntroHide: () => {
+			stateUi.celebrationLock.intro = false;
+			celDbg('freeSpinIntroHide');
+		},
+		freeSpinOutroShow: () => {
+			stateUi.celebrationLock.outro = true;
+			celDbg('freeSpinOutroShow');
+		},
+		freeSpinOutroHide: () => {
+			stateUi.celebrationLock.outro = false;
+			celDbg('freeSpinOutroHide');
+		},
+		winShow: () => {
+			stateUi.celebrationLock.win = true;
+			celDbg('winShow');
+		},
+		winHide: () => {
+			stateUi.celebrationLock.win = false;
+			celDbg('winHide');
+		},
+	});
+
 	// §16.4 B6.4 — the spin/stop state machine. The decision itself lives ONCE in
 	// `utils-shared/spinStop`, shared with `ButtonBetProvider.svelte`, so the parametric
 	// `spin` action and the coded `ButtonBet` cannot drift (they were duplicated verbatim
@@ -1516,7 +1574,7 @@
 				// exactly as today (parity §8.8). Same shared helper the other HUD actions use.
 				routeActionThroughFlow('spin', doSpinBetOrStop);
 			},
-			disabled: boolSource(() => getSpinKey() === 'spin_disabled'),
+			disabled: boolSource(() => isSpinButtonDisabled(getSpinKey())),
 			spinning: boolSource(isSpinning),
 			label: textSource(() =>
 				getSpinKey().startsWith('spin_') ? i18nDerived.bet() : i18nDerived.stop(),
@@ -1534,7 +1592,7 @@
 	// `hasContinuePress()` mirrors `ButtonBetProvider`'s `hotkeyDisabled`: while a
 	// press-to-continue overlay is up it OWNS Space, so this stands down and one keypress
 	// runs the continue-press only.
-	const spinHotkeyDisabled = $derived(getSpinKey() === 'spin_disabled' || hasContinuePress());
+	const spinHotkeyDisabled = $derived(isSpinButtonDisabled(getSpinKey()) || hasContinuePress());
 	const spinHotkeyPress = () => {
 		context.eventEmitter.broadcast(
 			getSpinPressSound({ isIdle: context.stateXstateDerived.isIdle() }),

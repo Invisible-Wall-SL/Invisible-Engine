@@ -111,6 +111,17 @@ export const stateUi = $state({
 	freeSpinOutroShow: false,
 	winShow: false,
 	bigWinShow: false,
+	// Spin-button CELEBRATION LOCK latch — kept SEPARATE from the `*Show` flags above.
+	// Those flags are set by the coded book-event handlers and the flow-v1 effects, but a
+	// flow-v2 authored game drives its celebrations with `fireCue` nodes and OMITS the
+	// flag-setting `effect` nodes, so `freeSpinIntroShow`/`bigWinShow` never go true there
+	// (verified on the Book-of-Borut remake). This latch is instead maintained off the
+	// EMITTER cues every path broadcasts (`freeSpinIntroShow`/`winShow`/`freeSpinOutroShow`
+	// + their `Hide`), with a per-spin `reveal` reset so a missing hide (flow-v2 hides the
+	// intro with a `hideContainer`, not a `freeSpinIntroHide` cue) can never leave it stuck
+	// on. Maintained by `apps/lines` Game.svelte's always-on subscription; read via
+	// `hasCelebrationOverlay()`.
+	celebrationLock: { intro: false, outro: false, win: false },
 	menuOpen: false,
 	drawerFold: false,
 	drawerButtonShow: false,
@@ -131,6 +142,25 @@ export const stateUi = $state({
 /** Whether a press-to-continue overlay currently owns the press (see
  *  `stateUi.continuePressCount`). */
 export const hasContinuePress = () => stateUi.continuePressCount > 0;
+
+/**
+ * Whether a non-skippable celebration presentation currently owns the screen: the
+ * free-spin intro, the free-spin outro, or the win panel. While true the spin button
+ * locks (goes inert) so a press can't slam-fast-forward the celebration — read by
+ * `utils-shared/spinStop`. Backed by the `celebrationLock` latch (maintained off the
+ * emitter cues, so it is correct on coded / flow-v1 / flow-v2 alike), NOT the `*Show`
+ * flags a flow-v2 game never sets.
+ */
+export const hasCelebrationOverlay = () =>
+	stateUi.celebrationLock.intro || stateUi.celebrationLock.outro || stateUi.celebrationLock.win;
+
+/** Clear every celebration-lock latch (per-spin `reveal` reset, so a missing hide cue
+ *  can't leave the spin button stuck inert). See `stateUi.celebrationLock`. */
+export const resetCelebrationLock = () => {
+	stateUi.celebrationLock.intro = false;
+	stateUi.celebrationLock.outro = false;
+	stateUi.celebrationLock.win = false;
+};
 
 /** Merge a partial feature profile into the live UI config (e.g. a game's setup or
  * the editor-authored game settings supplying a jurisdiction preset). */

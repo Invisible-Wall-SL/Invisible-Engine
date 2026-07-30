@@ -1,12 +1,16 @@
-import { stateBet, stateBetDerived } from 'state-shared';
+import { hasCelebrationOverlay, stateBet, stateBetDerived } from 'state-shared';
 
 import { roundSkip } from './skipToken';
 
-export type SpinButtonKey = 'spin_default' | 'spin_disabled' | 'stop_default';
+export type SpinButtonKey = 'spin_default' | 'spin_disabled' | 'stop_default' | 'stop_disabled';
 
 /**
  * The spin button's key. Slam stop is ALWAYS available, so any round in progress shows a live
  * STOP — a single bet is no longer inert.
+ *
+ * EXCEPT during a non-skippable celebration (free-spin intro/outro, big win): there the button
+ * locks to `stop_disabled` so a press can't slam-fast-forward the celebration (the STOP caption
+ * stays, only the press goes inert). See `hasCelebrationOverlay`.
  *
  * During autoplay the second press means "cancel the sequence" rather than "slam", but the key
  * vocabulary has no caption for that and inventing one would be dead art in every existing game,
@@ -14,8 +18,13 @@ export type SpinButtonKey = 'spin_default' | 'spin_disabled' | 'stop_default';
  */
 export const getSpinButtonKey = ({ isIdle }: { isIdle: boolean }): SpinButtonKey => {
 	if (isIdle) return stateBetDerived.isBetCostAvailable() ? 'spin_default' : 'spin_disabled';
+	if (hasCelebrationOverlay()) return 'stop_disabled';
 	return 'stop_default';
 };
+
+/** Whether a spin-button key means the button is inert (unaffordable bet, or celebration lock). */
+export const isSpinButtonDisabled = (key: SpinButtonKey): boolean =>
+	key === 'spin_disabled' || key === 'stop_disabled';
 
 export type SpinPressSound = { type: 'soundPressBet' } | { type: 'soundPressStop' };
 
@@ -68,6 +77,11 @@ export const runSpinOrSlamStop = ({
 		broadcast({ type: 'bet' });
 		return;
 	}
+
+	// A non-skippable celebration owns the screen — the press is inert so it can't slam-skip it.
+	// The button already renders disabled (`getSpinButtonKey` → `stop_disabled`); this guards the
+	// direct callers (flow `spin` action, Space hotkey, intent) that bypass the button's own gate.
+	if (hasCelebrationOverlay()) return;
 
 	if (roundSkip.isSkipped()) {
 		if (stateBetDerived.hasAutoBetCounter()) stateBet.autoSpinsCounter = 0;
