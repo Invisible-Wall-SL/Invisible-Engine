@@ -99,9 +99,13 @@ for (const flowV2DrivesScreens of bools)
 	for (const freeSpinOutroHasCodedGate of bools)
 		for (const freeSpinOutroAuthored of bools)
 			for (const ownsOutro of bools) {
-				// v1 (`ownsOutro`) and v2 (`flowV2DrivesScreens`) are mutually exclusive by construction
-				// (`resolveFlowOwnsFreeSpins` is inert under v2), so skip the impossible pair.
-				if (flowV2DrivesScreens && ownsOutro) continue;
+				// The `flowV2DrivesScreens && ownsOutro` pair is NOT skipped: it is the REGRESSION combo.
+				// `resolveFlowOwnsFreeSpins` reads the v1 `bakedFlowDoc`, which on a migrated v2 game (the
+				// Book of Borut remake) can COEXIST with the v2 doc and still report `ownsOutro` true. When
+				// it did, the old `top: ownsOutro ? 'driver-transfer' : …` mounted a SECOND driver alongside
+				// the v2 `band` driver ⇒ TWO `freeSpinOutroCountUp` subscribers, and the v1 `holdUntilComplete`
+				// one never released under a v2 `showContainer` outro ⇒ the round HUNG at `freeSpinOutroCountUp`.
+				// The fix forces `top` to `null` under v2, so the invariant now holds for EVERY combo.
 				combos += 1;
 				const ctx = {
 					flowV2DrivesScreens,
@@ -157,6 +161,18 @@ assert(
 			ownsOutro: false,
 		}),
 	) === JSON.stringify({ band: null, top: null }),
+);
+assert(
+	'REGRESSION: v2 + author-rebuilt + a STALE v1 ownsOutro ⇒ STILL just the band driver (no 2nd ' +
+		'driver-transfer that would double the freeSpinOutroCountUp subscriber and hang the round)',
+	JSON.stringify(
+		resolveFreeSpinOutroMount({
+			flowV2DrivesScreens: true,
+			freeSpinOutroHasCodedGate: false,
+			freeSpinOutroAuthored: true,
+			ownsOutro: true,
+		}),
+	) === JSON.stringify({ band: 'driver', top: null }),
 );
 assert(
 	'v1 ownsOutro ⇒ driver-transfer at the top band',
