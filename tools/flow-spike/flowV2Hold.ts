@@ -24,6 +24,7 @@
  */
 
 import {
+	awaitCompleteContainerIds,
 	createContainerMountModel,
 	createFlowV2Env,
 	runFlowEvent,
@@ -199,6 +200,106 @@ const main = async () => {
 		let done = false;
 		await runFlowEvent(makeDoc(true), ctx, 'startFs', {}).then(() => (done = true));
 		assert('hold resolves immediately (no hook) → after-node ran', ran.length === 1 && done);
+	}
+
+	// --- 7. ORDER-INDEPENDENT completion latch (the tap-before-await race) ---
+	// The container-completion twin of the #149 signal race: a `tapToContinue` can arm + fire its
+	// `complete(id)` BEFORE the `showContainer{awaitComplete}` node registers the hold (e.g. the
+	// free-spin outro driver arms the tap ~300ms before releasing the round-block). Without a latch the
+	// completion is silently dropped and the later `awaitComplete` waits forever. The latch is SCOPED to
+	// declared await targets (passed as the 3rd arg — `awaitCompleteContainerIds(doc)` in the game).
+	console.log('\n7. order-independent completion latch, scoped to await targets:');
+	{
+		// The scoping set comes from the graph in the game — a `showContainer{awaitComplete}` targets it.
+		assert(
+			'7·helper awaitCompleteContainerIds reads the awaitComplete target from the graph',
+			JSON.stringify([...awaitCompleteContainerIds(makeDoc(true))]) === '["intro"]',
+		);
+		assert(
+			'7·helper a doc with no awaitComplete node yields an empty target set',
+			awaitCompleteContainerIds(makeDoc(false)).size === 0,
+		);
+
+		// `intro` is a declared await target; `base`/`other` are persistent (never held).
+		const AWAIT_TARGETS = ['intro'];
+
+		// (a) complete-before-await resolves the later await (the fix).
+		{
+			const m = createContainerMountModel(CONTAINERS, undefined, AWAIT_TARGETS);
+			m.show('intro');
+			assert('7a complete(intro) BEFORE await latches + returns true', m.complete('intro') === true);
+			assert('7a heldContainers is empty (nothing registered a hold)', m.heldContainers().length === 0);
+			let resolved = false;
+			await m.awaitComplete('intro').then(() => (resolved = true));
+			assert('7a the later awaitComplete(intro) resolves immediately from the latch', resolved);
+		}
+
+		// (b) a stale latched completion does NOT pre-resolve a fresh await after a hide/show cycle
+		//     (a tap from a PRIOR round must not release the NEXT round's hold).
+		{
+			const m = createContainerMountModel(CONTAINERS, undefined, AWAIT_TARGETS);
+			m.show('intro');
+			m.complete('intro'); // latch a completion this "round"…
+			m.hide('intro'); // …the container leaves the screen (clears the latch)…
+			m.show('intro'); // …and is re-shown for a fresh round.
+			let resolved = false;
+			void m.awaitComplete('intro').then(() => (resolved = true));
+			await tick();
+			assert('7b a hide/show cycle clears the stale latch → fresh await BLOCKS', !resolved);
+			assert('7b the fresh await registered a real hold', JSON.stringify(m.heldContainers()) === '["intro"]');
+			m.complete('intro');
+			await tick();
+			assert('7b and a real complete on the fresh round still releases it', resolved);
+		}
+
+		// (b2) a FRESH show (not-shown→shown) also clears a stale latch even without a hide.
+		{
+			const m = createContainerMountModel(CONTAINERS, undefined, AWAIT_TARGETS);
+			m.show('intro');
+			m.complete('intro'); // latch…
+			m.hide('intro');
+			m.show('intro'); // fresh show clears (covered in 7b); here assert a re-latch works fresh.
+			assert('7b2 a fresh show resets so a NEW complete latches again', m.complete('intro') === true);
+			let resolved = false;
+			await m.awaitComplete('intro').then(() => (resolved = true));
+			assert('7b2 the new latch resolves the await', resolved);
+		}
+
+		// (b3) a REDUNDANT show (already shown) must NOT clear a legitimately-latched completion — the
+		//      two-`showContainer` authoring case where a tap lands between the first show and the await.
+		{
+			const m = createContainerMountModel(CONTAINERS, undefined, AWAIT_TARGETS);
+			m.show('intro');
+			m.complete('intro'); // tap lands after the first show…
+			m.show('intro'); // …a second showContainer(intro) is a no-op and must PRESERVE the latch.
+			let resolved = false;
+			await m.awaitComplete('intro').then(() => (resolved = true));
+			assert('7b3 a redundant show preserves the latch → await still resolves', resolved);
+		}
+
+		// (c) a persistent (non-target) container is NEVER latched, so a later awaitComplete on it does
+		//     NOT pre-resolve — the tap dispatcher probes it top-down and must scan past (complete=false).
+		{
+			const m = createContainerMountModel(CONTAINERS, undefined, AWAIT_TARGETS);
+			m.show('base');
+			assert('7c complete(base) on a non-target returns false (dispatcher scans past)', m.complete('base') === false);
+			let resolved = false;
+			void m.awaitComplete('base').then(() => (resolved = true));
+			await tick();
+			assert('7c a later awaitComplete(base) is NOT spuriously pre-resolved', !resolved);
+		}
+
+		// (c2) with NO await targets passed (a pure recorder/legacy caller) the latch is inert — byte
+		//      identical to the pre-fix order-dependent behaviour.
+		{
+			const m = createContainerMountModel(CONTAINERS); // no 3rd arg.
+			m.show('intro');
+			assert('7c2 complete before await is a no-op without await targets', m.complete('intro') === false);
+			let resolved = false;
+			void m.awaitComplete('intro').then(() => (resolved = true));
+			await tick();
+			assert('7c2 the await then blocks (legacy order-dependent behaviour preserved)', !resolved);
+		}
 	}
 
 	console.log(`\n${failed ? 'V2 HOLD HARNESS: FAILED' : 'V2 HOLD HARNESS: PASSED'}`);

@@ -53,11 +53,22 @@ export interface ContainerMountModel {
  * called with the new ordered list every time the shown SET actually changes — the game wires it
  * to a `$state` mirror so a `<FlowV2Mount>` re-renders. A redundant show/hide (no set change) does
  * NOT notify, so a re-fired event never churns the render.
+ *
+ * `awaitTargets` (optional) is the set of container ids a `showContainer{awaitComplete}` node
+ * targets (see `awaitCompleteContainerIds`). It SCOPES the order-independent completion latch: a
+ * `complete(id)` that arrives BEFORE its hold is registered (the tap-armed-before-await race, the
+ * container-completion twin of the #149 signal race) is recorded as a PENDING completion so the
+ * later `awaitComplete(id)` resolves immediately — but ONLY for a declared await target. A container
+ * that never holds (a persistent HUD/basegame the tap dispatcher also probes top-down) is never
+ * latched, so a future `awaitComplete` on it can't wrongly pre-resolve. Omitted ⇒ no latching (the
+ * legacy order-dependent behaviour), so a headless harness/recorder is byte-identical unless it opts in.
  */
 export const createContainerMountModel = (
 	containers: ContainerRef[],
 	onChange?: (ordered: MountedContainer[]) => void,
+	awaitTargets?: Iterable<ContainerId>,
 ): ContainerMountModel => {
+	const latchable = new Set<ContainerId>(awaitTargets ?? []);
 	// id → its declared ref, so `show(id)` resolves sceneId + z from one source of truth (the
 	// flow's `containers`), NOT from the z the interpreter happens to pass — keeps them from drifting.
 	const byId = new Map<ContainerId, ContainerRef>();
@@ -70,6 +81,11 @@ export const createContainerMountModel = (
 	const shown = new Set<ContainerId>();
 	// containerId → resolvers waiting for its next `complete` (a tap). Cleared + fired on complete/hide.
 	const holds = new Map<ContainerId, Array<() => void>>();
+	// A `complete(id)` that arrived with NO hold registered yet (the order race) — latched so the next
+	// `awaitComplete(id)` resolves immediately + consumes it. Scoped to `latchable` ids only, and cleared
+	// on a fresh `show(id)` / any `hide(id)` so a stale completion can never pre-resolve a future round's
+	// hold. Mirrors the #149 seed-on-subscribe signal latch, in the container-completion path.
+	const pendingCompletions = new Set<ContainerId>();
 	const releaseHolds = (id: ContainerId): boolean => {
 		const pending = holds.get(id);
 		if (!pending) return false;
@@ -90,23 +106,44 @@ export const createContainerMountModel = (
 	return {
 		show: (id) => {
 			if (!byId.has(id) || shown.has(id)) return; // unknown / already shown → no churn.
+			// A FRESH show (not-shown→shown) is a new overlay episode — drop any stale latched completion
+			// so a tap on a PRIOR mount of this container can't pre-resolve this round's hold. A redundant
+			// show (already shown, guarded above) does NOT reach here, so a legitimately-latched completion
+			// from a tap between a first and second `showContainer` on the same id survives.
+			pendingCompletions.delete(id);
 			shown.add(id);
 			notify();
 		},
 		hide: (id) => {
 			releaseHolds(id); // a hidden container can never complete → don't leak its hold.
+			pendingCompletions.delete(id); // and a hidden container's stale completion must not pre-resolve a re-show.
 			if (!shown.delete(id)) return; // wasn't shown → no churn.
 			notify();
 		},
 		isShown: (id) => shown.has(id),
 		ordered,
 		awaitComplete: (id) =>
-			new Promise<void>((resolve) => {
-				const arr = holds.get(id) ?? [];
-				arr.push(resolve);
-				holds.set(id, arr);
-			}),
-		complete: (id) => releaseHolds(id),
+			// ORDER-INDEPENDENT: if `complete(id)` already arrived (the tap-before-await race), consume the
+			// latched completion and resolve immediately; else register a hold that a later `complete` fires.
+			pendingCompletions.delete(id)
+				? Promise.resolve()
+				: new Promise<void>((resolve) => {
+						const arr = holds.get(id) ?? [];
+						arr.push(resolve);
+						holds.set(id, arr);
+					}),
+		complete: (id) => {
+			if (releaseHolds(id)) return true; // a hold was registered → release it (the common case).
+			// No hold yet. LATCH the completion for a declared await target so the imminent `awaitComplete`
+			// resolves at once (the race fix), and return `true` so the tap dispatcher stops at THIS
+			// container (it was the tap's real target) instead of probing lower containers. A non-target
+			// (persistent HUD/basegame) is never latched → `false`, so the dispatcher scans past it as before.
+			if (latchable.has(id)) {
+				pendingCompletions.add(id);
+				return true;
+			}
+			return false;
+		},
 		heldContainers: () => [...holds.keys()],
 	};
 };
