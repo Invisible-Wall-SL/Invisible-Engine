@@ -203,12 +203,23 @@ export interface FreeSpinOutroMount {
  * decision B's NON-NEGOTIABLE rule: there is ALWAYS EXACTLY ONE `freeSpinOutroCountUp` subscriber —
  * the mounted `driver` OR `gate` here, OR (when `freeSpinOutroHasCodedGate`) Book of Borut's own
  * composer gate mounted through its container. Two subscribers would each hold the round on
- * `freeSpinOutroCountUp` and HANG it; zero would silently no-op the count-up. `v1` (`ownsOutro`) and
- * `v2` (`flowV2DrivesScreens`) are mutually exclusive, so exactly one band is ever non-null.
+ * `freeSpinOutroCountUp` and HANG it; zero would silently no-op the count-up.
+ *
+ * `v2` (`flowV2DrivesScreens`) OWNS the outro at the container `band`; `v1` (`ownsOutro`) is meant to
+ * be INERT under v2. That inertness must be ENFORCED here, not merely assumed of `ownsOutro`'s inputs:
+ * `resolveFlowOwnsFreeSpins` reads the (v1) `bakedFlowDoc`, which on a MIGRATED v2 game (the Book of
+ * Borut remake) can COEXIST with the v2 doc and still report `ownsOutro` true — the outro screen +
+ * `freeSpinEnd` edge survive in the stale v1 doc. Reading `ownsOutro` FIRST for `top` then mounted a
+ * SECOND `driver-transfer` (`holdUntilComplete`) alongside the v2 `band` `driver`: two
+ * `freeSpinOutroCountUp` subscribers, and the v1 one waits for an active-set `true→false` edge that
+ * never fires under a v2 `showContainer`-driven outro, so `broadcastAsync`'s `Promise.all` never
+ * resolves and the flow HANGS at `freeSpinOutroCountUp` (with two `WinCountUpProvider`s fighting over
+ * `freeSpinOutroState.countUpAmount` — the observed count-up drop / double-speed). So `flowV2DrivesScreens`
+ * forces `top` to `null` UNCONDITIONALLY; `ownsOutro` only picks the top surface on the v1 path.
  *
  * The `freeSpinOutroCountUp` SUBSCRIBER COUNT for any input is
  * `(band ? 1 : 0) + (top ? 1 : 0) + (flowV2DrivesScreens && freeSpinOutroHasCodedGate ? 1 : 0)`, which
- * this function guarantees is exactly 1 (asserted headlessly, `fs7FreeSpinOutro`).
+ * this function guarantees is exactly 1 for EVERY combination (asserted headlessly, `fs7FreeSpinOutro`).
  */
 export const resolveFreeSpinOutroMount = (ctx: {
 	flowV2DrivesScreens: boolean;
@@ -222,7 +233,9 @@ export const resolveFreeSpinOutroMount = (ctx: {
 				? 'driver'
 				: 'gate'
 			: null,
-	top: ctx.ownsOutro ? 'driver-transfer' : ctx.flowV2DrivesScreens ? null : 'gate',
+	// v2 owns the outro at the band ⇒ NO top surface (v1 `ownsOutro` is inert under v2 — enforced, not
+	// assumed). Only on the v1 path does `ownsOutro` choose the `driver-transfer` vs the full `gate`.
+	top: ctx.flowV2DrivesScreens ? null : ctx.ownsOutro ? 'driver-transfer' : 'gate',
 });
 
 export const gateFreeSpinOwnership = (doc: FlowDoc, ownership: FreeSpinOwnership): FlowDoc => {
