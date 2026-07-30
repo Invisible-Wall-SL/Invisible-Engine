@@ -7,7 +7,7 @@
 		SpineCue,
 	} from './types';
 
-	import type { Snippet } from 'svelte';
+	import { untrack, type Snippet } from 'svelte';
 
 	export type Props = {
 		node: ComponentInstanceNode;
@@ -468,33 +468,50 @@
 	// cleanup — `$effect` can't live inside a loop, so iterate the precomputed map
 	// inside it and collect each unsubscribe. A signal with no registered source is
 	// skipped (dormant — parity).
-	$effect(() => {
-		const unsubs: (() => void)[] = [];
-		for (const [signalKey, targets] of signalToTargets) {
-			const source = getComponentSignal(signalKey);
-			if (!source) continue;
-			unsubs.push(
-				source.subscribe(() => {
-					fireCue(targets);
-					// Also record the fire on the per-instance bus so a `hiddenUntilSignal`/`tapArmAfterSignal`
-					// gate can key on a game signal (e.g. `win`), not only a spine `completeSignal`.
-					fireComponentSignal(signalKey);
-				}),
-			);
-		}
-		// Gate-only signals: a `hiddenUntilSignal`/`tapArmAfterSignal` keyed on a registered signal that
-		// NO spine cue references (plain art gated on e.g. `freeSpinOutroBigWin`). Subscribe to RECORD the
-		// fire on the per-instance bus (no cue to play). Skip any already handled above (they record too).
-		for (const signalKey of gateSignals) {
-			if (signalToTargets.has(signalKey)) continue;
-			const source = getComponentSignal(signalKey);
-			if (!source) continue;
-			unsubs.push(source.subscribe(() => fireComponentSignal(signalKey)));
-		}
-		return () => {
-			for (const unsub of unsubs) unsub();
-		};
-	});
+	//
+	// The subscribe SETUP is `untrack`ed. A registered signal source may EMIT SYNCHRONOUSLY on
+	// subscribe (the seed-on-subscribe latch — e.g. `freeSpinOutroCountUpComplete` fires `run()`
+	// immediately when `freeSpinOutroState.countUpComplete` is already true, the fix for the
+	// instant-count-up race). That synchronous emission runs the callback INSIDE this effect, and
+	// `fireComponentSignal` READS + WRITES `firedSignals[signalKey]` — so without `untrack` the read
+	// leaks as a dependency of THIS effect and the write immediately re-invalidates it, re-subscribing,
+	// re-seeding, re-writing: an infinite reactive loop (`effect_update_depth_exceeded`). It surfaced on
+	// a SLAMMED free-spin outro, where the count-up completes in the same tick the outro-visual instance
+	// (its tap armed on `freeSpinOutroCountUpComplete`) mounts + subscribes, so the latch is already set.
+	// The effect has no legitimate reactive deps — `signalToTargets`/`gateSignals`/the signal registry
+	// are all init-stable — so it should subscribe exactly ONCE; `untrack` guarantees that (mirrors
+	// `LayoutScene`'s tap-portal guard). The subscriptions still fire on every LATER emission (those run
+	// outside this effect), and each fire still WRITES `firedSignals` so `hiddenUntilSignal`/`tapArmed`
+	// consumers update — `untrack` suppresses dependency TRACKING, never the writes/notifications.
+	$effect(() =>
+		untrack(() => {
+			const unsubs: (() => void)[] = [];
+			for (const [signalKey, targets] of signalToTargets) {
+				const source = getComponentSignal(signalKey);
+				if (!source) continue;
+				unsubs.push(
+					source.subscribe(() => {
+						fireCue(targets);
+						// Also record the fire on the per-instance bus so a `hiddenUntilSignal`/`tapArmAfterSignal`
+						// gate can key on a game signal (e.g. `win`), not only a spine `completeSignal`.
+						fireComponentSignal(signalKey);
+					}),
+				);
+			}
+			// Gate-only signals: a `hiddenUntilSignal`/`tapArmAfterSignal` keyed on a registered signal that
+			// NO spine cue references (plain art gated on e.g. `freeSpinOutroBigWin`). Subscribe to RECORD the
+			// fire on the per-instance bus (no cue to play). Skip any already handled above (they record too).
+			for (const signalKey of gateSignals) {
+				if (signalToTargets.has(signalKey)) continue;
+				const source = getComponentSignal(signalKey);
+				if (!source) continue;
+				unsubs.push(source.subscribe(() => fireComponentSignal(signalKey)));
+			}
+			return () => {
+				for (const unsub of unsubs) unsub();
+			};
+		}),
+	);
 
 	// `enter` is a COMPONENT-lifecycle signal the instance fires ITSELF — no game source
 	// maps to it, so the game-registered loop above skips it. It plays each spine's `enter`
