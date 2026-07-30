@@ -236,6 +236,13 @@ export const showWinInfoMessage = ({
 	durationMs?: number;
 }): boolean => {
 	try {
+		// A ZERO-PAYOUT entry is never a real win to announce — it is a feature TRIGGER (e.g. the
+		// scatter/book match that pays no coins, only free spins). The generic toast would render the
+		// nonsensical "You win $0.00 with N Scatters"; the free-spin award message (`dispatchBookEvent`)
+		// speaks for that entry instead. Suppressed here so BOTH the flow-authored `showMessage` effect
+		// and the coded slam summary skip it (parity by construction). A real win always carries a
+		// non-zero amount, so this never hides a payout.
+		if (amount === 0) return false;
 		const vars = {
 			amount: amount === undefined ? undefined : bookEventAmountToCurrencyString(amount),
 			count: kind,
