@@ -120,3 +120,18 @@ visibility** — the user must keep the game tab visible (side-by-side) for the 
   re-arms (un-trips) the token before a big-win/outro/retrigger/updateFreeSpin dispatch and LEAVES it
   tripped for ordinary setWin + reveal; unskippable-depth opens/closes balanced. No defects; the animated
   play-in-full + tap-gate is human-eyes (frozen rAF in the Browser pane — needs foreground Claude-in-Chrome).
+
+- **2026-07-30 — follow-up: slam skips free-spin INTRO during scatter-match (verify-only, PASS)** —
+  verified the two-part window-lock fix. `startsCelebration` now returns true for `freeSpinTrigger`
+  (re-arm clears an upstream reel-roll slam); `runBookEventPresentation` mirrors unskippable-`depth`
+  into `stateUi.unskippablePresentationActive` on the 0↔1 edges (`enterUnskippable`/`exitUnskippable`),
+  and `isCelebrationLocked()` ORs `hasUnskippablePresentation()` so the button is `stop_disabled` for the
+  WHOLE window (scatter match + intro + book reveal) — before any celebration screen mounts. Live
+  cross-module identity proof (spinStop reads the same `state-shared` barrel the game writes): flag TRUE
+  during `freeSpinTrigger` + `setExpandingSymbol` dispatch, FALSE before/after, nesting (resume-path
+  replay) doesn't clear early; while true `runSpinOrSlamStop({isIdle:false})` early-returns (token NOT
+  tripped, no `stopButtonClick`) vs control (flag false → tripped + broadcast); an upstream slam is
+  re-armed at `freeSpinTrigger` (token false at dispatch); ordinary `setWin(small)` leaves flag false +
+  token tripped; `playBet` finally force-clears the flag (utils.ts:125). Console clean. NOTE: earlier a
+  raw `/@fs/.../src/stateUi.svelte.ts` import read a DUPLICATE module instance (all-false) — always read
+  `state-shared` state via the BARREL `packages/state-shared/index.ts` to match the game's singleton.

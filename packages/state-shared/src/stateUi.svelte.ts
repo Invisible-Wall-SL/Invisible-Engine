@@ -120,6 +120,14 @@ export const stateUi = $state({
 	// ⊇ `freeSpinIntro`/`freeSpinOutro`/`bigWin`) by `apps/lines` Game.svelte's `$effect`; read
 	// via `hasCelebrationOverlay()`.
 	celebrationLock: { intro: false, outro: false, win: false },
+	// Spin-button lock for a NON-SCREEN unskippable window — the free-spin intro's scatter-match
+	// animation and the book/expanding-symbol reveal. Kept SEPARATE from `celebrationLock` (which
+	// tracks celebration SCREENS): these phases run BEFORE any celebration screen mounts, so the
+	// screen-driven latch is still false while they play, leaving the button a live STOP. A slam in
+	// that window trips the sticky round token and then collapses the intro's player-gated tap-hold.
+	// Mirrored off the unskippable-presentation depth by the game's `runBookEventPresentation`; read
+	// via `hasUnskippablePresentation()`.
+	unskippablePresentationActive: false,
 	menuOpen: false,
 	drawerFold: false,
 	drawerButtonShow: false,
@@ -151,6 +159,15 @@ export const hasContinuePress = () => stateUi.continuePressCount > 0;
  */
 export const hasCelebrationOverlay = () =>
 	stateUi.celebrationLock.intro || stateUi.celebrationLock.outro || stateUi.celebrationLock.win;
+
+/**
+ * Whether a non-skippable presentation with NO celebration screen is running — the free-spin intro's
+ * scatter-match animation or the book/expanding-symbol reveal. The spin button locks (goes inert)
+ * for this window too, so a slam in the gap before the intro screen mounts can't trip the round token
+ * and collapse the intro's player-gated tap-hold. Mirrored off the unskippable-presentation depth
+ * (`apps/lines` `runBookEventPresentation`); read by `utils-shared/spinStop`.
+ */
+export const hasUnskippablePresentation = () => stateUi.unskippablePresentationActive;
 
 /** Merge a partial feature profile into the live UI config (e.g. a game's setup or
  * the editor-authored game settings supplying a jurisdiction preset). */

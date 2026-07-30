@@ -1,12 +1,22 @@
-import { hasCelebrationOverlay, hasContinuePress, stateBet, stateBetDerived } from 'state-shared';
+import {
+	hasCelebrationOverlay,
+	hasContinuePress,
+	hasUnskippablePresentation,
+	stateBet,
+	stateBetDerived,
+} from 'state-shared';
 
 /**
- * The spin button is inert while a non-skippable celebration owns the screen: a celebration
- * SCREEN is mounted (`hasCelebrationOverlay`, driven off the flow's active screens) OR a
+ * The spin button is inert while a non-skippable presentation owns the screen: a celebration
+ * SCREEN is mounted (`hasCelebrationOverlay`, driven off the flow's active screens), a
  * press-to-continue overlay is up (`hasContinuePress` — catches a big win presented as a HUD
- * count-up + tap, which mounts no celebration screen). Either one locks the press + greys it.
+ * count-up + tap, which mounts no celebration screen), OR an unskippable presentation with no
+ * screen yet is running (`hasUnskippablePresentation` — the free-spin intro's scatter-match phase
+ * and the book reveal, the window BEFORE the intro screen mounts). Any one locks the press + greys
+ * it, so a slam can't trip the round token in a gap and skip the celebration that follows.
  */
-const isCelebrationLocked = (): boolean => hasCelebrationOverlay() || hasContinuePress();
+const isCelebrationLocked = (): boolean =>
+	hasCelebrationOverlay() || hasContinuePress() || hasUnskippablePresentation();
 
 import { roundSkip } from './skipToken';
 

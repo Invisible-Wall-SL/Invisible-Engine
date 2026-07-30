@@ -118,6 +118,11 @@ export const playBet = async (bet: Bet) => {
 		// error path stuck turbo on for the rest of the session. The token is cleared here too so
 		// an aborted round cannot leave the board's slam checks reading a stale trip.
 		roundSkip.reset();
+		// Belt-and-braces: clear the unskippable-presentation button lock. `runBookEventPresentation`
+		// balances it with try/finally, so it is already false here on every normal path — but a
+		// STUCK-true lock would leave the spin button permanently inert (game unplayable), so force it
+		// off at round end where a stale trip is likewise cleared.
+		stateUi.unskippablePresentationActive = false;
 		eventEmitter.broadcast({ type: 'stopButtonEnable' });
 		// The round is presented; keep its winning SYMBOLS animating on the resting board until the
 		// next bet. Deliberately NOT awaited — it runs until `stopWinCycle` above ends it.
