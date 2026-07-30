@@ -18,6 +18,7 @@
 		isFullscreenSupported,
 		setUiFeatures,
 		hasContinuePress,
+		resetCelebrationLock,
 		UI_FEATURES_UK,
 	} from 'state-shared';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
@@ -1238,6 +1239,25 @@
 	context.eventEmitter.subscribeOnMount({
 		boardFrameGlowShow: () => (boardGlowActive = true),
 		boardFrameGlowHide: () => (boardGlowActive = false),
+	});
+
+	// SPIN-BUTTON CELEBRATION LOCK — maintain `stateUi.celebrationLock` off the EMITTER
+	// cues so `hasCelebrationOverlay()` (read by `utils-shared/spinStop`) is correct on
+	// every presentation path. The coded book-event handlers + flow-v1 effects set the
+	// `*Show` FLAGS, but a flow-v2 authored game fires only the `fireCue` (visual) and
+	// omits the flag-setting `effect` node — so keying the lock off those flags left the
+	// button live during the intro + win on the Book-of-Borut remake. These cues ARE
+	// broadcast on all paths. `reveal` resets each spin, so a hide that a flow-v2 doc
+	// routes through a `hideContainer` (e.g. the intro) instead of a `*Hide` cue can never
+	// leave the button stuck inert — the celebration always ends before its next reveal.
+	context.eventEmitter.subscribeOnMount({
+		reveal: () => resetCelebrationLock(),
+		freeSpinIntroShow: () => (stateUi.celebrationLock.intro = true),
+		freeSpinIntroHide: () => (stateUi.celebrationLock.intro = false),
+		freeSpinOutroShow: () => (stateUi.celebrationLock.outro = true),
+		freeSpinOutroHide: () => (stateUi.celebrationLock.outro = false),
+		winShow: () => (stateUi.celebrationLock.win = true),
+		winHide: () => (stateUi.celebrationLock.win = false),
 	});
 
 	// §16.4 B6.4 — the spin/stop state machine. The decision itself lives ONCE in
