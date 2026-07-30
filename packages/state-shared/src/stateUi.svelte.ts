@@ -115,12 +115,10 @@ export const stateUi = $state({
 	// Those flags are set by the coded book-event handlers and the flow-v1 effects, but a
 	// flow-v2 authored game drives its celebrations with `fireCue` nodes and OMITS the
 	// flag-setting `effect` nodes, so `freeSpinIntroShow`/`bigWinShow` never go true there
-	// (verified on the Book-of-Borut remake). This latch is instead maintained off the
-	// EMITTER cues every path broadcasts (`freeSpinIntroShow`/`winShow`/`freeSpinOutroShow`
-	// + their `Hide`), with a per-spin `reveal` reset so a missing hide (flow-v2 hides the
-	// intro with a `hideContainer`, not a `freeSpinIntroHide` cue) can never leave it stuck
-	// on. Maintained by `apps/lines` Game.svelte's always-on subscription; read via
-	// `hasCelebrationOverlay()`.
+	// (verified live on the remake — the intro screen was up for its full duration with those
+	// flags false). This latch is instead driven off the flow's ACTIVE SCREENS (`activeScreenIds`
+	// ⊇ `freeSpinIntro`/`freeSpinOutro`/`bigWin`) by `apps/lines` Game.svelte's `$effect`; read
+	// via `hasCelebrationOverlay()`.
 	celebrationLock: { intro: false, outro: false, win: false },
 	menuOpen: false,
 	drawerFold: false,
@@ -153,14 +151,6 @@ export const hasContinuePress = () => stateUi.continuePressCount > 0;
  */
 export const hasCelebrationOverlay = () =>
 	stateUi.celebrationLock.intro || stateUi.celebrationLock.outro || stateUi.celebrationLock.win;
-
-/** Clear every celebration-lock latch (per-spin `reveal` reset, so a missing hide cue
- *  can't leave the spin button stuck inert). See `stateUi.celebrationLock`. */
-export const resetCelebrationLock = () => {
-	stateUi.celebrationLock.intro = false;
-	stateUi.celebrationLock.outro = false;
-	stateUi.celebrationLock.win = false;
-};
 
 /** Merge a partial feature profile into the live UI config (e.g. a game's setup or
  * the editor-authored game settings supplying a jurisdiction preset). */
