@@ -18,6 +18,7 @@
 		isFullscreenSupported,
 		setUiFeatures,
 		hasContinuePress,
+		hasCelebrationOverlay,
 		resetCelebrationLock,
 		UI_FEATURES_UK,
 	} from 'state-shared';
@@ -1250,14 +1251,50 @@
 	// broadcast on all paths. `reveal` resets each spin, so a hide that a flow-v2 doc
 	// routes through a `hideContainer` (e.g. the intro) instead of a `*Hide` cue can never
 	// leave the button stuck inert — the celebration always ends before its next reveal.
+	// TEMP DIAGNOSTIC (remove once the lock is confirmed on the remake): the WebGL game
+	// state is unreadable from the console, so surface the celebration lock. Run
+	// `__IE_CEL__()` for the current latch, watch `[IE-CEL]` console lines for each cue.
+	const celDbg = (evt: string) => {
+		if (typeof window === 'undefined') return;
+		const snap = { ...stateUi.celebrationLock, locked: hasCelebrationOverlay() };
+		console.info(`[IE-CEL] ${evt} →`, JSON.stringify(snap));
+	};
+	if (typeof window !== 'undefined') {
+		(window as unknown as { __IE_CEL__?: () => unknown }).__IE_CEL__ = () => ({
+			...stateUi.celebrationLock,
+			locked: hasCelebrationOverlay(),
+		});
+	}
+
 	context.eventEmitter.subscribeOnMount({
-		reveal: () => resetCelebrationLock(),
-		freeSpinIntroShow: () => (stateUi.celebrationLock.intro = true),
-		freeSpinIntroHide: () => (stateUi.celebrationLock.intro = false),
-		freeSpinOutroShow: () => (stateUi.celebrationLock.outro = true),
-		freeSpinOutroHide: () => (stateUi.celebrationLock.outro = false),
-		winShow: () => (stateUi.celebrationLock.win = true),
-		winHide: () => (stateUi.celebrationLock.win = false),
+		reveal: () => {
+			resetCelebrationLock();
+			celDbg('reveal(reset)');
+		},
+		freeSpinIntroShow: () => {
+			stateUi.celebrationLock.intro = true;
+			celDbg('freeSpinIntroShow');
+		},
+		freeSpinIntroHide: () => {
+			stateUi.celebrationLock.intro = false;
+			celDbg('freeSpinIntroHide');
+		},
+		freeSpinOutroShow: () => {
+			stateUi.celebrationLock.outro = true;
+			celDbg('freeSpinOutroShow');
+		},
+		freeSpinOutroHide: () => {
+			stateUi.celebrationLock.outro = false;
+			celDbg('freeSpinOutroHide');
+		},
+		winShow: () => {
+			stateUi.celebrationLock.win = true;
+			celDbg('winShow');
+		},
+		winHide: () => {
+			stateUi.celebrationLock.win = false;
+			celDbg('winHide');
+		},
 	});
 
 	// §16.4 B6.4 — the spin/stop state machine. The decision itself lives ONCE in
