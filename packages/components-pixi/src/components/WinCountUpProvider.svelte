@@ -83,7 +83,21 @@
 			await interruptible.add(countUp);
 		} else {
 			running = true;
-			await interruptible.add(() => new Promise<void>((resolve) => (onSettle = resolve)));
+			// Await the value-reached settle ONLY when there is actually something to count. For a
+			// DEGENERATE count-up — a zero / negative / non-finite amount, a target already reached, or
+			// a slammed round — the target is met on the first frame, so the `current >= amount` settle
+			// effect can fire before `onSettle` is wired (or never re-run), stranding this await forever.
+			// That is the free-spin OUTRO hanging on a 0-win: `startCountUp()` never resolved, so the
+			// driver never broadcast `freeSpinOutroCountUpComplete` nor released the round. Resolve
+			// synchronously in that case; the count is already at/above the target and `resetCountUp`
+			// below stamps the final amount.
+			if (
+				Number.isFinite(props.amount) &&
+				props.amount > countUpAmount.current &&
+				!roundSkip.isSkipped()
+			) {
+				await interruptible.add(() => new Promise<void>((resolve) => (onSettle = resolve)));
+			}
 			running = false;
 			onSettle = undefined;
 		}
