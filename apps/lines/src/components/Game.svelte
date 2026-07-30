@@ -18,7 +18,6 @@
 		isFullscreenSupported,
 		setUiFeatures,
 		hasContinuePress,
-		hasCelebrationOverlay,
 		UI_FEATURES_UK,
 	} from 'state-shared';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
@@ -1264,17 +1263,6 @@
 		stateUi.celebrationLock.outro = ids.has('freeSpinOutro');
 		stateUi.celebrationLock.win = ids.has('bigWin');
 	});
-
-	// TEMP diagnostic (remove after live-verify): expose the lock signals to the console.
-	if (typeof window !== 'undefined') {
-		(window as unknown as { __IE_CEL__?: () => unknown }).__IE_CEL__ = () => ({
-			latch: { ...stateUi.celebrationLock },
-			overlay: hasCelebrationOverlay(),
-			continuePress: hasContinuePress(),
-			activeScreens: activeScreenIds,
-			idle: context.stateXstateDerived.isIdle(),
-		});
-	}
 
 	// §16.4 B6.4 — the spin/stop state machine. The decision itself lives ONCE in
 	// `utils-shared/spinStop`, shared with `ButtonBetProvider.svelte`, so the parametric
