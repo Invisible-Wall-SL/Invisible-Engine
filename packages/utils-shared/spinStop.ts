@@ -1,4 +1,12 @@
-import { hasCelebrationOverlay, stateBet, stateBetDerived } from 'state-shared';
+import { hasCelebrationOverlay, hasContinuePress, stateBet, stateBetDerived } from 'state-shared';
+
+/**
+ * The spin button is inert while a non-skippable celebration owns the screen: a celebration
+ * SCREEN is mounted (`hasCelebrationOverlay`, driven off the flow's active screens) OR a
+ * press-to-continue overlay is up (`hasContinuePress` — catches a big win presented as a HUD
+ * count-up + tap, which mounts no celebration screen). Either one locks the press + greys it.
+ */
+const isCelebrationLocked = (): boolean => hasCelebrationOverlay() || hasContinuePress();
 
 import { roundSkip } from './skipToken';
 
@@ -18,7 +26,7 @@ export type SpinButtonKey = 'spin_default' | 'spin_disabled' | 'stop_default' | 
  */
 export const getSpinButtonKey = ({ isIdle }: { isIdle: boolean }): SpinButtonKey => {
 	if (isIdle) return stateBetDerived.isBetCostAvailable() ? 'spin_default' : 'spin_disabled';
-	if (hasCelebrationOverlay()) return 'stop_disabled';
+	if (isCelebrationLocked()) return 'stop_disabled';
 	return 'stop_default';
 };
 
@@ -81,7 +89,7 @@ export const runSpinOrSlamStop = ({
 	// A non-skippable celebration owns the screen — the press is inert so it can't slam-skip it.
 	// The button already renders disabled (`getSpinButtonKey` → `stop_disabled`); this guards the
 	// direct callers (flow `spin` action, Space hotkey, intent) that bypass the button's own gate.
-	if (hasCelebrationOverlay()) return;
+	if (isCelebrationLocked()) return;
 
 	if (roundSkip.isSkipped()) {
 		if (stateBetDerived.hasAutoBetCounter()) stateBet.autoSpinsCounter = 0;
