@@ -49,6 +49,26 @@ Invisible Localization for translation.
   chain, localize-then-interpolate (incl. a translation reordering tokens), and unknown-token
   robustness.
 
+### Free-spin trigger no longer shows "You win $0.00 with N Scatters" (2026-07-30)
+
+Under a screen-driving v2 flow (the online Borut/Cages remake), the scatter/book match — the
+feature TRIGGER, which pays **no coins** — surfaced through the `winInfo` toast path as
+"You win $0.00 with 4 Cages" (`toast.full` with a zero amount), and the free-spin AWARD line the
+coded `freeSpinTrigger` handler used to show never fired (v2 owning `freeSpinTrigger` suppresses
+that handler — `game/utils.ts` ownership gate). Two engine fixes, both parity-safe:
+
+- **Zero-payout toasts suppressed** — `showWinInfoMessage` (`flowEffects.ts`) returns early when
+  `amount === 0`. A real win always carries a non-zero amount, so this only kills the nonsensical
+  "$0.00" trigger toast; it covers BOTH the flow `showMessage` effect and the coded slam summary.
+- **Award line hoisted to fire universally** — "N Scatters award N Free Spins" now fires in
+  `dispatchBookEvent` ahead of dispatch (same pattern as `freeSpinsAdded`), so it shows whether
+  coded / v1 / v2 presents the trigger. Removed from the coded `freeSpinTrigger` handler to avoid
+  doubling on the non-flow path. It's a transient info toast, not a screen the flow owns.
+
+Reaches the online games via a **Runtime release**. Not yet baked into the win-text tool as an
+authorable template — still an engine literal (candidate follow-up: a `freeSpins.trigger` field
+alongside `freeSpins.retrigger`).
+
 ### W9 — the text names the symbol (2026-07-24)
 
 The tool shipped with the engine's old literals as its DEFAULTS, so every unauthored game still

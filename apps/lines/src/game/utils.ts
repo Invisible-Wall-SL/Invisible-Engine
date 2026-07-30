@@ -1,5 +1,5 @@
 import _ from 'lodash';
-import { stateBet, stateUi } from 'state-shared';
+import { stateBet, stateUi, showMessage } from 'state-shared';
 import { createPlayBookUtils } from 'utils-book';
 import { createGetEmptyPaddedBoard } from 'utils-slots';
 import { sequence } from 'utils-shared/sequence';
@@ -58,6 +58,25 @@ const dispatchBookEvent = async (
 	// a flow-owned `freeSpinRetrigger` suppresses the coded handler, so the coded handler alone can't own
 	// this. Purely a display value (not load-bearing game state), so a single set point here is safe.
 	if (bookEvent.type === 'freeSpinRetrigger') stateUi.freeSpinsAdded = bookEvent.extraFs;
+
+	// Free-spin AWARD info line ("N Scatters award N Free Spins"). The scatter/book match is the
+	// feature TRIGGER — it pays no coins, so the player must be told what it awarded instead. Fired
+	// HERE, universally (ahead of dispatch), for the same reason as `freeSpinsAdded` above: a v2 flow
+	// that owns `freeSpinTrigger` SUPPRESSES the coded handler, so the coded handler alone can't own
+	// this. It's a transient info toast, NOT a screen the flow owns, so firing it whichever path
+	// presents the trigger is correct (and the win-info toast for the same scatter is now suppressed —
+	// zero-payout, see `showWinInfoMessage`). Non-flow games are unchanged: the coded handler no longer
+	// duplicates it.
+	if (bookEvent.type === 'freeSpinTrigger') {
+		const scatterCount = bookEvent.positions.length;
+		const freeSpins = bookEvent.totalFs;
+		showMessage(
+			`${scatterCount} ${scatterCount === 1 ? 'Scatter' : 'Scatters'} award ${freeSpins} Free ${
+				freeSpins === 1 ? 'Spin' : 'Spins'
+			}`,
+			{ kind: 'info' },
+		);
+	}
 
 	// Invisible Flow v2 — EVENT OWNERSHIP (the incremental v1→v2 migration mechanism). When a v2 flow
 	// authors this event (`ownsEvent`), v2 drives it ALONE and the coded/v1 twin is SUPPRESSED — so a
