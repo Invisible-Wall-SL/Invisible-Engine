@@ -1260,10 +1260,21 @@
 		console.info(`[IE-CEL] ${evt} →`, JSON.stringify(snap));
 	};
 	if (typeof window !== 'undefined') {
-		(window as unknown as { __IE_CEL__?: () => unknown }).__IE_CEL__ = () => ({
-			...stateUi.celebrationLock,
-			locked: hasCelebrationOverlay(),
-		});
+		(window as unknown as { __IE_CEL__?: () => unknown }).__IE_CEL__ = () => {
+			let screens: unknown = 'n/a';
+			try {
+				screens = activeScreenIds;
+			} catch {
+				screens = 'unavailable';
+			}
+			return {
+				latch: { ...stateUi.celebrationLock },
+				overlay: hasCelebrationOverlay(),
+				continuePress: hasContinuePress(),
+				activeScreens: screens,
+				idle: context.stateXstateDerived.isIdle(),
+			};
+		};
 	}
 
 	context.eventEmitter.subscribeOnMount({
