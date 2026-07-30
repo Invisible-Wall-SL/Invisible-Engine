@@ -13,12 +13,20 @@
 	import { Rectangle, SpineProvider, SpineTrack } from 'pixi-svelte';
 	import { FadeContainer } from 'components-pixi';
 	import { SECOND } from 'constants-shared/time';
+	import { stateUi } from 'state-shared';
 
 	import { getContext } from '../game/context';
 
 	const { cover }: { cover?: BackgroundCover } = $props();
 
 	const context = getContext();
+
+	// The drifting `dust` smoke is ambient atmosphere. While a full-screen tap-to-continue overlay is
+	// up (`continuePressCount > 0` — a retrigger celebration, the intro/outro gates), it sits behind
+	// that overlay's dim and reads as murky haze over the celebration. Fade it out for the duration of
+	// the gate so the dimmed board stays clean; the static `idle` background is untouched. No gate
+	// active ⇒ `showDust` is true ⇒ byte-identical to before (the dust always played).
+	const showDust = $derived(stateUi.continuePressCount === 0);
 
 	// True full-bleed cover (§10): size each background spine to the WHOLE canvas via
 	// pixi-svelte's `fit` (uniform cover/contain from the skeleton's authored dims),
@@ -51,6 +59,8 @@
 	<SpineProvider key="foregroundAnimation" {...backgroundProps}>
 		<SpineTrack trackIndex={0} animationName={'idle'} loop />
 	</SpineProvider>
+</FadeContainer>
+<FadeContainer show={showBaseBackground && showDust} duration={SECOND} zIndex={-2}>
 	<SpineProvider key="foregroundAnimation" {...backgroundProps}>
 		<SpineTrack trackIndex={0} animationName={'dust'} loop />
 	</SpineProvider>
@@ -60,6 +70,8 @@
 	<SpineProvider key="foregroundFeatureAnimation" {...backgroundProps}>
 		<SpineTrack trackIndex={0} animationName={'idle'} loop />
 	</SpineProvider>
+</FadeContainer>
+<FadeContainer show={showFeatureBackground && showDust} duration={SECOND} zIndex={-1}>
 	<SpineProvider key="foregroundFeatureAnimation" {...backgroundProps}>
 		<SpineTrack trackIndex={0} animationName={'dust'} loop />
 	</SpineProvider>
