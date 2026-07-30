@@ -450,7 +450,28 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 						});
 					}
 				}
+				// This spin's OWN win (cents), captured BEFORE flushWins drains the
+				// buffer — used to fire a mid-feature big-win overlay on a single big
+				// free spin (below). flushWins itself only draws the win LINES.
+				const spinWinCents = pendingWins.reduce((sum, c) => sum + (c.pay ?? 0), 0);
 				flushWins();
+				// A single FREE SPIN whose OWN win reaches the BIG tier gets the big-win
+				// overlay (setWin → Win.svelte bigwin spine), exactly as a base-game big
+				// win does at `gameEnd`. The RGS only sends per-spin `winInfo` + one
+				// aggregate `freeSpinEnd` for the whole feature, so without this a huge
+				// single-spin Book expansion celebrated only its win line and the big-win
+				// overlay never played during free spins. Emitted AFTER the win lines and
+				// BEFORE the meter bank, mirroring the base-game order (setWin → setTotalWin).
+				if (gameType === 'freegame') {
+					const spinWinLevel = computeWinLevel(spinWinCents, betBaseCents);
+					if (spinWinLevel >= 6) {
+						push({
+							type: 'setWin',
+							amount: toBookEventAmount(spinWinCents, betBaseCents),
+							winLevel: spinWinLevel,
+						});
+					}
+				}
 				// Bank the running total into the WIN meter after EACH free spin
 				// AND on the trigger spin — a base spin that pays its own line/
 				// scatter wins and then enters the bonus (spinTrigger seen, so
