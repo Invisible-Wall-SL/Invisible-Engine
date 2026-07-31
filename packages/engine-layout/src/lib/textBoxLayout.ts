@@ -25,6 +25,40 @@ export function hasTextBox(t: Pick<ResolvedTransform, 'width'>): boolean {
 }
 
 /**
+ * Horizontal alignment expressed as a text ANCHOR x — so `align` works with NO box (the text
+ * pivots around its position: left ⇒ left edge at x, right ⇒ right edge at x), the SAME thing
+ * the canvas anchor grid does. `justify`/unset ⇒ undefined (keep the node's own anchor).
+ * Inside a box the box is placed by this anchor AND the lines align within it, so the two agree.
+ */
+export function alignToAnchorX(align: TextStyle['align']): number | undefined {
+	switch (align) {
+		case 'left':
+			return 0;
+		case 'center':
+			return 0.5;
+		case 'right':
+			return 1;
+		default:
+			return undefined;
+	}
+}
+
+/** Vertical alignment expressed as a text ANCHOR y (top ⇒ 0, middle ⇒ 0.5, bottom ⇒ 1). Unset
+ * ⇒ undefined (keep the node's own anchor). The vertical sibling of {@link alignToAnchorX}. */
+export function verticalAlignToAnchorY(verticalAlign: TextStyle['verticalAlign']): number | undefined {
+	switch (verticalAlign) {
+		case 'top':
+			return 0;
+		case 'middle':
+			return 0.5;
+		case 'bottom':
+			return 1;
+		default:
+			return undefined;
+	}
+}
+
+/**
  * Style additions that turn a plain text style into a box-constrained one: wrap the lines
  * to the box width and align them within it. Merged OVER the node's own style, so an
  * author's `align` is respected and everything else (font, fill, stroke…) passes through.
