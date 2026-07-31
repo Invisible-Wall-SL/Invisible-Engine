@@ -80,8 +80,12 @@ type BakedBundle = {
 	 * into `static/assets/` by the deploy pull. `json`/`file` are relative to
 	 * `static/assets/`. `images[].key` is the sprite node's full `assetKey`. */
 	editorArt?: {
-		sheets: { key: string; json: string }[];
-		images: { key: string; file: string }[];
+		/** `ktx2Json` (sheets) / `ktx2` (images) are the GPU-compressed KTX2 variant of the
+		 * page, emitted beside the WebP/PNG by the editor-art export. Present only for a
+		 * project re-exported after KTX2 encoding shipped; absent ⇒ the WebP/PNG loads as
+		 * before (parity). The asset builder prefers the KTX2 variant unless `?quality=high`. */
+		sheets: { key: string; json: string; ktx2Json?: string }[];
+		images: { key: string; file: string; ktx2?: string }[];
 		/** Spine bundles editor-placed `spine` nodes reference (atlas + skeleton +
 		 * shared page). `key` is the node's full `assetKey` (the engine's lookup key);
 		 * `scale` defaults to 2. */
@@ -290,6 +294,16 @@ function hasRuntimeBundle(): boolean {
 	return runtimeBundle !== null;
 }
 
+/** Texture-quality tier from the game URL (`?quality=high`). `high` opts a high-memory
+ * target (arcade / kiosk / desktop) into the uncompressed full-res pages; anything else
+ * (default) prefers the GPU-compressed KTX2 variant when one was baked, so the game fits
+ * iOS Safari's per-tab memory cap. Read the same raw way as `runtime`/`project`/`k` so it
+ * resolves at import time (before SvelteKit context). Mirrors `stateUrlDerived.quality`. */
+function preferCompressedTextures(): boolean {
+	if (typeof window === 'undefined') return true;
+	return new URLSearchParams(window.location.search).get('quality') !== 'high';
+}
+
 /** Public form of {@link hasRuntimeBundle} for the boot path — true only after a
  * successful runtime fetch, so the game knows to re-merge the live asset entries
  * into `stateApp.assets` (which `createApp` built at import, before the fetch). */
@@ -383,13 +397,20 @@ export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
 	if (!source) return out;
 	warnMissingAssets(source);
 	const base = srcBase();
+	// Prefer the GPU-compressed KTX2 page variant (4–8× less VRAM, transcoded per-device
+	// by the KTX2 loader registered in InitialiseApplication) unless `?quality=high` asks
+	// for the uncompressed full-res art. Absent variant ⇒ the WebP/PNG path (parity). The
+	// registration KEY stays keyed off the WebP json/file so `LayoutNodeView` lookups are
+	// identical across tiers — only the resolved `src` URL differs.
+	const useKtx2 = preferCompressedTextures();
 	for (const sheet of source.editorArt?.sheets ?? []) {
 		// Scope each sheet's frames by its manifest key (the value sprite nodes store
 		// as `assetKey`) so two sheets that reuse a region name don't collide in the
 		// flat loadedAssets map. `LayoutNodeView` resolves the matching scoped key.
+		const sheetPath = useKtx2 && sheet.ktx2Json ? sheet.ktx2Json : sheet.json;
 		out[`editorArt/${sheet.json}`] = {
 			type: 'sprites',
-			src: `${base}${sheet.json}`,
+			src: `${base}${sheetPath}`,
 			preload: true,
 			namespace: editorArtNamespace(sheet.key),
 		};
@@ -397,7 +418,8 @@ export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
 	// Standalone images register under the sprite node's full assetKey — that IS
 	// the engine's lookup key for a region-less sprite node.
 	for (const image of source.editorArt?.images ?? []) {
-		out[image.key] = { type: 'sprite', src: `${base}${image.file}`, preload: true };
+		const imagePath = useKtx2 && image.ktx2 ? image.ktx2 : image.file;
+		out[image.key] = { type: 'sprite', src: `${base}${imagePath}`, preload: true };
 	}
 	// Spine bundles register under the spine node's full assetKey — the value
 	// `LayoutNodeView` passes to `<SpineProvider key=…>`.
