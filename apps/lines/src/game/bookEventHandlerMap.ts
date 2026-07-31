@@ -1,7 +1,7 @@
 import _ from 'lodash';
 
 import { recordBookEvent, checkIsMultipleRevealEvents, type BookEventHandlerMap } from 'utils-book';
-import { stateBet, stateUi } from 'state-shared';
+import { stateBet, stateUi, showMessage } from 'state-shared';
 import { sequence } from 'utils-shared/sequence';
 import { waitForResolve } from 'utils-shared/wait';
 import { roundSkip } from 'utils-shared/skipToken';
@@ -178,11 +178,19 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		// before (parity §7).
 		const presentIntro = !(getFlowV2()?.ownsEvent('load') ?? false);
 
-		// The scatter/book match is the feature TRIGGER (it no longer pays out); the "N Scatters award
-		// N Free Spins" info line that tells the player what it awarded now fires UNIVERSALLY in
-		// `dispatchBookEvent` (game/utils.ts) — ahead of dispatch — so it shows whether the coded
-		// handler, a v1 flow, or a v2 flow (which would suppress this handler) presents the trigger.
-		// Firing it here too would double it on the non-flow path.
+		// Info-bar note: the scatter/book match is the TRIGGER for the feature (it no longer pays out),
+		// so tell the player what it awarded — "N Scatters award N Free Spins". This is the CODED /
+		// non-flow path; a v2 flow that owns `freeSpinTrigger` suppresses this whole handler and instead
+		// rides the award on the scatter's `winInfo` toast (`showWinInfoMessage`), because the flow mounts
+		// the intro container on `freeSpinTrigger` and a toast there would never be seen.
+		const scatterCount = bookEvent.positions.length;
+		const freeSpins = bookEvent.totalFs;
+		showMessage(
+			`${scatterCount} ${scatterCount === 1 ? 'Scatter' : 'Scatters'} award ${freeSpins} Free ${
+				freeSpins === 1 ? 'Spin' : 'Spins'
+			}`,
+			{ kind: 'info' },
+		);
 
 		if (presentIntro) {
 			// animate scatters

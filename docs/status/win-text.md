@@ -57,17 +57,24 @@ feature TRIGGER, which pays **no coins** — surfaced through the `winInfo` toas
 coded `freeSpinTrigger` handler used to show never fired (v2 owning `freeSpinTrigger` suppresses
 that handler — `game/utils.ts` ownership gate). Two engine fixes, both parity-safe:
 
-- **Zero-payout toasts suppressed** — `showWinInfoMessage` (`flowEffects.ts`) returns early when
-  `amount === 0`. A real win always carries a non-zero amount, so this only kills the nonsensical
-  "$0.00" trigger toast; it covers BOTH the flow `showMessage` effect and the coded slam summary.
-- **Award line hoisted to fire universally** — "N Scatters award N Free Spins" now fires in
-  `dispatchBookEvent` ahead of dispatch (same pattern as `freeSpinsAdded`), so it shows whether
-  coded / v1 / v2 presents the trigger. Removed from the coded `freeSpinTrigger` handler to avoid
-  doubling on the non-flow path. It's a transient info toast, not a screen the flow owns.
+- **Zero-payout toasts suppressed** — `showWinInfoMessage` (`flowEffects.ts`) short-circuits when
+  `amount === 0`: a zero-pay entry is the feature TRIGGER, never a coin win, so it must not render
+  "You win $0.00 with N …".
+- **Award line placed per PATH (the subtle bit; corrected 2026-07-31).** A first pass fired the
+  award in `dispatchBookEvent` on `freeSpinTrigger` — but the shipped Borut-remake FLOW mounts the
+  intro CONTAINER on `freeSpinTrigger` (a screen takeover), so a toast there is never seen: the info
+  bar is only visible on the base board during the scatter's `winInfo`. So:
+  - **Flow path** (v2 owns `freeSpinTrigger`): the zero-pay scatter's `winInfo` toast is REPURPOSED
+    into "N Scatters award M Free Spins" inside `showWinInfoMessage`. `M` = `freeSpinTrigger.totalFs`,
+    looked up ahead of the trigger `winInfo` by `dispatchBookEvent` (`setPendingScatterAwardFs`,
+    because `winInfo` arrives before `freeSpinTrigger`). Gated on `gameType==='basegame'` (trigger
+    spin only, not a free-spin retrigger) and `flowOwnsTrigger` (so the coded path can't double it).
+  - **Coded / non-flow path**: unchanged — the award still comes from the `freeSpinTrigger` handler
+    (which the flow suppresses), shown during that handler's own scatter animation.
 
-Reaches the online games via a **Runtime release**. Not yet baked into the win-text tool as an
-authorable template — still an engine literal (candidate follow-up: a `freeSpins.trigger` field
-alongside `freeSpins.retrigger`).
+Verified against the live buy book: each win is its own `winInfo` (`SCAT,kind4,win0` → award; line
+wins still toast normally). Reaches the online games via a **Runtime release**. Not yet an authorable
+win-text template — still an engine literal (candidate follow-up: a `freeSpins.trigger` field).
 
 ### W9 — the text names the symbol (2026-07-24)
 

@@ -45,6 +45,7 @@ import {
 } from 'engine-layout';
 
 import { eventEmitter } from './eventEmitter';
+import { getFlowV2 } from './flowV2InterpreterHolder';
 import { stateApp } from './stateApp';
 import { winLevelMap, type WinLevel, type WinLevelData } from './winLevelMap';
 import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
@@ -205,6 +206,20 @@ const rememberedWinSymbol = (kind: number | undefined): SymbolName | undefined =
 	kind !== undefined && lastWinSymbol?.kind === kind ? lastWinSymbol.symbol : undefined;
 
 /**
+ * The free-spin count the CURRENT book awards (`freeSpinTrigger.totalFs`), looked up ahead of the
+ * trigger spin's `winInfo` by `dispatchBookEvent` (game/utils.ts) — because the scatter's `winInfo`
+ * entry arrives BEFORE `freeSpinTrigger` yet is the moment we announce the award on the base board
+ * (see {@link showWinInfoMessage}). `undefined` on any book that doesn't trigger free spins, so a
+ * plain zero-pay entry stays suppressed. Not load-bearing game state — display only, one set point.
+ */
+let pendingScatterAwardFs: number | undefined;
+
+/** Set by `dispatchBookEvent` before a `winInfo`: the round's awarded free-spin count, or undefined. */
+export const setPendingScatterAwardFs = (totalFs: number | undefined): void => {
+	pendingScatterAwardFs = totalFs;
+};
+
+/**
  * Show the info message for ONE win — the text half of the win-info presentation, resolved through
  * the Invisible Win Text contract (`resolveToastTemplate` picks the branch matching the vars
  * supplied; `formatWinText` localizes the template BEFORE interpolating, the order that makes it
@@ -236,13 +251,36 @@ export const showWinInfoMessage = ({
 	durationMs?: number;
 }): boolean => {
 	try {
-		// A ZERO-PAYOUT entry is never a real win to announce — it is a feature TRIGGER (e.g. the
-		// scatter/book match that pays no coins, only free spins). The generic toast would render the
-		// nonsensical "You win $0.00 with N Scatters"; the free-spin award message (`dispatchBookEvent`)
-		// speaks for that entry instead. Suppressed here so BOTH the flow-authored `showMessage` effect
-		// and the coded slam summary skip it (parity by construction). A real win always carries a
-		// non-zero amount, so this never hides a payout.
-		if (amount === 0) return false;
+		// A ZERO-PAYOUT entry is never a coin win — it is the feature TRIGGER (the scatter/book match
+		// that pays no coins, only free spins). The generic toast would render the nonsensical "You win
+		// $0.00 with N Scatters".
+		if (amount === 0) {
+			// Under a v2 flow that OWNS `freeSpinTrigger`, that event immediately mounts the intro
+			// CONTAINER (a screen takeover), so a toast fired there is never seen — the only place the
+			// player still sees the info bar is HERE, on the base board while the scatters animate (the
+			// same slot the old "$0.00" toast used). So repurpose this zero-pay scatter toast into the
+			// free-spin AWARD line. `pendingScatterAwardFs` is the round's `freeSpinTrigger.totalFs`, set
+			// in `dispatchBookEvent` (game/utils.ts); `gameType==='basegame'` scopes it to the TRIGGER
+			// spin, never a free-spin retrigger's scatters. The coded (non-flow) path keeps showing this
+			// from the `freeSpinTrigger` handler instead, so this branch is flow-only to avoid doubling.
+			const flowOwnsTrigger = getFlowV2()?.ownsEvent('freeSpinTrigger') ?? false;
+			if (
+				flowOwnsTrigger &&
+				symbol !== undefined &&
+				!symbolDrawsWinLine(symbol) &&
+				pendingScatterAwardFs !== undefined &&
+				stateGame.gameType === 'basegame'
+			) {
+				const scatters = kind ?? 0;
+				const fs = pendingScatterAwardFs;
+				const text = `${scatters} ${scatters === 1 ? 'Scatter' : 'Scatters'} award ${fs} Free ${
+					fs === 1 ? 'Spin' : 'Spins'
+				}`;
+				showGameMessage(text, { kind: 'info', durationMs });
+				return true;
+			}
+			return false;
+		}
 		const vars = {
 			amount: amount === undefined ? undefined : bookEventAmountToCurrencyString(amount),
 			count: kind,
