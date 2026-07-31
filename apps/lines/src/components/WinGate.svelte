@@ -47,11 +47,21 @@
 	context.eventEmitter.subscribeOnMount({
 		winShow: () => {
 			show = true;
-			// Reset the count-up-complete latch at the EARLIEST win signal — before the authored
-			// container subscribes — so a stale `true` from a prior win can't pre-arm this one's tap.
+			// Belt-and-suspenders reset (the real reset is on `winHide` below): under the CODED path
+			// `winShow` precedes the presentation, so clearing here keeps the first win clean too.
 			winState.countUpComplete = false;
 		},
-		winHide: () => (show = false),
+		winHide: () => {
+			show = false;
+			// Reset the count-up-complete latch when the win DISMISSES — the load-bearing reset for a
+			// REPEAT win. Under an authored flow the win container (and its `tapArmAfterSignal:
+			// 'winCountUpComplete'` tap) is mounted by `showContainer` BEFORE that win's `winShow`
+			// fires, so a `winShow`-only reset is too late: the second win's tap would seed off the
+			// FIRST win's stale `true` and arm instantly, before its own count-up. Clearing on the
+			// prior win's hide guarantees the next `showContainer` mounts a `false` latch. Sequential
+			// setWin events (each awaits its chain) mean this always runs before the next win shows.
+			winState.countUpComplete = false;
+		},
 		winUpdate: async (emitterEvent) => {
 			amount = emitterEvent.amount;
 			winLevelData = emitterEvent.winLevelData;

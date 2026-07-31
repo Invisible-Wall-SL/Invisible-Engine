@@ -169,5 +169,32 @@ const armModel = (latch: { countUpComplete: boolean }, seedOnSubscribe: boolean)
 	assert('real win (subscribe-before-broadcast) arms', a.armed() === true);
 }
 
+// ---------------------------------------------------------------------------
+// E. REPEAT win — the latch must RESET when the prior win hides, else the SECOND win's fresh tap
+// (mounted by `showContainer` BEFORE that win's `winShow`) seeds off win #1's stale `true` and arms
+// instantly, before its own count-up. Models the WinGate `winHide` reset (the fix for the
+// second-time-only bug). Win #1 leaves `countUpComplete = true`; win #2 mounts a FRESH subscriber.
+// ---------------------------------------------------------------------------
+console.log('\nE. repeat win: the latch resets on hide so win #2 does not pre-arm:');
+{
+	// WITHOUT the reset — reproduces the reported bug: win #2's tap arms on mount (stale true).
+	const latch = { countUpComplete: true }; // left true by win #1's completed count-up
+	const a = armModel(latch, true);
+	a.subscribe(); // win #2's showContainer mounts the tap BEFORE its winShow
+	assert('no reset-on-hide + repeat win ⇒ tap PRE-ARMS on mount (the bug)', a.armed() === true);
+}
+{
+	// WITH the reset — winHide cleared the latch before win #2's container mounts, so it stays inert
+	// until win #2's own count-up completes.
+	const latch = { countUpComplete: true };
+	latch.countUpComplete = false; // WinGate.winHide reset, before win #2 shows
+	const a = armModel(latch, true);
+	a.subscribe();
+	assert('reset-on-hide + repeat win ⇒ tap NOT armed on mount', a.armed() === false);
+	latch.countUpComplete = true; // win #2's count-up completes
+	a.broadcast();
+	assert('reset-on-hide + repeat win ⇒ tap arms after win #2 count-up', a.armed() === true);
+}
+
 console.log(failed ? '\nWIN overlay harness: FAIL' : '\nWIN overlay harness: PASS');
 if (failed) process.exit(1);
