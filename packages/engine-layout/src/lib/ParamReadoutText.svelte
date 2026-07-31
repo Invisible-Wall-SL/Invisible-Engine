@@ -16,6 +16,12 @@
 		countUp?: boolean;
 		/** Format a number → string (thousands-grouped integer by default). */
 		format: (value: number) => string;
+		/** Text-box layout (§text-box model): when `boxWidth` > 0 the formatted number lays
+		 * out inside a box (H via `style.align` across `boxWidth`, V via `style.verticalAlign`
+		 * across `boxHeight`, `autoFit` shrinks the font). Unset ⇒ the plain readout (parity). */
+		boxWidth?: number;
+		boxHeight?: number;
+		autoFit?: boolean;
 	};
 </script>
 
@@ -23,8 +29,10 @@
 	import { Tween } from 'svelte/motion';
 
 	import CatalogText from './CatalogText.svelte';
+	import TextBox from './TextBox.svelte';
 
 	const props: Props = $props();
+	const boxed = $derived(typeof props.boxWidth === 'number' && props.boxWidth > 0);
 
 	// Contained count-up (§13.2 / §8.5 "one count-up data binding"): a single
 	// `svelte/motion` Tween — the SAME primitive `apps/lines`/scatter/cluster
@@ -41,14 +49,31 @@
 	const text = $derived(props.format(displayed.current));
 </script>
 
-<CatalogText
-	{text}
-	x={props.x}
-	y={props.y}
-	anchor={props.anchor}
-	scale={props.scale}
-	rotation={props.rotation}
-	alpha={props.alpha}
-	zIndex={props.zIndex}
-	style={props.style}
-/>
+{#if boxed}
+	<TextBox
+		{text}
+		style={props.style}
+		boxWidth={props.boxWidth ?? 0}
+		boxHeight={props.boxHeight}
+		autoFit={props.autoFit ?? false}
+		x={props.x}
+		y={props.y}
+		anchor={props.anchor}
+		scale={props.scale}
+		rotation={props.rotation}
+		alpha={props.alpha}
+		zIndex={props.zIndex}
+	/>
+{:else}
+	<CatalogText
+		{text}
+		x={props.x}
+		y={props.y}
+		anchor={props.anchor}
+		scale={props.scale}
+		rotation={props.rotation}
+		alpha={props.alpha}
+		zIndex={props.zIndex}
+		style={props.style}
+	/>
+{/if}

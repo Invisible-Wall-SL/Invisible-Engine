@@ -29,7 +29,6 @@
 
 	import CatalogText from './CatalogText.svelte';
 	import TextBox from './TextBox.svelte';
-	import { hasTextBox } from './textBoxLayout';
 	import { anchoredPosition, resolveTransform } from './resolveTransform';
 	import { resolveLocalizedText } from './registerTextResolver';
 	import { getBoundComponent } from './registerBoundComponents';
@@ -358,10 +357,15 @@
 		const fontFamily = resolveBoundValue(node.paramBindings, 'style.fontFamily', componentParams);
 		const fontSize = resolveBoundValue(node.paramBindings, 'style.fontSize', componentParams);
 		const fill = resolveBoundValue(node.paramBindings, 'style.fill', componentParams);
+		const align = resolveBoundValue(node.paramBindings, 'style.align', componentParams);
+		const verticalAlign = resolveBoundValue(node.paramBindings, 'style.verticalAlign', componentParams);
 		const overrides: Partial<TextStyle> = {};
 		if (typeof fontFamily === 'string') overrides.fontFamily = fontFamily;
 		if (typeof fontSize === 'number') overrides.fontSize = fontSize;
 		if (typeof fill === 'number') overrides.fill = fill;
+		if (typeof align === 'string') overrides.align = align as TextStyle['align'];
+		if (typeof verticalAlign === 'string')
+			overrides.verticalAlign = verticalAlign as TextStyle['verticalAlign'];
 		// ALWAYS spread `node.style` (never return it by reference): the editor mutates
 		// style fields in place (`node.style.fontFamily = …`), and pixi's `<Text>` only
 		// re-syncs its `style` when the OBJECT REFERENCE changes (`propsSyncEffect` reads
@@ -371,6 +375,37 @@
 		// in-place edit. `node.style` undefined ⇒ `{}` (default style — visually parity).
 		return { ...node.style, ...overrides };
 	});
+	// Text-box dims (§text-box model): a text node's box `width`/`height`/`autoFit` may come
+	// from param bindings (the parametric Text Box binds them to per-instance params) OR the
+	// node's own transform. A numeric readout and a plain text node both read these, so the
+	// box reaches the count-up path too. Unbound + unset ⇒ undefined ⇒ auto-size (parity).
+	const boundBoxWidth = $derived(
+		node.kind === 'text'
+			? resolveBoundValue(node.paramBindings, 'width', componentParams)
+			: undefined,
+	);
+	const boundBoxHeight = $derived(
+		node.kind === 'text'
+			? resolveBoundValue(node.paramBindings, 'height', componentParams)
+			: undefined,
+	);
+	const boundAutoFit = $derived(
+		node.kind === 'text'
+			? resolveBoundValue(node.paramBindings, 'autoFit', componentParams)
+			: undefined,
+	);
+	const textBoxWidth = $derived(
+		typeof boundBoxWidth === 'number' ? boundBoxWidth : transform.width,
+	);
+	const textBoxHeight = $derived(
+		typeof boundBoxHeight === 'number' ? boundBoxHeight : transform.height,
+	);
+	const textAutoFit = $derived(
+		typeof boundAutoFit === 'boolean'
+			? boundAutoFit
+			: node.kind === 'text' && node.autoFit === true,
+	);
+	const textHasBox = $derived(typeof textBoxWidth === 'number' && textBoxWidth > 0);
 	// Sprite param bindings (§13.2): a `componentInstance` may drive a sprite's
 	// texture (`region`/`assetKey`) + `tint` from params, so ONE prefab renders a
 	// different icon / colour per instance. Unbound sprites (and any sprite outside a
@@ -755,22 +790,25 @@
 				style={resolvedStyle}
 				{countUp}
 				format={formatValue}
+				boxWidth={textHasBox ? textBoxWidth : undefined}
+				boxHeight={textBoxHeight}
+				autoFit={textAutoFit}
 			/>
-		{:else if hasTextBox(transform)}
+		{:else if textHasBox}
 			<!--
-				Text BOX (`TextNode.width` set): the glyphs lay out INSIDE the box — aligned
-				horizontally across `width` (`style.align`) and vertically across `height`
-				(`style.verticalAlign`), auto-shrinking the font when `autoFit`. `<TextBox>`
-				owns the box math + measurement; it still renders through `<CatalogText>`, so
-				the bitmap-vs-system-font decision is unchanged. A box-less text node falls to
-				the plain `<CatalogText>` below (byte-identical parity).
+				Text BOX (explicit `width`, from the node or a bound `boxWidth` param): the
+				glyphs lay out INSIDE the box — aligned horizontally across `width` (`style.align`)
+				and vertically across `height` (`style.verticalAlign`), auto-shrinking the font
+				when `autoFit`. `<TextBox>` owns the box math + measurement; it still renders
+				through `<CatalogText>`, so the bitmap-vs-system-font decision is unchanged. A
+				box-less text node falls to the plain `<CatalogText>` below (byte-identical parity).
 			-->
 			<TextBox
 				text={resolvedText ?? ''}
 				style={resolvedStyle}
-				boxWidth={transform.width ?? 0}
-				boxHeight={transform.height}
-				autoFit={node.kind === 'text' && node.autoFit === true}
+				boxWidth={textBoxWidth ?? 0}
+				boxHeight={textBoxHeight}
+				autoFit={textAutoFit}
 				x={posX}
 				y={posY}
 				anchor={transform.anchor}
