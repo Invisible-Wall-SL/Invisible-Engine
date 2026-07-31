@@ -27,7 +27,7 @@
 	import { Container } from 'pixi-svelte';
 
 	import CatalogText from './CatalogText.svelte';
-	import { textBoxPlacement, textBoxStyleOverrides } from './textBoxLayout';
+	import { textBoxPlacement } from './textBoxLayout';
 
 	const {
 		text,
@@ -91,7 +91,6 @@
 	// OVER the resolved style so the author's font/fill/stroke/verticalAlign pass through.
 	const boxStyle = $derived({
 		...(style ?? {}),
-		...textBoxStyleOverrides(boxWidth),
 		fontSize: fitFontSize,
 	});
 	const placement = $derived(

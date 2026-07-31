@@ -6,7 +6,6 @@
 		resolveBoundValue,
 		resolveComponentParams,
 		resolveTransform,
-		textBoxStyleOverrides,
 		textBoxPlacement,
 		autoFitFontSize,
 		MAX_COMPONENT_DEPTH,
@@ -428,11 +427,6 @@
 			fontFamily: font.id,
 			fontSize: style?.fontSize ?? 24,
 			align: style?.align ?? 'left',
-			// Box wrap: honour `wordWrap`/`wordWrapWidth` so a boxed bitmap font aligns WITHIN the
-			// box width (align only positions lines inside the wrap width). Without these a bitmap
-			// text ignored the box and never right-/centre-aligned in the editor.
-			wordWrap: style?.wordWrap ?? false,
-			wordWrapWidth: style?.wordWrapWidth ?? 0,
 			letterSpacing: style?.letterSpacing ?? 0,
 			// Colour the glyphs through `style.fill`, EXACTLY like the game's
 			// `<BitmapText style={…} />`. A style object that omits `fill` makes PIXI
@@ -541,7 +535,10 @@
 			const boxed = boxW > 0;
 			const boxH = tBoxHeight;
 			const autoFit = tAutoFit;
-			const style = boxed ? { ...rawStyle, ...textBoxStyleOverrides(boxW) } : rawStyle;
+			// The box does NOT auto-wrap (it's a positioning + auto-fit frame), so the object's
+			// measured width is the real content width — which the placement offset needs to
+			// right/centre-align. `boxW`/`boxed` still drive the box below.
+			const style = rawStyle;
 
 			const font = findFont(
 				{ prefix: '', fonts: [...fontsById.values()] } as FontCatalog,
