@@ -340,7 +340,15 @@
 		return resolveLocalizedText(raw);
 	});
 	// Author-set count-up flag (§13.2): read from the resolved params; absent ⇒ snap.
-	const countUp = $derived(componentParams['countUp'] === true);
+	// SUPPRESSED when the bound source is SELF-ANIMATED (`valueSelfAnimated`, forwarded by
+	// `<ComponentInstance>` for a live count-up tween like `winCountUpAmount` /
+	// `freeSpinOutroTotalWin`): the readout then snaps to the live value each frame instead of
+	// running a SECOND, lagging tween on top — so the count-up still looks smooth (the source
+	// animates it) AND a tap-to-skip / round-slam that snaps the source shows the final total
+	// instantly. A plain source ⇒ `countUp` behaves exactly as before (parity).
+	const countUp = $derived(
+		componentParams['countUp'] === true && componentParams['valueSelfAnimated'] !== true,
+	);
 	// Numeric readout format: the value SOURCE's own formatter when the game
 	// registered one (forwarded by `<ComponentInstance>` as `valueFormat` — e.g.
 	// currency for balance/bet/win), so a plain `text` node bound to `value` renders

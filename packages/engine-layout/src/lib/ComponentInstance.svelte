@@ -595,6 +595,11 @@
 		// registration), so a plain assignment — `<LayoutNodeView>` reads it as
 		// `valueFormat`. Absent ⇒ the readout uses its integer fallback (parity).
 		if (valueSource.format) providedParams.valueFormat = valueSource.format;
+		// A source that ALREADY animates (a live count-up tween) forwards a flag so a bound numeric
+		// readout snaps to the live value instead of running its own `countUp` on top — the fix for
+		// the double count-up (and for a tap-to-skip / slam showing the final total instantly). Stable
+		// (set at registration), so a plain assignment; `<LayoutNodeView>` reads it as `valueSelfAnimated`.
+		if (valueSource.selfAnimated) providedParams.valueSelfAnimated = true;
 		// Live text (TextBox / §18): when the def ALSO declares a `text` param (the
 		// parametric `textBox` binds its text node to it), the live feed OVERRIDES the
 		// static `text` — so one def renders a static/localized string when no source

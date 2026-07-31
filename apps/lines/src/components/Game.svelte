@@ -542,12 +542,17 @@
 		freeSpinOutroTotalWin: valueSource(
 			() => freeSpinOutroState.countUpAmount,
 			bookEventAmountToCurrencyString,
+			true, // selfAnimated — already the count-up tween; a bound readout snaps (no double count-up).
 		),
 		// Design doc §14 (win-overlay twin) — the LIVE counting-up WIN total (the count-up tween value
 		// `WinGate` publishes per frame to `winState.countUpAmount`), currency-formatted. An authored win
 		// container's own Text Box binds `source: 'winCountUpAmount'` to show the number ticking up
 		// without the coded `WinVisual`. Unlike `totalWin`/`win` (the static final amount) this ANIMATES.
-		winCountUpAmount: valueSource(() => winState.countUpAmount, bookEventAmountToCurrencyString),
+		winCountUpAmount: valueSource(
+			() => winState.countUpAmount,
+			bookEventAmountToCurrencyString,
+			true, // selfAnimated — already the count-up tween; a bound readout snaps (no double count-up).
+		),
 		// The two HALVES of the `freeSpins` string as bindable numbers, so an authored counter can
 		// choose its own direction + layout instead of inheriting the composed "current OF total".
 		// Both read `freeSpinCounterValues` — the same module the flow's `$engine.freeSpinsRemaining`

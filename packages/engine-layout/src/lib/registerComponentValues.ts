@@ -51,6 +51,17 @@ export interface ValueSource {
 	 * String sources ignore it (rendered verbatim).
 	 */
 	format?: (value: number) => string;
+	/**
+	 * The source's value is ALREADY a live animation (e.g. a count-up tween the game
+	 * drives frame-by-frame — `winCountUpAmount` / `freeSpinOutroTotalWin`). When true, a
+	 * numeric readout bound to it MUST NOT run its own `countUp` tween on top: it snaps to
+	 * the live value each frame (which IS the smooth count-up) so there is no second,
+	 * lagging animation. This is what makes a tap-to-skip / round-slam that snaps the
+	 * underlying count-up show the final total INSTANTLY instead of the readout easing to it
+	 * for another ~0.5s. A plain (non-animated) source leaves this unset ⇒ `countUp` works
+	 * as before (parity). See `ParamReadoutText`.
+	 */
+	selfAnimated?: boolean;
 }
 
 const registry = new Map<string, ValueSource>();
