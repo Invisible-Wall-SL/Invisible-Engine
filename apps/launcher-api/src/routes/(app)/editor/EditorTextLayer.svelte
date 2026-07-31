@@ -6,6 +6,10 @@
 		resolveBoundValue,
 		resolveComponentParams,
 		resolveTransform,
+		hasTextBox,
+		textBoxStyleOverrides,
+		textBoxPlacement,
+		autoFitFontSize,
 		MAX_COMPONENT_DEPTH,
 		type ComponentDef,
 		type FontCatalog,
@@ -70,6 +74,10 @@
 		/** Reports which text NODE ids the overlay now renders with a real font, so the
 		 * 2D canvas skips their `fillText` placeholder (no double-draw). */
 		onReadyIdsChange?: (ids: Set<string>) => void;
+		/** Reports each text node's MEASURED rendered size (local / pre-scale px), keyed by
+		 * node id — so the 2D canvas's selection box + hit-test hug an auto-size text node's
+		 * real glyphs (a boxed text reports its explicit box dims). */
+		onMeasuredChange?: (sizes: Map<string, { w: number; h: number }>) => void;
 		/** Project display name — the HUD game-name default shown when unset (matches
 		 * what the game injects; not written to the doc). */
 		projectGameName?: string | null;
@@ -100,6 +108,7 @@
 		redrawNonce = 0,
 		onLoadingChange,
 		onReadyIdsChange,
+		onMeasuredChange,
 		projectGameName = null,
 		componentParams,
 		componentMap = new Map<string, ComponentDef>(),
@@ -158,6 +167,24 @@
 		if (ids.size === readyIds.size && [...ids].every((id) => readyIds.has(id))) return;
 		readyIds = ids;
 		onReadyIdsChange?.(new Set(ids));
+	}
+	/** Last-published measured sizes — republish only on a real change (rebuild also runs on
+	 * pan/zoom, where the local glyph sizes are identical), so the 2D canvas isn't churned. */
+	let measuredSizes = new Map<string, { w: number; h: number }>();
+	function publishMeasured(sizes: Map<string, { w: number; h: number }>): void {
+		let same = sizes.size === measuredSizes.size;
+		if (same) {
+			for (const [k, v] of sizes) {
+				const prev = measuredSizes.get(k);
+				if (!prev || Math.abs(prev.w - v.w) > 0.5 || Math.abs(prev.h - v.h) > 0.5) {
+					same = false;
+					break;
+				}
+			}
+		}
+		if (same) return;
+		measuredSizes = sizes;
+		onMeasuredChange?.(new Map(sizes));
 	}
 
 	/** The engine's coded HUD text font (UiGameName / the logo `<Text>`), used as the
@@ -443,11 +470,33 @@
 		const targets = textTargets();
 		const seen = new Set<string>();
 		const owned = new Set<string>();
+		const measured = new Map<string, { w: number; h: number }>();
 		// Editor view transform (world → screen): `[zoom, 0, 0, zoom, panX, panY]`, the
 		// SAME mapping the 2D canvas applies (`translate(pan) · scale(zoom)`).
 		const view: Affine = [zoom, 0, 0, zoom, panX, panY];
 
-		for (const { key, id, node, scene, chain, text, style } of targets) {
+		for (const { key, id, node, scene, chain, text, style: rawStyle } of targets) {
+			// Leaf transform (framed when it IS the top-level node, else pure-local). Computed
+			// first because the TEXT BOX (`width`/`height`) rides on it and drives the style +
+			// placement below.
+			const topT = (top: LayoutNode) => worldTransformOf(top, scene);
+			const childT = (child: LayoutNode) =>
+				childLocalTransform(child, layoutType, scene.space, frameWidth, frameHeight);
+			const leafT = chain.length === 1 ? topT(node) : childT(node);
+
+			// A boxed text node wraps its glyphs to the box width + aligns them within it
+			// (mirroring the runtime `<TextBox>` via the SAME shared helpers), so alignment is
+			// visible and nothing stretches. A box-less node keeps its raw style (parity).
+			// Box mode is TEXT-ONLY: a HUD bind anchor is a `container` target that may also
+			// carry a `width`, but it must never wrap/align like a text box.
+			const boxW = node.kind === 'text' && hasTextBox(leafT) ? (leafT.width ?? 0) : 0;
+			const boxed = boxW > 0;
+			const boxH = leafT.height;
+			const autoFit = node.kind === 'text' && node.autoFit === true;
+			const style = boxed
+				? { ...rawStyle, ...textBoxStyleOverrides(boxW, rawStyle?.align) }
+				: rawStyle;
+
 			const font = findFont(
 				{ prefix: '', fonts: [...fontsById.values()] } as FontCatalog,
 				style?.fontFamily,
@@ -470,30 +519,68 @@
 			// its family `name` (see `ensureWebFont`), so rewrite the ref → name for the
 			// `<Text>` path — otherwise the browser can't resolve the id and falls back to a
 			// system face. A system/unlisted family passes through unchanged.
-			const textStyle =
-				font && font.kind === 'web' && style ? { ...style, fontFamily: font.name } : style;
-			const obj =
-				useBitmap && font ? buildBitmap(key, text, style, font) : buildText(key, text, textStyle);
+			const buildAt = (fontSize: number): BitmapText | Text => {
+				const s = { ...(style ?? {}), fontSize };
+				const webS = font && font.kind === 'web' ? { ...s, fontFamily: font.name } : s;
+				return useBitmap && font ? buildBitmap(key, text, s, font) : buildText(key, text, webS);
+			};
+			const baseFontSize = style?.fontSize ?? 24;
+			let obj = buildAt(baseFontSize);
+			// Auto-fit: shrink the font until the wrapped block fits the box height. The
+			// measure resets the (possibly reused) object to scale 1 so `width/height` read
+			// the UNSCALED glyph box, not last frame's baked view scale.
+			if (boxed && autoFit && boxH !== undefined) {
+				const fitted = autoFitFontSize({
+					measure: (fs) => {
+						const o = buildAt(fs);
+						o.scale.set(1);
+						o.rotation = 0;
+						return { width: o.width, height: o.height };
+					},
+					baseFontSize,
+					boxWidth: boxW,
+					boxHeight: boxH,
+				});
+				obj = buildAt(fitted);
+			}
 			if (obj.parent !== world) world.addChild(obj);
 
+			// Measure the UNSCALED glyph box (reset scale first — a reused object still carries
+			// last frame's view-baked matrix). A boxed node reports its explicit box dims so the
+			// selection frame matches the box; an auto-size node reports the real glyph extent.
+			obj.scale.set(1);
+			obj.rotation = 0;
+			const natW = obj.width;
+			const natH = obj.height;
+			measured.set(id, boxed ? { w: boxW, h: boxH ?? natH } : { w: natW, h: natH });
+
 			// WORLD matrix from the ancestor chain (top-level framed via the canvas's
-			// `nodeTransform`; nested nodes pure-local) → screen via the view matrix. The
-			// transform of each link is resolved by the SAME callbacks, so the leaf's anchor
-			// + the chain's alpha come from one source.
-			const topT = (top: LayoutNode) => worldTransformOf(top, scene);
-			const childT = (child: LayoutNode) =>
-				childLocalTransform(child, layoutType, scene.space, frameWidth, frameHeight);
+			// `nodeTransform`; nested nodes pure-local) → screen via the view matrix.
 			const worldMat = composeWorldMatrix(chain, topT, childT);
-			const m = matMul(view, worldMat);
-			// Leaf transform (framed when it IS the top-level node, else pure-local) for
-			// the anchor; alpha multiplies down the whole chain like the canvas's globalAlpha.
-			const leafT = chain.length === 1 ? topT(node) : childT(node);
+			let m = matMul(view, worldMat);
+			// Alpha multiplies down the whole chain like the canvas's globalAlpha.
 			let alpha = 1;
 			for (let i = 0; i < chain.length; i++) {
 				const t = i === 0 ? topT(chain[i]) : childT(chain[i]);
 				alpha *= t.alpha ?? 1;
 			}
-			obj.anchor.set(leafT.anchor?.x ?? 0, leafT.anchor?.y ?? 0);
+			if (boxed) {
+				// Box path: place an anchor-{0,0} object at the box top-left (via the anchor)
+				// plus the vertical-alignment padding, in the node's LOCAL frame — so it scales
+				// / rotates with the node. Matches the runtime `<TextBox>` placement exactly.
+				const place = textBoxPlacement({
+					boxWidth: boxW,
+					boxHeight: boxH,
+					anchorX: leafT.anchor?.x ?? 0,
+					anchorY: leafT.anchor?.y ?? 0,
+					verticalAlign: rawStyle?.verticalAlign,
+					measuredHeight: natH,
+				});
+				m = matMul(m, [1, 0, 0, 1, place.offsetX, place.offsetY]);
+				obj.anchor.set(0, 0);
+			} else {
+				obj.anchor.set(leafT.anchor?.x ?? 0, leafT.anchor?.y ?? 0);
+			}
 			obj.setFromMatrix(new Matrix(m[0], m[1], m[2], m[3], m[4], m[5]));
 			obj.alpha = alpha;
 			obj.visible = true;
@@ -502,6 +589,7 @@
 			// suppression checks `readyTextIds.has(node.id)` during instance expansion.
 			owned.add(id);
 		}
+		publishMeasured(measured);
 
 		// Drop pixi objects whose render position was removed / hidden / unowned this pass.
 		for (const [key, obj] of objects) {

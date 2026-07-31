@@ -42,7 +42,8 @@ export function resolveTransform(node: LayoutNode, layoutType: LayoutType): Reso
 		node.kind === 'sprite' ||
 		node.kind === 'spine' ||
 		node.kind === 'container' ||
-		node.kind === 'rect'
+		node.kind === 'rect' ||
+		node.kind === 'text'
 			? node
 			: undefined;
 	const tintedBase = node.kind === 'sprite' ? node : undefined;
