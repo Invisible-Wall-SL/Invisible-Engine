@@ -9,6 +9,8 @@
 		textBoxStyleOverrides,
 		textBoxPlacement,
 		autoFitFontSize,
+		alignToAnchorX,
+		verticalAlignToAnchorY,
 		MAX_COMPONENT_DEPTH,
 		type ComponentDef,
 		type FontCatalog,
@@ -607,22 +609,26 @@
 				const t = i === 0 ? topT(chain[i]) : childT(chain[i]);
 				alpha *= t.alpha ?? 1;
 			}
+			// Effective anchor: `align`/`verticalAlign` map to the text anchor so alignment shows
+			// WITH OR WITHOUT a box (mirrors the runtime `textAnchor`). Unset ⇒ the node's anchor.
+			const effAnchorX = alignToAnchorX(rawStyle?.align) ?? leafT.anchor?.x ?? 0;
+			const effAnchorY = verticalAlignToAnchorY(rawStyle?.verticalAlign) ?? leafT.anchor?.y ?? 0;
 			if (boxed) {
-				// Box path: place an anchor-{0,0} object at the box top-left (via the anchor)
-				// plus the vertical-alignment padding, in the node's LOCAL frame — so it scales
-				// / rotates with the node. Matches the runtime `<TextBox>` placement exactly.
+				// Box path: place an anchor-{0,0} object at the box top-left (via the effective
+				// anchor) plus the vertical-alignment padding, in the node's LOCAL frame — so it
+				// scales / rotates with the node. Matches the runtime `<TextBox>` placement.
 				const place = textBoxPlacement({
 					boxWidth: boxW,
 					boxHeight: boxH,
-					anchorX: leafT.anchor?.x ?? 0,
-					anchorY: leafT.anchor?.y ?? 0,
+					anchorX: effAnchorX,
+					anchorY: effAnchorY,
 					verticalAlign: rawStyle?.verticalAlign,
 					measuredHeight: natH,
 				});
 				m = matMul(m, [1, 0, 0, 1, place.offsetX, place.offsetY]);
 				obj.anchor.set(0, 0);
 			} else {
-				obj.anchor.set(leafT.anchor?.x ?? 0, leafT.anchor?.y ?? 0);
+				obj.anchor.set(effAnchorX, effAnchorY);
 			}
 			obj.setFromMatrix(new Matrix(m[0], m[1], m[2], m[3], m[4], m[5]));
 			obj.alpha = alpha;
