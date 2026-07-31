@@ -388,6 +388,25 @@
 			? resolveBoundValue(node.paramBindings, 'tint', componentParams)
 			: undefined,
 	);
+	// Spine param binding (§13.2, the spine analogue of the sprite `assetKey` bind): a
+	// `componentInstance` may drive a spine's SOURCE bundle from a `spine`-kind param, so
+	// one prefab renders a different rig per instance (e.g. a button whose spine background
+	// is swapped per placement). The instance's spine picker stores the bundle NAME (its
+	// last path segment), which `SpineProvider` resolves the same as a bundle key (games
+	// register a spine under that plain name). An unbound spine, an outside-instance spine,
+	// or an unset param (empty) all fall back to the node's static `assetKey` — parity.
+	const boundSpineAssetKey = $derived(
+		node.kind === 'spine'
+			? resolveBoundValue(node.paramBindings, 'assetKey', componentParams)
+			: undefined,
+	);
+	const spineAssetKey = $derived(
+		typeof boundSpineAssetKey === 'string' && boundSpineAssetKey
+			? boundSpineAssetKey
+			: node.kind === 'spine'
+				? node.assetKey
+				: undefined,
+	);
 	// A sprite resolves its texture by `region` (a frame in a loaded sheet) or, when
 	// region-less (a standalone image), by `assetKey`. Editor-art frames are ALSO
 	// registered scoped by their manifest (`<assetKey>::<region>`), so a node bound
@@ -598,7 +617,7 @@
 			byte-identical; only the previously-offset non-zero-anchor case moves into parity.
 		-->
 		<SpineProvider
-			key={node.assetKey}
+			key={spineAssetKey ?? node.assetKey}
 			x={bg ? bg.x : spineCoverCenter ? spineCoverCenter.x : posX}
 			y={bg ? bg.y : spineCoverCenter ? spineCoverCenter.y : posY}
 			anchor={isCover ? transform.anchor : undefined}
@@ -706,7 +725,7 @@
 				assetKey). Each plays a chosen effect on the beat of the rig's OWN event — no Scene-Editor
 				placement, no cue-string matching. Empty for a rig with no bindings (parity — nothing mounts).
 			-->
-			{@const rigBinds = resolveRigFx(node.assetKey)}
+			{@const rigBinds = resolveRigFx(spineAssetKey ?? node.assetKey)}
 			{#each rigBinds as b (b.event + ':' + b.effectId + ':' + (b.bone ?? ''))}
 				{@const d = resolveEffect(b.effectId)}
 				{#if d}

@@ -9,6 +9,7 @@
 		coverTransform,
 		instancePreviewSpineBundle,
 		resolveAnchorPreviewArt,
+		resolveBoundValue,
 		resolveComponentParams,
 		resolveTransform,
 		MAX_COMPONENT_DEPTH,
@@ -512,7 +513,7 @@
 				}
 			}
 			if (n.kind === 'spine') {
-				out.push(nestedSpineTarget(n, sc, nextChain));
+				out.push(nestedSpineTarget(n, sc, nextChain, instanceParams));
 			} else if (n.kind === 'container') {
 				collectNestedSpines(
 					n.children,
@@ -642,6 +643,12 @@
 		node: Extract<LayoutNode, { kind: 'spine' }>,
 		sc: Scene,
 		chain: LayoutNode[],
+		/** Resolved params of the enclosing component instance (if any) — so a spine whose
+		 * SOURCE bundle is exposed (`paramBindings['assetKey']` → a `spine`-kind param) previews
+		 * the instance's CHOSEN rig, matching the game runtime. The bound value is a bundle NAME;
+		 * we map it back to its full key here for the meta/loader. Unbound / unset ⇒ the node's
+		 * static `assetKey` (parity). */
+		instanceParams?: Record<string, unknown>,
 	): SpineRenderTarget {
 		const [a, b, c, d, tx, ty] = composeWorldMatrix(
 			chain,
@@ -652,9 +659,16 @@
 		const sy = Math.hypot(c, d) || 1;
 		const det = a * d - b * c;
 		const nt = resolveTransform(node, layoutType);
+		const boundName = instanceParams
+			? resolveBoundValue(node.paramBindings, 'assetKey', instanceParams)
+			: undefined;
+		const assetKey =
+			typeof boundName === 'string' && boundName
+				? (assets.spines.find((s) => s.name === boundName)?.key ?? node.assetKey)
+				: node.assetKey;
 		return {
 			nodeId: node.id,
-			assetKey: node.assetKey,
+			assetKey,
 			defaultAnimation: node.defaultAnimation,
 			skin: node.skin,
 			loop: node.loop,

@@ -835,6 +835,70 @@
 		if (componentDraft.params.length === 0) delete componentDraft.params;
 	}
 
+	/**
+	 * "Expose spine as param" for a spine node: create ONE `spine`-kind author param and
+	 * bind the node's SOURCE bundle (`assetKey`) to it, so every placed instance can swap
+	 * this spine's rig from a bundle picker — the spine analogue of {@link exposeTextParams}.
+	 * The default is the spine's current bundle NAME (what the instance picker stores + the
+	 * runtime resolves), so an un-overridden instance renders exactly what the def shows.
+	 * Idempotent — a spine already exposing its own param is left alone.
+	 */
+	function exposeSpineParam(node: LayoutNode): void {
+		if (!componentDraft || node.kind !== 'spine') return;
+		const params = componentDraft.params ?? [];
+		// A param is THIS node's own only if bound solely by it — a binding shared with
+		// another node (a duplicated spine carries the original's bindings) must not be stolen.
+		const owners = bindingOwners(componentDraft.root);
+		const ownedByThis = (key: string): boolean => {
+			const set = owners.get(key);
+			return !!set && set.size === 1 && set.has(node.id);
+		};
+		const existingKey = node.paramBindings?.['assetKey'];
+		if (
+			existingKey &&
+			ownedByThis(existingKey) &&
+			params.some((p) => p.key === existingKey && p.author)
+		) {
+			return; // already exposed to its own param
+		}
+		const label = node.label?.trim() || 'spine';
+		const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, '') || 'spine';
+		const keys = new Set(params.map((p) => p.key));
+		let key = `${slug}Spine`;
+		for (let i = 2; keys.has(key); i++) key = `${slug}Spine${i}`;
+		// Default = the current bundle NAME, matched by the node's assetKey against the
+		// project spine list (the same `name` the instance picker + runtime key off).
+		const defaultName = data.assets.spines.find((s) => s.key === node.assetKey)?.name;
+		const p: ComponentParam = { key, kind: 'spine', label, author: true };
+		if (defaultName) p.default = defaultName;
+		node.paramBindings = { ...(node.paramBindings ?? {}), assetKey: key };
+		componentDraft.params = [...params, p];
+	}
+
+	/**
+	 * Un-expose a spine node: drop its `assetKey` binding + the author param it created,
+	 * restoring the static bundle from the removed param's default. Leaves engine/other
+	 * binds untouched. The inverse of {@link exposeSpineParam}.
+	 */
+	function unexposeSpineParam(node: LayoutNode): void {
+		if (!componentDraft || node.kind !== 'spine' || !node.paramBindings) return;
+		const params = componentDraft.params ?? [];
+		const key = node.paramBindings['assetKey'];
+		const p = params.find((cp) => cp.key === key);
+		if (!key || !p?.author) return; // not an author-exposed spine bind
+		const bindings = { ...node.paramBindings };
+		delete bindings['assetKey'];
+		// Restore the static bundle from the param default, resolving the bundle NAME back
+		// to its full key so the fixed spine renders exactly as before exposure.
+		if (typeof p.default === 'string' && p.default) {
+			const restored = data.assets.spines.find((s) => s.name === p.default)?.key;
+			if (restored) node.assetKey = restored;
+		}
+		node.paramBindings = Object.keys(bindings).length ? bindings : undefined;
+		componentDraft.params = params.filter((cp) => cp.key !== key);
+		if (componentDraft.params.length === 0) delete componentDraft.params;
+	}
+
 	/** Toggle the component SIGNAL identified by a catalog entry on the draft. */
 	function toggleComponentSignal(key: string): void {
 		if (!componentDraft) return;
@@ -1184,6 +1248,8 @@
 						{fontParamKeys}
 						onExposeTextParams={exposeTextParams}
 						onUnexposeTextParams={unexposeTextParams}
+						onExposeSpineParam={exposeSpineParam}
+						onUnexposeSpineParam={unexposeSpineParam}
 						onToggleSignal={toggleComponentSignal}
 						onSetInstanceParam={(key, value) => {
 							if (!selectedNode || selectedNode.kind !== 'componentInstance') return;

@@ -139,6 +139,13 @@
 		/** "Remove exposed parameters": un-expose the selected text node — drop its
 		 * author-param bindings + the params they created, restoring the static values. */
 		onUnexposeTextParams?: (node: LayoutNode) => void;
+		/** "Expose spine as param" for the selected spine node: auto-create + bind a
+		 * `spine`-kind param so the spine's SOURCE bundle is per-instance swappable
+		 * (component mode) — the spine analogue of exposing a sprite's image. */
+		onExposeSpineParam?: (node: LayoutNode) => void;
+		/** "Remove exposed spine": un-expose the selected spine node — drop the
+		 * `assetKey` binding + the param it created, restoring the static bundle. */
+		onUnexposeSpineParam?: (node: LayoutNode) => void;
 		/** Toggle an engine-catalog signal on the draft component (component mode). */
 		onToggleSignal?: (key: string) => void;
 		/** Set / clear an author param override on the selected instance (scene mode). */
@@ -198,6 +205,8 @@
 		fontParamKeys = new Set(),
 		onExposeTextParams,
 		onUnexposeTextParams,
+		onExposeSpineParam,
+		onUnexposeSpineParam,
 		onToggleSignal,
 		onSetInstanceParam,
 		onSetInstanceStateAnim,
@@ -425,6 +434,18 @@
 	/** True when the selected text node is exposed (component mode) — the static value
 	 * fields + Expose button collapse into a "using exposed parameters" state. */
 	const isTextExposed = $derived(componentMode && exposedTextBindings.length > 0);
+	/** The AUTHOR param the selected spine node binds its SOURCE bundle (`assetKey`) to —
+	 * i.e. its `paramBindings['assetKey']` pointing at an author (not engine) component
+	 * param. Undefined when the spine isn't exposed. */
+	const exposedSpineParamKey = $derived.by(() => {
+		if (!node || node.kind !== 'spine') return undefined;
+		const key = node.paramBindings?.['assetKey'];
+		if (!key) return undefined;
+		return componentParams.find((cp) => cp.key === key && cp.author) ? key : undefined;
+	});
+	/** True when the selected spine node's source is exposed (component mode) — the spine
+	 * source is then set per instance via the bound `spine`-kind param. */
+	const isSpineExposed = $derived(componentMode && !!exposedSpineParamKey);
 	/** Flat (ungrouped) author params — rendered above the grouped sections. */
 	const ungroupedAuthorParams = $derived(authorParams.filter((p) => !p.group));
 	/** Author params bucketed by their `group` (e.g. a text node's name) — each renders
@@ -1467,6 +1488,23 @@
 											scoped
 											onSelect={(region) => onSetParamDefault?.(p.key, region || undefined)}
 										/>
+									{:else if p.kind === 'spine'}
+										{@const cur = typeof p.default === 'string' ? p.default : ''}
+										<select
+											value={cur}
+											onchange={(e) => onSetParamDefault?.(p.key, e.currentTarget.value || undefined)}
+										>
+											<option value="">(none)</option>
+											{#each spines as s (s.key)}
+												<option value={s.name}>{s.name}{s.shared ? ' [shared]' : ''}</option>
+											{/each}
+											{#each BUILTIN_SPINE_NAMES.filter((n) => !spines.some((s) => s.name === n)) as n (n)}
+												<option value={n}>{n} [coded]</option>
+											{/each}
+											{#if cur && !spines.some((s) => s.name === cur) && !BUILTIN_SPINE_NAMES.includes(cur)}
+												<option value={cur}>{cur} (custom)</option>
+											{/if}
+										</select>
 									{:else}
 										<input
 											type="text"
@@ -2690,6 +2728,35 @@
 		{@const meta = spineMetaFor(node.assetKey)}
 		<section>
 			<h3>Spine</h3>
+			{#if isSpineExposed}
+				<p class="muted small">
+					Source exposed — this spine's rig is picked <strong>per instance</strong> via the
+					<strong>{exposedSpineParamKey}</strong> variable (a spine picker in the Component Variables
+					panel + on every placed instance). The bundle below is the default.
+				</p>
+				<button
+					type="button"
+					class="ghost-sm"
+					onclick={() => onUnexposeSpineParam?.(node)}
+					title="Drop the binding + the param it created, restoring the fixed spine bundle"
+				>
+					Remove exposed spine
+				</button>
+			{:else if componentMode}
+				<button
+					type="button"
+					class="ghost-sm"
+					onclick={() => onExposeSpineParam?.(node)}
+					title="Create + bind a spine param so each placed instance can swap this spine's rig"
+				>
+					✨ Expose spine as param (per instance)
+				</button>
+				<p class="muted small">
+					One click — makes this spine's <strong>source rig</strong> pickable per instance, so one prefab
+					(e.g. this button) renders a different spine each place it's dropped. The current bundle becomes
+					the default.
+				</p>
+			{/if}
 			<div class="row">
 				<label class="field wide">
 					<span>default animation</span>
