@@ -1,33 +1,40 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
+
 	import { CanvasSizeRectangle } from 'components-layout';
 	import { OnHotkey } from 'components-shared';
 
 	// The shared, authorable INPUT SURFACE for a count-up (the WIN overlay + the free-spin OUTRO).
-	// Extracted from the byte-identical hold-to-fast-forward blocks that used to live inline in both
-	// `<WinGate>` and `<FreeSpinOutroDriver>`, and extended with an independent TAP-TO-SKIP mode. Two
-	// toggles, authored per game via the flow doc's `settings.countUp` and read by the engine:
+	// Two INDEPENDENT toggles authored per game on the count-up action node (`winUpdate` /
+	// `freeSpinOutroCountUp`) and read by the driver:
 	//
 	//  - `holdToSpeedUp` — while the player HOLDS a pointer (this canvas-space rectangle) OR the Space
-	//    key (the engine's global keyboard broadcast), drive `speedScale` up to `holdSpeedScale`×; on
-	//    release it returns to 1. Continuous acceleration, NOT a jump. Owns `bind:speedScale`.
-	//  - `tapToSkip` — a QUICK press (pointer or Space) fires `onSkip` once, which the driver wires to
-	//    the provider's `finishCountUp` slam (lands on the final total, never drops it).
+	//    key, drive `speedScale` up to `holdSpeedScale`×; on release it returns to 1. Continuous
+	//    acceleration, NOT a jump. Owns `bind:speedScale`.
+	//  - `tapToSkip` — a TAP (pointer or Space) fires `onSkip` once, which the driver wires to the
+	//    provider's `finishCountUp` slam (lands on the final total, never drops it).
 	//
-	// They COMPOSE. With both on, a press-and-hold speeds up while a quick tap skips — distinguished by
-	// press duration (`TAP_MAX_MS`): a release within the window that never actually accelerated counts
-	// as a tap. With only `tapToSkip` on, any press skips immediately (no hold gesture to disambiguate).
-	// With neither on this component renders nothing (an inert count-up), so it is always safe to mount.
+	// GESTURE DISAMBIGUATION (the whole subtlety). When only ONE mode is on there is no ambiguity, so
+	// the response is immediate: tap-only skips on press-DOWN (a plain click, instant); hold-only starts
+	// accelerating on press-down and stops on release. When BOTH are on they share one surface, so a
+	// press is ambiguous — a quick TAP must skip, a sustained PRESS must speed up. We disambiguate by an
+	// ACTIVATION DELAY: the hold only STARTS accelerating after `HOLD_ACTIVATE_MS`, so a release BEFORE
+	// that is unambiguously a tap (→ skip) and never accelerated, while a press that outlives the delay
+	// is a hold (→ speed up; release just returns to normal, no skip). The delay is generous because a
+	// deliberate tap can take a couple hundred ms — the earlier "skip only if released < 200ms" was too
+	// strict and read most taps as holds, so tap-to-skip never fired. With neither toggle on this renders
+	// nothing (an inert count-up), so it is always safe to mount.
 	type Props = {
 		/** Hold pointer/Space to fast-forward. */
 		holdToSpeedUp?: boolean;
-		/** Quick tap/press jumps to the final total. */
+		/** Tap pointer/Space to jump to the final total. */
 		tapToSkip?: boolean;
 		/** The hold multiplier applied while a pointer/Space is held (only when `holdToSpeedUp`). */
 		holdSpeedScale?: number;
 		/** Bindable: the live count-up speed multiplier (1 = normal). The driver feeds it to
 		 *  `WinCountUpProvider`. Stays 1 unless `holdToSpeedUp` is on and a hold is active. */
 		speedScale?: number;
-		/** Fired once per gesture when a quick tap/press should skip to the final total. */
+		/** Fired once per gesture when a tap should skip to the final total. */
 		onSkip?: () => void;
 	};
 	let {
@@ -38,41 +45,104 @@
 		onSkip,
 	}: Props = $props();
 
-	// A press shorter than this (and that never entered a sustained hold) is a TAP, not a hold — the
-	// only disambiguation needed when both modes are on. When ONLY `tapToSkip` is on we skip on press
-	// down instead, so a plain click responds instantly with no wait to classify the gesture.
-	const TAP_MAX_MS = 200;
+	// How long a press must last (both-modes only) before it becomes a HOLD that accelerates. A release
+	// before this is treated as a TAP → skip. Generous enough that a normal tap reliably skips.
+	const HOLD_ACTIVATE_MS = 300;
 
+	const bothModes = $derived(holdToSpeedUp && tapToSkip);
 	const enabled = $derived(holdToSpeedUp || tapToSkip);
 
 	let pointerHeld = $state(false);
 	let keyHeld = $state(false);
-	// When a hold speeds things up, `speedScale` follows the held state; otherwise it stays at 1 so a
-	// pure tap-to-skip surface never accelerates the count.
+	// `speedScale` follows the held state only while `holdToSpeedUp`; otherwise it stays 1 so a pure
+	// tap-to-skip surface never accelerates the count.
 	$effect(() => {
 		speedScale = holdToSpeedUp && (pointerHeld || keyHeld) ? holdSpeedScale : 1;
 	});
 
-	// Press timestamps, per input, so a release can be classified as tap-vs-hold. Plain `let` (not
-	// reactive) — only read at release time.
-	let pointerDownAt = 0;
-	let keyDownAt = 0;
+	// Pending hold-activation timers (both-modes only), one per input. `undefined` = not pending (either
+	// the press hasn't happened, or the hold already activated / was cancelled).
+	let pointerTimer: ReturnType<typeof setTimeout> | undefined;
+	let keyTimer: ReturnType<typeof setTimeout> | undefined;
 
-	const now = () => (typeof performance !== 'undefined' ? performance.now() : 0);
-
-	const press = (setHeld: (v: boolean) => void, stampDownAt: (t: number) => void) => {
-		stampDownAt(now());
-		if (holdToSpeedUp) setHeld(true);
-		// Tap-only surface: nothing distinguishes a hold, so skip on the down edge for instant response.
-		else if (tapToSkip) onSkip?.();
+	const clearPointerTimer = () => {
+		if (pointerTimer !== undefined) clearTimeout(pointerTimer);
+		pointerTimer = undefined;
+	};
+	const clearKeyTimer = () => {
+		if (keyTimer !== undefined) clearTimeout(keyTimer);
+		keyTimer = undefined;
 	};
 
-	const release = (setHeld: (v: boolean) => void, downAt: number) => {
-		setHeld(false);
-		// With hold enabled, a QUICK release that never really accelerated is a tap → skip. A sustained
-		// hold (the player watched it speed up) just eases back to normal and does NOT skip.
-		if (holdToSpeedUp && tapToSkip && now() - downAt <= TAP_MAX_MS) onSkip?.();
+	// --- Pointer ---------------------------------------------------------------------------------
+	const pointerDown = () => {
+		if (bothModes) {
+			clearPointerTimer();
+			// Wait to see if this becomes a hold; the skip decision is deferred to release.
+			pointerTimer = setTimeout(() => {
+				pointerTimer = undefined;
+				pointerHeld = true;
+			}, HOLD_ACTIVATE_MS);
+		} else if (holdToSpeedUp) {
+			pointerHeld = true;
+		} else if (tapToSkip) {
+			onSkip?.();
+		}
 	};
+	const pointerUp = () => {
+		if (bothModes) {
+			if (pointerTimer !== undefined) {
+				// Released before the hold activated ⇒ it was a TAP ⇒ skip.
+				clearPointerTimer();
+				onSkip?.();
+			} else {
+				// The hold had activated ⇒ end it; do NOT skip.
+				pointerHeld = false;
+			}
+		} else if (holdToSpeedUp) {
+			pointerHeld = false;
+		}
+	};
+	const pointerCancel = () => {
+		clearPointerTimer();
+		pointerHeld = false;
+	};
+
+	// --- Keyboard (Space) ------------------------------------------------------------------------
+	const keyDown = () => {
+		if (bothModes) {
+			clearKeyTimer();
+			keyTimer = setTimeout(() => {
+				keyTimer = undefined;
+				keyHeld = true;
+			}, HOLD_ACTIVATE_MS);
+		} else if (holdToSpeedUp) {
+			keyHeld = true;
+		} else if (tapToSkip) {
+			onSkip?.();
+		}
+	};
+	const keyUp = () => {
+		if (bothModes) {
+			if (keyTimer !== undefined) {
+				clearKeyTimer();
+				onSkip?.();
+			} else {
+				keyHeld = false;
+			}
+		} else if (holdToSpeedUp) {
+			keyHeld = false;
+		}
+	};
+	const keyCancel = () => {
+		clearKeyTimer();
+		keyHeld = false;
+	};
+
+	onDestroy(() => {
+		clearPointerTimer();
+		clearKeyTimer();
+	});
 </script>
 
 {#if enabled}
@@ -81,22 +151,9 @@
 		cursor="pointer"
 		backgroundColor={0xffffff}
 		backgroundAlpha={0.001}
-		onpointerdown={() =>
-			press(
-				(v) => (pointerHeld = v),
-				(t) => (pointerDownAt = t),
-			)}
-		onpointerup={() => release((v) => (pointerHeld = v), pointerDownAt)}
-		onpointerupoutside={() => (pointerHeld = false)}
+		onpointerdown={pointerDown}
+		onpointerup={pointerUp}
+		onpointerupoutside={pointerCancel}
 	/>
-	<OnHotkey
-		hotkey="Space"
-		onpress={() =>
-			press(
-				(v) => (keyHeld = v),
-				(t) => (keyDownAt = t),
-			)}
-		onpressend={() => release((v) => (keyHeld = v), keyDownAt)}
-		onholdend={() => (keyHeld = false)}
-	/>
+	<OnHotkey hotkey="Space" onpress={keyDown} onpressend={keyUp} onholdend={keyCancel} />
 {/if}
