@@ -27,7 +27,13 @@
 			multiView: false,
 			antialias: true,
 			clearBeforeRender: true,
-			preference: 'webgpu',
+			// Force WebGL, do NOT let Pixi pick WebGPU. Mobile WebGPU (Safari iOS 18+,
+			// Chrome on Pixel/Adreno) initialises "successfully" but paints nothing — the
+			// game runs (buttons, sound, flow) yet the canvas is blank. Samsung Internet
+			// has no WebGPU so it fell back to WebGL and always worked, which is why the
+			// bug looked GPU-vendor specific. WebGL is rock-solid across all these devices
+			// and visually identical for a 2D game. Revisit only when mobile WebGPU matures.
+			preference: 'webgl',
 			powerPreference: 'high-performance',
 			// Clamp the backing-store resolution to [1, 2]. Upper cap: on high-DPR phones
 			// (iPhone 16 = 3) an uncapped DPR allocates every framebuffer + render-texture at
