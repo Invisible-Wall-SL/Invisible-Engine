@@ -755,11 +755,16 @@
 	// OFF (no tap) ⇒ nothing registered and `tap` undefined ⇒ byte-identical.
 	const tapPortal = getTapPortal();
 	$effect(() => {
-		// Not a tap overlay, OR the tap is gated on a signal that hasn't fired yet ⇒ mount NOTHING,
-		// so taps pass straight through until the arming signal (e.g. the intro's `completeSignal`)
-		// fires. `tapArmed` is reactive, so this effect re-runs and registers the surface the moment
-		// it arms. Un-gated (no `tapArmAfterSignal`) ⇒ `tapArmed` is true from the start (parity).
-		if (!tapComponent || !tapArmed) {
+		// Not a tap overlay, OR the tap is gated on a signal that hasn't fired yet, OR the overlay is
+		// not currently VISIBLE ⇒ mount NOTHING, so taps pass straight through and no prompt renders.
+		// `tapArmed` gates on the arming signal (e.g. the intro's `completeSignal`); `selfVisible`
+		// gates on the instance actually being shown — a tap-enabled overlay that lives in a
+		// PERSISTENTLY-mounted layer (e.g. the base-game-overlays Win slot) must NOT paint its
+		// full-screen "press anywhere" surface while it is hidden between wins. Both are reactive, so
+		// this effect re-runs and registers the surface the moment the overlay arms AND becomes
+		// visible. A flow-shown container mounts only when shown (`selfVisible` true then) and an
+		// un-gated always-on overlay stays `selfVisible` true, so both are byte-identical to before.
+		if (!tapComponent || !tapArmed || !selfVisible) {
 			tap = undefined;
 			return;
 		}
