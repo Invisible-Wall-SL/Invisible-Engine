@@ -4,7 +4,16 @@
 	export type EmitterEventFreeSpinOutro =
 		| { type: 'freeSpinOutroShow' }
 		| { type: 'freeSpinOutroHide' }
-		| { type: 'freeSpinOutroCountUp'; amount: number; winLevelData: WinLevelData }
+		// `holdToSpeedUp`/`tapToSkip` — the PER-INSTANCE count-up interaction toggles, authored on the
+		// `freeSpinOutroCountUp` action node (its inspector) and carried here in the broadcast payload.
+		// Unset ⇒ off (the driver defaults them false). See `CountUpInteraction`.
+		| {
+				type: 'freeSpinOutroCountUp';
+				amount: number;
+				winLevelData: WinLevelData;
+				holdToSpeedUp?: boolean;
+				tapToSkip?: boolean;
+		  }
 		// FS-7 follow-up — broadcast by the headless outro DRIVER the moment its count-up finishes
 		// (natural, slammed, or hold-fast-forwarded). Drives the `freeSpinOutroCountUpComplete`
 		// component signal so an authored tap/prompt arms only after the count. Payload-less.

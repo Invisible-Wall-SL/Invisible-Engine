@@ -90,7 +90,46 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'object',
 						required: true,
 					},
+					{
+						key: 'holdToSpeedUp',
+						kind: 'boolean',
+						required: false,
+					},
+					{
+						key: 'tapToSkip',
+						kind: 'boolean',
+						required: false,
+					},
 				],
+			},
+			{
+				type: 'winCountUpComplete',
+				group: 'Win',
+			},
+			{
+				type: 'winLineShow',
+				group: 'WinLine',
+				fields: [
+					{
+						key: 'points',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'message',
+						kind: 'string',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'winLineHide',
+				group: 'WinLine',
 			},
 			{
 				type: 'freeSpinIntroShow',
@@ -157,7 +196,21 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'object',
 						required: true,
 					},
+					{
+						key: 'holdToSpeedUp',
+						kind: 'boolean',
+						required: false,
+					},
+					{
+						key: 'tapToSkip',
+						kind: 'boolean',
+						required: false,
+					},
 				],
+			},
+			{
+				type: 'freeSpinOutroCountUpComplete',
+				group: 'Free spins',
 			},
 			{
 				type: 'specialBookReveal',
@@ -293,8 +346,16 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				type: 'drawerButtonHide',
 				group: 'UI',
 			},
+			{
+				type: 'soundPressStop',
+				group: 'UI',
+			},
 		],
 		effects: [
+			{
+				name: 'cameraEffect',
+				group: 'Effect',
+			},
 			{
 				name: 'revealBoard',
 				group: 'Effect',
@@ -388,6 +449,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'animateWinSymbols',
+				group: 'Effect',
+			},
+			{
+				name: 'showWinLine',
+				group: 'Effect',
+			},
+			{
+				name: 'hideWinLine',
+				group: 'Effect',
+			},
+			{
 				name: 'stopReel',
 				group: 'Effect',
 			},
@@ -425,6 +498,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'expandBookColumns',
+			},
+			{
+				type: 'freeSpinRetrigger',
 			},
 		],
 	},
@@ -502,7 +578,46 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'object',
 						required: true,
 					},
+					{
+						key: 'holdToSpeedUp',
+						kind: 'boolean',
+						required: false,
+					},
+					{
+						key: 'tapToSkip',
+						kind: 'boolean',
+						required: false,
+					},
 				],
+			},
+			{
+				type: 'winCountUpComplete',
+				group: 'Win',
+			},
+			{
+				type: 'winLineShow',
+				group: 'WinLine',
+				fields: [
+					{
+						key: 'points',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'message',
+						kind: 'string',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'winLineHide',
+				group: 'WinLine',
 			},
 			{
 				type: 'freeSpinIntroShow',
@@ -569,7 +684,21 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'object',
 						required: true,
 					},
+					{
+						key: 'holdToSpeedUp',
+						kind: 'boolean',
+						required: false,
+					},
+					{
+						key: 'tapToSkip',
+						kind: 'boolean',
+						required: false,
+					},
 				],
+			},
+			{
+				type: 'freeSpinOutroCountUpComplete',
+				group: 'Free spins',
 			},
 			{
 				type: 'specialBookReveal',
@@ -705,8 +834,16 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				type: 'drawerButtonHide',
 				group: 'UI',
 			},
+			{
+				type: 'soundPressStop',
+				group: 'UI',
+			},
 		],
 		effects: [
+			{
+				name: 'cameraEffect',
+				group: 'Effect',
+			},
 			{
 				name: 'revealBoard',
 				group: 'Effect',
@@ -800,6 +937,18 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'animateWinSymbols',
+				group: 'Effect',
+			},
+			{
+				name: 'showWinLine',
+				group: 'Effect',
+			},
+			{
+				name: 'hideWinLine',
+				group: 'Effect',
+			},
+			{
 				name: 'stopReel',
 				group: 'Effect',
 			},
@@ -837,6 +986,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'expandBookColumns',
+			},
+			{
+				type: 'freeSpinRetrigger',
 			},
 		],
 	},

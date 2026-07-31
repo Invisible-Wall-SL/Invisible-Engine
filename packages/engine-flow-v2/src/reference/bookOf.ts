@@ -399,6 +399,20 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 			params: [
 				{ name: 'amount', type: FLOAT },
 				{ name: 'winLevel', type: INT },
+				{
+					name: 'holdToSpeedUp',
+					type: BOOL,
+					optional: true,
+					description:
+						'Let the player HOLD a press (or Space) to fast-forward this count-up — it runs faster while held and eases back on release. Unset ⇒ off. Independent of Tap to skip; enable either, both, or neither.',
+				},
+				{
+					name: 'tapToSkip',
+					type: BOOL,
+					optional: true,
+					description:
+						'Let the player TAP once to jump this count-up straight to the final total. Unset ⇒ off. With Hold to speed up also on, a quick tap skips while a press-and-hold speeds up.',
+				},
 			],
 			category: 'effect',
 		},
@@ -410,6 +424,20 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 			params: [
 				{ name: 'amount', type: FLOAT },
 				{ name: 'winLevel', type: INT },
+				{
+					name: 'holdToSpeedUp',
+					type: BOOL,
+					optional: true,
+					description:
+						'Let the player HOLD a press (or Space) to fast-forward the win count-up — it runs faster while held and eases back on release. Unset ⇒ off. Independent of Tap to skip; enable either, both, or neither.',
+				},
+				{
+					name: 'tapToSkip',
+					type: BOOL,
+					optional: true,
+					description:
+						'Let the player TAP once to jump the win count-up straight to the final total. Unset ⇒ off. With Hold to speed up also on, a quick tap skips while a press-and-hold speeds up.',
+				},
 			],
 			category: 'effect',
 		},

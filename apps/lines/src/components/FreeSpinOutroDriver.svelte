@@ -1,14 +1,14 @@
 <script lang="ts">
 	import { FadeContainer, WinCountUpProvider } from 'components-pixi';
-	import { CanvasSizeRectangle } from 'components-layout';
 	import { waitForResolve } from 'utils-shared/wait';
 	import { roundSkip } from 'utils-shared/skipToken';
-	import { OnMount, OnHotkey } from 'components-shared';
+	import { OnMount } from 'components-shared';
 	import type { WinLevelData } from '../game/winLevelMap';
 
 	import { getContext } from '../game/context';
 	import { FREE_SPIN_STEPS } from '../game/freeSpinOwnership';
 	import { getFlowInterpreter } from '../game/flowInterpreterHolder';
+	import CountUpInteraction from './CountUpInteraction.svelte';
 	import OutroStatePublisher from './OutroStatePublisher.svelte';
 	import { freeSpinOutroState } from '../game/freeSpinOutroState.svelte';
 
@@ -56,14 +56,16 @@
 	// `FreeSpinIntroFlowGate` so a spurious re-run can never resolve early.
 	let releaseRoundBlock: (() => void) | undefined;
 
-	// HOLD-TO-FAST-FORWARD (CHANGE 3) — while the player HOLDS a pointer (the canvas-space surface
-	// below) OR the Space key (via the engine's global keyboard broadcast, `<EnableHotkey>`), the
-	// count-up runs `HOLD_SPEED_SCALE`× faster; on release it eases back to normal speed. Continuous
-	// acceleration, NOT an instant skip — a slam (`roundSkip`) still snaps to the total independently.
-	const HOLD_SPEED_SCALE = 6;
-	let pointerHeld = $state(false);
-	let keyHeld = $state(false);
-	const speedScale = $derived(pointerHeld || keyHeld ? HOLD_SPEED_SCALE : 1);
+	// COUNT-UP INTERACTION (CHANGE 3, now PER-INSTANCE authorable) — the shared `<CountUpInteraction>`
+	// surface drives `interactionSpeedScale` (hold-to-fast-forward) and fires `finishCountUp`
+	// (tap-to-skip). The two toggles are authored on the `freeSpinOutroCountUp` action node and arrive
+	// in that event's payload (below), NOT a global setting. A slam (`roundSkip`) still snaps to the
+	// total independently. `undefined` — the provider's original single fixed-duration tween — when
+	// hold-to-speed-up is off (a pure tap-to-skip surface never accelerates).
+	let holdToSpeedUp = $state(false);
+	let tapToSkip = $state(false);
+	let interactionSpeedScale = $state(1);
+	const speedScale = $derived(holdToSpeedUp ? interactionSpeedScale : undefined);
 
 	context.eventEmitter.subscribeOnMount({
 		freeSpinOutroShow: () => {
@@ -83,6 +85,10 @@
 		freeSpinOutroCountUp: async (emitterEvent) => {
 			amount = emitterEvent.amount;
 			winLevelData = emitterEvent.winLevelData;
+			// PER-INSTANCE count-up interaction — authored on the `freeSpinOutroCountUp` action node,
+			// carried here. Unset ⇒ off; the author ticks either/both in the node's inspector.
+			holdToSpeedUp = emitterEvent.holdToSpeedUp ?? false;
+			tapToSkip = emitterEvent.tapToSkip ?? false;
 			freeSpinOutroState.winLevelData = emitterEvent.winLevelData;
 			await waitForResolve((resolve) => (releaseRoundBlock = resolve));
 		},
@@ -105,7 +111,7 @@
 	{#if winLevelData}
 		{@const duration = winLevelData.presentDuration}
 		<WinCountUpProvider {amount} {duration} {speedScale}>
-			{#snippet children({ countUpAmount, startCountUp, countUpCompleted })}
+			{#snippet children({ countUpAmount, startCountUp, finishCountUp, countUpCompleted })}
 				<OnMount
 					onmount={async () => {
 						await startCountUp();
@@ -133,25 +139,16 @@
 					 the `freeSpinOutroTotalWin` value source, or the coded `FreeSpinOutroVisual` reads it). -->
 				<OutroStatePublisher {countUpAmount} />
 
-				<!-- Hold-to-fast-forward input surfaces (CHANGE 3), mounted ONLY while the count-up runs so
-					 they never intercept the authored tap-to-continue that arms on completion. The
-					 canvas-space rectangle detects a pointer hold; `<OnHotkey>` detects a Space hold off the
-					 engine's global keyboard broadcast. -->
+				<!-- Authorable count-up interaction (hold-to-fast-forward and/or tap-to-skip), mounted ONLY
+					 while the count-up runs so it never intercepts the authored tap-to-continue that arms on
+					 completion. Skip fires the provider's `finishCountUp` slam. Renders nothing when both
+					 toggles are off. Shared with `<WinGate>` via `<CountUpInteraction>`. -->
 				{#if !countUpCompleted}
-					<CanvasSizeRectangle
-						eventMode="static"
-						cursor="pointer"
-						backgroundColor={0xffffff}
-						backgroundAlpha={0.001}
-						onpointerdown={() => (pointerHeld = true)}
-						onpointerup={() => (pointerHeld = false)}
-						onpointerupoutside={() => (pointerHeld = false)}
-					/>
-					<OnHotkey
-						hotkey="Space"
-						onpress={() => (keyHeld = true)}
-						onpressend={() => (keyHeld = false)}
-						onholdend={() => (keyHeld = false)}
+					<CountUpInteraction
+						{holdToSpeedUp}
+						{tapToSkip}
+						bind:speedScale={interactionSpeedScale}
+						onSkip={finishCountUp}
 					/>
 				{/if}
 			{/snippet}

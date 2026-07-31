@@ -606,6 +606,9 @@ const effects: Record<string, FlowEffect> = {
 			type: 'freeSpinOutroCountUp',
 			amount: payload.amount as number,
 			winLevelData: winLevelDataOf(payload.winLevel as number),
+			// PER-INSTANCE count-up interaction — authored on THIS node. Unset ⇒ off.
+			holdToSpeedUp: payload.holdToSpeedUp === true,
+			tapToSkip: payload.tapToSkip === true,
 		});
 	},
 
@@ -632,6 +635,9 @@ const effects: Record<string, FlowEffect> = {
 			type: 'winUpdate',
 			amount: payload.amount as number,
 			winLevelData: winLevelDataOf(payload.winLevel as number),
+			// PER-INSTANCE count-up interaction — authored on THIS node. Unset ⇒ off.
+			holdToSpeedUp: payload.holdToSpeedUp === true,
+			tapToSkip: payload.tapToSkip === true,
 		});
 	},
 
