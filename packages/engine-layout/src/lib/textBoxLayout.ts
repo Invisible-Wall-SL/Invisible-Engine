@@ -58,25 +58,6 @@ export function verticalAlignToAnchorY(verticalAlign: TextStyle['verticalAlign']
 	}
 }
 
-/**
- * Style additions that turn a plain text style into a box-constrained one: wrap the lines to
- * the box width. Internal `align` is forced `left` so the rendered object's width is the real
- * CONTENT width (glyphs packed left) — {@link textBoxPlacement} then offsets the whole block by
- * the measured width to left/center/right-align it in the box. (PIXI's own `align` only shifts
- * lines relative to the WIDEST line, so it does nothing for a single line — which is why the
- * readout never right-aligned; the manual offset is the fix.) Merged OVER the node's own style,
- * so font/fill/stroke pass through. A box-less text node never calls this (byte-identical parity).
- */
-export function textBoxStyleOverrides(
-	boxWidth: number,
-): Pick<TextStyle, 'wordWrap' | 'wordWrapWidth' | 'align'> {
-	return {
-		wordWrap: true,
-		wordWrapWidth: boxWidth,
-		align: 'left',
-	};
-}
-
 export interface TextBoxPlacement {
 	/** Local offset (added to the node's resolved x/y, pre-scale) at which to place an
 	 * anchor-{0,0} text object so the box honours the transform anchor and the block sits at
@@ -87,9 +68,11 @@ export interface TextBoxPlacement {
 
 /**
  * Where to place an anchor-{0,0} text object for a box. The box is positioned by the node
- * `anchor`; the block is then aligned WITHIN it by offsetting the measured block by `align`
- * (horizontal) + `verticalAlign` (vertical). Both need the block's measured size at its final
- * font — so right/centre truly reach the box edges (works for a single line too).
+ * `anchor`; the block is then aligned WITHIN it by offsetting the MEASURED block by `align`
+ * (horizontal) + `verticalAlign` (vertical) — so right/centre truly reach the box edges, even
+ * for a single line (PIXI's own `align` only shifts lines vs the widest line, doing nothing for
+ * one line — the manual offset is the fix). The text is NOT auto-wrapped to the box; the box is
+ * a positioning + auto-fit frame, so the measured width is the real content width.
  */
 export function textBoxPlacement(params: {
 	boxWidth: number;

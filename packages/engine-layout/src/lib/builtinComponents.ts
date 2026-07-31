@@ -326,7 +326,7 @@ export const TEXT_BOX_DEF: ComponentDef = {
 			options: ['top', 'middle', 'bottom'],
 			label: 'vertical align',
 		},
-		{ key: 'boxWidth', kind: 'number', label: 'box width (blank = fit text; set to wrap)' },
+		{ key: 'boxWidth', kind: 'number', label: 'box width (blank = fit text)' },
 		{ key: 'boxHeight', kind: 'number', label: 'box height (blank = fit text)' },
 		{ key: 'autoFit', kind: 'boolean', default: false, label: 'auto-fit font to box (needs box w+h)' },
 		{ key: 'value', kind: 'number', engineProvided: true },
