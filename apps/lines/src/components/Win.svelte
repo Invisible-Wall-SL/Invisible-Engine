@@ -4,7 +4,12 @@
 	export type EmitterEventWin =
 		| { type: 'winShow' }
 		| { type: 'winHide' }
-		| { type: 'winUpdate'; amount: number; winLevelData: WinLevelData };
+		| { type: 'winUpdate'; amount: number; winLevelData: WinLevelData }
+		// Broadcast by `WinGate` the moment its count-up finishes (natural or slammed). Drives the
+		// `winCountUpComplete` component signal so an authored `bigWin` container's tap/prompt arms
+		// only after the count (via `tapArmAfterSignal`/`hiddenUntilSignal`). Payload-less. Mirrors
+		// `freeSpinOutroCountUpComplete`.
+		| { type: 'winCountUpComplete' };
 </script>
 
 <script lang="ts">

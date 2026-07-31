@@ -19,6 +19,15 @@
 	// coin-fountain emit signal (`coinsEmit`) to `winState` so the positionable VISUAL (`WinVisual`)
 	// renders the spine + count number + the now-authorable `WinCoins` fountain. Stays full-screen
 	// (`canvas`), never editor-positioned.
+	//
+	// `headless` (design doc §14, the win-overlay twin of the FS-7 outro) — when an authored `bigWin`
+	// container rebuilds the overlay from primitives (`resolveWinMount` ⇒ `'driver'`) the engine mounts
+	// this gate WITHOUT its big-win dim scrim, so it keeps only the LOAD-BEARING core (count-up +
+	// `winState` publish + round-block self-resolve) and the authored container owns dim / tap / art.
+	// The coded press already self-suppresses under v2 (`codedPressOwned`), so a headless mount adds no
+	// visible surface. Default `false` ⇒ the full gate (driven seed / today) — byte-identical.
+	const { headless = false }: { headless?: boolean } = $props();
+
 	const context = getContext();
 
 	// Under a v2 flow that DRIVES the screens, the authored container's `tapToContinue` overlay is
@@ -36,7 +45,12 @@
 	let oncomplete = $state(() => {});
 
 	context.eventEmitter.subscribeOnMount({
-		winShow: () => (show = true),
+		winShow: () => {
+			show = true;
+			// Reset the count-up-complete latch at the EARLIEST win signal — before the authored
+			// container subscribes — so a stale `true` from a prior win can't pre-arm this one's tap.
+			winState.countUpComplete = false;
+		},
 		winHide: () => (show = false),
 		winUpdate: async (emitterEvent) => {
 			amount = emitterEvent.amount;
@@ -54,13 +68,23 @@
 		{@const duration = winLevelData.presentDuration}
 		<WinCountUpProvider {amount} {duration}>
 			{#snippet children({ countUpAmount, startCountUp, finishCountUp, countUpCompleted })}
-				{#if isBigWin}
+				{#if isBigWin && !headless}
 					<CanvasSizeRectangle backgroundColor={0x000000} backgroundAlpha={0.5} />
 				{/if}
 
 				<OnMount
 					onmount={async () => {
 						await startCountUp();
+						// The count-up has finished (natural or slammed). Fire `winCountUpComplete` ONCE per
+						// win, so an authored `bigWin` container's `tapToContinue` / prompt with
+						// `tapArmAfterSignal: 'winCountUpComplete'` arms only now (never before the count).
+						// Un-authored ⇒ nothing subscribes ⇒ inert (parity). Latch it FIRST (before the
+						// broadcast) so a container that subscribes late — a zero/instant count-up finishes
+						// in the same tick it mounts — seeds from the latch and still arms (the emitter has
+						// no replay, so a fire-before-subscribe would otherwise be lost). Mirrors the outro
+						// driver (`FreeSpinOutroDriver`).
+						winState.countUpComplete = true;
+						context.eventEmitter.broadcast({ type: 'winCountUpComplete' });
 						await roundSkip.wait(300);
 						oncomplete();
 					}}

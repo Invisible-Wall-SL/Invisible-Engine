@@ -288,6 +288,11 @@ export const ENGINE_SIGNAL_CATALOG: EngineSignalEntry[] = [
 	{ key: 'win', label: 'Win', note: 'A winning result resolved.' },
 	{ key: 'bigWin', label: 'Big Win', note: 'A big-win threshold was crossed.' },
 	{
+		key: 'winCountUpComplete',
+		label: 'Win — count-up complete',
+		note: 'The win overlay count-up has finished. Arm a "tap to continue" with "arm after signal", or reveal a continue prompt with "hidden until signal", so the tap appears only after the count.',
+	},
+	{
 		key: 'freeSpinStart',
 		label: 'Free-spin start',
 		note: 'The free-spin intro presents (free spins awarded).',

@@ -370,6 +370,20 @@ exactly one `waitForResolve` subscriber or the round hangs.
   fountain (owner decision — the #138 baked-fountain plumbing was removed; authors place their own).
   `FreeSpinOutroGate` KEPT intact as the un-authored fallback (dim + press + its OWN hardcoded fountain)
   ⇒ byte-parity. Verified: `flow-spike run fs7outro`. (Build detail: [docs/history.md](../history.md).)
+- **WIN OVERLAY ✅ LANDED (2026-07-31)** — the same seam applied to the big-win overlay (the `bigWin`
+  container). `apps/lines/src/game/winOwnership.ts` mirrors the outro helpers: `hasAuthoredWin` (the
+  `bigWin` scene is author-rebuilt ⇒ the engine mounts `<WinGate headless>` with NO big-win dim, so the
+  authored container owns dim / tap / art), `bigWinHasCodedWinGate` (the `bigWin` scene binds a coded
+  `Win`/`WinGate` ⇒ the engine gate stands down), and `resolveWinMount` (`driver`/`gate`/`null`, the
+  single decision guaranteeing EXACTLY ONE `winUpdate` subscriber under v2 — asserted `flow-spike run
+  fs7win`). `WinGate` broadcasts the new payload-less `winCountUpComplete` emitter event on count-up
+  completion, registered as a `winCountUpComplete` component signal (`ENGINE_SIGNAL_CATALOG` +
+  `registerComponentSignals`, seeded off `winState.countUpComplete` for order-independence), so an
+  authored container arms a `tapToContinue` / prompt with `tapArmAfterSignal: 'winCountUpComplete'`
+  (or `hiddenUntilSignal`) only after the count. `winCountUpComplete` is broadcast in both driver + gate
+  cases but inert when un-authored (no subscriber; emitter has no replay). Un-authored (no `bigWin`
+  container) ⇒ byte-identical to today (a non-flow game never mounts the engine gate). NOT done here:
+  hold-to-fast-forward + a `winTotalWin` value source (the outro's change 3 twin — deferred).
 - **REMAINING** — retire the coded `FreeSpinIntroGate`/`FreeSpinOutroGate`/`BookRevealGate` (a hard cut
   gated on every shipped game being v2-driven for the steps it uses).
 

@@ -11,15 +11,24 @@ import type { WinLevelData } from './winLevelMap';
  * (Invisible Win Text), `countUpAmount` feeds the count text in the spine slot, `coinsEmit`
  * drives the now-positionable `WinCoins` fountain (emit while the count-up runs). A plain
  * reactive rune in a `.svelte.ts` module; the per-frame write is fine.
+ *
+ * `countUpComplete` is the ORDER-INDEPENDENT latch for the `winCountUpComplete` signal (mirrors
+ * `freeSpinOutroState.countUpComplete`). `WinGate` resets it false on `winShow` and sets it true
+ * right before broadcasting the signal on count-up completion; the registered signal source SEEDS
+ * off it on subscribe, so a late-subscribing authored `bigWin` container still arms its
+ * `tapArmAfterSignal` tap — a ZERO / instant count-up completes within the same tick the container
+ * mounts, so the fire would otherwise be lost (no emitter replay) and the tap would never arm.
  */
 export const winState = $state<{
 	winLevelData: WinLevelData | undefined;
 	amount: number;
 	countUpAmount: number;
 	coinsEmit: boolean;
+	countUpComplete: boolean;
 }>({
 	winLevelData: undefined,
 	amount: 0,
 	countUpAmount: 0,
 	coinsEmit: false,
+	countUpComplete: false,
 });

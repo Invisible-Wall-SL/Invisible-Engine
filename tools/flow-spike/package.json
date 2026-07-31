@@ -25,6 +25,7 @@
 		"fs6": "tsx fs6FreeSpinOwnership.ts",
 		"fs7": "tsx fs7EarlyMount.ts",
 		"fs7outro": "tsx fs7Outro.ts",
+		"fs7win": "tsx fs7Win.ts",
 		"fs2": "tsx fs2BookEventPins.ts",
 		"vocab": "tsx vocabulary.ts",
 		"tap": "tsx tapToContinue.ts",
