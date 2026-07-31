@@ -28,6 +28,8 @@
 	import { getContextLayout } from 'utils-layout';
 
 	import CatalogText from './CatalogText.svelte';
+	import TextBox from './TextBox.svelte';
+	import { hasTextBox } from './textBoxLayout';
 	import { anchoredPosition, resolveTransform } from './resolveTransform';
 	import { resolveLocalizedText } from './registerTextResolver';
 	import { getBoundComponent } from './registerBoundComponents';
@@ -753,6 +755,29 @@
 				style={resolvedStyle}
 				{countUp}
 				format={formatValue}
+			/>
+		{:else if hasTextBox(transform)}
+			<!--
+				Text BOX (`TextNode.width` set): the glyphs lay out INSIDE the box — aligned
+				horizontally across `width` (`style.align`) and vertically across `height`
+				(`style.verticalAlign`), auto-shrinking the font when `autoFit`. `<TextBox>`
+				owns the box math + measurement; it still renders through `<CatalogText>`, so
+				the bitmap-vs-system-font decision is unchanged. A box-less text node falls to
+				the plain `<CatalogText>` below (byte-identical parity).
+			-->
+			<TextBox
+				text={resolvedText ?? ''}
+				style={resolvedStyle}
+				boxWidth={transform.width ?? 0}
+				boxHeight={transform.height}
+				autoFit={node.kind === 'text' && node.autoFit === true}
+				x={posX}
+				y={posY}
+				anchor={transform.anchor}
+				scale={transform.scale}
+				rotation={transform.rotation}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
 			/>
 		{:else}
 			<!--

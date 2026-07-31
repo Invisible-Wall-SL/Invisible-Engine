@@ -322,6 +322,12 @@ export interface TextStyle {
 	fontStyle?: 'normal' | 'italic' | 'oblique';
 	fill?: number;
 	align?: 'left' | 'center' | 'right' | 'justify';
+	/**
+	 * Vertical placement of the text block WITHIN a text box (a {@link TextNode} with an
+	 * explicit `width`/`height`). Ignored for a box-less text node (nothing to align in).
+	 * Absent ⇒ `'top'` (the block sits at the box top edge).
+	 */
+	verticalAlign?: 'top' | 'middle' | 'bottom';
 	/** Enable multi-line wrapping. Requires `wordWrapWidth` to bound the lines. */
 	wordWrap?: boolean;
 	/** Wrap width in the text node's local (pre-scale) pixels. */
@@ -347,6 +353,24 @@ export interface TextNode extends BaseNode {
 	/** May be a localization key — engine layer resolves before render. */
 	text: string;
 	style?: TextStyle;
+	/**
+	 * Optional TEXT BOX. When `width` (and optionally `height`) is set, the node becomes a
+	 * fixed-area box: the glyphs lay out INSIDE it (horizontally via `style.align` across
+	 * `width`, vertically via `style.verticalAlign` across `height`) and the editor's resize
+	 * handles change THIS box — never `scale` — so a bitmap/web font is never stretched or
+	 * pixelated. Both editor + runtime read them off the resolved transform (`resolveTransform`
+	 * surfaces them, so they take per-layoutType overrides like a sprite/rect). Absent on both
+	 * axes ⇒ auto-size: the box hugs the rendered text (legacy behaviour — parity).
+	 * Local (pre-scale) pixels.
+	 */
+	width?: number;
+	height?: number;
+	/**
+	 * Shrink the font so the text fits the box (`width`/`height`) when it would otherwise
+	 * overflow — never grows it past `style.fontSize`. Only meaningful with an explicit box.
+	 * Absent ⇒ off (text may overflow the box; the box just positions/aligns it).
+	 */
+	autoFit?: boolean;
 }
 
 /**

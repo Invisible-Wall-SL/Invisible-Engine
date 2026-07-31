@@ -1085,6 +1085,34 @@
 		markDirty();
 	}
 
+	/** Set a text node's BOX dimension (`width`/`height`). A blank/NaN value CLEARS it —
+	 * reverting that axis to auto-size (the box hugs the glyphs). Honours override mode (a
+	 * non-desktop layoutType writes the sparse per-layoutType override), mirroring
+	 * {@link setSpriteSize}. */
+	function setTextBoxSize(n: LayoutNode, axis: 'width' | 'height', value: number): void {
+		if (n.kind !== 'text') return;
+		const cleared = Number.isNaN(value);
+		if (isOverrideMode) {
+			const o = ensureOverride(n) as Record<string, unknown>;
+			if (cleared) delete o[axis];
+			else o[axis] = value;
+		} else if (cleared) {
+			delete (n as Record<string, unknown>)[axis];
+		} else {
+			(n as Record<string, unknown>)[axis] = value;
+		}
+		markDirty();
+	}
+
+	/** Toggle a text node's `autoFit` (shrink the font to the box). Off deletes the key so
+	 * the doc stays clean. */
+	function setTextAutoFit(n: LayoutNode, value: boolean): void {
+		if (n.kind !== 'text') return;
+		if (value) n.autoFit = true;
+		else delete (n as Record<string, unknown>).autoFit;
+		markDirty();
+	}
+
 	/** Parse a `#rrggbb` hex to a number; returns undefined if malformed. */
 	function parseHex(hex: string): number | undefined {
 		const clean = hex.trim().replace(/^#/, '');
@@ -3645,6 +3673,17 @@
 					</select>
 				</label>
 				<label class="field">
+					<span>vertical align</span>
+					<select
+						value={node.style?.verticalAlign ?? 'top'}
+						onchange={(e) => setStyleString(node, 'verticalAlign', e.currentTarget.value)}
+					>
+						<option value="top">top</option>
+						<option value="middle">middle</option>
+						<option value="bottom">bottom</option>
+					</select>
+				</label>
+				<label class="field">
 					<span>line height</span>
 					<input
 						type="number"
@@ -3664,6 +3703,46 @@
 						value={node.style?.letterSpacing ?? ''}
 						oninput={(e) => setStyleNumber(node, 'letterSpacing', e.currentTarget.valueAsNumber)}
 					/>
+				</label>
+			</div>
+
+			<h4>Text box</h4>
+			<p class="muted small">
+				Set a box <strong>width</strong> (and optional <strong>height</strong>) to lay the text out
+				inside it — <strong>align</strong> / <strong>vertical align</strong> position it, and the canvas
+				resize handles change the box (never the font, so nothing stretches). Leave blank to
+				auto-size to the text. Drag a corner handle on the canvas to draw a box.
+			</p>
+			<div class="row">
+				<label class="field">
+					<span>box width (px)</span>
+					<input
+						type="number"
+						step="1"
+						placeholder="auto"
+						value={t.width ?? ''}
+						oninput={(e) => setTextBoxSize(node, 'width', e.currentTarget.valueAsNumber)}
+					/>
+				</label>
+				<label class="field">
+					<span>box height (px)</span>
+					<input
+						type="number"
+						step="1"
+						placeholder="auto"
+						value={t.height ?? ''}
+						oninput={(e) => setTextBoxSize(node, 'height', e.currentTarget.valueAsNumber)}
+					/>
+				</label>
+			</div>
+			<div class="row">
+				<label class="field check">
+					<input
+						type="checkbox"
+						checked={node.autoFit ?? false}
+						onchange={(e) => setTextAutoFit(node, e.currentTarget.checked)}
+					/>
+					<span>auto-fit font to box</span>
 				</label>
 			</div>
 

@@ -205,7 +205,20 @@ export function nodeBox(
 		return { w, h, ax, ay };
 	}
 	if (node.kind === 'text') {
-		return { w: 160, h: 28, ax, ay };
+		// A text box's selection frame is its explicit box (`width`/`height`); an auto-size
+		// text node hugs the RENDERED glyphs — the PIXI overlay measures the real object and
+		// reports it back through `naturalSize` (keyed by node id), exactly like a sprite's
+		// texture size. Falls back to the old 160×28 only until the first measurement lands.
+		// Anchor default TOP-LEFT (0), matching how both the overlay and the runtime draw a
+		// text node (pixi `Text`/`BitmapText` default anchor 0, and the box path below uses the
+		// SAME default) — so the frame hugs the glyphs / box instead of straddling the origin,
+		// and adding a box never jumps the node (the default is identical box vs auto-size).
+		const tax = t.anchor?.x ?? 0;
+		const tay = t.anchor?.y ?? 0;
+		const nat = naturalSize(node);
+		const w = t.width ?? nat?.w ?? 160;
+		const h = t.height ?? nat?.h ?? 28;
+		return { w, h, ax: tax, ay: tay };
 	}
 	// An effect's LIVE particle overlay (EditorEffectLayer) renders real particles that
 	// spread — often asymmetrically (a burst fanning upward) — well beyond the fixed

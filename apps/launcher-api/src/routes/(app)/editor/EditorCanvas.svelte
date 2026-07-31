@@ -819,6 +819,11 @@
 	 * NODES are overlay-only now (no 2D `fillText`), so this only gates HUD bind-anchor
 	 * chips. UNION across the per-scene text sublayers. */
 	let readyTextIds = $state<Set<string>>(new Set());
+	/** Measured RENDERED size per text NODE id (local / pre-scale px), reported by the PIXI
+	 * text overlay so an auto-size text node's selection box + hit-test hug the real glyphs
+	 * (a boxed text uses its explicit width/height instead). MERGED across the per-scene text
+	 * sublayers. */
+	let textMeasured = $state<Map<string, { w: number; h: number }>>(new Map());
 	/** Global play/pause for the live effect preview overlay (default playing). */
 	let playingEffects = $state(true);
 	/** Effect NODE ids the live particle overlay (`EditorEffectLayer`) now renders — the 2D canvas
@@ -838,6 +843,7 @@
 	const spineNaturalByScene = new Map<string, Map<string, { w: number; h: number }>>();
 	const spineMetaByScene = new Map<string, Map<string, SpineMeta>>();
 	const textReadyByScene = new Map<string, Set<string>>();
+	const textMeasuredByScene = new Map<string, Map<string, { w: number; h: number }>>();
 	const effectReadyByScene = new Map<string, Set<string>>();
 	const effectBoundsByScene = new Map<
 		string,
@@ -869,6 +875,12 @@
 		const union = new Set<string>();
 		for (const set of textReadyByScene.values()) for (const id of set) union.add(id);
 		readyTextIds = union;
+	}
+	function mergeTextMeasured(sceneId: string, sizes: Map<string, { w: number; h: number }>): void {
+		textMeasuredByScene.set(sceneId, sizes);
+		const merged = new Map<string, { w: number; h: number }>();
+		for (const m of textMeasuredByScene.values()) for (const [k, v] of m) merged.set(k, v);
+		textMeasured = merged;
 	}
 	function mergeEffectReady(sceneId: string, ids: Set<string>): void {
 		effectReadyByScene.set(sceneId, ids);
@@ -915,6 +927,7 @@
 		spineNaturalByScene.delete(id);
 		spineMetaByScene.delete(id);
 		textReadyByScene.delete(id);
+		textMeasuredByScene.delete(id);
 		effectReadyByScene.delete(id);
 		effectBoundsByScene.delete(id);
 		spineLoadByScene.delete(id);
@@ -932,6 +945,9 @@
 		const ids = new Set<string>();
 		for (const set of textReadyByScene.values()) for (const tid of set) ids.add(tid);
 		readyTextIds = ids;
+		const tMeasured = new Map<string, { w: number; h: number }>();
+		for (const m of textMeasuredByScene.values()) for (const [k, v] of m) tMeasured.set(k, v);
+		textMeasured = tMeasured;
 		const effIds = new Set<string>();
 		for (const set of effectReadyByScene.values()) for (const eid of set) effIds.add(eid);
 		liveEffectIds = effIds;
@@ -1291,6 +1307,14 @@
 			if (b && b.w > 0 && b.h > 0) {
 				return { w: b.w, h: b.h, ax: -b.x / b.w, ay: -b.y / b.h };
 			}
+			return null;
+		}
+		// A text node's "natural size" is the RENDERED glyph box measured by the PIXI overlay
+		// (`EditorTextLayer` → `textMeasured`), so an auto-size text node's selection frame hugs
+		// the real text. Null until the first measurement lands (keeps the fallback box).
+		if (node.kind === 'text') {
+			const m = textMeasured.get(node.id);
+			if (m && m.w > 0 && m.h > 0) return { w: m.w, h: m.h };
 			return null;
 		}
 		// A componentInstance's "natural size" is the union of its expanded content (the
@@ -2815,12 +2839,41 @@
 			sxRatio = Math.sign(sxRatio || 1) * avg;
 			syRatio = Math.sign(syRatio || 1) * avg;
 		}
+		// A TEXT node resizes its BOX (`width`/`height`), never `scale` — so the glyphs
+		// re-align/re-wrap inside instead of stretching (a bitmap font would pixelate). The
+		// drag ratios scale the START box (its explicit dims, or the measured glyph extent on
+		// the first drag) into a concrete box the node then owns. Font size is unchanged;
+		// `autoFit` shrinks it to the new box at render time.
+		if (node.kind === 'text') {
+			const MIN_PX = 8;
+			const newW = Math.max(MIN_PX, d.startBox.w * Math.abs(sxRatio));
+			const newH = Math.max(MIN_PX, d.startBox.h * Math.abs(syRatio));
+			writeSize(node, newW, newH);
+			return;
+		}
 		const MIN = 0.05;
 		let newSx = d.startScale.x * sxRatio;
 		let newSy = d.startScale.y * syRatio;
 		if (Math.abs(newSx) < MIN) newSx = Math.sign(newSx || 1) * MIN;
 		if (Math.abs(newSy) < MIN) newSy = Math.sign(newSy || 1) * MIN;
 		writeScale(node, newSx, newSy);
+	}
+
+	/** Write a text node's BOX size (`width`/`height`) — base value when desktop, sparse
+	 * per-layoutType override otherwise (mirrors {@link writeScale}). Text boxes live in raw
+	 * local px (no `mainScale` division: the box is measured in the node's own local space,
+	 * same as a rect's width/height). */
+	function writeSize(node: LayoutNode, w: number, h: number): void {
+		if (layoutType === 'desktop') {
+			if (node.kind === 'text' || node.kind === 'rect') {
+				node.width = w;
+				node.height = h;
+			}
+		} else {
+			const o = getOverride(node);
+			o.width = w;
+			o.height = h;
+		}
 	}
 
 	function applyRotate(node: LayoutNode, world: Vec2, shift: boolean): void {
@@ -3470,6 +3523,10 @@
 					}}
 					onReadyIdsChange={(ids) => {
 						mergeTextReady(s.id, ids);
+						schedule();
+					}}
+					onMeasuredChange={(sizes) => {
+						mergeTextMeasured(s.id, sizes);
 						schedule();
 					}}
 				/>
