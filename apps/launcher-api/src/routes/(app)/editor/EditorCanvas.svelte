@@ -2851,6 +2851,19 @@
 			writeSize(node, newW, newH);
 			return;
 		}
+		// A Text Box COMPONENT INSTANCE resizes its BOX (the `boxWidth`/`boxHeight` params on
+		// the inner text node), never `scale` — dragging defines the text AREA instead of
+		// stretching the glyphs (which pixelates a bitmap font). The current displayed scale is
+		// FOLDED into the box and the instance scale reset to 1, so the box is the single size
+		// authority and the font renders crisp at its `fontSize` (edit it / auto-fit to fill).
+		if (isTextBoxInstance(node)) {
+			const MIN_PX = 8;
+			const newW = Math.max(MIN_PX, d.startBox.w * Math.abs(d.startScale.x) * Math.abs(sxRatio));
+			const newH = Math.max(MIN_PX, d.startBox.h * Math.abs(d.startScale.y) * Math.abs(syRatio));
+			setInstanceBox(node, newW, newH);
+			writeScale(node, 1, 1);
+			return;
+		}
 		const MIN = 0.05;
 		let newSx = d.startScale.x * sxRatio;
 		let newSy = d.startScale.y * syRatio;
@@ -2874,6 +2887,20 @@
 			o.width = w;
 			o.height = h;
 		}
+	}
+
+	/** A Text Box component instance — its def exposes `boxWidth`/`boxHeight` params bound to an
+	 * inner text node's box. Its resize handles drive those params (see {@link applyScale}). */
+	function isTextBoxInstance(node: LayoutNode): boolean {
+		if (node.kind !== 'componentInstance') return false;
+		const def = componentMap.get(node.componentId);
+		return !!def?.params?.some((p) => p.key === 'boxWidth');
+	}
+	/** Write a Text Box instance's box dims as per-instance params (round for a clean doc). Params
+	 * are not per-layoutType, so this is shared across device layouts (acceptable for a box). */
+	function setInstanceBox(node: LayoutNode, w: number, h: number): void {
+		if (node.kind !== 'componentInstance') return;
+		node.params = { ...(node.params ?? {}), boxWidth: Math.round(w), boxHeight: Math.round(h) };
 	}
 
 	function applyRotate(node: LayoutNode, world: Vec2, shift: boolean): void {

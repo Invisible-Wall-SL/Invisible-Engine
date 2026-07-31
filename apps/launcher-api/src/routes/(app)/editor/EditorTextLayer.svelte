@@ -9,8 +9,6 @@
 		textBoxStyleOverrides,
 		textBoxPlacement,
 		autoFitFontSize,
-		alignToAnchorX,
-		verticalAlignToAnchorY,
 		MAX_COMPONENT_DEPTH,
 		type ComponentDef,
 		type FontCatalog,
@@ -430,6 +428,11 @@
 			fontFamily: font.id,
 			fontSize: style?.fontSize ?? 24,
 			align: style?.align ?? 'left',
+			// Box wrap: honour `wordWrap`/`wordWrapWidth` so a boxed bitmap font aligns WITHIN the
+			// box width (align only positions lines inside the wrap width). Without these a bitmap
+			// text ignored the box and never right-/centre-aligned in the editor.
+			wordWrap: style?.wordWrap ?? false,
+			wordWrapWidth: style?.wordWrapWidth ?? 0,
 			letterSpacing: style?.letterSpacing ?? 0,
 			// Colour the glyphs through `style.fill`, EXACTLY like the game's
 			// `<BitmapText style={…} />`. A style object that omits `fill` makes PIXI
@@ -609,26 +612,23 @@
 				const t = i === 0 ? topT(chain[i]) : childT(chain[i]);
 				alpha *= t.alpha ?? 1;
 			}
-			// Effective anchor: `align`/`verticalAlign` map to the text anchor so alignment shows
-			// WITH OR WITHOUT a box (mirrors the runtime `textAnchor`). Unset ⇒ the node's anchor.
-			const effAnchorX = alignToAnchorX(rawStyle?.align) ?? leafT.anchor?.x ?? 0;
-			const effAnchorY = verticalAlignToAnchorY(rawStyle?.verticalAlign) ?? leafT.anchor?.y ?? 0;
 			if (boxed) {
-				// Box path: place an anchor-{0,0} object at the box top-left (via the effective
-				// anchor) plus the vertical-alignment padding, in the node's LOCAL frame — so it
-				// scales / rotates with the node. Matches the runtime `<TextBox>` placement.
+				// Box path: the box is placed by the NODE anchor (so the selection frame + render
+				// agree); the glyphs align WITHIN it — horizontally via `style.align` across the
+				// wrap width, vertically via the placement padding. Anchor-{0,0} object at the box
+				// top-left + vpad, in the node's LOCAL frame so it scales / rotates with the node.
 				const place = textBoxPlacement({
 					boxWidth: boxW,
 					boxHeight: boxH,
-					anchorX: effAnchorX,
-					anchorY: effAnchorY,
+					anchorX: leafT.anchor?.x ?? 0,
+					anchorY: leafT.anchor?.y ?? 0,
 					verticalAlign: rawStyle?.verticalAlign,
 					measuredHeight: natH,
 				});
 				m = matMul(m, [1, 0, 0, 1, place.offsetX, place.offsetY]);
 				obj.anchor.set(0, 0);
 			} else {
-				obj.anchor.set(effAnchorX, effAnchorY);
+				obj.anchor.set(leafT.anchor?.x ?? 0, leafT.anchor?.y ?? 0);
 			}
 			obj.setFromMatrix(new Matrix(m[0], m[1], m[2], m[3], m[4], m[5]));
 			obj.alpha = alpha;

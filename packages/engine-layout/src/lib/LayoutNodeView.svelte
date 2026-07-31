@@ -29,7 +29,6 @@
 
 	import CatalogText from './CatalogText.svelte';
 	import TextBox from './TextBox.svelte';
-	import { alignToAnchorX, verticalAlignToAnchorY } from './textBoxLayout';
 	import { anchoredPosition, resolveTransform } from './resolveTransform';
 	import { resolveLocalizedText } from './registerTextResolver';
 	import { getBoundComponent } from './registerBoundComponents';
@@ -415,18 +414,6 @@
 			: node.kind === 'text' && node.autoFit === true,
 	);
 	const textHasBox = $derived(typeof textBoxWidth === 'number' && textBoxWidth > 0);
-	// Effective text ANCHOR: `style.align`/`style.verticalAlign` map to the anchor so alignment
-	// works WITH OR WITHOUT a box (right ⇒ the text's right edge sits at its x, same as the
-	// canvas anchor grid). Unset align ⇒ the node's own `transform.anchor` (parity — an existing
-	// text box with no align keeps its authored anchor). Only for text nodes.
-	const textAnchor = $derived(
-		node.kind === 'text'
-			? {
-					x: alignToAnchorX(resolvedStyle?.align) ?? transform.anchor?.x ?? 0,
-					y: verticalAlignToAnchorY(resolvedStyle?.verticalAlign) ?? transform.anchor?.y ?? 0,
-				}
-			: transform.anchor,
-	);
 	// Sprite param bindings (§13.2): a `componentInstance` may drive a sprite's
 	// texture (`region`/`assetKey`) + `tint` from params, so ONE prefab renders a
 	// different icon / colour per instance. Unbound sprites (and any sprite outside a
@@ -803,7 +790,7 @@
 				target={numericValue}
 				x={posX}
 				y={posY}
-				anchor={textAnchor}
+				anchor={transform.anchor}
 				scale={transform.scale}
 				rotation={transform.rotation}
 				alpha={transform.alpha}
@@ -832,7 +819,7 @@
 				autoFit={textAutoFit}
 				x={posX}
 				y={posY}
-				anchor={textAnchor}
+				anchor={transform.anchor}
 				scale={transform.scale}
 				rotation={transform.rotation}
 				alpha={transform.alpha}
@@ -850,7 +837,7 @@
 				text={resolvedText}
 				x={posX}
 				y={posY}
-				anchor={textAnchor}
+				anchor={transform.anchor}
 				scale={transform.scale}
 				rotation={transform.rotation}
 				alpha={transform.alpha}
