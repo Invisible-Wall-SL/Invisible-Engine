@@ -331,6 +331,34 @@
 		return typeof sib?.default === 'string' ? sib.default : undefined;
 	}
 
+	/** The spine BUNDLE NAME a placed instance's spine node resolves its SOURCE to when that
+	 * node's `assetKey` is exposed (the "Expose spine as param" feature): the instance's own
+	 * override value for the bound `spine`-kind param, else that param's def DEFAULT (so the
+	 * dropdowns populate before the param is explicitly set). Undefined when the spine isn't
+	 * exposed / not inside an instance — the caller then keeps the def node's static assetKey.
+	 * Mirrors {@link effectiveSpineBundle} (the sibling-`spineParam` resolver). */
+	function instanceSpineBoundName(sp: SpineNode): string | undefined {
+		const paramKey = sp.paramBindings?.['assetKey'];
+		if (!paramKey || !node || node.kind !== 'componentInstance') return undefined;
+		const override = node.params?.[paramKey];
+		if (typeof override === 'string' && override) return override;
+		const sib = instanceComponent?.params?.find((q) => q.key === paramKey);
+		return typeof sib?.default === 'string' ? sib.default : undefined;
+	}
+
+	/** The `assetKey` a placed instance's spine node ACTUALLY renders — the exposed-source
+	 * override resolved to its meta key when set, else the def node's static `assetKey`. So the
+	 * resting / skin / per-state animation dropdowns list the animations of the rig THIS
+	 * placement plays, not the component's default rig. */
+	function instanceSpineAssetKey(sp: SpineNode): string {
+		const name = instanceSpineBoundName(sp);
+		if (name) {
+			const k = resolveSpineAssetKey(name);
+			if (k) return k;
+		}
+		return sp.assetKey;
+	}
+
 	/** Per-`assetKey` spine meta read from the skeleton MANIFEST (`/api/editor/spine/meta`)
 	 * — the fallback the spine dropdowns use when the canvas hasn't published LIVE meta for a
 	 * bundle. Live meta is only emitted once a bundle renders "ready" on the WebGL layer; a
@@ -363,7 +391,12 @@
 	const neededSpineKeys = $derived.by<string[]>(() => {
 		const keys = new Set<string>();
 		if (node?.kind === 'spine' && node.assetKey) keys.add(node.assetKey);
-		for (const sp of instanceSpineNodes) if (sp.assetKey) keys.add(sp.assetKey);
+		// Use each instance spine's EFFECTIVE key (the exposed-source override, if any) so the
+		// dropdowns fetch the chosen rig's animation names, not the def default's.
+		for (const sp of instanceSpineNodes) {
+			const k = instanceSpineAssetKey(sp);
+			if (k) keys.add(k);
+		}
 		// Component mode: the OPEN component's draft params. Scene mode: the SELECTED instance's own
 		// author params (`authorParams` — the ones rendered as `paramField` dropdowns), whose bundle
 		// comes from `effectiveSpineBundle` reading the instance's spine param. Without this scene-mode
@@ -2030,7 +2063,7 @@
 							<em>(inherit)</em> to keep the component's default, so two copies can look different.
 						</p>
 						{#each instanceSpineNodes as sp (sp.id)}
-							{@const meta = spineMetaFor(sp.assetKey)}
+							{@const meta = spineMetaFor(instanceSpineAssetKey(sp))}
 							{@const rest = instanceSpineRestOf(sp.id)}
 							<div class="state-anim-node">
 								<h5 class="sub-h">{sp.label ?? sp.id}</h5>
