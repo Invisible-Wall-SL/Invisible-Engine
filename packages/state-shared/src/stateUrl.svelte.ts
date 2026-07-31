@@ -10,6 +10,7 @@ export type Key =
 	| 'lang'
 	| 'currency'
 	| 'device'
+	| 'quality'
 	| 'social'
 	| 'demo'
 	// keys for replay
@@ -58,6 +59,12 @@ const sessionID = () => {
 };
 const rgsUrl = () => getUrlSearchParam('rgs_url') || '';
 const social = () => getUrlSearchParam('social') === 'true';
+/** Texture-quality tier. `high` = load the uncompressed full-res art (arcade / kiosk /
+ *  high-memory targets); anything else (default) = prefer the GPU-compressed KTX2
+ *  variant when one was baked, which cuts VRAM 4–8× so the game fits iOS Safari's
+ *  per-tab memory cap. The asset builders (`editor-scenes.ts`) read the same `quality`
+ *  param directly at import time; this getter is the canonical reader for runtime code. */
+const quality = () => (getUrlSearchParam('quality') === 'high' ? 'high' : 'auto');
 
 // params for replay
 const replay = () => getUrlSearchParam('replay') === 'true';
@@ -73,6 +80,7 @@ export const stateUrlDerived = {
 	sessionID,
 	rgsUrl,
 	social,
+	quality,
 	// states for replay
 	replay,
 	amount,

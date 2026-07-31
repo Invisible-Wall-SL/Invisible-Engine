@@ -34,6 +34,15 @@ export const ENV = {
 	get R2_SECRET_ACCESS_KEY() {
 		return required('R2_SECRET_ACCESS_KEY');
 	},
+	/** Opt-in: encode a GPU-compressed KTX2 twin for each large atlas page during the
+	 *  editor-art export (`editorArtExport.ts`), so the game can load compressed textures
+	 *  that cut iOS VRAM 4–8× (`docs/design/gpu-compressed-textures.md`). OFF by default:
+	 *  encoding is CPU-heavy (~9 s/page) and memory-heavy (~345 MB peak) and blocks the
+	 *  event loop, so enable it deliberately for a project's bake and verify launcher RAM
+	 *  headroom first (`gotcha_bake_export_502_launcher_oom`). Set `KTX2_ENCODE=1` to enable. */
+	get KTX2_ENCODE() {
+		return env.KTX2_ENCODE === '1' || env.KTX2_ENCODE === 'true';
+	},
 	// Atlas Maker (cloud) — the generation backend + default manifest/style ref.
 	get ATLAS_BACKEND_URL() {
 		// Code default to the current Railway service so the launcher works even

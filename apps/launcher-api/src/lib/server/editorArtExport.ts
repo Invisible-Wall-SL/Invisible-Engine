@@ -55,7 +55,16 @@ import {
 	loadSkeletonIndex,
 	type ExportedSpineEntry,
 } from './spine';
-import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
+import {
+	copyObject,
+	deleteObjects,
+	getObjectBytes,
+	listAllKeys,
+	putObjectBytes,
+	putObjectText,
+} from './r2';
+import { ENV } from './env';
+import { encodePageToKtx2 } from './ktx2Encode';
 
 export interface EditorArtSheet {
 	/** The manifest R2 key the doc references (`SpriteNode.assetKey`). */
@@ -63,6 +72,11 @@ export interface EditorArtSheet {
 	/** Spritesheet JSON path relative to `deploy/` (= relative to `static/assets/`). */
 	json: string;
 	frames: number;
+	/** GPU-compressed variant: a second spritesheet JSON whose `meta.image` points at the
+	 * KTX2 (Basis Universal) page emitted beside the WebP/PNG. Present only when the page
+	 * was large enough to encode; the game prefers it (4–8× less VRAM) unless `?quality=high`.
+	 * Absent ⇒ the game loads `json` exactly as before (parity). */
+	ktx2Json?: string;
 }
 
 export interface EditorArtImage {
@@ -71,6 +85,10 @@ export interface EditorArtImage {
 	key: string;
 	/** Image path relative to `deploy/` (= relative to `static/assets/`). */
 	file: string;
+	/** GPU-compressed KTX2 (Basis Universal) variant of the page, emitted beside `file`
+	 * when the image was large enough to encode. The game prefers it unless `?quality=high`;
+	 * absent ⇒ `file` loads as before (parity). */
+	ktx2?: string;
 }
 
 /** A region name that appears in MORE THAN ONE exported sheet. Harmless now that
@@ -309,6 +327,36 @@ function toTexturePackerJson(set: EditorRegionSet, pageFile: string): string {
 }
 
 /**
+ * Encode the packed page to a KTX2 twin (opt-in via `ENV.KTX2_ENCODE`) and write it +
+ * a second spritesheet JSON that points `meta.image` at it, both under `deploy/editor-art/`.
+ * Returns the two `deploy/`-relative paths (page + json) so the caller records them in the
+ * art index (`sheet.ktx2Json`) and the write-set (so pruning keeps them). Returns null when
+ * encoding is off or the page is skipped/failed ⇒ the game loads the WebP/PNG (parity).
+ *
+ * The `.ktx2` page carries the SAME pixel dimensions as the WebP/PNG, so the frame rects in
+ * the reused `toTexturePackerJson(set, …)` are identical — only the page format differs.
+ */
+async function encodeSheetKtx2(
+	pageKey: string,
+	deployPrefix: string,
+	stem: string,
+	version: string,
+	set: EditorRegionSet,
+): Promise<{ pageRel: string; jsonRel: string } | null> {
+	if (!ENV.KTX2_ENCODE) return null;
+	const page = await getObjectBytes(pageKey);
+	if (!page) return null;
+	const ktx2 = await encodePageToKtx2(page.body);
+	if (!ktx2) return null;
+	const ktx2File = `${stem}.${version}.ktx2`;
+	const pageRel = `editor-art/${stem}/${ktx2File}`;
+	const jsonRel = `editor-art/${stem}/${stem}.${version}.ktx2.json`;
+	await putObjectBytes(`${deployPrefix}${pageRel}`, ktx2, 'image/ktx2');
+	await putObjectText(`${deployPrefix}${jsonRel}`, toTexturePackerJson(set, ktx2File), 'application/json');
+	return { pageRel, jsonRel };
+}
+
+/**
  * Export every atlas the project's layout doc (and its component defs) reference
  * into `deploy/editor-art/`, prune leftovers from a previous export, and write
  * the `index.json` the game build registers. Idempotent — re-running converges.
@@ -438,7 +486,24 @@ export async function exportEditorArt(
 		);
 		written.add(`${deployPrefix}${jsonRel}`);
 		written.add(`${deployPrefix}${pageRel}`);
-		sheets.push({ key: manifestKey, json: jsonRel, frames: set.regions.length });
+		// GPU-compressed KTX2 twin (opt-in via ENV.KTX2_ENCODE). Encode the page to a `.ktx2`
+		// beside the WebP/PNG and write a SECOND spritesheet JSON whose `meta.image` points at
+		// it (identical frame rects — same page dimensions), so the game can register the
+		// compressed variant through the same `sprites` loader for 4–8× less VRAM. A skipped
+		// page (encoder off, too big/small, or any failure) leaves `ktx2Json` unset ⇒ the game
+		// ships the WebP/PNG unchanged (parity). Reads page bytes through this process only when
+		// enabled, so a normal export stays memory-flat.
+		const ktx2 = await encodeSheetKtx2(set.pageKey, deployPrefix, stem, version, set);
+		if (ktx2) {
+			written.add(`${deployPrefix}${ktx2.pageRel}`);
+			written.add(`${deployPrefix}${ktx2.jsonRel}`);
+		}
+		sheets.push({
+			key: manifestKey,
+			json: jsonRel,
+			frames: set.regions.length,
+			ktx2Json: ktx2?.jsonRel,
+		});
 		sheetRegionNames.push({ stem, names: set.regions.map((r) => r.name) });
 		for (const r of set.regions) coveredRegions.add(r.name);
 		coveredBySheet.set(manifestKey, new Set(set.regions.map((r) => r.name)));
@@ -478,7 +543,20 @@ export async function exportEditorArt(
 		// Server-side copy the page image verbatim (memory-flat); skip a missing source.
 		if (!(await copyObject(imageKey, `${deployPrefix}${file}`))) continue;
 		written.add(`${deployPrefix}${file}`);
-		images.push({ key: imageKey, file });
+		// GPU-compressed KTX2 twin (opt-in). A standalone image is a single texture, so it
+		// needs no spritesheet JSON — the game registers the `.ktx2` directly and `loadKTX2`
+		// handles it by extension. Skipped/failed ⇒ `ktx2` unset ⇒ the WebP/PNG ships (parity).
+		let ktx2File: string | undefined;
+		if (ENV.KTX2_ENCODE) {
+			const src = await getObjectBytes(imageKey);
+			const ktx2 = src ? await encodePageToKtx2(src.body) : null;
+			if (ktx2) {
+				ktx2File = file.replace(/\.(png|webp|jpe?g)$/i, '.ktx2');
+				await putObjectBytes(`${deployPrefix}${ktx2File}`, ktx2, 'image/ktx2');
+				written.add(`${deployPrefix}${ktx2File}`);
+			}
+		}
+		images.push({ key: imageKey, file, ktx2: ktx2File });
 	}
 
 	// Spine bundles: copy each referenced bundle into deploy/editor-art/ via the shared

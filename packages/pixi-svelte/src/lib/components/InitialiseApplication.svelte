@@ -1,5 +1,10 @@
 <script lang="ts">
 	import * as PIXI from 'pixi.js';
+	// Side-effect import: registers Pixi's KTX2 loader (`loadKTX2` + `detectCompressed` +
+	// `resolveCompressedTextureUrl`) so a `.ktx2` (Basis Universal) page loads + transcodes
+	// to the device-native GPU format (ASTC/ETC2/BC), staying compressed in VRAM. Inert for a
+	// game that ships no `.ktx2` assets — the loader is simply never dispatched (parity).
+	import 'pixi.js/ktx2';
 	import { onMount, onDestroy, type Snippet } from 'svelte';
 	import { devicePixelRatio } from 'svelte/reactivity/window';
 
@@ -17,6 +22,17 @@
 
 	const initialiseApplication = async () => {
 		PIXI.Assets.reset();
+
+		// Self-host the KTX2 transcoder (libktx.js + libktx.wasm). Pixi's default points at
+		// `files.pixijs.download` — an external CDN we must NOT depend on at runtime (offline-
+		// hostile, blockable, against the no-external-host rule). The two files are vendored
+		// into each game's static root (`static/transcoders/ktx/`); resolve them against the
+		// document base so the URL is correct whether the game serves at '/' (dev) or under a
+		// sub-path online (e.g. '/bookofborutremakebuild/'). Inert unless a `.ktx2` is loaded.
+		if (typeof document !== 'undefined') {
+			const ktxBase = new URL('transcoders/ktx/', document.baseURI).href;
+			PIXI.setKTXTranscoderPath({ jsUrl: `${ktxBase}libktx.js`, wasmUrl: `${ktxBase}libktx.wasm` });
+		}
 
 		await preloadFont();
 		context.stateApp.pixiApplication = new PIXI.Application<PIXI.Renderer<HTMLCanvasElement>>();

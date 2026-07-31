@@ -50,6 +50,7 @@
 		"engine-fx": "workspace:*",
 		"engine-layout": "workspace:*",
 		"game-config": "workspace:*",
+		"ktx2-encoder": "^0.6.0",
 		"marked": "^18.0.5",
 		"opentype.js": "^2.0.0",
 		"pixi-svelte": "workspace:*",
