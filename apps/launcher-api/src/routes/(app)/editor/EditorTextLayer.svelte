@@ -6,7 +6,6 @@
 		resolveBoundValue,
 		resolveComponentParams,
 		resolveTransform,
-		hasTextBox,
 		textBoxStyleOverrides,
 		textBoxPlacement,
 		autoFitFontSize,
@@ -208,6 +207,29 @@
 		chain: LayoutNode[];
 		text: string;
 		style: Partial<LayoutTextStyle> | undefined;
+		/** Effective text-box dims (§text-box model): the node's own `width`/`height` OR a
+		 * `boxWidth`/`boxHeight` param bound on it (the parametric Text Box). Undefined ⇒
+		 * auto-size. `autoFit` shrinks the font to the box height. */
+		boxWidth: number | undefined;
+		boxHeight: number | undefined;
+		autoFit: boolean;
+	}
+
+	/** Resolve a text node's effective box (bound `boxWidth`/`boxHeight`/`autoFit` param, else
+	 * the node's own transform width/height + `autoFit`). Mirrors `LayoutNodeView`. */
+	function textBoxOf(
+		node: Extract<LayoutNode, { kind: 'text' }>,
+		params: Record<string, unknown>,
+	): { boxWidth: number | undefined; boxHeight: number | undefined; autoFit: boolean } {
+		const bw = resolveBoundValue(node.paramBindings, 'width', params);
+		const bh = resolveBoundValue(node.paramBindings, 'height', params);
+		const baf = resolveBoundValue(node.paramBindings, 'autoFit', params);
+		const t = resolveTransform(node, layoutType);
+		return {
+			boxWidth: typeof bw === 'number' ? bw : t.width,
+			boxHeight: typeof bh === 'number' ? bh : t.height,
+			autoFit: typeof baf === 'boolean' ? baf : node.autoFit === true,
+		};
 	}
 
 	/** Unique render-position key for a chain (its node ids joined) — see {@link TextTarget}. */
@@ -239,10 +261,15 @@
 		const fill = resolveBoundValue(node.paramBindings, 'style.fill', params);
 		const fontSize = resolveBoundValue(node.paramBindings, 'style.fontSize', params);
 		const fontFamily = resolveBoundValue(node.paramBindings, 'style.fontFamily', params);
+		const align = resolveBoundValue(node.paramBindings, 'style.align', params);
+		const verticalAlign = resolveBoundValue(node.paramBindings, 'style.verticalAlign', params);
 		const overrides: Partial<LayoutTextStyle> = {};
 		if (typeof fill === 'number') overrides.fill = fill;
 		if (typeof fontSize === 'number') overrides.fontSize = fontSize;
 		if (typeof fontFamily === 'string') overrides.fontFamily = fontFamily;
+		if (typeof align === 'string') overrides.align = align as LayoutTextStyle['align'];
+		if (typeof verticalAlign === 'string')
+			overrides.verticalAlign = verticalAlign as LayoutTextStyle['verticalAlign'];
 		// ALWAYS spread `node.style` (never return it by reference): the properties panel
 		// mutates style fields in place (`node.style.fontFamily = …` + `markDirty()`, which
 		// does NOT reassign `scenes`). `rebuild()` deep-reads `node.text` (so content edits
@@ -289,6 +316,10 @@
 			chain,
 			text: paramText ?? ov?.text ?? fallback ?? n.label ?? '',
 			style,
+			// HUD bind anchors are containers, never a boxed text (box mode is text-only).
+			boxWidth: undefined,
+			boxHeight: undefined,
+			autoFit: false,
 		};
 	}
 
@@ -329,6 +360,7 @@
 					chain: nextChain,
 					text: boundTextValue(n, params),
 					style: boundTextStyle(n, params),
+					...textBoxOf(n, params),
 				});
 			} else if (n.kind === 'container' && n.bind && n.preview?.style === 'text') {
 				out.push(
@@ -475,7 +507,18 @@
 		// SAME mapping the 2D canvas applies (`translate(pan) · scale(zoom)`).
 		const view: Affine = [zoom, 0, 0, zoom, panX, panY];
 
-		for (const { key, id, node, scene, chain, text, style: rawStyle } of targets) {
+		for (const {
+			key,
+			id,
+			node,
+			scene,
+			chain,
+			text,
+			style: rawStyle,
+			boxWidth: tBoxWidth,
+			boxHeight: tBoxHeight,
+			autoFit: tAutoFit,
+		} of targets) {
 			// Leaf transform (framed when it IS the top-level node, else pure-local). Computed
 			// first because the TEXT BOX (`width`/`height`) rides on it and drives the style +
 			// placement below.
@@ -487,12 +530,12 @@
 			// A boxed text node wraps its glyphs to the box width + aligns them within it
 			// (mirroring the runtime `<TextBox>` via the SAME shared helpers), so alignment is
 			// visible and nothing stretches. A box-less node keeps its raw style (parity).
-			// Box mode is TEXT-ONLY: a HUD bind anchor is a `container` target that may also
-			// carry a `width`, but it must never wrap/align like a text box.
-			const boxW = node.kind === 'text' && hasTextBox(leafT) ? (leafT.width ?? 0) : 0;
+			// Box mode is TEXT-ONLY (the target's box already resolves bound `boxWidth`/`boxHeight`
+			// params for a Text Box component instance; HUD anchors report undefined).
+			const boxW = node.kind === 'text' && typeof tBoxWidth === 'number' ? tBoxWidth : 0;
 			const boxed = boxW > 0;
-			const boxH = leafT.height;
-			const autoFit = node.kind === 'text' && node.autoFit === true;
+			const boxH = tBoxHeight;
+			const autoFit = tAutoFit;
 			const style = boxed
 				? { ...rawStyle, ...textBoxStyleOverrides(boxW, rawStyle?.align) }
 				: rawStyle;

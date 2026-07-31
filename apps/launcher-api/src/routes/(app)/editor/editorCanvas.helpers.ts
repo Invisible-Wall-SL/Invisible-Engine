@@ -3,6 +3,7 @@ import {
 	anchoredPosition,
 	boundComponentRidesBone,
 	instancePreviewSpineBundle,
+	resolveBoundValue,
 	resolveComponentParams,
 	resolveTransform,
 	type BoneRiderBinding,
@@ -294,6 +295,15 @@ function componentInstanceContentBox(
 	let maxY = -Infinity;
 	for (const child of def.root.children) {
 		const ct = resolveTransform(child, layoutType);
+		// A parametric Text Box binds its box `width`/`height` to instance params, so the
+		// selection frame must resolve them here (the union otherwise frames the auto-size text,
+		// mismatching the boxed render). Text-only; unbound ⇒ the node's own transform (parity).
+		if (child.kind === 'text' && child.paramBindings) {
+			const bw = resolveBoundValue(child.paramBindings, 'width', params);
+			const bh = resolveBoundValue(child.paramBindings, 'height', params);
+			if (typeof bw === 'number') ct.width = bw;
+			if (typeof bh === 'number') ct.height = bh;
+		}
 		const cb =
 			child.kind === 'componentInstance'
 				? (componentInstanceContentBox(

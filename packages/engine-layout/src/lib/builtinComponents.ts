@@ -1,7 +1,7 @@
 import { BUILTIN_REGION } from './builtinRegions';
 import { BUTTON_STATE_IMAGE_PARAMS } from './buttonStateImage';
 import { TEXT_SOURCE_KEYS, VALUE_SOURCE_KEYS, VISIBILITY_SOURCE_KEYS } from './componentCatalog';
-import type { ComponentDef, ComponentParam } from './types';
+import type { ComponentDef, ComponentParam, LayoutNode } from './types';
 
 /**
  * Built-in component defs — the code path that makes a {@link ComponentDef}
@@ -299,6 +299,15 @@ export const TEXT_BOX_DEF: ComponentDef = {
 					'style.fontFamily': 'fontFamily',
 					'style.fontSize': 'fontSize',
 					'style.fill': 'fill',
+					// Text-box layout (§text-box model): a boxWidth turns the node into a fixed box
+					// the glyphs align inside (H via align across width, V via verticalAlign across
+					// height), auto-shrinking the font when autoFit — per instance. Unset boxWidth ⇒
+					// auto-size (byte-identical to a plain readout — parity).
+					'style.align': 'align',
+					'style.verticalAlign': 'verticalAlign',
+					width: 'boxWidth',
+					height: 'boxHeight',
+					autoFit: 'autoFit',
 				},
 			},
 		],
@@ -310,6 +319,23 @@ export const TEXT_BOX_DEF: ComponentDef = {
 		{ key: 'fontSize', kind: 'number', default: TEXT_BOX_FONT_SIZE },
 		{ key: 'fill', kind: 'color', default: HUD_FILL },
 		{ key: 'countUp', kind: 'boolean', default: false },
+		{
+			key: 'align',
+			kind: 'string',
+			options: ['left', 'center', 'right'],
+			default: 'left',
+			label: 'align (needs box width)',
+		},
+		{
+			key: 'verticalAlign',
+			kind: 'string',
+			options: ['top', 'middle', 'bottom'],
+			default: 'top',
+			label: 'vertical align (needs box height)',
+		},
+		{ key: 'boxWidth', kind: 'number', label: 'box width (blank = auto)' },
+		{ key: 'boxHeight', kind: 'number', label: 'box height (blank = auto)' },
+		{ key: 'autoFit', kind: 'boolean', default: false, label: 'auto-fit font to box' },
 		{ key: 'value', kind: 'number', engineProvided: true },
 	],
 };
@@ -1260,10 +1286,56 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
  */
 export function mergeBuiltinCodedParams(def: ComponentDef): ComponentDef {
 	const builtin = BUILTIN_COMPONENTS.find((b) => b.id === def.id);
-	const builtinParams = builtin?.params;
-	if (!builtinParams?.length) return def;
+	if (!builtin) return def;
 	const have = new Set((def.params ?? []).map((p) => p.key));
-	const missing = builtinParams.filter((p) => !have.has(p.key));
-	if (!missing.length) return def;
-	return { ...def, params: [...(def.params ?? []), ...missing] };
+	const missing = (builtin.params ?? []).filter((p) => !have.has(p.key));
+	// Also refresh each node's `paramBindings` from the coded twin (additive, author wins),
+	// so a SAVED snapshot gains bindings the coded def added later — e.g. the Text Box's
+	// box/align bindings. Merging the params list ALONE would surface the new controls but
+	// wire them to nothing (the frozen root has no binding to the inner text node's box).
+	const twinById = indexNodesById(builtin.root);
+	const nextRoot = mergeNodeBindings(def.root, twinById);
+	const rootChanged = nextRoot !== def.root;
+	if (!missing.length && !rootChanged) return def;
+	return {
+		...def,
+		params: missing.length ? [...(def.params ?? []), ...missing] : def.params,
+		root: rootChanged ? (nextRoot as ComponentDef['root']) : def.root,
+	};
+}
+
+/** Index every node in a tree by id (for binding-merge lookups). */
+function indexNodesById(
+	node: LayoutNode,
+	out: Map<string, LayoutNode> = new Map(),
+): Map<string, LayoutNode> {
+	out.set(node.id, node);
+	if (node.kind === 'container') for (const child of node.children) indexNodesById(child, out);
+	return out;
+}
+
+/**
+ * Return `node` with any `paramBindings` its coded twin (same id) declares but this node
+ * lacks added (author's own bindings win). Recurses into containers. Returns the SAME
+ * reference when nothing changed, so the caller can cheaply detect a no-op — additive and
+ * parity-safe for every builtin whose coded bindings are unchanged.
+ */
+function mergeNodeBindings(node: LayoutNode, twinById: Map<string, LayoutNode>): LayoutNode {
+	let changed = false;
+	let bindings = node.paramBindings;
+	const twin = twinById.get(node.id);
+	if (twin?.paramBindings) {
+		const merged = { ...twin.paramBindings, ...(node.paramBindings ?? {}) };
+		if (Object.keys(merged).length > Object.keys(node.paramBindings ?? {}).length) {
+			bindings = merged;
+			changed = true;
+		}
+	}
+	if (node.kind === 'container') {
+		const nextChildren = node.children.map((c) => mergeNodeBindings(c, twinById));
+		if (nextChildren.some((c, i) => c !== node.children[i])) {
+			return { ...node, paramBindings: bindings, children: nextChildren };
+		}
+	}
+	return changed ? { ...node, paramBindings: bindings } : node;
 }
