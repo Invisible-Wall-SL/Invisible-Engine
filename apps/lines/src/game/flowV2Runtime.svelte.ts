@@ -178,6 +178,11 @@ export type LinesFlowV2 = {
 	resolveScene: (sceneId: string) => Scene | undefined;
 	/** The current z-ordered mounted containers (seed the Game.svelte rune mirror). */
 	ordered: () => MountedContainer[];
+	/** The set of container ids a `showContainer{awaitComplete}` node targets — i.e. the containers
+	 *  that HOLD the round on their tap when shown. Static (read from the doc's graph). The
+	 *  spin-button celebration lock reads this to hold the button while ANY such container is shown,
+	 *  NAME-AGNOSTICALLY (a win / celebration container can be named anything). */
+	awaitTargets: ReadonlySet<string>;
 	/** Does the flow OWN this container event — i.e. author an exec edge from a `showContainer`
 	 *  node's fused `<componentId>.on<action>` pin? An owned press routes to the flow ALONE (the
 	 *  coded `onpress` is suppressed, no doubling); an un-owned press falls through to the coded
@@ -433,6 +438,7 @@ export const createLinesFlowV2 = (
 		mount,
 		resolveScene,
 		ordered: () => mount.ordered(),
+		awaitTargets: awaitCompleteContainerIds(doc),
 		ownsContainerEvent: (componentId, action) => flowOwnsContainerEvent(doc, componentId, action),
 		dispatchContainerEvent: (componentId, action) => {
 			trace('containerEvent ▶', `${componentId}.${action}`);

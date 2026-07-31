@@ -140,7 +140,7 @@
 		hasAuthoredFreeSpinOutro,
 		resolveFreeSpinOutroMount,
 	} from '../game/freeSpinOwnership';
-	import { bigWinHasCodedWinGate, hasAuthoredWin, resolveWinMount } from '../game/winOwnership';
+	import { resolveWinMount } from '../game/winOwnership';
 	import { freeSpinOutroState } from '../game/freeSpinOutroState.svelte';
 	import { winState } from '../game/winState.svelte';
 	import {
@@ -543,6 +543,11 @@
 			() => freeSpinOutroState.countUpAmount,
 			bookEventAmountToCurrencyString,
 		),
+		// Design doc §14 (win-overlay twin) — the LIVE counting-up WIN total (the count-up tween value
+		// `WinGate` publishes per frame to `winState.countUpAmount`), currency-formatted. An authored win
+		// container's own Text Box binds `source: 'winCountUpAmount'` to show the number ticking up
+		// without the coded `WinVisual`. Unlike `totalWin`/`win` (the static final amount) this ANIMATES.
+		winCountUpAmount: valueSource(() => winState.countUpAmount, bookEventAmountToCurrencyString),
 		// The two HALVES of the `freeSpins` string as bindable numbers, so an authored counter can
 		// choose its own direction + layout instead of inheriting the composed "current OF total".
 		// Both read `freeSpinCounterValues` — the same module the flow's `$engine.freeSpinsRemaining`
@@ -685,16 +690,6 @@
 		basegameOverlaysScene.nodes.some(
 			(node) => node.bind?.component === 'Win' || node.bind?.component === 'WinGate',
 		),
-	);
-	// Design doc §14 (win-overlay twin of the FS-7 outro) — whether an authored `bigWin` container
-	// rebuilds the overlay from primitives (`hasAuthoredWin`) ⇒ the engine mounts the HEADLESS gate
-	// (count-up + `winState` publish, NO dim); else the full gate (driven seed / today). A coded
-	// `Win`/`WinGate` bound in EITHER the `basegameOverlays` scene OR the authored `bigWin` scene is
-	// already the sole `winUpdate` subscriber, so the engine gate stands down. Mirrors the outro's
-	// `freeSpinOutroAuthored`/`freeSpinOutroHasCodedGate`. See `resolveWinMount`.
-	const winAuthored = $derived(hasAuthoredWin(editorDoc.scenes));
-	const winHasCodedGate = $derived(
-		basegameOverlaysHasCodedWinGate || bigWinHasCodedWinGate(editorDoc.scenes),
 	);
 	// The board-relative VISUAL scene of the split WIN overlay (`game`-space, so <LayoutScene>
 	// wraps it in its own MainContainer for main-scaling). Present only when the overlay is split
@@ -900,6 +895,12 @@
 	// suppress on `flowV2DrivesScreens` (they'd double FlowV2Mount). Engine-owned bands (reels, gates) instead
 	// gate on `isFlowDriven` (v1 OR v2) so they still hide during loading and reveal on the game screen.
 	let flowV2DrivesScreens = $state(false);
+	// Design doc §14 (win-overlay twin) — whether the v2 flow OWNS the `setWin` event (the ownership
+	// trigger for the headless win driver — an authored win container of ANY name), and the static set
+	// of `showContainer{awaitComplete}` target container ids (the name-agnostic celebration-lock
+	// signal). Both default off/empty ⇒ no v2 flow / a non-owning flow is byte-identical (parity).
+	let flowOwnsSetWin = $state(false);
+	let winAwaitTargets = $state<ReadonlySet<string>>(new Set());
 	// The interpreter's CURRENT active SET (the pin-driven active-SET model), mirrored into a
 	// rune so screen add/remove re-mounts. Render-ordered: base first, later-activated overlays on
 	// top. The interpreter's internal active set is a plain array (not a rune), so it is pushed
@@ -963,7 +964,9 @@
 	// Design doc §14 (win-overlay twin) — the SINGLE decision for which WIN surface mounts, so the
 	// mount site can't drift from the exactly-one-`winUpdate`-subscriber invariant. See
 	// `resolveWinMount`.
-	const winMount = $derived(resolveWinMount({ flowV2DrivesScreens, winHasCodedGate, winAuthored }));
+	const winMount = $derived(
+		resolveWinMount({ flowV2DrivesScreens, flowOwnsSetWin, basegameOverlaysHasCodedWinGate }),
+	);
 	// The base-game screen's resolved scene for the generic mounter. Resolved whenever the
 	// base-game screen is ACTIVE (in the active set) — NOT only when it is the topmost screen —
 	// so an overlay layered ON TOP (a celebration) never drops the base's authored below/above-reel
@@ -1280,15 +1283,28 @@
 	// NOT the `*Show` emitter cues: a flow-v2 authored game mounts its intro/outro via
 	// `showContainer` and never broadcasts `freeSpinIntroShow`, so a cue subscription stays
 	// deaf (verified live on the Book-of-Borut remake — the intro screen was up for its full
-	// duration with no cue and the latch never set). The ids are the engine's canonical flow
-	// screen ids (`flowDoc.ts`: `freeSpinIntro` / `freeSpinOutro` / `bigWin`). A big win whose
-	// presentation is a HUD count-up + tap (no `bigWin` screen mounted) is caught instead by
+	// duration with no cue and the latch never set). The coded / v1 ids are the engine's canonical
+	// flow screen ids (`flowDoc.ts`: `freeSpinIntro` / `freeSpinOutro` / `bigWin`). A big win whose
+	// presentation is a HUD count-up + tap (no such screen mounted) is caught instead by
 	// `hasContinuePress()`, OR'd in at the spinStop chokepoint.
+	//
+	// NAME-AGNOSTIC WIN (design doc §14, the win-overlay twin of the FS-7 outro) — under a v2 flow
+	// that DRIVES screens an author names their win / celebration container ANYTHING, so the literal
+	// `bigWin` no longer covers it. Instead lock while ANY `showContainer{awaitComplete}`-held
+	// container is shown (`winAwaitTargets` ∩ `activeScreenIds`): such a container holds the round on
+	// its tap, so the spin button must not slam-skip it — the same reason the coded `bigWin` locked.
+	// This covers the win count-up window BEFORE the authored tap arms (its `tapToContinue`+
+	// `PressToContinue` locks via `continuePressCount` only once armed). The clause is gated on
+	// `flowV2DrivesScreens`, so the coded / v1 path keeps ONLY the `bigWin` id check ⇒ byte-identical.
+	// `celebrationLock.{intro,outro,win}` are read ONLY through `hasCelebrationOverlay` (which ORs the
+	// three), so OR-ing the held clause into `.win` is behaviour-identical to adding a new field.
 	$effect(() => {
 		const ids = new Set(activeScreenIds);
 		stateUi.celebrationLock.intro = ids.has('freeSpinIntro');
 		stateUi.celebrationLock.outro = ids.has('freeSpinOutro');
-		stateUi.celebrationLock.win = ids.has('bigWin');
+		stateUi.celebrationLock.win =
+			ids.has('bigWin') ||
+			(flowV2DrivesScreens && activeScreenIds.some((id) => winAwaitTargets.has(id)));
 	});
 
 	// §16.4 B6.4 — the spin/stop state machine. The decision itself lives ONCE in
@@ -1632,6 +1648,13 @@
 			flowV2DrivesScreens = flowV2?.ownsEvent('load') ?? false;
 			flowV2ResolveScene = flowV2?.resolveScene;
 			flowV2Containers = flowV2?.ordered() ?? [];
+			// Design doc §14 (win-overlay twin) — does the flow OWN the `setWin` event? That is the
+			// ownership TRIGGER for the headless win driver (an authored win container of ANY name), read
+			// the same way `flowV2DrivesScreens` reads `ownsEvent('load')`. `awaitTargets` is the static
+			// set of containers a `showContainer{awaitComplete}` node holds the round on — the
+			// name-agnostic signal the celebration lock reads. Both empty/false with no v2 flow (parity).
+			flowOwnsSetWin = flowV2?.ownsEvent('setWin') ?? false;
+			winAwaitTargets = flowV2?.awaitTargets ?? new Set();
 
 			// Invisible Flow v1 — ONLY when v2 does NOT drive screens (else every screen doubles). v1's
 			// screen mounts are all `flow`-gated, so leaving `flow` undefined makes them inert;
@@ -1923,17 +1946,18 @@
 			Placed at `basegameOverlaysZIndex` (the coded composer's own band) and BEFORE the overlays scene,
 			so the big-win dim scrim sits BEHIND the placed `win` visual exactly as the coded composer stacks
 			gate-then-visual — no double dim, right band. Routed through `resolveWinMount` (design doc §14,
-			the win-overlay twin of the FS-7 outro), the SINGLE decision guaranteeing exactly one `winUpdate`
-			subscriber: it stands DOWN (`null`) when a coded `Win`/`WinGate` binds EITHER the `basegameOverlays`
-			scene OR the authored `bigWin` scene (`winHasCodedGate` — that gate already subscribes, so a second
-			would double the round-block), mounts the HEADLESS gate (`'driver'`, `headless` ⇒ no big-win dim)
-			when the `bigWin` container is author-rebuilt (`winAuthored` — the authored container owns dim / tap
-			/ art), else the full gate (`'gate'`, driven seed). Gated on `flowV2DrivesScreens`, so a
-			non-flow / book-events-only game never mounts it ⇒ byte-identical to today (the coded paths own the
-			gate). The gate's `PressToContinue` already self-suppresses under flow
-			(`codedPressOwned = !flowV2DrivesScreens()`), so it adds no second tap surface; under `'driver'` its
-			`OnMount` also broadcasts `winCountUpComplete` on count-up completion, so an authored container's
-			`tapArmAfterSignal: 'winCountUpComplete'` tap arms only after the count.
+			the win-overlay twin of the FS-7 outro), the SINGLE OWNERSHIP-based + NAME-AGNOSTIC decision
+			guaranteeing exactly one `winUpdate` subscriber: it stands DOWN (`null`) when a coded
+			`Win`/`WinGate` binds the `basegameOverlays` scene (`basegameOverlaysHasCodedWinGate` — that gate
+			already subscribes, so a second would double the round-block) or when no v2 flow drives the game;
+			it mounts the HEADLESS gate (`'driver'`, `headless` ⇒ no big-win dim) when the flow OWNS `setWin`
+			(`flowOwnsSetWin` — the authored container of ANY name owns dim / text / art / tap), else the full
+			`'gate'` (the coded `setWin` handler broadcasts `winShow`/`winUpdate` — today's Borut remake path).
+			A non-flow / non-owning game therefore mounts EXACTLY what `main` did ⇒ byte-identical. The gate's
+			`PressToContinue` already self-suppresses under flow (`codedPressOwned = !flowV2DrivesScreens()`),
+			so it adds no second tap surface; its `OnMount` broadcasts `winCountUpComplete` on count-up
+			completion, so an authored container's `tapArmAfterSignal: 'winCountUpComplete'` tap arms only
+			after the count (inert when un-authored — no subscriber, no emitter replay).
 		-->
 	{#if winMount}
 		<Container zIndex={basegameOverlaysZIndex}>

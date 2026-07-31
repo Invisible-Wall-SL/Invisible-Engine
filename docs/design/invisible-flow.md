@@ -24,13 +24,14 @@
 > Build status: see [docs/status/flow.md](../status/flow.md); detailed done-log in [docs/history.md](../history.md).
 
 **Original owner decisions (2026-06-23), preserved:**
-- **Screens are the nodes** — Invisible Flow is a *wiring layer over Scene Editor
-  screens*, not a separate vocabulary. A node = a whole screen/scene.
+
+- **Screens are the nodes** — Invisible Flow is a _wiring layer over Scene Editor
+  screens_, not a separate vocabulary. A node = a whole screen/scene.
 - **Pins are dynamic** — a node's inputs/outputs grow as components are added to the
   screen; they are the union of the screen's component bindings (the four engine
   registries), not hand-declared.
 - **Two tiers** — a macro screen graph (screens + transitions) with micro
-  choreography (an enter/exit sequence) authored *inside* each node.
+  choreography (an enter/exit sequence) authored _inside_ each node.
 - **Full authoring from day one**; the graph is the source of truth at runtime.
 - A dedicated subagent owns all work on this tool: `.claude/agents/invisible-flow.md`.
 
@@ -43,12 +44,12 @@ regression and clean fall-through, before any editor UI is built.
 
 ## 1. Why this tool exists (the goal)
 
-A game's *presentation flow* — which screen is showing, what triggers the move to the
+A game's _presentation flow_ — which screen is showing, what triggers the move to the
 next one, and how each screen animates in/out — is today hand-written TypeScript split
 across each game's `bookEventHandlerMap.ts` (the choreography) and `Game.svelte` (which
 mounts scenes by **hard-coded id**). Reordering a win sequence, adding a beat of delay
 before free spins, or wiring a newly-authored screen into the flow all mean editing
-code and rebuilding. Game *speed* is a single boolean (`isTurbo` → `timeScale() = 2`)
+code and rebuilding. Game _speed_ is a single boolean (`isTurbo` → `timeScale() = 2`)
 threaded through dozens of `duration / timeScale()` call sites.
 
 Owner direction: a **visual node editor** where screens authored in the Scene Editor
@@ -61,19 +62,19 @@ Scene Editor itself, not a code task. This is **core, recurring work** on every 
 There are two distinct "state machines." **Invisible Flow is a third, presentation
 layer that rides on the first and never edits it.**
 
-| | Layer 1 — Platform FSM | Flow — Presentation state machine | (excluded) Math |
-|---|---|---|---|
-| **What** | `rendering→idle→bet→{fetching→play→ending}`, autoBet/resumeBet | Which screen is active, transitions between screens, each screen's choreography | The book contents / payouts |
-| **Where** | `packages/utils-xstate` | **NEW — this tool + its interpreter** | RGS |
-| **Owns** | RGS protocol, balance, auto-spin, resume | The *show* | The result |
-| **Edited here?** | **No** — read-only host band | **Yes — the whole tool** | **No** |
+|                  | Layer 1 — Platform FSM                                         | Flow — Presentation state machine                                               | (excluded) Math             |
+| ---------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------- |
+| **What**         | `rendering→idle→bet→{fetching→play→ending}`, autoBet/resumeBet | Which screen is active, transitions between screens, each screen's choreography | The book contents / payouts |
+| **Where**        | `packages/utils-xstate`                                        | **NEW — this tool + its interpreter**                                           | RGS                         |
+| **Owns**         | RGS protocol, balance, auto-spin, resume                       | The _show_                                                                      | The result                  |
+| **Edited here?** | **No** — read-only host band                                   | **Yes — the whole tool**                                                        | **No**                      |
 
 Flow **consumes** the lifecycle hooks + book events Layer 1 already emits and decides
 what is on screen and how it animates. It never rewires the bet/balance/protocol
 machine (that breaks the money contract) and never decides outcomes (RGS-determined).
 Layer 1 appears in the editor only as a **read-only host band** for context ("this
 sub-graph runs during the `play` state"). Notably the engine's visibility feeds are
-*already* tied to XState state (e.g. `derived(... stateXstateDerived.isIdle())`), so
+_already_ tied to XState state (e.g. `derived(... stateXstateDerived.isIdle())`), so
 "screen X is active during platform-state Y" is already expressible — Flow makes it
 visual.
 
@@ -84,16 +85,16 @@ with **components** that carry engine bindings through four registries in
 `packages/engine-layout`. Those registries ARE the pin vocabulary — Flow surfaces them,
 it does not invent them:
 
-| Pin on a screen node | Existing registry / catalog | File |
-|---|---|---|
-| **Value input** (e.g. a readout bound to `win`) | `registerComponentValues` (`ValueSource`) + `ENGINE_PARAM_CATALOG` (the editor's variable picker) | `registerComponentValues.ts`, `componentCatalog.ts` |
-| **"Active when" gate** (show in this state) | `registerComponentVisibility` (`BoolSource`) | `registerComponentVisibility.ts` |
-| **Signal / trigger input** (book event → react) | `registerComponentSignals` (`SignalSource`) | `registerComponentSignals.ts` |
-| **Action output** (button does X: spin/menu/buyBonus) | `registerComponentActions` (`ActionSource`: `onpress` + disabled/active flags) | `registerComponentActions.ts` |
+| Pin on a screen node                                  | Existing registry / catalog                                                                       | File                                                |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| **Value input** (e.g. a readout bound to `win`)       | `registerComponentValues` (`ValueSource`) + `ENGINE_PARAM_CATALOG` (the editor's variable picker) | `registerComponentValues.ts`, `componentCatalog.ts` |
+| **"Active when" gate** (show in this state)           | `registerComponentVisibility` (`BoolSource`)                                                      | `registerComponentVisibility.ts`                    |
+| **Signal / trigger input** (book event → react)       | `registerComponentSignals` (`SignalSource`)                                                       | `registerComponentSignals.ts`                       |
+| **Action output** (button does X: spin/menu/buyBonus) | `registerComponentActions` (`ActionSource`: `onpress` + disabled/active flags)                    | `registerComponentActions.ts`                       |
 
 This is the **`declare ≠ implement`** bridge the Scene Editor already runs on: the
 editor declares names, the game wires them once at boot. Flow reuses it intact — the
-node's pins are a *projection* of its screen's component bindings, so the same single
+node's pins are a _projection_ of its screen's component bindings, so the same single
 boot-time wiring serves both tools.
 
 ## 4. The node — pins are dynamic, derived from the screen
@@ -103,12 +104,14 @@ screen changes in the Scene Editor. Two **classes** of pin, kept visually distin
 
 **A. Fixed structural pins** (every screen node has these, contents-independent — they
 drive the macro flow):
+
 - `enter` (in) — activate/mount this screen.
 - `complete` / `exited` (out) — fired when the screen's exit choreography finishes.
 - `active` (state) — the screen is currently the active one.
 
 **B. Dynamic content pins** (derived from the screen's components — they carry
 data/triggers):
+
 - **Value inputs** — one per `ValueSource`-bound param (bet/win/balance/…).
 - **Signal inputs** — one per `SignalSource` the screen's spine cues listen for.
 - **Action outputs** — one per `ActionSource` (button) in the screen.
@@ -123,7 +126,7 @@ model introduces and the reason for stable ids.
 
 ## 5. Two tiers — macro graph + micro choreography
 
-A screen graph can't express a *timeline* (parallel-then-delay-then), and a pure
+A screen graph can't express a _timeline_ (parallel-then-delay-then), and a pure
 timeline graph makes the flow unreadable. So Flow is **both, nested**:
 
 - **Macro (the graph you see):** screen nodes + **transition edges**. This is the game
@@ -133,7 +136,7 @@ timeline graph makes the flow unreadable. So Flow is **both, nested**:
   choreography** — a small sequence graph of emitter broadcasts (animate symbols, show
   amounts, sounds, UI) arranged with **Sequence / Parallel / Delay / Branch / ForEach**
   nodes and a **Speed scalar**. (This is the reaction-graph from the original scope; it
-  now lives *inside* a screen node instead of standing alone.)
+  now lives _inside_ a screen node instead of standing alone.)
 
 **Exclusive screens vs overlays.** State/Screen nodes are **mutually exclusive** (the
 active one drives which base scene is mounted) and have enter/exit + transitions.
@@ -145,9 +148,10 @@ overlay** (outside it).
 ## 6. Transitions — driven by all three (owner decision)
 
 An edge from screen A → screen B fires on any authored combination of:
+
 1. **A book event arrives** (e.g. `freeSpinTrigger` → go to FreeSpinsIntro).
 2. **A screen output signal** (e.g. A's `complete` pin — "intro animation finished" →
-   go to FreeSpins). *Screens don't emit completion today* (handlers sequence them
+   go to FreeSpins). _Screens don't emit completion today_ (handlers sequence them
    imperatively); this output is genuinely new and is what lets the graph self-drive.
 3. **An engine condition** (a Branch predicate over bound values, e.g.
    `winLevel >= big`).
@@ -161,7 +165,7 @@ A **FlowDoc**: a per-project JSON document, sibling to `scenes.json`, holding th
 **transition graph** (screen-id nodes + edges) plus, per screen, its **choreography
 sub-graph** (enter/while/exit). It is **declarative** — it names screens (by id, into
 the LayoutDoc), transitions, and choreography steps; it never contains code. The engine
-owns *how* (mounting, the emitter, the components, the real animations).
+owns _how_ (mounting, the emitter, the components, the real animations).
 
 Like the LayoutDoc it is **sparse and override-friendly**: a screen with no authored
 choreography, or an absent FlowDoc entirely, **falls through to today's coded
@@ -195,18 +199,19 @@ reproducing the exact mount + await/parallel/timing behaviour — which Phase 0 
 
 ## 9. Build plan (phased — each ships something usable)
 
-| Phase | Delivers | Risk |
-|---|---|---|
-| **0 — Interpreter spike (gate)** | `engine-flow`: generic mount of one real screen + run a hand-authored `winInfo` choreography in `apps/lines`; pixel/sequence parity vs coded; fall-through proven for every un-authored screen/event | **make-or-break — do first** |
-| **1 — FlowDoc model + canvas spike** | FlowDoc schema (transition graph + per-screen choreography); typed editable model + undo/redo command stack; `/flow` page renders an existing game's flow read-only; **pin-derivation** (screen → dynamic pins) + graph-lib decision (`@xyflow/svelte` vs hand-built) settled | medium |
-| **2 — Macro authoring** | place screen nodes (from Scene Editor screens), dynamic pins with stable ids + orphan warnings, draw/edit transition edges, save→R2, load | medium |
-| **3 — Micro choreography** ✅ | double-click a node → author enter/while/exit (Broadcast/Sequence/Parallel/Delay/Branch/ForEach); the Speed scalar bound to turbo; **deterministic** live preview with a speed dial against a fixed feed (full visual preview is Phase 4) | medium-high |
-| **4 — Transitions (all 3) + generic mounter live** ✅ | book-event / screen-`complete` / condition triggers; the interpreter mounts authored screens in a real game (retires §20.1) | medium-high |
-| **5 — Full migration** ✅ | move `apps/lines`' whole flow (mounting + handler map) to an authored FlowDoc with zero regression, per-screen + per-event parity-checked (the `effect` node bridges the non-emitter leaves; B.1 z-order + B.2 resume resolved) | high |
-| **6 — Pipeline wiring** ✅ | export → `deploy/` → bake (`flow?` in `BakedBundle`) → register; a shipped game (Book of Borut) runs its flow from the baked FlowDoc | medium |
-| **7 — Authoring UX** ✅ | node/palette search, copy/paste subgraphs, validation (orphaned pins, unreachable screens, no-exit states), flow-diff vs coded default | low-medium |
+| Phase                                                 | Delivers                                                                                                                                                                                                                                                                      | Risk                         |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| **0 — Interpreter spike (gate)**                      | `engine-flow`: generic mount of one real screen + run a hand-authored `winInfo` choreography in `apps/lines`; pixel/sequence parity vs coded; fall-through proven for every un-authored screen/event                                                                          | **make-or-break — do first** |
+| **1 — FlowDoc model + canvas spike**                  | FlowDoc schema (transition graph + per-screen choreography); typed editable model + undo/redo command stack; `/flow` page renders an existing game's flow read-only; **pin-derivation** (screen → dynamic pins) + graph-lib decision (`@xyflow/svelte` vs hand-built) settled | medium                       |
+| **2 — Macro authoring**                               | place screen nodes (from Scene Editor screens), dynamic pins with stable ids + orphan warnings, draw/edit transition edges, save→R2, load                                                                                                                                     | medium                       |
+| **3 — Micro choreography** ✅                         | double-click a node → author enter/while/exit (Broadcast/Sequence/Parallel/Delay/Branch/ForEach); the Speed scalar bound to turbo; **deterministic** live preview with a speed dial against a fixed feed (full visual preview is Phase 4)                                     | medium-high                  |
+| **4 — Transitions (all 3) + generic mounter live** ✅ | book-event / screen-`complete` / condition triggers; the interpreter mounts authored screens in a real game (retires §20.1)                                                                                                                                                   | medium-high                  |
+| **5 — Full migration** ✅                             | move `apps/lines`' whole flow (mounting + handler map) to an authored FlowDoc with zero regression, per-screen + per-event parity-checked (the `effect` node bridges the non-emitter leaves; B.1 z-order + B.2 resume resolved)                                               | high                         |
+| **6 — Pipeline wiring** ✅                            | export → `deploy/` → bake (`flow?` in `BakedBundle`) → register; a shipped game (Book of Borut) runs its flow from the baked FlowDoc                                                                                                                                          | medium                       |
+| **7 — Authoring UX** ✅                               | node/palette search, copy/paste subgraphs, validation (orphaned pins, unreachable screens, no-exit states), flow-diff vs coded default                                                                                                                                        | low-medium                   |
 
 **Phase 0 is a gate, not a formality.** Before any UI, prove headlessly:
+
 1. **Parity** — a hand-written FlowDoc (one screen + its `winInfo` choreography)
    produces the identical mount + emitter call sequence + timing as today's code
    (assert the broadcast/mount log + awaited timings match, turbo on and off).
@@ -260,7 +265,7 @@ open design questions.
   **composite** `${instanceId}::${role}:${key}` (e.g. `n42::value:win`,
   `n42::action:spin`, `n42::gate`) — deterministic, the Scene Editor adds nothing. The
   one discipline: the editor must **never recycle an id** — a duplicated/pasted
-  instance gets a **fresh** id (a copy is a new pin). *Phase-1 check:* confirm "no id
+  instance gets a **fresh** id (a copy is a new pin). _Phase-1 check:_ confirm "no id
   regeneration on edit, fresh id on duplicate/paste."
 - **Platform-aligned transitions — observe, don't model.** The interpreter OBSERVES
   XState platform state (idle↔play) and reacts; Layer 1 stays the single source of
@@ -270,7 +275,7 @@ open design questions.
   pan/zoom/drag/ports/edge-routing/selection out of the box; our screen nodes are
   custom Svelte node components whose **dynamic pins render as custom handles** from
   the screen's binding list — its sweet spot — and the same lib renders the micro
-  choreography graph. (It can't render a live Pixi screen *inside* a node; we don't
+  choreography graph. (It can't render a live Pixi screen _inside_ a node; we don't
   need that — a name + thumbnail suffices.) Hand-built remains the fallback ONLY if a
   Phase-1 install spike fights our Vite/Turbo setup.
 - **Undo/redo — command stack, reuse the Scene Editor's history** if it generalizes;
@@ -311,6 +316,7 @@ decisions on this pass: **build FS-1→FS-5 in one effort**, and represent retri
 **dedicated `retrigger` book/emitter event** (not just a derived condition).
 
 ### Why this is an extension, not just wiring
+
 Today the free-spin phases are **not** flow screens. They are engine-owned `visibleSource`
 overlays hard-mounted in `Game.svelte`'s top z-band (`Game.svelte` ~L1343-1366), toggled by
 `stateUi` booleans that `bookEventHandlerMap.ts` flips on `freeSpinTrigger` / `updateFreeSpin` /
@@ -319,6 +325,7 @@ is `basegame`"). This plan **promotes** them to author-controlled Flow screens w
 holding the §7 fall-through invariant throughout (inert / un-authored ⇒ coded path byte-identical).
 
 ### What already exists (do NOT rebuild)
+
 - **Activation by book event** — a `bookEvent` layer edge already fires + layers a screen
   (`presentation.ts` `onBookEvent`); generic takeover mount renders any authored active screen
   (`Game.svelte` `activeScreenTakeover`). Missing only the **backing Scenes** + the wiring.
@@ -330,13 +337,13 @@ holding the §7 fall-through invariant throughout (inert / un-authored ⇒ coded
 
 ### Build order (dependency order — engine primitives first, then authoring, then transitions)
 
-| Phase | Delivers | Where | Risk |
-|---|---|---|---|
-| **FS-2 — book-event trigger INPUT pins** | Project the book-event vocabulary (`typesBookEvent.ts` / `emitterVocabulary.ts`) as **trigger input pins** on screen nodes so a `bookEvent` edge draws from a real `freeSpinTrigger`/`freeSpinEnd`/`retrigger` pin, not a typed string. Mirrors Phase-8 intent pins beat-for-beat. **Authoring-only — no interpreter behaviour change** (still matches on `trigger.event`). | `engine-flow` (`pins.ts`, `types.ts`), `/flow` (`EdgeInspector`, node coloring) | low |
-| **FS-3 — free-spin signal catalog** | Add `freeSpinStart` / `freeSpinEnd` (+ `freeSpinRetrigger`, now that FS-4 landed the event) to `ENGINE_SIGNAL_CATALOG` + `registerComponentSignals`, wired to the existing emitter events, so a spine cue on an intro/outro/retrigger screen plays on the lifecycle (derives `signal` pins via `pins.ts`). | `engine-layout` (`componentCatalog.ts`), `Game.svelte` (`registerComponentSignals`) | low (additive; ⇒ Borut runtime republish/submodule) |
-| **FS-4 — dedicated `retrigger` event** ✅ LANDED (headless, 2026-07-29) | The `freeSpinRetrigger` book event (payload `extraFs`, `total`) ALREADY exists end-to-end — the facade emits it when 3+ scatters land mid free spin (`stakeFacade.ts`), so NO "grown total" detection was needed (a distinct event that only fires on a real retrigger sidesteps the false-fire risk). FS-4 = **surface it to the v2 vocabulary** (`BOOK_OF_VOCAB.events` → a `gameSignals` `onFreeSpinRetrigger` pin + `extraFs`/`total` data-outs) and **reconcile the seam** — `freeSpinRetrigger` is now a first-class optional free-spin STEP (`FREE_SPIN_STEPS`), owned/stripped per-step like intro/counter/outro; the LAYER edge fires on the real `freeSpinRetrigger` event (was the phantom `retrigger`). An author wires `onFreeSpinRetrigger → showContainer(retrigger, {awaitComplete})` + an `extraFs` readout; un-authored ⇒ the coded no-op handler (present nothing) — parity. Remaining additive step (deferred): the FS-3 spine-cue signal. | `bookOf.ts` (vocab), `freeSpinOwnership.ts` (step + strip), `flowDoc.ts` (edge name) | low (headless spike `tools/flow-spike/fs4Retrigger.ts`; ⇒ Borut runtime republish/submodule when a screen is authored) |
-| **FS-1 — author free-spin screens + wire the graph** ✅ LANDED (headless, 2026-07-03) | The `LINES_FLOW_FREESPIN_DOC` fixture (`__IE_FLOW_FREESPIN__` hook) wires the free-spin lifecycle as author-controlled OVERLAYS over the PERSISTENT `basegame` (owner decision — see the "same basegame + overlays" model below); backing Scenes are OWNER-AUTHORED online against the documented scene-id contract (`freeSpinIntro`/`freeSpinCounter`/`freeSpinRetrigger`/`freeSpinOutro`). Additive — coded gates intact (FS-6 deferred), so free-spin events FALL THROUGH to the coded handlers (NOT authored no-ops — that is the FS-6 end-state; see the divergence note). `/flow` authoring UI for these is the owner's online step. | `flowDoc.ts` fixture + `flowRuntime.svelte.ts` hook; headless parity spike `tools/flow-spike/fs1FreeSpins.ts` | medium |
-| **FS-5 — placeable transition overlays** | Surface the reusable full-screen wipe (`transition` emitter event + `Transition.svelte`) as a **droppable choreography Broadcast beat** (`broadcast {event:'transition', await:true}`) in the choreography palette, so an author drops a wipe into any screen's enter/exit timeline. Complements the existing edge-backed *fade* entrance (`FlowTransition.transition`, kind `fade`). Optionally also a transition-**overlay screen node** (a Scene with the wipe on a self-completing layer edge). | `/flow` choreography palette; engine-side = reuse (no new event) | low |
+| Phase                                                                                 | Delivers                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       | Where                                                                                                         | Risk                                                                                                                   |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **FS-2 — book-event trigger INPUT pins**                                              | Project the book-event vocabulary (`typesBookEvent.ts` / `emitterVocabulary.ts`) as **trigger input pins** on screen nodes so a `bookEvent` edge draws from a real `freeSpinTrigger`/`freeSpinEnd`/`retrigger` pin, not a typed string. Mirrors Phase-8 intent pins beat-for-beat. **Authoring-only — no interpreter behaviour change** (still matches on `trigger.event`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    | `engine-flow` (`pins.ts`, `types.ts`), `/flow` (`EdgeInspector`, node coloring)                               | low                                                                                                                    |
+| **FS-3 — free-spin signal catalog**                                                   | Add `freeSpinStart` / `freeSpinEnd` (+ `freeSpinRetrigger`, now that FS-4 landed the event) to `ENGINE_SIGNAL_CATALOG` + `registerComponentSignals`, wired to the existing emitter events, so a spine cue on an intro/outro/retrigger screen plays on the lifecycle (derives `signal` pins via `pins.ts`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     | `engine-layout` (`componentCatalog.ts`), `Game.svelte` (`registerComponentSignals`)                           | low (additive; ⇒ Borut runtime republish/submodule)                                                                    |
+| **FS-4 — dedicated `retrigger` event** ✅ LANDED (headless, 2026-07-29)               | The `freeSpinRetrigger` book event (payload `extraFs`, `total`) ALREADY exists end-to-end — the facade emits it when 3+ scatters land mid free spin (`stakeFacade.ts`), so NO "grown total" detection was needed (a distinct event that only fires on a real retrigger sidesteps the false-fire risk). FS-4 = **surface it to the v2 vocabulary** (`BOOK_OF_VOCAB.events` → a `gameSignals` `onFreeSpinRetrigger` pin + `extraFs`/`total` data-outs) and **reconcile the seam** — `freeSpinRetrigger` is now a first-class optional free-spin STEP (`FREE_SPIN_STEPS`), owned/stripped per-step like intro/counter/outro; the LAYER edge fires on the real `freeSpinRetrigger` event (was the phantom `retrigger`). An author wires `onFreeSpinRetrigger → showContainer(retrigger, {awaitComplete})` + an `extraFs` readout; un-authored ⇒ the coded no-op handler (present nothing) — parity. Remaining additive step (deferred): the FS-3 spine-cue signal. | `bookOf.ts` (vocab), `freeSpinOwnership.ts` (step + strip), `flowDoc.ts` (edge name)                          | low (headless spike `tools/flow-spike/fs4Retrigger.ts`; ⇒ Borut runtime republish/submodule when a screen is authored) |
+| **FS-1 — author free-spin screens + wire the graph** ✅ LANDED (headless, 2026-07-03) | The `LINES_FLOW_FREESPIN_DOC` fixture (`__IE_FLOW_FREESPIN__` hook) wires the free-spin lifecycle as author-controlled OVERLAYS over the PERSISTENT `basegame` (owner decision — see the "same basegame + overlays" model below); backing Scenes are OWNER-AUTHORED online against the documented scene-id contract (`freeSpinIntro`/`freeSpinCounter`/`freeSpinRetrigger`/`freeSpinOutro`). Additive — coded gates intact (FS-6 deferred), so free-spin events FALL THROUGH to the coded handlers (NOT authored no-ops — that is the FS-6 end-state; see the divergence note). `/flow` authoring UI for these is the owner's online step.                                                                                                                                                                                                                                                                                                                     | `flowDoc.ts` fixture + `flowRuntime.svelte.ts` hook; headless parity spike `tools/flow-spike/fs1FreeSpins.ts` | medium                                                                                                                 |
+| **FS-5 — placeable transition overlays**                                              | Surface the reusable full-screen wipe (`transition` emitter event + `Transition.svelte`) as a **droppable choreography Broadcast beat** (`broadcast {event:'transition', await:true}`) in the choreography palette, so an author drops a wipe into any screen's enter/exit timeline. Complements the existing edge-backed _fade_ entrance (`FlowTransition.transition`, kind `fade`). Optionally also a transition-**overlay screen node** (a Scene with the wipe on a self-completing layer edge).                                                                                                                                                                                                                                                                                                                                                                                                                                                            | `/flow` choreography palette; engine-side = reuse (no new event)                                              | low                                                                                                                    |
 
 **FS-6 ✅ LANDED (headless, 2026-07-03) — flow OWNS the free-spin VISUALS behind an auto-derived
 switch.** Corrected scope (owner, 2026-07-03): FS-6 flips presentation OWNERSHIP of the free-spin
@@ -349,6 +356,7 @@ MOUNT-GATING only the coded VISUAL + COUNTER scenes off. (FS-6 build detail: see
 (in progress):** move the round-gate + count-up OWNERSHIP into the authored screens (a flow-driven
 `waitForResolve`/press-to-continue/count-up), retiring `FreeSpinIntroGate`/`FreeSpinOutroGate`. Keep
 exactly one `waitForResolve` subscriber or the round hangs.
+
 - **INTRO step ✅ LANDED** — `FreeSpinIntroFlowGate` transfers the round-block to the authored screen's
   Complete pin under v1 `ownsIntro`; under v2 the authored container's `tapToContinue` +
   `showContainer{awaitComplete}` owns it (the coded gate suppressed).
@@ -357,39 +365,44 @@ exactly one `waitForResolve` subscriber or the round hangs.
   `freeSpinOutroState`) is extracted as a HEADLESS `FreeSpinOutroDriver` (no dim / press / coded
   sprites / coin fountain). When the `freeSpinOutro` scene is AUTHOR-REBUILT (`hasAuthoredFreeSpinOutro`)
   the engine mounts ONLY the driver; the authored screen supplies dim / tap / hold (its `tapToContinue`
-  + `showContainer{awaitComplete}`, the same v2 model as the intro) / count text (new
-  `freeSpinOutroTotalWin` value source) / big-small art (new `freeSpinOutroBigWin`/`freeSpinOutroSmallWin`
-  signals + `hiddenUntilSignal`) / a continue prompt or tap gated on the new `freeSpinOutroCountUpComplete`
-  signal (`tapArmAfterSignal`/`hiddenUntilSignal`, so the tap appears only after the count) / their OWN
-  coin fountain if wanted (FX / particle / spine). The driver SELF-RESOLVES the `freeSpinOutroCountUp`
-  hold on count-up completion under v2 (mirrors `WinGate`) or TRANSFERS it to the screen's Complete pin
-  under v1 `ownsOutro` (mirrors `FreeSpinIntroFlowGate`), and supports HOLD-to-fast-forward (pointer or
-  Space held ⇒ the count-up accelerates via `WinCountUpProvider`'s opt-in `speedScale`; released ⇒
-  normal). `resolveFreeSpinOutroMount` is the single mount decision guaranteeing EXACTLY ONE
-  `freeSpinOutroCountUp` subscriber across both bands + Borut's composer. The driver emits NO coin
-  fountain (owner decision — the #138 baked-fountain plumbing was removed; authors place their own).
-  `FreeSpinOutroGate` KEPT intact as the un-authored fallback (dim + press + its OWN hardcoded fountain)
-  ⇒ byte-parity. Verified: `flow-spike run fs7outro`. (Build detail: [docs/history.md](../history.md).)
-- **WIN OVERLAY ✅ LANDED (2026-07-31)** — the same seam applied to the big-win overlay (the `bigWin`
-  container). `apps/lines/src/game/winOwnership.ts` mirrors the outro helpers: `hasAuthoredWin` (the
-  `bigWin` scene is author-rebuilt ⇒ the engine mounts `<WinGate headless>` with NO big-win dim, so the
-  authored container owns dim / tap / art), `bigWinHasCodedWinGate` (the `bigWin` scene binds a coded
-  `Win`/`WinGate` ⇒ the engine gate stands down), and `resolveWinMount` (`driver`/`gate`/`null`, the
-  single decision guaranteeing EXACTLY ONE `winUpdate` subscriber under v2 — asserted `flow-spike run
-  fs7win`). `WinGate` broadcasts the new payload-less `winCountUpComplete` emitter event on count-up
-  completion, registered as a `winCountUpComplete` component signal (`ENGINE_SIGNAL_CATALOG` +
-  `registerComponentSignals`, seeded off `winState.countUpComplete` for order-independence), so an
-  authored container arms a `tapToContinue` / prompt with `tapArmAfterSignal: 'winCountUpComplete'`
-  (or `hiddenUntilSignal`) only after the count. `winCountUpComplete` is broadcast in both driver + gate
-  cases but inert when un-authored (no subscriber; emitter has no replay). Un-authored (no `bigWin`
-  container) ⇒ byte-identical to today (a non-flow game never mounts the engine gate). NOT done here:
-  hold-to-fast-forward + a `winTotalWin` value source (the outro's change 3 twin — deferred).
+  - `showContainer{awaitComplete}`, the same v2 model as the intro) / count text (new
+    `freeSpinOutroTotalWin` value source) / big-small art (new `freeSpinOutroBigWin`/`freeSpinOutroSmallWin`
+    signals + `hiddenUntilSignal`) / a continue prompt or tap gated on the new `freeSpinOutroCountUpComplete`
+    signal (`tapArmAfterSignal`/`hiddenUntilSignal`, so the tap appears only after the count) / their OWN
+    coin fountain if wanted (FX / particle / spine). The driver SELF-RESOLVES the `freeSpinOutroCountUp`
+    hold on count-up completion under v2 (mirrors `WinGate`) or TRANSFERS it to the screen's Complete pin
+    under v1 `ownsOutro` (mirrors `FreeSpinIntroFlowGate`), and supports HOLD-to-fast-forward (pointer or
+    Space held ⇒ the count-up accelerates via `WinCountUpProvider`'s opt-in `speedScale`; released ⇒
+    normal). `resolveFreeSpinOutroMount` is the single mount decision guaranteeing EXACTLY ONE
+    `freeSpinOutroCountUp` subscriber across both bands + Borut's composer. The driver emits NO coin
+    fountain (owner decision — the #138 baked-fountain plumbing was removed; authors place their own).
+    `FreeSpinOutroGate` KEPT intact as the un-authored fallback (dim + press + its OWN hardcoded fountain)
+    ⇒ byte-parity. Verified: `flow-spike run fs7outro`. (Build detail: [docs/history.md](../history.md).)
+- **WIN OVERLAY ✅ LANDED (2026-07-31)** — the same seam applied to the win overlay, but OWNERSHIP-based
+  - NAME-AGNOSTIC (the container is authored under ANY name; nothing keys off a scene id). The TRIGGER is
+    `ownsEvent('setWin')` (read exactly like `flowV2DrivesScreens = ownsEvent('load')`), NOT a scene named
+    `bigWin`. `apps/lines/src/game/winOwnership.ts`'s `resolveWinMount({flowV2DrivesScreens, flowOwnsSetWin,
+basegameOverlaysHasCodedWinGate})` ⇒ `'driver'`/`'gate'`/`null`, the single decision guaranteeing
+    EXACTLY ONE `winUpdate` subscriber under v2 (asserted `flow-spike run fs7win`): non-flow ⇒ `null`
+    (parity); a coded `Win`/`WinGate` in `basegameOverlays` already subscribes ⇒ `null` (stand down); flow
+    OWNS `setWin` ⇒ `'driver'` (`<WinGate headless>`, no dim — the authored container of any name owns
+    dim / text / art / tap); does NOT own `setWin` ⇒ `'gate'` (full coded gate; the coded `setWin` handler
+    broadcasts `winShow`/`winUpdate` — today's Borut remake path, byte-identical to `main`). Author-facing
+    surfaces: (1) `winCountUpAmount` value source (`ENGINE_PARAM_CATALOG`, the LIVE count-up tween the
+    author binds to their OWN Text Box — no coded `WinVisual`), (2) `winCountUpComplete` component signal
+    (`ENGINE_SIGNAL_CATALOG` + `registerComponentSignals`, broadcast by `WinGate` on count-up completion,
+    seeded off `winState.countUpComplete` for order-independence) for `tapArmAfterSignal`/`hiddenUntilSignal`.
+    The author drives their OWN animations off their own cues per-screen. NAME-AGNOSTIC spin-button
+    celebration lock: under a driven flow the lock holds while ANY `showContainer{awaitComplete}` target
+    (`flowV2` handle's `awaitTargets`) is shown, not the literal `bigWin` (the coded/v1 path keeps the id
+    check ⇒ parity). NOT done here: hold-to-fast-forward + a static `winTotalWin` value source (deferred).
 - **REMAINING** — retire the coded `FreeSpinIntroGate`/`FreeSpinOutroGate`/`BookRevealGate` (a hard cut
   gated on every shipped game being v2-driven for the steps it uses).
 
 > Build status: see [docs/status/flow.md](../status/flow.md); detailed done-log in [docs/history.md](../history.md).
 
 ### Verification + ship (per phase)
+
 Each phase is proven headlessly in `tools/flow-spike/` (op-log / pin-derivation / round-trip
 parity, turbo on/off) + `tsc --noEmit` + the affected `pnpm --filter … build` GREEN, before any
 live-verify — the WebGPU bundle is the only thing headless can't prove (read `app.stage` / dynamic-

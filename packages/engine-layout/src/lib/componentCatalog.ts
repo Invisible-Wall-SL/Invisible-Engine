@@ -65,6 +65,12 @@ export const ENGINE_PARAM_CATALOG: EngineParamEntry[] = [
 		note: 'The LIVE counting-up free-spin total the outro shows (the count-up tween value, not the static final total). Bind an outro count text to this.',
 	},
 	{
+		key: 'winCountUpAmount',
+		kind: 'number',
+		label: 'Win Count-up',
+		note: 'The LIVE counting-up win total the win overlay shows (the count-up tween value, not the static final amount). Bind your win container’s Text Box to this.',
+	},
+	{
 		key: 'freeSpinsRemaining',
 		kind: 'number',
 		label: 'Free Spins Remaining',
