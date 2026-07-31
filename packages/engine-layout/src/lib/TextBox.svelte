@@ -55,6 +55,9 @@
 	// pixi object via `onresize`. Seeds the vertical-alignment padding. Defaults to the base
 	// font so the first frame (before a measurement lands) is already close.
 	let measuredHeight = $state(baseFontSize);
+	// Rendered block WIDTH — drives the horizontal-alignment offset (right/centre reach the box
+	// edges). Defaults to the box width so the first frame is close before a measurement lands.
+	let measuredWidth = $state(boxWidth);
 
 	// Reset the auto-fit search on any fit-affecting input change. Reads ONLY the inputs (not
 	// `fitFontSize`), so it never fights the shrink loop below.
@@ -73,6 +76,7 @@
 	const MIN_FONT = 6;
 	function onresize(size: Sizes): void {
 		measuredHeight = size.height;
+		measuredWidth = size.width;
 		if (!autoFit || boxHeight === undefined) return;
 		const overflow = size.height > boxHeight + 0.5 || size.width > boxWidth + 0.5;
 		if (!overflow || fitFontSize <= MIN_FONT) return;
@@ -87,7 +91,7 @@
 	// OVER the resolved style so the author's font/fill/stroke/verticalAlign pass through.
 	const boxStyle = $derived({
 		...(style ?? {}),
-		...textBoxStyleOverrides(boxWidth, style?.align),
+		...textBoxStyleOverrides(boxWidth),
 		fontSize: fitFontSize,
 	});
 	const placement = $derived(
@@ -96,7 +100,9 @@
 			boxHeight,
 			anchorX: anchor?.x ?? 0,
 			anchorY: anchor?.y ?? 0,
+			align: style?.align,
 			verticalAlign: style?.verticalAlign,
+			measuredWidth,
 			measuredHeight,
 		}),
 	);

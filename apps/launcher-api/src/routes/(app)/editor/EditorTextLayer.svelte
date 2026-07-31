@@ -541,9 +541,7 @@
 			const boxed = boxW > 0;
 			const boxH = tBoxHeight;
 			const autoFit = tAutoFit;
-			const style = boxed
-				? { ...rawStyle, ...textBoxStyleOverrides(boxW, rawStyle?.align) }
-				: rawStyle;
+			const style = boxed ? { ...rawStyle, ...textBoxStyleOverrides(boxW) } : rawStyle;
 
 			const font = findFont(
 				{ prefix: '', fonts: [...fontsById.values()] } as FontCatalog,
@@ -622,7 +620,9 @@
 					boxHeight: boxH,
 					anchorX: leafT.anchor?.x ?? 0,
 					anchorY: leafT.anchor?.y ?? 0,
+					align: rawStyle?.align,
 					verticalAlign: rawStyle?.verticalAlign,
+					measuredWidth: natW,
 					measuredHeight: natH,
 				});
 				m = matMul(m, [1, 0, 0, 1, place.offsetX, place.offsetY]);

@@ -59,54 +59,63 @@ export function verticalAlignToAnchorY(verticalAlign: TextStyle['verticalAlign']
 }
 
 /**
- * Style additions that turn a plain text style into a box-constrained one: wrap the lines
- * to the box width and align them within it. Merged OVER the node's own style, so an
- * author's `align` is respected and everything else (font, fill, stroke…) passes through.
- * Kept minimal so a box-less text node (which never calls this) is byte-identical to before.
+ * Style additions that turn a plain text style into a box-constrained one: wrap the lines to
+ * the box width. Internal `align` is forced `left` so the rendered object's width is the real
+ * CONTENT width (glyphs packed left) — {@link textBoxPlacement} then offsets the whole block by
+ * the measured width to left/center/right-align it in the box. (PIXI's own `align` only shifts
+ * lines relative to the WIDEST line, so it does nothing for a single line — which is why the
+ * readout never right-aligned; the manual offset is the fix.) Merged OVER the node's own style,
+ * so font/fill/stroke pass through. A box-less text node never calls this (byte-identical parity).
  */
 export function textBoxStyleOverrides(
 	boxWidth: number,
-	align: TextStyle['align'],
 ): Pick<TextStyle, 'wordWrap' | 'wordWrapWidth' | 'align'> {
 	return {
 		wordWrap: true,
 		wordWrapWidth: boxWidth,
-		align: align ?? 'left',
+		align: 'left',
 	};
 }
 
 export interface TextBoxPlacement {
 	/** Local offset (added to the node's resolved x/y, pre-scale) at which to place an
-	 * anchor-{0,0} text object so the box's top-left honours the transform anchor and the
-	 * block sits at its vertical alignment inside the box. */
+	 * anchor-{0,0} text object so the box honours the transform anchor and the block sits at
+	 * its horizontal + vertical alignment inside the box. */
 	offsetX: number;
 	offsetY: number;
 }
 
 /**
- * Where to place an anchor-{0,0} text object for a box. Horizontal alignment lives in the
- * style (`wordWrapWidth` + `align`), so `offsetX` only positions the box itself against the
- * transform anchor. `offsetY` positions the box AND applies the vertical alignment padding
- * (needs the measured block height; only meaningful when the box has a `height`).
+ * Where to place an anchor-{0,0} text object for a box. The box is positioned by the node
+ * `anchor`; the block is then aligned WITHIN it by offsetting the measured block by `align`
+ * (horizontal) + `verticalAlign` (vertical). Both need the block's measured size at its final
+ * font — so right/centre truly reach the box edges (works for a single line too).
  */
 export function textBoxPlacement(params: {
 	boxWidth: number;
 	boxHeight: number | undefined;
 	anchorX: number;
 	anchorY: number;
+	align: TextStyle['align'];
 	verticalAlign: TextStyle['verticalAlign'];
-	/** Rendered block height (local px) of the wrapped text at its final font size. */
+	/** Rendered block width (local px) of the text at its final font size. */
+	measuredWidth: number;
+	/** Rendered block height (local px) of the text at its final font size. */
 	measuredHeight: number;
 }): TextBoxPlacement {
-	const { boxWidth, boxHeight, anchorX, anchorY, verticalAlign, measuredHeight } = params;
+	const { boxWidth, boxHeight, anchorX, anchorY, align, verticalAlign } = params;
+	const { measuredWidth, measuredHeight } = params;
 	const frameHeight = boxHeight ?? measuredHeight;
+	let hpad = 0;
+	if (align === 'center') hpad = (boxWidth - measuredWidth) / 2;
+	else if (align === 'right') hpad = boxWidth - measuredWidth;
 	let vpad = 0;
 	if (boxHeight !== undefined) {
 		if (verticalAlign === 'middle') vpad = (boxHeight - measuredHeight) / 2;
 		else if (verticalAlign === 'bottom') vpad = boxHeight - measuredHeight;
 	}
 	return {
-		offsetX: -boxWidth * anchorX,
+		offsetX: -boxWidth * anchorX + hpad,
 		offsetY: -frameHeight * anchorY + vpad,
 	};
 }
