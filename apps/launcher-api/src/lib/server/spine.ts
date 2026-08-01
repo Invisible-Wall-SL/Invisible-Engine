@@ -337,6 +337,78 @@ export function atlasPageNames(atlasText: string): string[] {
 	return out;
 }
 
+/** A page's KTX2 twin: the new filename + the dimensions it was encoded at (≤ source when it
+ * was downscaled). */
+interface Ktx2Page {
+	name: string;
+	width: number;
+	height: number;
+}
+
+/** Atlas region-coordinate lines whose numbers are page pixels and so must be rescaled when a
+ * page is downscaled. Alternating axes: 1st,3rd number = x-axis (sx), 2nd,4th = y-axis (sy) —
+ * which is correct for `bounds`/`offsets` (x,y,w,h) AND `xy`/`offset` (x,y) AND `size`/`orig`
+ * (w,h). Non-coord lines (`rotate`/`index`/`filter`/…) are left untouched. */
+const ATLAS_COORD_LINE = /^(\s*)(bounds|offsets|xy|orig|offset|size)(\s*:\s*)(.+?)\s*$/i;
+function scaleAtlasCoordLine(line: string, sx: number, sy: number): string {
+	const m = line.match(ATLAS_COORD_LINE);
+	if (!m) return line;
+	const [, indent, key, sep, body] = m;
+	const scaled = body.split(',').map((p, i) => {
+		const v = parseFloat(p);
+		return Number.isNaN(v) ? p.trim() : String(Math.round(v * (i % 2 === 0 ? sx : sy)));
+	});
+	return `${indent}${key}${sep}${scaled.join(',')}`;
+}
+
+/**
+ * Rewrite an atlas for the KTX2 variant: swap each page-name line to its `.ktx2` twin, and — for
+ * a page that was DOWNSCALED — rewrite its `size:` line and rescale every following region
+ * coordinate by the same factor, so the UVs (rect ÷ page-size) are unchanged and regions render
+ * identically at lower resolution. Pages that weren't encoded keep their original name + coords.
+ * Mirrors {@link atlasPageNames}' page/property/region line classification.
+ */
+function rewriteAtlasForKtx2(atlasText: string, ktx2ByPage: Map<string, Ktx2Page>): string {
+	const out: string[] = [];
+	let expectPage = true;
+	let sx = 1;
+	let sy = 1;
+	let pending: Ktx2Page | null = null; // ktx2 page whose `size:` line is still to come
+	for (const line of atlasText.split(/\r?\n/)) {
+		if (line.trim() === '') {
+			expectPage = true;
+			sx = sy = 1;
+			pending = null;
+			out.push(line);
+			continue;
+		}
+		const isProperty = /^\s/.test(line) || line.includes(':');
+		if (isProperty) {
+			const sizeM = line.match(/^(\s*)size\s*:\s*(\d+)\s*,\s*(\d+)\s*$/i);
+			if (sizeM && pending) {
+				sx = +sizeM[2] ? pending.width / +sizeM[2] : 1;
+				sy = +sizeM[3] ? pending.height / +sizeM[3] : 1;
+				out.push(`${sizeM[1]}size:${pending.width},${pending.height}`);
+				pending = null;
+				continue;
+			}
+			out.push(sx !== 1 || sy !== 1 ? scaleAtlasCoordLine(line, sx, sy) : line);
+			continue;
+		}
+		// A non-indented, colon-free line: a page name (when a page is expected) or a region name.
+		if (expectPage) {
+			expectPage = false;
+			const twin = ktx2ByPage.get(line.trim());
+			sx = sy = 1;
+			pending = twin ?? null;
+			out.push(twin ? twin.name : line);
+			continue;
+		}
+		out.push(line); // region name — unchanged
+	}
+	return out.join('\n');
+}
+
 /** Whether an atlas declares ANY rotated region (a `rotate:90` / `rotate: true` line).
  * The Atlas/Sheet packers store a rotated region's pixels 90° CLOCKWISE (the PixiJS
  * spritesheet convention); Spine's atlas parser expects the OPPOSITE (CCW), so a
@@ -664,29 +736,26 @@ export async function exportSpineBundle(opts: {
 	// When KTX2 encoding is on, ALSO encode a compressed twin of each page (read the bytes
 	// through this process only then, sequentially — the launcher OOM guard). Rig/spine atlas
 	// pages are the dominant VRAM cost, so this is the big saving.
-	const ktx2ByPage = new Map<string, string>(); // pageName -> ktx2 filename
+	const ktx2ByPage = new Map<string, Ktx2Page>(); // pageName -> ktx2 filename + new dims
 	for (const pageName of atlasPageNames(atlasText)) {
 		if (!(await copyObject(`${prefix}/${pageName}`, `${deployPrefix}${dir}/${pageName}`))) continue;
 		written.push(`${deployPrefix}${dir}/${pageName}`);
 		if (!ENV.KTX2_ENCODE) continue;
 		const src = await getObjectBytes(`${prefix}/${pageName}`);
 		const ktx2 = src ? await encodePageToKtx2(src.body) : null;
-		if (!ktx2) continue; // too big/small or failed => this page stays webp in the ktx2 atlas
+		if (!ktx2) continue; // too small or failed => this page stays webp in the ktx2 atlas
 		const ktx2Name = pageName.replace(/\.(png|webp|jpe?g)$/i, '.ktx2');
-		await putObjectBytes(`${deployPrefix}${dir}/${ktx2Name}`, ktx2, 'image/ktx2');
+		await putObjectBytes(`${deployPrefix}${dir}/${ktx2Name}`, ktx2.bytes, 'image/ktx2');
 		written.push(`${deployPrefix}${dir}/${ktx2Name}`);
-		ktx2ByPage.set(pageName, ktx2Name);
+		ktx2ByPage.set(pageName, { name: ktx2Name, width: ktx2.width, height: ktx2.height });
 	}
 
-	// Emit a second `.atlas` whose page-name lines point at the KTX2 twins (falling back to the
-	// original page for any that weren't encoded). Same region coords — the pages keep their full
-	// dimensions — so only the page-name line changes. The game loads it on the low-memory tier.
+	// Emit a second `.atlas` pointing at the KTX2 twins (falling back to the original page for
+	// any that weren't encoded). A downscaled page also has its region coords rescaled so UVs
+	// stay identical (see `rewriteAtlasForKtx2`). The game loads it on the low-memory tier.
 	let ktx2Atlas: string | undefined;
 	if (ktx2ByPage.size > 0) {
-		const rewritten = atlasText
-			.split(/\r?\n/)
-			.map((line) => ktx2ByPage.get(line.trim()) ?? line)
-			.join('\n');
+		const rewritten = rewriteAtlasForKtx2(atlasText, ktx2ByPage);
 		const ktx2AtlasFile = entry.atlas_file.replace(/\.atlas$/i, '.ktx2.atlas');
 		await putObjectText(
 			`${deployPrefix}${dir}/${ktx2AtlasFile}`,
