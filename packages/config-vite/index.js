@@ -10,14 +10,14 @@ export default () =>
 	defineConfig({
 		plugins: [sveltekit(), lingui()],
 		logLevel: 'info',
+			// Inline EVERY build-time asset into the bundle (single-file game deploy). This includes
+			// the KTX2/libktx transcoder (`pixi-svelte` imports it via `?url`): a standalone game's
+			// deploy remaps/omits `_app/immutable/assets/`, so an emitted transcoder file 404s there.
+			// Inlined, the transcoder travels IN the bundle regardless of deploy layout;
+			// `InitialiseApplication.svelte` converts its `data:` URI to a `blob:` URL at runtime
+			// (a Worker's `importScripts()` rejects `data:` but accepts `blob:`).
 		build: {
-			// Inline every build-time asset into the bundle (single-file game deploy) — EXCEPT the
-			// KTX2/libktx transcoder (`pixi-svelte` imports it via `?url`). It must stay a real,
-			// separately-fetchable file: a Web Worker's `importScripts()` rejects the `data:` URI an
-			// inlined asset becomes, and it's ~930 KB that should load lazily only when a `.ktx2` is
-			// used, not bloat every game's core bundle. `true` = inline (the old `Infinity` for all
-			// other assets); `false` = emit as a file.
-			assetsInlineLimit: (filePath) => (/libktx.*\.(js|wasm)$/i.test(filePath) ? false : true),
+			assetsInlineLimit: Infinity,
 			sourcemap: dev ? true : false,
 			output: {
 				sourcemap: dev ? true : false,
