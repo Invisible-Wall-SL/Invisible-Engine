@@ -298,10 +298,13 @@ function hasRuntimeBundle(): boolean {
  * baked, load it (4× less VRAM, full resolution) on memory-constrained devices, and the
  * uncompressed full-res original on high-memory ones (arcade / kiosk / desktop, best quality).
  *
- * Auto-detect: iOS (WebKit's per-tab memory cap is the whole reason this exists) OR a low
- * `deviceMemory` (≤4 GB) ⇒ compressed. Everything else (Samsung, desktop, arcade) ⇒ uncompressed.
- * `?quality=high` / `?quality=low` force it either way. Read raw (like `runtime`/`project`/`k`)
- * so it resolves at import time before SvelteKit context; SSR defaults to compressed (safe). */
+ * Auto-detect: ALL mobile — iOS + Android — plus any low-`deviceMemory` (≤4 GB) device get
+ * compression. It's a near-lossless VRAM win with no downside on phones, and compression is NOT
+ * a resolution cut: every page ≤4096 stays full-res; only a page over the encoder's ~12 Mpix cap
+ * (a rare oversized cinematic) is downscaled, and that's unavoidable, not a tier choice. Desktop
+ * gets uncompressed full-res. `?quality=high` (arcade cabinets wanting pristine uncompressed) /
+ * `?quality=low` force it. Read raw (like `runtime`/`project`/`k`) so it resolves at import time
+ * before SvelteKit context; SSR defaults to compressed (safe). */
 function preferCompressedTextures(): boolean {
 	if (typeof window === 'undefined' || typeof navigator === 'undefined') return true;
 	const q = new URLSearchParams(window.location.search).get('quality');
@@ -312,9 +315,10 @@ function preferCompressedTextures(): boolean {
 		/iPad|iPhone|iPod/.test(ua) ||
 		// iPadOS 13+ reports as desktop Safari; disambiguate by touch support.
 		(navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1);
+	const isAndroid = /Android/i.test(ua);
 	const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
 	const lowMem = typeof mem === 'number' && mem <= 4;
-	return isIOS || lowMem;
+	return isIOS || isAndroid || lowMem;
 }
 
 /** Public form of {@link hasRuntimeBundle} for the boot path — true only after a
