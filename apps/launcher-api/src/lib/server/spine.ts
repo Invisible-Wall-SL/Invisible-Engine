@@ -10,9 +10,12 @@ import {
 	getObjectText,
 	listAllObjects,
 	objectExists,
+	putObjectBytes,
 	putObjectText,
 	type ListedObject,
 } from './r2';
+import { ENV } from './env';
+import { encodePageToKtx2 } from './ktx2Encode';
 import { getRoleOverrides } from './roleToolAccess';
 import { ensureBundleAtlasFresh } from './spineBundleSync';
 import { getToolOverrides } from './userToolAccess';
@@ -558,6 +561,13 @@ export interface ExportedSpineEntry {
 	atlas: string;
 	skeleton: string;
 	scale: number;
+	/** GPU-compressed variant: a second `.atlas` whose page refs point at KTX2 (Basis)
+	 * twins of the pages, emitted beside the originals when `ENV.KTX2_ENCODE` is on and a
+	 * page was large enough to encode. The game swaps `atlas`→`ktx2Atlas` on the low-memory
+	 * tier so rig/spine textures load compressed (4× less VRAM). Absent ⇒ the original atlas
+	 * loads unchanged (parity). Rig atlas pages are the dominant VRAM cost, so this is where
+	 * the big saving lands. */
+	ktx2Atlas?: string;
 }
 
 export interface ExportedSpineBundle {
@@ -651,9 +661,40 @@ export async function exportSpineBundle(opts: {
 
 	// Page images the atlas references — server-side copied verbatim under their own
 	// names (the heaviest objects; copying in R2 is what keeps the export memory-flat).
+	// When KTX2 encoding is on, ALSO encode a compressed twin of each page (read the bytes
+	// through this process only then, sequentially — the launcher OOM guard). Rig/spine atlas
+	// pages are the dominant VRAM cost, so this is the big saving.
+	const ktx2ByPage = new Map<string, string>(); // pageName -> ktx2 filename
 	for (const pageName of atlasPageNames(atlasText)) {
 		if (!(await copyObject(`${prefix}/${pageName}`, `${deployPrefix}${dir}/${pageName}`))) continue;
 		written.push(`${deployPrefix}${dir}/${pageName}`);
+		if (!ENV.KTX2_ENCODE) continue;
+		const src = await getObjectBytes(`${prefix}/${pageName}`);
+		const ktx2 = src ? await encodePageToKtx2(src.body) : null;
+		if (!ktx2) continue; // too big/small or failed => this page stays webp in the ktx2 atlas
+		const ktx2Name = pageName.replace(/\.(png|webp|jpe?g)$/i, '.ktx2');
+		await putObjectBytes(`${deployPrefix}${dir}/${ktx2Name}`, ktx2, 'image/ktx2');
+		written.push(`${deployPrefix}${dir}/${ktx2Name}`);
+		ktx2ByPage.set(pageName, ktx2Name);
+	}
+
+	// Emit a second `.atlas` whose page-name lines point at the KTX2 twins (falling back to the
+	// original page for any that weren't encoded). Same region coords — the pages keep their full
+	// dimensions — so only the page-name line changes. The game loads it on the low-memory tier.
+	let ktx2Atlas: string | undefined;
+	if (ktx2ByPage.size > 0) {
+		const rewritten = atlasText
+			.split(/\r?\n/)
+			.map((line) => ktx2ByPage.get(line.trim()) ?? line)
+			.join('\n');
+		const ktx2AtlasFile = entry.atlas_file.replace(/\.atlas$/i, '.ktx2.atlas');
+		await putObjectText(
+			`${deployPrefix}${dir}/${ktx2AtlasFile}`,
+			rewritten,
+			'text/plain; charset=utf-8',
+		);
+		written.push(`${deployPrefix}${dir}/${ktx2AtlasFile}`);
+		ktx2Atlas = `${dir}/${ktx2AtlasFile}`;
 	}
 
 	return {
@@ -662,6 +703,7 @@ export async function exportSpineBundle(opts: {
 			atlas: `${dir}/${entry.atlas_file}`,
 			skeleton: `${dir}/${skeletonOut}`,
 			scale,
+			ktx2Atlas,
 		},
 		written,
 	};

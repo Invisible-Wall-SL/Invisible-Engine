@@ -69,7 +69,10 @@ async function withSilencedStdout<T>(fn: () => Promise<T>): Promise<T> {
  * large, or anything throws). The caller writes the returned bytes beside the WebP/PNG and
  * records the variant in the art index; a null return means "no KTX2 twin — parity".
  */
-export async function encodePageToKtx2(pageBytes: Uint8Array): Promise<Uint8Array | null> {
+export async function encodePageToKtx2(
+	pageBytes: Uint8Array,
+	opts: { mipmaps?: boolean } = {},
+): Promise<Uint8Array | null> {
 	try {
 		// Cheap dimension read first, so an oversized page never reaches the encoder's cap
 		// and a sub-threshold page never pays the encode cost.
@@ -87,7 +90,11 @@ export async function encodePageToKtx2(pageBytes: Uint8Array): Promise<Uint8Arra
 				isKTX2File: true, // .ktx2 container (not .basis)
 				isPerceptual: true, // sRGB albedo/photo content
 				isSetKTX2SRGBTransferFunc: true,
-				generateMipmap: true,
+				// Mipmaps OFF by default: a 2D slot game draws art near 1:1, so the mip chain
+				// mostly adds ~33% VRAM + transcode cost for little gain — exactly what the
+				// low-memory (iOS) tier wants to avoid. Callers that shrink art far below native
+				// (a downscale tier) can opt back in.
+				generateMipmap: opts.mipmaps ?? false,
 				imageDecoder: decodeToRgba,
 			}),
 		);
