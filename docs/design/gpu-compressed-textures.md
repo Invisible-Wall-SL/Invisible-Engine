@@ -41,8 +41,15 @@ back into the uncompressed full-res pages.
   `ktx2Json`/`ktx2` fields ride along.
 - **Load** — `pixi-svelte/InitialiseApplication.svelte` registers Pixi's KTX2 loader
   (`import 'pixi.js/ktx2'`) and **self-hosts the transcoder** via `setKTXTranscoderPath(...)`
-  pointing at vendored `static/transcoders/ktx/libktx.{js,wasm}` (Pixi's default is an
-  external CDN — forbidden). `apps/lines/src/editor-scenes.ts` `bakedEditorArtAssets()`
+  (Pixi's default is an external CDN — forbidden). The `libktx.{js,wasm}` files are vendored
+  INTO the engine package (`pixi-svelte/src/lib/transcoders/ktx/`) and imported via Vite
+  `?url`, so they emit into every consuming build's own `_app/immutable/assets/` with a
+  correct base-aware URL — reaching standalone game builds too (whose `static/` comes from
+  the game repo, NOT the engine, so a `static/` file + `document.baseURI` would 404 there).
+  `config-vite` excludes libktx from its `assetsInlineLimit: Infinity` single-file inlining so
+  the transcoder stays a real, lazily-fetched file (a Worker's `importScripts()` rejects the
+  `data:` URI an inlined asset becomes; the runtime also defensively converts any `data:` URL
+  to a `blob:` one). `apps/lines/src/editor-scenes.ts` `bakedEditorArtAssets()`
   registers the `ktx2Json`/`ktx2` variant unless `?quality=high`, keying the loadedAssets
   entry off the WebP path so lookups are tier-identical.
 
@@ -58,8 +65,8 @@ builder path. The high tier is generic (no arcade-platform assumption baked in y
 1. Set `KTX2_ENCODE=1` on the launcher; re-bake + pull + Runtime release + republish +
    admin Reconcile the remake (`reference_runtime_release`,
    `gotcha_online_remake_stale_until_republish_reconcile`).
-2. Ensure `static/transcoders/ktx/` ships in the deployed game static (vendored in
-   `apps/lines/static`, which the shared `_runtime/lines` bundle is built from).
+2. The transcoder ships automatically with the engine bundle (Vite `?url`) — no static-file
+   step. It only needs a fresh build of the game so the emitted `libktx.*` assets are present.
 3. Verify: Browser-pane memory walk (five 32 MB pages → ~4–8 MB each), then a clean load on
    the affected iPhone (iOS 18+) and Pixel.
 

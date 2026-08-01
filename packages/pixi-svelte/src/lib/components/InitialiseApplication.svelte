@@ -5,6 +5,13 @@
 	// to the device-native GPU format (ASTC/ETC2/BC), staying compressed in VRAM. Inert for a
 	// game that ships no `.ktx2` assets — the loader is simply never dispatched (parity).
 	import 'pixi.js/ktx2';
+	// Self-hosted KTX2 transcoder, bundled INTO the engine via Vite `?url` so it is emitted
+	// into every consuming build's own asset output (`_app/immutable/...`) with a correct,
+	// base-aware URL — standalone game builds AND the shared runtime bundle alike. (An earlier
+	// `static/` + `document.baseURI` approach 404'd on standalone builds, whose `static/` comes
+	// from the game repo, not the engine.) Pixi's default transcoder is an external CDN — forbidden.
+	import ktxTranscoderJsUrl from '../transcoders/ktx/libktx.js?url';
+	import ktxTranscoderWasmUrl from '../transcoders/ktx/libktx.wasm?url';
 	import { onMount, onDestroy, type Snippet } from 'svelte';
 	import { devicePixelRatio } from 'svelte/reactivity/window';
 
@@ -23,16 +30,17 @@
 	const initialiseApplication = async () => {
 		PIXI.Assets.reset();
 
-		// Self-host the KTX2 transcoder (libktx.js + libktx.wasm). Pixi's default points at
-		// `files.pixijs.download` — an external CDN we must NOT depend on at runtime (offline-
-		// hostile, blockable, against the no-external-host rule). The two files are vendored
-		// into each game's static root (`static/transcoders/ktx/`); resolve them against the
-		// document base so the URL is correct whether the game serves at '/' (dev) or under a
-		// sub-path online (e.g. '/bookofborutremakebuild/'). Inert unless a `.ktx2` is loaded.
-		if (typeof document !== 'undefined') {
-			const ktxBase = new URL('transcoders/ktx/', document.baseURI).href;
-			PIXI.setKTXTranscoderPath({ jsUrl: `${ktxBase}libktx.js`, wasmUrl: `${ktxBase}libktx.wasm` });
-		}
+		// Point Pixi's KTX2 loader at the engine-bundled transcoder (URLs emitted by Vite `?url`
+		// above), replacing Pixi's external-CDN default. `config-vite` excludes libktx from
+		// inlining so these resolve to real files; but defensively, if a build still inlines them
+		// to `data:` URIs, convert to a same-origin `blob:` URL — a Web Worker's `importScripts()`
+		// rejects `data:` but accepts `blob:`. Inert unless a `.ktx2` is actually loaded.
+		const toWorkerUrl = async (u: string) =>
+			u.startsWith('data:') ? URL.createObjectURL(await (await fetch(u)).blob()) : u;
+		PIXI.setKTXTranscoderPath({
+			jsUrl: await toWorkerUrl(ktxTranscoderJsUrl),
+			wasmUrl: await toWorkerUrl(ktxTranscoderWasmUrl),
+		});
 
 		await preloadFont();
 		context.stateApp.pixiApplication = new PIXI.Application<PIXI.Renderer<HTMLCanvasElement>>();
