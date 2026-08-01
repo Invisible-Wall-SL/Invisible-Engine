@@ -89,7 +89,7 @@ type BakedBundle = {
 		/** Spine bundles editor-placed `spine` nodes reference (atlas + skeleton +
 		 * shared page). `key` is the node's full `assetKey` (the engine's lookup key);
 		 * `scale` defaults to 2. */
-		spines?: { key: string; atlas: string; skeleton: string; scale?: number }[];
+		spines?: { key: string; atlas: string; skeleton: string; scale?: number; ktx2Atlas?: string }[];
 		/** Placed region names no exported sheet packs — they render blank in-game.
 		 * The dangling-binding guard warns about these at boot (see `warnMissingAssets`). */
 		missing?: string[];
@@ -294,14 +294,27 @@ function hasRuntimeBundle(): boolean {
 	return runtimeBundle !== null;
 }
 
-/** Texture-quality tier from the game URL (`?quality=high`). `high` opts a high-memory
- * target (arcade / kiosk / desktop) into the uncompressed full-res pages; anything else
- * (default) prefers the GPU-compressed KTX2 variant when one was baked, so the game fits
- * iOS Safari's per-tab memory cap. Read the same raw way as `runtime`/`project`/`k` so it
- * resolves at import time (before SvelteKit context). Mirrors `stateUrlDerived.quality`. */
+/** ADAPTIVE texture-quality tier — one build serves every device. When a KTX2 variant was
+ * baked, load it (4× less VRAM, full resolution) on memory-constrained devices, and the
+ * uncompressed full-res original on high-memory ones (arcade / kiosk / desktop, best quality).
+ *
+ * Auto-detect: iOS (WebKit's per-tab memory cap is the whole reason this exists) OR a low
+ * `deviceMemory` (≤4 GB) ⇒ compressed. Everything else (Samsung, desktop, arcade) ⇒ uncompressed.
+ * `?quality=high` / `?quality=low` force it either way. Read raw (like `runtime`/`project`/`k`)
+ * so it resolves at import time before SvelteKit context; SSR defaults to compressed (safe). */
 function preferCompressedTextures(): boolean {
-	if (typeof window === 'undefined') return true;
-	return new URLSearchParams(window.location.search).get('quality') !== 'high';
+	if (typeof window === 'undefined' || typeof navigator === 'undefined') return true;
+	const q = new URLSearchParams(window.location.search).get('quality');
+	if (q === 'high') return false;
+	if (q === 'low') return true;
+	const ua = navigator.userAgent || '';
+	const isIOS =
+		/iPad|iPhone|iPod/.test(ua) ||
+		// iPadOS 13+ reports as desktop Safari; disambiguate by touch support.
+		(navigator.platform === 'MacIntel' && (navigator.maxTouchPoints ?? 0) > 1);
+	const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+	const lowMem = typeof mem === 'number' && mem <= 4;
+	return isIOS || lowMem;
 }
 
 /** Public form of {@link hasRuntimeBundle} for the boot path — true only after a
@@ -424,10 +437,14 @@ export function bakedEditorArtAssets(): Record<string, EditorArtAssetEntry> {
 	// Spine bundles register under the spine node's full assetKey — the value
 	// `LayoutNodeView` passes to `<SpineProvider key=…>`.
 	for (const spine of source.editorArt?.spines ?? []) {
+		// On the compressed tier load the KTX2 atlas variant (its page-name lines point at the
+		// `.ktx2` twins; spine's atlas loader loads each page by extension → our KTX2 loader
+		// transcodes it). Same region coords, so the skeleton is unchanged. Absent ⇒ original.
+		const atlasPath = useKtx2 && spine.ktx2Atlas ? spine.ktx2Atlas : spine.atlas;
 		out[spine.key] = {
 			type: 'spine',
 			src: {
-				atlas: `${base}${spine.atlas}`,
+				atlas: `${base}${atlasPath}`,
 				skeleton: `${base}${spine.skeleton}`,
 				scale: spine.scale ?? 2,
 			},

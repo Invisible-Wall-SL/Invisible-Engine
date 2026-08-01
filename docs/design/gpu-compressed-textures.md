@@ -53,12 +53,28 @@ back into the uncompressed full-res pages.
   registers the `ktx2Json`/`ktx2` variant unless `?quality=high`, keying the loadedAssets
   entry off the WebP path so lookups are tier-identical.
 
-## Quality tier
+## Adaptive quality tier
 
-`?quality=high` → uncompressed full-res (arcade/kiosk); default/absent → compressed KTX2
-when available. Read canonically via `state-shared/stateUrl.svelte.ts` `quality` getter, and
-raw (`URLSearchParams`) in `editor-scenes.ts` `preferCompressedTextures()` for the import-time
-builder path. The high tier is generic (no arcade-platform assumption baked in yet).
+ONE build serves every device. `editor-scenes.ts` `preferCompressedTextures()` auto-detects:
+**iOS** (WebKit's per-tab memory cap is the whole reason this exists) **or low `deviceMemory`
+(≤4 GB)** → load the compressed KTX2 variants (4× less VRAM, **same resolution**); everything
+else (Samsung, desktop, **arcade/kiosk**) → the uncompressed full-res originals (best quality).
+`?quality=high` / `?quality=low` force it. So the low/high split is **compressed vs uncompressed
+at full resolution**, not a resolution cut — arcade keeps pristine art, iPhone fits in memory.
+KTX2 is encoded **without mipmaps** (a 2D game draws near 1:1; mips add ~33% VRAM + transcode
+cost) — `ktx2Encode` takes a `mipmaps` opt for a future downscale tier.
+
+## Spine / rig atlases (the dominant VRAM)
+
+The rig/spine atlas pages — NOT the editor-art sheets — are the bulk (~490 MB in the remake,
+dominated by full-screen backgrounds/UI used as rig atlases). `spine.ts` `exportSpineBundle`
+encodes a `.ktx2` twin of each atlas page and writes a second `.atlas` whose page-name lines
+point at the twins (region coords unchanged — same page dimensions); carried on
+`ExportedSpineEntry.ktx2Atlas`. Spine's own atlas loader loads each page via `loader.load({src})`
+**by extension**, so a `.ktx2` page routes through our KTX2 loader with no spine-runtime change.
+The game swaps `atlas`→`ktx2Atlas` on the compressed tier (`bakedEditorArtAssets` spine loop).
+Pages over the encoder's ~12 MP cap (e.g. a 4096×8096 cinematic) are skipped → they stay webp
+in the ktx2 atlas and must be downscaled at the source (also likely over iOS's max texture size).
 
 ## Rollout
 
@@ -72,9 +88,12 @@ builder path. The high tier is generic (no arcade-platform assumption baked in y
 
 ## Follow-ups
 
-- Symbol pages (`symbolExport.ts` / `bakedSymbolAssets()`) — mirror the editor-art path once
-  proven; they're the next-largest VRAM consumer after backgrounds/UI.
+- Symbol spine pages already ride `exportSpineBundle` (so they get `ktx2Atlas`), but
+  `bakedSymbolAssets()` doesn't yet SELECT it — wire the tier there too (they're smaller than
+  the rig backgrounds, so lower priority).
+- Dedup: the `S_Game_*` pages load as BOTH an editor-art sheet AND a rig atlas — two ktx2
+  copies of the same image. Share one texture to halve that.
+- Optional per-device RESOLUTION downscale tier (encode a smaller ktx2 variant + scale atlas
+  coords) if compression-at-full-res ever isn't enough for a very low-memory device.
 - Isolate the encode in a worker/child process (non-blocking + memory-isolated + stdout
   captured) so it's safe to run inline on the shared launcher without the OFF default.
-- Consider `quality=high` also selecting a higher-res source pack once the arcade target
-  is chosen.
