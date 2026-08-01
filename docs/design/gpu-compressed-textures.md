@@ -73,8 +73,19 @@ point at the twins (region coords unchanged — same page dimensions); carried o
 `ExportedSpineEntry.ktx2Atlas`. Spine's own atlas loader loads each page via `loader.load({src})`
 **by extension**, so a `.ktx2` page routes through our KTX2 loader with no spine-runtime change.
 The game swaps `atlas`→`ktx2Atlas` on the compressed tier (`bakedEditorArtAssets` spine loop).
-Pages over the encoder's ~12 MP cap (e.g. a 4096×8096 cinematic) are skipped → they stay webp
-in the ktx2 atlas and must be downscaled at the source (also likely over iOS's max texture size).
+
+## Automatic downscaling (no manual resize)
+
+`ktx2Encode` auto-downscales the COMPRESSED variant so its longest side ≤ `DEFAULT_MAX_DIMENSION`
+(4096 — clears the encoder's ~12 Mpix cap AND every iPhone GPU's `MAX_TEXTURE_SIZE`) and returns
+the encoded dimensions. Pages ≤4096 ship at full resolution; only larger ones (e.g. a 4096×8096
+cinematic → 2072×4096) shrink — **in the pipeline, so no source art is touched**. Callers rescale
+the matching coords by the same factor: `toTexturePackerJson(set, file, sx, sy)` for sheets, and
+`rewriteAtlasForKtx2` for spine (page-aware: rewrites each downscaled page's `size:` line + rescales
+its region `bounds`/`offsets`/`orig`/… — uniform scale, so rotated regions stay correct; UVs are
+unchanged so art renders at the same size, just lower-res). Verified on the real `R_Cinematic1` rig
+(all coords stay in-bounds). Spine attachment sizes come from the SKELETON, not the atlas, so a
+downscaled rig page renders at the authored world size regardless — the reason this is safe.
 
 ## Rollout
 

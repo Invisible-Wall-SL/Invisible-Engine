@@ -293,21 +293,26 @@ interface TexturePackerFrame {
 	sourceSize: { w: number; h: number };
 }
 
-/** Build the TexturePacker json-hash the engine's `sprites` loader parses, with
- * frames keyed EXACTLY by the editor region names (`SpriteNode.region` values). */
-function toTexturePackerJson(set: EditorRegionSet, pageFile: string): string {
+/** Build the TexturePacker json-hash the engine's `sprites` loader parses, with frames keyed
+ * EXACTLY by the editor region names (`SpriteNode.region` values). `sx`/`sy` scale EVERY pixel
+ * coordinate — used for the KTX2 variant when its page was downscaled, so the frame rects match
+ * the smaller page (identical UVs ⇒ sprites render at the same size, just lower-res). Default 1
+ * ⇒ full-res, byte-identical to before. */
+function toTexturePackerJson(set: EditorRegionSet, pageFile: string, sx = 1, sy = 1): string {
 	const frames: Record<string, TexturePackerFrame> = {};
+	const rx = (n: number) => Math.round(n * sx);
+	const ry = (n: number) => Math.round(n * sy);
 	for (const r of set.regions) {
 		const origW = r.origW ?? r.w;
 		const origH = r.origH ?? r.h;
 		const offX = r.offX ?? 0;
 		const offY = r.offY ?? 0;
 		frames[r.name] = {
-			frame: { x: r.x, y: r.y, w: r.w, h: r.h },
+			frame: { x: rx(r.x), y: ry(r.y), w: rx(r.w), h: ry(r.h) },
 			rotated: r.rotated === true,
 			trimmed: offX !== 0 || offY !== 0 || origW !== r.w || origH !== r.h,
-			spriteSourceSize: { x: offX, y: offY, w: r.w, h: r.h },
-			sourceSize: { w: origW, h: origH },
+			spriteSourceSize: { x: rx(offX), y: ry(offY), w: rx(r.w), h: ry(r.h) },
+			sourceSize: { w: rx(origW), h: ry(origH) },
 		};
 	}
 	return JSON.stringify(
@@ -318,7 +323,7 @@ function toTexturePackerJson(set: EditorRegionSet, pageFile: string): string {
 				format: 'RGBA8888',
 				image: pageFile,
 				scale: '1',
-				size: { w: set.pageWidth, h: set.pageHeight },
+				size: { w: rx(set.pageWidth), h: ry(set.pageHeight) },
 			},
 		},
 		null,
@@ -333,8 +338,8 @@ function toTexturePackerJson(set: EditorRegionSet, pageFile: string): string {
  * art index (`sheet.ktx2Json`) and the write-set (so pruning keeps them). Returns null when
  * encoding is off or the page is skipped/failed ⇒ the game loads the WebP/PNG (parity).
  *
- * The `.ktx2` page carries the SAME pixel dimensions as the WebP/PNG, so the frame rects in
- * the reused `toTexturePackerJson(set, …)` are identical — only the page format differs.
+ * The `.ktx2` page may be DOWNSCALED (an over-large page), so the spritesheet JSON frame rects
+ * are rescaled by the same factor — identical UVs, so sprites render at the same size (lower-res).
  */
 async function encodeSheetKtx2(
 	pageKey: string,
@@ -348,11 +353,18 @@ async function encodeSheetKtx2(
 	if (!page) return null;
 	const ktx2 = await encodePageToKtx2(page.body);
 	if (!ktx2) return null;
+	// Scale the frame rects to the (possibly downscaled) ktx2 page so UVs stay identical.
+	const sx = set.pageWidth ? ktx2.width / set.pageWidth : 1;
+	const sy = set.pageHeight ? ktx2.height / set.pageHeight : 1;
 	const ktx2File = `${stem}.${version}.ktx2`;
 	const pageRel = `editor-art/${stem}/${ktx2File}`;
 	const jsonRel = `editor-art/${stem}/${stem}.${version}.ktx2.json`;
-	await putObjectBytes(`${deployPrefix}${pageRel}`, ktx2, 'image/ktx2');
-	await putObjectText(`${deployPrefix}${jsonRel}`, toTexturePackerJson(set, ktx2File), 'application/json');
+	await putObjectBytes(`${deployPrefix}${pageRel}`, ktx2.bytes, 'image/ktx2');
+	await putObjectText(
+		`${deployPrefix}${jsonRel}`,
+		toTexturePackerJson(set, ktx2File, sx, sy),
+		'application/json',
+	);
 	return { pageRel, jsonRel };
 }
 
@@ -551,8 +563,10 @@ export async function exportEditorArt(
 			const src = await getObjectBytes(imageKey);
 			const ktx2 = src ? await encodePageToKtx2(src.body) : null;
 			if (ktx2) {
+				// A standalone image is a whole-texture sprite (no atlas coords), so a downscale
+				// just lowers its resolution — the node transform still sizes it in-game.
 				ktx2File = file.replace(/\.(png|webp|jpe?g)$/i, '.ktx2');
-				await putObjectBytes(`${deployPrefix}${ktx2File}`, ktx2, 'image/ktx2');
+				await putObjectBytes(`${deployPrefix}${ktx2File}`, ktx2.bytes, 'image/ktx2');
 				written.add(`${deployPrefix}${ktx2File}`);
 			}
 		}
