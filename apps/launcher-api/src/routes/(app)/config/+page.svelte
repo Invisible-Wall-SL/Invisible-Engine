@@ -1,7 +1,6 @@
 <script lang="ts">
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import {
-		DEFAULT_WIN_LEVELS,
 		normalizeGameConfigDoc,
 		resolveBetModes,
 		resolveWinLevels,
@@ -365,12 +364,14 @@
 		});
 		newWinTier = '';
 	}
-	/** Seed the panel with the built-in 10-tier ladder (the coded `winLevelMap` + facade thresholds)
-	 *  so the author starts from today's behaviour and edits down. A deep clone so editing the doc
-	 *  never mutates the shared `DEFAULT_WIN_LEVELS` constant. Only offered when empty. */
+	/** Seed the panel with this GAME TYPE's default tiers — the template default's `winLevels`, which
+	 *  the defaults generator derives from that template's own coded `winLevelMap`. So the author
+	 *  starts from today's behaviour for THIS template and edits down. A deep clone so editing never
+	 *  mutates the template default. Only offered when empty and the template actually ships tiers. */
+	const defaultWinTiers = $derived(data.templateDefault?.winLevels ?? []);
 	function loadDefaultWinTiers() {
-		if (doc.winLevels?.length) return;
-		doc.winLevels = structuredClone(DEFAULT_WIN_LEVELS);
+		if (doc.winLevels?.length || !defaultWinTiers.length) return;
+		doc.winLevels = structuredClone($state.snapshot(defaultWinTiers));
 	}
 	function removeWinTier(index: number) {
 		if (!doc.winLevels) return;
@@ -1013,12 +1014,12 @@
 						>
 					{/each}
 				</div>
-			{:else}
+			{:else if defaultWinTiers.length}
 				<div class="tier-seed">
 					<button type="button" onclick={loadDefaultWinTiers}>Load default tiers</button>
 					<span class="hint"
-						>Seeds the built-in 10 tiers (BIG → SUPER → MEGA → EPIC → MAX) so you can rename, trim,
-						or retune them. Or add tiers one at a time below.</span
+						>Seeds the <strong>{data.gameType}</strong> template's default tiers ({defaultWinTiers.length}
+						levels) so you can rename, trim, or retune them. Or add tiers one at a time below.</span
 					>
 				</div>
 			{/if}

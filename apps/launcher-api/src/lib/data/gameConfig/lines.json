@@ -6639,5 +6639,116 @@
         }
       ]
     ]
-  }
+  },
+  "winLevels": [
+    {
+      "alias": "zero",
+      "name": "ZERO",
+      "threshold": 0,
+      "type": "small"
+    },
+    {
+      "alias": "standard",
+      "name": "STANDARD",
+      "threshold": 0,
+      "type": "small",
+      "durationMs": 600
+    },
+    {
+      "alias": "small",
+      "name": "SMALL",
+      "threshold": 1.5,
+      "type": "small",
+      "durationMs": 1000
+    },
+    {
+      "alias": "nice",
+      "name": "NICE",
+      "threshold": 3,
+      "type": "medium",
+      "durationMs": 1500
+    },
+    {
+      "alias": "substantial",
+      "name": "SUBSTANTIAL",
+      "threshold": 6,
+      "type": "medium",
+      "durationMs": 2000
+    },
+    {
+      "alias": "big",
+      "name": "BIG WIN",
+      "threshold": 10,
+      "type": "big",
+      "animation": {
+        "intro": "big_win_intro",
+        "idle": "big_win_idle",
+        "outro": "big_win_exit"
+      },
+      "sound": {
+        "bgm": "bgm_winlevel_big"
+      },
+      "durationMs": 6000
+    },
+    {
+      "alias": "superwin",
+      "name": "SUPER WIN",
+      "threshold": 20,
+      "type": "big",
+      "animation": {
+        "intro": "super_win_intro",
+        "idle": "super_win_idle",
+        "outro": "super_win_exit"
+      },
+      "sound": {
+        "bgm": "bgm_winlevel_superwin"
+      },
+      "durationMs": 18000
+    },
+    {
+      "alias": "mega",
+      "name": "MEGA WIN",
+      "threshold": 40,
+      "type": "big",
+      "animation": {
+        "intro": "mega_win_intro",
+        "idle": "mega_win_idle",
+        "outro": "mega_win_exit"
+      },
+      "sound": {
+        "bgm": "bgm_winlevel_mega"
+      },
+      "durationMs": 20000
+    },
+    {
+      "alias": "epic",
+      "name": "EPIC WIN!",
+      "threshold": 70,
+      "type": "big",
+      "animation": {
+        "intro": "epic_win_intro",
+        "idle": "epic_win_idle",
+        "outro": "epic_win_exit"
+      },
+      "sound": {
+        "bgm": "bgm_winlevel_epic"
+      },
+      "durationMs": 26000
+    },
+    {
+      "alias": "max",
+      "name": "MAX WIN",
+      "threshold": 120,
+      "type": "big",
+      "animation": {
+        "intro": "max_win_intro",
+        "idle": "max_win_idle",
+        "outro": "max_win_exit"
+      },
+      "sound": {
+        "bgm": "bgm_winlevel_max"
+      },
+      "durationMs": 32000
+    }
+  ]
 }
