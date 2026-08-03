@@ -128,6 +128,11 @@
 		 * The editor canvas is its OWN renderer, so it reads this map (NOT the engine
 		 * registry). Absent / unknown id → a labelled placeholder. */
 		componentMap?: Map<string, ComponentDef>;
+		/** EDITOR-PREVIEW ONLY: forwarded to `EditorSpineLayer` — while the author focuses a spine
+		 * param in the Properties panel, override the selected instance's bind spine to this bundle +
+		 * animation (WYSIWYG). Applies only to {@link spinePreviewNodeId}. Never written to the doc. */
+		spinePreview?: { bundle?: string; animation?: string } | null;
+		spinePreviewNodeId?: string;
 		onSpawn: (node: LayoutNode, pos: { x: number; y: number }) => void;
 		/** Hoisted selection — bound from the page. The LAST id is the "primary"
 		 * (drives the properties panel + transform handles); shift-click adds/removes. */
@@ -192,6 +197,8 @@
 		symbolsDoc = null,
 		gridDimensions = null,
 		componentMap = new Map(),
+		spinePreview = null,
+		spinePreviewNodeId,
 		onSpawn,
 		selectedIds = $bindable([]),
 		onDirty,
@@ -3504,6 +3511,8 @@
 					{zoom}
 					{assets}
 					{componentMap}
+					{spinePreview}
+					{spinePreviewNodeId}
 					worldTransformOf={nodeTransform}
 					reloadToken={spineReload}
 					{hiddenSceneIds}
@@ -3609,6 +3618,8 @@
 				{zoom}
 				{assets}
 				{componentMap}
+				{spinePreview}
+				{spinePreviewNodeId}
 				worldTransformOf={nodeTransform}
 				reloadToken={spineReload}
 				{hiddenSceneIds}

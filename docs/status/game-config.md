@@ -223,10 +223,16 @@ coded fallback (un-authored component ⇒ byte-identical), just no longer edited
 - **Verified:** `game-config typecheck` + `game-config-spike` (all pass), `engine-layout build`,
   `lines build` + `svelte-check apps/lines` (0 errors), `launcher-api build`. Launcher render +
   live spin are owner-verify-owed (launcher-only). Reaching online games needs a Runtime release +
-  republish (the reading code ships in `_runtime/lines`). **Canvas preview** of a selected per-tier
-  animation is a noted follow-up — the editor's spine preview shows the base `winSpine` bundle
-  (`instancePreviewSpineBundle` picks the first spine param); wiring the per-tier bundle/animation into
-  the live preview is a later enhancement.
+  republish (the reading code ships in `_runtime/lines`).
+- **Canvas preview (landed).** Focusing a spine / spineAnimation param on the selected instance drives
+  the Scene Editor's live WebGL spine preview to that bundle + animation (WYSIWYG): a `spine` param
+  previews its bundle's first/idle animation, a `spineAnimation` param previews its sibling bundle
+  playing THAT animation. Generic (any spine+spineAnimation component — win / free-spin visuals / book
+  reveal benefit). `EditorProperties.onPreviewSpine` (focus/change on the spine + spineAnimation
+  controls) → `+page.svelte` `spinePreview`/`spinePreviewNodeId` (reset on selection change) →
+  `EditorCanvas` → `EditorSpineLayer` (overrides the previewed instance's bind spine bundle +
+  `defaultAnimation`). PREVIEW-ONLY — never written to the doc; unfocused / non-instance ⇒ the base
+  `winSpine` bundle (parity). Owner-verify-owed on the auth-gated canvas.
 
 ## Config-authored win tiers (big-win levels) + sequential escalation
 

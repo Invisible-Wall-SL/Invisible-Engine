@@ -150,6 +150,12 @@
 		onToggleSignal?: (key: string) => void;
 		/** Set / clear an author param override on the selected instance (scene mode). */
 		onSetInstanceParam?: (key: string, value: unknown) => void;
+		/** EDITOR-PREVIEW ONLY: the author focused (or changed) a spine / spineAnimation param on the
+		 * selected instance — drive the canvas's live spine preview to that bundle + animation so the
+		 * pick is WYSIWYG (a `spine` param previews its bundle's idle/first animation; a `spineAnimation`
+		 * param previews its sibling bundle playing THAT animation). Null clears the override (the
+		 * preview falls back to the instance's default bundle). Never written to the doc. */
+		onPreviewSpine?: (preview: { bundle?: string; animation?: string } | null) => void;
 		/** Set / clear a per-instance button-state spine-animation override for a spine
 		 * node (by id) of the selected instance's def (scene mode). Empty `animation`
 		 * clears that state's override (it inherits the def). */
@@ -209,6 +215,7 @@
 		onUnexposeSpineParam,
 		onToggleSignal,
 		onSetInstanceParam,
+		onPreviewSpine,
 		onSetInstanceStateAnim,
 		onSetInstanceStateAnimLoop,
 		onSetInstanceSpineRest,
@@ -318,6 +325,40 @@
 
 	/** Synthetic-key prefix for engine-shipped coded spine meta (see `resolveSpineAssetKey`). */
 	const BUILTIN_SPINE_KEY = 'builtin:';
+
+	/** The def's FIRST `spine`-kind param bundle for the selected instance — its override value else
+	 * the param's default (mirrors {@link effectiveSpineBundle}'s tail). The fallback bundle a
+	 * default-less per-tier `<alias>Spine` previews. */
+	function primarySpineBundle(): string | undefined {
+		if (!node || node.kind !== 'componentInstance') return undefined;
+		const primary = instanceComponent?.params?.find((q) => q.kind === 'spine');
+		if (!primary) return undefined;
+		const override = node.params?.[primary.key];
+		if (typeof override === 'string' && override) return override;
+		return typeof primary.default === 'string' && primary.default ? primary.default : undefined;
+	}
+
+	/**
+	 * EDITOR-PREVIEW ONLY: the bundle + animation the canvas should show while the author focuses (or
+	 * changes) spine param `p` on the selected instance — a `spine` param previews its bundle (idle /
+	 * first animation), a `spineAnimation` param previews its sibling bundle playing THAT animation.
+	 * `value` is the field's current value (empty = inherit the default). Null when `p` isn't a spine
+	 * param, or no bundle resolves. Purely a canvas hint — never written to the doc.
+	 */
+	function spineParamPreview(
+		p: ComponentParam,
+		value: string,
+	): { bundle?: string; animation?: string } | null {
+		if (p.kind === 'spine') {
+			const bundle = value || primarySpineBundle();
+			return bundle ? { bundle, animation: undefined } : null;
+		}
+		if (p.kind === 'spineAnimation') {
+			const bundle = effectiveSpineBundle(p);
+			return bundle ? { bundle, animation: value || undefined } : null;
+		}
+		return null;
+	}
 
 	/** The effective spine bundle a `spineAnimation`/`spineSlot` param reads its options
 	 * from: the value of its sibling `spineParam` on the selected instance, falling back to
@@ -1924,7 +1965,11 @@
 							{@const cur = (node.params?.[p.key] as string) ?? ''}
 							<select
 								value={cur}
-								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
+								onfocusin={() => onPreviewSpine?.(spineParamPreview(p, cur))}
+								onchange={(e) => {
+									onSetInstanceParam?.(p.key, e.currentTarget.value || undefined);
+									onPreviewSpine?.(spineParamPreview(p, e.currentTarget.value));
+								}}
 							>
 								<option value=""
 									>{typeof p.default === 'string' && p.default
@@ -1957,7 +2002,11 @@
 							{#if opts && opts.length > 0}
 								<select
 									value={cur}
-									onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
+									onfocusin={() => onPreviewSpine?.(spineParamPreview(p, cur))}
+									onchange={(e) => {
+										onSetInstanceParam?.(p.key, e.currentTarget.value || undefined);
+										onPreviewSpine?.(spineParamPreview(p, e.currentTarget.value));
+									}}
 								>
 									<option value=""
 										>{typeof p.default === 'string' && p.default
@@ -1975,6 +2024,7 @@
 								<input
 									type="text"
 									value={cur}
+									onfocusin={() => onPreviewSpine?.(spineParamPreview(p, cur))}
 									placeholder={p.default !== undefined ? String(p.default) : ''}
 									oninput={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value)}
 								/>

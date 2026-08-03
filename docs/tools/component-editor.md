@@ -186,6 +186,10 @@ Above the per-tier groups sit the base params (`winSpine` big-win bundle, count
 `slotName`, coin-fountain toggle) and a shared **Animations (all tiers)** group that
 applies to every tier unless a per-tier group overrides it.
 
+**Live preview:** focusing a tier's spine or intro/idle/outro dropdown previews that bundle
+playing that animation on the canvas (a spine field previews the bundle's idle), so the pick
+is WYSIWYG. It's preview-only — nothing is written until you actually change a value.
+
 **Resolution / fallback** (per field): the per-tier value ?? the shared set ?? the
 config/coded tier's own value (`spineKey` / `animation` / `durationMs` / `sound`).
 Every per-tier field is empty by default, so an un-authored Win Overlay renders
