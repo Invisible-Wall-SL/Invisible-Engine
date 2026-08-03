@@ -10,6 +10,7 @@ export * from './src/mount';
 export * from './src/env';
 export * from './src/preview';
 export * from './src/reference/bookOf';
+export * from './src/reference/soundEnums.generated';
 export * from './src/reference/bookOfChoreo';
 export * from './src/reference/registry';
 export * from './src/reference/starterDoc';

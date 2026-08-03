@@ -14,8 +14,12 @@
 		mountAnchor,
 		resolveAnchorPreviewArt,
 		STANDARD_MAIN_SIZES_MAP,
+		DEFAULT_WIN_TIERS,
 		winTierPresentationParams,
 	} from 'engine-layout';
+	// The ONE generated sound-name list (from `apps/lines/src/game/sound.ts`), reused so the win
+	// component's per-tier SFX / BGM dropdowns offer the game's real sounds — not a hand-copied list.
+	import { MUSIC_NAMES, SOUND_EFFECT_NAMES } from 'engine-flow-v2';
 	import type {
 		ComponentDef,
 		ComponentInstanceNode,
@@ -361,22 +365,31 @@
 
 	/** The two editor modes. (Component authoring is its own tool now.) */
 	let mode = $state<'scene' | 'template'>('scene');
+	/** The game's real sounds for the win component's per-tier SFX / BGM dropdowns — the ONE generated
+	 * enum (`engine-flow-v2`). BGM = the `bgm_*` beds; SFX = the non-bgm cues (`sfx_*` / `jng_*`). This
+	 * is the SHIPPED (`apps/lines`) sound set — a game with its own `sounds.json` isn't reflected yet. */
+	const WIN_SOUND_OPTIONS = { bgm: MUSIC_NAMES, sfx: SOUND_EFFECT_NAMES };
+
 	/**
 	 * Rebuild the `win` component's per-tier PRESENTATION groups from the ACTIVE game config's big
-	 * tiers (`data.winTiers`), so its spine/animation/duration/sound groups mirror the config panel's
-	 * authored tiers (keyed by alias). The base/shared params (before the first per-tier group) are
-	 * kept verbatim; only the generated tail is replaced. Null tiers ⇒ the built-in default groups
-	 * (byte-identical). Any other component passes through untouched.
+	 * tiers (`data.winTiers`, else the built-in {@link DEFAULT_WIN_TIERS}), so its spine/animation/
+	 * duration/sound groups mirror the config panel's authored tiers (keyed by alias) AND its SFX / BGM
+	 * fields render as dropdowns of the game's real sounds. The base/shared params (before the first
+	 * per-tier group) are kept verbatim; only the generated tail is replaced. Options are an editor-only
+	 * hint (never saved to a placement / the runtime def), so this is byte-identical at runtime. Any
+	 * other component passes through untouched.
 	 */
 	function withConfigWinTiers(defs: ComponentDef[]): ComponentDef[] {
-		if (!data.winTiers) return defs;
-		const tiers = data.winTiers;
+		const tiers = data.winTiers ?? DEFAULT_WIN_TIERS;
 		return defs.map((def) => {
 			if (def.id !== 'win' || !def.params) return def;
 			// Base/shared params carry no group or the shared "Animations (all tiers)" group; every
 			// per-tier param lives under its tier's own group — so keep the former, regenerate the latter.
 			const base = def.params.filter((p) => !p.group || p.group === 'Animations (all tiers)');
-			return { ...def, params: [...base, ...winTierPresentationParams(tiers)] };
+			return {
+				...def,
+				params: [...base, ...winTierPresentationParams(tiers, WIN_SOUND_OPTIONS)],
+			};
 		});
 	}
 

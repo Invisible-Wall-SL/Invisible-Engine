@@ -224,6 +224,15 @@ coded fallback (un-authored component ⇒ byte-identical), just no longer edited
   `lines build` + `svelte-check apps/lines` (0 errors), `launcher-api build`. Launcher render +
   live spin are owner-verify-owed (launcher-only). Reaching online games needs a Runtime release +
   republish (the reading code ships in `_runtime/lines`).
+- **SFX / BGM dropdowns (landed).** The per-tier `<alias>Sfx` / `<alias>Bgm` params are dropdowns of
+  the game's real sounds, not free text: `winTierPresentationParams(tiers, soundOptions?)` accepts an
+  editor-only `{ bgm, sfx }` option list (`WinSoundOptions`); the `/editor` client (`withConfigWinTiers`)
+  supplies it from the ONE generated sound enum (`engine-flow-v2` `MUSIC_NAMES` / `SOUND_EFFECT_NAMES`,
+  now re-exported from the package index) — BGM = `bgm_*` beds, SFX = the non-bgm cues. Rendered via the
+  existing `p.options` dropdown branch (empty "(inherit default)" option). Options are an editor-only
+  hint (the runtime `WIN_DEF` passes no `soundOptions` ⇒ still `kind:'string'`), so the shipped def +
+  saved doc are unchanged; empty ⇒ config/coded sound (byte-identical). CAVEAT: the enum is the shipped
+  `apps/lines` sound set — a game with its own `sounds.json` isn't reflected yet (noted).
 - **Canvas preview (landed).** Focusing a spine / spineAnimation param on the selected instance drives
   the Scene Editor's live WebGL spine preview to that bundle + animation (WYSIWYG): a `spine` param
   previews its bundle's first/idle animation, a `spineAnimation` param previews its sibling bundle
