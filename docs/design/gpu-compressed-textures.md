@@ -97,13 +97,28 @@ downscaled rig page renders at the authored world size regardless — the reason
 3. Verify: Browser-pane memory walk (five 32 MB pages → ~4–8 MB each), then a clean load on
    the affected iPhone (iOS 18+) and Pixel.
 
+## Page dedup (the over-time leak fix)
+
+The rig/spine atlas pages were the dominant VRAM, and worse, each rig carried its OWN copy of
+its page — the same full-screen image (`S_Game_UI2` → R_SpinButtonNew + R_Turbo + R_Auto + the
+sheet) loaded as 3–4 separate 32 MB textures, and MORE loaded as features mounted over play, a
+monotonic climb that OOM-crashed iOS after a while (confirmed live: `managedTextures` grew
+25→41). `pageStore.ts` is a **content-addressed page store**: `PageStore.ensure(sourceKey, ext)`
+writes each unique page (keyed by source ETag+size) ONCE to `deploy/_pages/<hash>.{webp,ktx2}`
+and every sheet/rig references it by the base-independent relative path `../../_pages/…`
+(verified to resolve through Pixi's `path.normalize` + the spritesheet loader, baked + runtime).
+So a page shared by N rigs + the sheet becomes ONE GPU texture. `editorArtExport.ts` (sheets +
+standalone images) and `exportSpineBundle` (rigs, via a shared `pageStore` param) both dedup
+through it; `symbolExport` omits the store and keeps its per-bundle copy. A downscaled shared
+ktx2 page reports its dims so every referencer rescales coords by the SAME factor (composes with
+#179). Content-cached (skip-if-exists, meta sidecar) so the per-boot `/api/editor/runtime`
+assemble stays fast; `_pages/` is pruned against `pageStore.written`.
+
 ## Follow-ups
 
 - Symbol spine pages already ride `exportSpineBundle` (so they get `ktx2Atlas`), but
   `bakedSymbolAssets()` doesn't yet SELECT it — wire the tier there too (they're smaller than
-  the rig backgrounds, so lower priority).
-- Dedup: the `S_Game_*` pages load as BOTH an editor-art sheet AND a rig atlas — two ktx2
-  copies of the same image. Share one texture to halve that.
+  the rig backgrounds, so lower priority). Symbol bundles also don't dedup (no `pageStore`).
 - Optional per-device RESOLUTION downscale tier (encode a smaller ktx2 variant + scale atlas
   coords) if compression-at-full-res ever isn't enough for a very low-memory device.
 - Isolate the encode in a worker/child process (non-blocking + memory-isolated + stdout
