@@ -1623,6 +1623,9 @@ importers:
       chromatic:
         specifier: 11.26.1
         version: 11.26.1
+      config-lingui:
+        specifier: workspace:*
+        version: link:../config-lingui
       config-svelte:
         specifier: workspace:*
         version: link:../config-svelte
