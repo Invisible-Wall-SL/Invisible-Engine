@@ -10,7 +10,6 @@
 		type BetModeKind,
 		type GameConfigDoc,
 		type GameConfigIssue,
-		type WinTierType,
 	} from 'game-config';
 	import type { PageData } from './$types';
 
@@ -345,58 +344,80 @@
 	// tier is added, so an un-authored config is byte-identical to a paste-in and keeps the coded
 	// win-level table + facade ladder. `resolveWinLevels` assigns each tier its 1-based level.
 	let newWinTier = $state('');
-	const winTiers = $derived(doc.winLevels ?? []);
 	const resolvedWinTiers = $derived(resolveWinLevels(snapshot) ?? []);
-	const winTierAliases = $derived(winTiers.map((t) => t.alias));
 
-	function addWinTier() {
+	// The panel authors ONLY the big-win celebrations. The small/medium "bands" (the floor that makes
+	// modest wins present as a plain count-up number) are engine plumbing an author never tunes — they
+	// stay in the saved doc so the ladder is valid, but are HIDDEN here and MANAGED automatically from
+	// the game type's template default.
+	const defaultWinTiers = $derived(data.templateDefault?.winLevels ?? []);
+	const floorBands = $derived(defaultWinTiers.filter((t) => t.type !== 'big'));
+	// The big tiers, each with its REAL index into doc.winLevels, so edits address the right entry
+	// past the hidden floor bands.
+	const bigTierEntries = $derived(
+		(doc.winLevels ?? [])
+			.map((tier, index) => ({ tier, index }))
+			.filter((entry) => entry.tier.type === 'big'),
+	);
+	const bigTierAliases = $derived(bigTierEntries.map((entry) => entry.tier.alias));
+	const bigResolved = $derived(resolvedWinTiers.filter((t) => t.type === 'big'));
+	const managedFloorCount = $derived((doc.winLevels ?? []).filter((t) => t.type !== 'big').length);
+
+	/** Ensure the managed floor bands (from the template default) are present before a big tier is
+	 *  added — without a low floor a modest win falls through to the first big tier and wrongly fires a
+	 *  celebration. Idempotent: only prepends bands not already present, keeping them ahead of the big
+	 *  tiers. */
+	function ensureFloorBands() {
+		if (!floorBands.length) return;
 		const tiers = (doc.winLevels ??= []);
-		const alias = newWinTier.trim() || `tier${tiers.length + 1}`;
+		const have = new Set(tiers.map((t) => t.alias));
+		const missing = floorBands.filter((t) => !have.has(t.alias));
+		if (missing.length) doc.winLevels = [...structuredClone($state.snapshot(missing)), ...tiers];
+	}
+
+	/** Add a big-win tier (the managed floor is ensured first). */
+	function addBigTier() {
+		ensureFloorBands();
+		const tiers = (doc.winLevels ??= []);
+		const alias = newWinTier.trim() || `big${bigTierEntries.length + 1}`;
 		if (tiers.some((t) => t.alias === alias)) return;
-		// Seed the threshold above the previous tier so the ladder starts ascending; the first tier is
-		// the zero-win floor (threshold 0), so it always matches a paid win.
 		const previous = tiers[tiers.length - 1];
 		tiers.push({
 			alias,
 			name: alias.toUpperCase(),
-			threshold: previous ? previous.threshold + 10 : 0,
-			type: 'small',
+			threshold: previous ? previous.threshold + 10 : 10,
+			type: 'big',
 		});
 		newWinTier = '';
 	}
-	/** Seed the panel with this GAME TYPE's default tiers — the template default's `winLevels`, which
-	 *  the defaults generator derives from that template's own coded `winLevelMap`. So the author
-	 *  starts from today's behaviour for THIS template and edits down. A deep clone so editing never
-	 *  mutates the template default. Only offered when empty and the template actually ships tiers. */
-	const defaultWinTiers = $derived(data.templateDefault?.winLevels ?? []);
+
+	/** Seed the whole default ladder (managed floor + the template's big tiers) so the author starts
+	 *  from this game type's current behaviour and edits the big tiers down. */
 	function loadDefaultWinTiers() {
 		if (doc.winLevels?.length || !defaultWinTiers.length) return;
 		doc.winLevels = structuredClone($state.snapshot(defaultWinTiers));
 	}
-	function removeWinTier(index: number) {
+
+	function removeBigTier(index: number) {
 		if (!doc.winLevels) return;
 		doc.winLevels.splice(index, 1);
-		// Emptied ⇒ drop the whole block + the escalation flags, so the doc returns to byte-identical.
-		if (!doc.winLevels.length) {
+		// No big tiers left ⇒ nothing to celebrate; drop the whole block (+ escalation) so the game
+		// reverts to its default ladder rather than shipping a floor-only config.
+		if (!doc.winLevels.some((t) => t.type === 'big')) {
 			delete doc.winLevels;
 			delete doc.escalateTiers;
 			delete doc.escalateFrom;
 		}
 	}
-	/** Reorder a tier — the ladder is POSITIONAL (level = index + 1), so up/down is how the author
-	 *  sequences the escalation and the thresholds. */
-	function moveWinTier(index: number, dir: -1 | 1) {
+
+	/** Reorder a big tier, skipping the hidden floor bands so only big tiers swap. */
+	function moveBigTier(index: number, dir: -1 | 1) {
 		const tiers = doc.winLevels;
 		if (!tiers) return;
-		const j = index + dir;
+		let j = index + dir;
+		while (j >= 0 && j < tiers.length && tiers[j].type !== 'big') j += dir;
 		if (j < 0 || j >= tiers.length) return;
 		[tiers[index], tiers[j]] = [tiers[j], tiers[index]];
-	}
-
-	function setWinTierType(index: number, value: string) {
-		const tier = doc.winLevels?.[index];
-		if (tier && (value === 'small' || value === 'medium' || value === 'big'))
-			tier.type = value as WinTierType;
 	}
 
 	type WinAnimField = 'intro' | 'idle' | 'outro';
@@ -993,55 +1014,53 @@
 			{/each}
 		</section>
 
-		<!-- Win tiers ---------------------------------------------------------------->
+		<!-- Big win tiers ------------------------------------------------------------>
 		<section>
-			<h2>Win tiers</h2>
+			<h2>Big win tiers</h2>
 			<p class="hint">
-				The big-win LEVELS the game celebrates — an <strong>ordered</strong> list. Each tier has an
-				amount <strong>threshold</strong> (the win as a multiple of the total bet), a
-				<strong>type</strong> (<code>small</code>/<code>medium</code> present as a plain number,
-				<code>big</code> plays a spine), and — for a big tier — its
-				<strong>intro/idle/outro</strong>
-				animation names. Leave this empty to keep the built-in 10-tier table (byte-identical). The tier's
-				position is its level; drag the order with the arrows so thresholds ascend.
+				The big-win celebrations, in ascending order. Each tier has an amount
+				<strong>threshold</strong> (the win as a multiple of the total bet), its
+				<strong>intro/idle/outro</strong> spine animations, and optional spine bundle / sound /
+				duration. Smaller wins are handled automatically and aren't shown here. Leave this empty to
+				keep the game's built-in tiers (byte-identical).
 			</p>
 
-			{#if resolvedWinTiers.length}
-				<div class="menu-preview" aria-label="Resolved win-tier ladder">
-					{#each resolvedWinTiers as t (t.alias)}
-						<span class="mp-chip mp-{t.type}" title="{t.type} · ≥ {t.threshold}× bet"
+			{#if bigResolved.length}
+				<div class="menu-preview" aria-label="Big-win tiers">
+					{#each bigResolved as t (t.alias)}
+						<span class="mp-chip mp-big" title="≥ {t.threshold}× bet"
 							>{t.name}<b>≥{t.threshold}×</b></span
 						>
 					{/each}
 				</div>
 			{:else if defaultWinTiers.length}
 				<div class="tier-seed">
-					<button type="button" onclick={loadDefaultWinTiers}>Load default tiers</button>
+					<button type="button" onclick={loadDefaultWinTiers}>Load default big wins</button>
 					<span class="hint"
-						>Seeds the <strong>{data.gameType}</strong> template's default tiers ({defaultWinTiers.length}
-						levels) so you can rename, trim, or retune them. Or add tiers one at a time below.</span
+						>Seeds the <strong>{data.gameType}</strong> template's tiers so you can rename, trim, or
+						retune them. Or add one below.</span
 					>
 				</div>
 			{/if}
 
 			<div class="betmodes">
-				{#each winTiers as tier, index (tier.alias)}
+				{#each bigTierEntries as { tier, index } (tier.alias)}
 					<div class="betmode">
 						<div class="betmode-head">
-							<span class="betmode-key">L{index + 1} · {tier.alias}</span>
+							<span class="betmode-key">{tier.alias}</span>
 							<span class="tier-move">
 								<button
 									title="Move up"
-									disabled={index === 0}
-									onclick={() => moveWinTier(index, -1)}>↑</button
+									disabled={index === bigTierEntries[0].index}
+									onclick={() => moveBigTier(index, -1)}>↑</button
 								>
 								<button
 									title="Move down"
-									disabled={index === winTiers.length - 1}
-									onclick={() => moveWinTier(index, 1)}>↓</button
+									disabled={index === bigTierEntries[bigTierEntries.length - 1].index}
+									onclick={() => moveBigTier(index, 1)}>↓</button
 								>
 							</span>
-							<button class="del" title="Remove" onclick={() => removeWinTier(index)}>×</button>
+							<button class="del" title="Remove" onclick={() => removeBigTier(index)}>×</button>
 						</div>
 
 						<div class="betmode-row">
@@ -1054,16 +1073,6 @@
 									step="0.5"
 									bind:value={tier.threshold}
 								/></label
-							>
-							<label class="mini"
-								><span>Type</span><select
-									value={tier.type}
-									onchange={(e) => setWinTierType(index, e.currentTarget.value)}
-								>
-									<option value="small">small</option>
-									<option value="medium">medium</option>
-									<option value="big">big</option>
-								</select></label
 							>
 							<label class="mini"
 								><span>Spine key</span><input
@@ -1120,11 +1129,18 @@
 			</div>
 
 			<div class="add">
-				<input placeholder="new tier alias (e.g. big)" bind:value={newWinTier} />
-				<button onclick={addWinTier}>Add tier</button>
+				<input placeholder="new tier alias (e.g. mega)" bind:value={newWinTier} />
+				<button onclick={addBigTier}>Add big win</button>
 			</div>
 
-			{#if winTiers.length}
+			{#if managedFloorCount}
+				<p class="hint managed-note">
+					+ {managedFloorCount} smaller win band{managedFloorCount === 1 ? '' : 's'} managed automatically
+					(wins below the first big tier present as a plain count-up number).
+				</p>
+			{/if}
+
+			{#if bigTierEntries.length}
 				<div class="escalate">
 					<label class="check"
 						><input
@@ -1139,7 +1155,7 @@
 							onchange={(e) => setEscalateFrom(e.currentTarget.value)}
 						>
 							<option value="">first big tier</option>
-							{#each winTierAliases as alias (alias)}
+							{#each bigTierAliases as alias (alias)}
 								<option value={alias}>{alias}</option>
 							{/each}
 						</select></label
@@ -1464,6 +1480,11 @@
 	.tier-seed .hint {
 		flex: 1 1 240px;
 		margin: 0;
+	}
+	.managed-note {
+		margin-top: 10px;
+		opacity: 0.75;
+		font-style: italic;
 	}
 	.betmodes {
 		display: flex;
