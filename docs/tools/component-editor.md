@@ -180,7 +180,8 @@ project shows the built-in default tiers). Each group has:
 - **intro / idle / outro** dropdowns of that spine's animations (no blind typing —
   when a tier's spine is unset the dropdowns list the base `winSpine` bundle's
   animations);
-- a **duration** (ms) and **sfx** / **bgm**.
+- a **duration** (ms) and **sfx** / **bgm** dropdowns of the game's real sounds (BGM lists the
+  `bgm_*` music beds, SFX lists the one-shot cues). Empty ⇒ the config/coded sound.
 
 Above the per-tier groups sit the base params (`winSpine` big-win bundle, count
 `slotName`, coin-fountain toggle) and a shared **Animations (all tiers)** group that
