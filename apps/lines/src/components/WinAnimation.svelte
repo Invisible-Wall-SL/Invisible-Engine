@@ -40,8 +40,14 @@
 		 */
 		chain?: WinAnimationStep[];
 		/** The count-up has finished — drives the FINAL tier's outro on the escalation path only. Inert
-		 *  on the single-tier path (that idle loops until the overlay hides, as today). */
+		 *  on the single-tier path (that idle loops until the overlay hides, as today). When it latches
+		 *  while the chain is still mid-walk (a fast-forward / tap-to-skip of the count-up), the chain
+		 *  COLLAPSES to the final tier and plays its outro cleanly, so the escalation is never truncated. */
 		countUpComplete?: boolean;
+		/** Fired when the FINAL tier's OUTRO completes (escalation path only) — the gate awaits this before
+		 *  concluding the presentation, so a collapsed/fast-forwarded chain still finishes its outro. Never
+		 *  fires on the single-tier path (no outro), so that path is byte-identical. */
+		onOutroComplete?: () => void;
 		/**
 		 * Explicit display WIDTH for the rig (the spine is fitted to it). The coded/OFF composer
 		 * passes the board width — the historical hardcode. The AUTHORED `win` componentInstance
@@ -58,6 +64,7 @@
 		slotName = 'slot_win_count',
 		chain,
 		countUpComplete = false,
+		onOutroComplete,
 		width,
 		children,
 	}: Props = $props();
@@ -72,7 +79,6 @@
 
 	let stepIndex = $state(0);
 	let animationState = $state<AnimationState>('intro');
-	let oncomplete = $state(() => {});
 
 	const current = $derived(steps[Math.min(stepIndex, steps.length - 1)]);
 	const isFinalStep = $derived(stepIndex >= steps.length - 1);
@@ -82,12 +88,38 @@
 	// `complete` fires and advances the chain to the next tier's intro.
 	const idleLoops = $derived(animationState === 'idle' && isFinalStep);
 
-	// Escalation only: once the (single, continuous) count-up completes, play the FINAL tier's outro.
-	// Guarded on `escalating` so the single-tier path never gains an outro it did not have before.
+	// ESCALATION ONLY — conclude the chain when the count-up finishes.
+	//
+	// On the natural walk we're already on the final tier's looping idle, so this just flips it to the
+	// outro (the old behaviour). On a FAST-FORWARD / TAP-TO-SKIP the count-up can finish while the
+	// chain is still mid-walk (tier 1→2→3): the count-up runs on a SEPARATE clock from the spine idle-
+	// completes that advance the chain, so `countUpComplete` can latch on a NON-final tier. Rather than
+	// let the chain crawl on (number done, tiers still walking) or get cut off, COLLAPSE straight to the
+	// final tier and play its outro — the player lands on the biggest tier's art as it exits, a clean
+	// coherent end. Guarded on `escalating` + `animationState !== 'outro'` so it fires once and the
+	// single-tier path never gains an outro it did not have before (byte-identical).
 	$effect(() => {
-		if (escalating && countUpComplete && isFinalStep && animationState === 'idle') {
-			animationState = 'outro';
+		if (!escalating || !countUpComplete || animationState === 'outro') return;
+		if (!isFinalStep) stepIndex = steps.length - 1;
+		animationState = 'outro';
+		// SAFETY: the gate now WAITS for the outro's `complete` before concluding — but a mis-authored
+		// tier with an empty outro name plays nothing, so `complete` never fires. Signal completion
+		// immediately in that case so the gate can never hang (it concluded on its own timer before).
+		if (!steps[steps.length - 1].animationMap.outro) onOutroComplete?.();
+	});
+
+	// ESCALATION ONLY — rewind the walk when a NEW presentation begins (the overlay persists across
+	// wins, so a repeat escalating win would otherwise resume at the previous win's final/outro step).
+	// The gate clears `countUpComplete` on `winShow`, so its true→false edge marks a fresh win. Guarded
+	// on `escalating` so the single-tier path's animationState is never touched (its repeat-win intro
+	// behaviour stays exactly as today — byte-identical).
+	let wasCountUpComplete = $state(false);
+	$effect(() => {
+		if (escalating && wasCountUpComplete && !countUpComplete) {
+			stepIndex = 0;
+			animationState = 'intro';
 		}
+		wasCountUpComplete = countUpComplete;
 	});
 </script>
 
@@ -124,7 +156,9 @@
 					}
 					return;
 				}
-				if (animationState === 'outro') oncomplete();
+				// The FINAL tier's outro finished — tell the gate it may conclude (escalation path
+				// only; the single-tier path never reaches an outro, so this never fires there).
+				if (animationState === 'outro') onOutroComplete?.();
 			},
 		}}
 	/>
