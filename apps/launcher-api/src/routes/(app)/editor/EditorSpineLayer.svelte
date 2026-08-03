@@ -112,6 +112,14 @@
 		 * RAF reads + draws — no per-frame $state churn. The SAME Map is passed to every per-scene
 		 * layer; each only writes/deletes ITS scene's node ids. Absent ⇒ no rider preview. */
 		boneRiders?: Map<string, BoneRiderTransform>;
+		/** EDITOR-PREVIEW ONLY: while the author focuses a spine / spineAnimation param in the
+		 * Properties panel, override the previewed instance's bind spine to this bundle + animation
+		 * so the pick is WYSIWYG (see `EditorProperties.onPreviewSpine`). Applies ONLY to the instance
+		 * whose node id === {@link spinePreviewNodeId}; every other spine renders normally. Null /
+		 * absent ⇒ no override (parity). Never written to the doc. */
+		spinePreview?: { bundle?: string; animation?: string } | null;
+		/** The node id of the instance {@link spinePreview} applies to (the selected componentInstance). */
+		spinePreviewNodeId?: string;
 	}
 
 	let {
@@ -136,6 +144,8 @@
 		componentMap = new Map<string, ComponentDef>(),
 		worldTransformOf,
 		boneRiders,
+		spinePreview = null,
+		spinePreviewNodeId,
 	}: Props = $props();
 
 	// Monotonic counters: one bundle load = one started + (eventually) one settled.
@@ -453,8 +463,23 @@
 					const def = componentMap.get(n.componentId);
 					if (def) {
 						const params = resolveComponentParams(def, n.params, undefined);
-						const spineBundle = instancePreviewSpineBundle(def, params);
-						collectNestedSpines(def.root.children, sc, out, [n], 1, [def.id], params, spineBundle);
+						// EDITOR-PREVIEW ONLY: when the author is focusing a spine param on THIS instance,
+						// show the focused tier's bundle + animation instead of the default preview bundle
+						// (see `spinePreview`). Only this instance is affected; every other renders normally.
+						const previewing = spinePreviewNodeId === n.id && spinePreview ? spinePreview : null;
+						const spineBundle =
+							previewing?.bundle ?? instancePreviewSpineBundle(def, params);
+						collectNestedSpines(
+							def.root.children,
+							sc,
+							out,
+							[n],
+							1,
+							[def.id],
+							params,
+							spineBundle,
+							previewing?.animation,
+						);
 					}
 				}
 			}
@@ -487,6 +512,11 @@
 		 * the real art shows AND its live meta populates the animation dropdowns. Undefined when the
 		 * def declares no spine param ⇒ nested binds render exactly as before (parity). */
 		instanceSpineBundle: string | undefined,
+		/** EDITOR-PREVIEW ONLY: the animation to auto-play on the enclosing instance's DIRECT bind
+		 * spine while the author focuses one of its animation params (see `spinePreview`). Applied only
+		 * to a depth-1 bind child; deeper recursion passes undefined. Undefined ⇒ the bind plays its
+		 * first animation as before (parity). */
+		previewAnimation?: string,
 	): void {
 		for (const n of nodes) {
 			if (!resolveTransform(n, layoutType).visible) continue;
@@ -508,7 +538,7 @@
 			if (n.bind && instanceSpineBundle !== undefined) {
 				const art = resolveAnchorPreviewArt(n, assets, undefined, instanceSpineBundle);
 				if (art?.kind === 'spine' && art.assetKey) {
-					out.push(bindSpineTarget(n, sc, nextChain, art.assetKey));
+					out.push(bindSpineTarget(n, sc, nextChain, art.assetKey, previewAnimation));
 					continue;
 				}
 			}
@@ -524,6 +554,10 @@
 					stack,
 					instanceParams,
 					instanceSpineBundle,
+					// A preview animation applies only to the enclosing instance's DIRECT bind child
+					// (the win / free-spin VISUAL). A container child is a level deeper, so don't
+					// re-apply it — a bind INSIDE it would be a different component's spine.
+					undefined,
 				);
 			} else if (n.kind === 'componentInstance') {
 				const def = componentMap.get(n.componentId);
@@ -557,6 +591,9 @@
 		sc: Scene,
 		chain: LayoutNode[],
 		assetKey: string,
+		/** EDITOR-PREVIEW ONLY: auto-play this animation (looped) instead of the bundle's first —
+		 * the tier animation the author is focusing (see `spinePreview`). Undefined ⇒ first animation. */
+		previewAnimation?: string,
 	): SpineRenderTarget {
 		const [a, b, c, d, tx, ty] = composeWorldMatrix(
 			chain,
@@ -570,6 +607,7 @@
 		return {
 			nodeId: node.id,
 			assetKey,
+			defaultAnimation: previewAnimation,
 			loop: true,
 			width: nt.width,
 			height: nt.height,

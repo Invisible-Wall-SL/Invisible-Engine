@@ -735,6 +735,24 @@
 		selectedId && editScene ? findById(editScene.nodes, selectedId) : null,
 	);
 
+	/**
+	 * EDITOR-PREVIEW ONLY: while the author focuses a spine / spineAnimation param on the selected
+	 * componentInstance (e.g. a Win Overlay tier's spine or intro/idle/outro), the canvas previews
+	 * that bundle + animation on the instance's spine — WYSIWYG for the pick. Set by
+	 * `EditorProperties.onPreviewSpine`, forwarded to `EditorCanvas` → `EditorSpineLayer`. Never
+	 * written to the doc. Cleared when the selection changes so a new node starts from its default.
+	 */
+	let spinePreview = $state<{ bundle?: string; animation?: string } | null>(null);
+	const spinePreviewNodeId = $derived(
+		selectedNode?.kind === 'componentInstance' ? selectedNode.id : undefined,
+	);
+	$effect(() => {
+		// Reset the preview when the selected node changes (tracks the id only, so focusing a param on
+		// the SAME instance doesn't clear it).
+		selectedId;
+		spinePreview = null;
+	});
+
 	/** Is the selected node a full-bleed background COVER node (§10.3 step 4)? Mirrors
 	 * `EditorCanvas.isBackgroundCover`: a `background`-space sprite/spine node, OR a
 	 * `bind` anchor whose resolved preview art is a `cover` placement (the full-bleed
@@ -2704,6 +2722,8 @@
 					symbolsDoc={data.symbolsDoc}
 					gridDimensions={data.gridDimensions}
 					{componentMap}
+					{spinePreview}
+					{spinePreviewNodeId}
 					{onSpawn}
 					bind:selectedIds
 					onDirty={markDirty}
@@ -2849,6 +2869,7 @@
 					selectedNode.params = Object.keys(params).length ? params : undefined;
 					markDirty();
 				}}
+				onPreviewSpine={(preview) => (spinePreview = preview)}
 				onSetInstanceStateAnim={(nodeId, state, animation) => {
 					if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
 					const all = { ...(selectedNode.stateAnimationOverrides ?? {}) };
