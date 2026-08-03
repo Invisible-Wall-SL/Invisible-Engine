@@ -60,6 +60,39 @@
 	let amount = $state(0);
 	let winLevelData = $state<WinLevelData | undefined>();
 	let oncomplete = $state(() => {});
+	// Guards `concludePresentation` against a double conclusion (OnMount + a post-count-up tap both
+	// route through it). Reset per win alongside the count-up latch.
+	let concluded = false;
+
+	/**
+	 * Conclude the WIN presentation — resolve the round-blocking `winUpdate` await. On the SEQUENTIAL-
+	 * ESCALATION path (`winState.escalationActive`) it FIRST waits for the final tier's OUTRO to finish
+	 * ({@link winState.escalationOutroComplete}), so a fast-forward / tap-to-skip of the count-up
+	 * collapses the chain to the final tier and plays its outro cleanly instead of the overlay
+	 * concluding mid-chain. Un-escalating ⇒ resolves immediately (byte-identical). Idempotent.
+	 */
+	async function concludePresentation() {
+		if (concluded) return;
+		concluded = true;
+		if (winState.escalationActive) await waitForEscalationOutro();
+		oncomplete();
+	}
+
+	/** A promise that resolves when the escalation outro completes (`WinAnimation` sets the latch).
+	 *  Reactive→promise bridge via a disposable root effect; resolves immediately if already complete. */
+	function waitForEscalationOutro(): Promise<void> {
+		if (winState.escalationOutroComplete) return Promise.resolve();
+		return new Promise<void>((resolve) => {
+			const stop = $effect.root(() => {
+				$effect(() => {
+					if (winState.escalationOutroComplete) {
+						resolve();
+						stop();
+					}
+				});
+			});
+		});
+	}
 
 	context.eventEmitter.subscribeOnMount({
 		winShow: () => {
@@ -67,9 +100,13 @@
 			// Belt-and-suspenders reset (the real reset is on `winHide` below): under the CODED path
 			// `winShow` precedes the presentation, so clearing here keeps the first win clean too.
 			winState.countUpComplete = false;
+			winState.escalationOutroComplete = false;
+			concluded = false;
 		},
 		winHide: () => {
 			show = false;
+			winState.escalationOutroComplete = false;
+			concluded = false;
 			// Reset the count-up-complete latch when the win DISMISSES — the load-bearing reset for a
 			// REPEAT win. Under an authored flow the win container (and its `tapArmAfterSignal:
 			// 'winCountUpComplete'` tap) is mounted by `showContainer` BEFORE that win's `winShow`
@@ -117,7 +154,9 @@
 						winState.countUpComplete = true;
 						context.eventEmitter.broadcast({ type: 'winCountUpComplete' });
 						await roundSkip.wait(300);
-						oncomplete();
+						// On the escalation path this waits for the collapsed chain's final outro before
+						// resolving; un-escalating ⇒ resolves now, exactly as before (byte-identical).
+						await concludePresentation();
 					}}
 				/>
 
@@ -126,7 +165,12 @@
 				<WinStatePublisher {countUpAmount} coinsEmit={!countUpCompleted} />
 
 				{#if codedPressOwned}
-					<PressToContinue onpress={() => (countUpCompleted ? oncomplete() : finishCountUp())} />
+					<!-- Post-count-up tap concludes via `concludePresentation` so an escalation's outro is
+						awaited (not cut). Pre-completion tap still slams the count-up (`finishCountUp`), then
+						OnMount concludes. Un-escalating ⇒ concludes immediately (byte-identical tap-to-slam). -->
+					<PressToContinue
+						onpress={() => (countUpCompleted ? void concludePresentation() : finishCountUp())}
+					/>
 				{:else if !countUpCompleted}
 					<!-- Authorable count-up interaction (hold-to-fast-forward and/or tap-to-skip), mounted ONLY
 						 while the count-up runs (flow path) so it never intercepts the authored `bigWin`

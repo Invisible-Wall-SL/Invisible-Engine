@@ -18,6 +18,16 @@ import type { WinLevelData } from './winLevelMap';
  * off it on subscribe, so a late-subscribing authored `bigWin` container still arms its
  * `tapArmAfterSignal` tap — a ZERO / instant count-up completes within the same tick the container
  * mounts, so the fire would otherwise be lost (no emitter replay) and the tap would never arm.
+ *
+ * `escalationActive` / `escalationOutroComplete` coordinate the SEQUENTIAL-ESCALATION chain
+ * (`WinAnimation`) with the GATE's round-block, so a fast-forward / tap-to-skip of the count-up
+ * concludes the WHOLE presentation coherently instead of truncating the escalation. `WinVisual`
+ * sets `escalationActive` true while an escalation chain is presenting (a final-tier outro WILL
+ * play); `WinAnimation` sets `escalationOutroComplete` true when that outro finishes. The gate then
+ * defers its `oncomplete()` until the outro completes on the escalation path — so a collapsed chain
+ * (count-up done mid-chain ⇒ jump to the final tier + play its outro) is never cut off mid-animation.
+ * Both are reset by `WinGate` on `winShow`/`winHide`. Un-escalating ⇒ `escalationActive` stays false
+ * and the gate concludes exactly as before (byte-identical).
  */
 export const winState = $state<{
 	winLevelData: WinLevelData | undefined;
@@ -25,10 +35,14 @@ export const winState = $state<{
 	countUpAmount: number;
 	coinsEmit: boolean;
 	countUpComplete: boolean;
+	escalationActive: boolean;
+	escalationOutroComplete: boolean;
 }>({
 	winLevelData: undefined,
 	amount: 0,
 	countUpAmount: 0,
 	coinsEmit: false,
 	countUpComplete: false,
+	escalationActive: false,
+	escalationOutroComplete: false,
 });

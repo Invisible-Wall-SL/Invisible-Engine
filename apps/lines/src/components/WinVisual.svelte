@@ -128,6 +128,14 @@
 			: '',
 	);
 
+	// Tell the GATE whether a sequential-escalation chain is presenting (a final-tier outro WILL play),
+	// so it defers concluding the round until that outro finishes — the fix for a fast-forward / skip of
+	// the count-up cutting the escalation off. False whenever there's no chain ⇒ the gate concludes as
+	// before (byte-identical). See `winState` + `WinGate.concludePresentation`.
+	$effect(() => {
+		winState.escalationActive = escalationChain !== undefined;
+	});
+
 	context.eventEmitter.subscribeOnMount({
 		winShow: () => (show = true),
 		winHide: () => (show = false),
@@ -152,6 +160,7 @@
 			{slotName}
 			chain={escalationChain}
 			countUpComplete={winState.countUpComplete}
+			onOutroComplete={() => (winState.escalationOutroComplete = true)}
 			width={boundToInstance ? undefined : context.stateGameDerived.boardLayout().width}
 		>
 			{#if levelCaption}
