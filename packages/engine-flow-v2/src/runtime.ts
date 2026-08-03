@@ -30,6 +30,7 @@ import type {
 	ComputeOp,
 	ContainerId,
 	DataSource,
+	DelayNode,
 	FlowDoc,
 	ForEachNode,
 	FunctionId,
@@ -273,9 +274,9 @@ class FlowInterpreter {
 			}
 
 			case 'delay': {
-				const ms = Number(this.resolveDataIn(graph, node.id, 'ms', scope));
+				const ms = this.resolveDelayMs(graph, node, scope);
 				const scale = this.ctx.env.timeScale() || 1;
-				await this.ctx.env.waitForTimeout((Number.isFinite(ms) ? ms : 0) / scale);
+				await this.ctx.env.waitForTimeout(ms / scale);
 				return this.nextExec(graph, node.id, 'exec');
 			}
 
@@ -412,6 +413,27 @@ class FlowInterpreter {
 		const src = node?.inputs?.[pinId];
 		if (!src) return undefined;
 		return this.resolveDataSource(src, scope);
+	}
+
+	/**
+	 * A Delay's hold in ms, FAIL-SAFE for a wired `ms`. A measurable wire (finite, > 0 — e.g. a
+	 * `showContainer.durationMs` that resolved a real animation length) wins. But when the pin CAN'T
+	 * measure — the asset isn't loaded, a clip name doesn't match, the scene has no animated node, or
+	 * an OLDER runtime doesn't know the pin at all — it yields `0`/`NaN`; feeding that straight to the
+	 * timer collapses the hold to 0 and tears the shown screen down the instant it mounts (the "Spine
+	 * and FX stopped playing" footgun). So an unmeasurable wire falls back to the node's OWN authored
+	 * literal `ms` (the author's floor). An UNWIRED Delay is unchanged — it already reads that literal.
+	 * Final guard: a non-finite/negative result is `0`.
+	 */
+	private resolveDelayMs(graph: Graph, node: DelayNode, scope: Scope): number {
+		const edge = graph.data.find((e) => e.to.node === node.id && e.to.pin === 'ms');
+		if (edge) {
+			const wired = Number(this.resolveDataOut(graph, edge.from, scope));
+			if (Number.isFinite(wired) && wired > 0) return wired;
+		}
+		const src = node.inputs?.ms;
+		const literal = src === undefined ? NaN : Number(this.resolveDataSource(src, scope));
+		return Number.isFinite(literal) && literal >= 0 ? literal : 0;
 	}
 
 	/** Resolve the value produced at a data-OUT `(srcNode, srcPin)`. */
