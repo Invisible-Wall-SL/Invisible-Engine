@@ -1,10 +1,15 @@
 import { SECOND } from 'constants-shared/time';
 
+// `threshold` — the win as a multiple of the total bet at/above which this tier is reached (the
+// facade's coded ladder as data). It is the per-template SOURCE the Game Config defaults generator
+// reads to seed a project's authored `winLevels`; the un-authored runtime path still gets its level
+// from the facade's `computeWinLevel`, and the spike asserts the two agree so they cannot drift.
 export const winLevelMap = {
 	1: {
 		level: 1,
 		alias: 'zero',
 		type: 'small',
+		threshold: 0,
 		text: null,
 		presentDuration: 0,
 		sound: { sfx: undefined, bgm: undefined },
@@ -14,6 +19,7 @@ export const winLevelMap = {
 		level: 2,
 		alias: 'standard',
 		type: 'small',
+		threshold: 0,
 		text: null,
 		presentDuration: 0.6 * SECOND,
 		sound: { sfx: undefined, bgm: undefined },
@@ -23,6 +29,7 @@ export const winLevelMap = {
 		level: 3,
 		alias: 'small',
 		type: 'small',
+		threshold: 1.5,
 		text: null,
 		presentDuration: 1 * SECOND,
 		sound: { sfx: undefined, bgm: undefined },
@@ -32,6 +39,7 @@ export const winLevelMap = {
 		level: 4,
 		alias: 'nice',
 		type: 'medium',
+		threshold: 3,
 		text: null,
 		presentDuration: 1.5 * SECOND,
 		sound: { sfx: undefined, bgm: undefined },
@@ -41,6 +49,7 @@ export const winLevelMap = {
 		level: 5,
 		alias: 'substantial',
 		type: 'medium',
+		threshold: 6,
 		text: null,
 		presentDuration: 2.0 * SECOND,
 		sound: { sfx: undefined, bgm: undefined },
@@ -50,6 +59,7 @@ export const winLevelMap = {
 		level: 6,
 		alias: 'big',
 		type: 'big',
+		threshold: 10,
 		text: 'BIG WIN',
 		presentDuration: 6 * SECOND,
 		sound: { sfx: undefined, bgm: 'bgm_winlevel_big' },
@@ -59,6 +69,7 @@ export const winLevelMap = {
 		level: 7,
 		alias: 'superwin',
 		type: 'big',
+		threshold: 20,
 		text: 'SUPER WIN',
 		presentDuration: 18 * SECOND,
 		sound: { sfx: undefined, bgm: 'bgm_winlevel_superwin' },
@@ -68,6 +79,7 @@ export const winLevelMap = {
 		level: 8,
 		alias: 'mega',
 		type: 'big',
+		threshold: 40,
 		text: 'MEGA WIN',
 		presentDuration: 20 * SECOND,
 		sound: { sfx: undefined, bgm: 'bgm_winlevel_mega' },
@@ -77,6 +89,7 @@ export const winLevelMap = {
 		level: 9,
 		alias: 'epic',
 		type: 'big',
+		threshold: 70,
 		text: 'EPIC WIN!',
 		presentDuration: 26 * SECOND,
 		sound: { sfx: undefined, bgm: 'bgm_winlevel_epic' },
@@ -86,6 +99,7 @@ export const winLevelMap = {
 		level: 10,
 		alias: 'max',
 		type: 'big',
+		threshold: 120,
 		text: 'MAX WIN',
 		presentDuration: 32 * SECOND,
 		sound: { sfx: undefined, bgm: 'bgm_winlevel_max' },
@@ -111,6 +125,10 @@ export type WinLevelData = {
 	level: number;
 	alias: string;
 	type: WinLevelType;
+	/** Win-as-bet-multiplier at/above which this tier is reached — carried so the config-defaults
+	 *  generator can read the coded ladder as data. Optional: a runtime-built tier omits it (its level
+	 *  already comes from the resolver). */
+	threshold?: number;
 	text: string | null;
 	presentDuration: number;
 	sound: { sfx: string | undefined; bgm: string | undefined };

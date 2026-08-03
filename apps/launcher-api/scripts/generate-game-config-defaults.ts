@@ -26,7 +26,13 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { gameConfigErrors, normalizeGameConfigDoc, symbolsInPlay } from 'game-config';
+import {
+	gameConfigErrors,
+	normalizeGameConfigDoc,
+	symbolsInPlay,
+	winLevelMapToTiers,
+	type CodedWinLevelEntry,
+} from 'game-config';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = resolve(HERE, '../src/lib/data/gameConfig');
@@ -80,6 +86,26 @@ for (const [gameType, configPath] of targets) {
 		);
 		failures++;
 		continue;
+	}
+
+	// The template's DEFAULT win tiers come from its own coded `winLevelMap.ts` (next to config.ts),
+	// converted to an authored `winLevels` list — so each template seeds its own tiers, not a shared
+	// constant. Absent/unreadable ⇒ no `winLevels` (the project keeps the coded ladder). Re-normalized
+	// so what we write is canonical and matches what the tool + spike re-derive.
+	const winLevelMapPath = resolve(dirname(configPath), 'winLevelMap.ts');
+	try {
+		const wl = (await import(pathToFileURL(winLevelMapPath).href)) as {
+			winLevelMap?: Record<string | number, CodedWinLevelEntry>;
+		};
+		if (wl.winLevelMap) {
+			const withTiers = normalizeGameConfigDoc({
+				...doc,
+				winLevels: winLevelMapToTiers(wl.winLevelMap),
+			});
+			if (withTiers) Object.assign(doc, withTiers);
+		}
+	} catch {
+		// No sibling winLevelMap.ts (or it failed to import) — leave the default without win tiers.
 	}
 
 	// A default that ships errors would seed every new project of this type with a broken config.

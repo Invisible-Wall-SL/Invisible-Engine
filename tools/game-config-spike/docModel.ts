@@ -22,7 +22,6 @@
 import { readFileSync } from 'node:fs';
 
 import {
-	DEFAULT_WIN_LEVELS,
 	GAME_CONFIG_DOC_VERSION,
 	normalizeGameConfigDoc,
 	resolveWinLevel,
@@ -34,11 +33,13 @@ import {
 	validateGameConfigDoc,
 	gameConfigErrors,
 	isSymbolInPlay,
+	winLevelMapToTiers,
 	winLevelType,
 	type GameConfigDoc,
 } from 'game-config';
 
 import templateConfig from '../../apps/lines/src/game/config';
+import { winLevelMap } from '../../apps/lines/src/game/winLevelMap';
 
 let failures = 0;
 const assert = (cond: boolean, msg: string): void => {
@@ -238,7 +239,13 @@ const DEFAULT_PATH = new URL(
 	'../../apps/launcher-api/src/lib/data/gameConfig/lines.json',
 	import.meta.url,
 );
-const derived = { ...template };
+// The generator attaches the template's default win tiers from its own coded winLevelMap, then
+// re-normalizes — mirror that here so the drift check compares like for like.
+const derivedWithTiers = normalizeGameConfigDoc({
+	...template,
+	winLevels: winLevelMapToTiers(winLevelMap),
+});
+const derived = { ...(derivedWithTiers ?? template) };
 delete derived.updatedAt;
 let committedRaw: string | null = null;
 try {
@@ -464,26 +471,34 @@ assert(
 	'normalize is idempotent with authored win tiers',
 );
 
-console.log('\nwin tiers — DEFAULT_WIN_LEVELS seed (the /config "Load default tiers" button)');
-// The seed the tool offers must itself be a valid, error-free ladder, and its resolver must
-// reproduce the coded facade ladder (stakeFacade computeWinLevel) — otherwise "Load defaults" would
-// hand the author a config that behaves differently from the un-authored fallback it mirrors.
+console.log('\nwin tiers — per-template default (winLevelMapToTiers → the "Load default tiers" seed)');
+// The default the tool seeds is the TEMPLATE's own tiers, converted from that template's coded
+// winLevelMap. It must be a valid, error-free ladder, and its resolver must reproduce the coded
+// facade ladder (stakeFacade computeWinLevel) — otherwise a template-seeded project would behave
+// differently from the un-authored fallback it mirrors. `seeded` uses the SAME converter the
+// generator does, so this also covers the /config "Load default tiers" button (it clones these).
+const seededTiers = winLevelMapToTiers(winLevelMap);
 const seeded = normalizeGameConfigDoc({
 	...JSON.parse(JSON.stringify(template)),
-	winLevels: JSON.parse(JSON.stringify(DEFAULT_WIN_LEVELS)),
+	winLevels: seededTiers,
 }) as GameConfigDoc;
 assert(
 	validateGameConfigDoc(seeded).every((i) => i.severity !== 'error'),
-	'DEFAULT_WIN_LEVELS has no blocking errors',
+	'the template default tiers have no blocking errors',
 );
-assert(DEFAULT_WIN_LEVELS.length === 10, 'the seed has the coded 10 tiers');
+assert(seededTiers.length === 10, 'the lines template seeds its coded 10 tiers');
 assert(
-	DEFAULT_WIN_LEVELS.filter((t) => t.type === 'big').length === 5,
+	seededTiers.filter((t) => t.type === 'big').length === 5,
 	'five big tiers carry animations',
 );
 assert(
-	DEFAULT_WIN_LEVELS.filter((t) => t.type === 'big').every((t) => !!t.animation && !!t.sound?.bgm),
+	seededTiers.filter((t) => t.type === 'big').every((t) => !!t.animation && !!t.sound?.bgm),
 	'every big tier has an intro/idle/outro set + a bgm',
+);
+// The regenerated lines.json (what the tool actually loads as the template default) carries them.
+assert(
+	(derived.winLevels?.length ?? 0) === 10,
+	'the committed lines.json template default ships the 10 tiers',
 );
 // The coded facade ladder (stakeFacade.computeWinLevel), sample → expected level:
 const codedLadder: Array<[number, number]> = [
@@ -502,13 +517,14 @@ const codedLadder: Array<[number, number]> = [
 for (const [x, level] of codedLadder) {
 	assert(
 		resolveWinLevel(seeded, x) === level,
-		`DEFAULT_WIN_LEVELS resolves ${x}× bet → level ${level} (matches the coded facade ladder)`,
+		`the template default resolves ${x}× bet → level ${level} (matches the coded facade ladder)`,
 	);
 }
-// The seed is a STARTING POINT, not the fallback: it must NOT leak into an un-authored doc.
+// The default is opt-in: the raw compiled config (config.ts) has NO tiers — they come only from the
+// generator merging in the winLevelMap, and an un-authored project ships nothing.
 assert(
 	resolveWinLevels(template) === undefined,
-	'the template (un-authored) still has NO win tiers — the seed is opt-in',
+	'the raw compiled config (un-authored) still has NO win tiers — the default is opt-in',
 );
 
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nall checks passed');
