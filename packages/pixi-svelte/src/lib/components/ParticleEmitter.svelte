@@ -6,7 +6,7 @@
 		type EmitterConfigV2,
 		type EmitterConfigV1,
 	} from '@barvynkoa/particle-emitter';
-	import { bindArt, behaviorsOf, type BehaviorEntry } from 'engine-fx';
+	import { bindArt, behaviorsOf, emitterDeltaSeconds, type BehaviorEntry } from 'engine-fx';
 	import type { Texture } from 'pixi.js';
 
 	import type { LoadedSpriteSheet } from '../types';
@@ -152,8 +152,10 @@
 	if (context.stateApp.pixiApplication) {
 		context.stateApp.pixiApplication.ticker.add(() => {
 			if (context.stateApp.pixiApplication) {
-				const deltaUpdate =
-					context.stateApp.pixiApplication.ticker.deltaMS * (props.emitSpeed || 0.00234);
+				const deltaUpdate = emitterDeltaSeconds(
+					context.stateApp.pixiApplication.ticker.deltaMS,
+					props.emitSpeed,
+				);
 				emitter.update(deltaUpdate);
 			}
 		});

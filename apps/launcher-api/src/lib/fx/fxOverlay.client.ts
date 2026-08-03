@@ -28,6 +28,7 @@
 import { Emitter } from '@barvynkoa/particle-emitter';
 import {
 	bindArt,
+	emitterDeltaSeconds,
 	normalizeEffectDoc,
 	planLayer,
 	type EffectDoc,
@@ -204,7 +205,11 @@ export function createFxOverlay(): FxOverlayApi {
 			world = new Container();
 			app.stage.addChild(world);
 			app.ticker.add((ticker) => {
-				tick(ticker.deltaMS / 1000);
+				// Advance the emitters by the SAME scalar the in-game runtime uses (`ParticleEmitter.svelte`),
+				// so this Rigger/Symbols overlay plays FX at the real game speed — not the old 1× real-seconds
+				// (`deltaMS / 1000`) that made the preview ~2.34× slower than the game. See `engine-fx`
+				// `emitterDeltaSeconds` / `DEFAULT_EMIT_SPEED`.
+				tick(emitterDeltaSeconds(ticker.deltaMS));
 			});
 		})();
 		return initPromise;

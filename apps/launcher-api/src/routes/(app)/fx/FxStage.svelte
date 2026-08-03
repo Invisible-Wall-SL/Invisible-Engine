@@ -24,7 +24,7 @@
 	 */
 	import { Emitter } from '@barvynkoa/particle-emitter';
 	import type * as SPINE from '@esotericsoftware/spine-pixi-v8';
-	import { bindArt, behaviorsOf, type EmitterLayer } from 'engine-fx';
+	import { bindArt, behaviorsOf, emitterDeltaSeconds, type EmitterLayer } from 'engine-fx';
 	import {
 		createPixiSpineBackingFactory,
 		registerSpineParticleBehavior,
@@ -169,15 +169,21 @@
 			ready = true;
 			app.ticker.add((ticker) => {
 				if (!playing) return;
-				const dt = ticker.deltaMS / 1000;
+				// The backdrop SKELETON advances in real seconds (a spine clip is wall-clock) …
+				const dtSeconds = ticker.deltaMS / 1000;
+				// … but the EMITTERS must advance by the SAME scalar the in-game runtime uses
+				// (`ParticleEmitter.svelte`), or the preview plays FX at a different speed than the
+				// game — the ~2.34× drift that made authored delays never match (see
+				// `engine-fx` `emitterDeltaSeconds` / `DEFAULT_EMIT_SPEED`).
+				const dtEmitter = emitterDeltaSeconds(ticker.deltaMS);
 				// Advance the backdrop skeleton (autoUpdate is off so we gate it on play/pause).
-				loadedSpine?.spine.update(dt);
+				loadedSpine?.spine.update(dtSeconds);
 				// Ride bone-placed emitters on the live bone transform, THEN advance them — so a
 				// flame stays welded to the moving torch tip rather than lagging a frame.
 				followBones();
 				for (const { emitter } of live.values()) {
 					try {
-						emitter.update(dt);
+						emitter.update(dtEmitter);
 					} catch (err) {
 						// A degenerate config (e.g. a 0-lifetime particle → Infinity interpolation) can
 						// make the library throw mid-update. Isolate it so one bad emitter doesn't throw

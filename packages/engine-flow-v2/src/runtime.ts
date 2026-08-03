@@ -66,6 +66,13 @@ export interface FlowV2Env {
 	 *  round until the player taps. Optional: an env without it (a pure recorder) makes the hold a
 	 *  no-op (resolves immediately), so a headless harness never deadlocks. */
 	awaitContainerComplete?(containerId: string): Promise<void>;
+	/** A `showContainer` node's `durationMs` data-out — the wall-clock ms of the container's backing
+	 *  scene's LONGEST animation (max over its spine/effect nodes), so an author can wire it into a
+	 *  Delay's `ms` and hold for exactly the screen's animation. The env maps the containerId → its
+	 *  scene → duration; the generic runtime needs no access to the doc's containers. Optional: an env
+	 *  without it (a pure recorder) resolves the pin to `0`, so a headless harness never depends on
+	 *  loaded assets. */
+	containerAnimationMs?(containerId: string): number;
 	/** An `$engine.<key>` accessor read — a template global (e.g. `reels`, `slots`). */
 	engineRead(key: string): unknown;
 }
@@ -435,6 +442,13 @@ class FlowInterpreter {
 				return this.callOutputs.get(from.node)?.[from.pin];
 			case 'compute':
 				return this.evalCompute(graph, src, scope);
+			case 'showContainer':
+				// The `durationMs` data-out: the backing scene's longest animation in wall-clock ms,
+				// computed by the injected env (containerId → scene → max over its animated nodes). A
+				// recorder env without the hook resolves it to 0 (headless never depends on loaded assets).
+				return from.pin === 'durationMs'
+					? (this.ctx.env.containerAnimationMs?.(src.ref) ?? 0)
+					: undefined;
 			default:
 				return undefined;
 		}

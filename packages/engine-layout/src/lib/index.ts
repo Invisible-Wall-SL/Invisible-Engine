@@ -19,6 +19,7 @@ export * from './backgroundScenes';
 export * from './genericMountScenes';
 export * from './layerOrder';
 export * from './resolveTransform';
+export * from './sceneDuration';
 export * from './textBoxLayout';
 export * from './componentParams';
 export * from './tapToContinue';
