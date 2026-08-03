@@ -26,7 +26,13 @@
  */
 
 import type { LayoutDoc, Scene } from 'engine-layout';
-import { sceneLayerZIndex } from 'engine-layout';
+import {
+	getComponent,
+	resolveEffect,
+	sceneAnimationDurationMs,
+	sceneLayerZIndex,
+} from 'engine-layout';
+import { emitterSecondsToWallMs } from 'engine-fx';
 import type { MountedContainerRef } from 'engine-layout/svelte';
 import {
 	awaitCompleteContainerIds,
@@ -51,6 +57,7 @@ import { roundSkip } from 'utils-shared/skipToken';
 
 import { bakedFlowV2Doc, bakedFlowV2Library } from '../editor-scenes';
 import { eventEmitter } from './eventEmitter';
+import { stateApp } from './stateApp';
 import { flowEffect, flowEffectNames } from './flowEffects';
 import { linesEngineReader } from './flowRuntime.svelte';
 import { awaitCue, waitPresentation } from './unskippablePresentation';
@@ -223,6 +230,22 @@ const INTENT_COMMANDS: Record<string, string> = {
 	autoSpin: 'autoSpin',
 };
 
+/** A structural narrow for a loaded Spine `SkeletonData` — just the `findAnimation` we read, so this
+ *  module needs no `@esotericsoftware/spine-*` type import to measure a clip's duration. */
+type SkeletonDataLike = { findAnimation(name: string): { duration: number } | null };
+const isSkeletonData = (v: unknown): v is SkeletonDataLike =>
+	typeof v === 'object' &&
+	v !== null &&
+	typeof (v as { findAnimation?: unknown }).findAnimation === 'function';
+
+/** The canonical bundle FOLDER of a loaded spine key — the same fallback `EffectLayer` uses so an
+ *  authored `assetKey` resolves whether the skeleton shipped under the bare folder or a full R2 prefix. */
+const spineBundleFolderOf = (key: string): string => {
+	const trimmed = key.endsWith('/') ? key.slice(0, -1) : key;
+	const m = trimmed.match(/(?:^|\/)spines\/(.+)$/);
+	return m ? m[1] : trimmed;
+};
+
 export const createLinesFlowV2 = (
 	editorDoc: LayoutDoc,
 	onContainersChange?: (containers: MountedContainerRef[]) => void,
@@ -364,6 +387,59 @@ export const createLinesFlowV2 = (
 				heldContainers: () => slamAwareMount.heldContainers(),
 			}
 		: slamAwareMount;
+	// The `showContainer.durationMs` OUTPUT pin: the shown scene's LONGEST animation in wall-clock ms,
+	// so an author can wire it into a Delay's `ms` and hold for exactly the screen's animation instead
+	// of a guessed literal. Asset-free `sceneAnimationDurationMs` walks the scene; these resolvers turn
+	// the layout doc's NAMES into real durations game-side — a spine clip via the LOADED skeleton
+	// (`SkeletonData.findAnimation(...).duration`), an effect via its baked doc + the FX time-scale
+	// (`emitterSecondsToWallMs`, the shared 0.00234 emit-speed). Any un-loaded / un-baked / unknown
+	// asset is skipped ⇒ the scene's max, or 0 when nothing is measurable (parity-safe: a Delay fed 0
+	// simply doesn't wait, and a Delay with a literal `ms` is untouched — the wire is opt-in).
+	const spineClipMs = (assetKey: string, animation: string | undefined): number | undefined => {
+		if (!animation) return undefined;
+		const loaded = stateApp.loadedAssets ?? {};
+		let data: unknown = loaded[assetKey];
+		if (!isSkeletonData(data)) {
+			const hit = Object.keys(loaded).find((k) => spineBundleFolderOf(k) === assetKey);
+			data = hit ? loaded[hit] : undefined;
+		}
+		if (!isSkeletonData(data)) return undefined; // skeleton not loaded yet ⇒ not measurable (skip).
+		const clip = data.findAnimation(animation);
+		return clip ? clip.duration * 1000 : undefined;
+	};
+	const effectMs = (effectId: string): number | undefined => {
+		const effect = resolveEffect(effectId);
+		if (!effect) return undefined;
+		let max: number | undefined;
+		for (const layer of effect.layers) {
+			const explicit = layer.trigger?.duration;
+			let ms: number | undefined;
+			if (typeof explicit === 'number' && Number.isFinite(explicit)) {
+				ms = explicit; // authored burst length (already wall-clock ms).
+			} else {
+				const life = layer.config.emitterLifetime;
+				// `emitterLifetime` is emitter-SECONDS (-1 = continuous, no finite end); only a positive
+				// finite value is a measurable burst, converted through the runtime time-scale.
+				if (typeof life === 'number' && life > 0) ms = emitterSecondsToWallMs(life);
+			}
+			if (ms !== undefined && (max === undefined || ms > max)) max = ms;
+		}
+		return max;
+	};
+	const containerAnimationMs = (containerId: string): number => {
+		const sceneId = doc.containers.find((c) => c.id === containerId)?.sceneId;
+		const scene = sceneId ? editorDoc.scenes.find((s) => s.id === sceneId) : undefined;
+		if (!scene) return 0;
+		return sceneAnimationDurationMs(scene, {
+			spineClipMs,
+			effectMs,
+			resolveComponent: (defId) => {
+				const def = getComponent(defId);
+				return def ? { root: def.root } : undefined;
+			},
+		});
+	};
+
 	const env = createFlowV2Env({
 		mount,
 		// The game-side effect registry — the SAME closed map of named effects the v1/coded path
@@ -405,6 +481,8 @@ export const createLinesFlowV2 = (
 		// The bounded `$engine.*` reader — reused verbatim from the v1 wiring (one source of truth
 		// for what a guard/readout sees).
 		engineRead: linesEngineReader,
+		// The `showContainer.durationMs` pin — the shown scene's longest animation, in wall-clock ms.
+		containerAnimationMs,
 	});
 
 	const ctx: RunContext = { vocab, library: loadFlowV2Library(), env };

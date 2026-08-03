@@ -275,7 +275,17 @@ export const derivePins = (node: Node, ctx: PinContext, scope: PinScope = {}): P
 			const eventOuts = events.map(
 				(d) => ({ id: d.id, dir: 'out', kind: 'exec', label: d.label }) as Pin,
 			);
-			return [EXEC_IN, EXEC_OUT, ...eventOuts];
+			// A `durationMs` data-out: the backing scene's longest animation, in wall-clock ms (max over its
+			// spine/effect nodes), resolved by the runtime env. Wire it into a Delay's `ms` to hold for
+			// exactly the screen's animation instead of a guessed literal.
+			const durationOut = dataOut(
+				'durationMs',
+				{ t: 'ms' },
+				'Animation duration (ms)',
+				"This screen's longest animation, in wall-clock ms (the max over its spine/effect nodes). " +
+					'Wire into a Delay to hold for exactly that long. 0 when nothing measurable is mounted yet.',
+			);
+			return [EXEC_IN, EXEC_OUT, ...eventOuts, durationOut];
 		}
 		case 'hideContainer':
 			return [EXEC_IN, EXEC_OUT];
