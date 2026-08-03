@@ -6,6 +6,7 @@
 	import InitialiseApplication from './InitialiseApplication.svelte';
 	import InitialiseParent from './InitialiseParent.svelte';
 	import AssetsLoader from './AssetsLoader.svelte';
+	import MemoryHud from './MemoryHud.svelte';
 
 	type Props = { children: Snippet };
 
@@ -23,3 +24,6 @@
 		</AssetsLoader>
 	</InitialiseParent>
 </InitialiseApplication>
+
+<!-- On-device memory readout — inert unless the URL carries `?memhud=1`. -->
+<MemoryHud />
