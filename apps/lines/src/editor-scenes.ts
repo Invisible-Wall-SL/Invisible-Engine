@@ -525,6 +525,37 @@ export function placedEffectIds(): Set<string> {
 }
 
 /**
+ * The authored params of the `win` componentInstance in the baked/runtime layout, if one is placed —
+ * the source of the per-tier PRESENTATION overrides (`docs/tools/component-editor.md`). Published to
+ * `game/gameConfig.ts` at boot ({@link publishWinPresentation}) so the per-tier DURATION + SOUND reach
+ * the out-of-tree consumers (`WinGate` duration, `winLevelSoundsPlay`). `undefined` when un-baked (dev)
+ * or no `win` instance is placed (the coded `Win` bind path) ⇒ the overlay is empty and every field
+ * falls back to the config/coded tier, byte-identical. Walks scenes + container children, returning the
+ * FIRST `win` instance's `params` (a game places exactly one win overlay).
+ */
+export function bakedWinPresentationParams(): Record<string, unknown> | undefined {
+	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
+	const scenes = source?.doc?.scenes;
+	if (!Array.isArray(scenes)) return undefined;
+	let found: Record<string, unknown> | undefined;
+	const walk = (nodes: LayoutNode[]): void => {
+		for (const n of nodes) {
+			if (found) return;
+			if (n.kind === 'componentInstance' && n.componentId === 'win') {
+				found = n.params ?? {};
+				return;
+			}
+			if (n.kind === 'container' && Array.isArray(n.children)) walk(n.children);
+		}
+	};
+	for (const scene of scenes) {
+		if (found) break;
+		if (Array.isArray(scene.nodes)) walk(scene.nodes);
+	}
+	return found;
+}
+
+/**
  * The effect ids referenced by a rig-timeline FX binding ({@link bakedRigFx}). `components/Effects.svelte`
  * skips these when auto-mounting free effects: a rig-bound effect is already mounted by `<RiggedEffect>`
  * on its HOST rig (a placed layout spine via `LayoutNodeView`, or a symbol spine via `SymbolSpineMain`),

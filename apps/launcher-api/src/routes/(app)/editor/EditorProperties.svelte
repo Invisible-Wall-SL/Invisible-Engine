@@ -322,13 +322,24 @@
 	/** The effective spine bundle a `spineAnimation`/`spineSlot` param reads its options
 	 * from: the value of its sibling `spineParam` on the selected instance, falling back to
 	 * that sibling param's DEFAULT from the def (so the dropdown populates before the spine
-	 * param is explicitly set). */
+	 * param is explicitly set). When the sibling has NO value and NO default (e.g. the win
+	 * overlay's per-tier `<alias>Spine`, deliberately default-less so it falls back to the
+	 * config `spineKey` at runtime), fall back to the def's FIRST `spine`-kind param
+	 * (`winSpine`) so the per-tier animation dropdowns still list the base bundle's animations
+	 * instead of degrading to free text. */
 	function effectiveSpineBundle(p: ComponentParam): string | undefined {
 		if (!p.spineParam || !node || node.kind !== 'componentInstance') return undefined;
 		const override = node.params?.[p.spineParam];
 		if (typeof override === 'string' && override) return override;
 		const sib = instanceComponent?.params?.find((q) => q.key === p.spineParam);
-		return typeof sib?.default === 'string' ? sib.default : undefined;
+		if (typeof sib?.default === 'string' && sib.default) return sib.default;
+		const primary = instanceComponent?.params?.find((q) => q.kind === 'spine');
+		if (primary && primary.key !== p.spineParam) {
+			const primaryOverride = node.params?.[primary.key];
+			if (typeof primaryOverride === 'string' && primaryOverride) return primaryOverride;
+			if (typeof primary.default === 'string' && primary.default) return primary.default;
+		}
+		return undefined;
 	}
 
 	/** The spine BUNDLE NAME a placed instance's spine node resolves its SOURCE to when that

@@ -897,92 +897,138 @@ export const FREE_SPIN_OUTRO_VISUAL_DEF: ComponentDef = {
  * self-centring on the board — drag/scale the instance to move the big-win art. The full-screen GATE
  * (dim + count-up driver + WinCoins + press + round-await) stays the coded `canvas` bind `WinGate`.
  *
- * ANIMATION cues — the 5 big tiers (big/super/mega/epic/max) each play `intro` → `idle` (loop) →
- * `exit`. Resolution per tier is: a PER-TIER override (`<tier>Intro`/`Idle`/`Exit`, in that tier's
- * group) ?? the SHARED set (`introAnimation`/`idleAnimation`/`exitAnimation`, applies to every tier)
- * ?? the coded `winLevelMap` convention default (`big_win_intro`, …). Every field is empty by
- * default, so an un-authored instance falls all the way through to the convention ⇒ parity. The
- * shared set covers the common "one animation for all tiers" spine in three fields; the per-tier
- * groups exist for a spine with distinct art per tier. All are `spineAnimation` dropdowns of
- * `winSpine`'s real animations (no blind typing). {@link mergeBuiltinCodedParams} unions these onto
- * an already-placed pinned instance at resolve time, so adding them needs no version bump.
+ * ANIMATION + SPINE + DURATION + SOUND per BIG TIER — the presentation half of the config/component
+ * split (`docs/tools/game-config.md`): the `/config` panel owns tier STRUCTURE (count / name /
+ * threshold / type / escalation); this component owns per-tier PRESENTATION. The per-tier groups are
+ * GENERATED from the active game config's big tiers (keyed by the tier's ALIAS) via
+ * {@link winTierPresentationParams}, so the two stay in sync — a config that authors `big`/`mega`/`max`
+ * gets exactly those three groups. The built-in {@link WIN_DEF} is generated from
+ * {@link DEFAULT_WIN_TIERS} (the coded `winLevelMap`'s big tiers) so an un-authored project renders
+ * byte-identically; the editor rebuilds the def from the ACTIVE config's tiers on load.
+ *
+ * Per tier `<alias>` the group carries: `<alias>Spine` (spine picker), `<alias>Intro`/`Idle`/`Outro`
+ * (`spineAnimation` dropdowns of the tier's chosen spine — no blind typing), `<alias>Duration` (ms),
+ * `<alias>Sfx`, `<alias>Bgm`. Resolution per field, at runtime: the PER-TIER value ?? the SHARED set
+ * (`winSpine`/`introAnimation`/`idleAnimation`/`exitAnimation`, all tiers) ?? the config/coded tier's
+ * own value (`spineKey`/`animation`/`durationMs`/`sound`). Every per-tier field is empty by default, so
+ * an un-authored instance falls all the way through to the config/coded value ⇒ parity.
+ * {@link mergeBuiltinCodedParams} unions these onto an already-placed pinned instance at resolve time,
+ * so adding them needs no version bump.
  */
-const WIN_TIER_ANIMATION_PARAMS: ComponentParam[] = (
-	[
-		['big', 'Big win'],
-		['super', 'Super win'],
-		['mega', 'Mega win'],
-		['epic', 'Epic win'],
-		['max', 'Max win'],
-	] as const
-).flatMap(([prefix, group]): ComponentParam[] => [
-	{ key: `${prefix}Intro`, kind: 'spineAnimation', spineParam: 'winSpine', group, label: 'intro' },
-	{ key: `${prefix}Idle`, kind: 'spineAnimation', spineParam: 'winSpine', group, label: 'idle' },
-	{ key: `${prefix}Exit`, kind: 'spineAnimation', spineParam: 'winSpine', group, label: 'exit' },
-]);
 
-export const WIN_DEF: ComponentDef = {
-	id: 'win',
-	name: 'Win Overlay',
-	version: 1,
-	scope: 'shared',
-	category: 'overlay',
-	root: {
-		id: 'win-root',
-		kind: 'container',
-		x: 0,
-		y: 0,
-		children: [
-			{
-				id: 'win-anim',
-				label: 'Win Overlay',
-				kind: 'container',
-				x: 0,
-				y: 0,
-				bind: { component: 'WinVisual', props: { boundToInstance: true } },
-				children: [],
-			},
-		],
+/** Display metadata for one win TIER the `win` component authors a presentation group for. */
+export type WinTierMeta = { alias: string; name: string };
+
+/**
+ * The conventional big tiers (the coded `apps/lines` `winLevelMap` big rows). The DEFAULT presentation
+ * groups when a project has NOT authored config `winLevels`, so the built-in `win` component is
+ * byte-identical to before. The editor replaces these with the ACTIVE config's big tiers when one is
+ * authored (see the launcher's `/editor` `winTierPresentationParams` overlay).
+ */
+export const DEFAULT_WIN_TIERS: WinTierMeta[] = [
+	{ alias: 'big', name: 'Big win' },
+	{ alias: 'superwin', name: 'Super win' },
+	{ alias: 'mega', name: 'Mega win' },
+	{ alias: 'epic', name: 'Epic win' },
+	{ alias: 'max', name: 'Max win' },
+];
+
+/**
+ * Per-tier presentation params for the `win` component — a spine picker + intro/idle/outro dropdowns
+ * (of that spine's animations) + duration + sfx/bgm, ONE collapsible group per tier, keyed by the
+ * tier's ALIAS so the runtime resolves each field by `<alias><Field>`. Generated from a big-tier list
+ * (the active config's tiers, or {@link DEFAULT_WIN_TIERS} un-authored) so the component's groups mirror
+ * the config's tiers. The per-tier `<alias>Spine` carries NO default, so an unset tier spine falls back
+ * to the config `spineKey` then the shared `winSpine` at runtime (correct precedence); the editor's
+ * animation dropdowns fall back to `winSpine`'s animations when the tier spine is unset.
+ */
+export function winTierPresentationParams(tiers: WinTierMeta[]): ComponentParam[] {
+	return tiers.flatMap(({ alias, name }): ComponentParam[] => {
+		const spineParam = `${alias}Spine`;
+		return [
+			{ key: spineParam, kind: 'spine', group: name, label: 'spine bundle' },
+			{ key: `${alias}Intro`, kind: 'spineAnimation', spineParam, group: name, label: 'intro' },
+			{ key: `${alias}Idle`, kind: 'spineAnimation', spineParam, group: name, label: 'idle' },
+			{ key: `${alias}Outro`, kind: 'spineAnimation', spineParam, group: name, label: 'outro' },
+			{ key: `${alias}Duration`, kind: 'number', group: name, label: 'duration (ms)' },
+			{ key: `${alias}Sfx`, kind: 'string', group: name, label: 'sfx' },
+			{ key: `${alias}Bgm`, kind: 'string', group: name, label: 'bgm' },
+		];
+	});
+}
+
+/** The `win` component's base + shared params (everything that is NOT a per-tier group). */
+const WIN_BASE_PARAMS: ComponentParam[] = [
+	{ key: 'winSpine', kind: 'spine', default: 'bigwin', label: 'big-win spine bundle' },
+	{
+		key: 'slotName',
+		kind: 'spineSlot',
+		spineParam: 'winSpine',
+		default: 'slot_win_count',
+		label: 'count slot',
 	},
-	params: [
-		{ key: 'winSpine', kind: 'spine', default: 'bigwin', label: 'big-win spine bundle' },
-		{
-			key: 'slotName',
-			kind: 'spineSlot',
-			spineParam: 'winSpine',
-			default: 'slot_win_count',
-			label: 'count slot',
+	// The coin-fountain particles, now part of the placeable visual (position/scale follow the
+	// `win` instance node). Default true ⇒ parity with the coded gate that used to own them.
+	{ key: 'showCoins', kind: 'boolean', default: true, label: 'coin fountain' },
+	// Shared set — applies to ALL tiers unless a per-tier group below overrides it. Empty ⇒ the
+	// config/coded tier's own animation (parity).
+	{
+		key: 'introAnimation',
+		kind: 'spineAnimation',
+		spineParam: 'winSpine',
+		group: 'Animations (all tiers)',
+		label: 'intro',
+	},
+	{
+		key: 'idleAnimation',
+		kind: 'spineAnimation',
+		spineParam: 'winSpine',
+		group: 'Animations (all tiers)',
+		label: 'idle',
+	},
+	{
+		key: 'exitAnimation',
+		kind: 'spineAnimation',
+		spineParam: 'winSpine',
+		group: 'Animations (all tiers)',
+		label: 'exit',
+	},
+];
+
+/**
+ * Build the `win` component def for a big-tier list — the base/shared params + one presentation group
+ * per tier ({@link winTierPresentationParams}). The built-in uses {@link DEFAULT_WIN_TIERS}; the editor
+ * calls this with the ACTIVE game config's big tiers so the component's groups mirror the config.
+ */
+export function winComponentDef(tiers: WinTierMeta[] = DEFAULT_WIN_TIERS): ComponentDef {
+	return {
+		id: 'win',
+		name: 'Win Overlay',
+		version: 1,
+		scope: 'shared',
+		category: 'overlay',
+		root: {
+			id: 'win-root',
+			kind: 'container',
+			x: 0,
+			y: 0,
+			children: [
+				{
+					id: 'win-anim',
+					label: 'Win Overlay',
+					kind: 'container',
+					x: 0,
+					y: 0,
+					bind: { component: 'WinVisual', props: { boundToInstance: true } },
+					children: [],
+				},
+			],
 		},
-		// The coin-fountain particles, now part of the placeable visual (position/scale follow the
-		// `win` instance node). Default true ⇒ parity with the coded gate that used to own them.
-		{ key: 'showCoins', kind: 'boolean', default: true, label: 'coin fountain' },
-		// Shared set — applies to ALL tiers unless a per-tier group below overrides it. Empty ⇒ the
-		// per-tier `winLevelMap` convention (parity).
-		{
-			key: 'introAnimation',
-			kind: 'spineAnimation',
-			spineParam: 'winSpine',
-			group: 'Animations (all tiers)',
-			label: 'intro',
-		},
-		{
-			key: 'idleAnimation',
-			kind: 'spineAnimation',
-			spineParam: 'winSpine',
-			group: 'Animations (all tiers)',
-			label: 'idle',
-		},
-		{
-			key: 'exitAnimation',
-			kind: 'spineAnimation',
-			spineParam: 'winSpine',
-			group: 'Animations (all tiers)',
-			label: 'exit',
-		},
-		// Per-tier overrides — optional. Empty ⇒ use the shared set above (or the convention).
-		...WIN_TIER_ANIMATION_PARAMS,
-	],
-};
+		params: [...WIN_BASE_PARAMS, ...winTierPresentationParams(tiers)],
+	};
+}
+
+export const WIN_DEF: ComponentDef = winComponentDef();
 
 /**
  * A droppable full-screen TAP-TO-CONTINUE overlay (Invisible Flow §6.2). An author

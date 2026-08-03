@@ -14,6 +14,7 @@
 		mountAnchor,
 		resolveAnchorPreviewArt,
 		STANDARD_MAIN_SIZES_MAP,
+		winTierPresentationParams,
 	} from 'engine-layout';
 	import type {
 		ComponentDef,
@@ -360,9 +361,28 @@
 
 	/** The two editor modes. (Component authoring is its own tool now.) */
 	let mode = $state<'scene' | 'template'>('scene');
+	/**
+	 * Rebuild the `win` component's per-tier PRESENTATION groups from the ACTIVE game config's big
+	 * tiers (`data.winTiers`), so its spine/animation/duration/sound groups mirror the config panel's
+	 * authored tiers (keyed by alias). The base/shared params (before the first per-tier group) are
+	 * kept verbatim; only the generated tail is replaced. Null tiers ⇒ the built-in default groups
+	 * (byte-identical). Any other component passes through untouched.
+	 */
+	function withConfigWinTiers(defs: ComponentDef[]): ComponentDef[] {
+		if (!data.winTiers) return defs;
+		const tiers = data.winTiers;
+		return defs.map((def) => {
+			if (def.id !== 'win' || !def.params) return def;
+			// Base/shared params carry no group or the shared "Animations (all tiers)" group; every
+			// per-tier param lives under its tier's own group — so keep the former, regenerate the latter.
+			const base = def.params.filter((p) => !p.group || p.group === 'Animations (all tiers)');
+			return { ...def, params: [...base, ...winTierPresentationParams(tiers)] };
+		});
+	}
+
 	/** Components the project can use (shared + project shadow) — drives the picker +
 	 * the canvas's `componentInstance` resolution. */
-	let components = $state<ComponentDef[]>(structuredClone(data.components));
+	let components = $state<ComponentDef[]>(withConfigWinTiers(structuredClone(data.components)));
 	/** Status pill for the "Edit as component" materialize→open-tool flow. */
 	let componentBusy = $state(false);
 	let componentStatus = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);

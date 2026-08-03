@@ -53,7 +53,14 @@ By default the game uses a built-in table of win levels (BIG / SUPER / MEGA / EP
 MAX and the smaller bands below them), and the win each spin lands on is computed
 from a fixed threshold ladder. The **Big win tiers** panel lets a project replace the
 CELEBRATIONS with its own — however many big tiers it wants, named, with its own
-thresholds and animations.
+thresholds.
+
+This panel owns tier **structure only** — how many big tiers there are, their names,
+thresholds, order, and escalation. Each tier's **presentation** — the spine bundle,
+intro / idle / outro animations, duration, and SFX / BGM — is authored on the **Win
+Overlay** component in the Scene Editor, which reads these tiers **by alias** and
+renders one presentation group per tier, so the two stay in sync (see
+[the component guide](./component-editor.md)).
 
 The panel shows only the **big-win** tiers. The smaller win bands (the floor that
 makes modest wins present as a plain count-up number) are engine plumbing, so they
@@ -64,12 +71,13 @@ tier always sits above a low floor) without asking the author to tune plumbing.
 Each big tier has:
 
 - a **name** (the caption, e.g. "BIG WIN") and its **alias** (a stable id, set when
-  you add the tier);
+  you add the tier — the key the Win Overlay component's presentation group binds to);
 - an amount **threshold** — the win as a multiple of the total bet at or above which
-  the tier applies. Thresholds ascend down the list;
-- its **intro / idle / outro** animation names (the spine plays intro once, loops
-  idle during the count-up, then outro), an optional **spine key** (which bundle —
-  default `bigwin`), an optional **duration** (ms) and **SFX** / **BGM**.
+  the tier applies. Thresholds ascend down the list.
+
+The spine bundle, animation names, duration and sound are **not** on this panel — set
+them on the Win Overlay component per tier (a spine picker + intro / idle / outro
+dropdowns of that spine's animations + duration + SFX / BGM).
 
 Reorder tiers with the ↑ / ↓ arrows. **Load default big wins** (shown when empty)
 seeds the game type's default ladder — managed floor plus its big tiers — so you can

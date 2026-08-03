@@ -12,6 +12,7 @@
 	import { getContext } from '../game/context';
 	import { SYMBOL_SIZE } from '../game/constants';
 	import { activeWinLevelChain } from '../game/gameConfig';
+	import type { WinLevelData } from '../game/winLevelMap';
 	import WinAnimation, { type WinAnimationStep } from './WinAnimation.svelte';
 	import WinCoins from './WinCoins.svelte';
 	import { winState } from '../game/winState.svelte';
@@ -57,41 +58,45 @@
 	const amount = $derived(winState.amount);
 	const countUpAmount = $derived(winState.countUpAmount);
 
-	// Per-tier animation-name resolution (see `WIN_DEF`): for the active tier, a PER-TIER override
-	// (`<prefix>Intro/Idle/Exit`) ?? the SHARED set (`introAnimation`/`idleAnimation`/`exitAnimation`)
-	// ?? the coded `winLevelMap` convention default. Only the 5 big tiers carry `.animation`; each
-	// maps to its param prefix. All params empty ⇒ pure convention ⇒ byte-identical to before.
-	const TIER_PREFIX: Record<string, string> = {
-		big: 'big',
-		superwin: 'super',
-		mega: 'mega',
-		epic: 'epic',
-		max: 'max',
+	// Per-tier PRESENTATION resolution — the `win` component owns spine + intro/idle/outro per tier,
+	// keyed by the tier's ALIAS (generated from the config's big tiers; see `winComponentDef`). For a
+	// tier: `<alias>Spine`/`<alias>Intro/Idle/Outro` (per-tier) ?? the SHARED set
+	// (`winSpine`/`introAnimation`/`idleAnimation`/`exitAnimation`, all tiers) ?? the config/coded tier's
+	// own `spineKey`/`animation`. All params empty ⇒ the config/coded value ⇒ byte-identical. The spine
+	// fallback (`<alias>Spine` ?? tier.spineKey ?? winSpine) is what closes the single-tier gap where the
+	// coded path used to ignore the config tier's `spineKey`. A tier with no animation anywhere ⇒
+	// `animationMap: undefined` (a small/medium tier presents as a plain number).
+	type TierPresentation = {
+		spine: string;
+		animationMap?: { intro: string; idle: string; outro: string };
 	};
-	const resolvedAnimationMap = $derived.by(() => {
-		const convention = winLevelData?.animation;
-		if (!convention) return undefined;
-		const prefix = TIER_PREFIX[winLevelData?.alias ?? ''];
-		const pick = (suffix: string, sharedKey: string, fallback: string) =>
-			(prefix ? stringParam(`${prefix}${suffix}`) : undefined) ??
-			stringParam(sharedKey) ??
-			fallback;
-		return {
-			intro: pick('Intro', 'introAnimation', convention.intro),
-			idle: pick('Idle', 'idleAnimation', convention.idle),
-			outro: pick('Exit', 'exitAnimation', convention.outro),
-		};
-	});
+	const resolveTierPresentation = (data: WinLevelData | undefined): TierPresentation | undefined => {
+		if (!data) return undefined;
+		const alias = data.alias;
+		const conv = data.animation;
+		const spine = stringParam(`${alias}Spine`) ?? data.spineKey ?? winSpine;
+		const intro = stringParam(`${alias}Intro`) ?? stringParam('introAnimation') ?? conv?.intro;
+		const idle = stringParam(`${alias}Idle`) ?? stringParam('idleAnimation') ?? conv?.idle;
+		const outro = stringParam(`${alias}Outro`) ?? stringParam('exitAnimation') ?? conv?.outro;
+		if (!intro && !idle && !outro) return { spine };
+		return { spine, animationMap: { intro: intro ?? '', idle: idle ?? '', outro: outro ?? '' } };
+	};
+
+	const activePresentation = $derived(resolveTierPresentation(winLevelData));
+	const resolvedAnimationMap = $derived(activePresentation?.animationMap);
+	/** The spine bundle for the active (single-tier) presentation: per-tier component spine ?? the
+	 *  config/coded tier's `spineKey` ?? the shared `winSpine` — closing the single-tier `spineKey` gap. */
+	const activeSpine = $derived(activePresentation?.spine ?? winSpine);
 
 	/**
 	 * The SEQUENTIAL-ESCALATION chain (Invisible Game Config win tiers): the ordered tiers a win plays
-	 * before the winning one, each with its own spine bundle key + resolved animation names. Present
-	 * ONLY when the config authors `winLevels` AND `escalateTiers` is on (`activeWinLevelChain`
-	 * returns `undefined` otherwise, so an un-authored / un-escalating game keeps the single-tier
-	 * `resolvedAnimationMap` path — byte-identical). Tiers with no animation are skipped (a
-	 * small/medium tier in the range presents no spine). A single-element chain (the winning tier is
-	 * the escalation start) still routes through `WinAnimation`'s chain path, so its FINAL-tier outro
-	 * plays on count-up completion.
+	 * before the winning one, each resolved through {@link resolveTierPresentation} so its spine bundle
+	 * + animation names honour the same per-tier ?? shared ?? config precedence. Present ONLY when the
+	 * config authors `winLevels` AND `escalateTiers` is on (`activeWinLevelChain` returns `undefined`
+	 * otherwise, so an un-authored / un-escalating game keeps the single-tier `resolvedAnimationMap`
+	 * path — byte-identical). Tiers with no animation are skipped (a small/medium tier in the range
+	 * presents no spine). A single-element chain (the winning tier is the escalation start) still routes
+	 * through `WinAnimation`'s chain path, so its FINAL-tier outro plays on count-up completion.
 	 */
 	const escalationChain = $derived.by<WinAnimationStep[] | undefined>(() => {
 		const level = winLevelData?.level;
@@ -99,16 +104,9 @@
 		const chain = activeWinLevelChain(level);
 		if (!chain) return undefined;
 		const steps = chain
-			.filter((tier) => tier.animation)
-			.map((tier) => ({
-				key: tier.spineKey ?? winSpine,
-				slotName,
-				animationMap: {
-					intro: tier.animation!.intro,
-					idle: tier.animation!.idle,
-					outro: tier.animation!.outro,
-				},
-			}));
+			.map((tier) => resolveTierPresentation(tier))
+			.filter((pres): pres is Required<TierPresentation> => !!pres?.animationMap)
+			.map((pres) => ({ key: pres.spine, slotName, animationMap: pres.animationMap }));
 		return steps.length ? steps : undefined;
 	});
 
@@ -150,7 +148,7 @@
 			previews — the instance node's transform is then the only thing that sizes/places it. -->
 		<WinAnimation
 			animationMap={resolvedAnimationMap}
-			key={winSpine}
+			key={activeSpine}
 			{slotName}
 			chain={escalationChain}
 			countUpComplete={winState.countUpComplete}
