@@ -59,7 +59,10 @@ import {
 	copyObject,
 	deleteObjects,
 	getObjectBytes,
+	getObjectText,
+	headObject,
 	listAllKeys,
+	objectExists,
 	putObjectBytes,
 	putObjectText,
 } from './r2';
@@ -349,6 +352,21 @@ async function encodeSheetKtx2(
 	set: EditorRegionSet,
 ): Promise<{ pageRel: string; jsonRel: string } | null> {
 	if (!ENV.KTX2_ENCODE) return null;
+	const ktx2File = `${stem}.${version}.ktx2`;
+	const pageRel = `editor-art/${stem}/${ktx2File}`;
+	const jsonRel = `editor-art/${stem}/${stem}.${version}.ktx2.json`;
+	// Content-cache the twin: the filenames embed `version` — a hash of the source page's content
+	// + geometry (see assetVersion.ts) — so an existing twin is byte-identical to what a re-encode
+	// would produce. `encodePageToKtx2` is a ~9s SYNCHRONOUS wasm call per page and this runs on
+	// EVERY live `/api/editor/runtime` assemble (a game boot); re-encoding an unchanged page each
+	// time pushed the endpoint past its 30s cap and silently dropped games onto stale baked data.
+	// Reuse the existing twin instead — the caller re-adds both rels to the prune write-set.
+	if (
+		(await objectExists(`${deployPrefix}${pageRel}`)) &&
+		(await objectExists(`${deployPrefix}${jsonRel}`))
+	) {
+		return { pageRel, jsonRel };
+	}
 	const page = await getObjectBytes(pageKey);
 	if (!page) return null;
 	const ktx2 = await encodePageToKtx2(page.body);
@@ -356,9 +374,6 @@ async function encodeSheetKtx2(
 	// Scale the frame rects to the (possibly downscaled) ktx2 page so UVs stay identical.
 	const sx = set.pageWidth ? ktx2.width / set.pageWidth : 1;
 	const sy = set.pageHeight ? ktx2.height / set.pageHeight : 1;
-	const ktx2File = `${stem}.${version}.ktx2`;
-	const pageRel = `editor-art/${stem}/${ktx2File}`;
-	const jsonRel = `editor-art/${stem}/${stem}.${version}.ktx2.json`;
 	await putObjectBytes(`${deployPrefix}${pageRel}`, ktx2.bytes, 'image/ktx2');
 	await putObjectText(
 		`${deployPrefix}${jsonRel}`,
@@ -560,14 +575,35 @@ export async function exportEditorArt(
 		// handles it by extension. Skipped/failed ⇒ `ktx2` unset ⇒ the WebP/PNG ships (parity).
 		let ktx2File: string | undefined;
 		if (ENV.KTX2_ENCODE) {
-			const src = await getObjectBytes(imageKey);
-			const ktx2 = src ? await encodePageToKtx2(src.body) : null;
-			if (ktx2) {
-				// A standalone image is a whole-texture sprite (no atlas coords), so a downscale
-				// just lowers its resolution — the node transform still sizes it in-game.
-				ktx2File = file.replace(/\.(png|webp|jpe?g)$/i, '.ktx2');
-				await putObjectBytes(`${deployPrefix}${ktx2File}`, ktx2.bytes, 'image/ktx2');
-				written.add(`${deployPrefix}${ktx2File}`);
+			// A standalone image is a whole-texture sprite (no atlas coords), so a downscale just
+			// lowers its resolution — the node transform still sizes it in-game.
+			ktx2File = file.replace(/\.(png|webp|jpe?g)$/i, '.ktx2');
+			const ktx2Key = `${deployPrefix}${ktx2File}`;
+			// Content-cache by the source image's ETag (the file name here is NOT content-hashed):
+			// an unchanged image reuses its twin instead of paying the ~9s encode on every live
+			// runtime assemble. See `encodeSheetKtx2` for why re-encoding on the read path broke boots.
+			const metaKey = `${ktx2Key}.meta`;
+			const head = await headObject(imageKey);
+			const srcEtag = head ? (head.etag ?? `${head.size}:${head.lastModified}`) : null;
+			let reused = false;
+			if (srcEtag && (await getObjectText(metaKey)) === srcEtag && (await objectExists(ktx2Key))) {
+				written.add(ktx2Key);
+				written.add(metaKey);
+				reused = true;
+			}
+			if (!reused) {
+				const src = await getObjectBytes(imageKey);
+				const ktx2 = src ? await encodePageToKtx2(src.body) : null;
+				if (ktx2) {
+					await putObjectBytes(ktx2Key, ktx2.bytes, 'image/ktx2');
+					written.add(ktx2Key);
+					if (srcEtag) {
+						await putObjectText(metaKey, srcEtag, 'text/plain; charset=utf-8');
+						written.add(metaKey);
+					}
+				} else {
+					ktx2File = undefined;
+				}
 			}
 		}
 		images.push({ key: imageKey, file, ktx2: ktx2File });
