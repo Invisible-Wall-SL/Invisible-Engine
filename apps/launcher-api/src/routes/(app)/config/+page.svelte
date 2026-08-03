@@ -1,6 +1,7 @@
 <script lang="ts">
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import {
+		DEFAULT_WIN_LEVELS,
 		normalizeGameConfigDoc,
 		resolveBetModes,
 		resolveWinLevels,
@@ -363,6 +364,13 @@
 			type: 'small',
 		});
 		newWinTier = '';
+	}
+	/** Seed the panel with the built-in 10-tier ladder (the coded `winLevelMap` + facade thresholds)
+	 *  so the author starts from today's behaviour and edits down. A deep clone so editing the doc
+	 *  never mutates the shared `DEFAULT_WIN_LEVELS` constant. Only offered when empty. */
+	function loadDefaultWinTiers() {
+		if (doc.winLevels?.length) return;
+		doc.winLevels = structuredClone(DEFAULT_WIN_LEVELS);
 	}
 	function removeWinTier(index: number) {
 		if (!doc.winLevels) return;
@@ -1005,6 +1013,14 @@
 						>
 					{/each}
 				</div>
+			{:else}
+				<div class="tier-seed">
+					<button type="button" onclick={loadDefaultWinTiers}>Load default tiers</button>
+					<span class="hint"
+						>Seeds the built-in 10 tiers (BIG → SUPER → MEGA → EPIC → MAX) so you can rename, trim,
+						or retune them. Or add tiers one at a time below.</span
+					>
+				</div>
 			{/if}
 
 			<div class="betmodes">
@@ -1436,6 +1452,17 @@
 		margin-top: 12px;
 		padding-top: 12px;
 		border-top: 1px solid #1c1c24;
+	}
+	.tier-seed {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px 14px;
+		align-items: center;
+		margin-bottom: 12px;
+	}
+	.tier-seed .hint {
+		flex: 1 1 240px;
+		margin: 0;
 	}
 	.betmodes {
 		display: flex;

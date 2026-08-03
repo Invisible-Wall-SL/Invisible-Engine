@@ -22,6 +22,7 @@
 import { readFileSync } from 'node:fs';
 
 import {
+	DEFAULT_WIN_LEVELS,
 	GAME_CONFIG_DOC_VERSION,
 	normalizeGameConfigDoc,
 	resolveWinLevel,
@@ -461,6 +462,53 @@ assert(badTiers.winLevels?.[0].name === 'a', 'a tier with no name defaults its n
 assert(
 	eq(normalizeGameConfigDoc(JSON.parse(JSON.stringify(authored))), authored),
 	'normalize is idempotent with authored win tiers',
+);
+
+console.log('\nwin tiers — DEFAULT_WIN_LEVELS seed (the /config "Load default tiers" button)');
+// The seed the tool offers must itself be a valid, error-free ladder, and its resolver must
+// reproduce the coded facade ladder (stakeFacade computeWinLevel) — otherwise "Load defaults" would
+// hand the author a config that behaves differently from the un-authored fallback it mirrors.
+const seeded = normalizeGameConfigDoc({
+	...JSON.parse(JSON.stringify(template)),
+	winLevels: JSON.parse(JSON.stringify(DEFAULT_WIN_LEVELS)),
+}) as GameConfigDoc;
+assert(
+	validateGameConfigDoc(seeded).every((i) => i.severity !== 'error'),
+	'DEFAULT_WIN_LEVELS has no blocking errors',
+);
+assert(DEFAULT_WIN_LEVELS.length === 10, 'the seed has the coded 10 tiers');
+assert(
+	DEFAULT_WIN_LEVELS.filter((t) => t.type === 'big').length === 5,
+	'five big tiers carry animations',
+);
+assert(
+	DEFAULT_WIN_LEVELS.filter((t) => t.type === 'big').every((t) => !!t.animation && !!t.sound?.bgm),
+	'every big tier has an intro/idle/outro set + a bgm',
+);
+// The coded facade ladder (stakeFacade.computeWinLevel), sample → expected level:
+const codedLadder: Array<[number, number]> = [
+	[0, 1], // no win → zero
+	[0.5, 2], // < 1.5 → standard
+	[1.5, 3], // < 3 → small
+	[3, 4], // < 6 → nice
+	[6, 5], // < 10 → substantial
+	[10, 6], // < 20 → big
+	[20, 7], // < 40 → super
+	[40, 8], // < 70 → mega
+	[70, 9], // < 120 → epic
+	[120, 10], // ≥ 120 → max
+	[999, 10],
+];
+for (const [x, level] of codedLadder) {
+	assert(
+		resolveWinLevel(seeded, x) === level,
+		`DEFAULT_WIN_LEVELS resolves ${x}× bet → level ${level} (matches the coded facade ladder)`,
+	);
+}
+// The seed is a STARTING POINT, not the fallback: it must NOT leak into an un-authored doc.
+assert(
+	resolveWinLevels(template) === undefined,
+	'the template (un-authored) still has NO win tiers — the seed is opt-in',
 );
 
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nall checks passed');

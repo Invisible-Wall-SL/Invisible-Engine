@@ -12,7 +12,75 @@
  * package — the runtime maps the resolved tiers into its own `WinLevelData`.
  */
 
-import type { GameConfigDoc, ResolvedWinTier } from './types';
+import type { GameConfigDoc, ResolvedWinTier, WinLevelTier } from './types';
+
+/**
+ * The coded 10-tier table (`apps/lines/src/game/winLevelMap.ts`) + the facade's threshold ladder
+ * (`stakeFacade.ts` `computeWinLevel`), expressed as an authored `winLevels` list. This is what the
+ * `/config` tool's "Load default tiers" button seeds so an author starts from today's behaviour and
+ * edits DOWN (rename, drop tiers, retune thresholds) rather than from a blank slate.
+ *
+ * `threshold` is the win as a multiple of the total bet — the lower bound for each tier, matching the
+ * coded ladder (<1.5×→standard, <3×→small, <6×→nice, <10×→substantial, <20×→big, <40×→super,
+ * <70×→mega, <120×→epic, ≥120×→max). `zero`/`standard` both sit at 0: a positive win resolves to
+ * `standard` (the later equal-threshold tier wins) while a zero win short-circuits to `zero` in
+ * `resolveWinLevel`. Only the five `big` tiers carry animation/bgm, exactly as the coded table does.
+ *
+ * NOTE: this is a SEED, not the fallback — an un-authored config never touches it and keeps the coded
+ * table verbatim. Kept here (the one tier-math home) so the tool and any future generator share it.
+ */
+export const DEFAULT_WIN_LEVELS: WinLevelTier[] = [
+	{ alias: 'zero', name: 'ZERO', threshold: 0, type: 'small', durationMs: 0 },
+	{ alias: 'standard', name: 'STANDARD', threshold: 0, type: 'small', durationMs: 600 },
+	{ alias: 'small', name: 'SMALL', threshold: 1.5, type: 'small', durationMs: 1000 },
+	{ alias: 'nice', name: 'NICE', threshold: 3, type: 'medium', durationMs: 1500 },
+	{ alias: 'substantial', name: 'SUBSTANTIAL', threshold: 6, type: 'medium', durationMs: 2000 },
+	{
+		alias: 'big',
+		name: 'BIG WIN',
+		threshold: 10,
+		type: 'big',
+		animation: { intro: 'big_win_intro', idle: 'big_win_idle', outro: 'big_win_exit' },
+		sound: { bgm: 'bgm_winlevel_big' },
+		durationMs: 6000,
+	},
+	{
+		alias: 'superwin',
+		name: 'SUPER WIN',
+		threshold: 20,
+		type: 'big',
+		animation: { intro: 'super_win_intro', idle: 'super_win_idle', outro: 'super_win_exit' },
+		sound: { bgm: 'bgm_winlevel_superwin' },
+		durationMs: 18000,
+	},
+	{
+		alias: 'mega',
+		name: 'MEGA WIN',
+		threshold: 40,
+		type: 'big',
+		animation: { intro: 'mega_win_intro', idle: 'mega_win_idle', outro: 'mega_win_exit' },
+		sound: { bgm: 'bgm_winlevel_mega' },
+		durationMs: 20000,
+	},
+	{
+		alias: 'epic',
+		name: 'EPIC WIN!',
+		threshold: 70,
+		type: 'big',
+		animation: { intro: 'epic_win_intro', idle: 'epic_win_idle', outro: 'epic_win_exit' },
+		sound: { bgm: 'bgm_winlevel_epic' },
+		durationMs: 26000,
+	},
+	{
+		alias: 'max',
+		name: 'MAX WIN',
+		threshold: 120,
+		type: 'big',
+		animation: { intro: 'max_win_intro', idle: 'max_win_idle', outro: 'max_win_exit' },
+		sound: { bgm: 'bgm_winlevel_max' },
+		durationMs: 32000,
+	},
+];
 
 /**
  * The authored tiers with their 1-based `level` assigned (the number the facade emits and the engine
