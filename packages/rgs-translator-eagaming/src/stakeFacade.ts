@@ -190,11 +190,33 @@ const BOOK_AMOUNT_MULTIPLIER = 100;
  *  this. Used to derive betPerLine from the Stake bet amount. */
 const BOOK_NUM_LINES = 10;
 
-/** Map a win (cents) + bet (cents) to a Stake winLevel (1-10). The engine's
- *  winLevelMap is keyed 1..10 — emitting 0 would yield undefined winLevelData
- *  and stall the win/outro presentation (leaving the UI hidden). 1 = zero win;
- *  6+ are the "big win" tiers. Thresholds are the win-as-bet-multiplier. */
+/** The resolved win tiers the ENGINE published from the active game config
+ *  (`apps/lines/src/game/gameConfig.ts` → `publishWinLevelsToFacade`). Only
+ *  the fields the facade needs — level, threshold (win-as-bet-multiplier), type.
+ *  The facade can't import the app (it's a drop-in for `rgs-requests`), so a
+ *  global is the decoupled bridge. Unset ⇒ un-authored ⇒ the coded ladder. */
+type FacadeWinTier = { level: number; threshold: number; type: 'small' | 'medium' | 'big' };
+
+const authoredWinTiers = (): FacadeWinTier[] | undefined => {
+	const tiers = (globalThis as { __IE_WIN_LEVELS__?: FacadeWinTier[] }).__IE_WIN_LEVELS__;
+	return Array.isArray(tiers) && tiers.length ? tiers : undefined;
+};
+
+/** Map a win (cents) + bet (cents) to a Stake winLevel. When the project has
+ *  AUTHORED win tiers (Invisible Game Config), the level is read from that
+ *  ladder — the highest tier whose threshold the win reaches. Otherwise the
+ *  coded 1..10 ladder is used verbatim (byte-identical for an un-authored game).
+ *  The engine looks the level up in the active win-level map — emitting the
+ *  first tier for a zero win keeps `winLevelData` defined so the UI never stalls. */
 const computeWinLevel = (winCents: number, betCents: number): number => {
+	const tiers = authoredWinTiers();
+	if (tiers) {
+		if (!betCents || winCents <= 0) return tiers[0].level;
+		const x = winCents / betCents;
+		let level = tiers[0].level;
+		for (const tier of tiers) if (x >= tier.threshold) level = tier.level;
+		return level;
+	}
 	if (!betCents || winCents <= 0) return 1;
 	const x = winCents / betCents; // win as a multiple of total bet
 	if (x < 1.5) return 2; // standard
@@ -206,6 +228,17 @@ const computeWinLevel = (winCents: number, betCents: number): number => {
 	if (x < 70) return 8; // MEGA WIN
 	if (x < 120) return 9; // EPIC WIN  (lowered: ~70x+)
 	return 10; // MAX WIN
+};
+
+/** Whether a computed winLevel is a BIG-WIN tier — the gate for the base-game
+ *  and mid-free-spin big-win overlay (`setWin`). Keys off the AUTHORED tier's
+ *  `type === 'big'` when tiers are published, so a 3-tier config triggers big
+ *  win on its own big tier; else the coded `level >= 6` (the old winLevelMap
+ *  boundary), byte-identical for an un-authored game. */
+const isBigWinLevel = (level: number): boolean => {
+	const tiers = authoredWinTiers();
+	if (tiers) return tiers.find((tier) => tier.level === level)?.type === 'big';
+	return level >= 6;
 };
 
 /** Opt-in trace logger. Set `localStorage.IE_DEBUG = '1'` (or `globalThis.IE_DEBUG = true`
@@ -464,7 +497,7 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 				// BEFORE the meter bank, mirroring the base-game order (setWin → setTotalWin).
 				if (gameType === 'freegame') {
 					const spinWinLevel = computeWinLevel(spinWinCents, betBaseCents);
-					if (spinWinLevel >= 6) {
+					if (isBigWinLevel(spinWinLevel)) {
 						push({
 							type: 'setWin',
 							amount: toBookEventAmount(spinWinCents, betBaseCents),
@@ -530,7 +563,7 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 				if (gameType === 'freegame') {
 					push({ type: 'freeSpinEnd', amount, winLevel });
 					gameType = 'basegame';
-				} else if (winLevel >= 6) {
+				} else if (isBigWinLevel(winLevel)) {
 					// Base-game big win (≥ BIG tier): trigger the big/mega/… win
 					// presentation (setWin → Win.svelte → bigwin spine).
 					push({ type: 'setWin', amount, winLevel });

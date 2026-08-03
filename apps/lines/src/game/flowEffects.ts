@@ -47,12 +47,12 @@ import {
 import { eventEmitter } from './eventEmitter';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { stateApp } from './stateApp';
-import { winLevelMap, type WinLevel, type WinLevelData } from './winLevelMap';
+import { type WinLevelData } from './winLevelMap';
 import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
-import { boardDimensions, paddingReels, paylineColor } from './gameConfig';
+import { activeWinLevelData, boardDimensions, paddingReels, paylineColor } from './gameConfig';
 import {
 	bakedSymbolNames,
 	bakedWinLineConfig,
@@ -66,7 +66,11 @@ import {
 // single source of truth (parity by construction).
 // ---------------------------------------------------------------------------
 
-export const winLevelSoundsPlay = ({ winLevelData }: { winLevelData: WinLevelData }) => {
+export const winLevelSoundsPlay = ({
+	winLevelData,
+}: {
+	winLevelData: WinLevelData | undefined;
+}) => {
 	if (winLevelData?.alias === 'max') eventEmitter.broadcastAsync({ type: 'uiHide' });
 	if (winLevelData?.sound?.sfx) {
 		eventEmitter.broadcast({ type: 'soundOnce', name: winLevelData.sound.sfx });
@@ -392,7 +396,7 @@ export const winLineTextFor = ({
 	};
 };
 
-const winLevelDataOf = (winLevel: number): WinLevelData => winLevelMap[winLevel as WinLevel];
+const winLevelDataOf = (winLevel: number): WinLevelData | undefined => activeWinLevelData(winLevel);
 
 /** A flow payload field as a real number, or `undefined` so the callee's own default applies. The
  *  payload is `Record<string, unknown>` fed from an authored doc, so a bare `as number` cast is an

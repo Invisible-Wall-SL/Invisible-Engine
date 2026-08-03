@@ -15,8 +15,13 @@
 	// board-centre on the non-bound composer path, where `WinVisual`'s own `MainContainer` +
 	// `boardLayout` wrap reproduce the previous hard-centring byte-for-byte).
 	const props: Props = $props();
+	// `levelAlias` is now `string` (an authored config names its own tiers), so index the coded coin
+	// map defensively: a built-in alias picks its fountain, an authored alias with no entry ⇒ the base
+	// fountain (no per-tier overshoot). Byte-identical for the built-in aliases.
 	const extraConfig = $derived(
-		props?.levelAlias ? LEVEL_PARTICLE_COIN_MAP[props.levelAlias] : null,
+		props?.levelAlias
+			? (LEVEL_PARTICLE_COIN_MAP[props.levelAlias as keyof typeof LEVEL_PARTICLE_COIN_MAP] ?? null)
+			: null,
 	);
 	const config = $derived({ ...baseConfig, ...extraConfig });
 </script>

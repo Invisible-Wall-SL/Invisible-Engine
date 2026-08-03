@@ -1,3 +1,13 @@
+<script lang="ts" module>
+	/** One tier of a sequential-escalation chain: its spine bundle, count slot, and resolved
+	 *  intro/idle/outro names. The single-tier path builds a one-element chain internally. */
+	export type WinAnimationStep = {
+		key: string;
+		slotName: string;
+		animationMap: { intro: string; idle: string; outro: string };
+	};
+</script>
+
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 
@@ -21,6 +31,18 @@
 		key?: string;
 		slotName?: string;
 		/**
+		 * OPTIONAL sequential-escalation chain (Invisible Game Config win tiers): the ordered tiers a
+		 * win plays before the winning one. When present, this component plays each tier's intro+idle
+		 * in sequence (advancing on the idle's `complete`), landing on the FINAL tier's looping idle;
+		 * the final tier's OUTRO plays once {@link countUpComplete} latches. When ABSENT the component
+		 * plays the single `animationMap` exactly as before (intro → looping idle, no outro) — the
+		 * byte-identical un-escalating path. A tier may carry its own `key`, so bundles can differ.
+		 */
+		chain?: WinAnimationStep[];
+		/** The count-up has finished — drives the FINAL tier's outro on the escalation path only. Inert
+		 *  on the single-tier path (that idle loops until the overlay hides, as today). */
+		countUpComplete?: boolean;
+		/**
 		 * Explicit display WIDTH for the rig (the spine is fitted to it). The coded/OFF composer
 		 * passes the board width — the historical hardcode. The AUTHORED `win` componentInstance
 		 * passes nothing, so the rig renders at its NATURAL size: the same base the Scene Editor
@@ -34,12 +56,39 @@
 		animationMap,
 		key = 'bigwin',
 		slotName = 'slot_win_count',
+		chain,
+		countUpComplete = false,
 		width,
 		children,
 	}: Props = $props();
 
-	let oncomplete = $state(() => {});
+	// The tiers to play. On the single-tier path (no `chain`) this is a ONE-element list built from the
+	// props, so every branch below collapses to the original behaviour (byte-identical). On the
+	// escalation path it is the authored chain, start → winning tier.
+	const escalating = $derived(chain !== undefined);
+	const steps = $derived<WinAnimationStep[]>(
+		chain && chain.length ? chain : [{ key, slotName, animationMap }],
+	);
+
+	let stepIndex = $state(0);
 	let animationState = $state<AnimationState>('intro');
+	let oncomplete = $state(() => {});
+
+	const current = $derived(steps[Math.min(stepIndex, steps.length - 1)]);
+	const isFinalStep = $derived(stepIndex >= steps.length - 1);
+
+	// The FINAL tier's idle LOOPS (during the count-up), exactly as the single-tier idle always has —
+	// so the single-tier path is unchanged. A NON-final tier's idle plays ONE cycle (loop off) so its
+	// `complete` fires and advances the chain to the next tier's intro.
+	const idleLoops = $derived(animationState === 'idle' && isFinalStep);
+
+	// Escalation only: once the (single, continuous) count-up completes, play the FINAL tier's outro.
+	// Guarded on `escalating` so the single-tier path never gains an outro it did not have before.
+	$effect(() => {
+		if (escalating && countUpComplete && isFinalStep && animationState === 'idle') {
+			animationState = 'outro';
+		}
+	});
 </script>
 
 <!--
@@ -52,21 +101,34 @@
 -->
 <SpineProvider
 	{width}
-	{key}
+	key={current.key}
 	loadScaleBase={width === undefined ? EDITOR_SPINE_LOAD_SCALE : undefined}
 >
 	<SpineTrack
 		trackIndex={0}
-		animationName={animationMap[animationState]}
-		loop={animationState === 'idle'}
+		animationName={current.animationMap[animationState]}
+		loop={idleLoops}
 		listener={{
 			complete: () => {
-				if (animationState === 'intro') animationState = 'idle';
+				if (animationState === 'intro') {
+					animationState = 'idle';
+					return;
+				}
+				if (animationState === 'idle') {
+					// A non-final tier's single idle cycle finished ⇒ escalate to the next tier's intro.
+					// The final tier's idle loops (`idleLoops`), so its `complete` fires here and does
+					// nothing — it keeps looping until `countUpComplete` flips it to the outro (above).
+					if (!isFinalStep) {
+						stepIndex += 1;
+						animationState = 'intro';
+					}
+					return;
+				}
 				if (animationState === 'outro') oncomplete();
 			},
 		}}
 	/>
-	<SpineSlot {slotName}>
+	<SpineSlot slotName={current.slotName}>
 		{@render children()}
 	</SpineSlot>
 </SpineProvider>

@@ -58,7 +58,7 @@
 
 	let show = $state(false);
 	let amount = $state(0);
-	let winLevelData = $state<WinLevelData>();
+	let winLevelData = $state<WinLevelData | undefined>();
 	let oncomplete = $state(() => {});
 
 	context.eventEmitter.subscribeOnMount({

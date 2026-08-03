@@ -32,6 +32,10 @@ import {
 	type PaytableRow,
 	type Paylines,
 	type ReelStrip,
+	type WinLevelTier,
+	type WinTierAnimation,
+	type WinTierSound,
+	type WinTierType,
 } from './types';
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -236,6 +240,68 @@ const normalizePaylineColors = (
 	return Object.keys(colors).length ? colors : undefined;
 };
 
+const WIN_TIER_TYPES: readonly WinTierType[] = ['small', 'medium', 'big'];
+const winTierType = (v: unknown): WinTierType | undefined =>
+	WIN_TIER_TYPES.includes(v as WinTierType) ? (v as WinTierType) : undefined;
+
+/** A tier animation set — all three names required, else the set is dropped (a half-animation has
+ *  no meaning and the tier falls back to the plain-number presentation). */
+const normalizeWinTierAnimation = (raw: unknown): WinTierAnimation | undefined => {
+	if (!isObject(raw)) return undefined;
+	const intro = str(raw.intro)?.trim();
+	const idle = str(raw.idle)?.trim();
+	const outro = str(raw.outro)?.trim();
+	if (!intro || !idle || !outro) return undefined;
+	return { intro, idle, outro };
+};
+
+const normalizeWinTierSound = (raw: unknown): WinTierSound | undefined => {
+	if (!isObject(raw)) return undefined;
+	const sound: WinTierSound = {};
+	const sfx = str(raw.sfx)?.trim();
+	if (sfx) sound.sfx = sfx;
+	const bgm = str(raw.bgm)?.trim();
+	if (bgm) sound.bgm = bgm;
+	return Object.keys(sound).length ? sound : undefined;
+};
+
+/** One win tier. Needs an `alias` (its id), a `threshold` and a `type` to mean anything — a tier
+ *  missing any of them is dropped rather than shipped as a hole in the ladder. `name` defaults to
+ *  the alias so a caption always renders. */
+const normalizeWinTier = (raw: unknown): WinLevelTier | undefined => {
+	if (!isObject(raw)) return undefined;
+	const alias = str(raw.alias)?.trim();
+	const threshold = num(raw.threshold);
+	const type = winTierType(raw.type);
+	if (!alias || threshold === undefined || !type) return undefined;
+	const tier: WinLevelTier = { alias, name: str(raw.name)?.trim() || alias, threshold, type };
+	const animation = normalizeWinTierAnimation(raw.animation);
+	if (animation) tier.animation = animation;
+	const spineKey = str(raw.spineKey)?.trim();
+	if (spineKey) tier.spineKey = spineKey;
+	const sound = normalizeWinTierSound(raw.sound);
+	if (sound) tier.sound = sound;
+	const durationMs = num(raw.durationMs);
+	if (durationMs !== undefined && durationMs >= 0) tier.durationMs = durationMs;
+	return tier;
+};
+
+/**
+ * The authored win tiers. A list of well-formed tiers, or `undefined` when the block is absent or
+ * describes no usable tier — the un-authored signal, so an un-authored config is byte-identical to a
+ * Stake export and the game keeps its coded `winLevelMap`. Order is preserved (the ladder is
+ * positional); the validator flags non-ascending thresholds rather than reordering the author's work.
+ */
+const normalizeWinLevels = (raw: unknown): WinLevelTier[] | undefined => {
+	if (!Array.isArray(raw)) return undefined;
+	const tiers: WinLevelTier[] = [];
+	for (const entry of raw) {
+		const tier = normalizeWinTier(entry);
+		if (tier) tiers.push(tier);
+	}
+	return tiers.length ? tiers : undefined;
+};
+
 /**
  * Rows per reel. Accepts a scalar (`3` ⇒ every reel 3 rows) as well as the per-reel list, and
  * pads/truncates to `numReels` so the grid is always fully described — a short `numRows` would
@@ -294,6 +360,16 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 
 	const paylineColors = normalizePaylineColors(raw.paylineColors, new Set(Object.keys(paylines)));
 	if (paylineColors) doc.paylineColors = paylineColors;
+
+	// Win tiers + escalation flags are kept ONLY when tiers are authored, so an un-authored config
+	// omits all three and stays byte-identical to a Stake export (the coded `winLevelMap` fallback).
+	const winLevels = normalizeWinLevels(raw.winLevels);
+	if (winLevels) {
+		doc.winLevels = winLevels;
+		if (raw.escalateTiers === true) doc.escalateTiers = true;
+		const escalateFrom = str(raw.escalateFrom)?.trim();
+		if (escalateFrom) doc.escalateFrom = escalateFrom;
+	}
 
 	const updatedAt = str(raw.updatedAt);
 	if (updatedAt) doc.updatedAt = updatedAt;
