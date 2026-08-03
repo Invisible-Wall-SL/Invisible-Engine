@@ -200,6 +200,58 @@ function tierToWinLevelData(tier: ResolvedWinTier): WinLevelData {
 	};
 }
 
+// ---------------------------------------------------------------------------
+// Win presentation overlay — per-tier DURATION + SOUND authored on the `win` componentInstance.
+//
+// The `win` component owns per-tier presentation (spine / intro-idle-outro / duration / sfx-bgm),
+// keyed by tier ALIAS (`docs/tools/component-editor.md`). The ANIMATION + SPINE are consumed INSIDE
+// the win component tree (`WinVisual` reads its live params); DURATION + SOUND are consumed OUTSIDE
+// it (`WinGate` reads `presentDuration`; `winLevelSoundsPlay` reads `sound`), so those two are bridged
+// here — the game publishes the win instance's params at boot ({@link publishWinPresentation}, from
+// the baked/runtime doc) and this overlay lets them override the config/coded tier fallback. Empty
+// (no `win` instance, or dev with no baked doc) ⇒ every field falls through to the config/coded value,
+// byte-identical to before.
+// ---------------------------------------------------------------------------
+
+let winPresentation: Record<string, unknown> = {};
+
+/**
+ * Publish the `win` componentInstance's authored params (its `node.params`) so the per-tier DURATION +
+ * SOUND overrides reach `activeWinLevelData`. Called at boot after {@link resetGameConfigCache}
+ * (`Game.svelte`), from {@link bakedWinPresentationParams}. Undefined ⇒ cleared (fall back to config/
+ * coded), so an un-authored / coded-`Win`-bind game is byte-identical.
+ */
+export function publishWinPresentation(params: Record<string, unknown> | undefined): void {
+	winPresentation = params ?? {};
+}
+
+function presentationString(key: string): string | undefined {
+	const v = winPresentation[key];
+	return typeof v === 'string' && v.length > 0 ? v : undefined;
+}
+function presentationNumber(key: string): number | undefined {
+	const v = winPresentation[key];
+	return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+}
+
+/**
+ * Overlay the win instance's per-tier DURATION + SOUND onto a resolved tier, keyed by its alias. The
+ * per-tier value (`<alias>Duration`/`<alias>Sfx`/`<alias>Bgm`) wins; otherwise the config/coded value
+ * is kept. Animation + spine are NOT overlaid here — `WinVisual` resolves those from its live params.
+ */
+function withWinPresentation(data: WinLevelData): WinLevelData {
+	const alias = data.alias;
+	const duration = presentationNumber(`${alias}Duration`);
+	const sfx = presentationString(`${alias}Sfx`);
+	const bgm = presentationString(`${alias}Bgm`);
+	if (duration === undefined && sfx === undefined && bgm === undefined) return data;
+	return {
+		...data,
+		presentDuration: duration ?? data.presentDuration,
+		sound: { sfx: sfx ?? data.sound.sfx, bgm: bgm ?? data.sound.bgm },
+	};
+}
+
 /**
  * The `WinLevelData` for a book event's `winLevel` NUMBER — from the authored tiers when present,
  * else the coded `winLevelMap`. The ONE lookup every win consumer now routes through
@@ -210,9 +262,10 @@ export function activeWinLevelData(level: number): WinLevelData | undefined {
 	const tiers = activeWinLevels();
 	if (tiers) {
 		const tier = tiers.find((t) => t.level === level);
-		return tier ? tierToWinLevelData(tier) : undefined;
+		return tier ? withWinPresentation(tierToWinLevelData(tier)) : undefined;
 	}
-	return winLevelMap[level as WinLevel];
+	const coded = winLevelMap[level as WinLevel];
+	return coded ? withWinPresentation(coded) : undefined;
 }
 
 /** Look a tier up by its alias — the authored tiers when present, else the coded table. Used by the
@@ -221,9 +274,10 @@ export function activeWinLevelByAlias(alias: string): WinLevelData | undefined {
 	const tiers = activeWinLevels();
 	if (tiers) {
 		const tier = tiers.find((t) => t.alias === alias);
-		return tier ? tierToWinLevelData(tier) : undefined;
+		return tier ? withWinPresentation(tierToWinLevelData(tier)) : undefined;
 	}
-	return Object.values(winLevelMap).find((data) => data.alias === alias);
+	const coded = Object.values(winLevelMap).find((data) => data.alias === alias);
+	return coded ? withWinPresentation(coded) : undefined;
 }
 
 /** Whether a `winLevel` NUMBER is a big-win tier — authored `type === 'big'`, else the coded table's
@@ -238,7 +292,7 @@ export function activeWinLevelIsBig(level: number): boolean {
  *  off / un-authored — the big-win component plays only the single winning tier in that case. */
 export function activeWinLevelChain(level: number): WinLevelData[] | undefined {
 	const chain = resolveWinLevelChain(getActiveGameConfig(), level);
-	return chain?.map(tierToWinLevelData);
+	return chain?.map((tier) => withWinPresentation(tierToWinLevelData(tier)));
 }
 
 /** The threshold-ladder level for a win as a bet-multiplier, or `undefined` when un-authored (the

@@ -5,6 +5,7 @@ import {
 	reelGridWarnings,
 	type LayoutDoc,
 } from 'engine-layout';
+import { resolveWinLevels } from 'game-config';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listComponents } from '$lib/server/componentStorage';
@@ -107,6 +108,14 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	const gridDimensions = gameConfigDoc
 		? { reels: gameConfigDoc.numReels, rows: Math.max(...gameConfigDoc.numRows, 1) }
 		: undefined;
+	// The `win` component authors its per-tier PRESENTATION (spine/animations/duration/sound) from the
+	// config's BIG tiers, keyed by alias — so the component's groups mirror the config. Null when the
+	// project hasn't authored `winLevels` ⇒ the client keeps the built-in default tiers (byte-identical).
+	const winTiers = gameConfigDoc
+		? (resolveWinLevels(gameConfigDoc)
+				?.filter((tier) => tier.type === 'big')
+				.map((tier) => ({ alias: tier.alias, name: tier.name || tier.alias })) ?? null)
+		: null;
 	const warnings = template
 		? [...findUnfilledRequiredSlots(doc, template), ...reelGridWarnings(doc, gridDimensions)]
 		: [];
@@ -143,6 +152,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// The authored board grid the canvas draws the reelGrid at (config's numReels/numRows). Null
 		// when no config resolves ⇒ the canvas falls back to the reelGrid node's own reels/rows.
 		gridDimensions: gridDimensions ?? null,
+		// The config's BIG tiers (alias + display name) the `win` component builds its per-tier
+		// presentation groups from. Null ⇒ the built-in default tiers (byte-identical).
+		winTiers,
 	};
 };
 

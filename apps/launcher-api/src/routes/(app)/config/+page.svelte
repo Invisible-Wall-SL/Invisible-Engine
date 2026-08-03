@@ -420,50 +420,12 @@
 		[tiers[index], tiers[j]] = [tiers[j], tiers[index]];
 	}
 
-	type WinAnimField = 'intro' | 'idle' | 'outro';
-	function tierAnimValue(index: number, field: WinAnimField): string {
-		return doc.winLevels?.[index]?.animation?.[field] ?? '';
-	}
-	/** Animation names are sparse: an emptied triplet drops the whole `animation` set (normalize
-	 *  requires all three, so a partial set would be dropped on save anyway — clearing it here keeps
-	 *  the live doc honest). */
-	function setTierAnim(index: number, field: WinAnimField, value: string) {
-		const tier = doc.winLevels?.[index];
-		if (!tier) return;
-		const v = value.trim();
-		const anim = (tier.animation ??= { intro: '', idle: '', outro: '' });
-		anim[field] = v;
-		if (!anim.intro && !anim.idle && !anim.outro) delete tier.animation;
-	}
-
-	function tierSoundValue(index: number, field: 'sfx' | 'bgm'): string {
-		return doc.winLevels?.[index]?.sound?.[field] ?? '';
-	}
-	function setTierSound(index: number, field: 'sfx' | 'bgm', value: string) {
-		const tier = doc.winLevels?.[index];
-		if (!tier) return;
-		const v = value.trim();
-		if (v) (tier.sound ??= {})[field] = v;
-		else if (tier.sound) {
-			delete tier.sound[field];
-			if (!tier.sound.sfx && !tier.sound.bgm) delete tier.sound;
-		}
-	}
-
-	function setTierSpineKey(index: number, value: string) {
-		const tier = doc.winLevels?.[index];
-		if (!tier) return;
-		const v = value.trim();
-		if (v) tier.spineKey = v;
-		else delete tier.spineKey;
-	}
-	function setTierDuration(index: number, value: string) {
-		const tier = doc.winLevels?.[index];
-		if (!tier) return;
-		const n = value.trim() === '' ? undefined : Number(value);
-		if (n !== undefined && Number.isFinite(n) && n >= 0) tier.durationMs = n;
-		else delete tier.durationMs;
-	}
+	// NOTE: a tier's PRESENTATION — spine bundle, intro/idle/outro animations, duration, sfx/bgm — is
+	// no longer authored here. It moved to the `win` COMPONENT in the Scene Editor (spine picker +
+	// animation dropdowns + duration + sound per tier), which reads these tiers by alias so the two
+	// stay in sync (`docs/tools/component-editor.md`). The schema fields
+	// (`animation`/`spineKey`/`durationMs`/`sound`) survive as the coded FALLBACK — an un-authored
+	// component still renders byte-identically — they're just not edited from this panel.
 
 	// Sequential escalation — a win on tier N plays each tier from the start up to N. Stored sparsely:
 	// the flags only exist while escalation is on / a start is chosen.
@@ -1018,11 +980,12 @@
 		<section>
 			<h2>Big win tiers</h2>
 			<p class="hint">
-				The big-win celebrations, in ascending order. Each tier has an amount
-				<strong>threshold</strong> (the win as a multiple of the total bet), its
-				<strong>intro/idle/outro</strong> spine animations, and optional spine bundle / sound /
-				duration. Smaller wins are handled automatically and aren't shown here. Leave this empty to
-				keep the game's built-in tiers (byte-identical).
+				The big-win celebrations, in ascending order. Each tier has a <strong>name</strong> and an
+				amount <strong>threshold</strong> (the win as a multiple of the total bet). Its
+				<strong>presentation</strong> — spine bundle, intro/idle/outro animations, duration and
+				sound — is authored on the <strong>Win Overlay</strong> component in the Scene Editor, which
+				reads these tiers by alias so the two stay in sync. Smaller wins are handled automatically
+				and aren't shown here. Leave this empty to keep the game's built-in tiers (byte-identical).
 			</p>
 
 			{#if bigResolved.length}
@@ -1072,55 +1035,6 @@
 									type="number"
 									step="0.5"
 									bind:value={tier.threshold}
-								/></label
-							>
-							<label class="mini"
-								><span>Spine key</span><input
-									value={tier.spineKey ?? ''}
-									placeholder="bigwin"
-									oninput={(e) => setTierSpineKey(index, e.currentTarget.value)}
-								/></label
-							>
-							<label class="mini"
-								><span>Duration ms</span><input
-									type="number"
-									step="100"
-									placeholder="0"
-									value={tier.durationMs ?? ''}
-									oninput={(e) => setTierDuration(index, e.currentTarget.value)}
-								/></label
-							>
-						</div>
-
-						<div class="betmode-row">
-							<label class="mini"
-								><span>Intro anim</span><input
-									value={tierAnimValue(index, 'intro')}
-									oninput={(e) => setTierAnim(index, 'intro', e.currentTarget.value)}
-								/></label
-							>
-							<label class="mini"
-								><span>Idle anim</span><input
-									value={tierAnimValue(index, 'idle')}
-									oninput={(e) => setTierAnim(index, 'idle', e.currentTarget.value)}
-								/></label
-							>
-							<label class="mini"
-								><span>Outro anim</span><input
-									value={tierAnimValue(index, 'outro')}
-									oninput={(e) => setTierAnim(index, 'outro', e.currentTarget.value)}
-								/></label
-							>
-							<label class="mini"
-								><span>SFX</span><input
-									value={tierSoundValue(index, 'sfx')}
-									oninput={(e) => setTierSound(index, 'sfx', e.currentTarget.value)}
-								/></label
-							>
-							<label class="mini"
-								><span>BGM</span><input
-									value={tierSoundValue(index, 'bgm')}
-									oninput={(e) => setTierSound(index, 'bgm', e.currentTarget.value)}
 								/></label
 							>
 						</div>

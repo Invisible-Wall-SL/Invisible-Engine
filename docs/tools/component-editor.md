@@ -166,6 +166,33 @@ the same categories). From there you can:
 You can also start a component from the Scene Editor's "Edit as component" on a
 container, then refine it here.
 
+## Win Overlay — per-tier presentation
+
+The built-in **Win Overlay** (`win`) component owns the big-win **presentation**,
+split from the **structure** the `/config` **Big win tiers** panel owns (count / name
+/ threshold / escalation — see [the Game Config guide](./game-config.md)). Its
+Properties panel is **generated from the active game config's big tiers**: one
+collapsible group **per tier, keyed by the tier's alias**, so authoring `big` / `mega`
+/ `max` in `/config` yields exactly those three presentation groups (an un-authored
+project shows the built-in default tiers). Each group has:
+
+- a **spine bundle** picker (the tier's art);
+- **intro / idle / outro** dropdowns of that spine's animations (no blind typing —
+  when a tier's spine is unset the dropdowns list the base `winSpine` bundle's
+  animations);
+- a **duration** (ms) and **sfx** / **bgm**.
+
+Above the per-tier groups sit the base params (`winSpine` big-win bundle, count
+`slotName`, coin-fountain toggle) and a shared **Animations (all tiers)** group that
+applies to every tier unless a per-tier group overrides it.
+
+**Resolution / fallback** (per field): the per-tier value ?? the shared set ?? the
+config/coded tier's own value (`spineKey` / `animation` / `durationMs` / `sound`).
+Every per-tier field is empty by default, so an un-authored Win Overlay renders
+byte-identically to the built-in table. The animation + spine are consumed inside the
+overlay; the duration + sound are bridged to the out-of-tree consumers (the win gate's
+hold time and the win-level sound cues) at boot.
+
 ## Known limitations / TODOs
 
 These reflect the registered editor design (`docs/design/invisible-editor.md`

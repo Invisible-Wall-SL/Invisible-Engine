@@ -112,6 +112,7 @@
 
 	import {
 		publishWinLevelsToFacade,
+		publishWinPresentation,
 		resetGameConfigCache,
 		warnOnGameConfigIssues,
 	} from '../game/gameConfig';
@@ -167,6 +168,7 @@
 		bakedRigFx,
 		bakedSymbolAssets,
 		bakedWinText,
+		bakedWinPresentationParams,
 		fallbackEditorScenes,
 		isRuntimeBundleActive,
 		loadEditorScenes,
@@ -267,6 +269,12 @@
 	// facade emits. Runs after the runtime-bundle branch, on the config the game will actually run.
 	// Un-authored ⇒ the global is cleared and the facade keeps its coded ladder (byte-identical).
 	publishWinLevelsToFacade();
+
+	// Publish the placed `win` componentInstance's authored params so its per-tier DURATION + SOUND
+	// overrides reach the out-of-tree consumers (`WinGate` duration, `winLevelSoundsPlay`). Runs after
+	// the runtime-bundle branch, from the doc the game will actually run. Un-authored / coded-`Win`-bind
+	// ⇒ empty ⇒ every field falls back to the config/coded tier (byte-identical).
+	publishWinPresentation(bakedWinPresentationParams());
 
 	// Boot loading screen (defined in the HTML shell, `app.html`): feed real asset-load
 	// progress into the pre-mount splash and dismiss it once the game's assets are ready.
