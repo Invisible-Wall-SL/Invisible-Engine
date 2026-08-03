@@ -55,19 +55,8 @@ import {
 	loadSkeletonIndex,
 	type ExportedSpineEntry,
 } from './spine';
-import {
-	copyObject,
-	deleteObjects,
-	getObjectBytes,
-	getObjectText,
-	headObject,
-	listAllKeys,
-	objectExists,
-	putObjectBytes,
-	putObjectText,
-} from './r2';
-import { ENV } from './env';
-import { encodePageToKtx2 } from './ktx2Encode';
+import { deleteObjects, listAllKeys, putObjectText } from './r2';
+import { PageStore, PAGE_REF_PREFIX } from './pageStore';
 
 export interface EditorArtSheet {
 	/** The manifest R2 key the doc references (`SpriteNode.assetKey`). */
@@ -335,55 +324,6 @@ function toTexturePackerJson(set: EditorRegionSet, pageFile: string, sx = 1, sy 
 }
 
 /**
- * Encode the packed page to a KTX2 twin (opt-in via `ENV.KTX2_ENCODE`) and write it +
- * a second spritesheet JSON that points `meta.image` at it, both under `deploy/editor-art/`.
- * Returns the two `deploy/`-relative paths (page + json) so the caller records them in the
- * art index (`sheet.ktx2Json`) and the write-set (so pruning keeps them). Returns null when
- * encoding is off or the page is skipped/failed ⇒ the game loads the WebP/PNG (parity).
- *
- * The `.ktx2` page may be DOWNSCALED (an over-large page), so the spritesheet JSON frame rects
- * are rescaled by the same factor — identical UVs, so sprites render at the same size (lower-res).
- */
-async function encodeSheetKtx2(
-	pageKey: string,
-	deployPrefix: string,
-	stem: string,
-	version: string,
-	set: EditorRegionSet,
-): Promise<{ pageRel: string; jsonRel: string } | null> {
-	if (!ENV.KTX2_ENCODE) return null;
-	const ktx2File = `${stem}.${version}.ktx2`;
-	const pageRel = `editor-art/${stem}/${ktx2File}`;
-	const jsonRel = `editor-art/${stem}/${stem}.${version}.ktx2.json`;
-	// Content-cache the twin: the filenames embed `version` — a hash of the source page's content
-	// + geometry (see assetVersion.ts) — so an existing twin is byte-identical to what a re-encode
-	// would produce. `encodePageToKtx2` is a ~9s SYNCHRONOUS wasm call per page and this runs on
-	// EVERY live `/api/editor/runtime` assemble (a game boot); re-encoding an unchanged page each
-	// time pushed the endpoint past its 30s cap and silently dropped games onto stale baked data.
-	// Reuse the existing twin instead — the caller re-adds both rels to the prune write-set.
-	if (
-		(await objectExists(`${deployPrefix}${pageRel}`)) &&
-		(await objectExists(`${deployPrefix}${jsonRel}`))
-	) {
-		return { pageRel, jsonRel };
-	}
-	const page = await getObjectBytes(pageKey);
-	if (!page) return null;
-	const ktx2 = await encodePageToKtx2(page.body);
-	if (!ktx2) return null;
-	// Scale the frame rects to the (possibly downscaled) ktx2 page so UVs stay identical.
-	const sx = set.pageWidth ? ktx2.width / set.pageWidth : 1;
-	const sy = set.pageHeight ? ktx2.height / set.pageHeight : 1;
-	await putObjectBytes(`${deployPrefix}${pageRel}`, ktx2.bytes, 'image/ktx2');
-	await putObjectText(
-		`${deployPrefix}${jsonRel}`,
-		toTexturePackerJson(set, ktx2File, sx, sy),
-		'application/json',
-	);
-	return { pageRel, jsonRel };
-}
-
-/**
  * Export every atlas the project's layout doc (and its component defs) reference
  * into `deploy/editor-art/`, prune leftovers from a previous export, and write
  * the `index.json` the game build registers. Idempotent — re-running converges.
@@ -464,6 +404,11 @@ export async function exportEditorArt(
 
 	const sheets: EditorArtSheet[] = [];
 	const written = new Set<string>();
+	// Content-addressed page store: a page shared by several sheets/rigs is copied + KTX2-encoded
+	// ONCE (under `_pages/`) and loads as ONE GPU texture — fixes the rig page-duplication VRAM
+	// leak. Its writes are pruned separately (they live outside `editor-art/`). Shared with the
+	// spine export so rig atlases dedup against the sheets too.
+	const pageStore = new PageStore(deployPrefix);
 	const usedStems = new Set<string>();
 	const coveredRegions = new Set<string>();
 	const exported = new Set<string>();
@@ -498,39 +443,39 @@ export async function exportEditorArt(
 		// PNG — and `isImageAssetKey` above accepts `.jpg`/`.jpeg`, so the two halves disagreed.
 		// PIXI picks its loader by extension, so the lie only surfaces in the game.
 		const pageExt = /\.(png|webp|jpe?g)$/i.exec(set.pageKey)?.[1].toLowerCase() ?? 'png';
-		const pageFile = `${stem}.${version}.${pageExt}`;
 		const jsonRel = `editor-art/${stem}/${stem}.${version}.json`;
-		const pageRel = `editor-art/${stem}/${pageFile}`;
 
-		// Server-side copy the packed page verbatim (no bytes through this process —
-		// keeps peak memory flat); a missing source is skipped (the manifest is dropped).
-		if (!(await copyObject(set.pageKey, `${deployPrefix}${pageRel}`))) return;
+		// Dedup the packed page into the shared content-addressed `_pages/` store (+ its KTX2 twin
+		// when enabled): a page used by this sheet AND by rigs / other sheets is copied + encoded
+		// ONCE and loads as ONE GPU texture — the fix for the rig page-duplication VRAM leak. The
+		// spritesheet JSON references it by the base-independent relative path (`../../_pages/…`);
+		// frame rects are unchanged (the WebP page keeps full resolution). Missing source ⇒ skip.
+		const shared = await pageStore.ensure(set.pageKey, pageExt);
+		if (!shared) return;
 		usedStems.add(stem);
 		await putObjectText(
 			`${deployPrefix}${jsonRel}`,
-			toTexturePackerJson(set, pageFile),
+			toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.file}`),
 			'application/json',
 		);
 		written.add(`${deployPrefix}${jsonRel}`);
-		written.add(`${deployPrefix}${pageRel}`);
-		// GPU-compressed KTX2 twin (opt-in via ENV.KTX2_ENCODE). Encode the page to a `.ktx2`
-		// beside the WebP/PNG and write a SECOND spritesheet JSON whose `meta.image` points at
-		// it (identical frame rects — same page dimensions), so the game can register the
-		// compressed variant through the same `sprites` loader for 4–8× less VRAM. A skipped
-		// page (encoder off, too big/small, or any failure) leaves `ktx2Json` unset ⇒ the game
-		// ships the WebP/PNG unchanged (parity). Reads page bytes through this process only when
-		// enabled, so a normal export stays memory-flat.
-		const ktx2 = await encodeSheetKtx2(set.pageKey, deployPrefix, stem, version, set);
-		if (ktx2) {
-			written.add(`${deployPrefix}${ktx2.pageRel}`);
-			written.add(`${deployPrefix}${ktx2.jsonRel}`);
+		// GPU-compressed KTX2 twin: a SECOND spritesheet JSON pointing `meta.image` at the shared
+		// `.ktx2` page, with frame rects rescaled to its (possibly auto-downscaled) dimensions so
+		// UVs stay identical. The game registers it on the compressed tier for 4–8× less VRAM.
+		// Absent ⇒ `ktx2Json` unset ⇒ the game ships the WebP/PNG unchanged (parity).
+		let ktx2Json: string | undefined;
+		if (shared.ktx2File) {
+			ktx2Json = `editor-art/${stem}/${stem}.${version}.ktx2.json`;
+			const sx = set.pageWidth ? shared.ktx2Width / set.pageWidth : 1;
+			const sy = set.pageHeight ? shared.ktx2Height / set.pageHeight : 1;
+			await putObjectText(
+				`${deployPrefix}${ktx2Json}`,
+				toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.ktx2File}`, sx, sy),
+				'application/json',
+			);
+			written.add(`${deployPrefix}${ktx2Json}`);
 		}
-		sheets.push({
-			key: manifestKey,
-			json: jsonRel,
-			frames: set.regions.length,
-			ktx2Json: ktx2?.jsonRel,
-		});
+		sheets.push({ key: manifestKey, json: jsonRel, frames: set.regions.length, ktx2Json });
 		sheetRegionNames.push({ stem, names: set.regions.map((r) => r.name) });
 		for (const r of set.regions) coveredRegions.add(r.name);
 		coveredBySheet.set(manifestKey, new Set(set.regions.map((r) => r.name)));
@@ -558,55 +503,21 @@ export async function exportEditorArt(
 		}
 	}
 
-	// Standalone images (dropped atlas PAGES): copy verbatim; the game registers a
-	// single-texture asset under the node's full assetKey so the lookup matches.
+	// Standalone images (dropped atlas PAGES): dedup into the shared `_pages/` store, so an image
+	// used as both a rig page AND a dropped page (or by several nodes) loads as ONE texture. The
+	// game registers a single-texture asset under the node's full `assetKey`, its `file`/`ktx2`
+	// pointing at the shared page (relative to the asset base, so `_pages/…`). A whole-texture
+	// sprite has no atlas coords, so a downscaled KTX2 twin just lowers its resolution.
 	const images: EditorArtImage[] = [];
 	for (const imageKey of refs.imageKeys) {
-		const base = imageKey.slice(imageKey.lastIndexOf('/') + 1).replace(/[^a-zA-Z0-9._-]/g, '_');
-		let file = `editor-art/img/${base}`;
-		for (let i = 2; written.has(`${deployPrefix}${file}`); i++) {
-			file = `editor-art/img/${i}_${base}`;
-		}
-		// Server-side copy the page image verbatim (memory-flat); skip a missing source.
-		if (!(await copyObject(imageKey, `${deployPrefix}${file}`))) continue;
-		written.add(`${deployPrefix}${file}`);
-		// GPU-compressed KTX2 twin (opt-in). A standalone image is a single texture, so it
-		// needs no spritesheet JSON — the game registers the `.ktx2` directly and `loadKTX2`
-		// handles it by extension. Skipped/failed ⇒ `ktx2` unset ⇒ the WebP/PNG ships (parity).
-		let ktx2File: string | undefined;
-		if (ENV.KTX2_ENCODE) {
-			// A standalone image is a whole-texture sprite (no atlas coords), so a downscale just
-			// lowers its resolution — the node transform still sizes it in-game.
-			ktx2File = file.replace(/\.(png|webp|jpe?g)$/i, '.ktx2');
-			const ktx2Key = `${deployPrefix}${ktx2File}`;
-			// Content-cache by the source image's ETag (the file name here is NOT content-hashed):
-			// an unchanged image reuses its twin instead of paying the ~9s encode on every live
-			// runtime assemble. See `encodeSheetKtx2` for why re-encoding on the read path broke boots.
-			const metaKey = `${ktx2Key}.meta`;
-			const head = await headObject(imageKey);
-			const srcEtag = head ? (head.etag ?? `${head.size}:${head.lastModified}`) : null;
-			let reused = false;
-			if (srcEtag && (await getObjectText(metaKey)) === srcEtag && (await objectExists(ktx2Key))) {
-				written.add(ktx2Key);
-				written.add(metaKey);
-				reused = true;
-			}
-			if (!reused) {
-				const src = await getObjectBytes(imageKey);
-				const ktx2 = src ? await encodePageToKtx2(src.body) : null;
-				if (ktx2) {
-					await putObjectBytes(ktx2Key, ktx2.bytes, 'image/ktx2');
-					written.add(ktx2Key);
-					if (srcEtag) {
-						await putObjectText(metaKey, srcEtag, 'text/plain; charset=utf-8');
-						written.add(metaKey);
-					}
-				} else {
-					ktx2File = undefined;
-				}
-			}
-		}
-		images.push({ key: imageKey, file, ktx2: ktx2File });
+		const ext = /\.(png|webp|jpe?g)$/i.exec(imageKey)?.[1].toLowerCase() ?? 'png';
+		const shared = await pageStore.ensure(imageKey, ext);
+		if (!shared) continue;
+		images.push({
+			key: imageKey,
+			file: `_pages/${shared.file}`,
+			ktx2: shared.ktx2File ? `_pages/${shared.ktx2File}` : undefined,
+		});
 	}
 
 	// Spine bundles: copy each referenced bundle into deploy/editor-art/ via the shared
@@ -658,6 +569,9 @@ export async function exportEditorArt(
 				stem,
 				skeletonIndex,
 				scale: EDITOR_SPINE_LOAD_SCALE,
+				// Share the page store so a rig atlas page that matches a sheet page (or another
+				// rig's) dedups to ONE shared `_pages/` texture instead of a private copy per rig.
+				pageStore,
 			});
 			if (!result) continue;
 			// Register under the plain bundle NAME — not the full prefix — or the runtime
@@ -745,9 +659,16 @@ export async function exportEditorArt(
 	await putObjectText(indexKey, JSON.stringify(index, null, '\t'), 'application/json');
 	written.add(indexKey);
 
-	// Prune leftovers from a previous export so deploy/editor-art/ mirrors the doc.
+	// Prune leftovers from a previous export so deploy/editor-art/ mirrors the doc. The shared
+	// page store lives in a SIBLING `_pages/` prefix (outside `editor-art/`), so prune it too —
+	// against `pageStore.written`, which includes every page REUSED from a previous run (the
+	// content-cache adds reused keys to `written`), so an unchanged page is never wrongly deleted.
 	const existing = await listAllKeys(artPrefix);
-	const stale = existing.filter((k) => !written.has(k));
+	const stalePages = await listAllKeys(`${deployPrefix}_pages/`);
+	const stale = [
+		...existing.filter((k) => !written.has(k)),
+		...stalePages.filter((k) => !pageStore.written.has(k)),
+	];
 	await deleteObjects(stale);
 
 	return index;

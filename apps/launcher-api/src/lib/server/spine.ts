@@ -17,6 +17,7 @@ import {
 } from './r2';
 import { ENV } from './env';
 import { encodePageToKtx2 } from './ktx2Encode';
+import { PageStore, PAGE_REF_PREFIX } from './pageStore';
 import { getRoleOverrides } from './roleToolAccess';
 import { ensureBundleAtlasFresh } from './spineBundleSync';
 import { getToolOverrides } from './userToolAccess';
@@ -680,8 +681,14 @@ export async function exportSpineBundle(opts: {
 	/** Spine scale; defaults to {@link EDITOR_SPINE_LOAD_SCALE} (the symbols/editor
 	 * convention). The editor preview applies the SAME constant so previews are WYSIWYG. */
 	scale?: number;
+	/** When supplied, dedup this bundle's atlas PAGES into the shared content-addressed `_pages/`
+	 * store (instead of a private copy per bundle), and rewrite the atlas page refs to it — so a
+	 * page shared by several rigs / the editor-art sheets loads as ONE GPU texture (fixes the rig
+	 * page-duplication VRAM leak). Omitted (e.g. `symbolExport`) ⇒ the per-bundle copy, unchanged. */
+	pageStore?: PageStore;
 }): Promise<ExportedSpineBundle | null> {
-	const { clientKey, projectKey, assetKey, deployPrefix, subtree, stem, skeletonIndex } = opts;
+	const { clientKey, projectKey, assetKey, deployPrefix, subtree, stem, skeletonIndex, pageStore } =
+		opts;
 	const scale = opts.scale ?? EDITOR_SPINE_LOAD_SCALE;
 	const written: string[] = [];
 
@@ -710,14 +717,6 @@ export async function exportSpineBundle(opts: {
 
 	const dir = `${subtree}/${stem}`;
 
-	// Atlas — copied verbatim (its page refs are names relative to the bundle dir).
-	await putObjectText(
-		`${deployPrefix}${dir}/${entry.atlas_file}`,
-		atlasText,
-		'text/plain; charset=utf-8',
-	);
-	written.push(`${deployPrefix}${dir}/${entry.atlas_file}`);
-
 	// Skeleton — server-side copy verbatim, but a Rigger `.irig` ships under a `.json`
 	// name (PIXI.Assets resolves the parser by extension; `.irig` is unknown), so
 	// override the Content-Type for that rename; otherwise the source's is preserved.
@@ -732,13 +731,29 @@ export async function exportSpineBundle(opts: {
 	);
 	written.push(`${deployPrefix}${dir}/${skeletonOut}`);
 
-	// Page images the atlas references — server-side copied verbatim under their own
-	// names (the heaviest objects; copying in R2 is what keeps the export memory-flat).
-	// When KTX2 encoding is on, ALSO encode a compressed twin of each page (read the bytes
-	// through this process only then, sequentially — the launcher OOM guard). Rig/spine atlas
-	// pages are the dominant VRAM cost, so this is the big saving.
-	const ktx2ByPage = new Map<string, Ktx2Page>(); // pageName -> ktx2 filename + new dims
+	// Page images the atlas references. With a `pageStore` (editor-art rigs) DEDUP each page into
+	// the shared `_pages/` store — a page shared by several rigs / the sheets is copied + encoded
+	// ONCE and loads as ONE GPU texture (the rig page-duplication VRAM fix) — and record the
+	// shared refs to rewrite the atlas page-name lines below. Without a store (symbolExport) copy
+	// the page per-bundle under its own name (the heaviest objects; R2-side copy keeps memory flat)
+	// and, when KTX2 is on, encode a compressed twin per page (sequential — the launcher OOM guard).
+	const ktx2ByPage = new Map<string, Ktx2Page>(); // pageName -> ktx2 ref + dims (for the .ktx2 atlas)
+	const webpByPage = new Map<string, string>(); // pageName -> shared webp ref (deduped only)
 	for (const pageName of atlasPageNames(atlasText)) {
+		if (pageStore) {
+			const ext = /\.(png|webp|jpe?g)$/i.exec(pageName)?.[1].toLowerCase() ?? 'png';
+			const shared = await pageStore.ensure(`${prefix}/${pageName}`, ext);
+			if (!shared) continue;
+			webpByPage.set(pageName, `${PAGE_REF_PREFIX}${shared.file}`);
+			if (shared.ktx2File) {
+				ktx2ByPage.set(pageName, {
+					name: `${PAGE_REF_PREFIX}${shared.ktx2File}`,
+					width: shared.ktx2Width,
+					height: shared.ktx2Height,
+				});
+			}
+			continue;
+		}
 		if (!(await copyObject(`${prefix}/${pageName}`, `${deployPrefix}${dir}/${pageName}`))) continue;
 		written.push(`${deployPrefix}${dir}/${pageName}`);
 		if (!ENV.KTX2_ENCODE) continue;
@@ -785,6 +800,23 @@ export async function exportSpineBundle(opts: {
 		}
 		ktx2ByPage.set(pageName, { name: ktx2Name, width: ktx2.width, height: ktx2.height });
 	}
+
+	// WEBP atlas: when pages were deduped, rewrite each page-name line to its shared `_pages/` ref
+	// (region coords unchanged — the WebP page keeps full resolution); otherwise copy verbatim.
+	// A region name never carries a page extension, so the trimmed-line swap can't hit one.
+	const webpAtlas =
+		webpByPage.size > 0
+			? atlasText
+					.split(/\r?\n/)
+					.map((line) => webpByPage.get(line.trim()) ?? line)
+					.join('\n')
+			: atlasText;
+	await putObjectText(
+		`${deployPrefix}${dir}/${entry.atlas_file}`,
+		webpAtlas,
+		'text/plain; charset=utf-8',
+	);
+	written.push(`${deployPrefix}${dir}/${entry.atlas_file}`);
 
 	// Emit a second `.atlas` pointing at the KTX2 twins (falling back to the original page for
 	// any that weren't encoded). A downscaled page also has its region coords rescaled so UVs
