@@ -160,6 +160,7 @@
 			{slotName}
 			chain={escalationChain}
 			countUpComplete={winState.countUpComplete}
+			speedScale={winState.escalationSpeedScale}
 			onOutroComplete={() => (winState.escalationOutroComplete = true)}
 			width={boundToInstance ? undefined : context.stateGameDerived.boardLayout().width}
 		>

@@ -28,6 +28,12 @@ import type { WinLevelData } from './winLevelMap';
  * (count-up done mid-chain ⇒ jump to the final tier + play its outro) is never cut off mid-animation.
  * Both are reset by `WinGate` on `winShow`/`winHide`. Un-escalating ⇒ `escalationActive` stays false
  * and the gate concludes exactly as before (byte-identical).
+ *
+ * `escalationSpeedScale` is the live HOLD-to-fast-forward multiplier (`WinGate`'s
+ * `interactionSpeedScale`, 1 when not held). `WinAnimation` applies it as a spine `timeScale` to the
+ * escalating intro/idle tiers, so the tiers VISIBLY ACCELERATE in lockstep with the count-up while the
+ * player holds (a smooth ramp), reverting to 1 on release. Only the HOLD drives it (a `tapToSkip` slam
+ * stays an instant collapse); 1 whenever hold-to-speed-up is off / un-escalating (byte-identical).
  */
 export const winState = $state<{
 	winLevelData: WinLevelData | undefined;
@@ -37,6 +43,7 @@ export const winState = $state<{
 	countUpComplete: boolean;
 	escalationActive: boolean;
 	escalationOutroComplete: boolean;
+	escalationSpeedScale: number;
 }>({
 	winLevelData: undefined,
 	amount: 0,
@@ -45,4 +52,5 @@ export const winState = $state<{
 	countUpComplete: false,
 	escalationActive: false,
 	escalationOutroComplete: false,
+	escalationSpeedScale: 1,
 });

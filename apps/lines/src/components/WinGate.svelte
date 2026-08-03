@@ -56,6 +56,16 @@
 		codedPressOwned || !holdToSpeedUp ? undefined : interactionSpeedScale,
 	);
 
+	// Publish the live HOLD multiplier to the escalation chain, so `WinAnimation` speeds up the tier
+	// intro/idle spines in lockstep with the accelerating count-up (a smooth ramp, not a snap). 1 when
+	// hold-to-speed-up is off / the coded path / not held ⇒ the escalation runs at normal speed
+	// (byte-identical). A `tapToSkip` slam never raises `interactionSpeedScale`, so it stays an instant
+	// collapse (no ramp). Reset below on `winShow` so a value frozen after a previous win's count-up
+	// (the interaction unmounts, freezing its last bound value) can't leak a fast start into the next.
+	$effect(() => {
+		winState.escalationSpeedScale = speedScale ?? 1;
+	});
+
 	let show = $state(false);
 	let amount = $state(0);
 	let winLevelData = $state<WinLevelData | undefined>();
@@ -101,6 +111,10 @@
 			// `winShow` precedes the presentation, so clearing here keeps the first win clean too.
 			winState.countUpComplete = false;
 			winState.escalationOutroComplete = false;
+			// The count-up interaction unmounts at completion, FREEZING its last bound `speedScale` — so
+			// clear the local scale here (the publish `$effect` then sets `escalationSpeedScale` back to 1)
+			// so a repeat win never starts its escalation walk at the previous win's held speed.
+			interactionSpeedScale = 1;
 			concluded = false;
 		},
 		winHide: () => {

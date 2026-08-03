@@ -48,6 +48,11 @@
 		 *  concluding the presentation, so a collapsed/fast-forwarded chain still finishes its outro. Never
 		 *  fires on the single-tier path (no outro), so that path is byte-identical. */
 		onOutroComplete?: () => void;
+		/** The live HOLD-to-fast-forward multiplier (the gate's `interactionSpeedScale`, 1 when not held).
+		 *  Applied as a spine `timeScale` to the ESCALATION intro/idle tiers so they accelerate in lockstep
+		 *  with the count-up while holding (a smooth ramp). Only used while escalating AND the walk is still
+		 *  running (`!countUpComplete`); the outro + the single-tier path always play at 1× (byte-identical). */
+		speedScale?: number;
 		/**
 		 * Explicit display WIDTH for the rig (the spine is fitted to it). The coded/OFF composer
 		 * passes the board width — the historical hardcode. The AUTHORED `win` componentInstance
@@ -65,6 +70,7 @@
 		chain,
 		countUpComplete = false,
 		onOutroComplete,
+		speedScale = 1,
 		width,
 		children,
 	}: Props = $props();
@@ -87,6 +93,17 @@
 	// so the single-tier path is unchanged. A NON-final tier's idle plays ONE cycle (loop off) so its
 	// `complete` fires and advances the chain to the next tier's intro.
 	const idleLoops = $derived(animationState === 'idle' && isFinalStep);
+
+	// ESCALATION RAMP — while the player holds to fast-forward, run the tier intro/idle spines at the
+	// same multiplier as the accelerating count-up (`speedScale`), so the tiers visibly speed up in
+	// lockstep instead of snapping at the end. Applied as the track `timeScale` (synced onto the live
+	// `TrackEntry` by `SpineTrack`'s `propsSyncEffect`). Only while ESCALATING and the walk is still
+	// running: once the count-up completes the collapse plays the OUTRO at 1×, and the single-tier /
+	// non-escalating path is always 1× (= the spine default ⇒ byte-identical). `Math.max(_, 1)` never
+	// slows below normal.
+	const rampTimeScale = $derived(
+		escalating && !countUpComplete ? Math.max(speedScale, 1) : 1,
+	);
 
 	// ESCALATION ONLY — conclude the chain when the count-up finishes.
 	//
@@ -140,6 +157,7 @@
 		trackIndex={0}
 		animationName={current.animationMap[animationState]}
 		loop={idleLoops}
+		timeScale={rampTimeScale}
 		listener={{
 			complete: () => {
 				if (animationState === 'intro') {
