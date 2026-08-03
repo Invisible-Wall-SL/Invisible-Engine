@@ -16,6 +16,7 @@
  */
 
 import { symbolsInPlay } from './inPlay';
+import { resolveWinLevels } from './winLevels';
 import type { GameConfigDoc } from './types';
 
 export type GameConfigIssueSeverity = 'error' | 'warning';
@@ -138,6 +139,54 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 				severity: 'warning',
 				path: `betModePresentation.${mode}.text`,
 				message: `${mode} is an ante mode with no title — it will fall back to its id in the menu.`,
+			});
+		}
+	}
+
+	// Win tiers are optional; when authored, the ladder must be internally consistent — the facade
+	// emits a level by walking ascending thresholds, and the escalation start must name a real tier.
+	const winTiers = resolveWinLevels(doc);
+	if (winTiers) {
+		const aliases = new Set<string>();
+		let previous = -Infinity;
+		for (const tier of winTiers) {
+			if (aliases.has(tier.alias)) {
+				issues.push({
+					severity: 'error',
+					path: `winLevels.${tier.level}.alias`,
+					message: `Duplicate win-tier alias "${tier.alias}" — each tier needs a unique id.`,
+				});
+			}
+			aliases.add(tier.alias);
+			if (tier.threshold < previous) {
+				issues.push({
+					severity: 'error',
+					path: `winLevels.${tier.level}.threshold`,
+					message: `Tier "${tier.alias}" threshold ${tier.threshold} is below the previous tier — thresholds must ascend.`,
+				});
+			}
+			previous = tier.threshold;
+			if (tier.type === 'big' && !tier.animation) {
+				issues.push({
+					severity: 'warning',
+					path: `winLevels.${tier.level}.animation`,
+					message: `Big-win tier "${tier.alias}" has no intro/idle/outro animation — it will present as a plain number.`,
+				});
+			}
+		}
+		if (doc.escalateFrom && !aliases.has(doc.escalateFrom)) {
+			issues.push({
+				severity: 'error',
+				path: 'escalateFrom',
+				message: `escalateFrom "${doc.escalateFrom}" is not a win-tier alias.`,
+			});
+		}
+		if (doc.escalateTiers && !doc.escalateFrom && !winTiers.some((tier) => tier.type === 'big')) {
+			issues.push({
+				severity: 'warning',
+				path: 'escalateTiers',
+				message:
+					'Escalation is on but no tier is a big-win tier and no escalateFrom is set — nothing will escalate.',
 			});
 		}
 	}

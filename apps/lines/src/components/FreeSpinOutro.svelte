@@ -10,7 +10,7 @@
 		| {
 				type: 'freeSpinOutroCountUp';
 				amount: number;
-				winLevelData: WinLevelData;
+				winLevelData: WinLevelData | undefined;
 				holdToSpeedUp?: boolean;
 				tapToSkip?: boolean;
 		  }

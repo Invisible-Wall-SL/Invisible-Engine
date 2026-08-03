@@ -44,6 +44,41 @@ before — an un-authored project still runs the compiled template.
   move the line through that reel's rows.
 - **Reel strips** — per game type, per reel, edited as text (paste-friendly). Each
   reel shows a symbol-frequency readout.
+- **Win tiers** — the big-win LEVELS the game celebrates, as an ordered list. See
+  _Win tiers_ below. Leave it empty to keep the built-in 10-tier table.
+
+## Win tiers
+
+By default the game uses a built-in table of ten win levels (BIG / SUPER / MEGA /
+EPIC / MAX and the small tiers below them), and the win each spin lands on is
+computed from a fixed threshold ladder. The **Win tiers** panel lets a project
+replace that with its own list — however many tiers it wants, named, with its own
+thresholds and animations.
+
+Each tier has:
+
+- a **name** (the caption, e.g. "BIG WIN") and its **alias** (a stable id, set when
+  you add the tier);
+- an amount **threshold** — the win as a multiple of the total bet at or above which
+  the tier applies. Thresholds must ascend down the list; the first tier is the
+  zero-win floor (threshold 0);
+- a **type**: `small` / `medium` present as a plain number, `big` plays a spine;
+- for a big tier, its **intro / idle / outro** animation names (the spine plays
+  intro once, loops idle during the count-up, then outro), an optional **spine key**
+  (which bundle — default `bigwin`), an optional **duration** (ms) and **SFX** / **BGM**.
+
+Reorder tiers with the ↑ / ↓ arrows — the order IS the ladder (a tier's position is
+its level). The read-out strip at the top previews the resolved ladder.
+
+**Sequential escalation** (the checkbox): when on, a win that lands on tier N plays
+each tier from the escalation start up to N in sequence — tier A's intro + idle,
+then tier B's, … then the final tier's intro + idle + outro (the outro plays only on
+the final tier), all over ONE continuous count-up to the final amount. **Start from**
+picks where the chain begins (default: the first big tier). Off ⇒ a win plays only
+its own tier, exactly as the built-in table does.
+
+Leaving the whole panel empty keeps the built-in table and the built-in ladder —
+byte-identical to a game that never touched it.
 
 ## The strips are the gate
 

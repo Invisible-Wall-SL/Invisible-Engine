@@ -95,5 +95,29 @@ export const winLevelMap = {
 
 export type WinLevelMap = typeof winLevelMap;
 export type WinLevel = keyof typeof winLevelMap;
-export type WinLevelData = WinLevelMap[WinLevel];
-export type WinLevelAlias = WinLevelData['alias'];
+
+export type WinLevelType = 'small' | 'medium' | 'big';
+export type WinLevelAnimation = { intro: string; idle: string; outro: string };
+
+/**
+ * The presentation record for one win tier. STRUCTURAL (not `WinLevelMap[WinLevel]`, the union of the
+ * coded table's literal entries) so a CONFIG-authored tier — built at runtime from
+ * `getActiveGameConfig().winLevels` in `gameConfig.ts` — also satisfies it. The coded `winLevelMap`
+ * entries remain assignable (they are a subtype), so the un-authored path is unchanged. `spineKey` is
+ * new + optional: a coded tier omits it (the component's default `bigwin` bundle), an authored tier
+ * may point at its own.
+ */
+export type WinLevelData = {
+	level: number;
+	alias: string;
+	type: WinLevelType;
+	text: string | null;
+	presentDuration: number;
+	sound: { sfx: string | undefined; bgm: string | undefined };
+	animation: WinLevelAnimation | undefined;
+	spineKey?: string;
+};
+
+/** A tier's alias. Widened to `string` because an authored config names its own tiers — the coded
+ *  table's aliases are just the built-in set, no longer the whole universe. */
+export type WinLevelAlias = string;

@@ -3,12 +3,14 @@
 	import {
 		normalizeGameConfigDoc,
 		resolveBetModes,
+		resolveWinLevels,
 		symbolFrequencies,
 		symbolsInPlay,
 		validateGameConfigDoc,
 		type BetModeKind,
 		type GameConfigDoc,
 		type GameConfigIssue,
+		type WinTierType,
 	} from 'game-config';
 	import type { PageData } from './$types';
 
@@ -333,6 +335,115 @@
 	}
 	function removeGameType(key: string) {
 		delete doc.paddingReels[key];
+	}
+
+	// ── Win tiers (big-win levels) ─────────────────────────────────────────────────
+	// OPTIONAL config-authored win tiers (an Invisible-Engine extension, not part of the Stake export).
+	// The owner sets the COUNT, names each tier, its amount THRESHOLD (win as a multiple of the total
+	// bet), its type, and — for a big tier — its intro/idle/outro spine animation. Stored SPARSELY like
+	// the payline colours: the whole `winLevels` block (and the escalation flags) exist ONLY once a
+	// tier is added, so an un-authored config is byte-identical to a paste-in and keeps the coded
+	// win-level table + facade ladder. `resolveWinLevels` assigns each tier its 1-based level.
+	let newWinTier = $state('');
+	const winTiers = $derived(doc.winLevels ?? []);
+	const resolvedWinTiers = $derived(resolveWinLevels(snapshot) ?? []);
+	const winTierAliases = $derived(winTiers.map((t) => t.alias));
+
+	function addWinTier() {
+		const tiers = (doc.winLevels ??= []);
+		const alias = newWinTier.trim() || `tier${tiers.length + 1}`;
+		if (tiers.some((t) => t.alias === alias)) return;
+		// Seed the threshold above the previous tier so the ladder starts ascending; the first tier is
+		// the zero-win floor (threshold 0), so it always matches a paid win.
+		const previous = tiers[tiers.length - 1];
+		tiers.push({
+			alias,
+			name: alias.toUpperCase(),
+			threshold: previous ? previous.threshold + 10 : 0,
+			type: 'small',
+		});
+		newWinTier = '';
+	}
+	function removeWinTier(index: number) {
+		if (!doc.winLevels) return;
+		doc.winLevels.splice(index, 1);
+		// Emptied ⇒ drop the whole block + the escalation flags, so the doc returns to byte-identical.
+		if (!doc.winLevels.length) {
+			delete doc.winLevels;
+			delete doc.escalateTiers;
+			delete doc.escalateFrom;
+		}
+	}
+	/** Reorder a tier — the ladder is POSITIONAL (level = index + 1), so up/down is how the author
+	 *  sequences the escalation and the thresholds. */
+	function moveWinTier(index: number, dir: -1 | 1) {
+		const tiers = doc.winLevels;
+		if (!tiers) return;
+		const j = index + dir;
+		if (j < 0 || j >= tiers.length) return;
+		[tiers[index], tiers[j]] = [tiers[j], tiers[index]];
+	}
+
+	function setWinTierType(index: number, value: string) {
+		const tier = doc.winLevels?.[index];
+		if (tier && (value === 'small' || value === 'medium' || value === 'big'))
+			tier.type = value as WinTierType;
+	}
+
+	type WinAnimField = 'intro' | 'idle' | 'outro';
+	function tierAnimValue(index: number, field: WinAnimField): string {
+		return doc.winLevels?.[index]?.animation?.[field] ?? '';
+	}
+	/** Animation names are sparse: an emptied triplet drops the whole `animation` set (normalize
+	 *  requires all three, so a partial set would be dropped on save anyway — clearing it here keeps
+	 *  the live doc honest). */
+	function setTierAnim(index: number, field: WinAnimField, value: string) {
+		const tier = doc.winLevels?.[index];
+		if (!tier) return;
+		const v = value.trim();
+		const anim = (tier.animation ??= { intro: '', idle: '', outro: '' });
+		anim[field] = v;
+		if (!anim.intro && !anim.idle && !anim.outro) delete tier.animation;
+	}
+
+	function tierSoundValue(index: number, field: 'sfx' | 'bgm'): string {
+		return doc.winLevels?.[index]?.sound?.[field] ?? '';
+	}
+	function setTierSound(index: number, field: 'sfx' | 'bgm', value: string) {
+		const tier = doc.winLevels?.[index];
+		if (!tier) return;
+		const v = value.trim();
+		if (v) (tier.sound ??= {})[field] = v;
+		else if (tier.sound) {
+			delete tier.sound[field];
+			if (!tier.sound.sfx && !tier.sound.bgm) delete tier.sound;
+		}
+	}
+
+	function setTierSpineKey(index: number, value: string) {
+		const tier = doc.winLevels?.[index];
+		if (!tier) return;
+		const v = value.trim();
+		if (v) tier.spineKey = v;
+		else delete tier.spineKey;
+	}
+	function setTierDuration(index: number, value: string) {
+		const tier = doc.winLevels?.[index];
+		if (!tier) return;
+		const n = value.trim() === '' ? undefined : Number(value);
+		if (n !== undefined && Number.isFinite(n) && n >= 0) tier.durationMs = n;
+		else delete tier.durationMs;
+	}
+
+	// Sequential escalation — a win on tier N plays each tier from the start up to N. Stored sparsely:
+	// the flags only exist while escalation is on / a start is chosen.
+	function setEscalate(on: boolean) {
+		if (on) doc.escalateTiers = true;
+		else delete doc.escalateTiers;
+	}
+	function setEscalateFrom(value: string) {
+		if (value) doc.escalateFrom = value;
+		else delete doc.escalateFrom;
 	}
 
 	// ── Raw JSON escape hatch ─────────────────────────────────────────────────────
@@ -872,6 +983,163 @@
 				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 			{/each}
 		</section>
+
+		<!-- Win tiers ---------------------------------------------------------------->
+		<section>
+			<h2>Win tiers</h2>
+			<p class="hint">
+				The big-win LEVELS the game celebrates — an <strong>ordered</strong> list. Each tier has an
+				amount <strong>threshold</strong> (the win as a multiple of the total bet), a
+				<strong>type</strong> (<code>small</code>/<code>medium</code> present as a plain number,
+				<code>big</code> plays a spine), and — for a big tier — its
+				<strong>intro/idle/outro</strong>
+				animation names. Leave this empty to keep the built-in 10-tier table (byte-identical). The tier's
+				position is its level; drag the order with the arrows so thresholds ascend.
+			</p>
+
+			{#if resolvedWinTiers.length}
+				<div class="menu-preview" aria-label="Resolved win-tier ladder">
+					{#each resolvedWinTiers as t (t.alias)}
+						<span class="mp-chip mp-{t.type}" title="{t.type} · ≥ {t.threshold}× bet"
+							>{t.name}<b>≥{t.threshold}×</b></span
+						>
+					{/each}
+				</div>
+			{/if}
+
+			<div class="betmodes">
+				{#each winTiers as tier, index (tier.alias)}
+					<div class="betmode">
+						<div class="betmode-head">
+							<span class="betmode-key">L{index + 1} · {tier.alias}</span>
+							<span class="tier-move">
+								<button
+									title="Move up"
+									disabled={index === 0}
+									onclick={() => moveWinTier(index, -1)}>↑</button
+								>
+								<button
+									title="Move down"
+									disabled={index === winTiers.length - 1}
+									onclick={() => moveWinTier(index, 1)}>↓</button
+								>
+							</span>
+							<button class="del" title="Remove" onclick={() => removeWinTier(index)}>×</button>
+						</div>
+
+						<div class="betmode-row">
+							<label class="mini"
+								><span>Name</span><input bind:value={tier.name} placeholder={tier.alias} /></label
+							>
+							<label class="mini"
+								><span>Threshold ×</span><input
+									type="number"
+									step="0.5"
+									bind:value={tier.threshold}
+								/></label
+							>
+							<label class="mini"
+								><span>Type</span><select
+									value={tier.type}
+									onchange={(e) => setWinTierType(index, e.currentTarget.value)}
+								>
+									<option value="small">small</option>
+									<option value="medium">medium</option>
+									<option value="big">big</option>
+								</select></label
+							>
+							<label class="mini"
+								><span>Spine key</span><input
+									value={tier.spineKey ?? ''}
+									placeholder="bigwin"
+									oninput={(e) => setTierSpineKey(index, e.currentTarget.value)}
+								/></label
+							>
+							<label class="mini"
+								><span>Duration ms</span><input
+									type="number"
+									step="100"
+									placeholder="0"
+									value={tier.durationMs ?? ''}
+									oninput={(e) => setTierDuration(index, e.currentTarget.value)}
+								/></label
+							>
+						</div>
+
+						<div class="betmode-row">
+							<label class="mini"
+								><span>Intro anim</span><input
+									value={tierAnimValue(index, 'intro')}
+									oninput={(e) => setTierAnim(index, 'intro', e.currentTarget.value)}
+								/></label
+							>
+							<label class="mini"
+								><span>Idle anim</span><input
+									value={tierAnimValue(index, 'idle')}
+									oninput={(e) => setTierAnim(index, 'idle', e.currentTarget.value)}
+								/></label
+							>
+							<label class="mini"
+								><span>Outro anim</span><input
+									value={tierAnimValue(index, 'outro')}
+									oninput={(e) => setTierAnim(index, 'outro', e.currentTarget.value)}
+								/></label
+							>
+							<label class="mini"
+								><span>SFX</span><input
+									value={tierSoundValue(index, 'sfx')}
+									oninput={(e) => setTierSound(index, 'sfx', e.currentTarget.value)}
+								/></label
+							>
+							<label class="mini"
+								><span>BGM</span><input
+									value={tierSoundValue(index, 'bgm')}
+									oninput={(e) => setTierSound(index, 'bgm', e.currentTarget.value)}
+								/></label
+							>
+						</div>
+					</div>
+				{/each}
+			</div>
+
+			<div class="add">
+				<input placeholder="new tier alias (e.g. big)" bind:value={newWinTier} />
+				<button onclick={addWinTier}>Add tier</button>
+			</div>
+
+			{#if winTiers.length}
+				<div class="escalate">
+					<label class="check"
+						><input
+							type="checkbox"
+							checked={doc.escalateTiers === true}
+							onchange={(e) => setEscalate(e.currentTarget.checked)}
+						/><span>Sequential escalation — play each tier up to the winning one</span></label
+					>
+					<label class="mini"
+						><span>Start from</span><select
+							value={doc.escalateFrom ?? ''}
+							onchange={(e) => setEscalateFrom(e.currentTarget.value)}
+						>
+							<option value="">first big tier</option>
+							{#each winTierAliases as alias (alias)}
+								<option value={alias}>{alias}</option>
+							{/each}
+						</select></label
+					>
+				</div>
+			{/if}
+
+			{#each issuesFor('winLevels') as issue (issue.path + issue.message)}
+				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+			{/each}
+			{#each issuesFor('escalateFrom') as issue (issue.path + issue.message)}
+				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+			{/each}
+			{#each issuesFor('escalateTiers') as issue (issue.path + issue.message)}
+				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+			{/each}
+		</section>
 	</div>
 
 	{#if rawOpen}
@@ -1135,6 +1403,39 @@
 		border-color: #2f4a3f;
 		background: #101c17;
 		color: #7ee0c0;
+	}
+	.mp-chip.mp-big {
+		border-color: #4a3a1e;
+		background: #1c1710;
+		color: #e0b878;
+	}
+	.mp-chip.mp-medium {
+		border-color: #2f3a4a;
+		background: #10141c;
+		color: #9cc0e0;
+	}
+	.tier-move {
+		display: inline-flex;
+		gap: 4px;
+		margin-left: auto;
+		margin-right: 8px;
+	}
+	.tier-move button {
+		padding: 2px 8px;
+		font-size: 12px;
+	}
+	.tier-move button:disabled {
+		opacity: 0.35;
+		cursor: default;
+	}
+	.escalate {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 12px 20px;
+		align-items: center;
+		margin-top: 12px;
+		padding-top: 12px;
+		border-top: 1px solid #1c1c24;
 	}
 	.betmodes {
 		display: flex;

@@ -50,7 +50,7 @@
 
 	let show = $state(true);
 	let amount = $state(0);
-	let winLevelData = $state<WinLevelData>();
+	let winLevelData = $state<WinLevelData | undefined>();
 	// The pending round-block resolver, set while `freeSpinOutroCountUp` holds. A plain `let` (NOT
 	// reactive), so the release `$effect` below tracks only `outroScreenActive` — mirroring
 	// `FreeSpinIntroFlowGate` so a spurious re-run can never resolve early.

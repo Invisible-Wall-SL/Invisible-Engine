@@ -157,6 +157,53 @@ export type ResolvedBetMode = {
  */
 export type Paylines = Record<string, number[]>;
 
+/** A win tier's celebration bracket. `big` tiers get the full-screen big-win presentation (a spine
+ *  + count-up); `small`/`medium` present as a plain number. Mirrors the coded `winLevelMap` `type`. */
+export type WinTierType = 'small' | 'medium' | 'big';
+
+/** The spine animation names a big-win tier plays: intro (once) → idle (loops during the count-up) →
+ *  outro (once). Every field required — a half-authored animation set has no meaning. */
+export type WinTierAnimation = {
+	intro: string;
+	idle: string;
+	outro: string;
+};
+
+/** A tier's optional sounds. `sfx` is a one-shot cue, `bgm` the music bed while the tier presents. */
+export type WinTierSound = {
+	sfx?: string;
+	bgm?: string;
+};
+
+/**
+ * One AUTHORED win tier — the config's replacement for one row of the coded `winLevelMap` table.
+ * The owner decides how many tiers exist, names them, and sets each tier's amount `threshold`
+ * (win-as-bet-multiplier). The tiers are an ORDERED list (ascending thresholds); the tier's
+ * 1-based position in that list is its `level`, the number the facade emits and the engine looks up.
+ *
+ * `animation` / `spineKey` / `sound` / `durationMs` are optional — a `small`/`medium` tier usually
+ * omits `animation` (plain-number presentation), a `big` tier carries it. `spineKey` lets a tier
+ * point at its own spine bundle (default: the component's `bigwin`).
+ */
+export type WinLevelTier = {
+	/** Stable id, matched by `escalateFrom` and by the coded alias-lookup path. */
+	alias: string;
+	/** Player-facing caption for this tier (e.g. "BIG WIN"). Defaults to `alias` when unset. */
+	name: string;
+	/** Win as a multiple of the total bet at/above which this tier applies. Ascending across the list. */
+	threshold: number;
+	type: WinTierType;
+	animation?: WinTierAnimation;
+	/** Spine bundle key for this tier's art. Absent ⇒ the big-win component's default bundle. */
+	spineKey?: string;
+	sound?: WinTierSound;
+	/** How long the presentation (and its count-up) holds, in milliseconds. */
+	durationMs?: number;
+};
+
+/** A win tier with its resolved 1-based `level` — the shape the runtime and the tool consume. */
+export type ResolvedWinTier = WinLevelTier & { level: number };
+
 /**
  * The whole authored config. **DENSE, not sparse** — unlike Win Text or the Symbols SM, a project
  * either has a complete config or has none at all and falls through to the compiled template. A
@@ -192,6 +239,22 @@ export type GameConfigDoc = {
 	 * empty is byte-identical to before.
 	 */
 	paylineColors?: Record<string, string>;
+	/**
+	 * OPTIONAL config-authored WIN TIERS (big-win levels) — an ordered list, ascending by `threshold`.
+	 * An INVISIBLE-ENGINE extension, not part of the Stake export; a paste-in config omits it. When
+	 * ABSENT the game keeps its coded `winLevelMap` table AND the facade's coded threshold ladder — an
+	 * un-authored project is byte-identical to before (see `resolveWinLevels`). When present, both the
+	 * facade's tier computation and the big-win component read this list instead.
+	 */
+	winLevels?: WinLevelTier[];
+	/**
+	 * OPTIONAL sequential tier escalation. When `true`, a win landing on tier N plays each tier from
+	 * the escalation start up to N in sequence (intro+idle per tier, outro only on the final tier) over
+	 * ONE continuous count-up. Ignored unless `winLevels` is authored. OFF ⇒ today's single-tier path.
+	 */
+	escalateTiers?: boolean;
+	/** The `alias` of the tier the escalation starts from. Unset ⇒ the first `big` tier. */
+	escalateFrom?: string;
 	updatedAt?: string;
 };
 

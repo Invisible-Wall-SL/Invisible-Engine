@@ -67,7 +67,7 @@ import { roundSkip } from 'utils-shared/skipToken';
 import { waitForTimeout } from 'utils-shared/wait';
 
 import type { BookEvent } from './typesBookEvent';
-import { winLevelMap, type WinLevel } from './winLevelMap';
+import { activeWinLevelIsBig } from './gameConfig';
 
 /**
  * The book events whose whole presentation is unskippable.
@@ -124,7 +124,7 @@ export const startsCelebration = (bookEvent: BookEvent): boolean => {
 		case 'freeSpinRetrigger':
 			return true;
 		case 'setWin':
-			return winLevelMap[bookEvent.winLevel as WinLevel]?.type === 'big';
+			return activeWinLevelIsBig(bookEvent.winLevel);
 		default:
 			return false;
 	}

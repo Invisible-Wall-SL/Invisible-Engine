@@ -24,12 +24,16 @@ import { readFileSync } from 'node:fs';
 import {
 	GAME_CONFIG_DOC_VERSION,
 	normalizeGameConfigDoc,
+	resolveWinLevel,
+	resolveWinLevelChain,
+	resolveWinLevels,
 	symbolsInPlay,
 	symbolsInPlayForGameType,
 	symbolFrequencies,
 	validateGameConfigDoc,
 	gameConfigErrors,
 	isSymbolInPlay,
+	winLevelType,
 	type GameConfigDoc,
 } from 'game-config';
 
@@ -328,6 +332,135 @@ assert(
 assert(
 	normalizeGameConfigDoc(JSON.parse('{"symbols":{"H1":{}}}')) === undefined,
 	'raw-JSON apply rejects a config with no strips (the modal error path)',
+);
+
+// ---------------------------------------------------------------------------
+// 9. Config-authored WIN TIERS (big-win levels) + sequential escalation.
+//
+// The owner authors an ordered tier list (name/alias/threshold/type/animation) and an escalation
+// flag; the facade emits a level by walking the thresholds and the big-win component reads the tier.
+// The load-bearing contract is the FALLBACK: an un-authored config (the template) routes NOTHING
+// through here and keeps its coded winLevelMap + coded ladder — byte-identical to before.
+// ---------------------------------------------------------------------------
+console.log('\nwin tiers — the un-authored fallback is byte-identical');
+// The shipped template authors NO win tiers, so every resolver returns undefined and normalize adds
+// nothing — the exact signal that keeps the coded path in force.
+assert(template.winLevels === undefined, 'the template authors no win tiers (fallback in force)');
+assert(resolveWinLevels(template) === undefined, 'resolveWinLevels(template) is undefined');
+assert(resolveWinLevel(template, 12) === undefined, 'resolveWinLevel(template, …) is undefined');
+assert(
+	resolveWinLevelChain(template, 3) === undefined,
+	'no escalation chain for an un-authored doc',
+);
+assert(winLevelType(template, 6) === undefined, 'winLevelType(template, …) is undefined');
+// Byte-identical proof: adding the OPTIONAL fields to the schema must not change a doc that omits
+// them. Re-normalizing the template yields the same doc, with none of the new keys present.
+const reNormalized = normalizeGameConfigDoc(JSON.parse(JSON.stringify(template))) as GameConfigDoc;
+assert(
+	!('winLevels' in reNormalized) &&
+		!('escalateTiers' in reNormalized) &&
+		!('escalateFrom' in reNormalized),
+	'an un-authored doc gains no winLevels/escalateTiers/escalateFrom keys (byte-identical)',
+);
+
+console.log('\nwin tiers — an authored 3-tier config');
+const authored = normalizeGameConfigDoc({
+	...JSON.parse(JSON.stringify(template)),
+	winLevels: [
+		{ alias: 'win', name: 'WIN', threshold: 0, type: 'small' },
+		{
+			alias: 'big',
+			name: 'BIG WIN',
+			threshold: 10,
+			type: 'big',
+			animation: { intro: 'big_intro', idle: 'big_idle', outro: 'big_outro' },
+			spineKey: 'bigwin',
+			durationMs: 6000,
+		},
+		{
+			alias: 'mega',
+			name: 'MEGA WIN',
+			threshold: 40,
+			type: 'big',
+			animation: { intro: 'mega_intro', idle: 'mega_idle', outro: 'mega_outro' },
+		},
+	],
+	escalateTiers: true,
+}) as GameConfigDoc;
+assert(authored.winLevels?.length === 3, 'three authored tiers survive normalize');
+assert(authored.escalateTiers === true, 'escalateTiers survives');
+const tiers = resolveWinLevels(authored)!;
+assert(tiers[0].level === 1 && tiers[2].level === 3, 'levels are 1-based positional');
+// The threshold ladder — the facade emits these levels.
+assert(resolveWinLevel(authored, 0) === 1, 'a zero win → tier 1');
+assert(resolveWinLevel(authored, 5) === 1, 'below the big threshold → tier 1');
+assert(resolveWinLevel(authored, 10) === 2, 'at the big threshold → tier 2');
+assert(resolveWinLevel(authored, 39) === 2, 'below mega → tier 2');
+assert(resolveWinLevel(authored, 100) === 3, 'at/over mega → tier 3');
+// The big-win gate keys off type === 'big', NOT a magic >= 6 — tier 2 of 3 triggers big-win.
+assert(winLevelType(authored, 1) === 'small', 'tier 1 is small (no big-win)');
+assert(winLevelType(authored, 2) === 'big', 'tier 2 is big — the gate fires on a 3-tier config');
+// Escalation chain: a win on tier 3 (mega) plays the big→mega chain; the default start is the first
+// big tier (level 2), so tier 1 is NOT replayed.
+const chain = resolveWinLevelChain(authored, 3)!;
+assert(
+	chain.map((t) => t.level).join(',') === '2,3',
+	'escalation chain from first big tier up to N',
+);
+assert(
+	resolveWinLevelChain(authored, 1)!
+		.map((t) => t.alias)
+		.join(',') === 'win',
+	'a below-start win plays only its own tier',
+);
+
+console.log('\nwin tiers — escalation OFF and escalateFrom');
+const noEscalate = normalizeGameConfigDoc({
+	...JSON.parse(JSON.stringify(authored)),
+	escalateTiers: false,
+}) as GameConfigDoc;
+assert(!('escalateTiers' in noEscalate), 'escalateTiers:false is dropped (sparse)');
+assert(
+	resolveWinLevelChain(noEscalate, 3) === undefined,
+	'escalation off ⇒ no chain (single-tier path)',
+);
+const fromMega = normalizeGameConfigDoc({
+	...JSON.parse(JSON.stringify(authored)),
+	escalateFrom: 'mega',
+}) as GameConfigDoc;
+assert(
+	resolveWinLevelChain(fromMega, 3)!
+		.map((t) => t.alias)
+		.join(',') === 'mega',
+	'escalateFrom names the start tier',
+);
+
+console.log('\nwin tiers — validation + idempotence');
+const badTiers = normalizeGameConfigDoc({
+	...JSON.parse(JSON.stringify(template)),
+	winLevels: [
+		{ alias: 'a', threshold: 10, type: 'small' },
+		{ alias: 'b', threshold: 5, type: 'big' },
+	],
+	escalateFrom: 'ghost',
+}) as GameConfigDoc;
+const tierIssues = validateGameConfigDoc(badTiers);
+assert(
+	tierIssues.some((i) => i.severity === 'error' && i.path === 'winLevels.2.threshold'),
+	'a descending threshold is an ERROR',
+);
+assert(
+	tierIssues.some((i) => i.severity === 'warning' && i.path === 'winLevels.2.animation'),
+	'a big tier with no animation WARNS',
+);
+assert(
+	tierIssues.some((i) => i.severity === 'error' && i.path === 'escalateFrom'),
+	'escalateFrom naming no real tier is an ERROR',
+);
+assert(badTiers.winLevels?.[0].name === 'a', 'a tier with no name defaults its name to its alias');
+assert(
+	eq(normalizeGameConfigDoc(JSON.parse(JSON.stringify(authored))), authored),
+	'normalize is idempotent with authored win tiers',
 );
 
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nall checks passed');

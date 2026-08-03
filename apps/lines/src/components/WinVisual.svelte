@@ -11,7 +11,8 @@
 
 	import { getContext } from '../game/context';
 	import { SYMBOL_SIZE } from '../game/constants';
-	import WinAnimation from './WinAnimation.svelte';
+	import { activeWinLevelChain } from '../game/gameConfig';
+	import WinAnimation, { type WinAnimationStep } from './WinAnimation.svelte';
 	import WinCoins from './WinCoins.svelte';
 	import { winState } from '../game/winState.svelte';
 	import { bakedWinText } from '../editor-scenes';
@@ -83,6 +84,35 @@
 	});
 
 	/**
+	 * The SEQUENTIAL-ESCALATION chain (Invisible Game Config win tiers): the ordered tiers a win plays
+	 * before the winning one, each with its own spine bundle key + resolved animation names. Present
+	 * ONLY when the config authors `winLevels` AND `escalateTiers` is on (`activeWinLevelChain`
+	 * returns `undefined` otherwise, so an un-authored / un-escalating game keeps the single-tier
+	 * `resolvedAnimationMap` path — byte-identical). Tiers with no animation are skipped (a
+	 * small/medium tier in the range presents no spine). A single-element chain (the winning tier is
+	 * the escalation start) still routes through `WinAnimation`'s chain path, so its FINAL-tier outro
+	 * plays on count-up completion.
+	 */
+	const escalationChain = $derived.by<WinAnimationStep[] | undefined>(() => {
+		const level = winLevelData?.level;
+		if (level === undefined) return undefined;
+		const chain = activeWinLevelChain(level);
+		if (!chain) return undefined;
+		const steps = chain
+			.filter((tier) => tier.animation)
+			.map((tier) => ({
+				key: tier.spineKey ?? winSpine,
+				slotName,
+				animationMap: {
+					intro: tier.animation!.intro,
+					idle: tier.animation!.idle,
+					outro: tier.animation!.outro,
+				},
+			}));
+		return steps.length ? steps : undefined;
+	});
+
+	/**
 	 * The authored win-level caption (Invisible Win Text) for this tier, e.g. `big` → "BIG WIN",
 	 * localized + interpolated by `formatWinText`.
 	 *
@@ -122,6 +152,8 @@
 			animationMap={resolvedAnimationMap}
 			key={winSpine}
 			{slotName}
+			chain={escalationChain}
+			countUpComplete={winState.countUpComplete}
 			width={boundToInstance ? undefined : context.stateGameDerived.boardLayout().width}
 		>
 			{#if levelCaption}

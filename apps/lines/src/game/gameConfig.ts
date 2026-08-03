@@ -1,14 +1,20 @@
 import {
 	normalizeGameConfigDoc,
+	resolveWinLevel,
+	resolveWinLevelChain,
+	resolveWinLevels,
 	symbolsInPlay,
 	validateGameConfigDoc,
+	winLevelType,
 	type GameConfigDoc,
+	type ResolvedWinTier,
 } from 'game-config';
 
 import { bakedGameConfig } from '../editor-scenes';
 import compiledConfig from './config';
 import { SYMBOL_SIZE } from './constants';
 import type { GameType, RawSymbol } from './types';
+import { winLevelMap, type WinLevel, type WinLevelData } from './winLevelMap';
 
 /**
  * The game config the game actually runs on — Phase 3 of `docs/design/invisible-game-config.md`.
@@ -163,6 +169,97 @@ export function initialBoard(): RawSymbol[][] {
 			strip.length ? strip[i % strip.length] : { name: fallback },
 		);
 	});
+}
+
+// ---------------------------------------------------------------------------
+// Win tiers (big-win levels) — config-authored `winLevels`, or the coded `winLevelMap` fallback.
+//
+// The contract the rest of the game speaks is unchanged: a `winLevel` NUMBER on the book event,
+// looked up to a `WinLevelData`. When a project authors `winLevels`, that lookup table + the tier
+// thresholds come from the config instead of the coded table; when it does NOT, every accessor
+// returns the coded value verbatim, so an un-authored game is byte-identical.
+// ---------------------------------------------------------------------------
+
+/** The resolved authored tiers, or `undefined` when the project keeps the coded `winLevelMap`. */
+export function activeWinLevels(): ResolvedWinTier[] | undefined {
+	return resolveWinLevels(getActiveGameConfig());
+}
+
+/** Map one authored tier into the engine's `WinLevelData` shape. The coded table's fields map 1:1:
+ *  `name`→`text`, `durationMs`→`presentDuration`, `sound`/`animation`/`spineKey` pass through. */
+function tierToWinLevelData(tier: ResolvedWinTier): WinLevelData {
+	return {
+		level: tier.level,
+		alias: tier.alias,
+		type: tier.type,
+		text: tier.name || null,
+		presentDuration: tier.durationMs ?? 0,
+		sound: { sfx: tier.sound?.sfx, bgm: tier.sound?.bgm },
+		animation: tier.animation,
+		spineKey: tier.spineKey,
+	};
+}
+
+/**
+ * The `WinLevelData` for a book event's `winLevel` NUMBER — from the authored tiers when present,
+ * else the coded `winLevelMap`. The ONE lookup every win consumer now routes through
+ * (`bookEventHandlerMap`, `flowEffects`, `unskippablePresentation`), replacing the direct
+ * `winLevelMap[winLevel as WinLevel]` so an authored config's tiers drive the presentation.
+ */
+export function activeWinLevelData(level: number): WinLevelData | undefined {
+	const tiers = activeWinLevels();
+	if (tiers) {
+		const tier = tiers.find((t) => t.level === level);
+		return tier ? tierToWinLevelData(tier) : undefined;
+	}
+	return winLevelMap[level as WinLevel];
+}
+
+/** Look a tier up by its alias — the authored tiers when present, else the coded table. Used by the
+ *  free-spin alias path (`getWinLevelDataByWinLevelAlias`). */
+export function activeWinLevelByAlias(alias: string): WinLevelData | undefined {
+	const tiers = activeWinLevels();
+	if (tiers) {
+		const tier = tiers.find((t) => t.alias === alias);
+		return tier ? tierToWinLevelData(tier) : undefined;
+	}
+	return Object.values(winLevelMap).find((data) => data.alias === alias);
+}
+
+/** Whether a `winLevel` NUMBER is a big-win tier — authored `type === 'big'`, else the coded table's
+ *  `type`. The big-win GATE, so a 3-tier config triggers big-win on its own big tier, not a magic 6. */
+export function activeWinLevelIsBig(level: number): boolean {
+	const type = winLevelType(getActiveGameConfig(), level);
+	if (type !== undefined) return type === 'big';
+	return winLevelMap[level as WinLevel]?.type === 'big';
+}
+
+/** The escalation chain (as `WinLevelData`) for a winning `level`, or `undefined` when escalation is
+ *  off / un-authored — the big-win component plays only the single winning tier in that case. */
+export function activeWinLevelChain(level: number): WinLevelData[] | undefined {
+	const chain = resolveWinLevelChain(getActiveGameConfig(), level);
+	return chain?.map(tierToWinLevelData);
+}
+
+/** The threshold-ladder level for a win as a bet-multiplier, or `undefined` when un-authored (the
+ *  facade then uses its coded ladder). Not read in-engine — exposed for parity/testing. */
+export function activeWinLevel(betMultiplier: number): number | undefined {
+	return resolveWinLevel(getActiveGameConfig(), betMultiplier);
+}
+
+/**
+ * Publish the resolved tiers (level + threshold + type only) to a global the RGS FACADE reads
+ * (`packages/rgs-translator-eagaming/stakeFacade.ts`). The facade is a drop-in for `rgs-requests` and
+ * cannot import this app, so a global is the decoupled bridge: it lets the facade emit a `winLevel`
+ * from the AUTHORED ladder and gate big-win on the authored `type`, instead of its hardcoded ladder.
+ * Cleared (set to the un-authored signal) when the project authors no tiers, so the facade falls back
+ * byte-identically. Called at boot after {@link resetGameConfigCache} (`Game.svelte`).
+ */
+export function publishWinLevelsToFacade(): void {
+	const tiers = activeWinLevels();
+	(globalThis as { __IE_WIN_LEVELS__?: unknown }).__IE_WIN_LEVELS__ = tiers
+		? tiers.map((tier) => ({ level: tier.level, threshold: tier.threshold, type: tier.type }))
+		: undefined;
 }
 
 let warned = false;

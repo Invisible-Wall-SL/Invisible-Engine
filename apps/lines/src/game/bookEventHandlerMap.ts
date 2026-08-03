@@ -12,7 +12,6 @@ import { eventEmitter } from './eventEmitter';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { playBookEvent } from './utils';
-import { winLevelMap, type WinLevel } from './winLevelMap';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
 import {
 	winLevelSoundsPlay,
@@ -28,7 +27,7 @@ import {
 	showWinInfoMessage,
 } from './flowEffects';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
-import { boardDimensions, paddingReels } from './gameConfig';
+import { activeWinLevelData, boardDimensions, paddingReels } from './gameConfig';
 
 export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {
 	reveal: async (bookEvent: BookEventOfType<'reveal'>, { bookEvents }: BookEventContext) => {
@@ -266,7 +265,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		stateUi.freeSpinCounterTotal = bookEvent.total;
 	},
 	freeSpinEnd: async (bookEvent: BookEventOfType<'freeSpinEnd'>) => {
-		const winLevelData = winLevelMap[bookEvent.winLevel as WinLevel];
+		const winLevelData = activeWinLevelData(bookEvent.winLevel);
 
 		await roundSkip.race(eventEmitter.broadcastAsync({ type: 'uiHide' }));
 		stateGame.gameType = 'basegame';
@@ -298,7 +297,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		eventEmitter.broadcast({ type: 'drawerButtonHide' });
 	},
 	setWin: async (bookEvent: BookEventOfType<'setWin'>) => {
-		const winLevelData = winLevelMap[bookEvent.winLevel as WinLevel];
+		const winLevelData = activeWinLevelData(bookEvent.winLevel);
 
 		eventEmitter.broadcast({ type: 'winShow' });
 		stateUi.winShow = true;

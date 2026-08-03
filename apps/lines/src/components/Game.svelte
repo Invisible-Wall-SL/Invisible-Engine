@@ -110,7 +110,11 @@
 	} from 'engine-layout';
 	import type { Scene } from 'engine-layout';
 
-	import { resetGameConfigCache, warnOnGameConfigIssues } from '../game/gameConfig';
+	import {
+		publishWinLevelsToFacade,
+		resetGameConfigCache,
+		warnOnGameConfigIssues,
+	} from '../game/gameConfig';
 	import { syncBetModeMeta } from '../game/betModeMeta';
 	import { infoManifest } from '../game/infoManifest';
 	import { getActiveSymbolInfoMap, resetSymbolMapCache } from '../game/symbolMap';
@@ -257,6 +261,12 @@
 	// runtime-bundle branch above so it reads the config the game will actually run — an online
 	// project's authored bet modes, cost and copy — not the one it booted with.
 	syncBetModeMeta();
+
+	// Publish the resolved win tiers (level/threshold/type) to the global the RGS FACADE reads
+	// (`stakeFacade.ts`), so an authored config's tier ladder + big-win gate drive the win level the
+	// facade emits. Runs after the runtime-bundle branch, on the config the game will actually run.
+	// Un-authored ⇒ the global is cleared and the facade keeps its coded ladder (byte-identical).
+	publishWinLevelsToFacade();
 
 	// Boot loading screen (defined in the HTML shell, `app.html`): feed real asset-load
 	// progress into the pre-mount splash and dismiss it once the game's assets are ready.

@@ -192,6 +192,70 @@ section, exactly like its Win Text section:
   parity with the scene/win-text collectors: a project that hasn't authored a config shows no bet-mode
   rows until it does.
 
+## Config-authored win tiers (big-win levels) + sequential escalation
+
+The coded win-level table (`apps/lines/src/game/winLevelMap.ts`, 1..10) and the facade's hardcoded
+threshold ladder (`stakeFacade.ts` `computeWinLevel`) are now OPTIONALLY replaced by a config-authored
+tier list. All four phases landed; engine + schema build + typecheck + spike verified. Launcher
+`/config` panel render is owner-verify-owed (launcher-only), as with the rest of the tool.
+
+**Schema (`packages/game-config`).** New OPTIONAL `winLevels?: WinLevelTier[]` on `GameConfigDoc` (an
+ordered tier list — `alias`/`name`/`threshold` (win-as-bet-multiplier)/`type` (`small|medium|big`) +
+optional `animation{intro,idle,outro}`/`spineKey`/`sound{sfx,bgm}`/`durationMs`) plus top-level
+`escalateTiers?`/`escalateFrom?`. An Invisible-Engine extension a Stake paste-in omits, mirroring
+`paylineColors`/`betModePresentation`. `normalizeWinLevels` is sparse (the whole block + flags omitted
+when un-authored ⇒ byte-identical). `winLevels.ts` resolver: `resolveWinLevels` (assigns 1-based
+`level`), `resolveWinLevel(doc, betMult)` (the threshold ladder), `winLevelType(doc, level)` (the
+big-win gate), `resolveWinLevelChain(doc, level)` (the escalation chain, `undefined` when off).
+`validate.ts` flags descending thresholds (error), a big tier with no animation (warning), a duplicate
+alias (error), an `escalateFrom` naming no tier (error). `game-config-spike` gains ~30 checks incl.
+the byte-identical-fallback proof; all pass (the sole failing check is the pre-existing CRLF
+`lines.json` drift, unrelated — the file is git-clean and `winLevels` is absent from the derived doc).
+
+**Runtime (`apps/lines`).** `winLevelMap.ts`'s `WinLevelData` widened from the coded table's literal
+union to a STRUCTURAL type (+ optional `spineKey`) so a config-built tier satisfies it; the coded
+entries stay assignable (un-authored path unchanged). `WinLevelAlias` widened to `string`.
+`gameConfig.ts` owns the resolution: `activeWinLevelData(level)` (config tier → `WinLevelData`, else
+the coded `winLevelMap[level]`), `activeWinLevelIsBig(level)`, `activeWinLevelChain(level)`,
+`publishWinLevelsToFacade()`. The win consumers route through these instead of importing the coded
+table: `bookEventHandlerMap.ts` (setWin/freeSpinEnd), `flowEffects.ts` (`winLevelDataOf`),
+`unskippablePresentation.ts` (`startsCelebration`). `winLevelData` widened to `WinLevelData | undefined`
+across the emitter events + state vars (runtime already permitted it; `winLevelSoundsPlay` already used
+optional chaining). `Game.svelte` calls `publishWinLevelsToFacade()` at boot after `resetGameConfigCache`.
+
+**The facade↔engine contract.** The facade can't import the app (it's a drop-in for `rgs-requests`),
+so `publishWinLevelsToFacade()` writes the resolved tiers (level/threshold/type only) to
+`globalThis.__IE_WIN_LEVELS__`; `stakeFacade.ts` reads it in `computeWinLevel` (authored ladder, else
+the coded ladder) and the big-win gate `isBigWinLevel` (authored `type === 'big'`, else `>= 6`), so a
+3-tier config triggers big-win on its own big tier. Un-authored ⇒ the global is cleared ⇒ both fall back
+byte-identically.
+
+**Escalation (`WinAnimation.svelte`/`WinVisual.svelte`).** `WinAnimation` gains an optional `chain`
+(ordered tiers, each with its own spine key) + `countUpComplete`: it plays each tier's intro + a single
+idle cycle, advancing on the idle's `complete`, lands on the final tier's LOOPING idle, then plays the
+final outro once the count-up latches (`winState.countUpComplete`). Different `spineKey` per tier
+reloads the bundle. No `chain` ⇒ the original single-tier intro→looping-idle path (byte-identical, no
+outro). `WinVisual` builds the chain from `activeWinLevelChain(winLevelData.level)` — present only when
+`escalateTiers` is on AND tiers are authored; the count-up stays ONE continuous count (driven by
+`WinGate`/`winState`, untouched).
+
+**The `/config` Win tiers panel.** New section after Bet modes: add/remove/reorder tiers (↑/↓), edit
+name/threshold/type/spineKey/duration/animation names/sfx/bgm, an escalation toggle + start-tier select,
+and a resolved-ladder preview. Written SPARSELY (the block + flags exist only once a tier is added), so
+an un-authored config stays byte-identical. Inline `winLevels`/`escalateFrom`/`escalateTiers` validator
+issues render under the panel. `docs/tools/game-config.md` updated in the same change (rule 9).
+
+**Deliberately NOT touched:** `flowDoc.ts`'s `BIG_WIN_LEVELS = [6..10]` — a module-scope DEV-hook
+fixture (`window.__IE_FLOW_WIN__`), not the production path (online games run authored flow-v2 graphs);
+config is async so it can't be read at that module's init. Left as-is. And the coded `winLevelMap` table
+stays as the un-authored fallback (byte-identical requirement #4).
+
+**Runtime bundle:** `winLevels` rides the existing config bake→pull chain (it's part of `GameConfigDoc`,
+already in `assembleRuntimeBundle` + the bake) — no new asset class. But the ENGINE code that reads it
+(`gameConfig.ts`, the facade, the win components) ships in the shared `_runtime/lines` bundle, so an
+online game needs a **Runtime release + republish** to pick up this behavior; a `main` merge alone does
+not reach a live game.
+
 ## Open items / next
 
 1. **Live-verify the launcher surfaces** (owner click-through) — render `/config` (load a config,
@@ -216,6 +280,17 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   locally (Postgres + R2 + session). Not blocking the merge; it's a post-deploy check.
 
 ## Recent changes
+
+- 2026-08-03 — **Config-authored win tiers (big-win levels) + sequential escalation.** New OPTIONAL
+  `winLevels?` tier list + `escalateTiers?`/`escalateFrom?` on `GameConfigDoc`, resolver in
+  `winLevels.ts`, validators, ~30 spike checks (all pass; the CRLF `lines.json` drift is the lone
+  pre-existing failure). Runtime routes `stakeFacade.ts` `computeWinLevel`/big-win gate (via the
+  `globalThis.__IE_WIN_LEVELS__` bridge) and the engine's win-level lookup (`activeWinLevelData` in
+  `gameConfig.ts`, consumed by `bookEventHandlerMap`/`flowEffects`/`unskippablePresentation`) through
+  the authored tiers. Escalation in `WinAnimation`/`WinVisual` (per-tier intro+idle chain, final-tier
+  outro on count-up, one continuous count). `/config` "Win tiers" panel + guide. Un-authored ⇒
+  byte-identical (coded `winLevelMap` + coded ladder, both untouched). Needs a Runtime release +
+  republish to reach online games. See the "Config-authored win tiers" section above.
 
 - 2026-07-28 — **Phase 6 (all four sub-phases): bet modes authorable + localizable.** Engine +
   schema build + typecheck + spike verified; 6a/6b verified live in the running game; 6c/6d
