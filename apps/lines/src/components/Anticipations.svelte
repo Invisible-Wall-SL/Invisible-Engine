@@ -28,8 +28,10 @@
 
 	// Grey out every reel that is NOT actively anticipating while ANY reel is (the settled/losing
 	// reels), so the held reel stands alone. Empty ⇒ no dim (clean clear the instant nothing is active).
+	// Gated on the Flow-authored `anticipationGreyOut` toggle (default on ⇒ Phase 3 behaviour unchanged);
+	// off ⇒ no dim rects render, the spine stack + zoom still play.
 	const dimmedReels = $derived(
-		anyActive
+		anyActive && context.stateGame.anticipationGreyOut
 			? context.stateGame.board
 					.map((reel) => reel.reelIndex)
 					.filter((index) => !active.includes(index))

@@ -42,6 +42,7 @@ const GAME_TYPE: TypeRef = { t: 'enum', name: 'GameType' };
 // literal). Their members are codegen'd from `apps/lines/src/game/sound.ts` into `soundEnums.generated`
 // (`node scripts/gen-flow-v2-sound-enums.mjs`), so adding a sound updates the dropdown automatically.
 const CAMERA_EFFECT: TypeRef = { t: 'enum', name: 'CameraEffectKind' };
+const CONFIDENCE: TypeRef = { t: 'enum', name: 'AnticipationConfidence' };
 const BOOL: TypeRef = { t: 'bool' };
 const MS: TypeRef = { t: 'ms' };
 const MUSIC: TypeRef = { t: 'enum', name: 'MusicName' };
@@ -91,6 +92,9 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 		// (`constants-shared/camera` → `pixi-svelte`'s `cameraEffects`), so the dropdown can never
 		// offer a kind the game would silently no-op.
 		{ name: 'CameraEffectKind', values: [...CAMERA_EFFECT_KINDS] },
+		// Reel-anticipation confidence (docs/design/reel-anticipation.md): `possible` teases on the
+		// reachable-win MAX bound (near-misses), `guaranteed` fires only once the win is locked in (MIN).
+		{ name: 'AnticipationConfidence', values: ['possible', 'guaranteed'] },
 		// Sound-name enums — codegen'd from `sound.ts` (see the `MUSIC`/`SOUND` TypeRefs above).
 		{ name: 'MusicName', values: MUSIC_NAMES },
 		{ name: 'SoundEffectName', values: SOUND_EFFECT_NAMES },
@@ -375,6 +379,23 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 			category: 'effect',
 		},
 		{ name: 'disableSequentialReelStop', params: [], category: 'effect' },
+		// Client-computed reel ANTICIPATION mode — reels HOLD + escalating tease FX while a big win /
+		// feature trigger is still reachable from the reels not yet stopped. `confidence` picks the
+		// reachable-win bound (`possible` = max, teases near-misses; `guaranteed` = min, only once the
+		// win is locked in) — unset ⇒ keep the current value. `minAnticipateReel` (default 2) suppresses
+		// the trivial early arm; `greyOut`/`zoom` (default true) toggle the dim of the non-anticipating
+		// reels and the board zoom-in. Off by default ⇒ leave it unauthored for byte-parity.
+		{
+			name: 'enableAnticipationMode',
+			params: [
+				{ name: 'confidence', type: CONFIDENCE, optional: true },
+				{ name: 'minAnticipateReel', type: INT, optional: true },
+				{ name: 'greyOut', type: BOOL, optional: true },
+				{ name: 'zoom', type: BOOL, optional: true },
+			],
+			category: 'effect',
+		},
+		{ name: 'disableAnticipationMode', params: [], category: 'effect' },
 		{ name: 'setFreeSpinCounterTotal', params: [{ name: 'total', type: INT }], category: 'effect' },
 		{
 			name: 'setFreeSpinCounterTotalOnly',

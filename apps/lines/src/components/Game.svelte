@@ -285,11 +285,12 @@
 	// ⇒ empty ⇒ every field falls back to the config/coded tier (byte-identical).
 	publishWinPresentation(bakedWinPresentationParams());
 
-	// DEV enable for the reel-anticipation presentation (Phase 3), ahead of the Flow effect that owns
-	// the mode (Phase 4). `?anticipation=possible|guaranteed` turns the mode on at boot so it can be
-	// verified live (with the mock RGS) before Flow exists; any other / absent value leaves the mode
-	// OFF ⇒ nothing mounts, byte-parity. `possible` teases near-misses (max bound); `guaranteed` only
-	// fires once the big win is locked in (min bound). Flow will set these same flags in Phase 4.
+	// DEV/testing fallback for the reel-anticipation mode. The REAL owner is now the Flow
+	// `enableAnticipationMode` effect (Phase 4, `flowEffects.ts`) — it sets these same flags from an
+	// authored graph. This URL param is kept as the pre-Flow test path: `?anticipation=possible|guaranteed`
+	// turns the mode on at boot so it can be verified live (with the mock RGS) without authoring a flow;
+	// any other / absent value leaves the mode OFF ⇒ nothing mounts, byte-parity. `possible` teases
+	// near-misses (max bound); `guaranteed` only fires once the big win is locked in (min bound).
 	if (typeof location !== 'undefined') {
 		const anticipationParam = new URLSearchParams(location.search).get('anticipation');
 		if (anticipationParam === 'possible' || anticipationParam === 'guaranteed') {
@@ -1902,11 +1903,18 @@
 				<!-- Reel-anticipation mode (Phase 3): a dedicated camera wraps the reel stack +
 						 the anticipation overlays (spine stack + grey-out) so the zoom/pan never fights
 						 MainContainer or the editor coordinate boxes. Both are inside the camera so they
-						 zoom together; the camera + overlays are identity until a reel arms. -->
-				<AnticipationCamera>
+						 zoom together; the camera + overlays are identity until a reel arms. The camera is
+						 gated on the Flow-authored `anticipationZoom` toggle (default on ⇒ Phase 3 unchanged);
+						 off ⇒ the overlays render without the zoom (spine stack + grey-out only). -->
+				{#if stateGame.anticipationZoom}
+					<AnticipationCamera>
+						{@render reelStack()}
+						<Anticipations />
+					</AnticipationCamera>
+				{:else}
 					{@render reelStack()}
 					<Anticipations />
-				</AnticipationCamera>
+				{/if}
 			{:else}
 				{@render reelStack()}
 			{/if}

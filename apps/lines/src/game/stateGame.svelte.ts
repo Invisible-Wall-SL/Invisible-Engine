@@ -228,6 +228,12 @@ export const stateGame = $state({
 	anticipationMode: false,
 	anticipationConfidence: 'possible' as 'possible' | 'guaranteed',
 	minAnticipateReel: 2,
+	// Presentation toggles for the anticipation mode (both default ON ⇒ Phase 3 behaviour unchanged),
+	// set from the `enableAnticipationMode` Flow effect payload. `anticipationGreyOut` gates the dim of
+	// the non-anticipating reels (`Anticipations.svelte`); `anticipationZoom` gates the board zoom-in
+	// camera (`Game.svelte` wraps the reel stack in `AnticipationCamera` only when it is on).
+	anticipationGreyOut: true,
+	anticipationZoom: true,
 	// The REUSABLE win colour: the authored colour (`#rrggbb`, Invisible Game Config) of the payline
 	// whose win is CURRENTLY on screen, published by `WinLine.svelte` on `winLineShow` and cleared on
 	// `winLineHide`. `null` when no coloured win is showing (an un-coloured line, or no win). Any asset
