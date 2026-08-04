@@ -8,3 +8,5 @@ export * from './src/createEnhanceBoardPreSpin';
 export * from './src/createGetEmptyPaddedBoard';
 // reel-anticipation reachability (client-computed anticipation mode — docs/design/reel-anticipation.md)
 export * from './src/anticipationReach';
+// shared reel/board types (SpinType, Reel, ReelAnticipationArming, AnticipationTier, …)
+export * from './src/types';

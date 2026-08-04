@@ -8,7 +8,6 @@ type BookEventReveal = {
 	type: 'reveal';
 	board: RawSymbol[][];
 	paddingPositions: number[];
-	anticipation: number[];
 	gameType: GameType;
 };
 

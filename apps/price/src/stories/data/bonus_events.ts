@@ -124,7 +124,6 @@ export default {
 		],
 		paddingPositions: [279, 622, 216, 11, 71],
 		gameType: 'freegame',
-		anticipation: [0, 0, 0, 1, 2],
 	},
 	setTotalWin: {
 		type: 'setTotalWin',

@@ -104,9 +104,11 @@ Reads paylines + paytable from the active game config (`config.ts` `paylines`, `
   (i.e. the locked cells `0..k` on that line are all that symbol or wild), assume the unlocked
   reels all continue it → take the best line pay. If the run already broke within `0..k`, the line
   is capped at its locked run.
-- **`min` for a line**: use the ACTUAL symbols on the unlocked reels too (final board is known) —
-  which is just that line's true final pay. (`min` = the win that is already guaranteed regardless
-  of tease framing.)
+- **`min` for a line** given reels `0..k` locked: the pay of the run that is GUARANTEED by the locked
+  prefix alone — assume the unlocked reels break it immediately (`certRun = matched locked prefix`).
+  So `min` rises with `k` as more matching reels lock, and only equals the line's true final pay at
+  `k = numReels`. (`min` = the win already secured no matter what the unlocked reels do — this is what
+  makes `guaranteed` mode "only fire once the big win is locked in".)
 - Board `max`/`min` = sum over paylines (+ scatter row if the scatter can still reach its pay
   count). Scatter reachability also feeds the **feature-trigger** tease when the game wants it.
 

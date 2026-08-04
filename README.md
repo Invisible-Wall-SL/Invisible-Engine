@@ -356,7 +356,6 @@ This function is created by [packages/utils-book/src/createPlayBookUtils.ts](/pa
       ],
       paddingPositions: [216, 205, 195, 16, 65],
       gameType: 'basegame',
-      anticipation: [0, 0, 0, 0, 0],
     },
     { index: 1, type: 'setTotalWin', amount: 0 },
     { index: 2, type: 'finalWin', amount: 0 },
@@ -384,7 +383,6 @@ This function is created by [packages/utils-book/src/createPlayBookUtils.ts](/pa
   ],
   paddingPositions: [216, 205, 195, 16, 65],
   gameType: 'basegame',
-  anticipation: [0, 0, 0, 0, 0],
 }
 
 // base_books.ts - Example of a setTotalWin bookEvent

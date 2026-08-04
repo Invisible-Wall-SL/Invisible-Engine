@@ -195,7 +195,6 @@
 	import BoardFrame from './BoardFrame.svelte';
 	import Board from './Board.svelte';
 	import WinLine from './WinLine.svelte';
-	import Anticipations from './Anticipations.svelte';
 	import Win from './Win.svelte';
 	import WinGate from './WinGate.svelte';
 	import WinVisual from './WinVisual.svelte';
@@ -1829,7 +1828,7 @@
 			 basegame reproduces the exact below-reel → board → above-reel z-order (§11.5 B.1). -->
 	<!--
 			Base-game visibility gate (the pin-driven active-SET model). The base game — its
-			below-reel layers, the reel board (BoardFrame + Board + Anticipations), and its
+			below-reel layers, the reel board (BoardFrame + Board), and its
 			above-reel layers — renders ONLY while the base-game screen NODE is active
 			(`isBasegameActive`). During `loading` (basegame not yet activated) the reels are
 			HIDDEN behind the loading splash; the `complete` swap to basegame reveals them on the
@@ -1878,7 +1877,6 @@
 				<BoardFrame active={boardGlowActive} />
 			{/if}
 			<Board />
-			<Anticipations />
 		</MainContainer>
 
 		{#if basegameMount}

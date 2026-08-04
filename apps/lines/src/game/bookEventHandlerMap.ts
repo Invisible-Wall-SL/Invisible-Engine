@@ -13,6 +13,7 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { playBookEvent } from './utils';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
+import { buildAnticipationArming } from './anticipation';
 import {
 	winLevelSoundsPlay,
 	winLevelSoundsStop,
@@ -47,6 +48,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 			revealEvent: bookEvent,
 			paddingBoard: paddingReels(bookEvent.gameType),
 			forceSequentialStop: stateGame.sequentialReelStop,
+			computeArming: buildAnticipationArming(bookEvent),
 		});
 		eventEmitter.broadcast({ type: 'soundScatterCounterClear' });
 	},

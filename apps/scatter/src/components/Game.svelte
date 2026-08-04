@@ -38,7 +38,6 @@
 	import LoadingScreen from './LoadingScreen.svelte';
 	import BoardFrame from './BoardFrame.svelte';
 	import Board from './Board.svelte';
-	import Anticipations from './Anticipations.svelte';
 	import ClusterWinAmounts from './ClusterWinAmounts.svelte';
 	import TumbleBoard from './TumbleBoard.svelte';
 	import TumbleWinAmount from './TumbleWinAmount.svelte';
@@ -167,7 +166,6 @@
 
 		<MainContainer>
 			<Board />
-			<Anticipations />
 			<TumbleWinAmount />
 			<GlobalMultiplier />
 		</MainContainer>

@@ -125,7 +125,6 @@ export default {
 		],
 		paddingPositions: [8, 32, 15, 63, 57],
 		gameType: 'superspin',
-		anticipation: [0, 0, 0, 0, 0],
 	},
 	newStickySymbols: {
 		type: 'newStickySymbols',

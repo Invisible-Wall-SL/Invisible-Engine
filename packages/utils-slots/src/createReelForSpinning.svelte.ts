@@ -7,7 +7,12 @@ import { waitForTimeout } from 'utils-shared/wait';
 import { createInterruptible } from 'utils-shared/interruptible';
 import { roundSkip } from 'utils-shared/skipToken';
 
-import type { SpinningReelCreateOptions, SpinningReelSpinOptions, SpinType } from './types';
+import type {
+	SpinningReelCreateOptions,
+	SpinningReelSpinOptions,
+	SpinType,
+	AnticipationTier,
+} from './types';
 
 export type SpinningReelMotion = 'spinning' | 'bouncing' | 'stopped';
 export type SpinningReelSymbolState = 'static' | 'land' | 'spin';
@@ -93,7 +98,12 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		symbols: createReelSymbols(reelOptions.initialSymbols),
 		motion: 'stopped' as SpinningReelMotion,
 		spinType: 'normal' as SpinType,
-		anticipating: false,
+		// Client-computed reel ANTICIPATION (docs/design/reel-anticipation.md). `anticipationLevel` is
+		// the stack count (0 = not armed); `anticipationTier` the coarse intensity. Driven by the arming
+		// policy in `createEnhanceBoardSpin`; both stay at their defaults (byte-parity) when a game
+		// never turns anticipation on. The presentation (Phase 3) reads these.
+		anticipationLevel: 0,
+		anticipationTier: null as AnticipationTier | null,
 		readyToSpin: () => {},
 		spinOptions: () => ({}) as SpinningReelSpinOptions,
 	});
@@ -407,7 +417,8 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	const stop = () => {
 		// A slammed reel must not keep (or start) its anticipation presentation — the glow/SFX
 		// belong to a build-up the player just cancelled.
-		reelState.anticipating = false;
+		reelState.anticipationLevel = 0;
+		reelState.anticipationTier = null;
 		interruptible.interrupt();
 	};
 
