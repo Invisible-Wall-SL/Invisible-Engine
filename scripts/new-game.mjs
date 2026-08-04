@@ -308,9 +308,13 @@ pnpm dev          # http://localhost:${port}
 \`\`\`
 
 ## Bump the engine (when you choose to take new engine work)
+This repo's \`pnpm-workspace.yaml\` globs \`engine/packages/*\`, so the root
+\`pnpm-lock.yaml\` pins the engine packages' deps. The pin and the lockfile MUST
+move together — bumping the pin alone breaks the launcher's frozen install
+(\`ERR_PNPM_OUTDATED_LOCKFILE\`). Use the engine's helper, which does both atomically:
 \`\`\`bash
-cd engine && git fetch && git checkout main && git pull && cd ..
-git add engine && git commit -m "games: bump engine to <short-sha>"
+node engine/scripts/bump-game-engine.mjs        # advances engine + refreshes lockfile, one commit
+git push origin main
 \`\`\`
 
 ## Build / deploy
