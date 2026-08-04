@@ -6,11 +6,13 @@ import {
 	deleteComponent,
 	listComponentVersions,
 	loadComponent,
+	loadComponentWithEtag,
 	saveComponent,
 } from '$lib/server/componentStorage';
-import { ConflictError, jsonBaseEtag } from '$lib/server/r2';
+import { ConflictError } from '$lib/server/r2';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
+import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
 /**
@@ -73,17 +75,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (isRecord(body) && body.scope === 'shared') {
 		await gateSharedWrite(locals);
 	}
-	// `force` = the author answering the conflict with "overwrite theirs". Note what
-	// that does here, because it is NOT the unconditional write it is elsewhere:
-	// dropping the client's stale etag makes `saveComponent` fall back to the ETag of
-	// its own read, i.e. CAS against the CURRENT object. That is strictly safer — it
-	// still refuses if a third save lands mid-request — and it is the honest meaning of
-	// "overwrite what's there now". An omitted `baseEtag` (a pre-Phase-1 client) lands
-	// on the same path, which is exactly the old last-writer-wins behaviour.
-	const baseEtag =
-		isRecord(body) && body.force !== true && 'baseEtag' in body
-			? jsonBaseEtag(body.baseEtag)
-			: undefined;
+	// `force` = the author answering the conflict with "overwrite theirs". Note what that
+	// does here, because it is NOT the unconditional write it is elsewhere: `force` makes
+	// `writeBaseEtagJson` return `undefined`, and `saveComponent` then falls back to the ETag
+	// of its OWN read — i.e. CAS against the CURRENT object. That is strictly safer than a raw
+	// overwrite (it still refuses if a third save lands mid-request) and is the honest meaning
+	// of "overwrite what's there now". A non-force save now MUST carry `baseEtag` (string or
+	// null) or it is a 400 — the fail-open is closed (Phase 1).
+	const baseEtag = writeBaseEtagJson(body);
 	try {
 		const { version, etag } = await saveComponent(body as ComponentDef, projectKey, baseEtag);
 		return json({ ok: true, version, etag });
@@ -147,9 +146,24 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		versionParam && Number.isInteger(Number(versionParam)) && Number(versionParam) >= 1
 			? Number(versionParam)
 			: undefined;
-	const component = await loadComponent(id, projectKey, version);
-	if (!component) throw error(404, 'not found');
-	return json(component);
+	// A PINNED-version read (the version browser's inspect) returns the raw immutable
+	// snapshot — read-only, never the next save's base, so it carries no etag (back-compat).
+	if (version !== undefined) {
+		const snapshot = await loadComponent(id, projectKey, version);
+		if (!snapshot) throw error(404, 'not found');
+		return json(snapshot);
+	}
+	// The LATEST editable read carries its ETag — the precondition the editor sends back on
+	// save (Phase 1). `{ def, etag }`, distinct from the versioned shape above. `etag: null`
+	// ⇒ the def is a built-in with no stored object, so the first save creates it.
+	let resolved: Awaited<ReturnType<typeof loadComponentWithEtag>>;
+	try {
+		resolved = await loadComponentWithEtag(id, projectKey);
+	} catch {
+		throw error(502, 'Could not read the component — storage is unavailable. Please retry.');
+	}
+	if (!resolved) throw error(404, 'not found');
+	return json({ def: resolved.def, etag: resolved.etag });
 };
 
 /** Delete a component from its scope's R2 key (project shadow or shared library). */

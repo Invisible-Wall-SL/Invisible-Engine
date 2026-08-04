@@ -1,7 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import { isFlowV2Doc, saveFlowV2Doc } from '$lib/server/flowV2Storage';
-import { ConflictError, jsonBaseEtag } from '$lib/server/r2';
+import { ConflictError } from '$lib/server/r2';
 import { gate } from '$lib/server/toolScope';
+import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
 /**
@@ -49,7 +50,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		);
 	}
 
-	const baseEtag = body.force === true ? undefined : jsonBaseEtag(body.baseEtag);
+	const baseEtag = writeBaseEtagJson(body);
 
 	try {
 		const { etag } = await saveFlowV2Doc(clientKey, projectKey, body.doc, baseEtag);

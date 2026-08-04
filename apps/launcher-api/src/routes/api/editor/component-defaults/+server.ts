@@ -1,12 +1,14 @@
 import { error, json } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import {
+	ConflictError,
 	listComponentDefaults,
-	loadComponentDefaults,
+	loadComponentDefaultsWithEtag,
 	saveComponentDefaults,
 } from '$lib/server/componentDefaultsStorage';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
+import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
 /**
@@ -39,11 +41,20 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		const defaults = await listComponentDefaults(project);
 		return json({ defaults });
 	}
-	const params = await loadComponentDefaults(project, id);
-	return json({ params });
+	// `{ params, etag }` — the etag is the precondition the client sends back on save (Phase 1).
+	const { params, etag } = await loadComponentDefaultsWithEtag(project, id);
+	return json({ params, etag });
 };
 
-/** Persist a component's per-project param defaults to its sidecar R2 key (§13.3). */
+/**
+ * Persist a component's per-project param defaults to its sidecar R2 key (§13.3).
+ *
+ * Guarded by `baseEtag` (Phase 1 of `docs/design/multi-user-concurrency.md`): a stale one
+ * answers **409** rather than erasing a concurrent author's defaults. The precondition is
+ * REQUIRED — a save that omits it (and is not a `force` overwrite) is a 400.
+ *
+ * Body: `{ project, id, params, baseEtag: string | null }` (or `force: true`).
+ */
 export const POST: RequestHandler = async ({ request, locals }) => {
 	await gate(locals);
 	let body: unknown;
@@ -57,12 +68,26 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	if (typeof project !== 'string' || !project) throw error(400, 'missing project');
 	if (typeof id !== 'string' || !id) throw error(400, 'missing id');
 	if (!isRecord(params)) throw error(400, '`params` must be a plain object.');
+	const baseEtag = writeBaseEtagJson(body);
 	try {
-		await saveComponentDefaults(project, id, params);
+		const { etag } = await saveComponentDefaults(project, id, params, baseEtag);
+		return json({ ok: true, etag });
 	} catch (e) {
+		// Conflict before the generic 400 — a lost CAS is not a malformed payload.
+		if (e instanceof ConflictError) {
+			return json(
+				{
+					ok: false,
+					error: 'conflict',
+					message:
+						'Someone else saved these component defaults while you were editing. ' +
+						'Your changes are still here — reload to get their version first.',
+				},
+				{ status: 409 },
+			);
+		}
 		throw error(400, e instanceof Error ? e.message : 'Invalid defaults.');
 	}
-	return json({ ok: true });
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {

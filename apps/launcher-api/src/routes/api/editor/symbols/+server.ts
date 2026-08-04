@@ -3,10 +3,11 @@ import { ZodError } from 'zod';
 import { roleHasTool } from '$lib/roles';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
-import { ConflictError, jsonBaseEtag } from '$lib/server/r2';
+import { ConflictError } from '$lib/server/r2';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { loadSymbolsDocWithEtag, saveSymbolsDoc } from '$lib/server/symbolsStorage';
 import { getToolOverrides } from '$lib/server/userToolAccess';
+import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
 /**
@@ -64,10 +65,7 @@ export const PUT: RequestHandler = async ({ request, url, locals }) => {
 	} catch {
 		throw error(400, 'Invalid JSON body.');
 	}
-	const baseEtag =
-		isRecord(body) && body.force === true
-			? undefined
-			: jsonBaseEtag(isRecord(body) ? body.baseEtag : undefined);
+	const baseEtag = writeBaseEtagJson(body);
 	try {
 		const { doc, etag } = await saveSymbolsDoc(clientKey, projectKey, body, baseEtag);
 		return json({ clientKey, projectKey, doc, etag });
@@ -91,7 +89,3 @@ export const PUT: RequestHandler = async ({ request, url, locals }) => {
 		throw error(502, 'Failed to save the symbols document.');
 	}
 };
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-	return typeof v === 'object' && v !== null && !Array.isArray(v);
-}

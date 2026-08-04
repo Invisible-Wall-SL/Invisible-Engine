@@ -1,7 +1,8 @@
 import { error, json } from '@sveltejs/kit';
 import { isFlowV2Library, saveFlowV2Library } from '$lib/server/flowV2LibraryStorage';
-import { ConflictError, jsonBaseEtag } from '$lib/server/r2';
+import { ConflictError } from '$lib/server/r2';
 import { gate } from '$lib/server/toolScope';
+import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
 /**
@@ -37,7 +38,7 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 
 	// No scope guard here, unlike the doc save: the library key is GLOBAL, so there is
 	// no project to mismatch — every author writes the same object by design.
-	const baseEtag = body.force === true ? undefined : jsonBaseEtag(body.baseEtag);
+	const baseEtag = writeBaseEtagJson(body);
 
 	try {
 		const { etag } = await saveFlowV2Library(body.library, baseEtag);

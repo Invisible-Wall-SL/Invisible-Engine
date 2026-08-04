@@ -1,10 +1,11 @@
 import { error, json } from '@sveltejs/kit';
 import type { GameTemplate } from 'engine-layout';
 import { roleHasTool } from '$lib/roles';
-import { ConflictError, jsonBaseEtag } from '$lib/server/r2';
+import { ConflictError } from '$lib/server/r2';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { loadTemplateWithEtag, saveTemplate } from '$lib/server/templateStorage';
 import { getToolOverrides } from '$lib/server/userToolAccess';
+import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
 /**
@@ -40,10 +41,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	} catch {
 		throw error(400, 'Invalid JSON body.');
 	}
-	const baseEtag =
-		isRecord(body) && body.force === true
-			? undefined
-			: jsonBaseEtag(isRecord(body) ? body.baseEtag : undefined);
+	const baseEtag = writeBaseEtagJson(body);
 	try {
 		const { etag } = await saveTemplate(body as GameTemplate, baseEtag);
 		return json({ ok: true, etag });
@@ -78,7 +76,3 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	if (!template) throw error(404, 'not found');
 	return json({ template, etag });
 };
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-	return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
