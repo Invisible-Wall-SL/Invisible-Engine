@@ -26,6 +26,7 @@
  */
 
 import {
+	BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS,
 	BOOK_OF_DRIVEN_SEED_DOC,
 	BOOK_OF_DRIVEN_SEED_LIBRARY,
 	BOOK_OF_VOCAB,
@@ -55,6 +56,10 @@ const CANONICAL = new Set([
 	'freeSpinCounter',
 	'freeSpinIntro',
 	'freeSpinOutro',
+	// The buy-bonus takeovers (Phase 3 Step 5) — canonical scenes every reference layout seeds
+	// (`buyFeatureScene.ts` / `confirmScene.ts`), shown/hidden by the seed's buy subgraph.
+	'buyFeature',
+	'buyConfirm',
 ]);
 
 // --- 1 + 2. Drives screens, not half-on, owns load --------------------------
@@ -103,7 +108,12 @@ check('has a `tapToStart` transition (tap-to-start path)', flowOwnsSignal(doc, '
 check('hides `loading` on the transition', hideRefs.has('loading'));
 
 // --- 5. Validation + book-event ownership -----------------------------------
-const issues = validateFlowDoc(doc, BOOK_OF_VOCAB, BOOK_OF_DRIVEN_SEED_LIBRARY);
+const issues = validateFlowDoc(
+	doc,
+	BOOK_OF_VOCAB,
+	BOOK_OF_DRIVEN_SEED_LIBRARY,
+	BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS,
+);
 const errors = issues.filter((i) => i.severity === 'error');
 if (errors.length)
 	for (const e of errors) console.log(`   validation error: ${e.code} — ${e.message}`);

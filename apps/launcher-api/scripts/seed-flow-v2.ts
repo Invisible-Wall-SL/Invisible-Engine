@@ -15,7 +15,11 @@
 //   see reference_runtime_release / docs (publish-runtime-bundle.mjs + POST /refresh).
 
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { BOOK_OF_VOCAB, validateFlowDoc } from 'engine-flow-v2';
+import {
+	BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS,
+	BOOK_OF_VOCAB,
+	validateFlowDoc,
+} from 'engine-flow-v2';
 // The committed reference flow lives in the game package; import it directly (workspace-resolved).
 import { LINES_FLOW_V2_DOC, LINES_FLOW_V2_LIBRARY } from '../../lines/src/game/flowV2Doc';
 
@@ -32,8 +36,15 @@ if (!R2_ENDPOINT || !R2_BUCKET || !R2_ACCESS_KEY_ID || !R2_SECRET_ACCESS_KEY) {
 	process.exit(1);
 }
 
-// Guard: never upload a flow that would not validate against the template contract.
-const issues = validateFlowDoc(LINES_FLOW_V2_DOC, BOOK_OF_VOCAB, LINES_FLOW_V2_LIBRARY);
+// Guard: never upload a flow that would not validate against the template contract. The
+// container-event surface (the buy subgraph's fused repeater/confirm pins) is supplied so those
+// exec/data edges resolve as real endpoints — the editor derives the equivalent from the scenes.
+const issues = validateFlowDoc(
+	LINES_FLOW_V2_DOC,
+	BOOK_OF_VOCAB,
+	LINES_FLOW_V2_LIBRARY,
+	BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS,
+);
 if (issues.length) {
 	console.error('REFUSING to seed — the flow has validation issues:');
 	for (const i of issues) console.error(`  ${i.code}: ${i.message}`);
