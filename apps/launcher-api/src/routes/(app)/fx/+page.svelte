@@ -1,6 +1,8 @@
 <script lang="ts">
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
+	import { LeaseState } from '$lib/leaseState.svelte';
+	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import type { EffectDoc, EmitterConfigV3, EmitterLayer } from 'engine-fx';
 	import { onMount } from 'svelte';
 	import FxStage, { type ResolvedArt } from './FxStage.svelte';
@@ -89,6 +91,37 @@
 	}
 
 	/**
+	 * Soft edit lease (multi-user-concurrency Phase 2c-rest batch B) over the OPEN effect. FX
+	 * edits one effect at a time and each effect is its OWN R2 object, so the lease `docKey` is
+	 * the open effect's id and switching effects re-keys it (`lease.switchDoc`). A never-saved /
+	 * untitled effect has no persisted key ⇒ `null` ⇒ inert ⇒ freely editable. `lease.readOnly`
+	 * gates the doc `saveState` (its `blockWhen`); the `If-Match` CAS stays the correctness floor.
+	 */
+	const lease = new LeaseState({
+		toolId: 'fx',
+		clientKey: data.clientKey,
+		projectKey: data.projectKey,
+		docKey: '',
+		enabled: data.projectKey.length > 0,
+	});
+
+	/** The lease key for an effect id: the persisted slug, or `null` for the untitled sentinel /
+	 *  empty (a never-saved effect has nothing to lease). */
+	function leaseIdFor(id: string): string | null {
+		return id && id !== UNTITLED_EFFECT_ID ? id : null;
+	}
+
+	/** Mirror of the lease's current doc key, so a re-key only fires when the OPEN effect actually
+	 *  changes (opening a different one, first-saving a new one, deleting the open one) — never on
+	 *  every re-save of the same effect. */
+	let leasedId: string | null = leaseIdFor(initialDoc.id);
+	function leaseSwitch(id: string | null): void {
+		if (id === leasedId) return;
+		leasedId = id;
+		void lease.switchDoc(id);
+	}
+
+	/**
 	 * Save-state machine (multi-user-concurrency Phase 2a). Manual save; the transport owns the
 	 * request. Create encoding stays caller-side and keeps the `isUnsaved ? null : baseEtag`
 	 * guard (an unsaved effect keys its id off its NAME, and after a delete the doc resets to
@@ -99,6 +132,7 @@
 	 */
 	const saveState = new SaveState({
 		initialEtag: data.openedEtag,
+		blockWhen: () => lease.readOnly,
 		save: async ({ baseEtag, force }) => {
 			try {
 				// A never-saved effect still holds the untitled sentinel, so key its id off the NAME
@@ -140,6 +174,9 @@
 				// The server slugs the id; adopt it so a subsequent save/open round-trips cleanly.
 				doc = { ...doc, id: out.id };
 				pickerId = out.id;
+				// The effect now has a persisted key — re-key the lease onto it (a no-op when
+				// re-saving the same effect; the acquire that matters is a NEW / saved-as effect).
+				leaseSwitch(leaseIdFor(out.id));
 				upsertEffect({ id: out.id, name: out.name });
 				savedNote = `Saved "${out.name}" (${out.layers} layer${out.layers === 1 ? '' : 's'}).`;
 				return { ok: true, etag: out.etag };
@@ -150,6 +187,17 @@
 	});
 	/** Union of the two in-flight flags — preserves every shared `disabled={busy}`. */
 	const busy = $derived(deleting || saveState.busy);
+
+	onMount(() => {
+		// Acquire the lease for the initially-open effect (if any); inert for a fresh /fx.
+		void lease.switchDoc(leasedId);
+		const onUnload = () => lease.release();
+		window.addEventListener('pagehide', onUnload);
+		return () => {
+			window.removeEventListener('pagehide', onUnload);
+			lease.release();
+		};
+	});
 
 	/**
 	 * Persist the effect.
@@ -239,6 +287,8 @@
 				const fresh = emptyEffectDoc();
 				doc = fresh;
 				selectedKey = fresh.layers[0]?.key ?? '';
+				// The open effect is gone → nothing to lease; go inert (freely editable).
+				leaseSwitch(null);
 			}
 			pickerId = '';
 		} catch {
@@ -564,11 +614,13 @@
 		<!-- `onclick={saveEffect}` passes the click EVENT as `force` (truthy): a manual Save has
 		     always FORCE-overwritten here — preserved verbatim. Pre-existing latent bug (the
 		     destructive conflict `confirm()` is effectively dead on this path); flagged for the owner. -->
-		<button class="primary" onclick={saveEffect} disabled={busy}>
+		<button class="primary" onclick={saveEffect} disabled={busy || lease.readOnly}>
 			{saveState.busy ? 'Saving…' : '⤓ Save'}
 		</button>
-		<button title="Save a copy under a new name" onclick={saveEffectAs} disabled={busy}
-			>⧉ Save As…</button
+		<button
+			title="Save a copy under a new name"
+			onclick={saveEffectAs}
+			disabled={busy || lease.readOnly}>⧉ Save As…</button
 		>
 		<button onclick={newEffect}>+ New</button>
 		<select
@@ -585,12 +637,15 @@
 		<button
 			class="danger"
 			title="Delete the open effect"
-			disabled={busy || !pickerId}
+			disabled={busy || !pickerId || lease.readOnly}
 			onclick={deleteOpenEffect}>🗑 Delete</button
 		>
 		<button onclick={() => (playing = !playing)}>{playing ? '❚❚ Pause' : '▶ Play'}</button>
 		<button onclick={() => stage?.resetView()}>Reset view</button>
 		<span class="spacer"></span>
+		<!-- Another author (or your own other tab) holds this effect's lease → read-only here.
+		     The doc saveState refuses to save (its blockWhen); Take over is always offered. -->
+		<PresenceBanner {lease} />
 		{#if saveError}
 			<span class="err">{saveError}</span>
 		{:else if savedNote}

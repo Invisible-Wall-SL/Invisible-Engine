@@ -77,6 +77,11 @@ const DEFAULT_HEARTBEAT_MS = 10_000;
 
 export class LeaseState {
 	#opts: LeaseStateOptions;
+	/** The doc under the lease. Held SEPARATELY from `#opts` so it can be re-keyed by
+	 *  {@link switchDoc} for the per-ITEM authoring tools (fx / flipbook / components), which
+	 *  edit one item at a time and lease the OPEN item's id. The fixed-docKey tools never call
+	 *  `switchDoc`, so this stays `opts.docKey` for them (byte-compatible). */
+	#docKey: string;
 	#fetch: typeof fetch;
 	#endpoint: string;
 	#held = $state(false);
@@ -90,6 +95,7 @@ export class LeaseState {
 
 	constructor(opts: LeaseStateOptions) {
 		this.#opts = opts;
+		this.#docKey = opts.docKey;
 		this.#fetch = opts.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
 		this.#endpoint = opts.endpoint ?? '/api/lease';
 	}
@@ -117,7 +123,7 @@ export class LeaseState {
 			toolId: this.#opts.toolId,
 			clientKey: this.#opts.clientKey,
 			projectKey: this.#opts.projectKey,
-			docKey: this.#opts.docKey,
+			docKey: this.#docKey,
 		};
 	}
 
@@ -183,6 +189,36 @@ export class LeaseState {
 		} catch {
 			// Leave state as-is; the user can retry the Take over button.
 		}
+	}
+
+	/**
+	 * Re-key the lease to a DIFFERENT doc (multi-user-concurrency Phase 2c-rest batch B). The
+	 * per-ITEM authoring tools — fx / flipbook / components — edit ONE item at a time and each
+	 * item (effect / clip / component) is its own R2 object, so the lease `docKey` must be the
+	 * OPEN item's id and switching items must re-key the lease.
+	 *
+	 * Releases the CURRENT lease (against the old key — hence release BEFORE the re-key), resets
+	 * the resolved/held/heldBy so the new item starts clean, then:
+	 * - a non-empty `docKey` ⇒ re-key + `start()` a fresh acquire against it;
+	 * - `null`/empty ⇒ go INERT (no item open ⇒ nothing to lease ⇒ `readOnly` stays false, so a
+	 *   brand-new unsaved item is freely editable and never wedged).
+	 *
+	 * A no-op-safe against `enabled:false` (both `release()` and `start()` no-op there). The
+	 * fixed-docKey tools never call this, so their lifecycle is unchanged.
+	 */
+	async switchDoc(docKey: string | null): Promise<void> {
+		// Drop the current lease FIRST, while `#docKey` still names the old item — `release()`
+		// beacons against `#key()`, and stops ticking. No-op when not held / disabled.
+		this.release();
+		// Reset per-doc state so the new item inherits nothing from the old (holder, resolved
+		// gate, held flag). `readOnly` (enabled && resolved && heldBy!==null) is now false.
+		this.#held = false;
+		this.#heldBy = null;
+		this.#resolved = false;
+		const next = docKey ?? '';
+		this.#docKey = next;
+		if (!next) return; // inert: no item open ⇒ nothing to lease
+		await this.start();
 	}
 
 	#startTicking(): void {

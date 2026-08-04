@@ -574,9 +574,41 @@ What makes the tools usable for 2–3 people on a project.
 > second global-key saveState). Launcher build green. **Owner-verify owed:** the live
 > two-profile test.
 >
-> **Still to do: sub-phase 2c-rest batch B** — the per-ITEM tools (fx, flipbook,
-> components; rigger via Phase 0's tables), which lease per selected item rather than
-> one project doc. Each leases its OWN key; global keys stay unleased.
+> **Sub-phase 2c-rest batch B — BUILT 2026-08-04 (fx, flipbook, components).** The three
+> per-ITEM authoring tools. Unlike the whole-project-doc tools, each edits ONE item at a
+> time and each item (effect / clip / component) is its OWN R2 object, so the lease `docKey`
+> is the OPEN item's id and switching items re-keys the lease. `LeaseState` gained
+> **`switchDoc(docKey: string | null)`** (additive; the fixed-docKey tools never call it and
+> are byte-unchanged): it releases the current lease (against the OLD key — release before
+> re-key), resets `resolved`/`held`/`heldBy` so the new item starts clean, then acquires the
+> new key — or, for `null`/empty, goes INERT (`readOnly` false, no fetch) so a brand-new
+> unsaved item is freely editable. `docKey` is now held in a private mutable `#docKey`; the
+> observer-poll + fail-open + always-takeover invariants are intact.
+> - **fx / flipbook** navigate (full reload) to open/new, so the only in-page item changes
+>   are: first-save of a new/untitled item (→ `switchDoc(persistedId)` in the save transport,
+>   guarded by a `leasedId` mirror so a re-save of the same item is a no-op), Save-As (its
+>   copy's first save re-keys the same way; a declined overwrite restores the original id),
+>   and deleting the open item (→ `switchDoc(null)`). The untitled sentinel
+>   (`UNTITLED_EFFECT_ID` / `UNTITLED_CLIP_ID`) maps to `null` (nothing to lease). Save /
+>   Save-As / Delete (+ flipbook's plist import) are disabled when `readOnly`; the doc
+>   `saveState` carries `blockWhen: () => lease.readOnly`; `<PresenceBanner>` sits in the
+>   subbar / meta.
+> - **components** re-keys in `openComponent` (right beside the existing `adoptEtag`): a stored
+>   def leases `def.id`; a never-saved draft (created via `createComponent`, not yet in
+>   `components`) is `null` until its first save re-keys onto `saved.id` (in the transport's
+>   `i === -1` branch). `closeComponent` (and delete-of-open, which calls it) → `switchDoc(null)`.
+>   The bespoke conflict UX (versioned `confirm()`) is untouched — the lease only gates the
+>   draft `saveState` (`blockWhen`) + disables "Save component" + shows the banner.
+>   **Promote-to-shared is NOT leased** — it writes a global `_shared/editor-components/<id>`
+>   key no per-project lease can cover, so its `If-Match` is the floor (as flow-v2's library
+>   was left). Version inspect / back-to-latest keep the same item, so no re-key.
+> - Each `onMount` does the initial `switchDoc` (inert when no item open) + `pagehide`/teardown
+>   `release()`. **rigger stays out** (it leases via Phase 0's tables, separate work).
+> - **Verified offline (37 assertions)** over the REAL compiled `leaseState.svelte.ts`
+>   (esbuild strip → `compileModule` → mock fetch): `switchDoc(newId)` releases-old-then-acquires-new,
+>   `switchDoc(null)` inert-from-fresh (no fetch) + release-only-when-held, not-held→held switch,
+>   fixed-docKey lease unchanged (acquire/takeover/release all target its key), disabled no-op.
+>   Launcher build green. **Owner-verify owed:** the live two-profile + item-switch test.
 >
 > Original plan (2c is the residual):
 
