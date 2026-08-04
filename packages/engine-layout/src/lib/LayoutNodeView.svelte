@@ -470,6 +470,22 @@
 				? node.assetKey
 				: undefined,
 	);
+	// Spine ANIMATION + LOOP param binding (the playback siblings of the `assetKey` bind above): a
+	// `componentInstance` may drive a spine node's resting animation / loop from params, so a
+	// prefab plays a per-instance clip on a per-instance rig (e.g. the feature card's `spineKey` +
+	// `spineAnimation`). An unbound field, an outside-instance spine, or an empty/wrong-type param
+	// all fall back to the node's static `defaultAnimation`/`loop` (resolved in the spine block
+	// below alongside the per-instance `spineRest` override) — byte-identical parity.
+	const boundSpineAnimation = $derived(
+		node.kind === 'spine'
+			? resolveBoundValue(node.paramBindings, 'defaultAnimation', componentParams)
+			: undefined,
+	);
+	const boundSpineLoop = $derived(
+		node.kind === 'spine'
+			? resolveBoundValue(node.paramBindings, 'loop', componentParams)
+			: undefined,
+	);
 	// A sprite resolves its texture by `region` (a frame in a loaded sheet) or, when
 	// region-less (a standalone image), by `assetKey`. Editor-art frames are ALSO
 	// registered scoped by their manifest (`<assetKey>::<region>`), so a node bound
@@ -679,8 +695,19 @@
 			falls back to the def node's value, so an un-overridden spine is parity.
 		-->
 		{@const rest = spineRest?.[node.id]}
-		{@const effDefaultAnimation = rest?.defaultAnimation ?? node.defaultAnimation}
-		{@const effLoop = rest?.loop ?? node.loop}
+		<!--
+			Resting animation / loop precedence: a per-instance `spineRest` override (keyed by node
+			id) wins, then a `paramBindings`-driven param (`boundSpineAnimation`/`boundSpineLoop` — a
+			prefab picking its clip per instance), then the node's own static value. Empty/wrong-type
+			bound values fall through, so an unbound spine is byte-identical to today (parity).
+		-->
+		{@const effDefaultAnimation =
+			rest?.defaultAnimation ??
+			(typeof boundSpineAnimation === 'string' && boundSpineAnimation
+				? boundSpineAnimation
+				: node.defaultAnimation)}
+		{@const effLoop =
+			rest?.loop ?? (typeof boundSpineLoop === 'boolean' ? boundSpineLoop : node.loop)}
 		{@const effSkin = rest?.skin ?? node.skin}
 		<!--
 			State-overlay spine: a spine that declares button `stateAnimations` but NO resting
