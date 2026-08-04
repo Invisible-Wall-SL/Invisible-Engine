@@ -3,6 +3,8 @@
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
+	import { LeaseState } from '$lib/leaseState.svelte';
+	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import {
 		buttonBindToInstance,
 		engineOwnedOnly,
@@ -1564,12 +1566,29 @@
 	 * pill stays BESPOKE (relative-time saved, span+Retry error, interleaved crossType/preview),
 	 * driven off this machine's `status`/`dirty`/`busy`/`etag`/`message`.
 	 */
+	/**
+	 * Soft edit lease (multi-user-concurrency Phase 2c) over this project's editor doc
+	 * (`docKey:'editor'`). When another author holds it, `lease.readOnly` is true → the doc
+	 * `saveState` refuses to autosave OR save (its `blockWhen`), the Save button disables, and
+	 * `<PresenceBanner>` names the holder with a Take over. The TEMPLATE saveState below is left
+	 * UNLEASED — its key is a GLOBAL `_shared/editor-templates/*` doc, not this project's, so a
+	 * per-project lease can't cover it; its `If-Match` CAS is its floor.
+	 */
+	const lease = new LeaseState({
+		toolId: 'editor',
+		clientKey: data.clientKey,
+		projectKey: data.projectKey,
+		docKey: 'editor',
+		enabled: data.projectKey.length > 0,
+	});
+
 	const saveState = new SaveState({
 		autosaveMs: AUTOSAVE_MS,
 		resetDebounceOnEveryEdit: false,
 		initialEtag: data.docEtag,
 		conflictMessage: 'Someone else saved this project while you were editing.',
 		canAutosave: () => !crossTypeLoaded,
+		blockWhen: () => lease.readOnly,
 		save: async ({ baseEtag, force }) => {
 			const fields: Record<string, string> = { doc: JSON.stringify(buildDocPayload()) };
 			// '' encodes "no doc existed when I loaded" (FormData has no null); omitted when forcing.
@@ -2153,21 +2172,30 @@
 		}
 	}
 
+	/** Release the lease on tab close (best-effort; expiry is the real backstop). */
+	function onUnloadReleaseLease(): void {
+		lease.release();
+	}
+
 	onMount(() => {
 		loadUiState();
 		uiLoaded = true;
+		void lease.start();
 		window.addEventListener('beforeunload', onBeforeUnload);
+		window.addEventListener('pagehide', onUnloadReleaseLease);
 		document.addEventListener('visibilitychange', onVisibilityChange);
 		window.addEventListener('focus', onVisibilityChange);
 		window.addEventListener('keydown', onEditorKeyDown);
 		const id = window.setInterval(() => (nowTick = Date.now()), RELATIVE_TICK_MS);
 		return () => {
 			window.removeEventListener('beforeunload', onBeforeUnload);
+			window.removeEventListener('pagehide', onUnloadReleaseLease);
 			document.removeEventListener('visibilitychange', onVisibilityChange);
 			window.removeEventListener('focus', onVisibilityChange);
 			window.removeEventListener('keydown', onEditorKeyDown);
 			window.clearInterval(id);
 			saveState.cancelAutosave();
+			lease.release();
 		};
 	});
 
@@ -2204,7 +2232,9 @@
 				{atlasCount} atlases · {spineCount} spines · {sheetCount} sheets
 			</span>
 			<span class="dot-sep">·</span>
-			{#if saveState.busy}
+			{#if lease.readOnly}
+				<PresenceBanner {lease} />
+			{:else if saveState.busy}
 				<span class="save-pill busy">Saving…</span>
 			{:else if saveState.status === 'conflict'}
 				<span class="save-pill error" title={lastError}>⚠ Someone else saved this</span>

@@ -68,6 +68,16 @@ export interface SaveStateOptions {
 	canAutosave?: () => boolean;
 	/** Fallback message for a conflict whose transport supplied none. */
 	conflictMessage?: string;
+	/**
+	 * Hard read-only gate (multi-user-concurrency Phase 2c). When it returns `true`, BOTH
+	 * autosave arming AND an explicit `save()` become no-ops (`save()` returns `false`),
+	 * so a user who does NOT hold the edit lease can't write. Unlike `canAutosave` (which
+	 * only vetoes the debounce, never a manual save), this blocks the manual path too —
+	 * the lease is what stops the collision; the CAS floor still guards the rest. Absent /
+	 * `false` = no gate, and NOTHING about the existing behavior changes. A tool wires this
+	 * as `blockWhen: () => lease.readOnly`.
+	 */
+	blockWhen?: () => boolean;
 }
 
 export class SaveState {
@@ -155,6 +165,7 @@ export class SaveState {
 	#arm(wasDirty: boolean): void {
 		if (this.#autosaveMs <= 0) return; // manual
 		if (this.blocked) return; // never re-arm a sticky conflict/scope-mismatch
+		if (this.#opts.blockWhen && this.#opts.blockWhen()) return; // read-only: not our lease
 		if (this.#opts.canAutosave && !this.#opts.canAutosave()) return;
 		// Leading batch (editor): arm ONLY on the clean→dirty edge; further edits don't
 		// reset. Trailing debounce (flow): always reset.
@@ -187,6 +198,9 @@ export class SaveState {
 	 *   CASes against what was just written.
 	 */
 	async save({ force = false }: { force?: boolean } = {}): Promise<boolean> {
+		// Read-only gate (Phase 2c): a user who doesn't hold the lease can't write — even the
+		// manual/force path. Checked FIRST so it also short-circuits an in-flight coalesce.
+		if (this.#opts.blockWhen && this.#opts.blockWhen()) return false;
 		if (this.#status === 'scope-mismatch') return false;
 		if (this.#status === 'conflict' && !force) return false;
 		if (this.#status === 'saving') {

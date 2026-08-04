@@ -47,6 +47,8 @@
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import SaveStatusBadge from '$lib/SaveStatusBadge.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
+	import { LeaseState } from '$lib/leaseState.svelte';
+	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -400,7 +402,18 @@
 		edges = buildEdges();
 	}
 
-	onMount(syncCanvas);
+	onMount(() => {
+		syncCanvas();
+		void lease.start();
+		const onUnload = () => lease.release();
+		window.addEventListener('pagehide', onUnload);
+		return () => {
+			window.removeEventListener('pagehide', onUnload);
+			saveState.cancelAutosave();
+			libraryState.cancelAutosave();
+			lease.release();
+		};
+	});
 
 	// --- Persistence: debounced auto-save to R2 (Phase 2a persistence) ----------
 	// Mirrors the Scene Editor's autosave feel: a mutation marks the doc dirty, which (re)starts
@@ -422,9 +435,27 @@
 	 * project the session moved to; a plain 409 is a `conflict`. `force` = the explicit
 	 * "overwrite theirs". Create encoding stays caller-side (JSON `null` baseEtag).
 	 */
+	/**
+	 * Soft edit lease (multi-user-concurrency Phase 2c) over this project's flow doc
+	 * (`docKey:'flow'`). When another author holds it, `lease.readOnly` gates the DOC
+	 * `saveState` (its `blockWhen`) so a not-held tab neither autosaves nor saves, the Save
+	 * pill/actions hide behind `<PresenceBanner>`, and Take over is always reachable. The
+	 * shared function LIBRARY (`libraryState`) is deliberately left UNLEASED — its key is the
+	 * GLOBAL `_shared/flow-v2/functions.json`, which a per-project lease can't cover; its
+	 * `If-Match` CAS is the floor there.
+	 */
+	const lease = new LeaseState({
+		toolId: 'flow',
+		clientKey: data.clientKey,
+		projectKey: data.projectKey,
+		docKey: 'flow',
+		enabled: hasProject,
+	});
+
 	const saveState = new SaveState({
 		autosaveMs: AUTOSAVE_MS,
 		initialEtag: data.docEtag,
+		blockWhen: () => lease.readOnly,
 		save: async ({ baseEtag, force }) => {
 			const res = await fetch('/api/flow-v2/save', {
 				method: 'POST',
@@ -1212,7 +1243,11 @@
 		{/if}
 		<span class="spacer"></span>
 		{#if hasProject}
-			{#if saveState.status === 'idle' && !saveState.dirty && !storedInR2}
+			{#if lease.readOnly}
+				<!-- Another author (or your own other tab) holds the edit lease → read-only here.
+				     The doc saveState refuses to save (its blockWhen); Take over is always offered. -->
+				<PresenceBanner {lease} />
+			{:else if saveState.status === 'idle' && !saveState.dirty && !storedInR2}
 				<!-- Bespoke "seeded, never stored" state (between dirty and saved) the shared badge
 				     doesn't model — kept here, amber like `dirty`. -->
 				<span
