@@ -8,9 +8,10 @@
 	import { stateModal } from 'state-shared';
 
 	import { UI, UiGameName } from 'components-ui-pixi';
-	import { GameVersion, Modals, DebugMenu } from 'components-ui-html';
-	import { LayoutScene } from 'engine-layout/svelte';
+	import { GameVersion, Modals, DebugMenu, registerBuyFeature } from 'components-ui-html';
+	import { LayoutScene, BuyFeatureScreen } from 'engine-layout/svelte';
 	import {
+		LAYER_BAND_TAKEOVER,
 		registerComponents,
 		registerComponentValues,
 		registerComponentVisibility,
@@ -122,6 +123,11 @@
 
 	onMount(() => (context.stateLayout.showLoadingScreen = true));
 
+	// Register the SHARED in-canvas Select-Feature (buy-bonus) menu — the built-in `featureCard`
+	// def + the `featureCards` repeater source (fed from the active `stateMeta.betModeMeta`). The
+	// `<BuyFeatureScreen>` takeover below renders it; the HTML `ModalBuyBonus` is gone.
+	registerBuyFeature();
+
 	context.eventEmitter.subscribeOnMount({
 		buyBonusConfirm: () => {
 			stateModal.modal = { name: 'buyBonusConfirm' };
@@ -193,6 +199,16 @@
 		{/if}
 		<FreeSpinOutro />
 		<Transition />
+		<!--
+			Buy-bonus SELECT menu — the shared in-canvas `<BuyFeatureScreen>` takeover (replaces the
+			deleted HTML `ModalBuyBonus`). Visibility keys DIRECTLY on `stateModal`; a tap on the
+			backdrop clears it. No non-default bet mode means the menu never has cards to show.
+		-->
+		<BuyFeatureScreen
+			open={stateModal.modal?.name === 'buyBonus'}
+			onDismiss={() => (stateModal.modal = null)}
+			zIndex={LAYER_BAND_TAKEOVER}
+		/>
 	{/if}
 
 	<DebugStage />

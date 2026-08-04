@@ -64,21 +64,3 @@ export const FREE_SPIN_OVERLAY_INSTANCES = false;
  * the `win` component in the editor (the shared `WIN_DEF` carries `boundToInstance:true`).
  */
 export const WIN_INSTANCE = false;
-
-/**
- * Render the buy-bonus SELECT step as the in-canvas `buyFeature` Pixi scene (a `repeater`
- * of `featureCard`s over a dimmed backdrop) INSTEAD of the shared HTML `ModalBuyBonus`.
- * The scene is seeded in `defaultLayout` (so it ships in the fallback doc + a fresh editor
- * project) and mounted as a canvas-space takeover by `Game.svelte`.
- *
- * DEFAULT ON in `apps/lines` so the feature is testable end-to-end. When ON, `Game.svelte`
- * redirects the buy-bonus SELECT modal at the app level — it keeps `stateModal` OUT of the
- * `buyBonus` name (which the unconditionally-mounted shared `<Modals>` switcher keys the HTML
- * `ModalBuyBonus` on) and shows the Pixi scene as the sole SELECT surface, so the two never
- * double. The CONFIRM step (`buyBonusConfirm` → HTML `ModalBuyBonusConfirm`) is untouched;
- * its back button returns to this scene.
- *
- * Set to `false` to fall back to the shared HTML buy-bonus modal — byte-identical to today
- * (the redirect + the Pixi mount are both inert, and the seeded scene simply never mounts).
- */
-export const BUY_FEATURE_SCENE = true;
