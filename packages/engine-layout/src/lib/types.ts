@@ -607,6 +607,39 @@ export interface EffectNode extends BaseNode {
 	hostSpineId?: string;
 }
 
+/** How a {@link RepeaterNode} arranges its per-item instances. */
+export interface RepeaterLayout {
+	/** `row` lays every item out along +x; `grid` wraps to a new row every `columns` items. */
+	direction: 'row' | 'grid';
+	/** Pixel gap ADDED between adjacent items (both axes for a grid). */
+	gap: number;
+	/** Grid only — items per row before wrapping to the next row. Ignored for `row`. */
+	columns?: number;
+}
+
+/**
+ * A data-driven REPEATER (the buy-feature / select-feature primitive). Resolves `source`
+ * to a live array via the {@link import('./registerRepeaterSources').RepeaterSource} registry
+ * (the game registers it at boot, exactly like a value/action feed) and renders ONE
+ * {@link ComponentInstanceNode} of `componentId` per item, offset by the `layout` rule. Each
+ * item feeds its OWN `engineProvided` param values into its instance (so one prefab renders N
+ * cards with different title/price/icon) and wires that instance's `select` press to the item's
+ * `onSelect` callback. The def itself carries only the id + layout — never the per-item data.
+ *
+ * The editor can't run the live source in its 2D canvas (same as `reelGrid`/`bind`/`effect`), so
+ * it draws a labelled placeholder; the game ALWAYS mounts the real per-item instances. Additive —
+ * a doc that carries no `repeater` node is byte-identical to today (parity).
+ */
+export interface RepeaterNode extends BaseNode {
+	kind: 'repeater';
+	/** Registered repeater-source key (see `registerRepeaterSources`) → the live item array. */
+	source: string;
+	/** The {@link ComponentDef} each item instantiates (collected onto the bake/pull chain). */
+	componentId: string;
+	/** How the per-item instances are arranged. */
+	layout: RepeaterLayout;
+}
+
 export type LayoutNode =
 	| ContainerNode
 	| SpriteNode
@@ -615,7 +648,8 @@ export type LayoutNode =
 	| RectNode
 	| ComponentInstanceNode
 	| ReelGridNode
-	| EffectNode;
+	| EffectNode
+	| RepeaterNode;
 
 export interface Scene {
 	id: string;

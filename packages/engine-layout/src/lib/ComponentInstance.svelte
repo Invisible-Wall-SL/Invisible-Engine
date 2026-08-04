@@ -21,6 +21,15 @@
 		// SIBLING of the transform wrapper — untransformed, in the scene-root/canvas frame,
 		// exactly like the engine-owned free-spin gate. Undefined ⇒ nothing hoisted (parity).
 		tap?: Snippet;
+		// Per-item `engineProvided` param VALUES injected by a `<Repeater>` (§ feature cards):
+		// each declared `engineProvided` param present here is threaded into the instance's param
+		// context as a reactive value, so ONE prefab renders N items with different title/price/
+		// icon. Undefined for every non-repeated instance ⇒ byte-identical to today (parity).
+		engineValues?: Record<string, unknown>;
+		// Per-item press handler injected by a `<Repeater>` — wired to the component's `select`
+		// press. When set (and the def has no coded `bind` part) the whole card becomes the hit
+		// surface, mirroring the authored art-button path. Undefined ⇒ no press wiring (parity).
+		onSelect?: () => void;
 	};
 </script>
 
@@ -70,7 +79,7 @@
 	import { getFlowComplete } from './registerFlowComplete';
 	import { getTapPortal } from './tapPortalContext';
 
-	let { node, space, tap = $bindable() }: Props = $props();
+	let { node, space, tap = $bindable(), engineValues, onSelect }: Props = $props();
 
 	// The space the component's OWN children render in. A component placed in a
 	// `background` scene is cover-fit as ONE unit by the instance's wrapping container
@@ -559,7 +568,7 @@
 			!!n.bind || (n.kind === 'container' && n.children.some(walk));
 		return def ? walk(def.root) : false;
 	})();
-	const interactive = !!actionSource && !hasBindPart;
+	const interactive = (!!actionSource || !!onSelect) && !hasBindPart;
 
 	// Interaction state for the AUTHORED art-button path (the def has no coded part,
 	// so no `ButtonFrame` tracks hover/press) — same tracking + disabled-reset as the
@@ -686,6 +695,25 @@
 				}) ?? restingImage,
 		});
 	}
+	// Repeater-fed engineProvided values (§ feature cards): a `<Repeater>` injects each item's
+	// field values directly (title/price/iconKey/…). Define a REACTIVE getter per declared
+	// `engineProvided` param present in `engineValues`, so a bound text/sprite node reads the
+	// live per-item value from the param context — the multi-value sibling of the single `value`
+	// feed above. Absent ⇒ no getters added ⇒ byte-identical to a plain instance (parity).
+	if (engineValues) {
+		for (const param of def?.params ?? []) {
+			if (param.engineProvided && param.key in engineValues) {
+				const key = param.key;
+				// Read the LIVE `engineValues` prop (not a frozen snapshot) so a repeated instance
+				// whose item values change — a card's `price` when the bet changes — updates in place
+				// without re-mounting. Destructured props stay reactive inside the getter.
+				Object.defineProperty(providedParams, key, {
+					enumerable: true,
+					get: () => engineValues?.[key],
+				});
+			}
+		}
+	}
 	setComponentParams(allowed && def ? providedParams : {});
 	// Provide the signal-driven spine-anim overrides to the rendered sub-tree (the
 	// `$state` proxy, so a descendant spine's `{@const}` read re-runs on each signal
@@ -729,6 +757,12 @@
 	// SUPPRESSED so the two never double-fire. Nothing registered / not owned ⇒ `getFlowPress()` is
 	// undefined or returns undefined ⇒ the coded `actionSource?.onpress?.()` runs ⇒ byte-identical parity.
 	const firePress = () => {
+		// A repeater-injected `onSelect` OWNS the press (the item's `select` handler) — the
+		// per-item card carries no `action`/flow wiring, so it short-circuits ahead of them.
+		if (onSelect) {
+			onSelect();
+			return;
+		}
 		const routed = action ? getFlowPress()?.(node.id, action) : undefined;
 		if (routed) routed();
 		else actionSource?.onpress?.();

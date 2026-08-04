@@ -42,6 +42,7 @@ export * from './registerRigFx';
 export * from './registerFlipbooks';
 export * from './registerComponentValues';
 export * from './registerComponentActions';
+export * from './registerRepeaterSources';
 export * from './registerComponentVisibility';
 export * from './registerFlowComplete';
 export * from './registerFlowValueSource';

@@ -15,6 +15,9 @@ export function collectComponentIds(nodes: LayoutNode[]): string[] {
 	const ids = new Set<string>();
 	const walk = (node: LayoutNode): void => {
 		if (node.kind === 'componentInstance') ids.add(node.componentId);
+		// A `repeater` instantiates its `componentId` once per live item, so that def must ride
+		// the bake/pull chain exactly like a direct `componentInstance`.
+		if (node.kind === 'repeater') ids.add(node.componentId);
 		const children = (node as { children?: LayoutNode[] }).children;
 		if (Array.isArray(children)) children.forEach(walk);
 	};

@@ -9,6 +9,7 @@
 		stateBet,
 		stateBetDerived,
 		stateConfig,
+		stateMeta,
 		stateMessage,
 		stateModal,
 		stateSound,
@@ -59,6 +60,7 @@
 		registerRigFx,
 		registerComponentValues,
 		registerComponentActions,
+		registerRepeaterSources,
 		registerComponentVisibility,
 		registerFlowComplete,
 		registerFlowValueSource,
@@ -157,6 +159,8 @@
 	import { valueSource } from '../game/valueSource.svelte';
 	import { boolSource } from '../game/boolSource.svelte';
 	import { textSource } from '../game/textSource.svelte';
+	import { repeaterSource } from '../game/repeaterSource.svelte';
+	import { stateBonus } from 'components-ui-html/src/stateBonus.svelte';
 	import { eventSignal } from '../game/signalSource';
 	import { HUD_BUTTON_INSTANCES } from '../game/editorFlags';
 	import {
@@ -661,6 +665,32 @@
 		// tap-to-continue celebration — the authored-scene equivalent of the coded `Background` dust
 		// fade, which auto-hides on the same signal so the dimmed board stays clean, not murky.
 		tapOverlayIdle: boolSource(() => stateUi.continuePressCount === 0),
+	});
+	// Repeater feed (§ feature cards): the buy-bonus menu as a data-driven list — one
+	// `featureCard` instance per non-default bet mode, fed from `stateMeta.betModeMeta` (the
+	// config-derived menu). Each card's per-item values mirror the coded HTML `BonusCards`
+	// (title/description are SOURCE strings localized at render; `price` is the live bet ×
+	// cost multiplier; `iconKey` is the resolved editor-art icon), and its `select` press
+	// preserves the HTML card's contract: select the mode + broadcast `buyBonusConfirm`.
+	registerRepeaterSources({
+		featureCards: repeaterSource(() =>
+			Object.values(stateMeta.betModeMeta)
+				.filter((mode) => mode.type !== 'default')
+				.map((mode) => ({
+					key: mode.mode,
+					values: {
+						title: mode.text.title,
+						description: mode.text.description ?? '',
+						price: numberToCurrencyString(stateBet.betAmount * mode.costMultiplier),
+						buttonLabel: mode.text.button,
+						iconKey: mode.assets.icon,
+					},
+					onSelect: () => {
+						stateBonus.selectedBetModeKey = mode.mode;
+						context.eventEmitter.broadcast({ type: 'buyBonusConfirm' });
+					},
+				})),
+		),
 	});
 
 	const fallbackBasegame = fallbackEditorScenes.scenes.find((scene) => scene.id === 'basegame')!;

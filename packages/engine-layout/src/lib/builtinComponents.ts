@@ -1315,6 +1315,164 @@ export const FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF: ComponentDef = {
 	],
 };
 
+/** The default feature-card size — one buy-feature tile in the buy-bonus menu. */
+const FEATURE_CARD_WIDTH = 280;
+const FEATURE_CARD_HEIGHT = 380;
+const FEATURE_CARD_TITLE_SIZE = 34;
+const FEATURE_CARD_BODY_SIZE = 22;
+const FEATURE_CARD_PRICE_SIZE = 30;
+const FEATURE_CARD_BUTTON_SIZE = 28;
+/** Gold (`INFO_BAR_FILL`), reused for the price so it reads as the headline number. */
+const FEATURE_CARD_PRICE_FILL = INFO_BAR_FILL;
+
+/**
+ * One buy-feature / select-feature CARD (§ feature cards) — the per-item prefab a `repeater`
+ * node instances once per buy-bonus mode. The engine-native, placeable twin of the coded HTML
+ * `BonusCards`/`BonusCard`: a panel background + icon + the title / description / price /
+ * button-label texts, with every VARIABLE part bound to an `engineProvided` param the repeater
+ * feeds per item (`title`/`description`/`price`/`buttonLabel`/`iconKey`). The whole card is the
+ * press surface — its `select` press routes to the item's `onSelect` (the `stateBonus`
+ * selected-mode + `buyBonusConfirm` broadcast the HTML card fired), exposed as the `select`
+ * signal.
+ *
+ * PLAIN-NODE path (like {@link FREE_SPIN_COUNTER_DEF} / {@link INFO_BAR_DEF}): every child is an
+ * EDITOR-NATIVE node so the owner restyles the tile in the editor later. The layout here is
+ * deliberately simple/neutral — correct param + press wiring matters more than looks. The panel
+ * background carries no static texture (empty `assetKey`) so it's a blank slot until the owner
+ * picks art; the icon binds `assetKey → iconKey` (the resolved icon key the repeater feeds).
+ */
+export const FEATURE_CARD_DEF: ComponentDef = {
+	id: 'featureCard',
+	name: 'Feature Card',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	root: {
+		id: 'featureCard-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'featureCard-bg',
+				label: 'Panel',
+				kind: 'sprite',
+				x: 0,
+				y: 0,
+				anchor: { x: 0, y: 0 },
+				// No static texture: the owner picks the panel frame via the `panelImage` param
+				// (region picker). Empty ⇒ no texture resolves ⇒ a blank slot (no crash), so the
+				// asset isn't a blocker to start authoring.
+				assetKey: '',
+				width: FEATURE_CARD_WIDTH,
+				height: FEATURE_CARD_HEIGHT,
+				paramBindings: { region: 'panelImage', tint: 'panelTint' },
+				preview: { w: FEATURE_CARD_WIDTH, h: FEATURE_CARD_HEIGHT, style: 'tile' },
+			},
+			{
+				id: 'featureCard-icon',
+				label: 'Icon',
+				kind: 'sprite',
+				x: FEATURE_CARD_WIDTH * 0.5,
+				y: FEATURE_CARD_HEIGHT * 0.28,
+				anchor: { x: 0.5, y: 0.5 },
+				assetKey: '',
+				width: 120,
+				height: 120,
+				// The engine-fed icon key (`assets.icon`, a resolved editor-art key/URL). Bound to
+				// `assetKey` so the sprite resolves it through the normal loaded-asset path.
+				paramBindings: { assetKey: 'iconKey' },
+			},
+			{
+				id: 'featureCard-title',
+				label: 'Title',
+				kind: 'text',
+				x: FEATURE_CARD_WIDTH * 0.5,
+				y: FEATURE_CARD_HEIGHT * 0.5,
+				anchor: { x: 0.5, y: 0.5 },
+				text: 'Feature',
+				style: {
+					fontFamily: HUD_FONT_FAMILY,
+					fontSize: FEATURE_CARD_TITLE_SIZE,
+					fill: HUD_FILL,
+					align: 'center',
+				},
+				paramBindings: { text: 'title' },
+				preview: { style: 'text', textParam: 'title' },
+			},
+			{
+				id: 'featureCard-description',
+				label: 'Description',
+				kind: 'text',
+				x: FEATURE_CARD_WIDTH * 0.5,
+				y: FEATURE_CARD_HEIGHT * 0.62,
+				anchor: { x: 0.5, y: 0.5 },
+				text: 'Description',
+				style: {
+					fontFamily: HUD_FONT_FAMILY,
+					fontSize: FEATURE_CARD_BODY_SIZE,
+					fill: HUD_FILL,
+					align: 'center',
+				},
+				paramBindings: { text: 'description' },
+				preview: { style: 'text', textParam: 'description' },
+			},
+			{
+				id: 'featureCard-price',
+				label: 'Price',
+				kind: 'text',
+				x: FEATURE_CARD_WIDTH * 0.5,
+				y: FEATURE_CARD_HEIGHT * 0.74,
+				anchor: { x: 0.5, y: 0.5 },
+				text: '$0.00',
+				style: {
+					fontFamily: HUD_FONT_FAMILY,
+					fontSize: FEATURE_CARD_PRICE_SIZE,
+					fill: FEATURE_CARD_PRICE_FILL,
+					align: 'center',
+				},
+				paramBindings: { text: 'price' },
+				preview: { style: 'text', textParam: 'price' },
+			},
+			{
+				id: 'featureCard-button',
+				label: 'Button label',
+				kind: 'text',
+				x: FEATURE_CARD_WIDTH * 0.5,
+				y: FEATURE_CARD_HEIGHT * 0.88,
+				anchor: { x: 0.5, y: 0.5 },
+				text: 'Buy',
+				style: {
+					fontFamily: HUD_FONT_FAMILY,
+					fontSize: FEATURE_CARD_BUTTON_SIZE,
+					fill: HUD_FILL,
+					align: 'center',
+				},
+				paramBindings: { text: 'buttonLabel' },
+				preview: { style: 'text', textParam: 'buttonLabel' },
+			},
+		],
+	},
+	params: [
+		// The panel background frame (atlas region) + tint — the owner's tile art.
+		{ key: 'panelImage', kind: 'image', group: 'Panel', label: 'panel frame' },
+		{ key: 'panelTint', kind: 'color', default: HUD_FILL, group: 'Panel', label: 'tint' },
+		// Shared style knobs so the owner can restyle the tile without editing each text node.
+		{ key: 'fill', kind: 'color', default: HUD_FILL },
+		{ key: 'fontFamily', kind: 'string', default: HUD_FONT_FAMILY, label: 'font' },
+		// Engine-fed per-item values (the `repeater` feeds one card per buy-bonus mode). All
+		// `engineProvided`, so the editor renders no control — the source supplies them at runtime.
+		{ key: 'title', kind: 'string', engineProvided: true },
+		{ key: 'description', kind: 'string', engineProvided: true },
+		{ key: 'price', kind: 'string', engineProvided: true },
+		{ key: 'buttonLabel', kind: 'string', engineProvided: true },
+		{ key: 'iconKey', kind: 'string', engineProvided: true },
+	],
+	// The card's press — the repeater wires it to the item's `onSelect` (select the mode +
+	// broadcast `buyBonusConfirm`), so a downstream author can also target it by name.
+	signals: [{ key: 'select', note: 'Fired when the card is pressed (buy the feature).' }],
+};
+
 /** Every built-in component def — the launcher's lowest-precedence layer. */
 export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	HUD_READOUT_DEF,
@@ -1331,6 +1489,7 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	LOADING_BAR_DEF,
 	EXPANDING_SYMBOL_DEF,
 	FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF,
+	FEATURE_CARD_DEF,
 ];
 
 /**

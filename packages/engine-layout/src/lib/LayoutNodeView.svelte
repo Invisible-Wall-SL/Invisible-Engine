@@ -53,6 +53,7 @@
 	import { editorArtTextureKey, isManifestAssetKey, parseScopedFrameRef } from './editorArtKey';
 	import ComponentInstance from './ComponentInstance.svelte';
 	import ParamReadoutText from './ParamReadoutText.svelte';
+	import Repeater from './Repeater.svelte';
 
 	const { node, space, attachedEffects }: Props = $props();
 	const layoutContext = getContextLayout();
@@ -587,6 +588,25 @@
 		{#if instanceTap}
 			{@render instanceTap()}
 		{/if}
+	{:else if node.kind === 'repeater'}
+		<!--
+			Data-driven repeater (§ feature cards): this wrapping <Container> applies the repeater
+			node's own transform (position the WHOLE list), then <Repeater> resolves the live
+			`source` array and renders one <ComponentInstance> per item, each offset by the layout
+			rule inside its own container. The editor can't run the live source, so it draws a
+			placeholder; the game mounts the real per-item instances. No registered source ⇒
+			nothing renders (parity).
+		-->
+		<Container
+			x={posX}
+			y={posY}
+			scale={transform.scale}
+			rotation={transform.rotation}
+			alpha={transform.alpha}
+			zIndex={transform.zIndex}
+		>
+			<Repeater {node} {space} />
+		</Container>
 	{:else if node.kind === 'sprite'}
 		<Sprite
 			key={spriteKey}
