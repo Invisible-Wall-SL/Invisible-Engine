@@ -1450,6 +1450,17 @@
 			? (stateBet.autoSpinsCounter = 0)
 			: (stateModal.modal = { name: 'autoSpin' });
 	};
+	// ButtonBuyBonus coded body (design doc §8.5): an ARMED `activate` mode disarms back to BASE;
+	// otherwise open the buy-bonus select modal. Extracted so the registered `buyBonus` press can
+	// route through the flow gate (a flow that OWNS the `buyBonus` intent drives it) and fall
+	// through to this exact behaviour when un-owned — byte-identical to today (parity §8.8).
+	const codedOpenBuyModal = (): void => {
+		if (stateBetDerived.activeBetMode()?.type === 'activate') {
+			stateBet.activeBetModeKey = 'BASE';
+		} else {
+			stateModal.modal = { name: 'buyBonus' };
+		}
+	};
 
 	// The intent host bridge (design doc §8.5): the game IMPLEMENTS `invokeIntent`, called by
 	// the interpreter for every `action → intent` edge. Maps an intent NAME to its shared coded
@@ -1563,11 +1574,7 @@
 		buyBonus: {
 			onpress: () => {
 				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
-				if (stateBetDerived.activeBetMode()?.type === 'activate') {
-					stateBet.activeBetModeKey = 'BASE';
-				} else {
-					stateModal.modal = { name: 'buyBonus' };
-				}
+				routeActionThroughFlow('buyBonus', codedOpenBuyModal);
 			},
 			disabled: boolSource(() => !context.stateXstateDerived.isIdle()),
 			active: boolSource(() => stateBetDerived.activeBetMode()?.type === 'activate'),

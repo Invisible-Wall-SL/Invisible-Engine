@@ -61,7 +61,7 @@ const DOC: FlowDoc = {
 			{ id: 'doStop', kind: 'action', pos: { x: 220, y: 420 }, ref: 'stopSpin' },
 
 			{ id: 'onBuy', kind: 'event', pos: { x: 0, y: 520 }, ref: 'buyBonus' },
-			{ id: 'doBuy', kind: 'action', pos: { x: 220, y: 520 }, ref: 'confirmBuyBonus' },
+			{ id: 'doBuy', kind: 'action', pos: { x: 220, y: 520 }, ref: 'commitBuyBonus' },
 		],
 		exec: [
 			{ from: { node: 'onLoad', pin: 'exec' }, to: { node: 'showLoading', pin: 'exec' } },
@@ -86,7 +86,7 @@ const makeEnv = () => {
 	const registry: Record<string, FlowV2Effect> = {
 		startSpin: () => void log.push('startSpin'),
 		stopSpin: () => void log.push('stopSpin'),
-		confirmBuyBonus: () => void log.push('confirmBuyBonus'),
+		commitBuyBonus: () => void log.push('commitBuyBonus'),
 	};
 	const mount = createContainerMountModel(DOC.containers, () => {});
 	const env = createFlowV2Env({
@@ -159,8 +159,8 @@ const main = async () => {
 		await runFlowEvent(DOC, ctx, 'stop', {});
 		await runFlowEvent(DOC, ctx, 'buyBonus', {});
 		assert(
-			'spin/stop/buyBonus → startSpin/stopSpin/confirmBuyBonus',
-			eq(log, ['startSpin', 'stopSpin', 'confirmBuyBonus']),
+			'spin/stop/buyBonus → startSpin/stopSpin/commitBuyBonus',
+			eq(log, ['startSpin', 'stopSpin', 'commitBuyBonus']),
 			log.join(' | '),
 		);
 	}

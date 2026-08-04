@@ -64,7 +64,7 @@ interface SubGraph {
 /** Map a v1 action-transition `intent` → the v2 invoke-intent action ref (book-of default). */
 export type IntentActionMap = (intent: string) => string | undefined;
 const DEFAULT_INTENT_ACTIONS: IntentActionMap = (intent) =>
-	({ spin: 'startSpin', stop: 'stopSpin', buyBonus: 'confirmBuyBonus' })[intent];
+	({ spin: 'startSpin', stop: 'stopSpin', buyBonus: 'commitBuyBonus' })[intent];
 
 const paramType = (vocab: TemplateVocabulary, ref: string, pin: string): TypeRef | undefined => {
 	const a = vocab.actions.find((x) => x.name === ref)?.params.find((p) => p.name === pin);
