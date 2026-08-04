@@ -421,6 +421,22 @@ cross-service reader / no-DB writer each), guarded rather than relocated.
 ### Phase 2 — Soft lease + presence
 What makes the tools usable for 2–3 people on a project.
 
+> **Sub-phase 2b (BACKEND) — SHIPPED 2026-08-04.** The Postgres half is live and
+> zero-regression (nothing calls it yet). `doc_leases` table (migration
+> `0014_clammy_angel.sql`), composite-PK key tuple = the uniqueness constraint +
+> `ON CONFLICT` target. `$lib/server/lease.ts` exposes `acquire`/`heartbeat`/
+> `release`/`takeover` (+ pure `isTakeable`/`isSameHolder`, `LEASE_HEARTBEAT_MS`
+> 10s / `LEASE_TTL_MS` 45s); `acquire` is the single conditional upsert so the DB
+> adjudicates. Endpoint `POST /api/lease` (action discriminator), session-auth'd;
+> not-held is `200 {held:false}` via `json()`. **Granularity decision made:
+> per-project for now** (`docKey` = the tool's single project doc / its tool id).
+> Verified offline over the real module against an in-memory conditional-upsert
+> fake (27 assertions). Migration NOT applied; the SQL predicate + two-user test
+> are owner-verify owed. **Still to do: sub-phase 2c** — the shared client helper,
+> read-only mode, and the takeover banner (below), which is what makes it usable.
+>
+> Original plan (2c is the residual):
+
 - Postgres table keyed `(toolId, clientKey, projectKey, docKey)`, holding
   `holderUserId`, `holderSessionId`, `acquiredAt`, `heartbeatAt`, `expiresAt`.
   Unique on the key tuple; acquire is a conditional upsert (expired lease is

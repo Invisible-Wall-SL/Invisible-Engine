@@ -258,6 +258,48 @@ export const sharedAnimations = pgTable('shared_animations', {
 	duration: doublePrecision('duration').notNull().default(0),
 });
 
+/**
+ * Soft, cooperative edit lease for an authored doc — the Postgres half of
+ * `docs/design/multi-user-concurrency.md` Phase 2. A lease is a COORDINATION
+ * HINT, never an authz boundary (`toolScope.gate()` remains the real gate); it
+ * only lets two people on the same `(client, project)` avoid clobbering each
+ * other in the first place, with R2 `If-Match` as the correctness floor beneath.
+ *
+ * Keyed per-project for now: `(toolId, clientKey, projectKey, docKey)`, where
+ * `docKey` is the tool's single project doc (pass the tool id as `docKey` when a
+ * tool has one doc). Per-doc granularity is a later upgrade — see the design doc.
+ *
+ * The lease lives HERE, in Postgres, and never in the R2 sidecar it protects — a
+ * lock stored in the blob is clobberable by the exact race it exists to prevent.
+ * Acquire is a single conditional upsert so the DATABASE adjudicates (an expired
+ * or same-holder lease is takeable; a live other holder is not), which is why the
+ * key tuple is the composite primary key: it is both the uniqueness constraint
+ * and the `ON CONFLICT` target. `expiresAt` is the backstop so a crashed tab can
+ * never permanently wedge a doc; explicit takeover from the UI is the plan.
+ */
+export const docLeases = pgTable(
+	'doc_leases',
+	{
+		toolId: text('tool_id').notNull(),
+		clientKey: text('client_key').notNull(),
+		projectKey: text('project_key').notNull(),
+		docKey: text('doc_key').notNull(),
+		holderUserId: text('holder_user_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		/** The holder's server-side session id (the hashed session token, not the raw cookie). */
+		holderSessionId: text('holder_session_id').notNull(),
+		acquiredAt: timestamp('acquired_at', { withTimezone: true }).notNull().defaultNow(),
+		heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }).notNull().defaultNow(),
+		expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+	},
+	(table) => [
+		primaryKey({
+			columns: [table.toolId, table.clientKey, table.projectKey, table.docKey],
+		}),
+	],
+);
+
 export interface SharedRigStats {
 	bones: number;
 	slots: number;
@@ -285,3 +327,4 @@ export type LoginAttempt = typeof loginAttempts.$inferSelect;
 export type AppSetting = typeof appSettings.$inferSelect;
 export type SharedRig = typeof sharedRigs.$inferSelect;
 export type SharedAnimation = typeof sharedAnimations.$inferSelect;
+export type DocLease = typeof docLeases.$inferSelect;
