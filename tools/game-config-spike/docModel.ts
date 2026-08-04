@@ -216,6 +216,56 @@ if (broken) {
 }
 
 // ---------------------------------------------------------------------------
+// 5b. Per-mode presentation — kind/order/text/card/art all survive for a real mode.
+// The `art` block (icon/dialogImage/volatility) is the config→runtime path for card icons;
+// before the fix it was silently dropped even though `card` and `text` survived.
+// ---------------------------------------------------------------------------
+console.log('\nper-mode presentation (art round-trip)');
+const presented = normalizeGameConfigDoc({
+	numReels: 3,
+	numRows: 3,
+	betModes: { base: { cost: 1 }, bonus: { cost: 100 } },
+	paylines: { '1': [0, 0, 0] },
+	symbols: { H1: { paytable: [{ '3': 10 }] } },
+	paddingReels: {
+		basegame: [
+			['H1', 'H1', 'H1'],
+			['H1', 'H1', 'H1'],
+			['H1', 'H1', 'H1'],
+		],
+	},
+	betModePresentation: {
+		bonus: {
+			kind: 'buy',
+			order: 2,
+			text: { title: 'Buy Bonus' },
+			card: 'buyFeatureCard',
+			art: { icon: 'bonusIcon', dialogImage: 'bonusHero', volatility: '  ' },
+		},
+		ghost: { art: { icon: 'x' } },
+	},
+});
+assert(presented !== undefined, 'a config carrying betModePresentation normalizes');
+if (presented) {
+	const bonus = presented.betModePresentation?.bonus;
+	assert(bonus?.card === 'buyFeatureCard', 'the per-mode card id round-trips (Phase B-core)');
+	assert(bonus?.art?.icon === 'bonusIcon', 'per-mode art.icon SURVIVES normalization (the fix)');
+	assert(bonus?.art?.dialogImage === 'bonusHero', 'per-mode art.dialogImage survives');
+	assert(
+		bonus?.art !== undefined && !('volatility' in bonus.art),
+		'a blank art field is dropped (same as text)',
+	);
+	assert(
+		presented.betModePresentation?.ghost === undefined,
+		'presentation for a non-existent mode is dropped',
+	);
+	assert(
+		eq(normalizeGameConfigDoc(JSON.parse(JSON.stringify(presented))), presented),
+		'presentation (incl. art) is idempotent',
+	);
+}
+
+// ---------------------------------------------------------------------------
 // 6. Idempotence — the save→reload fixed point.
 // ---------------------------------------------------------------------------
 console.log('\nidempotence');
