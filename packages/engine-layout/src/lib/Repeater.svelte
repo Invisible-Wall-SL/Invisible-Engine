@@ -63,10 +63,16 @@
 	// A synthetic instance node per item: the wrapping <Container> below applies the
 	// per-item offset, so the instance renders at its own local origin (x/y 0) and its
 	// values/press arrive via props, not via the doc.
+	//
+	// PER-ITEM component (distinct, authorable cards): an item may name its OWN `componentId`
+	// (a bespoke card per buy-feature mode); absent ⇒ the node's shared `componentId`, so a
+	// uniform repeater is byte-identical to today (parity). The stride below still measures the
+	// NODE's `componentId` box — a heterogeneous set lays out on that shared pitch until the
+	// config side (Phase B) also drives per-item sizing.
 	const itemNode = (item: RepeaterItem, index: number): ComponentInstanceNode => ({
 		kind: 'componentInstance',
 		id: `${node.id}:${item.key ?? index}`,
-		componentId: node.componentId,
+		componentId: item.componentId ?? node.componentId,
 		x: 0,
 		y: 0,
 	});

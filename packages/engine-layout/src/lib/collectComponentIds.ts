@@ -17,6 +17,12 @@ export function collectComponentIds(nodes: LayoutNode[]): string[] {
 		if (node.kind === 'componentInstance') ids.add(node.componentId);
 		// A `repeater` instantiates its `componentId` once per live item, so that def must ride
 		// the bake/pull chain exactly like a direct `componentInstance`.
+		//
+		// GAP (Phase B): a repeater ITEM may override this with its own `RepeaterItem.componentId`
+		// (distinct, authorable cards), but that id is assigned from CONFIG at runtime — it does
+		// NOT appear on any doc node, so this static walk cannot see it. Those config-assigned card
+		// components must be collected onto the bake chain SEPARATELY (like editor-art keys), by the
+		// config side that owns them. This walk still ships the repeater's shared `componentId`.
 		if (node.kind === 'repeater') ids.add(node.componentId);
 		const children = (node as { children?: LayoutNode[] }).children;
 		if (Array.isArray(children)) children.forEach(walk);

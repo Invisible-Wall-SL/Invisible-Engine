@@ -28,6 +28,20 @@ export interface RepeaterItem {
 	onSelect?: () => void;
 	/** Stable list key for the `{#each}` (falls back to the item's index). */
 	key?: string;
+	/**
+	 * PER-ITEM component override (distinct, authorable cards): the {@link ComponentDef} id THIS
+	 * item instantiates, instead of the repeater node's shared `componentId`. Lets one repeater
+	 * render heterogeneous items — a bespoke card per buy-feature mode — from a single source.
+	 * Absent ⇒ the item falls back to the node's `componentId`, byte-identical to a uniform
+	 * repeater (parity).
+	 *
+	 * BAKE/SHIP GAP (Phase B): `collectComponentIds` walks the doc STATICALLY and only sees the
+	 * repeater node's `componentId`, so a component named here (assigned from config at RUNTIME)
+	 * is NOT collected onto the bake/pull chain and would not ship. The config side that assigns
+	 * these ids must ALSO collect them onto the bake chain separately (like editor-art keys). This
+	 * field only makes the RENDER side heterogeneous; the collection side is a Phase-B concern.
+	 */
+	componentId?: string;
 }
 
 /**

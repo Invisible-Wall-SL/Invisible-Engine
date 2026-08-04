@@ -1329,6 +1329,14 @@ const FEATURE_CARD_PRICE_SIZE = 30;
 const FEATURE_CARD_BUTTON_SIZE = 28;
 /** Gold (`INFO_BAR_FILL`), reused for the price so it reads as the headline number. */
 const FEATURE_CARD_PRICE_FILL = INFO_BAR_FILL;
+/** The icon slot + the frame sprite that sits BEHIND it (a touch larger, so it reads as a bezel). */
+const FEATURE_CARD_ICON_SIZE = 120;
+const FEATURE_CARD_ICON_FRAME_SIZE = 150;
+/** The animated spine accent that overlays the icon region — sized to sit over the icon slot. */
+const FEATURE_CARD_SPINE_SIZE = 160;
+/** The button/ribbon plate that sits BEHIND the button label. */
+const FEATURE_CARD_BUTTON_WIDTH = 200;
+const FEATURE_CARD_BUTTON_HEIGHT = 56;
 
 /**
  * One buy-feature / select-feature CARD (§ feature cards) — the per-item prefab a `repeater`
@@ -1341,10 +1349,22 @@ const FEATURE_CARD_PRICE_FILL = INFO_BAR_FILL;
  * signal.
  *
  * PLAIN-NODE path (like {@link FREE_SPIN_COUNTER_DEF} / {@link INFO_BAR_DEF}): every child is an
- * EDITOR-NATIVE node so the owner restyles the tile in the editor later. The layout here is
- * deliberately simple/neutral — correct param + press wiring matters more than looks. The panel
- * background carries no static texture (empty `assetKey`) so it's a blank slot until the owner
- * picks art; the icon binds `assetKey → iconKey` (the resolved icon key the repeater feeds).
+ * EDITOR-NATIVE node so the owner restyles the tile in the editor later. This is a NEUTRAL-but-
+ * COMPLETE template the owner DUPLICATES and restyles, so the chrome is exposed as pickable
+ * image/colour params and the content stays data-bound:
+ *  - CHROME (pickable art): a `panelImage`+`panelTint` panel, an `iconFrameImage` bezel behind the
+ *    icon, an animated `spineKey` accent over the icon, and a `buttonImage` ribbon behind the
+ *    button label. EVERY art param is empty by default ⇒ the sprite resolves no texture / the
+ *    spine no rig ⇒ the card still renders (text-only, no crash) — byte-safe defaults.
+ *  - CONTENT (engine-fed, bound to `engineProvided` params the repeater feeds per item):
+ *    `iconKey`/`title`/`description`/`price`/`buttonLabel`.
+ *
+ * SPINE SLOT: a `kind:'spine'` node binds `assetKey → spineKey` (the spine picker stores the bundle
+ * name) plus `defaultAnimation → spineAnimation` and `loop → spineLoop` (the playback param binds
+ * `<LayoutNodeView>` resolves). An empty `spineKey` ⇒ no rig resolves ⇒ nothing renders, exactly
+ * like an empty image param; picking a rig + animation plays it looped over the icon region.
+ *
+ * The whole card is the press surface — its `select` press routes to the item's `onSelect`.
  */
 export const FEATURE_CARD_DEF: ComponentDef = {
 	id: 'featureCard',
@@ -1375,6 +1395,20 @@ export const FEATURE_CARD_DEF: ComponentDef = {
 				preview: { w: FEATURE_CARD_WIDTH, h: FEATURE_CARD_HEIGHT, style: 'tile' },
 			},
 			{
+				id: 'featureCard-icon-frame',
+				label: 'Icon frame',
+				kind: 'sprite',
+				x: FEATURE_CARD_WIDTH * 0.5,
+				y: FEATURE_CARD_HEIGHT * 0.28,
+				anchor: { x: 0.5, y: 0.5 },
+				// Optional bezel BEHIND the icon (drawn before it). Empty ⇒ no texture ⇒ no bezel,
+				// so the card reads with just the icon — parity-safe.
+				assetKey: '',
+				width: FEATURE_CARD_ICON_FRAME_SIZE,
+				height: FEATURE_CARD_ICON_FRAME_SIZE,
+				paramBindings: { region: 'iconFrameImage' },
+			},
+			{
 				id: 'featureCard-icon',
 				label: 'Icon',
 				kind: 'sprite',
@@ -1382,11 +1416,32 @@ export const FEATURE_CARD_DEF: ComponentDef = {
 				y: FEATURE_CARD_HEIGHT * 0.28,
 				anchor: { x: 0.5, y: 0.5 },
 				assetKey: '',
-				width: 120,
-				height: 120,
+				width: FEATURE_CARD_ICON_SIZE,
+				height: FEATURE_CARD_ICON_SIZE,
 				// The engine-fed icon key (`assets.icon`, a resolved editor-art key/URL). Bound to
 				// `assetKey` so the sprite resolves it through the normal loaded-asset path.
 				paramBindings: { assetKey: 'iconKey' },
+			},
+			{
+				id: 'featureCard-spine',
+				label: 'Spine',
+				kind: 'spine',
+				x: FEATURE_CARD_WIDTH * 0.5,
+				y: FEATURE_CARD_HEIGHT * 0.28,
+				anchor: { x: 0.5, y: 0.5 },
+				// Optional animated accent over the icon region. `assetKey` is empty by default and
+				// bound to the `spineKey` picker (stored as the bundle name); the animation + loop
+				// bind to `spineAnimation`/`spineLoop`. Empty `spineKey` ⇒ no rig resolves ⇒ nothing
+				// renders, exactly like an empty image param — byte-safe.
+				assetKey: '',
+				width: FEATURE_CARD_SPINE_SIZE,
+				height: FEATURE_CARD_SPINE_SIZE,
+				loop: true,
+				paramBindings: {
+					assetKey: 'spineKey',
+					defaultAnimation: 'spineAnimation',
+					loop: 'spineLoop',
+				},
 			},
 			{
 				id: 'featureCard-title',
@@ -1440,6 +1495,20 @@ export const FEATURE_CARD_DEF: ComponentDef = {
 				preview: { style: 'text', textParam: 'price' },
 			},
 			{
+				id: 'featureCard-button-ribbon',
+				label: 'Button ribbon',
+				kind: 'sprite',
+				x: FEATURE_CARD_WIDTH * 0.5,
+				y: FEATURE_CARD_HEIGHT * 0.88,
+				anchor: { x: 0.5, y: 0.5 },
+				// Optional plate/ribbon BEHIND the button label (drawn before it). Empty ⇒ no texture
+				// ⇒ the label reads on its own — parity-safe.
+				assetKey: '',
+				width: FEATURE_CARD_BUTTON_WIDTH,
+				height: FEATURE_CARD_BUTTON_HEIGHT,
+				paramBindings: { region: 'buttonImage', tint: 'buttonTint' },
+			},
+			{
 				id: 'featureCard-button',
 				label: 'Button label',
 				kind: 'text',
@@ -1462,6 +1531,24 @@ export const FEATURE_CARD_DEF: ComponentDef = {
 		// The panel background frame (atlas region) + tint — the owner's tile art.
 		{ key: 'panelImage', kind: 'image', group: 'Panel', label: 'panel frame' },
 		{ key: 'panelTint', kind: 'color', default: HUD_FILL, group: 'Panel', label: 'tint' },
+		// The optional bezel behind the icon (atlas region). Empty ⇒ no bezel (parity).
+		{ key: 'iconFrameImage', kind: 'image', group: 'Icon', label: 'icon frame' },
+		// The optional animated spine accent over the icon: the rig bundle (picker → bundle name),
+		// its animation (dropdown of the picked rig's animations), and whether it loops. Empty
+		// `spineKey` ⇒ no rig renders (parity).
+		{ key: 'spineKey', kind: 'spine', group: 'Spine', label: 'spine bundle' },
+		{
+			key: 'spineAnimation',
+			kind: 'spineAnimation',
+			spineParam: 'spineKey',
+			group: 'Spine',
+			label: 'animation',
+		},
+		{ key: 'spineLoop', kind: 'boolean', default: true, group: 'Spine', label: 'loop' },
+		// The optional plate/ribbon behind the button label (atlas region) + tint. Empty ⇒ no plate
+		// (parity).
+		{ key: 'buttonImage', kind: 'image', group: 'Button', label: 'button/ribbon frame' },
+		{ key: 'buttonTint', kind: 'color', default: HUD_FILL, group: 'Button', label: 'tint' },
 		// Shared style knobs so the owner can restyle the tile without editing each text node.
 		{ key: 'fill', kind: 'color', default: HUD_FILL },
 		{ key: 'fontFamily', kind: 'string', default: HUD_FONT_FAMILY, label: 'font' },
