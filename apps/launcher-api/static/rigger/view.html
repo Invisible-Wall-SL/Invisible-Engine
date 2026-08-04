@@ -536,6 +536,11 @@ let dragBoneIdx = null; // bone index being drag-reparented in the hierarchy tre
 let meshCtx = null; // { slotIndex, attName, attachment, weighted } when a mesh slot is selected (Phase 3)
 let meshDragVert = null; // index of the mesh vertex being dragged
 let selMeshVert = null; // selected mesh vertex (for UV editing, Phase 3.5)
+// Phase 3.6a: visual UV editor panel — drag mesh vertices in region-local UV space over the art.
+let uvPanelCanvas = null; // the inspector's 2D <canvas>, or null when no mesh panel is mounted
+let uvPanelFit = null;    // { ox, oy, aw, ah } region-uv(0..1) → backing-pixel box (art letterboxed in the panel)
+let uvPanelDpr = 1;       // devicePixelRatio the panel was backed at (for hit-radius scaling)
+let uvDragVert = null;    // vertex index being dragged inside the UV panel
 // Phase 4.2 weight brush
 let weightBrush = false, brushBone = null, brushRadiusPx = 50, brushStrength = 0.15;
 let brushSubtract = false, brushPainting = false, lastDabWorld = null;
@@ -566,6 +571,8 @@ let pointCtx = null; // { slotIndex, attName, attachment } when a POINT slot att
 let placePointMode = false; // click the canvas to set the selected point's position
 let meshAddMode = false; // click-inside-mesh adds a vertex (Phase 3.2)
 let meshRemoveMode = false; // click-an-interior-vertex removes it (Phase 3.3)
+let meshEdgeMode = false; // Phase 3.6b: click two verts to toggle a constraint edge
+let edgePickFirst = null; // first vertex picked in edge mode, awaiting the second
 let meshIsolate = false; // Phase 6: edit the selected mesh alone — hide every other slot, hold setup pose
 let meshTexView = 1; // Phase 6 texture visibility in isolate mode: 1=full, 0.4=dim, 0=wireframe only
 let meshUVFrame = null; // Phase 6: fixed worldPos→UV affine held during an isolate-mode vertex drag (keeps the texture undistorted)
@@ -3411,6 +3418,7 @@ async function createRigFromImages(files){
 function selectSlot(name){
   selSlot = name;
   meshAddMode = false; meshRemoveMode = false; selMeshVert = null;
+  meshEdgeMode = false; edgePickFirst = null;
   weightBrush = false; brushBone = null; brushPainting = false;
   drawMeshMode = false; drawPoints = [];
   drawPathMode = false; pathAddMode = false; pathDragIdx = null; selPathPoint = null;
@@ -3523,6 +3531,7 @@ function renderSlotAnimDetail(det, slotIndex, sd){
 function renderSlotDetail(){
   const det = $("#slotDetail");
   meshCtx = null; meshDragVert = null; // recomputed below if a mesh slot is selected
+  uvPanelCanvas = null; uvDragVert = null; // the UV panel (Phase 3.6a) is rebuilt below only for a resolved mesh
   pathCtx = null; // recomputed below if a PATH slot attachment is selected (§18.7)
   polyCtx = null; pointCtx = null; // recomputed below if a box/clip/point attachment is selected (§18.9)
   if (selSlot == null){ det.style.display = "none"; return; }
@@ -3704,21 +3713,28 @@ function renderSlotDetail(){
     const addBtn = document.createElement("button");
     addBtn.textContent = meshAddMode ? "＋ adding…" : "＋ Add vertex";
     if (meshAddMode) addBtn.className = "active";
-    addBtn.onclick = () => { meshAddMode = !meshAddMode; meshRemoveMode = false; renderSlotDetail(); };
+    addBtn.onclick = () => { meshAddMode = !meshAddMode; meshRemoveMode = false; meshEdgeMode = false; edgePickFirst = null; renderSlotDetail(); };
     const remBtn = document.createElement("button");
     remBtn.textContent = meshRemoveMode ? "－ removing…" : "－ Remove vertex";
     if (meshRemoveMode) remBtn.className = "active";
-    remBtn.onclick = () => { meshRemoveMode = !meshRemoveMode; meshAddMode = false; renderSlotDetail(); };
+    remBtn.onclick = () => { meshRemoveMode = !meshRemoveMode; meshAddMode = false; meshEdgeMode = false; edgePickFirst = null; renderSlotDetail(); };
+    const edgeBtn = document.createElement("button");
+    edgeBtn.textContent = meshEdgeMode ? "✎ edging…" : "✎ Edge";
+    edgeBtn.title = "Constraint edges: click two vertices to force an edge the triangulation must keep (e.g. along a limb so it bends there). Click an existing constraint's two ends again to lift it. Survives re-triangulation and saves with the mesh.";
+    if (meshEdgeMode) edgeBtn.className = "active";
+    edgeBtn.onclick = () => { meshEdgeMode = !meshEdgeMode; meshAddMode = false; meshRemoveMode = false; edgePickFirst = null; renderSlotDetail(); };
     const retriBtn = document.createElement("button");
     retriBtn.textContent = "⟁ Re-triangulate";
-    retriBtn.title = "Re-weave the whole mesh through every vertex — Delaunay over the hull boundary + all interior (floating) points. Drop points in the middle, then re-triangulate so the triangles pass through them.";
+    retriBtn.title = "Re-weave the whole mesh through every vertex — Delaunay over the hull boundary + all interior (floating) points, honouring any ✎ constraint edges. Drop points in the middle, then re-triangulate so the triangles pass through them.";
     retriBtn.onclick = retriangulateMesh;
-    tools.appendChild(addBtn); tools.appendChild(remBtn); tools.appendChild(retriBtn);
+    tools.appendChild(addBtn); tools.appendChild(remBtn); tools.appendChild(edgeBtn); tools.appendChild(retriBtn);
     det.appendChild(tools);
-    if (meshAddMode || meshRemoveMode){
+    if (meshAddMode || meshRemoveMode || meshEdgeMode){
       const h = document.createElement("div");
       h.textContent = meshAddMode ? "click inside the mesh to drop an interior point — then ⟁ Re-triangulate to weave the mesh through all your points"
-        : "click an interior vertex to remove (hull vertices can't be removed yet)";
+        : meshRemoveMode ? "click an interior vertex to remove (hull vertices can't be removed yet)"
+        : edgePickFirst != null ? "click a second vertex to keep/lift an edge between them (click the first again to cancel)"
+        : "click two vertices to keep/lift an edge the triangulation must respect";
       h.style.cssText = "margin-top:4px;color:var(--dim);";
       det.appendChild(h);
     }
@@ -3793,6 +3809,47 @@ function renderSlotDetail(){
         hint.style.cssText = "margin-top:4px;color:var(--dim);font-size:11px;"; det.appendChild(hint);
       }
     }
+    // visual UV editor panel (Phase 3.6a): show the region art and drag mesh vertices in UV
+    // space. Only for a resolved region (skip placeholder / missing-art meshes). Selection is
+    // shared with the numeric editor + the main-canvas overlay via `selMeshVert`.
+    if (uvPanelRegion()){
+      const hdr = document.createElement("div");
+      hdr.textContent = "UV map"; hdr.style.cssText = "margin-top:11px;color:var(--txt);font-weight:600;";
+      det.appendChild(hdr);
+      const dpr = window.devicePixelRatio || 1; uvPanelDpr = dpr;
+      const CSS = 240;
+      const cv = document.createElement("canvas");
+      cv.width = Math.round(CSS * dpr); cv.height = Math.round(CSS * dpr);
+      cv.style.cssText = "width:100%;max-width:" + CSS + "px;aspect-ratio:1/1;display:block;margin-top:5px;" +
+        "border:1px solid var(--line);border-radius:6px;background:var(--panel2);touch-action:none;cursor:crosshair;";
+      det.appendChild(cv);
+      uvPanelCanvas = cv;
+      cv.onpointerdown = (e) => {
+        const p = uvPanelEventPx(e, cv), k = uvPanelNearestVert(p);
+        if (k < 0) return;
+        selMeshVert = k; uvDragVert = k;
+        try { cv.setPointerCapture(e.pointerId); } catch (_) {}
+        redrawUVPanel(); e.preventDefault();
+      };
+      cv.onpointermove = (e) => {
+        if (uvDragVert == null || !uvPanelFit) return;
+        const p = uvPanelEventPx(e, cv);
+        const u = Math.max(0, Math.min(1, (p.x - uvPanelFit.ox) / uvPanelFit.aw));
+        const v = Math.max(0, Math.min(1, (p.y - uvPanelFit.oy) / uvPanelFit.ah));
+        applyVertexUV("u", u); applyVertexUV("v", v); // applyVertexUV redraws the panel
+      };
+      cv.onpointerup = cv.onpointercancel = (e) => {
+        if (uvDragVert == null) return;
+        uvDragVert = null;
+        try { cv.releasePointerCapture(e.pointerId); } catch (_) {}
+        renderSlotDetail(); // commit: refresh the numeric fields + panel from stored UVs
+      };
+      const hint = document.createElement("div");
+      hint.textContent = "drag a vertex over the art to re-map which pixels it samples";
+      hint.style.cssText = "margin-top:4px;color:var(--dim);font-size:11px;";
+      det.appendChild(hint);
+      redrawUVPanel();
+    }
     // selected-vertex UV editor
     if (selMeshVert != null && att.regionUVs && selMeshVert < att.worldVerticesLength / 2){
       const i = selMeshVert;
@@ -3848,7 +3905,7 @@ function renderSlotDetail(){
           det.appendChild(add);
         }
       }
-    } else if (!meshAddMode && !meshRemoveMode){
+    } else if (!meshAddMode && !meshRemoveMode && !meshEdgeMode){
       const h = document.createElement("div");
       h.textContent = "click a vertex to select it (then edit its UV here)";
       h.style.cssText = "margin-top:6px;color:var(--dim);";
@@ -5024,6 +5081,7 @@ function applyIsolatedVertexUV(k, wx, wy){
   rd.uvs[k * 2] = u; rd.uvs[k * 2 + 1] = v;
   const att = meshCtx.attachment;
   if (att.regionUVs){ att.regionUVs[k * 2] = u; att.regionUVs[k * 2 + 1] = v; if (att.updateRegion) att.updateRegion(); }
+  redrawUVPanel();
 }
 
 // Cursor → world coordinates (inverse of the camera projection).
@@ -5078,6 +5136,159 @@ function applyVertexUV(key, value){
   const att = meshCtx.attachment;
   if (att.regionUVs){ att.regionUVs[idx] = v; if (att.updateRegion) att.updateRegion(); }
   markDirty();
+  redrawUVPanel();
+}
+
+// ===== Visual UV editor panel (Phase 3.6a) ==================================
+// A texture panel that shows the mesh's region art and lets the user drag mesh vertices
+// directly in region-local UV space (the dual of the isolate-mode world-drag). Everything
+// works in region-local 0..1 UV — `att.updateRegion()` maps that onto the (possibly rotated)
+// atlas page, so the panel never has to reason about page placement, only the upright art.
+
+// The resolved TextureAtlasRegion for the current mesh, or null when the panel must hide
+// (no mesh, no page bitmap, or a placeholder region a missing-art mesh carries).
+function uvPanelRegion(){
+  if (!meshCtx || !meshCtx.attachment) return null;
+  const att = meshCtx.attachment;
+  const r = att.region;
+  if (!r || !r.page || !r.page.texture) return null;
+  const img = r.page.texture._image;
+  if (!img || !img.width) return null;
+  if (missingArt.some((m) => (m.path || m.name) === (att.path || meshCtx.attName))) return null;
+  return r;
+}
+
+// Upright-art aspect (width / height). For a 90°-rotated pack the packed rect's page-span
+// axes are transposed relative to the art, so the aspect swaps.
+function uvArtAspect(r){
+  const pw = r.page.width || 1, ph = r.page.height || 1;
+  const spanU = Math.abs(r.u2 - r.u) * pw, spanV = Math.abs(r.v2 - r.v) * ph;
+  if (spanU < 1e-6 || spanV < 1e-6) return 1;
+  const deg = r.degrees || 0;
+  return deg === 90 || deg === 270 ? spanV / spanU : spanU / spanV;
+}
+
+// Letterbox an `aspect` (w/h) box inside a pw×ph panel → the art box in backing pixels.
+function computeUvFit(aspect, pw, ph){
+  let aw = pw, ah = pw / aspect;
+  if (ah > ph){ ah = ph; aw = ph * aspect; }
+  return { ox: (pw - aw) / 2, oy: (ph - ah) / 2, aw, ah };
+}
+
+// Draw the region art UPRIGHT into the box, honouring the 90° rotated-pack case (the known
+// [[gotcha_rigger_rotated_upside_down]] trap — verify this branch live). The un-rotated case
+// is a plain sub-rect blit. Trim/offset (offsetX/Y) is not compensated in v1: a heavily
+// trimmed rotated region can sit a few px off — acceptable for UV editing, flagged for verify.
+function drawRegionUpright(ctx, r, box){
+  const img = r.page.texture._image;
+  const pw = r.page.width || img.width, ph = r.page.height || img.height;
+  const sx = Math.min(r.u, r.u2) * pw, sy = Math.min(r.v, r.v2) * ph;
+  const sw = Math.abs(r.u2 - r.u) * pw, sh = Math.abs(r.v2 - r.v) * ph;
+  const { ox, oy, aw, ah } = box;
+  ctx.save();
+  if ((r.degrees || 0) === 90){
+    // Packed rect holds the art rotated; place it so region-local u→right, v→down. Derived to
+    // match spine-core MeshAttachment.updateRegion()'s degrees-90 mapping.
+    ctx.translate(ox + aw, oy);
+    ctx.rotate(Math.PI / 2);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, ah, aw);
+  } else {
+    ctx.drawImage(img, sx, sy, sw, sh, ox, oy, aw, ah);
+  }
+  ctx.restore();
+}
+
+// Backdrop checker so texture transparency reads as transparent, not black.
+function drawUvChecker(ctx, box){
+  const cell = 10 * uvPanelDpr;
+  ctx.save();
+  ctx.beginPath(); ctx.rect(box.ox, box.oy, box.aw, box.ah); ctx.clip();
+  for (let y = box.oy; y < box.oy + box.ah; y += cell)
+    for (let x = box.ox; x < box.ox + box.aw; x += cell){
+      const odd = (Math.round((x - box.ox) / cell) + Math.round((y - box.oy) / cell)) % 2 === 0;
+      ctx.fillStyle = odd ? "#2a2f3a" : "#232833";
+      ctx.fillRect(x, y, cell, cell);
+    }
+  ctx.restore();
+}
+
+// Redraw the panel from the live mesh state. No-op (guarded) when the panel isn't mounted, so
+// it can be called from every UV write path + selection change without a mounted-check at the call site.
+function redrawUVPanel(){
+  const cv = uvPanelCanvas; if (!cv) return;
+  const ctx = cv.getContext("2d"); if (!ctx) return;
+  const pw = cv.width, ph = cv.height;
+  ctx.clearRect(0, 0, pw, ph);
+  const r = uvPanelRegion();
+  if (!r || !meshCtx){
+    uvPanelFit = null;
+    ctx.fillStyle = "#6b7280"; ctx.font = (12 * uvPanelDpr) + "px system-ui";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("art not resolved", pw / 2, ph / 2);
+    return;
+  }
+  const box = computeUvFit(uvArtAspect(r), pw, ph);
+  uvPanelFit = box;
+  drawUvChecker(ctx, box);
+  drawRegionUpright(ctx, r, box);
+  const uvs = meshCtx.attachment.regionUVs; if (!uvs) return;
+  const tris = meshCtx.attachment.triangles;
+  const px = (k) => box.ox + uvs[k * 2] * box.aw;
+  const py = (k) => box.oy + uvs[k * 2 + 1] * box.ah;
+  // triangulation wireframe (mirror drawMeshOverlay's colour language)
+  if (tris && tris.length){
+    ctx.strokeStyle = "rgba(92,176,255,0.55)"; ctx.lineWidth = 1 * uvPanelDpr;
+    ctx.beginPath();
+    for (let t = 0; t < tris.length; t += 3){
+      const a = tris[t], b = tris[t + 1], c = tris[t + 2];
+      ctx.moveTo(px(a), py(a)); ctx.lineTo(px(b), py(b));
+      ctx.lineTo(px(c), py(c)); ctx.closePath();
+    }
+    ctx.stroke();
+  }
+  // Phase 3.6b: author constraint edges amber over the wireframe
+  const rdE = rawDocMeshEntry();
+  if (rdE){
+    ctx.strokeStyle = "rgb(255,184,51)"; ctx.lineWidth = 2 * uvPanelDpr;
+    ctx.beginPath();
+    for (const [a, b] of authorInteriorEdges(rdE, rdE.hull || 0))
+      if (a * 2 + 1 < uvs.length && b * 2 + 1 < uvs.length){ ctx.moveTo(px(a), py(a)); ctx.lineTo(px(b), py(b)); }
+    ctx.stroke();
+  }
+  // vertex handles (selected/dragged highlighted; armed edge pick = amber)
+  const n = uvs.length / 2, rad = 4 * uvPanelDpr;
+  for (let k = 0; k < n; k++){
+    const armed = k === edgePickFirst;
+    const hot = k === selMeshVert || k === uvDragVert;
+    ctx.beginPath(); ctx.arc(px(k), py(k), armed || hot ? rad + 1.5 * uvPanelDpr : rad, 0, Math.PI * 2);
+    ctx.fillStyle = armed ? "rgb(255,184,51)" : hot ? "rgb(125,224,191)" : "rgb(92,176,255)";
+    ctx.fill();
+    ctx.lineWidth = 1 * uvPanelDpr; ctx.strokeStyle = "rgba(0,0,0,0.55)"; ctx.stroke();
+  }
+}
+
+// Pointer event → backing-pixel coords inside the panel canvas.
+function uvPanelEventPx(e, cv){
+  const rect = cv.getBoundingClientRect();
+  return {
+    x: (e.clientX - rect.left) * (cv.width / rect.width),
+    y: (e.clientY - rect.top) * (cv.height / rect.height),
+  };
+}
+
+// Nearest mesh vertex to a panel point, within a hit radius; -1 if none close enough.
+function uvPanelNearestVert(p){
+  if (!meshCtx || !uvPanelFit) return -1;
+  const uvs = meshCtx.attachment.regionUVs; if (!uvs) return -1;
+  const n = uvs.length / 2, R = 14 * uvPanelDpr;
+  let best = -1, bd = Infinity;
+  for (let k = 0; k < n; k++){
+    const dx = uvPanelFit.ox + uvs[k * 2] * uvPanelFit.aw - p.x;
+    const dy = uvPanelFit.oy + uvs[k * 2 + 1] * uvPanelFit.ah - p.y;
+    const d = Math.hypot(dx, dy);
+    if (d < bd){ bd = d; best = k; }
+  }
+  return bd <= R ? best : -1;
 }
 
 // ===== Mesh DEFORM timelines (§18.1) ========================================
@@ -5198,6 +5409,7 @@ function drawMeshOverlay(){
   const col = new SPINE.Color(0.36, 0.69, 1, 1);
   const sel = new SPINE.Color(0.49, 0.88, 0.75, 1);
   const edge = new SPINE.Color(0.36, 0.69, 1, 0.45);
+  const amber = new SPINE.Color(1, 0.72, 0.2, 1); // Phase 3.6b constraint edges + armed pick
   // triangulation wireframe
   const tris = meshCtx.attachment.triangles;
   if (tris && typeof renderer.line === "function")
@@ -5207,11 +5419,18 @@ function drawMeshOverlay(){
       renderer.line(w[b * 2], w[b * 2 + 1], w[c * 2], w[c * 2 + 1], edge);
       renderer.line(w[c * 2], w[c * 2 + 1], w[a * 2], w[a * 2 + 1], edge);
     }
-  // vertex handles (selected/dragged highlighted)
+  // Phase 3.6b: author constraint edges drawn amber over the wireframe (they must be kept)
+  const rdM = rawDocMeshEntry();
+  if (rdM && typeof renderer.line === "function")
+    for (const [a, b] of authorInteriorEdges(rdM, rdM.hull || 0))
+      if (a * 2 + 1 < w.length && b * 2 + 1 < w.length)
+        renderer.line(w[a * 2], w[a * 2 + 1], w[b * 2], w[b * 2 + 1], amber);
+  // vertex handles (selected/dragged highlighted; armed edge pick = amber)
   const r = renderer.camera.zoom * 4;
   const heatmap = weightBrush && brushBone != null;
   for (let k = 0; k < w.length / 2; k++){
-    const c = k === selMeshVert || k === meshDragVert ? sel
+    const c = k === edgePickFirst ? amber
+      : k === selMeshVert || k === meshDragVert ? sel
       : heatmap ? heatColor(liveVertexWeight(k, brushBone)) : col;
     renderer.circle(true, w[k * 2], w[k * 2 + 1], r, c, 12);
   }
@@ -5281,8 +5500,10 @@ function splitTrisOnEdge(tris, ea, eb, p){
   for (const h of hits) tris.splice(h.ti, 1, [h.u, p, h.third], [p, h.v, h.third]);
   return hits.length;
 }
-// CDT over world verts `w`; first `hull` verts are the boundary loop. Returns [[a,b,c],…] or null.
-function cdtTriangulate(w, hull){
+// CDT over world verts `w`; first `hull` verts are the boundary loop. `constraintEdges` (Phase
+// 3.6b) is a list of [a,b] vertex pairs that must survive; any that can't be forced are pushed
+// to `unforced` (if given). Returns [[a,b,c],…] or null.
+function cdtTriangulate(w, hull, constraintEdges = [], unforced = null){
   const CDT_EDGE_EPS = 1e-4, CDT_OUT_EPS = 1e-2;
   const m = w.length / 2;
   if (m < 3) return null;
@@ -5313,9 +5534,10 @@ function cdtTriangulate(w, hull){
     const eb = hostEdge === 0 ? c : hostEdge === 1 ? a : b;
     splitTrisOnEdge(tris, ea, eb, p);
   }
-  // constraint edges = hull boundary loop (never flip these)
+  // constraint edges = hull boundary loop + author constraint edges (never flip these)
   const constraints = new Set();
   for (let i = 0; i < hull; i++) constraints.add(edgeKey(i, (i + 1) % hull));
+  for (const [a, b] of constraintEdges) if (a !== b && a < m && b < m) constraints.add(edgeKey(a, b));
   // Delaunay flip pass: flip any non-constraint interior edge whose opposite vertex
   // violates the empty-circumcircle condition AND whose quad is convex.
   let guard = 0, changed = true;
@@ -5341,7 +5563,154 @@ function cdtTriangulate(w, hull){
   }
   // drop any exact-degenerate (collinear) triangle a split may have left behind
   tris = tris.filter(([a, b, c]) => Math.abs(sideOf(w, a, b, c)) > 1e-7);
+  // Phase 3.6b: force author constraint edges to be PRESENT (flip-protection above only
+  // preserves ones that already exist — it can't create a missing diagonal). Do this AFTER
+  // the flip so a later flip can't undo it.
+  for (const [a, b] of constraintEdges){
+    if (a === b || a >= m || b >= m) continue;
+    if (hasEdge(tris, a, b)) continue;
+    if (!forceConstraintEdge(tris, w, a, b) && unforced) unforced.push([a, b]);
+  }
   return tris;
+}
+
+// ===== Phase 3.6b: constraint-edge (mesh `edges`) authoring ==================
+// Spine `edges` = flat array of vertexIndex×2 values in PAIRS; each [a,b] is an edge between
+// vertex a/2 and b/2. Pass-through/unvalidated in the runtime (triangles drive rendering) but
+// a lossless desktop-Spine round-trip contract — and here it doubles as the persisted store
+// for author constraint edges that the CDT must honour. Values are always even, < uvs.length.
+
+// rd.edges (×2 flat) → array of [a,b] vertex-index pairs.
+function parseEdges(rd){
+  const e = rd && rd.edges;
+  if (!Array.isArray(e)) return [];
+  const out = [];
+  for (let i = 0; i + 1 < e.length; i += 2){
+    const a = e[i] >> 1, b = e[i + 1] >> 1;
+    if (a !== b) out.push([a, b]);
+  }
+  return out;
+}
+// Deduped [a,b] pairs (unordered) → flat ×2, written back to rd.edges (or delete if empty).
+function serializeEdges(rd, pairs){
+  const seen = new Set(), flat = [];
+  for (const [a, b] of pairs){
+    const lo = Math.min(a, b), hi = Math.max(a, b);
+    if (lo === hi) continue;
+    const k = lo + ':' + hi;
+    if (seen.has(k)) continue;
+    seen.add(k); flat.push(lo * 2, hi * 2);
+  }
+  if (flat.length) rd.edges = flat; else delete rd.edges;
+}
+// The hull boundary loop as [a,b] pairs: [0,1],[1,2],…,[hull-1,0].
+function hullLoopEdges(hull){
+  const out = [];
+  for (let i = 0; i < hull; i++) out.push([i, (i + 1) % hull]);
+  return out;
+}
+// An edge is on the hull loop iff both endpoints are consecutive in 0..hull-1.
+function isHullLoopEdge(a, b, hull){
+  if (a >= hull || b >= hull) return false;
+  const d = Math.abs(a - b);
+  return d === 1 || d === hull - 1;
+}
+// The author-drawn interior constraint edges = rd.edges minus the hull loop.
+function authorInteriorEdges(rd, hull){
+  return parseEdges(rd).filter(([a, b]) => !isHullLoopEdge(a, b, hull));
+}
+// Remap rd.edges through a vertex remap (remap[old] = new index, or -1 to drop). Drops any
+// edge touching a removed vertex. Replaces the old blanket `delete rd.edges` on topology edits.
+function remapEdges(rd, remap){
+  if (!rd || !Array.isArray(rd.edges)) return;
+  const out = [];
+  for (const [a, b] of parseEdges(rd)){
+    const na = remap[a], nb = remap[b];
+    if (na == null || nb == null || na < 0 || nb < 0 || na === nb) continue;
+    out.push([na, nb]);
+  }
+  serializeEdges(rd, out);
+}
+// A single-vertex-removal remap over `count` vertices: i<k → i, i===k → -1, i>k → i-1.
+function removeOneRemap(k, count){
+  const remap = new Array(count);
+  for (let i = 0; i < count; i++) remap[i] = i === k ? -1 : i < k ? i : i - 1;
+  return remap;
+}
+// Does any triangle carry edge (a,b)?
+function hasEdge(tris, a, b){
+  for (const [x, y, z] of tris)
+    if ((x === a || y === a || z === a) && (x === b || y === b || z === b)) return true;
+  return false;
+}
+// Force segment a–b to appear as a triangle edge by re-triangulating the cavity of triangles it
+// crosses (standard constrained-edge insertion). Returns false (tris untouched) if it can't —
+// a vertex lies exactly on a–b, or the cavity isn't a clean simple polygon.
+function forceConstraintEdge(tris, w, a, b){
+  const ax = w[a * 2], ay = w[a * 2 + 1], bx = w[b * 2], by = w[b * 2 + 1];
+  // bail if any vertex lies ON the open segment a–b (collinear + between) — no clean cavity
+  for (let i = 0; i < w.length / 2; i++){
+    if (i === a || i === b) continue;
+    const px = w[i * 2], py = w[i * 2 + 1];
+    if (Math.abs((bx - ax) * (py - ay) - (by - ay) * (px - ax)) > 1e-6) continue; // not collinear
+    const t = Math.abs(bx - ax) > Math.abs(by - ay) ? (px - ax) / (bx - ax) : (py - ay) / (by - ay);
+    if (t > 1e-4 && t < 1 - 1e-4) return false;
+  }
+  // crossed triangles: the open segment a–b crosses an edge of T not incident to a or b
+  const crossed = [];
+  for (let ti = 0; ti < tris.length; ti++){
+    const T = tris[ti];
+    let hit = false;
+    for (let i = 0; i < 3 && !hit; i++){
+      const u = T[i], v = T[(i + 1) % 3];
+      if (u === a || u === b || v === a || v === b) continue;
+      if (segmentsCross(w, a, b, u, v)) hit = true;
+    }
+    if (hit) crossed.push(ti);
+  }
+  if (!crossed.length) return false;
+  // cavity boundary = undirected edges appearing in exactly one crossed triangle
+  const count = new Map(), keyOf = (x, y) => Math.min(x, y) + ':' + Math.max(x, y);
+  for (const ti of crossed){
+    const T = tris[ti];
+    for (const [x, y] of [[T[0], T[1]], [T[1], T[2]], [T[2], T[0]]]){
+      const k = keyOf(x, y);
+      count.set(k, (count.get(k) || 0) + 1);
+    }
+  }
+  const adj = new Map();
+  const link = (x, y) => { if (!adj.has(x)) adj.set(x, []); adj.get(x).push(y); };
+  for (const ti of crossed){
+    const T = tris[ti];
+    for (const [x, y] of [[T[0], T[1]], [T[1], T[2]], [T[2], T[0]]])
+      if (count.get(keyOf(x, y)) === 1){ link(x, y); link(y, x); }
+  }
+  // every boundary vertex must have degree 2 (simple polygon), and a & b must be on it
+  if (!adj.has(a) || !adj.has(b)) return false;
+  for (const [, nb] of adj) if (nb.length !== 2) return false;
+  // walk the boundary cycle starting at a
+  const ring = [a]; let prev = a, cur = adj.get(a)[0], guard = 0;
+  while (cur !== a && guard++ < adj.size + 2){
+    ring.push(cur);
+    const [n0, n1] = adj.get(cur);
+    const nxt = n0 === prev ? n1 : n0;
+    prev = cur; cur = nxt;
+  }
+  if (cur !== a || ring.length !== adj.size) return false;
+  const ia = ring.indexOf(a), ib = ring.indexOf(b);
+  if (ia < 0 || ib < 0) return false;
+  // two sub-polygons split by a & b (a–b is their shared diagonal)
+  const arc = (from, to) => { const out = []; for (let i = from; ; i = (i + 1) % ring.length){ out.push(ring[i]); if (i === to) break; } return out; };
+  const poly1 = arc(ia, ib), poly2 = arc(ib, ia);
+  if (poly1.length < 3 || poly2.length < 3) return false;
+  const t1 = earClip(poly1, w), t2 = earClip(poly2, w);
+  if (!t1 || !t2) return false;
+  // commit: drop crossed tris (high→low), add the two fans
+  crossed.sort((x, y) => y - x);
+  for (const ti of crossed) tris.splice(ti, 1);
+  for (const t of t1) tris.push(t);
+  for (const t of t2) tris.push(t);
+  return true;
 }
 // Two vertices at the SAME position can't both be in a non-degenerate triangulation —
 // Bowyer-Watson silently drops one, so it looks "merged" onto its twin. They're really
@@ -5373,7 +5742,7 @@ function dedupMeshVertices(rd, w){
     const out = []; for (const k of keep) out.push(rd.vertices[k * 2], rd.vertices[k * 2 + 1]); rd.vertices = out;
   }
   if (rd.hull){ let h = 0; for (const k of keep) if (k < rd.hull) h++; rd.hull = h; }
-  if (rd.edges) delete rd.edges; // indices changed — drop the derived edge hint
+  remapEdges(rd, remap); // Phase 3.6b: renumber author constraint edges (merged→twin, dropped)
   return { w: w2, removed };
 }
 // Ray-cast point-in-polygon for the (possibly concave) outline = first `hull` verts of w.
@@ -5400,8 +5769,46 @@ function dropMeshVertices(rd, w, dropSet){
     const out = []; for (const k of keep) out.push(rd.vertices[k * 2], rd.vertices[k * 2 + 1]); rd.vertices = out;
   }
   if (rd.hull){ let h = 0; for (const k of keep) if (k < rd.hull) h++; rd.hull = h; }
-  if (rd.edges) delete rd.edges;
+  const remap = new Array(m).fill(-1); keep.forEach((k, ni) => (remap[k] = ni));
+  remapEdges(rd, remap); // Phase 3.6b: drop edges touching a removed vertex, renumber the rest
   return w2;
+}
+// Phase 3.6b: re-triangulate honouring rd's author constraint edges, then rewrite rd.edges to
+// the hull loop + surviving author interior edges (lossless round-trip). Returns tris or null;
+// leaves any edge it couldn't force in `cdtUnforced` for the caller to warn about.
+let cdtUnforced = [];
+function cdtWithConstraints(rd, w, hull){
+  const author = authorInteriorEdges(rd, hull);
+  const unforced = [];
+  const tris = cdtTriangulate(w, hull, author, unforced);
+  if (!tris || !tris.length) return null;
+  // Keep ALL author edges (even unforced ones — lossless intent; they may become forceable after
+  // a later vertex move); just surface the unforced ones so the caller can warn.
+  serializeEdges(rd, [...hullLoopEdges(hull), ...author]);
+  cdtUnforced = unforced;
+  return tris;
+}
+// Phase 3.6b edge-mode click: first click arms a vertex; the second toggles the constraint edge
+// between the two, then re-triangulates so the effect shows immediately (staying in edge mode).
+function toggleConstraintEdge(k){
+  if (!meshCtx || !rawDoc) return;
+  if (edgePickFirst == null || edgePickFirst === k){
+    edgePickFirst = edgePickFirst === k ? null : k; // click the armed vertex again to cancel
+    renderSlotDetail();
+    return;
+  }
+  const a = edgePickFirst, b = k;
+  edgePickFirst = null;
+  const rd = rawDocMeshEntry(); if (!rd){ renderSlotDetail(); return; }
+  const hull = rd.hull || 0;
+  if (isHullLoopEdge(a, b, hull)){ showErr("That's already a hull boundary edge — it's always kept."); renderSlotDetail(); return; }
+  const pairs = parseEdges(rd);
+  const match = (x, y) => (x === a && y === b) || (x === b && y === a);
+  const has = pairs.some(([x, y]) => match(x, y));
+  serializeEdges(rd, has ? pairs.filter(([x, y]) => !match(x, y)) : [...pairs, [a, b]]);
+  retriangulateMesh(); // re-weave through the new constraint; selectSlot() inside clears the mode…
+  meshEdgeMode = true;  // …so re-arm edge mode and refresh
+  renderSlotDetail();
 }
 function retriangulateMesh(){
   if (!meshCtx || !rawDoc) return;
@@ -5418,7 +5825,7 @@ function retriangulateMesh(){
   for (let p = hull; p < m; p++) if (!pointInHull(w[p * 2], w[p * 2 + 1], w, hull)) outside.add(p);
   let droppedOutside = 0;
   if (outside.size){ w = dropMeshVertices(rd, w, outside); droppedOutside = outside.size; m = w.length / 2; hull = Math.min(rd.hull || m, m); }
-  const tris = cdtTriangulate(w, hull);
+  const tris = cdtWithConstraints(rd, w, hull);
   if (!tris || !tris.length){ showErr("Re-triangulation failed (couldn't ear-clip the hull — check for a self-crossing outline)."); return; }
   rd.triangles = tris.flat();
   if (ded.removed || droppedOutside) selMeshVert = null; // indices shifted
@@ -5428,6 +5835,7 @@ function retriangulateMesh(){
   const msgs = [];
   if (ded.removed) msgs.push("Merged " + ded.removed + " duplicate vertex" + (ded.removed > 1 ? "es" : "") + " at the same position.");
   if (droppedOutside) msgs.push("Ignored " + droppedOutside + " point" + (droppedOutside > 1 ? "s" : "") + " outside the outline.");
+  if (cdtUnforced.length) msgs.push(cdtUnforced.length + " constraint edge" + (cdtUnforced.length > 1 ? "s" : "") + " couldn't be honoured (a vertex sits on the line) — kept but not enforced.");
   if (msgs.length) showErr(msgs.join(" "));
 }
 
@@ -5473,6 +5881,17 @@ function addMeshVertex(Px, Py){
 
   // replace the containing triangle with three fanned to the new vertex
   rd.triangles.splice(bc.t, 3, bc.ia, bc.ib, n, bc.ib, bc.ic, n, bc.ic, bc.ia, n);
+  // Phase 3.6b: appended vertices don't renumber existing edges, but if the point landed ON a
+  // constraint edge, split that constraint (a,b) → (a,n),(n,b) so it follows the new geometry.
+  if (rd.edges){
+    const onEdge = bc.u < 1e-4 ? [bc.ib, bc.ic] : bc.v < 1e-4 ? [bc.ic, bc.ia] : bc.w < 1e-4 ? [bc.ia, bc.ib] : null;
+    if (onEdge){
+      const [e0, e1] = onEdge;
+      const pairs = parseEdges(rd).flatMap(([a, b]) =>
+        (a === e0 && b === e1) || (a === e1 && b === e0) ? [[a, n], [n, b]] : [[a, b]]);
+      serializeEdges(rd, pairs);
+    }
+  }
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
   return true;
@@ -5750,6 +6169,7 @@ function earClip(ring, worldPos){
 // remaining vertices (dropping any now-outside points) so a delete is NEVER blocked by bad
 // topology. Returns true on success. Mutates rd + rebuilds.
 function removeMeshVertexFallback(k, rd, w){
+  remapEdges(rd, removeOneRemap(k, w.length / 2)); // Phase 3.6b: renumber edges for k's removal
   rd.uvs.splice(k * 2, 2);
   const att = meshCtx.attachment;
   if (!att.bones || !att.bones.length){ rd.vertices.splice(k * 2, 2); }
@@ -5760,10 +6180,9 @@ function removeMeshVertexFallback(k, rd, w){
   const outside = new Set();
   for (let p = hull; p < w2.length / 2; p++) if (!pointInHull(w2[p * 2], w2[p * 2 + 1], w2, hull)) outside.add(p);
   if (outside.size){ w2 = dropMeshVertices(rd, w2, outside); hull = Math.min(rd.hull || (w2.length / 2), w2.length / 2); }
-  const tris = cdtTriangulate(w2, hull);
+  const tris = cdtWithConstraints(rd, w2, hull);
   if (!tris || !tris.length){ showErr("Couldn't rebuild the mesh after removing this vertex."); return false; }
   rd.triangles = tris.flat();
-  delete rd.edges;
   selMeshVert = null;
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
@@ -5824,8 +6243,8 @@ function removeMeshVertex(k){
   // reindex triangles referencing a vertex after k
   for (let i = 0; i < kept.length; i++) if (kept[i] > k) kept[i]--;
   rd.triangles = kept;
-  // `edges` is a derived editor hint indexed by 2×vertex — drop it on topology change
-  delete rd.edges;
+  // Phase 3.6b: renumber author constraint edges for k's removal (drop any that touched k)
+  remapEdges(rd, removeOneRemap(k, w.length / 2));
 
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
@@ -7793,7 +8212,7 @@ function poseBoneByScreen(dxScreen, dyScreen, dpr){
 }
 
 // ---- transform gizmo (move + rotate the selected bone on the canvas) -------
-function gizmoActive(){ return (editMode || animMode) && rawDoc && selBone != null && !drawMeshMode && !drawPathMode && !pathAddMode && !(meshCtx && (weightBrush || meshAddMode || meshRemoveMode)); }
+function gizmoActive(){ return (editMode || animMode) && rawDoc && selBone != null && !drawMeshMode && !drawPathMode && !pathAddMode && !(meshCtx && (weightBrush || meshAddMode || meshRemoveMode || meshEdgeMode)); }
 function gizmoCenter(){ const b = skeleton && selBone != null ? skeleton.bones[selBone] : null; return b ? { x: b.worldX, y: b.worldY } : null; }
 function gizmoGeom(){ const z = renderer ? renderer.camera.zoom : 1; return { ringR: z * 58, centerR: z * 13, tol: z * 9 }; }
 // Which gizmo part is under the cursor: "move" (centre) / "rotate" (ring) / null.
@@ -8441,6 +8860,7 @@ function wire(){
       if (editMode && weightBrush && brushBone != null){ const cw = cursorWorld(e); if (cw){ brushPainting = true; paintDab(cw.x, cw.y); lastDabWorld = cw; } lastXY = [e.clientX, e.clientY]; return; }
       if (editMode && meshAddMode){ const cw = cursorWorld(e); if (cw) addMeshVertex(cw.x, cw.y); lastXY = [e.clientX, e.clientY]; return; }
       if (editMode && meshRemoveMode){ const k = nearestMeshVert(e); if (k >= 0) removeMeshVertex(k); lastXY = [e.clientX, e.clientY]; return; }
+      if (editMode && meshEdgeMode){ const k = nearestMeshVert(e); if (k >= 0) toggleConstraintEdge(k); lastXY = [e.clientX, e.clientY]; return; }
       if (tryStartMeshDrag(e)){ lastXY = [e.clientX, e.clientY]; return; }
     }
     // Transform gizmo on the SELECTED bone: move (centre) or rotate (ring).

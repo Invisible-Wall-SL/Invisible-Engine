@@ -148,10 +148,34 @@ Authored events export in the `.irig` (Spine JSON) as
   (✎), delete (🗑, the last skin can't be removed), and **＋ Add skin**.
 - **Meshes:** select a slot whose attachment is a mesh to edit its geometry — drag
   vertices, **＋ Add vertex** (click inside the mesh), **－ Remove vertex** (click
-  an interior vertex), and numeric UV editing on a selected vertex. Turn a region
-  into an editable quad mesh with **▸ Convert to mesh**, or **✎ Draw mesh** to
-  trace a mesh outline by clicking boundary points (Finish to commit, Esc to
-  cancel, Backspace removes the last point).
+  an interior vertex), and numeric UV editing on a selected vertex. **⟁
+  Re-triangulate** re-weaves the whole mesh through every point (Delaunay over the
+  hull + interior points, honouring your constraint edges) — drop interior points,
+  then re-triangulate so the triangles pass through them. Turn a region into an
+  editable quad mesh with **▸ Convert to mesh**, or **✎ Draw mesh** to trace a
+  mesh outline by clicking boundary points (Finish to commit, Esc to cancel,
+  Backspace removes the last point).
+- **Constraint edges (✎ Edge):** in the mesh tools row, **✎ Edge** turns on
+  constraint-edge editing. Click **two vertices** to toggle an edge the
+  triangulation must keep — draw one along a limb, say, so the mesh bends there.
+  Clicking the same first vertex again cancels the pick; clicking the two ends of
+  an existing constraint again **lifts** it. A constraint **survives ⟁
+  Re-triangulate** (it's fed into the triangulation and force-inserted if the
+  Delaunay pass didn't include it) and **saves with the mesh** (as the Spine
+  `edges` field), so it round-trips into the desktop Spine editor too. Constraint
+  edges draw **amber** on both the main canvas and the UV map panel, and the
+  first-picked (armed) vertex is highlighted amber. **Hull boundary edges** are
+  always kept and can't be toggled — the tool tells you so if you try.
+- **UV map panel:** with a mesh slot selected, a square **UV map** panel appears in
+  the inspector below the mesh tools. It draws the mesh's **region art upright** with
+  the **mesh wireframe** (triangles + vertex dots) overlaid on it, so you can see
+  exactly which part of the texture each vertex samples. **Drag a vertex over the
+  art** to re-map its UV — this is the visual complement to the numeric **u / v**
+  fields and to the isolate-mode (⛶) world-space reshaping. Selection is shared: a
+  vertex picked in the panel highlights on the main canvas and fills the numeric
+  u / v fields, and vice-versa. Any **✎ Edge** constraint edges show **amber** here
+  too, so you can read them against the texture. The panel only shows when the
+  mesh's region art is resolved (not for a missing-art/placeholder mesh).
 - **Isolate a mesh to edit it (without distorting the art):** with a mesh selected,
   **⛶ Isolate mesh** hides every other slot, holds the setup pose, and frames the
   mesh so you can reshape the wireframe unobstructed. Crucially, dragging a vertex in
@@ -378,9 +402,11 @@ keeps showing the OLD image — its copy is never auto-updated.
   pristine project round-trip — an Esoteric limitation, not ours.
 - **JSON only for editing.** Editing writes/exports JSON `.irig`; binary `.skel`
   is view-only.
-- **Deferred:** a visual texture-panel UV editor (drag vertices over the region
-  image) and hull/edge editing (Phase 3.6); the remaining non-bone animation
-  channels (draw-order timeline, events, mesh deform).
+- **Deferred:** hull-vertex reordering (Phase 3.6c) is still future work. The visual
+  texture-panel UV editor (drag vertices over the region art) shipped as Phase 3.6a
+  and constraint-edge editing (✎ Edge, Phase 3.6b) now ships; also still deferred are
+  the remaining non-bone animation channels (draw-order timeline, events, mesh
+  deform).
 - **A baked bezier uses absolute control points** — re-apply easing after a large
   retime or re-pose of a curved key (noted in-UI).
 - **Shipping a rig is a separate step.** "It renders in `/rigger`" does **not**
