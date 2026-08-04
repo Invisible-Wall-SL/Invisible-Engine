@@ -2,6 +2,7 @@ import { error, redirect } from '@sveltejs/kit';
 import { validateGameConfigDoc } from 'game-config';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
+import { listComponents } from '$lib/server/componentStorage';
 import { gameConfigDefaultFor, resolveGameConfig } from '$lib/server/gameConfigDefaults';
 import { projectGameType, projectName } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
@@ -39,9 +40,14 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	});
 
 	const gameType = await projectGameType(projectKey);
-	const [{ doc, source, etag }, name] = await Promise.all([
+	const [{ doc, source, etag }, name, components] = await Promise.all([
 		resolveGameConfig(clientKey, projectKey, gameType),
 		projectName(projectKey),
+		// The component palette (built-ins + shared + this project's, project shadowing shared) — the
+		// SAME source the Scene Editor lists, so the per-mode "Card" picker offers exactly the ids a
+		// scene can mount (e.g. the built-in `featureCard`). Read-only; slimmed to id/name so the page
+		// never ships the whole authored trees.
+		listComponents({ projectKey }),
 	]);
 
 	// The template default the "Reset to template default" action restores. Sent even when the
@@ -59,6 +65,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		source,
 		etag,
 		templateDefault,
+		// id/name/category only — enough to populate the per-mode Card dropdown without shipping trees.
+		components: components.map((c) => ({ id: c.id, name: c.name, category: c.category })),
 		// Validate server-side too, so the page shows issues on FIRST paint (before any edit fires
 		// the client validator) — a pasted-in config that lies is visible immediately.
 		issues: doc ? validateGameConfigDoc(doc) : [],

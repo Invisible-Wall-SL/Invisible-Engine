@@ -171,7 +171,7 @@
 		const entry = map[key];
 		if (entry) {
 			if (entry.text && !Object.keys(entry.text).length) delete entry.text;
-			if (!entry.kind && entry.order === undefined && !entry.text) delete map[key];
+			if (!entry.kind && entry.order === undefined && !entry.text && !entry.card) delete map[key];
 		}
 		if (!Object.keys(map).length) delete doc.betModePresentation;
 	}
@@ -198,6 +198,21 @@
 		else {
 			const entry = doc.betModePresentation?.[key];
 			if (entry) delete entry.order;
+			prunePresentation(key);
+		}
+	}
+
+	/** The component id this mode's buy-feature card renders — `''` (unset) ⇒ runtime falls back to
+	 *  the default `featureCard`. The palette comes from the SAME source the Scene Editor lists
+	 *  (`data.components`), so a chosen id is always one a scene can actually mount. */
+	function betModeCardValue(key: string): string {
+		return doc.betModePresentation?.[key]?.card ?? '';
+	}
+	function setBetModeCard(key: string, value: string) {
+		if (value) ensurePresentation(key).card = value;
+		else {
+			const entry = doc.betModePresentation?.[key];
+			if (entry) delete entry.card;
 			prunePresentation(key);
 		}
 	}
@@ -718,9 +733,10 @@
 				bet, RTP, max win, and whether the mode has the feature / is a bought bonus) is the Stake
 				export shape. The <strong>presentation</strong> is ours: <strong>Kind</strong> —
 				<code>base</code>, a persistent <code>ante</code>, or a one-shot <code>buy</code> (leave on
-				<em>auto</em> to derive it from the math) — a menu <strong>Order</strong>, and the
-				<strong>copy</strong> the card shows. Copy is authored here as source text and translated in
-				the <strong>Invisible Localization</strong> tool.
+				<em>auto</em> to derive it from the math) — a menu <strong>Order</strong>, the
+				<strong>Card</strong> component this mode's buy-feature card renders (blank ⇒ the default
+				<code>featureCard</code>), and the <strong>copy</strong> the card shows. Copy is authored here
+				as source text and translated in the <strong>Invisible Localization</strong> tool.
 			</p>
 
 			{#if resolvedBetModes.length}
@@ -792,6 +808,17 @@
 									value={betModeOrderValue(key)}
 									oninput={(e) => setBetModeOrder(key, e.currentTarget.value)}
 								/></label
+							>
+							<label class="mini card-pick"
+								><span>Card</span><select
+									value={betModeCardValue(key)}
+									onchange={(e) => setBetModeCard(key, e.currentTarget.value)}
+								>
+									<option value="">(default)</option>
+									{#each data.components as c (c.id)}
+										<option value={c.id}>{c.name} · {c.id}</option>
+									{/each}
+								</select></label
 							>
 						</div>
 
@@ -1480,6 +1507,11 @@
 	.betmode-row select:focus {
 		outline: none;
 		border-color: #7ee0c0;
+	}
+	/* The card picker holds component names, so it needs more room than the fixed-width mini inputs. */
+	.betmode-row label.card-pick select {
+		width: 180px;
+		max-width: 220px;
 	}
 	label.check {
 		flex-direction: row;
