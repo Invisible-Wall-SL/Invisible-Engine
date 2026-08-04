@@ -35,6 +35,7 @@
 		nodeBox,
 		nodeCornersWorld,
 		repeaterPlaceholderGrid,
+		repeaterBoxes,
 		topMidWorld,
 		pointInQuad,
 		resolveBoneRiderRigKey,
@@ -42,6 +43,7 @@
 		type Vec2,
 		type NodeBox,
 		type NaturalSize,
+		type RepeaterSourceMap,
 	} from './editorCanvas.helpers';
 	import {
 		clearRegionCache,
@@ -124,6 +126,11 @@
 		 * preview draws THIS many cells — the config is the single source of truth for the grid, the
 		 * same one the game sizes off. `null` ⇒ fall back to the reelGrid node's own reels/rows. */
 		gridDimensions?: { reels: number; rows: number } | null;
+		/** Per-source SAMPLE data for `repeater` placeholders, resolved from the project's game config
+		 * (currently `featureCards` → one card per non-default bet mode, with each card's per-item
+		 * values). Drives BOTH the placeholder count and the per-box component preview. `null` / an
+		 * absent source ⇒ the fixed fallback sample + def-default params (parity). */
+		repeaterSources?: RepeaterSourceMap | null;
 		/** Loaded component defs by id (§8.4) — lets the canvas resolve + draw a
 		 * `componentInstance` node by expanding `def.root` under the instance transform.
 		 * The editor canvas is its OWN renderer, so it reads this map (NOT the engine
@@ -197,6 +204,7 @@
 		symbolDefaults = null,
 		symbolsDoc = null,
 		gridDimensions = null,
+		repeaterSources = null,
 		componentMap = new Map(),
 		spinePreview = null,
 		spinePreviewNodeId,
@@ -427,7 +435,7 @@
 		// so the 2D draw AND the selection box (`nodeCornersWorld`, which uses the SAME
 		// box ax/ay as the origin-in-box) frame the identical centred cover extent.
 		if (node.kind === 'componentInstance') {
-			const box = nodeBox(node, t, naturalSize, componentMap, layoutType);
+			const box = boxOf(node, t);
 			const minX = -box.ax * box.w;
 			const minY = -box.ay * box.h;
 			const cover = coverTransform({
@@ -1332,13 +1340,7 @@
 		// or empty content falls back to its generic 160×100, which we treat as "unknown"
 		// (null) so the cover uses the frame size instead of a tiny box.
 		if (node.kind === 'componentInstance') {
-			const box = nodeBox(
-				node,
-				resolveTransform(node, layoutType),
-				naturalSize,
-				componentMap,
-				layoutType,
-			);
+			const box = boxOf(node, resolveTransform(node, layoutType));
 			if (box.w > 0 && box.h > 0 && !(box.w === 160 && box.h === 100))
 				return { w: box.w, h: box.h };
 			return null;
@@ -1491,6 +1493,13 @@
 			if (n.kind === 'container' && n.bind && n.preview?.style === 'text') return true;
 			if (n.kind === 'container' && nodesHaveText(n.children, depth, stack)) return true;
 			if (n.kind === 'componentInstance') {
+				const def = componentMap.get(n.componentId);
+				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
+				if (nodesHaveText(def.root.children, depth + 1, [...stack, def.id])) return true;
+			}
+			// A repeater expands its component per box in the overlay too (the cards' title/price/…
+			// text), so the layer must mount when the repeated def carries any text.
+			if (n.kind === 'repeater') {
 				const def = componentMap.get(n.componentId);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
 				if (nodesHaveText(def.root.children, depth + 1, [...stack, def.id])) return true;
@@ -2071,47 +2080,104 @@
 				);
 			}
 		} else if (node.kind === 'repeater') {
-			drawRepeater(ctx, node, t);
+			drawRepeater(ctx, node, t, sceneCtx, componentDepth, componentStack);
 		}
 
 		ctx.restore();
 	}
 
+	/** The config-resolved SAMPLE item count for a `repeater` (its `source`'s live length —
+	 * `featureCards` → the non-default bet modes). Undefined for an unknown/unconfigured source ⇒
+	 * `repeaterPlaceholderGrid` keeps its fixed fallback count. */
+	function repeaterItemCount(node: Extract<LayoutNode, { kind: 'repeater' }>): number | undefined {
+		return repeaterSources?.[node.source]?.count;
+	}
+
+	/** The per-item `engineProvided` values for a `repeater`'s cards (title/price/… per bet mode).
+	 * Empty for an unknown/unconfigured source ⇒ each box previews the def's default copy. */
+	function repeaterItemValues(
+		node: Extract<LayoutNode, { kind: 'repeater' }>,
+	): Array<Record<string, unknown>> {
+		return repeaterSources?.[node.source]?.items ?? [];
+	}
+
+	/** `nodeBox` with the `repeater` SAMPLE count threaded in from config, so a repeater's selection /
+	 * hit rect frames the SAME grid `drawRepeater` draws. Every canvas `nodeBox` call routes through
+	 * here, so the count is resolved in ONE place (non-repeater nodes are unaffected). */
+	function boxOf(node: LayoutNode, t: ResolvedTransform, spineBundle?: string): NodeBox {
+		return nodeBox(
+			node,
+			t,
+			naturalSize,
+			componentMap,
+			layoutType,
+			spineBundle,
+			node.kind === 'repeater' ? repeaterItemCount(node) : undefined,
+		);
+	}
+
 	/**
-	 * Draw the static placeholder for a `repeater` node: a fixed SAMPLE of item boxes laid
-	 * out by the node's `layout` rule (row advances +x; grid wraps at `columns`), since the
-	 * editor can't resolve the live `source` array. Stands in for the per-item component
-	 * instances the game stamps; labelled with the component + a `×N` hint that the real
-	 * count is data-driven. Drawn in the node's already-scaled local space (drawNode applied
-	 * the transform), anchored like the reel grid.
+	 * Draw a `repeater` node's editor preview: the config-resolved SAMPLE of item boxes laid out by
+	 * the node's `layout` rule (row advances +x; grid wraps at `columns`), each EXPANDING the real
+	 * repeated component (its `def.root.children` fed the item's per-card values) so the author sees
+	 * actual cards, not empty rects. Reuses `drawNode`'s component-expansion path via a synthetic
+	 * per-box container (`repeaterBoxes`) — sprites/rects draw here on the 2D canvas, text draws on
+	 * the PIXI overlay (which expands the SAME boxes). A missing/unknown def falls back to the labelled
+	 * empty-box placeholder. Drawn in the node's already-scaled local space (drawNode applied the
+	 * transform), anchored like the reel grid.
 	 */
 	function drawRepeater(
 		ctx: CanvasRenderingContext2D,
 		node: Extract<LayoutNode, { kind: 'repeater' }>,
 		t: ResolvedTransform,
+		sceneCtx: Scene,
+		componentDepth: number,
+		componentStack: string[],
 	): void {
-		const g = repeaterPlaceholderGrid(node);
-		const left = -g.w * (t.anchor?.x ?? 0.5);
-		const top = -g.h * (t.anchor?.y ?? 0.5);
+		const def = componentMap.get(node.componentId);
+		const g = repeaterPlaceholderGrid(node, { count: repeaterItemCount(node), def });
+		const anchorX = t.anchor?.x ?? 0.5;
+		const anchorY = t.anchor?.y ?? 0.5;
+		const left = -g.w * anchorX;
+		const top = -g.h * anchorY;
 
+		// Group backdrop so the repeated set still reads as one node.
 		ctx.fillStyle = 'rgba(200, 163, 255, 0.06)';
 		ctx.fillRect(left, top, g.w, g.h);
 
-		ctx.lineWidth = 1;
-		ctx.strokeStyle = 'rgba(200, 163, 255, 0.5)';
-		ctx.fillStyle = 'rgba(200, 163, 255, 0.09)';
-		for (let i = 0; i < g.count; i++) {
-			const col = i % g.cols;
-			const rowIdx = Math.floor(i / g.cols);
-			const x = left + col * (g.itemW + g.gap);
-			const y = top + rowIdx * (g.itemH + g.gap);
-			ctx.fillRect(x, y, g.itemW, g.itemH);
-			ctx.strokeRect(x, y, g.itemW, g.itemH);
+		if (def && !(componentDepth >= MAX_COMPONENT_DEPTH || componentStack.includes(def.id))) {
+			// Expand the REAL component per box. The bind-spine preview bundle is resolved from the
+			// def's own params (the per-item values feed no spine param), like `drawComponentInstance`.
+			const spineBundle = instancePreviewSpineBundle(
+				def,
+				resolveComponentParams(def, undefined, undefined),
+			);
+			const stack = [...componentStack, def.id];
+			for (const box of repeaterBoxes(node, def, g, repeaterItemValues(node), anchorX, anchorY)) {
+				drawNode(ctx, box.container, sceneCtx, componentDepth + 1, stack, box.params, true, spineBundle);
+			}
+		} else {
+			// No def loaded (unknown componentId) or a depth/cycle guard: keep the empty-box placeholder.
+			ctx.lineWidth = 1;
+			ctx.strokeStyle = 'rgba(200, 163, 255, 0.5)';
+			ctx.fillStyle = 'rgba(200, 163, 255, 0.09)';
+			for (let i = 0; i < g.count; i++) {
+				const col = i % g.cols;
+				const rowIdx = Math.floor(i / g.cols);
+				const x = left + col * (g.itemW + g.gap);
+				const y = top + rowIdx * (g.itemH + g.gap);
+				ctx.fillRect(x, y, g.itemW, g.itemH);
+				ctx.strokeRect(x, y, g.itemW, g.itemH);
+			}
 		}
 
 		ctx.fillStyle = '#e8e8ee';
 		ctx.font = '14px sans-serif';
-		ctx.fillText(`⧉ ${node.label ?? 'Repeater'} · ${node.componentId} ×N`, left + 8, top + 20);
+		ctx.fillText(
+			`⧉ ${node.label ?? 'Repeater'} · ${node.componentId} ×${g.count}`,
+			left + 8,
+			top + 20,
+		);
 	}
 
 	/**
@@ -2679,7 +2745,7 @@
 	): void {
 		const t = nodeTransform(node);
 		if (!t.visible) return;
-		const box = nodeBox(node, t, naturalSize, componentMap, layoutType);
+		const box = boxOf(node, t);
 		const corners = nodeCornersWorld(t, box).map(worldToScreen);
 		const top = worldToScreen(topMidWorld(t, box));
 
@@ -2743,7 +2809,7 @@
 		if (!node || node.locked || isBackgroundCover(node)) return null;
 		const t = nodeTransform(node);
 		if (!t.visible) return null;
-		const box = nodeBox(node, t, naturalSize, componentMap, layoutType);
+		const box = boxOf(node, t);
 		const corners = nodeCornersWorld(t, box).map(worldToScreen);
 		const top = worldToScreen(topMidWorld(t, box));
 		const rot = t.rotation ?? 0;
@@ -2775,7 +2841,7 @@
 		for (let i = list.length - 1; i >= 0; i--) {
 			const node = list[i];
 			const t = nodeTransform(node);
-			const box = nodeBox(node, t, naturalSize, componentMap, layoutType);
+			const box = boxOf(node, t);
 			const corners = nodeCornersWorld(t, box);
 			if (pointInQuad(world, corners)) return node;
 		}
@@ -2806,7 +2872,7 @@
 	}
 	function startScale(node: LayoutNode, cornerIdx: number, world: Vec2): void {
 		const t = nodeTransform(node);
-		const box = nodeBox(node, t, naturalSize, componentMap, layoutType);
+		const box = boxOf(node, t);
 		dragMode = {
 			kind: 'scale',
 			nodeId: node.id,
@@ -2965,7 +3031,7 @@
 	function snapTranslate(node: LayoutNode, nx: number, ny: number): Vec2 {
 		const tol = SNAP_PX / zoom;
 		const t = nodeTransform(node);
-		const box = nodeBox(node, t, naturalSize, componentMap, layoutType);
+		const box = boxOf(node, t);
 		// Compute candidate moving-node points using nx, ny.
 		const moved: typeof t = { ...t, x: nx, y: ny };
 		const corners = nodeCornersWorld(moved, box);
@@ -2977,7 +3043,7 @@
 		for (const other of visibleSceneNodes()) {
 			if (other.id === node.id) continue;
 			const ot = nodeTransform(other);
-			const ob = nodeBox(other, ot, naturalSize, componentMap, layoutType);
+			const ob = boxOf(other, ot);
 			const oc = nodeCornersWorld(ot, ob);
 			let minX = Infinity,
 				maxX = -Infinity,
@@ -3372,7 +3438,7 @@
 		if (!node) return null;
 		const t = nodeTransform(node);
 		if (!t.visible) return null;
-		const box = nodeBox(node, t, naturalSize, componentMap, layoutType);
+		const box = boxOf(node, t);
 		const corners = nodeCornersWorld(t, box).map(worldToScreen);
 		let minX = Infinity,
 			minY = Infinity,
@@ -3590,6 +3656,7 @@
 					{projectGameName}
 					{componentParams}
 					{componentMap}
+					{repeaterSources}
 					{frameWidth}
 					{frameHeight}
 					reloadToken={fontReload}
@@ -3702,6 +3769,7 @@
 				{projectGameName}
 				{componentParams}
 				{componentMap}
+				{repeaterSources}
 				{frameWidth}
 				{frameHeight}
 				reloadToken={fontReload}

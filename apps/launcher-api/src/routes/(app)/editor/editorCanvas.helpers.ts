@@ -133,11 +133,66 @@ export interface NaturalSize {
 }
 
 /**
- * Fixed geometry for a `repeater`'s editor SAMPLE grid — the editor can't run the live
- * `source` array, so it stands in a small fixed number of item boxes laid out by the
- * node's `layout` rule. A feature-card-ish item size keeps the placeholder legible.
+ * FALLBACK geometry for a `repeater`'s editor SAMPLE grid — used when the config can't tell us the
+ * real item count (unknown/unconfigured `source`) and the component def declares no size. The editor
+ * can't run the live `source` array, so it stands in a small number of item boxes laid out by the
+ * node's `layout` rule. A feature-card-ish item size keeps the placeholder legible. The COUNT and the
+ * item SIZE are overridden per node when resolvable — see {@link repeaterPlaceholderGrid}.
  */
 export const REPEATER_PLACEHOLDER = { itemW: 200, itemH: 280, sampleCount: 3 } as const;
+
+/**
+ * A `repeater` SOURCE's editor preview data, resolved server-side from the project's game config: how
+ * MANY items the source yields, and the per-item `engineProvided` values (title/price/… for feature
+ * cards) each item's card previews. Keyed by SOURCE name in {@link RepeaterSourceMap} — the same
+ * `source` string a `repeater` node names — so a new source is a new map entry, not new plumbing. An
+ * unknown/unconfigured source is simply absent ⇒ the fixed fallback + def defaults (parity).
+ */
+export interface RepeaterSourcePreview {
+	count: number;
+	items: Array<Record<string, unknown>>;
+}
+export type RepeaterSourceMap = Record<string, RepeaterSourcePreview>;
+
+/**
+ * The natural FOOTPRINT (union box) of a ComponentDef's `root` children, from their raw transform
+ * positions + explicit `width`/`height` — so a `repeater` can size each SAMPLE box to the real card
+ * (a sprite/rect carries a size; text/spine, which don't, are skipped). Used ONLY for the sample
+ * grid's item size + the per-box placement offset; `null` when no child declares a size (⇒ the caller
+ * keeps the fixed fallback). Approximate by design (ignores nested rotation/scale) — it frames the
+ * layout, it is not a render bound.
+ */
+export function componentDefFootprint(
+	def: ComponentDef,
+): { w: number; h: number; minX: number; minY: number } | null {
+	let minX = Infinity;
+	let minY = Infinity;
+	let maxX = -Infinity;
+	let maxY = -Infinity;
+	const walk = (nodes: LayoutNode[], ox: number, oy: number): void => {
+		for (const n of nodes) {
+			const ax = n.anchor?.x ?? (n.kind === 'sprite' ? 0 : 0.5);
+			const ay = n.anchor?.y ?? (n.kind === 'sprite' ? 0 : 0.5);
+			const w = 'width' in n && typeof n.width === 'number' ? n.width : undefined;
+			const h = 'height' in n && typeof n.height === 'number' ? n.height : undefined;
+			if (w !== undefined && h !== undefined) {
+				const left = ox + n.x - w * ax;
+				const top = oy + n.y - h * ay;
+				if (left < minX) minX = left;
+				if (top < minY) minY = top;
+				if (left + w > maxX) maxX = left + w;
+				if (top + h > maxY) maxY = top + h;
+			}
+			if (n.kind === 'container') walk(n.children, ox + n.x, oy + n.y);
+		}
+	};
+	walk(def.root.children, 0, 0);
+	if (minX === Infinity) return null;
+	const w = maxX - minX;
+	const h = maxY - minY;
+	if (w <= 0 || h <= 0) return null;
+	return { w, h, minX, minY };
+}
 
 /** The resolved SAMPLE-grid layout of a `repeater` placeholder (columns/rows + footprint),
  * so the canvas draw and the selection {@link nodeBox} agree on one geometry. */
@@ -152,12 +207,24 @@ export interface RepeaterPlaceholderGrid {
 	h: number;
 }
 
-/** Lay the fixed sample items out by the repeater's `layout` (row = single line advancing
- * +x; grid = wrap every `columns`), returning the grid + total footprint. */
+/**
+ * Lay the sample items out by the repeater's `layout` (row = single line advancing +x; grid = wrap
+ * every `columns`), returning the grid + total footprint. `opts.count` (the config-resolved item
+ * count) overrides the fixed sample count so the preview matches the live list; `opts.def` (the
+ * repeated component) sizes each box to the real card footprint. Both fall back to the fixed
+ * {@link REPEATER_PLACEHOLDER} when unresolved, so an unconfigured repeater is byte-identical.
+ */
 export function repeaterPlaceholderGrid(
 	node: Extract<LayoutNode, { kind: 'repeater' }>,
+	opts?: { count?: number; def?: ComponentDef | null },
 ): RepeaterPlaceholderGrid {
-	const { itemW, itemH, sampleCount: count } = REPEATER_PLACEHOLDER;
+	const footprint = opts?.def ? componentDefFootprint(opts.def) : null;
+	const itemW = footprint?.w ?? REPEATER_PLACEHOLDER.itemW;
+	const itemH = footprint?.h ?? REPEATER_PLACEHOLDER.itemH;
+	const count =
+		opts?.count !== undefined && opts.count > 0
+			? Math.round(opts.count)
+			: REPEATER_PLACEHOLDER.sampleCount;
 	const gap = Number.isFinite(node.layout?.gap) ? Math.max(0, node.layout.gap) : 0;
 	let cols: number = count;
 	if (node.layout?.direction === 'grid') {
@@ -179,6 +246,61 @@ export function repeaterPlaceholderGrid(
 	};
 }
 
+/** One synthetic per-item box for a `repeater`'s editor preview. */
+export interface RepeaterBox {
+	/** A container node placed at the grid cell whose children ARE the component def's `root.children`,
+	 *  so both the 2D canvas and the text overlay expand the SAME nodes there. */
+	container: Extract<LayoutNode, { kind: 'container' }>;
+	/** The item's resolved params: def defaults ◁ the per-item `engineProvided` values the config feeds. */
+	params: Record<string, unknown>;
+}
+
+/**
+ * Build the per-item boxes for a `repeater`'s editor preview — the ONE source of the box layout +
+ * component expansion, so the 2D canvas draw ({@link '../editor/EditorCanvas.svelte'} `drawRepeater`)
+ * and the text overlay ({@link '../editor/EditorTextLayer.svelte'} `collectTextTargets`) place + fill
+ * every box identically. Each box is a container positioned at its grid cell whose children are the
+ * def's own `root.children`, plus that item's resolved params. `items[i]` feeds box i; with fewer
+ * items than boxes the first item repeats, and NO items ⇒ def defaults only (an unconfigured repeater
+ * still previews the real card, just with its default copy). `anchorX`/`anchorY` are the repeater
+ * node's anchor — the grid's origin offset is baked into each container so it composes on top of the
+ * repeater's own (anchor-less) transform matrix, matching how the canvas + overlay compose the chain.
+ */
+export function repeaterBoxes(
+	node: Extract<LayoutNode, { kind: 'repeater' }>,
+	def: ComponentDef,
+	grid: RepeaterPlaceholderGrid,
+	items: Array<Record<string, unknown>>,
+	anchorX: number,
+	anchorY: number,
+): RepeaterBox[] {
+	const footprint = componentDefFootprint(def);
+	const offX = footprint?.minX ?? 0;
+	const offY = footprint?.minY ?? 0;
+	const left = -grid.w * anchorX;
+	const top = -grid.h * anchorY;
+	const boxes: RepeaterBox[] = [];
+	for (let i = 0; i < grid.count; i++) {
+		const col = i % grid.cols;
+		const rowIdx = Math.floor(i / grid.cols);
+		const x = left + col * (grid.itemW + grid.gap);
+		const y = top + rowIdx * (grid.itemH + grid.gap);
+		const itemValues = items.length ? (items[i] ?? items[0]) : {};
+		boxes.push({
+			container: {
+				id: `${node.id}::rep${i}`,
+				kind: 'container',
+				x: x - offX,
+				y: y - offY,
+				anchor: { x: 0, y: 0 },
+				children: def.root.children,
+			},
+			params: resolveComponentParams(def, itemValues, undefined),
+		});
+	}
+	return boxes;
+}
+
 /** Resolve a sensible local-space box for any node kind. */
 export function nodeBox(
 	node: LayoutNode,
@@ -192,6 +314,10 @@ export function nodeBox(
 	 * rig's natural bounds — the SAME size the spine layer renders it at — instead of the generic
 	 * 160×100 chip. Undefined for a top-level node or a non-spine-param instance ⇒ prior box (parity). */
 	instanceSpineBundle?: string,
+	/** The config-resolved SAMPLE item count for a `repeater` node (its `source`'s live length —
+	 * e.g. `featureCards` → the non-default bet modes), so the selection rect frames the SAME grid
+	 * {@link repeaterPlaceholderGrid} lays out in the draw. Undefined ⇒ the fixed fallback count. */
+	repeaterCount?: number,
 ): NodeBox {
 	const ax = t.anchor?.x ?? (node.kind === 'sprite' ? 0 : 0.5);
 	const ay = t.anchor?.y ?? (node.kind === 'sprite' ? 0 : 0.5);
@@ -282,10 +408,14 @@ export function nodeBox(
 		}
 		return { w: 160, h: 100, ax, ay };
 	}
-	// A repeater selects at the footprint of its editor SAMPLE grid (the live source
-	// array can't run here, so a fixed sample stands in) — matching what the canvas draws.
+	// A repeater selects at the footprint of its editor SAMPLE grid — the config-resolved item
+	// count + the repeated component's own footprint (both via `repeaterPlaceholderGrid`), so the
+	// selection rect matches what `drawRepeater` draws (which passes the same count + def).
 	if (node.kind === 'repeater') {
-		const g = repeaterPlaceholderGrid(node);
+		const g = repeaterPlaceholderGrid(node, {
+			count: repeaterCount,
+			def: componentMap?.get(node.componentId),
+		});
 		return { w: g.w, h: g.h, ax, ay };
 	}
 	// A rect frames at its own width/height (the fill box) — like a sprite, but the
