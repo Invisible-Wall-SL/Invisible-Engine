@@ -3,7 +3,7 @@
 
 	import { EnablePixiExtension, DebugStage } from 'components-pixi';
 	import { EnableHotkey, OnHotkey } from 'components-shared';
-	import { MainContainer } from 'components-layout';
+	import { MainContainer, OnPressFullScreen } from 'components-layout';
 	import { App, Container, Text, REM } from 'pixi-svelte';
 	import {
 		stateBet,
@@ -162,7 +162,7 @@
 	import { repeaterSource } from '../game/repeaterSource.svelte';
 	import { stateBonus } from 'components-ui-html/src/stateBonus.svelte';
 	import { eventSignal } from '../game/signalSource';
-	import { HUD_BUTTON_INSTANCES } from '../game/editorFlags';
+	import { HUD_BUTTON_INSTANCES, BUY_FEATURE_SCENE } from '../game/editorFlags';
 	import {
 		bakedEditorArtAssets,
 		bakedFontCatalog,
@@ -845,6 +845,38 @@
 	// retiring them is FS-7). An un-owned step's coded scene renders as today (byte-parity §7).
 	const freeSpinOwnership = $derived(resolveFlowOwnsFreeSpins(editorDoc));
 
+	// BUY_FEATURE_SCENE — the in-canvas buy-bonus SELECT menu (the `buyFeature` scene: a
+	// `repeater` of `featureCard`s over a dimmed backdrop). Seeded in `defaultLayout`, so the
+	// `!` is safe + a no-doc boot is parity. The owner authors it in the editor; the fallback
+	// centres the single-card default lines ships.
+	const fallbackBuyFeature = fallbackEditorScenes.scenes.find((s) => s.id === 'buyFeature')!;
+	const buyFeatureScene = $derived(
+		editorDoc.scenes.find((scene) => scene.id === 'buyFeature') ?? fallbackBuyFeature,
+	);
+	// Whether the Pixi SELECT menu is showing. The shared `<Modals>` switcher mounts the HTML
+	// `ModalBuyBonus` unconditionally and keys it on `stateModal.modal?.name === 'buyBonus'`, and
+	// we own neither that component nor the `Modal` union — so the only app-level way to keep the
+	// two from doubling is to keep `stateModal` OUT of `buyBonus` and drive the Pixi scene off this
+	// own flag (the sanctioned "render the Pixi scene as the sole buyBonus surface" path). The
+	// redirect `$effect` below converts every `buyBonus` open (the HUD button / flow intent AND the
+	// confirm modal's back button) into this. OFF ⇒ this stays false and the HTML modal opens as
+	// today.
+	let buyFeatureOpen = $state(false);
+	$effect(() => {
+		if (!BUY_FEATURE_SCENE) return;
+		const name = stateModal.modal?.name;
+		if (name === 'buyBonus') {
+			// Suppress the HTML SELECT modal (clear the name it keys on) and raise the Pixi menu.
+			// Converges: the clear makes `name` null on the next run ⇒ no loop. Covers the confirm
+			// modal's back button, which sets `stateModal.modal = { name: 'buyBonus' }`.
+			stateModal.modal = null;
+			buyFeatureOpen = true;
+		} else if (name === 'buyBonusConfirm') {
+			// Advanced to the CONFIRM step (a card was selected) ⇒ hide the SELECT menu behind it.
+			buyFeatureOpen = false;
+		}
+	});
+
 	// HUD layer as editor scenes — when present the `<UI>` positions its HUD from
 	// them (editable in the Invisible Editor); absent → coded layout.
 	const hudBarScene = $derived(editorDoc.scenes.find((scene) => scene.id === 'hudBar'));
@@ -1137,6 +1169,10 @@
 		// (since the stock scene carries the coded `BoardFrame` anchor) would mount the coded glow
 		// a second time on an un-authored game.
 		'boardGlow',
+		// The buy-bonus SELECT menu is mounted by its OWN takeover path (below), gated on the
+		// open state + `BUY_FEATURE_SCENE`. Reserved so it never ALSO mounts as an always-on
+		// generic overlay (which would show the feature cards permanently).
+		'buyFeature',
 	] as const;
 	const reservedSceneIds = $derived(
 		new Set<string>([
@@ -2125,6 +2161,21 @@
 			{:else}
 				<LayoutScene scene={activeScreenTakeover} />
 			{/if}
+		</Container>
+	{/if}
+	<!--
+			Buy-bonus SELECT menu (BUY_FEATURE_SCENE) — the in-canvas twin of the HTML `ModalBuyBonus`.
+			A canvas-space takeover at the same `LAYER_BAND_TAKEOVER` band the flow celebrations use:
+			an invisible full-screen `<OnPressFullScreen>` BEHIND the scene dismisses the menu (tap the
+			dimmed backdrop → clear the open state, matching how the HTML modal closes), and the
+			`buyFeature` scene (its own dim rect + the `featureCard` repeater) paints on top. A tap on a
+			card hits the card's own press surface (select → `buyBonusConfirm`), a tap anywhere else
+			falls through to the dismiss surface. OFF (or closed) ⇒ nothing renders (parity).
+		-->
+	{#if BUY_FEATURE_SCENE && buyFeatureOpen}
+		<Container zIndex={LAYER_BAND_TAKEOVER}>
+			<OnPressFullScreen onpress={() => (buyFeatureOpen = false)} />
+			<LayoutScene scene={buyFeatureScene} />
 		</Container>
 	{/if}
 	<!--
