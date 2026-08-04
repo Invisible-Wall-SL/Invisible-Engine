@@ -65,39 +65,32 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 
 Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide priority order.
 
-1. **Multi-user concurrency — Phase 2c-rest (roll the lease to the remaining tools).** ⭐ *Next.*
-   **2b + 2a + 2c-core are DONE** (see Recently closed): the lease backend, the shared
-   `saveState`/`SaveStatusBadge`, and the client `LeaseState` rune + `PresenceBanner` +
-   `SaveState.blockWhen` read-only gate — wired into **editor + flow-v2** and proven. **2c-rest** is
-   the same pattern for **symbols, fx, flipbook, win-text, config, localization, components** — a
-   `LeaseState` per tool with `blockWhen: () => lease.readOnly` on its doc saveState + the banner.
-   Nuance: **fx / flipbook / components are per-ITEM** (each effect/clip/component is its own R2
-   object), so their `docKey` should be the open item's id (per-item lease, re-acquired on item
-   switch), not the tool id — more granular + correct for them. **Live-verify 2c-core FIRST** (the
-   editor/flow-v2 two-profile test) before the 7× rollout. Plus the force-always follow-up in
-   symbols/fx/localization Save (`onclick={save}` passes the event as `force`).
-   ([design/multi-user-concurrency](design/multi-user-concurrency.md) §"Phase 2")
-2. **Rigger mesh-deform animation timelines** — per-vertex `deform` channel keying (the largest
+1. **Rigger mesh-deform animation timelines** — per-vertex `deform` channel keying (the largest
    missing animation channel). ([status/rigger](status/rigger.md))
-3. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines` / `bookOf` have rich
+2. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines` / `bookOf` have rich
    reference scene sets. ([status/editor](status/editor.md))
-4. **Rigger Phase 3.6** — visual texture-panel UV editor + hull/edge editing.
-5. **Rigger auto-weights quality** — geodesic/heat skinner + character-mesh validation gate.
-6. **B4 HUD migration** — convert the live Balance/Win/Bet readouts to component instances behind
+3. **Rigger Phase 3.6** — visual texture-panel UV editor + hull/edge editing.
+4. **Rigger auto-weights quality** — geodesic/heat skinner + character-mesh validation gate.
+5. **B4 HUD migration** — convert the live Balance/Win/Bet readouts to component instances behind
    the parity gate (B1–B3 done). ([status/engine](status/engine.md), [status/component-editor](status/component-editor.md))
-7. **Blueprint model auto-download** (ComfyUI-Manager API) — uploaded blueprints assume their
+6. **Blueprint model auto-download** (ComfyUI-Manager API) — uploaded blueprints assume their
    models are already installed.
-8. Smaller: wire `gen-flow-vocabulary --check` into CI/pre-commit; refresh
+7. Smaller: the concurrency **force-always Save** fix (symbols/fx/localization wire `onclick={save}`,
+   passing the event as `force` → manual Save silently overwrites; change to `() => save()`); wire
+   `gen-flow-vocabulary --check` into CI/pre-commit; refresh
     [tools/fx.md](tools/fx.md) for the new Emission/Movement/Colour/Blend/Presets sliders (rule 9).
 
-**Recently closed** (2026-08-04): **Concurrency Phase 2b + 2a + 2c-core** — the soft-lease BACKEND
-(`doc_leases` + `lease.ts` + `POST /api/lease`, DB-adjudicated conditional upsert, migration 0014, PR
-#206); the shared `saveState.svelte.ts` + `SaveStatusBadge` every authoring tool saves through (PR
-#209, a helper bug + a sticky-conflict-on-target-switch regression caught in review and fixed); and
-the client `LeaseState` rune + `PresenceBanner` + `SaveState.blockWhen` read-only gate wired into
-editor + flow-v2 (PR #211, observer poll auto-recovers a freed/expired lease, takeover always
-reachable, fails open on error). Only 2c-rest (the other 7 tools) remains; owner-verify owed = the
-two-profile live test. · **Concurrency Phase 1 — COMPLETE** (the conditional-write floor is
+**Recently closed** (2026-08-04): **Concurrency Phase 2 — COMPLETE** (the whole soft-lease + presence
+story). 2b the BACKEND (`doc_leases` + `lease.ts` + `POST /api/lease`, DB-adjudicated conditional
+upsert, migration 0014, PR #206); 2a the shared `saveState.svelte.ts` + `SaveStatusBadge` every
+authoring tool saves through (PR #209, a helper bug + a sticky-conflict-on-target-switch regression
+caught in review and fixed); 2c the client `LeaseState` rune + `PresenceBanner` + `SaveState.blockWhen`
+read-only gate across **all** authoring tools — editor + flow-v2 (2c-core, PR #211, observer poll
+auto-recovers a freed/expired lease, takeover always reachable, fails open on error), then
+symbols/win-text/config/localization (2c-rest-A, PR #215) and the per-ITEM fx/flipbook/components via
+`LeaseState.switchDoc` (2c-rest-B, PR #216). **Owner-verify owed** = the two-profile live test per tool
++ applying migration 0014 on deploy; Phase 3 (Python tools) is a separate later effort. · **Concurrency
+Phase 1 — COMPLETE** (the conditional-write floor is
 live + REQUIRED across all 13 authoring surfaces; the last residuals — component ETag threaded
 load→editor→save, `saveComponentDefaults` guarded, and the fail-open closed via `writeGuard.ts` — PR
 #204; owner-verify owed = a two-tab component conflict + a save/create smoke) · **Concurrency Phase 0
