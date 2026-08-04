@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import { SaveState } from '$lib/saveState.svelte';
 	import type {
 		LocalizationDoc,
 		LocalizationEntry,
@@ -38,16 +39,9 @@
 
 	let newLang = $state('');
 	let status = $state('');
-	let busy = $state(false);
-	let dirty = $state(false);
-	/** ETag of the stored strings doc — sent on save, re-adopted from the response.
-	 * `null` = never saved, so the save creates. */
-	let docEtag = $state<string | null>(data.docEtag);
-
-	function markDirty() {
-		dirty = true;
-		status = '';
-	}
+	/** Translate-flow spinner. `busy` (below) is the union with the save machine's busy so
+	 * every shared `disabled={busy}` site keeps its old "either operation in flight" meaning. */
+	let translating = $state(false);
 
 	const docPayload = $derived<LocalizationDoc>({
 		sourceLang,
@@ -56,6 +50,44 @@
 		entries,
 		updatedAt: data.doc.updatedAt,
 	});
+
+	/**
+	 * Save-state machine (multi-user-concurrency Phase 2a). Manual save via the form action;
+	 * the transport owns the FormData encoding, including the caller-side create path (the
+	 * EMPTY STRING encodes "no doc existed" — FormData has no null). A conflict is surfaced by
+	 * the wrapper's `confirm()`; `force` (`force=1`) drops the precondition.
+	 */
+	const saveState = new SaveState({
+		initialEtag: data.docEtag,
+		conflictMessage: 'Someone else saved these strings while you were editing.',
+		save: async ({ baseEtag, force }) => {
+			status = 'Saving…';
+			try {
+				const fields: Record<string, string> = { doc: JSON.stringify(docPayload) };
+				if (force) fields.force = '1';
+				else fields.baseEtag = baseEtag ?? '';
+				const out = (await postAction('save', fields)) as {
+					saved?: boolean;
+					etag?: string | null;
+					error?: string;
+					conflict?: boolean;
+				};
+				if (out.conflict) return { ok: false, reason: 'conflict', message: out.error };
+				if (out.error) return { ok: false, reason: 'error', message: out.error };
+				status = 'Saved.';
+				return { ok: true, etag: out.etag ?? null };
+			} catch {
+				return { ok: false, reason: 'error', message: 'Save failed.' };
+			}
+		},
+	});
+	/** Union of the two in-flight flags — preserves every shared `disabled={busy}`. */
+	const busy = $derived(translating || saveState.busy);
+
+	function markDirty() {
+		saveState.markDirty();
+		status = '';
+	}
 
 	function newId(): string {
 		// Prefer crypto.randomUUID, but fall back so a missing/blocked Web Crypto
@@ -151,40 +183,16 @@
 		return out;
 	}
 
-	/** `force` = the author confirming "overwrite theirs" after a conflict. */
+	/** `force` = the author confirming "overwrite theirs" after a conflict. On a conflict the
+	 *  local edits stay on screen (helper keeps `dirty`) — declining loses nothing. */
 	async function save(force = false) {
-		busy = true;
-		status = 'Saving…';
-		try {
-			const fields: Record<string, string> = { doc: JSON.stringify(docPayload) };
-			// '' encodes "no doc existed when I loaded" — FormData has no null.
-			if (force) fields.force = '1';
-			else fields.baseEtag = docEtag ?? '';
-			const out = (await postAction('save', fields)) as {
-				saved?: boolean;
-				etag?: string | null;
-				error?: string;
-				conflict?: boolean;
-			};
-			if (out.conflict) {
-				// Local edits stay on screen and `dirty` stays true — declining loses nothing.
-				const msg = out.error ?? 'Someone else saved these strings while you were editing.';
-				status = msg;
-				busy = false;
-				if (confirm(`${msg}\n\nOverwrite their version with yours?`)) await save(true);
-				return;
-			}
-			if (out.error) {
-				status = out.error;
-			} else {
-				docEtag = out.etag ?? null;
-				dirty = false;
-				status = 'Saved.';
-			}
-		} catch {
-			status = 'Save failed.';
-		} finally {
-			busy = false;
+		await saveState.save({ force });
+		if (saveState.status === 'error') {
+			status = saveState.message;
+		} else if (saveState.status === 'conflict') {
+			const msg = saveState.message;
+			status = msg;
+			if (!force && confirm(`${msg}\n\nOverwrite their version with yours?`)) await save(true);
 		}
 	}
 
@@ -200,7 +208,7 @@
 					: 'Nothing to translate — every string already has all languages.';
 			return;
 		}
-		busy = true;
+		translating = true;
 		status = 'Translating…';
 		try {
 			const out = (await postAction('translate', {
@@ -219,12 +227,12 @@
 					entry.translations[lang] = { text, reviewed: false };
 				}
 			}
-			dirty = true;
+			saveState.setDirty(true);
 			status = 'Translated. Review the highlighted cells, then Save.';
 		} catch {
 			status = 'Translation failed.';
 		} finally {
-			busy = false;
+			translating = false;
 		}
 	}
 </script>
@@ -236,7 +244,11 @@
 		{#snippet meta()}
 			<span class="project">Project: <strong>{data.projectKey}</strong></span>
 			{#if status}<span class="status">{status}</span>{/if}
-			<button class="primary" onclick={save} disabled={busy || !dirty}>Save</button>
+			<!-- NOTE: `onclick={save}` passes the click EVENT as `force` (truthy), so a manual Save
+			     has always been a FORCE overwrite here — preserved verbatim by this refactor. This is a
+			     pre-existing latent bug (localization's conflict `confirm()` is therefore effectively
+			     dead on the button path); flagged for the owner, not silently "fixed". -->
+			<button class="primary" onclick={save} disabled={busy || !saveState.dirty}>Save</button>
 		{/snippet}
 	</ToolTopBar>
 

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import { SaveState } from '$lib/saveState.svelte';
 	import {
 		formatWinText,
 		resolveSymbolName,
@@ -20,15 +21,7 @@
 	 * with, so what this grid shows is what the game will draw.
 	 */
 	let doc = $state<WinTextDoc>(structuredClone(data.doc));
-	let saving = $state(false);
 	let savedAt = $state<string | null>(null);
-	let saveError = $state<string | null>(null);
-	/** The ETag this page loaded — the save's precondition, so a second author editing the same
-	 *  project can't silently erase this one's whole doc. `null` = there was no doc on load. */
-	let docEtag = $state<string | null>(data.etag);
-	/** Set when the server rejected a save because the doc changed underneath us. The local edits
-	 *  are deliberately KEPT (never reloaded or discarded) — the author chooses. */
-	let conflict = $state<string | null>(null);
 
 	/** Compared against the doc to drive the dirty pill. `$state.snapshot` because a raw
 	 *  `structuredClone` of a `$state` proxy throws `DataCloneError`. */
@@ -140,35 +133,37 @@
 	 * conflict this NEVER reloads or discards the local doc: the author's unsaved work is the one
 	 * thing that isn't recoverable, so it stays put and they choose.
 	 */
-	async function save(force = false) {
-		saving = true;
-		saveError = null;
-		try {
+	/**
+	 * Save-state machine (multi-user-concurrency Phase 2a). Manual save; the transport owns
+	 * the request + the caller-side create encoding (JSON `null` baseEtag). A 409 maps to
+	 * `conflict` (the in-body banner, non-destructive — local edits are KEPT); `force` drops
+	 * the precondition. The transport adopts the SERVER's normalized doc (it prunes blanks) so
+	 * the baseline is exactly what persisted, or the page would read dirty after a clean save.
+	 */
+	const saveState = new SaveState({
+		initialEtag: data.etag,
+		conflictMessage: 'Someone else saved this win text while you were editing.',
+		save: async ({ baseEtag, force }) => {
 			const res = await fetch(`/api/win-text?project=${encodeURIComponent(data.projectKey)}`, {
 				method: 'PUT',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ doc: $state.snapshot(doc), baseEtag: docEtag, force }),
+				body: JSON.stringify({ doc: $state.snapshot(doc), baseEtag, force }),
 			});
 			if (res.status === 409) {
 				const c = (await res.json()) as { message?: string };
-				conflict = c.message ?? 'Someone else saved this win text while you were editing.';
-				return;
+				return { ok: false, reason: 'conflict', message: c.message };
 			}
-			if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+			if (!res.ok) {
+				return { ok: false, reason: 'error', message: (await res.text()) || `HTTP ${res.status}` };
+			}
 			const saved = (await res.json()) as { doc: WinTextDoc; etag: string | null };
-			// Adopt the SERVER's normalized doc: it prunes blanks, so the baseline must be what
-			// actually persisted or the page would read dirty immediately after a clean save.
 			doc = structuredClone(saved.doc);
 			baseline = JSON.stringify(saved.doc);
-			docEtag = saved.etag;
-			conflict = null;
 			savedAt = new Date().toLocaleTimeString();
-		} catch (e) {
-			saveError = e instanceof Error ? e.message : 'Save failed.';
-		} finally {
-			saving = false;
-		}
-	}
+			return { ok: true, etag: saved.etag };
+		},
+	});
+	const save = (force = false) => void saveState.save({ force });
 </script>
 
 <svelte:head><title>Invisible Win Text — {data.projectKey}</title></svelte:head>
@@ -181,20 +176,20 @@
 		projectKey={data.projectKey}
 	>
 		{#snippet meta()}
-			{#if saveError}<span class="err">{saveError}</span>{/if}
+			{#if saveState.status === 'error'}<span class="err">{saveState.message}</span>{/if}
 			{#if dirty}<span class="pill dirty">Unsaved</span>{:else if savedAt}<span class="pill"
 					>Saved {savedAt}</span
 				>{/if}
-			<button class="save" onclick={() => save()} disabled={saving || !dirty}>
-				{saving ? 'Saving…' : 'Save'}
+			<button class="save" onclick={() => save()} disabled={saveState.busy || !dirty}>
+				{saveState.busy ? 'Saving…' : 'Save'}
 			</button>
 		{/snippet}
 	</ToolTopBar>
 
 	<div class="body">
-		{#if conflict}
+		{#if saveState.status === 'conflict'}
 			<div class="conflict">
-				<p>{conflict}</p>
+				<p>{saveState.message}</p>
 				<p class="conflict-sub">
 					Your edits are still on this page — nothing has been lost. Reload to take their version
 					(your unsaved edits go), or overwrite with yours.

@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import { SaveState } from '$lib/saveState.svelte';
 	import type { EffectDoc, EmitterConfigV3, EmitterLayer } from 'engine-fx';
 	import { onMount } from 'svelte';
 	import FxStage, { type ResolvedArt } from './FxStage.svelte';
@@ -71,11 +72,10 @@
 	let playing = $state(true);
 
 	// --- save / open state ------------------------------------------------------
-	let saving = $state(false);
+	/** Delete-flow spinner; `busy` (below) unions it with the save machine so every shared
+	 * `disabled={busy}` keeps its "either operation in flight" meaning. */
+	let deleting = $state(false);
 	let saveError = $state<string>('');
-	/** ETag of the OPENED effect's doc — sent on save, re-adopted from the response.
-	 * `null` when composing a new effect, which makes the save assert the name is free. */
-	let docEtag = $state<string | null>(data.openedEtag);
 	let savedNote = $state<string>('');
 	let pickerId = $state<string>(data.openedDoc?.id ?? '');
 	// A LOCAL, reactive copy of the saved-effect index so the picker reflects a save WITHOUT a
@@ -87,6 +87,69 @@
 		const rest = effects.filter((e) => e.id !== row.id);
 		effects = [...rest, row].sort((a, b) => a.name.localeCompare(b.name));
 	}
+
+	/**
+	 * Save-state machine (multi-user-concurrency Phase 2a). Manual save; the transport owns the
+	 * request. Create encoding stays caller-side and keeps the `isUnsaved ? null : baseEtag`
+	 * guard (an unsaved effect keys its id off its NAME, and after a delete the doc resets to
+	 * untitled while the held etag stays stale — the `isUnsaved` sentinel decides the create
+	 * path, not the etag). A 409 `scope-mismatch` is non-forceable; a plain conflict is
+	 * DESTRUCTIVE (effects have no version history), surfaced by the wrapper's explicit confirm.
+	 * `saveEffectAs` repoints the id + `adoptEtag(null)`, restoring on a declined save.
+	 */
+	const saveState = new SaveState({
+		initialEtag: data.openedEtag,
+		save: async ({ baseEtag, force }) => {
+			try {
+				// A never-saved effect still holds the untitled sentinel, so key its id off the NAME
+				// — distinct names ⇒ distinct files. Once saved/opened the id is the stable slug.
+				const isUnsaved = doc.id === '' || doc.id === UNTITLED_EFFECT_ID;
+				const outgoingId = isUnsaved ? doc.name.trim() || doc.id : doc.id;
+				const res = await fetch('/api/fx/save', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({
+						doc: { ...$state.snapshot(doc), id: outgoingId },
+						// Editor-only sidecar — NEVER folded into the EffectDoc (out-of-band, §4).
+						meta: { selectedLayer: selectedKey },
+						projectKey: data.projectKey,
+						...(force ? { force: true } : { baseEtag: isUnsaved ? null : baseEtag }),
+					}),
+				});
+				if (res.status === 409) {
+					const out = (await res.json().catch(() => ({}))) as {
+						error?: string;
+						message?: string;
+					};
+					const msg = out.message ?? 'This effect changed since you opened it.';
+					return {
+						ok: false,
+						reason: out.error === 'scope-mismatch' ? 'scope-mismatch' : 'conflict',
+						message: msg,
+					};
+				}
+				if (!res.ok) {
+					return { ok: false, reason: 'error', message: `Save failed (HTTP ${res.status}).` };
+				}
+				const out = (await res.json()) as {
+					id: string;
+					name: string;
+					layers: number;
+					etag: string | null;
+				};
+				// The server slugs the id; adopt it so a subsequent save/open round-trips cleanly.
+				doc = { ...doc, id: out.id };
+				pickerId = out.id;
+				upsertEffect({ id: out.id, name: out.name });
+				savedNote = `Saved "${out.name}" (${out.layers} layer${out.layers === 1 ? '' : 's'}).`;
+				return { ok: true, etag: out.etag };
+			} catch {
+				return { ok: false, reason: 'error', message: 'Save failed (network error).' };
+			}
+		},
+	});
+	/** Union of the two in-flight flags — preserves every shared `disabled={busy}`. */
+	const busy = $derived(deleting || saveState.busy);
 
 	/**
 	 * Persist the effect.
@@ -101,72 +164,24 @@
 	 * that to restore the doc it repointed, so a declined overwrite doesn't strand the tab.
 	 */
 	async function saveEffect(force = false): Promise<boolean> {
-		saving = true;
 		saveError = '';
 		savedNote = '';
-		try {
-			// The R2 file stem is the doc's id. A never-saved effect still holds the untitled
-			// sentinel, so key its id off the NAME — distinct names ⇒ distinct files (the fix for
-			// "every save overwrites the same effect"). Once saved/opened the id is the stable
-			// server-slugged stem, so a rename just relabels the same file (no orphan, no clobber).
-			const isUnsaved = doc.id === '' || doc.id === UNTITLED_EFFECT_ID;
-			const outgoingId = isUnsaved ? doc.name.trim() || doc.id : doc.id;
-			const res = await fetch('/api/fx/save', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					doc: { ...$state.snapshot(doc), id: outgoingId },
-					// Editor-only sidecar — NEVER folded into the EffectDoc (out-of-band, §4).
-					meta: { selectedLayer: selectedKey },
-					// Names the project THIS tab loaded, so the server refuses rather than
-					// writing to whatever project the session has since switched to.
-					projectKey: data.projectKey,
-					// Keying an unsaved effect off its name means the id may already be
-					// SOMEONE ELSE'S — `null` asserts it's free and 409s if it isn't.
-					...(force ? { force: true } : { baseEtag: isUnsaved ? null : docEtag }),
-				}),
-			});
-			if (res.status === 409) {
-				const out = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
-				const msg = out.message ?? 'This effect changed since you opened it.';
-				saveError = msg;
-				// A wrong-project save is never forceable — reloading is the only fix.
-				if (out.error === 'scope-mismatch') return false;
-				saving = false;
-				// Spell out that this DESTROYS the other effect. Effects have no history, so
-				// "overwrite" here is permanent — cancelling and renaming is the safe way out,
-				// and the wording has to make that the obvious read.
-				const ok = confirm(
-					`${msg}\n\nOverwrite it with yours?\n\n` +
-						'This permanently REPLACES the stored effect. It has no version history, ' +
-						'so their work cannot be recovered. Cancel to rename yours instead.',
-				);
-				return ok ? await saveEffect(true) : false;
-			}
-			if (!res.ok) {
-				saveError = `Save failed (HTTP ${res.status}).`;
-				return false;
-			}
-			const out = (await res.json()) as {
-				id: string;
-				name: string;
-				layers: number;
-				etag: string | null;
-			};
-			// The server slugs the id; adopt it so a subsequent save/open round-trips cleanly.
-			doc = { ...doc, id: out.id };
-			docEtag = out.etag;
-			pickerId = out.id;
-			// Reflect the save in the picker immediately (add a new effect, or relabel a renamed one).
-			upsertEffect({ id: out.id, name: out.name });
-			savedNote = `Saved "${out.name}" (${out.layers} layer${out.layers === 1 ? '' : 's'}).`;
-			return true;
-		} catch {
-			saveError = 'Save failed (network error).';
-			return false;
-		} finally {
-			saving = false;
+		const ok = await saveState.save({ force });
+		if (ok) return true;
+		saveError = saveState.message;
+		// A wrong-project save is never forceable — reloading is the only fix.
+		if (saveState.status === 'scope-mismatch') return false;
+		if (!force && saveState.status === 'conflict') {
+			// Spell out that this DESTROYS the other effect. Effects have no history, so
+			// "overwrite" here is permanent — cancelling and renaming is the safe way out.
+			const confirmed = confirm(
+				`${saveState.message}\n\nOverwrite it with yours?\n\n` +
+					'This permanently REPLACES the stored effect. It has no version history, ' +
+					'so their work cannot be recovered. Cancel to rename yours instead.',
+			);
+			return confirmed ? await saveEffect(true) : false;
 		}
+		return false;
 	}
 
 	/**
@@ -186,12 +201,12 @@
 		// strand the tab holding a sentinel id + the copy's name — detached from the
 		// original, with every retry hitting the same 409.
 		const previous = { id: doc.id, name: doc.name };
-		const previousEtag = docEtag;
+		const previousEtag = saveState.etag;
 		doc = { ...doc, id: UNTITLED_EFFECT_ID, name: clean };
-		docEtag = null;
+		saveState.adoptEtag(null);
 		if (!(await saveEffect())) {
 			doc = { ...doc, id: previous.id, name: previous.name };
-			docEtag = previousEtag;
+			saveState.adoptEtag(previousEtag);
 		}
 	}
 
@@ -205,7 +220,7 @@
 		if (!id) return;
 		const label = effects.find((e) => e.id === id)?.name ?? id;
 		if (!window.confirm(`Delete "${label}"? This cannot be undone.`)) return;
-		saving = true;
+		deleting = true;
 		saveError = '';
 		savedNote = '';
 		try {
@@ -229,7 +244,7 @@
 		} catch {
 			saveError = 'Delete failed (network error).';
 		} finally {
-			saving = false;
+			deleting = false;
 		}
 	}
 
@@ -546,10 +561,13 @@
 			value={doc.name}
 			onchange={(e) => (doc = { ...doc, name: (e.currentTarget as HTMLInputElement).value })}
 		/>
-		<button class="primary" onclick={saveEffect} disabled={saving}>
-			{saving ? 'Saving…' : '⤓ Save'}
+		<!-- `onclick={saveEffect}` passes the click EVENT as `force` (truthy): a manual Save has
+		     always FORCE-overwritten here — preserved verbatim. Pre-existing latent bug (the
+		     destructive conflict `confirm()` is effectively dead on this path); flagged for the owner. -->
+		<button class="primary" onclick={saveEffect} disabled={busy}>
+			{saveState.busy ? 'Saving…' : '⤓ Save'}
 		</button>
-		<button title="Save a copy under a new name" onclick={saveEffectAs} disabled={saving}
+		<button title="Save a copy under a new name" onclick={saveEffectAs} disabled={busy}
 			>⧉ Save As…</button
 		>
 		<button onclick={newEffect}>+ New</button>
@@ -567,7 +585,7 @@
 		<button
 			class="danger"
 			title="Delete the open effect"
-			disabled={saving || !pickerId}
+			disabled={busy || !pickerId}
 			onclick={deleteOpenEffect}>🗑 Delete</button
 		>
 		<button onclick={() => (playing = !playing)}>{playing ? '❚❚ Pause' : '▶ Play'}</button>

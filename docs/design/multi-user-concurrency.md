@@ -235,9 +235,12 @@ The correctness floor. Contained because of the linchpin above.
 >    `existed`) + `saveComponentDefaults(…, baseEtag)` + `precondition`; the
 >    `/api/editor/component-defaults` POST is CAS-guarded and 409s (no UI writes it yet, so
 >    it is future-proofed rather than fixing a live regression).
-> 4. **No shared `$lib/saveState.svelte.ts` — STILL OPEN (by design).** 8 pages hand-roll
->    etag/dirty/conflict. Explicitly a Phase-2 prerequisite (see the client bullet), **not**
->    required to call Phase 1 done. This is the only Phase 1 item deliberately deferred.
+> 4. **Shared `$lib/saveState.svelte.ts` — HELPER BUILT 2026-08-04, migration staged.** The
+>    rune module + `$lib/SaveStatusBadge.svelte` are written and verified offline (31
+>    assertions over the real compiled module). The 8 page migrations onto them are
+>    behavior-preserving and mechanical from the parity checklist, held for an owner
+>    API-shape confirm + per-tool two-profile test. See **Phase 2a** below for the recorded
+>    API and rationale.
 >
 > Everything below is the original plan, left for the rationale; it is DONE except where
 > point 4 above says otherwise.
@@ -417,6 +420,95 @@ Phase 0's site — the same call it made for `skeletons.json`:
 
 No new tables or migration: both sites keep their R2 blob as the source of truth (a
 cross-service reader / no-DB writer each), guarded rather than relocated.
+
+### Phase 2a — Shared save-state rune helper (consolidation)
+Closes Phase 1 residual #4. Eight pages hand-roll etag/dirty/conflict/autosave (five
+different `dirty` implementations; `postAction` duplicated verbatim between editor and
+localization). That is eight chances to forget the ETag and the reason Phase 2c's
+read-only mode / takeover banner would otherwise be an eight-place change. This phase is a
+**behavior-preserving** consolidation onto one module — no lease, no read-only, no
+presence (those are 2c). The must-not-regress bar: every tool saves, creates, autosaves at
+the same cadence, conflicts, and force-overwrites EXACTLY as today.
+
+> **SHIPPED 2026-08-04 (API-approved, full migration landed).** `$lib/saveState.svelte.ts`
+> (the rune state machine) + `$lib/SaveStatusBadge.svelte` (the shared pill) are built and
+> CONSUMED by every authoring surface — no tool hand-rolls save/dirty/etag/conflict any more.
+> Verified offline over the REAL compiled module (**36 assertions**: state machine, ETag
+> re-adoption, no-re-arm-on-conflict/scope, force, scope-mismatch terminality, both debounce
+> semantics, `canAutosave` veto, create-path, coalescing, AND the during-flight-edit invariant
+> — dropped in leading mode / preserved in trailing mode). Launcher build green.
+>
+> **A helper bug the migration caught + fixed:** the first cut cancelled the autosave timer on
+> every success, which matched the editor's `$effect`-on-`dirty` cleanup but would have DROPPED
+> flow-v2's mid-flight edit (whose fresh trailing-debounce timer must survive the in-flight
+> success). Fix: cancel-on-success only in LEADING mode (`!resetDebounceOnEveryEdit`); fixture
+> tests 12/13 lock both directions.
+>
+> **Instances wired (11 across 9 pages):** editor doc (leading 1200) + editor template
+> (manual, global key); flow-v2 doc (trailing 800) + flow-v2 library (trailing 800, global
+> key) — both via `<SaveStatusBadge>`; symbols, fx, flipbook, win-text, game-config,
+> localization, components — manual. The badge renders flow-v2's two pills; the editor keeps a
+> BESPOKE pill (span+Retry error, relative-time saved, interleaved crossType/preview) driven
+> off `saveState`; the banner/`confirm()` tools keep their bespoke conflict UX off
+> `state.status`/`state.message`. Per-tool live two-profile test is still owner-owed.
+>
+> **Flagged pre-existing latent bug (NOT touched — preserved verbatim):** symbols, fx and
+> localization bind `onclick={save}` (bare handler), which passes the click EVENT as the
+> `force` arg — so their manual Save has always been a FORCE overwrite, making their conflict
+> `confirm()` dead on the button path. Preserved with a code comment at each site; the owner
+> decides whether to fix (switch to `onclick={() => save()}`) separately.
+
+**The recorded API (`$lib/saveState.svelte.ts` — MUST be `.svelte.ts`,
+[[gotcha_runes_in_plain_ts]]):**
+
+```ts
+type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'conflict' | 'scope-mismatch';
+type SaveOutcome =
+	| { ok: true; etag: string | null }
+	| { ok: false; reason: 'conflict' | 'scope-mismatch' | 'error'; message?: string };
+interface SaveContext { baseEtag: string | null; force: boolean }
+interface SaveStateOptions {
+	save: (ctx: SaveContext) => Promise<SaveOutcome>; // caller owns the request + wire encoding
+	initialEtag?: string | null;                      // page-load ETag; null = create path
+	autosaveMs?: number;                              // omit/0 = manual (no debounce)
+	resetDebounceOnEveryEdit?: boolean;               // true=flow trailing, false=editor leading
+	canAutosave?: () => boolean;                      // extra arm gate (editor crossType)
+	conflictMessage?: string;
+}
+class SaveState {
+	get status; get busy; get dirty; get message; get etag; get blocked;
+	adoptEtag(etag): void;   // Save-as create path (fx/flipbook repoint to null, restore on decline)
+	setDirty(bool): void;    // for $derived-signature dirty (symbols/win-text/components)
+	clearError(): void;      // editor: a fresh edit dismisses a stale 'error' (never a conflict)
+	markDirty(): void;       // flag dirty + (re)arm debounce per the two semantics
+	rearmAutosave(): void;   // imperative re-arm (editor undo/redo, ex-restartAutosave)
+	cancelAutosave(): void;
+	save({ force }?): Promise<boolean>; // TRUE only when the doc reached the store
+}
+```
+
+Design decisions worth keeping:
+- **The helper owns state + policy; the caller owns the transport.** The injected `save`
+  callback makes a `fetch` and a SvelteKit form action fit one shape — the helper never
+  touches the wire, so the JSON-`null`-vs-form-`''` create encoding stays caller-side.
+- **The held ETag is the single source of truth**, re-adopted from every success. `docEtag`
+  in every tool collapses into `state.etag`; `adoptEtag(null)` is the fx/flipbook "Save-as"
+  repoint.
+- **Two debounce semantics, faithfully.** Discovered during the audit: the editor's
+  `$effect`-on-`dirty` arms only on the clean→dirty edge (fires ~1200 ms after the FIRST
+  edit since the last save — a *leading batch*), while flow-v2's `markDirty` clears+sets
+  every call (fires ~800 ms after the LAST edit — a *trailing debounce*).
+  `resetDebounceOnEveryEdit` reproduces both; do NOT "unify" them.
+- **`conflict`/`scope-mismatch` are sticky and never re-arm**; `scope-mismatch` is terminal
+  (never forceable). `save()` coalesces an in-flight request and re-fires on settle only
+  while still dirty — byte-for-byte the tools' `pendingSave` idiom.
+- **No visual imposed.** The state is read by the caller; **`$lib/SaveStatusBadge.svelte`**
+  renders the common saving/saved/dirty/error/conflict/scope-mismatch pill for the two
+  pill consumers (editor, flow-v2 doc + library), parameterized where their pills have
+  DRIFTED (`okAccent`: flow "Saved" is green, editor grey; `actionClass`: editor's purple
+  `.save-btn` vs flow's grey pill). Banner/`confirm()` tools (win-text, config,
+  localization, symbols, fx, flipbook, components) keep their bespoke conflict UX and drive
+  it off `state.status`/`state.message` — the badge is not forced on them.
 
 ### Phase 2 — Soft lease + presence
 What makes the tools usable for 2–3 people on a project.
