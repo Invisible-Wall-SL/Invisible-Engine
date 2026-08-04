@@ -740,7 +740,23 @@
 	// instance). The N-button generalisation of the whole-instance `onSelect`. Reads the live source
 	// inside the closure so a later binding value stays honoured. No action for `<name>` ⇒ inert
 	// (parity — a def with no `pressAction` node never calls it). Set at init like the other contexts.
-	setComponentPress((name) => (actions ?? binding?.actions)?.[name]?.());
+	//
+	// Flow press routing (Invisible Flow v2, §Part 2 — the confirm-dialog analogue of the `firePress`
+	// gate below and the `<Repeater>` `onSelect` gate): consult the registered resolver AT CALL TIME
+	// with `(node.id, name)` — WHICH is the fused container-event pin `<node.id>.on<Name>` (e.g. a
+	// flow-shown `buyConfirm` scene's `confirm-dialog.onConfirm`/`.onCancel`). When the flow OWNS it
+	// (an authored exec edge from that pin) the press routes to the flow ALONE and the coded
+	// `pressAction` binding is SUPPRESSED so the two never double-fire. Nothing registered / not owned
+	// ⇒ `getFlowPress()` is undefined or returns undefined ⇒ the Phase-2 `instanceBindingContext`
+	// action (the imperative `<ConfirmDialog>`'s `onConfirm`/`onCancel`) runs EXACTLY as today (parity).
+	setComponentPress((name) => {
+		const routed = getFlowPress()?.(node.id, name);
+		if (routed) {
+			routed();
+			return;
+		}
+		(actions ?? binding?.actions)?.[name]?.();
+	});
 	// Provide the signal-driven spine-anim overrides to the rendered sub-tree (the
 	// `$state` proxy, so a descendant spine's `{@const}` read re-runs on each signal
 	// fire — same stable-object discipline as `setComponentParams`). `{}` when the

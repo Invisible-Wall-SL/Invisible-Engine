@@ -41,6 +41,7 @@
 		"v2containerevents": "tsx flowV2ContainerEvents.ts",
 		"v2containerfire": "tsx flowV2ContainerFire.ts",
 		"v2repeaterselect": "tsx flowV2RepeaterSelect.ts",
+		"v2buyflow": "tsx flowV2BuyFlow.ts",
 		"v2gamesignals": "tsx flowV2GameSignals.ts",
 		"v2signalscope": "tsx flowV2SignalScope.ts",
 		"v2preview": "tsx flowV2Preview.ts",

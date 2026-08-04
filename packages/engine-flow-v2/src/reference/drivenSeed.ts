@@ -41,7 +41,22 @@
  * headlessly).
  */
 
-import type { DataEdge, ExecEdge, FlowDoc, FunctionLibraryDoc, Node } from '../types';
+import { REPEATER_SELECT_EVENT, REPEATER_SELECTED_KEY } from 'constants-shared/repeater';
+
+import {
+	componentSignalConfiguredEvents,
+	containerEventDeclId,
+	deriveContainerEvents,
+	repeaterSelectConfiguredEvent,
+} from '../containerEvents';
+import type {
+	ContainerEventDecl,
+	DataEdge,
+	ExecEdge,
+	FlowDoc,
+	FunctionLibraryDoc,
+	Node,
+} from '../types';
 import {
 	BOOK_OF_CHOREO,
 	buildChoreo,
@@ -161,6 +176,121 @@ Object.entries(BOOK_OF_CHOREO).forEach(([event, steps], i) => {
 	wireChain(GS_NODE, event, [{ k: 'steps', steps }], 4 + i);
 });
 
+// --- Buy-bonus subgraph (Phase 3 Step 5 — the buy flow authored end-to-end in Flow) --------------
+// OPT-IN ONLY: this doc is loaded by `apps/lines` solely via `?flowV2=lines` / `__IE_FLOW_V2_LINES__`
+// / the baked bundle, and is the seed for a NEW driven project. The DEFAULT apps/lines (no flow mode)
+// has no baked doc ⇒ v2 inert ⇒ the imperative `stateModal` buy path runs unchanged; coded games
+// never load this doc. Owning `buyBonus` here makes `routeActionThroughFlow('buyBonus', …)` dispatch
+// the intent into the flow (the imperative `stateModal` buy modal is never opened), and the two
+// container-event pins own the repeater's `onSelect` + the confirm dialog's `onConfirm`/`onCancel`, so
+// the repeater/confirm press gates route those presses to the flow ALONE and the imperative
+// `<BuyFeatureScreen>`/`<ConfirmDialog>` mounts stay suppressed.
+//
+// Macro shape:
+//   event buyBonus ▶ Show(buyFeature)
+//   buyFeature.<repeater>.onSelect(betModeKey) ▶ selectBetMode(betModeKey) ▶ Hide(buyFeature) ▶ Show(buyConfirm)
+//   buyConfirm.<confirmDialog>.onConfirm ▶ commitBuyBonus ▶ Hide(buyConfirm)
+//   buyConfirm.<confirmDialog>.onCancel ▶ Hide(buyConfirm) ▶ Show(buyFeature)  (a SECOND show node — an
+//     exec-in takes at most one predecessor, so the cancel path re-mounts buyFeature via its own node;
+//     the runtime keys `onSelect` ownership by componentId, so a card press still routes to the FIRST
+//     node's wired `onSelect` edge whichever show node re-mounted the menu.)
+const BUY_FEATURE = 'buyFeature';
+const BUY_CONFIRM = 'buyConfirm';
+// The scene-node ids of the two takeovers' interactive components (the DEFAULT `buyFeatureScene` /
+// `confirmScene` ids every reference layout seeds verbatim). These are the container-event pins'
+// `componentId`s — the SAME id the runtime's press gate passes (`node.id` of the placed instance).
+const FEATURE_REPEATER = 'buy-feature-cards';
+const CONFIRM_DIALOG = 'confirm-dialog';
+const SELECT_PIN = containerEventDeclId(FEATURE_REPEATER, REPEATER_SELECT_EVENT);
+const SELECT_KEY_PIN = `${SELECT_PIN}.${REPEATER_SELECTED_KEY}`;
+const CONFIRM_PIN = containerEventDeclId(CONFIRM_DIALOG, 'confirm');
+const CANCEL_PIN = containerEventDeclId(CONFIRM_DIALOG, 'cancel');
+
+const BUY = {
+	event: 'buy_event',
+	showFeature: 'buy_showFeature',
+	arm: 'buy_selectBetMode',
+	hideFeature: 'buy_hideFeature',
+	showConfirm: 'buy_showConfirm',
+	commit: 'buy_commit',
+	hideConfirmAfterCommit: 'buy_hideConfirm_commit',
+	hideConfirmAfterCancel: 'buy_hideConfirm_cancel',
+	showFeatureAfterCancel: 'buy_showFeature_again',
+} as const;
+
+nodes.push(
+	{ id: BUY.event, kind: 'event', pos: { x: 500, y: 0 }, ref: 'buyBonus' },
+	{ id: BUY.showFeature, kind: 'showContainer', pos: { x: 500, y: 40 }, ref: BUY_FEATURE },
+	{ id: BUY.arm, kind: 'action', pos: { x: 500, y: 80 }, ref: 'selectBetMode' },
+	{ id: BUY.hideFeature, kind: 'hideContainer', pos: { x: 500, y: 120 }, ref: BUY_FEATURE },
+	{ id: BUY.showConfirm, kind: 'showContainer', pos: { x: 500, y: 160 }, ref: BUY_CONFIRM },
+	{ id: BUY.commit, kind: 'action', pos: { x: 500, y: 200 }, ref: 'commitBuyBonus' },
+	{
+		id: BUY.hideConfirmAfterCommit,
+		kind: 'hideContainer',
+		pos: { x: 500, y: 240 },
+		ref: BUY_CONFIRM,
+	},
+	{
+		id: BUY.hideConfirmAfterCancel,
+		kind: 'hideContainer',
+		pos: { x: 780, y: 200 },
+		ref: BUY_CONFIRM,
+	},
+	{
+		id: BUY.showFeatureAfterCancel,
+		kind: 'showContainer',
+		pos: { x: 780, y: 240 },
+		ref: BUY_FEATURE,
+	},
+);
+
+exec.push(
+	// intent ▶ show the select menu.
+	{ from: { node: BUY.event, pin: 'exec' }, to: { node: BUY.showFeature, pin: 'exec' } },
+	// a card press (fused onSelect) ▶ arm the picked mode ▶ swap select → confirm.
+	{ from: { node: BUY.showFeature, pin: SELECT_PIN }, to: { node: BUY.arm, pin: 'exec' } },
+	{ from: { node: BUY.arm, pin: 'exec' }, to: { node: BUY.hideFeature, pin: 'exec' } },
+	{ from: { node: BUY.hideFeature, pin: 'exec' }, to: { node: BUY.showConfirm, pin: 'exec' } },
+	// confirm ▶ commit (arms the mode + fires the bet) ▶ close the dialog.
+	{ from: { node: BUY.showConfirm, pin: CONFIRM_PIN }, to: { node: BUY.commit, pin: 'exec' } },
+	{
+		from: { node: BUY.commit, pin: 'exec' },
+		to: { node: BUY.hideConfirmAfterCommit, pin: 'exec' },
+	},
+	// cancel ▶ close the dialog ▶ re-enter the select menu (idempotent re-show).
+	{
+		from: { node: BUY.showConfirm, pin: CANCEL_PIN },
+		to: { node: BUY.hideConfirmAfterCancel, pin: 'exec' },
+	},
+	{
+		from: { node: BUY.hideConfirmAfterCancel, pin: 'exec' },
+		to: { node: BUY.showFeatureAfterCancel, pin: 'exec' },
+	},
+);
+
+// The pressed card's key flows through the fused data-out into `selectBetMode`'s `betModeKey` data-in.
+data.push({
+	from: { node: BUY.showFeature, pin: SELECT_KEY_PIN },
+	to: { node: BUY.arm, pin: REPEATER_SELECTED_KEY },
+});
+
+/**
+ * The container-event surface the driven seed's BUY subgraph wires its fused pins against — the
+ * `buyFeature` repeater's `onSelect` (+ `betModeKey` payload) and the `buyConfirm` dialog's
+ * `onConfirm`/`onCancel`. `validateFlowDoc` needs this map to resolve those fused-pin exec/data edges
+ * as REAL endpoints (the `/flow-v2` editor derives the equivalent map from the Scene Editor's
+ * `buyFeature`/`buyConfirm` scenes). Keyed by ContainerId; the componentIds are the DEFAULT scene-node
+ * ids every reference layout seeds. Exported so the seed-validation callers (seed-flow-v2, the driven
+ * harness) share ONE source of the buy pins rather than re-deriving them.
+ */
+export const BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS: Record<string, ContainerEventDecl[]> = {
+	[BUY_FEATURE]: deriveContainerEvents([repeaterSelectConfiguredEvent(FEATURE_REPEATER)]),
+	[BUY_CONFIRM]: deriveContainerEvents(
+		componentSignalConfiguredEvents(CONFIRM_DIALOG, ['confirm', 'cancel']),
+	),
+};
+
 /** The fully flow-driven new-project starter flow. Owns `load` ⇒ drives every screen. */
 export const BOOK_OF_DRIVEN_SEED_DOC: FlowDoc = {
 	version: 2,
@@ -176,6 +306,10 @@ export const BOOK_OF_DRIVEN_SEED_DOC: FlowDoc = {
 		{ id: FS_OUTRO, sceneId: FS_OUTRO, z: 50 },
 		{ id: HUD_BAR, sceneId: HUD_BAR, z: 60 },
 		{ id: HUD_CORNERS, sceneId: HUD_CORNERS, z: 60 },
+		// The buy takeovers sit above the HUD (modal) and below the loading splash; the runtime
+		// re-stamps the real z from the Scene-Editor screen order, so this is only a fallback tiebreak.
+		{ id: BUY_FEATURE, sceneId: BUY_FEATURE, z: 90 },
+		{ id: BUY_CONFIRM, sceneId: BUY_CONFIRM, z: 95 },
 		{ id: LOADING, sceneId: LOADING, z: 100 },
 	],
 };

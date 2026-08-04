@@ -5,8 +5,9 @@ import { loadFlowV2DocForEditor } from '$lib/server/flowV2Storage';
 import { loadFlowV2LibraryWithEtag } from '$lib/server/flowV2LibraryStorage';
 import { loadDoc } from '$lib/server/editorStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
-import { actionBindingOf } from 'engine-layout';
+import { actionBindingOf, BUILTIN_COMPONENTS } from 'engine-layout';
 import {
+	componentSignalConfiguredEvents,
 	deriveContainerEvents,
 	repeaterSelectConfiguredEvent,
 	type ConfiguredComponentEvent,
@@ -96,18 +97,35 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 	for (const container of doc.containers) {
 		const scene = scenesById.get(container.sceneId);
 		if (!scene) continue;
-		const configured: ConfiguredComponentEvent[] = (scene.nodes ?? []).map((node) => {
+		const configured: ConfiguredComponentEvent[] = (scene.nodes ?? []).flatMap((node) => {
 			// A `repeater` node projects the SINGLE fused `onSelect` decl for the whole list (N cards → one
 			// pin), carrying the selected item's `betModeKey` — it has no per-item `action` param, so it is
 			// recognised by kind (`repeaterSelectConfiguredEvent`, the deriver's single source of that shape).
 			if ((node as { kind?: string }).kind === 'repeater') {
-				return repeaterSelectConfiguredEvent(node.id);
+				return [repeaterSelectConfiguredEvent(node.id)];
 			}
+			const events: ConfiguredComponentEvent[] = [];
 			// The universal `action` binding lives on `node.params` for ANY instance (not only a def that
 			// declares it — see engine-layout `engineBindings.ts`); only `componentInstance` nodes type it,
 			// so read it off a widened shape. Empty/absent action ⇒ no configured event ⇒ no decl.
 			const params = (node as { params?: Record<string, unknown> }).params ?? {};
-			return { componentId: node.id, event: actionBindingOf(params) || undefined };
+			const action = actionBindingOf(params);
+			if (action) events.push({ componentId: node.id, event: action });
+			// A component's DECLARED signals ALSO project — one fused pin per signal — so a multi-button
+			// component surfaces every press it exposes (the confirm dialog's `confirm`/`cancel`, generic
+			// over any def's `signals`, never special-cased by name). Resolved from the BUILT-IN defs
+			// synchronously; a CUSTOM (R2) component's signals are not yet projected here (the loader would
+			// need to resolve its def) — a follow-up, flagged in the buy-flow work.
+			const componentId = (node as { componentId?: string }).componentId;
+			if ((node as { kind?: string }).kind === 'componentInstance' && componentId) {
+				const def = BUILTIN_COMPONENTS.find((d) => d.id === componentId);
+				for (const signal of def?.signals ?? []) {
+					if (!events.some((e) => e.event === signal.key)) {
+						events.push({ componentId: node.id, event: signal.key });
+					}
+				}
+			}
+			return events;
 		});
 		containerEvents[container.id] = deriveContainerEvents(configured);
 	}

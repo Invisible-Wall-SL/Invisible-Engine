@@ -51,6 +51,23 @@ export const repeaterSelectConfiguredEvent = (componentId: string): ConfiguredCo
 	],
 });
 
+/**
+ * Project a component INSTANCE's DECLARED signals into `ConfiguredComponentEvent[]` — one decl per
+ * signal the referenced def exposes (`ComponentDef.signals`), keyed by the placed instance's node id.
+ * The generic container-event source for a MULTI-signal component: the confirm dialog's
+ * `confirm`/`cancel` buttons (`CONFIRM_DIALOG_DEF.signals`) each fuse into a `<id>.onConfirm` /
+ * `<id>.onCancel` exec-out, exactly the way a button's `action` binding fuses into `<id>.onSpin` and a
+ * repeater's whole list fuses into `<id>.onSelect`. No special-casing of `confirm`/`cancel` by name —
+ * ANY def's declared signals project — so a downstream author can wire any two-or-more-button
+ * component's presses without an engine change. Payload-less by design (a button press carries no
+ * selection); a component whose signal SHOULD carry data (like the repeater's `betModeKey`) projects
+ * through its own dedicated helper instead. A def with no signals ⇒ `[]` ⇒ no decls (parity).
+ */
+export const componentSignalConfiguredEvents = (
+	componentId: string,
+	signalKeys: readonly string[],
+): ConfiguredComponentEvent[] => signalKeys.map((event) => ({ componentId, event }));
+
 const capitalize = (s: string): string =>
 	s.length === 0 ? s : s.charAt(0).toUpperCase() + s.slice(1);
 
