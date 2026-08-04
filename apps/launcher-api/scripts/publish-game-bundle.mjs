@@ -35,7 +35,9 @@ const getFlag = (name) => {
 const gameKey = positional[0];
 const buildDir = positional[1];
 if (!gameKey || !buildDir) {
-	console.error('Usage: node publish-game-bundle.mjs <gameKey> <buildDir> [--protocol lines|book] [--name "Display Name"]');
+	console.error(
+		'Usage: node publish-game-bundle.mjs <gameKey> <buildDir> [--protocol lines|book] [--name "Display Name"]',
+	);
 	process.exit(1);
 }
 
@@ -46,8 +48,7 @@ if (!GAME_KEY_RE.test(gameKey)) {
 }
 
 // Default the mock protocol from the key when not given (book-of games → 'book').
-const protocol =
-	getFlag('protocol') ?? (/book|borut/.test(gameKey) ? 'book' : 'lines');
+const protocol = getFlag('protocol') ?? (/book|borut/.test(gameKey) ? 'book' : 'lines');
 if (protocol !== 'lines' && protocol !== 'book') {
 	console.error(`--protocol must be 'lines' or 'book' (got '${protocol}').`);
 	process.exit(1);
@@ -67,7 +68,9 @@ if (!endpoint || !bucket || !accessKeyId || !secretAccessKey) {
 try {
 	await stat(join(buildDir, 'index.html'));
 } catch {
-	console.error(`No index.html in '${buildDir}'. Did you build the game first (vite build → build/)?`);
+	console.error(
+		`No index.html in '${buildDir}'. Did you build the game first (vite build → build/)?`,
+	);
 	process.exit(1);
 }
 
@@ -103,7 +106,11 @@ async function* walk(dir) {
 }
 
 const { S3Client, PutObjectCommand, GetObjectCommand } = await import('@aws-sdk/client-s3');
-const s3 = new S3Client({ region: 'auto', endpoint, credentials: { accessKeyId, secretAccessKey } });
+const s3 = new S3Client({
+	region: 'auto',
+	endpoint,
+	credentials: { accessKeyId, secretAccessKey },
+});
 
 const PREFIX = `test_server/${gameKey}/`;
 let uploaded = 0;
@@ -125,29 +132,64 @@ for await (const file of walk(buildDir)) {
 		console.info(`  ${rel} (${(body.length / 1024).toFixed(0)} KB)`);
 	}
 }
-console.info(`Uploaded ${uploaded} file(s), ${(bytes / 1024 / 1024).toFixed(1)} MB to ${bucket}/${PREFIX}`);
+console.info(
+	`Uploaded ${uploaded} file(s), ${(bytes / 1024 / 1024).toFixed(1)} MB to ${bucket}/${PREFIX}`,
+);
 
-// Update the manifest (read-modify-write — MERGE so other games aren't dropped).
+// Update the manifest (CONDITIONAL read-modify-write — MERGE so other games aren't
+// dropped, guarded with If-Match + retried on a lost CAS so two concurrent publishers
+// can't silently drop each other's entry — see docs/design/multi-user-concurrency.md
+// Phase 0; the same guard lives in src/lib/server/testServerManifest.ts).
 // Canonical shape (see docs/tools/test-server.md "Manifest contract"); the desktop
 // launcher's publish_game() and services/test-server/server.mjs share it:
 //   { "games": { "<key>": { "protocol": "lines"|"book", "name": str, "updatedAt": iso } } }
 const MANIFEST_KEY = 'test_server/games.json';
-let manifest = { games: {} };
-try {
-	const res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: MANIFEST_KEY }));
-	manifest = JSON.parse(await res.Body.transformToString());
-	if (!manifest.games) manifest.games = {};
-} catch (e) {
-	if (e?.name !== 'NoSuchKey') console.warn(`(no existing manifest — creating: ${e?.name ?? e})`);
+const MANIFEST_MAX_ATTEMPTS = 6;
+for (let attempt = 1; ; attempt++) {
+	let manifest = { games: {} };
+	// Present ⇒ conditional If-Match overwrite; absent ⇒ If-None-Match create.
+	let etag;
+	try {
+		const res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: MANIFEST_KEY }));
+		etag = res.ETag;
+		try {
+			const parsed = JSON.parse(await res.Body.transformToString());
+			if (parsed && typeof parsed.games === 'object' && parsed.games)
+				manifest = { games: parsed.games };
+		} catch {
+			// Present but corrupt: overwrite it in place (etag still drives an If-Match).
+			console.warn('(existing manifest is corrupt — overwriting it in place)');
+		}
+	} catch (e) {
+		if (e?.name !== 'NoSuchKey' && e?.$metadata?.httpStatusCode !== 404) throw e;
+		// Absent — first publish; create with If-None-Match: '*'.
+	}
+	manifest.games[gameKey] = { protocol, name, updatedAt: new Date().toISOString() };
+	const cond = etag ? { IfMatch: etag } : { IfNoneMatch: '*' };
+	try {
+		await s3.send(
+			new PutObjectCommand({
+				Bucket: bucket,
+				Key: MANIFEST_KEY,
+				Body: JSON.stringify(manifest, null, 2),
+				ContentType: 'application/json; charset=utf-8',
+				...cond,
+			}),
+		);
+		break;
+	} catch (e) {
+		const code = e?.$metadata?.httpStatusCode;
+		const lostCas =
+			code === 412 ||
+			code === 409 ||
+			e?.name === 'PreconditionFailed' ||
+			e?.name === 'ConditionalRequestConflict';
+		if (lostCas && attempt < MANIFEST_MAX_ATTEMPTS) {
+			console.warn(`(manifest changed under us — re-reading and retrying, attempt ${attempt + 1})`);
+			continue;
+		}
+		throw e;
+	}
 }
-manifest.games[gameKey] = { protocol, name, updatedAt: new Date().toISOString() };
-await s3.send(
-	new PutObjectCommand({
-		Bucket: bucket,
-		Key: MANIFEST_KEY,
-		Body: JSON.stringify(manifest, null, 2),
-		ContentType: 'application/json; charset=utf-8',
-	}),
-);
 console.info(`Registered '${gameKey}' (protocol=${protocol}, name="${name}") in ${MANIFEST_KEY}.`);
 console.info(`\nNext: restart the test server (or POST /refresh) so it picks up the new bundle.`);

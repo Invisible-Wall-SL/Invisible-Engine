@@ -319,16 +319,45 @@ missed these)*:
   `invalidateAll()` to the conflict path. What's missing is only a visible state
   instead of flow-v2's silent `saveStatus = 'error'`.
 
-### Phase 0 — newly-found scope (NOT yet shipped)
+### Phase 0 — newly-found scope (SHIPPED 2026-08-04)
 The Phase 0 survey covered the rigger indexes and missed two more RMW-on-a-global-key
 sites with the same blast radius — same bug, same "a lease can never catch it", same
 "it's a metadata list living in an object store for no good reason" fix:
-- **`testServerManifest.ts:56`** (`test_server/games.json`) — one global manifest for
-  every game, get→mutate→put, called from `publishGame.ts:114`. Two users publishing
+- **`testServerManifest.ts`** (`test_server/games.json`) — one global manifest for
+  every game, get→mutate→put, called from `publishGame.ts`. Two users publishing
   **different games on different projects** silently drop each other's entry.
-- **`routes/api/fonts/{save:90,delete:99}`** — the fonts catalog (`_shared/fonts/fonts.json`
+- **`routes/api/fonts/{save,delete}`** — the fonts catalog (`_shared/fonts/fonts.json`
   when shared-scope) is explicitly RMW. Note its existing 409 id-collision guard
   ([[bug_font_maker_id_collision]]) is a *within-request* check that this race defeats.
+
+**Fix taken — `If-Match` conditional write + bounded CAS retry, NOT a Postgres move.**
+Unlike the rigger indexes (whose only readers were launcher-internal, so a table
+erased the race cleanly), both of these blobs have readers/writers a table would
+break, so the faithful minimal fix is the Phase 1 conditional-write floor applied at
+Phase 0's site — the same call it made for `skeletons.json`:
+- **`test_server/games.json`** is read directly from R2 by a SEPARATE service
+  (`services/test-server/server.mjs`, its own origin, no DB) and written by the
+  standalone no-DB ops script `scripts/publish-game-bundle.mjs`. A Postgres move would
+  break both. `upsertTestServerGame` now reads with an etag, merges, and PUTs under
+  `ifMatch` (or `ifNoneMatch: '*'` when absent), retrying on `ConflictError` so a
+  concurrent merge re-reads the winner's entry first. The standalone script mirrors the
+  identical conditional-retry loop against its own S3 client. A present-but-corrupt
+  manifest is overwritten deliberately via `ifMatch`, not wedged behind a create
+  precondition (the create-path lesson from Phase 1).
+- **The fonts catalog** is read on the export→deploy asset-shipping path
+  (`fontExport.ts`), by `resolveEditorFonts`, `runtimeBundle.ts`, and the
+  `r2-sync-fonts.mjs` script — moving it to Postgres carries asset-shipping blast
+  radius for a race the conditional write closes directly (the same reasoning the doc
+  used to KEEP `skeletons.json` in R2). `save` and `delete` now read the catalog with
+  its etag, mutate, and PUT under `ifMatch`/`ifNoneMatch` with a bounded retry; the
+  within-request id-collision 409 guard now re-runs against a FRESH read on every
+  retry, so a cross-user same-id race surfaces as the descriptive collision 409 (not a
+  silent clobber), while a genuine lost CAS returns `{ error: 'conflict' }` (never
+  `error()`). Per-project catalogs get the same guard for free; the shared-scope global
+  key — the one no lease can cover — is the case that mattered.
+
+No new tables or migration: both sites keep their R2 blob as the source of truth (a
+cross-service reader / no-DB writer each), guarded rather than relocated.
 
 ### Phase 2 — Soft lease + presence
 What makes the tools usable for 2–3 people on a project.

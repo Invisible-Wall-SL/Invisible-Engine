@@ -7,10 +7,17 @@ import type {
 	FontRecipe,
 } from 'engine-layout';
 import { parseBmfontDescriptor } from '$lib/server/bmfont';
-import { parseFontTarget, resolveFontTarget } from '$lib/server/fonts';
+import { parseFontTarget, resolveFontTarget, type ResolvedFontTarget } from '$lib/server/fonts';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
-import { getObjectText, objectExists, putObjectText } from '$lib/server/r2';
+import {
+	ConflictError,
+	getObjectText,
+	getObjectTextWithEtag,
+	objectExists,
+	precondition,
+	putObjectText,
+} from '$lib/server/r2';
 import { assertAllowed, gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -47,34 +54,44 @@ function isSafeName(name: string): boolean {
 	return true;
 }
 
-/** Read-modify-write the target catalog: parse the existing one or start fresh. */
-async function loadCatalog(catalogKey: string, prefix: string): Promise<FontCatalog> {
+interface LoadedCatalog {
+	catalog: FontCatalog;
+	/** ETag of the loaded object; null when the catalog does not exist yet. */
+	etag: string | null;
+	/** True when an object was present (even if corrupt) — drives create-vs-CAS. */
+	existed: boolean;
+}
+
+/** Read-modify-write the target catalog WITH its etag: parse the existing one or start fresh. */
+async function loadCatalog(catalogKey: string, prefix: string): Promise<LoadedCatalog> {
 	const catalog: FontCatalog = { prefix, fonts: [] };
-	const existing = await getObjectText(catalogKey);
+	const existing = await getObjectTextWithEtag(catalogKey);
 	if (existing) {
 		try {
-			const parsed = JSON.parse(existing) as Partial<FontCatalog>;
+			const parsed = JSON.parse(existing.text) as Partial<FontCatalog>;
 			if (parsed && Array.isArray(parsed.fonts)) catalog.fonts = parsed.fonts;
 		} catch {
-			// Corrupt catalog → start clean (the entry we add is the source of truth).
+			// Corrupt catalog → start clean (the entry we add is the source of truth). The
+			// etag still drives an `ifMatch`, so we overwrite the corruption deliberately.
 		}
 	}
 	catalog.prefix = prefix;
-	return catalog;
+	return { catalog, etag: existing?.etag ?? null, existed: !!existing };
 }
 
 /**
- * Upsert an entry by `id === folder` and write the catalog back. A collision is only
+ * Upsert an entry by `id === folder` into the in-memory catalog. A collision is only
  * replaced when `overwrite` is explicitly true — otherwise it throws 409 so a new font
  * never silently clobbers an existing one (defense in depth: the client already gates
  * this, but the uploaded bytes have landed by now, so the catalog is the last guard).
+ *
+ * This within-request check is NOT sufficient alone: two users could each read a
+ * catalog missing the id, each pass this guard, and both PUT — the classic cross-user
+ * lost update. {@link commitEntry} closes that by writing under `If-Match` and, on a
+ * lost CAS, RE-READING (which re-runs this guard against the winner's catalog, so the
+ * loser now sees the collision) — see docs/design/multi-user-concurrency.md Phase 0.
  */
-async function commit(
-	catalog: FontCatalog,
-	catalogKey: string,
-	entry: FontEntry,
-	overwrite: boolean,
-): Promise<void> {
+function applyEntry(catalog: FontCatalog, entry: FontEntry, overwrite: boolean): void {
 	const at = catalog.fonts.findIndex((f) => f.id === entry.id);
 	if (at >= 0) {
 		if (!overwrite) {
@@ -87,7 +104,46 @@ async function commit(
 	} else {
 		catalog.fonts.push(entry);
 	}
-	await putObjectText(catalogKey, JSON.stringify(catalog), 'application/json');
+}
+
+/** Bounded CAS retries when two Font Maker users save into the same catalog at once. */
+const CATALOG_MAX_ATTEMPTS = 6;
+
+/**
+ * Upsert `entry` into the target catalog with a conditional-write retry loop. The
+ * collision guard runs on every attempt against a FRESH read, so a cross-user race
+ * surfaces as the same descriptive 409 a same-request collision does, and a genuine
+ * lost CAS after exhausting retries surfaces as `{ error: 'conflict' }` (never `error()`,
+ * per [[gotcha_publish_502_flowv2_nodes_guard]]).
+ */
+async function commitEntry(
+	dest: ResolvedFontTarget,
+	entry: FontEntry,
+	overwrite: boolean,
+): Promise<Response> {
+	for (let attempt = 1; ; attempt++) {
+		const loaded = await loadCatalog(dest.catalogKey, dest.prefix);
+		applyEntry(loaded.catalog, entry, overwrite);
+		try {
+			await putObjectText(
+				dest.catalogKey,
+				JSON.stringify(loaded.catalog),
+				'application/json',
+				// present ⇒ ifMatch etag (CAS / deliberate corrupt-overwrite); absent ⇒ ifNoneMatch '*'.
+				precondition(loaded.existed ? (loaded.etag ?? undefined) : null),
+			);
+			return json({ ok: true, font: entry });
+		} catch (e) {
+			if (e instanceof ConflictError && attempt < CATALOG_MAX_ATTEMPTS) continue;
+			if (e instanceof ConflictError) {
+				return json(
+					{ error: 'conflict', message: 'The font catalog changed while saving — please retry.' },
+					{ status: 409 },
+				);
+			}
+			throw e;
+		}
+	}
 }
 
 /**
@@ -149,15 +205,11 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 
 	if (kind === 'web') {
 		const entry = await saveWebEntry(body, folder, bundle, prefixes);
-		const catalog = await loadCatalog(dest.catalogKey, dest.prefix);
-		await commit(catalog, dest.catalogKey, entry, overwrite);
-		return json({ ok: true, font: entry });
+		return commitEntry(dest, entry, overwrite);
 	}
 
 	const entry = await saveBitmapEntry(body, folder, bundle, prefixes);
-	const catalog = await loadCatalog(dest.catalogKey, dest.prefix);
-	await commit(catalog, dest.catalogKey, entry, overwrite);
-	return json({ ok: true, font: entry });
+	return commitEntry(dest, entry, overwrite);
 };
 
 /** Validate + build a bitmap `FontEntry` from the uploaded BMFont descriptor. */
@@ -235,7 +287,8 @@ async function resolveRecipe(
 	assertAllowed(recipeKey, prefixes);
 	assertAllowed(sourceKey, prefixes);
 	if (!(await objectExists(recipeKey))) throw error(400, `recipe not uploaded: ${file}`);
-	if (!(await objectExists(sourceKey))) throw error(400, `recipe source not uploaded: ${sourceFile}`);
+	if (!(await objectExists(sourceKey)))
+		throw error(400, `recipe source not uploaded: ${sourceFile}`);
 	return { file, sourceFile };
 }
 
