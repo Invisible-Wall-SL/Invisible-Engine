@@ -1,8 +1,9 @@
 # Pipeline tools — multi-user concurrency (lost-update prevention)
 
-Status: **Phase 0 + Phase 1 SHIPPED** (2026-08-04); Phase 2 (lease/presence) and
-Phase 3 (Python tools) not yet started. See the Phase 1 header below for the exact
-residual — the conditional-write floor is live across every authoring tool; what
+Status: **Phases 0 + 1 + 2 SHIPPED + owner-verified live** (2026-08-04; migration 0014 applied,
+two-profile tests run per tool). Phase 3 (Python tools Atlas/Sheet) is the only remaining concurrency
+work — a separate later effort gated on threading a stable user id to those services. See the Phase 1
+header below for the exact residual — the conditional-write floor is live across every authoring tool; what
 remains inside Phase 1 is small and enumerated there.
 
 Owner decision 2026-07-16: **lease now, CRDT later.** Two to three people share a

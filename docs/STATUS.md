@@ -65,19 +65,15 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 
 Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide priority order.
 
-1. **Rigger mesh-deform animation timelines** — per-vertex `deform` channel keying (the largest
-   missing animation channel). ([status/rigger](status/rigger.md))
-2. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines` / `bookOf` have rich
+1. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines` / `bookOf` have rich
    reference scene sets. ([status/editor](status/editor.md))
-3. **Rigger Phase 3.6** — visual texture-panel UV editor + hull/edge editing.
-4. **Rigger auto-weights quality** — geodesic/heat skinner + character-mesh validation gate.
-5. **B4 HUD migration** — convert the live Balance/Win/Bet readouts to component instances behind
-   the parity gate (B1–B3 done). ([status/engine](status/engine.md), [status/component-editor](status/component-editor.md))
-6. **Blueprint model auto-download** (ComfyUI-Manager API) — uploaded blueprints assume their
+2. **Rigger auto-weights quality** — geodesic/heat skinner + character-mesh validation gate.
+3. **Blueprint model auto-download** (ComfyUI-Manager API) — uploaded blueprints assume their
    models are already installed.
-7. Smaller: the concurrency **force-always Save** fix (symbols/fx/localization wire `onclick={save}`,
-   passing the event as `force` → manual Save silently overwrites; change to `() => save()`); wire
-   `gen-flow-vocabulary --check` into CI/pre-commit; refresh
+4. Smaller: the concurrency **force-always Save** fix (symbols/fx/localization wire `onclick={save}`,
+   passing the event as `force` → manual Save silently overwrites; change to `() => save()`);
+   **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists, no UI yet);
+   wire `gen-flow-vocabulary --check` into CI/pre-commit; refresh
     [tools/fx.md](tools/fx.md) for the new Emission/Movement/Colour/Blend/Presets sliders (rule 9).
 
 **Recently closed** (2026-08-04): **Concurrency Phase 2 — COMPLETE** (the whole soft-lease + presence
@@ -88,18 +84,23 @@ caught in review and fixed); 2c the client `LeaseState` rune + `PresenceBanner` 
 read-only gate across **all** authoring tools — editor + flow-v2 (2c-core, PR #211, observer poll
 auto-recovers a freed/expired lease, takeover always reachable, fails open on error), then
 symbols/win-text/config/localization (2c-rest-A, PR #215) and the per-ITEM fx/flipbook/components via
-`LeaseState.switchDoc` (2c-rest-B, PR #216). **Owner-verify owed** = the two-profile live test per tool
-+ applying migration 0014 on deploy; Phase 3 (Python tools) is a separate later effort. · **Concurrency
-Phase 1 — COMPLETE** (the conditional-write floor is
+`LeaseState.switchDoc` (2c-rest-B, PR #216). **Owner-verified live 2026-08-04** (two-profile test per
+tool; migration 0014 applied). Phase 3 (Python tools) is a separate later effort. · **Concurrency
+Phase 1 — COMPLETE + verified** (the conditional-write floor is
 live + REQUIRED across all 13 authoring surfaces; the last residuals — component ETag threaded
 load→editor→save, `saveComponentDefaults` guarded, and the fail-open closed via `writeGuard.ts` — PR
-#204; owner-verify owed = a two-tab component conflict + a save/create smoke) · **Concurrency Phase 0
-— COMPLETE** (rigger indexes → Postgres earlier; the last two RMW-on-a-global-key sites —
+#204; owner-verified live) · **Concurrency Phase 0 — COMPLETE + verified**
+(rigger indexes → Postgres earlier; the last two RMW-on-a-global-key sites —
 `test_server/games.json` + the fonts catalog — now guarded with `If-Match` + CAS retry, PR #201;
-owner-verify owed = the two-profile live test) ·
+owner-verified live) ·
 **Invisible Game Config** (all phases + grid/bet-modes/win-tiers shipped and live-verified) ·
 **Ship-from-Rigger** rule-8 wiring (a rig now travels export→deploy→bake→pull→register into a game) ·
-**Flow-driven-game Phase 5** (a shipped title runs an authored FlowDoc). See each tool's
+**Flow-driven-game Phase 5** (a shipped title runs an authored FlowDoc) · **Rigger mesh-deform
+animation timelines** (per-vertex `deform` dopesheet channel → Spine 4.2 keyframes, merged +
+owner-confirmed) · **Rigger Phase 3.6a/b/c** (visual UV panel + constraint edges + hull promote/demote,
+owner-verified live; only the minor 3.6d hull-loop reorder remains) · **B4 HUD migration — apps/lines
+flip** (live Balance/Win/Bet readouts render as `hudReadout` component instances, shipped 2026-06-08;
+the docs were just stale — remaining tail = the Borut mirror B4.6 + live-verify). See each tool's
 `docs/status/<tool>.md`.
 
 ## Blocked on owner / external (not code)
@@ -108,9 +109,11 @@ owner-verify owed = the two-profile live test) ·
   locally (only SDXL ControlNets installed). Code is ready. ([status/infra](status/infra.md), [status/atlas-maker](status/atlas-maker.md))
 - **FLUX ref/ControlNet path** — only SDXL ControlNets installed; txt2img FLUX proven, the
   ref/ControlNet path is unproven.
-- **Shipped-game submodule bumps (owner-owned)** — Book of Borut bumps to ship FX / Flow / info-bar
-  ([[feedback_bump_game_submodule]]).
-- **prod DB migrations 0011/0012 applied?** — unverified here (no `DATABASE_URL`). ([status/infra](status/infra.md))
+- **Shipped-game submodule bumps (owner-owned)** — Book of Borut bumps to ship FX / Flow / info-bar,
+  **plus the B4.6 HUD-readout mirror** (Borut still renders coded `UiLabel*` binds; the apps/lines
+  component-instance flip reaches it only on a submodule bump + republish) ([[feedback_bump_game_submodule]]).
+- ~~**prod DB migrations applied?**~~ — resolved: migrations are applied through **0014** (the
+  concurrency lease table), owner-confirmed 2026-08-04. ([status/infra](status/infra.md))
 
 ## History
 

@@ -20,19 +20,19 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 
 ## Open items / next
 1. ✅ ~~**Ship-from-Rigger (rule 8)**~~ — **DONE (owner-confirmed 2026-08-04).** A rig now travels the full export → `deploy/` → bake → pull → runtime-register chain and reaches a game; "renders in `/rigger`" now also means "ships."
-2. **Mesh-deform animation timelines** — per-vertex `deform` channel keying (the largest missing animation channel).
-3. **Phase 3.6d hull-loop reordering** — drag to change the boundary winding order (a pure permutation the 3.6c primitive already supports; no UI yet). (Phases 3.6a UV panel, 3.6b constraint edges, and 3.6c hull promote/demote all shipped 2026-08-04, see Recent changes; ⏳ all owe a live check.)
+2. ✅ ~~**Mesh-deform animation timelines**~~ — **DONE (merged, owner-confirmed 2026-08-04).** The
+   per-vertex `deform` dopesheet channel (key at playhead from the live mesh, curve-aware preview,
+   retime/duplicate/delete/easing) writes Spine 4.2 `deform` keyframes into the `.irig`; offline-proved
+   by `tools/rigger-spike/deform.mjs`. (Live drag-to-deform UI verify folds into the standing tool-wide
+   live-verify gap below.)
+3. **Phase 3.6d hull-loop reordering** — drag to change the boundary winding order (a pure permutation the 3.6c primitive already supports; no UI yet) — the only remaining 3.6 sub-item. (Phases 3.6a UV panel, 3.6b constraint edges, and 3.6c hull promote/demote all shipped + **owner-verified live 2026-08-04**, see Recent changes.)
 4. **Better auto-weights** — the shipped proximity chain-skinner scored poorly against artist ground truth; a geodesic/heat algorithm + a representative **character-mesh validation gate** (Spike 2) is still open. Manual brush stays the guaranteed path.
 
 ## Blocked (owner / external)
-- **⏳ Rig/animation library catalogs moved to Postgres — live-verify owed.** The build is
-  green and the migration is additive, but the two-user test has NOT run: there are no R2
-  credentials in a local checkout and the only reachable `DATABASE_URL` is production, so
-  neither the concurrent-save test nor the backfill could be exercised offline. **After the
-  next deploy, confirm `/rigger` still lists every rig + animation** (the first list call
-  backfills the legacy index blobs) — auto-migrate is fail-soft, so a failed `0013` shows up
-  as an empty library / 500s, not as a failed deploy. See
-  [design/multi-user-concurrency](../design/multi-user-concurrency.md) Phase 0.
+- ✅ ~~**Rig/animation library catalogs moved to Postgres — live-verify owed.**~~ **VERIFIED live
+  (owner-confirmed 2026-08-04):** `/rigger` lists every rig + animation post-deploy (the first list
+  call backfilled the legacy index blobs), migrations applied through 0014. Concurrency Phase 0 is
+  closed. See [design/multi-user-concurrency](../design/multi-user-concurrency.md) Phase 0.
 - **Whole-tool live-verify** is the standing gap and is owner-driven — the minified vendored runtime has already surfaced browser-only bugs (e.g. `constructor.name` type checks, a double-flipped canvas Y) that headless spikes missed. Verify each action live before relying on it.
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 

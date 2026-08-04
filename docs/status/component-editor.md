@@ -19,7 +19,7 @@ Shipped capabilities on `main`:
 
 ## Open items / next
 1. **Behaviour / timeline layer (§8.5–8.7) — the next large phase, unbuilt.** Signal-triggered tweens, spine playback, particle bursts, and a single count-up data binding are designed (`BehaviorTrack`/`TweenStep`) but not authorable here yet; the `Component variables` block is purely the *declare* half. No per-signal track UI exists. v1 behaviour ceiling is intentionally low; anything needing branching/RGS math/stateful logic stays a coded `mount`.
-2. **B4 HUD migration** — convert the live Balance/Win/Bet readouts to component instances behind the parity gate (B1–B3 done).
+2. ✅ ~~**B4 HUD migration**~~ — **DONE for `apps/lines` (shipped 2026-06-08):** the live Balance/Win/Bet readouts render as `hudReadout` component instances behind the parity gate. Remaining tail: the **Borut mirror (B4.6)** submodule bump + owner live-verify.
 3. **Nesting depth capped at 2** (`MAX_COMPONENT_DEPTH`, cycle-guarded) — widen only when a game needs it; the bake walks only top-level scene pins, not the transitive nested-pin closure (no game pins a nested version yet).
 4. **Authoring gaps** — no autosave (unsaved drafts are in-memory only, discarded on close with a warning); authoring a SHARED component as its only copy, and a promote-from-Library-row affordance, are not built.
 
