@@ -65,14 +65,17 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 
 Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide priority order.
 
-1. **Multi-user concurrency — Phase 1 (thread ETags through the autosavers).** ⭐ *Recommended next —
-   this is live data loss, not a missing feature.* **Phase 0 is DONE** (see Recently closed). The
-   `r2.ts` chokepoint helpers (`precondition`/`getObjectTextWithEtag`/`ConflictError` + `ifMatch` on
-   the writers) already exist; Phase 1 is threading the loaded ETag load→save→client through the
-   whole-doc autosavers — `editorStorage`/`flowV2Storage` first (the reported bug), then the global
-   keys (`_shared/flow-v2/functions.json`, editor kinds/templates) and the manual-save tools
-   (symbols/FX/components/localization) — behind a shared `$lib/saveState.svelte.ts` rune helper.
-   Then Phase 2 (doc lease + presence). ([design/multi-user-concurrency](design/multi-user-concurrency.md) §"Phase 1")
+1. **Multi-user concurrency — Phase 1 residual (3 small items), then Phase 2 (lease).** ⭐ *Next —
+   live data loss.* **Phase 1 is effectively SHIPPED** (audited 2026-08-04): the conditional-write
+   floor is live across all 13 authoring surfaces — every autosaver + manual-save tool CAS-writes
+   with a `baseEtag` and shows a non-destructive conflict banner. Only three narrow code gaps remain:
+   **(a)** `baseEtag` still FAILS OPEN at every endpoint (`jsonBaseEtag`/`formBaseEtag` → unconditional
+   write on an absent field; the "make it required + 400" trigger was never pulled — the hole a new
+   tool ships unguarded through, *do first*); **(b)** the **components** ETag isn't carried
+   load→editor→save (`loadComponent`/`listComponents`/GET emit none), so shared-scope defs stay
+   last-writer-wins-on-pointer; **(c)** `saveComponentDefaults` is an unguarded `putObjectText`. Then
+   **Phase 2** — doc lease + presence (needs the shared `$lib/saveState.svelte.ts` rune helper that 8
+   pages currently hand-roll). ([design/multi-user-concurrency](design/multi-user-concurrency.md) §"Phase 1")
 2. **Rigger mesh-deform animation timelines** — per-vertex `deform` channel keying (the largest
    missing animation channel). ([status/rigger](status/rigger.md))
 3. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines` / `bookOf` have rich
