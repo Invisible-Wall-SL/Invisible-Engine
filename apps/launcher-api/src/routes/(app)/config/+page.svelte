@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
+	import { LeaseState } from '$lib/leaseState.svelte';
+	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import {
 		normalizeGameConfigDoc,
 		resolveBetModes,
@@ -483,9 +486,24 @@
 	 * `conflict` (the in-body banner); `force` drops the precondition. The transport adopts
 	 * the server's normalized doc so the baseline matches exactly what persisted.
 	 */
+	/**
+	 * Soft edit lease (multi-user-concurrency Phase 2c) over this project's game-config doc
+	 * (`docKey:'gameConfig'`). When another author holds it, `lease.readOnly` gates the doc
+	 * `saveState` (its `blockWhen`) so a not-held tab can't save, the Save button hides behind
+	 * `<PresenceBanner>`, and Take over is always reachable. The `If-Match` CAS stays the floor.
+	 */
+	const lease = new LeaseState({
+		toolId: 'gameConfig',
+		clientKey: data.clientKey,
+		projectKey: data.projectKey,
+		docKey: 'gameConfig',
+		enabled: data.projectKey.length > 0,
+	});
+
 	const saveState = new SaveState({
 		initialEtag: data.etag,
 		conflictMessage: 'Someone else saved this config while you were editing.',
+		blockWhen: () => lease.readOnly,
 		save: async ({ baseEtag, force }) => {
 			const res = await fetch(`/api/game-config?project=${encodeURIComponent(data.projectKey)}`, {
 				method: 'PUT',
@@ -519,6 +537,16 @@
 		},
 	});
 	const save = (force = false) => void saveState.save({ force });
+
+	onMount(() => {
+		void lease.start();
+		const onUnload = () => lease.release();
+		window.addEventListener('pagehide', onUnload);
+		return () => {
+			window.removeEventListener('pagehide', onUnload);
+			lease.release();
+		};
+	});
 </script>
 
 <svelte:head><title>Invisible Game Config — {data.projectKey}</title></svelte:head>
@@ -531,17 +559,23 @@
 		projectKey={data.projectKey}
 	>
 		{#snippet meta()}
-			{#if errors.length}<span class="pill err"
-					>{errors.length} error{errors.length === 1 ? '' : 's'}</span
-				>{/if}
-			{#if saveState.status === 'error'}<span class="err">{saveState.message}</span>{/if}
-			{#if dirty}<span class="pill dirty">Unsaved</span>{:else if savedAt}<span class="pill"
-					>Saved {savedAt}</span
-				>{/if}
+			{#if lease.readOnly}
+				<!-- Another author (or your own other tab) holds the edit lease → read-only here.
+				     The doc saveState refuses to save (its blockWhen); Take over is always offered. -->
+				<PresenceBanner {lease} />
+			{:else}
+				{#if errors.length}<span class="pill err"
+						>{errors.length} error{errors.length === 1 ? '' : 's'}</span
+					>{/if}
+				{#if saveState.status === 'error'}<span class="err">{saveState.message}</span>{/if}
+				{#if dirty}<span class="pill dirty">Unsaved</span>{:else if savedAt}<span class="pill"
+						>Saved {savedAt}</span
+					>{/if}
+			{/if}
 			<button
 				class="save"
 				onclick={() => save()}
-				disabled={saveState.busy || !dirty || errors.length > 0}
+				disabled={lease.readOnly || saveState.busy || !dirty || errors.length > 0}
 			>
 				{saveState.busy ? 'Saving…' : 'Save'}
 			</button>
