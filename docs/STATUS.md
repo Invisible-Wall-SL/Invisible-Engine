@@ -65,15 +65,17 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 
 Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide priority order.
 
-1. **Multi-user concurrency — Phase 2 (soft lease + presence).** ⭐ *Next.* **Phases 0 + 1 are
-   COMPLETE** (see Recently closed): the conditional-write floor is live and REQUIRED across all 13
-   authoring surfaces (no endpoint can fall open). Phase 2 stops the collision happening in the first
-   place: a Postgres soft lease keyed `(toolId, clientKey, projectKey, docKey)` with
-   acquire/heartbeat/release/**takeover** (takeover always reachable so a crashed tab can't wedge a
-   doc), a read-only "X is editing this" banner, and per-tool read-only mode. **Prerequisite:** the
-   shared `$lib/saveState.svelte.ts` rune helper that 8 pages currently hand-roll (consolidating the
-   etag/dirty/conflict logic is what makes the banner + read-only mode a one-place change). Run the
-   `reuse-check` skill before building the banner. ([design/multi-user-concurrency](design/multi-user-concurrency.md) §"Phase 2")
+1. **Multi-user concurrency — Phase 2c (wire the lease into the tools).** ⭐ *Next.* **2b + 2a are
+   DONE** (see Recently closed): the lease BACKEND ships (`doc_leases` table + `lease.ts` +
+   `POST /api/lease`, migration 0014) and every authoring tool now drives its save through the shared
+   `$lib/saveState.svelte.ts` helper + `SaveStatusBadge`. **2c is what's left:** a lease-client rune
+   (acquire on open, ~10s heartbeat, release on unload) folded into `saveState`, the read-only
+   "X is editing this — Take over" presence banner (extend `SaveStatusBadge`; takeover always
+   reachable), and per-tool read-only mode (suppress autosave + mutation affordances when not held).
+   **Owner-verify 2a FIRST** (it refactored ~10 working save flows — the per-tool two-profile live
+   test) before building 2c on top. Plus a small follow-up: the force-always latent bug in
+   symbols/fx/localization manual Save (`onclick={save}` passes the event as `force`).
+   ([design/multi-user-concurrency](design/multi-user-concurrency.md) §"Phase 2")
 2. **Rigger mesh-deform animation timelines** — per-vertex `deform` channel keying (the largest
    missing animation channel). ([status/rigger](status/rigger.md))
 3. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines` / `bookOf` have rich
@@ -87,7 +89,12 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
 8. Smaller: wire `gen-flow-vocabulary --check` into CI/pre-commit; refresh
     [tools/fx.md](tools/fx.md) for the new Emission/Movement/Colour/Blend/Presets sliders (rule 9).
 
-**Recently closed** (2026-08-04): **Concurrency Phase 1 — COMPLETE** (the conditional-write floor is
+**Recently closed** (2026-08-04): **Concurrency Phase 2b + 2a** — the soft-lease BACKEND (`doc_leases`
++ `lease.ts` + `POST /api/lease`, DB-adjudicated conditional upsert, migration 0014, PR #206) and the
+shared `saveState.svelte.ts` rune helper + `SaveStatusBadge` that every authoring tool now saves
+through (PR #209; a helper bug + a sticky-conflict-on-target-switch regression caught in review and
+fixed; owner-verify owed = per-tool two-profile live test). Only 2c (wire the lease into the tools)
+remains. · **Concurrency Phase 1 — COMPLETE** (the conditional-write floor is
 live + REQUIRED across all 13 authoring surfaces; the last residuals — component ETag threaded
 load→editor→save, `saveComponentDefaults` guarded, and the fail-open closed via `writeGuard.ts` — PR
 #204; owner-verify owed = a two-tab component conflict + a save/create smoke) · **Concurrency Phase 0
