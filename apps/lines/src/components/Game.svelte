@@ -194,6 +194,8 @@
 	import Background from './Background.svelte';
 	import BoardFrame from './BoardFrame.svelte';
 	import Board from './Board.svelte';
+	import Anticipations from './Anticipations.svelte';
+	import AnticipationCamera from './AnticipationCamera.svelte';
 	import WinLine from './WinLine.svelte';
 	import Win from './Win.svelte';
 	import WinGate from './WinGate.svelte';
@@ -282,6 +284,19 @@
 	// the runtime-bundle branch, from the doc the game will actually run. Un-authored / coded-`Win`-bind
 	// ⇒ empty ⇒ every field falls back to the config/coded tier (byte-identical).
 	publishWinPresentation(bakedWinPresentationParams());
+
+	// DEV enable for the reel-anticipation presentation (Phase 3), ahead of the Flow effect that owns
+	// the mode (Phase 4). `?anticipation=possible|guaranteed` turns the mode on at boot so it can be
+	// verified live (with the mock RGS) before Flow exists; any other / absent value leaves the mode
+	// OFF ⇒ nothing mounts, byte-parity. `possible` teases near-misses (max bound); `guaranteed` only
+	// fires once the big win is locked in (min bound). Flow will set these same flags in Phase 4.
+	if (typeof location !== 'undefined') {
+		const anticipationParam = new URLSearchParams(location.search).get('anticipation');
+		if (anticipationParam === 'possible' || anticipationParam === 'guaranteed') {
+			stateGame.anticipationMode = true;
+			stateGame.anticipationConfidence = anticipationParam;
+		}
+	}
 
 	// Boot loading screen (defined in the HTML shell, `app.html`): feed real asset-load
 	// progress into the pre-mount splash and dismiss it once the game's assets are ready.
@@ -1872,11 +1887,29 @@
 			<LayoutScene scene={glowScene} />
 		{/if}
 
-		<MainContainer>
+		<!-- The reel stack (coded glow frame + reels), factored into a snippet so the
+				 reel-anticipation camera can wrap it WITHOUT duplicating it. Rendered verbatim
+				 when the mode is off ⇒ byte-identical to the un-wrapped mount (parity). -->
+		{#snippet reelStack()}
 			{#if !suppressCodedBoardGlow}
 				<BoardFrame active={boardGlowActive} />
 			{/if}
 			<Board />
+		{/snippet}
+
+		<MainContainer>
+			{#if stateGame.anticipationMode}
+				<!-- Reel-anticipation mode (Phase 3): a dedicated camera wraps the reel stack +
+						 the anticipation overlays (spine stack + grey-out) so the zoom/pan never fights
+						 MainContainer or the editor coordinate boxes. Both are inside the camera so they
+						 zoom together; the camera + overlays are identity until a reel arms. -->
+				<AnticipationCamera>
+					{@render reelStack()}
+					<Anticipations />
+				</AnticipationCamera>
+			{:else}
+				{@render reelStack()}
+			{/if}
 		</MainContainer>
 
 		{#if basegameMount}
