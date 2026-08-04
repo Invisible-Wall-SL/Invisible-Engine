@@ -110,7 +110,11 @@ const main = () => {
 		ref: CONTAINER_ID,
 	};
 	const pins: Pin[] = derivePins(showNode, ctx);
-	assert('derives exactly 7 pins (2 base exec + 5 event exec-outs)', pins.length === 7, `got ${pins.length}: ${pins.map((p) => p.id).join(', ')}`);
+	assert(
+		'derives exactly 8 pins (2 base exec + 5 event exec-outs + durationMs data-out)',
+		pins.length === 8,
+		`got ${pins.length}: ${pins.map((p) => p.id).join(', ')}`,
+	);
 
 	const execIn = pins.find((p) => p.kind === 'exec' && p.dir === 'in');
 	const baseExecOut = pins.find((p) => p.kind === 'exec' && p.dir === 'out' && p.id === 'exec');
@@ -120,7 +124,10 @@ const main = () => {
 	// The event pins: exec, out, id = decl.id (unique on the node), label = the on<Event> tail.
 	const eventOuts = pins.filter((p) => p.kind === 'exec' && p.dir === 'out' && p.id !== 'exec');
 	assert('derives exactly 5 event exec-outs', eventOuts.length === 5, `got ${eventOuts.length}`);
-	assert('every event pin is dir=out kind=exec', eventOuts.every((p) => p.dir === 'out' && p.kind === 'exec'));
+	assert(
+		'every event pin is dir=out kind=exec',
+		eventOuts.every((p) => p.dir === 'out' && p.kind === 'exec'),
+	);
 
 	const outById = new Map(eventOuts.map((p) => [p.id, p]));
 	const expectedEventPins: Array<[string, string]> = [
@@ -137,29 +144,38 @@ const main = () => {
 	);
 
 	// An ABSENT surface for a ref is parity-safe: still just [exec-in, exec-out].
-	const bareShow: Node = { id: 'showGhost', kind: 'showContainer', pos: { x: 0, y: 0 }, ref: 'ghostContainer' };
+	const bareShow: Node = {
+		id: 'showGhost',
+		kind: 'showContainer',
+		pos: { x: 0, y: 0 },
+		ref: 'ghostContainer',
+	};
 	const barePins = derivePins(bareShow, ctx);
 	assert(
-		'a showContainer with NO surface entry stays [exec-in, exec-out] (parity-safe)',
-		barePins.length === 2 && barePins.every((p) => p.kind === 'exec'),
-		barePins.map((p) => `${p.dir}:${p.kind}`).join(','),
+		'a showContainer with NO surface entry stays [exec-in, exec-out, durationMs] (no event pins — parity-safe)',
+		barePins.length === 3 &&
+			barePins.filter((p) => p.kind === 'exec').length === 2 &&
+			barePins.some((p) => p.id === 'durationMs' && p.kind === 'data'),
+		barePins.map((p) => `${p.dir}:${p.kind}:${p.id}`).join(','),
 	);
 
 	// -------------------------------------------------------------------------
 	// 3. A FlowDoc wiring a fused event exec-out → an action validates clean.
 	// -------------------------------------------------------------------------
-	console.log('\n3. a FlowDoc wiring a fused event exec-out into an action validates with 0 issues:');
+	console.log(
+		'\n3. a FlowDoc wiring a fused event exec-out into an action validates with 0 issues:',
+	);
 	// showBase.spinButton.onSpin → startSpin (a BOOK_OF_VOCAB command action, no params).
 	const DOC: FlowDoc = {
 		version: 2,
 		templateId: 'bookOf',
 		graph: {
-			nodes: [
-				showNode,
-				{ id: 'doSpin', kind: 'action', pos: { x: 300, y: 0 }, ref: 'startSpin' },
-			],
+			nodes: [showNode, { id: 'doSpin', kind: 'action', pos: { x: 300, y: 0 }, ref: 'startSpin' }],
 			exec: [
-				{ from: { node: 'showBase', pin: 'spinButton.onSpin' }, to: { node: 'doSpin', pin: 'exec' } },
+				{
+					from: { node: 'showBase', pin: 'spinButton.onSpin' },
+					to: { node: 'doSpin', pin: 'exec' },
+				},
 			],
 			data: [],
 		},

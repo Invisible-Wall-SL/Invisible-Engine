@@ -8,6 +8,7 @@ import { resolveToolScope } from '$lib/server/toolScope';
 import { actionBindingOf } from 'engine-layout';
 import {
 	deriveContainerEvents,
+	repeaterSelectConfiguredEvent,
 	type ConfiguredComponentEvent,
 	type ContainerEventDecl,
 } from 'engine-flow-v2';
@@ -96,6 +97,12 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		const scene = scenesById.get(container.sceneId);
 		if (!scene) continue;
 		const configured: ConfiguredComponentEvent[] = (scene.nodes ?? []).map((node) => {
+			// A `repeater` node projects the SINGLE fused `onSelect` decl for the whole list (N cards → one
+			// pin), carrying the selected item's `betModeKey` — it has no per-item `action` param, so it is
+			// recognised by kind (`repeaterSelectConfiguredEvent`, the deriver's single source of that shape).
+			if ((node as { kind?: string }).kind === 'repeater') {
+				return repeaterSelectConfiguredEvent(node.id);
+			}
 			// The universal `action` binding lives on `node.params` for ANY instance (not only a def that
 			// declares it — see engine-layout `engineBindings.ts`); only `componentInstance` nodes type it,
 			// so read it off a widened shape. Empty/absent action ⇒ no configured event ⇒ no decl.

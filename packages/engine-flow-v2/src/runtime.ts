@@ -464,13 +464,17 @@ class FlowInterpreter {
 				return this.callOutputs.get(from.node)?.[from.pin];
 			case 'compute':
 				return this.evalCompute(graph, src, scope);
-			case 'showContainer':
+			case 'showContainer': {
 				// The `durationMs` data-out: the backing scene's longest animation in wall-clock ms,
 				// computed by the injected env (containerId → scene → max over its animated nodes). A
 				// recorder env without the hook resolves it to 0 (headless never depends on loaded assets).
-				return from.pin === 'durationMs'
-					? (this.ctx.env.containerAnimationMs?.(src.ref) ?? 0)
-					: undefined;
+				if (from.pin === 'durationMs') return this.ctx.env.containerAnimationMs?.(src.ref) ?? 0;
+				// Otherwise a container-event payload data-out (`<componentId>.on<Event>.<field>`, e.g. a
+				// repeater's `onSelect.betModeKey`): read `<field>` from the fired event's trigger payload.
+				// Only ONE container-event chain runs at a time, so `scope.trigger` IS that event's payload
+				// (`{ betModeKey: key }`). The field is the tail after the last `.` (field names carry none).
+				return scope.trigger[from.pin.slice(from.pin.lastIndexOf('.') + 1)];
+			}
 			default:
 				return undefined;
 		}
