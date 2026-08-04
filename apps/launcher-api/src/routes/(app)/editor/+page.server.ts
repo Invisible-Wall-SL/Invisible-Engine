@@ -13,7 +13,8 @@ import { loadDocWithEtag, saveDoc } from '$lib/server/editorStorage';
 import { listKinds } from '$lib/server/kindStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
-import { ConflictError, formBaseEtag } from '$lib/server/r2';
+import { ConflictError } from '$lib/server/r2';
+import { writeBaseEtagForm } from '$lib/server/writeGuard';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { resolveGameConfig } from '$lib/server/gameConfigDefaults';
 import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
@@ -176,7 +177,7 @@ export const actions: Actions = {
 		// the ONLY legitimate way to reach an unconditional write from a browser. It is
 		// deliberately a separate field rather than an omitted etag, so an unguarded
 		// write is always an explicit choice in the payload, never an accident.
-		const baseEtag = form.get('force') === '1' ? undefined : formBaseEtag(form.get('baseEtag'));
+		const baseEtag = writeBaseEtagForm(form);
 
 		let saved: LayoutDoc;
 		let etag: string | null;

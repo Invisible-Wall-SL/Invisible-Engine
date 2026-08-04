@@ -11,7 +11,8 @@ import {
 	harvestWinText,
 	reconcileWithEditor,
 } from '$lib/server/localizationHarvest';
-import { ConflictError, formBaseEtag } from '$lib/server/r2';
+import { ConflictError } from '$lib/server/r2';
+import { writeBaseEtagForm } from '$lib/server/writeGuard';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
 import { resolveToolScope } from '$lib/server/toolScope';
@@ -92,7 +93,7 @@ export const actions: Actions = {
 			return fail(400, { error: 'Invalid document.' });
 		}
 		// `force` = the author answering the conflict banner with "overwrite theirs".
-		const baseEtag = form.get('force') === '1' ? undefined : formBaseEtag(form.get('baseEtag'));
+		const baseEtag = writeBaseEtagForm(form);
 		// Don't persist untranslated AUTO-collected entries (`editor` scene text, `winText`
 		// templates) — they're re-derived from their owning tool on every load, so storing the bare
 		// source strings would just bloat the doc and leave stale rows when text is removed. Keep

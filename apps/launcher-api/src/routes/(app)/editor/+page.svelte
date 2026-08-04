@@ -543,7 +543,10 @@
 				const res = await fetch('/api/editor/component', {
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ ...def, project: data.projectKey }),
+					// A freshly-generated id ⇒ a create: `baseEtag: null` asserts it (`ifNoneMatch:'*'`)
+					// so this never silently overwrites an existing def, and satisfies the required
+					// precondition (Phase 1 of `docs/design/multi-user-concurrency.md`).
+					body: JSON.stringify({ ...def, project: data.projectKey, baseEtag: null }),
 				});
 				if (!res.ok) {
 					let message = 'Component save failed';

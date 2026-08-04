@@ -1,7 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import { COMPONENT_PUBLISH_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { listComponentDefaults } from '$lib/server/componentDefaultsStorage';
-import { listComponents } from '$lib/server/componentStorage';
+import { listComponentsWithEtags } from '$lib/server/componentStorage';
 import { loadDoc } from '$lib/server/editorStorage';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listProjectAssets } from '$lib/server/projectAssets';
@@ -46,9 +46,10 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		roleOverrides,
 		overrides,
 	);
-	const [components, assets, componentDefaults, doc] = await Promise.all([
-		// Components the project can use (shared + project, project shadowing shared, §8.3).
-		listComponents({ projectKey }),
+	const [componentEntries, assets, componentDefaults, doc] = await Promise.all([
+		// Components the project can use (shared + project, project shadowing shared, §8.3),
+		// each carrying the ETag of the object it was read from — the save's precondition (Phase 1).
+		listComponentsWithEtags({ projectKey }),
 		listProjectAssets(clientKey, projectKey),
 		// Per-project author-set param defaults, by component id (§13.3) — hydrates the
 		// Defaults controls + the non-empty canvas preview without a second round-trip.
@@ -64,10 +65,16 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 	// honoured by `resolveToolScope` above (project-explicit scoping), so the page
 	// binds to the editor's project; here we only need to read the id.
 	const openId = url.searchParams.get('id') || null;
+	const components = componentEntries.map((e) => e.def);
+	// id → the ETag its next save must match (`null` = built-in / never stored ⇒ create). The
+	// page holds this so `openComponent` can stamp the draft's `baseEtag` and the save CASes.
+	const componentEtags: Record<string, string | null> = {};
+	for (const e of componentEntries) componentEtags[e.def.id] = e.etag;
 	return {
 		clientKey,
 		projectKey,
 		components,
+		componentEtags,
 		assets,
 		componentDefaults,
 		openId,

@@ -22,6 +22,7 @@ import {
 	sharedComponentsPrefix,
 } from './projectPaths';
 import {
+	ConflictError,
 	deleteObject,
 	getObjectText,
 	getObjectTextWithEtag,
@@ -98,6 +99,43 @@ export async function loadComponent(
 	// resolves the single coded def, exactly like a latest load — the engine's
 	// `resolveComponent` flags the mismatch separately.
 	return builtin;
+}
+
+/** A resolved component paired with the ETag of the R2 object it was READ from — the
+ *  compare-and-swap token the Component Editor sends back on save. `etag === null` means
+ *  the winning def is a BUILT-IN (no stored object yet) or the scope is absent, so the
+ *  first save CREATES it (`ifNoneMatch: '*'`). Threaded through {@link listComponentsWithEtags}
+ *  and {@link loadComponentWithEtag} so a shared-scope def (a GLOBAL key no lease covers)
+ *  is finally guarded end-to-end — Phase 1 of `docs/design/multi-user-concurrency.md`. */
+export interface ComponentWithEtag {
+	def: ComponentDef;
+	etag: string | null;
+}
+
+/**
+ * Resolve the LATEST editable def for `id` (project shadows shared shadows built-in) WITH
+ * the ETag of the object it was read from — the save's precondition.
+ *
+ * Deliberately has NO `version` param, unlike {@link loadComponent}: a save always writes
+ * the `<id>.json` latest pointer, so the etag must be that pointer's, never a
+ * `<id>.v<N>.json` snapshot's (re-pinning an old version still CAS-writes the latest). Uses
+ * {@link readComponentForWrite}, so a transient R2 error fails LOUD rather than masquerading
+ * as "absent" and inviting an overwrite. Returns `undefined` only when no scope (and no
+ * built-in) has a def for `id`.
+ */
+export async function loadComponentWithEtag(
+	id: string,
+	projectKey?: string,
+): Promise<ComponentWithEtag | undefined> {
+	if (projectKey) {
+		const { def, etag } = await readComponentForWrite(projectComponentKey(projectKey, id));
+		if (def) return { def: mergeBuiltinCodedParams(def), etag };
+	}
+	const { def: shared, etag: sharedEtag } = await readComponentForWrite(editorComponentKey(id));
+	if (shared) return { def: mergeBuiltinCodedParams(shared), etag: sharedEtag };
+	const builtin = BUILTIN_COMPONENTS.find((def) => def.id === id);
+	if (!builtin) return undefined;
+	return { def: builtin, etag: null };
 }
 
 /**
@@ -197,23 +235,17 @@ async function readComponentForWrite(
  *   "immutable history" is enforced by R2 rather than asserted in a comment.
  * - The LATEST pointer is a compare-and-swap on `baseEtag`.
  *
- * ⚠ BE PRECISE ABOUT WHAT IS AND IS NOT PROTECTED TODAY. **No caller passes
- * `baseEtag` yet** — `loadComponent`/`listComponents` return no ETag, so the Component
- * Editor has none to send. With `baseEtag: undefined` we fall back to the ETag of the
- * read THIS function just did, which closes only the in-request read→write window
- * (tens of ms). The window Phase 1 is actually about — A and B both open the def, A
- * saves, B saves five minutes later — is NOT closed for components: B's save re-reads,
- * bumps to N+2, and succeeds. Nothing 409s. What limits the damage is the version
- * bump: A's work survives as `<id>.v<N+1>.json` rather than being destroyed. That is
- * recoverable-by-hand, NOT unlost.
+ * The ETag is now threaded end-to-end (2026-08-04): `listComponentsWithEtags` /
+ * `loadComponentWithEtag` carry the object's etag, the Component Editor stamps it as
+ * `draftEtag` on open and sends it as `baseEtag`, and the in-process compare below (`baseEtag
+ * !== existingEtag`) 409s the A-opens/B-opens-later window BEFORE any write — so a lost edit
+ * is now a refused save, not a recoverable-by-hand snapshot. `baseEtag: undefined` remains
+ * only for `force` (an explicit overwrite, which then CASes the current object) and
+ * server-side scaffolding; a real client save always carries a precondition (required at the
+ * endpoint via `writeGuard`).
  *
- * To make the prose above true, `listComponents`/`loadComponent` must carry the ETag
- * to the client and the editor must send it back. Until then, treat components as
- * "last-writer-wins on the latest pointer, with history".
- *
- * `scope: 'shared'` defs live on a GLOBAL key, so no project lease could ever cover
- * them — a real CAS is the only possible protection there, which makes the threading
- * above the priority for that scope.
+ * `scope: 'shared'` defs live on a GLOBAL key no project lease could ever cover, so this CAS
+ * is their ONLY protection — which is why threading it mattered most for that scope.
  */
 export async function saveComponent(
 	component: ComponentDef,
@@ -432,26 +464,43 @@ export interface ListComponentsOptions {
  * entries are skipped, never thrown.
  */
 export async function listComponents(opts: ListComponentsOptions): Promise<ComponentDef[]> {
-	const byId = new Map<string, ComponentDef>();
+	return (await listComponentsWithEtags(opts)).map((e) => e.def);
+}
+
+/**
+ * {@link listComponents} but each def carries the ETag of the object it was READ from
+ * (`null` for a built-in) — so the Component Editor can send `baseEtag` on save and a
+ * concurrent author's def can no longer be lost on the latest pointer (Phase 1 of
+ * `docs/design/multi-user-concurrency.md`). Precedence + filtering are identical; the etag
+ * follows the winning def, so a project shadow carries the PROJECT key's etag and a shared
+ * def the SHARED key's — exactly the key `saveComponent` will CAS against for that scope.
+ */
+export async function listComponentsWithEtags(
+	opts: ListComponentsOptions,
+): Promise<ComponentWithEtag[]> {
+	const byId = new Map<string, ComponentWithEtag>();
 
 	if (opts.scope !== 'project') {
 		for (const def of BUILTIN_COMPONENTS) {
-			byId.set(def.id, def);
+			byId.set(def.id, { def, etag: null });
 		}
-		for (const def of await listFromPrefix(sharedComponentsPrefix)) {
-			byId.set(def.id, def);
+		for (const entry of await listFromPrefixWithEtags(sharedComponentsPrefix)) {
+			byId.set(entry.def.id, entry);
 		}
 	}
 	if (opts.scope !== 'shared' && opts.projectKey) {
-		for (const def of await listFromPrefix(projectComponentsPrefix(opts.projectKey))) {
-			byId.set(def.id, def);
+		for (const entry of await listFromPrefixWithEtags(projectComponentsPrefix(opts.projectKey))) {
+			byId.set(entry.def.id, entry);
 		}
 	}
 
-	let defs = [...byId.values()].map(mergeBuiltinCodedParams);
-	if (opts.category) defs = defs.filter((d) => d.category === opts.category);
-	if (opts.scope) defs = defs.filter((d) => d.scope === opts.scope);
-	return defs;
+	let entries = [...byId.values()].map((e) => ({
+		def: mergeBuiltinCodedParams(e.def),
+		etag: e.etag,
+	}));
+	if (opts.category) entries = entries.filter((e) => e.def.category === opts.category);
+	if (opts.scope) entries = entries.filter((e) => e.def.scope === opts.scope);
+	return entries;
 }
 
 /** One authored component plus the project it lives under (`null` = shared library). */
@@ -497,6 +546,37 @@ export async function listAllComponents(): Promise<AuthoredComponentEntry[]> {
 		if (!match) continue;
 		const def = await readComponent(key);
 		if (def) out.push({ projectKey: match[1], def });
+	}
+	return out;
+}
+
+/**
+ * {@link listFromPrefix} but carrying each def's ETag (read via {@link getObjectTextWithEtag}
+ * rather than the etag-discarding `readComponent`). A key that fails to READ throws out of
+ * `listAllKeys`/the loop only for the whole-listing case (caught → `[]`); a key that reads
+ * but fails to PARSE is skipped exactly like `readComponent`'s swallow, so a corrupt entry
+ * simply doesn't list (and so never yields a bogus etag for a save to CAS against).
+ */
+async function listFromPrefixWithEtags(prefix: string): Promise<ComponentWithEtag[]> {
+	let keys: string[];
+	try {
+		keys = await listAllKeys(prefix);
+	} catch {
+		return [];
+	}
+	const out: ComponentWithEtag[] = [];
+	for (const key of keys) {
+		if (!key.endsWith('.json')) continue;
+		// Skip v2 historical snapshots (`<id>.v<N>.json`): one entry per component (its latest).
+		if (VERSION_SNAPSHOT_KEY.test(key)) continue;
+		const obj = await getObjectTextWithEtag(key);
+		if (!obj) continue;
+		try {
+			const parsed: unknown = JSON.parse(obj.text);
+			if (isComponentShape(parsed)) out.push({ def: normalizeComponent(parsed), etag: obj.etag });
+		} catch {
+			// A corrupt entry is skipped — it lists nowhere, mirroring readComponent's swallow.
+		}
 	}
 	return out;
 }

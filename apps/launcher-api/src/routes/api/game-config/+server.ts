@@ -9,9 +9,9 @@ import {
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import { jsonBaseEtag } from '$lib/server/r2';
 import { invalidateRuntimeBundle } from '$lib/server/runtimeBundleCache';
 import { getToolOverrides } from '$lib/server/userToolAccess';
+import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
 /**
@@ -77,7 +77,7 @@ export const PUT: RequestHandler = async ({ request, url, locals }) => {
 	} catch {
 		throw error(400, 'Invalid JSON body.');
 	}
-	const baseEtag = body.force === true ? undefined : jsonBaseEtag(body.baseEtag);
+	const baseEtag = writeBaseEtagJson(body);
 	try {
 		const { doc, etag, warnings } = await saveGameConfigDoc(
 			clientKey,

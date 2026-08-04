@@ -51,6 +51,14 @@
 	/** Components the project can use (shared + project shadow). Mutable so a save
 	 * reflects in the sidebar without a reload. */
 	let components = $state<ComponentDef[]>(structuredClone(data.components));
+	/** id → ETag its next save must match (`null` = built-in / never stored ⇒ create). Mutable
+	 * so a save adopts the server's new etag without a reload (Phase 1 of
+	 * `docs/design/multi-user-concurrency.md`). */
+	let componentEtags = $state<Record<string, string | null>>({ ...data.componentEtags });
+	/** The open draft's precondition — the ETag it was opened at. `null` ⇒ create
+	 * (`ifNoneMatch: '*'`): a never-saved draft, or a built-in being forked into R2 for the
+	 * first time. Sent as `baseEtag` on save; re-adopted from the save response. */
+	let draftEtag = $state<string | null>(null);
 	/** The component currently open for editing, or null (sidebar-only home state). */
 	let componentDraft = $state<ComponentDef | null>(null);
 	/** Bumped on every properties-panel edit to force the shared `EditorCanvas` to
@@ -173,6 +181,10 @@
 	 * with DataCloneError — snapshot returns a plain, detached deep copy. */
 	function openComponent(def: ComponentDef): void {
 		componentDraft = $state.snapshot(def) as ComponentDef;
+		// The save precondition for this def's scope key. An entry absent from the map (a
+		// never-saved draft, or a built-in with no stored object) ⇒ `null` ⇒ the first save
+		// creates. A stored def carries the etag it was listed at, so a save CASes against it.
+		draftEtag = componentEtags[def.id] ?? null;
 		// Baseline for the unsaved-changes guard. A NEWLY CREATED component is
 		// deliberately dirty from the start (`null` baseline): it exists ONLY as this
 		// draft until "Save component", so leaving without saving must warn.
@@ -275,6 +287,8 @@
 			return;
 		}
 		componentDraft = $state.snapshot(latest) as ComponentDef;
+		// Restore the editable latest's precondition — inspecting a snapshot never changed it.
+		draftEtag = componentEtags[latest.id] ?? null;
 		savedSnapshot = JSON.stringify($state.snapshot(componentDraft));
 		inspectingVersion = null;
 		pickVersion = '';
@@ -480,7 +494,9 @@
 				...(componentDraft.scope === 'project'
 					? { ...componentDraft, project: data.projectKey }
 					: componentDraft),
-				...(force ? { force: true } : {}),
+				// Send the precondition (or `force` to overwrite theirs after a conflict). A
+				// stored def CASes against `draftEtag`; a never-saved one sends `null` (create).
+				...(force ? { force: true } : { baseEtag: draftEtag }),
 			};
 			const res = await fetch('/api/editor/component', {
 				method: 'POST',
@@ -498,7 +514,10 @@
 				return;
 			}
 			if (res.ok) {
-				const out = (await res.json().catch(() => ({}))) as { version?: number };
+				const out = (await res.json().catch(() => ({}))) as {
+					version?: number;
+					etag?: string | null;
+				};
 				saveStatus = { kind: 'ok', message: 'Component saved' };
 				// Snapshot (not structuredClone): componentDraft is a reactive proxy.
 				// Adopt the SERVER's reconciled version — it may have bumped past the posted
@@ -509,6 +528,10 @@
 					saved.version = out.version;
 					componentDraft.version = out.version;
 				}
+				// Adopt the new ETag so the NEXT save CASes against what we just wrote — not the
+				// stale value we opened with (which would 409 every save after the first).
+				draftEtag = out.etag ?? null;
+				componentEtags = { ...componentEtags, [saved.id]: draftEtag };
 				savedSnapshot = JSON.stringify(saved);
 				const i = components.findIndex((c) => c.id === saved.id);
 				if (i === -1) components = [...components, saved];
@@ -562,7 +585,21 @@
 			// A shared write carries no `project` and a `scope:'shared'` def, so the API
 			// routes it to `_shared/editor-components/` behind the `componentPublish` gate.
 			const body = { ...$state.snapshot(componentDraft), scope: 'shared' };
-			const post = (extra: Record<string, unknown> = {}) =>
+			// Resolve the SHARED key's current etag (this project draft never loaded it) so the
+			// promote CASes against the global key rather than writing unconditionally. `id` with
+			// no `project`/`version` returns `{ def, etag }` for the shared/built-in layer; a 404
+			// (or built-in `etag: null`) ⇒ `null` ⇒ create (`ifNoneMatch: '*'`).
+			let sharedBaseEtag: string | null = null;
+			try {
+				const g = await fetch(`/api/editor/component?id=${encodeURIComponent(componentDraft.id)}`);
+				if (g.ok) {
+					const gd = (await g.json()) as { etag?: string | null };
+					sharedBaseEtag = gd.etag ?? null;
+				}
+			} catch {
+				// Leave `null` (create); a genuine collision still surfaces as a 409 below.
+			}
+			const post = (extra: Record<string, unknown> = { baseEtag: sharedBaseEtag }) =>
 				fetch('/api/editor/component', {
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },

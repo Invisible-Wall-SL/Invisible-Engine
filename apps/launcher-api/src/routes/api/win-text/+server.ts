@@ -4,9 +4,10 @@ import { roleHasTool } from '$lib/roles';
 import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import { ConflictError, jsonBaseEtag } from '$lib/server/r2';
+import { ConflictError } from '$lib/server/r2';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import { loadWinTextDocWithEtag, saveWinTextDoc } from '$lib/server/winTextStorage';
+import { writeBaseEtagJson } from '$lib/server/writeGuard';
 import type { RequestHandler } from './$types';
 
 /**
@@ -66,7 +67,7 @@ export const PUT: RequestHandler = async ({ request, url, locals }) => {
 	} catch {
 		throw error(400, 'Invalid JSON body.');
 	}
-	const baseEtag = body.force === true ? undefined : jsonBaseEtag(body.baseEtag);
+	const baseEtag = writeBaseEtagJson(body);
 	try {
 		const { doc, etag } = await saveWinTextDoc(clientKey, projectKey, body.doc, baseEtag);
 		return json({ clientKey, projectKey, doc, etag });

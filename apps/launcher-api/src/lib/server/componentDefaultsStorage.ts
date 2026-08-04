@@ -1,8 +1,12 @@
+import { projectComponentDefaultsKey, projectComponentDefaultsPrefix } from './projectPaths';
 import {
-	projectComponentDefaultsKey,
-	projectComponentDefaultsPrefix,
-} from './projectPaths';
-import { getObjectText, listAllKeys, putObjectText } from './r2';
+	ConflictError,
+	getObjectText,
+	getObjectTextWithEtag,
+	listAllKeys,
+	precondition,
+	putObjectText,
+} from './r2';
 
 /**
  * Per-project component-DEFAULTS store (§13.3) — a thin sidecar to `ComponentDef`,
@@ -15,16 +19,43 @@ import { getObjectText, listAllKeys, putObjectText } from './r2';
  * elsewhere by `resolveComponentParams` (instance ◁ project default ◁ def default).
  */
 
+/** The defaults `params` for one component WITH the ETag its next save must match. */
+export interface ComponentDefaultsWithEtag {
+	params: Record<string, unknown>;
+	/**
+	 * ETag of the stored sidecar; `null` when it does not exist yet (⇒ first save creates via
+	 * `ifNoneMatch:'*'`). A corrupt-but-present sidecar still carries its etag — reported from
+	 * the READ, not from parse success — so it gets `ifMatch` (deliberate overwrite), never a
+	 * create precondition that would 412 forever. See `docs/design/multi-user-concurrency.md`.
+	 */
+	etag: string | null;
+}
+
 /**
- * Read the project defaults for one component, returning the bare `params` map.
- * Returns `{}` on a missing / unreadable / malformed / non-`params` doc — never
- * throws (mirrors `readComponent`'s swallow-and-fallback).
+ * Read the project defaults for one component plus the ETag its next save must match — the
+ * read half of the conditional-write contract (Phase 1). Unlike `readDefaults` / the
+ * `listComponentDefaults` hydration path (which degrade to `{}`), this does NOT swallow a
+ * transient R2 read error: on the
+ * SAVE path a swallow would make a present sidecar look absent, so the save would assert
+ * create and clobber it. `getObjectTextWithEtag` rethrows everything but a 404.
  */
-export async function loadComponentDefaults(
+export async function loadComponentDefaultsWithEtag(
 	projectKey: string,
 	componentId: string,
-): Promise<Record<string, unknown>> {
-	return readDefaults(projectComponentDefaultsKey(projectKey, componentId));
+): Promise<ComponentDefaultsWithEtag> {
+	const key = projectComponentDefaultsKey(projectKey, componentId);
+	const obj = await getObjectTextWithEtag(key);
+	if (!obj) return { params: {}, etag: null };
+	try {
+		const parsed: unknown = JSON.parse(obj.text);
+		if (isRecord(parsed) && isRecord(parsed.params)) {
+			return { params: parsed.params, etag: obj.etag };
+		}
+	} catch {
+		// present but corrupt — fall through: it EXISTS, so it carries an etag and is overwritten
+		// deliberately with `ifMatch`, never wedged behind a create precondition.
+	}
+	return { params: {}, etag: obj.etag };
 }
 
 /**
@@ -32,18 +63,33 @@ export async function loadComponentDefaults(
  * object and throws a descriptive Error on a bad payload (surfaced as a 400 by the
  * route), so the write only ever happens for a well-formed map. Writes the canonical
  * `{ params }` envelope pretty-printed, like `saveComponent`.
+ *
+ * `baseEtag` guards the write (Phase 1 of `docs/design/multi-user-concurrency.md`): a
+ * string ⇒ `ifMatch`, `null` ⇒ `ifNoneMatch:'*'` (create), `undefined` ⇒ unconditional
+ * (server-side callers only). A stale one throws {@link ConflictError} — the route maps it
+ * to a 409 — rather than silently erasing a concurrent author's per-project appearance
+ * defaults. Returns the new ETag so the client can keep saving without a re-read.
  */
 export async function saveComponentDefaults(
 	projectKey: string,
 	componentId: string,
 	params: Record<string, unknown>,
-): Promise<void> {
+	baseEtag?: string | null,
+): Promise<{ etag: string | null }> {
 	if (!isRecord(params)) {
 		throw new Error('Component defaults `params` must be a plain object.');
 	}
 	const key = projectComponentDefaultsKey(projectKey, componentId);
-	await putObjectText(key, JSON.stringify({ params }, null, 2), 'application/json');
+	const etag = await putObjectText(
+		key,
+		JSON.stringify({ params }, null, 2),
+		'application/json',
+		precondition(baseEtag),
+	);
+	return { etag };
 }
+
+export { ConflictError };
 
 /**
  * List every component-defaults sidecar under the project prefix as a
