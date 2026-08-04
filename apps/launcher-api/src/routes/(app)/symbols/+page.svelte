@@ -8,6 +8,7 @@
 	} from 'engine-layout';
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import { SaveState } from '$lib/saveState.svelte';
 	import RegionPicker from '../editor/RegionPicker.svelte';
 	import {
 		clearRegionCache,
@@ -240,12 +241,32 @@
 	const savedSig = $state({ value: docSignature(structuredClone(data.doc) as SymbolsDoc) });
 	const dirty = $derived(docSignature(doc) !== savedSig.value);
 
-	let saving = $state(false);
-	let saveError = $state<string | null>(null);
 	let savedAt = $state<string | null>(data.doc.updatedAt ?? null);
-	/** ETag of the stored symbols doc — sent on save, re-adopted from the response.
-	 * `null` = never authored, so the save creates. */
-	let docEtag = $state<string | null>(data.docEtag);
+
+	/**
+	 * Save-state machine (multi-user-concurrency Phase 2a). Manual save; the transport calls
+	 * `saveSymbolsDoc` (which owns the CAS + create encoding via the `null` etag) and adopts the
+	 * server's normalized doc + new etag together, so the next save CASes against what was just
+	 * written. A `SymbolsConflictError` maps to `reason:'conflict'`, surfaced by the wrapper's
+	 * `confirm()`; `force` overwrites.
+	 */
+	const saveState = new SaveState({
+		initialEtag: data.docEtag,
+		save: async ({ baseEtag, force }) => {
+			try {
+				const out = await saveSymbolsDoc(data.projectKey, doc, baseEtag, force);
+				doc = structuredClone(out.doc);
+				savedSig.value = docSignature(doc);
+				savedAt = out.doc.updatedAt ?? new Date().toISOString();
+				return { ok: true, etag: out.etag };
+			} catch (e) {
+				if (e instanceof SymbolsConflictError) {
+					return { ok: false, reason: 'conflict', message: e.message };
+				}
+				return { ok: false, reason: 'error', message: e instanceof Error ? e.message : String(e) };
+			}
+		},
+	});
 
 	// "Reload from R2": after re-exporting/replacing a spine in R2 (e.g. from the
 	// Rigger), the previews + picker would otherwise keep the cached bundle — the
@@ -368,32 +389,12 @@
 	 * "overwrite theirs" — the only way past the guard, and always a deliberate choice.
 	 */
 	async function save(force = false): Promise<void> {
-		if ((!dirty && !force) || saving) return;
-		saving = true;
-		saveError = null;
-		try {
-			const out = await saveSymbolsDoc(data.projectKey, doc, docEtag, force);
-			// Adopt the doc + its new etag together, so the next save CASes against what
-			// we just wrote rather than what the page loaded with.
-			doc = structuredClone(out.doc);
-			docEtag = out.etag;
-			savedSig.value = docSignature(doc);
-			savedAt = out.doc.updatedAt ?? new Date().toISOString();
-		} catch (e) {
-			if (e instanceof SymbolsConflictError) {
-				// Never discard the local doc — ask. Declining leaves the edits on screen
-				// and `dirty` true, so nothing is lost by saying no.
-				if (confirm(`${e.message}\n\nOverwrite their version with yours?`)) {
-					saving = false;
-					await save(true);
-					return;
-				}
-				saveError = e.message;
-			} else {
-				saveError = e instanceof Error ? e.message : String(e);
-			}
-		} finally {
-			saving = false;
+		if ((!dirty && !force) || saveState.busy) return;
+		await saveState.save({ force });
+		// Never discard the local doc — ask. Declining leaves the edits on screen and `dirty`
+		// true, so nothing is lost by saying no; the sticky conflict re-prompts on the next Save.
+		if (!force && saveState.status === 'conflict') {
+			if (confirm(`${saveState.message}\n\nOverwrite their version with yours?`)) await save(true);
 		}
 	}
 
@@ -792,7 +793,9 @@
 	>
 		{#snippet meta()}
 			<div class="save-area">
-				{#if saveError}<span class="save-err">{saveError}</span>{/if}
+				{#if saveState.status === 'error' || saveState.status === 'conflict'}<span class="save-err"
+						>{saveState.message}</span
+					>{/if}
 				{#if !dirty && savedAt}<span class="saved">Saved</span>{/if}
 				<button
 					class="reload"
@@ -803,8 +806,11 @@
 				>
 					{reloading ? 'Reloading…' : '↻ Reload from R2'}
 				</button>
-				<button class="save" type="button" disabled={!dirty || saving} onclick={save}>
-					{saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+				<!-- `onclick={save}` passes the click EVENT as `force` (truthy): a manual Save has
+				     always FORCE-overwritten here — preserved verbatim. Pre-existing latent bug (the
+				     conflict `confirm()` is effectively dead on this path); flagged for the owner. -->
+				<button class="save" type="button" disabled={!dirty || saveState.busy} onclick={save}>
+					{saveState.busy ? 'Saving…' : dirty ? 'Save' : 'Saved'}
 				</button>
 			</div>
 		{/snippet}

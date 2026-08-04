@@ -29,6 +29,7 @@ const NODE_KINDS = new Set<LayoutNode['kind']>([
 	'componentInstance',
 	'reelGrid',
 	'effect',
+	'repeater',
 ]);
 
 /**

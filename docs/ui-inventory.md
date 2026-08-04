@@ -96,3 +96,11 @@ is at least now single-sourced (`IW_TOOLBAR_CSS`, shared by `PAGE` + `ATLASVIEW`
 | Rigger `#modeBar` (`Preview/Setup/Animate`) — same `.seg` look, vanilla HTML/CSS | static | `apps/launcher-api/static/rigger/view.html` | the visual model `CanvasModeBar` mirrors; can't share code across the Svelte/static line |
 
 → Build any new on-canvas mode/device switcher (Svelte tools) with `<CanvasModeBar>` — don't re-roll header pills. The static rigger twin is kept visually identical by convention (like the tool-bar twin in §7).
+
+### 10. Save-state machine + save-status pill (etag/dirty/conflict/autosave)
+| Impl | Domain | File(s) | Status |
+|---|---|---|---|
+| **`SaveState`** (rune helper) — the save/dirty/etag/conflict/autosave state machine: injected transport, held ETag re-adopted per save, `idle/saving/saved/error/conflict/scope-mismatch`, no-re-arm-on-conflict, force, create-path, two debounce semantics (`resetDebounceOnEveryEdit`: flow trailing / editor leading) | A | `apps/launcher-api/src/lib/saveState.svelte.ts` | **canonical for domain A** — every authoring tool's save logic routes here (multi-user-concurrency Phase 2a) |
+| **`SaveStatusBadge.svelte`** — the shared save pill (saving/saved/dirty/error/conflict/scope-mismatch + Save/Retry/Reload theirs/Overwrite actions), driven by a `SaveState`; parameterized for the editor/flow pill drift (`okAccent`, `actionClass`, `overwritable`) | A | `apps/launcher-api/src/lib/SaveStatusBadge.svelte` | **canonical for domain A** — the pill for editor + flow-v2 (doc + library); banner/`confirm()` tools drive their bespoke conflict UX off the same `SaveState` |
+
+→ Any new authoring tool with a save MUST build on `SaveState` (thread the ETag, adopt the lease in Phase 2c) rather than re-rolling dirty/etag/conflict — a hand-rolled `fetch`+`putObjectText` is the regression the review gate exists to catch. Render the common pill with `<SaveStatusBadge>`; keep a bespoke conflict UX (like components' versioned `confirm()`) driven off `state.status`/`state.message`, not re-invented. The transport callback is the seam where a form action and a `fetch` both fit.

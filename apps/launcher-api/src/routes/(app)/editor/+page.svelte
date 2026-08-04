@@ -2,6 +2,7 @@
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
+	import { SaveState } from '$lib/saveState.svelte';
 	import {
 		buttonBindToInstance,
 		engineOwnedOnly,
@@ -408,6 +409,11 @@
 		return m;
 	});
 
+	/** The project's component ids + names — feeds the `repeater` node's `componentId`
+	 * picker in Properties (reusing the SAME list the picker/canvas already resolve, not a
+	 * re-fetch). */
+	const componentDefs = $derived(components.map((c) => ({ id: c.id, name: c.name })));
+
 	/** Atlas/sheet manifests an `image`-kind param can pick frames from (the region
 	 * picker source). Atlas pages aren't manifests, so only `atlas-manifest`s + sheets. */
 	const pickSheets = $derived([
@@ -518,7 +524,7 @@
 		// author saved first): pressing on would create a component in R2, fail to
 		// persist the scene's link to it, then navigate away — orphaning the def and
 		// losing the conversion. The save pill explains why nothing happened.
-		if (dirty && !crossTypeLoaded && !(await save())) {
+		if (saveState.dirty && !crossTypeLoaded && !(await save())) {
 			componentStatus = { kind: 'error', message: 'Save the scene first — see the save status.' };
 			componentBusy = false;
 			return;
@@ -691,6 +697,31 @@
 		selectOnly(node.id);
 	}
 
+	/**
+	 * Insert a `repeater` node (the data-driven buy/select-feature primitive) into the active
+	 * scene, centred, with sane defaults: the built-in `featureCard` component stamped once per
+	 * `featureCards` source item, laid out in a row with a 24px gap. Unlike `reelGrid` there's no
+	 * single-instance guard — a layout may carry several repeaters. Mirrors `placeComponentInstance`
+	 * (spawn at main centre → select). The author retargets `source`/`componentId`/`layout` in the
+	 * Properties panel; the editor draws a labelled placeholder (the live source can't run here).
+	 */
+	function insertRepeater(): void {
+		const main = mainSizesMap[currentLayoutType];
+		const node: LayoutNode = {
+			id: 'n_' + Math.random().toString(36).slice(2, 10),
+			kind: 'repeater',
+			label: 'Repeater',
+			x: Math.round(main.width / 2),
+			y: Math.round(main.height / 2),
+			anchor: { x: 0.5, y: 0.5 },
+			source: 'featureCards',
+			componentId: 'featureCard',
+			layout: { direction: 'row', gap: 24 },
+		};
+		onSpawn(node);
+		selectOnly(node.id);
+	}
+
 	/** Open the standalone Component Editor in THIS window (optionally on `id`).
 	 * Flushes the layout to the doc first so scene edits aren't lost on navigation —
 	 * except a cross-type preview, which must never autosave (the user Saves/Discards
@@ -701,7 +732,7 @@
 	async function openComponentEditor(id?: string): Promise<void> {
 		// Never navigate away from a doc that failed to flush — this is a full page
 		// load, so unsaved work would be gone with no way back.
-		if (dirty && !crossTypeLoaded && !(await save())) return;
+		if (saveState.dirty && !crossTypeLoaded && !(await save())) return;
 		const params = new URLSearchParams();
 		if (id) params.set('id', id);
 		params.set('project', data.projectKey);
@@ -1507,8 +1538,6 @@
 	const AUTOSAVE_MS = 1200;
 	const RELATIVE_TICK_MS = 15_000;
 
-	let dirty = $state(false);
-	let busy = $state(false);
 	/** True after loading a reference layout, until the first edit — signals the
 	 * on-screen layout is an unsaved preview (autosave hasn't touched the doc). */
 	let loadedPreview = $state(false);
@@ -1522,18 +1551,47 @@
 	let crossTypeLoaded = $state(false);
 	/** The mismatched game type currently previewed (for the warning copy). */
 	let crossTypeFrom = $state('');
+	/** General error string for the tool bar — set by the save path AND by kind/import loads. */
 	let lastError = $state('');
 	let lastSavedAt = $state(data.doc.updatedAt || '');
-	/** The ETag this tab loaded — sent on every save so a concurrent author can't be
-	 * clobbered, and re-adopted from each save's response. `null` = no stored doc yet. */
-	let docEtag = $state<string | null>(data.docEtag);
-	/** Set when a save lost to another author. Suppresses autosave until resolved —
-	 * without this the 1.2s debounce would re-fire and 409 forever. Local edits are
-	 * KEPT; `dirty` deliberately stays true. */
-	let conflict = $state(false);
-	/** ETag of the GLOBAL `_shared/editor-templates/<gameType>.json`. Re-adopted on
-	 * every template load/save, since switching game type switches the object. */
-	let templateEtag = $state<string | null>(data.templateEtag);
+
+	/**
+	 * Doc save-state machine (multi-user-concurrency Phase 2a). LEADING 1200 ms debounce
+	 * (`resetDebounceOnEveryEdit:false`): the timer arms only on the clean→dirty edge and later
+	 * edits do NOT reset it — reproducing the old `$effect`-on-`dirty` idiom; undo/redo re-arms
+	 * imperatively via `rearmAutosave()`. `canAutosave` suppresses autosave while a cross-type
+	 * preview is loaded (Save/Discard only). Create encoding stays caller-side (form `''`). The
+	 * pill stays BESPOKE (relative-time saved, span+Retry error, interleaved crossType/preview),
+	 * driven off this machine's `status`/`dirty`/`busy`/`etag`/`message`.
+	 */
+	const saveState = new SaveState({
+		autosaveMs: AUTOSAVE_MS,
+		resetDebounceOnEveryEdit: false,
+		initialEtag: data.docEtag,
+		conflictMessage: 'Someone else saved this project while you were editing.',
+		canAutosave: () => !crossTypeLoaded,
+		save: async ({ baseEtag, force }) => {
+			const fields: Record<string, string> = { doc: JSON.stringify(buildDocPayload()) };
+			// '' encodes "no doc existed when I loaded" (FormData has no null); omitted when forcing.
+			if (force) fields.force = '1';
+			else fields.baseEtag = baseEtag ?? '';
+			const out = (await postAction('save', fields)) as {
+				saved?: boolean;
+				updatedAt?: string;
+				etag?: string | null;
+				error?: string;
+				conflict?: boolean;
+			};
+			if (out.conflict) return { ok: false, reason: 'conflict', message: out.error };
+			if (out.error) return { ok: false, reason: 'error', message: out.error };
+			lastSavedAt = out.updatedAt ?? new Date().toISOString();
+			loadedPreview = false;
+			crossTypeLoaded = false;
+			crossTypeFrom = '';
+			return { ok: true, etag: out.etag ?? null };
+		},
+	});
+
 	/** Bumped every `RELATIVE_TICK_MS` so the "Saved Ns ago" label refreshes. */
 	let nowTick = $state(Date.now());
 
@@ -1604,12 +1662,12 @@
 		pruneSelection();
 		activeSceneIdx = Math.min(activeSceneIdx, Math.max(0, scenes.length - 1));
 		// The apply itself is not a new edit (don't recordEdit) — but it must persist.
-		// `dirty` may already be true (a `true→true` write triggers no effect), so
-		// (re)start the autosave timer imperatively rather than relying on the effect.
-		dirty = true;
+		// A `true→true` dirty write arms nothing on its own (leading debounce), so re-arm the
+		// autosave timer imperatively — the old `restartAutosave()`.
+		saveState.setDirty(true);
 		loadedPreview = false;
 		lastError = '';
-		restartAutosave();
+		saveState.rearmAutosave();
 		canvasRedrawNonce += 1; // force the canvas to repaint the restored positions
 	}
 	function undo(): void {
@@ -1639,13 +1697,13 @@
 
 	function markDirty(): void {
 		recordEdit();
-		dirty = true;
+		saveState.markDirty();
 		loadedPreview = false; // a real edit commits the (possibly loaded) layout
 		// Editing clears a stale save error — but NOT a conflict, whose message is the
 		// banner's only explanation and whose state must survive until the author
 		// resolves it. Blanking it here would leave "⚠ Someone else saved this" with an
 		// empty tooltip on the very next keystroke.
-		if (!conflict) lastError = '';
+		if (saveState.status !== 'conflict') lastError = '';
 		// Force the canvas to repaint after ANY property-panel edit. The canvas redraw
 		// effects track a field whitelist (node COUNT, scene space/align, author param
 		// defaults) + this nonce — they do NOT deep-track per-node `params`/`bind.props`/
@@ -1737,98 +1795,28 @@
 		return out;
 	}
 
-	let pendingSave = false;
 	/**
 	 * Persist the doc, guarded by the ETag this tab loaded. Resolves TRUE only when the
 	 * doc actually reached R2 — callers that navigate away on a flush (the component
 	 * editor hops) MUST check it, or a refused save silently discards the author's work.
 	 *
 	 * `force` drops the guard — an explicit, informed "overwrite their version with
-	 * mine", only ever reachable from the conflict banner. Without an escape hatch a
-	 * conflicted tab would hold work it can never save; the point of Phase 1 is that
-	 * losing someone's edits becomes a DECISION, not a silent accident.
+	 * mine", only ever reachable from the conflict banner. Delegates the machine (ETag CAS,
+	 * conflict stickiness, coalescing, autosave) to {@link saveState}; this wrapper only mirrors
+	 * the outcome into the general `lastError` string the bespoke pill reads.
 	 */
 	async function save(force = false): Promise<boolean> {
-		if (conflict && !force) return false;
-		if (busy) {
-			// Coalesce: the in-flight save's `finally` will re-trigger.
-			pendingSave = true;
-			return false;
-		}
-		busy = true;
-		let saved = false;
-		try {
-			const payload = JSON.stringify(buildDocPayload());
-			// '' encodes "no doc existed when I loaded" (FormData has no null), which the
-			// action turns into a create precondition. Omitted entirely when forcing.
-			const fields: Record<string, string> = { doc: payload };
-			if (force) fields.force = '1';
-			else fields.baseEtag = docEtag ?? '';
-			const out = (await postAction('save', fields)) as {
-				saved?: boolean;
-				updatedAt?: string;
-				etag?: string | null;
-				error?: string;
-				conflict?: boolean;
-			};
-			if (out.conflict) {
-				// Keep the local doc and stay dirty — never discard the author's work here.
-				conflict = true;
-				lastError = out.error ?? 'Someone else saved this project while you were editing.';
-			} else if (out.error) {
-				lastError = out.error;
-			} else {
-				lastSavedAt = out.updatedAt ?? new Date().toISOString();
-				docEtag = out.etag ?? null;
-				lastError = '';
-				conflict = false;
-				dirty = false;
-				loadedPreview = false;
-				crossTypeLoaded = false;
-				crossTypeFrom = '';
-				saved = true;
-			}
-		} catch (e) {
-			lastError = e instanceof Error ? e.message : 'Save failed.';
-		} finally {
-			busy = false;
-			if (pendingSave) {
-				pendingSave = false;
-				if (dirty && !conflict) void save();
-			}
+		const saved = await saveState.save({ force });
+		if (saved) {
+			lastError = '';
+		} else if (saveState.status === 'conflict') {
+			// Keep the local doc and stay dirty — never discard the author's work here.
+			lastError = saveState.message || 'Someone else saved this project while you were editing.';
+		} else if (saveState.status === 'error') {
+			lastError = saveState.message;
 		}
 		return saved;
 	}
-
-	let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
-	/** (Re)start the debounced autosave timer. Called reactively from the `dirty`
-	 * effect AND imperatively from `applySnapshot` (undo/redo) — the latter can't rely
-	 * on the effect, since a `true→true` `dirty` write is a no-op that re-runs nothing. */
-	function restartAutosave(): void {
-		// A cross-type load must never autosave — only an explicit Save persists it.
-		if (crossTypeLoaded) return;
-		// A conflicted doc must never autosave: the write can only lose again, so this
-		// would 409 every AUTOSAVE_MS until the author resolves it. Resolution is
-		// explicit (reload theirs, or overwrite with mine).
-		if (conflict) return;
-		if (autosaveTimer) clearTimeout(autosaveTimer);
-		autosaveTimer = setTimeout(() => {
-			autosaveTimer = null;
-			void save();
-		}, AUTOSAVE_MS);
-	}
-	$effect(() => {
-		// Re-running this effect when `dirty` flips true starts/restarts the
-		// autosave timer. Mutations bump `dirty` again -> debounce resets.
-		if (!dirty) return;
-		restartAutosave();
-		return () => {
-			if (autosaveTimer) {
-				clearTimeout(autosaveTimer);
-				autosaveTimer = null;
-			}
-		};
-	});
 
 	// ---------- template authoring (§7.5) ----------
 
@@ -1884,14 +1872,14 @@
 				activeTemplate = out.template;
 				// Adopt the new game type's etag — a save must CAS against the object it is
 				// actually about to write, not the one the page happened to load with.
-				templateEtag = out.etag;
+				templateState.adoptEtag(out.etag);
 			} else {
 				activeTemplate = undefined;
-				templateEtag = null;
+				templateState.adoptEtag(null);
 			}
 		} catch {
 			activeTemplate = undefined;
-			templateEtag = null;
+			templateState.adoptEtag(null);
 		}
 		slotMeta = seedSlotMeta(activeTemplate);
 	}
@@ -1904,9 +1892,39 @@
 		markDirty();
 	}
 
-	let templateBusy = $state(false);
 	/** Last template save outcome shown via the save-pill styling near the action. */
 	let templateStatus = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
+
+	/**
+	 * Template save-state machine — a SEPARATE instance for the GLOBAL
+	 * `_shared/editor-templates/<gameType>.json`. Manual save; conflict is surfaced by
+	 * `saveTemplate`'s `confirm()` (no scope-mismatch — a project can't wrong-target a global
+	 * key). Re-adopts the etag on every template load (`loadTemplateFor`) since switching game
+	 * type switches the object.
+	 */
+	const templateState = new SaveState({
+		initialEtag: data.templateEtag,
+		conflictMessage: 'Someone else changed this template.',
+		save: async ({ baseEtag, force }) => {
+			const res = await postTemplate(force ? { force: true } : { baseEtag });
+			if (res.status === 409) {
+				const body = (await res.json().catch(() => ({}))) as { message?: string };
+				return { ok: false, reason: 'conflict', message: body.message };
+			}
+			if (!res.ok) {
+				let message = 'Template save failed';
+				try {
+					const body = (await res.json()) as { message?: string };
+					if (body?.message) message = body.message;
+				} catch {
+					/* non-JSON error body */
+				}
+				return { ok: false, reason: 'error', message };
+			}
+			const body = (await res.json().catch(() => ({}))) as { etag?: string | null };
+			return { ok: true, etag: body.etag ?? null };
+		},
+	});
 
 	/** Map every node carrying a `slotId` (recursing containers) to a `TemplateSlot`. */
 	function collectSlots(nodes: LayoutNode[], into: TemplateSlot[]): TemplateSlot[] {
@@ -1945,47 +1963,23 @@
 	}
 
 	async function saveTemplate(): Promise<void> {
-		if (templateBusy) return;
-		templateBusy = true;
+		if (templateState.busy) return;
 		templateStatus = null;
-		try {
-			let res = await postTemplate({ baseEtag: templateEtag });
-			if (res.status === 409) {
-				// The template key is GLOBAL (one per game type, every project shares it), so
-				// the other author may be on a different project entirely. Confirm before
-				// discarding their slot edits — silently replacing them is what Phase 1 exists
-				// to stop.
-				const body = (await res.json().catch(() => ({}))) as { message?: string };
-				const msg = body.message ?? 'Someone else changed this template.';
-				if (!confirm(`${msg}\n\nOverwrite their version with yours?`)) {
-					templateStatus = { kind: 'error', message: msg };
-					return;
-				}
-				res = await postTemplate({ force: true });
+		// The template key is GLOBAL (one per game type, every project shares it), so the other
+		// author may be on a different project entirely. Confirm before discarding their slot
+		// edits — silently replacing them is what Phase 1 exists to stop.
+		let ok = await templateState.save();
+		if (!ok && templateState.status === 'conflict') {
+			const msg = templateState.message;
+			if (!confirm(`${msg}\n\nOverwrite their version with yours?`)) {
+				templateStatus = { kind: 'error', message: msg };
+				return;
 			}
-			if (res.ok) {
-				const body = (await res.json().catch(() => ({}))) as { etag?: string | null };
-				templateEtag = body.etag ?? null;
-				templateStatus = { kind: 'ok', message: 'Template saved' };
-			} else {
-				// API routes return `{ message }` for thrown `error(...)`; fall back to text.
-				let message = 'Template save failed';
-				try {
-					const body = (await res.json()) as { message?: string };
-					if (body?.message) message = body.message;
-				} catch {
-					/* non-JSON error body */
-				}
-				templateStatus = { kind: 'error', message };
-			}
-		} catch (e) {
-			templateStatus = {
-				kind: 'error',
-				message: e instanceof Error ? e.message : 'Template save failed',
-			};
-		} finally {
-			templateBusy = false;
+			ok = await templateState.save({ force: true });
 		}
+		templateStatus = ok
+			? { kind: 'ok', message: 'Template saved' }
+			: { kind: 'error', message: templateState.message || 'Template save failed' };
 	}
 
 	// ---------- spine upload (sync a folder of Spine assets to R2) ----------
@@ -2093,7 +2087,7 @@
 	}
 
 	function onBeforeUnload(e: BeforeUnloadEvent): void {
-		if (!dirty) return;
+		if (!saveState.dirty) return;
 		e.preventDefault();
 		e.returnValue = '';
 	}
@@ -2173,7 +2167,7 @@
 			window.removeEventListener('focus', onVisibilityChange);
 			window.removeEventListener('keydown', onEditorKeyDown);
 			window.clearInterval(id);
-			if (autosaveTimer) clearTimeout(autosaveTimer);
+			saveState.cancelAutosave();
 		};
 	});
 
@@ -2210,9 +2204,9 @@
 				{atlasCount} atlases · {spineCount} spines · {sheetCount} sheets
 			</span>
 			<span class="dot-sep">·</span>
-			{#if busy}
+			{#if saveState.busy}
 				<span class="save-pill busy">Saving…</span>
-			{:else if conflict}
+			{:else if saveState.status === 'conflict'}
 				<span class="save-pill error" title={lastError}>⚠ Someone else saved this</span>
 				<button
 					class="save-btn"
@@ -2244,7 +2238,7 @@
 					Save as {crossTypeFrom}
 				</button>
 				<button class="save-btn" type="button" onclick={discardCrossType}>Discard</button>
-			{:else if dirty}
+			{:else if saveState.dirty}
 				<span class="save-pill dirty">Unsaved changes</span>
 				<button class="save-btn" type="button" onclick={() => void save()}>Save</button>
 			{:else if loadedPreview}
@@ -2302,7 +2296,7 @@
 						{/each}
 					</select>
 				</label>
-				{#if templateBusy}
+				{#if templateState.busy}
 					<span class="save-pill busy">Saving template…</span>
 				{:else if templateStatus?.kind === 'error'}
 					<span class="save-pill error" title={templateStatus.message}>Template failed</span>
@@ -2662,6 +2656,7 @@
 							<EditorElementsPalette
 								{onElementDragStart}
 								reel={{ active: !!existingReelGrid, onAdd: insertReelGrid }}
+								repeater={{ onAdd: insertRepeater }}
 							/>
 						</ul>
 					</PanelSection>
@@ -2870,6 +2865,7 @@
 				isBackgroundCover={isBackgroundCoverSelected}
 				{spineMeta}
 				spines={data.assets.spines}
+				{componentDefs}
 				instanceComponent={selectedNode?.kind === 'componentInstance'
 					? (componentMap.get(selectedNode.componentId) ?? null)
 					: null}

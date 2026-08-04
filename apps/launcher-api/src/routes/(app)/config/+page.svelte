@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import { SaveState } from '$lib/saveState.svelte';
 	import {
 		normalizeGameConfigDoc,
 		resolveBetModes,
@@ -27,14 +28,7 @@
 	/** Where the loaded doc came from — the page says so, so "edit yours" vs "adopt the template" is
 	 *  never ambiguous. Flips to 'authored' once a save lands. */
 	let source = $state<'authored' | 'template'>(data.source);
-	/** The ETag this page loaded — the save precondition, so a second author can't silently erase
-	 *  this one's whole config. `null` = no authored doc on load ⇒ first save CREATES. */
-	let docEtag = $state<string | null>(data.etag);
-
-	let saving = $state(false);
 	let savedAt = $state<string | null>(null);
-	let saveError = $state<string | null>(null);
-	let conflict = $state<string | null>(null);
 
 	/** `$state.snapshot` because a raw `structuredClone` of a `$state` proxy throws DataCloneError. */
 	let baseline = $state(JSON.stringify(initial));
@@ -482,42 +476,49 @@
 	 * reports the count. A clean save adopts the server's normalized doc so the baseline matches
 	 * exactly what persisted.
 	 */
-	async function save(force = false) {
-		saving = true;
-		saveError = null;
-		try {
+	/**
+	 * Save-state machine (multi-user-concurrency Phase 2a). Manual save (no autosave); the
+	 * transport owns the request + the caller-side create encoding (JSON `null` baseEtag). A
+	 * 400 issue-list rejection maps to `reason:'error'` (shown in the meta), a 409 to
+	 * `conflict` (the in-body banner); `force` drops the precondition. The transport adopts
+	 * the server's normalized doc so the baseline matches exactly what persisted.
+	 */
+	const saveState = new SaveState({
+		initialEtag: data.etag,
+		conflictMessage: 'Someone else saved this config while you were editing.',
+		save: async ({ baseEtag, force }) => {
 			const res = await fetch(`/api/game-config?project=${encodeURIComponent(data.projectKey)}`, {
 				method: 'PUT',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ doc: $state.snapshot(doc), baseEtag: docEtag, force }),
+				body: JSON.stringify({ doc: $state.snapshot(doc), baseEtag, force }),
 			});
 			if (res.status === 409) {
 				const c = (await res.json()) as { message?: string };
-				conflict = c.message ?? 'Someone else saved this config while you were editing.';
-				return;
+				return { ok: false, reason: 'conflict', message: c.message };
 			}
 			if (res.status === 400) {
 				const c = (await res.json()) as { issues?: GameConfigIssue[] };
 				const n = c.issues?.length ?? 0;
-				saveError = n
-					? `Can't save: ${n} blocking ${n === 1 ? 'issue' : 'issues'} — see the highlighted panels.`
-					: "This config can't be saved.";
-				return;
+				return {
+					ok: false,
+					reason: 'error',
+					message: n
+						? `Can't save: ${n} blocking ${n === 1 ? 'issue' : 'issues'} — see the highlighted panels.`
+						: "This config can't be saved.",
+				};
 			}
-			if (!res.ok) throw new Error((await res.text()) || `HTTP ${res.status}`);
+			if (!res.ok) {
+				return { ok: false, reason: 'error', message: (await res.text()) || `HTTP ${res.status}` };
+			}
 			const saved = (await res.json()) as { doc: GameConfigDoc; etag: string | null };
 			doc = structuredClone(saved.doc);
 			baseline = JSON.stringify(saved.doc);
-			docEtag = saved.etag;
 			source = 'authored';
-			conflict = null;
 			savedAt = new Date().toLocaleTimeString();
-		} catch (e) {
-			saveError = e instanceof Error ? e.message : 'Save failed.';
-		} finally {
-			saving = false;
-		}
-	}
+			return { ok: true, etag: saved.etag };
+		},
+	});
+	const save = (force = false) => void saveState.save({ force });
 </script>
 
 <svelte:head><title>Invisible Game Config — {data.projectKey}</title></svelte:head>
@@ -533,20 +534,24 @@
 			{#if errors.length}<span class="pill err"
 					>{errors.length} error{errors.length === 1 ? '' : 's'}</span
 				>{/if}
-			{#if saveError}<span class="err">{saveError}</span>{/if}
+			{#if saveState.status === 'error'}<span class="err">{saveState.message}</span>{/if}
 			{#if dirty}<span class="pill dirty">Unsaved</span>{:else if savedAt}<span class="pill"
 					>Saved {savedAt}</span
 				>{/if}
-			<button class="save" onclick={() => save()} disabled={saving || !dirty || errors.length > 0}>
-				{saving ? 'Saving…' : 'Save'}
+			<button
+				class="save"
+				onclick={() => save()}
+				disabled={saveState.busy || !dirty || errors.length > 0}
+			>
+				{saveState.busy ? 'Saving…' : 'Save'}
 			</button>
 		{/snippet}
 	</ToolTopBar>
 
 	<div class="body">
-		{#if conflict}
+		{#if saveState.status === 'conflict'}
 			<div class="conflict">
-				<p>{conflict}</p>
+				<p>{saveState.message}</p>
 				<p class="conflict-sub">
 					Your edits are still on this page — nothing has been lost. Reload to take their version
 					(your unsaved edits go), or overwrite with yours.

@@ -34,6 +34,7 @@
 		childLocalTransform,
 		nodeBox,
 		nodeCornersWorld,
+		repeaterPlaceholderGrid,
 		topMidWorld,
 		pointInQuad,
 		resolveBoneRiderRigKey,
@@ -2069,9 +2070,48 @@
 					`✨ ${node.label ?? node.effectId}`,
 				);
 			}
+		} else if (node.kind === 'repeater') {
+			drawRepeater(ctx, node, t);
 		}
 
 		ctx.restore();
+	}
+
+	/**
+	 * Draw the static placeholder for a `repeater` node: a fixed SAMPLE of item boxes laid
+	 * out by the node's `layout` rule (row advances +x; grid wraps at `columns`), since the
+	 * editor can't resolve the live `source` array. Stands in for the per-item component
+	 * instances the game stamps; labelled with the component + a `×N` hint that the real
+	 * count is data-driven. Drawn in the node's already-scaled local space (drawNode applied
+	 * the transform), anchored like the reel grid.
+	 */
+	function drawRepeater(
+		ctx: CanvasRenderingContext2D,
+		node: Extract<LayoutNode, { kind: 'repeater' }>,
+		t: ResolvedTransform,
+	): void {
+		const g = repeaterPlaceholderGrid(node);
+		const left = -g.w * (t.anchor?.x ?? 0.5);
+		const top = -g.h * (t.anchor?.y ?? 0.5);
+
+		ctx.fillStyle = 'rgba(200, 163, 255, 0.06)';
+		ctx.fillRect(left, top, g.w, g.h);
+
+		ctx.lineWidth = 1;
+		ctx.strokeStyle = 'rgba(200, 163, 255, 0.5)';
+		ctx.fillStyle = 'rgba(200, 163, 255, 0.09)';
+		for (let i = 0; i < g.count; i++) {
+			const col = i % g.cols;
+			const rowIdx = Math.floor(i / g.cols);
+			const x = left + col * (g.itemW + g.gap);
+			const y = top + rowIdx * (g.itemH + g.gap);
+			ctx.fillRect(x, y, g.itemW, g.itemH);
+			ctx.strokeRect(x, y, g.itemW, g.itemH);
+		}
+
+		ctx.fillStyle = '#e8e8ee';
+		ctx.font = '14px sans-serif';
+		ctx.fillText(`⧉ ${node.label ?? 'Repeater'} · ${node.componentId} ×N`, left + 8, top + 20);
 	}
 
 	/**

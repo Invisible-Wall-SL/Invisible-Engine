@@ -11,6 +11,7 @@
 	 * a still-frame flipbook would buy nothing.
 	 */
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import { SaveState } from '$lib/saveState.svelte';
 	import {
 		DEFAULT_FLIPBOOK_FPS,
 		animationToClip,
@@ -46,12 +47,11 @@
 	let clip = $state<FlipbookClip>(data.openedClip ?? emptyClip());
 
 	// --- save / open state ------------------------------------------------------
-	let saving = $state(false);
+	/** Delete-flow spinner; `busy` (below) unions it with the save machine so every shared
+	 * `disabled={busy}` keeps its "either operation in flight" meaning. */
+	let deleting = $state(false);
 	let saveError = $state('');
 	let savedNote = $state('');
-	/** ETag of the OPENED clip — sent on save, re-adopted from the response. `null` when
-	 * composing a new clip, which makes the save assert the name is free. */
-	let docEtag = $state<string | null>(data.openedEtag);
 	let pickerId = $state<string>(data.openedClip?.id ?? '');
 	/** LOCAL, reactive copy of the clip index so a save shows in the rail without a reload. */
 	let clips = $state<{ id: string; name: string; frames: number }[]>(data.clips);
@@ -60,6 +60,65 @@
 		const rest = clips.filter((c) => c.id !== row.id);
 		clips = [...rest, row].sort((a, b) => a.name.localeCompare(b.name));
 	}
+
+	/**
+	 * Save-state machine (multi-user-concurrency Phase 2a). Manual save; the transport owns the
+	 * request. Create encoding stays caller-side and keeps the `isUnsaved ? null : baseEtag`
+	 * guard — after a delete the clip resets to untitled while the held etag stays stale, so the
+	 * `isUnsaved` sentinel (not the etag) decides the create path. A 409 `scope-mismatch` is
+	 * non-forceable (reload is the only fix); a plain conflict is DESTRUCTIVE (clips have no
+	 * version history), surfaced by the wrapper's explicit confirm. `saveAs` repoints the id +
+	 * `adoptEtag(null)`, restoring on a declined save.
+	 */
+	const saveState = new SaveState({
+		initialEtag: data.openedEtag,
+		save: async ({ baseEtag, force }) => {
+			try {
+				const isUnsaved = clip.id === '' || clip.id === UNTITLED_CLIP_ID;
+				const outgoingId = isUnsaved ? clip.name.trim() || clip.id : clip.id;
+				const res = await fetch('/api/flipbook/save', {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({
+						clip: { ...$state.snapshot(clip), id: outgoingId },
+						projectKey: data.projectKey,
+						...(force ? { force: true } : { baseEtag: isUnsaved ? null : baseEtag }),
+					}),
+				});
+				if (res.status === 409) {
+					const out = (await res.json().catch(() => ({}))) as {
+						error?: string;
+						message?: string;
+					};
+					const msg = out.message ?? 'This clip changed since you opened it.';
+					return {
+						ok: false,
+						reason: out.error === 'scope-mismatch' ? 'scope-mismatch' : 'conflict',
+						message: msg,
+					};
+				}
+				if (!res.ok) {
+					return { ok: false, reason: 'error', message: `Save failed (HTTP ${res.status}).` };
+				}
+				const out = (await res.json()) as {
+					id: string;
+					name: string;
+					frames: number;
+					etag: string | null;
+				};
+				// The server slugs the id; adopt it so a later save/open round-trips cleanly.
+				clip = { ...clip, id: out.id };
+				pickerId = out.id;
+				upsertClip({ id: out.id, name: out.name, frames: out.frames });
+				savedNote = `Saved "${out.name}" (${out.frames} frame${out.frames === 1 ? '' : 's'}).`;
+				return { ok: true, etag: out.etag };
+			} catch {
+				return { ok: false, reason: 'error', message: 'Save failed (network error).' };
+			}
+		},
+	});
+	/** Union of the two in-flight flags — preserves every shared `disabled={busy}`. */
+	const busy = $derived(deleting || saveState.busy);
 
 	/**
 	 * Persist the clip. `force` is the author confirming after a conflict, and it is genuinely
@@ -72,59 +131,21 @@
 			saveError = 'Pick a source sheet before saving — a clip needs one to resolve its frames.';
 			return false;
 		}
-		saving = true;
 		saveError = '';
 		savedNote = '';
-		try {
-			const isUnsaved = clip.id === '' || clip.id === UNTITLED_CLIP_ID;
-			const outgoingId = isUnsaved ? clip.name.trim() || clip.id : clip.id;
-			const res = await fetch('/api/flipbook/save', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					clip: { ...$state.snapshot(clip), id: outgoingId },
-					// Names the project THIS tab loaded, so the server refuses rather than writing
-					// to whatever project the session has since switched to.
-					projectKey: data.projectKey,
-					...(force ? { force: true } : { baseEtag: isUnsaved ? null : docEtag }),
-				}),
-			});
-			if (res.status === 409) {
-				const out = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
-				const msg = out.message ?? 'This clip changed since you opened it.';
-				saveError = msg;
-				if (out.error === 'scope-mismatch') return false; // never forceable — reload is the fix
-				saving = false;
-				const ok = confirm(
-					`${msg}\n\nOverwrite it with yours?\n\n` +
-						'This permanently REPLACES the stored clip. It has no version history, ' +
-						'so their work cannot be recovered. Cancel to rename yours instead.',
-				);
-				return ok ? await save(true) : false;
-			}
-			if (!res.ok) {
-				saveError = `Save failed (HTTP ${res.status}).`;
-				return false;
-			}
-			const out = (await res.json()) as {
-				id: string;
-				name: string;
-				frames: number;
-				etag: string | null;
-			};
-			// The server slugs the id; adopt it so a later save/open round-trips cleanly.
-			clip = { ...clip, id: out.id };
-			docEtag = out.etag;
-			pickerId = out.id;
-			upsertClip({ id: out.id, name: out.name, frames: out.frames });
-			savedNote = `Saved "${out.name}" (${out.frames} frame${out.frames === 1 ? '' : 's'}).`;
-			return true;
-		} catch {
-			saveError = 'Save failed (network error).';
-			return false;
-		} finally {
-			saving = false;
+		const ok = await saveState.save({ force });
+		if (ok) return true;
+		saveError = saveState.message;
+		if (saveState.status === 'scope-mismatch') return false; // never forceable — reload is the fix
+		if (!force && saveState.status === 'conflict') {
+			const confirmed = confirm(
+				`${saveState.message}\n\nOverwrite it with yours?\n\n` +
+					'This permanently REPLACES the stored clip. It has no version history, ' +
+					'so their work cannot be recovered. Cancel to rename yours instead.',
+			);
+			return confirmed ? await save(true) : false;
 		}
+		return false;
 	}
 
 	/** Save a COPY under a new name. Resetting the id to the sentinel makes the save key the new
@@ -136,12 +157,12 @@
 		if (!clean) return;
 		// A refused overwrite must not strand the tab holding the sentinel id + the copy's name.
 		const previous = { id: clip.id, name: clip.name };
-		const previousEtag = docEtag;
+		const previousEtag = saveState.etag;
 		clip = { ...clip, id: UNTITLED_CLIP_ID, name: clean };
-		docEtag = null;
+		saveState.adoptEtag(null);
 		if (!(await save())) {
 			clip = { ...clip, id: previous.id, name: previous.name };
-			docEtag = previousEtag;
+			saveState.adoptEtag(previousEtag);
 		}
 	}
 
@@ -150,7 +171,7 @@
 		if (!id) return;
 		const label = clips.find((c) => c.id === id)?.name ?? id;
 		if (!window.confirm(`Delete "${label}"? This cannot be undone.`)) return;
-		saving = true;
+		deleting = true;
 		saveError = '';
 		savedNote = '';
 		try {
@@ -170,7 +191,7 @@
 		} catch {
 			saveError = 'Delete failed (network error).';
 		} finally {
-			saving = false;
+			deleting = false;
 		}
 	}
 
@@ -566,11 +587,11 @@
 						onchange={(e) => (clip = { ...clip, name: e.currentTarget.value })}
 					/>
 				</label>
-				<button class="primary" disabled={saving} onclick={() => save()}>
-					{saving ? 'Saving…' : '⤓ Save'}
+				<button class="primary" disabled={busy} onclick={() => save()}>
+					{saveState.busy ? 'Saving…' : '⤓ Save'}
 				</button>
-				<button disabled={saving} onclick={saveAs}>⧉ Save As…</button>
-				<button class="danger" disabled={saving || !pickerId} onclick={deleteOpen}>
+				<button disabled={busy} onclick={saveAs}>⧉ Save As…</button>
+				<button class="danger" disabled={busy || !pickerId} onclick={deleteOpen}>
 					🗑 Delete
 				</button>
 			</div>

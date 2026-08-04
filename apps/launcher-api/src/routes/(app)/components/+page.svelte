@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Emblem from '$lib/Emblem.svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import { SaveState } from '$lib/saveState.svelte';
 	import {
 		BUTTON_STATE_PARAMS,
 		ENGINE_ACTION_CATALOG,
@@ -55,10 +56,6 @@
 	 * so a save adopts the server's new etag without a reload (Phase 1 of
 	 * `docs/design/multi-user-concurrency.md`). */
 	let componentEtags = $state<Record<string, string | null>>({ ...data.componentEtags });
-	/** The open draft's precondition — the ETag it was opened at. `null` ⇒ create
-	 * (`ifNoneMatch: '*'`): a never-saved draft, or a built-in being forked into R2 for the
-	 * first time. Sent as `baseEtag` on save; re-adopted from the save response. */
-	let draftEtag = $state<string | null>(null);
 	/** The component currently open for editing, or null (sidebar-only home state). */
 	let componentDraft = $state<ComponentDef | null>(null);
 	/** Bumped on every properties-panel edit to force the shared `EditorCanvas` to
@@ -67,8 +64,74 @@
 	 * the draft but never redraw (the Scene Editor bumps its own nonce the same way). */
 	let editNonce = $state(0);
 	/** Save state for the component POST (header pill). */
-	let saveBusy = $state(false);
 	let saveStatus = $state<{ kind: 'ok' | 'error'; message: string } | null>(null);
+	/** Promote-to-shared spinner (a DIFFERENT global key than the draft's), unioned into `busy`. */
+	let promoting = $state(false);
+
+	/**
+	 * Draft save-state machine (multi-user-concurrency Phase 2a). Manual save. `state.etag` is
+	 * the open draft's precondition (the id→etag map `componentEtags` seeds it on open via
+	 * `adoptEtag`; re-adopted from each save response). Conflict UX is DELIBERATELY bespoke — a
+	 * versioned `confirm()` ("save as a NEW version on top of theirs") rather than a banner,
+	 * since components are versioned and the other author's work survives as its own immutable
+	 * snapshot; it's driven off `state.status`/`state.message`, not the shared badge. Create
+	 * encoding stays caller-side (JSON `null`). Promote-to-shared is a separate operation (its
+	 * own key + confirm), so it does NOT go through this instance — it would clobber the draft etag.
+	 */
+	const saveState = new SaveState({
+		initialEtag: null,
+		conflictMessage: 'Someone else saved this component while you were editing it.',
+		save: async ({ baseEtag, force }) => {
+			if (!componentDraft) return { ok: false, reason: 'error', message: 'No component open.' };
+			const body = {
+				...(componentDraft.scope === 'project'
+					? { ...componentDraft, project: data.projectKey }
+					: componentDraft),
+				// A stored def CASes against `baseEtag`; a never-saved one sends `null` (create).
+				...(force ? { force: true } : { baseEtag }),
+			};
+			const res = await fetch('/api/editor/component', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(body),
+			});
+			if (res.status === 409) {
+				const b = (await res.json().catch(() => ({}))) as { message?: string };
+				return { ok: false, reason: 'conflict', message: b.message };
+			}
+			if (!res.ok) {
+				let message = 'Component save failed';
+				try {
+					const b = (await res.json()) as { message?: string };
+					if (b?.message) message = b.message;
+				} catch {
+					/* non-JSON error body */
+				}
+				return { ok: false, reason: 'error', message };
+			}
+			const out = (await res.json().catch(() => ({}))) as {
+				version?: number;
+				etag?: string | null;
+			};
+			// Adopt the SERVER's reconciled version — it may have bumped past the posted one.
+			const saved = $state.snapshot(componentDraft) as ComponentDef;
+			if (typeof out.version === 'number') {
+				saved.version = out.version;
+				componentDraft.version = out.version;
+			}
+			const newEtag = out.etag ?? null;
+			componentEtags = { ...componentEtags, [saved.id]: newEtag };
+			savedSnapshot = JSON.stringify(saved);
+			const i = components.findIndex((c) => c.id === saved.id);
+			if (i === -1) components = [...components, saved];
+			else components = components.map((c) => (c.id === saved.id ? saved : c));
+			// A save may bump the version + write a new snapshot — refresh the browser.
+			void loadVersionList(saved);
+			return { ok: true, etag: newEtag };
+		},
+	});
+	/** Union of the draft-save and promote spinners — every shared `disabled`/pill uses it. */
+	const busy = $derived(saveState.busy || promoting);
 
 	/**
 	 * Version browser (§8.9 v2). `versionList` = the retained `<id>.v<N>.json` snapshots
@@ -184,7 +247,7 @@
 		// The save precondition for this def's scope key. An entry absent from the map (a
 		// never-saved draft, or a built-in with no stored object) ⇒ `null` ⇒ the first save
 		// creates. A stored def carries the etag it was listed at, so a save CASes against it.
-		draftEtag = componentEtags[def.id] ?? null;
+		saveState.adoptEtag(componentEtags[def.id] ?? null);
 		// Baseline for the unsaved-changes guard. A NEWLY CREATED component is
 		// deliberately dirty from the start (`null` baseline): it exists ONLY as this
 		// draft until "Save component", so leaving without saving must warn.
@@ -288,7 +351,7 @@
 		}
 		componentDraft = $state.snapshot(latest) as ComponentDef;
 		// Restore the editable latest's precondition — inspecting a snapshot never changed it.
-		draftEtag = componentEtags[latest.id] ?? null;
+		saveState.adoptEtag(componentEtags[latest.id] ?? null);
 		savedSnapshot = JSON.stringify($state.snapshot(componentDraft));
 		inspectingVersion = null;
 		pickVersion = '';
@@ -486,76 +549,24 @@
 	async function saveComponent(force = false): Promise<void> {
 		// Inspecting a historical version is read-only — a save here would re-pin/overwrite
 		// the latest with an old snapshot, defeating the non-destructive guarantee.
-		if (!componentDraft || saveBusy || isInspecting) return;
-		saveBusy = true;
+		if (!componentDraft || busy || isInspecting) return;
 		saveStatus = null;
-		try {
-			const body = {
-				...(componentDraft.scope === 'project'
-					? { ...componentDraft, project: data.projectKey }
-					: componentDraft),
-				// Send the precondition (or `force` to overwrite theirs after a conflict). A
-				// stored def CASes against `draftEtag`; a never-saved one sends `null` (create).
-				...(force ? { force: true } : { baseEtag: draftEtag }),
-			};
-			const res = await fetch('/api/editor/component', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(body),
-			});
-			if (res.status === 409) {
-				const b = (await res.json().catch(() => ({}))) as { message?: string };
-				const msg = b.message ?? 'Someone else saved this component while you were editing it.';
-				saveStatus = { kind: 'error', message: msg };
-				saveBusy = false;
-				if (confirm(`${msg}\n\nSave yours as a NEW version on top of theirs?`)) {
-					await saveComponent(true);
-				}
-				return;
-			}
-			if (res.ok) {
-				const out = (await res.json().catch(() => ({}))) as {
-					version?: number;
-					etag?: string | null;
-				};
-				saveStatus = { kind: 'ok', message: 'Component saved' };
-				// Snapshot (not structuredClone): componentDraft is a reactive proxy.
-				// Adopt the SERVER's reconciled version — it may have bumped past the posted
-				// one, and recording the local version here would leave the draft (and the
-				// dirty check) describing a version that was never stored.
-				const saved = $state.snapshot(componentDraft) as ComponentDef;
-				if (typeof out.version === 'number') {
-					saved.version = out.version;
-					componentDraft.version = out.version;
-				}
-				// Adopt the new ETag so the NEXT save CASes against what we just wrote — not the
-				// stale value we opened with (which would 409 every save after the first).
-				draftEtag = out.etag ?? null;
-				componentEtags = { ...componentEtags, [saved.id]: draftEtag };
-				savedSnapshot = JSON.stringify(saved);
-				const i = components.findIndex((c) => c.id === saved.id);
-				if (i === -1) components = [...components, saved];
-				else components = components.map((c) => (c.id === saved.id ? saved : c));
-				// A save may bump the version + write a new snapshot — refresh the browser.
-				void loadVersionList(saved);
-			} else {
-				let message = 'Component save failed';
-				try {
-					const b = (await res.json()) as { message?: string };
-					if (b?.message) message = b.message;
-				} catch {
-					/* non-JSON error body */
-				}
-				saveStatus = { kind: 'error', message };
-			}
-		} catch (e) {
-			saveStatus = {
-				kind: 'error',
-				message: e instanceof Error ? e.message : 'Component save failed',
-			};
-		} finally {
-			saveBusy = false;
+		const ok = await saveState.save({ force });
+		if (ok) {
+			saveStatus = { kind: 'ok', message: 'Component saved' };
+			return;
 		}
+		if (!force && saveState.status === 'conflict') {
+			// Non-destructive: components are VERSIONED, so re-saving on top lands as v(N+2) and
+			// theirs survives as its own immutable snapshot. Offer the stack-on-top choice.
+			const msg = saveState.message;
+			saveStatus = { kind: 'error', message: msg };
+			if (confirm(`${msg}\n\nSave yours as a NEW version on top of theirs?`)) {
+				await saveComponent(true);
+			}
+			return;
+		}
+		saveStatus = { kind: 'error', message: saveState.message || 'Component save failed' };
 	}
 
 	/**
@@ -568,7 +579,7 @@
 	 * spells this out). Reuses the same status pill as a project save.
 	 */
 	async function promoteToShared(): Promise<void> {
-		if (!componentDraft || saveBusy || !data.canPublishShared || isInspecting) return;
+		if (!componentDraft || busy || !data.canPublishShared || isInspecting) return;
 		if (
 			!window.confirm(
 				`Promote "${componentDraft.name}" to the SHARED library?\n\n` +
@@ -579,7 +590,7 @@
 		) {
 			return;
 		}
-		saveBusy = true;
+		promoting = true;
 		saveStatus = null;
 		try {
 			// A shared write carries no `project` and a `scope:'shared'` def, so the API
@@ -634,7 +645,7 @@
 				message: e instanceof Error ? e.message : 'Promote to shared failed',
 			};
 		} finally {
-			saveBusy = false;
+			promoting = false;
 		}
 	}
 
@@ -1036,7 +1047,7 @@
 						Inspect
 					</button>
 				{/if}
-				{#if saveBusy}
+				{#if busy}
 					<span class="save-pill busy">Saving…</span>
 				{:else if saveStatus?.kind === 'error'}
 					<span class="save-pill error" title={saveStatus.message}>Save failed</span>
@@ -1058,7 +1069,7 @@
 					<button
 						class="save-btn"
 						type="button"
-						disabled={saveBusy || isInspecting}
+						disabled={busy || isInspecting}
 						title="Save a repo-wide copy to the shared library (_shared/editor-components). A project component of the same id still shadows it."
 						onclick={() => void promoteToShared()}
 					>

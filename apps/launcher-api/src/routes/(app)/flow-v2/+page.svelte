@@ -45,6 +45,8 @@
 	import NodeInspector from './NodeInspector.svelte';
 	import PinDropMenu, { type PinDropCandidate } from './PinDropMenu.svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import SaveStatusBadge from '$lib/SaveStatusBadge.svelte';
+	import { SaveState } from '$lib/saveState.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -409,135 +411,86 @@
 	// null `docEtag` becomes an `ifNoneMatch: '*'` create precondition server-side).
 	const AUTOSAVE_MS = 800;
 	const hasProject = data.projectKey.length > 0;
-	type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'conflict' | 'scope-mismatch';
-	let saveStatus = $state<SaveStatus>('idle');
-	let dirty = $state(false);
 	// `true` once the doc exists in R2 — false only for a freshly SEEDED, never-stored doc, so the
 	// status pill can say "new · unsaved" until the first autosave lands (then it flips true).
 	let storedInR2 = $state(!data.seeded);
-	/** ETag of the stored doc — sent on save, re-adopted from each response. */
-	let docEtag = $state<string | null>(data.docEtag);
-	/** Server-supplied explanation for a conflict / scope-mismatch banner. */
-	let saveMessage = $state('');
 
-	let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
-
-	// Every editing gesture calls this after mutating `doc`. It arms the debounce; a fresh
-	// gesture within the window resets it (coalescing a burst of edits into one save).
-	function markDirty(): void {
-		if (!hasProject) return; // no project bound — nothing to persist to.
-		dirty = true;
-		// A conflicted (or wrong-project) doc must not re-arm: the write can only lose
-		// again, so this would 409 every 800ms until the author resolves it. Edits kept.
-		if (saveStatus === 'conflict' || saveStatus === 'scope-mismatch') return;
-		if (autosaveTimer) clearTimeout(autosaveTimer);
-		autosaveTimer = setTimeout(() => {
-			autosaveTimer = null;
-			void saveDoc();
-		}, AUTOSAVE_MS);
-	}
-
-	let pendingSave = false;
-	/** `force` = the author's explicit "overwrite theirs" from the conflict banner. */
-	async function saveDoc(force = false): Promise<void> {
-		// `scope-mismatch` is never forceable — see the server's scope guard.
-		if (saveStatus === 'scope-mismatch') return;
-		if (saveStatus === 'conflict' && !force) return;
-		if (saveStatus === 'saving') {
-			// Coalesce: the in-flight save's `finally` re-triggers if still dirty.
-			pendingSave = true;
-			return;
-		}
-		saveStatus = 'saving';
-		try {
+	/**
+	 * Doc save-state machine (multi-user-concurrency Phase 2a). Trailing 800 ms debounce
+	 * (resets on every edit — the default). The transport names the project THIS tab loaded so
+	 * the server can refuse (`409 scope-mismatch`, non-forceable) rather than write to whatever
+	 * project the session moved to; a plain 409 is a `conflict`. `force` = the explicit
+	 * "overwrite theirs". Create encoding stays caller-side (JSON `null` baseEtag).
+	 */
+	const saveState = new SaveState({
+		autosaveMs: AUTOSAVE_MS,
+		initialEtag: data.docEtag,
+		save: async ({ baseEtag, force }) => {
 			const res = await fetch('/api/flow-v2/save', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				// `projectKey` names the project THIS tab loaded, so the server can refuse
-				// rather than write to whatever project the session has since moved to.
 				body: JSON.stringify({
 					doc,
 					projectKey: data.projectKey,
-					...(force ? { force: true } : { baseEtag: docEtag }),
+					...(force ? { force: true } : { baseEtag }),
 				}),
 			});
 			if (res.status === 409) {
 				const out = (await res.json().catch(() => ({}))) as { error?: string; message?: string };
-				// Keep the local doc and stay dirty — never discard the author's work, and
-				// never reload it out from under them.
-				saveStatus = out.error === 'scope-mismatch' ? 'scope-mismatch' : 'conflict';
-				saveMessage = out.message ?? '';
-				return;
+				return {
+					ok: false,
+					reason: out.error === 'scope-mismatch' ? 'scope-mismatch' : 'conflict',
+					message: out.message ?? '',
+				};
 			}
-			if (!res.ok) throw new Error(`save failed (${res.status})`);
+			if (!res.ok) return { ok: false, reason: 'error', message: `save failed (${res.status})` };
 			const out = (await res.json()) as { etag?: string | null };
-			docEtag = out.etag ?? null;
-			dirty = false;
 			storedInR2 = true; // a seeded doc is now persisted — the pill drops "new".
-			saveStatus = 'saved';
-		} catch {
-			saveStatus = 'error';
-		} finally {
-			if (pendingSave) {
-				pendingSave = false;
-				if (dirty && saveStatus !== 'conflict' && saveStatus !== 'scope-mismatch') void saveDoc();
-			}
-		}
+			return { ok: true, etag: out.etag ?? null };
+		},
+	});
+	const saveDoc = (force = false) => void saveState.save({ force });
+
+	// Every editing gesture calls this after mutating `doc`. It arms the trailing debounce; a
+	// fresh gesture within the window resets it (coalescing a burst of edits into one save). The
+	// helper won't re-arm from a sticky conflict / scope-mismatch — edits are kept.
+	function markDirty(): void {
+		if (!hasProject) return; // no project bound — nothing to persist to.
+		saveState.markDirty();
 	}
 
 	// --- Persistence: debounced auto-save for the shared FUNCTION LIBRARY --------
 	// The library is GLOBAL (not project-scoped), but we still only persist when a project scope
 	// exists (`hasProject`). A mutation (only "Collapse to Function" today) calls `markLibraryDirty`,
 	// which debounces a POST to `/api/flow-v2/library/save` writing `_shared/flow-v2/functions.json`.
-	let librarySaveStatus = $state<SaveStatus>('idle');
-	let libraryDirty = $state(false);
-	let libraryAutosaveTimer: ReturnType<typeof setTimeout> | null = null;
-	/** ETag of the GLOBAL library object. The only guard against an author on another
-	 * project erasing these functions — a project lease cannot cover a shared key. */
-	let libraryEtag = $state<string | null>(data.libraryEtag);
-
-	function markLibraryDirty(): void {
-		if (!hasProject) return; // no project bound — never persist the shared library.
-		libraryDirty = true;
-		if (librarySaveStatus === 'conflict') return;
-		if (libraryAutosaveTimer) clearTimeout(libraryAutosaveTimer);
-		libraryAutosaveTimer = setTimeout(() => {
-			libraryAutosaveTimer = null;
-			void saveLibrary();
-		}, AUTOSAVE_MS);
-	}
-
-	let pendingLibrarySave = false;
-	async function saveLibrary(force = false): Promise<void> {
-		if (librarySaveStatus === 'conflict' && !force) return;
-		if (librarySaveStatus === 'saving') {
-			pendingLibrarySave = true;
-			return;
-		}
-		librarySaveStatus = 'saving';
-		try {
+	/**
+	 * Library save-state machine — a SEPARATE instance for the GLOBAL `_shared/flow-v2/
+	 * functions.json`. Same trailing 800 ms debounce. It has no scope-mismatch (the key is
+	 * global, not project-scoped) and no "new" state. `libraryEtag` is the only guard against an
+	 * author on another project erasing these functions — a project lease cannot cover a shared key.
+	 */
+	const libraryState = new SaveState({
+		autosaveMs: AUTOSAVE_MS,
+		initialEtag: data.libraryEtag,
+		save: async ({ baseEtag, force }) => {
 			const res = await fetch('/api/flow-v2/library/save', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(force ? { library, force: true } : { library, baseEtag: libraryEtag }),
+				body: JSON.stringify(force ? { library, force: true } : { library, baseEtag }),
 			});
-			if (res.status === 409) {
-				librarySaveStatus = 'conflict';
-				return;
+			if (res.status === 409) return { ok: false, reason: 'conflict', message: '' };
+			if (!res.ok) {
+				return { ok: false, reason: 'error', message: `library save failed (${res.status})` };
 			}
-			if (!res.ok) throw new Error(`library save failed (${res.status})`);
 			const out = (await res.json()) as { etag?: string | null };
-			libraryEtag = out.etag ?? null;
-			libraryDirty = false;
-			librarySaveStatus = 'saved';
-		} catch {
-			librarySaveStatus = 'error';
-		} finally {
-			if (pendingLibrarySave) {
-				pendingLibrarySave = false;
-				if (libraryDirty && librarySaveStatus !== 'conflict') void saveLibrary();
-			}
-		}
+			return { ok: true, etag: out.etag ?? null };
+		},
+	});
+	const saveLibrary = (force = false) => void libraryState.save({ force });
+
+	function markLibraryDirty(): void {
+		if (!hasProject) return; // no project bound — never persist the shared library.
+		libraryState.markDirty();
 	}
 
 	// xyflow 1.6 has no node-double-click event, so detect it (mirrors v1 /flow): two clicks on
@@ -1259,83 +1212,53 @@
 		{/if}
 		<span class="spacer"></span>
 		{#if hasProject}
-			{#if saveStatus === 'saving'}
-				<span class="save-pill busy">Saving…</span>
-			{:else if saveStatus === 'scope-mismatch'}
-				<!-- Deliberately NO "overwrite" here: the target is a DIFFERENT project's
-				     flow doc, and overwriting that is never the author's to choose. -->
-				<span class="save-pill error" title={saveMessage}>⚠ Wrong project — not saved</span>
-				<button
-					class="save-pill"
-					type="button"
-					title="Reload this tab against your current active project."
-					onclick={() => location.reload()}>Reload</button
-				>
-			{:else if saveStatus === 'conflict'}
-				<span
-					class="save-pill error"
-					title={saveMessage ||
-						'Someone else saved this flow while you were editing. Your changes are still here and autosave is paused.'}
-					>⚠ Someone else saved this</span
-				>
-				<button
-					class="save-pill"
-					type="button"
-					title="Discard YOUR changes and load their version."
-					onclick={() => location.reload()}>Reload theirs</button
-				>
-				<button
-					class="save-pill"
-					type="button"
-					title="Overwrite THEIR version with yours. Their changes since you loaded will be lost."
-					onclick={() => void saveDoc(true)}>Overwrite with mine</button
-				>
-			{:else if saveStatus === 'error'}
-				<button class="save-pill error" type="button" onclick={() => void saveDoc()}
-					>Save failed — retry</button
-				>
-			{:else if dirty}
-				<span class="save-pill dirty">Unsaved changes</span>
-			{:else if !storedInR2}
+			{#if saveState.status === 'idle' && !saveState.dirty && !storedInR2}
+				<!-- Bespoke "seeded, never stored" state (between dirty and saved) the shared badge
+				     doesn't model — kept here, amber like `dirty`. -->
 				<span
 					class="save-pill dirty"
 					title="This project was seeded with the reference flow. It saves automatically on your first edit."
 					>New — unsaved</span
 				>
 			{:else}
-				<span class="save-pill ok">Saved</span>
+				<SaveStatusBadge
+					state={saveState}
+					okAccent
+					overwritable
+					dirtyLabel="Unsaved changes"
+					savedLabel="Saved"
+					conflictLabel="⚠ Someone else saved this"
+					scopeMismatchLabel="⚠ Wrong project — not saved"
+					titles={{
+						conflict:
+							'Someone else saved this flow while you were editing. Your changes are still here and autosave is paused.',
+					}}
+					onReloadTheirs={() => location.reload()}
+					onOverwrite={() => saveDoc(true)}
+					onRetry={() => saveDoc()}
+				/>
 			{/if}
 		{/if}
-		{#if hasProject && librarySaveStatus !== 'idle'}
-			{#if librarySaveStatus === 'saving'}
-				<span class="save-pill busy" title="Shared function library">Library…</span>
-			{:else if librarySaveStatus === 'conflict'}
-				<span
-					class="save-pill error"
-					title="Someone else changed the shared function library — possibly from another project, since the library is global. Your changes are still here and autosave is paused."
-					>⚠ Library changed elsewhere</span
-				>
-				<button
-					class="save-pill"
-					type="button"
-					title="Discard YOUR library changes and load theirs."
-					onclick={() => location.reload()}>Reload theirs</button
-				>
-				<button
-					class="save-pill"
-					type="button"
-					title="Overwrite THEIR library with yours. Their functions added since you loaded will be lost."
-					onclick={() => void saveLibrary(true)}>Overwrite with mine</button
-				>
-			{:else if librarySaveStatus === 'error'}
-				<button class="save-pill error" type="button" onclick={() => void saveLibrary()}
-					>Library save failed — retry</button
-				>
-			{:else if libraryDirty}
-				<span class="save-pill dirty" title="Shared function library">Library unsaved</span>
-			{:else}
-				<span class="save-pill ok" title="Shared function library saved">Library saved</span>
-			{/if}
+		{#if hasProject && libraryState.status !== 'idle'}
+			<SaveStatusBadge
+				state={libraryState}
+				okAccent
+				overwritable
+				savingLabel="Library…"
+				dirtyLabel="Library unsaved"
+				savedLabel="Library saved"
+				conflictLabel="⚠ Library changed elsewhere"
+				titles={{
+					saving: 'Shared function library',
+					dirty: 'Shared function library',
+					saved: 'Shared function library saved',
+					conflict:
+						'Someone else changed the shared function library — possibly from another project, since the library is global. Your changes are still here and autosave is paused.',
+				}}
+				onReloadTheirs={() => location.reload()}
+				onOverwrite={() => saveLibrary(true)}
+				onRetry={() => saveLibrary()}
+			/>
 		{/if}
 		<span class="count">
 			{activeGraph.nodes.length} nodes · {activeGraph.exec.length} exec · {activeGraph.data.length}
@@ -1536,6 +1459,8 @@
 		border-color: #3b82f6;
 		color: #dbeafe;
 	}
+	/* The status pill now renders via `<SaveStatusBadge>` (its own scoped CSS). Only the
+	   bespoke "New — unsaved" span still uses these, so just the base + dirty variant remain. */
 	.save-pill {
 		font-size: 11px;
 		padding: 3px 9px;
@@ -1545,22 +1470,9 @@
 		color: #888;
 		letter-spacing: 0.02em;
 	}
-	.save-pill.busy {
-		color: #7ee0c0;
-		border-color: #234038;
-	}
 	.save-pill.dirty {
 		color: #f0c878;
 		border-color: #3a3020;
-	}
-	.save-pill.error {
-		color: #ff9a9a;
-		border-color: #4a2a30;
-		cursor: pointer;
-		font: inherit;
-	}
-	.save-pill.ok {
-		color: #86efac;
 	}
 	.legend {
 		display: inline-flex;
