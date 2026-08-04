@@ -65,17 +65,15 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 
 Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide priority order.
 
-1. **Multi-user concurrency — Phase 1 residual (3 small items), then Phase 2 (lease).** ⭐ *Next —
-   live data loss.* **Phase 1 is effectively SHIPPED** (audited 2026-08-04): the conditional-write
-   floor is live across all 13 authoring surfaces — every autosaver + manual-save tool CAS-writes
-   with a `baseEtag` and shows a non-destructive conflict banner. Only three narrow code gaps remain:
-   **(a)** `baseEtag` still FAILS OPEN at every endpoint (`jsonBaseEtag`/`formBaseEtag` → unconditional
-   write on an absent field; the "make it required + 400" trigger was never pulled — the hole a new
-   tool ships unguarded through, *do first*); **(b)** the **components** ETag isn't carried
-   load→editor→save (`loadComponent`/`listComponents`/GET emit none), so shared-scope defs stay
-   last-writer-wins-on-pointer; **(c)** `saveComponentDefaults` is an unguarded `putObjectText`. Then
-   **Phase 2** — doc lease + presence (needs the shared `$lib/saveState.svelte.ts` rune helper that 8
-   pages currently hand-roll). ([design/multi-user-concurrency](design/multi-user-concurrency.md) §"Phase 1")
+1. **Multi-user concurrency — Phase 2 (soft lease + presence).** ⭐ *Next.* **Phases 0 + 1 are
+   COMPLETE** (see Recently closed): the conditional-write floor is live and REQUIRED across all 13
+   authoring surfaces (no endpoint can fall open). Phase 2 stops the collision happening in the first
+   place: a Postgres soft lease keyed `(toolId, clientKey, projectKey, docKey)` with
+   acquire/heartbeat/release/**takeover** (takeover always reachable so a crashed tab can't wedge a
+   doc), a read-only "X is editing this" banner, and per-tool read-only mode. **Prerequisite:** the
+   shared `$lib/saveState.svelte.ts` rune helper that 8 pages currently hand-roll (consolidating the
+   etag/dirty/conflict logic is what makes the banner + read-only mode a one-place change). Run the
+   `reuse-check` skill before building the banner. ([design/multi-user-concurrency](design/multi-user-concurrency.md) §"Phase 2")
 2. **Rigger mesh-deform animation timelines** — per-vertex `deform` channel keying (the largest
    missing animation channel). ([status/rigger](status/rigger.md))
 3. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines` / `bookOf` have rich
@@ -89,9 +87,13 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
 8. Smaller: wire `gen-flow-vocabulary --check` into CI/pre-commit; refresh
     [tools/fx.md](tools/fx.md) for the new Emission/Movement/Colour/Blend/Presets sliders (rule 9).
 
-**Recently closed** (2026-08-04): **Concurrency Phase 0 — COMPLETE** (rigger indexes → Postgres
-earlier; the last two RMW-on-a-global-key sites — `test_server/games.json` + the fonts catalog — now
-guarded with `If-Match` + CAS retry, PR #201; owner-verify owed = the two-profile live test) ·
+**Recently closed** (2026-08-04): **Concurrency Phase 1 — COMPLETE** (the conditional-write floor is
+live + REQUIRED across all 13 authoring surfaces; the last residuals — component ETag threaded
+load→editor→save, `saveComponentDefaults` guarded, and the fail-open closed via `writeGuard.ts` — PR
+#204; owner-verify owed = a two-tab component conflict + a save/create smoke) · **Concurrency Phase 0
+— COMPLETE** (rigger indexes → Postgres earlier; the last two RMW-on-a-global-key sites —
+`test_server/games.json` + the fonts catalog — now guarded with `If-Match` + CAS retry, PR #201;
+owner-verify owed = the two-profile live test) ·
 **Invisible Game Config** (all phases + grid/bet-modes/win-tiers shipped and live-verified) ·
 **Ship-from-Rigger** rule-8 wiring (a rig now travels export→deploy→bake→pull→register into a game) ·
 **Flow-driven-game Phase 5** (a shipped title runs an authored FlowDoc). See each tool's
