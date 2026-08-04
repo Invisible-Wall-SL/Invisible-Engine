@@ -74,10 +74,11 @@ export const dispatchFlowV2Event = async (
 export const resolveFlowV2Press: FlowPressResolver = (
 	componentId: string,
 	action: string,
+	payload?: Record<string, unknown>,
 ): (() => void) | undefined => {
 	const h = getFlowV2();
 	if (!h?.ownsContainerEvent(componentId, action)) return undefined;
-	return () => void h.dispatchContainerEvent(componentId, action);
+	return () => void h.dispatchContainerEvent(componentId, action, payload);
 };
 
 /**

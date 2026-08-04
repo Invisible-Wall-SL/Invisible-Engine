@@ -2123,6 +2123,9 @@ importers:
 
   tools/flow-spike:
     devDependencies:
+      constants-shared:
+        specifier: workspace:*
+        version: link:../../packages/constants-shared
       engine-flow:
         specifier: workspace:*
         version: link:../../packages/engine-flow

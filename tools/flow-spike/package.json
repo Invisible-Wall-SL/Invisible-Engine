@@ -40,6 +40,7 @@
 		"v2vocab": "tsx flowV2Vocab.ts",
 		"v2containerevents": "tsx flowV2ContainerEvents.ts",
 		"v2containerfire": "tsx flowV2ContainerFire.ts",
+		"v2repeaterselect": "tsx flowV2RepeaterSelect.ts",
 		"v2gamesignals": "tsx flowV2GameSignals.ts",
 		"v2signalscope": "tsx flowV2SignalScope.ts",
 		"v2preview": "tsx flowV2Preview.ts",
@@ -58,6 +59,7 @@
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",
+		"constants-shared": "workspace:*",
 		"engine-flow": "workspace:*",
 		"engine-flow-v2": "workspace:*",
 		"engine-flow-migrate": "workspace:*",

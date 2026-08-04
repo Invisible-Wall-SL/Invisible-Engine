@@ -196,8 +196,14 @@ export type LinesFlowV2 = {
 	 *  body (parity). The engine-layout press resolver calls this to decide suppression. */
 	ownsContainerEvent: (componentId: string, action: string) => boolean;
 	/** Run the authored chain for a container event — walks FROM the fused pin's wired target (does
-	 *  NOT re-run the show node). A no-op if un-authored. Invoked only when `ownsContainerEvent` holds. */
-	dispatchContainerEvent: (componentId: string, action: string) => Promise<void>;
+	 *  NOT re-run the show node). A no-op if un-authored. Invoked only when `ownsContainerEvent` holds.
+	 *  `payload` seeds the fired event's `$trigger` scope (e.g. a repeater card's `{ betModeKey: key }`),
+	 *  so a fused list pin's data-out resolves to which item fired; a button passes none. */
+	dispatchContainerEvent: (
+		componentId: string,
+		action: string,
+		payload?: Record<string, unknown>,
+	) => Promise<void>;
 };
 
 /**
@@ -528,9 +534,9 @@ export const createLinesFlowV2 = (
 		ordered: () => mount.ordered(),
 		awaitTargets: awaitCompleteContainerIds(doc),
 		ownsContainerEvent: (componentId, action) => flowOwnsContainerEvent(doc, componentId, action),
-		dispatchContainerEvent: (componentId, action) => {
+		dispatchContainerEvent: (componentId, action, payload) => {
 			trace('containerEvent ▶', `${componentId}.${action}`);
-			return runFlowContainerEvent(doc, ctx, componentId, action);
+			return runFlowContainerEvent(doc, ctx, componentId, action, payload);
 		},
 	};
 };

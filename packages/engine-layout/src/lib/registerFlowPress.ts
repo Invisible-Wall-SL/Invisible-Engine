@@ -18,8 +18,17 @@
 /** Resolve a press handler for `(instanceId, action)`, honouring the flow's authored container-event
  *  ownership. Returns a press handler that routes to the flow WHEN the flow OWNS the event (an authored
  *  exec edge from that fused pin), else `undefined` so the caller runs its coded `onpress` unchanged
- *  (parity). The game wires this to the interpreter holder's `resolveFlowV2Press`. */
-export type FlowPressResolver = (instanceId: string, action: string) => (() => void) | undefined;
+ *  (parity). The game wires this to the interpreter holder's `resolveFlowV2Press`.
+ *
+ *  `payload` seeds the fired event's `$trigger` scope — WHICH item a fused list pin fired for. Buttons
+ *  pass none (a button press carries no selection); a `<Repeater>` card passes `{ betModeKey: key }` so
+ *  the pin's data-out resolves to the pressed card's key. Absent ⇒ the flow's existing empty-payload
+ *  behaviour (byte-identical for every button). */
+export type FlowPressResolver = (
+	instanceId: string,
+	action: string,
+	payload?: Record<string, unknown>,
+) => (() => void) | undefined;
 
 let registered: FlowPressResolver | undefined;
 

@@ -10,9 +10,11 @@
 <script lang="ts">
 	import { Container } from 'pixi-svelte';
 	import { getContextLayout } from 'utils-layout';
+	import { REPEATER_SELECT_EVENT, REPEATER_SELECTED_KEY } from 'constants-shared/repeater';
 
 	import ComponentInstance from './ComponentInstance.svelte';
 	import { componentDesignSize } from './componentDesignSize';
+	import { getFlowPress } from './registerFlowPress';
 	import { resolveComponent } from './registerComponents';
 	import { getRepeaterSource, type RepeaterItem } from './registerRepeaterSources';
 
@@ -68,6 +70,23 @@
 		x: 0,
 		y: 0,
 	});
+
+	// Flow press routing (Invisible Flow v2, §Part 2) — the repeater analogue of a button's fused
+	// container-event pin. When the flow OWNS the repeater's `select` event (an authored exec edge from
+	// this repeater NODE's fused `<node.id>.onSelect` pin), a card press routes to the flow ALONE,
+	// seeding the pressed item's `key` as the trigger payload (`{ betModeKey: key }`) so the pin's
+	// data-out resolves to which mode was picked. When NOT owned (every coded game — no repeater select
+	// ownership at all — and any doc that didn't author it), the coded `item.onSelect` runs EXACTLY as
+	// today (parity). Consulted AT PRESS TIME so ownership reflects the LIVE v2 handle regardless of boot
+	// timing (mirrors `<ComponentInstance>`'s `firePress`). `<node.id>` is the repeater's stable id — the
+	// SAME `componentId` the Scene→decl projection uses (`repeaterSelectConfiguredEvent`).
+	const selectHandler = (item: RepeaterItem) => () => {
+		const routed = getFlowPress()?.(node.id, REPEATER_SELECT_EVENT, {
+			[REPEATER_SELECTED_KEY]: item.key,
+		});
+		if (routed) routed();
+		else item.onSelect?.();
+	};
 </script>
 
 {#each items as item, index (item.key ?? index)}
@@ -77,7 +96,7 @@
 			node={itemNode(item, index)}
 			{space}
 			engineValues={item.values}
-			onSelect={item.onSelect}
+			onSelect={selectHandler(item)}
 		/>
 	</Container>
 {/each}

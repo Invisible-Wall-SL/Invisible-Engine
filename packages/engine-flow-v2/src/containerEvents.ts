@@ -13,6 +13,8 @@
  * a full Scene-Editor component, so the editor projects its components down to this before calling in.
  */
 
+import { REPEATER_SELECT_EVENT, REPEATER_SELECTED_KEY } from 'constants-shared/repeater';
+
 import type { ContainerEventDecl, ParamDecl } from './types';
 
 /**
@@ -25,7 +27,32 @@ export interface ConfiguredComponentEvent {
 	payload?: ParamDecl[]; // data-outs; usually empty.
 }
 
-const capitalize = (s: string): string => (s.length === 0 ? s : s.charAt(0).toUpperCase() + s.slice(1));
+/**
+ * Project a `repeater` node into its `ConfiguredComponentEvent` — the SINGLE fused `select` decl the
+ * whole list contributes (N items → one pin), carrying one `betModeKey: string` data-out for the
+ * selected item's key. This is the repeater analogue of a button projecting its `action` binding: a
+ * `repeater` has no per-item `action` param, so the Scene→decl projection recognises it by kind and
+ * calls in here. The runtime seeds `{ betModeKey: item.key }` as the fired event's trigger payload
+ * (see `constants-shared/repeater`), so the pin's data-out resolves to the pressed card's key.
+ *
+ * `string` (not a bet-mode enum) by design: the item set is a live registry read at RUNTIME
+ * (`registerRepeaterSources`), so no enum is available at vocab-build time — the whitelisted-accessor
+ * bound stays intact without inventing a type.
+ */
+export const repeaterSelectConfiguredEvent = (componentId: string): ConfiguredComponentEvent => ({
+	componentId,
+	event: REPEATER_SELECT_EVENT,
+	payload: [
+		{
+			name: REPEATER_SELECTED_KEY,
+			type: { t: 'string' },
+			description: 'The selected card key (a bet-mode key for the buy-feature menu).',
+		},
+	],
+});
+
+const capitalize = (s: string): string =>
+	s.length === 0 ? s : s.charAt(0).toUpperCase() + s.slice(1);
 
 /**
  * The fused exec-out pin's LABEL — the `on<Event>` tail (stable regardless of which component owns it).
