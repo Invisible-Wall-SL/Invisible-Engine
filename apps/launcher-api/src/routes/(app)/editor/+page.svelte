@@ -408,6 +408,11 @@
 		return m;
 	});
 
+	/** The project's component ids + names — feeds the `repeater` node's `componentId`
+	 * picker in Properties (reusing the SAME list the picker/canvas already resolve, not a
+	 * re-fetch). */
+	const componentDefs = $derived(components.map((c) => ({ id: c.id, name: c.name })));
+
 	/** Atlas/sheet manifests an `image`-kind param can pick frames from (the region
 	 * picker source). Atlas pages aren't manifests, so only `atlas-manifest`s + sheets. */
 	const pickSheets = $derived([
@@ -686,6 +691,31 @@
 			rowPadding: 0.5,
 			gapX: 0,
 			gapY: 0,
+		};
+		onSpawn(node);
+		selectOnly(node.id);
+	}
+
+	/**
+	 * Insert a `repeater` node (the data-driven buy/select-feature primitive) into the active
+	 * scene, centred, with sane defaults: the built-in `featureCard` component stamped once per
+	 * `featureCards` source item, laid out in a row with a 24px gap. Unlike `reelGrid` there's no
+	 * single-instance guard — a layout may carry several repeaters. Mirrors `placeComponentInstance`
+	 * (spawn at main centre → select). The author retargets `source`/`componentId`/`layout` in the
+	 * Properties panel; the editor draws a labelled placeholder (the live source can't run here).
+	 */
+	function insertRepeater(): void {
+		const main = mainSizesMap[currentLayoutType];
+		const node: LayoutNode = {
+			id: 'n_' + Math.random().toString(36).slice(2, 10),
+			kind: 'repeater',
+			label: 'Repeater',
+			x: Math.round(main.width / 2),
+			y: Math.round(main.height / 2),
+			anchor: { x: 0.5, y: 0.5 },
+			source: 'featureCards',
+			componentId: 'featureCard',
+			layout: { direction: 'row', gap: 24 },
 		};
 		onSpawn(node);
 		selectOnly(node.id);
@@ -2662,6 +2692,7 @@
 							<EditorElementsPalette
 								{onElementDragStart}
 								reel={{ active: !!existingReelGrid, onAdd: insertReelGrid }}
+								repeater={{ onAdd: insertRepeater }}
 							/>
 						</ul>
 					</PanelSection>
@@ -2870,6 +2901,7 @@
 				isBackgroundCover={isBackgroundCoverSelected}
 				{spineMeta}
 				spines={data.assets.spines}
+				{componentDefs}
 				instanceComponent={selectedNode?.kind === 'componentInstance'
 					? (componentMap.get(selectedNode.componentId) ?? null)
 					: null}

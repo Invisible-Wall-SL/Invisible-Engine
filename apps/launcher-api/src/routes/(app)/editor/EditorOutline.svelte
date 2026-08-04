@@ -97,6 +97,8 @@
 				return '◇';
 			case 'reelGrid':
 				return '⊞';
+			case 'repeater':
+				return '⧉';
 		}
 	}
 

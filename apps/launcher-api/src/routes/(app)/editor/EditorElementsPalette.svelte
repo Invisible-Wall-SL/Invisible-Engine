@@ -16,9 +16,11 @@
 	const {
 		onElementDragStart,
 		reel,
+		repeater,
 	}: {
 		onElementDragStart: (e: DragEvent, payload: DragPayload) => void;
 		reel?: { active: boolean; onAdd: () => void };
+		repeater?: { onAdd: () => void };
 	} = $props();
 </script>
 
@@ -49,6 +51,17 @@
 		<button type="button" class="li-btn" onclick={reel.onAdd}>
 			<span class="name">Reel</span>
 			<span class="tag">grid</span>
+		</button>
+	</li>
+{/if}
+{#if repeater}
+	<li
+		class="click"
+		title="Insert a data-driven repeater — stamps one component per live source item (buy/select feature)."
+	>
+		<button type="button" class="li-btn" onclick={repeater.onAdd}>
+			<span class="name">Repeater</span>
+			<span class="tag">list</span>
 		</button>
 	</li>
 {/if}

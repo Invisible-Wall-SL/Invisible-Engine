@@ -105,6 +105,9 @@
 		 * param dropdown and resolves a selected bundle name to the `assetKey` the
 		 * `spineMeta` map is keyed by (for the animation / slot dropdowns). */
 		spines?: SpineOption[];
+		/** The project's component ids + names — feeds the `repeater` node's `componentId`
+		 * picker (the same list the scene picker/canvas resolve). */
+		componentDefs?: { id: string; name: string }[];
 		/** "Edit as component": open the selected container's sub-tree as a component. */
 		onEditAsComponent?: (container: ContainerNode) => void;
 		/** "Convert to parametric grid": replace the selected reelGrid mount anchor
@@ -199,6 +202,7 @@
 		pickSheets = [],
 		spineMeta = new Map(),
 		spines = [],
+		componentDefs = [],
 		onEditAsComponent,
 		onConvertToReelGrid,
 		onConvertToParametricButton,
@@ -4061,6 +4065,110 @@
 				that rig — a <em>bone</em>-placed layer (set in Invisible FX) follows the rig's bone, and
 				the rig's timeline events (authored in the Rigger) fire the effect on the beat.
 			</p>
+		</section>
+	{:else if node.kind === 'repeater'}
+		<section>
+			<h3>Repeater</h3>
+			<p class="muted small">
+				Stamps one copy of a component per item of a live data source — the buy/select-feature
+				primitive. The editor can't run the source, so it draws a labelled placeholder; the game
+				mounts the real per-item instances. Position it with the Transform section above.
+			</p>
+			<div class="row">
+				<label class="field wide">
+					<span>data source</span>
+					<input
+						type="text"
+						value={node.source}
+						placeholder="featureCards"
+						oninput={(e) => {
+							node.source = e.currentTarget.value;
+							markDirty();
+						}}
+					/>
+				</label>
+			</div>
+			<p class="muted small">
+				Must match a source the game registers at runtime (via <code>registerRepeaterSources</code>)
+				— it resolves to the live item array. There's no dropdown: sources register in game code.
+			</p>
+			<div class="row">
+				<label class="field wide">
+					<span>component</span>
+					<select
+						value={node.componentId}
+						onchange={(e) => {
+							node.componentId = e.currentTarget.value;
+							markDirty();
+						}}
+					>
+						{#if !componentDefs.some((c) => c.id === node.componentId)}
+							<option value={node.componentId}>{node.componentId} (missing)</option>
+						{/if}
+						{#each componentDefs as c (c.id)}
+							<option value={c.id}>{c.name}</option>
+						{/each}
+					</select>
+				</label>
+			</div>
+			<p class="muted small">
+				The component instanced once per item; each item feeds its own params + <code>onSelect</code>
+				press.
+			</p>
+			<div class="row">
+				<label class="field">
+					<span>direction</span>
+					<select
+						value={node.layout.direction}
+						onchange={(e) => {
+							const dir = e.currentTarget.value === 'grid' ? 'grid' : 'row';
+							node.layout.direction = dir;
+							if (dir === 'grid' && (node.layout.columns ?? 0) < 1) node.layout.columns = 3;
+							markDirty();
+						}}
+					>
+						<option value="row">row</option>
+						<option value="grid">grid</option>
+					</select>
+				</label>
+				<label class="field">
+					<span>gap</span>
+					<input
+						type="number"
+						step="1"
+						min="0"
+						value={node.layout.gap}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							if (Number.isFinite(v)) {
+								node.layout.gap = Math.max(0, v);
+								markDirty();
+							}
+						}}
+					/>
+				</label>
+			</div>
+			{#if node.layout.direction === 'grid'}
+				<div class="row">
+					<label class="field">
+						<span>columns</span>
+						<input
+							type="number"
+							step="1"
+							min="1"
+							value={node.layout.columns ?? ''}
+							placeholder="3"
+							oninput={(e) => {
+								const v = e.currentTarget.valueAsNumber;
+								node.layout.columns =
+									Number.isFinite(v) && v >= 1 ? Math.round(v) : undefined;
+								markDirty();
+							}}
+						/>
+					</label>
+				</div>
+				<p class="muted small">Items wrap to a new row every <strong>columns</strong> items.</p>
+			{/if}
 		</section>
 	{/if}
 {/if}

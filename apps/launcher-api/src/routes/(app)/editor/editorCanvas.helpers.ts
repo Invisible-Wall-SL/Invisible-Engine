@@ -132,6 +132,53 @@ export interface NaturalSize {
 	ay?: number;
 }
 
+/**
+ * Fixed geometry for a `repeater`'s editor SAMPLE grid — the editor can't run the live
+ * `source` array, so it stands in a small fixed number of item boxes laid out by the
+ * node's `layout` rule. A feature-card-ish item size keeps the placeholder legible.
+ */
+export const REPEATER_PLACEHOLDER = { itemW: 200, itemH: 280, sampleCount: 3 } as const;
+
+/** The resolved SAMPLE-grid layout of a `repeater` placeholder (columns/rows + footprint),
+ * so the canvas draw and the selection {@link nodeBox} agree on one geometry. */
+export interface RepeaterPlaceholderGrid {
+	cols: number;
+	rows: number;
+	itemW: number;
+	itemH: number;
+	gap: number;
+	count: number;
+	w: number;
+	h: number;
+}
+
+/** Lay the fixed sample items out by the repeater's `layout` (row = single line advancing
+ * +x; grid = wrap every `columns`), returning the grid + total footprint. */
+export function repeaterPlaceholderGrid(
+	node: Extract<LayoutNode, { kind: 'repeater' }>,
+): RepeaterPlaceholderGrid {
+	const { itemW, itemH, sampleCount: count } = REPEATER_PLACEHOLDER;
+	const gap = Number.isFinite(node.layout?.gap) ? Math.max(0, node.layout.gap) : 0;
+	let cols: number = count;
+	if (node.layout?.direction === 'grid') {
+		const columns =
+			node.layout.columns && node.layout.columns > 0 ? Math.round(node.layout.columns) : count;
+		cols = Math.min(columns, count);
+	}
+	cols = Math.max(1, cols);
+	const rows = Math.max(1, Math.ceil(count / cols));
+	return {
+		cols,
+		rows,
+		itemW,
+		itemH,
+		gap,
+		count,
+		w: cols * itemW + (cols - 1) * gap,
+		h: rows * itemH + (rows - 1) * gap,
+	};
+}
+
 /** Resolve a sensible local-space box for any node kind. */
 export function nodeBox(
 	node: LayoutNode,
@@ -234,6 +281,12 @@ export function nodeBox(
 			return { w: nat.w, h: nat.h, ax: nat.ax ?? ax, ay: nat.ay ?? ay };
 		}
 		return { w: 160, h: 100, ax, ay };
+	}
+	// A repeater selects at the footprint of its editor SAMPLE grid (the live source
+	// array can't run here, so a fixed sample stands in) — matching what the canvas draws.
+	if (node.kind === 'repeater') {
+		const g = repeaterPlaceholderGrid(node);
+		return { w: g.w, h: g.h, ax, ay };
 	}
 	// A rect frames at its own width/height (the fill box) — like a sprite, but the
 	// size is intrinsic to the node (no art), so the transform handles resize it.
