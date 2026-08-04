@@ -1,3 +1,4 @@
+import { defaultBuyFeatureScene } from '../buyFeatureScene';
 import type { LayoutDoc, LayoutType, NodeOverride } from '../types';
 import { hudScenes } from './hud';
 
@@ -307,6 +308,9 @@ export function bookofReferenceLayout(): LayoutDoc {
 					},
 				],
 			},
+			// Select-Feature (buy-bonus) menu — the engine-default in-canvas SELECT scene, so a
+			// fresh Book-of project ships an authorable buy-feature page (`buyFeatureScene.ts`).
+			defaultBuyFeatureScene(),
 			// HUD layer (logo/name corners + bottom bar) — universal across game
 			// types, appended so the reference doc matches the per-project seed.
 			// `{ readouts: true }` (B4.6): emit balance/win/bet as parametric

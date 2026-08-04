@@ -1,3 +1,4 @@
+import { defaultBuyFeatureScene } from '../buyFeatureScene';
 import type { LayoutDoc, LayoutType, NodeOverride } from '../types';
 import { hudScenes } from './hud';
 
@@ -234,6 +235,9 @@ export function engineSkeletonLayout({
 					},
 				],
 			},
+			// Select-Feature (buy-bonus) menu — the engine-default in-canvas SELECT scene, so a
+			// fresh project of this kind ships an authorable buy-feature page (`buyFeatureScene.ts`).
+			defaultBuyFeatureScene(),
 			// HUD layer (logo/name corners + bottom bar) — universal across game types.
 			// Coded `bind` labels (no `readouts`): these kinds don't register the
 			// `hudReadout` def, so the parity-safe default keeps them as `UiLabel*` binds.

@@ -1,3 +1,4 @@
+import { defaultBuyFeatureScene } from '../buyFeatureScene';
 import { linesTemplate } from '../templates/lines';
 import type { LayoutDoc, LayoutNode, LayoutType, NodeOverride, Scene } from '../types';
 import { hudScenes } from './hud';
@@ -512,48 +513,11 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 					},
 				],
 			},
-			{
-				// Select-Feature (buy-bonus) menu — the in-canvas twin of the coded HTML
-				// `ModalBuyBonus`. A `canvas`-space takeover: a dimmed backdrop rect behind a
-				// `repeater` that renders one `featureCard` per non-default bet mode (fed by the
-				// `featureCards` source the game registers). Both nodes are window-anchored
-				// (`screenAnchor {0.5,0.5}`) so the menu covers the real viewport regardless of the
-				// design box. The game mounts it as a takeover when the buy-bonus SELECT step opens
-				// (gated behind `apps/lines`' `BUY_FEATURE_SCENE` flag); an author repositions/styles
-				// the cards + backdrop here. The card size is `FEATURE_CARD_WIDTH`×`HEIGHT`
-				// (280×380), so the repeater is offset by half a card to centre the single-card
-				// default lines ships (the owner nudges it for a multi-card menu).
-				id: 'buyFeature',
-				name: sceneName('buyFeature'),
-				space: 'canvas',
-				nodes: [
-					{
-						id: 'buy-feature-dim',
-						label: 'Backdrop',
-						kind: 'rect',
-						screenAnchor: { x: 0.5, y: 0.5 },
-						x: 0,
-						y: 0,
-						// Oversized so it covers any viewport; the default {0.5,0.5} rect anchor keeps
-						// it centred on the window via `screenAnchor`.
-						width: 4000,
-						height: 4000,
-						color: 0x000000,
-						alpha: 0.7,
-					},
-					{
-						id: 'buy-feature-cards',
-						label: 'Feature cards',
-						kind: 'repeater',
-						screenAnchor: { x: 0.5, y: 0.5 },
-						x: -140,
-						y: -190,
-						source: 'featureCards',
-						componentId: 'featureCard',
-						layout: { direction: 'row', gap: 24 },
-					},
-				],
-			},
+			// Select-Feature (buy-bonus) menu — the engine-default in-canvas SELECT scene (dimmed
+			// backdrop + `featureCard` repeater), shared with every reference layout + the
+			// `<BuyFeatureScreen>` takeover fallback (`buyFeatureScene.ts`). An author repositions/
+			// styles the cards + backdrop here.
+			defaultBuyFeatureScene(),
 		],
 		updatedAt: '2026-05-30T00:00:00.000Z',
 	};

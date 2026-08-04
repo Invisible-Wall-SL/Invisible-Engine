@@ -283,6 +283,45 @@
 			]
 		},
 		{
+			"id": "buyFeature",
+			"name": "Select Feature",
+			"space": "canvas",
+			"nodes": [
+				{
+					"id": "buy-feature-dim",
+					"label": "Backdrop",
+					"kind": "rect",
+					"screenAnchor": {
+						"x": 0.5,
+						"y": 0.5
+					},
+					"x": 0,
+					"y": 0,
+					"width": 4000,
+					"height": 4000,
+					"color": 0,
+					"alpha": 0.7
+				},
+				{
+					"id": "buy-feature-cards",
+					"label": "Feature cards",
+					"kind": "repeater",
+					"screenAnchor": {
+						"x": 0.5,
+						"y": 0.5
+					},
+					"x": -140,
+					"y": -190,
+					"source": "featureCards",
+					"componentId": "featureCard",
+					"layout": {
+						"direction": "row",
+						"gap": 24
+					}
+				}
+			]
+		},
+		{
 			"id": "hudBar",
 			"name": "HUD — bottom bar",
 			"space": "standard",

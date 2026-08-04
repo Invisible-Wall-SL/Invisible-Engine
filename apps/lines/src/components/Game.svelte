@@ -3,7 +3,7 @@
 
 	import { EnablePixiExtension, DebugStage } from 'components-pixi';
 	import { EnableHotkey, OnHotkey } from 'components-shared';
-	import { MainContainer, OnPressFullScreen } from 'components-layout';
+	import { MainContainer } from 'components-layout';
 	import { App, Container, Text, REM } from 'pixi-svelte';
 	import {
 		stateBet,
@@ -43,13 +43,14 @@
 		LoadingBar,
 		i18nDerived,
 	} from 'components-ui-pixi';
-	import { GameVersion, Modals, DebugMenu } from 'components-ui-html';
+	import { GameVersion, Modals, DebugMenu, registerBuyFeature } from 'components-ui-html';
 	import {
 		LayoutScene,
 		FlowMount,
 		FlowScreenMount,
 		FlowFade,
 		FlowV2Mount,
+		BuyFeatureScreen,
 	} from 'engine-layout/svelte';
 	import type { FlowEntranceTransition, MountedContainerRef } from 'engine-layout/svelte';
 	import {
@@ -60,7 +61,6 @@
 		registerRigFx,
 		registerComponentValues,
 		registerComponentActions,
-		registerRepeaterSources,
 		registerComponentVisibility,
 		registerFlowComplete,
 		registerFlowValueSource,
@@ -159,10 +159,8 @@
 	import { valueSource } from '../game/valueSource.svelte';
 	import { boolSource } from '../game/boolSource.svelte';
 	import { textSource } from '../game/textSource.svelte';
-	import { repeaterSource } from '../game/repeaterSource.svelte';
-	import { stateBonus } from 'components-ui-html/src/stateBonus.svelte';
 	import { eventSignal } from '../game/signalSource';
-	import { HUD_BUTTON_INSTANCES, BUY_FEATURE_SCENE } from '../game/editorFlags';
+	import { HUD_BUTTON_INSTANCES } from '../game/editorFlags';
 	import {
 		bakedEditorArtAssets,
 		bakedFontCatalog,
@@ -666,32 +664,11 @@
 		// fade, which auto-hides on the same signal so the dimmed board stays clean, not murky.
 		tapOverlayIdle: boolSource(() => stateUi.continuePressCount === 0),
 	});
-	// Repeater feed (§ feature cards): the buy-bonus menu as a data-driven list — one
-	// `featureCard` instance per non-default bet mode, fed from `stateMeta.betModeMeta` (the
-	// config-derived menu). Each card's per-item values mirror the coded HTML `BonusCards`
-	// (title/description are SOURCE strings localized at render; `price` is the live bet ×
-	// cost multiplier; `iconKey` is the resolved editor-art icon), and its `select` press
-	// preserves the HTML card's contract: select the mode + broadcast `buyBonusConfirm`.
-	registerRepeaterSources({
-		featureCards: repeaterSource(() =>
-			Object.values(stateMeta.betModeMeta)
-				.filter((mode) => mode.type !== 'default')
-				.map((mode) => ({
-					key: mode.mode,
-					values: {
-						title: mode.text.title,
-						description: mode.text.description ?? '',
-						price: numberToCurrencyString(stateBet.betAmount * mode.costMultiplier),
-						buttonLabel: mode.text.button,
-						iconKey: mode.assets.icon,
-					},
-					onSelect: () => {
-						stateBonus.selectedBetModeKey = mode.mode;
-						context.eventEmitter.broadcast({ type: 'buyBonusConfirm' });
-					},
-				})),
-		),
-	});
+	// Buy-bonus SELECT menu (§ feature cards): register the SHARED in-canvas Select-Feature wiring —
+	// the built-in `featureCard` def + the `featureCards` repeater source (one card per non-default
+	// bet mode, fed from the active `stateMeta.betModeMeta`; `select` → pick mode + `buyBonusConfirm`).
+	// The `<BuyFeatureScreen>` takeover (mounted below) renders it; the HTML `ModalBuyBonus` is gone.
+	registerBuyFeature();
 
 	const fallbackBasegame = fallbackEditorScenes.scenes.find((scene) => scene.id === 'basegame')!;
 	const fallbackOverlays = fallbackEditorScenes.scenes.find(
@@ -845,37 +822,14 @@
 	// retiring them is FS-7). An un-owned step's coded scene renders as today (byte-parity §7).
 	const freeSpinOwnership = $derived(resolveFlowOwnsFreeSpins(editorDoc));
 
-	// BUY_FEATURE_SCENE — the in-canvas buy-bonus SELECT menu (the `buyFeature` scene: a
-	// `repeater` of `featureCard`s over a dimmed backdrop). Seeded in `defaultLayout`, so the
-	// `!` is safe + a no-doc boot is parity. The owner authors it in the editor; the fallback
-	// centres the single-card default lines ships.
+	// Buy-bonus SELECT menu — the authored `buyFeature` scene (a `repeater` of `featureCard`s over
+	// a dimmed backdrop), else the engine default seeded by `defaultLayout`. Passed to the shared
+	// `<BuyFeatureScreen>` takeover below, which keys its visibility DIRECTLY on `stateModal`
+	// (`buyBonus` = show; a card press advances to `buyBonusConfirm` ⇒ the HTML confirm takes over).
 	const fallbackBuyFeature = fallbackEditorScenes.scenes.find((s) => s.id === 'buyFeature')!;
 	const buyFeatureScene = $derived(
 		editorDoc.scenes.find((scene) => scene.id === 'buyFeature') ?? fallbackBuyFeature,
 	);
-	// Whether the Pixi SELECT menu is showing. The shared `<Modals>` switcher mounts the HTML
-	// `ModalBuyBonus` unconditionally and keys it on `stateModal.modal?.name === 'buyBonus'`, and
-	// we own neither that component nor the `Modal` union — so the only app-level way to keep the
-	// two from doubling is to keep `stateModal` OUT of `buyBonus` and drive the Pixi scene off this
-	// own flag (the sanctioned "render the Pixi scene as the sole buyBonus surface" path). The
-	// redirect `$effect` below converts every `buyBonus` open (the HUD button / flow intent AND the
-	// confirm modal's back button) into this. OFF ⇒ this stays false and the HTML modal opens as
-	// today.
-	let buyFeatureOpen = $state(false);
-	$effect(() => {
-		if (!BUY_FEATURE_SCENE) return;
-		const name = stateModal.modal?.name;
-		if (name === 'buyBonus') {
-			// Suppress the HTML SELECT modal (clear the name it keys on) and raise the Pixi menu.
-			// Converges: the clear makes `name` null on the next run ⇒ no loop. Covers the confirm
-			// modal's back button, which sets `stateModal.modal = { name: 'buyBonus' }`.
-			stateModal.modal = null;
-			buyFeatureOpen = true;
-		} else if (name === 'buyBonusConfirm') {
-			// Advanced to the CONFIRM step (a card was selected) ⇒ hide the SELECT menu behind it.
-			buyFeatureOpen = false;
-		}
-	});
 
 	// HUD layer as editor scenes — when present the `<UI>` positions its HUD from
 	// them (editable in the Invisible Editor); absent → coded layout.
@@ -1169,9 +1123,9 @@
 		// (since the stock scene carries the coded `BoardFrame` anchor) would mount the coded glow
 		// a second time on an un-authored game.
 		'boardGlow',
-		// The buy-bonus SELECT menu is mounted by its OWN takeover path (below), gated on the
-		// open state + `BUY_FEATURE_SCENE`. Reserved so it never ALSO mounts as an always-on
-		// generic overlay (which would show the feature cards permanently).
+		// The buy-bonus SELECT menu is mounted by its OWN `<BuyFeatureScreen>` takeover (below),
+		// gated on `stateModal`. Reserved so it never ALSO mounts as an always-on generic overlay
+		// (which would show the feature cards permanently).
 		'buyFeature',
 	] as const;
 	const reservedSceneIds = $derived(
@@ -2164,20 +2118,18 @@
 		</Container>
 	{/if}
 	<!--
-			Buy-bonus SELECT menu (BUY_FEATURE_SCENE) — the in-canvas twin of the HTML `ModalBuyBonus`.
-			A canvas-space takeover at the same `LAYER_BAND_TAKEOVER` band the flow celebrations use:
-			an invisible full-screen `<OnPressFullScreen>` BEHIND the scene dismisses the menu (tap the
-			dimmed backdrop → clear the open state, matching how the HTML modal closes), and the
-			`buyFeature` scene (its own dim rect + the `featureCard` repeater) paints on top. A tap on a
-			card hits the card's own press surface (select → `buyBonusConfirm`), a tap anywhere else
-			falls through to the dismiss surface. OFF (or closed) ⇒ nothing renders (parity).
+			Buy-bonus SELECT menu — the shared in-canvas `<BuyFeatureScreen>` takeover (the twin of the
+			deleted HTML `ModalBuyBonus`), at the `LAYER_BAND_TAKEOVER` band the flow celebrations use.
+			Visibility keys DIRECTLY on `stateModal`: shown while `buyBonus`, hidden the moment a card press
+			advances to `buyBonusConfirm` (the HTML confirm dialog then takes over). A tap on the backdrop
+			clears the modal. No buy mode means the HUD has no buy button, so it never opens.
 		-->
-	{#if BUY_FEATURE_SCENE && buyFeatureOpen}
-		<Container zIndex={LAYER_BAND_TAKEOVER}>
-			<OnPressFullScreen onpress={() => (buyFeatureOpen = false)} />
-			<LayoutScene scene={buyFeatureScene} />
-		</Container>
-	{/if}
+	<BuyFeatureScreen
+		open={stateModal.modal?.name === 'buyBonus'}
+		onDismiss={() => (stateModal.modal = null)}
+		zIndex={LAYER_BAND_TAKEOVER}
+		scene={buyFeatureScene}
+	/>
 	<!--
 			§17 Phase 3 — the free-spin INTRO/OUTRO press-to-continue HOLD is engine-owned.
 			Exactly one full-screen `<FreeSpinIntroGate>` / `<FreeSpinOutroGate>` is mounted
