@@ -4,6 +4,15 @@ import type { Scene } from './types';
 export const CONFIRM_DIALOG_COMPONENT_ID = 'confirmDialog';
 
 /**
+ * The scene NODE id of the single `confirmDialog` instance in {@link defaultConfirmScene} (the id
+ * every reference layout seeds as its `buyConfirm` scene's dialog node). Exported so the state-coupled
+ * `engineProvided`-values feed (`registerInstanceValues`, in `components-ui-html`) can key its source
+ * to THIS instance — the flow path's supplier of the per-mode title/message/labels a `<ConfirmDialog>`
+ * mount can't reach. Kept in one place so the scene node id and the feed key can never drift apart.
+ */
+export const CONFIRM_DIALOG_NODE_ID = 'confirm-dialog';
+
+/**
  * The engine-default CONFIRM scene — the in-canvas twin of the retired HTML `ModalBuyBonusConfirm`,
  * and the generic "are you sure?" surface. A `canvas`-space takeover: a dimmed backdrop rect behind
  * one `componentInstance` of the built-in `confirmDialog` (panel + title + message + confirm/cancel
@@ -37,7 +46,7 @@ export function defaultConfirmScene(): Scene {
 				alpha: 0.7,
 			},
 			{
-				id: 'confirm-dialog',
+				id: CONFIRM_DIALOG_NODE_ID,
 				label: 'Confirm dialog',
 				kind: 'componentInstance',
 				screenAnchor: { x: 0.5, y: 0.5 },
