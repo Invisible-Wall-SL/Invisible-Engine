@@ -3,7 +3,13 @@ import type { FontCatalog } from 'engine-layout';
 import { parseFontTarget, resolveFontTarget } from '$lib/server/fonts';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { getToolOverrides } from '$lib/server/userToolAccess';
-import { deleteObjects, getObjectText, putObjectText } from '$lib/server/r2';
+import {
+	ConflictError,
+	deleteObjects,
+	getObjectTextWithEtag,
+	precondition,
+	putObjectText,
+} from '$lib/server/r2';
 import { assertAllowed, gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -56,11 +62,11 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 		userOverrides,
 	);
 
-	const existing = await getObjectText(dest.catalogKey);
+	const existing = await getObjectTextWithEtag(dest.catalogKey);
 	if (!existing) throw error(404, `No font catalog at this target.`);
 	let catalog: FontCatalog;
 	try {
-		catalog = JSON.parse(existing) as FontCatalog;
+		catalog = JSON.parse(existing.text) as FontCatalog;
 	} catch {
 		throw error(500, 'Font catalog is corrupt.');
 	}
@@ -95,8 +101,50 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 
 	await deleteObjects(keys);
 
-	catalog.fonts = fonts.filter((f) => f.id !== id);
-	await putObjectText(dest.catalogKey, JSON.stringify(catalog), 'application/json');
-
-	return json({ ok: true, removed: id });
+	// Rewrite the catalog under `If-Match`, retrying on a lost CAS so a concurrent
+	// save/delete of a DIFFERENT font can't be clobbered by dropping this entry
+	// (Phase 0, docs/design/multi-user-concurrency.md). The blob deletion above is
+	// idempotent and already done; only the catalog pointer needs the guard.
+	let current = catalog;
+	let etag = existing.etag;
+	for (let attempt = 1; ; attempt++) {
+		if (attempt > 1) {
+			const reread = await getObjectTextWithEtag(dest.catalogKey);
+			// Vanished under us (a concurrent delete removed the whole catalog): the
+			// entry is already gone, so there is nothing left to rewrite.
+			if (!reread) return json({ ok: true, removed: id });
+			try {
+				current = JSON.parse(reread.text) as FontCatalog;
+			} catch {
+				current = { prefix: dest.prefix, fonts: [] };
+			}
+			etag = reread.etag;
+		}
+		const remaining = (Array.isArray(current.fonts) ? current.fonts : []).filter(
+			(f) => f.id !== id,
+		);
+		try {
+			await putObjectText(
+				dest.catalogKey,
+				JSON.stringify({ ...current, fonts: remaining }),
+				'application/json',
+				// The catalog exists (404'd above otherwise) ⇒ ifMatch; unconditional only
+				// in the impossible no-etag case, to avoid an ifNoneMatch create over it.
+				precondition(etag ?? undefined),
+			);
+			return json({ ok: true, removed: id });
+		} catch (e) {
+			if (e instanceof ConflictError && attempt < CATALOG_MAX_ATTEMPTS) continue;
+			if (e instanceof ConflictError) {
+				return json(
+					{ error: 'conflict', message: 'The font catalog changed while deleting — please retry.' },
+					{ status: 409 },
+				);
+			}
+			throw e;
+		}
+	}
 };
+
+/** Bounded CAS retries when two Font Maker users mutate the same catalog at once. */
+const CATALOG_MAX_ATTEMPTS = 6;

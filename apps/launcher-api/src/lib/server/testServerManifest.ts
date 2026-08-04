@@ -11,8 +11,26 @@
  * bundle at `test_server/_runtime/<runtime>/` instead of per-key files; the mock
  * RGS is still selected per-key by `protocol`. The merge is non-destructive: it
  * preserves every OTHER game's entry (a clobbering write once dropped games).
+ *
+ * CONCURRENCY (Phase 0 of `docs/design/multi-user-concurrency.md`): this manifest is
+ * a single GLOBAL key that two users publishing DIFFERENT games on DIFFERENT projects
+ * both read-modify-write, so an unguarded PUT silently dropped the loser's entry — a
+ * race a project lease can never catch. Unlike the rigger index (moved to Postgres),
+ * this stays an R2 blob on purpose: a SEPARATE service (`services/test-server`) reads
+ * it directly from R2, and the standalone `scripts/publish-game-bundle.mjs` (no DB
+ * access) writes the SAME shape — moving it to a table would break both. Instead the
+ * write is guarded with `If-Match` (the etag from the read) and RETRIED on a lost CAS,
+ * so a concurrent merge re-reads the winner's entry before writing its own. The
+ * standalone script mirrors the same conditional-retry loop.
  */
-import { getObjectText, headObject, putObjectText } from './r2';
+import {
+	ConflictError,
+	getObjectText,
+	getObjectTextWithEtag,
+	headObject,
+	precondition,
+	putObjectText,
+} from './r2';
 
 export const TEST_SERVER_MANIFEST_KEY = 'test_server/games.json';
 
@@ -138,9 +156,8 @@ export interface TestServerManifest {
 	games: Record<string, TestServerGameEntry>;
 }
 
-/** Read the manifest (or an empty one when absent / malformed). */
-export async function loadTestServerManifest(): Promise<TestServerManifest> {
-	const raw = await getObjectText(TEST_SERVER_MANIFEST_KEY);
+/** Parse the manifest text into the canonical shape (empty on absent / malformed). */
+function parseManifest(raw: string | null | undefined): TestServerManifest {
 	if (!raw) return { games: {} };
 	try {
 		const parsed = JSON.parse(raw) as Partial<TestServerManifest>;
@@ -150,20 +167,43 @@ export async function loadTestServerManifest(): Promise<TestServerManifest> {
 	}
 }
 
+/** Read the manifest (or an empty one when absent / malformed). */
+export async function loadTestServerManifest(): Promise<TestServerManifest> {
+	return parseManifest(await getObjectText(TEST_SERVER_MANIFEST_KEY));
+}
+
+/** Bounded CAS retries when two publishers merge the same manifest at once. */
+const MANIFEST_MAX_ATTEMPTS = 6;
+
 /**
  * Merge ONE game entry into the manifest (read-modify-write) and persist it,
  * preserving every other game. Returns the written manifest.
+ *
+ * Guarded with `If-Match` and retried on a lost CAS so two users publishing different
+ * games at once can't drop each other's entry (see the file header). A present-but-
+ * corrupt manifest is overwritten deliberately (`ifMatch` on its etag), not left
+ * unsaveable behind an `ifNoneMatch` create precondition.
  */
 export async function upsertTestServerGame(
 	key: string,
 	entry: TestServerGameEntry,
 ): Promise<TestServerManifest> {
-	const manifest = await loadTestServerManifest();
-	manifest.games[key] = entry;
-	await putObjectText(
-		TEST_SERVER_MANIFEST_KEY,
-		JSON.stringify(manifest, null, 2),
-		'application/json; charset=utf-8',
-	);
-	return manifest;
+	for (let attempt = 1; ; attempt++) {
+		const current = await getObjectTextWithEtag(TEST_SERVER_MANIFEST_KEY);
+		const manifest = parseManifest(current?.text);
+		manifest.games[key] = entry;
+		try {
+			await putObjectText(
+				TEST_SERVER_MANIFEST_KEY,
+				JSON.stringify(manifest, null, 2),
+				'application/json; charset=utf-8',
+				// present ⇒ ifMatch etag (CAS / deliberate corrupt-overwrite); absent ⇒ ifNoneMatch '*'.
+				precondition(current ? (current.etag ?? undefined) : null),
+			);
+			return manifest;
+		} catch (err) {
+			if (err instanceof ConflictError && attempt < MANIFEST_MAX_ATTEMPTS) continue;
+			throw err;
+		}
+	}
 }
