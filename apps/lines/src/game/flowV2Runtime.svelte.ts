@@ -437,6 +437,12 @@ export const createLinesFlowV2 = (
 				const def = getComponent(defId);
 				return def ? { root: def.root } : undefined;
 			},
+			// Coded-bind animations are invisible to the layout walk (the clip lives in the bound
+			// Svelte component, not a `spine`/`effect` node). The game supplies the clip each animated
+			// bind plays — the same declare≠implement seam as `bookEventHandlerMap`. The `Transition`
+			// wipe plays the preloaded `transition` skeleton's `animation` clip.
+			boundComponentMs: (component) =>
+				component === 'Transition' ? spineClipMs('transition', 'animation') : undefined,
 		});
 	};
 

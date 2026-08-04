@@ -33,6 +33,12 @@ export interface SceneDurationResolvers {
 	/** Resolve a `componentInstance`'s def id → its root subtree, so the walk descends into prefab
 	 *  content. `undefined` for an unknown def (skipped). */
 	resolveComponent(defId: string): { root: LayoutNode } | undefined;
+	/** A `bind`ed coded component's wall-clock ms — the animation the game's registered Svelte
+	 *  component plays on mount (e.g. the `Transition` wipe's spine clip). The layout doc records only
+	 *  the bind NAME; the coded knowledge of which clip it plays lives game-side (the declare≠implement
+	 *  seam, mirroring the coded `bookEventHandlerMap`), so the game supplies it here. `undefined` for a
+	 *  bind with no measurable animation (skipped). */
+	boundComponentMs?(component: string): number | undefined;
 }
 
 /**
@@ -55,6 +61,10 @@ export const sceneAnimationDurationMs = (
 	const expanding = new Set<string>();
 
 	const walk = (node: LayoutNode): void => {
+		// A `bind` (escape hatch to a coded Svelte component) can ride on ANY node kind — its animation
+		// is coded, invisible to this layout walk, so the game resolves it by bind name. Checked before
+		// the kind switch so a bound container (or an expanded prefab whose root is a bind) is measured.
+		if (node.bind?.component) consider(resolvers.boundComponentMs?.(node.bind.component));
 		switch (node.kind) {
 			case 'spine': {
 				// The clips this node can play: its resting `defaultAnimation` + every signal cue. Take the
