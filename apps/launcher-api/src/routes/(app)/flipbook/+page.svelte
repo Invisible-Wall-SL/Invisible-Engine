@@ -10,8 +10,11 @@
 	 * prop changes — so playback is just "advance an index on a rAF clock". A second PIXI app for
 	 * a still-frame flipbook would buy nothing.
 	 */
+	import { onMount } from 'svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
+	import { LeaseState } from '$lib/leaseState.svelte';
+	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import {
 		DEFAULT_FLIPBOOK_FPS,
 		animationToClip,
@@ -62,6 +65,37 @@
 	}
 
 	/**
+	 * Soft edit lease (multi-user-concurrency Phase 2c-rest batch B) over the OPEN clip. Flipbook
+	 * edits one clip at a time and each clip is its OWN R2 object, so the lease `docKey` is the
+	 * open clip's id and switching clips re-keys it (`lease.switchDoc`). A never-saved / untitled
+	 * clip has no persisted key ⇒ `null` ⇒ inert ⇒ freely editable. `lease.readOnly` gates the doc
+	 * `saveState` (its `blockWhen`); the `If-Match` CAS stays the correctness floor.
+	 */
+	const lease = new LeaseState({
+		toolId: 'flipbook',
+		clientKey: data.clientKey,
+		projectKey: data.projectKey,
+		docKey: '',
+		enabled: data.projectKey.length > 0,
+	});
+
+	/** The lease key for a clip id: the persisted slug, or `null` for the untitled sentinel /
+	 *  empty (a never-saved clip has nothing to lease). */
+	function leaseIdFor(id: string): string | null {
+		return id && id !== UNTITLED_CLIP_ID ? id : null;
+	}
+
+	/** Mirror of the lease's current doc key, so a re-key fires only when the OPEN clip actually
+	 *  changes (first-saving a new one, saving-as, deleting the open one) — never on every
+	 *  re-save of the same clip. */
+	let leasedId: string | null = leaseIdFor(clip.id);
+	function leaseSwitch(id: string | null): void {
+		if (id === leasedId) return;
+		leasedId = id;
+		void lease.switchDoc(id);
+	}
+
+	/**
 	 * Save-state machine (multi-user-concurrency Phase 2a). Manual save; the transport owns the
 	 * request. Create encoding stays caller-side and keeps the `isUnsaved ? null : baseEtag`
 	 * guard — after a delete the clip resets to untitled while the held etag stays stale, so the
@@ -72,6 +106,7 @@
 	 */
 	const saveState = new SaveState({
 		initialEtag: data.openedEtag,
+		blockWhen: () => lease.readOnly,
 		save: async ({ baseEtag, force }) => {
 			try {
 				const isUnsaved = clip.id === '' || clip.id === UNTITLED_CLIP_ID;
@@ -109,6 +144,9 @@
 				// The server slugs the id; adopt it so a later save/open round-trips cleanly.
 				clip = { ...clip, id: out.id };
 				pickerId = out.id;
+				// The clip now has a persisted key — re-key the lease onto it (a no-op when
+				// re-saving the same clip; the acquire that matters is a NEW / saved-as clip).
+				leaseSwitch(leaseIdFor(out.id));
 				upsertClip({ id: out.id, name: out.name, frames: out.frames });
 				savedNote = `Saved "${out.name}" (${out.frames} frame${out.frames === 1 ? '' : 's'}).`;
 				return { ok: true, etag: out.etag };
@@ -119,6 +157,17 @@
 	});
 	/** Union of the two in-flight flags — preserves every shared `disabled={busy}`. */
 	const busy = $derived(deleting || saveState.busy);
+
+	onMount(() => {
+		// Acquire the lease for the initially-open clip (if any); inert for a fresh /flipbook.
+		void lease.switchDoc(leasedId);
+		const onUnload = () => lease.release();
+		window.addEventListener('pagehide', onUnload);
+		return () => {
+			window.removeEventListener('pagehide', onUnload);
+			lease.release();
+		};
+	});
 
 	/**
 	 * Persist the clip. `force` is the author confirming after a conflict, and it is genuinely
@@ -186,7 +235,11 @@
 			}
 			clips = clips.filter((c) => c.id !== id);
 			savedNote = `Deleted "${label}".`;
-			if (clip.id === id) clip = emptyClip();
+			if (clip.id === id) {
+				clip = emptyClip();
+				// The open clip is gone → nothing to lease; go inert (freely editable).
+				leaseSwitch(null);
+			}
 			pickerId = '';
 		} catch {
 			saveError = 'Delete failed (network error).';
@@ -508,6 +561,9 @@
 		projectKey={data.projectKey}
 	>
 		{#snippet meta()}
+			<!-- Another author (or your own other tab) holds this clip's lease → read-only here.
+			     The doc saveState refuses to save (its blockWhen); Take over is always offered. -->
+			<PresenceBanner {lease} />
 			{#if saveError}
 				<span class="pill err">{saveError}</span>
 			{:else if savedNote}
@@ -539,7 +595,7 @@
 					<input
 						type="file"
 						accept=".plist"
-						disabled={importing}
+						disabled={importing || lease.readOnly}
 						onchange={(e) => {
 							const f = e.currentTarget.files?.[0];
 							e.currentTarget.value = '';
@@ -587,11 +643,15 @@
 						onchange={(e) => (clip = { ...clip, name: e.currentTarget.value })}
 					/>
 				</label>
-				<button class="primary" disabled={busy} onclick={() => save()}>
+				<button class="primary" disabled={busy || lease.readOnly} onclick={() => save()}>
 					{saveState.busy ? 'Saving…' : '⤓ Save'}
 				</button>
-				<button disabled={busy} onclick={saveAs}>⧉ Save As…</button>
-				<button class="danger" disabled={busy || !pickerId} onclick={deleteOpen}>
+				<button disabled={busy || lease.readOnly} onclick={saveAs}>⧉ Save As…</button>
+				<button
+					class="danger"
+					disabled={busy || !pickerId || lease.readOnly}
+					onclick={deleteOpen}
+				>
 					🗑 Delete
 				</button>
 			</div>

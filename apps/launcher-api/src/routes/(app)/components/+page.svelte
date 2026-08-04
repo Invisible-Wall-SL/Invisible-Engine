@@ -2,6 +2,8 @@
 	import Emblem from '$lib/Emblem.svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
+	import { LeaseState } from '$lib/leaseState.svelte';
+	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import {
 		BUTTON_STATE_PARAMS,
 		ENGINE_ACTION_CATALOG,
@@ -78,8 +80,27 @@
 	 * encoding stays caller-side (JSON `null`). Promote-to-shared is a separate operation (its
 	 * own key + confirm), so it does NOT go through this instance — it would clobber the draft etag.
 	 */
+	/**
+	 * Soft edit lease (multi-user-concurrency Phase 2c-rest batch B) over the OPEN component. The
+	 * Component Editor edits ONE component at a time and each component is its OWN R2 object, so the
+	 * lease `docKey` is the open component's id and switching components re-keys it
+	 * (`lease.switchDoc`, hooked into `openComponent`). A never-saved draft has no persisted key ⇒
+	 * `null` ⇒ inert ⇒ freely editable (until its first save). `lease.readOnly` gates the draft
+	 * `saveState` (its `blockWhen`) + shows the banner; the `If-Match` CAS stays the correctness
+	 * floor. PROMOTE-TO-SHARED writes a GLOBAL `_shared/` key a per-project lease can't cover, so it
+	 * is deliberately NOT leased — its own `If-Match` is its floor (as flow-v2's library was left).
+	 */
+	const lease = new LeaseState({
+		toolId: 'componentEditor',
+		clientKey: data.clientKey,
+		projectKey: data.projectKey,
+		docKey: '',
+		enabled: data.projectKey.length > 0,
+	});
+
 	const saveState = new SaveState({
 		initialEtag: null,
+		blockWhen: () => lease.readOnly,
 		conflictMessage: 'Someone else saved this component while you were editing it.',
 		save: async ({ baseEtag, force }) => {
 			if (!componentDraft) return { ok: false, reason: 'error', message: 'No component open.' };
@@ -123,8 +144,12 @@
 			componentEtags = { ...componentEtags, [saved.id]: newEtag };
 			savedSnapshot = JSON.stringify(saved);
 			const i = components.findIndex((c) => c.id === saved.id);
-			if (i === -1) components = [...components, saved];
-			else components = components.map((c) => (c.id === saved.id ? saved : c));
+			if (i === -1) {
+				components = [...components, saved];
+				// A never-saved draft just reached the store — acquire its lease now (a re-save of
+				// an already-open component is `i !== -1`, so this fires once, on first save).
+				void lease.switchDoc(saved.id);
+			} else components = components.map((c) => (c.id === saved.id ? saved : c));
 			// A save may bump the version + write a new snapshot — refresh the browser.
 			void loadVersionList(saved);
 			return { ok: true, etag: newEtag };
@@ -248,6 +273,10 @@
 		// never-saved draft, or a built-in with no stored object) ⇒ `null` ⇒ the first save
 		// creates. A stored def carries the etag it was listed at, so a save CASes against it.
 		saveState.adoptEtag(componentEtags[def.id] ?? null);
+		// Re-key the edit lease onto the opened item. A never-saved draft (created via
+		// `createComponent`, not yet in `components`) has no persisted key ⇒ `null` ⇒ inert until
+		// its first save re-keys the lease; a stored def leases its id.
+		void lease.switchDoc(components.some((c) => c.id === def.id) ? def.id : null);
 		// Baseline for the unsaved-changes guard. A NEWLY CREATED component is
 		// deliberately dirty from the start (`null` baseline): it exists ONLY as this
 		// draft until "Save component", so leaving without saving must warn.
@@ -487,6 +516,8 @@
 		inspectingVersion = null;
 		pickVersion = '';
 		versionList = null;
+		// No component open ⇒ nothing to lease; release + go inert.
+		void lease.switchDoc(null);
 	}
 
 	/** Delete a component from R2 + the local list (with a confirm). Stops the row's
@@ -976,11 +1007,20 @@
 		e.dataTransfer.effectAllowed = 'copy';
 	}
 
-	// Deep-link: `/components?id=<id>` opens that component once the list is loaded.
+	// Deep-link: `/components?id=<id>` opens that component once the list is loaded. Also owns the
+	// lease teardown — `openComponent` (called here + on every row click) acquires per item; a
+	// tab close / navigation must release so the item isn't wedged until expiry.
 	onMount(() => {
-		if (!data.openId) return;
-		const def = components.find((c) => c.id === data.openId);
-		if (def) openComponent(def);
+		const onUnload = () => lease.release();
+		window.addEventListener('pagehide', onUnload);
+		if (data.openId) {
+			const def = components.find((c) => c.id === data.openId);
+			if (def) openComponent(def);
+		}
+		return () => {
+			window.removeEventListener('pagehide', onUnload);
+			lease.release();
+		};
 	});
 </script>
 
@@ -1047,6 +1087,10 @@
 						Inspect
 					</button>
 				{/if}
+				<!-- Another author (or your own other tab) holds this component's lease → read-only
+				     here. The draft saveState refuses to save (its blockWhen); Take over is always
+				     offered. Promote-to-shared is a SEPARATE global key and is not lease-gated. -->
+				<PresenceBanner {lease} />
 				{#if busy}
 					<span class="save-pill busy">Saving…</span>
 				{:else if saveStatus?.kind === 'error'}
@@ -1057,10 +1101,12 @@
 				<button
 					class="save-btn primary"
 					type="button"
-					disabled={isInspecting}
+					disabled={isInspecting || lease.readOnly}
 					title={isInspecting
 						? 'Read-only — return to latest to edit and save.'
-						: 'Save this component'}
+						: lease.readOnly
+							? 'Another author holds this component — take over to edit.'
+							: 'Save this component'}
 					onclick={() => void saveComponent()}
 				>
 					Save component
