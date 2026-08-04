@@ -3,7 +3,6 @@
 
 	import ModalError from './ModalError.svelte';
 	import ModalBetMenu from './ModalBetMenu.svelte';
-	import ModalBuyBonusConfirm from './ModalBuyBonusConfirm.svelte';
 	import ModalAutoSpin from './ModalAutoSpin.svelte';
 	import ModalAutoSpinMessage from './ModalAutoSpinMessage.svelte';
 	import ModalPayTable from './ModalPayTable.svelte';
@@ -24,10 +23,10 @@
 <ModalError />
 <ModalBetMenu />
 <!--
-	The buy-bonus SELECT step is now the in-canvas Pixi `<BuyFeatureScreen>` takeover (engine-layout),
-	mounted by each game's `Game.svelte`. Only the CONFIRM step stays an HTML modal.
+	Both buy-bonus steps are now in-canvas Pixi takeovers mounted by each game's `Game.svelte`: the
+	SELECT step is `<BuyFeatureScreen>` and the CONFIRM step is `<BuyBonusConfirm>` (→ `<ConfirmDialog>`),
+	both engine-layout. Neither is an HTML modal any more.
 -->
-<ModalBuyBonusConfirm />
 <ModalAutoSpin />
 <ModalAutoSpinMessage />
 {#if !isDisabled('payTable')}

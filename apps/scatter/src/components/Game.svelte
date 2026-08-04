@@ -8,7 +8,13 @@
 	import { stateModal } from 'state-shared';
 
 	import { UI, UiGameName } from 'components-ui-pixi';
-	import { GameVersion, Modals, DebugMenu, registerBuyFeature } from 'components-ui-html';
+	import {
+		GameVersion,
+		Modals,
+		DebugMenu,
+		registerBuyFeature,
+		BuyBonusConfirm,
+	} from 'components-ui-html';
 	import { LayoutScene, BuyFeatureScreen } from 'engine-layout/svelte';
 	import {
 		LAYER_BAND_TAKEOVER,
@@ -212,6 +218,12 @@
 			onDismiss={() => (stateModal.modal = null)}
 			zIndex={LAYER_BAND_TAKEOVER}
 		/>
+		<!--
+			Buy-bonus CONFIRM step — the shared in-canvas `<BuyBonusConfirm>` (→ `<ConfirmDialog>`),
+			replacing the deleted HTML `ModalBuyBonusConfirm`. Shown while `buyBonusConfirm`; CONFIRM
+			commits the bet mode, CANCEL/backdrop returns to the SELECT screen.
+		-->
+		<BuyBonusConfirm zIndex={LAYER_BAND_TAKEOVER} />
 	{/if}
 
 	<DebugStage />

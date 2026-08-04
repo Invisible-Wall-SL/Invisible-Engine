@@ -2,6 +2,7 @@ import {
 	registerComponents,
 	registerRepeaterSources,
 	FEATURE_CARD_DEF,
+	CONFIRM_DIALOG_DEF,
 	type RepeaterItem,
 	type RepeaterSource,
 } from 'engine-layout';
@@ -44,7 +45,7 @@ function repeaterSource(getter: () => RepeaterItem[]): RepeaterSource {
  *     values mirror the retired HTML `BonusCards` (title/description are source strings localized
  *     at render; `price` is the live bet × cost multiplier; `iconKey` is the bet-mode icon), and
  *     its `select` press preserves the HTML card's contract: select the mode + broadcast
- *     `buyBonusConfirm` (which each game routes to the HTML `ModalBuyBonusConfirm` step).
+ *     `buyBonusConfirm` (which each game routes to the in-canvas `<BuyBonusConfirm>` step).
  *
  * MUST be called during a component's init (`getContextEventEmitter` reads Svelte context). Lives in
  * `components-ui-html` — the home of `stateBonus` + the buy-bonus domain — because `engine-layout`
@@ -53,7 +54,13 @@ function repeaterSource(getter: () => RepeaterItem[]): RepeaterSource {
  */
 export function registerBuyFeature(): void {
 	const { eventEmitter } = getContextEventEmitter<EmitterEventModal>();
-	registerComponents({ [FEATURE_CARD_DEF.id]: FEATURE_CARD_DEF });
+	// Register the two built-in defs the buy-bonus flow renders: the `featureCard` (the SELECT menu's
+	// per-mode card) and the generic `confirmDialog` (the CONFIRM step's `<ConfirmDialog>` / the twin
+	// of the retired HTML `ModalBuyBonusConfirm`), so both `componentInstance`s resolve at render.
+	registerComponents({
+		[FEATURE_CARD_DEF.id]: FEATURE_CARD_DEF,
+		[CONFIRM_DIALOG_DEF.id]: CONFIRM_DIALOG_DEF,
+	});
 	registerRepeaterSources({
 		featureCards: repeaterSource(() =>
 			Object.values(stateMeta.betModeMeta)

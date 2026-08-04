@@ -30,6 +30,13 @@
 		// press. When set (and the def has no coded `bind` part) the whole card becomes the hit
 		// surface, mirroring the authored art-button path. Undefined ⇒ no press wiring (parity).
 		onSelect?: () => void;
+		// Named press handlers for a MULTI-button component (the two-button dialog primitive): a node
+		// carrying `pressAction: '<name>'` routes its press to `actions['<name>']` (e.g. a confirm
+		// dialog's `{ confirm, cancel }`). The N-button generalisation of `onSelect`. A scene-placed
+		// instance receives these via the instance-binding context instead (a `<ConfirmDialog>` mount);
+		// this prop is the direct-render path (mirrors `<Repeater>`'s `onSelect`). Undefined ⇒ the
+		// context binding, else no routing (parity).
+		actions?: Record<string, () => void>;
 	};
 </script>
 
@@ -45,6 +52,8 @@
 		MAX_COMPONENT_DEPTH,
 	} from './componentInstanceContext';
 	import { setComponentParams } from './componentParamsContext';
+	import { setComponentPress } from './componentActionsContext';
+	import { getInstanceBinding } from './instanceBindingContext';
 	import { setComponentSignalAnims, type ComponentSignalAnim } from './componentSignalContext';
 	import { resolveComponentParams } from './componentParams';
 	import {
@@ -79,7 +88,15 @@
 	import { getFlowComplete } from './registerFlowComplete';
 	import { getTapPortal } from './tapPortalContext';
 
-	let { node, space, tap = $bindable(), engineValues, onSelect }: Props = $props();
+	let { node, space, tap = $bindable(), engineValues, onSelect, actions }: Props = $props();
+
+	// Instance-binding fallback (`instanceBindingContext`): a canvas-takeover MOUNT (e.g.
+	// `<ConfirmDialog>`) that renders THIS instance inside its `<LayoutScene>` — but can't pass props
+	// through the scene node walk — injects the instance's `engineValues` + press `actions` via
+	// context, keyed by `componentId`. Read once at init (context is init-stable). No mount ⇒
+	// `undefined` ⇒ the `engineValues`/`actions` PROPS stand (the `<Repeater>` path) or nothing does
+	// (parity — byte-identical to today). The `.engineValues` getter the mount sets stays reactive.
+	const binding = getInstanceBinding(node.componentId);
 
 	// The space the component's OWN children render in. A component placed in a
 	// `background` scene is cover-fit as ONE unit by the instance's wrapping container
@@ -700,21 +717,30 @@
 	// `engineProvided` param present in `engineValues`, so a bound text/sprite node reads the
 	// live per-item value from the param context — the multi-value sibling of the single `value`
 	// feed above. Absent ⇒ no getters added ⇒ byte-identical to a plain instance (parity).
-	if (engineValues) {
+	const boundEngineValues = engineValues ?? binding?.engineValues;
+	if (boundEngineValues) {
 		for (const param of def?.params ?? []) {
-			if (param.engineProvided && param.key in engineValues) {
+			if (param.engineProvided && param.key in boundEngineValues) {
 				const key = param.key;
-				// Read the LIVE `engineValues` prop (not a frozen snapshot) so a repeated instance
-				// whose item values change — a card's `price` when the bet changes — updates in place
-				// without re-mounting. Destructured props stay reactive inside the getter.
+				// Read the LIVE values (prop, else the mount's binding getter) — NOT a frozen snapshot —
+				// so a repeated card's `price` (bet change) or a dialog's `title`/`message` (a new mode
+				// picked) updates in place without re-mounting. Destructured props + the binding's getter
+				// both stay reactive inside this getter.
 				Object.defineProperty(providedParams, key, {
 					enumerable: true,
-					get: () => engineValues?.[key],
+					get: () => (engineValues ?? binding?.engineValues)?.[key],
 				});
 			}
 		}
 	}
 	setComponentParams(allowed && def ? providedParams : {});
+	// Provide the per-node press router to the rendered sub-tree (`componentActionsContext`): a node
+	// carrying `pressAction: '<name>'` calls this to route its press to the instance's action of that
+	// name — the `actions` PROP (direct render) else the mount's binding (a `<ConfirmDialog>` scene
+	// instance). The N-button generalisation of the whole-instance `onSelect`. Reads the live source
+	// inside the closure so a later binding value stays honoured. No action for `<name>` ⇒ inert
+	// (parity — a def with no `pressAction` node never calls it). Set at init like the other contexts.
+	setComponentPress((name) => (actions ?? binding?.actions)?.[name]?.());
 	// Provide the signal-driven spine-anim overrides to the rendered sub-tree (the
 	// `$state` proxy, so a descendant spine's `{@const}` read re-runs on each signal
 	// fire — same stable-object discipline as `setComponentParams`). `{}` when the

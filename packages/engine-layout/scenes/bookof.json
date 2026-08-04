@@ -322,6 +322,40 @@
 			]
 		},
 		{
+			"id": "buyConfirm",
+			"name": "Confirm Dialog",
+			"space": "canvas",
+			"nodes": [
+				{
+					"id": "confirm-dim",
+					"label": "Backdrop",
+					"kind": "rect",
+					"screenAnchor": {
+						"x": 0.5,
+						"y": 0.5
+					},
+					"x": 0,
+					"y": 0,
+					"width": 4000,
+					"height": 4000,
+					"color": 0,
+					"alpha": 0.7
+				},
+				{
+					"id": "confirm-dialog",
+					"label": "Confirm dialog",
+					"kind": "componentInstance",
+					"screenAnchor": {
+						"x": 0.5,
+						"y": 0.5
+					},
+					"x": 0,
+					"y": 0,
+					"componentId": "confirmDialog"
+				}
+			]
+		},
+		{
 			"id": "hudBar",
 			"name": "HUD — bottom bar",
 			"space": "standard",

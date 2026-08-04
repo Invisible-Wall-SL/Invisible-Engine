@@ -1,4 +1,5 @@
 import { defaultBuyFeatureScene } from '../buyFeatureScene';
+import { defaultConfirmScene } from '../confirmScene';
 import type { LayoutDoc, LayoutType, NodeOverride } from '../types';
 import { hudScenes } from './hud';
 
@@ -238,6 +239,9 @@ export function engineSkeletonLayout({
 			// Select-Feature (buy-bonus) menu — the engine-default in-canvas SELECT scene, so a
 			// fresh project of this kind ships an authorable buy-feature page (`buyFeatureScene.ts`).
 			defaultBuyFeatureScene(),
+			// Confirm dialog — the engine-default in-canvas CONFIRM scene, so a fresh project of this
+			// kind ships an authorable confirm page (`confirmScene.ts`), the twin of the retired HTML confirm.
+			defaultConfirmScene(),
 			// HUD layer (logo/name corners + bottom bar) — universal across game types.
 			// Coded `bind` labels (no `readouts`): these kinds don't register the
 			// `hudReadout` def, so the parity-safe default keeps them as `UiLabel*` binds.

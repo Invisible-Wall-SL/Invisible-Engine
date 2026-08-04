@@ -328,7 +328,12 @@ export const TEXT_BOX_DEF: ComponentDef = {
 		},
 		{ key: 'boxWidth', kind: 'number', label: 'box width (blank = fit text)' },
 		{ key: 'boxHeight', kind: 'number', label: 'box height (blank = fit text)' },
-		{ key: 'autoFit', kind: 'boolean', default: false, label: 'auto-fit font to box (needs box w+h)' },
+		{
+			key: 'autoFit',
+			kind: 'boolean',
+			default: false,
+			label: 'auto-fit font to box (needs box w+h)',
+		},
 		{ key: 'value', kind: 'number', engineProvided: true },
 	],
 };
@@ -1473,6 +1478,208 @@ export const FEATURE_CARD_DEF: ComponentDef = {
 	signals: [{ key: 'select', note: 'Fired when the card is pressed (buy the feature).' }],
 };
 
+/** The default confirm-dialog size — a centred "are you sure?" panel. */
+const CONFIRM_DIALOG_WIDTH = 560;
+const CONFIRM_DIALOG_HEIGHT = 420;
+const CONFIRM_DIALOG_TITLE_SIZE = 40;
+const CONFIRM_DIALOG_MESSAGE_SIZE = 26;
+const CONFIRM_DIALOG_BUTTON_SIZE = 28;
+const CONFIRM_DIALOG_BUTTON_WIDTH = 220;
+const CONFIRM_DIALOG_BUTTON_HEIGHT = 68;
+/** Dark panel + green/grey buttons — a neutral, visible-out-of-the-box look the owner restyles. */
+const CONFIRM_DIALOG_PANEL_FILL = 0x1a1a2e;
+const CONFIRM_DIALOG_CONFIRM_FILL = 0x27ae60;
+const CONFIRM_DIALOG_CANCEL_FILL = 0x4a4a5a;
+
+/**
+ * A GENERIC, reusable CONFIRMATION DIALOG (§ confirm dialog) — the engine-native, placeable twin of
+ * the retired HTML `ModalBuyBonusConfirm`: a centred panel + title + message + a CONFIRM and a CANCEL
+ * button, every variable part bound to an `engineProvided` param a MOUNT feeds (`title`/`message`/
+ * `confirmLabel`/`cancelLabel`/`imageKey`). NOTHING here is buy-specific — buy-bonus is merely the
+ * first consumer; any "are you sure?" flow reuses it by threading its own copy + callbacks through
+ * `<ConfirmDialog>`.
+ *
+ * PLAIN-NODE path (like {@link FEATURE_CARD_DEF}): every child is an EDITOR-NATIVE node so the owner
+ * restyles the dialog in the editor. The panel + buttons are `rect`s so the dialog is visible with no
+ * art; the optional image sprite binds `assetKey → imageKey` (blank ⇒ no texture ⇒ text-only, no
+ * crash). The two buttons are `container`s carrying {@link BaseNode.pressAction} `confirm`/`cancel`,
+ * so each routes to the matching action the mount supplies (the two-button generalisation of the
+ * feature card's whole-instance `select`). Both actions are exposed as `signals` for downstream flow.
+ */
+export const CONFIRM_DIALOG_DEF: ComponentDef = {
+	id: 'confirmDialog',
+	name: 'Confirm Dialog',
+	version: 1,
+	scope: 'shared',
+	category: 'ui',
+	root: {
+		id: 'confirmDialog-root',
+		kind: 'container',
+		x: 0,
+		y: 0,
+		children: [
+			{
+				id: 'confirmDialog-panel',
+				label: 'Panel',
+				kind: 'rect',
+				x: 0,
+				y: 0,
+				anchor: { x: 0.5, y: 0.5 },
+				width: CONFIRM_DIALOG_WIDTH,
+				height: CONFIRM_DIALOG_HEIGHT,
+				color: CONFIRM_DIALOG_PANEL_FILL,
+				alpha: 0.96,
+			},
+			{
+				id: 'confirmDialog-title',
+				label: 'Title',
+				kind: 'text',
+				x: 0,
+				y: -CONFIRM_DIALOG_HEIGHT * 0.5 + 52,
+				anchor: { x: 0.5, y: 0.5 },
+				text: 'Title',
+				style: {
+					fontFamily: HUD_FONT_FAMILY,
+					fontSize: CONFIRM_DIALOG_TITLE_SIZE,
+					fill: HUD_FILL,
+					align: 'center',
+				},
+				paramBindings: { text: 'title' },
+				preview: { style: 'text', textParam: 'title' },
+			},
+			{
+				id: 'confirmDialog-image',
+				label: 'Image',
+				kind: 'sprite',
+				x: 0,
+				y: -CONFIRM_DIALOG_HEIGHT * 0.08,
+				anchor: { x: 0.5, y: 0.5 },
+				// No static texture: the mount feeds an optional image key (`assets.dialogImage`).
+				// Empty ⇒ no texture resolves ⇒ the dialog is text-only (no crash) — parity-safe.
+				assetKey: '',
+				width: 180,
+				height: 130,
+				paramBindings: { assetKey: 'imageKey' },
+			},
+			{
+				id: 'confirmDialog-message',
+				label: 'Message',
+				kind: 'text',
+				x: 0,
+				y: CONFIRM_DIALOG_HEIGHT * 0.14,
+				anchor: { x: 0.5, y: 0.5 },
+				text: 'Message',
+				style: {
+					fontFamily: HUD_FONT_FAMILY,
+					fontSize: CONFIRM_DIALOG_MESSAGE_SIZE,
+					fill: HUD_FILL,
+					align: 'center',
+					wordWrap: true,
+					wordWrapWidth: CONFIRM_DIALOG_WIDTH - 80,
+				},
+				paramBindings: { text: 'message' },
+				preview: { style: 'text', textParam: 'message' },
+			},
+			{
+				id: 'confirmDialog-cancel',
+				label: 'Cancel button',
+				kind: 'container',
+				x: -CONFIRM_DIALOG_WIDTH * 0.24,
+				y: CONFIRM_DIALOG_HEIGHT * 0.5 - 60,
+				// The whole button routes its press to the `cancel` action the mount supplies.
+				pressAction: 'cancel',
+				children: [
+					{
+						id: 'confirmDialog-cancel-bg',
+						label: 'Background',
+						kind: 'rect',
+						x: 0,
+						y: 0,
+						anchor: { x: 0.5, y: 0.5 },
+						width: CONFIRM_DIALOG_BUTTON_WIDTH,
+						height: CONFIRM_DIALOG_BUTTON_HEIGHT,
+						color: CONFIRM_DIALOG_CANCEL_FILL,
+					},
+					{
+						id: 'confirmDialog-cancel-label',
+						label: 'Label',
+						kind: 'text',
+						x: 0,
+						y: 0,
+						anchor: { x: 0.5, y: 0.5 },
+						text: 'Cancel',
+						style: {
+							fontFamily: HUD_FONT_FAMILY,
+							fontSize: CONFIRM_DIALOG_BUTTON_SIZE,
+							fill: HUD_FILL,
+							align: 'center',
+						},
+						paramBindings: { text: 'cancelLabel' },
+						preview: { style: 'text', textParam: 'cancelLabel' },
+					},
+				],
+			},
+			{
+				id: 'confirmDialog-confirm',
+				label: 'Confirm button',
+				kind: 'container',
+				x: CONFIRM_DIALOG_WIDTH * 0.24,
+				y: CONFIRM_DIALOG_HEIGHT * 0.5 - 60,
+				// The whole button routes its press to the `confirm` action the mount supplies.
+				pressAction: 'confirm',
+				children: [
+					{
+						id: 'confirmDialog-confirm-bg',
+						label: 'Background',
+						kind: 'rect',
+						x: 0,
+						y: 0,
+						anchor: { x: 0.5, y: 0.5 },
+						width: CONFIRM_DIALOG_BUTTON_WIDTH,
+						height: CONFIRM_DIALOG_BUTTON_HEIGHT,
+						color: CONFIRM_DIALOG_CONFIRM_FILL,
+					},
+					{
+						id: 'confirmDialog-confirm-label',
+						label: 'Label',
+						kind: 'text',
+						x: 0,
+						y: 0,
+						anchor: { x: 0.5, y: 0.5 },
+						text: 'Confirm',
+						style: {
+							fontFamily: HUD_FONT_FAMILY,
+							fontSize: CONFIRM_DIALOG_BUTTON_SIZE,
+							fill: HUD_FILL,
+							align: 'center',
+						},
+						paramBindings: { text: 'confirmLabel' },
+						preview: { style: 'text', textParam: 'confirmLabel' },
+					},
+				],
+			},
+		],
+	},
+	params: [
+		// Shared style knobs so the owner can restyle the dialog without editing each text node.
+		{ key: 'fill', kind: 'color', default: HUD_FILL },
+		{ key: 'fontFamily', kind: 'string', default: HUD_FONT_FAMILY, label: 'font' },
+		// Engine-fed per-mount values (the `<ConfirmDialog>` mount feeds them). All `engineProvided`,
+		// so the editor renders no control — the mount supplies them at runtime.
+		{ key: 'title', kind: 'string', engineProvided: true },
+		{ key: 'message', kind: 'string', engineProvided: true },
+		{ key: 'confirmLabel', kind: 'string', engineProvided: true },
+		{ key: 'cancelLabel', kind: 'string', engineProvided: true },
+		{ key: 'imageKey', kind: 'string', engineProvided: true },
+	],
+	// The dialog's two presses — a mount wires them to its `confirm`/`cancel` callbacks (and a
+	// downstream author can target them by name).
+	signals: [
+		{ key: 'confirm', note: 'Fired when the confirm button is pressed.' },
+		{ key: 'cancel', note: 'Fired when the cancel button is pressed.' },
+	],
+};
+
 /** Every built-in component def — the launcher's lowest-precedence layer. */
 export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	HUD_READOUT_DEF,
@@ -1490,6 +1697,7 @@ export const BUILTIN_COMPONENTS: ComponentDef[] = [
 	EXPANDING_SYMBOL_DEF,
 	FREE_SPIN_INTRO_SYMBOL_REVEAL_DEF,
 	FEATURE_CARD_DEF,
+	CONFIRM_DIALOG_DEF,
 ];
 
 /**

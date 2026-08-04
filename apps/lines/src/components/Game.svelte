@@ -43,7 +43,13 @@
 		LoadingBar,
 		i18nDerived,
 	} from 'components-ui-pixi';
-	import { GameVersion, Modals, DebugMenu, registerBuyFeature } from 'components-ui-html';
+	import {
+		GameVersion,
+		Modals,
+		DebugMenu,
+		registerBuyFeature,
+		BuyBonusConfirm,
+	} from 'components-ui-html';
 	import {
 		LayoutScene,
 		FlowMount,
@@ -830,6 +836,14 @@
 	const buyFeatureScene = $derived(
 		editorDoc.scenes.find((scene) => scene.id === 'buyFeature') ?? fallbackBuyFeature,
 	);
+	// Buy-bonus CONFIRM step — the authored `buyConfirm` scene (a dimmed backdrop + a `confirmDialog`
+	// instance), else the engine default seeded by `defaultLayout`. Passed to the shared
+	// `<BuyBonusConfirm>` (→ `<ConfirmDialog>`) below, which keys visibility on `stateModal`
+	// (`buyBonusConfirm`) and injects the dialog's title/message/labels + confirm/cancel callbacks.
+	const fallbackBuyConfirm = fallbackEditorScenes.scenes.find((s) => s.id === 'buyConfirm')!;
+	const buyConfirmScene = $derived(
+		editorDoc.scenes.find((scene) => scene.id === 'buyConfirm') ?? fallbackBuyConfirm,
+	);
 
 	// HUD layer as editor scenes — when present the `<UI>` positions its HUD from
 	// them (editable in the Invisible Editor); absent → coded layout.
@@ -1127,6 +1141,10 @@
 		// gated on `stateModal`. Reserved so it never ALSO mounts as an always-on generic overlay
 		// (which would show the feature cards permanently).
 		'buyFeature',
+		// The buy-bonus CONFIRM dialog is mounted by its OWN `<BuyBonusConfirm>` takeover (below),
+		// gated on `stateModal`. Reserved so it never ALSO mounts as an always-on generic overlay
+		// (which would show the confirm dialog permanently).
+		'buyConfirm',
 	] as const;
 	const reservedSceneIds = $derived(
 		new Set<string>([
@@ -2121,8 +2139,8 @@
 			Buy-bonus SELECT menu — the shared in-canvas `<BuyFeatureScreen>` takeover (the twin of the
 			deleted HTML `ModalBuyBonus`), at the `LAYER_BAND_TAKEOVER` band the flow celebrations use.
 			Visibility keys DIRECTLY on `stateModal`: shown while `buyBonus`, hidden the moment a card press
-			advances to `buyBonusConfirm` (the HTML confirm dialog then takes over). A tap on the backdrop
-			clears the modal. No buy mode means the HUD has no buy button, so it never opens.
+			advances to `buyBonusConfirm` (the in-canvas confirm dialog then takes over). A tap on the
+			backdrop clears the modal. No buy mode means the HUD has no buy button, so it never opens.
 		-->
 	<BuyFeatureScreen
 		open={stateModal.modal?.name === 'buyBonus'}
@@ -2130,6 +2148,13 @@
 		zIndex={LAYER_BAND_TAKEOVER}
 		scene={buyFeatureScene}
 	/>
+	<!--
+			Buy-bonus CONFIRM step — the shared in-canvas `<BuyBonusConfirm>` (→ `<ConfirmDialog>`, the
+			twin of the deleted HTML `ModalBuyBonusConfirm`), at the same takeover band. Visibility keys
+			on `stateModal` (`buyBonusConfirm`); CONFIRM commits the picked bet mode, CANCEL/backdrop
+			returns to the SELECT screen. Uses the authored/fallback `buyConfirm` scene.
+		-->
+	<BuyBonusConfirm zIndex={LAYER_BAND_TAKEOVER} scene={buyConfirmScene} />
 	<!--
 			§17 Phase 3 — the free-spin INTRO/OUTRO press-to-continue HOLD is engine-owned.
 			Exactly one full-screen `<FreeSpinIntroGate>` / `<FreeSpinOutroGate>` is mounted

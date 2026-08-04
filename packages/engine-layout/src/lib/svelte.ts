@@ -19,6 +19,7 @@ import FlowV2Mount, {
 import CatalogText, { type Props as CatalogTextProps } from './CatalogText.svelte';
 import Repeater, { type Props as RepeaterProps } from './Repeater.svelte';
 import BuyFeatureScreen, { type Props as BuyFeatureScreenProps } from './BuyFeatureScreen.svelte';
+import ConfirmDialog, { type Props as ConfirmDialogProps } from './ConfirmDialog.svelte';
 
 export {
 	LayoutScene,
@@ -31,6 +32,7 @@ export {
 	CatalogText,
 	Repeater,
 	BuyFeatureScreen,
+	ConfirmDialog,
 };
 export type {
 	LayoutSceneProps,
@@ -45,6 +47,7 @@ export type {
 	CatalogTextProps,
 	RepeaterProps,
 	BuyFeatureScreenProps,
+	ConfirmDialogProps,
 };
 
 // Param context (§13.2) — Svelte-dependent, so it lives on the component entry
