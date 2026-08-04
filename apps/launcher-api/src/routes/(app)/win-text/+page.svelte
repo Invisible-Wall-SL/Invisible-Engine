@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
+	import { LeaseState } from '$lib/leaseState.svelte';
+	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import {
 		formatWinText,
 		resolveSymbolName,
@@ -140,9 +143,24 @@
 	 * the precondition. The transport adopts the SERVER's normalized doc (it prunes blanks) so
 	 * the baseline is exactly what persisted, or the page would read dirty after a clean save.
 	 */
+	/**
+	 * Soft edit lease (multi-user-concurrency Phase 2c) over this project's win-text doc
+	 * (`docKey:'winText'`). When another author holds it, `lease.readOnly` gates the doc
+	 * `saveState` (its `blockWhen`) so a not-held tab can't save, the Save button hides behind
+	 * `<PresenceBanner>`, and Take over is always reachable. The `If-Match` CAS stays the floor.
+	 */
+	const lease = new LeaseState({
+		toolId: 'winText',
+		clientKey: data.clientKey,
+		projectKey: data.projectKey,
+		docKey: 'winText',
+		enabled: data.projectKey.length > 0,
+	});
+
 	const saveState = new SaveState({
 		initialEtag: data.etag,
 		conflictMessage: 'Someone else saved this win text while you were editing.',
+		blockWhen: () => lease.readOnly,
 		save: async ({ baseEtag, force }) => {
 			const res = await fetch(`/api/win-text?project=${encodeURIComponent(data.projectKey)}`, {
 				method: 'PUT',
@@ -164,6 +182,16 @@
 		},
 	});
 	const save = (force = false) => void saveState.save({ force });
+
+	onMount(() => {
+		void lease.start();
+		const onUnload = () => lease.release();
+		window.addEventListener('pagehide', onUnload);
+		return () => {
+			window.removeEventListener('pagehide', onUnload);
+			lease.release();
+		};
+	});
 </script>
 
 <svelte:head><title>Invisible Win Text — {data.projectKey}</title></svelte:head>
@@ -176,11 +204,21 @@
 		projectKey={data.projectKey}
 	>
 		{#snippet meta()}
-			{#if saveState.status === 'error'}<span class="err">{saveState.message}</span>{/if}
-			{#if dirty}<span class="pill dirty">Unsaved</span>{:else if savedAt}<span class="pill"
-					>Saved {savedAt}</span
-				>{/if}
-			<button class="save" onclick={() => save()} disabled={saveState.busy || !dirty}>
+			{#if lease.readOnly}
+				<!-- Another author (or your own other tab) holds the edit lease → read-only here.
+				     The doc saveState refuses to save (its blockWhen); Take over is always offered. -->
+				<PresenceBanner {lease} />
+			{:else}
+				{#if saveState.status === 'error'}<span class="err">{saveState.message}</span>{/if}
+				{#if dirty}<span class="pill dirty">Unsaved</span>{:else if savedAt}<span class="pill"
+						>Saved {savedAt}</span
+					>{/if}
+			{/if}
+			<button
+				class="save"
+				onclick={() => save()}
+				disabled={lease.readOnly || saveState.busy || !dirty}
+			>
 				{saveState.busy ? 'Saving…' : 'Save'}
 			</button>
 		{/snippet}

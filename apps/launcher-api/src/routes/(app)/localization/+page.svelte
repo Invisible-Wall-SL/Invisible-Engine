@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
+	import { LeaseState } from '$lib/leaseState.svelte';
+	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import type {
 		LocalizationDoc,
 		LocalizationEntry,
@@ -57,9 +60,25 @@
 	 * EMPTY STRING encodes "no doc existed" — FormData has no null). A conflict is surfaced by
 	 * the wrapper's `confirm()`; `force` (`force=1`) drops the precondition.
 	 */
+	/**
+	 * Soft edit lease (multi-user-concurrency Phase 2c) over this project's localization doc
+	 * (`docKey:'localization'`). When another author holds it, `lease.readOnly` gates the doc
+	 * `saveState` (its `blockWhen`) so a not-held tab can't save — the form-action transport is
+	 * gated the same as a fetch one, the Save button hides behind `<PresenceBanner>`, and Take
+	 * over is always reachable. The `If-Match` CAS stays the floor.
+	 */
+	const lease = new LeaseState({
+		toolId: 'localization',
+		clientKey: data.clientKey,
+		projectKey: data.projectKey,
+		docKey: 'localization',
+		enabled: data.projectKey.length > 0,
+	});
+
 	const saveState = new SaveState({
 		initialEtag: data.docEtag,
 		conflictMessage: 'Someone else saved these strings while you were editing.',
+		blockWhen: () => lease.readOnly,
 		save: async ({ baseEtag, force }) => {
 			status = 'Saving…';
 			try {
@@ -235,6 +254,16 @@
 			translating = false;
 		}
 	}
+
+	onMount(() => {
+		void lease.start();
+		const onUnload = () => lease.release();
+		window.addEventListener('pagehide', onUnload);
+		return () => {
+			window.removeEventListener('pagehide', onUnload);
+			lease.release();
+		};
+	});
 </script>
 
 <svelte:head><title>Invisible Localization — Invisible Wall</title></svelte:head>
@@ -243,12 +272,22 @@
 	<ToolTopBar current="localization" tools={data.tools} projectKey={data.projectKey}>
 		{#snippet meta()}
 			<span class="project">Project: <strong>{data.projectKey}</strong></span>
-			{#if status}<span class="status">{status}</span>{/if}
+			{#if lease.readOnly}
+				<!-- Another author (or your own other tab) holds the edit lease → read-only here.
+				     The doc saveState refuses to save (its blockWhen); Take over is always offered. -->
+				<PresenceBanner {lease} />
+			{:else if status}
+				<span class="status">{status}</span>
+			{/if}
 			<!-- NOTE: `onclick={save}` passes the click EVENT as `force` (truthy), so a manual Save
 			     has always been a FORCE overwrite here — preserved verbatim by this refactor. This is a
 			     pre-existing latent bug (localization's conflict `confirm()` is therefore effectively
 			     dead on the button path); flagged for the owner, not silently "fixed". -->
-			<button class="primary" onclick={save} disabled={busy || !saveState.dirty}>Save</button>
+			<button
+				class="primary"
+				onclick={save}
+				disabled={lease.readOnly || busy || !saveState.dirty}>Save</button
+			>
 		{/snippet}
 	</ToolTopBar>
 

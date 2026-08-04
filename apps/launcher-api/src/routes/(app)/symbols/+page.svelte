@@ -9,6 +9,8 @@
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
+	import { LeaseState } from '$lib/leaseState.svelte';
+	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import RegionPicker from '../editor/RegionPicker.svelte';
 	import {
 		clearRegionCache,
@@ -105,13 +107,21 @@
 	});
 
 	onMount(() => {
-		if (!gridScroll) return;
-		const ro = new ResizeObserver((entries) => {
-			const rect = entries[0]?.contentRect;
-			if (rect) viewW = rect.width;
-		});
-		ro.observe(gridScroll);
-		return () => ro.disconnect();
+		void lease.start();
+		const onUnload = () => lease.release();
+		window.addEventListener('pagehide', onUnload);
+		const ro = gridScroll
+			? new ResizeObserver((entries) => {
+					const rect = entries[0]?.contentRect;
+					if (rect) viewW = rect.width;
+				})
+			: null;
+		if (ro && gridScroll) ro.observe(gridScroll);
+		return () => {
+			window.removeEventListener('pagehide', onUnload);
+			ro?.disconnect();
+			lease.release();
+		};
 	});
 
 	/** Atlases + sheets a sprite frame can be picked from (mirrors the editor). */
@@ -250,8 +260,23 @@
 	 * written. A `SymbolsConflictError` maps to `reason:'conflict'`, surfaced by the wrapper's
 	 * `confirm()`; `force` overwrites.
 	 */
+	/**
+	 * Soft edit lease (multi-user-concurrency Phase 2c) over this project's symbols doc
+	 * (`docKey:'symbols'`). When another author holds it, `lease.readOnly` gates the doc
+	 * `saveState` (its `blockWhen`) so a not-held tab can't save, the Save button hides behind
+	 * `<PresenceBanner>`, and Take over is always reachable. The `If-Match` CAS stays the floor.
+	 */
+	const lease = new LeaseState({
+		toolId: 'symbols',
+		clientKey: data.clientKey,
+		projectKey: data.projectKey,
+		docKey: 'symbols',
+		enabled: data.projectKey.length > 0,
+	});
+
 	const saveState = new SaveState({
 		initialEtag: data.docEtag,
+		blockWhen: () => lease.readOnly,
 		save: async ({ baseEtag, force }) => {
 			try {
 				const out = await saveSymbolsDoc(data.projectKey, doc, baseEtag, force);
@@ -793,10 +818,16 @@
 	>
 		{#snippet meta()}
 			<div class="save-area">
-				{#if saveState.status === 'error' || saveState.status === 'conflict'}<span class="save-err"
-						>{saveState.message}</span
-					>{/if}
-				{#if !dirty && savedAt}<span class="saved">Saved</span>{/if}
+				{#if lease.readOnly}
+					<!-- Another author (or your own other tab) holds the edit lease → read-only here.
+					     The doc saveState refuses to save (its blockWhen); Take over is always offered. -->
+					<PresenceBanner {lease} />
+				{:else}
+					{#if saveState.status === 'error' || saveState.status === 'conflict'}<span
+							class="save-err">{saveState.message}</span
+						>{/if}
+					{#if !dirty && savedAt}<span class="saved">Saved</span>{/if}
+				{/if}
 				<button
 					class="reload"
 					type="button"
@@ -809,7 +840,12 @@
 				<!-- `onclick={save}` passes the click EVENT as `force` (truthy): a manual Save has
 				     always FORCE-overwritten here — preserved verbatim. Pre-existing latent bug (the
 				     conflict `confirm()` is effectively dead on this path); flagged for the owner. -->
-				<button class="save" type="button" disabled={!dirty || saveState.busy} onclick={save}>
+				<button
+					class="save"
+					type="button"
+					disabled={lease.readOnly || !dirty || saveState.busy}
+					onclick={save}
+				>
 					{saveState.busy ? 'Saving…' : dirty ? 'Save' : 'Saved'}
 				</button>
 			</div>

@@ -558,10 +558,25 @@ What makes the tools usable for 2–3 people on a project.
 >   blocking both autosave + manual save (and unchanged when false). Launcher build green.
 >   **Owner-verify owed:** the live two-profile test (below) + migration 0014.
 >
-> **Still to do: sub-phase 2c-rest** — thread `LeaseState` + `blockWhen` +
-> `<PresenceBanner>` into the remaining authoring tools (symbols, fx, flipbook,
-> win-text, game-config, localization, components; rigger via Phase 0's tables). Each
-> leases its OWN per-project doc; global keys stay unleased.
+> **Sub-phase 2c-rest batch A — BUILT 2026-08-04 (symbols, win-text, config,
+> localization).** The four WHOLE-PROJECT-DOC authoring tools, wired MECHANICALLY to
+> the 2c-core template (editor/flow-v2): each declares one `LeaseState`
+> `{ toolId, clientKey, projectKey, docKey: toolId, enabled: projectKey.length > 0 }`
+> before its doc `saveState`, adds `blockWhen: () => lease.readOnly` to that ONE doc
+> saveState, renders `<PresenceBanner {lease} />` in the read-only branch of its
+> `ToolTopBar` `meta` snippet (replacing the save pill) + disables Save when
+> `lease.readOnly`, and `start()`s on mount / `release()`s on `pagehide` + teardown.
+> Tool ids: `symbols`, `winText`, `gameConfig`, `localization`. `docKey === toolId`
+> (one lease per project doc). localization saves via a SvelteKit FORM action — the
+> `blockWhen` gate sits on `saveState.save()`, so the transport is untouched; its
+> `+page.server.ts` load now also returns `clientKey` (it previously didn't) so the
+> page can key the lease. No global `_shared/*` key was leased (none of the four has a
+> second global-key saveState). Launcher build green. **Owner-verify owed:** the live
+> two-profile test.
+>
+> **Still to do: sub-phase 2c-rest batch B** — the per-ITEM tools (fx, flipbook,
+> components; rigger via Phase 0's tables), which lease per selected item rather than
+> one project doc. Each leases its OWN key; global keys stay unleased.
 >
 > Original plan (2c is the residual):
 

@@ -79,7 +79,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		...harvestSymbolNames(symbolsDoc),
 	];
 	const { entries, display } = reconcileWithEditor(doc, sections);
-	return { projectKey, doc: { ...doc, entries }, docEtag, sections: display };
+	// `clientKey` is threaded to the page for the Phase 2c soft edit-lease key
+	// `(toolId, clientKey, projectKey, docKey)` — mirroring the other authoring tools.
+	return { clientKey, projectKey, doc: { ...doc, entries }, docEtag, sections: display };
 };
 
 export const actions: Actions = {
