@@ -69,6 +69,9 @@ const resolveOne = (
 			dialogImage: art.dialogImage ?? '',
 			volatility: art.volatility ?? '',
 		},
+		// The card is a ComponentDef id, not an asset key. Empty when unauthored so the runtime omits
+		// the per-item `componentId` and the repeater falls back to its default `featureCard` (parity).
+		card: presentation?.card ?? '',
 	};
 };
 
@@ -87,4 +90,21 @@ export const resolveBetModes = (doc: GameConfigDoc): ResolvedBetMode[] => {
 		.map((mode, index) => ({ mode, index }))
 		.sort((a, b) => a.mode.order - b.mode.order || a.index - b.index)
 		.map(({ mode }) => mode);
+};
+
+/**
+ * The DISTINCT set of card ComponentDef ids a config assigns to its bet modes
+ * ({@link BetModePresentation.card}). The bake collector uses this to fold each config-assigned card
+ * def onto the export→bake→pull chain — those ids are chosen at RUNTIME, so `collectComponentIds`
+ * (which walks the scene doc statically) can't see them. Empty for an un-authored / no-card config,
+ * so a project without per-mode cards ships byte-identical to before (parity). Blank/whitespace
+ * entries are dropped; a named-but-nonexistent id is left to the caller's `loadComponent` to skip.
+ */
+export const betModeCardIds = (doc: GameConfigDoc): string[] => {
+	const ids = new Set<string>();
+	for (const presentation of Object.values(doc.betModePresentation ?? {})) {
+		const card = presentation.card?.trim();
+		if (card) ids.add(card);
+	}
+	return [...ids];
 };

@@ -104,6 +104,18 @@ export type BetModePresentation = {
 	order?: number;
 	text?: BetModeText;
 	art?: BetModeArt;
+	/**
+	 * The CARD component this mode renders in the buy-feature menu — a {@link ComponentDef} id (the
+	 * same id space the Scene Editor / `componentInstance` nodes use). Lets each bet mode present with
+	 * its OWN authored card instead of the one shared `featureCard`. Absent ⇒ the mode falls back to
+	 * the repeater node's default `featureCard`, byte-identical to before (parity).
+	 *
+	 * BAKE/SHIP: a card assigned here is discovered at RUNTIME, so `collectComponentIds` (which walks
+	 * the scene doc statically) can't see it — the bake collector reads THIS field separately and
+	 * folds the named def into the export→bake→pull set, exactly as scene component ids travel. A
+	 * `card` naming a non-existent component is skipped safely (⇒ the default `featureCard`).
+	 */
+	card?: string;
 };
 
 /**
@@ -149,6 +161,10 @@ export type ResolvedBetMode = {
 	 *  consumer renders nothing rather than a broken texture. The runtime maps these into
 	 *  `BetModeData.assets` and resolves each key to its baked texture. */
 	art: { icon: string; dialogImage: string; volatility: string };
+	/** The card ComponentDef id this mode renders in the buy-feature menu — see
+	 *  {@link BetModePresentation.card}. Empty string when unauthored, so the repeater item omits its
+	 *  per-item `componentId` and falls back to the node's default `featureCard` (parity). */
+	card: string;
 };
 
 /**

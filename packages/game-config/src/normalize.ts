@@ -191,6 +191,10 @@ const normalizeBetModePresentation = (
 		if (order !== undefined) presentation.order = order;
 		const text = normalizeBetModeText(entry.text);
 		if (text) presentation.text = text;
+		// The per-mode card ComponentDef id — a non-empty string, else dropped so an unset card falls
+		// through to the default `featureCard` at runtime (parity).
+		const card = str(entry.card)?.trim();
+		if (card) presentation.card = card;
 		if (Object.keys(presentation).length) map[mode] = presentation;
 	}
 	return Object.keys(map).length ? map : undefined;

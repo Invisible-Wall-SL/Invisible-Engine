@@ -7,6 +7,10 @@ export type BetModeData = {
 	type: 'default' | 'activate' | 'buy';
 	parent: string;
 	children: string;
+	/** The card ComponentDef id this mode renders in the buy-feature menu (distinct, authorable
+	 *  cards). Empty string ⇒ unset ⇒ the repeater falls back to its node's default `featureCard`,
+	 *  byte-identical to before (parity). Optional so existing coded metas need no change. */
+	card?: string;
 	assets: {
 		icon: string;
 		volatility: string;
