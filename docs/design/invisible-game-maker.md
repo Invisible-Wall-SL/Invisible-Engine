@@ -137,7 +137,18 @@ runtime reads it to select behavior.
 one `bookOf` runtime) selected at boot by the doc's `gameType`. This is "generic
 *per type*," not one universal bundle — the realistic first target.
 
-### Engine gap 2 — config is compiled, not loaded
+### Engine gap 2 — config is compiled, not loaded — ✅ CLOSED (Invisible Game Config)
+
+> **Resolved.** `game/config.ts`'s data (reelstrips/paylines/paytable/betModes/
+> symbols/grid + win-tiers) is now authored in the `/config` tool and loaded from
+> R2 (`<client>/<project>/config/config.json`, `GameConfigDoc`), resolved at boot
+> by `apps/lines/src/game/gameConfig.ts` (`runtime → baked → compiled`). It rides
+> `assembleRuntimeBundle` + the desktop bake. See
+> [invisible-game-config.md](invisible-game-config.md) (authoritative) and
+> [../status/game-config.md](../status/game-config.md). Residual still-compiled:
+> a few `constants.ts` feel knobs (`SYMBOL_SIZE`, `REEL_PADDING`, spin timing,
+> `zIndexes`) — board dimensions are config-driven; these rarely need per-game
+> overrides. Original description kept below for history.
 
 `game/config.ts` (~6,500 lines of reelstrips/paylines/paytable/betModes),
 `constants.ts` (`SYMBOL_INFO_MAP`, geometry), `winLevelMap`, `paytable`,
@@ -205,11 +216,17 @@ renders a real project purely from a live fetch — no per-game `src/`.
 - **Outcome:** the owner authors a `lines` reskin online and clicks Publish →
   playable. Closes the exact gap that prompted this doc.
 
-### Phase 2 — Config from R2
-Move `config.ts`/`constants.ts`/paytable/winLevelMap/infoManifest to R2 JSON +
-loader, so per-game math/symbols/geometry change without touching code. Extend
-Game Maker (or the editor) with the math-authoring surface, or seed sensible
-defaults per game-type.
+### Phase 2 — Config from R2 — ✅ DONE (Invisible Game Config)
+Delivered as a standalone initiative, not inside Game Maker: the `/config` tool +
+`packages/game-config` author `GameConfigDoc` (symbols/paytable/paylines/bet-modes/
+reelstrips/grid + win-tiers) into R2, resolved at boot by `gameConfig.ts`
+(`runtime → baked → compiled`) and carried by `assembleRuntimeBundle` + the bake.
+So per-game math/symbols/geometry change without a rebuild. See
+[invisible-game-config.md](invisible-game-config.md) +
+[../status/game-config.md](../status/game-config.md). Residual: a few `constants.ts`
+feel constants remain compiled (see gap 2). To make an authored config LIVE on an
+online game: author it in `/config`, then Runtime release (`runtime:lines`) +
+republish (the reader ships in `_runtime/lines`).
 
 ### Phase 3 — More game-types
 Generalize Phase 0/1 to `bookOf`, then `ways`/`cluster`/`scatter` runtimes.

@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-game-maker.md](../design/invisible-game-maker.md) · Guide: [docs/tools/game-maker.md](../tools/game-maker.md) · Agent: none yet (launcher tool — closest owner `.claude/agents/launcher-studio.md` + `.claude/agents/engine-pixi-svelte.md`)
 
-**One-line state:** in-progress — Phases 0–1 shipped (create + one-click online Publish for `lines`-type reskins, no repo/no build); Phases 2–4 (config-from-R2, more game-types, behavior tracks) unbuilt.
+**One-line state:** in-progress — Phases 0–1 shipped (create + one-click online Publish for `lines`-type reskins, no repo/no build); **Phase 2 (config-from-R2) is DONE — delivered as the Invisible Game Config tool** (`/config` + `packages/game-config`), see [docs/status/game-config.md](game-config.md) / [docs/design/invisible-game-config.md](../design/invisible-game-config.md); Phases 3–4 (more game-types, behavior tracks) unbuilt.
 
 ## Current state
 
@@ -19,7 +19,7 @@ Closes the "author online → play" gap without a per-game repo, CLI, or desktop
 **Reskin / template games work today:** background, scenery, HUD, free-spin intro/counter/outro, loading splash, board position/shape/spin-feel, fonts, localized text, and per-instance prefab art are all doc + R2-driven.
 
 ## Open items / next
-1. **Phase 2 — config from R2.** `config.ts`/`constants.ts`/paytable/winLevelMap/infoManifest still compile per app; move to R2 JSON + loader so per-game math/symbols/geometry change without a rebuild. Until then a published game runs its runtime's default math.
+1. **Phase 2 — config from R2. ✅ DONE (as Invisible Game Config).** `config.ts`'s data — symbols/paytable/paylines/bet-modes/reelstrips/grid-dimensions + win-tiers — is now authored in the `/config` tool, stored at R2 `<client>/<project>/config/config.json` (`GameConfigDoc`), and resolved at boot by `apps/lines/src/game/gameConfig.ts` (`runtime bundle → baked → compiled` via `bakedGameConfig()`). It rides `assembleRuntimeBundle` + the desktop bake (`GET /api/game-config/doc`). See [game-config.md](game-config.md). **Two live prerequisites** (not code gaps): a game must actually author a config in `/config` (else it falls through to the compiled template by design), and the reading code ships in the shared `_runtime/lines` bundle, so an online game needs a **Runtime release + republish** to use it. **Residual still-compiled** = a few `constants.ts` feel knobs (`SYMBOL_SIZE`, `SYMBOL_SPINE_FILL`, `REEL_PADDING`, `SPIN_OPTIONS_*`, background ratios, `zIndexes`) — board *dimensions* are already config-driven; these engine defaults have no per-game authoring home yet and rarely need one. **Minor gap:** a config *save* relies on the 10s runtime-cache TTL; only Publish force-invalidates (`invalidateRuntimeBundle`) — an on-save invalidate hook doesn't exist yet.
 2. **Phase 3 — more game-types.** Publish currently maps **every** project to the only prebuilt runtime (`lines`); `ways`/`cluster`/`scatter`/`bookOf` need their own prebuilt bundle + a `gameType` runtime switch (engine gap 1 — `gameType` is an editor hint only today).
 3. **Phase 4 — behavior tracks (the long pole).** Novel per-event animation is still per-game TypeScript (`bookEventHandlerMap.ts`); the declarative `tracks?: BehaviorTrack[]` format + interpreter + versioned vocabulary is a multi-quarter engine project, own design doc.
 4. **Widen Publish beyond admin** to `developer` (deliberate later decision).
