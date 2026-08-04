@@ -19,7 +19,7 @@ Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigg
 The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons, weighted-mesh vertices included). `.skel` binary is view-only; editing is JSON only. See design §0 for the reconciled phase summary.
 
 ## Open items / next
-1. **Ship-from-Rigger (rule 8) — recommended next.** A rig only `.irig`-saves to R2; there is **no** export → `deploy/` → bake → pull → runtime-register wiring, so a Rigger rig does not actually reach a game. "Renders in `/rigger`" ≠ "ships."
+1. ✅ ~~**Ship-from-Rigger (rule 8)**~~ — **DONE (owner-confirmed 2026-08-04).** A rig now travels the full export → `deploy/` → bake → pull → runtime-register chain and reaches a game; "renders in `/rigger`" now also means "ships."
 2. **Mesh-deform animation timelines** — per-vertex `deform` channel keying (the largest missing animation channel).
 3. **Phase 3.6 visual UV editor** — a texture-panel UV editor (drag vertices over the region image) + hull/edge editing; only numeric UV editing exists today.
 4. **Better auto-weights** — the shipped proximity chain-skinner scored poorly against artist ground truth; a geodesic/heat algorithm + a representative **character-mesh validation gate** (Spike 2) is still open. Manual brush stays the guaranteed path.
@@ -37,6 +37,9 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-08-04 — **Ship-from-Rigger (rule 8) closed (owner-confirmed).** A rig now travels the full
+  export → `deploy/` → bake → pull → runtime-register chain into a game — the standing "renders in
+  `/rigger`" ≠ "ships" gap is resolved.
 - 2026-07-28 — **Save can no longer silently un-ship a rig.** `POST /api/rigger/save` rebuilt
   the WHOLE project index via `buildSkeletonsIndex` and overwrote `skeletons.json`; that scan
   SILENTLY DROPS any skeleton folder whose `.atlas` is missing (`if (!atlases.length) continue`

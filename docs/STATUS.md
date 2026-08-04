@@ -65,35 +65,32 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 
 Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide priority order.
 
-1. **Multi-user concurrency — Phase 0** (`_shared/rigs|animations/index.json` RMW → Postgres).
-   *Recommended next — this is live data loss, not a missing feature.* Those indexes are **global
-   across every client and project**, so two users on unrelated projects silently drop each other's
-   rows today. Then Phase 1 (`If-Match` through `r2.ts`) + Phase 2 (doc lease + presence).
-   ([design/multi-user-concurrency](design/multi-user-concurrency.md))
-2. **Invisible Game Config — live-verify only (SHIPPED 2026-07-24).** All five phases are in: a
-   project authors its own symbols/paylines/grid/bet-modes/strips at `/config`, the game runs that
-   instead of `apps/lines`' shared sample, and the symbol-defaults publish gates on the authored
-   config — the fix for the wild (`W`) that rolled past a Lines game's reels its math never deals.
-   Only the owner click-through of the `/config` page remains (it renders only in the deployed
-   launcher). See [status/game-config](status/game-config.md).
-3. **Ship-from-Rigger (rule 8)** — a rigged skeleton only `.irig`-saves to R2; there is no
-   export→deploy→bake→pull→register wiring, so a Rigger rig never reaches a game.
-   ([status/rigger](status/rigger.md))
-4. **Flow-driven-game Phase 5** — author real `bigWin`/`freeSpinIntro`/`loading` backing scenes,
-   bake, and ship to a game so a shipped title actually runs an authored FlowDoc (the runtime +
-   editor exist; no shipped game runs one yet). ([status/flow](status/flow.md))
-5. **Rigger mesh-deform animation timelines** — per-vertex `deform` channel keying (the largest
+1. **Multi-user concurrency — Phase 0 (finish the last two sites).** ⭐ *Recommended next — this is
+   live data loss, not a missing feature.* The rigger indexes (`_shared/rigs|animations/index.json`
+   RMW → Postgres) are **DONE** (`sharedRigs`/`sharedAnimations` tables + backfill in
+   `riggerLibrary.ts`, migration `0013`). Still **UNSHIPPED**: the two RMW-on-a-global-key sites the
+   Phase 0 survey found later — `testServerManifest.ts` (`test_server/games.json`) and the fonts
+   catalog (`/api/fonts/{save,delete}`), both of which drop a second user's write across unrelated
+   projects. *(In progress.)* Then Phase 1 (`If-Match` through `r2.ts`) + Phase 2 (doc lease +
+   presence). ([design/multi-user-concurrency](design/multi-user-concurrency.md) §"Phase 0 —
+   newly-found scope")
+2. **Rigger mesh-deform animation timelines** — per-vertex `deform` channel keying (the largest
    missing animation channel). ([status/rigger](status/rigger.md))
-6. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines` / `bookOf` have rich
+3. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines` / `bookOf` have rich
    reference scene sets. ([status/editor](status/editor.md))
-7. **Rigger Phase 3.6** — visual texture-panel UV editor + hull/edge editing.
-8. **Rigger auto-weights quality** — geodesic/heat skinner + character-mesh validation gate.
-9. **B4 HUD migration** — convert the live Balance/Win/Bet readouts to component instances behind
+4. **Rigger Phase 3.6** — visual texture-panel UV editor + hull/edge editing.
+5. **Rigger auto-weights quality** — geodesic/heat skinner + character-mesh validation gate.
+6. **B4 HUD migration** — convert the live Balance/Win/Bet readouts to component instances behind
    the parity gate (B1–B3 done). ([status/engine](status/engine.md), [status/component-editor](status/component-editor.md))
-10. **Blueprint model auto-download** (ComfyUI-Manager API) — uploaded blueprints assume their
+7. **Blueprint model auto-download** (ComfyUI-Manager API) — uploaded blueprints assume their
    models are already installed.
-11. Smaller: wire `gen-flow-vocabulary --check` into CI/pre-commit; refresh
+8. Smaller: wire `gen-flow-vocabulary --check` into CI/pre-commit; refresh
     [tools/fx.md](tools/fx.md) for the new Emission/Movement/Colour/Blend/Presets sliders (rule 9).
+
+**Recently closed** (owner-confirmed live, 2026-08-04): **Invisible Game Config** (all phases +
+grid/bet-modes/win-tiers shipped and live-verified) · **Ship-from-Rigger** rule-8 wiring (a rig now
+travels export→deploy→bake→pull→register into a game) · **Flow-driven-game Phase 5** (a shipped
+title runs an authored FlowDoc). See each tool's `docs/status/<tool>.md`.
 
 ## Blocked on owner / external (not code)
 

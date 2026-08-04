@@ -2,12 +2,11 @@
 
 > Design: [docs/design/invisible-game-config.md](../design/invisible-game-config.md) · Guide: [docs/tools/game-config.md](../tools/game-config.md) · Agent: `.claude/agents/invisible-game-config.md`
 
-**One-line state:** All five build-plan phases landed AND the grid-dimensions enhancement — an
-authored config now drives the symbols/paytable/paylines/bet-modes AND resizes the board in the
-game, the mock RGS and the Scene Editor preview. **Live-verify owed:** the `/config` + `/editor`
-pages render only inside the launcher (Postgres + R2 + session), and a non-5×3 end-to-end spin needs
-the test-server; the game-board resize and the mock are verified locally, the launcher surfaces are
-the owner's click-through.
+**One-line state:** ✅ **SHIPPED + live-verified (owner-confirmed 2026-08-04).** All five build-plan
+phases landed AND the grid-dimensions enhancement — an authored config drives the
+symbols/paytable/paylines/bet-modes AND resizes the board in the game, the mock RGS and the Scene
+Editor preview — and the owner has clicked through the `/config` + `/editor` launcher surfaces and
+tested it end-to-end. The live-verify gap that was the last open item is closed.
 
 ## Current state
 
@@ -309,13 +308,10 @@ not reach a live game.
 
 ## Open items / next
 
-1. **Live-verify the launcher surfaces** (owner click-through) — render `/config` (load a config,
-   edit panels, off-grid payline blocks save, raw-JSON paste validates, save round-trips) AND
-   `/editor` (the reelGrid preview draws the authored grid; a mismatched node warns). Plus a non-5×3
-   end-to-end spin via the test-server + a dev game. The only things offline verification couldn't
-   reach. **New this pass:** change the reel count → `Match grid` clears the errors and the new
-   reels get strip boxes; colour a payline → its win line (and glow) draws in that colour in-game and
-   `stateGame.winLineColor` carries it for the round.
+1. ✅ ~~**Live-verify the launcher surfaces**~~ — DONE (owner click-through, 2026-08-04): `/config`
+   panels, off-grid payline block, raw-JSON paste, save round-trip, the `Match grid` repair flow,
+   per-payline colour in-game, AND a non-5×3 end-to-end spin all verified live. The one gap offline
+   verification couldn't reach is closed.
 2. **Validate against the RGS** (design doc open decision 3) — compare the config's symbol set to
    the first `reveal` and warn on a mismatch. `warnOnGameConfigIssues()` is the natural home; it
    would have caught the wild on the first spin.
@@ -327,10 +323,13 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Blocked (owner / external)
 
-- **Live-verify** waits on a launcher deploy + a click-through — the `/config` page can't render
-  locally (Postgres + R2 + session). Not blocking the merge; it's a post-deploy check.
+- _None._ The live-verify that was the standing external gate is done (owner-confirmed 2026-08-04).
 
 ## Recent changes
+
+- 2026-08-04 — **Live-verified + closed (owner-confirmed).** The owner clicked through `/config` +
+  `/editor` in the deployed launcher and ran an end-to-end (incl. non-5×3) spin. The one remaining
+  open item — the launcher-only live-verify — is done; the tool is shipped and verified.
 
 - 2026-08-03 — **Config-authored win tiers (big-win levels) + sequential escalation.** New OPTIONAL
   `winLevels?` tier list + `escalateTiers?`/`escalateFrom?` on `GameConfigDoc`, resolver in
