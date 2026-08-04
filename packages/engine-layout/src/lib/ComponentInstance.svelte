@@ -65,6 +65,7 @@
 	import { setComponentStateAnims } from './componentStateAnimContext';
 	import { setComponentSpineRest } from './componentSpineRestContext';
 	import { getComponentValueSource, type ValueSource } from './registerComponentValues';
+	import { getInstanceValueSource, type InstanceValueSource } from './registerInstanceValues';
 	import { getFlowValueSource } from './registerFlowValueSource';
 	import { getFlowPress } from './registerFlowPress';
 	import { getComponentAction, type ActionSource } from './registerComponentActions';
@@ -244,6 +245,22 @@
 		if (!valueSource) return;
 		return valueSource.subscribe((value) => {
 			liveValue = value;
+		});
+	});
+
+	// Engine instance-value feed (`registerInstanceValues`): the MAP sibling of the single `value`
+	// feed above, keyed by this instance's NODE id. It supplies a full `engineProvided` values map
+	// (title/message/…) to a scene instance the Flow interpreter shows GENERICALLY — one that gets
+	// neither a `<Repeater>` `engineValues` prop nor a `<ConfirmDialog>` mount's instance binding, so
+	// it would otherwise fall back to the def defaults. Resolved synchronously by node id (init-stable
+	// like `valueSource`); the live map arrives via the subscription. No source registered for this
+	// node ⇒ `undefined` ⇒ the prop/binding/def values stand (parity — byte-identical to today).
+	const instanceValueSource: InstanceValueSource | undefined = getInstanceValueSource(node.id);
+	let instanceValues = $state<Record<string, unknown> | undefined>(undefined);
+	$effect(() => {
+		if (!instanceValueSource) return;
+		return instanceValueSource.subscribe((values) => {
+			instanceValues = values;
 		});
 	});
 
@@ -731,6 +748,25 @@
 					get: () => (engineValues ?? binding?.engineValues)?.[key],
 				});
 			}
+		}
+	} else if (instanceValueSource) {
+		// Flow path (`registerInstanceValues`): NEITHER a `<Repeater>` prop NOR a `<ConfirmDialog>`
+		// mount binding supplied values — this instance was shown GENERICALLY by the interpreter
+		// (`showContainer(buyConfirm)`), so the node-id-keyed feed is the supplier. The `else if`
+		// GUARANTEES the imperative path always wins (prop/binding ?? THIS ?? def default): a mount
+		// present ⇒ this branch never runs, so the imperative path is byte-identical. Gated on the
+		// SOURCE existing (init-stable), not on the live map, so the getters are defined before the
+		// first emit. Each getter falls back to `staticParams[key]` (the def default) until the live
+		// map carries the key — so a partial feed never blanks a param, matching the `key in …` guard
+		// the prop/binding branch uses. Reactive: reading `instanceValues` inside the getter re-runs a
+		// bound text/sprite node's `$derived` when the picked mode changes (a new title/message).
+		for (const param of def?.params ?? []) {
+			if (!param.engineProvided) continue;
+			const key = param.key;
+			Object.defineProperty(providedParams, key, {
+				enumerable: true,
+				get: () => instanceValues?.[key] ?? staticParams[key],
+			});
 		}
 	}
 	setComponentParams(allowed && def ? providedParams : {});
