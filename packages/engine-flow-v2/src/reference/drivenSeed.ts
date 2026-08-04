@@ -43,6 +43,7 @@
 
 import { REPEATER_SELECT_EVENT, REPEATER_SELECTED_KEY } from 'constants-shared/repeater';
 
+import { buildConfirmGate } from '../builders/confirmGate';
 import {
 	componentSignalConfiguredEvents,
 	containerEventDeclId,
@@ -203,19 +204,13 @@ const FEATURE_REPEATER = 'buy-feature-cards';
 const CONFIRM_DIALOG = 'confirm-dialog';
 const SELECT_PIN = containerEventDeclId(FEATURE_REPEATER, REPEATER_SELECT_EVENT);
 const SELECT_KEY_PIN = `${SELECT_PIN}.${REPEATER_SELECTED_KEY}`;
-const CONFIRM_PIN = containerEventDeclId(CONFIRM_DIALOG, 'confirm');
-const CANCEL_PIN = containerEventDeclId(CONFIRM_DIALOG, 'cancel');
 
+// The PRE-GATE part (intent ▶ show the select menu; a card press arms the mode + swaps to confirm).
 const BUY = {
 	event: 'buy_event',
 	showFeature: 'buy_showFeature',
 	arm: 'buy_selectBetMode',
 	hideFeature: 'buy_hideFeature',
-	showConfirm: 'buy_showConfirm',
-	commit: 'buy_commit',
-	hideConfirmAfterCommit: 'buy_hideConfirm_commit',
-	hideConfirmAfterCancel: 'buy_hideConfirm_cancel',
-	showFeatureAfterCancel: 'buy_showFeature_again',
 } as const;
 
 nodes.push(
@@ -223,50 +218,32 @@ nodes.push(
 	{ id: BUY.showFeature, kind: 'showContainer', pos: { x: 500, y: 40 }, ref: BUY_FEATURE },
 	{ id: BUY.arm, kind: 'action', pos: { x: 500, y: 80 }, ref: 'selectBetMode' },
 	{ id: BUY.hideFeature, kind: 'hideContainer', pos: { x: 500, y: 120 }, ref: BUY_FEATURE },
-	{ id: BUY.showConfirm, kind: 'showContainer', pos: { x: 500, y: 160 }, ref: BUY_CONFIRM },
-	{ id: BUY.commit, kind: 'action', pos: { x: 500, y: 200 }, ref: 'commitBuyBonus' },
-	{
-		id: BUY.hideConfirmAfterCommit,
-		kind: 'hideContainer',
-		pos: { x: 500, y: 240 },
-		ref: BUY_CONFIRM,
-	},
-	{
-		id: BUY.hideConfirmAfterCancel,
-		kind: 'hideContainer',
-		pos: { x: 780, y: 200 },
-		ref: BUY_CONFIRM,
-	},
-	{
-		id: BUY.showFeatureAfterCancel,
-		kind: 'showContainer',
-		pos: { x: 780, y: 240 },
-		ref: BUY_FEATURE,
-	},
 );
+
+// The confirm-gate PORTION is the reusable `ConfirmGatedAction` unit (Phase 3 Step 6): Show(buyConfirm)
+// → confirm ▶ commitBuyBonus ▶ Hide(buyConfirm); cancel ▶ Hide(buyConfirm) ▶ Show(buyFeature). It is
+// spliced in as TOP-LEVEL nodes/edges (NOT a `group`: `flowOwnsContainerEvent` reads the RAW graph, so a
+// grouped confirm dialog's `onConfirm`/`onCancel` would be invisible to the ownership predicate and the
+// coded press would double-fire). See `builders/confirmGate.ts` for the mechanism decision.
+const buyConfirmGate = buildConfirmGate({
+	idPrefix: 'buy',
+	promptContainerId: BUY_FEATURE,
+	confirmContainerId: BUY_CONFIRM,
+	confirmComponentId: CONFIRM_DIALOG,
+	onConfirmedActionRef: 'commitBuyBonus',
+	pos: { x: 500, y: 160 },
+});
+nodes.push(...buyConfirmGate.nodes);
 
 exec.push(
 	// intent ▶ show the select menu.
 	{ from: { node: BUY.event, pin: 'exec' }, to: { node: BUY.showFeature, pin: 'exec' } },
-	// a card press (fused onSelect) ▶ arm the picked mode ▶ swap select → confirm.
+	// a card press (fused onSelect) ▶ arm the picked mode ▶ swap select → confirm (the gate's entry).
 	{ from: { node: BUY.showFeature, pin: SELECT_PIN }, to: { node: BUY.arm, pin: 'exec' } },
 	{ from: { node: BUY.arm, pin: 'exec' }, to: { node: BUY.hideFeature, pin: 'exec' } },
-	{ from: { node: BUY.hideFeature, pin: 'exec' }, to: { node: BUY.showConfirm, pin: 'exec' } },
-	// confirm ▶ commit (arms the mode + fires the bet) ▶ close the dialog.
-	{ from: { node: BUY.showConfirm, pin: CONFIRM_PIN }, to: { node: BUY.commit, pin: 'exec' } },
-	{
-		from: { node: BUY.commit, pin: 'exec' },
-		to: { node: BUY.hideConfirmAfterCommit, pin: 'exec' },
-	},
-	// cancel ▶ close the dialog ▶ re-enter the select menu (idempotent re-show).
-	{
-		from: { node: BUY.showConfirm, pin: CANCEL_PIN },
-		to: { node: BUY.hideConfirmAfterCancel, pin: 'exec' },
-	},
-	{
-		from: { node: BUY.hideConfirmAfterCancel, pin: 'exec' },
-		to: { node: BUY.showFeatureAfterCancel, pin: 'exec' },
-	},
+	{ from: { node: BUY.hideFeature, pin: 'exec' }, to: buyConfirmGate.entry },
+	// confirm ▶ commit ▶ Hide; cancel ▶ Hide ▶ re-Show buyFeature — all from the reusable confirm gate.
+	...buyConfirmGate.exec,
 );
 
 // The pressed card's key flows through the fused data-out into `selectBetMode`'s `betModeKey` data-in.
