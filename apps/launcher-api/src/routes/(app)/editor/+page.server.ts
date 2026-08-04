@@ -5,7 +5,8 @@ import {
 	reelGridWarnings,
 	type LayoutDoc,
 } from 'engine-layout';
-import { resolveWinLevels } from 'game-config';
+import { resolveBetModes, resolveWinLevels } from 'game-config';
+import type { RepeaterSourceMap } from './editorCanvas.helpers';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listComponents } from '$lib/server/componentStorage';
@@ -117,6 +118,30 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 				?.filter((tier) => tier.type === 'big')
 				.map((tier) => ({ alias: tier.alias, name: tier.name || tier.alias })) ?? null)
 		: null;
+	// The `repeater` node can't run its live `source` array in the editor, so we resolve each known
+	// source's SAMPLE data from the config here. `featureCards` mirrors the runtime `registerBuyFeature`
+	// feed: one card per NON-default bet mode (`resolveBetModes` filtered to non-`base` kinds), fed the
+	// SAME per-item values the runtime feeds (title/description/price/buttonLabel/iconKey). `price` uses a
+	// SAMPLE base bet (the live bet isn't known in the editor), so it reads as an illustrative figure.
+	// A resolver keyed by source name keeps this extensible + safe: an unknown source, or no non-default
+	// mode, is simply absent from the map ⇒ the canvas keeps its fixed fallback sample (parity).
+	const SAMPLE_BASE_BET = 1;
+	const featureCardModes = gameConfigDoc
+		? resolveBetModes(gameConfigDoc).filter((mode) => mode.kind !== 'base')
+		: [];
+	const repeaterSources: RepeaterSourceMap = {};
+	if (featureCardModes.length > 0) {
+		repeaterSources.featureCards = {
+			count: featureCardModes.length,
+			items: featureCardModes.map((mode) => ({
+				title: mode.title,
+				description: mode.description,
+				price: '$' + (SAMPLE_BASE_BET * mode.costMultiplier).toFixed(2),
+				buttonLabel: mode.button,
+				iconKey: mode.art.icon,
+			})),
+		};
+	}
 	const warnings = template
 		? [...findUnfilledRequiredSlots(doc, template), ...reelGridWarnings(doc, gridDimensions)]
 		: [];
@@ -156,6 +181,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// The config's BIG tiers (alias + display name) the `win` component builds its per-tier
 		// presentation groups from. Null ⇒ the built-in default tiers (byte-identical).
 		winTiers,
+		// Per-source SAMPLE data for `repeater` placeholders (currently `featureCards` → the config's
+		// non-default bet modes). Empty ⇒ every repeater keeps its fixed fallback sample (parity).
+		repeaterSources,
 	};
 };
 

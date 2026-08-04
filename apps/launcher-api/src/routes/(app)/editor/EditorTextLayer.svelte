@@ -37,7 +37,10 @@
 		childLocalTransform,
 		composeWorldMatrix,
 		matMul,
+		repeaterPlaceholderGrid,
+		repeaterBoxes,
 		type Affine,
+		type RepeaterSourceMap,
 	} from './editorCanvas.helpers';
 
 	interface Props {
@@ -87,6 +90,10 @@
 		 * tree (resolve its params + recurse into `def.root.children`) and own the text it
 		 * draws — the same `componentMap` the 2D canvas uses. */
 		componentMap?: Map<string, ComponentDef>;
+		/** Per-source SAMPLE data for `repeater` placeholders (config-resolved), so the overlay expands
+		 * the SAME per-box cards the 2D canvas draws — feeding each card its item count + values. Null /
+		 * an absent source ⇒ the fixed fallback sample + def-default text (parity). */
+		repeaterSources?: RepeaterSourceMap | null;
 		/** The fixed window dims (§10.2) — a nested `canvas`-space node folds its
 		 * `screenAnchor` against these, mirroring `<LayoutNodeView>` (`canvasSizes`). */
 		frameWidth: number;
@@ -110,6 +117,7 @@
 		projectGameName = null,
 		componentParams,
 		componentMap = new Map<string, ComponentDef>(),
+		repeaterSources = null,
 		frameWidth,
 		frameHeight,
 	}: Props = $props();
@@ -386,6 +394,35 @@
 					...stack,
 					def.id,
 				]);
+			} else if (n.kind === 'repeater') {
+				// A repeater's per-box cards carry text (title/price/…). Expand the SAME synthetic boxes
+				// the 2D canvas draws (`repeaterBoxes`) so the overlay renders each card's text at the
+				// matching world position: the box container joins the chain (unique per box), then its
+				// children recurse with the box's resolved params.
+				const def = componentMap.get(n.componentId);
+				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
+				const src = repeaterSources?.[n.source];
+				const grid = repeaterPlaceholderGrid(n, { count: src?.count, def });
+				const rt = resolveTransform(n, layoutType);
+				const boxes = repeaterBoxes(
+					n,
+					def,
+					grid,
+					src?.items ?? [],
+					rt.anchor?.x ?? 0.5,
+					rt.anchor?.y ?? 0.5,
+				);
+				for (const box of boxes) {
+					collectTextTargets(
+						box.container.children,
+						sc,
+						out,
+						[...nextChain, box.container],
+						box.params,
+						depth + 1,
+						[...stack, def.id],
+					);
+				}
 			}
 		}
 	}
