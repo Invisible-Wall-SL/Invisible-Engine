@@ -1,6 +1,9 @@
 # Pipeline tools — multi-user concurrency (lost-update prevention)
 
-Status: **planned** (not yet implemented).
+Status: **Phase 0 + Phase 1 SHIPPED** (2026-08-04); Phase 2 (lease/presence) and
+Phase 3 (Python tools) not yet started. See the Phase 1 header below for the exact
+residual — the conditional-write floor is live across every authoring tool; what
+remains inside Phase 1 is small and enumerated there.
 
 Owner decision 2026-07-16: **lease now, CRDT later.** Two to three people share a
 `(client, project)`; many more work concurrently on *different* projects through
@@ -192,8 +195,53 @@ backfill is their last consumer). Don't leave them to rot.
   anyway. Its residual is a narrow LIST-races-an-in-flight-upload window — a
   different bug with a different fix.
 
-### Phase 1 — Conditional writes through the chokepoint
+### Phase 1 — Conditional writes through the chokepoint — **SHIPPED 2026-08-04**
 The correctness floor. Contained because of the linchpin above.
+
+> **Audited against code 2026-08-04. What shipped:** `r2.ts` carries the full
+> convention (`PutPrecondition`, `precondition()`, `getObjectTextWithEtag()`,
+> `ConflictError`, `isPreconditionFailed` = 412-only, `jsonBaseEtag`/`formBaseEtag`).
+> **16 storage helpers** thread it and **13 authoring surfaces** (editor, flow-v2,
+> flow-v2 library, symbols, fx, flipbook, win-text, game-config, localization,
+> component, kind, template + the componentDefaults sidecar) are wired. Every
+> autoserver and manual-save tool now: reads with an etag, distinguishes absent
+> (`null`) from malformed (etag-carried), CAS-writes on save, and answers `409
+> { error: 'conflict' }` via `json()`/`fail()` (never `error()`), with a visible,
+> **non-destructive** conflict state ("Overwrite with mine" / "Reload theirs";
+> components use a versioned confirm()). Every session-gated save (flow-v2, fx,
+> flipbook) carries `projectKey` and refuses on `409 scope-mismatch`
+> (non-forceable); the `?project=`-resolved tools (editor, symbols, win-text,
+> game-config, localization) are safe by construction. The `symbols/+server.ts`
+> `isConflict`-before-`error(502)` ordering, the fx create-clobber
+> (`ifNoneMatch:'*'` via `baseEtag:null`), the fx meta-sidecar (guard the doc,
+> write the sidecar after, unguarded), and the three global keys
+> (`_shared/flow-v2/functions.json`, `_shared/editor-kinds/<id>.json`,
+> `_shared/editor-templates/<gameType>.json`) are all done.
+>
+> **True residual (all that is left in Phase 1):**
+> 1. **`baseEtag` still FAILS OPEN at every endpoint.** `jsonBaseEtag`/`formBaseEtag`
+>    return `undefined` (→ unconditional write) on an absent field, and no endpoint
+>    yet makes it required + 400. The dated trigger below ("a day after the Phase 1
+>    deploy") has NOT been pulled. This is the one open hole through which the next
+>    tool ships unguarded and green — close it.
+> 2. **Components: ETag not carried load→editor→save.** `saveComponent`/the POST
+>    accept `baseEtag`, but `loadComponent`/`listComponents` and the GET
+>    (`json(component)`) emit **no** etag, and the client body (`components/+page.svelte`
+>    save) sends none — so `saveComponent` falls back to its own in-request read.
+>    The A-opens/B-opens-five-minutes-later window stays last-writer-wins-on-pointer
+>    (survivable only because the version bump preserves A's work as a snapshot). See
+>    the dedicated bullet below — still exactly the state described there.
+> 3. **`componentDefaultsStorage.saveComponentDefaults` is unguarded** — a plain
+>    `putObjectText` with no precondition (`/api/editor/component-defaults` POST sends
+>    no `baseEtag`). Per-project authored sidecar (a Phase 2 lease would cover it),
+>    lowest blast radius of the three, but it is the last whole-doc author-editable
+>    write with no CAS.
+> 4. **No shared `$lib/saveState.svelte.ts`** — 8 pages still hand-roll etag/dirty/
+>    conflict. Explicitly a Phase-2 prerequisite (see the client bullet), **not**
+>    required to call Phase 1 done.
+>
+> Everything below is the original plan, left for the rationale; it is DONE except
+> where the four points above say otherwise.
 
 - `r2.ts`: optional `PutPrecondition` (`ifMatch` / `ifNoneMatch`) on `putObjectText` /
   `putObjectBytes`, which now RETURN the new ETag (`PutObjectOutput.ETag`) so a client
@@ -233,6 +281,10 @@ once no pre-Phase-1 tabs can remain (a day after the Phase 1 deploy), make `base
 required at the endpoint layer and 400 without it.** The shared client helper below is what
 makes that safe to enforce.
 
+> **STILL OPEN 2026-08-04 (residual #1).** Phase 1 shipped, but this trigger was never
+> pulled: `jsonBaseEtag`/`formBaseEtag` still fail open on every save endpoint. This is
+> the top residual — the hole a future tool silently writes through.
+
 **A `force` write must never cross a project boundary.** `toolScope.gate()` resolves the
 project from the SESSION, while the tool pages resolve it from `?project=` (and sync it
 back). So a tab can hold project X's doc while its save targets Y — a pre-existing silent
@@ -267,8 +319,9 @@ missed these)*:
   `ifNoneMatch` one author's kind silently replaces another's of the same id.
 - **`componentStorage.saveComponent` returns `void`** — the client cannot learn its
   reconciled version, let alone an ETag. Signature has to change.
-- **⚠ Components are NOT finished, despite the guards being in.** *(2026-07-16 — read
-  this before assuming otherwise.)* `listComponents`/`loadComponent` still return no
+- **⚠ Components are NOT finished, despite the guards being in.** *(Re-verified
+  2026-08-04 — STILL exactly this state: `loadComponent`/`listComponents`/the GET emit
+  no etag and `components/+page.svelte`'s save sends none. Residual #2.)* `listComponents`/`loadComponent` still return no
   ETag, so the Component Editor has none to send, so `saveComponent` falls back to the
   ETag of its own read. That closes only the **in-request** read→write window (tens of
   ms); the window this whole phase is about — A and B both open the def, A saves, B
