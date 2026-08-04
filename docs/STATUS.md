@@ -65,15 +65,14 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 
 Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide priority order.
 
-1. **Multi-user concurrency — Phase 0 (finish the last two sites).** ⭐ *Recommended next — this is
-   live data loss, not a missing feature.* The rigger indexes (`_shared/rigs|animations/index.json`
-   RMW → Postgres) are **DONE** (`sharedRigs`/`sharedAnimations` tables + backfill in
-   `riggerLibrary.ts`, migration `0013`). Still **UNSHIPPED**: the two RMW-on-a-global-key sites the
-   Phase 0 survey found later — `testServerManifest.ts` (`test_server/games.json`) and the fonts
-   catalog (`/api/fonts/{save,delete}`), both of which drop a second user's write across unrelated
-   projects. *(In progress.)* Then Phase 1 (`If-Match` through `r2.ts`) + Phase 2 (doc lease +
-   presence). ([design/multi-user-concurrency](design/multi-user-concurrency.md) §"Phase 0 —
-   newly-found scope")
+1. **Multi-user concurrency — Phase 1 (thread ETags through the autosavers).** ⭐ *Recommended next —
+   this is live data loss, not a missing feature.* **Phase 0 is DONE** (see Recently closed). The
+   `r2.ts` chokepoint helpers (`precondition`/`getObjectTextWithEtag`/`ConflictError` + `ifMatch` on
+   the writers) already exist; Phase 1 is threading the loaded ETag load→save→client through the
+   whole-doc autosavers — `editorStorage`/`flowV2Storage` first (the reported bug), then the global
+   keys (`_shared/flow-v2/functions.json`, editor kinds/templates) and the manual-save tools
+   (symbols/FX/components/localization) — behind a shared `$lib/saveState.svelte.ts` rune helper.
+   Then Phase 2 (doc lease + presence). ([design/multi-user-concurrency](design/multi-user-concurrency.md) §"Phase 1")
 2. **Rigger mesh-deform animation timelines** — per-vertex `deform` channel keying (the largest
    missing animation channel). ([status/rigger](status/rigger.md))
 3. **Reference layouts for `ways` / `cluster` / `scatter`** — only `lines` / `bookOf` have rich
@@ -87,10 +86,13 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
 8. Smaller: wire `gen-flow-vocabulary --check` into CI/pre-commit; refresh
     [tools/fx.md](tools/fx.md) for the new Emission/Movement/Colour/Blend/Presets sliders (rule 9).
 
-**Recently closed** (owner-confirmed live, 2026-08-04): **Invisible Game Config** (all phases +
-grid/bet-modes/win-tiers shipped and live-verified) · **Ship-from-Rigger** rule-8 wiring (a rig now
-travels export→deploy→bake→pull→register into a game) · **Flow-driven-game Phase 5** (a shipped
-title runs an authored FlowDoc). See each tool's `docs/status/<tool>.md`.
+**Recently closed** (2026-08-04): **Concurrency Phase 0 — COMPLETE** (rigger indexes → Postgres
+earlier; the last two RMW-on-a-global-key sites — `test_server/games.json` + the fonts catalog — now
+guarded with `If-Match` + CAS retry, PR #201; owner-verify owed = the two-profile live test) ·
+**Invisible Game Config** (all phases + grid/bet-modes/win-tiers shipped and live-verified) ·
+**Ship-from-Rigger** rule-8 wiring (a rig now travels export→deploy→bake→pull→register into a game) ·
+**Flow-driven-game Phase 5** (a shipped title runs an authored FlowDoc). See each tool's
+`docs/status/<tool>.md`.
 
 ## Blocked on owner / external (not code)
 
