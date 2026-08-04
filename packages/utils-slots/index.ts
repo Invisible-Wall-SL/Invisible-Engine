@@ -6,3 +6,5 @@ export * from './src/createEnhanceBoard';
 export * from './src/createEnhanceBoardSpin';
 export * from './src/createEnhanceBoardPreSpin';
 export * from './src/createGetEmptyPaddedBoard';
+// reel-anticipation reachability (client-computed anticipation mode — docs/design/reel-anticipation.md)
+export * from './src/anticipationReach';
