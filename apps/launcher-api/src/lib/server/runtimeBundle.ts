@@ -39,7 +39,7 @@ import {
 	type RigFxBinding,
 	type WinTextDoc,
 } from 'engine-layout';
-import type { GameConfigDoc } from 'game-config';
+import { betModeCardIds, type GameConfigDoc } from 'game-config';
 import { listComponentDefaults } from './componentDefaultsStorage';
 import { loadComponent } from './componentStorage';
 import { exportEditorArt, type EditorArtIndex } from './editorArtExport';
@@ -169,14 +169,24 @@ function resolveSpineKeysForComponentDefs(
  * project's EDITED def shadows the coded one. `versions` carries the EXACT pinned
  * non-latest defs (§8.9 v2) so a shipped game renders the authored version; empty
  * for every game with no non-latest pin (parity).
+ *
+ * `extraSeedIds` are component ids referenced from OUTSIDE the scene doc — the config-assigned
+ * buy-feature card ids (`betModeCardIds`), which a bet mode names at RUNTIME, so the static scene
+ * walk can't see them. Seeding them here folds each card def (and its nested defs) into the exported
+ * set exactly like a scene component; a seed naming a non-existent def resolves to null and is
+ * skipped (⇒ the mode falls back to the default `featureCard` at runtime — no broken bundle).
  */
 async function resolveReferencedDefs(
 	doc: LayoutDoc,
 	projectKey: string,
+	extraSeedIds: string[] = [],
 ): Promise<{ defs: Record<string, ComponentDef>; versions: ComponentDef[] }> {
 	const defs: Record<string, ComponentDef> = {};
 	const seen = new Set<string>();
-	const queue = collectComponentIds(doc.scenes.flatMap((scene) => scene.nodes));
+	const queue = [
+		...collectComponentIds(doc.scenes.flatMap((scene) => scene.nodes)),
+		...extraSeedIds,
+	];
 	while (queue.length) {
 		const id = queue.shift()!;
 		if (seen.has(id)) continue;
@@ -290,13 +300,20 @@ async function assembleRuntimeBundle(
 		resolveSpineKeysForGame(loaded, clientKey, projectKey);
 		return loaded;
 	});
-	const componentDefaults = await step('componentDefaults', timings, () =>
-		listComponentDefaults(projectKey),
-	);
+	// The game config is loaded up front (not just in the asset Promise.all below) because the
+	// component-def resolution needs its config-assigned card ids: a bet mode names its buy-feature
+	// card at RUNTIME, so the def must be folded into the exported set here or it never ships (the
+	// static scene walk can't see a runtime-chosen id). `loadGameConfigDoc` returns null for a
+	// never-authored project ⇒ no card ids ⇒ byte-identical to before (parity).
+	const [componentDefaults, gameConfig] = await Promise.all([
+		step('componentDefaults', timings, () => listComponentDefaults(projectKey)),
+		step('gameConfig', timings, () => loadGameConfigDoc(clientKey, projectKey)),
+	]);
+	const cardComponentIds = gameConfig ? betModeCardIds(gameConfig) : [];
 	const { defs: componentDefs, versions: componentVersions } = await step(
 		'componentDefs',
 		timings,
-		() => resolveReferencedDefs(doc, projectKey),
+		() => resolveReferencedDefs(doc, projectKey, cardComponentIds),
 	);
 	// A placed component's OWN spine nodes need the same prefix→bundle-name rewrite as the
 	// scene tree, or their spines never load in the built game (key mismatch).
@@ -311,6 +328,10 @@ async function assembleRuntimeBundle(
 	//    them with assetBase). Localization is read straight from R2 (no export step).
 	//    FX (effects + rigFx) run alongside — the live twin of the offline bake in
 	//    `scripts/bake-editor-doc.mjs`, which POSTs /api/editor/export-effects to embed both.
+	// `gameConfig` is already loaded above (its card ids seed the component-def resolution). It stays
+	// `loadGameConfigDoc` (not `resolveGameConfigDoc`): null for a never-authored project, and null
+	// must stay null so the bundle omits `config` and the game runs its compiled template. See the
+	// `config` field's note on the bundle type.
 	const [
 		{ editorArt, fonts, symbols, flow, flowV2, flowV2Library },
 		localization,
@@ -318,7 +339,6 @@ async function assembleRuntimeBundle(
 		rigFx,
 		clipIndex,
 		winTextDoc,
-		gameConfig,
 	] = await Promise.all([
 		ensureDeployExports(projectKey, clientKey, timings),
 		step('localization', timings, () => loadLocalizationMessages(clientKey, projectKey)),
@@ -326,10 +346,6 @@ async function assembleRuntimeBundle(
 		step('rigFx', timings, () => exportRigFx(clientKey, projectKey)),
 		step('flipbooks', timings, () => exportClips(clientKey, projectKey)),
 		step('winText', timings, () => loadWinTextDoc(clientKey, projectKey)),
-		// `loadGameConfigDoc` (not `resolveGameConfigDoc`) on purpose: it returns null for a project
-		// that has never authored, and null must stay null here so the bundle omits `config` and the
-		// game runs its compiled template. See the `config` field's note on the bundle type.
-		step('gameConfig', timings, () => loadGameConfigDoc(clientKey, projectKey)),
 	]);
 	// Only ship a doc that authors something: `loadWinTextDoc` returns `{version:1}` for a
 	// never-authored project, which would otherwise add a no-op key to the bundle. Mirrors the

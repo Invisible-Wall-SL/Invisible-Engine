@@ -22,6 +22,7 @@
 import {
 	GAME_CONFIG_DOC_VERSION,
 	type BetMode,
+	type BetModeArt,
 	type BetModeKind,
 	type BetModePresentation,
 	type BetModePresentationMap,
@@ -170,6 +171,18 @@ const normalizeBetModeText = (raw: unknown): BetModeText | undefined => {
 	return Object.keys(text).length ? text : undefined;
 };
 
+/** Bet-mode art — the three known editor-art key fields, empty strings dropped so an unset field
+ *  falls through to no-art (the menu's text fallback) rather than shipping a blank key. */
+const normalizeBetModeArt = (raw: unknown): BetModeArt | undefined => {
+	if (!isObject(raw)) return undefined;
+	const art: BetModeArt = {};
+	for (const key of ['icon', 'dialogImage', 'volatility'] as const) {
+		const value = str(raw[key])?.trim();
+		if (value) art[key] = value;
+	}
+	return Object.keys(art).length ? art : undefined;
+};
+
 /**
  * Per-mode presentation. Kept only for a mode that actually EXISTS in `betModes` (`validModes`) and
  * only the fields that carry meaning — a `kind`, an `order`, and non-empty copy. An entry that
@@ -191,6 +204,12 @@ const normalizeBetModePresentation = (
 		if (order !== undefined) presentation.order = order;
 		const text = normalizeBetModeText(entry.text);
 		if (text) presentation.text = text;
+		const art = normalizeBetModeArt(entry.art);
+		if (art) presentation.art = art;
+		// The per-mode card ComponentDef id — a non-empty string, else dropped so an unset card falls
+		// through to the default `featureCard` at runtime (parity).
+		const card = str(entry.card)?.trim();
+		if (card) presentation.card = card;
 		if (Object.keys(presentation).length) map[mode] = presentation;
 	}
 	return Object.keys(map).length ? map : undefined;

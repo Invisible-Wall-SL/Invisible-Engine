@@ -40,9 +40,11 @@ import {
 	parseScopedFrameRef,
 } from 'engine-layout';
 import { EDITOR_SPINE_LOAD_SCALE } from '$lib/spineScale';
+import { betModeCardIds } from 'game-config';
 import { sheetVersion } from './assetVersion';
 import { loadComponent } from './componentStorage';
 import { loadDoc } from './editorStorage';
+import { loadGameConfigDoc } from './gameConfigStorage';
 import { clipFrameRefs, clipSheetKeys } from 'engine-flipbook';
 import { loadFlipbookDoc } from './flipbookStorage';
 import { listEffects, loadEffect } from './fxStorage';
@@ -234,14 +236,24 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 }
 
 /** Resolve the doc's referenced ComponentDefs (same precedence walk as the
- * `/api/editor/doc?components=1` bake — built-in → shared → project). */
+ * `/api/editor/doc?components=1` bake — built-in → shared → project).
+ *
+ * `extraSeedIds` are the config-assigned buy-feature card ids (`betModeCardIds`) — components a bet
+ * mode names at RUNTIME, invisible to the static scene walk. Seeding them here means each card's OWN
+ * sprite/spine art is discovered and exported to `deploy/editor-art/`, so the shipped card is not a
+ * blank frame. A seed with no def resolves to null and is skipped (the mode falls back to the default
+ * `featureCard`, whose art the scene walk already covers). */
 async function resolveReferencedDefs(
 	doc: LayoutDoc,
 	projectKey: string,
+	extraSeedIds: string[] = [],
 ): Promise<Record<string, ComponentDef>> {
 	const defs: Record<string, ComponentDef> = {};
 	const seen = new Set<string>();
-	const queue = collectComponentIds(doc.scenes.flatMap((scene) => scene.nodes));
+	const queue = [
+		...collectComponentIds(doc.scenes.flatMap((scene) => scene.nodes)),
+		...extraSeedIds,
+	];
 	while (queue.length) {
 		const id = queue.shift()!;
 		if (seen.has(id)) continue;
@@ -333,7 +345,12 @@ export async function exportEditorArt(
 	projectKey: string,
 ): Promise<EditorArtIndex> {
 	const doc = (await loadDoc(clientKey, projectKey)) as LayoutDoc;
-	const defs = await resolveReferencedDefs(doc, projectKey);
+	// Seed the def walk with the config's per-mode buy-feature card ids so each card's OWN art rides
+	// this export — those ids are chosen at runtime, so `collectComponentIds` (the static scene walk)
+	// never sees them. `loadGameConfigDoc` is null for a never-authored project ⇒ no seeds ⇒ parity.
+	const gameConfig = await loadGameConfigDoc(clientKey, projectKey);
+	const cardComponentIds = gameConfig ? betModeCardIds(gameConfig) : [];
+	const defs = await resolveReferencedDefs(doc, projectKey, cardComponentIds);
 	const refs = collectArtRefs(doc, defs);
 
 	// Also ship the atlases the project's Invisible FX EFFECTS reference. An EffectDoc's particle

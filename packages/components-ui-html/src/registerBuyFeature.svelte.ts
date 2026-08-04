@@ -93,6 +93,12 @@ export function registerBuyFeature(): void {
 				.filter((mode) => mode.type !== 'default')
 				.map((mode) => ({
 					key: mode.mode,
+					// Per-mode CARD: the config assigns this mode its own card ComponentDef id. Set ⇒ the
+					// repeater instantiates THAT card for this item (Phase A per-item `componentId`); unset ⇒
+					// `undefined` ⇒ the item falls back to the node's default `featureCard` (byte-identical to
+					// before). The def rides the bake chain because the launcher collector reads the config's
+					// `card` ids (see `betModeCardIds`) — the runtime-assigned ids a static scene walk misses.
+					componentId: mode.card || undefined,
 					values: {
 						title: mode.text.title,
 						description: mode.text.description ?? '',
