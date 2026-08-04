@@ -41,6 +41,28 @@ teasing the 3rd book). Stake's SDK ships only a thin, server-driven, binary vers
 The gap: everything above is **server-driven and binary**. The new mode is **client-computed,
 graded, and escalating**.
 
+### Decision — remove the server `anticipation[]` path entirely (one method, not two)
+
+Two independent methods (a server flag AND a client calc) would be confusing, and the server one is
+already effectively **dead**:
+
+- The live facade hard-zeros it: `stakeFacade.ts` emits `anticipation: reels.map(() => 0)`. So the
+  ACTUAL running game (Play4Fun / Borut through the facade) never receives a non-zero flag — server
+  anticipation is inert in production today.
+- The only non-zero data anywhere is the upstream Stake **Storybook sample books**
+  (`anticipation: [0, 0, 1, 2, 3]`, always on bonus/free-spin books) — a dev-only surface. Its
+  purpose was **scatter / feature-trigger tease** in free spins, with per-reel escalating intensity.
+- Crucially, the server can NEVER supply a **near-miss** tease: a near-miss is just a losing spin, so
+  the server has no reason to flag it. The suspenseful (`possible`) mode is client-only by
+  construction — there is no server path to fall back to. Keeping the server field would only ever
+  cover the honest/trigger case, i.e. a second, partial, confusing method.
+
+So we **delete** the server-driven path — the `revealEvent.anticipation` read in
+`createEnhanceBoardSpin`, the `Anticipation(s).svelte` server components, the facade emit, and the
+`anticipation` field on the book type — and the client calculator becomes the single source. Because
+the old field's real job was the scatter tease, the calculator must cover BOTH reach dimensions
+below, or removal would drop the Book-of 3rd-book tease as an option.
+
 ## Core idea — a reachable-win calculator with two bounds
 
 The final board is fully known at reveal time (`revealEvent.board`). As reels lock left-to-right,
@@ -91,25 +113,41 @@ Reads paylines + paytable from the active game config (`config.ts` `paylines`, `
 Ways / cluster / scatter games each get their own `AnticipationReach` implementation behind the
 same interface, later. Lines first — that's the Book-of remake.
 
+### Two reach dimensions — win-reach AND trigger-reach
+
+One client method, two axes, both computed from the final board + config (this is what fully
+replaces the deleted server `anticipation[]`, whose real job was the second axis):
+
+- **Win-reach** — the reachable big-win AMOUNT (payline math above), gated on the `winLevels`
+  tiers. Drives the tiered FX (big → mega → massive).
+- **Trigger-reach** — the reachable count of a **special/scatter** symbol toward a feature trigger
+  (e.g. 3 scatters → free spins). Same bound shape: `max` = optimistic (each not-yet-stopped reel
+  could contribute the special), `min` = the count already guaranteed by the locked reels. Arm when
+  the reachable count can still reach the trigger threshold; the escalating intensity (the old
+  `[0,0,1,2,3]`) falls out of how many more specials are still needed vs. reachable.
+
+A reel arms if EITHER axis says so; the FX layer/tier is the max across both. The trigger threshold
+and special symbol come from config (the scatter's `special_properties` + its `occurs` count) — no
+hardcoded ids.
+
 ## Where each piece lives
 
 ### 1. Calculator (pure, `packages/utils-slots/src/anticipationReach.ts`)
 
 ```ts
 export interface AnticipationReach {
-	bounds(lockedReelCount: number): { min: number; max: number }; // total-bet multiplier
+	// win-reach: reachable big-win amount, total-bet multiplier
+	winBounds(lockedReelCount: number): { min: number; max: number };
+	// trigger-reach: reachable count of the special/scatter toward its feature threshold
+	triggerBounds(lockedReelCount: number): { min: number; max: number };
+	readonly numReels: number;
 }
-export function createLinesReach(args: {
-	board: RawSymbol[][]; // final revealed board
-	paylines: number[][]; // row index per reel
-	linePay: (symbol, runLength) => number; // bet-per-line units
-	numLines: number;
-	isWild: (symbol) => boolean;
-}): AnticipationReach;
 ```
 
-Node-fixture tested against real Borut books BEFORE any UI. Dependency-free like the rest of the
-package.
+Both axes share the same locked-prefix walk; `createLinesReach` takes the config-derived paytable,
+paylines, wild predicate, and (for trigger-reach) the special-symbol predicate + trigger count.
+Node-fixture tested BEFORE any UI (`anticipationReach.fixture.ts`). Dependency-free like the rest of
+the package.
 
 ### 2. Per-reel state (`stateGame` + `reelState`)
 
@@ -118,9 +156,11 @@ package.
 - `stateGame.anticipationMode: boolean` + `anticipationConfidence: 'possible' | 'guaranteed'` +
   tier gate + zoom/grey-out toggles, all set by the Flow effect.
 
-Arms/disarms at the SAME hook the binary flag uses today, in `createEnhanceBoardSpin` — the new
-mode and the server-driven mode share one code path. When `anticipationMode` is off, the arming
-block is skipped entirely (byte-parity).
+Arms/disarms in `createEnhanceBoardSpin`, at the reel-settle hook where the deleted server flag used
+to arm `anticipating`. An **arming policy** sits between the calculator and the state: arm reel `k`
+(the next to settle) when either axis clears its gate AND `k >= minAnticipateReel` (default 2 — you
+need a run/count of ≥3 before a big win or trigger is even meaningful, so the trivial "armed at
+k=0/1" is suppressed). When `anticipationMode` is off the whole block is skipped (byte-parity).
 
 ### 3. Presentation (escalation)
 
@@ -144,10 +184,12 @@ state machine"):
 ## Build plan (phases)
 
 0. **Design doc** (this file). ✅
-1. **Calculator** — `anticipationReach.ts` (lines impl) + Node fixture test (`possible` + `guaranteed`
-   bounds vs real books). Pure, no UI — prove the math first.
-2. **State wiring** — `anticipationLevel`/`anticipationTier` in `reelState`; arm/disarm in
-   `createEnhanceBoardSpin`; the `possible`/`guaranteed` switch.
+1. **Calculator** — `anticipationReach.ts` (lines impl), **both** win-reach and trigger-reach + Node
+   fixture. Pure, no UI — prove the math first. (Win-reach ✅; trigger-reach = this pass.)
+2. **Remove the server path + state wiring** — delete the `revealEvent.anticipation` read in
+   `createEnhanceBoardSpin`, the `Anticipation(s).svelte` server components, the facade emit, and the
+   book-type field. Add `anticipationLevel`/`anticipationTier` to `reelState`; the client arming
+   policy + `possible`/`guaranteed` switch.
 3. **Presentation** — spine stacking, grey-out filter, zoom controller, tier FX; XState escalation
    machine.
 4. **Flow mode** — enable/disable effects, vocab palette, signals.
@@ -158,8 +200,8 @@ state machine"):
 ## Non-goals / open questions
 
 - Ways/cluster/scatter reachability math (interface is designed for it; implementations deferred).
-- Whether the feature-trigger (scatter-count) tease is a separate arming source layered on top of
-  the big-win-amount tease, or folded into `bounds` via the scatter row. Start with the big-win
-  amount; add scatter-count arming if the owner wants the Book-of 3rd-book tease too.
 - Zoom framing when anticipating reels are non-contiguous (e.g. reels 0 and 4) — likely zoom to the
   bounding span; revisit in Phase 3.
+- Regulatory note: `possible`-mode near-miss teasing is manufactured entirely client-side (the server
+  can't sanction it — a near-miss is a loss). Fine for Play4Fun/social; revisit if a real-money
+  regulated deployment needs near-miss presentation to be auditable.

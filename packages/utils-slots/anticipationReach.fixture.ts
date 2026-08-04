@@ -1,10 +1,10 @@
 /**
  * Offline fixture for `createLinesReach` — run with `node` (Node ≥ 22.18 / 24 strips the types):
- *   node packages/utils-slots/src/anticipationReach.fixture.ts
+ *   node packages/utils-slots/anticipationReach.fixture.ts
  *
- * Validates the reachability math against the `apps/lines` sample paytable/paylines WITHOUT any UI:
- *   - bounds narrow correctly as reels lock (max non-increasing, min non-decreasing);
- *   - at k = numReels both bounds equal the true final win;
+ * Validates BOTH reach axes against the `apps/lines` sample paytable/paylines WITHOUT any UI:
+ *   - win-reach and trigger-reach bounds narrow correctly (max non-increasing, min non-decreasing);
+ *   - at k = numReels both bounds equal the true final value;
  *   - the `possible` (max) and `guaranteed` (min) confidence modes arm at DIFFERENT reels.
  */
 
@@ -49,6 +49,7 @@ const PAY: Record<string, Record<number, number>> = {
 
 const NUM_LINES = 20;
 const isWild = (s: string) => s === 'W';
+const isSpecial = (s: string) => s === 'S';
 const linePay = (s: string, run: number) => (run >= 3 ? (PAY[s]?.[run] ?? 0) : 0);
 const payingSymbols = Object.keys(PAY);
 
@@ -60,28 +61,8 @@ const makeReach = (board: string[][]) =>
 		linePay,
 		numLines: NUM_LINES,
 		isWild,
+		isSpecial,
 	});
-
-// board[reel][row], 5 reels × 3 rows.
-// A: near-miss — three H1 on the top line (line 1 = [0,0,0,0,0]) then it dies.
-const boardNearMiss: string[][] = [
-	['H1', 'L2', 'L3'],
-	['H1', 'L4', 'L5'],
-	['H1', 'L2', 'H4'],
-	['L5', 'L3', 'L2'],
-	['L4', 'H2', 'L1'],
-];
-// B: real big — five H1 on the top line (a 5-of-a-kind).
-const boardBig: string[][] = [
-	['H1', 'L2', 'L3'],
-	['H1', 'L4', 'L5'],
-	['H1', 'L2', 'H4'],
-	['H1', 'L3', 'L2'],
-	['H1', 'H2', 'L1'],
-];
-
-// smallest big-win tier, in total-bet multiplier, for the arm/disarm demo.
-const BIG_TIER = 0.9;
 
 let failures = 0;
 const assert = (cond: boolean, msg: string) => {
@@ -91,51 +72,130 @@ const assert = (cond: boolean, msg: string) => {
 	}
 };
 
-const runBoard = (name: string, board: string[][], expectFinal: number) => {
-	const reach = makeReach(board);
+/** Shared monotonicity + convergence checks for one axis of one board. */
+const checkAxis = (
+	name: string,
+	numReels: number,
+	at: (k: number) => { min: number; max: number },
+	gate: number,
+	gateUnit: string,
+	expectFinal: number,
+) => {
 	const rows: string[] = [];
 	let prevMax = Infinity;
 	let prevMin = -Infinity;
-	for (let k = 0; k <= reach.numReels; k++) {
-		const { min, max } = reach.bounds(k);
-		const possible = max >= BIG_TIER ? 'ARM' : '—';
-		const guaranteed = min >= BIG_TIER ? 'ARM' : '—';
+	for (let k = 0; k <= numReels; k++) {
+		const { min, max } = at(k);
+		const possible = max >= gate ? 'ARM' : '—';
+		const guaranteed = min >= gate ? 'ARM' : '—';
 		rows.push(
-			`  k=${k}  min=${min.toFixed(3)}  max=${max.toFixed(3)}  possible:${possible}  guaranteed:${guaranteed}`,
+			`  k=${k}  min=${min.toFixed(2)}  max=${max.toFixed(2)}  possible:${possible}  guaranteed:${guaranteed}`,
 		);
-		assert(min <= max + 1e-9, `${name} k=${k}: min(${min}) <= max(${max})`);
+		assert(min <= max + 1e-9, `${name} k=${k}: min <= max`);
 		assert(max <= prevMax + 1e-9, `${name} k=${k}: max non-increasing`);
 		assert(min >= prevMin - 1e-9, `${name} k=${k}: min non-decreasing`);
 		prevMax = max;
 		prevMin = min;
 	}
-	const final = reach.bounds(reach.numReels);
+	const final = at(numReels);
 	assert(Math.abs(final.min - final.max) < 1e-9, `${name}: min==max at k=numReels`);
 	assert(
 		Math.abs(final.max - expectFinal) < 1e-9,
-		`${name}: final win == ${expectFinal} (got ${final.max})`,
+		`${name}: final == ${expectFinal} (got ${final.max})`,
 	);
-	console.log(`\n${name}  (final win = ${final.max.toFixed(3)}x total bet)`);
+	console.log(`\n${name}  (final = ${final.max.toFixed(2)} ${gateUnit}, gate ${gate})`);
 	console.log(rows.join('\n'));
-	return reach;
 };
 
-// Near-miss final: line 1 = 3×H1 → 5 bet-per-line / 20 = 0.25x. (No other line pays 3+.)
-runBoard('A · near-miss (3×H1 top line)', boardNearMiss, 0.25);
-// Big final: line 1 = 5×H1 → 20 bet-per-line / 20 = 1.0x.
-runBoard('B · big win (5×H1 top line)', boardBig, 1.0);
+// ============================ WIN-REACH ============================
+const BIG_TIER = 0.9; // smallest big-win tier, total-bet multiplier
+// A: near-miss — three H1 on the top line then it dies. Final = 3×H1 = 5/20 = 0.25x.
+const winMiss = makeReach([
+	['H1', 'L2', 'L3'],
+	['H1', 'L4', 'L5'],
+	['H1', 'L2', 'H4'],
+	['L5', 'L3', 'L2'],
+	['L4', 'H2', 'L1'],
+]);
+// B: big — five H1 on the top line. Final = 5×H1 = 20/20 = 1.0x.
+const winBig = makeReach([
+	['H1', 'L2', 'L3'],
+	['H1', 'L4', 'L5'],
+	['H1', 'L2', 'H4'],
+	['H1', 'L3', 'L2'],
+	['H1', 'H2', 'L1'],
+]);
+checkAxis(
+	'WIN · near-miss (3×H1)',
+	winMiss.numReels,
+	(k) => winMiss.winBounds(k),
+	BIG_TIER,
+	'x',
+	0.25,
+);
+checkAxis('WIN · big (5×H1)', winBig.numReels, (k) => winBig.winBounds(k), BIG_TIER, 'x', 1.0);
+assert(winBig.winBounds(2).max >= BIG_TIER, 'win-big: possible armed at k=2');
+assert(winBig.winBounds(4).min < BIG_TIER, 'win-big: guaranteed NOT armed at k=4');
+assert(winBig.winBounds(5).min >= BIG_TIER, 'win-big: guaranteed armed at k=5 (locked in)');
+assert(winMiss.winBounds(5).max < BIG_TIER, 'win-miss: possible disarmed by final board');
+assert(winMiss.winBounds(5).min < BIG_TIER, 'win-miss: guaranteed never arms');
 
-// The confidence modes must differ: on the BIG board, `possible` arms early and stays; `guaranteed`
-// only arms once the 5-oak is locked in (k=5, min reaches 1.0 ≥ 0.9). On the near-miss board,
-// `guaranteed` NEVER arms (final 0.25 < 0.9) while `possible` disarms as the top line's ceiling falls.
-const big = makeReach(boardBig);
-assert(big.bounds(2).max >= BIG_TIER, 'big: possible armed at k=2');
-assert(big.bounds(4).min < BIG_TIER, 'big: guaranteed NOT yet armed at k=4');
-assert(big.bounds(5).min >= BIG_TIER, 'big: guaranteed armed at k=5 (locked in)');
+// ============================ TRIGGER-REACH ============================
+const TRIGGER = 3; // scatters needed for the feature
+// C: trigger hit — scatters on reels 0,1,2. Final count = 3.
+const trigHit = makeReach([
+	['L1', 'S', 'L3'],
+	['S', 'L4', 'L5'],
+	['L2', 'H1', 'S'],
+	['L5', 'L3', 'L2'],
+	['L4', 'H2', 'L1'],
+]);
+// D: scatter near-miss — scatters on reels 0,1 only. Final count = 2 (tension until the last reel).
+const trigMiss = makeReach([
+	['L1', 'S', 'L3'],
+	['S', 'L4', 'L5'],
+	['L2', 'H1', 'H4'],
+	['L5', 'L3', 'L2'],
+	['L4', 'H2', 'L1'],
+]);
+checkAxis(
+	'TRIGGER · hit (3 scatters)',
+	trigHit.numReels,
+	(k) => trigHit.triggerBounds(k),
+	TRIGGER,
+	'S',
+	3,
+);
+checkAxis(
+	'TRIGGER · near-miss (2 scatters)',
+	trigMiss.numReels,
+	(k) => trigMiss.triggerBounds(k),
+	TRIGGER,
+	'S',
+	2,
+);
+assert(
+	trigHit.triggerBounds(3).min >= TRIGGER,
+	'trig-hit: guaranteed armed once 3rd scatter locked (k=3)',
+);
+assert(trigHit.triggerBounds(2).min < TRIGGER, 'trig-hit: guaranteed NOT armed at k=2');
+assert(
+	trigMiss.triggerBounds(4).max >= TRIGGER,
+	'trig-miss: possible still armed at k=4 (tension holds)',
+);
+assert(trigMiss.triggerBounds(5).max < TRIGGER, 'trig-miss: possible disarms on the final reel');
+assert(trigMiss.triggerBounds(5).min < TRIGGER, 'trig-miss: guaranteed never arms');
 
-const miss = makeReach(boardNearMiss);
-assert(miss.bounds(5).min < BIG_TIER, 'near-miss: guaranteed never arms');
-assert(miss.bounds(5).max < BIG_TIER, 'near-miss: possible disarmed by the final board');
+// Games with no special get an inert trigger axis.
+const noSpecial = createLinesReach({
+	board: [['H1'], ['H1'], ['H1'], ['H1'], ['H1']],
+	paylines: [[0, 0, 0, 0, 0]],
+	payingSymbols,
+	linePay,
+	numLines: NUM_LINES,
+	isWild,
+});
+assert(noSpecial.triggerBounds(0).max === 0, 'no-special: trigger axis inert');
 
 console.log(
 	failures === 0
