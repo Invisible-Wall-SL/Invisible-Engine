@@ -148,13 +148,25 @@ Authored events export in the `.irig` (Spine JSON) as
   (✎), delete (🗑, the last skin can't be removed), and **＋ Add skin**.
 - **Meshes:** select a slot whose attachment is a mesh to edit its geometry — drag
   vertices, **＋ Add vertex** (click inside the mesh), **－ Remove vertex** (click
-  an interior vertex), and numeric UV editing on a selected vertex. **⟁
-  Re-triangulate** re-weaves the whole mesh through every point (Delaunay over the
-  hull + interior points, honouring your constraint edges) — drop interior points,
-  then re-triangulate so the triangles pass through them. Turn a region into an
-  editable quad mesh with **▸ Convert to mesh**, or **✎ Draw mesh** to trace a
-  mesh outline by clicking boundary points (Finish to commit, Esc to cancel,
-  Backspace removes the last point).
+  an interior vertex — hull vertices can't be removed until you drop them to
+  interior with **⬡ Hull** first), and numeric UV editing on a selected vertex.
+  **⟁ Re-triangulate** re-weaves the whole mesh through every point (Delaunay over
+  the hull + interior points, honouring your constraint edges) — drop interior
+  points, then re-triangulate so the triangles pass through them. Turn a region
+  into an editable quad mesh with **▸ Convert to mesh**, or **✎ Draw mesh** to
+  trace a mesh outline by clicking boundary points (Finish to commit, Esc to
+  cancel, Backspace removes the last point).
+- **Outline / hull (⬡ Hull):** in the mesh tools row, **⬡ Hull** turns on
+  outline editing — it changes which vertices sit on the mesh **outline (hull)**
+  rather than floating inside it. Click an **interior** vertex to **promote** it
+  onto the boundary (it's inserted at the nearest edge that keeps the outline from
+  crossing itself, so the silhouette grows to include it); click a **hull** vertex
+  to **demote** it back to interior (the silhouette pulls in past that point). An
+  outline needs at least **3 hull vertices**. While ⬡ Hull is on, the current
+  outline loop and its hull vertices are highlighted **bright green** (and slightly
+  enlarged) so you can see exactly which vertices are on the boundary. This is also
+  how you free a former-hull vertex for **－ Remove vertex**: demote it to interior
+  first, then remove it.
 - **Constraint edges (✎ Edge):** in the mesh tools row, **✎ Edge** turns on
   constraint-edge editing. Click **two vertices** to toggle an edge the
   triangulation must keep — draw one along a limb, say, so the mesh bends there.
@@ -402,11 +414,12 @@ keeps showing the OLD image — its copy is never auto-updated.
   pristine project round-trip — an Esoteric limitation, not ours.
 - **JSON only for editing.** Editing writes/exports JSON `.irig`; binary `.skel`
   is view-only.
-- **Deferred:** hull-vertex reordering (Phase 3.6c) is still future work. The visual
-  texture-panel UV editor (drag vertices over the region art) shipped as Phase 3.6a
-  and constraint-edge editing (✎ Edge, Phase 3.6b) now ships; also still deferred are
-  the remaining non-bone animation channels (draw-order timeline, events, mesh
-  deform).
+- **Deferred:** hull-loop **reordering** (dragging to change the boundary order,
+  Phase 3.6d) is still future work. The visual texture-panel UV editor (drag
+  vertices over the region art) shipped as Phase 3.6a, constraint-edge editing
+  (✎ Edge, Phase 3.6b) ships, and hull **promote/demote** (⬡ Hull, Phase 3.6c) now
+  ships; also still deferred are the remaining non-bone animation channels
+  (draw-order timeline, events, mesh deform).
 - **A baked bezier uses absolute control points** — re-apply easing after a large
   retime or re-pose of a curved key (noted in-UI).
 - **Shipping a rig is a separate step.** "It renders in `/rigger`" does **not**

@@ -21,7 +21,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 ## Open items / next
 1. ✅ ~~**Ship-from-Rigger (rule 8)**~~ — **DONE (owner-confirmed 2026-08-04).** A rig now travels the full export → `deploy/` → bake → pull → runtime-register chain and reaches a game; "renders in `/rigger`" now also means "ships."
 2. **Mesh-deform animation timelines** — per-vertex `deform` channel keying (the largest missing animation channel).
-3. **Phase 3.6c hull editing** — mark/unmark hull vertices + reorder the boundary loop. Fights the data model (hull must stay contiguous-leading, so it means renumbering uvs/vertices/triangles/deform-timelines + a simple-polygon check) — deferred. (Phase 3.6a visual UV drag panel + Phase 3.6b constraint-edge authoring both shipped 2026-08-04, see Recent changes; ⏳ both owe a live check.)
+3. **Phase 3.6d hull-loop reordering** — drag to change the boundary winding order (a pure permutation the 3.6c primitive already supports; no UI yet). (Phases 3.6a UV panel, 3.6b constraint edges, and 3.6c hull promote/demote all shipped 2026-08-04, see Recent changes; ⏳ all owe a live check.)
 4. **Better auto-weights** — the shipped proximity chain-skinner scored poorly against artist ground truth; a geodesic/heat algorithm + a representative **character-mesh validation gate** (Spike 2) is still open. Manual brush stays the guaranteed path.
 
 ## Blocked (owner / external)
@@ -37,6 +37,23 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-08-04 — **Phase 3.6c: hull editing + a shared vertex-permutation primitive (fixes a
+  latent deform bug).** New **⬡ Hull** mesh mode: click an interior vertex to **promote** it onto
+  the outline (inserted at the nearest non-crossing slot), or a hull vertex to **demote** it to
+  interior (convex corners fall out via retriangulate's outside-drop; the ⟁ hull loop draws bright
+  green in the mode). Any hull change is a vertex-index permutation applied by
+  `permuteMeshVertices` to **every** index-keyed store — uvs, vertices (unweighted flat / weighted
+  packed blocks), triangles, `edges`, hull, `selMeshVert`, and **deform animation timelines**
+  (`reorderDeform`, spine-core-validated: unweighted 2 floats/vertex, weighted per-influence runs).
+  **This also fixes a pre-existing latent bug:** `dedupMeshVertices` / `dropMeshVertices` /
+  `removeMeshVertex[Fallback]` renumbered verts but never permuted deform, so removing/merging a
+  vertex silently mis-aligned existing deform keys (fine at rest, corrupt on playback / re-import);
+  all four now call `reorderDeform`. Hull-loop *reordering* deferred to 3.6d. Launcher-static only
+  (`view.html`) — no engine change, no submodule bump. Offline proof:
+  `tools/rigger-spike/hulledit.mjs` — posed deform is byte-preserved through a permutation on BOTH
+  an unweighted and a weighted (varied influence-count) mesh via spine-core, hull stays a simple
+  polygon (9/9). **⏳ Live-verify owed (owner):** ⬡ Hull promote/demote on a real mesh; and a mesh
+  WITH a deform animation → remove a vertex → play the deform → geometry stays correct.
 - 2026-08-04 — **Phase 3.6b: constraint-edge (mesh `edges`) authoring.** New **✎ Edge** mesh mode:
   click two vertices to toggle a "keep this edge" constraint that (a) **survives re-triangulation**
   — guaranteed present via proper constrained edge-insertion (`forceConstraintEdge` re-triangulates

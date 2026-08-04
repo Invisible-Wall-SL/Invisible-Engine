@@ -573,6 +573,7 @@ let meshAddMode = false; // click-inside-mesh adds a vertex (Phase 3.2)
 let meshRemoveMode = false; // click-an-interior-vertex removes it (Phase 3.3)
 let meshEdgeMode = false; // Phase 3.6b: click two verts to toggle a constraint edge
 let edgePickFirst = null; // first vertex picked in edge mode, awaiting the second
+let meshHullMode = false; // Phase 3.6c: click interior→promote to hull, hull→demote to interior
 let meshIsolate = false; // Phase 6: edit the selected mesh alone — hide every other slot, hold setup pose
 let meshTexView = 1; // Phase 6 texture visibility in isolate mode: 1=full, 0.4=dim, 0=wireframe only
 let meshUVFrame = null; // Phase 6: fixed worldPos→UV affine held during an isolate-mode vertex drag (keeps the texture undistorted)
@@ -3418,7 +3419,7 @@ async function createRigFromImages(files){
 function selectSlot(name){
   selSlot = name;
   meshAddMode = false; meshRemoveMode = false; selMeshVert = null;
-  meshEdgeMode = false; edgePickFirst = null;
+  meshEdgeMode = false; edgePickFirst = null; meshHullMode = false;
   weightBrush = false; brushBone = null; brushPainting = false;
   drawMeshMode = false; drawPoints = [];
   drawPathMode = false; pathAddMode = false; pathDragIdx = null; selPathPoint = null;
@@ -3713,26 +3714,32 @@ function renderSlotDetail(){
     const addBtn = document.createElement("button");
     addBtn.textContent = meshAddMode ? "＋ adding…" : "＋ Add vertex";
     if (meshAddMode) addBtn.className = "active";
-    addBtn.onclick = () => { meshAddMode = !meshAddMode; meshRemoveMode = false; meshEdgeMode = false; edgePickFirst = null; renderSlotDetail(); };
+    addBtn.onclick = () => { meshAddMode = !meshAddMode; meshRemoveMode = false; meshEdgeMode = false; meshHullMode = false; edgePickFirst = null; renderSlotDetail(); };
     const remBtn = document.createElement("button");
     remBtn.textContent = meshRemoveMode ? "－ removing…" : "－ Remove vertex";
     if (meshRemoveMode) remBtn.className = "active";
-    remBtn.onclick = () => { meshRemoveMode = !meshRemoveMode; meshAddMode = false; meshEdgeMode = false; edgePickFirst = null; renderSlotDetail(); };
+    remBtn.onclick = () => { meshRemoveMode = !meshRemoveMode; meshAddMode = false; meshEdgeMode = false; meshHullMode = false; edgePickFirst = null; renderSlotDetail(); };
     const edgeBtn = document.createElement("button");
     edgeBtn.textContent = meshEdgeMode ? "✎ edging…" : "✎ Edge";
     edgeBtn.title = "Constraint edges: click two vertices to force an edge the triangulation must keep (e.g. along a limb so it bends there). Click an existing constraint's two ends again to lift it. Survives re-triangulation and saves with the mesh.";
     if (meshEdgeMode) edgeBtn.className = "active";
-    edgeBtn.onclick = () => { meshEdgeMode = !meshEdgeMode; meshAddMode = false; meshRemoveMode = false; edgePickFirst = null; renderSlotDetail(); };
+    edgeBtn.onclick = () => { meshEdgeMode = !meshEdgeMode; meshAddMode = false; meshRemoveMode = false; meshHullMode = false; edgePickFirst = null; renderSlotDetail(); };
+    const hullBtn = document.createElement("button");
+    hullBtn.textContent = meshHullMode ? "⬡ hull…" : "⬡ Hull";
+    hullBtn.title = "Edit the outline: click an INTERIOR vertex to add it to the hull boundary, or a HULL vertex to drop it back to interior (pulling the silhouette in). Re-triangulates and keeps deform animation aligned.";
+    if (meshHullMode) hullBtn.className = "active";
+    hullBtn.onclick = () => { meshHullMode = !meshHullMode; meshAddMode = false; meshRemoveMode = false; meshEdgeMode = false; edgePickFirst = null; renderSlotDetail(); };
     const retriBtn = document.createElement("button");
     retriBtn.textContent = "⟁ Re-triangulate";
     retriBtn.title = "Re-weave the whole mesh through every vertex — Delaunay over the hull boundary + all interior (floating) points, honouring any ✎ constraint edges. Drop points in the middle, then re-triangulate so the triangles pass through them.";
     retriBtn.onclick = retriangulateMesh;
-    tools.appendChild(addBtn); tools.appendChild(remBtn); tools.appendChild(edgeBtn); tools.appendChild(retriBtn);
+    tools.appendChild(addBtn); tools.appendChild(remBtn); tools.appendChild(edgeBtn); tools.appendChild(hullBtn); tools.appendChild(retriBtn);
     det.appendChild(tools);
-    if (meshAddMode || meshRemoveMode || meshEdgeMode){
+    if (meshAddMode || meshRemoveMode || meshEdgeMode || meshHullMode){
       const h = document.createElement("div");
       h.textContent = meshAddMode ? "click inside the mesh to drop an interior point — then ⟁ Re-triangulate to weave the mesh through all your points"
-        : meshRemoveMode ? "click an interior vertex to remove (hull vertices can't be removed yet)"
+        : meshRemoveMode ? "click an interior vertex to remove (hull vertices can't be removed yet — drop them to interior with ⬡ Hull first)"
+        : meshHullMode ? "click an interior vertex to add it to the outline, or a hull vertex (highlighted) to drop it back to interior"
         : edgePickFirst != null ? "click a second vertex to keep/lift an edge between them (click the first again to cancel)"
         : "click two vertices to keep/lift an edge the triangulation must respect";
       h.style.cssText = "margin-top:4px;color:var(--dim);";
@@ -3905,7 +3912,7 @@ function renderSlotDetail(){
           det.appendChild(add);
         }
       }
-    } else if (!meshAddMode && !meshRemoveMode && !meshEdgeMode){
+    } else if (!meshAddMode && !meshRemoveMode && !meshEdgeMode && !meshHullMode){
       const h = document.createElement("div");
       h.textContent = "click a vertex to select it (then edit its UV here)";
       h.style.cssText = "margin-top:6px;color:var(--dim);";
@@ -5425,14 +5432,22 @@ function drawMeshOverlay(){
     for (const [a, b] of authorInteriorEdges(rdM, rdM.hull || 0))
       if (a * 2 + 1 < w.length && b * 2 + 1 < w.length)
         renderer.line(w[a * 2], w[a * 2 + 1], w[b * 2], w[b * 2 + 1], amber);
-  // vertex handles (selected/dragged highlighted; armed edge pick = amber)
+  // Phase 3.6c: in hull mode, trace the outline loop bright so it's clear which verts are hull
+  const hull = meshHullMode && rdM ? Math.min(rdM.hull || 0, w.length / 2) : 0;
+  if (hull >= 3 && typeof renderer.line === "function"){
+    const hcol = new SPINE.Color(0.55, 0.95, 0.45, 1);
+    for (let i = 0; i < hull; i++){ const j = (i + 1) % hull; renderer.line(w[i * 2], w[i * 2 + 1], w[j * 2], w[j * 2 + 1], hcol); }
+  }
+  // vertex handles (selected/dragged highlighted; armed edge pick = amber; hull verts ringed green)
   const r = renderer.camera.zoom * 4;
   const heatmap = weightBrush && brushBone != null;
+  const hullVert = new SPINE.Color(0.55, 0.95, 0.45, 1);
   for (let k = 0; k < w.length / 2; k++){
     const c = k === edgePickFirst ? amber
       : k === selMeshVert || k === meshDragVert ? sel
+      : meshHullMode && k < hull ? hullVert
       : heatmap ? heatColor(liveVertexWeight(k, brushBone)) : col;
-    renderer.circle(true, w[k * 2], w[k * 2 + 1], r, c, 12);
+    renderer.circle(true, w[k * 2], w[k * 2 + 1], meshHullMode && k < hull ? r * 1.4 : r, c, 12);
   }
 }
 
@@ -5733,6 +5748,8 @@ function dedupMeshVertices(rd, w){
   for (const k of keep) w2.push(w[k * 2], w[k * 2 + 1]);
   const removed = m - keep.length;
   if (removed === 0) return { w: w2, removed: 0 };
+  const oldN = meshCtx.weighted ? perVertexInfluenceCounts(rd) : null; // capture BEFORE the gather
+  const skinName = meshInActiveSkin() ? activeSkinName() : "default";
   const uvs = []; for (const k of keep) uvs.push(rd.uvs[k * 2], rd.uvs[k * 2 + 1]); rd.uvs = uvs;
   if (meshCtx.weighted){
     const blocks = []; let ri = 0;
@@ -5743,6 +5760,7 @@ function dedupMeshVertices(rd, w){
   }
   if (rd.hull){ let h = 0; for (const k of keep) if (k < rd.hull) h++; rd.hull = h; }
   remapEdges(rd, remap); // Phase 3.6b: renumber author constraint edges (merged→twin, dropped)
+  reorderDeform(rd, keep, oldN, m, skinName); // Phase 3.6c: keep deform timelines aligned
   return { w: w2, removed };
 }
 // Ray-cast point-in-polygon for the (possibly concave) outline = first `hull` verts of w.
@@ -5759,6 +5777,8 @@ function pointInHull(px, py, w, hull){
 function dropMeshVertices(rd, w, dropSet){
   const m = w.length / 2;
   const keep = []; for (let i = 0; i < m; i++) if (!dropSet.has(i)) keep.push(i);
+  const oldN = meshCtx.weighted ? perVertexInfluenceCounts(rd) : null; // capture BEFORE the gather
+  const skinName = meshInActiveSkin() ? activeSkinName() : "default";
   const w2 = []; for (const k of keep) w2.push(w[k * 2], w[k * 2 + 1]);
   const uvs = []; for (const k of keep) uvs.push(rd.uvs[k * 2], rd.uvs[k * 2 + 1]); rd.uvs = uvs;
   if (meshCtx.weighted){
@@ -5771,6 +5791,7 @@ function dropMeshVertices(rd, w, dropSet){
   if (rd.hull){ let h = 0; for (const k of keep) if (k < rd.hull) h++; rd.hull = h; }
   const remap = new Array(m).fill(-1); keep.forEach((k, ni) => (remap[k] = ni));
   remapEdges(rd, remap); // Phase 3.6b: drop edges touching a removed vertex, renumber the rest
+  reorderDeform(rd, keep, oldN, m, skinName); // Phase 3.6c: keep deform timelines aligned
   return w2;
 }
 // Phase 3.6b: re-triangulate honouring rd's author constraint edges, then rewrite rd.edges to
@@ -5787,6 +5808,150 @@ function cdtWithConstraints(rd, w, hull){
   serializeEdges(rd, [...hullLoopEdges(hull), ...author]);
   cdtUnforced = unforced;
   return tris;
+}
+// ===== Phase 3.6c: vertex-index permutation primitive =======================
+// A hull edit (promote/demote) reorders vertices, so EVERY index-keyed store must move in
+// lockstep: uvs, vertices (unweighted flat / weighted packed), triangles, edges, hull,
+// selMeshVert, and — the load-bearing part — the deform animation timelines. The same
+// deform-reorder helper also fixes a pre-existing bug: dedup/drop/remove renumber verts but
+// never permuted deform, mis-aligning existing deform keys (fine at rest, corrupt on playback).
+
+// Per-vertex influence counts from a WEIGHTED packed rd.vertices ([n,(bone,x,y,w)×n] per vertex).
+function perVertexInfluenceCounts(rd){
+  const out = []; let ri = 0;
+  while (ri < rd.vertices.length){ const n = rd.vertices[ri]; out.push(n); ri += 1 + n * 4; }
+  return out;
+}
+// The deform arrays for THIS mesh (slot+att) under `skinName`, across every animation.
+function meshDeformArrays(skinName){
+  const out = [];
+  for (const an of Object.values(rawDoc.animations || {})){
+    const am = an.attachments && an.attachments[skinName] && an.attachments[skinName][selSlot] && an.attachments[skinName][selSlot][meshCtx.attName];
+    if (am && Array.isArray(am.deform)) out.push(am.deform);
+  }
+  return out;
+}
+// Reorder/subset every deform frame for this mesh through keepInv (keepInv[newIndex] = oldIndex).
+// oldN = per-vertex influence counts of the OLD geometry (null if unweighted); oldM = old vertex
+// count. Gathers in whole-vertex units — unweighted 2 floats/vertex, weighted a 2*n run/vertex.
+function reorderDeform(rd, keepInv, oldN, oldM, skinName){
+  const arrs = meshDeformArrays(skinName);
+  if (!arrs.length) return;
+  const weighted = !!oldN;
+  let oldLen, newLen, oldBase, newBase;
+  if (weighted){
+    oldBase = new Array(oldM); let acc = 0;
+    for (let k = 0; k < oldM; k++){ oldBase[k] = acc; acc += 2 * oldN[k]; }
+    oldLen = acc;
+    newBase = new Array(keepInv.length); let a2 = 0;
+    for (let ni = 0; ni < keepInv.length; ni++){ newBase[ni] = a2; a2 += 2 * oldN[keepInv[ni]]; }
+    newLen = a2;
+  } else { oldLen = 2 * oldM; newLen = 2 * keepInv.length; }
+  for (const arr of arrs)
+    for (const frame of arr){
+      const off = frame.offset || 0, src = frame.vertices || [];
+      const full = new Array(oldLen).fill(0);
+      for (let i = 0; i < src.length; i++) if (off + i < oldLen) full[off + i] = src[i];
+      const nv = new Array(newLen).fill(0);
+      if (weighted){
+        for (let ni = 0; ni < keepInv.length; ni++){ const oi = keepInv[ni]; for (let c = 0; c < 2 * oldN[oi]; c++) nv[newBase[ni] + c] = full[oldBase[oi] + c]; }
+      } else {
+        for (let ni = 0; ni < keepInv.length; ni++){ const oi = keepInv[ni]; nv[ni * 2] = full[oi * 2]; nv[ni * 2 + 1] = full[oi * 2 + 1]; }
+      }
+      frame.offset = 0; frame.vertices = nv;
+    }
+}
+// Apply a full vertex permutation `perm` (perm[oldIndex] = newIndex, a bijection over 0..m-1) to
+// rd — uvs, vertices, triangles, edges, hull, selMeshVert, and deform. `newHull` = the new hull
+// count. Mutates rd in place.
+function permuteMeshVertices(rd, perm, newHull){
+  const m = rd.uvs.length / 2;
+  const inv = new Array(m); for (let o = 0; o < m; o++) inv[perm[o]] = o; // inv[new] = old
+  const skinName = meshInActiveSkin() ? activeSkinName() : "default";
+  const oldN = meshCtx.weighted ? perVertexInfluenceCounts(rd) : null;
+  // uvs
+  const uvs = new Array(m * 2);
+  for (let ni = 0; ni < m; ni++){ const oi = inv[ni]; uvs[ni * 2] = rd.uvs[oi * 2]; uvs[ni * 2 + 1] = rd.uvs[oi * 2 + 1]; }
+  rd.uvs = uvs;
+  // vertices
+  if (meshCtx.weighted){
+    const blocks = []; let ri = 0;
+    for (let v = 0; v < m; v++){ const n = rd.vertices[ri]; blocks.push(rd.vertices.slice(ri, ri + 1 + n * 4)); ri += 1 + n * 4; }
+    const out = []; for (let ni = 0; ni < m; ni++) out.push(...blocks[inv[ni]]); rd.vertices = out;
+  } else {
+    const out = new Array(m * 2);
+    for (let ni = 0; ni < m; ni++){ const oi = inv[ni]; out[ni * 2] = rd.vertices[oi * 2]; out[ni * 2 + 1] = rd.vertices[oi * 2 + 1]; }
+    rd.vertices = out;
+  }
+  // triangles: map each index through perm
+  if (Array.isArray(rd.triangles)) rd.triangles = rd.triangles.map((i) => perm[i]);
+  remapEdges(rd, perm);
+  rd.hull = newHull;
+  reorderDeform(rd, inv, oldN, m, skinName);
+  if (selMeshVert != null && selMeshVert < m) selMeshVert = perm[selMeshVert];
+}
+// Point→segment distance (world coords) for choosing the nearest hull insertion slot.
+function distToSeg(w, p, a, b){
+  const px = w[p * 2], py = w[p * 2 + 1], ax = w[a * 2], ay = w[a * 2 + 1], bx = w[b * 2], by = w[b * 2 + 1];
+  const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy;
+  let t = L2 > 0 ? ((px - ax) * dx + (py - ay) * dy) / L2 : 0; t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+// Choose the hull edge to split when inserting interior vertex k onto the boundary: the nearest
+// edge whose two new edges (i,k),(k,i+1) cross no OTHER hull edge (keeps the loop simple). -1 if none.
+function bestHullInsertionSlot(w, hull, k){
+  let best = -1, bestD = Infinity;
+  for (let i = 0; i < hull; i++){
+    const j = (i + 1) % hull;
+    let ok = true;
+    for (let e = 0; e < hull && ok; e++){
+      const a = e, b = (e + 1) % hull;
+      if (a === i && b === j) continue; // the edge being split
+      if (!(a === i || b === i || a === k || b === k) && segmentsCross(w, i, k, a, b)) ok = false;
+      if (ok && !(a === j || b === j || a === k || b === k) && segmentsCross(w, k, j, a, b)) ok = false;
+    }
+    if (!ok) continue;
+    const d = distToSeg(w, k, i, j);
+    if (d < bestD){ bestD = d; best = i; }
+  }
+  return best;
+}
+// Phase 3.6c: promote an INTERIOR vertex k onto the hull boundary (inserted at the nearest
+// non-crossing slot), then re-triangulate through the new outline.
+function promoteToHull(k){
+  if (!meshCtx || !rawDoc) return;
+  const rd = rawDocMeshEntry(); if (!rd) return;
+  const hull = rd.hull || 0, m = rd.uvs.length / 2;
+  if (k < hull){ showErr("That vertex is already on the outline."); return; }
+  const w = meshWorldVerts(); if (!w) return;
+  const slot = bestHullInsertionSlot(w, hull, k);
+  if (slot < 0){ showErr("Can't add that vertex to the outline without self-crossing — reshape it nearer an edge first."); return; }
+  const order = []; // old indices in new order
+  for (let i = 0; i < hull; i++){ order.push(i); if (i === slot) order.push(k); }
+  for (let j = hull; j < m; j++) if (j !== k) order.push(j);
+  const perm = new Array(m); order.forEach((oi, ni) => (perm[oi] = ni));
+  permuteMeshVertices(rd, perm, hull + 1);
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  retriangulateMesh(); // re-weave through the new outline, honouring constraint edges
+  meshHullMode = true; renderSlotDetail();
+}
+// Phase 3.6c: demote a HULL vertex k to interior. Re-triangulate afterwards — a convex corner is
+// now outside the smaller hull and drops via retriangulate's outside-pass; a concave one stays.
+function demoteFromHull(k){
+  if (!meshCtx || !rawDoc) return;
+  const rd = rawDocMeshEntry(); if (!rd) return;
+  const hull = rd.hull || 0, m = rd.uvs.length / 2;
+  if (k >= hull){ showErr("That vertex isn't on the outline."); return; }
+  if (hull <= 3){ showErr("A mesh outline needs at least 3 hull vertices."); return; }
+  const order = []; // hull verts except k, then k (first interior), then the rest
+  for (let i = 0; i < hull; i++) if (i !== k) order.push(i);
+  order.push(k);
+  for (let j = hull; j < m; j++) order.push(j);
+  const perm = new Array(m); order.forEach((oi, ni) => (perm[oi] = ni));
+  permuteMeshVertices(rd, perm, hull - 1);
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  retriangulateMesh();
+  meshHullMode = true; renderSlotDetail();
 }
 // Phase 3.6b edge-mode click: first click arms a vertex; the second toggles the constraint edge
 // between the two, then re-triangulates so the effect shows immediately (staying in edge mode).
@@ -6169,7 +6334,12 @@ function earClip(ring, worldPos){
 // remaining vertices (dropping any now-outside points) so a delete is NEVER blocked by bad
 // topology. Returns true on success. Mutates rd + rebuilds.
 function removeMeshVertexFallback(k, rd, w){
-  remapEdges(rd, removeOneRemap(k, w.length / 2)); // Phase 3.6b: renumber edges for k's removal
+  const oldM = w.length / 2, keep = [];
+  for (let i = 0; i < oldM; i++) if (i !== k) keep.push(i);
+  const oldN = meshCtx.weighted ? perVertexInfluenceCounts(rd) : null;
+  const skinName = meshInActiveSkin() ? activeSkinName() : "default";
+  remapEdges(rd, removeOneRemap(k, oldM)); // Phase 3.6b: renumber edges for k's removal
+  reorderDeform(rd, keep, oldN, oldM, skinName); // Phase 3.6c: align deform to k's removal
   rd.uvs.splice(k * 2, 2);
   const att = meshCtx.attachment;
   if (!att.bones || !att.bones.length){ rd.vertices.splice(k * 2, 2); }
@@ -6204,6 +6374,11 @@ function removeMeshVertex(k){
   const w = meshWorldVerts();
   if (!w) return false;
   const tris = rd.triangles;
+  // Phase 3.6c: capture deform-permutation inputs before any splice (used in the clean path below)
+  const oldM = w.length / 2, keepInv = [];
+  for (let i = 0; i < oldM; i++) if (i !== k) keepInv.push(i);
+  const oldN = meshCtx.weighted ? perVertexInfluenceCounts(rd) : null;
+  const skinName = meshInActiveSkin() ? activeSkinName() : "default";
 
   // directed boundary edges of the fan around k (the two non-k verts, in winding order)
   const edges = [];
@@ -6244,7 +6419,8 @@ function removeMeshVertex(k){
   for (let i = 0; i < kept.length; i++) if (kept[i] > k) kept[i]--;
   rd.triangles = kept;
   // Phase 3.6b: renumber author constraint edges for k's removal (drop any that touched k)
-  remapEdges(rd, removeOneRemap(k, w.length / 2));
+  remapEdges(rd, removeOneRemap(k, oldM));
+  reorderDeform(rd, keepInv, oldN, oldM, skinName); // Phase 3.6c: align deform to k's removal
 
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
@@ -8212,7 +8388,7 @@ function poseBoneByScreen(dxScreen, dyScreen, dpr){
 }
 
 // ---- transform gizmo (move + rotate the selected bone on the canvas) -------
-function gizmoActive(){ return (editMode || animMode) && rawDoc && selBone != null && !drawMeshMode && !drawPathMode && !pathAddMode && !(meshCtx && (weightBrush || meshAddMode || meshRemoveMode || meshEdgeMode)); }
+function gizmoActive(){ return (editMode || animMode) && rawDoc && selBone != null && !drawMeshMode && !drawPathMode && !pathAddMode && !(meshCtx && (weightBrush || meshAddMode || meshRemoveMode || meshEdgeMode || meshHullMode)); }
 function gizmoCenter(){ const b = skeleton && selBone != null ? skeleton.bones[selBone] : null; return b ? { x: b.worldX, y: b.worldY } : null; }
 function gizmoGeom(){ const z = renderer ? renderer.camera.zoom : 1; return { ringR: z * 58, centerR: z * 13, tol: z * 9 }; }
 // Which gizmo part is under the cursor: "move" (centre) / "rotate" (ring) / null.
@@ -8861,6 +9037,7 @@ function wire(){
       if (editMode && meshAddMode){ const cw = cursorWorld(e); if (cw) addMeshVertex(cw.x, cw.y); lastXY = [e.clientX, e.clientY]; return; }
       if (editMode && meshRemoveMode){ const k = nearestMeshVert(e); if (k >= 0) removeMeshVertex(k); lastXY = [e.clientX, e.clientY]; return; }
       if (editMode && meshEdgeMode){ const k = nearestMeshVert(e); if (k >= 0) toggleConstraintEdge(k); lastXY = [e.clientX, e.clientY]; return; }
+      if (editMode && meshHullMode){ const k = nearestMeshVert(e); if (k >= 0){ const rd = rawDocMeshEntry(); const hull = (rd && rd.hull) || 0; if (k < hull) demoteFromHull(k); else promoteToHull(k); } lastXY = [e.clientX, e.clientY]; return; }
       if (tryStartMeshDrag(e)){ lastXY = [e.clientX, e.clientY]; return; }
     }
     // Transform gizmo on the SELECTED bone: move (centre) or rotate (ring).
