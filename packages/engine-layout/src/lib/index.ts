@@ -17,6 +17,7 @@ export * from './coverTransform';
 export * from './componentDesignSize';
 export * from './backgroundScenes';
 export * from './buyFeatureScene';
+export * from './confirmScene';
 export * from './genericMountScenes';
 export * from './layerOrder';
 export * from './resolveTransform';

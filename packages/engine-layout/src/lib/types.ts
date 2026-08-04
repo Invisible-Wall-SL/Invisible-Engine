@@ -158,6 +158,16 @@ interface BaseNode {
 	 */
 	paramBindings?: Record<string, string>;
 	/**
+	 * Per-node press route inside a `componentInstance` (the two-button dialog primitive). When set,
+	 * this node becomes an interactive hit surface whose press calls the owning instance's action of
+	 * the SAME name — the instance's `actions` prop / injected binding (e.g. a confirm-dialog's
+	 * `confirm`/`cancel` buttons each name their action here). Routed via the component-press context
+	 * `<ComponentInstance>` provides, so it works ONLY inside a component expansion; a top-level scene
+	 * node (no provider) or an instance with no matching action ⇒ inert (parity — byte-identical to
+	 * today). The generalisation of the whole-instance `onSelect` press to N named press regions.
+	 */
+	pressAction?: string;
+	/**
 	 * Reveal gate (Invisible Flow — intro-complete sequencing). When set, this node starts HIDDEN
 	 * and becomes visible only once the named component-scoped signal has FIRED for this instance —
 	 * so a "free spin amount" text or a tap prompt appears only AFTER a sibling spine's one-shot

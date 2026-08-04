@@ -44,6 +44,7 @@
 	import { resolveEffect } from './registerEffects';
 	import { resolveRigFx } from './registerRigFx';
 	import { getComponentParams } from './componentParamsContext';
+	import { getComponentPress } from './componentActionsContext';
 	import { getComponentSignalAnims } from './componentSignalContext';
 	import { getComponentStateAnims } from './componentStateAnimContext';
 	import { getComponentSpineRest } from './componentSpineRestContext';
@@ -58,6 +59,18 @@
 	const { node, space, attachedEffects }: Props = $props();
 	const layoutContext = getContextLayout();
 	const appContext = getContextApp();
+
+	// Per-node press (the two-button dialog primitive): a node carrying `pressAction` inside a
+	// `componentInstance` becomes an interactive hit surface routing its press to the instance's
+	// action of that name (via the component-press context `<ComponentInstance>` provides). Init-
+	// stable, like the param reads. No provider (a top-level scene node) OR no `pressAction` ⇒ the
+	// interactive attributes below stay `undefined` ⇒ `propsSyncEffect` skips them ⇒ the default
+	// container behaviour, byte-identical to today (parity).
+	const componentPress = getComponentPress();
+	const isPressTarget = !!node.pressAction && !!componentPress;
+	const onNodePress = () => {
+		if (node.pressAction) componentPress?.(node.pressAction);
+	};
 
 	// The hoisted tap-to-continue surface exposed by a `tapToContinue`-enabled
 	// `componentInstance` child (see the componentInstance branch below). `undefined`
@@ -367,7 +380,11 @@
 		const fontSize = resolveBoundValue(node.paramBindings, 'style.fontSize', componentParams);
 		const fill = resolveBoundValue(node.paramBindings, 'style.fill', componentParams);
 		const align = resolveBoundValue(node.paramBindings, 'style.align', componentParams);
-		const verticalAlign = resolveBoundValue(node.paramBindings, 'style.verticalAlign', componentParams);
+		const verticalAlign = resolveBoundValue(
+			node.paramBindings,
+			'style.verticalAlign',
+			componentParams,
+		);
 		const overrides: Partial<TextStyle> = {};
 		if (typeof fontFamily === 'string') overrides.fontFamily = fontFamily;
 		if (typeof fontSize === 'number') overrides.fontSize = fontSize;
@@ -538,6 +555,12 @@
 			{/if}
 		</Container>
 	{:else if node.kind === 'container'}
+		<!--
+			A container carrying `pressAction` (a dialog button) turns interactive: the WHOLE container
+			becomes the hit surface (pixi hit-tests the children's bounds — the button's bg rect + label),
+			mirroring the authored art-button path. Non-press containers pass `undefined`, which
+			`propsSyncEffect` skips ⇒ the default (non-interactive) container — byte-identical parity.
+		-->
 		<Container
 			x={posX}
 			y={posY}
@@ -545,6 +568,9 @@
 			rotation={transform.rotation}
 			alpha={transform.alpha}
 			zIndex={transform.zIndex}
+			eventMode={isPressTarget ? 'static' : undefined}
+			cursor={isPressTarget ? 'pointer' : undefined}
+			onpointerup={isPressTarget ? onNodePress : undefined}
 		>
 			{#each node.children as child (child.id)}
 				<svelte:self node={child} {space} />

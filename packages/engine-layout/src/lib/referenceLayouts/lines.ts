@@ -1,4 +1,5 @@
 import { defaultBuyFeatureScene } from '../buyFeatureScene';
+import { defaultConfirmScene } from '../confirmScene';
 import { linesTemplate } from '../templates/lines';
 import type { LayoutDoc, LayoutNode, LayoutType, NodeOverride, Scene } from '../types';
 import { hudScenes } from './hud';
@@ -518,6 +519,10 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 			// `<BuyFeatureScreen>` takeover fallback (`buyFeatureScene.ts`). An author repositions/
 			// styles the cards + backdrop here.
 			defaultBuyFeatureScene(),
+			// Confirm dialog — the engine-default in-canvas CONFIRM scene (dimmed backdrop + a
+			// `confirmDialog` instance), the twin of the retired HTML `ModalBuyBonusConfirm` and the
+			// `<ConfirmDialog>` takeover fallback (`confirmScene.ts`). Authorable per project.
+			defaultConfirmScene(),
 		],
 		updatedAt: '2026-05-30T00:00:00.000Z',
 	};
