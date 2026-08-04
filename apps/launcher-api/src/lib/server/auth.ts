@@ -103,6 +103,17 @@ export async function validateSession(raw: string | undefined): Promise<SessionU
 	return { id: row.id, email: row.email, name: row.name, role: row.role };
 }
 
+/**
+ * The stable server-side id for a session token — the hashed token, i.e. the
+ * `sessions.id` primary key. Safe to persist elsewhere (e.g. a doc lease holder):
+ * it is the same value already stored in the `sessions` table, NOT the raw cookie
+ * secret. Returns null when there is no token.
+ */
+export async function sessionIdFromToken(raw: string | undefined): Promise<string | null> {
+	if (!raw) return null;
+	return sha256(raw);
+}
+
 /** The session's active project key (null = the default project). */
 export async function getActiveProjectKey(raw: string | undefined): Promise<string | null> {
 	if (!raw) return null;
