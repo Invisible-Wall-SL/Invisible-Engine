@@ -524,8 +524,44 @@ What makes the tools usable for 2–3 people on a project.
 > per-project for now** (`docKey` = the tool's single project doc / its tool id).
 > Verified offline over the real module against an in-memory conditional-upsert
 > fake (27 assertions). Migration NOT applied; the SQL predicate + two-user test
-> are owner-verify owed. **Still to do: sub-phase 2c** — the shared client helper,
-> read-only mode, and the takeover banner (below), which is what makes it usable.
+> are owner-verify owed.
+>
+> **Sub-phase 2c-core — BUILT 2026-08-04 (editor + flow-v2 only; 2c-rest pending).**
+> The CLIENT lease integration + presence UI, wired into TWO tools to prove the
+> pattern. Files:
+> - **`$lib/leaseState.svelte.ts`** (`LeaseState` rune) — owns the client lifecycle
+>   against `POST /api/lease`. Ctor `{ toolId, clientKey, projectKey, docKey, enabled }`
+>   (+ injectable `fetch`/`endpoint` for tests). `start()` acquires; on `held:true`
+>   it heartbeats on the acquire-provided `heartbeatMs` (~10s); a heartbeat returning
+>   `held:false` (taken over) flips read-only and STOPS beating. `takeover()` is always
+>   available; `release()` is best-effort on unload (`sendBeacon`, else `keepalive`
+>   fetch). Exposes reactive `held`, `readOnly`, `heldBy` (`{name,email,mine,activeAgoMs}`,
+>   preferring the server `activeAgoMs`). **`enabled:false` no-ops entirely**;
+>   **`readOnly` fails OPEN** before the first acquire and on any error (`readOnly` =
+>   `enabled && resolved && heldBy!==null`), so a blip can never wedge a doc — the CAS
+>   floor guards writes in those windows.
+> - **`$lib/PresenceBanner.svelte`** — shown when `readOnly`: names the holder (or "You
+>   have this open in another tab" when `heldBy.mine`), "active N ago", + always-enabled
+>   **Take over**.
+> - **`SaveState.blockWhen?: () => boolean`** — when true, BOTH autosave arming AND
+>   `save()` are no-ops (`save()` returns `false`). Absent/false ⇒ zero behavior change.
+>   A tool wires `blockWhen: () => lease.readOnly` into its DOC saveState only.
+> - **Wiring:** editor doc saveState + flow-v2 doc saveState get `blockWhen`; both render
+>   `<PresenceBanner>` in the tool chrome (replacing the save pill when read-only); both
+>   `start()` on mount, `release()` on destroy/`pagehide`. The editor TEMPLATE saveState
+>   and the flow-v2 LIBRARY saveState are left UNLEASED — GLOBAL `_shared/*` keys a
+>   per-project lease can't cover (their `If-Match` CAS is the floor).
+> - **Verified offline (39 assertions)** over the REAL compiled `.svelte.ts` modules
+>   (esbuild type-strip → `compileModule` → mock `fetch`): acquire held/not-held,
+>   disabled no-op, acquire-error fail-open, heartbeat→taken-over flips readOnly + stops
+>   beating, takeover→held, release posts (and skips when not-held), and `blockWhen`
+>   blocking both autosave + manual save (and unchanged when false). Launcher build green.
+>   **Owner-verify owed:** the live two-profile test (below) + migration 0014.
+>
+> **Still to do: sub-phase 2c-rest** — thread `LeaseState` + `blockWhen` +
+> `<PresenceBanner>` into the remaining authoring tools (symbols, fx, flipbook,
+> win-text, game-config, localization, components; rigger via Phase 0's tables). Each
+> leases its OWN per-project doc; global keys stay unleased.
 >
 > Original plan (2c is the residual):
 
