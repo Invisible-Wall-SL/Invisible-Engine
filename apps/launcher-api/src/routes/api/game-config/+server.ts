@@ -10,6 +10,7 @@ import { UNASSIGNED_CLIENT } from '$lib/server/projectPaths';
 import { DEFAULT_PROJECT_KEY, projectClientKey } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { jsonBaseEtag } from '$lib/server/r2';
+import { invalidateRuntimeBundle } from '$lib/server/runtimeBundleCache';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { RequestHandler } from './$types';
 
@@ -84,6 +85,11 @@ export const PUT: RequestHandler = async ({ request, url, locals }) => {
 			body.doc,
 			baseEtag,
 		);
+		// `config` is an input to `assembleRuntimeBundle`, so a bare save would otherwise only reach a
+		// live (`?runtime=1`) game after the runtime cache's 10s TTL. Bust it now — same call Publish
+		// makes (`publishGame.ts`) — so an author's reload picks up the edit immediately. Save-only;
+		// a Publish that follows just bumps the epoch again (idempotent).
+		invalidateRuntimeBundle(projectKey);
 		return json({ clientKey, projectKey, doc, etag, warnings });
 	} catch (e) {
 		if (e instanceof ConflictError) {
