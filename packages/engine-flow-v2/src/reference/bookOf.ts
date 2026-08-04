@@ -346,6 +346,14 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 		},
 		// --- state / presentation effects ---
 		{ name: 'setSpecialSymbol', params: [{ name: 'symbol', type: SYMBOL }], category: 'effect' },
+		// Arm the picked buy-bonus bet mode before the confirm step — the flow analogue of a buy-feature
+		// card's `onSelect`. `betModeKey` is a `stateMeta.betModeMeta` key (e.g. `BONUS`/`SUPERSPIN`);
+		// `commitBuyBonus` then activates whatever this armed.
+		{
+			name: 'selectBetMode',
+			params: [{ name: 'betModeKey', type: { t: 'string' } }],
+			category: 'effect',
+		},
 		{
 			name: 'setWinBookEventAmount',
 			params: [{ name: 'amount', type: FLOAT }],
@@ -538,12 +546,16 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 		// the mechanic; the editor doesn't expose typed pins for it.)
 		{ name: 'revealBoard', params: [], category: 'command' },
 		{ name: 'stopReel', params: [{ name: 'index', type: INT }], category: 'command' },
-		// Intent-invoking commands — the flow reacts to a `spin`/`stop`/`buyBonus` button event and
-		// invokes the TEMPLATE's mechanic (start the bet, stop the reels, open buy-bonus). Opaque like
-		// `revealBoard`; the game backs them (they run the same coded intent the button did).
+		// Intent-invoking commands — the flow reacts to a `spin`/`stop` button event and invokes the
+		// TEMPLATE's mechanic (start the bet, stop the reels). Opaque like `revealBoard`; the game backs
+		// them (they run the same coded intent the button did).
 		{ name: 'startSpin', params: [], category: 'command' },
 		{ name: 'stopSpin', params: [], category: 'command' },
-		{ name: 'confirmBuyBonus', params: [], category: 'command' },
+		// Commit the buy-bonus purchase — activate the armed bet mode (`selectBetMode`) and, for a `buy`
+		// mode, fire the bet (or, for an `activate` mode, raise the auto-spin limits to infinity). This
+		// is the confirm-dialog CONFIRM body, not the buy-BUTTON press (that just opens the select
+		// screen); pair a `selectBetMode` (arm) with this (commit).
+		{ name: 'commitBuyBonus', params: [], category: 'command' },
 		// The standard HUD buttons every book-of game ships — wiring a fused container-event pin
 		// (onIncrease/onDecrease/…) to one of these fires the same coded body the button press runs.
 		{ name: 'increaseBet', params: [], category: 'command' },

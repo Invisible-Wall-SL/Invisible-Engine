@@ -29,8 +29,10 @@ import {
 	stateBet,
 	stateUi,
 	showMessage as showGameMessage,
+	INFINITY_MARK,
 	type GameMessageKind,
 } from 'state-shared';
+import { stateBonus, stateBonusDerived } from 'components-ui-html';
 import { waitForResolve } from 'utils-shared/wait';
 import { roundSkip } from 'utils-shared/skipToken';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
@@ -770,6 +772,38 @@ const effects: Record<string, FlowEffect> = {
 	 */
 	stopReel: (payload) => {
 		eventEmitter.broadcast({ type: 'reelStop', index: payload.index as number });
+	},
+
+	/**
+	 * Arm the picked buy-bonus bet mode (`selectBetMode`) — the flow analogue of a buy-feature card's
+	 * `onSelect` (`registerBuyFeature`), which sets `stateBonus.selectedBetModeKey` before the confirm
+	 * step. Writes the SAME shared `stateBonus` rune the confirm dialog reads, so an authored buy flow
+	 * arms the mode exactly as the coded select screen does. `commitBuyBonus` then reads this key.
+	 */
+	selectBetMode: (payload) => {
+		stateBonus.selectedBetModeKey = payload.betModeKey as string;
+	},
+
+	/**
+	 * Commit the picked buy-bonus bet mode (`commitBuyBonus`) — the VERBATIM confirm body of
+	 * `BuyBonusConfirm.svelte`: activate the armed mode, then a `buy` mode fires a bet (broadcast
+	 * `{ type: 'bet' }`, the SAME emitter path the coded confirm uses → `EnableGameActor` sends
+	 * `BET`; XState is never touched here) while an `activate` mode raises the auto-spin limits to
+	 * infinity. The mode is armed and the bet fired SYNCHRONOUSLY in one action — never two wired
+	 * nodes — so `activeBetModeKey` is set before `BET` reads it (a `buy` mode must be armed first).
+	 * The press sound + modal close stay with the confirm dialog; this is only the state commit.
+	 */
+	commitBuyBonus: () => {
+		stateBet.activeBetModeKey = stateBonus.selectedBetModeKey;
+
+		const data = stateBonusDerived.selectedBetModeData();
+		if (data.type === 'buy') {
+			eventEmitter.broadcast({ type: 'bet' });
+		}
+		if (data.type === 'activate') {
+			stateUi.autoSpinsLossLimitText = INFINITY_MARK;
+			stateUi.autoSpinsSingleWinLimitText = INFINITY_MARK;
+		}
 	},
 };
 
