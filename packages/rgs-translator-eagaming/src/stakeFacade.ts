@@ -237,6 +237,26 @@ const authoredWinTiers = (): FacadeWinTier[] | undefined => {
 	return Array.isArray(tiers) && tiers.length ? tiers : undefined;
 };
 
+/**
+ * The buy COST MULTIPLIER for a bet mode, from the map the ENGINE published from the active game
+ * config (`apps/lines/src/game/betModeMeta.ts` → `syncBetModeMeta` → `globalThis.__IE_BET_MODES__`),
+ * keyed by the UPPERCASE wire `mode`. Same decoupled-global bridge as `__IE_WIN_LEVELS__` — the facade
+ * is a drop-in for `rgs-requests` and can't import the app.
+ *
+ * The buy card DISPLAYS `betAmount × costMultiplier` as its price (`registerBuyFeature`), so the CHARGE
+ * must use the SAME multiplier or every buy debits a fixed premium regardless of the card tapped. The
+ * facade therefore sends this per-mode multiplier in the buy bet context instead of a plain 0/1 flag.
+ *
+ * Defaults to 1 (a normal spin's cost) when the map is unset or the mode is unknown — unreachable for a
+ * real buy, because the buy MENU is built from the SAME `syncBetModeMeta`, so a card can only be tapped
+ * once its cost has been published (parity: an un-bridged game never buys).
+ */
+const betModeCostMultiplier = (mode: string): number => {
+	const map = (globalThis as { __IE_BET_MODES__?: Record<string, number> }).__IE_BET_MODES__;
+	const cost = map?.[mode.toUpperCase()];
+	return typeof cost === 'number' && cost > 0 ? cost : 1;
+};
+
 /** Map a win (cents) + bet (cents) to a Stake winLevel. When the project has
  *  AUTHORED win tiers (Invisible Game Config), the level is read from that
  *  ladder — the highest tier whose threshold the win reaches. Otherwise the
@@ -755,15 +775,17 @@ export const requestBet = async (options: {
 	// User-display dollars → Play4Fun cents.
 	const play4FunAmount = Math.max(1, Math.round(options.amount * 100));
 	// A non-BASE bet mode means "buy the feature". Book-of games encode the bet
-	// as [buyFlag, betPerLine] (buyFlag 1 = buy); the lines/Hot-Fruits path
-	// keeps the legacy [5, betPerLine] encoding.
+	// as [buyCost, betPerLine], where buyCost is the SELECTED mode's cost multiplier
+	// (0 = normal spin) so the debit matches that card's displayed price instead of a
+	// fixed premium; the lines/Hot-Fruits path keeps the legacy [5, betPerLine] encoding.
 	const isBuy = !!options.mode && options.mode.toUpperCase() !== 'BASE';
+	const buyCost = isBuy ? betModeCostMultiplier(options.mode) : 0;
 	const betBody: ReturnType<typeof buildBetActions> =
 		activeMapping === bookMapping
 			? [
 					{
 						action: 'bet',
-						context: [isBuy ? 1 : 0, Math.max(1, Math.round(play4FunAmount / BOOK_NUM_LINES))],
+						context: [buyCost, Math.max(1, Math.round(play4FunAmount / BOOK_NUM_LINES))],
 					},
 					{ action: 'play', context: '' },
 				]

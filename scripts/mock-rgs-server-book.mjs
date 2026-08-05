@@ -4,8 +4,9 @@
  * Speaks the /rgs/engine batched-action protocol, faithful to a real Book of
  * Thermopylae session capture (2026-05-25). Adds the two things the Hot Fruits
  * mock never exercised:
- *   - BUY FEATURE: `bet` context [a, betPerLine] where a=1 buys the feature
- *     (cost 100× total bet), a=0 = normal spin.
+ *   - BUY FEATURE: `bet` context [a, betPerLine] where a>0 buys the feature and
+ *     IS the buy cost multiplier (total = betPerLine × NUM_LINES × a), so each
+ *     buy mode charges its own cost (e.g. 25 / 50 / 100). a=0 = normal spin.
  *   - FREE-SPIN BONUS: multi-request round. The trigger response stays OPEN
  *     (no gameRoundOver) and emits spinTrigger + enterBonus + pickRandomly
  *     (the special expanding symbol). Each subsequent `play` is one free spin
@@ -469,9 +470,13 @@ export function createMockRgs(opts = {}) {
 			switch (a.action) {
 				case 'bet': {
 					const ctx = Array.isArray(a.context) ? a.context : [0, 1];
-					const isBuy = Number(ctx[0]) === 1;
+					// ctx[0] is the buy COST MULTIPLIER (0 = normal spin). Each buy mode sends
+					// its own cost (betAmount × costMultiplier is the price shown on its card),
+					// so the debit matches the selected card instead of a fixed premium.
+					const buyCostMultiplier = Number(ctx[0]) || 0;
+					const isBuy = buyCostMultiplier > 0;
 					const betPerLine = Number(ctx[1]) || 1;
-					const total = betPerLine * NUM_LINES * (isBuy ? 100 : 1);
+					const total = betPerLine * NUM_LINES * (isBuy ? buyCostMultiplier : 1);
 					if (session.balance < total) {
 						return sendJson(req, res, 200, {
 							result: 0,
