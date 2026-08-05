@@ -34,3 +34,13 @@ export function loadingSceneId(scenes: readonly Scene[]): string {
 export function basegameSceneId(scenes: readonly Scene[]): string {
 	return sceneByRole(scenes, 'basegame')?.id ?? 'basegame';
 }
+
+/** The buy-bonus SELECT scene id — role-resolved, falling back to the legacy `buyFeature` id. */
+export function buyFeatureSceneId(scenes: readonly Scene[]): string {
+	return sceneByRole(scenes, 'buyFeature')?.id ?? 'buyFeature';
+}
+
+/** The buy-bonus CONFIRM scene id — role-resolved, falling back to the legacy `buyConfirm` id. */
+export function buyConfirmSceneId(scenes: readonly Scene[]): string {
+	return sceneByRole(scenes, 'buyConfirm')?.id ?? 'buyConfirm';
+}
