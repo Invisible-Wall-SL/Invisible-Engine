@@ -182,3 +182,22 @@ export const boardColumnHeight = (): number => {
 
 /** The board's vertical CENTRE in world space (the container `y`, since its anchor is {0.5, 0.5}). */
 export const boardCenterYWorld = (): number => stateGameDerived.boardLayout().y;
+
+/** The per-reel overlay spine's base box, as a fraction of ONE cell — the original coded beam
+ *  proportions (a tall narrow glow, NOT the full column: the grey-out fills the column, the spine is a
+ *  beam over it). Kept here (not in the component) so the geometry lives in one place; `fx.overlayScale`
+ *  tunes it per tier. */
+const OVERLAY_WIDTH_CELLS = 0.56;
+const OVERLAY_HEIGHT_CELLS = 1.6;
+
+/** The overlay spine's world-space WIDTH — `OVERLAY_WIDTH_CELLS` of the live cell width. Default board:
+ *  `SYMBOL_SIZE · 0.56` — byte-identical to the original overlay (before it followed the board). */
+export const overlayBaseWidth = (): number => reelColumnWidth() * OVERLAY_WIDTH_CELLS;
+
+/** The overlay spine's world-space HEIGHT — `OVERLAY_HEIGHT_CELLS` of the live cell height. Default
+ *  board: `SYMBOL_SIZE · 1.6` — byte-identical to the original overlay. Scales with a resized cell
+ *  instead of filling the whole column (which doubled the beam on a bigger board). */
+export const overlayBaseHeight = (): number => {
+	const layout = stateGameDerived.boardLayout();
+	return stateGameDerived.boardGeometry().cellHeightLocal * layout.scale * OVERLAY_HEIGHT_CELLS;
+};
