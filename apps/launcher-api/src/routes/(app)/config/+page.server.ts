@@ -6,15 +6,21 @@ import { listComponents } from '$lib/server/componentStorage';
 import { gameConfigDefaultFor, resolveGameConfig } from '$lib/server/gameConfigDefaults';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
+import { fetchServerPaylines } from '$lib/server/rgsConfig';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { loadTestServerManifest } from '$lib/server/testServerManifest';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { PageServerLoad } from './$types';
 
 /**
  * Invisible Game Config (`/config`) — author the project's GAME MATH CONTRACT: the symbol
- * dictionary + paytable, paylines, grid, bet modes, identity/RTP, and the cosmetic reel strips.
+ * dictionary + paytable, paylines, grid, bet modes, and identity/RTP.
  * It replaces the ONE compiled `apps/lines/src/game/config.ts` that every online project shares.
+ *
+ * Paylines are server-authoritative at runtime, so the Paylines panel PREVIEWS the RGS's real line
+ * set (`serverPaylines`, fetched best-effort below) instead of the saved doc; only the per-line
+ * colour is authored. Reel strips are server-defined / auto-generated at runtime and no longer shown.
  *
  * The page opens on the RESOLVED config: the project's authored doc if it has one, otherwise its
  * game-type template default. `source` tells the author which they are looking at (so "edit" vs
@@ -61,6 +67,23 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// round-trip. Null only if the generated defaults are broken (see `gameConfigDefaults.ts`).
 	const templateDefault = gameConfigDefaultFor(gameType);
 
+	// The game is server-authoritative for paylines at runtime, so the Paylines panel previews the
+	// RGS's REAL lines instead of the saved doc's. The game key IS the project key verbatim (see
+	// `publishGame.ts`). Only probe when the project actually has a mock RGS registered in the test-
+	// server manifest — otherwise there's nothing to reach, so skip and let the page fall back to the
+	// saved doc. Best-effort: `fetchServerPaylines` never throws and returns `null` on any failure, so
+	// this can't block or fail the page.
+	let serverPaylines: number[][] | null = null;
+	try {
+		const manifest = await loadTestServerManifest();
+		if (manifest.games[projectKey]) {
+			serverPaylines = await fetchServerPaylines(projectKey);
+		}
+	} catch {
+		// A manifest read hiccup must never break the config page — keep the saved-doc fallback.
+		serverPaylines = null;
+	}
+
 	return {
 		clientKey,
 		projectKey,
@@ -71,6 +94,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		source,
 		etag,
 		templateDefault,
+		// The RGS's real payline set (server-authoritative at runtime), or `null` when the project has
+		// no mock / the RGS was unreachable — the page renders the saved doc's lines in that case.
+		serverPaylines,
 		// id/name/category + PARAMS — the dropdown needs id/name/category; the per-mode card-param editor
 		// needs each component's declared params (key/kind/label/group/options/default/engineProvided) so
 		// it can render a typed input per authorable param and write chosen values into `cardParams`. The

@@ -1,10 +1,9 @@
 # Invisible Game Config
 
 Author **what a game plays** — its symbol dictionary and payouts, paylines, grid,
-bet modes, identity/RTP, and the reel strips that decide which symbols reach the
-board. This is the frontend's **contract with the math**, not the math itself: the
-server stays the authority on outcomes; this doc tells the client what to draw and
-what to expect.
+bet modes, and identity/RTP. This is the frontend's **contract with the math**, not
+the math itself: the server stays the authority on outcomes; this doc tells the
+client what to draw and what to expect.
 
 - **Where it runs:** Cloud (the launcher itself, Railway).
 - **Access:** sign in at `app.invisiblewall.org`, then open `/config` (granted to
@@ -40,13 +39,11 @@ before — an un-authored project still runs the compiled template.
 - **Symbols** — the symbol **dictionary**: properties and paytable per symbol
   (`count:multiplier` pairs, e.g. `5:20, 4:10, 3:5`). Each row carries an
   **in play** / **unused** badge (see below).
-- **Paylines** — a visual grid, one cell per reel per line. **Read-only**: the game
-  reads its active paylines from the **server (RGS)** at runtime, so the shape is a
-  view here, not an editor. The one thing you _do_ author is the per-line **colour**
-  swatch (see _Server-defined paylines & strips_ below).
-- **Reel strips** — per game type, per reel, with a symbol-frequency readout.
-  **Read-only / auto**: the in-play symbol set comes from the server at runtime and
-  the cosmetic spin strips are generated from it, so there's nothing to author here.
+- **Paylines** — a visual grid, one cell per reel per line, showing the **live server
+  (RGS) line set** the game actually deals at runtime — **auto-loaded** when the page
+  opens (best-effort; falls back to the saved config if the RGS is unreachable).
+  **Read-only** shape; the one thing you _do_ author is the per-line **colour** swatch
+  (see _Server-defined paylines_ below).
 - **Big win tiers** — the big-win celebrations the game plays, as an ordered list.
   See _Big win tiers_ below. Leave it empty to keep the game's built-in tiers.
 
@@ -97,19 +94,25 @@ its own tier, exactly as the built-in table does.
 Leaving the whole panel empty keeps the built-in table and the built-in ladder —
 byte-identical to a game that never touched it.
 
-## Server-defined paylines & strips
+## Server-defined paylines
 
-The **paylines** and **reel strips** panels are **read-only**: at runtime the game
-takes both from the **server (RGS)** — the active paylines from the RGS's declared
-`availablePayLines`, and the in-play symbol set from the RGS's `symbols` (the cosmetic
-spin strips are then generated from that set). This keeps the client's line count,
-per-line pay display, info page, in-play gate and reel-tease reach in lockstep with
-what the server actually deals — a project can't drift from the RGS's declaration.
+The **paylines** panel is **read-only** and reflects the **server (RGS)**: at runtime
+the game takes its active lines from the RGS's declared `availablePayLines`, and the
+in-play symbol set from the RGS's `symbols`. So the panel doesn't render the saved
+config's lines — when the page opens it **auto-loads the game's real line set from its
+mock RGS** (a best-effort, side-effect-free read of a fresh heartbeat) and shows those,
+so the tool reflects what actually ships (e.g. Book of Borut deals 10 lines, not 20
+authored). If the project has no mock RGS, or the RGS is unreachable, the panel falls
+back to rendering the saved config's lines and says so. Either way the shape is a
+view, not an editor. **Reel strips are no longer a panel** — the cosmetic spin strips
+are server-defined / auto-generated from the in-play set at runtime, so there was
+nothing left to author.
 
 You still author **one** thing on the paylines panel: each line's **colour** swatch.
 The game draws that line's win in this colour and broadcasts it so assets shown on the
 win can pick it up (leave it unset to use the single default from the Symbols tool).
-Colours are keyed by line **index**, so they line up with the server's lines in order.
+Colours are keyed by line **index**, so they line up with the server's lines in order
+(a line past the end of the authored config keys its colour by its 1-based position).
 
 When there is **no** server declaration (a stock dev build, or the real Stake RGS),
 the game falls back to the authored/compiled paylines and strips exactly as before.
@@ -126,8 +129,8 @@ badges — reflect the server's declared symbols at runtime.
 
 > The generated spin strips are **cosmetic** — the blur filler the reels cycle
 > through. They are **not** the real weighted math strips (the math team owns those,
-> and they never reach the client). A symbol's frequency in the read-out is only how
-> often it flickers past during a spin, not a hit rate or an RTP contribution.
+> and they never reach the client). A symbol's presence on a strip is only whether it
+> flickers past during a spin, not a hit rate or an RTP contribution.
 
 ## Bet modes: math + presentation
 

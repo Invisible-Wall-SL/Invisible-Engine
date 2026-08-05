@@ -344,6 +344,40 @@ games (the reading code ships in `_runtime/lines`).
   server lines, `getSymbolsInPlay()` the 10 book symbols (SCAT included), and strips auto-generate 5×;
   with it absent, all fall back to the authored doc (18/18).
 
+## Paylines panel auto-loads the live server set + reel-strips panel removed (Phase 8)
+
+The `/config` Paylines panel no longer renders the SAVED doc's lines — when the page opens it fetches
+the game's REAL paylines from its mock RGS and previews THOSE, so the tool reflects what actually
+ships at runtime (e.g. Book of Borut = 10, not 20 authored). The now-defunct **Reel-strips panel was
+removed entirely** (strips are server-defined / auto-generated at runtime — there was nothing left to
+author). Best-effort + additive: a project with no mock, or an unreachable RGS, renders exactly as
+before (the saved doc). Build-verified + node-harness-verified; launcher render owner-verify-owed.
+
+- **Server helper.** `apps/launcher-api/src/lib/server/rgsConfig.ts` — `fetchServerPaylines(gameKey)`
+  POSTs an empty-body heartbeat (`[]`) to `${TEST_SERVER_URL}/api/<gameKey>/rgs/engine?sid=…&seq=0`
+  with a FRESH sid per call (both mocks emit the boot `config` event on a session's first call; the
+  lines mock ONLY then), reads `events.find(e => e.event==='config').context.availablePayLines ??
+  .paylines`, and returns `null` on ANY failure (network / 3s-timeout / 404 / parse / no config).
+  Safe global-reachable fetch: OUR test server, not the Cloudflare-blocked production Play4Fun. New
+  `ENV.TEST_SERVER_URL` (code default `https://games.invisiblewall.org`, same host as `GAMES_BASE_URL`
+  but kept separate).
+- **Load.** `+page.server.ts` resolves the gameKey as the project key VERBATIM (confirmed in
+  `publishGame.ts`: `const key = projectKey`), only probes when `loadTestServerManifest().games[key]`
+  exists (project has a mock), and passes `serverPaylines: number[][] | null`. Wrapped so it can never
+  block/fail the page.
+- **Page.** Paylines panel renders `data.serverPaylines` (read-only grid, one row-index per reel) when
+  non-null with a "live server set" banner; the colour editor keys colour `i` to
+  `Object.keys(doc.paylines)[i]` (matching the runtime `paylineColor(lineIndex)` mapping exactly),
+  falling back to `String(i + 1)` for a server line past the authored doc. Null ⇒ renders `doc.paylines`
+  with a muted "couldn't reach the RGS" note. The sparse `paylineColors` swatch stays editable + saving.
+  Reel-strips `<section>` + the dead `stripText` helper + the strip-only `frequencies`/`symbolFrequencies`
+  derived/import + strip-only CSS all removed. `inPlay` KEPT (Symbols in-play badges); `gameTypes` KEPT
+  (`gridMismatch`).
+- **Verified:** `pnpm --filter launcher-api build` (green — a bundle check, not types). A node harness
+  mounting BOTH mocks in-process and calling the helper's core logic returned **10 lines** from the book
+  mock (`availablePayLines`), **5** from the lines mock (`paylines`), and **`null`** for an unreachable
+  host — exactly as intended.
+
 ## Open items / next
 
 1. ✅ ~~**Live-verify the launcher surfaces**~~ — DONE (owner click-through, 2026-08-04): `/config`
@@ -364,6 +398,14 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 - _None._ The live-verify that was the standing external gate is done (owner-confirmed 2026-08-04).
 
 ## Recent changes
+
+- 2026-08-05 — **Phase 8: Paylines panel auto-loads the live server set; Reel-strips panel removed.**
+  New `apps/launcher-api/src/lib/server/rgsConfig.ts` (`fetchServerPaylines`, best-effort, returns
+  `null` on any failure) + `ENV.TEST_SERVER_URL`; `+page.server.ts` probes only when the project has a
+  mock (test-server manifest) and passes `serverPaylines`; the Paylines panel previews the RGS's real
+  lines (colour editor keyed to match the runtime `paylineColor` mapping) or falls back to the saved doc.
+  Reel-strips section + dead `stripText`/`frequencies` helpers + strip CSS deleted. Build + node-harness
+  verified (book=10, lines=5, unreachable=null). See the Phase 8 section above.
 
 - 2026-08-05 — **Phase 7: server-authoritative paylines & reel strips (colour-only in the tool).**
   The facade publishes the RGS's declared boot config to `globalThis.__IE_SERVER_CONFIG__`

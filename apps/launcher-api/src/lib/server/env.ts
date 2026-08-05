@@ -145,4 +145,12 @@ export const ENV = {
 	get GITHUB_ENGINE_REPO() {
 		return env.GITHUB_ENGINE_REPO ?? 'Invisible-Wall-SL/Invisible-Engine';
 	},
+	// Invisible Test Server origin the Game Config tool hits to read a game's REAL paylines from its
+	// mock RGS (`rgsConfig.ts`). Our own infra (not the Cloudflare-blocked production Play4Fun), so a
+	// best-effort server-side fetch is safe. Non-secret → code default; env overrides. Same host as
+	// GAMES_BASE_URL today, but kept separate so the RGS probe can be pointed elsewhere without moving
+	// where games are served.
+	get TEST_SERVER_URL() {
+		return env.TEST_SERVER_URL ?? 'https://games.invisiblewall.org';
+	},
 };
