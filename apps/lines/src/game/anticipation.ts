@@ -21,12 +21,28 @@ import type { BookEventOfType } from './typesBookEvent';
  * count from the scatter row's `occurs`, and the big-win thresholds from the authored/coded win
  * tiers. When `stateGame.anticipationMode` is OFF this returns `undefined` so the spin runs the plain
  * path (byte-parity).
+ *
+ * During a FREE-SPIN round a third axis is added: the round's Book-of expanding special
+ * (`stateGame.specialSymbol`, set at feature start by `setExpandingSymbol`) is teased toward its 3+
+ * expansion exactly like the scatter — see `buildReach`'s `bookReach`. It is inert (undefined) in the
+ * base game and in non-Book-of games, so parity holds there.
  */
+
+/**
+ * Book-of expansion count: 3+ of the round's special symbol on the board triggers `expandBookColumns`
+ * (see `typesBookEvent.ts` / `bookEventHandlerMap.expandBookColumns`). No dedicated config field
+ * carries this today — it is the fixed Thermopylae "3+" rule — so default to 3; pull from config if a
+ * value is ever authored. (It coincides with the scatter feature-trigger count in Thermopylae, but is
+ * a distinct Book-of rule, so it is NOT derived from the scatter row.)
+ */
+const BOOK_EXPANSION_COUNT = 3;
 
 /** Build the reachable-win calculator from the FINAL revealed board + the active config. */
 function buildReach(board: string[][]): {
 	reach: AnticipationReach;
 	triggerCount: number | undefined;
+	bookReach: AnticipationReach | undefined;
+	bookTriggerCount: number;
 } {
 	const entries = paytable();
 	const config = getActiveGameConfig();
@@ -53,17 +69,42 @@ function buildReach(board: string[][]): {
 		config.symbols[symbol]?.special_properties?.includes('wild') ?? false;
 	const isSpecial = scatterName ? (symbol: string) => symbol === scatterName : undefined;
 
+	const paylines = getPaylines();
+	const payingSymbols = [...payBySymbol.keys()];
+	const numLines = getNumLines();
+	const linePay = (symbol: string, runLength: number) =>
+		payBySymbol.get(symbol)?.get(runLength) ?? 0;
+
 	const reach = createLinesReach({
 		board,
-		paylines: getPaylines(),
-		payingSymbols: [...payBySymbol.keys()],
-		linePay: (symbol, runLength) => payBySymbol.get(symbol)?.get(runLength) ?? 0,
-		numLines: getNumLines(),
+		paylines,
+		payingSymbols,
+		linePay,
+		numLines,
 		isWild,
 		isSpecial,
 	});
 
-	return { reach, triggerCount };
+	// Book-of expanding-special axis (Book-of ONLY, free spins ONLY): when the round's expanding
+	// symbol is set (`setExpandingSymbol` at feature start → cleared at `freeSpinEnd`), tease its
+	// instances landing toward the 3+ expansion the SAME way the scatter tease works — a second reach
+	// whose `triggerBounds` counts the round's special. The special is a dynamic PAYING symbol drawn
+	// per round, so the predicate reads `stateGame.specialSymbol` (NO hardcoded id). Only the trigger
+	// axis of this reach is used; the win axis is identical to `reach` above and left unread.
+	const special = stateGame.specialSymbol;
+	const bookReach = special
+		? createLinesReach({
+				board,
+				paylines,
+				payingSymbols,
+				linePay,
+				numLines,
+				isWild,
+				isSpecial: (symbol) => symbol === special,
+			})
+		: undefined;
+
+	return { reach, triggerCount, bookReach, bookTriggerCount: BOOK_EXPANSION_COUNT };
 }
 
 /**
@@ -83,7 +124,7 @@ export function buildAnticipationArming(
 	const { y } = boardDimensions();
 	const board = revealEvent.board.map((reel) => reel.slice(1, 1 + y).map((cell) => cell.name));
 
-	const { reach, triggerCount } = buildReach(board);
+	const { reach, triggerCount, bookReach, bookTriggerCount } = buildReach(board);
 	const bound = stateGame.anticipationConfidence === 'guaranteed' ? 'min' : 'max';
 	// The config big-win tiers (ascending) drive BOTH the numeric stack level and the tier ALIAS: the
 	// win-reach arming stacks a level per big threshold crossed, and the reached tier's alias tags the
@@ -109,6 +150,15 @@ export function buildAnticipationArming(
 		if (triggerCount !== undefined && triggerCount > 0) {
 			const trigger = reach.triggerBounds(reelIndex)[bound];
 			if (trigger >= triggerCount) level = Math.max(level, 1);
+		}
+
+		// Book-trigger reach (Book-of expanding special, free spins only): arm when the reachable
+		// count of the ROUND'S book/special symbol can still reach the 3+ expansion. `bookReach` is
+		// only built when `stateGame.specialSymbol` is set, so the base game and non-Book-of games are
+		// unaffected (byte-parity). Contributes at least level 1, exactly like the scatter axis.
+		if (bookReach && bookTriggerCount > 0) {
+			const book = bookReach.triggerBounds(reelIndex)[bound];
+			if (book >= bookTriggerCount) level = Math.max(level, 1);
 		}
 
 		if (level <= 0) return null;

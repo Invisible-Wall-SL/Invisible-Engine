@@ -186,6 +186,46 @@ assert(
 assert(trigMiss.triggerBounds(5).max < TRIGGER, 'trig-miss: possible disarms on the final reel');
 assert(trigMiss.triggerBounds(5).min < TRIGGER, 'trig-miss: guaranteed never arms');
 
+// ===================== BOOK-TRIGGER-REACH (Book-of expanding special) =====================
+// The Book-of book axis reuses `triggerBounds`, but its special is a DYNAMIC PAYING symbol (the
+// round's expanding symbol), not a dedicated scatter — so the predicate must count a symbol that
+// ALSO appears in the paytable. Validate that overlap works and narrows toward the 3+ expansion.
+const BOOK_EXPANSION = 3;
+const makeBookReach = (board: string[][], book: string) =>
+	createLinesReach({
+		board,
+		paylines: PAYLINES,
+		payingSymbols,
+		linePay,
+		numLines: NUM_LINES,
+		isWild,
+		isSpecial: (s) => s === book, // the round's special is a paying symbol, e.g. H1
+	});
+// H1 is the round's book. Instances on reels 0,1,2 → expansion count reaches 3.
+const bookHit = makeBookReach(
+	[
+		['H1', 'L2', 'L3'],
+		['L4', 'H1', 'L5'],
+		['L2', 'L1', 'H1'],
+		['L5', 'L3', 'L2'],
+		['L4', 'H2', 'L1'],
+	],
+	'H1',
+);
+checkAxis(
+	'BOOK · hit (3 H1 specials)',
+	bookHit.numReels,
+	(k) => bookHit.triggerBounds(k),
+	BOOK_EXPANSION,
+	'H1',
+	3,
+);
+assert(
+	bookHit.triggerBounds(3).min >= BOOK_EXPANSION,
+	'book-hit: guaranteed armed once 3rd book locked (k=3)',
+);
+assert(bookHit.triggerBounds(2).min < BOOK_EXPANSION, 'book-hit: guaranteed NOT armed at k=2');
+
 // Games with no special get an inert trigger axis.
 const noSpecial = createLinesReach({
 	board: [['H1'], ['H1'], ['H1'], ['H1'], ['H1']],
