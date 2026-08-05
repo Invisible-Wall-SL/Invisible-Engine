@@ -5,18 +5,20 @@ import type { createReelForCascading } from './createReelForCascading.svelte';
 
 export type SpinType = 'normal' | 'fast' | 'anticipated' | 'sequential';
 
-/** Coarse anticipation intensity label for an armed reel (client-computed anticipation MODE —
- *  `docs/design/reel-anticipation.md`). The escalation climbs big → mega → massive as the reachable
- *  ceiling/floor crosses successive big-win tiers. */
-export type AnticipationTier = 'big' | 'mega' | 'massive';
+/** An armed reel's anticipation tier — the ALIAS of a config-authored big-win tier (client-computed
+ *  anticipation MODE, `docs/design/reel-anticipation.md`). Opaque here: `utils-slots` stays
+ *  game-agnostic, so the tier is just a string id the game maps to its own FX ramp. The escalation
+ *  climbs as the reachable ceiling/floor crosses successive big-win tiers (one per configured big
+ *  tier, keyed by alias — no longer a fixed big/mega/massive triple). */
+export type AnticipationTier = string;
 
 /** One reel's client-computed anticipation arming. `level` is the STACK count (how many big-tier
- *  steps / trigger teases are still reachable, 0 = not armed); `tier` is the coarse intensity label,
+ *  steps / trigger teases are still reachable, 0 = not armed); `tier` is the reached big-tier ALIAS,
  *  or `null` when not armed. Supplied per spin by the game (which owns the config-derived reach math)
  *  to `createEnhanceBoardSpin`; the engine itself stays config-agnostic. */
 export type ReelAnticipationArming = {
 	level: number;
-	tier: AnticipationTier | null;
+	tier: string | null;
 };
 
 export type SpinningReelSpinOptions = {

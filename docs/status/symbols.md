@@ -5,6 +5,7 @@
 **One-line state:** Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece.
 
 ## Current state
+
 This is the **`/symbols` launcher tool** (registry "Invisible Symbols State Machine", bar
 name "Symbols SM") — the online, editable twin of the in-game Symbol Debug grid. It is
 **NOT** the in-game state machine itself; it authors a sparse `symbol × state → asset`
@@ -12,6 +13,7 @@ override doc (`<client>/<project>/symbols/symbols.json`) that the engine merges 
 game's coded `SYMBOL_INFO_MAP`. Un-baked repos render byte-identical to today.
 
 Working on `main`:
+
 - **The tool page** (`/symbols`, `(app)` route, `ssr = false`, auth + role gate;
   `admin`/`developer`/`artist` by default). Grid = symbols × the six states (`Static`,
   `Spin`, `Land`, `Win`, `Post-win`, `Explosion`). Each cell shows its effective binding
@@ -126,46 +128,63 @@ Working on `main`:
   — two authored layers drawn behind / in front of the game-selected book symbol
   (`stateGame.specialSymbol`) **during free spins only**. Each layer is a `BookVfxLayer`
   (`kind: 'sprite' | 'spine' | 'flipbook' | 'fx'` + `assetKey`/`animationName`/`clipId`/`effectId`
-  + optional `sizeRatios`/`offset` × cell). Authored in the tool's **"Book symbol VFX"** panel
-  (between Free-spin board glow and Win lines) — kind toggle + the existing RegionPicker (sprite) /
-  spine bundle+animation / clip select (flipbook) / a new effect `<select>` (fx). Sparse, modelled on
-  `boardGlow`: absent ⇒ byte-identical. Full chain — `.strict` schema + `.refine` (per-kind required
-  field) in `symbolsStorage.ts`, client type/setters/`docSignature`, `symbolExport.ts` (routes each
-  layer's asset into the shared `refs`; fx rides `bakedEffects()`), `export-symbols` response (both
-  runtime + bake destructure), `bake-editor-doc.mjs` (`bundle.symbols.bookVfx`). Engine side
-  (`apps/lines`): `bakedBookVfx()` + `bakedBookVfxAssets()` in `editor-scenes.ts`, `BookVfx.svelte`
-  mounted in `Board.svelte` (bg zIndex −1 / fg +1 around each matching cell), each kind rendered by
-  its proven component (Sprite / SpineProvider+SpineTrack / Flipbook / EffectPlayer). **Effect-pruning
-  gotcha closed:** a bookVfx `fx` effect is a fourth reachability source in BOTH bundle paths — the bake
-  path (`bake-editor-doc.mjs` keep-set) AND the runtime path (`pruneUnreachableEffects` gained an
-  `extraReachable` param, fed the bookVfx fx effectIds at the `runtimeBundle.ts` call site) — else an
-  otherwise-unreachable book effect would ship in the tool but get stripped from the live bundle.
-  Offline fixtures: 13/13 over the real `normalizeSymbolsDoc` (4-kind round-trip, sparse pruning,
-  `.strict`/`.refine` rejections) + 3/3 over the real `pruneUnreachableEffects` (keep-set rescues the
-  exact id only). ⏳ **Owner visual-verify** (auth-gated tool + needs a book into free spins with the
-  special symbol on the board). **Book of Borut needs an `engine` submodule bump** to receive it.
+  - optional `sizeRatios`/`offset` × cell). Authored in the tool's **"Book symbol VFX"** panel
+    (between Free-spin board glow and Win lines) — kind toggle + the existing RegionPicker (sprite) /
+    spine bundle+animation / clip select (flipbook) / a new effect `<select>` (fx). Sparse, modelled on
+    `boardGlow`: absent ⇒ byte-identical. Full chain — `.strict` schema + `.refine` (per-kind required
+    field) in `symbolsStorage.ts`, client type/setters/`docSignature`, `symbolExport.ts` (routes each
+    layer's asset into the shared `refs`; fx rides `bakedEffects()`), `export-symbols` response (both
+    runtime + bake destructure), `bake-editor-doc.mjs` (`bundle.symbols.bookVfx`). Engine side
+    (`apps/lines`): `bakedBookVfx()` + `bakedBookVfxAssets()` in `editor-scenes.ts`, `BookVfx.svelte`
+    mounted in `Board.svelte` (bg zIndex −1 / fg +1 around each matching cell), each kind rendered by
+    its proven component (Sprite / SpineProvider+SpineTrack / Flipbook / EffectPlayer). **Effect-pruning
+    gotcha closed:** a bookVfx `fx` effect is a fourth reachability source in BOTH bundle paths — the bake
+    path (`bake-editor-doc.mjs` keep-set) AND the runtime path (`pruneUnreachableEffects` gained an
+    `extraReachable` param, fed the bookVfx fx effectIds at the `runtimeBundle.ts` call site) — else an
+    otherwise-unreachable book effect would ship in the tool but get stripped from the live bundle.
+    Offline fixtures: 13/13 over the real `normalizeSymbolsDoc` (4-kind round-trip, sparse pruning,
+    `.strict`/`.refine` rejections) + 3/3 over the real `pruneUnreachableEffects` (keep-set rescues the
+    exact id only). ⏳ **Owner visual-verify** (auth-gated tool + needs a book into free spins with the
+    special symbol on the board). **Book of Borut needs an `engine` submodule bump** to receive it.
 - **Reel-anticipation FX** (2026-08-05, reel-anticipation Phase 5, default OFF ⇒ byte-parity).
-  New sparse doc-global `anticipation: { spineKey?, tiers?: { big?, mega?, massive? } }` — the
-  editable twin of the engine's coded `ANTICIPATION_TIER_FX`. Each tier is a sparse
+  Sparse doc-global `anticipation: { spineKey?, tiers?: Record<tierAlias, TierFx> }` — the editable
+  twin of the engine's coded FX ramp. Each tier is a sparse
   `{ zoom?, overlayScale?, overlayAlpha?, overlayTint? (#rrggbb), soundVolume? }`; `spineKey`
   optionally swaps the per-reel overlay spine (a full R2 bundle prefix, shipped via `index.spines`
-  like `boardGlow` — no new asset class; the engine still owns intro→loop→out). Authored in a new
-  game-level **Reel anticipation** panel (three tier columns of sliders + a tint picker + the spine
-  select), between the win-symbol replay and the grid. Full chain per rule 8: `.strict` Zod
-  (`anticipationSchema` + `pruneAnticipation`) → client type/setters/`docSignature`/spread-PUT →
-  `SymbolExportResult.anticipation` + `spineKey` added to export refs → `export-symbols` response →
-  `bake-editor-doc.mjs` whitelist → `BakedBundle.symbols.anticipation` → `bakedAnticipation()`.
-  Engine consumes it at ONE choke point: `anticipationPresentation.ts` gained `resolveTierFx` /
-  `resolveAnticipationSpineKey` (authored ?? coded, per-field fall-through; `ANTICIPATION_TIER_FX`
-  kept verbatim as the fallback), and the three components (`Anticipation`, `Anticipations`,
-  `AnticipationCamera`) now read through them instead of the coded map. Un-authored ⇒
-  `bakedAnticipation()` undefined ⇒ resolvers return the coded values verbatim (byte-parity with
-  Phase 4). Verified: `pnpm --filter lines build` + `pnpm --filter launcher-api build` green; 11/11
-  offline checks over the REAL `normalizeSymbolsDoc` (full + sparse-partial round-trip, empty-tier
-  pruning, `.strict` rejects unknown config/tier keys, bad hex + unknown tier rejected). ⏳ **Owner
-  visual-verify** (auth-gated tool + needs the tease mode armed from Flow on a reachable big win).
-  **Book of Borut needs an `engine` submodule bump** to receive it. This is engine Phase 5;
-  Phase 6 = ship (runtime release + refresh + submodule bump).
+  like `boardGlow` — no new asset class; the engine still owns intro→loop→out). Authored in a
+  game-level **Reel anticipation** panel between the win-symbol replay and the grid. Full chain per
+  rule 8: `.strict` Zod (`anticipationSchema` + `pruneAnticipation`) → client
+  type/setters/`docSignature`/spread-PUT → `SymbolExportResult.anticipation` + `spineKey` added to
+  export refs → `export-symbols` response → `bake-editor-doc.mjs` whitelist →
+  `BakedBundle.symbols.anticipation` → `bakedAnticipation()`.
+  Engine consumes it at ONE choke point: `anticipationPresentation.ts`' `resolveTierFx` /
+  `resolveAnticipationSpineKey` (authored ?? coded, per-field fall-through), and the three components
+  (`Anticipation`, `Anticipations`, `AnticipationCamera`) read through them. Un-authored ⇒
+  `bakedAnticipation()` undefined ⇒ resolvers return the coded ramp verbatim.
+- **Dynamic anticipation tiers = config big-win tiers** (2026-08-05, branch
+  `engine/anticipation-dynamic-tiers`, default OFF ⇒ byte-parity). Replaced the HARDCODED
+  big/mega/massive triple (engine `AnticipationTier` union, `tierForLevel`, `ANTICIPATION_TIER_FX`,
+  `TIER_RANK`, and the panel's three fixed columns) with a GENERIC model mirroring the config's
+  big-win tiers ("no hardcoding" rule). New engine contract: `gameConfig.activeBigTiers()` (the
+  `winLevels` `type==='big'` tiers ascending, `{alias,name,threshold}`; `activeBigTierThresholds`
+  derives from it); `utils-slots` `AnticipationTier`/`ReelAnticipationArming.tier` widened to an
+  opaque `string` alias; `anticipation.ts` stamps the reached tier's ALIAS (`activeBigTiers()[level-1]`)
+  instead of a clamped label; `anticipationPresentation.ts` `codedTierFx(rank, count)` is a coded RAMP
+  (zoom 1.1→1.32, scale 1→1.24, alpha 0.85→1, vol 0.7→1, tint white→#ff5a3c) interpolated across the
+  configured big tiers — the ONE fallback; `resolveTierFx(alias)` looks the alias' rank up in
+  `activeBigTiers()` and merges the authored `tiers[alias]` over the ramp; `activeMaxTier()` returns
+  the alias of the highest-level active reel (`string|null`). Baked/schema `anticipation.tiers` →
+  alias-keyed `Record<string, TierFx>` (engine `editor-scenes`, launcher `symbolsStorage`
+  `z.record(z.string(), …)`, `bake-editor-doc.mjs` dynamic-record parse, client `symbols.client.ts`).
+  Panel: `/symbols` `+page.server.ts` calls new `gameConfigDefaults.resolveBigTiers()` (resolves the
+  same authored→template config the game uses, filters `type==='big'`) → `data.bigTiers`; the panel
+  renders ONE column per big tier (header = tier NAME, default sliders from the ramp at that rank/count)
+  and shows a "add big-win tiers in /config first" note when there are none. Verified:
+  `pnpm --filter lines build` + `pnpm --filter launcher-api build` green; alias-keyed schema+bake
+  round-trip fixture passes (dynamic aliases superwin/epic/max, empty-tier pruning, `.strict` reject,
+  bake==prune). ⏳ **Owner visual-verify** (auth-gated tool + tease armed from Flow on a reachable big
+  win). **Book of Borut needs an `engine` submodule bump** to receive it. Engine Phase 6 = ship
+  (runtime release + refresh + submodule bump).
 - **Full deploy chain** (export → `deploy/editor-symbols/` → bake → pull → register):
   spine-aware `symbolExport.ts`, `POST /api/editor/export-symbols`, `bake-editor-doc.mjs`
   wiring, `pull-project-assets.mjs` prune entry, `bakedSymbolMap()` / `bakedSymbolAssets()`.
@@ -174,6 +193,7 @@ Working on `main`:
   reads only.
 
 ## Open items / next
+
 1. **S5 — prove end-to-end on Book of Borut.** Mirror the S1 engine contract
    (`symbolMap.ts` / `getSymbolInfo`) into Book of Borut's own `src/game/*`, keep symbol
    frame names unique across bound sheets, verify the shared-spine fallback, then actually
@@ -183,12 +203,13 @@ Working on `main`:
    — a user holding **only** the `symbols` tool gets a 403 on previews. Default roles hold
    both, so it only bites a narrowly-scoped role.
 3. **Default-art cells render as placeholder chips until project assets are seeded into R2**
-   (sprites under `sheets/`/`manifests/`, spines under `spines/`). Spine *default* cells stay
+   (sprites under `sheets/`/`manifests/`, spines under `spines/`). Spine _default_ cells stay
    chips regardless — only a rebind stores a full bundle prefix that previews.
 4. **No dedicated `symbols` agent file** — `.claude/agents/symbols.md` does not exist
    (see the four-surfaces model in `docs/status/README.md`).
 
 ## Blocked (owner / external)
+
 - Several items above are ⏳ owner visual-verify (FX full-transform parity across
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
@@ -239,9 +260,8 @@ Working on `main`:
 
 - 2026-07-24 — **`/symbols` never SAVED any `winCycle` setting** (found when an author flipped "Replay the win line too" on and Save put it back): `saveSymbolsDoc` in `symbols.client.ts` built the PUT body from a hand-copied field list (`version`/`symbols`/`highlight`/`boardGlow`/`winLine`), so the whole `winCycle` object — replay on/off, gap AND `showLine` — never left the browser; the server echoed a doc without it and the UI reset. The three older fields only survived because they predate the list. Fixed by spreading the doc (`{...doc, version: 1, …envelope}`) instead of enumerating it — the server re-validates and rebuilds from its own whitelist (`normalizeSymbolsDoc`, schema `.strip()`), so extra keys are harmless and a future doc-level field can't rot the same way. This is the third instance of the hand-copied-allowlist trap in this app (see `launcher-api/CLAUDE.md`); the guard is a Node fixture that stubs `fetch`, calls the REAL `saveSymbolsDoc` and feeds the captured body to the REAL `normalizeSymbolsDoc` — the earlier fixture only tested the server half, which is why this slipped through. `showLine` also flipped to **default ON** (owner request), so sparse persistence now keeps only the OFF.
 
-
 - 2026-07-24 — **Symbols carry a DISPLAY NAME** (`names: { H1: { singular, plural } }`), authored
-  in two boxes under each row's id. This tool already owns what a symbol *is*, so it now also owns
+  in two boxes under each row's id. This tool already owns what a symbol _is_, so it now also owns
   what the game **calls** it: Invisible Win Text prints it as `{symbolName}`, which is what let win
   messages stop saying "3 of a kind" (a symbol id is unspeakable, so the match count was the only
   thing the text could state). Rename here → every win sentence follows, no template edit. Both

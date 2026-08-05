@@ -170,22 +170,14 @@ export interface WinLineConfig {
 	text?: WinLineTextStyle;
 }
 
-/** The three anticipation escalation tiers (big → mega → massive). Mirrors `utils-slots`'
- *  `AnticipationTier` and the server `anticipationSchema` tier keys. */
-export const ANTICIPATION_TIERS = ['big', 'mega', 'massive'] as const;
-export type AnticipationTier = (typeof ANTICIPATION_TIERS)[number];
-
-/** Human labels for the per-tier column headers. */
-export const ANTICIPATION_TIER_LABELS: Record<AnticipationTier, string> = {
-	big: 'Big',
-	mega: 'Mega',
-	massive: 'Massive',
-};
+/** An anticipation escalation tier — the ALIAS of a config-authored big-win tier (`/config`). The
+ *  panel renders ONE FX column per configured big tier, keyed by alias (no longer a fixed
+ *  big/mega/massive triple). Mirrors `utils-slots`' `AnticipationTier` and the server schema. */
+export type AnticipationTier = string;
 
 /** The FX values a single anticipation tier can override. All sparse: an unset field falls through
- *  to the coded {@link ANTICIPATION_FX_DEFAULTS}. `overlayTint` is a `#rrggbb` hex (the picker value);
- *  the engine converts it to the `0xRRGGBB` number `ANTICIPATION_TIER_FX` uses. Mirrors the server
- *  `anticipationTierFxSchema`. */
+ *  to the coded {@link codedTierFx} ramp. `overlayTint` is a `#rrggbb` hex (the picker value); the
+ *  engine converts it to the `0xRRGGBB` number it uses. Mirrors the server `anticipationTierFxSchema`. */
 export interface AnticipationTierFx {
 	zoom?: number;
 	overlayScale?: number;
@@ -194,36 +186,46 @@ export interface AnticipationTierFx {
 	soundVolume?: number;
 }
 
-/** The reel-anticipation presentation config — the editable twin of the engine's coded
- *  `ANTICIPATION_TIER_FX`. `spineKey` optionally swaps the per-reel overlay spine (a full R2 bundle
- *  prefix, default the coded `anticipation` spine); `tiers` overrides the per-tier escalation FX.
- *  Sparse: absent ⇒ the game keeps its coded FX (byte-parity). Mirrors the server `anticipationSchema`. */
+/** The reel-anticipation presentation config — the editable twin of the engine's coded FX ramp.
+ *  `spineKey` optionally swaps the per-reel overlay spine (a full R2 bundle prefix, default the coded
+ *  `anticipation` spine); `tiers` overrides the per-tier escalation FX, keyed by the config big-win
+ *  tier ALIAS. Sparse: absent ⇒ the game keeps its coded FX (byte-parity). Mirrors the server
+ *  `anticipationSchema`. */
 export interface AnticipationConfig {
 	spineKey?: string;
-	tiers?: Partial<Record<AnticipationTier, AnticipationTierFx>>;
+	tiers?: Record<string, AnticipationTierFx>;
 }
 
-/** The coded per-tier FX defaults — a hex-string mirror of the engine's `ANTICIPATION_TIER_FX`
- *  (`apps/lines/src/game/anticipationPresentation.ts`), shown as the input values when the author
- *  hasn't overridden a field. Kept in step with that constant (the launcher can't import from a game
- *  package; the same duplication as the page's `WL_DEFAULTS`). */
-export const ANTICIPATION_FX_DEFAULTS: Record<AnticipationTier, Required<AnticipationTierFx>> = {
-	big: { zoom: 1.1, overlayScale: 1, overlayAlpha: 0.85, overlayTint: '#ffffff', soundVolume: 0.7 },
-	mega: {
-		zoom: 1.2,
-		overlayScale: 1.12,
-		overlayAlpha: 0.95,
-		overlayTint: '#ffcf4d',
-		soundVolume: 0.85,
-	},
-	massive: {
-		zoom: 1.32,
-		overlayScale: 1.24,
-		overlayAlpha: 1,
-		overlayTint: '#ff5a3c',
-		soundVolume: 1,
-	},
+/** Ramp endpoints — a hex-string mirror of the engine's `codedTierFx`
+ *  (`apps/lines/src/game/anticipationPresentation.ts`). Kept in step with that function (the launcher
+ *  can't import from a game package; the same duplication as the page's `WL_DEFAULTS`). */
+const RAMP_LOW = { zoom: 1.1, overlayScale: 1, overlayAlpha: 0.85, soundVolume: 0.7 };
+const RAMP_HIGH = { zoom: 1.32, overlayScale: 1.24, overlayAlpha: 1, soundVolume: 1 };
+const TINT_LOW = 0xffffff;
+const TINT_HIGH = 0xff5a3c;
+
+const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+
+const lerpTintHex = (t: number): string => {
+	const chan = (shift: number): number =>
+		Math.round(lerp((TINT_LOW >> shift) & 0xff, (TINT_HIGH >> shift) & 0xff, t));
+	return `#${[chan(16), chan(8), chan(0)].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
 };
+
+/** The coded FX shown in a tier's inputs when the author hasn't overridden a field — the ramp step
+ *  for the tier at 0-based `rank` among `count` configured big tiers (rank 0 = low end, `count-1` =
+ *  high end; `count === 1` collapses to the low end). Mirrors the engine's `codedTierFx`. */
+export function codedTierFx(rank: number, count: number): Required<AnticipationTierFx> {
+	const clamped = Math.min(Math.max(rank, 0), Math.max(count - 1, 0));
+	const t = count <= 1 ? 0 : clamped / (count - 1);
+	return {
+		zoom: lerp(RAMP_LOW.zoom, RAMP_HIGH.zoom, t),
+		overlayScale: lerp(RAMP_LOW.overlayScale, RAMP_HIGH.overlayScale, t),
+		overlayAlpha: lerp(RAMP_LOW.overlayAlpha, RAMP_HIGH.overlayAlpha, t),
+		overlayTint: lerpTintHex(t),
+		soundVolume: lerp(RAMP_LOW.soundVolume, RAMP_HIGH.soundVolume, t),
+	};
+}
 
 /** The free-spin board-glow override. Mirrors the server `boardGlowSchema`. */
 export interface BoardGlowConfig {
@@ -275,7 +277,7 @@ export interface SymbolsDoc {
 	 *  and renders byte-identical. Passed through verbatim to `bundle.symbols.bookVfx`. */
 	bookVfx?: BookVfxConfig;
 	/** Reel-anticipation presentation FX (the escalating tease mode) — the editable twin of the coded
-	 *  `ANTICIPATION_TIER_FX`. Sparse: absent ⇒ the game keeps its coded per-tier FX + overlay spine
+	 *  `codedTierFx` ramp. Sparse: absent ⇒ the game keeps its coded per-tier FX + overlay spine
 	 *  (byte-parity with Phase 4). Passed through verbatim to `bundle.symbols.anticipation`. */
 	anticipation?: AnticipationConfig;
 	updatedAt?: string;
@@ -375,14 +377,13 @@ function pruneAnticipation(config: AnticipationConfig | undefined): Anticipation
 	if (!config) return undefined;
 	const next: AnticipationConfig = {};
 	if (config.spineKey) next.spineKey = config.spineKey;
-	const tiers: Partial<Record<AnticipationTier, AnticipationTierFx>> = {};
-	for (const tier of ANTICIPATION_TIERS) {
-		const fx = config.tiers?.[tier];
+	const tiers: Record<string, AnticipationTierFx> = {};
+	for (const [alias, fx] of Object.entries(config.tiers ?? {})) {
 		if (!fx) continue;
 		const kept = Object.fromEntries(
 			Object.entries(fx).filter(([, v]) => v !== undefined && v !== null && v !== ''),
 		) as AnticipationTierFx;
-		if (Object.keys(kept).length) tiers[tier] = kept;
+		if (Object.keys(kept).length) tiers[alias] = kept;
 	}
 	if (Object.keys(tiers).length) next.tiers = tiers;
 	return Object.keys(next).length ? next : undefined;
@@ -405,7 +406,7 @@ export function setAnticipationTierFx(
 	patch: Partial<AnticipationTierFx>,
 ): SymbolsDoc {
 	const config: AnticipationConfig = { ...(doc.anticipation ?? {}) };
-	const tiers = { ...(config.tiers ?? {}) };
+	const tiers: Record<string, AnticipationTierFx> = { ...(config.tiers ?? {}) };
 	tiers[tier] = { ...(tiers[tier] ?? {}), ...patch };
 	config.tiers = tiers;
 	return withAnticipation(doc, config);
@@ -428,15 +429,18 @@ export function clearAnticipation(doc: SymbolsDoc): SymbolsDoc {
 	return next;
 }
 
-/** The effective FX value for one tier field = the authored override ?? the coded default. Used by
- *  the tool to show the current value in each input. */
+/** The effective FX value for one tier field = the authored override ?? the coded ramp default for the
+ *  tier at 0-based `rank` among `count` configured big tiers. Used by the tool to show the current
+ *  value in each input. */
 export function anticipationFieldValue<K extends keyof AnticipationTierFx>(
 	doc: SymbolsDoc,
 	tier: AnticipationTier,
+	rank: number,
+	count: number,
 	field: K,
 ): NonNullable<AnticipationTierFx[K]> {
 	const authored = doc.anticipation?.tiers?.[tier]?.[field];
-	return (authored ?? ANTICIPATION_FX_DEFAULTS[tier][field]) as NonNullable<AnticipationTierFx[K]>;
+	return (authored ?? codedTierFx(rank, count)[field]) as NonNullable<AnticipationTierFx[K]>;
 }
 
 /** Set one Book-symbol VFX layer (background or foreground), returning a NEW doc (immutable
@@ -742,10 +746,9 @@ export function docSignature(doc: SymbolsDoc): string {
 				spineKey: doc.anticipation.spineKey ?? null,
 				tiers: doc.anticipation.tiers
 					? Object.fromEntries(
-							ANTICIPATION_TIERS.filter((t) => doc.anticipation!.tiers![t]).map((t) => [
-								t,
-								sortKeys(doc.anticipation!.tiers![t]),
-							]),
+							Object.keys(doc.anticipation.tiers)
+								.sort()
+								.map((t) => [t, sortKeys(doc.anticipation!.tiers![t])]),
 						)
 					: null,
 			}

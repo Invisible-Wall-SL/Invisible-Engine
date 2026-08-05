@@ -289,20 +289,43 @@ export function activeWinLevelIsBig(level: number): boolean {
 }
 
 /**
- * The BIG-win tier thresholds (win-as-bet-multiplier), ascending — the authored tiers' big thresholds
- * when a project authors `winLevels`, else the coded `winLevelMap`'s. The reel-anticipation arming
- * policy gates on these: it arms once the reachable win clears the smallest big threshold and stacks
- * a level per further big threshold crossed (`docs/design/reel-anticipation.md`). Empty when no big
- * tier exists (anticipation then never arms on the win axis).
+ * The BIG-win tiers, ascending by threshold — the authored `winLevels` big tiers when a project
+ * authors its config, else the coded `winLevelMap`'s big rows. Each carries the tier's `alias` (the
+ * key the reel-anticipation FX is authored under and the arming stamps on a reel), its player-facing
+ * `name`, and its `threshold` (win-as-bet-multiplier). This is the SINGLE generic source the whole
+ * anticipation feature mirrors: the arming stacks a level per big tier the reachable win crosses and
+ * tags the reel with the reached tier's alias; the FX ramp + the `/symbols` panel key off the same
+ * list, so the tiers grow/shrink with the config rather than a fixed big/mega/massive triple. Empty
+ * when no big tier exists (anticipation then never arms on the win axis).
  */
-export function activeBigTierThresholds(): number[] {
+export function activeBigTiers(): { alias: string; name: string; threshold: number }[] {
 	const tiers = activeWinLevels();
-	const thresholds = tiers
-		? tiers.filter((tier) => tier.type === 'big').map((tier) => tier.threshold)
+	const big = tiers
+		? tiers
+				.filter((tier) => tier.type === 'big')
+				.map((tier) => ({
+					alias: tier.alias,
+					name: tier.name || tier.alias,
+					threshold: tier.threshold,
+				}))
 		: Object.values(winLevelMap)
 				.filter((tier) => tier.type === 'big')
-				.map((tier) => tier.threshold);
-	return thresholds.slice().sort((a, b) => a - b);
+				.map((tier) => ({
+					alias: tier.alias,
+					name: tier.text || tier.alias,
+					threshold: tier.threshold,
+				}));
+	return big.slice().sort((a, b) => a.threshold - b.threshold);
+}
+
+/**
+ * The BIG-win tier thresholds (win-as-bet-multiplier), ascending — derived from {@link activeBigTiers}
+ * so the two never disagree. The reel-anticipation arming policy gates on these: it arms once the
+ * reachable win clears the smallest big threshold and stacks a level per further big threshold crossed
+ * (`docs/design/reel-anticipation.md`).
+ */
+export function activeBigTierThresholds(): number[] {
+	return activeBigTiers().map((tier) => tier.threshold);
 }
 
 /** The escalation chain (as `WinLevelData`) for a winning `level`, or `undefined` when escalation is

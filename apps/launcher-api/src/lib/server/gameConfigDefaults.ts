@@ -1,4 +1,4 @@
-import { normalizeGameConfigDoc, type GameConfigDoc } from 'game-config';
+import { normalizeGameConfigDoc, resolveWinLevels, type GameConfigDoc } from 'game-config';
 import { loadGameConfigDoc, loadGameConfigDocWithEtag } from './gameConfigStorage';
 import linesConfig from '$lib/data/gameConfig/lines.json';
 
@@ -93,4 +93,31 @@ export async function resolveGameConfigDoc(
 	gameType: string | undefined,
 ): Promise<GameConfigDoc | null> {
 	return (await loadGameConfigDoc(clientKey, projectKey)) ?? gameConfigDefaultFor(gameType);
+}
+
+/** One project big-win tier as the reel-anticipation panel consumes it — the `alias` it authors FX
+ *  under and the player-facing `name` it shows as the column header. */
+export type BigTier = { alias: string; name: string };
+
+/**
+ * The project's BIG-win tiers (`alias` + `name`), ascending by threshold — the source the
+ * reel-anticipation `/symbols` panel mirrors (one FX column per big tier, keyed by alias). Resolves
+ * the same config the game does (authored R2 doc → committed template default) and applies the same
+ * `type === 'big'` filter the engine's `activeBigTiers()` uses, so the panel's columns match the tiers
+ * the game actually arms. Empty when the config authors no big tier (the panel then shows a note
+ * asking the author to add big-win tiers in `/config` first).
+ */
+export async function resolveBigTiers(
+	clientKey: string,
+	projectKey: string,
+	gameType: string | undefined,
+): Promise<BigTier[]> {
+	const { doc } = await resolveGameConfig(clientKey, projectKey, gameType);
+	const tiers = doc ? resolveWinLevels(doc) : undefined;
+	if (!tiers) return [];
+	return tiers
+		.filter((tier) => tier.type === 'big')
+		.slice()
+		.sort((a, b) => a.threshold - b.threshold)
+		.map((tier) => ({ alias: tier.alias, name: tier.name || tier.alias }));
 }

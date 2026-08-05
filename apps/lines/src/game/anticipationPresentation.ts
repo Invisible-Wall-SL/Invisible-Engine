@@ -2,6 +2,7 @@ import type { AnticipationTier } from 'utils-slots';
 
 import { SYMBOL_SIZE, REEL_PADDING } from './constants';
 import { bakedAnticipation } from '../editor-scenes';
+import { activeBigTiers } from './gameConfig';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
 
 /**
@@ -14,7 +15,7 @@ import { stateGame, stateGameDerived } from './stateGame.svelte';
  */
 
 export type AnticipationTierFx = {
-	/** Camera zoom scale toward the armed span (gentle for `big`, stronger for `mega`/`massive`). */
+	/** Camera zoom scale toward the armed span (gentler at the low tiers, stronger as they climb). */
 	zoom: number;
 	/** Extra scale on the per-reel overlay spine. */
 	overlayScale: number;
@@ -26,17 +27,42 @@ export type AnticipationTierFx = {
 	soundVolume: number;
 };
 
+/** The coded FX RAMP endpoints — the low (first / smallest big tier) and high (last / largest big
+ *  tier) ends of each escalating field. {@link codedTierFx} interpolates across however many big tiers
+ *  the config has, so the escalation stays generic (big → … → max) instead of a fixed triple. */
+const RAMP_LOW = { zoom: 1.1, overlayScale: 1, overlayAlpha: 0.85, soundVolume: 0.7 } as const;
+const RAMP_HIGH = { zoom: 1.32, overlayScale: 1.24, overlayAlpha: 1, soundVolume: 1 } as const;
+/** Overlay tint ramps white (cool, lowest tier) → hot orange (highest tier), lerped per channel. */
+const TINT_LOW = 0xffffff;
+const TINT_HIGH = 0xff5a3c;
+
+const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
+
+const lerpTint = (t: number): number => {
+	const r = Math.round(lerp((TINT_LOW >> 16) & 0xff, (TINT_HIGH >> 16) & 0xff, t));
+	const g = Math.round(lerp((TINT_LOW >> 8) & 0xff, (TINT_HIGH >> 8) & 0xff, t));
+	const b = Math.round(lerp(TINT_LOW & 0xff, TINT_HIGH & 0xff, t));
+	return (r << 16) | (g << 8) | b;
+};
+
 /**
- * Built-in tier → FX escalation defaults (big → mega → massive). The CODED FALLBACK: Phase 5 makes the
- * values authorable from the Symbols SM editor, and {@link resolveTierFx} merges the authored override
- * over this map — an un-authored project resolves to these bytes exactly (byte-parity with Phase 4). So
- * keep this the ONE fallback seam; do NOT hardcode these values elsewhere, and do NOT read the authored
- * config anywhere but the resolvers below.
+ * The coded FX for a big tier at 0-based `rank` among `count` configured big tiers — a generic
+ * escalation interpolated across the ramp (rank 0 = the low end, rank `count-1` = the high end;
+ * `count === 1` collapses to the low end). THE ONE CODED FALLBACK: {@link resolveTierFx} merges the
+ * authored per-tier override over this, so an un-authored project resolves to these bytes exactly.
+ * Keep this the only place the coded escalation lives — do NOT hardcode tier FX elsewhere, and do NOT
+ * read the authored config anywhere but the resolvers below.
  */
-export const ANTICIPATION_TIER_FX: Record<AnticipationTier, AnticipationTierFx> = {
-	big: { zoom: 1.1, overlayScale: 1, overlayAlpha: 0.85, overlayTint: 0xffffff, soundVolume: 0.7 },
-	mega: { zoom: 1.2, overlayScale: 1.12, overlayAlpha: 0.95, overlayTint: 0xffcf4d, soundVolume: 0.85 }, // prettier-ignore
-	massive: { zoom: 1.32, overlayScale: 1.24, overlayAlpha: 1, overlayTint: 0xff5a3c, soundVolume: 1 }, // prettier-ignore
+export const codedTierFx = (rank: number, count: number): AnticipationTierFx => {
+	const clamped = Math.min(Math.max(rank, 0), Math.max(count - 1, 0));
+	const t = count <= 1 ? 0 : clamped / (count - 1);
+	return {
+		zoom: lerp(RAMP_LOW.zoom, RAMP_HIGH.zoom, t),
+		overlayScale: lerp(RAMP_LOW.overlayScale, RAMP_HIGH.overlayScale, t),
+		overlayAlpha: lerp(RAMP_LOW.overlayAlpha, RAMP_HIGH.overlayAlpha, t),
+		overlayTint: lerpTint(t),
+		soundVolume: lerp(RAMP_LOW.soundVolume, RAMP_HIGH.soundVolume, t),
+	};
 };
 
 /** The coded default overlay spine key — a LOCAL game asset (no R2 bundle prefix). The author can swap
@@ -52,15 +78,20 @@ const hexToTint = (hex: string): number | undefined => {
 };
 
 /**
- * The FX for a tier = the AUTHORED override (Invisible Symbols State Machine, via `bakedAnticipation`)
- * ?? the coded {@link ANTICIPATION_TIER_FX}. THE SINGLE CHOKE POINT: every component reads its FX
- * through this (never `ANTICIPATION_TIER_FX` directly), so an authored value applies everywhere the
- * coded map used to, and an un-authored project resolves byte-identically to Phase 4. Each field falls
- * through independently — a tier that only overrides `zoom` keeps the coded scale/alpha/tint/volume.
+ * The FX for a tier ALIAS = the AUTHORED override (Invisible Symbols State Machine, via
+ * `bakedAnticipation().tiers[alias]`) merged per-field over the coded {@link codedTierFx} ramp. THE
+ * SINGLE CHOKE POINT: every component reads its FX through this (never the ramp directly), so an
+ * authored value applies everywhere and an un-authored project resolves byte-identically. The coded
+ * default comes from the alias' RANK among the config big tiers (`activeBigTiers`) and how many there
+ * are — so escalation stays keyed to the config, not a fixed triple. An unknown/`null` alias (e.g. a
+ * trigger-only arm with no big tier) falls to the ramp's lowest step. Each field falls through
+ * independently — a tier that only overrides `zoom` keeps the coded scale/alpha/tint/volume.
  */
-export const resolveTierFx = (tier: AnticipationTier): AnticipationTierFx => {
-	const coded = ANTICIPATION_TIER_FX[tier];
-	const authored = bakedAnticipation()?.tiers?.[tier];
+export const resolveTierFx = (tier: AnticipationTier | null): AnticipationTierFx => {
+	const bigTiers = activeBigTiers();
+	const rank = tier ? bigTiers.findIndex((t) => t.alias === tier) : -1;
+	const coded = codedTierFx(rank < 0 ? 0 : rank, Math.max(bigTiers.length, 1));
+	const authored = tier ? bakedAnticipation()?.tiers?.[tier] : undefined;
 	if (!authored) return coded;
 	const tint = authored.overlayTint ? hexToTint(authored.overlayTint) : undefined;
 	return {
@@ -77,8 +108,6 @@ export const resolveTierFx = (tier: AnticipationTier): AnticipationTierFx => {
  *  the overlay component reads this rather than hardcoding `'anticipation'`. */
 export const resolveAnticipationSpineKey = (): string =>
 	bakedAnticipation()?.spineKey || DEFAULT_ANTICIPATION_SPINE_KEY;
-
-const TIER_RANK: Record<AnticipationTier, number> = { big: 1, mega: 2, massive: 3 };
 
 /**
  * Reels currently ARMED (`anticipationLevel > 0`). Kept through the reel settle (the level clears only at
@@ -101,14 +130,19 @@ export const activeReelIndices = (): number[] =>
 
 export const isAnticipationActive = (): boolean => activeReelIndices().length > 0;
 
-/** Strongest tier across the actively-anticipating reels — the escalation driver for zoom depth + SFX
- *  volume. `null` when nothing is active. */
+/** The tier ALIAS of the actively-anticipating reel with the highest stack level (`anticipationLevel`
+ *  = the config big-tier rank) — the escalation driver for zoom depth + SFX volume. `null` when
+ *  nothing is active, or the highest reel armed on the trigger axis alone (no big-tier alias). */
 export const activeMaxTier = (): AnticipationTier | null => {
 	let best: AnticipationTier | null = null;
+	let bestLevel = 0;
 	for (const reel of stateGame.board) {
-		if (reel.reelState.anticipationLevel <= 0 || reel.reelState.motion === 'stopped') continue;
-		const tier = reel.reelState.anticipationTier;
-		if (tier && (!best || TIER_RANK[tier] > TIER_RANK[best])) best = tier;
+		const level = reel.reelState.anticipationLevel;
+		if (level <= 0 || reel.reelState.motion === 'stopped') continue;
+		if (level > bestLevel) {
+			bestLevel = level;
+			best = reel.reelState.anticipationTier;
+		}
 	}
 	return best;
 };
