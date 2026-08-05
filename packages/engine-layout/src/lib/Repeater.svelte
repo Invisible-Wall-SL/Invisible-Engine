@@ -16,6 +16,7 @@
 	import { componentDesignSize } from './componentDesignSize';
 	import { getFlowPress } from './registerFlowPress';
 	import { resolveComponent } from './registerComponents';
+	import { resolveTransform } from './resolveTransform';
 	import { getRepeaterSource, type RepeaterItem } from './registerRepeaterSources';
 
 	const { node, space }: Props = $props();
@@ -60,6 +61,34 @@
 		return { x: index * (itemWidth + node.layout.gap), y: 0 };
 	};
 
+	// Anchor the WHOLE laid-out group against the node position (§ repeater centering). The node's
+	// `anchor` is read against the TOTAL group footprint (item size × count + gaps, per direction),
+	// so anchor `{0.5,0.5}` centres the cards on the node origin while an unset/`{0,0}` anchor keeps
+	// the extend-right layout byte-identical to before (parity). The SAME rule the editor placeholder
+	// applies (`repeaterBoxes`/`drawRepeater`), so preview and runtime agree pixel-for-pixel. Resolved
+	// through `resolveTransform` so a per-layoutType `anchor` override is honoured like every other node.
+	const anchor = $derived(
+		resolveTransform(node, layoutContext.stateLayoutDerived.layoutType()).anchor ?? { x: 0, y: 0 },
+	);
+	const groupSize = $derived.by(() => {
+		const count = items.length;
+		if (count === 0) return { width: 0, height: 0 };
+		const gap = node.layout.gap;
+		if (node.layout.direction === 'grid') {
+			const cols = Math.max(1, Math.min(columns, count));
+			const rows = Math.max(1, Math.ceil(count / cols));
+			return {
+				width: cols * itemWidth + (cols - 1) * gap,
+				height: rows * itemHeight + (rows - 1) * gap,
+			};
+		}
+		return { width: count * itemWidth + (count - 1) * gap, height: itemHeight };
+	});
+	const groupOffset = $derived({
+		x: -(anchor.x * groupSize.width),
+		y: -(anchor.y * groupSize.height),
+	});
+
 	// A synthetic instance node per item: the wrapping <Container> below applies the
 	// per-item offset, so the instance renders at its own local origin (x/y 0) and its
 	// values/press arrive via props, not via the doc.
@@ -95,14 +124,16 @@
 	};
 </script>
 
-{#each items as item, index (item.key ?? index)}
-	{@const off = offsetOf(index)}
-	<Container x={off.x} y={off.y}>
-		<ComponentInstance
-			node={itemNode(item, index)}
-			{space}
-			engineValues={item.values}
-			onSelect={selectHandler(item)}
-		/>
-	</Container>
-{/each}
+<Container x={groupOffset.x} y={groupOffset.y}>
+	{#each items as item, index (item.key ?? index)}
+		{@const off = offsetOf(index)}
+		<Container x={off.x} y={off.y}>
+			<ComponentInstance
+				node={itemNode(item, index)}
+				{space}
+				engineValues={item.values}
+				onSelect={selectHandler(item)}
+			/>
+		</Container>
+	{/each}
+</Container>

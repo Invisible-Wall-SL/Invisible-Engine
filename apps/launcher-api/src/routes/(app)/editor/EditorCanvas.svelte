@@ -2136,8 +2136,10 @@
 	): void {
 		const def = componentMap.get(node.componentId);
 		const g = repeaterPlaceholderGrid(node, { count: repeaterItemCount(node), def });
-		const anchorX = t.anchor?.x ?? 0.5;
-		const anchorY = t.anchor?.y ?? 0.5;
+		// Unset repeater anchor = extend-right (0), matching the runtime <Repeater> (parity); the
+		// seeded buy-feature scene carries an explicit {0.5,0.5} to centre.
+		const anchorX = t.anchor?.x ?? 0;
+		const anchorY = t.anchor?.y ?? 0;
 		const left = -g.w * anchorX;
 		const top = -g.h * anchorY;
 
@@ -2154,7 +2156,16 @@
 			);
 			const stack = [...componentStack, def.id];
 			for (const box of repeaterBoxes(node, def, g, repeaterItemValues(node), anchorX, anchorY)) {
-				drawNode(ctx, box.container, sceneCtx, componentDepth + 1, stack, box.params, true, spineBundle);
+				drawNode(
+					ctx,
+					box.container,
+					sceneCtx,
+					componentDepth + 1,
+					stack,
+					box.params,
+					true,
+					spineBundle,
+				);
 			}
 		} else {
 			// No def loaded (unknown componentId) or a depth/cycle guard: keep the empty-box placeholder.

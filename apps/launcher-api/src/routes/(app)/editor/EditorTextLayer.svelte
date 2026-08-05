@@ -409,8 +409,8 @@
 					def,
 					grid,
 					src?.items ?? [],
-					rt.anchor?.x ?? 0.5,
-					rt.anchor?.y ?? 0.5,
+					rt.anchor?.x ?? 0,
+					rt.anchor?.y ?? 0,
 				);
 				for (const box of boxes) {
 					collectTextTargets(

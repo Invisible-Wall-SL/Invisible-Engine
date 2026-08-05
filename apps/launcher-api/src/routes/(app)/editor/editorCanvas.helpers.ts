@@ -319,8 +319,11 @@ export function nodeBox(
 	 * {@link repeaterPlaceholderGrid} lays out in the draw. Undefined ⇒ the fixed fallback count. */
 	repeaterCount?: number,
 ): NodeBox {
-	const ax = t.anchor?.x ?? (node.kind === 'sprite' ? 0 : 0.5);
-	const ay = t.anchor?.y ?? (node.kind === 'sprite' ? 0 : 0.5);
+	// A repeater defaults its unset anchor to 0 (extend-right) like a sprite, so the selection rect
+	// frames the same footprint the runtime <Repeater> lays out (parity).
+	const anchorlessKind = node.kind === 'sprite' || node.kind === 'repeater';
+	const ax = t.anchor?.x ?? (anchorlessKind ? 0 : 0.5);
+	const ay = t.anchor?.y ?? (anchorlessKind ? 0 : 0.5);
 	// A componentInstance DRAWS its def's content (drawComponentInstance expands
 	// `def.root.children`), so the selection box must frame that content — not the
 	// generic placeholder size — or the rect offsets/mismatches the drawn chip. Return
