@@ -11,7 +11,7 @@
 		isAnticipationActive,
 		activeMaxTier,
 		reelCenterX,
-		ANTICIPATION_TIER_FX,
+		resolveTierFx,
 	} from '../game/anticipationPresentation';
 	import Anticipation from './Anticipation.svelte';
 
@@ -48,7 +48,7 @@
 {#if anyActive}
 	<OnMount
 		onmount={() => {
-			const volume = ANTICIPATION_TIER_FX[activeMaxTier() ?? 'big'].soundVolume;
+			const volume = resolveTierFx(activeMaxTier() ?? 'big').soundVolume;
 			context.eventEmitter.broadcast({ type: 'soundLoop', name: 'sfx_anticipation' });
 			context.eventEmitter.broadcast({
 				type: 'soundFade',

@@ -27,6 +27,8 @@
 	import {
 		STATE_LABELS,
 		visibleStatesFor,
+		anticipationFieldValue,
+		clearAnticipation,
 		clearBoardGlow,
 		clearBookVfxLayer,
 		clearHighlight,
@@ -37,6 +39,8 @@
 		effectiveHighlight,
 		saveSymbolsDoc,
 		SymbolsConflictError,
+		setAnticipationSpineKey,
+		setAnticipationTierFx,
 		setBoardGlow,
 		setBookVfxLayer,
 		setHighlight,
@@ -60,8 +64,13 @@
 		WIN_CYCLE_DELAY_DEFAULT,
 		SYMBOL_CELL_TYPES,
 		SYMBOL_CELL_TYPE_LABELS,
+		ANTICIPATION_TIERS,
+		ANTICIPATION_TIER_LABELS,
+		ANTICIPATION_FX_DEFAULTS,
 		BOOK_VFX_KINDS,
 		BOOK_VFX_KIND_LABELS,
+		type AnticipationTier,
+		type AnticipationTierFx,
 		type BoardGlowConfig,
 		type HighlightCell,
 		type HighlightTintMode,
@@ -802,6 +811,30 @@
 		doc = clearWinLineStyle(doc);
 	}
 
+	// ── Reel anticipation (the escalating tease mode's presentation FX) ────────
+	// A game-level panel (not per-symbol): the per-tier escalation FX (big → mega → massive) the
+	// client-computed anticipation mode plays, plus an optional overlay spine swap. The editable twin
+	// of the engine's coded `ANTICIPATION_TIER_FX`; every field falls through to `ANTICIPATION_FX_DEFAULTS`
+	// when unset, so the doc stays sparse and an un-authored project is byte-identical to Phase 4. The
+	// mode itself is turned on/off from Flow — this only styles it.
+	const anticipationOverridden = $derived(!!doc.anticipation);
+
+	/** The overlay spine bundles the author can swap in — the same R2 spine list the highlight /
+	 *  board-glow pickers use. Empty picks the coded `anticipation` spine. */
+	const anticipationSpineBundles = $derived(spineBundles);
+
+	function patchAnticipationTier(tier: AnticipationTier, patch: Partial<AnticipationTierFx>): void {
+		doc = setAnticipationTierFx(doc, tier, patch);
+	}
+
+	function setAnticipationSpine(key: string): void {
+		doc = setAnticipationSpineKey(doc, key || undefined);
+	}
+
+	function resetAnticipation(): void {
+		doc = clearAnticipation(doc);
+	}
+
 	/** Rename a symbol for the PLAYER (the id never changes — bindings, book events and every
 	 *  other tool keep referring to `H1`). Feeds Invisible Win Text's `{symbolName}`. */
 	function setName(symbol: string, form: 'singular' | 'plural', value: string): void {
@@ -1183,8 +1216,8 @@
 						<div class="hl-title">
 							<h2>Book symbol VFX</h2>
 							<p class="hl-sub">
-								Two layers drawn behind and in front of the book symbol during free spins. Each can be
-								a sprite frame, a spine animation, an Invisible Flipbook clip, or an Invisible FX
+								Two layers drawn behind and in front of the book symbol during free spins. Each can
+								be a sprite frame, a spine animation, an Invisible Flipbook clip, or an Invisible FX
 								effect. Leave a layer unset to draw nothing.
 							</p>
 						</div>
@@ -1223,7 +1256,11 @@
 										{#if editing}
 											<button type="button" class="ghost" onclick={closeBookVfx}>Cancel</button>
 										{:else}
-											<button type="button" class="hl-change" onclick={() => openBookVfx(meta.slot)}>
+											<button
+												type="button"
+												class="hl-change"
+												onclick={() => openBookVfx(meta.slot)}
+											>
 												{layer ? 'Change' : 'Add'}
 											</button>
 											{#if layer}
@@ -1264,7 +1301,8 @@
 															: noFx
 																? 'This project has no FX effects yet'
 																: ''}
-														onclick={() => setBookVfxKind(kind)}>{BOOK_VFX_KIND_LABELS[kind]}</button
+														onclick={() => setBookVfxKind(kind)}
+														>{BOOK_VFX_KIND_LABELS[kind]}</button
 													>
 												{/each}
 											</div>
@@ -1385,7 +1423,8 @@
 												<select
 													value={bookVfxDraft.effectId ?? ''}
 													onchange={(e) => {
-														if (bookVfxDraft) bookVfxDraft.effectId = e.currentTarget.value || undefined;
+														if (bookVfxDraft)
+															bookVfxDraft.effectId = e.currentTarget.value || undefined;
 													}}
 												>
 													<option value="">Pick an effect…</option>
@@ -1394,10 +1433,10 @@
 													{/each}
 												</select>
 												<p class="hint">
-													The effect plays from Invisible FX — open <a href="/fx">Invisible FX</a> to edit it.
-													For an FX layer, <strong>Size</strong> below is a scale multiplier on the effect's
-													authored size (1 = as authored), not a cell fit — so 10 is 10× (huge); dial it
-													down (e.g. 0.5) to fit the cell.
+													The effect plays from Invisible FX — open <a href="/fx">Invisible FX</a>
+													to edit it. For an FX layer, <strong>Size</strong> below is a scale multiplier
+													on the effect's authored size (1 = as authored), not a cell fit — so 10 is
+													10× (huge); dial it down (e.g. 0.5) to fit the cell.
 												</p>
 											</div>
 											{#if bookVfxDraft.effectId}
@@ -1768,6 +1807,141 @@
 							</div>
 						</div>
 					{/if}
+				</section>
+
+				<section class="winline anticipation" class:expanded={true}>
+					<div class="wl-head">
+						<div class="wl-text">
+							<h2>Reel anticipation</h2>
+							<p class="wl-sub">
+								The escalating tease the game plays while a big win is still reachable on the reels
+								yet to stop. Style each tier's intensity — the camera zoom, the overlay spine's
+								scale / opacity / tint, and the loop volume — climbing big → mega → massive. The
+								mode itself is turned on and off from Flow; this only styles it. Leave a field at
+								its default to keep the game's coded value.
+							</p>
+						</div>
+						{#if anticipationOverridden}
+							<div class="hl-actions">
+								<span class="badge">overridden</span>
+								<button type="button" class="ghost" onclick={resetAnticipation}>
+									Reset to default
+								</button>
+							</div>
+						{/if}
+					</div>
+
+					<div class="wl-config">
+						<div class="wl-group">
+							<div class="field">
+								<span class="label">Overlay spine</span>
+								<select
+									value={doc.anticipation?.spineKey ?? ''}
+									onchange={(e) => setAnticipationSpine(e.currentTarget.value)}
+								>
+									<option value="">Default (coded anticipation spine)</option>
+									{#each anticipationSpineBundles as b (b.key)}
+										<option value={b.key}>{b.name}</option>
+									{/each}
+								</select>
+								<span class="wl-note">
+									The per-reel overlay skeleton. The default is the game's built-in
+									<code>anticipation</code> spine; a swapped bundle must expose the
+									<code>anticipation_intro / _loop / _out</code> animations (the game still owns the
+									intro → loop → out chaining).
+								</span>
+							</div>
+
+							<div class="ant-tiers">
+								{#each ANTICIPATION_TIERS as tier (tier)}
+									<div class="ant-tier">
+										<h3>{ANTICIPATION_TIER_LABELS[tier]}</h3>
+										<label class="field">
+											<span class="label">
+												Zoom ×{anticipationFieldValue(doc, tier, 'zoom').toFixed(2)}
+											</span>
+											<input
+												type="range"
+												min="1"
+												max="1.6"
+												step="0.01"
+												value={anticipationFieldValue(doc, tier, 'zoom')}
+												oninput={(e) =>
+													patchAnticipationTier(tier, { zoom: Number(e.currentTarget.value) })}
+											/>
+										</label>
+										<label class="field">
+											<span class="label">
+												Overlay scale ×{anticipationFieldValue(doc, tier, 'overlayScale').toFixed(
+													2,
+												)}
+											</span>
+											<input
+												type="range"
+												min="0.5"
+												max="2"
+												step="0.01"
+												value={anticipationFieldValue(doc, tier, 'overlayScale')}
+												oninput={(e) =>
+													patchAnticipationTier(tier, {
+														overlayScale: Number(e.currentTarget.value),
+													})}
+											/>
+										</label>
+										<label class="field">
+											<span class="label">
+												Overlay opacity {anticipationFieldValue(doc, tier, 'overlayAlpha').toFixed(
+													2,
+												)}
+											</span>
+											<input
+												type="range"
+												min="0"
+												max="1"
+												step="0.01"
+												value={anticipationFieldValue(doc, tier, 'overlayAlpha')}
+												oninput={(e) =>
+													patchAnticipationTier(tier, {
+														overlayAlpha: Number(e.currentTarget.value),
+													})}
+											/>
+										</label>
+										<label class="field">
+											<span class="label">Overlay tint</span>
+											<input
+												type="color"
+												value={anticipationFieldValue(doc, tier, 'overlayTint')}
+												oninput={(e) =>
+													patchAnticipationTier(tier, { overlayTint: e.currentTarget.value })}
+											/>
+										</label>
+										<label class="field">
+											<span class="label">
+												Loop volume {anticipationFieldValue(doc, tier, 'soundVolume').toFixed(2)}
+											</span>
+											<input
+												type="range"
+												min="0"
+												max="1"
+												step="0.05"
+												value={anticipationFieldValue(doc, tier, 'soundVolume')}
+												oninput={(e) =>
+													patchAnticipationTier(tier, {
+														soundVolume: Number(e.currentTarget.value),
+													})}
+											/>
+										</label>
+									</div>
+								{/each}
+							</div>
+							<p class="wl-note">
+								A white tint (<code>#ffffff</code>) leaves the overlay's own colours; a hotter tint
+								multiplies over them — the coded defaults climb white → amber → red. The reel-tease
+								mode is armed from Flow (enable / disable anticipation); with it off, none of this
+								renders.
+							</p>
+						</div>
+					</div>
 				</section>
 
 				{#if symbolNames.length === 0}
@@ -2717,6 +2891,43 @@
 		cursor: pointer;
 	}
 	.wl-fields input[type='range'] {
+		width: 100%;
+		accent-color: #5b8cff;
+	}
+	/* Reel-anticipation tiers: three side-by-side columns of the same field controls. */
+	.ant-tiers {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+		gap: 16px;
+		margin-top: 14px;
+	}
+	.ant-tier {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		padding: 12px 14px;
+		background: #16161c;
+		border: 1px solid #2a2a33;
+		border-radius: 8px;
+	}
+	.ant-tier h3 {
+		margin: 0 0 2px;
+		font-size: 12px;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: #9a9aa6;
+	}
+	.ant-tier input[type='color'] {
+		width: 100%;
+		height: 30px;
+		padding: 2px;
+		background: #1d1d24;
+		border: 1px solid #2a2a33;
+		border-radius: 5px;
+		cursor: pointer;
+	}
+	.ant-tier input[type='range'] {
 		width: 100%;
 		accent-color: #5b8cff;
 	}

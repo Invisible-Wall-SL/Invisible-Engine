@@ -144,6 +144,28 @@ Working on `main`:
   `.strict`/`.refine` rejections) + 3/3 over the real `pruneUnreachableEffects` (keep-set rescues the
   exact id only). ⏳ **Owner visual-verify** (auth-gated tool + needs a book into free spins with the
   special symbol on the board). **Book of Borut needs an `engine` submodule bump** to receive it.
+- **Reel-anticipation FX** (2026-08-05, reel-anticipation Phase 5, default OFF ⇒ byte-parity).
+  New sparse doc-global `anticipation: { spineKey?, tiers?: { big?, mega?, massive? } }` — the
+  editable twin of the engine's coded `ANTICIPATION_TIER_FX`. Each tier is a sparse
+  `{ zoom?, overlayScale?, overlayAlpha?, overlayTint? (#rrggbb), soundVolume? }`; `spineKey`
+  optionally swaps the per-reel overlay spine (a full R2 bundle prefix, shipped via `index.spines`
+  like `boardGlow` — no new asset class; the engine still owns intro→loop→out). Authored in a new
+  game-level **Reel anticipation** panel (three tier columns of sliders + a tint picker + the spine
+  select), between the win-symbol replay and the grid. Full chain per rule 8: `.strict` Zod
+  (`anticipationSchema` + `pruneAnticipation`) → client type/setters/`docSignature`/spread-PUT →
+  `SymbolExportResult.anticipation` + `spineKey` added to export refs → `export-symbols` response →
+  `bake-editor-doc.mjs` whitelist → `BakedBundle.symbols.anticipation` → `bakedAnticipation()`.
+  Engine consumes it at ONE choke point: `anticipationPresentation.ts` gained `resolveTierFx` /
+  `resolveAnticipationSpineKey` (authored ?? coded, per-field fall-through; `ANTICIPATION_TIER_FX`
+  kept verbatim as the fallback), and the three components (`Anticipation`, `Anticipations`,
+  `AnticipationCamera`) now read through them instead of the coded map. Un-authored ⇒
+  `bakedAnticipation()` undefined ⇒ resolvers return the coded values verbatim (byte-parity with
+  Phase 4). Verified: `pnpm --filter lines build` + `pnpm --filter launcher-api build` green; 11/11
+  offline checks over the REAL `normalizeSymbolsDoc` (full + sparse-partial round-trip, empty-tier
+  pruning, `.strict` rejects unknown config/tier keys, bad hex + unknown tier rejected). ⏳ **Owner
+  visual-verify** (auth-gated tool + needs the tease mode armed from Flow on a reachable big win).
+  **Book of Borut needs an `engine` submodule bump** to receive it. This is engine Phase 5;
+  Phase 6 = ship (runtime release + refresh + submodule bump).
 - **Full deploy chain** (export → `deploy/editor-symbols/` → bake → pull → register):
   spine-aware `symbolExport.ts`, `POST /api/editor/export-symbols`, `bake-editor-doc.mjs`
   wiring, `pull-project-assets.mjs` prune entry, `bakedSymbolMap()` / `bakedSymbolAssets()`.

@@ -170,6 +170,61 @@ export interface WinLineConfig {
 	text?: WinLineTextStyle;
 }
 
+/** The three anticipation escalation tiers (big → mega → massive). Mirrors `utils-slots`'
+ *  `AnticipationTier` and the server `anticipationSchema` tier keys. */
+export const ANTICIPATION_TIERS = ['big', 'mega', 'massive'] as const;
+export type AnticipationTier = (typeof ANTICIPATION_TIERS)[number];
+
+/** Human labels for the per-tier column headers. */
+export const ANTICIPATION_TIER_LABELS: Record<AnticipationTier, string> = {
+	big: 'Big',
+	mega: 'Mega',
+	massive: 'Massive',
+};
+
+/** The FX values a single anticipation tier can override. All sparse: an unset field falls through
+ *  to the coded {@link ANTICIPATION_FX_DEFAULTS}. `overlayTint` is a `#rrggbb` hex (the picker value);
+ *  the engine converts it to the `0xRRGGBB` number `ANTICIPATION_TIER_FX` uses. Mirrors the server
+ *  `anticipationTierFxSchema`. */
+export interface AnticipationTierFx {
+	zoom?: number;
+	overlayScale?: number;
+	overlayAlpha?: number;
+	overlayTint?: string;
+	soundVolume?: number;
+}
+
+/** The reel-anticipation presentation config — the editable twin of the engine's coded
+ *  `ANTICIPATION_TIER_FX`. `spineKey` optionally swaps the per-reel overlay spine (a full R2 bundle
+ *  prefix, default the coded `anticipation` spine); `tiers` overrides the per-tier escalation FX.
+ *  Sparse: absent ⇒ the game keeps its coded FX (byte-parity). Mirrors the server `anticipationSchema`. */
+export interface AnticipationConfig {
+	spineKey?: string;
+	tiers?: Partial<Record<AnticipationTier, AnticipationTierFx>>;
+}
+
+/** The coded per-tier FX defaults — a hex-string mirror of the engine's `ANTICIPATION_TIER_FX`
+ *  (`apps/lines/src/game/anticipationPresentation.ts`), shown as the input values when the author
+ *  hasn't overridden a field. Kept in step with that constant (the launcher can't import from a game
+ *  package; the same duplication as the page's `WL_DEFAULTS`). */
+export const ANTICIPATION_FX_DEFAULTS: Record<AnticipationTier, Required<AnticipationTierFx>> = {
+	big: { zoom: 1.1, overlayScale: 1, overlayAlpha: 0.85, overlayTint: '#ffffff', soundVolume: 0.7 },
+	mega: {
+		zoom: 1.2,
+		overlayScale: 1.12,
+		overlayAlpha: 0.95,
+		overlayTint: '#ffcf4d',
+		soundVolume: 0.85,
+	},
+	massive: {
+		zoom: 1.32,
+		overlayScale: 1.24,
+		overlayAlpha: 1,
+		overlayTint: '#ff5a3c',
+		soundVolume: 1,
+	},
+};
+
 /** The free-spin board-glow override. Mirrors the server `boardGlowSchema`. */
 export interface BoardGlowConfig {
 	type: 'spine';
@@ -219,6 +274,10 @@ export interface SymbolsDoc {
 	 *  the book symbol during free spins. Sparse: an absent config, or an absent slot, ships nothing
 	 *  and renders byte-identical. Passed through verbatim to `bundle.symbols.bookVfx`. */
 	bookVfx?: BookVfxConfig;
+	/** Reel-anticipation presentation FX (the escalating tease mode) — the editable twin of the coded
+	 *  `ANTICIPATION_TIER_FX`. Sparse: absent ⇒ the game keeps its coded per-tier FX + overlay spine
+	 *  (byte-parity with Phase 4). Passed through verbatim to `bundle.symbols.anticipation`. */
+	anticipation?: AnticipationConfig;
 	updatedAt?: string;
 }
 
@@ -307,6 +366,77 @@ export function clearBoardGlow(doc: SymbolsDoc): SymbolsDoc {
 	const next = { ...doc };
 	delete next.boardGlow;
 	return next;
+}
+
+/** Drop blank tier fields + empty tier objects and a now-empty `anticipation`, returning a sparse
+ *  config (or undefined). Keeps the doc minimal so an untouched/reset project ships no
+ *  `anticipation`. */
+function pruneAnticipation(config: AnticipationConfig | undefined): AnticipationConfig | undefined {
+	if (!config) return undefined;
+	const next: AnticipationConfig = {};
+	if (config.spineKey) next.spineKey = config.spineKey;
+	const tiers: Partial<Record<AnticipationTier, AnticipationTierFx>> = {};
+	for (const tier of ANTICIPATION_TIERS) {
+		const fx = config.tiers?.[tier];
+		if (!fx) continue;
+		const kept = Object.fromEntries(
+			Object.entries(fx).filter(([, v]) => v !== undefined && v !== null && v !== ''),
+		) as AnticipationTierFx;
+		if (Object.keys(kept).length) tiers[tier] = kept;
+	}
+	if (Object.keys(tiers).length) next.tiers = tiers;
+	return Object.keys(next).length ? next : undefined;
+}
+
+/** Replace the doc's `anticipation` with a pruned copy (or remove it). New doc. */
+function withAnticipation(doc: SymbolsDoc, config: AnticipationConfig): SymbolsDoc {
+	const pruned = pruneAnticipation(config);
+	const next = { ...doc };
+	if (pruned) next.anticipation = pruned;
+	else delete next.anticipation;
+	return next;
+}
+
+/** Merge a patch into one anticipation tier's FX. Pass a field as `undefined` (or the tool's blank)
+ *  to reset it to the coded default. Kept sparse via {@link withAnticipation}. New doc. */
+export function setAnticipationTierFx(
+	doc: SymbolsDoc,
+	tier: AnticipationTier,
+	patch: Partial<AnticipationTierFx>,
+): SymbolsDoc {
+	const config: AnticipationConfig = { ...(doc.anticipation ?? {}) };
+	const tiers = { ...(config.tiers ?? {}) };
+	tiers[tier] = { ...(tiers[tier] ?? {}), ...patch };
+	config.tiers = tiers;
+	return withAnticipation(doc, config);
+}
+
+/** Set (or, with an empty/undefined key, clear) the overlay spine bundle. Clearing resets to the
+ *  coded `anticipation` spine. New doc. */
+export function setAnticipationSpineKey(doc: SymbolsDoc, spineKey: string | undefined): SymbolsDoc {
+	const config: AnticipationConfig = { ...(doc.anticipation ?? {}) };
+	if (spineKey) config.spineKey = spineKey;
+	else delete config.spineKey;
+	return withAnticipation(doc, config);
+}
+
+/** Reset ALL anticipation FX (per-tier + overlay spine) to the coded defaults — removes the key. */
+export function clearAnticipation(doc: SymbolsDoc): SymbolsDoc {
+	if (!doc.anticipation) return doc;
+	const next = { ...doc };
+	delete next.anticipation;
+	return next;
+}
+
+/** The effective FX value for one tier field = the authored override ?? the coded default. Used by
+ *  the tool to show the current value in each input. */
+export function anticipationFieldValue<K extends keyof AnticipationTierFx>(
+	doc: SymbolsDoc,
+	tier: AnticipationTier,
+	field: K,
+): NonNullable<AnticipationTierFx[K]> {
+	const authored = doc.anticipation?.tiers?.[tier]?.[field];
+	return (authored ?? ANTICIPATION_FX_DEFAULTS[tier][field]) as NonNullable<AnticipationTierFx[K]>;
 }
 
 /** Set one Book-symbol VFX layer (background or foreground), returning a NEW doc (immutable
@@ -605,7 +735,31 @@ export function docSignature(doc: SymbolsDoc): string {
 				foreground: bookVfxLayer(doc.bookVfx.foreground),
 			}
 		: null;
-	return JSON.stringify({ symbols, names, highlight, boardGlow, winLine, winCycle, bookVfx });
+	// Listed here or an edit to an anticipation tier / the overlay spine never marks the page dirty
+	// and Save stays disabled. Tier keys are sorted so the signature is stable.
+	const anticipation = doc.anticipation
+		? {
+				spineKey: doc.anticipation.spineKey ?? null,
+				tiers: doc.anticipation.tiers
+					? Object.fromEntries(
+							ANTICIPATION_TIERS.filter((t) => doc.anticipation!.tiers![t]).map((t) => [
+								t,
+								sortKeys(doc.anticipation!.tiers![t]),
+							]),
+						)
+					: null,
+			}
+		: null;
+	return JSON.stringify({
+		symbols,
+		names,
+		highlight,
+		boardGlow,
+		winLine,
+		winCycle,
+		bookVfx,
+		anticipation,
+	});
 }
 
 /** Raised when a save lost to a concurrent author, so the page can offer a choice

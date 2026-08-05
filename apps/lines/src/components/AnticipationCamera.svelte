@@ -9,7 +9,7 @@
 		activeReelIndices,
 		activeMaxTier,
 		reelCenterX,
-		ANTICIPATION_TIER_FX,
+		resolveTierFx,
 	} from '../game/anticipationPresentation';
 
 	// DEDICATED camera container for the reel-anticipation zoom (`docs/design/reel-anticipation.md`,
@@ -41,7 +41,7 @@
 		if (active.length && tier) {
 			targetX = active.reduce((sum, index) => sum + reelCenterX(index), 0) / active.length;
 			targetY = context.stateGameDerived.boardLayout().y;
-			void zoom.set(ANTICIPATION_TIER_FX[tier].zoom);
+			void zoom.set(resolveTierFx(tier).zoom);
 		} else {
 			void zoom.set(1);
 		}

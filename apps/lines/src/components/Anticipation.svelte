@@ -5,7 +5,11 @@
 	import { getContext } from '../game/context';
 	import type { Reel } from '../game/stateGame.svelte';
 	import { SYMBOL_SIZE } from '../game/constants';
-	import { ANTICIPATION_TIER_FX, reelCenterX } from '../game/anticipationPresentation';
+	import {
+		resolveTierFx,
+		resolveAnticipationSpineKey,
+		reelCenterX,
+	} from '../game/anticipationPresentation';
 
 	type Props = {
 		reel: Reel;
@@ -22,9 +26,11 @@
 	// after the out completes rather than leaving a frozen final frame on a settled reel.
 	let done = $state(false);
 
-	// This reel's tier FX (intensity climbs big → mega → massive). Phase 5 makes the spine + this
-	// mapping authorable per symbol; the built-in default lives in `ANTICIPATION_TIER_FX`.
-	const fx = $derived(ANTICIPATION_TIER_FX[props.reel.reelState.anticipationTier ?? 'big']);
+	// This reel's tier FX (intensity climbs big → mega → massive), resolved through the single choke
+	// point — the authored Symbols SM override ?? the coded `ANTICIPATION_TIER_FX` default.
+	const fx = $derived(resolveTierFx(props.reel.reelState.anticipationTier ?? 'big'));
+	// The overlay spine key — authored `anticipation.spineKey` ?? the coded `anticipation` spine.
+	const spineKey = $derived(resolveAnticipationSpineKey());
 
 	$effect(() => {
 		if (props.reel.reelState.motion === 'stopped' && animationName !== 'anticipation_out') {
@@ -35,7 +41,7 @@
 
 {#if !done}
 	<SpineProvider
-		key="anticipation"
+		key={spineKey}
 		width={SYMBOL_SIZE * 0.56 * fx.overlayScale}
 		height={SYMBOL_SIZE * 1.6 * fx.overlayScale}
 		x={reelCenterX(props.reel.reelIndex)}

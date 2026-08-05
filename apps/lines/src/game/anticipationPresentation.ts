@@ -1,6 +1,7 @@
 import type { AnticipationTier } from 'utils-slots';
 
 import { SYMBOL_SIZE, REEL_PADDING } from './constants';
+import { bakedAnticipation } from '../editor-scenes';
 import { stateGame, stateGameDerived } from './stateGame.svelte';
 
 /**
@@ -26,15 +27,56 @@ export type AnticipationTierFx = {
 };
 
 /**
- * Built-in tier → FX escalation defaults (big → mega → massive). These are the Phase-3 defaults; Phase 5
- * makes them authorable from the Symbols SM editor (per anticipation spine + tier), so keep this the ONE
- * seam a per-symbol/per-tier override map will replace — do NOT hardcode these values elsewhere.
+ * Built-in tier → FX escalation defaults (big → mega → massive). The CODED FALLBACK: Phase 5 makes the
+ * values authorable from the Symbols SM editor, and {@link resolveTierFx} merges the authored override
+ * over this map — an un-authored project resolves to these bytes exactly (byte-parity with Phase 4). So
+ * keep this the ONE fallback seam; do NOT hardcode these values elsewhere, and do NOT read the authored
+ * config anywhere but the resolvers below.
  */
 export const ANTICIPATION_TIER_FX: Record<AnticipationTier, AnticipationTierFx> = {
 	big: { zoom: 1.1, overlayScale: 1, overlayAlpha: 0.85, overlayTint: 0xffffff, soundVolume: 0.7 },
 	mega: { zoom: 1.2, overlayScale: 1.12, overlayAlpha: 0.95, overlayTint: 0xffcf4d, soundVolume: 0.85 }, // prettier-ignore
 	massive: { zoom: 1.32, overlayScale: 1.24, overlayAlpha: 1, overlayTint: 0xff5a3c, soundVolume: 1 }, // prettier-ignore
 };
+
+/** The coded default overlay spine key — a LOCAL game asset (no R2 bundle prefix). The author can swap
+ *  it for an R2 spine bundle via `anticipation.spineKey`; the engine still owns the intro→loop→out
+ *  chaining, so a swapped rig must expose those animation names. */
+export const DEFAULT_ANTICIPATION_SPINE_KEY = 'anticipation';
+
+/** `#rrggbb` → `0xRRGGBB`, or undefined for anything that isn't a 6-digit hex (so a malformed authored
+ *  tint falls back to the coded number rather than tinting black). */
+const hexToTint = (hex: string): number | undefined => {
+	const m = /^#([0-9a-fA-F]{6})$/.exec(hex);
+	return m ? parseInt(m[1], 16) : undefined;
+};
+
+/**
+ * The FX for a tier = the AUTHORED override (Invisible Symbols State Machine, via `bakedAnticipation`)
+ * ?? the coded {@link ANTICIPATION_TIER_FX}. THE SINGLE CHOKE POINT: every component reads its FX
+ * through this (never `ANTICIPATION_TIER_FX` directly), so an authored value applies everywhere the
+ * coded map used to, and an un-authored project resolves byte-identically to Phase 4. Each field falls
+ * through independently — a tier that only overrides `zoom` keeps the coded scale/alpha/tint/volume.
+ */
+export const resolveTierFx = (tier: AnticipationTier): AnticipationTierFx => {
+	const coded = ANTICIPATION_TIER_FX[tier];
+	const authored = bakedAnticipation()?.tiers?.[tier];
+	if (!authored) return coded;
+	const tint = authored.overlayTint ? hexToTint(authored.overlayTint) : undefined;
+	return {
+		zoom: authored.zoom ?? coded.zoom,
+		overlayScale: authored.overlayScale ?? coded.overlayScale,
+		overlayAlpha: authored.overlayAlpha ?? coded.overlayAlpha,
+		overlayTint: tint ?? coded.overlayTint,
+		soundVolume: authored.soundVolume ?? coded.soundVolume,
+	};
+};
+
+/** The per-reel overlay spine key = the authored `anticipation.spineKey` ?? the coded
+ *  {@link DEFAULT_ANTICIPATION_SPINE_KEY}. The other choke point (alongside {@link resolveTierFx}):
+ *  the overlay component reads this rather than hardcoding `'anticipation'`. */
+export const resolveAnticipationSpineKey = (): string =>
+	bakedAnticipation()?.spineKey || DEFAULT_ANTICIPATION_SPINE_KEY;
 
 const TIER_RANK: Record<AnticipationTier, number> = { big: 1, mega: 2, massive: 3 };
 

@@ -140,6 +140,11 @@ export interface SymbolExportResult {
 	 *  layer's clip ships via the editor-art clip walk (no ref here); an fx layer references an effect
 	 *  the effects export ships (kept reachable at bake). Absent → the game renders no book VFX. */
 	bookVfx?: SymbolsDoc['bookVfx'];
+	/** The reel-anticipation presentation FX (per-tier escalation + optional overlay spine key),
+	 *  passed through VERBATIM. A swapped `spineKey` bundle rides `index.spines` under the same key
+	 *  (like `boardGlow`); the per-tier FX are pure config (no asset). Absent → the game keeps its
+	 *  coded `ANTICIPATION_TIER_FX` (byte-parity with Phase 4). */
+	anticipation?: SymbolsDoc['anticipation'];
 }
 
 const EXPORT_SUBTREE = 'editor-symbols';
@@ -203,6 +208,13 @@ function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 	// the tool while the game shipped nothing to load under that key (repo rule 8).
 	if (doc.boardGlow?.type === 'spine' && doc.boardGlow.assetKey) {
 		refs.spineKeys.add(doc.boardGlow.assetKey);
+	}
+	// A swapped reel-anticipation overlay spine (`anticipation.spineKey`, a full R2 bundle prefix) is
+	// also a spine bundle — ship it like `highlight`/`boardGlow` so the game can load it (rule 8). The
+	// coded default `anticipation` spine is a LOCAL game asset and carries no `/`, so it never lands
+	// here (nothing to ship) — only an author-picked R2 bundle does.
+	if (doc.anticipation?.spineKey && doc.anticipation.spineKey.includes('/')) {
+		refs.spineKeys.add(doc.anticipation.spineKey);
 	}
 	// Book-symbol VFX layers carry the same asset kinds as a per-cell binding, so route each layer's
 	// asset through the SAME refs — a spine layer's bundle + a sprite layer's sheet must ship or the
@@ -502,6 +514,11 @@ export async function exportEditorSymbols(
 	// authored config, exactly like `boardGlow`. Absent → the game renders no book VFX.
 	const bookVfx = doc.bookVfx;
 
+	// The reel-anticipation FX. Its optional `spineKey` bundle already shipped via `refs.spineKeys`
+	// into `index.spines` under this same key (like `boardGlow`); the per-tier FX are pure config, so
+	// this is a verbatim pass-through of the sparse authored doc. Absent → coded `ANTICIPATION_TIER_FX`.
+	const anticipation = doc.anticipation;
+
 	// Display names — another assetless pass-through, omitted when nothing is named so an
 	// un-authored project's bundle stays byte-identical.
 	const names = doc.names && Object.keys(doc.names).length ? doc.names : undefined;
@@ -515,5 +532,6 @@ export async function exportEditorSymbols(
 		...(winLine ? { winLine } : {}),
 		...(winCycle ? { winCycle } : {}),
 		...(bookVfx ? { bookVfx } : {}),
+		...(anticipation ? { anticipation } : {}),
 	};
 }
