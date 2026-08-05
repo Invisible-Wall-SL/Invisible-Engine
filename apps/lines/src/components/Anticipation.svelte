@@ -2,13 +2,14 @@
 	import { SpineProvider, SpineTrack } from 'pixi-svelte';
 	import { stateBetDerived } from 'state-shared';
 
-	import { getContext } from '../game/context';
 	import type { Reel } from '../game/stateGame.svelte';
-	import { SYMBOL_SIZE } from '../game/constants';
 	import {
 		resolveTierFx,
 		resolveAnticipationSpineKey,
 		reelCenterX,
+		reelColumnWidth,
+		boardColumnHeight,
+		boardCenterYWorld,
 	} from '../game/anticipationPresentation';
 
 	type Props = {
@@ -16,7 +17,6 @@
 	};
 
 	const props: Props = $props();
-	const context = getContext();
 
 	type AnimationName = 'anticipation_intro' | 'anticipation_loop' | 'anticipation_out';
 
@@ -43,10 +43,10 @@
 {#if !done}
 	<SpineProvider
 		key={spineKey}
-		width={SYMBOL_SIZE * 0.56 * fx.overlayScale}
-		height={SYMBOL_SIZE * 1.6 * fx.overlayScale}
+		width={reelColumnWidth() * fx.overlayScale}
+		height={boardColumnHeight() * fx.overlayScale}
 		x={reelCenterX(props.reel.reelIndex)}
-		y={context.stateGameDerived.boardLayout().y - SYMBOL_SIZE * 0.06}
+		y={boardCenterYWorld()}
 		alpha={fx.overlayAlpha}
 		tint={fx.overlayTint}
 	>
