@@ -967,7 +967,13 @@
 	function setSceneRole(value: string): void {
 		const sc = scenes[activeSceneIdx];
 		if (!sc) return;
-		if (value === 'loading' || value === 'basegame') sc.role = value;
+		if (
+			value === 'loading' ||
+			value === 'basegame' ||
+			value === 'buyFeature' ||
+			value === 'buyConfirm'
+		)
+			sc.role = value;
 		else delete sc.role;
 		scenes = [...scenes];
 		markDirty();
@@ -2822,6 +2828,8 @@
 							<option value="">— none —</option>
 							<option value="loading">loading (splash)</option>
 							<option value="basegame">base game</option>
+							<option value="buyFeature">buy feature</option>
+							<option value="buyConfirm">buy confirm</option>
 						</select>
 					</label>
 					<label

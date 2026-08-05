@@ -114,6 +114,8 @@
 		sceneByRole,
 		loadingSceneId,
 		basegameSceneId,
+		buyFeatureSceneId,
+		buyConfirmSceneId,
 		formatWinText,
 	} from 'engine-layout';
 	import type { Scene } from 'engine-layout';
@@ -843,21 +845,29 @@
 	// retiring them is FS-7). An un-owned step's coded scene renders as today (byte-parity §7).
 	const freeSpinOwnership = $derived(resolveFlowOwnsFreeSpins(editorDoc));
 
-	// Buy-bonus SELECT menu — the authored `buyFeature` scene (a `repeater` of `featureCard`s over
+	// Buy-bonus SELECT menu — the authored buy-feature scene (a `repeater` of `featureCard`s over
 	// a dimmed backdrop), else the engine default seeded by `defaultLayout`. Passed to the shared
 	// `<BuyFeatureScreen>` takeover below, which keys its visibility DIRECTLY on `stateModal`
 	// (`buyBonus` = show; a card press advances to `buyBonusConfirm` ⇒ the HTML confirm takes over).
+	// Resolution is by ROLE first (`sceneByRole`), so an owner can tag ANY authored scene as the buy
+	// screen without matching the magic `buyFeature` id — then the legacy `buyFeature` id, then the
+	// seeded fallback. PARITY: a doc with no role-tagged scene resolves exactly as before (id → fallback).
 	const fallbackBuyFeature = fallbackEditorScenes.scenes.find((s) => s.id === 'buyFeature')!;
 	const buyFeatureScene = $derived(
-		editorDoc.scenes.find((scene) => scene.id === 'buyFeature') ?? fallbackBuyFeature,
+		sceneByRole(editorDoc.scenes, 'buyFeature') ??
+			editorDoc.scenes.find((scene) => scene.id === 'buyFeature') ??
+			fallbackBuyFeature,
 	);
-	// Buy-bonus CONFIRM step — the authored `buyConfirm` scene (a dimmed backdrop + a `confirmDialog`
+	// Buy-bonus CONFIRM step — the authored buy-confirm scene (a dimmed backdrop + a `confirmDialog`
 	// instance), else the engine default seeded by `defaultLayout`. Passed to the shared
 	// `<BuyBonusConfirm>` (→ `<ConfirmDialog>`) below, which keys visibility on `stateModal`
 	// (`buyBonusConfirm`) and injects the dialog's title/message/labels + confirm/cancel callbacks.
+	// ROLE-first resolution, mirroring the SELECT scene above (role → legacy `buyConfirm` id → fallback).
 	const fallbackBuyConfirm = fallbackEditorScenes.scenes.find((s) => s.id === 'buyConfirm')!;
 	const buyConfirmScene = $derived(
-		editorDoc.scenes.find((scene) => scene.id === 'buyConfirm') ?? fallbackBuyConfirm,
+		sceneByRole(editorDoc.scenes, 'buyConfirm') ??
+			editorDoc.scenes.find((scene) => scene.id === 'buyConfirm') ??
+			fallbackBuyConfirm,
 	);
 
 	// HUD layer as editor scenes — when present the `<UI>` positions its HUD from
@@ -1169,6 +1179,13 @@
 			// here as a generic overlay (the double-background/double-splash the owner hit).
 			loadingScreenId,
 			basegameScreenId,
+			// The role-resolved buy SELECT/CONFIRM scenes (custom ids included) — a scene tagged
+			// with the `buyFeature`/`buyConfirm` ROLE is mounted ONLY by its own `<BuyFeatureScreen>`/
+			// `<BuyBonusConfirm>` takeover (gated on the buy modal), so it must be reserved here or it
+			// would ALSO mount as an always-on generic overlay (the very failure a `basegame`-tagged buy
+			// scene shows today — cards rendered permanently over the base game).
+			buyFeatureSceneId(editorDoc.scenes),
+			buyConfirmSceneId(editorDoc.scenes),
 			...(flow?.mounter.authoredScreenIds() ?? []),
 		]),
 	);

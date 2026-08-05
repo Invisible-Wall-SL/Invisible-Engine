@@ -672,12 +672,16 @@ export interface Scene {
 	 * - `loading` — the loading splash (its authored nodes become the splash visual; the
 	 *   coded logo/progress is suppressed). One per doc.
 	 * - `basegame` — the persistent base scene (the reel-split mount / offline fallback).
+	 * - `buyFeature` — the buy-bonus SELECT menu, mounted by the `<BuyFeatureScreen>` takeover
+	 *   (gated on the buy modal), so an owner can tag any authored scene as THE buy screen
+	 *   without matching the magic `buyFeature` id. One per doc.
+	 * - `buyConfirm` — the buy-bonus CONFIRM dialog, mounted by the `<BuyBonusConfirm>` takeover.
 	 * Resolution order at boot: the flow's `initial`/`start` node (when a FlowDoc is loaded)
 	 * → the scene with this `role` → the legacy scene whose `id` equals the role name
 	 * (parity for un-migrated docs). Absent ⇒ falls back to the legacy id match, so a doc
 	 * with no roles boots byte-identically to today. Additive.
 	 */
-	role?: 'loading' | 'basegame';
+	role?: 'loading' | 'basegame' | 'buyFeature' | 'buyConfirm';
 	/**
 	 * Which coordinate space this scene authors into. `<LayoutScene>` reads this
 	 * and **self-wraps** in the matching container, so a scene renders identically
