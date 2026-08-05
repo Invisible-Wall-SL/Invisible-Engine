@@ -280,6 +280,40 @@ only an OFF and an authored `delay` (in seconds) persist — passed straight thr
 (defaults: on, 0.4s, line drawn). The replay itself is
 `apps/lines/src/game/winSymbolCycle.ts`, so every `runtime:lines` game has it.
 
+### Reel anticipation
+
+Below the win-symbol replay is the **Reel anticipation** section — the presentation FX for the
+client-computed *tease* mode (the reels slowing/escalating while a big win is still reachable on
+the reels yet to stop). It is a **game-level** panel, not per-symbol, mirroring Highlight and Win
+lines. The **mode itself is armed and disarmed from Flow** (enable / disable anticipation); this
+section only *styles* it.
+
+Three tier columns — **Big → Mega → Massive** — each with the same controls:
+
+- **Zoom** — how far the camera pushes in toward the armed reels.
+- **Overlay scale** / **Overlay opacity** — the per-reel anticipation spine's size and alpha.
+- **Overlay tint** — a MULTIPLY tint over the overlay spine (a colour picker). White (`#ffffff`)
+  keeps the spine's own colours; a hotter tint tints them — the coded defaults climb
+  white → amber → red.
+- **Loop volume** — the anticipation SFX loop's target volume for that tier.
+
+An **Overlay spine** select at the top swaps *which* skeleton drives the per-reel overlay. The
+default is the game's built-in `anticipation` spine; a swapped bundle must expose the
+`anticipation_intro / _loop / _out` animations, since the game still owns the intro → loop → out
+chaining (same contract as the board glow). Only R2 spine bundles already available to the project
+are offered — no new asset class.
+
+Every field falls through to the game's coded value when left at its default, so the doc stays
+sparse: an untouched project ships **no `anticipation` key** and the mode is byte-identical to
+before this panel existed. **Reset to default** (shown once anything is overridden) clears the whole
+section.
+
+Stored as `anticipation: { spineKey?, tiers?: { big?, mega?, massive? } }`, each tier a sparse
+`{ zoom?, overlayScale?, overlayAlpha?, overlayTint?, soundVolume? }` (tint is a `#rrggbb` hex).
+Passed through verbatim to `bundle.symbols.anticipation` at export/bake; the engine resolves it in
+`apps/lines/src/game/anticipationPresentation.ts` (`resolveTierFx` / `resolveAnticipationSpineKey`),
+merging each authored field over the coded `ANTICIPATION_TIER_FX` fallback.
+
 ### Saving is not the last step — shipping a rebind
 
 Save only persists the override doc to R2. For a rebind to actually reach the running

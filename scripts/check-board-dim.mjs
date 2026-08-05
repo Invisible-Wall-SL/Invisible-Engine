@@ -11,5 +11,4 @@ console.log('reels:', reveal.board.length);
 console.log('cells per reel:', reveal.board.map((r) => r.length).join(', '));
 console.log('first reel symbols:', reveal.board[0].map((c) => c.name).join(' | '));
 console.log('paddingPositions:', JSON.stringify(reveal.paddingPositions));
-console.log('anticipation:', JSON.stringify(reveal.anticipation));
 console.log('gameType:', reveal.gameType);

@@ -455,7 +455,6 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 						padReel(reel).map((name) => ({ name: mapSymbol(activeMapping, name) })),
 					),
 					paddingPositions: reels.map(() => 0),
-					anticipation: reels.map(() => 0),
 					gameType,
 				});
 				// AFTER the natural board lands, if this is a free spin and 3+ of the

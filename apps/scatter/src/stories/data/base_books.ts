@@ -148,7 +148,6 @@ export default [
 				],
 				paddingPositions: [216, 205, 195, 16, 65, 30],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -767,7 +766,6 @@ export default [
 				],
 				paddingPositions: [242, 217, 14, 23, 21, 92],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -933,7 +931,6 @@ export default [
 				],
 				paddingPositions: [139, 33, 94, 234, 154, 121],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -1507,7 +1504,6 @@ export default [
 				],
 				paddingPositions: [26, 184, 101, 122, 39, 23],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -1945,7 +1941,6 @@ export default [
 				],
 				paddingPositions: [189, 91, 203, 176, 241, 215],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -2762,7 +2757,6 @@ export default [
 				],
 				paddingPositions: [210, 20, 124, 195, 66, 9],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -2933,7 +2927,6 @@ export default [
 				],
 				paddingPositions: [17, 23, 61, 30, 46, 41],
 				gameType: 'basegame',
-				anticipation: [0, 0, 1, 2, 3, 4],
 			},
 			{
 				index: 1,
@@ -3124,7 +3117,6 @@ export default [
 				],
 				paddingPositions: [108, 15, 211, 144, 31, 242],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 6,
@@ -3288,7 +3280,6 @@ export default [
 				],
 				paddingPositions: [242, 15, 147, 149, 101, 12],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 10,
@@ -4196,7 +4187,6 @@ export default [
 				],
 				paddingPositions: [219, 34, 74, 107, 36, 138],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 33,
@@ -4359,7 +4349,6 @@ export default [
 				],
 				paddingPositions: [46, 26, 148, 146, 163, 48],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 37,
@@ -4815,7 +4804,6 @@ export default [
 				],
 				paddingPositions: [140, 182, 16, 144, 15, 158],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 50,
@@ -5940,7 +5928,6 @@ export default [
 				],
 				paddingPositions: [174, 136, 109, 198, 80, 119],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 71,
@@ -6868,7 +6855,6 @@ export default [
 				],
 				paddingPositions: [116, 92, 76, 63, 203, 46],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 92,
@@ -7589,7 +7575,6 @@ export default [
 				],
 				paddingPositions: [62, 20, 147, 76, 134, 126],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 109,
@@ -9014,7 +8999,6 @@ export default [
 				],
 				paddingPositions: [186, 114, 73, 155, 250, 18],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 142,
@@ -9796,7 +9780,6 @@ export default [
 				],
 				paddingPositions: [38, 238, 125, 107, 10, 246],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 165,
@@ -10148,7 +10131,6 @@ export default [
 				],
 				paddingPositions: [246, 96, 32, 49, 180, 11],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -10840,7 +10822,6 @@ export default [
 				],
 				paddingPositions: [203, 195, 211, 180, 208, 242],
 				gameType: 'basegame',
-				anticipation: [0, 0, 1, 2, 3, 4],
 			},
 			{
 				index: 1,
@@ -11030,7 +11011,6 @@ export default [
 				],
 				paddingPositions: [185, 108, 40, 43, 60, 13],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 6,
@@ -11193,7 +11173,6 @@ export default [
 				],
 				paddingPositions: [129, 223, 236, 151, 16, 198],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 10,
@@ -11814,7 +11793,6 @@ export default [
 				],
 				paddingPositions: [235, 74, 52, 172, 57, 185],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 29,
@@ -11977,7 +11955,6 @@ export default [
 				],
 				paddingPositions: [197, 68, 233, 53, 101, 71],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 33,
@@ -12847,7 +12824,6 @@ export default [
 				],
 				paddingPositions: [11, 51, 181, 226, 1, 225],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 58,
@@ -14282,7 +14258,6 @@ export default [
 				],
 				paddingPositions: [229, 96, 216, 125, 35, 6],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 91,
@@ -14760,7 +14735,6 @@ export default [
 				],
 				paddingPositions: [188, 232, 217, 28, 246, 152],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 104,
@@ -16130,7 +16104,6 @@ export default [
 				],
 				paddingPositions: [234, 4, 128, 21, 146, 127],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 143,
@@ -16619,7 +16592,6 @@ export default [
 				],
 				paddingPositions: [195, 23, 179, 148, 37, 44],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 158,
@@ -16926,7 +16898,6 @@ export default [
 				],
 				paddingPositions: [184, 245, 10, 13, 69, 142],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 167,
@@ -17253,7 +17224,6 @@ export default [
 				],
 				paddingPositions: [109, 123, 147, 3, 52, 118],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -18190,7 +18160,6 @@ export default [
 				],
 				paddingPositions: [143, 219, 236, 199, 119, 115],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -18361,7 +18330,6 @@ export default [
 				],
 				paddingPositions: [86, 191, 100, 214, 47, 100],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 1, 2, 3],
 			},
 			{
 				index: 1,
@@ -18552,7 +18520,6 @@ export default [
 				],
 				paddingPositions: [15, 147, 209, 51, 19, 131],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 6,
@@ -18883,7 +18850,6 @@ export default [
 				],
 				paddingPositions: [103, 204, 215, 22, 4, 235],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 17,
@@ -19330,7 +19296,6 @@ export default [
 				],
 				paddingPositions: [108, 242, 113, 28, 169, 108],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 28,
@@ -19934,7 +19899,6 @@ export default [
 				],
 				paddingPositions: [138, 80, 225, 159, 142, 41],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 45,
@@ -20241,7 +20205,6 @@ export default [
 				],
 				paddingPositions: [226, 13, 142, 43, 129, 208],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 54,
@@ -20929,7 +20892,6 @@ export default [
 				],
 				paddingPositions: [155, 107, 171, 152, 120, 122],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 67,
@@ -21501,7 +21463,6 @@ export default [
 				],
 				paddingPositions: [138, 7, 164, 185, 21, 247],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 80,
@@ -21809,7 +21770,6 @@ export default [
 				],
 				paddingPositions: [201, 169, 66, 91, 240, 92],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 89,
@@ -21973,7 +21933,6 @@ export default [
 				],
 				paddingPositions: [79, 29, 64, 60, 85, 93],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 93,
@@ -22281,7 +22240,6 @@ export default [
 				],
 				paddingPositions: [195, 128, 45, 7, 97, 210],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 102,
@@ -22458,7 +22416,6 @@ export default [
 				],
 				paddingPositions: [17, 190, 75, 217, 45, 100],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 1, 2],
 			},
 			{
 				index: 1,
@@ -22644,7 +22601,6 @@ export default [
 				],
 				paddingPositions: [32, 214, 175, 155, 3, 70],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 6,
@@ -22807,7 +22763,6 @@ export default [
 				],
 				paddingPositions: [21, 223, 203, 207, 227, 206],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 10,
@@ -22970,7 +22925,6 @@ export default [
 				],
 				paddingPositions: [115, 190, 111, 243, 35, 203],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 14,
@@ -23134,7 +23088,6 @@ export default [
 				],
 				paddingPositions: [91, 217, 59, 124, 229, 193],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 18,
@@ -23298,7 +23251,6 @@ export default [
 				],
 				paddingPositions: [171, 93, 227, 110, 163, 80],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 22,
@@ -24065,7 +24017,6 @@ export default [
 				],
 				paddingPositions: [152, 204, 162, 67, 176, 114],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 45,
@@ -25523,7 +25474,6 @@ export default [
 				],
 				paddingPositions: [191, 34, 112, 173, 186, 113],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 86,
@@ -25686,7 +25636,6 @@ export default [
 				],
 				paddingPositions: [75, 51, 45, 133, 91, 64],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 90,
@@ -25859,7 +25808,6 @@ export default [
 				],
 				paddingPositions: [179, 193, 166, 134, 240, 63],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -26026,7 +25974,6 @@ export default [
 				],
 				paddingPositions: [94, 61, 29, 86, 119, 181],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -26192,7 +26139,6 @@ export default [
 				],
 				paddingPositions: [123, 72, 106, 58, 114, 1],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -26360,7 +26306,6 @@ export default [
 				],
 				paddingPositions: [206, 77, 245, 93, 74, 44],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -26528,7 +26473,6 @@ export default [
 				],
 				paddingPositions: [169, 114, 85, 61, 50, 243],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -26695,7 +26639,6 @@ export default [
 				],
 				paddingPositions: [200, 229, 133, 30, 130, 51],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -26861,7 +26804,6 @@ export default [
 				],
 				paddingPositions: [175, 201, 196, 225, 231, 38],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -27027,7 +26969,6 @@ export default [
 				],
 				paddingPositions: [176, 107, 162, 72, 122, 215],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -27193,7 +27134,6 @@ export default [
 				],
 				paddingPositions: [35, 62, 6, 156, 114, 47],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -27360,7 +27300,6 @@ export default [
 				],
 				paddingPositions: [242, 74, 228, 212, 21, 4],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -28081,7 +28020,6 @@ export default [
 				],
 				paddingPositions: [185, 236, 196, 3, 112, 119],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -28249,7 +28187,6 @@ export default [
 				],
 				paddingPositions: [237, 215, 215, 3, 54, 238],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -28415,7 +28352,6 @@ export default [
 				],
 				paddingPositions: [51, 168, 52, 110, 153, 139],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -28581,7 +28517,6 @@ export default [
 				],
 				paddingPositions: [211, 138, 85, 64, 95, 213],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -28748,7 +28683,6 @@ export default [
 				],
 				paddingPositions: [33, 139, 152, 182, 45, 57],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -29329,7 +29263,6 @@ export default [
 				],
 				paddingPositions: [88, 153, 216, 155, 73, 22],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -29499,7 +29432,6 @@ export default [
 				],
 				paddingPositions: [204, 101, 6, 26, 18, 231],
 				gameType: 'basegame',
-				anticipation: [0, 0, 1, 2, 3, 4],
 			},
 			{
 				index: 1,
@@ -29839,7 +29771,6 @@ export default [
 				],
 				paddingPositions: [232, 215, 208, 153, 135, 234],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 10,
@@ -30003,7 +29934,6 @@ export default [
 				],
 				paddingPositions: [102, 6, 63, 206, 144, 172],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 14,
@@ -30769,7 +30699,6 @@ export default [
 				],
 				paddingPositions: [24, 172, 71, 163, 143, 229],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 37,
@@ -30932,7 +30861,6 @@ export default [
 				],
 				paddingPositions: [239, 79, 33, 212, 79, 224],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 41,
@@ -31840,7 +31768,6 @@ export default [
 				],
 				paddingPositions: [35, 62, 179, 80, 30, 197],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 68,
@@ -32870,7 +32797,6 @@ export default [
 				],
 				paddingPositions: [129, 77, 45, 134, 164, 47],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 99,
@@ -33033,7 +32959,6 @@ export default [
 				],
 				paddingPositions: [84, 131, 115, 220, 168, 242],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 103,
@@ -33755,7 +33680,6 @@ export default [
 				],
 				paddingPositions: [86, 17, 5, 239, 167, 241],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 120,
@@ -33927,7 +33851,6 @@ export default [
 				],
 				paddingPositions: [28, 137, 59, 182, 193, 35],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -34232,7 +34155,6 @@ export default [
 				],
 				paddingPositions: [133, 176, 241, 225, 120, 94],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -34400,7 +34322,6 @@ export default [
 				],
 				paddingPositions: [161, 59, 209, 215, 70, 122],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -35004,7 +34925,6 @@ export default [
 				],
 				paddingPositions: [24, 149, 130, 210, 39, 24],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -35171,7 +35091,6 @@ export default [
 				],
 				paddingPositions: [192, 33, 191, 87, 221, 39],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -35620,7 +35539,6 @@ export default [
 				],
 				paddingPositions: [5, 245, 205, 235, 232, 202],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -35786,7 +35704,6 @@ export default [
 				],
 				paddingPositions: [23, 239, 158, 170, 215, 191],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -35954,7 +35871,6 @@ export default [
 				],
 				paddingPositions: [109, 193, 185, 26, 16, 93],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 1, 2],
 			},
 			{
 				index: 1,
@@ -36121,7 +36037,6 @@ export default [
 				],
 				paddingPositions: [181, 221, 11, 166, 48, 234],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -36287,7 +36202,6 @@ export default [
 				],
 				paddingPositions: [224, 134, 8, 62, 72, 170],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -36454,7 +36368,6 @@ export default [
 				],
 				paddingPositions: [59, 42, 230, 233, 98, 147],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -36620,7 +36533,6 @@ export default [
 				],
 				paddingPositions: [6, 189, 70, 62, 57, 35],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -36787,7 +36699,6 @@ export default [
 				],
 				paddingPositions: [178, 195, 36, 245, 118, 94],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -36954,7 +36865,6 @@ export default [
 				],
 				paddingPositions: [131, 176, 77, 177, 162, 96],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -37120,7 +37030,6 @@ export default [
 				],
 				paddingPositions: [124, 65, 20, 77, 86, 5],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -37288,7 +37197,6 @@ export default [
 				],
 				paddingPositions: [102, 10, 150, 150, 220, 227],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -37593,7 +37501,6 @@ export default [
 				],
 				paddingPositions: [110, 141, 116, 146, 87, 65],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -37764,7 +37671,6 @@ export default [
 				],
 				paddingPositions: [207, 195, 98, 130, 100, 100],
 				gameType: 'basegame',
-				anticipation: [0, 0, 1, 2, 3, 4],
 			},
 			{
 				index: 1,
@@ -37954,7 +37860,6 @@ export default [
 				],
 				paddingPositions: [130, 39, 120, 55, 7, 18],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 6,
@@ -38400,7 +38305,6 @@ export default [
 				],
 				paddingPositions: [33, 127, 172, 41, 243, 32],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 19,
@@ -38564,7 +38468,6 @@ export default [
 				],
 				paddingPositions: [140, 74, 239, 86, 178, 86],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 23,
@@ -38896,7 +38799,6 @@ export default [
 				],
 				paddingPositions: [67, 165, 3, 239, 225, 146],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 34,
@@ -39660,7 +39562,6 @@ export default [
 				],
 				paddingPositions: [51, 102, 203, 208, 216, 200],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 57,
@@ -39824,7 +39725,6 @@ export default [
 				],
 				paddingPositions: [6, 93, 24, 73, 146, 74],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 61,
@@ -39987,7 +39887,6 @@ export default [
 				],
 				paddingPositions: [199, 29, 57, 37, 84, 120],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 65,
@@ -41561,7 +41460,6 @@ export default [
 				],
 				paddingPositions: [110, 28, 198, 2, 200, 94],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 108,
@@ -42848,7 +42746,6 @@ export default [
 				],
 				paddingPositions: [0, 204, 149, 233, 175, 163],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 139,
@@ -43168,7 +43065,6 @@ export default [
 				],
 				paddingPositions: [109, 154, 66, 39, 196, 94],
 				gameType: 'freegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 148,
@@ -43524,7 +43420,6 @@ export default [
 				],
 				paddingPositions: [105, 238, 28, 82, 192, 141],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,
@@ -43830,7 +43725,6 @@ export default [
 				],
 				paddingPositions: [68, 93, 163, 228, 62, 177],
 				gameType: 'basegame',
-				anticipation: [0, 0, 0, 0, 0, 0],
 			},
 			{
 				index: 1,

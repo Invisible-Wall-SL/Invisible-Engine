@@ -54,7 +54,6 @@ const FIXTURES: Record<string, Record<string, unknown>> = {
 		gameType: 'basegame',
 		board: [],
 		paddingPositions: [],
-		anticipation: [],
 	},
 	winInfo: {
 		type: 'winInfo',

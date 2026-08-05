@@ -56,7 +56,6 @@ export default [
 				],
 				paddingPositions: [8, 32, 15, 63, 57],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 2, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -111,7 +110,6 @@ export default [
 				],
 				paddingPositions: [48, 26, 12, 62, 3],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 4, type: 'newStickySymbols', newPrizes: [{ reel: 4, row: 4, prize: 300 }] },
 			{ index: 5, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -168,7 +166,6 @@ export default [
 				],
 				paddingPositions: [77, 0, 89, 57, 34],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 8, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -223,7 +220,6 @@ export default [
 				],
 				paddingPositions: [40, 3, 2, 3, 83],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 10, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 3, prize: 100 }] },
 			{ index: 11, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -280,7 +276,6 @@ export default [
 				],
 				paddingPositions: [27, 54, 92, 3, 67],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 14, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -335,7 +330,6 @@ export default [
 				],
 				paddingPositions: [29, 44, 29, 86, 28],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 16, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -390,7 +384,6 @@ export default [
 				],
 				paddingPositions: [53, 71, 82, 12, 23],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 18,
@@ -454,7 +447,6 @@ export default [
 				],
 				paddingPositions: [64, 85, 24, 38, 36],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 22, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 2, prize: 100 }] },
 			{ index: 23, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -511,7 +503,6 @@ export default [
 				],
 				paddingPositions: [31, 95, 51, 53, 85],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 26, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -566,7 +557,6 @@ export default [
 				],
 				paddingPositions: [65, 13, 20, 66, 50],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 28, type: 'newStickySymbols', newPrizes: [{ reel: 4, row: 1, prize: 100 }] },
 			{ index: 29, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -623,7 +613,6 @@ export default [
 				],
 				paddingPositions: [82, 21, 21, 64, 29],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 32, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -678,7 +667,6 @@ export default [
 				],
 				paddingPositions: [73, 45, 58, 34, 84],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 34, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -733,7 +721,6 @@ export default [
 				],
 				paddingPositions: [66, 71, 26, 54, 7],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 36,
@@ -813,7 +800,6 @@ export default [
 				],
 				paddingPositions: [7, 11, 10, 46, 21],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 2,
@@ -877,7 +863,6 @@ export default [
 				],
 				paddingPositions: [74, 87, 20, 55, 81],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 6, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -932,7 +917,6 @@ export default [
 				],
 				paddingPositions: [69, 56, 64, 34, 4],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 8, type: 'newStickySymbols', newPrizes: [{ reel: 4, row: 3, prize: 100 }] },
 			{ index: 9, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -989,7 +973,6 @@ export default [
 				],
 				paddingPositions: [67, 21, 71, 22, 30],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 12, type: 'newStickySymbols', newPrizes: [{ reel: 2, row: 1, prize: 100 }] },
 			{ index: 13, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -1046,7 +1029,6 @@ export default [
 				],
 				paddingPositions: [71, 23, 57, 53, 94],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 16, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -1101,7 +1083,6 @@ export default [
 				],
 				paddingPositions: [57, 20, 51, 91, 94],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 18, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -1156,7 +1137,6 @@ export default [
 				],
 				paddingPositions: [45, 84, 58, 59, 44],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 20, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 3, prize: 100 }] },
 			{ index: 21, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -1213,7 +1193,6 @@ export default [
 				],
 				paddingPositions: [89, 21, 78, 34, 61],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 24,
@@ -1277,7 +1256,6 @@ export default [
 				],
 				paddingPositions: [65, 46, 87, 79, 9],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 28, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -1332,7 +1310,6 @@ export default [
 				],
 				paddingPositions: [75, 29, 87, 13, 66],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 30,
@@ -1396,7 +1373,6 @@ export default [
 				],
 				paddingPositions: [3, 10, 14, 8, 3],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 34,
@@ -1460,7 +1436,6 @@ export default [
 				],
 				paddingPositions: [80, 95, 95, 14, 36],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 38, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -1515,7 +1490,6 @@ export default [
 				],
 				paddingPositions: [57, 16, 66, 74, 50],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 40,
@@ -1579,7 +1553,6 @@ export default [
 				],
 				paddingPositions: [90, 4, 31, 29, 91],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 44, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 2, prize: 100 }] },
 			{ index: 45, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -1636,7 +1609,6 @@ export default [
 				],
 				paddingPositions: [66, 85, 59, 58, 39],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 48, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -1691,7 +1663,6 @@ export default [
 				],
 				paddingPositions: [15, 78, 46, 37, 88],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 50, type: 'newStickySymbols', newPrizes: [{ reel: 0, row: 4, prize: 2500 }] },
 			{ index: 51, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -1748,7 +1719,6 @@ export default [
 				],
 				paddingPositions: [47, 39, 92, 9, 28],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 54, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -1803,7 +1773,6 @@ export default [
 				],
 				paddingPositions: [5, 92, 90, 63, 37],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 56, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -1858,7 +1827,6 @@ export default [
 				],
 				paddingPositions: [74, 93, 73, 12, 9],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 58,
@@ -1947,7 +1915,6 @@ export default [
 				],
 				paddingPositions: [69, 16, 47, 77, 60],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 2, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -2002,7 +1969,6 @@ export default [
 				],
 				paddingPositions: [8, 77, 1, 60, 33],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 4, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -2057,7 +2023,6 @@ export default [
 				],
 				paddingPositions: [24, 91, 60, 69, 70],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 6, type: 'setTotalWin', amount: 0 },
 			{ index: 7, type: 'finalWin', amount: 0 },
@@ -2123,7 +2088,6 @@ export default [
 				],
 				paddingPositions: [13, 92, 50, 61, 19],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 2, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -2178,7 +2142,6 @@ export default [
 				],
 				paddingPositions: [70, 37, 7, 28, 66],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 4, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -2233,7 +2196,6 @@ export default [
 				],
 				paddingPositions: [22, 13, 33, 27, 3],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 6, type: 'newStickySymbols', newPrizes: [{ reel: 4, row: 4, prize: 200 }] },
 			{ index: 7, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -2290,7 +2252,6 @@ export default [
 				],
 				paddingPositions: [34, 24, 21, 39, 37],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 10, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -2345,7 +2306,6 @@ export default [
 				],
 				paddingPositions: [47, 11, 77, 43, 85],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 12, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -2400,7 +2360,6 @@ export default [
 				],
 				paddingPositions: [70, 38, 0, 37, 73],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 14, type: 'prizeWinInfo', totalWin: 200, wins: [{ reel: 4, row: 4, prize: 200 }] },
 			{ index: 15, type: 'setWin', amount: 200, winLevel: 4 },
@@ -2468,7 +2427,6 @@ export default [
 				],
 				paddingPositions: [94, 45, 88, 94, 83],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 2, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -2523,7 +2481,6 @@ export default [
 				],
 				paddingPositions: [3, 59, 31, 83, 6],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 4,
@@ -2587,7 +2544,6 @@ export default [
 				],
 				paddingPositions: [69, 13, 73, 31, 1],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 8, type: 'newStickySymbols', newPrizes: [{ reel: 3, row: 3, prize: 200 }] },
 			{ index: 9, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -2644,7 +2600,6 @@ export default [
 				],
 				paddingPositions: [9, 17, 79, 79, 56],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 12, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -2699,7 +2654,6 @@ export default [
 				],
 				paddingPositions: [27, 21, 21, 37, 40],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 14, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -2754,7 +2708,6 @@ export default [
 				],
 				paddingPositions: [88, 25, 49, 38, 2],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 16,
@@ -2818,7 +2771,6 @@ export default [
 				],
 				paddingPositions: [86, 90, 43, 8, 39],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 20,
@@ -2882,7 +2834,6 @@ export default [
 				],
 				paddingPositions: [95, 45, 51, 2, 70],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 24, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -2937,7 +2888,6 @@ export default [
 				],
 				paddingPositions: [59, 44, 65, 45, 67],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 26, type: 'newStickySymbols', newPrizes: [{ reel: 3, row: 4, prize: 100 }] },
 			{ index: 27, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -2994,7 +2944,6 @@ export default [
 				],
 				paddingPositions: [46, 18, 43, 35, 89],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 30, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -3049,7 +2998,6 @@ export default [
 				],
 				paddingPositions: [6, 10, 76, 68, 51],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 32, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 1, prize: 200 }] },
 			{ index: 33, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -3106,7 +3054,6 @@ export default [
 				],
 				paddingPositions: [72, 16, 80, 52, 13],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 36, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -3161,7 +3108,6 @@ export default [
 				],
 				paddingPositions: [88, 93, 40, 61, 35],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 38, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -3216,7 +3162,6 @@ export default [
 				],
 				paddingPositions: [64, 46, 8, 45, 88],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 40,
@@ -3299,7 +3244,6 @@ export default [
 				],
 				paddingPositions: [10, 62, 33, 4, 0],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 2, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 3, prize: 100 }] },
 			{ index: 3, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -3356,7 +3300,6 @@ export default [
 				],
 				paddingPositions: [94, 47, 40, 2, 34],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 6, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -3411,7 +3354,6 @@ export default [
 				],
 				paddingPositions: [52, 68, 69, 87, 12],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 8,
@@ -3475,7 +3417,6 @@ export default [
 				],
 				paddingPositions: [87, 11, 54, 42, 11],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 12,
@@ -3539,7 +3480,6 @@ export default [
 				],
 				paddingPositions: [12, 5, 75, 25, 83],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 16,
@@ -3603,7 +3543,6 @@ export default [
 				],
 				paddingPositions: [81, 46, 31, 77, 55],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 20, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -3658,7 +3597,6 @@ export default [
 				],
 				paddingPositions: [25, 48, 61, 28, 17],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 22, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -3713,7 +3651,6 @@ export default [
 				],
 				paddingPositions: [79, 39, 47, 48, 67],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 24, type: 'newStickySymbols', newPrizes: [{ reel: 3, row: 1, prize: 100 }] },
 			{ index: 25, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -3770,7 +3707,6 @@ export default [
 				],
 				paddingPositions: [11, 77, 85, 57, 57],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 28, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -3825,7 +3761,6 @@ export default [
 				],
 				paddingPositions: [57, 62, 92, 22, 2],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 30, type: 'newStickySymbols', newPrizes: [{ reel: 4, row: 5, prize: 100 }] },
 			{ index: 31, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -3882,7 +3817,6 @@ export default [
 				],
 				paddingPositions: [34, 77, 60, 84, 61],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 34, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -3937,7 +3871,6 @@ export default [
 				],
 				paddingPositions: [34, 40, 82, 50, 62],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 36, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -3992,7 +3925,6 @@ export default [
 				],
 				paddingPositions: [47, 46, 63, 75, 7],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 38,
@@ -4075,7 +4007,6 @@ export default [
 				],
 				paddingPositions: [19, 50, 83, 6, 9],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 2, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -4130,7 +4061,6 @@ export default [
 				],
 				paddingPositions: [74, 7, 64, 27, 4],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 4,
@@ -4195,7 +4125,6 @@ export default [
 				],
 				paddingPositions: [7, 72, 15, 28, 80],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 8, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -4250,7 +4179,6 @@ export default [
 				],
 				paddingPositions: [5, 71, 17, 37, 53],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 10, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -4305,7 +4233,6 @@ export default [
 				],
 				paddingPositions: [81, 24, 47, 12, 70],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 12, type: 'newStickySymbols', newPrizes: [{ reel: 3, row: 5, prize: 100 }] },
 			{ index: 13, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -4362,7 +4289,6 @@ export default [
 				],
 				paddingPositions: [59, 74, 58, 46, 38],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 16, type: 'newStickySymbols', newPrizes: [{ reel: 3, row: 3, prize: 100 }] },
 			{ index: 17, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -4419,7 +4345,6 @@ export default [
 				],
 				paddingPositions: [43, 93, 57, 36, 77],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 20, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -4474,7 +4399,6 @@ export default [
 				],
 				paddingPositions: [5, 85, 9, 71, 73],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 22, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 2, prize: 200 }] },
 			{ index: 23, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -4531,7 +4455,6 @@ export default [
 				],
 				paddingPositions: [34, 60, 89, 85, 8],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 26, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 5, prize: 100 }] },
 			{ index: 27, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -4588,7 +4511,6 @@ export default [
 				],
 				paddingPositions: [2, 59, 45, 21, 78],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 30, type: 'newStickySymbols', newPrizes: [{ reel: 0, row: 3, prize: 100 }] },
 			{ index: 31, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -4645,7 +4567,6 @@ export default [
 				],
 				paddingPositions: [17, 55, 70, 35, 90],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 34,
@@ -4710,7 +4631,6 @@ export default [
 				],
 				paddingPositions: [53, 68, 47, 78, 72],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 38, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -4765,7 +4685,6 @@ export default [
 				],
 				paddingPositions: [61, 81, 51, 7, 24],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 40, type: 'newStickySymbols', newPrizes: [{ reel: 4, row: 2, prize: 100 }] },
 			{ index: 41, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -4822,7 +4741,6 @@ export default [
 				],
 				paddingPositions: [46, 60, 15, 14, 62],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 44, type: 'newStickySymbols', newPrizes: [{ reel: 3, row: 4, prize: 100 }] },
 			{ index: 45, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -4879,7 +4797,6 @@ export default [
 				],
 				paddingPositions: [82, 11, 89, 33, 66],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 48, type: 'newStickySymbols', newPrizes: [{ reel: 3, row: 1, prize: 100 }] },
 			{ index: 49, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -4936,7 +4853,6 @@ export default [
 				],
 				paddingPositions: [3, 3, 35, 60, 33],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 52, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -4991,7 +4907,6 @@ export default [
 				],
 				paddingPositions: [82, 10, 84, 15, 49],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 54,
@@ -5055,7 +4970,6 @@ export default [
 				],
 				paddingPositions: [84, 44, 19, 70, 70],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 58, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -5110,7 +5024,6 @@ export default [
 				],
 				paddingPositions: [45, 58, 84, 74, 66],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 60, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -5165,7 +5078,6 @@ export default [
 				],
 				paddingPositions: [13, 71, 7, 31, 24],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 62,
@@ -5255,7 +5167,6 @@ export default [
 				],
 				paddingPositions: [63, 73, 24, 51, 11],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 2, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -5310,7 +5221,6 @@ export default [
 				],
 				paddingPositions: [79, 48, 13, 84, 7],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 4, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -5365,7 +5275,6 @@ export default [
 				],
 				paddingPositions: [45, 54, 17, 20, 76],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 6, type: 'setTotalWin', amount: 0 },
 			{ index: 7, type: 'finalWin', amount: 0 },
@@ -5431,7 +5340,6 @@ export default [
 				],
 				paddingPositions: [47, 34, 17, 23, 86],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 2, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -5486,7 +5394,6 @@ export default [
 				],
 				paddingPositions: [64, 59, 77, 10, 42],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 4, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -5541,7 +5448,6 @@ export default [
 				],
 				paddingPositions: [5, 93, 48, 21, 90],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 6, type: 'setTotalWin', amount: 0 },
 			{ index: 7, type: 'finalWin', amount: 0 },
@@ -5607,7 +5513,6 @@ export default [
 				],
 				paddingPositions: [54, 61, 73, 1, 26],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 2,
@@ -5671,7 +5576,6 @@ export default [
 				],
 				paddingPositions: [4, 66, 62, 41, 9],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 6,
@@ -5735,7 +5639,6 @@ export default [
 				],
 				paddingPositions: [77, 45, 48, 53, 36],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 10, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -5790,7 +5693,6 @@ export default [
 				],
 				paddingPositions: [58, 30, 56, 78, 48],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 12, type: 'newStickySymbols', newPrizes: [{ reel: 4, row: 3, prize: 100 }] },
 			{ index: 13, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -5847,7 +5749,6 @@ export default [
 				],
 				paddingPositions: [30, 40, 85, 70, 57],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 16, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -5902,7 +5803,6 @@ export default [
 				],
 				paddingPositions: [52, 30, 4, 4, 63],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 18, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -5957,7 +5857,6 @@ export default [
 				],
 				paddingPositions: [47, 76, 19, 14, 12],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 20,
@@ -6021,7 +5920,6 @@ export default [
 				],
 				paddingPositions: [66, 22, 15, 34, 58],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 24, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -6076,7 +5974,6 @@ export default [
 				],
 				paddingPositions: [5, 42, 40, 31, 10],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 26, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -6131,7 +6028,6 @@ export default [
 				],
 				paddingPositions: [63, 8, 21, 62, 86],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 28,
@@ -6195,7 +6091,6 @@ export default [
 				],
 				paddingPositions: [4, 0, 56, 68, 8],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 32, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -6250,7 +6145,6 @@ export default [
 				],
 				paddingPositions: [89, 58, 54, 42, 83],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 34, type: 'newStickySymbols', newPrizes: [{ reel: 0, row: 2, prize: 100 }] },
 			{ index: 35, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -6307,7 +6201,6 @@ export default [
 				],
 				paddingPositions: [31, 91, 37, 11, 5],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 38, type: 'newStickySymbols', newPrizes: [{ reel: 4, row: 2, prize: 100 }] },
 			{ index: 39, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -6364,7 +6257,6 @@ export default [
 				],
 				paddingPositions: [54, 26, 12, 87, 39],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 42, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -6419,7 +6311,6 @@ export default [
 				],
 				paddingPositions: [26, 54, 78, 52, 48],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 44, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -6474,7 +6365,6 @@ export default [
 				],
 				paddingPositions: [64, 33, 51, 56, 81],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 46,
@@ -6559,7 +6449,6 @@ export default [
 				],
 				paddingPositions: [71, 59, 57, 65, 75],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 2, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -6614,7 +6503,6 @@ export default [
 				],
 				paddingPositions: [60, 80, 78, 23, 12],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 4, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -6669,7 +6557,6 @@ export default [
 				],
 				paddingPositions: [18, 11, 68, 88, 81],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 6,
@@ -6734,7 +6621,6 @@ export default [
 				],
 				paddingPositions: [20, 79, 1, 67, 8],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 10, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -6789,7 +6675,6 @@ export default [
 				],
 				paddingPositions: [59, 41, 56, 75, 25],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 12,
@@ -6853,7 +6738,6 @@ export default [
 				],
 				paddingPositions: [70, 10, 90, 32, 40],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 16,
@@ -6917,7 +6801,6 @@ export default [
 				],
 				paddingPositions: [87, 0, 27, 26, 6],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 20,
@@ -6981,7 +6864,6 @@ export default [
 				],
 				paddingPositions: [31, 90, 12, 1, 7],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 24, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -7036,7 +6918,6 @@ export default [
 				],
 				paddingPositions: [0, 34, 75, 38, 2],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 26,
@@ -7100,7 +6981,6 @@ export default [
 				],
 				paddingPositions: [11, 26, 74, 81, 31],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 30, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -7155,7 +7035,6 @@ export default [
 				],
 				paddingPositions: [92, 24, 20, 94, 80],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 32, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -7210,7 +7089,6 @@ export default [
 				],
 				paddingPositions: [76, 62, 37, 66, 22],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 34,
@@ -7274,7 +7152,6 @@ export default [
 				],
 				paddingPositions: [67, 73, 16, 11, 46],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 38, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -7329,7 +7206,6 @@ export default [
 				],
 				paddingPositions: [17, 9, 9, 57, 69],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 40,
@@ -7393,7 +7269,6 @@ export default [
 				],
 				paddingPositions: [1, 77, 9, 10, 11],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 44, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -7448,7 +7323,6 @@ export default [
 				],
 				paddingPositions: [78, 84, 62, 32, 1],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 46, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -7503,7 +7377,6 @@ export default [
 				],
 				paddingPositions: [17, 63, 44, 5, 91],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 48,
@@ -7592,7 +7465,6 @@ export default [
 				],
 				paddingPositions: [84, 67, 85, 44, 18],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 2,
@@ -7656,7 +7528,6 @@ export default [
 				],
 				paddingPositions: [58, 88, 76, 29, 71],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 6, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -7711,7 +7582,6 @@ export default [
 				],
 				paddingPositions: [43, 26, 7, 73, 25],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 8,
@@ -7775,7 +7645,6 @@ export default [
 				],
 				paddingPositions: [2, 7, 84, 65, 28],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 12,
@@ -7839,7 +7708,6 @@ export default [
 				],
 				paddingPositions: [20, 89, 6, 71, 21],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 16, type: 'newStickySymbols', newPrizes: [{ reel: 4, row: 5, prize: 100 }] },
 			{ index: 17, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -7896,7 +7764,6 @@ export default [
 				],
 				paddingPositions: [24, 84, 33, 45, 46],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 20, type: 'newStickySymbols', newPrizes: [{ reel: 3, row: 4, prize: 100 }] },
 			{ index: 21, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -7953,7 +7820,6 @@ export default [
 				],
 				paddingPositions: [4, 66, 3, 28, 86],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 24,
@@ -8017,7 +7883,6 @@ export default [
 				],
 				paddingPositions: [58, 47, 26, 43, 36],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 28, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -8072,7 +7937,6 @@ export default [
 				],
 				paddingPositions: [43, 22, 30, 1, 64],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 30, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -8127,7 +7991,6 @@ export default [
 				],
 				paddingPositions: [67, 64, 61, 62, 80],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 32, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 1, prize: 100 }] },
 			{ index: 33, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -8184,7 +8047,6 @@ export default [
 				],
 				paddingPositions: [93, 36, 66, 32, 3],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 36,
@@ -8249,7 +8111,6 @@ export default [
 				],
 				paddingPositions: [25, 74, 71, 44, 47],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 40, type: 'newStickySymbols', newPrizes: [{ reel: 2, row: 1, prize: 100 }] },
 			{ index: 41, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -8306,7 +8167,6 @@ export default [
 				],
 				paddingPositions: [27, 68, 76, 89, 86],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 44, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -8361,7 +8221,6 @@ export default [
 				],
 				paddingPositions: [85, 76, 43, 58, 30],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 46, type: 'newStickySymbols', newPrizes: [{ reel: 0, row: 5, prize: 100 }] },
 			{ index: 47, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -8418,7 +8277,6 @@ export default [
 				],
 				paddingPositions: [6, 29, 52, 68, 89],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 50, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -8473,7 +8331,6 @@ export default [
 				],
 				paddingPositions: [5, 54, 46, 36, 52],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 52, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -8528,7 +8385,6 @@ export default [
 				],
 				paddingPositions: [23, 21, 26, 32, 14],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 54,
@@ -8618,7 +8474,6 @@ export default [
 				],
 				paddingPositions: [87, 87, 23, 83, 29],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 2,
@@ -8682,7 +8537,6 @@ export default [
 				],
 				paddingPositions: [9, 68, 27, 95, 37],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 6, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 3, prize: 100 }] },
 			{ index: 7, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -8739,7 +8593,6 @@ export default [
 				],
 				paddingPositions: [35, 18, 10, 33, 57],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 10, type: 'newStickySymbols', newPrizes: [{ reel: 3, row: 1, prize: 200 }] },
 			{ index: 11, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -8796,7 +8649,6 @@ export default [
 				],
 				paddingPositions: [62, 70, 72, 54, 85],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 14, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 1, prize: 100 }] },
 			{ index: 15, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -8853,7 +8705,6 @@ export default [
 				],
 				paddingPositions: [88, 57, 70, 78, 95],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 18,
@@ -8918,7 +8769,6 @@ export default [
 				],
 				paddingPositions: [16, 73, 62, 70, 30],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 22, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -8973,7 +8823,6 @@ export default [
 				],
 				paddingPositions: [28, 18, 63, 89, 56],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 24, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -9028,7 +8877,6 @@ export default [
 				],
 				paddingPositions: [91, 84, 17, 90, 77],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 26,
@@ -9110,7 +8958,6 @@ export default [
 				],
 				paddingPositions: [89, 83, 67, 31, 34],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 2,
@@ -9178,7 +9025,6 @@ export default [
 				],
 				paddingPositions: [15, 33, 28, 40, 45],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 6, type: 'newStickySymbols', newPrizes: [{ reel: 0, row: 4, prize: 200 }] },
 			{ index: 7, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -9235,7 +9081,6 @@ export default [
 				],
 				paddingPositions: [76, 43, 3, 10, 35],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 10, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -9290,7 +9135,6 @@ export default [
 				],
 				paddingPositions: [14, 74, 75, 81, 81],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 12, type: 'newStickySymbols', newPrizes: [{ reel: 0, row: 5, prize: 100 }] },
 			{ index: 13, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -9347,7 +9191,6 @@ export default [
 				],
 				paddingPositions: [32, 13, 15, 11, 35],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 16, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -9402,7 +9245,6 @@ export default [
 				],
 				paddingPositions: [62, 58, 55, 53, 76],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 18, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -9457,7 +9299,6 @@ export default [
 				],
 				paddingPositions: [56, 2, 90, 51, 54],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 20,
@@ -9539,7 +9380,6 @@ export default [
 				],
 				paddingPositions: [1, 66, 94, 4, 20],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 2,
@@ -9603,7 +9443,6 @@ export default [
 				],
 				paddingPositions: [18, 88, 47, 30, 14],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 6,
@@ -9667,7 +9506,6 @@ export default [
 				],
 				paddingPositions: [26, 45, 40, 28, 39],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 10, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -9722,7 +9560,6 @@ export default [
 				],
 				paddingPositions: [72, 46, 56, 72, 40],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 12, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -9777,7 +9614,6 @@ export default [
 				],
 				paddingPositions: [62, 2, 25, 17, 68],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 14,
@@ -9841,7 +9677,6 @@ export default [
 				],
 				paddingPositions: [14, 50, 6, 9, 59],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 18, type: 'newStickySymbols', newPrizes: [{ reel: 0, row: 5, prize: 200 }] },
 			{ index: 19, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -9898,7 +9733,6 @@ export default [
 				],
 				paddingPositions: [39, 39, 21, 80, 40],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 22, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -9953,7 +9787,6 @@ export default [
 				],
 				paddingPositions: [86, 63, 49, 48, 1],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 24, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 2, prize: 200 }] },
 			{ index: 25, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -10010,7 +9843,6 @@ export default [
 				],
 				paddingPositions: [10, 72, 59, 29, 75],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 28, type: 'newStickySymbols', newPrizes: [{ reel: 3, row: 5, prize: 100 }] },
 			{ index: 29, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -10067,7 +9899,6 @@ export default [
 				],
 				paddingPositions: [38, 76, 57, 39, 70],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 32, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -10122,7 +9953,6 @@ export default [
 				],
 				paddingPositions: [31, 63, 65, 42, 41],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 34, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -10177,7 +10007,6 @@ export default [
 				],
 				paddingPositions: [92, 73, 51, 42, 16],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 36,
@@ -10260,7 +10089,6 @@ export default [
 				],
 				paddingPositions: [61, 36, 53, 29, 57],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 2, type: 'newStickySymbols', newPrizes: [{ reel: 3, row: 5, prize: 100 }] },
 			{ index: 3, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -10317,7 +10145,6 @@ export default [
 				],
 				paddingPositions: [91, 33, 30, 81, 28],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 6, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -10372,7 +10199,6 @@ export default [
 				],
 				paddingPositions: [18, 95, 77, 39, 2],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 8,
@@ -10436,7 +10262,6 @@ export default [
 				],
 				paddingPositions: [77, 85, 80, 3, 59],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 12, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 2, prize: 100 }] },
 			{ index: 13, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -10493,7 +10318,6 @@ export default [
 				],
 				paddingPositions: [33, 53, 11, 44, 63],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 16, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -10548,7 +10372,6 @@ export default [
 				],
 				paddingPositions: [0, 66, 47, 30, 62],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 18,
@@ -10613,7 +10436,6 @@ export default [
 				],
 				paddingPositions: [62, 1, 60, 89, 15],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 22, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -10668,7 +10490,6 @@ export default [
 				],
 				paddingPositions: [84, 83, 51, 77, 40],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 24, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 4, prize: 100 }] },
 			{ index: 25, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -10725,7 +10546,6 @@ export default [
 				],
 				paddingPositions: [50, 80, 5, 14, 94],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 28, type: 'newStickySymbols', newPrizes: [{ reel: 3, row: 3, prize: 100 }] },
 			{ index: 29, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -10782,7 +10602,6 @@ export default [
 				],
 				paddingPositions: [18, 34, 49, 52, 4],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 32, type: 'newStickySymbols', newPrizes: [{ reel: 4, row: 3, prize: 300 }] },
 			{ index: 33, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -10839,7 +10658,6 @@ export default [
 				],
 				paddingPositions: [80, 13, 36, 14, 58],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 36, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -10894,7 +10712,6 @@ export default [
 				],
 				paddingPositions: [2, 62, 38, 73, 37],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 38,
@@ -10958,7 +10775,6 @@ export default [
 				],
 				paddingPositions: [13, 92, 84, 40, 7],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 42, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -11013,7 +10829,6 @@ export default [
 				],
 				paddingPositions: [79, 26, 7, 34, 81],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 44, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -11068,7 +10883,6 @@ export default [
 				],
 				paddingPositions: [78, 78, 65, 27, 60],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 46,
@@ -11154,7 +10968,6 @@ export default [
 				],
 				paddingPositions: [38, 46, 37, 22, 90],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 2, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -11209,7 +11022,6 @@ export default [
 				],
 				paddingPositions: [84, 35, 14, 3, 31],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 4, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -11264,7 +11076,6 @@ export default [
 				],
 				paddingPositions: [32, 64, 40, 81, 87],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 6, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 1, prize: 500 }] },
 			{ index: 7, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -11321,7 +11132,6 @@ export default [
 				],
 				paddingPositions: [70, 7, 17, 25, 19],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 10,
@@ -11385,7 +11195,6 @@ export default [
 				],
 				paddingPositions: [42, 69, 15, 91, 81],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 14, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 2, prize: 100 }] },
 			{ index: 15, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -11442,7 +11251,6 @@ export default [
 				],
 				paddingPositions: [76, 18, 87, 52, 64],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 18, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -11497,7 +11305,6 @@ export default [
 				],
 				paddingPositions: [45, 6, 61, 47, 74],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 20,
@@ -11561,7 +11368,6 @@ export default [
 				],
 				paddingPositions: [24, 95, 77, 71, 68],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 24, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -11616,7 +11422,6 @@ export default [
 				],
 				paddingPositions: [74, 34, 42, 1, 6],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 26, type: 'newStickySymbols', newPrizes: [{ reel: 4, row: 1, prize: 200 }] },
 			{ index: 27, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -11673,7 +11478,6 @@ export default [
 				],
 				paddingPositions: [91, 62, 2, 79, 72],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 30, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -11728,7 +11532,6 @@ export default [
 				],
 				paddingPositions: [27, 6, 68, 39, 40],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 32,
@@ -11792,7 +11595,6 @@ export default [
 				],
 				paddingPositions: [33, 73, 20, 37, 6],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 36, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -11847,7 +11649,6 @@ export default [
 				],
 				paddingPositions: [24, 46, 76, 3, 95],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 38, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -11902,7 +11703,6 @@ export default [
 				],
 				paddingPositions: [27, 38, 55, 45, 57],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 40, type: 'newStickySymbols', newPrizes: [{ reel: 3, row: 4, prize: 100 }] },
 			{ index: 41, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -11959,7 +11759,6 @@ export default [
 				],
 				paddingPositions: [60, 57, 1, 37, 33],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 44, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -12014,7 +11813,6 @@ export default [
 				],
 				paddingPositions: [38, 78, 26, 12, 3],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 46,
@@ -12078,7 +11876,6 @@ export default [
 				],
 				paddingPositions: [74, 53, 51, 0, 67],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 50, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -12133,7 +11930,6 @@ export default [
 				],
 				paddingPositions: [15, 32, 31, 9, 87],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 52, type: 'newStickySymbols', newPrizes: [{ reel: 0, row: 4, prize: 100 }] },
 			{ index: 53, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -12190,7 +11986,6 @@ export default [
 				],
 				paddingPositions: [84, 71, 18, 21, 75],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 56, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -12245,7 +12040,6 @@ export default [
 				],
 				paddingPositions: [31, 63, 32, 64, 24],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 58,
@@ -12309,7 +12103,6 @@ export default [
 				],
 				paddingPositions: [73, 65, 80, 18, 55],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 62, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -12364,7 +12157,6 @@ export default [
 				],
 				paddingPositions: [7, 45, 86, 83, 62],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 64, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -12419,7 +12211,6 @@ export default [
 				],
 				paddingPositions: [45, 92, 64, 16, 74],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 66, type: 'newStickySymbols', newPrizes: [{ reel: 3, row: 1, prize: 100 }] },
 			{ index: 67, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -12476,7 +12267,6 @@ export default [
 				],
 				paddingPositions: [83, 61, 12, 23, 63],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 70, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -12531,7 +12321,6 @@ export default [
 				],
 				paddingPositions: [68, 78, 9, 90, 7],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 72, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -12586,7 +12375,6 @@ export default [
 				],
 				paddingPositions: [78, 71, 10, 5, 91],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 74,
@@ -12676,7 +12464,6 @@ export default [
 				],
 				paddingPositions: [84, 57, 42, 30, 25],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 2,
@@ -12741,7 +12528,6 @@ export default [
 				],
 				paddingPositions: [25, 32, 88, 15, 41],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 6,
@@ -12805,7 +12591,6 @@ export default [
 				],
 				paddingPositions: [25, 94, 46, 73, 64],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 10, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -12860,7 +12645,6 @@ export default [
 				],
 				paddingPositions: [0, 43, 51, 28, 93],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 12, type: 'newStickySymbols', newPrizes: [{ reel: 0, row: 5, prize: 100 }] },
 			{ index: 13, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -12917,7 +12701,6 @@ export default [
 				],
 				paddingPositions: [72, 64, 18, 63, 87],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 16, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 1, prize: 200 }] },
 			{ index: 17, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -12974,7 +12757,6 @@ export default [
 				],
 				paddingPositions: [90, 25, 75, 33, 68],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 20,
@@ -13038,7 +12820,6 @@ export default [
 				],
 				paddingPositions: [80, 50, 74, 68, 87],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 24, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -13093,7 +12874,6 @@ export default [
 				],
 				paddingPositions: [90, 50, 87, 89, 46],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 26, type: 'newStickySymbols', newPrizes: [{ reel: 4, row: 5, prize: 300 }] },
 			{ index: 27, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -13150,7 +12930,6 @@ export default [
 				],
 				paddingPositions: [54, 0, 65, 71, 71],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 30, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -13205,7 +12984,6 @@ export default [
 				],
 				paddingPositions: [22, 47, 93, 80, 38],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 32, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -13260,7 +13038,6 @@ export default [
 				],
 				paddingPositions: [73, 89, 29, 16, 38],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 34,
@@ -13344,7 +13121,6 @@ export default [
 				],
 				paddingPositions: [13, 41, 39, 2, 72],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 2, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -13399,7 +13175,6 @@ export default [
 				],
 				paddingPositions: [74, 93, 54, 50, 56],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 4, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -13454,7 +13229,6 @@ export default [
 				],
 				paddingPositions: [38, 73, 64, 20, 81],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 6, type: 'setTotalWin', amount: 0 },
 			{ index: 7, type: 'finalWin', amount: 0 },
@@ -13520,7 +13294,6 @@ export default [
 				],
 				paddingPositions: [87, 19, 33, 86, 81],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 2,
@@ -13584,7 +13357,6 @@ export default [
 				],
 				paddingPositions: [21, 3, 52, 52, 9],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 6, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 3, prize: 100 }] },
 			{ index: 7, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -13641,7 +13413,6 @@ export default [
 				],
 				paddingPositions: [26, 25, 40, 80, 87],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 10, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -13696,7 +13467,6 @@ export default [
 				],
 				paddingPositions: [62, 51, 10, 26, 73],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 12, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -13751,7 +13521,6 @@ export default [
 				],
 				paddingPositions: [36, 39, 88, 32, 20],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 14, type: 'newStickySymbols', newPrizes: [{ reel: 3, row: 2, prize: 100 }] },
 			{ index: 15, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -13808,7 +13577,6 @@ export default [
 				],
 				paddingPositions: [7, 1, 82, 79, 38],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 18, type: 'newStickySymbols', newPrizes: [{ reel: 1, row: 5, prize: 100 }] },
 			{ index: 19, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -13865,7 +13633,6 @@ export default [
 				],
 				paddingPositions: [35, 71, 55, 20, 21],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 22, type: 'newStickySymbols', newPrizes: [{ reel: 4, row: 5, prize: 100 }] },
 			{ index: 23, type: 'updateFreeSpin', amount: 0, total: 3 },
@@ -13922,7 +13689,6 @@ export default [
 				],
 				paddingPositions: [24, 55, 22, 22, 10],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 26, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -13977,7 +13743,6 @@ export default [
 				],
 				paddingPositions: [67, 92, 6, 85, 21],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 28, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -14032,7 +13797,6 @@ export default [
 				],
 				paddingPositions: [38, 84, 5, 3, 24],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 30,
@@ -14096,7 +13860,6 @@ export default [
 				],
 				paddingPositions: [49, 12, 27, 30, 25],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 34,
@@ -14160,7 +13923,6 @@ export default [
 				],
 				paddingPositions: [37, 26, 46, 79, 38],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 38, type: 'updateFreeSpin', amount: 2, total: 3 },
 			{
@@ -14215,7 +13977,6 @@ export default [
 				],
 				paddingPositions: [60, 27, 1, 89, 93],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{ index: 40, type: 'updateFreeSpin', amount: 3, total: 3 },
 			{
@@ -14270,7 +14031,6 @@ export default [
 				],
 				paddingPositions: [95, 26, 79, 51, 88],
 				gameType: 'superspin',
-				anticipation: [0, 0, 0, 0, 0],
 			},
 			{
 				index: 42,

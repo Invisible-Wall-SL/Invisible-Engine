@@ -29,7 +29,7 @@ export const POST: RequestHandler = async ({ url }) => {
 		// `SymbolExportResult`, carried them. Both bundle paths must agree (the "reach both" rule).
 		// `bookVfx` (the book-symbol VFX layers) is on this list for the SAME reason — omit it and the
 		// bake path would ship no book VFX while the runtime path did.
-		const { map, index, names, highlight, boardGlow, winLine, winCycle, bookVfx } =
+		const { map, index, names, highlight, boardGlow, winLine, winCycle, bookVfx, anticipation } =
 			await exportEditorSymbols(clientKey, projectKey);
 		return json({
 			clientKey,
@@ -42,6 +42,7 @@ export const POST: RequestHandler = async ({ url }) => {
 			winLine,
 			winCycle,
 			bookVfx,
+			anticipation,
 		});
 	} catch (e) {
 		console.error('export-symbols failed:', e);

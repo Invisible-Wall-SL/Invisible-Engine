@@ -5,7 +5,12 @@ import { stateBet } from 'state-shared';
 import { waitForTimeout } from 'utils-shared/wait';
 import { createInterruptible } from 'utils-shared/interruptible';
 
-import type { CascadingReelCreateOptions, CascadingReelSpinOptions, SpinType } from './types';
+import type {
+	CascadingReelCreateOptions,
+	CascadingReelSpinOptions,
+	SpinType,
+	AnticipationTier,
+} from './types';
 
 export type CascadingReelMotion = 'fallingOut' | 'hanging' | 'fallingIn' | 'stopped';
 export type CascadingReelSymbolState = 'static' | 'land' | 'spin';
@@ -21,8 +26,7 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 			: reelOptions.symbolHeight;
 
 	// reelSymbols
-	const getSymbolY = (symbolIndexOfBoard: number) =>
-		(symbolIndexOfBoard + 0.5) * getSymbolHeight();
+	const getSymbolY = (symbolIndexOfBoard: number) => (symbolIndexOfBoard + 0.5) * getSymbolHeight();
 
 	const createReelSymbol = (reelSymbolOptions: { rawSymbol: TRawSymbol; symbolIndex: number }) => {
 		const symbolIndexOfBoard = reelSymbolOptions.symbolIndex - 1;
@@ -72,7 +76,10 @@ export function createReelForCascading<TRawSymbol extends object, TSymbolState e
 		symbols: createReelSymbols(reelOptions.initialSymbols),
 		motion: 'stopped' as CascadingReelMotion,
 		spinType: 'normal' as SpinType,
-		anticipating: false,
+		// Anticipation state — inert for a cascading reel (no HOLD mechanic here), carried only so the
+		// `Reel` union has one shape. See createReelForSpinning for the driven fields.
+		anticipationLevel: 0,
+		anticipationTier: null as AnticipationTier | null,
 		readyToSpin: () => {},
 		spinOptions: () => ({}) as CascadingReelSpinOptions,
 	});

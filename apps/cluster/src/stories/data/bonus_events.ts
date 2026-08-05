@@ -208,7 +208,6 @@ export default {
 		],
 		paddingPositions: [216, 205, 195, 16, 65, 30, 126],
 		gameType: 'basegame',
-		anticipation: [0, 0, 0, 0, 0, 0, 0],
 	},
 	setTotalWin: {
 		type: 'setTotalWin',

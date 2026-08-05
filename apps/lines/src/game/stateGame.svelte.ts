@@ -220,6 +220,20 @@ export const stateGame = $state({
 	// `enableSequentialReelStop`'s `gaps`/`speeds` payload, cleared on disable.
 	sequentialGapOverrides: null as number[] | null,
 	sequentialSpeedOverrides: null as number[] | null,
+	// Client-computed reel ANTICIPATION mode (docs/design/reel-anticipation.md). OFF by default ⇒ the
+	// spin is byte-identical (no reel HOLDS, nothing armed) until a Flow effect turns it on (Phase 4).
+	// `anticipationConfidence` picks the reachable-win bound: `possible` (max — suspenseful, teases
+	// near-misses) vs `guaranteed` (min — honest, only once the big win is locked in). `minAnticipateReel`
+	// suppresses the trivial early arming (a run/count below 3 can't reach a big win or feature trigger).
+	anticipationMode: false,
+	anticipationConfidence: 'possible' as 'possible' | 'guaranteed',
+	minAnticipateReel: 2,
+	// Presentation toggles for the anticipation mode (both default ON ⇒ Phase 3 behaviour unchanged),
+	// set from the `enableAnticipationMode` Flow effect payload. `anticipationGreyOut` gates the dim of
+	// the non-anticipating reels (`Anticipations.svelte`); `anticipationZoom` gates the board zoom-in
+	// camera (`Game.svelte` wraps the reel stack in `AnticipationCamera` only when it is on).
+	anticipationGreyOut: true,
+	anticipationZoom: true,
 	// The REUSABLE win colour: the authored colour (`#rrggbb`, Invisible Game Config) of the payline
 	// whose win is CURRENTLY on screen, published by `WinLine.svelte` on `winLineShow` and cleared on
 	// `winLineHide`. `null` when no coloured win is showing (an un-coloured line, or no win). Any asset

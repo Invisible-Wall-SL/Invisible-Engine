@@ -257,6 +257,50 @@ const bookVfxSchema = z
 	})
 	.strict();
 
+/**
+ * Reel-anticipation presentation FX (Invisible Symbols State Machine → `docs/design/reel-anticipation.md`
+ * Phase 5). The editable twin of the coded `ANTICIPATION_TIER_FX` map in
+ * `apps/lines/src/game/anticipationPresentation.ts` — the per-tier escalation the client-computed tease
+ * mode plays (big → mega → massive): camera `zoom`, the overlay spine's `overlayScale`/`overlayAlpha`/
+ * `overlayTint`, and the `soundVolume` of the anticipation loop. OPTIONAL + sparse everywhere: an absent
+ * `anticipation`, an absent tier, or an absent field all fall through to the coded default, so an
+ * un-authored project ships nothing and the mode is byte-identical to Phase 4.
+ *
+ * `spineKey` optionally swaps WHICH spine drives the per-reel overlay (default the coded `anticipation`
+ * spine). Like `boardGlow`/`highlight` it is a full R2 spine-bundle prefix — its bundle rides
+ * `index.spines` (no new stranded asset class); the engine still owns the intro→loop→out chaining, so a
+ * swapped rig must expose those animation names.
+ *
+ * `overlayTint` is a `#rrggbb` hex here (the tool's colour picker); the engine reader converts it to the
+ * `0xRRGGBB` number `ANTICIPATION_TIER_FX` uses.
+ */
+const anticipationTierFxSchema = z
+	.object({
+		zoom: z.number().optional(),
+		overlayScale: z.number().optional(),
+		overlayAlpha: z.number().optional(),
+		overlayTint: z
+			.string()
+			.regex(/^#[0-9a-fA-F]{6}$/)
+			.optional(),
+		soundVolume: z.number().optional(),
+	})
+	.strict();
+
+const anticipationSchema = z
+	.object({
+		spineKey: z.string().min(1).optional(),
+		tiers: z
+			.object({
+				big: anticipationTierFxSchema.optional(),
+				mega: anticipationTierFxSchema.optional(),
+				massive: anticipationTierFxSchema.optional(),
+			})
+			.strict()
+			.optional(),
+	})
+	.strict();
+
 export const symbolsDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
@@ -267,6 +311,7 @@ export const symbolsDocSchema = z
 		winLine: winLineSchema.optional(),
 		winCycle: winCycleSchema.optional(),
 		bookVfx: bookVfxSchema.optional(),
+		anticipation: anticipationSchema.optional(),
 		updatedAt: z.string().optional(),
 	})
 	.strip();
@@ -345,7 +390,26 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 		if (doc.bookVfx.foreground) bookVfx.foreground = doc.bookVfx.foreground;
 		if (Object.keys(bookVfx).length) next.bookVfx = bookVfx;
 	}
+	// Sparse whitelist like `boardGlow`/`bookVfx`: drop an empty per-tier object and a now-empty
+	// `anticipation`, so a reset round-trips to no key and an un-authored project stays byte-identical.
+	const anticipation = pruneAnticipation(doc.anticipation);
+	if (anticipation) next.anticipation = anticipation;
 	return next;
+}
+
+/** Drop each empty per-tier FX object and a now-empty `anticipation`, so a reset round-trips to
+ *  "no anticipation" (sparse) rather than persisting `{}` / `{ tiers: {} }`. */
+function pruneAnticipation(anticipation: SymbolsDoc['anticipation']): SymbolsDoc['anticipation'] {
+	if (!anticipation) return undefined;
+	const next: NonNullable<SymbolsDoc['anticipation']> = {};
+	if (anticipation.spineKey) next.spineKey = anticipation.spineKey;
+	const tiers: NonNullable<NonNullable<SymbolsDoc['anticipation']>['tiers']> = {};
+	for (const tier of ['big', 'mega', 'massive'] as const) {
+		const fx = anticipation.tiers?.[tier];
+		if (fx && Object.keys(fx).length) tiers[tier] = fx;
+	}
+	if (Object.keys(tiers).length) next.tiers = tiers;
+	return Object.keys(next).length ? next : undefined;
 }
 
 /**

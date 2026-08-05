@@ -38,7 +38,6 @@
 	import LoadingScreen from './LoadingScreen.svelte';
 	import BoardFrame from './BoardFrame.svelte';
 	import Board from './Board.svelte';
-	import Anticipations from './Anticipations.svelte';
 	import Win from './Win.svelte';
 	import FreeSpinIntro from './FreeSpinIntro.svelte';
 	import FreeSpinOutro from './FreeSpinOutro.svelte';
@@ -163,7 +162,6 @@
 
 		<MainContainer>
 			<Board />
-			<Anticipations />
 			<ExpandingWilds />
 			<StickyBoard />
 		</MainContainer>

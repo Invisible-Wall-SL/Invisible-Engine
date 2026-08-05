@@ -418,6 +418,16 @@ const toReelOverrides = (value: unknown): number[] | null => {
 	return null;
 };
 
+/** Coerce a Flow payload confidence field onto the two-member enum, or `undefined` for "keep the
+ *  current confidence" — an unwired pin arrives `undefined`, a junk literal is ignored (the payload
+ *  is authored data, so a bare cast would let a bad string through). */
+const toConfidence = (value: unknown): 'possible' | 'guaranteed' | undefined =>
+	value === 'possible' || value === 'guaranteed' ? value : undefined;
+
+/** A Flow payload boolean, or `fallback` when the pin is unwired/junk (only a real boolean counts). */
+const boolOr = (value: unknown, fallback: boolean): boolean =>
+	typeof value === 'boolean' ? value : fallback;
+
 // ---------------------------------------------------------------------------
 // The named-effect map — the implementation side of every `effect` node in the
 // apps/lines FlowDoc (`flowDoc.ts`). Bodies are the coded handler leaves, verbatim.
@@ -492,6 +502,42 @@ const effects: Record<string, FlowEffect> = {
 		stateGame.sequentialReelStop = false;
 		stateGame.sequentialGapOverrides = null;
 		stateGame.sequentialSpeedOverrides = null;
+	},
+
+	/**
+	 * Enable client-computed reel ANTICIPATION mode (docs/design/reel-anticipation.md) — reels HOLD +
+	 * escalating tease FX while a big win / feature trigger is still reachable from the reels not yet
+	 * stopped. OFF by default, so authoring this effect is what turns it on (byte-parity until then);
+	 * the same enable/disable + payload shape as `enableSequentialReelStop`.
+	 *
+	 * `confidence` picks the reachable-win bound: `possible` (max — suspenseful, teases near-misses)
+	 * vs `guaranteed` (min — honest, only once the big win is locked in). Unset ⇒ keep the current
+	 * value, so an author can re-arm with a bare `enableAnticipationMode {}` without re-picking.
+	 * `minAnticipateReel` (default 2) suppresses the trivial early arm (a run/count below 3 can't reach
+	 * a big win or trigger). `greyOut` / `zoom` (default true) toggle the dim of the non-anticipating
+	 * reels and the board zoom-in. Idempotent: re-firing re-applies the payload over the toggle
+	 * defaults, so the SAME effect can carry a different confidence per screen (e.g. `possible` in base
+	 * game, `guaranteed` in free spins) with no stale state.
+	 */
+	enableAnticipationMode: (payload) => {
+		stateGame.anticipationMode = true;
+		const confidence = toConfidence(payload.confidence);
+		if (confidence) stateGame.anticipationConfidence = confidence;
+		const minReel = numberOrUndefined(payload.minAnticipateReel);
+		if (minReel !== undefined) stateGame.minAnticipateReel = Math.max(0, Math.floor(minReel));
+		stateGame.anticipationGreyOut = boolOr(payload.greyOut, true);
+		stateGame.anticipationZoom = boolOr(payload.zoom, true);
+	},
+
+	/** Disable reel anticipation + reset the confidence/toggles to their defaults (`possible`,
+	 *  `minAnticipateReel` 2, grey-out + zoom on) — mirrors {@link disableSequentialReelStop} clearing
+	 *  its overrides, so a later `enableAnticipationMode {}` starts from a clean baseline. */
+	disableAnticipationMode: () => {
+		stateGame.anticipationMode = false;
+		stateGame.anticipationConfidence = 'possible';
+		stateGame.minAnticipateReel = 2;
+		stateGame.anticipationGreyOut = true;
+		stateGame.anticipationZoom = true;
 	},
 
 	/** Set the win-meter amount (`setTotalWin`). */

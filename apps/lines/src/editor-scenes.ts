@@ -60,6 +60,20 @@ export type BookVfxLayer = {
 };
 
 /**
+ * One reel-anticipation tier's FX override (Invisible Symbols State Machine output). The sparse twin
+ * of one `ANTICIPATION_TIER_FX` entry (`game/anticipationPresentation.ts`): every field optional so an
+ * un-set one falls through to the coded value in `resolveTierFx`. `overlayTint` is a `#rrggbb` hex
+ * (the tool's colour picker); the reader converts it to the `0xRRGGBB` number the code uses.
+ */
+export type AnticipationTierFxOverride = {
+	zoom?: number;
+	overlayScale?: number;
+	overlayAlpha?: number;
+	overlayTint?: string;
+	soundVolume?: number;
+};
+
+/**
  * Build-time freeze (see docs/design/live-assets.md → "Layout-doc bake").
  * `bake-editor-doc.mjs` overwrites `baked-editor-bundle.json` with the frozen doc + the
  * referenced ComponentDefs. A non-null `doc` flips the game to the baked path:
@@ -192,6 +206,21 @@ type BakedBundle = {
 		bookVfx?: {
 			background?: BookVfxLayer;
 			foreground?: BookVfxLayer;
+		};
+		/** Reel-anticipation presentation FX (Invisible Symbols State Machine output) — the editable
+		 * twin of the coded `ANTICIPATION_TIER_FX` (`game/anticipationPresentation.ts`). `spineKey`
+		 * optionally swaps the per-reel overlay spine (a full R2 bundle prefix registered via
+		 * `index.spines` like `boardGlow`; the engine still owns the intro→loop→out chaining); `tiers`
+		 * overrides the per-tier escalation FX. SPARSE — every field falls through to the coded default
+		 * in `resolveTierFx`/`resolveAnticipationSpineKey`, so an absent config is byte-identical to
+		 * Phase 4. `overlayTint` is a `#rrggbb` hex; the reader converts it to `0xRRGGBB`. */
+		anticipation?: {
+			spineKey?: string;
+			tiers?: {
+				big?: AnticipationTierFxOverride;
+				mega?: AnticipationTierFxOverride;
+				massive?: AnticipationTierFxOverride;
+			};
 		};
 		/** Global win-line overlay config (Invisible Symbols State Machine output): on/off
 		 * plus line + win-amount-text style. Pure config, no asset (the chosen `text.font`
@@ -649,6 +678,22 @@ export function bakedBookVfx(): NonNullable<BakedBundle['symbols']>['bookVfx'] |
 	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.bookVfx;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.symbols?.bookVfx;
+}
+
+/**
+ * The reel-anticipation presentation FX authored in the Invisible Symbols State Machine — the
+ * per-tier escalation overrides + optional overlay spine key. When set, `resolveTierFx` /
+ * `resolveAnticipationSpineKey` (`game/anticipationPresentation.ts`) merge it over the coded
+ * `ANTICIPATION_TIER_FX`; the overlay spine bundle (if swapped) rides `symbols.index.spines` like a
+ * per-symbol spine cell. Mirrors `bakedBookVfx`'s runtime→baked→undefined resolution; undefined ⇒ the
+ * coded FX, byte-identical to an un-authored game (Phase 4 parity).
+ */
+export function bakedAnticipation():
+	| NonNullable<BakedBundle['symbols']>['anticipation']
+	| undefined {
+	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.anticipation;
+	if (!hasBakedDoc()) return undefined;
+	return bakedBundle.symbols?.anticipation;
 }
 
 /**

@@ -318,6 +318,7 @@ async function main() {
 		winLine: undefined,
 		winCycle: undefined,
 		bookVfx: undefined,
+		anticipation: undefined,
 	};
 	const symbolsUrl =
 		`${base}/api/editor/export-symbols?project=${encodeURIComponent(project)}` +
@@ -425,6 +426,26 @@ async function main() {
 				s?.names && typeof s.names === 'object' && Object.keys(s.names).length
 					? s.names
 					: undefined;
+			// The reel-anticipation presentation FX (per-tier escalation + optional overlay `spineKey`).
+			// Pure config apart from the spine (already in `index.spines` if swapped). Rebuilt sparse so an
+			// untouched project ships no `anticipation` and the mode stays byte-identical to Phase 4 — the
+			// engine's `resolveTierFx`/`resolveAnticipationSpineKey` fill every omitted field from the coded
+			// `ANTICIPATION_TIER_FX`. MUST reach BOTH bundle paths (this + the runtime `SymbolExportResult`).
+			const anticipation = (() => {
+				const a = s?.anticipation;
+				if (!a || typeof a !== 'object') return undefined;
+				const out = {};
+				if (typeof a.spineKey === 'string' && a.spineKey) out.spineKey = a.spineKey;
+				if (a.tiers && typeof a.tiers === 'object') {
+					const tiers = {};
+					for (const tier of ['big', 'mega', 'massive']) {
+						const fx = a.tiers[tier];
+						if (fx && typeof fx === 'object' && Object.keys(fx).length) tiers[tier] = fx;
+					}
+					if (Object.keys(tiers).length) out.tiers = tiers;
+				}
+				return Object.keys(out).length ? out : undefined;
+			})();
 			symbols = {
 				map: s?.map && typeof s.map === 'object' ? s.map : {},
 				index: {
@@ -441,6 +462,7 @@ async function main() {
 				winLine,
 				winCycle,
 				bookVfx,
+				anticipation,
 			};
 			// Dangling-binding guard: a bound sprite frame no shipped atlas packs renders
 			// blank in-game ("… is not found in the loadedAssets"). Warn loudly so a

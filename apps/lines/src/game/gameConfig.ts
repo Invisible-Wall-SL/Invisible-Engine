@@ -288,6 +288,23 @@ export function activeWinLevelIsBig(level: number): boolean {
 	return winLevelMap[level as WinLevel]?.type === 'big';
 }
 
+/**
+ * The BIG-win tier thresholds (win-as-bet-multiplier), ascending — the authored tiers' big thresholds
+ * when a project authors `winLevels`, else the coded `winLevelMap`'s. The reel-anticipation arming
+ * policy gates on these: it arms once the reachable win clears the smallest big threshold and stacks
+ * a level per further big threshold crossed (`docs/design/reel-anticipation.md`). Empty when no big
+ * tier exists (anticipation then never arms on the win axis).
+ */
+export function activeBigTierThresholds(): number[] {
+	const tiers = activeWinLevels();
+	const thresholds = tiers
+		? tiers.filter((tier) => tier.type === 'big').map((tier) => tier.threshold)
+		: Object.values(winLevelMap)
+				.filter((tier) => tier.type === 'big')
+				.map((tier) => tier.threshold);
+	return thresholds.slice().sort((a, b) => a - b);
+}
+
 /** The escalation chain (as `WinLevelData`) for a winning `level`, or `undefined` when escalation is
  *  off / un-authored — the big-win component plays only the single winning tier in that case. */
 export function activeWinLevelChain(level: number): WinLevelData[] | undefined {

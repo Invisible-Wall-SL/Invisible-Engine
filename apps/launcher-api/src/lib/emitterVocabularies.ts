@@ -369,6 +369,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'enableAnticipationMode',
+				group: 'Effect',
+			},
+			{
+				name: 'disableAnticipationMode',
+				group: 'Effect',
+			},
+			{
 				name: 'setWinBookEventAmount',
 				group: 'Effect',
 			},
@@ -462,6 +470,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'stopReel',
+				group: 'Effect',
+			},
+			{
+				name: 'selectBetMode',
+				group: 'Effect',
+			},
+			{
+				name: 'commitBuyBonus',
 				group: 'Effect',
 			},
 		],
@@ -857,6 +873,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Effect',
 			},
 			{
+				name: 'enableAnticipationMode',
+				group: 'Effect',
+			},
+			{
+				name: 'disableAnticipationMode',
+				group: 'Effect',
+			},
+			{
 				name: 'setWinBookEventAmount',
 				group: 'Effect',
 			},
@@ -950,6 +974,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'stopReel',
+				group: 'Effect',
+			},
+			{
+				name: 'selectBetMode',
+				group: 'Effect',
+			},
+			{
+				name: 'commitBuyBonus',
 				group: 'Effect',
 			},
 		],
