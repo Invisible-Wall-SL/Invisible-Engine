@@ -184,6 +184,31 @@ const normalizeBetModeArt = (raw: unknown): BetModeArt | undefined => {
 };
 
 /**
+ * Per-mode card param overrides — a generic map from a card-component param key to a scalar override.
+ * Values must be a string / number / boolean (what a `ComponentParam` can carry); anything else is
+ * dropped. Empty strings are dropped so an unset image/text field falls through to the card's authored
+ * default rather than shipping a blank; numbers and booleans (including `0` / `false`) are meaningful
+ * and kept. Whole map omitted when nothing survives, so an un-authored mode stays byte-identical.
+ */
+const normalizeCardParams = (
+	raw: unknown,
+): Record<string, string | number | boolean> | undefined => {
+	if (!isObject(raw)) return undefined;
+	const params: Record<string, string | number | boolean> = {};
+	for (const [key, value] of Object.entries(raw)) {
+		if (typeof value === 'string') {
+			const trimmed = value.trim();
+			if (trimmed) params[key] = trimmed;
+		} else if (typeof value === 'number') {
+			if (Number.isFinite(value)) params[key] = value;
+		} else if (typeof value === 'boolean') {
+			params[key] = value;
+		}
+	}
+	return Object.keys(params).length ? params : undefined;
+};
+
+/**
  * Per-mode presentation. Kept only for a mode that actually EXISTS in `betModes` (`validModes`) and
  * only the fields that carry meaning — a `kind`, an `order`, and non-empty copy. An entry that
  * resolves to nothing is dropped, so the whole map is omitted when un-authored and an un-presented
@@ -210,6 +235,10 @@ const normalizeBetModePresentation = (
 		// through to the default `featureCard` at runtime (parity).
 		const card = str(entry.card)?.trim();
 		if (card) presentation.card = card;
+		// Per-mode card param overrides — mirror `card`/`art`: a scalar map, empties dropped, whole
+		// map omitted when nothing survives so an un-authored mode stays byte-identical.
+		const cardParams = normalizeCardParams(entry.cardParams);
+		if (cardParams) presentation.cardParams = cardParams;
 		if (Object.keys(presentation).length) map[mode] = presentation;
 	}
 	return Object.keys(map).length ? map : undefined;

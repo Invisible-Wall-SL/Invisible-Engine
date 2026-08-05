@@ -11,6 +11,11 @@ export type BetModeData = {
 	 *  cards). Empty string ⇒ unset ⇒ the repeater falls back to its node's default `featureCard`,
 	 *  byte-identical to before (parity). Optional so existing coded metas need no change. */
 	card?: string;
+	/** Per-mode overrides for the card component's params — a generic map from a card-component param
+	 *  key to a scalar override, merged into the repeater item's values so ONE shared card renders
+	 *  visually-distinct per mode. Absent/empty ⇒ no overrides, every param keeps the card's authored
+	 *  default (parity). Optional so existing coded metas need no change. */
+	cardParams?: Record<string, string | number | boolean>;
 	assets: {
 		icon: string;
 		volatility: string;

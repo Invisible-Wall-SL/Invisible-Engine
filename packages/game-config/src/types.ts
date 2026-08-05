@@ -116,6 +116,20 @@ export type BetModePresentation = {
 	 * `card` naming a non-existent component is skipped safely (⇒ the default `featureCard`).
 	 */
 	card?: string;
+	/**
+	 * Per-mode overrides for the card component's params — a generic map from a card-component param
+	 * KEY (e.g. `panelImage` / `iconFrameImage` / `buttonImage` / `spineKey` / `panelTint`) to the
+	 * value this mode's card renders with. Fed through the repeater into the card instance, so ONE
+	 * shared `featureCard` (or the mode's assigned {@link card}) renders visually-distinct cards per
+	 * bet mode WITHOUT a separate component per card. Any param the card DECLARES may be overridden
+	 * (chrome OR content); a param absent from the map keeps the component's authored default (parity).
+	 *
+	 * BAKE/SHIP: a value may be an editor-art frame or spine bundle key (a different panel/icon/spine
+	 * per card). Those keys are chosen at RUNTIME, so the static scene/def walk can't see them — the
+	 * bake collector reads THIS field (`betModeCardParamRefs`) and folds each referenced art/spine key
+	 * into the export→bake→pull set, exactly as the mode `icon` art travels. Absent ⇒ parity.
+	 */
+	cardParams?: Record<string, string | number | boolean>;
 };
 
 /**
@@ -165,6 +179,10 @@ export type ResolvedBetMode = {
 	 *  {@link BetModePresentation.card}. Empty string when unauthored, so the repeater item omits its
 	 *  per-item `componentId` and falls back to the node's default `featureCard` (parity). */
 	card: string;
+	/** Per-mode overrides for the card component's params — see {@link BetModePresentation.cardParams}.
+	 *  `{}` when unauthored, so the repeater item threads no overrides and every card param keeps the
+	 *  component's authored default (parity). */
+	cardParams: Record<string, string | number | boolean>;
 };
 
 /**

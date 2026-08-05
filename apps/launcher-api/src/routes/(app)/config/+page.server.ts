@@ -65,8 +65,16 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		source,
 		etag,
 		templateDefault,
-		// id/name/category only — enough to populate the per-mode Card dropdown without shipping trees.
-		components: components.map((c) => ({ id: c.id, name: c.name, category: c.category })),
+		// id/name/category + PARAMS — the dropdown needs id/name/category; the per-mode card-param editor
+		// needs each component's declared params (key/kind/label/group/options/default/engineProvided) so
+		// it can render a typed input per authorable param and write chosen values into `cardParams`. The
+		// node trees are still dropped (never shipped to the page).
+		components: components.map((c) => ({
+			id: c.id,
+			name: c.name,
+			category: c.category,
+			params: c.params ?? [],
+		})),
 		// Validate server-side too, so the page shows issues on FIRST paint (before any edit fires
 		// the client validator) — a pasted-in config that lies is visible immediately.
 		issues: doc ? validateGameConfigDoc(doc) : [],

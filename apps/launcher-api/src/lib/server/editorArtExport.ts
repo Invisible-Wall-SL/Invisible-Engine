@@ -36,11 +36,12 @@ import type { ComponentDef, LayoutDoc, LayoutNode } from 'engine-layout';
 import {
 	collectComponentIds,
 	collectComponentPins,
+	FEATURE_CARD_DEF,
 	isBuiltinRegion,
 	parseScopedFrameRef,
 } from 'engine-layout';
 import { EDITOR_SPINE_LOAD_SCALE } from '$lib/spineScale';
-import { betModeCardIds } from 'game-config';
+import { betModeCardIds, betModeCardParamRefs } from 'game-config';
 import { sheetVersion } from './assetVersion';
 import { loadComponent } from './componentStorage';
 import { loadDoc } from './editorStorage';
@@ -350,8 +351,35 @@ export async function exportEditorArt(
 	// never sees them. `loadGameConfigDoc` is null for a never-authored project ⇒ no seeds ⇒ parity.
 	const gameConfig = await loadGameConfigDoc(clientKey, projectKey);
 	const cardComponentIds = gameConfig ? betModeCardIds(gameConfig) : [];
-	const defs = await resolveReferencedDefs(doc, projectKey, cardComponentIds);
+	// Per-mode `cardParams` overrides can name art/spine keys on the card component (a different
+	// panel/icon/spine per card), chosen at runtime — so their DEFS must be resolvable to classify each
+	// override key by param KIND. Seed the default `featureCard` too when any mode overrides params
+	// WITHOUT a custom card (its explicit card is already in `cardComponentIds`). Empty ⇒ no extra seed.
+	const cardParamRefs = gameConfig ? betModeCardParamRefs(gameConfig) : [];
+	const cardParamSeedIds = cardParamRefs.some((ref) => !ref.card)
+		? [...cardComponentIds, FEATURE_CARD_DEF.id]
+		: cardComponentIds;
+	const defs = await resolveReferencedDefs(doc, projectKey, cardParamSeedIds);
 	const refs = collectArtRefs(doc, defs);
+
+	// Collect art/spine keys referenced through the config's per-mode `cardParams` overrides — the
+	// static scene/def walk in `collectArtRefs` never sees them (the keys are chosen at RUNTIME in the
+	// config). Mirror its component-instance param branch: classify each override key by the resolved
+	// card def's param KIND (image → atlas manifest/region, spine → bundle name). A missing card def or
+	// an unknown/non-string value is skipped safely, so a mode falling back to the default `featureCard`
+	// (or overriding only a color/text param) ships exactly as before.
+	for (const ref of cardParamRefs) {
+		const cardDef = defs[ref.card] || defs[FEATURE_CARD_DEF.id];
+		if (!cardDef) continue;
+		for (const p of cardDef.params ?? []) {
+			const value = ref.cardParams[p.key];
+			if (typeof value !== 'string' || !value) continue;
+			if (p.kind === 'image') addImageRef(refs, value);
+			else if (p.kind === 'spine') refs.spineNames.add(value);
+		}
+	}
+	// Reconcile bare region names picked up above into the used-region set (mirrors `collectArtRefs`).
+	for (const n of refs.regionNames) refs.usedRegions.add(n);
 
 	// Also ship the atlases the project's Invisible FX EFFECTS reference. An EffectDoc's particle
 	// art is an atlas the game must load, but effects ship independently of the layout (every effect
