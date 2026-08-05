@@ -7,8 +7,8 @@
 		resolveTierFx,
 		resolveAnticipationSpineKey,
 		reelCenterX,
-		reelColumnWidth,
-		boardColumnHeight,
+		overlayBaseWidth,
+		overlayBaseHeight,
 		boardCenterYWorld,
 	} from '../game/anticipationPresentation';
 
@@ -43,8 +43,8 @@
 {#if !done}
 	<SpineProvider
 		key={spineKey}
-		width={reelColumnWidth() * fx.overlayScale}
-		height={boardColumnHeight() * fx.overlayScale}
+		width={overlayBaseWidth() * fx.overlayScale}
+		height={overlayBaseHeight() * fx.overlayScale}
 		x={reelCenterX(props.reel.reelIndex)}
 		y={boardCenterYWorld()}
 		alpha={fx.overlayAlpha}
