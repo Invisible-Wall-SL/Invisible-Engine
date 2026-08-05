@@ -470,7 +470,10 @@
 		// when boot loading finishes — the loading gate becomes authorable in `/flow`. Inert
 		// until a doc references it (parity); the capability is a no-op with no active interpreter.
 		[LOADING_BAR_DEF.id]: LOADING_BAR_DEF,
-	});
+		// BUILT-IN (lowest precedence): these SEED the engine defs, but `registerBakedComponents()`
+		// (below) must be free to override any id with the project's EDITED def — so the built-in
+		// never shadows a baked/project def, whatever the boot order (§8 "project shadows shared").
+	}, { builtin: true });
 	// Flow-driven-game §1 — wire the engine's feed-triggered `completeOnLoaded` capability
 	// (`<ComponentInstance>` → `getFlowComplete()`) to THIS game's Flow holder, the non-visual
 	// sibling of the `TapToContinue` bound-component mount. A `completeOnLoaded` instance's
