@@ -17,8 +17,37 @@ import type { ComponentDef } from './types';
 interface VersionedEntry {
 	/** The most-recently registered def for this id — the latest-resolution result. */
 	latest: ComponentDef;
+	/**
+	 * `true` when `latest` came from a BUILT-IN registration — the lowest-precedence
+	 * layer (built-in ◁ shared/project). A baked/project def (non-builtin) always wins,
+	 * and a built-in registration replaces `latest` ONLY when the current `latest` is
+	 * itself a built-in — so a built-in registered LATER in boot (e.g. the shared
+	 * `registerBuyFeature` `featureCard`, which runs after `registerBakedComponents`)
+	 * can never clobber the project's edited def (§8 "project shadows shared").
+	 */
+	latestFromBuiltin: boolean;
 	/** Every registered version keyed by `def.version`, for true pin resolution (§8.9 v2). */
 	byVersion: Map<number, ComponentDef>;
+	/**
+	 * The versions in `byVersion` whose snapshot came from a BUILT-IN registration. A
+	 * built-in must not overwrite a non-builtin snapshot of the SAME version number (a
+	 * project edit that kept version 1), or a pinned instance would resolve the built-in
+	 * instead of the project def. Non-builtin snapshots always overwrite.
+	 */
+	builtinVersions: Set<number>;
+}
+
+/** Options for {@link registerComponents}. */
+export interface RegisterComponentsOptions {
+	/**
+	 * Mark this batch as ENGINE BUILT-IN defs (`BUILTIN_COMPONENTS`) — the lowest
+	 * precedence. A built-in SEEDS an id that has no def yet, but never overrides a def
+	 * already registered from a higher-precedence source (a baked/project def), whatever
+	 * the boot order. Omit (default `false`) for baked/project/story registrations, which
+	 * always take precedence — so `registerBakedComponents(...)`'s project `featureCard`
+	 * survives the shared `registerBuyFeature()` built-in registration that runs later.
+	 */
+	builtin?: boolean;
 }
 
 const registry = new Map<string, VersionedEntry>();
@@ -37,18 +66,46 @@ export const MAX_COMPONENT_DEPTH = 2;
  * `def.version`, so a pinned instance can resolve the EXACT version it was authored
  * against. Registering several versions of the same id (latest LAST) keeps every
  * one resolvable while `latest` follows the final registration — the game's boot
- * `registerComponents(BUILTIN…)` runs first, then `registerBakedComponents()`
- * overrides `latest` with the project's edited/pinned defs (and adds their
- * versions), exactly as before for the single-version case.
+ * `registerComponents(BUILTIN…, { builtin: true })` runs first, then
+ * `registerBakedComponents()` overrides `latest` with the project's edited/pinned defs
+ * (and adds their versions), exactly as before for the single-version case.
+ *
+ * PRECEDENCE (`options.builtin`, §8 "project shadows shared"): a batch flagged
+ * `builtin` is the lowest layer — it seeds an id but never overrides a def already
+ * registered from a higher-precedence (baked/project) source, so boot order can't let a
+ * built-in clobber the project's edit. A non-builtin batch always wins. Unflagged calls
+ * behave exactly as before (parity for stories/tests).
  */
-export function registerComponents(map: Record<string, ComponentDef>): void {
+export function registerComponents(
+	map: Record<string, ComponentDef>,
+	options: RegisterComponentsOptions = {},
+): void {
+	const builtin = options.builtin === true;
 	for (const [id, def] of Object.entries(map)) {
 		const entry = registry.get(id);
-		if (entry) {
+		if (!entry) {
+			registry.set(id, {
+				latest: def,
+				latestFromBuiltin: builtin,
+				byVersion: new Map([[def.version, def]]),
+				builtinVersions: builtin ? new Set([def.version]) : new Set(),
+			});
+			continue;
+		}
+		// A built-in never overrides a higher-precedence (baked/project) `latest`; a
+		// non-builtin always wins, and a built-in replaces only another built-in.
+		if (!builtin || entry.latestFromBuiltin) {
 			entry.latest = def;
+			entry.latestFromBuiltin = builtin;
+		}
+		// Same rule per version snapshot: a built-in must not overwrite a non-builtin
+		// snapshot of the same version (a project edit that kept its version number), or a
+		// pinned instance would resolve the built-in instead of the project def.
+		const slotIsBuiltin = entry.builtinVersions.has(def.version);
+		if (!entry.byVersion.has(def.version) || !builtin || slotIsBuiltin) {
 			entry.byVersion.set(def.version, def);
-		} else {
-			registry.set(id, { latest: def, byVersion: new Map([[def.version, def]]) });
+			if (builtin) entry.builtinVersions.add(def.version);
+			else entry.builtinVersions.delete(def.version);
 		}
 	}
 }

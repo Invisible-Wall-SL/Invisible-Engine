@@ -83,10 +83,17 @@ export function registerBuyFeature(): void {
 	// Register the two built-in defs the buy-bonus flow renders: the `featureCard` (the SELECT menu's
 	// per-mode card) and the generic `confirmDialog` (the CONFIRM step's `<ConfirmDialog>` / the twin
 	// of the retired HTML `ModalBuyBonusConfirm`), so both `componentInstance`s resolve at render.
-	registerComponents({
-		[FEATURE_CARD_DEF.id]: FEATURE_CARD_DEF,
-		[CONFIRM_DIALOG_DEF.id]: CONFIRM_DIALOG_DEF,
-	});
+	// Register as BUILT-IN (lowest precedence): this call runs AFTER the game's boot
+	// `registerBakedComponents()`, so an unflagged re-register would clobber a project's
+	// EDITED `featureCard`/`confirmDialog` with the coded default. Flagged, the built-in
+	// only seeds the id when no project/baked def exists — the project shadow wins (§8).
+	registerComponents(
+		{
+			[FEATURE_CARD_DEF.id]: FEATURE_CARD_DEF,
+			[CONFIRM_DIALOG_DEF.id]: CONFIRM_DIALOG_DEF,
+		},
+		{ builtin: true },
+	);
 	registerRepeaterSources({
 		featureCards: repeaterSource(() =>
 			Object.values(stateMeta.betModeMeta)
