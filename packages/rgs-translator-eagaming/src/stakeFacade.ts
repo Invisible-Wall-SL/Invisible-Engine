@@ -422,6 +422,30 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 		push({ type: 'updateFreeSpin', amount: Math.max(0, played - 1), total: played + left });
 	};
 
+	// A win's `meta.lineIndex` must be a 0-based ORDINAL into the server's payline list — that is what
+	// the engine's `paylineColor()` and the info page index by. The raw `paylineId` cannot be trusted
+	// for that: the BOOK protocol numbers its lines 1-based (`p + 1`) while the LINES protocol is
+	// 0-based (`p`), so passing `paylineId` straight through shifted every Book win's authored colour by
+	// one line (it fell through to the Symbols-tool default). Resolve the index from the win's actual
+	// payline SHAPE against the captured server config instead — base-agnostic and exact. Falls back to
+	// the raw `paylineId` when there's no shape (scatter/special wins) or no captured config (parity).
+	const serverPaylines = (() => {
+		const cfg = capturedConfig.get(sid) as
+			| { availablePayLines?: number[][]; paylines?: number[][] }
+			| undefined;
+		return cfg?.availablePayLines ?? cfg?.paylines ?? null;
+	})();
+	const lineIndexFor = (c: { context?: unknown }): number => {
+		const shape = (c.context as { payline?: number[] })?.payline;
+		if (serverPaylines && Array.isArray(shape)) {
+			const i = serverPaylines.findIndex(
+				(pl) => pl.length === shape.length && pl.every((r, k) => r === shape[k]),
+			);
+			if (i >= 0) return i;
+		}
+		return (c.context as { paylineId?: number })?.paylineId ?? -1;
+	};
+
 	const flushWins = () => {
 		for (const c of pendingWins) {
 			const winAmount = toBookEventAmount(c.pay ?? 0, betBaseCents);
@@ -436,7 +460,7 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 						win: winAmount,
 						positions: winPositions(c),
 						meta: {
-							lineIndex: (c.context as { paylineId?: number })?.paylineId ?? -1,
+							lineIndex: lineIndexFor(c),
 							multiplier: 1,
 							winWithoutMult: winAmount,
 							globalMult: 1,
