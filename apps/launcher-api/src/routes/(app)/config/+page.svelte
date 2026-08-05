@@ -9,7 +9,6 @@
 		normalizeGameConfigDoc,
 		resolveBetModes,
 		resolveWinLevels,
-		symbolFrequencies,
 		symbolsInPlay,
 		validateGameConfigDoc,
 		type BetModeKind,
@@ -48,7 +47,6 @@
 	/** THE GATE, live: what the strips actually deal. Every "is X in play?" the page asks reads this,
 	 *  never the dictionary — the one rule the whole tool exists to hold. */
 	const inPlay = $derived(new Set(symbolsInPlay(snapshot)));
-	const frequencies = $derived(symbolFrequencies(snapshot));
 	const issues = $derived(validateGameConfigDoc(snapshot));
 	const errors = $derived(issues.filter((i) => i.severity === 'error'));
 	const warnings = $derived(issues.filter((i) => i.severity === 'warning'));
@@ -442,14 +440,25 @@
 	// Paylines are SERVER-DEFINED at runtime (the game reads its active lines from the RGS), so the
 	// visual grid is a read-only view here — no cell-move / add / remove. Only the per-line COLOUR is
 	// authored (the sparse `paylineColors` path above). See `docs/design/invisible-game-config.md`.
-
-	// ── Reel strips ──────────────────────────────────────────────────────────────
-	// The in-play symbol set + cosmetic spin strips are SERVER-DEFINED / auto-generated at runtime, so
-	// this panel is a read-only view of the resolved doc. `stripText` renders each strip; there is no
-	// setter — nothing here is authored.
-	function stripText(gameType: string, reel: number): string {
-		return (doc.paddingReels[gameType]?.[reel] ?? []).map((c) => c.name).join(' ');
-	}
+	//
+	// When the RGS is reachable (`data.serverPaylines`) the panel previews the REAL server set rather
+	// than the saved doc, so the tool reflects what actually ships (e.g. Book of Borut = 10, not 20
+	// authored). The per-line COLOUR keys off the authored doc EXACTLY as the runtime does:
+	// `paylineColor(lineIndex)` (`apps/lines/src/game/gameConfig.ts`) maps an ordinal index to
+	// `Object.keys(paylines)[i]`, so colour `i` binds to the doc's payline id at position `i`. A server
+	// line PAST the end of the authored doc has no such id, and the runtime returns `undefined` for it
+	// (no positional fallback) — so it's `colorable: false` here: shown read-only, no swatch, rather
+	// than accepting a colour the game would silently ignore. Null server set ⇒ saved `doc.paylines`.
+	const displayPaylines = $derived.by(() => {
+		const docIds = Object.keys(doc.paylines);
+		if (data.serverPaylines)
+			return data.serverPaylines.map((rows, i) => ({
+				id: docIds[i] ?? `server-${i + 1}`,
+				rows,
+				colorable: i < docIds.length,
+			}));
+		return docIds.map((id) => ({ id, rows: doc.paylines[id], colorable: true }));
+	});
 
 	// ── Win tiers (big-win levels) ─────────────────────────────────────────────────
 	// OPTIONAL config-authored win tiers (an Invisible-Engine extension, not part of the Stake export).
@@ -1176,11 +1185,24 @@
 		<!-- Paylines --------------------------------------------------------------->
 		<section>
 			<h2>Paylines</h2>
-			<div class="banner locked">
-				<strong>Paylines are defined by the server (RGS) at runtime</strong> — this game reads its
-				active lines from the RGS, so the shape below is read-only here. Only the per-line
-				<strong>colour</strong> is editable.
-			</div>
+			{#if data.serverPaylines}
+				<div class="banner locked">
+					<strong>These are the live server (RGS) paylines</strong> — the {data.serverPaylines
+						.length} line{data.serverPaylines.length === 1 ? '' : 's'} this game actually deals at runtime,
+					read straight from the RGS. The shape is read-only; only the per-line
+					<strong>colour</strong> is editable.
+				</div>
+			{:else}
+				<div class="banner locked">
+					<strong>Paylines are defined by the server (RGS) at runtime</strong> — this game reads its
+					active lines from the RGS, so the shape below is read-only here. Only the per-line
+					<strong>colour</strong> is editable.
+				</div>
+				<p class="hint muted-note">
+					Couldn't reach the RGS — showing the saved config's lines instead. The game still reads
+					its active lines from the server at runtime.
+				</p>
+			{/if}
 			<p class="hint">
 				Each line is one cell per reel. The <strong>swatch</strong> sets an optional
 				<strong>line colour</strong>: the game draws that line's win in this colour and broadcasts
@@ -1188,38 +1210,46 @@
 				the Symbols tool).
 			</p>
 			<div class="paylines">
-				{#each Object.keys(doc.paylines) as id (id)}
-					{@const tint = hasPaylineColor(id) ? paylineColorValue(id) : null}
+				{#each displayPaylines as line (line.id)}
+					{@const tint =
+						line.colorable && hasPaylineColor(line.id) ? paylineColorValue(line.id) : null}
 					<div class="payline">
 						<div class="payline-head">
-							<span class="payline-id" style={tint ? `color:${tint}` : ''}>Line {id}</span>
-							<div class="payline-tools">
-								<input
-									class="swatch"
-									type="color"
-									value={paylineColorValue(id)}
-									oninput={(e) => setPaylineColor(id, e.currentTarget.value)}
-									title="Line colour"
-								/>
-								{#if tint}
-									<button class="del" title="Clear colour" onclick={() => clearPaylineColor(id)}
-										>⌫</button
-									>
-								{/if}
-							</div>
+							<span class="payline-id" style={tint ? `color:${tint}` : ''}>Line {line.id}</span>
+							{#if line.colorable}
+								<div class="payline-tools">
+									<input
+										class="swatch"
+										type="color"
+										value={paylineColorValue(line.id)}
+										oninput={(e) => setPaylineColor(line.id, e.currentTarget.value)}
+										title="Line colour"
+									/>
+									{#if tint}
+										<button
+											class="del"
+											title="Clear colour"
+											onclick={() => clearPaylineColor(line.id)}>⌫</button
+										>
+									{/if}
+								</div>
+							{/if}
 						</div>
-						<div class="payline-grid" style="grid-template-columns: repeat({doc.numReels}, 1fr);">
-							{#each Array(doc.numReels) as _, reel (reel)}
+						<div
+							class="payline-grid"
+							style="grid-template-columns: repeat({line.rows.length}, 1fr);"
+						>
+							{#each line.rows as seatRow, reel (reel)}
 								<div class="reel-col">
 									{#each Array(doc.numRows[reel] ?? maxRows) as _, row (row)}
-										{@const on = doc.paylines[id][reel] === row}
+										{@const on = seatRow === row}
 										<!-- Read-only: the RGS owns the line shape at runtime. A disabled cell so it
 										     reads out the active line but a click can't move it. -->
 										<button
 											class="cell"
 											class:on
 											style={on && tint ? `background:${tint};border-color:${tint}` : ''}
-											aria-label="Line {id} reel {reel + 1} row {row + 1}"
+											aria-label="Line {line.id} reel {reel + 1} row {row + 1}"
 											disabled
 										></button>
 									{/each}
@@ -1230,44 +1260,6 @@
 				{/each}
 			</div>
 			{#each issuesFor('paylines') as issue (issue.path + issue.message)}
-				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
-			{/each}
-		</section>
-
-		<!-- Reel strips ------------------------------------------------------------>
-		<section>
-			<h2>Reel strips</h2>
-			<div class="banner locked">
-				<strong>Reel strips are server-defined / auto now</strong> — the in-play symbol set comes from
-				the RGS at runtime and the cosmetic spin strips are generated from it, so this panel is a read-only
-				view. There is nothing to author here.
-			</div>
-			<p class="hint">
-				The cosmetic strips the reels cycle through — and the one statement of which symbols reach
-				the board. Not the real weighted math strips (the math team owns those); a symbol's count
-				here is only how often it flickers past. One reel per box (read-only).
-			</p>
-			{#each gameTypes as gameType (gameType)}
-				<div class="strips">
-					<div class="strips-head">
-						<span class="game-type">{gameType}</span>
-					</div>
-					<div class="strip-cols">
-						{#each Array(doc.numReels) as _, reel (reel)}
-							<div class="strip-col">
-								<div class="strip-label">Reel {reel + 1}</div>
-								<textarea value={stripText(gameType, reel)} readonly spellcheck="false"></textarea>
-								<div class="freq">
-									{#each Object.entries(frequencies[gameType]?.[reel] ?? {}).sort((a, b) => b[1] - a[1]) as [name, count] (name)}
-										<span class="chip" class:out={!inPlay.has(name)}>{name}<b>{count}</b></span>
-									{/each}
-								</div>
-							</div>
-						{/each}
-					</div>
-				</div>
-			{/each}
-			{#each issuesFor('paddingReels') as issue (issue.path + issue.message)}
 				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 			{/each}
 		</section>
@@ -1943,70 +1935,10 @@
 		background: #7ee0c0;
 		border-color: #7ee0c0;
 	}
-	.strips {
-		border: 1px solid #1c1c24;
-		border-radius: 10px;
-		padding: 12px;
-		margin-bottom: 14px;
-		background: #0e0e14;
-	}
-	.strips-head {
-		display: flex;
-		justify-content: space-between;
-		align-items: center;
-		margin-bottom: 10px;
-	}
-	.game-type {
-		font-family: ui-monospace, monospace;
-		color: #c8a3ff;
-		font-size: 13px;
-	}
-	.strip-cols {
-		display: flex;
-		gap: 10px;
-		overflow-x: auto;
-	}
-	.strip-col {
-		flex: 1;
-		min-width: 130px;
-	}
-	.strip-label {
-		font-size: 11px;
-		color: #8b8b98;
-		margin-bottom: 4px;
-	}
-	.strip-col textarea {
-		width: 100%;
-		height: 160px;
-		resize: vertical;
-		font-family: ui-monospace, monospace;
-		font-size: 12px;
-		line-height: 1.5;
-	}
-	.freq {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 3px;
-		margin-top: 6px;
-	}
-	.chip {
-		font-size: 10px;
-		font-family: ui-monospace, monospace;
-		background: #16161d;
-		color: #9a9aa8;
-		padding: 1px 4px;
-		border-radius: 3px;
-	}
-	.chip.out {
-		background: #33231a;
-		color: #d39b6f;
-	}
-	.chip b {
-		margin-left: 3px;
-		color: #7ee0c0;
-	}
-	.chip.out b {
-		color: #d39b6f;
+	.muted-note {
+		opacity: 0.8;
+		font-style: italic;
+		margin-top: -4px;
 	}
 	.linkish {
 		background: none;
