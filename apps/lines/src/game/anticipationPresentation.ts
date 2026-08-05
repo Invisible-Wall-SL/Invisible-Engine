@@ -1,9 +1,8 @@
 import type { AnticipationTier } from 'utils-slots';
 
-import { SYMBOL_SIZE, REEL_PADDING } from './constants';
 import { bakedAnticipation } from '../editor-scenes';
 import { activeBigTiers } from './gameConfig';
-import { stateGame, stateGameDerived } from './stateGame.svelte';
+import { getSymbolX, stateGame, stateGameDerived } from './stateGame.svelte';
 
 /**
  * Presentation state for the client-computed reel-anticipation MODE (`docs/design/reel-anticipation.md`,
@@ -148,12 +147,38 @@ export const activeMaxTier = (): AnticipationTier | null => {
 };
 
 /**
- * A reel's symbol-centre X in game (main) space — the coded/default board geometry the recovered overlay
- * used (`boardLayout` + `(reelIndex + REEL_PADDING) · SYMBOL_SIZE`). Exact at board scale 1 (the shipped /
- * dev Borut board); an editor-scaled/gapped board is a Phase-3 seam (design §Non-goals — pixel-accurate
- * framing of a non-default board).
+ * A reel's symbol-centre X in game (main / world) space. The overlay stack renders as a SIBLING of
+ * `<Board/>` inside `MainContainer` (world space), so this world-maps the SAME reactive board-local
+ * `getSymbolX` the real reel symbols use through the board container transform
+ * (`world = layout.x + (local − pivot) · scale`). This makes the overlay/dim follow a resized, gapped
+ * or nudged board automatically (the owner's bigger-cell board). On the DEFAULT board (no `reelGrid`
+ * override) `getSymbolX` reproduces `SYMBOL_SIZE · (reelIndex + REEL_PADDING)`, `scale === 1` and
+ * `pivot.x === width/2`, so this is byte-identical to the previous
+ * `layout.x − layout.width·0.5 + (reelIndex + REEL_PADDING)·SYMBOL_SIZE`.
  */
 export const reelCenterX = (reelIndex: number): number => {
 	const layout = stateGameDerived.boardLayout();
-	return layout.x - layout.width * 0.5 + (reelIndex + REEL_PADDING) * SYMBOL_SIZE;
+	return layout.x + (getSymbolX(reelIndex) - layout.pivot.x) * layout.scale;
 };
+
+/**
+ * A single reel column's VISIBLE cell width in world space — the live `cellWidthLocal` mapped through
+ * the board scale, so the overlay/dim fill the ACTUAL cell on a resized/gapped board. Default board:
+ * `SYMBOL_SIZE · 1 === SYMBOL_SIZE` (byte-parity with the old fixed dim width).
+ */
+export const reelColumnWidth = (): number => {
+	const layout = stateGameDerived.boardLayout();
+	return stateGameDerived.boardGeometry().cellWidthLocal * layout.scale;
+};
+
+/**
+ * The full reel-column HEIGHT in world space — the board's local height mapped through the board scale.
+ * Default board: `BOARD_SIZES.height · 1`, i.e. byte-parity with the old `boardLayout().height` dim.
+ */
+export const boardColumnHeight = (): number => {
+	const layout = stateGameDerived.boardLayout();
+	return layout.height * layout.scale;
+};
+
+/** The board's vertical CENTRE in world space (the container `y`, since its anchor is {0.5, 0.5}). */
+export const boardCenterYWorld = (): number => stateGameDerived.boardLayout().y;

@@ -4,13 +4,15 @@
 	import { Rectangle } from 'pixi-svelte';
 
 	import { getContext } from '../game/context';
-	import { SYMBOL_SIZE } from '../game/constants';
 	import {
 		armedReelIndices,
 		activeReelIndices,
 		isAnticipationActive,
 		activeMaxTier,
 		reelCenterX,
+		reelColumnWidth,
+		boardColumnHeight,
+		boardCenterYWorld,
 		resolveTierFx,
 	} from '../game/anticipationPresentation';
 	import Anticipation from './Anticipation.svelte';
@@ -37,9 +39,6 @@
 					.filter((index) => !active.includes(index))
 			: [],
 	);
-
-	const boardHeight = $derived(context.stateGameDerived.boardLayout().height);
-	const boardCenterY = $derived(context.stateGameDerived.boardLayout().y);
 </script>
 
 <!-- SFX — reuse the registered `sfx_anticipation` loop with the recovered fade-in / fade-out, mounted
@@ -72,9 +71,9 @@
 	<Rectangle
 		anchor={{ x: 0.5, y: 0.5 }}
 		x={reelCenterX(reelIndex)}
-		y={boardCenterY}
-		width={SYMBOL_SIZE}
-		height={boardHeight}
+		y={boardCenterYWorld()}
+		width={reelColumnWidth()}
+		height={boardColumnHeight()}
 		backgroundColor={0x05070f}
 		backgroundAlpha={0.58}
 	/>
