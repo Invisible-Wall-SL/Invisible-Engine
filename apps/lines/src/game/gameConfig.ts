@@ -70,16 +70,73 @@ export function resetGameConfigCache(): void {
 	warned = false;
 }
 
-/** Every symbol this game can actually deal — the gate, sourced from `packages/game-config` so
- *  there is one implementation and not a second answer here. */
+// ---------------------------------------------------------------------------
+// Server-config overlay — the RGS's DECLARED boot config, server-authoritative at runtime.
+//
+// The Play4Fun facade (`packages/rgs-translator-eagaming/stakeFacade.ts`) publishes the server's
+// boot `config` event to `globalThis.__IE_SERVER_CONFIG__` (mirror of the `__IE_WIN_LEVELS__`
+// engine→facade bridge, in reverse: facade→engine, since the facade cannot import this app). When
+// it is present the RGS is the authority on the game's DERIVED display data — paylines / line count,
+// the in-play symbol GATE, the cosmetic strips and per-line colour indexing all follow the server.
+//
+// Read FRESH here on every accessor call rather than folded into the memoised `getActiveGameConfig()`
+// doc: the `config` event arrives asynchronously (during `requestAuthenticate`), which can be AFTER
+// the memo resets at boot, and these accessors run per-render / per-spin — so a live read picks the
+// config up the moment it lands, with no cache to invalidate. Undefined ⇒ no config event (a dev app
+// on plain `rgs-requests`, the real Stake RGS, or any host with no facade) ⇒ every accessor falls
+// through to the authored doc, byte-identical to before (parity).
+// ---------------------------------------------------------------------------
+
+type ServerGameConfig = {
+	availablePayLines: number[][];
+	symbols: string[];
+	window?: { reels: number; rows: number };
+};
+
+/** The RGS-declared config, or `undefined` when no config event has been published (⇒ parity). A
+ *  config with no symbols is treated as absent — it cannot describe an in-play set or strips. */
+function serverConfig(): ServerGameConfig | undefined {
+	const cfg = (globalThis as { __IE_SERVER_CONFIG__?: ServerGameConfig }).__IE_SERVER_CONFIG__;
+	if (!cfg || !Array.isArray(cfg.symbols) || cfg.symbols.length === 0) return undefined;
+	return cfg;
+}
+
+/**
+ * Auto-generate cosmetic reel strips from the server's in-play symbol set. When the RGS is
+ * authoritative there are no authored strips to cycle, and the real weighted strips never reach the
+ * client — this is ONLY the spinning blur, so a plain repeat of the in-play symbols (rotated per
+ * reel so adjacent columns differ) is all the visual needs. Length covers `initialBoard()`'s
+ * `rows + 2` window and gives the roll enough cells to look continuous.
+ */
+function serverPaddingReels(server: ServerGameConfig): Array<Array<{ name: string }>> {
+	const symbols = server.symbols;
+	if (symbols.length === 0) return [];
+	const reels = server.window?.reels ?? server.availablePayLines[0]?.length ?? symbols.length;
+	const rows = server.window?.rows ?? 3;
+	const length = Math.max(rows + 2, symbols.length, 12);
+	return Array.from({ length: reels }, (_unused, reel) => {
+		const offset = reel % symbols.length;
+		const rotated = [...symbols.slice(offset), ...symbols.slice(0, offset)];
+		return Array.from({ length }, (_c, i) => ({ name: rotated[i % rotated.length] }));
+	});
+}
+
+/** Every symbol this game can actually deal — the gate. The server's declared symbol set when the
+ *  RGS is authoritative, else `packages/game-config`'s strip-derived gate (one implementation, no
+ *  second answer). Sorted to match `symbolsInPlay`. */
 export function getSymbolsInPlay(): string[] {
+	const server = serverConfig();
+	if (server) return [...server.symbols].sort();
 	return symbolsInPlay(getActiveGameConfig());
 }
 
 /** The cosmetic strips for one game type, or `[]` when the config declares no such type. Empty
  *  rather than `undefined` so a caller indexing an unknown game type gets an empty reel, not a
- *  crash mid-spin. */
+ *  crash mid-spin. When the RGS is authoritative the strips are auto-generated from its in-play set
+ *  (there are no authored strips) — the same generated blur for every game type. */
 export function getPaddingReels(gameType: string): Array<Array<{ name: string }>> {
+	const server = serverConfig();
+	if (server) return serverPaddingReels(server);
 	return getActiveGameConfig().paddingReels[gameType] ?? [];
 }
 
@@ -95,22 +152,32 @@ export function paddingReels(gameType: GameType): RawSymbol[][] {
 	return getPaddingReels(gameType) as RawSymbol[][];
 }
 
-/** Line count — the bet-per-line divisor (`total bet / numLines`). */
+/** Line count — the bet-per-line divisor (`total bet / numLines`). The server's `availablePayLines`
+ *  count when the RGS is authoritative (so displayed per-line pay values divide by the real line
+ *  count), else the authored doc's payline count. */
 export function getNumLines(): number {
+	const lines = serverConfig()?.availablePayLines;
+	if (lines && lines.length > 0) return lines.length;
 	return Object.keys(getActiveGameConfig().paylines).length;
 }
 
-/** Paylines as row indices per reel, in declaration order — what the info page draws. */
+/** Paylines as row indices per reel, in declaration order — what the info page draws. The server's
+ *  `availablePayLines` when the RGS is authoritative, else the authored doc's paylines. */
 export function getPaylines(): number[][] {
+	const lines = serverConfig()?.availablePayLines;
+	if (lines && lines.length > 0) return lines;
 	return Object.values(getActiveGameConfig().paylines);
 }
 
 /**
- * The authored colour (`#rrggbb`) for a payline by its 0-based DECLARATION index — the same index a
- * win reports in `meta.lineIndex`. `paylines`/`paylineColors` are both keyed by payline id, so the
- * index is mapped through `Object.keys(paylines)`. Returns `undefined` when the line isn't coloured
- * (or the config predates the field), so the caller falls back to the single Symbols-tool win-line
- * colour — an un-coloured game is byte-identical to before.
+ * The authored colour (`#rrggbb`) for a payline by its 0-based line INDEX — the same index a win
+ * reports in `meta.lineIndex` (the server paylineId) and the index the info page walks `getPaylines`
+ * by. The authored colours are keyed by payline id; both the authored `paylines` and the server's
+ * `availablePayLines` describe the SAME lines in the SAME order, so the ordinal index maps cleanly
+ * to the authored id at that position — `Object.keys(paylines)[index]` — whether the lines came from
+ * the server or the doc. Returns `undefined` when the line isn't coloured (or the config predates the
+ * field), so the caller falls back to the single Symbols-tool win-line colour — an un-coloured game
+ * is byte-identical to before.
  */
 export function paylineColor(lineIndex: number | undefined): string | undefined {
 	if (lineIndex === undefined || lineIndex < 0) return undefined;

@@ -88,6 +88,39 @@ const findConfigEvent = (events: Play4FunBookEvent[] | undefined): Play4FunConfi
 	return null;
 };
 
+/**
+ * Publish the server's DECLARED boot config to a global the ENGINE reads
+ * (`apps/lines/src/game/gameConfig.ts` → `serverConfig()`). The SAME decoupled-global rationale as
+ * `__IE_WIN_LEVELS__` (below): the facade is a drop-in for `rgs-requests` and cannot import the app,
+ * so a global is the only bridge. It makes the RGS's own declaration SERVER-AUTHORITATIVE for the
+ * game's derived display data — paylines / line count, the in-play symbol GATE, the cosmetic reel
+ * strips, per-line colour indexing, anticipation reach — instead of the compiled/authored template.
+ * Only the three fields the engine reads (`availablePayLines`, `symbols`, `window`).
+ * Never written when no `config` event arrives ⇒ the global stays undefined ⇒ every engine accessor
+ * falls back to the authored doc, byte-identical to before (parity).
+ *
+ * `symbols` is mapped through `activeMapping` FIRST — the reveal board, wins and the whole engine
+ * run in Stake CLIENT-symbol space (`H1`/`L1`/`S`), never the server's raw vocabulary
+ * (`PIC1`/`ACE`/`SCAT`), because `mapSymbol` translates every reveal cell (see the `reveal` push).
+ * Publishing the raw names would make the in-play GATE and the auto-generated strips speak a
+ * vocabulary the client dictionary and symbol-art map don't know — a blank paytable and undrawable
+ * reels. `availablePayLines` (row indices per reel) is symbol-agnostic, so it is NOT mapped. */
+type EngineServerConfig = {
+	availablePayLines: number[][];
+	symbols: string[];
+	window?: { reels: number; rows: number };
+};
+
+const publishServerConfig = (cfg: Play4FunConfigContext): void => {
+	const mapNames = (names: unknown): string[] =>
+		Array.isArray(names) ? [...new Set(names.map((n) => mapSymbol(activeMapping, n)))] : [];
+	(globalThis as { __IE_SERVER_CONFIG__?: EngineServerConfig }).__IE_SERVER_CONFIG__ = {
+		availablePayLines: Array.isArray(cfg.availablePayLines) ? cfg.availablePayLines : [],
+		symbols: mapNames(cfg.symbols),
+		window: cfg.window,
+	};
+};
+
 /** Capture the boot config (first one wins). Returns the captured config so
  *  callers can immediately run the cross-check on the same data. */
 const captureConfig = (
@@ -101,6 +134,8 @@ const captureConfig = (
 	// Auto-select the symbol mapping from the declared vocabulary.
 	const detected = pickMappingForConfig(cfg);
 	if (detected) activeMapping = detected;
+	// Bridge the server's declaration to the engine so paylines/in-play/strips/colours follow it.
+	publishServerConfig(cfg);
 	return cfg;
 };
 

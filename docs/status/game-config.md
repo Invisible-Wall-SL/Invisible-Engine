@@ -306,6 +306,44 @@ already in `assembleRuntimeBundle` + the bake) — no new asset class. But the E
 online game needs a **Runtime release + republish** to pick up this behavior; a `main` merge alone does
 not reach a live game.
 
+## Server-authoritative paylines & reel strips (Phase 7)
+
+Paylines and the in-play symbol set are now **server-authoritative at runtime**, and the `/config`
+paylines + strips panels are locked to **colour-only** / read-only. Design: `invisible-game-config.md`
+Phase 7. Engine + facade typecheck + build verified; the facade→engine bridge verified end-to-end
+against the book mock (18-check node harness, all pass). Launcher render is owner-verify-owed
+(launcher-only), as with the rest of the tool. Needs a **Runtime release + republish** to reach online
+games (the reading code ships in `_runtime/lines`).
+
+- **Facade → engine bridge.** `stakeFacade.ts` `captureConfig` publishes the server's boot config
+  (`{ availablePayLines, symbols, window }`, `symbols` mapped into client space) to
+  `globalThis.__IE_SERVER_CONFIG__` — the `__IE_WIN_LEVELS__` pattern in reverse (facade→engine),
+  since the facade can't import the app. Cleared/undefined when no `config` event ⇒ parity.
+- **Engine overlay.** `game/gameConfig.ts` gains `serverConfig()` — a LIVE read of the global, NOT
+  folded into the memoised `getActiveGameConfig()` doc (the config event lands async, after the memo
+  resets; accessors run per-render/per-spin, so a fresh read picks it up with no cache to reset —
+  documented beside `resetGameConfigCache` in `Game.svelte`). When present it drives `getPaylines()`
+  / `getNumLines()` (server `availablePayLines`), `getSymbolsInPlay()` (server `symbols` = the in-play
+  GATE), and `paddingReels()`/`getPaddingReels()` (auto-generated cosmetic strips from the in-play set
+  — a per-reel rotated repeat, ≥ `rows+2` long). `paylineColor()` keeps the AUTHORED colours mapped by
+  the server payline index (unchanged code — colours read the authored doc, which is what keeps it
+  colour-only). Absent server config ⇒ every accessor falls through to the authored/compiled doc,
+  byte-identical.
+- **Consumers follow for free.** `paytable.ts` (`numLines`/in-play filter), `infoManifest.ts`
+  (paylines/numLines/paylineColors), `anticipation.ts` (paylines/numLines/reach), `initialBoard()` and
+  the spinning reel all read those accessors, so line count, per-line pay display, the info page, the
+  in-play badges and the anticipation reach re-point at the server with no per-consumer change.
+- **Tool.** `/config` Paylines panel: cell grid + add-line + remove-line disabled with a banner
+  (server owns the lines); the per-line colour swatch + clear stay editable (sparse `paylineColors`).
+  Reel-strips panel: textareas read-only, add/remove game-type disabled, banner. Other panels + raw
+  JSON untouched. Dead `setPaylineCell`/`setStrip` removed.
+- **Verified:** `game-config typecheck` + `game-config-spike` (pass; the CRLF `lines.json` drift is
+  the lone pre-existing failure, unrelated), `lines build`, `launcher-api build`, facade isolated tsc.
+  The bridge + overlay contract were proven with a node harness that drives the real `requestAuthenticate`
+  against the book mock: with the config event present, `getPaylines()`/`getNumLines()` reflect the 10
+  server lines, `getSymbolsInPlay()` the 10 book symbols (SCAT included), and strips auto-generate 5×;
+  with it absent, all fall back to the authored doc (18/18).
+
 ## Open items / next
 
 1. ✅ ~~**Live-verify the launcher surfaces**~~ — DONE (owner click-through, 2026-08-04): `/config`
@@ -326,6 +364,15 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 - _None._ The live-verify that was the standing external gate is done (owner-confirmed 2026-08-04).
 
 ## Recent changes
+
+- 2026-08-05 — **Phase 7: server-authoritative paylines & reel strips (colour-only in the tool).**
+  The facade publishes the RGS's declared boot config to `globalThis.__IE_SERVER_CONFIG__`
+  (`captureConfig`, the `__IE_WIN_LEVELS__` bridge in reverse); `game/gameConfig.ts` reads it live
+  (`serverConfig()`, not memoised) so `getPaylines`/`getNumLines`/`getSymbolsInPlay` follow the server
+  and `paddingReels` auto-generates cosmetic strips from the in-play set. `/config` paylines + strips
+  panels locked read-only (paylines keep the colour swatch). Absent server config ⇒ byte-identical.
+  Engine/facade build + typecheck; 18-check node harness against the book mock (all pass). Needs a
+  Runtime release + republish to reach online games. See the Phase 7 section above.
 
 - 2026-08-04 — **Live-verified + closed (owner-confirmed).** The owner clicked through `/config` +
   `/editor` in the deployed launcher and ran an end-to-end (incl. non-5×3) spin. The one remaining

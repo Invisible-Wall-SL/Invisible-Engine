@@ -255,6 +255,12 @@
 		// paytable despite having authored its own, which is the entire failure Invisible Game
 		// Config exists to fix.
 		resetGameConfigCache();
+		// The RGS server-config overlay (`__IE_SERVER_CONFIG__`, published by the Play4Fun facade on the
+		// boot `config` event) needs NO reset here: `gameConfig.ts`'s accessors read it live from the
+		// global on every call, so a config that arrives AFTER this boot branch (it lands during
+		// authenticate) still takes effect the next time paylines / numLines / the in-play gate / strips
+		// are read (per-render / per-spin). Deliberately not folded into the memoised config for that
+		// reason (`docs/design/invisible-game-config.md`, server-authoritative phase).
 		// The board was built at `stateGame` module init from the compiled template's grid — before
 		// this bundle landed. Rebuild it now the authored config is live, so an online project's
 		// numReels/numRows actually resizes the board (grid-dimensions enhancement). No-op in effect
