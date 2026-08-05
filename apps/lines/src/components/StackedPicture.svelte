@@ -1,0 +1,55 @@
+<script lang="ts">
+	import { Container, Sprite, Flipbook, SpineProvider, SpineTrack, Rectangle } from 'pixi-svelte';
+	import { resolveFlipbook } from 'engine-layout';
+
+	import { getContext } from '../game/context';
+	import { getSymbolInfo } from '../game/utils';
+	import type { StackedPictureRun } from '../game/stateGame.svelte';
+
+	/**
+	 * One tall stacked picture for the stacked-picture reel mode (docs/design/stacked-picture-mode.md).
+	 * Draws the run symbol's `stacked` state art (sprite / spine / flipbook — the SAME state-machine
+	 * binding, authored in the Invisible Symbols State Machine) into a box `naturalCells` tall, then
+	 * masks it to the top `visibleCells` cells so a partial stack shows the top N/M, top-aligned.
+	 *
+	 * Coordinate space: the parent mounts this inside the resting board container, so `run.x` /
+	 * `run.topEdgeY` are the SAME board-local coordinates `BoardBase` uses. The container is centred on
+	 * the full picture (anchor 0.5 everywhere avoids depending on object anchors); the mask rectangle
+	 * then reveals only the top `visibleCells` from the box top.
+	 */
+	const { run }: { run: StackedPictureRun } = $props();
+	const context = getContext();
+
+	const geometry = $derived(context.stateGameDerived.boardGeometry());
+	const info = $derived(getSymbolInfo({ rawSymbol: { name: run.name }, state: 'stacked' }));
+
+	// Box = cell width × the FULL picture height (naturalCells). Art is stretched to fill it, so a
+	// tall picture authored at the box aspect renders undistorted while a placeholder icon still fills
+	// and crops (making the mechanic visible before real art is bound).
+	const boxW = $derived(geometry.cellWidthLocal);
+	const boxH = $derived(run.naturalCells * geometry.rowPitchLocal);
+	const maskH = $derived(run.visibleCells * geometry.rowPitchLocal);
+	// Generous horizontal span — the crop is VERTICAL only, so the mask must never clip the sides.
+	const maskW = $derived(boxW * 2);
+
+	const isSprite = $derived(info.type === 'sprite');
+	const isFlipbook = $derived(info.type === 'flipbook');
+	const clip = $derived(isFlipbook && info.clipId ? resolveFlipbook(info.clipId) : undefined);
+</script>
+
+<Container x={run.x} y={run.topEdgeY + boxH / 2}>
+	{#if isSprite}
+		<Sprite key={info.assetKey} anchor={0.5} width={boxW} height={boxH} />
+	{:else if isFlipbook && clip}
+		<Flipbook {clip} anchor={0.5} width={boxW} height={boxH} />
+	{:else if isFlipbook}
+		<!-- Dangling clip ⇒ the cell's primary frame, mirroring SymbolFlipbook's fallback. -->
+		<Sprite key={info.assetKey} anchor={0.5} width={boxW} height={boxH} />
+	{:else if info.animationName}
+		<SpineProvider key={info.assetKey} anchor={0.5} width={boxW} height={boxH}>
+			<SpineTrack trackIndex={0} animationName={info.animationName} loop />
+		</SpineProvider>
+	{/if}
+
+	<Rectangle isMask x={-maskW / 2} y={-boxH / 2} width={maskW} height={maskH} />
+</Container>

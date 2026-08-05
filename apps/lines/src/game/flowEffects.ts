@@ -429,6 +429,14 @@ const toConfidence = (value: unknown): 'possible' | 'guaranteed' | undefined =>
 const boolOr = (value: unknown, fallback: boolean): boolean =>
 	typeof value === 'boolean' ? value : fallback;
 
+/** Coerce a Flow `list<enum>` payload into a string set, or `null` for an unwired/empty pin (⇒ keep
+ *  the config default eligible set). */
+const toStringArray = (value: unknown): string[] | null => {
+	if (!Array.isArray(value)) return null;
+	const strings = value.filter((v): v is string => typeof v === 'string' && v.length > 0);
+	return strings.length ? strings : null;
+};
+
 // ---------------------------------------------------------------------------
 // The named-effect map — the implementation side of every `effect` node in the
 // apps/lines FlowDoc (`flowDoc.ts`). Bodies are the coded handler leaves, verbatim.
@@ -545,6 +553,35 @@ const effects: Record<string, FlowEffect> = {
 		stateGame.minAnticipateReel = 2;
 		stateGame.anticipationGreyOut = true;
 		stateGame.anticipationZoom = true;
+	},
+
+	/**
+	 * Enable the STACKED-PICTURE reel mode (docs/design/stacked-picture-mode.md) — a LINES-only visual:
+	 * a contiguous vertical run of the same eligible symbol draws one tall picture (the symbol's
+	 * `stacked` state art) over the run, cropped to the top `runLength ÷ naturalHeight` and top-aligned.
+	 * OFF by default, so authoring this effect is what turns it on (byte-parity until then); same
+	 * enable/disable + payload shape as {@link enableAnticipationMode}.
+	 *
+	 * `symbols` overrides the eligible set (unset ⇒ the config default = high pays + Wild). `highPayOnly`
+	 * (default true) picks the config default set vs "every symbol may stack" when no explicit `symbols`
+	 * is given. `minRun` (default 2) is the shortest run that draws a picture. Idempotent: re-firing
+	 * re-applies the payload over the defaults.
+	 */
+	enableStackedPictures: (payload) => {
+		stateGame.stackedPictureMode = true;
+		stateGame.stackedPictureSymbols = toStringArray(payload.symbols);
+		stateGame.stackedPictureHighPayOnly = boolOr(payload.highPayOnly, true);
+		const minRun = numberOrUndefined(payload.minRun);
+		if (minRun !== undefined) stateGame.stackedPictureMinRun = Math.max(2, Math.floor(minRun));
+	},
+
+	/** Disable the stacked-picture mode + reset the payload overrides to their defaults — mirrors
+	 *  {@link disableAnticipationMode}, so a later `enableStackedPictures {}` starts clean. */
+	disableStackedPictures: () => {
+		stateGame.stackedPictureMode = false;
+		stateGame.stackedPictureSymbols = null;
+		stateGame.stackedPictureHighPayOnly = true;
+		stateGame.stackedPictureMinRun = 2;
 	},
 
 	/** Set the win-meter amount (`setTotalWin`). */

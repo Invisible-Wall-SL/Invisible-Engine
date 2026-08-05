@@ -9,6 +9,7 @@
 
 import {
 	BOOK_SYMBOL_STATES,
+	LINES_SYMBOL_STATES,
 	SYMBOL_STATE_LABELS,
 	SYMBOL_STATES,
 	type SymbolNameEntry,
@@ -25,18 +26,24 @@ export type SymbolState = SymbolStateName;
  *  book game — see {@link visibleStatesFor}. */
 export const BOOK_STATES = BOOK_SYMBOL_STATES;
 const BOOK_STATE_SET = new Set<SymbolState>(BOOK_STATES);
+/** The lines-only state(s) — the stacked-picture mode's tall art. Shown as a grid column only for a
+ *  `lines` game (a Book-of never stacks pictures). See {@link visibleStatesFor}. */
+const LINES_STATE_SET = new Set<SymbolState>(LINES_SYMBOL_STATES);
 
 /** Human labels for the column headers — shared with the Scene Editor's `symbolState`
  *  dropdown so a state reads the same in both tools. */
 export const STATE_LABELS: Record<SymbolState, string> = SYMBOL_STATE_LABELS;
 
-/** The columns the grid renders for a given project game type: always the base
- *  states, plus the two book states ONLY for a book game (`gameType === 'bookOf'`).
- *  Mirrors the launcher's `GameKind` ids (`$lib/roles`); kept inline because this
- *  module is browser-side and the roles list is not worth importing for one literal. */
+/** The columns the grid renders for a given project game type: always the base states, plus the two
+ *  book states ONLY for a book game (`gameType === 'bookOf'`) and the stacked-picture state ONLY for a
+ *  lines game. Mirrors the launcher's `GameKind` ids (`$lib/roles`); kept inline because this module is
+ *  browser-side and the roles list is not worth importing for one literal. */
 export function visibleStatesFor(gameType: string | undefined): readonly SymbolState[] {
-	if (gameType === 'bookOf') return SYMBOL_STATES;
-	return SYMBOL_STATES.filter((s) => !BOOK_STATE_SET.has(s));
+	return SYMBOL_STATES.filter((s) => {
+		if (BOOK_STATE_SET.has(s)) return gameType === 'bookOf';
+		if (LINES_STATE_SET.has(s)) return gameType === 'lines';
+		return true;
+	});
 }
 
 export interface SizeRatios {

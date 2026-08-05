@@ -56,6 +56,24 @@ export const PORTRAIT_MAIN_SIZES = {
 
 export const HIGH_SYMBOLS = ['H1', 'H2', 'H3', 'H4', 'H5'];
 
+/**
+ * Stacked-picture reel mode (docs/design/stacked-picture-mode.md). A LINES-only visual: when a
+ * column lands a contiguous vertical run of the same eligible symbol, one tall picture (the symbol's
+ * `stacked` state art) is drawn over the run, cropped to the TOP `runLength ÷ naturalHeight` and
+ * top-aligned. OFF by default — a Flow effect (`enableStackedPictures`) turns it on, so nothing here
+ * changes the game until authored (byte-parity).
+ *
+ * `heights` = each symbol's NATURAL picture height in cells (the crop denominator). `symbols` = the
+ * default eligible set (high pays + Wild); a Flow payload can override it. `minRun` = the shortest
+ * run that draws a picture. No magic ids in the components — they read this map. All per-game and
+ * later overridable from the Invisible Game Config.
+ */
+export const STACKED_PICTURE = {
+	heights: { H1: 2, H2: 3, H3: 3, H4: 4, H5: 4, W: 5 } as Record<string, number>,
+	symbols: [...HIGH_SYMBOLS, 'W'],
+	minRun: 2,
+};
+
 export const INITIAL_SYMBOL_STATE: SymbolState = 'static';
 
 const HIGH_SYMBOL_SIZE = 0.9;

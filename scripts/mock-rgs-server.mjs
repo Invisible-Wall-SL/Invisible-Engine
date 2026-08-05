@@ -247,6 +247,14 @@ export function createMockRgs(opts = {}) {
 	const paylines =
 		Array.isArray(opts.paylines) && opts.paylines.length ? opts.paylines : DEFAULT_PAYLINES;
 
+	// Stacked-picture test mode (docs/design/stacked-picture-mode.md): deal contiguous high-symbol
+	// runs + a full-height WILD so the engine's stacked-picture reel mode has data to render. Opt-in
+	// (`STACKED=1` env or `createMockRgs({ stacked: true })`); OFF ⇒ the normal weighted deal.
+	const stackedDeal = opts.stacked === true || process.env.STACKED === '1';
+	// PICs that the lines facade maps to HIGH symbols (PIC1..PIC4 → H1..H4); WILD → W. These are the
+	// symbols the mode stacks, so the test deal draws runs of them.
+	const STACK_PICS = ['PIC1', 'PIC2', 'PIC3', 'PIC4'];
+
 	/** sid -> { balance, round | null, configSent } */
 	const sessions = new Map();
 	const getSession = (sid) => {
@@ -273,6 +281,26 @@ export function createMockRgs(opts = {}) {
 	/** 5 reels × 3 visible rows */
 	const spinReels = () =>
 		Array.from({ length: reelCount }, () => Array.from({ length: rowCount }, pickSymbol));
+
+	/**
+	 * Stacked-picture test deal: every reel is likely to carry ONE contiguous run of a high symbol
+	 * (length 2..rows, random start ⇒ partial + full crops), and the LAST reel is a full-height WILD
+	 * (the 5-tall Wild the mode must render whole). Non-run cells fall back to the normal weighted draw.
+	 * Only used when `stackedDeal` is on, so the default deal is untouched.
+	 */
+	const spinReelsStacked = () =>
+		Array.from({ length: reelCount }, (_ignored, reel) => {
+			const column = Array.from({ length: rowCount }, pickSymbol);
+			if (reel === reelCount - 1) return Array.from({ length: rowCount }, () => 'WILD');
+			if (nextRand() < 0.7) {
+				const symbol = STACK_PICS[Math.floor(nextRand() * STACK_PICS.length)];
+				const maxRun = Math.max(2, rowCount);
+				const runLength = Math.min(maxRun, 2 + Math.floor(nextRand() * (rowCount - 1)));
+				const start = Math.floor(nextRand() * (rowCount - runLength + 1));
+				for (let i = 0; i < runLength; i++) column[start + i] = symbol;
+			}
+			return column;
+		});
 
 	const handleEngine = async (req, res, url) => {
 		const sid = url.searchParams.get('sid');
@@ -381,7 +409,7 @@ export function createMockRgs(opts = {}) {
 							platform: {},
 						});
 					}
-					const reels = spinReels();
+					const reels = stackedDeal ? spinReelsStacked() : spinReels();
 					pendingRound.reels = reels;
 					const lineWins = evaluatePaylines(reels, pendingRound.betPerLine, paylines);
 					const scatterWin = evaluateScatters(reels, pendingRound.total);

@@ -396,6 +396,22 @@ export const BOOK_OF_VOCAB: TemplateVocabulary = {
 			category: 'effect',
 		},
 		{ name: 'disableAnticipationMode', params: [], category: 'effect' },
+		// Stacked-picture reel mode (docs/design/stacked-picture-mode.md) — a LINES-only visual: a
+		// contiguous vertical run of the same eligible symbol draws one tall picture (its `stacked`
+		// state art) over the run, cropped to the top `runLength ÷ naturalHeight` and top-aligned.
+		// `symbols` overrides the eligible set (unset ⇒ config default = high pays + Wild); `highPayOnly`
+		// (default true) picks that default vs "every symbol may stack"; `minRun` (default 2) is the
+		// shortest run drawn. Off by default ⇒ leave it unauthored for byte-parity.
+		{
+			name: 'enableStackedPictures',
+			params: [
+				{ name: 'symbols', type: list(SYMBOL), optional: true },
+				{ name: 'highPayOnly', type: BOOL, optional: true },
+				{ name: 'minRun', type: INT, optional: true },
+			],
+			category: 'effect',
+		},
+		{ name: 'disableStackedPictures', params: [], category: 'effect' },
 		{ name: 'setFreeSpinCounterTotal', params: [{ name: 'total', type: INT }], category: 'effect' },
 		{
 			name: 'setFreeSpinCounterTotalOnly',

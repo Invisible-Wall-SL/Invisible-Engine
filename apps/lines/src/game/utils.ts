@@ -202,8 +202,15 @@ export const getSymbolInfo = ({
 	// authored Symbols-State-Machine override) unless a book binding is explicitly authored,
 	// so the reveal/idle always mirrors the live win art rather than a stale coded default.
 	const map = getActiveSymbolInfoMap();
+	// Special-Book states inherit `win` (above); the stacked-picture state inherits `static` when a
+	// project has not yet authored a tall picture for the symbol — so the mode renders SOMETHING (the
+	// icon, cropped/placed) before real art is bound in the Symbols State Machine.
 	const resolveState =
-		(state === 'bookIntro' || state === 'bookIdle') && !map[rawSymbol.name][state] ? 'win' : state;
+		(state === 'bookIntro' || state === 'bookIdle') && !map[rawSymbol.name][state]
+			? 'win'
+			: state === 'stacked' && !map[rawSymbol.name][state]
+				? 'static'
+				: state;
 	const cell = map[rawSymbol.name][resolveState];
 	const resolved = resolveSymbolSizeRatios(rawSymbol.name, resolveState);
 	return {

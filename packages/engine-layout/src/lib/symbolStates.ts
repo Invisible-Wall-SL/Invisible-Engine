@@ -22,6 +22,7 @@ export const SYMBOL_STATES = [
 	'explosion',
 	'bookIntro',
 	'bookIdle',
+	'stacked',
 ] as const;
 
 export type SymbolStateName = (typeof SYMBOL_STATES)[number];
@@ -30,6 +31,12 @@ export type SymbolStateName = (typeof SYMBOL_STATES)[number];
  *  book game's bindings always round-trip), but the Symbols grid only shows their columns
  *  for a book game. */
 export const BOOK_SYMBOL_STATES = ['bookIntro', 'bookIdle'] as const;
+
+/** The LINES-only state — the stacked-picture reel mode's tall art (docs/design/stacked-picture-mode.md).
+ *  A Book-of never stacks pictures, so the Symbols grid should only show its column for a lines game
+ *  (same gating idea as {@link BOOK_SYMBOL_STATES}); the doc schema still accepts it for every game so
+ *  bindings round-trip. */
+export const LINES_SYMBOL_STATES = ['stacked'] as const;
 
 /** Human labels — the Symbols grid column headers, reused by the editor's dropdown so a
  *  state reads the same in both tools. */
@@ -42,4 +49,5 @@ export const SYMBOL_STATE_LABELS: Record<SymbolStateName, string> = {
 	explosion: 'Explosion',
 	bookIntro: 'Book reveal',
 	bookIdle: 'Book idle',
+	stacked: 'Stacked picture',
 };
