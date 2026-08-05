@@ -3,6 +3,7 @@ import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listClips } from '$lib/server/flipbookStorage';
 import { resolveEditorFonts } from '$lib/server/fonts';
+import { resolveBigTiers } from '$lib/server/gameConfigDefaults';
 import { listEffects } from '$lib/server/fxStorage';
 import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
@@ -66,6 +67,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// Book of Borut shows its symbols; fall back to the committed coded set for an
 	// un-published project (or `apps/lines` dev) resolved by game type.
 	const defaults = published ?? symbolDefaultsFor(gameType);
+	// The project's config-authored BIG-win tiers drive the reel-anticipation panel: ONE FX column per
+	// big tier, keyed by its alias — mirroring the same tiers the game arms (`activeBigTiers`), so the
+	// panel grows/shrinks with `/config` rather than a fixed big/mega/massive triple. Resolved after
+	// the batch since it needs the resolved `gameType`.
+	const bigTiers = await resolveBigTiers(clientKey, projectKey, gameType);
 	// `docEtag` guards the save against a concurrent author; null = never authored.
 	const { doc, etag: docEtag } = loaded;
 
@@ -73,6 +79,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		clientKey,
 		projectKey,
 		docEtag,
+		bigTiers,
 		projectName: await projectName(projectKey),
 		// The grid gates the two book-only state columns (`bookIntro`/`bookIdle`) on
 		// this — they show only for a book game (`gameType === 'bookOf'`).

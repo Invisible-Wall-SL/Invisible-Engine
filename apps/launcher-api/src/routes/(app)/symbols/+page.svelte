@@ -64,9 +64,6 @@
 		WIN_CYCLE_DELAY_DEFAULT,
 		SYMBOL_CELL_TYPES,
 		SYMBOL_CELL_TYPE_LABELS,
-		ANTICIPATION_TIERS,
-		ANTICIPATION_TIER_LABELS,
-		ANTICIPATION_FX_DEFAULTS,
 		BOOK_VFX_KINDS,
 		BOOK_VFX_KIND_LABELS,
 		type AnticipationTier,
@@ -812,11 +809,13 @@
 	}
 
 	// ── Reel anticipation (the escalating tease mode's presentation FX) ────────
-	// A game-level panel (not per-symbol): the per-tier escalation FX (big → mega → massive) the
-	// client-computed anticipation mode plays, plus an optional overlay spine swap. The editable twin
-	// of the engine's coded `ANTICIPATION_TIER_FX`; every field falls through to `ANTICIPATION_FX_DEFAULTS`
-	// when unset, so the doc stays sparse and an un-authored project is byte-identical to Phase 4. The
-	// mode itself is turned on/off from Flow — this only styles it.
+	// A game-level panel (not per-symbol): ONE FX column per configured BIG-win tier (`/config`), keyed
+	// by the tier's alias, the client-computed anticipation mode plays as the reachable win climbs. The
+	// editable twin of the engine's coded `codedTierFx` ramp; every field falls through to the ramp
+	// default for that tier's rank when unset, so the doc stays sparse and an un-authored project is
+	// byte-identical. The mode itself is turned on/off from Flow — this only styles it. The columns
+	// mirror the config big tiers, so they grow/shrink with `/config` (a note shows when there are none).
+	const bigTiers = $derived(data.bigTiers);
 	const anticipationOverridden = $derived(!!doc.anticipation);
 
 	/** The overlay spine bundles the author can swap in — the same R2 spine list the highlight /
@@ -1815,10 +1814,11 @@
 							<h2>Reel anticipation</h2>
 							<p class="wl-sub">
 								The escalating tease the game plays while a big win is still reachable on the reels
-								yet to stop. Style each tier's intensity — the camera zoom, the overlay spine's
-								scale / opacity / tint, and the loop volume — climbing big → mega → massive. The
-								mode itself is turned on and off from Flow; this only styles it. Leave a field at
-								its default to keep the game's coded value.
+								yet to stop. There's one column per configured big-win tier — style each tier's
+								intensity (the camera zoom, the overlay spine's scale / opacity / tint, and the loop
+								volume), climbing as the reachable win crosses each tier. The mode itself is turned
+								on and off from Flow; this only styles it. Leave a field at its default to keep the
+								game's coded value.
 							</p>
 						</div>
 						{#if anticipationOverridden}
@@ -1852,94 +1852,151 @@
 								</span>
 							</div>
 
-							<div class="ant-tiers">
-								{#each ANTICIPATION_TIERS as tier (tier)}
-									<div class="ant-tier">
-										<h3>{ANTICIPATION_TIER_LABELS[tier]}</h3>
-										<label class="field">
-											<span class="label">
-												Zoom ×{anticipationFieldValue(doc, tier, 'zoom').toFixed(2)}
-											</span>
-											<input
-												type="range"
-												min="1"
-												max="1.6"
-												step="0.01"
-												value={anticipationFieldValue(doc, tier, 'zoom')}
-												oninput={(e) =>
-													patchAnticipationTier(tier, { zoom: Number(e.currentTarget.value) })}
-											/>
-										</label>
-										<label class="field">
-											<span class="label">
-												Overlay scale ×{anticipationFieldValue(doc, tier, 'overlayScale').toFixed(
-													2,
-												)}
-											</span>
-											<input
-												type="range"
-												min="0.5"
-												max="2"
-												step="0.01"
-												value={anticipationFieldValue(doc, tier, 'overlayScale')}
-												oninput={(e) =>
-													patchAnticipationTier(tier, {
-														overlayScale: Number(e.currentTarget.value),
-													})}
-											/>
-										</label>
-										<label class="field">
-											<span class="label">
-												Overlay opacity {anticipationFieldValue(doc, tier, 'overlayAlpha').toFixed(
-													2,
-												)}
-											</span>
-											<input
-												type="range"
-												min="0"
-												max="1"
-												step="0.01"
-												value={anticipationFieldValue(doc, tier, 'overlayAlpha')}
-												oninput={(e) =>
-													patchAnticipationTier(tier, {
-														overlayAlpha: Number(e.currentTarget.value),
-													})}
-											/>
-										</label>
-										<label class="field">
-											<span class="label">Overlay tint</span>
-											<input
-												type="color"
-												value={anticipationFieldValue(doc, tier, 'overlayTint')}
-												oninput={(e) =>
-													patchAnticipationTier(tier, { overlayTint: e.currentTarget.value })}
-											/>
-										</label>
-										<label class="field">
-											<span class="label">
-												Loop volume {anticipationFieldValue(doc, tier, 'soundVolume').toFixed(2)}
-											</span>
-											<input
-												type="range"
-												min="0"
-												max="1"
-												step="0.05"
-												value={anticipationFieldValue(doc, tier, 'soundVolume')}
-												oninput={(e) =>
-													patchAnticipationTier(tier, {
-														soundVolume: Number(e.currentTarget.value),
-													})}
-											/>
-										</label>
-									</div>
-								{/each}
-							</div>
-							<p class="wl-note">
-								A white tint (<code>#ffffff</code>) leaves the overlay's own colours; a hotter tint
-								multiplies over them — the coded defaults climb white → amber → red. The reel-tease
-								mode is armed from Flow (enable / disable anticipation); with it off, none of this
-								renders.
-							</p>
+							{#if bigTiers.length === 0}
+								<p class="wl-note">
+									This project has no big-win tiers yet, so there's nothing to style. Add big-win
+									tiers in <strong>Invisible Game Config</strong> (<code>/config</code> → “Big win tiers”)
+									first — one anticipation FX column then appears here per big tier.
+								</p>
+							{:else}
+								<div class="ant-tiers">
+									{#each bigTiers as tier, rank (tier.alias)}
+										{@const count = bigTiers.length}
+										<div class="ant-tier">
+											<h3>{tier.name}</h3>
+											<label class="field">
+												<span class="label">
+													Zoom ×{anticipationFieldValue(
+														doc,
+														tier.alias,
+														rank,
+														count,
+														'zoom',
+													).toFixed(2)}
+												</span>
+												<input
+													type="range"
+													min="1"
+													max="1.6"
+													step="0.01"
+													value={anticipationFieldValue(doc, tier.alias, rank, count, 'zoom')}
+													oninput={(e) =>
+														patchAnticipationTier(tier.alias, {
+															zoom: Number(e.currentTarget.value),
+														})}
+												/>
+											</label>
+											<label class="field">
+												<span class="label">
+													Overlay scale ×{anticipationFieldValue(
+														doc,
+														tier.alias,
+														rank,
+														count,
+														'overlayScale',
+													).toFixed(2)}
+												</span>
+												<input
+													type="range"
+													min="0.5"
+													max="2"
+													step="0.01"
+													value={anticipationFieldValue(
+														doc,
+														tier.alias,
+														rank,
+														count,
+														'overlayScale',
+													)}
+													oninput={(e) =>
+														patchAnticipationTier(tier.alias, {
+															overlayScale: Number(e.currentTarget.value),
+														})}
+												/>
+											</label>
+											<label class="field">
+												<span class="label">
+													Overlay opacity {anticipationFieldValue(
+														doc,
+														tier.alias,
+														rank,
+														count,
+														'overlayAlpha',
+													).toFixed(2)}
+												</span>
+												<input
+													type="range"
+													min="0"
+													max="1"
+													step="0.01"
+													value={anticipationFieldValue(
+														doc,
+														tier.alias,
+														rank,
+														count,
+														'overlayAlpha',
+													)}
+													oninput={(e) =>
+														patchAnticipationTier(tier.alias, {
+															overlayAlpha: Number(e.currentTarget.value),
+														})}
+												/>
+											</label>
+											<label class="field">
+												<span class="label">Overlay tint</span>
+												<input
+													type="color"
+													value={anticipationFieldValue(
+														doc,
+														tier.alias,
+														rank,
+														count,
+														'overlayTint',
+													)}
+													oninput={(e) =>
+														patchAnticipationTier(tier.alias, {
+															overlayTint: e.currentTarget.value,
+														})}
+												/>
+											</label>
+											<label class="field">
+												<span class="label">
+													Loop volume {anticipationFieldValue(
+														doc,
+														tier.alias,
+														rank,
+														count,
+														'soundVolume',
+													).toFixed(2)}
+												</span>
+												<input
+													type="range"
+													min="0"
+													max="1"
+													step="0.05"
+													value={anticipationFieldValue(
+														doc,
+														tier.alias,
+														rank,
+														count,
+														'soundVolume',
+													)}
+													oninput={(e) =>
+														patchAnticipationTier(tier.alias, {
+															soundVolume: Number(e.currentTarget.value),
+														})}
+												/>
+											</label>
+										</div>
+									{/each}
+								</div>
+								<p class="wl-note">
+									A white tint (<code>#ffffff</code>) leaves the overlay's own colours; a hotter
+									tint multiplies over them — the coded defaults ramp white → hot orange as the
+									tiers climb. The reel-tease mode is armed from Flow (enable / disable
+									anticipation); with it off, none of this renders.
+								</p>
+							{/if}
 						</div>
 					</div>
 				</section>
@@ -2894,7 +2951,7 @@
 		width: 100%;
 		accent-color: #5b8cff;
 	}
-	/* Reel-anticipation tiers: three side-by-side columns of the same field controls. */
+	/* Reel-anticipation tiers: one side-by-side column per configured big-win tier (auto-fit). */
 	.ant-tiers {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

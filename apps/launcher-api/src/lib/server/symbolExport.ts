@@ -143,7 +143,7 @@ export interface SymbolExportResult {
 	/** The reel-anticipation presentation FX (per-tier escalation + optional overlay spine key),
 	 *  passed through VERBATIM. A swapped `spineKey` bundle rides `index.spines` under the same key
 	 *  (like `boardGlow`); the per-tier FX are pure config (no asset). Absent → the game keeps its
-	 *  coded `ANTICIPATION_TIER_FX` (byte-parity with Phase 4). */
+	 *  coded `codedTierFx` ramp (byte-parity with Phase 4). */
 	anticipation?: SymbolsDoc['anticipation'];
 }
 
@@ -516,7 +516,8 @@ export async function exportEditorSymbols(
 
 	// The reel-anticipation FX. Its optional `spineKey` bundle already shipped via `refs.spineKeys`
 	// into `index.spines` under this same key (like `boardGlow`); the per-tier FX are pure config, so
-	// this is a verbatim pass-through of the sparse authored doc. Absent → coded `ANTICIPATION_TIER_FX`.
+	// this is a verbatim pass-through of the sparse authored doc (alias-keyed per-tier FX). Absent →
+	// the coded `codedTierFx` ramp.
 	const anticipation = doc.anticipation;
 
 	// Display names — another assetless pass-through, omitted when nothing is named so an

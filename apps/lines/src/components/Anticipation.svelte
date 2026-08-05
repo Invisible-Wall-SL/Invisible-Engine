@@ -26,9 +26,10 @@
 	// after the out completes rather than leaving a frozen final frame on a settled reel.
 	let done = $state(false);
 
-	// This reel's tier FX (intensity climbs big → mega → massive), resolved through the single choke
-	// point — the authored Symbols SM override ?? the coded `ANTICIPATION_TIER_FX` default.
-	const fx = $derived(resolveTierFx(props.reel.reelState.anticipationTier ?? 'big'));
+	// This reel's tier FX (intensity climbs with the config big tiers), resolved through the single
+	// choke point — the authored Symbols SM override ?? the coded ramp. A null tier (trigger-only arm)
+	// resolves to the ramp's lowest step.
+	const fx = $derived(resolveTierFx(props.reel.reelState.anticipationTier));
 	// The overlay spine key — authored `anticipation.spineKey` ?? the coded `anticipation` spine.
 	const spineKey = $derived(resolveAnticipationSpineKey());
 

@@ -1,5 +1,5 @@
 import { createLinesReach } from 'utils-slots';
-import type { AnticipationReach, ReelAnticipationArming, AnticipationTier } from 'utils-slots';
+import type { AnticipationReach, ReelAnticipationArming } from 'utils-slots';
 
 import { stateGame } from './stateGame.svelte';
 import {
@@ -7,7 +7,7 @@ import {
 	getNumLines,
 	getPaylines,
 	boardDimensions,
-	activeBigTierThresholds,
+	activeBigTiers,
 } from './gameConfig';
 import { paytable } from './paytable';
 import type { BookEventOfType } from './typesBookEvent';
@@ -66,13 +66,6 @@ function buildReach(board: string[][]): {
 	return { reach, triggerCount };
 }
 
-/** Coarse tier label from a stack level. */
-function tierForLevel(level: number): AnticipationTier {
-	if (level >= 3) return 'massive';
-	if (level === 2) return 'mega';
-	return 'big';
-}
-
 /**
  * Build the per-reel arming policy for one reveal, or `undefined` when anticipation mode is off (the
  * spin then runs the plain path — byte-parity). The returned function is called by
@@ -92,7 +85,11 @@ export function buildAnticipationArming(
 
 	const { reach, triggerCount } = buildReach(board);
 	const bound = stateGame.anticipationConfidence === 'guaranteed' ? 'min' : 'max';
-	const bigThresholds = activeBigTierThresholds();
+	// The config big-win tiers (ascending) drive BOTH the numeric stack level and the tier ALIAS: the
+	// win-reach arming stacks a level per big threshold crossed, and the reached tier's alias tags the
+	// reel so the FX ramp + `/symbols` panel key off the same config tiers (no fixed big/mega/massive).
+	const bigTiers = activeBigTiers();
+	const bigThresholds = bigTiers.map((tier) => tier.threshold);
 	const smallestBig = bigThresholds[0];
 	const minReel = stateGame.minAnticipateReel;
 
@@ -115,6 +112,9 @@ export function buildAnticipationArming(
 		}
 
 		if (level <= 0) return null;
-		return { level, tier: tierForLevel(level) };
+		// The tier alias = the big tier the reachable win reached (rank `level`, 1-based). A
+		// trigger-only arm with no big tier configured leaves `tier` null (the FX ramp then uses its
+		// lowest step) — `level` stays the numeric rank on `reelState.anticipationLevel`.
+		return { level, tier: bigTiers[level - 1]?.alias ?? null };
 	};
 }

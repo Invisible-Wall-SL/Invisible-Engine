@@ -40,7 +40,7 @@ committed `lines` set.
 The published set is **filtered to the symbols the game actually uses** — the publish step
 reads the game config (`src/game/config.ts` → its `symbols` map, the authoritative in-play
 set) and drops any symbol present in `SYMBOL_INFO_MAP` but not in the config (e.g. an unused
-`H5`), so the grid mirrors the built game rather than every symbol the engine *can* render.
+`H5`), so the grid mirrors the built game rather than every symbol the engine _can_ render.
 A project that published before this filter existed keeps its old full set until it
 **republishes** (any tokened build re-runs `publish:symbols`).
 
@@ -57,11 +57,12 @@ tool top bar). Switch projects from the launcher before opening the tool.
    the clip's **first frame** as a still, captioned with the clip name + frame count. A cell
    with no binding shows `unset`.
 
-   Flipbook cells are deliberately *not* animated in the grid: N per-cell tickers would cost
+   Flipbook cells are deliberately _not_ animated in the grid: N per-cell tickers would cost
    far more than the one shared spine canvas, and the question the grid answers is "which
    clip is bound here", which the first frame plus the clip name answers. If a clip is
    deleted in `/flipbook` after being bound here, the cell's caption reads
    `<clipId> (missing)` rather than going quietly blank.
+
 2. **Spot your edits.** A cell you've overridden gets a blue border and an **edited**
    badge. A small **↺** button in its corner **resets that cell to the coded default**
    (removing the override). The whole grid scrolls vertically; cells resize with the
@@ -69,7 +70,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
 3. **Open the cell editor.** Click any cell to open the side panel for that
    `symbol · state`. The panel loads a draft of the cell's current binding.
 4. **Choose the type.** Toggle between **Sprite**, **Spine**, and **Flipbook**. Switching
-   type clears the asset binding *and* every field that no longer applies (the animation
+   type clears the asset binding _and_ every field that no longer applies (the animation
    name when you leave Spine, the clip when you leave Flipbook), since a frame name is not
    a spine bundle is not a clip.
    - **Sprite:** use the **Frame** picker (the same `RegionPicker` the editor uses) to
@@ -79,7 +80,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
      skeleton; if it hasn't loaded yet you can type the animation name. Leaving it blank
      plays the skeleton's first animation. A live **Preview** plays the chosen animation.
    - **Flipbook:** pick a **Clip** from the project's Invisible Flipbook clips (each
-     listed with its frame count). Picking a clip sets the cell's `clipId` *and* its
+     listed with its frame count). Picking a clip sets the cell's `clipId` _and_ its
      `assetKey` to the clip's primary sheet, so the cell is never assetless. The panel
      shows the clip's **first frame** as a still — it is not a player; scrub playback
      lives in [Invisible Flipbook](/docs/flipbook), which owns the clip.
@@ -94,7 +95,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
 7. **Reload from R2.** The header **↻ Reload from R2** button re-fetches the spine bundles
    and their previews from R2. Use it after you re-export or replace a spine bundle (e.g.
    re-rigging in the Invisible Rigger) — otherwise the grid + pickers keep showing the
-   *cached* skeleton, because spine art is loaded once per bundle and the skeleton/page
+   _cached_ skeleton, because spine art is loaded once per bundle and the skeleton/page
    files are HTTP-cached. Reloading drops those caches (previews refresh with the new art +
    animation names) and re-reads the project's bundle list (a brand-new bundle appears in
    the spine pickers). Your unsaved cell edits are preserved.
@@ -102,7 +103,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
 ### Naming a symbol (what the game calls it out loud)
 
 Each row's left-hand label carries two boxes under the symbol id: **Name** and **Plural**.
-This is the word the game *says* for that symbol — `H1` → "Banana" / "Bananas". The id never
+This is the word the game _says_ for that symbol — `H1` → "Banana" / "Bananas". The id never
 changes; bindings, book events and every other tool keep referring to `H1`.
 
 [Invisible Win Text](./win-text.md) prints it as `{symbolName}`, so with `H1` named a win
@@ -120,7 +121,7 @@ symbol here and every win message follows — there is nothing to edit in the ot
 
 ### Symbol size lives on the reel, not here
 
-This tool no longer sets symbol size — size is a *layout* concern. To change how big the
+This tool no longer sets symbol size — size is a _layout_ concern. To change how big the
 symbol art renders inside each reel cell, open the **Invisible Scene Editor** (`/editor`),
 select the reel, and use the **"Symbol size (× cell)"** Width/Height control on the reel's
 properties (see [the Scene Editor guide](./invisible-editor.md#symbol-size-on-the-reel)).
@@ -170,7 +171,7 @@ in-game per win, so it needs no bake step — it reads the live game config at w
 ### Free-spin board glow
 
 Below the highlight is the **Free-spin board glow** section. The board glow is the
-single, **global** spine that lights up *behind the reels* for the duration of a
+single, **global** spine that lights up _behind the reels_ for the duration of a
 free-spin session — the pink "reelhouse" backdrop in a stock game. Like the highlight, the
 built-in default (spine key `reelhouse`) lives in the game's own repo, NOT in R2 — and like
 the highlight it **previews live** from the launcher's vendored copy
@@ -191,11 +192,11 @@ Nothing is written unless you set it, so an untouched project is byte-identical.
 bundle travels the same export/bake chain as a per-symbol spine cell.
 
 **What this section does and doesn't control.** It owns the glow's **art** — the engine
-still owns the *sequence* (start → idle → exit) and the *timing*. Timing is authored in
+still owns the _sequence_ (start → idle → exit) and the _timing_. Timing is authored in
 **Invisible Flow** (`/flow-v2`): the coded free-spin handlers fire the glow on
 `freeSpinTrigger` / `freeSpinEnd`, and a flow that OWNS those events drives it with the
 `boardFrameGlowShow` / `boardFrameGlowHide` **Fire Cue** nodes. If you want to replace the
-glow *entirely* — your own layered art, not one spine — use the **Board glow (free spins)**
+glow _entirely_ — your own layered art, not one spine — use the **Board glow (free spins)**
 screen in the Scene Editor instead; real content there suppresses the coded glow (and with
 it this section's override).
 
@@ -209,7 +210,7 @@ project. When it's on, two groups of controls appear:
 
 - **Line** — **Colour**; **Thickness** (a fraction of the symbol size); **Glow** on/off
   and its **Glow colour**; **Animated draw** on/off (the line draws from the first paying
-  tile to the last, *then* the amount appears) and its **Speed** (a draw-speed multiplier;
+  tile to the last, _then_ the amount appears) and its **Speed** (a draw-speed multiplier;
   disabled unless Animated is on); **Show full payline** on/off and its **Full payline
   colour**. Off (default) the line traces only the winning symbols, up to where the amount is
   stamped; on, the WHOLE payline is drawn across all reels in the chosen colour, with the
@@ -218,7 +219,7 @@ project. When it's on, two groups of controls appear:
 - **Win amount text** — **Font** (chosen from the project's bitmap fonts — the engine
   builtins `gold`/`goldblur`/`silver`/`purple` plus any Font-Maker fonts); **Size** (a
   fraction of the symbol size); **Colour**. Because the amount is bitmap text, the colour
-  *tints* it — clean on a light font, but tinting an already-coloured font (e.g. gold) just
+  _tints_ it — clean on a light font, but tinting an already-coloured font (e.g. gold) just
   darkens it, so to recolour cleanly pick a differently-coloured font.
 
 A **Reset win-line style** button clears the style back to the game's coded defaults while
@@ -265,7 +266,7 @@ still draws the line — just without the number under it. (It's disabled when t
 off, since there's no line for the amount to sit under.) Stored as `winCycle.showText` (only
 the off-state persists).
 
-That switch only asks the replay to *reuse* the line; the **Win lines** section above still
+That switch only asks the replay to _reuse_ the line; the **Win lines** section above still
 owns whether a line exists at all. With the overlay off nothing is drawn either way, and a
 scatter win — which pays "anywhere", not on a line — never draws one but still lights its
 symbols. This is also why the replay is its own section rather than a win-line setting:
@@ -283,21 +284,30 @@ only an OFF and an authored `delay` (in seconds) persist — passed straight thr
 ### Reel anticipation
 
 Below the win-symbol replay is the **Reel anticipation** section — the presentation FX for the
-client-computed *tease* mode (the reels slowing/escalating while a big win is still reachable on
+client-computed _tease_ mode (the reels slowing/escalating while a big win is still reachable on
 the reels yet to stop). It is a **game-level** panel, not per-symbol, mirroring Highlight and Win
 lines. The **mode itself is armed and disarmed from Flow** (enable / disable anticipation); this
-section only *styles* it.
+section only _styles_ it.
 
-Three tier columns — **Big → Mega → Massive** — each with the same controls:
+There is **one tier column per configured big-win tier** — the panel reads the project's big-win
+tiers from **Invisible Game Config** (`/config` → "Big win tiers") and shows a column per tier, in
+ascending order, headed by the tier's player-facing **name** (e.g. `SUPER WIN`). So the columns grow
+and shrink with the config rather than a fixed Big/Mega/Massive triple; each column authors the FX
+for its tier, keyed by the tier's **alias**. If the project has **no** big-win tiers yet, the panel
+shows a note asking you to add them in `/config` first. Each column has the same controls:
 
 - **Zoom** — how far the camera pushes in toward the armed reels.
 - **Overlay scale** / **Overlay opacity** — the per-reel anticipation spine's size and alpha.
 - **Overlay tint** — a MULTIPLY tint over the overlay spine (a colour picker). White (`#ffffff`)
-  keeps the spine's own colours; a hotter tint tints them — the coded defaults climb
-  white → amber → red.
+  keeps the spine's own colours; a hotter tint tints them — the coded defaults ramp
+  white → hot orange as the tiers climb.
 - **Loop volume** — the anticipation SFX loop's target volume for that tier.
 
-An **Overlay spine** select at the top swaps *which* skeleton drives the per-reel overlay. The
+The default values shown in each column come from a coded FX **ramp** interpolated across however
+many big tiers there are (the first tier gets the low end, the last the high end), so an escalation
+is sensible no matter how many tiers the config defines.
+
+An **Overlay spine** select at the top swaps _which_ skeleton drives the per-reel overlay. The
 default is the game's built-in `anticipation` spine; a swapped bundle must expose the
 `anticipation_intro / _loop / _out` animations, since the game still owns the intro → loop → out
 chaining (same contract as the board glow). Only R2 spine bundles already available to the project
@@ -308,11 +318,13 @@ sparse: an untouched project ships **no `anticipation` key** and the mode is byt
 before this panel existed. **Reset to default** (shown once anything is overridden) clears the whole
 section.
 
-Stored as `anticipation: { spineKey?, tiers?: { big?, mega?, massive? } }`, each tier a sparse
-`{ zoom?, overlayScale?, overlayAlpha?, overlayTint?, soundVolume? }` (tint is a `#rrggbb` hex).
-Passed through verbatim to `bundle.symbols.anticipation` at export/bake; the engine resolves it in
-`apps/lines/src/game/anticipationPresentation.ts` (`resolveTierFx` / `resolveAnticipationSpineKey`),
-merging each authored field over the coded `ANTICIPATION_TIER_FX` fallback.
+Stored as `anticipation: { spineKey?, tiers?: Record<tierAlias, TierFx> }` — the `tiers` record is
+keyed by the config big-win tier **alias** (dynamic, sparse: only overridden tiers appear), each
+value a sparse `{ zoom?, overlayScale?, overlayAlpha?, overlayTint?, soundVolume? }` (tint is a
+`#rrggbb` hex). Passed through verbatim to `bundle.symbols.anticipation` at export/bake; the engine
+resolves it in `apps/lines/src/game/anticipationPresentation.ts` (`resolveTierFx` /
+`resolveAnticipationSpineKey`), merging each authored field over the coded `codedTierFx` ramp for
+that tier's rank among the config big tiers (`activeBigTiers`).
 
 ### Saving is not the last step — shipping a rebind
 

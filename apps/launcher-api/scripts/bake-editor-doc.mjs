@@ -437,10 +437,11 @@ async function main() {
 				const out = {};
 				if (typeof a.spineKey === 'string' && a.spineKey) out.spineKey = a.spineKey;
 				if (a.tiers && typeof a.tiers === 'object') {
+					// Alias-keyed dynamic record: one entry per configured big-win tier, not a fixed
+					// big/mega/massive triple. Copy every non-empty tier verbatim (sparse).
 					const tiers = {};
-					for (const tier of ['big', 'mega', 'massive']) {
-						const fx = a.tiers[tier];
-						if (fx && typeof fx === 'object' && Object.keys(fx).length) tiers[tier] = fx;
+					for (const [alias, fx] of Object.entries(a.tiers)) {
+						if (fx && typeof fx === 'object' && Object.keys(fx).length) tiers[alias] = fx;
 					}
 					if (Object.keys(tiers).length) out.tiers = tiers;
 				}

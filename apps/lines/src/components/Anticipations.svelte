@@ -48,7 +48,7 @@
 {#if anyActive}
 	<OnMount
 		onmount={() => {
-			const volume = resolveTierFx(activeMaxTier() ?? 'big').soundVolume;
+			const volume = resolveTierFx(activeMaxTier()).soundVolume;
 			context.eventEmitter.broadcast({ type: 'soundLoop', name: 'sfx_anticipation' });
 			context.eventEmitter.broadcast({
 				type: 'soundFade',

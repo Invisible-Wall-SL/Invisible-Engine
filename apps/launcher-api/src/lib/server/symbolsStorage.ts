@@ -259,9 +259,10 @@ const bookVfxSchema = z
 
 /**
  * Reel-anticipation presentation FX (Invisible Symbols State Machine → `docs/design/reel-anticipation.md`
- * Phase 5). The editable twin of the coded `ANTICIPATION_TIER_FX` map in
+ * Phase 5). The editable twin of the coded `codedTierFx` ramp in
  * `apps/lines/src/game/anticipationPresentation.ts` — the per-tier escalation the client-computed tease
- * mode plays (big → mega → massive): camera `zoom`, the overlay spine's `overlayScale`/`overlayAlpha`/
+ * mode plays (one entry per configured big-win tier, keyed by alias): camera `zoom`, the overlay
+ * spine's `overlayScale`/`overlayAlpha`/
  * `overlayTint`, and the `soundVolume` of the anticipation loop. OPTIONAL + sparse everywhere: an absent
  * `anticipation`, an absent tier, or an absent field all fall through to the coded default, so an
  * un-authored project ships nothing and the mode is byte-identical to Phase 4.
@@ -272,7 +273,7 @@ const bookVfxSchema = z
  * swapped rig must expose those animation names.
  *
  * `overlayTint` is a `#rrggbb` hex here (the tool's colour picker); the engine reader converts it to the
- * `0xRRGGBB` number `ANTICIPATION_TIER_FX` uses.
+ * `0xRRGGBB` number the engine's `codedTierFx` ramp uses.
  */
 const anticipationTierFxSchema = z
 	.object({
@@ -290,14 +291,9 @@ const anticipationTierFxSchema = z
 const anticipationSchema = z
 	.object({
 		spineKey: z.string().min(1).optional(),
-		tiers: z
-			.object({
-				big: anticipationTierFxSchema.optional(),
-				mega: anticipationTierFxSchema.optional(),
-				massive: anticipationTierFxSchema.optional(),
-			})
-			.strict()
-			.optional(),
+		// Alias-keyed + sparse: one entry per configured big-win tier (`/config`), keyed by the tier's
+		// ALIAS — no longer a fixed big/mega/massive triple. An unset tier is simply absent.
+		tiers: z.record(z.string().min(1), anticipationTierFxSchema).optional(),
 	})
 	.strict();
 
@@ -404,9 +400,8 @@ function pruneAnticipation(anticipation: SymbolsDoc['anticipation']): SymbolsDoc
 	const next: NonNullable<SymbolsDoc['anticipation']> = {};
 	if (anticipation.spineKey) next.spineKey = anticipation.spineKey;
 	const tiers: NonNullable<NonNullable<SymbolsDoc['anticipation']>['tiers']> = {};
-	for (const tier of ['big', 'mega', 'massive'] as const) {
-		const fx = anticipation.tiers?.[tier];
-		if (fx && Object.keys(fx).length) tiers[tier] = fx;
+	for (const [alias, fx] of Object.entries(anticipation.tiers ?? {})) {
+		if (fx && Object.keys(fx).length) tiers[alias] = fx;
 	}
 	if (Object.keys(tiers).length) next.tiers = tiers;
 	return Object.keys(next).length ? next : undefined;

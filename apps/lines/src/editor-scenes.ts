@@ -61,7 +61,7 @@ export type BookVfxLayer = {
 
 /**
  * One reel-anticipation tier's FX override (Invisible Symbols State Machine output). The sparse twin
- * of one `ANTICIPATION_TIER_FX` entry (`game/anticipationPresentation.ts`): every field optional so an
+ * of one `codedTierFx` ramp step (`game/anticipationPresentation.ts`): every field optional so an
  * un-set one falls through to the coded value in `resolveTierFx`. `overlayTint` is a `#rrggbb` hex
  * (the tool's colour picker); the reader converts it to the `0xRRGGBB` number the code uses.
  */
@@ -208,19 +208,18 @@ type BakedBundle = {
 			foreground?: BookVfxLayer;
 		};
 		/** Reel-anticipation presentation FX (Invisible Symbols State Machine output) — the editable
-		 * twin of the coded `ANTICIPATION_TIER_FX` (`game/anticipationPresentation.ts`). `spineKey`
+		 * twin of the coded FX ramp (`codedTierFx`, `game/anticipationPresentation.ts`). `spineKey`
 		 * optionally swaps the per-reel overlay spine (a full R2 bundle prefix registered via
 		 * `index.spines` like `boardGlow`; the engine still owns the intro→loop→out chaining); `tiers`
-		 * overrides the per-tier escalation FX. SPARSE — every field falls through to the coded default
-		 * in `resolveTierFx`/`resolveAnticipationSpineKey`, so an absent config is byte-identical to
-		 * Phase 4. `overlayTint` is a `#rrggbb` hex; the reader converts it to `0xRRGGBB`. */
+		 * overrides the per-tier escalation FX, keyed by the config big-win tier ALIAS (one entry per
+		 * configured big tier). SPARSE — every field falls through to the coded ramp in
+		 * `resolveTierFx`/`resolveAnticipationSpineKey`, so an absent config is byte-identical.
+		 * `overlayTint` is a `#rrggbb` hex; the reader converts it to `0xRRGGBB`. */
 		anticipation?: {
 			spineKey?: string;
-			tiers?: {
-				big?: AnticipationTierFxOverride;
-				mega?: AnticipationTierFxOverride;
-				massive?: AnticipationTierFxOverride;
-			};
+			/** Per-tier FX overrides keyed by the config big-win tier's ALIAS (dynamic — one entry per
+			 *  configured big tier, `activeBigTiers`), no longer a fixed big/mega/massive triple. */
+			tiers?: Record<string, AnticipationTierFxOverride>;
 		};
 		/** Global win-line overlay config (Invisible Symbols State Machine output): on/off
 		 * plus line + win-amount-text style. Pure config, no asset (the chosen `text.font`
@@ -682,11 +681,11 @@ export function bakedBookVfx(): NonNullable<BakedBundle['symbols']>['bookVfx'] |
 
 /**
  * The reel-anticipation presentation FX authored in the Invisible Symbols State Machine — the
- * per-tier escalation overrides + optional overlay spine key. When set, `resolveTierFx` /
- * `resolveAnticipationSpineKey` (`game/anticipationPresentation.ts`) merge it over the coded
- * `ANTICIPATION_TIER_FX`; the overlay spine bundle (if swapped) rides `symbols.index.spines` like a
- * per-symbol spine cell. Mirrors `bakedBookVfx`'s runtime→baked→undefined resolution; undefined ⇒ the
- * coded FX, byte-identical to an un-authored game (Phase 4 parity).
+ * per-tier escalation overrides (keyed by config big-tier alias) + optional overlay spine key. When
+ * set, `resolveTierFx` / `resolveAnticipationSpineKey` (`game/anticipationPresentation.ts`) merge it
+ * over the coded `codedTierFx` ramp; the overlay spine bundle (if swapped) rides `symbols.index.spines`
+ * like a per-symbol spine cell. Mirrors `bakedBookVfx`'s runtime→baked→undefined resolution; undefined
+ * ⇒ the coded ramp, byte-identical to an un-authored game.
  */
 export function bakedAnticipation():
 	| NonNullable<BakedBundle['symbols']>['anticipation']
