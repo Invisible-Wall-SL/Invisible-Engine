@@ -40,10 +40,13 @@ before — an un-authored project still runs the compiled template.
 - **Symbols** — the symbol **dictionary**: properties and paytable per symbol
   (`count:multiplier` pairs, e.g. `5:20, 4:10, 3:5`). Each row carries an
   **in play** / **unused** badge (see below).
-- **Paylines** — a visual grid: each line is one clickable cell per reel; click to
-  move the line through that reel's rows.
-- **Reel strips** — per game type, per reel, edited as text (paste-friendly). Each
-  reel shows a symbol-frequency readout.
+- **Paylines** — a visual grid, one cell per reel per line. **Read-only**: the game
+  reads its active paylines from the **server (RGS)** at runtime, so the shape is a
+  view here, not an editor. The one thing you _do_ author is the per-line **colour**
+  swatch (see _Server-defined paylines & strips_ below).
+- **Reel strips** — per game type, per reel, with a symbol-frequency readout.
+  **Read-only / auto**: the in-play symbol set comes from the server at runtime and
+  the cosmetic spin strips are generated from it, so there's nothing to author here.
 - **Big win tiers** — the big-win celebrations the game plays, as an ordered list.
   See _Big win tiers_ below. Leave it empty to keep the game's built-in tiers.
 
@@ -94,21 +97,37 @@ its own tier, exactly as the built-in table does.
 Leaving the whole panel empty keeps the built-in table and the built-in ladder —
 byte-identical to a game that never touched it.
 
+## Server-defined paylines & strips
+
+The **paylines** and **reel strips** panels are **read-only**: at runtime the game
+takes both from the **server (RGS)** — the active paylines from the RGS's declared
+`availablePayLines`, and the in-play symbol set from the RGS's `symbols` (the cosmetic
+spin strips are then generated from that set). This keeps the client's line count,
+per-line pay display, info page, in-play gate and reel-tease reach in lockstep with
+what the server actually deals — a project can't drift from the RGS's declaration.
+
+You still author **one** thing on the paylines panel: each line's **colour** swatch.
+The game draws that line's win in this colour and broadcasts it so assets shown on the
+win can pick it up (leave it unset to use the single default from the Symbols tool).
+Colours are keyed by line **index**, so they line up with the server's lines in order.
+
+When there is **no** server declaration (a stock dev build, or the real Stake RGS),
+the game falls back to the authored/compiled paylines and strips exactly as before.
+
 ## The strips are the gate
 
 The **dictionary** (Symbols panel) describes every symbol the game *can draw* — art,
-properties, payouts. The **strips** (Reel strips panel) describe what the game
-*actually deals*. A symbol can legitimately sit in the dictionary and appear on no
-strip; when it does, the tool marks it **unused** and warns that its paytable
-advertises a payout no one can win. Put the symbol on a strip and it becomes **in
-play** and its paytable row counts. This is the one rule that keeps a game from
-advertising symbols it never deals.
+properties, payouts. The **strips** describe what the game *actually deals*. A symbol
+can legitimately sit in the dictionary and appear on no strip; when it does, the tool
+marks it **unused** and warns that its paytable advertises a payout no one can win.
+This is the one rule that keeps a game from advertising symbols it never deals. With
+the strips now server-defined, the in-play set — and so the **in play** / **unused**
+badges — reflect the server's declared symbols at runtime.
 
-> These are the **cosmetic** strips — the blur filler the reels cycle through, and
-> the client's statement of which symbols reach the board. They are **not** the real
-> weighted math strips (the math team owns those, and they never reach the client). A
-> symbol's frequency here is only how often it flickers past during a spin, not a hit
-> rate or an RTP contribution.
+> The generated spin strips are **cosmetic** — the blur filler the reels cycle
+> through. They are **not** the real weighted math strips (the math team owns those,
+> and they never reach the client). A symbol's frequency in the read-out is only how
+> often it flickers past during a spin, not a hit rate or an RTP contribution.
 
 ## Bet modes: math + presentation
 

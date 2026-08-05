@@ -140,8 +140,8 @@
 	}
 	function removeBetMode(key: string) {
 		delete doc.betModes[key];
-		// Drop the presentation with it, and the whole map when it empties — the removePayline/colour
-		// pattern, so a removed mode leaves nothing sparse behind.
+		// Drop the presentation with it, and the whole map when it empties — the payline-colour
+		// clear pattern, so a removed mode leaves nothing sparse behind.
 		if (doc.betModePresentation) {
 			delete doc.betModePresentation[key];
 			if (!Object.keys(doc.betModePresentation).length) delete doc.betModePresentation;
@@ -419,19 +419,6 @@
 		else delete doc.symbols[name].paytable;
 	}
 
-	// ── Paylines ─────────────────────────────────────────────────────────────────
-	let newPayline = $state('');
-	function addPayline() {
-		const id = newPayline.trim() || String(Object.keys(doc.paylines).length + 1);
-		if (doc.paylines[id]) return;
-		doc.paylines[id] = Array.from({ length: doc.numReels }, () => 0);
-		newPayline = '';
-	}
-	function removePayline(id: string) {
-		delete doc.paylines[id];
-		clearPaylineColor(id);
-	}
-
 	// ── Payline colours ────────────────────────────────────────────────────────────
 	// OPTIONAL per-line colour (an Invisible-Engine extension of the Stake config). When a line has
 	// one, the game draws its win line in that colour AND broadcasts it so assets shown on the win can
@@ -452,43 +439,16 @@
 		delete doc.paylineColors[id];
 		if (!Object.keys(doc.paylineColors).length) delete doc.paylineColors;
 	}
-	/** Click a cell in the visual editor: set this line's row on this reel. The whole point of the
-	 *  panel — a payline is row-indices-per-reel, unreadable as raw JSON. */
-	function setPaylineCell(id: string, reel: number, row: number) {
-		// A line shorter/longer than the grid (e.g. after a reel-count change) is repaired to
-		// numReels so the click lands where the author sees it, keeping index and column aligned.
-		const line = doc.paylines[id];
-		while (line.length < doc.numReels) line.push(0);
-		line.length = doc.numReels;
-		line[reel] = row;
-	}
+	// Paylines are SERVER-DEFINED at runtime (the game reads its active lines from the RGS), so the
+	// visual grid is a read-only view here — no cell-move / add / remove. Only the per-line COLOUR is
+	// authored (the sparse `paylineColors` path above). See `docs/design/invisible-game-config.md`.
 
 	// ── Reel strips ──────────────────────────────────────────────────────────────
-	// A strip is edited as free text — names separated by any whitespace or commas — because it is
-	// the most data-heavy field and paste-in from the math export is the real workflow. Parsed to
-	// the canonical `{ name }[]` on input.
+	// The in-play symbol set + cosmetic spin strips are SERVER-DEFINED / auto-generated at runtime, so
+	// this panel is a read-only view of the resolved doc. `stripText` renders each strip; there is no
+	// setter — nothing here is authored.
 	function stripText(gameType: string, reel: number): string {
 		return (doc.paddingReels[gameType]?.[reel] ?? []).map((c) => c.name).join(' ');
-	}
-	function setStrip(gameType: string, reel: number, value: string) {
-		const cells = value
-			.split(/[\s,]+/)
-			.map((s) => s.trim())
-			.filter(Boolean)
-			.map((name) => ({ name }));
-		const strips = (doc.paddingReels[gameType] ??= []);
-		while (strips.length <= reel) strips.push([]);
-		strips[reel] = cells;
-	}
-	let newGameType = $state('');
-	function addGameType() {
-		const key = newGameType.trim();
-		if (!key || doc.paddingReels[key]) return;
-		doc.paddingReels[key] = Array.from({ length: doc.numReels }, () => []);
-		newGameType = '';
-	}
-	function removeGameType(key: string) {
-		delete doc.paddingReels[key];
 	}
 
 	// ── Win tiers (big-win levels) ─────────────────────────────────────────────────
@@ -1065,7 +1025,8 @@
 														setBetModeCardParam(key, p.key, region || undefined)}
 												/>
 											{:else if p.kind === 'spine'}
-												{@const cur = (betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
+												{@const cur =
+													(betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
 												<select
 													value={cur}
 													onchange={(e) =>
@@ -1089,7 +1050,8 @@
 													{/if}
 												</select>
 											{:else if p.kind === 'spineAnimation'}
-												{@const cur = (betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
+												{@const cur =
+													(betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
 												{@const bundle = effectiveCardSpineBundle(key, p)}
 												{@const opts = spineAnimationOptions(bundle)}
 												{#if opts.length > 0}
@@ -1214,11 +1176,16 @@
 		<!-- Paylines --------------------------------------------------------------->
 		<section>
 			<h2>Paylines</h2>
+			<div class="banner locked">
+				<strong>Paylines are defined by the server (RGS) at runtime</strong> — this game reads its
+				active lines from the RGS, so the shape below is read-only here. Only the per-line
+				<strong>colour</strong> is editable.
+			</div>
 			<p class="hint">
-				Each line is one cell per reel. Click a cell to move the line through that reel's rows. The
-				swatch sets an optional <strong>line colour</strong>: the game draws that line's win in this
-				colour and broadcasts it so assets shown on the win can pick it up (leave it unset to use
-				the single default from the Symbols tool).
+				Each line is one cell per reel. The <strong>swatch</strong> sets an optional
+				<strong>line colour</strong>: the game draws that line's win in this colour and broadcasts
+				it so assets shown on the win can pick it up (leave it unset to use the single default from
+				the Symbols tool).
 			</p>
 			<div class="paylines">
 				{#each Object.keys(doc.paylines) as id (id)}
@@ -1239,7 +1206,6 @@
 										>⌫</button
 									>
 								{/if}
-								<button class="del" title="Remove" onclick={() => removePayline(id)}>×</button>
 							</div>
 						</div>
 						<div class="payline-grid" style="grid-template-columns: repeat({doc.numReels}, 1fr);">
@@ -1247,12 +1213,14 @@
 								<div class="reel-col">
 									{#each Array(doc.numRows[reel] ?? maxRows) as _, row (row)}
 										{@const on = doc.paylines[id][reel] === row}
+										<!-- Read-only: the RGS owns the line shape at runtime. A disabled cell so it
+										     reads out the active line but a click can't move it. -->
 										<button
 											class="cell"
 											class:on
 											style={on && tint ? `background:${tint};border-color:${tint}` : ''}
 											aria-label="Line {id} reel {reel + 1} row {row + 1}"
-											onclick={() => setPaylineCell(id, reel, row)}
+											disabled
 										></button>
 									{/each}
 								</div>
@@ -1260,10 +1228,6 @@
 						</div>
 					</div>
 				{/each}
-			</div>
-			<div class="add">
-				<input placeholder="line id (auto if blank)" bind:value={newPayline} />
-				<button onclick={addPayline}>Add line</button>
 			</div>
 			{#each issuesFor('paylines') as issue (issue.path + issue.message)}
 				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
@@ -1273,29 +1237,26 @@
 		<!-- Reel strips ------------------------------------------------------------>
 		<section>
 			<h2>Reel strips</h2>
+			<div class="banner locked">
+				<strong>Reel strips are server-defined / auto now</strong> — the in-play symbol set comes from
+				the RGS at runtime and the cosmetic spin strips are generated from it, so this panel is a read-only
+				view. There is nothing to author here.
+			</div>
 			<p class="hint">
 				The cosmetic strips the reels cycle through — and the one statement of which symbols reach
 				the board. Not the real weighted math strips (the math team owns those); a symbol's count
-				here is only how often it flickers past. One reel per box; separate names with spaces,
-				commas or newlines.
+				here is only how often it flickers past. One reel per box (read-only).
 			</p>
 			{#each gameTypes as gameType (gameType)}
 				<div class="strips">
 					<div class="strips-head">
 						<span class="game-type">{gameType}</span>
-						<button class="del" title="Remove game type" onclick={() => removeGameType(gameType)}
-							>×</button
-						>
 					</div>
 					<div class="strip-cols">
 						{#each Array(doc.numReels) as _, reel (reel)}
 							<div class="strip-col">
 								<div class="strip-label">Reel {reel + 1}</div>
-								<textarea
-									value={stripText(gameType, reel)}
-									oninput={(e) => setStrip(gameType, reel, e.currentTarget.value)}
-									spellcheck="false"
-								></textarea>
+								<textarea value={stripText(gameType, reel)} readonly spellcheck="false"></textarea>
 								<div class="freq">
 									{#each Object.entries(frequencies[gameType]?.[reel] ?? {}).sort((a, b) => b[1] - a[1]) as [name, count] (name)}
 										<span class="chip" class:out={!inPlay.has(name)}>{name}<b>{count}</b></span>
@@ -1306,10 +1267,6 @@
 					</div>
 				</div>
 			{/each}
-			<div class="add">
-				<input placeholder="new game type (e.g. freegame)" bind:value={newGameType} />
-				<button onclick={addGameType} disabled={!newGameType.trim()}>Add game type</button>
-			</div>
 			{#each issuesFor('paddingReels') as issue (issue.path + issue.message)}
 				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 			{/each}
@@ -1488,6 +1445,13 @@
 		border-color: #4a3f1e;
 		background: #1a1710;
 		color: #d3b483;
+	}
+	/* A locked panel (paylines shape, reel strips): server-authoritative at runtime. */
+	.banner.locked {
+		border-color: #2f3a4a;
+		background: #10141c;
+		color: #9cc0e0;
+		margin-bottom: 12px;
 	}
 	section {
 		margin-bottom: 34px;

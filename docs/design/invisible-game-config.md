@@ -175,6 +175,55 @@ Sub-phases, each shippable green:
   config's `betModePresentation` source strings (read-only source, config owns), same pattern as its
   per-screen scene sections — so bet-mode copy translates like everything else.
 
+## Phase 7 — server-authoritative paylines & reel strips (colour-only in the tool)
+
+The problem this closes: paylines and the in-play symbol set are **the RGS's to declare**, not the
+client's to author. The server already ships them on its boot `config` event (`availablePayLines`,
+`symbols`, `window`, `wildSymbols`) — the facade even captures it (`captureConfig`) — but the game's
+DERIVED display data (info-page line count, per-line pay division, the in-play GATE, the reel-tease
+reach) still read the compiled/authored doc. So a project could author 20 lines while the RGS deals
+10, and the client would divide the bet by the wrong number and draw the wrong info page. This phase
+makes the server the authority for those two panels, and locks them to **colour-only** in the tool.
+
+Open decision #3 above (validate against the RGS) is a superset of this; Phase 7 takes the concrete
+first step — not "warn on mismatch" but "there is no mismatch, because the client follows the server".
+
+**The bridge (facade → engine).** The facade is a drop-in for `rgs-requests` and cannot import the
+app, so — exactly like `publishWinLevelsToFacade` in reverse (engine→facade) — `captureConfig`
+publishes `{ availablePayLines, symbols, window }` to `globalThis.__IE_SERVER_CONFIG__` (`symbols`
+mapped into client space first — the engine runs in `H1/L1/S`, not the server's `PIC1/ACE/SCAT`).
+Never written when no `config` event arrives ⇒ the global stays `undefined` ⇒ parity.
+
+**The overlay (engine).** `game/gameConfig.ts` gains a `serverConfig()` reader (a live read of the
+global, NOT folded into the memoised `getActiveGameConfig()` doc — the config event lands async, after
+the memo resets, and the accessors run per-render/per-spin, so a fresh read picks it up with no cache
+to invalidate). When present it is authoritative:
+
+- `getPaylines()` / `getNumLines()` → the server's `availablePayLines` (numLines is the bet-per-line
+  divisor, so this also corrects displayed per-line pay values).
+- `getSymbolsInPlay()` → the server's `symbols` set becomes the in-play GATE — the design's own note
+  ("a first-class `symbolsInPlay` replaces the strips as the gate in ONE place and every consumer
+  follows"), now realised from the server rather than a doc field.
+- `paddingReels()` / `getPaddingReels()` → **auto-generate** cosmetic strips from the in-play set (a
+  per-reel rotated repeat, long enough for `initialBoard()` + the roll). It is only the spinning blur;
+  no real weights exist to mirror.
+- `paylineColor(lineIndex)` → keeps the AUTHORED colours, mapped by the server payline index (a win's
+  `meta.lineIndex` = the server paylineId; authored `paylines`/`paylineColors` describe the same lines
+  in the same order, so the ordinal maps cleanly to the authored id at that position). Unchanged code,
+  since colours read the authored doc directly — that is what keeps it colour-only.
+
+Absent server config ⇒ every accessor falls through to the authored/compiled doc, **byte-identical**.
+
+**The tool (`/config`).** The Paylines panel is READ-ONLY except the per-line colour swatch (which
+still saves via the sparse `paylineColors` path); the cell grid, add-line and remove-line are disabled
+with a banner saying the server owns the lines. The Reel-strips panel is READ-ONLY / auto with a banner
+saying the in-play set + strips come from the server now. The other panels (Identity / Grid / Bet modes
+/ Symbols / Win tiers) and the raw-JSON escape hatch are untouched.
+
+**Reaching online games.** The reading code ships in the shared `_runtime/lines` bundle, so an online
+game needs a **Runtime release + republish** to pick this up; a `main` merge alone does not reach a
+live game.
+
 ## Open decisions
 
 1. **Does the config gate the Symbols SM grid directly?** Phase 4 makes the grid derivable from
