@@ -4,6 +4,7 @@ import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listComponents } from '$lib/server/componentStorage';
 import { gameConfigDefaultFor, resolveGameConfig } from '$lib/server/gameConfigDefaults';
+import { listProjectAssets } from '$lib/server/projectAssets';
 import { projectGameType, projectName } from '$lib/server/projects';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { resolveToolScope } from '$lib/server/toolScope';
@@ -40,7 +41,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	});
 
 	const gameType = await projectGameType(projectKey);
-	const [{ doc, source, etag }, name, components] = await Promise.all([
+	const [{ doc, source, etag }, name, components, assets] = await Promise.all([
 		resolveGameConfig(clientKey, projectKey, gameType),
 		projectName(projectKey),
 		// The component palette (built-ins + shared + this project's, project shadowing shared) — the
@@ -48,6 +49,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// scene can mount (e.g. the built-in `featureCard`). Read-only; slimmed to id/name so the page
 		// never ships the whole authored trees.
 		listComponents({ projectKey }),
+		// The project's editor assets — same read-only source the Scene Editor uses — so the per-mode
+		// "Card graphics" section can offer the SAME visual pickers: an art/region picker for `image`
+		// params (atlas-manifest + sheet frames) and a spine-bundle picker for `spine` params. The R2
+		// reads are the shared `listProjectAssets` helper; we slim the result to what the pickers need.
+		listProjectAssets(clientKey, projectKey),
 	]);
 
 	// The template default the "Reset to template default" action restores. Sent even when the
@@ -75,6 +81,18 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 			category: c.category,
 			params: c.params ?? [],
 		})),
+		// The region-picker source for `image` card params: atlas MANIFESTS + sheets (atlas pages
+		// aren't manifests). Mirrors the editor's `pickSheets` derivation; `{ key, name }` only.
+		pickSheets: [
+			...assets.atlases
+				.filter((a) => a.kind === 'atlas-manifest')
+				.map((a) => ({ key: a.key, name: a.name })),
+			...assets.sheets.map((s) => ({ key: s.key, name: s.name })),
+		],
+		// The spine-bundle source for `spine` card params (project + shared bundles). `{ name, key,
+		// shared }` — `name` is the value a `spine` param stores; `key` is the R2 prefix the animation
+		// dropdown keys its `/api/editor/spine/meta` fetch by.
+		spines: assets.spines.map((s) => ({ name: s.name, key: s.key, shared: s.shared })),
 		// Validate server-side too, so the page shows issues on FIRST paint (before any edit fires
 		// the client validator) — a pasted-in config that lies is visible immediately.
 		issues: doc ? validateGameConfigDoc(doc) : [],
