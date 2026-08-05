@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
@@ -15,6 +16,11 @@
 		type GameConfigDoc,
 		type GameConfigIssue,
 	} from 'game-config';
+	import { BUILTIN_SPINE_NAMES, builtinSpineMeta, type ComponentParam } from 'engine-layout';
+	// The Scene Editor's art/region picker — REUSED here (the SAME cross-route import the Symbols
+	// tool uses) so the Card-graphics `image` params get the exact same visual frame picker instead
+	// of a raw-key text box. Not forked; the editor owns it.
+	import RegionPicker from '../editor/RegionPicker.svelte';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
@@ -269,6 +275,81 @@
 			prunePresentation(key);
 		}
 	}
+
+	// ── Card-graphics spine bundle + animation resolution ──────────────────────────
+	// A `spine`-kind card param stores a BUNDLE NAME; its paired `spineAnimation` param offers a
+	// dropdown of THAT bundle's animations — the same manifest-driven source the Scene Editor's spine
+	// dropdowns use, so the owner never types an animation name. A project/shared bundle's names come
+	// from `/api/editor/spine/meta` (fetched lazily, keyed by the bundle's R2 prefix); a coded builtin
+	// bundle's names ship with the engine (`builtinSpineMeta`). A `SvelteMap` so a fetched bundle
+	// re-renders its dropdown.
+	const spineAnimations = new SvelteMap<string, string[]>();
+	const requestedSpineKeys = new Set<string>();
+
+	/** The R2 prefix key for a bundle NAME (what a `spine` param stores), or undefined for a coded
+	 *  builtin / unknown bundle (which has no R2 presence to fetch a manifest from). */
+	function spineKeyForName(name: string | undefined): string | undefined {
+		return name ? data.spines.find((s) => s.name === name)?.key : undefined;
+	}
+
+	/** Animation names offered for a bundle NAME: the engine's coded list for a builtin, else the
+	 *  fetched manifest list. Empty until a fetch lands ⇒ the field falls back to a plain text box. */
+	function spineAnimationOptions(name: string | undefined): string[] {
+		if (!name) return [];
+		const builtin = builtinSpineMeta(name);
+		if (builtin) return builtin.animations;
+		const key = spineKeyForName(name);
+		return key ? (spineAnimations.get(key) ?? []) : [];
+	}
+
+	/** The bundle a mode's `spineAnimation` param reads its animation options from: the mode's OWN
+	 *  override of the sibling `spine` param (named in `p.spineParam`), else that sibling's authored
+	 *  default — so the dropdown populates before the bundle is explicitly overridden. */
+	function effectiveCardSpineBundle(key: string, p: ComponentParam): string | undefined {
+		const sibling = p.spineParam;
+		if (!sibling) return undefined;
+		const override = betModeCardParamValue(key, sibling);
+		if (typeof override === 'string' && override) return override;
+		const def = cardComponentFor(key)?.params?.find((q) => q.key === sibling);
+		return typeof def?.default === 'string' ? def.default : undefined;
+	}
+
+	/** Every non-builtin spine bundle R2 key the card-graphics animation dropdowns need names for —
+	 *  the effective bundle of each mode's `spine` card params (its override, else the param default).
+	 *  Builtins are skipped: their names ship with the engine (`builtinSpineMeta`), no fetch. */
+	const neededCardSpineKeys = $derived.by(() => {
+		const keys = new Set<string>();
+		for (const key of Object.keys(doc.betModes)) {
+			for (const p of cardAuthorableParams(key)) {
+				if (p.kind !== 'spine') continue;
+				const name =
+					(betModeCardParamValue(key, p.key) as string | undefined) ||
+					(typeof p.default === 'string' ? p.default : undefined);
+				const rkey = spineKeyForName(name);
+				if (rkey) keys.add(rkey);
+			}
+		}
+		return [...keys];
+	});
+
+	// Prefetch manifest meta for each needed bundle once (hit OR miss). A key that later resolves
+	// re-renders its dropdown via the `SvelteMap`; a transient failure retries on a fresh key set.
+	$effect(() => {
+		for (const key of neededCardSpineKeys) {
+			if (requestedSpineKeys.has(key)) continue;
+			requestedSpineKeys.add(key);
+			void (async () => {
+				try {
+					const res = await fetch(`/api/editor/spine/meta?key=${encodeURIComponent(key)}`);
+					if (!res.ok) return;
+					const body = (await res.json()) as { found?: boolean; animations?: string[] };
+					if (body.found) spineAnimations.set(key, body.animations ?? []);
+				} catch {
+					/* offline / transient — a later edit re-triggers via a fresh key set */
+				}
+			})();
+		}
+	});
 
 	/** A `color`-kind param stores a NUMBER (e.g. 0xffffff); `<input type="color">` speaks `#rrggbb`. */
 	function toColorInput(value: string | number | boolean | undefined, fallback: number): string {
@@ -933,7 +1014,13 @@
 								</div>
 								<div class="cardparams-grid">
 									{#each cardAuthorableParams(key) as p (p.key)}
-										<label class="mini cardparam" class:check={p.kind === 'boolean'}>
+										<label
+											class="mini cardparam"
+											class:check={p.kind === 'boolean'}
+											class:wide-param={p.kind === 'image' ||
+												p.kind === 'spine' ||
+												p.kind === 'spineAnimation'}
+										>
 											<span
 												>{p.label ?? p.key}{#if p.group}<em> · {p.group}</em>{/if}</span
 											>
@@ -966,14 +1053,76 @@
 													checked={(betModeCardParamValue(key, p.key) ?? p.default) === true}
 													onchange={(e) => setBetModeCardParam(key, p.key, e.currentTarget.checked)}
 												/>
+											{:else if p.kind === 'image'}
+												<!-- The SAME art/region picker the Scene Editor uses — pick a frame (never type a
+												     key); the choice writes a `<assetKey>::<region>` scoped ref, clearing inherits
+												     the card's authored default. -->
+												<RegionPicker
+													sheets={data.pickSheets}
+													value={(betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
+													scoped
+													onSelect={(region) =>
+														setBetModeCardParam(key, p.key, region || undefined)}
+												/>
+											{:else if p.kind === 'spine'}
+												{@const cur = (betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
+												<select
+													value={cur}
+													onchange={(e) =>
+														setBetModeCardParam(key, p.key, e.currentTarget.value || undefined)}
+												>
+													<option value=""
+														>{typeof p.default === 'string' && p.default
+															? `(default: ${p.default})`
+															: '(inherit default)'}</option
+													>
+													{#each data.spines as s (s.key)}
+														<option value={s.name}>{s.name}{s.shared ? ' [shared]' : ''}</option>
+													{/each}
+													<!-- Engine-shipped coded bundles, so a coded default is a real pickable option. A
+													     project spine of the same name wins (dropped here to avoid a dupe). -->
+													{#each BUILTIN_SPINE_NAMES.filter((n) => !data.spines.some((s) => s.name === n)) as n (n)}
+														<option value={n}>{n} [coded]</option>
+													{/each}
+													{#if cur && !data.spines.some((s) => s.name === cur) && !BUILTIN_SPINE_NAMES.includes(cur)}
+														<option value={cur}>{cur} (custom)</option>
+													{/if}
+												</select>
+											{:else if p.kind === 'spineAnimation'}
+												{@const cur = (betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
+												{@const bundle = effectiveCardSpineBundle(key, p)}
+												{@const opts = spineAnimationOptions(bundle)}
+												{#if opts.length > 0}
+													<select
+														value={cur}
+														onchange={(e) =>
+															setBetModeCardParam(key, p.key, e.currentTarget.value || undefined)}
+													>
+														<option value=""
+															>{typeof p.default === 'string' && p.default
+																? `(default: ${p.default})`
+																: '(inherit default)'}</option
+														>
+														{#each opts as o (o)}
+															<option value={o}>{o}</option>
+														{/each}
+														{#if cur && !opts.includes(cur)}
+															<option value={cur}>{cur} (custom)</option>
+														{/if}
+													</select>
+												{:else}
+													<!-- No bundle chosen yet (or its animations aren't resolvable) — fall back to a
+													     plain field so the value is still authorable. -->
+													<input
+														type="text"
+														placeholder={bundle ? 'animation name' : 'pick a spine bundle first'}
+														value={cur}
+														oninput={(e) => setBetModeCardParam(key, p.key, e.currentTarget.value)}
+													/>
+												{/if}
 											{:else}
 												<input
 													type="text"
-													placeholder={p.kind === 'image'
-														? 'art frame key'
-														: p.kind === 'spine'
-															? 'spine bundle'
-															: ''}
 													value={(betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
 													oninput={(e) => setBetModeCardParam(key, p.key, e.currentTarget.value)}
 												/>
@@ -1695,12 +1844,20 @@
 	.cardparam {
 		min-width: 140px;
 	}
+	/* Image / spine pickers need more room than a colour swatch or number — a region picker
+	   opens a frame grid and a spine dropdown lists bundle names. */
+	.cardparam.wide-param {
+		min-width: 200px;
+		flex: 1 1 200px;
+		max-width: 320px;
+	}
 	.cardparam em {
 		opacity: 0.55;
 		font-style: normal;
 	}
 	.cardparam input[type='text'],
-	.cardparam input[type='number'] {
+	.cardparam input[type='number'],
+	.cardparam select {
 		width: 100%;
 	}
 	.cardparam input[type='color'] {
