@@ -69,6 +69,9 @@ function toBetModeData(mode: ResolvedBetMode): BetModeData {
 		// as the item's `componentId`. Empty when unauthored ⇒ the item omits `componentId` ⇒ the
 		// default `featureCard` (parity).
 		card: mode.card,
+		// Per-mode card param overrides — passed through so the repeater merges them into the item's
+		// values (any card param the mode overrides). `{}` when unauthored ⇒ no overrides (parity).
+		cardParams: mode.cardParams,
 		// Art keys are resolved HERE to image URLs (the `assets.* = URL` convention), so the HTML menu
 		// renders them with a plain `<img>`. `button`/`dialogVolatility` have no config home yet, so
 		// stay empty.

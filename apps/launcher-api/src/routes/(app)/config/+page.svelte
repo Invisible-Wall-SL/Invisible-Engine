@@ -171,7 +171,15 @@
 		const entry = map[key];
 		if (entry) {
 			if (entry.text && !Object.keys(entry.text).length) delete entry.text;
-			if (!entry.kind && entry.order === undefined && !entry.text && !entry.card) delete map[key];
+			if (entry.cardParams && !Object.keys(entry.cardParams).length) delete entry.cardParams;
+			if (
+				!entry.kind &&
+				entry.order === undefined &&
+				!entry.text &&
+				!entry.card &&
+				!entry.cardParams
+			)
+				delete map[key];
 		}
 		if (!Object.keys(map).length) delete doc.betModePresentation;
 	}
@@ -215,6 +223,60 @@
 			if (entry) delete entry.card;
 			prunePresentation(key);
 		}
+	}
+
+	// ── Per-mode card param overrides ──────────────────────────────────────────────
+	// The buy-feature repeater feeds each card instance its per-mode values; `cardParams` lets a mode
+	// override ANY of its card component's authored params (panel/icon/button frames, spine, tints, …),
+	// so ONE shared card renders visually-distinct per mode. The editor resolves the mode's card def
+	// (its picked `card`, else the default `featureCard`) and renders a typed input per AUTHORABLE param
+	// (engine-fed values like title/price/icon are excluded — those aren't graphics to override here).
+	const DEFAULT_CARD_ID = 'featureCard';
+
+	/** The mode's card component def (its picked `card`, else the default `featureCard`), from the SAME
+	 *  palette the picker uses — so the params shown are exactly the ones that card actually draws. */
+	function cardComponentFor(key: string) {
+		const id = betModeCardValue(key) || DEFAULT_CARD_ID;
+		return data.components.find((c) => c.id === id);
+	}
+	/** The card's AUTHORABLE params — everything the source feeds (`engineProvided`) is excluded. */
+	function cardAuthorableParams(key: string) {
+		return (cardComponentFor(key)?.params ?? []).filter((p) => !p.engineProvided);
+	}
+
+	function betModeCardParamValue(
+		key: string,
+		paramKey: string,
+	): string | number | boolean | undefined {
+		return doc.betModePresentation?.[key]?.cardParams?.[paramKey];
+	}
+	/** Write (or clear) one card-param override. An empty string / undefined / NaN CLEARS it, so the
+	 *  param falls back to the card's authored default (parity); numbers and booleans (incl. 0/false)
+	 *  are kept as meaningful overrides. Keeps the presentation sparse via `prunePresentation`. */
+	function setBetModeCardParam(
+		key: string,
+		paramKey: string,
+		value: string | number | boolean | undefined,
+	) {
+		const drop =
+			value === undefined || value === '' || (typeof value === 'number' && Number.isNaN(value));
+		if (!drop) {
+			const entry = ensurePresentation(key);
+			(entry.cardParams ??= {})[paramKey] = value as string | number | boolean;
+		} else {
+			const cardParams = doc.betModePresentation?.[key]?.cardParams;
+			if (cardParams) delete cardParams[paramKey];
+			prunePresentation(key);
+		}
+	}
+
+	/** A `color`-kind param stores a NUMBER (e.g. 0xffffff); `<input type="color">` speaks `#rrggbb`. */
+	function toColorInput(value: string | number | boolean | undefined, fallback: number): string {
+		const n = typeof value === 'number' ? value : fallback;
+		return '#' + (n & 0xffffff).toString(16).padStart(6, '0');
+	}
+	function fromColorInput(hex: string): number {
+		return parseInt(hex.slice(1), 16);
 	}
 
 	function betModeTextValue(key: string, field: BetModeTextField): string {
@@ -735,8 +797,8 @@
 				<code>base</code>, a persistent <code>ante</code>, or a one-shot <code>buy</code> (leave on
 				<em>auto</em> to derive it from the math) — a menu <strong>Order</strong>, the
 				<strong>Card</strong> component this mode's buy-feature card renders (blank ⇒ the default
-				<code>featureCard</code>), and the <strong>copy</strong> the card shows. Copy is authored here
-				as source text and translated in the <strong>Invisible Localization</strong> tool.
+				<code>featureCard</code>), and the <strong>copy</strong> the card shows. Copy is authored
+				here as source text and translated in the <strong>Invisible Localization</strong> tool.
 			</p>
 
 			{#if resolvedBetModes.length}
@@ -859,6 +921,68 @@
 								></textarea></label
 							>
 						</div>
+
+						{#if cardAuthorableParams(key).length}
+							<div class="betmode-cardparams">
+								<div class="cardparams-head">
+									Card graphics
+									<span class="hint-sm"
+										>override the <code>{betModeCardValue(key) || DEFAULT_CARD_ID}</code> card's look
+										for this mode — blank inherits the card's authored default</span
+									>
+								</div>
+								<div class="cardparams-grid">
+									{#each cardAuthorableParams(key) as p (p.key)}
+										<label class="mini cardparam" class:check={p.kind === 'boolean'}>
+											<span
+												>{p.label ?? p.key}{#if p.group}<em> · {p.group}</em>{/if}</span
+											>
+											{#if p.kind === 'color'}
+												<input
+													type="color"
+													value={toColorInput(
+														betModeCardParamValue(key, p.key),
+														typeof p.default === 'number' ? p.default : 0xffffff,
+													)}
+													oninput={(e) =>
+														setBetModeCardParam(key, p.key, fromColorInput(e.currentTarget.value))}
+												/>
+											{:else if p.kind === 'number'}
+												<input
+													type="number"
+													value={(betModeCardParamValue(key, p.key) as number | undefined) ?? ''}
+													oninput={(e) =>
+														setBetModeCardParam(
+															key,
+															p.key,
+															e.currentTarget.value === ''
+																? undefined
+																: Number(e.currentTarget.value),
+														)}
+												/>
+											{:else if p.kind === 'boolean'}
+												<input
+													type="checkbox"
+													checked={(betModeCardParamValue(key, p.key) ?? p.default) === true}
+													onchange={(e) => setBetModeCardParam(key, p.key, e.currentTarget.checked)}
+												/>
+											{:else}
+												<input
+													type="text"
+													placeholder={p.kind === 'image'
+														? 'art frame key'
+														: p.kind === 'spine'
+															? 'spine bundle'
+															: ''}
+													value={(betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
+													oninput={(e) => setBetModeCardParam(key, p.key, e.currentTarget.value)}
+												/>
+											{/if}
+										</label>
+									{/each}
+								</div>
+							</div>
+						{/if}
 					</div>
 				{/each}
 			</div>
@@ -1050,8 +1174,8 @@
 				amount <strong>threshold</strong> (the win as a multiple of the total bet). Its
 				<strong>presentation</strong> — spine bundle, intro/idle/outro animations, duration and
 				sound — is authored on the <strong>Win Overlay</strong> component in the Scene Editor, which
-				reads these tiers by alias so the two stay in sync. Smaller wins are handled automatically
-				and aren't shown here. Leave this empty to keep the game's built-in tiers (byte-identical).
+				reads these tiers by alias so the two stay in sync. Smaller wins are handled automatically and
+				aren't shown here. Leave this empty to keep the game's built-in tiers (byte-identical).
 			</p>
 
 			{#if bigResolved.length}
@@ -1541,6 +1665,51 @@
 	.betmode-text textarea {
 		resize: vertical;
 		line-height: 1.5;
+	}
+	.betmode-cardparams {
+		margin-top: 12px;
+		padding-top: 12px;
+		border-top: 1px solid #1c1c24;
+	}
+	.cardparams-head {
+		font-size: 12px;
+		color: #b9b9c4;
+		margin-bottom: 8px;
+	}
+	.cardparams-head .hint-sm {
+		display: block;
+		margin-top: 2px;
+		opacity: 0.65;
+		font-size: 11px;
+	}
+	.cardparams-head code,
+	.hint-sm code {
+		font-family: ui-monospace, monospace;
+		color: #c8a3ff;
+	}
+	.cardparams-grid {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 10px 14px;
+	}
+	.cardparam {
+		min-width: 140px;
+	}
+	.cardparam em {
+		opacity: 0.55;
+		font-style: normal;
+	}
+	.cardparam input[type='text'],
+	.cardparam input[type='number'] {
+		width: 100%;
+	}
+	.cardparam input[type='color'] {
+		width: 100%;
+		height: 30px;
+		padding: 2px;
+		background: #101017;
+		border: 1px solid #26262f;
+		border-radius: 6px;
 	}
 	.add {
 		display: flex;

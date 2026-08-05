@@ -729,15 +729,22 @@
 				}) ?? restingImage,
 		});
 	}
-	// Repeater-fed engineProvided values (§ feature cards): a `<Repeater>` injects each item's
-	// field values directly (title/price/iconKey/…). Define a REACTIVE getter per declared
-	// `engineProvided` param present in `engineValues`, so a bound text/sprite node reads the
-	// live per-item value from the param context — the multi-value sibling of the single `value`
-	// feed above. Absent ⇒ no getters added ⇒ byte-identical to a plain instance (parity).
+	// Repeater-fed per-item values (§ feature cards / per-card param overrides): a `<Repeater>` (or a
+	// `<ConfirmDialog>` mount binding) injects each item's values directly (title/price/iconKey/… AND
+	// any card-param override like panelImage/spineKey/buttonImage). Define a REACTIVE getter for EVERY
+	// def param whose key is present in `engineValues`, so a bound text/sprite/spine node reads the live
+	// per-item value from the param context — the multi-value sibling of the single `value` feed above.
+	//
+	// The gate is the param KEY's presence in the injected map, NOT the `engineProvided` flag: a per-item
+	// value overrides its param REGARDLESS of whether the def marks it engine-provided, so config
+	// `cardParams` can vary the card's CHROME (a different panel/spine per card) through the one shared
+	// component. A param NOT in the map keeps its authored default (staticParams) — byte-identical to a
+	// plain instance (parity), and the `<ConfirmDialog>` binding (which supplies only its engineProvided
+	// title/message/… keys) resolves exactly as before, since only those keys are `in boundEngineValues`.
 	const boundEngineValues = engineValues ?? binding?.engineValues;
 	if (boundEngineValues) {
 		for (const param of def?.params ?? []) {
-			if (param.engineProvided && param.key in boundEngineValues) {
+			if (param.key in boundEngineValues) {
 				const key = param.key;
 				// Read the LIVE values (prop, else the mount's binding getter) — NOT a frozen snapshot —
 				// so a repeated card's `price` (bet change) or a dialog's `title`/`message` (a new mode

@@ -72,6 +72,10 @@ const resolveOne = (
 		// The card is a ComponentDef id, not an asset key. Empty when unauthored so the runtime omits
 		// the per-item `componentId` and the repeater falls back to its default `featureCard` (parity).
 		card: presentation?.card ?? '',
+		// Per-mode card param overrides — passed through so the buy-feature repeater merges them into
+		// the item's values (any card param the mode overrides). `{}` when unauthored ⇒ no overrides ⇒
+		// every param keeps the card's authored default (parity).
+		cardParams: presentation?.cardParams ?? {},
 	};
 };
 
@@ -107,4 +111,27 @@ export const betModeCardIds = (doc: GameConfigDoc): string[] => {
 		if (card) ids.add(card);
 	}
 	return [...ids];
+};
+
+/**
+ * The per-mode {@link BetModePresentation.cardParams} overrides that carry ART — the bake collector's
+ * hook for the same reason as {@link betModeCardIds}: a card param can name an editor-art frame or
+ * spine bundle (a different panel/icon/spine per card), chosen at RUNTIME in the config, so the static
+ * scene/def walk never sees it. Returns one entry per mode with a non-empty `cardParams`, carrying its
+ * assigned `card` id (empty string ⇒ the default `featureCard`, resolved by the caller) and the raw
+ * override map. The caller classifies each key by the card def's param KIND (image → atlas, spine →
+ * bundle) — game-config is a leaf that can't resolve component defs. Empty for a config with no card
+ * overrides, so a project without them ships byte-identical (parity).
+ */
+export const betModeCardParamRefs = (
+	doc: GameConfigDoc,
+): { card: string; cardParams: Record<string, string | number | boolean> }[] => {
+	const refs: { card: string; cardParams: Record<string, string | number | boolean> }[] = [];
+	for (const presentation of Object.values(doc.betModePresentation ?? {})) {
+		const cardParams = presentation.cardParams;
+		if (cardParams && Object.keys(cardParams).length) {
+			refs.push({ card: presentation.card?.trim() ?? '', cardParams });
+		}
+	}
+	return refs;
 };
