@@ -117,4 +117,21 @@ export function syncBetModeMeta(): void {
 	// guards a malformed/empty config — but it does so for every online project on the shared bundle.
 	if (Object.keys(meta).length === 0) return;
 	stateMeta.betModeMeta = meta;
+	publishBetModeCostsToFacade(meta);
+}
+
+/**
+ * Publish each mode's buy COST MULTIPLIER to a global the RGS FACADE reads
+ * (`packages/rgs-translator-eagaming/stakeFacade.ts` → `betModeCostMultiplier`). The facade is a
+ * drop-in for `rgs-requests` and can't import this app, so a global is the decoupled bridge — the
+ * mirror of `publishWinLevelsToFacade`. It lets the facade charge the SELECTED mode's cost
+ * (`betAmount × costMultiplier`, the price its card shows) instead of a fixed buy premium, so the
+ * amount debited matches the tapped card. Keyed by the UPPERCASE mode key (the wire `mode`). Coupled
+ * to the buy MENU by construction — both come from this one `syncBetModeMeta` — so a card can never
+ * be tapped without its cost already published.
+ */
+function publishBetModeCostsToFacade(meta: BetModeMeta): void {
+	const costs: Record<string, number> = {};
+	for (const [key, mode] of Object.entries(meta)) costs[key] = mode.costMultiplier;
+	(globalThis as { __IE_BET_MODES__?: Record<string, number> }).__IE_BET_MODES__ = costs;
 }
