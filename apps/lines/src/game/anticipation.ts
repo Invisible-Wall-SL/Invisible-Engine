@@ -116,20 +116,6 @@ function buildReach(board: string[][]): {
 export function buildAnticipationArming(
 	revealEvent: BookEventOfType<'reveal'>,
 ): ((reelIndex: number) => ReelAnticipationArming | null) | undefined {
-	// TEMP diagnostic (opt-in `&antdebug=1`): logged BEFORE the mode guard so "no output at all"
-	// definitively means this function was never called on the reveal (flow path / stale bundle),
-	// vs. a log with `mode:false` meaning the mode is off during this spin.
-	if (typeof location !== 'undefined' && location.search.includes('antdebug')) {
-		// eslint-disable-next-line no-console
-		console.log(
-			'[ANT-DEBUG:called]',
-			revealEvent.gameType,
-			'mode=',
-			stateGame.anticipationMode,
-			'special=',
-			stateGame.specialSymbol ?? null,
-		);
-	}
 	if (!stateGame.anticipationMode) return undefined;
 
 	// Reveal boards are padded one row top+bottom (`padReel`); the VISIBLE window is rows 1..y, which
@@ -148,64 +134,45 @@ export function buildAnticipationArming(
 	const smallestBig = bigThresholds[0];
 	const minReel = stateGame.minAnticipateReel;
 
-	// TEMP diagnostic — opt-in via `&antdebug=1` in the URL (no output for anyone else). Prints the
-	// full anticipation-arming state per reveal so we can see why the book tease isn't arming: is the
-	// mode on, is `specialSymbol` set at reveal time, did `bookReach` build, do the book/scatter/win
-	// bounds clear their gates? Remove once diagnosed.
-	if (typeof location !== 'undefined' && location.search.includes('antdebug')) {
-		const perReel = [];
-		for (let k = 0; k < reach.numReels; k += 1) {
-			perReel.push({
-				k,
-				win: Number(reach.winBounds(k)[bound].toFixed(3)),
-				scatter: triggerCount !== undefined ? reach.triggerBounds(k)[bound] : null,
-				book: bookReach ? bookReach.triggerBounds(k)[bound] : null,
-			});
-		}
-		// eslint-disable-next-line no-console
-		console.log(
-			'[ANT-DEBUG]',
-			JSON.stringify({
-				gameType: revealEvent.gameType,
-				mode: stateGame.anticipationMode,
-				confidence: stateGame.anticipationConfidence,
-				bound,
-				minReel,
-				smallestBigTier: smallestBig ?? null,
-				specialSymbol: stateGame.specialSymbol ?? null,
-				triggerCount: triggerCount ?? null,
-				bookTriggerCount,
-				bookReachBuilt: bookReach !== undefined,
-				perReel,
-			}),
-		);
-	}
-
 	return (reelIndex: number): ReelAnticipationArming | null => {
-		if (reelIndex < minReel || reelIndex >= reach.numReels) return null;
+		if (reelIndex >= reach.numReels) return null;
 
 		let level = 0;
 
-		// Win-reach: arm once the reachable win clears the smallest big tier; stack a level per
-		// further big threshold the reachable win still crosses.
-		if (smallestBig !== undefined) {
-			const win = reach.winBounds(reelIndex)[bound];
-			if (win >= smallestBig) level = bigThresholds.filter((threshold) => win >= threshold).length;
-		}
-
-		// Trigger-reach: arm when the reachable special count can still reach the feature threshold.
-		if (triggerCount !== undefined && triggerCount > 0) {
-			const trigger = reach.triggerBounds(reelIndex)[bound];
-			if (trigger >= triggerCount) level = Math.max(level, 1);
-		}
-
-		// Book-trigger reach (Book-of expanding special, free spins only): arm when the reachable
-		// count of the ROUND'S book/special symbol can still reach the 3+ expansion. `bookReach` is
-		// only built when `stateGame.specialSymbol` is set, so the base game and non-Book-of games are
-		// unaffected (byte-parity). Contributes at least level 1, exactly like the scatter axis.
+		// Book-trigger reach (Book-of expanding special, free spins only) — the "one book away from
+		// the expansion" tease. This is NOT the generic reachable-bound test the win/scatter axes use
+		// (under `possible` that bound is met on almost every spin — noise). Instead it fires only once
+		// N-1 of the ROUND'S book symbol are ALREADY on the board (`min` = the GUARANTEED count, which
+		// counts EVERY book cell — so two books STACKED on one reel still count as two) AND the Nth is
+		// still reachable (`max`). So "two books down → tease" holds even when they share a column,
+		// and it drops the instant the last book becomes impossible. Independent of `possible`/
+		// `guaranteed`, and deliberately NOT gated by `minAnticipateReel` (two books is already
+		// meaningful this early). `bookReach` is only built when `stateGame.specialSymbol` is set, so
+		// the base game and non-Book-of games are unaffected (byte-parity).
 		if (bookReach && bookTriggerCount > 0) {
-			const book = bookReach.triggerBounds(reelIndex)[bound];
-			if (book >= bookTriggerCount) level = Math.max(level, 1);
+			const book = bookReach.triggerBounds(reelIndex);
+			if (book.min >= bookTriggerCount - 1 && book.max >= bookTriggerCount) {
+				level = Math.max(level, 1);
+			}
+		}
+
+		// The win + scatter axes ARE gated by `minAnticipateReel`: a run/count below 3 can't reach a
+		// big win or feature trigger, so an early arm there is meaningless (unlike the book, above).
+		if (reelIndex >= minReel) {
+			// Win-reach: arm once the reachable win clears the smallest big tier; stack a level per
+			// further big threshold the reachable win still crosses.
+			if (smallestBig !== undefined) {
+				const win = reach.winBounds(reelIndex)[bound];
+				if (win >= smallestBig) {
+					level = bigThresholds.filter((threshold) => win >= threshold).length;
+				}
+			}
+
+			// Trigger-reach: arm when the reachable special count can still reach the feature threshold.
+			if (triggerCount !== undefined && triggerCount > 0) {
+				const trigger = reach.triggerBounds(reelIndex)[bound];
+				if (trigger >= triggerCount) level = Math.max(level, 1);
+			}
 		}
 
 		if (level <= 0) return null;
