@@ -9,8 +9,9 @@ import type { Scene } from './types';
  * takeover falls back to THIS scene when a game passes no authored scene, and every reference
  * layout seeds a copy of it so a fresh editor project of any game type ships an authorable page.
  *
- * The card size is `FEATURE_CARD_WIDTH`×`HEIGHT` (280×380), so the repeater is offset by half a
- * card to centre the single-card default; an author repositions/styles the cards + backdrop here.
+ * The card size is `FEATURE_CARD_WIDTH`×`HEIGHT` (280×380); the repeater carries anchor `{0.5,0.5}`
+ * so the engine centres the WHOLE laid-out card group on the node position (no manual half-card
+ * offset) — an author repositions/styles the cards + backdrop here.
  */
 export function defaultBuyFeatureScene(): Scene {
 	return {
@@ -37,8 +38,9 @@ export function defaultBuyFeatureScene(): Scene {
 				label: 'Feature cards',
 				kind: 'repeater',
 				screenAnchor: { x: 0.5, y: 0.5 },
-				x: -140,
-				y: -190,
+				anchor: { x: 0.5, y: 0.5 },
+				x: 0,
+				y: 0,
 				source: 'featureCards',
 				componentId: 'featureCard',
 				layout: { direction: 'row', gap: 24 },
