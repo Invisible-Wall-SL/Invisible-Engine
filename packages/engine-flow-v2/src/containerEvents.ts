@@ -91,16 +91,33 @@ export const containerEventDeclId = (componentId: string, event: string): string
  * `{ id: '<componentId>.on<Event>', componentId, event, label: 'on<Event>', payload }`.
  * The `label` is the fused exec-out pin's caption (the `on<Event>` tail, stable regardless of which
  * component owns it); the `id` stays fully-qualified so the pin is unique on the `showContainer` node.
+ *
+ * DE-DUPE by decl `id`: two configured events can resolve to the SAME fused pin — a `repeater` node
+ * projects its canonical `<id>.onSelect` (WITH a `betModeKey` data-out), and the SAME node's item
+ * component (`featureCard`) also declares a `select` signal that would otherwise surface a second,
+ * PAYLOAD-LESS `<id>.onSelect`. Showing both is confusing and wiring the wrong (payload-less) one
+ * silently breaks the press. Keep exactly one per id, PREFERRING the decl that carries a payload (the
+ * repeater's fused pin), so only the canonical `onSelect` (+`betModeKey`) is projected. A single
+ * unambiguous configured event (every button, the confirm dialog's `confirm`/`cancel`) is untouched
+ * — parity.
  */
 export const deriveContainerEvents = (
 	components: ConfiguredComponentEvent[],
-): ContainerEventDecl[] =>
-	components
-		.filter((c): c is ConfiguredComponentEvent & { event: string } => !!c.event)
-		.map((c) => ({
+): ContainerEventDecl[] => {
+	const byId = new Map<string, ContainerEventDecl>();
+	for (const c of components) {
+		if (!c.event) continue; // no configured event ⇒ contributes no decl (never auto-dumped).
+		const decl: ContainerEventDecl = {
 			id: containerEventDeclId(c.componentId, c.event),
 			componentId: c.componentId,
 			event: c.event,
 			label: containerEventPinLabel(c.event),
 			payload: c.payload,
-		}));
+		};
+		const existing = byId.get(decl.id);
+		// First one wins UNLESS a later decl carries a payload the earlier one lacked (the repeater's
+		// fused pin beats a payload-less same-name component signal, regardless of author order).
+		if (!existing || (!existing.payload?.length && decl.payload?.length)) byId.set(decl.id, decl);
+	}
+	return [...byId.values()];
+};

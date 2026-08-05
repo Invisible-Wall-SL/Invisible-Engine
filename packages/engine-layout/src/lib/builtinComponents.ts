@@ -1456,6 +1456,11 @@ export const FEATURE_CARD_DEF: ComponentDef = {
 					fontSize: FEATURE_CARD_TITLE_SIZE,
 					fill: HUD_FILL,
 					align: 'center',
+					// Wrap long titles within the card instead of overflowing its edges (the card is
+					// FEATURE_CARD_WIDTH wide; leave a small side margin). Centre-anchored, so wrapped
+					// lines stay centred.
+					wordWrap: true,
+					wordWrapWidth: FEATURE_CARD_WIDTH - 40,
 				},
 				paramBindings: { text: 'title' },
 				preview: { style: 'text', textParam: 'title' },
@@ -1473,6 +1478,10 @@ export const FEATURE_CARD_DEF: ComponentDef = {
 					fontSize: FEATURE_CARD_BODY_SIZE,
 					fill: HUD_FILL,
 					align: 'center',
+					// Wrap the (often long) description within the card so copy like "Shoot your way
+					// through 10 free spins" flows to multiple lines instead of bleeding past the edges.
+					wordWrap: true,
+					wordWrapWidth: FEATURE_CARD_WIDTH - 40,
 				},
 				paramBindings: { text: 'description' },
 				preview: { style: 'text', textParam: 'description' },
