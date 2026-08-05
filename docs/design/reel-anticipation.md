@@ -1,8 +1,12 @@
 # Reel anticipation — a client-computed, escalating tease mode
 
-> Status: DESIGN (2026-08-04, owner-requested). Branch `engine/reel-anticipation-mode`.
-> Phase 0 = this doc. Nothing shipped yet. Off by default → byte-parity when unauthored, the
-> same discipline as [sequential reel stop](../../packages/utils-slots/src/createEnhanceBoardSpin.ts).
+> Status: SHIPPED (2026-08-05). All phases (0–5) merged to `main` in PR #229 and runtime-released
+> to the shared `_runtime/lines` bundle (online `bookofborutremake`). Off by default → byte-parity
+> when unauthored, the same discipline as
+> [sequential reel stop](../../packages/utils-slots/src/createEnhanceBoardSpin.ts). Author it via the
+> Flow `enableAnticipationMode` effect (`/flow-v2`) and tune the per-tier FX in `/symbols`.
+> Follow-ups: the animated hold still wants a human eyeball in a foreground tab (rAF is frozen
+> headless); the standalone `bookofborut` (own bundle) needs an engine-submodule bump to receive it.
 
 ## The ask
 
