@@ -52,6 +52,7 @@ import { stateApp } from './stateApp';
 import { type WinLevelData } from './winLevelMap';
 import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
+import { buildAnticipationArming } from './anticipation';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
 import { activeWinLevelData, boardDimensions, paddingReels, paylineColor } from './gameConfig';
@@ -480,6 +481,12 @@ const effects: Record<string, FlowEffect> = {
 			revealEvent: bookEvent,
 			paddingBoard: paddingReels(bookEvent.gameType),
 			forceSequentialStop: stateGame.sequentialReelStop,
+			// Client-computed reel anticipation — MUST be passed here too, not only in the coded
+			// `bookEventHandlerMap` reveal handler: a flow-v2 game (the Book-of remake) drives its
+			// reveals through THIS effect, so without this the whole anticipation feature (win + scatter
+			// + book axes) silently never arms on a flow-authored board — exactly why the free-spin book
+			// tease didn't show. Off by default ⇒ `buildAnticipationArming` returns undefined (parity).
+			computeArming: buildAnticipationArming(bookEvent),
 		});
 	},
 
