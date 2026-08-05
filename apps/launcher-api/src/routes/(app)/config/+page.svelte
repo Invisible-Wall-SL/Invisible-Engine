@@ -1227,9 +1227,9 @@
 									/>
 									{#if tint}
 										<button
-											class="del"
-											title="Clear colour"
-											onclick={() => clearPaylineColor(line.id)}>⌫</button
+											class="clear-color"
+											title="Reset this line's colour to the default (does NOT remove the line — the server owns the lines)"
+											onclick={() => clearPaylineColor(line.id)}>reset colour</button
 										>
 									{/if}
 								</div>
@@ -1858,6 +1858,21 @@
 	}
 	.del:hover {
 		color: #e07070;
+	}
+	/* Clear a line's per-line colour (revert to the Symbols default). Deliberately NOT the `.del`
+	   delete style — it acts on the COLOUR, not the line (the server owns the lines). */
+	.clear-color {
+		background: none;
+		border: none;
+		color: #6f6a80;
+		font-size: 11px;
+		line-height: 1;
+		cursor: pointer;
+		padding: 0 4px;
+		text-decoration: underline;
+	}
+	.clear-color:hover {
+		color: #b9b3c8;
 	}
 	.inline-issue {
 		margin: 8px 0 0;
