@@ -102,7 +102,21 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 			// pin), carrying the selected item's `betModeKey` — it has no per-item `action` param, so it is
 			// recognised by kind (`repeaterSelectConfiguredEvent`, the deriver's single source of that shape).
 			if ((node as { kind?: string }).kind === 'repeater') {
-				return [repeaterSelectConfiguredEvent(node.id)];
+				const canonical = repeaterSelectConfiguredEvent(node.id);
+				const repeaterEvents: ConfiguredComponentEvent[] = [canonical];
+				// The repeater's ITEM component may declare OTHER signals worth surfacing (a richer,
+				// multi-action card), but its `select` signal IS the repeater's canonical fused `onSelect`
+				// (+`betModeKey`) — so SUPPRESS that duplicate here (its event equals `canonical.event`),
+				// else the `showContainer` node shows TWO `onSelect` pins and wiring the payload-less one
+				// silently breaks the card press. (The `deriveContainerEvents` de-dupe is the deeper safety
+				// net; this keeps the surface clean.)
+				const itemId = (node as { componentId?: string }).componentId;
+				const itemDef = itemId ? BUILTIN_COMPONENTS.find((d) => d.id === itemId) : undefined;
+				for (const signal of itemDef?.signals ?? []) {
+					if (signal.key === canonical.event) continue;
+					repeaterEvents.push({ componentId: node.id, event: signal.key });
+				}
+				return repeaterEvents;
 			}
 			const events: ConfiguredComponentEvent[] = [];
 			// The universal `action` binding lives on `node.params` for ANY instance (not only a def that

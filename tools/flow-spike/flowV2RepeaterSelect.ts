@@ -344,6 +344,47 @@ const main = async () => {
 		JSON.stringify({ dispatched, codedRan }),
 	);
 
+	// -------------------------------------------------------------------------
+	// 8. DEDUPE — a repeater's item component (featureCard) ALSO declares a `select` signal, which the
+	// component-signal projection would surface as a SECOND, payload-less `<id>.onSelect`. The showContainer
+	// node must show ONLY ONE `onSelect` pin — the repeater's canonical one (with the `betModeKey` data-out),
+	// never the payload-less duplicate. `deriveContainerEvents` de-dupes by decl id, preferring the payload.
+	// -------------------------------------------------------------------------
+	console.log(
+		'\n8. a repeater + its item `select` signal fuse to ONE onSelect pin (the canonical, with betModeKey):',
+	);
+	{
+		// The repeater's canonical fused event PLUS the featureCard's payload-less `select` signal — BOTH
+		// under the SAME repeater node id (order deliberately payload-less-first, to prove order-independence).
+		const withDuplicate: ConfiguredComponentEvent[] = [
+			{ componentId: REPEATER_ID, event: REPEATER_SELECT_EVENT }, // the item signal (no payload).
+			repeaterSelectConfiguredEvent(REPEATER_ID), // the repeater's canonical (with betModeKey).
+		];
+		const deduped = deriveContainerEvents(withDuplicate);
+		assert(
+			'derives exactly ONE onSelect decl (the duplicate is dropped)',
+			deduped.length === 1,
+			`got ${deduped.length}: ${deduped.map((d) => d.id).join(', ')}`,
+		);
+		assert(
+			'the surviving decl is the CANONICAL one (carries the betModeKey payload)',
+			deduped[0]?.id === SELECT_PIN &&
+				deduped[0]?.payload?.length === 1 &&
+				deduped[0]?.payload?.[0]?.name === REPEATER_SELECTED_KEY,
+			JSON.stringify(deduped[0]),
+		);
+		// Non-repeater signals (distinct ids) are untouched — parity.
+		const twoDistinct = deriveContainerEvents([
+			{ componentId: 'confirm-dialog', event: 'confirm' },
+			{ componentId: 'confirm-dialog', event: 'cancel' },
+		]);
+		assert(
+			'distinct component signals survive unchanged (no over-dedupe)',
+			twoDistinct.length === 2,
+			twoDistinct.map((d) => d.id).join(', '),
+		);
+	}
+
 	console.log(
 		`\n${failed ? 'V2 REPEATER-SELECT HARNESS: FAILED' : 'V2 REPEATER-SELECT HARNESS: PASSED'}`,
 	);
