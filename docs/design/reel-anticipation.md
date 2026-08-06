@@ -136,6 +136,28 @@ A reel arms if EITHER axis says so; the FX layer/tier is the max across both. Th
 and special symbol come from config (the scatter's `special_properties` + its `occurs` count) — no
 hardcoded ids.
 
+### Refinement — "big wins only" (the arming gate that actually ships)
+
+The feature's whole purpose is to signal a **big win is coming**, so the arming policy in
+`anticipation.ts` gates **every** axis on a reachable big-win tier — it never fires on a small win:
+
+- **Line-win axis** — arms only when the reachable win clears the smallest configured big tier
+  (`smallestBig`). Unchanged in spirit from above.
+- **Book-of expansion axis** — the "one book away" tease, but ALSO big-win-gated. It arms only when
+  (a) the round's special, **fully expanded**, would itself be a big win — `bookExpansionMaxWin =
+  linePay(special, numReels)` (a full board of the special; the `numLines` factor cancels against the
+  win-reach divisor, so this is directly comparable to the tier thresholds) `≥ smallestBig`; AND
+  (b) **N-1 books are already on the board** (`triggerBounds.min`, which counts every book CELL, so two
+  books stacked on one reel count as two) with the Nth still reachable (`.max`). So "two books down →
+  tease" holds even same-column, and only when the expansion could pay big. Not gated by
+  `minAnticipateReel`. Book-of + free-spins only (`bookReach` exists only when `specialSymbol` is set).
+- **Scatter feature-trigger axis — retired as an arm trigger.** Entering free spins is a *feature*,
+  not a big *win*, so under "big wins only" it no longer arms the anticipation. (`triggerBounds` still
+  exists on the calculator for other uses; the lines arming policy just doesn't read the scatter axis.)
+  If a game ever wants a bonus-entry tease back, it'd be a separate, explicitly-authored toggle.
+
+With **no** big tiers configured there is no "big win" to anticipate, so nothing arms at all.
+
 ## Where each piece lives
 
 ### 1. Calculator (pure, `packages/utils-slots/src/anticipationReach.ts`)
