@@ -522,7 +522,14 @@ const isMainModule = import.meta.url === pathToFileURL(process.argv[1] ?? '').hr
 
 if (isMainModule) {
 	const PORT = Number(process.env.PORT ?? 7777);
-	const mock = createMockRgs({ label: 'mock' });
+	// Deal the game's grid so the mock matches the client. A 5-row CLIENT fed a 3-row deal renders
+	// only 4 rows on landing (the padded reveal is 2 cells short of the 5+2 a 5-row board needs), so
+	// set `ROWS`/`REELS` to the game's `numReels`/`numRows` when testing a resized board.
+	const envInt = (name) => {
+		const n = Number(process.env[name]);
+		return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
+	};
+	const mock = createMockRgs({ label: 'mock', reels: envInt('REELS'), rows: envInt('ROWS') });
 	const server = createServer((req, res) => {
 		const url = new URL(req.url, `http://${req.headers.host}`);
 		return mock.handle(req, res, url);
