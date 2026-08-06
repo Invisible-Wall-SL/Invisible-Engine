@@ -143,14 +143,17 @@ The feature's whole purpose is to signal a **big win is coming**, so the arming 
 
 - **Line-win axis** — arms only when the reachable win clears the smallest configured big tier
   (`smallestBig`). Unchanged in spirit from above.
-- **Book-of expansion axis** — the "one book away" tease, but ALSO big-win-gated. It arms only when
-  (a) the round's special, **fully expanded**, would itself be a big win — `bookExpansionMaxWin =
-  linePay(special, numReels)` (a full board of the special; the `numLines` factor cancels against the
-  win-reach divisor, so this is directly comparable to the tier thresholds) `≥ smallestBig`; AND
-  (b) **N-1 books are already on the board** (`triggerBounds.min`, which counts every book CELL, so two
-  books stacked on one reel count as two) with the Nth still reachable (`.max`). So "two books down →
-  tease" holds even same-column, and only when the expansion could pay big. Not gated by
-  `minAnticipateReel`. Book-of + free-spins only (`bookReach` exists only when `specialSymbol` is set).
+- **Book-of expansion axis** — the "one book away" tease. The expansion **is** the feature's big-win
+  moment (landing the Nth of the round's symbol expands it to fill reels and pays big — the whole
+  mechanic), so reaching it IS reaching a big win: it arms on the COUNT alone, **N-1 books already on
+  the board** (`triggerBounds.min`, which counts every book CELL, so two books stacked on one reel
+  count as two) with the Nth still reachable (`.max`). Not gated by `minAnticipateReel`. Book-of +
+  free-spins only (`bookReach` exists only when `specialSymbol` is set).
+  - ⚠️ **Do NOT gate this on a predicted expansion win.** An earlier pass gated it on
+    `linePay(special, numReels)` (the special as a single line), but a Book-of expansion pays far more
+    than one line of the symbol — that gate zeroed out low-paytable specials and **suppressed real big
+    book wins** (games.invisiblewall.org bug, 2026-08-06). The count gate is the correct big-win signal
+    for the book.
 - **Scatter feature-trigger axis — retired as an arm trigger.** Entering free spins is a *feature*,
   not a big *win*, so under "big wins only" it no longer arms the anticipation. (`triggerBounds` still
   exists on the calculator for other uses; the lines arming policy just doesn't read the scatter axis.)
