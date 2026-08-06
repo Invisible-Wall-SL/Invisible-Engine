@@ -50,7 +50,9 @@ You always work in the context of the **active client/project** (shown top-left,
 tool top bar). Switch projects from the launcher before opening the tool.
 
 1. **Read the grid.** Rows are the game's symbols; the six columns are the states
-   (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`). Each cell shows its
+   (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`). Book games add two more
+   (`Book intro`, `Book idle`); turning on **Stacked pictures** (below) adds a `Stacked picture`
+   column. Each cell shows its
    **effective binding** — your override if you've made one, otherwise the game's coded
    default. Sprite cells render a frame thumbnail; spine cells render a live animation
    on the shared spine canvas (a chip labels the bundle + animation); flipbook cells render
@@ -199,6 +201,19 @@ still owns the _sequence_ (start → idle → exit) and the _timing_. Timing is 
 glow _entirely_ — your own layered art, not one spine — use the **Board glow (free spins)**
 screen in the Scene Editor instead; real content there suppresses the coded glow (and with
 it this section's override).
+
+### Stacked pictures
+
+A **Stacked pictures** section (above Win lines) with a single on/off toggle, **off by default**.
+Turn it on to add a **Stacked picture** column to the grid, where each high symbol can carry a
+tall picture for the stacked-picture reel mode. It works on **any game type** — flip it on wherever
+you want to author stacked art, off to hide the column again.
+
+This switch is **tool-side only**: it just shows or hides the column and is never shipped to the
+game. Whether the stacked-picture mode actually runs in-game is gated separately by the
+`enableStackedPictures` Flow effect. The `stacked` cell bindings you author here travel the normal
+symbol export/bake chain like any other state. Stored sparsely as `stackedPictures: { enabled: true }`
+— off writes nothing, so a project that never opens this section is byte-identical to before.
 
 ### Win lines
 

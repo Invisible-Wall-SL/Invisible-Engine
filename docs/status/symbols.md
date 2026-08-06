@@ -185,6 +185,20 @@ Working on `main`:
   bake==prune). ⏳ **Owner visual-verify** (auth-gated tool + tease armed from Flow on a reachable big
   win). **Book of Borut needs an `engine` submodule bump** to receive it. Engine Phase 6 = ship
   (runtime release + refresh + submodule bump).
+- **Stacked-picture authoring toggle** (2026-08-06, branch `engine/symbols-stacked-toggle`,
+  default OFF ⇒ byte-parity). Replaced the hard `gameType === 'lines'` gating of the `Stacked`
+  grid column with a per-project switch so stacked-picture art can be authored on ANY game type
+  ("use it where I want"). New sparse doc-global `stackedPictures: { enabled?: boolean }` — the
+  INVERSE of `winLine` (absent/default = OFF, only `{ enabled: true }` persists, toggling back OFF
+  clears the field). `visibleStatesFor(gameType, { stackedEnabled })` now shows the `stacked`
+  column iff the toggle is on (book states stay gated on `gameType === 'bookOf'`); a **"Stacked
+  pictures"** on/off section in the tool (above Win lines) flips it live. **Tool-side only — NOT
+  baked**: the flag never travels the export/bake chain (the runtime is gated separately by the
+  `enableStackedPictures` Flow effect); the authored `stacked` cell bindings ride the normal symbol
+  export/bake chain unchanged. `.strict` Zod field + sparse `normalizeSymbolsDoc` prune, client
+  type/`stackedPicturesEnabled`/`setStackedPicturesEnabled`/`docSignature`/spread-PUT. Verified
+  offline: sparse round-trip (default writes nothing, ON ⇒ `{enabled:true}`, OFF clears) + the
+  column-gating truth table. No submodule bump needed (no engine change).
 - **Full deploy chain** (export → `deploy/editor-symbols/` → bake → pull → register):
   spine-aware `symbolExport.ts`, `POST /api/editor/export-symbols`, `bake-editor-doc.mjs`
   wiring, `pull-project-assets.mjs` prune entry, `bakedSymbolMap()` / `bakedSymbolAssets()`.

@@ -176,6 +176,19 @@ const winLineSchema = z
 	})
 	.strict();
 
+/** Tool-side stacked-picture authoring switch (Invisible Symbols State Machine). A pure per-project
+ *  toggle that shows/hides the "Stacked picture" grid column in the `/symbols` tool — it is NOT baked to
+ *  the engine (the runtime is gated separately by the `enableStackedPictures` Flow effect); the authored
+ *  `stacked` cell bindings already ride the normal symbol export/bake chain. Sparse + optional, and —
+ *  UNLIKE `winLine`, which defaults ON — this defaults OFF: absent means the column is hidden, so an
+ *  untouched project ships nothing and stays byte-identical. Only `{ enabled: true }` persists; toggling
+ *  back OFF clears the field (see `normalizeSymbolsDoc`). */
+const stackedPicturesSchema = z
+	.object({
+		enabled: z.boolean().optional(),
+	})
+	.strict();
+
 /** Resting-board replay of the winning SYMBOLS (the game's `winSymbolCycle`): keep them
  *  animating until the next spin. `enabled` absent means ON; `delay` is the pause in SECONDS
  *  between two passes; `showLine` (absent ⇒ ON) also redraws each win's line + stamped amount on
@@ -305,6 +318,7 @@ export const symbolsDocSchema = z
 		highlight: highlightCellSchema.optional(),
 		boardGlow: boardGlowSchema.optional(),
 		winLine: winLineSchema.optional(),
+		stackedPictures: stackedPicturesSchema.optional(),
 		winCycle: winCycleSchema.optional(),
 		bookVfx: bookVfxSchema.optional(),
 		anticipation: anticipationSchema.optional(),
@@ -364,6 +378,10 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	if (doc.boardGlow) next.boardGlow = doc.boardGlow;
 	const winLine = pruneWinLine(doc.winLine);
 	if (winLine) next.winLine = winLine;
+	// Sparse and the INVERSE of `winLine.enabled`: `stackedPictures.enabled` defaults OFF, so only the
+	// ON flag persists and OFF round-trips to no key (byte-parity). A tool-only authoring switch —
+	// never baked (see `stackedPicturesSchema`).
+	if (doc.stackedPictures?.enabled === true) next.stackedPictures = { enabled: true };
 	// Sparse like `winLine.enabled`: only the non-default (off) flag persists, but an authored
 	// delay always does — its default is a number the author may legitimately re-pick.
 	const winCycle: NonNullable<SymbolsDoc['winCycle']> = {};

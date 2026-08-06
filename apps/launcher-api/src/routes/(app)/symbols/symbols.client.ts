@@ -26,22 +26,28 @@ export type SymbolState = SymbolStateName;
  *  book game — see {@link visibleStatesFor}. */
 export const BOOK_STATES = BOOK_SYMBOL_STATES;
 const BOOK_STATE_SET = new Set<SymbolState>(BOOK_STATES);
-/** The lines-only state(s) — the stacked-picture mode's tall art. Shown as a grid column only for a
- *  `lines` game (a Book-of never stacks pictures). See {@link visibleStatesFor}. */
-const LINES_STATE_SET = new Set<SymbolState>(LINES_SYMBOL_STATES);
+/** The toggle-gated state(s) — the stacked-picture mode's tall art. Shown as a grid column only when the
+ *  per-project stacked-picture toggle is ON (`doc.stackedPictures.enabled`), for ANY game type — NOT by
+ *  game type. See {@link visibleStatesFor} / {@link stackedPicturesEnabled}. The underlying engine export
+ *  keeps its `LINES_SYMBOL_STATES` name; only this tool's gating changed from lines-only to toggle-gated. */
+const TOGGLE_GATED_STATE_SET = new Set<SymbolState>(LINES_SYMBOL_STATES);
 
 /** Human labels for the column headers — shared with the Scene Editor's `symbolState`
  *  dropdown so a state reads the same in both tools. */
 export const STATE_LABELS: Record<SymbolState, string> = SYMBOL_STATE_LABELS;
 
-/** The columns the grid renders for a given project game type: always the base states, plus the two
- *  book states ONLY for a book game (`gameType === 'bookOf'`) and the stacked-picture state ONLY for a
- *  lines game. Mirrors the launcher's `GameKind` ids (`$lib/roles`); kept inline because this module is
- *  browser-side and the roles list is not worth importing for one literal. */
-export function visibleStatesFor(gameType: string | undefined): readonly SymbolState[] {
+/** The columns the grid renders for a given project: always the base states, plus the two book states
+ *  ONLY for a book game (`gameType === 'bookOf'`) and the stacked-picture state ONLY when the per-project
+ *  stacked-picture toggle is on (`opts.stackedEnabled`, for ANY game type — see
+ *  {@link stackedPicturesEnabled}). Mirrors the launcher's `GameKind` ids (`$lib/roles`); kept inline
+ *  because this module is browser-side and the roles list is not worth importing for one literal. */
+export function visibleStatesFor(
+	gameType: string | undefined,
+	opts?: { stackedEnabled?: boolean },
+): readonly SymbolState[] {
 	return SYMBOL_STATES.filter((s) => {
 		if (BOOK_STATE_SET.has(s)) return gameType === 'bookOf';
-		if (LINES_STATE_SET.has(s)) return gameType === 'lines';
+		if (TOGGLE_GATED_STATE_SET.has(s)) return opts?.stackedEnabled === true;
 		return true;
 	});
 }
@@ -177,6 +183,14 @@ export interface WinLineConfig {
 	text?: WinLineTextStyle;
 }
 
+/** Tool-side stacked-picture authoring switch. Sparse and defaults OFF (the INVERSE of
+ *  {@link WinLineConfig}): absent means the "Stacked picture" grid column is hidden. Purely a `/symbols`
+ *  authoring toggle — never baked; the runtime is gated by the `enableStackedPictures` Flow effect.
+ *  Mirrors the server `stackedPicturesSchema`. */
+export interface StackedPicturesConfig {
+	enabled?: boolean;
+}
+
 /** An anticipation escalation tier — the ALIAS of a config-authored big-win tier (`/config`). The
  *  panel renders ONE FX column per configured big tier, keyed by alias (no longer a fixed
  *  big/mega/massive triple). Mirrors `utils-slots`' `AnticipationTier` and the server schema. */
@@ -267,6 +281,11 @@ export interface SymbolsDoc {
 	 *  is `doc.winLine?.enabled ?? true`; every style field falls through to coded
 	 *  defaults when unset. */
 	winLine?: WinLineConfig;
+	/** Tool-side stacked-picture authoring switch — shows/hides the "Stacked picture" grid column. The
+	 *  effective value is `doc.stackedPictures?.enabled === true` (defaults OFF, the INVERSE of `winLine`).
+	 *  Sparse: only `{ enabled: true }` persists. NOT baked to the engine — a pure `/symbols` authoring
+	 *  toggle (the runtime is gated by the `enableStackedPictures` Flow effect). */
+	stackedPictures?: StackedPicturesConfig;
 	/** Resting-board replay of the winning SYMBOLS. Sparse (`enabled` absent = ON); a sibling of
 	 *  `winLine`, never a field inside it — the replay is about the SYMBOLS, and `showLine` only
 	 *  opts the line back into each pass. Was USED by the helpers below without ever being
@@ -558,6 +577,23 @@ export function setWinLineEnabled(doc: SymbolsDoc, enabled: boolean): SymbolsDoc
 	return withWinLine(doc, winLine);
 }
 
+/** The effective "author stacked-picture art" flag = the doc's value ?? `false`. Defaults OFF (the
+ *  INVERSE of {@link winLineEnabled}), so an un-toggled project hides the "Stacked picture" column and
+ *  ships nothing. */
+export function stackedPicturesEnabled(doc: SymbolsDoc): boolean {
+	return doc.stackedPictures?.enabled === true;
+}
+
+/** Set the "author stacked-picture art" flag, returning a NEW doc (immutable update). Kept sparse (the
+ *  INVERSE of {@link setWinLineEnabled}): ON persists `{ enabled: true }`; OFF drops the field entirely so
+ *  an un-toggled/reset project stays byte-identical. */
+export function setStackedPicturesEnabled(doc: SymbolsDoc, enabled: boolean): SymbolsDoc {
+	const next = { ...doc };
+	if (enabled) next.stackedPictures = { enabled: true };
+	else delete next.stackedPictures;
+	return next;
+}
+
 /** Drop a now-empty `winCycle` so an untouched/reset project ships nothing (sparse). */
 function withWinCycle(doc: SymbolsDoc, winCycle: NonNullable<SymbolsDoc['winCycle']>): SymbolsDoc {
 	const next = { ...doc };
@@ -702,6 +738,10 @@ export function docSignature(doc: SymbolsDoc): string {
 				text: sortKeys(doc.winLine.text),
 			}
 		: null;
+	// Listed here or a stacked-picture toggle never marks the page dirty and Save stays disabled.
+	const stackedPictures = doc.stackedPictures
+		? { enabled: doc.stackedPictures.enabled ?? null }
+		: null;
 	const winCycle = doc.winCycle
 		? {
 				enabled: doc.winCycle.enabled ?? null,
@@ -766,6 +806,7 @@ export function docSignature(doc: SymbolsDoc): string {
 		highlight,
 		boardGlow,
 		winLine,
+		stackedPictures,
 		winCycle,
 		bookVfx,
 		anticipation,
