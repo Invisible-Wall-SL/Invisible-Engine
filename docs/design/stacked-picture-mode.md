@@ -78,6 +78,13 @@ default deal is untouched.
 - Live (apps/lines vs the `STACKED=1` mock, `PUBLIC_RGS_GAME=lines`): the Pixi scene shows the
   StackedPicture as a Container + stretched Sprite + rect mask; off ⇒ no stacked containers
   (byte-parity). Full-pixel screenshot of a partial crop pending a displayed Browser pane.
+- **Real Flow-activation path** — `apps/lines/src/game/flowV2StackedDoc.ts` (`LINES_FLOW_V2_STACKED_DOC`)
+  is the canonical book-events-only reference flow with an `enableStackedPictures` effect node
+  PREPENDED to the `reveal` choreography. Loaded via **`?flowV2=stacked`** (or
+  `window.__IE_FLOW_V2_STACKED__`); wired in `flowV2Runtime.svelte.ts#loadFlowV2Doc`. So the mode is
+  turned on through the actual interpreter (authored node → `flowEffect('enableStackedPictures')`),
+  not the default flag — verified: the doc loads + validates (0 errors), the handle `ownsEvent('reveal')`
+  is true and `ownsEvent('load')` is false (coded screens), and the mode arms on the first spin's reveal.
 
 ## Non-goals / open
 
