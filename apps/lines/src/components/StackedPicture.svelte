@@ -8,9 +8,10 @@
 
 	/**
 	 * One tall stacked picture for the stacked-picture reel mode (docs/design/stacked-picture-mode.md).
-	 * Draws the run symbol's `stacked` state art (sprite / spine / flipbook — the SAME state-machine
-	 * binding, authored in the Invisible Symbols State Machine) into a box `naturalCells` tall, then
-	 * masks it to the top `visibleCells` cells so a partial stack shows the top N/M, top-aligned.
+	 * Draws the AUTHORED tall art (`run.art` — the Symbols-State-Machine stacked config, sprite / spine /
+	 * flipbook) into a box `naturalCells` tall, then masks it to the top `visibleCells` cells so a partial
+	 * stack shows the top N/M, top-aligned. When no config art is authored (dev / coded fallback) it falls
+	 * back to the symbol's `stacked` state binding, so the mechanic still renders.
 	 *
 	 * Coordinate space: the parent mounts this inside the resting board container, so `run.x` /
 	 * `run.topEdgeY` are the SAME board-local coordinates `BoardBase` uses. The container is centred on
@@ -21,7 +22,10 @@
 	const context = getContext();
 
 	const geometry = $derived(context.stateGameDerived.boardGeometry());
-	const info = $derived(getSymbolInfo({ rawSymbol: { name: run.name }, state: 'stacked' }));
+	// Prefer the authored config art; fall back to the symbol's `stacked` state binding when unset.
+	const info = $derived(
+		run.art ?? getSymbolInfo({ rawSymbol: { name: run.name }, state: 'stacked' }),
+	);
 
 	// Box = cell width × the FULL picture height (naturalCells). Art is stretched to fill it, so a
 	// tall picture authored at the box aspect renders undistorted while a placeholder icon still fills

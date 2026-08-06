@@ -198,6 +198,23 @@ type BakedBundle = {
 			animations?: { start?: string; idle?: string; exit?: string };
 			sizeRatios?: { width: number; height: number };
 		};
+		/** STACKED-PICTURE config (Invisible Symbols State Machine output, docs/design/stacked-picture-mode.md):
+		 * which symbols stack, how many CELLS tall each picture is (`height`, the crop denominator), and
+		 * the tall picture `art` (its assetKey rides `symbols.index` like a per-symbol binding, so it's
+		 * already loadable). A stacked symbol ALWAYS shows its picture — even a lone one shows the top
+		 * 1/height — and never its single icon. Absent → the coded `STACKED_PICTURE` fallback (dev parity). */
+		stacked?: {
+			symbols: Array<{
+				name: string;
+				height: number;
+				art: {
+					type: 'sprite' | 'spine' | 'flipbook';
+					assetKey: string;
+					animationName?: string;
+					clipId?: string;
+				};
+			}>;
+		};
 		/** Free-spin BOOK VFX (Invisible Symbols State Machine output): a two-layer effect drawn on
 		 * the book/special symbol during free spins — `background` behind the symbol art,
 		 * `foreground` in front. `components/BookVfx.svelte` renders it per matching cell; any
@@ -665,6 +682,19 @@ export function bakedBoardGlow(): BakedBundle['symbols']['boardGlow'] {
 	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.boardGlow;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.symbols?.boardGlow;
+}
+
+/**
+ * The STACKED-PICTURE config authored in the Invisible Symbols State Machine (which symbols stack +
+ * per-symbol height + tall art). When set, the stacked-picture reel mode uses THIS (symbol set,
+ * heights, and picture art) instead of the coded `STACKED_PICTURE` + per-symbol `stacked` fallback.
+ * Each `art.assetKey` rides `symbols.index` (registered like any per-symbol binding), so it is already
+ * loadable. Mirrors `bakedHighlight`'s runtime→baked→undefined resolution; undefined ⇒ the coded
+ * fallback (dev parity for an un-authored game). */
+export function bakedStackedConfig(): BakedBundle['symbols']['stacked'] {
+	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.stacked;
+	if (!hasBakedDoc()) return undefined;
+	return bakedBundle.symbols?.stacked;
 }
 
 /**
