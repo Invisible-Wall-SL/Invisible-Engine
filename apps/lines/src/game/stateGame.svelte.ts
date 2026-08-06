@@ -17,6 +17,7 @@ import {
 	SPIN_OPTIONS_FAST,
 	INITIAL_SYMBOL_STATE,
 	SCATTER_LAND_SOUND_MAP,
+	STACKED_PICTURE,
 } from './constants';
 import { boardDimensions, boardSizes, initialBoard } from './gameConfig';
 
@@ -249,6 +250,15 @@ export const stateGame = $state({
 	// the losing symbols. Reassigned wholesale (see {@link setWinDim}) so the $state proxy re-renders.
 	// Off ⇒ `active` never becomes true ⇒ every symbol stays full-bright (byte-parity).
 	winDim: { active: false, cells: {} as Record<string, boolean> },
+	// Stacked-picture reel mode (docs/design/stacked-picture-mode.md). OFF by default ⇒ the board is
+	// byte-identical (empty coverage, no overlay) until the `enableStackedPictures` Flow effect turns
+	// it on. `stackedPictureSymbols` overrides the config eligible set (null ⇒ config default);
+	// `stackedPictureHighPayOnly` picks the default set (high pays + Wild) when there is no explicit
+	// override; `stackedPictureMinRun` is the shortest run that draws a picture.
+	stackedPictureMode: false,
+	stackedPictureSymbols: null as string[] | null,
+	stackedPictureHighPayOnly: true,
+	stackedPictureMinRun: STACKED_PICTURE.minRun,
 });
 
 /** Key a board cell for the win-dim membership set (`reel:row`). Shared by the writer
@@ -260,6 +270,128 @@ export const winDimCellKey = (reel: number, row: number): string => `${reel}:${r
 export const setWinDim = (active: boolean, cells: Record<string, boolean>): void => {
 	stateGame.winDim = { active, cells };
 };
+
+/**
+ * One tall picture to draw for the stacked-picture mode (docs/design/stacked-picture-mode.md): a
+ * contiguous run of the same eligible symbol on a settled reel. `visibleCells` (N) is the run length;
+ * `naturalCells` (M) the symbol's authored picture height (the crop denominator, ≥ N). The picture is
+ * top-anchored at `topEdgeY` in board-LOCAL space and cropped to the top N/M. All geometry is derived
+ * from the reel cell metrics, so it scales to any grid.
+ */
+export type StackedPictureRun = {
+	reel: number;
+	name: string;
+	topRow: number;
+	visibleCells: number;
+	naturalCells: number;
+	x: number;
+	topEdgeY: number;
+};
+
+/** Eligible symbols for the stacked-picture mode: an explicit Flow override, else the config default
+ *  set when `highPayOnly` is on, else `null` = every symbol may stack. */
+const stackedEligibleSymbols = (): Set<string> | null => {
+	if (stateGame.stackedPictureSymbols) return new Set(stateGame.stackedPictureSymbols);
+	if (stateGame.stackedPictureHighPayOnly) return new Set(STACKED_PICTURE.symbols);
+	return null;
+};
+
+/**
+ * When the stacked-picture mode is on, seed a reel's SCROLL strip with natural-height BLOCKS of the
+ * eligible symbols, so tall pictures ROLL through the reel during the whole spin (not only on landing).
+ * Each eligible symbol occurrence becomes M copies (its natural height, `STACKED_PICTURE.heights`);
+ * everything else is untouched. OFF ⇒ the strip is returned unchanged (byte-parity). Purely cosmetic —
+ * this is only the scroll filler (`paddingBoard`); the RESULT board (`revealEvent.board`) is separate,
+ * so a partial result still crops normally on landing.
+ */
+export const stackedScrollStrip = (strips: RawSymbol[][]): RawSymbol[][] => {
+	if (!stateGame.stackedPictureMode) return strips;
+	const eligible = stackedEligibleSymbols();
+	return strips.map((strip) =>
+		strip.flatMap((symbol) => {
+			const name = symbol.name;
+			const isEligible = name != null && (eligible === null || eligible.has(name));
+			const height = STACKED_PICTURE.heights[name];
+			if (!isEligible || !height || height < 2) return [symbol];
+			return Array.from({ length: height }, () => ({ ...symbol }));
+		}),
+	);
+};
+
+/** Scan every SETTLED reel for contiguous runs of an eligible symbol (length ≥ minRun) and turn each
+ *  into a `StackedPictureRun`. Empty when the mode is off (byte-parity). Reads live $state, so callers
+ *  read it reactively. */
+const computeStackedRuns = (): StackedPictureRun[] => {
+	if (!stateGame.stackedPictureMode) return [];
+	const rows = boardDimensions().y;
+	const minRun = Math.max(2, Math.floor(stateGame.stackedPictureMinRun));
+	const eligible = stackedEligibleSymbols();
+	const { rowPitchLocal } = boardGeometry();
+	const runs: StackedPictureRun[] = [];
+	stateGame.board.forEach((reel, reelIndex) => {
+		const symbols = reel.reelState.symbols;
+		// Two scan windows, both positioned off the LIVE `symbolY()` so the pictures move with the reel:
+		//  • ROLLING (a long scrolling array: target+padding+prev) — scan the WHOLE strip so every
+		//    contiguous block of a high symbol renders as a tall picture that SCROLLS through the reel
+		//    (the board-window mask clips it). The scroll strip is seeded with natural-height blocks
+		//    (`stackedScrollStrip`), so the tall symbols are there to roll.
+		//  • SETTLED (the compact result set, length rows+2) — scan only the visible window (symbolIndex
+		//    1..rows) so a partial stack CROPS to the top N/M (a padding row must not extend the run).
+		const scrolling = symbols.length > rows + 2;
+		const first = scrolling ? 0 : 1;
+		const last = scrolling ? symbols.length - 1 : rows;
+		const cap = scrolling ? symbols.length - 1 : rows;
+		let idx = first;
+		while (idx <= last) {
+			const name = symbols[idx]?.rawSymbol.name;
+			const isEligible = name != null && (eligible === null || eligible.has(name));
+			if (!isEligible) {
+				idx += 1;
+				continue;
+			}
+			// While scrolling, cap a run at the symbol's natural height so each strip BLOCK renders as one
+			// M-tall picture (adjacent/duplicate blocks don't merge into a giant one). Settled runs are
+			// never capped — a partial result crops to top N/M below.
+			const maxRun = scrolling ? (STACKED_PICTURE.heights[name] ?? Infinity) : Infinity;
+			let end = idx;
+			while (end + 1 <= cap && symbols[end + 1]?.rawSymbol.name === name && end - idx + 1 < maxRun)
+				end += 1;
+			const visibleCells = end - idx + 1;
+			if (visibleCells >= minRun) {
+				const natural = STACKED_PICTURE.heights[name];
+				const naturalCells = Math.max(visibleCells, natural ?? visibleCells);
+				runs.push({
+					reel: reelIndex,
+					name,
+					topRow: idx,
+					visibleCells,
+					naturalCells,
+					x: getSymbolX(reelIndex),
+					topEdgeY: symbols[idx].symbolY() - rowPitchLocal / 2,
+				});
+			}
+			idx = end + 1;
+		}
+	});
+	return runs;
+};
+
+const stackedRuns = $derived.by(computeStackedRuns);
+
+/** The stacked pictures to draw this frame (see {@link StackedPictureRun}). */
+export const stackedPictureRuns = (): StackedPictureRun[] => stackedRuns;
+
+const stackedCoverageSet = $derived.by(() => {
+	const covered = new Set<string>();
+	for (const run of stackedRuns)
+		for (let row = run.topRow; row < run.topRow + run.visibleCells; row += 1)
+			covered.add(winDimCellKey(run.reel, row));
+	return covered;
+});
+
+/** `reel:row` keys hidden because a stacked picture covers them — read by `ReelSymbol` to skip the
+ *  single-cell art under a run (no doubling). Empty when the mode is off (byte-parity). */
+export const stackedCoverage = (): Set<string> => stackedCoverageSet;
 
 /**
  * Rebuild the board from the CURRENT active config, replacing `stateGame.board`. Called once from

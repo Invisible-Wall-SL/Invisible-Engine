@@ -28,6 +28,7 @@
 	import BoardMask from './BoardMask.svelte';
 	import BoardBase from './BoardBase.svelte';
 	import BookVfx from './BookVfx.svelte';
+	import StackedPictures from './StackedPictures.svelte';
 
 	const context = getContext();
 
@@ -69,6 +70,9 @@
 			<!-- Free-spin book VFX shares the resting board's coordinate space + mask; its bg/fg
 				 layers interleave with the symbols by zIndex. Inert unless a bookVfx is baked. -->
 			<BookVfx />
+			<!-- Stacked-picture reel mode overlay — shares the resting board's coordinate space +
+				 mask. Renders nothing unless the mode is on (docs/design/stacked-picture-mode.md). -->
+			<StackedPictures />
 		</BoardContainer>
 	</BoardContext>
 

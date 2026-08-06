@@ -62,6 +62,7 @@ import { flowEffect, flowEffectNames } from './flowEffects';
 import { linesEngineReader } from './flowRuntime.svelte';
 import { awaitCue, waitPresentation } from './unskippablePresentation';
 import { LINES_FLOW_V2_DOC, LINES_FLOW_V2_LIBRARY } from './flowV2Doc';
+import { LINES_FLOW_V2_STACKED_DOC } from './flowV2StackedDoc';
 
 declare global {
 	/** DEV opt-in: an arbitrary v2 FlowDoc injected at runtime so a v2 flow can drive the game
@@ -76,6 +77,11 @@ declare global {
 	 *  v2 drives a real game without a bake (mirrors v1's `__IE_FLOW_LINES__`). Unset ⇒ not loaded. */
 	// eslint-disable-next-line no-var
 	var __IE_FLOW_V2_LINES__: boolean | undefined;
+	/** DEV opt-in: load the stacked-picture verify flow (`LINES_FLOW_V2_STACKED_DOC` — the reference
+	 *  flow + an `enableStackedPictures` node on `reveal`) so the mode activates through the REAL flow
+	 *  interpreter. Mirrors `?flowV2=stacked`. Unset ⇒ not loaded. */
+	// eslint-disable-next-line no-var
+	var __IE_FLOW_V2_STACKED__: boolean | undefined;
 	/** DEBUG: an ordered trace of every flow op (event / show / hide / HOLD / RELEASE / complete /
 	 *  cue / action), captured when logging is on (`?flowlog=1`). Read it in the console to see exactly
 	 *  what the flow did, in order — the answer to "why didn't my screen show". */
@@ -109,6 +115,13 @@ const flowV2UrlOptIn = (): boolean => {
 	return v === 'lines' || v === '1';
 };
 
+/** True when the URL opts into the stacked-picture verify flow (`?flowV2=stacked`). Read at BOOT so it
+ *  survives a reload — the natural way to test the mode's REAL Flow activation path. */
+const flowV2StackedOptIn = (): boolean => {
+	if (typeof globalThis === 'undefined' || !globalThis.location) return false;
+	return new URLSearchParams(globalThis.location.search).get('flowV2') === 'stacked';
+};
+
 /** True when the URL opts into flow TRACE LOGGING (`?flowlog=1`). Read at BOOT so it survives a reload
  *  — the reproducible way to see what a shipped v2 flow actually does (a console global can't be set
  *  before the game mounts). Logs every event/show/hide/hold/release/complete + captures the ordered
@@ -132,6 +145,7 @@ const flowV2LogOptIn = (): boolean => {
 export const loadFlowV2Doc = (): FlowDocV2 | undefined => {
 	if (typeof globalThis !== 'undefined') {
 		if (globalThis.__IE_FLOW_V2_DOC__) return globalThis.__IE_FLOW_V2_DOC__;
+		if (globalThis.__IE_FLOW_V2_STACKED__ || flowV2StackedOptIn()) return LINES_FLOW_V2_STACKED_DOC;
 		if (globalThis.__IE_FLOW_V2_LINES__ || flowV2UrlOptIn()) return LINES_FLOW_V2_DOC;
 	}
 	return bakedFlowV2Doc();

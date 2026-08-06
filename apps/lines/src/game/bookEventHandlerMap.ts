@@ -12,7 +12,7 @@ import { eventEmitter } from './eventEmitter';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { playBookEvent } from './utils';
-import { stateGame, stateGameDerived } from './stateGame.svelte';
+import { stateGame, stateGameDerived, stackedScrollStrip } from './stateGame.svelte';
 import { buildAnticipationArming } from './anticipation';
 import {
 	winLevelSoundsPlay,
@@ -46,7 +46,9 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		stateGame.gameType = bookEvent.gameType;
 		await stateGameDerived.enhancedBoard.spin({
 			revealEvent: bookEvent,
-			paddingBoard: paddingReels(bookEvent.gameType),
+			// Stacked-picture mode seeds the scroll strip with natural-height blocks so tall pictures roll
+			// during the spin; a no-op when the mode is off (byte-parity).
+			paddingBoard: stackedScrollStrip(paddingReels(bookEvent.gameType)),
 			forceSequentialStop: stateGame.sequentialReelStop,
 			computeArming: buildAnticipationArming(bookEvent),
 		});

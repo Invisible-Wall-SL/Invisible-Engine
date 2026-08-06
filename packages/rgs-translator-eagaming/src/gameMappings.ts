@@ -45,8 +45,16 @@ export interface GameMapping {
  *  static config in Fase 1. */
 export const linesMapping: GameMapping = {
 	symbols: {
-		PIC1: 'H1', PIC2: 'H2', PIC3: 'H3', PIC4: 'H4',
-		PIC5: 'L1', PIC6: 'L2', PIC7: 'L5',
+		PIC1: 'H1',
+		PIC2: 'H2',
+		PIC3: 'H3',
+		PIC4: 'H4',
+		PIC5: 'L1',
+		PIC6: 'L2',
+		PIC7: 'L5',
+		// WILD → W: only the stacked-picture test deal (mock `STACKED=1`) emits WILD, so the engine's
+		// stacked-picture mode has a full-height Wild to render. Harmless otherwise (never dealt).
+		WILD: 'W',
 		SCAT: 'S',
 	},
 	scatter: 'S',
@@ -71,8 +79,15 @@ export const linesMapping: GameMapping = {
  *  trait — so it is registered as both scatter and wild here. */
 export const bookMapping: GameMapping = {
 	symbols: {
-		PIC1: 'H1', PIC2: 'H2', PIC3: 'H3', PIC4: 'H4',
-		ACE: 'L1', KING: 'L2', QUEEN: 'L3', JACK: 'L4', TEN: 'L5',
+		PIC1: 'H1',
+		PIC2: 'H2',
+		PIC3: 'H3',
+		PIC4: 'H4',
+		ACE: 'L1',
+		KING: 'L2',
+		QUEEN: 'L3',
+		JACK: 'L4',
+		TEN: 'L5',
 		SCAT: 'S',
 	},
 	scatter: 'S',
