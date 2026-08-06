@@ -41,13 +41,18 @@
 	);
 </script>
 
-<!-- SFX — reuse the registered `sfx_anticipation` loop with the recovered fade-in / fade-out, mounted
-	 only while a reel is actively anticipating. The fade-in target is the current max tier's volume, so
-	 a mega/massive tease is louder than a plain big one (a per-tier mid-hold ramp is a Phase-5 seam). -->
+<!-- SFX — a one-shot activation STING the instant anticipation starts, then the registered
+	 `sfx_anticipation` loop underneath it with the recovered fade-in / fade-out. Both are mounted only
+	 while a reel is actively anticipating. The fade-in target is the current max tier's volume, so a
+	 mega/massive tease is louder than a plain big one (a per-tier mid-hold ramp is a Phase-5 seam). -->
 {#if anyActive}
 	<OnMount
 		onmount={() => {
 			const volume = resolveTierFx(activeMaxTier()).soundVolume;
+			// The moment the tease activates: fire the mapped one-shot `sfx_anticipation_start` sting
+			// (previously declared but never triggered) so the activation has a distinct hit, then start
+			// the looping bed. Byte-parity where the game's audio sprite lacks either region.
+			context.eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_anticipation_start' });
 			context.eventEmitter.broadcast({ type: 'soundLoop', name: 'sfx_anticipation' });
 			context.eventEmitter.broadcast({
 				type: 'soundFade',
