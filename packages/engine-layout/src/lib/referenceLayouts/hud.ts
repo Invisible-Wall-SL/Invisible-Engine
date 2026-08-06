@@ -341,12 +341,10 @@ export function hudBarScene(options: HudBarOptions = {}): Scene {
 	): LayoutNode | ComponentInstanceNode => {
 		if (!options.buttons)
 			return barNode(id, label, component, BTN, desktop, landscape, tablet, portrait);
-		const { action, icon } = HUD_BUTTON_ACTION_MAP[component];
-		// turbo / auto-spin carry a config-feature `visibleSource` so they hide when the game
-		// config disables that feature — parity with the coded `UIDefault` `{#if config.features.*}`
-		// wraps (the other five buttons have no such coded gate).
-		const visibleSource =
-			action === 'turbo' ? 'turboFeature' : action === 'autoSpin' ? 'autoplayFeature' : undefined;
+		// turbo / auto-spin carry a config-feature `visibleSource` (from the shared map) so they hide
+		// when the game config disables that feature — parity with the coded `UIDefault`
+		// `{#if config.features.*}` wraps (the other five buttons have no such coded gate).
+		const { action, icon, visibleSource } = HUD_BUTTON_ACTION_MAP[component];
 		return buttonInstanceNode(
 			id,
 			label,
