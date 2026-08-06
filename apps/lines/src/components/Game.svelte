@@ -4,7 +4,7 @@
 	import { EnablePixiExtension, DebugStage } from 'components-pixi';
 	import { EnableHotkey, OnHotkey } from 'components-shared';
 	import { MainContainer } from 'components-layout';
-	import { App, Container, Text, REM } from 'pixi-svelte';
+	import { App, Container, Text } from 'pixi-svelte';
 	import {
 		stateBet,
 		stateBetDerived,
@@ -32,7 +32,8 @@
 
 	import {
 		UI,
-		UiGameName,
+		HudGameName,
+		HudLogo,
 		InfoOverlay,
 		HudReadout,
 		HudTicker,
@@ -339,6 +340,15 @@
 		HudTicker,
 		HudCaption,
 		HudValue,
+		// The HUD CORNERS (game-name + logo) as bound components so a flow-v2-driven game — where
+		// the coded `<UI>` chrome is suppressed — renders them: `<FlowV2Mount>` mounts the reserved
+		// `hudCorners` scene and `LayoutNodeView` resolves these `HudGameName`/`HudLogo` binds via
+		// `getBoundComponent`. Without this the corners mount as EMPTY containers (the coded `<UI>`
+		// was their only renderer), the logo/game-name twin of the §Phase-1 blank bottom bar. In the
+		// CODED path `hudCorners` is a RESERVED scene (never generically mounted), so the coded `<UI>`
+		// snippet stays the sole corner renderer there — no double-mount. Same components both paths.
+		HudGameName,
+		HudLogo,
 		// `ButtonFrame`/`ButtonLabel` are the two coded parts the `button` ComponentDef
 		// MOUNTS (§16.2 separate-coded-parts path, the button analogue of the HUD split):
 		// the def's `root` has one `bind` child per part by name (Frame = the `UiSprite`
@@ -2014,23 +2024,15 @@
 					 the fader; `hudEntrance` is undefined when the HUD isn't flow-managed. -->
 			{#key hudEntrance}
 				<FlowFade transition={hudEntrance} timeScale={stateBetDerived.timeScale}>
+					<!-- The corners render through the SAME `HudGameName`/`HudLogo` components the
+							 `hudCorners` scene mounts under a flow-v2-driven game (registered as bound
+							 components below), so the two paths can't drift (§ default-HUD Phase 2). -->
 					<UI hud={{ bar: hudBarScene, corners: hudCornersScene }}>
 						{#snippet gameName(override)}
-							<UiGameName name="LINES GAME" {override} />
+							<HudGameName name="LINES GAME" text={override?.text} style={override?.style} />
 						{/snippet}
 						{#snippet logo(override)}
-							<Text
-								anchor={{ x: 1, y: 0 }}
-								text={override?.text ?? 'ADD YOUR LOGO'}
-								style={{
-									fontFamily: 'proxima-nova',
-									fontSize: REM * 1.5,
-									fontWeight: '600',
-									lineHeight: REM * 2,
-									fill: 0xffffff,
-									...override?.style,
-								}}
-							/>
+							<HudLogo text={override?.text} style={override?.style} />
 						{/snippet}
 					</UI>
 				</FlowFade>
