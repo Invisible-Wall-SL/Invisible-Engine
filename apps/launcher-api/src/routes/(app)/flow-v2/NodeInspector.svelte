@@ -593,11 +593,33 @@
 						<option value={v}>{v}</option>
 					{/each}
 				</select>
+			{:else if lt.t === 'list' && lt.of.t === 'enum'}
+				<!-- A list of an ENUM (e.g. `symbols: SymbolName[]`) is PICKED, not typed: one toggle chip
+				     per member. Clicking adds/removes it from the stored array. Empty = the effect default. -->
+				{@const enumName = lt.of.t === 'enum' ? lt.of.name : ''}
+				{@const enumValues = vocab.enums.find((en) => en.name === enumName)?.values ?? []}
+				{@const selected = Array.isArray(src.value) ? src.value.map(String) : []}
+				<div class="chips">
+					{#each enumValues as v (v)}
+						<button
+							type="button"
+							class="chip"
+							class:on={selected.includes(v)}
+							onclick={() =>
+								commit({
+									kind: 'literal',
+									type: lt,
+									value: selected.includes(v) ? selected.filter((x) => x !== v) : [...selected, v],
+								})}>{v}</button
+						>
+					{/each}
+					{#if enumValues.length === 0}<span class="note">no options</span>{/if}
+				</div>
 			{:else if lt.t === 'list' && lt.of.t !== 'struct' && lt.of.t !== 'list'}
 				<input
 					type="text"
 					class="listlit"
-					placeholder="e.g. 2, 3, 4, 5, 6 — one per reel"
+					placeholder="comma-separated (one per reel)"
 					value={formatListLiteral(src.value)}
 					onchange={(e) =>
 						commit({
@@ -970,5 +992,28 @@
 		right: 5px;
 		padding: 1px 6px;
 		color: #fca5a5;
+	}
+	.chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
+	}
+	.chip {
+		padding: 2px 9px;
+		font-size: 12px;
+		line-height: 1.5;
+		border: 1px solid #2a323d;
+		border-radius: 999px;
+		background: #14181f;
+		color: #cbd5e1;
+		cursor: pointer;
+	}
+	.chip:hover {
+		border-color: #3b475a;
+	}
+	.chip.on {
+		background: #2563eb;
+		border-color: #2563eb;
+		color: #fff;
 	}
 </style>
