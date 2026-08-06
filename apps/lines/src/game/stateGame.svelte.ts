@@ -10,6 +10,7 @@ import type { GameType, RawSymbol, SymbolState, SymbolName } from './types';
 import { stateLayoutDerived } from './stateLayout';
 import { winLevelMap } from './winLevelMap';
 import { eventEmitter } from './eventEmitter';
+import { bakedStackedConfig } from '../editor-scenes';
 import {
 	SYMBOL_SIZE,
 	REEL_PADDING,
@@ -251,14 +252,11 @@ export const stateGame = $state({
 	// Off ⇒ `active` never becomes true ⇒ every symbol stays full-bright (byte-parity).
 	winDim: { active: false, cells: {} as Record<string, boolean> },
 	// Stacked-picture reel mode (docs/design/stacked-picture-mode.md). OFF by default ⇒ the board is
-	// byte-identical (empty coverage, no overlay) until the `enableStackedPictures` Flow effect turns
-	// it on. `stackedPictureSymbols` overrides the config eligible set (null ⇒ config default);
-	// `stackedPictureHighPayOnly` picks the default set (high pays + Wild) when there is no explicit
-	// override; `stackedPictureMinRun` is the shortest run that draws a picture.
+	// byte-identical (empty coverage, no overlay) until the `enableStackedPictures` Flow effect turns it
+	// on. The MODE is the only runtime toggle now — WHICH symbols stack, how tall each picture is, and
+	// the picture art all come from the authored config (`bakedStackedConfig()`), with `STACKED_PICTURE`
+	// as the coded fallback. A stacked symbol ALWAYS shows its picture (even a lone one → top 1/height).
 	stackedPictureMode: false,
-	stackedPictureSymbols: null as string[] | null,
-	stackedPictureHighPayOnly: true,
-	stackedPictureMinRun: STACKED_PICTURE.minRun,
 });
 
 /** Key a board cell for the win-dim membership set (`reel:row`). Shared by the writer
@@ -278,6 +276,15 @@ export const setWinDim = (active: boolean, cells: Record<string, boolean>): void
  * top-anchored at `topEdgeY` in board-LOCAL space and cropped to the top N/M. All geometry is derived
  * from the reel cell metrics, so it scales to any grid.
  */
+/** The tall picture art for a stacked symbol (from the authored config). Mirrors a `SymbolCellInfo`
+ *  binding; absent (coded fallback) ⇒ `StackedPicture` falls back to the symbol's `stacked` state. */
+export type StackedArt = {
+	type: 'sprite' | 'spine' | 'flipbook';
+	assetKey: string;
+	animationName?: string;
+	clipId?: string;
+};
+
 export type StackedPictureRun = {
 	reel: number;
 	name: string;
@@ -286,33 +293,53 @@ export type StackedPictureRun = {
 	naturalCells: number;
 	x: number;
 	topEdgeY: number;
+	/** The authored tall art (undefined ⇒ fall back to the `stacked` state binding). */
+	art?: StackedArt;
 };
 
-/** Eligible symbols for the stacked-picture mode: an explicit Flow override, else the config default
- *  set when `highPayOnly` is on, else `null` = every symbol may stack. */
-const stackedEligibleSymbols = (): Set<string> | null => {
-	if (stateGame.stackedPictureSymbols) return new Set(stateGame.stackedPictureSymbols);
-	if (stateGame.stackedPictureHighPayOnly) return new Set(STACKED_PICTURE.symbols);
-	return null;
+/**
+ * The RESOLVED stacked config: which symbols stack + per-symbol height + tall art. Prefers the authored
+ * `bakedStackedConfig()` (Invisible Symbols State Machine); falls back to the coded `STACKED_PICTURE`
+ * (dev / un-authored) — the coded fallback has no baked art, so `artOf` returns undefined there and the
+ * picture renders via the symbol's `stacked` state binding.
+ */
+type ResolvedStacked = {
+	symbols: Set<string>;
+	heightOf: (name: string) => number | undefined;
+	artOf: (name: string) => StackedArt | undefined;
+};
+const resolvedStacked = (): ResolvedStacked => {
+	const baked = bakedStackedConfig();
+	if (baked?.symbols?.length) {
+		const byName = new Map(baked.symbols.map((s) => [s.name, s]));
+		return {
+			symbols: new Set(byName.keys()),
+			heightOf: (name) => byName.get(name)?.height,
+			artOf: (name) => byName.get(name)?.art,
+		};
+	}
+	return {
+		symbols: new Set(STACKED_PICTURE.symbols),
+		heightOf: (name) => STACKED_PICTURE.heights[name],
+		artOf: () => undefined,
+	};
 };
 
 /**
  * When the stacked-picture mode is on, seed a reel's SCROLL strip with natural-height BLOCKS of the
- * eligible symbols, so tall pictures ROLL through the reel during the whole spin (not only on landing).
- * Each eligible symbol occurrence becomes M copies (its natural height, `STACKED_PICTURE.heights`);
- * everything else is untouched. OFF ⇒ the strip is returned unchanged (byte-parity). Purely cosmetic —
- * this is only the scroll filler (`paddingBoard`); the RESULT board (`revealEvent.board`) is separate,
- * so a partial result still crops normally on landing.
+ * stacked symbols, so tall pictures ROLL through the reel during the whole spin (not only on landing).
+ * Each stacked-symbol occurrence becomes `height` copies; everything else is untouched. OFF ⇒ the strip
+ * is returned unchanged (byte-parity). Purely cosmetic — this is only the scroll filler (`paddingBoard`);
+ * the RESULT board (`revealEvent.board`) is separate, so a partial result still crops on landing.
  */
 export const stackedScrollStrip = (strips: RawSymbol[][]): RawSymbol[][] => {
 	if (!stateGame.stackedPictureMode) return strips;
-	const eligible = stackedEligibleSymbols();
+	const { symbols, heightOf } = resolvedStacked();
 	return strips.map((strip) =>
 		strip.flatMap((symbol) => {
 			const name = symbol.name;
-			const isEligible = name != null && (eligible === null || eligible.has(name));
-			const height = STACKED_PICTURE.heights[name];
-			if (!isEligible || !height || height < 2) return [symbol];
+			const height = heightOf(name);
+			if (!symbols.has(name) || !height || height < 2) return [symbol];
 			return Array.from({ length: height }, () => ({ ...symbol }));
 		}),
 	);
@@ -324,8 +351,7 @@ export const stackedScrollStrip = (strips: RawSymbol[][]): RawSymbol[][] => {
 const computeStackedRuns = (): StackedPictureRun[] => {
 	if (!stateGame.stackedPictureMode) return [];
 	const rows = boardDimensions().y;
-	const minRun = Math.max(2, Math.floor(stateGame.stackedPictureMinRun));
-	const eligible = stackedEligibleSymbols();
+	const { symbols: stackedSet, heightOf, artOf } = resolvedStacked();
 	const { rowPitchLocal } = boardGeometry();
 	const runs: StackedPictureRun[] = [];
 	stateGame.board.forEach((reel, reelIndex) => {
@@ -358,15 +384,15 @@ const computeStackedRuns = (): StackedPictureRun[] => {
 				continue;
 			}
 			const name = symbols[idx]?.rawSymbol.name;
-			const isEligible = name != null && (eligible === null || eligible.has(name));
-			if (!isEligible) {
+			if (name == null || !stackedSet.has(name)) {
 				idx += 1;
 				continue;
 			}
-			// While scrolling, cap a run at the symbol's natural height so each strip BLOCK renders as one
-			// M-tall picture (adjacent/duplicate blocks don't merge into a giant one). Settled runs are
-			// never capped — a partial result crops to top N/M below.
-			const maxRun = scrolling ? (STACKED_PICTURE.heights[name] ?? Infinity) : Infinity;
+			// While scrolling, cap a run at the symbol's height so each strip BLOCK renders as one M-tall
+			// picture (adjacent/duplicate blocks don't merge into a giant one). Settled runs are never
+			// capped — a partial result crops to top N/M below.
+			const height = heightOf(name);
+			const maxRun = scrolling ? (height ?? Infinity) : Infinity;
 			let end = idx;
 			while (
 				end + 1 <= cap &&
@@ -376,19 +402,19 @@ const computeStackedRuns = (): StackedPictureRun[] => {
 			)
 				end += 1;
 			const visibleCells = end - idx + 1;
-			if (visibleCells >= minRun) {
-				const natural = STACKED_PICTURE.heights[name];
-				const naturalCells = Math.max(visibleCells, natural ?? visibleCells);
-				runs.push({
-					reel: reelIndex,
-					name,
-					topRow: idx,
-					visibleCells,
-					naturalCells,
-					x: getSymbolX(reelIndex),
-					topEdgeY: symbols[idx].symbolY() - rowPitchLocal / 2,
-				});
-			}
+			// A stacked symbol ALWAYS shows its picture — even a lone one (N=1) shows the top 1/height, and
+			// never its single icon. So every run of a stacked symbol draws (min run = 1).
+			const naturalCells = Math.max(visibleCells, height ?? visibleCells);
+			runs.push({
+				reel: reelIndex,
+				name,
+				topRow: idx,
+				visibleCells,
+				naturalCells,
+				x: getSymbolX(reelIndex),
+				topEdgeY: symbols[idx].symbolY() - rowPitchLocal / 2,
+				art: artOf(name),
+			});
 			idx = end + 1;
 		}
 	});
