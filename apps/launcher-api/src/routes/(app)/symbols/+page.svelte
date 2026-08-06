@@ -55,6 +55,8 @@
 		setWinLineEnabled,
 		setWinLineLine,
 		setWinLineText,
+		setStackedPicturesEnabled,
+		stackedPicturesEnabled,
 		winCycleDimNonWinning,
 		winCycleEnabled,
 		winCycleShowLine,
@@ -86,10 +88,14 @@
 	// Symbol rows come from the coded defaults (the source of truth for the set).
 	const symbolNames = $derived(Object.keys(data.defaults.symbols));
 
+	// Whether stacked-picture authoring is on for this project — a per-project toggle (default OFF), so
+	// the "Stacked picture" column shows for ANY game type the author opts in, not just lines games.
+	const stackedOn = $derived(stackedPicturesEnabled(doc));
+
 	// The state columns the grid renders: the base 6, plus the two book-only states
-	// (`bookIntro`/`bookIdle`) ONLY for a book game. Gated on the server-provided
-	// `gameType`, so non-book games keep the original 6 columns unchanged.
-	const visibleStates = $derived(visibleStatesFor(data.gameType));
+	// (`bookIntro`/`bookIdle`) ONLY for a book game, plus the stacked-picture column ONLY when the
+	// per-project toggle above is on. Book states stay gated on the server-provided `gameType`.
+	const visibleStates = $derived(visibleStatesFor(data.gameType, { stackedEnabled: stackedOn }));
 
 	// Responsive cell sizing — the grid fills the page WIDTH so it no longer sits tiny
 	// in the top-left, and each preview scales with the 6 state columns. Width-driven
@@ -791,6 +797,13 @@
 
 	function toggleWinLine(enabled: boolean): void {
 		doc = setWinLineEnabled(doc, enabled);
+	}
+
+	// ── Stacked-picture authoring toggle (tool-only, default OFF) ──────────────
+	// Shows/hides the "Stacked picture" grid column for THIS project (any game type). Sparse like
+	// the win-line switch: ON persists `{ enabled: true }`, OFF clears the field — never baked.
+	function toggleStackedPictures(enabled: boolean): void {
+		doc = setStackedPicturesEnabled(doc, enabled);
 	}
 
 	// ── Winning-symbol replay (the game's win-symbol cycle) ───────────────────
@@ -1503,6 +1516,30 @@
 								{/if}
 							</div>
 						{/each}
+					</div>
+				</section>
+
+				<section class="winline">
+					<div class="wl-head">
+						<div class="wl-text">
+							<h2>Stacked pictures</h2>
+							<p class="wl-sub">
+								Adds a <strong>Stacked picture</strong> column to the grid, where each high symbol
+								can carry a tall picture for the stacked-picture reel mode. Off by default; a
+								tool-side switch only — the runtime still needs the
+								<code>enableStackedPictures</code>
+								Flow effect.
+							</p>
+						</div>
+						<label class="switch" class:on={stackedOn}>
+							<input
+								type="checkbox"
+								checked={stackedOn}
+								onchange={(e) => toggleStackedPictures(e.currentTarget.checked)}
+							/>
+							<span class="track"><span class="knob"></span></span>
+							<span class="switch-label">{stackedOn ? 'On' : 'Off'}</span>
+						</label>
 					</div>
 				</section>
 
