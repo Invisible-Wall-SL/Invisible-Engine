@@ -22,7 +22,12 @@ import { getOrMintReadToken, projectClientKey, projectGameType, projectName } fr
 import { listAllObjects } from './r2';
 import { ensureDeployExports } from './runtimeBundle';
 import { invalidateRuntimeBundle } from './runtimeBundleCache';
-import { upsertTestServerGame, type MockProtocol } from './testServerManifest';
+import { loadGameConfigDoc } from './gameConfigStorage';
+import {
+	upsertTestServerGame,
+	type MockProtocol,
+	type TestServerGameEntry,
+} from './testServerManifest';
 
 export interface PublishResult {
 	/** The game key (== the project key). */
@@ -78,10 +83,47 @@ function runtimeFor(_gameType: string): string {
 }
 
 /**
+ * Resolve a project's board grid from its authored Game Config, in the shape the test-server mock
+ * wants (`{ reels, rows, paylines: rows[][] }`). Mirrors the test-server's own `linesGrid` derivation
+ * so the mock deals the SAME dimensions + paylines the client draws. Lines protocol only; best-effort
+ * (no authored doc / odd config ⇒ `undefined` ⇒ the mock keeps its shared default). `numRows` is the
+ * per-reel array, so `rows` is its max (a stepped board is a rectangle tall enough to hold it).
+ */
+async function projectGrid(
+	protocol: MockProtocol,
+	clientKey: string,
+	projectKey: string,
+): Promise<TestServerGameEntry['grid']> {
+	if (protocol !== 'lines') return undefined;
+	try {
+		const cfg = (await loadGameConfigDoc(clientKey, projectKey)) as {
+			numReels?: unknown;
+			numRows?: unknown;
+			paylines?: unknown;
+		} | null;
+		if (!cfg) return undefined;
+		const reels = Math.max(1, Math.round(Number(cfg.numReels)));
+		const rowsList = Array.isArray(cfg.numRows) ? (cfg.numRows as number[]) : [3];
+		const rows = Math.max(1, Math.round(Math.max(...(rowsList.length ? rowsList : [3]))));
+		const paylines =
+			cfg.paylines && typeof cfg.paylines === 'object'
+				? (Object.values(cfg.paylines) as number[][])
+				: [];
+		if (!Number.isFinite(reels) || !paylines.length) return undefined;
+		return { reels, rows, paylines };
+	} catch {
+		return undefined;
+	}
+}
+
+/**
  * Publish (or re-publish) a project as a playable test-server game. `projectKey` is
  * the BARE launcher project key; it is also used verbatim as the GAME key.
  */
-export async function publishGame(projectKey: string, launcherOrigin: string): Promise<PublishResult> {
+export async function publishGame(
+	projectKey: string,
+	launcherOrigin: string,
+): Promise<PublishResult> {
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 	const gameType = await projectGameType(projectKey);
 	const name = (await projectName(projectKey)) ?? projectKey;
@@ -114,12 +156,19 @@ export async function publishGame(projectKey: string, launcherOrigin: string): P
 		);
 	}
 
+	// Deal THIS project's OWN board grid on the mock RGS (not the shared apps/lines default), so a
+	// project that authored e.g. 5 rows doesn't mismatch its client (roll with 5, settle with fewer).
+	// Best-effort + lines-only (the book mock owns its own shape): an un-authored/odd config ⇒ no grid
+	// ⇒ the test server falls back to its shared default. `paylines` are the config's row-index arrays.
+	const grid = await projectGrid(protocol, clientKey, projectKey);
+
 	// 4 + 5. Merge the test-server manifest (read-modify-write, preserves siblings).
 	await upsertTestServerGame(key, {
 		protocol,
 		name,
 		runtime,
 		updatedAt: new Date().toISOString(),
+		...(grid ? { grid } : {}),
 	});
 
 	// 6. Register the game. The launch URL boots the generic runtime (`?runtime=1`)

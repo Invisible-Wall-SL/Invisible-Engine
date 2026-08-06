@@ -148,10 +148,28 @@ const linesGrid = (() => {
 	}
 })();
 
-const makeMock = (protocol, label) =>
+// `grid` is THIS project's own board (from its Game Config, carried in the manifest entry). When
+// present it deals the project's real numReels/numRows/paylines so the mock matches the client that
+// authored e.g. 5 rows; absent ⇒ the shared `linesGrid` default (apps/lines). Book keeps its shape.
+const makeMock = (protocol, label, grid) =>
 	protocol === 'book'
 		? createBookMock({ label })
-		: createLinesMock({ label, ...(linesGrid ?? {}) });
+		: createLinesMock({ label, ...(grid ?? linesGrid ?? {}) });
+
+/** Accept a manifest `grid` only when it is well-formed (reels + rows + numReels-wide paylines); any
+ *  malformed entry ⇒ null ⇒ the mock keeps its shared default. Defensive: the manifest is external. */
+const validGrid = (grid) => {
+	if (!grid || typeof grid !== 'object') return null;
+	const reels = Math.round(Number(grid.reels));
+	const rows = Math.round(Number(grid.rows));
+	const paylines = Array.isArray(grid.paylines) ? grid.paylines : [];
+	const shaped =
+		reels > 0 &&
+		rows > 0 &&
+		paylines.length > 0 &&
+		paylines.every((line) => Array.isArray(line) && line.length === reels);
+	return shaped ? { reels, rows, paylines } : null;
+};
 
 const streamToBuffer = async (stream) => {
 	const chunks = [];
@@ -242,7 +260,7 @@ async function hydrate() {
 	for (const [key, meta] of Object.entries(source.games)) {
 		const protocol = meta.protocol === 'book' ? 'book' : 'lines';
 		const runtime = typeof meta.runtime === 'string' && meta.runtime ? meta.runtime : null;
-		nextRegistry[key] = { protocol, name: meta.name ?? key, runtime };
+		nextRegistry[key] = { protocol, name: meta.name ?? key, runtime, grid: validGrid(meta.grid) };
 		if (runtime) {
 			// Served from the shared runtime bundle (loaded once below) — no per-key files.
 			runtimeIds.add(runtime);
@@ -276,7 +294,7 @@ async function hydrate() {
 	mocks = Object.fromEntries(
 		Object.entries(nextRegistry).map(([key, meta]) => [
 			key,
-			makeMock(meta.protocol, `mock:${key}`),
+			makeMock(meta.protocol, `mock:${key}`, meta.grid),
 		]),
 	);
 }

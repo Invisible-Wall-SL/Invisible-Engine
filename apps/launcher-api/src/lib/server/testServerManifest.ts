@@ -150,6 +150,12 @@ export interface TestServerGameEntry {
 	runtime?: string;
 	/** ISO timestamp — passed IN by the caller (no `Date.now()` here). */
 	updatedAt: string;
+	/** The project's OWN board grid (from its Game Config), so the mock RGS deals THIS project's
+	 *  `numReels`/`numRows`/`paylines` instead of the shared `apps/lines` default — otherwise a project
+	 *  that authored e.g. 5 rows mismatches the client (rolls with 5, settles to fewer). Absent ⇒ the
+	 *  test server falls back to its shared default grid. Synced on publish. `paylines` are row-index
+	 *  arrays, one per reel (`Object.values(config.paylines)`). */
+	grid?: { reels: number; rows: number; paylines: number[][] };
 }
 
 export interface TestServerManifest {
