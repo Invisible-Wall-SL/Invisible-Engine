@@ -51,8 +51,8 @@ tool top bar). Switch projects from the launcher before opening the tool.
 
 1. **Read the grid.** Rows are the game's symbols; the six columns are the states
    (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`). Book games add two more
-   (`Book intro`, `Book idle`); turning on **Stacked pictures** (below) adds a `Stacked picture`
-   column. Each cell shows its
+   (`Book intro`, `Book idle`). Stacked-picture tall art is **not** a grid column — it is
+   authored in the **Stacked pictures** section (below). Each cell shows its
    **effective binding** — your override if you've made one, otherwise the game's coded
    default. Sprite cells render a frame thumbnail; spine cells render a live animation
    on the shared spine canvas (a chip labels the bundle + animation); flipbook cells render
@@ -204,16 +204,24 @@ it this section's override).
 
 ### Stacked pictures
 
-A **Stacked pictures** section (above Win lines) with a single on/off toggle, **off by default**.
-Turn it on to add a **Stacked picture** column to the grid, where each high symbol can carry a
-tall picture for the stacked-picture reel mode. It works on **any game type** — flip it on wherever
-you want to author stacked art, off to hide the column again.
+A **Stacked pictures** section (above Win lines) with a master on/off toggle, **off by default**.
+Turn it on to make a symbol into a single **tall picture** that fills several cells for the
+stacked-picture reel mode — that tall picture is the **only** thing a stacked symbol shows. All of
+the stacked config lives here (there is no per-cell `Stacked picture` grid column any more):
 
-This switch is **tool-side only**: it just shows or hides the column and is never shipped to the
-game. Whether the stacked-picture mode actually runs in-game is gated separately by the
-`enableStackedPictures` Flow effect. The `stacked` cell bindings you author here travel the normal
-symbol export/bake chain like any other state. Stored sparsely as `stackedPictures: { enabled: true }`
-— off writes nothing, so a project that never opens this section is byte-identical to before.
+- A **multi-select** of your symbols (click a chip to make it stacked; click again to un-stack).
+- For each stacked symbol, a **Height (cells tall)** number (≥ 1) — how many cells the picture spans
+  — and an **Edit tall picture** button that opens the same **Sprite / Spine / Flipbook** picker the
+  grid cells use (with a small live preview). When you add a symbol its art is seeded from that
+  symbol's own win/static art, so the picker opens on the real symbol; swap it to your tall picture.
+
+Unlike the earlier version, this config **is shipped**: with the toggle on and at least one symbol
+authored it bakes as `bundle.symbols.stacked = { symbols: [{ name, height, art }] }`, and each tall
+`art` asset travels the normal symbol export/bake chain (spine bundle / sprite sheet) exactly like a
+per-cell binding — so the picture that shows in the tool is the one the game loads. Everything is
+sparse: turn the toggle off (or author nothing) and the project bakes **no** `stacked` field and is
+byte-identical to before. (Whether the stacked-picture reel mode is armed in-game is still gated by
+the `enableStackedPictures` Flow effect.)
 
 ### Win lines
 

@@ -28,9 +28,20 @@ export const POST: RequestHandler = async ({ url }) => {
 		// reads them off this response) — only the live runtime path, which uses the full
 		// `SymbolExportResult`, carried them. Both bundle paths must agree (the "reach both" rule).
 		// `bookVfx` (the book-symbol VFX layers) is on this list for the SAME reason — omit it and the
-		// bake path would ship no book VFX while the runtime path did.
-		const { map, index, names, highlight, boardGlow, winLine, winCycle, bookVfx, anticipation } =
-			await exportEditorSymbols(clientKey, projectKey);
+		// bake path would ship no book VFX while the runtime path did. `stacked` (the stacked-picture
+		// config) is here for the SAME reason — the bake reads it off this response.
+		const {
+			map,
+			index,
+			names,
+			highlight,
+			boardGlow,
+			winLine,
+			winCycle,
+			bookVfx,
+			anticipation,
+			stacked,
+		} = await exportEditorSymbols(clientKey, projectKey);
 		return json({
 			clientKey,
 			projectKey,
@@ -43,6 +54,7 @@ export const POST: RequestHandler = async ({ url }) => {
 			winCycle,
 			bookVfx,
 			anticipation,
+			stacked,
 		});
 	} catch (e) {
 		console.error('export-symbols failed:', e);

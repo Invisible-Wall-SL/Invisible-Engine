@@ -176,16 +176,32 @@ const winLineSchema = z
 	})
 	.strict();
 
-/** Tool-side stacked-picture authoring switch (Invisible Symbols State Machine). A pure per-project
- *  toggle that shows/hides the "Stacked picture" grid column in the `/symbols` tool — it is NOT baked to
- *  the engine (the runtime is gated separately by the `enableStackedPictures` Flow effect); the authored
- *  `stacked` cell bindings already ride the normal symbol export/bake chain. Sparse + optional, and —
- *  UNLIKE `winLine`, which defaults ON — this defaults OFF: absent means the column is hidden, so an
- *  untouched project ships nothing and stays byte-identical. Only `{ enabled: true }` persists; toggling
- *  back OFF clears the field (see `normalizeSymbolsDoc`). */
+/** One stacked symbol's authored config (Invisible Symbols State Machine → stacked-picture reel mode,
+ *  `docs/design/stacked-picture-mode.md`). `height` is how many CELLS tall the picture is (the crop
+ *  denominator); `art` is the tall picture itself, authored via the SAME per-cell binding schema the
+ *  grid uses (sprite frame / spine bundle+animation / flipbook clip). The tall picture is the ONLY
+ *  thing a stacked symbol renders — all of its stacked config lives in this one block, no longer a
+ *  per-cell `stacked` grid column. */
+const stackedSymbolSchema = z
+	.object({
+		name: z.string().min(1),
+		height: z.number().int().min(1),
+		art: symbolCellSchema,
+	})
+	.strict();
+
+/** Stacked-picture config (Invisible Symbols State Machine). `enabled` is the per-project master
+ *  toggle (default OFF, the INVERSE of `winLine`): it both shows the tool's "Stacked pictures" config
+ *  block and gates whether the stacked config bakes at all. `symbols` is the authored per-symbol tall
+ *  art + height — the editable twin of the old coded `STACKED_PICTURE.heights`, now shipped through the
+ *  normal symbol export/bake chain (each `art` asset rides `index.sheets`/`index.spines` exactly like a
+ *  per-cell binding, baked as `bundle.symbols.stacked = { symbols: [{ name, height, art }] }`). Sparse
+ *  everywhere: an untouched or disabled project persists no `stackedPictures` key and bakes no `stacked`
+ *  field, so it stays byte-identical (see `normalizeSymbolsDoc` + `symbolExport.ts`). */
 const stackedPicturesSchema = z
 	.object({
 		enabled: z.boolean().optional(),
+		symbols: z.array(stackedSymbolSchema).optional(),
 	})
 	.strict();
 
@@ -345,6 +361,22 @@ function pruneWinLine(winLine: SymbolsDoc['winLine']): SymbolsDoc['winLine'] {
 	return Object.keys(next).length ? next : undefined;
 }
 
+/** Drop a stacked symbol with no valid art (empty `assetKey`) and a now-empty `stackedPictures`, so a
+ *  disabled/un-authored project round-trips to "no stacked config" (sparse) rather than persisting
+ *  `{}`/`{ symbols: [] }`. The empty-art filter is also the guard that keeps a half-picked symbol from
+ *  ever reaching the wire — the schema's `art.assetKey` is `min(1)`, so a blank one would 400 the save
+ *  (the "publish silent double-fail" trap); dropping it here means it simply doesn't persist. */
+function pruneStackedPictures(
+	config: SymbolsDoc['stackedPictures'],
+): SymbolsDoc['stackedPictures'] {
+	if (!config) return undefined;
+	const next: NonNullable<SymbolsDoc['stackedPictures']> = {};
+	if (config.enabled === true) next.enabled = true;
+	const symbols = (config.symbols ?? []).filter((s) => s.name && s.art?.assetKey);
+	if (symbols.length) next.symbols = symbols;
+	return Object.keys(next).length ? next : undefined;
+}
+
 /**
  * Validate + normalize arbitrary parsed/posted data into a {@link SymbolsDoc}.
  * Drops empty `symbols` entries (a symbol with no remaining states) so a delete
@@ -378,10 +410,11 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	if (doc.boardGlow) next.boardGlow = doc.boardGlow;
 	const winLine = pruneWinLine(doc.winLine);
 	if (winLine) next.winLine = winLine;
-	// Sparse and the INVERSE of `winLine.enabled`: `stackedPictures.enabled` defaults OFF, so only the
-	// ON flag persists and OFF round-trips to no key (byte-parity). A tool-only authoring switch —
-	// never baked (see `stackedPicturesSchema`).
-	if (doc.stackedPictures?.enabled === true) next.stackedPictures = { enabled: true };
+	// Sparse whitelist: persist the master toggle (only the non-default ON flag) plus the authored
+	// stacked symbols (only those with valid art), so a disabled/un-authored project round-trips to no
+	// `stackedPictures` key (byte-parity). See `pruneStackedPictures`.
+	const stackedPictures = pruneStackedPictures(doc.stackedPictures);
+	if (stackedPictures) next.stackedPictures = stackedPictures;
 	// Sparse like `winLine.enabled`: only the non-default (off) flag persists, but an authored
 	// delay always does — its default is a number the author may legitimately re-pick.
 	const winCycle: NonNullable<SymbolsDoc['winCycle']> = {};

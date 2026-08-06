@@ -57,6 +57,11 @@
 		setWinLineText,
 		setStackedPicturesEnabled,
 		stackedPicturesEnabled,
+		stackedSymbols,
+		addStackedSymbol,
+		removeStackedSymbol,
+		setStackedSymbolHeight,
+		setStackedSymbolArt,
 		winCycleDimNonWinning,
 		winCycleEnabled,
 		winCycleShowLine,
@@ -88,14 +93,18 @@
 	// Symbol rows come from the coded defaults (the source of truth for the set).
 	const symbolNames = $derived(Object.keys(data.defaults.symbols));
 
-	// Whether stacked-picture authoring is on for this project — a per-project toggle (default OFF), so
-	// the "Stacked picture" column shows for ANY game type the author opts in, not just lines games.
+	// Whether stacked-picture authoring is on for this project — a per-project master toggle (default
+	// OFF) that both shows the "Stacked pictures" config block below and gates whether the stacked config
+	// bakes. The tall art + height + which-symbols are authored in that block, NOT as a grid column.
 	const stackedOn = $derived(stackedPicturesEnabled(doc));
+	// The authored stacked symbols + a fast membership set for the multi-select.
+	const stackedList = $derived(stackedSymbols(doc));
+	const stackedSet = $derived(new Set(stackedList.map((s) => s.name)));
 
 	// The state columns the grid renders: the base 6, plus the two book-only states
-	// (`bookIntro`/`bookIdle`) ONLY for a book game, plus the stacked-picture column ONLY when the
-	// per-project toggle above is on. Book states stay gated on the server-provided `gameType`.
-	const visibleStates = $derived(visibleStatesFor(data.gameType, { stackedEnabled: stackedOn }));
+	// (`bookIntro`/`bookIdle`) ONLY for a book game. The `stacked` state is never a grid column — its
+	// tall art lives in the "Stacked pictures" section. Book states stay gated on the server `gameType`.
+	const visibleStates = $derived(visibleStatesFor(data.gameType));
 
 	// Responsive cell sizing — the grid fills the page WIDTH so it no longer sits tiny
 	// in the top-left, and each preview scales with the 6 state columns. Width-driven
@@ -343,6 +352,7 @@
 	let draftAnimations = $state<string[]>([]);
 
 	function openCell(symbol: string, state: SymbolState): void {
+		stackedEdit = null; // the grid cell and the stacked art share the panel — one at a time
 		focus = { symbol, state };
 		const eff = effectiveCell(doc, data.defaults, symbol, state);
 		// `$state.snapshot` (NOT `structuredClone`): an OVERRIDDEN cell is read from the `doc`
@@ -799,11 +809,75 @@
 		doc = setWinLineEnabled(doc, enabled);
 	}
 
-	// ── Stacked-picture authoring toggle (tool-only, default OFF) ──────────────
-	// Shows/hides the "Stacked picture" grid column for THIS project (any game type). Sparse like
-	// the win-line switch: ON persists `{ enabled: true }`, OFF clears the field — never baked.
+	// ── Stacked pictures (master toggle + per-symbol tall art + height) ────────
+	// The master toggle shows this block AND gates whether the stacked config bakes; the block is where
+	// ALL stacked config lives now (which symbols, how tall, the tall picture). Sparse like the win-line
+	// switch: ON persists `{ enabled: true }`, OFF drops the flag while PRESERVING authored symbols.
 	function toggleStackedPictures(enabled: boolean): void {
 		doc = setStackedPicturesEnabled(doc, enabled);
+	}
+
+	/** Seed a new stacked symbol's tall art from the symbol's effective binding (its win/static art), so
+	 *  the picker opens on the real symbol instead of a blank cell — and, crucially, so the entry is never
+	 *  created assetless (the schema's `art.assetKey` is required; a blank one would 400 the save). */
+	function seedStackedArt(symbol: string): SymbolCell {
+		for (const state of ['win', 'static', 'land', 'spin'] as SymbolState[]) {
+			const eff = effectiveCell(doc, data.defaults, symbol, state);
+			if (eff.cell?.assetKey) {
+				const c = $state.snapshot(eff.cell) as SymbolCell;
+				const art: SymbolCell = { type: c.type, assetKey: c.assetKey };
+				if (c.animationName) art.animationName = c.animationName;
+				if (c.clipId) art.clipId = c.clipId;
+				return art;
+			}
+		}
+		return { type: 'sprite', assetKey: '' };
+	}
+
+	/** Toggle a symbol in/out of the stacked set (the multi-select). Adding seeds its tall art; removing
+	 *  drops it and closes its art editor if open. */
+	function toggleStackedSymbol(symbol: string): void {
+		if (stackedSet.has(symbol)) {
+			doc = removeStackedSymbol(doc, symbol);
+			if (stackedEdit?.symbol === symbol) closeStackedArt();
+		} else {
+			doc = addStackedSymbol(doc, symbol, seedStackedArt(symbol));
+		}
+	}
+
+	function setStackedHeight(symbol: string, value: string): void {
+		doc = setStackedSymbolHeight(doc, symbol, Number(value) || 1);
+	}
+
+	// The tall-art editor reuses the SAME side panel + `draft` machinery as a grid cell (a stacked art is
+	// just a `SymbolCell`), but Apply writes to the stacked symbol instead of a grid override.
+	let stackedEdit = $state<{ symbol: string } | null>(null);
+
+	function openStackedArt(symbol: string): void {
+		closeCell(); // a grid cell and the stacked art share the panel — only one is open at a time
+		const existing = doc.stackedPictures?.symbols?.find((s) => s.name === symbol)?.art;
+		// `$state.snapshot` (NOT `structuredClone`): the doc is a `$state` proxy and clone throws on it
+		// (same trap as `openCell`/`openHighlight`).
+		draft = existing ? ($state.snapshot(existing) as SymbolCell) : seedStackedArt(symbol);
+		draftAnimations = [];
+		stackedEdit = { symbol };
+	}
+
+	function closeStackedArt(): void {
+		stackedEdit = null;
+		draft = null;
+		draftAnimations = [];
+	}
+
+	function applyStackedArt(): void {
+		if (!stackedEdit || !draft || !draftBindable) return;
+		// Rebuilt field-by-field (a whitelist, like `applyDraft`): only the kind's own fields, and never
+		// a per-cell `sizeRatios` — stacked art is sized by `height` (cells), not a ratio.
+		const art: SymbolCell = { type: draft.type, assetKey: draft.assetKey };
+		if (draft.type === 'spine' && draft.animationName) art.animationName = draft.animationName;
+		if (draft.type === 'flipbook' && draft.clipId) art.clipId = draft.clipId;
+		doc = setStackedSymbolArt(doc, stackedEdit.symbol, art);
+		closeStackedArt();
 	}
 
 	// ── Winning-symbol replay (the game's win-symbol cycle) ───────────────────
@@ -1519,16 +1593,37 @@
 					</div>
 				</section>
 
-				<section class="winline">
+				{#snippet stackedArtPreview(art: SymbolCell | undefined, size: number)}
+					{#if !art?.assetKey}
+						<span class="chip">unset</span>
+					{:else if art.type === 'sprite'}
+						<SymbolSpritePreview frame={art.assetKey} index={spriteIndex} {size} />
+					{:else if art.type === 'flipbook'}
+						{@const frame = clipFirstFrame(art.clipId)}
+						{#if frame}
+							<SymbolSpritePreview {frame} index={spriteIndex} {size} />
+						{:else}
+							<span class="chip">no frames</span>
+						{/if}
+					{:else}
+						<SymbolSpinePreview
+							assetKey={art.assetKey}
+							animationName={art.animationName}
+							{size}
+							{reloadToken}
+						/>
+					{/if}
+				{/snippet}
+
+				<section class="winline" class:expanded={stackedOn}>
 					<div class="wl-head">
 						<div class="wl-text">
 							<h2>Stacked pictures</h2>
 							<p class="wl-sub">
-								Adds a <strong>Stacked picture</strong> column to the grid, where each high symbol
-								can carry a tall picture for the stacked-picture reel mode. Off by default; a
-								tool-side switch only — the runtime still needs the
-								<code>enableStackedPictures</code>
-								Flow effect.
+								Turn a symbol into a single <strong>tall picture</strong> that fills several cells
+								for the stacked-picture reel mode. Pick which symbols are stacked, how many cells
+								tall each is, and the tall picture itself — that picture is the <em>only</em> thing a
+								stacked symbol shows. Off by default.
 							</p>
 						</div>
 						<label class="switch" class:on={stackedOn}>
@@ -1541,6 +1636,74 @@
 							<span class="switch-label">{stackedOn ? 'On' : 'Off'}</span>
 						</label>
 					</div>
+
+					{#if stackedOn}
+						<div class="wl-config">
+							<div class="wl-group">
+								<h3>Stacked symbols</h3>
+								{#if symbolNames.length === 0}
+									<p class="hint">No symbols defined for this game type.</p>
+								{:else}
+									<div class="stacked-pick">
+										{#each symbolNames as name (name)}
+											<button
+												type="button"
+												class="stacked-chip"
+												class:on={stackedSet.has(name)}
+												onclick={() => toggleStackedSymbol(name)}
+												title={stackedSet.has(name)
+													? 'Stacked — click to un-stack'
+													: 'Make stacked'}
+											>
+												{name}
+											</button>
+										{/each}
+									</div>
+								{/if}
+							</div>
+
+							{#each stackedList as s (s.name)}
+								<div class="wl-group stacked-row">
+									<div class="stacked-art-preview">
+										{@render stackedArtPreview(s.art, 96)}
+									</div>
+									<div class="stacked-controls">
+										<h3>{s.name}</h3>
+										<label class="field">
+											<span class="label">Height (cells tall)</span>
+											<input
+												type="number"
+												min="1"
+												step="1"
+												value={s.height}
+												oninput={(e) => setStackedHeight(s.name, e.currentTarget.value)}
+											/>
+										</label>
+										<div class="stacked-art-actions">
+											<button
+												type="button"
+												class="apply"
+												class:editing={stackedEdit?.symbol === s.name}
+												onclick={() => openStackedArt(s.name)}
+											>
+												{stackedEdit?.symbol === s.name
+													? 'Editing tall picture…'
+													: 'Edit tall picture'}
+											</button>
+											<button
+												type="button"
+												class="ghost"
+												onclick={() => toggleStackedSymbol(s.name)}
+											>
+												Remove
+											</button>
+										</div>
+										<p class="hint mono">{cellLabel(s.art)}</p>
+									</div>
+								</div>
+							{/each}
+						</div>
+					{/if}
 				</section>
 
 				<section class="winline" class:expanded={winLineOn}>
@@ -2161,11 +2324,22 @@
 			<SymbolSpineStage container={gridScroll} {reloadToken} />
 		</div>
 
-		{#if focus && draft}
+		{#if (focus || stackedEdit) && draft}
 			<aside class="panel">
 				<div class="panel-head">
-					<h2>{focus.symbol} · {STATE_LABELS[focus.state]}</h2>
-					<button class="x" type="button" onclick={closeCell} title="Close">×</button>
+					<h2>
+						{#if stackedEdit}
+							{stackedEdit.symbol} · Tall picture
+						{:else if focus}
+							{focus.symbol} · {STATE_LABELS[focus.state]}
+						{/if}
+					</h2>
+					<button
+						class="x"
+						type="button"
+						onclick={stackedEdit ? closeStackedArt : closeCell}
+						title="Close">×</button
+					>
 				</div>
 
 				<div class="field">
@@ -2302,14 +2476,19 @@
 				{/if}
 
 				<div class="panel-actions">
-					{#if focusCell?.overridden}
+					{#if !stackedEdit && focus && focusCell?.overridden}
 						<button
 							type="button"
 							class="ghost"
 							onclick={() => resetCell(focus!.symbol, focus!.state)}>Reset to default</button
 						>
 					{/if}
-					<button type="button" class="apply" disabled={!draftBindable} onclick={applyDraft}>
+					<button
+						type="button"
+						class="apply"
+						disabled={!draftBindable}
+						onclick={stackedEdit ? applyStackedArt : applyDraft}
+					>
 						Apply
 					</button>
 				</div>
@@ -2961,6 +3140,74 @@
 		text-transform: uppercase;
 		letter-spacing: 0.04em;
 		color: #9a9aa6;
+	}
+	/* ── Stacked-pictures config block ── */
+	.stacked-pick {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+	.stacked-chip {
+		padding: 6px 12px;
+		font-size: 12px;
+		font-weight: 600;
+		color: #c7c7d2;
+		background: #16161c;
+		border: 1px solid #2a2a33;
+		border-radius: 999px;
+		cursor: pointer;
+	}
+	.stacked-chip:hover {
+		border-color: #3a3a46;
+	}
+	.stacked-chip.on {
+		color: #0b0b0f;
+		background: #7fb2ff;
+		border-color: #7fb2ff;
+	}
+	.stacked-row {
+		display: flex;
+		gap: 16px;
+		align-items: flex-start;
+		padding: 12px;
+		background: #121218;
+		border: 1px solid #24242e;
+		border-radius: 8px;
+	}
+	.stacked-art-preview {
+		flex: 0 0 auto;
+		width: 96px;
+		height: 96px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: #0b0b0f;
+		border: 1px solid #24242e;
+		border-radius: 6px;
+		overflow: hidden;
+	}
+	.stacked-controls {
+		display: flex;
+		flex-direction: column;
+		gap: 8px;
+		min-width: 0;
+	}
+	.stacked-controls h3 {
+		margin: 0;
+	}
+	.stacked-controls .field {
+		max-width: 180px;
+	}
+	.stacked-art-actions {
+		display: flex;
+		gap: 8px;
+	}
+	.stacked-art-actions .apply.editing {
+		outline: 2px solid #7fb2ff;
+	}
+	.hint.mono {
+		font-family: ui-monospace, monospace;
+		word-break: break-all;
 	}
 	.wl-fields {
 		display: flex;
