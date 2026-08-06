@@ -9,7 +9,6 @@
 
 import {
 	BOOK_SYMBOL_STATES,
-	LINES_SYMBOL_STATES,
 	SYMBOL_STATE_LABELS,
 	SYMBOL_STATES,
 	type SymbolNameEntry,
@@ -26,28 +25,24 @@ export type SymbolState = SymbolStateName;
  *  book game — see {@link visibleStatesFor}. */
 export const BOOK_STATES = BOOK_SYMBOL_STATES;
 const BOOK_STATE_SET = new Set<SymbolState>(BOOK_STATES);
-/** The toggle-gated state(s) — the stacked-picture mode's tall art. Shown as a grid column only when the
- *  per-project stacked-picture toggle is ON (`doc.stackedPictures.enabled`), for ANY game type — NOT by
- *  game type. See {@link visibleStatesFor} / {@link stackedPicturesEnabled}. The underlying engine export
- *  keeps its `LINES_SYMBOL_STATES` name; only this tool's gating changed from lines-only to toggle-gated. */
-const TOGGLE_GATED_STATE_SET = new Set<SymbolState>(LINES_SYMBOL_STATES);
+/** The `stacked` state is NEVER a grid column: the stacked-picture reel mode's tall art is authored in
+ *  the dedicated "Stacked pictures" section of the `/symbols` page (height + which-symbols + art), not
+ *  per-cell. The member stays in `engine-layout`'s `SYMBOL_STATES`/labels (the engine still uses it as a
+ *  fallback) — it is just filtered out of {@link visibleStatesFor} here. */
+const NON_GRID_STATE_SET = new Set<SymbolState>(['stacked']);
 
 /** Human labels for the column headers — shared with the Scene Editor's `symbolState`
  *  dropdown so a state reads the same in both tools. */
 export const STATE_LABELS: Record<SymbolState, string> = SYMBOL_STATE_LABELS;
 
 /** The columns the grid renders for a given project: always the base states, plus the two book states
- *  ONLY for a book game (`gameType === 'bookOf'`) and the stacked-picture state ONLY when the per-project
- *  stacked-picture toggle is on (`opts.stackedEnabled`, for ANY game type — see
- *  {@link stackedPicturesEnabled}). Mirrors the launcher's `GameKind` ids (`$lib/roles`); kept inline
- *  because this module is browser-side and the roles list is not worth importing for one literal. */
-export function visibleStatesFor(
-	gameType: string | undefined,
-	opts?: { stackedEnabled?: boolean },
-): readonly SymbolState[] {
+ *  ONLY for a book game (`gameType === 'bookOf'`). The `stacked` state is never a column (see
+ *  {@link NON_GRID_STATE_SET}). Mirrors the launcher's `GameKind` ids (`$lib/roles`); kept inline because
+ *  this module is browser-side and the roles list is not worth importing for one literal. */
+export function visibleStatesFor(gameType: string | undefined): readonly SymbolState[] {
 	return SYMBOL_STATES.filter((s) => {
+		if (NON_GRID_STATE_SET.has(s)) return false;
 		if (BOOK_STATE_SET.has(s)) return gameType === 'bookOf';
-		if (TOGGLE_GATED_STATE_SET.has(s)) return opts?.stackedEnabled === true;
 		return true;
 	});
 }
@@ -183,13 +178,31 @@ export interface WinLineConfig {
 	text?: WinLineTextStyle;
 }
 
-/** Tool-side stacked-picture authoring switch. Sparse and defaults OFF (the INVERSE of
- *  {@link WinLineConfig}): absent means the "Stacked picture" grid column is hidden. Purely a `/symbols`
- *  authoring toggle — never baked; the runtime is gated by the `enableStackedPictures` Flow effect.
- *  Mirrors the server `stackedPicturesSchema`. */
+/** One stacked symbol's authored config — the tall picture that fills `height` cells for the
+ *  stacked-picture reel mode. `art` is a {@link SymbolCell} (sprite frame / spine bundle+animation /
+ *  flipbook clip), authored with the SAME picker the grid cells use. The tall picture is the ONLY thing
+ *  a stacked symbol renders. Mirrors the server `stackedSymbolSchema`. */
+export interface StackedSymbol {
+	name: string;
+	/** How many CELLS tall the picture is (≥ 1) — the crop denominator. */
+	height: number;
+	art: SymbolCell;
+}
+
+/** Stacked-picture config. `enabled` is the per-project master toggle (default OFF, the INVERSE of
+ *  {@link WinLineConfig}): it shows the "Stacked pictures" config block AND gates whether the stacked
+ *  config bakes. `symbols` is the authored per-symbol tall art + height — the editable twin of the old
+ *  coded `STACKED_PICTURE.heights`, shipped through the normal symbol export/bake chain as
+ *  `bundle.symbols.stacked`. Sparse: a disabled/un-authored project persists nothing. Mirrors the server
+ *  `stackedPicturesSchema`. */
 export interface StackedPicturesConfig {
 	enabled?: boolean;
+	symbols?: StackedSymbol[];
 }
+
+/** The default height (cells) a symbol gets when first made stacked — a picture spanning two cells is
+ *  the minimal "stacked". The author re-picks it in the height input. */
+export const STACKED_HEIGHT_DEFAULT = 2;
 
 /** An anticipation escalation tier — the ALIAS of a config-authored big-win tier (`/config`). The
  *  panel renders ONE FX column per configured big tier, keyed by alias (no longer a fixed
@@ -281,10 +294,10 @@ export interface SymbolsDoc {
 	 *  is `doc.winLine?.enabled ?? true`; every style field falls through to coded
 	 *  defaults when unset. */
 	winLine?: WinLineConfig;
-	/** Tool-side stacked-picture authoring switch — shows/hides the "Stacked picture" grid column. The
-	 *  effective value is `doc.stackedPictures?.enabled === true` (defaults OFF, the INVERSE of `winLine`).
-	 *  Sparse: only `{ enabled: true }` persists. NOT baked to the engine — a pure `/symbols` authoring
-	 *  toggle (the runtime is gated by the `enableStackedPictures` Flow effect). */
+	/** Stacked-picture reel-mode config — the master toggle (`enabled`, default OFF) plus the authored
+	 *  per-symbol tall art + height (`symbols`). Sparse: a disabled/un-authored project persists nothing.
+	 *  When enabled with ≥1 symbol it bakes as `bundle.symbols.stacked`, each `art` asset riding the same
+	 *  export/bake chain as a per-cell binding. */
 	stackedPictures?: StackedPicturesConfig;
 	/** Resting-board replay of the winning SYMBOLS. Sparse (`enabled` absent = ON); a sibling of
 	 *  `winLine`, never a field inside it — the replay is about the SYMBOLS, and `showLine` only
@@ -584,14 +597,75 @@ export function stackedPicturesEnabled(doc: SymbolsDoc): boolean {
 	return doc.stackedPictures?.enabled === true;
 }
 
-/** Set the "author stacked-picture art" flag, returning a NEW doc (immutable update). Kept sparse (the
- *  INVERSE of {@link setWinLineEnabled}): ON persists `{ enabled: true }`; OFF drops the field entirely so
- *  an un-toggled/reset project stays byte-identical. */
+/** Drop a stacked symbol with no valid art + a now-empty `stackedPictures`, then replace the doc's
+ *  config (or remove it). New doc. Keeps the config sparse so a disabled/un-authored project ships
+ *  nothing, and — mirroring the server's `pruneStackedPictures` — never lets a blank-art entry through
+ *  (the schema's `art.assetKey` is required, so a blank one would 400 the save). */
+function withStackedPictures(doc: SymbolsDoc, config: StackedPicturesConfig): SymbolsDoc {
+	const next: StackedPicturesConfig = {};
+	if (config.enabled === true) next.enabled = true;
+	const symbols = (config.symbols ?? []).filter((s) => s.name && s.art?.assetKey);
+	if (symbols.length) next.symbols = symbols;
+	const out = { ...doc };
+	if (Object.keys(next).length) out.stackedPictures = next;
+	else delete out.stackedPictures;
+	return out;
+}
+
+/** Set the stacked-picture master toggle, returning a NEW doc. Kept sparse (the INVERSE of
+ *  {@link setWinLineEnabled}): ON persists `enabled: true`; OFF drops the flag. Any authored `symbols`
+ *  are PRESERVED across a toggle (so an accidental off doesn't discard the author's work) — they just
+ *  stop baking while the toggle is off, since {@link withStackedPictures} keeps them but the exporter
+ *  gates on `enabled`. */
 export function setStackedPicturesEnabled(doc: SymbolsDoc, enabled: boolean): SymbolsDoc {
-	const next = { ...doc };
-	if (enabled) next.stackedPictures = { enabled: true };
-	else delete next.stackedPictures;
-	return next;
+	const config: StackedPicturesConfig = { ...(doc.stackedPictures ?? {}) };
+	if (enabled) config.enabled = true;
+	else delete config.enabled;
+	return withStackedPictures(doc, config);
+}
+
+/** The authored stacked symbols (empty when none). */
+export function stackedSymbols(doc: SymbolsDoc): StackedSymbol[] {
+	return doc.stackedPictures?.symbols ?? [];
+}
+
+/** Add (or replace) a stacked symbol with its seeded tall `art` + `height`. New doc. Re-adding an
+ *  existing name replaces it, so the caller never creates a duplicate. */
+export function addStackedSymbol(
+	doc: SymbolsDoc,
+	name: string,
+	art: SymbolCell,
+	height: number = STACKED_HEIGHT_DEFAULT,
+): SymbolsDoc {
+	const config: StackedPicturesConfig = { ...(doc.stackedPictures ?? {}) };
+	const symbols = (config.symbols ?? []).filter((s) => s.name !== name);
+	symbols.push({ name, height, art });
+	config.symbols = symbols;
+	return withStackedPictures(doc, config);
+}
+
+/** Remove a stacked symbol (un-stack it), pruning a now-empty config. New doc. */
+export function removeStackedSymbol(doc: SymbolsDoc, name: string): SymbolsDoc {
+	const config: StackedPicturesConfig = { ...(doc.stackedPictures ?? {}) };
+	config.symbols = (config.symbols ?? []).filter((s) => s.name !== name);
+	return withStackedPictures(doc, config);
+}
+
+/** Set one stacked symbol's height (cells tall, clamped to ≥ 1). New doc. */
+export function setStackedSymbolHeight(doc: SymbolsDoc, name: string, height: number): SymbolsDoc {
+	const clamped = Math.max(1, Math.round(height) || 1);
+	const config: StackedPicturesConfig = { ...(doc.stackedPictures ?? {}) };
+	config.symbols = (config.symbols ?? []).map((s) =>
+		s.name === name ? { ...s, height: clamped } : s,
+	);
+	return withStackedPictures(doc, config);
+}
+
+/** Set one stacked symbol's tall art (the picker "Apply"). New doc. */
+export function setStackedSymbolArt(doc: SymbolsDoc, name: string, art: SymbolCell): SymbolsDoc {
+	const config: StackedPicturesConfig = { ...(doc.stackedPictures ?? {}) };
+	config.symbols = (config.symbols ?? []).map((s) => (s.name === name ? { ...s, art } : s));
+	return withStackedPictures(doc, config);
 }
 
 /** Drop a now-empty `winCycle` so an untouched/reset project ships nothing (sparse). */
@@ -738,9 +812,26 @@ export function docSignature(doc: SymbolsDoc): string {
 				text: sortKeys(doc.winLine.text),
 			}
 		: null;
-	// Listed here or a stacked-picture toggle never marks the page dirty and Save stays disabled.
+	// Listed here or a stacked-picture edit (toggle / symbol / height / art) never marks the page dirty
+	// and Save stays disabled. Symbols sorted by name so an arbitrary add order still hashes stable.
 	const stackedPictures = doc.stackedPictures
-		? { enabled: doc.stackedPictures.enabled ?? null }
+		? {
+				enabled: doc.stackedPictures.enabled ?? null,
+				symbols: doc.stackedPictures.symbols
+					? [...doc.stackedPictures.symbols]
+							.sort((a, b) => a.name.localeCompare(b.name))
+							.map((s) => ({
+								name: s.name,
+								height: s.height,
+								art: {
+									type: s.art.type,
+									assetKey: s.art.assetKey,
+									animationName: s.art.animationName ?? null,
+									clipId: s.art.clipId ?? null,
+								},
+							}))
+					: null,
+			}
 		: null;
 	const winCycle = doc.winCycle
 		? {

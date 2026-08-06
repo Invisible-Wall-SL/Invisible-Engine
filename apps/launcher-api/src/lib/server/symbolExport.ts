@@ -46,7 +46,12 @@ import { SUB } from './projectPaths';
 import { exportSpineBundle, loadSkeletonIndex } from './spine';
 import { SYMBOL_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
-import { canonicalizeSymbolsDocForExport, loadSymbolsDoc, type SymbolsDoc } from './symbolsStorage';
+import {
+	canonicalizeSymbolsDocForExport,
+	loadSymbolsDoc,
+	type SymbolCell,
+	type SymbolsDoc,
+} from './symbolsStorage';
 import { parseScopedFrameRef, scopedFrameRef } from 'engine-layout';
 
 /** A sprite sheet a symbol binding references. `key` is the source manifest (kept
@@ -111,6 +116,20 @@ export interface SymbolExportHighlight {
 	tintColor?: string;
 }
 
+/** One stacked symbol's baked config. `height` is how many CELLS tall the tall picture is (the crop
+ *  denominator); `art` is the tall picture — its asset ships via the SAME `refs` as a per-cell binding
+ *  (spine bundle → `index.spines` / sprite sheet → `index.sheets`), so `art.assetKey` resolves with no
+ *  rewriting (exactly like the grid `map` + `highlight`). */
+export interface SymbolExportStackedArt {
+	type: 'sprite' | 'spine' | 'flipbook';
+	assetKey: string;
+	animationName?: string;
+	clipId?: string;
+}
+export interface SymbolExportStacked {
+	symbols: { name: string; height: number; art: SymbolExportStackedArt }[];
+}
+
 export interface SymbolExportResult {
 	/** The doc's `symbols` map, passed through VERBATIM (assetKeys already match the
 	 *  index keys, so the engine's `bakedSymbolMap()` needs zero rewriting). */
@@ -145,6 +164,12 @@ export interface SymbolExportResult {
 	 *  (like `boardGlow`); the per-tier FX are pure config (no asset). Absent → the game keeps its
 	 *  coded `codedTierFx` ramp (byte-parity with Phase 4). */
 	anticipation?: SymbolsDoc['anticipation'];
+	/** The stacked-picture reel-mode config (the editable twin of the old coded `STACKED_PICTURE.heights`).
+	 *  Each tall `art` asset already shipped via `refs` (spine bundle → `index.spines` / sprite sheet →
+	 *  `index.sheets`), so this is a verbatim pass-through of `{ name, height, art }` — the engine resolves
+	 *  `art.assetKey` with no rewriting, exactly like the grid `map`. Present ONLY when the master toggle is
+	 *  ON and ≥1 symbol is authored, so a disabled/un-authored project bakes NO `stacked` field (byte-parity). */
+	stacked?: SymbolExportStacked;
 }
 
 const EXPORT_SUBTREE = 'editor-symbols';
@@ -222,7 +247,33 @@ function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 	// walk (like a flipbook cell, skipped here); an fx layer's effect ships via the effects export.
 	addBookVfxLayerRefs(doc.bookVfx?.background, refs);
 	addBookVfxLayerRefs(doc.bookVfx?.foreground, refs);
+	// Stacked-picture tall art — each stacked symbol's `art` is a sprite/spine/flipbook binding exactly
+	// like a grid cell, so route it through the SAME refs or the game would load nothing under the key
+	// (rule 8). Gated the same as the emitted `stacked` field (master toggle on) so a disabled project
+	// ships nothing. A flipbook art's clip rides the editor-art clip walk (skipped here, like a cell).
+	if (doc.stackedPictures?.enabled === true) {
+		for (const s of doc.stackedPictures.symbols ?? []) addCellRefs(s.art, refs);
+	}
 	return refs;
+}
+
+/** Route ONE sprite/spine/flipbook cell's asset into the shared `refs` — the exact split
+ *  `collectSymbolRefs` applies to a per-cell binding, factored out so the stacked-picture tall art
+ *  ships through the identical path. A flipbook art carries no frame of its own (its clip ships via
+ *  `editorArtExport`'s clip walk), so it adds nothing here. */
+function addCellRefs(cell: SymbolCell | undefined, refs: SymbolRefs): void {
+	if (!cell?.assetKey || cell.type === 'flipbook') return;
+	if (cell.type === 'spine') {
+		refs.spineKeys.add(cell.assetKey);
+		return;
+	}
+	const parsed = parseScopedFrameRef(cell.assetKey);
+	if (parsed.assetKey) {
+		refs.spriteManifests.add(parsed.assetKey);
+	} else {
+		const sep = cell.assetKey.indexOf('::');
+		refs.frameNames.add(sep > 0 ? cell.assetKey.slice(sep + 2) : cell.assetKey);
+	}
 }
 
 /** Route one Book-VFX layer's asset into the shared `refs` — spine bundle or sprite sheet frame, the
@@ -524,6 +575,24 @@ export async function exportEditorSymbols(
 	// un-authored project's bundle stays byte-identical.
 	const names = doc.names && Object.keys(doc.names).length ? doc.names : undefined;
 
+	// The stacked-picture config. Each tall `art` asset already shipped via `refs` above (spine bundle →
+	// `index.spines`, sprite sheet → `index.sheets`, both keyed by the art's own `assetKey`), so this is a
+	// verbatim pass-through of `{ name, height, art }` — reduced to the baked contract's art fields (no
+	// `sizeRatios`; height is the crop denominator). Gated on the master toggle AND ≥1 symbol so a
+	// disabled/un-authored project emits NO `stacked` field and bakes byte-identical.
+	const stackedSyms = doc.stackedPictures?.symbols ?? [];
+	const stacked: SymbolExportStacked | undefined =
+		doc.stackedPictures?.enabled === true && stackedSyms.length
+			? {
+					symbols: stackedSyms.map((s) => {
+						const art: SymbolExportStackedArt = { type: s.art.type, assetKey: s.art.assetKey };
+						if (s.art.animationName) art.animationName = s.art.animationName;
+						if (s.art.clipId) art.clipId = s.art.clipId;
+						return { name: s.name, height: s.height, art };
+					}),
+				}
+			: undefined;
+
 	return {
 		map: doc.symbols,
 		index,
@@ -534,5 +603,6 @@ export async function exportEditorSymbols(
 		...(winCycle ? { winCycle } : {}),
 		...(bookVfx ? { bookVfx } : {}),
 		...(anticipation ? { anticipation } : {}),
+		...(stacked ? { stacked } : {}),
 	};
 }

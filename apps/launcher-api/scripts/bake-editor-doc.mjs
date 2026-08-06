@@ -319,6 +319,7 @@ async function main() {
 		winCycle: undefined,
 		bookVfx: undefined,
 		anticipation: undefined,
+		stacked: undefined,
 	};
 	const symbolsUrl =
 		`${base}/api/editor/export-symbols?project=${encodeURIComponent(project)}` +
@@ -447,6 +448,31 @@ async function main() {
 				}
 				return Object.keys(out).length ? out : undefined;
 			})();
+			// The stacked-picture config (`bundle.symbols.stacked = { symbols: [{ name, height, art }] }`).
+			// The exporter already gates on the master toggle + ships each tall `art` asset via
+			// `index.spines`/`index.sheets`, so this is a defensive rebuild: keep only well-formed entries
+			// (name + finite height + non-empty `art.assetKey`) and only the art's contract fields. Absent /
+			// empty stays `undefined` so a disabled/un-authored project bakes byte-identical. MUST reach BOTH
+			// bundle paths (this + the runtime `SymbolExportResult`, which passes `stacked` verbatim).
+			const stacked = (() => {
+				const st = s?.stacked;
+				if (!st || typeof st !== 'object' || !Array.isArray(st.symbols)) return undefined;
+				const out = [];
+				for (const sym of st.symbols) {
+					if (!sym || typeof sym !== 'object') continue;
+					if (typeof sym.name !== 'string' || !sym.name) continue;
+					if (typeof sym.height !== 'number' || !Number.isFinite(sym.height)) continue;
+					const art = sym.art;
+					if (!art || typeof art !== 'object' || typeof art.assetKey !== 'string' || !art.assetKey)
+						continue;
+					const artOut = { type: art.type, assetKey: art.assetKey };
+					if (typeof art.animationName === 'string' && art.animationName)
+						artOut.animationName = art.animationName;
+					if (typeof art.clipId === 'string' && art.clipId) artOut.clipId = art.clipId;
+					out.push({ name: sym.name, height: sym.height, art: artOut });
+				}
+				return out.length ? { symbols: out } : undefined;
+			})();
 			symbols = {
 				map: s?.map && typeof s.map === 'object' ? s.map : {},
 				index: {
@@ -464,6 +490,7 @@ async function main() {
 				winCycle,
 				bookVfx,
 				anticipation,
+				stacked,
 			};
 			// Dangling-binding guard: a bound sprite frame no shipped atlas packs renders
 			// blank in-game ("… is not found in the loadedAssets"). Warn loudly so a
@@ -906,6 +933,9 @@ async function main() {
 			? ' winLines=OFF,'
 			: ' winLines=styled,'
 		: '';
+	const stackedNote = symbols.stacked
+		? ` stacked={${symbols.stacked.symbols.map((s) => `${s.name}×${s.height}`).join('/')}},`
+		: '';
 	// `doc.settings` rides the bundle verbatim (embedded in `doc`); log it so a bake
 	// surfaces the shipped jurisdiction / speed-feature toggles.
 	const settingsNote = doc.settings
@@ -924,7 +954,7 @@ async function main() {
 			`\nWould write ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 				` (${sceneCount} scenes, ${defCount} component defs${pinnedNote}, ${defaultCount} default sets,` +
 				` ${artCount} editor-art sheets, ${fontCount} fonts,` +
-				`${highlightNote}${winLineNote}${settingsNote}${flowNote}${flowV2Note}${effectsNote}${flipbooksNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
+				`${highlightNote}${winLineNote}${stackedNote}${settingsNote}${flowNote}${flowV2Note}${effectsNote}${flipbooksNote} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 		);
 		return;
 	}
@@ -935,7 +965,7 @@ async function main() {
 		`\nBaked ${(json.length / 1024).toFixed(1)} KB → ${dest.split(sep).join('/')}` +
 			` (${sceneCount} scenes, ${defCount} component defs${pinnedNote}, ${defaultCount} default sets,` +
 			` ${artCount} editor-art sheets, ${fontCount} fonts, ${localeCount} locales,` +
-			`${highlightNote}${winLineNote}${settingsNote}${flowNote}${flowV2Note} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
+			`${highlightNote}${winLineNote}${stackedNote}${settingsNote}${flowNote}${flowV2Note} ${symbolCount} symbol overrides / ${symbolAssetCount} symbol assets).`,
 	);
 }
 

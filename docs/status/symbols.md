@@ -185,20 +185,33 @@ Working on `main`:
   bake==prune). ⏳ **Owner visual-verify** (auth-gated tool + tease armed from Flow on a reachable big
   win). **Book of Borut needs an `engine` submodule bump** to receive it. Engine Phase 6 = ship
   (runtime release + refresh + submodule bump).
-- **Stacked-picture authoring toggle** (2026-08-06, branch `engine/symbols-stacked-toggle`,
-  default OFF ⇒ byte-parity). Replaced the hard `gameType === 'lines'` gating of the `Stacked`
-  grid column with a per-project switch so stacked-picture art can be authored on ANY game type
-  ("use it where I want"). New sparse doc-global `stackedPictures: { enabled?: boolean }` — the
-  INVERSE of `winLine` (absent/default = OFF, only `{ enabled: true }` persists, toggling back OFF
-  clears the field). `visibleStatesFor(gameType, { stackedEnabled })` now shows the `stacked`
-  column iff the toggle is on (book states stay gated on `gameType === 'bookOf'`); a **"Stacked
-  pictures"** on/off section in the tool (above Win lines) flips it live. **Tool-side only — NOT
-  baked**: the flag never travels the export/bake chain (the runtime is gated separately by the
-  `enableStackedPictures` Flow effect); the authored `stacked` cell bindings ride the normal symbol
-  export/bake chain unchanged. `.strict` Zod field + sparse `normalizeSymbolsDoc` prune, client
-  type/`stackedPicturesEnabled`/`setStackedPicturesEnabled`/`docSignature`/spread-PUT. Verified
-  offline: sparse round-trip (default writes nothing, ON ⇒ `{enabled:true}`, OFF clears) + the
-  column-gating truth table. No submodule bump needed (no engine change).
+- **Stacked pictures — one config block, baked** (2026-08-06, branch
+  `engine/stacked-config-symbols-tool`, default OFF ⇒ byte-parity). Redesign of the earlier
+  tool-only toggle: ALL stacked config now lives in ONE **"Stacked pictures"** section (above Win
+  lines), and the tall picture is the ONLY thing a stacked symbol shows. The old `stacked` GRID
+  COLUMN is **removed** — `visibleStatesFor(gameType)` never renders it (the `stacked` member stays
+  in engine-layout as an engine fallback; only the tool stopped drawing the column). The block: a
+  **multi-select** of symbol names (chips), and per selected symbol a **height** (cells tall, ≥ 1)
+  + an **art picker** (the same side-panel sprite/spine/flipbook picker the grid cells use, reused
+  via the shared `draft` machinery — Apply writes the stacked art instead of a grid override) with a
+  live preview. Schema `stackedPictures` extended to `{ enabled?, symbols?: [{ name, height, art }] }`
+  (`art` = the existing per-cell `symbolCellSchema`); sparse — a disabled/un-authored project
+  persists nothing. **Now BAKED** (unlike the old toggle): gated on the master toggle + ≥1 symbol,
+  the exporter ships each tall `art` asset via the SAME `refs` as a per-cell binding (spine →
+  `index.spines`, sprite → `index.sheets`) and emits
+  `bundle.symbols.stacked = { symbols: [{ name, height, art }] }` (art reduced to
+  `type/assetKey/animationName?/clipId?`, no `sizeRatios`); `bake-editor-doc.mjs` rebuilds it on a
+  defensive whitelist; the runtime bundle passes it verbatim. Files:
+  `symbolsStorage.ts` (`stackedSymbolSchema`/`pruneStackedPictures`), `symbols.client.ts`
+  (`StackedSymbol` type + `addStackedSymbol`/`removeStackedSymbol`/`setStackedSymbolHeight`/
+  `setStackedSymbolArt`/`docSignature`), `symbolExport.ts` (`addCellRefs` + `stacked` emit),
+  `bake-editor-doc.mjs`, `+page.svelte`. Verified offline: Node fixture over the real zod schema
+  proving the schema→normalize→export→bake round-trip + the contract shape (spine + sprite +
+  flipbook art, sizeRatios stripped, blank-art rejected/pruned, height int≥1, `.strict` reject) and
+  a Svelte-5 compile of the page (0 warnings). **Engine still owns the runtime** — this track only
+  produces the baked contract; the engine team builds `bundle.symbols.stacked` (a **Book of Borut
+  submodule bump** delivers it once both tracks land). Old sparse doc-global
+  `{ enabled?: boolean }` superseded (the toggle now also gates the bake).
 - **Full deploy chain** (export → `deploy/editor-symbols/` → bake → pull → register):
   spine-aware `symbolExport.ts`, `POST /api/editor/export-symbols`, `bake-editor-doc.mjs`
   wiring, `pull-project-assets.mjs` prune entry, `bakedSymbolMap()` / `bakedSymbolAssets()`.
