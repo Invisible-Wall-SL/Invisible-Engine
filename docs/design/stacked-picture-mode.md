@@ -99,6 +99,15 @@ default deal is untouched.
   not the default flag — verified: the doc loads + validates (0 errors), the handle `ownsEvent('reveal')`
   is true and `ownsEvent('load')` is false (coded screens), and the mode arms on the first spin's reveal.
 
+## Known issues
+
+- **1-tile snap at the roll↔settle boundary.** The scrolling scan reads the whole reel array (so tall
+  blocks can roll) while the settled scan reads only the visible window (`1..numRows`, excluding the top
+  padding row). When the padding row above a result matches that result's symbol, the scrolling scan
+  groups the run one cell higher, so the picture jumps a tile as the reel transitions rolling↔landing.
+  Fix (deferred) = make the scan respect the reel's padding-row boundaries so both modes group the same
+  run. Shipped with this known, transient glitch (owner OK'd 2026-08-06).
+
 ## Non-goals / open
 
 - Real tall-picture ART + the `/symbols` `stacked` authoring column (engine already reads it).
