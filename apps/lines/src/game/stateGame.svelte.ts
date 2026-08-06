@@ -307,9 +307,14 @@ const computeStackedRuns = (): StackedPictureRun[] => {
 	const { rowPitchLocal } = boardGeometry();
 	const runs: StackedPictureRun[] = [];
 	stateGame.board.forEach((reel, reelIndex) => {
-		// Only a settled reel shows its resting result; a spinning reel's `symbols` scroll.
-		if (reel.reelState.motion !== 'stopped') return;
 		const symbols = reel.reelState.symbols;
+		// Show the picture as soon as the RESULT is on the reel — i.e. the compact resting set (length
+		// rows+2). That set is placed at the START of the bounce (`removePaddingAndBounceBack` sets
+		// `reelState.symbols = [...targetSymbols]`, then slides `reelY` down to home), so scanning it —
+		// and positioning off the LIVE `symbolY()` below — makes the picture DROP IN with the settling
+		// reel instead of popping in after full stop. While the reel is still ROLLING its `symbols` is a
+		// long scrolling array (target+padding+prev), so skip it and let the normal icons roll.
+		if (symbols.length > rows + 2) return;
 		// Visible window = symbolIndex 1..rows (index 0 is the top padding row).
 		let idx = 1;
 		while (idx <= rows) {

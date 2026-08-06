@@ -40,10 +40,14 @@ is **no** reveal-path `computeArming` hook.
    overridable from the Invisible Game Config.
 2. **Mode state + scan** — `apps/lines/src/game/stateGame.svelte.ts`:
    - `stackedPictureMode` (+ `stackedPictureSymbols`/`highPayOnly`/`minRun` overrides), all off/default.
-   - `stackedPictureRuns()` — a `$derived` scan of every **settled** reel (`motion === 'stopped'`) over
-     the visible window (symbolIndex `1..numRows` of the padded `numRows+2` column) → one
+   - `stackedPictureRuns()` — a `$derived` scan of every reel whose **result is on the reel** (its
+     `symbols` is the compact resting set, length `≤ numRows+2` — true from the START of the bounce, not
+     just at full stop) over the visible window (symbolIndex `1..numRows`) → one
      `StackedPictureRun {reel, name, topRow, visibleCells N, naturalCells M, x, topEdgeY}` per
-     contiguous eligible run (length ≥ minRun; `M = max(N, heights[name] ?? N)`).
+     contiguous eligible run (length ≥ minRun; `M = max(N, heights[name] ?? N)`). `topEdgeY` reads the
+     LIVE `symbolY()`, so during the bounce the picture **drops in with the settling reel** (owner
+     decision 2026-08-06 — no post-settle "swap"). A rolling reel's `symbols` is a long scrolling array
+     (target+padding+prev), so it is skipped and the normal icons roll.
    - `stackedCoverage()` — the `reel:row` set the runs cover, reusing `winDimCellKey`.
    - Empty when the mode is off ⇒ byte-parity.
 3. **Flow effect + vocab** — `flowEffects.ts#enableStackedPictures`/`disableStackedPictures`
