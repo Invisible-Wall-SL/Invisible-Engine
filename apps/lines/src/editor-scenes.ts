@@ -15,6 +15,7 @@ import type {
 } from 'engine-layout';
 import {
 	editorArtNamespace,
+	normalizeHudScenes,
 	registerComponentDefaults,
 	registerComponents,
 	registerRigFx,
@@ -1287,7 +1288,11 @@ export async function loadEditorScenes(): Promise<LayoutDoc> {
 	if (__IE_DEBUG__) {
 		console.info('[layout] main box adopted from the editor doc:', doc.mainSizesMap);
 	}
-	return doc;
+	// Default-HUD fallback: rewrite a legacy coded-`bind` `hudBar` (seeded `UiLabel*`/`UiButton*`
+	// nodes) into the parametric `componentInstance` HUD, so the bottom bar renders under a
+	// flow-v2-driven game too (where the coded `<UI>` — the binds' only renderer — is suppressed).
+	// A no-op for a doc already seeded parametric or with no `hudBar` (returns the same object).
+	return normalizeHudScenes(doc);
 }
 
 async function resolveEditorDoc(): Promise<LayoutDoc> {

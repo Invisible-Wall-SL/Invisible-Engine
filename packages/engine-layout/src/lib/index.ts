@@ -32,6 +32,7 @@ export * from './sceneRole';
 export * from './collectComponentIds';
 export * from './reelGrid';
 export * from './buttonConvert';
+export * from './normalizeHudScenes';
 export * from './buttonStateImage';
 export * from './fontCatalog';
 export * from './registerFontCatalog';
