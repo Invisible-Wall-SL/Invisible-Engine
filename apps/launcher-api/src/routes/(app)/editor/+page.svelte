@@ -1192,19 +1192,20 @@
 	 * preview chips / positions). Lets a project opt its `<UI>` HUD into editor
 	 * control without the clobber-prone "load a game scene" path.
 	 *
-	 * `{ readouts: true }` (B4.6): emits balance/win/bet as parametric
-	 * `componentInstance(hudReadout)` nodes (matching the engine reference layouts),
-	 * so this button is the non-destructive way to flip a project's HUD to the
-	 * parametric readouts (vs the console re-seed). The game must register the coded
-	 * `HudReadout` bound component + the value sources, and its published bundle must
-	 * already include that registration BEFORE the saved doc carries readout nodes
-	 * (else the live bundle can't render them). */
+	 * `{ readouts: true, buttons: true }` (§ default-HUD Phase 2b): emits the FULL
+	 * parametric HUD — balance/win/bet as `componentInstance(hudReadout)` AND the button
+	 * cluster as `componentInstance(button)` — matching the engine reference default. This
+	 * is the flow-v2-safe HUD: the coded `UiLabel*`/`UiButton*` `bind` nodes render only
+	 * through the coded `<UI>` chrome, which a flow-v2-driven game suppresses, so a "reset"
+	 * that emitted them would go blank on such a game. The shared runtime (built from
+	 * `apps/lines`, `HUD_BUTTON_INSTANCES` on) registers `hudReadout`/`button` + the value/
+	 * action sources, so a published game renders these. */
 	function addHudLayer(): void {
-		const fresh = hudScenes({ readouts: true });
+		const fresh = hudScenes({ readouts: true, buttons: true });
 		if (hasHud) {
 			if (
 				!confirm(
-					'Refresh the HUD layer to the latest version? Any position edits you made to the HUD elements will be reset to defaults.',
+					'Reset the HUD to the default layout? This replaces the balance/win/bet readouts and the button cluster with the engine default (flow-safe) HUD — any position edits you made to the HUD elements will be reset.',
 				)
 			) {
 				return;
@@ -2608,7 +2609,7 @@
 							: 'Add the game HUD (logo/name + bottom bar) as editable scenes, without replacing anything'}
 						onclick={addHudLayer}
 					>
-						{hasHud ? '↻ Refresh HUD layer' : '＋ Add HUD layer'}
+						{hasHud ? '↻ Reset HUD to default' : '＋ Add HUD layer'}
 					</button>
 
 					<button

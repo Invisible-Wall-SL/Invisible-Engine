@@ -1,5 +1,6 @@
 import {
 	getFullSceneSet,
+	normalizeHudScenes,
 	type GameJurisdiction,
 	type GameSettings,
 	type LayoutDoc,
@@ -181,7 +182,13 @@ export function normalizeDoc(input: unknown, fallbackProjectKey = ''): LayoutDoc
 	const doc: LayoutDoc = { version: DOC_VERSION, projectKey, mainSizesMap, scenes, updatedAt };
 	if (gameType) doc.gameType = gameType;
 	if (settings) doc.settings = settings;
-	return doc;
+	// Default-HUD persist (§ default-HUD Phase 2b): rewrite a legacy coded `hudBar` (the seeded
+	// `UiLabel*`/`UiButton*` `bind` nodes) into the parametric `componentInstance` HUD. Same
+	// migrate-on-read shape as `backfillAlwaysOnTop` — the editor then SHOWS the flow-v2-safe HUD
+	// (the runtime already normalizes it at load), and the next save PERSISTS the migrated doc, so a
+	// project stops depending on the runtime fallback. No-op for an already-parametric bar or a doc
+	// with no `hudBar` (returns the same object).
+	return normalizeHudScenes(doc);
 }
 
 /**
