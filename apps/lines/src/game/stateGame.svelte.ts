@@ -296,6 +296,28 @@ const stackedEligibleSymbols = (): Set<string> | null => {
 	return null;
 };
 
+/**
+ * When the stacked-picture mode is on, seed a reel's SCROLL strip with natural-height BLOCKS of the
+ * eligible symbols, so tall pictures ROLL through the reel during the whole spin (not only on landing).
+ * Each eligible symbol occurrence becomes M copies (its natural height, `STACKED_PICTURE.heights`);
+ * everything else is untouched. OFF ⇒ the strip is returned unchanged (byte-parity). Purely cosmetic —
+ * this is only the scroll filler (`paddingBoard`); the RESULT board (`revealEvent.board`) is separate,
+ * so a partial result still crops normally on landing.
+ */
+export const stackedScrollStrip = (strips: RawSymbol[][]): RawSymbol[][] => {
+	if (!stateGame.stackedPictureMode) return strips;
+	const eligible = stackedEligibleSymbols();
+	return strips.map((strip) =>
+		strip.flatMap((symbol) => {
+			const name = symbol.name;
+			const isEligible = name != null && (eligible === null || eligible.has(name));
+			const height = STACKED_PICTURE.heights[name];
+			if (!isEligible || !height || height < 2) return [symbol];
+			return Array.from({ length: height }, () => ({ ...symbol }));
+		}),
+	);
+};
+
 /** Scan every SETTLED reel for contiguous runs of an eligible symbol (length ≥ minRun) and turn each
  *  into a `StackedPictureRun`. Empty when the mode is off (byte-parity). Reads live $state, so callers
  *  read it reactively. */
@@ -308,24 +330,32 @@ const computeStackedRuns = (): StackedPictureRun[] => {
 	const runs: StackedPictureRun[] = [];
 	stateGame.board.forEach((reel, reelIndex) => {
 		const symbols = reel.reelState.symbols;
-		// Show the picture as soon as the RESULT is on the reel — i.e. the compact resting set (length
-		// rows+2). That set is placed at the START of the bounce (`removePaddingAndBounceBack` sets
-		// `reelState.symbols = [...targetSymbols]`, then slides `reelY` down to home), so scanning it —
-		// and positioning off the LIVE `symbolY()` below — makes the picture DROP IN with the settling
-		// reel instead of popping in after full stop. While the reel is still ROLLING its `symbols` is a
-		// long scrolling array (target+padding+prev), so skip it and let the normal icons roll.
-		if (symbols.length > rows + 2) return;
-		// Visible window = symbolIndex 1..rows (index 0 is the top padding row).
-		let idx = 1;
-		while (idx <= rows) {
+		// Two scan windows, both positioned off the LIVE `symbolY()` so the pictures move with the reel:
+		//  • ROLLING (a long scrolling array: target+padding+prev) — scan the WHOLE strip so every
+		//    contiguous block of a high symbol renders as a tall picture that SCROLLS through the reel
+		//    (the board-window mask clips it). The scroll strip is seeded with natural-height blocks
+		//    (`stackedScrollStrip`), so the tall symbols are there to roll.
+		//  • SETTLED (the compact result set, length rows+2) — scan only the visible window (symbolIndex
+		//    1..rows) so a partial stack CROPS to the top N/M (a padding row must not extend the run).
+		const scrolling = symbols.length > rows + 2;
+		const first = scrolling ? 0 : 1;
+		const last = scrolling ? symbols.length - 1 : rows;
+		const cap = scrolling ? symbols.length - 1 : rows;
+		let idx = first;
+		while (idx <= last) {
 			const name = symbols[idx]?.rawSymbol.name;
 			const isEligible = name != null && (eligible === null || eligible.has(name));
 			if (!isEligible) {
 				idx += 1;
 				continue;
 			}
+			// While scrolling, cap a run at the symbol's natural height so each strip BLOCK renders as one
+			// M-tall picture (adjacent/duplicate blocks don't merge into a giant one). Settled runs are
+			// never capped — a partial result crops to top N/M below.
+			const maxRun = scrolling ? (STACKED_PICTURE.heights[name] ?? Infinity) : Infinity;
 			let end = idx;
-			while (end + 1 <= rows && symbols[end + 1]?.rawSymbol.name === name) end += 1;
+			while (end + 1 <= cap && symbols[end + 1]?.rawSymbol.name === name && end - idx + 1 < maxRun)
+				end += 1;
 			const visibleCells = end - idx + 1;
 			if (visibleCells >= minRun) {
 				const natural = STACKED_PICTURE.heights[name];

@@ -50,7 +50,7 @@ import { eventEmitter } from './eventEmitter';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { stateApp } from './stateApp';
 import { type WinLevelData } from './winLevelMap';
-import { stateGame, stateGameDerived, getSymbolX } from './stateGame.svelte';
+import { stateGame, stateGameDerived, getSymbolX, stackedScrollStrip } from './stateGame.svelte';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { buildAnticipationArming } from './anticipation';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
@@ -487,7 +487,9 @@ const effects: Record<string, FlowEffect> = {
 		stateGame.gameType = bookEvent.gameType;
 		await stateGameDerived.enhancedBoard.spin({
 			revealEvent: bookEvent,
-			paddingBoard: paddingReels(bookEvent.gameType),
+			// Stacked-picture mode seeds the scroll strip with natural-height blocks so tall pictures roll
+			// during the spin; a no-op (returns the strip unchanged) when the mode is off (byte-parity).
+			paddingBoard: stackedScrollStrip(paddingReels(bookEvent.gameType)),
 			forceSequentialStop: stateGame.sequentialReelStop,
 			// Client-computed reel anticipation — MUST be passed here too, not only in the coded
 			// `bookEventHandlerMap` reveal handler: a flow-v2 game (the Book-of remake) drives its

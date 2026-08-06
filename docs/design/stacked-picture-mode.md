@@ -40,14 +40,23 @@ is **no** reveal-path `computeArming` hook.
    overridable from the Invisible Game Config.
 2. **Mode state + scan** — `apps/lines/src/game/stateGame.svelte.ts`:
    - `stackedPictureMode` (+ `stackedPictureSymbols`/`highPayOnly`/`minRun` overrides), all off/default.
-   - `stackedPictureRuns()` — a `$derived` scan of every reel whose **result is on the reel** (its
-     `symbols` is the compact resting set, length `≤ numRows+2` — true from the START of the bounce, not
-     just at full stop) over the visible window (symbolIndex `1..numRows`) → one
-     `StackedPictureRun {reel, name, topRow, visibleCells N, naturalCells M, x, topEdgeY}` per
-     contiguous eligible run (length ≥ minRun; `M = max(N, heights[name] ?? N)`). `topEdgeY` reads the
-     LIVE `symbolY()`, so during the bounce the picture **drops in with the settling reel** (owner
-     decision 2026-08-06 — no post-settle "swap"). A rolling reel's `symbols` is a long scrolling array
-     (target+padding+prev), so it is skipped and the normal icons roll.
+   - `stackedPictureRuns()` — a `$derived` scan producing one
+     `StackedPictureRun {reel, name, topRow, visibleCells N, naturalCells M, x, topEdgeY}` per contiguous
+     eligible run (length ≥ minRun; `M = max(N, heights[name] ?? N)`), positioned off the **live
+     `symbolY()`** so the pictures move WITH the reel. Two scan windows (owner decision 2026-08-06 — tall
+     symbols must roll, no post-settle "swap"):
+     - **Rolling** reel (a long scrolling array, `length > numRows+2`): scan the WHOLE strip so every
+       contiguous BLOCK renders as a tall picture that scrolls through the reel (capped at the symbol's
+       natural height so blocks don't merge; the board-window mask clips it). This needs the strip to
+       carry blocks — see `stackedScrollStrip` below.
+     - **Settled** reel (the compact result set, `length ≤ numRows+2` — placed at the START of the bounce
+       by `removePaddingAndBounceBack`): scan only the visible window (symbolIndex `1..numRows`) so a
+       partial result crops to the top N/M and the picture **drops in with the bounce**, not after full
+       stop.
+   - `stackedScrollStrip(strips)` — seeds the reel's SCROLL filler (`paddingBoard`) with natural-height
+     BLOCKS of each eligible symbol (H2 → 3 cells, W → 5, …) so the tall symbols exist to roll. Applied
+     at both spin call sites (`flowEffects.ts` revealBoard + `bookEventHandlerMap.ts` reveal); a no-op
+     when the mode is off (byte-parity). Cosmetic only — the RESULT board is separate.
    - `stackedCoverage()` — the `reel:row` set the runs cover, reusing `winDimCellKey`.
    - Empty when the mode is off ⇒ byte-parity.
 3. **Flow effect + vocab** — `flowEffects.ts#enableStackedPictures`/`disableStackedPictures`
