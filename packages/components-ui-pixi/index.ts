@@ -1,5 +1,7 @@
 import UI from './src/components/UI.svelte';
 import UiGameName from './src/components/UiGameName.svelte';
+import HudGameName from './src/components/HudGameName.svelte';
+import HudLogo from './src/components/HudLogo.svelte';
 import InfoOverlay from './src/components/InfoOverlay.svelte';
 import HudReadout from './src/components/HudReadout.svelte';
 import HudTicker from './src/components/HudTicker.svelte';
@@ -19,6 +21,8 @@ export {
 	i18nDerived,
 	UI,
 	UiGameName,
+	HudGameName,
+	HudLogo,
 	InfoOverlay,
 	HudReadout,
 	HudTicker,
