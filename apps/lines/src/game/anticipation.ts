@@ -43,7 +43,6 @@ function buildReach(board: string[][]): {
 	triggerCount: number | undefined;
 	bookReach: AnticipationReach | undefined;
 	bookTriggerCount: number;
-	bookExpansionMaxWin: number;
 } {
 	const entries = paytable();
 	const config = getActiveGameConfig();
@@ -105,22 +104,7 @@ function buildReach(board: string[][]): {
 			})
 		: undefined;
 
-	// The book expansion's WIN, so the tease can be gated on "big wins only" like every other axis. When
-	// the round's special expands it fills the reels it covers; the biggest that expansion can pay is a
-	// FULL board of the special — every payline a `numReels`-of-a-kind. That total, as a total-bet
-	// multiplier, equals the special's own top line pay (the `numLines` factor cancels against the
-	// win-reach divisor), so `linePay(special, numReels)` IS the max expansion win in the same units the
-	// big-win tiers threshold against. A low-paying round symbol therefore can't clear the tier and its
-	// book is never teased — only a book that could actually pay big is.
-	const bookExpansionMaxWin = special ? linePay(special, board.length) : 0;
-
-	return {
-		reach,
-		triggerCount,
-		bookReach,
-		bookTriggerCount: BOOK_EXPANSION_COUNT,
-		bookExpansionMaxWin,
-	};
+	return { reach, triggerCount, bookReach, bookTriggerCount: BOOK_EXPANSION_COUNT };
 }
 
 /**
@@ -140,7 +124,7 @@ export function buildAnticipationArming(
 	const { y } = boardDimensions();
 	const board = revealEvent.board.map((reel) => reel.slice(1, 1 + y).map((cell) => cell.name));
 
-	const { reach, bookReach, bookTriggerCount, bookExpansionMaxWin } = buildReach(board);
+	const { reach, bookReach, bookTriggerCount } = buildReach(board);
 	const bound = stateGame.anticipationConfidence === 'guaranteed' ? 'min' : 'max';
 	// The config big-win tiers (ascending) drive BOTH the numeric stack level and the tier ALIAS: the
 	// win-reach arming stacks a level per big threshold crossed, and the reached tier's alias tags the
@@ -150,39 +134,63 @@ export function buildAnticipationArming(
 	const smallestBig = bigThresholds[0];
 	const minReel = stateGame.minAnticipateReel;
 
+	// TEMP diagnostic (opt-in `&antdebug=1`): one line per reveal with the exact book/line arming
+	// inputs, so we can see WHY the book tease does or doesn't arm — is the mode on, is `specialSymbol`
+	// set (did `bookReach` build?), and what are the per-reel book bounds vs the N-1/N thresholds.
+	if (typeof location !== 'undefined' && location.search.includes('antdebug')) {
+		const perReel = [];
+		for (let k = 0; k <= reach.numReels; k += 1) {
+			perReel.push({
+				k,
+				book: bookReach ? bookReach.triggerBounds(k) : null,
+				win: Number(reach.winBounds(k)[bound].toFixed(2)),
+			});
+		}
+		// eslint-disable-next-line no-console
+		console.log(
+			'[ANT-DEBUG]',
+			JSON.stringify({
+				gameType: revealEvent.gameType,
+				mode: stateGame.anticipationMode,
+				special: stateGame.specialSymbol ?? null,
+				bookReachBuilt: bookReach !== undefined,
+				bookTriggerCount,
+				smallestBig: smallestBig ?? null,
+				minReel,
+				perReel,
+			}),
+		);
+	}
+
 	return (reelIndex: number): ReelAnticipationArming | null => {
 		if (reelIndex >= reach.numReels) return null;
 
-		// "Big wins only" (the whole point of the feature): EVERY axis must resolve to a reachable BIG
-		// win — a config big-win tier. So with no big tiers configured there is nothing to anticipate
-		// and nothing arms. This is the single gate that keeps the mode from firing on small wins.
-		if (smallestBig === undefined) return null;
-
 		let level = 0;
 
-		// Book-of expanding special (free spins only) — the "one book away from the expansion" tease,
-		// but ONLY when that expansion could itself be a BIG win. Two gates, both required:
-		//   1. big-win gate — `bookExpansionMaxWin` (the special fully expanded) clears the smallest big
-		//      tier. A low-paying round symbol can't, so its book is never teased (big wins only).
-		//   2. count gate — N-1 of the book are ALREADY on the board (`min` counts EVERY book cell, so
-		//      two books STACKED on one reel still count as two) AND the Nth is still reachable (`max`).
-		// So "two books down → tease" holds even when they share a column, and it drops the instant the
-		// last book becomes impossible. NOT gated by `minAnticipateReel` (two books is meaningful this
-		// early). `bookReach` is only built when `stateGame.specialSymbol` is set, so the base game and
-		// non-Book-of games are unaffected (byte-parity).
-		if (bookReach && bookTriggerCount > 0 && bookExpansionMaxWin >= smallestBig) {
+		// Book-of expanding special (free spins only) — the "one book away from the expansion" tease.
+		// The expansion IS the feature's big-win moment: a Book-of round that lands the Nth of the
+		// round's symbol expands it to fill reels and pays big — that is the whole mechanic — so reaching
+		// it IS reaching a big win, and there is NO separate win-amount gate. (An earlier attempt gated
+		// this on `linePay(special, numReels)`, but the expansion pays FAR more than a single line of the
+		// symbol, so that wrongly suppressed real big book wins on low-paytable specials.) Arms once N-1
+		// of the book are ALREADY on the board (`min` counts every book CELL, so two stacked on one reel
+		// count as two) with the Nth still reachable (`max`); it drops the instant the last book becomes
+		// impossible. NOT gated by `minAnticipateReel`. `bookReach` exists only when
+		// `stateGame.specialSymbol` is set (Book-of + free spins), so base game / non-Book-of are
+		// unaffected (byte-parity).
+		if (bookReach && bookTriggerCount > 0) {
 			const book = bookReach.triggerBounds(reelIndex);
 			if (book.min >= bookTriggerCount - 1 && book.max >= bookTriggerCount) {
 				level = Math.max(level, 1);
 			}
 		}
 
-		// Line-win reach — arm once the reachable win clears the smallest big tier; stack a level per
-		// further big threshold it still crosses. Gated by `minAnticipateReel`: a run below the minimum
-		// can't reach a big win, so an early arm there is meaningless. (There is deliberately NO scatter
-		// feature-trigger axis: entering free spins is a FEATURE, not a big WIN, and the mode is big-wins
-		// only — see docs/design/reel-anticipation.md.)
-		if (reelIndex >= minReel) {
+		// Line-win reach — "big wins only": arm once the reachable win clears the smallest big tier;
+		// stack a level per further big threshold it still crosses. Gated by `minAnticipateReel` (a run
+		// below the minimum can't reach a big win) and skipped entirely when no big tiers are configured.
+		// (There is deliberately NO scatter feature-trigger axis: entering free spins is a FEATURE, not a
+		// big WIN — see docs/design/reel-anticipation.md.)
+		if (smallestBig !== undefined && reelIndex >= minReel) {
 			const win = reach.winBounds(reelIndex)[bound];
 			if (win >= smallestBig) {
 				level = bigThresholds.filter((threshold) => win >= threshold).length;
