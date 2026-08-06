@@ -341,8 +341,22 @@ const computeStackedRuns = (): StackedPictureRun[] => {
 		const first = scrolling ? 0 : 1;
 		const last = scrolling ? symbols.length - 1 : rows;
 		const cap = scrolling ? symbols.length - 1 : rows;
+		// The scrolling array is `[target(rows+2), filler…, prev(rows+2)]` — the RESULT chunks (target +
+		// previous result) carry their own top/bottom PADDING rows. Those pads must never join a run, so a
+		// result groups the SAME while rolling as when settled (window 1..rows). Otherwise a padding row
+		// that happens to match the landed stack's symbol gets grouped in while rolling but not once
+		// settled, and the picture SNAPS a tile at the roll↔settle boundary. The filler blocks have no
+		// pads; the settled scan already excludes them via `first`/`last`, so this only guards scrolling.
+		const reelLen = rows + 2;
+		const isPad = (i: number): boolean =>
+			scrolling &&
+			(i === 0 || i === rows + 1 || i === symbols.length - reelLen || i === symbols.length - 1);
 		let idx = first;
 		while (idx <= last) {
+			if (isPad(idx)) {
+				idx += 1;
+				continue;
+			}
 			const name = symbols[idx]?.rawSymbol.name;
 			const isEligible = name != null && (eligible === null || eligible.has(name));
 			if (!isEligible) {
@@ -354,7 +368,12 @@ const computeStackedRuns = (): StackedPictureRun[] => {
 			// never capped — a partial result crops to top N/M below.
 			const maxRun = scrolling ? (STACKED_PICTURE.heights[name] ?? Infinity) : Infinity;
 			let end = idx;
-			while (end + 1 <= cap && symbols[end + 1]?.rawSymbol.name === name && end - idx + 1 < maxRun)
+			while (
+				end + 1 <= cap &&
+				!isPad(end + 1) &&
+				symbols[end + 1]?.rawSymbol.name === name &&
+				end - idx + 1 < maxRun
+			)
 				end += 1;
 			const visibleCells = end - idx + 1;
 			if (visibleCells >= minRun) {
