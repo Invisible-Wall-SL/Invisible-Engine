@@ -436,9 +436,16 @@ async function main() {
 				if (!a || typeof a !== 'object') return undefined;
 				const out = {};
 				if (typeof a.spineKey === 'string' && a.spineKey) out.spineKey = a.spineKey;
+				// GLOBAL authored sound names (one activation sting + one loop). Enumerated here or this
+				// bake path would ship the swapped spine/tiers while silently dropping the sounds — the
+				// field-allowlist trap. Unset ⇒ the engine's resolvers fill the coded names (byte-parity).
+				if (typeof a.activationSound === 'string' && a.activationSound)
+					out.activationSound = a.activationSound;
+				if (typeof a.loopSound === 'string' && a.loopSound) out.loopSound = a.loopSound;
 				if (a.tiers && typeof a.tiers === 'object') {
 					// Alias-keyed dynamic record: one entry per configured big-win tier, not a fixed
-					// big/mega/massive triple. Copy every non-empty tier verbatim (sparse).
+					// big/mega/massive triple. Copy every non-empty tier verbatim (sparse) — so a per-tier
+					// field like `stingVolume` rides along without a hand-copied allowlist here.
 					const tiers = {};
 					for (const [alias, fx] of Object.entries(a.tiers)) {
 						if (fx && typeof fx === 'object' && Object.keys(fx).length) tiers[alias] = fx;

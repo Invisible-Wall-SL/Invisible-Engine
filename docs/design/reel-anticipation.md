@@ -187,6 +187,30 @@ state machine"):
   signals, modelled on `enableSequentialReelStop`.
 - **Off by default → byte-parity** when unauthored.
 
+#### SFX — authorable sounds + escalating volume ramp
+
+The tease plays **two** sounds: a one-shot activation **sting** the instant a reel arms, and a
+sustained **loop** that fades in while a reel is still anticipating (`Anticipations.svelte`). Both are
+authorable from the `/symbols` **Reel anticipation** panel:
+
+- **Names are global** (one sting + one loop for the whole mode): `anticipation.activationSound` /
+  `anticipation.loopSound`. Unset ⇒ the coded `sfx_anticipation_start` / `sfx_anticipation`. The
+  engine reads them through `resolveActivationSound()` / `resolveLoopSound()`
+  (`game/anticipationPresentation.ts`), the sound-name choke points alongside the FX resolvers. A name
+  absent from the game's audiosprite is declined silently by howler (inaudible), so a typo never
+  errors. The picker offers the game's real `SOUND_EFFECT_NAMES` (the shared list Flow/Editor use).
+- **Volume escalates per tier** for BOTH sounds: `tierFx.soundVolume` is the loop's fade-in target and
+  `tierFx.stingVolume` is the sting's per-play volume. Both are on the coded `codedTierFx` ramp
+  (0.7 → 1.0 across the big tiers) and merged per-field in `resolveTierFx()`. The sting volume rides a
+  new **per-play volume** on the once-player (`soundOnce` broadcast gained an optional `volume`,
+  threaded through `Sound.svelte` → `createPlayOnce`), applied _relative to_ the master SFX volume so
+  the player's mixer setting still applies. A `soundOnce` without `volume` is byte-identical to before.
+
+> Note: on the pre-authoring engine the activation sting was declared in the audiosprite
+> (`sfx_anticipation_start`) but never broadcast — only the loop played. Wiring the sting here is the
+> feature (an escalating arm cue), so an un-authored project now plays the coded sting at the coded
+> `stingVolume` ramp; the **loop** remains byte-identical.
+
 ## Build plan (phases)
 
 0. **Design doc** (this file). ✅

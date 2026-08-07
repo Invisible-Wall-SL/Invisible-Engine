@@ -159,6 +159,11 @@ export interface WinLineLineStyle {
 	fullPayline?: boolean;
 	/** Colour of the full-payline underlay (its only style option). Unset ⇒ coded default. */
 	fullPaylineColor?: string;
+	/** Draw the line in the winning payline's colour from the Invisible Game Config (when it has
+	 *  one), falling back to the `color` swatch. Absent ⇒ ON (the historic behaviour: config colour
+	 *  wins, swatch is the fallback). Persist ONLY the OFF override (`false`), which makes the
+	 *  `color` swatch authoritative and ignores the config colour. */
+	useConfigColor?: boolean;
 }
 
 /** Win-amount text style (a bitmap font, so `color` is a tint multiply). `size` is a
@@ -190,7 +195,10 @@ export interface AnticipationTierFx {
 	overlayScale?: number;
 	overlayAlpha?: number;
 	overlayTint?: string;
+	/** Anticipation LOOP target volume (0..1). */
 	soundVolume?: number;
+	/** Activation STING per-play volume (0..1) — the one-shot arm cue, escalating alongside the loop. */
+	stingVolume?: number;
 }
 
 /** The reel-anticipation presentation config — the editable twin of the engine's coded FX ramp.
@@ -200,14 +208,30 @@ export interface AnticipationTierFx {
  *  `anticipationSchema`. */
 export interface AnticipationConfig {
 	spineKey?: string;
+	/** GLOBAL authored sound names — one activation STING + one LOOP for the whole mode (NOT per-tier).
+	 *  Absent ⇒ the game's coded `sfx_anticipation_start` / `sfx_anticipation`. */
+	activationSound?: string;
+	loopSound?: string;
 	tiers?: Record<string, AnticipationTierFx>;
 }
 
 /** Ramp endpoints — a hex-string mirror of the engine's `codedTierFx`
  *  (`apps/lines/src/game/anticipationPresentation.ts`). Kept in step with that function (the launcher
  *  can't import from a game package; the same duplication as the page's `WL_DEFAULTS`). */
-const RAMP_LOW = { zoom: 1.1, overlayScale: 1, overlayAlpha: 0.85, soundVolume: 0.7 };
-const RAMP_HIGH = { zoom: 1.32, overlayScale: 1.24, overlayAlpha: 1, soundVolume: 1 };
+const RAMP_LOW = {
+	zoom: 1.1,
+	overlayScale: 1,
+	overlayAlpha: 0.85,
+	soundVolume: 0.7,
+	stingVolume: 0.7,
+};
+const RAMP_HIGH = {
+	zoom: 1.32,
+	overlayScale: 1.24,
+	overlayAlpha: 1,
+	soundVolume: 1,
+	stingVolume: 1,
+};
 const TINT_LOW = 0xffffff;
 const TINT_HIGH = 0xff5a3c;
 
@@ -231,6 +255,7 @@ export function codedTierFx(rank: number, count: number): Required<AnticipationT
 		overlayAlpha: lerp(RAMP_LOW.overlayAlpha, RAMP_HIGH.overlayAlpha, t),
 		overlayTint: lerpTintHex(t),
 		soundVolume: lerp(RAMP_LOW.soundVolume, RAMP_HIGH.soundVolume, t),
+		stingVolume: lerp(RAMP_LOW.stingVolume, RAMP_HIGH.stingVolume, t),
 	};
 }
 
@@ -384,6 +409,11 @@ function pruneAnticipation(config: AnticipationConfig | undefined): Anticipation
 	if (!config) return undefined;
 	const next: AnticipationConfig = {};
 	if (config.spineKey) next.spineKey = config.spineKey;
+	if (config.activationSound) next.activationSound = config.activationSound;
+	if (config.loopSound) next.loopSound = config.loopSound;
+	// Per-tier fields survive the generic Object.entries filter below (blank/undefined dropped), so a new
+	// tier field like `stingVolume` needs no allowlist entry here — the whitelist that matters is the
+	// config-level one above (spineKey/activationSound/loopSound).
 	const tiers: Record<string, AnticipationTierFx> = {};
 	for (const [alias, fx] of Object.entries(config.tiers ?? {})) {
 		if (!fx) continue;
@@ -425,6 +455,27 @@ export function setAnticipationSpineKey(doc: SymbolsDoc, spineKey: string | unde
 	const config: AnticipationConfig = { ...(doc.anticipation ?? {}) };
 	if (spineKey) config.spineKey = spineKey;
 	else delete config.spineKey;
+	return withAnticipation(doc, config);
+}
+
+/** Set (or, with an empty/undefined name, clear) the GLOBAL activation-STING sound. Clearing resets to
+ *  the coded `sfx_anticipation_start`. New doc. */
+export function setAnticipationActivationSound(
+	doc: SymbolsDoc,
+	name: string | undefined,
+): SymbolsDoc {
+	const config: AnticipationConfig = { ...(doc.anticipation ?? {}) };
+	if (name) config.activationSound = name;
+	else delete config.activationSound;
+	return withAnticipation(doc, config);
+}
+
+/** Set (or, with an empty/undefined name, clear) the GLOBAL anticipation LOOP sound. Clearing resets to
+ *  the coded `sfx_anticipation`. New doc. */
+export function setAnticipationLoopSound(doc: SymbolsDoc, name: string | undefined): SymbolsDoc {
+	const config: AnticipationConfig = { ...(doc.anticipation ?? {}) };
+	if (name) config.loopSound = name;
+	else delete config.loopSound;
 	return withAnticipation(doc, config);
 }
 
@@ -534,7 +585,12 @@ function pruneWinLine(winLine: WinLineConfig | undefined): WinLineConfig | undef
 	if (winLine.enabled === false) next.enabled = false;
 	const line = prune(winLine.line);
 	const text = prune(winLine.text);
-	if (line) next.line = line;
+	if (line) {
+		// `useConfigColor` defaults ON (absent ⇒ config colour wins), so ONLY its OFF override
+		// persists — a `true` is the default and must drop to keep an untouched doc byte-identical.
+		if (line.useConfigColor !== false) delete line.useConfigColor;
+		if (Object.keys(line).length) next.line = line;
+	}
 	if (text) next.text = text;
 	return Object.keys(next).length ? next : undefined;
 }
@@ -751,6 +807,8 @@ export function docSignature(doc: SymbolsDoc): string {
 	const anticipation = doc.anticipation
 		? {
 				spineKey: doc.anticipation.spineKey ?? null,
+				activationSound: doc.anticipation.activationSound ?? null,
+				loopSound: doc.anticipation.loopSound ?? null,
 				tiers: doc.anticipation.tiers
 					? Object.fromEntries(
 							Object.keys(doc.anticipation.tiers)

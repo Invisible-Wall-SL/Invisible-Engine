@@ -157,6 +157,10 @@ const winLineLineSchema = z
 		/** Colour of the full-payline underlay (only style option for it). Unset ⇒ the coded
 		 *  default resolved in `bakedWinLineConfig()`. */
 		fullPaylineColor: z.string().optional(),
+		/** Draw the line in the winning payline's colour from the Invisible Game Config (when it has
+		 *  one), falling back to the `color` swatch. Absent ⇒ ON (historic behaviour). Only the OFF
+		 *  override (`false`) persists — it makes the `color` swatch authoritative and ignores config. */
+		useConfigColor: z.boolean().optional(),
 	})
 	.strict();
 
@@ -284,13 +288,21 @@ const anticipationTierFxSchema = z
 			.string()
 			.regex(/^#[0-9a-fA-F]{6}$/)
 			.optional(),
+		// `soundVolume` is the LOOP's escalation target; `stingVolume` is the one-shot activation cue's
+		// per-play volume — both 0..1, both sparse (unset ⇒ the coded ramp step).
 		soundVolume: z.number().optional(),
+		stingVolume: z.number().optional(),
 	})
 	.strict();
 
 const anticipationSchema = z
 	.object({
 		spineKey: z.string().min(1).optional(),
+		// GLOBAL authored sound names (one sting + one loop for the whole mode), not per-tier. Unset ⇒
+		// the coded `sfx_anticipation_start` / `sfx_anticipation`. Free-form strings (a game's audiosprite
+		// key) — an unknown name is declined silently in-game, so no enum coupling to a game's sound set.
+		activationSound: z.string().min(1).optional(),
+		loopSound: z.string().min(1).optional(),
 		// Alias-keyed + sparse: one entry per configured big-win tier (`/config`), keyed by the tier's
 		// ALIAS — no longer a fixed big/mega/massive triple. An unset tier is simply absent.
 		tiers: z.record(z.string().min(1), anticipationTierFxSchema).optional(),
@@ -399,6 +411,8 @@ function pruneAnticipation(anticipation: SymbolsDoc['anticipation']): SymbolsDoc
 	if (!anticipation) return undefined;
 	const next: NonNullable<SymbolsDoc['anticipation']> = {};
 	if (anticipation.spineKey) next.spineKey = anticipation.spineKey;
+	if (anticipation.activationSound) next.activationSound = anticipation.activationSound;
+	if (anticipation.loopSound) next.loopSound = anticipation.loopSound;
 	const tiers: NonNullable<NonNullable<SymbolsDoc['anticipation']>['tiers']> = {};
 	for (const [alias, fx] of Object.entries(anticipation.tiers ?? {})) {
 		if (fx && Object.keys(fx).length) tiers[alias] = fx;

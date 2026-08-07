@@ -208,14 +208,18 @@ payline, with the win amount stamped under its end. It is pure config (no asset,
 preview). The toggle is **On by default**; flip it off to hide the overlay for the whole
 project. When it's on, two groups of controls appear:
 
-- **Line** — **Colour**; **Thickness** (a fraction of the symbol size); **Glow** on/off
-  and its **Glow colour**; **Animated draw** on/off (the line draws from the first paying
-  tile to the last, _then_ the amount appears) and its **Speed** (a draw-speed multiplier;
-  disabled unless Animated is on); **Show full payline** on/off and its **Full payline
-  colour**. Off (default) the line traces only the winning symbols, up to where the amount is
-  stamped; on, the WHOLE payline is drawn across all reels in the chosen colour, with the
-  winning segment on top (the colour is that underlay's only style option; disabled unless
-  the toggle is on).
+- **Line** — **Use payline colour from config** on/off (default **On**); **Colour**;
+  **Thickness** (a fraction of the symbol size); **Glow** on/off and its **Glow colour**;
+  **Animated draw** on/off (the line draws from the first paying tile to the last, _then_ the
+  amount appears) and its **Speed** (a draw-speed multiplier; disabled unless Animated is on);
+  **Show full payline** on/off and its **Full payline colour**. Off (default) the line traces
+  only the winning symbols, up to where the amount is stamped; on, the WHOLE payline is drawn
+  across all reels in the chosen colour, with the winning segment on top (the colour is that
+  underlay's only style option; disabled unless the toggle is on). **Use payline colour from
+  config** on (default) draws each winning line in that payline's colour from the Invisible
+  Game Config, falling back to the **Colour** swatch when the config has none — so the swatch
+  is greyed out (overridden). Turn it off to make the swatch authoritative and ignore the
+  config colour.
 - **Win amount text** — **Font** (chosen from the project's bitmap fonts — the engine
   builtins `gold`/`goldblur`/`silver`/`purple` plus any Font-Maker fonts); **Size** (a
   fraction of the symbol size); **Colour**. Because the amount is bitmap text, the colour
@@ -229,7 +233,8 @@ Every field is optional and **sparse**: only the on/off (when off) and the field
 actually change are written, under `winLine: { enabled?, line?, text? }` on the doc.
 Colours are CSS hex strings; `width`/`size` are multiples of the symbol size; `speed`
 scales the animated-draw duration; `line.fullPayline`/`line.fullPaylineColor` carry the full
-payline option. The game applies its coded defaults for every field the
+payline option; `line.useConfigColor` carries the config-colour toggle (default ON, so only
+the OFF override persists). The game applies its coded defaults for every field the
 bundle omits, so a project that never opens this section is byte-identical to before and
 the overlay stays on with its default gold line. On export/bake the config is passed
 straight through to `bundle.symbols.winLine` (omitted when untouched) — there is no asset
@@ -301,30 +306,46 @@ shows a note asking you to add them in `/config` first. Each column has the same
 - **Overlay tint** — a MULTIPLY tint over the overlay spine (a colour picker). White (`#ffffff`)
   keeps the spine's own colours; a hotter tint tints them — the coded defaults ramp
   white → hot orange as the tiers climb.
-- **Loop volume** — the anticipation SFX loop's target volume for that tier.
+- **Loop volume** — the sustained anticipation SFX **loop**'s target volume for that tier.
+- **Sting volume** — the one-shot activation **sting**'s per-play volume for that tier. Both volumes
+  escalate independently per tier (the "louder after each arm" ramp), and both are relative to the
+  player's master SFX volume.
 
 The default values shown in each column come from a coded FX **ramp** interpolated across however
 many big tiers there are (the first tier gets the low end, the last the high end), so an escalation
 is sensible no matter how many tiers the config defines.
 
-An **Overlay spine** select at the top swaps _which_ skeleton drives the per-reel overlay. The
-default is the game's built-in `anticipation` spine; a swapped bundle must expose the
-`anticipation_intro / _loop / _out` animations, since the game still owns the intro → loop → out
-chaining (same contract as the board glow). Only R2 spine bundles already available to the project
-are offered — no new asset class.
+Above the tier columns are three global pickers (one sting + one loop for the whole mode, not
+per-tier):
+
+- **Overlay spine** — swaps _which_ skeleton drives the per-reel overlay. The default is the game's
+  built-in `anticipation` spine; a swapped bundle must expose the `anticipation_intro / _loop / _out`
+  animations, since the game still owns the intro → loop → out chaining (same contract as the board
+  glow). Only R2 spine bundles already available to the project are offered — no new asset class.
+- **Activation sound** — the one-shot **sting** fired the moment a reel arms the tease. Default is
+  the coded `sfx_anticipation_start`.
+- **Loop sound** — the sustained **loop** that fades in while a reel is still anticipating. Default
+  is the coded `sfx_anticipation`.
+
+The two sound dropdowns list the game's real sound-effect names (the shipped audiosprite, sourced
+from `SOUND_EFFECT_NAMES` — the same list the Flow / Editor sound pickers use). Leaving either on
+**Default** keeps the coded name.
 
 Every field falls through to the game's coded value when left at its default, so the doc stays
 sparse: an untouched project ships **no `anticipation` key** and the mode is byte-identical to
 before this panel existed. **Reset to default** (shown once anything is overridden) clears the whole
 section.
 
-Stored as `anticipation: { spineKey?, tiers?: Record<tierAlias, TierFx> }` — the `tiers` record is
-keyed by the config big-win tier **alias** (dynamic, sparse: only overridden tiers appear), each
-value a sparse `{ zoom?, overlayScale?, overlayAlpha?, overlayTint?, soundVolume? }` (tint is a
+Stored as `anticipation: { spineKey?, activationSound?, loopSound?, tiers?: Record<tierAlias, TierFx> }`
+— `activationSound` / `loopSound` are global (one each), and the `tiers` record is keyed by the config
+big-win tier **alias** (dynamic, sparse: only overridden tiers appear), each value a sparse
+`{ zoom?, overlayScale?, overlayAlpha?, overlayTint?, soundVolume?, stingVolume? }` (tint is a
 `#rrggbb` hex). Passed through verbatim to `bundle.symbols.anticipation` at export/bake; the engine
 resolves it in `apps/lines/src/game/anticipationPresentation.ts` (`resolveTierFx` /
-`resolveAnticipationSpineKey`), merging each authored field over the coded `codedTierFx` ramp for
-that tier's rank among the config big tiers (`activeBigTiers`).
+`resolveAnticipationSpineKey` / `resolveActivationSound` / `resolveLoopSound`), merging each authored
+field over the coded `codedTierFx` ramp for that tier's rank among the config big tiers
+(`activeBigTiers`), and the authored sound names over the coded `sfx_anticipation_start` /
+`sfx_anticipation`.
 
 ### Saving is not the last step — shipping a rebind
 
