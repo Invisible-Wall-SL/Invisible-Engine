@@ -158,8 +158,19 @@ export interface TestServerGameEntry {
 	 *
 	 *  `wild` is present only when a wild symbol is IN PLAY (on the strips) with a paytable: the mock
 	 *  then deals + pays `WILD` (occurs→multiplier), which the lines facade maps to the game symbol
-	 *  `W`. Absent ⇒ the mock deals no wild. */
-	grid?: { reels: number; rows: number; paylines: number[][]; wild?: { paytable: Record<string, number> } };
+	 *  `W`. Absent ⇒ the mock deals no wild.
+	 *
+	 *  `stacked` is `true` only when the project has the stacked-picture mode ON (its symbols doc's
+	 *  `stackedPictures.enabled` with ≥1 authored symbol): the mock then deals contiguous tall-symbol
+	 *  runs — including guaranteed top/bottom EDGE cutoffs — so the reel mode has data to render. Absent
+	 *  ⇒ the mock deals its normal weighted board. */
+	grid?: {
+		reels: number;
+		rows: number;
+		paylines: number[][];
+		wild?: { paytable: Record<string, number> };
+		stacked?: boolean;
+	};
 }
 
 export interface TestServerManifest {

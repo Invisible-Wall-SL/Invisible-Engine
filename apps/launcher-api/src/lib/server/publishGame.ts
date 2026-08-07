@@ -24,6 +24,7 @@ import { listAllObjects } from './r2';
 import { ensureDeployExports } from './runtimeBundle';
 import { invalidateRuntimeBundle } from './runtimeBundleCache';
 import { loadGameConfigDoc } from './gameConfigStorage';
+import { loadSymbolsDoc } from './symbolsStorage';
 import {
 	upsertTestServerGame,
 	type MockProtocol,
@@ -134,9 +135,28 @@ async function projectGrid(
 		const paylines = Object.values(doc.paylines ?? {});
 		if (!Number.isFinite(reels) || !paylines.length) return undefined;
 		const wild = projectWild(doc);
-		return { reels, rows, paylines, ...(wild ? { wild } : {}) };
+		// `stacked`: does this project have the stacked-picture reel mode ON? Gated on the SAME master
+		// toggle the symbol bake reads (`stackedPictures.enabled` + ≥1 authored symbol) so the mock deals
+		// tall-symbol runs — incl. guaranteed edge cutoffs — only for a project that actually stacks
+		// pictures. Best-effort: a missing/empty symbols doc ⇒ no flag ⇒ the normal weighted deal.
+		const stacked = await projectStacked(clientKey, projectKey);
+		return { reels, rows, paylines, ...(wild ? { wild } : {}), ...(stacked ? { stacked: true } : {}) };
 	} catch {
 		return undefined;
+	}
+}
+
+/**
+ * True when the project has the stacked-picture reel mode enabled in its symbols doc (the SAME
+ * `stackedPictures.enabled` master toggle `symbolExport` gates the baked `stacked` config on). Used to
+ * tell the test-server mock to deal stacked boards. Best-effort — any read/parse failure ⇒ `false`.
+ */
+async function projectStacked(clientKey: string, projectKey: string): Promise<boolean> {
+	try {
+		const doc = await loadSymbolsDoc(clientKey, projectKey);
+		return doc.stackedPictures?.enabled === true && (doc.stackedPictures.symbols?.length ?? 0) > 0;
+	} catch {
+		return false;
 	}
 }
 
