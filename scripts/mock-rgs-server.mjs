@@ -363,15 +363,37 @@ export function createMockRgs(opts = {}) {
 		Array.from({ length: reelCount }, () => Array.from({ length: rowCount }, pickCell));
 
 	/**
-	 * Stacked-picture test deal: every reel is likely to carry ONE contiguous run of a high symbol
-	 * (length 2..rows, random start ⇒ partial + full crops), and the LAST reel is a full-height WILD
-	 * (the 5-tall Wild the mode must render whole). Non-run cells fall back to the normal weighted draw.
-	 * Only used when `stackedDeal` is on, so the default deal is untouched.
+	 * Stacked-picture test deal — engineered to showcase ALL crops every spin (the real math rarely
+	 * lands a partial at a board edge, which is the whole reason this mode exists):
+	 *  • reel 0    → a partial WILD run pinned to the TOP edge ⇒ the engine draws the BOTTOM of the tall
+	 *    Wild with its top running off-screen above (a top cutoff).
+	 *  • reel 1    → a partial WILD run pinned to the BOTTOM edge ⇒ the TOP of the Wild with its bottom
+	 *    running off-screen below (a bottom cutoff).
+	 *  • last reel → a full-height WILD column ⇒ the whole picture (contrast).
+	 *  • middle reels → an occasional random high-symbol run for variety.
+	 * WILD is the tallest picture (height ≫ a 2–3 cell run), so a short WILD run is ALWAYS a partial
+	 * regardless of the project's authored heights — the cutoffs are guaranteed, not probabilistic.
+	 * Non-run cells fall back to the normal weighted draw. Only used when `stackedDeal` is on.
 	 */
+	const partialWildLen = () => Math.max(2, Math.min(rowCount - 1, 2 + Math.floor(nextRand() * 2))); // 2..3, < rows
 	const spinReelsStacked = () =>
 		Array.from({ length: reelCount }, (_ignored, reel) => {
 			const column = Array.from({ length: rowCount }, pickSymbol);
+			// Last reel: the whole 5-tall Wild (checked first so a 1- or 2-reel grid still gets a full stack).
 			if (reel === reelCount - 1) return Array.from({ length: rowCount }, () => 'WILD');
+			// Reel 0: partial WILD pinned to the TOP edge (rows 0..len-1) ⇒ bottom-of-picture cutoff.
+			if (reel === 0 && rowCount >= 2) {
+				const len = partialWildLen();
+				for (let i = 0; i < len; i++) column[i] = 'WILD';
+				return column;
+			}
+			// Reel 1: partial WILD pinned to the BOTTOM edge (last len rows) ⇒ top-of-picture cutoff.
+			if (reel === 1 && rowCount >= 3) {
+				const len = partialWildLen();
+				for (let i = 0; i < len; i++) column[rowCount - len + i] = 'WILD';
+				return column;
+			}
+			// Middle reels: an occasional random high-symbol run (partial or full, per its own height).
 			if (nextRand() < 0.7) {
 				const symbol = STACK_PICS[Math.floor(nextRand() * STACK_PICS.length)];
 				const maxRun = Math.max(2, rowCount);

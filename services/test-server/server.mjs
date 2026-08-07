@@ -176,7 +176,11 @@ const validGrid = (grid) => {
 		wildPay && typeof wildPay === 'object' && Object.keys(wildPay).length
 			? { paytable: wildPay }
 			: null;
-	return { reels, rows, paylines, ...(wild ? { wild } : {}) };
+	// `stacked` (set at publish when the project turned stacked-pictures ON) makes the mock deal
+	// contiguous tall-symbol runs — incl. guaranteed edge cutoffs — so the stacked-picture reel mode has
+	// data to render. Absent/false ⇒ the normal weighted deal. See mock-rgs-server `spinReelsStacked`.
+	const stacked = grid.stacked === true;
+	return { reels, rows, paylines, ...(wild ? { wild } : {}), ...(stacked ? { stacked: true } : {}) };
 };
 
 const streamToBuffer = async (stream) => {

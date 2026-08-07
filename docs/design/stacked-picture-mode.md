@@ -85,11 +85,20 @@ is **no** reveal-path `computeArming` hook.
 
 ## Test data (mock)
 
-`scripts/mock-rgs-server.mjs` gains an opt-in **stacked deal** (`STACKED=1` env / `createMockRgs({
-stacked: true })`): most reels carry one contiguous high-symbol run (partial + full crops) and the
-last reel is a full-height **WILD**. `WILD → 'W'` added to the lines facade
-(`packages/rgs-translator-eagaming/src/gameMappings.ts`). Test data only — no protocol change; the
-default deal is untouched.
+`scripts/mock-rgs-server.mjs` has an opt-in **stacked deal** (`STACKED=1` env / `createMockRgs({
+stacked: true })`). Because the real math rarely lands a partial at a board edge — the whole reason the
+crop exists — the deal is **engineered to showcase every crop each spin**: reel 0 = a partial **WILD**
+pinned to the **TOP** edge (a bottom-of-picture cutoff), reel 1 = a partial WILD pinned to the
+**BOTTOM** edge (a top-of-picture cutoff), the **last reel** = a full-height WILD (whole picture), and
+middle reels carry an occasional random high-symbol run. WILD is the tallest picture, so a short WILD
+run is a partial regardless of the project's authored heights ⇒ the cutoffs are **guaranteed, not
+probabilistic**. `WILD → 'W'` in the lines facade (`packages/rgs-translator-eagaming/src/gameMappings.ts`).
+
+**Auto-enabled per project (online).** The test server (`services/test-server`) passes `stacked: true`
+to the mock via the manifest `grid.stacked`, which `publishGame` sets at Publish when the project's
+symbols doc has `stackedPictures.enabled` (the SAME master toggle the bake reads). So any online lines
+project that turns the mode ON gets stacked boards after a republish + `/refresh` — no env, no
+per-project hardcode. Test data only — no protocol change; the default (mode-off) deal is untouched.
 
 ## Verification
 
