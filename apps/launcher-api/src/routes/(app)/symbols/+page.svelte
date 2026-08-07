@@ -111,6 +111,25 @@
 	// tall art lives in the "Stacked pictures" section. Book states stay gated on the server `gameType`.
 	const visibleStates = $derived(visibleStatesFor(data.gameType));
 
+	// Symbols whose EFFECTIVE binding is a SPINE with no animation. A spine plays an animation, so with
+	// none selected it draws only its (usually empty) setup pose ⇒ a BLANK cell in-game. Flag it here so
+	// an authored-but-invisible symbol is caught in the tool, not discovered live (the R_spinbutton/W
+	// case). Grouped by symbol, each with the affected state labels.
+	const spineNoAnimWarnings = $derived.by(() => {
+		const out: { symbol: string; states: string[] }[] = [];
+		for (const symbol of symbolNames) {
+			const states: string[] = [];
+			for (const state of visibleStates) {
+				const { cell } = effectiveCell(doc, data.defaults, symbol, state);
+				if (cell?.type === 'spine' && cell.assetKey && !cell.animationName) {
+					states.push(STATE_LABELS[state] ?? state);
+				}
+			}
+			if (states.length) out.push({ symbol, states });
+		}
+		return out;
+	});
+
 	// Responsive cell sizing — the grid fills the page WIDTH so it no longer sits tiny
 	// in the top-left, and each preview scales with the 6 state columns. Width-driven
 	// (with vertical scroll for the symbol rows, like the in-game debug grid) so cells
@@ -996,6 +1015,18 @@
 	<div class="body" class:has-panel={!!focus}>
 		<div class="grid-area">
 			<div class="grid-scroll" bind:this={gridScroll}>
+				{#if spineNoAnimWarnings.length}
+					<div class="anim-warn">
+						<strong>⚠ Spine art with no animation</strong> — a spine plays an animation, so with none
+						picked it renders a <strong>blank</strong> cell in-game. Pick an animation for these (or
+						switch them to a sprite/flipbook):
+						<ul>
+							{#each spineNoAnimWarnings as w (w.symbol)}
+								<li><code>{w.symbol}</code> — {w.states.join(', ')}</li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
 				<section class="highlight" class:editing={highlightEditing}>
 					<div class="hl-head">
 						<div class="hl-title">
@@ -2697,6 +2728,24 @@
 		min-width: 0;
 		min-height: 0;
 		overflow: hidden;
+	}
+	/* Warns that a symbol's spine binding has no animation ⇒ it renders blank in-game. */
+	.anim-warn {
+		margin: 0 0 12px;
+		padding: 10px 14px;
+		border: 1px solid #6b4b1a;
+		background: #2a1e0d;
+		color: #e0b877;
+		border-radius: 6px;
+		font-size: 13px;
+		line-height: 1.4;
+	}
+	.anim-warn ul {
+		margin: 6px 0 0;
+		padding-left: 18px;
+	}
+	.anim-warn code {
+		color: #f0d9a8;
 	}
 	.grid-scroll {
 		position: absolute;
