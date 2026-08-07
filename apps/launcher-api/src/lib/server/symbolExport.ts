@@ -128,6 +128,9 @@ export interface SymbolExportStackedArt {
 }
 export interface SymbolExportStacked {
 	symbols: { name: string; height: number; art: SymbolExportStackedArt }[];
+	/** When true, a tall picture shows ONLY at full stack height; shorter landed runs fall back to the
+	 *  normal single icons. Absent ⇒ partial runs crop the picture (default). */
+	fullHeightOnly?: boolean;
 }
 
 export interface SymbolExportResult {
@@ -590,6 +593,7 @@ export async function exportEditorSymbols(
 						if (s.art.clipId) art.clipId = s.art.clipId;
 						return { name: s.name, height: s.height, art };
 					}),
+					...(doc.stackedPictures.fullHeightOnly ? { fullHeightOnly: true } : {}),
 				}
 			: undefined;
 

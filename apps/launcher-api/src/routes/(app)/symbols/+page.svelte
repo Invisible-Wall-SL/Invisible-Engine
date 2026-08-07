@@ -100,6 +100,8 @@
 	// OFF) that both shows the "Stacked pictures" config block below and gates whether the stacked config
 	// bakes. The tall art + height + which-symbols are authored in that block, NOT as a grid column.
 	const stackedOn = $derived(stackedPicturesEnabled(doc));
+	// The global "tall picture only at full height" flag (default off ⇒ partial runs crop the picture).
+	const stackedFullHeightOnly = $derived(doc.stackedPictures?.fullHeightOnly ?? false);
 	// The authored stacked symbols + a fast membership set for the multi-select.
 	const stackedList = $derived(stackedSymbols(doc));
 	const stackedSet = $derived(new Set(stackedList.map((s) => s.name)));
@@ -819,6 +821,14 @@
 	// switch: ON persists `{ enabled: true }`, OFF drops the flag while PRESERVING authored symbols.
 	function toggleStackedPictures(enabled: boolean): void {
 		doc = setStackedPicturesEnabled(doc, enabled);
+	}
+
+	// Global "full-height only" flag: sparse — persist `true`, drop the key when off. The panel only
+	// renders while stacked pictures are ON, so `doc.stackedPictures` exists, but guard defensively.
+	function toggleStackedFullHeightOnly(value: boolean): void {
+		if (!doc.stackedPictures) doc.stackedPictures = {};
+		if (value) doc.stackedPictures.fullHeightOnly = true;
+		else delete doc.stackedPictures.fullHeightOnly;
 	}
 
 	/** Seed a new stacked symbol's tall art from the symbol's effective binding (its win/static art), so
@@ -1651,6 +1661,21 @@
 
 					{#if stackedOn}
 						<div class="wl-config">
+							<div class="wl-group">
+								<label class="switch" class:on={stackedFullHeightOnly}>
+									<input
+										type="checkbox"
+										checked={stackedFullHeightOnly}
+										onchange={(e) => toggleStackedFullHeightOnly(e.currentTarget.checked)}
+									/>
+									<span class="track"><span class="knob"></span></span>
+									<span class="switch-label">Show the tall picture only at full height</span>
+								</label>
+								<p class="hint">
+									On: a landed stack shorter than the symbol's height shows the normal single symbols
+									instead of a cropped tall picture. Off: a partial stack shows the top of the picture.
+								</p>
+							</div>
 							<div class="wl-group">
 								<h3>Stacked symbols</h3>
 								{#if symbolNames.length === 0}

@@ -478,7 +478,9 @@ async function main() {
 					if (typeof art.clipId === 'string' && art.clipId) artOut.clipId = art.clipId;
 					out.push({ name: sym.name, height: sym.height, art: artOut });
 				}
-				return out.length ? { symbols: out } : undefined;
+				return out.length
+					? { symbols: out, ...(st.fullHeightOnly === true ? { fullHeightOnly: true } : {}) }
+					: undefined;
 			})();
 			symbols = {
 				map: s?.map && typeof s.map === 'object' ? s.map : {},

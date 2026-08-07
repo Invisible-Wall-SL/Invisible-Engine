@@ -219,6 +219,10 @@ type BakedBundle = {
 					clipId?: string;
 				};
 			}>;
+			/** When true, a tall picture shows ONLY on a full-height stack; a landed run shorter than the
+			 *  symbol's `height` renders the normal single icons instead. Absent → partial runs show the
+			 *  top N/height crop (the default behaviour). */
+			fullHeightOnly?: boolean;
 		};
 		/** Free-spin BOOK VFX (Invisible Symbols State Machine output): a two-layer effect drawn on
 		 * the book/special symbol during free spins — `background` behind the symbol art,
