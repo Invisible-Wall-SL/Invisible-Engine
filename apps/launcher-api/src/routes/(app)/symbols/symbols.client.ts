@@ -664,6 +664,7 @@ export function stackedPicturesEnabled(doc: SymbolsDoc): boolean {
 function withStackedPictures(doc: SymbolsDoc, config: StackedPicturesConfig): SymbolsDoc {
 	const next: StackedPicturesConfig = {};
 	if (config.enabled === true) next.enabled = true;
+	if (config.fullHeightOnly === true) next.fullHeightOnly = true;
 	const symbols = (config.symbols ?? []).filter((s) => s.name && s.art?.assetKey);
 	if (symbols.length) next.symbols = symbols;
 	const out = { ...doc };
@@ -681,6 +682,17 @@ export function setStackedPicturesEnabled(doc: SymbolsDoc, enabled: boolean): Sy
 	const config: StackedPicturesConfig = { ...(doc.stackedPictures ?? {}) };
 	if (enabled) config.enabled = true;
 	else delete config.enabled;
+	return withStackedPictures(doc, config);
+}
+
+/** Set the global "full-height only" flag, returning a NEW doc. Sparse (like the master toggle):
+ *  ON persists `fullHeightOnly: true`; OFF drops the flag (default ⇒ partial runs crop the picture).
+ *  Routes through {@link withStackedPictures} so the flag survives every rebuild — a direct mutation
+ *  would be stripped the next time any other stacked control edits the config. */
+export function setStackedFullHeightOnly(doc: SymbolsDoc, value: boolean): SymbolsDoc {
+	const config: StackedPicturesConfig = { ...(doc.stackedPictures ?? {}) };
+	if (value) config.fullHeightOnly = true;
+	else delete config.fullHeightOnly;
 	return withStackedPictures(doc, config);
 }
 
@@ -877,6 +889,7 @@ export function docSignature(doc: SymbolsDoc): string {
 	const stackedPictures = doc.stackedPictures
 		? {
 				enabled: doc.stackedPictures.enabled ?? null,
+				fullHeightOnly: doc.stackedPictures.fullHeightOnly ?? null,
 				symbols: doc.stackedPictures.symbols
 					? [...doc.stackedPictures.symbols]
 							.sort((a, b) => a.name.localeCompare(b.name))

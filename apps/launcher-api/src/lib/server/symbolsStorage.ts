@@ -388,6 +388,7 @@ function pruneStackedPictures(
 	if (!config) return undefined;
 	const next: NonNullable<SymbolsDoc['stackedPictures']> = {};
 	if (config.enabled === true) next.enabled = true;
+	if (config.fullHeightOnly === true) next.fullHeightOnly = true;
 	const symbols = (config.symbols ?? []).filter((s) => s.name && s.art?.assetKey);
 	if (symbols.length) next.symbols = symbols;
 	return Object.keys(next).length ? next : undefined;

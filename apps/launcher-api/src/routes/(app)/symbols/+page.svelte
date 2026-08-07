@@ -59,6 +59,7 @@
 		setWinLineLine,
 		setWinLineText,
 		setStackedPicturesEnabled,
+		setStackedFullHeightOnly,
 		stackedPicturesEnabled,
 		stackedSymbols,
 		addStackedSymbol,
@@ -842,12 +843,12 @@
 		doc = setStackedPicturesEnabled(doc, enabled);
 	}
 
-	// Global "full-height only" flag: sparse — persist `true`, drop the key when off. The panel only
-	// renders while stacked pictures are ON, so `doc.stackedPictures` exists, but guard defensively.
+	// Global "full-height only" flag: sparse — persist `true`, drop the key when off. Reassign `doc`
+	// via the setter (like every sibling stacked control) so the change is tracked by `docSignature`
+	// and survives `withStackedPictures`; an in-place mutation would leave Save disabled and get
+	// stripped by the next stacked edit.
 	function toggleStackedFullHeightOnly(value: boolean): void {
-		if (!doc.stackedPictures) doc.stackedPictures = {};
-		if (value) doc.stackedPictures.fullHeightOnly = true;
-		else delete doc.stackedPictures.fullHeightOnly;
+		doc = setStackedFullHeightOnly(doc, value);
 	}
 
 	/** Seed a new stacked symbol's tall art from the symbol's effective binding (its win/static art), so
@@ -1703,8 +1704,9 @@
 									<span class="switch-label">Show the tall picture only at full height</span>
 								</label>
 								<p class="hint">
-									On: a landed stack shorter than the symbol's height shows the normal single symbols
-									instead of a cropped tall picture. Off: a partial stack shows the top of the picture.
+									On: a landed stack shorter than the symbol's height shows the normal single
+									symbols instead of a cropped tall picture. Off: a partial stack shows the top of
+									the picture.
 								</p>
 							</div>
 							<div class="wl-group">
@@ -1809,11 +1811,14 @@
 											<input
 												type="checkbox"
 												checked={wlLine.useConfigColor ?? WL_DEFAULTS.useConfigColor}
-												onchange={(e) => patchWinLineLine({ useConfigColor: e.currentTarget.checked })}
+												onchange={(e) =>
+													patchWinLineLine({ useConfigColor: e.currentTarget.checked })}
 											/>
 											<span class="track"><span class="knob"></span></span>
 											<span class="switch-label"
-												>{(wlLine.useConfigColor ?? WL_DEFAULTS.useConfigColor) ? 'On' : 'Off'}</span
+												>{(wlLine.useConfigColor ?? WL_DEFAULTS.useConfigColor)
+													? 'On'
+													: 'Off'}</span
 											>
 										</label>
 										<span class="hint">
