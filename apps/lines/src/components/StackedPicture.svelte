@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Container, Sprite, Flipbook, SpineProvider, SpineTrack, Rectangle } from 'pixi-svelte';
-	import { resolveFlipbook } from 'engine-layout';
+	import { EDITOR_SPINE_LOAD_SCALE, resolveFlipbook } from 'engine-layout';
 
 	import { getContext } from '../game/context';
 	import { getSymbolInfo } from '../game/utils';
@@ -50,7 +50,20 @@
 		<!-- Dangling clip ⇒ the cell's primary frame, mirroring SymbolFlipbook's fallback. -->
 		<Sprite key={info.assetKey} anchor={0.5} width={boxW} height={boxH} />
 	{:else if info.animationName}
-		<SpineProvider key={info.assetKey} anchor={0.5} width={boxW} height={boxH}>
+		<!--
+			`loadScaleBase` cancels the spine LOAD SCALE the reader baked into the geometry but not into
+			`skeleton.data.width/height` — without it a sized spine renders at `box × its_load_scale`
+			(a symbol-loaded rig ⇒ 2× the box). The sprite/flipbook branches above size exactly, so the
+			spine must too: pinned to `EDITOR_SPINE_LOAD_SCALE`, the rig fills exactly `boxW × boxH`
+			regardless of the scale its bundle was read at. Mirrors the WinAnimation / FreeSpin surfaces.
+		-->
+		<SpineProvider
+			key={info.assetKey}
+			anchor={0.5}
+			width={boxW}
+			height={boxH}
+			loadScaleBase={EDITOR_SPINE_LOAD_SCALE}
+		>
 			<SpineTrack trackIndex={0} animationName={info.animationName} loop />
 		</SpineProvider>
 	{/if}
