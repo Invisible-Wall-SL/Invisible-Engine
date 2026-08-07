@@ -15,6 +15,7 @@
  * "Publish" is a DATA + MANIFEST operation: re-running it re-exports + re-registers,
  * never rebuilds. The generic runtime boots the project from the live fetch.
  */
+import { symbolsInPlay, type GameConfigDoc, type PaytableRow } from 'game-config';
 import { ENV } from './env';
 import { createGame, gameExists, renameGame, setGameProject, setGameUrl } from './games';
 import { UNASSIGNED_CLIENT } from './projectPaths';
@@ -82,12 +83,41 @@ function runtimeFor(_gameType: string): string {
 	return 'lines';
 }
 
+/** Flatten a symbol's `[{ '5': 20 }, { '3': 5 }]` paytable rows to an `{ occurs: multiplier }` map. */
+function paytableToOccursMap(rows: PaytableRow[]): Record<string, number> {
+	const map: Record<string, number> = {};
+	for (const row of rows) {
+		for (const [occurs, mult] of Object.entries(row)) {
+			if (typeof mult === 'number' && Number.isFinite(mult)) map[occurs] = mult;
+		}
+	}
+	return map;
+}
+
+/**
+ * The project's IN-PLAY wild, in the shape the mock wants (`{ paytable: occurs→multiplier }`), or
+ * `undefined`. Keyed off the SAME in-play gate as the paytable, roll and `/symbols`: a symbol counts
+ * only once it's ON THE STRIPS (`symbolsInPlay`) — a wild that merely sits in the dictionary with a
+ * paytable but is never dealt stays wild-less, which is why an authored-but-unused `W` doesn't pay.
+ * The lines facade maps the mock's `WILD` to the game symbol `W`, so the in-play wild is expected to
+ * be `W`.
+ */
+function projectWild(doc: GameConfigDoc): { paytable: Record<string, number> } | undefined {
+	const inPlay = new Set(symbolsInPlay(doc));
+	const entry = Object.entries(doc.symbols).find(
+		([name, sym]) => inPlay.has(name) && sym.special_properties?.includes('wild') && sym.paytable?.length,
+	);
+	const paytable = entry?.[1].paytable;
+	return paytable ? { paytable: paytableToOccursMap(paytable) } : undefined;
+}
+
 /**
  * Resolve a project's board grid from its authored Game Config, in the shape the test-server mock
- * wants (`{ reels, rows, paylines: rows[][] }`). Mirrors the test-server's own `linesGrid` derivation
- * so the mock deals the SAME dimensions + paylines the client draws. Lines protocol only; best-effort
- * (no authored doc / odd config ⇒ `undefined` ⇒ the mock keeps its shared default). `numRows` is the
- * per-reel array, so `rows` is its max (a stepped board is a rectangle tall enough to hold it).
+ * wants (`{ reels, rows, paylines: rows[][], wild? }`). Mirrors the test-server's own `linesGrid`
+ * derivation so the mock deals the SAME dimensions + paylines the client draws, plus the in-play wild
+ * so `W` can pay. Lines protocol only; best-effort (no authored doc / odd config ⇒ `undefined` ⇒ the
+ * mock keeps its shared default). `numRows` is the per-reel array, so `rows` is its max (a stepped
+ * board is a rectangle tall enough to hold it).
  */
 async function projectGrid(
 	protocol: MockProtocol,
@@ -96,21 +126,15 @@ async function projectGrid(
 ): Promise<TestServerGameEntry['grid']> {
 	if (protocol !== 'lines') return undefined;
 	try {
-		const cfg = (await loadGameConfigDoc(clientKey, projectKey)) as {
-			numReels?: unknown;
-			numRows?: unknown;
-			paylines?: unknown;
-		} | null;
-		if (!cfg) return undefined;
-		const reels = Math.max(1, Math.round(Number(cfg.numReels)));
-		const rowsList = Array.isArray(cfg.numRows) ? (cfg.numRows as number[]) : [3];
-		const rows = Math.max(1, Math.round(Math.max(...(rowsList.length ? rowsList : [3]))));
-		const paylines =
-			cfg.paylines && typeof cfg.paylines === 'object'
-				? (Object.values(cfg.paylines) as number[][])
-				: [];
+		const doc = await loadGameConfigDoc(clientKey, projectKey);
+		if (!doc) return undefined;
+		const reels = Math.max(1, Math.round(Number(doc.numReels)));
+		const rowsList = Array.isArray(doc.numRows) && doc.numRows.length ? doc.numRows : [3];
+		const rows = Math.max(1, Math.round(Math.max(...rowsList)));
+		const paylines = Object.values(doc.paylines ?? {});
 		if (!Number.isFinite(reels) || !paylines.length) return undefined;
-		return { reels, rows, paylines };
+		const wild = projectWild(doc);
+		return { reels, rows, paylines, ...(wild ? { wild } : {}) };
 	} catch {
 		return undefined;
 	}

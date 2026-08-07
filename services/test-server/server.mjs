@@ -157,7 +157,9 @@ const makeMock = (protocol, label, grid) =>
 		: createLinesMock({ label, ...(grid ?? linesGrid ?? {}) });
 
 /** Accept a manifest `grid` only when it is well-formed (reels + rows + numReels-wide paylines); any
- *  malformed entry ⇒ null ⇒ the mock keeps its shared default. Defensive: the manifest is external. */
+ *  malformed entry ⇒ null ⇒ the mock keeps its shared default. Defensive: the manifest is external.
+ *  A well-formed `wild` ({ paytable: occurs→multiplier }) is passed through so the mock deals + pays
+ *  the project's in-play wild; a malformed wild is simply dropped (the grid still stands). */
 const validGrid = (grid) => {
 	if (!grid || typeof grid !== 'object') return null;
 	const reels = Math.round(Number(grid.reels));
@@ -168,7 +170,13 @@ const validGrid = (grid) => {
 		rows > 0 &&
 		paylines.length > 0 &&
 		paylines.every((line) => Array.isArray(line) && line.length === reels);
-	return shaped ? { reels, rows, paylines } : null;
+	if (!shaped) return null;
+	const wildPay = grid.wild && typeof grid.wild === 'object' ? grid.wild.paytable : null;
+	const wild =
+		wildPay && typeof wildPay === 'object' && Object.keys(wildPay).length
+			? { paytable: wildPay }
+			: null;
+	return { reels, rows, paylines, ...(wild ? { wild } : {}) };
 };
 
 const streamToBuffer = async (stream) => {
