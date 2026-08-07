@@ -316,6 +316,11 @@ type ResolvedStacked = {
 	/** When true, a landed run shorter than the symbol's height shows the normal icons, not a cropped
 	 *  tall picture (authored global toggle). Default false ⇒ partial runs crop the picture. */
 	fullHeightOnly: boolean;
+	/** When true, a partial run pinned to the board's TOP or BOTTOM edge renders as a CUT-OFF tall
+	 *  picture (the visible slice of a symbol scrolled partly off-screen) REGARDLESS of `fullHeightOnly`
+	 *  — any run length, even 1. Independent authored toggle. Default false ⇒ edge partials follow
+	 *  `fullHeightOnly` like any other partial (byte-parity). See {@link docs/design/stacked-picture-mode.md}. */
+	edgeCutoffs: boolean;
 };
 const resolvedStacked = (): ResolvedStacked => {
 	const baked = bakedStackedConfig();
@@ -326,6 +331,7 @@ const resolvedStacked = (): ResolvedStacked => {
 			heightOf: (name) => byName.get(name)?.height,
 			artOf: (name) => byName.get(name)?.art,
 			fullHeightOnly: baked.fullHeightOnly === true,
+			edgeCutoffs: baked.edgeCutoffs === true,
 		};
 	}
 	return {
@@ -333,6 +339,7 @@ const resolvedStacked = (): ResolvedStacked => {
 		heightOf: (name) => STACKED_PICTURE.heights[name],
 		artOf: () => undefined,
 		fullHeightOnly: false,
+		edgeCutoffs: false,
 	};
 };
 
@@ -362,7 +369,7 @@ export const stackedScrollStrip = (strips: RawSymbol[][]): RawSymbol[][] => {
 const computeStackedRuns = (): StackedPictureRun[] => {
 	if (!stateGame.stackedPictureMode) return [];
 	const rows = boardDimensions().y;
-	const { symbols: stackedSet, heightOf, artOf, fullHeightOnly } = resolvedStacked();
+	const { symbols: stackedSet, heightOf, artOf, fullHeightOnly, edgeCutoffs } = resolvedStacked();
 	const { rowPitchLocal } = boardGeometry();
 	const runs: StackedPictureRun[] = [];
 	stateGame.board.forEach((reel, reelIndex) => {
@@ -426,31 +433,36 @@ const computeStackedRuns = (): StackedPictureRun[] => {
 			)
 				end += 1;
 			const visibleCells = end - idx + 1;
+			const isPartial = height !== undefined && visibleCells < height;
+			// Chunk-relative EDGE detection: each RESULT chunk's visible window is `[chunkStart+1,
+			// chunkStart+rows]`, so the verdict is identical while the result is parked mid-scroll and once
+			// settled (no roll↔settle snap). Filler blocks (not a result chunk) never count as edge-clipped.
+			const chunkStart = !scrolling ? 0 : idx < reelLen ? 0 : symbols.length - reelLen;
+			const touchesTop = settledRun && idx === chunkStart + 1;
+			const touchesBottom = settledRun && end === chunkStart + rows;
+			// `edgeCutoffs` (authored, independent of `fullHeightOnly`): a partial run pinned to a board
+			// edge reads as a tall symbol the reel window clipped — the visible slice of a picture that
+			// continues off-screen — so it renders a CUT-OFF picture (any run length, even N=1) and
+			// BYPASSES `fullHeightOnly`. Only meaningful for a settled result partial at an edge.
+			const edgeCutoff = edgeCutoffs && isPartial && (touchesTop || touchesBottom);
 			// `fullHeightOnly` (authored): a RESULT run shorter than the picture's height renders no tall
 			// picture — skip it so those cells fall out of `stackedCoverage` and show their normal single
-			// icons. Applies to result chunks (a landed partial), NOT scroll filler — filler blocks are
-			// always full-height (seeded), so they keep rolling. Default (flag off) ⇒ every run draws,
-			// cropped to top N/M, as before.
-			if (fullHeightOnly && settledRun && height !== undefined && visibleCells < height) {
+			// icons. An `edgeCutoff` is the authored exception (it shows the cut-off picture instead).
+			// Applies to result chunks only — filler blocks are always full-height (seeded), so they keep
+			// rolling. Default (both flags off) ⇒ every run draws cropped to top N/M, byte-identical.
+			if (fullHeightOnly && settledRun && isPartial && !edgeCutoff) {
 				idx = end + 1;
 				continue;
 			}
 			// A stacked symbol ALWAYS shows its picture — even a lone one (N=1) shows the top 1/height, and
 			// never its single icon. So every run of a stacked symbol draws (min run = 1).
 			const naturalCells = Math.max(visibleCells, height ?? visibleCells);
-			// A partial result run (N < M) pinned to a board EDGE reads as a tall picture the reel window
-			// clipped: at the TOP edge show the BOTTOM N/M (the top M−N cells continue off-screen above, "as
-			// if the reel spun a few more cells"); at the BOTTOM edge (or fully interior) keep the top N/M.
-			// Edges are chunk-relative — each RESULT chunk's visible window is `[chunkStart+1, chunkStart+rows]`
-			// — so the verdict is identical while the result is parked mid-scroll and once settled (no
-			// roll↔settle snap). Filler blocks are always full-height, so they never take this branch.
+			// Bottom-align a TOP-edge cut-off so the picture's BOTTOM N/M fills the run (the top M−N cells
+			// run off-screen above, "as if the reel spun a few more cells"); a BOTTOM-edge cut-off keeps the
+			// top N/M (its bottom runs off-screen below). Only when `edgeCutoffs` is on — otherwise every
+			// run top-aligns (`hiddenAbove = 0`), byte-identical to before the toggle existed.
 			let hiddenAbove = 0;
-			if (settledRun && naturalCells > visibleCells) {
-				const chunkStart = !scrolling ? 0 : idx < reelLen ? 0 : symbols.length - reelLen;
-				const touchesTop = idx === chunkStart + 1;
-				const touchesBottom = end === chunkStart + rows;
-				if (touchesTop && !touchesBottom) hiddenAbove = naturalCells - visibleCells;
-			}
+			if (edgeCutoff && touchesTop && !touchesBottom) hiddenAbove = naturalCells - visibleCells;
 			runs.push({
 				reel: reelIndex,
 				name,

@@ -223,6 +223,12 @@ type BakedBundle = {
 			 *  symbol's `height` renders the normal single icons instead. Absent → partial runs show the
 			 *  top N/height crop (the default behaviour). */
 			fullHeightOnly?: boolean;
+			/** When true, a partial stacked run pinned to the board's TOP or BOTTOM edge renders as a
+			 *  CUT-OFF tall picture (the visible slice of a symbol scrolled partly off-screen) — top edge
+			 *  shows the bottom N/height, bottom edge the top N/height — REGARDLESS of `fullHeightOnly`.
+			 *  Any run length qualifies (even 1). Absent → no edge cut-off; edge partials follow
+			 *  `fullHeightOnly` like any other partial. Independent of `fullHeightOnly`. */
+			edgeCutoffs?: boolean;
 		};
 		/** Free-spin BOOK VFX (Invisible Symbols State Machine output): a two-layer effect drawn on
 		 * the book/special symbol during free spins — `background` behind the symbol art,
