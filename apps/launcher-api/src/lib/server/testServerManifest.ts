@@ -154,8 +154,12 @@ export interface TestServerGameEntry {
 	 *  `numReels`/`numRows`/`paylines` instead of the shared `apps/lines` default — otherwise a project
 	 *  that authored e.g. 5 rows mismatches the client (rolls with 5, settles to fewer). Absent ⇒ the
 	 *  test server falls back to its shared default grid. Synced on publish. `paylines` are row-index
-	 *  arrays, one per reel (`Object.values(config.paylines)`). */
-	grid?: { reels: number; rows: number; paylines: number[][] };
+	 *  arrays, one per reel (`Object.values(config.paylines)`).
+	 *
+	 *  `wild` is present only when a wild symbol is IN PLAY (on the strips) with a paytable: the mock
+	 *  then deals + pays `WILD` (occurs→multiplier), which the lines facade maps to the game symbol
+	 *  `W`. Absent ⇒ the mock deals no wild. */
+	grid?: { reels: number; rows: number; paylines: number[][]; wild?: { paytable: Record<string, number> } };
 }
 
 export interface TestServerManifest {

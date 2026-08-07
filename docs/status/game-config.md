@@ -399,6 +399,18 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-08-07 — **Payline coverage-regeneration + per-project wild on the mock RGS.** Two follow-ups to
+  the per-project grid (#259): (a) the lines mock now regenerates a full-coverage payline set
+  (`standardPaylines`/`coversAllRows` in `scripts/mock-rgs-server.mjs`) when a game's authored lines
+  don't touch every row of its (resized) grid — fixes "nothing pays on the bottom row" on a board that
+  outgrew its 5×3 lines; (b) when a wild symbol is IN PLAY (on the strips) with a paytable, the mock
+  declares/deals/pays `WILD` with left-align substitution (facade maps `WILD → W`), so an in-play `W`
+  finally pays. Chain: `publishGame.projectGrid` adds `wild` (via `symbolsInPlay` + the symbol's
+  `special_properties`) to the manifest `grid`; `testServerManifest` carries `grid.wild`; the test
+  server's `validGrid` passes it through to the lines mock. Wild keys off the SAME in-play gate as the
+  paytable, the roll and `/symbols` — a dictionary-only paytable stays dead everywhere. No snapshot /
+  no in-play wild ⇒ committed default ⇒ Hot Fruits / Book of Borut byte-identical. Verified offline
+  (`node` fixture, 20 assertions: default parity, 5×5 coverage, wild-substitution math).
 - 2026-08-05 — **Phase 8: Paylines panel auto-loads the live server set; Reel-strips panel removed.**
   New `apps/launcher-api/src/lib/server/rgsConfig.ts` (`fetchServerPaylines`, best-effort, returns
   `null` on any failure) + `ENV.TEST_SERVER_URL`; `+page.server.ts` probes only when the project has a
