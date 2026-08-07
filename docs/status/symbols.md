@@ -84,6 +84,17 @@ Working on `main`:
   export/bake; the renderer gets the full path as `winLineShow.fullPoints`
   (`flowEffects#winLineFullPointsFor`, gated on the flag), fed by BOTH the coded `winInfo`
   handler and the post-win replay. ⏳ owner visual-verify.
+- **Use payline colour from config** (2026-08-07, default ON). `winLine.line.useConfigColor`
+  (sparse; absent ⇒ ON, only the OFF override persists — proven byte-parity offline over the
+  real `setWinLineLine`). ON keeps today's `coreColor = winColor ?? line.color` in
+  `WinLine.svelte` (config payline colour wins, swatch is fallback); OFF makes the Symbol-SM
+  swatch authoritative and ignores the config colour (`coreColor = line.color`, halo too).
+  The tool greys out the **Colour** swatch while the toggle is on. Rides `winLine.line`
+  verbatim through export/bake (`bake-editor-doc.mjs` embeds `line` whole);
+  `bakedWinLineConfig()` defaults it `true`. The published `stateGame.winLineColor` (for other
+  assets to tint themselves) is deliberately LEFT ungated — the toggle is about this line's own
+  drawn colour only. Engine change — needs a Borut submodule bump to reach the shipped remake.
+  ⏳ owner visual-verify.
 - **Winning SYMBOLS keep animating until the next spin** (2026-07-24, default ON). Doc-level
   `winCycle: { enabled?, delay?, showLine? }` (seconds, default `0.4`) authors the engine's
   `winSymbolCycle`: once a round's book is fully presented the game re-lights that spin's
@@ -161,6 +172,29 @@ Working on `main`:
   `resolveAnticipationSpineKey` (authored ?? coded, per-field fall-through), and the three components
   (`Anticipation`, `Anticipations`, `AnticipationCamera`) read through them. Un-authored ⇒
   `bakedAnticipation()` undefined ⇒ resolvers return the coded ramp verbatim.
+- **Authorable anticipation SOUNDS + escalating volume ramp** (2026-08-06, default OFF ⇒ loop
+  byte-parity). Adds three controls to the `/symbols` Reel anticipation panel: two GLOBAL dropdowns
+  **Activation sound** / **Loop sound** (`anticipation.activationSound` / `loopSound`, options from
+  `engine-flow-v2`'s shared `SOUND_EFFECT_NAMES` — the same list Flow/Editor use), and a per-tier
+  **Sting volume** slider (`TierFx.stingVolume`) beside the existing **Loop volume**. Full chain:
+  client `symbols.client.ts` (type + `pruneAnticipation` config-level allowlist for the two names;
+  `stingVolume` rides the generic per-tier filter; `codedTierFx`/`anticipationFieldValue`/`docSignature`
+  + two setters) → `.strict` Zod (`anticipationSchema.activationSound/loopSound`,
+  `anticipationTierFxSchema.stingVolume`, `pruneAnticipation`) → export passes `anticipation` VERBATIM
+  (no field enumeration touched) → `editor-scenes` baked shape (`activationSound?/loopSound?` typed
+  `SoundEffectName`, `AnticipationTierFxOverride.stingVolume?`) → engine resolvers
+  `resolveActivationSound()` / `resolveLoopSound()` (authored ?? coded `sfx_anticipation_start` /
+  `sfx_anticipation`) + `resolveTierFx().stingVolume`. `Anticipations.svelte` now fires the activation
+  STING (`soundOnce`, per-play volume = tier `stingVolume`) alongside the loop, both via the resolvers
+  instead of hardcoded names. **New per-play volume on the once-player:** `soundOnce` broadcast gained
+  optional `volume` threaded `Sound.svelte` → `createPlayOnce` (multiplies with master SFX via
+  `initSoundVolume`); a `soundOnce` without `volume` is byte-identical. ⚠️ **Behaviour note:** on this
+  branch the sting (`sfx_anticipation_start`) was in the audiosprite but NEVER broadcast — only the loop
+  played — so wiring it is a deliberate feature ADD; the LOOP stays byte-identical, the STING now plays
+  the coded name/ramp for un-authored projects. Offline round-trip: 14/14 over the REAL
+  `normalizeSymbolsDoc` + client setters/`codedTierFx` (esbuild-bundled) — authored `{X,Y,stingVolume,
+  soundVolume}` survives client+server; empty doc ⇒ no `anticipation`. Both `launcher-api` + `lines`
+  builds green. **Book of Borut needs an `engine` submodule bump** to receive it.
 - **Dynamic anticipation tiers = config big-win tiers** (2026-08-05, branch
   `engine/anticipation-dynamic-tiers`, default OFF ⇒ byte-parity). Replaced the HARDCODED
   big/mega/massive triple (engine `AnticipationTier` union, `tierForLevel`, `ANTICIPATION_TIER_FX`,
