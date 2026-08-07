@@ -382,6 +382,17 @@ const computeStackedRuns = (): StackedPictureRun[] => {
 		const isPad = (i: number): boolean =>
 			scrolling &&
 			(i === 0 || i === rows + 1 || i === symbols.length - reelLen || i === symbols.length - 1);
+		// A run STARTING inside a RESULT chunk — the leading target block `[0, reelLen)` or the trailing
+		// previous-result block `[len-reelLen, len)` — is the actual landed board, not scroll filler. Group
+		// it with the SETTLED rules (uncapped + honour `fullHeightOnly`) even while the array is scrolling,
+		// so the verdict for the visible result cells is identical on both sides of the settle↔roll
+		// boundary. Otherwise, the instant `preSpinPadding` doubles the array (settled result parked
+		// in-window, `scrolling` now true), the rolling rules re-judge that still-stationary result — a
+		// partial stack flips icons↔picture (`fullHeightOnly`), a run longer than `height` splits — and the
+		// grid SNAPS with no reel motion. The pad guards keep a run from crossing a chunk edge, so the
+		// start index alone classifies the whole run. When not scrolling the whole compact array IS result.
+		const inResultChunk = (i: number): boolean =>
+			!scrolling || i < reelLen || i >= symbols.length - reelLen;
 		let idx = first;
 		while (idx <= last) {
 			if (isPad(idx)) {
@@ -393,11 +404,13 @@ const computeStackedRuns = (): StackedPictureRun[] => {
 				idx += 1;
 				continue;
 			}
-			// While scrolling, cap a run at the symbol's height so each strip BLOCK renders as one M-tall
-			// picture (adjacent/duplicate blocks don't merge into a giant one). Settled runs are never
-			// capped — a partial result crops to top N/M below.
+			// Cap a FILLER run at the symbol's height so each seeded strip BLOCK renders as one M-tall
+			// picture (adjacent/duplicate blocks don't merge into a giant one). RESULT chunks (settled, and
+			// the settled-parked result blocks while scrolling) are never capped — a partial result crops to
+			// top N/M below.
 			const height = heightOf(name);
-			const maxRun = scrolling ? (height ?? Infinity) : Infinity;
+			const settledRun = inResultChunk(idx);
+			const maxRun = settledRun ? Infinity : (height ?? Infinity);
 			let end = idx;
 			while (
 				end + 1 <= cap &&
@@ -407,11 +420,12 @@ const computeStackedRuns = (): StackedPictureRun[] => {
 			)
 				end += 1;
 			const visibleCells = end - idx + 1;
-			// `fullHeightOnly` (authored): a SETTLED run shorter than the picture's height renders no tall
+			// `fullHeightOnly` (authored): a RESULT run shorter than the picture's height renders no tall
 			// picture — skip it so those cells fall out of `stackedCoverage` and show their normal single
-			// icons. Only settled (a landed partial); rolling blocks are always full-height (seeded), so
-			// they keep rolling. Default (flag off) ⇒ every run draws, cropped to top N/M, as before.
-			if (fullHeightOnly && !scrolling && height !== undefined && visibleCells < height) {
+			// icons. Applies to result chunks (a landed partial), NOT scroll filler — filler blocks are
+			// always full-height (seeded), so they keep rolling. Default (flag off) ⇒ every run draws,
+			// cropped to top N/M, as before.
+			if (fullHeightOnly && settledRun && height !== undefined && visibleCells < height) {
 				idx = end + 1;
 				continue;
 			}
