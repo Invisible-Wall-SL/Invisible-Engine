@@ -383,6 +383,25 @@
 	function removeSymbol(name: string) {
 		delete doc.symbols[name];
 	}
+	/** Put a symbol ON the reel strips (making it IN PLAY / dealable) or take it OFF — the click behind
+	 *  the in-play badge, so a symbol reaches the board without hand-editing raw JSON. Adds one cell to
+	 *  every reel of every game-type strip; removing strips out every cell of that name (never emptying
+	 *  a reel). The in-play gate reads the strips, so the badge flips the instant this runs. These are
+	 *  the COSMETIC strips (what's dealt / flickers past), not the math team's weighted hit-rate. */
+	function toggleInPlay(name: string) {
+		if (!doc.symbols[name]) return;
+		const types = Object.keys(doc.paddingReels);
+		if (inPlay.has(name)) {
+			for (const gt of types) {
+				doc.paddingReels[gt] = doc.paddingReels[gt].map((reel) => {
+					const kept = reel.filter((cell) => cell.name !== name);
+					return kept.length ? kept : reel; // a strip must always deal something
+				});
+			}
+		} else {
+			for (const gt of types) for (const reel of doc.paddingReels[gt]) reel.push({ name });
+		}
+	}
 	function setProperties(name: string, value: string) {
 		const props = value
 			.split(',')
@@ -1127,8 +1146,8 @@
 				<span class="badge in">in play</span>
 				badge means the symbol appears on a reel strip and so can actually reach the board; a
 				<span class="badge out">unused</span> symbol is defined here but dealt by no strip (a payout
-				no one can win). Paytable is <code>count:multiplier</code> pairs, e.g.
-				<code>5:20, 4:10, 3:5</code>.
+				no one can win). <strong>Click the badge</strong> to put a symbol on the reels or take it
+				off. Paytable is <code>count:multiplier</code> pairs, e.g. <code>5:20, 4:10, 3:5</code>.
 			</p>
 			<div class="grid-wrap">
 				<table class="grid">
@@ -1146,9 +1165,14 @@
 							<tr>
 								<th class="row-head">{name}</th>
 								<td class="center">
-									{#if inPlay.has(name)}<span class="badge in">in play</span>{:else}<span
-											class="badge out">unused</span
-										>{/if}
+									<button
+										type="button"
+										class="badge toggle {inPlay.has(name) ? 'in' : 'out'}"
+										title={inPlay.has(name)
+											? 'In play — click to take it off the reels'
+											: 'Unused — click to put it on the reels'}
+										onclick={() => toggleInPlay(name)}>{inPlay.has(name) ? 'in play' : 'unused'}</button
+									>
 								</td>
 								<td
 									><input
@@ -1613,6 +1637,18 @@
 	.badge.out {
 		background: #33231a;
 		color: #d39b6f;
+	}
+	/* Clickable in-play badge: toggles the symbol on/off the reel strips. */
+	button.badge.toggle {
+		border: none;
+		cursor: pointer;
+		font-family: inherit;
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+	button.badge.toggle:hover {
+		filter: brightness(1.3);
 	}
 	/* Bet modes: the resolved-menu preview + per-mode cards. */
 	.menu-preview {
