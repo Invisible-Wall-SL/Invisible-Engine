@@ -238,10 +238,13 @@
 		const isColumns = columnWin;
 		const half = cellHalf;
 		const coreWidth = SYMBOL_SIZE * line.width;
-		// The winning payline's authored colour overrides BOTH the core line and its glow halo, so the
-		// whole line reads as that colour; un-coloured wins keep the single Symbols-tool defaults.
-		const coreColor = winColor ?? line.color;
-		const haloColor = winColor ?? line.glowColor;
+		// The winning payline's authored colour (Invisible Game Config) overrides BOTH the core line
+		// and its glow halo, so the whole line reads as that colour — UNLESS the author turned off
+		// "Use payline colour from config", which makes the Symbols-tool swatch authoritative. When on
+		// (default) or the win has no config colour, the swatch is the fallback (byte-parity with before).
+		const configColor = line.useConfigColor ? winColor : undefined;
+		const coreColor = configColor ?? line.color;
+		const haloColor = configColor ?? line.glowColor;
 		// Stamp the current shape into the path: disconnected vertical bars for a column win, the
 		// progressive polyline otherwise. Called once per stroke so the halo + core layer up.
 		const trace = (graphics: DrawGraphics) =>

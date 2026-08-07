@@ -3,7 +3,7 @@
 
 	export type EmitterEventSound =
 		| { type: 'soundMusic'; name: MusicName }
-		| { type: 'soundOnce'; name: SoundEffectName; forcePlay?: boolean }
+		| { type: 'soundOnce'; name: SoundEffectName; forcePlay?: boolean; volume?: number }
 		| { type: 'soundLoop'; name: SoundEffectName }
 		| { type: 'soundStop'; name: SoundName }
 		| { type: 'soundFade'; name: SoundName; from: number; to: number; duration: number }
@@ -52,7 +52,8 @@
 		// game
 		soundMusic: ({ name }) => sound.players.music.play({ name }),
 		soundLoop: ({ name }) => sound.players.loop.play({ name }),
-		soundOnce: ({ name, forcePlay }) => sound.players.once.play({ name, forcePlay }),
+		soundOnce: ({ name, forcePlay, volume }) =>
+			sound.players.once.play({ name, forcePlay, volume }),
 		soundStop: ({ name }) => sound.stop({ name }),
 		soundFade: async ({ name, duration, from, to }) => await sound.fade({ name, duration, from, to }), // prettier-ignore
 	});

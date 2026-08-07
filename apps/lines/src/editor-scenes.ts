@@ -24,6 +24,8 @@ import {
 } from 'engine-layout';
 import { stateI18nDerived, stateUrlDerived } from 'state-shared';
 import { setAuthoredMainSizesMap } from 'utils-layout';
+
+import type { SoundEffectName } from './game/sound';
 import type { MessagesMap } from 'utils-shared/i18n';
 
 import bakedBundleJson from './baked-editor-bundle.json';
@@ -71,7 +73,10 @@ export type AnticipationTierFxOverride = {
 	overlayScale?: number;
 	overlayAlpha?: number;
 	overlayTint?: string;
+	/** Anticipation LOOP target volume (0..1). */
 	soundVolume?: number;
+	/** Activation STING per-play volume (0..1) — the one-shot arm cue, escalating alongside the loop. */
+	stingVolume?: number;
 };
 
 /**
@@ -235,6 +240,12 @@ type BakedBundle = {
 		 * `overlayTint` is a `#rrggbb` hex; the reader converts it to `0xRRGGBB`. */
 		anticipation?: {
 			spineKey?: string;
+			/** Authored activation-STING / LOOP sound names (Invisible Symbols State Machine). Global,
+			 *  not per-tier — one sting + one loop for the whole mode. Absent ⇒ the coded
+			 *  `sfx_anticipation_start` / `sfx_anticipation` (`resolveActivationSound`/`resolveLoopSound`),
+			 *  so an un-authored project is byte-identical. */
+			activationSound?: SoundEffectName;
+			loopSound?: SoundEffectName;
 			/** Per-tier FX overrides keyed by the config big-win tier's ALIAS (dynamic — one entry per
 			 *  configured big tier, `activeBigTiers`), no longer a fixed big/mega/massive triple. */
 			tiers?: Record<string, AnticipationTierFxOverride>;
@@ -273,6 +284,7 @@ type BakedBundle = {
 				speed?: number;
 				fullPayline?: boolean;
 				fullPaylineColor?: string;
+				useConfigColor?: boolean;
 			};
 			text?: { font?: string; size?: number; color?: string };
 		};
@@ -752,6 +764,9 @@ export type ResolvedWinLine = {
 		fullPayline: boolean;
 		/** Colour of that full-payline underlay. */
 		fullPaylineColor: string;
+		/** Draw the line in the config's winning-payline colour (when it has one), falling back to
+		 * `color`. Default ON (config wins). OFF makes `color` authoritative and ignores config. */
+		useConfigColor: boolean;
 	};
 	text: { font: string; size: number; color: string };
 };
@@ -774,6 +789,7 @@ export function bakedWinLineConfig(): ResolvedWinLine {
 			speed: w?.line?.speed ?? 1,
 			fullPayline: w?.line?.fullPayline ?? false,
 			fullPaylineColor: w?.line?.fullPaylineColor ?? '#4a90d9',
+			useConfigColor: w?.line?.useConfigColor ?? true,
 		},
 		text: {
 			font: w?.text?.font ?? 'gold',

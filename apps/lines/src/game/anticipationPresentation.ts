@@ -2,6 +2,7 @@ import type { AnticipationTier } from 'utils-slots';
 
 import { bakedAnticipation } from '../editor-scenes';
 import { activeBigTiers } from './gameConfig';
+import type { SoundEffectName } from './sound';
 import { getSymbolX, stateGame, stateGameDerived } from './stateGame.svelte';
 
 /**
@@ -22,15 +23,32 @@ export type AnticipationTierFx = {
 	overlayAlpha: number;
 	/** MULTIPLY tint on the overlay spine (`0xRRGGBB`) — hotter as the tier climbs. */
 	overlayTint: number;
-	/** `sfx_anticipation` loop target volume (0..1). */
+	/** Anticipation LOOP target volume (0..1) — the `sfx_anticipation` (or authored `loopSound`) fade-in
+	 *  target while this tier is the active max. */
 	soundVolume: number;
+	/** Activation STING volume (0..1) — the per-play volume of the one-shot `sfx_anticipation_start` (or
+	 *  authored `activationSound`) fired when a reel arms this tier. Its own escalation, alongside the
+	 *  loop's `soundVolume`. */
+	stingVolume: number;
 };
 
 /** The coded FX RAMP endpoints — the low (first / smallest big tier) and high (last / largest big
  *  tier) ends of each escalating field. {@link codedTierFx} interpolates across however many big tiers
  *  the config has, so the escalation stays generic (big → … → max) instead of a fixed triple. */
-const RAMP_LOW = { zoom: 1.1, overlayScale: 1, overlayAlpha: 0.85, soundVolume: 0.7 } as const;
-const RAMP_HIGH = { zoom: 1.32, overlayScale: 1.24, overlayAlpha: 1, soundVolume: 1 } as const;
+const RAMP_LOW = {
+	zoom: 1.1,
+	overlayScale: 1,
+	overlayAlpha: 0.85,
+	soundVolume: 0.7,
+	stingVolume: 0.7,
+} as const;
+const RAMP_HIGH = {
+	zoom: 1.32,
+	overlayScale: 1.24,
+	overlayAlpha: 1,
+	soundVolume: 1,
+	stingVolume: 1,
+} as const;
 /** Overlay tint ramps white (cool, lowest tier) → hot orange (highest tier), lerped per channel. */
 const TINT_LOW = 0xffffff;
 const TINT_HIGH = 0xff5a3c;
@@ -61,6 +79,7 @@ export const codedTierFx = (rank: number, count: number): AnticipationTierFx => 
 		overlayAlpha: lerp(RAMP_LOW.overlayAlpha, RAMP_HIGH.overlayAlpha, t),
 		overlayTint: lerpTint(t),
 		soundVolume: lerp(RAMP_LOW.soundVolume, RAMP_HIGH.soundVolume, t),
+		stingVolume: lerp(RAMP_LOW.stingVolume, RAMP_HIGH.stingVolume, t),
 	};
 };
 
@@ -68,6 +87,13 @@ export const codedTierFx = (rank: number, count: number): AnticipationTierFx => 
  *  it for an R2 spine bundle via `anticipation.spineKey`; the engine still owns the intro→loop→out
  *  chaining, so a swapped rig must expose those animation names. */
 export const DEFAULT_ANTICIPATION_SPINE_KEY = 'anticipation';
+
+/** The coded default activation-STING and LOOP sound names — the audiosprite regions the tease has
+ *  always used. The author can swap either for another project sound via `anticipation.activationSound`
+ *  / `anticipation.loopSound`; an unset field resolves back to these, so an un-authored project is
+ *  byte-identical. */
+export const DEFAULT_ANTICIPATION_ACTIVATION_SOUND: SoundEffectName = 'sfx_anticipation_start';
+export const DEFAULT_ANTICIPATION_LOOP_SOUND: SoundEffectName = 'sfx_anticipation';
 
 /** `#rrggbb` → `0xRRGGBB`, or undefined for anything that isn't a 6-digit hex (so a malformed authored
  *  tint falls back to the coded number rather than tinting black). */
@@ -99,6 +125,7 @@ export const resolveTierFx = (tier: AnticipationTier | null): AnticipationTierFx
 		overlayAlpha: authored.overlayAlpha ?? coded.overlayAlpha,
 		overlayTint: tint ?? coded.overlayTint,
 		soundVolume: authored.soundVolume ?? coded.soundVolume,
+		stingVolume: authored.stingVolume ?? coded.stingVolume,
 	};
 };
 
@@ -107,6 +134,19 @@ export const resolveTierFx = (tier: AnticipationTier | null): AnticipationTierFx
  *  the overlay component reads this rather than hardcoding `'anticipation'`. */
 export const resolveAnticipationSpineKey = (): string =>
 	bakedAnticipation()?.spineKey || DEFAULT_ANTICIPATION_SPINE_KEY;
+
+/** The activation-STING sound name = the authored `anticipation.activationSound` ?? the coded
+ *  {@link DEFAULT_ANTICIPATION_ACTIVATION_SOUND}. Sound choke point (alongside {@link resolveLoopSound}):
+ *  `Anticipations.svelte` reads this rather than hardcoding the name. A name absent from the game's
+ *  audiosprite is declined silently by howler (inaudible), so an author-typo never errors. */
+export const resolveActivationSound = (): SoundEffectName =>
+	bakedAnticipation()?.activationSound ?? DEFAULT_ANTICIPATION_ACTIVATION_SOUND;
+
+/** The anticipation LOOP sound name = the authored `anticipation.loopSound` ?? the coded
+ *  {@link DEFAULT_ANTICIPATION_LOOP_SOUND}. Read by `Anticipations.svelte` for the loop start / fade /
+ *  stop, so a swapped loop travels through all three. */
+export const resolveLoopSound = (): SoundEffectName =>
+	bakedAnticipation()?.loopSound ?? DEFAULT_ANTICIPATION_LOOP_SOUND;
 
 /**
  * Reels currently ARMED (`anticipationLevel > 0`). Kept through the reel settle (the level clears only at

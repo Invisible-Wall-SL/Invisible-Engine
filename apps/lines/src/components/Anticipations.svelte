@@ -14,6 +14,8 @@
 		boardColumnHeight,
 		boardCenterYWorld,
 		resolveTierFx,
+		resolveActivationSound,
+		resolveLoopSound,
 	} from '../game/anticipationPresentation';
 	import Anticipation from './Anticipation.svelte';
 
@@ -41,29 +43,34 @@
 	);
 </script>
 
-<!-- SFX — a one-shot activation STING the instant anticipation starts, then the registered
-	 `sfx_anticipation` loop underneath it with the recovered fade-in / fade-out. Both are mounted only
-	 while a reel is actively anticipating. The fade-in target is the current max tier's volume, so a
-	 mega/massive tease is louder than a plain big one (a per-tier mid-hold ramp is a Phase-5 seam). -->
+<!-- SFX — a one-shot activation STING at arm, then the `sfx_anticipation` LOOP with the recovered
+	 fade-in / fade-out, mounted only while a reel is actively anticipating. Both names resolve through
+	 the anticipation choke points (authored `activationSound`/`loopSound` ?? the coded defaults). The
+	 fade-in target is the current max tier's LOOP volume and the sting plays at that tier's STING volume,
+	 so a mega/massive tease is louder than a plain big one (the escalating volume ramp). -->
 {#if anyActive}
 	<OnMount
 		onmount={() => {
-			const volume = resolveTierFx(activeMaxTier()).soundVolume;
-			// The moment the tease activates: fire the mapped one-shot `sfx_anticipation_start` sting
-			// (previously declared but never triggered) so the activation has a distinct hit, then start
-			// the looping bed. Byte-parity where the game's audio sprite lacks either region.
-			context.eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_anticipation_start' });
-			context.eventEmitter.broadcast({ type: 'soundLoop', name: 'sfx_anticipation' });
+			const fx = resolveTierFx(activeMaxTier());
+			const loopName = resolveLoopSound();
+			// The activation sting — one-shot, at the tier's sting volume (per-play, relative to the
+			// master SFX volume). A missing/unknown sprite is declined silently by howler.
+			context.eventEmitter.broadcast({
+				type: 'soundOnce',
+				name: resolveActivationSound(),
+				volume: fx.stingVolume,
+			});
+			context.eventEmitter.broadcast({ type: 'soundLoop', name: loopName });
 			context.eventEmitter.broadcast({
 				type: 'soundFade',
-				name: 'sfx_anticipation',
+				name: loopName,
 				from: 0,
-				to: volume,
+				to: fx.soundVolume,
 				duration: SECOND,
 			});
 
 			return () => {
-				context.eventEmitter.broadcast({ type: 'soundStop', name: 'sfx_anticipation' });
+				context.eventEmitter.broadcast({ type: 'soundStop', name: loopName });
 			};
 		}}
 	/>

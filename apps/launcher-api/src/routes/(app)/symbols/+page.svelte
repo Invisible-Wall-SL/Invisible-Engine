@@ -6,6 +6,7 @@
 		parseScopedFrameRef,
 		scopedFrameRef,
 	} from 'engine-layout';
+	import { SOUND_EFFECT_NAMES } from 'engine-flow-v2';
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
@@ -39,6 +40,8 @@
 		effectiveHighlight,
 		saveSymbolsDoc,
 		SymbolsConflictError,
+		setAnticipationActivationSound,
+		setAnticipationLoopSound,
 		setAnticipationSpineKey,
 		setAnticipationTierFx,
 		setBoardGlow,
@@ -781,6 +784,7 @@
 		speed: 1,
 		fullPayline: false,
 		fullPaylineColor: '#4a90d9',
+		useConfigColor: true,
 		font: 'gold',
 		size: 0.5,
 		textColor: '#ffffff',
@@ -915,6 +919,14 @@
 
 	function setAnticipationSpine(key: string): void {
 		doc = setAnticipationSpineKey(doc, key || undefined);
+	}
+
+	function setAnticipationActivation(name: string): void {
+		doc = setAnticipationActivationSound(doc, name || undefined);
+	}
+
+	function setAnticipationLoop(name: string): void {
+		doc = setAnticipationLoopSound(doc, name || undefined);
 	}
 
 	function resetAnticipation(): void {
@@ -1732,13 +1744,42 @@
 							<div class="wl-group">
 								<h3>Line</h3>
 								<div class="wl-fields">
-									<label class="field">
+									<div class="field wl-span">
+										<span class="label">Use payline colour from config</span>
+										<label
+											class="switch sm"
+											class:on={wlLine.useConfigColor ?? WL_DEFAULTS.useConfigColor}
+										>
+											<input
+												type="checkbox"
+												checked={wlLine.useConfigColor ?? WL_DEFAULTS.useConfigColor}
+												onchange={(e) => patchWinLineLine({ useConfigColor: e.currentTarget.checked })}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label"
+												>{(wlLine.useConfigColor ?? WL_DEFAULTS.useConfigColor) ? 'On' : 'Off'}</span
+											>
+										</label>
+										<span class="hint">
+											When on (default), each winning line draws in that payline's colour from the
+											Invisible Game Config, falling back to the swatch below. Turn off to make the
+											swatch authoritative and ignore the config colour.
+										</span>
+									</div>
+									<label
+										class="field"
+										class:disabled={wlLine.useConfigColor ?? WL_DEFAULTS.useConfigColor}
+									>
 										<span class="label">Colour</span>
 										<input
 											type="color"
+											disabled={wlLine.useConfigColor ?? WL_DEFAULTS.useConfigColor}
 											value={wlLine.color ?? WL_DEFAULTS.color}
 											oninput={(e) => patchWinLineLine({ color: e.currentTarget.value })}
 										/>
+										{#if wlLine.useConfigColor ?? WL_DEFAULTS.useConfigColor}
+											<span class="hint">Overridden by the config payline colour.</span>
+										{/if}
 									</label>
 									<label class="field">
 										<span class="label"
@@ -2014,11 +2055,12 @@
 							<h2>Reel anticipation</h2>
 							<p class="wl-sub">
 								The escalating tease the game plays while a big win is still reachable on the reels
-								yet to stop. There's one column per configured big-win tier — style each tier's
-								intensity (the camera zoom, the overlay spine's scale / opacity / tint, and the loop
-								volume), climbing as the reachable win crosses each tier. The mode itself is turned
-								on and off from Flow; this only styles it. Leave a field at its default to keep the
-								game's coded value.
+								yet to stop. Pick the activation STING and the sustained LOOP sounds once for the
+								whole mode; then, per configured big-win tier, style the intensity (the camera zoom,
+								the overlay spine's scale / opacity / tint, and the loop + sting volumes), climbing
+								as the reachable win crosses each tier. The mode itself is turned on and off from
+								Flow; this only styles it. Leave a field at its default to keep the game's coded
+								value.
 							</p>
 						</div>
 						{#if anticipationOverridden}
@@ -2049,6 +2091,42 @@
 									<code>anticipation</code> spine; a swapped bundle must expose the
 									<code>anticipation_intro / _loop / _out</code> animations (the game still owns the
 									intro → loop → out chaining).
+								</span>
+							</div>
+
+							<div class="field">
+								<span class="label">Activation sound</span>
+								<select
+									value={doc.anticipation?.activationSound ?? ''}
+									onchange={(e) => setAnticipationActivation(e.currentTarget.value)}
+								>
+									<option value="">Default (coded sfx_anticipation_start)</option>
+									{#each SOUND_EFFECT_NAMES as name (name)}
+										<option value={name}>{name}</option>
+									{/each}
+								</select>
+								<span class="wl-note">
+									The one-shot STING fired the moment a reel arms the tease. Its volume escalates
+									per tier below (Sting volume). Leave on Default to keep the coded
+									<code>sfx_anticipation_start</code>.
+								</span>
+							</div>
+
+							<div class="field">
+								<span class="label">Loop sound</span>
+								<select
+									value={doc.anticipation?.loopSound ?? ''}
+									onchange={(e) => setAnticipationLoop(e.currentTarget.value)}
+								>
+									<option value="">Default (coded sfx_anticipation)</option>
+									{#each SOUND_EFFECT_NAMES as name (name)}
+										<option value={name}>{name}</option>
+									{/each}
+								</select>
+								<span class="wl-note">
+									The sustained LOOP that fades in while a reel is still anticipating. Its target
+									volume escalates per tier below (Loop volume). Leave on Default to keep the coded
+									<code>sfx_anticipation</code>.
 								</span>
 							</div>
 
@@ -2184,6 +2262,34 @@
 													oninput={(e) =>
 														patchAnticipationTier(tier.alias, {
 															soundVolume: Number(e.currentTarget.value),
+														})}
+												/>
+											</label>
+											<label class="field">
+												<span class="label">
+													Sting volume {anticipationFieldValue(
+														doc,
+														tier.alias,
+														rank,
+														count,
+														'stingVolume',
+													).toFixed(2)}
+												</span>
+												<input
+													type="range"
+													min="0"
+													max="1"
+													step="0.05"
+													value={anticipationFieldValue(
+														doc,
+														tier.alias,
+														rank,
+														count,
+														'stingVolume',
+													)}
+													oninput={(e) =>
+														patchAnticipationTier(tier.alias, {
+															stingVolume: Number(e.currentTarget.value),
 														})}
 												/>
 											</label>
@@ -3221,6 +3327,11 @@
 	}
 	.wl-fields .field.disabled {
 		opacity: 0.4;
+	}
+	.wl-fields .field.wl-span {
+		flex: 1 1 100%;
+		min-width: 0;
+		max-width: none;
 	}
 	.wl-fields input[type='color'] {
 		width: 100%;
