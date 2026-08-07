@@ -307,6 +307,9 @@ type ResolvedStacked = {
 	symbols: Set<string>;
 	heightOf: (name: string) => number | undefined;
 	artOf: (name: string) => StackedArt | undefined;
+	/** When true, a landed run shorter than the symbol's height shows the normal icons, not a cropped
+	 *  tall picture (authored global toggle). Default false ⇒ partial runs crop the picture. */
+	fullHeightOnly: boolean;
 };
 const resolvedStacked = (): ResolvedStacked => {
 	const baked = bakedStackedConfig();
@@ -316,12 +319,14 @@ const resolvedStacked = (): ResolvedStacked => {
 			symbols: new Set(byName.keys()),
 			heightOf: (name) => byName.get(name)?.height,
 			artOf: (name) => byName.get(name)?.art,
+			fullHeightOnly: baked.fullHeightOnly === true,
 		};
 	}
 	return {
 		symbols: new Set(STACKED_PICTURE.symbols),
 		heightOf: (name) => STACKED_PICTURE.heights[name],
 		artOf: () => undefined,
+		fullHeightOnly: false,
 	};
 };
 
@@ -351,7 +356,7 @@ export const stackedScrollStrip = (strips: RawSymbol[][]): RawSymbol[][] => {
 const computeStackedRuns = (): StackedPictureRun[] => {
 	if (!stateGame.stackedPictureMode) return [];
 	const rows = boardDimensions().y;
-	const { symbols: stackedSet, heightOf, artOf } = resolvedStacked();
+	const { symbols: stackedSet, heightOf, artOf, fullHeightOnly } = resolvedStacked();
 	const { rowPitchLocal } = boardGeometry();
 	const runs: StackedPictureRun[] = [];
 	stateGame.board.forEach((reel, reelIndex) => {
@@ -402,6 +407,14 @@ const computeStackedRuns = (): StackedPictureRun[] => {
 			)
 				end += 1;
 			const visibleCells = end - idx + 1;
+			// `fullHeightOnly` (authored): a SETTLED run shorter than the picture's height renders no tall
+			// picture — skip it so those cells fall out of `stackedCoverage` and show their normal single
+			// icons. Only settled (a landed partial); rolling blocks are always full-height (seeded), so
+			// they keep rolling. Default (flag off) ⇒ every run draws, cropped to top N/M, as before.
+			if (fullHeightOnly && !scrolling && height !== undefined && visibleCells < height) {
+				idx = end + 1;
+				continue;
+			}
 			// A stacked symbol ALWAYS shows its picture — even a lone one (N=1) shows the top 1/height, and
 			// never its single icon. So every run of a stacked symbol draws (min run = 1).
 			const naturalCells = Math.max(visibleCells, height ?? visibleCells);

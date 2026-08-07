@@ -197,6 +197,10 @@ export interface StackedSymbol {
  *  `stackedPicturesSchema`. */
 export interface StackedPicturesConfig {
 	enabled?: boolean;
+	/** When true, a tall picture shows ONLY at full stack height; a landed run shorter than the
+	 *  symbol's authored height falls back to the normal single icons. Absent/false ⇒ a partial run
+	 *  shows the top N/M crop (default). Mirrors the server `stackedPicturesSchema`. */
+	fullHeightOnly?: boolean;
 	symbols?: StackedSymbol[];
 }
 

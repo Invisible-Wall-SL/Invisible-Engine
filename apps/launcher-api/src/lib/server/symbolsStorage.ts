@@ -201,6 +201,10 @@ const stackedSymbolSchema = z
 const stackedPicturesSchema = z
 	.object({
 		enabled: z.boolean().optional(),
+		/** When true, a tall picture shows ONLY on a full-height stack; a landed run shorter than the
+		 *  symbol's authored height falls back to the normal single icons. Absent/false ⇒ a partial run
+		 *  shows the top N/M crop of the picture (default, byte-identical to before). */
+		fullHeightOnly: z.boolean().optional(),
 		symbols: z.array(stackedSymbolSchema).optional(),
 	})
 	.strict();
