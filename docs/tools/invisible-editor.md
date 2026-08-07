@@ -88,6 +88,18 @@ Bottom to top, the game draws: background screens → the coded background →
 **Behind the reels** screens → the reel board → the Screens list → **Always on
 top** screens → engine gates.
 
+### Zoom with anticipation
+
+A game-space screen's Properties also carries a **Zoom with anticipation** tick.
+Leave it off (the default) and the screen is static. Turn it on and the screen
+**zooms and pans in lockstep with the reels** during a reel-anticipation tease —
+it scales toward the same reel centre as the board, one coherent camera move
+rather than an independent zoom. Use it for a "base game top / bottom" layer you
+want to travel with the reels as the anticipation escalates. It only applies to
+game-space screens (they share the board's coordinate space), and it does nothing
+until reel-anticipation is authored on and firing, so a ticked screen still
+renders unchanged the rest of the time.
+
 To start from something:
 
 - **＋ Load scenes…** (the dropdown above the list) offers **New game from

@@ -118,6 +118,7 @@
 		buyFeatureSceneId,
 		buyConfirmSceneId,
 		formatWinText,
+		registerSceneCameraTransform,
 	} from 'engine-layout';
 	import type { Scene } from 'engine-layout';
 
@@ -199,6 +200,10 @@
 	import Board from './Board.svelte';
 	import Anticipations from './Anticipations.svelte';
 	import AnticipationCamera from './AnticipationCamera.svelte';
+	import {
+		anticipationCameraTransform,
+		updateAnticipationCameraTarget,
+	} from '../game/anticipationCamera.svelte';
 	import WinLine from './WinLine.svelte';
 	import Win from './Win.svelte';
 	import WinGate from './WinGate.svelte';
@@ -318,6 +323,15 @@
 		if (!boot) return;
 		boot.progress(stateApp.loadingProgress);
 		if (stateApp.loaded) boot.done();
+	});
+
+	// Drive the SHARED reel-anticipation camera (`game/anticipationCamera`). Kept here (not in
+	// `AnticipationCamera.svelte`) so the transform tracks the armed reels regardless of whether the
+	// reel camera is mounted — an opted-in screen zooms whenever the board would. The driver reads
+	// the armed reels / tier reactively and eases the tween to identity when nothing is anticipating,
+	// so an un-armed board is byte-identical to today (parity).
+	$effect(() => {
+		updateAnticipationCameraTarget();
 	});
 
 	// `HudTicker`/`HudCaption`/`HudValue` are the three coded parts the `hudReadout`
@@ -715,6 +729,12 @@
 	// bet mode, fed from the active `stateMeta.betModeMeta`; `select` → pick mode + `buyBonusConfirm`).
 	// The `<BuyFeatureScreen>` takeover (mounted below) renders it; the HTML `ModalBuyBonus` is gone.
 	registerBuyFeature();
+	// Reel-anticipation camera bridge (`docs/design/reel-anticipation.md`): publish THIS game's
+	// shared camera transform to engine-layout, so an opted-in screen (`Scene.zoomWithAnticipation`)
+	// zooms in lockstep with the reel camera toward the SAME focal point (one coherent move). The
+	// source is identity while nothing is armed ⇒ an opted-in screen renders byte-identically until
+	// an anticipation fires; a screen without the tick adds no wrapper at all (parity).
+	registerSceneCameraTransform(anticipationCameraTransform);
 
 	const fallbackBasegame = fallbackEditorScenes.scenes.find((scene) => scene.id === 'basegame')!;
 	const fallbackOverlays = fallbackEditorScenes.scenes.find(

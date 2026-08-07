@@ -956,6 +956,9 @@
 		if (value === 'game') delete sc.space;
 		else sc.space = value as NonNullable<Scene['space']>;
 		if (sc.space !== 'standard') delete sc.align;
+		// Only `game`-space screens ride the anticipation camera; leaving `game` space would strand an
+		// unreachable `zoomWithAnticipation: true` (its checkbox is gated to game space), so clear it.
+		if (sc.space) delete sc.zoomWithAnticipation;
 		scenes = [...scenes];
 		markDirty();
 	}
@@ -1004,6 +1007,19 @@
 			sc.behindReels = true;
 			delete sc.alwaysOnTop;
 		} else delete sc.behindReels;
+		scenes = [...scenes];
+		markDirty();
+	}
+
+	/** Make the active screen ZOOM + PAN in lockstep with the reel-anticipation camera (engine
+	 * `Scene.zoomWithAnticipation`). For a `game`-space "base game top / bottom" screen that should
+	 * ride the anticipation zoom toward the reel centre. No-op in-game unless anticipation is on +
+	 * the screen is `game` space. Sparse: cleared rather than stored false. */
+	function setSceneZoomWithAnticipation(value: boolean): void {
+		const sc = scenes[activeSceneIdx];
+		if (!sc) return;
+		if (value) sc.zoomWithAnticipation = true;
+		else delete sc.zoomWithAnticipation;
 		scenes = [...scenes];
 		markDirty();
 	}
@@ -2865,6 +2881,24 @@
 								: 'above the reels — tick to move it under the board'}
 						</span>
 					</label>
+					{#if !activeScene.space || activeScene.space === 'game'}
+						<label
+							class="ontop-field"
+							title="Zoom this screen together with the reels during an anticipation. When reel-anticipation fires, the screen scales + pans toward the SAME reel centre as the board, in lockstep — for a 'base game top / bottom' layer that should ride the zoom. Off by default and identity when nothing is anticipating, so the screen renders unchanged until a tease fires. Only applies to game-space screens."
+						>
+							<input
+								type="checkbox"
+								checked={activeScene.zoomWithAnticipation === true}
+								onchange={(e) => setSceneZoomWithAnticipation(e.currentTarget.checked)}
+							/>
+							<span>Zoom with anticipation</span>
+							<span class="ontop-note">
+								{activeScene.zoomWithAnticipation
+									? 'zooms toward the reel centre with the board'
+									: 'static — tick to ride the anticipation zoom'}
+							</span>
+						</label>
+					{/if}
 					{#if activeScene.space === 'standard'}
 						<div class="space-aligns">
 							<label class="space-field">

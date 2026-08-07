@@ -48,6 +48,7 @@ export * from './registerComponentActions';
 export * from './registerRepeaterSources';
 export * from './registerInstanceValues';
 export * from './registerComponentVisibility';
+export * from './registerSceneCameraTransform';
 export * from './registerFlowComplete';
 export * from './registerFlowValueSource';
 export * from './registerFlowPress';

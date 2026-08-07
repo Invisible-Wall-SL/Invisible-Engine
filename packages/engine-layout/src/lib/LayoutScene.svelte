@@ -13,6 +13,7 @@
 	import LayoutNodeView from './LayoutNodeView.svelte';
 	import type { EffectNode } from './types';
 	import { getComponentVisibility, type BoolSource } from './registerComponentVisibility';
+	import { getSceneCameraTransform } from './registerSceneCameraTransform';
 	import { setSceneVisibleContext } from './sceneVisibilityContext';
 	import { setTapPortal, type TapPortalEntry } from './tapPortalContext';
 	import { tapDimBehind } from './tapToContinue';
@@ -106,6 +107,18 @@
 		});
 	});
 
+	// Reel-anticipation camera opt-in (`Scene.zoomWithAnticipation`): when this `game`-space screen
+	// is ticked AND the game registered a world-space camera source, wrap its content INSIDE the
+	// `MainContainer` (below) with the SAME scale + pan the reel camera applies — so a "base game
+	// top / bottom" screen zooms toward the SAME reel centre as the board (one coherent move). Only
+	// `game` space participates: it shares the board's `MainContainer` coordinate space, so the focal
+	// point lines up; other spaces would zoom about a mismatched point. Absent tick / no source /
+	// non-game space ⇒ `cameraTransform` stays undefined ⇒ NO wrapper is added (byte-identical). The
+	// source returns identity while nothing is armed, so an opted-in screen still renders unchanged.
+	const cameraTransform = $derived(
+		scene.zoomWithAnticipation && space === 'game' ? getSceneCameraTransform() : undefined,
+	);
+
 	// Publish this screen's live gate-visibility to the components rendered inside it,
 	// so a `ComponentInstance` fires its `enter` cue when THIS SCREEN appears (a gated
 	// "Free-spin intro" opening), not just when the instance first mounts. Ungated
@@ -130,7 +143,17 @@
 {#snippet framed()}
 	{#if space === 'game'}
 		<MainContainer>
-			{@render nodes()}
+			{#if cameraTransform}
+				{@const t = cameraTransform()}
+				<!-- Anticipation camera wrap (`Scene.zoomWithAnticipation`): a plain scale + pan on this
+				     Container alone, so the screen zooms about the reel centre in lockstep with the board.
+				     Identity while nothing is armed ⇒ opted-in screen renders unchanged. -->
+				<Container scale={t.scale} x={t.x} y={t.y}>
+					{@render nodes()}
+				</Container>
+			{:else}
+				{@render nodes()}
+			{/if}
 		</MainContainer>
 	{:else if space === 'standard'}
 		<MainContainer

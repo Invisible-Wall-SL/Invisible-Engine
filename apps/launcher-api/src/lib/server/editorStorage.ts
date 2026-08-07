@@ -273,6 +273,11 @@ function normalizeScene(input: unknown): Scene | null {
 	// under-reel band. Same whitelist rule as `alwaysOnTop`/`role` above: unlisted ⇒ silently
 	// dropped on save. Sparse: stored only when true.
 	if (input.behindReels === true) scene.behindReels = true;
+	// Preserve the "Zoom with anticipation" tick (`Scene.zoomWithAnticipation`) — the author's opt-in
+	// to have this screen zoom + pan in lockstep with the reel-anticipation camera. Same whitelist
+	// rule as `alwaysOnTop`/`behindReels` above: unlisted ⇒ silently dropped on save. Sparse: stored
+	// only when true.
+	if (input.zoomWithAnticipation === true) scene.zoomWithAnticipation = true;
 	return scene;
 }
 

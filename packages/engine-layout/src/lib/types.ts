@@ -755,6 +755,26 @@ export interface Scene {
 	 * mutually exclusive). Absent (the default) ⇒ the screen layers above the board as before.
 	 */
 	behindReels?: boolean;
+	/**
+	 * Make this screen ZOOM + PAN in lockstep with the reel-anticipation camera
+	 * (`docs/design/reel-anticipation.md`). The editor exposes it as the "Zoom with
+	 * anticipation" tick in a screen's Properties.
+	 *
+	 * When set AND the game has registered a camera-transform source
+	 * ({@link registerSceneCameraTransform}) AND this scene is `game` space, `<LayoutScene>`
+	 * wraps the screen's content INSIDE its `MainContainer` with the SAME scale + pan-about-focal
+	 * transform the reel camera applies — so a "base game top / bottom" screen zooms toward the
+	 * SAME reel centre as the board during an anticipation, not on an independent path. The
+	 * transform is published once by the game and read by both the reel camera and every opted-in
+	 * screen (one coherent camera move).
+	 *
+	 * Only `game`-space scenes zoom (they share the board's `MainContainer` coordinate space, so
+	 * the focal point lines up); `standard`/`canvas`/`background` screens ignore it. Absent (the
+	 * default) ⇒ NO wrapper is added — byte-identical to today. Off by default: with anticipation
+	 * off, or no source registered, the transform is identity so an opted-in screen still renders
+	 * unchanged. Sparse: stored only when true.
+	 */
+	zoomWithAnticipation?: boolean;
 }
 
 /** A jurisdiction preset for {@link GameSettings}. `'UK'` forces every speed

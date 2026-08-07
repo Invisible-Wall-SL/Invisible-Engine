@@ -251,6 +251,24 @@ authorable from the `/symbols` **Reel anticipation** panel:
 5. **Symbols SM authoring** — overlay spine + tier-FX config in the `/symbols` doc + bake/pull/register.
 6. **Ship** — runtime release + refresh + submodule bump; update `docs/status/engine.md` +
    `docs/status/symbols.md`.
+7. **Screens follow the camera** — let OTHER game-space screens zoom with the reels, not just the
+   reel stack. ✅ (headless — builds green + fixture unaffected; owner live-check pending).
+   - The zoom transform is published once as a shared reactive value in main-layout world space
+     (`apps/lines/src/game/anticipationCamera.svelte.ts` — `anticipationCameraTransform()` +
+     `updateAnticipationCameraTarget()`), so the reel camera and every opted-in screen apply the
+     IDENTICAL scale + pan-about-focal toward the SAME reel centre (one coherent move, one copy of
+     the math). `AnticipationCamera.svelte` is now a thin consumer; `Game.svelte` drives the tween.
+   - Opt-in is a per-screen **"Zoom with anticipation"** tick (`Scene.zoomWithAnticipation`), authored
+     in `/editor` Properties (game-space screens only). Carried through the bake (the doc rides the
+     bundle verbatim; whitelisted in `editorStorage.normalizeScene`) and read by the generic scene
+     mounter: engine-layout's `registerSceneCameraTransform` bridge lets `LayoutScene` wrap an
+     opted-in screen's content INSIDE its `MainContainer` with the shared transform — the same
+     coordinate space as the board camera, so the focal point lines up. Chosen over a
+     `zoomScreens: string[]` Flow-effect param because the mounter side collapses to a single wrap
+     point (every mount path routes through `LayoutScene`) and the opt-in stays authored on the
+     screen it applies to, with no hardcoded ids in engine code.
+   - Off by default → byte-parity: a screen without the tick adds NO wrapper; with anticipation off
+     the shared transform is identity, so an opted-in screen renders unchanged until a tease fires.
 
 ## Non-goals / open questions
 
