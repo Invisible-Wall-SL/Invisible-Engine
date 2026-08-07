@@ -15,14 +15,20 @@
  * "Publish" is a DATA + MANIFEST operation: re-running it re-exports + re-registers,
  * never rebuilds. The generic runtime boots the project from the live fetch.
  */
+import { symbolsInPlay, type GameConfigDoc, type PaytableRow } from 'game-config';
 import { ENV } from './env';
+import { loadGameConfigDoc } from './gameConfigStorage';
 import { createGame, gameExists, renameGame, setGameProject, setGameUrl } from './games';
 import { UNASSIGNED_CLIENT } from './projectPaths';
 import { getOrMintReadToken, projectClientKey, projectGameType, projectName } from './projects';
 import { listAllObjects } from './r2';
 import { ensureDeployExports } from './runtimeBundle';
 import { invalidateRuntimeBundle } from './runtimeBundleCache';
-import { upsertTestServerGame, type MockProtocol } from './testServerManifest';
+import {
+	upsertTestServerGame,
+	type MockProtocol,
+	type TestServerGameConfig,
+} from './testServerManifest';
 
 export interface PublishResult {
 	/** The game key (== the project key). */
@@ -77,6 +83,45 @@ function runtimeFor(_gameType: string): string {
 	return 'lines';
 }
 
+/** Flatten a symbol's `[{ '5': 20 }, { '3': 5 }]` paytable rows to an `{ occurs: multiplier }` map. */
+function paytableToOccursMap(rows: PaytableRow[]): Record<string, number> {
+	const map: Record<string, number> = {};
+	for (const row of rows) {
+		for (const [occurs, mult] of Object.entries(row)) {
+			if (typeof mult === 'number' && Number.isFinite(mult)) map[occurs] = mult;
+		}
+	}
+	return map;
+}
+
+/**
+ * Snapshot a project's config doc into the compact shape the lines mock deals — grid + paylines +
+ * opt-in wild — so the test server deals THIS project's board (a resized grid, an in-play wild)
+ * instead of its committed 5×3 default. Returns `undefined` for a `null` doc: that project rides the
+ * compiled template, which the server already deals as its default, so there's nothing to inject.
+ *
+ * The wild is picked from the doc's IN-PLAY symbols (on the strips) that also carry the `wild`
+ * property and a paytable. Putting a wild on the reels is the deliberate, per-game act that turns it
+ * on — a game that merely inherits `W` in its dictionary but never deals it stays wild-less, which is
+ * why an authored-but-unused `W` doesn't pay. The lines facade maps the mock's `WILD` to the game
+ * symbol `W`, so the in-play wild is expected to be `W`.
+ */
+function rgsSnapshotFor(doc: GameConfigDoc | null): TestServerGameConfig | undefined {
+	if (!doc) return undefined;
+	const inPlay = new Set(symbolsInPlay(doc));
+	const wildEntry = Object.entries(doc.symbols).find(
+		([name, sym]) => inPlay.has(name) && sym.special_properties?.includes('wild') && sym.paytable?.length,
+	);
+	const wildPaytable = wildEntry?.[1].paytable;
+	const wild = wildPaytable ? { paytable: paytableToOccursMap(wildPaytable) } : undefined;
+	return {
+		reels: doc.numReels,
+		rows: Math.max(...doc.numRows, 1),
+		paylines: Object.values(doc.paylines),
+		...(wild ? { wild } : {}),
+	};
+}
+
 /**
  * Publish (or re-publish) a project as a playable test-server game. `projectKey` is
  * the BARE launcher project key; it is also used verbatim as the GAME key.
@@ -114,11 +159,14 @@ export async function publishGame(projectKey: string, launcherOrigin: string): P
 		);
 	}
 
-	// 4 + 5. Merge the test-server manifest (read-modify-write, preserves siblings).
+	// 4 + 5. Merge the test-server manifest (read-modify-write, preserves siblings). Snapshot the
+	// project's authored grid/paylines/wild so the lines mock deals THIS board, not the 5×3 default.
+	const gameConfig = rgsSnapshotFor(await loadGameConfigDoc(clientKey, projectKey));
 	await upsertTestServerGame(key, {
 		protocol,
 		name,
 		runtime,
+		...(gameConfig ? { gameConfig } : {}),
 		updatedAt: new Date().toISOString(),
 	});
 

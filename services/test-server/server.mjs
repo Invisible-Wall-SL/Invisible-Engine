@@ -148,10 +148,17 @@ const linesGrid = (() => {
 	}
 })();
 
-const makeMock = (protocol, label) =>
+/**
+ * Build a game's mock RGS. Book games use the book mock. Lines games are dealt their OWN authored
+ * grid/paylines/wild when the manifest carries a per-game `gameConfig` snapshot (written at publish
+ * by `publishGame.ts` from the project's Invisible Game Config doc) — so a resized board or an
+ * in-play wild is honoured per project. No snapshot ⇒ the committed `linesGrid` default (Hot Fruits
+ * 5×3), keeping own-bundle games like Hot Fruits / Book of Borut byte-identical.
+ */
+const makeMock = (protocol, label, gameConfig) =>
 	protocol === 'book'
 		? createBookMock({ label })
-		: createLinesMock({ label, ...(linesGrid ?? {}) });
+		: createLinesMock({ label, ...(gameConfig ?? linesGrid ?? {}) });
 
 const streamToBuffer = async (stream) => {
 	const chunks = [];
@@ -242,7 +249,10 @@ async function hydrate() {
 	for (const [key, meta] of Object.entries(source.games)) {
 		const protocol = meta.protocol === 'book' ? 'book' : 'lines';
 		const runtime = typeof meta.runtime === 'string' && meta.runtime ? meta.runtime : null;
-		nextRegistry[key] = { protocol, name: meta.name ?? key, runtime };
+		// A per-game grid/paylines/wild snapshot (present only for online-published games); passed to
+		// the lines mock so it deals THIS project's board instead of the committed default.
+		const gameConfig = meta.gameConfig && typeof meta.gameConfig === 'object' ? meta.gameConfig : null;
+		nextRegistry[key] = { protocol, name: meta.name ?? key, runtime, gameConfig };
 		if (runtime) {
 			// Served from the shared runtime bundle (loaded once below) — no per-key files.
 			runtimeIds.add(runtime);
@@ -276,7 +286,7 @@ async function hydrate() {
 	mocks = Object.fromEntries(
 		Object.entries(nextRegistry).map(([key, meta]) => [
 			key,
-			makeMock(meta.protocol, `mock:${key}`),
+			makeMock(meta.protocol, `mock:${key}`, meta.gameConfig),
 		]),
 	);
 }

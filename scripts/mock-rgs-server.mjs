@@ -50,6 +50,50 @@ const DEFAULT_PAYLINES = [
 	[0, 1, 2, 1, 0],
 	[2, 1, 0, 1, 2],
 ];
+
+/** True when the payline set touches EVERY row of a `rows`-tall grid — the gate for keeping an
+ *  authored set as-is. A set that skips rows (e.g. the stock 5×3 lines on a resized 5×5 board) leaves
+ *  those rows permanently unwinnable, which is exactly the "nothing pays on the bottom row" report. */
+export const coversAllRows = (paylines, rows) => {
+	const used = new Set();
+	for (const line of paylines) for (const r of line) used.add(r);
+	for (let r = 0; r < rows; r++) if (!used.has(r)) return false;
+	return true;
+};
+
+/** A sensible standard payline set for an arbitrary `reels`×`rows` grid, generated so the server can
+ *  "pick up" a game's real dimensions instead of dealing a fixed 5×3 subset. Not a math-tuned set
+ *  (the real RGS owns that) — just full-row coverage in familiar shapes: one horizontal per row, then
+ *  a single-dip "V" and single-peak "^" between each adjacent row-pair. Deterministic (no RNG) and
+ *  deduped. Horizontals alone guarantee every row is a winning row. */
+export const standardPaylines = (reels, rows) => {
+	const mid = Math.round((reels - 1) / 2);
+	const lines = [];
+	for (let r = 0; r < rows; r++) lines.push(Array.from({ length: reels }, () => r));
+	for (let r = 0; r < rows - 1; r++) {
+		lines.push(Array.from({ length: reels }, (_unused, c) => (c === mid ? r + 1 : r)));
+		lines.push(Array.from({ length: reels }, (_unused, c) => (c === mid ? r : r + 1)));
+	}
+	const seen = new Set();
+	return lines.filter((line) => {
+		const key = line.join(',');
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
+};
+
+/** Coerce a wild paytable ({ occurs → multiplier }, keys possibly strings) to a clean numeric map,
+ *  dropping non-positive or non-finite entries. Empty ⇒ the mock treats the game as wild-less. */
+export const normalizeWildPaytable = (raw) => {
+	const map = {};
+	for (const [count, mult] of Object.entries(raw ?? {})) {
+		const c = Number(count);
+		const m = Number(mult);
+		if (Number.isInteger(c) && c > 0 && Number.isFinite(m) && m > 0) map[c] = m;
+	}
+	return map;
+};
 /** Hot Fruits paytable — PIC1 is the TOP payer (5-of-a-kind = 5000), PIC7 the
  *  lowest (also pays 2-of-a-kind = 5). Aligned with the real server config
  *  captured during play (see Riassunto_Stato_Lavoro.pdf §"Aggiornamento"). */
@@ -81,33 +125,49 @@ function hashStr(s) {
 	return h;
 }
 
-/** Evaluate paylines. Each payline is one row-index per reel.
- *  A win occurs when the leftmost N matching symbols form a run. */
-const evaluatePaylines = (reels, betPerLine, paylines) => {
+/**
+ * Evaluate paylines. Each payline is one row-index per reel; a win is the leftmost run of matching
+ * symbols. When `wild` is passed ({ paytable: { occurs → multiplier } }), the `WILD` symbol (1)
+ * SUBSTITUTES for the line's paying symbol — extending a run of any high/low symbol — and (2) pays
+ * its OWN paytable for a leading run of pure wilds, whichever is worth more. `wild` absent ⇒ the
+ * original plain-equality behaviour, byte-identical (no game deals WILD unless a project opts in).
+ */
+export const evaluatePaylines = (reels, betPerLine, paylines, wild = null) => {
+	const wildPay = wild?.paytable ?? null;
+	const isWild = (sym) => wildPay !== null && sym === 'WILD';
 	const wins = [];
 	for (let p = 0; p < paylines.length; p++) {
 		const line = paylines[p];
 		const seq = line.map((row, reel) => reels[reel][row]);
-		const first = seq[0];
-		if (!PAY_TABLE[first]) continue;
-		let count = 1;
-		for (let i = 1; i < seq.length; i++) {
-			if (seq[i] === first) count++;
+		// The paying symbol is the first non-wild cell (leading wilds substitute for it). A line that
+		// is ALL wild has no base symbol and pays only via the wild's own paytable.
+		const base = seq.find((sym) => !isWild(sym)) ?? null;
+		let baseRun = 0;
+		for (const sym of seq) {
+			if (isWild(sym) || (base !== null && sym === base)) baseRun++;
 			else break;
 		}
-		if (count >= 3) {
-			const mult = PAY_TABLE[first][count] ?? 0;
-			if (mult > 0) {
-				wins.push({
-					what: first,
-					occurs: count,
-					mode: 'line',
-					pay: mult * betPerLine,
-					mpInfo: { mp: 1, replacements: 0 },
-					mpBonusInfo: null,
-					context: { paylineId: p, payline: line, direction: 'left' },
-				});
-			}
+		let wildRun = 0;
+		for (const sym of seq) {
+			if (isWild(sym)) wildRun++;
+			else break;
+		}
+		let best = null;
+		const baseMult = base !== null ? (PAY_TABLE[base]?.[baseRun] ?? 0) : 0;
+		if (baseMult > 0) best = { what: base, occurs: baseRun, pay: baseMult * betPerLine };
+		const wildMult = wildPay && wildRun > 0 ? (wildPay[wildRun] ?? 0) : 0;
+		if (wildMult > 0) {
+			const pay = wildMult * betPerLine;
+			if (!best || pay > best.pay) best = { what: 'WILD', occurs: wildRun, pay };
+		}
+		if (best) {
+			wins.push({
+				...best,
+				mode: 'line',
+				mpInfo: { mp: 1, replacements: 0 },
+				mpBonusInfo: null,
+				context: { paylineId: p, payline: line, direction: 'left' },
+			});
 		}
 	}
 	return LINE_COINCIDING ? wins : dedupeCoincidingWins(wins);
@@ -244,8 +304,23 @@ export function createMockRgs(opts = {}) {
 	// the config's own paylines alongside its dimensions.
 	const reelCount = Math.max(1, Math.round(Number(opts.reels ?? DEFAULT_REELS)));
 	const rowCount = Math.max(1, Math.round(Number(opts.rows ?? DEFAULT_ROWS)));
-	const paylines =
+	const authoredPaylines =
 		Array.isArray(opts.paylines) && opts.paylines.length ? opts.paylines : DEFAULT_PAYLINES;
+	// Keep the authored set when it already touches every row; otherwise the game's real dimensions
+	// have outgrown its lines (the classic 5×3 lines on a resized 5×5 board), so deal a generated set
+	// that covers the whole grid — the server "picks up" rows/reels instead of a stale line subset.
+	const paylines = coversAllRows(authoredPaylines, rowCount)
+		? authoredPaylines
+		: standardPaylines(reelCount, rowCount);
+
+	// Opt-in WILD support (per-project, injected by the test server from a game's config). When a
+	// project puts a wild symbol IN PLAY (on its strips) with a paytable, `opts.wild.paytable` is the
+	// occurs→multiplier map; the mock then declares, deals and pays `WILD` (the lines facade maps
+	// `WILD → W`). Absent ⇒ no game deals a wild ⇒ Hot Fruits / Borut behaviour is unchanged.
+	const wild =
+		opts.wild && opts.wild.paytable && Object.keys(opts.wild.paytable).length
+			? { paytable: normalizeWildPaytable(opts.wild.paytable) }
+			: null;
 
 	// Stacked-picture test mode (docs/design/stacked-picture-mode.md): deal contiguous high-symbol
 	// runs + a full-height WILD so the engine's stacked-picture reel mode has data to render. Opt-in
@@ -278,9 +353,14 @@ export function createMockRgs(opts = {}) {
 		if (r < 0.95) return LINE_SYMBOLS[5 + Math.floor(nextRand() * 1)]; // PIC6
 		return 'PIC7';
 	};
-	/** 5 reels × 3 visible rows */
+	// When a project has a wild in play, sprinkle `WILD` into the weighted draw at a low rate so lines
+	// land often enough to see W pay without swamping the board. Gated so a wild-less game keeps the
+	// EXACT same RNG stream as before (no extra `nextRand` call) — default deals stay byte-identical.
+	const WILD_RATE = 0.05;
+	const pickCell = wild ? () => (nextRand() < WILD_RATE ? 'WILD' : pickSymbol()) : pickSymbol;
+	/** reelCount reels × rowCount visible rows */
 	const spinReels = () =>
-		Array.from({ length: reelCount }, () => Array.from({ length: rowCount }, pickSymbol));
+		Array.from({ length: reelCount }, () => Array.from({ length: rowCount }, pickCell));
 
 	/**
 	 * Stacked-picture test deal: every reel is likely to carry ONE contiguous run of a high symbol
@@ -340,12 +420,12 @@ export function createMockRgs(opts = {}) {
 			events.push({
 				event: 'config',
 				context: {
-					symbols: SYMBOLS,
+					symbols: wild ? [...SYMBOLS, 'WILD'] : SYMBOLS,
 					window: { reels: reelCount, rows: rowCount },
 					paylines,
-					wildSymbols: [],
+					wildSymbols: wild ? ['WILD'] : [],
 					paytable: Object.fromEntries(
-						Object.entries(PAY_TABLE).map(([sym, byCount]) => {
+						Object.entries(wild ? { ...PAY_TABLE, WILD: wild.paytable } : PAY_TABLE).map(([sym, byCount]) => {
 							const counts = Object.keys(byCount)
 								.map(Number)
 								.sort((a, b) => a - b);
@@ -411,7 +491,7 @@ export function createMockRgs(opts = {}) {
 					}
 					const reels = stackedDeal ? spinReelsStacked() : spinReels();
 					pendingRound.reels = reels;
-					const lineWins = evaluatePaylines(reels, pendingRound.betPerLine, paylines);
+					const lineWins = evaluatePaylines(reels, pendingRound.betPerLine, paylines, wild);
 					const scatterWin = evaluateScatters(reels, pendingRound.total);
 					const wins = scatterWin ? [...lineWins, scatterWin] : lineWins;
 					const totalWin = wins.reduce((s, w) => s + w.pay, 0);
@@ -420,9 +500,9 @@ export function createMockRgs(opts = {}) {
 					events.push({
 						event: 'spinStart',
 						context: {
-							symbols: SYMBOLS,
-							symbolsPay: { line: LINE_SYMBOLS, scatter: ['SCAT'] },
-							wildSymbols: [],
+							symbols: wild ? [...SYMBOLS, 'WILD'] : SYMBOLS,
+							symbolsPay: { line: wild ? [...LINE_SYMBOLS, 'WILD'] : LINE_SYMBOLS, scatter: ['SCAT'] },
+							wildSymbols: wild ? ['WILD'] : [],
 							lineAlign: 'left',
 							lineCoinciding: LINE_COINCIDING,
 						},

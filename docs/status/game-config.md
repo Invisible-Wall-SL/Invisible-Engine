@@ -479,6 +479,20 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   ...buildBoard())`) so render + enhancedBoard stay on the same reels. Also repointed the dangling
   `boardRaw()` `board` reference (left undeclared when #97 removed `const board`) to `stateGame.board`.
   Ships to online games via a Runtime release.
+- 2026-08-07 — Per-project RGS snapshot (branch `engine/stacked-picture-reel-mode`): the test server
+  now deals each ONLINE-published game its OWN grid/paylines/wild instead of the single committed
+  `linesGrid` default, fixing two reports on a resized game — (a) paylines that never touched the
+  bottom rows and (b) a `W` that couldn't pay. Chain: `publishGame.rgsSnapshotFor(doc)` snapshots
+  `{ reels, rows, paylines, wild? }` into the test-server manifest row (`TestServerGameConfig`);
+  `server.mjs` feeds it to the lines mock per game (absent ⇒ the committed default ⇒ Hot Fruits /
+  Book of Borut byte-identical). In `scripts/mock-rgs-server.mjs`: `standardPaylines`/`coversAllRows`
+  regenerate a full-coverage line set when the authored lines don't span the (resized) grid, and an
+  opt-in `wild` (occurs→multiplier) makes the mock declare/deal/pay `WILD` with left-align
+  substitution (facade maps `WILD → W`). The wild is keyed off the SAME in-play gate as the paytable,
+  the roll and the `/symbols` grid: a symbol pays only once it's ON THE STRIPS — a dictionary-only
+  paytable stays dead on every surface. Verified offline (`node` fixtures, 27 assertions incl. real
+  `lines.json`: default parity, 5×5 coverage, wild substitution math). Needs a launcher + test-server
+  deploy, then a republish of the target project to write its snapshot.
 - 2026-07-27 — Grid-dimensions enhancement (branch `game-config-grid`): the authored numReels/numRows
   resize the board in the game (`boardDimensions()` + `rebuildBoard()`), the mock RGS (parameterized
   `createMockRgs`), and the Scene Editor preview (`drawReelGrid` from config, `reelGridWarnings` vs

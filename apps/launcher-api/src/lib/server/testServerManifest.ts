@@ -143,11 +143,32 @@ export async function engineDeployStatus(runtimeId: string): Promise<EngineDeplo
 
 export type MockProtocol = 'lines' | 'book';
 
+/**
+ * A per-game RGS snapshot the lines mock deals instead of its committed 5×3 default — so the test
+ * server honours a game's OWN grid, paylines and (opt-in) wild. Written at publish by `publishGame.ts`
+ * from the project's Invisible Game Config doc; absent for own-bundle games (Hot Fruits, Book of
+ * Borut), which keep the faithful default. Only the fields the lines mock reads.
+ */
+export interface TestServerGameConfig {
+	/** Reel count (`numReels`). */
+	reels: number;
+	/** Visible rows (max of `numRows`). */
+	rows: number;
+	/** Authored paylines as row-index-per-reel; the mock regenerates a full-coverage set if these
+	 *  don't touch every row of the (possibly resized) grid. */
+	paylines: number[][];
+	/** Present only when a wild symbol is IN PLAY (on the strips) with a paytable. `paytable` is
+	 *  occurs→multiplier; the mock deals + pays `WILD` (the lines facade maps `WILD → W`). */
+	wild?: { paytable: Record<string, number> };
+}
+
 export interface TestServerGameEntry {
 	protocol: MockProtocol;
 	name: string;
 	/** Shared prebuilt-bundle id under `test_server/_runtime/<runtime>/` (Game Maker). */
 	runtime?: string;
+	/** Per-game RGS snapshot for the lines mock (online-published games only). */
+	gameConfig?: TestServerGameConfig;
 	/** ISO timestamp — passed IN by the caller (no `Date.now()` here). */
 	updatedAt: string;
 }
