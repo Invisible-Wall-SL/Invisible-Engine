@@ -293,6 +293,12 @@ export type StackedPictureRun = {
 	naturalCells: number;
 	x: number;
 	topEdgeY: number;
+	/** Picture cells hidden ABOVE the visible run — the vertical crop offset. `0` ⇒ top-aligned (reveal
+	 *  the top N/M), used by every full stack, a bottom-edge partial, and an interior partial. A partial
+	 *  run pinned to the board's TOP edge sets this to `naturalCells - visibleCells` so the picture's
+	 *  BOTTOM N/M fills the run and its top continues off-screen above — the tall symbol reads as clipped
+	 *  by the reel window, not as a shorter picture. See docs/design/stacked-picture-mode.md. */
+	hiddenAbove: number;
 	/** The authored tall art (undefined ⇒ fall back to the `stacked` state binding). */
 	art?: StackedArt;
 };
@@ -432,12 +438,26 @@ const computeStackedRuns = (): StackedPictureRun[] => {
 			// A stacked symbol ALWAYS shows its picture — even a lone one (N=1) shows the top 1/height, and
 			// never its single icon. So every run of a stacked symbol draws (min run = 1).
 			const naturalCells = Math.max(visibleCells, height ?? visibleCells);
+			// A partial result run (N < M) pinned to a board EDGE reads as a tall picture the reel window
+			// clipped: at the TOP edge show the BOTTOM N/M (the top M−N cells continue off-screen above, "as
+			// if the reel spun a few more cells"); at the BOTTOM edge (or fully interior) keep the top N/M.
+			// Edges are chunk-relative — each RESULT chunk's visible window is `[chunkStart+1, chunkStart+rows]`
+			// — so the verdict is identical while the result is parked mid-scroll and once settled (no
+			// roll↔settle snap). Filler blocks are always full-height, so they never take this branch.
+			let hiddenAbove = 0;
+			if (settledRun && naturalCells > visibleCells) {
+				const chunkStart = !scrolling ? 0 : idx < reelLen ? 0 : symbols.length - reelLen;
+				const touchesTop = idx === chunkStart + 1;
+				const touchesBottom = end === chunkStart + rows;
+				if (touchesTop && !touchesBottom) hiddenAbove = naturalCells - visibleCells;
+			}
 			runs.push({
 				reel: reelIndex,
 				name,
 				topRow: idx,
 				visibleCells,
 				naturalCells,
+				hiddenAbove,
 				x: getSymbolX(reelIndex),
 				topEdgeY: symbols[idx].symbolY() - rowPitchLocal / 2,
 				art: artOf(name),

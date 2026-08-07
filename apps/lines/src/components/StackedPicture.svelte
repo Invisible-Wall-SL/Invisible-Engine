@@ -9,8 +9,10 @@
 	/**
 	 * One tall stacked picture for the stacked-picture reel mode (docs/design/stacked-picture-mode.md).
 	 * Draws the AUTHORED tall art (`run.art` — the Symbols-State-Machine stacked config, sprite / spine /
-	 * flipbook) into a box `naturalCells` tall, then masks it to the top `visibleCells` cells so a partial
-	 * stack shows the top N/M, top-aligned. When no config art is authored (dev / coded fallback) it falls
+	 * flipbook) into a box `naturalCells` tall, then masks it to `visibleCells` cells at `run.hiddenAbove`
+	 * so a partial stack shows N/M of the picture. Most runs top-align (`hiddenAbove === 0` ⇒ top N/M); a
+	 * partial pinned to the board's TOP edge sets `hiddenAbove` so the BOTTOM N/M shows and the rest runs
+	 * off-screen above (see the run scan). When no config art is authored (dev / coded fallback) it falls
 	 * back to the symbol's `stacked` state binding, so the mechanic still renders.
 	 *
 	 * Coordinate space: the parent mounts this inside the resting board container, so `run.x` /
@@ -33,6 +35,11 @@
 	const boxW = $derived(geometry.cellWidthLocal);
 	const boxH = $derived(run.naturalCells * geometry.rowPitchLocal);
 	const maskH = $derived(run.visibleCells * geometry.rowPitchLocal);
+	// Vertical crop OFFSET: how far the picture's top sits ABOVE the visible run. 0 ⇒ top-aligned (reveal
+	// the top N/M). `hiddenAbove` cells (a top-edge partial) ⇒ the box slides UP so its BOTTOM N/M fills
+	// the run and the top M−N cells continue off-screen above, clipped by the board window mask — the tall
+	// symbol reads as cut off by the reel, not shrunk. See the run scan in stateGame.
+	const hiddenOffset = $derived(run.hiddenAbove * geometry.rowPitchLocal);
 	// Generous horizontal span — the crop is VERTICAL only, so the mask must never clip the sides.
 	const maskW = $derived(boxW * 2);
 
@@ -41,7 +48,7 @@
 	const clip = $derived(isFlipbook && info.clipId ? resolveFlipbook(info.clipId) : undefined);
 </script>
 
-<Container x={run.x} y={run.topEdgeY + boxH / 2}>
+<Container x={run.x} y={run.topEdgeY - hiddenOffset + boxH / 2}>
 	{#if isSprite}
 		<Sprite key={info.assetKey} anchor={0.5} width={boxW} height={boxH} />
 	{:else if isFlipbook && clip}
@@ -68,5 +75,5 @@
 		</SpineProvider>
 	{/if}
 
-	<Rectangle isMask x={-maskW / 2} y={-boxH / 2} width={maskW} height={maskH} />
+	<Rectangle isMask x={-maskW / 2} y={-boxH / 2 + hiddenOffset} width={maskW} height={maskH} />
 </Container>

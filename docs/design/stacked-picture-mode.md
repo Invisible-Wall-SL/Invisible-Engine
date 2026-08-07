@@ -18,9 +18,17 @@ must be **authorable per symbol** (sprite / spine / flipbook), **Flow-activatabl
 - Each stackable symbol has a **natural picture height M in cells** (H1=2, H2=3, … **Wild=5**). The
   crop denominator is M — **not** the reel height.
 - A run's **visible length N** (contiguous same-symbol cells on the settled reel) drives the crop:
-  show the **top N/M** of the picture, **top-aligned to the run's top cell**. N=M ⇒ whole picture.
-  A partial happens when the reel window clips the tall symbol (e.g. a 5-tall Wild showing 3 rows →
-  top 3/5).
+  show **N/M** of the picture. N=M ⇒ whole picture. A partial happens when the reel window clips the
+  tall symbol (e.g. a 5-tall Wild showing 3 rows → 3/5).
+- **Edge-anchored crop (owner ask 2026-08-07).** A partial reads as a tall symbol the reel window
+  clipped, not as a shrunk picture, so *which* N/M shows depends on where the run sits:
+  - **Top edge** (run pinned to the board's top row, N<M) → show the **bottom N/M**; the top M−N cells
+    continue off-screen above ("as if the reel spun a few more cells you'd see the whole picture").
+  - **Bottom edge** or **fully interior** → show the **top N/M** (top-aligned, the original behavior);
+    a bottom-edge picture runs off-screen below.
+  - Carried on the run as `hiddenAbove` (picture cells hidden above the visible run: `0` = top-align,
+    `M−N` = bottom-align). Edges are **chunk-relative** so the crop is identical while a result is parked
+    mid-scroll and once settled (no roll↔settle snap).
 - **Data source = infer from the board.** The server keeps sending symbol names per cell; a stacked
   column is just a contiguous run. No book-event/protocol change.
 - **Off by default**, flipped by a Flow effect. Eligible set defaults to the high pays + Wild;
