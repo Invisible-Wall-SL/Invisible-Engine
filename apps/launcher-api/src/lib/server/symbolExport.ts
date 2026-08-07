@@ -131,6 +131,10 @@ export interface SymbolExportStacked {
 	/** When true, a tall picture shows ONLY at full stack height; shorter landed runs fall back to the
 	 *  normal single icons. Absent ⇒ partial runs crop the picture (default). */
 	fullHeightOnly?: boolean;
+	/** When true, a partial stacked run pinned to the board's TOP or BOTTOM edge renders as a CUT-OFF
+	 *  tall picture regardless of `fullHeightOnly` (top edge → bottom N/M, bottom edge → top N/M; any
+	 *  run length, even 1). Absent ⇒ edge partials follow `fullHeightOnly`. Independent toggle. */
+	edgeCutoffs?: boolean;
 }
 
 export interface SymbolExportResult {
@@ -594,6 +598,7 @@ export async function exportEditorSymbols(
 						return { name: s.name, height: s.height, art };
 					}),
 					...(doc.stackedPictures.fullHeightOnly ? { fullHeightOnly: true } : {}),
+					...(doc.stackedPictures.edgeCutoffs ? { edgeCutoffs: true } : {}),
 				}
 			: undefined;
 

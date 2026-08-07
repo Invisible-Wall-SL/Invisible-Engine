@@ -209,6 +209,11 @@ const stackedPicturesSchema = z
 		 *  symbol's authored height falls back to the normal single icons. Absent/false ⇒ a partial run
 		 *  shows the top N/M crop of the picture (default, byte-identical to before). */
 		fullHeightOnly: z.boolean().optional(),
+		/** When true, a partial stacked run pinned to the board's TOP or BOTTOM edge renders as a CUT-OFF
+		 *  tall picture (the visible slice of a symbol scrolled partly off-screen) regardless of
+		 *  `fullHeightOnly` — top edge shows the bottom N/M, bottom edge the top N/M. Any run length
+		 *  qualifies (even 1). Independent toggle: absent/false ⇒ edge partials follow `fullHeightOnly`. */
+		edgeCutoffs: z.boolean().optional(),
 		symbols: z.array(stackedSymbolSchema).optional(),
 	})
 	.strict();
@@ -389,6 +394,7 @@ function pruneStackedPictures(
 	const next: NonNullable<SymbolsDoc['stackedPictures']> = {};
 	if (config.enabled === true) next.enabled = true;
 	if (config.fullHeightOnly === true) next.fullHeightOnly = true;
+	if (config.edgeCutoffs === true) next.edgeCutoffs = true;
 	const symbols = (config.symbols ?? []).filter((s) => s.name && s.art?.assetKey);
 	if (symbols.length) next.symbols = symbols;
 	return Object.keys(next).length ? next : undefined;

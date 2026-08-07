@@ -60,6 +60,7 @@
 		setWinLineText,
 		setStackedPicturesEnabled,
 		setStackedFullHeightOnly,
+		setStackedEdgeCutoffs,
 		stackedPicturesEnabled,
 		stackedSymbols,
 		addStackedSymbol,
@@ -103,6 +104,9 @@
 	const stackedOn = $derived(stackedPicturesEnabled(doc));
 	// The global "tall picture only at full height" flag (default off ⇒ partial runs crop the picture).
 	const stackedFullHeightOnly = $derived(doc.stackedPictures?.fullHeightOnly ?? false);
+	// The global "edge cut-offs" flag (independent of full-height only): a partial stack at the board's
+	// top/bottom edge renders a cut-off tall picture. Default off.
+	const stackedEdgeCutoffs = $derived(doc.stackedPictures?.edgeCutoffs ?? false);
 	// The authored stacked symbols + a fast membership set for the multi-select.
 	const stackedList = $derived(stackedSymbols(doc));
 	const stackedSet = $derived(new Set(stackedList.map((s) => s.name)));
@@ -849,6 +853,12 @@
 	// stripped by the next stacked edit.
 	function toggleStackedFullHeightOnly(value: boolean): void {
 		doc = setStackedFullHeightOnly(doc, value);
+	}
+
+	// Global "edge cut-offs" flag: sparse, tracked via the setter like every sibling stacked control.
+	// Independent of full-height only — a partial stack at the top/bottom edge renders a cut-off picture.
+	function toggleStackedEdgeCutoffs(value: boolean): void {
+		doc = setStackedEdgeCutoffs(doc, value);
 	}
 
 	/** Seed a new stacked symbol's tall art from the symbol's effective binding (its win/static art), so
@@ -1707,6 +1717,23 @@
 									On: a landed stack shorter than the symbol's height shows the normal single
 									symbols instead of a cropped tall picture. Off: a partial stack shows the top of
 									the picture.
+								</p>
+							</div>
+							<div class="wl-group">
+								<label class="switch" class:on={stackedEdgeCutoffs}>
+									<input
+										type="checkbox"
+										checked={stackedEdgeCutoffs}
+										onchange={(e) => toggleStackedEdgeCutoffs(e.currentTarget.checked)}
+									/>
+									<span class="track"><span class="knob"></span></span>
+									<span class="switch-label">Cut-off tall pictures at the board edges</span>
+								</label>
+								<p class="hint">
+									On: a stacked symbol touching the TOP or BOTTOM edge draws a cut-off tall picture —
+									the visible slice of a symbol scrolled partly off-screen (top edge shows the bottom
+									of the picture, bottom edge the top), for any run length. This overrides
+									"full-height only" at the edges. Off: edge stacks follow the setting above.
 								</p>
 							</div>
 							<div class="wl-group">

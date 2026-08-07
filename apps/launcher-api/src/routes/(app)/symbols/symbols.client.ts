@@ -206,6 +206,10 @@ export interface StackedPicturesConfig {
 	 *  symbol's authored height falls back to the normal single icons. Absent/false ⇒ a partial run
 	 *  shows the top N/M crop (default). Mirrors the server `stackedPicturesSchema`. */
 	fullHeightOnly?: boolean;
+	/** When true, a partial run pinned to the board's TOP or BOTTOM edge renders as a CUT-OFF tall
+	 *  picture (the visible slice of a symbol scrolled partly off-screen) regardless of
+	 *  `fullHeightOnly` — any run length, even 1. Independent toggle. Mirrors the server schema. */
+	edgeCutoffs?: boolean;
 	symbols?: StackedSymbol[];
 }
 
@@ -665,6 +669,7 @@ function withStackedPictures(doc: SymbolsDoc, config: StackedPicturesConfig): Sy
 	const next: StackedPicturesConfig = {};
 	if (config.enabled === true) next.enabled = true;
 	if (config.fullHeightOnly === true) next.fullHeightOnly = true;
+	if (config.edgeCutoffs === true) next.edgeCutoffs = true;
 	const symbols = (config.symbols ?? []).filter((s) => s.name && s.art?.assetKey);
 	if (symbols.length) next.symbols = symbols;
 	const out = { ...doc };
@@ -693,6 +698,17 @@ export function setStackedFullHeightOnly(doc: SymbolsDoc, value: boolean): Symbo
 	const config: StackedPicturesConfig = { ...(doc.stackedPictures ?? {}) };
 	if (value) config.fullHeightOnly = true;
 	else delete config.fullHeightOnly;
+	return withStackedPictures(doc, config);
+}
+
+/** Set the global "edge cut-offs" flag, returning a NEW doc. Sparse (like the master toggle): ON
+ *  persists `edgeCutoffs: true`; OFF drops the flag (default ⇒ edge partials follow `fullHeightOnly`).
+ *  Independent of `fullHeightOnly` — a partial run at the top/bottom edge renders a cut-off tall
+ *  picture. Routes through {@link withStackedPictures} so the flag survives every rebuild. */
+export function setStackedEdgeCutoffs(doc: SymbolsDoc, value: boolean): SymbolsDoc {
+	const config: StackedPicturesConfig = { ...(doc.stackedPictures ?? {}) };
+	if (value) config.edgeCutoffs = true;
+	else delete config.edgeCutoffs;
 	return withStackedPictures(doc, config);
 }
 
@@ -890,6 +906,7 @@ export function docSignature(doc: SymbolsDoc): string {
 		? {
 				enabled: doc.stackedPictures.enabled ?? null,
 				fullHeightOnly: doc.stackedPictures.fullHeightOnly ?? null,
+				edgeCutoffs: doc.stackedPictures.edgeCutoffs ?? null,
 				symbols: doc.stackedPictures.symbols
 					? [...doc.stackedPictures.symbols]
 							.sort((a, b) => a.name.localeCompare(b.name))
