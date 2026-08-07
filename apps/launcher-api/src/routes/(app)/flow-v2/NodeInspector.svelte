@@ -568,11 +568,21 @@
 		{#if src.kind === 'literal'}
 			{@const lt = src.type}
 			{#if lt.t === 'bool'}
-				<input
-					type="checkbox"
-					checked={src.value === true}
-					onchange={(e) => commit({ kind: 'literal', type: lt, value: e.currentTarget.checked })}
-				/>
+				<select
+					value={unset ? '' : src.value === true ? 'true' : 'false'}
+					onchange={(e) => commit({ kind: 'literal', type: lt, value: e.currentTarget.value === 'true' })}
+				>
+					{#if unset}
+						<!-- A bare checkbox draws the phantom default (`false`) as an unchecked box, so an
+						     untouched pin LOOKS off. For an optional pin whose effect default is `true`
+						     (`zoom`, `greyOut`) that is the OPPOSITE of what the game does — the board still
+						     zoomed. Render the unset state honestly (like the enum/number editors) so picking
+						     on/off is the only way to display a value, and it always commits. -->
+						<option value="" disabled>{optional ? '— default —' : '— choose —'}</option>
+					{/if}
+					<option value="true">on</option>
+					<option value="false">off</option>
+				</select>
 			{:else if lt.t === 'string'}
 				<input
 					type="text"
