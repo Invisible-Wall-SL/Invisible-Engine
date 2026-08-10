@@ -403,6 +403,12 @@ export interface TextNode extends BaseNode {
 	 * Absent ⇒ off (text may overflow the box; the box just positions/aligns it).
 	 */
 	autoFit?: boolean;
+	/**
+	 * Inset (local, pre-scale px) between the box edges and the text, applied on ALL sides.
+	 * The content area the text wraps/aligns/auto-fits into is `width - 2·padding` wide and
+	 * `height - 2·padding` tall. Only meaningful with an explicit box. Absent ⇒ 0.
+	 */
+	padding?: number;
 }
 
 /**

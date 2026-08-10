@@ -21,6 +21,8 @@
 		 * across `boxHeight`, `autoFit` shrinks the font). Unset ⇒ the plain readout (parity). */
 		boxWidth?: number;
 		boxHeight?: number;
+		/** Inset from every box edge; the number wraps/aligns/fits inside `box - 2·padding`. */
+		padding?: number;
 		autoFit?: boolean;
 	};
 </script>
@@ -55,6 +57,7 @@
 		style={props.style}
 		boxWidth={props.boxWidth ?? 0}
 		boxHeight={props.boxHeight}
+		padding={props.padding}
 		autoFit={props.autoFit ?? false}
 		x={props.x}
 		y={props.y}

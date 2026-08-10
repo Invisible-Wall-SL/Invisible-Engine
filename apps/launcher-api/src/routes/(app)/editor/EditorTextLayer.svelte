@@ -8,6 +8,8 @@
 		resolveLayoutInstanceParams,
 		resolveOverrideTextStyle,
 		resolveTransform,
+		textBoxContentWidth,
+		textBoxContentHeight,
 		textBoxPlacement,
 		autoFitFontSize,
 		MAX_COMPONENT_DEPTH,
@@ -218,25 +220,35 @@
 		style: Partial<LayoutTextStyle> | undefined;
 		/** Effective text-box dims (§text-box model): the node's own `width`/`height` OR a
 		 * `boxWidth`/`boxHeight` param bound on it (the parametric Text Box). Undefined ⇒
-		 * auto-size. `autoFit` shrinks the font to the box height. */
+		 * auto-size. `autoFit` shrinks the font to the box height. `padding` insets the text
+		 * from the box edges (drives the wrap width + alignment + auto-fit target). */
 		boxWidth: number | undefined;
 		boxHeight: number | undefined;
+		padding: number | undefined;
 		autoFit: boolean;
 	}
 
-	/** Resolve a text node's effective box (bound `boxWidth`/`boxHeight`/`autoFit` param, else
-	 * the node's own transform width/height + `autoFit`). Mirrors `LayoutNodeView`. */
+	/** Resolve a text node's effective box (bound `boxWidth`/`boxHeight`/`padding`/`autoFit`
+	 * param, else the node's own transform width/height + `padding`/`autoFit`). Mirrors
+	 * `LayoutNodeView`. */
 	function textBoxOf(
 		node: Extract<LayoutNode, { kind: 'text' }>,
 		params: Record<string, unknown>,
-	): { boxWidth: number | undefined; boxHeight: number | undefined; autoFit: boolean } {
+	): {
+		boxWidth: number | undefined;
+		boxHeight: number | undefined;
+		padding: number | undefined;
+		autoFit: boolean;
+	} {
 		const bw = resolveBoundValue(node.paramBindings, 'width', params);
 		const bh = resolveBoundValue(node.paramBindings, 'height', params);
+		const bp = resolveBoundValue(node.paramBindings, 'padding', params);
 		const baf = resolveBoundValue(node.paramBindings, 'autoFit', params);
 		const t = resolveTransform(node, layoutType);
 		return {
 			boxWidth: typeof bw === 'number' ? bw : t.width,
 			boxHeight: typeof bh === 'number' ? bh : t.height,
+			padding: typeof bp === 'number' ? bp : node.padding,
 			autoFit: typeof baf === 'boolean' ? baf : node.autoFit === true,
 		};
 	}
@@ -330,6 +342,7 @@
 			// HUD bind anchors are containers, never a boxed text (box mode is text-only).
 			boxWidth: undefined,
 			boxHeight: undefined,
+			padding: undefined,
 			autoFit: false,
 		};
 	}
@@ -474,6 +487,15 @@
 			fontSize: style?.fontSize ?? 24,
 			align: style?.align ?? 'left',
 			letterSpacing: style?.letterSpacing ?? 0,
+			// Wrap to the box (the caller sets `wordWrapWidth` to the content width) so a boxed
+			// bitmap font breaks at the box edge exactly like a web font (parity).
+			...(style?.wordWrap
+				? {
+						wordWrap: true,
+						wordWrapWidth: style.wordWrapWidth ?? 100,
+						breakWords: style.breakWords ?? false,
+					}
+				: {}),
 			// Colour the glyphs through `style.fill`, EXACTLY like the game's
 			// `<BitmapText style={…} />`. A style object that omits `fill` makes PIXI
 			// default it to BLACK, which multiplies the baked glyphs to black no matter
@@ -562,6 +584,7 @@
 			style: rawStyle,
 			boxWidth: tBoxWidth,
 			boxHeight: tBoxHeight,
+			padding: tPadding,
 			autoFit: tAutoFit,
 		} of targets) {
 			// Leaf transform (framed when it IS the top-level node, else pure-local). Computed
@@ -580,11 +603,15 @@
 			const boxW = node.kind === 'text' && typeof tBoxWidth === 'number' ? tBoxWidth : 0;
 			const boxed = boxW > 0;
 			const boxH = tBoxHeight;
+			const pad = boxed ? Math.max(0, tPadding ?? 0) : 0;
+			const contentW = textBoxContentWidth(boxW, pad);
 			const autoFit = tAutoFit;
-			// The box does NOT auto-wrap (it's a positioning + auto-fit frame), so the object's
-			// measured width is the real content width — which the placement offset needs to
-			// right/centre-align. `boxW`/`boxed` still drive the box below.
-			const style = rawStyle;
+			// A boxed node with `wordWrap` on wraps its lines to the CONTENT width (box minus
+			// padding) — the SAME rule the runtime `<TextBox>` applies — so lines break at the box
+			// edge, not pixi's 100px default. Without wrap the object measures its real single-line
+			// width and the placement offset below right/centre-aligns it inside the box.
+			const style =
+				boxed && rawStyle?.wordWrap ? { ...rawStyle, wordWrapWidth: contentW } : rawStyle;
 
 			const font = findFont(
 				{ prefix: '', fonts: [...fontsById.values()] } as FontCatalog,
@@ -629,6 +656,7 @@
 					baseFontSize,
 					boxWidth: boxW,
 					boxHeight: boxH,
+					padding: pad,
 				});
 				obj = buildAt(fitted);
 			}
@@ -661,6 +689,7 @@
 				const place = textBoxPlacement({
 					boxWidth: boxW,
 					boxHeight: boxH,
+					padding: pad,
 					anchorX: leafT.anchor?.x ?? 0,
 					anchorY: leafT.anchor?.y ?? 0,
 					align: rawStyle?.align,

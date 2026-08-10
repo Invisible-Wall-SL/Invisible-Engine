@@ -439,6 +439,18 @@
 			? boundAutoFit
 			: node.kind === 'text' && node.autoFit === true,
 	);
+	const boundPadding = $derived(
+		node.kind === 'text'
+			? resolveBoundValue(node.paramBindings, 'padding', componentParams)
+			: undefined,
+	);
+	const textPadding = $derived(
+		typeof boundPadding === 'number'
+			? boundPadding
+			: node.kind === 'text'
+				? node.padding
+				: undefined,
+	);
 	const textHasBox = $derived(typeof textBoxWidth === 'number' && textBoxWidth > 0);
 	// Sprite param bindings (§13.2): a `componentInstance` may drive a sprite's
 	// texture (`region`/`assetKey`) + `tint` from params, so ONE prefab renders a
@@ -887,6 +899,7 @@
 				format={formatValue}
 				boxWidth={textHasBox ? textBoxWidth : undefined}
 				boxHeight={textBoxHeight}
+				padding={textPadding}
 				autoFit={textAutoFit}
 			/>
 		{:else if textHasBox}
@@ -909,6 +922,7 @@
 				style={resolvedStyle}
 				boxWidth={textBoxWidth ?? 0}
 				boxHeight={textBoxHeight}
+				padding={textPadding}
 				autoFit={textAutoFit}
 				x={posX}
 				y={posY}

@@ -12,6 +12,8 @@
 		 * when a box exists); `boxHeight` is optional (drives vertical align + auto-fit). */
 		boxWidth: number;
 		boxHeight: number | undefined;
+		/** Inset from every box edge; text wraps/aligns/fits inside `box - 2·padding`. */
+		padding: number | undefined;
 		autoFit: boolean;
 		x: number;
 		y: number;
@@ -27,13 +29,14 @@
 	import { Container } from 'pixi-svelte';
 
 	import CatalogText from './CatalogText.svelte';
-	import { textBoxPlacement } from './textBoxLayout';
+	import { textBoxContentHeight, textBoxContentWidth, textBoxPlacement } from './textBoxLayout';
 
 	const {
 		text,
 		style,
 		boxWidth,
 		boxHeight,
+		padding,
 		autoFit,
 		x,
 		y,
@@ -45,6 +48,12 @@
 	}: Props = $props();
 
 	const baseFontSize = $derived(style?.fontSize ?? 24);
+	// The room text actually occupies after `padding` is removed from the box edges — the wrap
+	// width, the auto-fit target, and what alignment measures against (see `textBoxLayout`).
+	const contentWidth = $derived(textBoxContentWidth(boxWidth, padding));
+	const contentHeight = $derived(
+		boxHeight === undefined ? undefined : textBoxContentHeight(boxHeight, padding),
+	);
 
 	// The font size we actually render at. Auto-fit shrinks it from `baseFontSize` via the
 	// measure feedback below (`onresize`); it is NEVER grown past the base. Reset to the base
@@ -56,8 +65,8 @@
 	// font so the first frame (before a measurement lands) is already close.
 	let measuredHeight = $state(baseFontSize);
 	// Rendered block WIDTH — drives the horizontal-alignment offset (right/centre reach the box
-	// edges). Defaults to the box width so the first frame is close before a measurement lands.
-	let measuredWidth = $state(boxWidth);
+	// edges). Defaults to the content width so the first frame is close before a measurement lands.
+	let measuredWidth = $state(textBoxContentWidth(boxWidth, padding));
 
 	// Reset the auto-fit search on any fit-affecting input change. Reads ONLY the inputs (not
 	// `fitFontSize`), so it never fights the shrink loop below.
@@ -65,11 +74,13 @@
 		void text;
 		void boxWidth;
 		void boxHeight;
+		void padding;
 		void autoFit;
 		void baseFontSize;
 		void style?.fontFamily;
 		void style?.letterSpacing;
 		void style?.lineHeight;
+		void style?.wordWrap;
 		fitFontSize = baseFontSize;
 	});
 
@@ -77,26 +88,30 @@
 	function onresize(size: Sizes): void {
 		measuredHeight = size.height;
 		measuredWidth = size.width;
-		if (!autoFit || boxHeight === undefined) return;
-		const overflow = size.height > boxHeight + 0.5 || size.width > boxWidth + 0.5;
+		if (!autoFit || contentHeight === undefined) return;
+		const overflow = size.height > contentHeight + 0.5 || size.width > contentWidth + 0.5;
 		if (!overflow || fitFontSize <= MIN_FONT) return;
-		const wRatio = size.width > 0 ? boxWidth / size.width : 1;
-		const hRatio = size.height > 0 ? boxHeight / size.height : 1;
+		const wRatio = size.width > 0 ? contentWidth / size.width : 1;
+		const hRatio = size.height > 0 ? contentHeight / size.height : 1;
 		const ratio = Math.min(1, wRatio, hRatio);
 		const next = Math.max(MIN_FONT, Math.floor(fitFontSize * (ratio >= 0.999 ? 0.9 : ratio)));
 		if (next < fitFontSize) fitFontSize = next; // re-renders → onresize fires again → converges
 	}
 
-	// Wrap the lines to the box width + align them within it, at the fitted font size. Merged
-	// OVER the resolved style so the author's font/fill/stroke/verticalAlign pass through.
+	// Wrap the lines to the CONTENT width (box minus padding) + align them within it, at the
+	// fitted font size. `wordWrap` on ⇒ pixi wraps to `wordWrapWidth`; the box drives that width
+	// so lines break at the box edge instead of pixi's 100px default. Merged OVER the resolved
+	// style so the author's font/fill/stroke/verticalAlign pass through.
 	const boxStyle = $derived({
 		...(style ?? {}),
 		fontSize: fitFontSize,
+		...(style?.wordWrap ? { wordWrapWidth: contentWidth } : {}),
 	});
 	const placement = $derived(
 		textBoxPlacement({
 			boxWidth,
 			boxHeight,
+			padding,
 			anchorX: anchor?.x ?? 0,
 			anchorY: anchor?.y ?? 0,
 			align: style?.align,
