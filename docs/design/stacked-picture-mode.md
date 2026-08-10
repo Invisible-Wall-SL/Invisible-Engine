@@ -125,6 +125,14 @@ per-project hardcode. Test data only — no protocol change; the default (mode-o
 
 ## Known issues
 
+- **Win presentation hung on a covered cell — FIXED (2026-08-10).** A paying line crossing a stacked
+  run stalled: `ReelSymbol` mounts no `<Symbol>` for a cell in `stackedCoverage()`, so its
+  `oncomplete` never fired, and `Board.svelte`'s `boardWithAnimateSymbols` awaited it forever. The
+  round's per-win narration froze on the first such line (only a tap's `roundSkip` forced it on) and
+  the resting win-cycle (no skip token) stuck on it permanently. Fix: a covered cell holds a fixed
+  win beat (`STACKED_WIN_HOLD_MS`) instead of awaiting an animation that can't complete — its win
+  visual is the tall picture, not a per-icon spine. Non-stacked games have an empty coverage set ⇒
+  every cell awaits the spine exactly as before.
 - **1-tile snap at the roll↔settle boundary.** The scrolling scan reads the whole reel array (so tall
   blocks can roll) while the settled scan reads only the visible window (`1..numRows`, excluding the top
   padding row). When the padding row above a result matches that result's symbol, the scrolling scan

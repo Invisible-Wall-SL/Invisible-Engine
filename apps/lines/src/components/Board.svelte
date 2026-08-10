@@ -19,11 +19,12 @@
 </script>
 
 <script lang="ts">
-	import { waitForResolve } from 'utils-shared/wait';
+	import { waitForResolve, waitForTimeout } from 'utils-shared/wait';
 	import { BoardContext } from 'components-shared';
 
 	import { getContext } from '../game/context';
 	import { winLineColorForPositions } from '../game/winSymbolCycle';
+	import { stackedCoverage, winDimCellKey } from '../game/stateGame.svelte';
 	import BoardContainer from './BoardContainer.svelte';
 	import BoardMask from './BoardMask.svelte';
 	import BoardBase from './BoardBase.svelte';
@@ -31,6 +32,11 @@
 	import StackedPictures from './StackedPictures.svelte';
 
 	const context = getContext();
+
+	/** The win beat a stacked-picture cell holds in place of a per-icon win spine (its `<Symbol>` is
+	 *  never mounted, so there is no `oncomplete` to await). A readable minimum so the win still lands
+	 *  even when a paying line is entirely covered by stacked runs. */
+	const STACKED_WIN_HOLD_MS = 650;
 
 	let show = $state(true);
 
@@ -45,12 +51,24 @@
 			// win that owns these cells so a `winLine`-tinted frame still resolves. See the coded resting
 			// cycle — same `win.meta.lineIndex` source — for the reliable path this mirrors.
 			const color = winLineColor ?? winLineColorForPositions(symbolPositions);
+			// A cell hidden under a stacked picture mounts no `<Symbol>` (`ReelSymbol` skips it so the tall
+			// picture doesn't double with the icons it replaces), so its `oncomplete` would NEVER fire and
+			// awaiting it hangs the whole win presentation — the round's per-win narration stalls on the
+			// first paying line that crosses a stacked run, and the resting win-cycle (no skip token) sticks
+			// on it forever. The stacked-picture mode's win beat is the tall picture itself, not a per-icon
+			// win spine, so a covered cell holds a fixed beat instead of awaiting an animation that can't
+			// complete. Off / non-stacked games have an empty coverage set ⇒ every cell awaits as before.
+			const covered = stackedCoverage();
 			const getPromises = () =>
 				symbolPositions.map(async (position) => {
 					const reelSymbol = context.stateGame.board[position.reel].reelState.symbols[position.row];
 					reelSymbol.winLineColor = color;
 					reelSymbol.symbolState = 'win';
-					await waitForResolve((resolve) => (reelSymbol.oncomplete = resolve));
+					if (covered.has(winDimCellKey(position.reel, position.row))) {
+						await waitForTimeout(STACKED_WIN_HOLD_MS);
+					} else {
+						await waitForResolve((resolve) => (reelSymbol.oncomplete = resolve));
+					}
 					reelSymbol.symbolState = 'postWinStatic';
 					reelSymbol.winLineColor = undefined;
 				});
