@@ -336,6 +336,10 @@ const anticipationTierFxSchema = z
 const anticipationSchema = z
 	.object({
 		spineKey: z.string().min(1).optional(),
+		// The overlay animation SET — the base name the engine appends `_intro`/`_loop`/`_out` to (e.g.
+		// `anticipation3`). Unset ⇒ the coded unnumbered `anticipation_*` set. Free-form (a spine's
+		// animation base), so no enum coupling to a specific rig's variant count.
+		animationSet: z.string().min(1).optional(),
 		// GLOBAL authored sound names (one sting + one loop for the whole mode), not per-tier. Unset ⇒
 		// the coded `sfx_anticipation_start` / `sfx_anticipation`. Free-form strings (a game's audiosprite
 		// key) — an unknown name is declined silently in-game, so no enum coupling to a game's sound set.
@@ -473,6 +477,7 @@ function pruneAnticipation(anticipation: SymbolsDoc['anticipation']): SymbolsDoc
 	if (!anticipation) return undefined;
 	const next: NonNullable<SymbolsDoc['anticipation']> = {};
 	if (anticipation.spineKey) next.spineKey = anticipation.spineKey;
+	if (anticipation.animationSet) next.animationSet = anticipation.animationSet;
 	if (anticipation.activationSound) next.activationSound = anticipation.activationSound;
 	if (anticipation.loopSound) next.loopSound = anticipation.loopSound;
 	const tiers: NonNullable<NonNullable<SymbolsDoc['anticipation']>['tiers']> = {};

@@ -243,6 +243,10 @@ export interface AnticipationTierFx {
  *  `anticipationSchema`. */
 export interface AnticipationConfig {
 	spineKey?: string;
+	/** The overlay animation SET — the base name the engine appends `_intro`/`_loop`/`_out` to
+	 *  (e.g. `anticipation3` → `anticipation3_intro/_loop/_out`). Lets the author pick among the spine's
+	 *  differently-sized anticipations. Absent ⇒ the coded unnumbered `anticipation_*` set. */
+	animationSet?: string;
 	/** GLOBAL authored sound names — one activation STING + one LOOP for the whole mode (NOT per-tier).
 	 *  Absent ⇒ the game's coded `sfx_anticipation_start` / `sfx_anticipation`. */
 	activationSound?: string;
@@ -449,6 +453,7 @@ function pruneAnticipation(config: AnticipationConfig | undefined): Anticipation
 	if (!config) return undefined;
 	const next: AnticipationConfig = {};
 	if (config.spineKey) next.spineKey = config.spineKey;
+	if (config.animationSet) next.animationSet = config.animationSet;
 	if (config.activationSound) next.activationSound = config.activationSound;
 	if (config.loopSound) next.loopSound = config.loopSound;
 	// Per-tier fields survive the generic Object.entries filter below (blank/undefined dropped), so a new
@@ -495,6 +500,19 @@ export function setAnticipationSpineKey(doc: SymbolsDoc, spineKey: string | unde
 	const config: AnticipationConfig = { ...(doc.anticipation ?? {}) };
 	if (spineKey) config.spineKey = spineKey;
 	else delete config.spineKey;
+	return withAnticipation(doc, config);
+}
+
+/** Set (or, with an empty/undefined base, clear) the overlay ANIMATION SET — the base name the engine
+ *  appends `_intro`/`_loop`/`_out` to. Clearing resets to the coded unnumbered `anticipation_*` set.
+ *  New doc. */
+export function setAnticipationAnimationSet(
+	doc: SymbolsDoc,
+	animationSet: string | undefined,
+): SymbolsDoc {
+	const config: AnticipationConfig = { ...(doc.anticipation ?? {}) };
+	if (animationSet) config.animationSet = animationSet;
+	else delete config.animationSet;
 	return withAnticipation(doc, config);
 }
 
@@ -972,6 +990,7 @@ export function docSignature(doc: SymbolsDoc): string {
 	const anticipation = doc.anticipation
 		? {
 				spineKey: doc.anticipation.spineKey ?? null,
+				animationSet: doc.anticipation.animationSet ?? null,
 				activationSound: doc.anticipation.activationSound ?? null,
 				loopSound: doc.anticipation.loopSound ?? null,
 				tiers: doc.anticipation.tiers

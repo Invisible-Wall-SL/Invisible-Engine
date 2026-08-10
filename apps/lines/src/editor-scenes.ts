@@ -250,6 +250,12 @@ type BakedBundle = {
 		 * `overlayTint` is a `#rrggbb` hex; the reader converts it to `0xRRGGBB`. */
 		anticipation?: {
 			spineKey?: string;
+			/** The overlay animation SET — the base name the engine appends `_intro`/`_loop`/`_out` to
+			 *  (`resolveAnticipationAnimationBase`). Lets the author pick among a spine's
+			 *  differently-sized anticipations (e.g. `anticipation3` → `anticipation3_intro/_loop/_out`).
+			 *  Absent ⇒ the coded `anticipation` set (the unnumbered `anticipation_intro/_loop/_out`),
+			 *  so an un-authored project is byte-identical. */
+			animationSet?: string;
 			/** Authored activation-STING / LOOP sound names (Invisible Symbols State Machine). Global,
 			 *  not per-tier — one sting + one loop for the whole mode. Absent ⇒ the coded
 			 *  `sfx_anticipation_start` / `sfx_anticipation` (`resolveActivationSound`/`resolveLoopSound`),

@@ -157,6 +157,29 @@ Working on `main`:
     `.strict`/`.refine` rejections) + 3/3 over the real `pruneUnreachableEffects` (keep-set rescues the
     exact id only). ⏳ **Owner visual-verify** (auth-gated tool + needs a book into free spins with the
     special symbol on the board). **Book of Borut needs an `engine` submodule bump** to receive it.
+- **Selectable anticipation animation SET** (2026-08-10, default unset ⇒ byte-parity). Adds an
+  **Overlay animation** control to the `/symbols` Reel anticipation panel (between Overlay spine and
+  Activation sound): a dropdown of the resolved overlay spine's COMPLETE sets (a base whose
+  `_intro`/`_loop`/`_out` all exist — e.g. `anticipation1..4`; the unnumbered `anticipation` base is
+  the "Default" option), enumerated via a compact `SymbolSpinePreview` `onAnimations` (same mechanism
+  as highlight/glow); a free-text base input is the fallback when the spine can't be enumerated. Full
+  chain: client `symbols.client.ts` (`AnticipationConfig.animationSet` + `pruneAnticipation`
+  config-level allowlist + `setAnticipationAnimationSet` + `docSignature`) → `.strict` Zod
+  (`anticipationSchema.animationSet` + server `pruneAnticipation` allowlist) → export passes
+  `anticipation` VERBATIM (no field enumeration touched) → `editor-scenes` baked shape
+  (`anticipation.animationSet?`) → engine resolver `resolveAnticipationAnimationBase()` (authored ??
+  coded `anticipation`, `DEFAULT_ANTICIPATION_ANIMATION_BASE`). `Anticipation.svelte` now tracks a
+  `phase` (`intro`→`loop`→`out`) and derives the played name `${base}_${phase}` instead of the
+  hardcoded `anticipation_*` triple — un-authored ⇒ base `anticipation`, byte-identical. The dropdown
+  options come from `builtinSpineMeta(spineKey)?.animations` (a pure static read — NO WebGL context: a
+  first attempt used an always-mounted `SymbolSpinePreview` for `onAnimations`, but it lost the browser's
+  ~16-context cap to the page's other previews and rendered "no spine" ⇒ empty list ⇒ text fallback; the
+  static meta has none of that fragility). A swapped R2 `spineKey` isn't in the builtin meta ⇒ `[]` ⇒
+  free-text base input. **Verified live** in `/symbols` (test2, local dev): dropdown lists
+  Default + `anticipation1..4`, selecting `anticipation3` writes `doc.anticipation.animationSet`, flips
+  Save dirty + shows the "overridden" badge. Both engine (`lines`) build + launcher client compile green.
+  ⏳ Runtime play in-game needs an **engine runtime release** (shared `_runtime/lines`) + the online
+  project republished; **Book of Borut needs an `engine` submodule bump** to receive it.
 - **Reel-anticipation FX** (2026-08-05, reel-anticipation Phase 5, default OFF ⇒ byte-parity).
   Sparse doc-global `anticipation: { spineKey?, tiers?: Record<tierAlias, TierFx> }` — the editable
   twin of the engine's coded FX ramp. Each tier is a sparse
