@@ -123,19 +123,31 @@ still keeps the NAME as the clean fallback.
   clean `text`** (the written name), which the coded HTML `MessageToast` and any string reader keep.
 - **Render** — the info-bar `message` value source returns `richText ?? text`; `LayoutNodeView`'s
   text branch detects the sentinel (`hasInlineImage`) and renders `InlineImageText.svelte`, which
-  lays out text runs (`<CatalogText>`, measure-feedback widths like `TextBox`) + an aspect-preserving
-  `<Sprite>` per image on one centred line. The image token → texture key comes from a game-registered
-  resolver (`registerInlineImageResolver` in `Game.svelte`) mapping a symbol id → its STATIC sprite
-  `assetKey`; a spine/flipbook/unknown symbol returns undefined ⇒ the sentinel's `fallback` (the
-  name) renders as text. No sentinel (every existing message) ⇒ the unchanged plain path (parity).
+  lays out text runs (`<CatalogText>`, measure-feedback widths like `TextBox`) + the symbol per image
+  on one centred line. A game-registered resolver (`registerInlineImageResolver` in `Game.svelte`)
+  maps a symbol id → itself when the symbol exists (any type), else undefined ⇒ the sentinel's
+  `fallback` (the name) renders as text. No sentinel (every existing message) ⇒ the unchanged plain
+  path (parity).
+- **The image is drawn by the GAME, not a `<Sprite>` (fixed 2026-08-10).** The first cut resolved a
+  symbol → its static sprite `assetKey` and drew a `<Sprite>` — which only works for sprite symbols.
+  The **high-paying symbols are SPINE animations**, so they fell back to the name (the reported bug:
+  "You win $0.50 with 2Cowboys", name as text, space swallowed). Now `InlineImageText` mounts a
+  game bound component (`INLINE_IMAGE_BOUND_COMPONENT` = `messageSymbol`, `MessageSymbol.svelte`) that
+  renders the symbol through the SAME `<Symbol>` state machine the board uses — sprite, spine AND
+  flipbook — scaled by `size / SYMBOL_SIZE` (preserving the board's sprite↔spine visual match). The
+  engine layer can't reach `<Symbol>`, hence the delegation; same pattern as `ExpandingSymbol`. Each
+  image sits in a fixed square slot + side margin, because the template's space around the token is
+  trimmed off the adjacent text runs (pixi drops boundary whitespace) and the symbol would otherwise
+  butt the words ("2🐄") — that margin is the space-swallow fix.
 - **Travel** — pure boolean on the win-text doc, so it rides the existing bake + runtime-bundle
   wiring verbatim (both paths embed the doc).
 - **Verified offline** — Node fixtures over the built modules: sentinel round-trip
   (`wrapInlineImage`/`parse`/`strip`/`hasInlineImage`), `resolveWinText.toast.symbolAsImage`
   default-off/resolve-on, and `formatWinText` emitting the sentinel. `engine-layout` + `lines` +
-  `launcher-api` all build. **⏳ Owner: visual-verify the live render** (image size factor 1.1× and
-  vertical alignment) with the toggle on in a real project — needs a baked doc, which can't be flipped
-  offline.
+  `launcher-api` all build. `apps/lines` static states are SPRITES, so the spine path can't be
+  exercised there — it's proven by the identical `ExpandingSymbol` usage. **⏳ Owner: visual-verify
+  the live render** (symbol size + vertical alignment + spacing) with the toggle on in a real project
+  (needs a baked doc, which can't be flipped offline).
 
 ### Two findings that shaped the build
 1. **`winLevelMap[].text` is DEAD DATA** — nothing reads it. The tier words players see are
@@ -169,6 +181,13 @@ still keeps the NAME as the clean fallback.
 - Nothing.
 
 ## Recent changes
+- 2026-08-10 — **symbol-as-image: spine symbols now render** (bug fix on the same-day feature). The
+  first cut drew a `<Sprite>` from the static sprite `assetKey`, so spine high symbols fell back to
+  the name ("2Cowboys"). Now `InlineImageText` mounts a game bound component (`messageSymbol` /
+  `MessageSymbol.svelte`) that renders any symbol type via `<Symbol>`, scaled to text size; added a
+  side margin per image to restore the space the text runs trim. Files: `MessageSymbol.svelte` (new),
+  `InlineImageText.svelte`, `registerInlineImage.ts` (`INLINE_IMAGE_BOUND_COMPONENT`), `Game.svelte`
+  (resolver + registration). `engine-layout` + `lines` build.
 - 2026-08-10 — **symbol-as-image toast toggle** (`toast.symbolAsImage`): the info-bar win toast can
   render the paying symbol's sprite instead of its name, sized to the text. New engine-layout
   `inlineImage.ts` (sentinel) + `registerInlineImage.ts` + `InlineImageText.svelte`; `LayoutNodeView`
