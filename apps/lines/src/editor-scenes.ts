@@ -256,6 +256,11 @@ type BakedBundle = {
 			 *  Absent ⇒ the coded `anticipation` set (the unnumbered `anticipation_intro/_loop/_out`),
 			 *  so an un-authored project is byte-identical. */
 			animationSet?: string;
+			/** The per-reel overlay box size, in CELLS (1 = one symbol). The engine scales the chosen
+			 *  animation to fit this box, so a taller box renders a full-column anticipation at size
+			 *  instead of squeezed into the coded beam. Absent ⇒ the coded `0.56 × 1.6` beam. */
+			overlayWidthCells?: number;
+			overlayHeightCells?: number;
 			/** Authored activation-STING / LOOP sound names (Invisible Symbols State Machine). Global,
 			 *  not per-tier — one sting + one loop for the whole mode. Absent ⇒ the coded
 			 *  `sfx_anticipation_start` / `sfx_anticipation` (`resolveActivationSound`/`resolveLoopSound`),

@@ -340,6 +340,10 @@ const anticipationSchema = z
 		// `anticipation3`). Unset ⇒ the coded unnumbered `anticipation_*` set. Free-form (a spine's
 		// animation base), so no enum coupling to a specific rig's variant count.
 		animationSet: z.string().min(1).optional(),
+		// The per-reel overlay box size in CELLS (positive). Unset ⇒ the coded `0.56 × 1.6` beam. The
+		// engine scales the chosen animation to fit, so a taller box shows a full-column anticipation.
+		overlayWidthCells: z.number().positive().optional(),
+		overlayHeightCells: z.number().positive().optional(),
 		// GLOBAL authored sound names (one sting + one loop for the whole mode), not per-tier. Unset ⇒
 		// the coded `sfx_anticipation_start` / `sfx_anticipation`. Free-form strings (a game's audiosprite
 		// key) — an unknown name is declined silently in-game, so no enum coupling to a game's sound set.
@@ -478,6 +482,10 @@ function pruneAnticipation(anticipation: SymbolsDoc['anticipation']): SymbolsDoc
 	const next: NonNullable<SymbolsDoc['anticipation']> = {};
 	if (anticipation.spineKey) next.spineKey = anticipation.spineKey;
 	if (anticipation.animationSet) next.animationSet = anticipation.animationSet;
+	if (typeof anticipation.overlayWidthCells === 'number' && anticipation.overlayWidthCells > 0)
+		next.overlayWidthCells = anticipation.overlayWidthCells;
+	if (typeof anticipation.overlayHeightCells === 'number' && anticipation.overlayHeightCells > 0)
+		next.overlayHeightCells = anticipation.overlayHeightCells;
 	if (anticipation.activationSound) next.activationSound = anticipation.activationSound;
 	if (anticipation.loopSound) next.loopSound = anticipation.loopSound;
 	const tiers: NonNullable<NonNullable<SymbolsDoc['anticipation']>['tiers']> = {};

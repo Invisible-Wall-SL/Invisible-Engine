@@ -43,6 +43,7 @@
 		SymbolsConflictError,
 		setAnticipationActivationSound,
 		setAnticipationAnimationSet,
+		setAnticipationOverlayCells,
 		setAnticipationLoopSound,
 		setAnticipationSpineKey,
 		setAnticipationTierFx,
@@ -988,6 +989,11 @@
 
 	function setAnticipationAnimation(base: string): void {
 		doc = setAnticipationAnimationSet(doc, base || undefined);
+	}
+
+	function setAnticipationOverlaySize(axis: 'width' | 'height', raw: string): void {
+		const n = parseFloat(raw);
+		doc = setAnticipationOverlayCells(doc, axis, Number.isFinite(n) && n > 0 ? n : undefined);
 	}
 
 	function setAnticipationActivation(name: string): void {
@@ -2241,6 +2247,40 @@
 									(e.g. <code>anticipation3</code> → <code>anticipation3_intro</code>). The
 									unnumbered
 									<code>anticipation</code> is the game's default.
+								</span>
+							</div>
+
+							<div class="field">
+								<span class="label">Overlay size (cells)</span>
+								<div class="ant-size">
+									<label>
+										<span>Width</span>
+										<input
+											type="number"
+											min="0.1"
+											step="0.1"
+											placeholder="0.56"
+											value={doc.anticipation?.overlayWidthCells ?? ''}
+											oninput={(e) => setAnticipationOverlaySize('width', e.currentTarget.value)}
+										/>
+									</label>
+									<label>
+										<span>Height</span>
+										<input
+											type="number"
+											min="0.1"
+											step="0.1"
+											placeholder="1.6"
+											value={doc.anticipation?.overlayHeightCells ?? ''}
+											oninput={(e) => setAnticipationOverlaySize('height', e.currentTarget.value)}
+										/>
+									</label>
+								</div>
+								<span class="wl-note">
+									The overlay box the animation is scaled to fit, in cells (1 = one symbol). The
+									coded default is a narrow beam (<code>0.56 × 1.6</code>); for a full-column
+									anticipation set the height to your reel's row count (e.g. <code>5</code>) and the
+									width to about <code>1</code>. Leave blank to keep the coded beam.
 								</span>
 							</div>
 
@@ -3514,6 +3554,22 @@
 		width: 100%;
 		accent-color: #5b8cff;
 	}
+	/* Overlay size: two compact labelled number inputs side by side. */
+	.ant-size {
+		display: flex;
+		gap: 12px;
+	}
+	.ant-size label {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		font-size: 12px;
+		color: var(--muted, #8a8f98);
+	}
+	.ant-size input {
+		width: 90px;
+	}
+
 	/* Reel-anticipation tiers: one side-by-side column per configured big-win tier (auto-fit). */
 	.ant-tiers {
 		display: grid;
