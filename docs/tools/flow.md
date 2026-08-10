@@ -96,9 +96,11 @@ Choose **where** it appears with **Placement**:
 
 - **Info bar** (default) — routes the text through the game's shared **message line**, the exact
   place win messages and other toasts already appear. It looks and sits like every other message.
-  This is a single slot, so the latest message wins (a win toast can replace it). *This is what you
-  want for a "Good luck"-style message* — it reuses the node for normal in-game messaging.
-  *(Requires the game's HUD to have a message/info-bar component — the same one win messages use.)*
+  This is a single slot, so a state-gated info-bar message (e.g. a "press spin" prompt set to
+  **Visible while: Idle**) acts as the bar's **resting text**: it shows only when the bar is
+  otherwise empty and yields automatically to win presentation — so a standing prompt appears only
+  when the game is completely idle, never on top of a win message. *(Requires the game's HUD to have
+  a message/info-bar component — the same one win messages use.)*
 - **Fixed position** — draws the text as its own overlay at the **Anchor X/Y** (0–1 fractions of
   the screen). Use it for a persistent, specifically-placed prompt that shouldn't share the single
   slot — e.g. a standing *"Click spin button to start"* centered above the buttons. Pick a **Font**

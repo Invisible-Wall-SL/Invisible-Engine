@@ -10,10 +10,11 @@
 	 * A node's `placement` picks WHERE it draws:
 	 *  - `'infoBar'` (default) — routed through the game's SHARED single-slot message channel
 	 *    (`showMessage`/`stateMessage`), the exact slot win toasts + other messages use, so it looks
-	 *    and sits identically. Only ONE message occupies that slot: the last visible info-bar node
-	 *    wins, and we only ever CLEAR the slot when we're the one holding it (never wipe a win toast we
-	 *    didn't set). A simultaneous win toast can still replace an info-bar message — that is the
-	 *    single-slot's nature, matching every other producer.
+	 *    and sits identically. Priority within that one slot: an EXPLICIT (Show-driven, `messageShown`)
+	 *    message claims it; a STATE-GATED message (`visibleWhile`) is the bar's AMBIENT/resting text and
+	 *    fills the slot only when nothing else holds it — it yields to a win toast (tracked by
+	 *    `stateMessage.current.id`) and refills when the slot clears. We only ever CLEAR a slot we still
+	 *    hold. So a "press spin" prompt reads as "only while the game is completely idle".
 	 *  - `'anchor'` — an INDEPENDENT `<Text>` overlay at the node's normalized `place`, inside the MAIN
 	 *    design canvas so it lands at the same spot across layouts. Use for a persistent / positioned
 	 *    prompt that must not share the single slot.
@@ -26,7 +27,7 @@
 	import { getContextLayout } from 'utils-layout';
 	import { resolveLocalizedText } from 'engine-layout';
 	import { CatalogText } from 'engine-layout/svelte';
-	import { clearMessage, showMessage } from 'state-shared';
+	import { clearMessage, showMessage, stateMessage } from 'state-shared';
 	import type { TextMessageNode } from 'engine-flow-v2';
 
 	import { stateXstateDerived } from '../game/stateXstate';
@@ -78,29 +79,49 @@
 		(flow?.textMessages ?? []).filter((n) => placementOf(n) === 'anchor'),
 	);
 
-	// The info-bar message to occupy the shared slot RIGHT NOW: the LAST authored visible one (a later
-	// node overrides an earlier — a stable, order-based single-slot priority).
-	const activeInfoBar = $derived.by<TextMessageNode | undefined>(() => {
-		let pick: TextMessageNode | undefined;
-		for (const n of flow?.textMessages ?? []) {
-			if (placementOf(n) === 'infoBar' && isVisible(n)) pick = n;
-		}
-		return pick;
-	});
+	// Which info-bar messages want the shared slot right now, split by PRIORITY:
+	//  - EXPLICIT: raised by a `show` exec (`messageShown`) — an author fired it deliberately, so it
+	//    claims the slot (last one wins).
+	//  - AMBIENT: shown only by a state gate (`visibleWhile`, e.g. "while idle") — the info bar's
+	//    RESTING text ("Click spin button to start"). It fills the slot ONLY when nothing else holds
+	//    it, and never overwrites a win toast or an explicit message. This is what makes a standing
+	//    "press spin" prompt read as "only while the game is completely idle": the moment the game
+	//    puts a win message in the bar, the resting text yields; when the bar clears and the game is at
+	//    rest again, it returns.
+	const infoBarChoice = $derived.by<{ explicit?: TextMessageNode; ambient?: TextMessageNode }>(
+		() => {
+			let explicit: TextMessageNode | undefined;
+			let ambient: TextMessageNode | undefined;
+			for (const n of flow?.textMessages ?? []) {
+				if (placementOf(n) !== 'infoBar') continue;
+				if (flow?.messageShown(n.id)) explicit = n;
+				else if (gateMatches(n.visibleWhile)) ambient = n;
+			}
+			return { explicit, ambient };
+		},
+	);
 
-	// Drive the shared message slot from `activeInfoBar`. `ownsSlot` is a plain (non-reactive) flag so
-	// writing it never re-triggers this effect; it guards the clear so we never wipe a message some
-	// OTHER producer (a win toast) put in the slot. `durationMs:0` = hold until we replace/clear it —
-	// the node's own `visibleWhile` gate / `autoHideMs` (via `messageShown`) decides when that is.
-	let ownsSlot = false;
+	// Drive the shared message slot. `lastSetId` is the `stateMessage` id WE last wrote (ids are
+	// monotonic per `showMessage`), so `weHold` tells whether the slot still carries our message or an
+	// external producer (a win toast) has taken it — the ambient/resting message defers to that, and we
+	// only ever CLEAR a slot we still hold. `durationMs:0` = hold until we replace/clear it.
+	let lastSetId = -1;
 	$effect(() => {
-		const node = activeInfoBar;
-		if (node) {
-			showMessage(resolveLocalizedText(node.text), { durationMs: 0 });
-			ownsSlot = true;
-		} else if (ownsSlot) {
-			clearMessage();
-			ownsSlot = false;
+		const current = stateMessage.current; // track external changes (win toasts, etc.)
+		const { explicit, ambient } = infoBarChoice;
+		const weHold = current !== null && current.id === lastSetId;
+		// Explicit claims the slot; ambient only fills it when nothing external is already there.
+		let want = explicit;
+		if (!want && ambient && !(current !== null && !weHold)) want = ambient;
+		if (!want) {
+			if (weHold) clearMessage();
+			lastSetId = -1;
+			return;
+		}
+		const text = resolveLocalizedText(want.text);
+		if (!weHold || current?.text !== text) {
+			showMessage(text, { durationMs: 0 });
+			lastSetId = stateMessage.current?.id ?? -1;
 		}
 	});
 </script>
