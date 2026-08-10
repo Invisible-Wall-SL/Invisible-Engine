@@ -1540,8 +1540,10 @@ export const FEATURE_CARD_DEF: ComponentDef = {
 		// The panel background frame (atlas region) + tint — the owner's tile art.
 		{ key: 'panelImage', kind: 'image', group: 'Panel', label: 'panel frame' },
 		{ key: 'panelTint', kind: 'color', default: HUD_FILL, group: 'Panel', label: 'tint' },
-		// The optional bezel behind the icon (atlas region). Empty ⇒ no bezel (parity).
-		{ key: 'iconFrameImage', kind: 'image', group: 'Icon', label: 'icon frame' },
+		// The card's main image behind/around the icon (atlas region). Empty ⇒ nothing (parity).
+		// Key stays `iconFrameImage` so existing authored `cardParams` keep resolving; only the
+		// author-facing LABEL is renamed to reflect how it's used (the card's primary picture).
+		{ key: 'iconFrameImage', kind: 'image', group: 'Icon', label: 'card main image' },
 		// The optional animated spine accent over the icon: the rig bundle (picker → bundle name),
 		// its animation (dropdown of the picked rig's animations), and whether it loops. Empty
 		// `spineKey` ⇒ no rig renders (parity).
