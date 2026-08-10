@@ -43,6 +43,7 @@
 		SymbolsConflictError,
 		setAnticipationActivationSound,
 		setAnticipationAnimationSet,
+		setAnticipationOverlayCells,
 		setAnticipationLoopSound,
 		setAnticipationSpineKey,
 		setAnticipationTierFx,
@@ -963,9 +964,10 @@
 	const anticipationSpineKey = $derived(doc.anticipation?.spineKey || 'anticipation');
 	const anticipationAnimations = $derived(builtinSpineMeta(anticipationSpineKey)?.animations ?? []);
 	/** The COMPLETE animation SETS the resolved spine exposes — a base whose `_intro`/`_loop`/`_out` all
-	 *  exist (the engine chains all three). The unnumbered `anticipation` base is dropped: the dropdown's
-	 *  "Default" option already covers it. Empty (spine not enumerated) ⇒ the field falls back to a
-	 *  free-text base input. */
+	 *  exist (the engine chains all three). The unnumbered `anticipation` base is KEPT and listed
+	 *  explicitly (it sorts first) — selecting it clears the override (= the coded default), so the author
+	 *  can pick it by name instead of guessing it hides behind a "Default" label. Empty (spine not
+	 *  enumerated) ⇒ the field falls back to a free-text base input. */
 	const anticipationSets = $derived.by(() => {
 		const names = new Set(anticipationAnimations);
 		const bases = new Set<string>();
@@ -974,7 +976,6 @@
 			const base = name.slice(0, -'_intro'.length);
 			if (names.has(`${base}_loop`) && names.has(`${base}_out`)) bases.add(base);
 		}
-		bases.delete('anticipation');
 		return [...bases].sort();
 	});
 
@@ -988,6 +989,11 @@
 
 	function setAnticipationAnimation(base: string): void {
 		doc = setAnticipationAnimationSet(doc, base || undefined);
+	}
+
+	function setAnticipationOverlaySize(axis: 'width' | 'height', raw: string): void {
+		const n = parseFloat(raw);
+		doc = setAnticipationOverlayCells(doc, axis, Number.isFinite(n) && n > 0 ? n : undefined);
 	}
 
 	function setAnticipationActivation(name: string): void {
@@ -2215,12 +2221,16 @@
 								<span class="label">Overlay animation</span>
 								{#if anticipationAnimations.length}
 									<select
-										value={doc.anticipation?.animationSet ?? ''}
-										onchange={(e) => setAnticipationAnimation(e.currentTarget.value)}
+										value={doc.anticipation?.animationSet ?? 'anticipation'}
+										onchange={(e) =>
+											setAnticipationAnimation(
+												e.currentTarget.value === 'anticipation' ? '' : e.currentTarget.value,
+											)}
 									>
-										<option value="">Default (anticipation_intro / _loop / _out)</option>
 										{#each anticipationSets as base (base)}
-											<option value={base}>{base}</option>
+											<option value={base}>
+												{base}{base === 'anticipation' ? ' (unnumbered — default)' : ''}
+											</option>
 										{/each}
 									</select>
 								{:else}
@@ -2234,9 +2244,43 @@
 								<span class="wl-note">
 									Which animation SET the overlay plays — a spine's differently-sized anticipations.
 									The game appends <code>_intro / _loop / _out</code>, so this is the base name
-									(e.g.
-									<code>anticipation3</code> → <code>anticipation3_intro</code>). Default plays the
-									unnumbered <code>anticipation_*</code>.
+									(e.g. <code>anticipation3</code> → <code>anticipation3_intro</code>). The
+									unnumbered
+									<code>anticipation</code> is the game's default.
+								</span>
+							</div>
+
+							<div class="field">
+								<span class="label">Overlay size (cells)</span>
+								<div class="ant-size">
+									<label>
+										<span>Width</span>
+										<input
+											type="number"
+											min="0.1"
+											step="0.1"
+											placeholder="0.56"
+											value={doc.anticipation?.overlayWidthCells ?? ''}
+											oninput={(e) => setAnticipationOverlaySize('width', e.currentTarget.value)}
+										/>
+									</label>
+									<label>
+										<span>Height</span>
+										<input
+											type="number"
+											min="0.1"
+											step="0.1"
+											placeholder="1.6"
+											value={doc.anticipation?.overlayHeightCells ?? ''}
+											oninput={(e) => setAnticipationOverlaySize('height', e.currentTarget.value)}
+										/>
+									</label>
+								</div>
+								<span class="wl-note">
+									The overlay box the animation is scaled to fit, in cells (1 = one symbol). The
+									coded default is a narrow beam (<code>0.56 × 1.6</code>); for a full-column
+									anticipation set the height to your reel's row count (e.g. <code>5</code>) and the
+									width to about <code>1</code>. Leave blank to keep the coded beam.
 								</span>
 							</div>
 
@@ -3510,6 +3554,22 @@
 		width: 100%;
 		accent-color: #5b8cff;
 	}
+	/* Overlay size: two compact labelled number inputs side by side. */
+	.ant-size {
+		display: flex;
+		gap: 12px;
+	}
+	.ant-size label {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		font-size: 12px;
+		color: var(--muted, #8a8f98);
+	}
+	.ant-size input {
+		width: 90px;
+	}
+
 	/* Reel-anticipation tiers: one side-by-side column per configured big-win tier (auto-fit). */
 	.ant-tiers {
 		display: grid;

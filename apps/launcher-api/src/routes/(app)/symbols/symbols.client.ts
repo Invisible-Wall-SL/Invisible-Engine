@@ -247,6 +247,11 @@ export interface AnticipationConfig {
 	 *  (e.g. `anticipation3` → `anticipation3_intro/_loop/_out`). Lets the author pick among the spine's
 	 *  differently-sized anticipations. Absent ⇒ the coded unnumbered `anticipation_*` set. */
 	animationSet?: string;
+	/** The per-reel overlay box size, in CELLS (1 = one symbol). The engine scales the chosen animation
+	 *  to fit, so a taller box shows a full-column anticipation instead of the coded beam. Absent ⇒ the
+	 *  coded `0.56 × 1.6` beam. */
+	overlayWidthCells?: number;
+	overlayHeightCells?: number;
 	/** GLOBAL authored sound names — one activation STING + one LOOP for the whole mode (NOT per-tier).
 	 *  Absent ⇒ the game's coded `sfx_anticipation_start` / `sfx_anticipation`. */
 	activationSound?: string;
@@ -454,6 +459,10 @@ function pruneAnticipation(config: AnticipationConfig | undefined): Anticipation
 	const next: AnticipationConfig = {};
 	if (config.spineKey) next.spineKey = config.spineKey;
 	if (config.animationSet) next.animationSet = config.animationSet;
+	if (typeof config.overlayWidthCells === 'number' && config.overlayWidthCells > 0)
+		next.overlayWidthCells = config.overlayWidthCells;
+	if (typeof config.overlayHeightCells === 'number' && config.overlayHeightCells > 0)
+		next.overlayHeightCells = config.overlayHeightCells;
 	if (config.activationSound) next.activationSound = config.activationSound;
 	if (config.loopSound) next.loopSound = config.loopSound;
 	// Per-tier fields survive the generic Object.entries filter below (blank/undefined dropped), so a new
@@ -513,6 +522,20 @@ export function setAnticipationAnimationSet(
 	const config: AnticipationConfig = { ...(doc.anticipation ?? {}) };
 	if (animationSet) config.animationSet = animationSet;
 	else delete config.animationSet;
+	return withAnticipation(doc, config);
+}
+
+/** Set (or, with a non-positive/undefined value, clear) an overlay box dimension in CELLS. Clearing
+ *  resets to the coded default (`0.56` wide / `1.6` tall). New doc. */
+export function setAnticipationOverlayCells(
+	doc: SymbolsDoc,
+	axis: 'width' | 'height',
+	cells: number | undefined,
+): SymbolsDoc {
+	const config: AnticipationConfig = { ...(doc.anticipation ?? {}) };
+	const key = axis === 'width' ? 'overlayWidthCells' : 'overlayHeightCells';
+	if (typeof cells === 'number' && cells > 0) config[key] = cells;
+	else delete config[key];
 	return withAnticipation(doc, config);
 }
 
@@ -991,6 +1014,8 @@ export function docSignature(doc: SymbolsDoc): string {
 		? {
 				spineKey: doc.anticipation.spineKey ?? null,
 				animationSet: doc.anticipation.animationSet ?? null,
+				overlayWidthCells: doc.anticipation.overlayWidthCells ?? null,
+				overlayHeightCells: doc.anticipation.overlayHeightCells ?? null,
 				activationSound: doc.anticipation.activationSound ?? null,
 				loopSound: doc.anticipation.loopSound ?? null,
 				tiers: doc.anticipation.tiers

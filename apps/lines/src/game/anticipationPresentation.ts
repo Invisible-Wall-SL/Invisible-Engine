@@ -239,19 +239,36 @@ export const boardCenterYWorld = (): number => stateGameDerived.boardLayout().y;
 
 /** The per-reel overlay spine's base box, as a fraction of ONE cell — the original coded beam
  *  proportions (a tall narrow glow, NOT the full column: the grey-out fills the column, the spine is a
- *  beam over it). Kept here (not in the component) so the geometry lives in one place; `fx.overlayScale`
- *  tunes it per tier. */
-const OVERLAY_WIDTH_CELLS = 0.56;
-const OVERLAY_HEIGHT_CELLS = 1.6;
+ *  beam over it). THE CODED DEFAULT: the author can override either via `anticipation.overlayWidthCells`
+ *  / `overlayHeightCells` (e.g. a full-column ~1×5 box for a 5-tile animation instead of this beam);
+ *  `fx.overlayScale` still multiplies on top per tier. */
+export const DEFAULT_OVERLAY_WIDTH_CELLS = 0.56;
+export const DEFAULT_OVERLAY_HEIGHT_CELLS = 1.6;
 
-/** The overlay spine's world-space WIDTH — `OVERLAY_WIDTH_CELLS` of the live cell width. Default board:
- *  `SYMBOL_SIZE · 0.56` — byte-identical to the original overlay (before it followed the board). */
-export const overlayBaseWidth = (): number => reelColumnWidth() * OVERLAY_WIDTH_CELLS;
+/** The overlay box size in CELLS = the authored `anticipation.overlayWidthCells`/`overlayHeightCells`
+ *  ?? the coded {@link DEFAULT_OVERLAY_WIDTH_CELLS}/{@link DEFAULT_OVERLAY_HEIGHT_CELLS}. A non-positive
+ *  authored value is ignored (falls back to the coded default), so a cleared/blank field never collapses
+ *  the overlay. The engine scales the chosen animation to fit this box, so a taller box renders a
+ *  full-column anticipation at its intended size instead of squeezed into the beam. */
+const resolveOverlayWidthCells = (): number => {
+	const v = bakedAnticipation()?.overlayWidthCells;
+	return typeof v === 'number' && v > 0 ? v : DEFAULT_OVERLAY_WIDTH_CELLS;
+};
+const resolveOverlayHeightCells = (): number => {
+	const v = bakedAnticipation()?.overlayHeightCells;
+	return typeof v === 'number' && v > 0 ? v : DEFAULT_OVERLAY_HEIGHT_CELLS;
+};
 
-/** The overlay spine's world-space HEIGHT — `OVERLAY_HEIGHT_CELLS` of the live cell height. Default
- *  board: `SYMBOL_SIZE · 1.6` — byte-identical to the original overlay. Scales with a resized cell
- *  instead of filling the whole column (which doubled the beam on a bigger board). */
+/** The overlay spine's world-space WIDTH — the resolved width-in-cells of the live cell width. Unset ⇒
+ *  `SYMBOL_SIZE · 0.56`, byte-identical to the original overlay (before it followed the board). */
+export const overlayBaseWidth = (): number => reelColumnWidth() * resolveOverlayWidthCells();
+
+/** The overlay spine's world-space HEIGHT — the resolved height-in-cells of the live cell height. Unset
+ *  ⇒ `SYMBOL_SIZE · 1.6`, byte-identical to the original overlay. Scales with a resized cell instead of
+ *  filling the whole column (which doubled the beam on a bigger board). */
 export const overlayBaseHeight = (): number => {
 	const layout = stateGameDerived.boardLayout();
-	return stateGameDerived.boardGeometry().cellHeightLocal * layout.scale * OVERLAY_HEIGHT_CELLS;
+	return (
+		stateGameDerived.boardGeometry().cellHeightLocal * layout.scale * resolveOverlayHeightCells()
+	);
 };
