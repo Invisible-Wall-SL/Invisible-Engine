@@ -3,6 +3,7 @@
 
 	import { Container } from 'pixi-svelte';
 	import { FadeContainer, ResponsiveBitmapText } from 'components-pixi';
+	import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 	import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 	import { MainContainer } from 'components-layout';
 	import { getComponentParams } from 'engine-layout/svelte';
@@ -70,7 +71,9 @@
 		spine: string;
 		animationMap?: { intro: string; idle: string; outro: string };
 	};
-	const resolveTierPresentation = (data: WinLevelData | undefined): TierPresentation | undefined => {
+	const resolveTierPresentation = (
+		data: WinLevelData | undefined,
+	): TierPresentation | undefined => {
 		if (!data) return undefined;
 		const alias = data.alias;
 		const conv = data.animation;
@@ -98,17 +101,30 @@
 	 * presents no spine). A single-element chain (the winning tier is the escalation start) still routes
 	 * through `WinAnimation`'s chain path, so its FINAL-tier outro plays on count-up completion.
 	 */
-	const escalationChain = $derived.by<WinAnimationStep[] | undefined>(() => {
+	const escalationTiers = $derived.by<
+		{ step: WinAnimationStep; boundaryAmount: number }[] | undefined
+	>(() => {
 		const level = winLevelData?.level;
 		if (level === undefined) return undefined;
 		const chain = activeWinLevelChain(level);
 		if (!chain) return undefined;
-		const steps = chain
-			.map((tier) => resolveTierPresentation(tier))
-			.filter((pres): pres is Required<TierPresentation> => !!pres?.animationMap)
-			.map((pres) => ({ key: pres.spine, slotName, animationMap: pres.animationMap }));
-		return steps.length ? steps : undefined;
+		const tiers = chain
+			.map((tier) => ({ tier, pres: resolveTierPresentation(tier) }))
+			.filter(
+				(entry): entry is { tier: WinLevelData; pres: Required<TierPresentation> } =>
+					!!entry.pres?.animationMap,
+			)
+			.map(({ tier, pres }) => ({
+				step: { key: pres.spine, slotName, animationMap: pres.animationMap },
+				// The count-up amount (book units) of this tier — `threshold × BOOK_AMOUNT_MULTIPLIER` (a book
+				// amount IS the win-as-bet-multiplier × that constant; `threshold` is that multiplier). The GATE
+				// SEEKS the count here on a tap; the tier WALK is idle-complete driven (not this), so the walk is
+				// robust to a fast/instant count-up.
+				boundaryAmount: (tier.threshold ?? 0) * BOOK_AMOUNT_MULTIPLIER,
+			}));
+		return tiers.length ? tiers : undefined;
 	});
+	const escalationChain = $derived(escalationTiers?.map((t) => t.step));
 
 	/**
 	 * The authored win-level caption (Invisible Win Text) for this tier, e.g. `big` → "BIG WIN",
@@ -134,6 +150,9 @@
 	// before (byte-identical). See `winState` + `WinGate.concludePresentation`.
 	$effect(() => {
 		winState.escalationActive = escalationChain !== undefined;
+		// Publish the rendered tiers' boundary amounts (chain order) so the GATE's tap-to-step can seek the
+		// count to the NEXT tier's amount. Empty when un-escalating (the gate then falls back to its slam).
+		winState.escalationBoundaries = escalationTiers?.map((t) => t.boundaryAmount) ?? [];
 	});
 
 	context.eventEmitter.subscribeOnMount({
@@ -159,6 +178,8 @@
 			key={activeSpine}
 			{slotName}
 			chain={escalationChain}
+			forceStep={winState.escalationForceStep}
+			onStepIndex={(i) => (winState.escalationStepIndex = i)}
 			countUpComplete={winState.countUpComplete}
 			speedScale={winState.escalationSpeedScale}
 			onOutroComplete={() => (winState.escalationOutroComplete = true)}

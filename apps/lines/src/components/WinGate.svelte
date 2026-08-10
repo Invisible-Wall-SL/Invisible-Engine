@@ -56,6 +56,14 @@
 		codedPressOwned || !holdToSpeedUp ? undefined : interactionSpeedScale,
 	);
 
+	// Whether a TAP steps the escalation tiers (vs. the coded slam). Drives the provider's `seekable`
+	// (so its count can be sought forward) AND gates `stepOrSkip`'s jump. Keyed off `tapToSkip`, which the
+	// `winUpdate` handler sets SYNCHRONOUSLY before this provider mounts — unlike `winState.escalationActive`
+	// (published by the visual in an effect a flush later), which could still be false when the count-up
+	// starts and freeze the provider on its single-tween path. Flow path only; a non-escalation win simply
+	// finds no boundary to step to and slams (byte-identical). `codedPressOwned` ⇒ the coded slam, untouched.
+	const canTapStep = $derived(!codedPressOwned && tapToSkip);
+
 	// Publish the live HOLD multiplier to the escalation chain, so `WinAnimation` speeds up the tier
 	// intro/idle spines in lockstep with the accelerating count-up (a smooth ramp, not a snap). 1 when
 	// hold-to-speed-up is off / the coded path / not held ⇒ the escalation runs at normal speed
@@ -73,6 +81,27 @@
 	// Guards `concludePresentation` against a double conclusion (OnMount + a post-count-up tap both
 	// route through it). Reset per win alongside the count-up latch.
 	let concluded = false;
+
+	/**
+	 * TAP on the escalation path — advance ONE tier instead of slamming. The tier WALK (idle-complete,
+	 * `WinAnimation`) is the clock and publishes the active tier as `winState.escalationStepIndex`; a tap
+	 * bumps `escalationForceStep` to jump the walk forward one tier, AND seeks the count to that tier's
+	 * amount (`escalationBoundaries`) so the number snaps to it and resumes. On the FINAL tier (no next
+	 * tier) it SLAMS instead (`finishCountUp` → land on the total, then the outro). Un-escalating ⇒ no
+	 * tiers ⇒ the slam every time (byte-identical tap-to-skip). Robust to a fast/instant count-up because
+	 * the stepping keys off the walk index, not the count value.
+	 */
+	function stepOrSkip(jumpTo: (target: number) => void, finish: () => void) {
+		const boundaries = winState.escalationBoundaries;
+		const idx = winState.escalationStepIndex;
+		const next = idx + 1;
+		if (winState.escalationActive && next < boundaries.length) {
+			winState.escalationForceStep = next;
+			jumpTo(boundaries[next]);
+			return;
+		}
+		finish();
+	}
 
 	/**
 	 * Conclude the WIN presentation — resolve the round-blocking `winUpdate` await. On the SEQUENTIAL-
@@ -116,11 +145,16 @@
 			// so a repeat win never starts its escalation walk at the previous win's held speed.
 			interactionSpeedScale = 1;
 			concluded = false;
+			// Reset the tap-to-step walk trackers so a repeat win starts at the first tier.
+			winState.escalationForceStep = 0;
+			winState.escalationStepIndex = 0;
 		},
 		winHide: () => {
 			show = false;
 			winState.escalationOutroComplete = false;
 			concluded = false;
+			winState.escalationForceStep = 0;
+			winState.escalationStepIndex = 0;
 			// Reset the count-up-complete latch when the win DISMISSES — the load-bearing reset for a
 			// REPEAT win. Under an authored flow the win container (and its `tapArmAfterSignal:
 			// 'winCountUpComplete'` tap) is mounted by `showContainer` BEFORE that win's `winShow`
@@ -148,8 +182,8 @@
 	{#if winLevelData}
 		{@const isBigWin = winLevelData.type === 'big'}
 		{@const duration = winLevelData.presentDuration}
-		<WinCountUpProvider {amount} {duration} {speedScale}>
-			{#snippet children({ countUpAmount, startCountUp, finishCountUp, countUpCompleted })}
+		<WinCountUpProvider {amount} {duration} {speedScale} seekable={canTapStep}>
+			{#snippet children({ countUpAmount, startCountUp, finishCountUp, jumpTo, countUpCompleted })}
 				{#if isBigWin && !headless}
 					<CanvasSizeRectangle backgroundColor={0x000000} backgroundAlpha={0.5} />
 				{/if}
@@ -195,7 +229,7 @@
 						{holdToSpeedUp}
 						{tapToSkip}
 						bind:speedScale={interactionSpeedScale}
-						onSkip={finishCountUp}
+						onSkip={() => stepOrSkip(jumpTo, finishCountUp)}
 					/>
 				{/if}
 			{/snippet}
