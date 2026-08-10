@@ -1268,6 +1268,16 @@
 		markDirty();
 	}
 
+	/** Set a text node's box `padding` (uniform inset, px) — the content the text wraps/aligns/
+	 * auto-fits into is the box minus this on every edge. Empty/NaN/0 deletes the key (0 is the
+	 * default) so the doc stays clean. Node-level like `autoFit` (not per-layoutType). */
+	function setTextPadding(n: LayoutNode, value: number): void {
+		if (n.kind !== 'text') return;
+		if (Number.isNaN(value) || value <= 0) delete (n as Record<string, unknown>).padding;
+		else (n as Record<string, unknown>).padding = value;
+		markDirty();
+	}
+
 	/** Parse a `#rrggbb` hex to a number; returns undefined if malformed. */
 	function parseHex(hex: string): number | undefined {
 		const clean = hex.trim().replace(/^#/, '');
@@ -3922,6 +3932,17 @@
 						onchange={(e) => setTextAutoFit(node, e.currentTarget.checked)}
 					/>
 					<span>auto-fit font to box</span>
+				</label>
+				<label class="field">
+					<span>padding (px)</span>
+					<input
+						type="number"
+						step="1"
+						min="0"
+						placeholder="0"
+						value={node.padding ?? ''}
+						oninput={(e) => setTextPadding(node, e.currentTarget.valueAsNumber)}
+					/>
 				</label>
 			</div>
 

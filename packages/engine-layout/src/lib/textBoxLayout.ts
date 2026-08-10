@@ -24,6 +24,19 @@ export function hasTextBox(t: Pick<ResolvedTransform, 'width'>): boolean {
 	return typeof t.width === 'number' && t.width > 0;
 }
 
+/** The horizontal room text has INSIDE the box after `padding` is removed from both edges —
+ * the wrap width the caller feeds pixi's `wordWrapWidth`, and the width alignment measures
+ * against. Never below 1 (a padding larger than the box would otherwise wrap to nothing). */
+export function textBoxContentWidth(boxWidth: number, padding: number | undefined): number {
+	return Math.max(1, boxWidth - Math.max(0, padding ?? 0) * 2);
+}
+
+/** The vertical room text has INSIDE the box after `padding` is removed from both edges —
+ * the height auto-fit + vertical alignment measure against. Never below 1. */
+export function textBoxContentHeight(boxHeight: number, padding: number | undefined): number {
+	return Math.max(1, boxHeight - Math.max(0, padding ?? 0) * 2);
+}
+
 /**
  * Horizontal alignment expressed as a text ANCHOR x — so `align` works with NO box (the text
  * pivots around its position: left ⇒ left edge at x, right ⇒ right edge at x), the SAME thing
@@ -77,6 +90,8 @@ export interface TextBoxPlacement {
 export function textBoxPlacement(params: {
 	boxWidth: number;
 	boxHeight: number | undefined;
+	/** Inset from every box edge; the block aligns inside `box - 2·padding`. Absent ⇒ 0. */
+	padding?: number;
 	anchorX: number;
 	anchorY: number;
 	align: TextStyle['align'];
@@ -88,14 +103,20 @@ export function textBoxPlacement(params: {
 }): TextBoxPlacement {
 	const { boxWidth, boxHeight, anchorX, anchorY, align, verticalAlign } = params;
 	const { measuredWidth, measuredHeight } = params;
+	const pad = Math.max(0, params.padding ?? 0);
+	const contentWidth = textBoxContentWidth(boxWidth, pad);
 	const frameHeight = boxHeight ?? measuredHeight;
-	let hpad = 0;
-	if (align === 'center') hpad = (boxWidth - measuredWidth) / 2;
-	else if (align === 'right') hpad = boxWidth - measuredWidth;
+	// The block aligns inside the padded content area; `pad` shifts the whole thing off the edge.
+	let hpad = pad;
+	if (align === 'center') hpad = pad + (contentWidth - measuredWidth) / 2;
+	else if (align === 'right') hpad = pad + (contentWidth - measuredWidth);
+	// No box height ⇒ nothing to align in vertically (padding is a box-only inset), keep parity.
 	let vpad = 0;
 	if (boxHeight !== undefined) {
-		if (verticalAlign === 'middle') vpad = (boxHeight - measuredHeight) / 2;
-		else if (verticalAlign === 'bottom') vpad = boxHeight - measuredHeight;
+		const contentHeight = textBoxContentHeight(boxHeight, pad);
+		vpad = pad;
+		if (verticalAlign === 'middle') vpad = pad + (contentHeight - measuredHeight) / 2;
+		else if (verticalAlign === 'bottom') vpad = pad + (contentHeight - measuredHeight);
 	}
 	return {
 		offsetX: -boxWidth * anchorX + hpad,
@@ -116,19 +137,23 @@ export function autoFitFontSize(params: {
 	baseFontSize: number;
 	boxWidth: number;
 	boxHeight: number | undefined;
+	/** Inset from every box edge; the text fits `box - 2·padding`. Absent ⇒ 0. */
+	padding?: number;
 	minFontSize?: number;
 }): number {
 	const { measure, baseFontSize, boxWidth, boxHeight, minFontSize = 6 } = params;
 	if (boxHeight === undefined) return baseFontSize;
+	const contentWidth = textBoxContentWidth(boxWidth, params.padding);
+	const contentHeight = textBoxContentHeight(boxHeight, params.padding);
 	const EPS = 0.5;
 	const fits = (m: { width: number; height: number }) =>
-		m.width <= boxWidth + EPS && m.height <= boxHeight + EPS;
+		m.width <= contentWidth + EPS && m.height <= contentHeight + EPS;
 	let fs = Math.max(minFontSize, baseFontSize);
 	let m = measure(fs);
 	if (fits(m)) return fs;
 	for (let i = 0; i < 40 && fs > minFontSize; i++) {
-		const wRatio = m.width > 0 ? boxWidth / m.width : 1;
-		const hRatio = m.height > 0 ? boxHeight / m.height : 1;
+		const wRatio = m.width > 0 ? contentWidth / m.width : 1;
+		const hRatio = m.height > 0 ? contentHeight / m.height : 1;
 		const ratio = Math.min(1, wRatio, hRatio);
 		const next = Math.max(minFontSize, Math.floor(fs * (ratio >= 0.999 ? 0.9 : ratio)));
 		if (next === fs) break;
