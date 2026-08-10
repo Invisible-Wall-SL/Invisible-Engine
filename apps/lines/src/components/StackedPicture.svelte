@@ -63,10 +63,16 @@
 			(a symbol-loaded rig ⇒ 2× the box). The sprite/flipbook branches above size exactly, so the
 			spine must too: pinned to `EDITOR_SPINE_LOAD_SCALE`, the rig fills exactly `boxW × boxH`
 			regardless of the scale its bundle was read at. Mirrors the WinAnimation / FreeSpin surfaces.
+
+			`anchor={0}` (NOT 0.5, unlike the sprite branch): a spine's pivot lives in its LOCAL skeleton
+			frame, not the requested box frame — anchor 0.5 would pivot by `box/2` and mis-centre the art
+			by ≈box/2 (clipping a tall rig at the top, gapping the bottom). Symbol rigs are authored
+			origin-centred (skeleton origin at the bounds centre), so anchor 0 ⇒ pivot (0,0) drops that
+			centre on the box centre — exactly how `SymbolSpineMain` centres every normal symbol.
 		-->
 		<SpineProvider
 			key={info.assetKey}
-			anchor={0.5}
+			anchor={0}
 			width={boxW}
 			height={boxH}
 			loadScaleBase={EDITOR_SPINE_LOAD_SCALE}
