@@ -67,7 +67,10 @@ is **no** reveal-path `computeArming` hook.
      - **Settled** reel (the compact result set, `length ≤ numRows+2` — placed at the START of the bounce
        by `removePaddingAndBounceBack`): scan only the visible window (symbolIndex `1..numRows`) so a
        partial result crops to the top N/M and the picture **drops in with the bounce**, not after full
-       stop.
+       stop. **Runs are capped at the authored height** here too (2026-08-10, #283) — a landed run LONGER
+       than M splits into consecutive M-tall pictures (any remainder < M crops / `fullHeightOnly`s like a
+       partial). Before the cap an over-height run stretched into ONE oversized picture, so the same
+       symbol rendered at different sizes depending on how many landed.
    - `stackedScrollStrip(strips)` — seeds the reel's SCROLL filler (`paddingBoard`) with natural-height
      BLOCKS of each eligible symbol (H2 → 3 cells, W → 5, …) so the tall symbols exist to roll. Applied
      at both spin call sites (`flowEffects.ts` revealBoard + `bookEventHandlerMap.ts` reveal); a no-op
@@ -86,7 +89,11 @@ is **no** reveal-path `computeArming` hook.
    (a tall picture authored at the box aspect is undistorted; a placeholder icon still fills+crops),
    then a `<Rectangle isMask>` reveals only the top `visibleCells`. `StackedPictures.svelte` maps the
    runs; mounted in `Board.svelte` inside the resting board container (shares `getSymbolX`/`symbolY`
-   coordinates + the board window mask).
+   coordinates + the board window mask). **A spine tall art MUST use `anchor={0}`, NOT `0.5`** (unlike
+   the sprite/flipbook branches): a spine's pivot lives in its LOCAL skeleton frame, so `anchor·box`
+   pivots by `box/2` and shifts the art up by `boxH²/(2·skeleton.height)`; symbol rigs are authored
+   origin-centred (skeleton origin at the bounds centre), so `anchor 0` ⇒ pivot `(0,0)` centres the art
+   on the box — the same convention `SymbolSpineMain` uses. See Known issues (2026-08-10, #286).
 6. **Suppress doubles** — `ReelSymbol.svelte` skips a cell in `stackedCoverage()` so the single-cell
    icons under a run don't draw beneath the picture.
 
@@ -125,6 +132,20 @@ per-project hardcode. Test data only — no protocol change; the default (mode-o
 
 ## Known issues
 
+- **Over-height run stretched the picture — FIXED (2026-08-10, #283).** A landed run LONGER than the
+  symbol's authored height was scanned uncapped, so `naturalCells` grew past the height and the art
+  stretched (a 3-tall run of a height-2 symbol drew a 3-cell picture; adjacent runs of the same symbol
+  rendered at different sizes). Fix: `computeStackedRuns` caps EVERY run at the authored height, so an
+  over-height column tiles fixed height-tall pictures. Genuine partials (run < height) are unaffected —
+  capping only splits runs longer than the height.
+- **Spine tall art rendered vertically offset — FIXED (2026-08-10, #286).** A stacked symbol authored as
+  a SPINE (e.g. the Wild tower rig `R_Wild`) rendered clipped at the top and gapped at the bottom instead
+  of filling the run. Cause: `StackedPicture` mounted the spine with `anchor={0.5}`; a spine's pivot is in
+  its LOCAL skeleton frame, so `anchor·requested-size` pivots by `box/2` (world px) and shifts the art up
+  by exactly `boxH²/(2·skeleton.height)` (≈107px for a 3-cell Wild). Fix: the spine branch uses
+  `anchor={0}` — symbol rigs are authored origin-centred, so pivot `(0,0)` centres the art on the box
+  (the `SymbolSpineMain` convention). The shared `pixi-svelte` `SpineProvider` pivot was deliberately NOT
+  changed — a global rewrite would shift every symbol in every game, which rely on today's `pivot (0,0)`.
 - **Win presentation hung on a covered cell — FIXED (2026-08-10).** A paying line crossing a stacked
   run stalled: `ReelSymbol` mounts no `<Symbol>` for a cell in `stackedCoverage()`, so its
   `oncomplete` never fired, and `Board.svelte`'s `boardWithAnimateSymbols` awaited it forever. The
