@@ -22,12 +22,19 @@ import { stateGame, stateGameDerived } from './stateGame.svelte';
  * to an un-zoomed board. `targetX` is the mean `reelCenterX` of the actively-anticipating reels,
  * `targetY` the board centre; both are HELD as the zoom releases so the pan eases back to identity
  * rather than snapping when the active set empties.
+ *
+ * The focal point is ALSO tweened (not just the zoom scale): as reels settle one by one the active
+ * set shrinks and the mean `targetX` shifts by whole columns. Tweening it eases that lateral pan
+ * between columns instead of snapping the camera sideways in one hard step (the old plain-`$state`
+ * target jumped instantly while the zoom held constant, which read as an ugly two-step jerk).
  */
 
 const zoom = new Tween(1, { duration: 450, easing: cubicOut });
 
-let targetX = $state(0);
-let targetY = $state(0);
+// Focal point as tweens so a column-to-column shift (a reel settling out of the active set) pans
+// smoothly rather than snapping. Slightly quicker than the zoom so the sideways glide feels crisp.
+const targetX = new Tween(0, { duration: 380, easing: cubicOut });
+const targetY = new Tween(0, { duration: 380, easing: cubicOut });
 
 /**
  * Re-aim the camera at the current anticipation state — the driver (call from a component `$effect`
@@ -45,8 +52,8 @@ export const updateAnticipationCameraTarget = (): void => {
 		const active = activeReelIndices();
 		const tier = activeMaxTier();
 		if (active.length && tier) {
-			targetX = active.reduce((sum, index) => sum + reelCenterX(index), 0) / active.length;
-			targetY = stateGameDerived.boardLayout().y;
+			void targetX.set(active.reduce((sum, index) => sum + reelCenterX(index), 0) / active.length);
+			void targetY.set(stateGameDerived.boardLayout().y);
 			void zoom.set(resolveTierFx(tier).zoom);
 			return;
 		}
@@ -62,6 +69,6 @@ export const updateAnticipationCameraTarget = (): void => {
  */
 export const anticipationCameraTransform = () => ({
 	scale: zoom.current,
-	x: targetX * (1 - zoom.current),
-	y: targetY * (1 - zoom.current),
+	x: targetX.current * (1 - zoom.current),
+	y: targetY.current * (1 - zoom.current),
 });
