@@ -7921,6 +7921,12 @@ function renderTimeline(){
         dot.title += " · right-click: easing";
         dot.addEventListener("contextmenu", (e) => {
           e.preventDefault(); e.stopPropagation();
+          // Right-clicking a key that's part of a multi-selection eases the WHOLE selection
+          // at once; right-clicking any other key targets just that key (as before).
+          if (dopeSel.length > 1 && dopeSelHas(tid, kt)){
+            openCurveMenu(e.clientX, e.clientY, (preset) => applyCurveToDopeSel(preset), trackKeyCurve(tr, kt));
+            return;
+          }
           if (tr.kind === "slot"){ if (selSlot !== tr.name) selectSlot(tr.name); }
           else if (tr.kind === "bone"){ const i = skeletonData.bones.findIndex((b) => b.name === tr.name); if (i >= 0 && selBone !== i) selectBone(i); }
           showTrackCurveMenu(e.clientX, e.clientY, tr, kt);
@@ -8078,6 +8084,15 @@ function linEquivCurve(a, b, ch){
 // Right-click a DOPESHEET key → set its outgoing easing (dispatched by track kind).
 function showTrackCurveMenu(x, y, tr, time){
   openCurveMenu(x, y, (preset) => setTrackKeyCurve(tr, time, preset), trackKeyCurve(tr, time));
+}
+// Apply one easing preset to EVERY easable key in the current dopesheet multi-selection.
+// Resolve tid→track from a snapshot first, since setTrackKeyCurve re-renders (rebuilding
+// dopeTrackById) between keys; non-easable selected keys (e.g. attachment-swap slots) skip.
+function applyCurveToDopeSel(preset){
+  const targets = dopeSel.slice()
+    .map((s) => ({ tr: dopeTrackById[s.tid], time: s.time }))
+    .filter((x) => x.tr && trackKeyEasable(x.tr, x.time));
+  for (const { tr, time } of targets) setTrackKeyCurve(tr, time, preset);
 }
 function closeCurveMenu(){ const m = $("#curveMenu"); if (m) m.remove(); }
 function renderGraphBody(tl, dur, pps, contentW, gutter){
