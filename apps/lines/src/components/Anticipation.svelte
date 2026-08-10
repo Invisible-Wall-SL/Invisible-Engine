@@ -6,6 +6,7 @@
 	import {
 		resolveTierFx,
 		resolveAnticipationSpineKey,
+		resolveAnticipationAnimationBase,
 		reelCenterX,
 		overlayBaseWidth,
 		overlayBaseHeight,
@@ -18,9 +19,9 @@
 
 	const props: Props = $props();
 
-	type AnimationName = 'anticipation_intro' | 'anticipation_loop' | 'anticipation_out';
+	type Phase = 'intro' | 'loop' | 'out';
 
-	let animationName = $state<AnimationName>('anticipation_intro');
+	let phase = $state<Phase>('intro');
 	// Self-hide once `out` finishes: the reel keeps its `anticipationLevel` until the next spin (it
 	// clears in `createEnhanceBoardSpin`), so the parent keeps this mounted — stop rendering the spine
 	// after the out completes rather than leaving a frozen final frame on a settled reel.
@@ -32,10 +33,14 @@
 	const fx = $derived(resolveTierFx(props.reel.reelState.anticipationTier));
 	// The overlay spine key — authored `anticipation.spineKey` ?? the coded `anticipation` spine.
 	const spineKey = $derived(resolveAnticipationSpineKey());
+	// The overlay animation BASE — authored `anticipation.animationSet` ?? the coded `anticipation` set.
+	// The engine owns the intro→loop→out chaining, so the played name is `${base}_${phase}`.
+	const animationBase = $derived(resolveAnticipationAnimationBase());
+	const animationName = $derived(`${animationBase}_${phase}`);
 
 	$effect(() => {
-		if (props.reel.reelState.motion === 'stopped' && animationName !== 'anticipation_out') {
-			animationName = 'anticipation_out';
+		if (props.reel.reelState.motion === 'stopped' && phase !== 'out') {
+			phase = 'out';
 		}
 	});
 </script>
@@ -53,15 +58,15 @@
 		<SpineTrack
 			trackIndex={0}
 			{animationName}
-			loop={animationName === 'anticipation_loop'}
+			loop={phase === 'loop'}
 			timeScale={stateBetDerived.timeScale()}
 			listener={{
 				complete: () => {
-					if (animationName === 'anticipation_intro') {
-						animationName = 'anticipation_loop';
+					if (phase === 'intro') {
+						phase = 'loop';
 					}
 
-					if (animationName === 'anticipation_out') {
+					if (phase === 'out') {
 						done = true;
 					}
 				},

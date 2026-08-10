@@ -88,6 +88,12 @@ export const codedTierFx = (rank: number, count: number): AnticipationTierFx => 
  *  chaining, so a swapped rig must expose those animation names. */
 export const DEFAULT_ANTICIPATION_SPINE_KEY = 'anticipation';
 
+/** The coded default overlay animation BASE — the engine appends `_intro`/`_loop`/`_out` to it, so this
+ *  resolves to the unnumbered `anticipation_intro/_loop/_out` set the mode has always played. The author
+ *  can swap it for another set the spine exposes (e.g. `anticipation3`) via `anticipation.animationSet`;
+ *  an unset field resolves back to this, so an un-authored project is byte-identical. */
+export const DEFAULT_ANTICIPATION_ANIMATION_BASE = 'anticipation';
+
 /** The coded default activation-STING and LOOP sound names — the audiosprite regions the tease has
  *  always used. The author can swap either for another project sound via `anticipation.activationSound`
  *  / `anticipation.loopSound`; an unset field resolves back to these, so an un-authored project is
@@ -134,6 +140,14 @@ export const resolveTierFx = (tier: AnticipationTier | null): AnticipationTierFx
  *  the overlay component reads this rather than hardcoding `'anticipation'`. */
 export const resolveAnticipationSpineKey = (): string =>
 	bakedAnticipation()?.spineKey || DEFAULT_ANTICIPATION_SPINE_KEY;
+
+/** The overlay animation BASE = the authored `anticipation.animationSet` ?? the coded
+ *  {@link DEFAULT_ANTICIPATION_ANIMATION_BASE}. The overlay component builds its
+ *  `${base}_intro`/`_loop`/`_out` names from this rather than hardcoding `anticipation_*`, so an author
+ *  can select a differently-sized anticipation the spine exposes; the engine still owns the
+ *  intro→loop→out chaining. */
+export const resolveAnticipationAnimationBase = (): string =>
+	bakedAnticipation()?.animationSet || DEFAULT_ANTICIPATION_ANIMATION_BASE;
 
 /** The activation-STING sound name = the authored `anticipation.activationSound` ?? the coded
  *  {@link DEFAULT_ANTICIPATION_ACTIVATION_SOUND}. Sound choke point (alongside {@link resolveLoopSound}):

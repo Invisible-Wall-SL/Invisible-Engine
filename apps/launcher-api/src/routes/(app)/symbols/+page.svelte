@@ -3,6 +3,7 @@
 	import {
 		BUILTIN_SHEETS,
 		builtinSheetKey,
+		builtinSpineMeta,
 		parseScopedFrameRef,
 		scopedFrameRef,
 	} from 'engine-layout';
@@ -41,6 +42,7 @@
 		saveSymbolsDoc,
 		SymbolsConflictError,
 		setAnticipationActivationSound,
+		setAnticipationAnimationSet,
 		setAnticipationLoopSound,
 		setAnticipationSpineKey,
 		setAnticipationTierFx,
@@ -953,12 +955,39 @@
 	 *  board-glow pickers use. Empty picks the coded `anticipation` spine. */
 	const anticipationSpineBundles = $derived(spineBundles);
 
+	/** The animation names of the RESOLVED overlay spine — the coded `anticipation` spine's built-in
+	 *  meta (`builtinSpineMeta`, a pure static read, NO WebGL context: an always-mounted preview would
+	 *  fight the page's other previews for the browser's ~16-context cap and lose). A swapped R2 `spineKey`
+	 *  isn't in the builtin meta, so it resolves to `[]` ⇒ the field falls back to a free-text base input
+	 *  (the swapped rig's animation names are author-known). */
+	const anticipationSpineKey = $derived(doc.anticipation?.spineKey || 'anticipation');
+	const anticipationAnimations = $derived(builtinSpineMeta(anticipationSpineKey)?.animations ?? []);
+	/** The COMPLETE animation SETS the resolved spine exposes — a base whose `_intro`/`_loop`/`_out` all
+	 *  exist (the engine chains all three). The unnumbered `anticipation` base is dropped: the dropdown's
+	 *  "Default" option already covers it. Empty (spine not enumerated) ⇒ the field falls back to a
+	 *  free-text base input. */
+	const anticipationSets = $derived.by(() => {
+		const names = new Set(anticipationAnimations);
+		const bases = new Set<string>();
+		for (const name of anticipationAnimations) {
+			if (!name.endsWith('_intro')) continue;
+			const base = name.slice(0, -'_intro'.length);
+			if (names.has(`${base}_loop`) && names.has(`${base}_out`)) bases.add(base);
+		}
+		bases.delete('anticipation');
+		return [...bases].sort();
+	});
+
 	function patchAnticipationTier(tier: AnticipationTier, patch: Partial<AnticipationTierFx>): void {
 		doc = setAnticipationTierFx(doc, tier, patch);
 	}
 
 	function setAnticipationSpine(key: string): void {
 		doc = setAnticipationSpineKey(doc, key || undefined);
+	}
+
+	function setAnticipationAnimation(base: string): void {
+		doc = setAnticipationAnimationSet(doc, base || undefined);
 	}
 
 	function setAnticipationActivation(name: string): void {
@@ -1028,9 +1057,9 @@
 			<div class="grid-scroll" bind:this={gridScroll}>
 				{#if spineNoAnimWarnings.length}
 					<div class="anim-warn">
-						<strong>⚠ Spine art with no animation</strong> — a spine plays an animation, so with none
-						picked it renders a <strong>blank</strong> cell in-game. Pick an animation for these (or
-						switch them to a sprite/flipbook):
+						<strong>⚠ Spine art with no animation</strong> — a spine plays an animation, so with
+						none picked it renders a <strong>blank</strong> cell in-game. Pick an animation for
+						these (or switch them to a sprite/flipbook):
 						<ul>
 							{#each spineNoAnimWarnings as w (w.symbol)}
 								<li><code>{w.symbol}</code> — {w.states.join(', ')}</li>
@@ -1730,9 +1759,9 @@
 									<span class="switch-label">Cut-off tall pictures at the board edges</span>
 								</label>
 								<p class="hint">
-									On: a stacked symbol touching the TOP or BOTTOM edge draws a cut-off tall picture —
-									the visible slice of a symbol scrolled partly off-screen (top edge shows the bottom
-									of the picture, bottom edge the top), for any run length. This overrides
+									On: a stacked symbol touching the TOP or BOTTOM edge draws a cut-off tall picture
+									— the visible slice of a symbol scrolled partly off-screen (top edge shows the
+									bottom of the picture, bottom edge the top), for any run length. This overrides
 									"full-height only" at the edges. Off: edge stacks follow the setting above.
 								</p>
 							</div>
@@ -2179,6 +2208,35 @@
 									<code>anticipation</code> spine; a swapped bundle must expose the
 									<code>anticipation_intro / _loop / _out</code> animations (the game still owns the
 									intro → loop → out chaining).
+								</span>
+							</div>
+
+							<div class="field">
+								<span class="label">Overlay animation</span>
+								{#if anticipationAnimations.length}
+									<select
+										value={doc.anticipation?.animationSet ?? ''}
+										onchange={(e) => setAnticipationAnimation(e.currentTarget.value)}
+									>
+										<option value="">Default (anticipation_intro / _loop / _out)</option>
+										{#each anticipationSets as base (base)}
+											<option value={base}>{base}</option>
+										{/each}
+									</select>
+								{:else}
+									<input
+										type="text"
+										placeholder="anticipation"
+										value={doc.anticipation?.animationSet ?? ''}
+										oninput={(e) => setAnticipationAnimation(e.currentTarget.value)}
+									/>
+								{/if}
+								<span class="wl-note">
+									Which animation SET the overlay plays — a spine's differently-sized anticipations.
+									The game appends <code>_intro / _loop / _out</code>, so this is the base name
+									(e.g.
+									<code>anticipation3</code> → <code>anticipation3_intro</code>). Default plays the
+									unnumbered <code>anticipation_*</code>.
 								</span>
 							</div>
 
