@@ -18,6 +18,7 @@
 		type Pin,
 		type PinContext,
 		type PinScope,
+		type TextMessageNode,
 		type TypeRef,
 	} from 'engine-flow-v2';
 	import {
@@ -30,6 +31,7 @@
 		setNodeRef,
 		setFireCueAwait,
 		setShowContainerAwaitComplete,
+		setTextMessageFields,
 	} from './graphOps';
 	import { typeLabel } from './palette';
 	import type { FlowDoc } from 'engine-flow-v2';
@@ -166,6 +168,57 @@
 	// --- group (§5.2) ----------------------------------------------------------
 	function onGroupLabelChange(label: string): void {
 		onchange(setGroupLabel(doc, node.id, label));
+	}
+
+	// --- textMessage (§6.3) ----------------------------------------------------
+	// The node CARRIES its content (text/place/visibleWhile/autoHideMs/style), not a vocab ref, so it
+	// is edited directly here through one field-patch setter (`setTextMessageFields`). Each handler
+	// guards on the kind — Svelte narrows `node` inside the `{#if}` template block, but the setters
+	// close over `node` where that narrowing doesn't hold. A blank/undefined value clears an optional
+	// field (autoHideMs/style) so an unused field is never stored (see the setter's doc).
+	const VISIBLE_WHILE_OPTIONS: { value: NonNullable<TextMessageNode['visibleWhile']>; label: string }[] = [
+		{ value: 'none', label: 'None (only via a Show wire)' },
+		{ value: 'idle', label: 'Idle (before a spin)' },
+		{ value: 'spinning', label: 'Spinning' },
+		{ value: 'freeSpins', label: 'Free spins' },
+		{ value: 'always', label: 'Always (while this flow is active)' },
+	];
+
+	function onTextChange(text: string): void {
+		if (node.kind !== 'textMessage') return;
+		onchange(setTextMessageFields(doc, node.id, { text }));
+	}
+	// Normalized 0..1 anchor — clamp so a stray value can't push the message off-canvas.
+	function onPlaceChange(axis: 'x' | 'y', raw: number): void {
+		if (node.kind !== 'textMessage') return;
+		if (!Number.isFinite(raw)) return;
+		const v = Math.min(1, Math.max(0, raw));
+		onchange(setTextMessageFields(doc, node.id, { place: { ...node.place, [axis]: v } }));
+	}
+	function onVisibleWhileChange(value: NonNullable<TextMessageNode['visibleWhile']>): void {
+		if (node.kind !== 'textMessage') return;
+		onchange(setTextMessageFields(doc, node.id, { visibleWhile: value }));
+	}
+	// 0/empty ⇒ clear the field (stay shown until a Hide wire or the gate flips).
+	function onAutoHideChange(raw: number): void {
+		if (node.kind !== 'textMessage') return;
+		const ms = Number.isFinite(raw) && raw > 0 ? Math.trunc(raw) : undefined;
+		onchange(setTextMessageFields(doc, node.id, { autoHideMs: ms }));
+	}
+	// Merge one style key, pruning empties — an all-empty style object is dropped so the node falls
+	// back entirely to the engine's default message style.
+	function onStyleChange(part: { size?: number; color?: string }): void {
+		if (node.kind !== 'textMessage') return;
+		const merged = { ...(node.style ?? {}), ...part };
+		const style: NonNullable<TextMessageNode['style']> = {};
+		if (typeof merged.size === 'number' && Number.isFinite(merged.size) && merged.size > 0)
+			style.size = merged.size;
+		if (typeof merged.color === 'string' && merged.color.trim()) style.color = merged.color.trim();
+		onchange(
+			setTextMessageFields(doc, node.id, {
+				style: Object.keys(style).length > 0 ? style : undefined,
+			}),
+		);
 	}
 
 	// --- compute ---------------------------------------------------------------
@@ -368,6 +421,110 @@
 					onchange={(e) => onGroupLabelChange(e.currentTarget.value)}
 				/>
 			</label>
+		{/if}
+
+		{#if node.kind === 'textMessage'}
+			<label class="field">
+				<span class="flabel">Message text</span>
+				<textarea
+					class="msg-text"
+					rows="2"
+					value={node.text}
+					placeholder="e.g. Click spin button to start"
+					onchange={(e) => onTextChange(e.currentTarget.value)}
+				></textarea>
+			</label>
+			<p class="hint">
+				This exact text is the <strong>localization key</strong> — it's the default line shown, and
+				what the translator resolves per language.
+			</p>
+
+			<label class="field">
+				<span class="flabel">Visible while (state gate)</span>
+				<select
+					value={node.visibleWhile ?? 'none'}
+					onchange={(e) =>
+						onVisibleWhileChange(
+							e.currentTarget.value as NonNullable<TextMessageNode['visibleWhile']>,
+						)}
+				>
+					{#each VISIBLE_WHILE_OPTIONS as opt (opt.value)}
+						<option value={opt.value}>{opt.label}</option>
+					{/each}
+				</select>
+			</label>
+			<p class="hint">
+				A sustained game state that shows the message continuously — e.g. <strong>Idle</strong> for a
+				standing "Click spin button to start". Leave on <strong>None</strong> for a transient message
+				driven only by a <code>Show</code> wire.
+			</p>
+
+			<div class="place-row">
+				<label class="field">
+					<span class="flabel">Anchor X (0–1)</span>
+					<input
+						type="number"
+						min="0"
+						max="1"
+						step="0.01"
+						value={node.place.x}
+						onchange={(e) => onPlaceChange('x', Number(e.currentTarget.value))}
+					/>
+				</label>
+				<label class="field">
+					<span class="flabel">Anchor Y (0–1)</span>
+					<input
+						type="number"
+						min="0"
+						max="1"
+						step="0.01"
+						value={node.place.y}
+						onchange={(e) => onPlaceChange('y', Number(e.currentTarget.value))}
+					/>
+				</label>
+			</div>
+			<p class="hint">Normalized position on the game canvas — 0,0 is top-left, 1,1 bottom-right.</p>
+
+			<label class="field">
+				<span class="flabel">Auto-hide after (ms)</span>
+				<input
+					type="number"
+					min="0"
+					step="100"
+					value={node.autoHideMs ?? ''}
+					placeholder="0 = stay until Hide / gate flips"
+					onchange={(e) => onAutoHideChange(Number(e.currentTarget.value))}
+				/>
+			</label>
+			<p class="hint">
+				For a transient message shown via a <code>Show</code> wire (e.g. a "Good luck" fired from the
+				spin button, ~1200 ms). <strong>0 / empty</strong> keeps it up until a
+				<code>Hide</code> wire or the state gate turns off.
+			</p>
+
+			<div class="place-row">
+				<label class="field">
+					<span class="flabel">Text size (optional)</span>
+					<input
+						type="number"
+						min="0"
+						step="1"
+						value={node.style?.size ?? ''}
+						placeholder="engine default"
+						onchange={(e) => onStyleChange({ size: Number(e.currentTarget.value) })}
+					/>
+				</label>
+				<label class="field">
+					<span class="flabel">Color (optional)</span>
+					<input
+						type="text"
+						value={node.style?.color ?? ''}
+						placeholder="#ffffff"
+						onchange={(e) => onStyleChange({ color: e.currentTarget.value })}
+					/>
+				</label>
+			</div>
+			<p class="hint">Blank style fields fall back to the engine's default message style.</p>
 		{/if}
 
 		{#if node.kind === 'forEach'}
@@ -875,7 +1032,8 @@
 	}
 	select,
 	input[type='text'],
-	input[type='number'] {
+	input[type='number'],
+	textarea {
 		box-sizing: border-box;
 		background: #14181f;
 		border: 1px solid #2a323d;
@@ -884,6 +1042,25 @@
 		font-size: 12px;
 		padding: 4px 7px;
 		width: 100%;
+	}
+	textarea.msg-text {
+		resize: vertical;
+		min-height: 40px;
+		font-family: inherit;
+		line-height: 1.4;
+	}
+	textarea:focus {
+		outline: none;
+		border-color: #2563eb;
+	}
+	/* Two normalized-anchor / style inputs side by side. */
+	.place-row {
+		display: flex;
+		gap: 8px;
+	}
+	.place-row .field {
+		flex: 1;
+		min-width: 0;
 	}
 	input[type='checkbox'] {
 		width: 16px;

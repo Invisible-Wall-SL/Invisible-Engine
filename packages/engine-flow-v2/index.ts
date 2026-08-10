@@ -1,5 +1,6 @@
 export * from './src/types';
 export * from './src/pins';
+export * from './src/textMessage';
 export * from './src/scope';
 export * from './src/containerEvents';
 export * from './src/types-check';

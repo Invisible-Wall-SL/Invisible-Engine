@@ -6,11 +6,13 @@ import { loadDoc as loadEditorDoc } from '$lib/server/editorStorage';
 import { loadDocWithEtag, normalizeDoc, saveDoc } from '$lib/server/localization';
 import type { LocalizationDoc } from '$lib/server/localization';
 import {
+	harvestFlowMessages,
 	harvestSceneText,
 	harvestSymbolNames,
 	harvestWinText,
 	reconcileWithEditor,
 } from '$lib/server/localizationHarvest';
+import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
 import { ConflictError } from '$lib/server/r2';
 import { writeBaseEtagForm } from '$lib/server/writeGuard';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
@@ -60,14 +62,15 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	});
 	// Auto-collect the project's text and fold it into the doc as read-only entries owned by the
 	// tool that authored them: the Scene Editor's text nodes (grouped by scene), Invisible Win
-	// Text's templates (one "Win text" section), and the Invisible Symbols State Machine's display
-	// names (one "Symbol names" section). A missing doc on any side harvests nothing — the tool
-	// behaves exactly as before.
-	const [loaded, editorDoc, winTextDoc, symbolsDoc] = await Promise.all([
+	// Text's templates (one "Win text" section), the Invisible Symbols State Machine's display
+	// names (one "Symbol names" section), and Invisible Flow's `textMessage` node text (one "Flow
+	// messages" section). A missing doc on any side harvests nothing — the tool behaves as before.
+	const [loaded, editorDoc, winTextDoc, symbolsDoc, flowV2Doc] = await Promise.all([
 		loadDocWithEtag(clientKey, projectKey),
 		loadEditorDoc(clientKey, projectKey),
 		loadWinTextDoc(clientKey, projectKey),
 		loadSymbolsDoc(clientKey, projectKey),
+		loadFlowV2Doc(clientKey, projectKey),
 	]);
 	// The client doc deliberately differs from the stored bytes (auto-collected entries
 	// are folded in below), so the etag guards the stored OBJECT and must not be
@@ -77,6 +80,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		...(await harvestSceneText(editorDoc, (id, version) => loadComponent(id, projectKey, version))),
 		...harvestWinText(winTextDoc),
 		...harvestSymbolNames(symbolsDoc),
+		...harvestFlowMessages(flowV2Doc ?? undefined),
 	];
 	const { entries, display } = reconcileWithEditor(doc, sections);
 	// `clientKey` is threaded to the page for the Phase 2c soft edit-lease key

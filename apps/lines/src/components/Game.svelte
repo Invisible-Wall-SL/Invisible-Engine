@@ -144,7 +144,7 @@
 		hasFlowAction,
 		emitFlowAction,
 	} from '../game/flowInterpreterHolder';
-	import { createLinesFlowV2 } from '../game/flowV2Runtime.svelte';
+	import { createLinesFlowV2, type LinesFlowV2 } from '../game/flowV2Runtime.svelte';
 	import {
 		setFlowV2,
 		getFlowV2,
@@ -225,6 +225,7 @@
 	import TapToContinue from './TapToContinue.svelte';
 	import Transition from './Transition.svelte';
 	import Effects from './Effects.svelte';
+	import FlowV2Messages from './FlowV2Messages.svelte';
 
 	// Invisible Debug — register this game's debug tools (symbol overlay + win-state
 	// probe). Dynamic-imported only under the build switch so the tools + their
@@ -1011,6 +1012,10 @@
 	// boot (`__IE_FLOW_V2_DOC__` unset) ⇒ v2 inert, the v1/coded path above is untouched (parity).
 	let flowV2ResolveScene = $state<((sceneId: string) => Scene | undefined) | undefined>(undefined);
 	let flowV2Containers = $state<MountedContainerRef[]>([]);
+	// The v2 handle itself, mirrored into a rune so `<FlowV2Messages>` (the §6.3 text-message overlay)
+	// re-renders once the flow is built at load. Independent of `flowV2DrivesScreens` — a book-events-only
+	// flow that owns no screens can still author messages. `undefined` with no v2 flow (parity: nothing).
+	let flowV2Handle = $state<LinesFlowV2 | undefined>(undefined);
 	// Whether a v2 flow drives the game — when true `<FlowV2Mount>` is the SOLE scene renderer, so the
 	// v1 interpreter is NOT built (`flow` is undefined) and the coded AUTHORED-scene mounts below
 	// suppress on `flowV2DrivesScreens` (they'd double FlowV2Mount). Engine-owned bands (reels, gates) instead
@@ -1791,6 +1796,9 @@
 			flowV2DrivesScreens = flowV2?.ownsEvent('load') ?? false;
 			flowV2ResolveScene = flowV2?.resolveScene;
 			flowV2Containers = flowV2?.ordered() ?? [];
+			// Mirror the handle for `<FlowV2Messages>` — its `textMessages` (static) + `messageShown`
+			// (reactive) drive the text-message overlay, regardless of whether the flow drives screens.
+			flowV2Handle = flowV2;
 			// Design doc §14 (win-overlay twin) — does the flow OWN the `setWin` event? That is the
 			// ownership TRIGGER for the headless win driver (an authored win container of ANY name), read
 			// the same way `flowV2DrivesScreens` reads `ownsEvent('load')`. `awaitTargets` is the static
@@ -2382,6 +2390,16 @@
 			resolveScene={flowV2ResolveScene}
 		/>
 	{/if}
+
+	<!--
+		Invisible Flow v2 (§6.3) — the in-game TEXT MESSAGE overlay. Renders each authored
+		`textMessage` node whose `visibleWhile` state-gate matches OR whose flow-driven flag is
+		raised, at its normalized `place` in the main design box. Mounted UNGATED by
+		`flowV2DrivesScreens` — a book-events-only flow (no screens) can still author messages.
+		Renders nothing when no v2 flow / no message nodes (parity). Last in the stack so a
+		prompt sits above the board + overlays.
+	-->
+	<FlowV2Messages flow={flowV2Handle} />
 
 	<DebugStage />
 </App>

@@ -60,6 +60,7 @@
 		forEach: '#10b981', // loop — teal.
 		showContainer: '#6366f1',
 		hideContainer: '#6366f1',
+		textMessage: '#38bdf8', // presentation leaf (own text) — sky, matching the palette accent.
 		functionCall: '#eab308', // reusable sub-graph — gold.
 		sequence: '#64748b',
 		parallel: '#64748b',
@@ -96,6 +97,15 @@
 			case 'showContainer':
 			case 'hideContainer':
 				return n.ref;
+			case 'textMessage': {
+				// A leaf that carries its own content (no ref) — preview the authored line, quoted, plus
+				// the state-gate when one is set (`none` ⇒ flow-driven only, so nothing to show). Mirrors
+				// how show/hideContainer surface their `ref` under the header. The derived Show/Hide/exec
+				// pins render below via the generic pin loop.
+				const preview = n.text.trim() || '(empty)';
+				const gate = n.visibleWhile && n.visibleWhile !== 'none' ? ` · while ${n.visibleWhile}` : '';
+				return `“${preview}”${gate}`;
+			}
 			case 'gameSignals':
 				// Ref-less source node — summarise by the count of surfaced mechanic signals (the
 				// derived exec-out pins), so the header reads without a `ref`.

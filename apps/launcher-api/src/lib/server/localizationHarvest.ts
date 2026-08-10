@@ -1,5 +1,13 @@
-import type { ComponentDef, ComponentParam, LayoutDoc, LayoutNode, WinTextDoc } from 'engine-layout';
+import type {
+	ComponentDef,
+	ComponentParam,
+	LayoutDoc,
+	LayoutNode,
+	WinTextDoc,
+} from 'engine-layout';
 import { collectWinTextTemplates } from 'engine-layout';
+import type { FlowDoc } from 'engine-flow-v2';
+import { collectTextMessages } from 'engine-flow-v2';
 import type { LocalizationDoc, LocalizationEntry } from './localization';
 import type { SymbolsDoc } from './symbolsStorage';
 
@@ -31,7 +39,7 @@ export interface HarvestSection {
 	items: HarvestedItem[];
 	/** Which tool owns these sources — stamped onto every entry the section reconciles.
 	 *  Defaults to `'editor'` (the original collector). */
-	origin?: 'editor' | 'winText' | 'symbols';
+	origin?: 'editor' | 'winText' | 'symbols' | 'flow';
 }
 
 /** Display grouping handed to the page: a section is a list of entry keys, in order. */
@@ -197,9 +205,7 @@ export const WIN_TEXT_SECTION_ID = '__winText';
 export function harvestWinText(doc: WinTextDoc | undefined): HarvestSection[] {
 	const items = collectWinTextTemplates(doc).filter((i) => isLocalizableText(i.source));
 	if (items.length === 0) return [];
-	return [
-		{ sceneId: WIN_TEXT_SECTION_ID, sceneName: 'Win text', items, origin: 'winText' },
-	];
+	return [{ sceneId: WIN_TEXT_SECTION_ID, sceneName: 'Win text', items, origin: 'winText' }];
 }
 
 /** The synthetic section id the symbol display names are grouped under (see {@link WIN_TEXT_SECTION_ID}). */
@@ -236,6 +242,24 @@ export function harvestSymbolNames(doc: SymbolsDoc | undefined): HarvestSection[
 	return [
 		{ sceneId: SYMBOL_NAMES_SECTION_ID, sceneName: 'Symbol names', items, origin: 'symbols' },
 	];
+}
+
+/** The synthetic section id the Flow message strings are grouped under (see {@link WIN_TEXT_SECTION_ID}). */
+export const FLOW_MESSAGE_SECTION_ID = '__flowMessages';
+
+/**
+ * Collect the authored text of every Invisible Flow `textMessage` node as one translatable section.
+ *
+ * A Text Message node carries its own player-facing line ("Click spin button to start", "Good
+ * luck"), and that line is BOTH the editable default AND the localization key — so it must be
+ * harvestable exactly like scene text and win templates. The game renders each node's text through
+ * `resolveLocalizedText`, so the source-as-key (exact/untrimmed) contract from {@link harvestSceneText}
+ * applies verbatim. Flow owns these sources, so they're read-only here (`origin: 'flow'`).
+ */
+export function harvestFlowMessages(doc: FlowDoc | undefined): HarvestSection[] {
+	const items = collectTextMessages(doc).filter((i) => isLocalizableText(i.source));
+	if (items.length === 0) return [];
+	return [{ sceneId: FLOW_MESSAGE_SECTION_ID, sceneName: 'Flow messages', items, origin: 'flow' }];
 }
 
 function newId(): string {

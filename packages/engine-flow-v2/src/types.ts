@@ -159,6 +159,7 @@ export type NodeKind =
 	| 'forEach'
 	| 'showContainer'
 	| 'hideContainer'
+	| 'textMessage'
 	| 'functionCall'
 	| 'sequence'
 	| 'parallel'
@@ -246,6 +247,47 @@ export interface HideContainerNode extends NodeBase {
 	ref: ContainerId;
 }
 
+/**
+ * Text Message (§6.3): a presentation LEAF that draws one localized line of text at an authored
+ * screen position. It is the "generic message" primitive — drop the node, type the text, wire (or
+ * state-gate) its visibility. Unlike a `showContainer` (which references a Scene-Editor scene), the
+ * node CARRIES its own content: `text` is both the authored default AND the localization key
+ * (harvested by `collectTextMessages`, resolved through the catalog at render like any layout text).
+ * Storing content on the node is a deliberate, contained exception to the anti-drift rule (§2) —
+ * mirroring `group.body` / `comment.label` — because the text IS the node's definition, not a pin.
+ *
+ * ## Two visibility drivers, OR-ed
+ *
+ * The interpreter is event-driven; "always while idle" is a sustained STATE, not an event. So a
+ * message is visible when EITHER holds:
+ *  - `visibleWhile` — a reactive STATE-GATE the game evaluates continuously (`idle`/`spinning`/
+ *    `freeSpins`/`always`). `'none'` (or absent) ⇒ no gate; visibility is flow-driven only.
+ *  - the FLOW-SHOWN flag — toggled by the node's `show`/`hide` exec-ins (§below). `show` also
+ *    schedules an `autoHideMs` auto-clear, so a transient "Good luck" is ONE node, not show+delay+hide.
+ *
+ * ## Pins
+ *
+ * exec-in `show` (raise the flow-shown flag + arm `autoHideMs`), exec-in `hide` (clear it), and a
+ * single exec-out `exec` that continues from whichever inlet fired (so the node chains). A purely
+ * state-gated message wires NEITHER exec-in; a purely transient one leaves `visibleWhile` unset.
+ */
+export interface TextMessageNode extends NodeBase {
+	kind: 'textMessage';
+	/** The authored line — the editable default AND the localization key (localize-then-render). */
+	text: string;
+	/** Normalized 0..1 screen anchor (fraction of the game canvas). Distinct from `NodeBase.pos`,
+	 *  which is the node's position on the EDITOR canvas. */
+	place: { x: number; y: number };
+	/** The reactive state-gate. Absent/`'none'` ⇒ visibility is driven only by the `show`/`hide`
+	 *  exec-ins. `'always'` ⇒ shown whenever the flow that owns it is active. */
+	visibleWhile?: 'idle' | 'spinning' | 'freeSpins' | 'always' | 'none';
+	/** When shown via the `show` exec, auto-hide after this many ms (turbo-scaled like a `delay`).
+	 *  0/absent ⇒ stays shown until a `hide` exec (or, for a state-gated node, until the gate flips). */
+	autoHideMs?: number;
+	/** Optional inline text style; absent fields fall back to the engine's message default. */
+	style?: { size?: number; color?: string };
+}
+
 /** Function call: pins mirror the target `FunctionDef`'s declared inputs/outputs. */
 export interface FunctionCallNode extends NodeBase {
 	kind: 'functionCall';
@@ -330,6 +372,7 @@ export type Node =
 	| ForEachNode
 	| ShowContainerNode
 	| HideContainerNode
+	| TextMessageNode
 	| FunctionCallNode
 	| SequenceNode
 	| ParallelNode

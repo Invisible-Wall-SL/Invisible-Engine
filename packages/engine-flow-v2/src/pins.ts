@@ -296,6 +296,16 @@ export const derivePins = (node: Node, ctx: PinContext, scope: PinScope = {}): P
 		}
 		case 'hideContainer':
 			return [EXEC_IN, EXEC_OUT];
+		case 'textMessage':
+			// Two exec-INS — `show` (raise the flow-shown flag + arm autoHide) and `hide` (clear it) —
+			// plus ONE exec-out `exec` that continues from whichever inlet fired, so the node chains
+			// (e.g. onSpin → show → …). Both inlets are OPTIONAL: a purely state-gated message
+			// (`visibleWhile`) wires neither. No data pins — the text lives on the node (§6.3).
+			return [
+				{ id: 'show', dir: 'in', kind: 'exec', label: 'Show' },
+				{ id: 'hide', dir: 'in', kind: 'exec', label: 'Hide' },
+				EXEC_OUT,
+			];
 		case 'functionCall': {
 			const fn: FunctionDef | undefined = ctx.library.functions.find((f) => f.id === node.ref);
 			// The call node's pins ARE the function's declared inputs/outputs, verbatim (§5).

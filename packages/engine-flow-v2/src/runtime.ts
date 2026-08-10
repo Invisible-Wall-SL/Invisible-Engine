@@ -76,6 +76,10 @@ export interface FlowV2Env {
 	containerAnimationMs?(containerId: string): number;
 	/** An `$engine.<key>` accessor read — a template global (e.g. `reels`, `slots`). */
 	engineRead(key: string): unknown;
+	/** A `textMessage` node's `show`/`hide` exec — raise or clear the node's FLOW-SHOWN flag (the game
+	 *  OR-s it with the node's `visibleWhile` state-gate to decide the overlay's visibility). Optional:
+	 *  a pure recorder env without it makes show/hide a no-op, so a headless harness never renders. */
+	setMessageShown?(nodeId: string, shown: boolean): void;
 }
 
 /** The lookups + environment a run needs — the template contract, the function library,
@@ -291,6 +295,24 @@ class FlowInterpreter {
 
 			case 'hideContainer': {
 				await this.ctx.env.hideContainer(node.ref);
+				return this.nextExec(graph, node.id, 'exec');
+			}
+
+			case 'textMessage': {
+				// `hide` inlet clears the flow-shown flag; `show` raises it and — if `autoHideMs` is set —
+				// schedules a turbo-scaled auto-clear that does NOT block the chain (the message flashes
+				// while the round proceeds). Both inlets continue from the single `exec` out-pin.
+				if (execPinId === 'hide') {
+					this.ctx.env.setMessageShown?.(node.id, false);
+				} else {
+					this.ctx.env.setMessageShown?.(node.id, true);
+					if (node.autoHideMs && node.autoHideMs > 0) {
+						const scale = this.ctx.env.timeScale() || 1;
+						void this.ctx.env
+							.waitForTimeout(node.autoHideMs / scale)
+							.then(() => this.ctx.env.setMessageShown?.(node.id, false));
+					}
+				}
 				return this.nextExec(graph, node.id, 'exec');
 			}
 

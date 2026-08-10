@@ -90,6 +90,7 @@ type NodeKind =
   | 'event' | 'gameSignals'       // entry points: one template event / all mechanic signals (§6.2)
   | 'action' | 'fireCue' | 'delay' | 'branch' | 'forEach'
   | 'showContainer' | 'hideContainer' | 'functionCall'
+  | 'textMessage'                 // a localized on-screen text prompt (§6.3)
   | 'sequence' | 'parallel'      // exec fan-out helpers
   | 'compute'                    // pure typed value ops (see §4)
   | 'group';                     // an INLINE collapsed subgraph (§5.2)
@@ -127,6 +128,17 @@ Per kind (pins listed as they're **derived**):
   buttons" node. Each event pin's `id` is the decl's `id` (`spinButton.onSpin`, unique on the node) and
   its label is the `on<Event>` tail (`onSpin`). Absent surface for the ref ⇒ just `[exec-in, exec-out]`
   (parity-safe). **hideContainer** — `{ ref: ContainerId }`. Pins: in `exec`, out `exec`.
+- **textMessage** (§6.3) — `{ text; place:{x,y}; visibleWhile?; autoHideMs?; style? }`. A presentation
+  LEAF that draws one localized line of text at a normalized 0..1 screen `place`. It CARRIES its own
+  `text` (a deliberate, contained exception to the anti-drift rule — the text IS the node's definition,
+  like `group.body`), which is BOTH the editable default AND the localization key (harvested by
+  `collectTextMessages`, resolved through the catalog at render). Pins: two exec-ins **`show`** /
+  **`hide`** (both optional) + one exec-out `exec` (continues from whichever inlet fired). Visibility is
+  OR-ed: a reactive **state-gate** `visibleWhile` (`idle`/`spinning`/`freeSpins`/`always`/`none`) for the
+  sustained-state case the event-driven interpreter can't express, and the flow-shown flag the `show`/
+  `hide` inlets toggle (`show` also arms `autoHideMs`, so a transient message is ONE node). The text
+  travels inside the baked `bundle.flowV2` (no new baked class); the game renders it via
+  `FlowV2Messages.svelte` gated on the xstate idle/spin predicates.
 - **functionCall** — `{ ref: FunctionId }`. Pins mirror the `FunctionDef`'s declared `inputs`/
   `outputs` (in `exec` + input data-ins; out `exec` + output data-outs).
 - **sequence** — in `exec`; N ordered out execs `then[0..n]`, fired in order. **parallel** — same but

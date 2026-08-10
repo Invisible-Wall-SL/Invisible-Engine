@@ -33,6 +33,10 @@
  *                            would make two nodes share an id after flatten (the runtime indexes BY id,
  *                            so they collapse and edges cross-wire). Flatten now re-namespaces it safely,
  *                            but the collision is a data smell the id minter should never produce.
+ *  - `text-message-empty`  — a `textMessage` node whose `text` is blank: it renders nothing and
+ *                            harvests no localization key (a warning — the graph still runs).
+ *  - `text-message-unreachable` — a `textMessage` with NO state-gate (`visibleWhile` unset/`'none'`)
+ *                            AND no incoming `show` exec edge: nothing can ever make it appear.
  *
  * The checks mirror the schema's rules; a flagged doc is still structurally a FlowDoc — the
  * issues are an authoring aid + the connect-time gate, not a runtime crash.
@@ -77,7 +81,9 @@ export type FlowIssueCode =
 	| 'entry-outside-body'
 	| 'fn-body-entry'
 	| 'fn-body-result'
-	| 'duplicate-id';
+	| 'duplicate-id'
+	| 'text-message-empty'
+	| 'text-message-unreachable';
 
 export type FlowIssueSeverity = 'error' | 'warning';
 
@@ -568,6 +574,30 @@ const validateGraph = (
 				code: 'fn-requires',
 				severity: 'error',
 				message: `functionCall '${node.id}' → '${fn.name}': template '${opts.templateId}' does not satisfy its vocabulary requirements`,
+				at: { on: 'node', node: node.id },
+			});
+		}
+	}
+
+	// --- (g) textMessage authoring aids: blank text renders nothing; a message with neither a
+	// state-gate nor an incoming `show` edge can never appear. Both are warnings (the graph still runs).
+	for (const node of nodes) {
+		if (node.kind !== 'textMessage') continue;
+		if (!node.text.trim()) {
+			issues.push({
+				code: 'text-message-empty',
+				severity: 'warning',
+				message: `text message '${node.id}' has no text — it renders nothing and adds no localization key`,
+				at: { on: 'node', node: node.id },
+			});
+		}
+		const gated = node.visibleWhile !== undefined && node.visibleWhile !== 'none';
+		const hasShowEdge = exec.some((e) => e.to.node === node.id && e.to.pin === 'show');
+		if (!gated && !hasShowEdge) {
+			issues.push({
+				code: 'text-message-unreachable',
+				severity: 'warning',
+				message: `text message '${node.id}' has no "visible while" gate and no incoming Show edge — nothing can make it appear`,
 				at: { on: 'node', node: node.id },
 			});
 		}
