@@ -1,26 +1,32 @@
 <script lang="ts">
 	/**
-	 * Invisible Flow v2 (§6.3) — the in-game TEXT MESSAGE overlay. Renders one localized `<Text>` per
-	 * authored `textMessage` node at its normalized `place`, inside the MAIN design canvas so a message
-	 * lands at the SAME spot across every layout (the box is `mainLayout.width`×`mainLayout.height`,
-	 * pivoted to the canvas centre by `<MainContainer>` — so a place of {0.5,0.5} is dead-centre).
+	 * Invisible Flow v2 (§6.3) — the in-game TEXT MESSAGE renderer. Each authored `textMessage` node
+	 * is visible when `gateMatches(node.visibleWhile) OR flow.messageShown(node.id)` — the OR serves
+	 * BOTH use cases with one rule: a STATE-GATED message ("Click spin to start", `visibleWhile:'idle'`)
+	 * shows whenever its round-phase gate is on, while a FLOW-DRIVEN message ("Good luck", a bare `show`
+	 * exec + `autoHideMs`) shows while the interpreter's reactive shown-flag is raised. `messageShown`
+	 * reads a `SvelteSet` in the runtime, so this render re-runs on every show/hide/auto-hide toggle.
 	 *
-	 * Visibility per node is `gateMatches(node.visibleWhile) OR flow.messageShown(node.id)` — the OR
-	 * serves BOTH real use cases with one rule: a STATE-GATED message ("Click spin to start",
-	 * `visibleWhile:'idle'`) shows whenever its round-phase gate is on, while a FLOW-DRIVEN message
-	 * ("Good luck", a bare `show` exec + `autoHideMs`) shows while the interpreter's reactive
-	 * shown-flag is raised. `messageShown` reads a `SvelteSet` in the runtime, so this render re-runs
-	 * on every show/hide/auto-hide toggle.
+	 * A node's `placement` picks WHERE it draws:
+	 *  - `'infoBar'` (default) — routed through the game's SHARED single-slot message channel
+	 *    (`showMessage`/`stateMessage`), the exact slot win toasts + other messages use, so it looks
+	 *    and sits identically. Only ONE message occupies that slot: the last visible info-bar node
+	 *    wins, and we only ever CLEAR the slot when we're the one holding it (never wipe a win toast we
+	 *    didn't set). A simultaneous win toast can still replace an info-bar message — that is the
+	 *    single-slot's nature, matching every other producer.
+	 *  - `'anchor'` — an INDEPENDENT `<Text>` overlay at the node's normalized `place`, inside the MAIN
+	 *    design canvas so it lands at the same spot across layouts. Use for a persistent / positioned
+	 *    prompt that must not share the single slot.
 	 *
-	 * This overlay is DELIBERATELY independent of the shared single-slot `stateMessage` HUD toast
-	 * (which auto-clears at 2600ms and is clobbered by win toasts) and of `flowV2DrivesScreens` — a
-	 * book-events-only flow that owns no screens can still author messages. Inert (renders nothing)
-	 * when no v2 flow is authored or no message nodes exist (parity).
+	 * Independent of `flowV2DrivesScreens` — a book-events-only flow that owns no screens can still
+	 * author messages. Inert (renders/sets nothing) when no v2 flow is authored or no message nodes
+	 * exist (parity).
 	 */
 	import { Text } from 'pixi-svelte';
 	import { MainContainer } from 'components-layout';
 	import { getContextLayout } from 'utils-layout';
 	import { resolveLocalizedText } from 'engine-layout';
+	import { clearMessage, showMessage } from 'state-shared';
 	import type { TextMessageNode } from 'engine-flow-v2';
 
 	import { stateXstateDerived } from '../game/stateXstate';
@@ -56,12 +62,49 @@
 				return false; // 'none' | undefined ⇒ visibility driven solely by show/hide exec.
 		}
 	};
+
+	const isVisible = (node: TextMessageNode): boolean =>
+		gateMatches(node.visibleWhile) || (flow?.messageShown(node.id) ?? false);
+
+	// Default placement is `'infoBar'` (matches `TEXT_MESSAGE_DEFAULTS`).
+	const placementOf = (node: TextMessageNode): NonNullable<TextMessageNode['placement']> =>
+		node.placement ?? 'infoBar';
+
+	const anchorNodes = $derived(
+		(flow?.textMessages ?? []).filter((n) => placementOf(n) === 'anchor'),
+	);
+
+	// The info-bar message to occupy the shared slot RIGHT NOW: the LAST authored visible one (a later
+	// node overrides an earlier — a stable, order-based single-slot priority).
+	const activeInfoBar = $derived.by<TextMessageNode | undefined>(() => {
+		let pick: TextMessageNode | undefined;
+		for (const n of flow?.textMessages ?? []) {
+			if (placementOf(n) === 'infoBar' && isVisible(n)) pick = n;
+		}
+		return pick;
+	});
+
+	// Drive the shared message slot from `activeInfoBar`. `ownsSlot` is a plain (non-reactive) flag so
+	// writing it never re-triggers this effect; it guards the clear so we never wipe a message some
+	// OTHER producer (a win toast) put in the slot. `durationMs:0` = hold until we replace/clear it —
+	// the node's own `visibleWhile` gate / `autoHideMs` (via `messageShown`) decides when that is.
+	let ownsSlot = false;
+	$effect(() => {
+		const node = activeInfoBar;
+		if (node) {
+			showMessage(resolveLocalizedText(node.text), { durationMs: 0 });
+			ownsSlot = true;
+		} else if (ownsSlot) {
+			clearMessage();
+			ownsSlot = false;
+		}
+	});
 </script>
 
-{#if flow}
+{#if flow && anchorNodes.length}
 	<MainContainer>
-		{#each flow.textMessages as node (node.id)}
-			{#if gateMatches(node.visibleWhile) || flow.messageShown(node.id)}
+		{#each anchorNodes as node (node.id)}
+			{#if isVisible(node)}
 				<Text
 					x={node.place.x * mainLayout.width}
 					y={node.place.y * mainLayout.height}

@@ -176,13 +176,24 @@
 	// guards on the kind — Svelte narrows `node` inside the `{#if}` template block, but the setters
 	// close over `node` where that narrowing doesn't hold. A blank/undefined value clears an optional
 	// field (autoHideMs/style) so an unused field is never stored (see the setter's doc).
-	const VISIBLE_WHILE_OPTIONS: { value: NonNullable<TextMessageNode['visibleWhile']>; label: string }[] = [
+	const VISIBLE_WHILE_OPTIONS: {
+		value: NonNullable<TextMessageNode['visibleWhile']>;
+		label: string;
+	}[] = [
 		{ value: 'none', label: 'None (only via a Show wire)' },
 		{ value: 'idle', label: 'Idle (before a spin)' },
 		{ value: 'spinning', label: 'Spinning' },
 		{ value: 'freeSpins', label: 'Free spins' },
 		{ value: 'always', label: 'Always (while this flow is active)' },
 	];
+	const PLACEMENT_OPTIONS: { value: NonNullable<TextMessageNode['placement']>; label: string }[] = [
+		{ value: 'infoBar', label: 'Info bar (the game’s message line)' },
+		{ value: 'anchor', label: 'Fixed position (custom anchor)' },
+	];
+	// Default matches the engine (`TEXT_MESSAGE_DEFAULTS.placement`): a message with no explicit
+	// placement uses the shared info-bar channel, like every other in-game message.
+	const placementOf = (n: TextMessageNode): NonNullable<TextMessageNode['placement']> =>
+		n.placement ?? 'infoBar';
 
 	function onTextChange(text: string): void {
 		if (node.kind !== 'textMessage') return;
@@ -198,6 +209,10 @@
 	function onVisibleWhileChange(value: NonNullable<TextMessageNode['visibleWhile']>): void {
 		if (node.kind !== 'textMessage') return;
 		onchange(setTextMessageFields(doc, node.id, { visibleWhile: value }));
+	}
+	function onPlacementChange(value: NonNullable<TextMessageNode['placement']>): void {
+		if (node.kind !== 'textMessage') return;
+		onchange(setTextMessageFields(doc, node.id, { placement: value }));
 	}
 	// 0/empty ⇒ clear the field (stay shown until a Hide wire or the gate flips).
 	function onAutoHideChange(raw: number): void {
@@ -435,8 +450,26 @@
 				></textarea>
 			</label>
 			<p class="hint">
-				This exact text is the <strong>localization key</strong> — it's the default line shown, and
-				what the translator resolves per language.
+				This exact text is the <strong>localization key</strong> — it's the default line shown, and what
+				the translator resolves per language.
+			</p>
+
+			<label class="field">
+				<span class="flabel">Placement</span>
+				<select
+					value={placementOf(node)}
+					onchange={(e) =>
+						onPlacementChange(e.currentTarget.value as NonNullable<TextMessageNode['placement']>)}
+				>
+					{#each PLACEMENT_OPTIONS as opt (opt.value)}
+						<option value={opt.value}>{opt.label}</option>
+					{/each}
+				</select>
+			</label>
+			<p class="hint">
+				<strong>Info bar</strong> shows it in the game's shared message line, exactly like win
+				messages (single slot — the latest message wins). <strong>Fixed position</strong> draws it as
+				its own overlay at the anchor below.
 			</p>
 
 			<label class="field">
@@ -454,36 +487,40 @@
 				</select>
 			</label>
 			<p class="hint">
-				A sustained game state that shows the message continuously — e.g. <strong>Idle</strong> for a
-				standing "Click spin button to start". Leave on <strong>None</strong> for a transient message
-				driven only by a <code>Show</code> wire.
+				A sustained game state that shows the message continuously — e.g. <strong>Idle</strong> for
+				a standing "Click spin button to start". Leave on <strong>None</strong> for a transient
+				message driven only by a <code>Show</code> wire.
 			</p>
 
-			<div class="place-row">
-				<label class="field">
-					<span class="flabel">Anchor X (0–1)</span>
-					<input
-						type="number"
-						min="0"
-						max="1"
-						step="0.01"
-						value={node.place.x}
-						onchange={(e) => onPlaceChange('x', Number(e.currentTarget.value))}
-					/>
-				</label>
-				<label class="field">
-					<span class="flabel">Anchor Y (0–1)</span>
-					<input
-						type="number"
-						min="0"
-						max="1"
-						step="0.01"
-						value={node.place.y}
-						onchange={(e) => onPlaceChange('y', Number(e.currentTarget.value))}
-					/>
-				</label>
-			</div>
-			<p class="hint">Normalized position on the game canvas — 0,0 is top-left, 1,1 bottom-right.</p>
+			{#if placementOf(node) === 'anchor'}
+				<div class="place-row">
+					<label class="field">
+						<span class="flabel">Anchor X (0–1)</span>
+						<input
+							type="number"
+							min="0"
+							max="1"
+							step="0.01"
+							value={node.place.x}
+							onchange={(e) => onPlaceChange('x', Number(e.currentTarget.value))}
+						/>
+					</label>
+					<label class="field">
+						<span class="flabel">Anchor Y (0–1)</span>
+						<input
+							type="number"
+							min="0"
+							max="1"
+							step="0.01"
+							value={node.place.y}
+							onchange={(e) => onPlaceChange('y', Number(e.currentTarget.value))}
+						/>
+					</label>
+				</div>
+				<p class="hint">
+					Normalized position on the game canvas — 0,0 is top-left, 1,1 bottom-right.
+				</p>
+			{/if}
 
 			<label class="field">
 				<span class="flabel">Auto-hide after (ms)</span>
@@ -497,34 +534,36 @@
 				/>
 			</label>
 			<p class="hint">
-				For a transient message shown via a <code>Show</code> wire (e.g. a "Good luck" fired from the
-				spin button, ~1200 ms). <strong>0 / empty</strong> keeps it up until a
+				For a transient message shown via a <code>Show</code> wire (e.g. a "Good luck" fired from
+				the spin button, ~1200 ms). <strong>0 / empty</strong> keeps it up until a
 				<code>Hide</code> wire or the state gate turns off.
 			</p>
 
-			<div class="place-row">
-				<label class="field">
-					<span class="flabel">Text size (optional)</span>
-					<input
-						type="number"
-						min="0"
-						step="1"
-						value={node.style?.size ?? ''}
-						placeholder="engine default"
-						onchange={(e) => onStyleChange({ size: Number(e.currentTarget.value) })}
-					/>
-				</label>
-				<label class="field">
-					<span class="flabel">Color (optional)</span>
-					<input
-						type="text"
-						value={node.style?.color ?? ''}
-						placeholder="#ffffff"
-						onchange={(e) => onStyleChange({ color: e.currentTarget.value })}
-					/>
-				</label>
-			</div>
-			<p class="hint">Blank style fields fall back to the engine's default message style.</p>
+			{#if placementOf(node) === 'anchor'}
+				<div class="place-row">
+					<label class="field">
+						<span class="flabel">Text size (optional)</span>
+						<input
+							type="number"
+							min="0"
+							step="1"
+							value={node.style?.size ?? ''}
+							placeholder="engine default"
+							onchange={(e) => onStyleChange({ size: Number(e.currentTarget.value) })}
+						/>
+					</label>
+					<label class="field">
+						<span class="flabel">Color (optional)</span>
+						<input
+							type="text"
+							value={node.style?.color ?? ''}
+							placeholder="#ffffff"
+							onchange={(e) => onStyleChange({ color: e.currentTarget.value })}
+						/>
+					</label>
+				</div>
+				<p class="hint">Blank style fields fall back to the engine's default message style.</p>
+			{/if}
 		{/if}
 
 		{#if node.kind === 'forEach'}
@@ -727,7 +766,8 @@
 			{#if lt.t === 'bool'}
 				<select
 					value={unset ? '' : src.value === true ? 'true' : 'false'}
-					onchange={(e) => commit({ kind: 'literal', type: lt, value: e.currentTarget.value === 'true' })}
+					onchange={(e) =>
+						commit({ kind: 'literal', type: lt, value: e.currentTarget.value === 'true' })}
 				>
 					{#if unset}
 						<!-- A bare checkbox draws the phantom default (`false`) as an unchecked box, so an
