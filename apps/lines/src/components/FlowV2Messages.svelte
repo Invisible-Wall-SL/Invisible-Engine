@@ -22,10 +22,10 @@
 	 * author messages. Inert (renders/sets nothing) when no v2 flow is authored or no message nodes
 	 * exist (parity).
 	 */
-	import { Text } from 'pixi-svelte';
 	import { MainContainer } from 'components-layout';
 	import { getContextLayout } from 'utils-layout';
 	import { resolveLocalizedText } from 'engine-layout';
+	import { CatalogText } from 'engine-layout/svelte';
 	import { clearMessage, showMessage } from 'state-shared';
 	import type { TextMessageNode } from 'engine-flow-v2';
 
@@ -42,6 +42,10 @@
 
 	const DEFAULT_FONT_SIZE = 40;
 	const DEFAULT_COLOR = 0xffffff;
+	// The game's default text font (`HUD_FONT_FAMILY` in engine-layout `builtinComponents`) — so an
+	// anchor message with no chosen font reads like the rest of the game's text. `<CatalogText>`
+	// resolves this + any picked `style.font` ref through the boot font catalog (web vs bitmap).
+	const DEFAULT_FONT_FAMILY = 'proxima-nova';
 
 	/** The reactive round-phase gate. `messageShown` (the flow-driven flag) is OR-ed with this. */
 	const gateMatches = (gate: TextMessageNode['visibleWhile']): boolean => {
@@ -105,13 +109,13 @@
 	<MainContainer>
 		{#each anchorNodes as node (node.id)}
 			{#if isVisible(node)}
-				<Text
+				<CatalogText
 					x={node.place.x * mainLayout.width}
 					y={node.place.y * mainLayout.height}
 					anchor={0.5}
 					text={resolveLocalizedText(node.text)}
 					style={{
-						fontFamily: 'proxima-nova',
+						fontFamily: node.style?.font ?? DEFAULT_FONT_FAMILY,
 						fontSize: node.style?.size ?? DEFAULT_FONT_SIZE,
 						fontWeight: '700',
 						fill: node.style?.color ?? DEFAULT_COLOR,

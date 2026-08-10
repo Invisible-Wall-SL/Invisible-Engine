@@ -34,6 +34,7 @@
 		setTextMessageFields,
 	} from './graphOps';
 	import { typeLabel } from './palette';
+	import { fetchFontCatalog, type EditorFont } from '../editor/fonts.client';
 	import type { FlowDoc } from 'engine-flow-v2';
 
 	let {
@@ -221,11 +222,12 @@
 		onchange(setTextMessageFields(doc, node.id, { autoHideMs: ms }));
 	}
 	// Merge one style key, pruning empties — an all-empty style object is dropped so the node falls
-	// back entirely to the engine's default message style.
-	function onStyleChange(part: { size?: number; color?: string }): void {
+	// back entirely to the engine's default message style (default HUD font / size / fill).
+	function onStyleChange(part: { font?: string; size?: number; color?: string }): void {
 		if (node.kind !== 'textMessage') return;
 		const merged = { ...(node.style ?? {}), ...part };
 		const style: NonNullable<TextMessageNode['style']> = {};
+		if (typeof merged.font === 'string' && merged.font.trim()) style.font = merged.font.trim();
 		if (typeof merged.size === 'number' && Number.isFinite(merged.size) && merged.size > 0)
 			style.size = merged.size;
 		if (typeof merged.color === 'string' && merged.color.trim()) style.color = merged.color.trim();
@@ -235,6 +237,19 @@
 			}),
 		);
 	}
+
+	// The project's font catalog (the SAME source the Scene Editor's font picker uses), for the Font
+	// dropdown below. Cached module-side, so this fetch is cheap + shared across tools.
+	let fontOptions = $state<EditorFont[]>([]);
+	$effect(() => {
+		let cancelled = false;
+		void fetchFontCatalog().then((cat) => {
+			if (!cancelled) fontOptions = cat.fonts;
+		});
+		return () => {
+			cancelled = true;
+		};
+	});
 
 	// --- compute ---------------------------------------------------------------
 	const COMPUTE_OPS = ['add', 'sub', 'mul', 'div', 'member'] as const;
@@ -540,6 +555,18 @@
 			</p>
 
 			{#if placementOf(node) === 'anchor'}
+				<label class="field">
+					<span class="flabel">Font</span>
+					<select
+						value={node.style?.font ?? ''}
+						onchange={(e) => onStyleChange({ font: e.currentTarget.value })}
+					>
+						<option value="">Game default (matches other game text)</option>
+						{#each fontOptions as f (f.id)}
+							<option value={f.id}>{f.name}</option>
+						{/each}
+					</select>
+				</label>
 				<div class="place-row">
 					<label class="field">
 						<span class="flabel">Text size (optional)</span>
@@ -562,7 +589,11 @@
 						/>
 					</label>
 				</div>
-				<p class="hint">Blank style fields fall back to the engine's default message style.</p>
+				<p class="hint">
+					Blank fields fall back to the game's default text style. <strong>Font</strong> lists the
+					project's fonts (the same set the Scene Editor offers); <strong>Game default</strong> uses
+					the font the rest of the game text renders in.
+				</p>
 			{/if}
 		{/if}
 

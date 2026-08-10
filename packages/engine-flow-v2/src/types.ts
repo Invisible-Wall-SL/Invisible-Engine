@@ -295,8 +295,13 @@ export interface TextMessageNode extends NodeBase {
 	/** When shown via the `show` exec, auto-hide after this many ms (turbo-scaled like a `delay`).
 	 *  0/absent ⇒ stays shown until a `hide` exec (or, for a state-gated node, until the gate flips). */
 	autoHideMs?: number;
-	/** Optional inline text style; absent fields fall back to the engine's message default. */
-	style?: { size?: number; color?: string };
+	/** Optional inline text style for `placement:'anchor'` (ignored for `'infoBar'`, which inherits the
+	 *  game's info-bar styling). Absent fields fall back to the game's default text style:
+	 *  - `font` — a FONT REFERENCE (a Font Maker id or a built-in/system family), resolved through the
+	 *    game's boot font catalog by `<CatalogText>` (so a bitmap font renders as `<BitmapText>`).
+	 *    Absent ⇒ the default HUD font (`proxima-nova`), i.e. the font the rest of the game text uses.
+	 *  - `size` / `color` — absent ⇒ the engine's default message size / fill. */
+	style?: { font?: string; size?: number; color?: string };
 }
 
 /** Function call: pins mirror the target `FunctionDef`'s declared inputs/outputs. */
