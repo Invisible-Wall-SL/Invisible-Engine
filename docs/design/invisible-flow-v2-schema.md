@@ -128,8 +128,11 @@ Per kind (pins listed as they're **derived**):
   buttons" node. Each event pin's `id` is the decl's `id` (`spinButton.onSpin`, unique on the node) and
   its label is the `on<Event>` tail (`onSpin`). Absent surface for the ref ⇒ just `[exec-in, exec-out]`
   (parity-safe). **hideContainer** — `{ ref: ContainerId }`. Pins: in `exec`, out `exec`.
-- **textMessage** (§6.3) — `{ text; place:{x,y}; visibleWhile?; autoHideMs?; style? }`. A presentation
-  LEAF that draws one localized line of text at a normalized 0..1 screen `place`. It CARRIES its own
+- **textMessage** (§6.3) — `{ text; placement?; place:{x,y}; visibleWhile?; autoHideMs?; style? }`. A
+  presentation LEAF that draws one localized line of text. `placement` picks WHERE: `'infoBar'`
+  (default) routes it through the game's SHARED `stateMessage`/`showMessage` slot (like win toasts —
+  single-slot, `place`/`style` ignored, the game's HUD info-bar renders it); `'anchor'` draws an
+  independent overlay at the normalized 0..1 `place`. It CARRIES its own
   `text` (a deliberate, contained exception to the anti-drift rule — the text IS the node's definition,
   like `group.body`), which is BOTH the editable default AND the localization key (harvested by
   `collectTextMessages`, resolved through the catalog at render). Pins: two exec-ins **`show`** /

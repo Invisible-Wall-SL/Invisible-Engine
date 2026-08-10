@@ -353,7 +353,7 @@ export const setGroupLabel = (doc: FlowDoc, nodeId: string, label: string): Flow
  *  (drops the key) so an unused field never gets stored as `undefined` (which would defeat the
  *  "absent ⇒ stay shown / engine default" semantics and bloat the doc). */
 type TextMessagePatch = Partial<
-	Pick<TextMessageNode, 'text' | 'place' | 'visibleWhile' | 'autoHideMs' | 'style'>
+	Pick<TextMessageNode, 'text' | 'place' | 'visibleWhile' | 'placement' | 'autoHideMs' | 'style'>
 >;
 
 /** Patch a `textMessage` node's carried content (schema §6.3). Only the keys present in `patch`
@@ -374,6 +374,7 @@ export const setTextMessageFields = (
 			...(patch.text !== undefined ? { text: patch.text } : {}),
 			...(patch.place !== undefined ? { place: patch.place } : {}),
 			...(patch.visibleWhile !== undefined ? { visibleWhile: patch.visibleWhile } : {}),
+			...(patch.placement !== undefined ? { placement: patch.placement } : {}),
 		};
 		// `autoHideMs` / `style` are OPTIONAL — an EXPLICIT `undefined` in the patch clears them (drops
 		// the key), while omitting the key leaves the existing value. `'x' in patch` distinguishes the

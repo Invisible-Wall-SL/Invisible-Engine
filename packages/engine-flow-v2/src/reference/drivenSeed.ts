@@ -195,6 +195,9 @@ nodes.push({
 	kind: 'textMessage',
 	pos: { x: 320, y: -140 },
 	text: 'Click spin button to start',
+	// A positioned overlay (not the single-slot info bar) so a standing prompt is never clobbered by a
+	// message toast — and a worked example of the `'anchor'` placement.
+	placement: 'anchor',
 	place: { x: 0.5, y: 0.86 },
 	visibleWhile: 'idle',
 });
@@ -208,6 +211,9 @@ nodes.push({
 	kind: 'textMessage',
 	pos: { x: 320, y: -80 },
 	text: 'Good luck',
+	// Route through the game's shared info-bar message line, so it reads like every other in-game
+	// message rather than floating at a fixed spot. `place` is ignored for `'infoBar'`.
+	placement: 'infoBar',
 	place: { x: 0.5, y: 0.45 },
 	visibleWhile: 'none',
 	autoHideMs: 1200,

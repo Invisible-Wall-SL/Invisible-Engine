@@ -275,8 +275,19 @@ export interface TextMessageNode extends NodeBase {
 	kind: 'textMessage';
 	/** The authored line — the editable default AND the localization key (localize-then-render). */
 	text: string;
-	/** Normalized 0..1 screen anchor (fraction of the game canvas). Distinct from `NodeBase.pos`,
-	 *  which is the node's position on the EDITOR canvas. */
+	/**
+	 * WHERE the message draws:
+	 *  - `'infoBar'` (default) — routes the text through the game's SHARED message channel
+	 *    (`stateMessage` / `showMessage`), the exact single slot win toasts and other in-game
+	 *    messages use, so it looks + sits identically to the rest of the game's messaging. Single
+	 *    slot: the most-recently-shown message wins (a simultaneous win toast can replace it). `place`
+	 *    / `style` are ignored (the info bar's own scene styling governs).
+	 *  - `'anchor'` — an INDEPENDENT overlay drawn at `place` with `style`. Use for a persistent or
+	 *    specifically-positioned prompt that must not share (or be clobbered by) the single slot.
+	 */
+	placement?: 'infoBar' | 'anchor';
+	/** Normalized 0..1 screen anchor for `placement:'anchor'` (fraction of the game canvas; ignored
+	 *  for `'infoBar'`). Distinct from `NodeBase.pos`, the node's position on the EDITOR canvas. */
 	place: { x: number; y: number };
 	/** The reactive state-gate. Absent/`'none'` ⇒ visibility is driven only by the `show`/`hide`
 	 *  exec-ins. `'always'` ⇒ shown whenever the flow that owns it is active. */

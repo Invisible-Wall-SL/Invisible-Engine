@@ -14,7 +14,10 @@ import type { FlowDoc, Graph, TextMessageNode } from './types';
 /** The coded defaults a newly-dropped Text Message node starts with — the editable "default text". */
 export const TEXT_MESSAGE_DEFAULTS = {
 	text: 'Message',
-	/** Normalized 0..1 screen anchor (centre, lower third — clear of the reels). */
+	/** Default to the game's shared info-bar message channel — a new message looks + sits like every
+	 *  other in-game message out of the box (switch to `'anchor'` for a positioned overlay). */
+	placement: 'infoBar' as const,
+	/** Normalized 0..1 screen anchor, used only when `placement:'anchor'` (centre, lower third). */
 	place: { x: 0.5, y: 0.85 },
 	visibleWhile: 'none' as const,
 } satisfies Partial<TextMessageNode>;
