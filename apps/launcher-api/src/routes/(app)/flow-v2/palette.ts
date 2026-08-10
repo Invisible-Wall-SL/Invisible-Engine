@@ -6,7 +6,19 @@
  * its element color (a collection of the same thing).
  */
 
-import type { TypeRef } from 'engine-flow-v2';
+import type { NodeKind, TypeRef } from 'engine-flow-v2';
+
+/**
+ * Presentation LEAF node kinds an author drops directly. Unlike `showContainer`/`hideContainer`
+ * (which reference a Scene-Editor scene projected from `doc.containers`) or the vocab-derived
+ * event/action/cue entries, these carry their OWN content — so they have no ref and can't be
+ * projected from anything; they're a fixed, hand-declared group like `CONTROL`. Kept here (beside
+ * the type palette) so `AddNodePalette` renders the group from ONE list and a future presentation
+ * kind is a single-line addition. Rendered right after the Containers section (their kin group).
+ */
+export const PRESENTATION_NODES: { kind: NodeKind; label: string }[] = [
+	{ kind: 'textMessage', label: 'Text Message' },
+];
 
 const SCALAR_COLOR: Record<string, string> = {
 	int: '#38bdf8', // sky — a plain integer.

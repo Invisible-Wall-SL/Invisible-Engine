@@ -80,8 +80,28 @@ function library:
   Each row also has **✎** (edit its body) and **✕** (delete it, blocked while it is in use).
 - **Containers** — a **show** and a **hide** button per container the flow declares
   (`show basegame`, `hide loading`, …). Adds a **showContainer** / **hideContainer** node.
+- **Presentation** — a **Text Message** node: one line of on-screen text you author right on
+  the node (see below).
 - **Control** — the flow-control kinds: **Delay**, **Branch**, **ForEach**, **Sequence**,
   **Parallel**, **Compute**.
+
+#### Text Message — in-game prompts
+
+A **Text Message** node draws a single line of text on the game canvas. Unlike a container, it
+carries its *own* text — type it into the node's **Message text** in the inspector; that text is
+both the default and the string that auto-appears in **Invisible Localization** (a read-only *Flow
+messages* section) for translation. Place it with the **Anchor X/Y** (0–1 fractions of the screen).
+
+Decide *when* it shows in one of two ways (a message shows when **either** is true):
+
+- **Visible while** — a state gate: **Idle** (reels not spinning), **Spinning**, **Free spins**, or
+  **Always**. Use this for a persistent prompt — e.g. *"Click spin button to start"* set to
+  **Idle** appears whenever the game is waiting and disappears the moment a spin starts. No wiring
+  needed.
+- **Show / Hide** exec inlets — drive it from the graph like anything else. Wire an exec into
+  **Show** to reveal it and set **Auto-hide after (ms)** so it clears itself — e.g. a *"Good luck"*
+  flash wired from the spin/`reveal` signal with auto-hide `1200`. Leave **Visible while** on
+  **None** for a purely flow-driven message.
 
 A **Filter…** box narrows every section as you type. **Drag** a palette entry onto the
 canvas to drop the node at the cursor, or **click** it to add near the centre of the graph.

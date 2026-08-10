@@ -8,6 +8,7 @@
 	import type { FlowDoc, FunctionLibraryDoc, NodeKind, TemplateVocabulary } from 'engine-flow-v2';
 	import { browser } from '$app/environment';
 	import { DROP_MIME, type DropPayload } from './dnd';
+	import { PRESENTATION_NODES } from './palette';
 
 	let {
 		vocab,
@@ -243,6 +244,27 @@
 	</section>
 
 	<section>
+		{@render head(
+			'presentation',
+			'Presentation',
+			PRESENTATION_NODES.filter((p) => matches(p.label)).length
+		)}
+		{#if isOpen('presentation')}
+			{#each PRESENTATION_NODES.filter((p) => matches(p.label)) as p (p.kind)}
+				<button
+					class="entry presentation"
+					draggable={true}
+					ondragstart={(ev) => onDragStart(ev, p.kind)}
+					onclick={() => onadd(p.kind)}
+					title={p.kind}
+				>
+					{p.label}
+				</button>
+			{/each}
+		{/if}
+	</section>
+
+	<section>
 		{@render head('control', 'Control', CONTROL.filter((c) => matches(c.label)).length)}
 		{#if isOpen('control')}
 			{#each CONTROL.filter((c) => matches(c.label)) as c (c.kind)}
@@ -419,6 +441,10 @@
 	}
 	.entry.container {
 		border-left: 3px solid #6366f1;
+	}
+	.entry.presentation {
+		/* Sky — a presentation leaf; distinct from the indigo container show/hide it sits beside. */
+		border-left: 3px solid #38bdf8;
 	}
 	.entry.control {
 		border-left: 3px solid #64748b;

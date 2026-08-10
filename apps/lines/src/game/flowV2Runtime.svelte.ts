@@ -38,6 +38,7 @@ import {
 	awaitCompleteContainerIds,
 	createContainerMountModel,
 	createFlowV2Env,
+	flattenGroups,
 	flowOwnsContainerEvent,
 	flowOwnsSignal,
 	flowScreenDrivingStatus,
@@ -51,7 +52,9 @@ import {
 	type MountedContainer,
 	type RunContext,
 	type TemplateVocabulary,
+	type TextMessageNode,
 } from 'engine-flow-v2';
+import { SvelteSet } from 'svelte/reactivity';
 import { stateBetDerived } from 'state-shared';
 import { roundSkip } from 'utils-shared/skipToken';
 
@@ -218,6 +221,13 @@ export type LinesFlowV2 = {
 		action: string,
 		payload?: Record<string, unknown>,
 	) => Promise<void>;
+	/** The authored Text Message nodes (§6.3) — static, read from the doc (groups flattened).
+	 *  `<FlowV2Messages>` renders one localized text overlay per node at its `place`. */
+	textMessages: TextMessageNode[];
+	/** Whether a `textMessage` node's FLOW-SHOWN flag is currently raised (a `show` exec fired and no
+	 *  `hide`/auto-hide has cleared it). REACTIVE — reads a `SvelteSet`, so a render that calls it
+	 *  re-runs on show/hide. `<FlowV2Messages>` OR-s this with the node's `visibleWhile` state-gate. */
+	messageShown: (nodeId: string) => boolean;
 };
 
 /**
@@ -470,6 +480,15 @@ export const createLinesFlowV2 = (
 		});
 	};
 
+	// §6.3 Text Message overlays. The static list of authored message nodes (groups flattened so a
+	// message inside a group still renders + harvests) + the reactive set of the ones a `show` exec has
+	// raised. `<FlowV2Messages>` renders each whose `visibleWhile` state-gate matches OR whose id is in
+	// this set. A plain-object interpreter can't hold a rune, so the flag lives here as a `SvelteSet`.
+	const textMessages = flattenGroups(doc.graph).nodes.filter(
+		(n): n is TextMessageNode => n.kind === 'textMessage',
+	);
+	const flowShownMessages = new SvelteSet<string>();
+
 	const env = createFlowV2Env({
 		mount,
 		// The game-side effect registry — the SAME closed map of named effects the v1/coded path
@@ -513,6 +532,10 @@ export const createLinesFlowV2 = (
 		engineRead: linesEngineReader,
 		// The `showContainer.durationMs` pin — the shown scene's longest animation, in wall-clock ms.
 		containerAnimationMs,
+		// A `textMessage` node's `show`/`hide` exec toggles its FLOW-SHOWN flag in a reactive set;
+		// `<FlowV2Messages>` OR-s that with the node's `visibleWhile` state-gate to decide the overlay.
+		setMessageShown: (nodeId, shown) =>
+			shown ? flowShownMessages.add(nodeId) : flowShownMessages.delete(nodeId),
 	});
 
 	const ctx: RunContext = { vocab, library: loadFlowV2Library(), env };
@@ -552,5 +575,7 @@ export const createLinesFlowV2 = (
 			trace('containerEvent ▶', `${componentId}.${action}`);
 			return runFlowContainerEvent(doc, ctx, componentId, action, payload);
 		},
+		textMessages,
+		messageShown: (nodeId) => flowShownMessages.has(nodeId),
 	};
 };

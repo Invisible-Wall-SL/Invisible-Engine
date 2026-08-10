@@ -172,10 +172,58 @@ wireChain(
 
 // --- Book-event choreography (canonical BOOK_OF_CHOREO, wired off each gameSignals pin) ----------
 // The overlays are already mounted (above), so these choreos' cues toggle the components' internal
-// visibility — no per-event showContainer needed.
+// visibility — no per-event showContainer needed. `reveal` is wired SEPARATELY below (its chain is
+// prefixed with the "Good luck" message flash), so skip it here — an exec-out fans to only ONE edge,
+// so the message show + the choreo cannot both hang off `gameSignals.reveal` directly.
 Object.entries(BOOK_OF_CHOREO).forEach(([event, steps], i) => {
+	if (event === 'reveal') return;
 	wireChain(GS_NODE, event, [{ k: 'steps', steps }], 4 + i);
 });
+
+// --- §6.3 In-game Text Messages (the two editable, auto-localized defaults) -----------------------
+// These are the "generic text message" primitive the owner asked for: a line of authored text drawn
+// on the game canvas, its text harvested into Invisible Localization, its VISIBILITY driven either by
+// a reactive STATE-GATE or by the flow graph. Both are editable/removable in the /flow-v2 inspector.
+const MSG_CLICK_SPIN = 'msg_click_spin';
+const MSG_GOOD_LUCK = 'msg_good_luck';
+
+// (1) "Click spin button to start" — ALWAYS visible while the reels are idle. Pure state-gate
+// (`visibleWhile:'idle'`), NO wiring: the game shows it whenever `stateXstateDerived.isIdle()` and
+// hides it the instant a spin leaves idle. This is the sustained-state case flow events can't express.
+nodes.push({
+	id: MSG_CLICK_SPIN,
+	kind: 'textMessage',
+	pos: { x: 320, y: -140 },
+	text: 'Click spin button to start',
+	place: { x: 0.5, y: 0.86 },
+	visibleWhile: 'idle',
+});
+
+// (2) "Good luck" — a BRIEF flash at the start of each spin. Flow-driven: shown when the round's
+// first book event (`reveal`) fires, auto-hidden after ~1.2s (turbo-scaled). Prefixed onto the reveal
+// choreo so it flashes as the reels start, then the normal reveal presentation runs. `reveal` fires
+// every spin (manual + autoplay), so the flash is not limited to manual presses.
+nodes.push({
+	id: MSG_GOOD_LUCK,
+	kind: 'textMessage',
+	pos: { x: 320, y: -80 },
+	text: 'Good luck',
+	place: { x: 0.5, y: 0.45 },
+	visibleWhile: 'none',
+	autoHideMs: 1200,
+});
+
+// Build the reveal choreo as its own linear chain, then wire: gameSignals.reveal ▶ goodLuck.show ▶
+// (goodLuck continues immediately — show is non-blocking) ▶ the reveal choreo entry.
+const revealSub = buildChoreo(BOOK_OF_CHOREO.reveal, uid);
+revealSub.nodes.forEach((n, i) => (n.pos = { x: 0, y: 4 * 40 + i * 20 }));
+nodes.push(...revealSub.nodes);
+exec.push(...revealSub.exec);
+data.push(...revealSub.data);
+exec.push(
+	{ from: { node: GS_NODE, pin: 'reveal' }, to: { node: MSG_GOOD_LUCK, pin: 'show' } },
+	{ from: { node: MSG_GOOD_LUCK, pin: 'exec' }, to: { node: revealSub.entry!, pin: 'exec' } },
+);
 
 // --- Buy-bonus subgraph (Phase 3 Step 5 — the buy flow authored end-to-end in Flow) --------------
 // OPT-IN ONLY: this doc is loaded by `apps/lines` solely via `?flowV2=lines` / `__IE_FLOW_V2_LINES__`

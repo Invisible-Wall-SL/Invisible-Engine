@@ -20,7 +20,9 @@ import type {
 	Guard,
 	Node as V2Node,
 	NodeKind,
+	TextMessageNode,
 } from 'engine-flow-v2';
+import { TEXT_MESSAGE_DEFAULTS } from 'engine-flow-v2';
 
 // ---------------------------------------------------------------------------
 // Graph-level ops (2c.3). Every structural edit is fundamentally a pure `Graph → Graph`;
@@ -199,6 +201,12 @@ export const makeNode = (
 			// The single mechanic-signal SOURCE node — ref-less, no fields; its pins are DERIVED from
 			// the vocabulary (one exec-out per non-intent event). Shaped like `delay` (just id/kind/pos).
 			return { id, kind, pos };
+		case 'textMessage':
+			// Presentation LEAF that CARRIES its own content (no vocab ref). Seed from the engine's coded
+			// defaults (text/place/visibleWhile) so a freshly-dropped node renders + validates straight
+			// away; `pos` is the drop point like every other kind. Spreading the shared defaults keeps the
+			// editor and the game's render layer reading the SAME starting shape (they both import it).
+			return { id, kind, pos, ...TEXT_MESSAGE_DEFAULTS };
 		case 'delay':
 			return { id, kind, pos };
 		case 'branch':
@@ -339,3 +347,44 @@ export const setGroupLabel = (doc: FlowDoc, nodeId: string, label: string): Flow
 	replaceNode(doc, nodeId, (n) =>
 		n.kind === 'group' ? { ...n, label: label.trim() || n.label } : n,
 	);
+
+/** The `textMessage` content fields the inspector edits. `text`/`place`/`visibleWhile` are always
+ *  present on the node; `autoHideMs`/`style` are optional — passing `undefined` for either CLEARS it
+ *  (drops the key) so an unused field never gets stored as `undefined` (which would defeat the
+ *  "absent ⇒ stay shown / engine default" semantics and bloat the doc). */
+type TextMessagePatch = Partial<
+	Pick<TextMessageNode, 'text' | 'place' | 'visibleWhile' | 'autoHideMs' | 'style'>
+>;
+
+/** Patch a `textMessage` node's carried content (schema §6.3). Only the keys present in `patch`
+ *  change; a key whose value is `undefined` is DELETED rather than set (see `TextMessagePatch`), so
+ *  `autoHideMs: undefined` / `style: undefined` cleanly clear the optional field. All other nodes
+ *  pass through untouched, mirroring the per-kind setters above. */
+export const setTextMessageFields = (
+	doc: FlowDoc,
+	nodeId: string,
+	patch: TextMessagePatch,
+): FlowDoc =>
+	replaceNode(doc, nodeId, (n) => {
+		if (n.kind !== 'textMessage') return n;
+		// The three ALWAYS-PRESENT fields are only overwritten when the patch supplies them (the editor
+		// always sends a value for these, never `undefined`); spreading an absent key changes nothing.
+		const next: TextMessageNode = {
+			...n,
+			...(patch.text !== undefined ? { text: patch.text } : {}),
+			...(patch.place !== undefined ? { place: patch.place } : {}),
+			...(patch.visibleWhile !== undefined ? { visibleWhile: patch.visibleWhile } : {}),
+		};
+		// `autoHideMs` / `style` are OPTIONAL — an EXPLICIT `undefined` in the patch clears them (drops
+		// the key), while omitting the key leaves the existing value. `'x' in patch` distinguishes the
+		// two; `delete` is legal here because both fields are declared optional on the node.
+		if ('autoHideMs' in patch) {
+			if (patch.autoHideMs === undefined) delete next.autoHideMs;
+			else next.autoHideMs = patch.autoHideMs;
+		}
+		if ('style' in patch) {
+			if (patch.style === undefined) delete next.style;
+			else next.style = patch.style;
+		}
+		return next;
+	});

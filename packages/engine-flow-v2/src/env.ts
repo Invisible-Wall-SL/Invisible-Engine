@@ -40,6 +40,9 @@ export interface FlowV2EnvDeps {
 	timeScale: () => number;
 	/** A bounded `$engine.<key>` reader — the same closed key→live-value map a guard/readout uses. */
 	engineRead: (key: string) => unknown;
+	/** Raise/clear a `textMessage` node's FLOW-SHOWN flag (the game OR-s it with the node's
+	 *  `visibleWhile` state-gate). Optional — omit for a headless/recorder env that renders nothing. */
+	setMessageShown?: (nodeId: string, shown: boolean) => void;
 }
 
 /**
@@ -63,4 +66,5 @@ export const createFlowV2Env = (deps: FlowV2EnvDeps): FlowV2Env => ({
 	hideContainer: (containerId) => deps.mount.hide(containerId),
 	awaitContainerComplete: (containerId) => deps.mount.awaitComplete(containerId),
 	engineRead: (key) => deps.engineRead(key),
+	setMessageShown: (nodeId, shown) => deps.setMessageShown?.(nodeId, shown),
 });
