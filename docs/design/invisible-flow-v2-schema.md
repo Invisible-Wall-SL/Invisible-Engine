@@ -132,7 +132,9 @@ Per kind (pins listed as they're **derived**):
   presentation LEAF that draws one localized line of text. `placement` picks WHERE: `'infoBar'`
   (default) routes it through the game's SHARED `stateMessage`/`showMessage` slot (like win toasts —
   single-slot, `place`/`style` ignored, the game's HUD info-bar renders it); `'anchor'` draws an
-  independent overlay at the normalized 0..1 `place`. It CARRIES its own
+  independent overlay at the normalized 0..1 `place`, rendered through `<CatalogText>` so
+  `style.font` (a Font Maker id / built-in family) resolves web-vs-bitmap via the boot font catalog;
+  an unset font falls back to the game's default HUD font. It CARRIES its own
   `text` (a deliberate, contained exception to the anti-drift rule — the text IS the node's definition,
   like `group.body`), which is BOTH the editable default AND the localization key (harvested by
   `collectTextMessages`, resolved through the catalog at render). Pins: two exec-ins **`show`** /

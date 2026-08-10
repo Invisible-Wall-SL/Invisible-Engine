@@ -101,7 +101,9 @@ Choose **where** it appears with **Placement**:
   *(Requires the game's HUD to have a message/info-bar component — the same one win messages use.)*
 - **Fixed position** — draws the text as its own overlay at the **Anchor X/Y** (0–1 fractions of
   the screen). Use it for a persistent, specifically-placed prompt that shouldn't share the single
-  slot — e.g. a standing *"Click spin button to start"* centered above the buttons.
+  slot — e.g. a standing *"Click spin button to start"* centered above the buttons. Pick a **Font**
+  (the project's fonts — the same list the Scene Editor offers; **Game default** matches the rest of
+  the game's text) plus optional **Text size** and **Color**.
 
 Decide *when* it shows in one of two ways (a message shows when **either** is true):
 
