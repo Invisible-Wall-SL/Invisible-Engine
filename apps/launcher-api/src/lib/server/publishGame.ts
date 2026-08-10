@@ -16,6 +16,7 @@
  * never rebuilds. The generic runtime boots the project from the live fetch.
  */
 import { symbolsInPlay, type GameConfigDoc, type PaytableRow } from 'game-config';
+import { linesMapping, mapSymbol } from 'rgs-translator-eagaming/game-mappings';
 import { ENV } from './env';
 import { createGame, gameExists, renameGame, setGameProject, setGameUrl } from './games';
 import { UNASSIGNED_CLIENT } from './projectPaths';
@@ -106,10 +107,32 @@ function paytableToOccursMap(rows: PaytableRow[]): Record<string, number> {
 function projectWild(doc: GameConfigDoc): { paytable: Record<string, number> } | undefined {
 	const inPlay = new Set(symbolsInPlay(doc));
 	const entry = Object.entries(doc.symbols).find(
-		([name, sym]) => inPlay.has(name) && sym.special_properties?.includes('wild') && sym.paytable?.length,
+		([name, sym]) =>
+			inPlay.has(name) && sym.special_properties?.includes('wild') && sym.paytable?.length,
 	);
 	const paytable = entry?.[1].paytable;
 	return paytable ? { paytable: paytableToOccursMap(paytable) } : undefined;
+}
+
+/**
+ * The project's IN-PLAY line-symbol pool in the mock's SERVER vocabulary (`PIC*`/`SCAT`), or
+ * `undefined` when it equals the full default set (so an all-in-play project stays byte-identical —
+ * the field is simply omitted). Keyed off the SAME `symbolsInPlay` gate as the paytable/roll/wild.
+ *
+ * The space mismatch is the reason this lives HERE: `symbolsInPlay` answers in CLIENT symbol names
+ * (`H1`, `L1`, `S`, …) but the mock deals SERVER names (`PIC1`, `PIC5`, `SCAT`, …). We translate with
+ * the lines facade's own `linesMapping` — keep each server symbol whose mapped client name is in play
+ * — so the mock consumes a plain server-space array with ZERO mapping knowledge (no table duplicated
+ * into the `.mjs`). `SCAT` rides along only when its client symbol (`S`) is in play. `WILD` is
+ * intentionally excluded: the existing `wild` field already governs whether the mock deals a wild.
+ * An empty pool (misconfig) ⇒ `undefined` ⇒ the mock keeps its full default (never deals a blank board).
+ */
+function projectLineSymbols(doc: GameConfigDoc): string[] | undefined {
+	const inPlay = new Set(symbolsInPlay(doc));
+	const serverPool = Object.keys(linesMapping.symbols).filter((server) => server !== 'WILD');
+	const allowed = serverPool.filter((server) => inPlay.has(mapSymbol(linesMapping, server)));
+	if (!allowed.length || allowed.length === serverPool.length) return undefined;
+	return allowed;
 }
 
 /**
@@ -140,7 +163,18 @@ async function projectGrid(
 		// tall-symbol runs — incl. guaranteed edge cutoffs — only for a project that actually stacks
 		// pictures. Best-effort: a missing/empty symbols doc ⇒ no flag ⇒ the normal weighted deal.
 		const stacked = await projectStacked(clientKey, projectKey);
-		return { reels, rows, paylines, ...(wild ? { wild } : {}), ...(stacked ? { stacked: true } : {}) };
+		// `symbols`: the in-play line-symbol pool in the mock's SERVER vocabulary (PIC*/SCAT), so a
+		// symbol the project marks UNUSED (off the strips) truly never lands against our own mock.
+		// Omitted for an all-in-play project ⇒ the mock deals its full default pool (byte-identical).
+		const symbols = projectLineSymbols(doc);
+		return {
+			reels,
+			rows,
+			paylines,
+			...(wild ? { wild } : {}),
+			...(stacked ? { stacked: true } : {}),
+			...(symbols ? { symbols } : {}),
+		};
 	} catch {
 		return undefined;
 	}

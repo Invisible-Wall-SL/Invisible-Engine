@@ -56,6 +56,7 @@
 		"pixi-svelte": "workspace:*",
 		"pixi.js": "8.8.1",
 		"postgres": "3.4.5",
+		"rgs-translator-eagaming": "workspace:*",
 		"sharp": "^0.33.5",
 		"svelte": "5.35.1",
 		"vite": "6.2.0",

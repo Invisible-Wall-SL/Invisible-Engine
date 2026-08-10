@@ -180,7 +180,24 @@ const validGrid = (grid) => {
 	// contiguous tall-symbol runs — incl. guaranteed edge cutoffs — so the stacked-picture reel mode has
 	// data to render. Absent/false ⇒ the normal weighted deal. See mock-rgs-server `spinReelsStacked`.
 	const stacked = grid.stacked === true;
-	return { reels, rows, paylines, ...(wild ? { wild } : {}), ...(stacked ? { stacked: true } : {}) };
+	// `symbols` (set at publish from the project's in-play Game Config) is the allowed line-symbol pool
+	// in the mock's SERVER vocabulary (PIC*/SCAT). The mock draws its board ONLY from it, so a symbol the
+	// user marked UNUSED never lands. Accepted only as a non-empty array of strings; absent/malformed ⇒
+	// dropped ⇒ the mock keeps its full default pool. See mock-rgs-server `createMockRgs({ symbols })`.
+	const symbols =
+		Array.isArray(grid.symbols) &&
+		grid.symbols.every((s) => typeof s === 'string') &&
+		grid.symbols.length
+			? grid.symbols
+			: null;
+	return {
+		reels,
+		rows,
+		paylines,
+		...(wild ? { wild } : {}),
+		...(stacked ? { stacked: true } : {}),
+		...(symbols ? { symbols } : {}),
+	};
 };
 
 const streamToBuffer = async (stream) => {
