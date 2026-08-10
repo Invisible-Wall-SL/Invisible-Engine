@@ -346,19 +346,46 @@ function texturePackerToInvisible(raw: unknown): RawManifest | null {
 }
 
 /**
- * Backfill from the sheet's TexturePacker JSON two things the Invisible manifest can lack:
+ * Upright (unrotated) size of a `texturePackerToInvisible` region. `texturePackerToInvisible`
+ * copies TexturePacker's `frame.w/h` verbatim, and `frame` is ALWAYS the tight rectangle as it
+ * sits ON the packed page — for a rotated frame that rectangle is `(uprightH × uprightW)`, i.e.
+ * the axes are already swapped. The Invisible/Spine region convention (`parseRegions`,
+ * `regionsToSpineAtlas`) stores `w/h` as the UPRIGHT size and expresses rotation with a separate
+ * `rotated`/`rotate:90` flag, so un-swap a rotated frame back to upright here. `frame` is the
+ * TRIMMED rect, so this stays trim-agnostic (untrimmed → == the sprite; trimmed → the tight box).
+ */
+function uprightWH(tp: EditorRegion): { w: number; h: number } {
+	return tp.rotated ? { w: tp.h, h: tp.w } : { w: tp.w, h: tp.h };
+}
+
+/**
+ * Reconcile a manifest's cached region geometry against the sheet's TexturePacker JSON (the
+ * `atlas.texturepacker_json` the manifest already references) — the packer's own, authoritative
+ * description of the packed page the bundle ships. Three jobs:
  *
  *  1. GEOMETRY for a region listed but WITHOUT `x/y/w/h` — a sprite added to the sheet before
  *     the atlas was re-composed, so the entry exists yet never got coordinates.
- *  2. TRIM (`offX/offY/origW/origH`) for a region that HAS geometry but no trim — the case
- *     that matters for a plist import. `build_manifest` writes only `x/y/w/h`, so a trimmed
- *     frame arrives with its tight packed size and no idea it sits inside a larger canvas, and
- *     every renderer contain-fits the tight rect independently → the art pulses in size. The
- *     trim DOES exist, in the `atlas.texturepacker_json` the manifest already references (its
- *     `spriteSourceSize`/`sourceSize`), so pull it in by name.
+ *  2. PLACEMENT + ROTATION for a region that HAS geometry but whose cached `x/y/w/h/rotated`
+ *     DRIFTED from the packer output. The manifest's `regions` carry a CACHE of the on-page
+ *     rect, and a re-pack (or an FX-variant regenerate) can move/rotate a frame on the page
+ *     while leaving that cache stale — e.g. `T_VFX_AnticipationLine_shine` cached as
+ *     `rotated:false` at the WRONG (x,y) when the page (and the sibling `.atlas` + TP JSON) has
+ *     it `rotate:90` at another slot. Trusting the stale rect makes the Rigger sample an
+ *     un-rotated, over-tall page rect that bleeds into the neighbour below (a frame with a
+ *     circle-burst tacked underneath). The TP JSON `frame` matches the actual page pixels, so it
+ *     wins. TRIM (`offX/offY/origW/origH`) is deliberately NEVER overridden here — see the
+ *     `RawRegion` landmine: introducing/altering trim re-bases the coordinate space every frozen
+ *     `.irig` mesh (and every editor sprite) was authored against.
+ *  3. TRIM (`offX/offY/origW/origH`) for a region that HAS geometry but no trim — the plist case.
+ *     `build_manifest` writes only `x/y/w/h`, so a trimmed frame arrives with its tight packed
+ *     size and no idea it sits inside a larger canvas, and every renderer contain-fits the tight
+ *     rect independently → the art pulses in size. The trim DOES exist in the TP JSON
+ *     (`spriteSourceSize`/`sourceSize`), so pull it in by name (plist imports only — the sole
+ *     path that trims a frame).
  *
- * Mutates `regions` in place. One extra R2 read, and only when some region is missing geometry
- * OR missing trim (a fully self-describing manifest fetches nothing).
+ * Mutates `regions` in place. One extra R2 read whenever the manifest references a TP JSON (the
+ * reconcile in job 2 can't be detected without reading it); a manifest with no TP JSON fetches
+ * nothing.
  */
 async function backfillMissingGeometry(man: RawManifest, regions: EditorRegion[]): Promise<void> {
 	const tpKey = str(man.atlas?.texturepacker_json);
@@ -370,12 +397,10 @@ async function backfillMissingGeometry(man: RawManifest, regions: EditorRegion[]
 		.map((r) => str(r.name))
 		.filter((n): n is string => !!n && !have.has(stem(n)));
 	// Trim backfill applies ONLY to a verbatim plist import — the sole path that trims a frame.
-	// Every normal Sheet Maker sheet centres art in its cell (untrimmed), so gating here spares
-	// them the extra TP-JSON read on every load. A region with geometry but no `origW` never
-	// learned its untrimmed size.
+	// Every normal Sheet Maker sheet centres art in its cell (untrimmed). A region with geometry
+	// but no `origW` never learned its untrimmed size.
 	const isPlistImport = isRecord(man.import) && man.import.kind === 'plist';
 	const needTrim = isPlistImport ? regions.filter((r) => r.origW === undefined) : [];
-	if (!missing.length && !needTrim.length) return;
 
 	const text = await getObjectText(tpKey);
 	if (!text) return;
@@ -388,8 +413,27 @@ async function backfillMissingGeometry(man: RawManifest, regions: EditorRegion[]
 	const conv = texturePackerToInvisible(tp);
 	if (!conv) return;
 	const tpByStem = new Map(parseRegions(conv.regions).map((r) => [stem(r.name), r]));
-	// Copy trim onto the regions that have geometry but lack it. The TP JSON shares the
-	// manifest's coordinate space, so its `offX/offY/origW/origH` apply as-is.
+
+	// Job 2 — reconcile stale on-page placement + rotation against the packer output (which
+	// matches the actual page pixels). Placement/rotation ONLY, never trim (RawRegion landmine).
+	for (const r of regions) {
+		const tpR = tpByStem.get(stem(r.name));
+		if (!tpR) continue;
+		const rot = tpR.rotated === true;
+		const { w, h } = uprightWH(tpR);
+		if (r.x === tpR.x && r.y === tpR.y && r.w === w && r.h === h && (r.rotated === true) === rot) {
+			continue;
+		}
+		r.x = tpR.x;
+		r.y = tpR.y;
+		r.w = w;
+		r.h = h;
+		if (rot) r.rotated = true;
+		else delete r.rotated;
+	}
+
+	// Job 3 — copy trim onto plist-import regions that lack it. The TP JSON shares the manifest's
+	// coordinate space, so its `offX/offY/origW/origH` apply as-is.
 	for (const r of needTrim) {
 		const tpR = tpByStem.get(stem(r.name));
 		if (!tpR || tpR.origW === undefined) continue;
@@ -398,9 +442,14 @@ async function backfillMissingGeometry(man: RawManifest, regions: EditorRegion[]
 		r.origW = tpR.origW;
 		r.origH = tpR.origH;
 	}
+
+	// Job 1 — add regions the manifest lists without coordinates, in UPRIGHT terms (un-swap a
+	// rotated frame's packed axes so `w/h` mean the same as every other region here).
 	for (const name of missing) {
 		const found = tpByStem.get(stem(name));
-		if (found) regions.push({ ...found, name }); // keep the manifest's (extensionless) name
+		if (!found) continue;
+		const { w, h } = uprightWH(found);
+		regions.push({ ...found, name, w, h }); // keep the manifest's (extensionless) name
 	}
 }
 
