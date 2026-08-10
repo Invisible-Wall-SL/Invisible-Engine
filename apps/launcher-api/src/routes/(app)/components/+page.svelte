@@ -1032,9 +1032,22 @@
 		projectKey={data.projectKey}
 	>
 		{#snippet meta()}
-			<span class="subtitle">Project: <strong>{data.clientKey}/{data.projectKey}</strong></span>
-			{#if componentDraft}
-				<span class="save-pill" title="The component currently open for editing">
+			{#if !componentDraft}
+				<span class="counter">
+					{components.length}
+					{components.length === 1 ? 'component' : 'components'}
+				</span>
+			{/if}
+		{/snippet}
+	</ToolTopBar>
+
+	{#if componentDraft}
+		<!-- Dedicated editor action row. Kept OFF the ToolTopBar chrome so the top row can
+		     give the brand + project scope + tool switcher their full width, and these
+		     controls get their own space (wrapping to a second line on a narrow window). -->
+		<div class="editor-bar">
+			<div class="eb-group">
+				<span class="open-pill" title="The component currently open for editing">
 					◇ {componentDraft.name}
 				</span>
 				<label
@@ -1087,6 +1100,9 @@
 						Inspect
 					</button>
 				{/if}
+			</div>
+
+			<div class="eb-group">
 				<!-- Another author (or your own other tab) holds this component's lease → read-only
 				     here. The draft saveState refuses to save (its blockWhen); Take over is always
 				     offered. Promote-to-shared is a SEPARATE global key and is not lease-gated. -->
@@ -1123,14 +1139,9 @@
 					</button>
 				{/if}
 				<button class="save-btn" type="button" onclick={closeComponent}>← All components</button>
-			{:else}
-				<span class="counter">
-					{components.length}
-					{components.length === 1 ? 'component' : 'components'}
-				</span>
-			{/if}
-		{/snippet}
-	</ToolTopBar>
+			</div>
+		</div>
+	{/if}
 
 	<div
 		class="layout"
@@ -1372,8 +1383,8 @@
 <style>
 	.shell {
 		position: relative;
-		display: grid;
-		grid-template-rows: auto 1fr;
+		display: flex;
+		flex-direction: column;
 		height: 100vh;
 		color: #e8e8ee;
 		background: #0b0b10;
@@ -1384,13 +1395,35 @@
 			'Segoe UI',
 			sans-serif;
 	}
-	.subtitle {
-		font-size: 11px;
-		color: #888;
+	/* Dedicated component-editing action row, below the shared ToolTopBar chrome.
+	   Two groups (identity/history · save/exit) pushed apart; wraps to a second line
+	   before anything clips on a narrow window. */
+	.editor-bar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		flex-wrap: wrap;
+		gap: 8px 12px;
+		flex: none;
+		padding: 8px 24px;
+		border-bottom: 1px solid #1c1c24;
+		background: #0d0d12;
 	}
-	.subtitle strong {
-		color: #b8b8c4;
+	.eb-group {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 10px;
+	}
+	.open-pill {
+		font-size: 12px;
 		font-weight: 600;
+		padding: 3px 10px;
+		border-radius: 999px;
+		border: 1px solid #2b6f5a;
+		background: #14241d;
+		color: #7ee0c0;
+		white-space: nowrap;
 	}
 	.counter {
 		font-size: 11px;
@@ -1468,6 +1501,7 @@
 		position: relative;
 		display: grid;
 		grid-template-columns: 280px 1fr 320px;
+		flex: 1 1 auto;
 		min-height: 0;
 	}
 	.layout.resizing {
