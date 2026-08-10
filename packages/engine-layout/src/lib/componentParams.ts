@@ -1,4 +1,4 @@
-import type { ComponentDef, LayoutNode } from './types';
+import type { ComponentDef, ComponentInstanceNode, LayoutNode, LayoutType } from './types';
 
 /**
  * Resolve a `componentInstance`'s effective params (§13.2 "param threading").
@@ -39,6 +39,31 @@ export function resolveComponentParams(
 	mergeDefined(out, def.defaultInstanceParams);
 	mergeDefined(out, projectDefaults);
 	mergeDefined(out, instanceParams);
+	return out;
+}
+
+/**
+ * A componentInstance's effective BASE params for a layoutType — the instance's own
+ * {@link ComponentInstanceNode.params} with the per-layoutType {@link NodeOverride.params}
+ * patch merged on top. The per-ratio-override analogue of `resolveTransform`, kept as its
+ * own step so it composes with {@link resolveComponentParams} (def defaults ◁ project
+ * defaults ◁ THIS) rather than duplicating that precedence.
+ *
+ * Returns `node.params` UNCHANGED (same reference) when there's no override for this
+ * layoutType, so a doc that authored no per-ratio param is byte-identical to today (parity).
+ * Used by the editor canvas (which resolves params synchronously per active layoutType); the
+ * runtime `<ComponentInstance>` overlays the same override reactively (per-key getters) so it
+ * re-resolves when the device rotates without re-running the init-stable structural reads.
+ * Pure + Svelte-free so both surfaces share one merge.
+ */
+export function resolveLayoutInstanceParams(
+	node: ComponentInstanceNode,
+	layoutType: LayoutType,
+): Record<string, unknown> | undefined {
+	const override = node.overrides?.[layoutType]?.params;
+	if (!override) return node.params;
+	const out: Record<string, unknown> = { ...node.params };
+	mergeDefined(out, override);
 	return out;
 }
 

@@ -17,6 +17,7 @@
 		resolveAnchorPreviewArt,
 		resolveBoundValue,
 		resolveComponentParams,
+		resolveLayoutInstanceParams,
 		anchoredPosition,
 		resolveTransform,
 		STANDARD_MAIN_SIZES_MAP,
@@ -842,6 +843,10 @@
 	let textMeasured = $state<Map<string, { w: number; h: number }>>(new Map());
 	/** Global play/pause for the live effect preview overlay (default playing). */
 	let playingEffects = $state(true);
+	/** When on, redraw the window + play-area (main box) outlines on the top-most HUD canvas,
+	 * ABOVE every art/spine/FX layer — so the screen bounds stay visible once stacked art buries
+	 * the base-canvas guides (which sit at the bottom of the z-stack). Off by default. */
+	let showScreenBorder = $state(false);
 	/** Effect NODE ids the live particle overlay (`EditorEffectLayer`) now renders — the 2D canvas
 	 * skips their placeholder chip so only the live emitters show. UNION across the per-scene effect
 	 * sublayers (each reports only its own scene's node ids). */
@@ -1470,7 +1475,11 @@
 			if (n.kind === 'componentInstance') {
 				const def = componentMap.get(n.componentId);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
-				const params = resolveComponentParams(def, n.params, undefined);
+				const params = resolveComponentParams(
+					def,
+					resolveLayoutInstanceParams(n, layoutType),
+					undefined,
+				);
 				const spineBundle = instancePreviewSpineBundle(def, params);
 				if (nodesHaveSpine(def.root.children, depth + 1, [...stack, def.id], spineBundle))
 					return true;
@@ -1763,6 +1772,31 @@
 
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		drawSelectionOverlay(ctx);
+
+		// Always-on-top screen-border overlay. The window frame + play-area (main box) are
+		// normally drawn on the BASE canvas (bottom of the z-stack), so stacked art buries
+		// them. When toggled on, re-draw them here on the top-most HUD canvas — above every
+		// art/spine/FX layer — as a brighter guide so the author can always see the bounds.
+		if (showScreenBorder) {
+			ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+			ctx.translate(panX, panY);
+			ctx.scale(zoom, zoom);
+			// Window frame — the full viewport every scene composites against.
+			ctx.lineWidth = 2 / zoom;
+			ctx.strokeStyle = '#7ee0c0';
+			ctx.setLineDash([12 / zoom, 8 / zoom]);
+			ctx.strokeRect(0, 0, frameWidth, frameHeight);
+			// Play area (main box) — where <MainContainer> gameplay sits inside the window.
+			const main = mainSizesMap[layoutType];
+			const s = mainScale();
+			const mw = main.width * s;
+			const mh = main.height * s;
+			ctx.lineWidth = 1.5 / zoom;
+			ctx.strokeStyle = '#4fd6c0';
+			ctx.setLineDash([8 / zoom, 6 / zoom]);
+			ctx.strokeRect(frameWidth / 2 - mw / 2, frameHeight / 2 - mh / 2, mw, mh);
+			ctx.setLineDash([]);
+		}
 	}
 
 	/** The numeric value bound to `fieldPath`, or `undefined` (so the caller keeps its own). */
@@ -2358,7 +2392,14 @@
 		// name. No per-project defaults here: the SCENE editor resolves each instance from
 		// def defaults + node.params (the `componentParams` prop is the Component Editor's
 		// open-component preview, a different concern), so pass `undefined`.
-		const params = resolveComponentParams(def, node.params, undefined);
+		// Per-ratio param overrides (`node.overrides[layoutType].params`) merged onto the base
+		// instance params for the active device layout, so the canvas previews e.g. a smaller
+		// portrait font exactly as the game will resolve it. No override ⇒ `node.params` verbatim.
+		const params = resolveComponentParams(
+			def,
+			resolveLayoutInstanceParams(node, layoutType),
+			undefined,
+		);
 		// A nested bound-component that previews a SPINE (the win / free-spin VISUAL) renders the
 		// instance's AUTHORED rig (its first `spine`-kind param value, else the catalog bundle), so
 		// the real art shows here + its readiness key matches the rig the WebGL layer draws.
@@ -3414,6 +3455,8 @@
 		void scenes;
 		void scene;
 		void layoutType;
+		// Toggling the always-on-top screen-border overlay repaints the HUD canvas.
+		void showScreenBorder;
 		// Forced repaint signal (undo/redo): a position-only restore reassigns `scenes`
 		// but changes no node count, so without this the composite can stay stale.
 		void redrawNonce;
@@ -3895,6 +3938,18 @@
 			title={playingEffects ? 'Pause effect preview' : 'Play effect preview'}
 		>
 			{playingEffects ? '❚❚' : '▶'} FX
+		</button>
+		<button
+			class="fit"
+			class:on={showScreenBorder}
+			onclick={() => (showScreenBorder = !showScreenBorder)}
+			type="button"
+			aria-pressed={showScreenBorder}
+			title={showScreenBorder
+				? 'Hide the screen bounds overlay'
+				: 'Show the screen + play-area bounds on top of all art'}
+		>
+			⛶ Bounds
 		</button>
 	</div>
 </div>

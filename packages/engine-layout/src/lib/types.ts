@@ -30,6 +30,28 @@ export interface NodeOverride {
 	tint?: number;
 	visible?: boolean;
 	screenAnchor?: Point2D;
+	/**
+	 * Per-layoutType TEXT-STYLE override for a {@link TextNode} — a sparse patch merged onto
+	 * the node's base `style` for THIS layoutType (so e.g. a headline can shrink its
+	 * `fontSize` in `portrait` without a stretchy `scale`). Any omitted field falls through
+	 * to the base style. Resolved by {@link resolveOverrideTextStyle}, applied by both the
+	 * runtime (`<LayoutNodeView>`'s `resolvedStyle`) and the editor (`EditorTextLayer`), so
+	 * the two surfaces agree. For a text node whose style is param-bound (a Text Box), the
+	 * bound param wins — vary it per-layout via {@link NodeOverride.params} instead. Ignored
+	 * for non-text nodes. Absent ⇒ the base style (parity).
+	 */
+	style?: Partial<TextStyle>;
+	/**
+	 * Per-layoutType COMPONENT-PARAM override for a {@link ComponentInstanceNode} — a sparse
+	 * patch merged onto the instance's base `params` for THIS layoutType (so a Text Box's
+	 * `fontSize`/`boxWidth`/`align`/`fill`, or ANY component param, can differ per screen
+	 * ratio). Keys present here win over the base `params` for that layoutType; a live engine
+	 * feed (a count-up `value`, a spin/stop `label`) still wins over both. Merged by
+	 * {@link resolveLayoutInstanceParams} (editor render) and overlaid reactively in
+	 * `<ComponentInstance>` (runtime), so rotating the device re-resolves them. Ignored for
+	 * non-componentInstance nodes. Absent ⇒ the base params (parity).
+	 */
+	params?: Record<string, unknown>;
 }
 
 /**

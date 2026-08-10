@@ -2949,6 +2949,26 @@
 				{onConvertToParametricButton}
 				onSetInstanceParam={(key, value) => {
 					if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
+					// Override mode (a non-desktop device layout): the edit writes a per-ratio
+					// param override at `overrides[currentLayoutType].params[key]`, mirroring how a
+					// transform edit routes to `overrides[currentLayoutType]`. Clearing (undefined)
+					// removes just that key from the override, then prunes an emptied override —
+					// so the ratio reverts to the base param, not the whole node. Base (desktop)
+					// edits `node.params` as before (parity).
+					if (currentLayoutType !== 'desktop') {
+						const overrides = { ...(selectedNode.overrides ?? {}) };
+						const o = { ...(overrides[currentLayoutType] ?? {}) };
+						const params = { ...(o.params ?? {}) };
+						if (value === undefined) delete params[key];
+						else params[key] = value;
+						if (Object.keys(params).length) o.params = params;
+						else delete o.params;
+						if (Object.keys(o).length) overrides[currentLayoutType] = o;
+						else delete overrides[currentLayoutType];
+						selectedNode.overrides = Object.keys(overrides).length ? overrides : undefined;
+						markDirty();
+						return;
+					}
 					const params = { ...(selectedNode.params ?? {}) };
 					if (value === undefined) delete params[key];
 					else params[key] = value;

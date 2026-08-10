@@ -15,6 +15,7 @@
 		fontParamKeysOf,
 		getEditableParams,
 		isHudButtonBind,
+		resolveOverrideTextStyle,
 		resolveTransform,
 		SYMBOL_STATE_LABELS,
 		SYMBOL_STATES,
@@ -835,7 +836,7 @@
 	 * style controls that don't apply to `<BitmapText>` are gated off below. */
 	const selectedFontKind = $derived.by(() => {
 		if (!node || node.kind !== 'text') return null;
-		return resolveFont(node.style?.fontFamily)?.kind ?? null;
+		return resolveFont(styleField(node, 'fontFamily'))?.kind ?? null;
 	});
 	const isBitmapSelected = $derived(selectedFontKind === 'bitmap');
 	/** A non-empty current family the catalog doesn't list (by id OR name) — kept as a
@@ -843,7 +844,7 @@
 	 * family (also holds legacy docs that stored the face name until re-picked). */
 	const customFamily = $derived.by(() => {
 		if (!node || node.kind !== 'text') return '';
-		const fam = node.style?.fontFamily ?? '';
+		const fam = styleField(node, 'fontFamily') ?? '';
 		return fam && !resolveFont(fam) ? fam : '';
 	});
 
@@ -930,6 +931,30 @@
 	type OverrideKey = (typeof overrideKeys)[number];
 
 	const isOverrideMode = $derived(layoutType !== 'desktop');
+
+	/**
+	 * A componentInstance param's value FOR DISPLAY, honouring the active device layout: in
+	 * override mode (a non-desktop layoutType) the layout's `overrides[layoutType].params[key]`
+	 * when it sets the key, else the base `node.params[key]`. So the panel shows the value the
+	 * current ratio actually renders, and editing it routes to that ratio's override (see
+	 * `onSetInstanceParam` in the page). Base mode ⇒ always the base param (parity).
+	 */
+	function instanceParamValue(n: LayoutNode | null, key: string): unknown {
+		if (!n || n.kind !== 'componentInstance') return undefined;
+		if (isOverrideMode) {
+			const ov = n.overrides?.[layoutType]?.params;
+			if (ov && Object.prototype.hasOwnProperty.call(ov, key)) return ov[key];
+		}
+		return n.params?.[key];
+	}
+
+	/** Whether `key` is overridden for the active layoutType (override mode only) — drives the
+	 * per-param "overridden · reset" affordance in the instance-param panel. */
+	function instanceParamOverridden(n: LayoutNode | null, key: string): boolean {
+		if (!isOverrideMode || !n || n.kind !== 'componentInstance') return false;
+		const ov = n.overrides?.[layoutType]?.params;
+		return !!ov && Object.prototype.hasOwnProperty.call(ov, key);
+	}
 
 	function ensureOverride(n: LayoutNode): NodeOverride {
 		if (!n.overrides) n.overrides = {};
@@ -1147,30 +1172,71 @@
 		return n.style;
 	}
 
-	/** Set a numeric style field; NaN/empty clears it. */
+	/**
+	 * The style object a raw-text style edit lands in: in override mode (a non-desktop layout)
+	 * the active layoutType's `overrides[layoutType].style` (created lazily), else the node's
+	 * base `style`. So a per-ratio font size / colour / alignment writes a sparse override —
+	 * mirroring how `setNumber`/`setScale` route transform edits — while desktop edits the base.
+	 */
+	function textStyleBucket(n: LayoutNode): Record<string, unknown> {
+		if (n.kind !== 'text') return {};
+		if (isOverrideMode) {
+			const o = ensureOverride(n);
+			if (!o.style) o.style = {};
+			return o.style as Record<string, unknown>;
+		}
+		return textStyle(n) as Record<string, unknown>;
+	}
+
+	/** After clearing a style field in override mode, drop an emptied `overrides[layoutType].style`
+	 * (and the emptied override) so the saved doc stays clean — the style analogue of
+	 * `clearOverrideKey`'s prune. No-op in base mode (base `style` prunes as before). */
+	function pruneTextStyleOverride(n: LayoutNode): void {
+		if (!isOverrideMode || n.kind !== 'text') return;
+		const o = n.overrides?.[layoutType];
+		if (!o) return;
+		if (o.style && Object.keys(o.style).length === 0) delete o.style;
+		if (Object.keys(o).length === 0 && n.overrides) delete n.overrides[layoutType];
+	}
+
+	/** The effective text style for the active layout — base `style` with the layoutType's
+	 * `style` override merged on — so the panel DISPLAYS what the current ratio renders. Base
+	 * mode returns the base style verbatim (parity). */
+	function styleField<K extends keyof TextStyle>(
+		n: LayoutNode | null,
+		key: K,
+	): TextStyle[K] | undefined {
+		if (!n || n.kind !== 'text') return undefined;
+		return (resolveOverrideTextStyle(n, layoutType) as TextStyle)[key];
+	}
+
+	/** Set a numeric style field; NaN/empty clears it. Honours override mode. */
 	function setStyleNumber(n: LayoutNode, key: keyof TextStyle, value: number): void {
 		if (n.kind !== 'text') return;
-		const s = textStyle(n);
+		const s = textStyleBucket(n);
 		if (Number.isNaN(value)) delete s[key];
-		else (s as Record<string, unknown>)[key] = value;
+		else s[key] = value;
+		pruneTextStyleOverride(n);
 		markDirty();
 	}
 
-	/** Set a string style field; empty string clears it. */
+	/** Set a string style field; empty string clears it. Honours override mode. */
 	function setStyleString(n: LayoutNode, key: keyof TextStyle, value: string): void {
 		if (n.kind !== 'text') return;
-		const s = textStyle(n);
+		const s = textStyleBucket(n);
 		const trimmed = value.trim();
-		if (trimmed) (s as Record<string, unknown>)[key] = trimmed;
+		if (trimmed) s[key] = trimmed;
 		else delete s[key];
+		pruneTextStyleOverride(n);
 		markDirty();
 	}
 
 	function setStyleBool(n: LayoutNode, key: keyof TextStyle, value: boolean): void {
 		if (n.kind !== 'text') return;
-		const s = textStyle(n);
-		if (value) (s as Record<string, unknown>)[key] = true;
+		const s = textStyleBucket(n);
+		if (value) s[key] = true;
 		else delete s[key];
+		pruneTextStyleOverride(n);
 		markDirty();
 	}
 
@@ -1609,7 +1675,8 @@
 										{@const cur = typeof p.default === 'string' ? p.default : ''}
 										<select
 											value={cur}
-											onchange={(e) => onSetParamDefault?.(p.key, e.currentTarget.value || undefined)}
+											onchange={(e) =>
+												onSetParamDefault?.(p.key, e.currentTarget.value || undefined)}
 										>
 											<option value="">(none)</option>
 											{#each spines as s (s.key)}
@@ -1900,17 +1967,17 @@
 							`options: ENGINE_ACTION_CATALOG` at save time, so an older pin would
 							otherwise freeze the dropdown to a stale list (and skip the labels). -->
 							<select
-								value={(node.params?.[p.key] as string) ?? ''}
+								value={(instanceParamValue(node, p.key) as string) ?? ''}
 								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
 							>
 								<option value="">(inherit default)</option>
-								{#each actionOptions(node.params?.[p.key]) as a (a)}
+								{#each actionOptions(instanceParamValue(node, p.key)) as a (a)}
 									<option value={a}>{ENGINE_ACTION_LABELS[a] ?? a}</option>
 								{/each}
 							</select>
 						{:else if p.options && p.options.length > 0}
 							<select
-								value={(node.params?.[p.key] as string) ?? ''}
+								value={(instanceParamValue(node, p.key) as string) ?? ''}
 								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
 							>
 								<option value="">(inherit default)</option>
@@ -1925,15 +1992,15 @@
 							     (`booleanParam(k) ?? prop`) — the panel stating the opposite of the game. -->
 							<input
 								type="checkbox"
-								checked={node.params?.[p.key] !== undefined
-									? Boolean(node.params[p.key])
+								checked={instanceParamValue(node, p.key) !== undefined
+									? Boolean(instanceParamValue(node, p.key))
 									: p.default === true}
 								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.checked)}
 							/>
 						{:else if p.kind === 'number'}
 							<input
 								type="number"
-								value={(node.params?.[p.key] as number) ?? ''}
+								value={(instanceParamValue(node, p.key) as number) ?? ''}
 								oninput={(e) =>
 									onSetInstanceParam?.(
 										p.key,
@@ -1944,12 +2011,12 @@
 							<span class="color-cell">
 								<input
 									type="color"
-									value={typeof node.params?.[p.key] === 'number'
-										? hexFrom(node.params[p.key] as number)
+									value={typeof instanceParamValue(node, p.key) === 'number'
+										? hexFrom(instanceParamValue(node, p.key) as number)
 										: '#ffffff'}
 									oninput={(e) => onSetInstanceParam?.(p.key, parseHex(e.currentTarget.value))}
 								/>
-								{#if node.params?.[p.key] !== undefined}
+								{#if instanceParamValue(node, p.key) !== undefined}
 									<button
 										type="button"
 										class="reset"
@@ -1961,12 +2028,12 @@
 						{:else if p.kind === 'image'}
 							<RegionPicker
 								sheets={pickSheets}
-								value={(node.params?.[p.key] as string) ?? ''}
+								value={(instanceParamValue(node, p.key) as string) ?? ''}
 								scoped
 								onSelect={(region) => onSetInstanceParam?.(p.key, region || undefined)}
 							/>
 						{:else if p.kind === 'spine'}
-							{@const cur = (node.params?.[p.key] as string) ?? ''}
+							{@const cur = (instanceParamValue(node, p.key) as string) ?? ''}
 							<select
 								value={cur}
 								onfocusin={() => onPreviewSpine?.(spineParamPreview(p, cur))}
@@ -1994,7 +2061,7 @@
 								{/if}
 							</select>
 						{:else if p.kind === 'spineAnimation' || p.kind === 'spineSlot' || p.kind === 'spineBone'}
-							{@const cur = (node.params?.[p.key] as string) ?? ''}
+							{@const cur = (instanceParamValue(node, p.key) as string) ?? ''}
 							{@const bundle = effectiveSpineBundle(p)}
 							{@const meta = spineMetaFor(resolveSpineAssetKey(bundle))}
 							{@const opts =
@@ -2032,7 +2099,7 @@
 									placeholder={p.default !== undefined ? String(p.default) : ''}
 									oninput={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value)}
 								/>
-								{#if node.params?.[p.key] !== undefined}
+								{#if instanceParamValue(node, p.key) !== undefined}
 									<button
 										type="button"
 										class="reset"
@@ -2042,7 +2109,7 @@
 								{/if}
 							{/if}
 						{:else if p.kind === 'symbolState'}
-							{@const cur = (node.params?.[p.key] as string) ?? ''}
+							{@const cur = (instanceParamValue(node, p.key) as string) ?? ''}
 							<select
 								value={cur}
 								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
@@ -2060,7 +2127,7 @@
 								{/if}
 							</select>
 						{:else if p.kind === 'string' && instanceFontParamKeys.has(p.key)}
-							{@const cur = (node.params?.[p.key] as string) ?? ''}
+							{@const cur = (instanceParamValue(node, p.key) as string) ?? ''}
 							<select
 								value={cur}
 								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value || undefined)}
@@ -2080,11 +2147,11 @@
 						{:else}
 							<input
 								type="text"
-								value={(node.params?.[p.key] as string) ?? ''}
+								value={(instanceParamValue(node, p.key) as string) ?? ''}
 								placeholder={p.default !== undefined ? String(p.default) : ''}
 								oninput={(e) => onSetInstanceParam?.(p.key, e.currentTarget.value)}
 							/>
-							{#if node.params?.[p.key] !== undefined}
+							{#if instanceParamValue(node, p.key) !== undefined}
 								<button
 									type="button"
 									class="reset"
@@ -2097,6 +2164,13 @@
 				{/snippet}
 				{#if authorParams.length > 0}
 					<h4 class="sub-h">Params</h4>
+					{#if isOverrideMode}
+						<p class="muted small override-hint">
+							Editing the <strong>{layoutType}</strong> ratio — values here are saved as a per-ratio
+							override. Switch to <em>desktop</em> to change the base for all ratios; the × on a field
+							clears just this ratio's override.
+						</p>
+					{/if}
 					{#each ungroupedAuthorParams as p (p.key)}
 						<div class="row">{@render paramField(p)}</div>
 					{/each}
@@ -3545,6 +3619,13 @@
 	{:else if node.kind === 'text'}
 		<section>
 			<h3>Text</h3>
+			{#if isOverrideMode}
+				<p class="muted small override-hint">
+					Editing the <strong>{layoutType}</strong> ratio — font size / colour / alignment set here
+					are saved as a per-ratio override on top of the base. Switch to <em>desktop</em> to change
+					the base for all ratios.
+				</p>
+			{/if}
 			{#if isTextExposed}
 				<p class="muted small">
 					Using exposed parameters — this text's content, font, size + colour are set per instance
@@ -3582,7 +3663,7 @@
 					<label class="field wide">
 						<span>font family</span>
 						<select
-							value={node.style?.fontFamily ?? ''}
+							value={styleField(node, 'fontFamily') ?? ''}
 							onchange={(e) => setStyleString(node, 'fontFamily', e.currentTarget.value)}
 						>
 							<option value="">(game default)</option>
@@ -3619,7 +3700,7 @@
 						<input
 							type="number"
 							step="1"
-							value={node.style?.fontSize ?? 24}
+							value={styleField(node, 'fontSize') ?? 24}
 							oninput={(e) => setStyleNumber(node, 'fontSize', e.currentTarget.valueAsNumber)}
 						/>
 					</label>
@@ -3627,7 +3708,7 @@
 						<span>{isBitmapSelected ? 'tint' : 'fill'}</span>
 						<input
 							type="color"
-							value={hexFrom(node.style?.fill)}
+							value={hexFrom(styleField(node, 'fill'))}
 							onchange={(e) => setFill(node, e.currentTarget.value)}
 						/>
 					</label>
@@ -3728,7 +3809,7 @@
 				<label class="field">
 					<span>weight</span>
 					<select
-						value={node.style?.fontWeight ?? 'normal'}
+						value={styleField(node, 'fontWeight') ?? 'normal'}
 						onchange={(e) => setStyleString(node, 'fontWeight', e.currentTarget.value)}
 					>
 						<option value="normal">normal</option>
@@ -3747,7 +3828,7 @@
 				<label class="field">
 					<span>style</span>
 					<select
-						value={node.style?.fontStyle ?? 'normal'}
+						value={styleField(node, 'fontStyle') ?? 'normal'}
 						onchange={(e) => setStyleString(node, 'fontStyle', e.currentTarget.value)}
 					>
 						<option value="normal">normal</option>
@@ -3761,7 +3842,7 @@
 				<label class="field">
 					<span>align</span>
 					<select
-						value={node.style?.align ?? 'left'}
+						value={styleField(node, 'align') ?? 'left'}
 						onchange={(e) => setStyleString(node, 'align', e.currentTarget.value)}
 					>
 						<option value="left">left</option>
@@ -3773,7 +3854,7 @@
 				<label class="field">
 					<span>vertical align</span>
 					<select
-						value={node.style?.verticalAlign ?? 'top'}
+						value={styleField(node, 'verticalAlign') ?? 'top'}
 						onchange={(e) => setStyleString(node, 'verticalAlign', e.currentTarget.value)}
 					>
 						<option value="top">top</option>
@@ -3786,7 +3867,7 @@
 					<input
 						type="number"
 						step="1"
-						value={node.style?.lineHeight ?? ''}
+						value={styleField(node, 'lineHeight') ?? ''}
 						oninput={(e) => setStyleNumber(node, 'lineHeight', e.currentTarget.valueAsNumber)}
 					/>
 				</label>
@@ -3798,7 +3879,7 @@
 					<input
 						type="number"
 						step="0.5"
-						value={node.style?.letterSpacing ?? ''}
+						value={styleField(node, 'letterSpacing') ?? ''}
 						oninput={(e) => setStyleNumber(node, 'letterSpacing', e.currentTarget.valueAsNumber)}
 					/>
 				</label>
@@ -3808,8 +3889,8 @@
 			<p class="muted small">
 				Set a box <strong>width</strong> (and optional <strong>height</strong>) to lay the text out
 				inside it — <strong>align</strong> / <strong>vertical align</strong> position it, and the canvas
-				resize handles change the box (never the font, so nothing stretches). Leave blank to
-				auto-size to the text. Drag a corner handle on the canvas to draw a box.
+				resize handles change the box (never the font, so nothing stretches). Leave blank to auto-size
+				to the text. Drag a corner handle on the canvas to draw a box.
 			</p>
 			<div class="row">
 				<label class="field">
@@ -3848,7 +3929,7 @@
 				<label class="field check">
 					<input
 						type="checkbox"
-						checked={node.style?.wordWrap ?? false}
+						checked={styleField(node, 'wordWrap') ?? false}
 						onchange={(e) => setStyleBool(node, 'wordWrap', e.currentTarget.checked)}
 					/>
 					<span>word wrap</span>
@@ -3856,21 +3937,21 @@
 				<label class="field check">
 					<input
 						type="checkbox"
-						checked={node.style?.breakWords ?? false}
+						checked={styleField(node, 'breakWords') ?? false}
 						onchange={(e) => setStyleBool(node, 'breakWords', e.currentTarget.checked)}
 					/>
 					<span>break words</span>
 				</label>
 			</div>
 
-			{#if node.style?.wordWrap}
+			{#if styleField(node, 'wordWrap')}
 				<div class="row">
 					<label class="field wide">
 						<span>wrap width (px)</span>
 						<input
 							type="number"
 							step="1"
-							value={node.style?.wordWrapWidth ?? ''}
+							value={styleField(node, 'wordWrapWidth') ?? ''}
 							oninput={(e) => setStyleNumber(node, 'wordWrapWidth', e.currentTarget.valueAsNumber)}
 						/>
 					</label>
@@ -4112,7 +4193,8 @@
 				</label>
 			</div>
 			<p class="muted small">
-				The component instanced once per item; each item feeds its own params + <code>onSelect</code>
+				The component instanced once per item; each item feeds its own params + <code>onSelect</code
+				>
 				press.
 			</p>
 			<div class="row">
@@ -4160,8 +4242,7 @@
 							placeholder="3"
 							oninput={(e) => {
 								const v = e.currentTarget.valueAsNumber;
-								node.layout.columns =
-									Number.isFinite(v) && v >= 1 ? Math.round(v) : undefined;
+								node.layout.columns = Number.isFinite(v) && v >= 1 ? Math.round(v) : undefined;
 								markDirty();
 							}}
 						/>
@@ -4348,6 +4429,13 @@
 	.muted {
 		color: #666;
 		font-size: 12px;
+	}
+	.override-hint {
+		border-left: 3px solid #c98a2b;
+		background: rgba(201, 138, 43, 0.08);
+		padding: 6px 8px;
+		border-radius: 3px;
+		color: #9a7020;
 	}
 	.spin-tuning {
 		margin-top: 8px;

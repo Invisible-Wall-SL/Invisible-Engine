@@ -30,7 +30,7 @@
 	import CatalogText from './CatalogText.svelte';
 	import TextBox from './TextBox.svelte';
 	import InlineImageText from './InlineImageText.svelte';
-	import { anchoredPosition, resolveTransform } from './resolveTransform';
+	import { anchoredPosition, resolveOverrideTextStyle, resolveTransform } from './resolveTransform';
 	import { resolveLocalizedText } from './registerTextResolver';
 	import { hasInlineImage, stripInlineImage } from './inlineImage';
 	import { getBoundComponent } from './registerBoundComponents';
@@ -394,14 +394,20 @@
 		if (typeof align === 'string') overrides.align = align as TextStyle['align'];
 		if (typeof verticalAlign === 'string')
 			overrides.verticalAlign = verticalAlign as TextStyle['verticalAlign'];
-		// ALWAYS spread `node.style` (never return it by reference): the editor mutates
-		// style fields in place (`node.style.fontFamily = …`), and pixi's `<Text>` only
-		// re-syncs its `style` when the OBJECT REFERENCE changes (`propsSyncEffect` reads
-		// `props.style`, not its fields). Returning the same `node.style` reference meant a
-		// font/size/colour edit never reached PixiJS. The spread yields a fresh object on
-		// each style change AND deep-reads every field, so the `$derived` also re-runs on an
-		// in-place edit. `node.style` undefined ⇒ `{}` (default style — visually parity).
-		return { ...node.style, ...overrides };
+		// Per-layoutType text-STYLE override (per-ratio font size, colour, …): the base
+		// `style` with `node.overrides[layoutType].style` merged on, reactive to the current
+		// layoutType so it re-resolves when the device rotates. The bound-param `overrides`
+		// still win — a Text Box whose `fontSize` is param-bound varies per ratio via the
+		// PARAM override (see `<ComponentInstance>`), not this raw-style patch. No override ⇒
+		// a copy of the base style (parity).
+		const base = resolveOverrideTextStyle(node, layoutContext.stateLayoutDerived.layoutType());
+		// ALWAYS a fresh object (never `node.style` by reference — `resolveOverrideTextStyle`
+		// guarantees it): the editor mutates style fields in place (`node.style.fontFamily = …`),
+		// and pixi's `<Text>` only re-syncs its `style` when the OBJECT REFERENCE changes
+		// (`propsSyncEffect` reads `props.style`, not its fields). The spread yields a fresh
+		// object on each style change AND deep-reads every field, so the `$derived` also re-runs
+		// on an in-place edit. `node.style` undefined ⇒ `{}` (default style — visually parity).
+		return { ...base, ...overrides };
 	});
 	// Text-box dims (§text-box model): a text node's box `width`/`height`/`autoFit` may come
 	// from param bindings (the parametric Text Box binds them to per-instance params) OR the

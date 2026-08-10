@@ -5,6 +5,8 @@
 		getHudTextOverride,
 		resolveBoundValue,
 		resolveComponentParams,
+		resolveLayoutInstanceParams,
+		resolveOverrideTextStyle,
 		resolveTransform,
 		textBoxPlacement,
 		autoFitFontSize,
@@ -277,14 +279,16 @@
 		if (typeof align === 'string') overrides.align = align as LayoutTextStyle['align'];
 		if (typeof verticalAlign === 'string')
 			overrides.verticalAlign = verticalAlign as LayoutTextStyle['verticalAlign'];
-		// ALWAYS spread `node.style` (never return it by reference): the properties panel
-		// mutates style fields in place (`node.style.fontFamily = …` + `markDirty()`, which
-		// does NOT reassign `scenes`). `rebuild()` deep-reads `node.text` (so content edits
-		// reflect) but only read `node.style` by reference here — so a font/size/colour edit
-		// was never a tracked dependency and the overlay never rebuilt. Spreading reads every
-		// field, making each an $effect dependency so the edit re-runs `rebuild()`. Mirrors
-		// `LayoutNodeView`'s `resolvedStyle`.
-		return { ...node.style, ...overrides };
+		// Base = the node's style with the active layoutType's per-ratio `style` override
+		// merged on (`resolveOverrideTextStyle`), so an editor preview in portrait/tablet shows
+		// the overridden font size/colour exactly as the game resolves it. `resolveOverrideTextStyle`
+		// ALWAYS returns a FRESH object (never `node.style` by reference): the properties panel
+		// mutates style fields in place (`node.style.fontFamily = …` + `markDirty()`, which does
+		// NOT reassign `scenes`). `rebuild()` deep-reads `node.text` (so content edits reflect) but
+		// only read `node.style` by reference before — so a font/size/colour edit was never a tracked
+		// dependency and the overlay never rebuilt. The spread reads every field, making each an
+		// $effect dependency so the edit re-runs `rebuild()`. Mirrors `LayoutNodeView`'s `resolvedStyle`.
+		return { ...resolveOverrideTextStyle(node, layoutType), ...overrides };
 	}
 
 	/** Caption a HUD text bind anchor shows: the resolved `preview.textParam` (decomposed
@@ -387,9 +391,14 @@
 			} else if (n.kind === 'componentInstance') {
 				const def = componentMap.get(n.componentId);
 				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
-				// Resolve THIS instance's params (def defaults ◁ instance overrides) — the
-				// scene editor threads no per-project defaults, matching `drawComponentInstance`.
-				const instanceParams = resolveComponentParams(def, n.params, undefined);
+				// Resolve THIS instance's params (def defaults ◁ instance overrides, with the
+				// active layoutType's per-ratio param override merged onto the base) — the scene
+				// editor threads no per-project defaults, matching `drawComponentInstance`.
+				const instanceParams = resolveComponentParams(
+					def,
+					resolveLayoutInstanceParams(n, layoutType),
+					undefined,
+				);
 				collectTextTargets(def.root.children, sc, out, nextChain, instanceParams, depth + 1, [
 					...stack,
 					def.id,

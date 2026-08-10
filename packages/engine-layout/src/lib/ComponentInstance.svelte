@@ -43,6 +43,7 @@
 <script lang="ts">
 	import { Container } from 'pixi-svelte';
 	import { CanvasSizeRectangle } from 'components-layout';
+	import { getContextLayout } from 'utils-layout';
 
 	import LayoutNodeView from './LayoutNodeView.svelte';
 	import { resolveComponent } from './registerComponents';
@@ -98,6 +99,21 @@
 	// `undefined` ⇒ the `engineValues`/`actions` PROPS stand (the `<Repeater>` path) or nothing does
 	// (parity — byte-identical to today). The `.engineValues` getter the mount sets stays reactive.
 	const binding = getInstanceBinding(node.componentId);
+
+	// Current layoutType (per-ratio param overrides). Read from the layout context — the SAME
+	// reactive getter `<LayoutNodeView>` uses — so a per-layoutType `node.overrides[lt].params`
+	// patch re-resolves when the device rotates. `getContext` returns `undefined` when there's
+	// no provider (an instance rendered outside a `<LayoutScene>` — the tap-hoist fallback path);
+	// then it falls back to `'desktop'` ⇒ the base params, byte-identical to today (parity).
+	const layoutCtx = getContextLayout();
+	const currentLayoutType = () => layoutCtx?.stateLayoutDerived.layoutType() ?? 'desktop';
+	// Union of param keys overridden in ANY layoutType (init-stable — a keyed instance never
+	// swaps its overrides map identity). Empty for every instance that authored no per-ratio
+	// param ⇒ no getters added below ⇒ `providedParams` equals the static map exactly (parity).
+	const layoutOverrideParamKeys = new Set<string>();
+	for (const ov of Object.values(node.overrides ?? {})) {
+		if (ov?.params) for (const key of Object.keys(ov.params)) layoutOverrideParamKeys.add(key);
+	}
 
 	// The space the component's OWN children render in. A component placed in a
 	// `background` scene is cover-fit as ONE unit by the instance's wrapping container
@@ -627,6 +643,25 @@
 	// expand (cycle/depth/missing def) so a descendant never reads a stale PARENT
 	// instance's params. Set once at init, same discipline as the nest state.
 	const providedParams: Record<string, unknown> = { ...staticParams };
+	// Per-layoutType param overlay (per-ratio font size, box size, colour, …): for every key an
+	// override touches in ANY layoutType, expose a REACTIVE getter that returns the CURRENT
+	// layoutType's override value (falling back to the static base when this layoutType has no
+	// override for the key). Reactive because it reads `currentLayoutType()` inside the getter,
+	// which runs inside a descendant's tracking scope — same discipline as the `value`/`label`
+	// live feeds below. Defined BEFORE those feeds (and `configurable`) so a live engine feed
+	// still redefines + wins for its key (a count-up `value` is never a per-ratio constant). The
+	// init-stable STRUCTURAL reads above (`source`/`action`/`tapEnabled`/cues) read `staticParams`
+	// directly, NOT `providedParams`, so they are untouched — structure never varies by ratio.
+	for (const key of layoutOverrideParamKeys) {
+		Object.defineProperty(providedParams, key, {
+			enumerable: true,
+			configurable: true,
+			get: () => {
+				const override = node.overrides?.[currentLayoutType()]?.params;
+				return override && key in override ? override[key] : staticParams[key];
+			},
+		});
+	}
 	if (valueSource) {
 		Object.defineProperty(providedParams, 'value', {
 			enumerable: true,

@@ -1,4 +1,11 @@
-import type { LayoutNode, LayoutType, NodeOverride, ResolvedTransform, Scene } from './types';
+import type {
+	LayoutNode,
+	LayoutType,
+	NodeOverride,
+	ResolvedTransform,
+	Scene,
+	TextStyle,
+} from './types';
 
 /**
  * A node's effective position — `screenAnchor` folded into x/y for a `canvas`-space scene,
@@ -62,4 +69,26 @@ export function resolveTransform(node: LayoutNode, layoutType: LayoutType): Reso
 		visible,
 		screenAnchor: override.screenAnchor ?? node.screenAnchor,
 	};
+}
+
+/**
+ * A text node's effective STYLE for a layoutType — the base `style` with the per-layoutType
+ * {@link NodeOverride.style} patch merged on top ({@link resolveTransform}'s sibling for the
+ * one field that never belonged in {@link ResolvedTransform}: text style is a nested object, not
+ * a flat transform field). THE one implementation, shared by the runtime (`<LayoutNodeView>`)
+ * and the editor (`EditorTextLayer`) so a per-ratio font size can't render one way in the editor
+ * and another in the game.
+ *
+ * Returns a FRESH object (never `node.style` by reference) so a caller can safely fold its own
+ * param-bound overrides on top, and — like `<LayoutNodeView>`'s existing spread — so PixiJS
+ * re-syncs the `<Text>` when a field changes. A non-text node ⇒ `{}` (nothing to style). No
+ * override for this layoutType ⇒ a copy of the base style (parity).
+ */
+export function resolveOverrideTextStyle(
+	node: LayoutNode,
+	layoutType: LayoutType,
+): Partial<TextStyle> {
+	if (node.kind !== 'text') return {};
+	const override = node.overrides?.[layoutType]?.style;
+	return override ? { ...node.style, ...override } : { ...node.style };
 }
