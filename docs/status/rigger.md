@@ -37,6 +37,26 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-08-10 — **Stale manifest geometry could rotate/mis-place a region (fixed at the read
+  layer).** A rig bundle's `.atlas` is synthesised from the source sheet's `atlas_manifest_*.json`
+  `regions`, whose `x/y/w/h/rotated` are a CACHE of the packed page. That cache can drift from the
+  actual page — e.g. `bookofborutremake/S_VFX` had `T_VFX_AnticipationLine_shine` cached as
+  `rotated:false` at (0,428) while the page (and the sibling `S_VFX.atlas` + `S_VFX.json`
+  TexturePacker output) have it `rotate:90` at (975,0); its `_zoom` sibling was cached with the
+  SWAPPED slot. `regionsToSpineAtlas` trusted the stale rect, so the Rigger sampled an un-rotated,
+  over-tall page rect that bled into the neighbour below (the frame with a circle-burst tacked
+  underneath; siblings looked fine because their cache happened to match). Fix: `loadRegionSet`'s
+  `backfillMissingGeometry` (`$lib/server/editorRegions.ts`) now RECONCILES each region's on-page
+  placement + rotation against the authoritative `atlas.texturepacker_json` (`frame` = the tight
+  packed rect; un-swap a rotated frame's axes back to upright), overriding a drifted `x/y/w/h/
+  rotated` — **never trim** (`offX/offY/origW/origH`), per the `RawRegion` landmine. Heals via the
+  same `ensureBundleAtlasFresh` used on the Symbols/Editor read path, the bake path, and the
+  Rigger's **⟳ Re-sync atlas** button. Launcher-server only (`editorRegions.ts`) — no engine change,
+  no submodule bump. Headless proof: replicated the reconcile against the real `S_VFX` manifest +
+  TP JSON → base/zoom/shine/glow all match the packer ground truth (4/4). **⏳ Live-verify owed
+  (owner):** open `R_AnticipationColumn` in `/rigger`, click **⟳ Re-sync atlas**, reload — the
+  `_shine`/`_zoom` meshes should render as the upright glowing frame (no rotation, no circle-burst
+  bleed). A re-pack of any sheet self-heals on next read/bake with no manual step.
 - 2026-08-04 — **Phase 3.6c: hull editing + a shared vertex-permutation primitive (fixes a
   latent deform bug).** New **⬡ Hull** mesh mode: click an interior vertex to **promote** it onto
   the outline (inserted at the nearest non-crossing slot), or a hull vertex to **demote** it to
