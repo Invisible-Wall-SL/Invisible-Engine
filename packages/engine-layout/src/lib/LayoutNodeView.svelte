@@ -29,8 +29,10 @@
 
 	import CatalogText from './CatalogText.svelte';
 	import TextBox from './TextBox.svelte';
+	import InlineImageText from './InlineImageText.svelte';
 	import { anchoredPosition, resolveTransform } from './resolveTransform';
 	import { resolveLocalizedText } from './registerTextResolver';
+	import { hasInlineImage, stripInlineImage } from './inlineImage';
 	import { getBoundComponent } from './registerBoundComponents';
 	import {
 		backgroundCoverScale,
@@ -883,13 +885,40 @@
 				when `autoFit`. `<TextBox>` owns the box math + measurement; it still renders
 				through `<CatalogText>`, so the bitmap-vs-system-font decision is unchanged. A
 				box-less text node falls to the plain `<CatalogText>` below (byte-identical parity).
+
+				Inline-image support lives on the box-LESS path (`<InlineImageText>` below), so a
+				sentinel-bearing string reaching a BOXED node is `stripInlineImage`d to its plain-text
+				fallback (the symbol NAME) and shrink-fit normally — the boxed message then reads
+				exactly as it would with the toggle off, never the raw sentinel or an un-fitted line.
+				`stripInlineImage` is identity for every string without a sentinel (parity).
 			-->
 			<TextBox
-				text={resolvedText ?? ''}
+				text={stripInlineImage(resolvedText ?? '')}
 				style={resolvedStyle}
 				boxWidth={textBoxWidth ?? 0}
 				boxHeight={textBoxHeight}
 				autoFit={textAutoFit}
+				x={posX}
+				y={posY}
+				anchor={transform.anchor}
+				scale={transform.scale}
+				rotation={transform.rotation}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
+			/>
+		{:else if resolvedText && hasInlineImage(resolvedText)}
+			<!--
+				Inline-image message (`inlineImage.ts`): a box-LESS text node whose resolved string
+				carries a symbol-image sentinel (the Invisible Win Text "show symbol as image" toast)
+				lays out as mixed text runs + inline `<Sprite>`s rather than one `<Text>`, centred on
+				(x, y) — matching the default info-bar message node (anchor {0.5,0.5}, no box). Only
+				ever true for a string a game deliberately built (`wrapInlineImage`); no authored copy
+				contains the private-use sentinel, so every existing box-less text node falls straight
+				through to the plain `<CatalogText>` below (parity).
+			-->
+			<InlineImageText
+				text={resolvedText}
+				style={resolvedStyle}
 				x={posX}
 				y={posY}
 				anchor={transform.anchor}

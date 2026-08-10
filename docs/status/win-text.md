@@ -107,6 +107,36 @@ a symbol id (`H1`) is unspeakable, so there was no word to put in a sentence.
 - **26 offline checks** over the real modules:
   `node packages/engine-layout/scripts/test-win-text-symbol-names.mjs`.
 
+### Symbol as image in the info-bar toast (2026-08-10)
+
+An opt-in toggle on the info-bar toast: **render the paying symbol as its SPRITE instead of its
+written name** — "You win $4.00 with 4 [🐄]" — sized to the text. Off by default (parity); the game
+still keeps the NAME as the clean fallback.
+
+- **Toggle** — `toast.symbolAsImage` on the win-text doc (`winText.ts` type + `WIN_TEXT_DEFAULTS`
+  + `resolveWinText`; schema + prune in `winTextStorage.ts`, persisted only when ON). A checkbox in
+  the `/win-text` "Info-bar message" section.
+- **How an image rides a string** — the message pipeline is one STRING end-to-end, so a sprite can't
+  travel as a character. When the toggle is on, `showWinInfoMessage` (`flowEffects.ts`) builds a
+  RICH twin of the toast where `{symbolName}` is a private-use SENTINEL (`engine-layout`
+  `wrapInlineImage(symbol, name)`), carried on `stateMessage.current.richText` — **separate from the
+  clean `text`** (the written name), which the coded HTML `MessageToast` and any string reader keep.
+- **Render** — the info-bar `message` value source returns `richText ?? text`; `LayoutNodeView`'s
+  text branch detects the sentinel (`hasInlineImage`) and renders `InlineImageText.svelte`, which
+  lays out text runs (`<CatalogText>`, measure-feedback widths like `TextBox`) + an aspect-preserving
+  `<Sprite>` per image on one centred line. The image token → texture key comes from a game-registered
+  resolver (`registerInlineImageResolver` in `Game.svelte`) mapping a symbol id → its STATIC sprite
+  `assetKey`; a spine/flipbook/unknown symbol returns undefined ⇒ the sentinel's `fallback` (the
+  name) renders as text. No sentinel (every existing message) ⇒ the unchanged plain path (parity).
+- **Travel** — pure boolean on the win-text doc, so it rides the existing bake + runtime-bundle
+  wiring verbatim (both paths embed the doc).
+- **Verified offline** — Node fixtures over the built modules: sentinel round-trip
+  (`wrapInlineImage`/`parse`/`strip`/`hasInlineImage`), `resolveWinText.toast.symbolAsImage`
+  default-off/resolve-on, and `formatWinText` emitting the sentinel. `engine-layout` + `lines` +
+  `launcher-api` all build. **⏳ Owner: visual-verify the live render** (image size factor 1.1× and
+  vertical alignment) with the toggle on in a real project — needs a baked doc, which can't be flipped
+  offline.
+
 ### Two findings that shaped the build
 1. **`winLevelMap[].text` is DEAD DATA** — nothing reads it. The tier words players see are
    painted into the big-win SPINE ART; `Win.svelte` draws only the count-up amount. So
@@ -139,6 +169,11 @@ a symbol id (`H1`) is unspeakable, so there was no word to put in a sentence.
 - Nothing.
 
 ## Recent changes
+- 2026-08-10 — **symbol-as-image toast toggle** (`toast.symbolAsImage`): the info-bar win toast can
+  render the paying symbol's sprite instead of its name, sized to the text. New engine-layout
+  `inlineImage.ts` (sentinel) + `registerInlineImage.ts` + `InlineImageText.svelte`; `LayoutNodeView`
+  text branch, `stateMessage.richText`, `flowEffects.showWinInfoMessage`, `Game.svelte` resolver,
+  `winText.ts`/`winTextStorage.ts`/`/win-text` toggle. Off by default (parity). See the section above.
 - 2026-07-29 — added a **Free spins** family: the `freeSpins.retrigger` template (default
   `You won +{count} Extra Free Spins`), authored in `/win-text` and auto-harvested into
   `/localization` like the toasts. Backs a free-spin RETRIGGER celebration screen: a new

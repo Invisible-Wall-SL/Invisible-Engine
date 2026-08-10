@@ -44,6 +44,7 @@ import {
 	resolveToastTemplate,
 	resolveWinLineMessage,
 	symbolDrawsWinLine,
+	wrapInlineImage,
 } from 'engine-layout';
 
 import { eventEmitter } from './eventEmitter';
@@ -298,11 +299,25 @@ export const showWinInfoMessage = ({
 			symbolName:
 				symbol === undefined ? undefined : resolveSymbolName(bakedSymbolNames(), symbol, kind),
 		};
-		const template = resolveToastTemplate(bakedWinText(), vars);
+		const winText = bakedWinText();
+		const template = resolveToastTemplate(winText, vars);
 		if (!template) return false;
 		const text = formatWinText(template, vars);
 		if (!text) return false;
-		showGameMessage(text, { kind: messageKind, durationMs });
+		// "Show symbol as image" (Invisible Win Text): build a RICH twin of the toast where the
+		// `{symbolName}` token is an inline sprite of the paying symbol. `text` (the written name)
+		// stays the clean fallback so the coded HTML toast + any string reader keep the name; only the
+		// info-bar Pixi node renders `richText`. Applied only when the toggle is on AND this branch
+		// actually named a symbol (`amountOnly` has none to swap). The inline image degrades to the
+		// name at render time when a symbol has no sprite art (see `registerInlineImageResolver`).
+		const richText =
+			winText.toast.symbolAsImage && symbol !== undefined && vars.symbolName !== undefined
+				? formatWinText(template, {
+						...vars,
+						symbolName: wrapInlineImage(symbol, vars.symbolName),
+					})
+				: undefined;
+		showGameMessage(text, { kind: messageKind, durationMs, richText });
 		return true;
 	} catch (error) {
 		console.error('showWinInfoMessage failed; the round continues without a message', error);

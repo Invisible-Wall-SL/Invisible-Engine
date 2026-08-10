@@ -90,6 +90,14 @@ export type WinTextToast = {
 	amountOnly?: string;
 	/** A count + symbol, no amount. */
 	countOnly?: string;
+	/**
+	 * Render the paying symbol as its SPRITE instead of its written name — the `{symbolName}` token
+	 * becomes an inline image of the symbol, sized to the text ("You win $4.00 with 4 [🐄]"). Off by
+	 * default ⇒ the name is written as text (parity). Applies only to the info-bar toast; the game
+	 * still keeps the NAME as the clean fallback (for any non-sprite renderer, and if the symbol has
+	 * no sprite art). See `inlineImage.ts` + `InlineImageText.svelte`.
+	 */
+	symbolAsImage?: boolean;
 };
 
 /** Fully-resolved win text — every field present, defaults applied. */
@@ -126,6 +134,7 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 		full: 'You win {amount} with {count} {symbolName}',
 		amountOnly: 'You win {amount}',
 		countOnly: '{count} {symbolName}',
+		symbolAsImage: false,
 	},
 	freeSpins: {
 		retrigger: 'You won +{count} Extra Free Spins',
@@ -166,6 +175,7 @@ export function resolveWinText(doc: WinTextDoc | undefined): ResolvedWinText {
 			full: doc?.toast?.full ?? WIN_TEXT_DEFAULTS.toast.full,
 			amountOnly: doc?.toast?.amountOnly ?? WIN_TEXT_DEFAULTS.toast.amountOnly,
 			countOnly: doc?.toast?.countOnly ?? WIN_TEXT_DEFAULTS.toast.countOnly,
+			symbolAsImage: doc?.toast?.symbolAsImage ?? WIN_TEXT_DEFAULTS.toast.symbolAsImage,
 		},
 		freeSpins: {
 			retrigger: doc?.freeSpins?.retrigger ?? WIN_TEXT_DEFAULTS.freeSpins.retrigger,

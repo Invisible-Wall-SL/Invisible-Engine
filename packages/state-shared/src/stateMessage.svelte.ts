@@ -15,8 +15,17 @@ export type GameMessageKind = 'info' | 'win' | 'warn';
 export type GameMessage = {
 	/** Monotonic id so the renderer can re-trigger its enter animation. */
 	id: number;
+	/** The plain text — the CLEAN, always-renderable form (used by any string reader and the coded
+	 *  HTML toast). Symbol names are written out here. */
 	text: string;
 	kind: GameMessageKind;
+	/**
+	 * An optional RICH variant of `text` carrying inline-image sentinels (`engine-layout`'s
+	 * `wrapInlineImage`) — e.g. the paying symbol as a sprite instead of its name. A Pixi renderer
+	 * that understands the sentinels (the info-bar text node) shows this; everything else uses the
+	 * clean `text`. Unset for ordinary messages (parity: the renderer just gets `text`).
+	 */
+	richText?: string;
 };
 
 export const stateMessage = $state({
@@ -31,11 +40,11 @@ let clearTimer: ReturnType<typeof setTimeout> | undefined;
  *  an explicit clearMessage(). */
 export const showMessage = (
 	text: string,
-	options: { kind?: GameMessageKind; durationMs?: number } = {},
+	options: { kind?: GameMessageKind; durationMs?: number; richText?: string } = {},
 ): void => {
 	nextId += 1;
 	const id = nextId;
-	stateMessage.current = { id, text, kind: options.kind ?? 'info' };
+	stateMessage.current = { id, text, kind: options.kind ?? 'info', richText: options.richText };
 
 	if (clearTimer) clearTimeout(clearTimer);
 	const duration = options.durationMs ?? 2600;

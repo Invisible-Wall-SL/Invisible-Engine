@@ -55,6 +55,8 @@ export * from './registerFlowPress';
 export * from './registerComponentSignals';
 export * from './registerComponentDefaults';
 export * from './registerTextResolver';
+export * from './registerInlineImage';
+export * from './inlineImage';
 export * from './winText';
 export * from './builtinComponents';
 export * from './boundComponentCatalog';
