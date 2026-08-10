@@ -112,6 +112,12 @@
 		else delete toast[branch];
 	}
 
+	function setSymbolAsImage(on: boolean) {
+		const toast = (doc.toast ??= {});
+		if (on) toast.symbolAsImage = true;
+		else delete toast.symbolAsImage;
+	}
+
 	function setFreeSpins(branch: 'retrigger', value: string) {
 		const freeSpins = (doc.freeSpins ??= {});
 		if (value.trim()) freeSpins[branch] = value;
@@ -402,6 +408,18 @@
 					oninput={(e) => setToast('countOnly', e.currentTarget.value)}
 				/>
 			</label>
+			<label class="toggle">
+				<input
+					type="checkbox"
+					checked={doc.toast?.symbolAsImage ?? false}
+					onchange={(e) => setSymbolAsImage(e.currentTarget.checked)}
+				/>
+				<span
+					>Show the symbol as an <strong>image</strong> instead of its name — the
+					<code>{'{symbolName}'}</code> in the toast is drawn as the symbol's sprite, sized to the text.
+					Falls back to the name if a symbol has no sprite art.</span
+				>
+			</label>
 		</section>
 
 		<section>
@@ -610,6 +628,24 @@
 	.single input:focus {
 		outline: none;
 		border-color: #7ee0c0;
+	}
+	.toggle {
+		display: flex;
+		align-items: flex-start;
+		gap: 10px;
+		margin: 12px 0 4px;
+		max-width: 720px;
+		font-size: 12px;
+		color: #8b8b98;
+		line-height: 1.5;
+		cursor: pointer;
+	}
+	.toggle input {
+		flex: none;
+		margin-top: 2px;
+	}
+	.toggle strong {
+		color: #c7c7d2;
 	}
 	.save {
 		padding: 6px 14px;
