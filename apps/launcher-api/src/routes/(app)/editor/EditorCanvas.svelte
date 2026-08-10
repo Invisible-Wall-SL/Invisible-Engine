@@ -803,6 +803,9 @@
 				kind: 'scale';
 				nodeId: string;
 				cornerIdx: number;
+				/** Restrict the resize to ONE axis (an edge handle) — `'x'` keeps height, `'y'`
+				 * keeps width. Undefined ⇒ a corner handle resizes both. */
+				resizeAxis?: 'x' | 'y';
 				startWorld: Vec2;
 				startScale: Vec2;
 				startBox: NodeBox;
@@ -1067,9 +1070,16 @@
 		/** World-space coordinate (x for vertical, y for horizontal). */
 		v: number;
 	}
-	type HandleHit = { kind: 'corner'; idx: number } | { kind: 'rotate' } | { kind: 'body' };
+	type HandleHit =
+		| { kind: 'corner'; idx: number }
+		| { kind: 'edge'; idx: number }
+		| { kind: 'rotate' }
+		| { kind: 'body' };
 
-	const HANDLE_PX = 7;
+	const HANDLE_PX = 8;
+	/** Edge-midpoint resize handles (top / right / bottom / left). Drawn a touch smaller than
+	 * the corners so the two read as distinct. */
+	const EDGE_HANDLE_PX = 7;
 	const ROTATE_PX = 6;
 	const ROTATE_OFFSET_PX = 22;
 	const SNAP_PX = 6;
@@ -2816,13 +2826,26 @@
 		}
 
 		const accent = '#5db0ff';
+		// A text node with an explicit BOX (`width`): tint its area so the author sees the box they
+		// resize (the glyphs may not fill it), and dashes distinguish "layout box" from a solid node.
+		const isTextBox = node.kind === 'text' && typeof box.w === 'number' && (t.width ?? 0) > 0;
+		if (isTextBox) {
+			ctx.fillStyle = 'rgba(93, 176, 255, 0.10)';
+			ctx.beginPath();
+			ctx.moveTo(corners[0].x, corners[0].y);
+			for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].x, corners[i].y);
+			ctx.closePath();
+			ctx.fill();
+		}
 		ctx.lineWidth = 1.5;
 		ctx.strokeStyle = accent;
+		if (isTextBox) ctx.setLineDash([6, 3]);
 		ctx.beginPath();
 		ctx.moveTo(corners[0].x, corners[0].y);
 		for (let i = 1; i < 4; i++) ctx.lineTo(corners[i].x, corners[i].y);
 		ctx.closePath();
 		ctx.stroke();
+		ctx.setLineDash([]);
 
 		// Outline-only for a multi-selection — no transform handles.
 		if (!withHandles) return;
@@ -2838,6 +2861,29 @@
 		ctx.lineTo(stem.x, stem.y);
 		ctx.stroke();
 
+		// Edge-midpoint squares FIRST (drawn under the corners so a corner always wins the overlap).
+		// They resize ONE axis, which is what a text box usually needs (its width) and makes the box
+		// grabbable without hunting the small corners. `mid` averages the two adjacent screen corners
+		// so it follows rotation for free.
+		const mid = (a: Vec2, b: Vec2): Vec2 => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+		const edges = [
+			mid(corners[0], corners[1]),
+			mid(corners[1], corners[2]),
+			mid(corners[2], corners[3]),
+			mid(corners[3], corners[0]),
+		];
+		ctx.fillStyle = '#0b0b10';
+		ctx.strokeStyle = accent;
+		ctx.lineWidth = 1.5;
+		for (const e of edges) {
+			ctx.fillRect(e.x - EDGE_HANDLE_PX / 2, e.y - EDGE_HANDLE_PX / 2, EDGE_HANDLE_PX, EDGE_HANDLE_PX);
+			ctx.strokeRect(
+				e.x - EDGE_HANDLE_PX / 2,
+				e.y - EDGE_HANDLE_PX / 2,
+				EDGE_HANDLE_PX,
+				EDGE_HANDLE_PX,
+			);
+		}
 		// Corner squares.
 		ctx.fillStyle = accent;
 		ctx.strokeStyle = '#0b0b10';
@@ -2871,11 +2917,27 @@
 		};
 		const rGrab = ROTATE_PX + 4;
 		if (Math.hypot(screen.x - stem.x, screen.y - stem.y) <= rGrab) return { kind: 'rotate' };
-		const grab = HANDLE_PX / 2 + 3;
+		const grab = HANDLE_PX / 2 + 4;
 		for (let i = 0; i < 4; i++) {
 			const c = corners[i];
 			if (Math.abs(screen.x - c.x) <= grab && Math.abs(screen.y - c.y) <= grab) {
 				return { kind: 'corner', idx: i };
+			}
+		}
+		// Edge-midpoint handles (single-axis resize). Checked AFTER corners so a corner still wins the
+		// overlap, and BEFORE the body so grabbing an edge resizes instead of moving the node.
+		const mid = (a: Vec2, b: Vec2): Vec2 => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+		const edges = [
+			mid(corners[0], corners[1]),
+			mid(corners[1], corners[2]),
+			mid(corners[2], corners[3]),
+			mid(corners[3], corners[0]),
+		];
+		const eGrab = EDGE_HANDLE_PX / 2 + 4;
+		for (let i = 0; i < 4; i++) {
+			const e = edges[i];
+			if (Math.abs(screen.x - e.x) <= eGrab && Math.abs(screen.y - e.y) <= eGrab) {
+				return { kind: 'edge', idx: i };
 			}
 		}
 		// Body hit on selected node (in world space).
@@ -2922,13 +2984,24 @@
 			group,
 		};
 	}
-	function startScale(node: LayoutNode, cornerIdx: number, world: Vec2): void {
+	/** Edge idx (top/right/bottom/left) → the reference CORNER its resize pivots from, and which
+	 * single axis it changes. Reuses the corner-scale math with the other axis locked. */
+	const EDGE_TO_CORNER = [0, 1, 2, 3] as const;
+	const EDGE_TO_AXIS = ['y', 'x', 'y', 'x'] as const;
+
+	function startScale(
+		node: LayoutNode,
+		cornerIdx: number,
+		world: Vec2,
+		resizeAxis?: 'x' | 'y',
+	): void {
 		const t = nodeTransform(node);
 		const box = boxOf(node, t);
 		dragMode = {
 			kind: 'scale',
 			nodeId: node.id,
 			cornerIdx,
+			resizeAxis,
 			startWorld: world,
 			startScale: { x: t.scale?.x ?? 1, y: t.scale?.y ?? 1 },
 			startBox: box,
@@ -2998,8 +3071,14 @@
 		const newRefY = baseY + dyl;
 		let sxRatio = baseX === 0 ? 1 : newRefX / baseX;
 		let syRatio = baseY === 0 ? 1 : newRefY / baseY;
-		// Default: uniform scale (use average of the two abs ratios, signed by the corner). Shift = non-uniform.
-		if (!shift) {
+		// An EDGE handle resizes ONE axis — lock the other to its start size (ratio 1). A CORNER
+		// handle defaults to uniform scale (average of the two abs ratios, signed); Shift makes it
+		// non-uniform (free per-axis).
+		if (d.resizeAxis === 'x') {
+			syRatio = 1;
+		} else if (d.resizeAxis === 'y') {
+			sxRatio = 1;
+		} else if (!shift) {
 			const avg = (Math.abs(sxRatio) + Math.abs(syRatio)) / 2;
 			sxRatio = Math.sign(sxRatio || 1) * avg;
 			syRatio = Math.sign(syRatio || 1) * avg;
@@ -3201,6 +3280,8 @@
 				const node = findNodeById(selectedId);
 				if (node) {
 					if (hh.kind === 'corner') startScale(node, hh.idx, world);
+					else if (hh.kind === 'edge')
+						startScale(node, EDGE_TO_CORNER[hh.idx], world, EDGE_TO_AXIS[hh.idx]);
 					else if (hh.kind === 'rotate') startRotate(node, world);
 					else startTranslate(node, world);
 					e.preventDefault();
@@ -3576,6 +3657,8 @@
 		if (dragMode?.kind === 'rotate') return 'cursor-grabbing';
 		if (dragMode?.kind === 'translate') return 'cursor-grabbing';
 		if (dragMode?.kind === 'scale') {
+			if (dragMode.resizeAxis === 'y') return 'cursor-ns';
+			if (dragMode.resizeAxis === 'x') return 'cursor-ew';
 			const i = dragMode.cornerIdx;
 			return i === 0 || i === 2 ? 'cursor-nwse' : 'cursor-nesw';
 		}
@@ -3583,6 +3666,10 @@
 		if (hoverHandle?.kind === 'corner') {
 			const i = hoverHandle.idx;
 			return i === 0 || i === 2 ? 'cursor-nwse' : 'cursor-nesw';
+		}
+		if (hoverHandle?.kind === 'edge') {
+			// top/bottom → vertical resize, right/left → horizontal.
+			return hoverHandle.idx === 0 || hoverHandle.idx === 2 ? 'cursor-ns' : 'cursor-ew';
 		}
 		if (hoverHandle?.kind === 'body' || hoverNodeId) return 'cursor-move';
 		return 'cursor-cross';
@@ -3983,6 +4070,12 @@
 	}
 	.cursor-nesw {
 		cursor: nesw-resize;
+	}
+	.cursor-ns {
+		cursor: ns-resize;
+	}
+	.cursor-ew {
+		cursor: ew-resize;
 	}
 	canvas {
 		display: block;
