@@ -393,8 +393,12 @@ export function nodeBox(
 		const tax = t.anchor?.x ?? 0;
 		const tay = t.anchor?.y ?? 0;
 		const nat = naturalSize(node);
-		const w = t.width ?? nat?.w ?? 160;
-		const h = t.height ?? nat?.h ?? 28;
+		// Prefer the EXPLICIT box — the per-layoutType override (via `t`) OR the node's own base
+		// `width`/`height` — so the selection frame + resize handles track the AUTHORED box, and
+		// resizing it (drag or the width/height fields) visibly moves the frame. Only an auto-size
+		// text node (no box on either) falls back to the measured glyph extent, which hugs the text.
+		const w = t.width ?? node.width ?? nat?.w ?? 160;
+		const h = t.height ?? node.height ?? nat?.h ?? 28;
 		return { w, h, ax: tax, ay: tay };
 	}
 	// An effect's LIVE particle overlay (EditorEffectLayer) renders real particles that

@@ -2828,7 +2828,7 @@
 		const accent = '#5db0ff';
 		// A text node with an explicit BOX (`width`): tint its area so the author sees the box they
 		// resize (the glyphs may not fill it), and dashes distinguish "layout box" from a solid node.
-		const isTextBox = node.kind === 'text' && typeof box.w === 'number' && (t.width ?? 0) > 0;
+		const isTextBox = node.kind === 'text' && ((t.width ?? node.width ?? 0) > 0);
 		if (isTextBox) {
 			ctx.fillStyle = 'rgba(93, 176, 255, 0.10)';
 			ctx.beginPath();
