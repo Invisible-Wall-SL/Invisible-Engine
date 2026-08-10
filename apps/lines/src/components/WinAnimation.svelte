@@ -39,6 +39,18 @@
 		 * byte-identical un-escalating path. A tier may carry its own `key`, so bundles can differ.
 		 */
 		chain?: WinAnimationStep[];
+		/**
+		 * TAP-TO-STEP (escalation only): a monotonically increasing counter the GATE bumps on each tap.
+		 * When it exceeds the current natural-walk tier, the walk jumps FORWARD to it (playing that tier's
+		 * intro), so a tap advances exactly one tier without waiting for the idle to complete. It never
+		 * pulls the walk BACK — the natural idle-complete walk still advances on its own between taps. This
+		 * keeps the proven walk as the pacing clock (robust regardless of count-up speed) and layers the
+		 * tap on top. Inert (0) on the single-tier / un-escalating path.
+		 */
+		forceStep?: number;
+		/** Publishes the active tier index (escalation only) so the GATE knows which tier is showing — to
+		 *  seek the count to the NEXT tier's amount on tap and to slam once on the final tier. */
+		onStepIndex?: (index: number) => void;
 		/** The count-up has finished — drives the FINAL tier's outro on the escalation path only. Inert
 		 *  on the single-tier path (that idle loops until the overlay hides, as today). When it latches
 		 *  while the chain is still mid-walk (a fast-forward / tap-to-skip of the count-up), the chain
@@ -68,6 +80,8 @@
 		key = 'bigwin',
 		slotName = 'slot_win_count',
 		chain,
+		forceStep = 0,
+		onStepIndex,
 		countUpComplete = false,
 		onOutroComplete,
 		speedScale = 1,
@@ -101,9 +115,7 @@
 	// running: once the count-up completes the collapse plays the OUTRO at 1×, and the single-tier /
 	// non-escalating path is always 1× (= the spine default ⇒ byte-identical). `Math.max(_, 1)` never
 	// slows below normal.
-	const rampTimeScale = $derived(
-		escalating && !countUpComplete ? Math.max(speedScale, 1) : 1,
-	);
+	const rampTimeScale = $derived(escalating && !countUpComplete ? Math.max(speedScale, 1) : 1);
 
 	// ESCALATION ONLY — conclude the chain when the count-up finishes.
 	//
@@ -138,6 +150,22 @@
 		}
 		wasCountUpComplete = countUpComplete;
 	});
+
+	// TAP-TO-STEP — a tap bumps `forceStep`; jump the walk FORWARD to it (never back), playing that
+	// tier's intro. The natural idle-complete walk keeps advancing between taps, so this only ever
+	// accelerates the walk to the tapped tier. Guarded off during the outro (the final-tier collapse
+	// owns that) and clamped to the last tier. Escalation only; inert on the single-tier path.
+	$effect(() => {
+		if (!escalating || animationState === 'outro') return;
+		const target = Math.min(forceStep, steps.length - 1);
+		if (target > stepIndex) {
+			stepIndex = target;
+			animationState = 'intro';
+		}
+	});
+
+	// Publish the active tier so the GATE can seek the count to the next tier's amount + slam on the last.
+	$effect(() => onStepIndex?.(stepIndex));
 </script>
 
 <!--

@@ -26,14 +26,25 @@ import type { WinLevelData } from './winLevelMap';
  * play); `WinAnimation` sets `escalationOutroComplete` true when that outro finishes. The gate then
  * defers its `oncomplete()` until the outro completes on the escalation path — so a collapsed chain
  * (count-up done mid-chain ⇒ jump to the final tier + play its outro) is never cut off mid-animation.
- * Both are reset by `WinGate` on `winShow`/`winHide`. Un-escalating ⇒ `escalationActive` stays false
- * and the gate concludes exactly as before (byte-identical).
+ * `escalationActive` is owned by `WinVisual` (its effect tracks whether a chain is presenting);
+ * `escalationOutroComplete` is reset by `WinGate` on `winShow`/`winHide`. Un-escalating ⇒
+ * `escalationActive` stays false and the gate concludes exactly as before (byte-identical).
  *
  * `escalationSpeedScale` is the live HOLD-to-fast-forward multiplier (`WinGate`'s
  * `interactionSpeedScale`, 1 when not held). `WinAnimation` applies it as a spine `timeScale` to the
  * escalating intro/idle tiers, so the tiers VISIBLY ACCELERATE in lockstep with the count-up while the
  * player holds (a smooth ramp), reverting to 1 on release. Only the HOLD drives it (a `tapToSkip` slam
  * stays an instant collapse); 1 whenever hold-to-speed-up is off / un-escalating (byte-identical).
+ *
+ * TAP-TO-STEP escalation coordination (the count-up is NOT the tier clock — the proven idle-complete
+ * WALK is, so the tiers are robust to a fast/instant count-up; the tap layers on top):
+ * - `escalationBoundaries` — the count-up AMOUNT (book units) of each RENDERED tier, chain order
+ *   (`tier.threshold × BOOK_AMOUNT_MULTIPLIER`; `WinVisual` publishes it). Used to SEEK the count to the
+ *   tapped tier's amount.
+ * - `escalationStepIndex` — the active tier index `WinAnimation` is showing (it publishes it), so the
+ *   GATE knows whether a next tier exists (step) or it's the final tier (slam).
+ * - `escalationForceStep` — the GATE bumps this on each tap; `WinAnimation` jumps the walk forward to it.
+ * All three empty/0 when un-escalating. `WinGate` resets the step fields per win.
  */
 export const winState = $state<{
 	winLevelData: WinLevelData | undefined;
@@ -44,6 +55,9 @@ export const winState = $state<{
 	escalationActive: boolean;
 	escalationOutroComplete: boolean;
 	escalationSpeedScale: number;
+	escalationBoundaries: number[];
+	escalationStepIndex: number;
+	escalationForceStep: number;
 }>({
 	winLevelData: undefined,
 	amount: 0,
@@ -53,4 +67,7 @@ export const winState = $state<{
 	escalationActive: false,
 	escalationOutroComplete: false,
 	escalationSpeedScale: 1,
+	escalationBoundaries: [],
+	escalationStepIndex: 0,
+	escalationForceStep: 0,
 });
