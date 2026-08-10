@@ -16,16 +16,6 @@
 		 * true acceleration, not a snap: `finishCountUp` / `roundSkip` still own the instant slam.
 		 */
 		speedScale?: number;
-		/**
-		 * Opt-in: allow SEEKING the count forward to an intermediate value mid-count-up (`jumpTo`),
-		 * then resuming toward the final total at the same rate. Enables the same value-reached
-		 * completion model the accelerated path uses (a plain `Tween.set` seek would abort the awaited
-		 * task without resolving it — see the accelerated-path note below). Used by the big-win
-		 * sequential-escalation TAP-to-step: each tap jumps the count to the next tier's amount. When
-		 * OMITTED the provider is byte-identical (the single fixed-duration tween), so the WIN overlay
-		 * without escalation and the outro gate are unchanged. `jumpTo` is inert unless this is on.
-		 */
-		seekable?: boolean;
 		/** Optional: the count-up's completion is observable through the snippet's
 		 *  `countUpCompleted`, so a consumer that only renders from that needs no callback. */
 		oncomplete?: () => void;
@@ -35,10 +25,6 @@
 					countUpAmount: number;
 					startCountUp: () => Promise<void>;
 					finishCountUp: () => void;
-					/** Seek the running count forward to `target` (clamped to `[current, amount]`), then
-					 *  resume toward the final total. No-op unless `seekable` and a count-up is running.
-					 *  Never moves the count backward. */
-					jumpTo: (target: number) => void;
 					countUpCompleted: boolean;
 				},
 			]
@@ -51,14 +37,9 @@
 
 	let countUpCompleted = $state(false);
 
-	// Whether this consumer runs on the value-reached completion model: either it opted into a dynamic
-	// speed (`speedScale`) OR it needs to seek forward mid-count-up (`seekable`). When NEITHER is set the
-	// ORIGINAL single-tween path below runs verbatim (byte-identical). `scale` is 1 without `speedScale`,
-	// so a purely-`seekable` consumer counts at normal speed — same linear tween, just re-targetable.
-	// REACTIVE (not read-once): `seekable` may resolve true only just before `startCountUp` runs (the
-	// gate binds it to a value another component publishes), so committing at init could freeze the
-	// single-tween path and strand `jumpTo`. A genuinely non-seek/non-speed consumer still derives false.
-	const acceleratable = $derived(props.speedScale !== undefined || props.seekable === true);
+	// Whether this consumer opted into a dynamic speed. Read once (a consumer either always passes
+	// `speedScale` or never does): when absent the ORIGINAL single-tween path below runs verbatim.
+	const acceleratable = props.speedScale !== undefined;
 	const scale = $derived(Math.max(props.speedScale ?? 1, 0.0001));
 
 	const countUp = () =>
@@ -91,20 +72,6 @@
 		if (!running) return;
 		untrack(retarget);
 	});
-
-	// SEEK the running count forward to `target` (the big-win tap-to-step jump), then let `retarget`
-	// resume the tween toward the final total from the new position — at the SAME rate, so the count
-	// simply skips the segment it jumped over. Snapping via `set({duration:0})` aborts the in-flight
-	// tween task, but completion here is tracked by the `current >= amount` settle effect (not that
-	// task's promise), so nothing is stranded. Clamped forward-only: never below `current`, never past
-	// the total. Inert unless a count-up is running (`seekable` consumers only reach here).
-	const jumpTo = (target: number) => {
-		if (!running) return;
-		const clamped = Math.min(Math.max(target, countUpAmount.current), props.amount);
-		if (clamped <= countUpAmount.current) return;
-		void countUpAmount.set(clamped, { duration: 0 });
-		untrack(retarget);
-	};
 	// Own completion: settle the moment the value reaches the target (the tween lands exactly on it).
 	$effect(() => {
 		if (!running) return;
@@ -151,6 +118,5 @@
 	countUpAmount: countUpAmount.current,
 	startCountUp,
 	finishCountUp,
-	jumpTo,
 	countUpCompleted,
 })}
