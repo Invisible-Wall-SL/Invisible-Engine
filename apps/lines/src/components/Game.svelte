@@ -222,6 +222,7 @@
 	import FreeSpinIntroSymbolReveal from './FreeSpinIntroSymbolReveal.svelte';
 	import BookRevealGate from './BookRevealGate.svelte';
 	import ExpandingSymbol from './ExpandingSymbol.svelte';
+	import MessageSymbol from './MessageSymbol.svelte';
 	import RevealSymbolRider from './RevealSymbolRider.svelte';
 	import TapToContinue from './TapToContinue.svelte';
 	import Transition from './Transition.svelte';
@@ -402,6 +403,12 @@
 		// def's bind) — renders `stateGame.specialSymbol` via `<Symbol>` WITHOUT the shuffle, so an
 		// author owns the reveal via their own spine + choreography (pure-hooks book reveal).
 		ExpandingSymbol,
+		// The inline symbol renderer for message strings (Invisible Win Text "show symbol as image").
+		// `engine-layout`'s `InlineImageText` mounts this by name (`INLINE_IMAGE_BOUND_COMPONENT`) per
+		// image token; it renders the symbol at text size via the SAME `<Symbol>` state machine, so
+		// spine high symbols show (a flat `<Sprite>` in the engine layer couldn't draw them). The key
+		// MUST be `messageSymbol` to match `getBoundComponent(INLINE_IMAGE_BOUND_COMPONENT)`.
+		messageSymbol: MessageSymbol,
 		// The chosen symbol MERGED onto a bone of an authored intro rig (the
 		// `freeSpinIntroSymbolReveal` def's bind) — plays the rig's intro animation and rides the
 		// chosen `stateGame.specialSymbol` on a named bone, driven by the same awaited
@@ -596,15 +603,17 @@
 	// Layout-doc text localization (§18): any doc text matching a catalog key —
 	// code catalogs + the baked Localization-tool strings — renders translated.
 	registerEditorTextLocalization(messagesMap);
-	// Inline-image resolver for message strings (Invisible Win Text "show symbol as image"): map a
-	// symbol id → that symbol's STATIC sprite asset key, so the info-bar toast can draw the paying
-	// symbol inline (engine-layout `InlineImageText`). Only sprite-art symbols resolve; a spine /
-	// flipbook / unknown symbol returns undefined ⇒ the message keeps the written name. Reads the LIVE
-	// merged map each call, so it tracks a runtime symbol-doc swap (`resetSymbolMapCache`).
-	registerInlineImageResolver((symbol) => {
-		const cell = getActiveSymbolInfoMap()[symbol]?.static;
-		return cell?.type === 'sprite' ? cell.assetKey : undefined;
-	});
+	// Inline-image resolver for message strings (Invisible Win Text "show symbol as image"): a KNOWN
+	// symbol id resolves to itself, so the info-bar toast draws the paying symbol inline (engine-layout
+	// `InlineImageText` mounts the `messageSymbol` bound component below with this id). Any symbol type
+	// is renderable — the bound component goes through the `<Symbol>` state machine, so sprite, spine
+	// AND flipbook high symbols all show (the high symbols are spines, which a flat `<Sprite>` couldn't
+	// draw — the reason this resolves an id, not a texture key). An unknown id ⇒ undefined ⇒ the
+	// message keeps the written name. Reads the LIVE merged map each call, so it tracks a runtime
+	// symbol-doc swap (`resetSymbolMapCache`).
+	registerInlineImageResolver((symbol) =>
+		getActiveSymbolInfoMap()[symbol]?.static ? symbol : undefined,
+	);
 	registerComponentValues({
 		balance: valueSource(() => stateBet.balanceAmount, numberToCurrencyString),
 		win: valueSource(() => stateBet.winBookEventAmount, bookEventAmountToCurrencyString),
