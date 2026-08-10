@@ -3,6 +3,7 @@
 
 	import { Container } from 'pixi-svelte';
 	import { FadeContainer, ResponsiveBitmapText } from 'components-pixi';
+	import { BOOK_AMOUNT_MULTIPLIER } from 'constants-shared/bet';
 	import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 	import { MainContainer } from 'components-layout';
 	import { getComponentParams } from 'engine-layout/svelte';
@@ -70,7 +71,9 @@
 		spine: string;
 		animationMap?: { intro: string; idle: string; outro: string };
 	};
-	const resolveTierPresentation = (data: WinLevelData | undefined): TierPresentation | undefined => {
+	const resolveTierPresentation = (
+		data: WinLevelData | undefined,
+	): TierPresentation | undefined => {
 		if (!data) return undefined;
 		const alias = data.alias;
 		const conv = data.animation;
@@ -104,9 +107,21 @@
 		const chain = activeWinLevelChain(level);
 		if (!chain) return undefined;
 		const steps = chain
-			.map((tier) => resolveTierPresentation(tier))
-			.filter((pres): pres is Required<TierPresentation> => !!pres?.animationMap)
-			.map((pres) => ({ key: pres.spine, slotName, animationMap: pres.animationMap }));
+			.map((tier) => ({ tier, pres: resolveTierPresentation(tier) }))
+			.filter(
+				(entry): entry is { tier: WinLevelData; pres: Required<TierPresentation> } =>
+					!!entry.pres?.animationMap,
+			)
+			.map(({ tier, pres }) => ({
+				key: pres.spine,
+				slotName,
+				animationMap: pres.animationMap,
+				// The count-up amount (book units) at/above which this tier is reached. A book amount is the
+				// win-as-bet-multiplier × BOOK_AMOUNT_MULTIPLIER (see the RGS facade), and a tier's `threshold`
+				// is exactly that bet-multiplier — so the boundary is `threshold × BOOK_AMOUNT_MULTIPLIER`, the
+				// same scale the live `countUpAmount` is in. Drives the count-is-the-clock tier walk + tap-step.
+				boundaryAmount: (tier.threshold ?? 0) * BOOK_AMOUNT_MULTIPLIER,
+			}));
 		return steps.length ? steps : undefined;
 	});
 
@@ -134,6 +149,9 @@
 	// before (byte-identical). See `winState` + `WinGate.concludePresentation`.
 	$effect(() => {
 		winState.escalationActive = escalationChain !== undefined;
+		// Publish the rendered tiers' boundary amounts (chain order) so the GATE's tap-to-step can seek the
+		// count to the NEXT tier's amount. Empty when un-escalating (the gate then falls back to its slam).
+		winState.escalationBoundaries = escalationChain?.map((step) => step.boundaryAmount) ?? [];
 	});
 
 	context.eventEmitter.subscribeOnMount({
@@ -159,6 +177,7 @@
 			key={activeSpine}
 			{slotName}
 			chain={escalationChain}
+			{countUpAmount}
 			countUpComplete={winState.countUpComplete}
 			speedScale={winState.escalationSpeedScale}
 			onOutroComplete={() => (winState.escalationOutroComplete = true)}
