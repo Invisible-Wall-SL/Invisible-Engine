@@ -56,6 +56,14 @@
 		codedPressOwned || !holdToSpeedUp ? undefined : interactionSpeedScale,
 	);
 
+	// Whether a TAP steps the escalation tiers (vs. the coded slam). Drives the provider's `seekable`
+	// (so its count can be sought forward) AND gates `stepOrSkip`'s jump. Keyed off `tapToSkip`, which the
+	// `winUpdate` handler sets SYNCHRONOUSLY before this provider mounts — unlike `winState.escalationActive`
+	// (published by the visual in an effect a flush later), which could still be false when the count-up
+	// starts and freeze the provider on its single-tween path. Flow path only; a non-escalation win simply
+	// finds no boundary to step to and slams (byte-identical). `codedPressOwned` ⇒ the coded slam, untouched.
+	const canTapStep = $derived(!codedPressOwned && tapToSkip);
+
 	// Publish the live HOLD multiplier to the escalation chain, so `WinAnimation` speeds up the tier
 	// intro/idle spines in lockstep with the accelerating count-up (a smooth ramp, not a snap). 1 when
 	// hold-to-speed-up is off / the coded path / not held ⇒ the escalation runs at normal speed
@@ -73,6 +81,26 @@
 	// Guards `concludePresentation` against a double conclusion (OnMount + a post-count-up tap both
 	// route through it). Reset per win alongside the count-up latch.
 	let concluded = false;
+
+	/**
+	 * TAP on the escalation path — advance ONE tier instead of slamming: seek the count forward to the
+	 * NEXT rendered tier's amount (`winState.escalationBoundaries`, chain order; index 0 is the start tier
+	 * that always shows, so advancement targets are the later tiers). The count-driven `WinAnimation`
+	 * then switches to that tier and the number snaps to its amount, resuming the count from there. Once
+	 * there's no further tier below the total (the player is on the FINAL tier), fall back to the SLAM
+	 * (`finishCountUp` → land on the total, then the outro). Un-escalating ⇒ no boundaries ⇒ the slam every
+	 * time (byte-identical tap-to-skip). `+ 0.5` skips the boundary the count is already sitting on.
+	 */
+	function stepOrSkip(current: number, jumpTo: (target: number) => void, finish: () => void) {
+		const boundaries = winState.escalationBoundaries;
+		for (let i = 1; i < boundaries.length; i += 1) {
+			if (boundaries[i] > current + 0.5 && boundaries[i] < amount) {
+				jumpTo(boundaries[i]);
+				return;
+			}
+		}
+		finish();
+	}
 
 	/**
 	 * Conclude the WIN presentation — resolve the round-blocking `winUpdate` await. On the SEQUENTIAL-
@@ -148,8 +176,8 @@
 	{#if winLevelData}
 		{@const isBigWin = winLevelData.type === 'big'}
 		{@const duration = winLevelData.presentDuration}
-		<WinCountUpProvider {amount} {duration} {speedScale}>
-			{#snippet children({ countUpAmount, startCountUp, finishCountUp, countUpCompleted })}
+		<WinCountUpProvider {amount} {duration} {speedScale} seekable={canTapStep}>
+			{#snippet children({ countUpAmount, startCountUp, finishCountUp, jumpTo, countUpCompleted })}
 				{#if isBigWin && !headless}
 					<CanvasSizeRectangle backgroundColor={0x000000} backgroundAlpha={0.5} />
 				{/if}
@@ -195,7 +223,7 @@
 						{holdToSpeedUp}
 						{tapToSkip}
 						bind:speedScale={interactionSpeedScale}
-						onSkip={finishCountUp}
+						onSkip={() => stepOrSkip(countUpAmount, jumpTo, finishCountUp)}
 					/>
 				{/if}
 			{/snippet}
