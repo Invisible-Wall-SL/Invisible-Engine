@@ -397,7 +397,7 @@ const computeStackedRuns = (): StackedPictureRun[] => {
 			(i === 0 || i === rows + 1 || i === symbols.length - reelLen || i === symbols.length - 1);
 		// A run STARTING inside a RESULT chunk — the leading target block `[0, reelLen)` or the trailing
 		// previous-result block `[len-reelLen, len)` — is the actual landed board, not scroll filler. Group
-		// it with the SETTLED rules (uncapped + honour `fullHeightOnly`) even while the array is scrolling,
+		// it with the SETTLED rules (honour `fullHeightOnly` + edge detection) even while the array is scrolling,
 		// so the verdict for the visible result cells is identical on both sides of the settle↔roll
 		// boundary. Otherwise, the instant `preSpinPadding` doubles the array (settled result parked
 		// in-window, `scrolling` now true), the rolling rules re-judge that still-stationary result — a
@@ -417,13 +417,17 @@ const computeStackedRuns = (): StackedPictureRun[] => {
 				idx += 1;
 				continue;
 			}
-			// Cap a FILLER run at the symbol's height so each seeded strip BLOCK renders as one M-tall
-			// picture (adjacent/duplicate blocks don't merge into a giant one). RESULT chunks (settled, and
-			// the settled-parked result blocks while scrolling) are never capped — a partial result crops to
-			// top N/M below.
+			// Cap EVERY run at the symbol's authored height, so a picture is never taller than the height the
+			// Symbols tool set. A FILLER block renders as one M-tall picture (adjacent/duplicate blocks don't
+			// merge into a giant one); a RESULT run LONGER than M splits into consecutive M-tall pictures —
+			// any remainder shorter than M becomes a partial (cropped to top k/M, or suppressed by
+			// `fullHeightOnly`) via the same path below. Capping never affects a genuine partial (run already
+			// < M). Before this cap a landed run of 3+ stretched into ONE oversized picture, so the same
+			// symbol rendered at different sizes depending on how many landed — the authored height was
+			// ignored for over-height runs.
 			const height = heightOf(name);
 			const settledRun = inResultChunk(idx);
-			const maxRun = settledRun ? Infinity : (height ?? Infinity);
+			const maxRun = height ?? Infinity;
 			let end = idx;
 			while (
 				end + 1 <= cap &&
