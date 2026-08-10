@@ -288,7 +288,7 @@
 			const key =
 				region && isManifestAssetKey(assetKey)
 					? editorArtTextureKey(assetKey, region)
-					: (region ?? assetKey);
+					: region || assetKey; // `||` not `??`: empty region falls through to assetKey (see spriteRef)
 			const fallback = region && isManifestAssetKey(assetKey) ? region : undefined;
 			const tex = ((key ? assets?.[key] : undefined) ??
 				(fallback ? assets?.[fallback] : undefined)) as
@@ -514,7 +514,13 @@
 		if (region && isManifestAssetKey(assetKey)) {
 			return { key: editorArtTextureKey(assetKey, region), fallbackKey: region };
 		}
-		return { key: region ?? assetKey, fallbackKey: undefined };
+		// `||`, not `??`: an EMPTY region (`''`, the normalized value when the frame
+		// param/binding is unset — see `parseScopedFrameRef`) is not nullish, so `??`
+		// would keep the empty region and SHADOW the whole-texture `assetKey`. A sprite
+		// binding both an atlas-frame param and a whole-texture param (e.g. the feature
+		// card's icon → `iconFrameImage`/`iconKey`) must fall through to `assetKey` when
+		// the frame is empty. Falsy region ⇒ use assetKey; a set region still wins.
+		return { key: region || assetKey, fallbackKey: undefined };
 	});
 	const spriteKey = $derived(spriteRef?.key);
 	const spriteFallbackKey = $derived(spriteRef?.fallbackKey);
