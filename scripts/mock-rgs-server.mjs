@@ -289,7 +289,10 @@ const pathEndsWith = (pathname, route) => {
  * and RNG, so mounting several instances side-by-side (e.g. one per game) keeps
  * their balances independent.
  *
- * @param {{ startBalance?: number, seed?: string, label?: string }} [opts]
+ * @param {{ startBalance?: number, seed?: string, label?: string, reels?: number, rows?: number,
+ *   paylines?: number[][], wild?: { paytable: Record<string, number> }, stacked?: boolean,
+ *   symbols?: string[] }} [opts] `symbols` restricts the dealt line pool to the project's in-play
+ *   symbols in SERVER vocabulary (PIC* plus SCAT); absent ⇒ the full default pool.
  */
 export function createMockRgs(opts = {}) {
 	/** Default in Play4Fun's native integer-cents convention (100 = $1.00).
@@ -322,13 +325,30 @@ export function createMockRgs(opts = {}) {
 			? { paytable: normalizeWildPaytable(opts.wild.paytable) }
 			: null;
 
+	// Per-project line-symbol restriction (injected by the test server from a game's in-play Game
+	// Config). `opts.symbols` is the allowed pool in the mock's SERVER vocabulary (PIC*, plus 'SCAT'
+	// when the scatter is in play) — the launcher already translated the client-space in-play set
+	// (H1/L1/S/…) to it, so the mock needs ZERO mapping knowledge. Absent/empty ⇒ the faithful full
+	// pool + scatter. SCAT rides in the pool as a flag; strip it out to get the LINE pool. Guard: an
+	// empty line pool (misconfigured filter) falls back to the full default — never deal a blank board.
+	const allowedSymbols = Array.isArray(opts.symbols)
+		? opts.symbols.filter((s) => typeof s === 'string')
+		: [];
+	const restrictSymbols = allowedSymbols.length > 0;
+	const scatterEnabled = restrictSymbols ? allowedSymbols.includes('SCAT') : true;
+	const linePoolRaw = restrictSymbols ? allowedSymbols.filter((s) => s !== 'SCAT') : LINE_SYMBOLS;
+	const LINE_POOL = linePoolRaw.length ? linePoolRaw : LINE_SYMBOLS;
+
 	// Stacked-picture test mode (docs/design/stacked-picture-mode.md): deal contiguous high-symbol
 	// runs + a full-height WILD so the engine's stacked-picture reel mode has data to render. Opt-in
 	// (`STACKED=1` env or `createMockRgs({ stacked: true })`); OFF ⇒ the normal weighted deal.
 	const stackedDeal = opts.stacked === true || process.env.STACKED === '1';
 	// PICs that the lines facade maps to HIGH symbols (PIC1..PIC4 → H1..H4); WILD → W. These are the
-	// symbols the mode stacks, so the test deal draws runs of them.
-	const STACK_PICS = ['PIC1', 'PIC2', 'PIC3', 'PIC4'];
+	// symbols the mode stacks, so the test deal draws runs of them — intersected with the allowed pool
+	// so a restricted project never stacks an out-of-play symbol (fall back to the full line pool).
+	const STACK_PICS_ALL = ['PIC1', 'PIC2', 'PIC3', 'PIC4'];
+	const stackPicsInPool = STACK_PICS_ALL.filter((s) => LINE_POOL.includes(s));
+	const STACK_PICS = stackPicsInPool.length ? stackPicsInPool : LINE_POOL;
 
 	/** sid -> { balance, round | null, configSent } */
 	const sessions = new Map();
@@ -345,9 +365,13 @@ export function createMockRgs(opts = {}) {
 		return rngState / 0x100000000;
 	};
 	const pickSymbol = () => {
-		// Weighted draw favouring low-pay symbols, occasional scatter, rare PIC7.
+		// Weighted draw favouring low-pay symbols, occasional scatter, rare PIC7. Scatter is emitted
+		// only when in play (`scatterEnabled`). Under a per-project restriction the rank-weighted
+		// distribution below assumes the full PIC1..PIC7 set, so a restricted pool draws uniformly from
+		// its allowed line symbols instead. Unrestricted + scatter-enabled ⇒ byte-identical RNG stream.
 		const r = nextRand();
-		if (r < 0.04) return 'SCAT';
+		if (scatterEnabled && r < 0.04) return 'SCAT';
+		if (restrictSymbols) return LINE_POOL[Math.floor(nextRand() * LINE_POOL.length)];
 		if (r < 0.4) return LINE_SYMBOLS[Math.floor(nextRand() * 3)]; // PIC1/2/3
 		if (r < 0.75) return LINE_SYMBOLS[3 + Math.floor(nextRand() * 2)]; // PIC4/5
 		if (r < 0.95) return LINE_SYMBOLS[5 + Math.floor(nextRand() * 1)]; // PIC6
@@ -447,18 +471,20 @@ export function createMockRgs(opts = {}) {
 					paylines,
 					wildSymbols: wild ? ['WILD'] : [],
 					paytable: Object.fromEntries(
-						Object.entries(wild ? { ...PAY_TABLE, WILD: wild.paytable } : PAY_TABLE).map(([sym, byCount]) => {
-							const counts = Object.keys(byCount)
-								.map(Number)
-								.sort((a, b) => a - b);
-							return [
-								sym,
-								{
-									occurs: counts,
-									pay: counts.map((c) => byCount[c]),
-								},
-							];
-						}),
+						Object.entries(wild ? { ...PAY_TABLE, WILD: wild.paytable } : PAY_TABLE).map(
+							([sym, byCount]) => {
+								const counts = Object.keys(byCount)
+									.map(Number)
+									.sort((a, b) => a - b);
+								return [
+									sym,
+									{
+										occurs: counts,
+										pay: counts.map((c) => byCount[c]),
+									},
+								];
+							},
+						),
 					),
 				},
 			});
@@ -523,7 +549,10 @@ export function createMockRgs(opts = {}) {
 						event: 'spinStart',
 						context: {
 							symbols: wild ? [...SYMBOLS, 'WILD'] : SYMBOLS,
-							symbolsPay: { line: wild ? [...LINE_SYMBOLS, 'WILD'] : LINE_SYMBOLS, scatter: ['SCAT'] },
+							symbolsPay: {
+								line: wild ? [...LINE_SYMBOLS, 'WILD'] : LINE_SYMBOLS,
+								scatter: ['SCAT'],
+							},
 							wildSymbols: wild ? ['WILD'] : [],
 							lineAlign: 'left',
 							lineCoinciding: LINE_COINCIDING,

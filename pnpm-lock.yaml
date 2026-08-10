@@ -201,6 +201,9 @@ importers:
       postgres:
         specifier: 3.4.5
         version: 3.4.5
+      rgs-translator-eagaming:
+        specifier: workspace:*
+        version: link:../../packages/rgs-translator-eagaming
       sharp:
         specifier: ^0.33.5
         version: 0.33.5

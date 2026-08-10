@@ -13,6 +13,10 @@
 		"./stake-facade": {
 			"types": "./stake-facade.ts",
 			"default": "./stake-facade.ts"
+		},
+		"./game-mappings": {
+			"types": "./src/gameMappings.ts",
+			"default": "./src/gameMappings.ts"
 		}
 	},
 	"scripts": {

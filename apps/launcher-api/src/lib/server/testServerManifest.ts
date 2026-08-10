@@ -163,13 +163,19 @@ export interface TestServerGameEntry {
 	 *  `stacked` is `true` only when the project has the stacked-picture mode ON (its symbols doc's
 	 *  `stackedPictures.enabled` with ≥1 authored symbol): the mock then deals contiguous tall-symbol
 	 *  runs — including guaranteed top/bottom EDGE cutoffs — so the reel mode has data to render. Absent
-	 *  ⇒ the mock deals its normal weighted board. */
+	 *  ⇒ the mock deals its normal weighted board.
+	 *
+	 *  `symbols` is the project's IN-PLAY line-symbol pool in the mock's SERVER vocabulary (`PIC*`, plus
+	 *  `SCAT` when the scatter is in play) — gated on `symbolsInPlay` and translated from client names at
+	 *  publish. The mock draws its board ONLY from this pool, so a symbol the user marks UNUSED in
+	 *  `/config` never lands against our own mock. Absent ⇒ the mock deals its full default pool. */
 	grid?: {
 		reels: number;
 		rows: number;
 		paylines: number[][];
 		wild?: { paytable: Record<string, number> };
 		stacked?: boolean;
+		symbols?: string[];
 	};
 }
 
