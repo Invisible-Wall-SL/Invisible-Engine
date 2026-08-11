@@ -1,5 +1,10 @@
 import { innerWidth, innerHeight } from 'svelte/reactivity/window';
-import { STANDARD_MAIN_SIZES_MAP } from 'constants-shared/layout';
+import {
+	DEFAULT_LAYOUT_PROFILE,
+	resolveBucketBox,
+	selectBucket,
+	type LayoutProfile,
+} from 'constants-shared/layoutProfile';
 
 type Sizes = { width: number; height: number };
 
@@ -17,7 +22,8 @@ const CANVAS_SIZE_TYPE_BREAK_POINTS = {
 
 const getRatio = (value: Sizes) => value.width / (value.height || 1);
 
-type MainSizesMap = typeof STANDARD_MAIN_SIZES_MAP;
+// Box map keyed by bucket id (author-defined) — no longer a fixed four-key shape.
+type MainSizesMap = Record<string, { width: number; height: number }>;
 
 /**
  * The AUTHORED main box — `LayoutDoc.mainSizesMap`, published by the game once its
@@ -64,7 +70,9 @@ export const setAuthoredMainSizesMap = (input: unknown): void => {
 	if (typeof input !== 'object' || input === null) return;
 	const source = input as Record<string, unknown>;
 	const next: Partial<MainSizesMap> = {};
-	for (const layoutType of Object.keys(STANDARD_MAIN_SIZES_MAP) as (keyof MainSizesMap)[]) {
+	// Iterate the input's OWN keys so any authored bucket id (not just the legacy four)
+	// carries through — the box map is keyed by bucket id, which is now author-defined.
+	for (const layoutType of Object.keys(source)) {
 		const sizes = source[layoutType];
 		if (isUsableSizes(sizes)) next[layoutType] = { width: sizes.width, height: sizes.height };
 	}
@@ -74,6 +82,23 @@ export const setAuthoredMainSizesMap = (input: unknown): void => {
 /** The authored box currently in force (diagnostics — e.g. the debug overlay). */
 export const getAuthoredMainSizesMap = (): Partial<MainSizesMap> | undefined =>
 	authoredMainSizesMap;
+
+/**
+ * The authored LAYOUT PROFILE in force — the bucket set + selection rules published
+ * by the game's doc (or the pipeline default baked into the bundle). Unset ⇒
+ * {@link DEFAULT_LAYOUT_PROFILE}, so a game that ships no profile behaves exactly as
+ * before. Set once at boot alongside {@link setAuthoredMainSizesMap}.
+ */
+let authoredLayoutProfile = $state<LayoutProfile | undefined>(undefined);
+
+/** Publish the authored layout profile to the runtime. Pass `undefined` to clear. */
+export const setAuthoredLayoutProfile = (profile: LayoutProfile | undefined): void => {
+	authoredLayoutProfile = profile && profile.buckets?.length ? profile : undefined;
+};
+
+/** The profile currently driving bucket selection (authored, else the default). */
+export const getActiveLayoutProfile = (): LayoutProfile =>
+	authoredLayoutProfile ?? DEFAULT_LAYOUT_PROFILE;
 
 export const createLayout = (layoutOptions: {
 	backgroundRatio: {
@@ -97,25 +122,29 @@ export const createLayout = (layoutOptions: {
 		if (deviceWidth <= CANVAS_SIZE_TYPE_BREAK_POINTS.largeTablet) return 'largeTablet' as const;
 		return 'desktop' as const;
 	};
-	const layoutType = () => {
-		if (canvasRatioType() === 'almostSquare') return 'tablet' as const;
-		if (canvasRatioType() === 'longHeight') return 'portrait' as const;
-		if (canvasSizeType() === 'mobile' || canvasSizeType() === 'smallMobile')
-			return 'landscape' as const;
-		return 'desktop' as const;
-	};
-	const isStacked = () => ['portrait', 'almostSquare'].includes(layoutType());
+	// The live-window bucket, chosen by the ACTIVE profile's rules (author-defined; the
+	// default profile reproduces the legacy ratio/size decision tree). `canvasRatioType`
+	// / `canvasSizeType` above are retained for consumers but no longer drive selection.
+	const selectedBucket = () => selectBucket(getActiveLayoutProfile(), canvasSizes());
+	const layoutType = () => selectedBucket().id;
+	const isStacked = () => selectedBucket().stacked === true;
 
 	// `authored` = the GAME box (the one the Scene Editor lays nodes out against), so a
-	// published `doc.mainSizesMap` overrides it. The STANDARD box is the fixed HUD design
-	// box (`STANDARD_MAIN_SIZES_MAP`) shared by every game — never doc-driven.
+	// published `doc.mainSizesMap` overrides it. `fallbackBox` guards the case where a coded
+	// game ships no box for an author-added bucket id: fall back to the game's own fallback-
+	// bucket box, then the profile's design box — never `undefined.width`.
 	const createMainLayout =
 		(mainSizesMap: MainSizesMap, authored = false) =>
 		() => {
 			const x = canvasSizes().width * 0.5;
 			const y = canvasSizes().height * 0.5;
+			const profile = getActiveLayoutProfile();
+			const id = layoutType();
 			const mainSizes =
-				(authored ? authoredMainSizesMap?.[layoutType()] : undefined) ?? mainSizesMap[layoutType()];
+				(authored ? authoredMainSizesMap?.[id] : undefined) ??
+				mainSizesMap[id] ??
+				mainSizesMap[profile.fallbackBucketId] ??
+				resolveBucketBox(profile, id);
 			const widthScale = canvasSizes().width / mainSizes.width;
 			const heightScale = canvasSizes().height / mainSizes.height;
 			const scale = Math.min(widthScale, heightScale);
@@ -132,7 +161,23 @@ export const createLayout = (layoutOptions: {
 
 	const mainLayout = createMainLayout(layoutOptions.mainSizesMap, true);
 
-	const mainLayoutStandard = createMainLayout(STANDARD_MAIN_SIZES_MAP);
+	// The STANDARD (HUD/frame) box is now the ACTIVE profile's per-bucket design box, so
+	// authoring a bucket's resolution/aspect reshapes the HUD frame. Reads through
+	// `resolveBucketBox` (profile-driven) rather than the frozen legacy map.
+	const mainLayoutStandard = () => {
+		const profile = getActiveLayoutProfile();
+		const mainSizes = resolveBucketBox(profile, layoutType());
+		const canvas = canvasSizes();
+		const scale = Math.min(canvas.width / mainSizes.width, canvas.height / mainSizes.height);
+		return {
+			x: canvas.width * 0.5,
+			y: canvas.height * 0.5,
+			scale,
+			width: mainSizes.width,
+			height: mainSizes.height,
+			anchor: 0.5,
+		};
+	};
 
 	const createBackgroundLayout = ({ scale, ratio }: { scale: number; ratio: number }) => {
 		const canvasRatio = getRatio(canvasSizes());

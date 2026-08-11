@@ -56,15 +56,11 @@ export const BetModeSchema = z.object({
 });
 
 const SizesSchema = z.object({ width: z.number(), height: z.number() });
-export const LayoutSchema = z
-	.object({
-		// reference sizes per device (mirror createLayout mainSizesMap)
-		desktop: SizesSchema,
-		landscape: SizesSchema,
-		portrait: SizesSchema,
-		tablet: SizesSchema,
-	})
-	.partial();
+// Reference sizes per layout bucket (mirror createLayout mainSizesMap). Keyed by
+// bucket id, which is author-defined via LayoutProfile — so this is an open record,
+// not a fixed desktop/tablet/landscape/portrait shape. The four legacy ids remain
+// the default profile's ids.
+export const LayoutSchema = z.record(z.string(), SizesSchema);
 
 export const UiSchema = z.object({
 	family: z.enum(['default']).default('default'),

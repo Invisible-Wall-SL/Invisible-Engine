@@ -5,7 +5,14 @@
  * model as utils-layout's `mainSizesMap` (uniform scale per layoutType).
  */
 
-export type LayoutType = 'desktop' | 'tablet' | 'landscape' | 'portrait';
+/**
+ * A layout bucket id. Historically a closed union (`desktop`/`tablet`/`landscape`/
+ * `portrait`); now a `string` because the bucket set is author-defined via
+ * `LayoutProfile` (`constants-shared/layoutProfile`). The four legacy ids remain the
+ * DEFAULT profile's ids, so existing docs keyed by them are unaffected. Enumerate
+ * buckets from the resolved profile at runtime — never a hand-copied literal array.
+ */
+export type LayoutType = string;
 
 export interface Point2D {
 	x: number;
