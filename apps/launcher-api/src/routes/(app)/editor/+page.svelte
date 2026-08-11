@@ -239,12 +239,15 @@
 	/** Per-`assetKey` animation + skin lists for every loaded spine bundle, reported by
 	 * the canvas's WebGL sublayers — lets the Properties panel offer dropdowns. */
 	let spineMeta = $state<Map<string, SpineMeta>>(new Map());
-	/** Left sidebar tab: which panel is shown. */
-	let leftTab = $state<'library' | 'outline' | 'template' | 'component'>('library');
+	/** Right sidebar tab: which panel the properties column shows. The left column is
+	 * now purely the Screens list (each active screen expands to its outline tree), so
+	 * the Library, Components and (mode-gated) Template panels live here on the right.
+	 * `template` is only reachable in Template-editor mode. */
+	let rightTab = $state<'properties' | 'library' | 'template'>('properties');
 
 	// ---------- persisted editor UI layout (tab + layer visibility) ----------
 	// Per-project workspace state in localStorage ONLY — pure view state, never written to
-	// the doc. Restores the active left tab and which screens are hidden when you reopen
+	// the doc. Restores the active right tab and which screens are hidden when you reopen
 	// the same project. Panel WIDTHS are owned by the shared <PanelResizers> (its own
 	// key), so the resizable-sidebar behaviour is inherited by every editor-family tool.
 	const uiKey = `iw-editor-ui:${data.projectKey}`;
@@ -258,12 +261,12 @@
 			const raw = localStorage.getItem(uiKey);
 			if (!raw) return;
 			const s = JSON.parse(raw) as {
-				leftTab?: string;
+				rightTab?: string;
 				hiddenScenes?: string[];
 				libExpanded?: string[];
 			};
-			// Only the always-available tabs — `component`/`template` are mode-gated.
-			if (s.leftTab === 'library' || s.leftTab === 'outline') leftTab = s.leftTab;
+			// Only the always-available right tabs — `template` is mode-gated.
+			if (s.rightTab === 'properties' || s.rightTab === 'library') rightTab = s.rightTab;
 			if (Array.isArray(s.hiddenScenes)) {
 				hiddenScenes = new Set(s.hiddenScenes.filter((x): x is string => typeof x === 'string'));
 			}
@@ -281,7 +284,7 @@
 	$effect(() => {
 		// Re-serialise whenever any tracked piece changes (after the initial load).
 		const snapshot = JSON.stringify({
-			leftTab,
+			rightTab,
 			hiddenScenes: [...hiddenScenes],
 			libExpanded: Object.keys(expanded).filter((k) => expanded[k]),
 		});
@@ -2254,7 +2257,15 @@
 			<span class="counter">
 				{atlasCount} atlases · {spineCount} spines · {sheetCount} sheets
 			</span>
-			<span class="dot-sep">·</span>
+		{/snippet}
+	</ToolTopBar>
+
+	<!-- Dedicated editor action row. Kept OFF the ToolTopBar chrome (mirrors the Component
+	     Editor) so the top row gives the brand + project scope + tool switcher their full
+	     width, and the save/warnings/mode controls get their own space — wrapping to a
+	     second line before anything clips on a narrow window. -->
+	<div class="editor-bar">
+		<div class="eb-group">
 			{#if lease.readOnly}
 				<PresenceBanner {lease} />
 			{:else if saveState.busy}
@@ -2326,20 +2337,18 @@
 					asset {contentWarnings.length === 1 ? 'issue' : 'issues'}
 				</span>
 			{/if}
-			<span class="dot-sep">·</span>
-			<button
-				type="button"
-				class="save-btn"
-				class:active-mode={templateMode}
-				aria-pressed={templateMode}
-				title="Template editor — a separate, advanced mode for defining a game type's slot schema. Not needed to lay out scenes."
-				onclick={() => {
-					templateMode = !templateMode;
-					leftTab = templateMode ? 'template' : 'library';
-				}}
-			>
-				{templateMode ? '✕ Close template editor' : 'Template editor'}
-			</button>
+		</div>
+
+		<div class="eb-group">
+			{#if componentBusy}
+				<span class="save-pill busy">Creating component…</span>
+			{:else if componentStatus?.kind === 'error'}
+				<span class="save-pill error" title={componentStatus.message}>Component failed</span>
+			{:else if componentStatus?.kind === 'ok'}
+				<span class="save-pill ok" title="Opened in the Component Editor (new tab)">
+					{componentStatus.message}
+				</span>
+			{/if}
 			{#if templateMode}
 				<label class="gametype" title="Game type the template is saved under">
 					<span>type</span>
@@ -2360,20 +2369,21 @@
 					Save template
 				</button>
 			{/if}
-			{#if componentBusy}
-				<span class="dot-sep">·</span>
-				<span class="save-pill busy">Creating component…</span>
-			{:else if componentStatus?.kind === 'error'}
-				<span class="dot-sep">·</span>
-				<span class="save-pill error" title={componentStatus.message}>Component failed</span>
-			{:else if componentStatus?.kind === 'ok'}
-				<span class="dot-sep">·</span>
-				<span class="save-pill ok" title="Opened in the Component Editor (new tab)">
-					{componentStatus.message}
-				</span>
-			{/if}
-		{/snippet}
-	</ToolTopBar>
+			<button
+				type="button"
+				class="save-btn"
+				class:active-mode={templateMode}
+				aria-pressed={templateMode}
+				title="Template editor — a separate, advanced mode for defining a game type's slot schema. Not needed to lay out scenes."
+				onclick={() => {
+					templateMode = !templateMode;
+					rightTab = templateMode ? 'template' : 'properties';
+				}}
+			>
+				{templateMode ? '✕ Close template editor' : 'Template editor'}
+			</button>
+		</div>
+	</div>
 
 	{#if showContentWarnings && contentWarnings.length > 0}
 		<div class="warn-panel" role="dialog" aria-label="Asset issues">
@@ -2443,6 +2453,9 @@
 						Load
 					</button>
 				</div>
+			</div>
+
+			<div class="left-body">
 				{#snippet sceneRow(s: (typeof scenes)[number], i: number)}
 					{@const hidden = hiddenScenes.has(s.id)}
 					<li
@@ -2574,6 +2587,22 @@
 							</svg>
 						</button>
 					</li>
+					{#if i === activeSceneIdx}
+						<!-- The active screen expands to reveal its outline (node tree + template
+						     slots) inline, tree-view style — replacing the old separate Outline tab. -->
+						<li class="screen-outline">
+							<EditorOutline
+								scene={s}
+								template={activeTemplate}
+								{selectedId}
+								{selectedIds}
+								onSelect={selectFromOutline}
+								{onFillSlot}
+								onAddAnchor={onAddMountAnchor}
+								onRename={onRenameNode}
+							/>
+						</li>
+					{/if}
 				{/snippet}
 				<PanelSection id="screens" title="Screens" count={sceneCount}>
 					<ul class="screens">
@@ -2660,116 +2689,6 @@
 					</button>
 				</PanelSection>
 			</div>
-
-			<div class="tabs" role="tablist" aria-label="Left panel">
-				<button
-					role="tab"
-					aria-selected={leftTab === 'library'}
-					class="tab"
-					class:active={leftTab === 'library'}
-					onclick={() => (leftTab = 'library')}
-				>
-					Library
-				</button>
-				<button
-					role="tab"
-					aria-selected={leftTab === 'outline'}
-					class="tab"
-					class:active={leftTab === 'outline'}
-					onclick={() => (leftTab = 'outline')}
-				>
-					Outline
-				</button>
-				{#if templateMode}
-					<button
-						role="tab"
-						aria-selected={leftTab === 'template'}
-						class="tab"
-						class:active={leftTab === 'template'}
-						onclick={() => (leftTab = 'template')}
-					>
-						Template
-					</button>
-				{/if}
-				<button
-					role="tab"
-					aria-selected={leftTab === 'component'}
-					class="tab"
-					class:active={leftTab === 'component'}
-					onclick={() => (leftTab = 'component')}
-				>
-					Components
-				</button>
-			</div>
-
-			<div class="tab-body">
-				{#if leftTab === 'library'}
-					<PanelSection id="lib-elements" title="Elements">
-						<ul>
-							<EditorElementsPalette
-								{onElementDragStart}
-								reel={{ active: !!existingReelGrid, onAdd: insertReelGrid }}
-								repeater={{ onAdd: insertRepeater }}
-							/>
-						</ul>
-					</PanelSection>
-
-					<input
-						bind:this={spineFileInput}
-						type="file"
-						multiple
-						webkitdirectory
-						class="hidden-input"
-						onchange={(e) => void onSpinesPicked(e)}
-					/>
-					{#if spineUploadStatus}
-						<p class="upload-status" class:error={spineUploadStatus.kind === 'error'}>
-							{spineUploadStatus.message}
-						</p>
-					{/if}
-					<EditorAssetLibrary assets={data.assets} bind:expanded>
-						{#snippet spineActions()}
-							<button
-								type="button"
-								class="upload-btn"
-								disabled={spineUploadBusy}
-								title="Pick a folder of Spine bundles to sync to this project (R2)"
-								onclick={(e) => {
-									e.stopPropagation();
-									spineFileInput?.click();
-								}}
-							>
-								{spineUploadBusy ? 'Uploading…' : 'Upload spines'}
-							</button>
-						{/snippet}
-					</EditorAssetLibrary>
-				{:else if leftTab === 'template'}
-					<EditorTemplatePanel
-						template={activeTemplate}
-						{scenes}
-						activeSceneId={activeScene?.id}
-						onPickScene={goToTemplateScene}
-						{onFillSlot}
-					/>
-				{:else if leftTab === 'component'}
-					<EditorComponentPanel
-						{components}
-						onPlace={placeComponentInstance}
-						onOpenTool={openComponentEditor}
-					/>
-				{:else}
-					<EditorOutline
-						scene={editScene}
-						template={activeTemplate}
-						{selectedId}
-						{selectedIds}
-						onSelect={selectFromOutline}
-						{onFillSlot}
-						onAddAnchor={onAddMountAnchor}
-						onRename={onRenameNode}
-					/>
-				{/if}
-			</div>
 		</aside>
 
 		<main class="canvas-area">
@@ -2813,342 +2732,438 @@
 		</main>
 
 		<aside class="properties">
-			<h2>
-				Properties
-				{#if selectedIds.length > 1}
-					<span class="multi-pill">{selectedIds.length} selected</span>
+			<div class="tabs" role="tablist" aria-label="Right panel">
+				<button
+					role="tab"
+					aria-selected={rightTab === 'properties'}
+					class="tab"
+					class:active={rightTab === 'properties'}
+					onclick={() => (rightTab = 'properties')}
+				>
+					Properties
+				</button>
+				<button
+					role="tab"
+					aria-selected={rightTab === 'library'}
+					class="tab"
+					class:active={rightTab === 'library'}
+					onclick={() => (rightTab = 'library')}
+				>
+					Library
+				</button>
+				{#if templateMode}
+					<button
+						role="tab"
+						aria-selected={rightTab === 'template'}
+						class="tab"
+						class:active={rightTab === 'template'}
+						onclick={() => (rightTab = 'template')}
+					>
+						Template
+					</button>
 				{/if}
-			</h2>
-			{#if activeScene}
-				<div class="scene-space">
-					<h3>Screen</h3>
-					<label class="space-field">
-						<span>space</span>
-						<select
-							value={activeScene.space ?? 'game'}
-							onchange={(e) => setSceneSpace(e.currentTarget.value)}
-							title="Coordinate space this screen authors into (matches the engine's <LayoutScene>)"
-						>
-							<option value="game">game (main box)</option>
-							<option value="standard">standard (HUD box)</option>
-							<option value="canvas">canvas (window edges)</option>
-							<option value="background">background (cover-fit)</option>
-						</select>
-					</label>
-					<label class="space-field">
-						<span>role</span>
-						<select
-							value={activeScene.role ?? ''}
-							onchange={(e) => setSceneRole(e.currentTarget.value)}
-							title="Engine role this screen fills — the game finds the loading splash and the base game by ROLE, not by a fixed id, so you can rename screens freely. Tag exactly one scene per role."
-						>
-							<option value="">— none —</option>
-							<option value="loading">loading (splash)</option>
-							<option value="basegame">base game</option>
-							<option value="buyFeature">buy feature</option>
-							<option value="buyConfirm">buy confirm</option>
-						</select>
-					</label>
-					<label
-						class="ontop-field"
-						title="Layering: normally a screen stacks by its position in the Screens list above — drag it there to re-layer it in-game. Tick this to pin it ABOVE every other screen instead (for a splash or a big-win celebration that must never be buried); its list position is then ignored. Round-blocking engine gates still draw above it."
-					>
-						<input
-							type="checkbox"
-							checked={activeScene.alwaysOnTop === true}
-							onchange={(e) => setSceneAlwaysOnTop(e.currentTarget.checked)}
-						/>
-						<span>Always on top</span>
-						<span class="ontop-note">
-							{activeScene.alwaysOnTop
-								? 'pinned above all screens — list order ignored'
-								: `layer ${activeSceneIdx + 1} of ${sceneCount} — set by the Screens list`}
-						</span>
-					</label>
-					<label
-						class="ontop-field"
-						title="Mount this screen BEHIND the reels — in front of the background, under the reel board. The Screens list only orders screens ABOVE the reels (the board is engine-owned), so dragging a screen above the base game row cannot express this on its own. Screens behind the reels still order among themselves by list position."
-					>
-						<input
-							type="checkbox"
-							checked={activeScene.behindReels === true}
-							onchange={(e) => setSceneBehindReels(e.currentTarget.checked)}
-						/>
-						<span>Behind the reels</span>
-						<span class="ontop-note">
-							{activeScene.behindReels
-								? 'under the reel board, in front of the background'
-								: 'above the reels — tick to move it under the board'}
-						</span>
-					</label>
-					{#if !activeScene.space || activeScene.space === 'game'}
-						<label
-							class="ontop-field"
-							title="Zoom this screen together with the reels during an anticipation. When reel-anticipation fires, the screen scales + pans toward the SAME reel centre as the board, in lockstep — for a 'base game top / bottom' layer that should ride the zoom. Off by default and identity when nothing is anticipating, so the screen renders unchanged until a tease fires. Only applies to game-space screens."
-						>
-							<input
-								type="checkbox"
-								checked={activeScene.zoomWithAnticipation === true}
-								onchange={(e) => setSceneZoomWithAnticipation(e.currentTarget.checked)}
+			</div>
+
+			<div class="tab-body">
+				{#if rightTab === 'library'}
+					<PanelSection id="lib-elements" title="Elements">
+						<ul>
+							<EditorElementsPalette
+								{onElementDragStart}
+								reel={{ active: !!existingReelGrid, onAdd: insertReelGrid }}
+								repeater={{ onAdd: insertRepeater }}
 							/>
-							<span>Zoom with anticipation</span>
-							<span class="ontop-note">
-								{activeScene.zoomWithAnticipation
-									? 'zooms toward the reel centre with the board'
-									: 'static — tick to ride the anticipation zoom'}
-							</span>
-						</label>
+						</ul>
+					</PanelSection>
+
+					<input
+						bind:this={spineFileInput}
+						type="file"
+						multiple
+						webkitdirectory
+						class="hidden-input"
+						onchange={(e) => void onSpinesPicked(e)}
+					/>
+					{#if spineUploadStatus}
+						<p class="upload-status" class:error={spineUploadStatus.kind === 'error'}>
+							{spineUploadStatus.message}
+						</p>
 					{/if}
-					{#if activeScene.space === 'standard'}
-						<div class="space-aligns">
+					<EditorAssetLibrary assets={data.assets} bind:expanded>
+						{#snippet spineActions()}
+							<button
+								type="button"
+								class="upload-btn"
+								disabled={spineUploadBusy}
+								title="Pick a folder of Spine bundles to sync to this project (R2)"
+								onclick={(e) => {
+									e.stopPropagation();
+									spineFileInput?.click();
+								}}
+							>
+								{spineUploadBusy ? 'Uploading…' : 'Upload spines'}
+							</button>
+						{/snippet}
+					</EditorAssetLibrary>
+
+					<PanelSection id="lib-components" title="Components" count={components.length}>
+						<EditorComponentPanel
+							{components}
+							onPlace={placeComponentInstance}
+							onOpenTool={openComponentEditor}
+						/>
+					</PanelSection>
+				{:else if rightTab === 'template'}
+					<EditorTemplatePanel
+						template={activeTemplate}
+						{scenes}
+						activeSceneId={activeScene?.id}
+						onPickScene={goToTemplateScene}
+						{onFillSlot}
+					/>
+				{:else}
+					<h2>
+						Properties
+						{#if selectedIds.length > 1}
+							<span class="multi-pill">{selectedIds.length} selected</span>
+						{/if}
+					</h2>
+					{#if activeScene}
+						<div class="scene-space">
+							<h3>Screen</h3>
 							<label class="space-field">
-								<span>v-align</span>
+								<span>space</span>
 								<select
-									value={activeScene.align?.vertical ?? ''}
-									onchange={(e) => setSceneAlign('vertical', e.currentTarget.value)}
+									value={activeScene.space ?? 'game'}
+									onchange={(e) => setSceneSpace(e.currentTarget.value)}
+									title="Coordinate space this screen authors into (matches the engine's <LayoutScene>)"
 								>
-									<option value="">centre</option>
-									<option value="bottom">bottom</option>
+									<option value="game">game (main box)</option>
+									<option value="standard">standard (HUD box)</option>
+									<option value="canvas">canvas (window edges)</option>
+									<option value="background">background (cover-fit)</option>
 								</select>
 							</label>
 							<label class="space-field">
-								<span>h-align</span>
+								<span>role</span>
 								<select
-									value={activeScene.align?.horizontal ?? ''}
-									onchange={(e) => setSceneAlign('horizontal', e.currentTarget.value)}
+									value={activeScene.role ?? ''}
+									onchange={(e) => setSceneRole(e.currentTarget.value)}
+									title="Engine role this screen fills — the game finds the loading splash and the base game by ROLE, not by a fixed id, so you can rename screens freely. Tag exactly one scene per role."
 								>
-									<option value="">centre</option>
-									<option value="left">left</option>
-									<option value="right">right</option>
+									<option value="">— none —</option>
+									<option value="loading">loading (splash)</option>
+									<option value="basegame">base game</option>
+									<option value="buyFeature">buy feature</option>
+									<option value="buyConfirm">buy confirm</option>
 								</select>
 							</label>
+							<label
+								class="ontop-field"
+								title="Layering: normally a screen stacks by its position in the Screens list above — drag it there to re-layer it in-game. Tick this to pin it ABOVE every other screen instead (for a splash or a big-win celebration that must never be buried); its list position is then ignored. Round-blocking engine gates still draw above it."
+							>
+								<input
+									type="checkbox"
+									checked={activeScene.alwaysOnTop === true}
+									onchange={(e) => setSceneAlwaysOnTop(e.currentTarget.checked)}
+								/>
+								<span>Always on top</span>
+								<span class="ontop-note">
+									{activeScene.alwaysOnTop
+										? 'pinned above all screens — list order ignored'
+										: `layer ${activeSceneIdx + 1} of ${sceneCount} — set by the Screens list`}
+								</span>
+							</label>
+							<label
+								class="ontop-field"
+								title="Mount this screen BEHIND the reels — in front of the background, under the reel board. The Screens list only orders screens ABOVE the reels (the board is engine-owned), so dragging a screen above the base game row cannot express this on its own. Screens behind the reels still order among themselves by list position."
+							>
+								<input
+									type="checkbox"
+									checked={activeScene.behindReels === true}
+									onchange={(e) => setSceneBehindReels(e.currentTarget.checked)}
+								/>
+								<span>Behind the reels</span>
+								<span class="ontop-note">
+									{activeScene.behindReels
+										? 'under the reel board, in front of the background'
+										: 'above the reels — tick to move it under the board'}
+								</span>
+							</label>
+							{#if !activeScene.space || activeScene.space === 'game'}
+								<label
+									class="ontop-field"
+									title="Zoom this screen together with the reels during an anticipation. When reel-anticipation fires, the screen scales + pans toward the SAME reel centre as the board, in lockstep — for a 'base game top / bottom' layer that should ride the zoom. Off by default and identity when nothing is anticipating, so the screen renders unchanged until a tease fires. Only applies to game-space screens."
+								>
+									<input
+										type="checkbox"
+										checked={activeScene.zoomWithAnticipation === true}
+										onchange={(e) => setSceneZoomWithAnticipation(e.currentTarget.checked)}
+									/>
+									<span>Zoom with anticipation</span>
+									<span class="ontop-note">
+										{activeScene.zoomWithAnticipation
+											? 'zooms toward the reel centre with the board'
+											: 'static — tick to ride the anticipation zoom'}
+									</span>
+								</label>
+							{/if}
+							{#if activeScene.space === 'standard'}
+								<div class="space-aligns">
+									<label class="space-field">
+										<span>v-align</span>
+										<select
+											value={activeScene.align?.vertical ?? ''}
+											onchange={(e) => setSceneAlign('vertical', e.currentTarget.value)}
+										>
+											<option value="">centre</option>
+											<option value="bottom">bottom</option>
+										</select>
+									</label>
+									<label class="space-field">
+										<span>h-align</span>
+										<select
+											value={activeScene.align?.horizontal ?? ''}
+											onchange={(e) => setSceneAlign('horizontal', e.currentTarget.value)}
+										>
+											<option value="">centre</option>
+											<option value="left">left</option>
+											<option value="right">right</option>
+										</select>
+									</label>
+								</div>
+							{/if}
 						</div>
 					{/if}
-				</div>
-			{/if}
-			<EditorProperties
-				node={selectedNode}
-				layoutType={currentLayoutType}
-				onDirty={markDirty}
-				sceneSpace={activeScene?.space}
-				{templateMode}
-				{slotMeta}
-				sceneSlots={activeSceneSlots}
-				sceneSpineNodes={activeSceneSpineNodes}
-				projectGameName={data.gameName}
-				isBackgroundCover={isBackgroundCoverSelected}
-				{spineMeta}
-				spines={data.assets.spines}
-				{componentDefs}
-				instanceComponent={selectedNode?.kind === 'componentInstance'
-					? (componentMap.get(selectedNode.componentId) ?? null)
-					: null}
-				{pickSheets}
-				onEditAsComponent={(c) => void editContainerAsComponent(c)}
-				{onConvertToReelGrid}
-				{onConvertToParametricButton}
-				onSetInstanceParam={(key, value) => {
-					if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
-					// Override mode (a non-desktop device layout): the edit writes a per-ratio
-					// param override at `overrides[currentLayoutType].params[key]`, mirroring how a
-					// transform edit routes to `overrides[currentLayoutType]`. Clearing (undefined)
-					// removes just that key from the override, then prunes an emptied override —
-					// so the ratio reverts to the base param, not the whole node. Base (desktop)
-					// edits `node.params` as before (parity).
-					if (currentLayoutType !== 'desktop') {
-						const overrides = { ...(selectedNode.overrides ?? {}) };
-						const o = { ...(overrides[currentLayoutType] ?? {}) };
-						const params = { ...(o.params ?? {}) };
-						if (value === undefined) delete params[key];
-						else params[key] = value;
-						if (Object.keys(params).length) o.params = params;
-						else delete o.params;
-						if (Object.keys(o).length) overrides[currentLayoutType] = o;
-						else delete overrides[currentLayoutType];
-						selectedNode.overrides = Object.keys(overrides).length ? overrides : undefined;
-						markDirty();
-						return;
-					}
-					const params = { ...(selectedNode.params ?? {}) };
-					if (value === undefined) delete params[key];
-					else params[key] = value;
-					selectedNode.params = Object.keys(params).length ? params : undefined;
-					markDirty();
-				}}
-				onPreviewSpine={(preview) => (spinePreview = preview)}
-				onSetInstanceStateAnim={(nodeId, state, animation) => {
-					if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
-					const all = { ...(selectedNode.stateAnimationOverrides ?? {}) };
-					const map = { ...(all[nodeId] ?? {}) };
-					const trimmed = animation.trim();
-					if (trimmed) map[state] = { animation: trimmed, loop: map[state]?.loop };
-					else delete map[state];
-					if (Object.keys(map).length) all[nodeId] = map;
-					else delete all[nodeId];
-					selectedNode.stateAnimationOverrides = Object.keys(all).length ? all : undefined;
-					markDirty();
-				}}
-				onSetInstanceStateAnimLoop={(nodeId, state, loop) => {
-					if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
-					const cur = selectedNode.stateAnimationOverrides?.[nodeId]?.[state];
-					if (!cur) return;
-					const all = { ...(selectedNode.stateAnimationOverrides ?? {}) };
-					all[nodeId] = { ...all[nodeId], [state]: { ...cur, loop: loop || undefined } };
-					selectedNode.stateAnimationOverrides = all;
-					markDirty();
-				}}
-				onSetInstanceSpineRest={(nodeId, patch) => {
-					if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
-					const all = { ...(selectedNode.spineRestOverrides ?? {}) };
-					const cur: SpineRestOverride = { ...(all[nodeId] ?? {}) };
-					if ('defaultAnimation' in patch) {
-						if (patch.defaultAnimation) cur.defaultAnimation = patch.defaultAnimation;
-						else delete cur.defaultAnimation;
-					}
-					if ('loop' in patch) {
-						if (patch.loop === undefined) delete cur.loop;
-						else cur.loop = patch.loop;
-					}
-					if ('skin' in patch) {
-						if (patch.skin) cur.skin = patch.skin;
-						else delete cur.skin;
-					}
-					if (Object.keys(cur).length) all[nodeId] = cur;
-					else delete all[nodeId];
-					selectedNode.spineRestOverrides = Object.keys(all).length ? all : undefined;
-					markDirty();
-				}}
-				onSetInstanceCueSignal={(nodeId, origSignal, signal) => {
-					if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
-					const all = { ...(selectedNode.cueSignalOverrides ?? {}) };
-					const map = { ...(all[nodeId] ?? {}) };
-					const trimmed = signal.trim();
-					if (trimmed) map[origSignal] = trimmed;
-					else delete map[origSignal];
-					if (Object.keys(map).length) all[nodeId] = map;
-					else delete all[nodeId];
-					selectedNode.cueSignalOverrides = Object.keys(all).length ? all : undefined;
-					markDirty();
-				}}
-				onOpenComponentEditor={openComponentEditor}
-				onUpdateInstanceToLatest={updateInstanceToLatest}
-			/>
+					<EditorProperties
+						node={selectedNode}
+						layoutType={currentLayoutType}
+						onDirty={markDirty}
+						sceneSpace={activeScene?.space}
+						{templateMode}
+						{slotMeta}
+						sceneSlots={activeSceneSlots}
+						sceneSpineNodes={activeSceneSpineNodes}
+						projectGameName={data.gameName}
+						isBackgroundCover={isBackgroundCoverSelected}
+						{spineMeta}
+						spines={data.assets.spines}
+						{componentDefs}
+						instanceComponent={selectedNode?.kind === 'componentInstance'
+							? (componentMap.get(selectedNode.componentId) ?? null)
+							: null}
+						{pickSheets}
+						onEditAsComponent={(c) => void editContainerAsComponent(c)}
+						{onConvertToReelGrid}
+						{onConvertToParametricButton}
+						onSetInstanceParam={(key, value) => {
+							if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
+							// Override mode (a non-desktop device layout): the edit writes a per-ratio
+							// param override at `overrides[currentLayoutType].params[key]`, mirroring how a
+							// transform edit routes to `overrides[currentLayoutType]`. Clearing (undefined)
+							// removes just that key from the override, then prunes an emptied override —
+							// so the ratio reverts to the base param, not the whole node. Base (desktop)
+							// edits `node.params` as before (parity).
+							if (currentLayoutType !== 'desktop') {
+								const overrides = { ...(selectedNode.overrides ?? {}) };
+								const o = { ...(overrides[currentLayoutType] ?? {}) };
+								const params = { ...(o.params ?? {}) };
+								if (value === undefined) delete params[key];
+								else params[key] = value;
+								if (Object.keys(params).length) o.params = params;
+								else delete o.params;
+								if (Object.keys(o).length) overrides[currentLayoutType] = o;
+								else delete overrides[currentLayoutType];
+								selectedNode.overrides = Object.keys(overrides).length ? overrides : undefined;
+								markDirty();
+								return;
+							}
+							const params = { ...(selectedNode.params ?? {}) };
+							if (value === undefined) delete params[key];
+							else params[key] = value;
+							selectedNode.params = Object.keys(params).length ? params : undefined;
+							markDirty();
+						}}
+						onPreviewSpine={(preview) => (spinePreview = preview)}
+						onSetInstanceStateAnim={(nodeId, state, animation) => {
+							if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
+							const all = { ...(selectedNode.stateAnimationOverrides ?? {}) };
+							const map = { ...(all[nodeId] ?? {}) };
+							const trimmed = animation.trim();
+							if (trimmed) map[state] = { animation: trimmed, loop: map[state]?.loop };
+							else delete map[state];
+							if (Object.keys(map).length) all[nodeId] = map;
+							else delete all[nodeId];
+							selectedNode.stateAnimationOverrides = Object.keys(all).length ? all : undefined;
+							markDirty();
+						}}
+						onSetInstanceStateAnimLoop={(nodeId, state, loop) => {
+							if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
+							const cur = selectedNode.stateAnimationOverrides?.[nodeId]?.[state];
+							if (!cur) return;
+							const all = { ...(selectedNode.stateAnimationOverrides ?? {}) };
+							all[nodeId] = { ...all[nodeId], [state]: { ...cur, loop: loop || undefined } };
+							selectedNode.stateAnimationOverrides = all;
+							markDirty();
+						}}
+						onSetInstanceSpineRest={(nodeId, patch) => {
+							if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
+							const all = { ...(selectedNode.spineRestOverrides ?? {}) };
+							const cur: SpineRestOverride = { ...(all[nodeId] ?? {}) };
+							if ('defaultAnimation' in patch) {
+								if (patch.defaultAnimation) cur.defaultAnimation = patch.defaultAnimation;
+								else delete cur.defaultAnimation;
+							}
+							if ('loop' in patch) {
+								if (patch.loop === undefined) delete cur.loop;
+								else cur.loop = patch.loop;
+							}
+							if ('skin' in patch) {
+								if (patch.skin) cur.skin = patch.skin;
+								else delete cur.skin;
+							}
+							if (Object.keys(cur).length) all[nodeId] = cur;
+							else delete all[nodeId];
+							selectedNode.spineRestOverrides = Object.keys(all).length ? all : undefined;
+							markDirty();
+						}}
+						onSetInstanceCueSignal={(nodeId, origSignal, signal) => {
+							if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
+							const all = { ...(selectedNode.cueSignalOverrides ?? {}) };
+							const map = { ...(all[nodeId] ?? {}) };
+							const trimmed = signal.trim();
+							if (trimmed) map[origSignal] = trimmed;
+							else delete map[origSignal];
+							if (Object.keys(map).length) all[nodeId] = map;
+							else delete all[nodeId];
+							selectedNode.cueSignalOverrides = Object.keys(all).length ? all : undefined;
+							markDirty();
+						}}
+						onOpenComponentEditor={openComponentEditor}
+						onUpdateInstanceToLatest={updateInstanceToLatest}
+					/>
 
-			<div class="game-settings">
-				<PanelSection id="canvas-size" title="Canvas Size">
-					<div class="gs-body">
-						<p class="gs-note">
-							The game's MAIN box for <strong>{currentLayoutType}</strong> — the runtime scales it to
-							fill the window. Author your nodes against this box.
-						</p>
-						<label class="gs-field">
-							<span class="gs-label">Width</span>
-							<input
-								class="cs-input"
-								type="number"
-								min="1"
-								step="1"
-								value={mainSizesMap[currentLayoutType].width}
-								onchange={(e) => setCanvasDimension('width', e.currentTarget.valueAsNumber)}
-							/>
-						</label>
-						<label class="gs-field">
-							<span class="gs-label">Height</span>
-							<input
-								class="cs-input"
-								type="number"
-								min="1"
-								step="1"
-								value={mainSizesMap[currentLayoutType].height}
-								onchange={(e) => setCanvasDimension('height', e.currentTarget.valueAsNumber)}
-							/>
-						</label>
-						{#if referenceMainSizes && canvasMismatches.length > 0}
-							<div class="cs-warn">
-								<p class="cs-warn-text">
-									Canvas
-									<strong
-										>{mainSizesMap[currentLayoutType].width}×{mainSizesMap[currentLayoutType]
-											.height}</strong
-									>
-									doesn't match the {authoringGameType} reference box
-									<strong
-										>{referenceMainSizes[currentLayoutType]?.width}×{referenceMainSizes[
-											currentLayoutType
-										]?.height}</strong
-									> — the game renders YOUR box, so coded parts (the reel board) sit where this box puts
-									them, not the reference's.
+					<div class="game-settings">
+						<PanelSection id="canvas-size" title="Canvas Size">
+							<div class="gs-body">
+								<p class="gs-note">
+									The game's MAIN box for <strong>{currentLayoutType}</strong> — the runtime scales it
+									to fill the window. Author your nodes against this box.
 								</p>
-								<button type="button" class="cs-warn-fix" onclick={matchGameBox}>
-									Match game box
-								</button>
+								<label class="gs-field">
+									<span class="gs-label">Width</span>
+									<input
+										class="cs-input"
+										type="number"
+										min="1"
+										step="1"
+										value={mainSizesMap[currentLayoutType].width}
+										onchange={(e) => setCanvasDimension('width', e.currentTarget.valueAsNumber)}
+									/>
+								</label>
+								<label class="gs-field">
+									<span class="gs-label">Height</span>
+									<input
+										class="cs-input"
+										type="number"
+										min="1"
+										step="1"
+										value={mainSizesMap[currentLayoutType].height}
+										onchange={(e) => setCanvasDimension('height', e.currentTarget.valueAsNumber)}
+									/>
+								</label>
+								{#if referenceMainSizes && canvasMismatches.length > 0}
+									<div class="cs-warn">
+										<p class="cs-warn-text">
+											Canvas
+											<strong
+												>{mainSizesMap[currentLayoutType].width}×{mainSizesMap[currentLayoutType]
+													.height}</strong
+											>
+											doesn't match the {authoringGameType} reference box
+											<strong
+												>{referenceMainSizes[currentLayoutType]?.width}×{referenceMainSizes[
+													currentLayoutType
+												]?.height}</strong
+											> — the game renders YOUR box, so coded parts (the reel board) sit where this box
+											puts them, not the reference's.
+										</p>
+										<button type="button" class="cs-warn-fix" onclick={matchGameBox}>
+											Match game box
+										</button>
+									</div>
+								{/if}
 							</div>
-						{/if}
+						</PanelSection>
 					</div>
-				</PanelSection>
-			</div>
 
-			<div class="game-settings">
-				<PanelSection id="game-settings" title="Game Settings">
-					<div class="gs-body">
-						<label class="gs-field">
-							<span class="gs-label">Jurisdiction</span>
-							<select class="gs-select" bind:value={jurisdiction} onchange={onGameSettingChange}>
-								<option value="default">Default</option>
-								<option value="UK">UK (UKGC)</option>
-							</select>
-						</label>
-						<p class="gs-note">
-							Player-led <strong>speed</strong> features. UK forces all off (UKGC bans autoplay, turbo
-							and hold-to-spin).
-						</p>
-						<label class="gs-toggle" class:disabled={ukLocked}>
-							<input
-								type="checkbox"
-								checked={ukLocked ? false : featureTurbo}
-								disabled={ukLocked}
-								onchange={(e) => {
-									featureTurbo = e.currentTarget.checked;
-									onGameSettingChange();
-								}}
-							/>
-							<span>Turbo</span>
-						</label>
-						<label class="gs-toggle" class:disabled={ukLocked}>
-							<input
-								type="checkbox"
-								checked={ukLocked ? false : featureAutoplay}
-								disabled={ukLocked}
-								onchange={(e) => {
-									featureAutoplay = e.currentTarget.checked;
-									onGameSettingChange();
-								}}
-							/>
-							<span>Autoplay</span>
-						</label>
-						<label class="gs-toggle" class:disabled={ukLocked}>
-							<input
-								type="checkbox"
-								checked={ukLocked ? false : featureSpaceHold}
-								disabled={ukLocked}
-								onchange={(e) => {
-									featureSpaceHold = e.currentTarget.checked;
-									onGameSettingChange();
-								}}
-							/>
-							<span>Hold-to-spin (Space)</span>
-						</label>
-						{#if ukLocked}
-							<p class="gs-locked">UK overrides — all speed features are off in-game.</p>
-						{/if}
+					<div class="game-settings">
+						<PanelSection id="game-settings" title="Game Settings">
+							<div class="gs-body">
+								<label class="gs-field">
+									<span class="gs-label">Jurisdiction</span>
+									<select
+										class="gs-select"
+										bind:value={jurisdiction}
+										onchange={onGameSettingChange}
+									>
+										<option value="default">Default</option>
+										<option value="UK">UK (UKGC)</option>
+									</select>
+								</label>
+								<p class="gs-note">
+									Player-led <strong>speed</strong> features. UK forces all off (UKGC bans autoplay,
+									turbo and hold-to-spin).
+								</p>
+								<label class="gs-toggle" class:disabled={ukLocked}>
+									<input
+										type="checkbox"
+										checked={ukLocked ? false : featureTurbo}
+										disabled={ukLocked}
+										onchange={(e) => {
+											featureTurbo = e.currentTarget.checked;
+											onGameSettingChange();
+										}}
+									/>
+									<span>Turbo</span>
+								</label>
+								<label class="gs-toggle" class:disabled={ukLocked}>
+									<input
+										type="checkbox"
+										checked={ukLocked ? false : featureAutoplay}
+										disabled={ukLocked}
+										onchange={(e) => {
+											featureAutoplay = e.currentTarget.checked;
+											onGameSettingChange();
+										}}
+									/>
+									<span>Autoplay</span>
+								</label>
+								<label class="gs-toggle" class:disabled={ukLocked}>
+									<input
+										type="checkbox"
+										checked={ukLocked ? false : featureSpaceHold}
+										disabled={ukLocked}
+										onchange={(e) => {
+											featureSpaceHold = e.currentTarget.checked;
+											onGameSettingChange();
+										}}
+									/>
+									<span>Hold-to-spin (Space)</span>
+								</label>
+								{#if ukLocked}
+									<p class="gs-locked">UK overrides — all speed features are off in-game.</p>
+								{/if}
+							</div>
+						</PanelSection>
 					</div>
-				</PanelSection>
-			</div>
 
-			<p class="muted hint">
-				Active scene: <strong>{activeScene?.name ?? '—'}</strong> ·
-				{activeScene?.nodes.length ?? 0} nodes
-			</p>
+					<p class="muted hint">
+						Active scene: <strong>{activeScene?.name ?? '—'}</strong> ·
+						{activeScene?.nodes.length ?? 0} nodes
+					</p>
+				{/if}
+			</div>
 		</aside>
 
 		<PanelResizers
@@ -3178,6 +3193,30 @@
 	}
 	.dot-sep {
 		color: #444;
+	}
+	/* Dedicated editor action row, below the shared ToolTopBar chrome (mirrors the
+	   Component Editor). Two groups (save/warnings · mode/component) pushed apart;
+	   wraps to a second line before anything clips on a narrow window. */
+	.editor-bar {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		flex-wrap: wrap;
+		gap: 8px 12px;
+		flex: none;
+		padding: 8px 24px;
+		border-bottom: 1px solid #1c1c24;
+		background: #0d0d12;
+	}
+	.eb-group {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 10px;
+	}
+	.counter {
+		font-size: 11px;
+		color: #888;
 	}
 	.save-pill {
 		font-size: 11px;
@@ -3414,6 +3453,18 @@
 		align-items: center;
 		gap: 4px;
 		position: relative;
+	}
+	/* The active screen's inline outline tree — a tree-view child under its row.
+	   Resets the generic <li> chrome and adds a left rail + indent so it reads as
+	   nested content rather than another screen row. */
+	.screen-outline {
+		display: block;
+		background: transparent;
+		border: none;
+		border-left: 1px solid #23232c;
+		border-radius: 0;
+		padding: 8px 0 10px 10px;
+		margin: 2px 0 6px 6px;
 	}
 	.screen-li.dragging {
 		opacity: 0.4;
@@ -3674,8 +3725,14 @@
 	.properties {
 		border-right: none;
 		border-left: 1px solid #1c1c24;
-		padding: 16px;
+	}
+	/* Scrollable body of the LEFT column — the Screens list (each active screen
+	   expands to its outline tree). The load-row above it stays a fixed header. */
+	.left-body {
+		flex: 1;
+		min-height: 0;
 		overflow-y: auto;
+		padding: 12px 16px 16px;
 	}
 	.tabs {
 		display: flex;
