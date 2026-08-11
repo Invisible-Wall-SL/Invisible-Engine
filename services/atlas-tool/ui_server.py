@@ -3174,7 +3174,6 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  <div class="modalbox" style="width:min(620px,94vw)">
   <div class="modalhdr"><span id="bptitle">New blueprint</span><button onclick="closeBp()">✕ close</button></div>
   <div style="padding:14px 18px 18px;display:flex;flex-direction:column;gap:11px;font-size:13px">
-   <div id="bpManage" style="display:none;flex-direction:column;gap:6px;border-bottom:1px solid #2a2a2e;padding-bottom:12px"></div>
    <div style="color:#888;font-size:12px">Pick a ComfyUI <b>API-format</b> workflow.json (Settings → "Save (API Format)"), then map each role onto a node in your graph. positive / seed / output are required.</div>
    <label style="display:flex;flex-direction:column;gap:3px;color:#aaa">Workflow file (API format)
     <input type="file" id="bpFile" accept=".json,application/json" onchange="onBpFilePicked()" style="background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:7px">
@@ -3202,6 +3201,16 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
     <button id="bpSave" onclick="saveBlueprint()" style="display:none">Publish blueprint</button>
     <span id="bpstat" style="color:#999"></span>
    </div>
+  </div>
+ </div>
+</div>
+<div id="bpManageModal" class="modal" onclick="if(event.target===this)closeManageBp()">
+ <div class="modalbox" style="width:min(560px,94vw)">
+  <div class="modalhdr"><span>Manage blueprints</span><button onclick="closeManageBp()">✕ close</button></div>
+  <div style="padding:14px 18px 18px;display:flex;flex-direction:column;gap:11px;font-size:13px">
+   <div style="color:#888;font-size:12px">Shared blueprints in the library. Deleting one removes it for everyone; any atlas whose pipeline is set to it will need a different pipeline.</div>
+   <div id="bpManageList" style="display:flex;flex-direction:column;gap:6px"></div>
+   <span id="bpManageStat" style="color:#999"></span>
   </div>
  </div>
 </div>
@@ -3596,26 +3605,31 @@ function openNewBlueprint(){{
  document.getElementById('bpDesc').value='';
  document.getElementById('bpstat').textContent='';
  let pw=document.getElementById('bpParams'); if(pw)pw.innerHTML='';
- renderBpManage();
  document.getElementById('bpmodal').classList.add('open');
 }}
-// Existing-blueprint list with a delete button per row (top of the modal).
+// Dedicated "Manage blueprints" modal (its own toolbar button) — lists every
+// shared blueprint with a delete button per row.
+function openManageBlueprints(){{
+ document.getElementById('bpManageStat').textContent='';
+ renderBpManage();
+ document.getElementById('bpManageModal').classList.add('open');
+}}
+function closeManageBp(){{document.getElementById('bpManageModal').classList.remove('open');}}
 function renderBpManage(){{
- let box=document.getElementById('bpManage'); if(!box) return;
+ let box=document.getElementById('bpManageList'); if(!box) return;
  box.innerHTML='';
- if(!BP_CAN_PUBLISH || !BP_LIST || !BP_LIST.length){{ box.style.display='none'; return; }}
- box.style.display='flex';
- let h=document.createElement('div');
- h.style.cssText='color:#aaa;font-weight:600';
- h.textContent='Existing blueprints';
- box.appendChild(h);
+ if(!BP_LIST || !BP_LIST.length){{
+  let e=document.createElement('div'); e.style.cssText='color:#888';
+  e.textContent='No blueprints in the library yet — upload one first.';
+  box.appendChild(e); return;
+ }}
  BP_LIST.forEach(bp=>{{
   let row=document.createElement('div');
-  row.style.cssText='display:flex;align-items:center;gap:8px';
+  row.style.cssText='display:flex;align-items:center;gap:8px;border:1px solid #2a2a2e;border-radius:5px;padding:7px 9px';
   let nm=document.createElement('span'); nm.style.cssText='flex:1;color:#ddd';
   nm.textContent=bp.name+(bp.name!==bp.id?(' ('+bp.id+')'):'');
   let del=document.createElement('button'); del.type='button'; del.textContent='🗑 Delete';
-  del.style.cssText='font-size:11px;padding:3px 8px';
+  del.style.cssText='font-size:11px;padding:4px 9px';
   del.onclick=()=>deleteBlueprint(bp.id,bp.name);
   row.appendChild(nm); row.appendChild(del); box.appendChild(row);
  }});
@@ -3624,7 +3638,7 @@ async function deleteBlueprint(id,name){{
  if(!confirm('Delete blueprint "'+(name||id)+'" from the SHARED library?\\n\\n'
    +'This removes it for everyone. Any atlas whose pipeline is set to it will '
    +'need a different pipeline. This cannot be undone.')) return;
- let st=document.getElementById('bpstat'); if(st) st.textContent='🗑 Deleting…';
+ let st=document.getElementById('bpManageStat'); if(st) st.textContent='🗑 Deleting…';
  let msg;
  try{{ let r=await fetch('/deleteblueprint',{{method:'POST',body:JSON.stringify({{id:id}})}});
   msg=(r.status===404)?'Endpoint missing — restart the service':await r.text();
@@ -6460,11 +6474,13 @@ class Handler(BaseHTTPRequestHandler):
         # Toolbar "Upload blueprint" group — only for users who may publish to
         # the shared library (server-side `_uploadblueprint` enforces the same).
         blueprint_grp = (
-            '<div class="bargrp" title="Publish a ComfyUI workflow as a shared '
-            'blueprint"><span class="glbl">Blueprint</span>'
+            '<div class="bargrp" title="Publish or remove shared ComfyUI '
+            'blueprints"><span class="glbl">Blueprint</span>'
             '<button onclick="openNewBlueprint()" class="alt" title="Upload a '
             'ComfyUI API-format workflow and bind its roles as a new shared '
-            'blueprint">⬆ Upload blueprint</button></div>'
+            'blueprint">⬆ Upload blueprint</button>'
+            '<button onclick="openManageBlueprints()" class="alt" title="View '
+            'and delete shared blueprints">🗑 Manage blueprints</button></div>'
             if getattr(self, "can_publish", False) else "")
         # role-binding map for every non-built-in blueprint, for the client's
         # ref-field show/hide logic (a blueprint hides a ref field it doesn't
