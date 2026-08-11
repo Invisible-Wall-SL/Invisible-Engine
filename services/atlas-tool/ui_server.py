@@ -3174,6 +3174,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  <div class="modalbox" style="width:min(620px,94vw)">
   <div class="modalhdr"><span id="bptitle">New blueprint</span><button onclick="closeBp()">✕ close</button></div>
   <div style="padding:14px 18px 18px;display:flex;flex-direction:column;gap:11px;font-size:13px">
+   <div id="bpManage" style="display:none;flex-direction:column;gap:6px;border-bottom:1px solid #2a2a2e;padding-bottom:12px"></div>
    <div style="color:#888;font-size:12px">Pick a ComfyUI <b>API-format</b> workflow.json (Settings → "Save (API Format)"), then map each role onto a node in your graph. positive / seed / output are required.</div>
    <label style="display:flex;flex-direction:column;gap:3px;color:#aaa">Workflow file (API format)
     <input type="file" id="bpFile" accept=".json,application/json" onchange="onBpFilePicked()" style="background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:7px">
@@ -3344,6 +3345,10 @@ const BP_BOUND_ROLES={bp_bound_roles_js};
 // manifest's saved overrides (id -> {{key: value}}), namespaced by blueprint id.
 const BP_PARAMS={bp_params_js};
 const BP_PARAM_VALUES={bp_param_values_js};
+// [{{id,name}}] of every shared blueprint + whether this user may delete them —
+// drives the manage/delete list in the New-blueprint modal.
+const BP_LIST={bp_list_js};
+const BP_CAN_PUBLISH={bp_can_publish_js};
 function isBlueprintPipe(p){{ return !!p && BUILTIN_PIPES.indexOf(p)<0; }}
 function bpBinds(p,role){{
  let r=BP_BOUND_ROLES[p]; return !!r && r.indexOf(role)>=0;
@@ -3591,7 +3596,41 @@ function openNewBlueprint(){{
  document.getElementById('bpDesc').value='';
  document.getElementById('bpstat').textContent='';
  let pw=document.getElementById('bpParams'); if(pw)pw.innerHTML='';
+ renderBpManage();
  document.getElementById('bpmodal').classList.add('open');
+}}
+// Existing-blueprint list with a delete button per row (top of the modal).
+function renderBpManage(){{
+ let box=document.getElementById('bpManage'); if(!box) return;
+ box.innerHTML='';
+ if(!BP_CAN_PUBLISH || !BP_LIST || !BP_LIST.length){{ box.style.display='none'; return; }}
+ box.style.display='flex';
+ let h=document.createElement('div');
+ h.style.cssText='color:#aaa;font-weight:600';
+ h.textContent='Existing blueprints';
+ box.appendChild(h);
+ BP_LIST.forEach(bp=>{{
+  let row=document.createElement('div');
+  row.style.cssText='display:flex;align-items:center;gap:8px';
+  let nm=document.createElement('span'); nm.style.cssText='flex:1;color:#ddd';
+  nm.textContent=bp.name+(bp.name!==bp.id?(' ('+bp.id+')'):'');
+  let del=document.createElement('button'); del.type='button'; del.textContent='🗑 Delete';
+  del.style.cssText='font-size:11px;padding:3px 8px';
+  del.onclick=()=>deleteBlueprint(bp.id,bp.name);
+  row.appendChild(nm); row.appendChild(del); box.appendChild(row);
+ }});
+}}
+async function deleteBlueprint(id,name){{
+ if(!confirm('Delete blueprint "'+(name||id)+'" from the SHARED library?\\n\\n'
+   +'This removes it for everyone. Any atlas whose pipeline is set to it will '
+   +'need a different pipeline. This cannot be undone.')) return;
+ let st=document.getElementById('bpstat'); if(st) st.textContent='🗑 Deleting…';
+ let msg;
+ try{{ let r=await fetch('/deleteblueprint',{{method:'POST',body:JSON.stringify({{id:id}})}});
+  msg=(r.status===404)?'Endpoint missing — restart the service':await r.text();
+ }}catch(e){{ msg='Delete failed: '+e; }}
+ if(st) st.textContent=msg;
+ if(msg.indexOf('✓')>=0) setTimeout(()=>location.reload(),1200);
 }}
 function closeBp(){{document.getElementById('bpmodal').classList.remove('open');}}
 function onBpFilePicked(){{
@@ -4786,6 +4825,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, "text/plain",
                        self._uploadblueprint(payload).encode())
+        elif self.path == "/deleteblueprint":
+            self._send(200, "text/plain",
+                       self._deleteblueprint(json.loads(raw)).encode())
         elif self.path == "/refresh":
             self._send(200, "text/plain", self._refresh().encode())
         elif self.path == "/clearcache":
@@ -5193,6 +5235,36 @@ class Handler(BaseHTTPRequestHandler):
         verb = "Updated" if overwrite else "Published"
         return (f"✓ {verb} blueprint '{bp_id}' — select it in the pipeline "
                 "dropdown (reload to refresh the list).")
+
+    def _deleteblueprint(self, payload: dict) -> str:
+        """Remove a blueprint from the shared library (R2 + staging). Gated on
+        `self.can_publish` exactly like upload — deleting a shared blueprint is a
+        write to the global library. Never raises; returns a readable string
+        (leading '✓' ⇒ the client reloads). A built-in reference id can't be
+        deleted (selecting it keeps the built-in Python path anyway)."""
+        if not getattr(self, "can_publish", False):
+            return ("✖ You're not allowed to delete blueprints. Ask an admin "
+                    "for the 'Publish blueprints' permission.")
+        bp_id = str(payload.get("id", "")).strip()
+        if not bp_id:
+            return "✖ No blueprint id given."
+        if bp_id in PIPELINE_OPTIONS:
+            return (f"✖ '{bp_id}' is a built-in pipeline id, not a deletable "
+                    "blueprint.")
+        try:
+            res = blueprints.delete_blueprint(bp_id)
+        except ValueError as e:
+            return f"✖ {e}"
+        if not res.get("existed"):
+            return f"⚠ No blueprint '{res.get('id', bp_id)}' in the library."
+        # Re-hydrate so the pipeline picker + manage list drop it immediately.
+        try:
+            blueprints.hydrate(force=True)
+        except Exception:  # noqa: BLE001
+            pass
+        return (f"✓ Deleted blueprint '{res['id']}' ({res['deleted']} file(s) "
+                "removed). Any atlas still set to it will need a different "
+                "pipeline.")
 
     def _publish_author(self) -> str:
         """Best-effort username to stamp on an uploaded blueprint. The launcher
@@ -6403,11 +6475,16 @@ class Handler(BaseHTTPRequestHandler):
         # saved overrides (namespaced by blueprint id). Best-effort — empty on
         # any R2 trouble so the page still renders.
         bp_params: dict[str, list] = {}
+        # id + display name for every shared blueprint — drives the "manage /
+        # delete" list in the New-blueprint modal.
+        bp_list: list[dict] = []
         try:
             for _b in blueprints.list_blueprints():
                 _bid = str(_b.get("id", ""))
                 if _bid in PIPELINE_OPTIONS:
                     continue
+                bp_list.append({"id": _bid,
+                                "name": str(_b.get("name", "") or _bid)})
                 _full = blueprints.get_blueprint(_bid)
                 if _full:
                     bp_bound[_bid] = list((_full.get("bindings") or {}).keys())
@@ -6417,6 +6494,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:  # noqa: BLE001 — never break the page render
             bp_bound = {}
             bp_params = {}
+            bp_list = []
         bp_param_values = (
             (load_manifest().get("settings") or {}).get("bpParams") or {})
         if not isinstance(bp_param_values, dict):
@@ -6430,6 +6508,8 @@ class Handler(BaseHTTPRequestHandler):
             bp_bound_roles_js=json.dumps(bp_bound),
             bp_params_js=json.dumps(bp_params),
             bp_param_values_js=json.dumps(bp_param_values),
+            bp_list_js=json.dumps(bp_list),
+            bp_can_publish_js=json.dumps(bool(getattr(self, "can_publish", False))),
             global_fields="".join(global_fields),
             atlas_fields="".join(atlas_fields),
             spine_link=spine_link,
