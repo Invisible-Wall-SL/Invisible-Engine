@@ -23,7 +23,7 @@ import {
 	resolveWinText,
 } from 'engine-layout';
 import { stateI18nDerived, stateUrlDerived } from 'state-shared';
-import { setAuthoredMainSizesMap } from 'utils-layout';
+import { setAuthoredMainSizesMap, setAuthoredLayoutProfile } from 'utils-layout';
 
 import type { SoundEffectName } from './game/sound';
 import type { MessagesMap } from 'utils-shared/i18n';
@@ -1352,8 +1352,14 @@ export async function loadEditorScenes(): Promise<LayoutDoc> {
 	// showed (while `canvas`-space screens, which never use this box, stay pixel-perfect).
 	// The coded `stateLayout.ts` map stays the fallback for a doc that declares no box.
 	setAuthoredMainSizesMap(doc.mainSizesMap);
+	// The doc's layout PROFILE (bucket set + selection rules) drives which bucket the live
+	// window falls into and each bucket's frame box — the runtime twin of the editor's device
+	// bar. The bundle bakes the effective profile (project override, else pipeline default)
+	// onto the doc; absent ⇒ the coded DEFAULT_LAYOUT_PROFILE (byte-identical to before).
+	setAuthoredLayoutProfile(doc.layoutProfile);
 	if (__IE_DEBUG__) {
 		console.info('[layout] main box adopted from the editor doc:', doc.mainSizesMap);
+		if (doc.layoutProfile) console.info('[layout] layout profile adopted:', doc.layoutProfile);
 	}
 	// Default-HUD fallback: rewrite a legacy coded-`bind` `hudBar` (seeded `UiLabel*`/`UiButton*`
 	// nodes) into the parametric `componentInstance` HUD, so the bottom bar renders under a

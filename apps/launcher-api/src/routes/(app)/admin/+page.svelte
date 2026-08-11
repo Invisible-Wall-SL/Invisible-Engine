@@ -1,9 +1,17 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import Emblem from '$lib/Emblem.svelte';
+	import LayoutProfileEditor from '$lib/LayoutProfileEditor.svelte';
+	import type { LayoutProfile } from 'engine-layout';
 	import type { PageData, ActionData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	// Editable working copy of the pipeline-wide layout-profile default (deep-cloned so
+	// edits don't mutate the loaded data until saved).
+	let layoutProfile = $state<LayoutProfile>(
+		structuredClone(data.layoutProfile.profile) as LayoutProfile,
+	);
 
 	// --- Tabs ---
 	type TabId =
@@ -972,6 +980,52 @@
 					</label>
 					<button type="submit">Save</button>
 				</form>
+			</div>
+
+			<div class="card">
+				<h3>Layout profile (pipeline default)</h3>
+				<p class="muted hint">
+					The default set of layout buckets — each with a design resolution/aspect and the
+					window rule that selects it — seeded into <strong>every</strong> project that hasn't
+					authored its own (Scene Editor → Game Settings → Layout). Changing this reshapes the
+					editor preview frame + HUD box and the runtime bucket selection for all such games.
+					{#if data.layoutProfile.custom}
+						<span class="pill on">custom default set</span>
+					{:else}
+						<span class="pill off">using built-in default</span>
+					{/if}
+				</p>
+
+				<LayoutProfileEditor bind:profile={layoutProfile} />
+
+				<div class="token-actions">
+					<form
+						method="POST"
+						action="?/saveLayoutProfile"
+						use:enhance
+						onsubmit={(e) => {
+							const el = e.currentTarget.querySelector<HTMLInputElement>('input[name=profile]');
+							if (el) el.value = JSON.stringify(layoutProfile);
+						}}
+					>
+						<input type="hidden" name="profile" value="" />
+						<button type="submit">Save pipeline default</button>
+					</form>
+					{#if data.layoutProfile.custom}
+						<form
+							method="POST"
+							action="?/resetLayoutProfile"
+							use:enhance={() => {
+								return async ({ update }) => {
+									await update();
+									layoutProfile = structuredClone(data.layoutProfile.profile) as LayoutProfile;
+								};
+							}}
+						>
+							<button type="submit" class="ghost-btn">Revert to built-in</button>
+						</form>
+					{/if}
+				</div>
 			</div>
 
 			<div class="card">

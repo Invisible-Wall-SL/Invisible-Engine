@@ -4,8 +4,16 @@
  * sparse overrides reposition/rescale nodes for other form factors. Same mental
  * model as utils-layout's `mainSizesMap` (uniform scale per layoutType).
  */
+import type { LayoutProfile } from 'constants-shared/layoutProfile';
 
-export type LayoutType = 'desktop' | 'tablet' | 'landscape' | 'portrait';
+/**
+ * A layout bucket id. Historically a closed union (`desktop`/`tablet`/`landscape`/
+ * `portrait`); now a `string` because the bucket set is author-defined via
+ * `LayoutProfile` (`constants-shared/layoutProfile`). The four legacy ids remain the
+ * DEFAULT profile's ids, so existing docs keyed by them are unaffected. Enumerate
+ * buckets from the resolved profile at runtime — never a hand-copied literal array.
+ */
+export type LayoutType = string;
 
 export interface Point2D {
 	x: number;
@@ -842,6 +850,13 @@ export interface LayoutDoc {
 	/** Optional + additive game-level settings (speed-feature toggles / jurisdiction).
 	 * Absent in older docs — the runtime falls back to the engine defaults. */
 	settings?: GameSettings;
+	/**
+	 * Optional per-project LAYOUT PROFILE override — the author-defined bucket set +
+	 * selection rules (`constants-shared/layoutProfile`). Absent ⇒ the project inherits
+	 * the admin global default, else the coded {@link DEFAULT_LAYOUT_PROFILE}. Stored
+	 * sparse: the editor omits it when it equals the resolved default. Bucket ids here
+	 * key this doc's `mainSizesMap` and every node's `overrides`. */
+	layoutProfile?: LayoutProfile;
 	updatedAt: string;
 }
 

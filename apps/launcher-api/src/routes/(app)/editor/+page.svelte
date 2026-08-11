@@ -16,10 +16,13 @@
 		listImportableKinds,
 		mountAnchor,
 		resolveAnchorPreviewArt,
-		STANDARD_MAIN_SIZES_MAP,
 		DEFAULT_WIN_TIERS,
 		winTierPresentationParams,
+		resolveBucketBox,
+		normalizeLayoutProfile,
+		type LayoutProfile,
 	} from 'engine-layout';
+	import LayoutProfileEditor from '$lib/LayoutProfileEditor.svelte';
 	// The ONE generated sound-name list (from `apps/lines/src/game/sound.ts`), reused so the win
 	// component's per-tier SFX / BGM dropdowns offer the game's real sounds — not a hand-copied list.
 	import { MUSIC_NAMES, SOUND_EFFECT_NAMES } from 'engine-flow-v2';
@@ -76,6 +79,58 @@
 	/** Canvas frame sizes per layoutType — `$state` (not `data.doc`) so loading a
 	 * game scene that ships its own `mainSizesMap` resizes the canvas. */
 	let mainSizesMap = $state(structuredClone(data.doc.mainSizesMap));
+
+	/**
+	 * The per-project LAYOUT PROFILE override, or `undefined` when the project inherits the
+	 * pipeline default (`data.inheritedLayoutProfile`). `$state` so the Layout settings modal
+	 * edits it live and the device bar / preview frame react. Persisted sparsely: omitted from
+	 * the save payload when it equals the inherited default.
+	 */
+	let docLayoutProfile = $state<LayoutProfile | undefined>(
+		data.doc.layoutProfile ? structuredClone(data.doc.layoutProfile) : undefined,
+	);
+	/** The profile actually in force: the project override, else the inherited default. */
+	const activeProfile = $derived<LayoutProfile>(docLayoutProfile ?? data.inheritedLayoutProfile);
+	/** The BASE bucket — edits here write the node's base transform; other buckets write a
+	 * sparse `overrides[bucketId]`. Generalises the former hardcoded `'desktop'` base. */
+	const baseLayoutType = $derived(activeProfile.fallbackBucketId);
+	/** Whether the Layout settings modal is open. */
+	let layoutModalOpen = $state(false);
+	// Every active bucket needs a game box (`mainSizesMap[id]`) or the Canvas Size panel +
+	// node placement helpers would read `undefined.width`. Seed a missing bucket's game box
+	// from the profile's design box. Converges (no write once all ids exist). This does NOT
+	// mark the doc dirty — an untouched project keeps its exact `mainSizesMap`.
+	$effect(() => {
+		for (const b of activeProfile.buckets) {
+			if (!mainSizesMap[b.id]) mainSizesMap[b.id] = { ...b.box };
+		}
+	});
+
+	/** Open the Layout modal, forking an editable per-project copy from the inherited
+	 * default when the project is still inheriting (so edits have something to mutate).
+	 * The copy is sparse-omitted on save until it actually differs (see `buildDocPayload`). */
+	function openLayoutModal(): void {
+		if (!docLayoutProfile) {
+			docLayoutProfile = structuredClone(
+				$state.snapshot(data.inheritedLayoutProfile),
+			) as LayoutProfile;
+		}
+		layoutModalOpen = true;
+	}
+	/** A Layout-editor edit: persist through the normal autosave path. */
+	function onLayoutProfileChange(): void {
+		markDirty();
+	}
+	/** Drop the per-project override — the project re-inherits the pipeline default. */
+	function revertLayoutProfile(): void {
+		docLayoutProfile = undefined;
+		markDirty();
+	}
+	/** True when the project is overriding (its profile differs from the inherited default). */
+	const layoutProfileIsOverride = $derived(
+		!!docLayoutProfile &&
+			JSON.stringify(docLayoutProfile) !== JSON.stringify(data.inheritedLayoutProfile),
+	);
 	/** Which built-in game layout to load — bound to the scene-bar picker. */
 	let loadChoice = $state('');
 	/** Kinds the "Import composed reference" group offers (lines + bookOf) — those
@@ -233,9 +288,16 @@
 		clearSelection();
 		markDirty();
 	}
-	/** Hoisted active layoutType. `'desktop'` is the base; anything else routes edits
-	 * into `node.overrides[layoutType]` (override mode). */
+	/** Hoisted active layoutType. The base bucket ({@link baseLayoutType}) is the base;
+	 * anything else routes edits into `node.overrides[layoutType]` (override mode). */
 	let currentLayoutType = $state<LayoutType>('desktop');
+	// Keep the active bucket valid when the profile changes (custom buckets / removal):
+	// an unknown id snaps back to the base bucket so the device bar + frame stay coherent.
+	$effect(() => {
+		if (!activeProfile.buckets.some((b) => b.id === currentLayoutType)) {
+			currentLayoutType = baseLayoutType;
+		}
+	});
 	/** Per-`assetKey` animation + skin lists for every loaded spine bundle, reported by
 	 * the canvas's WebGL sublayers — lets the Properties panel offer dropdowns. */
 	let spineMeta = $state<Map<string, SpineMeta>>(new Map());
@@ -775,14 +837,12 @@
 			.filter((n): n is Extract<LayoutNode, { kind: 'spine' }> => n.kind === 'spine')
 			.map((n) => ({ id: n.id, label: n.label || n.assetKey || n.id })),
 	);
-	/** The fixed window-reference the composite renders EVERY scene against (§10.2):
-	 * one viewport per `layoutType` (the `STANDARD_MAIN_SIZES_MAP` box — its aspect
-	 * matches the per-layoutType viewport that drives `layoutType` selection, and it
-	 * comfortably contains the project's `mainSizesMap` box at `mainScale`). Using it
-	 * for ALL scenes means switching the active screen no longer rescales the composite
-	 * — `frameWidth`/`frameHeight` now mean the WINDOW, and each coordinate space maps
-	 * into it the way the engine does at runtime against the live canvas. */
-	const frameSize = $derived(STANDARD_MAIN_SIZES_MAP[currentLayoutType]);
+	/** The window-reference the composite renders EVERY scene against (§10.2): the ACTIVE
+	 * profile's design box for the current bucket (its aspect matches the viewport that
+	 * drives bucket selection, and it comfortably contains the project's `mainSizesMap` box
+	 * at `mainScale`). Profile-driven so authoring a bucket's resolution reshapes the frame;
+	 * `resolveBucketBox` falls back safely for an unknown/removed bucket. */
+	const frameSize = $derived(resolveBucketBox(activeProfile, currentLayoutType));
 	const selectedNode = $derived(
 		selectedId && editScene ? findById(editScene.nodes, selectedId) : null,
 	);
@@ -849,14 +909,19 @@
 	const spineCount = $derived(data.assets.spines.length);
 	const sheetCount = $derived(data.assets.sheets.length);
 
-	const layoutTypes: LayoutType[] = ['desktop', 'tablet', 'landscape', 'portrait'];
-	// Options for the floating canvas device bar. Non-`desktop` is a layout OVERRIDE,
-	// flagged so the bar tints it (mirrors the old `.pill.active.override` accent).
-	const layoutOptions = layoutTypes.map((lt) => ({
-		value: lt,
-		label: lt,
-		flagged: lt !== 'desktop',
-	}));
+	// The active profile's bucket ids — the ONE source for every per-bucket loop (no more
+	// hand-copied literal array). Base bucket first is not required; order follows the profile.
+	const layoutTypes = $derived<LayoutType[]>(activeProfile.buckets.map((b) => b.id));
+	// Options for the floating canvas device bar, labelled by the bucket's display name.
+	// A non-base bucket is a layout OVERRIDE, flagged so the bar tints it (mirrors the old
+	// `.pill.active.override` accent).
+	const layoutOptions = $derived(
+		activeProfile.buckets.map((b) => ({
+			value: b.id,
+			label: b.label,
+			flagged: b.id !== baseLayoutType,
+		})),
+	);
 
 	// ---------- expandable sheet/atlas region lists ----------
 	// The Library sections + their drag/expand machinery live in <EditorAssetLibrary>;
@@ -1508,25 +1573,27 @@
 		if (idx === -1 || nodes[idx].kind !== 'container') return;
 		const old = nodes[idx];
 		const board = data.template?.board ?? { reels: 5, rows: 3, cellSize: 120 };
-		const centreOf = (lt: LayoutType) => ({
-			x: mainSizesMap[lt].width * 0.5,
-			y: mainSizesMap[lt].height * 0.5,
-		});
+		const centreOf = (lt: LayoutType) => {
+			const box = mainSizesMap[lt] ?? resolveBucketBox(activeProfile, lt);
+			return { x: box.width * 0.5, y: box.height * 0.5 };
+		};
+		// Base centre in the base bucket; a sparse override centring the board in EVERY other
+		// bucket's box (generalises the former desktop-base + tablet/landscape/portrait overrides).
+		const overrides: NonNullable<LayoutNode['overrides']> = {};
+		for (const lt of layoutTypes) {
+			if (lt !== baseLayoutType) overrides[lt] = centreOf(lt);
+		}
 		const grid: LayoutNode = {
 			id: old.id,
 			kind: 'reelGrid',
 			label: old.label ?? 'Reel grid',
-			...centreOf('desktop'),
+			...centreOf(baseLayoutType),
 			anchor: { x: 0.5, y: 0.5 },
 			reels: board.reels,
 			rows: board.rows,
 			cellSize: board.cellSize ?? 120,
 			reelPadding: 0.53,
-			overrides: {
-				tablet: centreOf('tablet'),
-				landscape: centreOf('landscape'),
-				portrait: centreOf('portrait'),
-			},
+			overrides,
 		};
 		if (old.slotId) grid.slotId = old.slotId;
 		if (old.zIndex !== undefined) grid.zIndex = old.zIndex;
@@ -1645,7 +1712,11 @@
 	// (scenes + mainSizesMap) there. Rapid edits within HISTORY_COALESCE_MS — one drag,
 	// a burst of typing in a property field — collapse into ONE undo step. Canvas drags
 	// already commit `onDirty` once on mouse-up, so they're naturally a single step.
-	type DocSnapshot = { scenes: Scene[]; mainSizesMap: typeof mainSizesMap };
+	type DocSnapshot = {
+		scenes: Scene[];
+		mainSizesMap: typeof mainSizesMap;
+		layoutProfile: LayoutProfile | undefined;
+	};
 	const HISTORY_MAX = 80;
 	const HISTORY_COALESCE_MS = 350;
 	/** A plain (non-proxied) deep clone of the current doc — safe to push on a stack. */
@@ -1653,6 +1724,9 @@
 		return {
 			scenes: $state.snapshot(scenes) as Scene[],
 			mainSizesMap: $state.snapshot(mainSizesMap) as typeof mainSizesMap,
+			layoutProfile: docLayoutProfile
+				? ($state.snapshot(docLayoutProfile) as LayoutProfile)
+				: undefined,
 		};
 	}
 	let undoStack = $state<DocSnapshot[]>([]);
@@ -1704,6 +1778,9 @@
 		// undo/redo fix for the same trap).
 		scenes = JSON.parse(JSON.stringify(snap.scenes)) as Scene[];
 		mainSizesMap = JSON.parse(JSON.stringify(snap.mainSizesMap)) as typeof mainSizesMap;
+		docLayoutProfile = snap.layoutProfile
+			? (JSON.parse(JSON.stringify(snap.layoutProfile)) as LayoutProfile)
+			: undefined;
 		pruneSelection();
 		activeSceneIdx = Math.min(activeSceneIdx, Math.max(0, scenes.length - 1));
 		// The apply itself is not a new edit (don't recordEdit) — but it must persist.
@@ -1805,6 +1882,7 @@
 			mainSizesMap: typeof mainSizesMap;
 			scenes: Scene[];
 			settings?: GameSettings;
+			layoutProfile?: LayoutProfile;
 			updatedAt: string;
 		} = {
 			version: data.doc.version,
@@ -1815,6 +1893,14 @@
 			updatedAt: lastSavedAt,
 		};
 		if (settings) payload.settings = settings;
+		// Sparse: persist the layout-profile override ONLY when it actually differs from the
+		// inherited pipeline default — so a project that leaves it alone stays inheriting.
+		if (
+			docLayoutProfile &&
+			JSON.stringify(docLayoutProfile) !== JSON.stringify(data.inheritedLayoutProfile)
+		) {
+			payload.layoutProfile = $state.snapshot(docLayoutProfile) as LayoutProfile;
+		}
 		return payload;
 	}
 
@@ -2700,6 +2786,8 @@
 					frameWidth={frameSize.width}
 					frameHeight={frameSize.height}
 					layoutType={currentLayoutType}
+					{baseLayoutType}
+					standardBox={frameSize}
 					assets={data.assets}
 					symbolDefaults={data.symbolDefaults}
 					symbolsDoc={data.symbolsDoc}
@@ -2942,6 +3030,8 @@
 					<EditorProperties
 						node={selectedNode}
 						layoutType={currentLayoutType}
+						{baseLayoutType}
+						layoutTypeIds={layoutTypes}
 						onDirty={markDirty}
 						sceneSpace={activeScene?.space}
 						{templateMode}
@@ -2962,13 +3052,13 @@
 						{onConvertToParametricButton}
 						onSetInstanceParam={(key, value) => {
 							if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
-							// Override mode (a non-desktop device layout): the edit writes a per-ratio
+							// Override mode (a non-base device bucket): the edit writes a per-ratio
 							// param override at `overrides[currentLayoutType].params[key]`, mirroring how a
 							// transform edit routes to `overrides[currentLayoutType]`. Clearing (undefined)
 							// removes just that key from the override, then prunes an emptied override —
-							// so the ratio reverts to the base param, not the whole node. Base (desktop)
+							// so the ratio reverts to the base param, not the whole node. Base-bucket
 							// edits `node.params` as before (parity).
-							if (currentLayoutType !== 'desktop') {
+							if (currentLayoutType !== baseLayoutType) {
 								const overrides = { ...(selectedNode.overrides ?? {}) };
 								const o = { ...(overrides[currentLayoutType] ?? {}) };
 								const params = { ...(o.params ?? {}) };
@@ -3048,11 +3138,45 @@
 					/>
 
 					<div class="game-settings">
+						<PanelSection id="layout-profile" title="Layout">
+							<div class="gs-body">
+								<p class="gs-note">
+									The device buckets this game targets — their resolution/aspect and the window
+									rule that selects each. Edit to make Desktop and Landscape identical, add a
+									widescreen bucket, and so on.
+									{#if layoutProfileIsOverride}
+										<span class="lp-badge override">project override</span>
+									{:else}
+										<span class="lp-badge inherit"
+											>using {data.inheritedLayoutSource === 'global'
+												? 'pipeline default'
+												: 'built-in default'}</span
+										>
+									{/if}
+								</p>
+								<div class="gs-buckets">
+									{#each activeProfile.buckets as b (b.id)}
+										<span class="gs-bucket" class:base={b.id === baseLayoutType}>
+											{b.label}
+											<span class="gs-bucket-dim">{b.box.width}×{b.box.height}</span>
+										</span>
+									{/each}
+								</div>
+								<button type="button" class="gs-edit-btn" onclick={openLayoutModal}>
+									Edit layout buckets…
+								</button>
+							</div>
+						</PanelSection>
+					</div>
+
+					<div class="game-settings">
 						<PanelSection id="canvas-size" title="Canvas Size">
 							<div class="gs-body">
 								<p class="gs-note">
-									The game's MAIN box for <strong>{currentLayoutType}</strong> — the runtime scales it
-									to fill the window. Author your nodes against this box.
+									The game's MAIN box for <strong>{activeProfile.buckets.find(
+											(b) => b.id === currentLayoutType,
+										)?.label ?? currentLayoutType}</strong> — the runtime scales it to fill the window.
+									Author your nodes against this box.
 								</p>
 								<label class="gs-field">
 									<span class="gs-label">Width</span>
@@ -3186,6 +3310,53 @@
 	</footer>
 </div>
 
+{#if layoutModalOpen && docLayoutProfile}
+	<div
+		class="lp-modal-backdrop"
+		role="button"
+		tabindex="-1"
+		onclick={(e) => {
+			if (e.target === e.currentTarget) layoutModalOpen = false;
+		}}
+		onkeydown={(e) => {
+			if (e.key === 'Escape') layoutModalOpen = false;
+		}}
+	>
+		<div class="lp-modal" role="dialog" aria-modal="true" aria-label="Layout buckets">
+			<header class="lp-modal-head">
+				<h2>Layout buckets</h2>
+				<div class="lp-modal-src">
+					{#if layoutProfileIsOverride}
+						<span class="lp-badge override">project override</span>
+					{:else}
+						<span class="lp-badge inherit"
+							>matches {data.inheritedLayoutSource === 'global'
+								? 'pipeline default'
+								: 'built-in default'}</span
+						>
+					{/if}
+				</div>
+				<button type="button" class="lp-close" onclick={() => (layoutModalOpen = false)}>✕</button>
+			</header>
+			<div class="lp-modal-body">
+				<LayoutProfileEditor bind:profile={docLayoutProfile} onchange={onLayoutProfileChange} />
+			</div>
+			<footer class="lp-modal-foot">
+				<button
+					type="button"
+					class="lp-revert"
+					disabled={!layoutProfileIsOverride}
+					onclick={revertLayoutProfile}
+					title="Drop this project's override and re-inherit the pipeline default"
+				>
+					Revert to inherited default
+				</button>
+				<button type="button" class="lp-done" onclick={() => (layoutModalOpen = false)}>Done</button>
+			</footer>
+		</div>
+	</div>
+{/if}
+
 <style>
 	.shell {
 		position: relative;
@@ -3194,6 +3365,130 @@
 		height: 100vh;
 		color: #e8e8ee;
 		background: #0b0b10;
+	}
+	/* ---- Layout profile (Game Settings panel + modal) ---- */
+	.gs-buckets {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.3rem;
+		margin: 0.4rem 0;
+	}
+	.gs-bucket {
+		display: inline-flex;
+		align-items: baseline;
+		gap: 0.35rem;
+		padding: 0.15rem 0.45rem;
+		border: 1px solid #2b2b38;
+		border-radius: 4px;
+		font-size: 0.78rem;
+		background: #14141c;
+	}
+	.gs-bucket.base {
+		border-color: #3f6f5a;
+	}
+	.gs-bucket-dim {
+		opacity: 0.55;
+		font-size: 0.68rem;
+		font-family: ui-monospace, Menlo, monospace;
+	}
+	.gs-edit-btn {
+		margin-top: 0.2rem;
+		padding: 0.3rem 0.6rem;
+		font-size: 0.8rem;
+		cursor: pointer;
+		background: #1c1c26;
+		color: #e8e8ee;
+		border: 1px solid #33333f;
+		border-radius: 4px;
+	}
+	.gs-edit-btn:hover {
+		border-color: #55e0b0;
+	}
+	.lp-badge {
+		display: inline-block;
+		padding: 0.05rem 0.4rem;
+		border-radius: 999px;
+		font-size: 0.68rem;
+		vertical-align: middle;
+	}
+	.lp-badge.override {
+		background: #3a2a12;
+		color: #f0b866;
+	}
+	.lp-badge.inherit {
+		background: #16261f;
+		color: #6fd0a6;
+	}
+	.lp-modal-backdrop {
+		position: fixed;
+		inset: 0;
+		background: rgba(0, 0, 0, 0.6);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		z-index: 200;
+	}
+	.lp-modal {
+		width: min(920px, 94vw);
+		max-height: 88vh;
+		display: flex;
+		flex-direction: column;
+		background: #14141c;
+		border: 1px solid #33333f;
+		border-radius: 8px;
+		box-shadow: 0 12px 48px rgba(0, 0, 0, 0.55);
+	}
+	.lp-modal-head {
+		display: flex;
+		align-items: center;
+		gap: 0.7rem;
+		padding: 0.7rem 1rem;
+		border-bottom: 1px solid #26262f;
+	}
+	.lp-modal-head h2 {
+		margin: 0;
+		font-size: 1rem;
+	}
+	.lp-modal-src {
+		flex: 1;
+	}
+	.lp-close {
+		background: none;
+		border: none;
+		color: #aaa;
+		font-size: 1rem;
+		cursor: pointer;
+	}
+	.lp-modal-body {
+		padding: 0.8rem 1rem;
+		overflow: auto;
+	}
+	.lp-modal-foot {
+		display: flex;
+		justify-content: space-between;
+		gap: 0.6rem;
+		padding: 0.7rem 1rem;
+		border-top: 1px solid #26262f;
+	}
+	.lp-revert {
+		padding: 0.35rem 0.7rem;
+		cursor: pointer;
+		background: #1c1c26;
+		color: #e8a0a0;
+		border: 1px solid #4a2a2a;
+		border-radius: 4px;
+	}
+	.lp-revert:disabled {
+		opacity: 0.4;
+		cursor: default;
+	}
+	.lp-done {
+		padding: 0.35rem 0.9rem;
+		cursor: pointer;
+		background: #2a6f57;
+		color: #fff;
+		border: 1px solid #388063;
+		border-radius: 4px;
 	}
 	.dot-sep {
 		color: #444;

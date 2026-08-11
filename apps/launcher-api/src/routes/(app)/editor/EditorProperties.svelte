@@ -60,6 +60,12 @@
 	interface Props {
 		node: LayoutNode | null;
 		layoutType: LayoutType;
+		/** The BASE bucket id (the profile's fallback). A non-base `layoutType` is override
+		 * mode. Defaults to legacy `'desktop'`. */
+		baseLayoutType?: LayoutType;
+		/** All active bucket ids (from the resolved layout profile) — the set a node's
+		 * `visibleFor` gate + per-layout override chips iterate. Defaults to the legacy four. */
+		layoutTypeIds?: LayoutType[];
 		/** Called after any user-driven mutation to the selected node. */
 		onDirty?: () => void;
 		/** The active scene's `space` (`game` | `standard` | `canvas` | `background`). Only
@@ -187,6 +193,8 @@
 	let {
 		node,
 		layoutType,
+		baseLayoutType = 'desktop',
+		layoutTypeIds = ['desktop', 'tablet', 'landscape', 'portrait'],
 		onDirty,
 		sceneSpace,
 		templateMode = false,
@@ -930,7 +938,7 @@
 
 	type OverrideKey = (typeof overrideKeys)[number];
 
-	const isOverrideMode = $derived(layoutType !== 'desktop');
+	const isOverrideMode = $derived(layoutType !== baseLayoutType);
 
 	/**
 	 * A componentInstance param's value FOR DISPLAY, honouring the active device layout: in
@@ -1086,10 +1094,10 @@
 		markDirty();
 	}
 
-	/** The four layoutTypes a node's `visibleFor` gate (BaseNode.visibleFor) can list —
-	 * matches the {@link LayoutType} union. A node visible on ALL of them (or absent)
+	/** The layoutTypes a node's `visibleFor` gate (BaseNode.visibleFor) can list — the ACTIVE
+	 * profile's bucket ids (passed from the page). A node visible on ALL of them (or absent)
 	 * shows everywhere, so we store `undefined` rather than the full array (sparse docs). */
-	const LAYOUT_TYPES = ['desktop', 'tablet', 'landscape', 'portrait'] as const;
+	const LAYOUT_TYPES = $derived(layoutTypeIds);
 
 	/** Whether the node is visible on `lt` per its base-node `visibleFor` gate — absent
 	 * (visible everywhere) ⇒ true. This is the BASE-NODE gate, distinct from the per-layout

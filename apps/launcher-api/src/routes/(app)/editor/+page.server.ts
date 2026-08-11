@@ -18,6 +18,7 @@ import { ConflictError } from '$lib/server/r2';
 import { writeBaseEtagForm } from '$lib/server/writeGuard';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { resolveGameConfig } from '$lib/server/gameConfigDefaults';
+import { resolveLayoutProfile } from '$lib/server/layoutProfile';
 import { loadPublishedSymbolDefaults, symbolDefaultsFor } from '$lib/server/symbolDefaults';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
 import { loadTemplate, loadTemplateWithEtag } from '$lib/server/templateStorage';
@@ -157,6 +158,12 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// editor can flag a doc whose `mainSizesMap` differs from the game's REAL main
 	// box (and offer a one-click "Match game box" fix). Plain JSON, safe to clone.
 	const referenceMainSizes = getFullSceneSet(resolvedGameType)?.mainSizesMap ?? null;
+	// The layout profile this project INHERITS when it authors no override — the admin
+	// global default, else the coded DEFAULT_LAYOUT_PROFILE. The client seeds the Layout
+	// editor from this and compares the doc's override against it to save it sparsely
+	// (omit when identical). `source` is 'global' | 'default' here (project layer skipped).
+	const { profile: inheritedLayoutProfile, source: inheritedLayoutSource } =
+		await resolveLayoutProfile();
 	// Content checks (missing/unassigned asset references) are computed live in the
 	// client (`+page.svelte`) from `assets`, since they must track edits before any
 	// save and `$lib/server` can't enter the browser bundle — no server copy here.
@@ -175,6 +182,8 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		symbolDefaults,
 		symbolsDoc,
 		referenceMainSizes,
+		inheritedLayoutProfile,
+		inheritedLayoutSource,
 		// The authored board grid the canvas draws the reelGrid at (config's numReels/numRows). Null
 		// when no config resolves ⇒ the canvas falls back to the reelGrid node's own reels/rows.
 		gridDimensions: gridDimensions ?? null,

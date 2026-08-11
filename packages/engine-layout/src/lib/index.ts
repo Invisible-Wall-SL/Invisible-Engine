@@ -9,6 +9,20 @@ export * from './symbolStates';
 // layout context) can frame `space: 'standard' | 'canvas'` scenes. Canonical
 // copy lives in constants-shared so utils-layout (runtime) shares the one source.
 export { STANDARD_MAIN_SIZES_MAP } from 'constants-shared/layout';
+// Authorable layout profiles (bucket set + selection rules). Canonical copy in
+// constants-shared so the runtime + editor share one contract.
+export {
+	DEFAULT_LAYOUT_PROFILE,
+	selectBucket,
+	findBucket,
+	resolveBucketBox,
+	bucketBoxMap,
+	normalizeLayoutProfile,
+	type LayoutProfile,
+	type LayoutBucket,
+	type LayoutBucketRule,
+	type LayoutBucketBox,
+} from 'constants-shared/layoutProfile';
 export * from './editorArtKey';
 export * from './spineLoadScale';
 export * from './builtinRegions';
