@@ -142,3 +142,50 @@ export const resolveBucketBox = (profile: LayoutProfile, id: string): LayoutBuck
 /** The bucket boxes as a plain `{ [id]: {width,height} }` map (legacy shape). */
 export const bucketBoxMap = (profile: LayoutProfile): Record<string, LayoutBucketBox> =>
 	Object.fromEntries(profile.buckets.map((b) => [b.id, b.box]));
+
+const isFinitePositive = (v: unknown): v is number =>
+	typeof v === 'number' && Number.isFinite(v) && v > 0;
+const optNumber = (v: unknown): number | undefined =>
+	typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+
+/**
+ * Coerce untrusted input (a DB row, an editor doc field, a runtime hand-off) into a
+ * valid {@link LayoutProfile}, or `null` if it has no usable bucket. Shared so every
+ * boundary validates the same way. Drops malformed buckets; de-dupes ids (first wins);
+ * fills a missing `label` from the id; repairs `fallbackBucketId` to a real bucket.
+ */
+export const normalizeLayoutProfile = (input: unknown): LayoutProfile | null => {
+	if (!input || typeof input !== 'object') return null;
+	const src = input as { buckets?: unknown; fallbackBucketId?: unknown };
+	if (!Array.isArray(src.buckets)) return null;
+	const seen = new Set<string>();
+	const buckets: LayoutBucket[] = [];
+	for (const raw of src.buckets) {
+		if (!raw || typeof raw !== 'object') continue;
+		const b = raw as Record<string, unknown>;
+		const id = typeof b.id === 'string' ? b.id.trim() : '';
+		if (!id || seen.has(id)) continue;
+		const box = b.box as { width?: unknown; height?: unknown } | undefined;
+		if (!box || !isFinitePositive(box.width) || !isFinitePositive(box.height)) continue;
+		const ruleIn = (b.rule ?? {}) as Record<string, unknown>;
+		const rule: LayoutBucketRule = {};
+		if (optNumber(ruleIn.minRatio) !== undefined) rule.minRatio = optNumber(ruleIn.minRatio);
+		if (optNumber(ruleIn.maxRatio) !== undefined) rule.maxRatio = optNumber(ruleIn.maxRatio);
+		if (optNumber(ruleIn.minSide) !== undefined) rule.minSide = optNumber(ruleIn.minSide);
+		if (optNumber(ruleIn.maxSide) !== undefined) rule.maxSide = optNumber(ruleIn.maxSide);
+		seen.add(id);
+		buckets.push({
+			id,
+			label: typeof b.label === 'string' && b.label.trim() ? b.label : id,
+			box: { width: box.width, height: box.height },
+			rule,
+			...(b.stacked === true ? { stacked: true } : {}),
+		});
+	}
+	if (!buckets.length) return null;
+	const fallback =
+		typeof src.fallbackBucketId === 'string' && buckets.some((b) => b.id === src.fallbackBucketId)
+			? src.fallbackBucketId
+			: buckets[buckets.length - 1].id;
+	return { buckets, fallbackBucketId: fallback };
+};

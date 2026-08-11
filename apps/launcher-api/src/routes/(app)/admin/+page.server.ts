@@ -75,6 +75,12 @@ import {
 } from '$lib/server/games';
 import { ENV } from '$lib/server/env';
 import { DEPLOY_TOKEN_KEY, getDeployToken, setAppSetting } from '$lib/server/appSettings';
+import {
+	LAYOUT_PROFILE_DEFAULT_KEY,
+	getGlobalLayoutProfile,
+	setGlobalLayoutProfile,
+} from '$lib/server/layoutProfile';
+import { DEFAULT_LAYOUT_PROFILE } from 'engine-layout';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -131,6 +137,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 	// by default and revealed only on demand via the reveal/set/rotate actions.
 	const deployToken = await getDeployToken();
 
+	// The pipeline-wide layout-profile default (bucket set + selection rules) an admin
+	// authors here. Non-secret — safe to send in full. `custom` distinguishes an
+	// admin-set default from the coded fallback.
+	const globalLayoutProfile = await getGlobalLayoutProfile();
+
 	return {
 		currentUserId: locals.user!.id,
 		users: userList,
@@ -167,6 +178,11 @@ export const load: PageServerLoad = async ({ locals }) => {
 			// A short masked preview so an admin can sanity-check WHICH token is live
 			// without revealing it. Never the full value.
 			masked: deployToken ? maskToken(deployToken) : null,
+		},
+		layoutProfile: {
+			// The effective default sent to the editor: the admin-set one, else the coded default.
+			profile: globalLayoutProfile ?? DEFAULT_LAYOUT_PROFILE,
+			custom: !!globalLayoutProfile,
 		},
 	};
 };
@@ -713,6 +729,34 @@ export const actions: Actions = {
 		const token = generateDeployToken();
 		await setAppSetting(DEPLOY_TOKEN_KEY, token, admin.id);
 		return { action: 'rotateDeployToken', ok: 'Deploy token rotated.', deployToken: token };
+	},
+
+	/** Save the pipeline-wide default layout profile (admin-only). Body: JSON `profile`. */
+	saveLayoutProfile: async ({ request, locals }) => {
+		const admin = await requireAdmin(locals);
+		const data = await request.formData();
+		let input: unknown;
+		try {
+			input = JSON.parse(String(data.get('profile') ?? ''));
+		} catch {
+			return fail(400, { action: 'saveLayoutProfile', error: 'Malformed profile payload.' });
+		}
+		try {
+			await setGlobalLayoutProfile(input, admin.id);
+		} catch (err) {
+			return fail(400, {
+				action: 'saveLayoutProfile',
+				error: err instanceof Error ? err.message : 'Invalid layout profile.',
+			});
+		}
+		return { action: 'saveLayoutProfile', ok: 'Layout default saved for the whole pipeline.' };
+	},
+
+	/** Clear the pipeline-wide default, reverting to the coded DEFAULT_LAYOUT_PROFILE. */
+	resetLayoutProfile: async ({ locals }) => {
+		const admin = await requireAdmin(locals);
+		await setAppSetting(LAYOUT_PROFILE_DEFAULT_KEY, '', admin.id);
+		return { action: 'resetLayoutProfile', ok: 'Reverted to the built-in layout default.' };
 	},
 
 	/**

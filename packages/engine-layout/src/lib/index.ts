@@ -17,6 +17,7 @@ export {
 	findBucket,
 	resolveBucketBox,
 	bucketBoxMap,
+	normalizeLayoutProfile,
 	type LayoutProfile,
 	type LayoutBucket,
 	type LayoutBucketRule,
