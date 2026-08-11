@@ -241,6 +241,15 @@
 	const svBg = $derived(
 		`linear-gradient(to top, #000, rgba(0,0,0,0)), linear-gradient(to right, #fff, rgba(255,255,255,0)), hsl(${hue} 100% 50%)`,
 	);
+
+	// Render the popover on <body>, not inline. Many callers place this field inside a
+	// <label>; a click on the SV square (a plain <div>) would otherwise be forwarded by the
+	// label to its control — the swatch button — toggling the picker shut on every release.
+	// A body portal also lets position:fixed escape any transformed/overflow ancestor.
+	function portal(node: HTMLElement) {
+		document.body.appendChild(node);
+		return { destroy: () => node.remove() };
+	}
 </script>
 
 <button
@@ -256,7 +265,7 @@
 ></button>
 
 {#if open}
-	<div bind:this={popoverEl} class="cf-pop" style={popStyle} role="dialog">
+	<div bind:this={popoverEl} use:portal class="cf-pop" style={popStyle} role="dialog">
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="cf-sv" style="background:{svBg}" onpointerdown={(e) => startDrag(e, 'sv')}>
 			<div class="cf-sv-thumb" style="left:{sat * 100}%;top:{(1 - val) * 100}%"></div>
