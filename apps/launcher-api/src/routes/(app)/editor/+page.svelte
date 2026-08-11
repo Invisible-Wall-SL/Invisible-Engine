@@ -2722,13 +2722,17 @@
 					{canRedo}
 					onUndo={undo}
 					onRedo={redo}
-				/>
+				>
+					{#snippet modeBar()}
+						<CanvasModeBar
+							options={layoutOptions}
+							bind:value={currentLayoutType}
+							ariaLabel="Authoring layout"
+							inline
+						/>
+					{/snippet}
+				</EditorCanvas>
 			{/if}
-			<CanvasModeBar
-				options={layoutOptions}
-				bind:value={currentLayoutType}
-				ariaLabel="Authoring layout"
-			/>
 		</main>
 
 		<aside class="properties">
