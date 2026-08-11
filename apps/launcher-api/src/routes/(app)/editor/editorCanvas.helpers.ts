@@ -301,6 +301,9 @@ export function repeaterBoxes(
 	return boxes;
 }
 
+/** TEMP DEBUG (remove after): dedupe set so the text-node box log fires once per distinct state. */
+const __NODEBOX_TEXT_DBG = new Set<string>();
+
 /** Resolve a sensible local-space box for any node kind. */
 export function nodeBox(
 	node: LayoutNode,
@@ -399,6 +402,23 @@ export function nodeBox(
 		// text node (no box on either) falls back to the measured glyph extent, which hugs the text.
 		const w = t.width ?? node.width ?? nat?.w ?? 160;
 		const h = t.height ?? node.height ?? nat?.h ?? 28;
+		// TEMP DEBUG (remove after): why the text selection frame ignores the box. Deduped by a
+		// value signature so it logs once per distinct state, not every frame.
+		const __sig = `${node.id}|tw=${t.width}|nw=${node.width}|nh=${node.height}|natW=${nat?.w}|natH=${nat?.h}|w=${w}|h=${h}`;
+		if (!__NODEBOX_TEXT_DBG.has(__sig)) {
+			__NODEBOX_TEXT_DBG.add(__sig);
+			// eslint-disable-next-line no-console
+			console.log('[IE nodeBox text]', {
+				id: node.id,
+				tWidth: t.width,
+				nodeWidth: node.width,
+				nodeHeight: node.height,
+				natW: nat?.w,
+				natH: nat?.h,
+				outW: w,
+				outH: h,
+			});
+		}
 		return { w, h, ax: tax, ay: tay };
 	}
 	// An effect's LIVE particle overlay (EditorEffectLayer) renders real particles that
