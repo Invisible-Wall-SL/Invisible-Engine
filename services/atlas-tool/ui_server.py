@@ -2096,6 +2096,17 @@ def run_compose(ctx: tuple[str, str] | None = None) -> None:
 # Maker). Default WORK pool = the atlas phrases, so behavior is unchanged.
 SPLASH = splash_html("ATLAS MAKER")
 
+# Vanilla ColorField (Photoshop-style picker) — twin of the launcher's
+# $lib/ColorField.svelte and apps/launcher-api/static/shared/color-field.js.
+# Enhances every <input type="color"> (e.g. the FX 'color' param) into the same
+# click-drag popover the Svelte tools use. Injected as a PAGE.format() VALUE
+# slot so its braces are NOT reprocessed. Keep in sync — see docs/ui-inventory.md §11.
+try:
+    COLOR_FIELD_JS = (Path(__file__).resolve().parent / "color-field.js").read_text(
+        encoding="utf-8")
+except OSError:
+    COLOR_FIELD_JS = ""
+
 
 # Blueprint exposed-params panel (B43 Phase 8). A static container the client
 # fills with editable controls for the ACTIVE blueprint's params (re-rendered on
@@ -2963,6 +2974,7 @@ if(!HAS_PAGE){
 
 PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <title>Invisible Atlas Maker</title>
+<script>{color_field_js}</script>
 <style>
  body{{font-family:system-ui,Arial;background:#1d1d22;color:#e8e8ea;margin:0;padding:0 20px 40px}}
 {iw_toolbar_css}
@@ -6575,6 +6587,7 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(bp_param_values, dict):
             bp_param_values = {}
         return PAGE.format(
+            color_field_js=COLOR_FIELD_JS,
             iw_toolbar=IW_TOOLBAR,
             iw_toolbar_css=IW_TOOLBAR_CSS,
             cards="".join(cards),
