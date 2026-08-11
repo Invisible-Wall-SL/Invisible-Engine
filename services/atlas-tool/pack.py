@@ -10,9 +10,14 @@ produce the game's page + TexturePacker descriptor.
 
 This is a PORT of `services/sheet-tool/packer.py`'s `_MaxRects` + `pack()` (the
 Sheet Maker owns the canonical layout algorithm). Kept as a separate copy — the
-two services deploy independently — exactly like `batch_atlas._packer_compose_tile`
-mirrors `packer.compose`. Keep the two `pack()` implementations in lockstep; if
-one changes, change the other.
+two services deploy independently. The `_MaxRects` core is identical; `pack()`
+has ONE intentional divergence: in AUTO mode (`height <= 0`) this copy crops the
+sheet WIDTH to the layout's used bounding box, whereas the Sheet Maker keeps the
+full requested `width` (its cells are laid out against a fixed sheet width the
+user sees). The from-scratch atlas has no such fixed width, so a page with a
+little art should be snug, not a full 2048-wide sheet of empty space. Only the
+layout/geometry differs — this does NOT touch compose parity, which lives in
+`batch_atlas._packer_compose_tile` ↔ `packer.compose` (keep THOSE in lockstep).
 
 Region dicts returned use the normalized shape the Atlas Maker consumes:
 
@@ -183,13 +188,22 @@ def pack(items: list[dict], *, width: int = 2048, height: int = 0, padding: int 
         placed[i] = res
 
     if fixed:
+        final_w = sheet_w
         final_h = int(height)
     else:
+        # AUTO: crop BOTH axes to the bounding box the layout actually used, so
+        # a page with a little art isn't a full `width`-wide sheet of empty
+        # space. `pw`/`ph` already include the per-sprite padding inflation, so
+        # `x + pw` / `y + ph` is the padded right/bottom edge; a final trailing
+        # `padding` mirrors the leading gutter. Every placement fits inside the
+        # original sheet_w, so cropping never clips a sprite.
+        used_w = max(x + pw for (x, _y, pw, _ph, _r) in placed.values())
         used_h = max(y + ph for (_x, y, _pw, ph, _r) in placed.values())
+        final_w = min(sheet_w, used_w + padding)
         final_h = used_h + padding
 
     if power_of_two:
-        sheet_w = _next_pow2(sheet_w)
+        final_w = _next_pow2(final_w)
         final_h = _next_pow2(final_h)
 
     regions = []
@@ -203,4 +217,4 @@ def pack(items: list[dict], *, width: int = 2048, height: int = 0, padding: int 
             "off_x": 0, "off_y": 0,
             "orig_w": it["w"], "orig_h": it["h"],
         })
-    return {"width": sheet_w, "height": final_h, "regions": regions}
+    return {"width": final_w, "height": final_h, "regions": regions}
