@@ -854,7 +854,27 @@ def comfy_post(path: str, payload: dict) -> dict:
                   "rejected or is missing — check the atlas-tool env hasn't "
                   "expired, then retry.")
             raise SystemExit(2)
-        # A genuine ComfyUI rejection (400 bad prompt, 500 node error): show the
+        # A 400 with a "missing_node_type" means the blueprint's graph uses a
+        # CUSTOM NODE the user's local ComfyUI doesn't have installed — a setup
+        # gap, not a bad prompt. Turn the raw JSON into a clear, actionable
+        # instruction (this recurs when importing blueprints with dependencies).
+        try:
+            _err = (json.loads(body) or {}).get("error") or {}
+        except Exception:  # noqa: BLE001 — not JSON / unexpected shape
+            _err = {}
+        if isinstance(_err, dict) and _err.get("type") == "missing_node_type":
+            _xi = _err.get("extra_info") or {}
+            _ct = str(_xi.get("class_type") or "?")
+            _title = str(_xi.get("node_title") or _ct)
+            print("\n=== ComfyUI is missing a custom node ===")
+            print(f"This blueprint uses '{_title}' ({_ct}), which is NOT "
+                  "installed in your local ComfyUI, so the graph was rejected.")
+            print("Fix: on the GPU machine, open ComfyUI-Manager → Install "
+                  f"Custom Nodes, find the pack that provides '{_ct}', install "
+                  "it (plus any models it needs), restart ComfyUI, then retry. "
+                  "The blueprint can't run without it.")
+            raise RuntimeError(f"ComfyUI is missing custom node '{_ct}'.")
+        # Any other genuine ComfyUI rejection (bad prompt, node error): show the
         # body + payload so the graph can be fixed. Raise RuntimeError so main()
         # renders a clean banner instead of a raw Python traceback.
         print("\n=== ComfyUI rejected the prompt ===")
