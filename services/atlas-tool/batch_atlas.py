@@ -37,7 +37,34 @@ from urllib.error import HTTPError, URLError
 from PIL import Image
 
 SELF = Path(__file__).resolve().parent
+# Make the sibling modules (cloud_paths, …) importable early — load_config()
+# below resolves the staging config through cloud_paths, BEFORE the main import
+# block at the bottom of the header runs.
+sys.path.insert(0, str(SELF))
+# The UI writes atlas_config.json into the R2-backed STAGING dir for the active
+# (client, project) — NOT next to this script. The generation subprocess gets
+# that context via IW_CLIENT_NAME/IW_PROJECT_NAME (set by ui_server), so it can
+# resolve the same file; reading SELF/atlas_config.json (which the cloud image
+# doesn't even ship) silently fell back to _DEFAULTS, so every GLOBAL-only
+# setting — the pipeline selector above all — was stuck on its default ("sdxl"),
+# which is why a selected blueprint never ran. `CONFIG_PATH` stays as the
+# script-dir fallback for the original local tool / a bare dev run.
 CONFIG_PATH = SELF / "atlas_config.json"
+
+
+def _config_paths() -> list[Path]:
+    """Where to look for atlas_config.json, in priority order: the active
+    (client, project) STAGING copy the UI writes, then the script-dir fallback."""
+    paths: list[Path] = []
+    try:
+        import cloud_paths as _cp  # sibling; SELF is on sys.path above
+        staging = _cp.resolve().get("staging_root")
+        if staging:
+            paths.append(Path(staging) / "atlas_config.json")
+    except Exception:  # noqa: BLE001 — staging unresolvable (bare/offline run)
+        pass
+    paths.append(CONFIG_PATH)
+    return paths
 
 _DEFAULTS = {
     "comfy_host": "127.0.0.1:8189",
@@ -143,12 +170,15 @@ _DEFAULTS = {
 
 def load_config() -> dict:
     cfg = dict(_DEFAULTS)
-    if CONFIG_PATH.exists():
+    for path in _config_paths():
         try:
-            user = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-            cfg.update({k: v for k, v in user.items() if not k.startswith("_")})
+            if path.exists():
+                user = json.loads(path.read_text(encoding="utf-8"))
+                cfg.update({k: v for k, v in user.items()
+                            if not k.startswith("_")})
+                return cfg
         except (json.JSONDecodeError, OSError):
-            pass
+            continue
     return cfg
 
 
