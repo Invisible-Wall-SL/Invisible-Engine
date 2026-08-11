@@ -2199,12 +2199,29 @@ def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Im
     # default sdxl path (region_pipeline isn't one of the three -> sdxl branch).
     pipe = region_pipeline(region)
     out_node = "17"
-    bp = blueprints.get_blueprint(pipe) if pipe not in ("sdxl", "flux", "gpt_image") else None
-    if bp:
+    if pipe in ("sdxl", "flux", "gpt_image"):
+        wf = build_workflow(region, style, atlas_path)
+    else:
+        # A non-built-in pipeline id is a blueprint. If it won't load we must
+        # NOT silently fall back to build_workflow (the built-in SDXL path):
+        # that quietly generates convincing-but-wrong art from the WRONG
+        # pipeline, so a user who selected a blueprint gets SDXL with no hint
+        # (exactly this bug — a FLUX blueprint that silently rendered SDXL).
+        # Fail loudly and point at the reason instead.
+        bp = blueprints.get_blueprint(pipe)
+        if bp is None:
+            raise RuntimeError(
+                f"Pipeline '{pipe}' is a blueprint, but it could not be loaded "
+                f"from the shared library — so this region did NOT run your "
+                f"blueprint. Refusing to silently generate with the built-in "
+                f"SDXL pipeline instead. Likely causes: the blueprint failed "
+                f"validation on load (look above for a '[blueprints] invalid "
+                f"{pipe}: …' or '[blueprints] skipped {pipe}: …' line naming the "
+                f"exact reason), or it isn't published to the shared library / "
+                f"didn't hydrate. Fix or re-import the blueprint, or pick a "
+                f"valid pipeline, then retry.")
         wf, out_node = build_workflow_blueprint(
             region, style, bp, BP_PARAM_OVERRIDES)
-    else:
-        wf = build_workflow(region, style, atlas_path)
     # Cloud: the remote ComfyUI can't read our staging refs — upload each
     # LoadImage source first and rewrite the node to the uploaded name.
     _upload_workflow_refs(wf)
