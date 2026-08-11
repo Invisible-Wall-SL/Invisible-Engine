@@ -801,12 +801,38 @@ def comfy_post(path: str, payload: dict) -> dict:
         return json.loads(urlopen(req).read())
     except HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
+        # A 502/503/504 comes from the Cloudflare tunnel EDGE, not ComfyUI: the
+        # tunnel is reachable but the origin (the user's LOCAL ComfyUI) didn't
+        # answer. ComfyUI itself rejects a bad prompt with 400 + JSON — never a
+        # 502 HTML page — so calling this "rejected the prompt" (and dumping the
+        # payload) misleads. Report it as an unreachable origin instead.
+        if e.code in (502, 503, 504):
+            print("\n=== ComfyUI did not respond ===")
+            print(f"The tunnel returned HTTP {e.code} for {COMFY_BASE}{path}.")
+            print("The Cloudflare tunnel is up, but your LOCAL ComfyUI behind "
+                  "it did not answer — most likely it isn't running, is still "
+                  "booting, or crashed / ran out of VRAM on a previous job.")
+            print("Fix: on the GPU machine, start (or restart) ComfyUI and "
+                  "confirm the cloudflared tunnel points at it, then retry. "
+                  "A 502 is never a problem with the prompt, the blueprint, or "
+                  "this tool.")
+            raise SystemExit(2)
+        if e.code in (401, 403):
+            print("\n=== ComfyUI access denied ===")
+            print(f"The tunnel returned HTTP {e.code} for {COMFY_BASE}{path}.")
+            print("The Cloudflare Access service token (CF-Access-Client-*) was "
+                  "rejected or is missing — check the atlas-tool env hasn't "
+                  "expired, then retry.")
+            raise SystemExit(2)
+        # A genuine ComfyUI rejection (400 bad prompt, 500 node error): show the
+        # body + payload so the graph can be fixed. Raise RuntimeError so main()
+        # renders a clean banner instead of a raw Python traceback.
         print("\n=== ComfyUI rejected the prompt ===")
         print(f"HTTP {e.code} {e.reason}")
         print(body)
         print("\n=== Payload sent (first 4 KB) ===")
         print(json.dumps(payload, indent=2)[:4096])
-        raise
+        raise RuntimeError(f"ComfyUI rejected the prompt (HTTP {e.code}).")
     except (URLError, ConnectionError) as e:
         print("\n=== Cannot reach ComfyUI ===")
         print(f"No server responding at {COMFY_BASE}")
