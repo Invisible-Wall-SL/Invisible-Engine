@@ -1,4 +1,5 @@
 <script lang="ts">
+	import ColorField from '$lib/ColorField.svelte';
 	import {
 		backgroundCoverScale,
 		backgroundFit,
@@ -1671,10 +1672,9 @@
 												)}
 										/>
 									{:else if p.kind === 'color'}
-										<input
-											type="color"
+										<ColorField
 											value={typeof p.default === 'number' ? hexFrom(p.default) : '#ffffff'}
-											oninput={(e) => onSetParamDefault?.(p.key, parseHex(e.currentTarget.value))}
+											oninput={(hex) => onSetParamDefault?.(p.key, parseHex(hex))}
 										/>
 									{:else if p.kind === 'boolean'}
 										<input
@@ -2027,12 +2027,11 @@
 							/>
 						{:else if p.kind === 'color'}
 							<span class="color-cell">
-								<input
-									type="color"
+								<ColorField
 									value={typeof instanceParamValue(node, p.key) === 'number'
 										? hexFrom(instanceParamValue(node, p.key) as number)
 										: '#ffffff'}
-									oninput={(e) => onSetInstanceParam?.(p.key, parseHex(e.currentTarget.value))}
+									oninput={(hex) => onSetInstanceParam?.(p.key, parseHex(hex))}
 								/>
 								{#if instanceParamValue(node, p.key) !== undefined}
 									<button
@@ -2782,10 +2781,9 @@
 						{:else if p.kind === 'color'}
 							{@const cv = readParam(node, p)}
 							<span class="color-cell">
-								<input
-									type="color"
+								<ColorField
 									value={cv !== undefined ? hexFrom(cv as number) : '#ffffff'}
-									oninput={(e) => writeColorParam(node, p, e.currentTarget.value)}
+									oninput={(hex) => writeColorParam(node, p, hex)}
 								/>
 								{#if cv !== undefined}
 									<button
@@ -2858,11 +2856,7 @@
 			<div class="row">
 				<label class="field wide">
 					<span>tint</span>
-					<input
-						type="color"
-						value={hexFrom(t.tint)}
-						onchange={(e) => setTintHex(node, e.currentTarget.value)}
-					/>
+					<ColorField value={hexFrom(t.tint)} onchange={(hex) => setTintHex(node, hex)} />
 					{#if isOverrideMode && hasOverrideKey(node, 'tint')}
 						<span class="ovdot" title="Overridden"></span>
 						<button class="reset" onclick={() => clearOverrideKey(node, 'tint')}>×</button>
@@ -3724,10 +3718,9 @@
 					</label>
 					<label class="field">
 						<span>{isBitmapSelected ? 'tint' : 'fill'}</span>
-						<input
-							type="color"
+						<ColorField
 							value={hexFrom(styleField(node, 'fill'))}
-							onchange={(e) => setFill(node, e.currentTarget.value)}
+							onchange={(hex) => setFill(node, hex)}
 						/>
 					</label>
 				</div>
@@ -3994,10 +3987,9 @@
 				<div class="row">
 					<label class="field">
 						<span>color</span>
-						<input
-							type="color"
+						<ColorField
 							value={hexFrom(node.style?.stroke?.color ?? 0x000000)}
-							onchange={(e) => setStrokeColor(node, e.currentTarget.value)}
+							onchange={(hex) => setStrokeColor(node, hex)}
 						/>
 					</label>
 					<label class="field">
@@ -4029,10 +4021,9 @@
 					<div class="row">
 						<label class="field">
 							<span>color</span>
-							<input
-								type="color"
+							<ColorField
 								value={hexFrom(node.style.dropShadow.color ?? 0x000000)}
-								onchange={(e) => setDropShadowColor(node, e.currentTarget.value)}
+								onchange={(hex) => setDropShadowColor(node, hex)}
 							/>
 						</label>
 						<label class="field">
@@ -4110,11 +4101,7 @@
 			<div class="row">
 				<label class="field wide">
 					<span>colour</span>
-					<input
-						type="color"
-						value={hexFrom(node.color)}
-						onchange={(e) => setRectColor(node, e.currentTarget.value)}
-					/>
+					<ColorField value={hexFrom(node.color)} onchange={(hex) => setRectColor(node, hex)} />
 				</label>
 			</div>
 			<p class="muted small">

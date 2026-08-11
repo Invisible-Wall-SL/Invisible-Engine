@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import ColorField from '$lib/ColorField.svelte';
 	import {
 		BUILTIN_SHEETS,
 		builtinSheetKey,
@@ -1231,11 +1232,10 @@
 									{#if highlightDraft.tintMode === 'fixed'}
 										<div class="field">
 											<span class="label">Tint colour</span>
-											<input
-												type="color"
+											<ColorField
 												value={highlightDraft.tintColor ?? HIGHLIGHT_TINT_DEFAULT_COLOR}
-												oninput={(e) => {
-													if (highlightDraft) highlightDraft.tintColor = e.currentTarget.value;
+												oninput={(hex) => {
+													if (highlightDraft) highlightDraft.tintColor = hex;
 												}}
 											/>
 										</div>
@@ -1894,11 +1894,10 @@
 										class:disabled={wlLine.useConfigColor ?? WL_DEFAULTS.useConfigColor}
 									>
 										<span class="label">Colour</span>
-										<input
-											type="color"
+										<ColorField
 											disabled={wlLine.useConfigColor ?? WL_DEFAULTS.useConfigColor}
 											value={wlLine.color ?? WL_DEFAULTS.color}
-											oninput={(e) => patchWinLineLine({ color: e.currentTarget.value })}
+											oninput={(hex) => patchWinLineLine({ color: hex })}
 										/>
 										{#if wlLine.useConfigColor ?? WL_DEFAULTS.useConfigColor}
 											<span class="hint">Overridden by the config payline colour.</span>
@@ -1933,11 +1932,10 @@
 									</div>
 									<label class="field" class:disabled={!(wlLine.glow ?? WL_DEFAULTS.glow)}>
 										<span class="label">Glow colour</span>
-										<input
-											type="color"
+										<ColorField
 											disabled={!(wlLine.glow ?? WL_DEFAULTS.glow)}
 											value={wlLine.glowColor ?? wlLine.color ?? WL_DEFAULTS.glowColor}
-											oninput={(e) => patchWinLineLine({ glowColor: e.currentTarget.value })}
+											oninput={(hex) => patchWinLineLine({ glowColor: hex })}
 										/>
 									</label>
 									<div class="field">
@@ -1990,11 +1988,10 @@
 										class:disabled={!(wlLine.fullPayline ?? WL_DEFAULTS.fullPayline)}
 									>
 										<span class="label">Full payline colour</span>
-										<input
-											type="color"
+										<ColorField
 											disabled={!(wlLine.fullPayline ?? WL_DEFAULTS.fullPayline)}
 											value={wlLine.fullPaylineColor ?? WL_DEFAULTS.fullPaylineColor}
-											oninput={(e) => patchWinLineLine({ fullPaylineColor: e.currentTarget.value })}
+											oninput={(hex) => patchWinLineLine({ fullPaylineColor: hex })}
 										/>
 									</label>
 								</div>
@@ -2032,10 +2029,9 @@
 									</label>
 									<label class="field">
 										<span class="label">Colour (tint)</span>
-										<input
-											type="color"
+										<ColorField
 											value={wlText.color ?? WL_DEFAULTS.textColor}
-											oninput={(e) => patchWinLineText({ color: e.currentTarget.value })}
+											oninput={(hex) => patchWinLineText({ color: hex })}
 										/>
 									</label>
 								</div>
@@ -2412,8 +2408,7 @@
 											</label>
 											<label class="field">
 												<span class="label">Overlay tint</span>
-												<input
-													type="color"
+												<ColorField
 													value={anticipationFieldValue(
 														doc,
 														tier.alias,
@@ -2421,9 +2416,9 @@
 														count,
 														'overlayTint',
 													)}
-													oninput={(e) =>
+													oninput={(hex) =>
 														patchAnticipationTier(tier.alias, {
-															overlayTint: e.currentTarget.value,
+															overlayTint: hex,
 														})}
 												/>
 											</label>
