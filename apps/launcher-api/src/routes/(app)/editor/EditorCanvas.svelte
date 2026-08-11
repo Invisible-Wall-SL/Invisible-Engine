@@ -111,8 +111,17 @@
 		mainSizesMap: Record<LayoutType, { width: number; height: number }>;
 		frameWidth: number;
 		frameHeight: number;
-		/** Active authoring layoutType; non-`desktop` puts edits into override mode. */
+		/** Active authoring layoutType; a non-base bucket puts edits into override mode. */
 		layoutType: LayoutType;
+		/** The BASE bucket id (the profile's fallback). Edits in this bucket write the base
+		 * transform; any other bucket writes a sparse `overrides[layoutType]`. Defaults to the
+		 * legacy `'desktop'` so any caller that hasn't threaded it stays byte-identical. */
+		baseLayoutType?: LayoutType;
+		/** The STANDARD (HUD/frame) design box for the current bucket — the active profile's
+		 * bucket box (== `frameSize` on the page). `standard`-space nodes fit against it, the
+		 * editor twin of the runtime's `mainLayoutStandard`. Falls back to the legacy fixed map
+		 * when a caller doesn't pass it (back-compat). */
+		standardBox?: { width: number; height: number };
 		/** The project's asset listing — used to resolve catalog-default preview art
 		 * for `bind` anchors (spine bundle by name, sprite region by manifest scan). */
 		assets: ProjectAssets;
@@ -206,6 +215,8 @@
 		frameWidth,
 		frameHeight,
 		layoutType,
+		baseLayoutType = 'desktop',
+		standardBox,
 		assets,
 		symbolDefaults = null,
 		symbolsDoc = null,
@@ -392,7 +403,7 @@
 	 * the HUD into view instead of stranding it at raw standard coords.
 	 */
 	function standardToWorld(t: ResolvedTransform, sceneCtx: Scene): ResolvedTransform {
-		const std = STANDARD_MAIN_SIZES_MAP[layoutType];
+		const std = standardBox ?? STANDARD_MAIN_SIZES_MAP[layoutType];
 		const s = Math.min(frameWidth / (std.width || 1), frameHeight / (std.height || 1));
 		const drawW = std.width * s;
 		const drawH = std.height * s;
@@ -674,7 +685,7 @@
 			x = (x - frameWidth / 2) / s + main.width / 2;
 			y = (y - frameHeight / 2) / s + main.height / 2;
 		}
-		if (layoutType === 'desktop') {
+		if (layoutType === baseLayoutType) {
 			node.x = x;
 			node.y = y;
 		} else {
@@ -715,7 +726,7 @@
 			sx /= s;
 			sy /= s;
 		}
-		if (layoutType === 'desktop') {
+		if (layoutType === baseLayoutType) {
 			node.scale = { x: sx, y: sy };
 		} else {
 			const o = getOverride(node);
@@ -723,7 +734,7 @@
 		}
 	}
 	function writeRotation(node: LayoutNode, r: number): void {
-		if (layoutType === 'desktop') {
+		if (layoutType === baseLayoutType) {
 			node.rotation = r;
 		} else {
 			const o = getOverride(node);
@@ -3132,7 +3143,7 @@
 	 * local px (no `mainScale` division: the box is measured in the node's own local space,
 	 * same as a rect's width/height). */
 	function writeSize(node: LayoutNode, w: number, h: number): void {
-		if (layoutType === 'desktop') {
+		if (layoutType === baseLayoutType) {
 			if (node.kind === 'text' || node.kind === 'rect') {
 				node.width = w;
 				node.height = h;
@@ -3620,7 +3631,7 @@
 	}
 
 	function setAnchorPreset(node: LayoutNode, ax: number, ay: number): void {
-		if (layoutType === 'desktop') {
+		if (layoutType === baseLayoutType) {
 			node.anchor = { x: ax, y: ay };
 		} else {
 			getOverride(node).anchor = { x: ax, y: ay };

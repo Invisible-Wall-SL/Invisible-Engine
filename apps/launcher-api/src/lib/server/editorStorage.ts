@@ -1,6 +1,7 @@
 import {
 	getFullSceneSet,
 	normalizeHudScenes,
+	normalizeLayoutProfile,
 	type GameJurisdiction,
 	type GameSettings,
 	type LayoutDoc,
@@ -182,6 +183,11 @@ export function normalizeDoc(input: unknown, fallbackProjectKey = ''): LayoutDoc
 	const doc: LayoutDoc = { version: DOC_VERSION, projectKey, mainSizesMap, scenes, updatedAt };
 	if (gameType) doc.gameType = gameType;
 	if (settings) doc.settings = settings;
+	// Optional per-project layout-profile override (bucket set + selection rules). Stored
+	// sparse by the editor (omitted when it equals the resolved default), so absent ⇒ the
+	// project inherits the admin global default / coded DEFAULT_LAYOUT_PROFILE at read time.
+	const layoutProfile = normalizeLayoutProfile(obj.layoutProfile);
+	if (layoutProfile) doc.layoutProfile = layoutProfile;
 	// Default-HUD persist (§ default-HUD Phase 2b): rewrite a legacy coded `hudBar` (the seeded
 	// `UiLabel*`/`UiButton*` `bind` nodes) into the parametric `componentInstance` HUD. Same
 	// migrate-on-read shape as `backfillAlwaysOnTop` — the editor then SHOWS the flow-v2-safe HUD
@@ -219,12 +225,19 @@ function normalizeMainSizesMap(
 ): Record<LayoutType, { width: number; height: number }> {
 	const src = isRecord(input) ? input : {};
 	const out: Record<LayoutType, { width: number; height: number }> = { ...DEFAULT_MAIN_SIZES };
-	for (const t of LAYOUT_TYPES) {
+	// Ensure the legacy four keys exist, then carry over any additional author-defined
+	// bucket ids present in the input (a custom LayoutProfile can add buckets). Bucket
+	// ids key this map, so it is an OPEN record — not the fixed four.
+	const keys = new Set<string>([...LAYOUT_TYPES, ...Object.keys(src)]);
+	for (const t of keys) {
 		const candidate = src[t];
+		const base = out[t] ?? DEFAULT_MAIN_SIZES.desktop;
 		if (isRecord(candidate)) {
-			const width = typeof candidate.width === 'number' ? candidate.width : out[t].width;
-			const height = typeof candidate.height === 'number' ? candidate.height : out[t].height;
+			const width = typeof candidate.width === 'number' ? candidate.width : base.width;
+			const height = typeof candidate.height === 'number' ? candidate.height : base.height;
 			out[t] = { width, height };
+		} else if (!out[t]) {
+			out[t] = { ...base };
 		}
 	}
 	return out;

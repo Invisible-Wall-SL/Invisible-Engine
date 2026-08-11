@@ -20,7 +20,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 
 const bundled = await esbuild.build({
 	stdin: {
-		contents: `export { selectBucket, DEFAULT_LAYOUT_PROFILE } from '../../constants-shared/layoutProfile.ts';`,
+		contents: `export { selectBucket, DEFAULT_LAYOUT_PROFILE, normalizeLayoutProfile } from '../../constants-shared/layoutProfile.ts';`,
 		resolveDir: HERE,
 		loader: 'ts',
 		sourcefile: 'entry.ts',
@@ -32,7 +32,9 @@ const bundled = await esbuild.build({
 });
 const tmp = join(tmpdir(), `layout-profile-parity-${process.pid}.mjs`);
 await writeFile(tmp, bundled.outputFiles[0].text);
-const { selectBucket, DEFAULT_LAYOUT_PROFILE } = await import(pathToFileURL(tmp).href);
+const { selectBucket, DEFAULT_LAYOUT_PROFILE, normalizeLayoutProfile } = await import(
+	pathToFileURL(tmp).href
+);
 await rm(tmp, { force: true });
 
 // --- verbatim copy of the LEGACY classifier (createLayout.svelte.ts before this change) ---
@@ -97,3 +99,49 @@ if (failures) {
 console.log(
 	'\n✓ layout-profile selection is byte-identical to the legacy layoutType() across the grid.',
 );
+
+// --- Custom-profile scenarios: prove the AUTHORING value the feature exists for. ---
+console.log('\nCustom profiles:');
+let custom = 0;
+const check = (label, cond) => {
+	if (!cond) custom++;
+	console.log(`  ${cond ? '✓' : '✗'} ${label}`);
+};
+
+// 1. "Desktop and Landscape should be the same" — one wide bucket for BOTH a monitor and a
+//    phone-in-landscape (drop the 480px split), plus an added ultrawide bucket for 21:9.
+const merged = normalizeLayoutProfile({
+	buckets: [
+		{ id: 'portrait', label: 'Portrait', box: { width: 1080, height: 1920 }, rule: { maxRatio: 0.8 } },
+		{ id: 'tablet', label: 'Tablet', box: { width: 1600, height: 1200 }, rule: { maxRatio: 1.3 } },
+		{ id: 'ultrawide', label: 'Ultrawide', box: { width: 2560, height: 1080 }, rule: { minRatio: 2.2 } },
+		{ id: 'desktop', label: 'Desktop', box: { width: 1920, height: 1080 }, rule: {} },
+	],
+	fallbackBucketId: 'desktop',
+});
+check('valid custom profile parsed', !!merged);
+check('812×375 phone-landscape → desktop (merged, no separate landscape)', selectBucket(merged, { width: 812, height: 375 }).id === 'desktop');
+check('1920×1080 monitor → desktop (same bucket as phone-landscape)', selectBucket(merged, { width: 1920, height: 1080 }).id === 'desktop');
+check('2560×1080 21:9 → ultrawide (added bucket wins by order)', selectBucket(merged, { width: 2560, height: 1080 }).id === 'ultrawide');
+check('768×1024 → portrait (unchanged)', selectBucket(merged, { width: 768, height: 1024 }).id === 'portrait');
+
+// 2. Validation: malformed buckets dropped, missing label filled, bad fallback repaired.
+const repaired = normalizeLayoutProfile({
+	buckets: [
+		{ id: 'a', box: { width: 1000, height: 500 }, rule: {} }, // no label → fills from id
+		{ id: 'a', label: 'dup', box: { width: 1, height: 1 }, rule: {} }, // duplicate id → dropped
+		{ id: 'b', label: 'B', box: { width: 0, height: 500 }, rule: {} }, // bad box → dropped
+		{ label: 'noid', box: { width: 10, height: 10 }, rule: {} }, // no id → dropped
+	],
+	fallbackBucketId: 'nope',
+});
+check('normalize drops dup/bad/id-less buckets (1 survives)', repaired?.buckets.length === 1);
+check('normalize fills missing label from id', repaired?.buckets[0].label === 'a');
+check('normalize repairs bad fallbackBucketId to a real bucket', repaired?.fallbackBucketId === 'a');
+check('normalize rejects a profile with no usable bucket', normalizeLayoutProfile({ buckets: [] }) === null);
+
+if (custom) {
+	console.error(`\n✗ ${custom} custom-profile assertion(s) failed.`);
+	process.exit(1);
+}
+console.log('\n✓ custom-profile authoring (merge buckets, add ultrawide, validation) verified.');

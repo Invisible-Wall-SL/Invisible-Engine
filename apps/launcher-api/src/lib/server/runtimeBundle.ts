@@ -44,6 +44,7 @@ import { listComponentDefaults } from './componentDefaultsStorage';
 import { loadComponent } from './componentStorage';
 import { exportEditorArt, type EditorArtIndex } from './editorArtExport';
 import { loadDoc as loadEditorDoc } from './editorStorage';
+import { getGlobalLayoutProfile } from './layoutProfile';
 import { pruneUnreachableEffects } from './effectReachability';
 import { exportEditorFlow } from './flowExport';
 import { exportEditorFlowV2 } from './flowV2Export';
@@ -298,6 +299,14 @@ async function assembleRuntimeBundle(
 		const loaded = (await loadEditorDoc(clientKey, projectKey)) as LayoutDoc;
 		applyHudGameNameDefault(loaded, await projectName(projectKey));
 		resolveSpineKeysForGame(loaded, clientKey, projectKey);
+		// Bake the EFFECTIVE layout profile into the shipped doc: a project override (already
+		// on the doc) wins; otherwise stamp the admin global default so a non-overriding game
+		// still runs the pipeline's authored buckets without a runtime DB read. Absent global
+		// default ⇒ no field added ⇒ the runtime uses the coded DEFAULT_LAYOUT_PROFILE (parity).
+		if (!loaded.layoutProfile) {
+			const globalDefault = await getGlobalLayoutProfile();
+			if (globalDefault) loaded.layoutProfile = globalDefault;
+		}
 		return loaded;
 	});
 	// The game config is loaded up front (not just in the asset Promise.all below) because the
