@@ -1,7 +1,7 @@
 import type { AnticipationTier } from 'utils-slots';
 
 import { bakedAnticipation } from '../editor-scenes';
-import { activeBigTiers } from './gameConfig';
+import { activeBigTiers, boardDimensions } from './gameConfig';
 import type { SoundEffectName } from './sound';
 import { getSymbolX, stateGame, stateGameDerived } from './stateGame.svelte';
 
@@ -226,12 +226,18 @@ export const reelColumnWidth = (): number => {
 };
 
 /**
- * The full reel-column HEIGHT in world space — the board's local height mapped through the board scale.
- * Default board: `BOARD_SIZES.height · 1`, i.e. byte-parity with the old `boardLayout().height` dim.
+ * The full reel-column HEIGHT in world space — the ACTUAL visible-cluster span mapped through the board
+ * scale. The exact span is `(rows − 1) · rowPitch + cellHeight` (row centres span `(rows−1)·pitch`, plus
+ * half a cell each end), so it grows with enlarged cells / row gaps instead of assuming a gap-less
+ * `SYMBOL_SIZE`-per-cell column — the old `layout.height` (= `SYMBOL_SIZE · rows`) understated the height
+ * on a resized/gapped board, so the dim didn't reach the top/bottom rows. Default board:
+ * `(rows−1)·SYMBOL_SIZE + SYMBOL_SIZE === SYMBOL_SIZE · rows`, i.e. byte-parity with the old dim.
  */
 export const boardColumnHeight = (): number => {
 	const layout = stateGameDerived.boardLayout();
-	return layout.height * layout.scale;
+	const { rowPitchLocal, cellHeightLocal } = stateGameDerived.boardGeometry();
+	const rows = boardDimensions().y;
+	return ((rows - 1) * rowPitchLocal + cellHeightLocal) * layout.scale;
 };
 
 /** The board's vertical CENTRE in world space (the container `y`, since its anchor is {0.5, 0.5}). */
