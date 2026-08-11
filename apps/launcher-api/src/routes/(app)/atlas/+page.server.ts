@@ -6,6 +6,7 @@ import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { toolBarParams } from '$lib/server/toolBar';
 import { resolveToolScope } from '$lib/server/toolScope';
 import { getToolOverrides } from '$lib/server/userToolAccess';
+import { r2Slug } from '$lib/server/projectPaths';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => {
@@ -34,6 +35,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		if (ENV.ATLAS_TOOL_SECRET) params.set('k', ENV.ATLAS_TOOL_SECRET);
 		params.set('client', client);
 		params.set('project', project);
+		// Per-user ComfyUI routing (docs/design/per-user-comfyui-routing.md):
+		// forward WHO is logged in so the tool routes generation to this user's
+		// own registered ComfyUI (a client is shared, so client/project can't
+		// identify the user). Same r2Slug the register endpoint + atlas-tool use.
+		params.set('user', r2Slug(locals.user.id));
 		// Invisible Blueprints publish gate (design §6/§7). Everyone can READ the
 		// shared library; only holders of the `blueprintPublish` capability may
 		// publish. The gate is by KNOWLEDGE OF A SECRET, not a forgeable flag —
