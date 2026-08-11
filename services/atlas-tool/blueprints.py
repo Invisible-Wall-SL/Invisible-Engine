@@ -26,6 +26,7 @@ No secrets here: R2 creds come from env via `storage` / `iw_common.storage`.
 from __future__ import annotations
 
 import json
+import shutil
 import threading
 from pathlib import Path
 
@@ -343,3 +344,38 @@ def get_blueprint(blueprint_id: str) -> dict | None:
     if not d.is_dir():
         return None
     return _read_blueprint_dir(d)
+
+
+def delete_blueprint(blueprint_id: str) -> dict:
+    """Remove a shared blueprint: every object under
+    `_shared/blueprints/<id>/` in R2 PLUS its staging mirror dir. Returns
+    `{id, deleted, existed}` (deleted = R2 objects removed). Raises ValueError
+    only on an empty id. Best-effort per object / on the local rmtree — a
+    partially-present blueprint still gets cleaned up as far as possible, and a
+    missing one is a no-op (`existed=False`). The id is slugged so it matches
+    the on-disk dir and the stored `pipeline` value identically."""
+    bp_id = r2_slug(blueprint_id or "")
+    if not bp_id:
+        raise ValueError("no blueprint id")
+    prefix = f"{SHARED_BLUEPRINTS_PREFIX}/{bp_id}/"
+    try:
+        keys = [o["key"] for o in storage.list_keys(prefix)]
+    except Exception:  # noqa: BLE001 — R2 hiccup: fall back to the known files
+        keys = [f"{prefix}blueprint.json", f"{prefix}workflow.json",
+                f"{prefix}thumb.png"]
+    deleted = 0
+    for k in keys:
+        try:
+            storage.delete(k)
+            deleted += 1
+        except Exception:  # noqa: BLE001 — keep deleting the rest
+            pass
+    d = BLUEPRINTS_STAGING / bp_id
+    existed_local = d.is_dir()
+    if existed_local:
+        try:
+            shutil.rmtree(d)
+        except OSError:
+            pass
+    return {"id": bp_id, "deleted": deleted,
+            "existed": bool(deleted) or existed_local}
