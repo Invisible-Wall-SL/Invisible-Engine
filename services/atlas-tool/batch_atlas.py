@@ -2749,7 +2749,20 @@ def main() -> None:
 
     if args.compose_only:
         # Assemble the atlas from already-generated PNGs. No ComfyUI calls.
-        canvas = Image.new("RGBA", (atlas["width"], atlas["height"]), (0, 0, 0, 0))
+        # A from-scratch ('pack' layout) atlas only gets its page size once
+        # auto_pack_layout has measured generated art; composing before anything
+        # is generated leaves width/height unset. Fail with a readable line
+        # rather than a KeyError on the canvas.
+        try:
+            page_w, page_h = int(atlas["width"]), int(atlas["height"])
+        except (KeyError, TypeError, ValueError):
+            page_w = page_h = 0
+        if page_w <= 0 or page_h <= 0:
+            print("Nothing to compose yet — this atlas has no page geometry. "
+                  "Generate at least one region, then Create Atlas (the page is "
+                  "packed from the generated art).")
+            return
+        canvas = Image.new("RGBA", (page_w, page_h), (0, 0, 0, 0))
         placed = 0
         for region in regions:
             ov = override_image_path(region)
@@ -2936,11 +2949,16 @@ def main() -> None:
     # prompt — same contract as preflight_models.
     _prepare_blueprint_models_or_fail(gen_regions)
 
+    # A from-scratch ('pack' layout) atlas has no source page, so `source_image`
+    # is absent — and it's only a style-ref fallback for the built-in builders
+    # anyway (a blueprint ignores it entirely). Use "" ("no source") rather than
+    # a hard lookup so generation works before any page exists.
+    source_image = atlas.get("source_image") or ""
     for i, region in enumerate(jobs, start=1):
         label = f"{region['name']} ({region.get('fruit', '?')})"
         flag = " [rotated]" if region.get("rotated") else ""
         print(f"[{i}/{len(jobs)}] {label}{flag} ...", flush=True)
-        run_region(region, style, atlas["source_image"], client_id)
+        run_region(region, style, source_image, client_id)
 
     print(f"Done generating. Variant PNGs saved in {BATCH_DIR}")
 
