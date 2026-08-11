@@ -406,3 +406,72 @@ Phases 1–3 are the backbone; 4–5 make it usable; 6–7 make it self-serve an
   roles are mapped before saving.
 - **Large files:** multi-GB checkpoints over a home connection — show size/progress and let
   the user pre-warm (run prepare without generating).
+
+## 10. Artist-uploaded models + custom nodes — the "never breaks" bundle (B?? — companion)
+
+> **Decision (2026-08-11, owner):** generation stays on the **local ComfyUI** (RTX 4070 +
+> tunnel); a small **companion agent** on that machine syncs each blueprint's dependencies
+> from R2 *before* generate. Artists **upload the model files** into the tool (→ R2,
+> content-addressed by SHA-256). This closes the gap in §4/§9: an artist-**modified** model
+> (not in any Manager catalog) and a **custom node** (e.g. `PulidModelLoader`/PuLID) can't be
+> auto-installed onto the tunneled box via ComfyUI-Manager — Manager's `install_model` only
+> accepts catalog-whitelisted models (400 otherwise), and the tunnel exposes only ComfyUI's
+> HTTP API, never its `models/` dir. Real report that motivated this: a FLUX character
+> blueprint whose PuLID node + artist-tuned model both failed on the local box.
+
+### Why a companion (not just Manager)
+Manager can install *catalog* models and git custom nodes, but **not an arbitrary uploaded
+model**. The companion is a tiny local process WITH filesystem access: it pulls model files
+from R2 into `models/<save_path>/` and git-clones/pins custom nodes into `custom_nodes/`,
+then restarts ComfyUI. It's reached the SAME way as ComfyUI — a second Cloudflare tunnel
+route (e.g. `companion.invisiblewall.org` → `localhost:<port>`) — so the atlas-tool prepare
+step calls it exactly like it already calls Manager. No inbound-to-home hole beyond the
+tunnel that already exists.
+
+### Blueprint bundle = graph + nodes + models (manifest extension)
+- `models[]` entry gains `r2_key` (the uploaded file at `_shared/models/<sha256>/<filename>`)
+  and keeps `sha256` (the **content hash — pins the exact version**), `save_path`, `filename`.
+  `url` stays as an optional fallback. `sha256` is the "never an old/wrong model" guarantee:
+  the companion checks presence *by hash* and re-pulls on mismatch.
+- New `custom_nodes[]`: `{ name, url (git), commit? }` — each node repo the graph needs.
+
+### Storage
+- Models: **`_shared/models/<sha256>/<filename>`** — global + **deduped** (one 6 GB checkpoint
+  shared by every blueprint that uses it). Mirrors the `_shared/blueprints/` precedent.
+- Custom nodes: git URLs in the manifest (not copied to R2 — cloned + pinned on the box).
+
+### Upload (large files) — direct-to-R2, presigned multipart
+Multi-GB models can't route through Railway (request limits + memory). The browser uploads
+**straight to R2 via presigned multipart**: the tool mints presigned part URLs, the browser
+PUTs the parts and reports the SHA-256, the tool completes the multipart + records
+`r2_key`/`sha256` on the blueprint. Small files may still go through the tool.
+
+### Companion protocol (HTTP over the tunnel)
+- `POST /ensure` — body is a blueprint's dep manifest (`models[]` + `custom_nodes[]`). For each
+  model: if `models/<save_path>/<filename>` is missing OR its hash ≠ `sha256` → download from
+  R2 `_shared/models/<sha256>/…`. For each node: if `custom_nodes/<name>` is missing →
+  `git clone` (+ `checkout <commit>`) + `pip install -r requirements.txt`. If anything changed
+  → restart ComfyUI, poll `/system_stats` until back. Returns `{ready, installed,
+  still_missing[]}` — the SAME contract as `prepare_blueprint_models` so the caller is uniform.
+- Idempotent + fast: a warm box is a near-instant no-op (presence-by-hash short-circuits).
+
+### Prepare-step integration
+`_prepare_blueprint_models_or_fail` (already runs before generate) additionally calls the
+companion's `/ensure` for the active blueprint. Fail-safe everywhere: companion absent /
+unreachable / a download failure all degrade to the readable checklist (as today), never a
+crash. Kill-switch env, like `BLUEPRINT_AUTO_INSTALL_MODELS`.
+
+### Build plan (phased)
+1. **Manifest + storage schema** — `models[].r2_key`/`sha256`, `custom_nodes[]`, validation,
+   the `_shared/models/<sha256>/` layout. Additive + back-compat (old blueprints unaffected).
+   *(foundation, no runtime — the first increment.)*
+2. **Model-upload UI** — presigned-multipart upload in the blueprint modal; attach an uploaded
+   file (or a URL) per detected model field; declare custom nodes (name + git url + commit).
+3. **Companion agent** — the local HTTP service (`/ensure`), its download/clone/restart logic,
+   the tunnel route, and the one-time setup docs (INFRA.md).
+4. **Prepare integration** — wire `/ensure` into `_prepare_blueprint_models_or_fail`; kill-switch;
+   checklist fallback; "pre-warm" (run prepare without generating).
+5. **Content-addressed verify** — hash-check + re-pull; surface per-dep status in the UI.
+
+Phase 1 is the schema this rests on; 2 makes it authorable; 3–4 make it automatic; 5 hardens
+the "never breaks" guarantee.

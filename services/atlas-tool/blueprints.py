@@ -112,7 +112,52 @@ def _validate_manifest(bp_id: str, manifest: dict) -> dict:
                 f"blueprint '{bp_id}': role '{role}' has no 'field'")
     _validate_params(bp_id, manifest, bindings)
     _validate_models(bp_id, manifest)
+    _validate_custom_nodes(bp_id, manifest)
     return manifest
+
+
+def _validate_custom_nodes(bp_id: str, manifest: dict) -> list:
+    """Validate + normalize the OPTIONAL `custom_nodes[]` array (B?? §10).
+
+    Each entry declares a ComfyUI custom-node repo the blueprint's graph needs
+    (e.g. PuLID for a `PulidModelLoader` node). The companion agent git-clones
+    any missing one into `custom_nodes/<name>` and pins `commit` if given.
+    `custom_nodes` defaults to `[]`; a blueprint without it is unchanged. Each
+    entry needs a `name` (the on-disk dir) and a git `url`; `commit` is optional
+    (pin for reproducibility). Raises ValueError with a readable message on a
+    structurally broken entry so the loader can skip a bad blueprint."""
+    nodes = manifest.get("custom_nodes")
+    if nodes in (None, ""):
+        manifest["custom_nodes"] = []
+        return []
+    if not isinstance(nodes, list):
+        raise ValueError(f"blueprint '{bp_id}': 'custom_nodes' must be an array")
+    out = []
+    seen = set()
+    for i, n in enumerate(nodes):
+        if not isinstance(n, dict):
+            raise ValueError(
+                f"blueprint '{bp_id}': custom_nodes[{i}] is not an object")
+        name = str(n.get("name", "")).strip()
+        url = str(n.get("url", "")).strip()
+        if not name:
+            raise ValueError(
+                f"blueprint '{bp_id}': custom_nodes[{i}] needs a 'name' "
+                "(its custom_nodes/ folder)")
+        if not url:
+            raise ValueError(
+                f"blueprint '{bp_id}': custom node '{name}' needs a git 'url'")
+        if name in seen:
+            raise ValueError(
+                f"blueprint '{bp_id}': duplicate custom node '{name}'")
+        seen.add(name)
+        entry = {"name": name, "url": url}
+        commit = str(n.get("commit", "")).strip()
+        if commit:
+            entry["commit"] = commit
+        out.append(entry)
+    manifest["custom_nodes"] = out
+    return out
 
 
 def _validate_models(bp_id: str, manifest: dict) -> list:
@@ -150,7 +195,10 @@ def _validate_models(bp_id: str, manifest: dict) -> list:
             "url": url,
         }
         # Optional verify/progress metadata + catalog niceties, passed through.
-        for opt in ("sha256", "size", "name", "type"):
+        # `r2_key` = an ARTIST-UPLOADED model file at `_shared/models/<sha256>/…`
+        # (B?? §10) — the companion pulls this into `models/<save_path>/` when the
+        # model isn't a public/catalog download. `sha256` pins the exact version.
+        for opt in ("sha256", "size", "name", "type", "r2_key"):
             if m.get(opt) not in (None, ""):
                 norm[opt] = m[opt]
         out.append(norm)
@@ -309,13 +357,15 @@ def _read_blueprint_dir(d: Path) -> dict | None:
         return None
     bindings = manifest["bindings"]
     params = manifest.get("params") or []
-    # meta carries everything except bindings (incl. the normalized params), so
-    # list_blueprints()/get_blueprint() surface params to the UI. params is also
-    # promoted to the top level for the runner.
+    custom_nodes = manifest.get("custom_nodes") or []
+    # meta carries everything except bindings (incl. the normalized params +
+    # custom_nodes), so list_blueprints()/get_blueprint() surface them to the UI.
+    # params + custom_nodes are ALSO promoted to the top level for the runner /
+    # the companion prepare step (B?? §10).
     meta = {k: v for k, v in manifest.items() if k != "bindings"}
     meta.setdefault("id", bp_id)
     return {"id": bp_id, "graph": graph, "bindings": bindings,
-            "params": params, "meta": meta}
+            "params": params, "custom_nodes": custom_nodes, "meta": meta}
 
 
 def list_blueprints() -> list[dict]:
