@@ -39,6 +39,7 @@ import atlas_writers  # noqa: E402  (TexturePacker JSON for game-loadable deploy
 import batch_atlas  # noqa: E402  (reuse the geometry resolver — single source)
 import blueprints  # noqa: E402  (shared, data-driven ComfyUI pipeline library)
 import shine  # noqa: E402  (local *_shine derivation, no ComfyUI)
+import pack  # noqa: E402  (MaxRects bin packer for from-scratch auto-pack atlases)
 
 # Self-contained tool folder (Tools/<Tool Name>/). All code, config and
 # manifests live here together; per-game ComfyUI dirs come from project_paths.
@@ -1916,6 +1917,98 @@ def run_render(names: list[str], variants: int = 1,
     _run_cmd(cmd, len(names) * max(1, variants), post_hook=_post)
 
 
+# Page-width cap for the from-scratch auto-pack layout. The sheet grows only if
+# a single trimmed sprite is wider than this; the height auto-crops to whatever
+# the packed content uses. Inter-sprite gap (px) keeps neighbours from bleeding.
+AUTO_PACK_MAX_WIDTH = 2048
+AUTO_PACK_PADDING = 2
+
+
+def _sanitize_region_name(raw: str) -> str:
+    """A region name is used verbatim as a variant-file prefix
+    (`<name>_00001_.png`) and a manifest key, so keep it filesystem-safe:
+    letters/digits/_/- only, other runs collapse to a single '_'."""
+    s = re.sub(r"[^A-Za-z0-9_-]+", "_", str(raw).strip())
+    return s.strip("_-")
+
+
+def auto_pack_layout(m: dict) -> str | None:
+    """From-scratch (`atlas.layout == "pack"`) atlases: derive the page layout
+    from the generated art instead of a pre-authored `.atlas`.
+
+    For each region, measure its committed variant / override at its ALPHA-
+    trimmed footprint (the same crop compose's default `contain` path uses), pack
+    all of them into an auto-sized page, then stamp `x/y/w/h(/rotated)` back onto
+    each region plus `atlas.width/height`. Compose then places each region via
+    the default contain path — rect == trimmed bbox ⇒ 1:1, no scaling — and
+    `_deployatlas`'s manifest-regions fallback emits the TexturePacker descriptor
+    from these same fields. Re-running after adding/generating regions re-packs,
+    so the page morphs to fit.
+
+    Regions with no committed image yet are left UNPLACED (compose already skips
+    a region with no variant). Mutates + saves the manifest. Never raises — any
+    failure returns a readable note and leaves the prior geometry untouched.
+    Returns None when `m` is not a pack atlas (so callers can no-op silently)."""
+    if str((m.get("atlas") or {}).get("layout", "")).strip().lower() != "pack":
+        return None
+    regions = [r for bucket in ("regions", "rotated_regions")
+               for r in (m.get(bucket) or [])
+               if isinstance(r, dict) and r.get("name")]
+    batch_dir = Path(str(BATCH_DIR))
+    items: list[dict] = []
+    by_name: dict[str, dict] = {}
+    skipped: list[str] = []
+    for r in regions:
+        src = (batch_atlas.override_image_path(r)
+               or batch_atlas._pick_variant_png(batch_dir, r))
+        bbox = None
+        if src is not None:
+            try:
+                with Image.open(src) as im:
+                    bbox = im.convert("RGBA").getchannel("A").getbbox()
+            except Exception:  # noqa: BLE001 — an unreadable variant = unplaced
+                bbox = None
+        if not bbox:
+            skipped.append(r["name"])
+            continue
+        w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        items.append({"name": r["name"], "w": int(w), "h": int(h)})
+        by_name[r["name"]] = r
+    if not items:
+        return ("⚠ Auto-pack: nothing generated yet — generate at least one "
+                "region before Create Atlas.")
+    try:
+        result = pack.pack(items, width=AUTO_PACK_MAX_WIDTH, height=0,
+                           padding=AUTO_PACK_PADDING, allow_rotation=False)
+    except ValueError as e:
+        return f"⚠ Auto-pack failed: {e}"
+    for pr in result["regions"]:
+        r = by_name.get(pr["name"])
+        if r is None:
+            continue
+        r["x"], r["y"] = int(pr["x"]), int(pr["y"])
+        r["w"], r["h"] = int(pr["w"]), int(pr["h"])
+        r["rotated"] = bool(pr["rotated"])
+        # The trimmed art IS the frame — no logical Spine trim. Drop any stale
+        # trim/orig/fit_mode a previous pack (or import) left so the descriptor
+        # + compose stay on the plain contain path.
+        for k in ("off_x", "off_y", "orig_w", "orig_h", "fit_mode",
+                  "bounds", "offsets"):
+            r.pop(k, None)
+    atlas = m.setdefault("atlas", {})
+    atlas["layout"] = "pack"
+    atlas["width"] = int(result["width"])
+    atlas["height"] = int(result["height"])
+    save_manifest(m)
+    note = (f"Auto-packed {len(items)} region(s) → page "
+            f"{result['width']}×{result['height']}")
+    if skipped:
+        note += (f"; {len(skipped)} not generated yet (skipped): "
+                 f"{', '.join(skipped[:8])}"
+                 + (" …" if len(skipped) > 8 else ""))
+    return note
+
+
 def run_compose(ctx: tuple[str, str] | None = None) -> None:
     # See run_render: re-apply the request thread's context on this worker.
     if ctx:
@@ -1935,6 +2028,16 @@ def run_compose(ctx: tuple[str, str] | None = None) -> None:
                         % (len(rebuilt), ", ".join(rebuilt)))
     except Exception as e:  # noqa: BLE001
         pre_note = f"[FX auto-rebuild skipped] {e}"
+    # From-scratch atlases lay themselves out: pack the generated art into a
+    # page and write geometry onto the manifest BEFORE the compose subprocess
+    # reads it. No-op (returns None) for `.atlas`-bound / cell-grid manifests.
+    try:
+        pack_note = auto_pack_layout(load_manifest())
+        if pack_note:
+            pre_note = f"{pre_note}\n{pack_note}" if pre_note else pack_note
+    except Exception as e:  # noqa: BLE001 — never block compose on a pack hiccup
+        _pn = f"[auto-pack skipped] {e}"
+        pre_note = f"{pre_note}\n{_pn}" if pre_note else _pn
     # Pass the active manifest explicitly (full staging path) so compose reads
     # the same creative manifest the UI shows — not whatever the subprocess's
     # config default would resolve against the script dir.
@@ -2995,6 +3098,8 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  <span class="ssn-title">Session</span>
  <span class="ssn-field"><span>Active project{proj_qm}</span>{project_select}</span>
  <span class="ssn-field"><span>Active manifest{manifest_qm}</span>{manifest_select}</span>
+ <button onclick="newAtlas(this)" class="alt" title="Create a brand-new, empty atlas from scratch (auto-pack layout). Add regions and generate them from prompts; Create Atlas packs them into a page automatically.">＋ New atlas</button>
+ <button onclick="addRegion(this)" class="alt" title="Add a new region to the active atlas. Give it a name; edit its prompt on the card, generate, then Create Atlas re-packs the page to fit.">＋ Add region</button>
  <button onclick="refreshR2(this)" class="alt" title="Re-pull this project's manifests from R2 (e.g. after exporting a sheet from the Sheet Maker) without restarting or switching projects">↻ Refresh from R2</button>
  <button onclick="clearCache(this)" class="alt" title="Discard the local copy of this project and re-download it from R2, matching the cloud exactly. Files deleted from the cloud are dropped here too; unsaved local work is lost. R2 is the source of truth.">↺ Reset from R2</button>
  <span class="ssn-note">switching reloads the page</span>
@@ -3166,6 +3271,36 @@ function collect(){{
  return regs;
 }}
 function cfgData(){{let o={{}};document.querySelectorAll('[data-cfg]').forEach(el=>{{o[el.dataset.cfg]=el.value;}});return o;}}
+// From-scratch atlas flow: create an empty pack-layout atlas, add/remove
+// regions. Each POSTs, shows the server's note, and reloads on success ('✓').
+async function _postReload(url,body,btn){{
+ let bar=document.getElementById('sessionbar'); if(bar) bar.classList.add('busy');
+ let msg;
+ try{{ let r=await fetch(url,{{method:'POST',body:JSON.stringify(body)}});
+  msg=(r.status===404)?'Endpoint missing — restart the service':await r.text();
+ }}catch(e){{ msg='Failed: '+e; }}
+ let stat=document.getElementById('stat'); if(stat) stat.textContent=msg;
+ if(msg.indexOf('✓')>=0){{ location.reload(); return; }}
+ if(bar) bar.classList.remove('busy');
+ if(msg.indexOf('⚠')!==0 && msg.indexOf('✓')<0) alert(msg);
+}}
+function newAtlas(btn){{
+ let name=prompt('Name for the new atlas (a fresh, empty page you fill from prompts):');
+ if(name===null) return;
+ name=name.trim(); if(!name) return;
+ _postReload('/newatlas',{{name:name}},btn);
+}}
+function addRegion(btn){{
+ let name=prompt('Region name (letters, numbers, _ or -). You\\'ll set its prompt on the card:');
+ if(name===null) return;
+ name=name.trim(); if(!name) return;
+ _postReload('/addregion',{{name:name}},btn);
+}}
+function delRegion(name){{
+ if(!name) return;
+ if(!confirm('Remove region \"'+name+'\" from this atlas? (generated variants are kept)')) return;
+ _postReload('/delregion',{{name:name}},null);
+}}
 async function switchSession(sel){{
  // Session-bar dropdowns (active project / active manifest) are context
  // switchers — saving + reloading is the whole interaction, no button.
@@ -4214,7 +4349,7 @@ window.addEventListener('DOMContentLoaded',function(){{
 
 CARD = """<div class="card{card_cls}" data-name="{name}" data-effpipe="{eff_pipe}" data-usedseed="{used_seed}" data-lockedseed="{locked_seed}" data-variant="{variant}">
  <h3><input type="checkbox" class="sel" {checked}> {name}{gpt_badge}
-  <button class="cpbtn" title="Copy settings (prompt + advanced + shine; NOT reference image, seed or lock)" onclick="copyCfg('{name}')">⧉</button><button class="ptbtn" title="Paste copied settings into this region" onclick="pasteCfg('{name}')">📥</button>{mode_sel}</h3>
+  <button class="cpbtn" title="Copy settings (prompt + advanced + shine; NOT reference image, seed or lock)" onclick="copyCfg('{name}')">⧉</button><button class="ptbtn" title="Paste copied settings into this region" onclick="pasteCfg('{name}')">📥</button>{del_btn}{mode_sel}</h3>
  <div class="role">{role}</div>
  <div class="imgs">
   <figure>
@@ -4630,6 +4765,12 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain", stop_render().encode())
         elif self.path == "/delvariants":
             self._send(200, "text/plain", self._delvariants(json.loads(raw)).encode())
+        elif self.path == "/newatlas":
+            self._send(200, "text/plain", self._newatlas(json.loads(raw)).encode())
+        elif self.path == "/addregion":
+            self._send(200, "text/plain", self._addregion(json.loads(raw)).encode())
+        elif self.path == "/delregion":
+            self._send(200, "text/plain", self._delregion(json.loads(raw)).encode())
         elif self.path == "/saveadv":
             self._send(200, "text/plain", self._saveadv(json.loads(raw)).encode())
         elif self.path == "/saveglobalstyle":
@@ -5644,6 +5785,83 @@ class Handler(BaseHTTPRequestHandler):
         return (f"{spine_note}{head}"
                 f"✓ Deployed to R2: {', '.join(copied)}{json_note}")
 
+    def _newatlas(self, payload: dict) -> str:
+        """Create a brand-new, from-scratch atlas — an empty `pack`-layout
+        manifest (no bound `.atlas`) — and make it the active selection. Regions
+        are added later (＋ Add region), generated from prompts, and laid out by
+        Create Atlas (auto_pack_layout). Never raises — returns a readable note;
+        a leading '✓' tells the client to reload."""
+        name = str(payload.get("name", "")).strip()
+        if not name:
+            return "Give the atlas a name."
+        slug = project_paths.r2_slug(name)
+        if not slug:
+            return "✖ Couldn't derive an atlas name from that — use letters/numbers."
+        fname = f"atlas_manifest_{slug}.json"
+        dest = MANIFEST_DIR / fname
+        if dest.exists() and not bool(payload.get("overwrite", False)):
+            # Don't clobber an existing atlas — switch to it instead.
+            cfg = load_config()
+            cfg["manifest_path"] = fname
+            save_config(cfg)
+            return (f"⚠ An atlas '{slug}' already exists — switched to it rather "
+                    f"than overwriting. ✓ reload.")
+        manifest = {
+            "atlas": {"layout": "pack"},
+            "style": {"positive_prefix": "", "positive_suffix": "", "negative": ""},
+            "regions": [],
+        }
+        try:
+            MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
+            dest.write_text(json.dumps(manifest, indent=2, ensure_ascii=False),
+                            encoding="utf-8")
+            _mirror(dest)
+        except OSError as e:
+            return f"✖ Couldn't create the atlas: {e}"
+        cfg = load_config()
+        cfg["manifest_path"] = fname
+        save_config(cfg)
+        return f"✓ Created atlas '{slug}' — add regions, generate, then Create Atlas."
+
+    def _addregion(self, payload: dict) -> str:
+        """Append a named region to the active manifest (from-scratch flow). The
+        region starts name-only; its prompt/seed/refs are edited on the card and
+        it's generated + auto-packed like any other. '✓' ⇒ client reloads."""
+        name = _sanitize_region_name(payload.get("name", ""))
+        if not name:
+            return "Give the region a name (letters, numbers, _ or -)."
+        m = load_manifest()
+        existing = {r.get("name") for bucket in ("regions", "rotated_regions")
+                    for r in (m.get(bucket) or []) if isinstance(r, dict)}
+        if name in existing:
+            return f"⚠ A region '{name}' already exists."
+        m.setdefault("regions", []).append({"name": name})
+        save_manifest(m)
+        return f"✓ Added region '{name}'."
+
+    def _delregion(self, payload: dict) -> str:
+        """Remove a region (both buckets) from the active manifest. '✓' ⇒
+        client reloads. Does NOT delete generated variants — re-adding the same
+        name picks them back up."""
+        name = str(payload.get("name", "")).strip()
+        if not name:
+            return "No region specified."
+        m = load_manifest()
+        removed = False
+        for bucket in ("regions", "rotated_regions"):
+            lst = m.get(bucket)
+            if not isinstance(lst, list):
+                continue
+            kept = [r for r in lst
+                    if not (isinstance(r, dict) and r.get("name") == name)]
+            if len(kept) != len(lst):
+                m[bucket] = kept
+                removed = True
+        if not removed:
+            return f"⚠ No region '{name}' to remove."
+        save_manifest(m)
+        return f"✓ Removed region '{name}'."
+
     def _saveglobalstyle(self, payload: dict) -> str:
         m = load_manifest()
         style = m.setdefault("style", {})
@@ -5894,6 +6112,11 @@ class Handler(BaseHTTPRequestHandler):
         cfg = load_config()
         cards = []
         g_pipe = str(cfg.get("pipeline", "sdxl")).lower() or "sdxl"
+        # A from-scratch ('pack' layout) atlas owns its regions in the manifest,
+        # so each card gets a delete affordance. An `.atlas`-bound atlas takes
+        # its regions from the geometry file — deleting one here is meaningless.
+        is_pack = str((m.get("atlas") or {}).get(
+            "layout", "")).strip().lower() == "pack"
         for r in all_regions(m):
             name = r["name"]
             eff_pipe = str(r.get("pipeline", "")).strip().lower() or g_pipe
@@ -5999,6 +6222,10 @@ class Handler(BaseHTTPRequestHandler):
                     "GPT-Image-1, not the local pipeline'>GPT</span>"
                     if eff_pipe == "gpt_image" else ""),
                 cb=ref_token,
+                del_btn=(
+                    '<button class="cpbtn" title="Remove this region from the '
+                    f'atlas" onclick="delRegion(\'{html.escape(name)}\')">🗑'
+                    '</button>' if is_pack else ""),
             ))
         msettings = m.get("settings") or {}
         matlas = m.get("atlas") or {}
