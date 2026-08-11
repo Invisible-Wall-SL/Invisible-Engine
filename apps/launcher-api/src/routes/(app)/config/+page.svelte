@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import ColorField from '$lib/ColorField.svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
@@ -1013,14 +1014,12 @@
 												>{p.label ?? p.key}{#if p.group}<em> · {p.group}</em>{/if}</span
 											>
 											{#if p.kind === 'color'}
-												<input
-													type="color"
+												<ColorField
 													value={toColorInput(
 														betModeCardParamValue(key, p.key),
 														typeof p.default === 'number' ? p.default : 0xffffff,
 													)}
-													oninput={(e) =>
-														setBetModeCardParam(key, p.key, fromColorInput(e.currentTarget.value))}
+													oninput={(hex) => setBetModeCardParam(key, p.key, fromColorInput(hex))}
 												/>
 											{:else if p.kind === 'number'}
 												<input
@@ -1171,7 +1170,8 @@
 										title={inPlay.has(name)
 											? 'In play — click to take it off the reels'
 											: 'Unused — click to put it on the reels'}
-										onclick={() => toggleInPlay(name)}>{inPlay.has(name) ? 'in play' : 'unused'}</button
+										onclick={() => toggleInPlay(name)}
+										>{inPlay.has(name) ? 'in play' : 'unused'}</button
 									>
 								</td>
 								<td
@@ -1242,11 +1242,9 @@
 							<span class="payline-id" style={tint ? `color:${tint}` : ''}>Line {line.id}</span>
 							{#if line.colorable}
 								<div class="payline-tools">
-									<input
-										class="swatch"
-										type="color"
+									<ColorField
 										value={paylineColorValue(line.id)}
-										oninput={(e) => setPaylineColor(line.id, e.currentTarget.value)}
+										oninput={(hex) => setPaylineColor(line.id, hex)}
 										title="Line colour"
 									/>
 									{#if tint}
@@ -1947,22 +1945,6 @@
 		display: flex;
 		align-items: center;
 		gap: 4px;
-	}
-	.swatch {
-		width: 22px;
-		height: 18px;
-		padding: 0;
-		border: 1px solid #26262f;
-		border-radius: 4px;
-		background: none;
-		cursor: pointer;
-	}
-	.swatch::-webkit-color-swatch-wrapper {
-		padding: 2px;
-	}
-	.swatch::-webkit-color-swatch {
-		border: none;
-		border-radius: 2px;
 	}
 	.payline-grid {
 		display: grid;

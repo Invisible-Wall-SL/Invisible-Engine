@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import ColorField from '$lib/ColorField.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
@@ -1287,24 +1288,16 @@
 					{#if tint}
 						<label class="row">
 							<span>Start</span>
-							<input
-								type="color"
+							<ColorField
 								value={tint.start}
-								oninput={(e) =>
-									patchConfig(
-										setParticleColor(config, 'start', (e.currentTarget as HTMLInputElement).value),
-									)}
+								oninput={(hex) => patchConfig(setParticleColor(config, 'start', hex))}
 							/>
 						</label>
 						<label class="row">
 							<span>End</span>
-							<input
-								type="color"
+							<ColorField
 								value={tint.end}
-								oninput={(e) =>
-									patchConfig(
-										setParticleColor(config, 'end', (e.currentTarget as HTMLInputElement).value),
-									)}
+								oninput={(hex) => patchConfig(setParticleColor(config, 'end', hex))}
 							/>
 						</label>
 					{/if}

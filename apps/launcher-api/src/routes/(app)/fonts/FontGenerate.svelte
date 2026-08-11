@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy } from 'svelte';
+	import ColorField from '$lib/ColorField.svelte';
 	import { Application, BitmapText, Container } from 'pixi.js';
 	import {
 		fetchFontCatalog,
@@ -547,12 +548,12 @@
 							<div class="row">
 								<label class="color">
 									{effects.fill.gradient ? 'Top' : 'Color'}
-									<input type="color" bind:value={effects.fill.color} />
+									<ColorField bind:value={effects.fill.color} />
 								</label>
 								{#if effects.fill.gradient}
 									<label class="color">
 										Bottom
-										<input type="color" bind:value={effects.fill.color2} />
+										<ColorField bind:value={effects.fill.color2} />
 									</label>
 								{/if}
 							</div>
@@ -578,7 +579,7 @@
 							</label>
 							<label class="color">
 								Color
-								<input type="color" bind:value={effects.outline.color} />
+								<ColorField bind:value={effects.outline.color} />
 							</label>
 						</div>
 					{/if}
@@ -604,7 +605,7 @@
 							</label>
 							<label class="color">
 								Color
-								<input type="color" bind:value={effects.shadow.color} />
+								<ColorField bind:value={effects.shadow.color} />
 							</label>
 						</div>
 					{/if}
