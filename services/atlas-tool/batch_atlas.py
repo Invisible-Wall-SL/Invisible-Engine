@@ -1610,16 +1610,39 @@ def build_workflow_blueprint(
     _set_node_input(wf, bindings.get("width"), GEN_WIDTH)
     _set_node_input(wf, bindings.get("height"), GEN_HEIGHT)
 
-    # Reference images — point the bound LoadImage nodes at the region's staging
-    # refs. Same precedence the builders use (region's own ref, style fallback
-    # via mockup_image). _upload_workflow_refs uploads whatever path lands here.
-    style_ref = region.get("style_ref") or (MOCKUP_IMAGE if MOCKUP_IMAGE else None)
-    if style_ref:
-        _set_node_input(wf, bindings.get("style_ref"), style_ref)
-    raw_shape_ref = region.get("shape_ref")
-    if raw_shape_ref:
+    # Reference images — point the bound LoadImage node(s) at the region's ref.
+    # The card gives a region ONE ref image (stored as `shape_ref`), but a
+    # blueprint may bind `style_ref` (IP-Adapter/Redux appearance), `shape_ref`
+    # (ControlNet silhouette), or both. Route the region's single ref to
+    # WHICHEVER role the blueprint actually binds, so a card upload fills a
+    # style-ref blueprint too — otherwise a bound-but-unfilled LoadImage keeps
+    # the graph's baked authoring path (e.g. "pasted/image (4).png") and the run
+    # dies in _upload_workflow_refs. style_ref = the raw image; shape_ref = the
+    # normalized silhouette. A role the blueprint doesn't bind is a no-op.
+    any_ref = (region.get("style_ref") or region.get("shape_ref")
+               or (MOCKUP_IMAGE if MOCKUP_IMAGE else None))
+    if any_ref and bindings.get("style_ref"):
+        _set_node_input(wf, bindings.get("style_ref"), any_ref)
+    shape_src = region.get("shape_ref") or region.get("style_ref")
+    if shape_src and bindings.get("shape_ref"):
         _set_node_input(
-            wf, bindings.get("shape_ref"), normalize_shape_ref(raw_shape_ref))
+            wf, bindings.get("shape_ref"), normalize_shape_ref(shape_src))
+
+    # Safety net for a ref LoadImage the author never bound to a role: a path
+    # under ComfyUI's `pasted/` or `clipspace/` scratch dirs is a pasted/clipboard
+    # image baked into the graph at authoring time — NEVER a real project asset,
+    # so _upload_workflow_refs can't resolve it and the run dies. If the region
+    # supplied a ref, redirect any such still-baked node to it; otherwise leave
+    # it for the clear "reference image not found" error.
+    if any_ref:
+        for _node in wf.values():
+            if (not isinstance(_node, dict)
+                    or _node.get("class_type") != "LoadImage"):
+                continue
+            _img = str((_node.get("inputs") or {}).get("image", "")
+                       ).replace("\\", "/").lower()
+            if _img.startswith("pasted/") or _img.startswith("clipspace/"):
+                _node.setdefault("inputs", {})["image"] = any_ref
 
     # Exposed params ("general settings"): each declared param sets its EFFECTIVE
     # value onto its bound node input — a per-manifest override if present, else
