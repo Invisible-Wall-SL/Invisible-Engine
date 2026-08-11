@@ -100,7 +100,28 @@
 			jumpTo(boundaries[next]);
 			return;
 		}
+		// FINAL tier (or un-escalating) — the player tapped to DISMISS, not to step. Slam the count-up AND
+		// arm the outro-skip so the overlay hides the moment the slam lands: the outro exists to play out an
+		// AUTO / fast-forwarded conclusion cleanly (that path is untouched), NOT to hold a deliberate dismiss
+		// tap for its full duration. Set the skip flag WITHOUT concluding here — `OnMount`'s
+		// `concludePresentation` (once the slam completes the count-up + broadcasts `winCountUpComplete`)
+		// then finds the outro wait already satisfied and resolves at once, preserving event ordering.
+		// Inert when un-escalating (the conclusion never waited on the outro) ⇒ byte-identical.
 		finish();
+		winState.escalationOutroComplete = true;
+	}
+
+	/**
+	 * A POST-count-up dismiss press (coded path) — end the presentation now instead of holding it for the
+	 * final tier's outro. `OnMount`'s `concludePresentation` is already in-flight AWAITING the outro, so
+	 * marking it complete resolves that {@link waitForEscalationOutro} at once; the extra call concludes a
+	 * presentation still inside its post-count-up settle window too (idempotent via `concluded`). This ONLY
+	 * runs on an explicit press; a presentation left to AUTO-conclude never touches it, so the outro still
+	 * plays in full (escalation unchanged). Un-escalating ⇒ the flag is inert — byte-identical.
+	 */
+	function dismissNow() {
+		winState.escalationOutroComplete = true;
+		void concludePresentation();
 	}
 
 	/**
@@ -217,7 +238,7 @@
 						awaited (not cut). Pre-completion tap still slams the count-up (`finishCountUp`), then
 						OnMount concludes. Un-escalating ⇒ concludes immediately (byte-identical tap-to-slam). -->
 					<PressToContinue
-						onpress={() => (countUpCompleted ? void concludePresentation() : finishCountUp())}
+						onpress={() => (countUpCompleted ? dismissNow() : finishCountUp())}
 					/>
 				{:else if !countUpCompleted}
 					<!-- Authorable count-up interaction (hold-to-fast-forward and/or tap-to-skip), mounted ONLY
