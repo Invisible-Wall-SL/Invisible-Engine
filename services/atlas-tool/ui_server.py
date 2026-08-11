@@ -1831,7 +1831,7 @@ def stop_render() -> str:
 
 
 def _run_cmd(cmd: list[str], total: int, post_hook=None,
-             pre_note: str | None = None) -> None:
+             pre_note: str | None = None, comfy_env: dict | None = None) -> None:
     global _render_proc, _stopped
     _stopped = False
     with _render_lock:
@@ -1847,6 +1847,12 @@ def _run_cmd(cmd: list[str], total: int, post_hook=None,
         env = dict(os.environ)
         env["IW_PROJECT_NAME"] = project_paths.project_name()
         env["IW_CLIENT_NAME"] = project_paths.client_name()
+        # Per-user ComfyUI routing (per-user-comfyui-routing.md): when the active
+        # user has registered their own ComfyUI, override COMFY_URL / CF Access
+        # in the subprocess env so their jobs run on THEIR box. Empty ⇒ the
+        # inherited global COMFY_URL (shared tunnel) is kept.
+        if comfy_env:
+            env.update(comfy_env)
         proc = subprocess.Popen(cmd, cwd=str(SELF), env=env, stdout=subprocess.PIPE,
                                  stderr=subprocess.STDOUT, text=True, bufsize=1)
         _render_proc = proc
@@ -1887,8 +1893,45 @@ def _run_cmd(cmd: list[str], total: int, post_hook=None,
             _render_state.update(running=False, done=True)
 
 
+def resolve_user_comfy_env(user_id: str) -> dict:
+    """Per-user ComfyUI routing (per-user-comfyui-routing.md).
+
+    Given the active user, read their registered ComfyUI endpoint from R2
+    (`_users/<slug>/comfy.json`) and return the env overrides the render
+    subprocess needs: `COMFY_URL` (+ CF Access headers for a named tunnel).
+    Returns `{}` when the user hasn't registered one — the caller then keeps the
+    global `COMFY_URL` (the shared tunnel), so nothing breaks during rollout.
+    Best-effort: any R2 miss / parse error → `{}` (fall back to shared)."""
+    slug = project_paths.r2_slug(user_id or "")
+    if not slug:
+        return {}
+    try:
+        blob = storage.get(f"_users/{slug}/comfy.json")
+    except Exception:  # noqa: BLE001 — R2 hiccup ⇒ fall back to the shared tunnel
+        return {}
+    if not blob:
+        return {}
+    try:
+        rec = json.loads(blob)
+    except (ValueError, TypeError):
+        return {}
+    url = str((rec or {}).get("url", "")).strip().rstrip("/")
+    if not url:
+        return {}
+    env = {"COMFY_URL": url}
+    cid = str(rec.get("cf_access_id", "")).strip()
+    sec = str(rec.get("cf_access_secret", "")).strip()
+    # A named tunnel (a) carries a per-user CF Access token; a quick tunnel (b)
+    # has none — either way CLEAR the inherited GLOBAL CF headers so the shared
+    # tunnel's token never leaks onto a different origin (cf_headers() treats an
+    # empty value as absent).
+    env["CF_ACCESS_CLIENT_ID"] = cid
+    env["CF_ACCESS_CLIENT_SECRET"] = sec
+    return env
+
+
 def run_render(names: list[str], variants: int = 1,
-               ctx: tuple[str, str] | None = None) -> None:
+               ctx: tuple[str, str] | None = None, user: str = "") -> None:
     # These run on a NEW worker thread, so the request thread's thread-local
     # (client, project) is NOT inherited — re-apply it here before resolving the
     # manifest path / subprocess env, else everything falls back to the env
@@ -1896,6 +1939,7 @@ def run_render(names: list[str], variants: int = 1,
     # tree (geometry "not found in R2").
     if ctx:
         project_paths.set_context(*ctx)
+    comfy_env = resolve_user_comfy_env(user)
     # The subprocess reads batch/ from local disk (already_generated seed-match
     # skips re-rendering pinned variants). It hydrates lazily, so pull it here
     # before spawning, else the subprocess sees an empty pile.
@@ -1914,7 +1958,8 @@ def run_render(names: list[str], variants: int = 1,
                     % (len(rebuilt), ", ".join(rebuilt)))
         return None
 
-    _run_cmd(cmd, len(names) * max(1, variants), post_hook=_post)
+    _run_cmd(cmd, len(names) * max(1, variants), post_hook=_post,
+             comfy_env=comfy_env)
 
 
 # Page-width cap for the from-scratch auto-pack layout. The sheet grows only if
@@ -4536,6 +4581,18 @@ class Handler(BaseHTTPRequestHandler):
         mc = re.search(r"iw_client=([^;]+)", cookie)
         cookie_project = (mp.group(1).strip() if mp else "")
         cookie_client = (mc.group(1).strip() if mc else "")
+        # Per-user ComfyUI routing (per-user-comfyui-routing.md): the launcher
+        # forwards the logged-in user as `?user=` (stuck into an `iw_user` cookie
+        # so in-tool navigation keeps it). Used ONLY to route generation to that
+        # user's own registered ComfyUI; blank ⇒ the shared tunnel. Not a tenant
+        # boundary (that's client/project), so a plain slug is enough.
+        u_param = (q.get("user", [""])[0] or "").strip()
+        mu = re.search(r"iw_user=([^;]+)", cookie)
+        self._user_id = (project_paths.r2_slug(u_param)
+                         or (mu.group(1).strip() if mu else ""))
+        if u_param and self._user_id:
+            self._extra_cookies.append(
+                f"iw_user={self._user_id}; Path=/; SameSite=None; Secure")
 
         chosen_project = (project_paths.valid_project(p_param)
                           or project_paths.valid_project(cookie_project)
@@ -4805,7 +4862,9 @@ class Handler(BaseHTTPRequestHandler):
             variants = int(payload.get("variants", 1))
             if not _render_state["running"]:
                 ctx = (project_paths.client_name(), project_paths.project_name())
-                threading.Thread(target=run_render, args=(names, variants, ctx),
+                user = getattr(self, "_user_id", "") or ""
+                threading.Thread(target=run_render,
+                                 args=(names, variants, ctx, user),
                                  daemon=True).start()
             self._send(200, "text/plain", b"started")
         elif self.path == "/createatlas":
