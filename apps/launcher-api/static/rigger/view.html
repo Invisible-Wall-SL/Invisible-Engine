@@ -115,8 +115,8 @@
   #timeline .tl-key.ghost { opacity:.5; box-shadow:0 0 0 1px var(--accent); pointer-events:none; z-index:3; } /* Alt-drag duplicate preview */
   #dopeMarquee { position:fixed; z-index:80; pointer-events:none;
     border:1px dashed #7ee0c0; background:rgba(126,224,192,.12); }
-  #tlPlayhead { position:absolute; top:0; bottom:0; width:2px; background:#ff5b6e;
-    pointer-events:none; z-index:3; }
+  #tlPlayhead { position:absolute; top:0; width:2px; background:#ff5b6e;
+    pointer-events:none; z-index:3; } /* height set in positionPlayhead() = full scroll content, not just the visible viewport */
   /* controls bar */
   #bar { background:var(--panel); border-top:1px solid var(--line); padding:8px 12px;
     display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
@@ -8236,6 +8236,11 @@ function tlZoom(factor){
 function positionPlayhead(){
   const ph = $("#tlPlayhead"); if (!ph) return;
   ph.style.left = (tlGutter + clamp01(animTime / (tlDur || 1)) * (tlDur * tlPps)) + "px";
+  // The playhead lives in the scrollable #timeline; top:0/bottom:0 would only span the
+  // visible viewport (the containing block's padding box). Size it to the full scroll
+  // content so the line reaches the last row when the dopesheet overflows and scrolls.
+  const tl = ph.parentElement;
+  if (tl) ph.style.height = tl.scrollHeight + "px";
 }
 
 // Export the (edited) skeleton as `.irig` — byte-valid Spine 4.2 JSON under our
