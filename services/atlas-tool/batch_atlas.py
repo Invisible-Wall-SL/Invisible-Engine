@@ -2960,6 +2960,21 @@ def main() -> None:
     print(f"Generation: regions {len(gen_regions)}  variants {variants}  "
           f"total jobs {len(jobs)}  (atlas NOT composed — use Create Atlas)")
 
+    # Effective pipeline per job — so the log states plainly WHICH pipeline runs
+    # and, for a blueprint, whether it actually loaded (vs. a built-in path).
+    # This is the diagnostic that ends "I picked my blueprint but got SDXL":
+    # a `sdxl (built-in)` line here means the blueprint id never reached this
+    # subprocess (unsaved / wrong config); a `blueprint — FAILED TO LOAD` line
+    # means it's selected but broken.
+    for _p in sorted({region_pipeline(r) for r in jobs}):
+        if _p in ("sdxl", "flux", "gpt_image"):
+            print(f"Pipeline: {_p} (built-in)")
+        else:
+            _ok = blueprints.get_blueprint(_p) is not None
+            print(f"Pipeline: {_p} (blueprint) — "
+                  + ("loaded OK" if _ok
+                     else "FAILED TO LOAD (will error at generate)"))
+
     if not jobs:
         # The genuinely all-overridden case is already reported precisely at
         # the override partition above (before the locked-skip). We must NOT
