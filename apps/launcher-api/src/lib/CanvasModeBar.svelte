@@ -17,11 +17,16 @@
 		value = $bindable(),
 		onChange,
 		ariaLabel = 'Mode',
+		inline = false,
 	}: {
 		options: Option[];
 		value: T;
 		onChange?: (value: T) => void;
 		ariaLabel?: string;
+		/** Drop the absolute top-centre float so a parent flex row lays the bar out
+		 * (used by the Scene Editor's unified top overlay, where the device bar shares
+		 * a row with the canvas action buttons so they can never overlap). */
+		inline?: boolean;
 	} = $props();
 
 	function select(v: T): void {
@@ -30,7 +35,7 @@
 	}
 </script>
 
-<div class="mode-bar">
+<div class="mode-bar" class:inline>
 	<span class="seg" role="tablist" aria-label={ariaLabel}>
 		{#each options as opt (opt.value)}
 			<button
@@ -59,6 +64,12 @@
 		   same stacking context); still harmless for tools with a flat canvas. */
 		z-index: 2000;
 		pointer-events: none;
+	}
+	/* Inline mode: the parent flex row owns placement + stacking (Scene Editor top row). */
+	.mode-bar.inline {
+		position: static;
+		transform: none;
+		z-index: auto;
 	}
 	.seg {
 		display: inline-flex;

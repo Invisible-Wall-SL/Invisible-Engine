@@ -30,7 +30,7 @@
 		type ResolvedTransform,
 		type Scene,
 	} from 'engine-layout';
-	import { onMount } from 'svelte';
+	import { onMount, type Snippet } from 'svelte';
 	import {
 		childLocalTransform,
 		nodeBox,
@@ -192,6 +192,11 @@
 		canRedo?: boolean;
 		onUndo?: () => void;
 		onRedo?: () => void;
+		/** Optional device/mode bar rendered at the LEFT of the canvas's top overlay row,
+		 * sharing that flex row with the action buttons so the two can never overlap (they
+		 * wrap instead) and both sit above the canvas art. The Scene Editor passes its
+		 * `<CanvasModeBar inline>`; omit for a bare canvas. */
+		modeBar?: Snippet;
 	}
 
 	let {
@@ -224,6 +229,7 @@
 		canRedo = false,
 		onUndo,
 		onRedo,
+		modeBar,
 	}: Props = $props();
 
 	/** Each symbol's STATIC binding for the reel preview: the coded default's `static`
@@ -2828,7 +2834,7 @@
 		const accent = '#5db0ff';
 		// A text node with an explicit BOX (`width`): tint its area so the author sees the box they
 		// resize (the glyphs may not fill it), and dashes distinguish "layout box" from a solid node.
-		const isTextBox = node.kind === 'text' && ((t.width ?? node.width ?? 0) > 0);
+		const isTextBox = node.kind === 'text' && (t.width ?? node.width ?? 0) > 0;
 		if (isTextBox) {
 			ctx.fillStyle = 'rgba(93, 176, 255, 0.10)';
 			ctx.beginPath();
@@ -2876,7 +2882,12 @@
 		ctx.strokeStyle = accent;
 		ctx.lineWidth = 1.5;
 		for (const e of edges) {
-			ctx.fillRect(e.x - EDGE_HANDLE_PX / 2, e.y - EDGE_HANDLE_PX / 2, EDGE_HANDLE_PX, EDGE_HANDLE_PX);
+			ctx.fillRect(
+				e.x - EDGE_HANDLE_PX / 2,
+				e.y - EDGE_HANDLE_PX / 2,
+				EDGE_HANDLE_PX,
+				EDGE_HANDLE_PX,
+			);
 			ctx.strokeRect(
 				e.x - EDGE_HANDLE_PX / 2,
 				e.y - EDGE_HANDLE_PX / 2,
@@ -3983,61 +3994,64 @@
 		click = select · drag = move · corners = scale (Shift = non-uniform) · top circle = rotate
 		(Shift = 15°) · scroll = zoom · shift/middle/right-drag = pan · Esc = deselect
 	</div>
-	<div class="canvas-actions">
-		{#if onUndo || onRedo}
-			<div class="hist-grp" role="group" aria-label="Undo / redo">
-				<button
-					class="fit hist"
-					type="button"
-					disabled={!canUndo}
-					title="Undo (Ctrl/⌘+Z)"
-					aria-label="Undo"
-					onclick={() => onUndo?.()}
-				>
-					↶
-				</button>
-				<button
-					class="fit hist"
-					type="button"
-					disabled={!canRedo}
-					title="Redo (Ctrl/⌘+Shift+Z)"
-					aria-label="Redo"
-					onclick={() => onRedo?.()}
-				>
-					↷
-				</button>
-			</div>
-		{/if}
-		<button
-			class="fit"
-			onclick={refreshAssets}
-			type="button"
-			title="Reload atlas + spine art from R2 (after you update a PNG) — no full page reload needed"
-		>
-			↻ Reload art
-		</button>
-		<button
-			class="fit"
-			class:on={playingEffects}
-			onclick={() => (playingEffects = !playingEffects)}
-			type="button"
-			aria-pressed={playingEffects}
-			title={playingEffects ? 'Pause effect preview' : 'Play effect preview'}
-		>
-			{playingEffects ? '❚❚' : '▶'} FX
-		</button>
-		<button
-			class="fit"
-			class:on={showScreenBorder}
-			onclick={() => (showScreenBorder = !showScreenBorder)}
-			type="button"
-			aria-pressed={showScreenBorder}
-			title={showScreenBorder
-				? 'Hide the screen bounds overlay'
-				: 'Show the screen + play-area bounds on top of all art'}
-		>
-			⛶ Bounds
-		</button>
+	<div class="canvas-top">
+		{@render modeBar?.()}
+		<div class="canvas-actions">
+			{#if onUndo || onRedo}
+				<div class="hist-grp" role="group" aria-label="Undo / redo">
+					<button
+						class="fit hist"
+						type="button"
+						disabled={!canUndo}
+						title="Undo (Ctrl/⌘+Z)"
+						aria-label="Undo"
+						onclick={() => onUndo?.()}
+					>
+						↶
+					</button>
+					<button
+						class="fit hist"
+						type="button"
+						disabled={!canRedo}
+						title="Redo (Ctrl/⌘+Shift+Z)"
+						aria-label="Redo"
+						onclick={() => onRedo?.()}
+					>
+						↷
+					</button>
+				</div>
+			{/if}
+			<button
+				class="fit"
+				onclick={refreshAssets}
+				type="button"
+				title="Reload atlas + spine art from R2 (after you update a PNG) — no full page reload needed"
+			>
+				↻ Reload art
+			</button>
+			<button
+				class="fit"
+				class:on={playingEffects}
+				onclick={() => (playingEffects = !playingEffects)}
+				type="button"
+				aria-pressed={playingEffects}
+				title={playingEffects ? 'Pause effect preview' : 'Play effect preview'}
+			>
+				{playingEffects ? '❚❚' : '▶'} FX
+			</button>
+			<button
+				class="fit"
+				class:on={showScreenBorder}
+				onclick={() => (showScreenBorder = !showScreenBorder)}
+				type="button"
+				aria-pressed={showScreenBorder}
+				title={showScreenBorder
+					? 'Hide the screen bounds overlay'
+					: 'Show the screen + play-area bounds on top of all art'}
+			>
+				⛶ Bounds
+			</button>
+		</div>
 	</div>
 </div>
 
@@ -4149,17 +4163,43 @@
 		position: absolute;
 		left: 12px;
 		bottom: 10px;
+		/* Above the canvas art layers (scene groups + HUD reach z-index 1001 in this same
+		   stacking context) so the hint text is never buried. */
+		z-index: 2000;
 		color: #666;
 		font-size: 11px;
 		pointer-events: none;
 		text-shadow: 0 1px 2px #000;
 	}
-	.canvas-actions {
+	/* Unified top overlay: the device/mode bar (left) and the action buttons (right) share
+	   ONE flex row so they can never overlap — when the canvas is narrow or the text is
+	   large the actions wrap to a second line instead of colliding with the device tabs.
+	   z-index sits above every canvas art layer (scene groups + HUD, up to z-index 1001 in
+	   this stacking context) so the controls are never buried by canvas content. */
+	.canvas-top {
 		position: absolute;
-		top: 10px;
-		right: 10px;
+		top: 8px;
+		left: 8px;
+		right: 8px;
+		z-index: 2000;
 		display: flex;
+		align-items: flex-start;
+		flex-wrap: wrap;
+		gap: 8px;
+		/* The row itself is click-through; each control re-enables pointer events. */
+		pointer-events: none;
+	}
+	.canvas-actions {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: flex-end;
 		gap: 6px;
+		/* Push to the right edge of the row; when it wraps it stays right-aligned on its
+		   own line, never overlapping the device bar. */
+		margin-left: auto;
+	}
+	.canvas-actions button {
+		pointer-events: auto;
 	}
 	.fit {
 		background: #16161c;
