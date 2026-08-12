@@ -40,6 +40,7 @@ import batch_atlas  # noqa: E402  (reuse the geometry resolver — single source
 import blueprints  # noqa: E402  (shared, data-driven ComfyUI pipeline library)
 import shine  # noqa: E402  (local *_shine derivation, no ComfyUI)
 import pack  # noqa: E402  (MaxRects bin packer for from-scratch auto-pack atlases)
+import runpod_control  # noqa: E402  (RunPod on-demand pod resume/idle-stop)
 
 # Self-contained tool folder (Tools/<Tool Name>/). All code, config and
 # manifests live here together; per-game ComfyUI dirs come from project_paths.
@@ -1940,6 +1941,19 @@ def run_render(names: list[str], variants: int = 1,
     if ctx:
         project_paths.set_context(*ctx)
     comfy_env = resolve_user_comfy_env(user)
+    total = len(names) * max(1, variants)
+    # RunPod on-demand: if the pod is asleep, wake it and wait for ComfyUI before
+    # the subprocess tries to talk to it. Streams "waking the pod…" to the render
+    # panel so the wait is visible. No-op / fail-safe when RunPod isn't configured.
+    _warm: list[str] = []
+
+    def _wlog(m):
+        _warm.append(m)
+        with _render_lock:
+            _render_state.update(running=True, done=False, cur=0, total=total,
+                                 log="\n".join(_warm) + "\n", diagnostics=[])
+
+    runpod_control.ensure_pod_ready(comfy_env.get("COMFY_URL", ""), log=_wlog)
     # The subprocess reads batch/ from local disk (already_generated seed-match
     # skips re-rendering pinned variants). It hydrates lazily, so pull it here
     # before spawning, else the subprocess sees an empty pile.
@@ -1958,8 +1972,8 @@ def run_render(names: list[str], variants: int = 1,
                     % (len(rebuilt), ", ".join(rebuilt)))
         return None
 
-    _run_cmd(cmd, len(names) * max(1, variants), post_hook=_post,
-             comfy_env=comfy_env)
+    _run_cmd(cmd, total, post_hook=_post, comfy_env=comfy_env,
+             pre_note=("\n".join(_warm) if _warm else None))
 
 
 # Page-width cap for the from-scratch auto-pack layout. The sheet grows only if
@@ -7271,6 +7285,9 @@ def main():
     from iw_banner import print_banner
     print_banner("Atlas Maker", BUILD,
                  footer=f"http://{HOST}:{PORT}   ·   Ctrl+C to stop")
+    # RunPod on-demand: auto-stop the pod after idle (no-op unless configured).
+    runpod_control.start_idle_watchdog(
+        is_rendering=lambda: bool(_render_state.get("running")))
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
 
 
