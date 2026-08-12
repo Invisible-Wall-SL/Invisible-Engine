@@ -95,6 +95,7 @@ def main() -> None:
         pass
 
     models: list[dict] = []
+    seen_keys: set[str] = set()
     for path, rel in _iter_models(root):
         key = f"{args.prefix}/{rel}"
         size = path.stat().st_size
@@ -124,6 +125,20 @@ def main() -> None:
 
         models.append({"key": key, "dir": rel_dir, "name": path.name,
                        "size": size, "sha256": sha})
+        seen_keys.add(key)
+
+    # MERGE, don't replace: keep every model from the PRIOR manifest that this
+    # machine doesn't have locally, so seeding from a second box (e.g. the
+    # artist's models) ADDS to the shared mirror instead of wiping the owner's.
+    # Those files already live in R2 (uploads are additive), so their manifest
+    # entries stay valid; the pod's pull-models.py then fetches everyone's set.
+    kept = 0
+    for k, m in prior.items():
+        if k not in seen_keys:
+            models.append(m)
+            kept += 1
+    if kept:
+        print(f"  (kept {kept} model(s) from other machines' seeds)")
 
     manifest = {"version": 1, "base_prefix": args.prefix, "models": models}
     total = sum(m["size"] for m in models)
