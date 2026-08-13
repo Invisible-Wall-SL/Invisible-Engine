@@ -8,49 +8,58 @@ generate with.
 
 ## What it is
 
-A launcher **control panel** for an interactive ComfyUI hosted on a RunPod GPU pod.
-Use it when a generation network is too heavy for your own machine (a laptop that OOMs
-on SDXL/FLUX) — the canvas runs on the pod's GPU, not yours. The card starts and stops
-the pod on demand, shows its live status, and opens ComfyUI once it's ready. Once a
+A launcher **control panel** for a **fleet** of interactive ComfyUI pods hosted on
+RunPod GPUs. Use it when a generation network is too heavy for your own machine (a
+laptop that OOMs on SDXL/FLUX) — the canvas runs on a pod's GPU, not yours. The panel
+lists every pod in the fleet, each on its own row with a live status badge and its own
+Start / Open / Stop controls, so you can start whichever card has a free GPU. Once a
 network works, you export it and publish it as a blueprint in the
 [Invisible Atlas Maker](atlas-maker.md), which turns "a graph one person tuned once"
 into a repeatable pipeline step everyone can run over a manifest.
 
+**Why a fleet, not one pod?** A stopped pod does not reserve its GPU, so on a scarce
+card (e.g. an RTX PRO Blackwell) a Start can fail with "not enough free GPUs" when you
+come back to resume it. Keeping several pods on different GPU cards means you can just
+start the next one instead of waiting for a specific GPU to free up.
+
 - **Where it runs:** `/comfyui` in the launcher — a full-page panel (behind auth,
-  never an iframe) that renders the shared tool bar. The pod itself is external:
-  **Open ComfyUI ↗** opens it in a **new tab** at its RunPod proxy URL
-  (`https://<podId>-8188.proxy.runpod.net`, the launcher's `COMFY_RND_URL`). The
-  launcher deliberately does **not** auto-redirect — the pod is on-demand and may be
-  stopped, so the panel frames the pod with live status + Start/Stop controls instead
+  never an iframe) that renders the shared tool bar. The pods themselves are external:
+  a pod's **Open ComfyUI ↗** opens it in a **new tab** at its RunPod proxy URL, which
+  is **derived from the pod id** (`https://<podId>-8188.proxy.runpod.net`). The
+  launcher deliberately does **not** auto-redirect — the pods are on-demand and may be
+  stopped, so the panel frames each one with live status + Start/Stop controls instead
   of dumping you on a RunPod error page.
 - **Access:** admin, developer, artist.
 
-The panel has three shapes depending on how the launcher is configured:
+The panel has two shapes depending on how the launcher is configured:
 
-- **Not configured** — no `COMFY_RND_URL` set: a "no R&D pod configured yet" state that
-  names the env var to set. Nothing to open.
-- **Open-link only** — `COMFY_RND_URL` is set but the RunPod control secrets
-  (`RUNPOD_API_KEY` / `RUNPOD_POD_ID`) are not: a plain **Open ComfyUI ↗** button with
-  no Start/Stop. If the pod is stopped you start it in the RunPod console yourself.
-- **Full control panel** — URL + RunPod secrets set: live pod status plus Start, Open,
-  and Stop, described below. This is the normal setup.
+- **Not configured** — no fleet and no RunPod key: a "no R&D pods are configured yet"
+  state that tells you to set `RUNPOD_API_KEY` and add pods in the admin panel (a
+  legacy single `RUNPOD_POD_ID` still works too). Nothing to start.
+- **Fleet control panel** — `RUNPOD_API_KEY` set and at least one pod configured: the
+  list of pods with per-pod Start / Open / Stop, described below. This is the normal
+  setup.
 
 ## How to use it
 
-1. Open the **ComfyUI** card in the launcher (or go to `/comfyui`). The panel checks
-   the pod's live status (it re-polls every few seconds) and shows one of:
-   - **Pod running — ComfyUI is ready** → an **Open ComfyUI ↗** button and a **Stop
-     pod** button.
-   - **Pod is stopped** → a **Start pod** button.
-   - **Warming up — this takes ~2 min** → no button; the panel switches itself to
-     **Open ComfyUI** as soon as the pod answers.
-2. If the pod is stopped, click **Start pod**. This resumes the RunPod GPU; expect
-   about **2 minutes** before ComfyUI is reachable. If RunPod has no GPU free the panel
-   surfaces a "GPU unavailable" error and the button becomes **Retry start** — try
-   again in a moment.
-3. Once it reads **ComfyUI is ready**, click **Open ComfyUI ↗** — the pod opens in a
-   new tab. **Build** your network on the ComfyUI canvas. This runs on the pod's GPU,
-   so you can iterate on models and node graphs your own machine can't hold.
+1. Open the **ComfyUI** card in the launcher (or go to `/comfyui`). The panel probes
+   every pod's live status concurrently and re-polls every few seconds. Each pod shows
+   up as a row with its **label** (e.g. "RTX 4090") and a status badge:
+   - **running** (green) → an **Open ComfyUI ↗** button and a **Stop** button.
+   - **starting** (amber, "Warming up ~2 min…") → a **Cancel** button; the row switches
+     itself to **running** as soon as that pod's ComfyUI answers.
+   - **stopped** (grey) → a **Start** button.
+2. Pick a card and click **Start**. This resumes that RunPod GPU; expect about
+   **2 minutes** before ComfyUI is reachable. If RunPod has no GPU of that card free,
+   the Start fails and the reason (e.g. "not enough free GPUs") shows **inline on that
+   pod's row**, and its button becomes **Retry**. Rather than waiting, just **start a
+   different pod** in the fleet — that is the whole point of keeping several.
+3. Once a row reads **running**, click its **Open ComfyUI ↗** — the pod opens in a new
+   tab. **Build** your network on the ComfyUI canvas. This runs on the pod's GPU, so
+   you can iterate on models and node graphs your own machine can't hold.
+   - **Start only one pod at a time.** When the fleet's pods share a Network Volume
+     (models + custom nodes), running two at once risks write conflicts on that volume.
+     Stop the one you're done with before starting another.
 4. **Export** the finished network: in ComfyUI, open **Settings → Save (API Format)**.
    That downloads the workflow as JSON in ComfyUI's API/prompt format — the shape the
    pipeline submits to ComfyUI. (This is *not* the editor's drag-and-drop save format;
@@ -61,28 +70,43 @@ The panel has three shapes depending on how the launcher is configured:
    the `output` SaveImage node at their nodes in your graph) and declare any models the
    graph needs. See the blueprints design doc (`docs/design/invisible-blueprints.md`
    §3) for the authoring flow.
-6. **When you're done, click Stop pod.** The GPU bills per second for as long as the
-   pod runs, so stop it when you finish a session (see *Cost control* below).
+6. **When you're done, click Stop on that pod's row.** The GPU bills per second for as
+   long as the pod runs, so stop it when you finish a session (see *Cost control*
+   below).
 
 Once published, the blueprint appears in the Atlas Maker's pipeline selector alongside
 the built-in SDXL/FLUX/gpt_image pipelines, and any region can generate through it.
 
+### Managing the fleet (admins)
+
+The fleet is managed in the launcher's admin panel, not on this page: **Admin panel →
+Settings → "ComfyUI R&D pod fleet"**. There an admin can:
+
+- **Add / remove pods** — each pod is a **pod id** (the RunPod pod id) plus a **label**
+  (e.g. "RTX 4090"). The ComfyUI URL is derived from the id automatically, so there's
+  no per-pod URL to enter. "Save fleet" persists the list; a live status badge next to
+  each row reflects the last probe. The fleet is stored in the launcher's settings
+  (`app_settings` key `runpodPods`); a legacy single `RUNPOD_POD_ID` env still shows up
+  as a synthesized "Default" pod when the list is empty.
+- **Configure idle auto-stop** — the enable toggle + idle minutes (default 20) for the
+  watchdog described below.
+
 ### Cost control (please read)
 
-The RunPod GPU **bills per second only while the pod is running** — starting it costs
+The RunPod GPU **bills per second only while a pod is running** — starting one costs
 money until it stops. Two things keep that in check:
 
-- **Stop pod** — the button on the panel. **Closing the browser tab does NOT stop the
-  pod** (it keeps running, and billing, in the background). Stopping is an explicit
-  action.
-- **Idle auto-stop** — a launcher watchdog stops the pod automatically after a set
-  number of idle minutes once ComfyUI's render queue is empty. While the `/comfyui`
-  tab is open and visible it sends a heartbeat that keeps the pod alive, so the timer
-  only really counts once you've walked away. When idle auto-stop is on, the panel
-  shows "Auto-stops after N min idle". This is configured by an **admin**, not on this
-  page: **Admin panel → Settings → "ComfyUI R&D pod" → Enable idle auto-stop + Idle
-  minutes** (default 20). It's a safety net, not a substitute for pressing **Stop
-  pod**.
+- **Stop** — the button on each running pod's row. **Closing the browser tab does NOT
+  stop the pod** (it keeps running, and billing, in the background). Stopping is an
+  explicit action.
+- **Idle auto-stop** — a launcher watchdog stops an idle pod automatically after a set
+  number of minutes once ComfyUI's render queue is empty (a non-empty queue counts as
+  activity, so a running render is never interrupted). While the `/comfyui` tab is open
+  and visible it sends a heartbeat that keeps the fleet alive, so the timer only really
+  counts once you've walked away. When idle auto-stop is on, the panel shows "Pods
+  auto-stop after N min idle". This is configured by an **admin** under **Admin panel →
+  Settings → "ComfyUI R&D pod fleet" → Enable idle auto-stop + Idle minutes** (default
+  20). It's a safety net, not a substitute for pressing **Stop**.
 
 ### The one caveat that bites
 
@@ -104,12 +128,17 @@ fails with a missing-node/model error rather than producing art.
 
 ## Known limitations / TODOs
 
-- **Start needs a free GPU.** Start resumes a specific RunPod pod; if RunPod has no GPU
-  of that type available, Start fails with "GPU unavailable" and you retry until one
-  frees up — there's no automatic fall-back to another GPU.
-- **ComfyUI must auto-start on the pod.** The launcher can only resume the pod, not SSH
+- **Start needs a free GPU, and there's no auto-fallback.** Start resumes a specific
+  pod; if RunPod has no GPU of that card available, Start fails ("not enough free
+  GPUs") and you must manually **start a different pod** in the fleet — the panel does
+  not pick a free card for you. A stopped pod does not reserve its GPU, so scarce cards
+  (e.g. Blackwell) can be unresumable until one frees up.
+- **One pod at a time on a shared volume.** When fleet pods share a Network Volume
+  there's no lock preventing two from running at once; the guardrail is procedural —
+  stop one before starting another to avoid write conflicts on the shared models/nodes.
+- **ComfyUI must auto-start on the pod.** The launcher can only resume a pod, not SSH
   in; the pod's container start command has to launch ComfyUI itself. If that's not set
-  up, Start boots the GPU but the panel stays "warming up" forever because ComfyUI never
+  up, Start boots the GPU but the row stays "starting" forever because ComfyUI never
   answers. See the pod setup in `docs/INFRA.md` ("ComfyUI R&D pod").
 - **Managing the pod's models/nodes still lives in RunPod.** The panel starts, stops,
   and opens the pod, but installing checkpoints/LoRAs and custom nodes happens on the

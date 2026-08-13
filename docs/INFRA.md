@@ -79,20 +79,25 @@ The launcher now applies pending Drizzle migrations **itself**, at server startu
 
 ## ComfyUI R&D pod (RunPod)
 
-On-demand RunPod GPU **pod** running the **interactive ComfyUI web UI** for artist R&D — the surface where an artist builds/tunes a workflow that later becomes an Atlas Maker blueprint. It is **distinct from `services/atlas-serverless`** (the headless serverless worker that runs baked blueprints, `COMFYUI_REF=v0.3.66`) and from the local RTX-4070 tunnel above. Only the pod exposes an interactive UI. Reached at the RunPod proxy URL `https://<podId>-8188.proxy.runpod.net` — no Cloudflare Access in front (RunPod's own proxy auth). See `docs/design/runpod-comfyui-backend.md` and `docs/design/comfyui-serverless.md`; current state in `docs/status/comfyui.md`.
+On-demand RunPod GPU **pods** running the **interactive ComfyUI web UI** for artist R&D — the surface where an artist builds/tunes a workflow that later becomes an Atlas Maker blueprint. It is **distinct from `services/atlas-serverless`** (the headless serverless worker that runs baked blueprints, `COMFYUI_REF=v0.3.66`) and from the local RTX-4070 tunnel above. Only these pods expose an interactive UI. Each is reached at the RunPod proxy URL `https://<podId>-8188.proxy.runpod.net` — no Cloudflare Access in front (RunPod's own proxy auth). See `docs/design/runpod-comfyui-backend.md` and `docs/design/comfyui-serverless.md`; current state in `docs/status/comfyui.md`.
 
-- **Current pod:** name `ComfyUI_RD`, id `a1tqn0tzbqtvr1`, GPU **RTX PRO 4500 Blackwell** (32 GB), attached to Network Volume **`Invisible_RunPod_Storage`** (persists ComfyUI + models + custom nodes across stop/start). Proxy URL: `https://a1tqn0tzbqtvr1-8188.proxy.runpod.net`.
+- **This is now a FLEET, not one pod.** The launcher keeps several pods on **different GPU cards** and the artist starts whichever has a free GPU. Two operational cautions: **(1) run only ONE pod at a time when they share a Network Volume** — concurrent pods writing the same volume (models + custom nodes) risk write conflicts; **(2) a stopped pod does NOT reserve its GPU**, so a Start can fail ("not enough free GPUs") on scarce cards (e.g. Blackwell) — which is exactly why we keep more than one card.
+- **The fleet is admin-managed in the DB, not env** — `app_settings` key **`runpodPods`** = JSON `[{id,label}, …]`, edited under the launcher's **Admin → Settings → "ComfyUI R&D pod fleet"** (add/remove pods, each = pod id + label like "RTX 4090"). Each pod's ComfyUI URL is **derived from its id** (`https://<id>-8188.proxy.runpod.net`); no per-pod URL is stored. `RUNPOD_POD_ID`/`COMFY_RND_URL` are now only the **legacy single-pod fallback** (synthesized as a "Default" pod when `runpodPods` is empty).
+- **Current pods (examples):** all attached to Network Volume **`Invisible_RunPod_Storage`** (persists ComfyUI + models + custom nodes across stop/start):
+  - RTX PRO 4000 — id `m3ppwxc7ttkrfq`
+  - RTX 4090 — id `avpq09jo5c9uyt`
+  - RTX PRO 4500 Blackwell (32 GB) — id `a1tqn0tzbqtvr1` (name `ComfyUI_RD`)
 
 ### Launcher integration (the `/comfyui` card)
-The launcher's `/comfyui` card links to the pod and can **start/stop** it (RunPod GraphQL `podResume` / `podStop`). Set on the **launcher-api** Railway service → **Apply changes / Deploy**:
+The launcher's `/comfyui` card lists the fleet and can **start/stop** each pod (RunPod GraphQL `podResume` / `podStop`). The only env var required is the shared API key; pods themselves live in `app_settings.runpodPods` (above). Set on the **launcher-api** Railway service → **Apply changes / Deploy**:
 
 | Var | Purpose |
 |---|---|
-| `COMFY_RND_URL` | The pod proxy URL (`https://<podId>-8188.proxy.runpod.net`) — the card's link target. |
-| `RUNPOD_API_KEY` | RunPod API key used to start/stop the pod (secret). |
-| `RUNPOD_POD_ID` | The pod id (`a1tqn0tzbqtvr1`) to resume/stop. |
+| `RUNPOD_API_KEY` | RunPod API key used to start/stop every pod (secret; shared across the fleet). |
+| `RUNPOD_POD_ID` | **Legacy fallback only** — a single pod id, synthesized as a "Default" pod when `runpodPods` is empty. Prefer the admin fleet editor. |
+| `COMFY_RND_URL` | **Legacy fallback only** — overrides the derived URL for the single `RUNPOD_POD_ID` pod. Not used once a fleet is configured. |
 
-- **Idle auto-stop is NOT env** — it's **admin-configured** and stored in the `app_settings` table (`runpodIdleEnabled`, `runpodIdleMinutes`, default **20**). An admin toggles it + sets the minutes from the launcher admin UI; the launcher stops the pod after that many idle minutes.
+- **Idle auto-stop is NOT env** — it's **admin-configured** and stored in the `app_settings` table (`runpodIdleEnabled`, `runpodIdleMinutes`, default **20**). An admin toggles it + sets the minutes from the launcher admin UI; the launcher stops an idle pod after that many minutes (a non-empty ComfyUI render queue counts as activity, so a running render is never interrupted).
 
 ### ⚠️ REQUIRED pod config — ComfyUI must auto-start on boot
 The launcher can **resume** the pod via API but **cannot SSH in** to launch ComfyUI. So the pod's container **Start Command** (Docker container start command, set in the RunPod pod config → **Edit Pod** → *Container Start Command*, or when creating the pod) must run:

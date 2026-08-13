@@ -214,6 +214,21 @@
 			? (form.deployToken ?? null)
 			: null,
 	);
+
+	// --- Settings: ComfyUI R&D pod fleet ---
+	// Editable working copy of the admin-managed pod list. The URL is derived from the
+	// id (`https://<id>-8188.proxy.runpod.net`) server-side, so only id + label are here.
+	let runpodPods = $state(data.runpod.storedPods.map((p) => ({ id: p.id, label: p.label })));
+	function addRunpodPod(): void {
+		runpodPods = [...runpodPods, { id: '', label: '' }];
+	}
+	function removeRunpodPod(i: number): void {
+		runpodPods = runpodPods.filter((_, idx) => idx !== i);
+	}
+	/** Live status for a pod id, if the effective fleet was probed on load. */
+	function runpodStatusOf(id: string) {
+		return data.runpod.pods.find((p) => p.id === id) ?? null;
+	}
 </script>
 
 <svelte:head><title>Admin — Invisible Wall</title></svelte:head>
@@ -1061,51 +1076,61 @@
 			</div>
 
 			<div class="card">
-				<h3>ComfyUI R&amp;D pod</h3>
+				<h3>ComfyUI R&amp;D pod fleet</h3>
 				<p class="muted hint">
-					The on-demand RunPod GPU behind the <a class="link" href="/comfyui">ComfyUI</a> tool. Artists
-					start it from that card; it auto-stops after an idle window so the GPU only
-					bills while work is happening. A non-empty ComfyUI render queue counts as activity, so a
-					running render is never interrupted.
+					The on-demand RunPod GPUs behind the <a class="link" href="/comfyui">ComfyUI</a> tool.
+					Artists pick a card and start it (if it's out of free GPUs they try the next); pods
+					auto-stop after an idle window so the GPU only bills while work is happening. A non-empty
+					ComfyUI render queue counts as activity, so a running render is never interrupted. Each
+					pod's ComfyUI URL is derived from its id
+					(<span class="mono">https://&lt;id&gt;-8188.proxy.runpod.net</span>).
 					{#if !data.runpod.configured}
 						<br /><strong>Not configured</strong> — set
-						<span class="mono">RUNPOD_API_KEY</span> and <span class="mono">RUNPOD_POD_ID</span> in the
-						launcher environment to enable pod control.
+						<span class="mono">RUNPOD_API_KEY</span> in the launcher environment and add at least one
+						pod below (a legacy <span class="mono">RUNPOD_POD_ID</span> env still works as a single
+						"Default" pod).
 					{/if}
 				</p>
 
-				<div class="token-status">
-					<span class="muted">Pod status</span>
-					{#if !data.runpod.configured}
-						<span class="mono muted">— not configured —</span>
-						<span class="pill off">unset</span>
-					{:else if data.runpod.podStatus === 'running'}
-						<span class="mono">running</span>
-						{#if data.runpod.comfyReady}
-							<span class="pill on">ComfyUI ready</span>
-						{:else}
-							<span class="pill off">warming up</span>
-						{/if}
-					{:else if data.runpod.podStatus === 'starting'}
-						<span class="mono">starting</span>
-						<span class="pill off">warming up</span>
-					{:else if data.runpod.podStatus === 'stopped'}
-						<span class="mono">stopped</span>
-						<span class="pill off">idle</span>
-					{:else}
-						<span class="mono muted">unknown</span>
-						<span class="pill off">—</span>
-					{/if}
-				</div>
+				<form method="POST" action="?/setRunpodPods" use:enhance class="runpod-fleet">
+					{#each runpodPods as pod, i (i)}
+						{@const live = runpodStatusOf(pod.id)}
+						<div class="pod-edit">
+							<label class="grow">
+								Pod id
+								<input name="podId" type="text" autocomplete="off" bind:value={pod.id} placeholder="runpod pod id" />
+							</label>
+							<label class="grow">
+								Label
+								<input name="podLabel" type="text" autocomplete="off" bind:value={pod.label} placeholder="e.g. RTX 4090" />
+							</label>
+							<div class="pod-live">
+								{#if live}
+									{#if live.status === 'running'}
+										<span class="pill on">{live.ready ? 'running' : 'warming'}</span>
+									{:else if live.status === 'starting'}
+										<span class="pill off">starting</span>
+									{:else if live.status === 'stopped'}
+										<span class="pill off">stopped</span>
+									{:else}
+										<span class="pill off">unknown</span>
+									{/if}
+								{:else}
+									<span class="pill off">—</span>
+								{/if}
+							</div>
+							<button type="button" class="ghost-btn" onclick={() => removeRunpodPod(i)}>Remove</button>
+						</div>
+					{/each}
+					<div class="token-actions">
+						<button type="button" class="ghost-btn" onclick={addRunpodPod}>+ Add pod</button>
+						<button type="submit">Save fleet</button>
+					</div>
+				</form>
 
 				<form method="POST" action="?/setRunpodIdle" use:enhance class="runpod-idle">
 					<label class="check">
-						<input
-							type="checkbox"
-							name="enabled"
-							value="true"
-							checked={data.runpod.idleEnabled}
-						/>
+						<input type="checkbox" name="enabled" value="true" checked={data.runpod.idleEnabled} />
 						Enable idle auto-stop
 					</label>
 					<label class="minutes">
@@ -1122,13 +1147,17 @@
 					<button type="submit">Save idle settings</button>
 				</form>
 
-				<div class="token-actions">
-					<form method="POST" action="?/stopRunpodPod" use:enhance>
-						<button type="submit" class="ghost-btn" disabled={!data.runpod.configured}
-							>Stop pod now</button
-						>
-					</form>
-				</div>
+				{#if data.runpod.configured && data.runpod.pods.length}
+					<div class="pod-stops">
+						<span class="muted hint">Manual stop:</span>
+						{#each data.runpod.pods as p (p.id)}
+							<form method="POST" action="?/stopRunpodPod" use:enhance>
+								<input type="hidden" name="podId" value={p.id} />
+								<button type="submit" class="ghost-btn">Stop {p.label}</button>
+							</form>
+						{/each}
+					</div>
+				{/if}
 			</div>
 		</section>
 	</div>
@@ -1671,5 +1700,34 @@
 	}
 	.runpod-idle .minutes input {
 		width: 90px;
+	}
+	.runpod-fleet {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+		margin: 12px 0 16px;
+	}
+	.pod-edit {
+		display: flex;
+		gap: 10px;
+		align-items: flex-end;
+	}
+	.pod-edit .grow {
+		font-size: 12px;
+	}
+	.pod-live {
+		display: flex;
+		align-items: center;
+		padding-bottom: 6px;
+	}
+	.pod-stops {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+		margin-top: 8px;
+	}
+	.pod-stops form {
+		margin: 0;
 	}
 </style>

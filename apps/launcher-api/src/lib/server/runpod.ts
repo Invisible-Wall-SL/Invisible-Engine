@@ -1,17 +1,22 @@
+import { getRunpodPods } from './appSettings';
 import { ENV } from './env';
 
 /**
- * RunPod on-demand pod lifecycle for the ComfyUI R&D pod (`COMFY_RND_URL`).
+ * RunPod on-demand pod lifecycle for the ComfyUI R&D FLEET.
  *
- * Ported from `services/atlas-tool/runpod_control.py` (the proven-working GraphQL
- * calls): RESUME the pod before use, STOP it when idle, so the GPU only bills while
- * work is happening. Everything here is FAIL-SAFE — any API/network error degrades to
- * `'unknown'`/`{ ok: false }` and never throws, so a control path can always render a
- * sane state instead of crashing the request.
+ * A fleet is a list of RunPod pods (different GPU cards) the artist picks from — a
+ * single Blackwell pod is often "not enough free GPUs" on resume, so the artist tries
+ * the next card. The calls are ported from `services/atlas-tool/runpod_control.py` (the
+ * proven-working GraphQL calls): RESUME a pod before use, STOP it when idle, so the GPU
+ * only bills while work is happening. Everything is FAIL-SAFE — any API/network error
+ * degrades to `'unknown'`/`{ ok: false }` and never throws.
  *
- * When `RUNPOD_API_KEY` + `RUNPOD_POD_ID` are unset (`podControlConfigured()` false)
- * every mutation is a no-op and the /comfyui card falls back to a plain "open the URL"
- * landing. Stdlib `fetch` only; RunPod GraphQL at https://api.runpod.io/graphql.
+ * `RUNPOD_API_KEY` is the shared secret for all pods. The effective fleet is the
+ * admin-managed `app_settings.runpodPods`, or — for back-compat — a single synthesized
+ * entry from the legacy `RUNPOD_POD_ID` env when no fleet is configured. Each pod's
+ * ComfyUI URL is DERIVED from its id (`podUrl`); no per-pod URL is stored (the legacy
+ * synth prefers `COMFY_RND_URL` if set). Stdlib `fetch` only; RunPod GraphQL at
+ * https://api.runpod.io/graphql.
  */
 
 const GQL_ENDPOINT = 'https://api.runpod.io/graphql';
@@ -19,9 +24,48 @@ const UA = 'InvisibleLauncher/1.0';
 
 export type PodStatus = 'running' | 'stopped' | 'starting' | 'unknown';
 
-/** Both control secrets present — the only state in which any mutation runs. */
-export function podControlConfigured(): boolean {
-	return !!(ENV.RUNPOD_API_KEY && ENV.RUNPOD_POD_ID);
+/** A pod in the effective fleet: its id, human label, and derived ComfyUI URL. */
+export interface FleetPod {
+	id: string;
+	label: string;
+	url: string;
+}
+
+/** A probed pod: fleet entry + its live status and ComfyUI readiness. */
+export interface PodState extends FleetPod {
+	status: PodStatus;
+	ready: boolean;
+}
+
+/** The ComfyUI proxy URL for a pod, derived from its RunPod id. */
+export function podUrl(id: string): string {
+	return `https://${id}-8188.proxy.runpod.net`;
+}
+
+/**
+ * The effective fleet: the admin-managed `runpodPods` list (URLs derived from id), or —
+ * when that's empty — a single legacy entry synthesized from `RUNPOD_POD_ID` (URL
+ * prefers `COMFY_RND_URL`, else derived) so an existing single-pod deployment keeps
+ * working with zero config change. Empty when neither is configured.
+ */
+export async function getEffectiveFleet(): Promise<FleetPod[]> {
+	const pods = await getRunpodPods();
+	if (pods.length) {
+		return pods.map((p) => ({ id: p.id, label: p.label, url: podUrl(p.id) }));
+	}
+	const legacy = ENV.RUNPOD_POD_ID.trim();
+	if (legacy) {
+		const url = ENV.COMFY_RND_URL.replace(/\/$/, '') || podUrl(legacy);
+		return [{ id: legacy, label: 'Default', url }];
+	}
+	return [];
+}
+
+/** Pod control is usable when the shared key is set AND the fleet is non-empty. */
+export async function podControlConfigured(): Promise<boolean> {
+	if (!ENV.RUNPOD_API_KEY) return false;
+	const fleet = await getEffectiveFleet();
+	return fleet.length > 0;
 }
 
 interface GqlResult {
@@ -31,11 +75,9 @@ interface GqlResult {
 
 /**
  * POST a GraphQL query to RunPod. Auth is the `?api_key=` query param — the exact,
- * proven-working shape from `runpod_control.py` (RunPod also accepts an
- * `Authorization: Bearer` header, but this is what's confirmed against our pod).
- * Returns the parsed JSON, or `null` on any transport/parse error (caller treats
- * `null` as "unknown / proceed"). `timeoutMs` bounds the call so a hung API can't
- * stall a request.
+ * proven-working shape from `runpod_control.py`. Returns the parsed JSON, or `null` on
+ * any transport/parse error (caller treats `null` as "unknown / proceed"). `timeoutMs`
+ * bounds the call so a hung API can't stall a request.
  */
 async function gql(query: string, timeoutMs = 15000): Promise<GqlResult | null> {
 	const key = ENV.RUNPOD_API_KEY;
@@ -65,16 +107,15 @@ function firstError(result: GqlResult | null): string | undefined {
 }
 
 /**
- * The pod's coarse lifecycle state, derived from RunPod's `desiredStatus` + whether a
+ * A pod's coarse lifecycle state, derived from RunPod's `desiredStatus` + whether a
  * runtime exists yet:
  * - `desiredStatus === 'RUNNING'` with a live runtime → `'running'`
  * - `desiredStatus === 'RUNNING'` but no runtime yet → `'starting'` (resuming/booting)
  * - any other desired status (e.g. `'EXITED'`) → `'stopped'`
- * - API/network error or unconfigured → `'unknown'`
+ * - API/network error, no key, or empty podId → `'unknown'`
  */
-export async function podStatus(): Promise<PodStatus> {
-	if (!podControlConfigured()) return 'unknown';
-	const podId = ENV.RUNPOD_POD_ID;
+export async function podStatus(podId: string): Promise<PodStatus> {
+	if (!ENV.RUNPOD_API_KEY || !podId) return 'unknown';
 	const result = await gql(
 		`query { pod(input:{podId:"${podId}"}) { desiredStatus runtime { uptimeInSeconds } } }`,
 	);
@@ -89,14 +130,15 @@ export async function podStatus(): Promise<PodStatus> {
 }
 
 /**
- * RESUME the pod (`podResume(input:{podId, gpuCount:1})`). On success returns
+ * RESUME a pod (`podResume(input:{podId, gpuCount:1})`). On success returns
  * `{ ok: true }`. If RunPod reports no GPU availability (the resume returns an error
  * rather than a pod), returns `{ ok: false, error }` with a readable message so the
- * card can show "GPU unavailable, retry". Never throws.
+ * card can show it inline ("not enough free GPUs" → try the next pod). Never throws.
  */
-export async function podResume(): Promise<{ ok: boolean; error?: string }> {
-	if (!podControlConfigured()) return { ok: false, error: 'Pod control is not configured.' };
-	const podId = ENV.RUNPOD_POD_ID;
+export async function podResume(podId: string): Promise<{ ok: boolean; error?: string }> {
+	if (!ENV.RUNPOD_API_KEY || !podId) {
+		return { ok: false, error: 'Pod control is not configured.' };
+	}
 	const result = await gql(
 		`mutation { podResume(input:{podId:"${podId}", gpuCount:1}) { id desiredStatus } }`,
 	);
@@ -110,16 +152,15 @@ export async function podResume(): Promise<{ ok: boolean; error?: string }> {
 	return { ok: true };
 }
 
-/** STOP the pod (`podStop(input:{podId})`). Fire-and-forget; never throws. */
-export async function podStop(): Promise<void> {
-	if (!podControlConfigured()) return;
-	const podId = ENV.RUNPOD_POD_ID;
+/** STOP a pod (`podStop(input:{podId})`). Fire-and-forget; never throws. */
+export async function podStop(podId: string): Promise<void> {
+	if (!ENV.RUNPOD_API_KEY || !podId) return;
 	await gql(`mutation { podStop(input:{podId:"${podId}"}) { id desiredStatus } }`);
 }
 
-/** True if ComfyUI answers `/system_stats` at `COMFY_RND_URL` (any 200 = ready). */
-export async function comfyReady(): Promise<boolean> {
-	const base = ENV.COMFY_RND_URL.replace(/\/$/, '');
+/** True if ComfyUI answers `/system_stats` at `url` (any 200 = ready). */
+export async function comfyReady(url: string): Promise<boolean> {
+	const base = (url ?? '').replace(/\/$/, '');
 	if (!base) return false;
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), 6000);
@@ -137,13 +178,12 @@ export async function comfyReady(): Promise<boolean> {
 }
 
 /**
- * True if ComfyUI has a non-empty queue at `COMFY_RND_URL/queue` (a render is running
- * or pending). Used by the idle watchdog to treat an active queue as activity so it
- * never stops the pod mid-render. Any error → `false` (fail-safe: don't fabricate
- * activity, but the watchdog also honours the last-activity heartbeat).
+ * True if ComfyUI has a non-empty queue at `url/queue` (a render is running or pending).
+ * Used by the idle watchdog to treat an active queue as activity so it never stops a pod
+ * mid-render. Any error → `false` (fail-safe).
  */
-export async function comfyQueueBusy(): Promise<boolean> {
-	const base = ENV.COMFY_RND_URL.replace(/\/$/, '');
+export async function comfyQueueBusy(url: string): Promise<boolean> {
+	const base = (url ?? '').replace(/\/$/, '');
 	if (!base) return false;
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), 6000);
@@ -165,4 +205,19 @@ export async function comfyQueueBusy(): Promise<boolean> {
 	} finally {
 		clearTimeout(timer);
 	}
+}
+
+/**
+ * Probe the whole effective fleet concurrently: each pod's live status + ComfyUI
+ * readiness. Resilient — a single pod hanging can't stall the rest (each call is
+ * independently timeout-bounded and fail-safe). Shared by the /comfyui endpoints.
+ */
+export async function probeFleet(): Promise<PodState[]> {
+	const fleet = await getEffectiveFleet();
+	return Promise.all(
+		fleet.map(async (p) => {
+			const [status, ready] = await Promise.all([podStatus(p.id), comfyReady(p.url)]);
+			return { ...p, status, ready };
+		}),
+	);
 }
