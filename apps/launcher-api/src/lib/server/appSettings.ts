@@ -12,6 +12,13 @@ export const RUNPOD_IDLE_ENABLED_KEY = 'runpodIdleEnabled';
 export const RUNPOD_IDLE_MINUTES_KEY = 'runpodIdleMinutes';
 /** Default idle window (minutes) when the admin hasn't set one. */
 export const RUNPOD_IDLE_MINUTES_DEFAULT = 20;
+/**
+ * Settings key: the admin-managed ComfyUI R&D pod FLEET, JSON `[{id,label}, …]`.
+ * Each entry is a RunPod pod (different GPU card) the artist can pick from; the pod's
+ * ComfyUI URL is DERIVED from its id (`podUrl` in `runpod.ts`), not stored. Empty/unset
+ * falls back to the legacy single-pod env path (`RUNPOD_POD_ID`).
+ */
+export const RUNPOD_PODS_KEY = 'runpodPods';
 
 /**
  * Read a single app setting's value, or `undefined` when unset. The value may be
@@ -87,5 +94,34 @@ export async function getRunpodIdleConfig(): Promise<{ enabled: boolean; minutes
 			err instanceof Error ? err.message : err,
 		);
 		return { enabled: false, minutes: RUNPOD_IDLE_MINUTES_DEFAULT };
+	}
+}
+
+/**
+ * The admin-managed ComfyUI R&D pod FLEET (`runpodPods` = JSON `[{id,label}, …]`).
+ * Fails SAFE — missing/blank value, malformed JSON, a non-array, or a DB read error all
+ * degrade to `[]` (the caller then falls back to the legacy single-pod env path). Bad
+ * entries (missing id) are dropped; a blank label defaults to the id. Never throws.
+ */
+export async function getRunpodPods(): Promise<{ id: string; label: string }[]> {
+	try {
+		const raw = await getAppSetting(RUNPOD_PODS_KEY);
+		if (!raw) return [];
+		const parsed: unknown = JSON.parse(raw);
+		if (!Array.isArray(parsed)) return [];
+		return parsed
+			.map((p) => (p && typeof p === 'object' ? (p as Record<string, unknown>) : {}))
+			.filter((p) => typeof p.id === 'string' && (p.id as string).trim() !== '')
+			.map((p) => {
+				const id = (p.id as string).trim();
+				const label = typeof p.label === 'string' && p.label.trim() ? p.label.trim() : id;
+				return { id, label };
+			});
+	} catch (err) {
+		console.warn(
+			'[appSettings] runpodPods read/parse failed — treating fleet as empty:',
+			err instanceof Error ? err.message : err,
+		);
+		return [];
 	}
 }
