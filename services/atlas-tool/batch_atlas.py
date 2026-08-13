@@ -20,6 +20,7 @@ USAGE
 from __future__ import annotations
 
 import argparse
+import base64
 import io
 import json
 import os
@@ -288,6 +289,13 @@ COMFY_HOST = _PP["comfy_host"]
 # User-Agent. comfy_post/get/view all target COMFY_BASE with CF_HEADERS.
 COMFY_BASE = (_PP.get("comfy_url") or f"http://{COMFY_HOST}").rstrip("/")
 CF_HEADERS = dict(_PP.get("cf_headers") or {})
+
+# Which ComfyUI transport run_region uses. Unset / "http" (DEFAULT) = talk to a
+# live ComfyUI at COMFY_BASE (/upload/image, /prompt, /history, /view). Env
+# "serverless" = submit the generation as a RunPod Serverless job instead
+# (POST /run + poll /status, base64 refs + base64 result). Read from env so a
+# single Railway var flips the backend without touching per-project config.
+COMFY_TRANSPORT = (os.environ.get("COMFY_TRANSPORT") or "http").strip().lower() or "http"
 
 # Per-(client, project) — MUST be live (thread-local) for the imported-by-UI
 # path; in the subprocess they resolve the single env context, unchanged.
@@ -1245,13 +1253,15 @@ def _locate_ref_in_staging(relpath: str) -> Path | None:
     return None
 
 
-def _upload_workflow_refs(wf: dict) -> None:
-    """Rewrite every LoadImage node's `image` from a staging-relative ref path
-    to a name uploaded to the remote ComfyUI. Mutates wf in place.
+def _iter_workflow_refs(wf: dict):
+    """Yield (node, relpath, src_path) for every LoadImage node in wf, resolving
+    each ref to a real file in the R2-backed staging mirror. Does NOT mutate wf.
 
-    The remote ComfyUI cannot see our filesystem, so a ref that we fail to
-    resolve + upload would be shipped to /prompt as a raw staging/R2-key path
-    and rejected with an opaque `LoadImage: Invalid image file` 400. Rather
+    This is the shared "which refs, what file" routing both transports need: the
+    http path uploads each src via /upload/image; the serverless path base64-
+    encodes it into RunPod's input.images[]. The remote/worker ComfyUI cannot see
+    our filesystem, so an unresolved ref would ship as a raw staging/R2-key path
+    and be rejected with an opaque `LoadImage: Invalid image file` 400. Rather
     than degrade to "leaving as-is" (the cold-project bug where a `sheet_src/`
     shape ref that exists only in R2 was never pulled, then sent verbatim), we
     raise a clear, actionable RuntimeError naming the missing ref — caught by
@@ -1271,12 +1281,47 @@ def _upload_workflow_refs(wf: dict) -> None:
                 f"points at an image that exists in this project (e.g. a "
                 f"sheet_src/ sprite or a refs/ upload), then regenerate."
             )
+        yield node, relpath, src
+
+
+def _upload_workflow_refs(wf: dict) -> None:
+    """Rewrite every LoadImage node's `image` from a staging-relative ref path
+    to a name uploaded to the remote ComfyUI (http transport). Mutates wf in
+    place."""
+    for node, relpath, src in _iter_workflow_refs(wf):
         try:
             node["inputs"]["image"] = comfy_upload_image(src.name, src.read_bytes())
         except Exception as e:  # noqa: BLE001
             raise RuntimeError(
                 f"Failed to upload reference image \"{relpath}\" to ComfyUI: {e}"
             ) from e
+
+
+def _serverless_workflow_images(wf: dict) -> list[dict]:
+    """Build RunPod's input.images[] from every LoadImage ref, rewriting each
+    node's `image` to the bare filename the worker will save it under (serverless
+    transport). Mirrors _upload_workflow_refs but base64-encodes the bytes into
+    the job payload instead of POSTing them to /upload/image — the worker writes
+    each {name, image} into ComfyUI's input dir before queuing the prompt, so the
+    LoadImage name must match the images[] name. Mutates wf in place; returns the
+    images list (deduped by name)."""
+    images: list[dict] = []
+    seen: set[str] = set()
+    for node, relpath, src in _iter_workflow_refs(wf):
+        name = os.path.basename(src.name) or "ref.png"
+        node["inputs"]["image"] = name
+        if name in seen:
+            continue
+        seen.add(name)
+        try:
+            b64 = base64.b64encode(src.read_bytes()).decode("ascii")
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(
+                f"Failed to read reference image \"{relpath}\" for the RunPod "
+                f"serverless job: {e}"
+            ) from e
+        images.append({"name": name, "image": b64})
+    return images
 
 
 def normalize_shape_ref(shape_ref_relpath: str) -> str:
@@ -2262,6 +2307,143 @@ def build_workflow_flux(region: dict, style: dict, atlas_path: str) -> dict:
     return wf
 
 
+# --------------------------------------------------------------------------
+# RunPod Serverless transport (COMFY_TRANSPORT=serverless).
+#
+# Instead of a live ComfyUI over the tunnel, submit the api-prompt graph to a
+# RunPod Serverless endpoint: POST {base}/run with {input:{workflow, images}},
+# then poll {base}/status/{id}. The worker uploads images[], queues the prompt,
+# polls history and returns {images:[{filename, image:<b64>}]} — decoded here
+# and fed into the SAME _persist_variant path the http transport uses. See
+# docs/design/comfyui-serverless.md and services/atlas-serverless/handler.py.
+# --------------------------------------------------------------------------
+def _runpod_endpoint_base() -> str:
+    eid = (os.environ.get("RUNPOD_ENDPOINT_ID") or "").strip()
+    if not eid:
+        raise RuntimeError(
+            "COMFY_TRANSPORT=serverless but RUNPOD_ENDPOINT_ID is not set. "
+            "Set the RunPod endpoint id in the atlas-tool env, then retry.")
+    return f"https://api.runpod.ai/v2/{eid}"
+
+
+def _runpod_headers() -> dict:
+    key = (os.environ.get("RUNPOD_API_KEY") or "").strip()
+    if not key:
+        raise RuntimeError(
+            "COMFY_TRANSPORT=serverless but RUNPOD_API_KEY is not set. "
+            "Set the RunPod API key in the atlas-tool env, then retry.")
+    return {"Authorization": f"Bearer {key}", "User-Agent": "InvisibleAtlas/1.0"}
+
+
+def _runpod_post(path: str, payload: dict) -> dict:
+    base = _runpod_endpoint_base()
+    req = Request(
+        f"{base}{path}",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json", **_runpod_headers()},
+        method="POST",
+    )
+    try:
+        with urlopen(req, timeout=120) as r:
+            return json.loads(r.read())
+    except HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"RunPod {path} failed: HTTP {e.code} {e.reason}: {body[:500]}")
+    except (URLError, ConnectionError, OSError) as e:
+        raise RuntimeError(f"Cannot reach RunPod endpoint at {base}{path}: {e}")
+
+
+def _runpod_get(path: str) -> dict:
+    base = _runpod_endpoint_base()
+    req = Request(f"{base}{path}", headers=_runpod_headers())
+    try:
+        with urlopen(req, timeout=120) as r:
+            return json.loads(r.read())
+    except HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")
+        raise RuntimeError(
+            f"RunPod {path} failed: HTTP {e.code} {e.reason}: {body[:500]}")
+    except (URLError, ConnectionError, OSError) as e:
+        raise RuntimeError(f"Cannot reach RunPod endpoint at {base}{path}: {e}")
+
+
+def _runpod_run_and_wait(job: dict, region_name: str) -> dict:
+    """Submit a job to /run and poll /status until it finishes. Returns the
+    worker's `output` on COMPLETED; raises a clear RuntimeError on
+    FAILED/CANCELLED/TIMED_OUT (with any error detail) and TimeoutError on the
+    overall cap. IN_QUEUE / IN_PROGRESS mean keep waiting (cold starts load
+    models to VRAM, so allow ~30 min)."""
+    resp = _runpod_post("/run", job)
+    jid = resp.get("id")
+    if not jid:
+        raise RuntimeError(f"RunPod /run did not return a job id: {resp}")
+    deadline = time.time() + 1800  # 30 min cap — cold start + model load + gen
+    started = time.time()
+    last_tick = started
+    while time.time() < deadline:
+        time.sleep(2.0)
+        now = time.time()
+        st = _runpod_get(f"/status/{jid}")
+        status = str(st.get("status") or "").upper()
+        if status == "COMPLETED":
+            return st.get("output") or {}
+        if status in ("FAILED", "CANCELLED", "TIMED_OUT"):
+            detail = st.get("error") or st.get("output") or st
+            emit(diag("COMFY_NODE_FAILED", CATALOG, name=region_name,
+                      node="runpod", msg=f"job {status}: {detail}"))
+            raise RuntimeError(
+                f"RunPod job {jid} for region '{region_name}' ended {status}: "
+                f"{detail}")
+        if now - last_tick >= 15:
+            print(f"   ... serverless job {jid} {status or 'PENDING'} "
+                  f"({int(now - started)}s elapsed)")
+            last_tick = now
+    emit(diag("COMFY_TIMEOUT", CATALOG, name=region_name))
+    raise TimeoutError(
+        f"RunPod job {jid} for region '{region_name}' timed out after 30 min")
+
+
+def _run_region_serverless(region: dict, wf: dict) -> Image.Image:
+    """Run one region through the RunPod Serverless transport. Base64-encodes
+    the LoadImage refs into input.images[] (same names the http path uploads),
+    submits the identical api-prompt graph, decodes the returned base64 image and
+    persists it via the SAME _persist_variant path the http transport uses."""
+    images = _serverless_workflow_images(wf)
+    out = _runpod_run_and_wait(
+        {"input": {"workflow": wf, "images": images}}, region["name"])
+    # The worker can report a graph/execution failure as {"error", "detail"}
+    # inside `output` on an otherwise-COMPLETED job — surface it as a clear error
+    # rather than the generic "no images" below.
+    if isinstance(out, dict) and out.get("error"):
+        detail = out.get("detail")
+        emit(diag("COMFY_NODE_FAILED", CATALOG, name=region["name"],
+                  node="runpod", msg=str(out.get("error"))))
+        raise RuntimeError(
+            f"RunPod serverless job for region '{region['name']}' failed: "
+            f"{out.get('error')}" + (f" ({detail})" if detail else ""))
+    out_images = (out or {}).get("images") or []
+    if not out_images:
+        emit(diag("COMFY_NODE_FAILED", CATALOG, name=region["name"],
+                  node="runpod", msg="serverless job returned no images"))
+        raise RuntimeError(
+            f"RunPod serverless job for region '{region['name']}' returned no "
+            f"images (output={out!r}).")
+    first = out_images[0]
+    b64 = first.get("image")
+    if not b64:
+        raise RuntimeError(
+            f"RunPod serverless job for region '{region['name']}' returned an "
+            f"image entry with no base64 data: {first!r}")
+    blob = base64.b64decode(b64)
+    filename = first.get("filename") or f"{region['name']}.png"
+    # Same persistence as the http path: write bytes to staging BATCH_DIR (PNG
+    # keeps its embedded seed metadata) + mirror to R2, so the gallery's variant
+    # globbing / lock / Create Atlas work unchanged.
+    _persist_variant(region["name"], filename, blob)
+    return Image.open(io.BytesIO(blob)).convert("RGBA")
+
+
 def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Image.Image:
     # Pipeline dispatch: the three built-ins (sdxl/flux/gpt_image) use the
     # proven hardcoded Python builders with the historical SaveImage node "17".
@@ -2295,6 +2477,10 @@ def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Im
                 f"valid pipeline, then retry.")
         wf, out_node = build_workflow_blueprint(
             region, style, bp, BP_PARAM_OVERRIDES)
+    # Serverless transport: submit the SAME api-prompt graph as a RunPod job
+    # (base64 refs in, base64 image out) instead of talking to a live ComfyUI.
+    if COMFY_TRANSPORT == "serverless":
+        return _run_region_serverless(region, wf)
     # Cloud: the remote ComfyUI can't read our staging refs — upload each
     # LoadImage source first and rewrite the node to the uploaded name.
     _upload_workflow_refs(wf)
