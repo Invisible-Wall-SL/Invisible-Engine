@@ -1059,6 +1059,77 @@
 					</form>
 				</div>
 			</div>
+
+			<div class="card">
+				<h3>ComfyUI R&amp;D pod</h3>
+				<p class="muted hint">
+					The on-demand RunPod GPU behind the <a class="link" href="/comfyui">ComfyUI</a> tool. Artists
+					start it from that card; it auto-stops after an idle window so the GPU only
+					bills while work is happening. A non-empty ComfyUI render queue counts as activity, so a
+					running render is never interrupted.
+					{#if !data.runpod.configured}
+						<br /><strong>Not configured</strong> — set
+						<span class="mono">RUNPOD_API_KEY</span> and <span class="mono">RUNPOD_POD_ID</span> in the
+						launcher environment to enable pod control.
+					{/if}
+				</p>
+
+				<div class="token-status">
+					<span class="muted">Pod status</span>
+					{#if !data.runpod.configured}
+						<span class="mono muted">— not configured —</span>
+						<span class="pill off">unset</span>
+					{:else if data.runpod.podStatus === 'running'}
+						<span class="mono">running</span>
+						{#if data.runpod.comfyReady}
+							<span class="pill on">ComfyUI ready</span>
+						{:else}
+							<span class="pill off">warming up</span>
+						{/if}
+					{:else if data.runpod.podStatus === 'starting'}
+						<span class="mono">starting</span>
+						<span class="pill off">warming up</span>
+					{:else if data.runpod.podStatus === 'stopped'}
+						<span class="mono">stopped</span>
+						<span class="pill off">idle</span>
+					{:else}
+						<span class="mono muted">unknown</span>
+						<span class="pill off">—</span>
+					{/if}
+				</div>
+
+				<form method="POST" action="?/setRunpodIdle" use:enhance class="runpod-idle">
+					<label class="check">
+						<input
+							type="checkbox"
+							name="enabled"
+							value="true"
+							checked={data.runpod.idleEnabled}
+						/>
+						Enable idle auto-stop
+					</label>
+					<label class="minutes">
+						Idle minutes
+						<input
+							name="minutes"
+							type="number"
+							min="1"
+							step="1"
+							value={data.runpod.idleMinutes}
+							placeholder={String(data.runpod.idleDefaultMinutes)}
+						/>
+					</label>
+					<button type="submit">Save idle settings</button>
+				</form>
+
+				<div class="token-actions">
+					<form method="POST" action="?/stopRunpodPod" use:enhance>
+						<button type="submit" class="ghost-btn" disabled={!data.runpod.configured}
+							>Stop pod now</button
+						>
+					</form>
+				</div>
+			</div>
 		</section>
 	</div>
 </div>
@@ -1575,5 +1646,30 @@
 	}
 	.token-set {
 		margin-bottom: 0;
+	}
+	.runpod-idle {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 16px;
+		align-items: flex-end;
+		margin: 12px 0 16px;
+	}
+	.runpod-idle .check {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 13px;
+	}
+	.runpod-idle .check input {
+		width: auto;
+	}
+	.runpod-idle .minutes {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		font-size: 12px;
+	}
+	.runpod-idle .minutes input {
+		width: 90px;
 	}
 </style>

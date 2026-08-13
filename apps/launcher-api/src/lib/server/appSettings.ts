@@ -6,6 +6,13 @@ import { ENV } from './env';
 /** Settings key for the shared build/deploy token (overrides `EDITOR_DOC_SECRET`). */
 export const DEPLOY_TOKEN_KEY = 'deployToken';
 
+/** Settings key: whether the ComfyUI R&D pod idle auto-stop watchdog is enabled ('1'/'0'). */
+export const RUNPOD_IDLE_ENABLED_KEY = 'runpodIdleEnabled';
+/** Settings key: minutes of no activity before the idle watchdog stops the pod. */
+export const RUNPOD_IDLE_MINUTES_KEY = 'runpodIdleMinutes';
+/** Default idle window (minutes) when the admin hasn't set one. */
+export const RUNPOD_IDLE_MINUTES_DEFAULT = 20;
+
 /**
  * Read a single app setting's value, or `undefined` when unset. The value may be
  * a SECRET — only call from server code behind an admin/capability gate; never
@@ -55,4 +62,30 @@ export async function getDeployToken(): Promise<string | undefined> {
 		);
 	}
 	return ENV.EDITOR_DOC_SECRET || undefined;
+}
+
+/**
+ * The effective ComfyUI R&D pod idle auto-stop config: `{ enabled, minutes }`. Idle is
+ * OFF unless an admin has enabled it; the window defaults to `RUNPOD_IDLE_MINUTES_DEFAULT`
+ * (20) and is clamped to a sane floor. Fails SAFE — a DB read error (e.g. `app_settings`
+ * not yet migrated) degrades to disabled so the watchdog never acts on garbage. Never throws.
+ */
+export async function getRunpodIdleConfig(): Promise<{ enabled: boolean; minutes: number }> {
+	try {
+		const [enabledRaw, minutesRaw] = await Promise.all([
+			getAppSetting(RUNPOD_IDLE_ENABLED_KEY),
+			getAppSetting(RUNPOD_IDLE_MINUTES_KEY),
+		]);
+		const enabled = enabledRaw === '1';
+		const parsed = Number(minutesRaw);
+		const minutes =
+			Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : RUNPOD_IDLE_MINUTES_DEFAULT;
+		return { enabled, minutes };
+	} catch (err) {
+		console.warn(
+			'[appSettings] runpod idle-config DB read failed — treating idle auto-stop as disabled:',
+			err instanceof Error ? err.message : err,
+		);
+		return { enabled: false, minutes: RUNPOD_IDLE_MINUTES_DEFAULT };
+	}
 }

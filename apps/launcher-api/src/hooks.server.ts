@@ -1,12 +1,16 @@
 import { SESSION_COOKIE, validateSession } from '$lib/server/auth';
 import { runMigrations } from '$lib/server/db/migrate';
 import { DEPLOY_CORS_HEADERS } from '$lib/server/deployServe';
+import { startRunpodIdleWatchdog } from '$lib/server/runpodWatchdog';
 import type { Handle, ServerInit } from '@sveltejs/kit';
 
 /** Runs once at server startup, before the first request — apply pending DB
- * migrations so schema-dependent routes never serve against an old schema. */
+ * migrations so schema-dependent routes never serve against an old schema, and
+ * start the ComfyUI R&D pod idle auto-stop watchdog (a no-op when pod control /
+ * idle auto-stop isn't configured). */
 export const init: ServerInit = async () => {
 	await runMigrations();
+	startRunpodIdleWatchdog();
 };
 
 export const handle: Handle = async ({ event, resolve }) => {
