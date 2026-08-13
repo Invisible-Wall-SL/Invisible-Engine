@@ -1,0 +1,24 @@
+# Models are NOT baked into the image — they live on the attached RunPod Network
+# Volume. On an INTERACTIVE pod the volume mounts at /workspace, and the artist already
+# keeps a ComfyUI tree there with models at /workspace/ComfyUI/models (Qwen is there now).
+# So the baked ComfyUI at /ComfyUI reads its models from /workspace/ComfyUI/models via
+# this file. Qwen-Image needs no custom node (native in ComfyUI).
+#
+# Adding/testing a new model = drop the file in the right subfolder on the volume
+# (or R2-pull it there). No image rebuild.
+comfyui:
+  base_path: /workspace/ComfyUI/
+  checkpoints: models/checkpoints
+  clip: models/clip
+  clip_vision: models/clip_vision
+  controlnet: models/controlnet
+  diffusion_models: models/diffusion_models
+  embeddings: models/embeddings
+  ipadapter: models/ipadapter
+  insightface: models/insightface
+  loras: models/loras
+  pulid: models/pulid
+  text_encoders: models/text_encoders
+  unet: models/unet
+  upscale_models: models/upscale_models
+  vae: models/vae
