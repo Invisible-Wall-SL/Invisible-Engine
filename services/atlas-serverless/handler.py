@@ -24,7 +24,7 @@ import requests
 import runpod
 
 COMFY = "http://127.0.0.1:8188"
-READY_TIMEOUT = 240      # ComfyUI cold-start (load nodes) before first job
+READY_TIMEOUT = 600      # ComfyUI cold-start (load nodes) before first job
 JOB_TIMEOUT = 1800       # a single generation
 
 
