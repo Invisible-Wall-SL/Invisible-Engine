@@ -16,6 +16,10 @@ apps/launcher-api/src/lib/data/gameConfig/*.json text eol=lf
 # (the pre-commit drift guard) does a string compare, so pin LF to avoid a false CRLF drift.
 packages/engine-layout/src/lib/builtinSpineMeta.generated.ts text eol=lf
 
+# Shell scripts baked into Docker images (services/*/start.sh) MUST stay LF — a CRLF
+# shebang (`#!/usr/bin/env bash\r`) makes the container CMD fail to exec on Linux.
+*.sh text eol=lf
+
 # Binary assets — never line-ending normalize (prevents corruption)
 *.pdf binary
 *.png binary

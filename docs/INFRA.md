@@ -88,6 +88,12 @@ On-demand RunPod GPU **pods** running the **interactive ComfyUI web UI** for art
   - RTX 4090 — id `avpq09jo5c9uyt`
   - RTX PRO 4500 Blackwell (32 GB) — id `a1tqn0tzbqtvr1` (name `ComfyUI_RD`)
 
+### ✅ Recommended: deploy the pod FROM the baked image
+Deploy each R&D pod from the **baked GHCR image** `ghcr.io/invisible-wall-sl/atlas-comfy-pod:latest` (built by `services/atlas-comfy-pod/` — see its [README](../services/atlas-comfy-pod/README.md)). Everything Python — ComfyUI `v0.3.66`, **cu128 torch (Blackwell)**, all custom nodes (IPAdapter_plus, RMBG, controlnet_aux, PuLID_ComfyUI, the vendored PuLID-Flux, ComfyUI-Manager) and the face stack — is **already in the image**, so:
+- **It survives RunPod recreating the container on resume.** Hand-installed deps do NOT: a resume changes the container id and wipes site-packages (`tqdm`/`torch` gone → ComfyUI crash-loops). Models are safe (on the volume); only container packages are lost. The baked image is the permanent fix — the manual runbook below is only a fallback for a pod that predates the image.
+- **No "Container Start Command" is needed** — the image auto-starts ComfyUI on 8188 and keeps the container alive (`sleep infinity`), so a ComfyUI crash never locks you out of the terminal.
+- Deploy: RunPod → Pods → Deploy → custom image `ghcr.io/invisible-wall-sl/atlas-comfy-pod:latest`, a Blackwell GPU, **attach `Invisible_RunPod_Storage` at `/workspace`**, expose HTTP **8188**. Models stay on the volume at `/workspace/ComfyUI/models` (baked `extra_model_paths.yaml` points there). Adding a model = drop it on the volume; only a new custom **node** needs an image rebuild (push under `services/atlas-comfy-pod/**` → CI rebuilds + pushes). Startup log: `tail -f /workspace/comfyui.log`.
+
 ### Launcher integration (the `/comfyui` card)
 The launcher's `/comfyui` card lists the fleet and can **start/stop** each pod (RunPod GraphQL `podResume` / `podStop`). The only env var required is the shared API key; pods themselves live in `app_settings.runpodPods` (above). Set on the **launcher-api** Railway service → **Apply changes / Deploy**:
 
@@ -99,15 +105,19 @@ The launcher's `/comfyui` card lists the fleet and can **start/stop** each pod (
 
 - **Idle auto-stop is NOT env** — it's **admin-configured** and stored in the `app_settings` table (`runpodIdleEnabled`, `runpodIdleMinutes`, default **20**). An admin toggles it + sets the minutes from the launcher admin UI; the launcher stops an idle pod after that many minutes (a non-empty ComfyUI render queue counts as activity, so a running render is never interrupted).
 
-### ⚠️ REQUIRED pod config — ComfyUI must auto-start on boot
-The launcher can **resume** the pod via API but **cannot SSH in** to launch ComfyUI. So the pod's container **Start Command** (Docker container start command, set in the RunPod pod config → **Edit Pod** → *Container Start Command*, or when creating the pod) must run:
+### ⚠️ Legacy/manual fallback — REQUIRED pod config for a NON-baked pod
+> **Prefer the baked image above.** The rest of this section is the **legacy hand-install runbook** for a pod that was created before the baked image (ComfyUI installed by hand on the volume). A pod deployed from `atlas-comfy-pod` needs none of it — no Start Command, no manual pip.
+
+The launcher can **resume** the pod via API but **cannot SSH in** to launch ComfyUI. So a **non-baked** pod's container **Start Command** (Docker container start command, set in the RunPod pod config → **Edit Pod** → *Container Start Command*, or when creating the pod) must run:
 ```
 bash /workspace/start-comfyui.sh
 ```
 (`start-comfyui.sh` lives on the Network Volume, mounted at `/workspace`, and `cd`s into `/workspace/ComfyUI` then launches `python main.py --listen 0.0.0.0 --port 8188`.) **Without this**, pressing **Start** from the `/comfyui` card boots the pod but ComfyUI never comes up — the proxy URL just hangs/502s. This is the single most important pod-config step.
 
-### Pod software setup (runbook — persists on the Network Volume)
-These were needed to get the artist's FLUX/PuLID blueprint running and **MUST be reproduced on any fresh pod/volume**. Run from the pod's web terminal / SSH; everything under `/workspace` survives stop/start.
+### Pod software setup (LEGACY manual runbook — persists on the Network Volume)
+> **Legacy only.** These steps are already baked into `atlas-comfy-pod`. Use them only to repair a pre-baked-image pod, or to understand what the image encodes. On a baked-image pod they are unnecessary (and re-running `pip install torch` by hand won't survive a container recreate — that's the whole reason for the baked image).
+
+These were needed to get the artist's FLUX/PuLID blueprint running on a hand-built pod. Run from the pod's web terminal / SSH; everything under `/workspace` survives stop/start.
 
 1. **Pin ComfyUI to `v0.3.66`** (in `/workspace/ComfyUI`):
    ```
