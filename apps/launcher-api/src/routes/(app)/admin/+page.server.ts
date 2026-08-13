@@ -74,7 +74,16 @@ import {
 	setGameUrl,
 } from '$lib/server/games';
 import { ENV } from '$lib/server/env';
-import { DEPLOY_TOKEN_KEY, getDeployToken, setAppSetting } from '$lib/server/appSettings';
+import {
+	DEPLOY_TOKEN_KEY,
+	RUNPOD_IDLE_ENABLED_KEY,
+	RUNPOD_IDLE_MINUTES_DEFAULT,
+	RUNPOD_IDLE_MINUTES_KEY,
+	getDeployToken,
+	getRunpodIdleConfig,
+	setAppSetting,
+} from '$lib/server/appSettings';
+import { comfyReady, podControlConfigured, podStatus, podStop } from '$lib/server/runpod';
 import {
 	LAYOUT_PROFILE_DEFAULT_KEY,
 	getGlobalLayoutProfile,
@@ -142,6 +151,15 @@ export const load: PageServerLoad = async ({ locals }) => {
 	// admin-set default from the coded fallback.
 	const globalLayoutProfile = await getGlobalLayoutProfile();
 
+	// ComfyUI R&D pod (RunPod) idle config + a live status readout. Status is only
+	// queried when pod control is configured (else it's a no-op 'unknown'). Best-effort:
+	// the RunPod helpers are fail-safe, so a hiccup just shows 'unknown'.
+	const runpodConfigured = podControlConfigured();
+	const runpodIdle = await getRunpodIdleConfig();
+	const [runpodStatus, runpodComfyReady] = runpodConfigured
+		? await Promise.all([podStatus(), comfyReady()])
+		: (['unknown', false] as const);
+
 	return {
 		currentUserId: locals.user!.id,
 		users: userList,
@@ -183,6 +201,14 @@ export const load: PageServerLoad = async ({ locals }) => {
 			// The effective default sent to the editor: the admin-set one, else the coded default.
 			profile: globalLayoutProfile ?? DEFAULT_LAYOUT_PROFILE,
 			custom: !!globalLayoutProfile,
+		},
+		runpod: {
+			configured: runpodConfigured,
+			podStatus: runpodStatus,
+			comfyReady: runpodComfyReady,
+			idleEnabled: runpodIdle.enabled,
+			idleMinutes: runpodIdle.minutes,
+			idleDefaultMinutes: RUNPOD_IDLE_MINUTES_DEFAULT,
 		},
 	};
 };
@@ -779,5 +805,36 @@ export const actions: Actions = {
 			return fail(502, { action: 'purgeCache', error: result.error ?? 'Purge failed.' });
 		}
 		return { action: 'purgeCache', ok: 'Cloudflare edge cache purged for the whole zone.' };
+	},
+
+	// --- ComfyUI R&D pod (RunPod) ---
+
+	/** Save the idle auto-stop config (enabled toggle + idle minutes). */
+	setRunpodIdle: async ({ request, locals }) => {
+		const admin = await requireAdmin(locals);
+		const data = await request.formData();
+		const enabled = data.get('enabled') === 'true' || data.get('enabled') === 'on';
+		const minutes = Number(String(data.get('minutes') ?? ''));
+
+		if (!Number.isFinite(minutes) || minutes < 1) {
+			return fail(400, { action: 'setRunpodIdle', error: 'Idle minutes must be a number ≥ 1.' });
+		}
+
+		await setAppSetting(RUNPOD_IDLE_ENABLED_KEY, enabled ? '1' : '0', admin.id);
+		await setAppSetting(RUNPOD_IDLE_MINUTES_KEY, String(Math.floor(minutes)), admin.id);
+		return { action: 'setRunpodIdle', ok: 'Idle auto-stop settings saved.' };
+	},
+
+	/** Manually STOP the pod (admin lever, independent of the artist-facing card). */
+	stopRunpodPod: async ({ locals }) => {
+		await requireAdmin(locals);
+		if (!podControlConfigured()) {
+			return fail(400, {
+				action: 'stopRunpodPod',
+				error: 'Pod control is not configured (set RUNPOD_API_KEY + RUNPOD_POD_ID).',
+			});
+		}
+		await podStop();
+		return { action: 'stopRunpodPod', ok: 'Pod stop requested.' };
 	},
 };

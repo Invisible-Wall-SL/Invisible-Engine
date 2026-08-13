@@ -87,6 +87,18 @@ export const ENV = {
 	get COMFY_RND_URL() {
 		return env.COMFY_RND_URL ?? '';
 	},
+	// RunPod pod lifecycle control for the ComfyUI R&D pod (`COMFY_RND_URL`). When BOTH are set
+	// the launcher can RESUME the pod on demand (an artist clicks Start) and STOP it after idle,
+	// so the GPU only bills while work is happening. Secrets: no code default — EMPTY means "pod
+	// control not configured" and the /comfyui card falls back to a plain "open the URL" landing
+	// (`podControlConfigured()` gates every control path). The API key is a RunPod GraphQL key
+	// (`Authorization: Bearer …`); the pod id is the RunPod pod's id (changes on recreate).
+	get RUNPOD_API_KEY() {
+		return env.RUNPOD_API_KEY ?? '';
+	},
+	get RUNPOD_POD_ID() {
+		return env.RUNPOD_POD_ID ?? '';
+	},
 	// Sheet Maker (cloud Python tool) — the re-hosted sheet_server, opened
 	// full-page from /sheet behind the launcher (same pattern as the Atlas tool).
 	// Code default to the current Railway service; env overrides.

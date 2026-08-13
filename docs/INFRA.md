@@ -77,6 +77,55 @@ The launcher now applies pending Drizzle migrations **itself**, at server startu
 - **⚠️ ComfyUI-Manager is REQUIRED for Blueprints model auto-install (B43 phases 1+4):** the local ComfyUI must have **[ComfyUI-Manager](https://github.com/Comfy-Org/ComfyUI-Manager)** installed, at **security level "middle" or below** (`security_level = middle` — or lower — in ComfyUI's `user/default/ComfyUI-Manager/config.ini`; `high`/`strong` returns **403** on the install/reboot calls). The Atlas Maker's blueprint "prepare" step drives Manager's queue API over this same tunnel (`POST /manager/queue/install_model` → `/queue/start` → poll `/queue/status` → `POST /manager/reboot`) to download a blueprint's declared `models[]` before generating. **Two boundaries to know:** (a) Manager only auto-installs models whose *(`save_path`, `base`, `filename`)* triple is in its curated `model-list.json` catalog — custom Civitai/gated-HF URLs that aren't catalogued fall to a manual-download checklist by design; (b) if Manager is absent (`404` on `/manager/*`), unreachable, or a model stays missing after reboot, the step degrades to a readable checklist and never crashes. Kill-switch: `BLUEPRINT_AUTO_INSTALL_MODELS` env on atlas-tool (default **enabled**; set falsy to emit the checklist only, since reboot interrupts in-flight ComfyUI work). See `docs/design/invisible-blueprints.md` §4.
 - TODO: install cloudflared as a Windows service (`cloudflared service install`) so the tunnel survives reboots.
 
+## ComfyUI R&D pod (RunPod)
+
+On-demand RunPod GPU **pod** running the **interactive ComfyUI web UI** for artist R&D — the surface where an artist builds/tunes a workflow that later becomes an Atlas Maker blueprint. It is **distinct from `services/atlas-serverless`** (the headless serverless worker that runs baked blueprints, `COMFYUI_REF=v0.3.66`) and from the local RTX-4070 tunnel above. Only the pod exposes an interactive UI. Reached at the RunPod proxy URL `https://<podId>-8188.proxy.runpod.net` — no Cloudflare Access in front (RunPod's own proxy auth). See `docs/design/runpod-comfyui-backend.md` and `docs/design/comfyui-serverless.md`; current state in `docs/status/comfyui.md`.
+
+- **Current pod:** name `ComfyUI_RD`, id `a1tqn0tzbqtvr1`, GPU **RTX PRO 4500 Blackwell** (32 GB), attached to Network Volume **`Invisible_RunPod_Storage`** (persists ComfyUI + models + custom nodes across stop/start). Proxy URL: `https://a1tqn0tzbqtvr1-8188.proxy.runpod.net`.
+
+### Launcher integration (the `/comfyui` card)
+The launcher's `/comfyui` card links to the pod and can **start/stop** it (RunPod GraphQL `podResume` / `podStop`). Set on the **launcher-api** Railway service → **Apply changes / Deploy**:
+
+| Var | Purpose |
+|---|---|
+| `COMFY_RND_URL` | The pod proxy URL (`https://<podId>-8188.proxy.runpod.net`) — the card's link target. |
+| `RUNPOD_API_KEY` | RunPod API key used to start/stop the pod (secret). |
+| `RUNPOD_POD_ID` | The pod id (`a1tqn0tzbqtvr1`) to resume/stop. |
+
+- **Idle auto-stop is NOT env** — it's **admin-configured** and stored in the `app_settings` table (`runpodIdleEnabled`, `runpodIdleMinutes`, default **20**). An admin toggles it + sets the minutes from the launcher admin UI; the launcher stops the pod after that many idle minutes.
+
+### ⚠️ REQUIRED pod config — ComfyUI must auto-start on boot
+The launcher can **resume** the pod via API but **cannot SSH in** to launch ComfyUI. So the pod's container **Start Command** (Docker container start command, set in the RunPod pod config → **Edit Pod** → *Container Start Command*, or when creating the pod) must run:
+```
+bash /workspace/start-comfyui.sh
+```
+(`start-comfyui.sh` lives on the Network Volume, mounted at `/workspace`, and `cd`s into `/workspace/ComfyUI` then launches `python main.py --listen 0.0.0.0 --port 8188`.) **Without this**, pressing **Start** from the `/comfyui` card boots the pod but ComfyUI never comes up — the proxy URL just hangs/502s. This is the single most important pod-config step.
+
+### Pod software setup (runbook — persists on the Network Volume)
+These were needed to get the artist's FLUX/PuLID blueprint running and **MUST be reproduced on any fresh pod/volume**. Run from the pod's web terminal / SSH; everything under `/workspace` survives stop/start.
+
+1. **Pin ComfyUI to `v0.3.66`** (in `/workspace/ComfyUI`):
+   ```
+   git fetch --depth 1 origin refs/tags/v0.3.66:refs/tags/v0.3.66 && git checkout v0.3.66
+   ```
+   Later ComfyUI ships `comfy_kitchen` / `quant_ops`, which crashes on older torch (`infer_schema`). `v0.3.66` is the **last pre-`comfy_kitchen` release** and **matches the serverless worker** (`services/atlas-serverless/Dockerfile` `COMFYUI_REF=v0.3.66`) so R&D and production stay in lockstep. **Do NOT let ComfyUI-Manager "Update ComfyUI".**
+2. **Blackwell GPU needs cu128 torch.** The base image's `torch 2.4.1+cu124` has **no Blackwell (`sm_120`) kernels** → `CUDA error: no kernel image is available`. Fix:
+   ```
+   pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+   ```
+   Upgrade **torchaudio too** (leaving it on the old build makes its native lib fail to load).
+3. **Custom nodes** — clone into `/workspace/ComfyUI/custom_nodes`:
+   - `Fannovel16/comfyui_controlnet_aux`
+   - `cubiq/PuLID_ComfyUI`
+   - the artist's **modified** `ComfyUI-PuLID-Flux` — vendored in-repo at `services/atlas-serverless/custom_nodes/ComfyUI-PuLID-Flux/`. The stock `balazik/ComfyUI-PuLID-Flux` node lacks the `attn_mask` fix and errors `forward_orig() got an unexpected keyword argument 'attn_mask'`; use the vendored copy, not the upstream one.
+   Then the face stack: `pip install insightface onnxruntime-gpu facexlib`.
+4. **ComfyUI-Manager quirk (expected):** Manager is at security level **"middle"** but reports **"outdated"** — which **disables its install buttons** — because of the `v0.3.66` pin. **Install custom nodes from the terminal instead** (step 3). This is expected, not a fault; do not "update" to re-enable the buttons.
+
+### Cost model
+- **GPU is billed per-second only while the pod is Running.** Closing the browser does **NOT** stop it — only **Stop** (the card's Stop button, or idle auto-stop) halts GPU billing.
+- **Network Volume is a flat ~$12–18/mo, always** (charged whether or not the pod runs) — it's what makes models/nodes persist.
+- **Cold start ~1–3 min** (models already on the volume). Idle auto-stop + the card's Stop button are the cost controls; leave idle auto-stop on.
+
 ## R2 (Cloudflare object storage)
 
 - Bucket: `invisibleassets`. Endpoint: `https://175d2ae4501d5de0a1ca970f2bb31448.r2.cloudflarestorage.com`.

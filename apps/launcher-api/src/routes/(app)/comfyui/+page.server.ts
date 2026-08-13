@@ -1,5 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import { ENV } from '$lib/server/env';
+import { podControlConfigured } from '$lib/server/runpod';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, parent }) => {
@@ -14,7 +15,12 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 	// Unlike /atlas + /spine we do NOT auto-redirect: the pod is an external,
 	// on-demand RunPod resource that may be stopped, so a straight redirect would
 	// dump the artist on a RunPod error page with no context. Instead the page
-	// renders a launcher-framed landing (kept full-page, no iframe) with an
-	// "Open ComfyUI" button + R&D→blueprint guidance. `url` empty ⇒ no pod set.
-	return { comfyUrl: ENV.COMFY_RND_URL.replace(/\/$/, '') };
+	// renders a launcher-framed control panel (kept full-page, no iframe) that can
+	// start/stop the pod + open ComfyUI, with the R&D→blueprint guidance. `comfyUrl`
+	// empty ⇒ no pod set (set-me landing). `podControl` gates the start/stop UI: when
+	// the RunPod secrets aren't set the page still shows a plain open-link landing.
+	return {
+		comfyUrl: ENV.COMFY_RND_URL.replace(/\/$/, ''),
+		podControl: podControlConfigured(),
+	};
 };
