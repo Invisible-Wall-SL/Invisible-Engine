@@ -18,9 +18,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # --- ComfyUI ------------------------------------------------------------------
-# Override COMFYUI_REF to pin an exact commit/tag once we've confirmed the one the
-# blueprints were authored against; master is the default.
-ARG COMFYUI_REF=master
+# Pinned to v0.3.66 (2025-10-21) — the last release BEFORE comfy/quant_ops.py
+# (added 2025-10-28) pulled in the `comfy_kitchen` backend. comfy_kitchen's na3d op
+# annotates a param as `list[int]`, which torch 2.6's infer_schema rejects (it only
+# accepts typing.List[int]) → ComfyUI crashes on import. v0.3.66 fully supports
+# Flux + PuLID-Flux + our nodes and works with torch 2.6, with zero comfy_kitchen.
+ARG COMFYUI_REF=v0.3.66
 RUN git clone https://github.com/comfyanonymous/ComfyUI /ComfyUI \
     && cd /ComfyUI && git checkout "${COMFYUI_REF}"
 RUN pip install -r /ComfyUI/requirements.txt
