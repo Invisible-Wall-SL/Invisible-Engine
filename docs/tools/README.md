@@ -24,6 +24,7 @@ full-page — never in an iframe). Local tools you install on your own machine.
 | **Invisible Symbols State Machine** | `/symbols` | admin · developer · artist | [symbols-state-machine.md](symbols-state-machine.md) |
 | **Invisible Sheet Maker** | `/sheet` | admin · artist | [sheet-maker.md](sheet-maker.md) |
 | **Invisible Atlas Maker** | `/atlas` | admin · developer · artist | [atlas-maker.md](atlas-maker.md) |
+| **ComfyUI** (third-party) | `/comfyui` | admin · developer · artist | [comfyui.md](comfyui.md) |
 | **Invisible Component Editor** | `/components` | admin · developer · artist | [component-editor.md](component-editor.md) |
 | **Invisible Storybook** | `/storybook` | admin · developer | [storybook.md](storybook.md) |
 | **Invisible Spine Viewer** | `/spine` | admin · developer · animator | [spine-viewer.md](spine-viewer.md) |
@@ -40,7 +41,6 @@ full-page — never in an iframe). Local tools you install on your own machine.
 |---|---|---|---|
 | **Invisible Launcher** (desktop ComfyUI + tunnel manager) | your machine | admin · developer · artist | [invisible-launcher.md](invisible-launcher.md) |
 | **Spine Editor** (third-party) | your machine (licensed) | admin · animator | [spine-editor.md](spine-editor.md) |
-| **ComfyUI** (third-party) | your GPU, via the Invisible Launcher | — (powers the Atlas Maker) | [comfyui.md](comfyui.md) |
 
 > Roles are the **defaults** from `ROLE_TOOLS` in
 > `apps/launcher-api/src/lib/roles.ts`; admins can grant/revoke any tool per role
