@@ -68,6 +68,17 @@ def _await_result(prompt_id: str, timeout: int = JOB_TIMEOUT) -> dict:
     raise RuntimeError(f"generation timed out after {timeout}s")
 
 
+def _free_comfy() -> None:
+    """Unload models + free VRAM after a job so the next job on this (warm) worker
+    starts with a clean GPU. Without this, back-to-back regions accumulate models in
+    VRAM and OOM on a 24 GB card. Best-effort — never fail the job over it."""
+    try:
+        requests.post(f"{COMFY}/free",
+                      json={"unload_models": True, "free_memory": True}, timeout=30)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _collect_images(hist: dict) -> list[dict]:
     out: list[dict] = []
     for node_out in hist.get("outputs", {}).values():
@@ -90,22 +101,26 @@ def handler(job: dict) -> dict:
         return {"error": "input.workflow is required"}
 
     try:
-        for im in inp.get("images", []) or []:
-            _upload_image(im["name"], im["image"])
-        client_id = str(uuid.uuid4())
-        prompt_id = _queue(workflow, client_id)
-        hist = _await_result(prompt_id)
-    except Exception as e:  # noqa: BLE001
-        return {"error": str(e)}
+        try:
+            for im in inp.get("images", []) or []:
+                _upload_image(im["name"], im["image"])
+            client_id = str(uuid.uuid4())
+            prompt_id = _queue(workflow, client_id)
+            hist = _await_result(prompt_id)
+        except Exception as e:  # noqa: BLE001
+            return {"error": str(e)}
 
-    status = hist.get("status", {})
-    if status.get("status_str") == "error":
-        return {"error": "comfy execution error", "detail": status}
+        status = hist.get("status", {})
+        if status.get("status_str") == "error":
+            return {"error": "comfy execution error", "detail": status}
 
-    images = _collect_images(hist)
-    if not images:
-        return {"error": "generation produced no images", "detail": status}
-    return {"images": images}
+        images = _collect_images(hist)
+        if not images:
+            return {"error": "generation produced no images", "detail": status}
+        return {"images": images}
+    finally:
+        # Release VRAM so the next region on this warm worker starts clean (no OOM).
+        _free_comfy()
 
 
 # ComfyUI is started in the background by start.sh; block until it answers, then serve.
