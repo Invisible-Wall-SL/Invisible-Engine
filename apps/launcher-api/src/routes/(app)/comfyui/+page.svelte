@@ -192,9 +192,13 @@
 											{busy[pod.id] ? 'Stopping…' : 'Stop'}
 										</button>
 									{:else if isWarming(pod)}
-										<span class="warmnote">Warming up ~2 min…</span>
+										<span class="warmnote">
+											{pod.status === 'running' && !pod.ready
+												? 'Pod is up — waiting for ComfyUI…'
+												: 'Warming up ~2 min…'}
+										</span>
 										<button class="secondary sm" onclick={() => stop(pod.id)} disabled={busy[pod.id]}>
-											{busy[pod.id] ? 'Stopping…' : 'Cancel'}
+											{busy[pod.id] ? 'Stopping…' : 'Stop'}
 										</button>
 									{:else if isStopped(pod)}
 										<button class="open sm btn" onclick={() => start(pod.id)} disabled={busy[pod.id]}>
@@ -203,6 +207,13 @@
 									{/if}
 								</div>
 
+								{#if pod.status === 'running' && !pod.ready}
+									<p class="hint">
+										The pod is running but ComfyUI hasn't answered. If it never connects, the
+										pod's <strong>Container Start Command</strong> may not launch ComfyUI on boot
+										(set it to <code>bash /workspace/start-comfyui.sh</code>).
+									</p>
+								{/if}
 								{#if errors[pod.id]}
 									<p class="err">{errors[pod.id]}</p>
 								{/if}
