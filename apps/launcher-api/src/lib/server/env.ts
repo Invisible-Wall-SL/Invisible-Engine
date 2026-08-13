@@ -76,6 +76,17 @@ export const ENV = {
 	get ATLAS_BLUEPRINT_SECRET() {
 		return env.ATLAS_BLUEPRINT_SECRET ?? '';
 	},
+	// ComfyUI R&D pod (RunPod) — the INTERACTIVE ComfyUI web UI an artist opens to
+	// build/test generation networks, then exports as blueprints for the Atlas Maker.
+	// This is the artist-facing pod at `https://<podId>-8188.proxy.runpod.net`, DISTINCT
+	// from the atlas-tool's headless generation backend (`COMFY_URL` on the atlas-tool
+	// service). Secret-less RunPod proxy URL → no code default: EMPTY means "no pod
+	// configured", and the /comfyui page shows a set-me landing instead of redirecting.
+	// Update this when a new pod is deployed (the id changes on recreate). See
+	// docs/design/runpod-comfyui-backend.md.
+	get COMFY_RND_URL() {
+		return env.COMFY_RND_URL ?? '';
+	},
 	// Sheet Maker (cloud Python tool) — the re-hosted sheet_server, opened
 	// full-page from /sheet behind the launcher (same pattern as the Atlas tool).
 	// Code default to the current Railway service; env overrides.

@@ -1,95 +1,78 @@
-# ComfyUI (third-party)
+# ComfyUI
 
-The node-based image generation engine that powers the Invisible Atlas Maker.
+A cloud ComfyUI running on a RunPod GPU, for building and testing image-generation
+networks. It's the third-party [ComfyUI](https://github.com/comfyanonymous/ComfyUI)
+node editor — this guide documents how it fits our pipeline: you do the GPU-heavy
+R&D here, then export the network as an **Atlas Maker blueprint** the whole team can
+generate with.
 
-> ComfyUI is a third-party product, so it keeps its real name. This page
-> documents **how it is used in the Invisible Wall pipeline**, not how to use
-> ComfyUI in general.
+## What it is
 
-## Role in the pipeline
+A launcher card that opens an interactive ComfyUI hosted on a RunPod GPU pod. Use it
+when a generation network is too heavy for your own machine (a laptop that OOMs on
+SDXL/FLUX) — the canvas runs on the pod's GPU, not yours. Once a network works, you
+export it and publish it as a blueprint in the
+[Invisible Atlas Maker](atlas-maker.md), which turns "a graph one person tuned once"
+into a repeatable pipeline step everyone can run over a manifest.
 
-ComfyUI is the **only piece of the pipeline that runs locally**. Everything else
-(launcher, Atlas Maker, atlas-backend, R2) is cloud-hosted. The cloud
-[Invisible Atlas Maker](atlas-maker.md) and `atlas-backend` send generation
-workflows to your local ComfyUI over a Cloudflare tunnel; ComfyUI runs them on
-your GPU and the results are fetched back and stored in R2.
+- **Where it runs:** `/comfyui` in the launcher — a full-page landing (behind auth,
+  never an iframe) that renders the shared tool bar and links out to the pod. The pod
+  itself is external: it opens in a **new tab** at its RunPod proxy URL
+  (`https://<podId>-8188.proxy.runpod.net`, the launcher's `COMFY_RND_URL`). The
+  launcher deliberately does **not** auto-redirect — the pod is an on-demand resource
+  that may be stopped, so it frames the link with context instead of dumping you on a
+  RunPod error page.
+- **Access:** admin, developer, artist.
 
-```
-cloud Atlas Maker / atlas-backend
-        │  workflow (SDXL / FLUX / gpt_image)
-        ▼
-comfy.invisiblewall.org   (Cloudflare named tunnel + Access service token)
-        ▼
-your local ComfyUI :8188  (RTX 4070, 8GB)
-```
+## How to use it
 
-## Where it runs
+1. Open the **ComfyUI** card in the launcher (or go to `/comfyui`). You'll see a short
+   intro and an **Open ComfyUI ↗** button.
+2. Click **Open ComfyUI ↗** — the pod opens in a new tab. If it doesn't load, the pod
+   is stopped: start it in the RunPod console, then try again.
+3. **Build** your network on the ComfyUI canvas. This runs on the pod's GPU, so you
+   can iterate on models and node graphs your own machine can't hold.
+4. **Export** the finished network: in ComfyUI, open **Settings → Save (API Format)**.
+   That downloads the workflow as JSON in ComfyUI's API/prompt format — the shape the
+   pipeline submits to ComfyUI. (This is *not* the editor's drag-and-drop save format;
+   the Atlas Maker needs the API format.)
+5. **Publish** it as a blueprint in the [Atlas Maker](atlas-maker.md): open
+   **Blueprints → ＋ New blueprint**, upload the JSON, then bind the roles (point
+   `positive`/`negative` prompt, `seed`, `width`/`height`, `style_ref`/`shape_ref`, and
+   the `output` SaveImage node at their nodes in your graph) and declare any models the
+   graph needs. See the blueprints design doc (`docs/design/invisible-blueprints.md`
+   §3) for the authoring flow.
 
-- **Local**, on `localhost:8188`, on the workstation with the **RTX 4070 (8GB)**.
-- It is **installed and started by the [Invisible Launcher](invisible-launcher.md)**
-  desktop app — that's the local tool the portal hands out now (ComfyUI is no
-  longer a separate "download it yourself" card). The launcher's **Install /
-  Update ComfyUI** button fetches the correct portable build automatically.
+Once published, the blueprint appears in the Atlas Maker's pipeline selector alongside
+the built-in SDXL/FLUX/gpt_image pipelines, and any region can generate through it.
 
-## How it's exposed to the cloud
+### The one caveat that bites
 
-- **Tunnel:** a Cloudflare **named tunnel** `comfy-gualtiero`
-  (id `1e0057ee-6787-4bbc-a1af-936d7fe7603a`), config at
-  `C:\Users\gualt\.cloudflared\config.yml`, ingress
-  `comfy.invisiblewall.org → http://localhost:8188`. The `comfy` DNS record is
-  proxied (orange) and sits behind Cloudflare Access.
-- **Auth:** **Cloudflare Access (Service Auth)** in front of the tunnel. The
-  cloud backends send `CF-Access-Client-Id` / `CF-Access-Client-Secret` headers
-  (client ID, non-secret: `bb044437409520caf86021625f8553e5.access`).
-- **User-Agent gotcha:** Cloudflare returns **403** for the default
-  `Python-urllib/x` UA, so every call to ComfyUI sends a custom UA
-  (`InvisibleAtlas/1.0`) — already handled in `atlas-backend/comfy.py` and
-  `atlas-tool/cloud_paths.py`.
+**Any custom node or model your R&D network relies on must also exist on the shared
+pipeline generation backend, or the blueprint won't run in the Atlas Maker.** The
+R&D pod and the pipeline backend are separate environments:
 
-## How calls flow
+- **Custom nodes** are baked into the pipeline's serverless worker image (cloned from
+  their GitHub repos at build time) — a brand-new node needs a worker rebuild before a
+  blueprint that uses it will run. Nodes that are rare/experimental won't be there
+  until someone adds them.
+- **Models** live on the pipeline's Network Volume (mirrored to R2) — a checkpoint or
+  LoRA only reachable on the R&D pod isn't automatically available to the Atlas Maker.
 
-ComfyUI **cannot see the cloud's filesystem**, so the Atlas Maker:
-
-1. uploads each `LoadImage` reference via `/upload/image`;
-2. submits the workflow;
-3. fetches results via `/view`;
-4. persists them to staging + R2.
-
-## Installing & starting it (locally)
-
-The [Invisible Launcher](invisible-launcher.md) desktop app manages ComfyUI
-**and** the cloudflared tunnel (source:
-`C:\Invisible Wall SL\ComfyUI\Invisible_Launcher.py`). On a fresh machine:
-
-1. **Install / Update ComfyUI** — downloads the portable build from GitHub and
-   extracts it to `…\ComfyUI_windows_portable\` (no manual 7-Zip / path setup).
-2. **Start** — launches ComfyUI on `localhost:8188`.
-3. **Start tunnel** — brings up the `comfy-gualtiero` tunnel so the cloud Atlas
-   Maker can reach it.
-
-Do all three before using the cloud Atlas Maker.
-
-## Prerequisites / models
-
-For the cloud Atlas Maker's pipelines, the corresponding models must be
-installed in your local ComfyUI:
-
-- **SDXL** — the default, verified path (SDXL + LoRA + IPAdapter + ControlNet +
-  RMBG).
-- **FLUX** — `flux1-dev` + `t5xxl` + `clip_l` + `ae` (or an FP8 all-in-one) +
-  Redux (`flux1-redux-dev` + `sigclip_vision`). On the 8GB RTX 4070 use
-  fp8/GGUF to avoid out-of-memory.
-- **gpt_image** — set `COMFY_ORG_API_KEY` (comfy.org credit) and ensure the
-  `OpenAIGPTImage1` + `Images to RGB` nodes exist
-  (check `GET {comfy}/object_info`).
+So before you rely on a fresh node or model in a blueprint, check with the team that
+it's on the shared backend (see `docs/design/comfyui-serverless.md` for how the worker
+image and model volume are provisioned). If it isn't, the blueprint's generate step
+fails with a missing-node/model error rather than producing art.
 
 ## Known limitations / TODOs
 
-- **The tunnel is not yet a Windows service.** If the machine reboots, the
-  tunnel (and thus cloud generation) is down until restarted. The local
-  launcher has Start/Stop tunnel buttons, but installing cloudflared as a
-  persistent service (`cloudflared service install`) is still a TODO.
-- **GPU memory:** the 4070's 8GB is tight for FLUX — use quantised/fp8 models.
-- **Security debt:** the CF Access service-token secret (and a committed
-  `comfy_org_api_key` in the separate `Invisible_Pipeline` repo) were exposed
-  during setup and should be rotated/scrubbed (backlog B9).
+- **The pod is on-demand.** It scales/stops to save cost; if the Open button lands on
+  an error, the pod is stopped and must be started in the RunPod console first. When
+  `COMFY_RND_URL` is unset the page shows a "no R&D pod configured" state (with the env
+  var name to set) instead of the Open button.
+- **No launcher-side pod controls.** The card only links out — starting/stopping the
+  pod and managing its models happens in the RunPod console, not here.
+- **Blueprint round-trip is owner-verify-owed.** The Atlas Maker blueprint pipeline is
+  code-complete but a full live generate through a published blueprint is still owed
+  (see `docs/design/invisible-blueprints.md` §7). Treat a freshly published blueprint
+  as unverified until it's generated a real region.
