@@ -149,6 +149,11 @@ export const TOOL_ICONS: Record<string, string> = {
 			'<line x1="8" y1="11" x2="8" y2="13"/><circle cx="15.5" cy="11" r="0.9" fill="currentColor" stroke="none"/>' +
 			'<circle cx="17.5" cy="13" r="0.9" fill="currentColor" stroke="none"/>',
 	),
+	// three round nodes wired together (a ComfyUI generation graph)
+	comfyui: I(
+		'<circle cx="5" cy="7" r="2"/><circle cx="5" cy="17" r="2"/><circle cx="17" cy="12" r="2"/>' +
+			'<path d="M7 7.6l8 3.2"/><path d="M7 16.4l8-3.2"/><path d="M19 12h2"/>',
+	),
 	// reel grid with a sliders overlay (the game's math contract: symbols, paylines, strips)
 	gameConfig: I(
 		'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/><path d="M15 4v16"/>' +
@@ -199,6 +204,15 @@ export const TOOLS: Record<string, ToolDef> = {
 				'Click “Start tunnel” so the cloud Atlas Maker can reach your GPU.',
 			],
 		},
+	},
+	comfyui: {
+		id: 'comfyui',
+		name: 'ComfyUI',
+		description:
+			'Cloud ComfyUI on a RunPod GPU — build and test generation networks, then export them as Atlas Maker blueprints.',
+		kind: 'online',
+		url: '/comfyui',
+		icon: TOOL_ICONS.comfyui,
 	},
 	spine: {
 		id: 'spine',
@@ -365,7 +379,7 @@ export const TOOL_STAGES: ToolStage[] = [
 		id: 'assets',
 		label: 'Assets',
 		accent: '#f5b95c',
-		tools: ['atlasTool', 'sheetMaker', 'fontMaker', 'rigger', 'flipbook', 'fx'],
+		tools: ['atlasTool', 'comfyui', 'sheetMaker', 'fontMaker', 'rigger', 'flipbook', 'fx'],
 	},
 	{
 		id: 'build',
@@ -419,6 +433,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 	developer: [
 		'gameMaker',
 		'atlasTool',
+		'comfyui',
 		'spineViewer',
 		'rigger',
 		'invisibleLauncher',
@@ -437,6 +452,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 	],
 	artist: [
 		'atlasTool',
+		'comfyui',
 		'invisibleLauncher',
 		'sheetMaker',
 		'localization',
@@ -608,6 +624,7 @@ export function localToolsForRole(
 /** Doc slug per tool. Docs live in-repo under `docs/tools/<slug>.md`. */
 const TOOL_DOC_SLUG: Record<string, string> = {
 	atlasTool: 'atlas-maker',
+	comfyui: 'comfyui',
 	spineViewer: 'spine-viewer',
 	rigger: 'rigger',
 	invisibleLauncher: 'invisible-launcher',
