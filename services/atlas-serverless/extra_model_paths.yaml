@@ -1,0 +1,22 @@
+# Models are NOT baked into the image — they live on the attached RunPod Network
+# Volume, mounted at /runpod-volume. The volume mirrors the pod layout, where ComfyUI
+# sat at /workspace/ComfyUI, so on serverless the models are at /runpod-volume/ComfyUI/models.
+#
+# Adding/testing a new model = drop the file in the right subfolder on the volume
+# (or R2-pull it there). No image rebuild.
+comfyui:
+  base_path: /runpod-volume/ComfyUI/
+  checkpoints: models/checkpoints
+  clip: models/clip
+  clip_vision: models/clip_vision
+  controlnet: models/controlnet
+  diffusion_models: models/diffusion_models
+  embeddings: models/embeddings
+  ipadapter: models/ipadapter
+  insightface: models/insightface
+  loras: models/loras
+  pulid: models/pulid
+  text_encoders: models/text_encoders
+  unet: models/unet
+  upscale_models: models/upscale_models
+  vae: models/vae
