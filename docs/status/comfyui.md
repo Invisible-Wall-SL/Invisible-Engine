@@ -1,6 +1,6 @@
 # ComfyUI (cloud R&D) — status
 
-> Design: [docs/design/runpod-comfyui-backend.md](../design/runpod-comfyui-backend.md) · Infra/runbook: [docs/INFRA.md](../INFRA.md) "ComfyUI R&D pod (RunPod)" · Guide: [docs/tools/comfyui.md](../tools/comfyui.md) · Agents: `.claude/agents/launcher-studio.md` (the card) + `.claude/agents/atlas-python-tools.md` (the pod/backend)
+> Design: [docs/design/runpod-comfyui-backend.md](../design/runpod-comfyui-backend.md) · Infra/runbook: [docs/INFRA.md](../INFRA.md) "ComfyUI R&D pod (RunPod)" · Guide: [docs/tools/comfyui.md](../tools/comfyui.md) · Character workflow: [docs/guides/qwen-cartoon-character-blueprint.md](../guides/qwen-cartoon-character-blueprint.md) · Agents: `.claude/agents/launcher-studio.md` (the card) + `.claude/agents/atlas-python-tools.md` (the pod/backend)
 
 **One-line state:** `/comfyui` is a full **fleet control panel** — one row per RunPod pod (different GPU cards), each with a live status badge + Start / Open / Stop, plus admin-configured idle auto-stop. The fleet is admin-managed in `app_settings.runpodPods`; `RUNPOD_API_KEY` is the shared secret and a legacy `RUNPOD_POD_ID` is the single-pod fallback.
 
