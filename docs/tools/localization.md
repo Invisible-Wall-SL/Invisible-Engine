@@ -110,7 +110,10 @@ Translate buttons return a clear "No translation provider configured" error.
   OpenAI-compatible endpoint and its key. **Both** are required; setting only
   one falls back to Anthropic. For Google AI Studio the base URL is
   `https://generativelanguage.googleapis.com/v1beta/openai`.
-- `LOCALIZATION_LLM_MODEL` — model id for that endpoint. Defaults to
-  `gemini-2.5-flash`; **must** be set for any non-Gemini provider.
+- `LOCALIZATION_LLM_MODEL` — model id for that endpoint. **Required** with the
+  OpenAI-compatible path, with no code default on purpose: providers retire
+  model ids, so any baked-in default eventually 404s. List what your account can
+  actually use and pick a current one — for Google:
+  `curl "https://generativelanguage.googleapis.com/v1beta/models?key=YOUR_KEY"`
 
 Set these on the launcher's Railway service.

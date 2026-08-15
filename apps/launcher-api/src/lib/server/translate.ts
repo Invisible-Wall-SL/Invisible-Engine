@@ -141,6 +141,12 @@ interface ChatCompletion {
  * rather than failing the batch (`shapeResult` tolerates fenced//prose-wrapped JSON).
  */
 async function translateWithOpenAICompatible(input: TranslateInput): Promise<TranslateResult> {
+	if (!ENV.LOCALIZATION_LLM_MODEL) {
+		throw new TranslateError(
+			'LOCALIZATION_LLM_MODEL not set — pick a model your provider currently offers ' +
+				'(providers retire model ids, so there is no safe default).',
+		);
+	}
 	const url = `${ENV.LOCALIZATION_LLM_BASE_URL.replace(/\/+$/, '')}/chat/completions`;
 	const body = {
 		model: ENV.LOCALIZATION_LLM_MODEL,

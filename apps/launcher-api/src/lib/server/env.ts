@@ -139,10 +139,13 @@ export const ENV = {
 	get LOCALIZATION_LLM_API_KEY() {
 		return env.LOCALIZATION_LLM_API_KEY ?? '';
 	},
-	// Non-secret → code default. Defaults to a Gemini model because that's the free
-	// tier this path was added for; MUST be set for any other provider.
+	// Model id for that endpoint. Deliberately NO code default: a hardcoded model id
+	// is the one piece of this config that reliably goes stale — `gemini-2.5-flash`
+	// shipped as the default and was already retired for new Google accounts, which
+	// surfaced as a confusing 404 on the first real use. Unset ⇒ a clear error naming
+	// this var, which can't rot; list your provider's models and pick a current one.
 	get LOCALIZATION_LLM_MODEL() {
-		return env.LOCALIZATION_LLM_MODEL ?? 'gemini-2.5-flash';
+		return env.LOCALIZATION_LLM_MODEL ?? '';
 	},
 	// Cloudflare cache purge — auto-purges the edge cache for a game after it's
 	// (re)published so a republish is immediately visible (game filenames are
