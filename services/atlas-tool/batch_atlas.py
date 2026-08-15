@@ -2404,6 +2404,24 @@ def _runpod_run_and_wait(job: dict, region_name: str) -> dict:
         f"RunPod job {jid} for region '{region_name}' timed out after 30 min")
 
 
+def _next_variant_filename(region_name: str) -> str:
+    """ComfyUI names saves with an incrementing per-output counter, but each
+    serverless job hits a FRESH worker whose counter restarts at 00001 — so every
+    variant of a region would collide on '<region>_00001_.png' and overwrite the
+    last. Mirror ComfyUI's scheme locally: the region's highest existing id in the
+    batch dir + 1, keeping the '<region>_<NNNNN>_.png' shape the gallery globs for."""
+    mx = 0
+    pat = re.compile(rf"^{re.escape(region_name)}_(\d+)_?\.png$", re.IGNORECASE)
+    try:
+        for p in BATCH_DIR.glob(f"{region_name}_*.png"):
+            m = pat.match(p.name)
+            if m:
+                mx = max(mx, int(m.group(1)))
+    except Exception:  # noqa: BLE001
+        pass
+    return f"{region_name}_{mx + 1:05d}_.png"
+
+
 def _run_region_serverless(region: dict, wf: dict) -> Image.Image:
     """Run one region through the RunPod Serverless transport. Base64-encodes
     the LoadImage refs into input.images[] (same names the http path uploads),
@@ -2429,18 +2447,25 @@ def _run_region_serverless(region: dict, wf: dict) -> Image.Image:
         raise RuntimeError(
             f"RunPod serverless job for region '{region['name']}' returned no "
             f"images (output={out!r}).")
-    first = out_images[0]
-    b64 = first.get("image")
+    rname = region["name"]
+    # Prefer the SaveImage output (its worker filename is region-prefixed) over any
+    # preview/temp image the graph may also emit, so we don't persist a preview.
+    saves = [im for im in out_images
+             if str(im.get("filename", "")).lower().startswith(rname.lower() + "_")]
+    chosen = (saves or out_images)[0]
+    b64 = chosen.get("image")
     if not b64:
         raise RuntimeError(
-            f"RunPod serverless job for region '{region['name']}' returned an "
-            f"image entry with no base64 data: {first!r}")
+            f"RunPod serverless job for region '{rname}' returned an "
+            f"image entry with no base64 data: {chosen!r}")
     blob = base64.b64decode(b64)
-    filename = first.get("filename") or f"{region['name']}.png"
-    # Same persistence as the http path: write bytes to staging BATCH_DIR (PNG
-    # keeps its embedded seed metadata) + mirror to R2, so the gallery's variant
-    # globbing / lock / Create Atlas work unchanged.
-    _persist_variant(region["name"], filename, blob)
+    # Assign a UNIQUE name per variant — every serverless job hits a fresh worker
+    # whose ComfyUI counter restarts at 00001, so reusing the worker filename makes
+    # all variants collide on '<region>_00001_.png' and overwrite each other. The
+    # next-free local id (mirrors ComfyUI's counter) keeps every variant, and the
+    # PNG still carries its embedded seed so lock / Create Atlas work unchanged.
+    filename = _next_variant_filename(rname)
+    _persist_variant(rname, filename, blob)
     return Image.open(io.BytesIO(blob)).convert("RGBA")
 
 
