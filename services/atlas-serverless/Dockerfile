@@ -29,12 +29,15 @@ RUN git clone https://github.com/comfyanonymous/ComfyUI /ComfyUI \
 RUN pip install -r /ComfyUI/requirements.txt
 
 # --- Custom nodes -------------------------------------------------------------
-# Three STOCK SDXL/FLUX blueprint helpers, cloned from GitHub (repos from
-# services/atlas-tool/runpod/provision.sh).
+# STOCK blueprint helpers, cloned from GitHub. The three from
+# services/atlas-tool/runpod/provision.sh, plus cubiq/PuLID_ComfyUI — the artist's
+# Characterdesignertest3 blueprint uses its `PulidModelLoader` node (stock; the
+# artist only modified pulidflux.py in the separate ComfyUI-PuLID-Flux folder).
 WORKDIR /ComfyUI/custom_nodes
 RUN git clone https://github.com/cubiq/ComfyUI_IPAdapter_plus       ComfyUI_IPAdapter_plus && \
     git clone https://github.com/1038lab/ComfyUI-RMBG               ComfyUI-RMBG && \
-    git clone https://github.com/Fannovel16/comfyui_controlnet_aux  comfyui_controlnet_aux
+    git clone https://github.com/Fannovel16/comfyui_controlnet_aux  comfyui_controlnet_aux && \
+    git clone https://github.com/cubiq/PuLID_ComfyUI                PuLID_ComfyUI
 # PuLID-Flux is the artist's LOCALLY-MODIFIED node — it is VENDORED in this repo and
 # copied in as-is, NOT cloned. Cloning balazik/ComfyUI-PuLID-Flux would silently drop
 # the artist's edits and break the Characterdesignertest3 blueprint. See ./custom_nodes/README.md.

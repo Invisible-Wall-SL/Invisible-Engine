@@ -10,13 +10,20 @@ Job contract (compatible with runpod-worker-comfy):
 Returns:  { "images": [ {"filename": "...", "image": "<base64>"} ] }
    or:    { "error": "...", "detail": ... }
 
-ComfyUI runs locally in this container (started by start.sh) and reads models from the
-attached Network Volume via /ComfyUI/extra_model_paths.yaml.
+This handler OWNS the ComfyUI process: it starts it, waits for readiness, and
+RESTARTS it before every job after the first. The restart is deliberate — some
+blueprint nodes (e.g. comfyui_controlnet_aux's DepthAnything) load models through a
+HuggingFace `transformers` pipeline that lives OUTSIDE ComfyUI's memory manager, so
+ComfyUI's own /free can't release them and VRAM accumulates across jobs on a warm
+worker until it OOMs on a 24 GB card. A fresh process per job guarantees a clean GPU.
+ComfyUI reads models from the attached Network Volume via the /ComfyUI/models symlink
+set up in start.sh.
 """
 from __future__ import annotations
 
 import base64
 import io
+import subprocess
 import time
 import uuid
 
@@ -24,8 +31,34 @@ import requests
 import runpod
 
 COMFY = "http://127.0.0.1:8188"
-READY_TIMEOUT = 240      # ComfyUI cold-start (load nodes) before first job
+READY_TIMEOUT = 600      # ComfyUI (re)start: load nodes before a job can run
 JOB_TIMEOUT = 1800       # a single generation
+COMFY_CMD = ["python", "-u", "/ComfyUI/main.py",
+             "--listen", "127.0.0.1", "--port", "8188", "--disable-auto-launch"]
+
+_comfy_proc: subprocess.Popen | None = None
+_jobs_done = 0
+
+
+def _start_comfy() -> None:
+    global _comfy_proc
+    _comfy_proc = subprocess.Popen(COMFY_CMD)
+
+
+def _stop_comfy() -> None:
+    """Kill ComfyUI; its CUDA context dies with the process, freeing ALL VRAM."""
+    global _comfy_proc
+    if _comfy_proc is not None:
+        try:
+            _comfy_proc.terminate()
+            try:
+                _comfy_proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                _comfy_proc.kill()
+                _comfy_proc.wait(timeout=15)
+        except Exception:  # noqa: BLE001
+            pass
+        _comfy_proc = None
 
 
 def _wait_for_comfy(timeout: int = READY_TIMEOUT) -> None:
@@ -39,6 +72,13 @@ def _wait_for_comfy(timeout: int = READY_TIMEOUT) -> None:
             last = e
         time.sleep(2)
     raise RuntimeError(f"ComfyUI did not become ready in {timeout}s ({last})")
+
+
+def _restart_comfy() -> None:
+    """Fresh ComfyUI process = fully released VRAM (incl. non-ComfyUI-managed models)."""
+    _stop_comfy()
+    _start_comfy()
+    _wait_for_comfy()
 
 
 def _upload_image(name: str, b64: str) -> None:
@@ -84,10 +124,20 @@ def _collect_images(hist: dict) -> list[dict]:
 
 
 def handler(job: dict) -> dict:
+    global _jobs_done
     inp = job.get("input") or {}
     workflow = inp.get("workflow")
     if not workflow:
         return {"error": "input.workflow is required"}
+
+    # Every job after the first gets a fresh ComfyUI so VRAM from the previous job
+    # (including transformers-loaded models ComfyUI can't free) is fully released.
+    if _jobs_done > 0:
+        try:
+            _restart_comfy()
+        except Exception as e:  # noqa: BLE001
+            return {"error": f"ComfyUI restart failed: {e}"}
+    _jobs_done += 1
 
     try:
         for im in inp.get("images", []) or []:
@@ -108,6 +158,7 @@ def handler(job: dict) -> dict:
     return {"images": images}
 
 
-# ComfyUI is started in the background by start.sh; block until it answers, then serve.
+# Start ComfyUI, wait until it answers, then serve.
+_start_comfy()
 _wait_for_comfy()
 runpod.serverless.start({"handler": handler})
