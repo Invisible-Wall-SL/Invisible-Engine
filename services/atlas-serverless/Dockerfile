@@ -1,12 +1,15 @@
 # Atlas Maker — ComfyUI RunPod Serverless worker.
 #
 # Design: docs/design/comfyui-serverless.md
-# - torch 2.6 base (comfy_kitchen / quant_ops need >= ~2.5's PEP-585 custom_op schema).
+# - torch 2.8 + CUDA 12.8 (cu128) base — runs on BLACKWELL (sm_120: RTX 5090, RTX PRO
+#   4000/4500/6000 Blackwell) AND is backward-compatible with Ada/Ampere/Hopper, so ONE
+#   image covers every GPU tier. A cu124 build (torch 2.6) throws "no kernel image is
+#   available" on Blackwell. cu128 torch is force-reinstalled LAST (see below).
 # - ComfyUI + custom nodes are BAKED (cloned from GitHub). Models are NOT baked —
 #   they come from the attached Network Volume at /runpod-volume (see
 #   extra_model_paths.yaml). New models => drop on the volume, no rebuild.
 # - Only a genuinely new custom NODE needs a rebuild (CI: .github/workflows/atlas-comfy-worker.yml).
-FROM pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime
+FROM pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
@@ -19,10 +22,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # --- ComfyUI ------------------------------------------------------------------
 # Pinned to v0.3.66 (2025-10-21) — the last release BEFORE comfy/quant_ops.py
-# (added 2025-10-28) pulled in the `comfy_kitchen` backend. comfy_kitchen's na3d op
-# annotates a param as `list[int]`, which torch 2.6's infer_schema rejects (it only
-# accepts typing.List[int]) → ComfyUI crashes on import. v0.3.66 fully supports
-# Flux + PuLID-Flux + our nodes and works with torch 2.6, with zero comfy_kitchen.
+# (added 2025-10-28) pulled in the `comfy_kitchen` backend (whose na3d op annotates a
+# param as `list[int]`). Kept even on torch 2.8 for parity with the R&D pod image
+# (services/atlas-comfy-pod) so prod + R&D stay in lockstep. Fully supports
+# Flux + PuLID-Flux + our nodes, with zero comfy_kitchen.
 ARG COMFYUI_REF=v0.3.66
 RUN git clone https://github.com/comfyanonymous/ComfyUI /ComfyUI \
     && cd /ComfyUI && git checkout "${COMFYUI_REF}"
@@ -47,9 +50,17 @@ RUN for r in */requirements.txt; do echo "== deps: $r =="; pip install -r "$r" |
 # PuLID-Flux face stack — install explicitly so it can't be missed by a thin requirements.txt.
 RUN pip install insightface onnxruntime-gpu facexlib timm ftfy
 
-# --- Serverless handler -------------------------------------------------------
+# --- Serverless handler runtime -----------------------------------------------
 WORKDIR /
 RUN pip install runpod requests
+
+# --- cu128 torch (MUST be the LAST pip step) ----------------------------------
+# ComfyUI + every node's requirements.txt can drag torch back to a stock cu124 build
+# (the R&D pod image hit exactly this — torch kept reverting to cu124, which is dead on
+# Blackwell). Force the Blackwell-capable cu128 build in LAST so nothing can clobber it.
+RUN pip install --force-reinstall torch torchvision torchaudio \
+    --index-url https://download.pytorch.org/whl/cu128
+
 COPY extra_model_paths.yaml /ComfyUI/extra_model_paths.yaml
 COPY handler.py /handler.py
 COPY start.sh   /start.sh
