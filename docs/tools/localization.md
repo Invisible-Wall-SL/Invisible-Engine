@@ -83,18 +83,34 @@ translation are _not_ persisted — they're re-derived from the editor doc
 text is added or removed in the editor; once a row has a translation it's stored
 so the work survives. No database table — it's R2-only, so there's no migration.
 
-## Claude translation
+## Machine translation
 
 The `translate` action batches the selected source strings plus the target
-language list into **one** Anthropic Messages API call (model
-`claude-sonnet-4-6`), asking for strict JSON (`id -> { lang -> text }`). The
-fixed instructions and your context/glossary go in a **prompt-cached** system
-prompt so repeated translate clicks are cheap. The result is returned to the
-browser marked unreviewed for you to review and save — it's never auto-saved.
+language list into **one** API call, asking for strict JSON
+(`id -> { lang -> text }`). The result is returned to the browser marked
+unreviewed for you to review and save — it's never auto-saved.
+
+Two providers are supported, same prompt and same strict-JSON contract either
+way. **Anthropic** is the default and additionally **prompt-caches** the system
+prompt (fixed instructions + your glossary) so repeated translate clicks are
+cheap. Any **OpenAI-compatible** `/chat/completions` endpoint works as an
+alternative — an Anthropic API key is a separate paid account from a Claude
+subscription, so this lets you run the tool on a provider's free tier
+(e.g. Google AI Studio) meanwhile.
 
 ## Env
 
-- `ANTHROPIC_API_KEY` — the Claude API key. **Secret, no code default.** When
-  it's unset the tool still loads and edits/saves work; only the Translate
-  buttons return a clear "ANTHROPIC_API_KEY not set" error. Set it on the
-  launcher's Railway service to enable translation.
+Set **one** of the two providers. If both are configured the OpenAI-compatible
+one wins. With neither set the tool still loads and edits/saves work; only the
+Translate buttons return a clear "No translation provider configured" error.
+
+- `ANTHROPIC_API_KEY` — a Claude **API** key (not a Claude subscription).
+  **Secret, no code default.** Uses `claude-sonnet-4-6`.
+- `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY` — an
+  OpenAI-compatible endpoint and its key. **Both** are required; setting only
+  one falls back to Anthropic. For Google AI Studio the base URL is
+  `https://generativelanguage.googleapis.com/v1beta/openai`.
+- `LOCALIZATION_LLM_MODEL` — model id for that endpoint. Defaults to
+  `gemini-2.5-flash`; **must** be set for any non-Gemini provider.
+
+Set these on the launcher's Railway service.

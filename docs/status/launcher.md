@@ -25,7 +25,7 @@ The **portal** (`apps/launcher-api`) on Railway project "Invisible launcher" + P
 
 ## Blocked (owner / external)
 - **Security rotation (owner, Railway/CF):** rotate the shared R2 token (read+write whole bucket, used by 4 services), Postgres password, and CF Access service-token secret; rotate `EDITOR_DOC_SECRET` (deploy token — was plaintext in local config / screenshot-exposed). See `docs/INFRA.md` "Security / secret rotation".
-- Env vars the portal degrades gracefully without until set: `ANTHROPIC_API_KEY` (Localization Translate), `GAMES_BASE_URL` (legacy home Games bridge), `GITHUB_ENGINE_READ_TOKEN` (engine "release pending" pill — absent ⇒ the pill never shows pending), tool URLs/secrets (`SHEET_TOOL_URL`, `ATLAS_TOOL_SECRET`, …).
+- Env vars the portal degrades gracefully without until set: `ANTHROPIC_API_KEY` *or* `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY` (Localization Translate — either provider), `GAMES_BASE_URL` (legacy home Games bridge), `GITHUB_ENGINE_READ_TOKEN` (engine "release pending" pill — absent ⇒ the pill never shows pending), tool URLs/secrets (`SHEET_TOOL_URL`, `ATLAS_TOOL_SECRET`, …).
 
 ## Key lessons / gotchas
 - **Never `db:push` on prod** — it replays from 0000 on an empty `__drizzle_migrations` (500s) and reports spurious PK-recreate drift; baseline/reconcile instead. (`gotcha_drizzle_automigrate_baseline`)

@@ -125,6 +125,25 @@ export const ENV = {
 	get ANTHROPIC_API_KEY() {
 		return env.ANTHROPIC_API_KEY ?? '';
 	},
+	// Invisible Localization — OPTIONAL OpenAI-compatible provider used INSTEAD of
+	// Anthropic when both the base URL and key are set. Exists because an Anthropic
+	// API key is a separate paid account from a Claude subscription, so this lets the
+	// tool run on a provider's free tier meanwhile — e.g. Google AI Studio:
+	// LOCALIZATION_LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+	// Same prompt, same strict-JSON contract, same human-review gate either way; the
+	// Anthropic path additionally prompt-caches the system prompt. Secret: no code
+	// default for the key → unset means "fall back to Anthropic".
+	get LOCALIZATION_LLM_BASE_URL() {
+		return env.LOCALIZATION_LLM_BASE_URL ?? '';
+	},
+	get LOCALIZATION_LLM_API_KEY() {
+		return env.LOCALIZATION_LLM_API_KEY ?? '';
+	},
+	// Non-secret → code default. Defaults to a Gemini model because that's the free
+	// tier this path was added for; MUST be set for any other provider.
+	get LOCALIZATION_LLM_MODEL() {
+		return env.LOCALIZATION_LLM_MODEL ?? 'gemini-2.5-flash';
+	},
 	// Cloudflare cache purge — auto-purges the edge cache for a game after it's
 	// (re)published so a republish is immediately visible (game filenames are
 	// stable). Token needs Zone → Cache Purge on the `invisiblewall.org` zone.
