@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import base64
 import io
+import os
 import subprocess
 import time
 import uuid
@@ -35,6 +36,12 @@ READY_TIMEOUT = 600      # ComfyUI (re)start: load nodes before a job can run
 JOB_TIMEOUT = 1800       # a single generation
 COMFY_CMD = ["python", "-u", "/ComfyUI/main.py",
              "--listen", "127.0.0.1", "--port", "8188", "--disable-auto-launch"]
+# Between jobs, restart ComfyUI (dropping its cache) only when free VRAM falls below
+# this fraction of total — otherwise keep it warm so the execution cache (model load,
+# PuLID encode, depth preprocess) carries across variants. Tunable per-endpoint via
+# the RESTART_VRAM_FRACTION env var, no rebuild needed. Higher = restart more (safer);
+# lower = keep warm more (faster). 0.6 suits a 24 GB card with this heavy blueprint.
+RESTART_VRAM_FRACTION = float(os.environ.get("RESTART_VRAM_FRACTION", "0.6"))
 
 _comfy_proc: subprocess.Popen | None = None
 _jobs_done = 0
@@ -79,6 +86,29 @@ def _restart_comfy() -> None:
     _stop_comfy()
     _start_comfy()
     _wait_for_comfy()
+
+
+def _vram_free_fraction() -> float | None:
+    """Fraction (0..1) of GPU VRAM currently free per ComfyUI, or None if unknown."""
+    try:
+        stats = requests.get(f"{COMFY}/system_stats", timeout=10).json()
+        dev = (stats.get("devices") or [{}])[0] or {}
+        total = float(dev.get("vram_total") or 0)
+        free = float(dev.get("vram_free") or 0)
+        if total > 0:
+            return free / total
+    except Exception:  # noqa: BLE001
+        pass
+    return None
+
+
+def _maybe_restart_comfy() -> None:
+    """Restart ComfyUI only when VRAM is low enough to risk an OOM on the next job.
+    With headroom we keep it warm so the execution cache carries across variants (big
+    speedup on roomy GPUs). If free VRAM is unknown, restart to stay safe."""
+    frac = _vram_free_fraction()
+    if frac is None or frac < RESTART_VRAM_FRACTION:
+        _restart_comfy()
 
 
 def _upload_image(name: str, b64: str) -> None:
@@ -134,7 +164,7 @@ def handler(job: dict) -> dict:
     # (including transformers-loaded models ComfyUI can't free) is fully released.
     if _jobs_done > 0:
         try:
-            _restart_comfy()
+            _maybe_restart_comfy()
         except Exception as e:  # noqa: BLE001
             return {"error": f"ComfyUI restart failed: {e}"}
     _jobs_done += 1
