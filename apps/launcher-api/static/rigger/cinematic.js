@@ -73,6 +73,96 @@ window.RiggerCinematic = (function () {
 		}
 	}
 
+	// ---- history (undo / redo) ----------------------------------------------
+	//
+	// SNAPSHOT-based, not command-based. A cinematic doc is a few KB of JSON, so storing whole
+	// states costs almost nothing and is correct BY CONSTRUCTION: there is no per-operation undo
+	// routine to write, forget, or get subtly wrong when a later phase adds an operation. A
+	// command stack only starts paying off when the document is too big to copy — if that ever
+	// happens (very long cinematics), this is the seam to change, and only this.
+	//
+	// This is `/rigger`'s FIRST undo of any kind — the rig editor still has none (see
+	// docs/status/rigger.md). It is deliberately scoped to the cinematic document so it cannot
+	// half-undo a rig edit, but it is written to be liftable: nothing in it knows what a cinematic
+	// is beyond `serialize`/`applySnapshot`.
+
+	const HISTORY_LIMIT = 100;
+	const COALESCE_MS = 600;
+	const history = { stack: [], index: -1, lastKey: null, lastAt: 0 };
+
+	const serialize = () => JSON.stringify(doc);
+
+	/** Seed the stack with the loaded document. Nothing before this is undoable. */
+	function historyReset() {
+		history.stack = [{ snap: serialize(), label: 'open' }];
+		history.index = 0;
+		history.lastKey = null;
+	}
+
+	/**
+	 * Record the CURRENT document as a new undo step.
+	 *
+	 * `coalesceKey` merges rapid edits to the same thing into one step — typing in the x field, or
+	 * (Phase 2) dragging a strip, should undo as ONE action, not forty. Consecutive commits sharing
+	 * a key within COALESCE_MS overwrite the top of the stack instead of pushing. Pass no key for
+	 * discrete actions (cast, remove, reorder) so each is always its own step.
+	 */
+	function commit(label, coalesceKey) {
+		const snap = serialize();
+		const now = Date.now();
+		const coalesce =
+			coalesceKey != null &&
+			coalesceKey === history.lastKey &&
+			now - history.lastAt < COALESCE_MS &&
+			history.index >= 0;
+
+		if (coalesce) {
+			history.stack[history.index] = { snap, label };
+		} else {
+			// A new action after undoing discards the redo branch — standard linear history.
+			history.stack.length = history.index + 1;
+			history.stack.push({ snap, label });
+			if (history.stack.length > HISTORY_LIMIT) history.stack.shift();
+			history.index = history.stack.length - 1;
+		}
+		history.lastKey = coalesceKey ?? null;
+		history.lastAt = now;
+		save();
+	}
+
+	const canUndo = () => history.index > 0;
+	const canRedo = () => history.index < history.stack.length - 1;
+
+	async function applySnapshot(snap) {
+		doc = JSON.parse(snap);
+		// The cast may have gained or lost members: rebuild instances (existing ones are reused by
+		// actorId, so this is cheap) and drop a selection that no longer exists.
+		await rebuildActors();
+		if (selActorId && !castOf(selActorId)) selActorId = doc.stage.cast.length ? doc.stage.cast[0].actorId : null;
+		if (time > doc.duration) setTime(doc.duration);
+		else evaluate(time);
+		save();
+		renderPanel();
+	}
+
+	async function undo() {
+		if (!canUndo()) return;
+		history.index--;
+		history.lastKey = null; // never coalesce across an undo
+		await applySnapshot(history.stack[history.index].snap);
+	}
+
+	async function redo() {
+		if (!canRedo()) return;
+		history.index++;
+		history.lastKey = null;
+		await applySnapshot(history.stack[history.index].snap);
+	}
+
+	/** Label of the step Ctrl+Z would take back / Ctrl+Shift+Z would reapply (for the buttons). */
+	const undoLabel = () => (canUndo() ? history.stack[history.index].label : '');
+	const redoLabel = () => (canRedo() ? history.stack[history.index + 1].label : '');
+
 	// ---- rig loading --------------------------------------------------------
 
 	async function rigData(entry) {
@@ -271,8 +361,8 @@ window.RiggerCinematic = (function () {
 		selActorId = cast.actorId;
 		// Cast the rig's first clip by default so the actor is visibly alive on the timeline.
 		const first = actor.skeletonData.animations[0];
-		if (first) setActorClip(cast.actorId, first.name);
-		save();
+		if (first) setActorClip(cast.actorId, first.name, false); // folded into the one step below
+		commit('cast ' + (entry.name || 'rig'));
 		renderPanel();
 		if (actors.length === 1) fitAll();
 	}
@@ -284,7 +374,7 @@ window.RiggerCinematic = (function () {
 		refreshTargets();
 		if (selActorId === actorId) selActorId = doc.stage.cast.length ? doc.stage.cast[0].actorId : null;
 		normalizeZ();
-		save();
+		commit('remove actor');
 		renderPanel();
 	}
 
@@ -306,7 +396,7 @@ window.RiggerCinematic = (function () {
 		ordered[i].z = ordered[j].z;
 		ordered[j].z = z;
 		normalizeZ();
-		save();
+		commit('reorder actor');
 		renderPanel();
 	}
 
@@ -315,7 +405,7 @@ window.RiggerCinematic = (function () {
 	 * fill. It is a REAL strip in the real schema — Phase 2's editor grows it in place rather
 	 * than replacing a bespoke representation.
 	 */
-	function setActorClip(actorId, clipName) {
+	function setActorClip(actorId, clipName, record = true) {
 		const track = tracksOf(actorId)[0];
 		if (!track) return;
 		track.strips = clipName
@@ -333,7 +423,7 @@ window.RiggerCinematic = (function () {
 					},
 				]
 			: [];
-		save();
+		if (record) commit('change clip');
 		renderPanel();
 	}
 
@@ -341,7 +431,8 @@ window.RiggerCinematic = (function () {
 		const cast = castOf(actorId);
 		if (!cast) return;
 		cast.place[key] = value;
-		save();
+		// Coalesced per actor+field: a run of typing (and, in Phase 2, a drag) is ONE undo step.
+		commit('move actor', 'place:' + actorId + ':' + key);
 	}
 
 	function setDuration(secs) {
@@ -349,7 +440,7 @@ window.RiggerCinematic = (function () {
 		// Phase 1's implicit full-length strips follow the cinematic's length.
 		for (const track of doc.tracks) for (const strip of track.strips) if (strip.start === 0) strip.length = doc.duration;
 		if (time > doc.duration) time = doc.duration;
-		save();
+		commit('change length', 'duration');
 		renderPanel();
 	}
 
@@ -405,6 +496,11 @@ window.RiggerCinematic = (function () {
 	<button id="cineAdd" title="Cast this rig as a new actor on the stage">＋ Cast</button>
 	<button id="cineFit" title="Frame every actor">⤢ Fit</button>
 </div>
+<div class="cineRow">
+	<button id="cineUndo" title="${canUndo() ? 'Undo ' + esc(undoLabel()) + ' (Ctrl+Z)' : 'Nothing to undo'}"${canUndo() ? '' : ' disabled'}>↶ Undo</button>
+	<button id="cineRedo" title="${canRedo() ? 'Redo ' + esc(redoLabel()) + ' (Ctrl+Shift+Z)' : 'Nothing to redo'}"${canRedo() ? '' : ' disabled'}>↷ Redo</button>
+	<span class="cineZ">${canUndo() ? esc(undoLabel()) : ''}</span>
+</div>
 <div class="cineStatus">${loadingCount ? 'loading rig…' : esc(statusMsg)}</div>
 <div id="cineCast">${rows || '<div class="cineEmpty">No actors yet — pick a rig above and press ＋ Cast.</div>'}</div>
 <div class="cineNote">Phase 1: cast, place and scrub. Tracks, strips, loops and layering land in Phase 2.</div>`;
@@ -415,6 +511,8 @@ window.RiggerCinematic = (function () {
 			if (entry) addActor(entry);
 		};
 		$('#cineFit').onclick = fitAll;
+		$('#cineUndo').onclick = undo;
+		$('#cineRedo').onclick = redo;
 		$('#cineDur').onchange = (e) => setDuration(e.target.value);
 		$('#cineTime').onchange = (e) => setTime(parseFloat(e.target.value) || 0);
 
@@ -446,7 +544,7 @@ window.RiggerCinematic = (function () {
 					else if (act === 'vis') {
 						const cast = castOf(actorId);
 						if (cast) cast.visible = cast.visible === false;
-						save();
+						commit('toggle visibility');
 						renderPanel();
 					}
 				};
@@ -458,21 +556,45 @@ window.RiggerCinematic = (function () {
 
 	// ---- lifecycle ----------------------------------------------------------
 
+	let active = false;
+
+	/**
+	 * Undo/redo keys. Scoped three ways so they can never reach past this mode:
+	 *  - only while cinematic mode is active,
+	 *  - never while focus is in a field (the browser's own text undo must win there),
+	 *  - `preventDefault` only when we actually handle it.
+	 * `/rigger` binds no other Ctrl chord today, and its two global key handlers already gate on
+	 * `editMode`/`animMode`, so nothing else fires here.
+	 */
+	function onKeyDown(e) {
+		if (!active || !(e.ctrlKey || e.metaKey)) return;
+		const ae = document.activeElement;
+		if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return;
+		const key = e.key.toLowerCase();
+		if (key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+		else if ((key === 'z' && e.shiftKey) || key === 'y') { e.preventDefault(); redo(); }
+	}
+
 	async function init(bridge) {
 		ctx = bridge;
 		EV = await import('/shared/cinematicEval.mjs');
 		doc = restore() || newDoc();
+		historyReset();
 		await rebuildActors();
+		window.addEventListener('keydown', onKeyDown);
+		active = true;
 		renderPanel();
 	}
 
 	function activate() {
+		active = true;
 		renderPanel();
 		// Rigs may have been added/removed (or the project switched) since we last rendered.
 		rebuildActors();
 	}
 
 	function deactivate() {
+		active = false;
 		save();
 	}
 
@@ -493,5 +615,11 @@ window.RiggerCinematic = (function () {
 		duration: () => (doc ? doc.duration : 0),
 		hasActors: () => actors.length > 0,
 		renderPanel,
+		// history — exposed for the buttons, the keys, and live verification
+		undo,
+		redo,
+		canUndo,
+		canRedo,
+		historyDepth: () => ({ index: history.index, size: history.stack.length, label: undoLabel() }),
 	};
 })();

@@ -25,6 +25,18 @@ and scrubs them through the shared evaluator. Phase 2 (the track/strip editor) i
 - **Phase 1 stores REAL strips.** Each actor's clip is a genuine `strips[0]` in the design §4.2
   schema (`start` / `length` / `loop.mode` / `alpha` / `blend`), so Phase 2's editor grows it in
   place instead of replacing a bespoke stand-in.
+- **Undo / redo — `/rigger`'s first, and Phase 2's prerequisite.** ↶/↷ buttons + Ctrl+Z /
+  Ctrl+Shift+Z / Ctrl+Y, with the action's name on the button. **Snapshot-based, not
+  command-based**: a cinematic doc is a few KB of JSON, so storing whole states is correct by
+  construction — there is no per-operation undo routine for a later phase to forget or get subtly
+  wrong. (A command stack only pays off when the doc is too big to copy; that is the one seam to
+  change if very long cinematics ever make it so.) Rapid edits to the same field **coalesce** into
+  one step within 600 ms, so typing — and, in Phase 2, dragging a strip — undoes as one action;
+  discrete actions (cast / remove / reorder) never coalesce. Scoped three ways so it cannot leak:
+  only while the mode is active, never while focus is in a field (the browser's own text undo wins
+  there), and `preventDefault` only when actually handled. It is deliberately cinematic-only — it
+  cannot half-undo a rig edit — but nothing in it knows what a cinematic is beyond
+  `serialize`/`applySnapshot`, so it is liftable to the rig editor.
 
 ### Gates + verification
 
@@ -34,6 +46,7 @@ and scrubs them through the shared evaluator. Phase 2 (the track/strip editor) i
 | `tools/rigger-spike/cinematic-pixi.mjs` — gate 3, the `spine-pixi-v8` seam | **14/14** |
 | `static/rigger/cinematic-harness.html` — gate 2's WebGL half, in a real browser | **11/11** |
 | `/rigger` cinematic mode, driven live in a browser | cast · draw · animate · scrub · place · z-order · visibility · clip-swap |
+| Undo/redo, driven live in a browser | **22/22** — history semantics (10), keyboard scoping (7), stage re-pose + buttons (5) |
 
 Headless fixtures are real shipped rigs (`mm_bigwin` 86 bones, `anticipation` 73 bones); the
 browser harness stages `anticipation` + `reelhouse_glow` — deliberately **different atlases**.
@@ -71,22 +84,22 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 ## Open items / next
 
 1. **Phase 2 — the track/strip editor** (design §8): tracks, strips (drag / trim / snap-to-fps),
-   loop modes, blend ramps, alpha, layers, per-actor property + camera tracks. **Blocked on (2).**
-2. **Undo/redo in `/rigger`** — no command stack exists in `view.html` today; a **prerequisite of
-   Phase 2** (dragging strips without undo is unusable).
-3. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
+   loop modes, blend ramps, alpha, layers, per-actor property + camera tracks. Its undo
+   prerequisite is now done — a strip drag just needs to `commit('move strip', 'strip:<id>')` and
+   it coalesces for free.
+2. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
    geometry and the frame visibly changes. Drive one spine object through the `<Cinematic>`
    contract in a real game frame before Phase 3 leans on it.
-4. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
+3. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
    has yet *looked* at two rigs staged together and judged that the art reads correctly (premultiply
    halos, relative scale between rigs authored at different atlas `scale:` factors). Open
    `/rigger` → 🎬 Cinematic, cast two rigs, and look.
-5. **Pick the set.** Phase 1 casts rigs directly (`cast[].nodeId` is null). Design §4.1 has the
+4. **Pick the set.** Phase 1 casts rigs directly (`cast[].nodeId` is null). Design §4.1 has the
    cinematic binding tracks to an existing **Scene**'s nodes — the Scene picker, and art / text /
    FX / sound actors, land with it.
-6. **Decide the Flow-v2 Phase 7 overlap explicitly** — Flow *plays* cinematics, or we ship two
+5. **Decide the Flow-v2 Phase 7 overlap explicitly** — Flow *plays* cinematics, or we ship two
    sequencers with two doc formats (design §7 risk 3). See [status/flow](flow.md) open item 7.
-7. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
+6. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
    referenced set, flatten-to-`.irig` escape hatch).
 
 ## Blocked (owner / external)
@@ -95,6 +108,12 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-17 — **Undo/redo — the first command history anywhere in `/rigger`.** Snapshot-based,
+  coalescing, mode-scoped (details in Current state). 22/22 live checks, including the two that
+  matter for a keyboard shortcut: Ctrl+Z inside a text field is left to the browser, and the keys
+  are fully disarmed outside cinematic mode. Verified that undo re-poses the **stage** (rendered
+  centroid returns), not just the document. Casting an actor is deliberately ONE step even though
+  it writes both a cast entry and a default clip.
 - 2026-08-17 — **Phase 1 shipped: `/rigger` 🎬 Cinematic mode**, verified live in a browser
   (not just built). Three real bugs surfaced only by running it, none of which a syntax or type
   check could reach:
