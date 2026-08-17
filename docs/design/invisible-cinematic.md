@@ -293,4 +293,85 @@ is a separate asset-class build, out of scope here.
 - **Flatten-to-`.irig` export** — worth building later as an escape hatch for single-atlas
   cinematics that a third party wants as a plain spine animation?
 
+## 12. Non-rig content: FX, sound and TEXT (owner direction 2026-08-17)
+
+Prompted by live use: *"how do I add VFX SFX Text etc?"* and *"this should work at animation
+level as well — I should be able to place text and FX on my animations."*
+
+### 12.1 What already exists (do not rebuild)
+
+| Want | Today |
+|---|---|
+| An effect/sound at a MOMENT in a cinematic | ⚡ **cue track** — `fx:` / `sfx:` / `music:` / `signal:` |
+| An effect on a RIG ANIMATION | **Already built**: a timeline event key carrying `fx.effectId` + `fx.bone`, previewed live on the stage and shipped via `bakedRigFx()` |
+| Text, anywhere | **Only** as a Scene Editor `text` node |
+
+So FX-on-animation is a discoverability problem, not a build. Text is the real gap.
+
+### 12.2 The trap: three text systems
+
+The game has exactly ONE text stack — Scene `text` nodes → the Text Box model → the font
+catalog → keys harvested into `/localization`. Growing separate text in the cinematic AND in
+the rig would give three, two of which localize nothing and ignore project fonts. The failure
+shows up in a translation pass months later, which is the worst time to find it.
+
+**Rule: a rig or cinematic never embeds text. It embeds a REFERENCE the existing stack renders.**
+Rig FX already proves the pattern — the rig stores an effect id + a bone; the game resolves and
+draws it. Text copies that shape rather than inventing one.
+
+### 12.3 Cinematic: Scene binding + quick-add (owner decision)
+
+Both halves, because either alone is wrong for how the tool is actually used:
+
+- **Scene binding** (§4.1) — a **set picker** in the cinematic panel chooses a Scene; its nodes
+  (`sprite` / `text` / `effect`) become castable actors beside the rigs, and tracks bind to node
+  ids. Full per-ratio placement, localization and fonts, and the in-game player keeps drawing
+  through `LayoutScene`. One vocabulary, nothing duplicated.
+- **Quick-add** — `＋ Text` / `＋ FX` in the cinematic creates the node in the bound set for you,
+  so a one-off label costs no trip to `/editor`. It is a shortcut INTO the Scene model, never a
+  parallel one: the node it makes is an ordinary Scene node that `/editor` can then refine.
+
+A cinematic with no set keeps working exactly as now (rigs cast directly, `nodeId` null).
+
+### 12.4 Rig-level text: a REAL slot, without breaking the format
+
+The owner asked for text that is *"a real text slot on the rig"* — keyable, parentable,
+transformable like any attachment — having been told that putting non-Spine data in the `.irig`
+would break the byte-valid Spine 4.2 round-trip §2.1 rests on. **Both are achievable**, because
+Spine already has the right primitive:
+
+> A rig text element is a **`point` attachment** (legal Spine 4.2 — a locator with position +
+> rotation in a slot, parented to a bone; the Rigger already authors these, see §18.9) PLUS an
+> entry in the **sidecar** (`model.irig.meta.json`, §2.2) mapping that point name → its
+> localization key, font and size.
+
+What this buys:
+
+- **It is a real slot.** The point lives in a slot, rides a bone, and keys like anything else —
+  slot visibility, draw order, and the bone full transform all animate it for free, using the
+  dopesheet that already exists. Nothing new in the animation model.
+- **The `.irig` stays byte-valid Spine.** A `point` attachment is standard; the text CONTENT
+  lives in the sidecar, which §2.2 already designates for exactly this (keep extras out-of-band).
+  Desktop Spine still imports the skeleton; it simply sees a locator with no text, which is the
+  honest degradation.
+- **Localization and fonts come free.** The sidecar stores a KEY, so `/localization` harvests it
+  and `<CatalogText>` resolves the font — the §12.2 rule, satisfied.
+- **The runtime seam exists.** `SpineBoneAttach` already mounts content at a bone/point world
+  transform; rig FX already computes exactly this transform per frame.
+
+The one real limit to state plainly: **the text does not round-trip to desktop Spine**, because
+Spine has no text attachment to round-trip it INTO. That is a property of the format, not of
+this design — and it is strictly better than the alternative, where the whole skeleton stops
+being loadable by a stock runtime.
+
+### 12.5 Build order
+
+1. Set picker + Scene-node actors in the cinematic (the §12.3 first half) — unlocks text, FX and
+   sprites in a cinematic using content that already ships.
+2. `＋ Text` / `＋ FX` quick-add writing into the bound set.
+3. Rig-level text: point attachment + sidecar entry + the game-side resolver.
+
+Text previews **approximately** in `/rigger` (a raw WebGL stage with no HTML text layer); the
+in-game render is authoritative. Named here so it is a known cost, not a surprise (§7 risk 1).
+
 > Build status: see [docs/status/cinematic.md](../status/cinematic.md).
