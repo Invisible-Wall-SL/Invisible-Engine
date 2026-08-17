@@ -72,3 +72,10 @@ export function putKey(
 	value: number,
 	ease?: CinematicKey['ease'],
 ): CinematicKey;
+
+/** Whether an actor is on screen at `t` — a keyed visibility track wins over the static toggle. */
+export function resolveVisible(
+	staticVisible: boolean | undefined,
+	visibilityTracks: CinematicTrack[] | undefined,
+	t: number,
+): boolean;

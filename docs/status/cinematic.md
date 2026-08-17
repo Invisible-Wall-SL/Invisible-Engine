@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-cinematic.md](../design/invisible-cinematic.md) · Guide: _none yet (unbuilt)_ · Agent: _none yet_
 
-**One-line state:** **Phases 0–3 COMPLETE** (2026-08-17) — `/rigger`'s 🎬
+**One-line state:** **Phases 0–3 COMPLETE, every track kind implemented** (2026-08-17) — `/rigger`'s 🎬
 **Cinematic** mode stages several rigs, authors them as tracks of strips + property/camera keys,
 saves to R2 per project, travels the ship chain with the rigs it casts, plays in-game through a
 **`<Cinematic>`** component driven by the same evaluator, and is triggered from an authored flow
@@ -82,6 +82,14 @@ headless contract tests, never by execution (see Open items).
   doc carries both. `stopCinematic` also settles a pending await, so a mid-play stop cannot strand
   an awaiting chain. Game-side, `<FlowV2Cinematics>` renders whatever the interpreter's reactive
   `playingCinematics` map holds.
+- **Visibility tracks.** ◆ beside an actor's eye keys its on-screen state at the playhead; keys
+  draw as their own timeline row where the **shape carries the state** — filled = on screen from
+  here, hollow = hidden from here — so the row reads with no legend. Drag to retime, double-click
+  to delete. **Stepped by nature**: a boolean does not interpolate, so the value is the last key
+  at or before the playhead. Once visibility is animated the ● / ○ toggle KEYS the flipped state
+  rather than editing the static flag (same rule as the numeric fields — editing a value the
+  track overrides would look like it did nothing). Honoured on the `/rigger` stage AND by the
+  in-game player, both through the shared `resolveVisible`.
 - **Cue tracks.** A global ⚡ cues row: **＋ Cue at playhead**, then edit its name and time (drag
   the marker to retime). A cue is a NAMED MOMENT the game reacts to — the cinematic never
   implements the effect, it only says when. Namespaces: `fx:` (an Invisible FX effect) · `sfx:` /
@@ -140,7 +148,7 @@ headless contract tests, never by execution (see Open items).
 
 | Proof | Result |
 |---|---|
-| `tools/rigger-spike/cinematic.mjs` — gates 1 + 2, channel sampling, cue firing, evaluator-drift (headless) | **97/97** |
+| `tools/rigger-spike/cinematic.mjs` — gates 1 + 2, channel sampling, cues, visibility, evaluator-drift (headless) | **107/107** |
 | `tools/rigger-spike/cinematic-pixi.mjs` — gate 3, the `spine-pixi-v8` seam | **14/14** |
 | `static/rigger/cinematic-harness.html` — gate 2's WebGL half, in a real browser | **11/11** |
 | `/rigger` cinematic mode, driven live in a browser | cast · draw · animate · scrub · place · z-order · visibility · clip-swap |
@@ -202,19 +210,17 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 3. **Remember `node scripts/sync-cinematic-eval.mjs`** after ANY evaluator change — the gate fails
    if the browser copy drifts, but nothing regenerates it automatically yet. Wiring it into a
    pre-build step would close that.
-4. **Phase 2 remainder — `visibility` tracks only.** `animation`, `property`, `camera` and `cue`
-   are implemented; visibility is still a static per-actor toggle rather than a keyed track.
-5. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
+4. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
    geometry and the frame visibly changes. Drive one spine object through the `<Cinematic>`
    contract in a real game frame before Phase 3 leans on it.
-6. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
+5. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
    has yet *looked* at two rigs staged together and judged that the art reads correctly (premultiply
    halos, relative scale between rigs authored at different atlas `scale:` factors). Open
    `/rigger` → 🎬 Cinematic, cast two rigs, and look.
-7. **Pick the set.** Phase 1 casts rigs directly (`cast[].nodeId` is null). Design §4.1 has the
+6. **Pick the set.** Phase 1 casts rigs directly (`cast[].nodeId` is null). Design §4.1 has the
    cinematic binding tracks to an existing **Scene**'s nodes — the Scene picker, and art / text /
    FX / sound actors, land with it.
-8. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
+7. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
    referenced set, flatten-to-`.irig` escape hatch).
 
 ## Blocked (owner / external)
@@ -223,6 +229,12 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-17 — **Visibility tracks — Phase 2 is complete.** Every track kind the schema names
+  (`animation`, `property`, `camera`, `cue`, `visibility`) is now implemented. 10 new assertions
+  (107/107) pin the semantics, the load-bearing one being that a keyed track holds its FIRST key
+  backwards in time rather than falling back to the static toggle — otherwise an actor keyed
+  hidden-then-shown would flash on for frame 0, which is exactly what someone keying visibility
+  is trying to prevent.
 - 2026-08-17 — **Cue tracks — the last Phase 2 surface.** Authorable ⚡ cues, fired through the
   shared `cuesCrossed` (which existed and was gate-tested since Phase 0 but had no caller until
   now), routed game-side to FX / sound / the event bus. 10 new assertions (97/97) pin the

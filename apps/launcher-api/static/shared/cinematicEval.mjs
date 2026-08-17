@@ -315,6 +315,36 @@ export function resolvePlace(place, propertyTracks, t) {
 	return out;
 }
 
+/**
+ * Whether an actor is on screen at `t`.
+ *
+ * STEPPED by nature — a boolean does not interpolate, so the value is simply the last key at or
+ * before `t`. Like every other channel, a track WITH keys OWNS visibility for the whole cinematic:
+ * before the first key it holds that first key's value rather than falling back to the static
+ * toggle, so an actor keyed hidden-then-shown starts hidden instead of flashing on for frame 0 —
+ * which is the entire reason someone keys visibility in the first place.
+ *
+ * No keys anywhere ⇒ the static per-actor toggle, so an un-keyed cinematic is unchanged.
+ * `keys` are assumed sorted by time (every writer sorts on insert).
+ */
+export function resolveVisible(staticVisible, visibilityTracks, t) {
+	const fallback = staticVisible !== false;
+	let out = fallback;
+	let keyed = false;
+	for (const track of visibilityTracks || []) {
+		const keys = track && track.keys;
+		if (!keys || !keys.length) continue;
+		keyed = true;
+		let v = keys[0].visible !== false; // hold the first key backwards in time
+		for (const k of keys) {
+			if (k.time <= t + 1e-9) v = k.visible !== false;
+			else break;
+		}
+		out = v;
+	}
+	return keyed ? out : fallback;
+}
+
 /** Insert or replace a key at `time` (exact-time match wins), keeping the channel sorted. */
 export function putKey(keys, time, value, ease = 'linear') {
 	const eps = 1e-6;

@@ -111,6 +111,11 @@
     background:linear-gradient(90deg, rgba(0,0,0,.55), rgba(0,0,0,0)); }
   .cineRamp.in { left:0; }
   .cineRamp.out { right:0; background:linear-gradient(270deg, rgba(0,0,0,.55), rgba(0,0,0,0)); }
+  /* visibility keys — the SHAPE carries the state: filled = on screen from here, hollow = hidden */
+  .cineVisRow { background:rgba(126,224,192,.07); }
+  .cineVisKey { position:absolute; top:5px; width:10px; height:10px; margin-left:-5px; cursor:ew-resize;
+    background:#7ee0c0; border:1px solid #0c0f14; border-radius:2px; z-index:1; }
+  .cineVisKey.off { background:transparent; border-color:#7ee0c0; }
   /* cue markers — a moment the GAME reacts to, coloured by namespace */
   .cineCueRow { background:rgba(201,139,255,.07); }
   .cineCue { position:absolute; top:4px; width:0; height:0; margin-left:-6px; cursor:ew-resize;

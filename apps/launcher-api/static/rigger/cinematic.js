@@ -464,6 +464,7 @@ window.RiggerCinematic = (function () {
 	}
 
 	const propertyTracksOf = (actorId) => doc.tracks.filter((t) => t.actorId === actorId && t.kind === 'property');
+	const visTracksOf = (actorId) => doc.tracks.filter((t) => t.actorId === actorId && t.kind === 'visibility');
 	const cameraTrack = () => doc.tracks.find((t) => t.kind === 'camera') || null;
 
 	/** Pose every actor at cinematic time `t`. Pure in `t` — see the evaluator's header. */
@@ -551,7 +552,7 @@ window.RiggerCinematic = (function () {
 		const ordered = doc.stage.cast.slice().sort((a, b) => (a.z || 0) - (b.z || 0));
 		for (const cast of ordered) {
 			const actor = actorOf(cast.actorId);
-			if (actor && cast.visible !== false) renderer.drawSkeleton(actor.skeleton, ctx.pma());
+			if (actor && effectiveVisible(cast.actorId)) renderer.drawSkeleton(actor.skeleton, ctx.pma());
 		}
 		renderer.end();
 		syncTransport();
@@ -789,6 +790,9 @@ window.RiggerCinematic = (function () {
 				.filter((t) => t.actorId === cast.actorId && t.kind === 'animation')
 				.sort((a, b) => (a.layer || 0) - (b.layer || 0));
 			anim.forEach((track, i) => out.push({ kind: 'animation', cast, track, first: i === 0, count: anim.length }));
+			for (const track of visTracksOf(cast.actorId)) {
+				if (track.keys.length) out.push({ kind: 'visibility', cast, track });
+			}
 			for (const track of propertyTracksOf(cast.actorId)) {
 				for (const chan of PROP_CHANNELS) {
 					if (track.channels[chan.key]) out.push({ kind: 'channel', cast, track, chan });
@@ -851,6 +855,31 @@ window.RiggerCinematic = (function () {
 
 			// A CHANNEL row: keys as diamonds, coloured per channel. Its own shape, not a lane of
 			// strips — property/camera animation is keyframes, not clips.
+			// A VISIBILITY row: stepped on/off. A filled marker means "on screen from here", hollow
+			// means "hidden from here" — the shape carries the state, so the row reads without a legend.
+			if (entry.kind === 'visibility') {
+				row.classList.add('cineChanRow', 'cineVisRow');
+				row.dataset.actor = entry.cast.actorId;
+				const g = document.createElement('div');
+				g.className = 'cineGutter';
+				g.innerHTML = '<span class="cineTrackName cineChanName">↳ visible</span>';
+				row.appendChild(g);
+				const lane = document.createElement('div');
+				lane.className = 'cineLane';
+				lane.style.width = contentW + 'px';
+				for (const k of entry.track.keys) {
+					const dot = document.createElement('span');
+					dot.className = 'cineVisKey' + (k.visible === false ? ' off' : '');
+					dot.style.left = (k.time * pps).toFixed(1) + 'px';
+					dot.dataset.visTime = k.time;
+					dot.title = (k.visible === false ? 'hidden' : 'visible') + ' from ' + (+k.time.toFixed(3)) + 's';
+					lane.appendChild(dot);
+				}
+				row.appendChild(lane);
+				el.appendChild(row);
+				continue;
+			}
+
 			// A CUE row: one marker per cue, coloured by namespace. Global (not per-actor) — a cue is a
 			// moment in the cinematic, not something an actor owns.
 			if (entry.kind === 'cues') {
@@ -987,6 +1016,40 @@ window.RiggerCinematic = (function () {
 				else if (act === 'addLayer') addLayer(trackId);
 				else if (act === 'delLayer') removeLayer(trackId);
 			};
+		});
+
+		// Visibility keys: drag to retime, double-click to delete (there is nothing else to edit —
+		// the VALUE is the marker shape, flipped from the panel toggle).
+		el.querySelectorAll('.cineVisRow .cineVisKey').forEach((dot) => {
+			const actorId = dot.closest('.cineVisRow').dataset.actor;
+			const keyTime = parseFloat(dot.dataset.visTime);
+			dot.onpointerdown = (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				tlDrag = { kind: 'vis', actorId, time: keyTime, startX: e.clientX, pps, el: dot, moved: false };
+				try { dot.setPointerCapture(e.pointerId); } catch { /* uncaptured drag still works */ }
+			};
+			dot.onpointermove = (e) => {
+				if (!tlDrag || tlDrag.kind !== 'vis' || tlDrag.el !== dot) return;
+				const track = visTracksOf(actorId)[0];
+				const k = track && track.keys.find((x) => Math.abs(x.time - tlDrag.time) < 1e-6);
+				if (!k) return;
+				if (Math.abs(e.clientX - tlDrag.startX) > 2) tlDrag.moved = true;
+				k.time = snapT(tlDrag.time + (e.clientX - tlDrag.startX) / tlDrag.pps, e.altKey);
+				dot.style.left = (k.time * tlDrag.pps).toFixed(1) + 'px';
+			};
+			const endVis = () => {
+				if (!tlDrag || tlDrag.kind !== 'vis' || tlDrag.el !== dot) return;
+				const moved = tlDrag.moved;
+				const track = visTracksOf(actorId)[0];
+				if (track) track.keys.sort((a, b) => a.time - b.time);
+				tlDrag = null;
+				if (moved) commit('move visibility key', 'vis:' + actorId + ':' + keyTime);
+				renderTimeline();
+			};
+			dot.onpointerup = endVis;
+			dot.onpointercancel = endVis;
+			dot.ondblclick = (e) => { e.stopPropagation(); deleteVisKey(actorId, keyTime); };
 		});
 
 		// Cue markers: click to select (the inspector edits it), drag to retime.
@@ -1337,6 +1400,48 @@ window.RiggerCinematic = (function () {
 		return track;
 	}
 
+	function ensureVisTrack(actorId) {
+		let track = visTracksOf(actorId)[0];
+		if (!track) {
+			track = { id: uid('vis'), actorId, kind: 'visibility', keys: [] };
+			doc.tracks.push(track);
+		}
+		return track;
+	}
+
+	/** Whether the actor is on screen right now — the keyed track when it has keys, else static. */
+	function effectiveVisible(actorId) {
+		const cast = castOf(actorId);
+		if (!cast) return true;
+		if (!EV) return cast.visible !== false;
+		return EV.resolveVisible(cast.visible, visTracksOf(actorId), time);
+	}
+
+	function keyVisibility(actorId, visible) {
+		const track = ensureVisTrack(actorId);
+		const at = snapT(time);
+		const existing = track.keys.find((k) => Math.abs(k.time - at) < 1e-6);
+		if (existing) existing.visible = visible;
+		else {
+			track.keys.push({ time: at, visible });
+			track.keys.sort((a, b) => a.time - b.time);
+		}
+		commit('key visibility');
+		renderPanel();
+		renderTimeline();
+	}
+
+	function deleteVisKey(actorId, keyTime) {
+		const track = visTracksOf(actorId)[0];
+		if (!track) return;
+		track.keys = track.keys.filter((k) => Math.abs(k.time - keyTime) > 1e-6);
+		// An empty track is noise — drop it so "never keyed" and "keyed then cleared" look the same.
+		if (!track.keys.length) doc.tracks = doc.tracks.filter((t) => t.id !== track.id);
+		commit('delete visibility key');
+		renderPanel();
+		renderTimeline();
+	}
+
 	function ensureCameraTrack() {
 		let track = cameraTrack();
 		if (!track) {
@@ -1427,7 +1532,8 @@ window.RiggerCinematic = (function () {
 				const p = cast.place;
 				return `<div class="cineActor${sel ? ' sel' : ''}" data-actor="${cast.actorId}">
 	<div class="cineActorHead">
-		<button class="cineVis" data-act="vis" title="Show / hide this actor on stage">${cast.visible === false ? '○' : '●'}</button>
+		<button class="cineVis" data-act="vis" title="Show / hide this actor on stage">${effectiveVisible(cast.actorId) ? '●' : '○'}</button>
+		<button class="cineKeyBtn${visTracksOf(cast.actorId).length ? ' on' : ''}" data-viskey="1" title="Animate visibility — keys the current state at the playhead">◆</button>
 		<b>${esc(cast.rigName || cast.rigId)}</b>
 		<span class="cineZ" title="Draw order — lower draws first (behind)">z${cast.z}</span>
 		<button data-act="up" title="Move behind">▲</button>
@@ -1527,6 +1633,9 @@ ${stripInspectorMarkup()}
 				selActorId = actorId;
 				renderPanel();
 			};
+			el.querySelectorAll('.cineKeyBtn[data-viskey]').forEach((btn) => {
+				btn.onclick = (e) => { e.stopPropagation(); keyVisibility(actorId, effectiveVisible(actorId)); };
+			});
 			el.querySelectorAll('.cineKeyBtn[data-key]').forEach((btn) => {
 				btn.onclick = (e) => { e.stopPropagation(); keyProperty(actorId, btn.dataset.key, null); };
 			});
@@ -1558,7 +1667,16 @@ ${stripInspectorMarkup()}
 					else if (act === 'down') moveActor(actorId, 1);
 					else if (act === 'vis') {
 						const cast = castOf(actorId);
-						if (cast) cast.visible = cast.visible === false;
+						if (!cast) return;
+						const next = !effectiveVisible(actorId);
+						// Once visibility is ANIMATED, the toggle keys the flipped state at the playhead —
+						// same rule as the numeric fields. Editing the static flag would appear to do
+						// nothing, because the track overrides it on the very next frame.
+						if (visTracksOf(actorId).length) {
+							keyVisibility(actorId, next);
+							return;
+						}
+						cast.visible = next;
 						commit('toggle visibility');
 						renderPanel();
 					}

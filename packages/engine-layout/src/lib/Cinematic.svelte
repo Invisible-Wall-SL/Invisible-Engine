@@ -16,7 +16,7 @@
 	 */
 	import { onDestroy } from 'svelte';
 	import { getContextApp, SpineProvider } from 'pixi-svelte';
-	import { cuesCrossed, type CinematicTrack } from 'engine-cinematic';
+	import { cuesCrossed, resolveVisible, type CinematicTrack } from 'engine-cinematic';
 	import type { CinematicDoc } from './types';
 	import CinematicActor from './CinematicActor.svelte';
 
@@ -42,6 +42,16 @@
 	const duration = $derived(Math.max(props.doc.duration || 0, 0));
 	/** Cast in draw order — the same z the author saw on the /rigger stage. */
 	const cast = $derived([...(props.doc.stage?.cast ?? [])].sort((a, b) => (a.z ?? 0) - (b.z ?? 0)));
+	/** On screen at `t`? A keyed visibility track wins; otherwise the actor's static toggle. */
+	const visibleAt = (member: { actorId: string; visible?: boolean }, t: number): boolean =>
+		resolveVisible(
+			member.visible,
+			(props.doc.tracks as CinematicTrack[]).filter(
+				(tr) => tr.actorId === member.actorId && tr.kind === 'visibility',
+			),
+			t,
+		);
+
 	const tracksFor = (actorId: string): CinematicTrack[] =>
 		(props.doc.tracks as CinematicTrack[]).filter((t) => t.actorId === actorId);
 
@@ -92,7 +102,11 @@
 </script>
 
 {#each cast as member (member.actorId)}
-	{#if member.visible !== false && member.rigFolder}
+	<!--
+		Visibility is read at the CURRENT time, not once at mount, so a keyed visibility track takes
+		effect mid-play. `time` is reactive state, so this re-evaluates as the playhead moves.
+	-->
+	{#if member.rigFolder && visibleAt(member, time)}
 		<SpineProvider key={member.rigFolder}>
 			<CinematicActor cast={member} tracks={tracksFor(member.actorId)} {time} />
 		</SpineProvider>

@@ -57,6 +57,8 @@ export interface CinematicTrack {
 	/** Animation tracks only — layers blend bottom-up. */
 	layer?: number;
 	strips?: CinematicStrip[];
+	/** Visibility tracks only — stepped on/off keys. */
+	keys?: Array<{ time: number; visible?: boolean; cue?: string }>;
 	/** Property/camera tracks only. */
 	channels?: Record<string, CinematicKey[]>;
 }

@@ -24,6 +24,7 @@ import {
 	sampleChannel,
 	sampleTrack,
 	resolvePlace,
+	resolveVisible,
 	putKey,
 } from '../../packages/engine-cinematic/src/cinematicEval.js';
 
@@ -601,6 +602,40 @@ section('8. Property / camera channels');
 	putKey(keys, 1, 55, 'hold');
 	ok('replacing preserves the existing ease', keys[1].ease === 'linear', `ease=${keys[1].ease}`);
 	ok('a new key takes the ease it was given', putKey(keys, 5, 1, 'hold').ease === 'hold');
+}
+
+// =========================================================================
+section('11. Visibility tracks — stepped, and owned once keyed');
+// =========================================================================
+{
+	const track = (keys) => [{ kind: 'visibility', keys }];
+	const shown = track([
+		{ time: 1, visible: true },
+		{ time: 3, visible: false },
+	]);
+
+	ok('no tracks ⇒ the static toggle wins', resolveVisible(true, [], 5) === true);
+	ok('...including when the actor is statically hidden', resolveVisible(false, [], 5) === false);
+	ok('a track with no keys is not "keyed"', resolveVisible(false, track([]), 5) === false);
+
+	ok('at a key, that key wins', resolveVisible(false, shown, 1) === true);
+	ok('between keys it HOLDS (stepped, never interpolated)', resolveVisible(false, shown, 2.9) === true);
+	ok('after the last key it holds that one', resolveVisible(true, shown, 99) === false);
+
+	// The point of the "a keyed channel owns the property" rule: an actor keyed hidden-then-shown
+	// must not flash on for frame 0 just because its static toggle says visible.
+	const hiddenFirst = track([
+		{ time: 2, visible: false },
+		{ time: 4, visible: true },
+	]);
+	ok(
+		'BEFORE the first key it holds the FIRST key, not the static toggle',
+		resolveVisible(true, hiddenFirst, 0) === false,
+	);
+	ok('...and picks up again at the later key', resolveVisible(true, hiddenFirst, 4) === true);
+
+	ok('an absent `visible` field reads as visible', resolveVisible(false, track([{ time: 0 }]), 1) === true);
+	ok('exactly ON a key boundary the key applies', resolveVisible(false, shown, 3) === false);
 }
 
 // =========================================================================
