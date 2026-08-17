@@ -1616,6 +1616,9 @@ importers:
       '@esotericsoftware/spine-pixi-v8':
         specifier: 4.2.74
         version: 4.2.74(pixi.js@8.8.1)
+      '@lingui/core':
+        specifier: 5.2.0
+        version: 5.2.0(@lingui/babel-plugin-lingui-macro@5.2.0(babel-plugin-macros@3.1.0)(typescript@5.8.3))(babel-plugin-macros@3.1.0)
       '@types/webfontloader':
         specifier: 1.6.28
         version: 1.6.28

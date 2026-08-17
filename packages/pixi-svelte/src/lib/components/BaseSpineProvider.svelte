@@ -43,6 +43,7 @@
 
 	import { propsSyncEffect, spineSizeScale } from '../utils.svelte';
 	import { setContextSpine, getContextParent } from '../context.svelte';
+	import { applyLocaleAttachments, currentSpineLocale, onSpineLocaleChange } from '../spineLocale';
 
 	const props: Props = $props();
 	const parentContext = getContextParent();
@@ -110,6 +111,14 @@
 		spine.skeleton.color.set(c.red, c.green, c.blue, 1);
 	});
 
+	// Rig TEXT is localized ART: one attachment per locale in one slot, named `<base>@<locale>`
+	// (design invisible-cinematic.md §12.4a). Point every such slot at the running locale, and
+	// re-point it if the language changes while the rig is mounted. A no-op — zero swaps, one
+	// cheap scan of the slot list — for every rig that carries no localized attachment.
+	const applyLocale = (): void => {
+		applyLocaleAttachments(spine.skeleton, currentSpineLocale());
+	};
+
 	// Apply an authored skeleton skin by name. Reactive (re-applies if `skin` changes),
 	// a no-op when absent so the runtime keeps its default-skin behaviour. An unknown
 	// skin name throws in spine-pixi-v8; we swallow it and leave the current skin.
@@ -122,6 +131,15 @@
 		} catch {
 			// Unknown skin name — keep the current skin.
 		}
+		// `setSlotsToSetupPose` above puts every slot back on its SETUP attachment, which for a
+		// localized slot is the source locale — so the locale swap has to be re-asserted here, or
+		// changing skin would silently revert a rig's text to English.
+		applyLocale();
+	});
+
+	$effect(() => {
+		applyLocale();
+		return onSpineLocaleChange(applyLocale);
 	});
 
 	$effect(() => {

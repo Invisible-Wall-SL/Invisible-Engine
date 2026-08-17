@@ -34,18 +34,19 @@
 	},
 	"dependencies": {
 		"@barvynkoa/particle-emitter": "0.0.1",
-		"constants-shared": "workspace:*",
-		"engine-fx": "workspace:*",
 		"@esotericsoftware/spine-core": "4.2.74",
 		"@esotericsoftware/spine-pixi-v8": "4.2.74",
+		"@lingui/core": "5.2.0",
 		"@types/webfontloader": "1.6.28",
+		"constants-shared": "workspace:*",
+		"engine-flipbook": "workspace:*",
+		"engine-fx": "workspace:*",
 		"pixi-filters": "6.1.0",
 		"pixi.js": "8.8.1",
 		"svelte": "5.35.1",
 		"utils-event-emitter": "workspace:*",
 		"vite": "6.2.0",
-		"webfontloader": "1.6.28",
-		"engine-flipbook": "workspace:*"
+		"webfontloader": "1.6.28"
 	},
 	"exports": {
 		".": {

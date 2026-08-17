@@ -9,6 +9,8 @@ export * from './sanitizeBitmapText';
 export * from './spineParticleBehavior';
 export * from './spineBacking';
 export * from './spineLoadScale';
+// Rig TEXT is localized ART: one attachment per locale in one slot, swapped at mount.
+export * from './spineLocale';
 // Full-screen camera effects (shake / flash / zoom punch / chromatic wobble) — they drive the
 // `Application.stage`, the one transform above every layer band, so they live with the app itself.
 export * from './cameraEffects';
