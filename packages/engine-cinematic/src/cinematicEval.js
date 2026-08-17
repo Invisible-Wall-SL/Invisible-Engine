@@ -1,5 +1,3 @@
-// GENERATED — do not edit. Source: packages/engine-cinematic/src/cinematicEval.js
-// Regenerate: node scripts/sync-cinematic-eval.mjs   (CI/gate check: --check)
 // Invisible Cinematic — Phase 0: the LAYERED STRIP EVALUATOR core.
 //
 // This is the module design/invisible-cinematic.md §4.3 calls "one blend engine, not two":

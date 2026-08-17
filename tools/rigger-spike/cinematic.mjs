@@ -25,7 +25,7 @@ import {
 	sampleTrack,
 	resolvePlace,
 	putKey,
-} from '../../apps/launcher-api/static/shared/cinematicEval.mjs';
+} from '../../packages/engine-cinematic/src/cinematicEval.js';
 
 const CORE = new URL(
 	'../../node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js',
@@ -601,6 +601,32 @@ section('8. Property / camera channels');
 	putKey(keys, 1, 55, 'hold');
 	ok('replacing preserves the existing ease', keys[1].ease === 'linear', `ease=${keys[1].ease}`);
 	ok('a new key takes the ease it was given', putKey(keys, 5, 1, 'hold').ease === 'hold');
+}
+
+// =========================================================================
+section('9. One evaluator, two consumers — no drift');
+// =========================================================================
+{
+	// The engine imports `engine-cinematic`; the /rigger preview fetches the launcher's static
+	// copy. If those ever diverge, the editor and the shipped game evaluate DIFFERENTLY — the
+	// hand-synced-renderer failure this project has already paid for in FX. The copy is generated
+	// (`scripts/sync-cinematic-eval.mjs`); this asserts it was regenerated.
+	const src = readFileSync('packages/engine-cinematic/src/cinematicEval.js', 'utf8');
+	let deployed = null;
+	try {
+		deployed = readFileSync('apps/launcher-api/static/shared/cinematicEval.mjs', 'utf8');
+	} catch {
+		/* missing counts as out of date */
+	}
+	ok(
+		'the browser copy of the evaluator is in sync with the package source',
+		deployed !== null && deployed.endsWith(src),
+		'run: node scripts/sync-cinematic-eval.mjs',
+	);
+	ok(
+		'…and it is marked generated, so nobody edits it by hand',
+		!!deployed && deployed.startsWith('// GENERATED'),
+	);
 }
 
 // =========================================================================

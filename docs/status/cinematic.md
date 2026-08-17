@@ -2,11 +2,12 @@
 
 > Design: [docs/design/invisible-cinematic.md](../design/invisible-cinematic.md) · Guide: _none yet (unbuilt)_ · Agent: _none yet_
 
-**One-line state:** **Phases 0–2 done; Phase 3 data chain done** (2026-08-17) — `/rigger`'s 🎬
+**One-line state:** **Phases 0–3 done bar the Flow node** (2026-08-17) — `/rigger`'s 🎬
 **Cinematic** mode stages several rigs, authors them as tracks of strips + property/camera keys,
-saves to R2 per project, and now **travels export → `deploy/` → bake → bundle → `bakedCinematics()`**
-with the rigs it casts. The last mile is the **player**: the `<Cinematic>` engine component and the
-Flow `playCinematic` node — **until those land, a game can read a cinematic but cannot play one.**
+saves to R2 per project, travels the ship chain with the rigs it casts, and has an in-game
+**`<Cinematic>` player** driven by the same evaluator. The one piece left is the Flow-v2
+**`playCinematic` node** — until it lands, a game can play a cinematic from code but not from an
+authored flow. **⏳ None of the engine side has run in a real game yet** (see Open items).
 
 ## Current state
 
@@ -47,12 +48,27 @@ Flow `playCinematic` node — **until those land, a game can read a cinematic bu
   array position reassigned on every skeleton scan, so a stored id would silently re-point a saved
   cinematic at a different rig the moment anyone adds one. The folder is stable AND is the spine
   bundle name the game registers, which is what makes the seed above work.
-- **`static/shared/cinematicEval.mjs`** — the layered strip evaluator: `clipLocalTime`
-  (clipIn/clipOut trim · speed · once/count/fill/pingPong · extrapolation), `blendEnvelope`
-  (blend-in/out ramps × alpha), `evaluateActor` (layer stack, additive, bone masks) and
-  `cuesCrossed` (edge-triggered cues). **Exactly one copy**, under `static/` because that is the
-  only place all consumers reach: the browser loads it as `/shared/cinematicEval.mjs` and the
-  headless gates import it across the repo. Graduates to `packages/engine-cinematic/` in Phase 3.
+- **`packages/engine-cinematic`** — the layered strip evaluator: `clipLocalTime` (clipIn/clipOut
+  trim · speed · once/count/fill/pingPong · extrapolation), `blendEnvelope` (blend-in/out ramps ×
+  alpha), `evaluateActor` (layer stack, additive, bone masks), `cuesCrossed` (edge-triggered cues)
+  and the channel sampling (`sampleChannel` / `sampleTrack` / `resolvePlace` / `putKey`).
+  Dependency-free plain ESM JS with a hand-written `.d.ts`, because its two consumers cannot share
+  a module path: the **engine** imports the package, while `/rigger`'s static `view.html` fetches
+  it over HTTP and cannot reach into `packages/`. The launcher's
+  `static/shared/cinematicEval.mjs` is therefore a **generated verbatim copy**
+  (`scripts/sync-cinematic-eval.mjs`), and the gate asserts they are identical — so the editor
+  preview and the shipped game can never evaluate differently. Verified negatively: appending one
+  line to the copy fails both the gate and `--check`.
+- **`<Cinematic>` (`engine-layout/svelte`)** — the in-game player. Mounts one `<SpineProvider>`
+  per cast member, keyed by the rig FOLDER (the bundle name the export seeds into the shipped
+  art), and drives them all from ONE clock through the shared evaluator, so what an author
+  scrubbed is what the game plays. Props: `doc` · `playing` · `startTime` · `loop` · `speed` ·
+  `oncomplete` (the Flow `complete` seam). `CinematicActor.svelte` applies gate 3's measured
+  contract per rig — `autoUpdate = false`, `state.clearTracks()` (mandatory for EVENT reasons: a
+  leftover track keeps firing that clip's spine events every frame), pose in
+  `beforeUpdateWorldTransforms` (the `after` hook renders the PREVIOUS pose), `spine.update(dt)` —
+  and restores the rig on destroy. Driven by the Pixi ticker, not its own rAF, so a paused game
+  pauses the cinematic.
 - **The sequencer (Phase 2).** The cinematic timeline shares `#timeline` with the dopesheet (only
   one is ever built, so they never fight). A ruler you drag to scrub, one row per **track**,
   **layers** per actor (⧉ adds one; layers blend bottom-up), and **strips** you can:
@@ -94,7 +110,7 @@ Flow `playCinematic` node — **until those land, a game can read a cinematic bu
 
 | Proof | Result |
 |---|---|
-| `tools/rigger-spike/cinematic.mjs` — gates 1 + 2 + channel sampling (headless) | **85/85** |
+| `tools/rigger-spike/cinematic.mjs` — gates 1 + 2 + channel sampling + evaluator-drift (headless) | **87/87** |
 | `tools/rigger-spike/cinematic-pixi.mjs` — gate 3, the `spine-pixi-v8` seam | **14/14** |
 | `static/rigger/cinematic-harness.html` — gate 2's WebGL half, in a real browser | **11/11** |
 | `/rigger` cinematic mode, driven live in a browser | cast · draw · animate · scrub · place · z-order · visibility · clip-swap |
@@ -139,40 +155,42 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Open items / next
 
-1. **Phase 3 last mile — the PLAYER.** The data reaches the game; nothing plays it yet.
-   (a) a `<Cinematic>` engine component that mounts the cast and drives it with the shared
-   evaluator — its `spine-pixi-v8` contract is already proved by gate 3 (`autoUpdate = false` ·
-   `state.clearTracks()` · pose in `beforeUpdateWorldTransforms` · `spine.update(dt)`);
-   (b) the evaluator's graduation from `static/shared/cinematicEval.mjs` to
-   `packages/engine-cinematic/` so the engine imports it rather than fetching it;
-   (c) a Flow-v2 **`playCinematic`** node with a `complete` exec out, so a screen can play one and
-   await it.
-2. **⏳ Live-verify the server chain against real R2 + Postgres.** Everything server-side is
+1. **The Flow-v2 `playCinematic` node** — the last authored-pipeline piece: a node with a `play`
+   exec in and a `complete` exec out (wired to `<Cinematic>`'s `oncomplete`, which already exists
+   for it), so a screen can play a cinematic and await it. Needs the `engine-flow-v2` vocabulary
+   entry, the interpreter case, and the palette/inspector. Until then a game can mount
+   `<Cinematic>` from code but a flow cannot drive one.
+2. **⏳ THE ENGINE SIDE HAS NEVER RUN.** `<Cinematic>` + `CinematicActor` are Svelte-compiler
+   clean and `engine-layout` type-checks clean, but this repo has **no `svelte-check`**, `.svelte`
+   files are invisible to `tsc`, and `apps/lines` cannot be type-checked here at all (`tsc` OOMs
+   even at 8 GB). So the player is verified by construction — gate 3 measured the runtime contract
+   it implements — and NOT by execution. Mount it in a game and watch a cinematic play before
+   relying on it; treat the first run as debugging, not confirmation.
+3. **⏳ Live-verify the server chain against real R2 + Postgres.** Everything server-side is
    covered headlessly (28 assertions over the real modules against an in-memory R2), but
    `/api/cinematics/*` and `/api/editor/export-cinematics` have not run against the authed
    launcher. Save a cinematic, reload, open it, then publish and confirm `deploy/cinematics/`
    fills and the bundle carries `cinematics`.
-3. **⏳ `apps/lines` cannot be type-checked in this environment** — `tsc` OOMs on it even at 8 GB,
-   so the `bakedCinematics()` addition is verified only by inspection (it mirrors `bakedFlowV2Doc`
-   exactly) plus a clean `engine-layout` check. Worth a `pnpm --filter lines build` on a real
-   machine.
-4. **Phase 2 remainder** — **visibility** and **cue** tracks (named in the schema, design §4.2;
+4. **Remember `node scripts/sync-cinematic-eval.mjs`** after ANY evaluator change — the gate fails
+   if the browser copy drifts, but nothing regenerates it automatically yet. Wiring it into a
+   pre-build step would close that.
+5. **Phase 2 remainder** — **visibility** and **cue** tracks (named in the schema, design §4.2;
    `animation`, `property` and `camera` are implemented). Visibility is a static per-actor toggle
    today; cues are the `fx:` / `sfx:` / `signal:` surface and are best built alongside the Flow
    wiring in Phase 3.
-5. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
+6. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
    geometry and the frame visibly changes. Drive one spine object through the `<Cinematic>`
    contract in a real game frame before Phase 3 leans on it.
-6. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
+7. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
    has yet *looked* at two rigs staged together and judged that the art reads correctly (premultiply
    halos, relative scale between rigs authored at different atlas `scale:` factors). Open
    `/rigger` → 🎬 Cinematic, cast two rigs, and look.
-7. **Pick the set.** Phase 1 casts rigs directly (`cast[].nodeId` is null). Design §4.1 has the
+8. **Pick the set.** Phase 1 casts rigs directly (`cast[].nodeId` is null). Design §4.1 has the
    cinematic binding tracks to an existing **Scene**'s nodes — the Scene picker, and art / text /
    FX / sound actors, land with it.
-8. **Decide the Flow-v2 Phase 7 overlap explicitly** — Flow *plays* cinematics, or we ship two
+9. **Decide the Flow-v2 Phase 7 overlap explicitly** — Flow *plays* cinematics, or we ship two
    sequencers with two doc formats (design §7 risk 3). See [status/flow](flow.md) open item 7.
-9. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
+10. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
    referenced set, flatten-to-`.irig` escape hatch).
 
 ## Blocked (owner / external)
@@ -181,6 +199,16 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-17 — **The player + the evaluator's graduation.** `packages/engine-cinematic` is now the
+  single source of the blend/sampling maths; the launcher's `static/shared/cinematicEval.mjs` is a
+  GENERATED verbatim copy and a new gate assertion (87/87) fails if the two drift — verified
+  negatively by appending a line and watching both the gate and `--check` fail, then recover.
+  `<Cinematic>` + `CinematicActor` (in `engine-layout/svelte`) play a cinematic in-game off the
+  Pixi ticker, implementing gate 3's measured `spine-pixi-v8` contract. **Verified by construction,
+  not by execution:** the components compile under the Svelte compiler and `engine-layout`
+  type-checks clean, but there is no `svelte-check` in this repo, `.svelte` is invisible to `tsc`,
+  and `apps/lines` cannot be type-checked here at all. The first real mount should be treated as
+  debugging.
 - 2026-08-17 — **Phase 3 part 2: the ship chain's data half** (details in Current state). 12 new
   headless assertions (28/28) driving the REAL export module against an in-memory R2 — deploy
   mirroring, pruning a cinematic deleted since the last export, un-authored ⇒ nothing embedded, and

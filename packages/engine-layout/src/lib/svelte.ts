@@ -20,8 +20,10 @@ import CatalogText, { type Props as CatalogTextProps } from './CatalogText.svelt
 import Repeater, { type Props as RepeaterProps } from './Repeater.svelte';
 import BuyFeatureScreen, { type Props as BuyFeatureScreenProps } from './BuyFeatureScreen.svelte';
 import ConfirmDialog, { type Props as ConfirmDialogProps } from './ConfirmDialog.svelte';
+import Cinematic from './Cinematic.svelte';
 
 export {
+	Cinematic,
 	LayoutScene,
 	LayoutNodeView,
 	ComponentInstance,

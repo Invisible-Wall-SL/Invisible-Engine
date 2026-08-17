@@ -1340,6 +1340,21 @@ importers:
         specifier: workspace:*
         version: link:../eslint-config-custom
 
+  packages/engine-cinematic:
+    devDependencies:
+      config-ts:
+        specifier: workspace:*
+        version: link:../config-ts
+      eslint:
+        specifier: 9.21.0
+        version: 9.21.0(jiti@1.21.7)
+      eslint-config-custom:
+        specifier: workspace:*
+        version: link:../eslint-config-custom
+      typescript:
+        specifier: 5.8.3
+        version: 5.8.3
+
   packages/engine-flipbook:
     devDependencies:
       config-ts:
@@ -1445,6 +1460,9 @@ importers:
       constants-shared:
         specifier: workspace:*
         version: link:../constants-shared
+      engine-cinematic:
+        specifier: workspace:*
+        version: link:../engine-cinematic
       pixi-svelte:
         specifier: workspace:*
         version: link:../pixi-svelte

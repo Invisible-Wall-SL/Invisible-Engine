@@ -46,6 +46,7 @@
 	"dependencies": {
 		"components-layout": "workspace:*",
 		"constants-shared": "workspace:*",
+		"engine-cinematic": "workspace:*",
 		"pixi-svelte": "workspace:*",
 		"pixi.js": "8.8.1",
 		"svelte": "5.35.1",

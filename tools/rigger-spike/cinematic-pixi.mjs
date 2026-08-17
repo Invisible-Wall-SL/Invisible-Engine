@@ -49,7 +49,7 @@
 // hook, so physics constraints integrate normally while the cinematic's own clock is scrubbable.
 
 import { readFileSync } from 'node:fs';
-import { evaluateActor } from '../../apps/launcher-api/static/shared/cinematicEval.mjs';
+import { evaluateActor } from '../../packages/engine-cinematic/src/cinematicEval.js';
 
 const CORE = new URL(
 	'../../node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js',
