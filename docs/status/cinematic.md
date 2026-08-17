@@ -194,7 +194,15 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Open items / next
 
-1. **⏳ RUN IT — the one thing that matters now.** The whole engine half (`<Cinematic>`,
+1. **Tweak Mode — the feature the tool was asked for, and the one still missing.** Owner, first
+   live verify: *"I am not sure how am I supposed to overwrite an animation."* Design §4.4 has
+   double-clicking a strip opening THAT clip in the animator, in cinematic context — the rest of
+   the stage still posed around it, the playhead still in cinematic time. It is the closest match
+   to the original ask ("edit them as single animations in the animator") and it was skipped when
+   the build went Phase 1 → 2 → 3. Mechanically it is mostly plumbing what exists: point `curAnim`
+   at the strip's clip, map `animTime` through the strip's `clipIn`/`speed`/loop, keep evaluating
+   the other actors, and re-parse on exit.
+2. **⏳ RUN IT — the one thing that matters now.** The whole engine half (`<Cinematic>`,
    `CinematicActor`, `<FlowV2Cinematics>`, the `playCinematic` interpreter case) has **never
    executed in a game**. It is verified by construction — gate 3 measured the `spine-pixi-v8`
    contract it implements — and by headless contract tests over the real modules, which is a
@@ -202,25 +210,25 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
    `svelte-check`**, `.svelte` is invisible to `tsc`, and `apps/lines` cannot be type-checked here
    at all (`tsc` OOMs even at 8 GB). Author a cinematic, drop a **Play Cinematic** node on a
    screen, and watch it. Treat the first run as debugging, not confirmation.
-2. **⏳ Live-verify the server chain against real R2 + Postgres.** Everything server-side is
+3. **⏳ Live-verify the server chain against real R2 + Postgres.** Everything server-side is
    covered headlessly (28 assertions over the real modules against an in-memory R2), but
    `/api/cinematics/*` and `/api/editor/export-cinematics` have not run against the authed
    launcher. Save a cinematic, reload, open it, then publish and confirm `deploy/cinematics/`
    fills and the bundle carries `cinematics`.
-3. **Remember `node scripts/sync-cinematic-eval.mjs`** after ANY evaluator change — the gate fails
+4. **Remember `node scripts/sync-cinematic-eval.mjs`** after ANY evaluator change — the gate fails
    if the browser copy drifts, but nothing regenerates it automatically yet. Wiring it into a
    pre-build step would close that.
-4. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
+5. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
    geometry and the frame visibly changes. Drive one spine object through the `<Cinematic>`
    contract in a real game frame before Phase 3 leans on it.
-5. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
+6. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
    has yet *looked* at two rigs staged together and judged that the art reads correctly (premultiply
    halos, relative scale between rigs authored at different atlas `scale:` factors). Open
    `/rigger` → 🎬 Cinematic, cast two rigs, and look.
-6. **Pick the set.** Phase 1 casts rigs directly (`cast[].nodeId` is null). Design §4.1 has the
+7. **Pick the set.** Phase 1 casts rigs directly (`cast[].nodeId` is null). Design §4.1 has the
    cinematic binding tracks to an existing **Scene**'s nodes — the Scene picker, and art / text /
    FX / sound actors, land with it.
-7. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
+8. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
    referenced set, flatten-to-`.irig` escape hatch).
 
 ## Blocked (owner / external)
@@ -229,6 +237,24 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-17 — **First live-verify feedback (owner) — usability fixes.** Three of the four
+  reports were real:
+  1. **A failed save looked like nothing happened.** The failure only ever reached a thin status
+     line, so an author clicked Save, saw the doc still marked ● unsaved, and had no way to tell
+     a permission error from a validation one. Save AND open failures now go to the tool's red
+     error bar with the HTTP status and the response body (including the raw text when the
+     response was an HTML error page — exactly the case where the friendly message is missing),
+     and log to the console. **This is diagnosis, not a fix**: the underlying save failure the
+     owner hit is still unexplained, and the next attempt will now say why.
+  2. **Cues could not be picked, only remembered.** The datalist offered namespace PREFIXES but
+     no actual values, so an author had to know effect ids by heart. It now lists the project's
+     authored FX effects (`/api/editor/effects`, already `rigger`-gated) while still accepting
+     free text — `sfx:`/`signal:` names resolve in systems this tool cannot enumerate.
+  3. **The right-hand Properties column was dead.** It read "select a bone or slot" over an empty
+     column while every cinematic inspector was crammed into the 280px left panel. The selected
+     strip / key / cue now renders there.
+  10 live checks over the real panel confirm each. The fourth report — "how do I overwrite an
+  animation" — is **Tweak Mode, which is genuinely unbuilt** (design §4.4); see Open items.
 - 2026-08-17 — **Visibility tracks — Phase 2 is complete.** Every track kind the schema names
   (`animation`, `property`, `camera`, `cue`, `visibility`) is now implemented. 10 new assertions
   (107/107) pin the semantics, the load-bearing one being that a keyed track holds its FIRST key

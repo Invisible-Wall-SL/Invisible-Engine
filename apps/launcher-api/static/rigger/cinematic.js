@@ -112,6 +112,19 @@ window.RiggerCinematic = (function () {
 		return { ok: res.ok, status: res.status, body, text };
 	};
 
+	/**
+	 * The project's authored FX effects, for the cue picker. Without this an author has to KNOW
+	 * the effect ids by heart — the datalist offered prefixes but no actual values, which is the
+	 * "I can't select any file from the database" gap. Best-effort: the picker still accepts free
+	 * text, so a project with no effects (or a failed list) degrades to typing, never to a block.
+	 */
+	let fxEffects = [];
+	async function refreshEffects() {
+		const r = await api('/api/editor/effects');
+		fxEffects = r.ok && r.body && Array.isArray(r.body.effects) ? r.body.effects : [];
+		return fxEffects;
+	}
+
 	async function refreshList() {
 		const r = await api('/api/cinematics/list');
 		cinematicList = r.ok && r.body ? r.body.cinematics || [] : [];
@@ -148,9 +161,18 @@ window.RiggerCinematic = (function () {
 				return false;
 			}
 			if (!r.ok || !r.body || !r.body.ok) {
-				statusMsg = 'save failed: ' + (r.body && r.body.message ? r.body.message : r.status);
+				// Surface the REAL reason, in the tool's red error bar, not a thin status line: an author
+				// who clicks Save and sees the doc still marked unsaved has no way to tell a permission
+				// error from a validation one from the endpoint being absent. Include the raw body when
+				// the response was not JSON (a SvelteKit error page), which is exactly the case where the
+				// friendly message is missing.
+				const detail = (r.body && (r.body.message || r.body.error)) || (r.text || '').slice(0, 300) || 'no response body';
+				statusMsg = 'save failed (' + r.status + ')';
+				console.error('[Cinematic] save failed', r.status, r.text);
+				if (ctx.showError) ctx.showError('Cinematic save failed (HTTP ' + r.status + '): ' + detail);
 				return false;
 			}
+			if (ctx.clearError) ctx.clearError();
 			r2Etag = r.body.etag ?? null;
 			r2SavedAt = r.body.updatedAt || new Date().toISOString();
 			dirty = false;
@@ -173,7 +195,10 @@ window.RiggerCinematic = (function () {
 		try {
 			const r = await api('/api/cinematics/get?id=' + encodeURIComponent(id));
 			if (!r.ok || !r.body || !r.body.doc) {
-				statusMsg = 'could not open "' + id + '"' + (r.body && r.body.malformed ? ' — the stored file is corrupt' : '');
+				const detail = (r.body && (r.body.message || r.body.error)) || (r.text || '').slice(0, 300);
+				statusMsg = 'could not open "' + id + '"';
+				console.error('[Cinematic] open failed', r.status, r.text);
+				if (ctx.showError) ctx.showError('Could not open "' + id + '" (HTTP ' + r.status + ')' + (r.body && r.body.malformed ? ' — the stored file is corrupt.' : ': ' + detail));
 				return;
 			}
 			doc = r.body.doc;
@@ -1594,8 +1619,6 @@ window.RiggerCinematic = (function () {
 <div id="cineCast">${rows || '<div class="cineEmpty">No actors yet — pick a rig above and press ＋ Cast.</div>'}</div>
 ${cameraMarkup()}
 ${cueMarkup()}
-${keyInspectorMarkup()}
-${stripInspectorMarkup()}
 <div class="cineNote">Drag a strip to move it · drag its edges to trim · hold Alt to ignore the fps grid · Ctrl+wheel over the timeline to zoom.</div>`;
 
 		$('#cineAdd').onclick = () => {
@@ -1603,6 +1626,16 @@ ${stripInspectorMarkup()}
 			const entry = rigs.find((e) => (e.folder || String(e.id)) === id);
 			if (entry) addActor(entry);
 		};
+		// The selected strip / key / cue goes in the RIGHT column, where there is room to read it.
+		const propsEl = $('#cineProps');
+		if (propsEl) {
+			const inspectors = stripInspectorMarkup() + keyInspectorMarkup() + cueInspectorMarkup();
+			propsEl.innerHTML =
+				inspectors ||
+				'<div class="cineNote">Nothing selected. Click a strip, a keyframe diamond or a cue marker on the timeline.</div>';
+			const sub = $('#propSub');
+			if (sub) sub.textContent = inspectors ? 'cinematic' : 'select a strip, key or cue';
+		}
 		$('#cineFit').onclick = fitAll;
 		$('#cineSave').onclick = () => saveToR2(false);
 		$('#cineNew').onclick = newCinematic;
@@ -1702,31 +1735,44 @@ ${stripInspectorMarkup()}
 </div>`;
 	}
 
-	/**
-	 * Cues section: add a cue at the playhead, and edit the selected one.
-	 *
-	 * The cue string is free TEXT with a namespace prefix, not a dropdown, on purpose — the ids it
-	 * names (an FX effect, a sound cue, a flow signal) live in three different systems, and a
-	 * dropdown would have to be wrong in at least one of them. The datalist offers the prefixes so
-	 * the shape is discoverable without constraining the value.
-	 */
+	/** The Cues section in the LEFT panel: just the add button + how many exist. */
 	function cueMarkup() {
 		const track = cueTrack();
 		const keys = (track && track.keys) || [];
-		const sel = selCueTime !== null ? keys.find((k) => Math.abs(k.time - selCueTime) < 1e-6) : null;
 		return `
-<div class="cineHead" style="border-top:1px solid var(--line);"><b>⚡ Cues</b><small>${keys.length || 'none'}</small></div>
+<div class="cineHead" style="border-top:1px solid var(--line);"><b>⚡ Cues</b><small>${keys.length || 'none'} · ${fxEffects.length} fx available</small></div>
 <div class="cineRow">
 	<button id="cineAddCue" title="Add a cue at the playhead — a named moment the GAME reacts to">＋ Cue at playhead</button>
 </div>
-${sel ? `
+${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses them — an FX burst, a sound, or a signal the flow can react to. Scrubbing never fires them.</div>'}`;
+	}
+
+	/**
+	 * The SELECTED cue's editor (right column).
+	 *
+	 * The cue is a text field with a datalist rather than a plain dropdown because its three
+	 * namespaces resolve against three different systems — FX effects, the game's sound cues, and
+	 * flow signals — and only the first of those is listable from here. So the list OFFERS the
+	 * project's real effects (which is what makes a cue pickable instead of remembered) while the
+	 * field still accepts anything, which is what keeps `sfx:`/`signal:` authorable at all.
+	 */
+	function cueInspectorMarkup() {
+		const track = cueTrack();
+		const keys = (track && track.keys) || [];
+		const sel = selCueTime !== null ? keys.find((k) => Math.abs(k.time - selCueTime) < 1e-6) : null;
+		if (!sel) return '';
+		return `
+<div class="cineHead" style="border-top:1px solid var(--line);"><b>⚡ Cue</b><small>${esc(sel.cue || '(empty)')}</small></div>
 <div class="cineStripInsp">
 	<label class="wide">cue<input type="text" list="cineCueKinds" data-cueact="cue" value="${esc(sel.cue || '')}" placeholder="fx:my_effect"></label>
 	<label>time<input type="number" step="0.05" min="0" data-cueact="time" value="${+sel.time.toFixed(3)}"></label>
 </div>
-<datalist id="cineCueKinds">${CUE_KINDS.map((k) => `<option value="${k.prefix}">${k.label} — ${k.hint}</option>`).join('')}</datalist>
+<datalist id="cineCueKinds">
+	${fxEffects.map((e) => `<option value="fx:${esc(e.id)}">FX — ${esc(e.name || e.id)}</option>`).join('')}
+	${CUE_KINDS.map((k) => `<option value="${k.prefix}">${k.label} — ${k.hint}</option>`).join('')}
+</datalist>
 <div class="cineRow"><button id="cineDelCue" title="Delete this cue">🗑 Delete cue</button></div>
-` : '<div class="cineNote">Cues fire as the playhead crosses them — an FX burst, a sound, or a signal the flow can react to. Scrubbing never fires them.</div>'}`;
+<div class="cineNote">${fxEffects.length ? 'Pick an FX effect from the list, or type an <code>sfx:</code> / <code>music:</code> / <code>signal:</code> name the game knows.' : 'This project has no authored FX effects yet — author them in /fx, or type a sound or signal name.'}</div>`;
 	}
 
 	/** Inspector for a selected property/camera key — time, value and its outgoing interpolation. */
@@ -1872,6 +1918,7 @@ ${sel ? `
 		doc = restore() || newDoc();
 		historyReset();
 		await refreshList();
+		refreshEffects(); // best-effort, not awaited: the picker fills in when it lands
 		await rebuildActors();
 		window.addEventListener('keydown', onKeyDown);
 		active = true;

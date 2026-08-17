@@ -510,6 +510,8 @@
     <div id="boneDetail"></div>
     <div id="slotDetail"></div>
     <div id="eventDetail"></div>
+    <!-- cinematic mode: the selected strip / key / cue lives here, where there is room for it -->
+    <div id="cineProps" style="display:none;"></div>
   </aside>
 
   <!-- Load-spine modal: the project's skeleton list -->
@@ -853,6 +855,9 @@ function cinematicBridge(){
     listRigs: () => skeletons,
     projectKey: () => curProjectKey,
     loadRigData,
+    // The tool's own red error bar — a cinematic save/open failure must be as loud as a rig one.
+    showError: (msg) => showErr(msg),
+    clearError: () => clearErr(),
     /**
      * Fire an Invisible FX effect on the stage — a cinematic `fx:` cue's preview. Best-effort by
      * design: the overlay is lazy-loaded and is never fatal to the Rigger, so a cue for an effect
@@ -6653,6 +6658,14 @@ function setMode(m){
   else if (wasCine && window.RiggerCinematic) window.RiggerCinematic.deactivate();
   $("#outline").style.display = cineMode ? "none" : "";
   $("#cinePanel").style.display = cineMode ? "block" : "none";
+  // The right-hand inspector is the rig editor's (bone/slot/event). In cinematic mode those are
+  // meaningless — it showed "select a bone or slot" over an empty column while every cinematic
+  // inspector was crammed into the 280px left panel. Hand the column to the cinematic instead.
+  ["#boneDetail", "#slotDetail", "#eventDetail"].forEach((sel) => {
+    const el = $(sel); if (el) el.style.display = cineMode ? "none" : "";
+  });
+  { const el = $("#cineProps"); if (el) el.style.display = cineMode ? "block" : "none"; }
+  if (cineMode) $("#propSub").textContent = "select a strip, key or cue";
   if (cineMode){ const bm = $("#bonemark"); if (bm) bm.style.display = "none"; } // no bone selection on a multi-actor stage
   if (animMode) ensureFxOverlay(); // fire-and-forget: lazy-load the live FX preview overlay
   else fxClearPreview(); // leaving animate — stop any live effects
