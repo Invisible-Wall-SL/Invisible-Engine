@@ -23,6 +23,7 @@
  *   xadvance     = round(glyph.advanceWidth * scale)
  */
 import { parse, type Font, type Glyph } from 'opentype.js';
+import { shelfPack } from '$lib/shelfPack';
 
 export interface FillEffect {
 	enabled: boolean;
@@ -346,74 +347,39 @@ function effectPad(effects: BakeEffects): number {
 }
 
 /**
- * Multi-page left→right shelf packer; wraps shelves at `maxWidth` and starts a NEW
- * page when the next shelf would exceed `maxHeight`. Records each tile's page index +
- * (x,y). All pages share one canvas size: `scaleW` = widest used column across pages,
- * `scaleH` = tallest used page. Errors past `MAX_PAGES` so a runaway charset surfaces.
+ * Place every glyph tile with the SHARED shelf packer (`$lib/shelfPack.ts`), then copy the
+ * placements back onto the tiles (the BMFont emitter reads them off each `<char>`). The
+ * packing itself is shared with the Rigger's rig-text page so there is exactly one shelf
+ * packer in the launcher; a tile with no canvas is zero-area and lands at page 0, (0,0) —
+ * the space-glyph case the packer preserves.
  */
 function packTiles(
 	tiles: GlyphTile[],
 	maxWidth: number,
 	maxHeight: number,
 ): { scaleW: number; scaleH: number; pageCount: number } {
-	let page = 0;
-	let penX = PAGE_GAP;
-	let penY = PAGE_GAP;
-	let shelfH = 0;
-	let usedW = 0;
-	// Bottom (penY + shelfH) of each page, to size the shared canvas height.
-	const pageBottoms: number[] = [];
-
-	const startNewPage = (): void => {
-		pageBottoms[page] = penY + shelfH;
-		page += 1;
-		if (page >= MAX_PAGES) {
-			throw new Error(
-				`Glyph atlas needs more than ${MAX_PAGES} pages — try a smaller size, a smaller ` +
-					'charset, or a larger page.',
-			);
-		}
-		penX = PAGE_GAP;
-		penY = PAGE_GAP;
-		shelfH = 0;
-	};
-
-	for (const t of tiles) {
-		if (!t.canvas || t.width === 0 || t.height === 0) {
-			t.page = 0;
-			t.x = 0;
-			t.y = 0;
-			continue;
-		}
-		// A single tile too tall for any page can never fit — fail clearly.
-		if (t.height + PAGE_GAP * 2 > maxHeight) {
-			throw new Error(
+	const packed = shelfPack(
+		tiles.map((t) => (t.canvas ? { width: t.width, height: t.height } : { width: 0, height: 0 })),
+		{
+			maxWidth,
+			maxHeight,
+			gap: PAGE_GAP,
+			maxPages: MAX_PAGES,
+			tooTallMessage:
 				'A glyph is taller than the max page height — increase the max page height or ' +
-					'reduce the glyph size.',
-			);
-		}
-		if (penX + t.width + PAGE_GAP > maxWidth && penX > PAGE_GAP) {
-			// Wrap to a new shelf.
-			penX = PAGE_GAP;
-			penY += shelfH + PAGE_GAP;
-			shelfH = 0;
-		}
-		if (penY + t.height + PAGE_GAP > maxHeight && penY > PAGE_GAP) {
-			// This shelf overflows the page → start a fresh page.
-			startNewPage();
-		}
-		t.page = page;
-		t.x = penX;
-		t.y = penY;
-		penX += t.width + PAGE_GAP;
-		shelfH = Math.max(shelfH, t.height);
-		usedW = Math.max(usedW, t.x + t.width);
-	}
-	pageBottoms[page] = penY + shelfH;
-
-	const scaleW = Math.max(1, usedW + PAGE_GAP);
-	const scaleH = Math.max(1, Math.max(...pageBottoms) + PAGE_GAP);
-	return { scaleW, scaleH, pageCount: page + 1 };
+				'reduce the glyph size.',
+			tooManyPagesMessage: (max) =>
+				`Glyph atlas needs more than ${max} pages — try a smaller size, a smaller ` +
+				'charset, or a larger page.',
+		},
+	);
+	tiles.forEach((t, i) => {
+		const p = packed.placements[i];
+		t.page = p.page;
+		t.x = p.x;
+		t.y = p.y;
+	});
+	return { scaleW: packed.width, scaleH: packed.height, pageCount: packed.pageCount };
 }
 
 /** Emit a BMFont XML descriptor string (one `<page>` per atlas page + `<kernings>`). */

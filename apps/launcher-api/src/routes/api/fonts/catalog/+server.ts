@@ -15,6 +15,10 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
 		tool: 'fontMaker',
+		// The Rigger reads the SAME catalog to rasterise a localization key into rig text art
+		// (design invisible-cinematic.md §12.4a). `altTools` widens only the entitlement check,
+		// never the R2 prefix allow-list — the pattern `/api/editor/effects` already uses for `rigger`.
+		altTools: ['rigger'],
 		forbiddenMessage: 'Your role does not have access to the Invisible Font Maker.',
 		includeSharedFonts: true,
 	});

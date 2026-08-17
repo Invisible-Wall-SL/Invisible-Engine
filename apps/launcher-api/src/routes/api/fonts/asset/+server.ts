@@ -13,6 +13,8 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ url, locals, cookies, request }) => {
 	const { prefixes } = await gate(locals, cookies, {
 		tool: 'fontMaker',
+		// Also the Rigger's font byte source for rig text rasterisation (see `/api/fonts/catalog`).
+		altTools: ['rigger'],
 		forbiddenMessage: 'Your role does not have access to the Invisible Font Maker.',
 		includeSharedFonts: true,
 	});

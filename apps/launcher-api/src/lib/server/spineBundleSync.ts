@@ -9,6 +9,13 @@ import {
 	putObjectText,
 } from '$lib/server/r2';
 import {
+	normalizeRigTextDoc,
+	rigTextDocKey,
+	rigTextRevision,
+	textAtlasBlock,
+	type RigTextDoc,
+} from '$lib/server/riggerText';
+import {
 	regionsToSpineAtlas,
 	reorientRotatedRegionsForSpine,
 	type SynthRegion,
@@ -94,6 +101,21 @@ export async function bundleRevision(rs: EditorRegionSet): Promise<string> {
 	return `${geo}:${createHash('sha1').update(pageSig).digest('hex').slice(0, 12)}`;
 }
 
+/**
+ * Read a bundle's rig-text document (`text.json`) — the localized-art elements whose regions
+ * are composed onto a SECOND atlas page. Absent/corrupt ⇒ an empty doc, so a rig with no text
+ * (every rig today) composes an atlas byte-identical to before.
+ */
+export async function loadBundleTextDoc(bundlePrefix: string): Promise<RigTextDoc> {
+	const text = await getObjectText(rigTextDocKey(bundlePrefix));
+	if (!text) return normalizeRigTextDoc(null);
+	try {
+		return normalizeRigTextDoc(JSON.parse(text));
+	} catch {
+		return normalizeRigTextDoc(null);
+	}
+}
+
 export interface BundleSyncResult {
 	/** Whether the bundle `.atlas` + page were (re)written this call. */
 	changed: boolean;
@@ -148,7 +170,17 @@ export async function ensureBundleAtlasFresh(
 	const rs = await loadRegionSet(manifestKey, clientKey, projectKey);
 	if (!rs.regions.length || !rs.pageKey || !rs.pageWidth || !rs.pageHeight) return null;
 
-	const revision = await bundleRevision(rs);
+	// Rig TEXT (design §12.4a) is localized art packed onto a SECOND page of this bundle's
+	// atlas. It is DERIVED here rather than appended to the file, because this function rewrites
+	// the `.atlas` wholesale — an appended block would be silently dropped on the next sync. Its
+	// hash joins the revision so a text-only edit still reads as drift (same sheet, same page
+	// ETag would otherwise short-circuit and keep serving the pre-text atlas). A rig with no text
+	// contributes an EMPTY suffix, so its revision is byte-identical to before this existed.
+	const textDoc = await loadBundleTextDoc(bundlePrefix);
+	const textBlock = textAtlasBlock(textDoc);
+	const textRev = rigTextRevision(textDoc);
+	const sheetRev = await bundleRevision(rs);
+	const revision = textRev ? `${sheetRev}:t${textRev}` : sheetRev;
 	if (!opts.force && revision === baseline) {
 		return { changed: false, revision, regions: rs.regions.length };
 	}
@@ -157,7 +189,8 @@ export async function ensureBundleAtlasFresh(
 	const page = await getObjectBytes(rs.pageKey);
 	if (!page) return null; // page vanished — can't refresh; leave the bundle untouched
 	const pageName = basename(rs.pageKey);
-	const atlasText = regionsToSpineAtlas(pageName, rs.pageWidth, rs.pageHeight, rs.regions);
+	const atlasText =
+		regionsToSpineAtlas(pageName, rs.pageWidth, rs.pageHeight, rs.regions) + textBlock;
 	// Re-orient CW-packed rotated regions to Spine's CCW `rotate:90` convention (no-op when
 	// nothing is rotated) so the bundle stays self-consistent — its own page + its own atlas.
 	const pageBody = await reorientRotatedRegionsForSpine(page.body, rs.regions);

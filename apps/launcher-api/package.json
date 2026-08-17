@@ -13,6 +13,7 @@
 		"prebuild": "node scripts/copy-tool-docs.mjs",
 		"build": "vite build",
 		"build:rigger-fx": "vite build --config vite.rigger-fx.config.ts",
+		"build:rigger-text": "vite build --config vite.rigger-text.config.ts",
 		"preview": "vite preview",
 		"start": "node build/index.js",
 		"db:generate": "drizzle-kit generate",
