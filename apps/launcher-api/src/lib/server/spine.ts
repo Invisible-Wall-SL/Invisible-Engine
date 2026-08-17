@@ -19,7 +19,7 @@ import { ENV } from './env';
 import { encodePageToKtx2 } from './ktx2Encode';
 import { PageStore, PAGE_REF_PREFIX } from './pageStore';
 import { getRoleOverrides } from './roleToolAccess';
-import { ensureBundleAtlasFresh } from './spineBundleSync';
+import { ensureBundleAtlasFresh, firstAtlasPageName } from './spineBundleSync';
 import { getToolOverrides } from './userToolAccess';
 
 export async function requireSpineAccess(locals: App.Locals): Promise<void> {
@@ -111,6 +111,23 @@ export async function fetchSpineBundleFile(
 	if (name.toLowerCase().endsWith('.atlas')) {
 		let text = await getObjectText(key);
 		if (text === null) return null;
+
+		// SELF-HEAL A MISSING PAGE IMAGE. The bundle's `.atlas` names its page on the first line; if
+		// that file is not actually in the bundle, every consumer fails with the runtime's opaque
+		// "Couldn't load texture … page image", and `/rigger` — the tool that AUTHORS rigs — was the
+		// one read path with no heal wired (the Symbols/Editor read, the bake, save and the ⟳ button
+		// all have one). A plain `ensureBundleAtlasFresh` is not enough here: it compares a geometry
+		// revision and bails when it matches, and a page can be missing while the geometry is
+		// unchanged — so a missing page forces the re-derive. One HEAD on the happy path; the force
+		// only ever runs when the bundle is already broken.
+		const pageName = firstAtlasPageName(text);
+		if (pageName && !(await objectExists(`${prefix}/${pageName}`))) {
+			const healed = await ensureBundleAtlasFresh(clientKey, projectKey, prefix, name, {
+				force: true,
+			}).catch(() => null);
+			if (healed?.changed) text = (await getObjectText(key)) ?? text;
+		}
+
 		if (preferPng) text = await atlasPreferPng(text, prefix);
 		return { body: text, contentType: 'text/plain; charset=utf-8' };
 	}

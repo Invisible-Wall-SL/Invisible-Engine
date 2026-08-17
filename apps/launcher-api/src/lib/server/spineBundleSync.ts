@@ -45,6 +45,10 @@ const firstNonEmptyLine = (text: string): string =>
 		.map((l) => l.trim())
 		.find((l) => l !== '') ?? '';
 
+/** The page image a bundle `.atlas` names (its first line) — so a reader can check the page
+ *  actually exists before handing the atlas to a runtime that fails opaquely if it doesn't. */
+export const firstAtlasPageName = (text: string): string => firstNonEmptyLine(text);
+
 /**
  * Stable content hash of a bundle's on-page geometry — the signal that says "the source
  * sheet's rects changed". Independent of the page FILENAME (which can change on a re-pack
