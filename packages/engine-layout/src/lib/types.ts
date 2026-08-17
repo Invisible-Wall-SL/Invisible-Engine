@@ -1071,3 +1071,40 @@ export interface ResolvedTransform {
 	/** Window-edge anchor for `canvas`-space scenes — see {@link BaseNode.screenAnchor}. */
 	screenAnchor?: Point2D;
 }
+
+/**
+ * An Invisible Cinematic document — a non-linear SEQUENCER over several rigs, authored in
+ * `/rigger`'s Cinematic mode and played in-game by the `<Cinematic>` component.
+ * Plan: `docs/design/invisible-cinematic.md`.
+ *
+ * Deliberately structural rather than exhaustive: track kinds beyond `animation` / `property` /
+ * `camera` are additive, and the evaluator already SKIPS anything it cannot resolve. A stricter
+ * type here would reject a document authored by a newer tool for no gain — the same reasoning as
+ * the server-side `isCinematicDoc` shape guard.
+ */
+export interface CinematicCast {
+	actorId: string;
+	/** The rig's folder under `<project>/spines/` — the STABLE identity, and the spine bundle
+	 *  name the game registers. Never the skeleton index's positional `id`. */
+	rigFolder?: string;
+	rigId?: string | number;
+	rigName?: string;
+	/** Scene node this actor binds to, when the cinematic is staged over a Scene (design §4.1). */
+	nodeId?: string | null;
+	place: Record<string, number | boolean>;
+	z?: number;
+	visible?: boolean;
+}
+
+export interface CinematicDoc {
+	schemaVersion: number;
+	id: string;
+	name: string;
+	/** Seconds. */
+	duration: number;
+	/** Snap grid only — evaluation is continuous. */
+	fps: number;
+	stage: { sceneId: string | null; cast: CinematicCast[] };
+	tracks: Array<Record<string, unknown>>;
+	markers: Array<Record<string, unknown>>;
+}

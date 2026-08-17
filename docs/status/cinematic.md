@@ -2,11 +2,11 @@
 
 > Design: [docs/design/invisible-cinematic.md](../design/invisible-cinematic.md) · Guide: _none yet (unbuilt)_ · Agent: _none yet_
 
-**One-line state:** **Phases 0–2 done; Phase 3 started** (2026-08-17) — `/rigger`'s 🎬 **Cinematic**
-mode stages several rigs, authors them as tracks of strips + property/camera keys, and now
-**saves to R2 per project**. Still owed for rule 8: export → `deploy/` → bake → pull → register,
-the `<Cinematic>` engine component and the Flow `playCinematic` node — **so nothing authored here
-reaches a game yet.**
+**One-line state:** **Phases 0–2 done; Phase 3 data chain done** (2026-08-17) — `/rigger`'s 🎬
+**Cinematic** mode stages several rigs, authors them as tracks of strips + property/camera keys,
+saves to R2 per project, and now **travels export → `deploy/` → bake → bundle → `bakedCinematics()`**
+with the rigs it casts. The last mile is the **player**: the `<Cinematic>` engine component and the
+Flow `playCinematic` node — **until those land, a game can read a cinematic but cannot play one.**
 
 ## Current state
 
@@ -31,6 +31,22 @@ reaches a game yet.**
     project in another tab is refused rather than writing into the wrong project — and `force`
     does not bypass it (overwriting *your* doc is a choice, someone else's project never is).
   `localStorage` is now only a crash/reload **draft**, not the source of truth.
+- **The ship chain, data half (Phase 3, part 2).** `cinematicExport.ts` mirrors each authored
+  cinematic into `<client>/<project>/deploy/cinematics/<id>.json` (pruning any deleted since the
+  last export), `ensureDeployExports` embeds them in the runtime bundle as `cinematics`, the
+  offline bake fetches `/api/editor/export-cinematics` and embeds the same, and the game reads
+  them via **`bakedCinematics()` / `bakedCinematic(id)`** (`[]` when un-authored ⇒ parity).
+  `CinematicDoc` lives in `engine-layout` so the bundle contract and the future player share
+  one type.
+  **The rule-8 trap this closes:** a cinematic casts rigs that may appear in NO scene, so the
+  editor-art export's static walk cannot see them — the doc would ship while its rigs did not.
+  `exportEditorArt` now takes an `extraSpineNames` seed (same shape as its existing
+  `cardComponentIds` / FX-atlas seeds) fed from `cinematicRigNames()`, so every cast rig travels
+  with the cinematic.
+  **Rig identity is the FOLDER, never the index `id`** — `SkeletonIndexEntry.id` is a contiguous
+  array position reassigned on every skeleton scan, so a stored id would silently re-point a saved
+  cinematic at a different rig the moment anyone adds one. The folder is stable AND is the spine
+  bundle name the game registers, which is what makes the seed above work.
 - **`static/shared/cinematicEval.mjs`** — the layered strip evaluator: `clipLocalTime`
   (clipIn/clipOut trim · speed · once/count/fill/pingPong · extrapolation), `blendEnvelope`
   (blend-in/out ramps × alpha), `evaluateActor` (layer stack, additive, bone masks) and
@@ -85,7 +101,7 @@ reaches a game yet.**
 | Undo/redo, driven live in a browser | **22/22** — history semantics (10), keyboard scoping (7), stage re-pose + buttons (5) |
 | Phase 2 sequencer, driven live in a browser | **35/35** — drag/trim/snap (11), inspector + layers (15), stage honours the authored strips (9) |
 | Property + camera tracks, driven live in a browser | **36/36** — keying + channel rows (9), stage honours the channels (8), camera track + live toggle (12), key retime/ease/delete (7) |
-| `tools/rigger-spike/cinematic-storage.mjs` — the storage module's pure logic (headless) | **16/16** |
+| `tools/rigger-spike/cinematic-storage.mjs` — storage guards + the export/prune chain (headless) | **28/28** |
 | R2 persistence client flow, driven live against a fake R2 with real etag semantics | **19/19** — create/update CAS, conflict prompt, force, new/open/rename/delete, draft |
 
 Headless fixtures are real shipped rigs (`mm_bigwin` 86 bones, `anticipation` 73 bones); the
@@ -123,32 +139,40 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Open items / next
 
-1. **Phase 3 remainder — the ship chain** (design §6): export → `<client>/<project>/deploy/` →
-   bake (index in the bundle) → pull (mirror into `static/assets/`) → runtime register, the
-   `<Cinematic>` engine component (its `spine-pixi-v8` contract is already proved by gate 3), and
-   the Flow-v2 `playCinematic` node with a `complete` exec out. **Nothing authored here reaches a
-   game until this lands** — R2 persistence is storage, not shipping.
-2. **⏳ Live-verify the endpoints against real R2.** The client flow was driven against a fake R2
-   with real etag semantics, and the storage module's pure logic is covered headlessly, but
-   `/api/cinematics/*` has not run against Postgres + R2 (it needs the authed launcher). Save,
-   reload, and open a cinematic on the deploy before trusting it.
-3. **Phase 2 remainder** — **visibility** and **cue** tracks (named in the schema, design §4.2;
+1. **Phase 3 last mile — the PLAYER.** The data reaches the game; nothing plays it yet.
+   (a) a `<Cinematic>` engine component that mounts the cast and drives it with the shared
+   evaluator — its `spine-pixi-v8` contract is already proved by gate 3 (`autoUpdate = false` ·
+   `state.clearTracks()` · pose in `beforeUpdateWorldTransforms` · `spine.update(dt)`);
+   (b) the evaluator's graduation from `static/shared/cinematicEval.mjs` to
+   `packages/engine-cinematic/` so the engine imports it rather than fetching it;
+   (c) a Flow-v2 **`playCinematic`** node with a `complete` exec out, so a screen can play one and
+   await it.
+2. **⏳ Live-verify the server chain against real R2 + Postgres.** Everything server-side is
+   covered headlessly (28 assertions over the real modules against an in-memory R2), but
+   `/api/cinematics/*` and `/api/editor/export-cinematics` have not run against the authed
+   launcher. Save a cinematic, reload, open it, then publish and confirm `deploy/cinematics/`
+   fills and the bundle carries `cinematics`.
+3. **⏳ `apps/lines` cannot be type-checked in this environment** — `tsc` OOMs on it even at 8 GB,
+   so the `bakedCinematics()` addition is verified only by inspection (it mirrors `bakedFlowV2Doc`
+   exactly) plus a clean `engine-layout` check. Worth a `pnpm --filter lines build` on a real
+   machine.
+4. **Phase 2 remainder** — **visibility** and **cue** tracks (named in the schema, design §4.2;
    `animation`, `property` and `camera` are implemented). Visibility is a static per-actor toggle
    today; cues are the `fx:` / `sfx:` / `signal:` surface and are best built alongside the Flow
    wiring in Phase 3.
-4. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
+5. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
    geometry and the frame visibly changes. Drive one spine object through the `<Cinematic>`
    contract in a real game frame before Phase 3 leans on it.
-5. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
+6. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
    has yet *looked* at two rigs staged together and judged that the art reads correctly (premultiply
    halos, relative scale between rigs authored at different atlas `scale:` factors). Open
    `/rigger` → 🎬 Cinematic, cast two rigs, and look.
-6. **Pick the set.** Phase 1 casts rigs directly (`cast[].nodeId` is null). Design §4.1 has the
+7. **Pick the set.** Phase 1 casts rigs directly (`cast[].nodeId` is null). Design §4.1 has the
    cinematic binding tracks to an existing **Scene**'s nodes — the Scene picker, and art / text /
    FX / sound actors, land with it.
-7. **Decide the Flow-v2 Phase 7 overlap explicitly** — Flow *plays* cinematics, or we ship two
+8. **Decide the Flow-v2 Phase 7 overlap explicitly** — Flow *plays* cinematics, or we ship two
    sequencers with two doc formats (design §7 risk 3). See [status/flow](flow.md) open item 7.
-8. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
+9. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
    referenced set, flatten-to-`.irig` escape hatch).
 
 ## Blocked (owner / external)
@@ -157,6 +181,14 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-17 — **Phase 3 part 2: the ship chain's data half** (details in Current state). 12 new
+  headless assertions (28/28) driving the REAL export module against an in-memory R2 — deploy
+  mirroring, pruning a cinematic deleted since the last export, un-authored ⇒ nothing embedded, and
+  project isolation. **The important find was a latent data-integrity bug in what Phase 1 shipped:**
+  the cast stored `rigId`, which is `SkeletonIndexEntry.id` — a contiguous array position
+  reassigned on every skeleton scan. Adding or renaming any rig would have silently re-pointed
+  every saved cinematic at a different rig. Identity is now the rig FOLDER (stable, and the spine
+  bundle name), with a best-effort migration for docs saved before the fix.
 - 2026-08-17 — **Phase 3 part 1: R2 persistence** (details in Current state). A cinematic now
   survives the browser. 16 headless assertions on the storage module's pure logic (path-guarding
   a user-supplied id, and a shape guard that rejects junk without rejecting documents a NEWER

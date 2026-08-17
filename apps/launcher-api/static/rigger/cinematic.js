@@ -31,7 +31,7 @@ window.RiggerCinematic = (function () {
 	let loadingCount = 0;
 	let statusMsg = '';
 
-	const rigCache = new Map(); // rigId -> SkeletonData (shared across actors of the same rig)
+	const rigCache = new Map(); // rig FOLDER -> SkeletonData (shared across actors of the same rig)
 	const $ = (sel) => document.querySelector(sel);
 
 	// ---- document -----------------------------------------------------------
@@ -350,12 +350,13 @@ window.RiggerCinematic = (function () {
 	// ---- rig loading --------------------------------------------------------
 
 	async function rigData(entry) {
-		if (rigCache.has(entry.id)) return rigCache.get(entry.id);
+		const cacheKey = entry.folder || String(entry.id);
+		if (rigCache.has(cacheKey)) return rigCache.get(cacheKey);
 		loadingCount++;
 		renderPanel();
 		try {
 			const data = await ctx.loadRigData(entry);
-			rigCache.set(entry.id, data);
+			rigCache.set(cacheKey, data);
 			return data;
 		} finally {
 			loadingCount--;
@@ -363,9 +364,29 @@ window.RiggerCinematic = (function () {
 		}
 	}
 
+	/**
+	 * Resolve a cast member to a rig entry.
+	 *
+	 * Keyed on `rigFolder`, NOT on the index `id`: `SkeletonIndexEntry.id` is a CONTIGUOUS ARRAY
+	 * POSITION reassigned on every scan (`spineIndex.ts` ends with `combined.map((e, id) => …)`),
+	 * so adding or renaming any rig renumbers all of them and a stored id would silently re-point
+	 * a saved cinematic at a DIFFERENT rig. The folder is the stable identity — and it is also the
+	 * spine BUNDLE NAME the game registers, which is what lets the export ship the right rig.
+	 *
+	 * The `rigId` fallback migrates cinematics saved before this fix; it is a best-effort match
+	 * (a positional id only means anything against the list that produced it).
+	 */
+	function rigEntryFor(cast) {
+		const rigs = ctx.listRigs();
+		if (cast.rigFolder) return rigs.find((e) => e.folder === cast.rigFolder) || null;
+		const legacy = rigs.find((e) => e.id === cast.rigId) || null;
+		if (legacy && legacy.folder) cast.rigFolder = legacy.folder; // heal the doc on first load
+		return legacy;
+	}
+
 	/** Build (or rebuild) the runtime instance for one cast member. */
 	async function instantiate(cast) {
-		const entry = ctx.listRigs().find((e) => e.id === cast.rigId);
+		const entry = rigEntryFor(cast);
 		if (!entry) {
 			statusMsg = `rig "${cast.rigName || cast.rigId}" is not in this project`;
 			return null;
@@ -574,6 +595,9 @@ window.RiggerCinematic = (function () {
 	async function addActor(entry) {
 		const cast = {
 			actorId: uid('actor'),
+			// The FOLDER is the identity (see `rigEntryFor`) and doubles as the spine bundle name
+			// the ship chain needs. `rigId` is kept only so an older client can still read the doc.
+			rigFolder: entry.folder || String(entry.id),
 			rigId: entry.id,
 			rigName: entry.name,
 			nodeId: null, // Phase 1 casts rigs directly; a Scene node binding lands with the set picker
@@ -1267,7 +1291,10 @@ window.RiggerCinematic = (function () {
 			})
 			.join('');
 
-		const rigOpts = rigs.map((e) => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
+		// Option values are the rig FOLDER (stable), never the positional index id.
+		const rigOpts = rigs
+			.map((e) => `<option value="${esc(e.folder || String(e.id))}">${esc(e.name)}</option>`)
+			.join('');
 		const listOpts = cinematicList.length
 			? cinematicList
 					.map((c) => `<option value="${esc(c.id)}"${c.id === doc.id ? ' selected' : ''}>${esc(c.name)} · ${c.actors} actor${c.actors === 1 ? '' : 's'}</option>`)
@@ -1308,7 +1335,7 @@ ${stripInspectorMarkup()}
 
 		$('#cineAdd').onclick = () => {
 			const id = $('#cineAddSel').value;
-			const entry = rigs.find((e) => e.id === id);
+			const entry = rigs.find((e) => (e.folder || String(e.id)) === id);
 			if (entry) addActor(entry);
 		};
 		$('#cineFit').onclick = fitAll;

@@ -12,6 +12,7 @@ import type {
 	RigFxBinding,
 	SymbolNameMap,
 	WinTextDoc,
+	CinematicDoc,
 } from 'engine-layout';
 import {
 	editorArtNamespace,
@@ -344,6 +345,9 @@ type BakedBundle = {
 	/** The shared v2 function library the `flowV2` graph's `functionCall` nodes resolve
 	 * against (`_shared/flow-v2/functions.json`), embedded alongside `flowV2` at bake. */
 	flowV2Library?: FlowV2LibraryDoc;
+	/** The project's Invisible Cinematic documents. Absent ⇒ `bakedCinematics()` is `[]` and the
+	 *  `<Cinematic>` component finds nothing to play (parity). */
+	cinematics?: CinematicDoc[];
 };
 const bakedBundle = bakedBundleJson as unknown as BakedBundle;
 
@@ -892,6 +896,26 @@ export function bakedFlowV2Doc(): FlowDocV2 | undefined {
 	if (hasRuntimeBundle()) return runtimeBundle!.flowV2;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.flowV2;
+}
+
+/**
+ * The baked Invisible Cinematic documents (`/rigger` Cinematic mode output). A cinematic is a
+ * non-linear sequencer over several rigs — the `<Cinematic>` component plays one by id.
+ *
+ * Returns `[]` rather than `undefined` when nothing is authored, because every consumer wants to
+ * look one up by id and an empty list is the honest "no cinematics here" — same runtime→baked
+ * resolution as the flow accessors above. The RIGS a cinematic casts ship through `editorArt`
+ * (seeded by the export), so a returned doc's actors are always loadable.
+ */
+export function bakedCinematics(): CinematicDoc[] {
+	if (hasRuntimeBundle()) return runtimeBundle!.cinematics ?? [];
+	if (!hasBakedDoc()) return [];
+	return bakedBundle.cinematics ?? [];
+}
+
+/** One baked cinematic by id, or undefined when the project never authored it. */
+export function bakedCinematic(id: string): CinematicDoc | undefined {
+	return bakedCinematics().find((c) => c.id === id);
 }
 
 /** The baked shared v2 function library the `flowV2` graph resolves `functionCall` nodes against

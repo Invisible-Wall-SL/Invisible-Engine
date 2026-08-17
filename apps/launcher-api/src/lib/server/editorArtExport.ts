@@ -344,6 +344,14 @@ function toTexturePackerJson(set: EditorRegionSet, pageFile: string, sx = 1, sy 
 export async function exportEditorArt(
 	clientKey: string,
 	projectKey: string,
+	/**
+	 * Extra spine BUNDLE NAMES to ship even though the static scene/def walk never sees them.
+	 * Today: the rigs a project's CINEMATICS cast. A cinematic references rigs that may appear in
+	 * no scene at all, so without this seed the doc ships while its rigs do not — the exact
+	 * "renders in the tool, blank in the game" trap rule 8 exists to prevent. Same shape as the
+	 * `cardComponentIds` / FX-atlas seeds below: runtime-chosen refs the walk is blind to.
+	 */
+	opts?: { extraSpineNames?: Iterable<string> },
 ): Promise<EditorArtIndex> {
 	const doc = (await loadDoc(clientKey, projectKey)) as LayoutDoc;
 	// Seed the def walk with the config's per-mode buy-feature card ids so each card's OWN art rides
@@ -378,6 +386,12 @@ export async function exportEditorArt(
 			else if (p.kind === 'spine') refs.spineNames.add(value);
 		}
 	}
+	// Rigs a cinematic casts (see `opts.extraSpineNames`) — bundle NAMES, the same currency the
+	// `spine`-kind component-param branch above adds.
+	for (const name of opts?.extraSpineNames ?? []) {
+		if (typeof name === 'string' && name) refs.spineNames.add(name);
+	}
+
 	// Reconcile bare region names picked up above into the used-region set (mirrors `collectArtRefs`).
 	for (const n of refs.regionNames) refs.usedRegions.add(n);
 

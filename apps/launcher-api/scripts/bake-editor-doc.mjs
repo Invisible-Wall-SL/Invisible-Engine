@@ -586,6 +586,35 @@ async function main() {
 			);
 		}
 
+	// Invisible Cinematic — export the project's cinematics into `deploy/cinematics/` and embed
+	// them so `bakedCinematics()` resolves in a standalone build. Like a FlowDoc, a cinematic
+	// carries no binary assets of its own; the RIGS it casts ride the editor-art export (seeded
+	// with their bundle names server-side), so nothing extra is mirrored here. A project with no
+	// cinematics leaves this undefined ⇒ the bundle omits it ⇒ `bakedCinematics()` is [] (parity).
+	let cinematics;
+	const cinematicsUrl =
+		`${base}/api/editor/export-cinematics?project=${encodeURIComponent(project)}` +
+		`&k=${encodeURIComponent(token)}`;
+	if (dryRun) {
+		console.info('(dry run) skipping the cinematic export — it writes to R2 deploy/.');
+	} else
+		try {
+			const res = await fetchRetry(cinematicsUrl, { method: 'POST' }, 'cinematic export');
+			// Best-effort, deliberately NOT a bail: cinematics are additive, and a launcher that
+			// predates this endpoint answers 404. Failing the whole bake over it would break every
+			// existing game's build for a feature they do not use.
+			if (res.ok) {
+				const c = await res.json();
+				if (Array.isArray(c?.cinematics) && c.cinematics.length) cinematics = c.cinematics;
+			} else if (res.status !== 404) {
+				console.warn(`  cinematic export returned HTTP ${res.status} — continuing without it.`);
+			}
+		} catch (err) {
+			console.warn(
+				`  could not reach ${base}/api/editor/export-cinematics — continuing without it (${err instanceof Error ? err.message : err}).`,
+			);
+		}
+
 	// Export the project's Invisible FX effects (the authored particle effects) into R2
 	// `deploy/effects/` and embed the returned `EffectDoc[]` so the game's `bakedEffects()`
 	// registers them. Unlike the art/font/symbol exports an EffectDoc carries NO binary
@@ -901,6 +930,7 @@ async function main() {
 		// screens; matches the online runtime bundle (`runtimeBundle.ts`).
 		...(flowV2 ? { flowV2 } : {}),
 		...(flowV2 && flowV2Library ? { flowV2Library } : {}),
+		...(cinematics ? { cinematics } : {}),
 		// The authored particle effects (Invisible FX). Omitted unless the project
 		// authored ≥1 effect, keeping the bundle byte-identical for every game with no
 		// FX work — `bakedEffects()` returns [] when absent (parity, §8).

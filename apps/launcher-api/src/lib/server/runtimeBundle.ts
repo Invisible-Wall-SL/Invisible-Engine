@@ -48,6 +48,12 @@ import { getGlobalLayoutProfile } from './layoutProfile';
 import { pruneUnreachableEffects } from './effectReachability';
 import { exportEditorFlow } from './flowExport';
 import { exportEditorFlowV2 } from './flowV2Export';
+import {
+	cinematicRigNames,
+	exportCinematics,
+	loadAuthoredCinematics,
+} from './cinematicExport';
+import type { CinematicDoc } from './cinematicStorage';
 import { exportEditorFonts } from './fontExport';
 import { exportEffects } from './effectExport';
 import { exportClips } from './flipbookExport';
@@ -84,6 +90,11 @@ export interface RuntimeBundle {
 	 * authored a non-empty v2 flow — absent ⇒ v2 inert, v1/coded owns (parity). */
 	flowV2?: FlowDocV2;
 	flowV2Library?: FlowV2LibraryDoc;
+	/** The authored Invisible Cinematic documents. Omitted unless the project authored one with at
+	 * least one actor — absent ⇒ `bakedCinematics()` returns [] (parity). A cinematic carries no
+	 * art of its own; the RIGS it casts ride the editor-art export via its `extraSpineNames` seed,
+	 * because the static scene walk cannot see them. */
+	cinematics?: CinematicDoc[];
 	/** The authored Invisible FX effects (`invisible-fx.md` §8). Omitted unless the project
 	 * authored ≥1 effect — absent ⇒ `bakedEffects()` returns [] (parity). Mirrors the offline
 	 * bake (`scripts/bake-editor-doc.mjs`). */
@@ -353,7 +364,7 @@ async function assembleRuntimeBundle(
 	// must stay null so the bundle omits `config` and the game runs its compiled template. See the
 	// `config` field's note on the bundle type.
 	const [
-		{ editorArt, fonts, symbols, flow, flowV2, flowV2Library },
+		{ editorArt, fonts, symbols, flow, flowV2, flowV2Library, cinematics },
 		localization,
 		effectIndex,
 		rigFx,
@@ -419,6 +430,9 @@ async function assembleRuntimeBundle(
 		// Invisible Flow v2 — omit when un-authored so v2 stays inert and v1/coded owns (parity).
 		...(flowV2 ? { flowV2 } : {}),
 		...(flowV2 && flowV2Library ? { flowV2Library } : {}),
+		// Invisible Cinematic — omit when none are authored so a cinematic-less project's bundle
+		// stays byte-identical and `bakedCinematics()` returns [] (parity).
+		...(cinematics && cinematics.length ? { cinematics } : {}),
 		// Invisible FX — omit when empty so a no-FX project stays byte-identical, exactly as the
 		// offline bake does (`bake-editor-doc.mjs` ~575/579): absent ⇒ bakedEffects()/bakedRigFx() [].
 		...(effects.length ? { effects } : {}),
@@ -459,14 +473,23 @@ export async function ensureDeployExports(
 	/** The exported v2 FlowDoc + shared library, or undefined when no v2 flow is authored. */
 	flowV2?: FlowDocV2;
 	flowV2Library?: FlowV2LibraryDoc;
+	/** The exported cinematics, or undefined when the project authored none (parity). */
+	cinematics?: CinematicDoc[];
 }> {
 	const client = clientKey ?? (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
-	const [editorArt, fontIndex, symbols, flowIndex, flowV2Index] = await Promise.all([
-		step('art', timings, () => exportEditorArt(client, projectKey)),
+	// Cinematics load BEFORE the batch, not inside it: the editor-art export needs the rig bundle
+	// names they cast as a seed, or a cinematic ships as a doc whose rigs the game never loaded.
+	const cinematicDocs = await step('cinematics:load', timings, () =>
+		loadAuthoredCinematics(client, projectKey),
+	);
+	const extraSpineNames = cinematicRigNames(cinematicDocs);
+	const [editorArt, fontIndex, symbols, flowIndex, flowV2Index, cinematicIndex] = await Promise.all([
+		step('art', timings, () => exportEditorArt(client, projectKey, { extraSpineNames })),
 		step('fonts', timings, () => exportEditorFonts(client, projectKey)),
 		step('symbols', timings, () => exportEditorSymbols(client, projectKey)),
 		step('flow', timings, () => exportEditorFlow(client, projectKey)),
 		step('flowV2', timings, () => exportEditorFlowV2(client, projectKey)),
+		step('cinematics', timings, () => exportCinematics(client, projectKey, cinematicDocs)),
 	]);
 	// Forward an authored flow only — an un-authored doc stays undefined so the runtime
 	// interpreter is inert and the game runs its coded path (parity, §7). `isAuthoredFlow`
@@ -480,5 +503,6 @@ export async function ensureDeployExports(
 		...(isAuthoredFlow(flowIndex.flow) ? { flow: flowIndex.flow } : {}),
 		...(flowV2Index.flowV2 ? { flowV2: flowV2Index.flowV2 } : {}),
 		...(flowV2Index.flowV2Library ? { flowV2Library: flowV2Index.flowV2Library } : {}),
+		...(cinematicIndex.cinematics ? { cinematics: cinematicIndex.cinematics } : {}),
 	};
 }
