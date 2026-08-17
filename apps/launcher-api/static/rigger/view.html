@@ -425,6 +425,12 @@
         <summary>Skins <span class="pill" id="cSkins"></span></summary>
         <div class="body" id="skinList"></div>
       </details>
+      <!-- Rig text = LOCALIZED ART: a localization key rasterised to an atlas region, then an
+           ordinary region attachment (design invisible-cinematic.md §12.4a). -->
+      <details class="sec" id="secText">
+        <summary>Text (localized art) <span class="pill" id="cText"></span></summary>
+        <div class="body" id="textList"></div>
+      </details>
       <details class="sec" id="secAnims">
         <summary>Animations <span class="pill" id="cAnims"></span></summary>
         <div class="body" id="animList"></div>
@@ -564,6 +570,56 @@
       </div>
       <input type="text" id="resyncFilter" placeholder="filter…" style="margin:0 0 8px;">
       <div id="resyncList"></div>
+    </div>
+  </div>
+
+  <!-- Rig TEXT: pick a localization key + a font, rasterise it to atlas regions (one per
+       reviewed locale), and place it as an ordinary region attachment. -->
+  <div id="textModal" class="rigModal">
+    <div class="modal-box" style="width:min(720px,94vw);">
+      <div class="modal-head">
+        <b id="textModalTitle">Add localized text</b>
+        <span style="flex:1;"></span>
+        <button id="textModalClose" style="padding:1px 8px;">✕</button>
+      </div>
+      <div style="display:flex;gap:14px;align-items:flex-start;">
+        <div style="flex:1;min-width:0;">
+          <label>Localization key</label>
+          <select id="textKey"></select>
+          <div id="textKeyNote" class="pill" style="margin-top:4px;"></div>
+          <label style="margin-top:8px;">Font</label>
+          <select id="textFont"></select>
+          <div style="display:flex;gap:6px;margin-top:8px;">
+            <div style="flex:1;">
+              <label>Size (px)</label>
+              <input type="number" id="textSize" min="4" max="512" step="1" value="64">
+            </div>
+            <div style="flex:1;">
+              <label>Colour</label>
+              <input type="color" id="textColor" value="#ffffff" style="width:100%;height:26px;padding:0;">
+            </div>
+            <div style="flex:1;">
+              <label>Letter spacing</label>
+              <input type="number" id="textSpacing" min="-32" max="32" step="1" value="0">
+            </div>
+          </div>
+          <label style="margin-top:8px;">Element id (attachment + slot name)</label>
+          <input type="text" id="textId" placeholder="title">
+        </div>
+        <div style="width:300px;flex:none;">
+          <label>Preview (source language)</label>
+          <div id="textPreview"
+            style="min-height:96px;display:flex;align-items:center;justify-content:center;background:
+            repeating-conic-gradient(#2a2a33 0% 25%, #22222a 0% 50%) 50%/16px 16px;border:1px solid var(--line);
+            border-radius:4px;overflow:auto;"></div>
+          <div id="textLocaleNote" style="margin-top:6px;color:var(--dim);font-size:11px;line-height:1.4;"></div>
+        </div>
+      </div>
+      <div id="textModalErr" style="margin-top:8px;color:#ff8080;font-size:11px;line-height:1.4;"></div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+        <button id="textModalCancel">Cancel</button>
+        <button id="textModalCreate" style="padding:5px 18px;">Bake + place</button>
+      </div>
     </div>
   </div>
 
@@ -1060,6 +1116,9 @@ async function selectSkeleton(entry){
   try {
     await waitAssets();
     buildSkeleton(entry); saveRiggerState();
+    // The rig's text document rides alongside the skeleton; fire-and-forget so a slow (or
+    // absent — which is every rig today) document never delays the rig appearing.
+    loadRigText();
   }
   catch(e){ showErr("Load failed: " + (e.message || e)); }
   finally { hideLoading(); }
@@ -1623,6 +1682,9 @@ function renderAnimSection(){
   }
   $("#cAnims").textContent = "(" + names.length + ")";
   refreshAnimSelect();
+  // The text section shares the outline's rebuild — its ＋ button is setup-mode only, so it
+  // has to re-render whenever the mode does.
+  renderTextList();
 }
 
 function uniqueAnimName(base){ let n = base, i = 2; const has = (x) => rawDoc.animations && rawDoc.animations[x]; while (has(n)){ n = base + "_" + i; i++; } return n; }
@@ -2049,6 +2111,462 @@ function renderResyncList(){
     d.onclick = () => { closeResyncModal(); resyncAtlas(a.manifestKey); };
     list.appendChild(d);
   });
+}
+
+// ---- rig TEXT: localized ART in the rig (design invisible-cinematic.md §12.4a) ----
+//
+// A localization KEY + a font are rasterised, once per REVIEWED locale, onto a second page of
+// this rig bundle's own .atlas. From that moment the string is an ORDINARY region attachment:
+// region→mesh convert, weights, deform and keyframing all apply with no new machinery, and the
+// .irig stays byte-valid Spine 4.2. Localization is an ATTACHMENT SWAP — one attachment per
+// locale, named `<id>@<locale>`, in one slot; the game picks by locale at load.
+//
+// The rasteriser itself is NOT here: it needs PIXI (to draw through the SAME BitmapText/Text
+// the game uses), so it lives in the vendored `vendor/rigger-text.js` bundle, lazy-loaded on
+// first use exactly like the FX overlay and cinematic.js. This file owns only the skeleton
+// side — the slot, bone and attachments written into `rawDoc`.
+
+let rigTextLoading = null, rigTextFailed = false;
+// The rig's persisted text document: `elements` are the authored ones, `etag` is the
+// precondition its next save must carry (null = "there was none", the create path).
+let rigText = { elements: [], etag: null, loaded: false };
+let textEditingId = null; // element id being edited, or null when adding
+
+function ensureRigText(){
+  if (rigTextFailed) return Promise.resolve(false);
+  if (window.RiggerText) return Promise.resolve(true);
+  if (rigTextLoading) return rigTextLoading;
+  rigTextLoading = new Promise((resolve) => {
+    const s = document.createElement("script");
+    const _v = new URLSearchParams(location.search).get("v");
+    s.src = "/rigger/vendor/rigger-text.js" + (_v ? "?v=" + encodeURIComponent(_v) : "");
+    s.onload = () => {
+      if (!window.RiggerText){ rigTextFailed = true; console.warn("[RigText] script loaded but window.RiggerText missing"); }
+      resolve(!!window.RiggerText);
+    };
+    s.onerror = () => { rigTextFailed = true; console.warn("[RigText] failed to load vendor/rigger-text.js"); resolve(false); };
+    document.head.appendChild(s);
+  });
+  return rigTextLoading;
+}
+
+// Load the open rig's text document. Called on every rig open; failure is non-fatal (the
+// section just shows nothing) because a rig with no text is every rig that exists today.
+async function loadRigText(){
+  rigText = { elements: [], etag: null, loaded: false };
+  if (!selected) return;
+  try {
+    const r = await fetch("/api/rigger/text?dir=" + encodeURIComponent(selected.dir_b64 || ""));
+    if (!r.ok) return;
+    const j = await r.json();
+    rigText = { elements: (j.doc && j.doc.elements) || [], etag: j.etag ?? null, loaded: true };
+  } catch (e){ console.warn("[RigText] could not load the rig text document", e); }
+  renderTextList();
+}
+
+function textElement(id){ return rigText.elements.find((e) => e.id === id) || null; }
+
+function renderTextList(){
+  const list = $("#textList"); if (!list) return;
+  clearChildren(list);
+  const cnt = $("#cText"); if (cnt) cnt.textContent = rigText.elements.length || "";
+  if (!rawDoc){
+    const e = document.createElement("div");
+    e.style.cssText = "padding:6px 14px;color:var(--dim);font-size:11px;";
+    e.textContent = "open a rig to add localized text";
+    list.appendChild(e);
+    return;
+  }
+  if (editMode){
+    const add = document.createElement("button");
+    add.textContent = "＋ Add text…";
+    add.title = "Rasterise a localization key into this rig's atlas and place it on the selected bone";
+    add.style.cssText = "margin:6px 14px 4px;";
+    add.onclick = () => openTextModal(null);
+    list.appendChild(add);
+  }
+  if (!rigText.elements.length){
+    const e = document.createElement("div");
+    e.style.cssText = "padding:2px 14px 8px;color:var(--dim);font-size:10px;line-height:1.4;";
+    e.textContent = "A text element is ART: one atlas region per reviewed locale, swapped at "
+      + "runtime. Changing the string is a re-bake, not a runtime change — keep dynamic values "
+      + "(win amounts) as game text.";
+    list.appendChild(e);
+    return;
+  }
+  for (const el of rigText.elements){
+    const row = document.createElement("div");
+    row.className = "trow";
+    row.style.cssText = "padding-left:14px;display:flex;align-items:center;gap:6px;";
+    const nm = document.createElement("span");
+    nm.textContent = el.id;
+    nm.style.cssText = "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;";
+    nm.title = el.key + " · " + el.fontName + " " + el.fontSize + "px";
+    row.appendChild(nm);
+    const tag = document.createElement("span");
+    tag.className = "tag";
+    tag.textContent = (el.variants || []).length + " loc";
+    tag.title = (el.variants || []).map((v) => v.locale).join(", ");
+    row.appendChild(tag);
+    if (editMode){
+      const ed = document.createElement("span");
+      ed.textContent = "✎"; ed.title = "Edit + re-bake this text";
+      ed.style.cssText = "cursor:pointer;color:var(--accent);";
+      ed.onclick = (ev) => { ev.stopPropagation(); openTextModal(el.id); };
+      row.appendChild(ed);
+      const rm = document.createElement("span");
+      rm.textContent = "✕"; rm.title = "Remove this text element (its slot + attachments too)";
+      rm.style.cssText = "cursor:pointer;color:var(--dim);";
+      rm.onclick = (ev) => { ev.stopPropagation(); removeTextElement(el.id); };
+      row.appendChild(rm);
+    }
+    row.onclick = () => { if (el.slot && rawDoc && (rawDoc.slots || []).some((s) => s.name === el.slot)) selectSlot(el.slot); };
+    list.appendChild(row);
+  }
+}
+
+// ---- the modal -------------------------------------------------------------
+
+let textStrings = { sourceLang: "en", targetLangs: [], entries: [] };
+let textFonts = [];
+let textPreviewToken = 0;
+
+async function openTextModal(editId){
+  if (!rawDoc || !selected) return;
+  textEditingId = editId;
+  $("#textModalTitle").textContent = editId ? "Edit localized text" : "Add localized text";
+  $("#textModalCreate").textContent = editId ? "Re-bake" : "Bake + place";
+  $("#textModalErr").textContent = "";
+  $("#textModal").classList.add("open");
+  $("#textKeyNote").textContent = "loading…";
+  const ready = await ensureRigText();
+  if (!ready){ $("#textModalErr").textContent = "The text rasteriser failed to load. Reload the page and try again."; return; }
+  try {
+    [textFonts, textStrings] = await Promise.all([window.RiggerText.loadFonts(), window.RiggerText.loadStrings()]);
+  } catch (e){
+    $("#textModalErr").textContent = "Could not load the fonts / localization keys: " + ((e && e.message) || e);
+    return;
+  }
+  const keySel = $("#textKey"); clearChildren(keySel);
+  if (!textStrings.entries.length){
+    const o = document.createElement("option");
+    o.value = ""; o.textContent = "— no localization keys in this project —";
+    keySel.appendChild(o);
+  }
+  for (const en of textStrings.entries){
+    const o = document.createElement("option");
+    o.value = en.key;
+    o.textContent = en.key + "  · " + (en.source || "(no source string)");
+    keySel.appendChild(o);
+  }
+  const fontSel = $("#textFont"); clearChildren(fontSel);
+  if (!textFonts.length){
+    const o = document.createElement("option");
+    o.value = ""; o.textContent = "— no fonts in this project —";
+    fontSel.appendChild(o);
+  }
+  for (const f of textFonts){
+    const o = document.createElement("option");
+    o.value = f.id;
+    o.textContent = f.name + (f.kind === "bitmap" ? "  · bitmap" : "  · web");
+    fontSel.appendChild(o);
+  }
+
+  const el = editId ? textElement(editId) : null;
+  if (el){
+    keySel.value = el.key;
+    fontSel.value = el.fontId;
+    $("#textSize").value = el.fontSize;
+    $("#textColor").value = (el.style && el.style.color) || "#ffffff";
+    $("#textSpacing").value = (el.style && el.style.letterSpacing) || 0;
+    $("#textId").value = el.id;
+    $("#textId").disabled = true; // the id IS the attachment/slot name — renaming is a different job
+  } else {
+    $("#textId").value = "";
+    $("#textId").disabled = false;
+  }
+  refreshTextModal();
+}
+
+function closeTextModal(){ $("#textModal").classList.remove("open"); textEditingId = null; }
+
+// Everything derived from the current form state: the locale note, the default element id,
+// and the live preview. Cheap enough to re-run on every input.
+function refreshTextModal(){
+  const key = $("#textKey").value;
+  const entry = textStrings.entries.find((e) => e.key === key) || null;
+  $("#textKeyNote").textContent = entry
+    ? "source (" + textStrings.sourceLang + "): " + (entry.source || "(empty)")
+    : "pick a key — the string always comes from /localization, never typed here";
+  const reviewed = entry ? Object.keys(entry.reviewed) : [];
+  const pending = entry ? entry.pending : 0;
+  $("#textLocaleNote").innerHTML =
+    "<b>" + (1 + reviewed.length) + "</b> locale" + (reviewed.length ? "s" : "") + " will be baked: "
+    + [textStrings.sourceLang].concat(reviewed).join(", ")
+    + (pending ? "<br><span style='color:var(--accent2);'>" + pending + " more once reviewed in /localization</span>" : "")
+    + "<br><span style='color:var(--dim);'>Each locale is its own atlas region + attachment "
+    + "(<code>&lt;id&gt;@&lt;locale&gt;</code>). A mesh you author is drawn on the source locale; "
+    + "the others follow it as linked meshes.</span>";
+  if (!textEditingId && key && !$("#textId").value){
+    $("#textId").value = key.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40);
+  }
+  schedulePreview(entry ? entry.source : "");
+}
+
+function schedulePreview(text){
+  const token = ++textPreviewToken;
+  const host = $("#textPreview");
+  if (!window.RiggerText || !text || !$("#textFont").value){
+    clearChildren(host);
+    return;
+  }
+  window.RiggerText.preview(text, currentTextStyle())
+    .then((canvas) => {
+      if (token !== textPreviewToken) return; // a newer edit already superseded this render
+      clearChildren(host);
+      if (!canvas){
+        const d = document.createElement("div");
+        d.style.cssText = "color:var(--dim);font-size:11px;padding:8px;";
+        d.textContent = "could not render with this font";
+        host.appendChild(d);
+        return;
+      }
+      canvas.style.maxWidth = "100%";
+      host.appendChild(canvas);
+    })
+    .catch((e) => { if (token === textPreviewToken) console.warn("[RigText] preview failed", e); });
+}
+
+function currentTextStyle(){
+  return {
+    fontId: $("#textFont").value,
+    fontSize: Math.max(4, Number($("#textSize").value) || 64),
+    color: $("#textColor").value || "#ffffff",
+    letterSpacing: Number($("#textSpacing").value) || 0,
+  };
+}
+
+// Bake + place. The order is deliberate and is the part worth reading:
+//
+//  1. The rig is saved FIRST when it has unsaved edits, because step 3 reloads it from R2 —
+//     the atlas changed server-side and the runtime holds the OLD page. Reloading without
+//     saving would silently discard the author's work.
+//  2. The text document is written (page uploaded → conditional doc write → atlas re-composed).
+//  3. The rig is re-selected, which re-fetches the freshly composed .atlas + page.
+//  4. Only then are the slot/bone/attachments written into rawDoc — they reference regions that
+//     now exist, so the tolerant attachment loader never has to substitute a placeholder.
+async function bakeAndPlaceText(){
+  const key = $("#textKey").value;
+  const fontId = $("#textFont").value;
+  const id = ($("#textId").value || "").trim().replace(/[^A-Za-z0-9_-]/g, "_");
+  const errEl = $("#textModalErr");
+  errEl.textContent = "";
+  if (!key){ errEl.textContent = "Pick a localization key."; return; }
+  if (!fontId){ errEl.textContent = "Pick a font."; return; }
+  if (!id){ errEl.textContent = "Give the element an id — it becomes the slot + attachment name."; return; }
+  if (!textEditingId && rigText.elements.some((e) => e.id === id)){
+    errEl.textContent = 'A text element called "' + id + '" already exists.'; return;
+  }
+  if (!textEditingId && (rawDoc.slots || []).some((s) => s.name === "text_" + id)){
+    errEl.textContent = 'A slot called "text_' + id + '" already exists — pick another id.'; return;
+  }
+
+  const font = textFonts.find((f) => f.id === fontId);
+  const style = currentTextStyle();
+  const element = {
+    id,
+    key,
+    fontId,
+    fontName: (font && font.name) || fontId,
+    fontSize: style.fontSize,
+    sourceLocale: textStrings.sourceLang,
+    slot: (textEditingId && textElement(textEditingId) && textElement(textEditingId).slot) || ("text_" + id),
+    style: { color: style.color, letterSpacing: style.letterSpacing },
+  };
+
+  // (1) the rig must be on disk before we reload it
+  if (dirty){
+    if (!confirm("Adding text reloads this rig's atlas from R2, which needs your current edits saved.\n\nSave the rig now and continue?")) return;
+    await saveToR2();
+    if (dirty) return; // saveToR2 already showed why in the error bar
+  }
+
+  showLoading(textEditingId ? "Re-baking text…" : "Baking text…");
+  try {
+    const elements = rigText.elements
+      .filter((e) => e.id !== element.id)
+      .map((e) => ({ id: e.id, key: e.key, fontId: e.fontId, fontName: e.fontName, fontSize: e.fontSize,
+                     sourceLocale: e.sourceLocale, slot: e.slot, style: e.style || { color: "#ffffff" } }))
+      .concat([element]);
+    const res = await window.RiggerText.save({
+      dir: selected.dir_b64 || "",
+      atlasFile: selected.atlas_file,
+      projectKey: curProjectKey,
+      elements,
+      baseEtag: rigText.etag,
+    });
+    if (!res.ok){
+      hideLoading();
+      errEl.textContent = (res.message || "The bake failed.")
+        + (res.failed && res.failed.length ? " (" + res.failed.map((f) => f.elementId + "@" + f.locale + ": " + f.reason).join("; ") + ")" : "");
+      return;
+    }
+    rigText.etag = res.etag ?? null;
+
+    // (3) reload the rig so the runtime holds the recomposed atlas + the new page
+    await selectSkeleton(selected);
+
+    // (4) write the skeleton side
+    placeTextAttachments(element, res.attachments.filter((a) => a.elementId === element.id));
+    await loadRigText();
+    closeTextModal();
+    if (res.failed && res.failed.length){
+      showAlert("Some locales could not be rasterised and were skipped:\n\n"
+        + res.failed.map((f) => f.elementId + "@" + f.locale + " — " + f.reason).join("\n"), "Partly baked");
+    }
+  } catch (e){
+    errEl.textContent = "The bake failed: " + ((e && e.message) || e);
+  } finally { hideLoading(); }
+}
+
+/**
+ * Write (or update) the skeleton side of a text element: its own bone, its slot, and ONE region
+ * attachment per locale in the active skin.
+ *
+ * A dedicated bone (rather than hanging the slot off the selected bone) is what makes the text
+ * animatable without disturbing the art it sits on — it can be moved, scaled and keyed on its
+ * own. It is parented to the selected bone so it still rides whatever that bone does.
+ *
+ * Re-running this for an existing element is additive: existing attachments keep their authored
+ * placement (and any mesh/weights on them), and only MISSING locales are added — which is the
+ * "a new translation got reviewed" path.
+ */
+function placeTextAttachments(element, attachments){
+  if (!rawDoc || !attachments.length) return;
+  const skinName = $("#skin").value || (rawDoc.skins && rawDoc.skins[0] && rawDoc.skins[0].name) || "default";
+  rawDoc.skins = rawDoc.skins || [];
+  let sk = rawDoc.skins.find((s) => s.name === skinName);
+  if (!sk){ sk = { name: skinName, attachments: {} }; rawDoc.skins.push(sk); }
+  sk.attachments = sk.attachments || {};
+
+  const boneName = "text_" + element.id;
+  rawDoc.bones = rawDoc.bones || [];
+  if (!rawDoc.bones.some((b) => b.name === boneName)){
+    const parent = (selBone != null && skeletonData.bones[selBone]) ? skeletonData.bones[selBone].name : rawDoc.bones[0].name;
+    rawDoc.bones.push({ name: boneName, parent });
+  }
+  rawDoc.slots = rawDoc.slots || [];
+  if (!rawDoc.slots.some((s) => s.name === element.slot)){
+    // Appended last = drawn on top, which is what a caption or a title wants by default.
+    rawDoc.slots.push({ name: element.slot, bone: boneName });
+  }
+  const bag = (sk.attachments[element.slot] = sk.attachments[element.slot] || {});
+
+  const atlas = assetMgr.require(selected.atlas_file);
+  const findRegion = (n) => (atlas && atlas.findRegion ? atlas.findRegion(n) : null);
+  const sourceName = element.id + "@" + element.sourceLocale;
+  // The source locale carries the authored placement; every other locale inherits it, so
+  // swapping locale never moves the text.
+  const src = bag[sourceName] || null;
+  for (const att of attachments){
+    const attName = element.id + "@" + att.locale;
+    if (bag[attName]) continue; // keep an authored placement / mesh / weights
+    if (src && isRawMeshDef(src) && src.type !== "linkedmesh"){
+      // The source locale has already been given a mesh (and possibly weights + deform). A new
+      // locale must INHERIT that geometry, not arrive as a flat quad beside it.
+      bag[attName] = { type: "linkedmesh", parent: sourceName, skin: skinName, deform: true, path: att.region };
+      continue;
+    }
+    const region = findRegion(att.region);
+    const def = { path: att.region };
+    if (region){
+      def.width = region.originalWidth || region.width || 0;
+      def.height = region.originalHeight || region.height || 0;
+    }
+    if (src && !isRawMeshDef(src)){
+      for (const k of ["x", "y", "rotation", "scaleX", "scaleY"]) if (src[k] !== undefined) def[k] = src[k];
+    }
+    bag[attName] = def;
+  }
+  const slot = rawDoc.slots.find((s) => s.name === element.slot);
+  if (slot && !slot.attachment) slot.attachment = sourceName;
+
+  rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  selectSlot(element.slot);
+  markDirty();
+}
+
+/**
+ * Make every non-source locale of a text element follow the source locale's MESH, as a Spine
+ * `linkedmesh` (same vertices / triangles / hull / weights, its own `path`, `deform: true` so
+ * one deform timeline drives them all).
+ *
+ * This is what keeps §12.4a's promise honest. Mesh, weights and deform are authored ONCE, on
+ * the locale the author can see; without the link, swapping locale at runtime would replace a
+ * rigged mesh with a flat region and the text would stop deforming the moment the game was not
+ * in English. Attachments the author has already made meshes themselves are left alone.
+ *
+ * Returns true when anything changed. Callers rebuild.
+ */
+function syncTextLocaleMeshes(elementId){
+  const el = textElement(elementId);
+  if (!el || !rawDoc) return false;
+  const sourceName = el.id + "@" + el.sourceLocale;
+  let changed = false;
+  for (const sk of rawDoc.skins || []){
+    const bag = sk.attachments && sk.attachments[el.slot];
+    if (!bag || !bag[sourceName]) continue;
+    const src = bag[sourceName];
+    if (!isRawMeshDef(src) || src.type === "linkedmesh") continue; // nothing to link to yet
+    for (const key of Object.keys(bag)){
+      if (key === sourceName || key.indexOf(el.id + "@") !== 0) continue;
+      if (isRawMeshDef(bag[key])) continue; // already a mesh / linked mesh — the author's own work
+      const locale = key.slice(el.id.length + 1);
+      bag[key] = {
+        type: "linkedmesh",
+        parent: sourceName,
+        skin: sk.name,
+        deform: true,
+        path: bag[key].path || ("text/" + el.id + "/" + locale),
+      };
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+// Remove a text element: its document entry (which re-composes the atlas without its regions)
+// AND its slot + attachments, because leaving the slot behind would show as missing art on the
+// very next load — the tool would be reporting a problem it created itself.
+async function removeTextElement(id){
+  const el = textElement(id);
+  if (!el || !selected) return;
+  if (!confirm('Remove the text element "' + id + '"?\n\nIts slot, attachments and atlas regions go with it. '
+    + 'Any mesh, weights or keyframes authored on it are lost.')) return;
+  const ready = await ensureRigText();
+  if (!ready){ showErr("The text rasteriser failed to load."); return; }
+  showLoading("Removing text…");
+  try {
+    const elements = rigText.elements
+      .filter((e) => e.id !== id)
+      .map((e) => ({ id: e.id, key: e.key, fontId: e.fontId, fontName: e.fontName, fontSize: e.fontSize,
+                     sourceLocale: e.sourceLocale, slot: e.slot, style: e.style || { color: "#ffffff" } }));
+    const res = await window.RiggerText.save({
+      dir: selected.dir_b64 || "",
+      atlasFile: selected.atlas_file,
+      projectKey: curProjectKey,
+      elements,
+      baseEtag: rigText.etag,
+    });
+    if (!res.ok){ hideLoading(); showErr(res.message || "Removing the text failed."); return; }
+    rigText.etag = res.etag ?? null;
+    if (rawDoc && (rawDoc.slots || []).some((s) => s.name === el.slot)) deleteSlot(el.slot);
+    if (rawDoc) rawDoc.bones = (rawDoc.bones || []).filter((b) => b.name !== "text_" + id || (rawDoc.slots || []).some((s) => s.bone === b.name));
+    await loadRigText();
+    if (rawDoc) rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
+  } catch (e){
+    showErr("Removing the text failed: " + ((e && e.message) || e));
+  } finally { hideLoading(); }
 }
 
 // ---- D4: namespaced merge (import a whole rig into the open rig) ------------
@@ -6310,6 +6828,12 @@ function convertRegionToMesh(){
   if (region.path) mesh.path = region.path;
   if (region.color) mesh.color = region.color;
   skinEntry.attachments[selSlot][attName] = mesh;
+  // If this is a rig-TEXT element's SOURCE locale, its sibling locales must FOLLOW the new
+  // geometry instead of staying flat quads — otherwise switching locale in-game would swap a
+  // deformed, bone-bound mesh for an unrigged region. Spine's own primitive for that is a
+  // linked mesh, so one mesh (and one deform, and one set of weights) drives every locale.
+  const textEl = rigText.elements.find((e) => e.slot === selSlot && (e.id + "@" + e.sourceLocale) === attName);
+  if (textEl) syncTextLocaleMeshes(textEl.id);
   rebuildFromRawDoc(selBone != null ? skeletonData.bones[selBone].name : null);
   markDirty();
 }
@@ -9217,6 +9741,15 @@ function wire(){
   $("#resyncFilter").oninput = renderResyncList;
   $("#resyncModal").onmousedown = (e) => { if (e.target === $("#resyncModal")) closeResyncModal(); };
   window.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#resyncModal").classList.contains("open")) closeResyncModal(); });
+  // rig text (localized art) modal
+  $("#textModalClose").onclick = closeTextModal;
+  $("#textModalCancel").onclick = closeTextModal;
+  $("#textModalCreate").onclick = bakeAndPlaceText;
+  ["#textKey", "#textFont", "#textSize", "#textColor", "#textSpacing"].forEach((sel) => {
+    const el = $(sel); if (el){ el.onchange = refreshTextModal; el.oninput = refreshTextModal; }
+  });
+  $("#textModal").onmousedown = (e) => { if (e.target === $("#textModal")) closeTextModal(); };
+  window.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#textModal").classList.contains("open")) closeTextModal(); });
   // generic alert popup
   $("#alertOk").onclick = closeAlert;
   $("#alertClose").onclick = closeAlert;
@@ -9727,6 +10260,7 @@ function setupTimelineResizer(){
 async function boot(){
   wire();
   initResizers();
+  renderTextList(); // the outline's Text section exists before any rig does — say so
   const h = new URLSearchParams(location.hash.slice(1));
   const rt = h.get("rt");
   if (rt){ try { await loadRuntime(rt); initGL(); } catch(e){ showErr(String(e)); } }
