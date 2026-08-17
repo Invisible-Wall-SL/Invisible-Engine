@@ -131,14 +131,45 @@ interface ChatCompletion {
 	choices?: { message?: { content?: string | null } }[];
 }
 
+/** Providers cap schema size; past this many rows, fall back to plain JSON mode. */
+const MAX_SCHEMA_ITEMS = 100;
+
+/**
+ * A strict JSON Schema for THIS batch: one property per requested entry id, each an
+ * object with one property per requested language. With `strict: true` the provider
+ * constrains decoding to the schema, so the model cannot return a partial row, an
+ * invented id, or a language we didn't ask for — the failure mode the prompt alone
+ * could only discourage. Built per request because the keys are the batch's own ids.
+ */
+function batchSchema(input: TranslateInput): object {
+	const langs: Record<string, { type: 'string' }> = {};
+	for (const lang of input.targetLangs) langs[lang] = { type: 'string' };
+	const row = {
+		type: 'object',
+		properties: langs,
+		required: [...input.targetLangs],
+		additionalProperties: false,
+	};
+	const rows: Record<string, typeof row> = {};
+	for (const item of input.items) rows[item.id] = row;
+	return {
+		type: 'object',
+		properties: rows,
+		required: input.items.map((i) => i.id),
+		additionalProperties: false,
+	};
+}
+
 /**
  * Translate the batch through any OpenAI-compatible `/chat/completions` endpoint
  * (Google AI Studio, OpenRouter, Groq, …). Kept dependency-free — the wire shape is
  * small enough that pulling in a second SDK would cost more than it saves.
  *
- * `response_format` markedly improves JSON adherence where it's supported but is
- * rejected outright by some providers/models, so a 400 retries once without it
- * rather than failing the batch (`shapeResult` tolerates fenced//prose-wrapped JSON).
+ * Response format is negotiated by trying the strongest option first and stepping down
+ * on a 400 (the only status a provider uses to reject an unsupported field): a strict
+ * per-batch JSON schema (OpenAI — the model physically cannot break the shape), then
+ * plain JSON mode (Gemini and most others), then nothing at all. `shapeResult` still
+ * tolerates fenced/prose-wrapped JSON, so the last rung remains workable.
  */
 async function translateWithOpenAICompatible(input: TranslateInput): Promise<TranslateResult> {
 	if (!ENV.LOCALIZATION_LLM_MODEL) {
@@ -167,8 +198,21 @@ async function translateWithOpenAICompatible(input: TranslateInput): Promise<Tra
 			body: JSON.stringify(json),
 		});
 
-	let res = await post({ ...body, response_format: { type: 'json_object' } });
-	if (res.status === 400) res = await post(body);
+	const formats: (object | null)[] = [
+		input.items.length <= MAX_SCHEMA_ITEMS
+			? {
+					type: 'json_schema',
+					json_schema: { name: 'translations', strict: true, schema: batchSchema(input) },
+				}
+			: null,
+		{ type: 'json_object' },
+		null,
+	].filter((f, i, a) => f !== null || i === a.length - 1);
+
+	let res = await post(formats[0] ? { ...body, response_format: formats[0] } : body);
+	for (let i = 1; i < formats.length && res.status === 400; i++) {
+		res = await post(formats[i] ? { ...body, response_format: formats[i] } : body);
+	}
 
 	if (!res.ok) {
 		const detail = (await res.text().catch(() => '')).slice(0, 400);

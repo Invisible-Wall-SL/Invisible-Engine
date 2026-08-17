@@ -90,6 +90,13 @@ language list into **one** API call, asking for strict JSON
 (`id -> { lang -> text }`). The result is returned to the browser marked
 unreviewed for you to review and save — it's never auto-saved.
 
+The response format is negotiated per request, strongest first, stepping down
+only on a 400: a **strict per-batch JSON schema** (OpenAI — one property per
+requested id, one per requested language, `additionalProperties: false`, so the
+model physically cannot return a partial row, an invented id, or a language you
+didn't ask for), then plain JSON mode (Google and most others), then nothing.
+Batches over 100 rows skip the schema rung, since providers cap schema size.
+
 Two providers are supported, same prompt and same strict-JSON contract either
 way. **Anthropic** is the default and additionally **prompt-caches** the system
 prompt (fixed instructions + your glossary) so repeated translate clicks are
@@ -108,8 +115,8 @@ Translate buttons return a clear "No translation provider configured" error.
   **Secret, no code default.** Uses `claude-sonnet-4-6`.
 - `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY` — an
   OpenAI-compatible endpoint and its key. **Both** are required; setting only
-  one falls back to Anthropic. For Google AI Studio the base URL is
-  `https://generativelanguage.googleapis.com/v1beta/openai`.
+  one falls back to Anthropic. Base URLs: OpenAI `https://api.openai.com/v1`,
+  Google AI Studio `https://generativelanguage.googleapis.com/v1beta/openai`.
 - `LOCALIZATION_LLM_MODEL` — model id for that endpoint. **Required** with the
   OpenAI-compatible path, with no code default on purpose: providers retire
   model ids, so any baked-in default eventually 404s. List what your account can
