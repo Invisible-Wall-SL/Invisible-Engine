@@ -179,14 +179,10 @@ async function translateWithOpenAICompatible(input: TranslateInput): Promise<Tra
 		);
 	}
 	const url = `${ENV.LOCALIZATION_LLM_BASE_URL.replace(/\/+$/, '')}/chat/completions`;
-	const body = {
-		model: ENV.LOCALIZATION_LLM_MODEL,
-		max_tokens: MAX_TOKENS,
-		messages: [
-			{ role: 'system', content: systemText(input.context) },
-			{ role: 'user', content: userText(input) },
-		],
-	};
+	const messages = [
+		{ role: 'system', content: systemText(input.context) },
+		{ role: 'user', content: userText(input) },
+	];
 
 	const post = (json: object) =>
 		fetch(url, {
@@ -209,15 +205,35 @@ async function translateWithOpenAICompatible(input: TranslateInput): Promise<Tra
 		null,
 	].filter((f, i, a) => f !== null || i === a.length - 1);
 
-	let res = await post(formats[0] ? { ...body, response_format: formats[0] } : body);
-	for (let i = 1; i < formats.length && res.status === 400; i++) {
-		res = await post(formats[i] ? { ...body, response_format: formats[i] } : body);
+	// Output-cap parameter: OpenAI's newer families reject `max_tokens` and require
+	// `max_completion_tokens`, while Gemini's compatibility layer and most others only
+	// know `max_tokens`. Negotiated the same way as the format — try, and switch on a
+	// 400 that names either field — so neither provider needs special-casing here.
+	const tokenParams = ['max_tokens', 'max_completion_tokens'] as const;
+
+	let res: Response | undefined;
+	let detail = '';
+	negotiate: for (const tokenParam of tokenParams) {
+		for (const format of formats) {
+			const payload: Record<string, unknown> = {
+				model: ENV.LOCALIZATION_LLM_MODEL,
+				messages,
+				[tokenParam]: MAX_TOKENS,
+			};
+			if (format) payload.response_format = format;
+			res = await post(payload);
+			if (res.status !== 400) break negotiate;
+			detail = await res.text().catch(() => '');
+			// A complaint about the cap parameter can't be fixed by stepping the format
+			// down — jump straight to the other spelling instead of burning both rungs.
+			if (/max_completion_tokens|max_tokens/.test(detail)) continue negotiate;
+		}
 	}
 
-	if (!res.ok) {
-		const detail = (await res.text().catch(() => '')).slice(0, 400);
+	if (!res || !res.ok) {
+		const body = detail || (res ? await res.text().catch(() => '') : '');
 		throw new TranslateError(
-			`Translation provider returned ${res.status}${detail ? `: ${detail}` : '.'}`,
+			`Translation provider returned ${res?.status ?? 0}${body ? `: ${body.slice(0, 400)}` : '.'}`,
 		);
 	}
 
