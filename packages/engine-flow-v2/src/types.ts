@@ -160,6 +160,7 @@ export type NodeKind =
 	| 'showContainer'
 	| 'hideContainer'
 	| 'textMessage'
+	| 'playCinematic'
 	| 'functionCall'
 	| 'sequence'
 	| 'parallel'
@@ -378,6 +379,36 @@ export interface FunctionResultNode extends NodeBase {
 	ref: FunctionId; // the function whose body this result belongs to.
 }
 
+/**
+ * Play Cinematic (presentation LEAF): plays an Invisible Cinematic — the multi-rig sequencer
+ * authored in `/rigger`'s Cinematic mode. Plan: `docs/design/invisible-cinematic.md`.
+ *
+ * The cinematic itself owns WHAT happens and WHEN (its own timeline of strips, property and camera
+ * keys); this node only says "play that one, now". Everything about its content is authored in the
+ * Rigger, so this node deliberately exposes no per-play choreography.
+ *
+ * ## Pins
+ *
+ * exec-in `play` (start it from the top) and exec-in `stop` (cut it short), plus ONE exec-out
+ * `exec`. With `awaitComplete` the chain resumes when the cinematic REACHES ITS END; otherwise it
+ * continues immediately and the cinematic plays alongside the rest of the flow.
+ */
+export interface PlayCinematicNode extends NodeBase {
+	kind: 'playCinematic';
+	/** The cinematic's id — matches a `bakedCinematics()` entry (the `.icin` file name). */
+	ref: string;
+	/**
+	 * Loop forever until a `stop` exec (or the screen unmounts). MUTUALLY EXCLUSIVE with
+	 * `awaitComplete`: a looping cinematic never completes, so awaiting one would hang the round
+	 * exactly like the `showContainer{awaitComplete}`-with-no-release trap. `validate` flags it.
+	 */
+	loop?: boolean;
+	/** Playback rate; 1 (or absent) = the authored speed. */
+	speed?: number;
+	/** Hold the exec chain until the cinematic finishes. Ignored — and invalid — when `loop`. */
+	awaitComplete?: boolean;
+}
+
 export type Node =
 	| EventNode
 	| GameSignalsNode
@@ -389,6 +420,7 @@ export type Node =
 	| ShowContainerNode
 	| HideContainerNode
 	| TextMessageNode
+	| PlayCinematicNode
 	| FunctionCallNode
 	| SequenceNode
 	| ParallelNode

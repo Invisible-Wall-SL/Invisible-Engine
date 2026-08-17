@@ -80,6 +80,20 @@ export interface FlowV2Env {
 	 *  OR-s it with the node's `visibleWhile` state-gate to decide the overlay's visibility). Optional:
 	 *  a pure recorder env without it makes show/hide a no-op, so a headless harness never renders. */
 	setMessageShown?(nodeId: string, shown: boolean): void;
+	/**
+	 * A `playCinematic` node's `play` exec — mount + start the cinematic `cinematicId`.
+	 *
+	 * Resolves when the cinematic REACHES ITS END, so the node can hold the chain with
+	 * `awaitComplete`. A looping cinematic never ends, so the implementation resolves immediately
+	 * for `loop` — the alternative is a promise nothing can settle. Optional: a pure recorder env
+	 * without it makes play a no-op, so a headless harness never mounts anything.
+	 */
+	playCinematic?(
+		cinematicId: string,
+		opts: { loop?: boolean; speed?: number },
+	): Promise<void> | void;
+	/** A `playCinematic` node's `stop` exec — unmount/stop it. */
+	stopCinematic?(cinematicId: string): void;
 }
 
 /** The lookups + environment a run needs — the template contract, the function library,
@@ -295,6 +309,24 @@ class FlowInterpreter {
 
 			case 'hideContainer': {
 				await this.ctx.env.hideContainer(node.ref);
+				return this.nextExec(graph, node.id, 'exec');
+			}
+
+			case 'playCinematic': {
+				if (execPinId === 'stop') {
+					this.ctx.env.stopCinematic?.(node.ref);
+					return this.nextExec(graph, node.id, 'exec');
+				}
+				const started = this.ctx.env.playCinematic?.(node.ref, {
+					loop: node.loop,
+					speed: node.speed,
+				});
+				// `awaitComplete` holds the chain until the cinematic reaches its end. Guarded on
+				// `!loop`: a looping cinematic never completes, so awaiting one would hang the round
+				// for good — the `showContainer{awaitComplete}`-with-no-release trap. `validate` flags
+				// the combination at authoring time; this refuses to deadlock even if one slips
+				// through (a hand-edited doc, or an older editor).
+				if (node.awaitComplete && !node.loop && started) await started;
 				return this.nextExec(graph, node.id, 'exec');
 			}
 

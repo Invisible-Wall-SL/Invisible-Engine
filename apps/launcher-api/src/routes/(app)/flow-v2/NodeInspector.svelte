@@ -19,6 +19,7 @@
 		type PinContext,
 		type PinScope,
 		type TextMessageNode,
+		type PlayCinematicNode,
 		type TypeRef,
 	} from 'engine-flow-v2';
 	import {
@@ -32,6 +33,7 @@
 		setFireCueAwait,
 		setShowContainerAwaitComplete,
 		setTextMessageFields,
+		setPlayCinematicFields,
 	} from './graphOps';
 	import { typeLabel } from './palette';
 	import { fetchFontCatalog, type EditorFont } from '../editor/fonts.client';
@@ -196,6 +198,22 @@
 	const placementOf = (n: TextMessageNode): NonNullable<TextMessageNode['placement']> =>
 		n.placement ?? 'infoBar';
 
+	// --- playCinematic ---------------------------------------------------------
+	// `loop` and `awaitComplete` are mutually exclusive; `setPlayCinematicFields` enforces that
+	// (turning one on clears the other), so the two checkboxes cannot build the deadlock combo.
+	function onCinematicRefChange(ref: string): void {
+		if (node.kind !== 'playCinematic') return;
+		onchange(setPlayCinematicFields(doc, node.id, { ref: ref.trim() }));
+	}
+	function onCinematicFlagChange(key: 'loop' | 'awaitComplete', value: boolean): void {
+		if (node.kind !== 'playCinematic') return;
+		onchange(setPlayCinematicFields(doc, node.id, { [key]: value }));
+	}
+	function onCinematicSpeedChange(raw: number): void {
+		if (node.kind !== 'playCinematic') return;
+		if (!Number.isFinite(raw) || raw <= 0) return;
+		onchange(setPlayCinematicFields(doc, node.id, { speed: raw }));
+	}
 	function onTextChange(text: string): void {
 		if (node.kind !== 'textMessage') return;
 		onchange(setTextMessageFields(doc, node.id, { text }));
@@ -453,6 +471,53 @@
 			</label>
 		{/if}
 
+		{#if node.kind === 'playCinematic'}
+			<label class="field">
+				<span class="flabel">Cinematic</span>
+				<input
+					type="text"
+					value={node.ref}
+					placeholder="e.g. bonus_intro"
+					onchange={(e) => onCinematicRefChange(e.currentTarget.value)}
+				/>
+			</label>
+			<p class="hint">
+				The cinematic's id, as saved in <strong>/rigger → Cinematic</strong>. It ships with the
+				game, along with every rig it casts.
+			</p>
+
+			<label class="field">
+				<span class="flabel">Speed</span>
+				<input
+					type="number"
+					min="0.1"
+					step="0.1"
+					value={node.speed ?? 1}
+					onchange={(e) => onCinematicSpeedChange(Number(e.currentTarget.value))}
+				/>
+			</label>
+
+			<label class="field row">
+				<input
+					type="checkbox"
+					checked={node.loop ?? false}
+					onchange={(e) => onCinematicFlagChange('loop', e.currentTarget.checked)}
+				/>
+				<span class="flabel">Loop until stopped</span>
+			</label>
+			<label class="field row">
+				<input
+					type="checkbox"
+					checked={node.awaitComplete ?? false}
+					onchange={(e) => onCinematicFlagChange('awaitComplete', e.currentTarget.checked)}
+				/>
+				<span class="flabel">Wait for it to finish</span>
+			</label>
+			<p class="hint">
+				These two are mutually exclusive — a looping cinematic never finishes, so waiting for one
+				would hang the round. Turning either on clears the other.
+			</p>
+		{/if}
 		{#if node.kind === 'textMessage'}
 			<label class="field">
 				<span class="flabel">Message text</span>

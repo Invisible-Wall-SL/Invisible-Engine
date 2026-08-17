@@ -33,7 +33,7 @@
 4. ✅ ~~**flow-driven-game Phase 5**~~ — **DONE (owner-confirmed 2026-08-04).** Real `bigWin`/`freeSpinIntro`/`loading` backing scenes were authored, baked, and shipped; a game runs a real FlowDoc end-to-end. The acceptance proof is met.
 5. **Phase 9** — value dataflow pins → value edges (the symmetric other half of Phase 8; mirrors its shape).
 6. **Phase 6 remainder** — `value`/`signal` universal binding (needs a def node to consume them), `def.slots` / component-`space` UI.
-7. **Phase 7** — behaviour/timeline layer + open catalog (the long tail). ⚠️ **Overlaps [Invisible Cinematic](cinematic.md)** — decide explicitly that Flow *plays* a cinematic (a `playCinematic` node) rather than growing its own timeline, or we ship two sequencers with two doc formats.
+7. **Phase 7** — open catalog (the long tail). ✅ The **timeline half is settled**: Flow does NOT grow its own timeline — it PLAYS an [Invisible Cinematic](cinematic.md) via the `playCinematic` node (shipped 2026-08-17). Authoring a sequence belongs in /rigger's Cinematic mode; Flow triggers it and can await it.
 8. Author the `showMessage` action node into the live `winInfo` forEach + ship the runtime bundle.
 9. Editor gaps: containers + `templateId` are data-only (not UI-editable); cue `await` flag not authorable; function Entry/Result signature fixed once created.
 

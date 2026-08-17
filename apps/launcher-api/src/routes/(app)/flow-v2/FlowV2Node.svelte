@@ -61,6 +61,7 @@
 		showContainer: '#6366f1',
 		hideContainer: '#6366f1',
 		textMessage: '#38bdf8', // presentation leaf (own text) — sky, matching the palette accent.
+		playCinematic: '#38bdf8', // presentation leaf (plays a /rigger cinematic) — sky, its kin.
 		functionCall: '#eab308', // reusable sub-graph — gold.
 		sequence: '#64748b',
 		parallel: '#64748b',
@@ -105,6 +106,15 @@
 				const preview = n.text.trim() || '(empty)';
 				const gate = n.visibleWhile && n.visibleWhile !== 'none' ? ` · while ${n.visibleWhile}` : '';
 				return `“${preview}”${gate}`;
+			}
+			case 'playCinematic': {
+				// Names the cinematic it plays plus the two things that change how the flow BEHAVES
+				// around it: whether it loops, and whether the chain waits. Both matter at a glance —
+				// `await` is a hold, and `loop` + await is the deadlock the validator errors on.
+				const mods = [n.loop ? 'loop' : null, n.awaitComplete && !n.loop ? 'await' : null]
+					.filter(Boolean)
+					.join(' · ');
+				return `${n.ref || '(none)'}${mods ? ` · ${mods}` : ''}`;
 			}
 			case 'gameSignals':
 				// Ref-less source node — summarise by the count of surfaced mechanic signals (the

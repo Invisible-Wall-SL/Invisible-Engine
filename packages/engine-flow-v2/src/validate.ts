@@ -35,6 +35,9 @@
  *                            but the collision is a data smell the id minter should never produce.
  *  - `text-message-empty`  — a `textMessage` node whose `text` is blank: it renders nothing and
  *                            harvests no localization key (a warning — the graph still runs).
+ *  - `cinematic-await-loop`  — a `playCinematic` that BOTH loops and awaits completion: it can
+ *                            never resume, so the round hangs (an ERROR, not a warning).
+ *  - `cinematic-missing-ref` — a `playCinematic` naming no cinematic (a warning — it is inert).
  *  - `text-message-unreachable` — a `textMessage` with NO state-gate (`visibleWhile` unset/`'none'`)
  *                            AND no incoming `show` exec edge: nothing can ever make it appear.
  *
@@ -83,7 +86,9 @@ export type FlowIssueCode =
 	| 'fn-body-result'
 	| 'duplicate-id'
 	| 'text-message-empty'
-	| 'text-message-unreachable';
+	| 'text-message-unreachable'
+	| 'cinematic-await-loop'
+	| 'cinematic-missing-ref';
 
 export type FlowIssueSeverity = 'error' | 'warning';
 
@@ -574,6 +579,30 @@ const validateGraph = (
 				code: 'fn-requires',
 				severity: 'error',
 				message: `functionCall '${node.id}' → '${fn.name}': template '${opts.templateId}' does not satisfy its vocabulary requirements`,
+				at: { on: 'node', node: node.id },
+			});
+		}
+	}
+
+	// --- (h) playCinematic: awaiting a LOOPING cinematic can never resume. This is the one
+	// combination that hangs a round forever rather than merely looking wrong, so it is an ERROR,
+	// not a warning — the same failure mode as `showContainer{awaitComplete}` with no release.
+	// A cinematic with no id is inert; that one is a warning (the graph still runs).
+	for (const node of nodes) {
+		if (node.kind !== 'playCinematic') continue;
+		if (node.awaitComplete && node.loop) {
+			issues.push({
+				code: 'cinematic-await-loop',
+				severity: 'error',
+				message: `cinematic '${node.id}' loops AND awaits completion — a looping cinematic never completes, so the flow would hang here forever`,
+				at: { on: 'node', node: node.id },
+			});
+		}
+		if (!node.ref) {
+			issues.push({
+				code: 'cinematic-missing-ref',
+				severity: 'warning',
+				message: `cinematic '${node.id}' names no cinematic — it plays nothing`,
 				at: { on: 'node', node: node.id },
 			});
 		}

@@ -2,12 +2,13 @@
 
 > Design: [docs/design/invisible-cinematic.md](../design/invisible-cinematic.md) · Guide: _none yet (unbuilt)_ · Agent: _none yet_
 
-**One-line state:** **Phases 0–3 done bar the Flow node** (2026-08-17) — `/rigger`'s 🎬
+**One-line state:** **Phases 0–3 COMPLETE** (2026-08-17) — `/rigger`'s 🎬
 **Cinematic** mode stages several rigs, authors them as tracks of strips + property/camera keys,
-saves to R2 per project, travels the ship chain with the rigs it casts, and has an in-game
-**`<Cinematic>` player** driven by the same evaluator. The one piece left is the Flow-v2
-**`playCinematic` node** — until it lands, a game can play a cinematic from code but not from an
-authored flow. **⏳ None of the engine side has run in a real game yet** (see Open items).
+saves to R2 per project, travels the ship chain with the rigs it casts, plays in-game through a
+**`<Cinematic>`** component driven by the same evaluator, and is triggered from an authored flow
+by the **`playCinematic`** node. The pipeline is closed end to end. **⏳ None of the engine side
+has run in a real game yet** — everything past the editor is verified by construction and by
+headless contract tests, never by execution (see Open items).
 
 ## Current state
 
@@ -69,6 +70,18 @@ authored flow. **⏳ None of the engine side has run in a real game yet** (see O
   `beforeUpdateWorldTransforms` (the `after` hook renders the PREVIOUS pose), `spine.update(dt)` —
   and restores the rig on destroy. Driven by the Pixi ticker, not its own rAF, so a paused game
   pauses the cinematic.
+- **Flow-v2 `playCinematic` node.** A presentation leaf in the Flow palette: pick a cinematic by
+  id, set `speed`, and choose `loop` or `awaitComplete`. Pins are exec-in **play** / exec-in
+  **stop** / one exec-out — no data pins, because everything about the cinematic's content was
+  authored in `/rigger`. With `awaitComplete` the exec chain holds until the cinematic reaches its
+  end (`<Cinematic>`'s `oncomplete` settles the promise the interpreter is waiting on).
+  **`loop` + `awaitComplete` is refused at three layers**, because it is the one combination that
+  hangs a round forever with no error — the `showContainer{awaitComplete}`-with-no-release trap:
+  the inspector clears one when you set the other, `validate` raises `cinematic-await-loop` as an
+  **error** (not a warning), and the runtime refuses to await a looping play even if a hand-edited
+  doc carries both. `stopCinematic` also settles a pending await, so a mid-play stop cannot strand
+  an awaiting chain. Game-side, `<FlowV2Cinematics>` renders whatever the interpreter's reactive
+  `playingCinematics` map holds.
 - **The sequencer (Phase 2).** The cinematic timeline shares `#timeline` with the dopesheet (only
   one is ever built, so they never fight). A ruler you drag to scrub, one row per **track**,
   **layers** per actor (⧉ adds one; layers blend bottom-up), and **strips** you can:
@@ -118,6 +131,7 @@ authored flow. **⏳ None of the engine side has run in a real game yet** (see O
 | Phase 2 sequencer, driven live in a browser | **35/35** — drag/trim/snap (11), inspector + layers (15), stage honours the authored strips (9) |
 | Property + camera tracks, driven live in a browser | **36/36** — keying + channel rows (9), stage honours the channels (8), camera track + live toggle (12), key retime/ease/delete (7) |
 | `tools/rigger-spike/cinematic-storage.mjs` — storage guards + the export/prune chain (headless) | **28/28** |
+| `tools/rigger-spike/cinematic-flow.mjs` — the `playCinematic` node against the REAL interpreter + validator (headless) | **19/19** |
 | R2 persistence client flow, driven live against a fake R2 with real etag semantics | **19/19** — create/update CAS, conflict prompt, force, new/open/rename/delete, draft |
 
 Headless fixtures are real shipped rigs (`mm_bigwin` 86 bones, `anticipation` 73 bones); the
@@ -155,42 +169,37 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Open items / next
 
-1. **The Flow-v2 `playCinematic` node** — the last authored-pipeline piece: a node with a `play`
-   exec in and a `complete` exec out (wired to `<Cinematic>`'s `oncomplete`, which already exists
-   for it), so a screen can play a cinematic and await it. Needs the `engine-flow-v2` vocabulary
-   entry, the interpreter case, and the palette/inspector. Until then a game can mount
-   `<Cinematic>` from code but a flow cannot drive one.
-2. **⏳ THE ENGINE SIDE HAS NEVER RUN.** `<Cinematic>` + `CinematicActor` are Svelte-compiler
-   clean and `engine-layout` type-checks clean, but this repo has **no `svelte-check`**, `.svelte`
-   files are invisible to `tsc`, and `apps/lines` cannot be type-checked here at all (`tsc` OOMs
-   even at 8 GB). So the player is verified by construction — gate 3 measured the runtime contract
-   it implements — and NOT by execution. Mount it in a game and watch a cinematic play before
-   relying on it; treat the first run as debugging, not confirmation.
-3. **⏳ Live-verify the server chain against real R2 + Postgres.** Everything server-side is
+1. **⏳ RUN IT — the one thing that matters now.** The whole engine half (`<Cinematic>`,
+   `CinematicActor`, `<FlowV2Cinematics>`, the `playCinematic` interpreter case) has **never
+   executed in a game**. It is verified by construction — gate 3 measured the `spine-pixi-v8`
+   contract it implements — and by headless contract tests over the real modules, which is a
+   different thing from working. The verification tooling simply is not there: this repo has **no
+   `svelte-check`**, `.svelte` is invisible to `tsc`, and `apps/lines` cannot be type-checked here
+   at all (`tsc` OOMs even at 8 GB). Author a cinematic, drop a **Play Cinematic** node on a
+   screen, and watch it. Treat the first run as debugging, not confirmation.
+2. **⏳ Live-verify the server chain against real R2 + Postgres.** Everything server-side is
    covered headlessly (28 assertions over the real modules against an in-memory R2), but
    `/api/cinematics/*` and `/api/editor/export-cinematics` have not run against the authed
    launcher. Save a cinematic, reload, open it, then publish and confirm `deploy/cinematics/`
    fills and the bundle carries `cinematics`.
-4. **Remember `node scripts/sync-cinematic-eval.mjs`** after ANY evaluator change — the gate fails
+3. **Remember `node scripts/sync-cinematic-eval.mjs`** after ANY evaluator change — the gate fails
    if the browser copy drifts, but nothing regenerates it automatically yet. Wiring it into a
    pre-build step would close that.
-5. **Phase 2 remainder** — **visibility** and **cue** tracks (named in the schema, design §4.2;
+4. **Phase 2 remainder** — **visibility** and **cue** tracks (named in the schema, design §4.2;
    `animation`, `property` and `camera` are implemented). Visibility is a static per-actor toggle
    today; cues are the `fx:` / `sfx:` / `signal:` surface and are best built alongside the Flow
    wiring in Phase 3.
-6. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
+5. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
    geometry and the frame visibly changes. Drive one spine object through the `<Cinematic>`
    contract in a real game frame before Phase 3 leans on it.
-7. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
+6. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
    has yet *looked* at two rigs staged together and judged that the art reads correctly (premultiply
    halos, relative scale between rigs authored at different atlas `scale:` factors). Open
    `/rigger` → 🎬 Cinematic, cast two rigs, and look.
-8. **Pick the set.** Phase 1 casts rigs directly (`cast[].nodeId` is null). Design §4.1 has the
+7. **Pick the set.** Phase 1 casts rigs directly (`cast[].nodeId` is null). Design §4.1 has the
    cinematic binding tracks to an existing **Scene**'s nodes — the Scene picker, and art / text /
    FX / sound actors, land with it.
-9. **Decide the Flow-v2 Phase 7 overlap explicitly** — Flow *plays* cinematics, or we ship two
-   sequencers with two doc formats (design §7 risk 3). See [status/flow](flow.md) open item 7.
-10. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
+8. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
    referenced set, flatten-to-`.irig` escape hatch).
 
 ## Blocked (owner / external)
@@ -199,6 +208,14 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-17 — **Flow-v2 `playCinematic` — the pipeline closes.** A cinematic can now be played
+  from an authored flow (details in Current state). 19 headless assertions drive the node through
+  the REAL interpreter + validator with an env whose completion promise the test controls, so
+  "did the chain actually wait?" is observed rather than assumed: `awaitComplete` holds the chain
+  and releases in the order play → completed → cue; without it the chain continues immediately;
+  a looping play never hangs even when a doc carries the invalid `loop`+`await` pair; and `stop`
+  settles a pending await instead of stranding it. This also SETTLES the long-open Flow Phase 7
+  overlap by construction: Flow *plays* cinematics, it does not grow its own timeline.
 - 2026-08-17 — **The player + the evaluator's graduation.** `packages/engine-cinematic` is now the
   single source of the blend/sampling maths; the launcher's `static/shared/cinematicEval.mjs` is a
   GENERATED verbatim copy and a new gate assertion (87/87) fails if the two drift — verified

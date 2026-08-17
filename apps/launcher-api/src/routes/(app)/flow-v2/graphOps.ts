@@ -20,6 +20,7 @@ import type {
 	Guard,
 	Node as V2Node,
 	NodeKind,
+	PlayCinematicNode,
 	TextMessageNode,
 } from 'engine-flow-v2';
 import { TEXT_MESSAGE_DEFAULTS } from 'engine-flow-v2';
@@ -207,6 +208,11 @@ export const makeNode = (
 			// away; `pos` is the drop point like every other kind. Spreading the shared defaults keeps the
 			// editor and the game's render layer reading the SAME starting shape (they both import it).
 			return { id, kind, pos, ...TEXT_MESSAGE_DEFAULTS };
+		case 'playCinematic':
+			// Presentation LEAF referencing a cinematic authored in /rigger. `ref` starts EMPTY (the
+			// author picks one in the inspector) — seeding a guessed id would silently play the wrong
+			// cinematic, and `validate` already warns about an empty one.
+			return { id, kind, pos, ref: '', loop: false, awaitComplete: true };
 		case 'delay':
 			return { id, kind, pos };
 		case 'branch':
@@ -387,5 +393,34 @@ export const setTextMessageFields = (
 			if (patch.style === undefined) delete next.style;
 			else next.style = patch.style;
 		}
+		return next;
+	});
+
+/** The `playCinematic` fields the inspector edits. All optional except `ref`. */
+type PlayCinematicPatch = Partial<
+	Pick<PlayCinematicNode, 'ref' | 'loop' | 'speed' | 'awaitComplete'>
+>;
+
+/**
+ * Patch a `playCinematic` node. `loop` and `awaitComplete` are kept MUTUALLY EXCLUSIVE here, not
+ * just flagged by the validator: turning on looping silently clears the await (and vice versa), so
+ * an author cannot construct the deadlock combination by toggling two checkboxes in either order.
+ */
+export const setPlayCinematicFields = (
+	doc: FlowDoc,
+	nodeId: string,
+	patch: PlayCinematicPatch,
+): FlowDoc =>
+	replaceNode(doc, nodeId, (n) => {
+		if (n.kind !== 'playCinematic') return n;
+		const next: PlayCinematicNode = {
+			...n,
+			...(patch.ref !== undefined ? { ref: patch.ref } : {}),
+			...(patch.loop !== undefined ? { loop: patch.loop } : {}),
+			...(patch.speed !== undefined ? { speed: patch.speed } : {}),
+			...(patch.awaitComplete !== undefined ? { awaitComplete: patch.awaitComplete } : {}),
+		};
+		if (patch.loop === true) next.awaitComplete = false;
+		if (patch.awaitComplete === true) next.loop = false;
 		return next;
 	});

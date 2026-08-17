@@ -54,7 +54,7 @@ import {
 	type TemplateVocabulary,
 	type TextMessageNode,
 } from 'engine-flow-v2';
-import { SvelteSet } from 'svelte/reactivity';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { stateBetDerived } from 'state-shared';
 import { roundSkip } from 'utils-shared/skipToken';
 
@@ -488,6 +488,16 @@ export const createLinesFlowV2 = (
 		(n): n is TextMessageNode => n.kind === 'textMessage',
 	);
 	const flowShownMessages = new SvelteSet<string>();
+	/**
+	 * Cinematics the flow is currently PLAYING, in mount order. `<FlowV2Cinematics>` renders one
+	 * `<Cinematic>` per entry; each entry keeps the resolver for its `awaitComplete` promise so the
+	 * component's `oncomplete` can settle the exact play that started it (a cinematic re-played
+	 * while already running gets a fresh entry, so an old promise never settles a new play).
+	 */
+	const playingCinematics = new SvelteMap<
+		string,
+		{ loop: boolean; speed: number; done?: () => void }
+	>();
 
 	const env = createFlowV2Env({
 		mount,
@@ -536,6 +546,27 @@ export const createLinesFlowV2 = (
 		// `<FlowV2Messages>` OR-s that with the node's `visibleWhile` state-gate to decide the overlay.
 		setMessageShown: (nodeId, shown) =>
 			shown ? flowShownMessages.add(nodeId) : flowShownMessages.delete(nodeId),
+		// A `playCinematic` node mounts the cinematic for the flow to render, and (unless it loops)
+		// hands back a promise that settles when `<Cinematic>` reports completion — that is what
+		// `awaitComplete` holds the exec chain on. A looping cinematic resolves IMMEDIATELY: nothing
+		// could ever settle it otherwise, and the runtime + validator both refuse that combination.
+		playCinematic: (cinematicId, opts) => {
+			const loop = opts.loop === true;
+			const speed = opts.speed && opts.speed > 0 ? opts.speed : 1;
+			if (loop) {
+				playingCinematics.set(cinematicId, { loop, speed });
+				return;
+			}
+			return new Promise<void>((resolve) => {
+				playingCinematics.set(cinematicId, { loop, speed, done: resolve });
+			});
+		},
+		stopCinematic: (cinematicId) => {
+			// Settle a pending await before dropping the entry, or a `stop` mid-play would strand an
+			// awaiting chain forever — the same hang `awaitComplete` + loop is guarded against.
+			playingCinematics.get(cinematicId)?.done?.();
+			playingCinematics.delete(cinematicId);
+		},
 	});
 
 	const ctx: RunContext = { vocab, library: loadFlowV2Library(), env };
@@ -577,5 +608,12 @@ export const createLinesFlowV2 = (
 		},
 		textMessages,
 		messageShown: (nodeId) => flowShownMessages.has(nodeId),
+		/** The cinematics the flow currently wants on screen (id → play options). */
+		playingCinematics,
+		/** Called by `<Cinematic>`'s `oncomplete`: settle a pending await and unmount it. */
+		cinematicComplete: (cinematicId: string) => {
+			playingCinematics.get(cinematicId)?.done?.();
+			playingCinematics.delete(cinematicId);
+		},
 	};
 };

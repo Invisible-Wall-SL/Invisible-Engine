@@ -306,6 +306,16 @@ export const derivePins = (node: Node, ctx: PinContext, scope: PinScope = {}): P
 				{ id: 'hide', dir: 'in', kind: 'exec', label: 'Hide' },
 				EXEC_OUT,
 			];
+		case 'playCinematic':
+			// `play` starts it from the top, `stop` cuts it short; ONE exec-out continues from
+			// whichever inlet fired. `stop` is optional — most cinematics run to their own end. No
+			// data pins: which cinematic, whether it loops and how fast all live on the node, and
+			// everything else about it was authored in /rigger.
+			return [
+				{ id: 'play', dir: 'in', kind: 'exec', label: 'Play' },
+				{ id: 'stop', dir: 'in', kind: 'exec', label: 'Stop' },
+				EXEC_OUT,
+			];
 		case 'functionCall': {
 			const fn: FunctionDef | undefined = ctx.library.functions.find((f) => f.id === node.ref);
 			// The call node's pins ARE the function's declared inputs/outputs, verbatim (§5).

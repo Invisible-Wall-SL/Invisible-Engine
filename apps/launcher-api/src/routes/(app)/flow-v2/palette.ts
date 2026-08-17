@@ -18,6 +18,7 @@ import type { NodeKind, TypeRef } from 'engine-flow-v2';
  */
 export const PRESENTATION_NODES: { kind: NodeKind; label: string }[] = [
 	{ kind: 'textMessage', label: 'Text Message' },
+	{ kind: 'playCinematic', label: 'Play Cinematic' },
 ];
 
 const SCALAR_COLOR: Record<string, string> = {

@@ -228,6 +228,7 @@
 	import Transition from './Transition.svelte';
 	import Effects from './Effects.svelte';
 	import FlowV2Messages from './FlowV2Messages.svelte';
+	import FlowV2Cinematics from './FlowV2Cinematics.svelte';
 
 	// Invisible Debug — register this game's debug tools (symbol overlay + win-state
 	// probe). Dynamic-imported only under the build switch so the tools + their
@@ -2425,6 +2426,13 @@
 		prompt sits above the board + overlays.
 	-->
 	<FlowV2Messages flow={flowV2Handle} />
+
+	<!--
+		Invisible Cinematic — whatever the flow's `playCinematic` nodes currently want on screen.
+		Above the board (a cinematic is a takeover) but below the debug stage. Renders nothing when
+		no v2 flow, no cinematic node, or no shipped cinematic (parity).
+	-->
+	<FlowV2Cinematics flow={flowV2Handle} />
 
 	<DebugStage />
 </App>
