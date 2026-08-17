@@ -1712,7 +1712,8 @@ ${doc.stage.sceneId && !scenes.some((sc) => sc.id === doc.stage.sceneId) ? '<div
 <div id="cineCast">${rows || '<div class="cineEmpty">No actors yet — pick a rig above and press ＋ Cast.</div>'}</div>
 ${cameraMarkup()}
 ${cueMarkup()}
-<div class="cineNote">Drag a strip to move it · drag its edges to trim · hold Alt to ignore the fps grid · Ctrl+wheel over the timeline to zoom.</div>`;
+<div class="cineNote">Drag a strip to move it · drag its edges to trim · hold Alt to ignore the fps grid · Ctrl+wheel over the timeline to zoom.</div>
+<div class="cineNote"><b>Text, sprites and placed FX</b> come from the <b>Set</b> above — author them as a Scene in the Scene Editor, then bind it here. They render in the game; the stage preview shows rigs only. Adding them from inside the cinematic (and animating them) is not built yet. For a one-off effect or sound at a moment, use a ⚡ cue instead.</div>`;
 
 		$('#cineAdd').onclick = () => {
 			const id = $('#cineAddSel').value;
