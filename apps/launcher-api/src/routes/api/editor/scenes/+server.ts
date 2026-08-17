@@ -1,5 +1,7 @@
 import { json } from '@sveltejs/kit';
+import { bucketBoxMap } from 'engine-layout';
 import { loadDoc } from '$lib/server/editorStorage';
+import { resolveLayoutProfile } from '$lib/server/layoutProfile';
 import { gate } from '$lib/server/toolScope';
 import type { RequestHandler } from './$types';
 
@@ -29,7 +31,19 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 		role: scene.role ?? null,
 		nodes: Array.isArray(scene.nodes) ? scene.nodes.length : 0,
 	}));
-	// The authored per-layoutType canvas box, so a tool can DRAW the game frame it composes
-	// against — the Rigger's cinematic stage needs it for the same reason the Scene Editor does.
-	return json({ ok: true, projectKey, scenes, mainSizesMap: doc?.mainSizesMap ?? {} });
+	// The canvas boxes a tool DRAWS the game frame against.
+	//
+	// Resolved through `resolveLayoutProfile`, NOT read off the editor doc: the profile layers
+	// project override → ADMIN GLOBAL → coded default, and reading `doc.mainSizesMap` directly
+	// skipped the admin layer entirely — so the Rigger drew the coded defaults while the Scene
+	// Editor drew the sizes the admin had actually configured. Two tools, two answers, from one
+	// question. `source` is returned so a tool can say WHICH layer it is showing.
+	const { profile, source } = await resolveLayoutProfile(clientKey, projectKey);
+	return json({
+		ok: true,
+		projectKey,
+		scenes,
+		mainSizesMap: bucketBoxMap(profile),
+		layoutProfileSource: source,
+	});
 };

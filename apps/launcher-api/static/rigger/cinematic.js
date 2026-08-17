@@ -125,11 +125,13 @@ window.RiggerCinematic = (function () {
 	 * carry text and FX without inventing a second placement model.
 	 */
 	let scenes = [];
-	let mainSizes = {}; // layoutType -> { width, height }: the authored game canvas box
+	let mainSizes = {}; // bucket id -> { width, height }: the RESOLVED game canvas boxes
+	let layoutSource = ''; // which layer they came from: project override / admin global / default
 	async function refreshScenes() {
 		const r = await api('/api/editor/scenes');
 		scenes = r.ok && r.body && Array.isArray(r.body.scenes) ? r.body.scenes : [];
 		mainSizes = (r.ok && r.body && r.body.mainSizesMap) || {};
+		layoutSource = (r.ok && r.body && r.body.layoutProfileSource) || '';
 		if (doc) renderPanel(); // the fetch is not awaited — the picker must fill in when it lands
 		return scenes;
 	}
@@ -1685,7 +1687,7 @@ window.RiggerCinematic = (function () {
 		</select>
 	</label>
 	<label>Frame
-		<select id="cineRatio" title="Draw the game screen box for this layout, so you compose against what the player actually sees">
+		<select id="cineRatio" title="Draw the game screen box for this layout, so you compose against what the player actually sees. Sizes come from the ${layoutSource === 'project' ? 'project layout override' : layoutSource === 'global' ? 'admin global layout profile' : 'built-in default'}.">
 			<option value=""${doc.stage.ratio ? '' : ' selected'}>— none —</option>
 			${Object.keys(mainSizes).map((k) => `<option value="${esc(k)}"${k === doc.stage.ratio ? ' selected' : ''}>${esc(k)} ${mainSizes[k] && mainSizes[k].width ? `(${Math.round(mainSizes[k].width)}×${Math.round(mainSizes[k].height)})` : ''}</option>`).join('')}
 		</select>

@@ -238,6 +238,15 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-17 — **The Frame picker showed the WRONG sizes** (owner: "the frames are not the same
+  that I have set in the admin"). It read `doc.mainSizesMap` straight off the editor doc, which
+  skips the admin layer entirely — so the Rigger drew the coded defaults while the Scene Editor
+  drew the sizes the admin had configured. Two tools, two answers, from one question. It now goes
+  through **`resolveLayoutProfile`**, the canonical resolver (project override → admin global →
+  coded default) + `bucketBoxMap`, exactly like every other consumer. The picker also reports
+  WHICH layer its sizes came from in its tooltip, so the next mismatch of this kind is legible
+  instead of mysterious. Lesson worth keeping: when a value has a documented resolver, reading
+  the underlying store is not a shortcut — it is a different answer.
 - 2026-08-17 — **FIRST REAL GAME MOUNT: "the rigs are there but nothing moves" (owner).** The
   player's first run in a game found the bug the headless gate structurally could not.
   `<CinematicActor>` set `spine.autoUpdate = false` — the obvious reading of "we drive the pose
