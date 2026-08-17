@@ -47,6 +47,12 @@ amber dot. Editing the cell (or clicking the dot) marks it **reviewed** (green
 dot). Nothing is saved until you click **Save**, so you always review machine
 output before it's persisted.
 
+For a whole batch, the **Mark reviewed** control beside *Translate all missing*
+approves every filled cell in the chosen scope (one language, or all of them).
+It skips empty cells, asks for confirmation, and still needs **Save** — the
+intended flow being: translate → Save → open the game from the launcher (an
+authoring boot shows unreviewed text, see below) → read it in context → approve.
+
 ## Storage
 
 The whole table is a single JSON document in R2 (bucket `invisibleassets`) at:

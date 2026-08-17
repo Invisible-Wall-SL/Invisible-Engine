@@ -175,6 +175,49 @@
 		markDirty();
 	}
 
+	/** Sentinel for "every target language" in the bulk-review scope select. */
+	const ALL_LANGS = '__all__';
+	let reviewScope = $state(ALL_LANGS);
+
+	/**
+	 * Mark every FILLED translation in scope as reviewed.
+	 *
+	 * Reviewing per cell is the safe default but doesn't scale past a few dozen rows,
+	 * and it's now the only thing standing between a translation and players — an
+	 * authoring boot already shows unreviewed text in the running game, so the intended
+	 * flow is "read it in context, then approve the batch". Empty cells are skipped so
+	 * this can never mark a blank as vetted, and nothing persists until Save.
+	 */
+	function markReviewed() {
+		const langs = reviewScope === ALL_LANGS ? targetLangs : [reviewScope];
+		const pending = entries.flatMap((e) =>
+			langs.filter((l) => e.translations[l]?.text.trim() && !e.translations[l]!.reviewed),
+		).length;
+		if (pending === 0) {
+			say('Nothing to review — every filled cell in that scope is already reviewed.');
+			return;
+		}
+		const scopeLabel = reviewScope === ALL_LANGS ? 'all languages' : reviewScope;
+		if (
+			!confirm(
+				`Mark ${pending} translation${pending === 1 ? '' : 's'} (${scopeLabel}) as reviewed?\n\n` +
+					`Reviewed text is what ships to players. Open the game from the launcher first — an ` +
+					`authoring boot shows unreviewed text, so you can read these in context before approving.`,
+			)
+		) {
+			return;
+		}
+		for (const entry of entries) {
+			for (const lang of langs) {
+				const c = entry.translations[lang];
+				if (c?.text.trim()) c.reviewed = true;
+			}
+		}
+		// `markDirty` clears the status, so say our piece after it.
+		markDirty();
+		say(`Marked ${pending} as reviewed — Save to persist.`);
+	}
+
 	function isUnreviewed(entry: LocalizationEntry, lang: string): boolean {
 		const c = entry.translations[lang];
 		return !!c && !!c.text && !c.reviewed;
@@ -445,6 +488,22 @@
 		<div class="toolbar">
 			<h2>Strings</h2>
 			<div class="actions">
+				<!-- Bulk review. Deliberately explicit (scope + confirm) rather than a one-click
+				     "approve everything": reviewed text is what reaches players. -->
+				<select
+					class="review-scope"
+					bind:value={reviewScope}
+					disabled={busy || targetLangs.length === 0}
+					title="Which language to mark as reviewed"
+				>
+					<option value={ALL_LANGS}>all languages</option>
+					{#each targetLangs as lang (lang)}
+						<option value={lang}>{lang}</option>
+					{/each}
+				</select>
+				<button disabled={busy || targetLangs.length === 0} onclick={markReviewed}>
+					Mark reviewed
+				</button>
 				<button class="accent" disabled={busy} onclick={() => translate(untranslatedIds())}>
 					Translate all missing
 				</button>
@@ -740,6 +799,15 @@
 	.actions {
 		display: flex;
 		gap: 8px;
+		align-items: center;
+	}
+	.review-scope {
+		padding: 4px 6px;
+		border: 1px solid #33333c;
+		border-radius: 5px;
+		background: #16161c;
+		color: #e6e6ea;
+		font-size: 12px;
 	}
 	.table-wrap {
 		overflow-x: auto;
