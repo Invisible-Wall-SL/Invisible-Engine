@@ -2,7 +2,7 @@
 	import { WHITE } from 'constants-shared/colors';
 	import { stateBetDerived, stateI18nDerived } from 'state-shared';
 	import { CatalogText, getComponentParams } from 'engine-layout/svelte';
-	import type { ResolvedTransform } from 'engine-layout';
+	import { resolveLocalizedText, type ResolvedTransform } from 'engine-layout';
 
 	import { UI_BASE_FONT_SIZE } from '../constants';
 	import { i18nDerived } from '../i18n/i18nDerived';
@@ -50,7 +50,10 @@
 				return i18nDerived.balance();
 		}
 	});
-	const caption = $derived(labelOverride ?? codedCaption);
+	// An authored caption is a localization KEY (see `HudReadout` for the why).
+	const caption = $derived(
+		labelOverride === undefined ? codedCaption : resolveLocalizedText(labelOverride),
+	);
 
 	// Same base + override merge as `UiLabel` (font/size/fill); absent overrides leave
 	// the coded base untouched → parity. Per-text `caption*` keys (v2) win over the

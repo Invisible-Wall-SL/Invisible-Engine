@@ -11,6 +11,13 @@
 
 	let authenticated = $state(false);
 
+	/** Currency declared by the launch URL (`?currency=EUR`). It WINS over the code the
+	 *  RGS echoes back: the URL is the platform's own declaration of what the player is
+	 *  playing in, and against the mock RGS — whose wallet is currency-agnostic and always
+	 *  answers `USD` — it's the only way to preview the HUD in another currency. Empty
+	 *  (no/invalid param) falls back to the RGS value, i.e. the old behaviour. */
+	const launchCurrency = stateUrlDerived.currency();
+
 	const authenticate = async () => {
 		try {
 			const authenticateData = await requestAuthenticate({
@@ -29,7 +36,7 @@
 				// 		"amount": 10000000000000000,
 				// 		"currency": "USD"
 				// },
-				stateBet.currency = authenticateData.balance.currency;
+				stateBet.currency = launchCurrency || authenticateData.balance.currency;
 				stateBet.balanceAmount = authenticateData.balance.amount / API_AMOUNT_MULTIPLIER;
 			}
 
@@ -131,6 +138,10 @@
 	};
 
 	onMount(async () => {
+		// Seeded before either branch: replay never calls `authenticate`, so this is the
+		// only place a replay link's currency can land.
+		if (launchCurrency) stateBet.currency = launchCurrency;
+
 		if(stateUrlDerived.replay()) {
 			stateUi.config.mode = 'replay';
 			await handleReplay();

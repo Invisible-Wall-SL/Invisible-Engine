@@ -65,6 +65,17 @@ const social = () => getUrlSearchParam('social') === 'true';
  *  per-tab memory cap. The asset builders (`editor-scenes.ts`) read the same `quality`
  *  param directly at import time; this getter is the canonical reader for runtime code. */
 const quality = () => (getUrlSearchParam('quality') === 'high' ? 'high' : 'auto');
+/** Currency the launch declares the player is playing in — the code every amount on
+ *  screen is formatted with (`numberToCurrencyString`). Empty when the URL carries
+ *  none, in which case the RGS's own `balance.currency` stands (see `Authenticate`).
+ *  Sanitised to a plain uppercase alphabetic code so a junk value can't reach
+ *  `Intl.NumberFormat`, which THROWS on a malformed currency and would take the whole
+ *  boot down. `XGC`/`XSC` (social-casino Gold/Sweeps coins) pass through here too and
+ *  are special-cased downstream in `amount.ts`. */
+const currency = () => {
+	const raw = getUrlSearchParam('currency') || '';
+	return /^[A-Za-z]{3,4}$/.test(raw) ? raw.toUpperCase() : '';
+};
 
 // params for replay
 const replay = () => getUrlSearchParam('replay') === 'true';
@@ -81,6 +92,7 @@ export const stateUrlDerived = {
 	rgsUrl,
 	social,
 	quality,
+	currency,
 	// states for replay
 	replay,
 	amount,

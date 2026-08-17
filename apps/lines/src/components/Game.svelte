@@ -188,7 +188,7 @@
 		registerBakedComponents,
 		registerEditorTextLocalization,
 	} from '../editor-scenes';
-	import messagesMap from '../i18n/messagesMap';
+	import { getMessagesMap } from '../i18n/messagesMap';
 
 	import { getContext } from '../game/context';
 	import { stateApp } from '../game/stateApp';
@@ -603,7 +603,7 @@
 	registerFlipbooks(bakedFlipbooks());
 	// Layout-doc text localization (§18): any doc text matching a catalog key —
 	// code catalogs + the baked Localization-tool strings — renders translated.
-	registerEditorTextLocalization(messagesMap);
+	registerEditorTextLocalization(getMessagesMap());
 	// Inline-image resolver for message strings (Invisible Win Text "show symbol as image"): a KNOWN
 	// symbol id resolves to itself, so the info-bar toast draws the paying symbol inline (engine-layout
 	// `InlineImageText` mounts the `messageSymbol` bound component below with this id). Any symbol type

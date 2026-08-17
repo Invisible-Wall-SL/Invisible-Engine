@@ -4,7 +4,7 @@
 	import { Container } from 'pixi-svelte';
 	import { stateBet, stateBetDerived, stateModal } from 'state-shared';
 	import { getComponentParams } from 'engine-layout/svelte';
-	import type { TextStyle } from 'engine-layout';
+	import { resolveLocalizedText, type TextStyle } from 'engine-layout';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
 
 	import UiLabel from './UiLabel.svelte';
@@ -66,7 +66,14 @@
 				return i18nDerived.balance();
 		}
 	});
-	const caption = $derived(labelOverride ?? codedCaption);
+	// An AUTHORED caption is a localization KEY, exactly like a text node's literal —
+	// the Localization tool harvests these `label` params, so leaving them unresolved
+	// meant a fully-translated project still showed English HUD captions. Unknown
+	// strings render verbatim (the `resolveLocalizedText` contract), so parity holds.
+	// The coded caption is already translated by `i18nDerived`.
+	const caption = $derived(
+		labelOverride === undefined ? codedCaption : resolveLocalizedText(labelOverride),
+	);
 
 	// Per-source currency formatting — `win` is a BOOK-EVENT amount (bet-multiplier
 	// normalised, like `LabelWin`); balance/bet are plain currency amounts. This is

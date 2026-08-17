@@ -5,7 +5,7 @@
 	import Game from '../components/Game.svelte';
 	import { setContext } from '../game/context';
 
-	import messagesMap from '../i18n/messagesMap';
+	import { getMessagesMap } from '../i18n/messagesMap';
 
 	type Props = { children: Snippet };
 
@@ -21,7 +21,7 @@
 
 <GlobalStyle>
 	<Authenticate>
-		<LoadI18n {messagesMap}>
+		<LoadI18n messagesMap={getMessagesMap()}>
 			<Game />
 		</LoadI18n>
 	</Authenticate>

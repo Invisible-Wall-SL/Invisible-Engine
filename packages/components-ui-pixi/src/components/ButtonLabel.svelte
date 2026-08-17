@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { CatalogText, getComponentParams } from 'engine-layout/svelte';
-	import type { ResolvedTransform } from 'engine-layout';
+	import { resolveLocalizedText, type ResolvedTransform } from 'engine-layout';
 
 	import { UI_BASE_FONT_SIZE } from '../constants';
 	import { i18nDerived } from '../i18n/i18nDerived';
@@ -39,7 +39,8 @@
 	// `label` string. Absent both ⇒ empty.
 	const text = $derived.by(() => {
 		if (icon && icon in i18nDerived) return i18nDerived[icon as ButtonIcon]();
-		return labelOverride ?? '';
+		// An authored label is a localization KEY (see `HudReadout` for the why).
+		return labelOverride === undefined ? '' : resolveLocalizedText(labelOverride);
 	});
 
 	// Same base + override merge as `UiButton`'s label; absent overrides leave the
