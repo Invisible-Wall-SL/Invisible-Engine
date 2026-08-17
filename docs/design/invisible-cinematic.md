@@ -403,4 +403,56 @@ being loadable by a stock runtime.
 Text previews **approximately** in `/rigger` (a raw WebGL stage with no HTML text layer); the
 in-game render is authoritative. Named here so it is a known cost, not a surprise (§7 risk 1).
 
+## 13. Tweak Mode — the architecture (read before building)
+
+§4.4 describes WHAT Tweak Mode is: double-click a strip, edit that clip in the animator with the
+rest of the cinematic still posed around it, exit back to the sequencer. This section records
+the part that is not obvious until you try — and the reason it is a real build rather than
+plumbing.
+
+### 13.1 The crux: the animator and the cinematic do not share a skeleton
+
+They are two different worlds inside one page:
+
+| | The animator (`◆ Animate`) | The cinematic stage |
+|---|---|---|
+| What it poses | the module-level `skeleton` | one `Skeleton` PER ACTOR, in `actors[]` |
+| Where the data lives | `rawDoc` — the open rig's parsed JSON, mutated in place | cached `SkeletonData` from `loadRigData`, **no `rawDoc`** |
+| How it poses | `poseAtTime` walks `rawDoc.animations` directly | the shared evaluator via `Animation.apply` |
+| Who owns the frame | `frame()`'s single-skeleton branch | `RiggerCinematic.frame`, which owns the whole pass |
+
+So a cinematic actor has nothing the dopesheet can edit. "Open the strip in the animator" means
+reconciling those two worlds, not pointing `curAnim` at a clip.
+
+### 13.2 The way through: promote the tweaked actor to the OPEN rig
+
+Recommended shape, because it reuses the animator whole rather than rebuilding it:
+
+1. On double-click, `selectSkeleton(entry)` the strip actor's rig — it becomes the open rig, so
+   `rawDoc` / `skeleton` / the dopesheet / the graph editor all work with **zero changes**.
+2. Enter `animate` with `curAnim` = the strip's clip, and drive `animTime` from cinematic time
+   through the strip's `clipIn` / `speed` / loop (`clipLocalTime` already computes exactly this —
+   do not re-derive it).
+3. Keep drawing the OTHER actors from `actors[]` around it, so the edit happens in context. The
+   tweaked actor draws from the animator's `skeleton`; every other actor draws from its own
+   instance. One extra branch in the cinematic draw pass.
+4. On exit, re-parse the edited clip into the actor's cached `SkeletonData` so the sequencer
+   evaluates the new keys — `rebuildFromRawDoc` is the existing path — and restore the previous
+   cinematic selection.
+
+### 13.3 Traps
+
+- **The rig may be dirty.** Entering Tweak Mode calls `selectSkeleton`, which REPLACES the open
+   rig. If the author had unsaved rig edits, that is data loss. Guard it the way the cinematic
+   guards an unsaved doc (ask), or refuse while the rig is dirty.
+- **Editing a `src: 'rig'` clip edits the RIG**, so every cinematic using that clip changes.
+   That is correct for "fix the walk cycle" and wrong for "make this one shot different" — which
+   is precisely what `clip.src: 'local'` ("make unique", §4.2) exists for. Tweak Mode should
+   offer that choice on entry rather than deciding silently.
+- **Cues must not fire while tweaking.** The playhead is being scrubbed by an editor, not played;
+   `cuesCrossed` already refuses on a seek, so drive the tweak playhead as a seek, never as
+   playback.
+- **One clip, many strips.** The same clip can appear in several strips (and several cinematics).
+   The edit lands on all of them — say so in the UI, do not surprise the author.
+
 > Build status: see [docs/status/cinematic.md](../status/cinematic.md).
