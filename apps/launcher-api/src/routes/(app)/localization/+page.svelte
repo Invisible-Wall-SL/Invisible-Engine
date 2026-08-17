@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { deserialize } from '$app/forms';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
@@ -191,15 +192,19 @@
 		const existing = location.search.replace(/^\?/, '');
 		const target = existing ? `?/${action}&${existing}` : `?/${action}`;
 		const res = await fetch(target, { method: 'POST', body: fd });
-		const json = (await res.json()) as { type: string; data?: string };
-		// SvelteKit serializes action results as a flattened, indexed array under
-		// `data`; the first element is the top-level object with index refs.
-		if (!json.data) return {};
-		const parsed = JSON.parse(json.data) as unknown[];
-		const root = parsed[0] as Record<string, number>;
-		const out: Record<string, unknown> = {};
-		for (const [key, idx] of Object.entries(root)) out[key] = parsed[idx];
-		return out;
+		// Action results are devalue-encoded: an indexed array where EVERY value is a
+		// reference, at every depth. Resolving only the top level (as this did) silently
+		// left nested payloads as raw indices — `translations` came back as
+		// `{ id: 4 }` instead of `{ id: { it: '…' } }`, so Translate applied nothing
+		// while still reporting success. `deserialize` is SvelteKit's own decoder.
+		const result = deserialize(await res.text());
+		if (result.type === 'success' || result.type === 'failure') return result.data ?? {};
+		// `error`/`redirect` carry no `data` — surface them instead of returning an empty
+		// object, which the callers would read as a successful no-op.
+		if (result.type === 'error') {
+			return { error: result.error?.message ?? 'The server returned an error.' };
+		}
+		return { error: 'Your session expired — reload the page and sign in again.' };
 	}
 
 	/** `force` = the author confirming "overwrite theirs" after a conflict. On a conflict the
