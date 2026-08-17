@@ -82,6 +82,23 @@ headless contract tests, never by execution (see Open items).
   doc carries both. `stopCinematic` also settles a pending await, so a mid-play stop cannot strand
   an awaiting chain. Game-side, `<FlowV2Cinematics>` renders whatever the interpreter's reactive
   `playingCinematics` map holds.
+- **Cue tracks.** A global ⚡ cues row: **＋ Cue at playhead**, then edit its name and time (drag
+  the marker to retime). A cue is a NAMED MOMENT the game reacts to — the cinematic never
+  implements the effect, it only says when. Namespaces: `fx:` (an Invisible FX effect) · `sfx:` /
+  `music:` (a game sound cue) · `signal:` (broadcast on the game event bus). Markers are coloured
+  by namespace. The cue string is free TEXT with a datalist of prefixes, not a dropdown, because
+  the ids it names live in three different systems and a dropdown would have to be wrong in at
+  least one.
+  **Firing is owned by `cuesCrossed`** (shared, and gate-tested to 10 assertions), so the editor
+  preview and the game agree on "fired": a half-open `(prev, now]` window, and **nothing fires on
+  a seek** — a backward step or a jump bigger than a frame is silent, which is what makes
+  scrubbing across a cinematic usable instead of a machine-gun of effects. Editor-side an `fx:`
+  cue drives the stage FX overlay the Rigger already vendors; the other namespaces name things
+  that only exist in a game, so they surface in the status line rather than silently doing
+  nothing. Game-side `<FlowV2Cinematics>` routes them: sounds through the player (guarded by
+  `hasSound`, since howler declines an unknown sprite key silently), everything else broadcast on
+  the event bus under its bare name — the SAME seam a rig's timeline events use, so a cinematic
+  cue and a rig event are indistinguishable downstream.
 - **The sequencer (Phase 2).** The cinematic timeline shares `#timeline` with the dopesheet (only
   one is ever built, so they never fight). A ruler you drag to scrub, one row per **track**,
   **layers** per actor (⧉ adds one; layers blend bottom-up), and **strips** you can:
@@ -123,7 +140,7 @@ headless contract tests, never by execution (see Open items).
 
 | Proof | Result |
 |---|---|
-| `tools/rigger-spike/cinematic.mjs` — gates 1 + 2 + channel sampling + evaluator-drift (headless) | **87/87** |
+| `tools/rigger-spike/cinematic.mjs` — gates 1 + 2, channel sampling, cue firing, evaluator-drift (headless) | **97/97** |
 | `tools/rigger-spike/cinematic-pixi.mjs` — gate 3, the `spine-pixi-v8` seam | **14/14** |
 | `static/rigger/cinematic-harness.html` — gate 2's WebGL half, in a real browser | **11/11** |
 | `/rigger` cinematic mode, driven live in a browser | cast · draw · animate · scrub · place · z-order · visibility · clip-swap |
@@ -185,10 +202,8 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 3. **Remember `node scripts/sync-cinematic-eval.mjs`** after ANY evaluator change — the gate fails
    if the browser copy drifts, but nothing regenerates it automatically yet. Wiring it into a
    pre-build step would close that.
-4. **Phase 2 remainder** — **visibility** and **cue** tracks (named in the schema, design §4.2;
-   `animation`, `property` and `camera` are implemented). Visibility is a static per-actor toggle
-   today; cues are the `fx:` / `sfx:` / `signal:` surface and are best built alongside the Flow
-   wiring in Phase 3.
+4. **Phase 2 remainder — `visibility` tracks only.** `animation`, `property`, `camera` and `cue`
+   are implemented; visibility is still a static per-actor toggle rather than a keyed track.
 5. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
    geometry and the frame visibly changes. Drive one spine object through the `<Cinematic>`
    contract in a real game frame before Phase 3 leans on it.
@@ -208,6 +223,14 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-17 — **Cue tracks — the last Phase 2 surface.** Authorable ⚡ cues, fired through the
+  shared `cuesCrossed` (which existed and was gate-tested since Phase 0 but had no caller until
+  now), routed game-side to FX / sound / the event bus. 10 new assertions (97/97) pin the
+  semantics that matter: the half-open window, same-beat cues both firing, and — the one that
+  makes scrubbing usable — **a seek fires nothing**, neither backwards nor on a jump bigger than a
+  frame. One of my own assertions was wrong first: I asserted three cues firing across a 0.65 s
+  window, which `cuesCrossed` correctly treats as a SEEK. Simultaneous cues sit milliseconds
+  apart in practice, so the test now says that instead.
 - 2026-08-17 — **Flow-v2 `playCinematic` — the pipeline closes.** A cinematic can now be played
   from an authored flow (details in Current state). 19 headless assertions drive the node through
   the REAL interpreter + validator with an env whose completion promise the test controls, so

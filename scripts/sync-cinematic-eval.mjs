@@ -38,7 +38,15 @@ try {
 	/* missing counts as out of date */
 }
 
-if (current === expected) {
+/**
+ * Compare CONTENT, not line endings. Git checks these files out as CRLF on Windows while the
+ * banner this script prepends is written with `\n`, so a byte comparison reports drift on every
+ * fresh clone — a check that cries wolf is a check people learn to ignore.
+ */
+const sameContent = (a, b) =>
+	a !== null && b !== null && a.replace(/\r\n/g, '\n') === b.replace(/\r\n/g, '\n');
+
+if (sameContent(current, expected)) {
 	console.log(`cinematic evaluator in sync (${DEST})`);
 	process.exit(0);
 }

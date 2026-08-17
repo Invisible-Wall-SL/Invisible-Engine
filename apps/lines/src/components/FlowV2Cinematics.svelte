@@ -16,11 +16,47 @@
 	 */
 	import { MainContainer } from 'components-layout';
 	import { Cinematic } from 'engine-layout/svelte';
+	import { getContextEventEmitter } from 'utils-event-emitter';
 
 	import { bakedCinematic } from '../editor-scenes';
+	import { sound, type SoundName } from '../game/sound';
 	import type { LinesFlowV2 } from '../game/flowV2Runtime.svelte';
 
 	const { flow }: { flow: LinesFlowV2 | undefined } = $props();
+
+	const eventEmitter = getContextEventEmitter<{ type: string }>()?.eventEmitter;
+
+	/**
+	 * Route one cue fired by a cinematic. The cinematic only says WHEN — each namespace names
+	 * something that lives in a different system, so this is where they land:
+	 *
+	 *  - `fx:` / `signal:` — broadcast on the shared event bus under the bare name. An FX layer (or
+	 *    anything else) subscribed to that name reacts, which is the SAME seam a rig's timeline
+	 *    events already use, so cinematic cues and rig events are indistinguishable downstream.
+	 *  - `sfx:` / `music:` — a one-shot through the game's sound player, guarded by `hasSound`:
+	 *    howler silently declines an unknown sprite key, so without the guard a cue naming a sound
+	 *    this game's audiosprite predates would be an inaudible non-failure rather than a warning.
+	 *
+	 * An unknown namespace is broadcast verbatim rather than dropped — a cue we have not taught the
+	 * game about yet is still a moment something may be listening for.
+	 */
+	function routeCue(cue: string): void {
+		const sep = cue.indexOf(':');
+		const ns = sep > 0 ? cue.slice(0, sep) : '';
+		const name = sep > 0 ? cue.slice(sep + 1) : cue;
+		if (!name) return;
+		if (ns === 'sfx' || ns === 'music') {
+			if (sound.hasSound(name as SoundName)) {
+				(ns === 'music' ? sound.players.music : sound.players.once).play({
+					name: name as SoundName,
+				});
+			} else {
+				console.warn(`[Cinematic] cue "${cue}" names a sound this game has no region for.`);
+			}
+			return;
+		}
+		eventEmitter?.broadcast({ type: name });
+	}
 
 	/** Only the entries whose cinematic actually shipped — an unknown id renders nothing. */
 	const active = $derived(
@@ -39,6 +75,7 @@
 				loop={entry.opts.loop}
 				speed={entry.opts.speed}
 				oncomplete={() => flow?.cinematicComplete(entry.id)}
+				oncue={routeCue}
 			/>
 		{/each}
 	</MainContainer>

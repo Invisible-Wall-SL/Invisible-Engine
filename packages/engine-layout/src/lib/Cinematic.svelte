@@ -16,7 +16,7 @@
 	 */
 	import { onDestroy } from 'svelte';
 	import { getContextApp, SpineProvider } from 'pixi-svelte';
-	import type { CinematicTrack } from 'engine-cinematic';
+	import { cuesCrossed, type CinematicTrack } from 'engine-cinematic';
 	import type { CinematicDoc } from './types';
 	import CinematicActor from './CinematicActor.svelte';
 
@@ -50,9 +50,23 @@
 	 * shares the game's clock — a paused/throttled game pauses the cinematic with it, and
 	 * `deltaMS` already accounts for frame time.
 	 */
+	const cueKeys = $derived(
+		(
+			(props.doc.tracks as CinematicTrack[]).find((t) => t.kind === 'cue') as
+				| { keys?: { time: number; cue: string }[] }
+				| undefined
+		)?.keys ?? [],
+	);
+
 	function tick() {
 		if (!props.playing || duration <= 0 || done) return;
+		const prev = time;
 		time += (appContext.app.ticker.deltaMS / 1000) * (props.speed ?? 1);
+		// `cuesCrossed` owns the "did we cross it" rule (and refuses on a backwards or over-large
+		// step, i.e. a seek), so the game and the editor preview share ONE definition of "fired".
+		if (props.oncue && cueKeys.length) {
+			for (const k of cuesCrossed(cueKeys, prev, time)) props.oncue(k.cue);
+		}
 		if (time < duration) return;
 		if (props.loop) {
 			time = duration > 0 ? time % duration : 0;

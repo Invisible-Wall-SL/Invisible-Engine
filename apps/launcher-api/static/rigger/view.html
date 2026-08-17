@@ -111,6 +111,12 @@
     background:linear-gradient(90deg, rgba(0,0,0,.55), rgba(0,0,0,0)); }
   .cineRamp.in { left:0; }
   .cineRamp.out { right:0; background:linear-gradient(270deg, rgba(0,0,0,.55), rgba(0,0,0,0)); }
+  /* cue markers — a moment the GAME reacts to, coloured by namespace */
+  .cineCueRow { background:rgba(201,139,255,.07); }
+  .cineCue { position:absolute; top:4px; width:0; height:0; margin-left:-6px; cursor:ew-resize;
+    border-left:6px solid transparent; border-right:6px solid transparent; border-top:12px solid currentColor;
+    background:transparent !important; z-index:1; }
+  .cineCue.sel { outline:1px solid #fff; outline-offset:2px; }
   .cinePlayhead { position:absolute; top:0; bottom:0; width:1px; background:#ffd24a; z-index:6;
     pointer-events:none; box-shadow:0 0 4px rgba(255,210,74,.6); }
   /* property / camera channel rows: keyframe diamonds, one row per animated channel */
@@ -842,6 +848,21 @@ function cinematicBridge(){
     listRigs: () => skeletons,
     projectKey: () => curProjectKey,
     loadRigData,
+    /**
+     * Fire an Invisible FX effect on the stage — a cinematic `fx:` cue's preview. Best-effort by
+     * design: the overlay is lazy-loaded and is never fatal to the Rigger, so a cue for an effect
+     * that fails to load is silent rather than breaking playback. Centred on the stage (a cinematic
+     * cue is a moment in the SCENE, not a rig-bone burst — that's the animate-mode FX path).
+     */
+    fireFx: (effectId) => {
+      if (!effectId) return;
+      ensureFxOverlay().then(() => {
+        if (!window.RiggerFx || !fxReady) return;
+        const cv = $("#cv");
+        try { window.RiggerFx.play(effectId, { x: cv.clientWidth / 2, y: cv.clientHeight / 2, scale: 1, rotation: 0 }); }
+        catch (e){ console.warn("[Cinematic] fx cue failed", effectId, e); }
+      });
+    },
   };
 }
 

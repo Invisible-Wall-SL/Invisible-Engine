@@ -503,6 +503,32 @@ window.RiggerCinematic = (function () {
 		if (touched) cam.update();
 	}
 
+	/**
+	 * Fire the cues crossed since the last frame, in the EDITOR preview.
+	 *
+	 * `cuesCrossed` owns the "did we actually cross it" rule — it refuses to fire when time went
+	 * backwards or jumped further than a frame, which is what makes scrubbing silent. So this never
+	 * needs its own seek detection, and the editor and the game share one definition of "fired".
+	 *
+	 * The preview only ROUTES what it can: an `fx:` cue drives the stage FX overlay the Rigger
+	 * already vendors. `sfx:`/`music:`/`signal:` name things that live in the GAME, so there is
+	 * nothing honest to play here — they surface in the status line instead of silently doing
+	 * nothing, so an author can see the cue fired.
+	 */
+	function fireCuesBetween(prev, next) {
+		const track = cueTrack();
+		if (!track || !EV) return;
+		const crossed = EV.cuesCrossed(track.keys, prev, next);
+		for (const k of crossed) {
+			const cue = String(k.cue || '');
+			if (cue.startsWith('fx:') && ctx.fireFx) ctx.fireFx(cue.slice(3));
+			else if (cue) {
+				statusMsg = '⚡ ' + cue;
+				renderPanel();
+			}
+		}
+	}
+
 	// ---- frame --------------------------------------------------------------
 
 	/**
@@ -510,10 +536,12 @@ window.RiggerCinematic = (function () {
 	 * the whole draw pass for the mode (its own renderer.begin/end).
 	 */
 	function frame(delta, playing) {
+		const prevTime = time;
 		if (playing && doc && doc.duration > 0) {
 			time += delta * (ctx.playSpeed ? ctx.playSpeed() : 1);
 			if (time >= doc.duration) time = ctx.looping && ctx.looping() ? time % doc.duration : doc.duration;
 		}
+		if (playing) fireCuesBetween(prevTime, time);
 		evaluate(time);
 
 		const renderer = ctx.renderer();
@@ -767,6 +795,8 @@ window.RiggerCinematic = (function () {
 				}
 			}
 		}
+		const cues = cueTrack();
+		if (cues && cues.keys.length) out.push({ kind: 'cues', track: cues, cast: null });
 		const cam = cameraTrack();
 		if (cam) {
 			for (const chan of CAM_CHANNELS) {
@@ -821,6 +851,32 @@ window.RiggerCinematic = (function () {
 
 			// A CHANNEL row: keys as diamonds, coloured per channel. Its own shape, not a lane of
 			// strips — property/camera animation is keyframes, not clips.
+			// A CUE row: one marker per cue, coloured by namespace. Global (not per-actor) — a cue is a
+			// moment in the cinematic, not something an actor owns.
+			if (entry.kind === 'cues') {
+				row.classList.add('cineChanRow', 'cineCueRow');
+				const g = document.createElement('div');
+				g.className = 'cineGutter';
+				g.innerHTML = '<span class="cineTrackName cineChanName">⚡ cues</span>';
+				row.appendChild(g);
+				const lane = document.createElement('div');
+				lane.className = 'cineLane';
+				lane.style.width = contentW + 'px';
+				for (const k of entry.track.keys) {
+					const dot = document.createElement('span');
+					const isSel = selCueTime !== null && Math.abs(selCueTime - k.time) < 1e-6;
+					dot.className = 'cineCue' + (isSel ? ' sel' : '');
+					dot.style.left = (k.time * pps).toFixed(1) + 'px';
+					dot.style.color = isSel ? '#ffd24a' : cueColor(k.cue);
+					dot.dataset.cueTime = k.time;
+					dot.title = (k.cue || '(empty)') + ' @ ' + (+k.time.toFixed(3)) + 's';
+					lane.appendChild(dot);
+				}
+				row.appendChild(lane);
+				el.appendChild(row);
+				continue;
+			}
+
 			if (entry.kind === 'channel') {
 				row.classList.add('cineChanRow');
 				row.dataset.channel = entry.chan.key;
@@ -931,6 +987,42 @@ window.RiggerCinematic = (function () {
 				else if (act === 'addLayer') addLayer(trackId);
 				else if (act === 'delLayer') removeLayer(trackId);
 			};
+		});
+
+		// Cue markers: click to select (the inspector edits it), drag to retime.
+		el.querySelectorAll('.cineCueRow .cineCue').forEach((dot) => {
+			const keyTime = parseFloat(dot.dataset.cueTime);
+			dot.onpointerdown = (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				selCueTime = keyTime;
+				tlDrag = { kind: 'cue', time: keyTime, startX: e.clientX, pps, el: dot, moved: false };
+				try { dot.setPointerCapture(e.pointerId); } catch { /* uncaptured drag still works */ }
+				el.querySelectorAll('.cineCue.sel').forEach((n) => n.classList.remove('sel'));
+				dot.classList.add('sel');
+				renderPanel();
+			};
+			dot.onpointermove = (e) => {
+				if (!tlDrag || tlDrag.kind !== 'cue' || tlDrag.el !== dot) return;
+				const track = cueTrack();
+				const k = track && track.keys.find((x) => Math.abs(x.time - tlDrag.time) < 1e-6);
+				if (!k) return;
+				if (Math.abs(e.clientX - tlDrag.startX) > 2) tlDrag.moved = true;
+				k.time = snapT(tlDrag.time + (e.clientX - tlDrag.startX) / tlDrag.pps, e.altKey);
+				dot.style.left = (k.time * tlDrag.pps).toFixed(1) + 'px';
+			};
+			const endCue = () => {
+				if (!tlDrag || tlDrag.kind !== 'cue' || tlDrag.el !== dot) return;
+				const moved = tlDrag.moved;
+				const track = cueTrack();
+				if (track) track.keys.sort((a, b) => a.time - b.time);
+				tlDrag = null;
+				if (moved) commit('move cue', 'cue:' + keyTime);
+				renderTimeline();
+				renderPanel();
+			};
+			dot.onpointerup = endCue;
+			dot.onpointercancel = endCue;
 		});
 
 		// Channel keys: click to select, drag to retime.
@@ -1166,6 +1258,72 @@ window.RiggerCinematic = (function () {
 		{ key: 'zoom', label: 'zoom', color: '#7ee0c0' },
 	];
 
+	/**
+	 * Cue namespaces. A cue is a NAMED moment on the timeline that the GAME reacts to — the
+	 * cinematic never implements the effect itself, it only says when. Keeping the namespace in the
+	 * string (rather than a separate field) means one flat key list stays sortable, diffable and
+	 * forward-compatible: a namespace we have not built yet round-trips untouched.
+	 */
+	const CUE_KINDS = [
+		{ prefix: 'fx:', label: 'FX', color: '#c98bff', hint: 'an Invisible FX effect id' },
+		{ prefix: 'sfx:', label: 'SFX', color: '#e0a64a', hint: 'a sound cue name in the game' },
+		{ prefix: 'music:', label: 'Music', color: '#e0a64a', hint: 'a music cue name in the game' },
+		{ prefix: 'signal:', label: 'Signal', color: '#7ee0c0', hint: 'broadcast on the game event bus' },
+	];
+	const cueColor = (cue) => (CUE_KINDS.find((k) => String(cue || '').startsWith(k.prefix)) || {}).color || '#8b93a1';
+
+	const cueTrack = () => doc.tracks.find((t) => t.kind === 'cue') || null;
+	let selCueTime = null; // the selected cue key, by time (cues are global, so time identifies one)
+
+	function ensureCueTrack() {
+		let track = cueTrack();
+		if (!track) {
+			track = { id: uid('cue'), actorId: null, kind: 'cue', keys: [] };
+			doc.tracks.push(track);
+		}
+		return track;
+	}
+
+	const time_ = () => time;
+	function addCue() {
+		const track = ensureCueTrack();
+		const time = snapT(time_());
+		track.keys.push({ time, cue: 'fx:' });
+		track.keys.sort((a, b) => a.time - b.time);
+		selCueTime = time;
+		commit('add cue');
+		renderPanel();
+		renderTimeline();
+	}
+
+	function setCueField(keyTime, field, value) {
+		const track = cueTrack();
+		if (!track) return;
+		const k = track.keys.find((x) => Math.abs(x.time - keyTime) < 1e-6);
+		if (!k) return;
+		if (field === 'time') {
+			k.time = Math.max(0, value);
+			track.keys.sort((a, b) => a.time - b.time);
+			selCueTime = k.time;
+		} else k.cue = value;
+		commit('edit cue', 'cue:' + keyTime + ':' + field);
+		renderPanel();
+		renderTimeline();
+	}
+
+	function deleteCue(keyTime) {
+		const track = cueTrack();
+		if (!track) return;
+		track.keys = track.keys.filter((k) => Math.abs(k.time - keyTime) > 1e-6);
+		// An empty cue track is noise — drop it so "never had cues" and "had cues, removed them"
+		// look identical in the doc.
+		if (!track.keys.length) doc.tracks = doc.tracks.filter((t) => t.kind !== 'cue');
+		selCueTime = null;
+		commit('delete cue');
+		renderPanel();
+		renderTimeline();
+	}
+
 	let cameraLive = true;
 	let selKey = null; // { trackId, channel, time }
 
@@ -1329,6 +1487,7 @@ window.RiggerCinematic = (function () {
 <div class="cineStatus">${loadingCount ? 'loading rig…' : esc(statusMsg)}</div>
 <div id="cineCast">${rows || '<div class="cineEmpty">No actors yet — pick a rig above and press ＋ Cast.</div>'}</div>
 ${cameraMarkup()}
+${cueMarkup()}
 ${keyInspectorMarkup()}
 ${stripInspectorMarkup()}
 <div class="cineNote">Drag a strip to move it · drag its edges to trim · hold Alt to ignore the fps grid · Ctrl+wheel over the timeline to zoom.</div>`;
@@ -1425,6 +1584,33 @@ ${stripInspectorMarkup()}
 </div>`;
 	}
 
+	/**
+	 * Cues section: add a cue at the playhead, and edit the selected one.
+	 *
+	 * The cue string is free TEXT with a namespace prefix, not a dropdown, on purpose — the ids it
+	 * names (an FX effect, a sound cue, a flow signal) live in three different systems, and a
+	 * dropdown would have to be wrong in at least one of them. The datalist offers the prefixes so
+	 * the shape is discoverable without constraining the value.
+	 */
+	function cueMarkup() {
+		const track = cueTrack();
+		const keys = (track && track.keys) || [];
+		const sel = selCueTime !== null ? keys.find((k) => Math.abs(k.time - selCueTime) < 1e-6) : null;
+		return `
+<div class="cineHead" style="border-top:1px solid var(--line);"><b>⚡ Cues</b><small>${keys.length || 'none'}</small></div>
+<div class="cineRow">
+	<button id="cineAddCue" title="Add a cue at the playhead — a named moment the GAME reacts to">＋ Cue at playhead</button>
+</div>
+${sel ? `
+<div class="cineStripInsp">
+	<label class="wide">cue<input type="text" list="cineCueKinds" data-cueact="cue" value="${esc(sel.cue || '')}" placeholder="fx:my_effect"></label>
+	<label>time<input type="number" step="0.05" min="0" data-cueact="time" value="${+sel.time.toFixed(3)}"></label>
+</div>
+<datalist id="cineCueKinds">${CUE_KINDS.map((k) => `<option value="${k.prefix}">${k.label} — ${k.hint}</option>`).join('')}</datalist>
+<div class="cineRow"><button id="cineDelCue" title="Delete this cue">🗑 Delete cue</button></div>
+` : '<div class="cineNote">Cues fire as the playhead crosses them — an FX burst, a sound, or a signal the flow can react to. Scrubbing never fires them.</div>'}`;
+	}
+
 	/** Inspector for a selected property/camera key — time, value and its outgoing interpolation. */
 	function keyInspectorMarkup() {
 		if (!selKey) return '';
@@ -1488,6 +1674,17 @@ ${stripInspectorMarkup()}
 	}
 
 	function wireChannelControls() {
+		const addCueBtn = $('#cineAddCue');
+		if (addCueBtn) addCueBtn.onclick = addCue;
+		const delCueBtn = $('#cineDelCue');
+		if (delCueBtn) delCueBtn.onclick = () => selCueTime !== null && deleteCue(selCueTime);
+		document.querySelectorAll('[data-cueact]').forEach((node) => {
+			node.onchange = (e) => {
+				const f = node.dataset.cueact;
+				if (selCueTime === null) return;
+				setCueField(selCueTime, f, f === 'time' ? parseFloat(e.target.value) || 0 : e.target.value);
+			};
+		});
 		document.querySelectorAll('[data-camkey]').forEach((b) => {
 			b.onclick = () => keyCamera(b.dataset.camkey);
 		});

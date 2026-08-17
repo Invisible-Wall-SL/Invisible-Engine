@@ -604,6 +604,45 @@ section('8. Property / camera channels');
 }
 
 // =========================================================================
+section('10. Cue tracks — fired by playback, never by a scrub');
+// =========================================================================
+{
+	const keys = [
+		{ time: 1.0, cue: 'fx:burst' },
+		{ time: 1.5, cue: 'sfx:whoosh' },
+		{ time: 3.0, cue: 'signal:beat' },
+	];
+	const names = (a) => a.map((k) => k.cue).join(',');
+	// Simultaneous cues sit MILLISECONDS apart in practice (an fx + its sfx on the same beat). A
+	// pair far enough apart to need a >0.25s step could only be crossed by a seek, which is
+	// correctly silent — so the realistic case is the one worth asserting.
+	const sameBeat = [
+		{ time: 1.0, cue: 'fx:burst' },
+		{ time: 1.008, cue: 'sfx:whoosh' },
+		{ time: 3.0, cue: 'signal:beat' },
+	];
+
+	ok('a frame that crosses one cue fires exactly it', names(cuesCrossed(keys, 0.98, 1.02)) === 'fx:burst');
+	ok('a frame that crosses none fires nothing', cuesCrossed(keys, 1.02, 1.06).length === 0);
+	ok('the window is half-open — landing exactly ON a cue fires it', names(cuesCrossed(keys, 0.9, 1.0)) === 'fx:burst');
+	ok('...and it does not fire again on the next frame', cuesCrossed(keys, 1.0, 1.1).length === 0);
+
+	// The property that makes scrubbing usable: a seek must be SILENT, or dragging the playhead
+	// across a cinematic would machine-gun every effect and sound in it.
+	ok('a BACKWARD step fires nothing (scrubbing left)', cuesCrossed(keys, 2.0, 0.5).length === 0);
+	ok('a large forward JUMP fires nothing (a seek, not playback)', cuesCrossed(keys, 0.0, 3.5).length === 0);
+	ok('...even when it lands exactly on a cue', cuesCrossed(keys, 0.0, 3.0).length === 0);
+	ok('a step just under the seek threshold still counts as playback', names(cuesCrossed(keys, 0.8, 1.03)) === 'fx:burst');
+
+	ok(
+		'cues on the same beat all fire in one frame, in time order',
+		names(cuesCrossed(sameBeat, 0.99, 1.02)) === 'fx:burst,sfx:whoosh',
+		names(cuesCrossed(sameBeat, 0.99, 1.02)),
+	);
+	ok('an empty cue list is harmless', cuesCrossed([], 0, 0.1).length === 0);
+}
+
+// =========================================================================
 section('9. One evaluator, two consumers — no drift');
 // =========================================================================
 {
