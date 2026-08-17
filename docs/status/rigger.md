@@ -27,6 +27,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
    live-verify gap below.)
 3. **Phase 3.6d hull-loop reordering** — drag to change the boundary winding order (a pure permutation the 3.6c primitive already supports; no UI yet) — the only remaining 3.6 sub-item. (Phases 3.6a UV panel, 3.6b constraint edges, and 3.6c hull promote/demote all shipped + **owner-verified live 2026-08-04**, see Recent changes.)
 4. **Better auto-weights** — the shipped proximity chain-skinner scored poorly against artist ground truth; a geodesic/heat algorithm + a representative **character-mesh validation gate** (Spike 2) is still open. Manual brush stays the guaranteed path.
+5. **Cinematic mode** (owner direction 2026-08-17) — a non-linear sequencer above the animator, landing as a fourth mode in `/rigger`. Plan + phases in [design/invisible-cinematic](../design/invisible-cinematic.md); state in [status/cinematic](cinematic.md). Two things it needs FROM the Rigger: the module-level `skeleton`/`animState` singletons become an actor array, and `view.html` gets its first **undo stack**.
 
 ## Blocked (owner / external)
 - ✅ ~~**Rig/animation library catalogs moved to Postgres — live-verify owed.**~~ **VERIFIED live
