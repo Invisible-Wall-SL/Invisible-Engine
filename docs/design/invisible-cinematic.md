@@ -362,7 +362,55 @@ Verification worth having before shipping it: two tabs, one Scene Editor and one
 editing the same project — quick-add must lose cleanly against a concurrent scene save rather
 than winning silently.
 
-### 12.4 Rig-level text: a REAL slot, without breaking the format
+### 12.4a SUPERSEDES 12.4 — text as LOCALIZED ART in the rig (owner, 2026-08-17)
+
+> *"add the possibility to create text in the rigger, and be able to attach a mesh and bones to
+> it, so I can deform it and keyframe it for animation but also localize it… we can then load it
+> in the cinematic as a normal rig."*
+
+This is better than §12.4 and replaces it. The reframing that makes it work: **it is not text in
+a rig, it is localized ART in a rig.** Bitmap fonts mean a rendered string is already atlas
+art — so once the string is rasterised to a region, it is an ORDINARY region attachment and
+every existing Rigger capability applies unchanged:
+
+| Wanted | How it comes for free |
+|---|---|
+| attach a mesh | region → mesh convert (already built) |
+| bind to bones | weights / brush / auto-weight (already built) |
+| deform it | the `deform` timeline (already built) |
+| keyframe it | slot + bone timelines (already built) |
+| load it in a cinematic | it is a rig; cast it (already built) |
+
+**Localization = attachment swap.** The slot holds one region per locale; the game picks by
+locale. That is standard Spine (`skeleton.setAttachment`, or a skin per locale) — so the `.irig`
+stays byte-valid with NO sidecar for geometry, and it round-trips to desktop Spine as what it
+genuinely is: a mesh. Strictly more Spine-native than the §12.4 point-attachment proposal.
+
+What the pipeline owes it: a **text → region** step (the Font Maker already rasterises strings;
+the Atlas Maker already packs them), producing one region per locale from ONE localization key,
+so `/localization` stays the single source of the strings.
+
+**The honest limits, which decide whether this is usable:**
+
+1. **A mesh is authored against ONE locale's rendering.** Swap in a longer string (German is the
+   usual offender) and the same mesh stretches it. Options, none free: author a mesh per locale;
+   keep the mesh a simple quad so it scales rather than distorts; or accept the distortion for
+   short display strings (which is what most localized title art does in practice).
+2. **Text becomes ART, so changing a string is a PIPELINE step, not a runtime one** — regenerate
+   the region, re-pack, re-sync the rig. Fine for "FREE SPINS"; wrong for anything dynamic like a
+   win amount, which stays a live `text` node.
+3. Per-locale regions multiply atlas space by the locale count for every text element.
+
+**FX by the same logic:** a placed, persistent effect is a SLOT the game binds an emitter to
+(bone-parented, keyable, transformable), not a new attachment kind. Distinct from the existing
+timeline-event FX, which is a one-shot burst at a moment — both are wanted, and they are
+different things.
+
+Build order note: this belongs in the RIGGER, ahead of §12.3's quick-add — it is the thing that
+makes a cinematic able to carry text at all, and it needs nothing from the cinematic to be
+useful on its own.
+
+### 12.4 (superseded — kept for the reasoning) Rig-level text: a REAL slot, without breaking the format
 
 The owner asked for text that is *"a real text slot on the rig"* — keyable, parentable,
 transformable like any attachment — having been told that putting non-Spine data in the `.irig`
