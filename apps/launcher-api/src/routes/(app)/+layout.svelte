@@ -26,6 +26,9 @@
 	// production CSS minification/keyframe-pruning): the splash only appears once a
 	// navigation has been in-flight ~200ms, so quick routes (home, login) never flash it.
 	// Only TOOL routes boot-splash; home/admin/onboarding just navigate.
+	// A HARD load of a tool page is covered by the shell's vanilla twin instead (injected by
+	// `hooks.server.ts`, lifted from the ROOT `+layout.svelte`) — there is no app running to
+	// mount <BootSplash> at that point.
 	const SPLASH_DELAY_MS = 200;
 
 	let boot = $state<{ id: string; name: string } | null>(null);

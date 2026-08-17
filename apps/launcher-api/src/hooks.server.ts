@@ -1,4 +1,7 @@
+import { bootPhrases } from '$lib/bootPhrases';
+import { TOOLS } from '$lib/roles';
 import { SESSION_COOKIE, validateSession } from '$lib/server/auth';
+import { BUILD_ID } from '$lib/server/buildId';
 import { runMigrations } from '$lib/server/db/migrate';
 import { DEPLOY_CORS_HEADERS } from '$lib/server/deployServe';
 import { startRunpodIdleWatchdog } from '$lib/server/runpodWatchdog';
@@ -13,10 +16,44 @@ export const init: ServerInit = async () => {
 	startRunpodIdleWatchdog();
 };
 
+const attr = (s: string): string =>
+	s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+
+/**
+ * The CRT boot splash for a HARD load of a tool page (typed URL, refresh, a link from a
+ * static tool, or an in-tool full navigation like Flipbook's open-a-clip). Client-side
+ * navigation is covered by `<BootSplash>` in `(app)/+layout.svelte`, but a hard load has no
+ * app running yet — the tool pages are `ssr = false`, so the browser would sit on a blank
+ * shell while the chunk + `load` land. Injecting the vanilla splash into the shell paints it
+ * on the first byte (same trick as the Python tools' `splash_html`); the root `+layout.svelte`
+ * calls `IWBoot.done()` once the app has mounted. See docs/ui-inventory.md §12.
+ */
+function bootSplashTag(pathname: string): string | null {
+	const tool = Object.values(TOOLS).find((t) => t.url === pathname);
+	if (!tool) return null;
+	// `data-settle-ms`: the app itself lifts the splash (root `+layout.svelte` → `IWBoot.done()`),
+	// so the window.load fallback only has to catch a boot that never mounts at all — an
+	// `ssr = false` page has barely STARTED loading its data at `load`.
+	// `?v=BUILD_ID`: the file has a stable name and adapter-node serves static with no
+	// Cache-Control, so without it a browser keeps the previous deploy's splash forever.
+	return (
+		`<script src="/shared/boot-splash.js?v=${BUILD_ID}" data-tool="${attr(tool.name)}"` +
+		` data-settle-ms="8000" data-phrases="${attr(bootPhrases(tool.id).join('|'))}"></script>`
+	);
+}
+
 export const handle: Handle = async ({ event, resolve }) => {
 	const token = event.cookies.get(SESSION_COOKIE);
 	event.locals.user = await validateSession(token);
-	const response = await resolve(event);
+	const splash = bootSplashTag(event.url.pathname);
+	const response = await resolve(
+		event,
+		splash
+			? {
+					transformPageChunk: ({ html }) => html.replace('<!--iw-boot-splash-->', splash),
+				}
+			: undefined,
+	);
 	// The read-only deploy asset tree is fetched cross-origin by the game runtime
 	// (games.invisiblewall.org → app.invisiblewall.org). The handlers set CORS on the
 	// 200/preflight responses, but SvelteKit's error() responses (404/401) don't — so a

@@ -51,7 +51,11 @@
 	var WORK = own.concat(SHARED);
 
 	var MIN_MS = 900; // floor from first paint, so the logo always plays
-	var SETTLE_MS = 400; // grace after window.load when the app never calls done()
+	// Grace after window.load when the app never calls done(). A static app is up by `load`,
+	// so 400ms is right there; a SvelteKit tool page (`ssr = false`) only starts fetching its
+	// data at `load`, so the launcher's shell injection passes a much longer settle and relies
+	// on `IWBoot.done()` from the root layout.
+	var SETTLE_MS = Number((script && script.getAttribute('data-settle-ms')) || 400);
 	var MAX_MS = 20000; // hard cap — never strand the tool behind the splash
 	var FILL = 44;
 	var TICK_MIN = 28,

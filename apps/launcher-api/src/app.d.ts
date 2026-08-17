@@ -15,6 +15,12 @@ declare global {
 		// interface PageState {}
 		// interface Platform {}
 	}
+
+	interface Window {
+		/** The shell's CRT boot splash (`static/shared/boot-splash.js`) — present only on a hard
+		 *  load of a tool page, injected by `hooks.server.ts`. */
+		IWBoot?: { done: () => void; dismiss: () => void };
+	}
 }
 
 export {};
