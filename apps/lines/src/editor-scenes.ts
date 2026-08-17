@@ -1072,7 +1072,18 @@ export function registerEditorTextLocalization(messagesMap: MessagesMap): void {
 			unknown
 		>;
 		if (!(key in catalog)) return undefined;
-		return stateI18nDerived.translate(key);
+		// Return the RAW catalog string, NOT `stateI18nDerived.translate()`.
+		//
+		// A runtime message compiler is installed (`stateI18n`), so `i18n._()` evaluates the
+		// message as ICU — and `_()` with no `values` substitutes EMPTY for every `{token}`.
+		// Win text is deliberately localize-THEN-interpolate (`formatWinText`), so routing its
+		// template through Lingui here consumed the placeholders before the engine could fill
+		// them: "You win {amount} with {count} {symbolName}" rendered as a bare "Vinci  con".
+		// It also silently killed the inline symbol IMAGE, which keys off the interpolated
+		// `{symbolName}`. Plain strings (every coded UI label, symbol names, text nodes) are
+		// byte-identical either way — they have no tokens to evaluate.
+		const message = catalog[key];
+		return typeof message === 'string' ? message : stateI18nDerived.translate(key);
 	});
 }
 
