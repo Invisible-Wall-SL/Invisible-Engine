@@ -34,6 +34,19 @@ Phase 3, the rule-8 ship chain (R2 persistence + the in-game player).
   start, length, clipIn, speed, loop mode (once / fill / count N / ping-pong), blend in/out,
   alpha, and replace-vs-additive. One drag = **one** undo step (the doc updates live so the stage
   follows the gesture, but history is recorded on pointerup).
+- **Property + camera tracks.** Actor **x / y / scale / rotation / alpha** are animatable: press ◆
+  next to a field to key it at the playhead. Keys draw as colour-coded diamonds on their own
+  timeline rows (drag to retime, Del to delete), and a key inspector exposes time, value and
+  **outgoing interpolation** (linear / ease in-out / hold-stepped, drawn as a square like the
+  dopesheet's stepped keys). The **camera** track is keyed from wherever the stage camera IS —
+  frame the shot by panning and zooming, then press ◆ — with a **🎥 live toggle** so the track
+  stops seizing the view while you navigate.
+  Two rules worth knowing: (a) a channel with keys **owns** that property for the whole cinematic,
+  holding its first/last value outside the keyed range, so the actor never jumps at the first key;
+  (b) consequently, once a channel is animated, typing in its numeric field **keys at the
+  playhead** instead of editing the static placement — otherwise the field would appear dead,
+  since the channel overrides the static value on the very next frame. Fields track the playhead
+  while scrubbing.
 - **Undo / redo — `/rigger`'s first, and Phase 2's prerequisite.** ↶/↷ buttons + Ctrl+Z /
   Ctrl+Shift+Z / Ctrl+Y, with the action's name on the button. **Snapshot-based, not
   command-based**: a cinematic doc is a few KB of JSON, so storing whole states is correct by
@@ -51,12 +64,13 @@ Phase 3, the rule-8 ship chain (R2 persistence + the in-game player).
 
 | Proof | Result |
 |---|---|
-| `tools/rigger-spike/cinematic.mjs` — gates 1 + 2 (headless) | **64/64** |
+| `tools/rigger-spike/cinematic.mjs` — gates 1 + 2 + channel sampling (headless) | **85/85** |
 | `tools/rigger-spike/cinematic-pixi.mjs` — gate 3, the `spine-pixi-v8` seam | **14/14** |
 | `static/rigger/cinematic-harness.html` — gate 2's WebGL half, in a real browser | **11/11** |
 | `/rigger` cinematic mode, driven live in a browser | cast · draw · animate · scrub · place · z-order · visibility · clip-swap |
 | Undo/redo, driven live in a browser | **22/22** — history semantics (10), keyboard scoping (7), stage re-pose + buttons (5) |
 | Phase 2 sequencer, driven live in a browser | **35/35** — drag/trim/snap (11), inspector + layers (15), stage honours the authored strips (9) |
+| Property + camera tracks, driven live in a browser | **36/36** — keying + channel rows (9), stage honours the channels (8), camera track + live toggle (12), key retime/ease/delete (7) |
 
 Headless fixtures are real shipped rigs (`mm_bigwin` 86 bones, `anticipation` 73 bones); the
 browser harness stages `anticipation` + `reelhouse_glow` — deliberately **different atlases**.
@@ -97,10 +111,10 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
    `localStorage`-only today, so a cinematic does not survive a different browser), then
    export → `deploy/` → bake → pull → register, the `<Cinematic>` engine component, and the
    Flow-v2 `playCinematic` node. **Nothing authored here reaches a game until this lands.**
-2. **Phase 2 remainder** — the track kinds that are still animation-only: **property** tracks
-   (actor x/y/scale/alpha over time — today placement is a static per-actor value), **camera**,
-   **visibility** and **cue** tracks. The doc schema already names them (design §4.2); only the
-   `animation` kind is implemented.
+2. **Phase 2 remainder** — **visibility** and **cue** tracks (named in the schema, design §4.2;
+   `animation`, `property` and `camera` are implemented). Visibility is a static per-actor toggle
+   today; cues are the `fx:` / `sfx:` / `signal:` surface and are best built alongside the Flow
+   wiring in Phase 3.
 3. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
    geometry and the frame visibly changes. Drive one spine object through the `<Cinematic>`
    contract in a real game frame before Phase 3 leans on it.
@@ -122,6 +136,16 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-17 — **Property + camera tracks** (details in Current state). The sampling lives in the
+  SHARED evaluator (`sampleChannel` / `sampleTrack` / `resolvePlace` / `putKey`), not in the
+  editor, so the in-game player will interpolate identically — same rule as the blend maths.
+  21 new headless assertions (85/85) plus 36 live checks, including that the stage genuinely
+  honours the channels: a linear x channel lands the actor on the exact linear midpoint, a `hold`
+  key makes the segment stepped **on the rendered stage**, alpha fades continuously rather than
+  binary, and the camera track drives the view while the 🎥 live toggle hands it back. Two of my
+  own assertions were wrong first: the default `*_intro` clip renders NOTHING at t=0, so an empty
+  frame poisoned two baselines — the probe now reports an empty frame as `null` rather than a
+  `cx` of 0, which is what let it pass unnoticed.
 - 2026-08-17 — **Phase 2: the track/strip sequencer** (details in Current state). 35/35 live
   checks, including that the stage genuinely honours the authored strips — a strip starting at
   2 s leaves the actor at its setup pose before then, holds its last frame after the end

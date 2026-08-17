@@ -248,6 +248,9 @@ window.RiggerCinematic = (function () {
 		const s = place.scale == null ? 1 : place.scale;
 		sk.scaleX = (place.flipX ? -1 : 1) * s;
 		sk.scaleY = s;
+		// `setToSetupPose` does NOT reset skeleton.color, so alpha has to be written every frame
+		// or a once-faded actor stays faded forever.
+		sk.color.a = place.alpha == null ? 1 : place.alpha;
 		// Skeleton has no rotation field in 4.2 — rotate the root bone instead. AFTER the clip
 		// posed it (so it composes with the animation) and BEFORE updateWorldTransform.
 		if (place.rotation) {
@@ -255,6 +258,9 @@ window.RiggerCinematic = (function () {
 			if (root) root.rotation += place.rotation;
 		}
 	}
+
+	const propertyTracksOf = (actorId) => doc.tracks.filter((t) => t.actorId === actorId && t.kind === 'property');
+	const cameraTrack = () => doc.tracks.find((t) => t.kind === 'camera') || null;
 
 	/** Pose every actor at cinematic time `t`. Pure in `t` — see the evaluator's header. */
 	function evaluate(t) {
@@ -264,11 +270,33 @@ window.RiggerCinematic = (function () {
 			const cast = castOf(actor.actorId);
 			if (!cast) continue;
 			EV.evaluateActor(spineNs, actor.evalTarget, t, resolveClip);
-			applyPlace(actor, cast.place);
+			applyPlace(actor, EV.resolvePlace(cast.place, propertyTracksOf(actor.actorId), t));
 			if (spineNs.Physics && spineNs.Physics.update !== undefined)
 				actor.skeleton.updateWorldTransform(spineNs.Physics.update);
 			else actor.skeleton.updateWorldTransform();
 		}
+		applyCamera(t);
+	}
+
+	/**
+	 * Drive the stage camera from the camera track.
+	 *
+	 * Only when it actually has keys AND `cameraLive` is on — an author needs to pan/zoom freely
+	 * while building a shot, and a camera track that seized the view every frame would make the
+	 * stage impossible to navigate. `cameraLive` is session UI state, deliberately NOT in the doc.
+	 */
+	function applyCamera(t) {
+		if (!cameraLive) return;
+		const track = cameraTrack();
+		if (!track) return;
+		const v = EV.sampleTrack(track, t);
+		const cam = ctx.renderer() && ctx.renderer().camera;
+		if (!cam) return;
+		let touched = false;
+		if (v.x !== undefined) { cam.position.x = v.x; touched = true; }
+		if (v.y !== undefined) { cam.position.y = v.y; touched = true; }
+		if (v.zoom !== undefined) { cam.zoom = Math.max(0.01, v.zoom); touched = true; }
+		if (touched) cam.update();
 	}
 
 	// ---- frame --------------------------------------------------------------
@@ -306,6 +334,28 @@ window.RiggerCinematic = (function () {
 		const t = $('#cineTime');
 		if (t && document.activeElement !== t) t.value = time.toFixed(2);
 		positionPlayhead(); // cheap: move one element, never re-render the timeline per frame
+		syncPlaceFields();
+	}
+
+	/**
+	 * Keep the actor's numeric fields showing the value AT THE PLAYHEAD for animated channels —
+	 * otherwise scrubbing leaves them displaying whatever they said when the panel was last built,
+	 * which reads as "the field is broken". Skips the focused field so it never fights typing.
+	 */
+	function syncPlaceFields() {
+		if (!doc) return;
+		document.querySelectorAll('.cineActor').forEach((row) => {
+			const actorId = row.dataset.actor;
+			const track = propertyTracksOf(actorId)[0];
+			if (!track) return;
+			for (const chan of PROP_CHANNELS) {
+				if (!track.channels[chan.key]) continue;
+				const input = row.querySelector('[data-act="' + chan.key + '"]');
+				if (!input || document.activeElement === input) continue;
+				const v = +effectivePlaceValue(actorId, chan.key).toFixed(3);
+				if (parseFloat(input.value) !== v) input.value = v;
+			}
+		});
 	}
 
 	// ---- camera -------------------------------------------------------------
@@ -493,12 +543,28 @@ window.RiggerCinematic = (function () {
 		renderTimeline();
 	}
 
-	/** Tracks grouped by cast order, so the timeline reads in the same order as the cast list. */
+	/**
+	 * Rows in cast order: each actor's animation layers, then its property channels; the camera
+	 * track last, so global rows sit at the bottom where a sequencer usually puts them.
+	 */
 	function orderedTracks() {
 		const out = [];
 		for (const cast of doc.stage.cast.slice().sort((a, b) => (a.z || 0) - (b.z || 0))) {
-			const mine = doc.tracks.filter((t) => t.actorId === cast.actorId).sort((a, b) => (a.layer || 0) - (b.layer || 0));
-			mine.forEach((track, i) => out.push({ cast, track, first: i === 0, count: mine.length }));
+			const anim = doc.tracks
+				.filter((t) => t.actorId === cast.actorId && t.kind === 'animation')
+				.sort((a, b) => (a.layer || 0) - (b.layer || 0));
+			anim.forEach((track, i) => out.push({ kind: 'animation', cast, track, first: i === 0, count: anim.length }));
+			for (const track of propertyTracksOf(cast.actorId)) {
+				for (const chan of PROP_CHANNELS) {
+					if (track.channels[chan.key]) out.push({ kind: 'channel', cast, track, chan });
+				}
+			}
+		}
+		const cam = cameraTrack();
+		if (cam) {
+			for (const chan of CAM_CHANNELS) {
+				if (cam.channels[chan.key]) out.push({ kind: 'channel', cast: null, track: cam, chan, camera: true });
+			}
 		}
 		return out;
 	}
@@ -539,11 +605,41 @@ window.RiggerCinematic = (function () {
 		ruler.onpointerup = () => { rulerDrag = false; };
 		el.appendChild(ruler);
 
-		for (const { cast, track, first, count } of rows) {
+		for (const entry of rows) {
+			const { cast, track, first, count } = entry;
 			const row = document.createElement('div');
 			row.className = 'cineTrack';
 			row.style.width = TL_GUTTER + contentW + 'px';
 			row.dataset.track = track.id;
+
+			// A CHANNEL row: keys as diamonds, coloured per channel. Its own shape, not a lane of
+			// strips — property/camera animation is keyframes, not clips.
+			if (entry.kind === 'channel') {
+				row.classList.add('cineChanRow');
+				row.dataset.channel = entry.chan.key;
+				const g = document.createElement('div');
+				g.className = 'cineGutter';
+				g.innerHTML =
+					'<span class="cineTrackName cineChanName" style="color:' + entry.chan.color + ';">' +
+					(entry.camera ? '🎥 ' : '↳ ') + esc(entry.chan.label) + '</span>';
+				row.appendChild(g);
+				const lane = document.createElement('div');
+				lane.className = 'cineLane';
+				lane.style.width = contentW + 'px';
+				for (const k of track.channels[entry.chan.key]) {
+					const dot = document.createElement('span');
+					const isSel = selKey && selKey.trackId === track.id && selKey.channel === entry.chan.key && Math.abs(selKey.time - k.time) < 1e-6;
+					dot.className = 'cineKey' + (isSel ? ' sel' : '') + (k.ease === 'hold' ? ' hold' : '');
+					dot.style.left = (k.time * pps).toFixed(1) + 'px';
+					dot.style.background = isSel ? '#ffd24a' : entry.chan.color;
+					dot.dataset.time = k.time;
+					dot.title = entry.chan.label + ' = ' + (+k.value.toFixed(3)) + ' @ ' + (+k.time.toFixed(3)) + 's (' + (k.ease || 'linear') + ')';
+					lane.appendChild(dot);
+				}
+				row.appendChild(lane);
+				el.appendChild(row);
+				continue;
+			}
 
 			const gutter = document.createElement('div');
 			gutter.className = 'cineGutter';
@@ -628,6 +724,53 @@ window.RiggerCinematic = (function () {
 				else if (act === 'addLayer') addLayer(trackId);
 				else if (act === 'delLayer') removeLayer(trackId);
 			};
+		});
+
+		// Channel keys: click to select, drag to retime.
+		el.querySelectorAll('.cineChanRow .cineKey').forEach((dot) => {
+			const row = dot.closest('.cineChanRow');
+			const trackId = row.dataset.track;
+			const channel = row.dataset.channel;
+			dot.onpointerdown = (e) => {
+				e.preventDefault();
+				e.stopPropagation();
+				const keyTime = parseFloat(dot.dataset.time);
+				selKey = { trackId, channel, time: keyTime };
+				tlDrag = { kind: 'key', trackId, channel, time: keyTime, startX: e.clientX, pps, el: dot, moved: false };
+				try { dot.setPointerCapture(e.pointerId); } catch { /* uncaptured drag still works */ }
+				row.querySelectorAll('.cineKey.sel').forEach((n) => n.classList.remove('sel'));
+				dot.classList.add('sel');
+				renderPanel();
+			};
+			dot.onpointermove = (e) => {
+				if (!tlDrag || tlDrag.kind !== 'key' || tlDrag.el !== dot) return;
+				const track = doc.tracks.find((t) => t.id === trackId);
+				const keys = track && track.channels[channel];
+				if (!keys) return;
+				const k = keys.find((x) => Math.abs(x.time - tlDrag.time) < 1e-6);
+				if (!k) return;
+				if (Math.abs(e.clientX - tlDrag.startX) > 2) tlDrag.moved = true;
+				k.time = snapT(tlDrag.time + (e.clientX - tlDrag.startX) / tlDrag.pps, e.altKey);
+				dot.style.left = (k.time * tlDrag.pps).toFixed(1) + 'px';
+				evaluate(time);
+			};
+			const endKey = () => {
+				if (!tlDrag || tlDrag.kind !== 'key' || tlDrag.el !== dot) return;
+				const moved = tlDrag.moved;
+				const track = doc.tracks.find((t) => t.id === trackId);
+				const keys = track && track.channels[channel];
+				if (keys) keys.sort((a, b) => a.time - b.time);
+				if (moved) {
+					const k = keys && keys.find((x) => Math.abs(x.time - parseFloat(dot.style.left) / tlDrag.pps) < 0.01);
+					selKey = { trackId, channel, time: k ? k.time : tlDrag.time };
+				}
+				tlDrag = null;
+				if (moved) commit('move key', 'key:' + trackId + ':' + channel);
+				renderTimeline();
+				renderPanel();
+			};
+			dot.onpointerup = endKey;
+			dot.onpointercancel = endKey;
 		});
 
 		el.querySelectorAll('.cineStrip').forEach((d) => {
@@ -796,6 +939,108 @@ window.RiggerCinematic = (function () {
 		renderPanel();
 	}
 
+	// ---- property + camera keys ---------------------------------------------
+	//
+	// A channel with keys OWNS its property for the whole cinematic (see the evaluator's note), so
+	// the static placement is the value you get until you key it, and the keys take over the
+	// moment the first one exists. That is why the ◆ button reads the CURRENT effective value:
+	// keying never makes the actor jump at the instant you key it.
+
+	const PROP_CHANNELS = [
+		{ key: 'x', label: 'x', color: '#5cc8ff' },
+		{ key: 'y', label: 'y', color: '#9b8cff' },
+		{ key: 'scale', label: 'scale', color: '#7ee0c0' },
+		{ key: 'rotation', label: 'rot', color: '#ff6b6b' },
+		{ key: 'alpha', label: 'alpha', color: '#e0a64a' },
+	];
+	const CAM_CHANNELS = [
+		{ key: 'x', label: 'x', color: '#5cc8ff' },
+		{ key: 'y', label: 'y', color: '#9b8cff' },
+		{ key: 'zoom', label: 'zoom', color: '#7ee0c0' },
+	];
+
+	let cameraLive = true;
+	let selKey = null; // { trackId, channel, time }
+
+	/** The actor's property track, created on first use so an un-animated actor carries no track. */
+	function ensurePropertyTrack(actorId) {
+		let track = propertyTracksOf(actorId)[0];
+		if (!track) {
+			track = { id: uid('prop'), actorId, kind: 'property', channels: {} };
+			doc.tracks.push(track);
+		}
+		return track;
+	}
+
+	function ensureCameraTrack() {
+		let track = cameraTrack();
+		if (!track) {
+			track = { id: uid('cam'), actorId: null, kind: 'camera', channels: {} };
+			doc.tracks.push(track);
+		}
+		return track;
+	}
+
+	/** Effective value of one actor property right now — static placement or the sampled channel. */
+	function effectivePlaceValue(actorId, channel) {
+		const cast = castOf(actorId);
+		if (!cast) return 0;
+		const resolved = EV.resolvePlace(cast.place, propertyTracksOf(actorId), time);
+		return resolved[channel] == null ? (channel === 'scale' || channel === 'alpha' ? 1 : 0) : resolved[channel];
+	}
+
+	function keyProperty(actorId, channel, value) {
+		const track = ensurePropertyTrack(actorId);
+		track.channels[channel] = track.channels[channel] || [];
+		EV.putKey(track.channels[channel], snapT(time), value == null ? effectivePlaceValue(actorId, channel) : value);
+		commit('key ' + channel);
+		renderPanel();
+		renderTimeline();
+	}
+
+	function keyCamera(channel) {
+		const cam = ctx.renderer() && ctx.renderer().camera;
+		if (!cam) return;
+		const track = ensureCameraTrack();
+		track.channels[channel] = track.channels[channel] || [];
+		const v = channel === 'zoom' ? cam.zoom : channel === 'x' ? cam.position.x : cam.position.y;
+		EV.putKey(track.channels[channel], snapT(time), v);
+		commit('key camera ' + channel);
+		renderPanel();
+		renderTimeline();
+	}
+
+	function deleteKey(trackId, channel, keyTime) {
+		const track = doc.tracks.find((t) => t.id === trackId);
+		if (!track || !track.channels[channel]) return;
+		track.channels[channel] = track.channels[channel].filter((k) => Math.abs(k.time - keyTime) > 1e-6);
+		if (!track.channels[channel].length) delete track.channels[channel];
+		// A property/camera track with no channels left is noise — drop it so an actor that was
+		// animated and then un-animated is indistinguishable from one that never was.
+		if (!Object.keys(track.channels).length) doc.tracks = doc.tracks.filter((t) => t.id !== trackId);
+		selKey = null;
+		commit('delete key');
+		renderPanel();
+		renderTimeline();
+	}
+
+	function setKeyField(field, value) {
+		if (!selKey) return;
+		const track = doc.tracks.find((t) => t.id === selKey.trackId);
+		const keys = track && track.channels[selKey.channel];
+		if (!keys) return;
+		const k = keys.find((x) => Math.abs(x.time - selKey.time) < 1e-6);
+		if (!k) return;
+		if (field === 'time') {
+			k.time = Math.max(0, value);
+			keys.sort((a, b) => a.time - b.time);
+			selKey = Object.assign({}, selKey, { time: k.time });
+		} else k[field] = value;
+		commit('edit key', 'key:' + selKey.trackId + ':' + selKey.channel + ':' + field);
+		renderPanel();
+		renderTimeline();
+	}
+
 	// ---- panel --------------------------------------------------------------
 
 	function renderPanel() {
@@ -826,10 +1071,13 @@ window.RiggerCinematic = (function () {
 	</div>
 	<select data-act="clip" title="Which of this rig's animations plays">${opts}</select>
 	<div class="cinePlace">
-		<label>x<input type="number" step="1" data-act="x" value="${p.x}"></label>
-		<label>y<input type="number" step="1" data-act="y" value="${p.y}"></label>
-		<label>scale<input type="number" step="0.05" data-act="scale" value="${p.scale}"></label>
-		<label>rot<input type="number" step="1" data-act="rotation" value="${p.rotation}"></label>
+		${PROP_CHANNELS.map((c) => {
+			const keyed = !!(propertyTracksOf(cast.actorId)[0] || { channels: {} }).channels[c.key];
+			const shown = keyed ? +effectivePlaceValue(cast.actorId, c.key).toFixed(3) : (p[c.key] == null ? (c.key === 'scale' || c.key === 'alpha' ? 1 : 0) : p[c.key]);
+			const step = c.key === 'scale' || c.key === 'alpha' ? 0.05 : 1;
+			return `<label${keyed ? ' class="keyed"' : ''}>${c.label}<input type="number" step="${step}" data-act="${c.key}" value="${shown}">` +
+				`<button class="cineKeyBtn${keyed ? ' on' : ''}" data-key="${c.key}" title="${keyed ? 'Key ' + c.label + ' at the playhead (this channel is animated)' : 'Animate ' + c.label + ' — keys it at the playhead'}">◆</button></label>`;
+		}).join('')}
 		<label class="cineFlip">flip<input type="checkbox" data-act="flipX"${p.flipX ? ' checked' : ''}></label>
 	</div>
 </div>`;
@@ -855,6 +1103,8 @@ window.RiggerCinematic = (function () {
 </div>
 <div class="cineStatus">${loadingCount ? 'loading rig…' : esc(statusMsg)}</div>
 <div id="cineCast">${rows || '<div class="cineEmpty">No actors yet — pick a rig above and press ＋ Cast.</div>'}</div>
+${cameraMarkup()}
+${keyInspectorMarkup()}
 ${stripInspectorMarkup()}
 <div class="cineNote">Drag a strip to move it · drag its edges to trim · hold Alt to ignore the fps grid · Ctrl+wheel over the timeline to zoom.</div>`;
 
@@ -867,6 +1117,7 @@ ${stripInspectorMarkup()}
 		$('#cineUndo').onclick = undo;
 		$('#cineRedo').onclick = redo;
 		wireStripInspector();
+		wireChannelControls();
 		$('#cineDur').onchange = (e) => setDuration(e.target.value);
 		$('#cineTime').onchange = (e) => setTime(parseFloat(e.target.value) || 0);
 
@@ -877,6 +1128,9 @@ ${stripInspectorMarkup()}
 				selActorId = actorId;
 				renderPanel();
 			};
+			el.querySelectorAll('.cineKeyBtn[data-key]').forEach((btn) => {
+				btn.onclick = (e) => { e.stopPropagation(); keyProperty(actorId, btn.dataset.key, null); };
+			});
 			el.querySelectorAll('[data-act]').forEach((node) => {
 				const act = node.dataset.act;
 				if (act === 'clip') {
@@ -884,7 +1138,15 @@ ${stripInspectorMarkup()}
 					return;
 				}
 				if (node.tagName === 'INPUT' && node.type === 'number') {
-					node.onchange = (e) => setPlace(actorId, act, parseFloat(e.target.value) || 0);
+					node.onchange = (e) => {
+						const v = parseFloat(e.target.value) || 0;
+						// Once a channel is animated, typing a value KEYS it at the playhead rather than
+						// editing the static placement — otherwise the field would appear to do nothing,
+						// because the channel overrides the static value on the very next frame.
+						const track = propertyTracksOf(actorId)[0];
+						if (track && track.channels[act]) keyProperty(actorId, act, v);
+						else setPlace(actorId, act, v);
+					};
 					return;
 				}
 				if (node.tagName === 'INPUT' && node.type === 'checkbox') {
@@ -904,6 +1166,44 @@ ${stripInspectorMarkup()}
 				};
 			});
 		});
+	}
+
+	/**
+	 * Camera section. Keys come from wherever the stage camera IS — frame the shot by panning and
+	 * zooming, then press ◆. That is the whole workflow, so there are no numeric camera fields to
+	 * type into; the numbers are a consequence of the view, not the other way round.
+	 */
+	function cameraMarkup() {
+		const track = cameraTrack();
+		const keyed = (k) => !!(track && track.channels[k]);
+		const any = CAM_CHANNELS.some((c) => keyed(c.key));
+		return `
+<div class="cineHead" style="border-top:1px solid var(--line);"><b>🎥 Camera</b><small>${any ? 'animated' : 'not animated'}</small></div>
+<div class="cineRow">
+	${CAM_CHANNELS.map((c) => `<button class="cineKeyBtn${keyed(c.key) ? ' on' : ''}" data-camkey="${c.key}" title="Key the camera's ${c.label} at the playhead, from the current view">◆ ${c.label}</button>`).join('')}
+	${any ? `<button id="cineCamLive" class="${cameraLive ? 'on' : ''}" title="${cameraLive ? 'The camera track is driving the view — turn off to pan/zoom freely while editing' : 'The camera track is NOT driving the view'}">${cameraLive ? '🎥 live' : '🎥 off'}</button>` : ''}
+</div>`;
+	}
+
+	/** Inspector for a selected property/camera key — time, value and its outgoing interpolation. */
+	function keyInspectorMarkup() {
+		if (!selKey) return '';
+		const track = doc.tracks.find((t) => t.id === selKey.trackId);
+		const keys = track && track.channels[selKey.channel];
+		const k = keys && keys.find((x) => Math.abs(x.time - selKey.time) < 1e-6);
+		if (!k) return '';
+		const ease = k.ease || 'linear';
+		const opt = (v, label) => `<option value="${v}"${ease === v ? ' selected' : ''}>${label}</option>`;
+		return `
+<div class="cineHead" style="border-top:1px solid var(--line);"><b>Key</b><small>${esc(selKey.channel)}${track.kind === 'camera' ? ' (camera)' : ''}</small></div>
+<div class="cineStripInsp">
+	<label>time<input type="number" step="0.05" min="0" data-kact="time" value="${+k.time.toFixed(3)}"></label>
+	<label>value<input type="number" step="0.1" data-kact="value" value="${+k.value.toFixed(3)}"></label>
+	<label class="wide">out<select data-kact="ease">
+		${opt('linear', 'linear')}${opt('ease', 'ease in-out')}${opt('hold', 'hold (stepped)')}
+	</select></label>
+</div>
+<div class="cineRow"><button id="cineDelKey" title="Delete this key">🗑 Delete key</button></div>`;
 	}
 
 	/** Inspector for the selected strip — every field the evaluator actually reads (design §4.2). */
@@ -947,6 +1247,22 @@ ${stripInspectorMarkup()}
 </div>`;
 	}
 
+	function wireChannelControls() {
+		document.querySelectorAll('[data-camkey]').forEach((b) => {
+			b.onclick = () => keyCamera(b.dataset.camkey);
+		});
+		const live = $('#cineCamLive');
+		if (live) live.onclick = () => { cameraLive = !cameraLive; renderPanel(); };
+		const delKey = $('#cineDelKey');
+		if (delKey) delKey.onclick = () => selKey && deleteKey(selKey.trackId, selKey.channel, selKey.time);
+		document.querySelectorAll('[data-kact]').forEach((node) => {
+			node.onchange = (e) => {
+				const f = node.dataset.kact;
+				setKeyField(f, f === 'ease' ? e.target.value : parseFloat(e.target.value) || 0);
+			};
+		});
+	}
+
 	function wireStripInspector() {
 		const dup = $('#cineDupStrip');
 		if (dup) dup.onclick = () => duplicateStrip(selStripId);
@@ -986,11 +1302,11 @@ ${stripInspectorMarkup()}
 			else if (key === 'd' && selStripId) { e.preventDefault(); duplicateStrip(selStripId); }
 			return;
 		}
-		// Delete the selected strip. The rigger's own Delete handler gates on `animMode`, so it is
-		// inert here and the two cannot both fire.
-		if ((e.key === 'Delete' || e.key === 'Backspace') && selStripId) {
-			e.preventDefault();
-			deleteStrip(selStripId);
+		// Delete the selected key, else the selected strip. The rigger's own Delete handler gates on
+		// `animMode`, so it is inert here and the two cannot both fire.
+		if (e.key === 'Delete' || e.key === 'Backspace') {
+			if (selKey) { e.preventDefault(); deleteKey(selKey.trackId, selKey.channel, selKey.time); }
+			else if (selStripId) { e.preventDefault(); deleteStrip(selStripId); }
 		}
 	}
 

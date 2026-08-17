@@ -254,6 +254,79 @@ export function evaluateActor(spine, actor, t, resolveClip) {
 	return firstApplied;
 }
 
+// ---- property / camera channels -------------------------------------------
+//
+// A CHANNEL is a sorted list of `{ time, value, ease }` keys. `ease` belongs to the key on the
+// LEFT of a segment (its outgoing interpolation) — the same convention Spine and every dope
+// sheet uses, so "make this key stepped" affects the segment that leaves it.
+//
+// Outside the keyed range a channel HOLDS its first/last value rather than falling back to the
+// actor's static placement. A channel with keys owns that property outright for the whole
+// cinematic; mixing "keys in the middle, static value at the edges" would make the actor jump at
+// the first and last key, which is never what an author means.
+
+const EASE = {
+	hold: () => 0,
+	linear: (u) => u,
+	ease: (u) => u * u * (3 - 2 * u), // smoothstep — ease in AND out
+};
+
+/**
+ * Value of one channel at `t`, or `undefined` when the channel has no keys (the caller then
+ * falls back to the actor's static placement).
+ */
+export function sampleChannel(keys, t) {
+	if (!keys || !keys.length) return undefined;
+	if (keys.length === 1 || t <= keys[0].time) return keys[0].value;
+	const last = keys[keys.length - 1];
+	if (t >= last.time) return last.value;
+
+	let i = 0;
+	while (i < keys.length - 2 && keys[i + 1].time <= t) i++;
+	const a = keys[i];
+	const b = keys[i + 1];
+	const span = b.time - a.time;
+	if (span <= 0) return b.value;
+	const u = (t - a.time) / span;
+	const shape = EASE[a.ease] || EASE.linear;
+	return a.value + (b.value - a.value) * shape(u);
+}
+
+/** Every channel of a property/camera track sampled at `t`. Keyless channels are omitted. */
+export function sampleTrack(track, t) {
+	const out = {};
+	if (!track || !track.channels) return out;
+	for (const [name, keys] of Object.entries(track.channels)) {
+		const v = sampleChannel(keys, t);
+		if (v !== undefined) out[name] = v;
+	}
+	return out;
+}
+
+/**
+ * An actor's effective placement at `t`: its static `place` overridden by any keyed channel.
+ * "Place it, then animate only what you want to move."
+ */
+export function resolvePlace(place, propertyTracks, t) {
+	const out = Object.assign({}, place);
+	for (const track of propertyTracks || []) Object.assign(out, sampleTrack(track, t));
+	return out;
+}
+
+/** Insert or replace a key at `time` (exact-time match wins), keeping the channel sorted. */
+export function putKey(keys, time, value, ease = 'linear') {
+	const eps = 1e-6;
+	const existing = keys.findIndex((k) => Math.abs(k.time - time) < eps);
+	if (existing >= 0) {
+		keys[existing] = { time, value, ease: keys[existing].ease || ease };
+		return keys[existing];
+	}
+	const key = { time, value, ease };
+	keys.push(key);
+	keys.sort((a, b) => a.time - b.time);
+	return key;
+}
+
 // ---- cues -----------------------------------------------------------------
 
 /**

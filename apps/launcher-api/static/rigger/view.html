@@ -113,6 +113,18 @@
   .cineRamp.out { right:0; background:linear-gradient(270deg, rgba(0,0,0,.55), rgba(0,0,0,0)); }
   .cinePlayhead { position:absolute; top:0; bottom:0; width:1px; background:#ffd24a; z-index:6;
     pointer-events:none; box-shadow:0 0 4px rgba(255,210,74,.6); }
+  /* property / camera channel rows: keyframe diamonds, one row per animated channel */
+  .cineChanRow { height:20px; background:rgba(0,0,0,.12); }
+  .cineChanName { font-size:10px; opacity:.9; }
+  .cineKey { position:absolute; top:4px; width:11px; height:11px; margin-left:-6px;
+    transform:rotate(45deg); border:1px solid #0c0f14; cursor:ew-resize; z-index:1;
+    box-shadow:0 0 0 1px rgba(0,0,0,.4); }
+  .cineKey.hold { transform:none; border-radius:1px; }  /* upright square = stepped, as in the dopesheet */
+  .cineKey.sel { outline:1px solid #fff; }
+  .cineKeyBtn { padding:0 4px; font-size:10px; opacity:.45; line-height:1.6; }
+  .cineKeyBtn:hover { opacity:1; }
+  .cineKeyBtn.on { opacity:1; color:#ffd24a; border-color:#7a6a2e; }
+  .cinePlace label.keyed { color:#ffd24a; }
   #list { flex:1; min-height:0; overflow:auto; }
   .item { padding:7px 14px; border-bottom:1px solid #2a2e36; cursor:pointer; }
   .item:hover { background:var(--panel2); }

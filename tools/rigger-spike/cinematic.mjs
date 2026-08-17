@@ -21,6 +21,10 @@ import {
 	evaluateActor,
 	cuesCrossed,
 	expandBoneMask,
+	sampleChannel,
+	sampleTrack,
+	resolvePlace,
+	putKey,
 } from '../../apps/launcher-api/static/shared/cinematicEval.mjs';
 
 const CORE = new URL(
@@ -533,6 +537,70 @@ section('7. Cue edge-triggering');
 	let last = 0;
 	for (let t = 0; t <= 2.5; t += 1 / 60) { fired.push(...cuesCrossed(keys, last, t)); last = t; }
 	ok('a full forward play fires each cue exactly once', fired.length === keys.length);
+}
+
+// =========================================================================
+section('8. Property / camera channels');
+// =========================================================================
+{
+	const ch = [
+		{ time: 0, value: 0, ease: 'linear' },
+		{ time: 2, value: 10, ease: 'hold' },
+		{ time: 4, value: 20, ease: 'ease' },
+		{ time: 6, value: 0, ease: 'linear' },
+	];
+	ok('no keys ⇒ undefined (caller falls back to the static value)', sampleChannel([], 1) === undefined);
+	ok('a single key holds everywhere', sampleChannel([{ time: 5, value: 7 }], 0) === 7 && sampleChannel([{ time: 5, value: 7 }], 99) === 7);
+	ok('before the first key holds the first value', sampleChannel(ch, -5) === 0);
+	ok('after the last key holds the last value', sampleChannel(ch, 99) === 0);
+	ok('on a key returns exactly that key', sampleChannel(ch, 2) === 10 && sampleChannel(ch, 4) === 20);
+	ok('linear interpolates', near(sampleChannel(ch, 1), 5));
+	ok("a 'hold' key makes its OUTGOING segment stepped", sampleChannel(ch, 3) === 10 && sampleChannel(ch, 3.99) === 10);
+	ok("...and the NEXT key still lands exactly", sampleChannel(ch, 4) === 20);
+	ok("'ease' is symmetric smoothstep (midpoint = plain midpoint)", near(sampleChannel(ch, 5), 10));
+	ok("'ease' departs slower than linear near the start", sampleChannel(ch, 4.4) > 20 - (20 - 0) * 0.2 * 1.0 && sampleChannel(ch, 4.4) > sampleChannel([{ time: 4, value: 20, ease: 'linear' }, { time: 6, value: 0 }], 4.4));
+	ok('monotone within a segment', (() => {
+		let prev = -Infinity, mono = true;
+		for (let t = 0; t <= 2; t += 0.05) { const v = sampleChannel(ch, t); if (v < prev - 1e-9) mono = false; prev = v; }
+		return mono;
+	})());
+	// Two keys at the SAME time = an instant jump. Which side wins exactly ON the time is an
+	// arbitrary tie-break (we return the left one, then the right immediately after); what must
+	// hold is that it never divides by zero or produces NaN.
+	{
+		const dup = [{ time: 1, value: 3 }, { time: 1, value: 9 }];
+		const on = sampleChannel(dup, 1);
+		const after = sampleChannel(dup, 1.0001);
+		ok(
+			'duplicate-time keys are an instant jump, never NaN',
+			Number.isFinite(on) && (on === 3 || on === 9) && after === 9,
+			`on=${on} after=${after}`,
+		);
+	}
+
+	// sampleTrack / resolvePlace
+	const track = { kind: 'property', channels: { x: [{ time: 0, value: 0 }, { time: 2, value: 100 }], alpha: [] } };
+	const at1 = sampleTrack(track, 1);
+	ok('sampleTrack returns only KEYED channels', near(at1.x, 50) && !('alpha' in at1), JSON.stringify(at1));
+
+	const place = { x: 7, y: 9, scale: 1, rotation: 0, flipX: false };
+	const resolved = resolvePlace(place, [track], 1);
+	ok('a keyed channel overrides the static placement', near(resolved.x, 50));
+	ok('...and un-keyed properties keep the static value', resolved.y === 9 && resolved.scale === 1 && resolved.flipX === false);
+	ok('resolvePlace does not mutate the static placement', place.x === 7);
+	ok('no property tracks ⇒ the static placement, unchanged', JSON.stringify(resolvePlace(place, [], 3)) === JSON.stringify(place));
+
+	// putKey
+	const keys = [];
+	putKey(keys, 2, 20);
+	putKey(keys, 0, 0);
+	putKey(keys, 1, 10);
+	ok('putKey keeps the channel sorted', keys.map((k) => k.time).join(',') === '0,1,2');
+	putKey(keys, 1, 99);
+	ok('putKey at an existing time REPLACES rather than duplicating', keys.length === 3 && keys[1].value === 99);
+	putKey(keys, 1, 55, 'hold');
+	ok('replacing preserves the existing ease', keys[1].ease === 'linear', `ease=${keys[1].ease}`);
+	ok('a new key takes the ease it was given', putKey(keys, 5, 1, 'hold').ease === 'hold');
 }
 
 // =========================================================================
