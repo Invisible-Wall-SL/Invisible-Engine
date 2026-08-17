@@ -28,7 +28,7 @@ It mirrors the live in-game Symbol Debug overlay (`SymbolDebugOverlay.svelte`, g
   grid is client-rendered (the route sets `ssr = false`) because each cell draws a canvas
   thumbnail and the focused cell mounts a live WebGL spine preview.
 - **Access:** the `symbols` tool (registry name "Invisible Symbols State Machine", bar
-  name "Symbols SM"). Granted to `admin`, `developer`, and `artist` roles by default;
+  name "Symbols SM"). Granted to `admin`, `developer`, `artist` and `pipelineTester` roles by default;
   overridable per role/user from the admin panel like any other tool.
 
 The grid is scaffolded from the **active project's** symbol set. The launcher is cloud

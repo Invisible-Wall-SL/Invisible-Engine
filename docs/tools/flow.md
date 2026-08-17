@@ -41,8 +41,8 @@ z-order).
   authed `(app)` area, **never an iframe**. The route gates on auth + the `flow` tool
   entitlement and resolves the active project, then renders the graph client-side (SSR is
   off because the canvas touches `window`).
-- **Access:** the `admin`, `developer` and `artist` roles get it by default (`ROLE_TOOLS`
-  in `src/lib/roles.ts`); the `animator` role does not. Like any tool it is overridable
+- **Access:** the `admin`, `developer`, `artist` and `pipelineTester` roles get it by
+  default (`ROLE_TOOLS` in `src/lib/roles.ts`); the `animator` role does not. Like any tool it is overridable
   per role/user in the admin panel. The save endpoint (`POST /api/flow-v2/save`) is
   `flow`-gated and scoped to your session's active project.
 

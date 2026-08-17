@@ -32,12 +32,15 @@ Every account has one role, and each role sees a different set of tools. The
 registry lives in `apps/launcher-api/src/lib/roles.ts` (`TOOLS` = every tool;
 `ROLE_TOOLS` = which tools each role gets):
 
-| Role | Tools |
-|---|---|
-| **admin** | all tools |
-| **developer** | Invisible Atlas Maker, Invisible Spine Viewer, ComfyUI |
-| **artist** | Invisible Atlas Maker, ComfyUI, Invisible Sheet Maker |
-| **animator** | Invisible Spine Viewer, Spine Editor |
+| Role | Label in the UI | Tools |
+|---|---|---|
+| `admin` | Admin | all tools |
+| `developer` | Developer | every online tool except the Sheet Maker, plus the desktop Invisible Launcher |
+| `artist` | Artist | the art + authoring set: Atlas Maker, Sheet Maker, ComfyUI, Scene Editor, Flow, FX, Flipbook, Symbols SM, Component Editor, Font Maker, Game Config, Localization, Win Text, + the desktop Invisible Launcher |
+| `animator` | Animator | Invisible Spine Viewer, Invisible Rigger, Spine Editor |
+| `pipelineTester` | Pipeline Tester | the whole authoring + build chain to test it end to end (Game Maker, Game Config, Scene Editor, Flow, FX, Flipbook, Symbols SM, Component Editor, Atlas Maker, Sheet Maker, Font Maker, Spine Viewer, Localization, Win Text, FTP Browser, Storybook, desktop Invisible Launcher) — **without** the publish capabilities, which stay admin-default |
+| `localizationReviewer` | Localization Reviewer | Invisible Localization, Invisible Win Text |
+| `audio` | Music / SFX | Invisible FTP Browser (deliver audio into the project storage), Invisible Storybook, desktop Invisible Launcher — there is no dedicated audio tool yet |
 
 Tools are typed `online` (opened in the browser) or `local` (installed on your
 machine). Online tool cards are clickable and link straight into the tool;

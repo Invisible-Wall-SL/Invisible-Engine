@@ -5,6 +5,7 @@ the engine reference (apps/lines) and one per project — without checking out t
 repo or running a dev server.
 
 **Access:** sign in at `app.invisiblewall.org` → **Invisible Storybook** (`/storybook`).
+Granted by default to `admin`, `developer`, `pipelineTester` and `audio` (Music / SFX).
 The picker lists every storybook you may open: the shared engine reference plus
 each project you have access to that has a published build. Selecting one opens
 the static Storybook site full-page.

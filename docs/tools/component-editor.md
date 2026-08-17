@@ -34,8 +34,8 @@ of `win` here"*; the game says *"`win` is the `winInfo` book event."*
   route inside `(app)`, behind the auth + role gate. It is not a redirect and
   never an iframe. SSR is disabled (it is a client-only canvas/WebGL app); only
   `load` runs server-side to fetch the components, assets, and saved defaults.
-- **Access:** granted to the `admin`, `developer`, and `artist` roles — the
-  same roles that get the Scene Editor. The page gates on the **`editor`** tool
+- **Access:** granted to the `admin`, `developer`, `artist` and `pipelineTester`
+  roles — the same roles that get the Scene Editor. The page gates on the **`editor`** tool
   (the component storage + `/api/editor/component[s]` API are gated there too), so
   anyone who can open this page can always read and write its components. The
   separate `componentEditor` tool entry only controls whether the home grid shows

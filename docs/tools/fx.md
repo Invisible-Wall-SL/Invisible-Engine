@@ -47,8 +47,8 @@ numbers, and watch the result spawn in real time.
   authed `(app)` area, **never an iframe**. The route gates on auth + the `fx` tool
   entitlement and resolves the active project, then renders the stage client-side (it
   mounts its own WebGL `PIXI.Application`, so the page is client-only).
-- **Access:** the `admin`, `developer` and `artist` roles get it by default
-  (`ROLE_TOOLS` in `src/lib/roles.ts`); the `animator` role does not. Like any tool it
+- **Access:** the `admin`, `developer`, `artist` and `pipelineTester` roles get it by
+  default (`ROLE_TOOLS` in `src/lib/roles.ts`); the `animator` role does not. Like any tool it
   is overridable per role/user in the admin panel. The save endpoint
   (`POST /api/fx/save`) is `fx`-gated and scoped to your session's active project.
 

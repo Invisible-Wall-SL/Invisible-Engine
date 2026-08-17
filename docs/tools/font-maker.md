@@ -26,7 +26,7 @@ descriptor + page PNG, where the catalog `name` equals the descriptor's
   fonts live with PIXI, but its `load` still runs server-side to resolve the
   active client/project and your publish entitlement.
 - **Access:** the `fontMaker` tool, granted by default to `admin`, `developer`,
-  and `artist` roles (overridable per role/user in the admin panel like any
+  `artist` and `pipelineTester` roles (overridable per role/user in the admin panel like any
   tool). Every authenticated Font Maker user can **read** the shared `_shared/fonts/`
   library, but **publishing** to it (save/overwrite/delete a shared font) needs
   the separate `fontPublish` capability — default-ON for `admin` only. The

@@ -7,7 +7,7 @@
 ## Current state
 Live on `main`, served directly by the launcher (no separate service); assets stream from R2.
 
-- **Full-page viewer** at `/spine` (redirect to the static `static/spine/view.html`; never iframed), gated by `requireSpineAccess` (signed in + the `spineViewer` tool for your role — admin/developer/animator).
+- **Full-page viewer** at `/spine` (redirect to the static `static/spine/view.html`; never iframed), gated by `requireSpineAccess` (signed in + the `spineViewer` tool for your role — admin/developer/animator/pipelineTester).
 - **Bundled Spine runtimes 4.1 + 4.2** (WebGL). Lists skeletons, loads one onto the canvas, plays/scrubs animations, adjusts speed + display options.
 - **Endpoints:** `GET /spine/skeletons` (reads `skeletons.json` from R2) and `GET /spine/file` (streams skeleton/atlas/image files). Lossy `.webp`/`.jpg` atlas page refs are rewritten to a `.png` sibling when one exists (`atlasPreferPng`) to avoid WebP alpha artefacts.
 - The active-project dropdown reflects the launcher's session project (the old hardcoded "HotFruits" literal was removed — see [history](../history.md), B21).

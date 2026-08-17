@@ -1,6 +1,41 @@
-export type Role = 'admin' | 'developer' | 'artist' | 'animator';
+export type Role =
+	| 'admin'
+	| 'developer'
+	| 'artist'
+	| 'animator'
+	| 'pipelineTester'
+	| 'localizationReviewer'
+	| 'audio';
 
-export const ROLES: Role[] = ['admin', 'developer', 'artist', 'animator'];
+export const ROLES: Role[] = [
+	'admin',
+	'developer',
+	'artist',
+	'animator',
+	'pipelineTester',
+	'localizationReviewer',
+	'audio',
+];
+
+/**
+ * Human labels for the role ids. Role ids are camelCase like tool ids, so the
+ * UI must never print them raw (a `text-transform: capitalize` renders
+ * `pipelineTester` as "PipelineTester"). Every surface that shows a role goes
+ * through `roleLabel`.
+ */
+export const ROLE_LABELS: Record<Role, string> = {
+	admin: 'Admin',
+	developer: 'Developer',
+	artist: 'Artist',
+	animator: 'Animator',
+	pipelineTester: 'Pipeline Tester',
+	localizationReviewer: 'Localization Reviewer',
+	audio: 'Music / SFX',
+};
+
+export function roleLabel(role: string): string {
+	return ROLE_LABELS[role as Role] ?? role;
+}
 
 /**
  * The game kinds a project can target — mirrors the Invisible Editor's
@@ -467,6 +502,27 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'fontMaker',
 	],
 	animator: ['spineViewer', 'rigger', 'spine'],
+	pipelineTester: [
+		'gameMaker',
+		'gameConfig',
+		'editor',
+		'flow',
+		'fx',
+		'flipbook',
+		'symbols',
+		'componentEditor',
+		'atlasTool',
+		'sheetMaker',
+		'fontMaker',
+		'spineViewer',
+		'localization',
+		'winText',
+		'ftpBrowser',
+		'storybook',
+		'invisibleLauncher',
+	],
+	localizationReviewer: ['localization', 'winText'],
+	audio: ['ftpBrowser', 'storybook', 'invisibleLauncher'],
 };
 
 /**

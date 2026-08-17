@@ -6,7 +6,7 @@
 
 ## Current state
 
-Live in the launcher at `/files` (full page, `admin` + `developer`; artists/animators don't get it). Every operation is gated and validated **server-side** — the client UI is never trusted.
+Live in the launcher at `/files` (full page, `admin` + `developer` + `pipelineTester` + `audio`; artists/animators don't get it). Every operation is gated and validated **server-side** — the client UI is never trusted.
 
 - **Scoped mode (non-admin holders)** — a file manager for the shared R2 bucket (`invisibleassets`) **strictly locked to the session-bound active project**. Top-level folders = the project's own tool namespaces (`atlas_maker`, `sheet_maker`, `localization`, `editor`, `spines`) under `<toolNs>/<client>/<project>/…`. No other project's files, no cross-project `spines/_shared/`.
 - **Full server mode (admin)** — a two-tab browser: **R2 Storage** (the whole bucket from root — every client/project, `_shared`, `comfyui-models`, …) and **Railway (Postgres)** (read-only DB inspector).

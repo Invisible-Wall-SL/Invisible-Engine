@@ -2,7 +2,7 @@
 	import { enhance } from '$app/forms';
 	import type { PageData, ActionData } from './$types';
 	import type { ToolDef } from '$lib/roles';
-	import { toolDocPath } from '$lib/roles';
+	import { toolDocPath, roleLabel } from '$lib/roles';
 	import Emblem from '$lib/Emblem.svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -15,6 +15,11 @@
 		developer: 'You build the engine and games, and use the pipeline tools.',
 		artist: 'You create and refine game art with the Atlas tools and ComfyUI.',
 		animator: 'You work on Spine skeletons and animations.',
+		pipelineTester:
+			'You test the pipeline end to end — build a game, walk it through every tool, and report what breaks.',
+		localizationReviewer:
+			'You review and approve the game text and its translations before they ship.',
+		audio: 'You make the music and sound effects, and deliver them into the project storage.',
 	};
 
 	type Step = { n: number; label: string };
@@ -42,7 +47,7 @@
 
 	<h1>Welcome{data.user.name ? `, ${data.user.name}` : ''}</h1>
 	<p class="lead">
-		You're signed in as <span class="role">{data.user.role}</span>.
+		You're signed in as <span class="role">{roleLabel(data.user.role)}</span>.
 		{roleBlurb[data.user.role] ?? ''}
 	</p>
 

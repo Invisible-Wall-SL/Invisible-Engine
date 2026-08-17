@@ -7,7 +7,7 @@ client what to draw and what to expect.
 
 - **Where it runs:** Cloud (the launcher itself, Railway).
 - **Access:** sign in at `app.invisiblewall.org`, then open `/config` (granted to
-  `developer` and `artist` by default; `admin` always).
+  `developer`, `artist` and `pipelineTester` by default; `admin` always).
 - **Scope:** per **active project** (use the project selector on the launcher home).
   Each project has its own config.
 

@@ -25,8 +25,8 @@ re-registers it; it never rebuilds a bundle.
   never a redirect; it renders the shared tool top bar like every other launcher
   tool. The published game plays elsewhere, on the Invisible Test Server at
   `https://games.invisiblewall.org/<key>/`.
-- **Access:** the `gameMaker` tool, granted by default to `admin` and `developer`
-  roles (overridable per role/user in the admin panel like any tool). **Creating**
+- **Access:** the `gameMaker` tool, granted by default to `admin`, `developer` and
+  `pipelineTester` roles (overridable per role/user in the admin panel like any tool). **Creating**
   a project is available to any holder of the tool; **Publishing** currently
   requires the admin-panel capability — i.e. publish is an `admin`-only operation
   in Phase 1.

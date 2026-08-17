@@ -39,8 +39,8 @@ timed group of frames**.
 - **Where it runs:** the launcher itself, at `/flipbook` — a real full-page tool inside
   the authed `(app)` area, **never an iframe**. The route gates on auth + the `flipbook`
   tool entitlement and resolves the active project, then renders client-side.
-- **Access:** the `admin`, `developer` and `artist` roles get it by default
-  (`ROLE_TOOLS` in `apps/launcher-api/src/lib/roles.ts`); the `animator` role does not.
+- **Access:** the `admin`, `developer`, `artist` and `pipelineTester` roles get it by
+  default (`ROLE_TOOLS` in `apps/launcher-api/src/lib/roles.ts`); the `animator` role does not.
   Like any tool it is overridable per role/user in the admin panel. The save and delete
   endpoints (`POST /api/flipbook/save`, `POST /api/flipbook/delete`) are `flipbook`-gated
   and scoped to your session's active project.

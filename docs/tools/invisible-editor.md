@@ -24,7 +24,7 @@ template for the project's game type.
   (SSR is disabled for this route — the `load` still runs server-side to fetch
   the doc/assets, only the canvas component is client-only.)
 - **Access:** the `editor` tool, granted by default to the `admin`, `developer`,
-  and `artist` roles. The `animator` role does not get it. Like every tool it is
+  `artist` and `pipelineTester` roles. The `animator` role does not get it. Like every tool it is
   overridable per role/user in the admin panel.
 
 ## How to use it

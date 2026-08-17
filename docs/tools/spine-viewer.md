@@ -19,7 +19,7 @@ Spine WebGL runtime (versions 4.1 and 4.2 are bundled).
 
 Sign in to the launcher (`app.invisiblewall.org`) and open the **Invisible
 Spine Viewer** card, or go to `/spine`. The launcher checks your role
-(admin/developer/animator) and redirects you full-page to the static
+(admin/developer/animator/pipeline tester) and redirects you full-page to the static
 `/spine/view.html` document. (Tools are never iframed.)
 
 ## How it works
@@ -44,7 +44,7 @@ Spine Viewer** card, or go to `/spine`. The launcher checks your role
 ## Prerequisites
 
 - A signed-in launcher account with a role that includes the Spine Viewer
-  (admin, developer, animator).
+  (admin, developer, animator, pipeline tester).
 - Spine assets present in R2 under `spines/<game>` with a `skeletons.json` index.
 
 ## Known limitations / TODOs

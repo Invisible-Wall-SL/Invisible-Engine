@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import Emblem from '$lib/Emblem.svelte';
 	import LayoutProfileEditor from '$lib/LayoutProfileEditor.svelte';
+	import { roleLabel } from '$lib/roles';
 	import type { LayoutProfile } from 'engine-layout';
 	import type { PageData, ActionData } from './$types';
 
@@ -293,7 +294,7 @@
 							{u.email}
 							{#if u.id === data.currentUserId}<em class="you">you</em>{/if}
 						</span>
-						<span class="role">{u.role}</span>
+						<span class="role">{roleLabel(u.role)}</span>
 						<span class={u.active ? 'pill on' : 'pill off'}>
 							{u.active ? 'enabled' : 'disabled'}
 						</span>
@@ -315,7 +316,7 @@
 					<label>
 						Role
 						<select name="role">
-							{#each data.roles as r (r)}<option value={r}>{r}</option>{/each}
+							{#each data.roles as r (r)}<option value={r}>{roleLabel(r)}</option>{/each}
 						</select>
 					</label>
 					<label>
@@ -335,7 +336,7 @@
 						<label class="grow">
 							Role
 							<select name="role" value={selected.role}>
-								{#each data.roles as r (r)}<option value={r}>{r}</option>{/each}
+								{#each data.roles as r (r)}<option value={r}>{roleLabel(r)}</option>{/each}
 							</select>
 						</label>
 						<button type="submit">Save role</button>
@@ -542,7 +543,7 @@
 				<div class="rm-row rm-head">
 					<span class="rm-cap">Capability</span>
 					{#each data.roles as role (role)}
-						<span class="rm-role">{role}</span>
+						<span class="rm-role">{roleLabel(role)}</span>
 					{/each}
 				</div>
 
@@ -582,7 +583,7 @@
 															name="mode"
 															class={`tri ${mode}`}
 															value={mode}
-															aria-label={`${role} — ${cap.name}`}
+															aria-label={`${roleLabel(role)} — ${cap.name}`}
 															onchange={(e) => e.currentTarget.form?.requestSubmit()}
 														>
 															<option value="default">Default ({def ? 'on' : 'off'})</option>
@@ -1506,12 +1507,16 @@
 		flex-direction: column;
 		border: 1px solid #222;
 		border-radius: 10px;
-		overflow: hidden;
+		/* The grid keeps a min width per role column, so with many roles the rows
+		   are wider than the panel — scroll instead of clipping them. */
+		overflow-x: auto;
+		overflow-y: hidden;
 		background: #121218;
 	}
 	.rm-row {
 		display: grid;
 		grid-template-columns: minmax(220px, 2fr) repeat(var(--role-cols, 4), minmax(140px, 1fr));
+		min-width: max-content;
 		gap: 10px;
 		align-items: center;
 		padding: 9px 14px;

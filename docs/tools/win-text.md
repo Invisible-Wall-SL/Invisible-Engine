@@ -7,7 +7,8 @@ field is a **template**, and every template is picked up automatically by
 
 - **Where it runs:** Cloud (the launcher itself, Railway).
 - **Access:** sign in at `app.invisiblewall.org`, then open `/win-text` (granted to
-  `developer` and `artist` by default; `admin` always).
+  `developer`, `artist`, `pipelineTester` and `localizationReviewer` by default;
+  `admin` always).
 - **Scope:** per **active project** (use the project selector on the launcher home).
   Each project has its own win text.
 

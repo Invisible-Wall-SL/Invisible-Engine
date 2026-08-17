@@ -25,7 +25,8 @@ An in-launcher, full-page file manager. There are **two modes, decided by role**
   `<toolNs>/<client>/<project>/…`. The browser exposes these namespaces as the
   top-level folders: `atlas_maker`, `sheet_maker`, `localization`, `editor`,
   `spines`.
-- **Access:** `admin` and `developer` roles (artists/animators don't get it).
+- **Access:** `admin`, `developer`, `pipelineTester` and `audio` (Music / SFX) roles
+  — artists/animators don't get it.
   Overridable per role/user via the admin panel like any other tool. The full
   server view + the Railway/Postgres tab are **admin-only**; a non-admin with the
   tool always gets the scoped, project-locked view.
