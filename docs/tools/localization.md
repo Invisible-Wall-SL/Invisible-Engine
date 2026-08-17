@@ -127,8 +127,20 @@ each game translates only the subset it sells into.
 > screen — and note that Arabic, Hebrew and Persian additionally need RTL
 > layout, which the HUD does not do automatically.
 
-For a string to actually reach the game it must be **translated → reviewed →
-saved → exported/baked**; unreviewed machine output is never exported.
+**Reviewed vs unreviewed — where each shows up.** Saving is enough to *test* a
+translation; reviewing is what lets it *ship*:
+
+| Boot | Carries | Why |
+|---|---|---|
+| Launcher link / Play (`ie_authoring=1`) | reviewed **+ unreviewed** | so you can read machine output in the running game before vetting it |
+| Published player URL | reviewed only | unvetted text must never reach a player |
+| Build-time bake (`bake-editor-doc.mjs`) | reviewed only | the final build never embeds unreviewed strings |
+
+The authoring boot asks for the extra strings explicitly (`&authoring=1` on
+`/api/editor/runtime`, sent only when `ie_authoring=1` is in the game URL), and
+the two variants are cached separately, so a player can never be served the
+authoring set. So the loop is: translate → **Save** → open from the launcher and
+read it in context → review what's good → publish.
 
 ## Env
 

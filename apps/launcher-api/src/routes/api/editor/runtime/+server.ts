@@ -57,7 +57,12 @@ export const GET: RequestHandler = async ({ url }) => {
 		// Single-flighted + briefly cached: assembling this re-runs every exporter (17-19s in
 		// production), so a per-request assemble made concurrent boots pile up and 502 — and a
 		// 502 silently drops the game onto stale baked data. See `runtimeBundleCache`.
-		const bundle = await getRuntimeBundle(projectKey);
+		// `authoring=1` — sent only by a game booted from a launcher link (`ie_authoring=1`),
+		// never by a published player URL — additionally serves UNREVIEWED translations, so
+		// an author can see machine output in the running game before vetting it. The
+		// player-facing bundle and the build-time bake stay reviewed-only.
+		const authoring = url.searchParams.get('authoring') === '1';
+		const bundle = await getRuntimeBundle(projectKey, authoring);
 
 		// Absolute PATH prefix the runtime prepends to every deploy-relative asset
 		// path (`json`/`file`/`atlas`/`skeleton` below). MUST be the path form

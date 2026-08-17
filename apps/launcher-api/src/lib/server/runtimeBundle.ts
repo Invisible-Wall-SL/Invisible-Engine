@@ -209,13 +209,20 @@ async function resolveReferencedDefs(
 }
 
 /**
- * The project's Localization-tool strings as a per-locale message map — IDENTICAL
- * to `routes/api/localization/strings/+server.ts`: the source language exports
- * every keyed entry; target languages export only REVIEWED translations.
+ * The project's Localization-tool strings as a per-locale message map — matching
+ * `routes/api/localization/strings/+server.ts`: the source language exports every
+ * keyed entry; target languages export only REVIEWED translations.
+ *
+ * `includeUnreviewed` lifts that gate, and is passed ONLY on an authoring boot
+ * (`ie_authoring=1`, a flag the launcher's own links carry and a published player
+ * URL never does). That lets an author see machine output in the running game
+ * before vetting it, while the published bundle — assembled without the flag, as
+ * is the build-time bake in `bake-editor-doc.mjs` — still ships reviewed text only.
  */
 async function loadLocalizationMessages(
 	clientKey: string,
 	projectKey: string,
+	includeUnreviewed = false,
 ): Promise<{ sourceLang: string; messages: Record<string, Record<string, string>> }> {
 	const doc = await loadLocalizationDoc(clientKey, projectKey);
 	const messages: Record<string, Record<string, string>> = {};
@@ -224,7 +231,7 @@ async function loadLocalizationMessages(
 		if (!entry.key) continue;
 		if (entry.source) sourceMap[entry.key] = entry.source;
 		for (const [lang, t] of Object.entries(entry.translations)) {
-			if (!t.reviewed || !t.text) continue;
+			if (!t.text || (!t.reviewed && !includeUnreviewed)) continue;
 			(messages[lang] ??= {})[entry.key] = t.text;
 		}
 	}
@@ -275,10 +282,13 @@ function formatTimings(timings: Record<string, number>): string {
  * @param projectKey  the BARE launcher project key (the client is DB-resolved),
  *                    matching `/api/editor/doc` — NOT `<client>/<project>`.
  */
-export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBundle> {
+export async function buildRuntimeBundle(
+	projectKey: string,
+	includeUnreviewed = false,
+): Promise<RuntimeBundle> {
 	const timings: Record<string, number> = {};
 	try {
-		return await assembleRuntimeBundle(projectKey, timings);
+		return await assembleRuntimeBundle(projectKey, timings, includeUnreviewed);
 	} finally {
 		// In a `finally` because the 502/slow case is the ONLY reason these timings exist — a
 		// breakdown that only prints on success can't tell you which exporter blew the budget.
@@ -290,6 +300,7 @@ export async function buildRuntimeBundle(projectKey: string): Promise<RuntimeBun
 async function assembleRuntimeBundle(
 	projectKey: string,
 	timings: Record<string, number>,
+	includeUnreviewed = false,
 ): Promise<RuntimeBundle> {
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 
@@ -350,7 +361,9 @@ async function assembleRuntimeBundle(
 		winTextDoc,
 	] = await Promise.all([
 		ensureDeployExports(projectKey, clientKey, timings),
-		step('localization', timings, () => loadLocalizationMessages(clientKey, projectKey)),
+		step('localization', timings, () =>
+			loadLocalizationMessages(clientKey, projectKey, includeUnreviewed),
+		),
 		step('effects', timings, () => exportEffects(clientKey, projectKey)),
 		step('rigFx', timings, () => exportRigFx(clientKey, projectKey)),
 		step('flipbooks', timings, () => exportClips(clientKey, projectKey)),

@@ -1266,9 +1266,14 @@ export async function prepareRuntimeBundle(): Promise<boolean> {
 			runtimeFetchFailure = 'no ?k= token in the game URL';
 			return false;
 		}
+		// An AUTHORING boot additionally receives UNREVIEWED translations, so a translator
+		// can see machine output in the running game before vetting it. A published player
+		// URL never carries `ie_authoring=1`, so players — and the build-time bake — keep
+		// getting reviewed text only.
+		const authoring = params.get(AUTHORING_PARAM) === '1' ? '&authoring=1' : '';
 		const url =
 			`${base}/api/editor/runtime?project=${encodeURIComponent(project)}` +
-			`&k=${encodeURIComponent(token)}`;
+			`&k=${encodeURIComponent(token)}${authoring}`;
 		// The boot splash (app.html) is already painting; name the phase the player is
 		// waiting on — this fetch is the long cross-origin call that used to be a black screen.
 		window.__ieBoot?.phase('Fetching from R2…');

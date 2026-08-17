@@ -108,8 +108,14 @@ function trim(): void {
  * what makes the game-side retry cheap, since a slow project's result is already older than
  * the TTL by the time it lands.
  */
-export async function getRuntimeBundle(projectKey: string): Promise<RuntimeBundle> {
-	const hit = cache.get(projectKey);
+export async function getRuntimeBundle(
+	projectKey: string,
+	includeUnreviewed = false,
+): Promise<RuntimeBundle> {
+	// Authoring boots see unreviewed translations, players do not — so the two variants
+	// must never share a cache entry, or whichever assembled first leaks into the other.
+	const cacheKey = includeUnreviewed ? `${projectKey}::authoring` : projectKey;
+	const hit = cache.get(cacheKey);
 	if (hit && Date.now() - hit.readAt < TTL_MS) {
 		console.info(
 			`[runtime] bundle cache HIT for "${projectKey}" (data ${Date.now() - hit.readAt}ms old)`,
@@ -117,7 +123,7 @@ export async function getRuntimeBundle(projectKey: string): Promise<RuntimeBundl
 		return hit.bundle;
 	}
 
-	const pending = inflight.get(projectKey);
+	const pending = inflight.get(cacheKey);
 	if (pending) {
 		console.info(`[runtime] joining in-flight bundle assemble for "${projectKey}"`);
 		return pending;
@@ -127,11 +133,11 @@ export async function getRuntimeBundle(projectKey: string): Promise<RuntimeBundl
 	const epoch = epochOf(projectKey);
 	const run = (async () => {
 		try {
-			const bundle = await buildRuntimeBundle(projectKey);
+			const bundle = await buildRuntimeBundle(projectKey, includeUnreviewed);
 			// A publish that landed mid-assemble bumped the epoch: this bundle was read BEFORE it,
 			// so serve it to the callers already waiting but never cache it for anyone else.
 			if (epochOf(projectKey) === epoch) {
-				cache.set(projectKey, { bundle, readAt });
+				cache.set(cacheKey, { bundle, readAt });
 				trim();
 			} else {
 				console.info(`[runtime] discarding pre-invalidation assemble for "${projectKey}"`);
@@ -140,11 +146,11 @@ export async function getRuntimeBundle(projectKey: string): Promise<RuntimeBundl
 		} finally {
 			// `buildRuntimeBundle` is async, so the IIFE always suspends at the `await` above and
 			// this runs after `inflight.set` below — a rejected assemble can never wedge the map.
-			inflight.delete(projectKey);
+			inflight.delete(cacheKey);
 			console.info(`[runtime] bundle assemble for "${projectKey}" took ${Date.now() - readAt}ms`);
 		}
 	})();
-	inflight.set(projectKey, run);
+	inflight.set(cacheKey, run);
 	return run;
 }
 
@@ -158,4 +164,7 @@ export async function getRuntimeBundle(projectKey: string): Promise<RuntimeBundl
 export function invalidateRuntimeBundle(projectKey: string): void {
 	epochs.set(projectKey, epochOf(projectKey) + 1);
 	cache.delete(projectKey);
+	// The authoring variant is a SEPARATE entry (unreviewed translations included);
+	// dropping only the player one would leave authors staring at pre-save strings.
+	cache.delete(`${projectKey}::authoring`);
 }
