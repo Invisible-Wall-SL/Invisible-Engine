@@ -1,11 +1,11 @@
 /**
- * Invisible Cinematic — the `/rigger` CINEMATIC MODE (Phase 1: set + cast).
+ * Invisible Cinematic — the `/rigger` CINEMATIC MODE (Phases 1–2).
  * Plan: docs/design/invisible-cinematic.md · State: docs/status/cinematic.md
  *
  * A cinematic is a non-linear SEQUENCER over several actors, not a bigger animation: the
- * animator edits one clip on one skeleton, this edits many rigs on one timeline. Phase 1
- * delivers the multi-actor stage — cast a rig, place it, give it a clip, scrub — and Phase 2
- * turns the single implicit strip each actor gets here into a real track/strip editor.
+ * animator edits one clip on one skeleton, this edits many rigs on one timeline.
+ * Phase 1 = the multi-actor stage (cast a rig, place it, scrub). Phase 2 = the track/strip
+ * editor (tracks + layers, strips you drag/trim/loop/blend, and a strip inspector).
  *
  * WHY A SEPARATE FILE: `view.html` is already ~9.5k lines. Everything cinematic lives here so
  * the rig editor's blast radius stays at four small hooks (a mode button, a `setMode` branch, a
@@ -143,6 +143,7 @@ window.RiggerCinematic = (function () {
 		else evaluate(time);
 		save();
 		renderPanel();
+		renderTimeline();
 	}
 
 	async function undo() {
@@ -304,6 +305,7 @@ window.RiggerCinematic = (function () {
 		if (readout) readout.textContent = time.toFixed(2) + 's / ' + dur.toFixed(2) + 's';
 		const t = $('#cineTime');
 		if (t && document.activeElement !== t) t.value = time.toFixed(2);
+		positionPlayhead(); // cheap: move one element, never re-render the timeline per frame
 	}
 
 	// ---- camera -------------------------------------------------------------
@@ -364,6 +366,7 @@ window.RiggerCinematic = (function () {
 		if (first) setActorClip(cast.actorId, first.name, false); // folded into the one step below
 		commit('cast ' + (entry.name || 'rig'));
 		renderPanel();
+		renderTimeline();
 		if (actors.length === 1) fitAll();
 	}
 
@@ -376,6 +379,7 @@ window.RiggerCinematic = (function () {
 		normalizeZ();
 		commit('remove actor');
 		renderPanel();
+		renderTimeline();
 	}
 
 	function normalizeZ() {
@@ -398,6 +402,7 @@ window.RiggerCinematic = (function () {
 		normalizeZ();
 		commit('reorder actor');
 		renderPanel();
+		renderTimeline();
 	}
 
 	/**
@@ -425,6 +430,7 @@ window.RiggerCinematic = (function () {
 			: [];
 		if (record) commit('change clip');
 		renderPanel();
+		if (record) renderTimeline();
 	}
 
 	function setPlace(actorId, key, value) {
@@ -441,6 +447,352 @@ window.RiggerCinematic = (function () {
 		for (const track of doc.tracks) for (const strip of track.strips) if (strip.start === 0) strip.length = doc.duration;
 		if (time > doc.duration) time = doc.duration;
 		commit('change length', 'duration');
+		renderPanel();
+		renderTimeline();
+	}
+
+	// ---- timeline (Phase 2: tracks + strips) --------------------------------
+	//
+	// DOM rows, not a canvas — same shape as the rigger's dopesheet (sticky gutter on the left, a
+	// lane scrolled at `pps` pixels per second), so hit-testing is free and the two timelines look
+	// like one tool. A strip is a div; moving/trimming it writes the doc LIVE (so the stage follows
+	// the drag) but records a SINGLE history step on pointerup.
+
+	const TL_GUTTER = 132;
+	const TL_ROW = 28;
+	const TRIM_ZONE = 7; // px at each end of a strip that trims instead of moves
+
+	let selStripId = null;
+	let cinePps = null; // px per second; null = fit the whole cinematic to the panel width
+	let tlDrag = null;
+	let rulerDrag = false;
+
+	const stripById = (id) => {
+		for (const track of doc.tracks) {
+			const strip = track.strips.find((s) => s.id === id);
+			if (strip) return { strip, track };
+		}
+		return null;
+	};
+
+	/** Snap to the fps grid unless Alt is held (the usual "hold to place freely" escape). */
+	function snapT(t, noSnap) {
+		if (noSnap || !doc.fps) return Math.max(0, t);
+		return Math.max(0, Math.round(t * doc.fps) / doc.fps);
+	}
+
+	function tlPps(el) {
+		if (cinePps) return cinePps;
+		const w = (el ? el.clientWidth : 900) - TL_GUTTER - 12;
+		return Math.max(4, w / Math.max(doc.duration, 0.001));
+	}
+
+	function zoom(factor) {
+		const el = $('#timeline');
+		cinePps = Math.max(4, Math.min(4000, tlPps(el) * factor));
+		renderTimeline();
+	}
+
+	/** Tracks grouped by cast order, so the timeline reads in the same order as the cast list. */
+	function orderedTracks() {
+		const out = [];
+		for (const cast of doc.stage.cast.slice().sort((a, b) => (a.z || 0) - (b.z || 0))) {
+			const mine = doc.tracks.filter((t) => t.actorId === cast.actorId).sort((a, b) => (a.layer || 0) - (b.layer || 0));
+			mine.forEach((track, i) => out.push({ cast, track, first: i === 0, count: mine.length }));
+		}
+		return out;
+	}
+
+	function renderTimeline() {
+		const el = $('#timeline');
+		if (!el || !doc) return;
+		const keepScroll = el.scrollLeft;
+		const pps = tlPps(el);
+		const contentW = Math.max(doc.duration * pps, 1);
+		el.innerHTML = '';
+
+		const rows = orderedTracks();
+		if (!rows.length) {
+			el.innerHTML = '<div class="cineEmpty">Cast an actor to start building the timeline.</div>';
+			return;
+		}
+
+		// ruler — click or drag anywhere on it to scrub
+		const ruler = document.createElement('div');
+		ruler.className = 'cineRuler';
+		ruler.style.width = TL_GUTTER + contentW + 'px';
+		const step = tickStep(pps);
+		let ticks = '<div class="cineGutter cineRulerGutter">' + doc.fps + ' fps · ' + doc.duration.toFixed(2) + 's</div>';
+		ticks += '<div class="cineLane" style="width:' + contentW + 'px;">';
+		for (let t = 0; t <= doc.duration + 1e-6; t += step) {
+			ticks += '<span class="cineTick" style="left:' + (t * pps).toFixed(1) + 'px;">' + (+t.toFixed(3)) + 's</span>';
+		}
+		ticks += '</div>';
+		ruler.innerHTML = ticks;
+		ruler.onpointerdown = (e) => {
+			if (e.target.closest('.cineGutter')) return;
+			rulerDrag = true;
+			try { ruler.setPointerCapture(e.pointerId); } catch { /* scrub still works uncaptured */ }
+			scrubFromEvent(e, pps);
+		};
+		ruler.onpointermove = (e) => { if (rulerDrag) scrubFromEvent(e, pps); };
+		ruler.onpointerup = () => { rulerDrag = false; };
+		el.appendChild(ruler);
+
+		for (const { cast, track, first, count } of rows) {
+			const row = document.createElement('div');
+			row.className = 'cineTrack';
+			row.style.width = TL_GUTTER + contentW + 'px';
+			row.dataset.track = track.id;
+
+			const gutter = document.createElement('div');
+			gutter.className = 'cineGutter';
+			gutter.innerHTML =
+				'<span class="cineTrackName" title="' + esc(cast.rigName || '') + '">' +
+				(first ? esc(cast.rigName || cast.rigId) : '<i>layer ' + (track.layer || 0) + '</i>') +
+				'</span>' +
+				'<button data-tact="addStrip" title="Add a strip at the playhead">＋</button>' +
+				'<button data-tact="addLayer" title="Add a layer above this actor (layers blend bottom-up)">⧉</button>' +
+				(count > 1 ? '<button data-tact="delLayer" title="Delete this layer">🗑</button>' : '');
+			row.appendChild(gutter);
+
+			const lane = document.createElement('div');
+			lane.className = 'cineLane';
+			lane.style.width = contentW + 'px';
+			for (const strip of track.strips.slice().sort((a, b) => a.start - b.start)) {
+				const d = document.createElement('div');
+				d.className = 'cineStrip' + (strip.id === selStripId ? ' sel' : '') + (strip.blend === 'add' ? ' add' : '');
+				d.style.left = (strip.start * pps).toFixed(1) + 'px';
+				d.style.width = Math.max(strip.length * pps, 3).toFixed(1) + 'px';
+				d.dataset.strip = strip.id;
+				const loop = strip.loop && strip.loop.mode !== 'once' ? ' ↻' : '';
+				d.innerHTML =
+					'<span class="cineStripLabel">' + esc(strip.clip ? strip.clip.name : '—') + loop + '</span>' +
+					blendRampMarkup(strip, pps);
+				lane.appendChild(d);
+			}
+			row.appendChild(lane);
+			el.appendChild(row);
+		}
+
+		// playhead — one element over everything, repositioned per frame by syncTransport()
+		const ph = document.createElement('div');
+		ph.className = 'cinePlayhead';
+		ph.id = 'cinePlayhead';
+		el.appendChild(ph);
+		positionPlayhead(pps);
+
+		el.scrollLeft = keepScroll;
+		wireTimeline(el, pps);
+	}
+
+	/** A tick every 1/2/5/10… seconds, whichever keeps labels ~70px apart. */
+	function tickStep(pps) {
+		const targets = [1 / 30, 1 / 10, 0.25, 0.5, 1, 2, 5, 10, 30, 60];
+		for (const t of targets) if (t * pps >= 70) return t;
+		return 60;
+	}
+
+	/** Blend-in / blend-out ramps drawn as triangles inside the strip, so alpha is visible. */
+	function blendRampMarkup(strip, pps) {
+		let out = '';
+		if (strip.blendIn > 0) out += '<span class="cineRamp in" style="width:' + Math.min(strip.blendIn * pps, strip.length * pps).toFixed(1) + 'px;"></span>';
+		if (strip.blendOut > 0) out += '<span class="cineRamp out" style="width:' + Math.min(strip.blendOut * pps, strip.length * pps).toFixed(1) + 'px;"></span>';
+		return out;
+	}
+
+	function scrubFromEvent(e, pps) {
+		const lane = $('#timeline').querySelector('.cineRuler .cineLane');
+		if (!lane) return;
+		const x = e.clientX - lane.getBoundingClientRect().left;
+		setTime(x / pps);
+		positionPlayhead(pps);
+	}
+
+	function positionPlayhead(pps) {
+		const ph = $('#cinePlayhead');
+		const el = $('#timeline');
+		if (!ph || !el) return;
+		ph.style.left = TL_GUTTER + time * (pps || tlPps(el)) - el.scrollLeft + 'px';
+	}
+
+	function wireTimeline(el, pps) {
+		el.onscroll = () => positionPlayhead(pps);
+
+		el.querySelectorAll('.cineGutter [data-tact]').forEach((btn) => {
+			btn.onclick = (e) => {
+				e.stopPropagation();
+				const trackId = btn.closest('.cineTrack').dataset.track;
+				const act = btn.dataset.tact;
+				if (act === 'addStrip') addStripAtPlayhead(trackId);
+				else if (act === 'addLayer') addLayer(trackId);
+				else if (act === 'delLayer') removeLayer(trackId);
+			};
+		});
+
+		el.querySelectorAll('.cineStrip').forEach((d) => {
+			d.onpointerdown = (e) => {
+				e.preventDefault();
+				const found = stripById(d.dataset.strip);
+				if (!found) return;
+				selStripId = d.dataset.strip;
+				const rect = d.getBoundingClientRect();
+				const offX = e.clientX - rect.left;
+				const zone = offX <= TRIM_ZONE ? 'trimL' : offX >= rect.width - TRIM_ZONE ? 'trimR' : 'move';
+				tlDrag = {
+					id: d.dataset.strip, zone, el: d, pps,
+					startX: e.clientX,
+					origStart: found.strip.start,
+					origLength: found.strip.length,
+					origClipIn: found.strip.clipIn || 0,
+					moved: false,
+				};
+				// Capture is an optimisation (the drag keeps tracking outside the element), never a
+				// requirement — and it THROWS for a pointer id the browser does not know. Losing it
+				// must not abort the gesture.
+				try { d.setPointerCapture(e.pointerId); } catch { /* drag still works uncaptured */ }
+				// Update the selection IN PLACE. Re-rendering the timeline here would replace `d`
+				// mid-gesture, dropping the pointer capture and killing the drag before it starts.
+				el.querySelectorAll('.cineStrip.sel').forEach((n) => n.classList.remove('sel'));
+				d.classList.add('sel');
+				renderPanel(); // a different element — safe to rebuild
+			};
+			d.onpointermove = (e) => {
+				if (!tlDrag || tlDrag.id !== d.dataset.strip) return;
+				const found = stripById(tlDrag.id);
+				if (!found) return;
+				const dT = (e.clientX - tlDrag.startX) / tlDrag.pps;
+				if (Math.abs(e.clientX - tlDrag.startX) > 2) tlDrag.moved = true;
+				const s = found.strip;
+				if (tlDrag.zone === 'move') {
+					s.start = snapT(tlDrag.origStart + dT, e.altKey);
+				} else if (tlDrag.zone === 'trimL') {
+					// Trimming the left edge moves the start AND the clip offset together, so the art
+					// under the cursor stays put instead of sliding — the standard NLE behaviour.
+					const ns = Math.min(snapT(tlDrag.origStart + dT, e.altKey), tlDrag.origStart + tlDrag.origLength - 1 / (doc.fps || 30));
+					const delta = ns - tlDrag.origStart;
+					s.start = ns;
+					s.length = Math.max(tlDrag.origLength - delta, 1 / (doc.fps || 30));
+					s.clipIn = Math.max(0, tlDrag.origClipIn + delta * (s.speed || 1));
+				} else {
+					s.length = Math.max(snapT(tlDrag.origLength + dT, e.altKey), 1 / (doc.fps || 30));
+				}
+				// Restyle only the dragged element — a full re-render per pointermove is jank.
+				d.style.left = (s.start * tlDrag.pps).toFixed(1) + 'px';
+				d.style.width = Math.max(s.length * tlDrag.pps, 3).toFixed(1) + 'px';
+				evaluate(time);
+			};
+			const end = () => {
+				if (!tlDrag || tlDrag.id !== d.dataset.strip) return;
+				const label = tlDrag.zone === 'move' ? 'move strip' : 'trim strip';
+				const moved = tlDrag.moved;
+				tlDrag = null;
+				if (moved) commit(label, 'strip:' + d.dataset.strip); // ONE step per drag
+				renderTimeline();
+				renderPanel();
+			};
+			d.onpointerup = end;
+			d.onpointercancel = end;
+		});
+	}
+
+	// ---- strip + layer operations -------------------------------------------
+
+	function defaultClipName(actorId) {
+		const actor = actorOf(actorId);
+		const first = actor && actor.skeletonData.animations[0];
+		return first ? first.name : null;
+	}
+
+	function addStripAtPlayhead(trackId) {
+		const track = doc.tracks.find((t) => t.id === trackId);
+		if (!track) return;
+		const name = defaultClipName(track.actorId);
+		if (!name) return;
+		const actor = actorOf(track.actorId);
+		const clip = actor.skeletonData.findAnimation(name);
+		const strip = {
+			id: uid('strip'),
+			clip: { src: 'rig', name },
+			start: snapT(time),
+			length: Math.max(clip ? clip.duration : 1, 1 / (doc.fps || 30)),
+			clipIn: 0,
+			speed: 1,
+			loop: { mode: 'once' },
+			alpha: 1,
+			blend: 'replace',
+			blendIn: 0,
+			blendOut: 0,
+		};
+		track.strips.push(strip);
+		selStripId = strip.id;
+		commit('add strip');
+		renderTimeline();
+		renderPanel();
+	}
+
+	function deleteStrip(stripId) {
+		const found = stripById(stripId);
+		if (!found) return;
+		found.track.strips = found.track.strips.filter((s) => s.id !== stripId);
+		if (selStripId === stripId) selStripId = null;
+		commit('delete strip');
+		renderTimeline();
+		renderPanel();
+	}
+
+	function duplicateStrip(stripId) {
+		const found = stripById(stripId);
+		if (!found) return;
+		const copy = JSON.parse(JSON.stringify(found.strip));
+		copy.id = uid('strip');
+		copy.start = snapT(found.strip.start + found.strip.length);
+		found.track.strips.push(copy);
+		selStripId = copy.id;
+		commit('duplicate strip');
+		renderTimeline();
+		renderPanel();
+	}
+
+	function setStripField(stripId, path, value) {
+		const found = stripById(stripId);
+		if (!found) return;
+		const s = found.strip;
+		if (path === 'clip') s.clip = value ? { src: 'rig', name: value } : null;
+		else if (path === 'loop.mode') s.loop = { mode: value, n: (s.loop && s.loop.n) || 2 };
+		else if (path === 'loop.n') s.loop = { mode: (s.loop && s.loop.mode) || 'count', n: Math.max(1, value) };
+		else s[path] = value;
+		commit('edit strip', 'strip:' + stripId + ':' + path);
+		renderTimeline();
+		renderPanel();
+	}
+
+	/** A new layer for the same actor — layers blend bottom-up (design §4.3). */
+	function addLayer(trackId) {
+		const track = doc.tracks.find((t) => t.id === trackId);
+		if (!track) return;
+		const layers = doc.tracks.filter((t) => t.actorId === track.actorId).map((t) => t.layer || 0);
+		doc.tracks.push({
+			id: uid('track'),
+			actorId: track.actorId,
+			kind: 'animation',
+			layer: Math.max(...layers) + 1,
+			strips: [],
+		});
+		refreshTargets();
+		commit('add layer');
+		renderTimeline();
+	}
+
+	function removeLayer(trackId) {
+		const track = doc.tracks.find((t) => t.id === trackId);
+		if (!track) return;
+		if (doc.tracks.filter((t) => t.actorId === track.actorId).length <= 1) return; // never leave an actor track-less
+		doc.tracks = doc.tracks.filter((t) => t.id !== trackId);
+		if (selStripId && !stripById(selStripId)) selStripId = null;
+		refreshTargets();
+		commit('remove layer');
+		renderTimeline();
 		renderPanel();
 	}
 
@@ -503,7 +855,8 @@ window.RiggerCinematic = (function () {
 </div>
 <div class="cineStatus">${loadingCount ? 'loading rig…' : esc(statusMsg)}</div>
 <div id="cineCast">${rows || '<div class="cineEmpty">No actors yet — pick a rig above and press ＋ Cast.</div>'}</div>
-<div class="cineNote">Phase 1: cast, place and scrub. Tracks, strips, loops and layering land in Phase 2.</div>`;
+${stripInspectorMarkup()}
+<div class="cineNote">Drag a strip to move it · drag its edges to trim · hold Alt to ignore the fps grid · Ctrl+wheel over the timeline to zoom.</div>`;
 
 		$('#cineAdd').onclick = () => {
 			const id = $('#cineAddSel').value;
@@ -513,6 +866,7 @@ window.RiggerCinematic = (function () {
 		$('#cineFit').onclick = fitAll;
 		$('#cineUndo').onclick = undo;
 		$('#cineRedo').onclick = redo;
+		wireStripInspector();
 		$('#cineDur').onchange = (e) => setDuration(e.target.value);
 		$('#cineTime').onchange = (e) => setTime(parseFloat(e.target.value) || 0);
 
@@ -552,6 +906,61 @@ window.RiggerCinematic = (function () {
 		});
 	}
 
+	/** Inspector for the selected strip — every field the evaluator actually reads (design §4.2). */
+	function stripInspectorMarkup() {
+		if (!selStripId) return '';
+		const found = stripById(selStripId);
+		if (!found) return '';
+		const s = found.strip;
+		const actor = actorOf(found.track.actorId);
+		const clips = actor ? actor.skeletonData.animations : [];
+		const cur = s.clip ? s.clip.name : '';
+		const clipOpts = clips
+			.map((a) => `<option value="${esc(a.name)}"${a.name === cur ? ' selected' : ''}>${esc(a.name)} (${a.duration.toFixed(2)}s)</option>`)
+			.join('');
+		const loopMode = (s.loop && s.loop.mode) || 'once';
+		const loopOpt = (v, label) => `<option value="${v}"${loopMode === v ? ' selected' : ''}>${label}</option>`;
+		const blend = s.blend || 'replace';
+		return `
+<div class="cineHead" style="border-top:1px solid var(--line);"><b>Strip</b><small>${esc(cur || 'no clip')}</small></div>
+<div class="cineStripInsp">
+	<label class="wide">clip<select data-sact="clip">${clipOpts}</select></label>
+	<label>start<input type="number" step="0.05" data-sact="start" value="${+s.start.toFixed(3)}"></label>
+	<label>length<input type="number" step="0.05" min="0.01" data-sact="length" value="${+s.length.toFixed(3)}"></label>
+	<label>clip in<input type="number" step="0.05" min="0" data-sact="clipIn" value="${+(s.clipIn || 0).toFixed(3)}"></label>
+	<label>speed<input type="number" step="0.1" data-sact="speed" value="${s.speed == null ? 1 : s.speed}"></label>
+	<label class="wide">loop<select data-sact="loop.mode">
+		${loopOpt('once', 'once (hold last)')}${loopOpt('fill', 'loop to fill')}${loopOpt('count', 'loop N times')}${loopOpt('pingPong', 'ping-pong')}
+	</select></label>
+	${loopMode === 'count' ? `<label>times<input type="number" min="1" step="1" data-sact="loop.n" value="${(s.loop && s.loop.n) || 2}"></label>` : ''}
+	<label>blend in<input type="number" step="0.05" min="0" data-sact="blendIn" value="${+(s.blendIn || 0).toFixed(3)}"></label>
+	<label>blend out<input type="number" step="0.05" min="0" data-sact="blendOut" value="${+(s.blendOut || 0).toFixed(3)}"></label>
+	<label>alpha<input type="number" step="0.05" min="0" max="1" data-sact="alpha" value="${s.alpha == null ? 1 : s.alpha}"></label>
+	<label class="wide">mode<select data-sact="blend">
+		<option value="replace"${blend === 'replace' ? ' selected' : ''}>replace (over the layers below)</option>
+		<option value="add"${blend === 'add' ? ' selected' : ''}>additive (on top of a base)</option>
+	</select></label>
+</div>
+<div class="cineRow">
+	<button id="cineDupStrip" title="Copy this strip in right after itself">⧉ Duplicate</button>
+	<button id="cineDelStrip" title="Delete this strip">🗑 Delete</button>
+</div>`;
+	}
+
+	function wireStripInspector() {
+		const dup = $('#cineDupStrip');
+		if (dup) dup.onclick = () => duplicateStrip(selStripId);
+		const del = $('#cineDelStrip');
+		if (del) del.onclick = () => deleteStrip(selStripId);
+		document.querySelectorAll('[data-sact]').forEach((node) => {
+			const path = node.dataset.sact;
+			node.onchange = (e) => {
+				const v = node.tagName === 'SELECT' ? e.target.value : parseFloat(e.target.value);
+				setStripField(selStripId, path, node.tagName === 'SELECT' ? v : (Number.isFinite(v) ? v : 0));
+			};
+		});
+	}
+
 	const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 	// ---- lifecycle ----------------------------------------------------------
@@ -567,12 +976,22 @@ window.RiggerCinematic = (function () {
 	 * `editMode`/`animMode`, so nothing else fires here.
 	 */
 	function onKeyDown(e) {
-		if (!active || !(e.ctrlKey || e.metaKey)) return;
+		if (!active) return;
 		const ae = document.activeElement;
 		if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return;
-		const key = e.key.toLowerCase();
-		if (key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
-		else if ((key === 'z' && e.shiftKey) || key === 'y') { e.preventDefault(); redo(); }
+		if (e.ctrlKey || e.metaKey) {
+			const key = e.key.toLowerCase();
+			if (key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+			else if ((key === 'z' && e.shiftKey) || key === 'y') { e.preventDefault(); redo(); }
+			else if (key === 'd' && selStripId) { e.preventDefault(); duplicateStrip(selStripId); }
+			return;
+		}
+		// Delete the selected strip. The rigger's own Delete handler gates on `animMode`, so it is
+		// inert here and the two cannot both fire.
+		if ((e.key === 'Delete' || e.key === 'Backspace') && selStripId) {
+			e.preventDefault();
+			deleteStrip(selStripId);
+		}
 	}
 
 	async function init(bridge) {
@@ -584,13 +1003,18 @@ window.RiggerCinematic = (function () {
 		window.addEventListener('keydown', onKeyDown);
 		active = true;
 		renderPanel();
+		// `setMode` already ran its own renderTimeline() BEFORE this module finished loading (the
+		// script is lazy), so that call found no RiggerCinematic and drew nothing. Render here too,
+		// or the timeline is empty on first entry until some other edit happens to refresh it.
+		renderTimeline();
 	}
 
 	function activate() {
 		active = true;
 		renderPanel();
+		renderTimeline();
 		// Rigs may have been added/removed (or the project switched) since we last rendered.
-		rebuildActors();
+		rebuildActors().then(renderTimeline);
 	}
 
 	function deactivate() {
@@ -615,6 +1039,10 @@ window.RiggerCinematic = (function () {
 		duration: () => (doc ? doc.duration : 0),
 		hasActors: () => actors.length > 0,
 		renderPanel,
+		renderTimeline,
+		zoom,
+		deleteSelectedStrip: () => { if (selStripId) deleteStrip(selStripId); },
+		hasSelectedStrip: () => !!selStripId,
 		// history — exposed for the buttons, the keys, and live verification
 		undo,
 		redo,

@@ -73,6 +73,46 @@
   .cinePlace input[type=number] { width:52px; background:var(--panel2); color:var(--txt);
     border:1px solid var(--line); border-radius:5px; padding:2px 4px; font-size:11px; }
   .cineFlip input { width:auto; }
+  .cineStripInsp { display:flex; flex-wrap:wrap; gap:6px 8px; padding:8px 14px; color:var(--dim); font-size:11px; }
+  .cineStripInsp label { display:flex; align-items:center; gap:4px; }
+  .cineStripInsp label.wide { flex:1 0 100%; }
+  .cineStripInsp input[type=number] { width:60px; background:var(--panel2); color:var(--txt);
+    border:1px solid var(--line); border-radius:5px; padding:2px 4px; font-size:11px; }
+  .cineStripInsp select { flex:1; background:var(--panel2); color:var(--txt);
+    border:1px solid var(--line); border-radius:5px; padding:3px 5px; font-size:11px; }
+  /* cinematic timeline (shares #timeline with the dopesheet — only one is built at a time) */
+  .cineRuler, .cineTrack { display:flex; height:22px; align-items:stretch; }
+  .cineTrack { height:28px; border-bottom:1px solid #2a2e36; }
+  .cineRuler { position:sticky; top:0; z-index:5; height:24px;
+    background:var(--panel); border-bottom:1px solid var(--line); }
+  .cineGutter { width:132px; flex:0 0 132px; position:sticky; left:0; z-index:4;
+    background:var(--panel); border-right:1px solid var(--line);
+    display:flex; align-items:center; gap:3px; padding:0 6px; font-size:11px; overflow:hidden; }
+  .cineRulerGutter { color:var(--dim); font-size:10px; }
+  .cineTrackName { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cineTrackName i { color:var(--dim); font-style:normal; }
+  .cineGutter button { padding:0 4px; font-size:11px; opacity:.55; }
+  .cineGutter button:hover { opacity:1; }
+  .cineLane { position:relative; flex:0 0 auto; }
+  .cineTick { position:absolute; top:5px; font-size:9px; color:var(--dim); padding-left:3px;
+    border-left:1px solid var(--line); height:14px; }
+  .cineStrip { position:absolute; top:3px; height:22px; border-radius:4px; cursor:grab;
+    background:#33628f; border:1px solid #4d86bd;
+    color:#e8f2ff; font-size:10px; overflow:hidden; white-space:nowrap; box-sizing:border-box; }
+  .cineStrip.add { background:#5c3f8f; border-color:#8163bd; } /* additive reads differently */
+  .cineStrip.sel { outline:2px solid #ffd24a; outline-offset:-1px; z-index:2; }
+  .cineStripLabel { position:absolute; left:8px; top:4px; right:6px; overflow:hidden;
+    text-overflow:ellipsis; pointer-events:none; }
+  /* trim affordance: the last few px of each end */
+  .cineStrip::before, .cineStrip::after { content:""; position:absolute; top:0; bottom:0; width:7px;
+    cursor:ew-resize; }
+  .cineStrip::before { left:0; } .cineStrip::after { right:0; }
+  .cineRamp { position:absolute; top:0; bottom:0; pointer-events:none;
+    background:linear-gradient(90deg, rgba(0,0,0,.55), rgba(0,0,0,0)); }
+  .cineRamp.in { left:0; }
+  .cineRamp.out { right:0; background:linear-gradient(270deg, rgba(0,0,0,.55), rgba(0,0,0,0)); }
+  .cinePlayhead { position:absolute; top:0; bottom:0; width:1px; background:#ffd24a; z-index:6;
+    pointer-events:none; box-shadow:0 0 4px rgba(255,210,74,.6); }
   #list { flex:1; min-height:0; overflow:auto; }
   .item { padding:7px 14px; border-bottom:1px solid #2a2e36; cursor:pointer; }
   .item:hover { background:var(--panel2); }
@@ -6581,7 +6621,7 @@ function setMode(m){
   });
   $("#animTools").style.display = animMode ? "flex" : "none";
   $("#timeNum").style.display = animMode ? "inline-block" : "none";
-  $("#resTimeline").style.display = animMode ? "block" : "none";
+  $("#resTimeline").style.display = (animMode || cineMode) ? "block" : "none";
   $("#exportBtn").disabled = !rawDoc;
   $("#saveBtn").disabled = !rawDoc;
   { const b = $("#saveRigLibBtn"); if (b) b.disabled = !rawDoc; }
@@ -7922,6 +7962,13 @@ function removeDopeMarquee(){ const b = $("#dopeMarquee"); if (b) b.remove(); }
 // Render the dopesheet: ruler + one row per keyed bone with diamond keys + playhead.
 function renderTimeline(){
   const tl = $("#timeline"); if (!tl) return;
+  // Cinematic mode borrows the same strip of screen for its OWN timeline (tracks + strips).
+  // Only one of the two is ever built, so they never fight over the element.
+  if (cineMode){
+    tl.style.display = "block";
+    if (window.RiggerCinematic) window.RiggerCinematic.renderTimeline();
+    return;
+  }
   if (!animMode){ tl.style.display = "none"; return; }
   tl.style.display = "block";
   const keepSL = tl.scrollLeft, keepST = tl.scrollTop; // preserve scroll position across the full rebuild
@@ -9473,7 +9520,11 @@ function wire(){
   // Ctrl/⌘ + wheel over the timeline zooms; plain wheel scrolls (native).
   $("#timeline").addEventListener("wheel", (e) => {
     if (!(e.ctrlKey || e.metaKey)) return;
-    e.preventDefault(); tlZoom(e.deltaY < 0 ? 1.15 : 1 / 1.15);
+    e.preventDefault();
+    // Cinematic owns this element in its mode — zoom ITS timeline, not the dopesheet's (whose
+    // tlPxPerSec would be the wrong variable and would rebuild the wrong view).
+    if (cineMode){ if (window.RiggerCinematic) window.RiggerCinematic.zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15); return; }
+    tlZoom(e.deltaY < 0 ? 1.15 : 1 / 1.15);
   }, { passive: false });
   window.addEventListener("mouseup", () => {
     if (graphBox){ graphBox = null; refreshAnimCounts(); if (selBone != null) renderBoneDetail(); return; }

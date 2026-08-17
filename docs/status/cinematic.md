@@ -2,9 +2,10 @@
 
 > Design: [docs/design/invisible-cinematic.md](../design/invisible-cinematic.md) · Guide: _none yet (unbuilt)_ · Agent: _none yet_
 
-**One-line state:** **Phase 0 + Phase 1 done and verified live** (2026-08-17) — `/rigger` has a
-🎬 **Cinematic** mode that casts several rigs from different atlases onto one stage, places them
-and scrubs them through the shared evaluator. Phase 2 (the track/strip editor) is next.
+**One-line state:** **Phases 0–2 done and verified live** (2026-08-17) — `/rigger` has a 🎬
+**Cinematic** mode: cast several rigs from different atlases onto one stage, place them, and
+author their animation as **tracks of strips** you drag, trim, loop, layer and blend. Next is
+Phase 3, the rule-8 ship chain (R2 persistence + the in-game player).
 
 ## Current state
 
@@ -22,9 +23,17 @@ and scrubs them through the shared evaluator. Phase 2 (the track/strip editor) i
   `cuesCrossed` (edge-triggered cues). **Exactly one copy**, under `static/` because that is the
   only place all consumers reach: the browser loads it as `/shared/cinematicEval.mjs` and the
   headless gates import it across the repo. Graduates to `packages/engine-cinematic/` in Phase 3.
-- **Phase 1 stores REAL strips.** Each actor's clip is a genuine `strips[0]` in the design §4.2
-  schema (`start` / `length` / `loop.mode` / `alpha` / `blend`), so Phase 2's editor grows it in
-  place instead of replacing a bespoke stand-in.
+- **The sequencer (Phase 2).** The cinematic timeline shares `#timeline` with the dopesheet (only
+  one is ever built, so they never fight). A ruler you drag to scrub, one row per **track**,
+  **layers** per actor (⧉ adds one; layers blend bottom-up), and **strips** you can:
+  drag to move · drag either edge to trim · **hold Alt** to ignore the fps grid · Ctrl+wheel to
+  zoom · Del to delete · Ctrl+D to duplicate. A **left-trim moves `start` and `clipIn` together**
+  so the art under the cursor stays put instead of sliding — the standard NLE behaviour. Blend
+  ramps are drawn inside the strip and additive strips are tinted differently, so the layer stack
+  is readable at a glance. A **strip inspector** exposes every field the evaluator reads: clip,
+  start, length, clipIn, speed, loop mode (once / fill / count N / ping-pong), blend in/out,
+  alpha, and replace-vs-additive. One drag = **one** undo step (the doc updates live so the stage
+  follows the gesture, but history is recorded on pointerup).
 - **Undo / redo — `/rigger`'s first, and Phase 2's prerequisite.** ↶/↷ buttons + Ctrl+Z /
   Ctrl+Shift+Z / Ctrl+Y, with the action's name on the button. **Snapshot-based, not
   command-based**: a cinematic doc is a few KB of JSON, so storing whole states is correct by
@@ -47,6 +56,7 @@ and scrubs them through the shared evaluator. Phase 2 (the track/strip editor) i
 | `static/rigger/cinematic-harness.html` — gate 2's WebGL half, in a real browser | **11/11** |
 | `/rigger` cinematic mode, driven live in a browser | cast · draw · animate · scrub · place · z-order · visibility · clip-swap |
 | Undo/redo, driven live in a browser | **22/22** — history semantics (10), keyboard scoping (7), stage re-pose + buttons (5) |
+| Phase 2 sequencer, driven live in a browser | **35/35** — drag/trim/snap (11), inspector + layers (15), stage honours the authored strips (9) |
 
 Headless fixtures are real shipped rigs (`mm_bigwin` 86 bones, `anticipation` 73 bones); the
 browser harness stages `anticipation` + `reelhouse_glow` — deliberately **different atlases**.
@@ -83,23 +93,27 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Open items / next
 
-1. **Phase 2 — the track/strip editor** (design §8): tracks, strips (drag / trim / snap-to-fps),
-   loop modes, blend ramps, alpha, layers, per-actor property + camera tracks. Its undo
-   prerequisite is now done — a strip drag just needs to `commit('move strip', 'strip:<id>')` and
-   it coalesces for free.
-2. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
+1. **Phase 3 — the rule-8 ship chain** (design §6): R2 persistence for the `.icin` (it is
+   `localStorage`-only today, so a cinematic does not survive a different browser), then
+   export → `deploy/` → bake → pull → register, the `<Cinematic>` engine component, and the
+   Flow-v2 `playCinematic` node. **Nothing authored here reaches a game until this lands.**
+2. **Phase 2 remainder** — the track kinds that are still animation-only: **property** tracks
+   (actor x/y/scale/alpha over time — today placement is a static per-actor value), **camera**,
+   **visibility** and **cue** tracks. The doc schema already names them (design §4.2); only the
+   `animation` kind is implemented.
+3. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
    geometry and the frame visibly changes. Drive one spine object through the `<Cinematic>`
    contract in a real game frame before Phase 3 leans on it.
-3. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
+4. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
    has yet *looked* at two rigs staged together and judged that the art reads correctly (premultiply
    halos, relative scale between rigs authored at different atlas `scale:` factors). Open
    `/rigger` → 🎬 Cinematic, cast two rigs, and look.
-4. **Pick the set.** Phase 1 casts rigs directly (`cast[].nodeId` is null). Design §4.1 has the
+5. **Pick the set.** Phase 1 casts rigs directly (`cast[].nodeId` is null). Design §4.1 has the
    cinematic binding tracks to an existing **Scene**'s nodes — the Scene picker, and art / text /
    FX / sound actors, land with it.
-5. **Decide the Flow-v2 Phase 7 overlap explicitly** — Flow *plays* cinematics, or we ship two
+6. **Decide the Flow-v2 Phase 7 overlap explicitly** — Flow *plays* cinematics, or we ship two
    sequencers with two doc formats (design §7 risk 3). See [status/flow](flow.md) open item 7.
-6. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
+7. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
    referenced set, flatten-to-`.irig` escape hatch).
 
 ## Blocked (owner / external)
@@ -108,6 +122,16 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-17 — **Phase 2: the track/strip sequencer** (details in Current state). 35/35 live
+  checks, including that the stage genuinely honours the authored strips — a strip starting at
+  2 s leaves the actor at its setup pose before then, holds its last frame after the end
+  (`holdForward`), and an additive layer at alpha 0.6 renders differently from the same layer at
+  alpha 0, which in turn is **bit-identical** to having no layer at all. One bug found only by
+  running it: on the FIRST entry to cinematic mode the timeline drew empty, because `setMode`
+  calls `renderTimeline()` synchronously while `cinematic.js` is still lazy-loading — earlier
+  tests missed it because they cast actors *after* entering the mode. `init()`/`activate()` now
+  render it themselves. Also made `setPointerCapture` non-fatal: it throws for a pointer id the
+  browser does not know, and capture is an optimisation, never a requirement for the gesture.
 - 2026-08-17 — **Undo/redo — the first command history anywhere in `/rigger`.** Snapshot-based,
   coalescing, mode-scoped (details in Current state). 22/22 live checks, including the two that
   matter for a keyboard shortcut: Ctrl+Z inside a text field is left to the browser, and the keys
