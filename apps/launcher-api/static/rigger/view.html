@@ -376,7 +376,7 @@
       <select id="project"></select>
       <div id="projNote" class="pill" style="margin-top:5px;"></div>
     </div>
-    <div class="row">
+    <div class="row" id="rowRigManage">
       <div style="display:flex;gap:6px;">
         <button id="newRigBtn" style="flex:1;">＋ New rig</button>
         <button id="loadSpineBtn" style="flex:1;">⤓ Load spine <span id="count" class="pill"></span></button>
@@ -463,11 +463,11 @@
         <button id="play">❚❚ Pause</button>
         <button id="loop" class="active">↻ Loop</button>
       </div>
-      <div class="grp">
+      <div class="grp" id="grpAnim">
         <label>Anim</label>
         <select id="anim" style="width:150px;"></select>
       </div>
-      <div class="grp">
+      <div class="grp" id="grpSkin">
         <label>Skin</label>
         <select id="skin" style="width:110px;"></select>
       </div>
@@ -496,7 +496,7 @@
         <button id="nextKey" title="Jump to next key">▶|</button>
         <button id="delKey" title="Delete the selected bone's key at the playhead">✕ Key</button>
       </div>
-      <div class="grp">
+      <div class="grp" id="grpRigFile">
         <button id="exportBtn" title="Download the skeleton as .irig (Spine 4.2 JSON)" disabled>⤓ .irig</button>
         <button id="saveBtn" title="Save to the project in R2 (as a re-openable .irig)" disabled>💾 Save</button>
       </div>
@@ -6666,6 +6666,17 @@ function setMode(m){
   });
   { const el = $("#cineProps"); if (el) el.style.display = cineMode ? "block" : "none"; }
   if (cineMode) $("#propSub").textContent = "select a strip, key or cue";
+  // Hide the RIG-only transport controls in cinematic mode. The important one is `#grpRigFile`
+  // (⤓ .irig + 💾 Save): those act on the OPEN RIG, so next to the cinematic's own Save they read
+  // as a second save of the same thing — and pressing the wrong one saves the wrong document.
+  // The per-actor clip lives in the cast list, so the rig's Anim/Skin pickers are noise here too,
+  // and the bone/mesh/bounds overlays are not even drawn by the cinematic frame path.
+  ["#grpAnim", "#grpSkin", "#grpRigFile", "#rowRigManage"].forEach((sel) => {
+    const el = $(sel); if (el) el.style.display = cineMode ? "none" : "";
+  });
+  ["#bonesBtn", "#meshBtn", "#boundsBtn"].forEach((sel) => {
+    const el = $(sel); if (el) el.style.display = cineMode ? "none" : "";
+  });
   if (cineMode){ const bm = $("#bonemark"); if (bm) bm.style.display = "none"; } // no bone selection on a multi-actor stage
   if (animMode) ensureFxOverlay(); // fire-and-forget: lazy-load the live FX preview overlay
   else fxClearPreview(); // leaving animate — stop any live effects

@@ -237,6 +237,16 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-17 — **Cinematic mode hides the RIG-only controls (owner: "why do we have 2 saves?").**
+  The mode swapped the left panel and the right column but left the rig editor's own chrome on
+  screen, so THREE Save buttons were visible at once — 💾 Save (the rig), 📦 Save rig to library,
+  and the cinematic's. Worse than duplication: pressing the wrong one saves a different document.
+  Cinematic mode now hides the rig save/export group, the rig-management row (New rig / Load
+  spine / Save rig to library / Re-sync atlas), and the Anim/Skin pickers + bone/mesh/bounds
+  toggles (the per-actor clip lives in the cast list, and those overlays are not drawn by the
+  cinematic frame path anyway). Play/loop/speed/Reset view and the project selector stay. 7 live
+  checks, including that exactly one Save is on screen in the mode and everything comes back on
+  leaving it.
 - 2026-08-17 — **Chasing the save failure: the storage layer is EXONERATED, the endpoint now
   reports why.** 11 new assertions (39/39) drive the real `cinematicStorage` against a fake R2
   implementing R2's actual conditional-write rules, using the exact document the tool emitted in
