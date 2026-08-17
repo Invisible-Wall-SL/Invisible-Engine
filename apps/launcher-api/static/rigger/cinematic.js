@@ -54,23 +54,206 @@ window.RiggerCinematic = (function () {
 	const tracksOf = (id) => doc.tracks.filter((t) => t.actorId === id);
 	const actorOf = (id) => actors.find((a) => a.actorId === id) || null;
 
-	function save() {
+	/**
+	 * Local draft only. R2 is the source of truth (see `saveToR2`); this is a crash/reload buffer
+	 * so a browser refresh mid-session does not lose unsaved work. It is written on every commit,
+	 * which is why it must stay cheap and must never be treated as "saved".
+	 */
+	/** Write the crash/reload draft WITHOUT touching the dirty flag. */
+	function writeDraft() {
 		try {
-			localStorage.setItem(LS_KEY, JSON.stringify(doc));
+			localStorage.setItem(LS_KEY, JSON.stringify({ doc, etag: r2Etag, savedAt: r2SavedAt }));
 		} catch {
 			/* quota / private mode — the doc is still live in memory */
 		}
+	}
+
+	function save() {
+		writeDraft();
+		dirty = true;
+		updateSaveState();
 	}
 
 	function restore() {
 		try {
 			const raw = localStorage.getItem(LS_KEY);
 			if (!raw) return null;
-			const d = JSON.parse(raw);
-			return d && d.stage && Array.isArray(d.stage.cast) ? d : null;
+			const parsed = JSON.parse(raw);
+			// Tolerate the pre-R2 draft shape (a bare doc) as well as the current `{doc, etag}`.
+			const d = parsed && parsed.doc ? parsed.doc : parsed;
+			if (!d || !d.stage || !Array.isArray(d.stage.cast)) return null;
+			if (parsed && parsed.doc) {
+				r2Etag = parsed.etag ?? null;
+				r2SavedAt = parsed.savedAt ?? null;
+			}
+			return d;
 		} catch {
 			return null;
 		}
+	}
+
+	// ---- R2 persistence -----------------------------------------------------
+	//
+	// The `.icin` lives at `<client>/<project>/cinematics/<id>.json`. Saves are CONDITIONAL on the
+	// etag we loaded (`docs/design/multi-user-concurrency.md` Phase 1) so two authors cannot
+	// silently overwrite each other — a stale etag comes back 409 and we ask rather than clobber.
+
+	let r2Etag = null; // etag of the last load/save; null = "no such object yet" (create)
+	let r2SavedAt = null;
+	let dirty = false;
+	let cinematicList = [];
+	let busy = false;
+
+	const api = async (path, opts) => {
+		const res = await fetch(path, opts);
+		const text = await res.text();
+		let body = null;
+		try { body = text ? JSON.parse(text) : null; } catch { /* non-JSON error page */ }
+		return { ok: res.ok, status: res.status, body, text };
+	};
+
+	async function refreshList() {
+		const r = await api('/api/cinematics/list');
+		cinematicList = r.ok && r.body ? r.body.cinematics || [] : [];
+		return cinematicList;
+	}
+
+	/**
+	 * Save to R2. Returns true on success. On a 409 the author is asked whether to overwrite —
+	 * never done silently, because the other side of a conflict is somebody else's work.
+	 */
+	async function saveToR2(force) {
+		if (busy) return false;
+		busy = true;
+		statusMsg = 'saving…';
+		renderPanel();
+		try {
+			const payload = { doc, projectKey: ctx.projectKey ? ctx.projectKey() : undefined };
+			// `force` omits baseEtag entirely — that unconditional write IS the point of force.
+			if (force) payload.force = true;
+			else payload.baseEtag = r2Etag;
+
+			const r = await api('/api/cinematics/save', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(payload),
+			});
+
+			if (r.status === 409 && r.body) {
+				statusMsg = '';
+				renderPanel();
+				const overwrite = window.confirm(r.body.message + '\n\nOverwrite with your version?');
+				// A scope mismatch is NEVER force-able — that would write into another project.
+				if (overwrite && r.body.error === 'conflict') { busy = false; return saveToR2(true); }
+				return false;
+			}
+			if (!r.ok || !r.body || !r.body.ok) {
+				statusMsg = 'save failed: ' + (r.body && r.body.message ? r.body.message : r.status);
+				return false;
+			}
+			r2Etag = r.body.etag ?? null;
+			r2SavedAt = r.body.updatedAt || new Date().toISOString();
+			dirty = false;
+			statusMsg = '';
+			try { localStorage.setItem(LS_KEY, JSON.stringify({ doc, etag: r2Etag, savedAt: r2SavedAt })); } catch { /* draft only */ }
+			await refreshList();
+			return true;
+		} finally {
+			busy = false;
+			updateSaveState();
+			renderPanel();
+		}
+	}
+
+	async function openFromR2(id) {
+		if (dirty && !window.confirm('You have unsaved changes. Open a different cinematic anyway?')) return;
+		busy = true;
+		statusMsg = 'loading…';
+		renderPanel();
+		try {
+			const r = await api('/api/cinematics/get?id=' + encodeURIComponent(id));
+			if (!r.ok || !r.body || !r.body.doc) {
+				statusMsg = 'could not open "' + id + '"' + (r.body && r.body.malformed ? ' — the stored file is corrupt' : '');
+				return;
+			}
+			doc = r.body.doc;
+			r2Etag = r.body.etag ?? null;
+			r2SavedAt = null;
+			dirty = false;
+			selStripId = null;
+			selKey = null;
+			selActorId = doc.stage.cast.length ? doc.stage.cast[0].actorId : null;
+			time = 0;
+			historyReset(); // a freshly-opened doc has nothing behind it to undo to
+			statusMsg = '';
+			writeDraft();
+			await rebuildActors();
+			renderPanel();
+			renderTimeline();
+			fitAll();
+		} finally {
+			busy = false;
+			updateSaveState();
+			renderPanel();
+		}
+	}
+
+	async function newCinematic() {
+		if (dirty && !window.confirm('You have unsaved changes. Start a new cinematic anyway?')) return;
+		const name = (window.prompt('Name for the new cinematic', 'Untitled cinematic') || '').trim();
+		if (!name) return;
+		doc = newDoc();
+		doc.name = name;
+		doc.id = slugify(name);
+		r2Etag = null; // nothing stored yet → the save creates with ifNoneMatch:'*'
+		r2SavedAt = null;
+		dirty = false;
+		selStripId = null;
+		selKey = null;
+		selActorId = null;
+		time = 0;
+		actors = [];
+		historyReset();
+		writeDraft();
+		renderPanel();
+		renderTimeline();
+	}
+
+	async function deleteCurrent() {
+		if (!doc || !cinematicList.some((c) => c.id === doc.id)) return;
+		if (!window.confirm('Delete "' + doc.name + '" from this project? This cannot be undone.')) return;
+		await api('/api/cinematics/delete', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ id: doc.id }),
+		});
+		await refreshList();
+		await newCinematic0();
+	}
+
+	/** A blank doc with no prompt — used after a delete, where asking for a name is noise. */
+	function newCinematic0() {
+		doc = newDoc();
+		r2Etag = null;
+		r2SavedAt = null;
+		dirty = false;
+		actors = [];
+		selStripId = null;
+		selKey = null;
+		historyReset();
+		writeDraft();
+		renderPanel();
+		renderTimeline();
+	}
+
+	const slugify = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '_').slice(0, 60) || 'untitled';
+
+	/** Reflect saved/unsaved in the header without rebuilding the whole panel every commit. */
+	function updateSaveState() {
+		const el = $('#cineSaveState');
+		if (!el) return;
+		el.textContent = busy ? '…' : dirty ? '● unsaved' : r2SavedAt || r2Etag ? '✓ saved' : 'not saved yet';
+		el.className = 'cineSaveState' + (dirty ? ' dirty' : '');
 	}
 
 	// ---- history (undo / redo) ----------------------------------------------
@@ -1085,8 +1268,23 @@ window.RiggerCinematic = (function () {
 			.join('');
 
 		const rigOpts = rigs.map((e) => `<option value="${esc(e.id)}">${esc(e.name)}</option>`).join('');
+		const listOpts = cinematicList.length
+			? cinematicList
+					.map((c) => `<option value="${esc(c.id)}"${c.id === doc.id ? ' selected' : ''}>${esc(c.name)} · ${c.actors} actor${c.actors === 1 ? '' : 's'}</option>`)
+					.join('')
+			: '<option value="">— none saved in this project —</option>';
 		panel.innerHTML = `
-<div class="cineHead"><b>🎬 Cinematic</b><small>${esc(doc.name)}</small></div>
+<div class="cineHead"><b>🎬 Cinematic</b><small>${esc(doc.name)}</small><span id="cineSaveState" class="cineSaveState${dirty ? ' dirty' : ''}">${busy ? '…' : dirty ? '● unsaved' : r2SavedAt || r2Etag ? '✓ saved' : 'not saved yet'}</span></div>
+<div class="cineRow">
+	<select id="cineOpenSel" title="Open a cinematic saved in this project">${listOpts}</select>
+	<button id="cineOpen" title="Open the selected cinematic">⤓ Open</button>
+</div>
+<div class="cineRow">
+	<button id="cineSave" title="Save this cinematic to the project (R2)"${busy ? ' disabled' : ''}>💾 Save</button>
+	<button id="cineNew" title="Start a new, empty cinematic">＋ New</button>
+	<button id="cineDelete" title="Delete this cinematic from the project">🗑</button>
+	<input type="text" id="cineName" value="${esc(doc.name)}" title="Cinematic name" style="flex:1;min-width:0;">
+</div>
 <div class="cineRow">
 	<label>Length <input type="number" id="cineDur" min="0.1" step="0.5" value="${doc.duration}"> s</label>
 	<label>Time <input type="number" id="cineTime" step="0.05" value="${time.toFixed(2)}"> s</label>
@@ -1114,6 +1312,21 @@ ${stripInspectorMarkup()}
 			if (entry) addActor(entry);
 		};
 		$('#cineFit').onclick = fitAll;
+		$('#cineSave').onclick = () => saveToR2(false);
+		$('#cineNew').onclick = newCinematic;
+		$('#cineDelete').onclick = deleteCurrent;
+		$('#cineOpen').onclick = () => { const id = $('#cineOpenSel').value; if (id) openFromR2(id); };
+		$('#cineName').onchange = (e) => {
+			const name = e.target.value.trim();
+			if (!name) return;
+			doc.name = name;
+			// The id is the R2 key, so renaming an ALREADY-SAVED cinematic must not re-slug it into
+			// a different object (that would fork it into two files). Only an unsaved one takes the
+			// new id.
+			if (!r2Etag && !r2SavedAt) doc.id = slugify(name);
+			commit('rename', 'name');
+			renderPanel();
+		};
 		$('#cineUndo').onclick = undo;
 		$('#cineRedo').onclick = redo;
 		wireStripInspector();
@@ -1300,6 +1513,7 @@ ${stripInspectorMarkup()}
 			if (key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
 			else if ((key === 'z' && e.shiftKey) || key === 'y') { e.preventDefault(); redo(); }
 			else if (key === 'd' && selStripId) { e.preventDefault(); duplicateStrip(selStripId); }
+			else if (key === 's') { e.preventDefault(); saveToR2(false); } // never let Ctrl+S save the PAGE
 			return;
 		}
 		// Delete the selected key, else the selected strip. The rigger's own Delete handler gates on
@@ -1315,6 +1529,7 @@ ${stripInspectorMarkup()}
 		EV = await import('/shared/cinematicEval.mjs');
 		doc = restore() || newDoc();
 		historyReset();
+		await refreshList();
 		await rebuildActors();
 		window.addEventListener('keydown', onKeyDown);
 		active = true;

@@ -125,6 +125,10 @@
   .cineKeyBtn:hover { opacity:1; }
   .cineKeyBtn.on { opacity:1; color:#ffd24a; border-color:#7a6a2e; }
   .cinePlace label.keyed { color:#ffd24a; }
+  .cineSaveState { margin-left:auto; font-size:10px; color:var(--accent2); white-space:nowrap; }
+  .cineSaveState.dirty { color:#ffd24a; }
+  .cineRow input[type=text] { background:var(--panel2); color:var(--txt); border:1px solid var(--line);
+    border-radius:6px; padding:4px 6px; font-size:12px; }
   #list { flex:1; min-height:0; overflow:auto; }
   .item { padding:7px 14px; border-bottom:1px solid #2a2e36; cursor:pointer; }
   .item:hover { background:var(--panel2); }
@@ -685,7 +689,7 @@ let graphHide = {}; // channel label → hidden?
 let graphSel = [], graphMarquee = null; // selected graph points [{keyObj,ch,field,vi}] + box-select state
 let graphSnap = true, graphBox = null; // snap key/handle times to grid+playhead; box-scale-drag state
 let gizmoDrag = null; // transform gizmo rotate-drag state
-let curProjectLabel = "", restoringState = false; // persisted-selection helpers
+let curProjectLabel = "", curProjectKey = "", restoringState = false; // persisted-selection helpers
 let animWorkLen = {}, playSpeed = 1; // per-anim working length (timeline range) + playback speed
 let curEntry = null, dragging = false, boneDragging = false, lastXY = null;
 let skeletons = [], selected = null, bgColor = {r:0.106,g:0.114,b:0.133,a:1};
@@ -836,6 +840,7 @@ function cinematicBridge(){
     playSpeed: () => playSpeed,
     looping: () => looping,
     listRigs: () => skeletons,
+    projectKey: () => curProjectKey,
     loadRigData,
   };
 }
@@ -8990,6 +8995,9 @@ function closeSpineModal(){ $("#spineModal").classList.remove("open"); }
 
 function setActiveProject(client, project){
   if (!project) return;
+  // The RAW key, kept alongside the display label: a save endpoint's scope guard compares
+  // against the session's project, so the client has to send the key, not "client / project".
+  curProjectKey = project;
   curProjectLabel = client ? client + " / " + project : project;
   $("#sub").textContent = project;
   const psel = $("#project"); psel.innerHTML = "";

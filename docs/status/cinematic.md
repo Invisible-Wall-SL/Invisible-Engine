@@ -2,10 +2,11 @@
 
 > Design: [docs/design/invisible-cinematic.md](../design/invisible-cinematic.md) · Guide: _none yet (unbuilt)_ · Agent: _none yet_
 
-**One-line state:** **Phases 0–2 done and verified live** (2026-08-17) — `/rigger` has a 🎬
-**Cinematic** mode: cast several rigs from different atlases onto one stage, place them, and
-author their animation as **tracks of strips** you drag, trim, loop, layer and blend. Next is
-Phase 3, the rule-8 ship chain (R2 persistence + the in-game player).
+**One-line state:** **Phases 0–2 done; Phase 3 started** (2026-08-17) — `/rigger`'s 🎬 **Cinematic**
+mode stages several rigs, authors them as tracks of strips + property/camera keys, and now
+**saves to R2 per project**. Still owed for rule 8: export → `deploy/` → bake → pull → register,
+the `<Cinematic>` engine component and the Flow `playCinematic` node — **so nothing authored here
+reaches a game yet.**
 
 ## Current state
 
@@ -16,7 +17,20 @@ Phase 3, the rule-8 ship chain (R2 persistence + the in-game player).
   runtime + GL itself). Lives in `static/rigger/cinematic.js`; the rig editor's blast radius is
   four small hooks in `view.html` (mode button, `setMode` branch, `frame()` branch, lazy loader)
   plus an early-return in `mousedown` so no bone/mesh branch runs on a multi-actor stage.
-  Doc autosaves to `localStorage` — **R2 persistence + the ship chain are Phase 3**.
+- **R2 persistence (Phase 3, part 1).** Open / Save / ＋ New / 🗑 over
+  `<client>/<project>/cinematics/<id>.json`, with Ctrl+S. Endpoints under `/api/cinematics/*`,
+  gated by the **`rigger`** entitlement (Cinematic mode lives inside `/rigger`, so it carries the
+  Rigger's, not a second one). Three deliberate choices:
+  - **No index blob.** The list is an R2 prefix listing, so adding or deleting a cinematic never
+    read-modify-writes a shared object — the exact race that silently dropped rows from the
+    Rigger's `_shared/{rigs,animations}/index.json` and surfaced as "my rig vanished".
+  - **Conditional writes.** Every save carries the `baseEtag` it loaded; a stale one answers 409
+    and the author is *asked* before overwriting, never clobbered silently. A create sends
+    `baseEtag: null` (not an absent field — `writeBaseEtagJson` 400s on absent, by design).
+  - **A scope guard the client actually feeds.** The save posts its `projectKey`, so switching
+    project in another tab is refused rather than writing into the wrong project — and `force`
+    does not bypass it (overwriting *your* doc is a choice, someone else's project never is).
+  `localStorage` is now only a crash/reload **draft**, not the source of truth.
 - **`static/shared/cinematicEval.mjs`** — the layered strip evaluator: `clipLocalTime`
   (clipIn/clipOut trim · speed · once/count/fill/pingPong · extrapolation), `blendEnvelope`
   (blend-in/out ramps × alpha), `evaluateActor` (layer stack, additive, bone masks) and
@@ -71,6 +85,8 @@ Phase 3, the rule-8 ship chain (R2 persistence + the in-game player).
 | Undo/redo, driven live in a browser | **22/22** — history semantics (10), keyboard scoping (7), stage re-pose + buttons (5) |
 | Phase 2 sequencer, driven live in a browser | **35/35** — drag/trim/snap (11), inspector + layers (15), stage honours the authored strips (9) |
 | Property + camera tracks, driven live in a browser | **36/36** — keying + channel rows (9), stage honours the channels (8), camera track + live toggle (12), key retime/ease/delete (7) |
+| `tools/rigger-spike/cinematic-storage.mjs` — the storage module's pure logic (headless) | **16/16** |
+| R2 persistence client flow, driven live against a fake R2 with real etag semantics | **19/19** — create/update CAS, conflict prompt, force, new/open/rename/delete, draft |
 
 Headless fixtures are real shipped rigs (`mm_bigwin` 86 bones, `anticipation` 73 bones); the
 browser harness stages `anticipation` + `reelhouse_glow` — deliberately **different atlases**.
@@ -107,27 +123,32 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Open items / next
 
-1. **Phase 3 — the rule-8 ship chain** (design §6): R2 persistence for the `.icin` (it is
-   `localStorage`-only today, so a cinematic does not survive a different browser), then
-   export → `deploy/` → bake → pull → register, the `<Cinematic>` engine component, and the
-   Flow-v2 `playCinematic` node. **Nothing authored here reaches a game until this lands.**
-2. **Phase 2 remainder** — **visibility** and **cue** tracks (named in the schema, design §4.2;
+1. **Phase 3 remainder — the ship chain** (design §6): export → `<client>/<project>/deploy/` →
+   bake (index in the bundle) → pull (mirror into `static/assets/`) → runtime register, the
+   `<Cinematic>` engine component (its `spine-pixi-v8` contract is already proved by gate 3), and
+   the Flow-v2 `playCinematic` node with a `complete` exec out. **Nothing authored here reaches a
+   game until this lands** — R2 persistence is storage, not shipping.
+2. **⏳ Live-verify the endpoints against real R2.** The client flow was driven against a fake R2
+   with real etag semantics, and the storage module's pure logic is covered headlessly, but
+   `/api/cinematics/*` has not run against Postgres + R2 (it needs the authed launcher). Save,
+   reload, and open a cinematic on the deploy before trusting it.
+3. **Phase 2 remainder** — **visibility** and **cue** tracks (named in the schema, design §4.2;
    `animation`, `property` and `camera` are implemented). Visibility is a static per-actor toggle
    today; cues are the `fx:` / `sfx:` / `signal:` surface and are best built alongside the Flow
    wiring in Phase 3.
-3. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
+4. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
    geometry and the frame visibly changes. Drive one spine object through the `<Cinematic>`
    contract in a real game frame before Phase 3 leans on it.
-4. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
+5. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
    has yet *looked* at two rigs staged together and judged that the art reads correctly (premultiply
    halos, relative scale between rigs authored at different atlas `scale:` factors). Open
    `/rigger` → 🎬 Cinematic, cast two rigs, and look.
-5. **Pick the set.** Phase 1 casts rigs directly (`cast[].nodeId` is null). Design §4.1 has the
+6. **Pick the set.** Phase 1 casts rigs directly (`cast[].nodeId` is null). Design §4.1 has the
    cinematic binding tracks to an existing **Scene**'s nodes — the Scene picker, and art / text /
    FX / sound actors, land with it.
-6. **Decide the Flow-v2 Phase 7 overlap explicitly** — Flow *plays* cinematics, or we ship two
+7. **Decide the Flow-v2 Phase 7 overlap explicitly** — Flow *plays* cinematics, or we ship two
    sequencers with two doc formats (design §7 risk 3). See [status/flow](flow.md) open item 7.
-7. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
+8. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
    referenced set, flatten-to-`.irig` escape hatch).
 
 ## Blocked (owner / external)
@@ -136,6 +157,16 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-17 — **Phase 3 part 1: R2 persistence** (details in Current state). A cinematic now
+  survives the browser. 16 headless assertions on the storage module's pure logic (path-guarding
+  a user-supplied id, and a shape guard that rejects junk without rejecting documents a NEWER
+  client wrote) plus 19 live client checks driven against a fake R2 with **real etag semantics** —
+  create-vs-update preconditions, the 409 conflict prompt, force-overwrite, and new/open/rename/
+  delete. Two real bugs found by running it: the save posted no `projectKey`, which made the
+  server's scope-mismatch guard dead code (the bridge now exposes it), and `＋ New` never wrote
+  the local draft, so a reload right after would resurrect the previous cinematic. A third was
+  caught by **type-checking** rather than at runtime — `putObjectText` returns the etag directly,
+  not an object, and this repo's `build` is famously not a type-check.
 - 2026-08-17 — **Property + camera tracks** (details in Current state). The sampling lives in the
   SHARED evaluator (`sampleChannel` / `sampleTrack` / `resolvePlace` / `putKey`), not in the
   editor, so the in-game player will interpolate identically — same rule as the blend maths.

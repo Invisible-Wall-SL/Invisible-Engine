@@ -51,6 +51,7 @@ export const SUB = {
 	symbols: (c: string, p: string) => `${projectPrefix(c, p)}/symbols`,
 	winText: (c: string, p: string) => `${projectPrefix(c, p)}/win-text`,
 	config: (c: string, p: string) => `${projectPrefix(c, p)}/config`,
+	cinematics: (c: string, p: string) => `${projectPrefix(c, p)}/cinematics`,
 	storybook: (c: string, p: string) => `${projectPrefix(c, p)}/storybook`,
 } as const;
 
