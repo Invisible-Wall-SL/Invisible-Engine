@@ -1,3 +1,18 @@
+// ⚠️ WHAT THIS GATE CANNOT PROVE (learned the hard way, 2026-08-17)
+//
+// It verifies the POSE contract against spine-pixi-v8 — which hook runs when, what an emptied
+// AnimationState does, what a leftover track does. It has NO PIXI RENDER LOOP, so it cannot
+// prove that a posed skeleton produces a CHANGED FRAME.
+//
+// That gap shipped a real bug: `<CinematicActor>` set `spine.autoUpdate = false` (the obvious
+// reading of "we drive the pose ourselves"), which stops Pixi running its own update+render pass.
+// Bones moved every frame and nothing was ever re-uploaded — rigs appeared, frozen in setup pose,
+// in the first real game mount. `autoUpdate` must stay ON; an emptied AnimationState is inert
+// (this gate proves that), so Pixi's own per-frame update is safe AND is what marks the geometry
+// dirty.
+//
+// Anything about RENDERING belongs in a browser harness, not here.
+
 // Invisible Cinematic — PHASE 0 GATE 3 (headless).
 //
 //   node tools/rigger-spike/cinematic-pixi.mjs

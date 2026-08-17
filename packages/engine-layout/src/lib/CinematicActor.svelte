@@ -80,21 +80,25 @@
 		}
 	}
 
-	spine.autoUpdate = false;
-	spine.state.clearTracks();
+	// `autoUpdate` STAYS ON. Turning it off (the obvious reading of "we drive the pose ourselves")
+	// stops Pixi running its own update+render pass for this Spine, so the bones move and the frame
+	// never changes — rigs appear, in their setup pose, frozen. That is the one thing the headless
+	// gate structurally could not catch (it has no Pixi render loop), and it is exactly how this
+	// failed on first mount in a real game.
+	//
+	// Leaving it on is safe precisely because of what gate 3 DID establish: an emptied
+	// `AnimationState` is fully inert. So Pixi's per-frame `update(dt)` runs
+	// `state.update`/`state.apply` (no-ops on an empty state), then our `beforeUpdateWorldTransforms`
+	// hook poses from the evaluator, then `updateWorldTransform` — and the geometry is re-uploaded
+	// through Pixi's normal dirty path. We get the pose we want AND a frame that actually changes.
+	spine.state.clearTracks(); // mandatory for EVENT reasons: a leftover track keeps firing its clip's events
 	spine.beforeUpdateWorldTransforms = pose;
 	onDestroy(() => {
-		// Hand the rig back exactly as we found it, so a spine reused elsewhere is not left frozen
-		// with our hook attached.
+		// Hand the rig back exactly as we found it, so a spine reused elsewhere is not left posed by
+		// a cinematic that is no longer on screen.
 		spine.beforeUpdateWorldTransforms = () => {};
-		spine.autoUpdate = true;
 	});
 
-	// Re-pose on every time change even when the ticker is not running (a scrubbed//seeked
-	// cinematic, or a paused frame) — `spine.update(0)` runs the hook without advancing physics.
-	$effect(() => {
-		void props.time;
-		void props.tracks;
-		spine.update(0);
-	});
+	// No manual `spine.update()` is needed: Pixi ticks this Spine every frame, and the hook reads
+	// `props.time` live — so a scrubbed or paused cinematic re-poses on the very next frame too.
 </script>

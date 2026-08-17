@@ -65,7 +65,7 @@ headless contract tests, never by execution (see Open items).
   art), and drives them all from ONE clock through the shared evaluator, so what an author
   scrubbed is what the game plays. Props: `doc` · `playing` · `startTime` · `loop` · `speed` ·
   `oncomplete` (the Flow `complete` seam). `CinematicActor.svelte` applies gate 3's measured
-  contract per rig — `autoUpdate = false`, `state.clearTracks()` (mandatory for EVENT reasons: a
+  contract per rig — **`autoUpdate` stays ON** (see Recent changes: turning it off froze every rig
   leftover track keeps firing that clip's spine events every frame), pose in
   `beforeUpdateWorldTransforms` (the `after` hook renders the PREVIOUS pose), `spine.update(dt)` —
   and restores the rig on destroy. Driven by the Pixi ticker, not its own rAF, so a paused game
@@ -202,7 +202,7 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
    the build went Phase 1 → 2 → 3. Mechanically it is mostly plumbing what exists: point `curAnim`
    at the strip's clip, map `animTime` through the strip's `clipIn`/`speed`/loop, keep evaluating
    the other actors, and re-parse on exit.
-2. **⏳ RUN IT — the one thing that matters now.** The whole engine half (`<Cinematic>`,
+2. **⏳ KEEP RUNNING IT.** The first mount happened and immediately found a real bug (see Recent changes), which is the point. The whole engine half (`<Cinematic>`,
    `CinematicActor`, `<FlowV2Cinematics>`, the `playCinematic` interpreter case) has **never
    executed in a game**. It is verified by construction — gate 3 measured the `spine-pixi-v8`
    contract it implements — and by headless contract tests over the real modules, which is a
@@ -218,21 +218,18 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 4. **Remember `node scripts/sync-cinematic-eval.mjs`** after ANY evaluator change — the gate fails
    if the browser copy drifts, but nothing regenerates it automatically yet. Wiring it into a
    pre-build step would close that.
-5. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
-   geometry and the frame visibly changes. Drive one spine object through the `<Cinematic>`
-   contract in a real game frame before Phase 3 leans on it.
-6. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
+5. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
    has yet *looked* at two rigs staged together and judged that the art reads correctly (premultiply
    halos, relative scale between rigs authored at different atlas `scale:` factors). Open
    `/rigger` → 🎬 Cinematic, cast two rigs, and look.
-7. **Non-rig content — FX / SFX / TEXT (design §12, owner-decided 2026-08-17).** The next real
+6. **Non-rig content — FX / SFX / TEXT (design §12, owner-decided 2026-08-17).** The next real
    build, in order: (a) a **set picker** binding the cinematic to a Scene so its `sprite`/`text`/
    `effect` nodes become castable actors; (b) `＋ Text` / `＋ FX` quick-add that writes into that
    set (a shortcut INTO the Scene model, never a parallel one); (c) **rig-level text** as a Spine
    `point` attachment + a sidecar entry naming its localization key — a real keyable slot that
    keeps the `.irig` byte-valid Spine. Note FX on a rig animation ALREADY works (event key →
    `fx.effectId` + bone); if authors cannot find it, that is discoverability, not a build.
-8. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
+7. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
    referenced set, flatten-to-`.irig` escape hatch).
 
 ## Blocked (owner / external)
@@ -241,6 +238,21 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-17 — **FIRST REAL GAME MOUNT: "the rigs are there but nothing moves" (owner).** The
+  player's first run in a game found the bug the headless gate structurally could not.
+  `<CinematicActor>` set `spine.autoUpdate = false` — the obvious reading of "we drive the pose
+  ourselves" — which stops Pixi running its own update+render pass for that Spine. The bones were
+  posed every frame and the geometry was never re-uploaded, so the rigs mounted, held their setup
+  pose, and never changed. **`autoUpdate` now stays ON**, which is safe for exactly the reason
+  gate 3 established: an emptied `AnimationState` is fully inert, so Pixi's own per-frame
+  `update(dt)` runs two no-ops, then our `beforeUpdateWorldTransforms` hook, then
+  `updateWorldTransform` — the pose we want, through the dirty path that actually re-renders. The
+  manual `spine.update(0)` effect is gone with it (Pixi ticks every frame, and the hook reads
+  `time` live, so a scrubbed or paused cinematic still re-poses).
+  **This closes the "gate 3 residual" live check** that had been open since Phase 0 — and it
+  landed exactly where that item predicted: "headless proof cannot show that Pixi re-uploads the
+  geometry and the frame visibly changes." The limitation is now written at the top of
+  `cinematic-pixi.mjs` so the next person does not trust it beyond the pose contract.
 - 2026-08-17 — **Screen-frame guide (owner: "cinematics will mostly be based on the screen
   ratio").** A **Frame** picker draws the game canvas box on the stage — the project's authored
   `mainSizesMap` per layout, the same box the Scene Editor composes in, so what you frame is what
