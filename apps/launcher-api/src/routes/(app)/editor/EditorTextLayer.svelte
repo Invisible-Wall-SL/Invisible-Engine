@@ -642,10 +642,11 @@
 			};
 			const baseFontSize = style?.fontSize ?? 24;
 			let obj = buildAt(baseFontSize);
-			// Auto-fit: shrink the font until the wrapped block fits the box height. The
-			// measure resets the (possibly reused) object to scale 1 so `width/height` read
-			// the UNSCALED glyph box, not last frame's baked view scale.
-			if (boxed && autoFit && boxH !== undefined) {
+			// Auto-fit: shrink the font until the block fits the box (width always; height too
+			// when the box has one — a width-only box fits a too-long single line). The measure
+			// resets the (possibly reused) object to scale 1 so `width/height` read the UNSCALED
+			// glyph box, not last frame's baked view scale.
+			if (boxed && autoFit) {
 				const fitted = autoFitFontSize({
 					measure: (fs) => {
 						const o = buildAt(fs);

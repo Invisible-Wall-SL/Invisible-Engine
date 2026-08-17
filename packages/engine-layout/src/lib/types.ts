@@ -406,9 +406,10 @@ export interface TextNode extends BaseNode {
 	width?: number;
 	height?: number;
 	/**
-	 * Shrink the font so the text fits the box (`width`/`height`) when it would otherwise
-	 * overflow — never grows it past `style.fontSize`. Only meaningful with an explicit box.
-	 * Absent ⇒ off (text may overflow the box; the box just positions/aligns it).
+	 * Shrink the font so the text fits the box when it would otherwise overflow — never grows it
+	 * past `style.fontSize`. Needs a `width`; `height` is optional (a width-only box fits a
+	 * too-long single line, the localization case: a translated string is longer than the one the
+	 * layout was drawn for). Absent ⇒ off (text may overflow the box; the box just positions it).
 	 */
 	autoFit?: boolean;
 	/**

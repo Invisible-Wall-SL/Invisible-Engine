@@ -3899,9 +3899,11 @@
 			<h4>Text box</h4>
 			<p class="muted small">
 				Set a box <strong>width</strong> (and optional <strong>height</strong>) to lay the text out
-				inside it — <strong>align</strong> / <strong>vertical align</strong> position it, and the canvas
-				resize handles change the box (never the font, so nothing stretches). Leave blank to auto-size
-				to the text. Drag a corner handle on the canvas to draw a box.
+				inside it — <strong>align</strong> / <strong>vertical align</strong> position it, and the
+				canvas resize handles change the box (never the font, so nothing stretches). Leave blank to
+				auto-size to the text. Drag a corner handle on the canvas to draw a box. Turn on
+				<strong>auto-fit</strong> and the font shrinks to stay inside the box — the fix for a translated
+				line that would otherwise run past its frame.
 			</p>
 			<div class="row">
 				<label class="field">

@@ -3157,11 +3157,24 @@
 	}
 
 	/** A Text Box component instance — its def exposes `boxWidth`/`boxHeight` params bound to an
-	 * inner text node's box. Its resize handles drive those params (see {@link applyScale}). */
+	 * inner text node's box AND is nothing BUT text. Its resize handles drive those params (see
+	 * {@link applyScale}).
+	 *
+	 * The pure-text test matters because the box params are shared (`TEXT_BOX_LAYOUT_PARAMS`) with
+	 * text-bearing components that also draw ART — the Info Bar's plaque sprite, say. Sizing those
+	 * by the box would resize the text and SNAP the artwork back to scale 1, so they keep the
+	 * normal scale handles and set their box from the properties panel instead. */
 	function isTextBoxInstance(node: LayoutNode): boolean {
 		if (node.kind !== 'componentInstance') return false;
 		const def = componentMap.get(node.componentId);
-		return !!def?.params?.some((p) => p.key === 'boxWidth');
+		if (!def?.params?.some((p) => p.key === 'boxWidth')) return false;
+		return isTextOnlyNode(def.root);
+	}
+	/** True when a component tree draws text and nothing else (containers are pure grouping). */
+	function isTextOnlyNode(node: LayoutNode): boolean {
+		if (node.kind === 'text') return true;
+		if (node.kind === 'container') return node.children.every(isTextOnlyNode);
+		return false;
 	}
 	/** Write a Text Box instance's box dims as per-instance params (round for a clean doc). Params
 	 * are not per-layoutType, so this is shared across device layouts (acceptable for a box). */

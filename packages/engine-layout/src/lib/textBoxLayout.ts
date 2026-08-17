@@ -125,12 +125,14 @@ export function textBoxPlacement(params: {
 }
 
 /**
- * The largest font size ≤ `baseFontSize` at which the wrapped text fits the box. `measure`
- * returns the rendered `{ width, height }` at a given font size WITH the box's wrap width
- * applied (so height reflects the real number of wrapped lines). Width is wrap-bounded, so
- * fitting is driven by `boxHeight`; with no `boxHeight` this returns `baseFontSize` (nothing
- * to shrink against). Iterative (font metrics aren't linear once wrapping changes line count),
- * capped so it always terminates.
+ * The largest font size ≤ `baseFontSize` at which the text fits the box. `measure` returns the
+ * rendered `{ width, height }` at a given font size (with the box's wrap width applied when the
+ * style wraps, so height reflects the real number of lines). BOTH axes constrain the fit, and
+ * `boxHeight` is OPTIONAL: a width-only box shrinks a too-long single line until it fits the
+ * width — which is the localization case (a translated string is longer than the one the layout
+ * was drawn for, and a one-line banner has no meaningful height to fit against). With no
+ * `boxHeight` the height is unbounded. Iterative (font metrics aren't linear once wrapping
+ * changes line count), capped so it always terminates.
  */
 export function autoFitFontSize(params: {
 	measure: (fontSize: number) => { width: number; height: number };
@@ -142,9 +144,9 @@ export function autoFitFontSize(params: {
 	minFontSize?: number;
 }): number {
 	const { measure, baseFontSize, boxWidth, boxHeight, minFontSize = 6 } = params;
-	if (boxHeight === undefined) return baseFontSize;
 	const contentWidth = textBoxContentWidth(boxWidth, params.padding);
-	const contentHeight = textBoxContentHeight(boxHeight, params.padding);
+	const contentHeight =
+		boxHeight === undefined ? Infinity : textBoxContentHeight(boxHeight, params.padding);
 	const EPS = 0.5;
 	const fits = (m: { width: number; height: number }) =>
 		m.width <= contentWidth + EPS && m.height <= contentHeight + EPS;

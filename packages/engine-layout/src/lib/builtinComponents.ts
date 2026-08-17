@@ -262,6 +262,64 @@ export const BUTTON_DEF: ComponentDef = {
 const TEXT_BOX_FONT_SIZE = 32;
 
 /**
+ * §text-box model, as PER-INSTANCE component params — the bindings a text node needs so an
+ * author can give it a fixed box (`boxWidth`/`boxHeight`/`padding`), align the glyphs inside it
+ * and auto-shrink the font to stay in it. Declared ONCE ({@link TEXT_BOX_LAYOUT_PARAMS} is the
+ * matching control list) because every text-bearing component wants the same thing, and the two
+ * halves are useless apart: params without bindings render controls wired to nothing.
+ *
+ * `LayoutNodeView` / `EditorTextLayer` resolve these off the node, so a component only has to
+ * declare them — the box math itself is shared (`textBoxLayout.ts`).
+ */
+const TEXT_BOX_LAYOUT_BINDINGS: Record<string, string> = {
+	'style.align': 'align',
+	'style.verticalAlign': 'verticalAlign',
+	width: 'boxWidth',
+	height: 'boxHeight',
+	padding: 'padding',
+	autoFit: 'autoFit',
+};
+
+/**
+ * The editor controls for {@link TEXT_BOX_LAYOUT_BINDINGS}. Unset `boxWidth` ⇒ no box ⇒ the text
+ * auto-sizes exactly as it did before (parity), so these are additive on any component.
+ *
+ * `align`/`verticalAlign` take DEFAULTS because inside a box they decide where the block sits, and
+ * unset means "left/top". A component whose text node is anchor-centred (the Info Bar's message,
+ * centred on its plaque) must default to `center`/`middle`, or merely giving it a box width would
+ * shove the text to the box's left edge — the author ticks one box and the text jumps.
+ */
+function textBoxLayoutParams(
+	defaults: { align?: string; verticalAlign?: string } = {},
+): ComponentParam[] {
+	return [
+		{
+			key: 'align',
+			kind: 'string',
+			options: ['left', 'center', 'right'],
+			label: 'align',
+			...(defaults.align ? { default: defaults.align } : {}),
+		},
+		{
+			key: 'verticalAlign',
+			kind: 'string',
+			options: ['top', 'middle', 'bottom'],
+			label: 'vertical align',
+			...(defaults.verticalAlign ? { default: defaults.verticalAlign } : {}),
+		},
+		{ key: 'boxWidth', kind: 'number', label: 'box width (blank = fit text)' },
+		{ key: 'boxHeight', kind: 'number', label: 'box height (blank = fit text)' },
+		{ key: 'padding', kind: 'number', label: 'box padding (px)' },
+		{
+			key: 'autoFit',
+			kind: 'boolean',
+			default: false,
+			label: 'auto-fit font to box (needs a box width)',
+		},
+	];
+}
+
+/**
  * The single reusable TEXT BOX (§18) — ONE def for every text field in a game.
  * Its `text` param is a literal string OR a localization key (the engine's
  * registered text resolver translates known keys at render — see
@@ -303,11 +361,7 @@ export const TEXT_BOX_DEF: ComponentDef = {
 					// the glyphs align inside (H via align across width, V via verticalAlign across
 					// height), auto-shrinking the font when autoFit — per instance. Unset boxWidth ⇒
 					// auto-size (byte-identical to a plain readout — parity).
-					'style.align': 'align',
-					'style.verticalAlign': 'verticalAlign',
-					width: 'boxWidth',
-					height: 'boxHeight',
-					autoFit: 'autoFit',
+					...TEXT_BOX_LAYOUT_BINDINGS,
 				},
 			},
 		],
@@ -319,21 +373,9 @@ export const TEXT_BOX_DEF: ComponentDef = {
 		{ key: 'fontSize', kind: 'number', default: TEXT_BOX_FONT_SIZE },
 		{ key: 'fill', kind: 'color', default: HUD_FILL },
 		{ key: 'countUp', kind: 'boolean', default: false },
-		{ key: 'align', kind: 'string', options: ['left', 'center', 'right'], label: 'align' },
-		{
-			key: 'verticalAlign',
-			kind: 'string',
-			options: ['top', 'middle', 'bottom'],
-			label: 'vertical align',
-		},
-		{ key: 'boxWidth', kind: 'number', label: 'box width (blank = fit text)' },
-		{ key: 'boxHeight', kind: 'number', label: 'box height (blank = fit text)' },
-		{
-			key: 'autoFit',
-			kind: 'boolean',
-			default: false,
-			label: 'auto-fit font to box (needs box w+h)',
-		},
+		// No alignment defaults: a Text Box is placed by its own anchor, and its historical
+		// unset-align behaviour is the parity baseline for every already-authored instance.
+		...textBoxLayoutParams(),
 		{ key: 'value', kind: 'number', engineProvided: true },
 	],
 };
@@ -564,6 +606,13 @@ export const INFO_BAR_DEF: ComponentDef = {
 					'style.fontFamily': 'fontFamily',
 					'style.fontSize': 'fontSize',
 					'style.fill': 'fill',
+					// Text-box layout (§text-box model), the SAME per-instance box the Text Box
+					// exposes — the bar's line is engine-fed and LOCALIZED, so a translation is
+					// routinely longer than the English the plaque was drawn for. Set `boxWidth`
+					// to the plaque's inner width + `autoFit` and the message shrinks to stay
+					// inside the frame instead of spilling past its ends. Unset ⇒ auto-size
+					// (byte-identical to the old bar — parity).
+					...TEXT_BOX_LAYOUT_BINDINGS,
 				},
 				// Editor preview shows the engine-fed message string.
 				preview: { style: 'text', textParam: 'value' },
@@ -589,6 +638,11 @@ export const INFO_BAR_DEF: ComponentDef = {
 		{ key: 'fill', kind: 'color', default: INFO_BAR_FILL },
 		{ key: 'fontSize', kind: 'number', default: INFO_BAR_FONT_SIZE },
 		{ key: 'fontFamily', kind: 'string', default: HUD_FONT_FAMILY },
+		// The message line is engine-fed and LOCALIZED — a translation is routinely longer than
+		// the English the plaque art was drawn for, so the bar needs the box + auto-fit knobs to
+		// keep the text inside its frame. Centred by default: the message node is anchor-centred
+		// on the plaque, so setting a box width alone must not shift the text off-centre.
+		...textBoxLayoutParams({ align: 'center', verticalAlign: 'middle' }),
 		// Engine-fed message string (the `message` source); a `string` value so it renders
 		// verbatim through the text path, not the numeric readout.
 		{ key: 'value', kind: 'string', engineProvided: true },
