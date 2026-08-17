@@ -15,7 +15,7 @@
 	 * still runs, and the validator already warns about an empty `ref` at authoring time.
 	 */
 	import { MainContainer } from 'components-layout';
-	import { Cinematic } from 'engine-layout/svelte';
+	import { Cinematic, LayoutScene } from 'engine-layout/svelte';
 	import { getContextEventEmitter } from 'utils-event-emitter';
 
 	import { bakedCinematic } from '../editor-scenes';
@@ -61,7 +61,13 @@
 	/** Only the entries whose cinematic actually shipped — an unknown id renders nothing. */
 	const active = $derived(
 		[...(flow?.playingCinematics?.entries() ?? [])]
-			.map(([id, opts]) => ({ id, opts, doc: bakedCinematic(id) }))
+			.map(([id, opts]) => {
+				const doc = bakedCinematic(id);
+				// `resolveScene` is the flow runtime's own scene lookup, so a cinematic set resolves
+				// exactly like any flow screen — no second scene registry.
+				const scene = doc?.stage?.sceneId ? flow?.resolveScene(doc.stage.sceneId) : undefined;
+				return { id, opts, doc, scene };
+			})
 			.filter((entry) => !!entry.doc),
 	);
 </script>
@@ -69,6 +75,16 @@
 {#if active.length}
 	<MainContainer>
 		{#each active as entry (entry.id)}
+			<!--
+				The SET (design §12.3): a cinematic can stage over a Scene, which owns what is on
+				stage — sprites, text, FX and their per-ratio placement, authored in /editor. Mounted
+				BEHIND the cast so the rigs play in front of their backdrop, and drawn by `LayoutScene`
+				so set content renders through the game's ONE renderer rather than a cinematic-specific
+				one. A cinematic with no set (or naming one this project lacks) mounts nothing.
+			-->
+			{#if entry.scene}
+				<LayoutScene scene={entry.scene} />
+			{/if}
 			<Cinematic
 				doc={entry.doc!}
 				playing

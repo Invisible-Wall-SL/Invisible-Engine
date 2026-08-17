@@ -241,6 +241,19 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-17 — **Set picker (design §12.3 step 1) + two silent-failure fixes.** A cinematic can
+  now BIND to a Scene: the picker lists the project's scenes (`/api/editor/scenes`, gated like
+  `/api/editor/effects`), stores `stage.sceneId`, and the in-game `<FlowV2Cinematics>` mounts
+  that scene via `LayoutScene` BEHIND the cast — so set content renders through the game's one
+  renderer, resolved by the flow runtime's own `resolveScene` (no second scene registry). A set
+  the project no longer has is flagged, not silently dropped. Two bugs found while verifying:
+  1. **Both pickers stayed empty.** The scene and effect lists are fetched WITHOUT awaiting (so a
+     slow list never delays the tool opening), but nothing re-rendered when they landed — so they
+     filled in only if some unrelated edit happened to rebuild the panel.
+  2. **🗑 Delete did nothing, silently** (owner-reported). It bailed early when the doc was not in
+     the cached list, with no message. It now says why it declined, no longer treats a stale
+     cache as a reason to refuse, and surfaces a failed delete.
+  9 live checks over the real panel cover both, end to end through save → delete.
 - 2026-08-17 — **Cinematic mode hides the RIG-only controls (owner: "why do we have 2 saves?").**
   The mode swapped the left panel and the right column but left the rig editor's own chrome on
   screen, so THREE Save buttons were visible at once — 💾 Save (the rig), 📦 Save rig to library,

@@ -118,10 +118,25 @@ window.RiggerCinematic = (function () {
 	 * "I can't select any file from the database" gap. Best-effort: the picker still accepts free
 	 * text, so a project with no effects (or a failed list) degrades to typing, never to a block.
 	 */
+	/**
+	 * The project's Scenes, for the SET PICKER (design §12.3). A cinematic stages OVER a Scene:
+	 * the Scene owns WHAT is on stage (sprites, text, FX, and their per-ratio placement, authored
+	 * in /editor); the cinematic owns WHEN things happen. Binding one is what will let a cinematic
+	 * carry text and FX without inventing a second placement model.
+	 */
+	let scenes = [];
+	async function refreshScenes() {
+		const r = await api('/api/editor/scenes');
+		scenes = r.ok && r.body && Array.isArray(r.body.scenes) ? r.body.scenes : [];
+		if (doc) renderPanel(); // the fetch is not awaited — the picker must fill in when it lands
+		return scenes;
+	}
+
 	let fxEffects = [];
 	async function refreshEffects() {
 		const r = await api('/api/editor/effects');
 		fxEffects = r.ok && r.body && Array.isArray(r.body.effects) ? r.body.effects : [];
+		if (doc) renderPanel(); // same: the cue picker must fill in when the list arrives
 		return fxEffects;
 	}
 
@@ -244,16 +259,37 @@ window.RiggerCinematic = (function () {
 		renderTimeline();
 	}
 
+	/**
+	 * Delete the open cinematic from the project.
+	 *
+	 * The old guard bailed SILENTLY when the doc was not in `cinematicList` — so pressing 🗑 on a
+	 * never-saved cinematic (or one whose list had not been refreshed) did nothing at all, with no
+	 * message. A button that can decline must SAY it declined. It also no longer requires the list
+	 * to contain the doc: the list is a cache, and being stale is not a reason to refuse a delete
+	 * the server can perfectly well decide on.
+	 */
 	async function deleteCurrent() {
-		if (!doc || !cinematicList.some((c) => c.id === doc.id)) return;
+		if (!doc) return;
+		const stored = cinematicList.some((c) => c.id === doc.id) || !!r2Etag || !!r2SavedAt;
+		if (!stored) {
+			statusMsg = 'nothing to delete — this cinematic has never been saved';
+			renderPanel();
+			return;
+		}
 		if (!window.confirm('Delete "' + doc.name + '" from this project? This cannot be undone.')) return;
-		await api('/api/cinematics/delete', {
+		const r = await api('/api/cinematics/delete', {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
 			body: JSON.stringify({ id: doc.id }),
 		});
+		if (!r.ok) {
+			const detail = (r.body && (r.body.message || r.body.error)) || (r.text || '').slice(0, 300);
+			console.error('[Cinematic] delete failed', r.status, r.text);
+			if (ctx.showError) ctx.showError('Could not delete "' + doc.name + '" (HTTP ' + r.status + '): ' + detail);
+			return;
+		}
 		await refreshList();
-		await newCinematic0();
+		newCinematic0();
 	}
 
 	/** A blank doc with no prompt — used after a delete, where asking for a name is noise. */
@@ -1602,6 +1638,15 @@ window.RiggerCinematic = (function () {
 	<input type="text" id="cineName" value="${esc(doc.name)}" title="Cinematic name" style="flex:1;min-width:0;">
 </div>
 <div class="cineRow">
+	<label style="flex:1;min-width:0;">Set
+		<select id="cineScene" title="The Scene this cinematic stages over — its sprites, text and FX become part of the stage. Authored in the Scene Editor.">
+			<option value=""${doc.stage.sceneId ? '' : ' selected'}>— no set (rigs only) —</option>
+			${scenes.map((sc) => `<option value="${esc(sc.id)}"${sc.id === doc.stage.sceneId ? ' selected' : ''}>${esc(sc.name || sc.id)} · ${sc.nodes} node${sc.nodes === 1 ? '' : 's'}</option>`).join('')}
+		</select>
+	</label>
+</div>
+${doc.stage.sceneId && !scenes.some((sc) => sc.id === doc.stage.sceneId) ? '<div class="cineStatus">This cinematic names a set (' + esc(doc.stage.sceneId) + ') that is not in this project.</div>' : ''}
+<div class="cineRow">
 	<label>Length <input type="number" id="cineDur" min="0.1" step="0.5" value="${doc.duration}"> s</label>
 	<label>Time <input type="number" id="cineTime" step="0.05" value="${time.toFixed(2)}"> s</label>
 </div>
@@ -1635,6 +1680,14 @@ ${cueMarkup()}
 				'<div class="cineNote">Nothing selected. Click a strip, a keyframe diamond or a cue marker on the timeline.</div>';
 			const sub = $('#propSub');
 			if (sub) sub.textContent = inspectors ? 'cinematic' : 'select a strip, key or cue';
+		}
+		const sceneSel = $('#cineScene');
+		if (sceneSel) {
+			sceneSel.onchange = (e) => {
+				doc.stage.sceneId = e.target.value || null;
+				commit(doc.stage.sceneId ? 'set the scene' : 'clear the scene');
+				renderPanel();
+			};
 		}
 		$('#cineFit').onclick = fitAll;
 		$('#cineSave').onclick = () => saveToR2(false);
@@ -1919,6 +1972,7 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 		historyReset();
 		await refreshList();
 		refreshEffects(); // best-effort, not awaited: the picker fills in when it lands
+		refreshScenes();
 		await rebuildActors();
 		window.addEventListener('keydown', onKeyDown);
 		active = true;
