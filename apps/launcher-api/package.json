@@ -42,6 +42,7 @@
 		"@esotericsoftware/spine-pixi-v8": "4.2.74",
 		"@sveltejs/kit": "2.17.3",
 		"@xyflow/svelte": "^1.6.1",
+		"config-lingui": "workspace:*",
 		"drizzle-orm": "0.39.3",
 		"engine-flipbook": "workspace:*",
 		"engine-flow": "workspace:*",

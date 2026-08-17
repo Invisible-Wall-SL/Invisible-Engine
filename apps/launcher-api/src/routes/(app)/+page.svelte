@@ -2,9 +2,23 @@
 	import { enhance } from '$app/forms';
 	import type { PageData, ActionData } from './$types';
 	import Emblem from '$lib/Emblem.svelte';
-	import { TOOL_STAGES, type ToolDef, type ToolStage } from '$lib/roles';
+	import { TOOL_STAGES, roleLabel, type ToolDef, type ToolStage } from '$lib/roles';
+	import {
+		LAUNCH_LOCALES,
+		DEFAULT_LAUNCH_LOCALE,
+		readStoredLocale,
+		storeLocale,
+		withLocale,
+	} from '$lib/gameLaunch';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	// Locale the launch links open the game in. Read from storage on mount (not at
+	// init) so SSR and the first client render agree — otherwise the markup mismatches.
+	let launchLocale = $state(DEFAULT_LAUNCH_LOCALE);
+	$effect(() => {
+		launchLocale = readStoredLocale();
+	});
 
 	// Online tools are grouped into one section per game-making stage (`TOOL_STAGES`),
 	// in declared order. A stage the user has no tools for is dropped; any online tool
@@ -54,7 +68,9 @@
 		// a stale game that looks fine. Only launcher links carry this — the published URL a
 		// player loads does not, so players keep getting the silent (working) fallback.
 		out += '&ie_authoring=1';
-		return out;
+		// SET (not append) the locale: every generated game URL already carries
+		// `lang=en` and the game reads the first occurrence, so appending is a no-op.
+		return withLocale(out, launchLocale);
 	};
 
 	// Compact build stamp under a game name (e.g. `v13 · Jun 14, 14:32 🐞`). Built from
@@ -286,7 +302,10 @@
 		</div>
 		<div class="user">
 			{@render projectSelector()}
-			<span>{data.user.name ?? data.user.email} · <span class="role">{data.user.role}</span></span>
+			<span
+				>{data.user.name ?? data.user.email} ·
+				<span class="role">{roleLabel(data.user.role)}</span></span
+			>
 			{#if data.canAdmin}
 				<a class="ghost" href="/admin">Admin</a>
 			{/if}
@@ -319,7 +338,23 @@
 	{/each}
 
 	<section class="sec sec-games">
-		<h2>Games</h2>
+		<div class="sec-head">
+			<h2>Games</h2>
+			<label class="lang-pick">
+				Language
+				<select
+					value={launchLocale}
+					onchange={(e) => {
+						launchLocale = e.currentTarget.value;
+						storeLocale(launchLocale);
+					}}
+				>
+					{#each LAUNCH_LOCALES as code (code)}
+						<option value={code}>{code}</option>
+					{/each}
+				</select>
+			</label>
+		</div>
 		<div class="grid">
 			{#each data.games as game (game.key)}
 				{@const stamp = buildStamp(game)}
@@ -572,6 +607,33 @@
 	}
 	.sec h2 {
 		color: var(--accent);
+	}
+	/* Section heading + the launch-locale picker on one line. */
+	.sec-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 16px;
+		flex-wrap: wrap;
+	}
+	.lang-pick {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: #8a8a93;
+	}
+	.lang-pick select {
+		padding: 3px 6px;
+		border: 1px solid #33333c;
+		border-radius: 5px;
+		background: #16161c;
+		color: #e6e6ea;
+		font-size: 12px;
+		text-transform: none;
+		letter-spacing: 0;
 	}
 	.sechelp {
 		margin: -4px 0 14px;

@@ -2,9 +2,23 @@
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import {
+		LAUNCH_LOCALES,
+		DEFAULT_LAUNCH_LOCALE,
+		readStoredLocale,
+		storeLocale,
+		withLocale,
+	} from '$lib/gameLaunch';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	// Locale the Play links open in. Shared with the home page's picker via storage,
+	// read on mount so SSR and first client render agree.
+	let launchLocale = $state(DEFAULT_LAUNCH_LOCALE);
+	$effect(() => {
+		launchLocale = readStoredLocale();
+	});
 
 	// Create form state.
 	let key = $state('');
@@ -99,7 +113,10 @@
 	/** The author's own "Play" link: same published URL plus the authoring flag, so a game that
 	 *  falls back to stale baked data says so on screen instead of looking healthy. Deliberately
 	 *  NOT applied to the copied/displayed URL — that one is for players. */
-	const playUrl = (url: string) => `${url}${url.includes('?') ? '&' : '?'}ie_authoring=1`;
+	//  `withLocale` SETS `lang` rather than appending: the published URL already carries
+	//  `lang=en` and the game reads the first occurrence, so an appended one does nothing.
+	const playUrl = (url: string) =>
+		withLocale(`${url}${url.includes('?') ? '&' : '?'}ie_authoring=1`, launchLocale);
 
 	// "Jul 27" / "Jul 27 2025" from epoch-ms — for the staleness tooltip.
 	function shortDate(ms: number | null): string {
@@ -257,6 +274,19 @@
 									<a class="play" href={playUrl(p.url)} target="_blank" rel="noopener noreferrer">
 										Play ↗
 									</a>
+									<select
+										class="play-lang"
+										title="Language the Play link opens the game in"
+										value={launchLocale}
+										onchange={(e) => {
+											launchLocale = e.currentTarget.value;
+											storeLocale(launchLocale);
+										}}
+									>
+										{#each LAUNCH_LOCALES as code (code)}
+											<option value={code}>{code}</option>
+										{/each}
+									</select>
 									<button class="copy" onclick={() => copyUrl(p.url!, p.key)}>
 										{copied === p.key ? 'Copied' : 'Copy URL'}
 									</button>
@@ -612,6 +642,15 @@
 	}
 	.play:hover {
 		text-decoration: underline;
+	}
+	/* Locale for the Play link, right beside it so the choice is visible at launch. */
+	.play-lang {
+		padding: 2px 4px;
+		border: 1px solid #33333c;
+		border-radius: 4px;
+		background: #16161c;
+		color: #e6e6ea;
+		font-size: 11px;
 	}
 	.url {
 		font-size: 11px;
