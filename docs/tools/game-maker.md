@@ -88,6 +88,19 @@ URL beneath. The game also appears in the launcher portal's **Games** section, a
 plays at `https://games.invisiblewall.org/<key>/`, spinning against the mock RGS
 (fake money, no real spend).
 
+The two small dropdowns beside **Play ↗** choose the **language** and the
+**currency** that link opens the game in (`?lang=` / `?currency=`) — the same pair
+of pickers as the portal's **Games** section, and the choice is remembered across
+both. Currency changes only how amounts are *formatted*: the mock wallet holds the
+same fake money whatever you pick, so this is the way to check a HUD in `EUR`,
+`BRL`, or a long code like `XGC` without touching the RGS. The **Copy URL** button
+deliberately copies the *player's* URL, without these authoring overrides.
+
+A language the project has no translations for renders in the source language — an
+untranslated locale falls back by design, so the game looks like it "ignored" the
+setting. Check the row is actually translated **and reviewed** in `/localization`:
+only reviewed strings reach a player or the published bake.
+
 ### Engine update available (the staleness badge)
 
 Online games all run **one shared engine runtime bundle**, not a per-game build,

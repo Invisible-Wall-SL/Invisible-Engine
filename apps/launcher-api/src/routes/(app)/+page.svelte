@@ -5,19 +5,28 @@
 	import { TOOL_STAGES, roleLabel, type ToolDef, type ToolStage } from '$lib/roles';
 	import {
 		LAUNCH_LOCALES,
+		LAUNCH_CURRENCIES,
 		DEFAULT_LAUNCH_LOCALE,
+		DEFAULT_LAUNCH_CURRENCY,
 		readStoredLocale,
+		readStoredCurrency,
+		localeLabel,
 		storeLocale,
+		storeCurrency,
 		withLocale,
+		withCurrency,
 	} from '$lib/gameLaunch';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	// Locale the launch links open the game in. Read from storage on mount (not at
-	// init) so SSR and the first client render agree — otherwise the markup mismatches.
+	// Locale + currency the launch links open the game in. Read from storage on mount
+	// (not at init) so SSR and the first client render agree — otherwise the markup
+	// mismatches.
 	let launchLocale = $state(DEFAULT_LAUNCH_LOCALE);
+	let launchCurrency = $state(DEFAULT_LAUNCH_CURRENCY);
 	$effect(() => {
 		launchLocale = readStoredLocale();
+		launchCurrency = readStoredCurrency();
 	});
 
 	// Online tools are grouped into one section per game-making stage (`TOOL_STAGES`),
@@ -68,9 +77,10 @@
 		// a stale game that looks fine. Only launcher links carry this — the published URL a
 		// player loads does not, so players keep getting the silent (working) fallback.
 		out += '&ie_authoring=1';
-		// SET (not append) the locale: every generated game URL already carries
-		// `lang=en` and the game reads the first occurrence, so appending is a no-op.
-		return withLocale(out, launchLocale);
+		// SET (not append) locale + currency: every generated game URL already carries
+		// `lang=en&currency=USD` and the game reads the first occurrence, so appending
+		// is a no-op.
+		return withCurrency(withLocale(out, launchLocale), launchCurrency);
 	};
 
 	// Compact build stamp under a game name (e.g. `v13 · Jun 14, 14:32 🐞`). Built from
@@ -340,20 +350,37 @@
 	<section class="sec sec-games">
 		<div class="sec-head">
 			<h2>Games</h2>
-			<label class="lang-pick">
-				Language
-				<select
-					value={launchLocale}
-					onchange={(e) => {
-						launchLocale = e.currentTarget.value;
-						storeLocale(launchLocale);
-					}}
-				>
-					{#each LAUNCH_LOCALES as code (code)}
-						<option value={code}>{code}</option>
-					{/each}
-				</select>
-			</label>
+			<div class="launch-picks">
+				<label class="lang-pick">
+					Language
+					<select
+						value={launchLocale}
+						onchange={(e) => {
+							launchLocale = e.currentTarget.value;
+							storeLocale(launchLocale);
+						}}
+					>
+						{#each LAUNCH_LOCALES as code (code)}
+							<option value={code}>{localeLabel(code)}</option>
+						{/each}
+					</select>
+				</label>
+				<label class="lang-pick">
+					Currency
+					<select
+						title="Currency every amount in the game is formatted with"
+						value={launchCurrency}
+						onchange={(e) => {
+							launchCurrency = e.currentTarget.value;
+							storeCurrency(launchCurrency);
+						}}
+					>
+						{#each LAUNCH_CURRENCIES as code (code)}
+							<option value={code}>{code}</option>
+						{/each}
+					</select>
+				</label>
+			</div>
 		</div>
 		<div class="grid">
 			{#each data.games as game (game.key)}
@@ -614,6 +641,12 @@
 		align-items: baseline;
 		justify-content: space-between;
 		gap: 16px;
+		flex-wrap: wrap;
+	}
+	.launch-picks {
+		display: inline-flex;
+		align-items: center;
+		gap: 14px;
 		flex-wrap: wrap;
 	}
 	.lang-pick {

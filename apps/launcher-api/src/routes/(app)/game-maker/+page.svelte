@@ -4,20 +4,28 @@
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import {
 		LAUNCH_LOCALES,
+		LAUNCH_CURRENCIES,
 		DEFAULT_LAUNCH_LOCALE,
+		DEFAULT_LAUNCH_CURRENCY,
 		readStoredLocale,
+		readStoredCurrency,
+		localeLabel,
 		storeLocale,
+		storeCurrency,
 		withLocale,
+		withCurrency,
 	} from '$lib/gameLaunch';
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
 
-	// Locale the Play links open in. Shared with the home page's picker via storage,
-	// read on mount so SSR and first client render agree.
+	// Locale + currency the Play links open in. Shared with the home page's pickers via
+	// storage, read on mount so SSR and first client render agree.
 	let launchLocale = $state(DEFAULT_LAUNCH_LOCALE);
+	let launchCurrency = $state(DEFAULT_LAUNCH_CURRENCY);
 	$effect(() => {
 		launchLocale = readStoredLocale();
+		launchCurrency = readStoredCurrency();
 	});
 
 	// Create form state.
@@ -113,10 +121,14 @@
 	/** The author's own "Play" link: same published URL plus the authoring flag, so a game that
 	 *  falls back to stale baked data says so on screen instead of looking healthy. Deliberately
 	 *  NOT applied to the copied/displayed URL — that one is for players. */
-	//  `withLocale` SETS `lang` rather than appending: the published URL already carries
-	//  `lang=en` and the game reads the first occurrence, so an appended one does nothing.
+	//  `withLocale`/`withCurrency` SET their param rather than appending: the published URL
+	//  already carries `lang=en&currency=USD` and the game reads the first occurrence, so an
+	//  appended one does nothing.
 	const playUrl = (url: string) =>
-		withLocale(`${url}${url.includes('?') ? '&' : '?'}ie_authoring=1`, launchLocale);
+		withCurrency(
+			withLocale(`${url}${url.includes('?') ? '&' : '?'}ie_authoring=1`, launchLocale),
+			launchCurrency,
+		);
 
 	// "Jul 27" / "Jul 27 2025" from epoch-ms — for the staleness tooltip.
 	function shortDate(ms: number | null): string {
@@ -148,8 +160,8 @@
 		<section class="card create">
 			<h2>Create a game</h2>
 			<p class="hint">
-				Pick a client and a game type, give it a name — this creates the project and its
-				cloud scaffold. Author it with the editor + asset tools, then publish below.
+				Pick a client and a game type, give it a name — this creates the project and its cloud
+				scaffold. Author it with the editor + asset tools, then publish below.
 			</p>
 			<form
 				method="POST"
@@ -284,6 +296,19 @@
 										}}
 									>
 										{#each LAUNCH_LOCALES as code (code)}
+											<option value={code}>{localeLabel(code)}</option>
+										{/each}
+									</select>
+									<select
+										class="play-lang"
+										title="Currency the Play link formats every amount with"
+										value={launchCurrency}
+										onchange={(e) => {
+											launchCurrency = e.currentTarget.value;
+											storeCurrency(launchCurrency);
+										}}
+									>
+										{#each LAUNCH_CURRENCIES as code (code)}
 											<option value={code}>{code}</option>
 										{/each}
 									</select>
@@ -302,8 +327,8 @@
 									<span class="stale-dot"></span>
 									<div class="stale-body">
 										<strong>Engine update available.</strong>
-										The shared engine runtime shipped after this game was last published, so the
-										running game may still be on the old engine. Republish to re-hydrate it.
+										The shared engine runtime shipped after this game was last published, so the running
+										game may still be on the old engine. Republish to re-hydrate it.
 									</div>
 									<button
 										class="stale-cta"
@@ -332,11 +357,7 @@
 	</main>
 
 	{#if confirmProject}
-		<div
-			class="modal-backdrop"
-			role="presentation"
-			onclick={() => (confirmProject = null)}
-		>
+		<div class="modal-backdrop" role="presentation" onclick={() => (confirmProject = null)}>
 			<div
 				class="modal"
 				role="dialog"
@@ -348,11 +369,12 @@
 				<p class="confirm-body">
 					You are about to publish <strong>{confirmProject.name}</strong>
 					<span class="ckey">({confirmProject.key})</span>.<br />
-					Its scenes were last edited <strong>{relativeTime(confirmProject.scenesUpdatedAt)}</strong>.
+					Its scenes were last edited
+					<strong>{relativeTime(confirmProject.scenesUpdatedAt)}</strong>.
 				</p>
 				<p class="confirm-note">
-					Publishing builds and deploys this project's current saved scenes — make sure this is
-					the project you intend to ship.
+					Publishing builds and deploys this project's current saved scenes — make sure this is the
+					project you intend to ship.
 				</p>
 				<div class="confirm-actions">
 					<button onclick={() => (confirmProject = null)}>Cancel</button>
