@@ -88,11 +88,15 @@
 	function onresize(size: Sizes): void {
 		measuredHeight = size.height;
 		measuredWidth = size.width;
-		if (!autoFit || contentHeight === undefined) return;
-		const overflow = size.height > contentHeight + 0.5 || size.width > contentWidth + 0.5;
+		if (!autoFit) return;
+		// A width-only box still fits: a translated string longer than the authored one shrinks
+		// until it fits the box WIDTH (the localization overflow case). No box height ⇒ the
+		// height is unbounded, so only the width constrains.
+		const fitHeight = contentHeight ?? Infinity;
+		const overflow = size.height > fitHeight + 0.5 || size.width > contentWidth + 0.5;
 		if (!overflow || fitFontSize <= MIN_FONT) return;
 		const wRatio = size.width > 0 ? contentWidth / size.width : 1;
-		const hRatio = size.height > 0 ? contentHeight / size.height : 1;
+		const hRatio = size.height > 0 ? fitHeight / size.height : 1;
 		const ratio = Math.min(1, wRatio, hRatio);
 		const next = Math.max(MIN_FONT, Math.floor(fitFontSize * (ratio >= 0.999 ? 0.9 : ratio)));
 		if (next < fitFontSize) fitFontSize = next; // re-renders → onresize fires again → converges
