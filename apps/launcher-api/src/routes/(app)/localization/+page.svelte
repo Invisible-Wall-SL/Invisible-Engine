@@ -43,6 +43,14 @@
 
 	let newLang = $state('');
 	let status = $state('');
+	/** Errors get their own treatment in the notice: provider payloads are long, multi-line
+	 *  JSON, so they need to be readable rather than squeezed into one line. */
+	let statusKind = $state<'info' | 'error'>('info');
+
+	function say(message: string, kind: 'info' | 'error' = 'info') {
+		status = message;
+		statusKind = kind;
+	}
 	/** Translate-flow spinner. `busy` (below) is the union with the save machine's busy so
 	 * every shared `disabled={busy}` site keeps its old "either operation in flight" meaning. */
 	let translating = $state(false);
@@ -81,7 +89,7 @@
 		conflictMessage: 'Someone else saved these strings while you were editing.',
 		blockWhen: () => lease.readOnly,
 		save: async ({ baseEtag, force }) => {
-			status = 'Saving…';
+			say('Saving…');
 			try {
 				const fields: Record<string, string> = { doc: JSON.stringify(docPayload) };
 				if (force) fields.force = '1';
@@ -94,7 +102,7 @@
 				};
 				if (out.conflict) return { ok: false, reason: 'conflict', message: out.error };
 				if (out.error) return { ok: false, reason: 'error', message: out.error };
-				status = 'Saved.';
+				say('Saved.');
 				return { ok: true, etag: out.etag ?? null };
 			} catch {
 				return { ok: false, reason: 'error', message: 'Save failed.' };
@@ -106,7 +114,7 @@
 
 	function markDirty() {
 		saveState.markDirty();
-		status = '';
+		say('');
 	}
 
 	function newId(): string {
@@ -212,35 +220,36 @@
 	async function save(force = false) {
 		await saveState.save({ force });
 		if (saveState.status === 'error') {
-			status = saveState.message;
+			say(saveState.message, 'error');
 		} else if (saveState.status === 'conflict') {
 			const msg = saveState.message;
-			status = msg;
+			say(msg, 'error');
 			if (!force && confirm(`${msg}\n\nOverwrite their version with yours?`)) await save(true);
 		}
 	}
 
 	async function translate(ids: string[]) {
 		if (targetLangs.length === 0) {
-			status = 'Add at least one target language first.';
+			say('Add at least one target language first.', 'error');
 			return;
 		}
 		if (ids.length === 0) {
-			status =
+			say(
 				entries.length === 0
 					? 'No strings yet — add a row and write the source text first.'
-					: 'Nothing to translate — every string already has all languages.';
+					: 'Nothing to translate — every string already has all languages.',
+			);
 			return;
 		}
 		translating = true;
-		status = 'Translating…';
+		say('Translating…');
 		try {
 			const out = (await postAction('translate', {
 				doc: JSON.stringify(docPayload),
 				ids: JSON.stringify(ids),
 			})) as { translations?: Record<string, Record<string, string>>; error?: string };
 			if (out.error) {
-				status = out.error;
+				say(out.error, 'error');
 				return;
 			}
 			const translations = out.translations ?? {};
@@ -252,9 +261,9 @@
 				}
 			}
 			saveState.setDirty(true);
-			status = 'Translated. Review the highlighted cells, then Save.';
+			say('Translated. Review the highlighted cells, then Save.');
 		} catch {
-			status = 'Translation failed.';
+			say('Translation failed.', 'error');
 		} finally {
 			translating = false;
 		}
@@ -281,9 +290,11 @@
 				<!-- Another author (or your own other tab) holds the edit lease → read-only here.
 				     The doc saveState refuses to save (its blockWhen); Take over is always offered. -->
 				<PresenceBanner {lease} />
-			{:else if status}
-				<span class="status">{status}</span>
 			{/if}
+			<!-- `status` deliberately does NOT live here. Provider errors are long, multi-line JSON
+			     payloads that stretched the bar and pushed the tool switcher into a scroll strip —
+			     and the old `{:else if}` meant a held lease hid every message outright. It renders
+			     as a full-width notice below the bar instead. -->
 			<!-- NOTE: `onclick={save}` passes the click EVENT as `force` (truthy), so a manual Save
 			     has always been a FORCE overwrite here — preserved verbatim by this refactor. This is a
 			     pre-existing latent bug (localization's conflict `confirm()` is therefore effectively
@@ -295,6 +306,15 @@
 			>
 		{/snippet}
 	</ToolTopBar>
+
+	{#if status}
+		<div class="notice" class:error={statusKind === 'error'} role="status">
+			<p>{status}</p>
+			<button class="notice-close" title="Dismiss" aria-label="Dismiss" onclick={() => say('')}>
+				×
+			</button>
+		</div>
+	{/if}
 
 	<section class="settings">
 		<h2>Global settings</h2>
@@ -543,8 +563,53 @@
 	.project strong {
 		color: #c8a3ff;
 	}
-	.status {
+	/* Status/error notice. Sits under the tool bar so a long provider payload wraps here
+	   instead of stretching the bar. Capped + scrollable: a raw upstream JSON body must
+	   stay readable without pushing the whole table off-screen. */
+	.notice {
+		display: flex;
+		align-items: flex-start;
+		gap: 12px;
+		margin: 12px 16px 0;
+		padding: 10px 12px;
+		border: 1px solid #2b6b57;
+		border-left-width: 3px;
+		border-radius: 6px;
+		background: #10201b;
 		color: #7ee0c0;
+	}
+	.notice.error {
+		border-color: #7d3a3a;
+		background: #201211;
+		color: #f0a8a0;
+	}
+	.notice p {
+		flex: 1;
+		margin: 0;
+		font-size: 12px;
+		line-height: 1.5;
+		/* Provider errors arrive as pretty-printed JSON — keep the newlines, and let long
+		   unbroken tokens (URLs, ids) wrap rather than force a horizontal scrollbar. */
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		max-height: 8.5em;
+		overflow-y: auto;
+	}
+	.notice-close {
+		flex: none;
+		padding: 0 6px;
+		border: 0;
+		border-radius: 4px;
+		background: transparent;
+		color: inherit;
+		font-size: 15px;
+		line-height: 1.4;
+		cursor: pointer;
+		opacity: 0.7;
+	}
+	.notice-close:hover {
+		opacity: 1;
+		background: rgb(255 255 255 / 0.08);
 	}
 	h2 {
 		font-size: 13px;
