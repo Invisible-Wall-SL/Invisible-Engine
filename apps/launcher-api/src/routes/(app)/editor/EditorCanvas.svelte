@@ -55,6 +55,7 @@
 		type RegionDragPayload,
 		type RegionSet,
 	} from './editorRegions.client';
+	import BusyOverlay from '$lib/BusyOverlay.svelte';
 	import EditorItemOverlay from './EditorItemOverlay.svelte';
 	import EditorEffectLayer from './EditorEffectLayer.svelte';
 	import EditorSpineLayer from './EditorSpineLayer.svelte';
@@ -3977,16 +3978,7 @@
 		</div>
 	{/if}
 	{#if showOverlay}
-		<div class="load-overlay" role="status" aria-live="polite">
-			<div class="load-card">
-				<div class="spinner"></div>
-				<div class="load-text">
-					<span class="load-title">Loading assets…</span>
-					<span class="load-count">{loadDone} / {batchTotal}</span>
-				</div>
-				<div class="load-bar"><div class="load-bar-fill" style="width:{loadPct}%"></div></div>
-			</div>
-		</div>
+		<BusyOverlay label="Loading assets…" detail="{loadDone} / {batchTotal}" progress={loadPct} />
 	{/if}
 	{#if overlayInfo}
 		<EditorItemOverlay
@@ -4245,68 +4237,5 @@
 	}
 	.fit:disabled:hover {
 		border-color: #2a2430;
-	}
-	.load-overlay {
-		position: absolute;
-		inset: 0;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		pointer-events: none;
-		background: rgba(11, 11, 16, 0.55);
-		backdrop-filter: blur(1px);
-	}
-	.load-card {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 12px;
-		padding: 22px 28px;
-		min-width: 220px;
-		background: #14141c;
-		border: 1px solid #2a2430;
-		border-radius: 12px;
-		box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
-	}
-	.spinner {
-		width: 28px;
-		height: 28px;
-		border-radius: 50%;
-		border: 3px solid #2a2a36;
-		border-top-color: #7ee0c0;
-		animation: spin 0.8s linear infinite;
-	}
-	@keyframes spin {
-		to {
-			transform: rotate(360deg);
-		}
-	}
-	.load-text {
-		display: flex;
-		align-items: baseline;
-		gap: 10px;
-	}
-	.load-title {
-		color: #e8e8ee;
-		font-size: 13px;
-		letter-spacing: 0.02em;
-	}
-	.load-count {
-		color: #888;
-		font-size: 12px;
-		font-family: ui-monospace, monospace;
-	}
-	.load-bar {
-		width: 100%;
-		height: 4px;
-		border-radius: 999px;
-		background: #2a2a36;
-		overflow: hidden;
-	}
-	.load-bar-fill {
-		height: 100%;
-		background: #7ee0c0;
-		border-radius: 999px;
-		transition: width 0.2s ease;
 	}
 </style>

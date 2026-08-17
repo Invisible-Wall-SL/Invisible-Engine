@@ -174,6 +174,11 @@
 </style>
 </head>
 <body>
+<!-- CRT boot splash — the shared tool loading screen (see /shared/boot-splash.js).
+     First tag in <body> so it paints before the rigger's WebGL boot; `boot()` lifts it.
+     The in-app `#loadingOverlay` stays for loads INSIDE the open tool (skeleton, re-sync). -->
+<script src="/shared/boot-splash.js" data-tool="Invisible Rigger"
+  data-phrases="Loading rig library|Assembling bone hierarchy|Triangulating meshes|Binding vertex weights|Rewinding the dopesheet"></script>
 <header class="iw-toolbar">
   <a class="iw-brand" id="iw-home" href="/" title="Invisible Launcher">
     <svg width="22" height="18" viewBox="0 0 366 304" aria-hidden="true">
@@ -9460,6 +9465,8 @@ async function boot(){
   if (rt){ try { await loadRuntime(rt); initGL(); } catch(e){ showErr(String(e)); } }
   await loadSkeletons(false);
   requestAnimationFrame(frame);
+  // The CRT boot splash covers everything above; lift it now that the rigger is up.
+  if (window.IWBoot) window.IWBoot.done();
 }
 boot();
 </script>
