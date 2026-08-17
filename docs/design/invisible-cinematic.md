@@ -333,6 +333,35 @@ Both halves, because either alone is wrong for how the tool is actually used:
 
 A cinematic with no set keeps working exactly as now (rigs cast directly, `nodeId` null).
 
+#### Quick-add: implementation notes (read before building)
+
+**This is the only part of the cinematic feature set that WRITES INTO ANOTHER TOOL'S DOCUMENT.**
+Everything else the cinematic does is additive or confined to files it owns (`cinematics/<id>.json`,
+its own `deploy/` subtree). Quick-add adds a node to the SCENE EDITOR doc — the single object
+holding every scene in the project — so its failure mode is not "the button did nothing", it is
+a clobbered scene. Build it with that in mind:
+
+1. **Never read-modify-write the doc unguarded.** Load it with its ETag and save with
+   `baseEtag` (the `writeBaseEtagJson` convention every other tool uses), so a Scene Editor tab
+   open in another window cannot be silently overwritten. A 409 here must ASK, exactly like the
+   cinematic's own save does — and must never auto-force.
+2. **The scope guard applies doubly.** The cinematic already posts its `projectKey`; the doc write
+   must too. Writing a node into the wrong project's scenes is unrecoverable from the tool.
+3. **Add, never normalize.** Append the node and touch nothing else — do not re-serialize or
+   "clean up" the doc on the way through. The Scene Editor owns that document's shape, and a
+   well-meaning normalization from a different tool is how per-ratio overrides get silently
+   dropped.
+4. **Prefer an endpoint that appends ONE node** over one that accepts a whole doc. A narrow
+   `POST /api/editor/scene-node { sceneId, node, baseEtag }` cannot express "replace the doc",
+   so the dangerous operation is not reachable from the Rigger at all. This is the recommended
+   shape.
+5. The node it creates must be an ORDINARY Scene node (`text` / `effect`) that `/editor` can then
+   refine — a shortcut INTO the Scene model, never a parallel one (§12.3).
+
+Verification worth having before shipping it: two tabs, one Scene Editor and one Rigger, both
+editing the same project — quick-add must lose cleanly against a concurrent scene save rather
+than winning silently.
+
 ### 12.4 Rig-level text: a REAL slot, without breaking the format
 
 The owner asked for text that is *"a real text slot on the rig"* — keyable, parentable,
