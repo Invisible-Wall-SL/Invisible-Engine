@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { locales } from 'config-lingui';
+
 /**
  * Game Spec — the single authoring document for a game's frontend.
  *
@@ -13,11 +15,11 @@ import { z } from 'zod';
  * definitions are flagged below and will get their own typed sections.
  */
 
-// Mirror packages/config-lingui locales.
-export const LocaleSchema = z.enum([
-	'ar', 'de', 'en', 'es', 'fr', 'id', 'ja', 'ko', 'pl', 'pt', 'ru', 'tr', 'vi', 'zh', 'fi', 'hi',
-]);
-export type Locale = z.infer<typeof LocaleSchema>;
+// Derived from packages/config-lingui — NOT copied. The previous hand-mirrored
+// list is exactly the drift this repo's guide warns about: extend one and the
+// other silently disagrees, so a locale valid at runtime fails Spec validation.
+export const LocaleSchema = z.enum(locales as unknown as [string, ...string[]]);
+export type Locale = (typeof locales)[number];
 
 // Mechanic / template the game starts from.
 export const GameTypeSchema = z.enum(['lines', 'ways', 'cluster', 'scatter', 'bookOf']);

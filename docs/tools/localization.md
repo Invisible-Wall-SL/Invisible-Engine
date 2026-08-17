@@ -105,6 +105,31 @@ alternative — an Anthropic API key is a separate paid account from a Claude
 subscription, so this lets you run the tool on a provider's free tier
 (e.g. Google AI Studio) meanwhile.
 
+## Selecting the language in the game
+
+The game reads the locale from the **URL**: `…/index.html?lang=de`. No
+parameter ⇒ `en`; `br` is aliased to `pt`. On boot `LoadI18n.svelte` loads that
+locale's catalogue and activates it, falling back to `en` if the locale has no
+catalogue — so an unknown `?lang=` never breaks the game, it just stays English.
+
+There is deliberately **no in-game language picker**: the operator's lobby opens
+the game with `?lang=` already set.
+
+Which locales are allowed is `locales` in
+[packages/config-lingui/index.ts](../../packages/config-lingui/index.ts) — the
+single source of truth for both the runtime `Language` type and the Game Spec's
+`LocaleSchema` (which imports it rather than re-declaring it). The list is
+deliberately broader than any one title: declaring a locale costs nothing, and
+each game translates only the subset it sells into.
+
+> ⚠️ **Declared ≠ shippable.** Before selling a title in a locale, check the
+> game's fonts carry that script's glyphs — a missing glyph can black the
+> screen — and note that Arabic, Hebrew and Persian additionally need RTL
+> layout, which the HUD does not do automatically.
+
+For a string to actually reach the game it must be **translated → reviewed →
+saved → exported/baked**; unreviewed machine output is never exported.
+
 ## Env
 
 Set **one** of the two providers. If both are configured the OpenAI-compatible
