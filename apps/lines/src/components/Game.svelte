@@ -26,6 +26,7 @@
 		getSpinButtonKey,
 		getSpinPressSound,
 		isSpinButtonDisabled,
+		isSpinButtonSpinning,
 		runSpinOrSlamStop,
 		type SpinButtonKey,
 	} from 'utils-shared/spinStop';
@@ -1480,9 +1481,10 @@
 	// and did). Slam stop is always on: a rolling round shows a live STOP.
 	const getSpinKey = (): SpinButtonKey =>
 		getSpinButtonKey({ isIdle: context.stateXstateDerived.isIdle() });
-	// Reels rolling on a plain bet (NOT an autoplay sequence) → spin the frame.
+	// Reels rolling on a plain bet (NOT an autoplay sequence) → spin the frame. Shared with the coded
+	// `ButtonBetProvider`, so a between-spins hold parks the frame on both (`isSpinButtonSpinning`).
 	const isSpinning = () =>
-		context.stateXstateDerived.isPlaying() && !stateBetDerived.hasAutoBetCounter();
+		isSpinButtonSpinning({ isPlaying: context.stateXstateDerived.isPlaying() });
 
 	// Phase B6.2 — register the 7 Borut button actions beside the value feed above.
 	// Each entry LIFTS the coded HUD button's `onpress`/`disabled`/`active` logic

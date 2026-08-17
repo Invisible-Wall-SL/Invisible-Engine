@@ -352,6 +352,7 @@ export interface SymbolsDoc {
 		showText?: boolean;
 		showMessage?: boolean;
 		dimNonWinning?: boolean;
+		holdAfterBigWin?: boolean;
 	};
 	/** Book-symbol VFX — background/foreground presentation layers the game draws behind/in front of
 	 *  the book symbol during free spins. Sparse: an absent config, or an absent slot, ships nothing
@@ -650,6 +651,14 @@ export function winCycleDimNonWinning(doc: SymbolsDoc): boolean {
 	return doc.winCycle?.dimNonWinning ?? false;
 }
 
+/** The effective "after a big win in free spins, wait for a SPIN press before the next free spin"
+ *  flag. Defaults to `false` (byte-parity — the feature ran unbroken before this switch).
+ *  Independent of {@link winCycleEnabled}, which only decides whether the held board also replays
+ *  its paying lines. */
+export function winCycleHoldAfterBigWin(doc: SymbolsDoc): boolean {
+	return doc.winCycle?.holdAfterBigWin ?? false;
+}
+
 /** Drop blank style fields (empty string / undefined / null) and empty `line`/`text`
  *  objects, returning a sparse `winLine` (or undefined when nothing remains). Keeps the
  *  doc minimal so an untouched/reset project ships no `winLine`. */
@@ -857,6 +866,16 @@ export function setWinCycleDimNonWinning(doc: SymbolsDoc, dimNonWinning: boolean
 	const winCycle = { ...(doc.winCycle ?? {}) };
 	if (dimNonWinning) winCycle.dimNonWinning = true;
 	else delete winCycle.dimNonWinning;
+	return withWinCycle(doc, winCycle);
+}
+
+/** Toggle waiting for a SPIN press after a big win inside a free-spin feature. Same INVERSE
+ *  persistence as `dimNonWinning` — defaults OFF, so ON persists `holdAfterBigWin: true` and OFF
+ *  drops the field (sparse). New doc. */
+export function setWinCycleHoldAfterBigWin(doc: SymbolsDoc, hold: boolean): SymbolsDoc {
+	const winCycle = { ...(doc.winCycle ?? {}) };
+	if (hold) winCycle.holdAfterBigWin = true;
+	else delete winCycle.holdAfterBigWin;
 	return withWinCycle(doc, winCycle);
 }
 

@@ -121,6 +121,32 @@ Working on `main`:
   presentation). Independent of `showLine` (it is the toast, not the line). Consumed in
   `winSymbolCycle.ts` via `showWinInfoMessage`; travels the full chain (client setter/accessor,
   `.strict` schema, sparse sanitize, `bake-editor-doc.mjs` whitelist all inverted for default-OFF).
+- **Wait for a spin press after a big win (free spins)** (2026-08-17, default OFF, tool switch of
+  that name in the "Winning symbols after the spin" section). `winCycle.holdAfterBigWin`: a bonus
+  book is ONE round, so dismissing a big win mid-feature handed straight over to the next free
+  spin's `reveal` and the reels rolled on their own over a board the player had not read (owner
+  report). On, the book is HELD at that seam — the resting replay narrates the spin's paying lines
+  and the next free spin only starts on a spin press. Engine: `apps/lines/src/game/freeSpinHold.ts`,
+  awaited at the `playBookEvents` seam in `game/utils.ts` on BOTH dispatch branches (coded + flow),
+  so it behaves the same whether the overlay was the coded handler, a v1 flow or a v2 `bigWin`
+  container. Gated on "a later `reveal` exists in this book" rather than `gameType`, which scopes it
+  to free spins by construction (a base round has one reveal), survives a retrigger, and skips the
+  LAST free spin (the outro follows and already gates on a press); skipped under
+  `isContinuousBet()` (autoplay / space-hold), the same guard the replay uses. The press is the
+  SPIN BUTTON, re-purposed rather than a second tap surface: `stateUi.spinHoldActive` +
+  `armSpinHold`/`releaseSpinHold` (state-shared) make `utils-shared/spinStop` read the button as a
+  live `spin_default` whose press releases the hold — no bet (the book is paid for), no slam — and
+  the Space hotkey / flow `spin` action / invoked intent inherit it. `isSpinButtonSpinning` moved
+  into `spinStop` (it was derived twice, in `ButtonBetProvider` and Game.svelte's parametric `spin`)
+  so the rolling frame parks during the hold on both. Full chain: client setter/accessor, `.strict`
+  schema, sparse sanitize (ON-state only), verbatim through `symbolExport.ts`, **plus the
+  `bake-editor-doc.mjs` winCycle whitelist** — the runtime path forwards the whole export result, so
+  omitting the bake line is the recurring "reach BOTH bundle paths" bug. **Verified** in the dev
+  bundle from the page: held only in the mid-feature big-win case (last-spin / small-win /
+  base-game / autoplay all pass straight through), button `spin_default` + not greyed + not
+  spinning + bet press-sound while held, the press emitting NEITHER `bet` NOR `stopButtonClick`,
+  and the cue log showing `winLineShow` → `boardWithAnimateSymbols` during the hold then
+  `winLineHide` on release.
 - **Darken the non-winning symbols** (2026-07-27, default OFF, tool switch "Darken the
   non-winning symbols" in the "Winning symbols after the spin" section). `winCycle.dimNonWinning`:
   from the win celebration until the next spin, every symbol that is NOT part of a paying line is

@@ -5,11 +5,12 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 
-	import { hasContinuePress, stateBetDerived } from 'state-shared';
+	import { hasContinuePress } from 'state-shared';
 	import {
 		getSpinButtonKey,
 		getSpinPressSound,
 		isSpinButtonDisabled,
+		isSpinButtonSpinning,
 		runSpinOrSlamStop,
 		type SpinButtonKey,
 	} from 'utils-shared/spinStop';
@@ -48,9 +49,10 @@
 	const key = $derived(getSpinButtonKey({ isIdle: context.stateXstateDerived.isIdle() }));
 	// `stop_disabled` (celebration lock) as well as `spin_disabled` (unaffordable) make it inert.
 	const disabled = $derived(isSpinButtonDisabled(key));
-	// Reels rolling on a plain bet (NOT an autoplay sequence) → the spin frame spins.
+	// Reels rolling on a plain bet (NOT an autoplay sequence) → the spin frame spins. Shared with the
+	// game's parametric `spin` action so the two can't drift; a between-spins hold parks it.
 	const spinning = $derived(
-		context.stateXstateDerived.isPlaying() && !stateBetDerived.hasAutoBetCounter(),
+		isSpinButtonSpinning({ isPlaying: context.stateXstateDerived.isPlaying() }),
 	);
 	// The BUTTON stays live during a press-to-continue (the overlay covers it, so a click lands on
 	// whichever is on top and both fast-forward the presentation — one click, one action either

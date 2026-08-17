@@ -303,11 +303,27 @@ switching the overlay off must not stop the symbols.
 A free-spin feature replays its **last** spin's wins. The replay is skipped while autoplay or
 space-hold is running, since the next spin is already on its way.
 
-Stored sparsely as `winCycle: { enabled?, delay?, showLine? }` — both switches default ON, so
-only an OFF and an authored `delay` (in seconds) persist — passed straight through to
-`bundle.symbols.winCycle` at export/bake and resolved by the engine's `bakedWinCycleConfig()`
-(defaults: on, 0.4s, line drawn). The replay itself is
-`apps/lines/src/game/winSymbolCycle.ts`, so every `runtime:lines` game has it.
+**Wait for a spin press after a big win (free spins)** (**off** by default) turns the replay
+into a between-spins pause. Free spins normally run one after another on their own, so closing
+a big win in the middle of a feature hands straight over to the next spin and the reels start
+rolling before the player has read the board. With this on, the feature rests on the winning
+board instead — the replay above narrating its paying lines — and the next free spin only
+starts when the player presses spin. The button stays live and reads **SPIN** for as long as
+the game waits; that press neither re-bets (the bonus is already paid for) nor slams the rest
+of the feature. The **last** free spin's big win is not held, since the free-spin outro follows
+it and already waits for a press, and autoplay/space-hold skips the wait. Independent of the
+replay toggle: with the replay off it still holds, on a static board. Stored as
+`winCycle.holdAfterBigWin` (only the on-state persists); the hold itself is
+`apps/lines/src/game/freeSpinHold.ts`.
+
+Stored sparsely as
+`winCycle: { enabled?, delay?, showLine?, showText?, showMessage?, dimNonWinning?, holdAfterBigWin? }`
+— each switch persists only its NON-default state (so `enabled`/`showLine`/`showText` write an
+OFF, and `showMessage`/`dimNonWinning`/`holdAfterBigWin` write an ON), plus an authored `delay`
+in seconds — passed straight through to `bundle.symbols.winCycle` at export/bake and resolved
+by the engine's `bakedWinCycleConfig()` (defaults: on, 0.4s, line drawn, text drawn, no toast,
+no dim, no hold). The replay itself is `apps/lines/src/game/winSymbolCycle.ts`, so every
+`runtime:lines` game has it.
 
 ### Reel anticipation
 

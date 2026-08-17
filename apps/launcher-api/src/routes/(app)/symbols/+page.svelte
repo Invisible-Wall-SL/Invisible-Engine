@@ -56,6 +56,7 @@
 		setWinCycleDelay,
 		setWinCycleDimNonWinning,
 		setWinCycleEnabled,
+		setWinCycleHoldAfterBigWin,
 		setWinCycleShowLine,
 		setWinCycleShowMessage,
 		setWinCycleShowText,
@@ -73,6 +74,7 @@
 		setStackedSymbolArt,
 		winCycleDimNonWinning,
 		winCycleEnabled,
+		winCycleHoldAfterBigWin,
 		winCycleShowLine,
 		winCycleShowMessage,
 		winCycleShowText,
@@ -938,6 +940,7 @@
 	const wcShowText = $derived(winCycleShowText(doc));
 	const wcShowMessage = $derived(winCycleShowMessage(doc));
 	const wcDim = $derived(winCycleDimNonWinning(doc));
+	const wcHold = $derived(winCycleHoldAfterBigWin(doc));
 
 	function resetWinLineStyle(): void {
 		doc = clearWinLineStyle(doc);
@@ -2094,6 +2097,34 @@
 								is not part of a paying line is drawn darkened, so the winning line stands out. This
 								is independent of the replay above: it applies even with "Winning symbols after the
 								spin" off. A losing spin leaves the whole board at full brightness.
+							</p>
+						</div>
+
+						<div class="wl-group">
+							<div class="wl-fields">
+								<div class="field">
+									<span class="label">Wait for a spin press after a big win (free spins)</span>
+									<label class="switch sm" class:on={wcHold}>
+										<input
+											type="checkbox"
+											checked={wcHold}
+											onchange={(e) =>
+												(doc = setWinCycleHoldAfterBigWin(doc, e.currentTarget.checked))}
+										/>
+										<span class="track"><span class="knob"></span></span>
+										<span class="switch-label">{wcHold ? 'On' : 'Off'}</span>
+									</label>
+								</div>
+							</div>
+							<p class="wl-note">
+								Free spins normally run one after another on their own, so closing a big win in the
+								middle of a feature hands straight over to the next spin and the reels start rolling
+								before the player has read the board. Turn this on and the feature rests on the
+								winning board instead — with the replay above narrating its paying lines — and the
+								next free spin only starts when the player presses spin. The button stays live and
+								reads SPIN for as long as the game waits. The last free spin's big win is not held
+								(the free-spin outro follows it, and that already waits for a press), and autoplay
+								or space-hold skips the wait, since the player has asked for hands-off play.
 							</p>
 						</div>
 					</div>

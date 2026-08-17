@@ -240,6 +240,11 @@ const winCycleSchema = z
 		 *  paying line stands out. Absent ⇒ OFF (byte-parity). Independent of `enabled` — the dim is
 		 *  about the whole board, not the replay. */
 		dimNonWinning: z.boolean().optional(),
+		/** After a BIG win inside a free-spin feature, hold the round on its winning board until the
+		 *  player presses SPIN, instead of rolling the next free spin on its own. Absent ⇒ OFF
+		 *  (byte-parity). Independent of `enabled`, which only decides whether the held board also
+		 *  replays its paying lines. */
+		holdAfterBigWin: z.boolean().optional(),
 	})
 	.strict();
 
@@ -458,6 +463,8 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	// Same inverse-of-default persistence as `showMessage`: `dimNonWinning` defaults OFF, so only the
 	// ON flag is written and OFF round-trips to no key.
 	if (doc.winCycle?.dimNonWinning === true) winCycle.dimNonWinning = true;
+	// Same inverse-of-default persistence again: `holdAfterBigWin` defaults OFF.
+	if (doc.winCycle?.holdAfterBigWin === true) winCycle.holdAfterBigWin = true;
 	if (Object.keys(winCycle).length) next.winCycle = winCycle;
 	// Sparse whitelist like `boardGlow`: each layer already passed the schema `.refine()` (so a
 	// half-authored layer never reaches here), so copy the present ones and drop a now-empty

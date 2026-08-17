@@ -15,6 +15,7 @@ import { getFlowInterpreter } from './flowInterpreterHolder';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { runBookEventPresentation, startsCelebration } from './unskippablePresentation';
 import { recordWinCycleWins, startWinCycle, stopWinCycle } from './winSymbolCycle';
+import { clearSpinHold, holdAfterBigWin } from './freeSpinHold';
 import type { RawSymbol, SymbolState } from './types';
 
 // general utils. A function (not a memoised `getEmptyBoard`) so the padded board is sized from the
@@ -108,14 +109,23 @@ export const playBookEvents = async (
 ): Promise<void> => {
 	// v1 OR v2 flow active ⇒ run the SAME serial `sequence()` the coded path uses, routing each event
 	// through `playBookEvent` (which hands an event to v2 when it OWNS it, else v1/coded — see above).
-	// Neither active ⇒ defer entirely to the coded `playBookEvents` (byte-parity with `main`).
+	// Neither active ⇒ the coded dispatch, event by event (`coded.playBookEvent` is exactly what
+	// `coded.playBookEvents` loops over, so that branch stays byte-identical to deferring to it).
+	//
+	// The BETWEEN-SPINS HOLD hangs off both branches, after the event's presentation is fully awaited:
+	// a big win mid-feature parks the book on its winning board until the player presses SPIN
+	// (`freeSpinHold.ts`). Off by default ⇒ both branches are byte-identical to before.
 	if (getFlowInterpreter() || getFlowV2()) {
 		await sequence(bookEvents, async (bookEvent) => {
 			await playBookEvent(bookEvent, { ...context, bookEvents });
+			await holdAfterBigWin(bookEvent, bookEvents);
 		});
 		return;
 	}
-	await coded.playBookEvents(bookEvents, context);
+	await sequence(bookEvents, async (bookEvent) => {
+		await coded.playBookEvent(bookEvent, { ...context, bookEvents });
+		await holdAfterBigWin(bookEvent, bookEvents);
+	});
 };
 
 export const playBet = async (bet: Bet) => {
@@ -140,6 +150,9 @@ export const playBet = async (bet: Bet) => {
 		// STUCK-true lock would leave the spin button permanently inert (game unplayable), so force it
 		// off at round end where a stale trip is likewise cleared.
 		stateUi.unskippablePresentationActive = false;
+		// Same belt-and-braces reasoning: a between-spins hold left standing by a handler that threw
+		// would leave the button reading SPIN with no book left to resume (`freeSpinHold.ts`).
+		clearSpinHold();
 		eventEmitter.broadcast({ type: 'stopButtonEnable' });
 		// The round is presented; keep its winning SYMBOLS animating on the resting board until the
 		// next bet. Deliberately NOT awaited — it runs until `stopWinCycle` above ends it.

@@ -294,6 +294,12 @@ type BakedBundle = {
 			 * `enabled`: the dim is a property of the board, not the replay, so it applies even with
 			 * the replay cycle off. */
 			dimNonWinning?: boolean;
+			/** After a BIG win inside a free-spin feature, park the round on its winning board and
+			 * wait for the player to press SPIN before the next free spin rolls (`freeSpinHold.ts`).
+			 * Absent ⇒ off (byte-parity — the feature ran unbroken before this switch). Pairs with the
+			 * replay above (which narrates the paying lines during the hold) but is independent of it:
+			 * with the replay off the hold still holds, on a static board. */
+			holdAfterBigWin?: boolean;
 		};
 		winLine?: {
 			enabled?: boolean;
@@ -833,7 +839,9 @@ export function bakedWinLineConfig(): ResolvedWinLine {
  * un-authored project stays byte-identical. Sibling of {@link bakedWinLineConfig} by design — that
  * owns the line's existence and style, this owns the replay; `showLine`/`showText`/`showMessage`
  * only ask the replay to reuse the line + amount + toast, and the win-line toggle still has the
- * final say over the line. */
+ * final say over the line. `holdAfterBigWin` (default OFF) is the replay's free-spin companion: it
+ * parks the feature on that resting board after a big win until the player presses SPIN, instead of
+ * rolling the next free spin on its own (`freeSpinHold.ts`). */
 export function bakedWinCycleConfig(): {
 	enabled: boolean;
 	delay: number;
@@ -841,6 +849,7 @@ export function bakedWinCycleConfig(): {
 	showText: boolean;
 	showMessage: boolean;
 	dimNonWinning: boolean;
+	holdAfterBigWin: boolean;
 } {
 	const c = hasRuntimeBundle()
 		? runtimeBundle!.symbols?.winCycle
@@ -854,6 +863,7 @@ export function bakedWinCycleConfig(): {
 		showText: c?.showText ?? true,
 		showMessage: c?.showMessage ?? false,
 		dimNonWinning: c?.dimNonWinning ?? false,
+		holdAfterBigWin: c?.holdAfterBigWin ?? false,
 	};
 }
 

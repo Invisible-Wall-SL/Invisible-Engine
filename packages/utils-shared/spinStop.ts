@@ -1,7 +1,9 @@
 import {
 	hasCelebrationOverlay,
 	hasContinuePress,
+	hasSpinHold,
 	hasUnskippablePresentation,
+	releaseSpinHold,
 	stateBet,
 	stateBetDerived,
 } from 'state-shared';
@@ -35,10 +37,32 @@ export type SpinButtonKey = 'spin_default' | 'spin_disabled' | 'stop_default' | 
  * so both presses render as STOP.
  */
 export const getSpinButtonKey = ({ isIdle }: { isIdle: boolean }): SpinButtonKey => {
+	// A SPIN HOLD outranks every other mid-round state: the round is deliberately parked on its
+	// winning board waiting for the player to start the next free spin, so the button reads SPIN and
+	// is live. Never affordability-gated — the bonus book was paid for by the bet that triggered it,
+	// and a player whose balance dropped below one bet mid-feature must still be able to continue.
+	// Checked FIRST so a celebration latch left standing by the presentation that just ended can't
+	// grey out the very button the hold is asking the player to press.
+	if (hasSpinHold()) return 'spin_default';
 	if (isIdle) return stateBetDerived.isBetCostAvailable() ? 'spin_default' : 'spin_disabled';
 	if (isCelebrationLocked()) return 'stop_disabled';
 	return 'stop_default';
 };
+
+/**
+ * Whether the spin button should render its ROLLING frame (`imageSpinning`, rotated) — reels
+ * turning on a plain bet, not an autoplay sequence.
+ *
+ * The rolling frame is suppressed during a SPIN HOLD: the round is technically still in flight, but
+ * the reels are parked and the button is being offered to the player as a live SPIN, so animating it
+ * as "busy" would contradict what it is asking for.
+ *
+ * Lives here, beside the key/press/sound decisions, because the game's parametric `spin` action and
+ * the coded `ButtonBetProvider` had derived it separately — the exact duplication that let the two
+ * drift before.
+ */
+export const isSpinButtonSpinning = ({ isPlaying }: { isPlaying: boolean }): boolean =>
+	isPlaying && !stateBetDerived.hasAutoBetCounter() && !hasSpinHold();
 
 /** Whether a spin-button key means the button is inert (unaffordable bet, or celebration lock). */
 export const isSpinButtonDisabled = (key: SpinButtonKey): boolean =>
@@ -58,7 +82,9 @@ export type SpinPressSound = { type: 'soundPressBet' } | { type: 'soundPressStop
  * disagree.
  */
 export const getSpinPressSound = ({ isIdle }: { isIdle: boolean }): SpinPressSound =>
-	isIdle ? { type: 'soundPressBet' } : { type: 'soundPressStop' };
+	// A hold-releasing press STARTS the next free spin, so it gets the bet whoosh even though the
+	// round is technically still in flight — the stop cue would announce a slam that isn't happening.
+	isIdle || hasSpinHold() ? { type: 'soundPressBet' } : { type: 'soundPressStop' };
 
 /**
  * The press body shared by the coded `ButtonBetProvider`, the Space hotkey and the flow's `spin`
@@ -90,6 +116,16 @@ export const runSpinOrSlamStop = ({
 	isIdle: boolean;
 	broadcast: (emitterEvent: { type: 'bet' } | { type: 'stopButtonClick' }) => void;
 }): void => {
+	// SPIN HOLD — the round is parked between free spins. The press means "play the next spin": it
+	// releases the hold and nothing else. Checked before the idle branch (no bet — the bonus book is
+	// already paid for) and before the slam branch (the player asked to resume at full pace, not to
+	// fast-forward the rest of the feature). Handled here rather than in the button so the Space
+	// hotkey, the flow `spin` action and an invoked intent all release it too.
+	if (hasSpinHold()) {
+		releaseSpinHold();
+		return;
+	}
+
 	if (isIdle) {
 		if (stateBetDerived.activeBetMode()?.type === 'buy') stateBet.activeBetModeKey = 'BASE';
 		broadcast({ type: 'bet' });

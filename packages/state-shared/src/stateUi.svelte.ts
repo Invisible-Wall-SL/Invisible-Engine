@@ -139,6 +139,17 @@ export const stateUi = $state({
 	 * `PressToContinue`; read via `hasContinuePress()`.
 	 */
 	continuePressCount: 0,
+	/**
+	 * SPIN HOLD — the round is paused mid-book waiting for the player to press SPIN. Raised by the
+	 * game (`apps/lines` `freeSpinHold.ts`) after a big win inside a free-spin feature, so the
+	 * feature rests on its winning board instead of rolling the next spin on its own.
+	 *
+	 * It is the INVERSE of every other latch here: `celebrationLock` / `unskippablePresentationActive`
+	 * make the button INERT, this makes it LIVE mid-round and re-labels it SPIN — the press neither
+	 * bets (the bonus book is already paid for) nor slams, it just releases the hold. Read via
+	 * {@link hasSpinHold} by `utils-shared/spinStop`, which is the ONE place the press decision lives.
+	 */
+	spinHoldActive: false,
 	config: {
 		mode: 'default' as UIConfigMode,
 		features: { ...UI_FEATURES_DEFAULT } as UIFeatureFlags,
@@ -168,6 +179,41 @@ export const hasCelebrationOverlay = () =>
  * (`apps/lines` `runBookEventPresentation`); read by `utils-shared/spinStop`.
  */
 export const hasUnskippablePresentation = () => stateUi.unskippablePresentationActive;
+
+/** The resolver that ends the current spin hold — held OUTSIDE `$state` because it is a callback,
+ *  not reactive data (a function in a `$state` proxy is a trap, and nothing renders off it). */
+let spinHoldResolve: (() => void) | undefined;
+
+/**
+ * Whether the round is paused waiting for a SPIN press (see `stateUi.spinHoldActive`). While true
+ * the spin button is live, reads SPIN, and its press releases the hold rather than betting or
+ * slamming — `utils-shared/spinStop` is the only reader.
+ */
+export const hasSpinHold = () => stateUi.spinHoldActive;
+
+/**
+ * Open a spin hold: `release` is called once, by the player's press (or by {@link cancelSpinHold}
+ * on a round that ends early). Re-arming over a live hold releases the previous one, so a hold can
+ * never be stranded by a second arm.
+ */
+export const armSpinHold = (release: () => void) => {
+	if (spinHoldResolve) releaseSpinHold();
+	spinHoldResolve = release;
+	stateUi.spinHoldActive = true;
+};
+
+/** End the hold and run its resolver, so the paused book resumes. Idempotent — a press that lands
+ *  after the hold already closed does nothing. */
+export const releaseSpinHold = () => {
+	const resolve = spinHoldResolve;
+	spinHoldResolve = undefined;
+	stateUi.spinHoldActive = false;
+	resolve?.();
+};
+
+/** Drop a hold at round teardown. Same body as {@link releaseSpinHold} — named apart so the
+ *  belt-and-braces cleanup in `playBet` reads as cleanup, not as a simulated press. */
+export const cancelSpinHold = releaseSpinHold;
 
 /** Merge a partial feature profile into the live UI config (e.g. a game's setup or
  * the editor-authored game settings supplying a jurisdiction preset). */
