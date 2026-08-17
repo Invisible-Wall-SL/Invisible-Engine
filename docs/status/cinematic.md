@@ -238,6 +238,19 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-17 — **Every game app's build was broken; only the launcher's stayed green.**
+  `CinematicActor.svelte` imports `@esotericsoftware/spine-pixi-v8`, but `engine-layout` never
+  declared it — so under pnpm's strict layout the module was simply not resolvable from that
+  package, and `pnpm --filter <game> build` died on `Rollup failed to resolve import`. It hid for
+  two reasons worth remembering: **`vite dev` still worked** (dev resolution walks up to the
+  workspace root, the production bundler does not), and the one app that *did* build — the
+  launcher — declares the dep itself, so the surface everyone was live-verifying on stayed green
+  while all six of `lines`/`cluster`/`scatter`/`ways`/`number-picker`/`price` were dead. Fixed by
+  declaring the dep on `engine-layout` at `4.2.74`, the same pin `pixi-svelte` carries, so both
+  symlink to ONE `.pnpm` entry — a second copy would be a second Spine runtime and would quietly
+  break every `instanceof SPINE.X` check in the engine. Rule this earns: **a package that imports
+  a module must declare it**, and a green `dev` (or a green launcher) is not evidence the games
+  build.
 - 2026-08-17 — **The Frame picker showed the WRONG sizes** (owner: "the frames are not the same
   that I have set in the admin"). It read `doc.mainSizesMap` straight off the editor doc, which
   skips the admin layer entirely — so the Rigger drew the coded defaults while the Scene Editor

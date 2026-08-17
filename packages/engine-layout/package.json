@@ -44,6 +44,7 @@
 		"prettier-plugin-svelte": "3.3.3"
 	},
 	"dependencies": {
+		"@esotericsoftware/spine-pixi-v8": "4.2.74",
 		"components-layout": "workspace:*",
 		"constants-shared": "workspace:*",
 		"engine-cinematic": "workspace:*",
