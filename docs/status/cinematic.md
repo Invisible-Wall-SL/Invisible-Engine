@@ -2,27 +2,41 @@
 
 > Design: [docs/design/invisible-cinematic.md](../design/invisible-cinematic.md) · Guide: _none yet (unbuilt)_ · Agent: _none yet_
 
-**One-line state:** **Phase 0 PASSED** (2026-08-17, headless) — the layered strip evaluator is
-deterministic bit-for-bit on real rigs, two different-atlas rigs coexist, and the in-game
-integration seam with `spine-pixi-v8` is proved. Phase 1 (set + cast) is next; one live check is
-owed (below).
+**One-line state:** **Phase 0 + Phase 1 done and verified live** (2026-08-17) — `/rigger` has a
+🎬 **Cinematic** mode that casts several rigs from different atlases onto one stage, places them
+and scrubs them through the shared evaluator. Phase 2 (the track/strip editor) is next.
 
 ## Current state
 
-No tool surface yet — `/rigger` still edits one skeleton / one clip / one playhead. What exists
-on `main` is the **evaluator core + its gates**:
-
-- **`tools/rigger-spike/cinematicEval.mjs`** — the layered strip evaluator: `clipLocalTime`
+- **`/rigger` cinematic mode (Phase 1).** A fourth mode next to Preview / Setup / Animate. Cast a
+  rig from the project as an **actor** (the same rig can be cast twice — independent instances),
+  place it (x / y / scale / rotation / flip), set its draw order, toggle its visibility, give it a
+  clip, and scrub or play the whole stage. Reachable with **no rig open** (it boots the spine
+  runtime + GL itself). Lives in `static/rigger/cinematic.js`; the rig editor's blast radius is
+  four small hooks in `view.html` (mode button, `setMode` branch, `frame()` branch, lazy loader)
+  plus an early-return in `mousedown` so no bone/mesh branch runs on a multi-actor stage.
+  Doc autosaves to `localStorage` — **R2 persistence + the ship chain are Phase 3**.
+- **`static/shared/cinematicEval.mjs`** — the layered strip evaluator: `clipLocalTime`
   (clipIn/clipOut trim · speed · once/count/fill/pingPong · extrapolation), `blendEnvelope`
   (blend-in/out ramps × alpha), `evaluateActor` (layer stack, additive, bone masks) and
-  `cuesCrossed` (edge-triggered cues). Dependency-free and runtime-injected, so **one copy**
-  serves the headless gate, the `/rigger` preview against the vendored minified runtime, and the
-  engine against `spine-pixi-v8`. Graduates to `packages/engine-cinematic/` in Phase 3.
-- **`tools/rigger-spike/cinematic.mjs`** — gates 1 + 2, **64/64**.
-- **`tools/rigger-spike/cinematic-pixi.mjs`** — gate 3, **14/14**.
+  `cuesCrossed` (edge-triggered cues). **Exactly one copy**, under `static/` because that is the
+  only place all consumers reach: the browser loads it as `/shared/cinematicEval.mjs` and the
+  headless gates import it across the repo. Graduates to `packages/engine-cinematic/` in Phase 3.
+- **Phase 1 stores REAL strips.** Each actor's clip is a genuine `strips[0]` in the design §4.2
+  schema (`start` / `length` / `loop.mode` / `alpha` / `blend`), so Phase 2's editor grows it in
+  place instead of replacing a bespoke stand-in.
 
-Fixtures are real shipped rigs: `mm_bigwin` (86 bones, intro/idle/exit clips) and
-`anticipation` (73 bones) — deliberately from **different atlases**.
+### Gates + verification
+
+| Proof | Result |
+|---|---|
+| `tools/rigger-spike/cinematic.mjs` — gates 1 + 2 (headless) | **64/64** |
+| `tools/rigger-spike/cinematic-pixi.mjs` — gate 3, the `spine-pixi-v8` seam | **14/14** |
+| `static/rigger/cinematic-harness.html` — gate 2's WebGL half, in a real browser | **11/11** |
+| `/rigger` cinematic mode, driven live in a browser | cast · draw · animate · scrub · place · z-order · visibility · clip-swap |
+
+Headless fixtures are real shipped rigs (`mm_bigwin` 86 bones, `anticipation` 73 bones); the
+browser harness stages `anticipation` + `reelhouse_glow` — deliberately **different atlases**.
 
 ### What the gates established
 
@@ -56,19 +70,23 @@ Fixtures are real shipped rigs: `mm_bigwin` (86 bones, intro/idle/exit clips) an
 
 ## Open items / next
 
-1. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
-   geometry and the frame visibly changes. Drive one spine object through the contract above in a
-   real game frame before Phase 3 leans on it.
-2. **⏳ Live check owed (gate 2, WebGL half).** Two rigs from different atlases in ONE `/rigger`
-   stage: z-order and premultiplied-alpha correctness are inherently visual. Folds into Phase 1.
-3. **Phase 1 — set + cast** (design §8): cinematic mode shell, pick a Scene as the set, its nodes
-   as cast, multi-actor stage. Needs the `/rigger` change in design §5 — the module-level
-   `skeleton` / `animState` / `curAnim` singletons become an actor array.
-4. **Decide the Flow-v2 Phase 7 overlap explicitly** — Flow *plays* cinematics, or we ship two
-   sequencers with two doc formats (design §7 risk 3). See [status/flow](flow.md) open item 7.
-5. **Undo/redo in `/rigger`** — no command stack exists in `view.html` today; a **prerequisite of
+1. **Phase 2 — the track/strip editor** (design §8): tracks, strips (drag / trim / snap-to-fps),
+   loop modes, blend ramps, alpha, layers, per-actor property + camera tracks. **Blocked on (2).**
+2. **Undo/redo in `/rigger`** — no command stack exists in `view.html` today; a **prerequisite of
    Phase 2** (dragging strips without undo is unusable).
-6. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
+3. **⏳ Live check owed (gate 3 residual).** Headless proof cannot show that Pixi re-uploads the
+   geometry and the frame visibly changes. Drive one spine object through the `<Cinematic>`
+   contract in a real game frame before Phase 3 leans on it.
+4. **⏳ Owner eyeball owed.** Every automated check above is a pixel/transform assertion — nobody
+   has yet *looked* at two rigs staged together and judged that the art reads correctly (premultiply
+   halos, relative scale between rigs authored at different atlas `scale:` factors). Open
+   `/rigger` → 🎬 Cinematic, cast two rigs, and look.
+5. **Pick the set.** Phase 1 casts rigs directly (`cast[].nodeId` is null). Design §4.1 has the
+   cinematic binding tracks to an existing **Scene**'s nodes — the Scene picker, and art / text /
+   FX / sound actors, land with it.
+6. **Decide the Flow-v2 Phase 7 overlap explicitly** — Flow *plays* cinematics, or we ship two
+   sequencers with two doc formats (design §7 risk 3). See [status/flow](flow.md) open item 7.
+7. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
    referenced set, flatten-to-`.irig` escape hatch).
 
 ## Blocked (owner / external)
@@ -77,6 +95,27 @@ Fixtures are real shipped rigs: `mm_bigwin` (86 bones, intro/idle/exit clips) an
 
 ## Recent changes
 
+- 2026-08-17 — **Phase 1 shipped: `/rigger` 🎬 Cinematic mode**, verified live in a browser
+  (not just built). Three real bugs surfaced only by running it, none of which a syntax or type
+  check could reach:
+  1. **An rAF-polled asset wait hangs forever when the tab is not painting.** `requestAnimationFrame`
+     is suspended in a background/offscreen context, so the load never completes and never fails.
+     The new `loadRigData` polls with `setTimeout` instead (the pre-existing `waitAssets` still
+     uses rAF — fine in a visible tab, and left alone).
+  2. **Cinematic mode entered from a cold `/rigger` had no runtime at all.** `SPINE` and `gl` are
+     created lazily by `selectSkeleton`, so casting a rig with no rig open threw "Cannot read
+     properties of null (reading 'AssetManager')". Fixed by `ensureStageRuntime()` — and the
+     bridge now exposes `SPINE` as a **getter**, since a value captured at init time freezes at
+     null forever.
+  3. **`resolveClip` received an actor with no `skeletonData`** because `evaluate()` built a fresh
+     `{skeleton, tracks}` object per frame. Now each actor caches an `evalTarget` carrying
+     `skeletonData` (also removing a per-frame allocation). The browser harness could not have
+     caught this — its actor objects already carried the field.
+- 2026-08-17 — **Gate 2's WebGL half CLOSED** via `static/rigger/cinematic-harness.html` (11/11):
+  two rigs on two distinct GL textures composite in one stage, each atlas contributes its own
+  pixels (`readPixels`-verified, not a screenshot), and the shared evaluator is deterministic
+  **in-browser against the vendored minified runtime** — the exact gap that has produced
+  browser-only Rigger bugs before.
 - 2026-08-17 — **Phase 0 gates passed** (`cinematic.mjs` 64/64, `cinematic-pixi.mjs` 14/14) and
   the evaluator core landed. Two gate assertions were wrong on first write and were corrected
   against the runtime's real behaviour, not the other way round: (a) a `count:N` freeze is

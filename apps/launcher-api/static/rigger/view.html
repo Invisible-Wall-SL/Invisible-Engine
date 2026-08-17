@@ -49,6 +49,30 @@
     border:1px solid var(--line); border-radius:6px; padding:6px 8px; font-size:12px; }
   #filter { margin-bottom:6px; }
   #outline { flex:1; overflow:auto; }
+  /* cinematic mode cast panel (see /rigger/cinematic.js) */
+  #cinePanel { flex:1; overflow:auto; font-size:12px; }
+  .cineHead { padding:10px 14px; border-bottom:1px solid var(--line); display:flex; align-items:baseline; gap:8px; }
+  .cineHead b { color:var(--accent2); letter-spacing:.08em; }
+  .cineHead small { color:var(--dim); }
+  .cineRow { padding:8px 14px; border-bottom:1px solid var(--line); display:flex; gap:6px; align-items:center; }
+  .cineRow label { display:flex; align-items:center; gap:4px; color:var(--dim); white-space:nowrap; }
+  .cineRow input[type=number] { width:64px; background:var(--panel2); color:var(--txt);
+    border:1px solid var(--line); border-radius:6px; padding:4px 6px; font-size:12px; }
+  .cineRow select { flex:1; min-width:0; }
+  .cineStatus { padding:0 14px; min-height:14px; color:var(--accent2); font-size:11px; }
+  .cineEmpty, .cineNote { padding:10px 14px; color:var(--dim); font-size:11px; line-height:1.5; }
+  .cineActor { padding:8px 14px; border-bottom:1px solid #2a2e36; cursor:pointer; }
+  .cineActor.sel { background:var(--panel2); box-shadow:inset 3px 0 0 var(--accent); }
+  .cineActorHead { display:flex; align-items:center; gap:6px; margin-bottom:5px; }
+  .cineActorHead b { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cineActorHead button { padding:0 5px; font-size:11px; opacity:.6; }
+  .cineActorHead button:hover { opacity:1; }
+  .cineZ { color:var(--dim); font-size:10px; }
+  .cinePlace { display:flex; flex-wrap:wrap; gap:4px 8px; margin-top:5px; color:var(--dim); font-size:11px; }
+  .cinePlace label { display:flex; align-items:center; gap:3px; }
+  .cinePlace input[type=number] { width:52px; background:var(--panel2); color:var(--txt);
+    border:1px solid var(--line); border-radius:5px; padding:2px 4px; font-size:11px; }
+  .cineFlip input { width:auto; }
   #list { flex:1; min-height:0; overflow:auto; }
   .item { padding:7px 14px; border-bottom:1px solid #2a2e36; cursor:pointer; }
   .item:hover { background:var(--panel2); }
@@ -344,6 +368,8 @@
         <div id="consDetail"></div>
       </details>
     </div>
+    <!-- cinematic mode: the cast list replaces the rig outline (see /rigger/cinematic.js) -->
+    <div id="cinePanel" style="display:none;"></div>
   </aside>
   <div class="resizer" id="resSide" title="drag to resize"></div>
 
@@ -356,6 +382,7 @@
           <button data-mode="preview" class="active" title="Play animations (read-only)">▶ Preview</button>
           <button data-mode="setup" title="Edit the rest pose: bones, meshes, weights, attachments">✎ Setup</button>
           <button data-mode="animate" title="Animate: pose bones over time into keyframes">◆ Animate</button>
+          <button data-mode="cinematic" title="Cinematic: stage several rigs on one timeline (Phase 1: cast, place, scrub)">🎬 Cinematic</button>
         </span>
       </div>
       <div id="hint">scroll = zoom · drag = pan · click a bone in the inspector</div>
@@ -584,8 +611,9 @@ let meshIsolate = false; // Phase 6: edit the selected mesh alone — hide every
 let meshTexView = 1; // Phase 6 texture visibility in isolate mode: 1=full, 0.4=dim, 0=wireframe only
 let meshUVFrame = null; // Phase 6: fixed worldPos→UV affine held during an isolate-mode vertex drag (keeps the texture undistorted)
 let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
-// Phase 5: animation authoring. mode = "preview" | "setup" | "animate".
+// Phase 5: animation authoring. mode = "preview" | "setup" | "animate" | "cinematic".
 let mode = "preview", animMode = false, curAnim = null, animTime = 0, posingBone = null, animsDirty = false;
+let cineMode = false; // cinematic mode owns the whole stage (see /rigger/cinematic.js)
 let animClipboard = null; // in-session animation copy/paste: { name, animation } (memory only)
 let tlDur = 1, tlGutter = 96; // dopesheet (5.2): geometry
 let tlPxPerSec = null, tlPps = 1, tlScrub = false; // timeline zoom (null = fit) + scrub-drag
@@ -703,6 +731,100 @@ function ensureFxOverlay(){
   });
   return fxLoading;
 }
+// ---- cinematic mode (lazy) ------------------------------------------------
+// The multi-actor sequencer lives in /rigger/cinematic.js so this file stays the rig editor.
+// Loaded on first entry to the mode; best-effort, never fatal to the Rigger.
+let cineLoading = null, cineFailed = false;
+
+/**
+ * The spine runtime + GL context are created lazily by `selectSkeleton`, but cinematic mode is
+ * reachable with NO rig open — so it must boot them itself or every cast fails with a null
+ * `SPINE`. (Found live: casting a rig from a cold /rigger threw "Cannot read properties of null
+ * (reading 'AssetManager')".) `DEFAULT_RUNTIME` matches what a rig entry would ask for; a rig
+ * on the 4.1 line still opens normally through `selectSkeleton`'s own reload path.
+ */
+const DEFAULT_RUNTIME = "4.2";
+async function ensureStageRuntime(){
+  if (!SPINE) await loadRuntime(loadedLine || DEFAULT_RUNTIME);
+  if (!gl) initGL();
+}
+
+function ensureCinematic(){
+  if (cineFailed) return Promise.resolve();
+  if (window.RiggerCinematic && cineLoading) return cineLoading.then(() => window.RiggerCinematic.activate());
+  if (cineLoading) return cineLoading;
+  cineLoading = ensureStageRuntime().then(() => new Promise((resolve) => {
+    const boot = () => {
+      if (!window.RiggerCinematic){ console.warn("[Cinematic] script loaded but window.RiggerCinematic missing"); cineFailed = true; return resolve(); }
+      window.RiggerCinematic.init(cinematicBridge())
+        .catch((e) => { cineFailed = true; console.warn("[Cinematic] init failed", e); showErr("Cinematic mode failed to load: " + ((e && e.message) || e)); })
+        .then(() => resolve());
+    };
+    const s = document.createElement("script");
+    // Same cache-bust as the FX bundle — a redeploy must not serve a stale cinematic.js.
+    const _v = new URLSearchParams(location.search).get("v");
+    s.src = "/rigger/cinematic.js" + (_v ? "?v=" + encodeURIComponent(_v) : "");
+    s.onload = boot;
+    s.onerror = () => { console.warn("[Cinematic] failed to load /rigger/cinematic.js"); cineFailed = true; resolve(); };
+    document.head.appendChild(s);
+  })).catch((e) => { cineFailed = true; console.warn("[Cinematic] stage runtime failed", e); showErr("Cinematic mode failed to start: " + ((e && e.message) || e)); });
+  return cineLoading;
+}
+
+/**
+ * Everything cinematic.js is allowed to reach — explicit, so it holds no hidden globals.
+ * `SPINE` MUST be a getter, not a captured value: the runtime is loaded lazily (loadRuntime),
+ * so a bridge built before the first rig opens would freeze `SPINE` at null forever.
+ */
+function cinematicBridge(){
+  return {
+    get SPINE(){ return SPINE; },
+    renderer: () => renderer,
+    pma: () => pma,
+    playSpeed: () => playSpeed,
+    looping: () => looping,
+    listRigs: () => skeletons,
+    loadRigData,
+  };
+}
+
+/**
+ * Load ONE rig's SkeletonData for the cinematic stage, independently of the open rig.
+ * Its own AssetManager because an actor's atlas is its own sheet — this is the multi-atlas
+ * case a flatten-to-one-rig bake could never express (design §3 decision 2).
+ */
+async function loadRigData(entry){
+  const base = "/spine/file?dir=" + encodeURIComponent(entry.dir_b64) + (preferPng ? "&pp=1" : "") + "&name=";
+  const am = new SPINE.AssetManager(gl, base);
+  am.loadTextureAtlas(entry.atlas_file);
+  if (entry.format === "skel") am.loadBinary(entry.skeleton_file);
+  else am.loadJson(entry.skeleton_file);
+  // setTimeout, NOT requestAnimationFrame (which `waitAssets` above uses): rAF is suspended
+  // while the tab is not painting, so an rAF poll hangs a background/offscreen load forever
+  // instead of completing. Verified against the cinematic harness.
+  await new Promise((resolve, reject) => {
+    const tick = () => {
+      if (!am.isLoadingComplete()) return void setTimeout(tick, 16);
+      const errs = am.getErrors && am.getErrors();
+      if (errs && Object.keys(errs).length) reject(new Error(Object.keys(errs).join(", ")));
+      else resolve();
+    };
+    tick();
+  });
+  const atlas = am.require(entry.atlas_file);
+  if (pma) premultiplyAtlas(atlas);
+  // makeAttachmentLoader reports gaps into the shared `missingArt`; don't let a cast rig's
+  // gaps overwrite the OPEN rig's art warning.
+  const keep = missingArt;
+  missingArt = [];
+  try {
+    const loader = makeAttachmentLoader(atlas);
+    return entry.format === "skel"
+      ? new SPINE.SkeletonBinary(loader).readSkeletonData(new Uint8Array(am.require(entry.skeleton_file)))
+      : new SPINE.SkeletonJson(loader).readSkeletonData(am.require(entry.skeleton_file));
+  } finally { missingArt = keep; }
+}
+
 // World→screen projection — EXACTLY what #bonemark uses (updateBoneMarker).
 function fxProject(worldX, worldY){
   const cv = $("#cv"), dpr = window.devicePixelRatio || 1;
@@ -6436,17 +6558,26 @@ function removeMeshVertex(k){
 // Three workflows: preview (play, read-only) · setup (edit rest pose) · animate (author
 // keyframes). editMode stays the "setup" flag so every rig-editing guard keeps working.
 function setMode(m){
-  if (!rawDoc && m !== "preview") m = "preview"; // setup/animate need an editable doc
+  // Cinematic stages OTHER rigs — it must stay reachable with no rig open, so it is exempt
+  // from the editable-doc gate that setup/animate need.
+  if (!rawDoc && m !== "preview" && m !== "cinematic") m = "preview";
   mode = m;
   editMode = (m === "setup");
   animMode = (m === "animate");
+  const wasCine = cineMode;
+  cineMode = (m === "cinematic");
+  if (cineMode) ensureCinematic();
+  else if (wasCine && window.RiggerCinematic) window.RiggerCinematic.deactivate();
+  $("#outline").style.display = cineMode ? "none" : "";
+  $("#cinePanel").style.display = cineMode ? "block" : "none";
+  if (cineMode){ const bm = $("#bonemark"); if (bm) bm.style.display = "none"; } // no bone selection on a multi-actor stage
   if (animMode) ensureFxOverlay(); // fire-and-forget: lazy-load the live FX preview overlay
   else fxClearPreview(); // leaving animate — stop any live effects
   if (!animMode){ selEvent = null; renderEventDetail(); } // event keys are an animate-mode concept
   if (!editMode) meshIsolate = false; // isolated-mesh editing is a setup-mode tool only
   document.querySelectorAll('#modeSeg button').forEach((b) => {
     b.classList.toggle("active", b.dataset.mode === m);
-    if (b.dataset.mode !== "preview") b.disabled = !rawDoc; // setup/animate need an editable rig
+    if (b.dataset.mode !== "preview" && b.dataset.mode !== "cinematic") b.disabled = !rawDoc; // setup/animate need an editable rig
   });
   $("#animTools").style.display = animMode ? "flex" : "none";
   $("#timeNum").style.display = animMode ? "inline-block" : "none";
@@ -6457,6 +6588,7 @@ function setMode(m){
   $("#hint").textContent =
     m === "setup" ? "setup · select a bone · drag to move · shift+drag = pan · edit transform at right"
     : m === "animate" ? "animate · scrub the playhead · pose a bone → ◆ Key · drag a bone keys it at the playhead"
+    : m === "cinematic" ? "cinematic · cast rigs at the left · place them · scrub or play the whole stage"
     : "preview · scroll = zoom · drag = pan · pick an animation to play";
   if (m === "setup" && skeleton){ playing = false; $("#play").textContent = "▶ Play"; skeleton.setToSetupPose(); updateWorld(); }
   if (m === "animate"){
@@ -8677,6 +8809,12 @@ function frame(now){
   gl.clear(gl.COLOR_BUFFER_BIT);
   gl.viewport(0, 0, cv.width, cv.height);
 
+  // Cinematic owns the whole draw pass — it stages N actors, not the one open rig.
+  if (cineMode){
+    if (window.RiggerCinematic) window.RiggerCinematic.frame(delta, playing);
+    return;
+  }
+
   if (skeleton && animState){
     if (animMode){
       // Author/preview ONE animation at the playhead, posed over the setup pose.
@@ -8908,6 +9046,11 @@ function wire(){
     if (selBone != null) renderBoneDetail(); if (selSlot) renderSlotDetail();
   };
   $("#scrub").oninput = e => {
+    if (cineMode){
+      playing = false; $("#play").textContent = "▶ Play";
+      if (window.RiggerCinematic) window.RiggerCinematic.setTime((e.target.value/1000) * window.RiggerCinematic.duration());
+      return;
+    }
     if (animMode){
       playing = false; $("#play").textContent = "▶ Play";
       animTime = (e.target.value/1000) * workLen(curAnim);
@@ -9004,6 +9147,9 @@ function wire(){
   cv.addEventListener("mousedown", e => {
     // Middle mouse button always pans the canvas (never edits) — regardless of mode.
     if (e.button === 1){ e.preventDefault(); dragging = true; lastXY = [e.clientX, e.clientY]; return; }
+    // Cinematic stages OTHER rigs and can be entered with no rig open, so every bone/mesh/gizmo
+    // branch below (which assumes `skeleton`/`rawDoc`) must be skipped: drag simply pans.
+    if (cineMode){ dragging = true; lastXY = [e.clientX, e.clientY]; return; }
     // Bounds box: when shown, grabbing a handle starts a resize/move. Only acts on a HANDLE
     // hit, so clicking elsewhere still edits bones/mesh normally (no mode lock-out).
     if (showBounds && rawDoc && !e.shiftKey){

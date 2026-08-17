@@ -7,7 +7,12 @@
 // `static/rigger/cinematic.js` against the vendored minified runtime, and in the engine
 // against `@esotericsoftware/spine-pixi-v8`, without a fork.
 //
-// Graduates to `packages/engine-cinematic/` in Phase 3 (the ship chain). Keep it dependency-free.
+// THERE IS EXACTLY ONE COPY OF THIS FILE and it lives here, under `static/`, because that is the
+// only place all three consumers can reach: the browser loads it as `/shared/cinematicEval.mjs`
+// and the headless gates import it across the repo (`tools/rigger-spike/cinematic*.mjs`). Copying
+// it into `tools/` or into the engine would re-create the hand-synced-renderer drift this module
+// exists to avoid. Graduates to `packages/engine-cinematic/` in Phase 3 (the ship chain), still
+// as one copy. Keep it dependency-free.
 //
 // ======================= WHAT THE GATE ESTABLISHED (cinematic.mjs) =======================
 //

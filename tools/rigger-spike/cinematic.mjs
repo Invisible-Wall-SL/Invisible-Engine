@@ -21,7 +21,7 @@ import {
 	evaluateActor,
 	cuesCrossed,
 	expandBoneMask,
-} from './cinematicEval.mjs';
+} from '../../apps/launcher-api/static/shared/cinematicEval.mjs';
 
 const CORE = new URL(
 	'../../node_modules/.pnpm/@esotericsoftware+spine-core@4.2.74/node_modules/@esotericsoftware/spine-core/dist/index.js',

@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Invisible Cinematic — multi-actor stage harness</title>
+<!--
+  PHASE 0 GATE 2, WEBGL HALF — the check the headless spikes structurally cannot make.
+  Plan: docs/design/invisible-cinematic.md · State: docs/status/cinematic.md
+
+  `tools/rigger-spike/cinematic.mjs` proves the DATA half (two different-atlas rigs coexist and
+  pose independently). It cannot prove the RENDER half: that two rigs whose art lives on
+  DIFFERENT ATLAS PAGES composite in one WebGL stage with correct z-order and correct
+  premultiplied alpha. That needs a GPU, so it needs a page.
+
+  It also exercises the real `/shared/cinematicEval.mjs` in a BROWSER against the vendored
+  runtime, rather than in node against spine-core — the exact gap that has produced browser-only
+  Rigger bugs before (mangled constructor names, a double-flipped canvas Y).
+
+  Deliberately auth-free: it reads only `/builtin/spines/**` and `/shared/**`, never R2 and never
+  a project, so it runs on any deploy and in local dev without a login. Two fixtures with two
+  separate atlas pages: `anticipation` (73 bones) and `reelhouse_glow`.
+
+  Open: /rigger/cinematic-harness.html
+-->
+<style>
+  :root { --bg:#1b1d22; --panel:#23262d; --line:#363b45; --txt:#d7dbe2; --dim:#8b93a1;
+    --accent:#5db0ff; --accent2:#7ee0c0; --bad:#ff6b6b; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--txt);
+    font:13px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  #wrap { display:flex; height:100%; }
+  #stage { flex:1; position:relative; min-width:0; }
+  canvas { width:100%; height:100%; display:block; }
+  #side { width:320px; flex:0 0 320px; background:var(--panel); border-left:1px solid var(--line);
+    overflow:auto; padding:14px; }
+  h1 { font-size:13px; letter-spacing:.1em; text-transform:uppercase; color:var(--accent2); margin:0 0 4px; }
+  p.lede { color:var(--dim); font-size:11px; margin:0 0 12px; }
+  .check { padding:6px 0; border-bottom:1px solid var(--line); font-size:12px; }
+  .check b { display:block; }
+  .check small { color:var(--dim); }
+  .ok::before { content:"✓ "; color:var(--accent2); }
+  .bad::before { content:"✗ "; color:var(--bad); }
+  .pending::before { content:"… "; color:var(--dim); }
+  .row { display:flex; gap:6px; align-items:center; margin:10px 0; flex-wrap:wrap; }
+  button { background:#2b2f38; color:var(--txt); border:1px solid var(--line); border-radius:6px;
+    padding:5px 9px; font-size:12px; cursor:pointer; }
+  button:hover { border-color:var(--accent); }
+  input[type=range] { width:100%; }
+  #verdict { margin-top:12px; padding:8px; border-radius:6px; font-weight:600; text-align:center; }
+  code { color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="stage"><canvas id="cv"></canvas></div>
+  <aside id="side">
+    <h1>Cinematic stage harness</h1>
+    <p class="lede">Gate 2, WebGL half — two rigs, two atlas pages, one stage, driven by the shared
+      <code>/shared/cinematicEval.mjs</code> in a real browser.</p>
+    <div id="checks"></div>
+    <div id="verdict" class="pending">running…</div>
+    <div class="row">
+      <button id="play">❚❚ Pause</button>
+      <button id="swapZ">⇅ Swap draw order</button>
+      <button id="fit">⤢ Fit</button>
+    </div>
+    <div class="row"><input type="range" id="scrub" min="0" max="1000" value="0"></div>
+    <div class="row"><span id="t" style="color:var(--dim);font-size:11px;"></span></div>
+  </aside>
+</div>
+
+<script src="/spine/vendor/spine-webgl-4.2.js"></script>
+<script type="module">
+import { evaluateActor, clipLocalTime, blendEnvelope } from '/shared/cinematicEval.mjs';
+
+const SPINE = window.spine;
+const $ = (s) => document.querySelector(s);
+const checks = [];
+const check = (name, state, detail) => {
+	const found = checks.find((c) => c.name === name);
+	if (found) { found.state = state; found.detail = detail; }
+	else checks.push({ name, state, detail });
+	renderChecks();
+};
+function renderChecks() {
+	$('#checks').innerHTML = checks
+		.map((c) => `<div class="check ${c.state}"><b>${c.name}</b>${c.detail ? `<small>${c.detail}</small>` : ''}</div>`)
+		.join('');
+	const bad = checks.filter((c) => c.state === 'bad').length;
+	const pending = checks.filter((c) => c.state === 'pending').length;
+	const v = $('#verdict');
+	v.className = bad ? 'bad' : pending ? 'pending' : 'ok';
+	v.textContent = bad ? `FAIL — ${bad} check(s)` : pending ? 'running…' : `PASS — ${checks.length}/${checks.length}`;
+	v.style.background = bad ? 'rgba(255,107,107,.15)' : pending ? 'transparent' : 'rgba(126,224,192,.15)';
+}
+
+// ---- GL + renderer --------------------------------------------------------
+const cv = $('#cv');
+// Fall back to a fixed backing store when the layout gives us nothing. An automated context can
+// report a 0x0 viewport (`innerWidth === 0`), which makes every `height:100%` resolve to zero and
+// leaves the canvas 0x0 — GL then "renders" into nothing and the rasterization check below can
+// never pass. With a fixed fallback the draw is real and readPixels still proves it.
+function resize() {
+	const dpr = window.devicePixelRatio || 1;
+	cv.width = Math.round((cv.clientWidth || 960) * dpr);
+	cv.height = Math.round((cv.clientHeight || 540) * dpr);
+}
+resize();
+const gl = cv.getContext('webgl2', { alpha: false }) || cv.getContext('webgl', { alpha: false });
+check('WebGL context', gl ? 'ok' : 'bad', gl ? (gl instanceof WebGL2RenderingContext ? 'webgl2' : 'webgl1') : 'no context');
+const renderer = new SPINE.SceneRenderer(cv, gl);
+
+// The vendored bundle is MINIFIED — class names are mangled, so never type-check by
+// `constructor.name` here (a Rigger bug we have already paid for once).
+check('vendored spine runtime loaded', SPINE && SPINE.SceneRenderer ? 'ok' : 'bad', 'window.spine + SceneRenderer');
+
+// ---- load two rigs from DIFFERENT atlas pages ------------------------------
+const FIXTURES = [
+	{ id: 'anticipation', dir: '/builtin/spines/anticipation/', atlas: 'anticipation.atlas', json: 'anticipation.json', clip: 'anticipation_loop' },
+	{ id: 'reelhouse', dir: '/builtin/spines/reelhouse/', atlas: 'reelhouse_glow.atlas', json: 'reelhouse_glow.json', clip: 'reelhouse_glow_idle' },
+];
+
+function premultiply(atlas) {
+	for (const p of atlas.pages) {
+		const tex = p.texture;
+		if (!tex || !tex._image || !tex.texture) continue;
+		gl.bindTexture(gl.TEXTURE_2D, tex.texture);
+		gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, tex._image);
+		gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+	}
+}
+
+async function loadFixture(fx) {
+	const am = new SPINE.AssetManager(gl, fx.dir);
+	am.loadTextureAtlas(fx.atlas);
+	am.loadJson(fx.json);
+	// Poll with setTimeout, NOT requestAnimationFrame: rAF is suspended while the tab is not
+	// painting (headless/background preview panes), which hangs the load forever instead of
+	// failing. Cost us a debugging round on this very harness.
+	await new Promise((resolve, reject) => {
+		const tick = () => {
+			if (!am.isLoadingComplete()) return void setTimeout(tick, 16);
+			const errs = am.getErrors && am.getErrors();
+			if (errs && Object.keys(errs).length) reject(new Error(JSON.stringify(errs)));
+			else resolve();
+		};
+		tick();
+	});
+	const atlas = am.require(fx.atlas);
+	premultiply(atlas);
+	const data = new SPINE.SkeletonJson(new SPINE.AtlasAttachmentLoader(atlas)).readSkeletonData(am.require(fx.json));
+	return { data, atlas, skeleton: new SPINE.Skeleton(data) };
+}
+
+const actors = [];
+let duration = 4;
+let time = 0;
+let playing = true;
+
+try {
+	for (const fx of FIXTURES) {
+		const rig = await loadFixture(fx);
+		if (rig.data.skins.length) rig.skeleton.setSkinByName((rig.data.skins.find((s) => s.name === 'default') || rig.data.skins[0]).name);
+		rig.skeleton.setToSetupPose();
+		actors.push({
+			actorId: fx.id,
+			skeletonData: rig.data,
+			skeleton: rig.skeleton,
+			atlas: rig.atlas,
+			z: actors.length,
+			place: { x: actors.length === 0 ? -260 : 260, y: -120, scale: 1, rotation: 0, flipX: false },
+			tracks: [{ kind: 'animation', layer: 0, strips: [
+				{ id: fx.id + '_s', clip: { src: 'rig', name: fx.clip }, start: 0, length: duration,
+				  clipIn: 0, speed: 1, loop: { mode: 'fill' }, alpha: 1, blend: 'replace' },
+			] }],
+		});
+	}
+	check('both rigs loaded', 'ok', FIXTURES.map((f) => f.id).join(' + '));
+} catch (e) {
+	check('both rigs loaded', 'bad', String((e && e.message) || e));
+}
+
+// The point of the gate: the two rigs' art is on SEPARATE atlas pages / GL textures.
+if (actors.length === 2) {
+	const texA = actors[0].atlas.pages[0] && actors[0].atlas.pages[0].texture;
+	const texB = actors[1].atlas.pages[0] && actors[1].atlas.pages[0].texture;
+	check('two DISTINCT atlas pages on one stage', texA && texB && texA !== texB ? 'ok' : 'bad',
+		`${actors[0].atlas.pages.length} + ${actors[1].atlas.pages.length} page(s), distinct GL textures`);
+	const clipA = actors[0].skeletonData.findAnimation(actors[0].tracks[0].strips[0].clip.name);
+	const clipB = actors[1].skeletonData.findAnimation(actors[1].tracks[0].strips[0].clip.name);
+	check('both clips resolve', clipA && clipB ? 'ok' : 'bad', clipA && clipB ? `${clipA.duration.toFixed(2)}s / ${clipB.duration.toFixed(2)}s` : 'missing clip');
+}
+
+// ---- the shared evaluator, in a browser ------------------------------------
+const spineNs = { MixBlend: SPINE.MixBlend, MixDirection: SPINE.MixDirection, Physics: SPINE.Physics };
+const resolveClip = (strip, actor) => (strip.clip && strip.clip.src === 'rig' ? actor.skeletonData.findAnimation(strip.clip.name) : null);
+
+function evaluate(t) {
+	for (const a of actors) {
+		evaluateActor(spineNs, a, t, resolveClip);
+		const sk = a.skeleton, p = a.place;
+		sk.x = p.x; sk.y = p.y;
+		sk.scaleX = (p.flipX ? -1 : 1) * p.scale; sk.scaleY = p.scale;
+		if (p.rotation) { const r = sk.getRootBone(); if (r) r.rotation += p.rotation; }
+		if (spineNs.Physics && spineNs.Physics.update !== undefined) sk.updateWorldTransform(spineNs.Physics.update);
+		else sk.updateWorldTransform();
+	}
+}
+
+// Evaluator sanity IN THE BROWSER (the vendored runtime, not spine-core).
+if (actors.length) {
+	const snap = () => actors.flatMap((a) => a.skeleton.bones.flatMap((b) => [b.a, b.b, b.c, b.d, b.worldX, b.worldY]));
+	evaluate(1.234);
+	const ref = snap();
+	for (const t of [0, 3.9, 0.5, 2.2]) evaluate(t);
+	evaluate(1.234);
+	const again = snap();
+	const same = ref.length === again.length && ref.every((v, i) => v === again[i]);
+	check('scrub is deterministic in-browser', same ? 'ok' : 'bad', `${ref.length} transform values compared, bit-for-bit`);
+
+	const strip = actors[0].tracks[0].strips[0];
+	const dur = actors[0].skeletonData.findAnimation(strip.clip.name).duration;
+	const wrapped = clipLocalTime(strip, dur + 0.25, dur);
+	check('loop wraps into local clip time', wrapped && Math.abs(wrapped.local - 0.25) < 1e-6, `local ${wrapped ? wrapped.local.toFixed(3) : '—'}s at t=${(dur + 0.25).toFixed(2)}s`);
+	check('blend envelope is flat with no ramps', blendEnvelope(strip, 1) === 1);
+}
+// Normalize the "boolean" checks pushed above.
+for (const c of checks) if (c.state === true) c.state = 'ok'; else if (c.state === false) c.state = 'bad';
+renderChecks();
+
+// ---- camera ---------------------------------------------------------------
+function fit() {
+	if (!actors.length) return;
+	const off = new SPINE.Vector2(), size = new SPINE.Vector2();
+	let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+	for (const a of actors) {
+		a.skeleton.getBounds(off, size, []);
+		if (!(size.x > 0 && size.y > 0)) continue;
+		minX = Math.min(minX, off.x); minY = Math.min(minY, off.y);
+		maxX = Math.max(maxX, off.x + size.x); maxY = Math.max(maxY, off.y + size.y);
+	}
+	if (!(maxX > minX)) return;
+	const cam = renderer.camera;
+	cam.position.x = (minX + maxX) / 2;
+	cam.position.y = (minY + maxY) / 2;
+	cam.zoom = Math.max((maxX - minX) / cv.width, (maxY - minY) / cv.height) * 1.3;
+	cam.update();
+}
+
+// ---- frame ----------------------------------------------------------------
+let last = 0;
+let drewOnce = false;
+let probes = 0;
+
+/** Count lit (non-background) pixels for an arbitrary draw list — used to prove each actor draws. */
+function litFor(list) {
+	gl.clearColor(0.106, 0.114, 0.133, 1);
+	gl.clear(gl.COLOR_BUFFER_BIT);
+	gl.viewport(0, 0, cv.width, cv.height);
+	renderer.begin();
+	for (const a of list) renderer.drawSkeleton(a.skeleton, true);
+	renderer.end();
+	const px = new Uint8Array(4 * cv.width * cv.height);
+	gl.readPixels(0, 0, cv.width, cv.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+	let lit = 0;
+	for (let i = 0; i < px.length; i += 4) {
+		if (Math.abs(px[i] - 27) > 6 || Math.abs(px[i + 1] - 29) > 6 || Math.abs(px[i + 2] - 34) > 6) lit++;
+	}
+	return lit;
+}
+
+/**
+ * Both atlases must actually contribute pixels. Without this, "the stage rendered" passes even
+ * if only ONE rig ever draws — which is precisely the multi-atlas failure this gate exists for.
+ */
+function checkPerActorContribution(bothLit) {
+	if (actors.length !== 2) return;
+	const a0 = litFor([actors[0]]);
+	const a1 = litFor([actors[1]]);
+	check('each atlas contributes pixels of its own', a0 > 200 && a1 > 200,
+		`${actors[0].actorId}: ${a0}px · ${actors[1].actorId}: ${a1}px · together: ${bothLit}px`);
+	check('the two actors composite (together ≥ either alone)', bothLit >= Math.max(a0, a1),
+		`max(alone) ${Math.max(a0, a1)}px vs together ${bothLit}px`);
+	for (const c of checks) if (c.state === true) c.state = 'ok'; else if (c.state === false) c.state = 'bad';
+	renderChecks();
+}
+// Driven by a TIMER, not requestAnimationFrame. A verification harness has to produce its
+// verdict in exactly the contexts where rAF does NOT run (offscreen/background preview panes,
+// automated checks) — and GL commands still execute and readPixels still reads the back buffer
+// without a compositor frame, so the rasterization check below is valid either way.
+function frame(now) {
+	setTimeout(() => frame(performance.now()), 16);
+	const delta = last ? (now - last) / 1000 : 0;
+	last = now;
+	resize();
+	renderer.camera.viewportWidth = cv.width;
+	renderer.camera.viewportHeight = cv.height;
+	renderer.camera.update();
+	gl.clearColor(0.106, 0.114, 0.133, 1);
+	gl.clear(gl.COLOR_BUFFER_BIT);
+	gl.viewport(0, 0, cv.width, cv.height);
+	if (playing && duration > 0) { time += delta; if (time >= duration) time %= duration; }
+	evaluate(time);
+	renderer.begin();
+	for (const a of actors.slice().sort((x, y) => x.z - y.z)) renderer.drawSkeleton(a.skeleton, true);
+	renderer.end();
+	$('#scrub').value = duration > 0 ? Math.round((time / duration) * 1000) : 0;
+	$('#t').textContent = `${time.toFixed(2)}s / ${duration.toFixed(2)}s · draw order: ${actors.slice().sort((x, y) => x.z - y.z).map((a) => a.actorId).join(' → ')}`;
+	// A non-background pixel anywhere proves the composite actually rasterized — a stage that
+	// "renders" but paints nothing is the failure mode a screenshot alone can miss. Retried for a
+	// few frames rather than latched on frame 1: the first frame can legitimately be empty before
+	// layout/textures settle, and a one-shot check would report that as a failure.
+	if (!drewOnce && actors.length && cv.width > 0 && cv.height > 0) {
+		probes++;
+		const px = new Uint8Array(4 * cv.width * cv.height);
+		gl.readPixels(0, 0, cv.width, cv.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+		let lit = 0;
+		for (let i = 0; i < px.length; i += 4) {
+			if (Math.abs(px[i] - 27) > 6 || Math.abs(px[i + 1] - 29) > 6 || Math.abs(px[i + 2] - 34) > 6) lit++;
+		}
+		if (lit > 500 || probes >= 30) {
+			drewOnce = true;
+			check('the stage actually rasterized pixels', lit > 500 ? 'ok' : 'bad',
+				`${lit} non-background pixels in ${cv.width}×${cv.height} after ${probes} frame(s)`);
+			// Per-actor proof: hide one and confirm the lit-pixel count drops, so "it rendered"
+			// cannot be satisfied by ONE rig covering for the other.
+			if (lit > 500) checkPerActorContribution(lit);
+		}
+	}
+}
+fit();
+frame(performance.now());
+
+$('#play').onclick = () => { playing = !playing; $('#play').textContent = playing ? '❚❚ Pause' : '▶ Play'; };
+$('#fit').onclick = fit;
+$('#swapZ').onclick = () => { if (actors.length === 2) { const z = actors[0].z; actors[0].z = actors[1].z; actors[1].z = z; } };
+$('#scrub').oninput = (e) => { playing = false; $('#play').textContent = '▶ Play'; time = (e.target.value / 1000) * duration; };
+window.addEventListener('resize', () => { resize(); fit(); });
+window.__CINE_HARNESS__ = { checks, actors, evaluate, get time() { return time; } };
+</script>
+</body>
+</html>
