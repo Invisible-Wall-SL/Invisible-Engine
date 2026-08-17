@@ -29,5 +29,7 @@ export const GET: RequestHandler = async ({ locals, cookies }) => {
 		role: scene.role ?? null,
 		nodes: Array.isArray(scene.nodes) ? scene.nodes.length : 0,
 	}));
-	return json({ ok: true, projectKey, scenes });
+	// The authored per-layoutType canvas box, so a tool can DRAW the game frame it composes
+	// against — the Rigger's cinematic stage needs it for the same reason the Scene Editor does.
+	return json({ ok: true, projectKey, scenes, mainSizesMap: doc?.mainSizesMap ?? {} });
 };

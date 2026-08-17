@@ -43,7 +43,7 @@ window.RiggerCinematic = (function () {
 			name: 'Untitled cinematic',
 			duration: 6,
 			fps: 30,
-			stage: { sceneId: null, cast: [] },
+			stage: { sceneId: null, ratio: null, cast: [] },
 			tracks: [],
 			markers: [],
 		};
@@ -125,9 +125,11 @@ window.RiggerCinematic = (function () {
 	 * carry text and FX without inventing a second placement model.
 	 */
 	let scenes = [];
+	let mainSizes = {}; // layoutType -> { width, height }: the authored game canvas box
 	async function refreshScenes() {
 		const r = await api('/api/editor/scenes');
 		scenes = r.ok && r.body && Array.isArray(r.body.scenes) ? r.body.scenes : [];
+		mainSizes = (r.ok && r.body && r.body.mainSizesMap) || {};
 		if (doc) renderPanel(); // the fetch is not awaited — the picker must fill in when it lands
 		return scenes;
 	}
@@ -607,7 +609,9 @@ window.RiggerCinematic = (function () {
 		evaluate(time);
 
 		const renderer = ctx.renderer();
-		if (!renderer || !actors.length) return;
+		if (!renderer) return;
+		// NOTE: no `actors.length` bail — the screen frame must draw on an EMPTY stage too, which
+		// is precisely when an author is deciding where things go.
 		renderer.begin();
 		// Draw in z order: the cast list IS the z order (top of the list draws first / behind).
 		const ordered = doc.stage.cast.slice().sort((a, b) => (a.z || 0) - (b.z || 0));
@@ -615,6 +619,7 @@ window.RiggerCinematic = (function () {
 			const actor = actorOf(cast.actorId);
 			if (actor && effectiveVisible(cast.actorId)) renderer.drawSkeleton(actor.skeleton, ctx.pma());
 		}
+		drawScreenFrame(renderer);
 		renderer.end();
 		syncTransport();
 	}
@@ -650,6 +655,41 @@ window.RiggerCinematic = (function () {
 				if (parseFloat(input.value) !== v) input.value = v;
 			}
 		});
+	}
+
+	/**
+	 * The game-screen box to compose against, in world units, centred on the origin.
+	 *
+	 * A cinematic is framed for the SCREEN, not for a rig — an actor that reads perfectly on an
+	 * unbounded stage can sit half off-canvas in the game. This draws the same box the Scene
+	 * Editor composes in (the project's authored `mainSizesMap` for the chosen layout), so what
+	 * you frame here is what the player sees. Origin = screen centre, which is also where a
+	 * freshly cast actor lands.
+	 */
+	function screenBox() {
+		const key = doc && doc.stage && doc.stage.ratio;
+		if (!key) return null;
+		const box = mainSizes[key];
+		if (!box || !(box.width > 0) || !(box.height > 0)) return null;
+		return { w: box.width, h: box.height };
+	}
+
+	/** Outline the screen box + its centre cross. Drawn INSIDE the actors' begin/end batch. */
+	function drawScreenFrame(renderer) {
+		const box = screenBox();
+		if (!box || typeof renderer.line !== 'function' || !ctx.SPINE.Color) return;
+		const hw = box.w / 2;
+		const hh = box.h / 2;
+		const col = new ctx.SPINE.Color(0.36, 0.69, 1, 0.75); // the tool accent, so it reads as a guide
+		renderer.line(-hw, -hh, hw, -hh, col);
+		renderer.line(hw, -hh, hw, hh, col);
+		renderer.line(hw, hh, -hw, hh, col);
+		renderer.line(-hw, hh, -hw, -hh, col);
+		// Centre cross — the anchor a newly cast actor sits on, so placement reads at a glance.
+		const tick = Math.min(hw, hh) * 0.04;
+		const faint = new ctx.SPINE.Color(0.36, 0.69, 1, 0.35);
+		renderer.line(-tick, 0, tick, 0, faint);
+		renderer.line(0, -tick, 0, tick, faint);
 	}
 
 	// ---- camera -------------------------------------------------------------
@@ -1644,6 +1684,12 @@ window.RiggerCinematic = (function () {
 			${scenes.map((sc) => `<option value="${esc(sc.id)}"${sc.id === doc.stage.sceneId ? ' selected' : ''}>${esc(sc.name || sc.id)} · ${sc.nodes} node${sc.nodes === 1 ? '' : 's'}</option>`).join('')}
 		</select>
 	</label>
+	<label>Frame
+		<select id="cineRatio" title="Draw the game screen box for this layout, so you compose against what the player actually sees">
+			<option value=""${doc.stage.ratio ? '' : ' selected'}>— none —</option>
+			${Object.keys(mainSizes).map((k) => `<option value="${esc(k)}"${k === doc.stage.ratio ? ' selected' : ''}>${esc(k)} ${mainSizes[k] && mainSizes[k].width ? `(${Math.round(mainSizes[k].width)}×${Math.round(mainSizes[k].height)})` : ''}</option>`).join('')}
+		</select>
+	</label>
 </div>
 ${doc.stage.sceneId && !scenes.some((sc) => sc.id === doc.stage.sceneId) ? '<div class="cineStatus">This cinematic names a set (' + esc(doc.stage.sceneId) + ') that is not in this project.</div>' : ''}
 <div class="cineRow">
@@ -1680,6 +1726,14 @@ ${cueMarkup()}
 				'<div class="cineNote">Nothing selected. Click a strip, a keyframe diamond or a cue marker on the timeline.</div>';
 			const sub = $('#propSub');
 			if (sub) sub.textContent = inspectors ? 'cinematic' : 'select a strip, key or cue';
+		}
+		const ratioSel = $('#cineRatio');
+		if (ratioSel) {
+			ratioSel.onchange = (e) => {
+				doc.stage.ratio = e.target.value || null;
+				commit('change frame');
+				renderPanel();
+			};
 		}
 		const sceneSel = $('#cineScene');
 		if (sceneSel) {

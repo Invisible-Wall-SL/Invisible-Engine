@@ -241,6 +241,17 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-17 — **Screen-frame guide (owner: "cinematics will mostly be based on the screen
+  ratio").** A **Frame** picker draws the game canvas box on the stage — the project's authored
+  `mainSizesMap` per layout, the same box the Scene Editor composes in, so what you frame is what
+  the player sees. Origin = screen centre, which is also where a freshly cast actor lands, and a
+  faint centre cross marks it. Served by the existing `/api/editor/scenes` (it already loads the
+  doc, so no new endpoint), stored on `stage.ratio`, undoable. It draws on an EMPTY stage too —
+  the actor-count bail was removed, since framing a shot is exactly what you do before casting.
+  11 live checks, including that the drawn aspect MATCHES the authored box in both layouts.
+  A caught-in-testing note: a lit-pixel COUNT cannot distinguish 1280×720 from 720×1280 (equal
+  perimeters), so the assertion measures the lit bounding box — the same class of invariant-metric
+  mistake as the earlier translation-blind centroid.
 - 2026-08-17 — **Set picker (design §12.3 step 1) + two silent-failure fixes.** A cinematic can
   now BIND to a Scene: the picker lists the project's scenes (`/api/editor/scenes`, gated like
   `/api/editor/effects`), stores `stage.sceneId`, and the in-game `<FlowV2Cinematics>` mounts
