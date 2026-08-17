@@ -222,13 +222,16 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
    has yet *looked* at two rigs staged together and judged that the art reads correctly (premultiply
    halos, relative scale between rigs authored at different atlas `scale:` factors). Open
    `/rigger` → 🎬 Cinematic, cast two rigs, and look.
-6. **Non-rig content — FX / SFX / TEXT (design §12, owner-decided 2026-08-17).** The next real
-   build, in order: (a) a **set picker** binding the cinematic to a Scene so its `sprite`/`text`/
-   `effect` nodes become castable actors; (b) `＋ Text` / `＋ FX` quick-add that writes into that
-   set (a shortcut INTO the Scene model, never a parallel one); (c) **rig-level text** as a Spine
-   `point` attachment + a sidecar entry naming its localization key — a real keyable slot that
-   keeps the `.irig` byte-valid Spine. Note FX on a rig animation ALREADY works (event key →
-   `fx.effectId` + bone); if authors cannot find it, that is discoverability, not a build.
+6. **Non-rig content — FX / SFX / TEXT (design §12, owner-decided 2026-08-17).** (a) The **set
+   picker** binding a cinematic to a Scene is DONE (see Recent changes). (c) **Rig-level text is
+   DONE** — but as design **§12.4a** (localized ART: a key rasterised to atlas regions, then an
+   ordinary region attachment), which SUPERSEDES the §12.4 point-attachment + sidecar plan listed
+   here before. It lives in `/rigger`, so a cinematic casts it as part of any rig with no
+   cinematic-side work; see [status/rigger](rigger.md) for its state and its owed live-verify.
+   Still open: (b) `＋ Text` / `＋ FX` quick-add writing into the bound set (design §12.3, whose
+   write-safety rules are recorded there), and **placed/persistent FX slots** (§12.4a's last
+   paragraph). Note FX on a rig animation ALREADY works (event key → `fx.effectId` + bone); if
+   authors cannot find it, that is discoverability, not a build.
 7. Resolve design §9's open questions (doc scoping + template library, per-ratio, inline vs
    referenced set, flatten-to-`.irig` escape hatch).
 

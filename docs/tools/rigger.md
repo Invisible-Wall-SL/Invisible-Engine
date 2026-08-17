@@ -205,6 +205,47 @@ Authored events export in the `.irig` (Spine JSON) as
   toward a chosen target bone (radius / strength / subtract-to-erase), with a
   blue→red heatmap on the vertices showing the current weight map.
 
+### Localized text (Setup mode → **Text (localized art)**)
+
+Put a **translated string into the rig as art**, then rig it like anything else. The section
+sits in the outline under Skins.
+
+1. Select the bone the text should ride (or nothing, for the root) and press **＋ Add text…**.
+2. Pick a **localization key** — the string always comes from `/localization`, never typed
+   here — and a **font** from the project's font catalog. Set the size, colour and letter
+   spacing; the panel previews the source language live.
+3. Give it an **element id** (it becomes the slot + attachment name) and press
+   **Bake + place**.
+
+What that does: the string is rasterised **once per locale** — the source language plus every
+locale whose translation is **reviewed** in `/localization` — packed onto a page inside the
+rig's own atlas, and placed as a slot on its **own bone**, with one region attachment per
+locale named `<id>@<locale>`. The source locale is the setup attachment.
+
+From then on it is an **ordinary region**: convert it to a mesh, bind and paint weights, deform
+it, key it, show and hide it, and cast the rig in a cinematic. Converting the source locale to a
+mesh automatically **relinks the other locales as linked meshes**, so the mesh, the weights and
+the deform you author once drive every language.
+
+In game, the slot is switched to the player's language automatically; a language with no baked
+variant falls back to the source art.
+
+- **✎** re-bakes an element (after you change the font, size, colour, or after a translation is
+  reviewed). A re-bake reloads the rig's atlas, so the tool **saves the rig first** — it asks.
+  Existing attachments keep their authored placement, mesh and weights; only newly-reviewed
+  locales are added.
+- **✕** removes the element, its slot, its attachments and its atlas regions.
+
+Three things to know before you use it:
+
+- **The text is ART.** Changing a string is a pipeline step (re-bake, re-save), not a runtime
+  one. Use it for `FREE SPINS`-style display copy; anything dynamic (a win amount, a counter)
+  stays a live text node in the Scene Editor.
+- **A mesh is authored against ONE locale's rendering.** A longer translation (German is the
+  usual offender) is stretched onto the same mesh. Keep the mesh simple if the lengths differ a
+  lot.
+- **Unreviewed translations are not baked.** Review them in `/localization` first, then re-bake.
+
 ### Animate (Animate mode)
 
 - Create/manage animations in the **Animations** section: **＋ New animation**,
@@ -420,6 +461,11 @@ keeps showing the OLD image — its copy is never auto-updated.
   (✎ Edge, Phase 3.6b) ships, and hull **promote/demote** (⬡ Hull, Phase 3.6c) now
   ships; also still deferred are the remaining non-bone animation channels
   (draw-order timeline, events, mesh deform).
+- **Localized text needs fonts + reviewed translations to exist first.** With no font in the
+  project's catalog, or no keys in `/localization`, the Add-text panel has nothing to offer.
+  Only **reviewed** translations become locale variants — deliberately, because a string baked
+  into art cannot be corrected at runtime. Per-locale art also multiplies atlas space by the
+  locale count for each text element.
 - **A baked bezier uses absolute control points** — re-apply easing after a large
   retime or re-pose of a curved key (noted in-UI).
 - **Shipping a rig is a separate step.** "It renders in `/rigger`" does **not**

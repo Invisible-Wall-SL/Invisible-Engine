@@ -410,6 +410,11 @@ Build order note: this belongs in the RIGGER, ahead of §12.3's quick-add — it
 makes a cinematic able to carry text at all, and it needs nothing from the cinematic to be
 useful on its own.
 
+> **Built 2026-08-17** (authoring + the runtime swap; placed/persistent FX slots are not).
+> Current state, the shipping decisions it forced, and the owed live-verify live in
+> [docs/status/rigger.md](../status/rigger.md); the author-facing steps are in
+> [docs/tools/rigger.md](../tools/rigger.md).
+
 ### 12.4 (superseded — kept for the reasoning) Rig-level text: a REAL slot, without breaking the format
 
 The owner asked for text that is *"a real text slot on the rig"* — keyable, parentable,

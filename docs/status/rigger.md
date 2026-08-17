@@ -12,6 +12,13 @@ Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigg
 - **Mesh** — region→mesh convert, draw-a-mesh, move/add/remove vertex, constrained-Delaunay re-triangulate, numeric UV editing, **isolated-mesh edit** (⛶) that re-pins UVs so reshaping the wireframe never distorts the art.
 - **Weights** — bind-to-bone, per-vertex numeric editing, visual **weight brush** (radius/strength/erase + blue→red heatmap), a proximity chain-skinner auto-weight.
 - **Animation** — keyframing (per-channel + key-all), **dopesheet** (multi-select, marquee, alt-drag duplicate, per-key easing — **right-click a key in a multi-selection eases the whole selection at once**), a **graph editor** (bezier tangents), slot channels (shows / colour / opacity via one `rgba` timeline), **timeline events** (⚡ cues that cross the game event bus to fire Invisible FX), and draw-order channels.
+- **Localized text as ART (2026-08-17)** — a **Text (localized art)** section in Setup mode:
+  pick a localization key + a project font, live-preview it, and bake it to **one atlas region
+  per REVIEWED locale**, placed on its own bone as one region attachment per locale named
+  `<id>@<locale>`. It is then an ordinary region — mesh convert, weights, deform, keyframing and
+  cinematic casting all apply with no new machinery, and the `.irig` stays byte-valid Spine 4.2
+  with no sidecar. Localization is an **attachment swap** the engine performs at mount. Design:
+  [invisible-cinematic §12.4a](../design/invisible-cinematic.md). Details in Recent changes.
 - **Rig + animation libraries** — cross-project R2 libraries: copy/paste or save/load a single clip, or save/apply/import a whole rig (namespaced lossless merge; apply-at-creation), with a matched-vs-missing compatibility report.
 - **Bounds / natural size** written on every save (setup-pose measured, animation-union fallback); one-click **⟳ Re-sync atlas** / **source…** to re-pull a rig's atlas snapshot.
 - **Self-healing atlas snapshot (2026-07-21).** A rig bundle carries a FROZEN copy of the source sheet's `.atlas` geometry + page; regenerating the sheet used to leave every downstream consumer (Symbols, Scene Editor spine preview, the baked game) stale until each rig was manually `⟳ Re-sync`ed. Now `source.json` records a **revision** (geometry hash + page ETag) and the shared `ensureBundleAtlasFresh` (`$lib/server/spineBundleSync.ts`) re-derives the bundle `.atlas` + page from the live manifest whenever it drifts — called on the Symbols/Editor **read** path (`resolveEditorSpine`) and the **bake** path (`exportSpineBundle`), so a re-packed/recoloured sheet propagates with no manual step. `new` seeds the revision; `⟳ Re-sync atlas` now delegates to the same helper (`force`). See [docs/status/symbols.md](symbols.md).
@@ -26,8 +33,15 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
    by `tools/rigger-spike/deform.mjs`. (Live drag-to-deform UI verify folds into the standing tool-wide
    live-verify gap below.)
 3. **Phase 3.6d hull-loop reordering** — drag to change the boundary winding order (a pure permutation the 3.6c primitive already supports; no UI yet) — the only remaining 3.6 sub-item. (Phases 3.6a UV panel, 3.6b constraint edges, and 3.6c hull promote/demote all shipped + **owner-verified live 2026-08-04**, see Recent changes.)
-4. **Better auto-weights** — the shipped proximity chain-skinner scored poorly against artist ground truth; a geodesic/heat algorithm + a representative **character-mesh validation gate** (Spike 2) is still open. Manual brush stays the guaranteed path.
-5. **Cinematic mode** — SHIPPED as a fourth mode (2026-08-17); see [status/cinematic](cinematic.md) and [design/invisible-cinematic](../design/invisible-cinematic.md). Two spillovers worth knowing here: (a) the cinematic stage keeps its OWN actor array rather than touching the rig editor's `skeleton`/`animState` singletons, so rig editing is byte-unchanged; (b) `/rigger` now has an **undo stack for the first time**, but it is scoped to the cinematic document — **rig editing still has no undo**. The history is written to be liftable (it knows nothing beyond `serialize`/`applySnapshot`), so giving the rig editor undo is now a matter of pointing it at `rawDoc` rather than building one.
+4. **Localized text — live-verify + the next slice.** The authoring path and the runtime swap
+   shipped 2026-08-17 (Recent changes); what is NOT built is a **re-bake-when-a-translation-
+   changes** prompt (the tool has no signal that `/localization` moved on — you re-bake by hand),
+   a **rename** for a text element (the id is the attachment name, so it is locked after
+   creation), and **placed/persistent FX slots** (the other half of design §12.4a). Owner
+   live-verify is owed against real R2 + a real game, and nobody has yet *looked* at baked rig
+   text on screen.
+5. **Better auto-weights** — the shipped proximity chain-skinner scored poorly against artist ground truth; a geodesic/heat algorithm + a representative **character-mesh validation gate** (Spike 2) is still open. Manual brush stays the guaranteed path.
+6. **Cinematic mode** — SHIPPED as a fourth mode (2026-08-17); see [status/cinematic](cinematic.md) and [design/invisible-cinematic](../design/invisible-cinematic.md). Two spillovers worth knowing here: (a) the cinematic stage keeps its OWN actor array rather than touching the rig editor's `skeleton`/`animState` singletons, so rig editing is byte-unchanged; (b) `/rigger` now has an **undo stack for the first time**, but it is scoped to the cinematic document — **rig editing still has no undo**. The history is written to be liftable (it knows nothing beyond `serialize`/`applySnapshot`), so giving the rig editor undo is now a matter of pointing it at `rawDoc` rather than building one.
 
 ## Blocked (owner / external)
 - ✅ ~~**Rig/animation library catalogs moved to Postgres — live-verify owed.**~~ **VERIFIED live
@@ -38,6 +52,58 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-08-17 — **Text as LOCALIZED ART in the rig** (design
+  [invisible-cinematic §12.4a](../design/invisible-cinematic.md); guide:
+  [tools/rigger](../tools/rigger.md#localized-text-setup-mode--text-localized-art)). Three
+  commits: the text→region pipeline, the `/rigger` panel, and the game-side swap.
+  - **Where the art lives, and why it ships.** The rasterised strings are packed onto a **second
+    page of the rig bundle's own `.atlas`**, not into the source sheet. `exportSpineBundle`
+    already copies every page `atlasPageNames` finds, so the text page travels export →
+    `deploy/` → bake → pull → register **with the rig, for free** — no new asset class, nothing
+    stranded (rule 8). Packing into the source sheet would have re-packed it, moving every rect
+    and invalidating the frozen geometry of every other rig built on it.
+  - **The catch that created.** `ensureBundleAtlasFresh` re-synthesises the `.atlas` wholesale,
+    so an appended block would be silently dropped on the next sync. The text page is therefore
+    **derived** there from `<bundle>/text.json` on every synthesis, and the document's hash is
+    folded into the bundle revision — otherwise a text-only edit (same sheet, same page ETag)
+    would short-circuit the freshness gate and every consumer would keep serving the pre-text
+    atlas. A rig with no text composes a **byte-identical** atlas and an unchanged revision, so
+    `new`'s recorded baseline stays valid.
+  - **Localization = attachment swap**, done in `BaseSpineProvider` so every rig in the game
+    gets it (`packages/pixi-svelte/src/lib/spineLocale.ts`). Guarded twice: the suffix must look
+    like a locale (TWO-letter language + optional subtag), and — the guard that matters — the
+    sibling `<base>@<locale>` must EXIST, so a coincidental name can never hide art. Unbaked
+    language ⇒ the source art, never a blank slot.
+  - **Mesh + weights + deform are authored ONCE.** Converting the source locale to a mesh
+    relinks the other locales as Spine `linkedmesh` (shared geometry, own `path`, `deform:true`);
+    a locale arriving after a mesh exists is created as one. Without this a German player would
+    have got an unrigged quad where the English one deforms.
+  - **Reuse, not rebuild:** rasterisation is PIXI's own `BitmapText`/`Text` through the shared
+    `$lib/fontLoad.client.ts` (so what bakes is what the game's font draws); packing is the Font
+    Maker's glyph packer, extracted to `$lib/shelfPack.ts` and now shared by both; the browser
+    bundle `static/rigger/vendor/rigger-text.js` follows the `rigger-fx.js` pattern
+    (`pnpm --filter launcher-api build:rigger-text`); strings come from `/localization` via
+    `/api/rigger/strings`, and only **reviewed** translations are bakeable (art cannot be
+    corrected at runtime); the font catalog/asset endpoints gained `rigger` as an `altTool`.
+  - **Verification.** 4 gates, 174 assertions, two of them in a REAL browser:
+    `rigtext-panel.mjs` **49/49** drives the actual `view.html` in headless Chromium on a real
+    shipped rig + font (the decisive assertion: after the round trip the **minified** vendored
+    runtime resolves every text region — `missingArt` empty — and an authored mesh **survives**
+    the re-bake's reload); `rigtext-browser.mjs` **27/27** drives the vendored bundle with
+    metrics chosen to be sensitive (ink boxes not lit-pixel counts; a longer string must be
+    measurably wider; two strings must differ in pixels); `rigtext.mjs` **58/58** composes the
+    atlas and loads it with spine-core as region / mesh+linkedmesh / weighted mesh;
+    `rigtext-runtime.mjs` **30/30** pins the swap. Four assertions failed first and each found a
+    real bug — a 2–3 letter locale pattern classified `logo@big` as a locale; and the swap
+    keyed "already right?" off the setup attachment, so switching BACK to the source language,
+    or to an unbaked one, left the previous language on screen.
+  - **⏳ Live-verify owed (owner).** Nothing here has touched real R2, real auth, or a real
+    game: the conditional write + presigned upload + stale-page sweep ran only against fakes,
+    and **how the baked text LOOKS** (a bitmap font's premultiply halo, the size relative to the
+    rig) has never been eyeballed. In `/rigger`: open a rig with a project font and a localized
+    key, ＋ Add text, then re-open the rig and confirm the regions survive; then publish and
+    confirm `deploy/` carries the `rigtext-*.png` page. **Shipped games need an `engine`
+    submodule bump** to receive the runtime swap.
 - 2026-08-10 — **Stale manifest geometry could rotate/mis-place a region (fixed at the read
   layer).** A rig bundle's `.atlas` is synthesised from the source sheet's `atlas_manifest_*.json`
   `regions`, whose `x/y/w/h/rotated` are a CACHE of the packed page. That cache can drift from the
