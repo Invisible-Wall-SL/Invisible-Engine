@@ -62,6 +62,18 @@ export const POST: RequestHandler = async ({ request, locals, cookies }) => {
 				{ status: 409 },
 			);
 		}
-		throw e;
+		// Anything else (an R2 credential/permission problem, a bucket misconfiguration, a network
+		// fault) would otherwise become SvelteKit's opaque HTML 500, which reaches the author as
+		// "save failed (500)" and nothing more. Report the real reason instead: the tool shows it in
+		// its error bar, so a failed save is self-diagnosing rather than a silent "still unsaved".
+		console.error('[cinematics/save] failed:', e);
+		return json(
+			{
+				ok: false,
+				error: 'save-failed',
+				message: `Could not write the cinematic to storage: ${e instanceof Error ? e.message : String(e)}`,
+			},
+			{ status: 500 },
+		);
 	}
 };

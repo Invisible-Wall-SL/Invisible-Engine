@@ -237,6 +237,18 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-17 — **Chasing the save failure: the storage layer is EXONERATED, the endpoint now
+  reports why.** 11 new assertions (39/39) drive the real `cinematicStorage` against a fake R2
+  implementing R2's actual conditional-write rules, using the exact document the tool emitted in
+  the failing session (cast + animation strip + cue track + camera track). The create path
+  (`baseEtag: null` ⇒ `ifNoneMatch:*`), the CAS update, both refusal cases, the listing and the
+  round trip all pass — so the bug is NOT in the storage layer, the key builder, or the shape
+  guard. Two hypotheses were checked and dropped: R2 not supporting `If-None-Match` (it does, and
+  the editor/config tools already use the create path), and the doc failing `isCinematicDoc`.
+  What remains is the endpoint wrapper (gate / scope guard) or the environment — so the save
+  endpoint no longer lets an unexpected throw become SvelteKit's opaque HTML 500: it returns the
+  real message as JSON, which the tool shows in its error bar. **The cause is still unknown**;
+  the next failing click will name it.
 - 2026-08-17 — **First live-verify feedback (owner) — usability fixes.** Three of the four
   reports were real:
   1. **A failed save looked like nothing happened.** The failure only ever reached a thin status
