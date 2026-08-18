@@ -64,6 +64,13 @@ if (!CHROME) {
 // ------------------------------------------------------------------ fake API ----
 
 const descriptor = readFileSync(join(FONT_DIR, 'mm_gold.xml'), 'utf8');
+// The SAME art behind a descriptor that UNDER-declares its box: a line 45px shorter than the
+// glyphs, and advances narrower than they are. Real BMFont exports do both — a descender hangs
+// below `lineHeight`, a swash or a baked shadow reaches past `xadvance` — and both used to be
+// cut off at rasterisation, permanently, because PIXI frames text by its METRICS.
+const liarDescriptor = descriptor
+	.replace('lineHeight="105" base="105"', 'lineHeight="60" base="60"')
+	.replace(/xadvance="([\d.]+)"/g, (_m, v) => `xadvance="${(Number(v) * 0.6).toFixed(1)}"`);
 // The shipped descriptor declares its page as `mm_gold.webp` — serve exactly what it names.
 const pageImg = readFileSync(join(FONT_DIR, 'mm_gold.webp'));
 const bundleJs = readFileSync(BUNDLE);
@@ -100,10 +107,19 @@ const server = createServer((req, res) => {
 						descriptorFormat: 'xml',
 						pages: [{ file: 'mm_gold.webp', url: '/font/mm_gold.webp' }],
 					},
+					{
+						id: 'liar',
+						name: 'mm_liar',
+						kind: 'bitmap',
+						descriptorUrl: '/font/mm_liar.xml',
+						descriptorFormat: 'xml',
+						pages: [{ file: 'mm_gold.webp', url: '/font/mm_gold.webp' }],
+					},
 				],
 			}),
 		);
 	if (url.pathname === '/font/mm_gold.xml') return send(200, 'text/plain', descriptor);
+	if (url.pathname === '/font/mm_liar.xml') return send(200, 'text/plain', liarDescriptor);
 	if (url.pathname === '/font/mm_gold.webp') return send(200, 'image/webp', pageImg);
 	if (url.pathname === '/api/rigger/strings')
 		return send(
@@ -278,7 +294,7 @@ try {
 			return { fonts: fonts.length, font0: fonts[0]?.name, keys: strings.entries.length, src: strings.sourceLang };
 		})()`);
 		ok('window.RiggerText exists in a real browser', !!info);
-		ok('it reads the font catalog', info.fonts === 1 && info.font0 === 'mm_gold', JSON.stringify(info));
+		ok('it reads the font catalog', info.fonts === 2 && info.font0 === 'mm_gold', JSON.stringify(info));
 		ok('it reads the localization keys', info.keys === 1 && info.src === 'en');
 	}
 
@@ -311,7 +327,36 @@ try {
 		ok('two different strings differ in pixels', m.one.hash !== m.other.hash, `${m.one.hash} / ${m.other.hash}`);
 	}
 
-	console.log('\n3. the full authoring round trip: bake → pack → upload → document');
+	console.log('\n3. a descriptor that under-declares its box does not CUT the glyphs');
+	{
+		const m = await evaluate(`(async () => {
+			const measure = async (fontId) => {
+				const c = await window.RiggerText.preview('7', { fontId, fontSize: 105, color: '#ffffff' });
+				if (!c) return null;
+				const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+				let minX = 1e9, minY = 1e9, maxX = -1, maxY = -1, lit = 0;
+				for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+					if (d[(y * c.width + x) * 4 + 3] > 8) { lit++;
+						if (x < minX) minX = x; if (x > maxX) maxX = x;
+						if (y < minY) minY = y; if (y > maxY) maxY = y; }
+				}
+				return { w: c.width, h: c.height, lit, inkW: maxX - minX + 1, inkH: maxY - minY + 1 };
+			};
+			return { honest: await measure('gold'), liar: await measure('liar') };
+		})()`);
+		// The honest font's line box IS its glyph box, so its tile must come back as exactly that:
+		// the room the rasteriser draws into is measured off again, never baked in.
+		ok('an honest descriptor yields exactly its metric box', m.honest.h === 105, JSON.stringify(m.honest));
+		// The decisive pair: same art, same size, a box claiming to be 45px shorter and 40% narrower.
+		// Every pixel must survive — this is the assertion a cut fails.
+		ok('the lying descriptor keeps the FULL glyph height', m.liar.inkH === m.honest.inkH, `${m.honest.inkH} → ${m.liar.inkH}`);
+		ok('…and the full glyph width', m.liar.inkW === m.honest.inkW, `${m.honest.inkW} → ${m.liar.inkW}`);
+		ok('…and the same ink, pixel for pixel', Math.abs(m.liar.lit - m.honest.lit) <= 2, `${m.honest.lit} vs ${m.liar.lit}`);
+		// …in a tile that GREW to hold the overhang, rather than one that clipped it.
+		ok('the tile grew past the declared line box', m.liar.h > 60, JSON.stringify(m.liar));
+	}
+
+	console.log('\n4. the full authoring round trip: bake → pack → upload → document');
 	{
 		const res = await evaluate(`(async () => {
 			const r = await window.RiggerText.save({
@@ -360,7 +405,7 @@ try {
 		ok('no two variants overlap on the page', !overlap);
 	}
 
-	console.log('\n4. failure is reported, never silently baked');
+	console.log('\n5. failure is reported, never silently baked');
 	{
 		const res = await evaluate(`(async () => window.RiggerText.save({
 			dir: 'ZGly', atlasFile: 'rig.atlas', projectKey: 'p',

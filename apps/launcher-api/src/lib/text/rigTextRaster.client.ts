@@ -13,7 +13,7 @@
  * `static/rigger/vendor/rigger-text.js` because `/rigger` is a raw-WebGL static page with no
  * module system — the same shape as the FX overlay's `rigger-fx.js`.
  */
-import { Application, BitmapText, Text, type Container } from 'pixi.js';
+import { Application, BitmapText, Rectangle, Text, type Container } from 'pixi.js';
 import { loadCatalogBitmapFont, ensureWebFont, type CatalogFont } from '$lib/fontLoad.client';
 import { shelfPack } from '$lib/shelfPack';
 
@@ -61,6 +61,15 @@ export interface RigTextPage {
 /** Gap + border on the packed page, in px. Matches the Font Maker's glyph page. */
 const PAGE_GAP = 2;
 const PAGE_MAX = 2048;
+
+/**
+ * How far outside a string's REPORTED bounds we rasterise before measuring the ink, and the
+ * ceiling that search stops at. A font whose glyph art overhangs its metrics needs room to draw
+ * into or the extract clips it; the tile is cut back afterwards, so the padding costs nothing on
+ * the packed page.
+ */
+const OVERHANG_PAD_MIN = 8;
+const OVERHANG_PAD_MAX = 512;
 
 let appPromise: Promise<Application> | null = null;
 
@@ -144,10 +153,20 @@ async function buildTextObject(req: RigTextRequest): Promise<Container | null> {
 
 /**
  * Rasterise ONE string to its own canvas — used for the live preview and as the per-variant
- * tile the packer places. The object is positioned by its LOCAL BOUNDS, not by `width/height`
- * at a fixed origin: text routinely draws above the baseline or past the nominal size, and
- * sizing from `width/height` clips that overhang (the same trap `fitCanvasToObject` solves for
- * the Font Maker preview).
+ * tile the packer places.
+ *
+ * PIXI's reported bounds are METRICS, not ink: `BitmapText` measures a line as the sum of the
+ * glyphs' `xAdvance` by the font's `lineHeight`, so any glyph whose baked art overhangs its
+ * advance or its line box — a descender in a font with a lying descriptor, a swash, a baked
+ * shadow or outline — is drawn OUTSIDE the box `extract` frames and comes back cut. That cut is
+ * permanent, because rig text is baked ART.
+ *
+ * So the string is rasterised into a PADDED frame, the ink that actually landed is measured, and
+ * the pad grows until no ink touches an edge. The tile is then cut back to the metric box GROWN
+ * SYMMETRICALLY by the largest overhang. Symmetry is the point: a region attachment is placed by
+ * its CENTRE, so an even margin keeps every variant's centre exactly where the metric box put it
+ * — a locale whose string overhangs and one whose string does not still line up. A font that
+ * never overhangs yields the metric box unchanged.
  */
 export async function rasterizeString(req: RigTextRequest): Promise<HTMLCanvasElement | null> {
 	if (!req.text) return null;
@@ -157,15 +176,84 @@ export async function rasterizeString(req: RigTextRequest): Promise<HTMLCanvasEl
 		const app = await renderApp();
 		const bounds = obj.getLocalBounds();
 		if (!(bounds.width > 0) || !(bounds.height > 0)) return null;
-		obj.position.set(-bounds.x, -bounds.y);
-		const extracted = app.renderer.extract.canvas(obj) as HTMLCanvasElement;
-		// `extract.canvas` may hand back an OffscreenCanvas; normalise to a plain canvas so the
-		// page compositor (and the preview DOM) can treat every tile identically.
-		if (typeof (extracted as unknown as HTMLCanvasElement).getContext !== 'function') return null;
-		return extracted;
+		// Snapshotted: `Bounds` is a live object PIXI reuses, and the loop below re-renders.
+		const boxX = bounds.x;
+		const boxY = bounds.y;
+		const boxW = Math.ceil(bounds.width);
+		const boxH = Math.ceil(bounds.height);
+		let pad = Math.max(
+			OVERHANG_PAD_MIN,
+			Math.ceil(req.style.fontSize / 2) + 2 * Math.ceil(req.style.strokeWidth ?? 0),
+		);
+		for (;;) {
+			// The frame is what `extract` renders; without it the frame IS the metric box, which is
+			// exactly the box the overhang falls outside of.
+			const frame = new Rectangle(boxX - pad, boxY - pad, boxW + pad * 2, boxH + pad * 2);
+			const extracted = app.renderer.extract.canvas({ target: obj, frame }) as HTMLCanvasElement;
+			// `extract.canvas` may hand back an OffscreenCanvas; normalise to a plain canvas so the
+			// page compositor (and the preview DOM) can treat every tile identically.
+			if (typeof extracted.getContext !== 'function') return null;
+			const ink = inkBounds(extracted);
+			if (!ink) return null; // the string drew nothing at all
+			const grow = Math.max(
+				0,
+				pad - ink.minX,
+				ink.maxX + 1 - (pad + boxW),
+				pad - ink.minY,
+				ink.maxY + 1 - (pad + boxH),
+			);
+			// Ink reaching the frame's own edge means the pad clipped something — widen and re-render.
+			if (grow >= pad && pad < OVERHANG_PAD_MAX) {
+				pad = Math.min(OVERHANG_PAD_MAX, pad * 2);
+				continue;
+			}
+			return cropCanvas(extracted, pad - grow, pad - grow, boxW + grow * 2, boxH + grow * 2);
+		}
 	} finally {
 		obj.destroy();
 	}
+}
+
+/** The bounding box of every non-transparent pixel, or null when nothing was drawn. */
+function inkBounds(
+	canvas: HTMLCanvasElement,
+): { minX: number; minY: number; maxX: number; maxY: number } | null {
+	const ctx = canvas.getContext('2d', { willReadFrequently: true });
+	if (!ctx) return null;
+	const { width, height } = canvas;
+	const { data } = ctx.getImageData(0, 0, width, height);
+	let minX = width;
+	let minY = height;
+	let maxX = -1;
+	let maxY = -1;
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			// Any alpha at all counts — an antialiased edge is part of the glyph, not slack.
+			if (data[(y * width + x) * 4 + 3] === 0) continue;
+			if (x < minX) minX = x;
+			if (x > maxX) maxX = x;
+			if (y < minY) minY = y;
+			if (y > maxY) maxY = y;
+		}
+	}
+	return maxX < 0 ? null : { minX, minY, maxX, maxY };
+}
+
+function cropCanvas(
+	src: HTMLCanvasElement,
+	x: number,
+	y: number,
+	w: number,
+	h: number,
+): HTMLCanvasElement | null {
+	if (x === 0 && y === 0 && w === src.width && h === src.height) return src;
+	const out = document.createElement('canvas');
+	out.width = Math.max(1, w);
+	out.height = Math.max(1, h);
+	const ctx = out.getContext('2d');
+	if (!ctx) return null;
+	ctx.drawImage(src, x, y, w, h, 0, 0, w, h);
+	return out;
 }
 
 export interface RigTextBakeResult {

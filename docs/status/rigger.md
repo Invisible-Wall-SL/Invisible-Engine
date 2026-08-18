@@ -52,6 +52,23 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-08-18 — **Baked text was CUT to the font's declared line box; it now always fits.** Owner:
+  "the text we create in the rigger is getting cut at creation" — a descender sheared flat off
+  `Buy Feature`. PIXI frames text by its METRICS, not its ink: `BitmapText` reports a line as the
+  sum of the glyphs' `xAdvance` by the font's `lineHeight`, and `extract` renders exactly that
+  box. Any glyph whose baked art overhangs — a descender under a `lineHeight` that under-declares
+  it, a swash past its advance, a baked shadow or outline — was drawn outside the frame and lost.
+  Permanently, because rig text IS art: no runtime fix, only a re-bake. `rasterizeString` now
+  rasterises into a PADDED frame, measures the ink that landed, grows the pad until no ink touches
+  an edge, and cuts the tile back to the metric box **grown symmetrically** by the largest
+  overhang. Symmetric on purpose: a region attachment is placed by its CENTRE, so an even margin
+  leaves every locale's centre exactly where the metric box put it — a translation that overhangs
+  and one that does not still line up — and a font with honest metrics yields the same tile as
+  before, byte for byte. **Existing text elements keep their cut art until re-baked** (✎ on the
+  element → Re-bake). `rigtext-browser.mjs` grew a decisive gate: the same font art served twice,
+  once behind a descriptor that under-declares its box (a line 45px shorter, advances 40%
+  narrower), asserting the ink survives identically. It fails hard on the old code — 45px of
+  height and 16px of width gone, 62% of the ink — and passes on the fix.
 - 2026-08-18 — **Preview mode's Properties column now points at Setup instead of dead-ending.**
   Selecting a slot outside Setup rendered three read-only lines (name → bone → attachment) and
   nothing else, for EVERY slot — which reads as "this attachment has no options". It surfaced on
@@ -95,11 +112,11 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
     (`pnpm --filter launcher-api build:rigger-text`); strings come from `/localization` via
     `/api/rigger/strings`, and only **reviewed** translations are bakeable (art cannot be
     corrected at runtime); the font catalog/asset endpoints gained `rigger` as an `altTool`.
-  - **Verification.** 4 gates, 174 assertions, two of them in a REAL browser:
+  - **Verification.** 4 gates, 179 assertions, two of them in a REAL browser:
     `rigtext-panel.mjs` **49/49** drives the actual `view.html` in headless Chromium on a real
     shipped rig + font (the decisive assertion: after the round trip the **minified** vendored
     runtime resolves every text region — `missingArt` empty — and an authored mesh **survives**
-    the re-bake's reload); `rigtext-browser.mjs` **27/27** drives the vendored bundle with
+    the re-bake's reload); `rigtext-browser.mjs` **32/32** drives the vendored bundle with
     metrics chosen to be sensitive (ink boxes not lit-pixel counts; a longer string must be
     measurably wider; two strings must differ in pixels); `rigtext.mjs` **58/58** composes the
     atlas and loads it with spine-core as region / mesh+linkedmesh / weighted mesh;
