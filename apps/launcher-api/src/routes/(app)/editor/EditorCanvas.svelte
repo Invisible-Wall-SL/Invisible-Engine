@@ -39,6 +39,7 @@
 		repeaterBoxes,
 		topMidWorld,
 		pointInQuad,
+		reelGridGeometry,
 		resolveBoneRiderRigKey,
 		type BoneRiderTransform,
 		type Vec2,
@@ -89,6 +90,13 @@
 	interface SymbolStaticCell {
 		type: 'sprite' | 'spine';
 		assetKey: string;
+		/** The animation the STATIC state plays in-game (`SymbolSpineMain`'s `animationName`) —
+		 * the spine layer auto-loops it so the board preview shows the same pose the game does. */
+		animationName?: string;
+		/** Tool-only spine resolver hint on a CODED default cell (`<folder>/<stem>`) — the
+		 * specific skeleton inside a shared-atlas symbol bundle. Preferred over `assetKey`
+		 * when loading the rig, exactly as the Symbols grid does. */
+		previewKey?: string;
 		sizeRatios?: { width: number; height: number };
 	}
 	type SymbolStateMap = Partial<Record<string, SymbolStaticCell>>;
@@ -247,23 +255,26 @@
 	/** Each symbol's STATIC binding for the reel preview: the coded default's `static`
 	 * cell, with the override doc's `static` cell layered on top (sparse). Computed once
 	 * (not per draw), and cycled across the grid cells so the board looks populated. A
-	 * `spine` static can't be drawn on the 2D canvas — kept so those cells fall back to
-	 * the amber marker. Empty when no symbol data is present (graceful). */
-	const symbolStatics = $derived.by<
-		{ type: 'sprite' | 'spine'; assetKey: string; sizeRatios?: { width: number; height: number } }[]
-	>(() => {
+	 * `spine` static is drawn by `EditorSpineLayer` (WebGL) — this list is the SAME one it
+	 * receives, so both surfaces cycle the identical symbol into each cell. Empty when no
+	 * symbol data is present (graceful). */
+	const symbolStatics = $derived.by<SymbolStaticCell[]>(() => {
 		if (!symbolDefaults) return [];
-		const out: {
-			type: 'sprite' | 'spine';
-			assetKey: string;
-			sizeRatios?: { width: number; height: number };
-		}[] = [];
+		const out: SymbolStaticCell[] = [];
 		for (const name of Object.keys(symbolDefaults.symbols)) {
 			const base = symbolDefaults.symbols[name]?.static;
 			const override = symbolsDoc?.symbols?.[name]?.static;
 			const cell = override ?? base;
 			if (!cell?.assetKey) continue;
-			out.push({ type: cell.type, assetKey: cell.assetKey, sizeRatios: cell.sizeRatios });
+			out.push({
+				type: cell.type,
+				// A coded default spine cell resolves through its `previewKey` (the specific
+				// skeleton in a shared-atlas bundle) — the same key the Symbols grid loads. An
+				// authored override never carries one, and a sprite cell never needs one.
+				assetKey: (cell.type === 'spine' ? cell.previewKey : undefined) ?? cell.assetKey,
+				animationName: cell.animationName,
+				sizeRatios: cell.sizeRatios,
+			});
 		}
 		return out;
 	});
@@ -1475,12 +1486,15 @@
 		return scenes.filter((s) => !hiddenSceneIds.has(s.id) && !isHudScene(s));
 	}
 
-	/** Does a scene carry a spine render target (a real spine node, or a `bind`
-	 * anchor whose resolved preview art is a spine)? Only such scenes mount a
-	 * (WebGL) spine sublayer in their group, so contexts stay bounded. */
+	/** Does a scene carry a spine render target (a real spine node, a `bind` anchor whose
+	 * resolved preview art is a spine, or a reel BOARD whose symbols bind spine art)? Only
+	 * such scenes mount a (WebGL) spine sublayer in their group, so contexts stay bounded. */
 	function sceneHasSpine(s: Scene): boolean {
 		return nodesHaveSpine(s.nodes, 0, [], undefined);
 	}
+	/** Any symbol whose STATIC binding is a spine — the reel board then needs the WebGL
+	 * layer to draw its cells (the 2D canvas can only marker them). */
+	const hasSpineSymbol = $derived(symbolStatics.some((c) => c.type === 'spine'));
 	function nodesHaveSpine(
 		nodes: LayoutNode[],
 		depth: number,
@@ -1496,6 +1510,8 @@
 	): boolean {
 		for (const n of nodes) {
 			if (n.kind === 'spine') return true;
+			// A reel board with spine-bound symbols: its cells are drawn by the spine layer.
+			if (n.kind === 'reelGrid' && hasSpineSymbol) return true;
 			const art = anchorArt(n, instanceSpineBundle);
 			if (art?.kind === 'spine' && art.assetKey) return true;
 			if (n.kind === 'container' && nodesHaveSpine(n.children, depth, stack, instanceSpineBundle))
@@ -2263,60 +2279,36 @@
 	 * inner SYMBOL marker per cell is the symbol seat, which the reel/row LEAD
 	 * (`reelPadding`/`rowPadding`, seats the whole cluster) and the per-cell SEAT
 	 * ALIGNMENT (`symbolAlignX/Y`, art within its own cell) move — mirroring the game's
-	 * `getSymbolX` / `getSymbolLead` exactly, so the preview matches the live board.
+	 * `getSymbolX` / `getSymbolLead` exactly, so the preview matches the live board. The
+	 * geometry itself comes from the shared {@link reelGridGeometry} so the WebGL spine
+	 * layer (which draws the SPINE symbols) seats them identically.
 	 */
 	function drawReelGrid(
 		ctx: CanvasRenderingContext2D,
 		node: Extract<LayoutNode, { kind: 'reelGrid' }>,
 		t: ResolvedTransform,
 	): void {
-		// The grid COUNT comes from the Game Config (the same source the game sizes off), so the
-		// preview always matches the real board. The node still owns LAYOUT (cell size, gaps,
-		// position) below. Falls back to the node's own reels/rows when no config resolved.
-		const reels = Math.max(1, Math.round(gridDimensions?.reels ?? node.reels));
-		const rows = Math.max(1, Math.round(gridDimensions?.rows ?? node.rows));
-		const cellW = node.cellWidth && node.cellWidth > 0 ? node.cellWidth : node.cellSize;
-		const cellH = node.cellHeight && node.cellHeight > 0 ? node.cellHeight : node.cellSize;
-		const gapX = Number.isFinite(node.gapX) ? (node.gapX as number) : 0;
-		const gapY = Number.isFinite(node.gapY) ? (node.gapY as number) : 0;
-		const pitchX = cellW + gapX;
-		const pitchY = cellH + gapY;
-		const w = reels * cellW + (reels - 1) * gapX;
-		const h = rows * cellH + (rows - 1) * gapY;
-		// Board NUDGE — a fine px offset of the WHOLE board (cells + seats move
-		// together), mirroring the game's `boardLayout` position offset. Default 0.
-		const nudgeX = Number.isFinite(node.boardNudgeX) ? (node.boardNudgeX as number) : 0;
-		const nudgeY = Number.isFinite(node.boardNudgeY) ? (node.boardNudgeY as number) : 0;
-		const left = -w * (t.anchor?.x ?? 0.5) + nudgeX;
-		const top = -h * (t.anchor?.y ?? 0.5) + nudgeY;
+		// Board geometry (cell boxes + symbol seats) comes from the SHARED `reelGridGeometry`,
+		// the same resolver `EditorSpineLayer` reads — so a sprite symbol drawn here and a spine
+		// symbol drawn by the WebGL layer land on the SAME seat.
+		const geo = reelGridGeometry(node, t.anchor, gridDimensions);
+		const { cellW, cellH, left, top } = geo;
+		const w = geo.width;
+		const h = geo.height;
 
 		ctx.fillStyle = 'rgba(93, 176, 255, 0.06)';
 		ctx.fillRect(left, top, w, h);
 
 		ctx.lineWidth = 1;
 		ctx.strokeStyle = 'rgba(93, 176, 255, 0.45)';
-		for (let i = 0; i < reels; i++) {
-			for (let j = 0; j < rows; j++) {
-				ctx.strokeRect(left + i * pitchX, top + j * pitchY, cellW, cellH);
-			}
-		}
+		for (const seat of geo.seats) ctx.strokeRect(seat.x, seat.y, cellW, cellH);
 
-		// Real symbol art per cell: the static binding (sprite frame) drawn CENTRED in each
-		// cell, CLIPPED to it, and CONTAIN-fit to the cell by its own art (no size param —
-		// matches the engine's `Sprite`/`Spine` `contain`). The static list is cycled across
-		// cells so the board looks populated. A spine static (can't draw on a 2D canvas) or an
-		// unresolved frame falls back to the amber marker square.
-		// Seat offset from each cell's CENTRE — the same two independent contributions
-		// the game applies (see `getSymbolX` / `getSymbolLead`): the reel/row LEAD
-		// (`reelPadding`/`rowPadding`, in cell-SIZE units — seats the whole cluster) plus
-		// the per-cell SEAT ALIGNMENT (`symbolAlignX/Y`, in cell-W/H units — art inside
-		// its own cell). Both default 0.5 ⇒ 0 offset ⇒ centred (parity).
-		const leadX = Number.isFinite(node.reelPadding) ? (node.reelPadding as number) : 0.5;
-		const leadY = Number.isFinite(node.rowPadding) ? (node.rowPadding as number) : 0.5;
-		const alignX = Number.isFinite(node.symbolAlignX) ? (node.symbolAlignX as number) : 0.5;
-		const alignY = Number.isFinite(node.symbolAlignY) ? (node.symbolAlignY as number) : 0.5;
-		const seatDX = node.cellSize * (leadX - 0.5) + cellW * (alignX - 0.5);
-		const seatDY = node.cellSize * (leadY - 0.5) + cellH * (alignY - 0.5);
+		// Real symbol art per cell: the static binding drawn CENTRED on the seat, CLIPPED to the
+		// board window, and CONTAIN-fit to the cell by its own art (no size param — matches the
+		// engine's `Sprite`/`Spine` `contain`). The static list is cycled across cells so the
+		// board looks populated. A SPINE static is drawn by the WebGL spine layer (which reads the
+		// same geometry), so this path only marks the ones it can't render yet; an unresolved
+		// sprite frame falls back to the amber marker square.
 		const statics = symbolStatics;
 		const drawMarker = (cx: number, cy: number, label?: string): void => {
 			const sym = Math.min(cellW, cellH);
@@ -2330,59 +2322,59 @@
 				ctx.fillText(label, cx - sym / 2 + 4, cy - sym / 2 + 12);
 			}
 		};
-		for (let i = 0; i < reels; i++) {
-			for (let j = 0; j < rows; j++) {
-				const cellX = left + i * pitchX;
-				const cellY = top + j * pitchY;
-				const cx = cellX + cellW / 2 + seatDX;
-				const cy = cellY + cellH / 2 + seatDY;
-				const cell = statics.length ? statics[(j * reels + i) % statics.length] : undefined;
-				if (!cell) {
-					drawMarker(cx, cy);
-					continue;
-				}
-				if (cell.type === 'spine') {
-					drawMarker(cx, cy, 'spine');
-					continue;
-				}
-				const found = findRegion(cell.assetKey, cell.assetKey);
-				if (!found) {
-					drawMarker(cx, cy);
-					continue;
-				}
-				// Symbol size comes from the ART, not a size param: CONTAIN-fit the region into
-				// the cell (single uniform scale, native aspect preserved), matching the game's
-				// `Sprite`/`Spine` `contain`. `sizeRatios` (per-cell or the reel global) was removed
-				// from the result (owner direction), so it no longer affects the size here.
-				let drawW = cellW;
-				let drawH = cellH;
-				const nat = regionNaturalSize(found.region);
-				if (nat.w > 0 && nat.h > 0) {
-					const s = Math.min(cellW / nat.w, cellH / nat.h);
-					drawW = nat.w * s;
-					drawH = nat.h * s;
-				}
-				// `drawArtRegionSprite` places the frame with its top-left at the origin offset by
-				// `-dw * anchor` — anchor {0.5,0.5} centres it on the origin, so translate to the
-				// symbol seat (cx, cy). Clip to the whole reel WINDOW (not the single cell) — the
-				// game masks the board window, not each cell, so a lead/align-offset symbol crops
-				// at the window edge here exactly as it does live.
-				ctx.save();
-				ctx.beginPath();
-				ctx.rect(left, top, w, h);
-				ctx.clip();
-				ctx.translate(cx, cy);
-				const symTransform: import('engine-layout').ResolvedTransform = {
-					x: 0,
-					y: 0,
-					anchor: { x: 0.5, y: 0.5 },
-					width: drawW,
-					height: drawH,
-					visible: true,
-				};
-				drawArtRegionSprite(ctx, cell.assetKey, cell.assetKey, symTransform);
-				ctx.restore();
+		for (const seat of geo.seats) {
+			const { cx, cy } = seat;
+			const cell = statics.length
+				? statics[(seat.j * geo.reels + seat.i) % statics.length]
+				: undefined;
+			if (!cell) {
+				drawMarker(cx, cy);
+				continue;
 			}
+			if (cell.type === 'spine') {
+				// The spine overlay renders this cell's real skeleton once the bundle is ready
+				// (it reports the key via `readySpineKeys`) — until then the amber marker stands in,
+				// exactly like a spine NODE's placeholder.
+				if (!readySpineKeys.has(cell.assetKey)) drawMarker(cx, cy, 'spine');
+				continue;
+			}
+			const found = findRegion(cell.assetKey, cell.assetKey);
+			if (!found) {
+				drawMarker(cx, cy);
+				continue;
+			}
+			// Symbol size comes from the ART, not a size param: CONTAIN-fit the region into
+			// the cell (single uniform scale, native aspect preserved), matching the game's
+			// `Sprite`/`Spine` `contain`. `sizeRatios` (per-cell or the reel global) was removed
+			// from the result (owner direction), so it no longer affects the size here.
+			let drawW = cellW;
+			let drawH = cellH;
+			const nat = regionNaturalSize(found.region);
+			if (nat.w > 0 && nat.h > 0) {
+				const s = Math.min(cellW / nat.w, cellH / nat.h);
+				drawW = nat.w * s;
+				drawH = nat.h * s;
+			}
+			// `drawArtRegionSprite` places the frame with its top-left at the origin offset by
+			// `-dw * anchor` — anchor {0.5,0.5} centres it on the origin, so translate to the
+			// symbol seat (cx, cy). Clip to the whole reel WINDOW (not the single cell) — the
+			// game masks the board window, not each cell, so a lead/align-offset symbol crops
+			// at the window edge here exactly as it does live.
+			ctx.save();
+			ctx.beginPath();
+			ctx.rect(left, top, w, h);
+			ctx.clip();
+			ctx.translate(cx, cy);
+			const symTransform: import('engine-layout').ResolvedTransform = {
+				x: 0,
+				y: 0,
+				anchor: { x: 0.5, y: 0.5 },
+				width: drawW,
+				height: drawH,
+				visible: true,
+			};
+			drawArtRegionSprite(ctx, cell.assetKey, cell.assetKey, symTransform);
+			ctx.restore();
 		}
 
 		ctx.lineWidth = 2;
@@ -3796,6 +3788,8 @@
 					{componentMap}
 					{spinePreview}
 					{spinePreviewNodeId}
+					{symbolStatics}
+					{gridDimensions}
 					worldTransformOf={nodeTransform}
 					reloadToken={spineReload}
 					{hiddenSceneIds}

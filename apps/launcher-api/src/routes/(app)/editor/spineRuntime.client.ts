@@ -94,6 +94,13 @@ export interface SpineBoneMeta {
 	name: string;
 }
 export interface SpineSkeletonData {
+	/** The AUTHORED skeleton canvas (`skeleton.data.width/height`) — the pose-independent
+	 * sizing rect, origin-centred by Spine convention, and the SAME rect the game's
+	 * `spineSizeScale` fits against. `0` when the export omits it (e.g. a Rigger `.irig`),
+	 * which is why {@link measureSpineBounds} falls back to a live `getBounds`. NOTE: the
+	 * runtime does NOT scale these by the loader's `parser.scale` — only the geometry. */
+	width: number;
+	height: number;
 	animations: SpineAnimationMeta[];
 	skins: SpineSkinMeta[];
 	/** Setup-pose slots (`skeleton.data.slots`) — surfaced so the editor can offer a

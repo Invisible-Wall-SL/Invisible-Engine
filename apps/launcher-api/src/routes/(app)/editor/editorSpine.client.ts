@@ -7,6 +7,7 @@
  */
 import { EDITOR_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import {
+	getSpinePhysics,
 	loadSpineRuntime,
 	type SpineAnimationState,
 	type SpineRuntime,
@@ -264,4 +265,71 @@ export function disposeSpineInstance(instance: SpineInstance): void {
 	} catch {
 		/* runtime may have already torn down the context */
 	}
+}
+
+/** A rig's SIZING rect, in runtime (y-up) coords: the box a contain/cover fit measures
+ * against, plus where its centre sits relative to the skeleton origin. */
+export interface SpineArtBounds {
+	offX: number;
+	offY: number;
+	bw: number;
+	bh: number;
+}
+
+/**
+ * Measure a rig's natural sizing rect — the ONE definition every editor surface that
+ * fits a skeleton into a box reads (the Scene Editor's reel cells, the Symbols grid).
+ *
+ * Prefers the AUTHORED skeleton canvas (`skeleton.data.width/height`): it's pose-
+ * independent, present in every proper export, and it is the exact rect the game's
+ * `spineSizeScale` measures — so a preview fitted to it matches what ships. By Spine
+ * convention that canvas is centred on the origin. Falls back to a live setup-pose
+ * `getBounds` (with its own centre) for a rig whose export omits the size — e.g. a
+ * Rigger `.irig` — and finally to a neutral 100×100 box so a degenerate rig still draws
+ * something rather than vanishing.
+ *
+ * Pose-independent, so a caller may measure once at load and reuse the result: measuring
+ * runs `setToSetupPose()`, which would otherwise wipe an applied animation frame.
+ */
+export function measureSpineBounds(inst: SpineInstance): SpineArtBounds {
+	const data = inst.skeleton.data;
+	if (data.width > 0 && data.height > 0) {
+		return { offX: -data.width / 2, offY: -data.height / 2, bw: data.width, bh: data.height };
+	}
+	const skel = inst.skeleton;
+	// Measure at unit scale — a caller's render loop may have baked its zoom into the
+	// skeleton's scale, which would otherwise come back multiplied into the bounds.
+	const sx = skel.scaleX;
+	const sy = skel.scaleY;
+	skel.scaleX = 1;
+	skel.scaleY = 1;
+	skel.setToSetupPose();
+	skel.updateWorldTransform(getSpinePhysics());
+	// `getBounds` writes its result by CALLING `.set()` on these — a plain `{x,y}` makes it
+	// THROW (silently caught → the fallback box), so they must implement it.
+	const offset = {
+		x: 0,
+		y: 0,
+		set(x: number, y: number) {
+			this.x = x;
+			this.y = y;
+		},
+	};
+	const size = {
+		x: 0,
+		y: 0,
+		set(x: number, y: number) {
+			this.x = x;
+			this.y = y;
+		},
+	};
+	try {
+		skel.getBounds(offset, size, []);
+	} catch {
+		/* bounds unavailable */
+	}
+	skel.scaleX = sx;
+	skel.scaleY = sy;
+	if (size.x > 0 && size.y > 0) return { offX: offset.x, offY: offset.y, bw: size.x, bh: size.y };
+	return { offX: -50, offY: -50, bw: 100, bh: 100 };
 }

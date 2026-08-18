@@ -10,6 +10,8 @@
 	import {
 		disposeSpineInstance,
 		loadSpineInstance,
+		measureSpineBounds,
+		type SpineArtBounds,
 		type SpineInstance,
 	} from '../editor/editorSpine.client';
 	import {
@@ -34,12 +36,6 @@
 	let raf = 0;
 	let lastTime = 0;
 
-	interface Bounds {
-		offX: number;
-		offY: number;
-		bw: number;
-		bh: number;
-	}
 	/** One timed rig→FX binding on the playing animation's timeline (from `/api/editor/rig-fx`). */
 	interface TimedFx {
 		time: number;
@@ -52,7 +48,9 @@
 				state: 'ready';
 				instance: SpineInstance;
 				anim: string | null;
-				bounds: Bounds;
+				/** Natural setup-pose bounds, measured ONCE at load (pose-independent), so per-frame
+				 * fitting never has to `setToSetupPose()` — which would wipe the applied animation frame. */
+				bounds: SpineArtBounds;
 				/** The bundle key this instance loaded from — the `fxTimelines` lookup key. */
 				resolveKey: string;
 				/** Playing animation's duration (s) — the fallback wrap period for the fx playhead. */
@@ -206,33 +204,6 @@
 		return true;
 	}
 
-	/** Natural setup-pose bounds (pose-independent), so per-frame fitting never has to
-	 *  `setToSetupPose()` (which would wipe the applied animation frame). */
-	function measureBounds(inst: SpineInstance): Bounds {
-		const data = inst.skeleton.data as unknown as { width?: number; height?: number };
-		if (data.width && data.height && data.width > 0 && data.height > 0) {
-			return { offX: -data.width / 2, offY: -data.height / 2, bw: data.width, bh: data.height };
-		}
-		const skel = inst.skeleton;
-		const sx = skel.scaleX;
-		const sy = skel.scaleY;
-		skel.scaleX = 1;
-		skel.scaleY = 1;
-		skel.setToSetupPose();
-		skel.updateWorldTransform(getSpinePhysics());
-		const offset = { x: 0, y: 0 };
-		const size = { x: 0, y: 0 };
-		try {
-			skel.getBounds(offset, size, []);
-		} catch {
-			/* bounds unavailable */
-		}
-		skel.scaleX = sx;
-		skel.scaleY = sy;
-		if (size.x > 0 && size.y > 0) return { offX: offset.x, offY: offset.y, bw: size.x, bh: size.y };
-		return { offX: -50, offY: -50, bw: 100, bh: 100 };
-	}
-
 	async function ensureInstance(key: string, resolveKey: string, anim: string): Promise<void> {
 		if (instances.has(key)) return;
 		instances.set(key, { state: 'loading' });
@@ -262,7 +233,7 @@
 				state: 'ready',
 				instance,
 				anim: play,
-				bounds: measureBounds(instance),
+				bounds: measureSpineBounds(instance),
 				resolveKey,
 				fxDur,
 				fxPrev: -1,

@@ -24,6 +24,7 @@
 	import {
 		childLocalTransform,
 		composeWorldMatrix,
+		reelGridGeometry,
 		resolveBoneRider,
 		resolveBoneRiderRigKey,
 		type BoneRiderTransform,
@@ -32,6 +33,8 @@
 	import {
 		disposeSpineInstance,
 		loadSpineInstance,
+		measureSpineBounds,
+		type SpineArtBounds,
 		type SpineInstance,
 	} from './editorSpine.client';
 	import {
@@ -120,6 +123,27 @@
 		spinePreview?: { bundle?: string; animation?: string } | null;
 		/** The node id of the instance {@link spinePreview} applies to (the selected componentInstance). */
 		spinePreviewNodeId?: string;
+		/**
+		 * Every symbol's STATIC binding, in the order the 2D canvas cycles them across a
+		 * `reelGrid`'s cells (`EditorCanvas.symbolStatics`). A `spine` binding can't be drawn on
+		 * the 2D canvas, so THIS layer renders it on the cell's symbol seat — the board preview
+		 * then shows the real rigs instead of an amber "spine" marker. Empty ⇒ no reel-cell
+		 * rendering (parity).
+		 */
+		symbolStatics?: SymbolStaticCell[];
+		/** The Game Config's board size — passed through to `reelGridGeometry` so this layer seats
+		 * cells against the SAME grid the 2D canvas draws. */
+		gridDimensions?: { reels: number; rows: number } | null;
+	}
+
+	/** Structural twin of a symbol×state binding (mirrors `SymbolCell` in
+	 * `$lib/server/symbolsStorage`), declared here so this client component never imports a
+	 * server module. Only the fields this layer reads. */
+	interface SymbolStaticCell {
+		type: 'sprite' | 'spine';
+		assetKey: string;
+		/** The animation the STATIC state plays in-game (`SymbolSpineMain`'s `animationName`). */
+		animationName?: string;
 	}
 
 	let {
@@ -146,6 +170,8 @@
 		boneRiders,
 		spinePreview = null,
 		spinePreviewNodeId,
+		symbolStatics = [],
+		gridDimensions = null,
 	}: Props = $props();
 
 	// Monotonic counters: one bundle load = one started + (eventually) one settled.
@@ -254,6 +280,10 @@
 				 * `assetKey`, so two targets with different skins re-apply per draw). Empty
 				 * string means the skeleton's default skin is active. */
 				appliedSkin: string;
+				/** Natural sizing rect, measured ONCE at load (it's pose-independent) — so a
+				 * per-frame fit never has to `setToSetupPose()` on a rig whose export omits the
+				 * skeleton size. Read by {@link placeInCell}. */
+				bounds: SpineArtBounds;
 		  };
 	/** Per-spine-node cache keyed by `assetKey` (one bundle = one shared instance). */
 	const entries = new Map<string, Entry>();
@@ -308,7 +338,13 @@
 				return;
 			}
 			if (!renderer && canvas && gl) renderer = createSceneRenderer(canvas, gl);
-			entries.set(assetKey, { state: 'ready', instance, playingAnim: null, appliedSkin: '' });
+			entries.set(assetKey, {
+				state: 'ready',
+				instance,
+				playingAnim: null,
+				appliedSkin: '',
+				bounds: measureSpineBounds(instance),
+			});
 		} catch {
 			entries.set(assetKey, { state: 'error' });
 		} finally {
@@ -369,6 +405,9 @@
 		 * skeleton the layer reads `boneName` + publishes a world transform to `boneRiders` so the
 		 * 2D canvas draws the symbol tracking the bone. Present only for a bone-riding component. */
 		rider?: BoneRiderSpec;
+		/** A reel-board SYMBOL seat (world px, pre pan/zoom): the rig is CONTAIN-fit + centred into
+		 * this box instead of taking any of the space/placement branches. See {@link placeInCell}. */
+		cell?: { x: number; y: number; w: number; h: number };
 	}
 
 	/** The resolved bone-rider inputs carried on a rig render target (see {@link SpineRenderTarget.rider}). */
@@ -453,6 +492,9 @@
 						});
 					}
 				}
+				// A reel BOARD: its cells whose symbol binds spine art (the 2D canvas can only
+				// marker those) render here, seated on the shared grid geometry.
+				if (n.kind === 'reelGrid') collectReelCells(n, sc, [n], out);
 				// Spines nested inside a container or a component instance: the 2D canvas
 				// expands these (drawComponentInstance), so the spine overlay must too — else
 				// a placed component's spine only ever shows its 2D placeholder box. Each
@@ -467,8 +509,7 @@
 						// show the focused tier's bundle + animation instead of the default preview bundle
 						// (see `spinePreview`). Only this instance is affected; every other renders normally.
 						const previewing = spinePreviewNodeId === n.id && spinePreview ? spinePreview : null;
-						const spineBundle =
-							previewing?.bundle ?? instancePreviewSpineBundle(def, params);
+						const spineBundle = previewing?.bundle ?? instancePreviewSpineBundle(def, params);
 						collectNestedSpines(
 							def.root.children,
 							sc,
@@ -544,6 +585,8 @@
 			}
 			if (n.kind === 'spine') {
 				out.push(nestedSpineTarget(n, sc, nextChain, instanceParams));
+			} else if (n.kind === 'reelGrid') {
+				collectReelCells(n, sc, nextChain, out);
 			} else if (n.kind === 'container') {
 				collectNestedSpines(
 					n.children,
@@ -718,6 +761,65 @@
 			space: sc.space,
 			world: { x: tx, y: ty, scaleX: sx, scaleY: det < 0 ? -sy : sy },
 		};
+	}
+
+	/**
+	 * Render targets for a reel BOARD's spine-bound symbols — one per cell whose cycled
+	 * `symbolStatics` entry is a `spine` binding. The seat geometry comes from the SHARED
+	 * {@link reelGridGeometry} (the 2D canvas draws its cell boxes + sprite symbols from the
+	 * same call), and the board's world matrix is composed from the ancestor `chain` exactly
+	 * like {@link nestedSpineTarget} — so a board nested in a container lands identically.
+	 * Each cell carries the seat as a `cell` box; {@link placeInCell} contain-fits the rig into
+	 * it, which is what the game's `SymbolSpineMain` does (`cell × SYMBOL_SPINE_FILL`, against
+	 * art loaded at `SYMBOL_SPINE_LOAD_SCALE` — a tuned pair that nets out to a full-cell
+	 * contain). The static cell's `animationName` auto-loops, as the STATIC state does in-game.
+	 */
+	function collectReelCells(
+		node: Extract<LayoutNode, { kind: 'reelGrid' }>,
+		sc: Scene,
+		chain: LayoutNode[],
+		out: SpineRenderTarget[],
+	): void {
+		if (!symbolStatics.some((c) => c.type === 'spine')) return;
+		const leaf =
+			chain.length === 1
+				? worldTransformOf(node, sc)
+				: childLocalTransform(node, layoutType, sc.space, frameWidth, frameHeight);
+		const geo = reelGridGeometry(node, leaf.anchor, gridDimensions);
+		const [a, b, c, d, tx, ty] = composeWorldMatrix(
+			chain,
+			(top) => worldTransformOf(top, sc),
+			(child) => childLocalTransform(child, layoutType, sc.space, frameWidth, frameHeight),
+		);
+		// Cell boxes are axis-aligned, so the board's world SCALE is all that sizes them (the
+		// spine preview ignores rotation everywhere, as the top-level path does).
+		const sx = Math.hypot(a, b) || 1;
+		const sy = Math.hypot(c, d) || 1;
+		const w = geo.cellW * sx;
+		const h = geo.cellH * sy;
+		for (const seat of geo.seats) {
+			const cell = symbolStatics[(seat.j * geo.reels + seat.i) % symbolStatics.length];
+			if (!cell || cell.type !== 'spine' || !cell.assetKey) continue;
+			// Seat CENTRE mapped to world, then expanded back to a box — the same point the 2D
+			// canvas centres a sprite symbol on.
+			const wx = tx + a * seat.cx + c * seat.cy;
+			const wy = ty + b * seat.cx + d * seat.cy;
+			out.push({
+				// Every seat carries the BOARD's node id — `nodeId` only keys the `playing`
+				// toggle, so toggling play on the board plays each symbol's animation.
+				nodeId: node.id,
+				assetKey: cell.assetKey,
+				// The STATIC state's animation is what the game shows on an idle board, so auto-play
+				// it looped (the `enter*` fields are exactly this "play it, it's what the game shows"
+				// path). No animation ⇒ the setup pose, matching a symbol with no `animationName`.
+				enterAnimation: cell.animationName,
+				enterLoop: true,
+				loop: true,
+				transform: leaf,
+				space: sc.space,
+				cell: { x: wx - w / 2, y: wy - h / 2, w, h },
+			});
+		}
 	}
 
 	/**
@@ -913,7 +1015,9 @@
 			syncPlayback(target, entry);
 			const t = target.transform;
 			const inst = entry.instance;
-			if (target.world) {
+			if (target.cell) {
+				placeInCell(inst, entry.bounds, target.cell);
+			} else if (target.world) {
 				// A spine nested in a container / component instance: its world transform was
 				// already composed from the ancestor chain (the top link applied the scene-space
 				// framing), so place it directly. Y is flipped like every other branch (runtime
@@ -1099,6 +1203,30 @@
 			for (const key of myRiderKeys) if (!nextRiderKeys.has(key)) boneRiders.delete(key);
 		}
 		myRiderKeys = nextRiderKeys;
+	}
+
+	/**
+	 * Place a spine instance CONTAIN-fit into a reel-board symbol seat (world px, pre pan/zoom
+	 * — the loop bakes those in after). Same convention as {@link placeArt}'s contain branch:
+	 * the sizing rect is the AUTHORED skeleton canvas when the export has one (origin-centred
+	 * by Spine convention — and the exact rect the game's `spineSizeScale` measures), else the
+	 * live setup-pose bounds and their own centre. `scaleY < 0` flips the y-up runtime art into
+	 * the y-down camera, as every other branch does.
+	 */
+	function placeInCell(
+		inst: SpineInstance,
+		bounds: SpineArtBounds,
+		box: { x: number; y: number; w: number; h: number },
+	): void {
+		const { offX, offY, bw, bh } = bounds;
+		// Centre of the sizing rect in runtime (y-up) coords.
+		const cx = offX + bw / 2;
+		const cy = offY + bh / 2;
+		const s = Math.min(box.w / bw, box.h / bh);
+		inst.skeleton.x = box.x + box.w / 2 - s * cx;
+		inst.skeleton.y = box.y + box.h / 2 + s * cy;
+		inst.skeleton.scaleX = s;
+		inst.skeleton.scaleY = -s;
 	}
 
 	/**

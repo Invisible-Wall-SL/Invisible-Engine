@@ -679,3 +679,83 @@ export function expandedAABBContains(p: Vec2, pts: Vec2[], pad: number): boolean
 	}
 	return p.x >= minX - pad && p.x <= maxX + pad && p.y >= minY - pad && p.y <= maxY + pad;
 }
+
+/** One symbol seat of a reel board, in the `reelGrid` node's OWN local space (the caller
+ * applies the node transform / world matrix). `x`/`y` is the cell BOX (the reel window
+ * cell); `cx`/`cy` is the SEAT centre the symbol art is centred on — the cell centre moved
+ * by the reel/row lead + the per-cell alignment. */
+export interface ReelGridSeat {
+	/** Grid coordinates. `j * reels + i` is the order the preview cycles symbols in. */
+	i: number;
+	j: number;
+	x: number;
+	y: number;
+	cx: number;
+	cy: number;
+}
+
+/** The resolved geometry of a `reelGrid` node's board preview — the cell boxes, the board
+ * box, and every symbol seat. */
+export interface ReelGridGeometry {
+	reels: number;
+	rows: number;
+	cellW: number;
+	cellH: number;
+	/** Board box (every cell + the gaps between them), anchored + board-nudged. */
+	left: number;
+	top: number;
+	width: number;
+	height: number;
+	seats: ReelGridSeat[];
+}
+
+/**
+ * Resolve a `reelGrid` node's board geometry in its own local space — the ONE definition
+ * the editor's 2D board preview and the WebGL spine layer both read, so a sprite symbol and
+ * a spine symbol land on the same seat.
+ *
+ * The grid COUNT comes from the Game Config (`dims`, the same source the game sizes off)
+ * with the node's own `reels`/`rows` as the fallback. The cell boxes are the reel WINDOW
+ * (they move only with `boardNudge*`); the SEAT is where the symbol art sits, moved by the
+ * two independent contributions the game applies (`getSymbolX` / `getSymbolLead`): the
+ * reel/row LEAD (`reelPadding`/`rowPadding`, in cell-SIZE units — seats the whole cluster)
+ * plus the per-cell SEAT ALIGNMENT (`symbolAlignX/Y`, in cell-W/H units — art inside its own
+ * cell). Both default 0.5 ⇒ no offset ⇒ centred.
+ */
+export function reelGridGeometry(
+	node: Extract<LayoutNode, { kind: 'reelGrid' }>,
+	anchor: { x: number; y: number } | undefined,
+	dims: { reels: number; rows: number } | null | undefined,
+): ReelGridGeometry {
+	const reels = Math.max(1, Math.round(dims?.reels ?? node.reels));
+	const rows = Math.max(1, Math.round(dims?.rows ?? node.rows));
+	const cellW = node.cellWidth && node.cellWidth > 0 ? node.cellWidth : node.cellSize;
+	const cellH = node.cellHeight && node.cellHeight > 0 ? node.cellHeight : node.cellSize;
+	const gapX = Number.isFinite(node.gapX) ? (node.gapX as number) : 0;
+	const gapY = Number.isFinite(node.gapY) ? (node.gapY as number) : 0;
+	const pitchX = cellW + gapX;
+	const pitchY = cellH + gapY;
+	const width = reels * cellW + (reels - 1) * gapX;
+	const height = rows * cellH + (rows - 1) * gapY;
+	const nudgeX = Number.isFinite(node.boardNudgeX) ? (node.boardNudgeX as number) : 0;
+	const nudgeY = Number.isFinite(node.boardNudgeY) ? (node.boardNudgeY as number) : 0;
+	const left = -width * (anchor?.x ?? 0.5) + nudgeX;
+	const top = -height * (anchor?.y ?? 0.5) + nudgeY;
+
+	const leadX = Number.isFinite(node.reelPadding) ? (node.reelPadding as number) : 0.5;
+	const leadY = Number.isFinite(node.rowPadding) ? (node.rowPadding as number) : 0.5;
+	const alignX = Number.isFinite(node.symbolAlignX) ? (node.symbolAlignX as number) : 0.5;
+	const alignY = Number.isFinite(node.symbolAlignY) ? (node.symbolAlignY as number) : 0.5;
+	const seatDX = node.cellSize * (leadX - 0.5) + cellW * (alignX - 0.5);
+	const seatDY = node.cellSize * (leadY - 0.5) + cellH * (alignY - 0.5);
+
+	const seats: ReelGridSeat[] = [];
+	for (let i = 0; i < reels; i++) {
+		for (let j = 0; j < rows; j++) {
+			const x = left + i * pitchX;
+			const y = top + j * pitchY;
+			seats.push({ i, j, x, y, cx: x + cellW / 2 + seatDX, cy: y + cellH / 2 + seatDY });
+		}
+	}
+	return { reels, rows, cellW, cellH, left, top, width, height, seats };
+}
