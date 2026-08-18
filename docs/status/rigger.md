@@ -60,6 +60,29 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-08-18 — **A translation now SHRINKS to the source locale's width instead of running off
+  the art.** Owner, once French finally reached the button: "the text is not fitting anymore."
+  `Acheter fonctionnalité` baked 421px against `Buy Feature`'s 247px — 1.7× — and every locale
+  shares ONE placement (that symmetry is what makes swapping language never move the text, and
+  what lets a mesh authored once drive them all as linked meshes), so the extra width simply
+  overhung the button.
+  - **Fitted at bake time, not by scaling the attachment.** `fitTilesToSource` takes the source
+    locale's rasterised width as the budget and re-rasterises any wider sibling at a smaller
+    FONT SIZE — uniform, never an x-squeeze, because a distorted translation reads as a bug
+    where a smaller one reads as intended. Per-locale attachment scale was the alternative and
+    was rejected: it breaks the shared placement and is silently discarded the moment the
+    element becomes a mesh.
+  - **It terminates.** A variant wider than the source is drift, so old art re-bakes — but the
+    applied size is now persisted (`RigTextVariant.fontSize`), and a variant already shrunk
+    below the element's size is left alone. Without that, a translation too long to fit at the
+    8px floor would re-bake on every rig open forever. The gate pins this as its own property.
+  - **An unfittable locale warns rather than disappearing.** New `warnings` channel on the bake
+    result, kept apart from `failed` (which means "no pixels"): these ship, they just ship wide,
+    and only the author can shorten the string or give the element more room.
+  - Gate grew to **25/25**. Two separate broken-copy runs prove it decisive: removing the
+    attachment-drift rule fails 3, removing the termination guard fails 2. It also caught the
+    fit rule failing OPEN on a variant with no recorded width (`undefined <= n` is false), which
+    would have re-baked every pre-fit variant on sight.
 - 2026-08-18 — **A rig's localized text now follows `/localization` on its own, and the bake
   finally SAVES the rig.** Owner: the remake's new Spine "Buy Feature" button stayed English in
   a `lang=fr` game. Three faults in one chain, found by walking it end to end on live R2:

@@ -2240,6 +2240,25 @@ function textElementDrift(el){
   // A locale the ART has but `/localization` no longer does is deliberately left alone —
   // deleting art because a translation vanished would blank a slot for no gain, and the
   // runtime already falls back to the source locale for anything unbaked.
+
+  // Art WIDER than the source locale's overflows whatever the source was sized to fit: every
+  // locale shares one placement, so "Acheter fonctionnalité" at 1.7x the width of "Buy Feature"
+  // runs straight off the button. The bake now shrinks these to fit, so an oversized variant is
+  // art from before that rule — unless it was ALREADY shrunk (fontSize below the element's), in
+  // which case it is as small as it goes and re-baking would change nothing. Checking that is
+  // what keeps this from re-baking an unfittable string on every open, forever.
+  const src = (el.variants || []).find((v) => v.locale === el.sourceLocale);
+  if (src){
+    for (const v of el.variants || []){
+      // `!(v.w > src.w)` rather than `v.w <= src.w`: a variant from an older document may carry
+      // no width at all, and an unknown width is not evidence of overflow. The comparison must
+      // fail CLOSED on missing data, or every such variant re-bakes on sight.
+      if (v.locale === el.sourceLocale || !(v.w > src.w)) continue;
+      const bakedAt = typeof v.fontSize === "number" ? v.fontSize : el.fontSize;
+      if (bakedAt >= el.fontSize) out.push(v.locale + " (too wide)");
+    }
+  }
+
   for (const v of el.variants || []){
     if (!textAttachmentExists(el, v.locale)) out.push(v.locale + " (not in the rig)");
   }
@@ -2337,6 +2356,13 @@ async function rebakeAllTextElements(){
     return false;
   }
   rigText.etag = res.etag ?? null;
+  if (res.warnings && res.warnings.length){
+    // The automatic path must not swallow this: the art shipped, but it will overflow, and only
+    // the author can shorten the string or give the element more room.
+    showAlert("These locales are still wider than the source language and may overflow:\n\n"
+      + res.warnings.map((w) => w.elementId + "@" + w.locale + " — " + w.reason).join("\n"),
+      "Text may overflow");
+  }
   await selectSkeleton(selected);            // re-fetch the recomposed .atlas + new page
   for (const el of elements){
     placeTextAttachments(el, res.attachments.filter((a) => a.elementId === el.id));
@@ -2608,6 +2634,13 @@ async function bakeAndPlaceText(){
     if (res.failed && res.failed.length){
       showAlert("Some locales could not be rasterised and were skipped:\n\n"
         + res.failed.map((f) => f.elementId + "@" + f.locale + " — " + f.reason).join("\n"), "Partly baked");
+    } else if (res.warnings && res.warnings.length){
+      // These DID bake and DID ship — they just could not be shrunk inside the source locale's
+      // width. Said out loud rather than swallowed, because the author is the only one who can
+      // shorten the string or give the art more room.
+      showAlert("Baked, but these locales are still wider than the source language:\n\n"
+        + res.warnings.map((w) => w.elementId + "@" + w.locale + " — " + w.reason).join("\n"),
+        "Text may overflow");
     }
   } catch (e){
     errEl.textContent = "The bake failed: " + ((e && e.message) || e);

@@ -44,6 +44,16 @@ export interface RigTextVariant {
 	y: number;
 	w: number;
 	h: number;
+	/**
+	 * The size this variant was rasterised at. Usually the element's `fontSize`; SMALLER when the
+	 * bake had to shrink this locale to fit the source locale's width (a translation is routinely
+	 * 1.5–2× longer than its English source, and rig text is placed once for every locale).
+	 *
+	 * Persisted purely so the tool can distinguish "too wide and never fitted" from "too wide and
+	 * already fitted as far as it goes" — the first is drift worth re-baking, the second is a
+	 * standing warning. Without it the auto-sync would re-bake an unfittable string on every open.
+	 */
+	fontSize?: number;
 }
 
 /**
@@ -193,6 +203,12 @@ export function normalizeRigTextDoc(input: unknown): RigTextDoc {
 				y: Math.round(v.y as number),
 				w: Math.round(v.w as number),
 				h: Math.round(v.h as number),
+				// Absent on every variant baked before the fit rule existed — left undefined rather
+				// than defaulted, because "unknown" is exactly what it means and the drift check
+				// reads it that way.
+				...(typeof v.fontSize === 'number' && Number.isFinite(v.fontSize) && v.fontSize > 0
+					? { fontSize: Math.round(v.fontSize) }
+					: {}),
 			});
 		}
 		if (!variants.length) continue;

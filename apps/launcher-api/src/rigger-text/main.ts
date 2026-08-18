@@ -67,6 +67,8 @@ interface SaveResult {
 	/** `elementId@locale` → region name, so the caller can write the attachments. */
 	attachments?: { elementId: string; locale: string; region: string; text: string }[];
 	failed?: { elementId: string; locale: string; reason: string }[];
+	/** Locales that baked but could not be fitted to the source width — they ship, too wide. */
+	warnings?: { elementId: string; locale: string; reason: string }[];
 	error?: string;
 	message?: string;
 	status?: number;
@@ -137,18 +139,21 @@ async function save(args: SaveArgs): Promise<SaveResult> {
 	const requests: RigTextRequest[] = [];
 	const texts = new Map<string, string>();
 	for (const el of args.elements) {
+		const sourceLocale = el.sourceLocale || strings.sourceLang;
 		for (const v of localesFor(el)) {
 			requests.push({
 				elementId: el.id,
 				locale: v.locale,
 				text: v.text,
 				style: { ...el.style, fontId: el.fontId, fontSize: el.fontSize },
+				// Marks the width budget every other locale of this element is fitted to.
+				isSource: v.locale === sourceLocale,
 			});
 			texts.set(`${el.id}@${v.locale}`, v.text);
 		}
 	}
 
-	const { page, failed } = await bakeRigTextPage(requests);
+	const { page, failed, warnings } = await bakeRigTextPage(requests);
 	if (args.elements.length && !page) {
 		return {
 			ok: false,
@@ -214,7 +219,9 @@ async function save(args: SaveArgs): Promise<SaveResult> {
 				variants: localesFor(el)
 					.map((v) => {
 						const rect = rectFor(el.id, v.locale);
-						return rect ? { locale: v.locale, text: v.text, ...rectXY(rect) } : null;
+						return rect
+							? { locale: v.locale, text: v.text, ...rectXY(rect), fontSize: rect.fontSize }
+							: null;
 					})
 					.filter((v): v is NonNullable<typeof v> => v !== null),
 			}))
@@ -257,7 +264,7 @@ async function save(args: SaveArgs): Promise<SaveResult> {
 		}
 	}
 
-	return { ok: true, etag: payload.etag ?? null, regions: payload.regions, attachments, failed };
+	return { ok: true, etag: payload.etag ?? null, regions: payload.regions, attachments, failed, warnings };
 }
 
 function rectXY(rect: { x: number; y: number; w: number; h: number }): {

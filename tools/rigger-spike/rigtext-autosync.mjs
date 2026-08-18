@@ -85,11 +85,12 @@ const STRINGS = (translations, source = 'Buy Feature') => ({
 	entries: [{ key: 'Buy Feature', source, translations, unreviewed: 0 }],
 });
 
-const EL = (variants) => ({
+const EL = (variants, fontSize = 48) => ({
 	id: 'buyfeature',
 	key: 'Buy Feature',
 	slot: 'text_buyfeature',
 	sourceLocale: 'en',
+	fontSize,
 	variants,
 });
 
@@ -110,11 +111,12 @@ const SKEL = (locales) => ({
 const FR = 'Acheter fonctionnalité';
 const IT = 'Acquista funzione';
 const ALL = { it: IT, es: 'Comprar función', fr: FR };
+// Correctly-fitted art: the source at full size, every translation shrunk inside its width.
 const FOUR = [
-	{ locale: 'en', text: 'Buy Feature' },
-	{ locale: 'it', text: IT },
-	{ locale: 'es', text: 'Comprar función' },
-	{ locale: 'fr', text: FR },
+	{ locale: 'en', text: 'Buy Feature', w: 247, fontSize: 48 },
+	{ locale: 'it', text: IT, w: 244, fontSize: 32 },
+	{ locale: 'es', text: 'Comprar función', w: 240, fontSize: 35 },
+	{ locale: 'fr', text: FR, w: 246, fontSize: 28 },
 ];
 
 // ---- 1. the bug this automation replaces -------------------------------------------------
@@ -231,6 +233,87 @@ const FOUR = [
 		element: EL(FOUR),
 	});
 	check('removed translation: not treated as drift', why.length === 0, why.join(', '));
+}
+
+// ---- 9. a translation WIDER than the source is drift --------------------------------------
+// The live failure: French baked 421px against English's 247px, so the button's text ran off
+// the end of the art. Every locale shares one placement, so the width budget is the source's.
+{
+	const wide = [
+		{ locale: 'en', text: 'Buy Feature', w: 247, fontSize: 48 },
+		{ locale: 'fr', text: FR, w: 421, fontSize: 48 },
+	];
+	const { why, needsBake } = run({
+		strings: STRINGS({ fr: FR }),
+		skeleton: SKEL(['en', 'fr']),
+		element: EL(wide),
+	});
+	check('too wide: reported as drift', why.join(',') === 'fr (too wide)', why.join(', '));
+	check('too wide: needs a bake', needsBake === true);
+}
+
+// ---- 10. …but only ONCE. This is the termination property. --------------------------------
+// A translation that cannot fit even at the minimum size comes back from the bake still too
+// wide. If "wider than source" alone meant drift, the tool would re-bake it on EVERY rig open
+// forever. The persisted `fontSize` is what distinguishes "never fitted" from "fitted as far as
+// it goes", so a variant already shrunk is left alone and warned about instead.
+{
+	const shrunkButStillWide = [
+		{ locale: 'en', text: 'Buy Feature', w: 247, fontSize: 48 },
+		{ locale: 'fr', text: FR, w: 300, fontSize: 28 }, // shrunk 48 → 28, still over budget
+	];
+	const { why, needsBake } = run({
+		strings: STRINGS({ fr: FR }),
+		skeleton: SKEL(['en', 'fr']),
+		element: EL(shrunkButStillWide),
+	});
+	check('already fitted: NOT re-baked (loop terminates)', why.length === 0, why.join(', '));
+	check('already fitted: no bake', needsBake === false);
+}
+
+// ---- 11. a fitted variant that now fits is simply clean ------------------------------------
+{
+	const fitted = [
+		{ locale: 'en', text: 'Buy Feature', w: 247, fontSize: 48 },
+		{ locale: 'fr', text: FR, w: 244, fontSize: 27 },
+	];
+	const { why } = run({
+		strings: STRINGS({ fr: FR }),
+		skeleton: SKEL(['en', 'fr']),
+		element: EL(fitted),
+	});
+	check('fitted and within budget: no drift', why.length === 0, why.join(', '));
+}
+
+// ---- 12. the fit rule itself, over the REAL bake source ------------------------------------
+// `fitTilesToSource` needs a browser to rasterise, so what is pinned here is its DECISION table
+// rather than its pixels (`rigtext-browser.mjs` owns the pixel side). Extracted from source so a
+// change to the rule has to come through here.
+{
+	const rasterSrc = readFileSync(
+		new URL('apps/launcher-api/src/lib/text/rigTextRaster.client.ts', ROOT),
+		'utf8',
+	);
+	check(
+		'fit: the source locale is the budget',
+		/if \(t\.req\.isSource\) budgets\.set\(t\.req\.elementId, t\.canvas\.width\)/.test(rasterSrc),
+	);
+	check(
+		'fit: shrinks by FONT SIZE, not an x-scale (no distortion)',
+		/rasterizeString\(\{ \.\.\.t\.req, style: \{ \.\.\.t\.req\.style, fontSize: size \} \}\)/.test(rasterSrc),
+	);
+	check(
+		'fit: never shrinks below the readable floor',
+		/Math\.max\(MIN_FIT_FONT_SIZE,/.test(rasterSrc),
+	);
+	check(
+		'fit: an unfittable locale WARNS rather than being dropped',
+		/warnings\.push\(\{/.test(rasterSrc) && !/failed\.push\(\{[\s\S]{0,200}still \$\{/.test(rasterSrc),
+	);
+	check(
+		'fit: the applied size is recorded on the tile so it can be persisted',
+		/t\.fontSize = size;/.test(rasterSrc) && /fontSize: t\.fontSize,/.test(rasterSrc),
+	);
 }
 
 // ---- report ------------------------------------------------------------------------------

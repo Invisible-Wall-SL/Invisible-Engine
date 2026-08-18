@@ -37,6 +37,12 @@ export interface RigTextRequest {
 	locale: string;
 	text: string;
 	style: RigTextStyle;
+	/**
+	 * True for the element's SOURCE locale. It is the one the author sized against the art, so
+	 * its rasterised width becomes the budget every other locale of that element is fitted to
+	 * (see {@link fitTilesToSource}).
+	 */
+	isSource?: boolean;
 }
 
 /** Where a rasterised string landed on the packed page. */
@@ -47,6 +53,13 @@ export interface RigTextRect {
 	y: number;
 	w: number;
 	h: number;
+	/**
+	 * The size this tile was ACTUALLY rasterised at — the element's size, or a smaller one when
+	 * the fit pass had to shrink this locale. Persisted so the drift check can tell "never been
+	 * fitted" from "fitted as far as it goes": without that distinction, a translation too long
+	 * to ever fit would re-bake on every single rig open, forever.
+	 */
+	fontSize: number;
 }
 
 export interface RigTextPage {
@@ -260,6 +273,84 @@ export interface RigTextBakeResult {
 	page: RigTextPage | null;
 	/** Requests that produced no pixels (missing font, empty string) — surfaced, never silent. */
 	failed: { elementId: string; locale: string; reason: string }[];
+	/**
+	 * Locales that DID bake but could not be brought inside the source locale's width even at
+	 * the minimum size. Kept apart from `failed`, which means "no pixels": these ship, they just
+	 * ship too wide, and telling the author that is the difference between a fit rule and a
+	 * silent cap.
+	 */
+	warnings: { elementId: string; locale: string; reason: string }[];
+}
+
+/** Never shrink a translation below this — past it the text is unreadable and silently hiding
+ *  the real problem, which is that the art is too small for the language. */
+const MIN_FIT_FONT_SIZE = 8;
+/** Refinement passes. Bitmap glyph advances scale near-linearly with size but not exactly, and
+ *  a web font's hinting makes it less so, so one ratio is a good guess and not a guarantee. */
+const FIT_PASSES = 3;
+
+/**
+ * Shrink every non-source locale of an element until it is no WIDER than that element's source
+ * locale, by re-rasterising it at a smaller font size.
+ *
+ * Why it has to happen here, at bake time, rather than as a scale on the attachment: §12.4a's
+ * promise is that all locales share ONE placement — the source locale carries the authored
+ * x/y/scale and every other locale inherits it, which is what makes swapping language never
+ * move the text, and what lets a mesh authored once drive them all as linked meshes. Per-locale
+ * attachment scaling would break that symmetry, and would be silently discarded the moment the
+ * author converted the element to a mesh.
+ *
+ * The source locale is the budget because it is the one the author sized against the art: they
+ * made "Buy Feature" fit the button, so "Acheter fonctionnalité" — 1.7× wider at the same size
+ * — must come back to that width rather than run off the end of it.
+ *
+ * Shrinking is UNIFORM (font size, not an x-scale): squeezing the x-axis to fit distorts
+ * letterforms, and a distorted translation looks like a bug where a smaller one looks intended.
+ * Height therefore comes down with width, which is correct — the budget is the art, and the art
+ * is not taller for a longer string.
+ */
+async function fitTilesToSource(
+	tiles: { req: RigTextRequest; canvas: HTMLCanvasElement; fontSize: number }[],
+): Promise<RigTextBakeResult['warnings']> {
+	const warnings: RigTextBakeResult['warnings'] = [];
+	const budgets = new Map<string, number>();
+	for (const t of tiles) if (t.req.isSource) budgets.set(t.req.elementId, t.canvas.width);
+
+	for (const t of tiles) {
+		const budget = budgets.get(t.req.elementId);
+		// No source tile (it failed to rasterise) means no budget to fit to — leaving the locale
+		// at full size is the honest outcome; inventing a budget would silently resize it against
+		// nothing.
+		if (t.req.isSource || budget === undefined || t.canvas.width <= budget) continue;
+
+		let size = t.req.style.fontSize;
+		for (let pass = 0; pass < FIT_PASSES && t.canvas.width > budget; pass++) {
+			const next = Math.max(MIN_FIT_FONT_SIZE, Math.floor(size * (budget / t.canvas.width)));
+			if (next >= size) break; // already at the floor, or the ratio rounded to a no-op
+			size = next;
+			let refit: HTMLCanvasElement | null = null;
+			try {
+				refit = await rasterizeString({ ...t.req, style: { ...t.req.style, fontSize: size } });
+			} catch {
+				refit = null;
+			}
+			// A re-raster that fails leaves the previous, too-wide tile in place rather than
+			// dropping the locale: overflowing art beats no art, and the locale still ships.
+			if (!refit) break;
+			t.canvas = refit;
+			t.fontSize = size;
+		}
+		if (t.canvas.width > budget) {
+			warnings.push({
+				elementId: t.req.elementId,
+				locale: t.req.locale,
+				reason:
+					`still ${t.canvas.width}px wide against the source locale's ${budget}px, even at ` +
+					`${size}px — shorten the translation or give the element more room`,
+			});
+		}
+	}
+	return warnings;
 }
 
 /**
@@ -272,7 +363,7 @@ export interface RigTextBakeResult {
  */
 export async function bakeRigTextPage(requests: RigTextRequest[]): Promise<RigTextBakeResult> {
 	const failed: RigTextBakeResult['failed'] = [];
-	const tiles: { req: RigTextRequest; canvas: HTMLCanvasElement }[] = [];
+	const tiles: { req: RigTextRequest; canvas: HTMLCanvasElement; fontSize: number }[] = [];
 	for (const req of requests) {
 		let canvas: HTMLCanvasElement | null = null;
 		try {
@@ -293,9 +384,11 @@ export async function bakeRigTextPage(requests: RigTextRequest[]): Promise<RigTe
 			});
 			continue;
 		}
-		tiles.push({ req, canvas });
+		tiles.push({ req, canvas, fontSize: req.style.fontSize });
 	}
-	if (!tiles.length) return { page: null, failed };
+	if (!tiles.length) return { page: null, failed, warnings: [] };
+
+	const warnings = await fitTilesToSource(tiles);
 
 	const packed = shelfPack(
 		tiles.map((t) => ({ width: t.canvas.width, height: t.canvas.height })),
@@ -328,6 +421,7 @@ export async function bakeRigTextPage(requests: RigTextRequest[]): Promise<RigTe
 			y: p.y,
 			w: t.canvas.width,
 			h: t.canvas.height,
+			fontSize: t.fontSize,
 		});
 	});
 
@@ -336,6 +430,7 @@ export async function bakeRigTextPage(requests: RigTextRequest[]): Promise<RigTe
 	return {
 		page: { blob, file, width: packed.width, height: packed.height, rects },
 		failed,
+		warnings,
 	};
 }
 
