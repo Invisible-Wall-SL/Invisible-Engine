@@ -105,11 +105,33 @@ export async function collectRailway(): Promise<ProviderCost> {
 			: '';
 	}
 
-	const query = `query EstimatedUsage($projectId: String!) {
-		estimatedUsage(projectId: $projectId) { measurement estimatedValue }
+	/**
+	 * `estimatedUsage` requires `measurements: [MetricMeasurement!]!`. Rather than
+	 * hardcode an enum Railway doesn't publish, ask the schema for its members and
+	 * request all of them — that stays correct when Railway adds or renames one.
+	 * Falls back to the measurements the dashboard bills on if introspection is
+	 * unavailable.
+	 */
+	async function measurementNames(): Promise<string[]> {
+		const { body } = await post(
+			`query { __type(name: "MetricMeasurement") { enumValues { name } } }`,
+		);
+		const data = body?.data as { __type?: { enumValues?: { name?: string }[] } } | undefined;
+		const names = (data?.__type?.enumValues ?? []).map((v) => v.name ?? '').filter(Boolean);
+		return names.length
+			? names
+			: ['CPU_USAGE', 'MEMORY_USAGE_GB', 'NETWORK_TX_GB', 'DISK_USAGE_GB'];
+	}
+
+	const measurements = await measurementNames();
+	const query = `query EstimatedUsage($projectId: String!, $measurements: [MetricMeasurement!]!) {
+		estimatedUsage(projectId: $projectId, measurements: $measurements) {
+			measurement
+			estimatedValue
+		}
 	}`;
 
-	const { status, body, transportError } = await post(query, { projectId });
+	const { status, body, transportError } = await post(query, { projectId, measurements });
 	if (transportError) return failed('railway', LABEL, transportError);
 	if (status === 401 || status === 403) {
 		return failed(
@@ -154,25 +176,46 @@ export async function collectRailway(): Promise<ProviderCost> {
 		};
 	}
 
+	// `estimatedValue` is denominated per MEASUREMENT: a dollar figure for the
+	// cost-ish members, but raw units (vCPU, GB, GB-egress) for the rest. Adding
+	// those together would produce a confident-looking number that means nothing,
+	// so only cost-denominated measurements feed the total; the rest are shown as
+	// usage lines with no price. If Railway exposes no cost measurement at all, the
+	// card reports usage and NO dollar figure rather than inventing one.
+	const isCost = (name: string) => /COST|CREDIT|SPEND|USD|CHARGE|PRICE/i.test(name);
+
 	let totalUsd = 0;
+	let sawCost = false;
 	const lines: CostLine[] = [];
 	for (const entry of usage) {
 		const value = num(entry.estimatedValue);
 		if (value == null) continue;
-		totalUsd += value;
-		lines.push({ label: humanize(entry.measurement ?? ''), amountUsd: value });
+		const name = entry.measurement ?? '';
+		if (isCost(name)) {
+			sawCost = true;
+			totalUsd += value;
+			lines.push({ label: humanize(name), amountUsd: value });
+		} else {
+			lines.push({
+				label: humanize(name),
+				amountUsd: null,
+				detail: value.toLocaleString('en-US', { maximumFractionDigits: 2 }),
+			});
+		}
 	}
-	lines.sort((a, b) => (b.amountUsd ?? 0) - (a.amountUsd ?? 0));
+	lines.sort((a, b) => (b.amountUsd ?? -1) - (a.amountUsd ?? -1));
 
 	return {
 		id: 'railway',
 		label: LABEL,
 		configured: true,
 		ok: true,
-		reason: "Railway's own estimate for the current billing cycle, broken down by measurement.",
+		reason: sawCost
+			? "Railway's own estimate for the current billing cycle."
+			: 'Railway reports usage per measurement for this project, not a dollar figure — the lines below are raw units, so no total is shown.',
 		// Railway has no prepaid balance — it bills a plan plus usage in arrears.
 		balanceUsd: null,
-		spendUsd: totalUsd,
+		spendUsd: sawCost ? totalUsd : null,
 		spendWindow: 'current billing cycle',
 		estimated: true,
 		lines,

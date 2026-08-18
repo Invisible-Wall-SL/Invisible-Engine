@@ -95,20 +95,24 @@ export async function collectR2(): Promise<ProviderCost> {
 
 	const end = new Date();
 	const start = new Date(end.getTime() - DAYS * 86_400_000);
+	// Two days, not two hours: R2's analytics pipeline lags, and an empty window
+	// would report 0 GB stored — which on a cost page reads as "we store nothing"
+	// rather than "no sample yet".
+	const storageStart = new Date(end.getTime() - 2 * 86_400_000);
 	const query = `
 		query {
 			viewer {
 				accounts(filter: { accountTag: "${accountId}" }) {
+					# Storage is a point-in-time GAUGE, operations are COUNTERS, so the two
+					# need different windows. No orderBy and no datetime dimension here:
+					# Cloudflare rejects ordering by an unselected field, and selecting
+					# "dimensions { datetime }" to satisfy it fails differently ("object
+					# field must have selections"). Instead take max{} across a SHORT
+					# recent window, where the peak is the current size.
 					storage: r2StorageAdaptiveGroups(
 						limit: 1
-						orderBy: [datetime_DESC]
-						filter: { datetime_geq: "${start.toISOString()}", datetime_leq: "${end.toISOString()}" }
+						filter: { datetime_geq: "${storageStart.toISOString()}", datetime_leq: "${end.toISOString()}" }
 					) {
-						# datetime MUST be selected as a dimension to be orderable — Cloudflare
-						# rejects "orderBy: [datetime_DESC]" with "it is neither aggregated, nor
-						# a dimension" otherwise. We want the newest sample: storage is a
-						# point-in-time gauge, not a sum, so an arbitrary bucket would be wrong.
-						dimensions { datetime }
 						max { objectCount payloadSize metadataSize }
 					}
 					operations: r2OperationsAdaptiveGroups(
