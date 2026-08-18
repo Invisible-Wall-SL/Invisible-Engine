@@ -118,8 +118,30 @@ export interface MonthRow {
  * worst). Fails soft: the monthly table is a reporting surface, and losing an update
  * must never break the live cards it sits under.
  */
+/**
+ * Longest gap we'll bill an accumulating provider for in one step.
+ *
+ * RunPod's month is integrated from its burn rate, so a long outage (or a cold boot
+ * after days idle) would otherwise book the whole gap at the CURRENT rate — even
+ * though the pods may have been stopped for most of it. Capping under-counts a real
+ * outage rather than inventing spend, which is the safer direction for a figure
+ * nobody can reconstruct afterwards.
+ */
+const MAX_ACCRUAL_GAP_H = 12;
+
+export interface MeasuredProvider {
+	provider: ProviderId;
+	/** A period total: replaces whatever is stored. */
+	spendUsd?: number | null;
+	/**
+	 * A burn RATE, for providers that publish no period total (RunPod). Integrated
+	 * across the gap since this row was last written and ADDED to the running figure.
+	 */
+	ratePerHourUsd?: number | null;
+}
+
 export async function recordAndLock(
-	measured: { provider: ProviderId; spendUsd: number }[],
+	measured: MeasuredProvider[],
 	at: Date = new Date(),
 ): Promise<void> {
 	const now = madridMonth(at);
@@ -143,9 +165,34 @@ export async function recordAndLock(
 	// 2. Rewrite the open month from the live estimate. Providers with no spend figure
 	//    (RunPod publishes a balance and a rate, never a period total) are skipped
 	//    rather than written as 0 — a zero would read as "this cost nothing".
+	const monthStart = startOfMadridMonth(now);
 	for (const entry of measured) {
-		if (!Number.isFinite(entry.spendUsd)) continue;
-		const cents = Math.round(entry.spendUsd * 100);
+		let cents: number;
+
+		if (entry.spendUsd != null && Number.isFinite(entry.spendUsd)) {
+			cents = Math.round(entry.spendUsd * 100);
+		} else if (entry.ratePerHourUsd != null && Number.isFinite(entry.ratePerHourUsd)) {
+			// Integrate the rate across the gap since this row was last touched. The
+			// first write of a month accrues from the month's start (capped), so a fresh
+			// month doesn't begin by discarding the interval before the first snapshot.
+			const [existing] = await db
+				.select({ amountUsdCents: costMonths.amountUsdCents, updatedAt: costMonths.updatedAt })
+				.from(costMonths)
+				.where(
+					and(
+						eq(costMonths.provider, entry.provider),
+						eq(costMonths.year, now.year),
+						eq(costMonths.month, now.month),
+					),
+				);
+			const since = existing ? existing.updatedAt.getTime() : monthStart.getTime();
+			const gapH = Math.max(0, Math.min((at.getTime() - since) / 3_600_000, MAX_ACCRUAL_GAP_H));
+			const accrued = Math.round(entry.ratePerHourUsd * gapH * 100);
+			cents = (existing?.amountUsdCents ?? 0) + accrued;
+		} else {
+			continue;
+		}
+
 		await db
 			.insert(costMonths)
 			.values({

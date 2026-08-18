@@ -151,8 +151,15 @@ export async function getCosts(force = false): Promise<CostsSnapshot> {
 	try {
 		await recordAndLock(
 			providers
-				.filter((p) => p.ok && p.spendUsd != null)
-				.map((p) => ({ provider: p.id, spendUsd: p.spendUsd as number })),
+				.filter((p) => p.ok && (p.spendUsd != null || p.ratePerHourUsd != null))
+				// A provider that publishes a period total gets it written straight in;
+				// one that only publishes a burn rate (RunPod) is integrated across the
+				// gap instead, so its month stops reading as nothing at all.
+				.map((p) => ({
+					provider: p.id,
+					spendUsd: p.spendUsd,
+					ratePerHourUsd: p.ratePerHourUsd,
+				})),
 			now,
 		);
 		years = summarize(await listMonths());

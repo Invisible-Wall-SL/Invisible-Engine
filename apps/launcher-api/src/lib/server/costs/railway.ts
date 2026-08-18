@@ -39,16 +39,35 @@ interface TypeRef {
 }
 
 /**
- * Whether a measurement name denotes MONEY rather than raw units.
+ * Railway's published rates, and the unit each measurement is actually in.
  *
- * `estimatedValue` is denominated per measurement: dollars for the cost-ish members,
- * integrated units (vCPU-minutes, GB-minutes, GB egress) for the rest. Summing those
- * together would produce a confident number that means nothing, so this decides both
- * which measurements to ask for and which may enter a total.
+ * Railway's API returns **no cost measurement** — its enum is `CPU_USAGE`,
+ * `MEMORY_USAGE_GB`, `NETWORK_TX_GB`, … with nothing denominated in money. The
+ * dashboard prices those units client-side, so we do the same.
+ *
+ * The units are NOT what the names suggest: `MEMORY_USAGE_GB` is GB-**minutes** and
+ * `CPU_USAGE` is vCPU-**minutes** (integrated over the period), while `NETWORK_TX_GB`
+ * really is plain GB. That was confirmed by reconciling a live read against Railway's
+ * own dashboard for the same project: 31,244 GB-min × $0.000231 = $7.22 memory,
+ * 35.96 GB × $0.05 = $1.80 network, 31,863 GB-min volume = $0.11, 116.48 vCPU-min =
+ * $0.05 CPU — $9.18 against the dashboard's $9.22 estimate, a 0.4% match.
+ *
+ * Like the R2 rates, this is a PRICE LIST IN CODE and will go stale silently when
+ * Railway changes it, so each line prints the rate it used. Re-check against
+ * https://railway.com/pricing.
  */
-function isCostName(name: string): boolean {
-	return /COST|CREDIT|SPEND|USD|CHARGE|PRICE|ESTIMATED/i.test(name);
-}
+const RATES: Record<string, { usdPerUnit: number; unit: string }> = {
+	CPU_USAGE: { usdPerUnit: 0.000463, unit: 'vCPU-min' },
+	MEMORY_USAGE_GB: { usdPerUnit: 0.000231, unit: 'GB-min' },
+	NETWORK_TX_GB: { usdPerUnit: 0.05, unit: 'GB' },
+	// $0.15/GB-month ÷ (60 × 24 × 30.4) minutes.
+	DISK_USAGE_GB: { usdPerUnit: 0.15 / 43_800, unit: 'GB-min' },
+	EPHEMERAL_DISK_USAGE_GB: { usdPerUnit: 0, unit: 'GB-min' },
+	BACKUP_USAGE_GB: { usdPerUnit: 0.15 / 43_800, unit: 'GB-min' },
+};
+
+/** The measurements we price. Limits + protobuf artifacts are not usage. */
+const PRICED_MEASUREMENTS = Object.keys(RATES);
 
 /** `MEMORY_USAGE_GB` → `Memory usage gb`. Railway returns SCREAMING_SNAKE enum names. */
 function humanize(measurement: string): string {
@@ -188,32 +207,6 @@ export async function collectRailway(): Promise<ProviderCost> {
 		return parts.length ? ` ${parts.join(' ')}` : '';
 	}
 
-	/** The measurements Railway's dashboard bills on. These return UNITS, not money. */
-	const CORE_MEASUREMENTS = ['CPU_USAGE', 'MEMORY_USAGE_GB', 'NETWORK_TX_GB', 'DISK_USAGE_GB'];
-
-	/**
-	 * Which measurement sets to try, best first.
-	 *
-	 * Railway's dashboard shows this project's usage in DOLLARS ("Current usage",
-	 * "CPU usage $0.01", …) off this same API, so a money-denominated measurement
-	 * should exist — the core four only ever return integrated units. So: ask the
-	 * enum, try anything that looks cost-denominated FIRST, and fall back to the core
-	 * four for a units-only answer.
-	 *
-	 * Deliberately NOT "request every enum member": that was the previous attempt and
-	 * Railway answered "Problem processing request", because some members aren't valid
-	 * for this field. Requesting a targeted subset is both likelier to work and
-	 * cheaper to diagnose when it doesn't.
-	 */
-	async function measurementSets(): Promise<string[][]> {
-		const all = await enumMembers();
-		if (!all.length) return [CORE_MEASUREMENTS];
-		const costish = all.filter((m) => isCostName(m));
-		const core = CORE_MEASUREMENTS.filter((m) => all.includes(m));
-		const sets = [costish, core].filter((s) => s.length > 0);
-		return sets.length ? sets : [all];
-	}
-
 	async function enumMembers(): Promise<string[]> {
 		const { body } = await post(
 			`query { __type(name: "MetricMeasurement") { enumValues { name } } }`,
@@ -229,40 +222,27 @@ export async function collectRailway(): Promise<ProviderCost> {
 		}
 	}`;
 
-	/**
-	 * `estimatedValue` is denominated per MEASUREMENT: dollars for the cost-ish
-	 * members, raw integrated units (vCPU-minutes, GB-minutes, GB egress) for the
-	 * rest. Summing those together would produce a confident number that means
-	 * nothing, so this predicate decides what may enter the total.
-	 */
-	const hasCost = (b: GraphQlResponse | null) =>
-		(b?.data?.estimatedUsage ?? []).some((e) => isCostName(e.measurement ?? ''));
+	// Ask only for measurements we can price, intersected with the live enum so a
+	// renamed member is dropped rather than rejecting the whole query. Requesting the
+	// full enum was the previous attempt and Railway refused it — `MEASUREMENT_UNSPECIFIED`
+	// and `UNRECOGNIZED` are protobuf artifacts, and the `*_LIMIT` members aren't usage.
+	const available = await enumMembers();
+	const measurements = available.length
+		? PRICED_MEASUREMENTS.filter((m) => available.includes(m))
+		: PRICED_MEASUREMENTS;
 
-	let status = 0;
-	let body: GraphQlResponse | null = null;
-	let gqlError: string | undefined;
-
-	const sets = await measurementSets();
-	for (let i = 0; i < sets.length; i++) {
-		const attempt = await post(query, { projectId, measurements: sets[i] });
-		if (attempt.transportError) return failed('railway', LABEL, attempt.transportError);
-		status = attempt.status;
-		body = attempt.body;
-		if (status === 401 || status === 403) {
-			return failed(
-				'railway',
-				LABEL,
-				`Railway rejected the token (${status}). Use an ACCOUNT or WORKSPACE token — a project token authenticates with a Project-Access-Token header and won't work here.`,
-			);
-		}
-		gqlError = body?.errors?.find((e) => e.message)?.message?.trim();
-		const ok = body && !gqlError && status < 400;
-		// Keep going past a SUCCESSFUL narrow attempt that yielded no cost-denominated
-		// measurement: the wider set may contain one. Falling back only on error (the
-		// first version) meant a working-but-dollarless answer ended the search.
-		if (ok && (hasCost(body) || i === sets.length - 1)) break;
-		if (!ok && i === sets.length - 1) break;
+	const attempt = await post(query, { projectId, measurements });
+	if (attempt.transportError) return failed('railway', LABEL, attempt.transportError);
+	const status = attempt.status;
+	const body = attempt.body;
+	if (status === 401 || status === 403) {
+		return failed(
+			'railway',
+			LABEL,
+			`Railway rejected the token (${status}). Use an ACCOUNT or WORKSPACE token — a project token authenticates with a Project-Access-Token header and won't work here.`,
+		);
 	}
+	const gqlError = body?.errors?.find((e) => e.message)?.message?.trim();
 
 	if (!body) {
 		return failed('railway', LABEL, `Railway returned HTTP ${status} with an unreadable body.`);
@@ -301,40 +281,36 @@ export async function collectRailway(): Promise<ProviderCost> {
 	}
 
 	let totalUsd = 0;
-	let sawCost = false;
 	const lines: CostLine[] = [];
 	for (const entry of usage) {
 		const value = num(entry.estimatedValue);
-		if (value == null) continue;
 		const name = entry.measurement ?? '';
-		if (isCostName(name)) {
-			sawCost = true;
-			totalUsd += value;
-			lines.push({ label: humanize(name), amountUsd: value });
-		} else {
-			lines.push({
-				label: humanize(name),
-				amountUsd: null,
-				detail: value.toLocaleString('en-US', { maximumFractionDigits: 2 }),
-			});
-		}
+		const rate = RATES[name];
+		if (value == null || !rate) continue;
+		const usd = value * rate.usdPerUnit;
+		totalUsd += usd;
+		lines.push({
+			label: humanize(name),
+			amountUsd: usd,
+			detail: `${value.toLocaleString('en-US', { maximumFractionDigits: 1 })} ${rate.unit}`,
+		});
 	}
-	lines.sort((a, b) => (b.amountUsd ?? -1) - (a.amountUsd ?? -1));
+	lines.sort((a, b) => (b.amountUsd ?? 0) - (a.amountUsd ?? 0));
 
 	return {
 		id: 'railway',
 		label: LABEL,
 		configured: true,
 		ok: true,
-		reason: sawCost
-			? "Railway's own estimate for the current billing cycle."
-			: 'Railway returns usage units for this project, not a dollar figure, so no total is shown — ' +
-				'these are integrated units (vCPU-minutes, GB-minutes), and pricing them at a guessed ' +
-				`rate would be a confident wrong number.${await describeUsageOptions()}`,
+		reason:
+			'Railway exposes usage units, not money, so this prices them at the published rates — ' +
+			"the same arithmetic their dashboard does. Compare against Railway's own Estimated usage.",
 		// Railway has no prepaid balance — it bills a plan plus usage in arrears.
 		balanceUsd: null,
-		spendUsd: sawCost ? totalUsd : null,
-		spendWindow: 'current billing cycle',
+		spendUsd: totalUsd,
+		// `estimatedUsage` is Railway's PROJECTION for the whole cycle, not a
+		// month-to-date figure — the same number their dashboard headlines.
+		spendWindow: 'projected, this cycle',
 		estimated: true,
 		lines,
 	};
