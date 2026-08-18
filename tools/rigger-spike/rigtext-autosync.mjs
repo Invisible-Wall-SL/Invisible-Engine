@@ -316,6 +316,22 @@ const FOUR = [
 	);
 }
 
+// ---- 13. the bake's PREREQUISITES ---------------------------------------------------------
+// Caught live, not here: the auto-sync loaded strings and not fonts, so every tile of a re-bake
+// came back "the font could not be loaded" and the whole bake was lost. The gate reasons about
+// drift, not pixels, so it could not have seen it — but it can pin the two guards added after.
+{
+	const autoSyncSrc = extractFn(viewSrc, 'autoSyncRigText');
+	check(
+		'auto-sync loads the FONT catalog, not just the strings',
+		/loadFonts\(\)/.test(autoSyncSrc) && /loadStrings\(\)/.test(autoSyncSrc),
+	);
+	check(
+		'the bake loads the catalog itself if no caller did',
+		/if \(!fonts\.length\) await loadFonts\(\);/.test(mainSrc),
+	);
+}
+
 // ---- report ------------------------------------------------------------------------------
 if (failures.length) {
 	console.error(`rigtext-autosync: ${pass} passed, ${failures.length} FAILED`);

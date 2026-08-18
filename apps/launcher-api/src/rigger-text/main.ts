@@ -136,6 +136,12 @@ async function preview(text: string, style: RigTextStyle): Promise<HTMLCanvasEle
  * refuses a document whose page does not exist, so this ordering is enforced, not just assumed.
  */
 async function save(args: SaveArgs): Promise<SaveResult> {
+	// Self-sufficient on purpose. `bakeRigTextPage` resolves every request's font through the
+	// catalog `setFontCatalog` fills, and a caller that had only loaded STRINGS got every tile
+	// back as "the font could not be loaded" — a whole bake lost to a missing prerequisite that
+	// is entirely this module's own business. Cheap: one fetch, and only when nothing is cached.
+	if (!fonts.length) await loadFonts();
+
 	const requests: RigTextRequest[] = [];
 	const texts = new Map<string, string>();
 	for (const el of args.elements) {

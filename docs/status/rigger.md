@@ -79,10 +79,16 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
   - **An unfittable locale warns rather than disappearing.** New `warnings` channel on the bake
     result, kept apart from `failed` (which means "no pixels"): these ship, they just ship wide,
     and only the author can shorten the string or give the element more room.
-  - Gate grew to **25/25**. Two separate broken-copy runs prove it decisive: removing the
+  - Gate grew to **27/27**. Two separate broken-copy runs prove it decisive: removing the
     attachment-drift rule fails 3, removing the termination guard fails 2. It also caught the
     fit rule failing OPEN on a variant with no recorded width (`undefined <= n` is false), which
     would have re-baked every pre-fit variant on sight.
+  - **The auto-sync loaded strings but not FONTS**, so its first real re-bake lost every tile to
+    "the font could not be loaded" and wrote nothing. Only live use could surface it: the gate
+    reasons about drift rather than pixels, and the first live run repaired *attachments*, which
+    needs no rasteriser at all. Fixed on both sides — the auto-sync loads both catalogs, and
+    `save()` now loads the font catalog itself if no caller did, since resolving fonts is the
+    bake's own business and not a prerequisite each call site should have to remember.
 - 2026-08-18 — **A rig's localized text now follows `/localization` on its own, and the bake
   finally SAVES the rig.** Owner: the remake's new Spine "Buy Feature" button stayed English in
   a `lang=fr` game. Three faults in one chain, found by walking it end to end on live R2:

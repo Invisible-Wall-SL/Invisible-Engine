@@ -2295,8 +2295,18 @@ async function autoSyncRigText(){
 
   autoSyncingText = true;
   try {
-    try { textStrings = await window.RiggerText.loadStrings(); }
-    catch (e){ console.warn("[RigText] auto-sync skipped — /localization unreachable", e); return; }
+    // BOTH catalogs, always. The strings decide WHAT to bake; the font catalog is what
+    // `setFontCatalog` fills, and `bakeRigTextPage` resolves every request's font through it —
+    // so loading strings alone made a re-bake fail every tile with "the font could not be
+    // loaded". It went unseen offline because the gate reasons about drift, not pixels, and
+    // unseen in the first live run because repairing attachments needs no rasterising at all.
+    try {
+      const [f, s] = await Promise.all([window.RiggerText.loadFonts(), window.RiggerText.loadStrings()]);
+      textFonts = f; textStrings = s;
+    } catch (e){
+      console.warn("[RigText] auto-sync skipped — fonts / localization unreachable", e);
+      return;
+    }
 
     const stale = rigText.elements
       .map((el) => ({ el, why: textElementDrift(el) }))
