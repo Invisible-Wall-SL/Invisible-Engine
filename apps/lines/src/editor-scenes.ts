@@ -1174,24 +1174,39 @@ declare global {
 const RUNTIME_RETRY_DELAYS_MS = [1_000, 3_000];
 
 /**
- * Per-attempt cap. Must comfortably exceed a cold assemble (~17-19s) or we would abort runs
- * that were about to succeed, but must exist at all: boot AWAITS this fetch, so a hung
- * request with no timeout is an indefinitely black screen.
+ * Per-attempt cap. Must comfortably exceed a cold assemble or we abort runs that were about to
+ * succeed, but must exist at all: boot AWAITS this fetch, so a hung request with no timeout is
+ * an indefinitely black screen.
+ *
+ * ⚠️ This number ROTS as a project grows — it was 30s against a then-measured ~17-19s assemble,
+ * and by 2026-08 Book of Borut Remake was answering in 29.6-34.2s (183 KB bundle, measured over
+ * three fetches). The cap sat *inside* that spread, so the first attempt aborted at the moment
+ * the response was about to land and the game silently dropped to STALE BAKED data — the exact
+ * failure `markRuntimeStale` exists to expose. Retrying usually rescued it (the endpoint
+ * single-flights, so attempt 2 joins the run in flight), which is why it read as "flaky" rather
+ * than broken. {@link fetchRuntimeWithRetry} now warns whenever an attempt spends most of its
+ * budget, so the next time this rots it says so BEFORE it starts failing.
  */
-const RUNTIME_ATTEMPT_TIMEOUT_MS = 30_000;
+const RUNTIME_ATTEMPT_TIMEOUT_MS = 60_000;
+
+/** Warn once an attempt exceeds this share of its cap — the early signal that the assemble has
+ *  grown back into the timeout. */
+const RUNTIME_SLOW_ATTEMPT_RATIO = 0.6;
 
 /**
  * Total budget across all attempts. Bounds the worst case for a PLAYER: on a hard launcher
  * outage they wait this long at most before getting the (working) baked game, instead of
- * three full attempt timeouts stacked back to back.
+ * three full attempt timeouts stacked back to back. Enforced as a real deadline — each
+ * attempt's timeout is clamped to the budget REMAINING, so this can't be overrun by an
+ * attempt that starts just before the deadline.
  */
-const RUNTIME_FETCH_BUDGET_MS = 45_000;
+const RUNTIME_FETCH_BUDGET_MS = 90_000;
 
 /**
  * GET the runtime bundle, retrying a FAILED response (5xx / network error) a couple of
  * times before giving up and letting the caller fall back to stale baked data.
  *
- * Retrying is worth it because of how the launcher assembles this: a bundle costs ~17-19s
+ * Retrying is worth it because of how the launcher assembles this: a bundle costs tens of seconds
  * (it re-runs every exporter), and the endpoint single-flights + briefly caches the result
  * (`runtimeBundleCache.ts`). So when the gateway 502s a slow assemble, the server is usually
  * still finishing it — a retry JOINS that same run (or hits the warm cache) instead of
@@ -1206,8 +1221,22 @@ async function fetchRuntimeWithRetry(url: string): Promise<Response> {
 	for (let attempt = 0; ; attempt++) {
 		const last = attempt >= RUNTIME_RETRY_DELAYS_MS.length;
 		let failure: string;
+		// Clamp to the budget REMAINING so a late attempt can't run past the deadline. Never
+		// below 1s — a sliver of budget should fail fast, not fire a request doomed to abort.
+		const attemptCap = Math.max(1_000, Math.min(RUNTIME_ATTEMPT_TIMEOUT_MS, deadline - Date.now()));
+		const startedAt = Date.now();
 		try {
-			const res = await fetch(url, { signal: AbortSignal.timeout(RUNTIME_ATTEMPT_TIMEOUT_MS) });
+			const res = await fetch(url, { signal: AbortSignal.timeout(attemptCap) });
+			// A near-miss is the warning shot for the rot described on RUNTIME_ATTEMPT_TIMEOUT_MS:
+			// the fetch SUCCEEDED, so nothing is broken yet, but the cap is no longer comfortable.
+			const elapsed = Date.now() - startedAt;
+			if (res.ok && elapsed > attemptCap * RUNTIME_SLOW_ATTEMPT_RATIO) {
+				console.warn(
+					`[runtime] live data fetch took ${elapsed}ms of a ${attemptCap}ms cap — the bundle ` +
+						`assemble is approaching the timeout. Raise RUNTIME_ATTEMPT_TIMEOUT_MS (or speed up ` +
+						`/api/editor/runtime) before it starts aborting and silently serving STALE BAKED data.`,
+				);
+			}
 			// Client errors are deterministic — fail fast rather than retry a bad token.
 			if (res.ok || (res.status >= 400 && res.status < 500)) return res;
 			// On the last attempt return the response itself, so the caller reports the REAL status.
