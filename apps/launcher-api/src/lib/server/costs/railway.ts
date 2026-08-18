@@ -31,6 +31,13 @@ interface GraphQlResponse {
 	errors?: { message?: string }[] | null;
 }
 
+/** A GraphQL introspection type reference — recursive through `ofType`. */
+interface TypeRef {
+	kind?: string;
+	name?: string | null;
+	ofType?: TypeRef | null;
+}
+
 /** `MEMORY_USAGE_GB` → `Memory usage gb`. Railway returns SCREAMING_SNAKE enum names. */
 function humanize(measurement: string): string {
 	const words = measurement.toLowerCase().replace(/_/g, ' ').trim();
@@ -105,25 +112,65 @@ export async function collectRailway(): Promise<ProviderCost> {
 			: '';
 	}
 
+	/** Render an introspected type ref back into GraphQL syntax (`[Foo!]!`). */
+	function renderType(t: TypeRef | null | undefined): string {
+		if (!t) return '?';
+		if (t.kind === 'NON_NULL') return `${renderType(t.ofType)}!`;
+		if (t.kind === 'LIST') return `[${renderType(t.ofType)}]`;
+		return t.name ?? '?';
+	}
+
 	/**
-	 * `estimatedUsage` requires `measurements: [MetricMeasurement!]!`. Rather than
-	 * hardcode an enum Railway doesn't publish, ask the schema for its members and
-	 * request all of them — that stays correct when Railway adds or renames one.
-	 * Falls back to the measurements the dashboard bills on if introspection is
-	 * unavailable.
+	 * Full argument signatures for the usage-shaped root fields. When a query is
+	 * syntactically valid but Railway still refuses it, the missing information is
+	 * "what does this field actually take" — so surface that rather than guessing a
+	 * third time. This is how `measurements` was found in the first place.
 	 */
-	async function measurementNames(): Promise<string[]> {
+	async function describeUsageFields(): Promise<string> {
+		const { body } = await post(`query {
+			__type(name: "Query") {
+				fields {
+					name
+					args { name type { kind name ofType { kind name ofType { kind name ofType { kind name } } } } }
+				}
+			}
+		}`);
+		const data = body?.data as
+			| { __type?: { fields?: { name?: string; args?: { name?: string; type?: TypeRef }[] }[] } }
+			| undefined;
+		const wanted = /^(estimatedUsage|projectServiceUsage|usage)$/;
+		const sigs = (data?.__type?.fields ?? [])
+			.filter((f) => wanted.test(f.name ?? ''))
+			.map((f) => {
+				const args = (f.args ?? []).map((a) => `${a.name}: ${renderType(a.type)}`).join(', ');
+				return `${f.name}(${args})`;
+			});
+		return sigs.length ? ` Signatures: ${sigs.join(' · ')}.` : '';
+	}
+
+	/**
+	 * The measurements Railway's dashboard actually bills on. Tried FIRST, and
+	 * intersected with the live enum so we never send a member that doesn't exist.
+	 *
+	 * The previous attempt requested every enum member, on the theory that more is
+	 * safer — it isn't. Railway answered "Problem processing request", almost
+	 * certainly because some members aren't valid for `estimatedUsage`. A narrow,
+	 * known-good set first, with the full list as a fallback, is the right order.
+	 */
+	const CORE_MEASUREMENTS = ['CPU_USAGE', 'MEMORY_USAGE_GB', 'NETWORK_TX_GB', 'DISK_USAGE_GB'];
+
+	async function measurementSets(): Promise<string[][]> {
 		const { body } = await post(
 			`query { __type(name: "MetricMeasurement") { enumValues { name } } }`,
 		);
 		const data = body?.data as { __type?: { enumValues?: { name?: string }[] } } | undefined;
-		const names = (data?.__type?.enumValues ?? []).map((v) => v.name ?? '').filter(Boolean);
-		return names.length
-			? names
-			: ['CPU_USAGE', 'MEMORY_USAGE_GB', 'NETWORK_TX_GB', 'DISK_USAGE_GB'];
+		const all = (data?.__type?.enumValues ?? []).map((v) => v.name ?? '').filter(Boolean);
+		if (!all.length) return [CORE_MEASUREMENTS];
+		const core = CORE_MEASUREMENTS.filter((m) => all.includes(m));
+		// Narrow first, then everything — and never the same list twice.
+		return core.length && core.length < all.length ? [core, all] : [all];
 	}
 
-	const measurements = await measurementNames();
 	const query = `query EstimatedUsage($projectId: String!, $measurements: [MetricMeasurement!]!) {
 		estimatedUsage(projectId: $projectId, measurements: $measurements) {
 			measurement
@@ -131,25 +178,34 @@ export async function collectRailway(): Promise<ProviderCost> {
 		}
 	}`;
 
-	const { status, body, transportError } = await post(query, { projectId, measurements });
-	if (transportError) return failed('railway', LABEL, transportError);
-	if (status === 401 || status === 403) {
-		return failed(
-			'railway',
-			LABEL,
-			`Railway rejected the token (${status}). Use an ACCOUNT or WORKSPACE token — a project token authenticates with a Project-Access-Token header and won't work here.`,
-		);
+	let status = 0;
+	let body: GraphQlResponse | null = null;
+	let gqlError: string | undefined;
+
+	for (const measurements of await measurementSets()) {
+		const attempt = await post(query, { projectId, measurements });
+		if (attempt.transportError) return failed('railway', LABEL, attempt.transportError);
+		status = attempt.status;
+		body = attempt.body;
+		if (status === 401 || status === 403) {
+			return failed(
+				'railway',
+				LABEL,
+				`Railway rejected the token (${status}). Use an ACCOUNT or WORKSPACE token — a project token authenticates with a Project-Access-Token header and won't work here.`,
+			);
+		}
+		gqlError = body?.errors?.find((e) => e.message)?.message?.trim();
+		if (body && !gqlError && status < 400) break;
 	}
+
 	if (!body) {
 		return failed('railway', LABEL, `Railway returned HTTP ${status} with an unreadable body.`);
 	}
-
-	const gqlError = body.errors?.find((e) => e.message)?.message;
 	if (gqlError) {
 		return failed(
 			'railway',
 			LABEL,
-			`Railway: ${gqlError.trim()}${await suggestFields()} Verify at https://railway.com/graphiql.`,
+			`Railway: ${gqlError}${await describeUsageFields()} Verify at https://railway.com/graphiql.`,
 		);
 	}
 	if (status >= 400) {

@@ -45,6 +45,16 @@
 		return amount.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 	}
 
+	/**
+	 * The same amount in euros, for the secondary line. Returns '' when there's no
+	 * amount or no rate — the euro figure then simply doesn't render, rather than
+	 * showing a converted-at-nothing zero.
+	 */
+	function eur(amount: number | null | undefined, rate: number | null | undefined): string {
+		if (amount == null || !Number.isFinite(amount) || !rate) return '';
+		return (amount * rate).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
+	}
+
 	const PROVIDER_LABELS: Record<string, string> = {
 		runpod: 'RunPod',
 		railway: 'Railway',
@@ -969,6 +979,9 @@
 					<div class="cost-total">
 						<span class="muted">Measured spend</span>
 						<strong>{usd(known.length ? total : null)}</strong>
+						{#if known.length && costs.fx}
+							<span class="muted eur-total">{eur(total, costs.fx.rate)}</span>
+						{/if}
 						<span class="muted hint">
 							{#if known.length}
 								across {known.length} of {costs.providers.length} providers · windows differ per provider
@@ -1005,12 +1018,18 @@
 										<div class="figure">
 											<span class="muted">Balance</span>
 											<strong>{usd(provider.balanceUsd)}</strong>
+											{#if costs.fx}
+												<span class="muted eur">{eur(provider.balanceUsd, costs.fx.rate)}</span>
+											{/if}
 										</div>
 									{/if}
 									{#if provider.spendUsd != null}
 										<div class="figure">
 											<span class="muted">Spend ({provider.spendWindow ?? 'window'})</span>
 											<strong>{usd(provider.spendUsd)}</strong>
+											{#if costs.fx}
+												<span class="muted eur">{eur(provider.spendUsd, costs.fx.rate)}</span>
+											{/if}
 										</div>
 									{/if}
 									{#if provider.ratePerHourUsd != null}
@@ -1023,6 +1042,9 @@
 										<div class="figure">
 											<span class="muted">Credit left (est.)</span>
 											<strong>{usd(credit.remainingUsd)}</strong>
+											{#if costs.fx}
+												<span class="muted eur">{eur(credit.remainingUsd, costs.fx.rate)}</span>
+											{/if}
 										</div>
 									{:else if credit && credit.toppedUpUsd > 0}
 										<div class="figure">
@@ -1129,6 +1151,14 @@
 
 				<p class="muted hint">
 					Snapshot taken {fmtDate(costs.fetchedAt)}{costs.cached ? ' (cached)' : ''}.
+					{#if costs.fx}
+						Every provider bills in USD; euro figures convert at
+						<strong>{costs.fx.rate.toFixed(4)}</strong> USD→EUR ({costs.fx.source}, published
+						{costs.fx.date}). ECB publishes once per working day, so that date is often yesterday
+						and holds over a weekend.
+					{:else}
+						Euro conversion unavailable — showing USD only rather than converting at a stale rate.
+					{/if}
 				</p>
 			{/await}
 		</section>
@@ -1993,6 +2023,16 @@
 	.cost-total strong {
 		font-size: 26px;
 		color: #7ee0c0;
+	}
+	/* Euros are a derived view of a USD figure, so they read as secondary — same
+	   line, smaller, muted. Never the same weight as the billed number. */
+	.eur-total {
+		font-size: 14px;
+	}
+	.eur {
+		font-size: 12px;
+		text-transform: none;
+		letter-spacing: 0;
 	}
 	.cost-grid {
 		display: grid;

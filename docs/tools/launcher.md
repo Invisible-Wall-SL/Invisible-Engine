@@ -88,6 +88,12 @@ when `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY` are set and
 Anthropic otherwise, so the page shows the card for whichever provider is
 actually being billed (or either one that holds an admin key).
 
+**Euros.** Every provider bills in USD, so EUR is a display conversion shown
+beside each figure at the ECB reference rate (via Frankfurter), with the rate
+and its publication date printed in the footer. ECB publishes once per working
+day, so that date is often yesterday and holds over a weekend. If the rate can't
+be fetched the page shows USD only rather than converting at a stale rate.
+
 Two labels carry meaning and are worth reading:
 
 - **`live`** — the provider's own billed figure.

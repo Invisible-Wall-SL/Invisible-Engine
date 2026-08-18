@@ -20,6 +20,7 @@
 
 import { ENV } from '../env';
 import { collectAnthropic } from './anthropic';
+import { usdToEur, type FxRate } from './fx';
 import { listTopUps, totalToppedUp, type TopUpEntry } from './ledger';
 import { collectOpenAI } from './openai';
 import { collectR2 } from './r2';
@@ -73,6 +74,11 @@ export interface CostsSnapshot {
 	providers: ProviderCost[];
 	credits: Record<string, ProviderCredit>;
 	topUps: TopUpEntry[];
+	/**
+	 * USD→EUR for the secondary figures. `null` when the rate couldn't be fetched —
+	 * the page then shows dollars only rather than converting at a stale guess.
+	 */
+	fx: FxRate | null;
 	/** When this snapshot was gathered. */
 	fetchedAt: Date;
 	/** True when served from cache rather than freshly fetched. */
@@ -146,7 +152,12 @@ export async function getCosts(force = false): Promise<CostsSnapshot> {
 		);
 	}
 
-	const settled = await Promise.allSettled(jobs.map((job) => job()));
+	// The FX lookup rides along with the provider calls rather than adding a step —
+	// it's a third-party HTTP call like the rest, and it already fails to `null`.
+	const [settled, fx] = await Promise.all([
+		Promise.allSettled(jobs.map((job) => job())),
+		usdToEur().catch(() => null),
+	]);
 	const providers = settled
 		.filter((r): r is PromiseFulfilledResult<ProviderCost> => r.status === 'fulfilled')
 		.map((r) => r.value);
@@ -172,6 +183,7 @@ export async function getCosts(force = false): Promise<CostsSnapshot> {
 		providers,
 		credits,
 		topUps,
+		fx,
 		fetchedAt: new Date(),
 		cached: false,
 	};
@@ -186,3 +198,4 @@ export function invalidateCosts(): void {
 
 export type { ProviderCost, ProviderId } from './types';
 export type { TopUpEntry } from './ledger';
+export type { FxRate } from './fx';
