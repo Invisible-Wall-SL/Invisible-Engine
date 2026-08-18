@@ -30,11 +30,14 @@ viewer's `/spine/skeletons` + `/spine/file` endpoints and the same vendored
   (`ROLE_TOOLS` in `src/lib/roles.ts`). Like any tool it is overridable per
   role/user in the admin panel. Every server endpoint it calls is `rigger`-gated.
 
-> **Status (as of 2026-06-14):** Phases 0–5 plus the from-scratch authoring
-> workflow have landed as **code, build GREEN, but mostly not yet browser-verified**
-> on the live authed page. Owner live-testing is ongoing and has already turned up
-> and fixed several browser-only bugs (see Known limitations). Treat the
-> feature list below as "built, verify live."
+> **Status (as of 2026-08-18):** Phases 0–6, the from-scratch authoring workflow,
+> localized text as rig art, and **Cinematic mode** have all landed. Shipping a rig
+> into a game works end-to-end. The standing caveat is unchanged: much of this is
+> **code + green builds, not browser-verified** on the live authed page — the
+> vendored spine runtime is minified, so the headless test spikes (which use the
+> un-mangled `spine-core`) can be false-green. Owner live-testing keeps turning up
+> browser-only bugs (see Known limitations). Treat the feature list below as
+> "built, verify live."
 
 ## How to use it
 
@@ -85,7 +88,7 @@ overwrite your choice. **Shift-click** the Bounds button to re-fit automatically
 (clears the lock and re-measures). Use this when you want the spine to size to a
 deliberate frame (e.g. just the body) rather than the measured art extent.
 
-### The three modes
+### The four modes
 
 A floating segmented toggle at the top of the stage switches the workflow:
 
@@ -95,8 +98,12 @@ A floating segmented toggle at the top of the stage switches the workflow:
   attachments. This is the rig-editing mode.
 - **◆ Animate** — author one animation at a time by posing bones (and slots) at a
   playhead into keyframes.
+- **🎬 Cinematic** — stage *several* rigs together as a scene and sequence them.
+  See [Cinematic mode](#cinematic-mode) below.
 
-(Setup and Animate stay disabled until an editable rig is loaded.)
+(Setup and Animate stay disabled until an editable rig is loaded. Cinematic does
+**not** need one — it opens with no rig loaded and boots its own renderer, because
+it casts rigs from the project rather than editing the one on the stage.)
 
 ### Timeline events (fire an effect on the beat)
 
@@ -433,6 +440,111 @@ keeps showing the OLD image — its copy is never auto-updated.
 - If you have unsaved skeleton edits, re-sync asks to confirm first (it reloads the
   rig from R2, discarding those edits).
 
+## Cinematic mode
+
+A rig animation is one character. A **cinematic** is a *scene*: several rigs on a
+stage, each running its own clips, moving and fading and appearing on a shared
+timeline, with a camera over the top and named cues the game reacts to. It is a
+fourth mode of this tool rather than a separate tool because it is the same
+renderer, the same rigs and the same timeline you already know.
+
+Open it with **🎬 Cinematic** in the mode toggle — with or without a rig loaded.
+
+### Cast and place your actors
+
+Add a rig from the project as an **actor**. The same rig can be cast twice and the
+two instances are independent. Per actor you set **x / y / scale / rotation /
+flip**, its **draw order**, whether it's visible, and which **clip** it plays.
+Scrub or play the whole stage to see them together.
+
+> Actors are identified by the rig's **folder**, not by its position in the rig
+> list — so adding or deleting rigs later never silently re-points a saved
+> cinematic at a different character.
+
+### Sequence it
+
+The timeline is an NLE-style sequencer sharing the panel the dopesheet uses:
+
+- One row per **track**, with **layers** per actor (**⧉** adds one; layers blend
+  bottom-up).
+- **Strips** are clips placed in time — drag to move, drag either edge to trim,
+  **Alt** to ignore the fps grid, **Ctrl+wheel** to zoom, **Del** to delete,
+  **Ctrl+D** to duplicate. Trimming the *left* edge moves the clip's start and its
+  in-point together, so the art under your cursor stays put instead of sliding.
+- The **strip inspector** exposes everything the player reads: clip, start,
+  length, clip-in, speed, loop mode (once / fill / count N / ping-pong), blend
+  in/out, alpha, and replace-vs-additive. Blend ramps are drawn inside the strip
+  and additive strips are tinted, so the stack reads at a glance.
+
+### Animate properties, the camera, and visibility
+
+Press **◆** next to a field to key it at the playhead. Actor **x / y / scale /
+rotation / alpha** are all animatable; keys appear as colour-coded diamonds on
+their own rows (drag to retime, Del to delete), and a key inspector sets time,
+value and **outgoing interpolation** (linear / ease in-out / hold).
+
+The **camera** is keyed from wherever the stage camera is — frame the shot by
+panning and zooming, then press ◆. A **🎥 live toggle** stops the track seizing
+the view while you navigate.
+
+**Visibility** is keyed with the ◆ beside an actor's eye. Its keys carry their
+state in their *shape* — filled = on screen from here, hollow = hidden from here —
+so the row needs no legend. Being a boolean it is stepped: the value is the last
+key at or before the playhead.
+
+Two rules that will otherwise look like bugs:
+
+- A channel with keys **owns** that property for the whole cinematic, holding its
+  first/last value outside the keyed range — so an actor never jumps at the first key.
+- Consequently, once a channel is animated, **typing in its numeric field keys at
+  the playhead** rather than editing the static placement. (Editing the static
+  value would appear to do nothing, since the channel overrides it on the next frame.)
+
+### Cues — telling the game when, not what
+
+The global **⚡ cues** row marks named moments. **＋ Cue at playhead**, then name
+it and drag the marker to retime. A cinematic never implements the effect; it only
+says *when*. Namespaces, colour-coded on the marker:
+
+| Prefix | Means |
+|---|---|
+| `fx:` | an **Invisible FX** effect |
+| `sfx:` / `music:` | a game sound cue |
+| `signal:` | broadcast on the game event bus |
+
+The name is free text with a datalist of prefixes rather than a dropdown, because
+the ids live in three different systems — any dropdown would be wrong in at least
+one of them. In the editor an `fx:` cue drives the stage FX overlay; the other
+namespaces name things that only exist inside a game, so they report in the status
+line instead of silently doing nothing.
+
+**Nothing fires on a seek.** A backward step or a jump bigger than a frame is
+silent, which is what makes scrubbing usable rather than a machine-gun of effects.
+
+### Undo, saving, and getting it into a game
+
+**↶ / ↷** plus Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y, with the action's name on the
+button; rapid edits to one field coalesce into a single step. This is `/rigger`'s
+first undo stack and it covers the **cinematic document only** — rig editing still
+has no undo.
+
+Save with **Open / Save / ＋ New / 🗑** or Ctrl+S; cinematics are stored per
+project. If someone else saved over your copy you are **asked** before overwriting,
+never silently clobbered, and switching project in another tab can't make a save
+land in the wrong project. `localStorage` holds only a crash/reload draft.
+
+To play one in a game, wire the Flow node **`playCinematic`** in `/flow-v2`: pick
+the cinematic by id, set `speed`, and choose **`loop`** *or* **`awaitComplete`**.
+Those two are mutually exclusive — together they hang the round forever with no
+error, so the inspector clears one when you set the other and the graph refuses to
+validate with both. The rigs a cinematic casts ship with it automatically, even if
+they appear in no scene.
+
+> **Status:** built 2026-08-17, all phases complete. The **editor** half is the
+> verified half — the in-game player and the Flow node are proven by contract tests
+> but have **not yet run in a real game**. Check a cinematic in a live game before
+> depending on it.
+
 ## Known limitations / TODOs
 
 - **Live verification is the main gap.** Most of the editing/authoring/animation
@@ -456,11 +568,13 @@ keeps showing the OLD image — its copy is never auto-updated.
 - **JSON only for editing.** Editing writes/exports JSON `.irig`; binary `.skel`
   is view-only.
 - **Deferred:** hull-loop **reordering** (dragging to change the boundary order,
-  Phase 3.6d) is still future work. The visual texture-panel UV editor (drag
-  vertices over the region art) shipped as Phase 3.6a, constraint-edge editing
-  (✎ Edge, Phase 3.6b) ships, and hull **promote/demote** (⬡ Hull, Phase 3.6c) now
-  ships; also still deferred are the remaining non-bone animation channels
-  (draw-order timeline, events, mesh deform).
+  Phase 3.6d) is the only remaining 3.6 sub-item. The visual texture-panel UV
+  editor (drag vertices over the region art) shipped as Phase 3.6a,
+  constraint-edge editing (✎ Edge, Phase 3.6b) ships, and hull **promote/demote**
+  (⬡ Hull, Phase 3.6c) ships. The non-bone animation channels once listed here —
+  **draw-order, events and mesh deform** — have all since shipped.
+- **Undo covers cinematics only.** Rig editing (Setup / Animate) still has no undo
+  stack; the one added for Cinematic mode is scoped to the cinematic document.
 - **Localized text needs fonts + reviewed translations to exist first.** With no font in the
   project's catalog, or no keys in `/localization`, the Add-text panel has nothing to offer.
   Only **reviewed** translations become locale variants — deliberately, because a string baked
@@ -468,10 +582,10 @@ keeps showing the OLD image — its copy is never auto-updated.
   locale count for each text element.
 - **A baked bezier uses absolute control points** — re-apply easing after a large
   retime or re-pose of a curved key (noted in-UI).
-- **Shipping a rig is a separate step.** "It renders in `/rigger`" does **not**
-  mean it ships in a game — the editor reads R2 directly. Per the asset-pipeline
-  rule, a rig only ships once it travels export → `deploy/` → bake → pull →
-  register; that full Rigger→game wiring (Phase 7) is not done yet.
+- ~~**Shipping a rig is a separate step.**~~ **Resolved 2026-08-04:** a rig now
+  travels the full export → `deploy/` → bake → pull → register chain, so "it
+  renders in `/rigger`" *does* now mean it ships. (Publishing the game is still
+  its own action, as for every asset class.)
 - **Bundle-name collisions are case-sensitive in R2.** New-rig / upload now 409 on
   a name that matches an existing bundle case-insensitively (this was added after
   two same-name rigs got stuck); use distinct names.

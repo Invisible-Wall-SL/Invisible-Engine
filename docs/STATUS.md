@@ -28,7 +28,7 @@ change piled back into one file. See [`docs/status/README.md`](status/README.md)
 | **Invisible Editor** (Scene Editor) | [status/editor](status/editor.md) | [design/invisible-editor](design/invisible-editor.md) | [tools/invisible-editor](tools/invisible-editor.md) | `invisible-components` |
 | **Component Editor** | [status/component-editor](status/component-editor.md) | [design/invisible-editor](design/invisible-editor.md) | [tools/component-editor](tools/component-editor.md) | `invisible-components` |
 | **Invisible Rigger** | [status/rigger](status/rigger.md) | [design/invisible-rigger](design/invisible-rigger.md) | [tools/rigger](tools/rigger.md) | `invisible-rigger` |
-| **Invisible Cinematic** (planned) | [status/cinematic](status/cinematic.md) | [design/invisible-cinematic](design/invisible-cinematic.md) | — (unbuilt) | `invisible-rigger` |
+| **Invisible Cinematic** (a mode inside `/rigger`) | [status/cinematic](status/cinematic.md) | [design/invisible-cinematic](design/invisible-cinematic.md) | [tools/rigger §Cinematic mode](tools/rigger.md#cinematic-mode) | `invisible-rigger` |
 | **Symbols State Machine** | [status/symbols](status/symbols.md) | [design/…-symbols-state-machine](design/invisible-symbols-state-machine.md) | [tools/symbols-state-machine](tools/symbols-state-machine.md) | `invisible-symbols` |
 | **Atlas Maker** | [status/atlas-maker](status/atlas-maker.md) | [design/atlas-per-user-session](design/atlas-per-user-session.md) | [tools/atlas-maker](tools/atlas-maker.md) | `atlas-python-tools` |
 | **Sheet Maker** | [status/sheet-maker](status/sheet-maker.md) | — | [tools/sheet-maker](tools/sheet-maker.md) | `atlas-python-tools` |
@@ -77,7 +77,34 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
    wire `gen-flow-vocabulary --check` into CI/pre-commit; refresh
     [tools/fx.md](tools/fx.md) for the new Emission/Movement/Colour/Blend/Presets sliders (rule 9).
 
-**Recently closed** (2026-08-04): **Concurrency Phase 2 — COMPLETE** (the whole soft-lease + presence
+**Recently closed** (2026-08-05 → 08-18):
+
+- **Invisible Cinematic — Phases 0–3 COMPLETE** (built 2026-08-17). A fourth mode inside `/rigger`:
+  stage several rigs as actors, author them on an NLE-style sequencer (strips · layers · blending),
+  key property / camera / visibility channels, drop named cues, undo/redo. Saves per project to R2,
+  travels the ship chain with the rigs it casts, plays in-game through `<Cinematic>` off one shared
+  evaluator, and is triggered from an authored flow by the **`playCinematic`** node. ⏳ The engine
+  half has not yet run in a real game. ([status/cinematic](status/cinematic.md))
+- **ComfyUI generation moved to RunPod — both local-GPU blockers are GONE** (owner-verified
+  2026-08-18). **gpt_image** and the **FLUX ref/ControlNet path** both generate on the RunPod
+  backend; neither depends on what is installed on the local 4070 any more. Supporting work: the
+  serverless worker went cu128 / torch 2.8 so one image covers Blackwell through Ampere, a
+  free-VRAM-conditional ComfyUI restart between jobs fixed the DepthAnything OOM, and each
+  serverless variant now gets a unique filename instead of overwriting the last (all 08-15); the
+  multi-pod R&D fleet + baked pod image landed 08-13.
+  ([status/comfyui](status/comfyui.md), [status/atlas-maker](status/atlas-maker.md))
+- **Localization reaches the game.** A project's translations were never actually loaded (catalog
+  merged at module-eval, before the runtime fetch; `label` params skipped the resolver) — fixed, plus
+  per-launch language + currency, bulk review, and reviewed-only builds. ([status/localization](status/localization.md))
+- **Text as localized ART in a rig** — a `/localization` key rasterises into rig art and the
+  attachment swaps with the game's language. ([status/rigger](status/rigger.md))
+- **Authored text fits its frame** — authorable layout profiles, width-only text-box auto-fit (and
+  the Info Bar gained the box), win copy that NAMES the paying symbol, and the symbol rendered as an
+  inline image — boxed rows included. ([status/editor](status/editor.md), [status/win-text](status/win-text.md))
+- **Engine fixes:** the runtime fetch aborting exactly as the response arrived; free spins rolling on
+  by themselves after a big win; stacked pictures; reel anticipation. ([status/engine](status/engine.md))
+
+**Earlier — closed 2026-08-04:** **Concurrency Phase 2 — COMPLETE** (the whole soft-lease + presence
 story). 2b the BACKEND (`doc_leases` + `lease.ts` + `POST /api/lease`, DB-adjudicated conditional
 upsert, migration 0014, PR #206); 2a the shared `saveState.svelte.ts` + `SaveStatusBadge` every
 authoring tool saves through (PR #209, a helper bug + a sticky-conflict-on-target-switch regression
@@ -106,10 +133,11 @@ the docs were just stale — remaining tail = the Borut mirror B4.6 + live-verif
 
 ## Blocked on owner / external (not code)
 
-- **gpt_image generation** — needs the `Images to RGB` ComfyUI node + `COMFY_ORG_API_KEY`/credits
-  locally (only SDXL ControlNets installed). Code is ready. ([status/infra](status/infra.md), [status/atlas-maker](status/atlas-maker.md))
-- **FLUX ref/ControlNet path** — only SDXL ControlNets installed; txt2img FLUX proven, the
-  ref/ControlNet path is unproven.
+- ~~**gpt_image generation**~~ — resolved: generates on the **RunPod** backend, owner-tested
+  2026-08-18. It no longer depends on the `Images to RGB` node / ControlNets being installed on the
+  local GPU. ([status/atlas-maker](status/atlas-maker.md))
+- ~~**FLUX ref/ControlNet path**~~ — resolved the same way: proven on RunPod 2026-08-18, so the
+  "only SDXL ControlNets are installed locally" constraint no longer gates it.
 - **Shipped-game submodule bumps (owner-owned)** — Book of Borut bumps to ship FX / Flow / info-bar,
   **plus the B4.6 HUD-readout mirror** (Borut still renders coded `UiLabel*` binds; the apps/lines
   component-instance flip reaches it only on a submodule bump + republish) ([[feedback_bump_game_submodule]]).

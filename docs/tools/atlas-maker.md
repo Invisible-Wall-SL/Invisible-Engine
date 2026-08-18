@@ -210,14 +210,25 @@ save/drag-drop format).
 
 ## Prerequisites
 
-- Your local **ComfyUI** must be running and reachable through the tunnel.
-- Models the chosen pipeline names must be installed locally:
-  - **SDXL** path (default) — verified end-to-end.
+Generation runs against **one of two backends**, selected by `COMFY_TRANSPORT`:
+
+- **`serverless`** — a RunPod Serverless endpoint. The worker image bakes the
+  custom nodes and the volume carries the models, so nothing needs installing on
+  your machine and the tunnel is not involved. Since 2026-08-18 this is the path
+  on which **gpt_image** and the **FLUX ref/ControlNet** pipelines are proven.
+- **`http`** (unset = default) — your **local ComfyUI**, which must be running and
+  reachable through the tunnel, with the models the chosen pipeline names
+  installed **on that machine**:
+  - **SDXL** path — verified end-to-end.
   - **FLUX** — needs `flux1-dev` + `t5xxl` + `clip_l` + `ae` (or an FP8
     all-in-one) + Redux (`flux1-redux-dev` + `sigclip_vision`); on the 8GB
-    RTX 4070 use fp8/GGUF to avoid OOM.
+    RTX 4070 use fp8/GGUF to avoid OOM. Only SDXL ControlNets are installed on
+    that GPU, so the shape_ref / ControlNet path needs the serverless backend.
   - **gpt_image** — needs `COMFY_ORG_API_KEY` (comfy.org credit) and the
-    `OpenAIGPTImage1` + `Images to RGB` nodes.
+    `OpenAIGPTImage1` + `Images to RGB` nodes present locally.
+
+If a pipeline that works for someone else fails for you, check which transport
+you are on before hunting for a missing model.
 
 ## Config / env (names only)
 
