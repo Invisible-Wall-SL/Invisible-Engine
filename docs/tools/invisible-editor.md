@@ -145,6 +145,13 @@ Open the **Library** tab. It is grouped into:
 The editor renders the real texture (and spine bundles preview as a live
 skeleton), so what you see matches what the game will draw.
 
+The **reel board** previews the real symbols too: each cell shows a symbol's
+**Static** binding from the Invisible Symbols State Machine, cycled across the
+grid so the board looks populated. Sprite and spine symbols both draw — a spine
+symbol plays its Static animation, sized into the cell exactly as the game sizes
+it. A cell falls back to an amber marker only while its art is still loading, or
+when the binding names art this project can't resolve.
+
 ### 3. Position, scale, rotate
 
 Select a node by clicking it on the canvas (Shift-click toggles it into a
