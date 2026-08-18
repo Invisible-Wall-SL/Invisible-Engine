@@ -93,7 +93,7 @@ import {
 } from '$lib/server/layoutProfile';
 import { DEFAULT_LAYOUT_PROFILE } from 'engine-layout';
 import { getCosts, invalidateCosts } from '$lib/server/costs';
-import { addTopUp, deleteTopUp } from '$lib/server/costs/ledger';
+import { setMonthEur, TOTAL_KEY } from '$lib/server/costs/months';
 import type { ProviderId } from '$lib/server/costs/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -900,46 +900,53 @@ export const actions: Actions = {
 	},
 
 	/**
-	 * Record a prepaid top-up. This is a human claim, not a measurement — it exists
-	 * because only RunPod exposes a real balance API, so for the other providers
-	 * "credit remaining" can only be derived from what an admin says they added.
+	 * Record what the bank ACTUALLY charged for one provider-month, in euros.
+	 *
+	 * This is the authoritative figure: the USD column is an estimate assembled from
+	 * provider APIs, while this is the real debit — card FX spread means it will never
+	 * exactly match a converted total, and for Spanish taxation the real debit is the
+	 * number that counts. An empty value clears it.
 	 */
-	addCostTopUp: async ({ request, locals }) => {
+	setCostMonthEur: async ({ request, locals }) => {
 		const admin = await requireAdmin(locals);
 		const data = await request.formData();
 		const provider = String(data.get('provider') ?? '').trim();
-		const amountRaw = String(data.get('amountUsd') ?? '').trim();
-		const dateRaw = String(data.get('occurredAt') ?? '').trim();
-		const note = String(data.get('note') ?? '').trim() || null;
+		const year = Number(String(data.get('year') ?? ''));
+		const month = Number(String(data.get('month') ?? ''));
+		const raw = String(data.get('eur') ?? '').trim();
 
-		if (!isCostProvider(provider)) {
-			return fail(400, { action: 'addCostTopUp', error: 'Pick a provider.' });
+		// `total` is the reserved month-level key — the euro figure is what the bank
+		// charged for the month as a whole, not per provider.
+		if (provider !== TOTAL_KEY && !isCostProvider(provider)) {
+			return fail(400, { action: 'setCostMonthEur', error: 'Unknown provider.' });
 		}
-		const amountUsd = Number(amountRaw.replace(/[$,]/g, ''));
-		if (!Number.isFinite(amountUsd)) {
-			return fail(400, { action: 'addCostTopUp', error: 'Enter the amount in USD, e.g. 200.' });
+		if (!Number.isInteger(year) || !Number.isInteger(month)) {
+			return fail(400, { action: 'setCostMonthEur', error: 'Bad month.' });
 		}
-		// A bare `YYYY-MM-DD` from the date input parses as UTC midnight, which is what
-		// we want — the spend window is snapped to UTC days by the cost report anyway.
-		const occurredAt = dateRaw ? new Date(dateRaw) : new Date();
+		// Accept both `1.234,56` (Spanish) and `1,234.56` (English) — an admin typing
+		// a figure off a Spanish bank statement should not have to reformat it.
+		let eur: number | null = null;
+		if (raw) {
+			const normalized =
+				raw.lastIndexOf(',') > raw.lastIndexOf('.')
+					? raw.replace(/\./g, '').replace(',', '.')
+					: raw.replace(/,/g, '');
+			eur = Number(normalized.replace(/[€\s]/g, ''));
+			if (!Number.isFinite(eur)) {
+				return fail(400, { action: 'setCostMonthEur', error: 'Enter a number, e.g. 128,40' });
+			}
+		}
 
-		const result = await addTopUp({ provider, amountUsd, occurredAt, note, userId: admin.id });
-		if (!result.ok) return fail(400, { action: 'addCostTopUp', error: result.error });
+		const result = await setMonthEur({
+			provider: provider as ProviderId | typeof TOTAL_KEY,
+			year,
+			month,
+			eur,
+			userId: admin.id,
+		});
+		if (!result.ok) return fail(400, { action: 'setCostMonthEur', error: result.error });
 
-		// The burndown is derived from the ledger, so a new entry makes the cached
-		// snapshot wrong — drop it rather than showing a stale "remaining".
 		invalidateCosts();
-		return { action: 'addCostTopUp', ok: 'Top-up recorded.' };
-	},
-
-	deleteCostTopUp: async ({ request, locals }) => {
-		await requireAdmin(locals);
-		const data = await request.formData();
-		const id = String(data.get('id') ?? '').trim();
-		if (!id) return fail(400, { action: 'deleteCostTopUp', error: 'Missing entry.' });
-
-		await deleteTopUp(id);
-		invalidateCosts();
-		return { action: 'deleteCostTopUp', ok: 'Top-up removed.' };
+		return { action: 'setCostMonthEur', ok: 'Saved.' };
 	},
 };

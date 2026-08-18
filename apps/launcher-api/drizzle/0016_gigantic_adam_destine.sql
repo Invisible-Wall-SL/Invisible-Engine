@@ -1,0 +1,1 @@
+DROP TABLE "cost_top_ups" CASCADE;

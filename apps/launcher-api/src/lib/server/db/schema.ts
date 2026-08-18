@@ -314,33 +314,52 @@ export interface SharedAnimationRefs {
 }
 
 /**
- * Manually-recorded prepaid top-ups, for the Admin → Costs credit burndown.
+ * Per-provider, per-month running cost for Admin → Costs.
  *
- * Exists because only RunPod exposes a real balance API — Anthropic reports spend but
- * never a remaining balance, and Cloudflare/Railway have no prepaid concept at all. So
- * for those providers "credits left" can only be `what an admin says they added` minus
- * `what the provider says we spent since`. This table is the first half of that; it is
- * a human-entered claim, not a measurement, and the UI labels the derived figure as an
- * estimate accordingly.
+ * Months are **Europe/Madrid calendar months**, grouped into calendar years, because
+ * the Spanish tax year is the calendar year — the whole point of the table is that a
+ * year's rows add up to something fileable.
  *
- * `amountCents` is an INTEGER on purpose: money in a float accumulates rounding drift
- * across a summed ledger, and this column is summed on every page load.
+ * The lifecycle is deliberately two-state:
+ * - **Open** (`lockedAt` null) — the current month. Its `amountUsdCents` is rewritten
+ *   from the live estimate on every snapshot, so the figure rises and falls during the
+ *   month exactly as the providers revise it.
+ * - **Locked** (`lockedAt` set) — a month that has ended. Frozen at the last value
+ *   observed while it was open, and never recomputed. Without this the row would keep
+ *   moving under a filed number, and the providers cannot rebuild a past month anyway
+ *   (RunPod has no history at all, Railway reports current-cycle only, R2's analytics
+ *   retention is short).
+ *
+ * `eurCents` is the amount the bank ACTUALLY charged, typed in by an admin. It is not
+ * a conversion of `amountUsdCents`: card FX spread means the real debit differs from
+ * any reference rate, and for tax the real debit is the number that counts. Null until
+ * someone enters it.
+ *
+ * Both money columns are INTEGER cents — these are summed per year, and floats
+ * accumulate drift across a sum.
  */
-export const costTopUps = pgTable('cost_top_ups', {
-	id: text('id')
-		.primaryKey()
-		.$defaultFn(() => crypto.randomUUID()),
-	/** Matches `ProviderId` in `$lib/server/costs/types.ts` (e.g. 'anthropic'). */
-	provider: text('provider').notNull(),
-	/** USD in cents. Positive = credit added. */
-	amountCents: integer('amount_cents').notNull(),
-	/** When the credit was actually purchased — spend is counted from here. */
-	occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
-	note: text('note'),
-	/** The admin who recorded it; null once that user is deleted. */
-	createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
-	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const costMonths = pgTable(
+	'cost_months',
+	{
+		/** Matches `ProviderId` in `$lib/server/costs/types.ts` (e.g. 'runpod'). */
+		provider: text('provider').notNull(),
+		/** Calendar year, Europe/Madrid. */
+		year: integer('year').notNull(),
+		/** Calendar month 1–12, Europe/Madrid. */
+		month: integer('month').notNull(),
+		/** Estimated USD spend for the month, in cents. */
+		amountUsdCents: integer('amount_usd_cents').notNull().default(0),
+		/** What the bank actually charged, in euro cents. Admin-entered; null until then. */
+		eurCents: integer('eur_cents'),
+		/** Set when the month ended and the figure was frozen. Null while open. */
+		lockedAt: timestamp('locked_at', { withTimezone: true }),
+		note: text('note'),
+		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+		/** The admin who last edited the EUR figure; null for automatic updates. */
+		updatedBy: text('updated_by').references(() => users.id, { onDelete: 'set null' }),
+	},
+	(table) => [primaryKey({ columns: [table.provider, table.year, table.month] })],
+);
 
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
@@ -357,4 +376,4 @@ export type AppSetting = typeof appSettings.$inferSelect;
 export type SharedRig = typeof sharedRigs.$inferSelect;
 export type SharedAnimation = typeof sharedAnimations.$inferSelect;
 export type DocLease = typeof docLeases.$inferSelect;
-export type CostTopUp = typeof costTopUps.$inferSelect;
+export type CostMonth = typeof costMonths.$inferSelect;

@@ -63,8 +63,35 @@
 		anthropic: 'Anthropic',
 	};
 
-	/** Today as `YYYY-MM-DD`, for the top-up date input's default. */
-	const today = new Date().toISOString().slice(0, 10);
+	/** A plain EUR amount (no conversion) — used for the real charged figures. */
+	function eurAmount(amount: number | null | undefined): string {
+		if (amount == null || !Number.isFinite(amount)) return '—';
+		return amount.toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
+	}
+
+	const MONTH_NAMES = [
+		'January',
+		'February',
+		'March',
+		'April',
+		'May',
+		'June',
+		'July',
+		'August',
+		'September',
+		'October',
+		'November',
+		'December',
+	];
+	const monthName = (m: number) => MONTH_NAMES[m - 1] ?? String(m);
+
+	/** True for the month still being written to — the one whose figure keeps moving. */
+	function isOpenMonth(
+		open: { year: number; month: number },
+		m: { year: number; month: number },
+	): boolean {
+		return open.year === m.year && open.month === m.month;
+	}
 	let tab = $state<TabId>('users');
 
 	// Keyboard nav for the tablist (left/right/home/end), per WAI-ARIA tabs pattern.
@@ -997,7 +1024,6 @@
 
 				<div class="cost-grid">
 					{#each costs.providers as provider (provider.id)}
-						{@const credit = costs.credits[provider.id]}
 						<div class="card cost-card" class:unset={!provider.configured}>
 							<div class="cost-head">
 								<h3>{provider.label}</h3>
@@ -1038,18 +1064,10 @@
 											<strong>{usd(provider.ratePerHourUsd)}<span class="muted">/hr</span></strong>
 										</div>
 									{/if}
-									{#if credit?.remainingUsd != null}
+									{#if provider.spendUsd == null && provider.ratePerHourUsd == null}
 										<div class="figure">
-											<span class="muted">Credit left (est.)</span>
-											<strong>{usd(credit.remainingUsd)}</strong>
-											{#if costs.fx}
-												<span class="muted eur">{eur(credit.remainingUsd, costs.fx.rate)}</span>
-											{/if}
-										</div>
-									{:else if credit && credit.toppedUpUsd > 0}
-										<div class="figure">
-											<span class="muted">Recorded top-ups</span>
-											<strong>{usd(credit.toppedUpUsd)}</strong>
+											<span class="muted">This month</span>
+											<strong class="muted">not reported</strong>
 										</div>
 									{/if}
 								</div>
@@ -1087,67 +1105,92 @@
 					{/each}
 				</div>
 
-				<div class="card">
-					<h3>Prepaid top-ups</h3>
-					<p class="muted hint">
-						Only RunPod publishes a real balance. Anthropic reports spend but never a remaining
-						balance, and Railway and R2 have no prepaid concept at all — so for those, record what
-						you added here and the page derives
-						<strong>credit left ≈ recorded top-ups − measured spend since your first entry</strong>.
-						That derived figure is only as good as this ledger: it assumes the balance started at
-						zero and that every top-up is recorded.
-					</p>
-
-					<form method="POST" action="?/addCostTopUp" use:enhance class="inline topup-form">
-						<label>
-							Provider
-							<select name="provider">
-								{#each data.costProviders as id (id)}
-									<option value={id}>{PROVIDER_LABELS[id] ?? id}</option>
-								{/each}
-							</select>
-						</label>
-						<label>
-							Amount (USD)
-							<input name="amountUsd" type="text" inputmode="decimal" placeholder="200" />
-						</label>
-						<label>
-							Date
-							<input name="occurredAt" type="date" value={today} />
-						</label>
-						<label class="grow">
-							Note
-							<input name="note" type="text" placeholder="optional — invoice ref, who paid" />
-						</label>
-						<button type="submit">Record</button>
-					</form>
-
-					{#if costs.topUps.length}
-						<div class="table topup-table">
-							<div class="row head">
-								<span>Provider</span>
-								<span>Amount</span>
-								<span>Date</span>
-								<span>Note</span>
-								<span></span>
+				{#each costs.years as yearRow (yearRow.year)}
+					<div class="card year-card">
+						<div class="year-head">
+							<h3>{yearRow.year}</h3>
+							<div class="year-totals">
+								<span class="muted">Year total</span>
+								<strong>{usd(yearRow.totalUsd)}</strong>
+								{#if yearRow.totalEur != null}
+									<span class="charged">{eurAmount(yearRow.totalEur)} charged</span>
+								{/if}
 							</div>
-							{#each costs.topUps as entry (entry.id)}
-								<div class="row">
-									<span>{PROVIDER_LABELS[entry.provider] ?? entry.provider}</span>
-									<span class="mono">{usd(entry.amountUsd)}</span>
-									<span class="muted">{fmtDate(entry.occurredAt)}</span>
-									<span class="muted">{entry.note ?? '—'}</span>
-									<form method="POST" action="?/deleteCostTopUp" use:enhance>
-										<input type="hidden" name="id" value={entry.id} />
-										<button type="submit" class="ghost-btn small">Remove</button>
-									</form>
+						</div>
+
+						<div class="table month-table">
+							<div class="row head">
+								<span>Month</span>
+								{#each data.costProviders as id (id)}
+									<span>{PROVIDER_LABELS[id] ?? id}</span>
+								{/each}
+								<span>Total (est.)</span>
+								<span>Change</span>
+								<span>EUR charged</span>
+							</div>
+
+							{#each yearRow.months as m (m.month)}
+								{@const open = isOpenMonth(costs.openMonth, m)}
+								<div class="row" class:open>
+									<span class="month-name">
+										{monthName(m.month)}
+										{#if open}<span class="pill est">open</span>{/if}
+									</span>
+									{#each data.costProviders as id (id)}
+										<span class="mono num">
+											{m.byProvider[id] != null ? usd(m.byProvider[id]) : '—'}
+										</span>
+									{/each}
+									<span class="mono num"><strong>{usd(m.totalUsd)}</strong></span>
+									<span class="num">
+										{#if m.deltaUsd == null}
+											<span class="muted">—</span>
+										{:else if m.deltaUsd > 0}
+											<span class="up">▲ {usd(m.deltaUsd)}</span>
+										{:else if m.deltaUsd < 0}
+											<span class="down">▼ {usd(Math.abs(m.deltaUsd))}</span>
+										{:else}
+											<span class="muted">no change</span>
+										{/if}
+									</span>
+									<span class="eur-cell">
+										<form method="POST" action="?/setCostMonthEur" use:enhance>
+											<input type="hidden" name="provider" value="total" />
+											<input type="hidden" name="year" value={m.year} />
+											<input type="hidden" name="month" value={m.month} />
+											<input
+												name="eur"
+												class="mono eur-input"
+												type="text"
+												inputmode="decimal"
+												placeholder="—"
+												value={m.totalEur != null ? m.totalEur.toFixed(2) : ''}
+											/>
+											<button type="submit" class="ghost-btn small">Save</button>
+										</form>
+									</span>
 								</div>
 							{/each}
 						</div>
-					{:else}
-						<p class="muted">No top-ups recorded yet.</p>
-					{/if}
-				</div>
+					</div>
+				{:else}
+					<div class="card">
+						<h3>Monthly history</h3>
+						<p class="muted hint">
+							Nothing recorded yet. The current month starts filling in as soon as a provider
+							reports a figure, and freezes when the month ends.
+						</p>
+					</div>
+				{/each}
+
+				<p class="muted hint">
+					Months are <strong>Europe/Madrid calendar months</strong> grouped into calendar years,
+					matching the Spanish tax year. The open month updates on every refresh and moves up and
+					down as the providers revise their estimates; once it ends it is frozen and never
+					recomputed — the providers can't rebuild a past month, so a filed figure has to stop
+					moving. <strong>USD is our estimate; the EUR you enter is the real charge</strong> and is the
+					number to file. They will not match exactly: card FX spread sits between them.
+				</p>
 
 				<p class="muted hint">
 					Snapshot taken {fmtDate(costs.fetchedAt)}{costs.cached ? ' (cached)' : ''}.
@@ -2106,20 +2149,68 @@
 		min-width: 72px;
 		text-align: right;
 	}
-	.topup-form {
-		flex-wrap: wrap;
+	.year-card {
+		margin-bottom: 16px;
 	}
-	/* The shared `.row` grid is shaped for the 7-column users table; the ledger has
-	   its own column set, so override rather than inherit a mismatched track list. */
-	.topup-table .row {
-		grid-template-columns: 1fr 1fr 1fr 2fr auto;
+	.year-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 16px;
+		margin-bottom: 12px;
+	}
+	.year-head h3 {
+		margin: 0;
+		font-size: 20px;
+	}
+	.year-totals {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		font-size: 12px;
+	}
+	.year-totals strong {
+		font-size: 18px;
+		color: #7ee0c0;
+	}
+	.charged {
+		color: #ffb86b;
+	}
+	/* The shared `.row` grid is shaped for the 7-column users table; this table has
+	   its own column set (month + one per provider + total + delta + EUR), so it
+	   overrides rather than inheriting a mismatched track list. */
+	.month-table .row {
+		grid-template-columns: 1.2fr repeat(5, 1fr) 1fr 1fr 1.4fr;
 		cursor: default;
 	}
-	.topup-table form {
-		margin: 0;
-		justify-self: end;
+	.month-table .num {
+		text-align: right;
 	}
-	.topup-table button {
+	.month-name {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	/* The open month is still moving, so it reads as provisional rather than filed. */
+	.month-table .row.open {
+		background: #16161f;
+	}
+	.up {
 		color: #ff9d9d;
+	}
+	.down {
+		color: #7ee787;
+	}
+	.eur-cell form {
+		display: flex;
+		gap: 6px;
+		margin: 0;
+		align-items: center;
+	}
+	.eur-input {
+		width: 88px;
+		padding: 4px 8px;
+		font-size: 12px;
+		text-align: right;
 	}
 </style>

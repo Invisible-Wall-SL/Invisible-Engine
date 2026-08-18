@@ -33,7 +33,6 @@ const RATES = {
 	classBPerMillion: 0.36,
 };
 
-const DAYS = 30;
 const GB = 1024 ** 3;
 
 /**
@@ -75,7 +74,17 @@ interface GraphQlResponse {
 	errors?: { message?: string }[] | null;
 }
 
-export async function collectR2(): Promise<ProviderCost> {
+/**
+ * @param since Start of the reporting window — the current Madrid month, so this
+ *   card and the monthly table are the same number rather than two drifting windows.
+ * @param monthProgress Days elapsed / days in the month, used to prorate storage:
+ *   the storage RATE is per GB-month, so charging a full month's storage on the 3rd
+ *   would triple-count a month-to-date figure.
+ */
+export async function collectR2(
+	since: Date,
+	monthProgress: { elapsed: number; total: number },
+): Promise<ProviderCost> {
 	const accountId = ENV.CF_ACCOUNT_ID.trim();
 	const token = ENV.CF_ANALYTICS_TOKEN.trim();
 	if (!accountId || !token) {
@@ -94,7 +103,7 @@ export async function collectR2(): Promise<ProviderCost> {
 	}
 
 	const end = new Date();
-	const start = new Date(end.getTime() - DAYS * 86_400_000);
+	const start = since;
 	// Two days, not two hours: R2's analytics pipeline lags, and an empty window
 	// would report 0 GB stored — which on a cost page reads as "we store nothing"
 	// rather than "no sample yet".
@@ -172,7 +181,10 @@ export async function collectR2(): Promise<ProviderCost> {
 	const storage = account.storage?.[0]?.max;
 	const storedBytes = (num(storage?.payloadSize) ?? 0) + (num(storage?.metadataSize) ?? 0);
 	const storedGb = storedBytes / GB;
-	const storageUsd = storedGb * RATES.storagePerGbMonth;
+	// Prorated: the rate is per GB-MONTH, so a month-to-date figure must bill only the
+	// fraction of the month that has actually elapsed.
+	const monthFraction = Math.min(1, monthProgress.elapsed / monthProgress.total);
+	const storageUsd = storedGb * RATES.storagePerGbMonth * monthFraction;
 
 	let classA = 0;
 	let classB = 0;
@@ -190,7 +202,7 @@ export async function collectR2(): Promise<ProviderCost> {
 		{
 			label: 'Storage',
 			amountUsd: storageUsd,
-			detail: `${storedGb.toFixed(2)} GB · $${RATES.storagePerGbMonth}/GB-month`,
+			detail: `${storedGb.toFixed(2)} GB · $${RATES.storagePerGbMonth}/GB-month · ${Math.round(monthFraction * 100)}% of month`,
 		},
 		{
 			label: 'Class A operations (writes, lists)',
@@ -222,7 +234,7 @@ export async function collectR2(): Promise<ProviderCost> {
 			'Derived from usage counters at published rates — R2 has no billing API, so treat this as an estimate.',
 		balanceUsd: null,
 		spendUsd: storageUsd + classAUsd + classBUsd,
-		spendWindow: `last ${DAYS} days`,
+		spendWindow: 'this month',
 		estimated: true,
 		lines,
 	};

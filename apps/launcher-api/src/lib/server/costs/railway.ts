@@ -149,6 +149,34 @@ export async function collectRailway(): Promise<ProviderCost> {
 	}
 
 	/**
+	 * When Railway answers with usage but no money, the open question is "where DOES
+	 * the dollar figure live" — so report the full measurement enum plus the fields of
+	 * the `EstimatedUsage` type. If a cost measurement or an `estimatedCost`-style
+	 * field exists, this names it; if none does, that is itself the answer and the
+	 * euro column becomes the authoritative record for Railway.
+	 */
+	async function describeUsageOptions(): Promise<string> {
+		const { body } = await post(`query {
+			measurements: __type(name: "MetricMeasurement") { enumValues { name } }
+			shape: __type(name: "EstimatedUsage") { fields { name type { kind name ofType { kind name } } } }
+		}`);
+		const data = body?.data as
+			| {
+					measurements?: { enumValues?: { name?: string }[] };
+					shape?: { fields?: { name?: string; type?: TypeRef }[] };
+			  }
+			| undefined;
+		const enums = (data?.measurements?.enumValues ?? []).map((v) => v.name ?? '').filter(Boolean);
+		const fields = (data?.shape?.fields ?? [])
+			.map((f) => `${f.name}: ${renderType(f.type)}`)
+			.filter(Boolean);
+		const parts: string[] = [];
+		if (enums.length) parts.push(`Measurements offered: ${enums.join(', ')}.`);
+		if (fields.length) parts.push(`EstimatedUsage fields: ${fields.join(', ')}.`);
+		return parts.length ? ` ${parts.join(' ')}` : '';
+	}
+
+	/**
 	 * The measurements Railway's dashboard actually bills on. Tried FIRST, and
 	 * intersected with the live enum so we never send a member that doesn't exist.
 	 *
@@ -178,12 +206,23 @@ export async function collectRailway(): Promise<ProviderCost> {
 		}
 	}`;
 
+	/**
+	 * `estimatedValue` is denominated per MEASUREMENT: dollars for the cost-ish
+	 * members, raw integrated units (vCPU-minutes, GB-minutes, GB egress) for the
+	 * rest. Summing those together would produce a confident number that means
+	 * nothing, so this predicate decides what may enter the total.
+	 */
+	const isCost = (name: string) => /COST|CREDIT|SPEND|USD|CHARGE|PRICE/i.test(name);
+	const hasCost = (b: GraphQlResponse | null) =>
+		(b?.data?.estimatedUsage ?? []).some((e) => isCost(e.measurement ?? ''));
+
 	let status = 0;
 	let body: GraphQlResponse | null = null;
 	let gqlError: string | undefined;
 
-	for (const measurements of await measurementSets()) {
-		const attempt = await post(query, { projectId, measurements });
+	const sets = await measurementSets();
+	for (let i = 0; i < sets.length; i++) {
+		const attempt = await post(query, { projectId, measurements: sets[i] });
 		if (attempt.transportError) return failed('railway', LABEL, attempt.transportError);
 		status = attempt.status;
 		body = attempt.body;
@@ -195,7 +234,12 @@ export async function collectRailway(): Promise<ProviderCost> {
 			);
 		}
 		gqlError = body?.errors?.find((e) => e.message)?.message?.trim();
-		if (body && !gqlError && status < 400) break;
+		const ok = body && !gqlError && status < 400;
+		// Keep going past a SUCCESSFUL narrow attempt that yielded no cost-denominated
+		// measurement: the wider set may contain one. Falling back only on error (the
+		// first version) meant a working-but-dollarless answer ended the search.
+		if (ok && (hasCost(body) || i === sets.length - 1)) break;
+		if (!ok && i === sets.length - 1) break;
 	}
 
 	if (!body) {
@@ -232,14 +276,6 @@ export async function collectRailway(): Promise<ProviderCost> {
 		};
 	}
 
-	// `estimatedValue` is denominated per MEASUREMENT: a dollar figure for the
-	// cost-ish members, but raw units (vCPU, GB, GB-egress) for the rest. Adding
-	// those together would produce a confident-looking number that means nothing,
-	// so only cost-denominated measurements feed the total; the rest are shown as
-	// usage lines with no price. If Railway exposes no cost measurement at all, the
-	// card reports usage and NO dollar figure rather than inventing one.
-	const isCost = (name: string) => /COST|CREDIT|SPEND|USD|CHARGE|PRICE/i.test(name);
-
 	let totalUsd = 0;
 	let sawCost = false;
 	const lines: CostLine[] = [];
@@ -268,7 +304,9 @@ export async function collectRailway(): Promise<ProviderCost> {
 		ok: true,
 		reason: sawCost
 			? "Railway's own estimate for the current billing cycle."
-			: 'Railway reports usage per measurement for this project, not a dollar figure — the lines below are raw units, so no total is shown.',
+			: 'Railway returns usage units for this project, not a dollar figure, so no total is shown — ' +
+				'these are integrated units (vCPU-minutes, GB-minutes), and pricing them at a guessed ' +
+				`rate would be a confident wrong number.${await describeUsageOptions()}`,
 		// Railway has no prepaid balance — it bills a plan plus usage in arrears.
 		balanceUsd: null,
 		spendUsd: sawCost ? totalUsd : null,

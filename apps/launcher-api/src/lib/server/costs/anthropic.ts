@@ -54,10 +54,8 @@ function centsToUsd(amount: string | undefined): number {
 const MAX_WINDOW_DAYS = 365;
 
 /**
- * @param since Start of the window. The ledger passes the date of the first recorded
- *   top-up so the burndown compares like with like — spend measured from exactly the
- *   point the credit was added, not over a fixed 30 days that may not line up.
- *   Defaults to 30 days ago.
+ * @param since Start of the window — the current Madrid month, so this card and the
+ *   monthly table report the same number rather than two drifting windows.
  */
 export async function collectAnthropic(since?: Date): Promise<ProviderCost> {
 	const key = ENV.ANTHROPIC_ADMIN_API_KEY;
@@ -156,9 +154,7 @@ export async function collectAnthropic(since?: Date): Promise<ProviderCost> {
 		// Anthropic exposes no balance endpoint; the ledger fills this in downstream.
 		balanceUsd: null,
 		spendUsd: totalUsd,
-		spendWindow: since
-			? `since ${startingAt.toISOString().slice(0, 10)}`
-			: `last ${windowDays} days`,
+		spendWindow: since ? 'this month' : `last ${windowDays} days`,
 		lines,
 	};
 }

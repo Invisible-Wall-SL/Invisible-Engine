@@ -105,14 +105,36 @@ Two labels carry meaning and are worth reading:
 A provider with no credentials still renders a card, naming the env vars it
 wants. That is deliberate: a missing card would read as "$0".
 
-**Prepaid top-ups.** Only RunPod publishes a balance. Anthropic reports spend
-but never a remaining balance, and Railway and R2 have no prepaid concept — so
-for those you record what you added, and the page derives *credit left ≈
-recorded top-ups − measured spend since your first entry*. That figure is only
-as good as the ledger: it assumes the balance started at zero and that every
-top-up is recorded. Anthropic is the only provider it is derived for, because
-it is the only one whose spend can be measured from an arbitrary start date;
-the others show the recorded total without a derived remainder.
+### Monthly history
+
+Below the cards, one table per calendar year: a row per month with each
+provider's estimated USD, the month total, the change against the previous
+month, and the euro amount you were actually charged.
+
+Months are **Europe/Madrid calendar months** grouped into **calendar years**,
+matching the Spanish tax year.
+
+A month has two states:
+
+- **Open** — the current month, tagged `open`. Its figure is rewritten from the
+  live estimate on every refresh, so it rises and falls during the month as the
+  providers revise their numbers. That movement is the point, not a fault.
+- **Locked** — once the month ends it is frozen at the last value observed and
+  never recomputed. A filed number has to stop moving, and the providers can't
+  rebuild a past month anyway (RunPod publishes no spend history at all, Railway
+  reports current-cycle only, R2's analytics retention is short).
+
+**Known limitation of that design:** a month freezes at the last value seen
+*while someone was using the page*. If nobody opens Costs during the last days
+of a month, those days are missing from the locked estimate.
+
+**The EUR column is the corrective, and the number to file.** USD is our
+estimate; the euro figure is what your bank actually charged, typed in by you.
+The two will never match exactly — card FX spread sits between them — so the
+real debit is the authoritative one. It accepts either `1.234,56` or `1,234.56`,
+so a figure copied off a Spanish statement needs no reformatting. Note this is
+deliberately *not* a conversion of the USD estimate: converting January's cost
+at today's rate is not valid for taxation.
 
 ## Config / env (names only — values in Railway)
 
