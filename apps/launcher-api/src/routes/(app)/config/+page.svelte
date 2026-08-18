@@ -1050,16 +1050,11 @@
 											<span class="bm-pgroup-name">{g.name}</span>
 											<div class="bm-fields bm-params">
 												{#each g.params as p (p.key)}
-													<label
-														class="fld cardparam"
-														class:toggle={p.kind === 'boolean'}
-														class:wide-param={p.kind === 'image' ||
-															p.kind === 'spine' ||
-															p.kind === 'spineAnimation'}
-													>
+													<label class="fld cardparam" class:toggle={p.kind === 'boolean'}>
 														<span>{p.label ?? p.key}</span>
 														{#if p.kind === 'color'}
 															<ColorField
+																class="cf-field"
 																value={toColorInput(
 																	betModeCardParamValue(key, p.key),
 																	typeof p.default === 'number' ? p.default : 0xffffff,
@@ -1500,6 +1495,7 @@
 		max-width: 1400px;
 		width: 100%;
 		margin: 0 auto;
+		box-sizing: border-box;
 	}
 	.intro {
 		margin: 0 0 16px;
@@ -1685,6 +1681,7 @@
 	.grid td input:not([type='checkbox']) {
 		width: 100%;
 		min-width: 90px;
+		box-sizing: border-box;
 	}
 	.row-head {
 		font-family: ui-monospace, monospace;
@@ -1820,6 +1817,7 @@
 		gap: 12px;
 	}
 	.betmode {
+		--fld-h: 34px;
 		border: 1px solid #1c1c24;
 		border-radius: 10px;
 		padding: 12px;
@@ -1953,9 +1951,12 @@
 	.bm-copy-long {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
-	/* Inside one group column: two tracks, so a colour swatch pairs with its frame picker. */
+	/* One field per row inside a group. The old auto-fill tracks fitted 1-3 fields per group
+	   depending on how wide that group's column happened to be, so a colour swatch could land
+	   beside an unrelated text field and no two groups shared a row. */
 	.bm-params {
-		grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+		grid-template-columns: minmax(0, 1fr);
+		gap: 8px;
 	}
 
 	.fld {
@@ -1972,6 +1973,7 @@
 	.fld select,
 	.fld textarea {
 		width: 100%;
+		box-sizing: border-box;
 		background: #101017;
 		border: 1px solid #26262f;
 		border-radius: 6px;
@@ -1979,6 +1981,13 @@
 		padding: 7px 9px;
 		font-size: 13px;
 		font-family: inherit;
+	}
+	/* One control height for the whole card. Text inputs, selects, the frame picker and the colour
+	   swatch each sized themselves before, so fields sharing a row sat on three different
+	   baselines. */
+	.fld input:not([type='checkbox']),
+	.fld select {
+		height: var(--fld-h);
 	}
 	.fld select:focus {
 		outline: none;
@@ -2009,6 +2018,15 @@
 		gap: 12px 20px;
 		align-items: start;
 	}
+	/* A panel, not a divider rule: the groups wrap at narrow widths, and a left border would then
+	   sit against the block's own edge on every wrapped row. */
+	.bm-pgroup {
+		min-width: 0;
+		background: #0b0b11;
+		border: 1px solid #1c1c24;
+		border-radius: 8px;
+		padding: 10px 12px 12px;
+	}
 	.bm-pgroup-name {
 		display: block;
 		font-size: 10px;
@@ -2017,12 +2035,24 @@
 		color: #6f6f7d;
 		margin-bottom: 6px;
 	}
-	/* A region/spine picker needs the group's full width; a tint or number shares a row. */
-	.bm-params .wide-param {
-		grid-column: 1 / -1;
-	}
 	.bm-params .fld.toggle {
 		padding-bottom: 0;
+		min-height: var(--fld-h);
+	}
+	/* The frame picker and the colour swatch are child components that size themselves; pin both
+	   to the shared control height so a row reads as one row. */
+	.cardparam :global(.region-picker .current),
+	.cardparam :global(.region-picker .clear) {
+		height: var(--fld-h);
+		box-sizing: border-box;
+		border-radius: 6px;
+		font-size: 13px;
+	}
+	.cardparam :global(.cf-swatch.cf-field) {
+		width: 100%;
+		height: var(--fld-h);
+		box-sizing: border-box;
+		border-radius: 6px;
 	}
 
 	.hint-sm code {

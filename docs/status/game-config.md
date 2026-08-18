@@ -406,6 +406,19 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-08-18 — **Bet-mode card follow-up: fields overflowed their columns and the pickers sat on
+  three different baselines.** The page had no `box-sizing` reset, so every `width: 100%` field was
+  its track *plus* 20px of padding+border — the Description/Dialog textareas visibly spilled past
+  their column edge, and the same held for the paytable-grid inputs. Border-box now applies to
+  `.fld` controls, `.grid td input` and `.body`. The Card-graphics cluster was the other half: its
+  `repeat(auto-fill, minmax(100px, 1fr))` tracks fitted 1–3 fields per group depending on how wide
+  that group's column happened to land, so a colour swatch could sit beside an unrelated text field
+  and no two groups shared a row — and the three control types size themselves independently (a
+  22px `ColorField` swatch, a 28px `RegionPicker` bar, a 34px `<select>`). Each group is now a
+  one-field-per-row stack inside its own panel, and every control is pinned to one `--fld-h: 34px`
+  (the two child components via `:global` + border-box, or the pinned height would have grown them
+  by their own padding). Measured in a harness built from the page's real CSS: all groups top-align,
+  row 1 at one Y and row 2 at another across all five, zero overflow past any field or the card.
 - 2026-08-18 — **The bet-mode card was rebuilt: it was hard to read, and one line of CSS was why.**
   `label input { width: 180px }` applied to CHECKBOXES too, so **Feature** / **Buy bonus** were
   stretched 180px wide and their words sat a label-width from the box they belonged to, floating in
