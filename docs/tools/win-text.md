@@ -84,19 +84,36 @@ How the pay amount is stamped on the win line. Default is just `{amount}`; make 
 ## Info-bar message
 
 The message that flashes when a win pays — this is the one that **names the symbol**.
-There are **three** boxes because the game says whatever fits what it knows about
+There are **four** boxes because the game says whatever fits what it knows about
 the win:
 
 - **Amount + symbol** — the normal case: `You win {amount} with {count} {symbolName}`
+- **Expanded symbol win** — a Book-of expansion:
+  `You win {amount} with {symbolName} on {count} reels`
 - **Amount only** — a message fired without a symbol (any flow can fire one):
   `You win {amount}`
 - **Symbol only** — no amount: `{count} {symbolName}`
 
 The page shows a **live preview** of what the current templates will actually say,
-using one of your real symbols.
+using one of your real symbols — one for a normal win and one for an expanded win,
+side by side, because the two must read differently.
 
 If a message is fired with no symbol, the game uses **Amount only** rather than
 printing an empty name — so you never see a blank or a stray `{symbolName}`.
+
+### Why expanded wins get their own line
+
+When a **Book-of special symbol expands**, it fills whole reels before the wins pay.
+`{count}` is then the number of **reels** the symbol covers — not the number of icons
+on the board. Said with the normal sentence, the game announces "You win €2500,00 with
+4 Boots" over a board showing **twelve** boots, and the player can count the difference.
+
+The expanded line frames the count as reels instead, which matches the columns they
+see lit. Leave it blank and expanded wins fall back to **Amount + symbol**.
+
+This is per-**spin**, not per-symbol: in a free-spin round the special symbol pays
+ordinary line wins on the spins where it doesn't expand, and those still use the normal
+sentence. Other symbols paying alongside an expansion are never affected.
 
 ## Free spins
 

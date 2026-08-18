@@ -38,6 +38,8 @@ const lineMessageSchema = z
 const toastSchema = z
 	.object({
 		full: templateSchema.optional(),
+		/** The Book-of expanded-win sentence, where `{count}` is a REEL count. */
+		expanded: templateSchema.optional(),
 		amountOnly: templateSchema.optional(),
 		countOnly: templateSchema.optional(),
 		/** Render the paying symbol as its sprite instead of its name in the info-bar toast. */
@@ -96,6 +98,7 @@ function pruneToast(input: WinTextDoc['toast']): WinTextDoc['toast'] {
 	if (!input) return undefined;
 	const next: NonNullable<WinTextDoc['toast']> = {};
 	if (input.full?.trim()) next.full = input.full;
+	if (input.expanded?.trim()) next.expanded = input.expanded;
 	if (input.amountOnly?.trim()) next.amountOnly = input.amountOnly;
 	if (input.countOnly?.trim()) next.countOnly = input.countOnly;
 	// Only persist the flag when ON — false round-trips to "unset" and falls back to the default (off).

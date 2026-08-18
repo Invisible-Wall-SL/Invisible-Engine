@@ -76,6 +76,12 @@
 	 *  game's own `resolveToastTemplate`. */
 	const toastPreview = $derived(preview(resolveToastTemplate(resolved, previewVars) ?? ''));
 
+	/** The same win, but EXPANDED — the branch a Book-of column morph takes. Previewed beside the
+	 *  ordinary one because the whole point of the field is that the two must read differently. */
+	const expandedToastPreview = $derived(
+		preview(resolveToastTemplate(resolved, { ...previewVars, expanded: true }) ?? ''),
+	);
+
 	/**
 	 * The symbols that can actually carry a win-line message. A scatter pays "anywhere" rather
 	 * than along a payline, so the engine draws no line for it and never asks for its text — a row
@@ -106,7 +112,7 @@
 		else delete levels[alias];
 	}
 
-	function setToast(branch: 'full' | 'amountOnly' | 'countOnly', value: string) {
+	function setToast(branch: 'full' | 'expanded' | 'amountOnly' | 'countOnly', value: string) {
 		const toast = (doc.toast ??= {});
 		if (value.trim()) toast[branch] = value;
 		else delete toast[branch];
@@ -381,8 +387,19 @@
 				back to the amount-only line rather than printing a blank name.
 			</p>
 			<p class="hint">
+				A <strong>Book-of expanding symbol</strong> gets its own line. When the special symbol fills
+				whole reels, <code>{'{count}'}</code> is the number of <strong>reels</strong> it covers — not
+				the number of icons on screen — so the ordinary sentence miscounts what the player is looking
+				at (four boots named over a board showing twelve). Leave it blank to fall back to the amount
+				+ symbol line.
+			</p>
+			<p class="hint">
 				Live preview for <code>{previewSymbol}</code> × {PREVIEW_COUNT}:
 				<strong class="preview">{toastPreview || '—'}</strong>
+			</p>
+			<p class="hint">
+				…and the same win <strong>expanded</strong>:
+				<strong class="preview">{expandedToastPreview || '—'}</strong>
 			</p>
 			<label class="single">
 				<span>Amount + symbol</span>
@@ -390,6 +407,14 @@
 					value={doc.toast?.full ?? ''}
 					placeholder={resolved.toast.full}
 					oninput={(e) => setToast('full', e.currentTarget.value)}
+				/>
+			</label>
+			<label class="single">
+				<span>Expanded symbol win</span>
+				<input
+					value={doc.toast?.expanded ?? ''}
+					placeholder={resolved.toast.expanded}
+					oninput={(e) => setToast('expanded', e.currentTarget.value)}
 				/>
 			</label>
 			<label class="single">

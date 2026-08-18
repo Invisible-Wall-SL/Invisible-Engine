@@ -44,6 +44,9 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		}
 
 		stateGame.gameType = bookEvent.gameType;
+		// A new board ⇒ last spin's expansion is over. Cleared BEFORE the spin so a `winInfo` can
+		// only claim "on N reels" when THIS spin's `expandBookColumns` set it again.
+		stateGame.expandedSymbol = null;
 		await stateGameDerived.enhancedBoard.spin({
 			revealEvent: bookEvent,
 			// Stacked-picture mode seeds the scroll strip with natural-height blocks so tall pictures roll
@@ -138,6 +141,8 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		// special's land spine. Awaited in full so the wins (`winInfo`) that follow
 		// only animate AFTER the columns finish transforming.
 		const special = bookEvent.symbol;
+		// The fact the win text needs: this spin's wins on `special` are REEL counts, not icon counts.
+		stateGame.expandedSymbol = special;
 		eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_scatter_win_v2' });
 
 		// Visible rows only: the reveal pads the reel top+bottom by one row, so the
@@ -294,6 +299,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		eventEmitter.broadcast({ type: 'freeSpinCounterHide' });
 		eventEmitter.broadcast({ type: 'specialBookHide' });
 		stateGame.specialSymbol = null;
+		stateGame.expandedSymbol = null;
 		stateUi.freeSpinCounterShow = false;
 		await roundSkip.race(eventEmitter.broadcastAsync({ type: 'transition' }));
 		await roundSkip.race(eventEmitter.broadcastAsync({ type: 'uiShow' }));

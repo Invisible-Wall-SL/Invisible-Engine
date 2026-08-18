@@ -300,7 +300,12 @@ export const showWinInfoMessage = ({
 				symbol === undefined ? undefined : resolveSymbolName(bakedSymbolNames(), symbol, kind),
 		};
 		const winText = bakedWinText();
-		const template = resolveToastTemplate(winText, vars);
+		// An EXPANDED win says something different, because `kind` counts REELS there, not the icons
+		// the expansion painted (the player counts twelve boots under a sentence saying four). Gated
+		// on the SPIN — `expandedSymbol` is set only by this spin's `expandBookColumns` — and on the
+		// symbol, so a low symbol paying alongside in the same free spin stays an ordinary line win.
+		const expanded = symbol !== undefined && stateGame.expandedSymbol === symbol;
+		const template = resolveToastTemplate(winText, { ...vars, expanded });
 		if (!template) return false;
 		const text = formatWinText(template, vars);
 		if (!text) return false;
@@ -492,6 +497,9 @@ const effects: Record<string, FlowEffect> = {
 			recordBookEvent({ bookEvent });
 		}
 		stateGame.gameType = bookEvent.gameType;
+		// The coded `reveal` handler's twin: a new board ends the last spin's expansion, so only THIS
+		// spin's `expandBookColumns` can license the "on N reels" win text.
+		stateGame.expandedSymbol = null;
 		await stateGameDerived.enhancedBoard.spin({
 			revealEvent: bookEvent,
 			// Stacked-picture mode seeds the scroll strip with natural-height blocks so tall pictures roll
@@ -600,6 +608,8 @@ const effects: Record<string, FlowEffect> = {
 	expandBookColumns: async (payload) => {
 		const special = payload.symbol as SymbolName;
 		const reels = payload.reels as number[];
+		// The fact the win text needs — see the coded handler's twin.
+		stateGame.expandedSymbol = special;
 		for (const reelIndex of reels) {
 			const reel = stateGame.board[reelIndex];
 			if (!reel) continue;
@@ -711,6 +721,7 @@ const effects: Record<string, FlowEffect> = {
 	exitFreeSpinOutro: () => {
 		stateUi.freeSpinOutroShow = false;
 		stateGame.specialSymbol = null;
+		stateGame.expandedSymbol = null;
 		stateUi.freeSpinCounterShow = false;
 		stateUi.freeSpinCounterCurrent = 0;
 	},

@@ -216,6 +216,13 @@ export const stateGame = $state({
 	multiplierBoard: [] as (MultiplierSymbol | undefined)[][],
 	scatterCounter: 0,
 	specialSymbol: null as SymbolName | null,
+	// The symbol that actually EXPANDED on the CURRENT spin (`expandBookColumns`), or null. Distinct
+	// from `specialSymbol`, which is the round's chosen symbol and stays set for the whole feature:
+	// most free spins never reach 3+ and pay ordinary line wins, so only the spins where the columns
+	// really morphed may say "on N reels" (Invisible Win Text's `toast.expanded`). Set by the
+	// expansion, cleared by the next `reveal` and at feature end — both the coded handlers and the
+	// flow-v2 effects, since either may be driving.
+	expandedSymbol: null as SymbolName | null,
 	sequentialReelStop: false,
 	// Optional Flow-authored PER-REEL overrides for the sequential-stop knobs, indexed by reelIndex
 	// (null, or a missing/short entry ⇒ that reel uses the coded SPIN_OPTIONS constant). Set from

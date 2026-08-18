@@ -91,6 +91,15 @@ export type WinTextToast = {
 	/** A count + symbol, no amount. */
 	countOnly?: string;
 	/**
+	 * An EXPANDED win — the Book-of special symbol filled whole reels before paying, so `{count}` is
+	 * the number of REELS it covers, NOT the number of icons the player can see. `full` is then a
+	 * sentence they can disprove by counting: the expansion painted twelve boots and the bar said
+	 * "4 Boots". A separate branch rather than a per-symbol override of `full`, because the SAME
+	 * symbol pays both ways inside one round (an ordinary line win before it expands, an expanded one
+	 * after) — the distinction is the SPIN, not the symbol. Cleared ⇒ falls back to `full`.
+	 */
+	expanded?: string;
+	/**
 	 * Render the paying symbol as its SPRITE instead of its written name — the `{symbolName}` token
 	 * becomes an inline image of the symbol, sized to the text ("You win $4.00 with 4 [🐄]"). Off by
 	 * default ⇒ the name is written as text (parity). Applies only to the info-bar toast; the game
@@ -132,6 +141,11 @@ export const WIN_TEXT_DEFAULTS: ResolvedWinText = {
 	winLevels: {},
 	toast: {
 		full: 'You win {amount} with {count} {symbolName}',
+		// The one default that deliberately does NOT reproduce the pre-tool literal, and only on
+		// expanded wins — where that literal was wrong (see `WinTextToast.expanded`). Reel-framed,
+		// which is what expanding-symbol slots conventionally say: the count then matches the columns
+		// the player sees lit rather than the icons filling them.
+		expanded: 'You win {amount} with {symbolName} on {count} reels',
 		amountOnly: 'You win {amount}',
 		countOnly: '{count} {symbolName}',
 		symbolAsImage: false,
@@ -173,6 +187,7 @@ export function resolveWinText(doc: WinTextDoc | undefined): ResolvedWinText {
 		winLevels: { ...WIN_TEXT_DEFAULTS.winLevels, ...(doc?.winLevels ?? {}) },
 		toast: {
 			full: doc?.toast?.full ?? WIN_TEXT_DEFAULTS.toast.full,
+			expanded: doc?.toast?.expanded ?? WIN_TEXT_DEFAULTS.toast.expanded,
 			amountOnly: doc?.toast?.amountOnly ?? WIN_TEXT_DEFAULTS.toast.amountOnly,
 			countOnly: doc?.toast?.countOnly ?? WIN_TEXT_DEFAULTS.toast.countOnly,
 			symbolAsImage: doc?.toast?.symbolAsImage ?? WIN_TEXT_DEFAULTS.toast.symbolAsImage,
@@ -191,14 +206,21 @@ export function resolveWinText(doc: WinTextDoc | undefined): ResolvedWinText {
  * call that knows the amount but not which symbol paid (the generic `showMessage` any FlowDoc can
  * fire) falls to `amountOnly` rather than rendering "You win $4.00 with 4 {symbolName}". Nothing
  * at all ⇒ `undefined`, and the caller shows no toast.
+ *
+ * `expanded` splits the named branch in two. It is not another SHAPE of payload but a fact about
+ * the WIN: the Book-of special filled whole reels, so `count` means reels and the `full` sentence
+ * miscounts what is on screen (see {@link WinTextToast.expanded}). An author who clears that
+ * template falls back to `full` rather than to silence — a blank branch would drop the message.
  */
 export function resolveToastTemplate(
 	resolved: ResolvedWinText,
-	vars: { amount?: string; count?: number; symbolName?: string },
+	vars: { amount?: string; count?: number; symbolName?: string; expanded?: boolean },
 ): string | undefined {
 	const hasAmount = vars.amount !== undefined;
 	const named = vars.count !== undefined && vars.symbolName !== undefined;
-	if (hasAmount && named) return resolved.toast.full;
+	if (hasAmount && named) {
+		return vars.expanded ? resolved.toast.expanded || resolved.toast.full : resolved.toast.full;
+	}
 	if (hasAmount) return resolved.toast.amountOnly;
 	if (named) return resolved.toast.countOnly;
 	return undefined;
@@ -313,6 +335,7 @@ export function collectWinTextTemplates(
 	}
 	const resolved = resolveWinText(doc);
 	add(resolved.toast.full, 'Info-bar message — amount + symbol');
+	add(resolved.toast.expanded, 'Info-bar message — expanded symbol win');
 	add(resolved.toast.amountOnly, 'Info-bar message — amount only');
 	add(resolved.toast.countOnly, 'Info-bar message — symbol only');
 	// The retrigger sentence has a real coded default (a player-facing sentence), so — like the

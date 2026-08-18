@@ -188,6 +188,57 @@ assert(
 );
 mod.clearTextResolver();
 
+// --- EXPANDED win: the count is REELS, not icons ----------------------------
+// A Book-of expansion fills whole reels before paying, so `count` is a column count while the
+// player is looking at rows × columns icons. The `full` sentence miscounts what is on screen.
+console.info('expanded win');
+assert(
+	mod.WIN_TEXT_DEFAULTS.toast.expanded === 'You win {amount} with {symbolName} on {count} reels',
+	'the expanded default frames the count as REELS',
+);
+const expandedVars = { amount: '€2500,00', count: 4, symbolName: 'Boots' };
+assert(
+	mod.resolveToastTemplate(mod.resolveWinText(undefined), expandedVars) ===
+		mod.WIN_TEXT_DEFAULTS.toast.full,
+	'an ordinary named win still takes the "full" branch',
+);
+assert(
+	mod.resolveToastTemplate(mod.resolveWinText(undefined), { ...expandedVars, expanded: true }) ===
+		mod.WIN_TEXT_DEFAULTS.toast.expanded,
+	'an expanded named win takes the "expanded" branch',
+);
+assert(
+	mod.formatWinText(
+		mod.resolveToastTemplate(mod.resolveWinText(undefined), { ...expandedVars, expanded: true }),
+		expandedVars,
+	) === 'You win €2500,00 with Boots on 4 reels',
+	'the expanded sentence names the symbol and counts the reels',
+);
+assert(
+	mod.resolveToastTemplate(
+		mod.resolveWinText({ toast: { expanded: '{symbolName} fill {count}!' } }),
+		{
+			...expandedVars,
+			expanded: true,
+		},
+	) === '{symbolName} fill {count}!',
+	'an authored expanded template overrides the default',
+);
+// A cleared branch must degrade to the ordinary sentence, never to silence — pruning turns a blank
+// into "unset", but a doc that reached the runtime with '' would otherwise drop the message.
+assert(
+	mod.resolveToastTemplate(mod.resolveWinText({ toast: { expanded: '' } }), {
+		...expandedVars,
+		expanded: true,
+	}) === mod.WIN_TEXT_DEFAULTS.toast.full,
+	'a blank expanded template falls back to "full" rather than showing nothing',
+);
+assert(
+	mod.resolveToastTemplate(mod.resolveWinText(undefined), { amount: '€1,00', expanded: true }) ===
+		mod.WIN_TEXT_DEFAULTS.toast.amountOnly,
+	'expanded does not apply to a branch with no symbol to name',
+);
+
 // --- harvest labels carry no jargon either -----------------------------------
 console.info('harvest');
 const harvested = mod.collectWinTextTemplates({
@@ -208,6 +259,10 @@ assert(
 assert(
 	harvested.some((h) => h.source === 'You won +{count} Extra Free Spins'),
 	'the retrigger default is harvested for translation even when the author never retyped it',
+);
+assert(
+	harvested.some((h) => h.source === mod.WIN_TEXT_DEFAULTS.toast.expanded),
+	'the expanded-win default is harvested too — it is a real player-facing sentence',
 );
 
 console.info(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) FAILED.`);

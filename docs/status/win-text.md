@@ -2,7 +2,8 @@
 
 > Design: [docs/design/invisible-win-text.md](../design/invisible-win-text.md) · Guide: [docs/tools/win-text.md](../tools/win-text.md) · Agent: _none yet — closest are `launcher-studio` (tool page) + `engine-pixi-svelte` (render)_
 
-**One-line state:** Built on `main` — W1–W8 (doc/storage, endpoints, engine resolver, the four
+**One-line state:** Built on `main` — latest: **expanded Book-of wins now say "on N reels"**
+(`toast.expanded`), ⏳ owner visual-verify in the remake. Earlier — W1–W8 (doc/storage, endpoints, engine resolver, the four
 families, the `/win-text` page, registry + docs, the Localization `winText` origin, bake +
 runtime-bundle wiring) are in, plus **W9: win text now NAMES the paying symbol** (`{symbolName}`,
 authored in `/symbols`) and "N of a kind" is gone from every default; ⏳ owner visual-verify the
@@ -32,10 +33,10 @@ Invisible Localization for translation.
 - **Conditional writes from day one** — `{ doc, baseEtag?, force? }` → `precondition()` →
   `ConflictError` → 409 via `json()` (never `error()`, which would 502 and hide the cause), with
   an "Overwrite with mine" path that never discards local edits. The first draft mirrored
-  `symbolsStorage.ts` and inherited its unguarded `putObjectText` — that's the *legacy tier*
+  `symbolsStorage.ts` and inherited its unguarded `putObjectText` — that's the _legacy tier_
   (manual-save tools are sequenced last in the concurrency plan). The live convention is `r2.ts`
-  + `editorStorage.ts` + `api/flow-v2/save`. `loadWinTextDocWithEtag` reports `existed` apart
-  from the doc so a corrupt doc doesn't become permanently unsaveable (412 forever).
+  - `editorStorage.ts` + `api/flow-v2/save`. `loadWinTextDocWithEtag` reports `existed` apart
+    from the doc so a corrupt doc doesn't become permanently unsaveable (412 forever).
 - **Both bundle paths wired** — `bake-editor-doc.mjs` AND `runtimeBundle.ts`. A new baked-data
   class must reach both or the Game Maker path silently ships without it (the `effects`/`rigFx`
   precedent). Both omit the key when un-authored, so bundles stay byte-identical.
@@ -79,7 +80,7 @@ win-text template — still an engine literal (candidate follow-up: a `freeSpins
 ### W9 — the text names the symbol (2026-07-24)
 
 The tool shipped with the engine's old literals as its DEFAULTS, so every unauthored game still
-said "Win $1.00 — 2 of a kind". That is jargon, and it was the only thing the text *could* say:
+said "Win $1.00 — 2 of a kind". That is jargon, and it was the only thing the text _could_ say:
 a symbol id (`H1`) is unspeakable, so there was no word to put in a sentence.
 
 - **`SymbolsDoc.names`** — `H1 → { singular: 'Banana', plural: 'Bananas' }`, authored on each row
@@ -114,8 +115,8 @@ written name** — "You win $4.00 with 4 [🐄]" — sized to the text. Off by d
 still keeps the NAME as the clean fallback.
 
 - **Toggle** — `toast.symbolAsImage` on the win-text doc (`winText.ts` type + `WIN_TEXT_DEFAULTS`
-  + `resolveWinText`; schema + prune in `winTextStorage.ts`, persisted only when ON). A checkbox in
-  the `/win-text` "Info-bar message" section.
+  - `resolveWinText`; schema + prune in `winTextStorage.ts`, persisted only when ON). A checkbox in
+    the `/win-text` "Info-bar message" section.
 - **How an image rides a string** — the message pipeline is one STRING end-to-end, so a sprite can't
   travel as a character. When the toggle is on, `showWinInfoMessage` (`flowEffects.ts`) builds a
   RICH twin of the toast where `{symbolName}` is a private-use SENTINEL (`engine-layout`
@@ -149,7 +150,44 @@ still keeps the NAME as the clean fallback.
   the live render** (symbol size + vertical alignment + spacing) with the toggle on in a real project
   (needs a baked doc, which can't be flipped offline).
 
+### Expanded (Book-of) wins say "on N reels" (2026-08-18)
+
+Owner report from the live Borut remake: the info bar read **"Vinci 2500,00 € con 4 Stivali"** over
+a board showing roughly a dozen boots. The number was right and the sentence was wrong — `winInfo.kind`
+is the PAYLINE match count, and for an expanded special that equals the number of **reels** covered,
+while `expandBookColumns` has just painted the symbol full-height down each of them. `toast.full`
+was written for an ordinary line win, where the count and the visible icons are the same thing.
+
+- **New branch `toast.expanded`** (`winText.ts` type + `WIN_TEXT_DEFAULTS` + `resolveWinText` +
+  harvest; schema + prune in `winTextStorage.ts`; a fourth box in the `/win-text` "Info-bar message"
+  section with its own live preview beside the ordinary one). Default:
+  `You win {amount} with {symbolName} on {count} reels` — the reel framing expanding-symbol slots
+  conventionally use, so the count matches the columns the player sees lit. Most such games state no
+  count at all; an author who prefers that just writes an amount-only sentence in the box.
+- **The SECOND deliberate break of byte-parity defaults** (after W9's de-jargoning), and scoped: only
+  a win that actually expanded takes the branch, so every other message is untouched.
+- **`resolveToastTemplate` gained an `expanded` flag**, not another payload shape. It is a fact about
+  the WIN, not about what the caller knows — hence a flag beside the vars rather than a fifth branch
+  keyed on arity. A cleared template falls back to `full`, never to silence.
+- **The gate is the SPIN, not the symbol** — new `stateGame.expandedSymbol`, set by
+  `expandBookColumns` and cleared by the next `reveal` and at feature end, in BOTH the coded handlers
+  and the flow-v2 effects (either may be driving). `specialSymbol` alone would have been wrong: it
+  stays set for the whole feature, and most free spins never reach 3+ — those spins pay ordinary line
+  wins on the same symbol and must keep the ordinary sentence.
+- **7 new offline checks** in `node packages/engine-layout/scripts/test-win-text-symbol-names.mjs`
+  (33 total): default, branch selection with/without the flag, interpolation, authored override,
+  blank-falls-back-to-`full`, no-symbol-branch immunity, harvest. `engine-layout` builds;
+  `apps/lines` svelte-check is clean; the launcher's win-text files add no type errors.
+- **⏳ Owner: visual-verify in the remake** — needs a real free-spin expansion, and (see below) a
+  check of what `{amount}` is on that toast.
+
+**Open question raised by the same screenshot:** whether the €2500,00 is that single payline's win or
+an accumulated total. If several lines each pay an expanded win and their amounts accumulate into one
+toast while `count` stays per-line, no template fixes it — the VARS would be wrong. Not reproduced
+yet; needs a live look at the round's `winInfo` sequence.
+
 ### Two findings that shaped the build
+
 1. **`winLevelMap[].text` is DEAD DATA** — nothing reads it. The tier words players see are
    painted into the big-win SPINE ART; `Win.svelte` draws only the count-up amount. So
    `winLevels` defaults to `{}` and the caption is OPT-IN — seeding the coded literals would
@@ -158,10 +196,11 @@ still keeps the NAME as the clean fallback.
    re-cutting art).
 2. **The toast needs THREE templates, not one.** `showMessage` is generic and assembles from
    whichever of `amount`/`kind` it got, so a single template would render `"Win $1.00 — {count}
-   of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map 1:1 onto the
+of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map 1:1 onto the
    legacy branches.
 
 ## Open items / next
+
 1. **⏳ Owner visual-verify** — the `/win-text` page renders behind the auth gate (Claude can't
    sign in), and a real authored win in-game. Author a `default` template, bake, confirm the
    message draws on the line and reads through a translation. The conflict path needs the real
@@ -178,9 +217,17 @@ still keeps the NAME as the clean fallback.
 5. **No dedicated agent file** (`.claude/agents/win-text.md` doesn't exist).
 
 ## Blocked (owner / external)
+
 - Nothing.
 
 ## Recent changes
+
+- 2026-08-18 — **expanded Book-of wins get their own info-bar sentence** (`toast.expanded`, default
+  `You win {amount} with {symbolName} on {count} reels`), because `kind` is a REEL count once the
+  special has filled the columns and the old sentence miscounted what was on screen. Gated on a new
+  per-spin `stateGame.expandedSymbol` (set by `expandBookColumns`, cleared by `reveal` / feature end,
+  coded + flow paths). Files: `winText.ts`, `winTextStorage.ts`, `/win-text` page, `stateGame.svelte.ts`,
+  `bookEventHandlerMap.ts`, `flowEffects.ts`, `docs/tools/win-text.md`. See the section above.
 - 2026-08-10 — **symbol-as-image: spine symbols now render** (bug fix on the same-day feature). The
   first cut drew a `<Sprite>` from the static sprite `assetKey`, so spine high symbols fell back to
   the name ("2Cowboys"). Now `InlineImageText` mounts a game bound component (`messageSymbol` /
