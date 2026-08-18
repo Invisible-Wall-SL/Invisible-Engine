@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { ENV } from './env';
+import { maskTerms, termsPattern, unmaskTerms } from './localizationMask';
 
 const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 const MAX_TOKENS = 8192;
@@ -15,6 +16,13 @@ export interface TranslateInput {
 	targetLangs: string[];
 	context: string;
 	items: TranslateItem[];
+	/**
+	 * Terms that must come back untranslated. They never reach the model: each occurrence is
+	 * swapped for a `{{DNT0}}` token before the request and the ORIGINAL matched text is put
+	 * back afterwards — see `localizationMask.ts`. Asking the prompt to "keep these words" is not
+	 * enough; a model that is translating the sentence around them will localize them anyway.
+	 */
+	protectedTerms?: string[];
 }
 
 /** `id -> { lang -> translated text }` for every requested item/language. */
@@ -32,11 +40,25 @@ const BASE_INSTRUCTIONS = [
 	'Include every entry id and every requested target language. Use the exact ids and language codes given.',
 ].join('\n');
 
+const PROTECTED_INSTRUCTIONS = [
+	'Some words were replaced with protected placeholders of the form {{DNT0}}, {{DNT1}}, …',
+	'Copy each placeholder into the translation VERBATIM — same spelling, same braces, never translated, never renumbered.',
+	'Place it where that word belongs in the target language, and inflect the words around it as the grammar requires.',
+].join('\n');
+
 function contextBlock(context: string): string {
 	return `Project context / glossary (apply consistently):\n${context.trim()}`;
 }
 
-function systemBlocks(context: string): Anthropic.MessageCreateParams['system'] {
+/** The system prompt's optional blocks, in the order both providers use them. */
+function extraBlocks(input: TranslateInput): string[] {
+	const blocks: string[] = [];
+	if (input.context.trim()) blocks.push(contextBlock(input.context));
+	if (input.protectedTerms?.length) blocks.push(PROTECTED_INSTRUCTIONS);
+	return blocks;
+}
+
+function systemBlocks(input: TranslateInput): Anthropic.MessageCreateParams['system'] {
 	const blocks: Anthropic.TextBlockParam[] = [
 		{
 			type: 'text',
@@ -44,19 +66,15 @@ function systemBlocks(context: string): Anthropic.MessageCreateParams['system'] 
 			cache_control: { type: 'ephemeral' },
 		},
 	];
-	if (context.trim()) {
-		blocks.push({
-			type: 'text',
-			text: contextBlock(context),
-			cache_control: { type: 'ephemeral' },
-		});
+	for (const text of extraBlocks(input)) {
+		blocks.push({ type: 'text', text, cache_control: { type: 'ephemeral' } });
 	}
 	return blocks;
 }
 
 /** The same system prompt flattened into one message, for OpenAI-shaped APIs. */
-function systemText(context: string): string {
-	return context.trim() ? `${BASE_INSTRUCTIONS}\n\n${contextBlock(context)}` : BASE_INSTRUCTIONS;
+function systemText(input: TranslateInput): string {
+	return [BASE_INSTRUCTIONS, ...extraBlocks(input)].join('\n\n');
 }
 
 function userText(input: TranslateInput): string {
@@ -117,7 +135,7 @@ async function translateWithAnthropic(input: TranslateInput): Promise<TranslateR
 	const message = await client.messages.create({
 		model: ANTHROPIC_MODEL,
 		max_tokens: MAX_TOKENS,
-		system: systemBlocks(input.context),
+		system: systemBlocks(input),
 		messages: [{ role: 'user', content: userText(input) }],
 	});
 	const text = message.content
@@ -180,7 +198,7 @@ async function translateWithOpenAICompatible(input: TranslateInput): Promise<Tra
 	}
 	const url = `${ENV.LOCALIZATION_LLM_BASE_URL.replace(/\/+$/, '')}/chat/completions`;
 	const messages = [
-		{ role: 'system', content: systemText(input.context) },
+		{ role: 'system', content: systemText(input) },
 		{ role: 'user', content: userText(input) },
 	];
 
@@ -245,17 +263,8 @@ async function translateWithOpenAICompatible(input: TranslateInput): Promise<Tra
 	return shapeResult(text, input);
 }
 
-/**
- * Translate a batch of strings into the target languages in a SINGLE request,
- * against whichever provider is configured: an OpenAI-compatible endpoint when
- * `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY` are set, else Anthropic.
- * Throws `TranslateError` (never an opaque crash) when no provider is configured,
- * on an empty batch, or on a parse/transport failure.
- */
-export async function translateBatch(input: TranslateInput): Promise<TranslateResult> {
-	if (input.targetLangs.length === 0) throw new TranslateError('No target languages selected.');
-	if (input.items.length === 0) throw new TranslateError('Nothing to translate.');
-
+/** Send the (already masked) batch to whichever provider is configured. */
+async function dispatch(input: TranslateInput): Promise<TranslateResult> {
 	if (ENV.LOCALIZATION_LLM_BASE_URL && ENV.LOCALIZATION_LLM_API_KEY) {
 		return translateWithOpenAICompatible(input);
 	}
@@ -264,4 +273,36 @@ export async function translateBatch(input: TranslateInput): Promise<TranslateRe
 		'No translation provider configured — set ANTHROPIC_API_KEY, or ' +
 			'LOCALIZATION_LLM_BASE_URL + LOCALIZATION_LLM_API_KEY for an OpenAI-compatible provider.',
 	);
+}
+
+/**
+ * Translate a batch of strings into the target languages in a SINGLE request,
+ * against whichever provider is configured: an OpenAI-compatible endpoint when
+ * `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY` are set, else Anthropic.
+ * `protectedTerms` are masked out before the request and restored after it, so they come back
+ * untranslated wherever the target language wants them.
+ * Throws `TranslateError` (never an opaque crash) when no provider is configured,
+ * on an empty batch, or on a parse/transport failure.
+ */
+export async function translateBatch(input: TranslateInput): Promise<TranslateResult> {
+	if (input.targetLangs.length === 0) throw new TranslateError('No target languages selected.');
+	if (input.items.length === 0) throw new TranslateError('Nothing to translate.');
+
+	const pattern = termsPattern(input.protectedTerms ?? []);
+	if (!pattern) return dispatch(input);
+
+	const originalsById = new Map<string, string[]>();
+	const items = input.items.map((item) => {
+		const { text, originals } = maskTerms(item.source, pattern);
+		originalsById.set(item.id, originals);
+		return { id: item.id, source: text };
+	});
+
+	const result = await dispatch({ ...input, items });
+	for (const [id, row] of Object.entries(result)) {
+		const originals = originalsById.get(id) ?? [];
+		if (originals.length === 0) continue;
+		for (const lang of Object.keys(row)) row[lang] = unmaskTerms(row[lang], originals);
+	}
+	return result;
 }

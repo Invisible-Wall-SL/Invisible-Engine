@@ -1,3 +1,4 @@
+import { normalizeProtectedTerms } from './localizationMask';
 import { localizationDocKey } from './projectPaths';
 import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
@@ -41,12 +42,26 @@ export interface LocalizationDoc {
 	sourceLang: string;
 	targetLangs: string[];
 	context: string;
+	/**
+	 * Terms that must survive translation verbatim (brand names, mechanic names —
+	 * "Free Spins", "Megaways", …). They are masked out of the text before it reaches the
+	 * model and put back afterwards, so the model never gets the chance to translate them.
+	 * See `localizationMask.ts`.
+	 */
+	protectedTerms: string[];
 	entries: LocalizationEntry[];
 	updatedAt: string;
 }
 
 function emptyDoc(): LocalizationDoc {
-	return { sourceLang: 'en', targetLangs: [], context: '', entries: [], updatedAt: '' };
+	return {
+		sourceLang: 'en',
+		targetLangs: [],
+		context: '',
+		protectedTerms: [],
+		entries: [],
+		updatedAt: '',
+	};
 }
 
 /** Load a project's document, or a sensible empty default when none exists. */
@@ -105,10 +120,13 @@ export function normalizeDoc(input: unknown): LocalizationDoc {
 		? [...new Set(obj.targetLangs.filter((l): l is string => typeof l === 'string' && !!l))]
 		: [];
 	const context = typeof obj.context === 'string' ? obj.context : '';
+	// Accepts the stored array OR the raw comma-separated string the field is typed as, so a
+	// hand-edited doc and the page's own payload normalize the same way.
+	const protectedTerms = normalizeProtectedTerms(obj.protectedTerms);
 	const entries = Array.isArray(obj.entries)
 		? obj.entries.map((e) => normalizeEntry(e, targetLangs))
 		: [];
-	return { sourceLang, targetLangs, context, entries, updatedAt: '' };
+	return { sourceLang, targetLangs, context, protectedTerms, entries, updatedAt: '' };
 }
 
 function normalizeEntry(input: unknown, targetLangs: string[]): LocalizationEntry {

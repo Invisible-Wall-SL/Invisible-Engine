@@ -20,6 +20,16 @@
 	let sourceLang = $state(data.doc.sourceLang);
 	let targetLangs = $state<string[]>([...data.doc.targetLangs]);
 	let context = $state(data.doc.context);
+	// Typed as one comma-separated line; the doc stores the split list. Kept as raw text so a
+	// half-typed term (a trailing comma, a space) survives editing instead of being re-joined
+	// under the caret.
+	let protectedTermsText = $state((data.doc.protectedTerms ?? []).join(', '));
+	const protectedTerms = $derived(
+		protectedTermsText
+			.split(/[,\n]/)
+			.map((t) => t.trim())
+			.filter(Boolean),
+	);
 	let entries = $state<LocalizationEntry[]>(structuredClone(data.doc.entries));
 
 	// Auto-collected text (Scene Editor screens + the Win Text templates), grouped into sections
@@ -59,6 +69,7 @@
 		sourceLang,
 		targetLangs,
 		context,
+		protectedTerms,
 		entries,
 		updatedAt: data.doc.updatedAt,
 	});
@@ -342,10 +353,8 @@
 			     has always been a FORCE overwrite here — preserved verbatim by this refactor. This is a
 			     pre-existing latent bug (localization's conflict `confirm()` is therefore effectively
 			     dead on the button path); flagged for the owner, not silently "fixed". -->
-			<button
-				class="primary"
-				onclick={save}
-				disabled={lease.readOnly || busy || !saveState.dirty}>Save</button
+			<button class="primary" onclick={save} disabled={lease.readOnly || busy || !saveState.dirty}
+				>Save</button
 			>
 		{/snippet}
 	</ToolTopBar>
@@ -408,6 +417,23 @@
 				rows="3"
 				placeholder="e.g. Casino slot game. Keep it punchy. 'Spin' stays 'Spin'."
 			></textarea>
+		</label>
+		<label class="ctx">
+			Never translate (comma-separated)
+			<input
+				value={protectedTermsText}
+				oninput={(e) => {
+					protectedTermsText = e.currentTarget.value;
+					markDirty();
+				}}
+				placeholder="e.g. Free Spins, Megaways, Book of Borut"
+				spellcheck="false"
+			/>
+			<span class="sublabel">
+				These are hidden from the translator and put back where they belong — "Free Spins is over"
+				comes back as "Free Spins terminé". Matching ignores case and keeps the source's own
+				spelling; whole words only.
+			</span>
 		</label>
 	</section>
 
@@ -741,6 +767,14 @@
 	}
 	.ctx {
 		width: 100%;
+	}
+	.ctx + .ctx {
+		margin-top: 14px;
+	}
+	.sublabel {
+		color: #777;
+		font-size: 12px;
+		line-height: 1.5;
 	}
 	input,
 	textarea {

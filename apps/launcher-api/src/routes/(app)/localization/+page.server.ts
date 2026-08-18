@@ -172,6 +172,7 @@ export const actions: Actions = {
 				sourceLang: doc.sourceLang,
 				targetLangs: doc.targetLangs,
 				context: doc.context,
+				protectedTerms: doc.protectedTerms,
 				items,
 			});
 			// Return raw translations marked unreviewed; the client merges + the

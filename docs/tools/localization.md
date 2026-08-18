@@ -52,8 +52,28 @@ A spreadsheet-style table of the game's text, in two kinds of section:
 
 **Columns** = source (your source language) · one column per target language
 (manual rows also show an editable `Key`). **Global settings** panel: set the
-**source language**, add/remove **target languages**, and an optional **context /
-glossary** (tone, domain, term preferences) that guides every translation.
+**source language**, add/remove **target languages**, an optional **context /
+glossary** (tone, domain, term preferences) that guides every translation, and a
+**Never translate** list.
+
+### Never translate
+
+A comma-separated list of words that must stay exactly as written in every
+language — the game's name, brand terms, mechanic names your operator insists on
+keeping in English (`Free Spins, Megaways, Book of Borut`).
+
+These words never reach the translator: each one is swapped for a placeholder
+before the request and put back where the translation places it. So with
+`Free Spins` listed, "Free Spins over, you won:" comes back in French as
+"Free Spins terminé, vous avez gagné :" — the sentence around the term is
+translated and inflected normally, the term itself is untouched.
+
+Matching ignores case and takes whole words only (`Wild` does not fire inside
+"Wilderness"), and the term comes back spelled the way the **source** spelled it
+— a source shouting `FREE SPINS` stays `FREE SPINS`. Longer entries win, so
+listing both `Free Spins` and `Free` still protects the pair. The list applies to
+the whole project, on every translate. It does not touch text already
+translated — retranslate a row to apply it.
 
 Edit any translation cell inline. Hit **Translate this row** or **Translate all
 missing** to fill the empty cells.
