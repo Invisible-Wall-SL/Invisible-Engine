@@ -383,6 +383,58 @@ export async function setMonthUsd(input: {
 }
 
 /**
+ * Write imported history in one go.
+ *
+ * Every row is marked `manualUsd` — these are invoice figures, and the estimator must
+ * never overwrite them. Past months are locked immediately rather than waiting for the
+ * next rollover, since an imported month is already final by definition. The CURRENT
+ * month is left open so it keeps tracking live.
+ *
+ * Returns how many rows were written, so the UI can confirm the paste landed.
+ */
+export async function importMonths(
+	rows: { provider: ProviderId; year: number; month: number; usd: number }[],
+	userId: string,
+	at: Date = new Date(),
+): Promise<number> {
+	const open = madridMonth(at);
+	const db = getDb();
+	let written = 0;
+
+	for (const row of rows) {
+		if (row.month < 1 || row.month > 12 || row.year < 2000 || row.year > 2200) continue;
+		const cents = Math.round(row.usd * 100);
+		if (!Number.isFinite(cents) || cents < 0) continue;
+
+		const isPast = row.year < open.year || (row.year === open.year && row.month < open.month);
+		const values = {
+			provider: row.provider,
+			year: row.year,
+			month: row.month,
+			amountUsdCents: cents,
+			manualUsd: true,
+			lockedAt: isPast ? at : null,
+			updatedBy: userId,
+		};
+		await db
+			.insert(costMonths)
+			.values(values)
+			.onConflictDoUpdate({
+				target: [costMonths.provider, costMonths.year, costMonths.month],
+				set: {
+					amountUsdCents: cents,
+					manualUsd: true,
+					lockedAt: values.lockedAt,
+					updatedBy: userId,
+					updatedAt: at,
+				},
+			});
+		written++;
+	}
+	return written;
+}
+
+/**
  * Set (or clear) the euro amount actually charged for one provider-month. Passing
  * `null` clears it. Rejects an absurd figure rather than storing a typo that would
  * skew a year total.

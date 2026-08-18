@@ -303,8 +303,11 @@ export async function collectRailway(): Promise<ProviderCost> {
 		configured: true,
 		ok: true,
 		reason:
-			'Railway exposes usage units, not money, so this prices them at the published rates — ' +
-			"the same arithmetic their dashboard does. Compare against Railway's own Estimated usage.",
+			'Railway exposes usage units, not money, so this prices them at the published rates. ' +
+			'⚠️ Known to run LOW — checked against a real invoice it came out roughly 4× under, ' +
+			'because the API quantities are not in the same units as the billed ones. Railway also ' +
+			'bills on an 18th-to-18th cycle, so it never lines up with a calendar month. Treat this ' +
+			'as a direction-of-travel figure and import the invoice for the real number.',
 		// Railway has no prepaid balance — it bills a plan plus usage in arrears.
 		balanceUsd: null,
 		spendUsd: totalUsd,

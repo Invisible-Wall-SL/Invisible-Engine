@@ -93,7 +93,8 @@ import {
 } from '$lib/server/layoutProfile';
 import { DEFAULT_LAYOUT_PROFILE } from 'engine-layout';
 import { getCosts, invalidateCosts } from '$lib/server/costs';
-import { setMonthEur, setMonthUsd, TOTAL_KEY } from '$lib/server/costs/months';
+import { parseCostImport } from '$lib/server/costs/importMonths';
+import { importMonths, setMonthEur, setMonthUsd, TOTAL_KEY } from '$lib/server/costs/months';
 import type { ProviderId } from '$lib/server/costs/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -983,5 +984,57 @@ export const actions: Actions = {
 
 		invalidateCosts();
 		return { action: 'setCostMonthUsd', ok: 'Saved.' };
+	},
+
+	/**
+	 * Import historical spend from a pasted block.
+	 *
+	 * Two-phase on purpose: the first submit PARSES and returns a preview, and only a
+	 * second submit with `confirm` writes. A paste is easy to get subtly wrong (a
+	 * column in the wrong order, a comma read as a decimal point), and this is the one
+	 * path that writes many months at once — so the numbers get looked at before they
+	 * land, rather than being discovered wrong later in a year total.
+	 */
+	importCostMonths: async ({ request, locals }) => {
+		const admin = await requireAdmin(locals);
+		const data = await request.formData();
+		const text = String(data.get('text') ?? '');
+		const confirmed = String(data.get('confirm') ?? '') === '1';
+
+		if (!text.trim()) {
+			return fail(400, { action: 'importCostMonths', error: 'Paste some rows first.' });
+		}
+
+		const { rows, errors } = parseCostImport(text);
+
+		if (!confirmed) {
+			return {
+				action: 'importCostMonths',
+				preview: rows.map((r) => ({
+					provider: r.provider,
+					year: r.year,
+					month: r.month,
+					usd: r.usd,
+				})),
+				parseErrors: errors,
+				text,
+			};
+		}
+
+		if (rows.length === 0) {
+			return fail(400, {
+				action: 'importCostMonths',
+				error: 'Nothing to import — no line could be read.',
+				parseErrors: errors,
+			});
+		}
+
+		const written = await importMonths(rows, admin.id);
+		invalidateCosts();
+		return {
+			action: 'importCostMonths',
+			ok: `Imported ${written} month${written === 1 ? '' : 's'}.`,
+			parseErrors: errors,
+		};
 	},
 };

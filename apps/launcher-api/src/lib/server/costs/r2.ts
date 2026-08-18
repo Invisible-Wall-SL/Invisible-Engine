@@ -33,6 +33,23 @@ const RATES = {
 	classBPerMillion: 0.36,
 };
 
+/**
+ * R2's free allowances, which are **subtracted before anything is billed**.
+ *
+ * Confirmed against a real Cloudflare invoice, whose line items name them outright:
+ * "R2 Data Storage (First 10GB-Month included)", "Class A Operations (First 1M
+ * included)", "Class B Operations (First 10M included)".
+ *
+ * Ignoring these was a real error, not a rounding one: billing from zero made a
+ * $1.19 invoice read as $3.11 here — nearly 3× — because both operation classes sat
+ * entirely inside their free tier and were charged in full anyway.
+ */
+const FREE_TIER = {
+	storageGbMonth: 10,
+	classAOps: 1_000_000,
+	classBOps: 10_000_000,
+};
+
 const GB = 1024 ** 3;
 
 /**
@@ -182,9 +199,11 @@ export async function collectR2(
 	const storedBytes = (num(storage?.payloadSize) ?? 0) + (num(storage?.metadataSize) ?? 0);
 	const storedGb = storedBytes / GB;
 	// Prorated: the rate is per GB-MONTH, so a month-to-date figure must bill only the
-	// fraction of the month that has actually elapsed.
+	// fraction of the month that has actually elapsed. The free 10 GB-month comes off
+	// the stored figure first — below that, storage is genuinely free.
 	const monthFraction = Math.min(1, monthProgress.elapsed / monthProgress.total);
-	const storageUsd = storedGb * RATES.storagePerGbMonth * monthFraction;
+	const billableGb = Math.max(0, storedGb - FREE_TIER.storageGbMonth);
+	const storageUsd = billableGb * RATES.storagePerGbMonth * monthFraction;
 
 	let classA = 0;
 	let classB = 0;
@@ -195,24 +214,33 @@ export async function collectR2(
 		if (CLASS_A.has(action)) classA += requests;
 		else classB += requests;
 	}
-	const classAUsd = (classA / 1_000_000) * RATES.classAPerMillion;
-	const classBUsd = (classB / 1_000_000) * RATES.classBPerMillion;
+	const billableA = Math.max(0, classA - FREE_TIER.classAOps);
+	const billableB = Math.max(0, classB - FREE_TIER.classBOps);
+	const classAUsd = (billableA / 1_000_000) * RATES.classAPerMillion;
+	const classBUsd = (billableB / 1_000_000) * RATES.classBPerMillion;
+
+	/** `1,234 ops · $4.5/M · first 1M free` — the allowance is shown, not just applied,
+	 *  so a $0.00 line reads as "inside the free tier" rather than "no usage". */
+	const opsDetail = (ops: number, perMillion: number, free: number) =>
+		`${ops.toLocaleString('en-US')} ops · $${perMillion}/M · first ${free / 1_000_000}M free`;
 
 	const lines: CostLine[] = [
 		{
 			label: 'Storage',
 			amountUsd: storageUsd,
-			detail: `${storedGb.toFixed(2)} GB · $${RATES.storagePerGbMonth}/GB-month · ${Math.round(monthFraction * 100)}% of month`,
+			detail:
+				`${storedGb.toFixed(2)} GB · $${RATES.storagePerGbMonth}/GB-month · ` +
+				`first ${FREE_TIER.storageGbMonth} GB free · ${Math.round(monthFraction * 100)}% of month`,
 		},
 		{
 			label: 'Class A operations (writes, lists)',
 			amountUsd: classAUsd,
-			detail: `${classA.toLocaleString('en-US')} ops · $${RATES.classAPerMillion}/M`,
+			detail: opsDetail(classA, RATES.classAPerMillion, FREE_TIER.classAOps),
 		},
 		{
 			label: 'Class B operations (reads)',
 			amountUsd: classBUsd,
-			detail: `${classB.toLocaleString('en-US')} ops · $${RATES.classBPerMillion}/M`,
+			detail: opsDetail(classB, RATES.classBPerMillion, FREE_TIER.classBOps),
 		},
 		{ label: 'Egress', amountUsd: 0, detail: 'free on R2' },
 	];

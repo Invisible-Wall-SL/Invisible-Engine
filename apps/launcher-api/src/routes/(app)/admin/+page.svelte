@@ -1234,6 +1234,69 @@
 					</div>
 				{/each}
 
+				<div class="card">
+					<h3>Import history</h3>
+					<p class="muted hint">
+						No provider can be asked for a past month, so history is typed in. One line per
+						provider-month — <span class="mono">month, provider, amount</span> — separated by
+						commas, tabs or spaces. Month can be <span class="mono">2026-05</span>,
+						<span class="mono">05/2026</span>, <span class="mono">May 2026</span> or
+						<span class="mono">mayo 2026</span>; amounts take either
+						<span class="mono">1,234.56</span> or <span class="mono">1.234,56</span>. Lines starting
+						<span class="mono">#</span> are ignored. Imported months are marked as typed in and locked,
+						so the estimator never overwrites them.
+					</p>
+
+					{#if form?.action === 'importCostMonths' && form.preview}
+						<div class="import-preview">
+							<p class="muted hint">
+								<strong>{form.preview.length}</strong> row{form.preview.length === 1 ? '' : 's'} ready
+								to import. Check them, then confirm.
+							</p>
+							<div class="table topup-table">
+								<div class="row head">
+									<span>Month</span>
+									<span>Provider</span>
+									<span class="num">Amount</span>
+								</div>
+								{#each form.preview as row, i (i)}
+									<div class="row">
+										<span>{monthName(row.month)} {row.year}</span>
+										<span>{PROVIDER_LABELS[row.provider] ?? row.provider}</span>
+										<span class="mono num">{usd(row.usd)}</span>
+									</div>
+								{/each}
+							</div>
+						</div>
+					{/if}
+
+					{#if form?.action === 'importCostMonths' && form.parseErrors?.length}
+						<div class="banner error import-errors">
+							{#each form.parseErrors as err, i (i)}
+								<div>{err}</div>
+							{/each}
+						</div>
+					{/if}
+
+					<form method="POST" action="?/importCostMonths" use:enhance>
+						<textarea
+							name="text"
+							class="mono import-text"
+							rows="6"
+							placeholder={'2026-05, railway, 3.39\n2026-06, railway, 5.51\nJuly 2026  RunPod  58.20'}
+							>{form?.action === 'importCostMonths' && form.text ? form.text : ''}</textarea
+						>
+						<div class="token-actions">
+							<button type="submit" class="ghost-btn">Preview</button>
+							{#if form?.action === 'importCostMonths' && form.preview?.length}
+								<button type="submit" name="confirm" value="1">
+									Import {form.preview.length} row{form.preview.length === 1 ? '' : 's'}
+								</button>
+							{/if}
+						</div>
+					</form>
+				</div>
+
 				<p class="muted hint">
 					Months are <strong>Europe/Madrid calendar months</strong> grouped into calendar years,
 					matching the Spanish tax year. The open month updates on every refresh and moves up and
@@ -2279,6 +2342,37 @@
 	}
 	.table-note {
 		margin-top: 10px;
+	}
+	.import-text {
+		width: 100%;
+		box-sizing: border-box;
+		background: #0f0f14;
+		border: 1px solid #2a2a33;
+		border-radius: 8px;
+		color: #ddd;
+		padding: 10px 12px;
+		font-size: 12px;
+		line-height: 1.6;
+		resize: vertical;
+	}
+	.import-text:focus {
+		outline: 1px solid #6b5bff;
+		border-color: #6b5bff;
+	}
+	.import-preview {
+		margin-bottom: 14px;
+	}
+	/* Preview rows are month / provider / amount — a different shape from the users
+	   table the shared `.row` grid is sized for. */
+	.import-preview .row {
+		grid-template-columns: 1fr 1fr 1fr;
+		cursor: default;
+	}
+	.import-errors {
+		margin-bottom: 14px;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
 	}
 	.month-name {
 		display: flex;
