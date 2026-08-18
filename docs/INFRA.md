@@ -161,6 +161,9 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 
 **atlas-backend & atlas-tool:** `COMFY_URL`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET`, `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `COMFY_ORG_API_KEY` (optional, gpt_image). **atlas-tool also:** `ATLAS_PROJECT`, `ATLAS_OUTPUT_PREFIX`, `ATLAS_TOOL_SECRET` (optional), `ATLAS_STAGING`.
 
+> **`COMFY_TRANSPORT` picks which ComfyUI the atlas-tool generates on — production is `serverless`.**
+> `serverless` submits the api-prompt graph to a **RunPod Serverless endpoint** (`RUNPOD_ENDPOINT_ID` + `RUNPOD_API_KEY`); unset or `http` uses the **local ComfyUI over the tunnel** (`COMFY_URL` + the two `CF_ACCESS_*` vars). Live `atlas-tool` is on `serverless` (2026-08-18), so `COMFY_URL`/`CF_ACCESS_*` are **not** on the generation path there even though they're still set — a generation failure in production is a RunPod/worker-image issue, not a local-tunnel one. Changing this var silently changes which machine's installed nodes/models a pipeline needs, which is exactly how gpt_image and the FLUX ControlNet path were blocked for months. `RUNPOD_API_KEY` is shared with the `/comfyui` R&D pod fleet; `RUNPOD_ENDPOINT_ID` is the serverless endpoint only.
+
 ## DNS (Cloudflare)
 
 - Zone `invisiblewall.org` on Cloudflare. `www`/`app` = CNAME → Railway, **DNS-only (grey cloud)** — proxying breaks Railway TLS.

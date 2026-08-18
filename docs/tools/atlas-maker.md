@@ -210,22 +210,25 @@ save/drag-drop format).
 
 ## Prerequisites
 
-Generation runs against **one of two backends**, selected by `COMFY_TRANSPORT`:
+**The hosted Atlas Maker needs nothing installed on your machine.** It generates on
+a **RunPod Serverless endpoint** (`COMFY_TRANSPORT=serverless`, live since
+2026-08-18): the worker image bakes the custom nodes and the volume carries the
+models, so no local ComfyUI, no tunnel, nothing to keep running. Every pipeline —
+SDXL, FLUX including the **ref/ControlNet** path, and **gpt_image** — is proven
+there. If a generation fails, it's the endpoint (cold start, quota, a node missing
+from the worker image), not your setup.
 
-- **`serverless`** — a RunPod Serverless endpoint. The worker image bakes the
-  custom nodes and the volume carries the models, so nothing needs installing on
-  your machine and the tunnel is not involved. Since 2026-08-18 this is the path
-  on which **gpt_image** and the **FLUX ref/ControlNet** pipelines are proven.
-- **`http`** (unset = default) — your **local ComfyUI**, which must be running and
-  reachable through the tunnel, with the models the chosen pipeline names
-  installed **on that machine**:
-  - **SDXL** path — verified end-to-end.
-  - **FLUX** — needs `flux1-dev` + `t5xxl` + `clip_l` + `ae` (or an FP8
-    all-in-one) + Redux (`flux1-redux-dev` + `sigclip_vision`); on the 8GB
-    RTX 4070 use fp8/GGUF to avoid OOM. Only SDXL ControlNets are installed on
-    that GPU, so the shape_ref / ControlNet path needs the serverless backend.
-  - **gpt_image** — needs `COMFY_ORG_API_KEY` (comfy.org credit) and the
-    `OpenAIGPTImage1` + `Images to RGB` nodes present locally.
+The older **`http`** transport still exists for anyone running the tool against a
+**local ComfyUI** over the tunnel. It is not what the hosted tool uses, and it is
+the only case where these local prerequisites apply — ComfyUI running and
+reachable, with the models the chosen pipeline names installed **on that machine**:
+- **SDXL** path — verified end-to-end.
+- **FLUX** — needs `flux1-dev` + `t5xxl` + `clip_l` + `ae` (or an FP8 all-in-one)
+  + Redux (`flux1-redux-dev` + `sigclip_vision`); on the 8GB RTX 4070 use fp8/GGUF
+  to avoid OOM. Only SDXL ControlNets are installed on that GPU, so the shape_ref /
+  ControlNet path needs the serverless backend.
+- **gpt_image** — needs `COMFY_ORG_API_KEY` (comfy.org credit) and the
+  `OpenAIGPTImage1` + `Images to RGB` nodes present locally.
 
 If a pipeline that works for someone else fails for you, check which transport
 you are on before hunting for a missing model.
