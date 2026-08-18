@@ -1105,7 +1105,17 @@ export interface CinematicDoc {
 	duration: number;
 	/** Snap grid only — evaluation is continuous. */
 	fps: number;
-	stage: { sceneId: string | null; cast: CinematicCast[] };
+	stage: {
+		sceneId: string | null;
+		/**
+		 * The bound set's depth on the SAME z line as the cast: it draws above every actor whose
+		 * `z` is ≤ `setZ`. Absent (every doc authored before 2026-08-18) means `-1` — behind the
+		 * whole cast, the position the set used to be hardcoded to. `fx:` cues fire effect nodes
+		 * that live in the set, so this is also the depth a cue's effect plays at.
+		 */
+		setZ?: number;
+		cast: CinematicCast[];
+	};
 	tracks: Array<Record<string, unknown>>;
 	markers: Array<Record<string, unknown>>;
 }

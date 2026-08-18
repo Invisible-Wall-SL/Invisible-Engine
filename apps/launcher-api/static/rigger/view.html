@@ -172,17 +172,23 @@
   .resizer:hover::after, .resizer.dragging::after { background:var(--accent); }
   /* main */
   #main { flex:1; display:flex; flex-direction:column; min-width:0; }
-  #stage { flex:1; position:relative; overflow:hidden; }
+  /* `isolation` makes the stage its own stacking context, so the rig canvas and the FX overlay
+     canvas can be ordered against EACH OTHER (a cinematic set may draw in front of the rigs)
+     without those z-indexes leaking out to the panels and modals around the stage. */
+  #stage { flex:1; position:relative; overflow:hidden; isolation:isolate; }
   canvas { width:100%; height:100%; display:block; }
-  #bonemark { position:absolute; width:10px; height:10px; margin:-5px 0 0 -5px; border-radius:50%;
+  /* The rig canvas sits at 1 so the FX overlay can go BELOW it (0) or above it (2) — see
+     `setFxDepth`. Every stage widget above it is pinned at 4+ so neither canvas can bury it. */
+  #cv { position:relative; z-index:1; }
+  #bonemark { position:absolute; z-index:4; width:10px; height:10px; margin:-5px 0 0 -5px; border-radius:50%;
     border:2px solid var(--accent2); background:rgba(126,224,192,.25); pointer-events:none;
     display:none; box-shadow:0 0 0 1px #000; }
-  #hint { position:absolute; left:12px; top:10px; color:var(--dim); font-size:11px;
+  #hint { position:absolute; z-index:4; left:12px; top:10px; color:var(--dim); font-size:11px;
     pointer-events:none; text-shadow:0 1px 2px #000; }
-  #err { position:absolute; left:12px; right:12px; top:10px; background:#3a2326;
+  #err { position:absolute; z-index:4; left:12px; right:12px; top:10px; background:#3a2326;
     border:1px solid var(--danger); color:#ffd4d4; padding:8px 10px; border-radius:6px;
     font-size:12px; display:none; white-space:pre-wrap; }
-  #artWarn { position:absolute; left:12px; right:12px; top:10px; background:#3a3322;
+  #artWarn { position:absolute; z-index:4; left:12px; right:12px; top:10px; background:#3a3322;
     border:1px solid #b89233; color:#ffe8b0; padding:8px 10px; border-radius:6px;
     font-size:12px; display:none; line-height:1.45; }
   #artWarn .x { float:right; cursor:pointer; opacity:.7; margin-left:8px; font-weight:700; }
@@ -831,6 +837,10 @@ function loadRuntime(line){
 // particle burst on the stage at the bound bone (or rig origin), riding the bone per-frame.
 // Uses the vendored window.RiggerFx (a transparent Pixi overlay in #stage). All coords CSS px.
 let fxReady = false, fxActive = [], fxPrevAnimTime = -1, fxLoadFailed = false, fxLoading = null;
+// Whether the FX overlay canvas paints above the rig canvas (see the bridge's `setFxDepth`).
+// Held here because the overlay is lazy: a cinematic can ask for a depth before the canvas
+// exists, and the answer has to survive until it does.
+let fxInFront = true;
 function ensureFxOverlay(){
   if (fxReady) return Promise.resolve();
   if (fxLoadFailed) return Promise.resolve();
@@ -839,7 +849,12 @@ function ensureFxOverlay(){
     const finish = () => {
       if (!window.RiggerFx){ console.warn("[RiggerFx] bundle loaded but window.RiggerFx missing"); fxLoadFailed = true; return resolve(); }
       Promise.resolve(window.RiggerFx.init($("#stage")))
-        .then(() => { fxReady = true; console.log("[RiggerFx] overlay ready"); })
+        .then(() => {
+          fxReady = true;
+          const c = $("#stage").querySelector("canvas:not(#cv)");
+          if (c) c.style.zIndex = fxInFront ? "2" : "0"; // honour a depth asked for before this existed
+          console.log("[RiggerFx] overlay ready");
+        })
         .catch((e) => { fxLoadFailed = true; console.warn("[RiggerFx] init failed", e); })
         .then(() => resolve());
     };
@@ -928,6 +943,21 @@ function cinematicBridge(){
         try { window.RiggerFx.play(effectId, { x: cv.clientWidth / 2, y: cv.clientHeight / 2, scale: 1, rotation: 0 }); }
         catch (e){ console.warn("[Cinematic] fx cue failed", effectId, e); }
       });
+    },
+    /**
+     * Put the FX overlay in front of or behind the rigs — a cinematic set can now draw at any
+     * depth on the cast's z line, and an `fx:` cue draws WITH the set.
+     *
+     * Only two positions exist here, by construction: every rig is drawn into the single
+     * `#cv` WebGL canvas while FX is Pixi in its own canvas, so the overlay can sit above that
+     * canvas or below it, never between two rigs inside it. The game honours the real z; the
+     * cinematic asks for the band that matches (see `setInFront`). Applied to whatever overlay
+     * canvas is currently mounted — the overlay is lazy, so this is also re-applied on init.
+     */
+    setFxDepth: (inFront) => {
+      fxInFront = !!inFront;
+      const c = $("#stage").querySelector("canvas:not(#cv)"); // the overlay is the only other canvas here
+      if (c) c.style.zIndex = fxInFront ? "2" : "0";
     },
   };
 }

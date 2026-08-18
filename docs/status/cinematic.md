@@ -105,7 +105,9 @@ headless contract tests, never by execution (see Open items).
   scrubbing across a cinematic usable instead of a machine-gun of effects. Editor-side an `fx:`
   cue drives the stage FX overlay the Rigger already vendors; the other namespaces name things
   that only exist in a game, so they surface in the status line rather than silently doing
-  nothing. Game-side `<FlowV2Cinematics>` routes them: sounds through the player (guarded by
+  nothing. **Depth belongs to the SET, not the cue**: an `fx:` cue fires an effect node that lives
+  in the bound set, so `stage.setZ` (the 🎬 row in the timeline) is what puts a cue's effect in
+  front of a rig — see Recent changes for why the preview can only show that as a band. Game-side `<FlowV2Cinematics>` routes them: sounds through the player (guarded by
   `hasSound`, since howler declines an unknown sprite key silently), everything else broadcast on
   the event bus under its bare name — the SAME seam a rig's timeline events use, so a cinematic
   cue and a rig event are indistinguishable downstream.
@@ -243,6 +245,27 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-18 — **The set is a LAYER, so an `fx:` cue can play in front of a rig (owner: "I can't
+  change the layer of where the cue plays… it's always at the bottom").** A cue draws nothing
+  itself — it broadcasts a name, and what answers is an effect node living in the bound **set**,
+  which `FlowV2Cinematics` mounted *before* `<Cinematic>` with the comment "BEHIND the cast so the
+  rigs play in front of their backdrop". That pinned every cue's effect under every rig, with no z
+  anywhere to change. The set now carries **`stage.setZ`** on the SAME z line as the cast (it
+  draws above every actor whose z ≤ setZ), the player mounts it spliced into the cast's draw order
+  rather than beside it, and the timeline shows it as a 🎬 **set** row you move with ▲▼ — the same
+  ▲ = "move behind" wording the cast list already uses. Absent `setZ` ⇒ `-1` ⇒ behind everything,
+  so every existing cinematic renders byte-identically.
+  **The preview can only show BANDS.** Every rig is drawn into one raw-WebGL canvas while FX is
+  Pixi in a second one, so the overlay can sit above that canvas or below it — never sandwiched
+  between two rigs inside it. `setFxDepth` flips it for the two cases it can represent (`#cv` at
+  `z-index:1`, the overlay at 0 or 2, `#stage` isolated so those indices stay local); the game
+  honours the real per-actor z. A finer preview needs one canvas per gap, which the ~16 WebGL
+  context cap rules out — or a Pixi rewrite of the stage.
+  Verified live on the real panel: the row lands at its z, ▲▼ clamp at both ends, the note reads
+  "behind every rig" / "in front of 1 of 2 rigs" / "in front of every rig", the overlay canvas
+  flips 0↔2, and undo/redo restores the depth. Caught in the act: the set row has no `track`, and
+  the shared row preamble did `row.dataset.track = track.id` — cinematic mode failed to load
+  entirely until that was guarded. Gates still pass (107/107, 39/39, 19/19).
 - 2026-08-18 — **A cue could not be changed once it was set (owner).** The cue field was an
   `<input list=…>`, and a datalist FILTERS its options against what the field already holds — so
   the moment a cue read `fx:f_bottle` its dropdown collapsed to that single entry and the effect

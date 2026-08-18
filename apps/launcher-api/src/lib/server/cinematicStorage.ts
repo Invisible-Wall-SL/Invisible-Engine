@@ -41,7 +41,8 @@ export interface CinematicDoc {
 	name: string;
 	duration: number;
 	fps: number;
-	stage: { sceneId: string | null; cast: CinematicCast[] };
+	/** `setZ` = the bound set's depth on the cast's z line; absent ⇒ -1 ⇒ behind every actor. */
+	stage: { sceneId: string | null; setZ?: number; cast: CinematicCast[] };
 	tracks: Array<Record<string, unknown>>;
 	markers: Array<Record<string, unknown>>;
 }

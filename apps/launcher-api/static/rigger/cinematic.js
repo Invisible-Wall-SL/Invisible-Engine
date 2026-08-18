@@ -43,7 +43,7 @@ window.RiggerCinematic = (function () {
 			name: 'Untitled cinematic',
 			duration: 6,
 			fps: 30,
-			stage: { sceneId: null, ratio: null, cast: [] },
+			stage: { sceneId: null, ratio: null, cast: [], setZ: -1 },
 			tracks: [],
 			markers: [],
 		};
@@ -132,7 +132,12 @@ window.RiggerCinematic = (function () {
 		scenes = r.ok && r.body && Array.isArray(r.body.scenes) ? r.body.scenes : [];
 		mainSizes = (r.ok && r.body && r.body.mainSizesMap) || {};
 		layoutSource = (r.ok && r.body && r.body.layoutProfileSource) || '';
-		if (doc) renderPanel(); // the fetch is not awaited — the picker must fill in when it lands
+		// The fetch is not awaited — the picker must fill in when it lands, and so must the SET
+		// row in the timeline, which names the scene (it showed the raw id until this landed).
+		if (doc) {
+			renderPanel();
+			renderTimeline();
+		}
 		return scenes;
 	}
 
@@ -771,6 +776,25 @@ window.RiggerCinematic = (function () {
 		renderTimeline();
 	}
 
+	/**
+	 * The SET's depth on the same z line as the cast: the set draws above every actor whose z is
+	 * ≤ `setZ`. `-1` (the default, and what every pre-2026-08-18 doc means by an absent field) is
+	 * "behind the whole cast" — the hardcoded position it used to have — and `cast.length - 1` is
+	 * in front of everything. This is what makes `fx:` cues layerable: a cue fires an FX node that
+	 * lives IN the set, so the set's depth IS the cue's depth.
+	 */
+	const stageSetZ = () => (doc.stage.setZ == null ? -1 : doc.stage.setZ);
+	/** True when the set is above every actor — the only band the rigs-in-one-canvas preview can show. */
+	const setInFront = () => stageSetZ() >= doc.stage.cast.length - 1;
+
+	function moveSet(dir) {
+		const next = Math.max(-1, Math.min(doc.stage.cast.length - 1, stageSetZ() + dir));
+		if (next === stageSetZ()) return;
+		doc.stage.setZ = next;
+		commit('reorder set');
+		renderTimeline();
+	}
+
 	function normalizeZ() {
 		doc.stage.cast
 			.slice()
@@ -888,7 +912,19 @@ window.RiggerCinematic = (function () {
 	 */
 	function orderedTracks() {
 		const out = [];
+		// The SET is a layer among the actors, not a fixed backdrop. Its row is emitted where its
+		// z puts it, so the timeline reads top-to-bottom as back-to-front exactly like the cast
+		// rows already do (▲ = move behind, the cast list's own wording).
+		const wantSet = !!doc.stage.sceneId;
+		let setDone = false;
+		const emitSetBefore = (z) => {
+			if (wantSet && !setDone && z > stageSetZ()) {
+				out.push({ kind: 'set', cast: null, track: null });
+				setDone = true;
+			}
+		};
 		for (const cast of doc.stage.cast.slice().sort((a, b) => (a.z || 0) - (b.z || 0))) {
+			emitSetBefore(cast.z || 0);
 			const anim = doc.tracks
 				.filter((t) => t.actorId === cast.actorId && t.kind === 'animation')
 				.sort((a, b) => (a.layer || 0) - (b.layer || 0));
@@ -902,6 +938,7 @@ window.RiggerCinematic = (function () {
 				}
 			}
 		}
+		emitSetBefore(Infinity); // in front of the whole cast (or the only row, with no cast yet)
 		const cues = cueTrack();
 		if (cues && cues.keys.length) out.push({ kind: 'cues', track: cues, cast: null });
 		const cam = cameraTrack();
@@ -954,7 +991,7 @@ window.RiggerCinematic = (function () {
 			const row = document.createElement('div');
 			row.className = 'cineTrack';
 			row.style.width = TL_GUTTER + contentW + 'px';
-			row.dataset.track = track.id;
+			if (track) row.dataset.track = track.id; // the SET row is a layer, not a track — it has none
 
 			// A CHANNEL row: keys as diamonds, coloured per channel. Its own shape, not a lane of
 			// strips — property/camera animation is keyframes, not clips.
@@ -978,6 +1015,37 @@ window.RiggerCinematic = (function () {
 					dot.title = (k.visible === false ? 'hidden' : 'visible') + ' from ' + (+k.time.toFixed(3)) + 's';
 					lane.appendChild(dot);
 				}
+				row.appendChild(lane);
+				el.appendChild(row);
+				continue;
+			}
+
+			// The SET row: the bound Scene as a LAYER. It holds the sprites, text and FX nodes, so it
+			// is also where an `fx:` cue's effect draws — moving this row is how a cue gets in front
+			// of a rig. No keys: a set has no timing of its own, only a depth.
+			if (entry.kind === 'set') {
+				row.classList.add('cineChanRow', 'cineSetRow');
+				const sc = scenes.find((s) => s.id === doc.stage.sceneId);
+				const g = document.createElement('div');
+				g.className = 'cineGutter';
+				g.innerHTML =
+					'<span class="cineTrackName cineChanName" title="The bound set draws here — everything in it, including an fx: cue\'s effect">🎬 set</span>' +
+					'<button data-setz="-1" title="Move behind"' + (stageSetZ() <= -1 ? ' disabled' : '') + '>▲</button>' +
+					'<button data-setz="1" title="Move in front"' + (setInFront() ? ' disabled' : '') + '>▼</button>';
+				row.appendChild(g);
+				const lane = document.createElement('div');
+				lane.className = 'cineLane';
+				lane.style.width = contentW + 'px';
+				const where = doc.stage.cast.length
+					? stageSetZ() < 0
+						? 'behind every rig'
+						: setInFront()
+							? 'in front of every rig'
+							: 'in front of ' + (stageSetZ() + 1) + ' of ' + doc.stage.cast.length + ' rigs'
+					: 'no rigs cast yet';
+				lane.innerHTML =
+					'<span class="cineSetNote">' + esc((sc && (sc.name || sc.id)) || doc.stage.sceneId) +
+					' — sprites, text and FX · ' + where + '</span>';
 				row.appendChild(lane);
 				el.appendChild(row);
 				continue;
@@ -1075,6 +1143,11 @@ window.RiggerCinematic = (function () {
 
 		el.scrollLeft = keepScroll;
 		wireTimeline(el, pps);
+		// The preview draws every rig into ONE raw-WebGL canvas while FX is Pixi in a second one, so
+		// an `fx:` cue can only be shown as a BAND — above the whole cast or below it — never
+		// sandwiched between two rigs. The game honours the true z; this keeps the preview from
+		// contradicting it in the two cases it can actually represent.
+		if (ctx.setFxDepth) ctx.setFxDepth(setInFront());
 	}
 
 	/** A tick every 1/2/5/10… seconds, whichever keeps labels ~70px apart. */
@@ -1118,6 +1191,13 @@ window.RiggerCinematic = (function () {
 				if (act === 'addStrip') addStripAtPlayhead(trackId);
 				else if (act === 'addLayer') addLayer(trackId);
 				else if (act === 'delLayer') removeLayer(trackId);
+			};
+		});
+
+		el.querySelectorAll('.cineGutter [data-setz]').forEach((btn) => {
+			btn.onclick = (e) => {
+				e.stopPropagation();
+				moveSet(parseInt(btn.dataset.setz, 10));
 			};
 		});
 
@@ -1713,7 +1793,7 @@ ${doc.stage.sceneId && !scenes.some((sc) => sc.id === doc.stage.sceneId) ? '<div
 ${cameraMarkup()}
 ${cueMarkup()}
 <div class="cineNote">Drag a strip to move it · drag its edges to trim · hold Alt to ignore the fps grid · Ctrl+wheel over the timeline to zoom.</div>
-<div class="cineNote"><b>Text, sprites and placed FX</b> come from the <b>Set</b> above — author them as a Scene in the Scene Editor, then bind it here. They render in the game; the stage preview shows rigs only. Adding them from inside the cinematic (and animating them) is not built yet. For a one-off effect or sound at a moment, use a ⚡ cue instead.</div>`;
+<div class="cineNote"><b>Text, sprites and placed FX</b> come from the <b>Set</b> above — author them as a Scene in the Scene Editor, then bind it here. The set is a <b>layer</b>: its 🎬 row in the timeline moves among the rigs with ▲▼, and that is the depth an <code>fx:</code> cue draws at too. They render in the game; the stage preview shows rigs plus the FX band. Adding them from inside the cinematic (and animating them) is not built yet. For a one-off effect or sound at a moment, use a ⚡ cue instead.</div>`;
 
 		$('#cineAdd').onclick = () => {
 			const id = $('#cineAddSel').value;
@@ -1894,7 +1974,7 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 	<label>time<input type="number" step="0.05" min="0" data-cueact="time" value="${+sel.time.toFixed(3)}"></label>
 </div>
 <div class="cineRow"><button id="cineDelCue" title="Delete this cue">🗑 Delete cue</button></div>
-<div class="cineNote">${fxEffects.length ? 'Pick an FX effect from the list — it stays complete however the cue is already set — or type an <code>sfx:</code> / <code>music:</code> / <code>signal:</code> name the game knows.' : 'This project has no authored FX effects yet — author them in /fx, or type a sound or signal name.'}</div>`;
+<div class="cineNote">${fxEffects.length ? 'Pick an FX effect from the list — it stays complete however the cue is already set — or type an <code>sfx:</code> / <code>music:</code> / <code>signal:</code> name the game knows.' : 'This project has no authored FX effects yet — author them in /fx, or type a sound or signal name.'} An <code>fx:</code> cue draws on the <b>set</b> layer — move its 🎬 row in the timeline to put the effect in front of a rig.</div>`;
 	}
 
 	/** Inspector for a selected property/camera key — time, value and its outgoing interpolation. */

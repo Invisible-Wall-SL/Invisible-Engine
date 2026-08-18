@@ -15,7 +15,7 @@
 	 * still runs, and the validator already warns about an empty `ref` at authoring time.
 	 */
 	import { MainContainer } from 'components-layout';
-	import { Cinematic, LayoutScene } from 'engine-layout/svelte';
+	import { Cinematic } from 'engine-layout/svelte';
 	import { getContextEventEmitter } from 'utils-event-emitter';
 
 	import { bakedCinematic } from '../editor-scenes';
@@ -77,16 +77,16 @@
 		{#each active as entry (entry.id)}
 			<!--
 				The SET (design §12.3): a cinematic can stage over a Scene, which owns what is on
-				stage — sprites, text, FX and their per-ratio placement, authored in /editor. Mounted
-				BEHIND the cast so the rigs play in front of their backdrop, and drawn by `LayoutScene`
-				so set content renders through the game's ONE renderer rather than a cinematic-specific
-				one. A cinematic with no set (or naming one this project lacks) mounts nothing.
+				stage — sprites, text, FX and their per-ratio placement, authored in /editor. Handed
+				to `<Cinematic>` rather than mounted beside it, because the set carries its own DEPTH
+				(`stage.setZ`) on the cast's z line and the player is what knows the cast order. It
+				used to be pinned behind every rig, which also pinned every `fx:` cue's effect there —
+				a cue fires an effect node that lives in the set. A cinematic with no set (or naming
+				one this project lacks) mounts nothing.
 			-->
-			{#if entry.scene}
-				<LayoutScene scene={entry.scene} />
-			{/if}
 			<Cinematic
 				doc={entry.doc!}
+				scene={entry.scene}
 				playing
 				loop={entry.opts.loop}
 				speed={entry.opts.speed}
