@@ -1,8 +1,31 @@
-# Project history — done-work narrative
+# Project history — done-work narrative (FROZEN ARCHIVE)
 
+> ## ⛔ Do not append to this file.
+>
+> **Frozen 2026-08-18.** It is a read-only archive of work completed **up to 2026-07-29**.
+> Everything below is preserved verbatim and stays worth reading — existing
+> `([detail in history](history.md))` links from the status files point into it and are
+> still correct, so do **not** strip them.
+>
+> **New done-work detail goes in `docs/status/<tool>.md`**, in that tool's "Recent changes"
+> list. See CLAUDE.md rule 6 and [`docs/status/README.md`](status/README.md).
+>
+> **Why it was frozen:** the rule said push verbose detail here, but for months every change
+> was written up in the per-tool status file instead — the place a reader actually looks. By
+> 2026-08-18 this file was 270 commits behind while the status files were current, so it had
+> become a trap: a stale surface that *looked* authoritative. Rather than backfill a log
+> nobody was reading, the rule was changed to match where the writing already went. The cost
+> is accepted knowingly: a tool's status file now carries its own long tail, and trimming one
+> means deleting old entries rather than relocating them. If a status file ever gets
+> genuinely unwieldy, split it per-tool (`docs/status/<tool>-history.md`) rather than reviving
+> this one — a single global log is the shape that failed twice now (first as `STATUS.md`,
+> then as this file).
+>
+> ---
+>
 > Archived changelog split out of `STATUS.md` (2026-05-31) to keep the status doc short.
-> Newest-first; this is the detailed record of completed work. For current state + open
-> items see `docs/STATUS.md`.
+> Newest-first; this is the detailed record of completed work up to the freeze. For current
+> state + open items see `docs/STATUS.md` and `docs/status/<tool>.md`.
 
 ## Done (Studio / pipeline tools)
 

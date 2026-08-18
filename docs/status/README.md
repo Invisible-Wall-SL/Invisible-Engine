@@ -21,8 +21,10 @@ that at the root.
 Plus two shared files:
 - `docs/STATUS.md` — a **slim global index**: cross-cutting/roadmap state + a table linking
   every tool to its three docs. It never restates a tool's per-file facts.
-- `docs/history.md` — the **append-only done-work log** (verbose, newest-first). When a
-  status file's "Recent changes" list gets long, the old detail moves here.
+- `docs/history.md` — a **FROZEN archive** of done work up to 2026-07-29 (verbose,
+  newest-first). **Never append to it.** Existing `([detail in history](../history.md))`
+  links from status files point into it and remain correct — don't strip them. New
+  done-detail stays in the tool's own status file.
 
 **The rule that prevents drift:** a fact lives in exactly one surface. The agent prompt and
 the global STATUS.md **link**, they never copy. Progress detail belongs in the status file
@@ -49,8 +51,17 @@ live-verify caveats that are still open. Link the design-doc phase when useful.>
 - <Anything waiting on the owner or an external dependency, if any.>
 
 ## Recent changes
-- YYYY-MM-DD — <one-line summary> ([detail in history](../history.md))
+- YYYY-MM-DD — **<what changed>** <the detail: what broke or was built, why, and the
+  non-obvious constraint the next person needs. Newest first.>
 ```
 
-Keep "Recent changes" to a handful of the latest, one line each. Push older verbose entries
-to `docs/history.md`.
+**"Recent changes" is where the done-work detail lives** — this file owns its tool's whole
+story, so write the entry here rather than pushing it elsewhere. Newest first, and lead each
+entry with the fact, not the ceremony.
+
+When the list eventually gets unwieldy, **delete** the oldest entries whose lesson is now
+either obvious or encoded in the code itself. Do not start a new global log to hold them: a
+single chronological file for the whole project is the shape that has now failed twice — first
+as `STATUS.md`, then as `docs/history.md`, both of which grew until nobody read or updated
+them. If one tool genuinely needs the depth, split it as `docs/status/<tool>-history.md` so it
+stays next to the tool it describes.

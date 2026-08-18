@@ -8,7 +8,7 @@
 >
 > The old reconciled block + the dated 2026-07-xx changelog + the Track 1/Track 2 historical
 > log were moved verbatim into [`docs/history.md`](history.md) (snapshot 2026-07-15). Nothing
-> was lost.
+> was lost. That file is now a **frozen archive** — see [History](#history) at the bottom.
 
 ## The one rule that keeps these docs from drifting
 
@@ -146,6 +146,10 @@ the docs were just stale — remaining tail = the Borut mirror B4.6 + live-verif
 
 ## History
 
-The full done-work narrative + the archived STATUS changelog live in [`docs/history.md`](history.md)
-(newest-first). Each tool's `docs/status/<tool>.md` keeps a short "Recent changes" list that links
-into it.
+[`docs/history.md`](history.md) is a **frozen archive** (newest-first) of done work up to
+2026-07-29 — the old STATUS changelog plus the done-work narrative of that era. It is **read-only:
+nothing gets appended to it any more.** Done-work detail now lives in each tool's
+`docs/status/<tool>.md` "Recent changes", which is where it was already being written; the archive
+was frozen on 2026-08-18 once it had fallen 270 commits behind and become a stale surface that
+looked authoritative. The `([detail in history](history.md))` links in the older status entries
+still resolve correctly — leave them.

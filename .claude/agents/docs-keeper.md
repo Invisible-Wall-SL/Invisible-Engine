@@ -49,7 +49,10 @@ and `TOOL_DOC_SLUG`. A tool is only fully documented when ALL of these hold:
    doc grounded in what you read. Never invent UI.
 3. Update `docs/tools/README.md` and verify onboarding links resolve.
 4. If you touched launcher code, `pnpm --filter launcher-api build` (GREEN = also
-   the type-check). Record the work in `docs/STATUS.md`.
+   the type-check). Record the work in the tool's `docs/status/<tool>.md` "Recent
+   changes" (per CLAUDE.md rule 6) — `docs/STATUS.md` only if the cross-cutting
+   picture changed (planned → built, a roadmap item closed, a blocker cleared).
+   Never append to `docs/history.md`; it is a frozen archive.
 
 ## Hard rules (inherit the repo's)
 - Our tools are "Invisible …"; third-party keep real names.
