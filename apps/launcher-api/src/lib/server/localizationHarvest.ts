@@ -5,9 +5,11 @@ import type {
 	LayoutNode,
 	WinTextDoc,
 } from 'engine-layout';
-import { collectWinTextTemplates } from 'engine-layout';
+import { collectUiTextStrings, collectWinTextTemplates } from 'engine-layout';
 import type { FlowDoc } from 'engine-flow-v2';
 import { collectTextMessages } from 'engine-flow-v2';
+import type { GameConfigDoc } from 'game-config';
+import { resolveBetModes } from 'game-config';
 import type { LocalizationDoc, LocalizationEntry } from './localization';
 import type { SymbolsDoc } from './symbolsStorage';
 
@@ -39,7 +41,7 @@ export interface HarvestSection {
 	items: HarvestedItem[];
 	/** Which tool owns these sources — stamped onto every entry the section reconciles.
 	 *  Defaults to `'editor'` (the original collector). */
-	origin?: 'editor' | 'winText' | 'symbols' | 'flow';
+	origin?: 'editor' | 'winText' | 'symbols' | 'flow' | 'gameConfig' | 'uiText';
 }
 
 /** Display grouping handed to the page: a section is a list of entry keys, in order. */
@@ -260,6 +262,77 @@ export function harvestFlowMessages(doc: FlowDoc | undefined): HarvestSection[] 
 	const items = collectTextMessages(doc).filter((i) => isLocalizableText(i.source));
 	if (items.length === 0) return [];
 	return [{ sceneId: FLOW_MESSAGE_SECTION_ID, sceneName: 'Flow messages', items, origin: 'flow' }];
+}
+
+/** The synthetic section id the engine's coded UI strings are grouped under (see {@link WIN_TEXT_SECTION_ID}). */
+export const UI_TEXT_SECTION_ID = '__uiText';
+
+/**
+ * Collect the ENGINE's coded UI strings — the HUD captions (`BALANCE`/`WIN`/`BET`), the menu and
+ * info-page entries, the bet menu, the settings and autoplay modals, and the info page's rules copy.
+ *
+ * These already localize by source-as-key (every one renders through `stateI18nDerived.translate`),
+ * but they were never DISCOVERABLE: `/localization` harvested only what an author had typed in a
+ * tool, so the shipped chrome had no row to translate and stayed in the source language for every
+ * language the code catalogs don't ship — and the code catalogs ship `en` and `zh` only. A game
+ * could therefore be fully translated and still show an English `BALANCE`, `CONFIRM`, or
+ * `INSUFFICIENT FUNDS…`.
+ *
+ * The list comes from `engine-layout`'s `UI_TEXT` registry, which is the SAME source the two
+ * `i18nDerived` maps read their literals from — so it cannot drift from what the game renders.
+ * Project-independent (unlike every other collector), which is exactly right: the chrome is the
+ * shared runtime bundle's, so every project sees the same rows and translates them for itself.
+ */
+export function harvestUiText(): HarvestSection[] {
+	const items = collectUiTextStrings().filter((i) => isLocalizableText(i.source));
+	if (items.length === 0) return [];
+	return [{ sceneId: UI_TEXT_SECTION_ID, sceneName: 'Game UI', items, origin: 'uiText' }];
+}
+
+/** The synthetic section id the bet-mode copy is grouped under (see {@link WIN_TEXT_SECTION_ID}). */
+export const BET_MODE_SECTION_ID = '__betModes';
+
+/**
+ * Collect Invisible Game Config's BET-MODE COPY as one translatable section — the title,
+ * description and button label on each buy-feature card, the confirm dialog's body, and the HUD
+ * badge a mode shows while it is the active stake.
+ *
+ * This copy lives in `/config` (`betModePresentation[mode].text`), not in a scene: the card is ONE
+ * `featureCard` component whose text nodes bind `engineProvided` params, and the repeater feeds a
+ * different string per mode at RUNTIME. So the scene walk in {@link harvestSceneText} can never see
+ * it (it deliberately skips `engineProvided` binds — they carry live values, not prose), and the
+ * strings stayed English in every locale no matter how complete the catalog was.
+ *
+ * Harvested from {@link resolveBetModes}, i.e. the RESOLVED copy the game actually renders — so the
+ * derived defaults a config never overrides (`BUY` / `PLAY` / `ACTIVATE`, and a title falling back to
+ * the mode key) are translatable too, matching how the win-text toast defaults harvest.
+ *
+ * Source-as-key, exact/untrimmed like scene text: the card's text nodes go through
+ * `resolveLocalizedText` (`LayoutNodeView`) and the dialog/badge through `stateI18nDerived.translate`,
+ * and neither trims. Only the `base` mode's `betAmountLabel` is taken — its title/description/button
+ * have no surface (the buy menu lists non-default modes only), so harvesting them would add rows for
+ * text no player ever sees.
+ */
+export function harvestBetModeText(doc: GameConfigDoc | null | undefined): HarvestSection[] {
+	if (!doc) return [];
+	const items: HarvestedItem[] = [];
+	const seen = new Set<string>();
+	const add = (source: string, label: string): void => {
+		if (!isLocalizableText(source) || seen.has(source)) return;
+		seen.add(source);
+		items.push({ key: source, source, label });
+	};
+	for (const mode of resolveBetModes(doc)) {
+		// The bet readout's badge applies to whichever mode is active, base included.
+		add(mode.betAmountLabel, `${mode.mode} — bet label`);
+		if (mode.kind === 'base') continue;
+		add(mode.title, `${mode.mode} — title`);
+		add(mode.description, `${mode.mode} — description`);
+		add(mode.button, `${mode.mode} — button`);
+		add(mode.dialog, `${mode.mode} — confirm dialog`);
+	}
+	if (items.length === 0) return [];
+	return [{ sceneId: BET_MODE_SECTION_ID, sceneName: 'Bet modes', items, origin: 'gameConfig' }];
 }
 
 function newId(): string {

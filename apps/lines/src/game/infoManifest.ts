@@ -1,4 +1,5 @@
 import type { InfoManifest, InfoSymbolIcon } from 'components-ui-pixi';
+import { UI_INFO_RULES } from 'engine-layout';
 
 import { getNumRows, getPaylines, paylineColor } from './gameConfig';
 import { numLines, paytable } from './paytable';
@@ -68,22 +69,8 @@ export const infoManifest: InfoManifest = {
 	get symbols() {
 		return buildSymbols();
 	},
-	rules: [
-		{
-			heading: 'WILD',
-			body: 'The Wild substitutes for all paying symbols to complete winning lines.',
-		},
-		{
-			heading: 'SCATTER',
-			body: 'The Scatter is paid anywhere on the reels. 3 or more trigger the Free Spins feature.',
-		},
-		{
-			heading: 'PAYLINES & BET',
-			body: 'Line wins pay left to right on adjacent reels. Total bet = bet per line × the number of lines.',
-		},
-		{
-			heading: 'MAX WIN',
-			body: 'If the total win of a round reaches the win cap, the round ends and the win is awarded up to the cap.',
-		},
-	],
+	// The default rules copy lives in `engine-layout`'s shared UI-text registry so
+	// `/localization` can harvest it — these strings render through `translate()`, but while the
+	// literals lived here the launcher could not see them and the page stayed English.
+	rules: UI_INFO_RULES,
 };

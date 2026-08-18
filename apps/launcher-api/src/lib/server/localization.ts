@@ -21,7 +21,11 @@ export interface LocalizationEntry {
 	 * `'symbols'` = auto-collected from the Invisible Symbols State Machine's display names
 	 * (`SymbolsDoc.names`, e.g. `H1` → "Banana"/"Bananas").
 	 * `'flow'` = auto-collected from Invisible Flow's `textMessage` node text (in-game prompts).
-	 * All four are AUTO origins: the source is read-only here (the owning tool edits it), the rows
+	 * `'gameConfig'` = auto-collected from Invisible Game Config's bet-mode copy — the buy-feature
+	 * cards' title/description/button, the confirm dialog's body, and the HUD's bet-mode badge.
+	 * `'uiText'` = the ENGINE's own coded UI strings (HUD captions, menus, modals, info-page rules).
+	 * Project-independent — the shared runtime bundle owns them; each project translates them.
+	 * All six are AUTO origins: the source is read-only here (the owning tool edits it), the rows
 	 * are re-derived on every load, and an untranslated one is not persisted.
 	 * `'manual'` = hand-authored in this table; this tool owns it, so it is editable and always
 	 * persisted. Defaults to `'manual'` so legacy docs (no field) round-trip as before.
@@ -29,7 +33,7 @@ export interface LocalizationEntry {
 	 * Anything that is not `'manual'` is an auto origin — prefer testing for that rather than
 	 * listing origins, so a future collector doesn't silently fall into the manual bucket.
 	 */
-	origin: 'manual' | 'editor' | 'winText' | 'symbols' | 'flow';
+	origin: 'manual' | 'editor' | 'winText' | 'symbols' | 'flow' | 'gameConfig' | 'uiText';
 }
 
 /** The whole per-project localization document stored as JSON in R2. */
@@ -121,7 +125,12 @@ function normalizeEntry(input: unknown, targetLangs: string[]): LocalizationEntr
 		}
 	}
 	const origin =
-		e.origin === 'editor' || e.origin === 'winText' || e.origin === 'symbols' || e.origin === 'flow'
+		e.origin === 'editor' ||
+		e.origin === 'winText' ||
+		e.origin === 'symbols' ||
+		e.origin === 'flow' ||
+		e.origin === 'gameConfig' ||
+		e.origin === 'uiText'
 			? e.origin
 			: 'manual';
 	return { id, key, source, translations, origin };

@@ -6,13 +6,17 @@ import { loadDoc as loadEditorDoc } from '$lib/server/editorStorage';
 import { loadDocWithEtag, normalizeDoc, saveDoc } from '$lib/server/localization';
 import type { LocalizationDoc } from '$lib/server/localization';
 import {
+	harvestBetModeText,
 	harvestFlowMessages,
 	harvestSceneText,
 	harvestSymbolNames,
+	harvestUiText,
 	harvestWinText,
 	reconcileWithEditor,
 } from '$lib/server/localizationHarvest';
 import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
+import { resolveGameConfig } from '$lib/server/gameConfigDefaults';
+import { projectGameType } from '$lib/server/projects';
 import { ConflictError } from '$lib/server/r2';
 import { writeBaseEtagForm } from '$lib/server/writeGuard';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
@@ -63,14 +67,21 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// Auto-collect the project's text and fold it into the doc as read-only entries owned by the
 	// tool that authored them: the Scene Editor's text nodes (grouped by scene), Invisible Win
 	// Text's templates (one "Win text" section), the Invisible Symbols State Machine's display
-	// names (one "Symbol names" section), and Invisible Flow's `textMessage` node text (one "Flow
-	// messages" section). A missing doc on any side harvests nothing — the tool behaves as before.
-	const [loaded, editorDoc, winTextDoc, symbolsDoc, flowV2Doc] = await Promise.all([
+	// names (one "Symbol names" section), Invisible Flow's `textMessage` node text (one "Flow
+	// messages" section), Invisible Game Config's bet-mode copy (one "Bet modes" section — the
+	// buy-feature cards, which live in the config and so are invisible to the scene walk), and the
+	// engine's own coded UI strings (one "Game UI" section, project-independent).
+	// A missing doc on any side harvests nothing — the tool behaves as before.
+	const gameType = await projectGameType(projectKey);
+	const [loaded, editorDoc, winTextDoc, symbolsDoc, flowV2Doc, gameConfig] = await Promise.all([
 		loadDocWithEtag(clientKey, projectKey),
 		loadEditorDoc(clientKey, projectKey),
 		loadWinTextDoc(clientKey, projectKey),
 		loadSymbolsDoc(clientKey, projectKey),
 		loadFlowV2Doc(clientKey, projectKey),
+		// The RESOLVED config (authored doc ◁ game-type template default) — the same precedence the
+		// game runs on, so a project that never authored a config still lists the copy it renders.
+		resolveGameConfig(clientKey, projectKey, gameType),
 	]);
 	// The client doc deliberately differs from the stored bytes (auto-collected entries
 	// are folded in below), so the etag guards the stored OBJECT and must not be
@@ -81,6 +92,11 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		...harvestWinText(winTextDoc),
 		...harvestSymbolNames(symbolsDoc),
 		...harvestFlowMessages(flowV2Doc ?? undefined),
+		...harvestBetModeText(gameConfig.doc),
+		// The engine's own coded chrome (HUD captions, menus, modals, info-page rules) — the same
+		// registry the runtime renders from, so the shipped UI is translatable per project instead of
+		// being stuck on the two languages the code catalogs happen to ship.
+		...harvestUiText(),
 	];
 	const { entries, display } = reconcileWithEditor(doc, sections);
 	// `clientKey` is threaded to the page for the Phase 2c soft edit-lease key

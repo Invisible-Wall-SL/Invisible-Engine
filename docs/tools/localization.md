@@ -29,6 +29,24 @@ A spreadsheet-style table of the game's text, in two kinds of section:
   text resolver swaps them in-game with no re-keying.
   - A **No longer in scenes** section appears for text that was removed from the
     editor but still has saved translations — keep or delete each row.
+- **Other auto-collected sections.** Text a game shows that does _not_ live on a
+  screen is collected the same way — read-only here, owned by the tool named:
+  - **Win text** — Invisible Win Text's templates (`{count} OF A KIND`, the
+    info-bar toasts). Translate the template; the engine interpolates the numbers
+    back in afterwards.
+  - **Symbol names** — the Invisible Symbols State Machine's display names
+    (`H1` → "Banana"/"Bananas"), so a translated win line doesn't end in an
+    English symbol name.
+  - **Flow messages** — the text on Invisible Flow's Text Message nodes.
+  - **Bet modes** — Invisible Game Config's bet-mode copy: each buy-feature
+    card's title, description and button, the confirm dialog's body, and the
+    bet-mode badge the HUD shows while that mode is the active stake. This copy
+    lives in `/config`, not on a screen, which is why it needs its own section.
+  - **Game UI** — the engine's own built-in chrome: HUD captions (`BALANCE`,
+    `WIN`, `BET`), the menu and info-page entries, the bet menu, the settings and
+    autoplay modals, and the info page's rules copy. The same rows for every
+    project (the shared runtime bundle owns them); each project translates them
+    for itself.
 - **Manual strings.** A hand-authored section (with an editable `key` + `source`)
   for text that isn't an editor component. Use **+ Add row** here.
 
@@ -47,7 +65,7 @@ amber dot. Editing the cell (or clicking the dot) marks it **reviewed** (green
 dot). Nothing is saved until you click **Save**, so you always review machine
 output before it's persisted.
 
-For a whole batch, the **Mark reviewed** control beside *Translate all missing*
+For a whole batch, the **Mark reviewed** control beside _Translate all missing_
 approves every filled cell in the chosen scope (one language, or all of them).
 It skips empty cells, asks for confirmation, and still needs **Save** — the
 intended flow being: translate → Save → open the game from the launcher (an
@@ -134,14 +152,14 @@ each game translates only the subset it sells into.
 > screen — and note that Arabic, Hebrew and Persian additionally need RTL
 > layout, which the HUD does not do automatically.
 
-**Reviewed vs unreviewed — where each shows up.** Saving is enough to *test* a
-translation; reviewing is what lets it *ship*:
+**Reviewed vs unreviewed — where each shows up.** Saving is enough to _test_ a
+translation; reviewing is what lets it _ship_:
 
-| Boot | Carries | Why |
-|---|---|---|
+| Boot                                    | Carries                   | Why                                                                  |
+| --------------------------------------- | ------------------------- | -------------------------------------------------------------------- |
 | Launcher link / Play (`ie_authoring=1`) | reviewed **+ unreviewed** | so you can read machine output in the running game before vetting it |
-| Published player URL | reviewed only | unvetted text must never reach a player |
-| Build-time bake (`bake-editor-doc.mjs`) | reviewed only | the final build never embeds unreviewed strings |
+| Published player URL                    | reviewed only             | unvetted text must never reach a player                              |
+| Build-time bake (`bake-editor-doc.mjs`) | reviewed only             | the final build never embeds unreviewed strings                      |
 
 The authoring boot asks for the extra strings explicitly (`&authoring=1` on
 `/api/editor/runtime`, sent only when `ie_authoring=1` is in the game URL), and

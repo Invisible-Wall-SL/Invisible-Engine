@@ -2,7 +2,7 @@
 	import { Tween } from 'svelte/motion';
 
 	import { Container } from 'pixi-svelte';
-	import { stateBet, stateBetDerived, stateModal } from 'state-shared';
+	import { stateBet, stateBetDerived, stateI18nDerived, stateModal } from 'state-shared';
 	import { getComponentParams } from 'engine-layout/svelte';
 	import { resolveLocalizedText, type TextStyle } from 'engine-layout';
 	import { numberToCurrencyString, bookEventAmountToCurrencyString } from 'utils-shared/amount';
@@ -59,8 +59,13 @@
 		switch (source) {
 			case 'win':
 				return i18nDerived.win();
-			case 'bet':
-				return stateBetDerived.activeBetMode()?.text.betAmountLabel || i18nDerived.bet();
+			case 'bet': {
+				// The authored bet-mode badge (Invisible Game Config) is a SOURCE string, harvested by
+				// `/localization` — translate it, exactly as `HudCaption`/`LabelBet` do. Left raw it
+				// showed English under every locale while the sibling captions localized.
+				const betLabel = stateBetDerived.activeBetMode()?.text.betAmountLabel;
+				return betLabel ? stateI18nDerived.translate(betLabel) : i18nDerived.bet();
+			}
 			case 'balance':
 			default:
 				return i18nDerived.balance();

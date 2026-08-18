@@ -72,6 +72,7 @@ export * from './registerTextResolver';
 export * from './registerInlineImage';
 export * from './inlineImage';
 export * from './winText';
+export * from './uiText';
 export * from './builtinComponents';
 export * from './boundComponentCatalog';
 export * from './componentCatalog';
