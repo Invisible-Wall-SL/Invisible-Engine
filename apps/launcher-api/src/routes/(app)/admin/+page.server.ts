@@ -85,18 +85,16 @@ import {
 	getRunpodPods,
 	setAppSetting,
 } from '$lib/server/appSettings';
-import {
-	getEffectiveFleet,
-	podControlConfigured,
-	podStop,
-	probeFleet,
-} from '$lib/server/runpod';
+import { getEffectiveFleet, podControlConfigured, podStop, probeFleet } from '$lib/server/runpod';
 import {
 	LAYOUT_PROFILE_DEFAULT_KEY,
 	getGlobalLayoutProfile,
 	setGlobalLayoutProfile,
 } from '$lib/server/layoutProfile';
 import { DEFAULT_LAYOUT_PROFILE } from 'engine-layout';
+import { getCosts, invalidateCosts } from '$lib/server/costs';
+import { addTopUp, deleteTopUp } from '$lib/server/costs/ledger';
+import type { ProviderId } from '$lib/server/costs/types';
 import type { Actions, PageServerLoad } from './$types';
 
 /**
@@ -135,6 +133,13 @@ function generateDeployToken(): string {
 }
 
 const MIN_DEPLOY_TOKEN = 16;
+
+/** Providers the cost ledger accepts — mirrors `ProviderId` in `$lib/server/costs/types`. */
+const COST_PROVIDERS: ProviderId[] = ['runpod', 'railway', 'r2', 'anthropic'];
+
+function isCostProvider(value: string): value is ProviderId {
+	return (COST_PROVIDERS as string[]).includes(value);
+}
 
 export const load: PageServerLoad = async ({ locals }) => {
 	await requireAdmin(locals);
@@ -210,6 +215,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 			profile: globalLayoutProfile ?? DEFAULT_LAYOUT_PROFILE,
 			custom: !!globalLayoutProfile,
 		},
+		// Pipeline running costs. Deliberately NOT awaited — SvelteKit streams the
+		// promise, so the admin page renders immediately and the Costs cards fill in
+		// when the four provider APIs answer. Awaiting here would put up to a 20s
+		// worst-case network wait in front of user management. `getCosts` never
+		// rejects (every collector degrades to a card), so the stream can't error out.
+		costs: getCosts(),
+		costProviders: COST_PROVIDERS,
 		runpod: {
 			configured: runpodConfigured,
 			idleEnabled: runpodIdle.enabled,
@@ -878,5 +890,56 @@ export const actions: Actions = {
 
 		await podStop(podId);
 		return { action: 'stopRunpodPod', ok: 'Pod stop requested.' };
+	},
+
+	/** Re-poll every provider now, bypassing the 10-minute snapshot cache. */
+	refreshCosts: async ({ locals }) => {
+		await requireAdmin(locals);
+		invalidateCosts();
+		return { action: 'refreshCosts', ok: 'Re-reading provider costs…' };
+	},
+
+	/**
+	 * Record a prepaid top-up. This is a human claim, not a measurement — it exists
+	 * because only RunPod exposes a real balance API, so for the other providers
+	 * "credit remaining" can only be derived from what an admin says they added.
+	 */
+	addCostTopUp: async ({ request, locals }) => {
+		const admin = await requireAdmin(locals);
+		const data = await request.formData();
+		const provider = String(data.get('provider') ?? '').trim();
+		const amountRaw = String(data.get('amountUsd') ?? '').trim();
+		const dateRaw = String(data.get('occurredAt') ?? '').trim();
+		const note = String(data.get('note') ?? '').trim() || null;
+
+		if (!isCostProvider(provider)) {
+			return fail(400, { action: 'addCostTopUp', error: 'Pick a provider.' });
+		}
+		const amountUsd = Number(amountRaw.replace(/[$,]/g, ''));
+		if (!Number.isFinite(amountUsd)) {
+			return fail(400, { action: 'addCostTopUp', error: 'Enter the amount in USD, e.g. 200.' });
+		}
+		// A bare `YYYY-MM-DD` from the date input parses as UTC midnight, which is what
+		// we want — the spend window is snapped to UTC days by the cost report anyway.
+		const occurredAt = dateRaw ? new Date(dateRaw) : new Date();
+
+		const result = await addTopUp({ provider, amountUsd, occurredAt, note, userId: admin.id });
+		if (!result.ok) return fail(400, { action: 'addCostTopUp', error: result.error });
+
+		// The burndown is derived from the ledger, so a new entry makes the cached
+		// snapshot wrong — drop it rather than showing a stale "remaining".
+		invalidateCosts();
+		return { action: 'addCostTopUp', ok: 'Top-up recorded.' };
+	},
+
+	deleteCostTopUp: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const id = String(data.get('id') ?? '').trim();
+		if (!id) return fail(400, { action: 'deleteCostTopUp', error: 'Missing entry.' });
+
+		await deleteTopUp(id);
+		invalidateCosts();
+		return { action: 'deleteCostTopUp', ok: 'Top-up removed.' };
 	},
 };

@@ -66,7 +66,41 @@ the launcher itself.
 - **`/onboarding`** ("Getting started" link in the header) — a guided
   walkthrough. Currently a first version; a fuller per-role onboarding is
   planned (backlog B6).
+- **`/admin`** (admins only) — tabbed: Users, Roles, Tools, Projects, Clients,
+  Games, Sessions, **Costs**, Settings.
 - **Sign out** — header form posting to `/auth/logout`.
+
+### Admin → Costs
+
+What the pipeline is spending, per provider, read live from each provider's own
+API and cached for ten minutes (**Refresh** re-reads now).
+
+| Provider | Shows | Needs |
+|---|---|---|
+| **RunPod** (GPU) | real prepaid **balance**, burn rate, per-pod $/hr, runway | `RUNPOD_API_KEY` — already set for the `/comfyui` card, so this card works with no extra setup |
+| **Railway** (services + Postgres) | current-cycle estimated cost, broken down by measurement | `RAILWAY_API_TOKEN` (account or **workspace** token — a project token uses a different header and won't work), `RAILWAY_PROJECT_ID` |
+| **Cloudflare R2** (assets) | stored GB, class A/B operation counts, derived cost | `CF_ACCOUNT_ID`, `CF_ANALYTICS_TOKEN` (Account → Account Analytics: Read — the existing `CF_API_TOKEN` is zone-scoped for cache purge and **cannot** read this) |
+| **Anthropic** (Claude API) | spend by model / cost type | `ANTHROPIC_ADMIN_API_KEY` — an **admin** key (`sk-ant-admin…`), a different credential from `ANTHROPIC_API_KEY`; it reads usage and cannot spend |
+
+Two labels carry meaning and are worth reading:
+
+- **`live`** — the provider's own billed figure.
+- **`estimate`** — our arithmetic over the provider's usage counters. R2 has no
+  billing API at all, so its dollar figure is stored bytes and operation counts
+  multiplied by the published rates. Reconcile estimates against the provider's
+  invoice, not against this page.
+
+A provider with no credentials still renders a card, naming the env vars it
+wants. That is deliberate: a missing card would read as "$0".
+
+**Prepaid top-ups.** Only RunPod publishes a balance. Anthropic reports spend
+but never a remaining balance, and Railway and R2 have no prepaid concept — so
+for those you record what you added, and the page derives *credit left ≈
+recorded top-ups − measured spend since your first entry*. That figure is only
+as good as the ledger: it assumes the balance started at zero and that every
+top-up is recorded. Anthropic is the only provider it is derived for, because
+it is the only one whose spend can be measured from an arbitrary start date;
+the others show the recorded total without a derived remainder.
 
 ## Config / env (names only — values in Railway)
 
@@ -74,6 +108,10 @@ the launcher itself.
 `RESEND_API_KEY`, `R2_*` (R2 access for spine assets), `ATLAS_BACKEND_URL`,
 `ATLAS_TOOL_URL` (has a code default so it works without the dashboard),
 `ATLAS_TOOL_SECRET` (optional gate), `ATLAS_MANIFEST_KEY`, `ATLAS_STYLE_REF_KEY`.
+
+Admin → Costs (all optional, read-only, each degrades to a "not configured"
+card): `RAILWAY_API_TOKEN`, `RAILWAY_PROJECT_ID`, `CF_ACCOUNT_ID`,
+`CF_ANALYTICS_TOKEN`, `ANTHROPIC_ADMIN_API_KEY`.
 
 Non-secret config (URLs, flags) is given a **code default** in
 `src/lib/server/env.ts` because Railway env vars only *stage* until you click

@@ -313,6 +313,35 @@ export interface SharedAnimationRefs {
 	events: string[];
 }
 
+/**
+ * Manually-recorded prepaid top-ups, for the Admin → Costs credit burndown.
+ *
+ * Exists because only RunPod exposes a real balance API — Anthropic reports spend but
+ * never a remaining balance, and Cloudflare/Railway have no prepaid concept at all. So
+ * for those providers "credits left" can only be `what an admin says they added` minus
+ * `what the provider says we spent since`. This table is the first half of that; it is
+ * a human-entered claim, not a measurement, and the UI labels the derived figure as an
+ * estimate accordingly.
+ *
+ * `amountCents` is an INTEGER on purpose: money in a float accumulates rounding drift
+ * across a summed ledger, and this column is summed on every page load.
+ */
+export const costTopUps = pgTable('cost_top_ups', {
+	id: text('id')
+		.primaryKey()
+		.$defaultFn(() => crypto.randomUUID()),
+	/** Matches `ProviderId` in `$lib/server/costs/types.ts` (e.g. 'anthropic'). */
+	provider: text('provider').notNull(),
+	/** USD in cents. Positive = credit added. */
+	amountCents: integer('amount_cents').notNull(),
+	/** When the credit was actually purchased — spend is counted from here. */
+	occurredAt: timestamp('occurred_at', { withTimezone: true }).notNull().defaultNow(),
+	note: text('note'),
+	/** The admin who recorded it; null once that user is deleted. */
+	createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
+	createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export type User = typeof users.$inferSelect;
 export type Session = typeof sessions.$inferSelect;
 export type ToolInstall = typeof toolInstalls.$inferSelect;
@@ -328,3 +357,4 @@ export type AppSetting = typeof appSettings.$inferSelect;
 export type SharedRig = typeof sharedRigs.$inferSelect;
 export type SharedAnimation = typeof sharedAnimations.$inferSelect;
 export type DocLease = typeof docLeases.$inferSelect;
+export type CostTopUp = typeof costTopUps.$inferSelect;

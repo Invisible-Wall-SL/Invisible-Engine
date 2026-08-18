@@ -157,6 +157,41 @@ export const ENV = {
 	get CF_ZONE_ID() {
 		return env.CF_ZONE_ID ?? '';
 	},
+	// --- Admin → Costs: per-provider read-only credentials -------------------------
+	// Every one is OPTIONAL and read ONLY by `$lib/server/costs/*`, behind the admin
+	// panel. Each collector degrades to a "not configured" card when its vars are
+	// empty, so the page is useful with none of them set (RunPod already works off
+	// RUNPOD_API_KEY above). Grant each token the LEAST privilege that reads usage —
+	// none of these needs write access to anything.
+	//
+	// Railway: an account or team token (Account Settings → Tokens). Used against
+	// https://backboard.railway.com/graphql/v2 to read the current cycle's estimated
+	// usage. `RAILWAY_PROJECT_ID` scopes the query to this project (the id in the
+	// Railway project URL); without it the collector reports "not configured".
+	get RAILWAY_API_TOKEN() {
+		return env.RAILWAY_API_TOKEN ?? '';
+	},
+	get RAILWAY_PROJECT_ID() {
+		return env.RAILWAY_PROJECT_ID ?? '';
+	},
+	// Cloudflare R2 usage: the ACCOUNT id plus a token with Account → Account
+	// Analytics: Read. Deliberately separate from CF_API_TOKEN above, which is
+	// ZONE-scoped (cache purge) and cannot read account analytics. R2 exposes no
+	// billing API, so `costs/r2.ts` reads stored bytes + class A/B operation counts
+	// and multiplies by the published rates — an ESTIMATE, not the invoice.
+	get CF_ACCOUNT_ID() {
+		return env.CF_ACCOUNT_ID ?? '';
+	},
+	get CF_ANALYTICS_TOKEN() {
+		return env.CF_ANALYTICS_TOKEN ?? '';
+	},
+	// Anthropic ADMIN API key (`sk-ant-admin…`) — a DIFFERENT credential from
+	// ANTHROPIC_API_KEY above (which spends; this one only reports). Needed for
+	// /v1/organizations/cost_report. Note Anthropic exposes no credit-BALANCE
+	// endpoint, so remaining prepaid credit is derived from the top-up ledger.
+	get ANTHROPIC_ADMIN_API_KEY() {
+		return env.ANTHROPIC_ADMIN_API_KEY ?? '';
+	},
 	// Public origin where published games are served (R2 `test_server/<key>/`
 	// behind Cloudflare). Non-secret → code default; env overrides.
 	get GAMES_BASE_URL() {

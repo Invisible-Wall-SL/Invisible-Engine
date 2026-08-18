@@ -68,7 +68,7 @@ export async function podControlConfigured(): Promise<boolean> {
 	return fleet.length > 0;
 }
 
-interface GqlResult {
+export interface GqlResult {
 	data?: unknown;
 	errors?: { message?: string }[];
 }
@@ -78,8 +78,11 @@ interface GqlResult {
  * proven-working shape from `runpod_control.py`. Returns the parsed JSON, or `null` on
  * any transport/parse error (caller treats `null` as "unknown / proceed"). `timeoutMs`
  * bounds the call so a hung API can't stall a request.
+ *
+ * Exported so the Admin → Costs collector (`$lib/server/costs/runpod.ts`) reuses this
+ * one authenticated transport instead of re-implementing the key handling and timeout.
  */
-async function gql(query: string, timeoutMs = 15000): Promise<GqlResult | null> {
+export async function gql(query: string, timeoutMs = 15000): Promise<GqlResult | null> {
 	const key = ENV.RUNPOD_API_KEY;
 	if (!key) return null;
 	const controller = new AbortController();

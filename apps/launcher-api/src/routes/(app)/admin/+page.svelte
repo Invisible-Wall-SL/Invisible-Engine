@@ -23,6 +23,7 @@
 		| 'clients'
 		| 'games'
 		| 'sessions'
+		| 'costs'
 		| 'settings';
 	const TABS: { id: TabId; label: string }[] = [
 		{ id: 'users', label: 'Users' },
@@ -32,8 +33,27 @@
 		{ id: 'clients', label: 'Clients' },
 		{ id: 'games', label: 'Games' },
 		{ id: 'sessions', label: 'Sessions' },
+		{ id: 'costs', label: 'Costs' },
 		{ id: 'settings', label: 'Settings' },
 	];
+
+	// --- Costs formatting -------------------------------------------------------
+	// A gap renders as an em dash, never as $0.00 — "we don't know" and "it's zero"
+	// are different answers on a billing page and must not look alike.
+	function usd(amount: number | null | undefined): string {
+		if (amount == null || !Number.isFinite(amount)) return '—';
+		return amount.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+	}
+
+	const PROVIDER_LABELS: Record<string, string> = {
+		runpod: 'RunPod',
+		railway: 'Railway',
+		r2: 'Cloudflare R2',
+		anthropic: 'Anthropic',
+	};
+
+	/** Today as `YYYY-MM-DD`, for the top-up date input's default. */
+	const today = new Date().toISOString().slice(0, 10);
 	let tab = $state<TabId>('users');
 
 	// Keyboard nav for the tablist (left/right/home/end), per WAI-ARIA tabs pattern.
@@ -921,6 +941,198 @@
 		</section>
 	</div>
 
+	<!-- COSTS -->
+	<div
+		id="panel-costs"
+		role="tabpanel"
+		aria-labelledby="tab-costs"
+		hidden={tab !== 'costs'}
+		tabindex="0"
+	>
+		<section>
+			<h2>Costs</h2>
+			<p class="muted hint">
+				What the pipeline is spending, per provider. Figures come straight from each provider's own
+				API and are cached for ten minutes — hit <strong>Refresh</strong> to re-read them now.
+				Anything marked <span class="pill est">estimate</span> is our arithmetic over usage counters
+				rather than a billed figure, so reconcile against the provider's invoice, not against this page.
+			</p>
+
+			{#await data.costs}
+				<p class="muted">Reading provider costs…</p>
+			{:then costs}
+				{@const known = costs.providers.filter((p) => p.ok && p.spendUsd != null)}
+				{@const total = known.reduce((sum, p) => sum + (p.spendUsd ?? 0), 0)}
+
+				<div class="cost-top">
+					<div class="cost-total">
+						<span class="muted">Measured spend</span>
+						<strong>{usd(known.length ? total : null)}</strong>
+						<span class="muted hint">
+							{#if known.length}
+								across {known.length} of {costs.providers.length} providers · windows differ per provider
+							{:else}
+								no provider is reporting spend yet
+							{/if}
+						</span>
+					</div>
+					<form method="POST" action="?/refreshCosts" use:enhance>
+						<button type="submit" class="ghost-btn">Refresh</button>
+					</form>
+				</div>
+
+				<div class="cost-grid">
+					{#each costs.providers as provider (provider.id)}
+						{@const credit = costs.credits[provider.id]}
+						<div class="card cost-card" class:unset={!provider.configured}>
+							<div class="cost-head">
+								<h3>{provider.label}</h3>
+								{#if !provider.configured}
+									<span class="pill off">not configured</span>
+								{:else if !provider.ok}
+									<span class="pill err">unavailable</span>
+								{:else if provider.estimated}
+									<span class="pill est">estimate</span>
+								{:else}
+									<span class="pill on">live</span>
+								{/if}
+							</div>
+
+							{#if provider.configured && provider.ok}
+								<div class="cost-figures">
+									{#if provider.balanceUsd != null}
+										<div class="figure">
+											<span class="muted">Balance</span>
+											<strong>{usd(provider.balanceUsd)}</strong>
+										</div>
+									{/if}
+									{#if provider.spendUsd != null}
+										<div class="figure">
+											<span class="muted">Spend ({provider.spendWindow ?? 'window'})</span>
+											<strong>{usd(provider.spendUsd)}</strong>
+										</div>
+									{/if}
+									{#if provider.ratePerHourUsd != null}
+										<div class="figure">
+											<span class="muted">Burn rate</span>
+											<strong>{usd(provider.ratePerHourUsd)}<span class="muted">/hr</span></strong>
+										</div>
+									{/if}
+									{#if credit?.remainingUsd != null}
+										<div class="figure">
+											<span class="muted">Credit left (est.)</span>
+											<strong>{usd(credit.remainingUsd)}</strong>
+										</div>
+									{:else if credit && credit.toppedUpUsd > 0}
+										<div class="figure">
+											<span class="muted">Recorded top-ups</span>
+											<strong>{usd(credit.toppedUpUsd)}</strong>
+										</div>
+									{/if}
+								</div>
+							{/if}
+
+							{#if provider.reason}
+								<p class="muted hint cost-reason">{provider.reason}</p>
+							{/if}
+
+							{#if provider.requires && provider.requires.length > 0}
+								{@const required = provider.requires}
+								<p class="muted hint">
+									Set
+									{#each required as name, i (name)}
+										<span class="mono">{name}</span>{i < required.length - 1 ? ', ' : ''}
+									{/each}
+									on the launcher service, then Apply changes / Deploy in Railway.
+								</p>
+							{/if}
+
+							{#if provider.lines.length}
+								<div class="cost-lines">
+									{#each provider.lines as line (line.label)}
+										<div class="cost-line">
+											<span class="cost-line-label">{line.label}</span>
+											{#if line.detail}
+												<span class="muted cost-line-detail">{line.detail}</span>
+											{/if}
+											<span class="cost-line-amount mono">{usd(line.amountUsd)}</span>
+										</div>
+									{/each}
+								</div>
+							{/if}
+						</div>
+					{/each}
+				</div>
+
+				<div class="card">
+					<h3>Prepaid top-ups</h3>
+					<p class="muted hint">
+						Only RunPod publishes a real balance. Anthropic reports spend but never a remaining
+						balance, and Railway and R2 have no prepaid concept at all — so for those, record what
+						you added here and the page derives
+						<strong>credit left ≈ recorded top-ups − measured spend since your first entry</strong>.
+						That derived figure is only as good as this ledger: it assumes the balance started at
+						zero and that every top-up is recorded.
+					</p>
+
+					<form method="POST" action="?/addCostTopUp" use:enhance class="inline topup-form">
+						<label>
+							Provider
+							<select name="provider">
+								{#each data.costProviders as id (id)}
+									<option value={id}>{PROVIDER_LABELS[id] ?? id}</option>
+								{/each}
+							</select>
+						</label>
+						<label>
+							Amount (USD)
+							<input name="amountUsd" type="text" inputmode="decimal" placeholder="200" />
+						</label>
+						<label>
+							Date
+							<input name="occurredAt" type="date" value={today} />
+						</label>
+						<label class="grow">
+							Note
+							<input name="note" type="text" placeholder="optional — invoice ref, who paid" />
+						</label>
+						<button type="submit">Record</button>
+					</form>
+
+					{#if costs.topUps.length}
+						<div class="table topup-table">
+							<div class="row head">
+								<span>Provider</span>
+								<span>Amount</span>
+								<span>Date</span>
+								<span>Note</span>
+								<span></span>
+							</div>
+							{#each costs.topUps as entry (entry.id)}
+								<div class="row">
+									<span>{PROVIDER_LABELS[entry.provider] ?? entry.provider}</span>
+									<span class="mono">{usd(entry.amountUsd)}</span>
+									<span class="muted">{fmtDate(entry.occurredAt)}</span>
+									<span class="muted">{entry.note ?? '—'}</span>
+									<form method="POST" action="?/deleteCostTopUp" use:enhance>
+										<input type="hidden" name="id" value={entry.id} />
+										<button type="submit" class="ghost-btn small">Remove</button>
+									</form>
+								</div>
+							{/each}
+						</div>
+					{:else}
+						<p class="muted">No top-ups recorded yet.</p>
+					{/if}
+				</div>
+
+				<p class="muted hint">
+					Snapshot taken {fmtDate(costs.fetchedAt)}{costs.cached ? ' (cached)' : ''}.
+				</p>
+			{/await}
+		</section>
+	</div>
+
 	<!-- SETTINGS -->
 	<div
 		id="panel-settings"
@@ -1001,10 +1213,10 @@
 			<div class="card">
 				<h3>Layout profile (pipeline default)</h3>
 				<p class="muted hint">
-					The default set of layout buckets — each with a design resolution/aspect and the
-					window rule that selects it — seeded into <strong>every</strong> project that hasn't
-					authored its own (Scene Editor → Game Settings → Layout). Changing this reshapes the
-					editor preview frame + HUD box and the runtime bucket selection for all such games.
+					The default set of layout buckets — each with a design resolution/aspect and the window
+					rule that selects it — seeded into <strong>every</strong> project that hasn't authored its
+					own (Scene Editor → Game Settings → Layout). Changing this reshapes the editor preview
+					frame + HUD box and the runtime bucket selection for all such games.
 					{#if data.layoutProfile.custom}
 						<span class="pill on">custom default set</span>
 					{:else}
@@ -1083,12 +1295,13 @@
 					Artists pick a card and start it (if it's out of free GPUs they try the next); pods
 					auto-stop after an idle window so the GPU only bills while work is happening. A non-empty
 					ComfyUI render queue counts as activity, so a running render is never interrupted. Each
-					pod's ComfyUI URL is derived from its id
-					(<span class="mono">https://&lt;id&gt;-8188.proxy.runpod.net</span>).
+					pod's ComfyUI URL is derived from its id (<span class="mono"
+						>https://&lt;id&gt;-8188.proxy.runpod.net</span
+					>).
 					{#if !data.runpod.configured}
 						<br /><strong>Not configured</strong> — set
-						<span class="mono">RUNPOD_API_KEY</span> in the launcher environment and add at least one
-						pod below (a legacy <span class="mono">RUNPOD_POD_ID</span> env still works as a single
+						<span class="mono">RUNPOD_API_KEY</span> in the launcher environment and add at least
+						one pod below (a legacy <span class="mono">RUNPOD_POD_ID</span> env still works as a single
 						"Default" pod).
 					{/if}
 				</p>
@@ -1099,11 +1312,23 @@
 						<div class="pod-edit">
 							<label class="grow">
 								Pod id
-								<input name="podId" type="text" autocomplete="off" bind:value={pod.id} placeholder="runpod pod id" />
+								<input
+									name="podId"
+									type="text"
+									autocomplete="off"
+									bind:value={pod.id}
+									placeholder="runpod pod id"
+								/>
 							</label>
 							<label class="grow">
 								Label
-								<input name="podLabel" type="text" autocomplete="off" bind:value={pod.label} placeholder="e.g. RTX 4090" />
+								<input
+									name="podLabel"
+									type="text"
+									autocomplete="off"
+									bind:value={pod.label}
+									placeholder="e.g. RTX 4090"
+								/>
 							</label>
 							<div class="pod-live">
 								{#if live}
@@ -1120,7 +1345,9 @@
 									<span class="pill off">—</span>
 								{/if}
 							</div>
-							<button type="button" class="ghost-btn" onclick={() => removeRunpodPod(i)}>Remove</button>
+							<button type="button" class="ghost-btn" onclick={() => removeRunpodPod(i)}
+								>Remove</button
+							>
 						</div>
 					{/each}
 					<div class="token-actions">
@@ -1734,5 +1961,124 @@
 	}
 	.pod-stops form {
 		margin: 0;
+	}
+
+	/* --- Costs ------------------------------------------------------------- */
+	.pill.err {
+		background: #2c1618;
+		color: #ff9d9d;
+	}
+	/* Amber, deliberately NOT the green "live" pill — an estimate should not read as
+	   a measured figure at a glance. */
+	.pill.est {
+		background: #2e2415;
+		color: #ffb86b;
+	}
+	.cost-top {
+		display: flex;
+		justify-content: space-between;
+		align-items: flex-start;
+		gap: 16px;
+		margin: 16px 0;
+	}
+	.cost-top form {
+		margin: 0;
+	}
+	.cost-total {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.cost-total strong {
+		font-size: 26px;
+		color: #7ee0c0;
+	}
+	.cost-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+		gap: 16px;
+		margin-bottom: 24px;
+	}
+	.cost-card.unset {
+		opacity: 0.72;
+	}
+	.cost-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 10px;
+	}
+	.cost-head h3 {
+		margin: 0;
+	}
+	.cost-figures {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 18px;
+		margin: 14px 0 10px;
+	}
+	.figure {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+	.figure strong {
+		font-size: 18px;
+		text-transform: none;
+		letter-spacing: 0;
+		color: #ddd;
+	}
+	.figure strong .muted {
+		font-size: 12px;
+	}
+	.cost-reason {
+		margin: 8px 0 0;
+	}
+	.cost-lines {
+		display: flex;
+		flex-direction: column;
+		margin-top: 12px;
+		border-top: 1px solid #222;
+		font-size: 12px;
+	}
+	.cost-line {
+		display: grid;
+		grid-template-columns: 1fr auto auto;
+		gap: 10px;
+		align-items: baseline;
+		padding: 7px 0;
+		border-bottom: 1px solid #1d1d24;
+	}
+	.cost-line:last-child {
+		border-bottom: none;
+	}
+	.cost-line-label {
+		color: #ccc;
+	}
+	.cost-line-detail {
+		font-size: 11px;
+	}
+	.cost-line-amount {
+		min-width: 72px;
+		text-align: right;
+	}
+	.topup-form {
+		flex-wrap: wrap;
+	}
+	/* The shared `.row` grid is shaped for the 7-column users table; the ledger has
+	   its own column set, so override rather than inherit a mismatched track list. */
+	.topup-table .row {
+		grid-template-columns: 1fr 1fr 1fr 2fr auto;
+		cursor: default;
+	}
+	.topup-table form {
+		margin: 0;
+		justify-self: end;
+	}
+	.topup-table button {
+		color: #ff9d9d;
 	}
 </style>
