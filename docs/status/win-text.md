@@ -108,6 +108,41 @@ a symbol id (`H1`) is unspeakable, so there was no word to put in a sentence.
 - **26 offline checks** over the real modules:
   `node packages/engine-layout/scripts/test-win-text-symbol-names.mjs`.
 
+### A BOXED info bar silently cancelled "symbol as image" (2026-08-18)
+
+Reported from the live Italian build: the toast read "Vinci 0,50 € con 2 Cowboy" — the symbol NAME —
+with `toast.symbolAsImage` ticked. Not a lost option and not the localization pass: the Info Bar
+instance carried a **box width**, and a boxed text node went down the `<TextBox>` branch, which
+`stripInlineImage`s the message back to its plain-text fallback. So the toggle did nothing on
+exactly the bars that need a box — and the box is not optional there: the bar's line is engine-fed
+and LOCALIZED, so `INFO_BAR_DEF` exposes `boxWidth`/`autoFit` precisely so a longer translation stays
+inside the plaque art. The two features cancelled each other, with nothing in the UI to say so.
+
+- **`<InlineImageText>` now honours a box** — optional `boxWidth`/`boxHeight`/`padding`/`autoFit`
+  props, laid out with the SAME `textBoxLayout.ts` helpers `<TextBox>` uses (`textBoxPlacement` for
+  the aligned origin, `textBoxContentWidth/Height` for the fit target), so a boxed message with an
+  image sits where one without it would. Omit them ⇒ the original centred row, unchanged.
+- **Auto-fit shrinks the whole ROW** — text runs and the symbol together (the image slot is derived
+  from the font size), converging through the same measure-feedback loop `<TextBox>` uses. Each run's
+  measurement is TAGGED with the font size it was taken at and the row only shrinks once every run
+  has reported at the current size — acting on stale (larger) widths would over-shrink.
+- **The row stays ONE line by construction**: pixi can't word-wrap a mixed text+sprite run (it
+  measures per `<Text>`; an image is not a glyph), so a too-wide boxed row shrinks instead of
+  wrapping, and the run style forces `wordWrap: false` so an authored wrap can't make each run wrap
+  at pixi's 100px default.
+- **Branch order in `LayoutNodeView`** — the inline-image test now runs BEFORE the box test and
+  passes the box knobs down. `<TextBox>`'s `stripInlineImage` stays as an unreachable safety net.
+- **18 offline checks** over the real `inlineImage` + `textBoxLayout` modules:
+  `node packages/engine-layout/scripts/test-inline-image-box.mjs` — the sentinel round-trip, the
+  boxed row landing exactly where the box-less centred row does (so ticking a box can't shift the
+  message off the plaque), segments edge-to-edge in reading order, left/top alignment + padding,
+  and auto-fit converging with the symbol shrinking alongside the text.
+- **Storybook proof**: `apps/lines` → _ENGINE-LAYOUT/InfoBar inline symbol image_ — the same message
+  un-boxed, boxed, and boxed too narrow (auto-fit). ⏳ **Owner: visual-verify.** Storybook would not
+  finish booting on the dev box during this session (cold vite, minutes per reload), so the live
+  render of the boxed row — symbol size, vertical centring, spacing — is checked by geometry and by
+  the un-boxed path it reuses, not yet by eye.
+
 ### Symbol as image in the info-bar toast (2026-08-10)
 
 An opt-in toggle on the info-bar toast: **render the paying symbol as its SPRITE instead of its

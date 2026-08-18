@@ -902,25 +902,27 @@
 				padding={textPadding}
 				autoFit={textAutoFit}
 			/>
-		{:else if textHasBox}
+		{:else if resolvedText && hasInlineImage(resolvedText)}
 			<!--
-				Text BOX (explicit `width`, from the node or a bound `boxWidth` param): the
-				glyphs lay out INSIDE the box — aligned horizontally across `width` (`style.align`)
-				and vertically across `height` (`style.verticalAlign`), auto-shrinking the font
-				when `autoFit`. `<TextBox>` owns the box math + measurement; it still renders
-				through `<CatalogText>`, so the bitmap-vs-system-font decision is unchanged. A
-				box-less text node falls to the plain `<CatalogText>` below (byte-identical parity).
+				Inline-image message (`inlineImage.ts`): a text node whose resolved string carries a
+				symbol-image sentinel (the Invisible Win Text "show symbol as image" toast) lays out as
+				mixed text runs + the game's symbol renderer rather than one `<Text>`. Only ever true
+				for a string a game deliberately built (`wrapInlineImage`); no authored copy contains
+				the private-use sentinel, so every existing text node falls straight through to the
+				branches below (parity).
 
-				Inline-image support lives on the box-LESS path (`<InlineImageText>` below), so a
-				sentinel-bearing string reaching a BOXED node is `stripInlineImage`d to its plain-text
-				fallback (the symbol NAME) and shrink-fit normally — the boxed message then reads
-				exactly as it would with the toggle off, never the raw sentinel or an un-fitted line.
-				`stripInlineImage` is identity for every string without a sentinel (parity).
+				Checked BEFORE the box branch, and handed the box knobs when there is one: the Info
+				Bar's message is engine-fed and LOCALIZED, so its instance routinely carries a box
+				width + auto-fit to keep a translation inside the plaque art — and while `<TextBox>`
+				owned every boxed node, that box silently `stripInlineImage`d the message back to the
+				symbol NAME, so the toggle did nothing on exactly the bars that needed the box.
+				`<InlineImageText>` lays the row out with the SAME `textBoxLayout` helpers, so a boxed
+				message with an image sits where one without it would.
 			-->
-			<TextBox
-				text={stripInlineImage(resolvedText ?? '')}
+			<InlineImageText
+				text={resolvedText}
 				style={resolvedStyle}
-				boxWidth={textBoxWidth ?? 0}
+				boxWidth={textHasBox ? textBoxWidth : undefined}
 				boxHeight={textBoxHeight}
 				padding={textPadding}
 				autoFit={textAutoFit}
@@ -932,19 +934,25 @@
 				alpha={transform.alpha}
 				zIndex={transform.zIndex}
 			/>
-		{:else if resolvedText && hasInlineImage(resolvedText)}
+		{:else if textHasBox}
 			<!--
-				Inline-image message (`inlineImage.ts`): a box-LESS text node whose resolved string
-				carries a symbol-image sentinel (the Invisible Win Text "show symbol as image" toast)
-				lays out as mixed text runs + inline `<Sprite>`s rather than one `<Text>`, centred on
-				(x, y) — matching the default info-bar message node (anchor {0.5,0.5}, no box). Only
-				ever true for a string a game deliberately built (`wrapInlineImage`); no authored copy
-				contains the private-use sentinel, so every existing box-less text node falls straight
-				through to the plain `<CatalogText>` below (parity).
+				Text BOX (explicit `width`, from the node or a bound `boxWidth` param): the
+				glyphs lay out INSIDE the box — aligned horizontally across `width` (`style.align`)
+				and vertically across `height` (`style.verticalAlign`), auto-shrinking the font
+				when `autoFit`. `<TextBox>` owns the box math + measurement; it still renders
+				through `<CatalogText>`, so the bitmap-vs-system-font decision is unchanged. A
+				box-less text node falls to the plain `<CatalogText>` below (byte-identical parity).
+
+				`stripInlineImage` is a safety net only — a sentinel-bearing string now takes the
+				branch above — and is identity for every string without a sentinel (parity).
 			-->
-			<InlineImageText
-				text={resolvedText}
+			<TextBox
+				text={stripInlineImage(resolvedText ?? '')}
 				style={resolvedStyle}
+				boxWidth={textBoxWidth ?? 0}
+				boxHeight={textBoxHeight}
+				padding={textPadding}
+				autoFit={textAutoFit}
 				x={posX}
 				y={posY}
 				anchor={transform.anchor}
