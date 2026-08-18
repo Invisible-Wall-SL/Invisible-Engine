@@ -11,12 +11,13 @@ tested it end-to-end. The live-verify gap that was the last open item is closed.
 ## Current state
 
 **Phase 1 — schema + storage (done).**
+
 - `packages/game-config` — dependency-free, Node-resolvable (mirrors `engine-flipbook`):
   - `types.ts` — `GameConfigDoc`, byte-compatible with the Stake export (`special_properties`,
     `max_win`, single-entry paytable rows kept verbatim so paste-in works).
   - `normalize.ts` — `normalizeGameConfigDoc`, idempotent. Returns **`undefined`**, never an empty
-    config, when the input can't describe a game: "no doc" must mean *fall through to the template*,
-    not *blank board*. Accepts the friendly shorthands (`numRows: 3`, bare-string strip cells,
+    config, when the input can't describe a game: "no doc" must mean _fall through to the template_,
+    not _blank board_. Accepts the friendly shorthands (`numRows: 3`, bare-string strip cells,
     multi-key paytable objects) so a hand-written config isn't rejected for being tidier.
   - `inPlay.ts` — **the gate**: `symbolsInPlay` / `symbolsInPlayForGameType` / `isSymbolInPlay` /
     `symbolFrequencies`, all reading the STRIPS, not the dictionary. One implementation, so the
@@ -34,6 +35,7 @@ tested it end-to-end. The live-verify gap that was the last open item is closed.
   `W` is in the dictionary, absent from the in-play set, and warned about.
 
 **Phase 2 — seed from the template (done).**
+
 - `apps/launcher-api/scripts/generate-game-config-defaults.ts` — derives
   `$lib/data/gameConfig/<gameType>.json` from that game type's own `src/game/config.ts`, so the
   committed default and the compiled template cannot drift. Refuses to write a default that has
@@ -53,6 +55,7 @@ tested it end-to-end. The live-verify gap that was the last open item is closed.
 
 **Phase 3 — the runtime carries it (done).** The risky one; it landed with the compile-time
 guarantee traded for a runtime one, as planned.
+
 - `config` joins the bundle on BOTH paths — `assembleRuntimeBundle` (live) and
   `bake-editor-doc.mjs` via the new token-gated `GET /api/game-config/doc` (baked). Omitted when
   un-authored, so an un-authored project's bundle is byte-identical and the game runs its compiled
@@ -63,7 +66,7 @@ guarantee traded for a runtime one, as planned.
   `resetGameConfigCache()` wired into `Game.svelte` next to `resetSymbolMapCache()` — without that
   reset an online game freezes to the template, which is the exact bug this tool exists to kill.
 - **`SymbolName` widened from `keyof typeof config.symbols` to `string`.** The compile-time union
-  described the *sample* game, so it would have rejected a correct symbol id from an authored
+  described the _sample_ game, so it would have rejected a correct symbol id from an authored
   config. `BetMode`/`GameType` deliberately did NOT widen — they are shared vocabulary with the RGS,
   so they can't be freely invented per project.
 - The lost guarantee is replaced by `warnOnGameConfigIssues()` at boot: every validator issue, plus
@@ -102,6 +105,7 @@ verification the local environment couldn't reach, plus one deferred follow-up.
 
 Authoring the grid now resizes the board everywhere, not just in the `/config` Grid panel. Three
 commits, three surfaces:
+
 - **Game** (`game-config-grid` Phase 1) — `boardDimensions()`/`boardSizes()`/`initialBoard()` in
   `gameConfig.ts` replace the hardcoded `BOARD_DIMENSIONS`/`INITIAL_BOARD`; `stateGame`'s board is a
   `buildBoard()` factory rebuilt by `Game.svelte`'s `rebuildBoard()` after the runtime bundle lands
@@ -130,8 +134,9 @@ Phase 6. **All four sub-phases (6a schema · 6b runtime · 6c tool panel · 6d l
 of the tool).
 
 **6a — schema + resolver (done, offline-verified).**
+
 - `packages/game-config`: new OPTIONAL top-level `betModePresentation?: Record<mode, { kind?, order?,
-  text? }>` on `GameConfigDoc` — an Invisible-Engine extension a Stake paste-in omits, mirroring
+text? }>` on `GameConfigDoc` — an Invisible-Engine extension a Stake paste-in omits, mirroring
   `paylineColors` (kept OFF `betModes` so those entries round-trip a math export byte-for-byte).
   `kind` = `base | ante | buy`; `text` = title/description/button/dialog/betAmountLabel SOURCE strings.
 - `normalizeBetModePresentation` — sparse, drops an entry for a mode not in `betModes` (like a colour
@@ -147,11 +152,12 @@ of the tool).
   is git-clean and differs only in line endings.)
 
 **6b — runtime assembly (done, verified in the running game).**
+
 - `apps/lines/src/game/betModeMeta.ts` — `buildBetModeMeta()`/`syncBetModeMeta()` map
   `resolveBetModes(getActiveGameConfig())` into state-shared's `BetModeMeta` and push it into
   `stateMeta.betModeMeta`. The ONE bridge from the leaf `game-config` shape into Svelte state.
   - **Keys UPPERCASED** (`base`→`BASE`) so the wire value sent to the RGS (`mode:
-    activeBetModeKey`) and the `activeBetModeKey='BASE'` resets stay byte-identical to the placeholder;
+activeBetModeKey`) and the `activeBetModeKey='BASE'` resets stay byte-identical to the placeholder;
     consistent with the case-insensitive lookups that already exist (`stateBet.activeBetMode`).
   - **Text stays SOURCE strings**; the bonus components translate at render (the "key IS source text"
     i18n model), so a language set after boot still localizes — no boot-order coupling.
@@ -181,6 +187,7 @@ presentation with the mode. Inline `betModePresentation` validator issues render
 
 **6d — Localization auto-collect (done, build-verified).** `/localization` grows a **Bet modes**
 section, exactly like its Win Text section:
+
 - `harvestBetModes(config)` in `localizationHarvest.ts` collects the RESOLVED bet-mode source strings
   (`resolveBetModes` — same strings the runtime renders, so a translation authored here lands in-game),
   deduped, under synthetic section id `__betModes`, `origin: 'gameConfig'`.
@@ -214,7 +221,7 @@ coded fallback (un-authored component ⇒ byte-identical), just no longer edited
 - **runtime (`apps/lines`)** — animation + spine resolve IN the win tree (`WinVisual`: per-tier
   `<alias>*` ?? shared ?? config/coded convention, alias-keyed, replacing the old `TIER_PREFIX`);
   the single-tier `spineKey` gap is CLOSED (`activeSpine = <alias>Spine ?? winLevelData.spineKey ??
-  winSpine`). Duration + sound are consumed OUT of the tree (`WinGate` duration, `winLevelSoundsPlay`)
+winSpine`). Duration + sound are consumed OUT of the tree (`WinGate` duration, `winLevelSoundsPlay`)
   so they bridge via a global: `bakedWinPresentationParams()` (walks the baked/runtime doc for the
   `win` instance) → `publishWinPresentation()` at boot → `gameConfig.ts` `withWinPresentation` overlays
   per-tier `<alias>Duration`/`Sfx`/`Bgm` onto `activeWinLevelData`/`ByAlias`/`Chain`. Empty overlay
@@ -357,7 +364,7 @@ before (the saved doc). Build-verified + node-harness-verified; launcher render 
   POSTs an empty-body heartbeat (`[]`) to `${TEST_SERVER_URL}/api/<gameKey>/rgs/engine?sid=…&seq=0`
   with a FRESH sid per call (both mocks emit the boot `config` event on a session's first call; the
   lines mock ONLY then), reads `events.find(e => e.event==='config').context.availablePayLines ??
-  .paylines`, and returns `null` on ANY failure (network / 3s-timeout / 404 / parse / no config).
+.paylines`, and returns `null` on ANY failure (network / 3s-timeout / 404 / parse / no config).
   Safe global-reachable fetch: OUR test server, not the Cloudflare-blocked production Play4Fun. New
   `ENV.TEST_SERVER_URL` (code default `https://games.invisiblewall.org`, same host as `GAMES_BASE_URL`
   but kept separate).
@@ -399,6 +406,25 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 ## Recent changes
 
+- 2026-08-18 — **The bet-mode card was rebuilt: it was hard to read, and one line of CSS was why.**
+  `label input { width: 180px }` applied to CHECKBOXES too, so **Feature** / **Buy bonus** were
+  stretched 180px wide and their words sat a label-width from the box they belonged to, floating in
+  the dead space between Max win and Kind — the single thing that made the row look broken. Fixed
+  page-wide (`input[type='checkbox']` keeps its intrinsic width), which also tidies the Big-win
+  tiers' escalation toggle. On top of that the card is now four labelled blocks — **Math · Menu ·
+  Copy · Card graphics** — on fixed grid tracks so fields line up down the page instead of a
+  wrapping flex that re-flowed per mode; **colour-coded by kind** (blue `base` / gold `buy` / teal
+  `ante`) on the rail, key and header tags, reusing the menu-preview chip palette so a card and its
+  chip match (and `mp-base`, which had no colour at all, got one); card-graphics params **bucketed
+  by their declared `group`** and laid out in columns, so Panel/Icon/Spine/Button read as clusters
+  and the group is named once instead of suffixing every field. Also: a win tier's **Name** was on
+  the 52px numeric `label.mini` width and truncated every one of them ("SUPER W"). Dead CSS from the
+  old layout removed — the page now builds with **zero** unused-selector warnings. Verified live
+  against `bookofborutremake` (4 modes, picked card art) and `test2`.
+- 2026-08-18 — **Per-mode Button copy set on Book of Borut Remake.** All three buy modes had no
+  `text.button`, so the card fell back to the derived `BUY`; each now carries `BUY FEATURE`, which
+  also makes it a translatable row (the wording is additionally baked into the `T_UI_BuyBack*`
+  ribbon art, which no config field or translation can reach — see the tool guide's note).
 - 2026-08-07 — **Payline coverage-regeneration + per-project wild on the mock RGS.** Two follow-ups to
   the per-project grid (#259): (a) the lines mock now regenerates a full-coverage payline set
   (`standardPaylines`/`coversAllRows` in `scripts/mock-rgs-server.mjs`) when a game's authored lines
@@ -446,6 +472,7 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 - 2026-07-28 — **Phase 6 (all four sub-phases): bet modes authorable + localizable.** Engine +
   schema build + typecheck + spike verified; 6a/6b verified live in the running game; 6c/6d
   build-verified (launcher render owner-verify-owed).
+
   - **6a** `betModePresentation` schema + `resolveBetModes` + validator warnings
     in `packages/game-config` (14 new spike checks).
   - **6b** `apps/lines/src/game/betModeMeta.ts` builds `stateMeta.betModeMeta` from the active config
@@ -462,6 +489,7 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 - 2026-07-27 — **Grid-resize repair UX + per-payline colours** (this change; launcher surface
   owner-verify-owed, engine + schema build + typecheck-verified):
+
   - **`/config` Grid** — a `Match grid` button appears whenever a strip set or payline no longer
     matches `numReels` (the state a reel-count change leaves), padding/truncating every strip and
     payline to the grid in one click (new reels clone the last reel; new payline cells start on row
@@ -488,7 +516,7 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
   over the board array at module init and drives every preSpin/spin/settle — so online (the only path
   that calls `rebuildBoard`, after the live bundle lands) the rendered reels were static while spin
   animated the old detached reels. Fixed by rebuilding IN PLACE (`stateGame.board.splice(0, len,
-  ...buildBoard())`) so render + enhancedBoard stay on the same reels. Also repointed the dangling
+...buildBoard())`) so render + enhancedBoard stay on the same reels. Also repointed the dangling
   `boardRaw()` `board` reference (left undeclared when #97 removed `const board`) to `stateGame.board`.
   Ships to online games via a Runtime release.
 - 2026-07-27 — Grid-dimensions enhancement (branch `game-config-grid`): the authored numReels/numRows

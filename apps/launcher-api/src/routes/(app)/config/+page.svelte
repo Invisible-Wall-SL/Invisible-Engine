@@ -161,6 +161,12 @@
 		return kind === 'buy' ? 'BUY' : kind === 'ante' ? 'ACTIVATE' : 'PLAY';
 	}
 
+	/** The kind a mode ACTUALLY presents as — its explicit Kind, else the one derived from the math.
+	 *  Drives the per-mode colour coding, so a card's rail always matches its menu-preview chip. */
+	function effectiveKind(key: string): BetModeKind {
+		return betModeKindValue(key) || derivedKind(key);
+	}
+
 	type BetModeTextField = 'title' | 'description' | 'button' | 'dialog' | 'betAmountLabel';
 
 	/** The presentation entry for a mode, created on demand for a write. */
@@ -247,6 +253,20 @@
 	/** The card's AUTHORABLE params — everything the source feeds (`engineProvided`) is excluded. */
 	function cardAuthorableParams(key: string) {
 		return (cardComponentFor(key)?.params ?? []).filter((p) => !p.engineProvided);
+	}
+
+	/** The card's authorable params bucketed by their declared `group` (Panel / Icon / Spine / Button
+	 *  …), in declaration order, so the graphics editor reads as labelled clusters instead of one flat
+	 *  wrap. An ungrouped param falls into a trailing "Other" bucket rather than vanishing. */
+	function cardParamGroups(key: string): { name: string; params: ComponentParam[] }[] {
+		const buckets = new Map<string, ComponentParam[]>();
+		for (const param of cardAuthorableParams(key)) {
+			const name = param.group?.trim() || 'Other';
+			const bucket = buckets.get(name);
+			if (bucket) bucket.push(param);
+			else buckets.set(name, [param]);
+		}
+		return [...buckets].map(([name, params]) => ({ name, params }));
 	}
 
 	function betModeCardParamValue(
@@ -883,240 +903,287 @@
 
 			<div class="betmodes">
 				{#each Object.keys(doc.betModes) as key (key)}
-					<div class="betmode">
+					{@const kind = effectiveKind(key)}
+					<!-- `data-kind` colour-codes the whole card (rail + key + tag) with the SAME palette the
+					     menu-preview chips use, so a card and its chip read as obviously the same mode. -->
+					<div class="betmode betmode-kinded" data-kind={kind}>
 						<div class="betmode-head">
 							<span class="betmode-key">{key}</span>
+							<span class="kind-tag">{kind}</span>
+							<span class="cost-tag">{doc.betModes[key].cost}× bet</span>
 							<button class="del" title="Remove" onclick={() => removeBetMode(key)}>×</button>
 						</div>
 
-						<div class="betmode-row">
-							<label class="mini"
-								><span>Cost ×</span><input
-									type="number"
-									step="0.01"
-									bind:value={doc.betModes[key].cost}
-								/></label
-							>
-							<label class="mini"
-								><span>RTP</span><input
-									type="number"
-									step="0.001"
-									bind:value={doc.betModes[key].rtp}
-								/></label
-							>
-							<label class="mini"
-								><span>Max win ×</span><input
-									type="number"
-									step="1"
-									bind:value={doc.betModes[key].max_win}
-								/></label
-							>
-							<label class="check"
-								><input type="checkbox" bind:checked={doc.betModes[key].feature} /><span
-									>Feature</span
-								></label
-							>
-							<label class="check"
-								><input type="checkbox" bind:checked={doc.betModes[key].buyBonus} /><span
-									>Buy bonus</span
-								></label
-							>
-							<label class="mini"
-								><span>Kind</span><select
-									value={betModeKindValue(key)}
-									onchange={(e) => setBetModeKind(key, e.currentTarget.value)}
+						<div class="bm-block">
+							<span class="bm-legend">Math <em>the Stake export shape</em></span>
+							<div class="bm-fields bm-math">
+								<label class="fld"
+									><span>Cost ×</span><input
+										type="number"
+										step="0.01"
+										bind:value={doc.betModes[key].cost}
+									/></label
 								>
-									<option value="">auto → {derivedKind(key)}</option>
-									<option value="base">base</option>
-									<option value="ante">ante</option>
-									<option value="buy">buy</option>
-								</select></label
-							>
-							<label class="mini"
-								><span>Order</span><input
-									type="number"
-									step="1"
-									placeholder="auto"
-									value={betModeOrderValue(key)}
-									oninput={(e) => setBetModeOrder(key, e.currentTarget.value)}
-								/></label
-							>
-							<label class="mini card-pick"
-								><span>Card</span><select
-									value={betModeCardValue(key)}
-									onchange={(e) => setBetModeCard(key, e.currentTarget.value)}
+								<label class="fld"
+									><span>RTP</span><input
+										type="number"
+										step="0.001"
+										bind:value={doc.betModes[key].rtp}
+									/></label
 								>
-									<option value="">(default)</option>
-									{#each data.components as c (c.id)}
-										<option value={c.id}>{c.name} · {c.id}</option>
-									{/each}
-								</select></label
-							>
+								<label class="fld"
+									><span>Max win ×</span><input
+										type="number"
+										step="1"
+										bind:value={doc.betModes[key].max_win}
+									/></label
+								>
+								<label class="fld toggle"
+									><input type="checkbox" bind:checked={doc.betModes[key].feature} /><span
+										>Feature</span
+									></label
+								>
+								<label class="fld toggle"
+									><input type="checkbox" bind:checked={doc.betModes[key].buyBonus} /><span
+										>Buy bonus</span
+									></label
+								>
+							</div>
 						</div>
 
-						<div class="betmode-text">
-							<label
-								><span>Title</span><input
-									value={betModeTextValue(key, 'title')}
-									placeholder={key.toUpperCase()}
-									oninput={(e) => setBetModeText(key, 'title', e.currentTarget.value)}
-								/></label
+						<div class="bm-block">
+							<span class="bm-legend">Menu <em>where it sits and what it renders</em></span>
+							<div class="bm-fields bm-menu">
+								<label class="fld"
+									><span>Kind</span><select
+										value={betModeKindValue(key)}
+										onchange={(e) => setBetModeKind(key, e.currentTarget.value)}
+									>
+										<option value="">auto → {derivedKind(key)}</option>
+										<option value="base">base</option>
+										<option value="ante">ante</option>
+										<option value="buy">buy</option>
+									</select></label
+								>
+								<label class="fld"
+									><span>Order</span><input
+										type="number"
+										step="1"
+										placeholder="auto"
+										value={betModeOrderValue(key)}
+										oninput={(e) => setBetModeOrder(key, e.currentTarget.value)}
+									/></label
+								>
+								<label class="fld"
+									><span>Card</span><select
+										value={betModeCardValue(key)}
+										onchange={(e) => setBetModeCard(key, e.currentTarget.value)}
+									>
+										<option value="">(default) {DEFAULT_CARD_ID}</option>
+										{#each data.components as c (c.id)}
+											<option value={c.id}>{c.name} · {c.id}</option>
+										{/each}
+									</select></label
+								>
+							</div>
+						</div>
+
+						<div class="bm-block">
+							<span class="bm-legend"
+								>Copy <em>source text — translate it in Invisible Localization</em></span
 							>
-							<label
-								><span>Button</span><input
-									value={betModeTextValue(key, 'button')}
-									placeholder={defaultButtonHint(key)}
-									oninput={(e) => setBetModeText(key, 'button', e.currentTarget.value)}
-								/></label
-							>
-							<label
-								><span>Bet label</span><input
-									value={betModeTextValue(key, 'betAmountLabel')}
-									placeholder="HUD “BET”"
-									oninput={(e) => setBetModeText(key, 'betAmountLabel', e.currentTarget.value)}
-								/></label
-							>
-							<label class="wide"
-								><span>Description</span><textarea
-									rows="2"
-									value={betModeTextValue(key, 'description')}
-									oninput={(e) => setBetModeText(key, 'description', e.currentTarget.value)}
-								></textarea></label
-							>
-							<label class="wide"
-								><span>Dialog</span><textarea
-									rows="3"
-									value={betModeTextValue(key, 'dialog')}
-									oninput={(e) => setBetModeText(key, 'dialog', e.currentTarget.value)}
-								></textarea></label
-							>
+							<div class="bm-fields bm-copy">
+								<label class="fld"
+									><span>Title</span><input
+										value={betModeTextValue(key, 'title')}
+										placeholder={key.toUpperCase()}
+										oninput={(e) => setBetModeText(key, 'title', e.currentTarget.value)}
+									/></label
+								>
+								<label class="fld"
+									><span>Button</span><input
+										value={betModeTextValue(key, 'button')}
+										placeholder={defaultButtonHint(key)}
+										oninput={(e) => setBetModeText(key, 'button', e.currentTarget.value)}
+									/></label
+								>
+								<label class="fld"
+									><span>Bet label</span><input
+										value={betModeTextValue(key, 'betAmountLabel')}
+										placeholder="HUD “BET”"
+										oninput={(e) => setBetModeText(key, 'betAmountLabel', e.currentTarget.value)}
+									/></label
+								>
+							</div>
+							<div class="bm-fields bm-copy-long">
+								<label class="fld"
+									><span>Description <em>on the card</em></span><textarea
+										rows="2"
+										value={betModeTextValue(key, 'description')}
+										oninput={(e) => setBetModeText(key, 'description', e.currentTarget.value)}
+									></textarea></label
+								>
+								<label class="fld"
+									><span>Dialog <em>the confirm step</em></span><textarea
+										rows="2"
+										value={betModeTextValue(key, 'dialog')}
+										oninput={(e) => setBetModeText(key, 'dialog', e.currentTarget.value)}
+									></textarea></label
+								>
+							</div>
 						</div>
 
 						{#if cardAuthorableParams(key).length}
-							<div class="betmode-cardparams">
-								<div class="cardparams-head">
-									Card graphics
-									<span class="hint-sm"
-										>override the <code>{betModeCardValue(key) || DEFAULT_CARD_ID}</code> card's look
-										for this mode — blank inherits the card's authored default</span
-									>
-								</div>
-								<div class="cardparams-grid">
-									{#each cardAuthorableParams(key) as p (p.key)}
-										<label
-											class="mini cardparam"
-											class:check={p.kind === 'boolean'}
-											class:wide-param={p.kind === 'image' ||
-												p.kind === 'spine' ||
-												p.kind === 'spineAnimation'}
-										>
-											<span
-												>{p.label ?? p.key}{#if p.group}<em> · {p.group}</em>{/if}</span
-											>
-											{#if p.kind === 'color'}
-												<ColorField
-													value={toColorInput(
-														betModeCardParamValue(key, p.key),
-														typeof p.default === 'number' ? p.default : 0xffffff,
-													)}
-													oninput={(hex) => setBetModeCardParam(key, p.key, fromColorInput(hex))}
-												/>
-											{:else if p.kind === 'number'}
-												<input
-													type="number"
-													value={(betModeCardParamValue(key, p.key) as number | undefined) ?? ''}
-													oninput={(e) =>
-														setBetModeCardParam(
-															key,
-															p.key,
-															e.currentTarget.value === ''
-																? undefined
-																: Number(e.currentTarget.value),
-														)}
-												/>
-											{:else if p.kind === 'boolean'}
-												<input
-													type="checkbox"
-													checked={(betModeCardParamValue(key, p.key) ?? p.default) === true}
-													onchange={(e) => setBetModeCardParam(key, p.key, e.currentTarget.checked)}
-												/>
-											{:else if p.kind === 'image'}
-												<!-- The SAME art/region picker the Scene Editor uses — pick a frame (never type a
+							<div class="bm-block">
+								<span class="bm-legend"
+									>Card graphics
+									<em
+										>override <code>{betModeCardValue(key) || DEFAULT_CARD_ID}</code> for this mode —
+										blank inherits its authored default</em
+									></span
+								>
+								<!-- Bucketed by the param's declared `group`, so Panel / Icon / Spine / Button read as
+								     clusters and the group is named ONCE instead of suffixing every field. -->
+								<div class="bm-pgroups">
+									{#each cardParamGroups(key) as g (g.name)}
+										<div class="bm-pgroup">
+											<span class="bm-pgroup-name">{g.name}</span>
+											<div class="bm-fields bm-params">
+												{#each g.params as p (p.key)}
+													<label
+														class="fld cardparam"
+														class:toggle={p.kind === 'boolean'}
+														class:wide-param={p.kind === 'image' ||
+															p.kind === 'spine' ||
+															p.kind === 'spineAnimation'}
+													>
+														<span>{p.label ?? p.key}</span>
+														{#if p.kind === 'color'}
+															<ColorField
+																value={toColorInput(
+																	betModeCardParamValue(key, p.key),
+																	typeof p.default === 'number' ? p.default : 0xffffff,
+																)}
+																oninput={(hex) =>
+																	setBetModeCardParam(key, p.key, fromColorInput(hex))}
+															/>
+														{:else if p.kind === 'number'}
+															<input
+																type="number"
+																value={(betModeCardParamValue(key, p.key) as number | undefined) ??
+																	''}
+																oninput={(e) =>
+																	setBetModeCardParam(
+																		key,
+																		p.key,
+																		e.currentTarget.value === ''
+																			? undefined
+																			: Number(e.currentTarget.value),
+																	)}
+															/>
+														{:else if p.kind === 'boolean'}
+															<input
+																type="checkbox"
+																checked={(betModeCardParamValue(key, p.key) ?? p.default) === true}
+																onchange={(e) =>
+																	setBetModeCardParam(key, p.key, e.currentTarget.checked)}
+															/>
+														{:else if p.kind === 'image'}
+															<!-- The SAME art/region picker the Scene Editor uses — pick a frame (never type a
 												     key); the choice writes a `<assetKey>::<region>` scoped ref, clearing inherits
 												     the card's authored default. -->
-												<RegionPicker
-													sheets={data.pickSheets}
-													value={(betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
-													scoped
-													onSelect={(region) =>
-														setBetModeCardParam(key, p.key, region || undefined)}
-												/>
-											{:else if p.kind === 'spine'}
-												{@const cur =
-													(betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
-												<select
-													value={cur}
-													onchange={(e) =>
-														setBetModeCardParam(key, p.key, e.currentTarget.value || undefined)}
-												>
-													<option value=""
-														>{typeof p.default === 'string' && p.default
-															? `(default: ${p.default})`
-															: '(inherit default)'}</option
-													>
-													{#each data.spines as s (s.key)}
-														<option value={s.name}>{s.name}{s.shared ? ' [shared]' : ''}</option>
-													{/each}
-													<!-- Engine-shipped coded bundles, so a coded default is a real pickable option. A
+															<RegionPicker
+																sheets={data.pickSheets}
+																value={(betModeCardParamValue(key, p.key) as string | undefined) ??
+																	''}
+																scoped
+																onSelect={(region) =>
+																	setBetModeCardParam(key, p.key, region || undefined)}
+															/>
+														{:else if p.kind === 'spine'}
+															{@const cur =
+																(betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
+															<select
+																value={cur}
+																onchange={(e) =>
+																	setBetModeCardParam(
+																		key,
+																		p.key,
+																		e.currentTarget.value || undefined,
+																	)}
+															>
+																<option value=""
+																	>{typeof p.default === 'string' && p.default
+																		? `(default: ${p.default})`
+																		: '(inherit default)'}</option
+																>
+																{#each data.spines as s (s.key)}
+																	<option value={s.name}
+																		>{s.name}{s.shared ? ' [shared]' : ''}</option
+																	>
+																{/each}
+																<!-- Engine-shipped coded bundles, so a coded default is a real pickable option. A
 													     project spine of the same name wins (dropped here to avoid a dupe). -->
-													{#each BUILTIN_SPINE_NAMES.filter((n) => !data.spines.some((s) => s.name === n)) as n (n)}
-														<option value={n}>{n} [coded]</option>
-													{/each}
-													{#if cur && !data.spines.some((s) => s.name === cur) && !BUILTIN_SPINE_NAMES.includes(cur)}
-														<option value={cur}>{cur} (custom)</option>
-													{/if}
-												</select>
-											{:else if p.kind === 'spineAnimation'}
-												{@const cur =
-													(betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
-												{@const bundle = effectiveCardSpineBundle(key, p)}
-												{@const opts = spineAnimationOptions(bundle)}
-												{#if opts.length > 0}
-													<select
-														value={cur}
-														onchange={(e) =>
-															setBetModeCardParam(key, p.key, e.currentTarget.value || undefined)}
-													>
-														<option value=""
-															>{typeof p.default === 'string' && p.default
-																? `(default: ${p.default})`
-																: '(inherit default)'}</option
-														>
-														{#each opts as o (o)}
-															<option value={o}>{o}</option>
-														{/each}
-														{#if cur && !opts.includes(cur)}
-															<option value={cur}>{cur} (custom)</option>
-														{/if}
-													</select>
-												{:else}
-													<!-- No bundle chosen yet (or its animations aren't resolvable) — fall back to a
+																{#each BUILTIN_SPINE_NAMES.filter((n) => !data.spines.some((s) => s.name === n)) as n (n)}
+																	<option value={n}>{n} [coded]</option>
+																{/each}
+																{#if cur && !data.spines.some((s) => s.name === cur) && !BUILTIN_SPINE_NAMES.includes(cur)}
+																	<option value={cur}>{cur} (custom)</option>
+																{/if}
+															</select>
+														{:else if p.kind === 'spineAnimation'}
+															{@const cur =
+																(betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
+															{@const bundle = effectiveCardSpineBundle(key, p)}
+															{@const opts = spineAnimationOptions(bundle)}
+															{#if opts.length > 0}
+																<select
+																	value={cur}
+																	onchange={(e) =>
+																		setBetModeCardParam(
+																			key,
+																			p.key,
+																			e.currentTarget.value || undefined,
+																		)}
+																>
+																	<option value=""
+																		>{typeof p.default === 'string' && p.default
+																			? `(default: ${p.default})`
+																			: '(inherit default)'}</option
+																	>
+																	{#each opts as o (o)}
+																		<option value={o}>{o}</option>
+																	{/each}
+																	{#if cur && !opts.includes(cur)}
+																		<option value={cur}>{cur} (custom)</option>
+																	{/if}
+																</select>
+															{:else}
+																<!-- No bundle chosen yet (or its animations aren't resolvable) — fall back to a
 													     plain field so the value is still authorable. -->
-													<input
-														type="text"
-														placeholder={bundle ? 'animation name' : 'pick a spine bundle first'}
-														value={cur}
-														oninput={(e) => setBetModeCardParam(key, p.key, e.currentTarget.value)}
-													/>
-												{/if}
-											{:else}
-												<input
-													type="text"
-													value={(betModeCardParamValue(key, p.key) as string | undefined) ?? ''}
-													oninput={(e) => setBetModeCardParam(key, p.key, e.currentTarget.value)}
-												/>
-											{/if}
-										</label>
+																<input
+																	type="text"
+																	placeholder={bundle
+																		? 'animation name'
+																		: 'pick a spine bundle first'}
+																	value={cur}
+																	oninput={(e) =>
+																		setBetModeCardParam(key, p.key, e.currentTarget.value)}
+																/>
+															{/if}
+														{:else}
+															<input
+																type="text"
+																value={(betModeCardParamValue(key, p.key) as string | undefined) ??
+																	''}
+																oninput={(e) =>
+																	setBetModeCardParam(key, p.key, e.currentTarget.value)}
+															/>
+														{/if}
+													</label>
+												{/each}
+											</div>
+										</div>
 									{/each}
 								</div>
 							</div>
@@ -1337,7 +1404,7 @@
 						</div>
 
 						<div class="betmode-row">
-							<label class="mini"
+							<label class="mini tier-name"
 								><span>Name</span><input bind:value={tier.name} placeholder={tier.alias} /></label
 							>
 							<label class="mini"
@@ -1546,6 +1613,13 @@
 	label input {
 		width: 180px;
 	}
+	/* A checkbox is not a text field: the blanket 180px above stretched every one of them, which is
+	   what pushed "Feature" / "Buy bonus" a label-width away from the box they belong to. */
+	label input[type='checkbox'] {
+		width: auto;
+		flex: none;
+		margin: 0;
+	}
 	label.mini input {
 		width: 52px;
 		text-align: center;
@@ -1670,6 +1744,11 @@
 		color: #7ee0c0;
 		font-size: 10px;
 	}
+	.mp-chip.mp-base {
+		border-color: #2f3a4a;
+		background: #10141c;
+		color: #9cc0e0;
+	}
 	.mp-chip.mp-buy {
 		border-color: #4a3a1e;
 		background: #1c1710;
@@ -1689,6 +1768,12 @@
 		border-color: #2f3a4a;
 		background: #10141c;
 		color: #9cc0e0;
+	}
+	/* The tier's NAME is player-facing copy, not a number — it needs room the shared numeric
+	   `label.mini` width does not give it. */
+	.betmode-row label.mini.tier-name input {
+		width: 160px;
+		text-align: left;
 	}
 	.tier-move {
 		display: inline-flex;
@@ -1758,24 +1843,6 @@
 		align-items: flex-end;
 		margin-bottom: 12px;
 	}
-	.betmode-row select {
-		background: #101017;
-		border: 1px solid #26262f;
-		border-radius: 6px;
-		color: #e8e8ee;
-		padding: 7px 9px;
-		font-size: 13px;
-		font-family: inherit;
-	}
-	.betmode-row select:focus {
-		outline: none;
-		border-color: #7ee0c0;
-	}
-	/* The card picker holds component names, so it needs more room than the fixed-width mini inputs. */
-	.betmode-row label.card-pick select {
-		width: 180px;
-		max-width: 220px;
-	}
 	label.check {
 		flex-direction: row;
 		align-items: center;
@@ -1785,78 +1852,182 @@
 		font-size: 12px;
 		color: #b9b9c4;
 	}
-	.betmode-text {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 10px 14px;
+	/* ── Bet-mode cards ───────────────────────────────────────────────────────────
+	   One accent per KIND, shared with the `.mp-chip` menu preview above, so a card and its chip
+	   are recognisably the same mode. Only the bet-mode cards opt in (`data-kind`); the win-tier
+	   cards reuse `.betmode` untouched. */
+	.betmode-kinded {
+		--bm-accent: #9cc0e0;
+		--bm-accent-bg: #10141c;
+		border-left: 3px solid var(--bm-accent);
 	}
-	.betmode-text label {
-		flex: 1;
-		min-width: 150px;
+	.betmode-kinded[data-kind='buy'] {
+		--bm-accent: #e0b878;
+		--bm-accent-bg: #1c1710;
 	}
-	.betmode-text label.wide {
-		flex-basis: 100%;
+	.betmode-kinded[data-kind='ante'] {
+		--bm-accent: #7ee0c0;
+		--bm-accent-bg: #101c17;
 	}
-	.betmode-text input,
-	.betmode-text textarea {
-		width: 100%;
+	.betmode-kinded .betmode-key {
+		color: var(--bm-accent);
 	}
-	.betmode-text textarea {
-		resize: vertical;
-		line-height: 1.5;
+	.betmode-kinded .betmode-head {
+		gap: 8px;
+		border-bottom: 1px solid #1c1c24;
+		padding-bottom: 8px;
 	}
-	.betmode-cardparams {
+	/* The head's `justify-content: space-between` would strand these; push the × to the far end
+	   instead so key · kind · cost read as one group. */
+	.kind-tag,
+	.cost-tag {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		padding: 2px 7px;
+		border-radius: 999px;
+		border: 1px solid var(--bm-accent);
+		color: var(--bm-accent);
+		background: var(--bm-accent-bg);
+	}
+	.cost-tag {
+		border-color: #26262f;
+		background: #14141b;
+		color: #8b8b98;
+		text-transform: none;
+		letter-spacing: 0;
+		margin-right: auto;
+	}
+
+	/* Each card is four labelled blocks (Math · Menu · Copy · Card graphics) rather than one flat
+	   wrap, so a field's meaning is readable from its neighbours. */
+	.bm-block {
 		margin-top: 12px;
-		padding-top: 12px;
-		border-top: 1px solid #1c1c24;
 	}
-	.cardparams-head {
-		font-size: 12px;
-		color: #b9b9c4;
+	.bm-block + .bm-block {
+		padding-top: 12px;
+		border-top: 1px solid #17171e;
+	}
+	.bm-legend {
+		display: block;
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.07em;
+		color: var(--bm-accent);
 		margin-bottom: 8px;
 	}
-	.cardparams-head .hint-sm {
-		display: block;
-		margin-top: 2px;
-		opacity: 0.65;
-		font-size: 11px;
+	.bm-legend em,
+	.fld span em {
+		font-style: normal;
+		text-transform: none;
+		letter-spacing: 0;
+		color: #6f6f7d;
 	}
-	.cardparams-head code,
-	.hint-sm code {
+	.bm-legend code {
 		font-family: ui-monospace, monospace;
 		color: #c8a3ff;
+		text-transform: none;
 	}
-	.cardparams-grid {
-		display: flex;
-		flex-wrap: wrap;
+
+	/* Fixed column tracks (not a wrapping flex) so every mode's fields line up down the page. */
+	.bm-fields {
+		display: grid;
 		gap: 10px 14px;
+		align-items: end;
 	}
-	.cardparam {
-		min-width: 140px;
+	.bm-fields + .bm-fields {
+		margin-top: 10px;
 	}
-	/* Image / spine pickers need more room than a colour swatch or number — a region picker
-	   opens a frame grid and a spine dropdown lists bundle names. */
-	.cardparam.wide-param {
-		min-width: 200px;
-		flex: 1 1 200px;
-		max-width: 320px;
+	.bm-math {
+		grid-template-columns: 110px 110px 110px auto auto;
+		justify-content: start;
+		gap: 10px 20px;
 	}
-	.cardparam em {
-		opacity: 0.55;
-		font-style: normal;
+	.bm-menu {
+		grid-template-columns: 150px 110px minmax(200px, 280px);
+		justify-content: start;
 	}
-	.cardparam input[type='text'],
-	.cardparam input[type='number'],
-	.cardparam select {
+	.bm-copy {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+	.bm-copy-long {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	/* Inside one group column: two tracks, so a colour swatch pairs with its frame picker. */
+	.bm-params {
+		grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+	}
+
+	.fld {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		min-width: 0;
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		color: #8b8b98;
+	}
+	.fld input,
+	.fld select,
+	.fld textarea {
 		width: 100%;
-	}
-	.cardparam input[type='color'] {
-		width: 100%;
-		height: 30px;
-		padding: 2px;
 		background: #101017;
 		border: 1px solid #26262f;
 		border-radius: 6px;
+		color: #e8e8ee;
+		padding: 7px 9px;
+		font-size: 13px;
+		font-family: inherit;
+	}
+	.fld select:focus {
+		outline: none;
+		border-color: #7ee0c0;
+	}
+	.fld textarea {
+		resize: vertical;
+		line-height: 1.5;
+	}
+	/* A toggle reads left-to-right (box then word) and sits on the same baseline as the fields
+	   beside it, so the math row is one row rather than three visual heights. */
+	.fld.toggle {
+		flex-direction: row;
+		align-items: center;
+		gap: 7px;
+		text-transform: none;
+		letter-spacing: 0;
+		font-size: 12px;
+		color: #b9b9c4;
+		padding-bottom: 8px;
+		white-space: nowrap;
+	}
+
+	/* Card graphics: one labelled cluster per declared param group. */
+	.bm-pgroups {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+		gap: 12px 20px;
+		align-items: start;
+	}
+	.bm-pgroup-name {
+		display: block;
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: #6f6f7d;
+		margin-bottom: 6px;
+	}
+	/* A region/spine picker needs the group's full width; a tint or number shares a row. */
+	.bm-params .wide-param {
+		grid-column: 1 / -1;
+	}
+	.bm-params .fld.toggle {
+		padding-bottom: 0;
+	}
+
+	.hint-sm code {
+		font-family: ui-monospace, monospace;
+		color: #c8a3ff;
 	}
 	.add {
 		display: flex;

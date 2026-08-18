@@ -119,8 +119,8 @@ the game falls back to the authored/compiled paylines and strips exactly as befo
 
 ## The strips are the gate
 
-The **dictionary** (Symbols panel) describes every symbol the game *can draw* — art,
-properties, payouts. The **strips** describe what the game *actually deals*. A symbol
+The **dictionary** (Symbols panel) describes every symbol the game _can draw_ — art,
+properties, payouts. The **strips** describe what the game _actually deals_. A symbol
 can legitimately sit in the dictionary and appear on no strip; when it does, the tool
 marks it **unused** and warns that its paytable advertises a payout no one can win.
 This is the one rule that keeps a game from advertising symbols it never deals. With
@@ -134,10 +134,19 @@ badges — reflect the server's declared symbols at runtime.
 
 ## Bet modes: math + presentation
 
-Each bet mode is a card with two halves. The **math** — Cost × (a multiple of the
-base bet), RTP, Max win ×, and the **Feature** / **Buy bonus** toggles — is the
-Stake-export shape the math team ships. The **presentation** is ours: how the mode
-looks in the player-facing menu.
+Each bet mode is one card, read top to bottom as four labelled blocks:
+
+| Block             | What it holds                                                                                                                                  |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Math**          | Cost × (a multiple of the base bet), RTP, Max win ×, and the **Feature** / **Buy bonus** toggles — the Stake-export shape the math team ships. |
+| **Menu**          | **Kind**, **Order**, and the **Card** component this mode renders.                                                                             |
+| **Copy**          | **Title**, **Button**, **Bet label**, **Description**, **Dialog**.                                                                             |
+| **Card graphics** | Per-mode overrides of the card component's params, clustered by the group each param declares (Panel · Icon · Spine · Button).                 |
+
+The card is **colour-coded by kind** — a blue rail for `base`, gold for `buy`, teal
+for `ante` — matching the chip this mode gets in the menu preview above, so a card
+and its chip are recognisably the same mode. The header repeats the kind and the
+mode's cost as tags.
 
 - **Kind** — `base`, a persistent `ante`, or a one-shot `buy`. Leave it on
   **auto → <derived>** and the tool derives it from the math (a Buy-bonus mode ⇒
@@ -152,6 +161,15 @@ looks in the player-facing menu.
   **Description** and a **Dialog** (the buy-confirmation body). Blank fields fall
   back to a legible default — the mode's key as its title and a verb matched to
   its kind — so an un-authored mode still renders a working menu.
+- **Card graphics** — override any param the mode's card declares (panel frame and
+  tint, the card's main image, a spine accent, the button/ribbon frame, …). Blank
+  inherits the card component's own authored default, so you only set what differs
+  between modes.
+
+> **If a word is painted into the artwork, no field here can change it.** A ribbon
+> frame whose image already reads "BUY FEATURE" will keep saying that whatever you
+> type in **Button** — and it can't be translated either. Point the frame at a blank
+> ribbon and let the Button text draw on top, or ship per-language art.
 
 Above the cards, a read-only **menu preview** shows the resolved, ordered menu as
 chips — each chip shows the resolved **title** and **cost×**, coloured and
