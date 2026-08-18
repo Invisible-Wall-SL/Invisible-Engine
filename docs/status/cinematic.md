@@ -1,6 +1,6 @@
 # Invisible Cinematic — status
 
-> Design: [docs/design/invisible-cinematic.md](../design/invisible-cinematic.md) · Guide: _none yet (unbuilt)_ · Agent: _none yet_
+> Design: [docs/design/invisible-cinematic.md](../design/invisible-cinematic.md) · Guide: [docs/tools/rigger.md §Cinematic mode](../tools/rigger.md#cinematic-mode) (it is a mode of `/rigger`, so it shares the Rigger's guide) · Agent: `.claude/agents/invisible-rigger.md`
 
 **One-line state:** **Phases 0–3 COMPLETE, every track kind implemented** (2026-08-17) — `/rigger`'s 🎬
 **Cinematic** mode stages several rigs, authors them as tracks of strips + property/camera keys,
@@ -94,9 +94,11 @@ headless contract tests, never by execution (see Open items).
   the marker to retime). A cue is a NAMED MOMENT the game reacts to — the cinematic never
   implements the effect, it only says when. Namespaces: `fx:` (an Invisible FX effect) · `sfx:` /
   `music:` (a game sound cue) · `signal:` (broadcast on the game event bus). Markers are coloured
-  by namespace. The cue string is free TEXT with a datalist of prefixes, not a dropdown, because
-  the ids it names live in three different systems and a dropdown would have to be wrong in at
-  least one.
+  by namespace. The inspector pairs a **pick** dropdown — every FX effect in the project, plus
+  the other three kinds — with a free TEXT field, because the ids a cue names live in three
+  different systems and only `fx:` is listable from here. The dropdown is a real `<select>`, NOT
+  a datalist: a datalist filters itself against the field's current value, which made a cue
+  unchangeable once it was set.
   **Firing is owned by `cuesCrossed`** (shared, and gate-tested to 10 assertions), so the editor
   preview and the game agree on "fired": a half-open `(prev, now]` window, and **nothing fires on
   a seek** — a backward step or a jump bigger than a frame is silent, which is what makes
@@ -241,6 +243,17 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Recent changes
 
+- 2026-08-18 — **A cue could not be changed once it was set (owner).** The cue field was an
+  `<input list=…>`, and a datalist FILTERS its options against what the field already holds — so
+  the moment a cue read `fx:f_bottle` its dropdown collapsed to that single entry and the effect
+  looked locked in. The inspector now carries a real **pick** `<select>` (every FX effect the
+  project has, grouped, plus the `sfx:`/`music:`/`signal:` kinds) above the text field, and the
+  select never filters: it lists everything whatever the cue currently is, with the current
+  effect selected, or `✎ <cue> (typed)` at its head when the cue is a hand-typed name. Picking a
+  KIND seeds its prefix into the text field and focuses it rather than committing a bare `sfx:`,
+  which would only make an unfirable cue. Verified live over the real panel: full 7-option list
+  after setting `fx:f_bottle`, switch to `fx:coin_burst` commits, `sfx:` seeds + focuses, and a
+  typed `sfx:coin_drop` still shows the whole list so it can be switched back to an FX.
 - 2026-08-17 — **Every game app's build was broken; only the launcher's stayed green.**
   `CinematicActor.svelte` imports `@esotericsoftware/spine-pixi-v8`, but `engine-layout` never
   declared it — so under pnpm's strict layout the module was simply not resolvable from that

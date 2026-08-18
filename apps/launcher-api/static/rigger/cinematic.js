@@ -1860,29 +1860,41 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 	/**
 	 * The SELECTED cue's editor (right column).
 	 *
-	 * The cue is a text field with a datalist rather than a plain dropdown because its three
-	 * namespaces resolve against three different systems — FX effects, the game's sound cues, and
-	 * flow signals — and only the first of those is listable from here. So the list OFFERS the
-	 * project's real effects (which is what makes a cue pickable instead of remembered) while the
-	 * field still accepts anything, which is what keeps `sfx:`/`signal:` authorable at all.
+	 * TWO controls, deliberately. A lone `<input list=…>` is NOT enough: a datalist filters its
+	 * options against what the field already holds, so the moment a cue reads `fx:f_bottle` the
+	 * dropdown collapses to that one entry and the cue looks unchangeable. So the PICKER — which
+	 * never filters — always offers every effect the project has, and the text field stays,
+	 * because `sfx:` / `music:` / `signal:` resolve inside the GAME, not here: they are not
+	 * listable, and typing them is the only way to author them.
 	 */
 	function cueInspectorMarkup() {
 		const track = cueTrack();
 		const keys = (track && track.keys) || [];
 		const sel = selCueTime !== null ? keys.find((k) => Math.abs(k.time - selCueTime) < 1e-6) : null;
 		if (!sel) return '';
+		const cur = sel.cue || '';
+		const known = fxEffects.some((e) => 'fx:' + e.id === cur);
+		const typed = !!cur && !known && !CUE_KINDS.some((k) => k.prefix === cur);
+		const head = known ? '— change to —' : typed ? '✎ ' + esc(cur) + ' (typed)' : '— pick an effect or a kind —';
+		const fxOpts = fxEffects
+			.map((e) => `<option value="fx:${esc(e.id)}"${'fx:' + e.id === cur ? ' selected' : ''}>${esc(e.name || e.id)}</option>`)
+			.join('');
+		const kindOpts = CUE_KINDS.filter((k) => k.prefix !== 'fx:')
+			.map((k) => `<option value="${k.prefix}">${k.label} — ${k.hint}</option>`)
+			.join('');
 		return `
-<div class="cineHead" style="border-top:1px solid var(--line);"><b>⚡ Cue</b><small>${esc(sel.cue || '(empty)')}</small></div>
+<div class="cineHead" style="border-top:1px solid var(--line);"><b>⚡ Cue</b><small>${esc(cur || '(empty)')}</small></div>
 <div class="cineStripInsp">
-	<label class="wide">cue<input type="text" list="cineCueKinds" data-cueact="cue" value="${esc(sel.cue || '')}" placeholder="fx:my_effect"></label>
+	<label class="wide">pick<select id="cineCuePick" title="Every FX effect in this project — picking one replaces this cue. The other kinds only seed their prefix, since their names live in the game.">
+		<option value="">${head}</option>
+		${fxOpts ? `<optgroup label="FX effects">${fxOpts}</optgroup>` : ''}
+		<optgroup label="other kinds">${kindOpts}</optgroup>
+	</select></label>
+	<label class="wide">cue<input type="text" data-cueact="cue" value="${esc(cur)}" placeholder="fx:my_effect"></label>
 	<label>time<input type="number" step="0.05" min="0" data-cueact="time" value="${+sel.time.toFixed(3)}"></label>
 </div>
-<datalist id="cineCueKinds">
-	${fxEffects.map((e) => `<option value="fx:${esc(e.id)}">FX — ${esc(e.name || e.id)}</option>`).join('')}
-	${CUE_KINDS.map((k) => `<option value="${k.prefix}">${k.label} — ${k.hint}</option>`).join('')}
-</datalist>
 <div class="cineRow"><button id="cineDelCue" title="Delete this cue">🗑 Delete cue</button></div>
-<div class="cineNote">${fxEffects.length ? 'Pick an FX effect from the list, or type an <code>sfx:</code> / <code>music:</code> / <code>signal:</code> name the game knows.' : 'This project has no authored FX effects yet — author them in /fx, or type a sound or signal name.'}</div>`;
+<div class="cineNote">${fxEffects.length ? 'Pick an FX effect from the list — it stays complete however the cue is already set — or type an <code>sfx:</code> / <code>music:</code> / <code>signal:</code> name the game knows.' : 'This project has no authored FX effects yet — author them in /fx, or type a sound or signal name.'}</div>`;
 	}
 
 	/** Inspector for a selected property/camera key — time, value and its outgoing interpolation. */
@@ -1952,6 +1964,25 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 		if (addCueBtn) addCueBtn.onclick = addCue;
 		const delCueBtn = $('#cineDelCue');
 		if (delCueBtn) delCueBtn.onclick = () => selCueTime !== null && deleteCue(selCueTime);
+		const cuePick = $('#cineCuePick');
+		if (cuePick)
+			cuePick.onchange = (e) => {
+				const v = e.target.value;
+				if (!v || selCueTime === null) return;
+				if (v.endsWith(':')) {
+					// A KIND, not a value. Committing a bare `sfx:` would only make an unfirable cue,
+					// so seed the prefix into the field and let the author finish the name.
+					const field = document.querySelector('[data-cueact="cue"]');
+					e.target.value = '';
+					if (field) {
+						field.value = v;
+						field.focus();
+						field.setSelectionRange(v.length, v.length);
+					}
+					return;
+				}
+				setCueField(selCueTime, 'cue', v);
+			};
 		document.querySelectorAll('[data-cueact]').forEach((node) => {
 			node.onchange = (e) => {
 				const f = node.dataset.cueact;
