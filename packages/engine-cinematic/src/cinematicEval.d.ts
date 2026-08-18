@@ -32,6 +32,17 @@ export function clipLocalTime(
 	clipDuration: number,
 ): { local: number; cycle: number; lastLocal: number } | null;
 
+/**
+ * Inverse of `clipLocalTime` — the cinematic time at which `strip` shows clip-local `local`,
+ * resolved inside the loop repeat that `at` is already in, and clamped to the strip's window.
+ */
+export function cineTimeForLocal(
+	strip: CinematicStrip & { extrapolate?: 'hold' | 'holdForward' | 'none'; clipOut?: number },
+	local: number,
+	clipDuration: number,
+	at: number,
+): number;
+
 /** The strip's blend-in/out ramp × its alpha at `t` (0..1). */
 export function blendEnvelope(strip: CinematicStrip, t: number): number;
 
