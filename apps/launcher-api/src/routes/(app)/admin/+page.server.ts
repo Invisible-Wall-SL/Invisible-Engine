@@ -93,7 +93,7 @@ import {
 } from '$lib/server/layoutProfile';
 import { DEFAULT_LAYOUT_PROFILE } from 'engine-layout';
 import { getCosts, invalidateCosts } from '$lib/server/costs';
-import { setMonthEur, TOTAL_KEY } from '$lib/server/costs/months';
+import { setMonthEur, setMonthUsd, TOTAL_KEY } from '$lib/server/costs/months';
 import type { ProviderId } from '$lib/server/costs/types';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -948,5 +948,40 @@ export const actions: Actions = {
 
 		invalidateCosts();
 		return { action: 'setCostMonthEur', ok: 'Saved.' };
+	},
+
+	/**
+	 * Hand-enter a provider's USD for one month — the escape hatch for RunPod and
+	 * Railway, which cannot report a period total, and would otherwise leave the
+	 * month total silently under-counting the two costs that matter most.
+	 */
+	setCostMonthUsd: async ({ request, locals }) => {
+		const admin = await requireAdmin(locals);
+		const data = await request.formData();
+		const provider = String(data.get('provider') ?? '').trim();
+		const year = Number(String(data.get('year') ?? ''));
+		const month = Number(String(data.get('month') ?? ''));
+		const raw = String(data.get('usd') ?? '').trim();
+
+		if (!isCostProvider(provider)) {
+			return fail(400, { action: 'setCostMonthUsd', error: 'Unknown provider.' });
+		}
+		if (!Number.isInteger(year) || !Number.isInteger(month)) {
+			return fail(400, { action: 'setCostMonthUsd', error: 'Bad month.' });
+		}
+		// Empty clears the override and hands the cell back to the estimator.
+		let usd: number | null = null;
+		if (raw) {
+			usd = Number(raw.replace(/[$,\s]/g, ''));
+			if (!Number.isFinite(usd)) {
+				return fail(400, { action: 'setCostMonthUsd', error: 'Enter a number, e.g. 58.20' });
+			}
+		}
+
+		const result = await setMonthUsd({ provider, year, month, usd, userId: admin.id });
+		if (!result.ok) return fail(400, { action: 'setCostMonthUsd', error: result.error });
+
+		invalidateCosts();
+		return { action: 'setCostMonthUsd', ok: 'Saved.' };
 	},
 };

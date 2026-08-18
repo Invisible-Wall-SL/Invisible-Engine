@@ -1,0 +1,1 @@
+ALTER TABLE "cost_months" ADD COLUMN "manual_usd" boolean DEFAULT false NOT NULL;

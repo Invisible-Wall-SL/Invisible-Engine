@@ -92,6 +92,26 @@
 	): boolean {
 		return open.year === m.year && open.month === m.month;
 	}
+
+	/**
+	 * Track widths are built in JS rather than CSS because the column count is dynamic
+	 * — `repeat(var(--n), …)` is fragile, and a hardcoded track list silently
+	 * misaligns the header from the body the moment a provider appears or drops out.
+	 */
+	const gridStyle = (providerCount: number) =>
+		`grid-template-columns: 1.1fr ${'0.9fr '.repeat(providerCount)}0.9fr 0.9fr 1.1fr`;
+
+	/**
+	 * Whether this provider can report a period total on its own. RunPod publishes a
+	 * balance and a burn rate but no spend history, and Railway's API exposes only
+	 * usage units — so their cells are typed in instead of measured.
+	 */
+	function reportsAutomatically(
+		providers: { id: string; spendUsd: number | null }[],
+		id: string,
+	): boolean {
+		return providers.some((p) => p.id === id && p.spendUsd != null);
+	}
 	let tab = $state<TabId>('users');
 
 	// Keyboard nav for the tablist (left/right/home/end), per WAI-ARIA tabs pattern.
@@ -1001,6 +1021,9 @@
 			{:then costs}
 				{@const known = costs.providers.filter((p) => p.ok && p.spendUsd != null)}
 				{@const total = known.reduce((sum, p) => sum + (p.spendUsd ?? 0), 0)}
+				<!-- Columns follow the providers actually on the page, so a dormant one
+					 (the unused LLM provider) doesn't leave a column of em dashes. -->
+				{@const columns = costs.providers.map((p) => p.id)}
 
 				<div class="cost-top">
 					<div class="cost-total">
@@ -1119,59 +1142,87 @@
 						</div>
 
 						<div class="table month-table">
-							<div class="row head">
+							<div class="row head" style={gridStyle(columns.length)}>
 								<span>Month</span>
-								{#each data.costProviders as id (id)}
-									<span>{PROVIDER_LABELS[id] ?? id}</span>
+								{#each columns as id (id)}
+									<span class="num">{PROVIDER_LABELS[id] ?? id}</span>
 								{/each}
-								<span>Total (est.)</span>
-								<span>Change</span>
-								<span>EUR charged</span>
+								<span class="num">Total</span>
+								<span class="num">Change</span>
+								<span class="num">EUR charged</span>
 							</div>
 
 							{#each yearRow.months as m (m.month)}
 								{@const open = isOpenMonth(costs.openMonth, m)}
-								<div class="row" class:open>
+								<div class="row" class:open style={gridStyle(columns.length)}>
 									<span class="month-name">
 										{monthName(m.month)}
 										{#if open}<span class="pill est">open</span>{/if}
 									</span>
-									{#each data.costProviders as id (id)}
-										<span class="mono num">
-											{m.byProvider[id] != null ? usd(m.byProvider[id]) : '—'}
+
+									{#each columns as id (id)}
+										{@const value = m.byProvider[id]}
+										{@const manual = m.manualProviders.includes(id)}
+										<span class="num cell">
+											{#if reportsAutomatically(costs.providers, id) && !manual}
+												<span class="mono">{value != null ? usd(value) : '—'}</span>
+											{:else}
+												<!-- RunPod and Railway can't report a period total, so their
+													 cell is typed in. Without it the month silently under-counts
+													 the two providers that usually cost the most. -->
+												<form method="POST" action="?/setCostMonthUsd" use:enhance>
+													<input type="hidden" name="provider" value={id} />
+													<input type="hidden" name="year" value={m.year} />
+													<input type="hidden" name="month" value={m.month} />
+													<input
+														name="usd"
+														class="mono cell-input"
+														class:manual
+														type="text"
+														inputmode="decimal"
+														placeholder="—"
+														title="Typed in — this provider can't report a monthly total"
+														value={value != null && value > 0 ? value.toFixed(2) : ''}
+													/>
+												</form>
+											{/if}
 										</span>
 									{/each}
-									<span class="mono num"><strong>{usd(m.totalUsd)}</strong></span>
+
+									<span class="num total-cell mono"><strong>{usd(m.totalUsd)}</strong></span>
 									<span class="num">
 										{#if m.deltaUsd == null}
 											<span class="muted">—</span>
 										{:else if m.deltaUsd > 0}
-											<span class="up">▲ {usd(m.deltaUsd)}</span>
+											<span class="up mono">▲ {usd(m.deltaUsd)}</span>
 										{:else if m.deltaUsd < 0}
-											<span class="down">▼ {usd(Math.abs(m.deltaUsd))}</span>
+											<span class="down mono">▼ {usd(Math.abs(m.deltaUsd))}</span>
 										{:else}
-											<span class="muted">no change</span>
+											<span class="muted">—</span>
 										{/if}
 									</span>
-									<span class="eur-cell">
+									<span class="num eur-cell">
 										<form method="POST" action="?/setCostMonthEur" use:enhance>
 											<input type="hidden" name="provider" value="total" />
 											<input type="hidden" name="year" value={m.year} />
 											<input type="hidden" name="month" value={m.month} />
 											<input
 												name="eur"
-												class="mono eur-input"
+												class="mono cell-input eur-input"
 												type="text"
 												inputmode="decimal"
 												placeholder="—"
 												value={m.totalEur != null ? m.totalEur.toFixed(2) : ''}
 											/>
-											<button type="submit" class="ghost-btn small">Save</button>
 										</form>
 									</span>
 								</div>
 							{/each}
 						</div>
+						<p class="muted hint table-note">
+							Press Enter in any cell to save. Boxed cells are typed in — RunPod and Railway can't
+							report a monthly total, so their figures come from you.
+						</p>
 					</div>
 				{:else}
 					<div class="card">
@@ -2176,15 +2227,58 @@
 	.charged {
 		color: #ffb86b;
 	}
-	/* The shared `.row` grid is shaped for the 7-column users table; this table has
-	   its own column set (month + one per provider + total + delta + EUR), so it
-	   overrides rather than inheriting a mismatched track list. */
+	/* The track list comes from `gridStyle()` inline, since the column count is
+	   dynamic; this only carries what doesn't vary. */
 	.month-table .row {
-		grid-template-columns: 1.2fr repeat(5, 1fr) 1fr 1fr 1.4fr;
 		cursor: default;
+		align-items: center;
 	}
 	.month-table .num {
 		text-align: right;
+	}
+	/* Headers sit over right-aligned figures, so they right-align too — the earlier
+	   left-aligned headers made every column look off by a word. */
+	.month-table .head .num {
+		text-align: right;
+	}
+	.month-table .cell {
+		display: block;
+	}
+	.total-cell {
+		border-left: 1px solid #222;
+		padding-left: 10px;
+	}
+	.cell-input {
+		width: 100%;
+		max-width: 96px;
+		padding: 3px 6px;
+		font-size: 12px;
+		text-align: right;
+		background: #0f0f14;
+		border: 1px solid #2a2a33;
+		border-radius: 6px;
+		color: #ddd;
+	}
+	.cell-input:focus {
+		outline: 1px solid #6b5bff;
+		border-color: #6b5bff;
+	}
+	/* A typed figure is not a measured one — mark it so the two are never confused. */
+	.cell-input.manual {
+		border-color: #4a3f2a;
+		color: #ffb86b;
+	}
+	.eur-input {
+		border-color: #3a2f1f;
+		color: #ffb86b;
+	}
+	.month-table form {
+		margin: 0;
+		display: flex;
+		justify-content: flex-end;
+	}
+	.table-note {
+		margin-top: 10px;
 	}
 	.month-name {
 		display: flex;
@@ -2200,17 +2294,5 @@
 	}
 	.down {
 		color: #7ee787;
-	}
-	.eur-cell form {
-		display: flex;
-		gap: 6px;
-		margin: 0;
-		align-items: center;
-	}
-	.eur-input {
-		width: 88px;
-		padding: 4px 8px;
-		font-size: 12px;
-		text-align: right;
 	}
 </style>

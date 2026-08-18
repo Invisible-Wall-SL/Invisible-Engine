@@ -124,9 +124,24 @@ A month has two states:
   rebuild a past month anyway (RunPod publishes no spend history at all, Railway
   reports current-cycle only, R2's analytics retention is short).
 
-**Known limitation of that design:** a month freezes at the last value seen
-*while someone was using the page*. If nobody opens Costs during the last days
-of a month, those days are missing from the locked estimate.
+A background recorder (started with the server) snapshots every 3 hours and once
+just after midnight Madrid on the 1st, so a month's figure doesn't depend on
+anyone opening the page, and the lock happens minutes after the month ends.
+
+**Two providers can't report a monthly total at all**, so their cells are typed
+in — shown as boxed inputs, in amber, so a typed figure is never mistaken for a
+measured one:
+
+- **RunPod** publishes a balance and a burn rate, but no spend history.
+- **Railway** returns only usage units. Its measurement enum has no cost member
+  (`CPU_USAGE`, `MEMORY_USAGE_GB`, … and nothing denominated in money) — the
+  Railway dashboard prices those units client-side. Read the figure off
+  Railway's own Project Usage panel and enter it.
+
+This matters more than it sounds: those two are usually the largest costs, so a
+month without them silently under-counts. A typed figure sets a `manual` flag
+that stops the recorder overwriting it; clearing the cell hands it back to the
+estimator.
 
 **The EUR column is the corrective, and the number to file.** USD is our
 estimate; the euro figure is what your bank actually charged, typed in by you.

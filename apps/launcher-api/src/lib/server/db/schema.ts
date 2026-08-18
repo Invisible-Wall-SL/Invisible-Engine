@@ -347,8 +347,21 @@ export const costMonths = pgTable(
 		year: integer('year').notNull(),
 		/** Calendar month 1–12, Europe/Madrid. */
 		month: integer('month').notNull(),
-		/** Estimated USD spend for the month, in cents. */
+		/** USD spend for the month, in cents. */
 		amountUsdCents: integer('amount_usd_cents').notNull().default(0),
+		/**
+		 * True when `amountUsdCents` was typed in by an admin rather than measured.
+		 *
+		 * Needed because two providers cannot report a period total at all: RunPod
+		 * publishes a balance and a burn rate but no spend history, and Railway's API
+		 * exposes only usage units (its enum has no cost measurement — the dashboard
+		 * prices them client-side). Without a manual figure those months would silently
+		 * under-count, and RunPod is typically the largest line.
+		 *
+		 * Also a WRITE GUARD: `recordAndLock` refuses to overwrite a manual row, so a
+		 * typed figure survives every later snapshot.
+		 */
+		manualUsd: boolean('manual_usd').notNull().default(false),
 		/** What the bank actually charged, in euro cents. Admin-entered; null until then. */
 		eurCents: integer('eur_cents'),
 		/** Set when the month ended and the figure was frozen. Null while open. */

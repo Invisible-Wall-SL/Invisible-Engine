@@ -103,6 +103,8 @@ export interface MonthRow {
 	year: number;
 	month: number;
 	amountUsd: number;
+	/** True when the USD figure was typed in rather than measured. */
+	manual: boolean;
 	/** What the bank actually charged, when an admin has entered it. */
 	eur: number | null;
 	locked: boolean;
@@ -155,9 +157,10 @@ export async function recordAndLock(
 			})
 			.onConflictDoUpdate({
 				target: [costMonths.provider, costMonths.year, costMonths.month],
-				// Only while still open — a locked month must not be revived by a late
-				// snapshot that happens to still be reporting the old window.
-				setWhere: isNull(costMonths.lockedAt),
+				// Only while still open AND not hand-entered: a locked month must not be
+				// revived by a late snapshot, and a typed figure must never be silently
+				// replaced by an estimate.
+				setWhere: and(isNull(costMonths.lockedAt), eq(costMonths.manualUsd, false)),
 				set: { amountUsdCents: cents, updatedAt: at },
 			});
 	}
@@ -174,6 +177,7 @@ export async function listMonths(): Promise<MonthRow[]> {
 		year: r.year,
 		month: r.month,
 		amountUsd: r.amountUsdCents / 100,
+		manual: r.manualUsd,
 		eur: r.eurCents == null ? null : r.eurCents / 100,
 		locked: r.lockedAt != null,
 		note: r.note,
@@ -186,6 +190,8 @@ export interface MonthSummary {
 	month: number;
 	/** USD per provider id. */
 	byProvider: Record<string, number>;
+	/** Provider ids whose USD figure was typed in rather than measured. */
+	manualProviders: string[];
 	totalUsd: number;
 	/** Sum of entered EUR charges; null when nothing has been entered for the month. */
 	totalEur: number | null;
@@ -217,6 +223,7 @@ export function summarize(rows: MonthRow[]): YearSummary[] {
 				year: row.year,
 				month: row.month,
 				byProvider: {},
+				manualProviders: [],
 				totalUsd: 0,
 				totalEur: null,
 				locked: row.locked,
@@ -232,6 +239,7 @@ export function summarize(rows: MonthRow[]): YearSummary[] {
 		} else {
 			entry.byProvider[row.provider] = (entry.byProvider[row.provider] ?? 0) + row.amountUsd;
 			entry.totalUsd += row.amountUsd;
+			if (row.manual) entry.manualProviders.push(row.provider);
 			// A month is only "locked" once every provider row for it is locked.
 			entry.locked = entry.locked && row.locked;
 		}
@@ -261,6 +269,70 @@ export function summarize(rows: MonthRow[]): YearSummary[] {
 	return [...years.values()]
 		.sort((a, b) => b.year - a.year)
 		.map((y) => ({ ...y, months: y.months.reverse() }));
+}
+
+/**
+ * Hand-enter the USD figure for one provider-month.
+ *
+ * The escape hatch for providers that cannot report a period total: RunPod (balance
+ * and burn rate only) and Railway (usage units only — its measurement enum has no
+ * cost member). Without this their months read as `—` and the total silently
+ * under-counts, which on a tax record is the worst kind of wrong.
+ *
+ * Sets `manualUsd`, which `recordAndLock` treats as a write guard, so the typed
+ * figure survives every later snapshot. Passing `null` clears it and hands the cell
+ * back to the estimator.
+ */
+export async function setMonthUsd(input: {
+	provider: MonthProvider;
+	year: number;
+	month: number;
+	usd: number | null;
+	userId: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+	if (input.month < 1 || input.month > 12 || input.year < 2000 || input.year > 2200) {
+		return { ok: false, error: 'That month is out of range.' };
+	}
+	if (input.usd == null) {
+		await getDb()
+			.update(costMonths)
+			.set({ manualUsd: false, amountUsdCents: 0, updatedBy: input.userId, updatedAt: new Date() })
+			.where(
+				and(
+					eq(costMonths.provider, input.provider),
+					eq(costMonths.year, input.year),
+					eq(costMonths.month, input.month),
+				),
+			);
+		return { ok: true };
+	}
+	const cents = Math.round(input.usd * 100);
+	if (!Number.isFinite(cents) || cents < 0) {
+		return { ok: false, error: 'Enter the amount as a positive number.' };
+	}
+	if (cents > 10_000_000) {
+		return { ok: false, error: 'That looks like a typo — the cap is $100,000 per month.' };
+	}
+	await getDb()
+		.insert(costMonths)
+		.values({
+			provider: input.provider,
+			year: input.year,
+			month: input.month,
+			amountUsdCents: cents,
+			manualUsd: true,
+			updatedBy: input.userId,
+		})
+		.onConflictDoUpdate({
+			target: [costMonths.provider, costMonths.year, costMonths.month],
+			set: {
+				amountUsdCents: cents,
+				manualUsd: true,
+				updatedBy: input.userId,
+				updatedAt: new Date(),
+			},
+		});
+	return { ok: true };
 }
 
 /**
