@@ -43,9 +43,11 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
    creation), and **placed/persistent FX slots** (the other half of design §12.4a). Owner
    live-verify is owed against real R2 + a real game, and nobody has yet *looked* at baked rig
    text on screen.
-   ⚠️ **The shipped game still needs a runtime release** cut after `13bfc005` (2026-08-17 23:03)
-   to receive the swap — a rig can be perfectly baked and still render source-locale art until
-   the online games' shared runtime bundle carries `applyLocaleAttachments`.
+   The runtime half is already **live**: `.github/workflows/runtime-release.yml` auto-releases on
+   any push to `main` touching `packages/**`, and the release built from `88f5e5e7` (2026-08-18
+   11:33) contains `13bfc005`, the swap. So the online games' shared bundle carries
+   `applyLocaleAttachments` — a rig that bakes and saves correctly will localize with no further
+   release.
 5. **Better auto-weights** — the shipped proximity chain-skinner scored poorly against artist ground truth; a geodesic/heat algorithm + a representative **character-mesh validation gate** (Spike 2) is still open. Manual brush stays the guaranteed path.
 6. **Cinematic mode** — SHIPPED as a fourth mode (2026-08-17); see [status/cinematic](cinematic.md) and [design/invisible-cinematic](../design/invisible-cinematic.md). Two spillovers worth knowing here: (a) the cinematic stage keeps its OWN actor array rather than touching the rig editor's `skeleton`/`animState` singletons, so rig editing is byte-unchanged; (b) `/rigger` now has an **undo stack for the first time**, but it is scoped to the cinematic document — **rig editing still has no undo**. The history is written to be liftable (it knows nothing beyond `serialize`/`applySnapshot`), so giving the rig editor undo is now a matter of pointing it at `rawDoc` rather than building one.
 
