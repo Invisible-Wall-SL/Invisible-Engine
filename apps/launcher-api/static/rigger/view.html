@@ -4286,8 +4286,23 @@ function renderSlotDetail(){
   if (animMode){ renderSlotAnimDetail(det, slotIndex, sd); return; }
 
   if (!editMode){
-    det.textContent = sd.name + "\n→ bone " + (sd.boneData ? sd.boneData.name : "") +
+    // Preview is read-only for EVERY slot, so the bare readout reads as "this attachment has no
+    // options" — the conclusion localized text art drew, since its placement, mesh, weights and
+    // re-bake all live one mode over. Say where the tools are, and go there: setMode re-selects
+    // this same slot, so the editor opens on what was already selected.
+    clearChildren(det);
+    const readout = document.createElement("div");
+    readout.textContent = sd.name + "\n→ bone " + (sd.boneData ? sd.boneData.name : "") +
       "\nattachment: " + (sd.attachmentName || "∅");
+    det.appendChild(readout);
+    if (rawDoc){
+      const go = document.createElement("button");
+      go.textContent = "✎ Setup to edit this slot";
+      go.title = "Placement, convert-to-mesh, weights and attachments are Setup-mode tools";
+      go.style.cssText = "margin-top:8px;";
+      go.onclick = () => setMode("setup");
+      det.appendChild(go);
+    }
     return;
   }
 

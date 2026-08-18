@@ -52,6 +52,16 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-08-18 — **Preview mode's Properties column now points at Setup instead of dead-ending.**
+  Selecting a slot outside Setup rendered three read-only lines (name → bone → attachment) and
+  nothing else, for EVERY slot — which reads as "this attachment has no options". It surfaced on
+  localized text art (owner: "I can't really do anything with this text, was mesh + bones not
+  shipped?" — it was: the text is an ordinary region, so ▸ Convert to mesh, the weight brush and
+  the `deform` channel all apply, one mode over). The readout now carries a **✎ Setup to edit
+  this slot** button; `setMode` re-selects the same slot, so the editor opens on what was already
+  selected. Shown only with an editable rig open (a view-only `.skel` cannot enter Setup).
+  Verified in headless Chromium on the real rig: the button switches mode, keeps the selection,
+  and the panel comes back offering Convert to mesh — and `rigtext-panel.mjs` still passes 49/49.
 - 2026-08-17 — **Text as LOCALIZED ART in the rig** (design
   [invisible-cinematic §12.4a](../design/invisible-cinematic.md); guide:
   [tools/rigger](../tools/rigger.md#localized-text-setup-mode--text-localized-art)). Three
