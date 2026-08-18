@@ -38,6 +38,18 @@ interface TypeRef {
 	ofType?: TypeRef | null;
 }
 
+/**
+ * Whether a measurement name denotes MONEY rather than raw units.
+ *
+ * `estimatedValue` is denominated per measurement: dollars for the cost-ish members,
+ * integrated units (vCPU-minutes, GB-minutes, GB egress) for the rest. Summing those
+ * together would produce a confident number that means nothing, so this decides both
+ * which measurements to ask for and which may enter a total.
+ */
+function isCostName(name: string): boolean {
+	return /COST|CREDIT|SPEND|USD|CHARGE|PRICE|ESTIMATED/i.test(name);
+}
+
 /** `MEMORY_USAGE_GB` → `Memory usage gb`. Railway returns SCREAMING_SNAKE enum names. */
 function humanize(measurement: string): string {
 	const words = measurement.toLowerCase().replace(/_/g, ' ').trim();
@@ -176,27 +188,38 @@ export async function collectRailway(): Promise<ProviderCost> {
 		return parts.length ? ` ${parts.join(' ')}` : '';
 	}
 
-	/**
-	 * The measurements Railway's dashboard actually bills on. Tried FIRST, and
-	 * intersected with the live enum so we never send a member that doesn't exist.
-	 *
-	 * The previous attempt requested every enum member, on the theory that more is
-	 * safer — it isn't. Railway answered "Problem processing request", almost
-	 * certainly because some members aren't valid for `estimatedUsage`. A narrow,
-	 * known-good set first, with the full list as a fallback, is the right order.
-	 */
+	/** The measurements Railway's dashboard bills on. These return UNITS, not money. */
 	const CORE_MEASUREMENTS = ['CPU_USAGE', 'MEMORY_USAGE_GB', 'NETWORK_TX_GB', 'DISK_USAGE_GB'];
 
+	/**
+	 * Which measurement sets to try, best first.
+	 *
+	 * Railway's dashboard shows this project's usage in DOLLARS ("Current usage",
+	 * "CPU usage $0.01", …) off this same API, so a money-denominated measurement
+	 * should exist — the core four only ever return integrated units. So: ask the
+	 * enum, try anything that looks cost-denominated FIRST, and fall back to the core
+	 * four for a units-only answer.
+	 *
+	 * Deliberately NOT "request every enum member": that was the previous attempt and
+	 * Railway answered "Problem processing request", because some members aren't valid
+	 * for this field. Requesting a targeted subset is both likelier to work and
+	 * cheaper to diagnose when it doesn't.
+	 */
 	async function measurementSets(): Promise<string[][]> {
+		const all = await enumMembers();
+		if (!all.length) return [CORE_MEASUREMENTS];
+		const costish = all.filter((m) => isCostName(m));
+		const core = CORE_MEASUREMENTS.filter((m) => all.includes(m));
+		const sets = [costish, core].filter((s) => s.length > 0);
+		return sets.length ? sets : [all];
+	}
+
+	async function enumMembers(): Promise<string[]> {
 		const { body } = await post(
 			`query { __type(name: "MetricMeasurement") { enumValues { name } } }`,
 		);
 		const data = body?.data as { __type?: { enumValues?: { name?: string }[] } } | undefined;
-		const all = (data?.__type?.enumValues ?? []).map((v) => v.name ?? '').filter(Boolean);
-		if (!all.length) return [CORE_MEASUREMENTS];
-		const core = CORE_MEASUREMENTS.filter((m) => all.includes(m));
-		// Narrow first, then everything — and never the same list twice.
-		return core.length && core.length < all.length ? [core, all] : [all];
+		return (data?.__type?.enumValues ?? []).map((v) => v.name ?? '').filter(Boolean);
 	}
 
 	const query = `query EstimatedUsage($projectId: String!, $measurements: [MetricMeasurement!]!) {
@@ -212,9 +235,8 @@ export async function collectRailway(): Promise<ProviderCost> {
 	 * rest. Summing those together would produce a confident number that means
 	 * nothing, so this predicate decides what may enter the total.
 	 */
-	const isCost = (name: string) => /COST|CREDIT|SPEND|USD|CHARGE|PRICE/i.test(name);
 	const hasCost = (b: GraphQlResponse | null) =>
-		(b?.data?.estimatedUsage ?? []).some((e) => isCost(e.measurement ?? ''));
+		(b?.data?.estimatedUsage ?? []).some((e) => isCostName(e.measurement ?? ''));
 
 	let status = 0;
 	let body: GraphQlResponse | null = null;
@@ -249,7 +271,9 @@ export async function collectRailway(): Promise<ProviderCost> {
 		return failed(
 			'railway',
 			LABEL,
-			`Railway: ${gqlError}${await describeUsageFields()} Verify at https://railway.com/graphiql.`,
+			// Report the enum too, not just the signatures: when a query is valid but
+			// still refused, the next question is always "then which measurement?".
+			`Railway: ${gqlError}${await describeUsageFields()}${await describeUsageOptions()} Verify at https://railway.com/graphiql.`,
 		);
 	}
 	if (status >= 400) {
@@ -283,7 +307,7 @@ export async function collectRailway(): Promise<ProviderCost> {
 		const value = num(entry.estimatedValue);
 		if (value == null) continue;
 		const name = entry.measurement ?? '';
-		if (isCost(name)) {
+		if (isCostName(name)) {
 			sawCost = true;
 			totalUsd += value;
 			lines.push({ label: humanize(name), amountUsd: value });

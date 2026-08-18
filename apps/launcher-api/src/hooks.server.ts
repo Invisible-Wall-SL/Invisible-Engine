@@ -2,18 +2,21 @@ import { bootPhrases } from '$lib/bootPhrases';
 import { TOOLS } from '$lib/roles';
 import { SESSION_COOKIE, validateSession } from '$lib/server/auth';
 import { BUILD_ID } from '$lib/server/buildId';
+import { startCostRecorder } from '$lib/server/costs/recorder';
 import { runMigrations } from '$lib/server/db/migrate';
 import { DEPLOY_CORS_HEADERS } from '$lib/server/deployServe';
 import { startRunpodIdleWatchdog } from '$lib/server/runpodWatchdog';
 import type { Handle, ServerInit } from '@sveltejs/kit';
 
 /** Runs once at server startup, before the first request — apply pending DB
- * migrations so schema-dependent routes never serve against an old schema, and
- * start the ComfyUI R&D pod idle auto-stop watchdog (a no-op when pod control /
- * idle auto-stop isn't configured). */
+ * migrations so schema-dependent routes never serve against an old schema, start
+ * the ComfyUI R&D pod idle auto-stop watchdog (a no-op when pod control / idle
+ * auto-stop isn't configured), and start the Admin → Costs monthly recorder so a
+ * month's figure doesn't depend on someone happening to open the page. */
 export const init: ServerInit = async () => {
 	await runMigrations();
 	startRunpodIdleWatchdog();
+	startCostRecorder();
 };
 
 const attr = (s: string): string =>
