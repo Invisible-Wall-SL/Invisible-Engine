@@ -11,7 +11,7 @@
  * nothing downstream has to know the difference.
  */
 
-export type ProviderId = 'runpod' | 'railway' | 'r2' | 'anthropic';
+export type ProviderId = 'runpod' | 'railway' | 'r2' | 'anthropic' | 'openai';
 
 /** One row in a provider's breakdown — a pod, a service, a bucket, a model. */
 export interface CostLine {

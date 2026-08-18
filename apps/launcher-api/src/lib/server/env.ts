@@ -192,6 +192,14 @@ export const ENV = {
 	get ANTHROPIC_ADMIN_API_KEY() {
 		return env.ANTHROPIC_ADMIN_API_KEY ?? '';
 	},
+	// OpenAI ADMIN key (`sk-admin-…`), created by an organization OWNER at
+	// platform.openai.com → Settings → Organization → Admin keys. A different
+	// credential from the project key Localization translates with (`sk-proj-…`),
+	// which cannot read /v1/organization/costs. Like Anthropic, OpenAI exposes
+	// spend but NO credit-balance endpoint — remaining credit comes from the ledger.
+	get OPENAI_ADMIN_API_KEY() {
+		return env.OPENAI_ADMIN_API_KEY ?? '';
+	},
 	// Public origin where published games are served (R2 `test_server/<key>/`
 	// behind Cloudflare). Non-secret → code default; env overrides.
 	get GAMES_BASE_URL() {

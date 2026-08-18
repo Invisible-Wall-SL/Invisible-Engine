@@ -104,6 +104,11 @@ export async function collectR2(): Promise<ProviderCost> {
 						orderBy: [datetime_DESC]
 						filter: { datetime_geq: "${start.toISOString()}", datetime_leq: "${end.toISOString()}" }
 					) {
+						# datetime MUST be selected as a dimension to be orderable — Cloudflare
+						# rejects "orderBy: [datetime_DESC]" with "it is neither aggregated, nor
+						# a dimension" otherwise. We want the newest sample: storage is a
+						# point-in-time gauge, not a sum, so an arbitrary bucket would be wrong.
+						dimensions { datetime }
 						max { objectCount payloadSize metadataSize }
 					}
 					operations: r2OperationsAdaptiveGroups(
@@ -127,8 +132,15 @@ export async function collectR2(): Promise<ProviderCost> {
 			body: JSON.stringify({ query }),
 			signal: controller.signal,
 		});
-		if (!res.ok) return failed('r2', LABEL, `Cloudflare returned HTTP ${res.status}.`);
-		body = (await res.json()) as GraphQlResponse;
+		// Parse the body FIRST, even on a non-2xx: a GraphQL API answers a bad query
+		// with 400 + an `errors[]` that names the problem, and returning on the status
+		// code alone throws away the only useful part of the response.
+		const text = await res.text();
+		try {
+			body = JSON.parse(text) as GraphQlResponse;
+		} catch {
+			return failed('r2', LABEL, `Cloudflare returned HTTP ${res.status} (unparseable body).`);
+		}
 	} catch (err) {
 		return failed(
 			'r2',

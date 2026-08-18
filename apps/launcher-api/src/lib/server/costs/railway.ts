@@ -49,37 +49,77 @@ export async function collectRailway(): Promise<ProviderCost> {
 		);
 	}
 
+	/**
+	 * POST a GraphQL document. Returns the parsed body whatever the status code:
+	 * a GraphQL server answers a malformed query with **400 plus an `errors[]`
+	 * naming the field**, so bailing on `!res.ok` before reading the body discards
+	 * the only diagnostic there is (which is exactly how this card first shipped —
+	 * it reported a bare "HTTP 400" and told us nothing).
+	 */
+	async function post(
+		query: string,
+		variables?: Record<string, unknown>,
+	): Promise<{ status: number; body: GraphQlResponse | null; transportError?: string }> {
+		const controller = new AbortController();
+		const timer = setTimeout(() => controller.abort(), 20_000);
+		try {
+			const res = await fetch(ENDPOINT, {
+				method: 'POST',
+				headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+				body: JSON.stringify({ query, variables }),
+				signal: controller.signal,
+			});
+			const text = await res.text();
+			try {
+				return { status: res.status, body: JSON.parse(text) as GraphQlResponse };
+			} catch {
+				return { status: res.status, body: null };
+			}
+		} catch (err) {
+			return {
+				status: 0,
+				body: null,
+				transportError: err instanceof Error ? err.message : 'Could not reach the Railway API.',
+			};
+		} finally {
+			clearTimeout(timer);
+		}
+	}
+
+	/**
+	 * Railway does not publish the usage half of its schema, so when the query fails
+	 * we ask the schema itself which root fields look usage-shaped and put them in
+	 * the card. That turns a dead end into the exact name to use — far better than
+	 * guessing a second time and shipping another blind query.
+	 */
+	async function suggestFields(): Promise<string> {
+		const { body } = await post(`query { __schema { queryType { fields { name } } } }`);
+		const data = body?.data as
+			| { __schema?: { queryType?: { fields?: { name?: string }[] } } }
+			| undefined;
+		const names = (data?.__schema?.queryType?.fields ?? [])
+			.map((f) => f.name ?? '')
+			.filter((n) => /usage|cost|estimate|billing|metric/i.test(n));
+		return names.length
+			? ` Root fields on Railway's schema that look related: ${names.join(', ')}.`
+			: '';
+	}
+
 	const query = `query EstimatedUsage($projectId: String!) {
 		estimatedUsage(projectId: $projectId) { measurement estimatedValue }
 	}`;
 
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), 20_000);
-	let body: GraphQlResponse;
-	try {
-		const res = await fetch(ENDPOINT, {
-			method: 'POST',
-			headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-			body: JSON.stringify({ query, variables: { projectId } }),
-			signal: controller.signal,
-		});
-		if (res.status === 401 || res.status === 403) {
-			return failed(
-				'railway',
-				LABEL,
-				`Railway rejected the token (${res.status}). Use an ACCOUNT or WORKSPACE token — a project token needs a different header and won't work here.`,
-			);
-		}
-		if (!res.ok) return failed('railway', LABEL, `Railway returned HTTP ${res.status}.`);
-		body = (await res.json()) as GraphQlResponse;
-	} catch (err) {
+	const { status, body, transportError } = await post(query, { projectId });
+	if (transportError) return failed('railway', LABEL, transportError);
+	if (status === 401 || status === 403) {
 		return failed(
 			'railway',
 			LABEL,
-			err instanceof Error ? err.message : 'Could not reach the Railway API.',
+			`Railway rejected the token (${status}). Use an ACCOUNT or WORKSPACE token — a project token authenticates with a Project-Access-Token header and won't work here.`,
 		);
-	} finally {
-		clearTimeout(timer);
+	}
+	if (!body) {
+		return failed('railway', LABEL, `Railway returned HTTP ${status} with an unreadable body.`);
 	}
 
 	const gqlError = body.errors?.find((e) => e.message)?.message;
@@ -87,7 +127,14 @@ export async function collectRailway(): Promise<ProviderCost> {
 		return failed(
 			'railway',
 			LABEL,
-			`Railway: ${gqlError.trim()} — check the query against https://railway.com/graphiql.`,
+			`Railway: ${gqlError.trim()}${await suggestFields()} Verify at https://railway.com/graphiql.`,
+		);
+	}
+	if (status >= 400) {
+		return failed(
+			'railway',
+			LABEL,
+			`Railway returned HTTP ${status} with no error detail.${await suggestFields()}`,
 		);
 	}
 

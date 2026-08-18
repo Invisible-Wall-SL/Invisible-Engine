@@ -135,7 +135,7 @@ function generateDeployToken(): string {
 const MIN_DEPLOY_TOKEN = 16;
 
 /** Providers the cost ledger accepts — mirrors `ProviderId` in `$lib/server/costs/types`. */
-const COST_PROVIDERS: ProviderId[] = ['runpod', 'railway', 'r2', 'anthropic'];
+const COST_PROVIDERS: ProviderId[] = ['runpod', 'railway', 'r2', 'openai', 'anthropic'];
 
 function isCostProvider(value: string): value is ProviderId {
 	return (COST_PROVIDERS as string[]).includes(value);

@@ -18,12 +18,39 @@
  *    from a credit added on some other date.
  */
 
+import { ENV } from '../env';
 import { collectAnthropic } from './anthropic';
 import { listTopUps, totalToppedUp, type TopUpEntry } from './ledger';
+import { collectOpenAI } from './openai';
 import { collectR2 } from './r2';
 import { collectRailway } from './railway';
 import { collectRunpod } from './runpod';
 import { failed, type ProviderCost, type ProviderId } from './types';
+
+/**
+ * Which LLM provider Localization actually spends at, mirroring the dispatch in
+ * `translate.ts`: an OpenAI-COMPATIBLE endpoint wins whenever both
+ * `LOCALIZATION_LLM_*` vars are set, and Anthropic is only the fallback.
+ *
+ * This drives which card is worth showing. Both providers report spend the same
+ * way, so without this the dormant one sits on the page as a permanent
+ * "not configured" card for a service nobody is being billed for.
+ *
+ * `'other'` is an OpenAI-compatible endpoint that ISN'T OpenAI (Google AI Studio,
+ * a local gateway, …). Neither cost API applies there, so neither card is forced on.
+ */
+function translationProvider(): 'anthropic' | 'openai' | 'other' {
+	const base = ENV.LOCALIZATION_LLM_BASE_URL.trim();
+	if (!base || !ENV.LOCALIZATION_LLM_API_KEY) return 'anthropic';
+	try {
+		return /(^|\.)openai\.com$/i.test(new URL(base).hostname) ? 'openai' : 'other';
+	} catch {
+		// A malformed base URL is still a configured non-Anthropic path as far as
+		// translate.ts is concerned; treat it as 'other' rather than throwing on a
+		// page load over a typo in an env var.
+		return 'other';
+	}
+}
 
 /** How long a snapshot stays fresh. Long enough that clicking around the admin tabs
  *  doesn't re-poll; short enough that Refresh is rarely needed. */
@@ -92,16 +119,34 @@ export async function getCosts(force = false): Promise<CostsSnapshot> {
 		const dates = topUps.filter((t) => t.provider === provider).map((t) => t.occurredAt.getTime());
 		return dates.length ? new Date(Math.min(...dates)) : null;
 	};
-	const anthropicAnchor = anchorFor('anthropic');
+	// Show an LLM card when it holds a key (someone deliberately wants to watch it)
+	// OR when it is the provider translate.ts would actually dispatch to. Anything
+	// else is a card for a bill that doesn't exist.
+	const activeLlm = translationProvider();
+	const showAnthropic = !!ENV.ANTHROPIC_ADMIN_API_KEY || activeLlm === 'anthropic';
+	const showOpenAI = !!ENV.OPENAI_ADMIN_API_KEY || activeLlm === 'openai';
 
-	const settled = await Promise.allSettled([
-		safely('runpod', 'RunPod (GPU)', collectRunpod),
-		safely('railway', 'Railway (services + Postgres)', collectRailway),
-		safely('r2', 'Cloudflare R2 (assets)', collectR2),
-		safely('anthropic', 'Anthropic (Claude API)', () =>
-			collectAnthropic(anthropicAnchor ?? undefined),
-		),
-	]);
+	const jobs: (() => Promise<ProviderCost>)[] = [
+		() => safely('runpod', 'RunPod (GPU)', collectRunpod),
+		() => safely('railway', 'Railway (services + Postgres)', collectRailway),
+		() => safely('r2', 'Cloudflare R2 (assets)', collectR2),
+	];
+	if (showOpenAI) {
+		jobs.push(() =>
+			safely('openai', 'OpenAI (translations)', () =>
+				collectOpenAI(anchorFor('openai') ?? undefined),
+			),
+		);
+	}
+	if (showAnthropic) {
+		jobs.push(() =>
+			safely('anthropic', 'Anthropic (Claude API)', () =>
+				collectAnthropic(anchorFor('anthropic') ?? undefined),
+			),
+		);
+	}
+
+	const settled = await Promise.allSettled(jobs.map((job) => job()));
 	const providers = settled
 		.filter((r): r is PromiseFulfilledResult<ProviderCost> => r.status === 'fulfilled')
 		.map((r) => r.value);
@@ -111,10 +156,11 @@ export async function getCosts(force = false): Promise<CostsSnapshot> {
 		const toppedUpUsd = totalToppedUp(topUps, provider.id);
 		const since = anchorFor(provider.id);
 		// Only derive "remaining" where the measured spend actually covers the period
-		// since the anchor. Anthropic is asked for exactly that window, so it qualifies.
-		// Railway (billing cycle) and R2 (rolling 30 days) do not, and RunPod reports a
-		// real balance that beats any estimate — so those show the recorded total only.
-		const comparable = provider.id === 'anthropic';
+		// since the anchor. Both LLM collectors take a `since` and are asked for exactly
+		// that window, so they qualify. Railway (billing cycle) and R2 (rolling 30 days)
+		// do not, and RunPod reports a real balance that beats any estimate — so those
+		// show the recorded total only.
+		const comparable = provider.id === 'anthropic' || provider.id === 'openai';
 		const remainingUsd =
 			comparable && since && toppedUpUsd > 0 && provider.ok && provider.spendUsd != null
 				? toppedUpUsd - provider.spendUsd

@@ -80,7 +80,13 @@ API and cached for ten minutes (**Refresh** re-reads now).
 | **RunPod** (GPU) | real prepaid **balance**, burn rate, per-pod $/hr, runway | `RUNPOD_API_KEY` — already set for the `/comfyui` card, so this card works with no extra setup |
 | **Railway** (services + Postgres) | current-cycle estimated cost, broken down by measurement | `RAILWAY_API_TOKEN` (account or **workspace** token — a project token uses a different header and won't work), `RAILWAY_PROJECT_ID` |
 | **Cloudflare R2** (assets) | stored GB, class A/B operation counts, derived cost | `CF_ACCOUNT_ID`, `CF_ANALYTICS_TOKEN` (Account → Account Analytics: Read — the existing `CF_API_TOKEN` is zone-scoped for cache purge and **cannot** read this) |
+| **OpenAI** (translations) | spend by line item | `OPENAI_ADMIN_API_KEY` — an **admin** key (`sk-admin-…`) mintable only by an org **Owner**; a project key (`sk-proj-…`) gets 401 |
 | **Anthropic** (Claude API) | spend by model / cost type | `ANTHROPIC_ADMIN_API_KEY` — an **admin** key (`sk-ant-admin…`), a different credential from `ANTHROPIC_API_KEY`; it reads usage and cannot spend |
+
+Only **one** LLM card shows: `translate.ts` uses an OpenAI-compatible endpoint
+when `LOCALIZATION_LLM_BASE_URL` + `LOCALIZATION_LLM_API_KEY` are set and
+Anthropic otherwise, so the page shows the card for whichever provider is
+actually being billed (or either one that holds an admin key).
 
 Two labels carry meaning and are worth reading:
 
@@ -111,7 +117,7 @@ the others show the recorded total without a derived remainder.
 
 Admin → Costs (all optional, read-only, each degrades to a "not configured"
 card): `RAILWAY_API_TOKEN`, `RAILWAY_PROJECT_ID`, `CF_ACCOUNT_ID`,
-`CF_ANALYTICS_TOKEN`, `ANTHROPIC_ADMIN_API_KEY`.
+`CF_ANALYTICS_TOKEN`, `OPENAI_ADMIN_API_KEY`, `ANTHROPIC_ADMIN_API_KEY`.
 
 Non-secret config (URLs, flags) is given a **code default** in
 `src/lib/server/env.ts` because Railway env vars only *stage* until you click

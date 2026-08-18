@@ -49,6 +49,7 @@
 		runpod: 'RunPod',
 		railway: 'Railway',
 		r2: 'Cloudflare R2',
+		openai: 'OpenAI',
 		anthropic: 'Anthropic',
 	};
 
