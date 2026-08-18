@@ -188,6 +188,9 @@
   #err { position:absolute; z-index:4; left:12px; right:12px; top:10px; background:#3a2326;
     border:1px solid var(--danger); color:#ffd4d4; padding:8px 10px; border-radius:6px;
     font-size:12px; display:none; white-space:pre-wrap; }
+  /* Same bar, informational skin — an automatic action that CHANGED and SAVED the rig has to
+     say so, but it is not an error and must not read as one. */
+  #err.notice { background:#22301f; border-color:var(--ok, #5a8f4f); color:#dbf0d4; }
   #artWarn { position:absolute; z-index:4; left:12px; right:12px; top:10px; background:#3a3322;
     border:1px solid #b89233; color:#ffe8b0; padding:8px 10px; border-radius:6px;
     font-size:12px; display:none; line-height:1.45; }
@@ -1073,8 +1076,19 @@ function fxFirePreview(evtObj){
   });
 }
 
-function showErr(msg){ const e = $("#err"); e.textContent = msg; e.style.display = "block"; }
-function clearErr(){ $("#err").style.display = "none"; }
+function showErr(msg){ const e = $("#err"); e.classList.remove("notice"); e.textContent = msg; e.style.display = "block"; }
+function clearErr(){ const e = $("#err"); e.style.display = "none"; e.classList.remove("notice"); }
+
+// A non-blocking "this happened" for work the tool did on its own. Self-dismissing, because
+// nothing is waiting on it — but never over an ERROR that is already on screen, which the
+// author still needs to read.
+function showNotice(msg, ms){
+  const e = $("#err");
+  if (e.style.display === "block" && !e.classList.contains("notice")) return;
+  e.classList.add("notice"); e.textContent = msg; e.style.display = "block";
+  clearTimeout(showNotice._t);
+  showNotice._t = setTimeout(() => { if (e.classList.contains("notice")) clearErr(); }, ms || 6000);
+}
 
 // Friendly blocking popup for an action we WON'T perform (e.g. a name collision):
 // explain what's wrong with an OK that just dismisses. `OK`/`✕`/backdrop close it.
@@ -2192,9 +2206,146 @@ async function loadRigText(){
     rigText = { elements: (j.doc && j.doc.elements) || [], etag: j.etag ?? null, loaded: true };
   } catch (e){ console.warn("[RigText] could not load the rig text document", e); }
   renderTextList();
+  autoSyncRigText();
 }
 
 function textElement(id){ return rigText.elements.find((e) => e.id === id) || null; }
+
+// The auto-sync reloads the rig (which calls loadRigText again) and saves it — without this
+// flag it would re-enter itself for as long as the drift took to clear.
+let autoSyncingText = false;
+
+/**
+ * What is stale about one text element, as a list of human-readable reasons ([] = current).
+ *
+ * TWO independent kinds of drift, and the second is the one that used to ship broken rigs:
+ *
+ *  1. The DOCUMENT vs `/localization` — a language that has arrived since the last bake, or a
+ *     string that has been corrected since. `RigTextVariant.text` is the cache that makes this
+ *     a string compare instead of a pixel compare, which is why it is persisted at all.
+ *  2. The document vs the SKELETON — a variant that was rasterised but whose attachment never
+ *     reached the `.irig`. That gap was real: the bake wrote the document server-side while
+ *     `placeTextAttachments` only marked the rig dirty, so closing the tab lost the skeleton
+ *     half and the game kept showing source-locale art with the translated pixels sitting
+ *     unused in the atlas. Treating it as drift is what repairs rigs baked before the fix.
+ */
+function textElementDrift(el){
+  const out = [];
+  const want = window.RiggerText.localesFor(el);
+  const have = new Map((el.variants || []).map((v) => [v.locale, v.text]));
+  for (const w of want){
+    if (!have.has(w.locale)) out.push(w.locale + " (new)");
+    else if (have.get(w.locale) !== w.text) out.push(w.locale + " (changed)");
+  }
+  // A locale the ART has but `/localization` no longer does is deliberately left alone —
+  // deleting art because a translation vanished would blank a slot for no gain, and the
+  // runtime already falls back to the source locale for anything unbaked.
+  for (const v of el.variants || []){
+    if (!textAttachmentExists(el, v.locale)) out.push(v.locale + " (not in the rig)");
+  }
+  return out;
+}
+
+function textAttachmentExists(el, locale){
+  const name = el.id + "@" + locale;
+  return (rawDoc && rawDoc.skins || []).some(
+    (sk) => sk.attachments && sk.attachments[el.slot] && sk.attachments[el.slot][name]);
+}
+
+/**
+ * Bring the open rig's text art back in line with `/localization`, with no author input.
+ *
+ * A text element is authored ONCE — an id, a key, a font. Everything after that (a language
+ * being added, a translation arriving or being corrected) belongs to `/localization`, and used
+ * to cost a manual Re-bake + Save on every affected rig, which meant in practice it did not
+ * happen and games shipped English art in every locale.
+ *
+ * Only DRIFT does any work: a rig whose art is already current costs one strings fetch and
+ * stops, so opening rigs stays as fast as it was. When only the SKELETON is behind (case 2 in
+ * `textElementDrift`) the pixels are already packed and correct, so this skips the bake
+ * entirely and just writes the attachments — the common repair, and much the cheaper path.
+ */
+async function autoSyncRigText(){
+  if (autoSyncingText || !selected || !rawDoc) return;
+  if (!rigText.loaded || !rigText.elements.length) return;
+  // Never touch a rig with unsaved edits: every path below ends in a save, and silently
+  // committing work the author has not chosen to commit is not ours to do. It reruns on the
+  // next open, by which point the rig is clean.
+  if (dirty) return;
+  if (!(await ensureRigText())) return;
+
+  autoSyncingText = true;
+  try {
+    try { textStrings = await window.RiggerText.loadStrings(); }
+    catch (e){ console.warn("[RigText] auto-sync skipped — /localization unreachable", e); return; }
+
+    const stale = rigText.elements
+      .map((el) => ({ el, why: textElementDrift(el) }))
+      .filter((s) => s.why.length);
+    if (!stale.length) return;
+
+    const summary = stale.map((s) => s.el.id + ": " + s.why.join(", ")).join(" · ");
+    console.info("[RigText] auto-sync — " + summary);
+
+    // Does anything need new PIXELS, or is the atlas already right and only the rig behind?
+    const needsBake = stale.some((s) => s.why.some((w) => !w.endsWith("(not in the rig)")));
+    showLoading(needsBake ? "Updating text for " + stale.length + " element(s)…" : "Restoring localized text…");
+    const ok = needsBake ? await rebakeAllTextElements() : await placeAllTextAttachments();
+    if (ok) showNotice((needsBake
+      ? "Localized text updated from /localization and saved — "
+      : "Localized text re-attached to the rig and saved — ") + summary);
+  } catch (e){
+    console.warn("[RigText] auto-sync failed", e);
+    showErr("Could not update this rig's localized text automatically: " + ((e && e.message) || e));
+  } finally { autoSyncingText = false; hideLoading(); }
+}
+
+/** Write every already-rasterised variant into the skeleton and save. No bake — the atlas
+ *  regions exist, only the `.irig` was missing its attachments. */
+async function placeAllTextAttachments(){
+  for (const el of rigText.elements){
+    placeTextAttachments(el, (el.variants || []).map((v) => ({
+      elementId: el.id, locale: v.locale, region: window.RiggerText.regionName(el.id, v.locale), text: v.text,
+    })));
+  }
+  if (!dirty) return false;
+  await saveToR2();
+  return !dirty;
+}
+
+/**
+ * Re-rasterise every text element from the CURRENT strings and wire the result in. Same four
+ * steps as the manual `bakeAndPlaceText` and for the same reasons (see its comment) — bake,
+ * reload so the recomposed atlas is in hand, place, save — driven off the persisted elements
+ * instead of the modal's form state.
+ */
+async function rebakeAllTextElements(){
+  const elements = rigText.elements.map((e) => ({
+    id: e.id, key: e.key, fontId: e.fontId, fontName: e.fontName, fontSize: e.fontSize,
+    sourceLocale: e.sourceLocale, slot: e.slot, style: e.style || { color: "#ffffff" },
+  }));
+  const res = await window.RiggerText.save({
+    dir: selected.dir_b64 || "",
+    atlasFile: selected.atlas_file,
+    projectKey: curProjectKey,
+    elements,
+    baseEtag: rigText.etag,
+  });
+  if (!res.ok){
+    showErr((res.message || "The automatic text bake failed.")
+      + (res.failed && res.failed.length ? " (" + res.failed.map((f) => f.elementId + "@" + f.locale + ": " + f.reason).join("; ") + ")" : ""));
+    return false;
+  }
+  rigText.etag = res.etag ?? null;
+  await selectSkeleton(selected);            // re-fetch the recomposed .atlas + new page
+  for (const el of elements){
+    placeTextAttachments(el, res.attachments.filter((a) => a.elementId === el.id));
+  }
+  await saveToR2();
+  if (dirty) return false;
+  await loadRigText();                       // pick up the persisted variants (etag included)
+  return true;
+}
 
 function renderTextList(){
   const list = $("#textList"); if (!list) return;
@@ -2328,12 +2479,12 @@ function refreshTextModal(){
   $("#textKeyNote").textContent = entry
     ? "source (" + textStrings.sourceLang + "): " + (entry.source || "(empty)")
     : "pick a key — the string always comes from /localization, never typed here";
-  const reviewed = entry ? Object.keys(entry.reviewed) : [];
-  const pending = entry ? entry.pending : 0;
+  const langs = entry ? Object.keys(entry.translations).filter((l) => l !== textStrings.sourceLang) : [];
+  const unreviewed = entry ? entry.unreviewed : 0;
   $("#textLocaleNote").innerHTML =
-    "<b>" + (1 + reviewed.length) + "</b> locale" + (reviewed.length ? "s" : "") + " will be baked: "
-    + [textStrings.sourceLang].concat(reviewed).join(", ")
-    + (pending ? "<br><span style='color:var(--accent2);'>" + pending + " more once reviewed in /localization</span>" : "")
+    "<b>" + (1 + langs.length) + "</b> locale" + (langs.length ? "s" : "") + " will be baked: "
+    + [textStrings.sourceLang].concat(langs).join(", ")
+    + (unreviewed ? "<br><span style='color:var(--accent2);'>" + unreviewed + " not yet reviewed in /localization — baked anyway; fix the string there and re-open this rig to reship the art</span>" : "")
     + "<br><span style='color:var(--dim);'>Each locale is its own atlas region + attachment "
     + "(<code>&lt;id&gt;@&lt;locale&gt;</code>). A mesh you author is drawn on the source locale; "
     + "the others follow it as linked meshes.</span>";
@@ -2446,8 +2597,12 @@ async function bakeAndPlaceText(){
     // (3) reload the rig so the runtime holds the recomposed atlas + the new page
     await selectSkeleton(selected);
 
-    // (4) write the skeleton side
+    // (4) write the skeleton side — and (5) PERSIST it. The attachments used to be left as an
+    // unsaved edit, so a bake that reported success shipped a rig the game could not localize:
+    // the translated regions were in the atlas, but the `.irig` still named only the source
+    // locale, and the runtime swap needs the sibling attachment to exist before it will fire.
     placeTextAttachments(element, res.attachments.filter((a) => a.elementId === element.id));
+    await saveToR2();
     await loadRigText();
     closeTextModal();
     if (res.failed && res.failed.length){

@@ -14,11 +14,14 @@ Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigg
 - **Animation** — keyframing (per-channel + key-all), **dopesheet** (multi-select, marquee, alt-drag duplicate, per-key easing — **right-click a key in a multi-selection eases the whole selection at once**), a **graph editor** (bezier tangents), slot channels (shows / colour / opacity via one `rgba` timeline), **timeline events** (⚡ cues that cross the game event bus to fire Invisible FX), and draw-order channels.
 - **Localized text as ART (2026-08-17)** — a **Text (localized art)** section in Setup mode:
   pick a localization key + a project font, live-preview it, and bake it to **one atlas region
-  per REVIEWED locale**, placed on its own bone as one region attachment per locale named
+  per locale**, placed on its own bone as one region attachment per locale named
   `<id>@<locale>`. It is then an ordinary region — mesh convert, weights, deform, keyframing and
   cinematic casting all apply with no new machinery, and the `.irig` stays byte-valid Spine 4.2
   with no sidecar. Localization is an **attachment swap** the engine performs at mount. Design:
   [invisible-cinematic §12.4a](../design/invisible-cinematic.md). Details in Recent changes.
+  **Kept current automatically (2026-08-18):** opening a rig reconciles its text art with
+  `/localization` — new language, corrected string, or attachments missing from the `.irig` — and
+  saves. The author's only input is the original text.
 - **Rig + animation libraries** — cross-project R2 libraries: copy/paste or save/load a single clip, or save/apply/import a whole rig (namespaced lossless merge; apply-at-creation), with a matched-vs-missing compatibility report.
 - **Bounds / natural size** written on every save (setup-pose measured, animation-union fallback); one-click **⟳ Re-sync atlas** / **source…** to re-pull a rig's atlas snapshot.
 - **Self-healing atlas snapshot (2026-07-21).** A rig bundle carries a FROZEN copy of the source sheet's `.atlas` geometry + page; regenerating the sheet used to leave every downstream consumer (Symbols, Scene Editor spine preview, the baked game) stale until each rig was manually `⟳ Re-sync`ed. Now `source.json` records a **revision** (geometry hash + page ETag) and the shared `ensureBundleAtlasFresh` (`$lib/server/spineBundleSync.ts`) re-derives the bundle `.atlas` + page from the live manifest whenever it drifts — called on the Symbols/Editor **read** path (`resolveEditorSpine`) and the **bake** path (`exportSpineBundle`), so a re-packed/recoloured sheet propagates with no manual step. `new` seeds the revision; `⟳ Re-sync atlas` now delegates to the same helper (`force`). See [docs/status/symbols.md](symbols.md).
@@ -34,12 +37,15 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
    live-verify gap below.)
 3. **Phase 3.6d hull-loop reordering** — drag to change the boundary winding order (a pure permutation the 3.6c primitive already supports; no UI yet) — the only remaining 3.6 sub-item. (Phases 3.6a UV panel, 3.6b constraint edges, and 3.6c hull promote/demote all shipped + **owner-verified live 2026-08-04**, see Recent changes.)
 4. **Localized text — live-verify + the next slice.** The authoring path and the runtime swap
-   shipped 2026-08-17 (Recent changes); what is NOT built is a **re-bake-when-a-translation-
-   changes** prompt (the tool has no signal that `/localization` moved on — you re-bake by hand),
-   a **rename** for a text element (the id is the attachment name, so it is locked after
+   shipped 2026-08-17, and the re-bake became **automatic on rig open** 2026-08-18 (Recent
+   changes) — so "the tool has no signal that `/localization` moved on" is closed. Still NOT
+   built: a **rename** for a text element (the id is the attachment name, so it is locked after
    creation), and **placed/persistent FX slots** (the other half of design §12.4a). Owner
    live-verify is owed against real R2 + a real game, and nobody has yet *looked* at baked rig
    text on screen.
+   ⚠️ **The shipped game still needs a runtime release** cut after `13bfc005` (2026-08-17 23:03)
+   to receive the swap — a rig can be perfectly baked and still render source-locale art until
+   the online games' shared runtime bundle carries `applyLocaleAttachments`.
 5. **Better auto-weights** — the shipped proximity chain-skinner scored poorly against artist ground truth; a geodesic/heat algorithm + a representative **character-mesh validation gate** (Spike 2) is still open. Manual brush stays the guaranteed path.
 6. **Cinematic mode** — SHIPPED as a fourth mode (2026-08-17); see [status/cinematic](cinematic.md) and [design/invisible-cinematic](../design/invisible-cinematic.md). Two spillovers worth knowing here: (a) the cinematic stage keeps its OWN actor array rather than touching the rig editor's `skeleton`/`animState` singletons, so rig editing is byte-unchanged; (b) `/rigger` now has an **undo stack for the first time**, but it is scoped to the cinematic document — **rig editing still has no undo**. The history is written to be liftable (it knows nothing beyond `serialize`/`applySnapshot`), so giving the rig editor undo is now a matter of pointing it at `rawDoc` rather than building one.
 
@@ -52,6 +58,37 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-08-18 — **A rig's localized text now follows `/localization` on its own, and the bake
+  finally SAVES the rig.** Owner: the remake's new Spine "Buy Feature" button stayed English in
+  a `lang=fr` game. Three faults in one chain, found by walking it end to end on live R2:
+  - **The bake never persisted the skeleton.** `placeTextAttachments` wrote the slot/bone/
+    attachments into `rawDoc` and called `markDirty()` — nothing else. So a bake that reported
+    success left the `.irig` naming only the source locale while the translated regions sat in
+    the atlas unused, and the runtime swap (which requires the sibling `<base>@<locale>` to
+    EXIST) had nothing to swap to. Publishing exported the R2 rig, so the game shipped English.
+    `bakeAndPlaceText` now saves as step 5. This was the actual bug; the rest is why it was
+    reachable at all.
+  - **The reviewed gate is gone for rig text.** `/api/rigger/strings` returned translations only
+    once REVIEWED, so an author who had never opened `/localization` to approve anything got a
+    single-locale bake and no explanation. The gate's premise — baked art cannot be corrected at
+    runtime — stops holding once the re-bake is automatic, so it now returns every translation
+    and reports `unreviewed` as a LABEL. `/api/localization/strings` (the game's own export) is
+    untouched and still ships reviewed-only.
+  - **Opening a rig reconciles it.** `autoSyncRigText` compares the baked variants against the
+    current strings and the skeleton's attachments, and repairs what drifted: a new language, a
+    corrected string, or — the repair path for every rig baked before today — variants whose
+    attachments never reached the `.irig`. That last case skips rasterising entirely, since the
+    pixels are already packed. A rig with no text, or one already current, does no work beyond
+    one strings fetch. It refuses to run on a dirty rig: every path ends in a save, and silently
+    committing edits the author has not chosen to commit is not the tool's call.
+  - **Gate.** `tools/rigger-spike/rigtext-autosync.mjs` **15/15**, extracting the REAL
+    `localesFor` (`src/rigger-text/main.ts`) and `textElementDrift` (`view.html`) rather than
+    restating them — a drift oracle that disagrees with the baker either re-bakes forever or
+    never, so they must be the same definition. Includes a convergence assertion (re-measuring
+    the bake's own output finds nothing stale). Run against a deliberately broken copy
+    (`RIGTEXT_VIEW_SRC=…`) it fails 3 — and doing that is what exposed two assertions passing
+    **vacuously** on an empty array, now guarded.
+  - ⏳ Live-verify owed: the automatic path has not been watched running in a real browser.
 - 2026-08-18 — **Baked text was CUT to the font's declared line box; it now always fits.** Owner:
   "the text we create in the rigger is getting cut at creation" — a descender sheared flat off
   `Buy Feature`. PIXI frames text by its METRICS, not its ink: `BitmapText` reports a line as the

@@ -25,9 +25,10 @@ import {
 interface StringEntry {
 	key: string;
 	source: string;
-	/** Locale → REVIEWED translation. Unreviewed ones are counted, never returned. */
-	reviewed: Record<string, string>;
-	pending: number;
+	/** Locale → translation. EVERY translation the project has, reviewed or not. */
+	translations: Record<string, string>;
+	/** How many of `translations` nobody has vetted — a label for the panel, not a gate. */
+	unreviewed: number;
 }
 interface StringsPayload {
 	sourceLang: string;
@@ -97,15 +98,18 @@ async function loadDoc(dir: string): Promise<unknown> {
 }
 
 /**
- * Every locale an element will be baked in: its source locale plus every locale with a
- * REVIEWED translation of its key. Unreviewed translations are excluded on purpose — rig text
- * becomes ART, so an unvetted string baked into a page cannot be corrected at runtime.
+ * Every locale an element bakes in: its source locale plus EVERY translation of its key.
+ *
+ * This is also the drift oracle the auto-sync compares the baked art against (`view.html`'s
+ * `textElementDrift`), which is why it is exported rather than kept private — "what should be
+ * baked" must have exactly one definition, or the tool would re-bake forever chasing a locale
+ * set the bake itself never produces.
  */
 function localesFor(el: RigTextElementInput): { locale: string; text: string }[] {
 	const entry = strings.entries.find((e) => e.key === el.key);
 	if (!entry) return [];
 	const out = [{ locale: el.sourceLocale || strings.sourceLang, text: entry.source }];
-	for (const [locale, text] of Object.entries(entry.reviewed)) {
+	for (const [locale, text] of Object.entries(entry.translations)) {
 		if (locale === out[0].locale) continue;
 		out.push({ locale, text });
 	}
