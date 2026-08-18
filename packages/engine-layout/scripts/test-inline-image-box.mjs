@@ -12,7 +12,7 @@
 // The sentinel round-trip runs against the REAL `inlineImage` module and the placement against the
 // REAL `textBoxLayout` module (bundled by esbuild, same trick as test-cover-fit.mjs). The row
 // arithmetic below (`layoutRow`) MIRRORS the component's derivations — `widths` / `totalWidth` /
-// `rowHeight` / `originX` / `originY` / `lefts` — because those live inside a `.svelte` file Node
+// `textHeight` / `originX` / `originY` / `lefts` — because those live inside a `.svelte` file Node
 // can't run. It proves the geometry the component asks for, not that Svelte mounted it; the live
 // render is checked in the `apps/lines` story "ENGINE-LAYOUT/InfoBar inline symbol image".
 import { rm, writeFile } from 'node:fs/promises';
@@ -45,6 +45,7 @@ await writeFile(outFile, bundled.outputFiles[0].text);
 const {
 	textBoxPlacement,
 	textBoxContentWidth,
+	textBoxContentHeight,
 	wrapInlineImage,
 	parseInlineImageSegments,
 	hasInlineImage,
@@ -70,26 +71,37 @@ const assert = (name, condition) => check(name, !!condition, true);
 // The component's row layout, mirrored. `measure` stands in for a `<CatalogText>` `onresize`.
 // ---------------------------------------------------------------------------------------------
 const CHAR_W = 0.5; // width per character per font px — the component's own first-frame estimate
+// Rendered line box as a fraction of the font size. Deliberately WELL under 1: the HUD fonts these
+// bars use are bitmap fonts whose reported line box is much shorter than their em, which is exactly
+// the condition under which an em-sized symbol dwarfed the text and dragged the auto-fit down with
+// it. A model that assumes `height === fontSize` cannot see that bug at all.
+const LINE_H = 0.65;
 const measureRun = (value, fontSize) => ({
 	width: value.length * fontSize * CHAR_W,
-	height: fontSize,
+	height: fontSize * LINE_H,
 });
 
 function layoutRow({ text, fontSize, box }) {
-	const imageHeight = fontSize * 1.1;
-	const imageMargin = fontSize * 0.22;
-	const imageSlot = imageHeight + imageMargin * 2;
+	const contentHeight =
+		box && box.boxHeight !== undefined
+			? textBoxContentHeight(box.boxHeight, box.padding)
+			: Infinity;
 	// Resolver knows every token here, so each image segment stays an image.
 	const segments = parseInlineImageSegments(text);
+	// The row's height is the TEXT's — the symbol is drawn at that height, so it never adds to it.
+	const textHeight =
+		segments.reduce(
+			(tallest, s) =>
+				s.kind === 'image' ? tallest : Math.max(tallest, measureRun(s.value, fontSize).height),
+			0,
+		) || fontSize;
+	const imageHeight = Math.min(textHeight, contentHeight);
+	const imageMargin = fontSize * 0.22;
+	const imageSlot = imageHeight + imageMargin * 2;
 	const widths = segments.map((s) =>
 		s.kind === 'image' ? imageSlot : measureRun(s.value, fontSize).width,
 	);
 	const totalWidth = widths.reduce((sum, w) => sum + w, 0);
-	const rowHeight = segments.reduce(
-		(tallest, s) =>
-			Math.max(tallest, s.kind === 'image' ? imageHeight : measureRun(s.value, fontSize).height),
-		0,
-	);
 	const placement = box
 		? textBoxPlacement({
 				boxWidth: box.boxWidth,
@@ -100,11 +112,11 @@ function layoutRow({ text, fontSize, box }) {
 				align: box.align,
 				verticalAlign: box.verticalAlign,
 				measuredWidth: totalWidth,
-				measuredHeight: rowHeight,
+				measuredHeight: textHeight,
 			})
 		: undefined;
 	const originX = placement ? placement.offsetX : -totalWidth / 2;
-	const originY = placement ? placement.offsetY + rowHeight / 2 : 0;
+	const originY = placement ? placement.offsetY + textHeight / 2 : 0;
 	const lefts = [];
 	let x = originX;
 	for (const w of widths) {
@@ -115,7 +127,7 @@ function layoutRow({ text, fontSize, box }) {
 		segments,
 		widths,
 		totalWidth,
-		rowHeight,
+		textHeight,
 		imageSlot,
 		imageHeight,
 		originX,
@@ -124,6 +136,27 @@ function layoutRow({ text, fontSize, box }) {
 	};
 }
 
+// The component's `fitRow` convergence, mirrored. BOTH axes constrain, and the height it fits
+// against is the TEXT's — never the symbol's. The symbol is sized FROM the text, so feeding its
+// height back in made the row shrink to make room for its own picture.
+function fitFont({ text, box, baseFontSize }) {
+	const MIN_FONT = 6;
+	const contentWidth = textBoxContentWidth(box.boxWidth, box.padding);
+	const contentHeight = textBoxContentHeight(box.boxHeight, box.padding);
+	let font = baseFontSize;
+	let row = layoutRow({ text, fontSize: font, box });
+	for (let i = 0; i < 40 && font > MIN_FONT; i++) {
+		if (row.totalWidth <= contentWidth + 0.5 && row.textHeight <= contentHeight + 0.5) break;
+		const wRatio = row.totalWidth > 0 ? contentWidth / row.totalWidth : 1;
+		const hRatio = row.textHeight > 0 ? contentHeight / row.textHeight : 1;
+		const ratio = Math.min(1, wRatio, hRatio);
+		const next = Math.max(MIN_FONT, Math.floor(font * (ratio >= 0.999 ? 0.9 : ratio)));
+		if (next === font) break;
+		font = next;
+		row = layoutRow({ text, fontSize: font, box });
+	}
+	return { font, row };
+}
 // The toast `showWinInfoMessage` builds with the toggle on: the template, localized, with
 // `{symbolName}` swapped for the sentinel (symbol id + the NAME as its fallback).
 const RICH = `You win $4.00 with 4 ${wrapInlineImage('H4', 'Cowboys')}`;
@@ -169,7 +202,13 @@ check(
 	}
 	const imageIndex = segments.findIndex((s) => s.kind === 'image');
 	check('image occupies the fixed square slot + margins', widths[imageIndex], imageSlot);
-	assert('image slot is wider than the symbol is tall (side margins)', imageSlot > FONT * 1.1);
+	const { imageHeight } = layoutRow({
+		text: RICH,
+		fontSize: FONT,
+		box: { ...CENTRED, boxWidth: 520, boxHeight: 60, padding: 8 },
+	});
+	assert('image slot is wider than the symbol is tall (side margins)', imageSlot > imageHeight);
+	check('the symbol is drawn at the height of the line of text', imageHeight, FONT * LINE_H);
 }
 
 // 4. Left/top alignment starts the row at the padded box edge, measured from the anchored box —
@@ -184,35 +223,46 @@ check(
 		boxHeight: 80,
 		padding: 12,
 	};
-	const { originX, originY, rowHeight } = layoutRow({ text: RICH, fontSize: FONT, box });
+	const { originX, originY, textHeight } = layoutRow({ text: RICH, fontSize: FONT, box });
 	check('left-aligned row starts at padding', originX, 12);
-	check('top-aligned row sits a half-row below the padded top', originY, 12 + rowHeight / 2);
+	check('top-aligned row sits a half-row below the padded top', originY, 12 + textHeight / 2);
 }
 
 // 5. Auto-fit shrinks the WHOLE row — text runs AND the symbol — until it fits the content width,
 //    which is the localization case the box exists for. Mirrors the component's shrink step.
 {
-	const box = { ...CENTRED, boxWidth: 300, boxHeight: 60, padding: 8 };
+	const box = { ...CENTRED, boxWidth: 260, boxHeight: 60, padding: 8 };
 	const contentWidth = textBoxContentWidth(box.boxWidth, box.padding);
-	const MIN_FONT = 6;
-	let font = FONT;
-	let row = layoutRow({ text: RICH, fontSize: font, box });
-	assert('the row starts too wide for this box', row.totalWidth > contentWidth);
-	const startImage = row.imageSlot;
-	for (let i = 0; i < 40 && font > MIN_FONT && row.totalWidth > contentWidth + 0.5; i++) {
-		const ratio = Math.min(1, row.totalWidth > 0 ? contentWidth / row.totalWidth : 1);
-		const next = Math.max(MIN_FONT, Math.floor(font * (ratio >= 0.999 ? 0.9 : ratio)));
-		if (next === font) break;
-		font = next;
-		row = layoutRow({ text: RICH, fontSize: font, box });
-	}
+	const start = layoutRow({ text: RICH, fontSize: FONT, box });
+	assert('the row starts too wide for this box', start.totalWidth > contentWidth);
+	const { font, row } = fitFont({ text: RICH, box, baseFontSize: FONT });
 	assert('auto-fit converges inside the box', row.totalWidth <= contentWidth + 0.5);
 	assert('auto-fit shrank the font', font < FONT);
-	assert('the symbol shrank with the text', row.imageSlot < startImage);
+	assert('the symbol shrank with the text', row.imageSlot < start.imageSlot);
 	check('the fitted row is still centred', row.originX + row.totalWidth / 2, 0);
 }
 
-// 6. A message with NO sentinel is untouched by any of this (every existing bar).
+// 6. A plaque SHALLOWER than the authored font — what a real info bar is. The same sentence with
+//    and without a symbol has to come out at the SAME font size. The symbol is drawn at the text's
+//    height, so while its height fed the auto-fit the message shrank itself to fit its own picture
+//    and a symbol-bearing bar rendered visibly smaller than a plain one saying the same thing.
+{
+	const box = { ...CENTRED, boxWidth: 520, boxHeight: 20, padding: 4 };
+	const withSymbol = fitFont({ text: RICH, box, baseFontSize: FONT });
+	const withoutSymbol = fitFont({ text: stripInlineImage(RICH), box, baseFontSize: FONT });
+	const contentHeight = textBoxContentHeight(box.boxHeight, box.padding);
+	assert('the plaque is shallower than the authored font', contentHeight < FONT);
+	assert('it really did have to shrink', withoutSymbol.font < FONT);
+	check('a symbol costs the message no font size', withSymbol.font, withoutSymbol.font);
+	assert('the symbol stays inside the plaque', withSymbol.row.imageHeight <= contentHeight + 0.5);
+	check(
+		'the symbol ends up exactly as tall as the words',
+		withSymbol.row.imageHeight,
+		withSymbol.row.textHeight,
+	);
+}
+
+// 7. A message with NO sentinel is untouched by any of this (every existing bar).
 {
 	const plain = 'You win $4.00 with 4 Cowboys';
 	assert('no sentinel ⇒ the inline branch never runs', !hasInlineImage(plain));

@@ -108,6 +108,39 @@ a symbol id (`H1`) is unspeakable, so there was no word to put in a sentence.
 - **26 offline checks** over the real modules:
   `node packages/engine-layout/scripts/test-win-text-symbol-names.mjs`.
 
+### A symbol in the bar made the whole message smaller (2026-08-18)
+
+Owner report, from the live French build: the same info bar reads at full size for “Bonne chance !!!”
+but drops to roughly half that as soon as the sentence carries a symbol picture — “the text becomes
+smaller for no real reason, I would like it to be the height of the picture”.
+
+It was a feedback loop the author could not see. `<InlineImageText>` sizes the inline symbol FROM the
+font (it is supposed to sit at text height), and then fed that height straight back into the row's
+auto-fit as if it were content the box had to accommodate. So the message shrank its own font to make
+room for its own picture. The gap is small for a canvas font, and brutal for the bitmap HUD fonts
+these plaques actually use: their reported line box runs well under 1em, while the symbol was drawn
+at `fontSize * 1.1` — nearly double the text it stood next to, and the auto-fit obeyed the taller of
+the two. A bar with a symbol therefore fitted at a far smaller font than the same sentence without one.
+
+- **The row's height is the TEXT's height.** `textHeight` (the tallest text run, measured) replaces
+  the old `rowHeight` max-over-everything, and it is what `fitRow` and `textBoxPlacement` use. The
+  symbol is a follower, never a constraint.
+- **The symbol is drawn at that measured line height**, not at `fontSize * 1.1` — so it matches the
+  words instead of towering over them — and is clamped to the box's content height so it still cannot
+  spill out of the plaque.
+- **`MessageSymbol` divides by the LIVE cell, not `SYMBOL_SIZE`.** `<Symbol>` contain-fits the board's
+  cell (`boardGeometry().cellHeightLocal`), which equals 120 only on a uniform board — so a non-square
+  authored cell rendered the inline symbol at `size × cell / 120`, i.e. not the height it was asked
+  for, which is the text's height. Uniform boards are byte-identical.
+- **Offline checks now model a bitmap line box** (`LINE_H = 0.65` in `test-inline-image-box.mjs`) — a
+  mirror that assumed `height === fontSize` could not express this bug at all. 24 checks, including a
+  shallow plaque proving a symbol costs the message no font size and that the picture ends up exactly
+  as tall as the words. Against the old model those same checks return font **10** with a symbol vs
+  **18** without.
+- **Read out of the live pixi stage** via the story's two new shallow-plaque bars: the sentence with a
+  symbol and the sentence without both render at `fontSize` **22** in a 520×40 box. Before, the
+  symbol-bearing one lost size to its own picture.
+
 ### A BOXED info bar silently cancelled "symbol as image" (2026-08-18)
 
 Reported from the live Italian build: the toast read "Vinci 0,50 € con 2 Cowboy" — the symbol NAME —
@@ -138,10 +171,10 @@ inside the plaque art. The two features cancelled each other, with nothing in th
   message off the plaque), segments edge-to-edge in reading order, left/top alignment + padding,
   and auto-fit converging with the symbol shrinking alongside the text.
 - **Storybook proof**: `apps/lines` → _ENGINE-LAYOUT/InfoBar inline symbol image_ — the same message
-  un-boxed, boxed, and boxed too narrow (auto-fit). ⏳ **Owner: visual-verify.** Storybook would not
-  finish booting on the dev box during this session (cold vite, minutes per reload), so the live
-  render of the boxed row — symbol size, vertical centring, spacing — is checked by geometry and by
-  the un-boxed path it reuses, not yet by eye.
+  un-boxed, boxed, boxed too narrow (auto-fit), and (added 2026-08-18) a shallow plaque with and
+  without a symbol. The live render has since been READ out of the pixi stage (font sizes + measured
+  line heights per bar; see the section below). Spacing and vertical centring are still checked by
+  geometry rather than by eye — the story boots but the pane can't composite a WebGL frame here.
 
 ### Symbol as image in the info-bar toast (2026-08-10)
 
@@ -257,6 +290,14 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-08-18 — **an inline symbol no longer shrinks the message it sits in.** The symbol is sized from
+  the font, but its height was also fed back into the row auto-fit, so a boxed bar shrank itself to fit
+  its own picture — dramatic with the bitmap HUD fonts, whose line box is well under 1em against a
+  symbol drawn at 1.1em. The row now fits against the TEXT's measured height and the symbol is drawn at
+  that height (clamped to the box). `MessageSymbol` also now scales by the board's live cell instead of
+  `SYMBOL_SIZE`, so the requested height is honoured on a non-square board. Files:
+  `InlineImageText.svelte`, `MessageSymbol.svelte`, `test-inline-image-box.mjs`,
+  `InlineImageMessage.stories.svelte`. See the section above.
 - 2026-08-18 — **expanded Book-of wins get their own info-bar sentence** (`toast.expanded`, default
   `You win {amount} with {symbolName} on {count} reels`), because `kind` is a REEL count once the
   special has filled the columns and the old sentence miscounted what was on screen. Gated on a new

@@ -109,15 +109,6 @@
 	});
 	const fontSize = $derived(hasBox ? fitFontSize : baseFontSize);
 
-	// The inline symbol's height — matched to the font size so it sits at text height (and shrinks
-	// with it when auto-fit kicks in).
-	const imageHeight = $derived(fontSize * 1.1);
-	// Side breathing room around a symbol. The template's space around the token is trimmed off the
-	// adjacent text runs' measured width (pixi drops boundary whitespace), so without this the symbol
-	// butts straight against the neighbouring word ("2🐄"). ~a space's width on each side.
-	const imageMargin = $derived(fontSize * 0.22);
-	const imageSlot = $derived(imageHeight + imageMargin * 2);
-
 	type Resolved = { kind: 'text'; value: string } | { kind: 'image'; id: string };
 
 	// Resolve each image token to a render id up front. A token the resolver rejects (or any token
@@ -156,17 +147,37 @@
 		return m.font === fontSize ? m.height : m.height * (m.font > 0 ? fontSize / m.font : 1);
 	};
 
+	// The row's height: the tallest TEXT run at the current font (before any run has reported, the
+	// font size stands in). The symbol is drawn AT this height, so it never adds to it — which is
+	// why this, and not a max over the images too, is the row height.
+	const textHeight = $derived(
+		segments.reduce((tallest, seg, i) => {
+			if (seg.kind !== 'text') return tallest;
+			const h = runHeight(i);
+			return h > tallest ? h : tallest;
+		}, 0) || fontSize,
+	);
+
+	// The inline symbol's height — the line of text's OWN measured height, so the picture stands
+	// exactly as tall as the words beside it. Measured rather than a multiple of `fontSize`: a
+	// bitmap font's line box is routinely well under 1em, so an em-sized symbol towered over the
+	// letters it was supposed to sit among.
+	//
+	// Because it FOLLOWS the text it must never feed back into the fit (see `fitRow`). While it
+	// did, a boxed message shrank its own font until the symbol fitted the plaque — so the same
+	// sentence rendered visibly smaller with a symbol than without one, with nothing in the layout
+	// to explain it. The box still bounds the picture, so it can't spill out of the frame.
+	const imageHeight = $derived(Math.min(textHeight, contentHeight ?? Infinity));
+	// Side breathing room around a symbol. The template's space around the token is trimmed off the
+	// adjacent text runs' measured width (pixi drops boundary whitespace), so without this the symbol
+	// butts straight against the neighbouring word ("2🐄"). ~a space's width on each side.
+	const imageMargin = $derived(fontSize * 0.22);
+	const imageSlot = $derived(imageHeight + imageMargin * 2);
+
 	const widths = $derived(
 		segments.map((seg, i) => (seg.kind === 'image' ? imageSlot : runWidth(i, seg.value))),
 	);
 	const totalWidth = $derived(widths.reduce((sum, w) => sum + w, 0));
-	// The row's height: the tallest thing on the line. Drives vertical alignment inside a box.
-	const rowHeight = $derived(
-		segments.reduce((tallest, seg, i) => {
-			const h = seg.kind === 'image' ? imageHeight : runHeight(i);
-			return h > tallest ? h : tallest;
-		}, 0) || fontSize,
-	);
 	// True once every text run has reported a size AT the current font — the only point at which
 	// `totalWidth` is real enough to shrink from.
 	const allRunsMeasured = $derived(
@@ -191,9 +202,9 @@
 		if (!allRunsMeasured || fitFontSize <= MIN_FONT) return;
 		const fitWidth = contentWidth ?? Infinity;
 		const fitHeight = contentHeight ?? Infinity;
-		if (totalWidth <= fitWidth + 0.5 && rowHeight <= fitHeight + 0.5) return;
+		if (totalWidth <= fitWidth + 0.5 && textHeight <= fitHeight + 0.5) return;
 		const wRatio = totalWidth > 0 ? fitWidth / totalWidth : 1;
-		const hRatio = rowHeight > 0 ? fitHeight / rowHeight : 1;
+		const hRatio = textHeight > 0 ? fitHeight / textHeight : 1;
 		const ratio = Math.min(1, wRatio, hRatio);
 		const next = Math.max(MIN_FONT, Math.floor(fitFontSize * (ratio >= 0.999 ? 0.9 : ratio)));
 		if (next < fitFontSize) fitFontSize = next; // re-renders → onresize fires again → converges
@@ -201,7 +212,7 @@
 
 	// Where the row starts. BOXED: `textBoxPlacement` (shared with `<TextBox>`) puts an anchor-{0,0}
 	// block at its aligned spot inside the box — the runs are anchored mid-line, so the row's centre
-	// line sits half a row-height below that. BOX-LESS: centred on (x, y), unchanged.
+	// line sits half a text-height below that. BOX-LESS: centred on (x, y), unchanged.
 	const placement = $derived(
 		hasBox
 			? textBoxPlacement({
@@ -213,12 +224,12 @@
 					align: props.style?.align,
 					verticalAlign: props.style?.verticalAlign,
 					measuredWidth: totalWidth,
-					measuredHeight: rowHeight,
+					measuredHeight: textHeight,
 				})
 			: undefined,
 	);
 	const originX = $derived(placement ? placement.offsetX : -totalWidth / 2);
-	const originY = $derived(placement ? placement.offsetY + rowHeight / 2 : 0);
+	const originY = $derived(placement ? placement.offsetY + textHeight / 2 : 0);
 
 	// Left edge (x) of each segment along the row.
 	const lefts = $derived.by(() => {
