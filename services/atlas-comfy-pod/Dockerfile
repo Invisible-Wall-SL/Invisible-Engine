@@ -54,6 +54,9 @@ RUN git clone https://github.com/cubiq/ComfyUI_IPAdapter_plus       ComfyUI_IPAd
 # Vendored, artist-modified PuLID-Flux (duplicated into this build context so COPY can
 # reach it — Docker COPY can't escape the context to ../atlas-serverless).
 COPY custom_nodes/ComfyUI-PuLID-Flux /ComfyUI/custom_nodes/ComfyUI-PuLID-Flux
+# Ours, frontend-only (no nodes, no deps): re-surfaces a run's error on the failing node
+# when the /ws socket dropped before ComfyUI could report it. See its __init__.py.
+COPY custom_nodes/ComfyUI-Invisible-ErrorRecall /ComfyUI/custom_nodes/ComfyUI-Invisible-ErrorRecall
 
 # Install every node's Python deps (incl. the vendored PuLID folder + Manager).
 RUN for r in */requirements.txt; do echo "== deps: $r =="; pip install -r "$r" || true; done
