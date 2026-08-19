@@ -50,6 +50,16 @@ check(
 	'ways: the payline colour stands down (lineIndex is not a payline id)',
 );
 
+check(
+	lines.getPaylines().length > 0,
+	'lines: the info page still gets its payline diagram (parity)',
+);
+check(
+	ways.getPaylines().length === 0,
+	'ways: the payline diagram is suppressed (no lines to draw)',
+);
+check(ways.getNumLines() > 0, 'ways: numLines is NOT zeroed — it stays the bet-per-line divisor');
+
 console.log('\ncapturing the boot warning for a ways config:');
 const seen: string[] = [];
 const realWarn = console.warn;

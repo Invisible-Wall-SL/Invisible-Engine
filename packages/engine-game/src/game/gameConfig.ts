@@ -186,6 +186,15 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	/** Paylines as row indices per reel, in declaration order — what the info page draws. The server's
 	 *  `availablePayLines` when the RGS is authoritative, else the authored doc's paylines. */
 	function getPaylines(): number[][] {
+		// A non-lines game has no paylines to draw. Without this the info page renders the RGS's
+		// `availablePayLines` as a payline grid on a ways/cluster/scatter game — 20 diagrams for
+		// lines that decide nothing. `InfoOverlay` draws nothing for an empty list, so this simply
+		// removes the section. Phase D of docs/design/game-type-templates.md.
+		//
+		// `getNumLines()` is deliberately NOT gated with it: that number is the bet-per-line divisor
+		// (`buildPayTableRows`, `createLinesReach`), and what a ways paytable should show per WAY is
+		// a presentation decision, not a mechanical one. Left for whoever designs that surface.
+		if (activeWinModel().type !== 'lines') return [];
 		const lines = serverConfig()?.availablePayLines;
 		if (lines && lines.length > 0) return lines;
 		return Object.values(getActiveGameConfig().paylines);
