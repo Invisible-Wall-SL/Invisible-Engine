@@ -44,18 +44,23 @@ const OUT_DIR = resolve(HERE, '../src/lib/data/gameConfig');
  *  exactly as `symbolDefaultsFor` does. */
 const BUILT_IN: Record<string, string> = {
 	lines: resolve(HERE, '../../lines/src/game/config.ts'),
+	ways: resolve(HERE, '../../ways/src/game/config.ts'),
 	scatter: resolve(HERE, '../../scatter/src/game/config.ts'),
 };
 
-// `ways` and `cluster` are NOT registered, and this is a data gap rather than an oversight: their
-// upstream sample configs ship `paddingReels: { basegame: '', … }` — empty-string placeholders
-// where `lines` and `scatter` carry real reel strips. The strips are the in-play GATE
-// (docs/design/invisible-game-config.md), so a config without them has no symbols in play and
-// would seed every new project of that type with a blank board. `normalizeGameConfigDoc` correctly
-// refuses it. Synthesizing strips here is not an option — that is game math, not packaging.
+// `cluster` is still NOT registered: its upstream sample config ships
+// `paddingReels: { basegame: '', … }` — empty-string placeholders where the others carry strips.
+// The strips are the in-play GATE (docs/design/invisible-game-config.md), so a config without them
+// has no symbols in play and would seed every new project of that type with a blank board;
+// `normalizeGameConfigDoc` correctly refuses it.
 //
-// To close it: author real `paddingReels` in apps/{ways,cluster}/src/game/config.ts (or point
-// `--config` at a game that has them), then add the entry here and to WIN_MODEL_BY_TYPE below.
+// `ways` had the same gap and now carries COSMETIC strips (see the comment on its `paddingReels`) —
+// evenly weighted filler, explicitly not a math export. That is legitimate for the client, which
+// never computes wins, but note the consequence: a `ways` default seeds a plausible-looking board
+// whose symbol frequencies mean nothing. A real Stake math export should replace them.
+//
+// To close `cluster`: author its `paddingReels` the same way, then add the entry here and to
+// WIN_MODEL_BY_TYPE below.
 
 /**
  * The `winModel` each game type's default carries (Phase C of
