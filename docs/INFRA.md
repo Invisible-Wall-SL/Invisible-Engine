@@ -88,6 +88,16 @@ On-demand RunPod GPU **pods** running the **interactive ComfyUI web UI** for art
   - RTX 4090 — id `avpq09jo5c9uyt`
   - RTX PRO 4500 Blackwell (32 GB) — id `a1tqn0tzbqtvr1` (name `ComfyUI_RD`)
 
+### Debugging "ComfyUI disconnected" on a pod
+ComfyUI reports execution errors **over the `/ws` progress socket**, so when that socket drops the failing node never turns red and you get a generic disconnect instead of the error — even though the server recorded it. `/history` keeps it. **`node scripts/comfy-last-error.mjs https://<podId>-8188.proxy.runpod.net`** reads it back: the failing node's id + class + **canvas title**, the exception, that node's inputs and what feeds it, and the traceback. Its three outcomes each diagnose a different layer — a failing node (real graph error) / "last run did NOT fail" (transport only, the render probably finished) / "No history" (ComfyUI **restarted**, i.e. the process died — go to `tail -200 /workspace/comfyui.log` for `torch.OutOfMemoryError` or `Killed`). Same `/history` read the Atlas Maker uses (`batch_atlas.py`).
+
+Three causes worth ruling out in order, before suspecting the graph:
+1. **Is the pod Spot/Interruptible?** RunPod reclaims those the instant someone outbids — mid-render, silently, nothing in any log. Use **On-Demand** for R&D.
+2. **The RunPod proxy drops idle WebSockets.** `<podId>-8188.proxy.runpod.net` is an HTTP proxy and ComfyUI's `/ws` goes quiet during a long checkpoint load or VAE decode. The render keeps going server-side; only the feed is lost. Expose **TCP 8188** and connect direct to bypass it.
+3. **VRAM exhaustion** — `comfyui_controlnet_aux`'s DepthAnything loads outside ComfyUI's memory manager so `/free` can't release it (the reason the serverless worker restarts ComfyUI between jobs; an interactive pod has no such reset).
+
+The launcher's idle auto-stop was a fourth cause until 2026-08-19 — fixed in PR #334, see `docs/status/comfyui.md`.
+
 ### ✅ Recommended: deploy the pod FROM the baked image
 Deploy each R&D pod from the **baked GHCR image** `ghcr.io/invisible-wall-sl/atlas-comfy-pod:latest` (built by `services/atlas-comfy-pod/` — see its [README](../services/atlas-comfy-pod/README.md)). Everything Python — ComfyUI `v0.3.66`, **cu128 torch (Blackwell)**, all custom nodes (IPAdapter_plus, RMBG, controlnet_aux, PuLID_ComfyUI, the vendored PuLID-Flux, ComfyUI-Manager) and the face stack — is **already in the image**, so:
 - **It survives RunPod recreating the container on resume.** Hand-installed deps do NOT: a resume changes the container id and wipes site-packages (`tqdm`/`torch` gone → ComfyUI crash-loops). Models are safe (on the volume); only container packages are lost. The baked image is the permanent fix — the manual runbook below is only a fallback for a pod that predates the image.
