@@ -27,6 +27,7 @@ import {
 	resolveWinLevel,
 	resolveWinLevelChain,
 	resolveWinLevels,
+	resolveWinModel,
 	symbolsInPlay,
 	symbolsInPlayForGameType,
 	symbolFrequencies,
@@ -575,6 +576,111 @@ for (const [x, level] of codedLadder) {
 assert(
 	resolveWinLevels(template) === undefined,
 	'the raw compiled config (un-authored) still has NO win tiers — the default is opt-in',
+);
+
+
+// ---------------------------------------------------------------------------------------------
+// (8) WIN MODEL — Phase C of docs/design/game-type-templates.md.
+//
+// The load-bearing property is PARITY: `winModel` is the field that lets a project say it is a
+// ways/cluster/scatter game, and adding it must not alter a single config authored before it
+// existed. Since `lines` is the default, storing it would do exactly that — so the normalizer
+// drops it, and these checks pin that down.
+console.log('\nwin model (Phase C):');
+
+const linesDoc = normalizeGameConfigDoc(templateConfig)!;
+
+assert(
+	linesDoc.winModel === undefined,
+	'the shipped template stores NO winModel — `lines` is the default, not a stored value',
+);
+assert(
+	resolveWinModel(linesDoc).type === 'lines',
+	'a doc with no winModel resolves to `lines` (what every pre-Phase-C config means)',
+);
+assert(
+	resolveWinModel(undefined).type === 'lines',
+	'resolveWinModel(undefined) is `lines` too — callers need no null dance',
+);
+
+// Round-trip parity: the whole reason the `lines` arm carries no data.
+assert(
+	eq(normalizeGameConfigDoc(templateConfig), normalizeGameConfigDoc(linesDoc)),
+	'a pre-Phase-C config round-trips BYTE-IDENTICALLY through the winModel-aware normalizer',
+);
+assert(
+	eq(linesDoc, normalizeGameConfigDoc({ ...templateConfig, winModel: { type: 'lines' } })),
+	'authoring `lines` explicitly is byte-identical to omitting it — no field is added',
+);
+
+// The other arms are stored, defaulted and bounded.
+const waysDoc = normalizeGameConfigDoc({
+	...templateConfig,
+	winModel: { type: 'ways', direction: 'both', minKind: 3 },
+})!;
+assert(
+	eq(waysDoc.winModel, { type: 'ways', direction: 'both', minKind: 3 }),
+	'a `ways` model IS stored — it departs from the default, so it must survive a save',
+);
+assert(
+	eq(normalizeGameConfigDoc({ ...templateConfig, winModel: { type: 'ways' } })!.winModel, {
+		type: 'ways',
+		direction: 'ltr',
+		minKind: 3,
+	}),
+	'a half-authored `ways` model fills its defaults (ltr, 3-of-a-kind) rather than being dropped',
+);
+assert(
+	normalizeGameConfigDoc({ ...templateConfig, winModel: { type: 'nonsense' } })!.winModel ===
+		undefined,
+	'an unknown win-model type is DROPPED (falls back to lines), not thrown — same posture as the rest of the normalizer',
+);
+assert(
+	eq(waysDoc, normalizeGameConfigDoc(waysDoc)),
+	'normalization stays idempotent with a winModel present (the save→reload fixed point)',
+);
+
+// Validation follows the model rather than the payline table.
+const offGridPaylines = { ...templateConfig, paylines: { 99: [0, 0, 0, 0, 9] } };
+assert(
+	validateGameConfigDoc(normalizeGameConfigDoc(offGridPaylines)!).some(
+		(i) => i.severity === 'error' && i.path.startsWith('paylines.'),
+	),
+	'a lines game still errors on a payline pointing off the grid',
+);
+assert(
+	!validateGameConfigDoc(
+		normalizeGameConfigDoc({
+			...offGridPaylines,
+			winModel: { type: 'ways', direction: 'ltr', minKind: 3 },
+		})!,
+	).some((i) => i.path.startsWith('paylines.')),
+	'the SAME off-grid payline is inert for a ways game — the table it lives in is never read',
+);
+assert(
+	validateGameConfigDoc(
+		normalizeGameConfigDoc({
+			...templateConfig,
+			winModel: { type: 'ways', direction: 'ltr', minKind: 99 },
+		})!,
+	).some((i) => i.severity === 'error' && i.path === 'winModel.minKind'),
+	'a ways game needing more adjacent reels than the grid is wide is an ERROR (nothing could pay)',
+);
+assert(
+	validateGameConfigDoc(
+		normalizeGameConfigDoc({ ...templateConfig, winModel: { type: 'cluster', minCluster: 999 } })!,
+	).some((i) => i.severity === 'error' && i.path === 'winModel.minCluster'),
+	'a cluster larger than the whole grid is an ERROR',
+);
+// The generic checks must still run for a non-lines model — the early-return trap.
+assert(
+	validateGameConfigDoc(
+		normalizeGameConfigDoc({
+			...templateConfig,
+			winModel: { type: 'scatter', minCount: 8 },
+		})!,
+	).some((i) => i.path.startsWith('symbols.')),
+	'symbol-level checks (the `W` paytable warning) still run for a non-lines model',
 );
 
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nall checks passed');

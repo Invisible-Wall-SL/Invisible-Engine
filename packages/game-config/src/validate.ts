@@ -18,6 +18,7 @@
 import { symbolsInPlay } from './inPlay';
 import { resolveWinLevels } from './winLevels';
 import type { GameConfigDoc } from './types';
+import { resolveWinModel } from './winModel';
 
 export type GameConfigIssueSeverity = 'error' | 'warning';
 
@@ -65,7 +66,37 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 		});
 	}
 
-	for (const [id, rows] of Object.entries(doc.paylines)) {
+	const winModel = resolveWinModel(doc);
+
+	// Non-`lines` win models are not decided by paylines, so a leftover payline table is inert
+	// rather than wrong — the checks below would report errors about a field the game never reads.
+	// Each other arm gets the bounds check that IS meaningful for it.
+	if (winModel.type !== 'lines') {
+		const cells = doc.numRows.reduce((sum, rows) => sum + rows, 0);
+		if (winModel.type === 'ways' && winModel.minKind > doc.numReels) {
+			issues.push({
+				severity: 'error',
+				path: 'winModel.minKind',
+				message: `Ways wins need ${winModel.minKind} adjacent reels but the grid is only ${doc.numReels} wide, so nothing can ever pay.`,
+			});
+		}
+		if (winModel.type === 'cluster' && winModel.minCluster > cells) {
+			issues.push({
+				severity: 'error',
+				path: 'winModel.minCluster',
+				message: `A cluster needs ${winModel.minCluster} cells but the grid only has ${cells}, so nothing can ever pay.`,
+			});
+		}
+		if (winModel.type === 'scatter' && winModel.minCount > cells) {
+			issues.push({
+				severity: 'error',
+				path: 'winModel.minCount',
+				message: `A scatter win needs ${winModel.minCount} symbols but the grid only has ${cells} cells, so nothing can ever pay.`,
+			});
+		}
+	}
+
+	for (const [id, rows] of winModel.type === 'lines' ? Object.entries(doc.paylines) : []) {
 		if (rows.length !== doc.numReels) {
 			issues.push({
 				severity: 'error',
