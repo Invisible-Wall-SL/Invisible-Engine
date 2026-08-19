@@ -17,6 +17,7 @@
 		configured: boolean;
 		idleEnabled: boolean;
 		idleMinutes: number;
+		leaseMinutes: number;
 		pods: Pod[];
 	}
 
@@ -32,11 +33,7 @@
 		return p.status === 'running' && p.ready;
 	}
 	function isWarming(p: Pod): boolean {
-		return (
-			!!starting[p.id] ||
-			p.status === 'starting' ||
-			(p.status === 'running' && !p.ready)
-		);
+		return !!starting[p.id] || p.status === 'starting' || (p.status === 'running' && !p.ready);
 	}
 	function isStopped(p: Pod): boolean {
 		return !isReady(p) && !isWarming(p) && (p.status === 'stopped' || p.status === 'unknown');
@@ -90,6 +87,22 @@
 		} finally {
 			delete busy[podId];
 		}
+	}
+
+	/**
+	 * Opening ComfyUI hands the artist to another tab, which silences the visibility-gated
+	 * heartbeat below — so take a session lease first, or the idle watchdog can reclaim the
+	 * pod out from under a network that's still being built. Fire-and-forget: a failed
+	 * lease must never block the artist from opening ComfyUI.
+	 */
+	function openComfy(): void {
+		void fetch('/comfyui/ping', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ lease: true }),
+		})
+			.then(() => refresh())
+			.catch(() => {});
 	}
 
 	async function stop(podId: string): Promise<void> {
@@ -165,7 +178,9 @@
 				{:else if pods.length === 0}
 					<div class="panel">
 						<div class="statusline"><span class="dot off"></span> No pods in the fleet.</div>
-						<p class="hint">Add pods in <a href="/admin">Admin → Settings → ComfyUI R&amp;D pod</a>.</p>
+						<p class="hint">
+							Add pods in <a href="/admin">Admin → Settings → ComfyUI R&amp;D pod</a>.
+						</p>
 					</div>
 				{:else}
 					<ul class="fleet">
@@ -185,10 +200,20 @@
 
 								<div class="pod-actions">
 									{#if isReady(pod)}
-										<a class="open sm" href={pod.url} target="_blank" rel="noopener noreferrer">
+										<a
+											class="open sm"
+											href={pod.url}
+											target="_blank"
+											rel="noopener noreferrer"
+											onclick={openComfy}
+										>
 											Open ComfyUI ↗
 										</a>
-										<button class="secondary sm" onclick={() => stop(pod.id)} disabled={busy[pod.id]}>
+										<button
+											class="secondary sm"
+											onclick={() => stop(pod.id)}
+											disabled={busy[pod.id]}
+										>
 											{busy[pod.id] ? 'Stopping…' : 'Stop'}
 										</button>
 									{:else if isWarming(pod)}
@@ -197,11 +222,19 @@
 												? 'Pod is up — waiting for ComfyUI…'
 												: 'Warming up ~2 min…'}
 										</span>
-										<button class="secondary sm" onclick={() => stop(pod.id)} disabled={busy[pod.id]}>
+										<button
+											class="secondary sm"
+											onclick={() => stop(pod.id)}
+											disabled={busy[pod.id]}
+										>
 											{busy[pod.id] ? 'Stopping…' : 'Stop'}
 										</button>
 									{:else if isStopped(pod)}
-										<button class="open sm btn" onclick={() => start(pod.id)} disabled={busy[pod.id]}>
+										<button
+											class="open sm btn"
+											onclick={() => start(pod.id)}
+											disabled={busy[pod.id]}
+										>
 											{busy[pod.id] ? 'Starting…' : errors[pod.id] ? 'Retry' : 'Start'}
 										</button>
 									{/if}
@@ -209,9 +242,11 @@
 
 								{#if pod.status === 'running' && !pod.ready}
 									<p class="hint">
-										The pod is running but ComfyUI hasn't answered. If it never connects, the
-										pod's <strong>Container Start Command</strong> may not launch ComfyUI on boot
-										(set it to <code>bash /workspace/start-comfyui.sh</code>).
+										The pod is running but ComfyUI hasn't answered. If it never connects, the pod's <strong
+											>Container Start Command</strong
+										>
+										may not launch ComfyUI on boot (set it to
+										<code>bash /workspace/start-comfyui.sh</code>).
 									</p>
 								{/if}
 								{#if errors[pod.id]}
@@ -223,13 +258,21 @@
 
 					{#if status.idleEnabled}
 						<p class="idle-note">
-							Pods auto-stop after {status.idleMinutes} min idle (no active renders).
+							{#if status.leaseMinutes > 0}
+								Held for another {status.leaseMinutes} min while you work — then auto-stops after
+								{status.idleMinutes} min idle. Re-open ComfyUI to extend.
+							{:else}
+								Pods auto-stop after {status.idleMinutes} min idle. Opening ComfyUI holds one for an
+								hour so a pod is never reclaimed mid-session.
+							{/if}
 						</p>
 					{/if}
 				{/if}
 
 				<ol class="flow">
-					<li><strong>Build</strong> your network on the canvas — the pod's GPU, not your machine.</li>
+					<li>
+						<strong>Build</strong> your network on the canvas — the pod's GPU, not your machine.
+					</li>
 					<li>
 						<strong>Export</strong> it: Settings → <em>Save (API Format)</em> to get the workflow JSON.
 					</li>

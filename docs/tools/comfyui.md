@@ -55,8 +55,10 @@ The panel has two shapes depending on how the launcher is configured:
    pod's row**, and its button becomes **Retry**. Rather than waiting, just **start a
    different pod** in the fleet — that is the whole point of keeping several.
 3. Once a row reads **running**, click its **Open ComfyUI ↗** — the pod opens in a new
-   tab. **Build** your network on the ComfyUI canvas. This runs on the pod's GPU, so
-   you can iterate on models and node graphs your own machine can't hold.
+   tab, and that click takes a **one-hour lease** so idle auto-stop can't reclaim the
+   pod while you work (see *Cost control*). **Build** your network on the ComfyUI
+   canvas. This runs on the pod's GPU, so you can iterate on models and node graphs your
+   own machine can't hold.
    - **Start only one pod at a time.** When the fleet's pods share a Network Volume
      (models + custom nodes), running two at once risks write conflicts on that volume.
      Stop the one you're done with before starting another.
@@ -100,13 +102,24 @@ money until it stops. Two things keep that in check:
   stop the pod** (it keeps running, and billing, in the background). Stopping is an
   explicit action.
 - **Idle auto-stop** — a launcher watchdog stops an idle pod automatically after a set
-  number of minutes once ComfyUI's render queue is empty (a non-empty queue counts as
-  activity, so a running render is never interrupted). While the `/comfyui` tab is open
-  and visible it sends a heartbeat that keeps the fleet alive, so the timer only really
-  counts once you've walked away. When idle auto-stop is on, the panel shows "Pods
-  auto-stop after N min idle". This is configured by an **admin** under **Admin panel →
-  Settings → "ComfyUI R&D pod fleet" → Enable idle auto-stop + Idle minutes** (default
-  20). It's a safety net, not a substitute for pressing **Stop**.
+  number of minutes. It is deliberately reluctant, because reclaiming a GPU drops your
+  ComfyUI session; a pod is stopped only when none of these holds it:
+  - **You opened ComfyUI.** Clicking **Open ComfyUI ↗** takes a **one-hour session
+    lease** on the fleet, and the panel then reads "Held for another N min while you
+    work". This covers the long stretch where you're *building* a network — real work
+    that leaves the render queue empty and would otherwise look idle. **Re-open ComfyUI
+    (or press Open again) to extend it** if a session runs past the hour.
+  - **A render is running or queued**, or ComfyUI can't be reached at all. An
+    unreachable ComfyUI counts as busy, never as idle — it goes quiet while loading a
+    checkpoint or decoding, exactly when the pod is working hardest.
+  - **The idle window hasn't fully elapsed**, confirmed several times in a row. One
+    unlucky reading can never reclaim a pod.
+
+  When idle auto-stop is on, the panel shows what's holding the pod and for how long.
+  This is configured by an **admin** under **Admin panel → Settings → "ComfyUI R&D pod
+  fleet" → Enable idle auto-stop + Idle minutes** (default 20). It's a safety net, not a
+  substitute for pressing **Stop** — and note the lease is fleet-wide, so it holds
+  whichever pod is running (you should only run one at a time anyway).
 
 ### The one caveat that bites
 

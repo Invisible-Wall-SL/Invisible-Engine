@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
-import { getRunpodIdleConfig } from '$lib/server/appSettings';
 import { requireComfyAccess } from '$lib/server/comfyAccess';
-import { getEffectiveFleet, podControlConfigured, podStop, probeFleet } from '$lib/server/runpod';
+import { fleetPayload, getEffectiveFleet, podStop } from '$lib/server/runpod';
+import { clearLease } from '$lib/server/runpodActivity';
 import type { RequestHandler } from './$types';
 
 const NO_STORE = { 'cache-control': 'no-store' };
@@ -20,26 +20,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 	const fleet = await getEffectiveFleet();
 	if (!fleet.some((p) => p.id === podId)) throw error(400, 'Unknown pod.');
 
+	// An explicit Stop is the artist saying they're done — drop the session lease so a
+	// later Start begins on a clean idle countdown instead of inheriting held time.
+	clearLease();
 	await podStop(podId);
-	const [configured, pods, idle] = await Promise.all([
-		podControlConfigured(),
-		probeFleet(),
-		getRunpodIdleConfig(),
-	]);
 
-	return json(
-		{
-			configured,
-			idleEnabled: idle.enabled,
-			idleMinutes: idle.minutes,
-			pods: pods.map((p) => ({
-				id: p.id,
-				label: p.label,
-				url: p.url,
-				status: p.status,
-				ready: p.ready,
-			})),
-		},
-		{ headers: NO_STORE },
-	);
+	return json(await fleetPayload(), { headers: NO_STORE });
 };

@@ -1,7 +1,6 @@
 import { json } from '@sveltejs/kit';
-import { getRunpodIdleConfig } from '$lib/server/appSettings';
 import { requireComfyAccess } from '$lib/server/comfyAccess';
-import { podControlConfigured, probeFleet } from '$lib/server/runpod';
+import { fleetPayload } from '$lib/server/runpod';
 import type { RequestHandler } from './$types';
 
 const NO_STORE = { 'cache-control': 'no-store' };
@@ -13,26 +12,5 @@ const NO_STORE = { 'cache-control': 'no-store' };
  */
 export const GET: RequestHandler = async ({ locals }) => {
 	await requireComfyAccess(locals);
-
-	const [configured, pods, idle] = await Promise.all([
-		podControlConfigured(),
-		probeFleet(),
-		getRunpodIdleConfig(),
-	]);
-
-	return json(
-		{
-			configured,
-			idleEnabled: idle.enabled,
-			idleMinutes: idle.minutes,
-			pods: pods.map((p) => ({
-				id: p.id,
-				label: p.label,
-				url: p.url,
-				status: p.status,
-				ready: p.ready,
-			})),
-		},
-		{ headers: NO_STORE },
-	);
+	return json(await fleetPayload(), { headers: NO_STORE });
 };
