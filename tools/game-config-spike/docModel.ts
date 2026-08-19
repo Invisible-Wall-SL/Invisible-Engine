@@ -39,7 +39,7 @@ import {
 } from 'game-config';
 
 import templateConfig from '../../apps/lines/src/game/config';
-import { winLevelMap } from '../../apps/lines/src/game/winLevelMap';
+import { winLevelMap } from '../../packages/engine-game/src/game/winLevelMap';
 
 let failures = 0;
 const assert = (cond: boolean, msg: string): void => {
