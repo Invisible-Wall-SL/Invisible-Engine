@@ -40,6 +40,16 @@ export {
 	SPIN_OPTIONS_FAST,
 } from './src/game/constants';
 export { createGameContext, getGameContext, type GameContext } from './src/game/context';
+export {
+	createGameState,
+	type GameStateDeps,
+	type GameStateApi,
+	type Reel,
+	type ReelSymbol,
+	type MultiplierSymbol,
+	type StackedArt,
+	type StackedPictureRun,
+} from './src/game/gameState.svelte';
 export { resolveWinMount, type WinMount } from './src/game/winOwnership';
 export {
 	freeSpinsRemaining,
