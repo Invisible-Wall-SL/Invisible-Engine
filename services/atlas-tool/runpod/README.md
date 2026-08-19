@@ -38,6 +38,13 @@ RunPod → Pods → Deploy, attach the Network Volume from step 1 (mounts at
 - **Template:** any recent `runpod/pytorch` CUDA 12.x image.
 - **Expose HTTP port `8188`.** RunPod gives you a proxy URL
   `https://<podId>-8188.proxy.runpod.net` — that becomes `COMFY_URL`.
+- **Also expose `8188` as a TCP port.** Optional but strongly recommended: the proxy
+  **403s any clicked link** from another site (see `docs/INFRA.md`), and it drops
+  ComfyUI's `/ws` progress socket on long renders. A TCP port gives a direct
+  `http://<ip>:<port>` that has neither problem, and the launcher's `/comfyui` card
+  links to it automatically when RunPod publishes it. RunPod assigns the external
+  port at each start, so it changes every time — which is why the card reads it live
+  rather than storing it.
 
 ## 3. Provision (once per fresh volume)
 
@@ -68,12 +75,19 @@ to route it through R2 — `fetch-models.py` pulls it from Hugging Face straight
 volume instead (idempotent, and resumable via HTTP Range, which matters when a pod web
 terminal drops in the middle of a 35 GB file):
 
+Run it from the pod's web terminal. The script isn't on the volume, so fetch it the
+same way as `provision.sh`:
+
 ```bash
-py services/atlas-tool/runpod/fetch-models.py --list
+curl -fsSL https://raw.githubusercontent.com/Invisible-Wall-SL/Invisible-Engine/main/services/atlas-tool/runpod/fetch-models.py -o /workspace/fetch-models.py
 ```
 
 ```bash
-py services/atlas-tool/runpod/fetch-models.py --set flux2-klein --dest /workspace/ComfyUI/models
+python /workspace/fetch-models.py --list
+```
+
+```bash
+python /workspace/fetch-models.py --set flux2-klein --dest /workspace/ComfyUI/models
 ```
 
 FLUX.2 needs **no custom node** — it is native in ComfyUI core from the `v0.33.1` pin

@@ -12,6 +12,7 @@
 		url: string;
 		status: PodStatus;
 		ready: boolean;
+		directUrl?: string;
 	}
 	interface StatusResp {
 		configured: boolean;
@@ -37,6 +38,25 @@
 	}
 	function isStopped(p: Pod): boolean {
 		return !isReady(p) && !isWarming(p) && (p.status === 'stopped' || p.status === 'unknown');
+	}
+
+	// RunPod's proxy 403s any browser request stamped `Sec-Fetch-Site: cross-site`, which
+	// is EVERY click from this page — so a plain link to `pod.url` cannot work, and no
+	// rel/target/redirect avoids it (the browser derives that header from the initiator).
+	// A pod exposing TCP 8188 gets a direct ip:port that skips the proxy; only then can we
+	// offer a real link. Otherwise the url has to be copied into the address bar by hand.
+	// See docs/INFRA.md §"Access to …proxy.runpod.net was denied".
+	let copied = $state<Record<string, boolean>>({});
+
+	async function copyUrl(p: Pod): Promise<void> {
+		try {
+			await navigator.clipboard.writeText(p.url);
+			copied[p.id] = true;
+			setTimeout(() => delete copied[p.id], 2000);
+		} catch {
+			// Clipboard blocked (insecure context / permission) — the url stays selectable
+			// on screen, so the artist can still copy it manually.
+		}
 	}
 
 	// Once a pod's ComfyUI answers, drop its sticky "starting" flag.
@@ -200,15 +220,21 @@
 
 								<div class="pod-actions">
 									{#if isReady(pod)}
-										<a
-											class="open sm"
-											href={pod.url}
-											target="_blank"
-											rel="noopener noreferrer"
-											onclick={openComfy}
-										>
-											Open ComfyUI ↗
-										</a>
+										{#if pod.directUrl}
+											<a
+												class="open sm"
+												href={pod.directUrl}
+												target="_blank"
+												rel="noopener noreferrer"
+												onclick={openComfy}
+											>
+												Open ComfyUI ↗
+											</a>
+										{:else}
+											<button class="open sm btn" onclick={() => copyUrl(pod)}>
+												{copied[pod.id] ? 'Copied ✓' : 'Copy ComfyUI URL'}
+											</button>
+										{/if}
 										<button
 											class="secondary sm"
 											onclick={() => stop(pod.id)}
@@ -239,6 +265,15 @@
 										</button>
 									{/if}
 								</div>
+
+								{#if isReady(pod) && !pod.directUrl}
+									<p class="hint">
+										RunPod blocks clicked links to <code>{pod.url}</code> — paste it into the
+										address bar instead. To get a working button, expose port
+										<strong>8188 as TCP</strong> on this pod (RunPod → Edit Pod); it also stops the proxy
+										dropping ComfyUI's progress socket on long renders.
+									</p>
+								{/if}
 
 								{#if pod.status === 'running' && !pod.ready}
 									<p class="hint">

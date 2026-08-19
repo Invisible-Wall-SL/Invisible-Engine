@@ -36,11 +36,52 @@ export interface FleetPod {
 export interface PodState extends FleetPod {
 	status: PodStatus;
 	ready: boolean;
+	/** Direct `http://ip:port` when TCP 8188 is exposed — see `directUrlFromPorts`. */
+	directUrl?: string;
 }
 
 /** The ComfyUI proxy URL for a pod, derived from its RunPod id. */
 export function podUrl(id: string): string {
 	return `https://${id}-8188.proxy.runpod.net`;
+}
+
+/** One entry of RunPod's `runtime.ports`. */
+interface RuntimePort {
+	ip?: string;
+	isIpPublic?: boolean;
+	privatePort?: number;
+	publicPort?: number;
+	type?: string;
+}
+
+/**
+ * The DIRECT `http://<ip>:<publicPort>` for ComfyUI, when the pod exposes 8188 as a
+ * **TCP** port — otherwise `undefined` and callers fall back to `podUrl()`.
+ *
+ * Why this exists: the proxy (`<podId>-8188.proxy.runpod.net`) answers a server-side
+ * fetch fine, but **403s any browser request carrying `Sec-Fetch-Site: cross-site`** —
+ * which is every click from a launcher page. There is no fix on the link (the browser
+ * computes that header from the initiator, so no `rel`/`target`/redirect avoids it) and
+ * no RunPod toggle. Going direct skips the proxy entirely, so the rule never applies —
+ * and it also dodges the proxy dropping ComfyUI's `/ws` socket on long renders (see
+ * docs/INFRA.md). Both problems, one link.
+ *
+ * The port is only usable when RunPod has actually published it: TCP type, a public IP,
+ * and both port numbers present. RunPod assigns the external port at RESUME and it
+ * CHANGES on every start, so this must be read live on each poll — never cached, and
+ * never derivable from the pod id the way the proxy URL is.
+ */
+export function directUrlFromPorts(ports: RuntimePort[] | null | undefined): string | undefined {
+	if (!Array.isArray(ports)) return undefined;
+	const p = ports.find(
+		(x) =>
+			x?.privatePort === 8188 &&
+			String(x?.type ?? '').toLowerCase() === 'tcp' &&
+			x?.isIpPublic === true &&
+			!!x?.ip &&
+			!!x?.publicPort,
+	);
+	return p ? `http://${p.ip}:${p.publicPort}` : undefined;
 }
 
 /**
@@ -119,18 +160,54 @@ function firstError(result: GqlResult | null): string | undefined {
  * - API/network error, no key, or empty podId → `'unknown'`
  */
 export async function podStatus(podId: string): Promise<PodStatus> {
-	if (!ENV.RUNPOD_API_KEY || !podId) return 'unknown';
-	const result = await gql(
-		`query { pod(input:{podId:"${podId}"}) { desiredStatus runtime { uptimeInSeconds } } }`,
+	return (await podProbe(podId)).status;
+}
+
+/**
+ * `podStatus` plus the pod's live direct URL, from ONE GraphQL call — the fleet is
+ * polled every few seconds, so asking twice per pod would double that traffic for a
+ * field that arrives in the same `runtime` object.
+ */
+export async function podProbe(podId: string): Promise<{ status: PodStatus; directUrl?: string }> {
+	if (!ENV.RUNPOD_API_KEY || !podId) return { status: 'unknown' };
+
+	type PodData = {
+		pod?: {
+			desiredStatus?: string;
+			runtime?: { uptimeInSeconds?: number; ports?: RuntimePort[] } | null;
+		};
+	};
+	const read = (result: GqlResult | null): PodData['pod'] | undefined => {
+		const pod = (result?.data as PodData | undefined)?.pod;
+		return pod && typeof pod.desiredStatus === 'string' ? pod : undefined;
+	};
+
+	// `ports` is asked for on a best-effort basis. If RunPod's schema ever drops or
+	// renames it, the whole query fails and every pod would read 'unknown' — i.e. a
+	// running pod would render a "Start" button. Status matters far more than the
+	// convenience link, so fall back to the minimal query that has always worked.
+	let pod = read(
+		await gql(
+			`query { pod(input:{podId:"${podId}"}) { desiredStatus runtime { uptimeInSeconds ` +
+				`ports { ip isIpPublic privatePort publicPort type } } } }`,
+		),
 	);
-	if (!result) return 'unknown';
-	const data = result.data as
-		| { pod?: { desiredStatus?: string; runtime?: { uptimeInSeconds?: number } | null } }
-		| undefined;
-	const pod = data?.pod;
-	if (!pod || typeof pod.desiredStatus !== 'string') return 'unknown';
-	if (pod.desiredStatus === 'RUNNING') return pod.runtime ? 'running' : 'starting';
-	return 'stopped';
+	if (!pod) {
+		pod = read(
+			await gql(
+				`query { pod(input:{podId:"${podId}"}) { desiredStatus runtime { uptimeInSeconds } } }`,
+			),
+		);
+	}
+	if (!pod) return { status: 'unknown' };
+
+	if (pod.desiredStatus === 'RUNNING') {
+		return {
+			status: pod.runtime ? 'running' : 'starting',
+			directUrl: directUrlFromPorts(pod.runtime?.ports),
+		};
+	}
+	return { status: 'stopped' };
 }
 
 /**
@@ -228,8 +305,12 @@ export async function probeFleet(): Promise<PodState[]> {
 	const fleet = await getEffectiveFleet();
 	return Promise.all(
 		fleet.map(async (p) => {
-			const [status, ready] = await Promise.all([podStatus(p.id), comfyReady(p.url)]);
-			return { ...p, status, ready };
+			// Readiness is probed on the PROXY url, never the direct one: this runs
+			// server-side, where the proxy is reliable, and the direct endpoint only
+			// exists once RunPod has published the port. The direct url is for the
+			// BROWSER link (see `directUrlFromPorts`).
+			const [probe, ready] = await Promise.all([podProbe(p.id), comfyReady(p.url)]);
+			return { ...p, status: probe.status, ready, directUrl: probe.directUrl };
 		}),
 	);
 }
@@ -240,7 +321,14 @@ export interface FleetPayload {
 	idleEnabled: boolean;
 	idleMinutes: number;
 	leaseMinutes: number;
-	pods: { id: string; label: string; url: string; status: PodStatus; ready: boolean }[];
+	pods: {
+		id: string;
+		label: string;
+		url: string;
+		status: PodStatus;
+		ready: boolean;
+		directUrl?: string;
+	}[];
 }
 
 /**
@@ -265,6 +353,7 @@ export async function fleetPayload(): Promise<FleetPayload> {
 			url: p.url,
 			status: p.status,
 			ready: p.ready,
+			directUrl: p.directUrl,
 		})),
 	};
 }
