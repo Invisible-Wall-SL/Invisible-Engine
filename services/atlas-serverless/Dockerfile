@@ -21,12 +21,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # --- ComfyUI ------------------------------------------------------------------
-# Pinned to v0.3.66 (2025-10-21) — the last release BEFORE comfy/quant_ops.py
-# (added 2025-10-28) pulled in the `comfy_kitchen` backend (whose na3d op annotates a
-# param as `list[int]`). Kept even on torch 2.8 for parity with the R&D pod image
-# (services/atlas-comfy-pod) so prod + R&D stay in lockstep. Fully supports
-# Flux + PuLID-Flux + our nodes, with zero comfy_kitchen.
-ARG COMFYUI_REF=v0.3.66
+# Pinned to a TAG on purpose — never track master. This is the PROD generation path;
+# an unpinned core would change generation behaviour on a plain rebuild, with no commit.
+#
+# History: pinned to v0.3.66 (2025-10-21) for ~10 months because comfy/quant_ops.py had
+# pulled in the `comfy_kitchen` backend, whose na3d op annotated a param as `list[int]`
+# and got rejected by torch's infer_schema. Fixed upstream since: quant_ops.py no longer
+# registers a torch.library op, and comfy_kitchen is now a version-pinned wheel
+# (comfy-kitchen==0.2.31) in ComfyUI's own requirements.txt.
+#
+# MUST stay equal to services/atlas-comfy-pod COMFYUI_REF so prod + R&D stay in lockstep
+# — bump both in ONE PR, and promote here only after the R&D pod renders clean.
+ARG COMFYUI_REF=v0.33.1
 RUN git clone https://github.com/comfyanonymous/ComfyUI /ComfyUI \
     && cd /ComfyUI && git checkout "${COMFYUI_REF}"
 RUN pip install -r /ComfyUI/requirements.txt
@@ -36,11 +42,23 @@ RUN pip install -r /ComfyUI/requirements.txt
 # services/atlas-tool/runpod/provision.sh, plus cubiq/PuLID_ComfyUI — the artist's
 # Characterdesignertest3 blueprint uses its `PulidModelLoader` node (stock; the
 # artist only modified pulidflux.py in the separate ComfyUI-PuLID-Flux folder).
+#
+# PINNED TO COMMITS — these were bare `git clone`s of the default branch, so a rebuild
+# could pull different node code against a frozen core with no commit of ours. Keep the
+# SHAs equal to services/atlas-comfy-pod so R&D and prod run identical node code.
 WORKDIR /ComfyUI/custom_nodes
-RUN git clone https://github.com/cubiq/ComfyUI_IPAdapter_plus       ComfyUI_IPAdapter_plus && \
-    git clone https://github.com/1038lab/ComfyUI-RMBG               ComfyUI-RMBG && \
-    git clone https://github.com/Fannovel16/comfyui_controlnet_aux  comfyui_controlnet_aux && \
-    git clone https://github.com/cubiq/PuLID_ComfyUI                PuLID_ComfyUI
+# 12-char SHAs, not 40: a full hex SHA trips the repo secret scanner, and a trailing
+# `# pragma` would be swallowed into the ARG value rather than read as a comment.
+ARG IPADAPTER_REF=a0f451a5113c
+ARG RMBG_REF=9edb2bec3900
+ARG CONTROLNET_AUX_REF=e8b689a513c3
+ARG PULID_REF=93e0c4c226b8
+RUN set -eux; \
+    clone_at() { git clone "$1" "$2" && git -C "$2" checkout --quiet "$3"; }; \
+    clone_at https://github.com/cubiq/ComfyUI_IPAdapter_plus      ComfyUI_IPAdapter_plus "${IPADAPTER_REF}"; \
+    clone_at https://github.com/1038lab/ComfyUI-RMBG              ComfyUI-RMBG           "${RMBG_REF}"; \
+    clone_at https://github.com/Fannovel16/comfyui_controlnet_aux comfyui_controlnet_aux "${CONTROLNET_AUX_REF}"; \
+    clone_at https://github.com/cubiq/PuLID_ComfyUI               PuLID_ComfyUI          "${PULID_REF}"
 # PuLID-Flux is the artist's LOCALLY-MODIFIED node — it is VENDORED in this repo and
 # copied in as-is, NOT cloned. Cloning balazik/ComfyUI-PuLID-Flux would silently drop
 # the artist's edits and break the Characterdesignertest3 blueprint. See ./custom_nodes/README.md.
@@ -58,7 +76,12 @@ RUN pip install runpod requests
 # ComfyUI + every node's requirements.txt can drag torch back to a stock cu124 build
 # (the R&D pod image hit exactly this — torch kept reverting to cu124, which is dead on
 # Blackwell). Force the Blackwell-capable cu128 build in LAST so nothing can clobber it.
-RUN pip install --force-reinstall torch torchvision torchaudio \
+# VERSION-PINNED — keep equal to services/atlas-comfy-pod so R&D and prod share a torch.
+ARG TORCH_REF=2.11.0
+ARG TORCHVISION_REF=0.26.0
+ARG TORCHAUDIO_REF=2.11.0
+RUN pip install --force-reinstall \
+    "torch==${TORCH_REF}" "torchvision==${TORCHVISION_REF}" "torchaudio==${TORCHAUDIO_REF}" \
     --index-url https://download.pytorch.org/whl/cu128
 
 COPY extra_model_paths.yaml /ComfyUI/extra_model_paths.yaml

@@ -7,9 +7,13 @@ ROOT=/workspace
 COMFY="$ROOT/ComfyUI"
 NODES="$COMFY/custom_nodes"
 
-echo "== 1/4  ComfyUI + ComfyUI-Manager =="
+# Keep in lockstep with services/atlas-comfy-pod and services/atlas-serverless — a pod
+# provisioned off master would run a different core than the images do.
+COMFYUI_REF="${COMFYUI_REF:-v0.33.1}"
+
+echo "== 1/4  ComfyUI ($COMFYUI_REF) + ComfyUI-Manager =="
 if [ ! -d "$COMFY" ]; then
-	git clone --depth 1 https://github.com/comfyanonymous/ComfyUI "$COMFY"
+	git clone --branch "$COMFYUI_REF" --depth 1 https://github.com/comfyanonymous/ComfyUI "$COMFY"
 fi
 mkdir -p "$NODES"
 if [ ! -d "$NODES/ComfyUI-Manager" ]; then

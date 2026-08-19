@@ -29,12 +29,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # --- ComfyUI ----------------------------------------------------------------------
-# Pinned to v0.3.66 (2025-10-21) — the last release BEFORE comfy/quant_ops.py pulled
-# in the `comfy_kitchen` backend (whose na3d op annotates a param as `list[int]`, which
-# torch's infer_schema rejects → ComfyUI crashes on import). Matches the serverless
-# worker (services/atlas-serverless COMFYUI_REF=v0.3.66) so R&D and prod stay in lockstep.
-# Do NOT let ComfyUI-Manager "Update ComfyUI".
-ARG COMFYUI_REF=v0.3.66
+# Pinned to a TAG on purpose — never track master. An unpinned core would let a plain
+# image rebuild change generation behaviour with no commit of ours, and would let this
+# image and the serverless worker drift apart on separate rebuild days. Bump both in ONE PR.
+#
+# History: we sat on v0.3.66 (2025-10-21) for ~10 months because comfy/quant_ops.py had
+# pulled in the `comfy_kitchen` backend, whose na3d op annotated a param as `list[int]`
+# and got rejected by torch's infer_schema → crash on import. Fixed upstream since:
+# quant_ops.py no longer registers a torch.library op, and comfy_kitchen is now a
+# VERSION-PINNED wheel (comfy-kitchen==0.2.31) in ComfyUI's own requirements.txt.
+#
+# v0.33.1 also brings FLUX.2 in core — no custom node needed. Models are NOT baked; fetch
+# them onto the Network Volume with services/atlas-tool/runpod/fetch-models.py.
+#
+# MUST stay equal to services/atlas-serverless COMFYUI_REF so R&D and prod stay in lockstep.
+# Still do NOT use ComfyUI-Manager's "Update ComfyUI" — it patches the ephemeral container
+# layer only, so it silently reverts on the next container recreate. Bump this ARG instead.
+ARG COMFYUI_REF=v0.33.1
 RUN git clone https://github.com/comfyanonymous/ComfyUI /ComfyUI \
     && cd /ComfyUI && git checkout "${COMFYUI_REF}"
 # NOTE: this pulls stock cu124 torch as a dependency — that's fine, we force cu128 last.
@@ -45,12 +56,27 @@ RUN pip install -r /ComfyUI/requirements.txt
 # Stock nodes cloned from GitHub; the artist's MODIFIED PuLID-Flux is COPY'd from the
 # in-repo vendored copy (see ./custom_nodes/README.md — cloning stock balazik would drop
 # the attn_mask fix and break the blueprint).
+#
+# PINNED TO COMMITS. These used to be bare `git clone`s of the default branch, so any
+# rebuild could pull different node code against a frozen core — a bigger silent-drift
+# hole than the core pin itself, and how ComfyUI-Manager updated itself into a "core is
+# outdated, installs blocked" state without anyone changing a file here. Bump a SHA
+# deliberately, the same way COMFYUI_REF is bumped.
 WORKDIR /ComfyUI/custom_nodes
-RUN git clone https://github.com/cubiq/ComfyUI_IPAdapter_plus       ComfyUI_IPAdapter_plus && \
-    git clone https://github.com/1038lab/ComfyUI-RMBG               ComfyUI-RMBG && \
-    git clone https://github.com/Fannovel16/comfyui_controlnet_aux  comfyui_controlnet_aux && \
-    git clone https://github.com/cubiq/PuLID_ComfyUI                PuLID_ComfyUI && \
-    git clone https://github.com/Comfy-Org/ComfyUI-Manager          ComfyUI-Manager
+# 12-char SHAs, not 40: a full hex SHA trips the repo secret scanner, and a trailing
+# `# pragma` would be swallowed into the ARG value rather than read as a comment.
+ARG IPADAPTER_REF=a0f451a5113c
+ARG RMBG_REF=9edb2bec3900
+ARG CONTROLNET_AUX_REF=e8b689a513c3
+ARG PULID_REF=93e0c4c226b8
+ARG MANAGER_REF=f39cbd56feca
+RUN set -eux; \
+    clone_at() { git clone "$1" "$2" && git -C "$2" checkout --quiet "$3"; }; \
+    clone_at https://github.com/cubiq/ComfyUI_IPAdapter_plus      ComfyUI_IPAdapter_plus "${IPADAPTER_REF}"; \
+    clone_at https://github.com/1038lab/ComfyUI-RMBG              ComfyUI-RMBG           "${RMBG_REF}"; \
+    clone_at https://github.com/Fannovel16/comfyui_controlnet_aux comfyui_controlnet_aux "${CONTROLNET_AUX_REF}"; \
+    clone_at https://github.com/cubiq/PuLID_ComfyUI               PuLID_ComfyUI          "${PULID_REF}"; \
+    clone_at https://github.com/Comfy-Org/ComfyUI-Manager         ComfyUI-Manager        "${MANAGER_REF}"
 # Vendored, artist-modified PuLID-Flux (duplicated into this build context so COPY can
 # reach it — Docker COPY can't escape the context to ../atlas-serverless).
 COPY custom_nodes/ComfyUI-PuLID-Flux /ComfyUI/custom_nodes/ComfyUI-PuLID-Flux
@@ -75,7 +101,14 @@ RUN mkdir -p /ComfyUI/user/default/ComfyUI-Manager && \
 # Every step above (ComfyUI + each node's requirements.txt) can drag torch back to a
 # stock cu124 build (we hit exactly this — torch kept reverting to 2.4.1+cu124). Force
 # the Blackwell-capable cu128 build in LAST so nothing can clobber it.
-RUN pip install --force-reinstall torch torchvision torchaudio \
+# VERSION-PINNED too: this step used to install whatever cu128 torch was newest that day,
+# so two rebuilds a week apart shipped different torch. These are the versions current
+# when the v0.33.1 bump landed; keep them equal to the serverless worker's.
+ARG TORCH_REF=2.11.0
+ARG TORCHVISION_REF=0.26.0
+ARG TORCHAUDIO_REF=2.11.0
+RUN pip install --force-reinstall \
+    "torch==${TORCH_REF}" "torchvision==${TORCHVISION_REF}" "torchaudio==${TORCHAUDIO_REF}" \
     --index-url https://download.pytorch.org/whl/cu128
 
 # --- Entrypoint -------------------------------------------------------------------

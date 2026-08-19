@@ -61,6 +61,39 @@ bash provision.sh
 Set your R2 creds in the pod's env before running (Pod → Edit → Environment):
 `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
 
+## 3b. Optional: fetch an upstream model set (FLUX.2)
+
+`pull-models.py` mirrors **our** curated R2 set. For a big public set there's no reason
+to route it through R2 — `fetch-models.py` pulls it from Hugging Face straight onto the
+volume instead (idempotent, and resumable via HTTP Range, which matters when a pod web
+terminal drops in the middle of a 35 GB file):
+
+```bash
+py services/atlas-tool/runpod/fetch-models.py --list
+```
+
+```bash
+py services/atlas-tool/runpod/fetch-models.py --set flux2-klein --dest /workspace/ComfyUI/models
+```
+
+FLUX.2 needs **no custom node** — it is native in ComfyUI core from the `v0.33.1` pin
+(`comfy/ldm/flux` plus the built-in `Flux.2 …` blueprints). Only the weights are missing.
+
+| Set | Size | Licence | Fits our fleet? |
+|---|---|---|---|
+| `flux2-klein` | 12.5 GB | **apache-2.0** (model + Qwen3 encoder) | Yes — comfortable on a 24 GB card |
+| `flux2-dev` | 53.8 GB | **non-commercial** (BFL FLUX.2 [dev]) | Not really — 35 GB of weights vs a 32 GB max card, so CPU offload |
+| `flux2-dev-turbo` | 2.8 GB | inherits dev's non-commercial terms | Add-on for `flux2-dev` |
+
+**Start with `flux2-klein`.** It is the only FLUX.2 variant that is both Apache-2.0 (so it
+could ever ship in a game, unlike FLUX.1-dev/PuLID which are R&D-only) and small enough to
+run without offload on the cards in the fleet. `flux2-dev` is for quality comparison only —
+check the Network Volume has ~54 GB spare first; it was sized for SDXL/FLUX.1.
+
+> One caveat the script also prints: the `flux2-vae` file both sets use is served from the
+> `Comfy-Org/flux2-dev` repo, which is licensed `other`, not apache-2.0. Confirm the VAE's
+> terms yourself before anything from klein ships commercially.
+
 ## 4. Start ComfyUI
 
 ```bash
