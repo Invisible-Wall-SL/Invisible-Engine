@@ -1,4 +1,4 @@
-import type { WinLevelData } from './winLevelMap';
+import type { WinLevelData } from 'engine-game';
 
 /**
  * Shared reactive bridge for the free-spin OUTRO gate/driver → visual split (§17 Phase 3, FS-7).

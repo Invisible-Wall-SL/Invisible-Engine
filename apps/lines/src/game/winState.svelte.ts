@@ -1,4 +1,4 @@
-import type { WinLevelData } from './winLevelMap';
+import type { WinLevelData } from 'engine-game';
 
 /**
  * Shared reactive bridge for the WIN overlay gate → visual split (mirrors

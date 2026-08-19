@@ -3,7 +3,7 @@
 	import { fountain as baseConfig } from 'constants-shared/particleConfig';
 	import { LEVEL_PARTICLE_COIN_MAP } from 'constants-shared/particleCoin';
 
-	import type { WinLevelAlias } from '../game/winLevelMap';
+	import type { WinLevelAlias } from 'engine-game';
 
 	type Props = {
 		emit?: boolean;

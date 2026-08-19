@@ -8,7 +8,7 @@ import { resolveReelGridFromNode, resolveReelSpinProfile, type ReelGridNode } fr
 
 import type { GameType, RawSymbol, SymbolState, SymbolName } from './types';
 import { stateLayoutDerived } from './stateLayout';
-import { winLevelMap } from './winLevelMap';
+import { winLevelMap } from 'engine-game';
 import { eventEmitter } from './eventEmitter';
 import { bakedStackedConfig } from '../editor-scenes';
 import {
