@@ -7,6 +7,7 @@
     "lint": "eslint apps packages services",
     "lint:workspaces": "turbo run lint",
     "check:path-imports": "node scripts/check-path-imports.mjs",
+    "check:ways": "node scripts/check-ways-evaluator.mjs && node scripts/check-ways-protocol.mjs",
     "format": "turbo run format",
     "dev": "turbo run dev",
     "build": "turbo run build",

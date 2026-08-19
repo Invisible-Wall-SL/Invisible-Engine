@@ -65,11 +65,14 @@ async function hasOwnBuiltBundle(key: string): Promise<boolean> {
 }
 
 /**
- * Map an authored game kind to its mock RGS protocol. Book-of games use the `book`
- * mock (buy-feature + free spins); everything else uses the `lines` mock.
+ * Map an authored game kind to its mock RGS protocol. Book-of games use the `book` mock
+ * (buy-feature + free spins); `ways` uses the lines mock with its ways win evaluator (Phase D of
+ * `docs/design/game-type-templates.md`); everything else uses the plain `lines` mock.
  */
 function protocolFor(gameType: string): MockProtocol {
-	return gameType === 'bookOf' ? 'book' : 'lines';
+	if (gameType === 'bookOf') return 'book';
+	if (gameType === 'ways') return 'ways';
+	return 'lines';
 }
 
 /**

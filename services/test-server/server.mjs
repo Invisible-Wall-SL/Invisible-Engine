@@ -151,10 +151,14 @@ const linesGrid = (() => {
 // `grid` is THIS project's own board (from its Game Config, carried in the manifest entry). When
 // present it deals the project's real numReels/numRows/paylines so the mock matches the client that
 // authored e.g. 5 rows; absent ⇒ the shared `linesGrid` default (apps/lines). Book keeps its shape.
-const makeMock = (protocol, label, grid) =>
-	protocol === 'book'
-		? createBookMock({ label })
-		: createLinesMock({ label, ...(grid ?? linesGrid ?? {}) });
+const makeMock = (protocol, label, grid) => {
+	if (protocol === 'book') return createBookMock({ label });
+	// `ways` reuses the lines mock entirely and only swaps how wins are DECIDED — the session, round
+	// lifecycle, scatter pass and event vocabulary are identical between them, which is why this is
+	// an option rather than a third forked mock. See docs/design/game-type-templates.md (Phase D).
+	const winModel = protocol === 'ways' ? 'ways' : 'lines';
+	return createLinesMock({ label, winModel, ...(grid ?? linesGrid ?? {}) });
+};
 
 /** Accept a manifest `grid` only when it is well-formed (reels + rows + numReels-wide paylines); any
  *  malformed entry ⇒ null ⇒ the mock keeps its shared default. Defensive: the manifest is external.
@@ -287,7 +291,7 @@ async function hydrate() {
 	const nextBundles = {};
 	const runtimeIds = new Set();
 	for (const [key, meta] of Object.entries(source.games)) {
-		const protocol = meta.protocol === 'book' ? 'book' : 'lines';
+		const protocol = ['book', 'ways'].includes(meta.protocol) ? meta.protocol : 'lines';
 		const runtime = typeof meta.runtime === 'string' && meta.runtime ? meta.runtime : null;
 		nextRegistry[key] = { protocol, name: meta.name ?? key, runtime, grid: validGrid(meta.grid) };
 		if (runtime) {
