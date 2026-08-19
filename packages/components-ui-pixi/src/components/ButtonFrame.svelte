@@ -48,19 +48,23 @@
 	}
 	const { texture, tint: tintProp, borderColor, borderWidth, borderRadius }: Props = $props();
 
+	// Resolved ONCE at init: `getComponentParams()` is `getContext`, which throws
+	// `lifecycle_outside_component` when called outside component initialisation — and
+	// `onpress` below runs from a Pixi pointer callback, long after init. The instance
+	// provides a stable object whose engine-provided keys are live getters, so holding
+	// the reference keeps every read reactive.
+	const params = getComponentParams();
+
 	// Empty string normalizes to undefined: a cleared editor field must fall back
 	// like an absent param (otherwise `''` defeats the painted disabled/active
 	// fallbacks below while rendering nothing).
 	const stringParam = (key: string): string | undefined => {
-		const params = getComponentParams();
 		const value = typeof params[key] === 'string' ? (params[key] as string) : undefined;
 		return value === '' ? undefined : value;
 	};
-	const numberParam = (key: string): number | undefined => {
-		const params = getComponentParams();
-		return typeof params[key] === 'number' ? (params[key] as number) : undefined;
-	};
-	const boolParam = (key: string): boolean => getComponentParams()[key] === true;
+	const numberParam = (key: string): number | undefined =>
+		typeof params[key] === 'number' ? (params[key] as number) : undefined;
+	const boolParam = (key: string): boolean => params[key] === true;
 
 	const variant = $derived(stringParam('variant') ?? 'dark');
 	// Per-part tint (bind.props) overrides the instance `tint` param; else white.
@@ -88,7 +92,7 @@
 	// art-button path in `<ComponentInstance>`); undefined ⇒ the state has no image
 	// of its own.
 	const stateImage = $derived(
-		resolveButtonStateImage(getComponentParams(), {
+		resolveButtonStateImage(params, {
 			hovered,
 			pressed,
 			disabled,
@@ -126,7 +130,7 @@
 	// `HudValue`'s `value`); undefined until the action feed registers it → no-op.
 	const onpress = () => {
 		if (disabled) return;
-		const handler = getComponentParams()['onpress'];
+		const handler = params['onpress'];
 		if (typeof handler === 'function') (handler as () => void)();
 	};
 </script>
