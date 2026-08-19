@@ -42,7 +42,7 @@ import {
 	type FreeSpinOwnership,
 } from './freeSpinOwnership';
 import { gateBookOwnership, resolveBookOwnership } from './bookOwnership';
-import { freeSpinsRemaining, freeSpinsTotal } from './freeSpinCounterValues';
+import { freeSpinsRemaining, freeSpinsTotal } from 'engine-game';
 import { stateBet, stateBetDerived } from 'state-shared';
 
 import { awaitCue, waitPresentation } from './unskippablePresentation';

@@ -3,12 +3,12 @@
 	import { waitForResolve } from 'utils-shared/wait';
 	import { roundSkip } from 'utils-shared/skipToken';
 	import { OnMount } from 'components-shared';
-	import type { WinLevelData } from '../game/winLevelMap';
+	import type { WinLevelData } from 'engine-game';
 
 	import { getContext } from '../game/context';
 	import { FREE_SPIN_STEPS } from '../game/freeSpinOwnership';
 	import { getFlowInterpreter } from '../game/flowInterpreterHolder';
-	import CountUpInteraction from './CountUpInteraction.svelte';
+	import { CountUpInteraction } from 'engine-game';
 	import OutroStatePublisher from './OutroStatePublisher.svelte';
 	import { freeSpinOutroState } from '../game/freeSpinOutroState.svelte';
 

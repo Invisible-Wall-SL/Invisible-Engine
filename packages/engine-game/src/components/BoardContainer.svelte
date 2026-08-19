@@ -3,7 +3,7 @@
 
 	import { Container } from 'pixi-svelte';
 
-	import { getContext } from '../game/context';
+	import { getGameContext } from '../game/context';
 
 	type Props = {
 		children: Snippet;
@@ -11,7 +11,7 @@
 
 	const props: Props = $props();
 
-	const context = getContext();
+	const context = getGameContext();
 </script>
 
 <Container

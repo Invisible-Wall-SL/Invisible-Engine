@@ -47,6 +47,7 @@
 		"engine-layout": "workspace:*",
 		"game-config": "workspace:*",
 		"engine-fx": "workspace:*",
+		"engine-game": "workspace:*",
 		"components-ui-html": "workspace:*",
 		"components-pixi": "workspace:*",
 		"components-ui-pixi": "workspace:*",

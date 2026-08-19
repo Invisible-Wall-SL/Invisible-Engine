@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { SpineProvider, SpineTrack } from 'pixi-svelte';
-	import { getContext } from '../game/context';
+	import { getGameContext } from '../game/context';
 
 	type Props = {
 		oncomplete: () => void;
@@ -13,7 +13,7 @@
 	};
 
 	const props: Props = $props();
-	const context = getContext();
+	const context = getGameContext();
 
 	const x = $derived(props.x ?? context.stateLayoutDerived.canvasSizes().width * 0.5);
 	const y = $derived(props.y ?? context.stateLayoutDerived.canvasSizes().height * 0.5);

@@ -4,7 +4,7 @@ import { UI_INFO_RULES } from 'engine-layout';
 import { getNumRows, getPaylines, paylineColor } from './gameConfig';
 import { numLines, paytable } from './paytable';
 import { getSymbolInfo } from './utils';
-import { SYMBOL_SIZE } from './constants';
+import { SYMBOL_SIZE } from 'engine-game';
 import type { SymbolName } from './types';
 
 // Build the symbol-id -> static icon map for the symbols shown in the paytable, from the

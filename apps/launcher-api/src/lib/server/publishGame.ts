@@ -65,21 +65,39 @@ async function hasOwnBuiltBundle(key: string): Promise<boolean> {
 }
 
 /**
- * Map an authored game kind to its mock RGS protocol. Book-of games use the `book`
- * mock (buy-feature + free spins); everything else uses the `lines` mock.
+ * Map an authored game kind to its mock RGS protocol. Book-of games use the `book` mock
+ * (buy-feature + free spins); `ways` uses the lines mock with its ways win evaluator (Phase D of
+ * `docs/design/game-type-templates.md`); everything else uses the plain `lines` mock.
  */
 function protocolFor(gameType: string): MockProtocol {
-	return gameType === 'bookOf' ? 'book' : 'lines';
+	if (gameType === 'bookOf') return 'book';
+	if (gameType === 'ways') return 'ways';
+	return 'lines';
 }
 
 /**
- * Map an authored game kind to the prebuilt generic-runtime bundle id served at
- * `test_server/_runtime/<runtime>/`.
+ * The prebuilt runtime bundle id a game is served from (`test_server/_runtime/<runtime>/`).
  *
- * Phase 1: ALWAYS `'lines'` — the only generic runtime that exists today (Phase 0).
- * TODO(Phase 3): add `ways`/`cluster`/`scatter`/`bookOf` runtimes once each is
- * built as its own prebuilt bundle + the `gameType` runtime switch (engine gap 1),
- * and select per `gameType` here.
+ * EVERY game type shares ONE bundle, and that is a decision, not a gap — it replaces the old
+ * "add a runtime per type" TODO, which Phase D of `docs/design/game-type-templates.md` found to be
+ * the wrong shape:
+ *
+ *   - `runtime-release.yml` builds a runtime FROM `apps/<id>`. A `_runtime/ways` would therefore be
+ *     built from `apps/ways`, which is still the vanilla upstream sample: no flow-v2 interpreter,
+ *     no editor scenes, no symbols registry, no game-config resolver. It cannot consume a runtime
+ *     bundle at all, so pointing a ways project at it would not give that project a ways game — it
+ *     would break it.
+ *   - The shared bundle (built from `apps/lines`, which carries the whole engine) now ADAPTS: the
+ *     config states its `winModel`, `activeWinModel()` reads it, payline-specific surfaces stand
+ *     down for a non-lines model, and `ways` book events are identical to `lines` anyway.
+ *
+ * So a bundle per type buys nothing for `ways` and costs a broken game. It becomes worth revisiting
+ * only for a type that needs bespoke COMPILED code the shared bundle cannot carry — `cluster`'s
+ * tumble board is the first real candidate.
+ *
+ * The id stays `'lines'` for compatibility: every published manifest already references it, and
+ * `runtime-release.yml` auto-publishes it on every engine merge. The name is historical — it means
+ * "the shared engine runtime", not "the lines game".
  */
 function runtimeFor(_gameType: string): string {
 	return 'lines';

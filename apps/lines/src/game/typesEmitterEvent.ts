@@ -7,7 +7,7 @@ import type { EmitterEventSpecialBook } from '../components/SpecialBook.svelte';
 import type { EmitterEventWin } from '../components/Win.svelte';
 import type { EmitterEventWinLine } from '../components/WinLine.svelte';
 import type { EmitterEventSound } from '../components/Sound.svelte';
-import type { EmitterEventTransition } from '../components/Transition.svelte';
+import type { EmitterEventTransition } from 'engine-game';
 
 export type EmitterEventGame =
 	| EmitterEventBoard

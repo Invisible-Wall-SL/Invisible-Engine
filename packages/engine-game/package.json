@@ -1,0 +1,50 @@
+{
+	"name": "engine-game",
+	"version": "0.0.0",
+	"private": true,
+	"main": "./index.ts",
+	"types": "./index.ts",
+	"license": "MIT",
+	"scripts": {
+		"format": "prettier --write --ignore-path=../../.prettierignore .",
+		"lint": "eslint \"src\""
+	},
+	"type": "module",
+	"devDependencies": {
+		"eslint": "9.21.0",
+		"eslint-config-custom": "workspace:*",
+		"config-ts": "workspace:*",
+		"config-vite": "workspace:*",
+		"config-svelte": "workspace:*"
+	},
+	"dependencies": {
+		"pixi.js": "8.8.1",
+		"lodash": "4.17.16",
+		"@types/lodash": "4.17.16",
+		"svelte": "5.35.1",
+		"vite": "6.2.0",
+		"@sveltejs/kit": "2.17.3",
+		"envs": "workspace:*",
+		"pixi-svelte": "workspace:*",
+		"state-shared": "workspace:*",
+		"constants-shared": "workspace:*",
+		"components-shared": "workspace:*",
+		"components-layout": "workspace:*",
+		"components-pixi": "workspace:*",
+		"components-ui-pixi": "workspace:*",
+		"engine-layout": "workspace:*",
+		"engine-flow": "workspace:*",
+		"engine-flow-v2": "workspace:*",
+		"engine-fx": "workspace:*",
+		"game-config": "workspace:*",
+		"rgs-requests": "workspace:*",
+		"utils-event-emitter": "workspace:*",
+		"utils-shared": "workspace:*",
+		"utils-xstate": "workspace:*",
+		"utils-slots": "workspace:*",
+		"utils-book": "workspace:*",
+		"utils-bet": "workspace:*",
+		"utils-layout": "workspace:*",
+		"utils-sound": "workspace:*"
+	}
+}

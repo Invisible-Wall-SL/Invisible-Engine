@@ -5,7 +5,7 @@
 
 	import { getContext } from '../game/context';
 	import { getSymbolInfo } from '../game/utils';
-	import { SYMBOL_SPINE_FILL } from '../game/constants';
+	import { SYMBOL_SPINE_FILL } from 'engine-game';
 
 	type Props = {
 		symbolInfo: ReturnType<typeof getSymbolInfo>;

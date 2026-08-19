@@ -11,11 +11,11 @@
 	import { formatWinText } from 'engine-layout';
 
 	import { getContext } from '../game/context';
-	import { SYMBOL_SIZE } from '../game/constants';
+	import { SYMBOL_SIZE } from 'engine-game';
 	import { activeWinLevelChain } from '../game/gameConfig';
-	import type { WinLevelData } from '../game/winLevelMap';
-	import WinAnimation, { type WinAnimationStep } from './WinAnimation.svelte';
-	import WinCoins from './WinCoins.svelte';
+	import type { WinLevelData } from 'engine-game';
+	import { WinAnimation, type WinAnimationStep } from 'engine-game';
+	import { WinCoins } from 'engine-game';
 	import { winState } from '../game/winState.svelte';
 	import { bakedWinText } from '../editor-scenes';
 

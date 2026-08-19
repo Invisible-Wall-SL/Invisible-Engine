@@ -3,14 +3,14 @@
 	import { FadeContainer } from 'components-pixi';
 	import { waitForResolve } from 'utils-shared/wait';
 
-	import { getContext } from '../game/context';
+	import { getGameContext } from '../game/context';
 	import PressToContinue from './PressToContinue.svelte';
 
 	// The full-screen GATE of the free-spin intro (§17 Phase 3): the dim backdrop + the
 	// press-to-continue tap, and it OWNS the round-blocking await (so the board-relative
 	// VISUAL — `FreeSpinIntroVisual` — can be an editor-positioned componentInstance while
 	// this stays full-screen). Mounted as a `canvas`-space bind anchor, never positioned.
-	const context = getContext();
+	const context = getGameContext();
 
 	let show = $state(false);
 	let oncomplete = $state(() => {});

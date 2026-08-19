@@ -1,6 +1,8 @@
 import { normalizeGameConfigDoc, resolveWinLevels, type GameConfigDoc } from 'game-config';
 import { loadGameConfigDoc, loadGameConfigDocWithEtag } from './gameConfigStorage';
 import linesConfig from '$lib/data/gameConfig/lines.json';
+import scatterConfig from '$lib/data/gameConfig/scatter.json';
+import waysConfig from '$lib/data/gameConfig/ways.json';
 
 /**
  * Coded Game Config defaults — the per-GAME-TYPE starting point a project inherits until it
@@ -29,7 +31,7 @@ const FALLBACK_GAME_TYPE = 'lines';
  * and makes that impossible.
  */
 const DEFAULTS_BY_GAME_TYPE: Record<string, GameConfigDoc> = Object.fromEntries(
-	Object.entries({ lines: linesConfig }).flatMap(([gameType, raw]) => {
+	Object.entries({ lines: linesConfig, ways: waysConfig, scatter: scatterConfig }).flatMap(([gameType, raw]) => {
 		const doc = normalizeGameConfigDoc(raw);
 		return doc ? [[gameType, doc] as const] : [];
 	}),

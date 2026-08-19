@@ -141,7 +141,7 @@ export async function engineDeployStatus(runtimeId: string): Promise<EngineDeplo
 	return { status: 'unknown' };
 }
 
-export type MockProtocol = 'lines' | 'book';
+export type MockProtocol = 'lines' | 'book' | 'ways';
 
 export interface TestServerGameEntry {
 	protocol: MockProtocol;

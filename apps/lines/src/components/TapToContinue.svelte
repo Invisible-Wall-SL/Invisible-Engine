@@ -3,7 +3,7 @@
 	import { getFlowComplete } from 'engine-layout';
 
 	import { fireTapToStartOnce } from '../game/flowV2InterpreterHolder';
-	import PressToContinue from './PressToContinue.svelte';
+	import { PressToContinue } from 'engine-game';
 
 	// The coded press surface behind the engine-layout `tapToContinue` toggle (the
 	// `implement` half of the SHARED overlay capability — engine-layout declares the

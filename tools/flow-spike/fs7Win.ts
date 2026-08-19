@@ -25,7 +25,7 @@
  */
 
 import { isNodeRevealed, isTapArmed } from '../../packages/engine-layout/src/lib/signalGates';
-import { resolveWinMount } from '../../apps/lines/src/game/winOwnership';
+import { resolveWinMount } from '../../packages/engine-game/src/game/winOwnership';
 
 let failed = false;
 const assert = (label: string, ok: boolean, detail?: string) => {

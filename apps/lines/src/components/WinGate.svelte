@@ -4,12 +4,12 @@
 	import { roundSkip } from 'utils-shared/skipToken';
 	import { CanvasSizeRectangle } from 'components-layout';
 	import { OnMount } from 'components-shared';
-	import type { WinLevelData } from '../game/winLevelMap';
+	import type { WinLevelData } from 'engine-game';
 
 	import { getContext } from '../game/context';
 	import { flowV2DrivesScreens } from '../game/flowV2Runtime.svelte';
-	import CountUpInteraction from './CountUpInteraction.svelte';
-	import PressToContinue from './PressToContinue.svelte';
+	import { CountUpInteraction } from 'engine-game';
+	import { PressToContinue } from 'engine-game';
 	import WinStatePublisher from './WinStatePublisher.svelte';
 	import { winState } from '../game/winState.svelte';
 

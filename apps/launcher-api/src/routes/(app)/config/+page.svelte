@@ -10,6 +10,7 @@
 		normalizeGameConfigDoc,
 		resolveBetModes,
 		resolveWinLevels,
+		resolveWinModel,
 		symbolsInPlay,
 		validateGameConfigDoc,
 		type BetModeKind,
@@ -477,6 +478,42 @@
 		delete doc.paylineColors[id];
 		if (!Object.keys(doc.paylineColors).length) delete doc.paylineColors;
 	}
+	/**
+	 * WIN MODEL — how this game decides a win (Phase C of `docs/design/game-type-templates.md`).
+	 *
+	 * `lines` is the DEFAULT and is deliberately never stored: `normalizeWinModel` drops it, which is
+	 * what keeps every config authored before this field byte-identical. So picking Lines here
+	 * DELETES the field rather than writing `{type:'lines'}` — the page must mirror the normalizer,
+	 * otherwise the doc looks dirty, saves, and comes back changed.
+	 */
+	const winModelType = $derived(resolveWinModel(doc).type);
+
+	function setWinModelType(type: string) {
+		if (type === 'lines') {
+			delete doc.winModel;
+			return;
+		}
+		// Seed each arm with the same defaults `normalizeWinModel` would fill in, so switching type
+		// never leaves a half-authored model and the tool shows exactly what would be stored.
+		if (type === 'ways') doc.winModel = { type: 'ways', direction: 'ltr', minKind: 3 };
+		if (type === 'cluster')
+			doc.winModel = { type: 'cluster', minCluster: 5, adjacency: 'orthogonal' };
+		if (type === 'scatter') doc.winModel = { type: 'scatter', minCount: 8 };
+	}
+
+	/** Write one numeric field on the active arm. Ignores a blank/NaN box so a half-typed number
+	 *  doesn't collapse the model to 0 mid-keystroke. */
+	function setWinModelNumber(field: 'minKind' | 'minCluster' | 'minCount', raw: string) {
+		const n = Number(raw);
+		if (!doc.winModel || !Number.isFinite(n) || n < 1) return;
+		(doc.winModel as unknown as Record<string, number>)[field] = Math.floor(n);
+	}
+
+	function setWinModelChoice(field: 'direction' | 'adjacency', value: string) {
+		if (!doc.winModel) return;
+		(doc.winModel as unknown as Record<string, string>)[field] = value;
+	}
+
 	// Paylines are SERVER-DEFINED at runtime (the game reads its active lines from the RGS), so the
 	// visual grid is a read-only view here — no cell-move / add / remove. Only the per-line COLOUR is
 	// authored (the sparse `paylineColors` path above). See `docs/design/invisible-game-config.md`.
@@ -1268,9 +1305,101 @@
 			{/each}
 		</section>
 
+		<!-- Win model -------------------------------------------------------------->
+		<section>
+			<h2>How wins are decided</h2>
+			<p class="hint">
+				The <strong>win model</strong> is what makes this a lines game or a ways / cluster / scatter
+				one. It decides which symbols on the board count as a win — the paylines below only matter
+				for a <strong>Lines</strong> game.
+			</p>
+			<div class="fields">
+				<label
+					><span>Win model</span><select
+						value={winModelType}
+						onchange={(e) => setWinModelType(e.currentTarget.value)}
+						disabled={lease.readOnly}
+					>
+						<option value="lines">Lines — paylines pay left to right</option>
+						<option value="ways">Ways — any adjacent reels pay</option>
+						<option value="cluster">Cluster — connected groups pay</option>
+						<option value="scatter">Scatter — anywhere on the board pays</option>
+					</select></label
+				>
+				{#if doc.winModel?.type === 'ways'}
+					<label
+						><span>Pays from</span><select
+							value={doc.winModel.direction}
+							onchange={(e) => setWinModelChoice('direction', e.currentTarget.value)}
+							disabled={lease.readOnly}
+						>
+							<option value="ltr">left to right</option>
+							<option value="both">both directions</option>
+						</select></label
+					>
+					<label
+						><span>Fewest reels</span><input
+							type="number"
+							min="1"
+							value={doc.winModel.minKind}
+							oninput={(e) => setWinModelNumber('minKind', e.currentTarget.value)}
+							disabled={lease.readOnly}
+						/></label
+					>
+				{:else if doc.winModel?.type === 'cluster'}
+					<label
+						><span>Fewest cells</span><input
+							type="number"
+							min="1"
+							value={doc.winModel.minCluster}
+							oninput={(e) => setWinModelNumber('minCluster', e.currentTarget.value)}
+							disabled={lease.readOnly}
+						/></label
+					>
+					<label
+						><span>Cells connect</span><select
+							value={doc.winModel.adjacency}
+							onchange={(e) => setWinModelChoice('adjacency', e.currentTarget.value)}
+							disabled={lease.readOnly}
+						>
+							<option value="orthogonal">edge to edge</option>
+							<option value="diagonal">edges + corners</option>
+						</select></label
+					>
+				{:else if doc.winModel?.type === 'scatter'}
+					<label
+						><span>Fewest symbols</span><input
+							type="number"
+							min="1"
+							value={doc.winModel.minCount}
+							oninput={(e) => setWinModelNumber('minCount', e.currentTarget.value)}
+							disabled={lease.readOnly}
+						/></label
+					>
+				{/if}
+			</div>
+			{#if winModelType !== 'lines'}
+				<p class="hint muted-note">
+					Changing this changes only what the config <em>declares</em>. The engine still needs a
+					runtime for this game type — until then the game plays as lines regardless of what is
+					saved here.
+				</p>
+			{/if}
+			{#each issuesFor('winModel') as issue (issue.path + issue.message)}
+				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+			{/each}
+		</section>
+
 		<!-- Paylines --------------------------------------------------------------->
 		<section>
 			<h2>Paylines</h2>
+			{#if winModelType !== 'lines'}
+				<div class="banner locked">
+					<strong
+						>This game pays by {winModelType}, so these paylines are not used.</strong
+					> They stay saved (switching back to Lines restores them) but nothing below affects play.
+				</div>
+			{/if}
 			{#if data.serverPaylines}
 				<div class="banner locked">
 					<strong>These are the live server (RGS) paylines</strong> — the {data.serverPaylines

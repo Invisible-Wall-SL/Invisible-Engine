@@ -159,19 +159,19 @@
 		hasAuthoredFreeSpinOutro,
 		resolveFreeSpinOutroMount,
 	} from '../game/freeSpinOwnership';
-	import { resolveWinMount } from '../game/winOwnership';
-	import { freeSpinOutroState } from '../game/freeSpinOutroState.svelte';
-	import { winState } from '../game/winState.svelte';
 	import {
+		boolSource,
+		eventSignal,
 		freeSpinsCurrent,
 		freeSpinsRemaining,
 		freeSpinsTotal,
-	} from '../game/freeSpinCounterValues';
+		resolveWinMount,
+		textSource,
+		valueSource,
+	} from 'engine-game';
+	import { freeSpinOutroState } from '../game/freeSpinOutroState.svelte';
+	import { winState } from '../game/winState.svelte';
 	import { rebuildBoard, setBoardOverride, stateGame } from '../game/stateGame.svelte';
-	import { valueSource } from '../game/valueSource.svelte';
-	import { boolSource } from '../game/boolSource.svelte';
-	import { textSource } from '../game/textSource.svelte';
-	import { eventSignal } from '../game/signalSource';
 	import { HUD_BUTTON_INSTANCES } from '../game/editorFlags';
 	import {
 		bakedEditorArtAssets,
@@ -195,9 +195,9 @@
 	import { stateApp } from '../game/stateApp';
 	import EnableSound from './EnableSound.svelte';
 	import EnableGameActor from './EnableGameActor.svelte';
-	import ResumeBet from './ResumeBet.svelte';
+	import { ResumeBet } from 'engine-game';
 	import Sound from './Sound.svelte';
-	import Background from './Background.svelte';
+	import { Background } from 'engine-game';
 	import BoardFrame from './BoardFrame.svelte';
 	import Board from './Board.svelte';
 	import Anticipations from './Anticipations.svelte';
@@ -211,7 +211,7 @@
 	import WinGate from './WinGate.svelte';
 	import WinVisual from './WinVisual.svelte';
 	import FreeSpinIntro from './FreeSpinIntro.svelte';
-	import FreeSpinIntroGate from './FreeSpinIntroGate.svelte';
+	import { FreeSpinIntroGate } from 'engine-game';
 	import FreeSpinIntroFlowGate from './FreeSpinIntroFlowGate.svelte';
 	import FreeSpinIntroVisual from './FreeSpinIntroVisual.svelte';
 	import FreeSpinCounter from './FreeSpinCounter.svelte';
@@ -226,7 +226,7 @@
 	import MessageSymbol from './MessageSymbol.svelte';
 	import RevealSymbolRider from './RevealSymbolRider.svelte';
 	import TapToContinue from './TapToContinue.svelte';
-	import Transition from './Transition.svelte';
+	import { Transition } from 'engine-game';
 	import Effects from './Effects.svelte';
 	import FlowV2Messages from './FlowV2Messages.svelte';
 	import FlowV2Cinematics from './FlowV2Cinematics.svelte';
@@ -1338,7 +1338,7 @@
 	// component instance is placed in a scene (pure parity with the doc-less boot) —
 	// `<ComponentInstance>` only subscribes a signal a cue names. `win` fires when the
 	// win presentation begins (`winShow`); `bigWin` fires only on the `'big'` win-level
-	// tier (covers big/superwin/mega/epic/max — see game/winLevelMap.ts).
+	// tier (covers big/superwin/mega/epic/max — see engine-game's winLevelMap).
 	// `freeSpinStart`/`freeSpinEnd` fire on the free-spin lifecycle: the intro presents
 	// (`freeSpinIntroShow`, broadcast by the coded `freeSpinTrigger` handler) and the outro
 	// presents (`freeSpinOutroShow`, broadcast by the coded `freeSpinEnd` handler) — the

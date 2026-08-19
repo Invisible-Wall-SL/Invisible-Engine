@@ -197,6 +197,62 @@ const dedupeCoincidingWins = (wins) => {
 	);
 };
 
+/**
+ * Evaluate WAYS pays (`winModel: 'ways'`). Phase D of `docs/design/game-type-templates.md`.
+ *
+ * A ways win is a symbol appearing on consecutive reels from the LEFTMOST one; the run stops at the
+ * first reel that does not contain it. The payout multiplies by the number of distinct paths — the
+ * PRODUCT of how many times the symbol appears on each contributing reel (3 on reel 1 × 2 on reel 2
+ * = 6 ways). That is the one structural difference from a payline: a win covers EVERY matching cell
+ * on the contributing reels, so several cells per reel, which is why its positions cannot be
+ * expressed as a payline (one row per reel) and go out as a flat cell list instead.
+ *
+ * `betPerWay` plays the role `betPerLine` does for lines — the mock's own denomination, not real
+ * math. Wilds substitute for the paying symbol exactly as they do on a payline.
+ *
+ * Positions are emitted as a BARE ARRAY of `{reel,row}` because that is the only non-payline shape
+ * `stakeFacade`'s `winPositions` reads (`Array.isArray(ctx)`). An object wrapper silently yields no
+ * positions — the win would pay but light up nothing.
+ */
+export const evaluateWays = (reels, betPerWay, wild = null) => {
+	const wildPay = wild?.paytable ?? null;
+	const isWild = (sym) => wildPay !== null && sym === 'WILD';
+	const wins = [];
+
+	for (const symbol of LINE_SYMBOLS) {
+		// Per contributing reel, every row holding the symbol (or a substituting wild).
+		const perReel = [];
+		for (let reel = 0; reel < reels.length; reel++) {
+			const rows = [];
+			for (let row = 0; row < reels[reel].length; row++) {
+				const cell = reels[reel][row];
+				if (cell === symbol || isWild(cell)) rows.push(row);
+			}
+			if (rows.length === 0) break; // the run ends at the first reel without the symbol
+			perReel.push(rows);
+		}
+
+		const occurs = perReel.length;
+		const mult = PAY_TABLE[symbol]?.[occurs] ?? 0;
+		if (!mult) continue;
+
+		const ways = perReel.reduce((product, rows) => product * rows.length, 1);
+		const positions = perReel.flatMap((rows, reel) => rows.map((row) => ({ reel, row })));
+		wins.push({
+			what: symbol,
+			occurs,
+			mode: 'ways',
+			pay: mult * ways * betPerWay,
+			mpInfo: { mp: 1, replacements: 0 },
+			mpBonusInfo: null,
+			// Flat cell list — see the note above about `winPositions`. `ways` rides along so a
+			// client (or a human reading the wire) can see WHY the pay is a multiple of the paytable.
+			context: Object.assign(positions, { ways }),
+		});
+	}
+	return wins;
+};
+
 /** Evaluate scatter pays. SCATs pay anywhere on the board (not bound to a
  *  payline). Returns at most one win event with all scatter positions. */
 const evaluateScatters = (reels, totalStake) => {
@@ -291,8 +347,11 @@ const pathEndsWith = (pathname, route) => {
  *
  * @param {{ startBalance?: number, seed?: string, label?: string, reels?: number, rows?: number,
  *   paylines?: number[][], wild?: { paytable: Record<string, number> }, stacked?: boolean,
- *   symbols?: string[] }} [opts] `symbols` restricts the dealt line pool to the project's in-play
- *   symbols in SERVER vocabulary (PIC* plus SCAT); absent ⇒ the full default pool.
+ *   symbols?: string[], winModel?: 'lines' | 'ways' }} [opts] `symbols` restricts the dealt line
+ *   pool to the project's in-play symbols in SERVER vocabulary (PIC* plus SCAT); absent ⇒ the full
+ *   default pool. `winModel` selects how wins are DECIDED — everything else (session, seq, round
+ *   lifecycle, scatters, free spins, the whole event vocabulary) is identical between the two, which
+ *   is exactly why this is one option rather than a forked mock.
  */
 export function createMockRgs(opts = {}) {
 	/** Default in Play4Fun's native integer-cents convention (100 = $1.00).
@@ -315,6 +374,11 @@ export function createMockRgs(opts = {}) {
 	const paylines = coversAllRows(authoredPaylines, rowCount)
 		? authoredPaylines
 		: standardPaylines(reelCount, rowCount);
+
+	// How wins are decided. `lines` keeps the payline evaluator (default ⇒ every existing caller is
+	// byte-identical); `ways` swaps in the ways evaluator. Both then share the same scatter pass and
+	// the same event stream.
+	const winModel = opts.winModel === 'ways' ? 'ways' : 'lines';
 
 	// Opt-in WILD support (per-project, injected by the test server from a game's config). When a
 	// project puts a wild symbol IN PLAY (on its strips) with a paytable, `opts.wild.paytable` is the
@@ -539,7 +603,10 @@ export function createMockRgs(opts = {}) {
 					}
 					const reels = stackedDeal ? spinReelsStacked() : spinReels();
 					pendingRound.reels = reels;
-					const lineWins = evaluatePaylines(reels, pendingRound.betPerLine, paylines, wild);
+					const lineWins =
+						winModel === 'ways'
+							? evaluateWays(reels, pendingRound.betPerLine, wild)
+							: evaluatePaylines(reels, pendingRound.betPerLine, paylines, wild);
 					const scatterWin = evaluateScatters(reels, pendingRound.total);
 					const wins = scatterWin ? [...lineWins, scatterWin] : lineWins;
 					const totalWin = wins.reduce((s, w) => s + w.pay, 0);

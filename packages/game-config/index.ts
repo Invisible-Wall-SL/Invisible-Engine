@@ -4,3 +4,4 @@ export * from './src/inPlay';
 export * from './src/validate';
 export * from './src/betModes';
 export * from './src/winLevels';
+export * from './src/winModel';

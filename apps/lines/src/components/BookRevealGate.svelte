@@ -4,7 +4,7 @@
 	import { waitForResolve } from 'utils-shared/wait';
 
 	import { getContext } from '../game/context';
-	import PressToContinue from './PressToContinue.svelte';
+	import { PressToContinue } from 'engine-game';
 
 	// The optional full-screen GATE of the book reveal (Phase 3): the dim backdrop + the
 	// press-to-continue tap, and it OWNS the round-blocking await. Mirrors `FreeSpinIntroGate`
