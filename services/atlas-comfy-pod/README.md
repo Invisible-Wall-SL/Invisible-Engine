@@ -86,3 +86,15 @@ fully working — no re-install runbook.
 
   Sets, sizes and licences are in `services/atlas-tool/runpod/README.md` §3b. Models are
   NOT baked — they live on the volume, so a new model never needs an image rebuild.
+
+- **`/port-forward.py`** (from `tools/port-forward.py`) — forwards **8189 → 8188** so
+  ComfyUI answers on two ports. Started automatically by `start.sh`; logs to
+  `/workspace/port-forward.log`.
+
+  It exists because RunPod will not expose one container port as both HTTP and TCP, and
+  a pod needs both: **TCP 8188** for the direct link the launcher can click (the HTTP
+  proxy 403s clicked links), and **HTTP 8189** for the proxy hostname the launcher probes
+  and a human pastes. Configure the pod as **HTTP 8189 + TCP 8188**.
+
+  Raw TCP relay, so ComfyUI's `/ws` progress socket passes through untouched. Stdlib
+  only — `socat` is not in this image and an apt package for forty lines is a worse trade.
