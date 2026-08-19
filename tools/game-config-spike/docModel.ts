@@ -683,5 +683,22 @@ assert(
 	'symbol-level checks (the `W` paytable warning) still run for a non-lines model',
 );
 
+
+// The UI's Lines path: the /config picker DELETES `winModel` rather than writing {type:'lines'},
+// mirroring the normalizer. If it ever wrote the field instead, the doc would save and come back
+// changed — a permanently-dirty page. Assert the delete path lands on the same bytes.
+{
+	const authored = normalizeGameConfigDoc({
+		...templateConfig,
+		winModel: { type: 'cluster', minCluster: 5, adjacency: 'orthogonal' },
+	})!;
+	const switchedBackToLines = { ...authored };
+	delete (switchedBackToLines as { winModel?: unknown }).winModel;
+	assert(
+		eq(normalizeGameConfigDoc(switchedBackToLines), linesDoc),
+		'switching a saved cluster game back to Lines (delete the field) round-trips to the plain lines doc',
+	);
+}
+
 console.log(failures ? `\n${failures} check(s) FAILED` : '\nall checks passed');
 process.exit(failures ? 1 : 0);
