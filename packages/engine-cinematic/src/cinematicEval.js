@@ -165,6 +165,49 @@ export function clipLocalTime(strip, t, clipDuration) {
 }
 
 /**
+ * INVERSE of `clipLocalTime`: the cinematic time at which `strip` shows clip-local time `local`.
+ *
+ * This is what lets the Rigger's TWEAK MODE (design §4.4) keep ONE clock. The animator's playhead
+ * is clip-local; the sequencer's is cinematic; a seek in either has to move the other, and the
+ * mapping between them is the strip's trim + speed + loop — the same three fields `clipLocalTime`
+ * reads. It lives here, next to its forward twin, precisely so the two cannot drift.
+ *
+ * `at` is the cinematic time the playhead is currently at, and it is not optional detail: a looping
+ * strip shows the same local time once per repeat, so the answer is resolved INSIDE the repeat the
+ * playhead already occupies. Without that, nudging a key on a `fill` strip would teleport the shot
+ * back to the first cycle.
+ *
+ * Outside the strip's window there is no answer at all, so the result CLAMPS to it: only the part
+ * of the clip a strip actually shows is reachable while tweaking it.
+ */
+export function cineTimeForLocal(strip, local, clipDuration, at) {
+	const clipIn = strip.clipIn ?? 0;
+	const tail = strip.clipOut != null ? Math.min(strip.clipOut, clipDuration) : clipDuration;
+	const avail = Math.max(tail - clipIn, 0);
+	const speed = strip.speed ?? 1;
+	if (avail <= 0 || !speed) return strip.start;
+
+	const offset = Math.min(Math.max(local - clipIn, 0), avail);
+	const cur = clipLocalTime(strip, at, clipDuration);
+	const cycle = cur ? cur.cycle : 0;
+	const mode = (strip.loop && strip.loop.mode) || 'once';
+
+	let src;
+	if (mode === 'pingPong') {
+		const period = avail * 2;
+		// On the RETURN leg local time runs backwards, so the same local value sits on the far side
+		// of the period — mapping it to the forward leg would jump the playhead half a cycle.
+		const back = mod(Math.max(at - strip.start, 0) * speed, period) > avail;
+		src = cycle * period + (back ? period - offset : offset);
+	} else if (mode === 'fill' || mode === 'count') {
+		src = cycle * avail + offset;
+	} else {
+		src = offset;
+	}
+	return strip.start + Math.min(Math.max(src / speed, 0), strip.length);
+}
+
+/**
  * The strip's contribution weight at `t`: the blend-in/out envelope times its own `alpha`.
  * Ramps are measured from the strip's own edges and clamp outside them (a held strip past its
  * end therefore sits at the END of its blend-out ramp, which is what "fade out and stay faded"

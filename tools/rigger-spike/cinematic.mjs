@@ -17,6 +17,7 @@
 import { readFileSync } from 'node:fs';
 import {
 	clipLocalTime,
+	cineTimeForLocal,
 	blendEnvelope,
 	evaluateActor,
 	cuesCrossed,
@@ -675,6 +676,88 @@ section('10. Cue tracks — fired by playback, never by a scrub');
 		names(cuesCrossed(sameBeat, 0.99, 1.02)),
 	);
 	ok('an empty cue list is harmless', cuesCrossed([], 0, 0.1).length === 0);
+}
+
+// =========================================================================
+section('11. Tweak mode — the clip-local ⇄ cinematic time inverse');
+// =========================================================================
+{
+	// Tweak mode (design §4.4) keeps ONE clock: the animator's playhead is clip-local, the
+	// sequencer's is cinematic, and a seek in either has to move the other. `cineTimeForLocal` is
+	// the inverse of `clipLocalTime`, so the property that matters is the ROUND TRIP — anything
+	// else and the playhead drifts a little further from the shot on every nudge.
+	const DUR = 2; // clip duration
+	const rt = (strip, at) => {
+		const fwd = clipLocalTime(strip, at, DUR);
+		if (!fwd) return null;
+		const back = cineTimeForLocal(strip, fwd.local, DUR, at);
+		return { local: fwd.local, t: back };
+	};
+
+	const once = { id: 's', start: 1, length: 2, clipIn: 0, speed: 1, loop: { mode: 'once' } };
+	let worst = 0;
+	for (let at = 1; at <= 3; at += 0.01) {
+		const r = rt(once, at);
+		worst = Math.max(worst, Math.abs(r.t - at));
+	}
+	ok('once: local→cine→local returns the same cinematic time', worst < 1e-9, `worst ${worst}`);
+
+	// A trimmed, sped-up strip: the mapping has to undo clipIn AND speed, not just one of them.
+	const trimmed = { id: 's', start: 0.5, length: 1, clipIn: 0.4, speed: 2, loop: { mode: 'once' } };
+	worst = 0;
+	for (let at = 0.5; at <= 1.3; at += 0.01) {
+		const r = rt(trimmed, at);
+		worst = Math.max(worst, Math.abs(r.t - at));
+	}
+	ok('trimmed + speed 2×: round-trips', worst < 1e-9, `worst ${worst}`);
+
+	// The one that motivated the `at` parameter: a looping strip shows each local time once per
+	// repeat, so the answer must land in the repeat the playhead is ALREADY in.
+	const fill = { id: 's', start: 0, length: 5, clipIn: 0, speed: 1, loop: { mode: 'fill' } };
+	worst = 0;
+	for (let at = 0.05; at <= 4.95; at += 0.01) {
+		const r = rt(fill, at);
+		worst = Math.max(worst, Math.abs(r.t - at));
+	}
+	ok('fill loop: stays in the CURRENT repeat (no teleport to cycle 0)', worst < 1e-9, `worst ${worst}`);
+	ok(
+		'…and the naive answer really would teleport (so the guard is load-bearing)',
+		near(cineTimeForLocal(fill, clipLocalTime(fill, 3.5, DUR).local, DUR, 0.2), 1.5),
+	);
+
+	const ping = { id: 's', start: 0, length: 6, clipIn: 0, speed: 1, loop: { mode: 'pingPong' } };
+	worst = 0;
+	for (let at = 0.05; at <= 5.95; at += 0.01) {
+		const r = rt(ping, at);
+		worst = Math.max(worst, Math.abs(r.t - at));
+	}
+	ok('ping-pong: round-trips on BOTH legs', worst < 1e-9, `worst ${worst}`);
+
+	const counted = { id: 's', start: 0, length: 6, clipIn: 0, speed: 1, loop: { mode: 'count', n: 2 } };
+	worst = 0;
+	for (let at = 0.05; at <= 3.95; at += 0.01) {
+		const r = rt(counted, at);
+		worst = Math.max(worst, Math.abs(r.t - at));
+	}
+	ok('count 2×: round-trips inside the played repeats', worst < 1e-9, `worst ${worst}`);
+
+	// Clamping: a local time the strip never shows has no cinematic time. It must land ON the
+	// window, never outside it — an unclamped answer would drag the playhead off the strip and the
+	// author would watch their edit stop affecting anything.
+	ok('a local time before the trim clamps to the strip start', near(cineTimeForLocal(trimmed, 0, DUR, 0.6), 0.5));
+	ok('a local time past the strip window clamps to its end', near(cineTimeForLocal(once, 5, DUR, 2), 3));
+	ok(
+		'…and never outside the window in either direction',
+		[-5, 0, 0.7, 1.9, 99].every((l) => {
+			const t = cineTimeForLocal(trimmed, l, DUR, 0.6);
+			return t >= trimmed.start - 1e-9 && t <= trimmed.start + trimmed.length + 1e-9;
+		}),
+	);
+
+	// Degenerate strips must answer, not throw: a zero-length clip is what a rig with no keys
+	// looks like, and it reaches this the moment someone tweaks a brand-new animation.
+	ok('a zero-duration clip answers with the strip start', near(cineTimeForLocal(once, 0, 0, 2), 1));
+	ok('a zero-speed strip answers with the strip start', near(cineTimeForLocal({ ...once, speed: 0 }, 1, DUR, 2), 1));
 }
 
 // =========================================================================

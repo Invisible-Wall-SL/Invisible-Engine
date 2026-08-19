@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-cinematic.md](../design/invisible-cinematic.md) · Guide: [docs/tools/rigger.md §Cinematic mode](../tools/rigger.md#cinematic-mode) (it is a mode of `/rigger`, so it shares the Rigger's guide) · Agent: `.claude/agents/invisible-rigger.md`
 
-**One-line state:** **Phases 0–3 COMPLETE, every track kind implemented** (2026-08-17) — `/rigger`'s 🎬
+**One-line state:** **Phases 0–3 COMPLETE + Tweak Mode (§4.4)** (2026-08-18) — `/rigger`'s 🎬
 **Cinematic** mode stages several rigs, authors them as tracks of strips + property/camera keys,
 saves to R2 per project, travels the ship chain with the rigs it casts, plays in-game through a
 **`<Cinematic>`** component driven by the same evaluator, and is triggered from an authored flow
@@ -122,6 +122,32 @@ headless contract tests, never by execution (see Open items).
   start, length, clipIn, speed, loop mode (once / fill / count N / ping-pong), blend in/out,
   alpha, and replace-vs-additive. One drag = **one** undo step (the doc updates live so the stage
   follows the gesture, but history is recorded on pointerup).
+- **Tweak Mode (design §4.4) — the feature the tool was asked for.** Double-click a strip (or
+  **✎ Tweak clip** in the strip inspector) and the EXISTING animator opens on that strip's clip:
+  dopesheet, graph editor, ◆ Key, curves, bone outline, gizmo — while every other actor stays posed
+  around it and the tweaked rig is posed AT ITS STAGE PLACEMENT. `Esc` / **✔ Done** leaves, and the
+  rig is re-parsed on the way out so the strips immediately play the edit.
+  **The shape that keeps it small:** cinematic mode STAYS ON (`cineMode` true, `animMode` turned on
+  beside it), so every existing keying/posing path works unchanged and the sequencer keeps owning
+  the frame. The cinematic drives four explicit bridge hooks per frame — `tweakPose` → `tweakDraw`
+  (at the actor's place in the z order) → `tweakOverlays` → `tweakAfter` — rather than either side
+  re-implementing the other. Total blast radius in `view.html`: the hook block, four one-line
+  guards (`cineMode && !tweakMode`), and the two fixes below.
+  **ONE CLOCK, and it is the cinematic's.** The animator's playhead is clip-local, the sequencer's
+  is cinematic; every user seek in the animator funnels through `syncPlayhead`, which maps it back.
+  The inverse mapping is **`cineTimeForLocal`, in the SHARED evaluator** next to `clipLocalTime` —
+  deriving the trim/speed/loop maths locally in `cinematic.js` is exactly the drift the shared
+  module exists to prevent. It resolves inside the loop repeat the playhead is already in (else a
+  nudge on a `fill` strip teleports the shot back to cycle 0) and clamps to the strip window, so
+  **only the part of the clip the strip shows is reachable while tweaking** — a named limit, not a
+  bug. Mapping uses the clip's WORKING length, so a new last key is reachable.
+  **The one subtle correctness rule: the root bone.** The stage rotation is applied ON TOP of the
+  animated root rotation (that is what `applyPlace` means), so `keyBone` subtracts it for the root
+  of a tweaked actor — without that, keying the root of a rotated actor bakes the actor's stage
+  rotation into the clip, permanently and invisibly. `applyTweakPlace` therefore also runs BEFORE
+  the `posingBone` override, or an in-progress root drag double-counts it.
+  A tweak edits the **RIG**, not the cinematic — hence 💾 Save rig in the bar and the `unsaved`
+  flag; saving the cinematic does not save it.
 - **Property + camera tracks.** Actor **x / y / scale / rotation / alpha** are animatable: press ◆
   next to a field to key it at the playhead. Keys draw as colour-coded diamonds on their own
   timeline rows (drag to retime, Del to delete), and a key inspector exposes time, value and
@@ -152,7 +178,7 @@ headless contract tests, never by execution (see Open items).
 
 | Proof | Result |
 |---|---|
-| `tools/rigger-spike/cinematic.mjs` — gates 1 + 2, channel sampling, cues, visibility, evaluator-drift (headless) | **107/107** |
+| `tools/rigger-spike/cinematic.mjs` — gates 1 + 2, channel sampling, cues, visibility, tweak-mode time inverse, evaluator-drift (headless) | **118/118** |
 | `tools/rigger-spike/cinematic-pixi.mjs` — gate 3, the `spine-pixi-v8` seam | **14/14** |
 | `static/rigger/cinematic-harness.html` — gate 2's WebGL half, in a real browser | **11/11** |
 | `/rigger` cinematic mode, driven live in a browser | cast · draw · animate · scrub · place · z-order · visibility · clip-swap |
@@ -162,6 +188,7 @@ headless contract tests, never by execution (see Open items).
 | `tools/rigger-spike/cinematic-storage.mjs` — storage guards + the export/prune chain (headless) | **28/28** |
 | `tools/rigger-spike/cinematic-flow.mjs` — the `playCinematic` node against the REAL interpreter + validator (headless) | **19/19** |
 | R2 persistence client flow, driven live against a fake R2 with real etag semantics | **19/19** — create/update CAS, conflict prompt, force, new/open/rename/delete, draft |
+| Tweak mode, driven live in a browser against a real 73-bone rig | **~55/55** — entry (11), the two-way clock (7), keying into the strip's clip (4), the exit re-parse (7), the root-rotation rule (5), Esc + ✎ Tweak clip + mode-switch exit (7), what is actually on the canvas (6), the three crashes below (8) |
 
 Headless fixtures are real shipped rigs (`mm_bigwin` 86 bones, `anticipation` 73 bones); the
 browser harness stages `anticipation` + `reelhouse_glow` — deliberately **different atlases**.
@@ -198,14 +225,12 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 
 ## Open items / next
 
-1. **Tweak Mode — the feature the tool was asked for, and the one still missing.** Owner, first
-   live verify: *"I am not sure how am I supposed to overwrite an animation."* Design §4.4 has
-   double-clicking a strip opening THAT clip in the animator, in cinematic context — the rest of
-   the stage still posed around it, the playhead still in cinematic time. It is the closest match
-   to the original ask ("edit them as single animations in the animator") and it was skipped when
-   the build went Phase 1 → 2 → 3. Mechanically it is mostly plumbing what exists: point `curAnim`
-   at the strip's clip, map `animTime` through the strip's `clipIn`/`speed`/loop, keep evaluating
-   the other actors, and re-parse on exit.
+1. **⏳ Tweak mode wants an owner eyeball on the WORKFLOW, not the mechanics.** Built and
+   live-verified 2026-08-18 (see Recent changes), which settles that it works; what no assertion can
+   judge is whether editing a clip with the rest of the shot playing around you actually *feels*
+   like the ask. Two named limits to react to: only the part of a clip its strip shows is reachable
+   from inside a tweak, and tweaking OPENS that rig in the editor (replacing whichever was open).
+
 2. **⏳ KEEP RUNNING IT.** The first mount happened and immediately found a real bug (see Recent changes), which is the point. The whole engine half (`<Cinematic>`,
    `CinematicActor`, `<FlowV2Cinematics>`, the `playCinematic` interpreter case) has **never
    executed in a game**. It is verified by construction — gate 3 measured the `spine-pixi-v8`
@@ -244,6 +269,35 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 - Nothing external.
 
 ## Recent changes
+
+- 2026-08-18 — **Tweak Mode: "I am not sure how am I supposed to overwrite an animation" (owner).**
+  Design §4.4, skipped when the build went Phase 1 → 2 → 3, and the closest thing to the original
+  ask. Double-click a strip (or **✎ Tweak clip**) and the existing animator opens on that clip with
+  the rest of the stage posed around it; `Esc` / ✔ Done re-parses the rig so the strips play the
+  edit at once. See Current state for the shape, the one-clock rule and the root-bone rule.
+  **Three PRE-EXISTING crashes fell out of building it** — each one a thing the sequencer or the
+  animator could already do to itself, none of them introduced here:
+  - **`stripById` walked keys-only tracks.** Only ANIMATION tracks carry `strips`; property /
+    visibility / camera / cue tracks carry `keys`. Three loops dereferenced `.strips` for every
+    track and it never bit, because they find what they want among the animation tracks *first* —
+    they are created first, per actor. Cast an actor AFTER any actor was given a property or
+    visibility track and a keys-only track sits ahead of the new strips: selecting or dragging that
+    strip threw, and so did changing the cinematic's LENGTH (`setDuration` had the same loop).
+  - **`sampleChannel` could not read a Spine-JSON default.** Spine JSON OMITS `time` on a keyframe
+    at 0. Every reader here treats `k.time` as a number, and a channel whose ONLY key is written
+    that way made the sampler walk off the end of the array — thrown from the animate frame loop,
+    which kills ◆ Animate on that rig outright. Rigs SAVED by this tool always write the time,
+    which is why it hid; the `anticipation` builtin has 37 such channels. Fixed once at load
+    (`normalizeKeyTimes`), so the sampler, the dopesheet, key drag and `animDuration` all benefit.
+  - **One empty slot took down `buildInspector`.** `slotsWithPath` passed a slot's setup
+    `attachmentName` to `getAttachment`, which THROWS on null rather than returning nothing — so a
+    rig with a slot that has no setup attachment (the `anticipation` builtin has two) broke every
+    `setMode` on it, including leaving tweak mode.
+  Verified live against a real 73-bone rig on two staged actors: entry by double-click and by
+  button, the two-way clock through a `fill` loop, ◆ Key landing in the strip's clip at clip-local
+  time, the exit re-parse (the sequencer's actor picks up the longer edited clip), the root-rotation
+  rule (keying a rotated actor's root stores 25, not 55), Esc ordering against a key selection,
+  mode-switch exit, and the canvas itself — the other actor's pixels are on screen while you tweak.
 
 - 2026-08-18 — **The set is a LAYER, so an `fx:` cue can play in front of a rig (owner: "I can't
   change the layer of where the cue plays… it's always at the bottom").** A cue draws nothing

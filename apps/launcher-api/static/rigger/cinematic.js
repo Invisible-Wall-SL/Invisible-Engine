@@ -28,6 +28,10 @@ window.RiggerCinematic = (function () {
 	let actors = []; // runtime instances, parallel to doc.stage.cast
 	let selActorId = null;
 	let time = 0;
+	// TWEAK MODE (design §4.4): { stripId, actorId, clip } while the animator is open on one strip.
+	// The rig editor holds the matching half (`tweakMode`/`tweak` in view.html); this side owns the
+	// clock and the strip→clip-local mapping, because only the sequencer knows either.
+	let tweak = null;
 	let loadingCount = 0;
 	let statusMsg = '';
 
@@ -544,6 +548,9 @@ window.RiggerCinematic = (function () {
 		for (const actor of actors) {
 			const cast = castOf(actor.actorId);
 			if (!cast) continue;
+			// The tweaked actor is posed by the ANIMATOR, not by its strips — that is what makes an
+			// in-progress edit visible on the stage instead of being overwritten every frame.
+			if (tweak && actor.actorId === tweak.actorId) continue;
 			EV.evaluateActor(spineNs, actor.evalTarget, t, resolveClip);
 			applyPlace(actor, EV.resolvePlace(cast.place, propertyTracksOf(actor.actorId), t));
 			if (spineNs.Physics && spineNs.Physics.update !== undefined)
@@ -615,6 +622,12 @@ window.RiggerCinematic = (function () {
 		if (playing) fireCuesBetween(prevTime, time);
 		evaluate(time);
 
+		// TWEAK: the open rig is posed by the ANIMATOR at the strip's clip-local time — after
+		// `evaluate` (which skips this actor) and before anything is drawn, so an in-progress edit is
+		// what the stage shows, with no re-parse per frame.
+		const tw = tweak ? tweakSample() : null;
+		if (tw) ctx.tweakPose(tw.local, tw.place, delta);
+
 		const renderer = ctx.renderer();
 		if (!renderer) return;
 		// NOTE: no `actors.length` bail — the screen frame must draw on an EMPTY stage too, which
@@ -623,12 +636,117 @@ window.RiggerCinematic = (function () {
 		// Draw in z order: the cast list IS the z order (top of the list draws first / behind).
 		const ordered = doc.stage.cast.slice().sort((a, b) => (a.z || 0) - (b.z || 0));
 		for (const cast of ordered) {
+			// The tweaked actor draws from the animator's live skeleton, AT ITS PLACE IN THE Z ORDER
+			// — the point of tweaking is to see the edit sandwiched in the real shot. It ignores the
+			// visibility track while tweaking: a hidden rig would leave its bones and gizmo floating
+			// over nothing, which reads as a bug rather than as "this actor is off screen here".
+			if (tw && cast.actorId === tweak.actorId) { ctx.tweakDraw(renderer); continue; }
 			const actor = actorOf(cast.actorId);
 			if (actor && effectiveVisible(cast.actorId)) renderer.drawSkeleton(actor.skeleton, ctx.pma());
 		}
 		drawScreenFrame(renderer);
+		if (tw) ctx.tweakOverlays(); // bones / gizmo / mesh — on top of the whole stage
 		renderer.end();
 		syncTransport();
+		if (tw) ctx.tweakAfter(time, tw.outside);
+	}
+
+	// ---- tweak mode (design §4.4) -------------------------------------------
+	//
+	// Double-click a strip and the animator opens on THAT clip, in cinematic context. This side owns
+	// the clock and the time mapping; `view.html` owns the rig document, the pose and the keys (see
+	// its `beginTweak` block for the full split). Entering touches the cinematic doc not at all, so a
+	// tweak can never corrupt the sequence — it edits the RIG.
+
+	/** Where the tweaked actor is — clip-local time + stage placement — at the cinematic playhead. */
+	function tweakSample() {
+		const found = stripById(tweak.stripId);
+		const cast = castOf(tweak.actorId);
+		const place = cast ? EV.resolvePlace(cast.place, propertyTracksOf(tweak.actorId), time) : null;
+		if (!found) return { local: 0, place, outside: true };
+		const strip = found.strip;
+		const outside = time < strip.start - 1e-6 || time > strip.start + strip.length + 1e-6;
+		const r = EV.clipLocalTime(strip, time, tweakClipDur());
+		return { local: r ? r.local : strip.clipIn || 0, place, outside };
+	}
+
+	/**
+	 * The clip's WORKING length from the animator, not the parsed duration the actor was built with:
+	 * the working length is how far past the last key the animator lets you scrub, so mapping against
+	 * it is what makes a NEW last key reachable from inside a tweak.
+	 */
+	const tweakClipDur = () => (ctx.tweakClipDuration ? ctx.tweakClipDuration() : 0) || 0;
+
+	/** The animator moved its playhead — pull the whole stage to the matching cinematic time. */
+	function seekFromLocal(local) {
+		if (!tweak) return;
+		const found = stripById(tweak.stripId);
+		if (!found) return;
+		// The inverse mapping is the evaluator's, NOT ours — re-deriving the trim/speed/loop maths
+		// here is exactly the drift the shared module exists to prevent.
+		setTime(EV.cineTimeForLocal(found.strip, local, tweakClipDur(), time));
+	}
+
+	async function enterTweak(stripId) {
+		if (tweak) return;
+		const found = stripById(stripId);
+		if (!found) return;
+		const { strip, track } = found;
+		const clip = strip.clip && strip.clip.src === 'rig' ? strip.clip.name : null;
+		if (!clip) return fail('that strip has no rig clip to tweak');
+		const cast = castOf(track.actorId);
+		const entry = cast && rigEntryFor(cast);
+		if (!entry) return fail('the rig this actor casts is not in this project');
+		statusMsg = '✎ opening ' + entry.name + '…';
+		renderPanel();
+		// Opening the rig REPLACES whatever rig the editor had open (and asks first if it was
+		// unsaved) — that is the one side effect of tweaking, and it belongs to the rig editor.
+		const err = await ctx.openRigForTweak(entry);
+		if (err) return fail(err);
+		const layers = tracksOf(cast.actorId).filter((t) => t.kind === 'animation').length;
+		const label = (cast.rigName || entry.name || '') + (layers > 1 ? ' · layer ' + (track.layer || 0) : '');
+		const bad = ctx.beginTweak({ actorId: cast.actorId, clip, label, stripId });
+		if (bad) return fail(bad);
+		tweak = { stripId, actorId: cast.actorId, clip };
+		selStripId = stripId;
+		statusMsg = '';
+		// Park the playhead inside the strip: opening the animator on a stage where this clip is not
+		// even playing shows an author their edit having no effect.
+		setTime(time < strip.start || time > strip.start + strip.length ? strip.start : time);
+	}
+
+	function fail(msg) {
+		statusMsg = '✎ ' + msg;
+		renderPanel();
+	}
+
+	/**
+	 * Back to the sequencer. The rig editor re-parses its document and hands back the fresh
+	 * `SkeletonData`, which replaces the cached one — WITHOUT this the strips keep playing the
+	 * pre-tweak clip, because the actors were built from the FILE, which a tweak has not touched.
+	 * Every actor cast from that rig is rebuilt, since the same rig can be cast more than once.
+	 */
+	function exitTweak() {
+		if (!tweak) return;
+		const info = tweak;
+		tweak = null;
+		const data = ctx.endTweak ? ctx.endTweak() : null;
+		const cast = castOf(info.actorId);
+		const key = cast && (cast.rigFolder || String(cast.rigId));
+		if (data && key) {
+			rigCache.set(key, data);
+			const stale = doc.stage.cast.filter((c) => (c.rigFolder || String(c.rigId)) === key).map((c) => c.actorId);
+			actors = actors.filter((a) => !stale.includes(a.actorId));
+			rebuildActors().then(() => {
+				evaluate(time);
+				renderTimeline();
+				renderPanel();
+			});
+			return;
+		}
+		evaluate(time);
+		renderTimeline();
+		renderPanel();
 	}
 
 	function syncTransport() {
@@ -857,7 +975,7 @@ window.RiggerCinematic = (function () {
 	function setDuration(secs) {
 		doc.duration = Math.max(0.1, Number(secs) || 0);
 		// Phase 1's implicit full-length strips follow the cinematic's length.
-		for (const track of doc.tracks) for (const strip of track.strips) if (strip.start === 0) strip.length = doc.duration;
+		for (const track of doc.tracks) if (hasStrips(track)) for (const strip of track.strips) if (strip.start === 0) strip.length = doc.duration;
 		if (time > doc.duration) time = doc.duration;
 		commit('change length', 'duration');
 		renderPanel();
@@ -880,8 +998,12 @@ window.RiggerCinematic = (function () {
 	let tlDrag = null;
 	let rulerDrag = false;
 
+	/** Only ANIMATION tracks carry `strips`; property / visibility / camera / cue tracks carry keys. */
+	const hasStrips = (track) => Array.isArray(track.strips);
+
 	const stripById = (id) => {
 		for (const track of doc.tracks) {
+			if (!hasStrips(track)) continue;
 			const strip = track.strips.find((s) => s.id === id);
 			if (strip) return { strip, track };
 		}
@@ -951,6 +1073,9 @@ window.RiggerCinematic = (function () {
 	}
 
 	function renderTimeline() {
+		// While tweaking, `#timeline` holds the rig editor's DOPESHEET — that is what an author keys
+		// in. Rebuilding the strip timeline over it would wipe the dopesheet mid-edit.
+		if (tweak) return;
 		const el = $('#timeline');
 		if (!el || !doc) return;
 		const keepScroll = el.scrollLeft;
@@ -1182,6 +1307,15 @@ window.RiggerCinematic = (function () {
 
 	function wireTimeline(el, pps) {
 		el.onscroll = () => positionPlayhead(pps);
+
+		// Double-click a strip = tweak its clip (design §4.4). Bound on the CONTAINER, not on each
+		// strip: the pointerup that ends a click re-renders the timeline, so the second click of the
+		// pair lands on a brand-new element and the browser reports the dblclick against the nearest
+		// common ancestor. A per-strip handler would simply never fire.
+		el.ondblclick = (e) => {
+			const d = e.target.closest('.cineStrip');
+			if (d && d.dataset.strip) enterTweak(d.dataset.strip);
+		};
 
 		el.querySelectorAll('.cineGutter [data-tact]').forEach((btn) => {
 			btn.onclick = (e) => {
@@ -1706,7 +1840,7 @@ window.RiggerCinematic = (function () {
 			.map((cast) => {
 				const actor = actorOf(cast.actorId);
 				const clips = actor ? actor.skeletonData.animations : [];
-				const strip = (tracksOf(cast.actorId)[0] || { strips: [] }).strips[0];
+				const strip = (tracksOf(cast.actorId).find(hasStrips) || { strips: [] }).strips[0];
 				const cur = strip && strip.clip ? strip.clip.name : '';
 				const sel = cast.actorId === selActorId;
 				const opts = ['<option value="">— no clip —</option>']
@@ -2034,6 +2168,7 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 	</select></label>
 </div>
 <div class="cineRow">
+	<button id="cineTweakStrip" title="Open this clip in the animator with the rest of the stage posed around it (or double-click the strip)">✎ Tweak clip</button>
 	<button id="cineDupStrip" title="Copy this strip in right after itself">⧉ Duplicate</button>
 	<button id="cineDelStrip" title="Delete this strip">🗑 Delete</button>
 </div>`;
@@ -2086,6 +2221,8 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 	}
 
 	function wireStripInspector() {
+		const tw = $('#cineTweakStrip');
+		if (tw) tw.onclick = () => enterTweak(selStripId);
 		const dup = $('#cineDupStrip');
 		if (dup) dup.onclick = () => duplicateStrip(selStripId);
 		const del = $('#cineDelStrip');
@@ -2117,6 +2254,19 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 		if (!active) return;
 		const ae = document.activeElement;
 		if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return;
+		// While tweaking, the keyboard is the ANIMATOR's — Delete removes a bone key, not a strip,
+		// and undoing the cinematic doc under a half-finished rig edit is not something to offer.
+		// Esc leaves, but only when the animator did not already CONSUME it: its own handler (which
+		// runs first) spends the first Esc clearing a dopesheet/graph selection and marks it via
+		// preventDefault. Jumping out from under that would read as the tool ignoring the selection
+		// it just cleared.
+		if (tweak) {
+			if (e.key === 'Escape' && !e.defaultPrevented) {
+				e.preventDefault();
+				exitTweak();
+			}
+			return;
+		}
 		if (e.ctrlKey || e.metaKey) {
 			const key = e.key.toLowerCase();
 			if (key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
@@ -2160,6 +2310,9 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 	}
 
 	function deactivate() {
+		// Leaving cinematic mode with a tweak open would strand the animator on a rig the sequencer
+		// no longer draws — and would never re-parse the clip back into the strips.
+		if (tweak) exitTweak();
 		active = false;
 		save();
 	}
@@ -2183,6 +2336,11 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 		renderPanel,
 		renderTimeline,
 		zoom,
+		// tweak mode — the entry/exit pair, the animator's seek hook, and the state for live checks
+		enterTweak,
+		exitTweak,
+		seekFromLocal,
+		isTweaking: () => !!tweak,
 		deleteSelectedStrip: () => { if (selStripId) deleteStrip(selStripId); },
 		hasSelectedStrip: () => !!selStripId,
 		// history — exposed for the buttons, the keys, and live verification

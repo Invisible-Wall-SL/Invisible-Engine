@@ -60,6 +60,18 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-08-18 — **Two rig-editor crashes, found while building the cinematic's Tweak Mode** (which
+  drives this file's animator, so its bugs are this tool's bugs). Both are old, both are one-line:
+  - **◆ Animate died on any freshly imported `.json` rig.** Spine JSON omits `time` on a keyframe
+    at 0 — it is the format's default — and `sampleChannel` treats `k.time` as a number. A channel
+    whose ONLY key is written that way made it walk off the end of the array and throw *from the
+    frame loop*. Rigs saved by this tool always write the time, so it only ever bit imports; the
+    `anticipation` builtin has 37 such channels. Now normalised once at load (`normalizeKeyTimes`),
+    which fixes the sampler, the dopesheet, key drag and `animDuration` together.
+  - **A slot with no setup attachment broke every `setMode` on that rig.** `slotsWithPath` handed
+    the slot's null `attachmentName` to `getAttachment`, which throws on null instead of returning
+    nothing, taking `buildInspector` — and therefore the mode switch — down with it.
+  See [status/cinematic](cinematic.md) for Tweak Mode itself.
 - 2026-08-18 — **A translation now SHRINKS to the source locale's width instead of running off
   the art.** Owner, once French finally reached the button: "the text is not fitting anymore."
   `Acheter fonctionnalité` baked 421px against `Buy Feature`'s 247px — 1.7× — and every locale

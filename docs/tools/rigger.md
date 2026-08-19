@@ -476,6 +476,43 @@ The timeline is an NLE-style sequencer sharing the panel the dopesheet uses:
   in/out, alpha, and replace-vs-additive. Blend ramps are drawn inside the strip
   and additive strips are tinted, so the stack reads at a glance.
 
+### Tweak a clip in context (edit the animation without leaving the shot)
+
+A strip plays a clip; **tweaking** is how you edit that clip *while the rest of the
+scene keeps playing around it*.
+
+**Double-click a strip** — or select it and press **✎ Tweak clip** in the strip
+inspector — and the ordinary animator opens on that strip's clip: the dopesheet,
+the graph editor, ◆ Key / ◆ Key all, curves, the bone outline and the transform
+gizmo, all exactly as in **◆ Animate**. What is different is the context:
+
+- Every **other actor stays on stage**, posed at the cinematic playhead, so you
+  animate against the shot rather than against an empty canvas.
+- The rig you are editing is posed **where it stands** — its stage x / y / scale /
+  flip / rotation are applied, so what you key is what the scene shows.
+- There is **one playhead**. The transport still shows *cinematic* time; the
+  dopesheet shows *clip* time; moving either moves the other, through the strip's
+  trim, speed and loop. The tweak bar shows both (`cine 2.00s · clip 0.67s`).
+
+Leave with **✔ Done** or **Esc** (the first Esc clears a key selection, if you
+have one). On the way out the rig is re-parsed, so the strips immediately play
+what you just authored.
+
+> **Save the rig.** A tweak edits the *rig*, not the cinematic — the tweak bar
+> says **unsaved** and carries a **💾 Save rig** button. Until you press it (or
+> ⤓ .irig), the edit lives only in this tab. Saving the *cinematic* does not save it.
+
+Two consequences worth knowing:
+
+- **Only the part of the clip the strip shows is reachable.** The playhead is
+  mapped through the strip, so a strip trimmed to half a clip can only key that
+  half. Lengthen or re-trim the strip, or leave tweak and use plain ◆ Animate, to
+  reach the rest. (Raising the clip's **working length** in the Animations panel
+  extends how far past the last key you can go, as usual.)
+- **Tweaking opens that rig in the editor**, replacing whichever rig was open —
+  you are asked first if it had unsaved changes. A rig that needs a different Spine
+  runtime line is refused with a message rather than reloading the page under you.
+
 ### Animate properties, the camera, and visibility
 
 Press **◆** next to a field to key it at the playhead. Actor **x / y / scale /
@@ -540,10 +577,10 @@ error, so the inspector clears one when you set the other and the graph refuses 
 validate with both. The rigs a cinematic casts ship with it automatically, even if
 they appear in no scene.
 
-> **Status:** built 2026-08-17, all phases complete. The **editor** half is the
-> verified half — the in-game player and the Flow node are proven by contract tests
-> but have **not yet run in a real game**. Check a cinematic in a live game before
-> depending on it.
+> **Status:** built 2026-08-17 (tweak mode 2026-08-18), all phases complete. The
+> **editor** half is the verified half — the in-game player and the Flow node are
+> proven by contract tests but have **not yet run in a real game**. Check a
+> cinematic in a live game before depending on it.
 
 ## Known limitations / TODOs
 

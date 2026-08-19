@@ -235,6 +235,15 @@
   #modeBar { position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:5; }
   #modeBar .seg { background:rgba(20,23,28,.85); box-shadow:0 2px 10px rgba(0,0,0,.45); backdrop-filter:blur(3px); }
   #modeBar .seg button { padding:7px 14px; font-size:13px; }
+  /* tweak mode: the animator open on one cinematic strip (design invisible-cinematic.md §4.4) */
+  #tweakBar { position:absolute; z-index:6; top:52px; left:50%; transform:translateX(-50%);
+    display:flex; align-items:center; gap:9px; padding:6px 12px; border-radius:8px; font-size:12px;
+    background:rgba(20,23,28,.92); border:1px solid var(--accent); color:var(--txt);
+    box-shadow:0 2px 10px rgba(0,0,0,.5); backdrop-filter:blur(3px); white-space:nowrap; }
+  #tweakBar b { color:var(--accent); }
+  #tweakBar small, #tweakBar .tweakT { color:var(--dim); font-size:11px; }
+  #tweakBar button { padding:3px 9px; font-size:11px; }
+  #tweakBar .tweakWarn { color:var(--danger); }
   /* horizontal resize handle (timeline height) */
   .resizer-h { flex:0 0 6px; height:6px; cursor:row-resize; background:transparent; position:relative; z-index:6; }
   .resizer-h::after { content:""; position:absolute; top:2px; left:0; right:0; height:2px; background:transparent; }
@@ -468,6 +477,8 @@
         </span>
       </div>
       <div id="hint">scroll = zoom · drag = pan · click a bone in the inspector</div>
+      <!-- tweak mode: the animator open on one cinematic strip (design invisible-cinematic.md §4.4) -->
+      <div id="tweakBar" style="display:none;"></div>
       <div id="err"></div>
       <div id="artWarn"></div>
     </div>
@@ -748,6 +759,13 @@ let editMode = false, rawDoc = null, rawDocOriginal = null, dirty = false;
 // Phase 5: animation authoring. mode = "preview" | "setup" | "animate" | "cinematic".
 let mode = "preview", animMode = false, curAnim = null, animTime = 0, posingBone = null, animsDirty = false;
 let cineMode = false; // cinematic mode owns the whole stage (see /rigger/cinematic.js)
+// TWEAK MODE (design invisible-cinematic.md §4.4) — the animator opened on ONE strip's clip, with
+// the rest of the cinematic stage still posed around it. `cineMode` STAYS TRUE (the cinematic still
+// owns the doc, the frame and the transport) and `animMode` is turned on, so every existing posing /
+// keying / dopesheet path works here unchanged — that is the whole point of this shape. `tweak`
+// carries the two things the animator cannot know: whose clip this is, and the stage placement to
+// draw it at. See `beginTweak` for the guards.
+let tweakMode = false, tweak = null;
 let animClipboard = null; // in-session animation copy/paste: { name, animation } (memory only)
 let tlDur = 1, tlGutter = 96; // dopesheet (5.2): geometry
 let tlPxPerSec = null, tlPps = 1, tlScrub = false; // timeline zoom (null = fit) + scrub-drag
@@ -962,6 +980,17 @@ function cinematicBridge(){
       const c = $("#stage").querySelector("canvas:not(#cv)"); // the overlay is the only other canvas here
       if (c) c.style.zIndex = fxInFront ? "2" : "0";
     },
+    // Tweak mode (design §4.4) — see the block below `loadRigData` for what each hook owns.
+    openRigForTweak,
+    beginTweak,
+    endTweak,
+    tweakPose,
+    tweakDraw,
+    tweakOverlays,
+    tweakAfter,
+    // The clip's WORKING length, not its keyed duration: the working length is how far the animator
+    // lets you scrub past the last key, so mapping against it is what makes a new last key reachable.
+    tweakClipDuration: () => (curAnim ? workLen(curAnim) : 0),
   };
 }
 
@@ -1000,6 +1029,214 @@ async function loadRigData(entry){
       ? new SPINE.SkeletonBinary(loader).readSkeletonData(new Uint8Array(am.require(entry.skeleton_file)))
       : new SPINE.SkeletonJson(loader).readSkeletonData(am.require(entry.skeleton_file));
   } finally { missingArt = keep; }
+}
+
+// ---- tweak mode (design invisible-cinematic.md §4.4) ----------------------
+//
+// "Edit them as single animations in the animator" — the feature the cinematic was asked for.
+// Double-click a strip and the EXISTING animator (dopesheet, graph editor, ◆ Key, curves) opens on
+// that strip's clip, with every other actor still posed around it at the cinematic playhead.
+//
+// The split of ownership is deliberate and is what keeps this small:
+//   · cinematic.js owns WHEN — the clock, the strip→clip-local time mapping, the other actors.
+//   · this file owns WHAT — the open rig document, the pose, the keys, the overlays.
+// So the cinematic drives the four hooks below once per frame (pose → draw → overlays → after)
+// instead of either side re-implementing the other.
+//
+// ONE CLOCK, and it is the cinematic's. The dopesheet playhead is clip-local, but every seek in the
+// animator funnels through `syncPlayhead`, which maps it BACK onto the sequencer. The consequence
+// is worth stating: only the part of the clip the strip actually shows is reachable while tweaking
+// (trim/lengthen the strip, or leave tweak for plain ◆ Animate, to reach the rest).
+
+/**
+ * Open the strip's rig in the rig editor so there is a `rawDoc` to key into.
+ * Returns null on success, else a message the cinematic shows in its status line.
+ */
+async function openRigForTweak(entry){
+  if (!entry) return "that rig is not in this project";
+  if (selected && selected.dir_b64 === entry.dir_b64 && rawDoc) return null; // already the open rig
+  // A rig on a different spine LINE makes selectSkeleton reload the page — which would drop the
+  // cinematic mid-edit. Refuse with the reason instead of losing the document.
+  if (loadedLine && entry.runtime !== loadedLine)
+    return "“" + (entry.name || "that rig") + "” needs the spine " + entry.runtime + " runtime and this page has "
+      + loadedLine + " loaded — open it from the rig list first, then tweak";
+  if (dirty && !window.confirm("The open rig has unsaved changes.\n\nTweaking “" + (entry.name || "") + "” opens a different rig and discards them. Continue?"))
+    return "cancelled — the open rig still has unsaved changes";
+  await selectSkeleton(entry);
+  // Opening a rig runs `buildSkeleton`, which RESETS the mode to preview — so the tool has just
+  // dropped out of cinematic mode, and tweaking would begin with the sequencer no longer drawing
+  // (its frame hook only runs while `cineMode`). Put it back before the caller enters the tweak.
+  if (mode !== "cinematic") setMode("cinematic");
+  return rawDoc ? null : "could not open that rig";
+}
+
+/** Enter tweak mode on an already-open rig. `info` = { actorId, clip, label, stripId }. */
+function beginTweak(info){
+  if (!rawDoc || !skeleton) return "no rig is open";
+  if (!info || !info.clip) return "that strip has no clip to tweak";
+  if (!animHasName(info.clip)) return "“" + info.clip + "” is not an animation in this rig";
+  tweak = { actorId: info.actorId, clip: info.clip, label: info.label || "", stripId: info.stripId, place: null };
+  tweakMode = true;
+  animMode = true; // every keying/posing guard in this file reads animMode — this IS the animator
+  playing = false; $("#play").textContent = "▶ Play";
+  curAnim = info.clip;
+  fxClearPreview();
+  tlPxPerSec = null; graphSel = []; dopeSel = []; selEvent = null;
+  applyTweakChrome(true);
+  ensureFxOverlay(); // the rig's own event-driven FX preview, same as animate mode
+  renderTweakBar();
+  renderAnimSection();
+  renderEventDetail();
+  renderTimeline();
+  $("#hint").textContent = "✎ tweak · pose a bone → ◆ Key · the rest of the stage plays around you · Esc = done";
+  return null;
+}
+
+/**
+ * Leave tweak mode and RE-PARSE the rig, so the strips play what was just authored.
+ * Returns the fresh `SkeletonData` for the cinematic to swap into its own actors (its instances
+ * were built from the file and know nothing about the edit until they are handed this).
+ */
+function endTweak(){
+  if (!tweakMode) return null;
+  tweakMode = false; animMode = false; tweak = null;
+  if (skeleton){
+    skeleton.x = 0; skeleton.y = 0; skeleton.scaleX = 1; skeleton.scaleY = 1;
+    if (skeleton.color) skeleton.color.a = 1;
+  }
+  if (rawDoc && assetMgr && selected){
+    try {
+      rebuildFromRawDoc(selBone != null && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null);
+      animsDirty = false;
+    } catch (e){ console.warn("[Tweak] re-parse failed", e); }
+  }
+  fxClearPreview();
+  applyTweakChrome(false);
+  $("#hint").textContent = "cinematic · cast rigs at the left · place them · scrub or play the whole stage";
+  return skeletonData || null;
+}
+
+/**
+ * Swap the chrome between "cinematic sequencer" and "animator inside a cinematic". Cinematic mode
+ * hides the rig editor's whole surface (`setMode`); tweaking needs it back — the outline to select
+ * bones in, the inspector to read them, the animate toolbar to key with, and ⤓/💾 because an
+ * unsaved tweak is lost when the tab closes.
+ */
+function applyTweakChrome(on){
+  const bar = $("#tweakBar"); if (bar) bar.style.display = on ? "flex" : "none";
+  $("#outline").style.display = on ? "" : "none";
+  $("#cinePanel").style.display = on ? "none" : "block";
+  ["#boneDetail", "#slotDetail", "#eventDetail"].forEach((sel) => { const el = $(sel); if (el) el.style.display = on ? "" : "none"; });
+  { const el = $("#cineProps"); if (el) el.style.display = on ? "none" : "block"; }
+  ["#grpRigFile", "#rowRigManage"].forEach((sel) => { const el = $(sel); if (el) el.style.display = on ? "" : "none"; });
+  ["#bonesBtn", "#meshBtn", "#boundsBtn"].forEach((sel) => { const el = $(sel); if (el) el.style.display = on ? "" : "none"; });
+  $("#animTools").style.display = on ? "flex" : "none";
+  $("#timeNum").style.display = on ? "inline-block" : "none";
+  $("#propSub").textContent = on ? "select a bone or slot" : "select a strip, key or cue";
+  if (!on){ const bm = $("#bonemark"); if (bm) bm.style.display = "none"; }
+}
+
+function renderTweakBar(){
+  const bar = $("#tweakBar"); if (!bar || !tweak) return;
+  bar.innerHTML =
+    '<b>✎ Tweak</b><span id="tweakWhat"></span>' +
+    '<span class="tweakT" id="tweakTimes"></span>' +
+    '<span class="tweakWarn" id="tweakDirty" style="display:none;">unsaved</span>' +
+    '<button id="tweakSave" title="Save the rig to the project in R2 — a tweak lives in this tab until you do">💾 Save rig</button>' +
+    '<button id="tweakDone" title="Back to the sequencer (Esc). The strips re-parse, so the stage plays your edit.">✔ Done</button>';
+  // textContent, not innerHTML: a rig or clip name is author data, never markup.
+  $("#tweakWhat").textContent = "“" + tweak.clip + "” on " + tweak.label;
+  $("#tweakSave").onclick = () => saveToR2();
+  $("#tweakDone").onclick = () => { if (window.RiggerCinematic) window.RiggerCinematic.exitTweak(); };
+}
+
+/** Per-frame readouts only — never rebuild the bar in the frame loop (it holds the buttons). */
+function syncTweakBar(cineTime, outside){
+  const t = $("#tweakTimes");
+  if (t) t.textContent = "cine " + (cineTime || 0).toFixed(2) + "s · clip " + animTime.toFixed(2) + "s"
+    + (outside ? " · outside this strip" : "");
+  const d = $("#tweakDirty"); if (d) d.style.display = dirty ? "" : "none";
+}
+
+/**
+ * The actor's stage placement, applied to the OPEN rig so it is tweaked where it actually stands.
+ * Mirrors cinematic.js's `applyPlace` exactly — the two must not drift, or the tweak pose and the
+ * sequencer pose would disagree by the placement.
+ */
+function applyTweakPlace(place){
+  if (!skeleton || !tweak) return;
+  tweak.place = place || null;
+  if (!place) return;
+  const s = place.scale == null ? 1 : place.scale;
+  skeleton.x = place.x || 0;
+  skeleton.y = place.y || 0;
+  skeleton.scaleX = (place.flipX ? -1 : 1) * s;
+  skeleton.scaleY = s;
+  skeleton.color.a = place.alpha == null ? 1 : place.alpha;
+  if (place.rotation){ const root = skeleton.getRootBone(); if (root) root.rotation += place.rotation; }
+}
+
+/**
+ * The stage rotation sits ON TOP of the animated root rotation (that is what `applyPlace` means).
+ * `keyBone` must therefore store the ANIMATED value — without this, keying the root bone of a
+ * rotated actor bakes the actor's stage rotation into the clip, permanently and invisibly.
+ */
+function tweakRootRotOffset(bone){
+  if (!tweakMode || !tweak || !tweak.place || !tweak.place.rotation || !skeleton) return 0;
+  return bone === skeleton.bones[0] ? tweak.place.rotation : 0;
+}
+
+/** Hook 1 — pose the tweaked rig at the strip's clip-local time. */
+function tweakPose(localTime, place, delta){
+  if (!tweakMode || !skeleton) return;
+  animTime = Math.max(0, localTime || 0);
+  skeleton.setToSetupPose();
+  if (curAnim) poseAtTime(curAnim, animTime);
+  // BEFORE the posing override, not after: `posingBone` was captured from a bone that already
+  // carried the placement rotation, so adding it again here would double-count the drag.
+  applyTweakPlace(place);
+  if (posingBone){ // in-progress bone drag overrides the posed value so it tracks the cursor
+    const b = posingBone.bone;
+    b.rotation = posingBone.rotation; b.x = posingBone.x; b.y = posingBone.y;
+    b.scaleX = posingBone.scaleX; b.scaleY = posingBone.scaleY;
+  }
+  if (hasPhysics() && curAnim) skeleton.update(delta || 0); // same rule as the animate path
+  updateWorld();
+  updateFxPreview();
+}
+
+/** Hook 2 — draw the tweaked rig, called by the cinematic AT THE ACTOR'S PLACE IN THE Z ORDER. */
+function tweakDraw(r){
+  if (!tweakMode || !skeleton || !showAttachments) return;
+  r.drawSkeleton(skeleton, pma);
+}
+
+/** Hook 3 — the rig editor's overlays, on top of the whole stage (still inside begin/end). */
+function tweakOverlays(){
+  if (!tweakMode || !skeleton) return;
+  if (showMesh){
+    const d = renderer.skeletonDebugRenderer;
+    if (d){
+      d.drawBones = false; d.drawRegionAttachments = false; d.drawBoundingBoxes = false;
+      d.drawMeshHull = true; d.drawMeshTriangles = true; d.drawClipping = false; d.drawPaths = false;
+    }
+    renderer.drawSkeletonDebug(skeleton, false);
+  }
+  drawMeshOverlay();
+  drawPathOverlay();
+  drawPolyOverlay();
+  drawPointOverlay();
+  if (showBones) drawBonesOverlay();
+  drawGizmo();
+}
+
+/** Hook 4 — after the draw pass: the bone marker and the two playhead readouts. */
+function tweakAfter(cineTime, outside){
+  if (!tweakMode) return;
+  updateBoneMarker();
+  positionPlayhead();
+  const tn = $("#timeNum"); if (tn && document.activeElement !== tn) tn.value = roundN(animTime, 3);
+  syncTweakBar(cineTime, outside);
 }
 
 // World→screen projection — EXACTLY what #bonemark uses (updateBoneMarker).
@@ -1298,6 +1535,7 @@ function buildSkeleton(entry){
   let parsed = entry.format === "json" ? assetMgr.require(entry.skeleton_file) : null;
   if (typeof parsed === "string") { try { parsed = JSON.parse(parsed); } catch { parsed = null; } }
   rawDoc = parsed && Array.isArray(parsed.bones) ? parsed : null;
+  normalizeKeyTimes(rawDoc);
   rawDocOriginal = rawDoc ? JSON.parse(JSON.stringify(rawDoc)) : null;
   dirty = false;
   fxClearPreview();        // new rig — drop any live FX preview from the old one
@@ -3461,7 +3699,11 @@ function slotsWithPath(){
     const sd = skeletonData.slots[i];
     // any attachment on this slot (across skins) that is a path makes the slot a candidate
     const defs = slotAttachmentList(sd.name);
-    if (defs.some((d) => d.def && d.def.type === "path") || isPathAtt(skeleton.getAttachment(i, sd.attachmentName))) out.push(sd.name);
+    // A slot with NO setup attachment has a null `attachmentName`, and `getAttachment` THROWS on
+    // null rather than returning nothing — so one empty slot took down `buildInspector`, and with
+    // it every `setMode` on that rig (the `anticipation` builtin has two).
+    const setupAtt = sd.attachmentName ? skeleton.getAttachment(i, sd.attachmentName) : null;
+    if (defs.some((d) => d.def && d.def.type === "path") || isPathAtt(setupAtt)) out.push(sd.name);
   }
   return out;
 }
@@ -7413,6 +7655,9 @@ function removeMeshVertex(k){
 // Three workflows: preview (play, read-only) · setup (edit rest pose) · animate (author
 // keyframes). editMode stays the "setup" flag so every rig-editing guard keeps working.
 function setMode(m){
+  // Tweaking is a state INSIDE cinematic mode, so any mode switch has to leave it first — the
+  // cinematic owns the exit (it re-parses the rig into its own actors), not this function.
+  if (tweakMode && window.RiggerCinematic) window.RiggerCinematic.exitTweak();
   // Cinematic stages OTHER rigs — it must stay reachable with no rig open, so it is exempt
   // from the editable-doc gate that setup/animate need.
   if (!rawDoc && m !== "preview" && m !== "cinematic") m = "preview";
@@ -7531,6 +7776,35 @@ function bezierValue(t1, v1, cx1, cy1, cx2, cy2, t2, v2, t){
   let lo = 0, hi = 1; for (let it = 0; it < 32; it++){ const m = (lo + hi) / 2; if (X(m) < t) lo = m; else hi = m; }
   return Y((lo + hi) / 2);
 }
+/**
+ * Spine JSON OMITS `time` on a keyframe at 0 — it is the format's default. Every reader in here
+ * (this sampler, the dopesheet, key drag, `animDuration`) instead treats `k.time` as a number, and
+ * a channel whose ONLY key is written that way made `sampleChannel` walk off the end of the array:
+ * "Cannot read properties of undefined (reading 'time')", thrown from the animate frame loop, which
+ * kills ◆ Animate on the rig outright. It hid because rigs SAVED by this tool always write the time
+ * — it only bites a freshly imported .json rig (the `anticipation` builtin has 37 such channels).
+ *
+ * Writing the explicit 0 once, at load, is byte-equivalent to the file's meaning and fixes every
+ * reader at once, rather than each one growing its own `k.time || 0`.
+ *
+ * A keyframe list is recognised structurally: an array whose first element is a plain object.
+ * `curve` / `vertices` / `triangles` are arrays of NUMBERS, so they are skipped, and key objects
+ * are never recursed into.
+ */
+function normalizeKeyTimes(doc){
+  if (!doc || !doc.animations) return;
+  const isKeyList = (v) => Array.isArray(v) && v.length > 0
+    && typeof v[0] === "object" && v[0] !== null && !Array.isArray(v[0]);
+  const walk = (node) => {
+    if (!node || typeof node !== "object") return;
+    for (const v of Object.values(node)){
+      if (isKeyList(v)){ for (const k of v) if (k && k.time === undefined) k.time = 0; }
+      else if (v && typeof v === "object" && !Array.isArray(v)) walk(v);
+    }
+  };
+  walk(doc.animations);
+}
+
 // Sample a keyframe list at t honouring the FROM key's `curve` (linear default, "stepped",
 // or a bezier array — controls[v*4..] per value index). Verified vs spine-core (curve.mjs).
 function sampleChannel(keys, t, fields){
@@ -7647,6 +7921,12 @@ function poseAtTime(name, t){
 const roundN = (v, n) => { const f = Math.pow(10, n); return Math.round(v * f) / f; };
 
 function setCurAnim(name){
+  // While tweaking, the STRIP decides which clip is open — silently switching would leave the
+  // sequencer playing one animation and the dopesheet keying another.
+  if (tweakMode && name !== curAnim){
+    $("#hint").textContent = "✎ tweak · the strip decides the clip — ✔ Done first, then pick another animation";
+    return;
+  }
   curAnim = name && animHasName(name) ? name : null;
   fxClearPreview(); // switching animation — drop any live FX preview
   animTime = 0; tlPxPerSec = null; graphSel = []; dopeSel = []; // re-fit the timeline + clear selections
@@ -7687,7 +7967,7 @@ function keyBone(boneName, channels, refresh){
   const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
   const ab = (a.bones = a.bones || {});
   const cb = (ab[boneName] = ab[boneName] || {});
-  if (channels.rotate){ cb.rotate = cb.rotate || []; upsertKey(cb.rotate, animTime, { value: roundN(bone.rotation - bd.rotation, 3) }); }
+  if (channels.rotate){ cb.rotate = cb.rotate || []; upsertKey(cb.rotate, animTime, { value: roundN(bone.rotation - bd.rotation - tweakRootRotOffset(bone), 3) }); }
   if (channels.translate){ cb.translate = cb.translate || []; upsertKey(cb.translate, animTime, { x: roundN(bone.x - bd.x, 2), y: roundN(bone.y - bd.y, 2) }); }
   if (channels.scale){ cb.scale = cb.scale || []; upsertKey(cb.scale, animTime, { x: roundN(bd.scaleX ? bone.scaleX / bd.scaleX : 1, 4), y: roundN(bd.scaleY ? bone.scaleY / bd.scaleY : 1, 4) }); }
   if (channels.shear){ cb.shear = cb.shear || []; upsertKey(cb.shear, animTime, { x: roundN(bone.shearX - bd.shearX, 3), y: roundN(bone.shearY - bd.shearY, 3) }); }
@@ -8798,7 +9078,8 @@ function renderTimeline(){
   const tl = $("#timeline"); if (!tl) return;
   // Cinematic mode borrows the same strip of screen for its OWN timeline (tracks + strips).
   // Only one of the two is ever built, so they never fight over the element.
-  if (cineMode){
+  // Tweaking a strip is the animator, so it gets the DOPESHEET — that is what you key in.
+  if (cineMode && !tweakMode){
     tl.style.display = "block";
     if (window.RiggerCinematic) window.RiggerCinematic.renderTimeline();
     return;
@@ -9423,6 +9704,9 @@ function poseBoneByScreen(dxScreen, dyScreen, dpr){
   const p = posingBone.bone.parent;
   let lx = worldDX, ly = worldDY;
   if (p){ const det = p.a * p.d - p.b * p.c; if (Math.abs(det) > 1e-8){ lx = (p.d * worldDX - p.b * worldDY) / det; ly = (p.a * worldDY - p.c * worldDX) / det; } }
+  // No parent = the ROOT bone, whose world transform carries `skeleton.scaleX/Y` instead. Only
+  // tweak mode ever sets those (the rig editor leaves them at 1), so this is a no-op elsewhere.
+  else if (skeleton){ lx = worldDX / (skeleton.scaleX || 1); ly = worldDY / (skeleton.scaleY || 1); }
   posingBone.x += lx; posingBone.y += ly;
 }
 
@@ -9773,6 +10057,17 @@ function syncScrub(){
 }
 // Animate-mode playhead readout (animTime over the current animation's duration).
 function syncPlayhead(){
+  // TWEAK MODE: the transport shows CINEMATIC time, and every user-driven seek in the animator
+  // (ruler drag, |◀ ▶|, the time field, the graph editor) funnels through here — so this is the one
+  // place that has to map a clip-local seek back onto the sequencer's clock. The frame loop does
+  // NOT call this in tweak mode (it drives the readouts itself), which is what keeps the two from
+  // fighting: this function means "the author moved the playhead", nothing else.
+  if (tweakMode){
+    if (window.RiggerCinematic) window.RiggerCinematic.seekFromLocal(animTime);
+    positionPlayhead();
+    const tn2 = $("#timeNum"); if (tn2 && document.activeElement !== tn2) tn2.value = roundN(animTime, 3);
+    return;
+  }
   const dur = curAnim ? workLen(curAnim) : 0;
   $("#scrub").value = dur > 0 ? Math.round((animTime / dur) * 1000) : 0;
   $("#time").textContent = animTime.toFixed(2) + "s / " + dur.toFixed(2) + "s";
@@ -10042,7 +10337,8 @@ function wire(){
     if (e.button === 1){ e.preventDefault(); dragging = true; lastXY = [e.clientX, e.clientY]; return; }
     // Cinematic stages OTHER rigs and can be entered with no rig open, so every bone/mesh/gizmo
     // branch below (which assumes `skeleton`/`rawDoc`) must be skipped: drag simply pans.
-    if (cineMode){ dragging = true; lastXY = [e.clientX, e.clientY]; return; }
+    // TWEAK MODE is the exception — there a rig IS open and posing it is the entire point.
+    if (cineMode && !tweakMode){ dragging = true; lastXY = [e.clientX, e.clientY]; return; }
     // Bounds box: when shown, grabbing a handle starts a resize/move. Only acts on a HANDLE
     // hit, so clicking elsewhere still edits bones/mesh normally (no mode lock-out).
     if (showBounds && rawDoc && !e.shiftKey){
@@ -10207,7 +10503,9 @@ function wire(){
     if (!animMode) return;
     const ae = document.activeElement;
     if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return;
-    if (e.key === "Escape"){ if (dopeSel.length || graphSel.length){ dopeSel = []; graphSel = []; renderTimeline(); } return; }
+    // preventDefault MARKS the Esc as consumed — tweak mode leaves on an unconsumed one, and this
+    // handler runs first, so without the mark a single Esc would clear the selection AND exit.
+    if (e.key === "Escape"){ if (dopeSel.length || graphSel.length){ e.preventDefault(); dopeSel = []; graphSel = []; renderTimeline(); } return; }
     if (e.key !== "Delete" && e.key !== "Backspace") return;
     if (tlView === "graph" && graphSel.length){
       e.preventDefault();
@@ -10369,7 +10667,7 @@ function wire(){
     e.preventDefault();
     // Cinematic owns this element in its mode — zoom ITS timeline, not the dopesheet's (whose
     // tlPxPerSec would be the wrong variable and would rebuild the wrong view).
-    if (cineMode){ if (window.RiggerCinematic) window.RiggerCinematic.zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15); return; }
+    if (cineMode && !tweakMode){ if (window.RiggerCinematic) window.RiggerCinematic.zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15); return; }
     tlZoom(e.deltaY < 0 ? 1.15 : 1 / 1.15);
   }, { passive: false });
   window.addEventListener("mouseup", () => {

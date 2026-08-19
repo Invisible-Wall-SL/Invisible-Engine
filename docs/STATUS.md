@@ -79,7 +79,9 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
 
 **Recently closed** (2026-08-05 → 08-18):
 
-- **Invisible Cinematic — Phases 0–3 COMPLETE** (built 2026-08-17). A fourth mode inside `/rigger`:
+- **Invisible Cinematic — Phases 0–3 COMPLETE + Tweak Mode** (built 2026-08-17, tweak 2026-08-18).
+  Double-clicking a strip now opens its clip in the animator with the rest of the stage posed around
+  it — the "overwrite an animation" ask that the Phase 1→2→3 run had skipped. A fourth mode inside `/rigger`:
   stage several rigs as actors, author them on an NLE-style sequencer (strips · layers · blending),
   key property / camera / visibility channels, drop named cues, undo/redo. Saves per project to R2,
   travels the ship chain with the rigs it casts, plays in-game through `<Cinematic>` off one shared
