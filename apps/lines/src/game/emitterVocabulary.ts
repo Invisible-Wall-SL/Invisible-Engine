@@ -252,6 +252,11 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 					kind: 'boolean',
 					required: false,
 				},
+				{
+					key: 'volume',
+					kind: 'number',
+					required: false,
+				},
 			],
 		},
 		{
@@ -370,6 +375,14 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 		},
 		{
 			name: 'disableAnticipationMode',
+			group: 'Effect',
+		},
+		{
+			name: 'enableStackedPictures',
+			group: 'Effect',
+		},
+		{
+			name: 'disableStackedPictures',
 			group: 'Effect',
 		},
 		{

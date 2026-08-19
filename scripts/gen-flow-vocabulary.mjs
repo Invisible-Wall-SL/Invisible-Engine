@@ -22,7 +22,7 @@
  * exits non-zero if the committed fixture is stale (for CI / the headless spike).
  */
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import prettier from 'prettier';
@@ -63,8 +63,11 @@ const GAMES = [
 		exportName: 'LINES_EMITTER_VOCABULARY',
 		label: 'lines',
 		// LayoutDoc `gameType` values this vocabulary serves (the editor selects by it). The
-		// lines union IS the shared lines/book-of vocabulary, so it covers Book of Borut too.
-		gameTypes: ['lines', 'bookOf'],
+		// lines union IS the SHARED RUNTIME's vocabulary — every game type built on `_runtime/lines`
+		// broadcasts exactly these cues — so it covers Book of Borut and a `ways` project too. A ways
+		// game adds no emitter event and no book event (its `BookEvent` union is a strict SUBSET of
+		// lines'), so listing it here is the whole of its palette wiring.
+		gameTypes: ['lines', 'bookOf', 'ways'],
 		// Type-name → palette group + effect group label.
 		groups: {
 			EmitterEventBoard: 'Board',
@@ -97,6 +100,38 @@ const kindOf = (typeText) => {
 };
 
 /**
+ * Resolve a type imported from a bare WORKSPACE package (`import type { EmitterEventTransition }
+ * from 'engine-game'`) to the file that actually declares it, by following the package index's
+ * re-export. Needed because a shared emitter union may live in `packages/*` rather than beside the
+ * game — #355 moved `EmitterEventTransition` into `engine-game` and this codegen, which resolved
+ * every specifier as a relative path, silently started throwing ENOENT on
+ * `apps/lines/src/game/engine-game`. Throws rather than skipping: a dropped union member would
+ * quietly shrink the `/flow` palette, which is precisely the decay `--check` exists to catch.
+ */
+const resolveWorkspaceType = (specifier, typeName, importerRel) => {
+	const pkgDir = resolve(ROOT, 'packages', specifier);
+	const indexFile = resolve(pkgDir, 'index.ts');
+	if (!existsSync(indexFile)) {
+		throw new Error(
+			`${importerRel} imports ${typeName} from '${specifier}', which is not a workspace package ` +
+				`(no packages/${specifier}/index.ts).`,
+		);
+	}
+	const indexSrc = readFileSync(indexFile, 'utf8');
+	const reExportRe = /export\s*\{([\s\S]*?)\}\s*from\s*'([^']+)'/g;
+	let m;
+	while ((m = reExportRe.exec(indexSrc))) {
+		// Compare whole identifiers, so `Transition` never matches `TransitionAnimation`.
+		const names = new Set(m[1].split(/[^\w$]+/).filter(Boolean));
+		if (names.has(typeName)) return resolve(pkgDir, m[2]);
+	}
+	throw new Error(
+		`${importerRel} imports ${typeName} from '${specifier}', but packages/${specifier}/index.ts ` +
+			`re-exports no such name.`,
+	);
+};
+
+/**
  * Extract the `EmitterEvent*` type names referenced by a game's `typesEmitterEvent.ts`, with
  * each name's source file (resolved from its `import … from '…'`). Preserves declaration order.
  */
@@ -106,7 +141,13 @@ const parseUnionImports = (src, sourceRel) => {
 	const importRe = /import\s+type\s+\{\s*(EmitterEvent\w+)\s*\}\s+from\s+'([^']+)'/g;
 	let m;
 	while ((m = importRe.exec(src))) {
-		imports.set(m[1], resolve(baseDir, m[2]));
+		const [, typeName, specifier] = m;
+		imports.set(
+			typeName,
+			specifier.startsWith('.')
+				? resolve(baseDir, specifier)
+				: resolveWorkspaceType(specifier, typeName, sourceRel),
+		);
 	}
 	// The union members, in declaration order, are the `| EmitterEventX` lines of the
 	// `EmitterEventGame` alias.

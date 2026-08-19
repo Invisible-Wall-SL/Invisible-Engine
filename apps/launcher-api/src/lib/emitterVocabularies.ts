@@ -256,6 +256,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'boolean',
 						required: false,
 					},
+					{
+						key: 'volume',
+						kind: 'number',
+						required: false,
+					},
 				],
 			},
 			{
@@ -374,6 +379,14 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'disableAnticipationMode',
+				group: 'Effect',
+			},
+			{
+				name: 'enableStackedPictures',
+				group: 'Effect',
+			},
+			{
+				name: 'disableStackedPictures',
 				group: 'Effect',
 			},
 			{
@@ -760,6 +773,11 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 						kind: 'boolean',
 						required: false,
 					},
+					{
+						key: 'volume',
+						kind: 'number',
+						required: false,
+					},
 				],
 			},
 			{
@@ -878,6 +896,531 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				name: 'disableAnticipationMode',
+				group: 'Effect',
+			},
+			{
+				name: 'enableStackedPictures',
+				group: 'Effect',
+			},
+			{
+				name: 'disableStackedPictures',
+				group: 'Effect',
+			},
+			{
+				name: 'setWinBookEventAmount',
+				group: 'Effect',
+			},
+			{
+				name: 'setSpecialSymbol',
+				group: 'Effect',
+			},
+			{
+				name: 'expandBookColumns',
+				group: 'Effect',
+			},
+			{
+				name: 'setFreeSpinCounterTotal',
+				group: 'Effect',
+			},
+			{
+				name: 'freeSpinIntroShow',
+				group: 'Effect',
+			},
+			{
+				name: 'setFreeGameType',
+				group: 'Effect',
+			},
+			{
+				name: 'freeSpinIntroHide',
+				group: 'Effect',
+			},
+			{
+				name: 'freeSpinCounterShow',
+				group: 'Effect',
+			},
+			{
+				name: 'setFreeSpinCounterTotalOnly',
+				group: 'Effect',
+			},
+			{
+				name: 'freeSpinCounterUpdate',
+				group: 'Effect',
+			},
+			{
+				name: 'updateFreeSpinCounter',
+				group: 'Effect',
+			},
+			{
+				name: 'enterFreeSpinOutro',
+				group: 'Effect',
+			},
+			{
+				name: 'winLevelSoundsPlay',
+				group: 'Effect',
+			},
+			{
+				name: 'winLevelSoundsStop',
+				group: 'Effect',
+			},
+			{
+				name: 'freeSpinOutroCountUp',
+				group: 'Effect',
+			},
+			{
+				name: 'exitFreeSpinOutro',
+				group: 'Effect',
+			},
+			{
+				name: 'winShow',
+				group: 'Effect',
+			},
+			{
+				name: 'winUpdate',
+				group: 'Effect',
+			},
+			{
+				name: 'winHide',
+				group: 'Effect',
+			},
+			{
+				name: 'showMessage',
+				group: 'Effect',
+			},
+			{
+				name: 'animateWinSymbols',
+				group: 'Effect',
+			},
+			{
+				name: 'showWinLine',
+				group: 'Effect',
+			},
+			{
+				name: 'hideWinLine',
+				group: 'Effect',
+			},
+			{
+				name: 'stopReel',
+				group: 'Effect',
+			},
+			{
+				name: 'selectBetMode',
+				group: 'Effect',
+			},
+			{
+				name: 'commitBuyBonus',
+				group: 'Effect',
+			},
+		],
+		bookEvents: [
+			{
+				type: 'reveal',
+			},
+			{
+				type: 'winInfo',
+			},
+			{
+				type: 'setTotalWin',
+			},
+			{
+				type: 'freeSpinTrigger',
+			},
+			{
+				type: 'updateFreeSpin',
+			},
+			{
+				type: 'createBonusSnapshot',
+			},
+			{
+				type: 'finalWin',
+			},
+			{
+				type: 'setWin',
+			},
+			{
+				type: 'freeSpinEnd',
+			},
+			{
+				type: 'setExpandingSymbol',
+			},
+			{
+				type: 'expandBookColumns',
+			},
+			{
+				type: 'freeSpinRetrigger',
+			},
+		],
+	},
+	ways: {
+		source: 'lines',
+		events: [
+			{
+				type: 'boardSettle',
+				group: 'Board',
+				fields: [
+					{
+						key: 'board',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'boardShow',
+				group: 'Board',
+			},
+			{
+				type: 'boardHide',
+				group: 'Board',
+			},
+			{
+				type: 'boardWithAnimateSymbols',
+				group: 'Board',
+				fields: [
+					{
+						key: 'symbolPositions',
+						kind: 'list',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'reelStop',
+				group: 'Board',
+				fields: [
+					{
+						key: 'index',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'boardFrameGlowShow',
+				group: 'Board frame',
+			},
+			{
+				type: 'boardFrameGlowHide',
+				group: 'Board frame',
+			},
+			{
+				type: 'winShow',
+				group: 'Win',
+			},
+			{
+				type: 'winHide',
+				group: 'Win',
+			},
+			{
+				type: 'winUpdate',
+				group: 'Win',
+				fields: [
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'winLevelData',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'holdToSpeedUp',
+						kind: 'boolean',
+						required: false,
+					},
+					{
+						key: 'tapToSkip',
+						kind: 'boolean',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'winCountUpComplete',
+				group: 'Win',
+			},
+			{
+				type: 'winLineShow',
+				group: 'WinLine',
+				fields: [
+					{
+						key: 'points',
+						kind: 'list',
+						required: true,
+					},
+					{
+						key: 'amount',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'message',
+						kind: 'string',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'winLineHide',
+				group: 'WinLine',
+			},
+			{
+				type: 'freeSpinIntroShow',
+				group: 'Free spins',
+			},
+			{
+				type: 'freeSpinIntroHide',
+				group: 'Free spins',
+			},
+			{
+				type: 'freeSpinIntroUpdate',
+				group: 'Free spins',
+				fields: [
+					{
+						key: 'totalFreeSpins',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'freeSpinCounterShow',
+				group: 'Free spins',
+			},
+			{
+				type: 'freeSpinCounterHide',
+				group: 'Free spins',
+			},
+			{
+				type: 'freeSpinCounterUpdate',
+				group: 'Free spins',
+				fields: [
+					{
+						key: 'current',
+						kind: 'number',
+						required: false,
+					},
+					{
+						key: 'total',
+						kind: 'number',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'freeSpinOutroShow',
+				group: 'Free spins',
+			},
+			{
+				type: 'freeSpinOutroHide',
+				group: 'Free spins',
+			},
+			{
+				type: 'freeSpinOutroCountUp',
+				group: 'Free spins',
+				fields: [
+					{
+						key: 'amount',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'winLevelData',
+						kind: 'object',
+						required: true,
+					},
+					{
+						key: 'holdToSpeedUp',
+						kind: 'boolean',
+						required: false,
+					},
+					{
+						key: 'tapToSkip',
+						kind: 'boolean',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'freeSpinOutroCountUpComplete',
+				group: 'Free spins',
+			},
+			{
+				type: 'specialBookReveal',
+				group: 'Special book',
+				fields: [
+					{
+						key: 'symbol',
+						kind: 'string',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'specialBookHide',
+				group: 'Special book',
+			},
+			{
+				type: 'bookRevealGateShow',
+				group: 'Special book',
+			},
+			{
+				type: 'soundMusic',
+				group: 'Sound',
+				fields: [
+					{
+						key: 'name',
+						kind: 'string',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'soundOnce',
+				group: 'Sound',
+				fields: [
+					{
+						key: 'name',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'forcePlay',
+						kind: 'boolean',
+						required: false,
+					},
+					{
+						key: 'volume',
+						kind: 'number',
+						required: false,
+					},
+				],
+			},
+			{
+				type: 'soundLoop',
+				group: 'Sound',
+				fields: [
+					{
+						key: 'name',
+						kind: 'string',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'soundStop',
+				group: 'Sound',
+				fields: [
+					{
+						key: 'name',
+						kind: 'string',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'soundFade',
+				group: 'Sound',
+				fields: [
+					{
+						key: 'name',
+						kind: 'string',
+						required: true,
+					},
+					{
+						key: 'from',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'to',
+						kind: 'number',
+						required: true,
+					},
+					{
+						key: 'duration',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'soundScatterCounterIncrease',
+				group: 'Sound',
+			},
+			{
+				type: 'soundScatterCounterClear',
+				group: 'Sound',
+			},
+			{
+				type: 'transition',
+				group: 'Transition',
+			},
+			{
+				type: 'stopButtonEnable',
+				group: 'UI',
+			},
+			{
+				type: 'uiShow',
+				group: 'UI',
+			},
+			{
+				type: 'uiHide',
+				group: 'UI',
+			},
+			{
+				type: 'drawerUnfold',
+				group: 'UI',
+			},
+			{
+				type: 'drawerFold',
+				group: 'UI',
+			},
+			{
+				type: 'drawerButtonShow',
+				group: 'UI',
+			},
+			{
+				type: 'drawerButtonHide',
+				group: 'UI',
+			},
+			{
+				type: 'soundPressStop',
+				group: 'UI',
+			},
+		],
+		effects: [
+			{
+				name: 'cameraEffect',
+				group: 'Effect',
+			},
+			{
+				name: 'revealBoard',
+				group: 'Effect',
+			},
+			{
+				name: 'enableSequentialReelStop',
+				group: 'Effect',
+			},
+			{
+				name: 'disableSequentialReelStop',
+				group: 'Effect',
+			},
+			{
+				name: 'enableAnticipationMode',
+				group: 'Effect',
+			},
+			{
+				name: 'disableAnticipationMode',
+				group: 'Effect',
+			},
+			{
+				name: 'enableStackedPictures',
+				group: 'Effect',
+			},
+			{
+				name: 'disableStackedPictures',
 				group: 'Effect',
 			},
 			{
