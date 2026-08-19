@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { SpineProvider, SpineTrack, type SpineTrackProps } from 'pixi-svelte';
 
-	import { SYMBOL_SIZE } from '../game/constants';
+	import { SYMBOL_SIZE } from 'engine-game';
 	import { bakedHighlight } from '../editor-scenes';
 	import { getSymbolInfo, hexToTintNumber } from '../game/utils';
 	import SymbolSpineMain from './SymbolSpineMain.svelte';

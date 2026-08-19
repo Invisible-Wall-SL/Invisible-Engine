@@ -3,7 +3,7 @@
 
 	import Symbol from './Symbol.svelte';
 	import { getContext } from '../game/context';
-	import { SYMBOL_SIZE } from '../game/constants';
+	import { SYMBOL_SIZE } from 'engine-game';
 	import type { SymbolName } from '../game/types';
 
 	/**

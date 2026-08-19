@@ -12,7 +12,7 @@ import {
 
 import { bakedGameConfig } from '../editor-scenes';
 import compiledConfig from './config';
-import { SYMBOL_SIZE } from './constants';
+import { SYMBOL_SIZE } from 'engine-game';
 import type { GameType, RawSymbol } from './types';
 import { winLevelMap, type WinLevel, type WinLevelData } from 'engine-game';
 

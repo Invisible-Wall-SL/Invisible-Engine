@@ -2,7 +2,7 @@
 	import { Rectangle } from 'pixi-svelte';
 
 	import { getContext } from '../game/context';
-	import { SYMBOL_SIZE } from '../game/constants';
+	import { SYMBOL_SIZE } from 'engine-game';
 	import { boardDimensions } from '../game/gameConfig';
 
 	type Props = { debug?: boolean };

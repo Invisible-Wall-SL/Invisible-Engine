@@ -9,7 +9,7 @@
 		winDimCellKey,
 		type ReelSymbol,
 	} from '../game/stateGame.svelte';
-	import { SYMBOL_DIM_TINT } from '../game/constants';
+	import { SYMBOL_DIM_TINT } from 'engine-game';
 
 	type Props = {
 		reelIndex: number;
