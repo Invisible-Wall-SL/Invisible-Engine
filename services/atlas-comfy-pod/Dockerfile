@@ -125,6 +125,11 @@ RUN pip install --force-reinstall \
 # the whole monorepo to the builder on a job that already has to reclaim ~25 GB of disk.
 # One copy, in the image that consumes it.
 COPY tools/fetch-models.py /fetch-models.py
+# Serves ComfyUI on a SECOND port so the pod can have both a TCP port (direct link) and
+# an HTTP proxy port at once — RunPod refuses to give one container port both. Pure
+# stdlib on purpose: socat is not in this image, and adding an apt package to solve a
+# 40-line problem is a worse trade. Started by start.sh.
+COPY tools/port-forward.py /port-forward.py
 
 # --- Entrypoint -------------------------------------------------------------------
 WORKDIR /

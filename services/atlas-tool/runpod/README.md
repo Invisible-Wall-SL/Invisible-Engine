@@ -38,14 +38,19 @@ RunPod → Pods → Deploy, attach the Network Volume from step 1 (mounts at
 - **Template:** any recent `runpod/pytorch` CUDA 12.x image.
 - **Expose HTTP port `8188`.** RunPod gives you a proxy URL
   `https://<podId>-8188.proxy.runpod.net` — that becomes `COMFY_URL`.
-- **Also expose `8188` as a TCP port — REQUIRED, not optional.** The proxy **403s any
-  clicked link** from another site (see `docs/INFRA.md`), so **a pod without a TCP port
-  cannot be opened from the launcher at all** — the `/comfyui` card marks it
-  *⚠ not reachable* and tells you to fix it. The TCP port gives a direct
-  `http://<ip>:<port>` that skips the proxy, and the card links to it automatically.
-  It also stops the proxy dropping ComfyUI's `/ws` progress socket on long renders.
-  RunPod assigns the external port at each start, so it changes every time — which is
-  why the card reads it live rather than storing it.
+- **Ports: `HTTP 8189` + `TCP 8188`. Both, exactly like that.** RunPod refuses to give
+  one container port both, and we need both:
+  - **TCP `8188`** → a direct `http://<ip>:<port>` the launcher can LINK to. The proxy
+    **403s any clicked link** (see `docs/INFRA.md`), so without this the *Open ComfyUI*
+    button cannot work and the card marks the pod *⚠ not reachable*. RunPod assigns the
+    external port at each start, so it changes every time — the card reads it live.
+  - **HTTP `8189`** → the proxy hostname, which is what the launcher's readiness probe
+    and a pasted url use. The pod image forwards `8189 → 8188`
+    (`services/atlas-comfy-pod/tools/port-forward.py`) so ComfyUI answers on both.
+
+  ⚠ **Do not put 8188 in the HTTP box.** Exposing 8188 as TCP *removes* its HTTP proxy —
+  that hostname starts answering 404 — so a pod configured `HTTP 8188 + TCP 8188` (or
+  TCP-only) ends up unreachable by every route at once while ComfyUI is running fine.
 
 > ### ⚠ `raw.githubusercontent.com` 404s — THIS REPO IS PRIVATE
 > Every `curl … raw.githubusercontent.com/Invisible-Wall-SL/Invisible-Engine/…` below

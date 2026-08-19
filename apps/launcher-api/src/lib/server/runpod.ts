@@ -40,9 +40,39 @@ export interface PodState extends FleetPod {
 	directUrl?: string;
 }
 
+/**
+ * HTTP proxy ports to try, in order.
+ *
+ * A pod cannot expose ONE container port as both HTTP and TCP, and we need both — TCP
+ * 8188 for the direct link the launcher can click, HTTP for the proxy hostname this
+ * server probes. So the pod image forwards **8189 → 8188** and the documented config is
+ * "HTTP 8189 + TCP 8188" (`services/atlas-comfy-pod/tools/port-forward.py`).
+ *
+ * 8188 stays in the list because a pod predating that image still serves its proxy
+ * there. Getting this wrong is not cosmetic: the proxy url is what `comfyReady` probes,
+ * so a wrong port reads as "ComfyUI never came up" and the card sticks on "warming up".
+ */
+const PROXY_PORTS = [8189, 8188] as const;
+
 /** The ComfyUI proxy URL for a pod, derived from its RunPod id. */
-export function podUrl(id: string): string {
-	return `https://${id}-8188.proxy.runpod.net`;
+export function podUrl(id: string, port: number = PROXY_PORTS[0]): string {
+	return `https://${id}-${port}.proxy.runpod.net`;
+}
+
+
+/**
+ * The proxy url that actually ANSWERS for this pod, or `null` if none does.
+ *
+ * Probed rather than assumed, because the answer depends on how the pod's ports happen
+ * to be configured — new pods on 8189, older ones on 8188 — and there is no single
+ * correct constant. Ordered, so the common case costs one request.
+ */
+export async function resolveProxyUrl(id: string): Promise<string | null> {
+	for (const port of PROXY_PORTS) {
+		const url = podUrl(id, port);
+		if (await comfyReady(url)) return url;
+	}
+	return null;
 }
 
 /** One entry of RunPod's `runtime.ports`. */
@@ -305,12 +335,23 @@ export async function probeFleet(): Promise<PodState[]> {
 	const fleet = await getEffectiveFleet();
 	return Promise.all(
 		fleet.map(async (p) => {
-			// Readiness is probed on the PROXY url, never the direct one: this runs
-			// server-side, where the proxy is reliable, and the direct endpoint only
-			// exists once RunPod has published the port. The direct url is for the
-			// BROWSER link (see `directUrlFromPorts`).
-			const [probe, ready] = await Promise.all([podProbe(p.id), comfyReady(p.url)]);
-			return { ...p, status: probe.status, ready, directUrl: probe.directUrl };
+			const probe = await podProbe(p.id);
+			// Readiness must not assume the proxy: exposing 8188 as TCP REMOVES its HTTP
+			// proxy (the hostname starts answering 404), which once left a pod reachable
+			// by no route the launcher knew about while ComfyUI was running fine. So try
+			// the proxy ports in order, and fall back to the direct endpoint — if either
+			// answers, the pod is up.
+			const proxyUrl = await resolveProxyUrl(p.id);
+			const ready = !!proxyUrl || (!!probe.directUrl && (await comfyReady(probe.directUrl)));
+			return {
+				...p,
+				// Surface the url that actually answers, so the "paste this" fallback on
+				// the card is never a dead hostname.
+				url: proxyUrl ?? p.url,
+				status: probe.status,
+				ready,
+				directUrl: probe.directUrl,
+			};
 		}),
 	);
 }

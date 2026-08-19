@@ -3,8 +3,9 @@ import {
 	comfyQueueBusy,
 	getEffectiveFleet,
 	podControlConfigured,
-	podStatus,
+	podProbe,
 	podStop,
+	resolveProxyUrl,
 } from './runpod';
 import { lastActivity, leaseActive, markActivity } from './runpodActivity';
 
@@ -61,8 +62,10 @@ async function tick(): Promise<void> {
 		}
 
 		const fleet = await getEffectiveFleet();
-		const statuses = await Promise.all(fleet.map((p) => podStatus(p.id)));
-		const running = fleet.filter((_, i) => statuses[i] === 'running');
+		const probes = await Promise.all(fleet.map((p) => podProbe(p.id)));
+		const running = fleet
+			.map((p, i) => ({ pod: p, probe: probes[i] }))
+			.filter((r) => r.probe.status === 'running');
 		if (!running.length) {
 			idleTicks = 0;
 			return;
@@ -78,7 +81,17 @@ async function tick(): Promise<void> {
 
 		// Hold 2 — queued work on ANY running pod, or a pod we could not reach at all.
 		// `q !== false` deliberately covers `null`: only a CONFIRMED empty queue is idle.
-		const queue = await Promise.all(running.map((p) => comfyQueueBusy(p.url)));
+		//
+		// The base url is RESOLVED, not assumed. A pod's HTTP proxy may sit on 8189 or
+		// 8188 depending on how its ports are configured, and a TCP-only pod has no proxy
+		// at all — querying the wrong one returns `null`, which reads as "busy" and would
+		// quietly keep an idle GPU billing forever.
+		const queue = await Promise.all(
+			running.map(async ({ pod, probe }) => {
+				const base = (await resolveProxyUrl(pod.id)) ?? probe.directUrl;
+				return base ? comfyQueueBusy(base) : null;
+			}),
+		);
 		if (queue.some((q) => q !== false)) {
 			idleTicks = 0;
 			markActivity();
@@ -94,9 +107,7 @@ async function tick(): Promise<void> {
 
 		// Nothing is holding the fleet — stop every running pod, then reset so we don't
 		// hammer stop before RunPod reflects it.
-		for (let i = 0; i < fleet.length; i++) {
-			if (statuses[i] === 'running') await podStop(fleet[i].id);
-		}
+		for (const { pod } of running) await podStop(pod.id);
 		idleTicks = 0;
 		markActivity();
 	} catch {
