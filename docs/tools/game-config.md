@@ -39,6 +39,11 @@ before — an un-authored project still runs the compiled template.
 - **Symbols** — the symbol **dictionary**: properties and paytable per symbol
   (`count:multiplier` pairs, e.g. `5:20, 4:10, 3:5`). Each row carries an
   **in play** / **unused** badge (see below).
+- **How wins are decided** — the **win model**: whether this game pays by **lines**,
+  **ways**, **cluster** or **scatter**, plus that model's own settings (ways: which
+  direction and the fewest reels; cluster: fewest cells and how they connect;
+  scatter: fewest symbols). This is what makes a project a ways game rather than a
+  lines one. See _Making a ways game_ below.
 - **Paylines** — a visual grid, one cell per reel per line, showing the **live server
   (RGS) line set** the game actually deals at runtime — **auto-loaded** when the page
   opens (best-effort; falls back to the saved config if the RGS is unreachable).
@@ -200,6 +205,33 @@ fields the export uses (`special_properties`, `max_win`) are kept verbatim.
 A project that has never authored a config opens on its **game-type template
 default** (the banner says so). Save to make it the project's own. **Reset to
 template default** restores that starting point at any time.
+
+## Making a ways game
+
+Four steps, and step 3 is the one people miss.
+
+1. **Set the project's game type to `ways`** (project settings). This decides which
+   template the config opens on and which mock RGS a publish points the game at.
+2. **Open this tool.** A project that hasn't authored a config yet opens on the
+   `ways` template, which already has the win model set (pays left to right, from
+   3 adjacent reels).
+3. **Save.** ⚠️ **This is required, even if you change nothing.** The game only ever
+   ships an **authored** config — a project that has never saved one ships no config
+   at all and falls back to the compiled lines template. A game type set but never
+   saved is exactly why a "ways" project still plays like lines.
+4. **Publish** the game. That's what writes the manifest entry telling the server to
+   deal **ways** wins rather than line wins.
+
+For a project that **already has a saved config** (so it won't pick up the ways
+template), just set _How wins are decided_ → **Ways**, save, and republish.
+
+**How to tell it worked**, in the running game:
+
+- Wins cover **several cells on the same reel** — a payline can only ever light one
+  row per reel, so this is the visible proof.
+- The info page has **no payline diagram** (there are no lines to draw).
+- The browser console carries a `[game-config]` note saying the config declares a
+  ways win model.
 
 ## How it reaches the game
 
