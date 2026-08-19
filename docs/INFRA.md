@@ -98,9 +98,13 @@ On-demand RunPod GPU **pods** running the **interactive ComfyUI web UI** for art
 | top-level nav, `Sec-Fetch-Site: cross-site` | **403** |
 | iframe, `cross-site` | **403** |
 | iframe, `same-origin` | 200 |
+| top-level nav, `Sec-Fetch-Site: same-site` | 200 |
+| WebSocket upgrade, cross-origin `Origin:` | 101 |
 | no `Sec-Fetch-Site` (address bar / fresh tab) | 200 |
 | server-side: curl / undici / node / no UA | 200 |
 | server-side: `User-Agent: Python-urllib/*` | **403** |
+
+Only `cross-site` fails — `none`, `same-origin` and `same-site` all pass, and a **WebSocket upgrade passes cross-origin** because browsers send no `Sec-Fetch-*` on a WS handshake (so ComfyUI's progress socket was never affected by this rule, only page loads were). The `same-site` row is what makes a hostname under `invisiblewall.org` a possible fleet-wide alternative to per-pod TCP; it would need a Cloudflare host-header rewrite per pod and would break when pod ids change, which is why TCP won.
 
 **It is NOT an iframe problem** — the destination is irrelevant (a `same-origin` iframe returns 200); only the initiator origin matters. `/comfyui` is correctly full-page and needs no change. Don't "fix" this by reworking framing.
 
@@ -110,7 +114,7 @@ The 403 is a bare `Content-Length: 0` from `Server: cloudflare` with **no block 
 
 **What to do — expose 8188 as a TCP port** (RunPod → Edit Pod, alongside the HTTP one). That yields a direct `http://<ip>:<publicPort>` which is not behind the proxy, so the cross-site rule never applies **and** the `/ws` drop above stops too. The `/comfyui` card picks it up automatically: `podProbe` reads `runtime.ports` on each poll and `directUrlFromPorts` (`$lib/server/runpod.ts`) turns a TCP-typed, public, `privatePort: 8188` entry into the link. RunPod assigns that external port **at each resume and it changes every start**, so it is read live and never cached — unlike the proxy URL, it cannot be derived from the pod id.
 
-Until a pod has that TCP port, the card shows **"Copy ComfyUI URL"** instead of a link that would 403, plus a one-line note. Nothing is silently broken either way. Note the direct endpoint is plain `http://` (no TLS) — acceptable for internal R&D, but it is unencrypted.
+**TCP 8188 is therefore REQUIRED pod config, not a nicety** — a pod without it cannot be opened from the launcher at all. The card marks such a pod **⚠ not reachable** and states the one-time fix, rather than degrading into a copy-the-url chore that would read as normal UX. Note the direct endpoint is plain `http://` (no TLS) — acceptable for internal R&D, but it is unencrypted.
 
 A launcher **same-origin proxy** would also work (the `same-origin` row above proves it, and it is rule 3's sanctioned "same-origin serve"), but proxying ComfyUI including its `/ws` socket is real work — don't start there.
 

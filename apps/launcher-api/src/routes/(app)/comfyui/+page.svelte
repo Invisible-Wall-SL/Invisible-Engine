@@ -40,23 +40,15 @@
 		return !isReady(p) && !isWarming(p) && (p.status === 'stopped' || p.status === 'unknown');
 	}
 
-	// RunPod's proxy 403s any browser request stamped `Sec-Fetch-Site: cross-site`, which
-	// is EVERY click from this page — so a plain link to `pod.url` cannot work, and no
-	// rel/target/redirect avoids it (the browser derives that header from the initiator).
-	// A pod exposing TCP 8188 gets a direct ip:port that skips the proxy; only then can we
-	// offer a real link. Otherwise the url has to be copied into the address bar by hand.
+	// TCP 8188 is REQUIRED pod config, not a nicety. RunPod's proxy 403s any browser
+	// request stamped `Sec-Fetch-Site: cross-site`, which is EVERY click from this page,
+	// and the browser derives that header from the initiator — no rel/target/redirect
+	// changes it. Only the direct ip:port skips the proxy, so a pod without it simply
+	// cannot be opened from here. That's a MISCONFIGURED POD, and the card says so
+	// instead of quietly degrading into a copy-the-url chore.
 	// See docs/INFRA.md §"Access to …proxy.runpod.net was denied".
-	let copied = $state<Record<string, boolean>>({});
-
-	async function copyUrl(p: Pod): Promise<void> {
-		try {
-			await navigator.clipboard.writeText(p.url);
-			copied[p.id] = true;
-			setTimeout(() => delete copied[p.id], 2000);
-		} catch {
-			// Clipboard blocked (insecure context / permission) — the url stays selectable
-			// on screen, so the artist can still copy it manually.
-		}
+	function needsTcpPort(p: Pod): boolean {
+		return isReady(p) && !p.directUrl;
 	}
 
 	// Once a pod's ComfyUI answers, drop its sticky "starting" flag.
@@ -231,9 +223,9 @@
 												Open ComfyUI ↗
 											</a>
 										{:else}
-											<button class="open sm btn" onclick={() => copyUrl(pod)}>
-												{copied[pod.id] ? 'Copied ✓' : 'Copy ComfyUI URL'}
-											</button>
+											<span class="badge warn" title="This pod has no TCP port — see below">
+												⚠ not reachable
+											</span>
 										{/if}
 										<button
 											class="secondary sm"
@@ -266,12 +258,16 @@
 									{/if}
 								</div>
 
-								{#if isReady(pod) && !pod.directUrl}
-									<p class="hint">
-										RunPod blocks clicked links to <code>{pod.url}</code> — paste it into the
-										address bar instead. To get a working button, expose port
-										<strong>8188 as TCP</strong> on this pod (RunPod → Edit Pod); it also stops the proxy
-										dropping ComfyUI's progress socket on long renders.
+								{#if needsTcpPort(pod)}
+									<p class="misconfig">
+										<strong>This pod is missing its TCP port.</strong> In RunPod →
+										<em>Edit Pod</em>, expose <strong>8188 as TCP</strong> (keep the HTTP one too),
+										then Stop and Start it here — the button comes back straight away, and it also
+										stops the proxy dropping ComfyUI's progress socket on long renders. One-time per
+										pod.
+										<br />
+										Until then this pod can only be opened by pasting <code>{pod.url}</code> into the
+										address bar: RunPod rejects links clicked from another site.
 									</p>
 								{/if}
 
@@ -404,6 +400,26 @@
 	.badge.warm {
 		border-color: #6a5a2a;
 		color: #d8bd77;
+	}
+	/* A pod that is up but has no TCP port: reachable by the server, not openable from
+	   here. Deliberately reads as a fault, not as an alternative way of working. */
+	.badge.warn {
+		border-color: #7a4a2a;
+		color: #e0a077;
+	}
+	.misconfig {
+		font-size: 13px;
+		line-height: 1.5;
+		color: #c9a88f;
+		background: #241a14;
+		border: 1px solid #7a4a2a;
+		border-radius: 8px;
+		padding: 10px 12px;
+		margin: 12px 0 0;
+	}
+	.misconfig code {
+		color: #e0c0a8;
+		word-break: break-all;
 	}
 	.pod-actions {
 		display: flex;
