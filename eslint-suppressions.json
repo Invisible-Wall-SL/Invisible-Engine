@@ -297,11 +297,6 @@
       "count": 1
     }
   },
-  "apps/lines/src/game/stateGame.svelte.ts": {
-    "svelte/prefer-svelte-reactivity": {
-      "count": 1
-    }
-  },
   "apps/lines/src/game/utils.ts": {
     "turbo/no-undeclared-env-vars": {
       "count": 1

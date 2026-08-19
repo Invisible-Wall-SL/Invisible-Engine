@@ -72,6 +72,11 @@ export function createGameContext<
  * emitter events with full typing, without this package importing anything from an app — which it
  * cannot do, and which is the constraint the whole extraction turns on.
  */
+// Empty ON PURPOSE — this is a declaration-merging seam, not a type that forgot its members. The
+// app fills it via `declare module 'engine-game'`, which is the only direction available since a
+// package must not import from an app. `object`/`unknown` (what the rule suggests) cannot be
+// merged into, so they would defeat the mechanism entirely.
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface GameContext {}
 
 let currentGetContext: (() => unknown) | undefined;

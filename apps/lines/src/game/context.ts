@@ -37,5 +37,9 @@ export type LinesContext = ReturnType<typeof gameContext.getContext>;
  * merging is the only direction that works: the package must not import from an app.
  */
 declare module 'engine-game' {
+	// Declaring no members of its own is the POINT: this merges `LinesContext` into the package's
+	// `GameContext` seam. The rule's advice (drop the interface, it equals its supertype) would
+	// delete the augmentation and with it every package component's typing.
+	// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 	interface GameContext extends LinesContext {}
 }

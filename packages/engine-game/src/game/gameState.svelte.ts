@@ -222,8 +222,6 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		});
 	};
 
-	type Reel = ReturnType<typeof buildBoard>[number];
-	type ReelSymbol = Reel['reelState']['symbols'][number];
 
 	type MultiplierSymbol = {
 		initX: number;
@@ -357,8 +355,13 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	const resolvedStacked = (): ResolvedStacked => {
 		const baked = deps.stackedConfig();
 		if (baked?.symbols?.length) {
+			// Plain Map/Set on purpose: rebuilt from scratch on every call and never mutated
+			// afterwards, so there is nothing for SvelteMap/SvelteSet to track — they would add a
+			// reactive proxy for no reader. The rule fires because this file carries runes.
+			// eslint-disable-next-line svelte/prefer-svelte-reactivity
 			const byName = new Map(baked.symbols.map((s) => [s.name, s]));
 			return {
+				// eslint-disable-next-line svelte/prefer-svelte-reactivity
 				symbols: new Set(byName.keys()),
 				heightOf: (name) => byName.get(name)?.height,
 				artOf: (name) => byName.get(name)?.art,
@@ -367,6 +370,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 			};
 		}
 		return {
+			// eslint-disable-next-line svelte/prefer-svelte-reactivity
 			symbols: new Set(deps.stackedFallback.symbols),
 			heightOf: (name) => deps.stackedFallback.heights[name],
 			artOf: () => undefined,
@@ -522,6 +526,8 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	const stackedPictureRuns = (): StackedPictureRun[] => stackedRuns;
 
 	const stackedCoverageSet = $derived.by(() => {
+		// Local accumulator returned AS the derived value — not mutated after the fact.
+		// eslint-disable-next-line svelte/prefer-svelte-reactivity
 		const covered = new Set<string>();
 		for (const run of stackedRuns)
 			for (let row = run.topRow; row < run.topRow + run.visibleCells; row += 1)
