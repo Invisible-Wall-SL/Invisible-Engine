@@ -30,6 +30,7 @@ export {
 	type WinLevelAlias,
 } from './src/game/winLevelMap';
 
+export { createGameContext } from './src/game/context';
 export { resolveWinMount, type WinMount } from './src/game/winOwnership';
 export {
 	freeSpinsRemaining,
