@@ -3361,7 +3361,8 @@
 	.shell {
 		position: relative;
 		display: grid;
-		grid-template-rows: auto 1fr auto;
+		/* top bar · editor action row · layout · help strip — the 1fr must land on .layout */
+		grid-template-rows: auto auto 1fr auto;
 		height: 100vh;
 		color: #e8e8ee;
 		background: #0b0b10;
