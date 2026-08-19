@@ -666,7 +666,7 @@ export type BookEvent =
 
 ###
 
-- [apps/lines/src/components/GlobalMultiplier.svelte](/apps/lines/src/components/GlobalMultiplier.svelte): This file is created as our target svelte component for updateGlobalMulti bookEvent. Technically speaking, all the jobs that is related to global multiplier of the game should only be in this svelte component. Similar to the bookEvent types, let is add the typescript types for new emitterEvents first.
+- `apps/lines/src/components/GlobalMultiplier.svelte`: This file is created as our target svelte component for updateGlobalMulti bookEvent. Technically speaking, all the jobs that is related to global multiplier of the game should only be in this svelte component. Similar to the bookEvent types, let is add the typescript types for new emitterEvents first.
   - `type EmitterEventGlobalMultiplier` is a <mark>union type</mark> of EmitterEvent types.
 
 ```
@@ -710,7 +710,7 @@ export const { eventEmitter } = createEventEmitter<EmitterEvent>();
 
 ```
 
-- [apps/lines/src/components/GlobalMultiplier.svelte](/apps/lines/src/components/GlobalMultiplier.svelte): Back to our component file, the intellisense is there. Let is add the code to process the values with a spine animation as well.
+- `apps/lines/src/components/GlobalMultiplier.svelte`: Back to our component file, the intellisense is there. Let is add the code to process the values with a spine animation as well.
 
 <img src="./documentation/emitter_event_intellisense.png" alt="isolated" width="100%"/>
 
@@ -746,7 +746,7 @@ export const { eventEmitter } = createEventEmitter<EmitterEvent>();
 
 - <mark>Test it individually</mark> `(MODE_BONUS/bookEvent/updateGlobalMult)`: Run storybook and we should see this a new story "updateGlobalMult" has been added.
 
-  - Now click on the `Action` button and we should see the [<GlobalMultiplier \/>](/apps/lines/src/components/GlobalMultiplier.svelte) component animates correctly followed by the "<mark> ⓘ Action is resolved ✅ </mark>" message, otherwise we need to go back to the component and figure out what is wrong until it is resolved.
+  - Now click on the `Action` button and we should see the `<GlobalMultiplier />` component animates correctly followed by the "<mark> ⓘ Action is resolved ✅ </mark>" message, otherwise we need to go back to the component and figure out what is wrong until it is resolved.
 
   - If you find out the component hard to debug, we'd better start creating a new story `COMPONENTS/<GlobalMultiplierSpine>/component`. `<GlobalMultiplierSpine />` component will purely take props and achieve its duty instead of being controlled by emitterEvents. This way it becomes more friendly for testing the component with the storybook controls.
 
