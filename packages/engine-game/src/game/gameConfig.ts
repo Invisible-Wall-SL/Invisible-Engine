@@ -3,11 +3,13 @@ import {
 	resolveWinLevel,
 	resolveWinLevelChain,
 	resolveWinLevels,
+	resolveWinModel,
 	symbolsInPlay,
 	validateGameConfigDoc,
 	winLevelType,
 	type GameConfigDoc,
 	type ResolvedWinTier,
+	type WinModel,
 } from 'game-config';
 
 import { SYMBOL_SIZE } from './constants';
@@ -202,8 +204,27 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	function paylineColor(lineIndex: number | undefined): string | undefined {
 		if (lineIndex === undefined || lineIndex < 0) return undefined;
 		const config = getActiveGameConfig();
+		// A non-lines game has no paylines, so `meta.lineIndex` is not a payline id and the ordinal
+		// mapping below would colour a win from an unrelated line's swatch. Gated HERE rather than at
+		// the two call sites (`winLineColorFor`, the info page's `paylineColors`) so the rule has one
+		// home — Phase D of docs/design/game-type-templates.md.
+		if (activeWinModel().type !== 'lines') return undefined;
 		const id = Object.keys(config.paylines)[lineIndex];
 		return id === undefined ? undefined : config.paylineColors?.[id];
+	}
+
+	/**
+	 * HOW this project decides a win, resolved from the active config (Phase C/D of
+	 * `docs/design/game-type-templates.md`). `lines` for every config that predates the field, so
+	 * every existing game is unchanged.
+	 *
+	 * This is the runtime's read of the win model. It does NOT yet select a different win
+	 * EVALUATION — the engine still presents whatever the RGS reports — but it is what lets the
+	 * payline-specific surfaces stand down, and what `warnOnGameConfigIssues` uses to say plainly
+	 * that a declared `ways`/`cluster`/`scatter` model is not being honoured yet.
+	 */
+	function activeWinModel(): WinModel {
+		return resolveWinModel(getActiveGameConfig());
 	}
 
 	/** Visible rows on the first reel — the info page's grid height. */
@@ -479,6 +500,20 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 					'Machine, or remove them from the strips.',
 			);
 		}
+
+		// A project can DECLARE ways/cluster/scatter in `/config` (Phase C), but no runtime implements
+		// one yet — `runtimeFor()` still resolves every project to the lines bundle. Say so at boot
+		// rather than letting a ways game look merely wrong: the symptom (line wins on a ways config)
+		// is indistinguishable from a math bug, and this is the one place that knows it is expected.
+		const model = activeWinModel();
+		if (model.type !== 'lines') {
+			console.warn(
+				`[game-config] warning: this config declares a '${model.type}' win model, but the engine ` +
+					'has no runtime for it yet — the game is being played as LINES. The declaration is ' +
+					'stored and validated; only the evaluation is missing. See ' +
+					'docs/design/game-type-templates.md (Phase D).',
+			);
+		}
 	}
 
 	return {
@@ -490,6 +525,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		activeWinLevelData,
 		activeWinLevelIsBig,
 		activeWinLevels,
+		activeWinModel,
 		boardDimensions,
 		boardSizes,
 		getActiveGameConfig,

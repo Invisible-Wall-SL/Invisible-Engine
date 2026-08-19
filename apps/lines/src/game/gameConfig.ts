@@ -33,6 +33,7 @@ export const {
 	boardSizes,
 	initialBoard,
 	activeWinLevels,
+	activeWinModel,
 	publishWinPresentation,
 	activeWinLevelData,
 	activeWinLevelByAlias,
