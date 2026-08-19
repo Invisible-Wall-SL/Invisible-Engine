@@ -1,7 +1,6 @@
 import { error, json } from '@sveltejs/kit';
-import { getRunpodIdleConfig } from '$lib/server/appSettings';
 import { requireComfyAccess } from '$lib/server/comfyAccess';
-import { getEffectiveFleet, podControlConfigured, podResume, probeFleet } from '$lib/server/runpod';
+import { fleetPayload, getEffectiveFleet, podResume } from '$lib/server/runpod';
 import { markActivity } from '$lib/server/runpodActivity';
 import type { RequestHandler } from './$types';
 
@@ -26,24 +25,10 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
 	markActivity();
 	const resume = await podResume(podId);
-	const [configured, pods, idle] = await Promise.all([
-		podControlConfigured(),
-		probeFleet(),
-		getRunpodIdleConfig(),
-	]);
 
 	return json(
 		{
-			configured,
-			idleEnabled: idle.enabled,
-			idleMinutes: idle.minutes,
-			pods: pods.map((p) => ({
-				id: p.id,
-				label: p.label,
-				url: p.url,
-				status: p.status,
-				ready: p.ready,
-			})),
+			...(await fleetPayload()),
 			podId,
 			error: resume.ok ? undefined : resume.error,
 		},

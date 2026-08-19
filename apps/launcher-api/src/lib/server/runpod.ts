@@ -1,5 +1,6 @@
-import { getRunpodPods } from './appSettings';
+import { getRunpodIdleConfig, getRunpodPods } from './appSettings';
 import { ENV } from './env';
+import { leaseMinutesLeft } from './runpodActivity';
 
 /**
  * RunPod on-demand pod lifecycle for the ComfyUI R&D FLEET.
@@ -181,21 +182,29 @@ export async function comfyReady(url: string): Promise<boolean> {
 }
 
 /**
- * True if ComfyUI has a non-empty queue at `url/queue` (a render is running or pending).
- * Used by the idle watchdog to treat an active queue as activity so it never stops a pod
- * mid-render. Any error → `false` (fail-safe).
+ * Whether ComfyUI has work queued at `url/queue` — `true` (a render is running or
+ * pending), `false` (confirmed empty), or **`null` when we could not tell**.
+ *
+ * The tri-state is load-bearing for the idle watchdog. ComfyUI serves `/queue` from the
+ * same process that runs the graph, so it stops answering while a checkpoint loads or a
+ * VAE decodes — exactly when the pod is busiest. Collapsing that silence into `false`
+ * let one slow sample read as "idle" and stop a pod mid-render, so unknown stays
+ * unknown and the caller decides (the watchdog treats it as busy).
+ *
+ * The timeout is deliberately generous for the same reason: a pod under load is slow to
+ * answer, not idle.
  */
-export async function comfyQueueBusy(url: string): Promise<boolean> {
+export async function comfyQueueBusy(url: string): Promise<boolean | null> {
 	const base = (url ?? '').replace(/\/$/, '');
-	if (!base) return false;
+	if (!base) return null;
 	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), 6000);
+	const timer = setTimeout(() => controller.abort(), 15000);
 	try {
 		const res = await fetch(`${base}/queue`, {
 			headers: { 'user-agent': UA },
 			signal: controller.signal,
 		});
-		if (!res.ok) return false;
+		if (!res.ok) return null;
 		const data = (await res.json()) as {
 			queue_running?: unknown[];
 			queue_pending?: unknown[];
@@ -204,7 +213,7 @@ export async function comfyQueueBusy(url: string): Promise<boolean> {
 		const pending = Array.isArray(data.queue_pending) ? data.queue_pending.length : 0;
 		return running + pending > 0;
 	} catch {
-		return false;
+		return null;
 	} finally {
 		clearTimeout(timer);
 	}
@@ -223,4 +232,39 @@ export async function probeFleet(): Promise<PodState[]> {
 			return { ...p, status, ready };
 		}),
 	);
+}
+
+/** The /comfyui control-panel payload: the probed fleet plus the idle + lease state. */
+export interface FleetPayload {
+	configured: boolean;
+	idleEnabled: boolean;
+	idleMinutes: number;
+	leaseMinutes: number;
+	pods: { id: string; label: string; url: string; status: PodStatus; ready: boolean }[];
+}
+
+/**
+ * Build the panel payload. ONE home for the shape: `status`, `start` and `stop` all
+ * answer with it, and hand-building it in each endpoint is how a newly added field
+ * reaches only some of them.
+ */
+export async function fleetPayload(): Promise<FleetPayload> {
+	const [configured, pods, idle] = await Promise.all([
+		podControlConfigured(),
+		probeFleet(),
+		getRunpodIdleConfig(),
+	]);
+	return {
+		configured,
+		idleEnabled: idle.enabled,
+		idleMinutes: idle.minutes,
+		leaseMinutes: leaseMinutesLeft(),
+		pods: pods.map((p) => ({
+			id: p.id,
+			label: p.label,
+			url: p.url,
+			status: p.status,
+			ready: p.ready,
+		})),
+	};
 }

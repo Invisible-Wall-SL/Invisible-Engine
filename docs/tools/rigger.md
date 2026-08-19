@@ -476,11 +476,33 @@ The timeline is an NLE-style sequencer sharing the panel the dopesheet uses:
   in/out, alpha, and replace-vs-additive. Blend ramps are drawn inside the strip
   and additive strips are tinted, so the stack reads at a glance.
 
-### Override part of the skeleton (strip masks)
+### Animate an override (the whole recipe)
 
-By default a strip poses the **whole** rig, so a strip on an upper layer replaces
-everything below it. A **mask** narrows it to part of the skeleton — an upper-body
-clip playing over a walk, a head turn over an idle.
+To make one actor do something *on top of* what it is already doing — a wave during
+a walk, a head turn during an idle — you stack a second layer and animate into it.
+All of it happens inside 🎬 Cinematic:
+
+1. **⧉** on the actor's track row adds a **layer** above it. Layers blend bottom-up.
+2. **＋** on the new layer's row adds a **strip** at the playhead.
+3. Select the strip → **＋ New clip**. That creates an empty animation *on the actor's
+   rig*, points the strip at it, and drops you straight into the animator with the
+   rest of the stage posed around you.
+4. Pose bones and **◆ Key** them, exactly as in ◆ Animate. Scrub with the transport —
+   the playhead is cinematic time, mapped through the strip.
+5. **💾 Save rig** in the tweak bar, then **✔ Done**.
+
+> **The clip lives on the RIG, not on the cinematic.** That is why the tweak bar has
+> its own **💾 Save rig** and shows **unsaved** — saving the *cinematic* does not save
+> the animation you just authored.
+
+**You usually do not need a mask for this.** A clip only affects the bones it actually
+keys, so an override you authored yourself already leaves everything else to the layer
+below. Masks are for the other case: using only *part* of a clip that already exists.
+
+### Use only part of a clip (strip masks)
+
+A **mask** narrows a strip to part of the skeleton — take an existing full-body wave
+and let it drive only the arms while a walk keeps the legs.
 
 With a strip selected, the inspector's **mask** section lists the bones the strip is
 restricted to:
@@ -492,6 +514,15 @@ restricted to:
 - The header counts what the mask really covers (**"9 of 73 bones"**), expanded the
   same way the player expands it, so you can see at a glance whether it's doing what
   you meant. **clear** removes it, and a masked strip is marked **◑** on the timeline.
+
+While you are **tweaking** a strip the same controls sit in the tweak bar, where the
+bones are actually visible and clickable:
+
+- **◑ ＋ \<bone\>** adds the bone you have selected on the canvas (with its children).
+- **◑ keyed** masks the strip to exactly the bones you have keyed in this clip — the
+  one-click end of the override recipe above.
+- The readout shows the live count, and masked bones are drawn **blue** in the bone
+  overlay while everything else dims, so a mask is something you can see.
 
 Bones *outside* the mask keep whatever the layers below posed. Two things to know:
 
