@@ -12,7 +12,7 @@ import { i18nDerived } from '../i18n/i18nDerived';
  * This game's COMPOSITION ROOT: it builds every instance, `engine-game` owns the wiring.
  * See `createGameContext` for why the context is injected rather than relocated.
  */
-export const { setContext, getContext } = createGameContext<
+const gameContext = createGameContext<
 	EmitterEvent,
 	{
 		stateGame: typeof stateGame;
@@ -26,3 +26,16 @@ export const { setContext, getContext } = createGameContext<
 	app: { stateApp },
 	parts: { stateGame, stateGameDerived, i18nDerived },
 });
+
+export const { setContext, getContext } = gameContext;
+
+export type LinesContext = ReturnType<typeof gameContext.getContext>;
+
+/**
+ * Hand this game's context shape to `engine-game`, so components that have moved INTO the package
+ * still read `context.stateGame` (and this game's emitter events) with full typing. Declaration
+ * merging is the only direction that works: the package must not import from an app.
+ */
+declare module 'engine-game' {
+	interface GameContext extends LinesContext {}
+}

@@ -52,5 +52,46 @@ export function createGameContext<
 		...deps.parts,
 	});
 
+	currentGetContext = getContext;
+
 	return { setContext, getContext };
+}
+
+/**
+ * The shape a game's context has, as seen from INSIDE this package.
+ *
+ * Empty here on purpose, and filled by the app through declaration merging:
+ *
+ * ```ts
+ * declare module 'engine-game' {
+ *   interface GameContext extends LinesContext {}
+ * }
+ * ```
+ *
+ * That is what lets a component living in this package read `context.stateGame` or the game's own
+ * emitter events with full typing, without this package importing anything from an app — which it
+ * cannot do, and which is the constraint the whole extraction turns on.
+ */
+export interface GameContext {}
+
+let currentGetContext: (() => unknown) | undefined;
+
+/**
+ * The context accessor for components INSIDE this package — the counterpart to the app's own
+ * `getContext`, delegating to the very same closure so the two can never diverge.
+ *
+ * It stores the FUNCTION, not the value: `getContext` calls Svelte's `getContext()` under the hood,
+ * which is only legal during component initialisation, so resolving it eagerly would break.
+ *
+ * Registration happens when the app's composition root module is evaluated, which the app's own
+ * boot import forces long before any component mounts. The throw is therefore a real
+ * misconfiguration (a package component mounted with no composition root), not a race.
+ */
+export function getGameContext(): GameContext {
+	if (!currentGetContext) {
+		throw new Error(
+			'engine-game: createGameContext() has not run — the app must import its context module before mounting components.',
+		);
+	}
+	return currentGetContext() as GameContext;
 }

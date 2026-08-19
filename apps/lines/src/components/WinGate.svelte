@@ -8,8 +8,8 @@
 
 	import { getContext } from '../game/context';
 	import { flowV2DrivesScreens } from '../game/flowV2Runtime.svelte';
-	import CountUpInteraction from './CountUpInteraction.svelte';
-	import PressToContinue from './PressToContinue.svelte';
+	import { CountUpInteraction } from 'engine-game';
+	import { PressToContinue } from 'engine-game';
 	import WinStatePublisher from './WinStatePublisher.svelte';
 	import { winState } from '../game/winState.svelte';
 

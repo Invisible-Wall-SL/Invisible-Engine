@@ -195,9 +195,9 @@
 	import { stateApp } from '../game/stateApp';
 	import EnableSound from './EnableSound.svelte';
 	import EnableGameActor from './EnableGameActor.svelte';
-	import ResumeBet from './ResumeBet.svelte';
+	import { ResumeBet } from 'engine-game';
 	import Sound from './Sound.svelte';
-	import Background from './Background.svelte';
+	import { Background } from 'engine-game';
 	import BoardFrame from './BoardFrame.svelte';
 	import Board from './Board.svelte';
 	import Anticipations from './Anticipations.svelte';
@@ -211,7 +211,7 @@
 	import WinGate from './WinGate.svelte';
 	import WinVisual from './WinVisual.svelte';
 	import FreeSpinIntro from './FreeSpinIntro.svelte';
-	import FreeSpinIntroGate from './FreeSpinIntroGate.svelte';
+	import { FreeSpinIntroGate } from 'engine-game';
 	import FreeSpinIntroFlowGate from './FreeSpinIntroFlowGate.svelte';
 	import FreeSpinIntroVisual from './FreeSpinIntroVisual.svelte';
 	import FreeSpinCounter from './FreeSpinCounter.svelte';
@@ -226,7 +226,7 @@
 	import MessageSymbol from './MessageSymbol.svelte';
 	import RevealSymbolRider from './RevealSymbolRider.svelte';
 	import TapToContinue from './TapToContinue.svelte';
-	import Transition from './Transition.svelte';
+	import { Transition } from 'engine-game';
 	import Effects from './Effects.svelte';
 	import FlowV2Messages from './FlowV2Messages.svelte';
 	import FlowV2Cinematics from './FlowV2Cinematics.svelte';

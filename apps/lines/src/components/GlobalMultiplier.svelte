@@ -20,7 +20,7 @@
 	import { stateBetDerived } from 'state-shared';
 	import { waitForResolve, waitForTimeout } from 'utils-shared/wait';
 
-	import BoardContainer from './BoardContainer.svelte';
+	import { BoardContainer } from 'engine-game';
 	import { getContext } from '../game/context';
 	import { SYMBOL_SIZE } from '../game/constants';
 

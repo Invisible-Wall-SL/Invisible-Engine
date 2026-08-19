@@ -25,7 +25,7 @@
 	import { getContext } from '../game/context';
 	import { winLineColorForPositions } from '../game/winSymbolCycle';
 	import { stackedCoverage, winDimCellKey } from '../game/stateGame.svelte';
-	import BoardContainer from './BoardContainer.svelte';
+	import { BoardContainer } from 'engine-game';
 	import BoardMask from './BoardMask.svelte';
 	import BoardBase from './BoardBase.svelte';
 	import BookVfx from './BookVfx.svelte';
