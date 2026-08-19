@@ -1250,8 +1250,11 @@ window.RiggerCinematic = (function () {
 				d.style.width = Math.max(strip.length * pps, 3).toFixed(1) + 'px';
 				d.dataset.strip = strip.id;
 				const loop = strip.loop && strip.loop.mode !== 'once' ? ' ↻' : '';
+				// A masked strip poses only part of the skeleton — invisible on the stage if the masked
+				// bones happen to be still, so the strip has to say so itself.
+				const masked = maskOf(strip) && maskOf(strip).bones.length ? ' ◑' : '';
 				d.innerHTML =
-					'<span class="cineStripLabel">' + esc(strip.clip ? strip.clip.name : '—') + loop + '</span>' +
+					'<span class="cineStripLabel">' + esc(strip.clip ? strip.clip.name : '—') + loop + masked + '</span>' +
 					blendRampMarkup(strip, pps);
 				lane.appendChild(d);
 			}
@@ -1587,6 +1590,80 @@ window.RiggerCinematic = (function () {
 		commit('edit strip', 'strip:' + stripId + ':' + path);
 		renderTimeline();
 		renderPanel();
+	}
+
+	// ---- strip bone mask (design §4.2 `mask.bones`) -------------------------
+	//
+	// A mask is what makes a strip an OVERRIDE OF PART of the skeleton: name a bone (or a few) and
+	// the strip poses only those, leaving every other bone to whatever the layers below did. It is
+	// stored as a set of ROOTS plus `includeChildren`, not as an expanded bone list, because that is
+	// what an author means ("everything from `spine` up") and it survives the rig growing new bones.
+	//
+	// The expansion is the EVALUATOR's `expandBoneMask` — the same call the pose path makes — so the
+	// count shown here can never disagree with what the mask actually does.
+
+	const maskOf = (strip) => (strip.mask && Array.isArray(strip.mask.bones) ? strip.mask : null);
+
+	/** How many bones this mask really covers, expanded exactly as the pose path expands it. */
+	function maskBoneCount(strip, actor) {
+		const mask = maskOf(strip);
+		if (!mask || !mask.bones.length || !actor || !EV) return 0;
+		return EV.expandBoneMask(actor.skeleton, mask).size;
+	}
+
+	/**
+	 * Write the mask. An EMPTY bone list deletes the field rather than storing `{bones: []}` —
+	 * the evaluator treats an empty mask as "no mask", so keeping one would put a doc in the file
+	 * that says something it does not mean.
+	 */
+	function setMask(stripId, mask, label) {
+		const found = stripById(stripId);
+		if (!found) return;
+		if (!mask || !mask.bones.length) delete found.strip.mask;
+		else found.strip.mask = mask;
+		commit(label, 'mask:' + stripId);
+		renderTimeline();
+		renderPanel();
+	}
+
+	function addMaskBone(stripId, boneName) {
+		const found = stripById(stripId);
+		if (!found || !boneName) return;
+		const cur = maskOf(found.strip);
+		const bones = cur ? cur.bones.slice() : [];
+		if (bones.includes(boneName)) return;
+		bones.push(boneName);
+		// `includeChildren` defaults ON for a NEW mask: naming one bone and getting only that bone
+		// is almost never the intent — "from here down" is.
+		setMask(stripId, { bones, includeChildren: cur ? !!cur.includeChildren : true }, 'add mask bone');
+	}
+
+	function removeMaskBone(stripId, boneName) {
+		const found = stripById(stripId);
+		const cur = found && maskOf(found.strip);
+		if (!cur) return;
+		setMask(stripId, { bones: cur.bones.filter((b) => b !== boneName), includeChildren: !!cur.includeChildren }, 'remove mask bone');
+	}
+
+	function setMaskChildren(stripId, on) {
+		const found = stripById(stripId);
+		const cur = found && maskOf(found.strip);
+		if (!cur) return;
+		setMask(stripId, { bones: cur.bones.slice(), includeChildren: !!on }, 'mask children');
+	}
+
+	/** Bone options for the picker, INDENTED BY DEPTH so the hierarchy is readable in a flat list. */
+	function boneOptions(actor, taken) {
+		if (!actor) return '';
+		const depth = new Map();
+		return actor.skeletonData.bones
+			.map((b) => {
+				const d = b.parent ? (depth.get(b.parent.name) ?? 0) + 1 : 0;
+				depth.set(b.name, d);
+				if (taken.includes(b.name)) return '';
+				return `<option value="${esc(b.name)}">${'\u00a0\u00a0'.repeat(d)}${esc(b.name)}</option>`;
+			})
+			.join('');
 	}
 
 	/** A new layer for the same actor — layers blend bottom-up (design §4.3). */
@@ -2167,10 +2244,54 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 		<option value="add"${blend === 'add' ? ' selected' : ''}>additive (on top of a base)</option>
 	</select></label>
 </div>
+${maskMarkup(s, actor, found.track)}
 <div class="cineRow">
 	<button id="cineTweakStrip" title="Open this clip in the animator with the rest of the stage posed around it (or double-click the strip)">✎ Tweak clip</button>
 	<button id="cineDupStrip" title="Copy this strip in right after itself">⧉ Duplicate</button>
 	<button id="cineDelStrip" title="Delete this strip">🗑 Delete</button>
+</div>`;
+	}
+
+	/**
+	 * The mask editor. Chips (the authored roots) + a picker + `include children` + a live count of
+	 * what it actually covers, so "24 of 73 bones" answers "is this doing anything?" at a glance.
+	 */
+	function maskMarkup(s, actor, track) {
+		const mask = maskOf(s);
+		const bones = mask ? mask.bones : [];
+		const total = actor ? actor.skeletonData.bones.length : 0;
+		const covered = maskBoneCount(s, actor);
+		const kids = mask ? !!mask.includeChildren : true;
+		const chips = bones.length
+			? bones
+					.map((b) => `<span class="cineMaskChip"><span>${esc(b)}</span><button data-maskdel="${esc(b)}" title="Remove ${esc(b)} from the mask">✕</button></span>`)
+					.join('')
+			: '<i>whole skeleton — this strip poses every bone</i>';
+		// A mask on the ONLY layer has nothing underneath to show through, so the un-masked bones
+		// fall back to the SETUP pose. That reads as "half my rig went limp" unless it is said.
+		const layers = doc.tracks.filter((t) => t.actorId === track.actorId && t.kind === 'animation').length;
+		const alone = layers < 2 && (track.layer || 0) === 0;
+		return `
+<div class="cineMask">
+	<div class="cineMaskHead">
+		<b>mask</b>
+		<span class="cineMaskCount">${bones.length ? covered + ' of ' + total + ' bones' : ''}</span>
+		${bones.length ? '<button id="cineMaskClear" title="Remove the mask — the strip poses the whole skeleton again">clear</button>' : ''}
+	</div>
+	<div class="cineMaskChips">${chips}</div>
+	<select id="cineMaskAdd" title="Restrict this strip to a bone (and, by default, everything under it)">
+		<option value="">＋ add a bone…</option>
+		${boneOptions(actor, bones)}
+	</select>
+	${bones.length ? `<label class="cineMaskKids"><input type="checkbox" id="cineMaskKids"${kids ? ' checked' : ''}> include children</label>` : ''}
+	<div class="cineMaskNote">${
+		bones.length
+			? (alone
+					? 'This actor has one layer, so there is nothing underneath: the bones outside the mask hold their <b>setup pose</b>. Add a layer with <b>⧉</b> and put this strip above a base clip to override just this part of it.'
+					: 'Bones outside the mask keep whatever the layers below posed.') +
+			  ' Masks cover <b>bone transforms only</b> — slot colour, attachment swaps and mesh deform are not masked.'
+			: 'Name a bone to make this strip an override of just that part of the skeleton — an upper-body clip over a walk, say. Pick a bone here.'
+	}</div>
 </div>`;
 	}
 
@@ -2221,6 +2342,15 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 	}
 
 	function wireStripInspector() {
+		const add = $('#cineMaskAdd');
+		if (add) add.onchange = (e) => { const v = e.target.value; e.target.value = ''; addMaskBone(selStripId, v); };
+		const kids = $('#cineMaskKids');
+		if (kids) kids.onchange = (e) => setMaskChildren(selStripId, e.target.checked);
+		const clr = $('#cineMaskClear');
+		if (clr) clr.onclick = () => setMask(selStripId, null, 'clear mask');
+		document.querySelectorAll('[data-maskdel]').forEach((b) => {
+			b.onclick = () => removeMaskBone(selStripId, b.dataset.maskdel);
+		});
 		const tw = $('#cineTweakStrip');
 		if (tw) tw.onclick = () => enterTweak(selStripId);
 		const dup = $('#cineDupStrip');
