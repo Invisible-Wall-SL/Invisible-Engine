@@ -122,6 +122,31 @@ headless contract tests, never by execution (see Open items).
   start, length, clipIn, speed, loop mode (once / fill / count N / ping-pong), blend in/out,
   alpha, and replace-vs-additive. One drag = **one** undo step (the doc updates live so the stage
   follows the gesture, but history is recorded on pointerup).
+- **＋ New clip — authoring an override without leaving the cinematic.** An override has to live
+  in a clip, and nothing in the cinematic could make one: the only route was to leave for ◆ Animate,
+  create an animation, come back and find it in the strip's dropdown. Three mode switches to express
+  "I want to animate something here", which is why the mask editor read as a dead end (owner: *"what
+  am I supposed to do once I add a bone? I can't edit any bone anywhere, and I can't keyframe it"*).
+  **＋ New clip** on a strip creates an empty animation on that actor's rig (`uniqueAnimName`, so it
+  never overwrites), points the strip at it, and enters Tweak Mode in one gesture. The recipe is now
+  ⧉ layer → ＋ strip → ＋ New clip → pose + key → 💾 Save rig.
+  The clip lands on the **RIG**, so the rig is what must be saved — the tweak bar already says so.
+  A strip whose clip the ACTOR does not know yet (freshly created, or renamed on the rig) now shows
+  as `name (new — save the rig)` in the clip dropdown instead of silently falling back to the first
+  option, which read as "the tool changed my clip".
+  **Masks are for the OTHER case, and the UI now says so.** Measured while verifying: a sparse
+  hand-authored clip needs no mask at all — spine's `MixBlend.replace` passes un-keyed properties
+  through, so a clip only affects the bones it keys (removing the mask from a 2-bone override
+  changed 0 of the other 71 bones). Masks earn their keep when an EXISTING full-body clip should
+  drive only part of the rig; the empty-mask hint says exactly that now.
+- **Mask controls in the tweak bar, and masked bones drawn on the stage.** The strip inspector is
+  hidden while tweaking, and tweaking is the only place bones are visible and clickable — so
+  picking mask bones from a 73-entry dropdown for something you cannot see was the whole problem.
+  The tweak bar carries **◑ ＋ \<selected bone\>**, **◑ keyed** (mask to exactly what this clip
+  keys — `includeChildren` OFF, because the keyed set is already the literal answer and expanding
+  it would silently claim bones the author left to the layer below), a live count, and **✕**.
+  `drawBonesOverlay` tints the masked bones in the accent colour and dims the rest, because a mask
+  is otherwise invisible whenever the masked bones happen to be still.
 - **Strip bone masks — a strip can now override PART of a skeleton (Phase 6, first slice).** The
   evaluator has masked `Animation.apply` since Phase 0 (snapshot-and-restore of the bones outside
   the mask, gate-tested); what was missing was any way to author one, so the capability was
@@ -204,6 +229,7 @@ headless contract tests, never by execution (see Open items).
 | `tools/rigger-spike/cinematic-storage.mjs` — storage guards + the export/prune chain (headless) | **28/28** |
 | `tools/rigger-spike/cinematic-flow.mjs` — the `playCinematic` node against the REAL interpreter + validator (headless) | **19/19** |
 | R2 persistence client flow, driven live against a fake R2 with real etag semantics | **19/19** — create/update CAS, conflict prompt, force, new/open/rename/delete, draft |
+| ＋ New clip + tweak-bar masks + overlay tint, driven live | **35/35** — the recipe end to end (8), the tweak-bar mask segment and its enable/disable states (8), ◑ keyed + ◑ ＋ bone (5), the overlay tint proved by readPixels (5), the exit round trip (5), and the authored doc through the real evaluator (4) |
 | Strip masks, driven live in a browser against a real 73-bone rig | **31/31** — the editor (10), chips/roots/clear (7), undo + the two notes (6), authoring a two-layer stack (3), and the payoff: the authored doc through the real evaluator (5) |
 | Tweak mode, driven live in a browser against a real 73-bone rig | **~55/55** — entry (11), the two-way clock (7), keying into the strip's clip (4), the exit re-parse (7), the root-rotation rule (5), Esc + ✎ Tweak clip + mode-switch exit (7), what is actually on the canvas (6), the three crashes below (8) |
 
@@ -286,6 +312,25 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 - Nothing external.
 
 ## Recent changes
+
+- 2026-08-18 — **The mask editor was a dead end on its own (owner: "what am I supposed to do once I
+  add a bone? I do not see any bone in the canvas, I can't edit any bone anywhere, and I can't
+  keyframe it").** Fair: a mask is a FILTER on a clip, not a place to author one, and the thing it
+  filters — a clip holding the override — could not be created from inside the cinematic at all.
+  Built the missing three:
+  - **＋ New clip** on a strip — empty animation on the actor's rig, strip pointed at it, straight
+    into Tweak Mode. The recipe is now one chain: ⧉ layer → ＋ strip → ＋ New clip → pose + key.
+  - **Mask controls in the tweak bar** — ◑ ＋ \<selected bone\>, ◑ keyed (mask to exactly what this
+    clip keys), a live count and ✕ — because tweaking is the only place bones are visible and
+    clickable, and the strip inspector is hidden there.
+  - **Masked bones drawn on the stage** — accent-tinted in the bone overlay, everything else dimmed.
+  **And the honest finding that came out of verifying it:** a hand-authored override needs NO mask.
+  Spine's `MixBlend.replace` passes un-keyed properties through, so a clip only affects the bones it
+  keys — removing the mask from a 2-bone override changed 0 of the other 71 bones. Masks are for
+  using only PART of an existing full-body clip, and the empty-mask hint now says so instead of
+  implying every override needs one.
+  Verified live end to end against a real 73-bone rig (35 assertions), including the overlay tint
+  proved by `readPixels` and the authored doc run back through the real evaluator.
 
 - 2026-08-18 — **A strip could only override the WHOLE skeleton (owner: "do I need to work more on
   this to have an animation override?").** Layers + `replace`/`additive` already gave a whole-rig

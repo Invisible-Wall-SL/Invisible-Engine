@@ -262,6 +262,9 @@
   #tweakBar small, #tweakBar .tweakT { color:var(--dim); font-size:11px; }
   #tweakBar button { padding:3px 9px; font-size:11px; }
   #tweakBar .tweakWarn { color:var(--danger); }
+  #tweakBar .tweakMask { display:flex; align-items:center; gap:5px;
+    padding-left:9px; border-left:1px solid var(--line); }
+  #tweakBar .tweakMask button:disabled { opacity:.35; cursor:default; }
   /* horizontal resize handle (timeline height) */
   .resizer-h { flex:0 0 6px; height:6px; cursor:row-resize; background:transparent; position:relative; z-index:6; }
   .resizer-h::after { content:""; position:absolute; top:2px; left:0; right:0; height:2px; background:transparent; }
@@ -1006,6 +1009,32 @@ function cinematicBridge(){
     tweakDraw,
     tweakOverlays,
     tweakAfter,
+    /**
+     * Create an EMPTY animation on the open rig and return its (uniquified) name.
+     * This is what lets a cinematic author an override from scratch: an override needs a clip to
+     * live in, and before this the only way to make one was to leave the cinematic entirely.
+     */
+    createClip: (name) => {
+      if (!rawDoc) return null;
+      rawDoc.animations = rawDoc.animations || {};
+      const nm = uniqueAnimName(String(name || "").trim() || "override");
+      rawDoc.animations[nm] = { bones: {} };
+      animsDirty = true;
+      markDirty();
+      renderAnimSection();
+      return nm;
+    },
+    /** The bone the author has selected on the canvas — the mask picker's "this one" button. */
+    selectedBoneName: () => (selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null),
+    /**
+     * Every bone that actually carries a key in the open clip. "Mask to what I keyed" is the
+     * one-click answer to the override workflow: pose the upper body, key it, mask to it.
+     */
+    keyedBoneNames: () => {
+      const a = animOf(curAnim);
+      if (!a || !a.bones) return [];
+      return Object.keys(a.bones).filter((n) => a.bones[n] && Object.keys(a.bones[n]).length);
+    },
     // The clip's WORKING length, not its keyed duration: the working length is how far the animator
     // lets you scrub past the last key, so mapping against it is what makes a new last key reachable.
     tweakClipDuration: () => (curAnim ? workLen(curAnim) : 0),
@@ -1159,9 +1188,21 @@ function renderTweakBar(){
   bar.innerHTML =
     '<b>✎ Tweak</b><span id="tweakWhat"></span>' +
     '<span class="tweakT" id="tweakTimes"></span>' +
+    // The mask controls belong HERE, not only in the strip inspector: the inspector is hidden while
+    // tweaking, and tweaking is the only place you can see and click the bones you want to mask.
+    '<span class="tweakMask">' +
+      '<span class="tweakT" id="tweakMaskCount"></span>' +
+      '<button id="tweakMaskBone" title="Add the bone selected on the canvas to this strip\'s mask (with everything under it)">◑ ＋ bone</button>' +
+      '<button id="tweakMaskKeyed" title="Mask this strip to exactly the bones you have keyed in this clip">◑ keyed</button>' +
+      '<button id="tweakMaskClear" title="Remove the mask — the strip poses the whole skeleton again">✕</button>' +
+    '</span>' +
     '<span class="tweakWarn" id="tweakDirty" style="display:none;">unsaved</span>' +
     '<button id="tweakSave" title="Save the rig to the project in R2 — a tweak lives in this tab until you do">💾 Save rig</button>' +
     '<button id="tweakDone" title="Back to the sequencer (Esc). The strips re-parse, so the stage plays your edit.">✔ Done</button>';
+  const RC = () => window.RiggerCinematic;
+  $("#tweakMaskBone").onclick = () => RC() && RC().tweakMaskAddSelected();
+  $("#tweakMaskKeyed").onclick = () => RC() && RC().tweakMaskFromKeyed();
+  $("#tweakMaskClear").onclick = () => RC() && RC().tweakMaskClear();
   // textContent, not innerHTML: a rig or clip name is author data, never markup.
   $("#tweakWhat").textContent = "“" + tweak.clip + "” on " + tweak.label;
   $("#tweakSave").onclick = () => saveToR2();
@@ -1174,6 +1215,17 @@ function syncTweakBar(cineTime, outside){
   if (t) t.textContent = "cine " + (cineTime || 0).toFixed(2) + "s · clip " + animTime.toFixed(2) + "s"
     + (outside ? " · outside this strip" : "");
   const d = $("#tweakDirty"); if (d) d.style.display = dirty ? "" : "none";
+  // The mask readout + what is currently actionable. Per frame, because the selected bone and the
+  // keyed-bone set both change under the author's hands.
+  const info = (window.RiggerCinematic && window.RiggerCinematic.tweakMaskInfo)
+    ? window.RiggerCinematic.tweakMaskInfo() : null;
+  const cnt = $("#tweakMaskCount");
+  if (cnt && info) cnt.textContent = info.count ? "◑ " + info.count + "/" + info.total + " bones" : "◑ whole rig";
+  const bBtn = $("#tweakMaskBone"), kBtn = $("#tweakMaskKeyed"), cBtn = $("#tweakMaskClear");
+  const selName = selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null;
+  if (bBtn){ bBtn.disabled = !selName; bBtn.textContent = selName ? "◑ ＋ " + selName : "◑ ＋ bone"; }
+  if (kBtn) kBtn.disabled = !(info && info.keyed);
+  if (cBtn) cBtn.style.display = info && info.count ? "" : "none";
 }
 
 /**
@@ -9763,11 +9815,22 @@ function drawBonesOverlay(){
   const z = renderer.camera.zoom, s = boneScale;
   const red = new SPINE.Color(1, 0.28, 0.22, 0.95), green = new SPINE.Color(0.3, 1, 0.4, 0.95);
   const sel = new SPINE.Color(1, 0.84, 0.25, 1), link = new SPINE.Color(0.6, 0.66, 0.82, 0.38);
+  // A strip MASK is otherwise invisible — it changes nothing on screen whenever the masked bones
+  // happen to be still, which reads as "the mask did nothing". While tweaking a masked strip, the
+  // bones it actually drives are drawn in the accent colour and everything else is dimmed, so the
+  // mask is a thing you can see rather than a number in a panel.
+  const maskNames = (tweakMode && window.RiggerCinematic && window.RiggerCinematic.tweakMaskNames)
+    ? window.RiggerCinematic.tweakMaskNames() : null;
+  const maskLine = new SPINE.Color(0.36, 0.69, 1, 0.95), maskDot = new SPINE.Color(0.36, 0.69, 1, 1);
+  const dimLine = new SPINE.Color(1, 0.28, 0.22, 0.22), dimDot = new SPINE.Color(0.3, 1, 0.4, 0.22);
   // hierarchy connectors: faint line from each bone's parent origin to its own origin
   for (const b of skeleton.bones) if (b.parent) renderer.line(b.parent.worldX, b.parent.worldY, b.worldX, b.worldY, link);
   const hl = z * 9 * s, hw = z * 4.5 * s; // arrowhead length/half-width (scales with the size control)
   for (let i = 0; i < skeleton.bones.length; i++){
-    const b = skeleton.bones[i], isSel = i === selBone, lineCol = isSel ? sel : red, len = b.data.length;
+    const b = skeleton.bones[i], isSel = i === selBone, len = b.data.length;
+    const inMask = maskNames ? maskNames.has(b.data.name) : null;
+    const lineCol = isSel ? sel : inMask === null ? red : inMask ? maskLine : dimLine;
+    const dotCol = isSel ? sel : inMask === null ? green : inMask ? maskDot : dimDot;
     if (len > 0.001){
       const tipX = b.worldX + len * b.a, tipY = b.worldY + len * b.c;
       renderer.line(b.worldX, b.worldY, tipX, tipY, lineCol);
@@ -9776,7 +9839,7 @@ function drawBonesOverlay(){
       renderer.line(tipX, tipY, bx + px * hw, by + py * hw, lineCol);
       renderer.line(tipX, tipY, bx - px * hw, by - py * hw, lineCol);
     }
-    renderer.circle(true, b.worldX, b.worldY, z * (isSel ? 5 : 3.5) * s, isSel ? sel : green, 12);
+    renderer.circle(true, b.worldX, b.worldY, z * (isSel ? 5 : 3.5) * s, dotCol, 12);
   }
 }
 

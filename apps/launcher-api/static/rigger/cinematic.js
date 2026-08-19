@@ -687,6 +687,87 @@ window.RiggerCinematic = (function () {
 		setTime(EV.cineTimeForLocal(found.strip, local, tweakClipDur(), time));
 	}
 
+	/**
+	 * Author a BRAND-NEW override: create an empty animation on the actor's rig, point this strip at
+	 * it, and drop straight into the animator.
+	 *
+	 * This is the step the workflow was missing. An override has to live in a clip, and nothing in
+	 * the cinematic could make one — the only route was to leave for ◆ Animate, create an animation
+	 * there, come back, and find it in the strip's dropdown. Three mode switches to express "I want
+	 * to animate something here", which is why the mask editor read as a dead end (owner: "what am I
+	 * supposed to do once I add a bone? I can't edit any bone anywhere, and I can't keyframe it").
+	 *
+	 * The clip lands on the RIG, so it is the rig that must be saved — the tweak bar says so.
+	 */
+	async function newClipForStrip(stripId) {
+		if (tweak) return;
+		const found = stripById(stripId);
+		if (!found) return;
+		const cast = castOf(found.track.actorId);
+		const entry = cast && rigEntryFor(cast);
+		if (!entry) return fail('the rig this actor casts is not in this project');
+		const suggested = window.prompt('Name the new clip (it is created on the rig “' + entry.name + '”)', 'override');
+		if (suggested === null) return; // cancelled — do NOT open the rig behind their back
+		const err = await ctx.openRigForTweak(entry);
+		if (err) return fail(err);
+		const name = ctx.createClip(suggested);
+		if (!name) return fail('could not create a clip on that rig (binary .skel rigs are view-only)');
+		found.strip.clip = { src: 'rig', name };
+		commit('new clip', 'newclip:' + stripId);
+		await enterTweak(stripId);
+	}
+
+	// ---- mask, from inside a tweak ------------------------------------------
+	//
+	// The strip inspector is hidden while tweaking, and tweaking is the ONLY place the bones are
+	// visible and clickable — so the mask has to be reachable from the tweak bar too, or picking
+	// bones means hunting a 73-entry dropdown for something you cannot see.
+
+	/** The expanded mask of the strip being tweaked — what `drawBonesOverlay` tints. */
+	function tweakMaskNames() {
+		if (!tweak || !EV) return null;
+		const found = stripById(tweak.stripId);
+		const mask = found && maskOf(found.strip);
+		if (!mask || !mask.bones.length) return null;
+		const actor = actorOf(tweak.actorId);
+		if (!actor) return null;
+		return EV.expandBoneMask(actor.skeleton, mask);
+	}
+
+	function tweakMaskInfo() {
+		if (!tweak) return null;
+		const actor = actorOf(tweak.actorId);
+		const names = tweakMaskNames();
+		return {
+			count: names ? names.size : 0,
+			total: actor ? actor.skeletonData.bones.length : 0,
+			keyed: !!(ctx.keyedBoneNames && ctx.keyedBoneNames().length),
+		};
+	}
+
+	function tweakMaskAddSelected() {
+		if (!tweak) return;
+		const name = ctx.selectedBoneName && ctx.selectedBoneName();
+		if (name) addMaskBone(tweak.stripId, name);
+	}
+
+	/**
+	 * Mask to exactly the bones this clip keys — the one-click end of the override workflow: pose
+	 * the part you want, key it, then say "only that". `includeChildren` is OFF here on purpose:
+	 * the keyed set is already the literal answer, and expanding it would silently take over bones
+	 * the author deliberately left to the layer below.
+	 */
+	function tweakMaskFromKeyed() {
+		if (!tweak || !ctx.keyedBoneNames) return;
+		const bones = ctx.keyedBoneNames();
+		if (!bones.length) return;
+		setMask(tweak.stripId, { bones, includeChildren: false }, 'mask to keyed bones');
+	}
+
+	function tweakMaskClear() {
+		if (tweak) setMask(tweak.stripId, null, 'clear mask');
+	}
+
 	async function enterTweak(stripId) {
 		if (tweak) return;
 		const found = stripById(stripId);
@@ -2218,7 +2299,13 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 		const actor = actorOf(found.track.actorId);
 		const clips = actor ? actor.skeletonData.animations : [];
 		const cur = s.clip ? s.clip.name : '';
-		const clipOpts = clips
+		// A clip the ACTOR does not know about yet — freshly created by ＋ New clip, or renamed on the
+		// rig since — must still show as the selection. Without this the <select> falls back to its
+		// first option, which reads as "the tool silently changed my clip".
+		const missing = cur && !clips.some((a) => a.name === cur)
+			? `<option value="${esc(cur)}" selected>${esc(cur)} (new — save the rig)</option>`
+			: '';
+		const clipOpts = missing + clips
 			.map((a) => `<option value="${esc(a.name)}"${a.name === cur ? ' selected' : ''}>${esc(a.name)} (${a.duration.toFixed(2)}s)</option>`)
 			.join('');
 		const loopMode = (s.loop && s.loop.mode) || 'once';
@@ -2246,6 +2333,7 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 </div>
 ${maskMarkup(s, actor, found.track)}
 <div class="cineRow">
+	<button id="cineNewClip" title="Create an empty animation on this actor's rig, point this strip at it, and open it for keyframing">＋ New clip</button>
 	<button id="cineTweakStrip" title="Open this clip in the animator with the rest of the stage posed around it (or double-click the strip)">✎ Tweak clip</button>
 	<button id="cineDupStrip" title="Copy this strip in right after itself">⧉ Duplicate</button>
 	<button id="cineDelStrip" title="Delete this strip">🗑 Delete</button>
@@ -2290,7 +2378,7 @@ ${maskMarkup(s, actor, found.track)}
 					? 'This actor has one layer, so there is nothing underneath: the bones outside the mask hold their <b>setup pose</b>. Add a layer with <b>⧉</b> and put this strip above a base clip to override just this part of it.'
 					: 'Bones outside the mask keep whatever the layers below posed.') +
 			  ' Masks cover <b>bone transforms only</b> — slot colour, attachment swaps and mesh deform are not masked.'
-			: 'Name a bone to make this strip an override of just that part of the skeleton — an upper-body clip over a walk, say. Pick a bone here.'
+			: 'A clip only affects the bones it actually keys, so a clip you authored yourself (<b>＋ New clip</b>) usually needs NO mask — it already overrides just what you keyed. Mask a strip when you want only <i>part</i> of a full-body clip: an existing wave used over a walk, say.'
 	}</div>
 </div>`;
 	}
@@ -2351,6 +2439,8 @@ ${maskMarkup(s, actor, found.track)}
 		document.querySelectorAll('[data-maskdel]').forEach((b) => {
 			b.onclick = () => removeMaskBone(selStripId, b.dataset.maskdel);
 		});
+		const nc = $('#cineNewClip');
+		if (nc) nc.onclick = () => newClipForStrip(selStripId);
 		const tw = $('#cineTweakStrip');
 		if (tw) tw.onclick = () => enterTweak(selStripId);
 		const dup = $('#cineDupStrip');
@@ -2469,6 +2559,12 @@ ${maskMarkup(s, actor, found.track)}
 		// tweak mode — the entry/exit pair, the animator's seek hook, and the state for live checks
 		enterTweak,
 		exitTweak,
+		newClipForStrip,
+		tweakMaskNames,
+		tweakMaskInfo,
+		tweakMaskAddSelected,
+		tweakMaskFromKeyed,
+		tweakMaskClear,
 		seekFromLocal,
 		isTweaking: () => !!tweak,
 		deleteSelectedStrip: () => { if (selStripId) deleteStrip(selStripId); },
