@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-cinematic.md](../design/invisible-cinematic.md) · Guide: [docs/tools/rigger.md §Cinematic mode](../tools/rigger.md#cinematic-mode) (it is a mode of `/rigger`, so it shares the Rigger's guide) · Agent: `.claude/agents/invisible-rigger.md`
 
-**One-line state:** **Phases 0–3 COMPLETE + Tweak Mode (§4.4)** (2026-08-18) — `/rigger`'s 🎬
+**One-line state:** **Phases 0–3 COMPLETE + Tweak Mode (§4.4) + strip masks** (2026-08-18) — `/rigger`'s 🎬
 **Cinematic** mode stages several rigs, authors them as tracks of strips + property/camera keys,
 saves to R2 per project, travels the ship chain with the rigs it casts, plays in-game through a
 **`<Cinematic>`** component driven by the same evaluator, and is triggered from an authored flow
@@ -122,6 +122,22 @@ headless contract tests, never by execution (see Open items).
   start, length, clipIn, speed, loop mode (once / fill / count N / ping-pong), blend in/out,
   alpha, and replace-vs-additive. One drag = **one** undo step (the doc updates live so the stage
   follows the gesture, but history is recorded on pointerup).
+- **Strip bone masks — a strip can now override PART of a skeleton (Phase 6, first slice).** The
+  evaluator has masked `Animation.apply` since Phase 0 (snapshot-and-restore of the bones outside
+  the mask, gate-tested); what was missing was any way to author one, so the capability was
+  unreachable. The strip inspector now has a **mask** editor: a hierarchy-indented bone picker,
+  the chosen roots as removable chips, **include children** (default ON — naming one bone and
+  getting only that bone is never the intent), a **clear**, and a live count of what the mask
+  really covers. The count calls the evaluator's own **`expandBoneMask`**, so the number shown and
+  the bones actually posed cannot disagree. A masked strip is marked **◑** on the timeline, because
+  a mask is otherwise invisible whenever the masked bones happen to be still.
+  Two rules the editor states rather than leaves to be discovered: a mask on an actor's ONLY layer
+  leaves the un-masked bones in their SETUP pose (nothing underneath to show through — the note
+  points at ⧉ instead), and masks cover **bone transforms only**.
+  **An empty mask is deleted, never stored as `{bones: []}`** — the evaluator reads that as "no
+  mask", so keeping it would put a doc on disk that says something it does not mean. `types.ts`
+  gained the `includeChildren` field it had always been missing (the evaluator read it; the type
+  never declared it).
 - **Tweak Mode (design §4.4) — the feature the tool was asked for.** Double-click a strip (or
   **✎ Tweak clip** in the strip inspector) and the EXISTING animator opens on that strip's clip:
   dopesheet, graph editor, ◆ Key, curves, bone outline, gizmo — while every other actor stays posed
@@ -188,6 +204,7 @@ headless contract tests, never by execution (see Open items).
 | `tools/rigger-spike/cinematic-storage.mjs` — storage guards + the export/prune chain (headless) | **28/28** |
 | `tools/rigger-spike/cinematic-flow.mjs` — the `playCinematic` node against the REAL interpreter + validator (headless) | **19/19** |
 | R2 persistence client flow, driven live against a fake R2 with real etag semantics | **19/19** — create/update CAS, conflict prompt, force, new/open/rename/delete, draft |
+| Strip masks, driven live in a browser against a real 73-bone rig | **31/31** — the editor (10), chips/roots/clear (7), undo + the two notes (6), authoring a two-layer stack (3), and the payoff: the authored doc through the real evaluator (5) |
 | Tweak mode, driven live in a browser against a real 73-bone rig | **~55/55** — entry (11), the two-way clock (7), keying into the strip's clip (4), the exit re-parse (7), the root-rotation rule (5), Esc + ✎ Tweak clip + mode-switch exit (7), what is actually on the canvas (6), the three crashes below (8) |
 
 Headless fixtures are real shipped rigs (`mm_bigwin` 86 bones, `anticipation` 73 bones); the
@@ -269,6 +286,21 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 - Nothing external.
 
 ## Recent changes
+
+- 2026-08-18 — **A strip could only override the WHOLE skeleton (owner: "do I need to work more on
+  this to have an animation override?").** Layers + `replace`/`additive` already gave a whole-rig
+  override, and Tweak Mode gave editing-in-context, but the third reading — override just the upper
+  body over a walk — had no UI at all, even though the evaluator has masked `Animation.apply` since
+  Phase 0. Built the missing half: a **mask editor on the strip inspector** (hierarchy-indented bone
+  picker → chips → `include children` → clear), a live count via the evaluator's own
+  `expandBoneMask` so the number and the pose cannot disagree, and a **◑** marker on masked strips.
+  See Current state for the two rules it states out loud (a mask on the only layer drops the rest to
+  the setup pose; bone transforms only) and for why an empty mask is deleted rather than stored.
+  Verified live end to end: authored a two-layer stack in the UI, masked the upper strip, then ran
+  **the authored doc through the real evaluator** — 9 of 73 bones follow the upper clip while the
+  other 64 stay byte-identical to the base, and the no-mask control confirms they would otherwise be
+  overwritten. Gates unchanged (118/118): the mask SEMANTICS were already covered headless, which is
+  exactly why this was UI-only work.
 
 - 2026-08-18 — **Tweak Mode: "I am not sure how am I supposed to overwrite an animation" (owner).**
   Design §4.4, skipped when the build went Phase 1 → 2 → 3, and the closest thing to the original

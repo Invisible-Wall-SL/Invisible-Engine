@@ -38,8 +38,12 @@ export interface CinematicStrip {
 	alpha?: number;
 	/** `replace` composites over the layers below; `add` is additive over a base. */
 	blend?: 'replace' | 'add';
-	/** Restrict this strip to a bone subtree (bone transforms only — see the evaluator's note). */
-	mask?: { bones: string[] };
+	/**
+	 * Restrict this strip to part of the skeleton — the roots, plus their descendants when
+	 * `includeChildren`. Bone transforms only; slot colour / attachment / deform are NOT masked
+	 * (see the evaluator's note). Absent or empty = the whole skeleton.
+	 */
+	mask?: { bones: string[]; includeChildren?: boolean };
 }
 
 /** One keyframe on a property/camera channel. `ease` is the key's OUTGOING interpolation. */

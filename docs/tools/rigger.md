@@ -476,6 +476,32 @@ The timeline is an NLE-style sequencer sharing the panel the dopesheet uses:
   in/out, alpha, and replace-vs-additive. Blend ramps are drawn inside the strip
   and additive strips are tinted, so the stack reads at a glance.
 
+### Override part of the skeleton (strip masks)
+
+By default a strip poses the **whole** rig, so a strip on an upper layer replaces
+everything below it. A **mask** narrows it to part of the skeleton — an upper-body
+clip playing over a walk, a head turn over an idle.
+
+With a strip selected, the inspector's **mask** section lists the bones the strip is
+restricted to:
+
+- **＋ add a bone…** picks a bone; the list is indented by hierarchy so you can find
+  a subtree root quickly. Add as many roots as you need.
+- **include children** (on by default) extends each root to everything beneath it —
+  that is what makes "from `spine` up" a single pick.
+- The header counts what the mask really covers (**"9 of 73 bones"**), expanded the
+  same way the player expands it, so you can see at a glance whether it's doing what
+  you meant. **clear** removes it, and a masked strip is marked **◑** on the timeline.
+
+Bones *outside* the mask keep whatever the layers below posed. Two things to know:
+
+- **A mask needs something underneath.** On an actor's only layer there is nothing to
+  show through, so the un-masked bones hold their **setup pose** — which looks like
+  half the rig went limp. Add a layer with **⧉** and put the masked strip above a base
+  clip. The inspector says so when it applies.
+- **Masks cover bone transforms only.** Slot colour, attachment swaps and mesh deform
+  are not masked — a documented v1 limit, not a bug.
+
 ### Tweak a clip in context (edit the animation without leaving the shot)
 
 A strip plays a clip; **tweaking** is how you edit that clip *while the rest of the

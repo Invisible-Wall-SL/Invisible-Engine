@@ -80,6 +80,24 @@
     border:1px solid var(--line); border-radius:5px; padding:2px 4px; font-size:11px; }
   .cineStripInsp select { flex:1; background:var(--panel2); color:var(--txt);
     border:1px solid var(--line); border-radius:5px; padding:3px 5px; font-size:11px; }
+  /* strip bone MASK — restrict a strip to part of the skeleton (design §4.2 `mask.bones`) */
+  .cineMask { padding:8px 14px; border-top:1px solid #2a2e36; font-size:11px; color:var(--dim); }
+  .cineMaskHead { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+  .cineMaskHead b { color:var(--txt); font-weight:600; }
+  .cineMaskHead .cineMaskCount { flex:1; color:var(--accent2); }
+  .cineMaskChips { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:6px; }
+  .cineMaskChip { display:inline-flex; align-items:center; gap:4px; max-width:100%;
+    background:var(--panel2); border:1px solid var(--line); border-radius:10px;
+    padding:1px 4px 1px 8px; color:var(--txt); font-size:11px; }
+  .cineMaskChip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cineMaskChip button { padding:0 3px; font-size:11px; opacity:.6; border:0; background:none;
+    color:var(--txt); cursor:pointer; }
+  .cineMaskChip button:hover { opacity:1; color:var(--danger); }
+  .cineMask select { width:100%; background:var(--panel2); color:var(--txt);
+    border:1px solid var(--line); border-radius:5px; padding:3px 5px; font-size:11px; }
+  .cineMask .cineMaskKids { display:flex; align-items:center; gap:5px; margin-top:6px; }
+  .cineMask .cineMaskKids input { width:auto; }
+  .cineMaskNote { margin-top:6px; line-height:1.45; }
   /* cinematic timeline (shares #timeline with the dopesheet — only one is built at a time) */
   .cineRuler, .cineTrack { display:flex; height:22px; align-items:stretch; }
   .cineTrack { height:28px; border-bottom:1px solid #2a2e36; }
