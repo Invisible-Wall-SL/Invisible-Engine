@@ -39,6 +39,7 @@ export {
 	SPIN_OPTIONS_DEFAULT,
 	SPIN_OPTIONS_FAST,
 } from './src/game/constants';
+export { createGameConfig, type GameConfigDeps } from './src/game/gameConfig';
 export { createGameContext, getGameContext, type GameContext } from './src/game/context';
 export {
 	createGameState,
