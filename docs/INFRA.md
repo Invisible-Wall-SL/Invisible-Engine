@@ -108,7 +108,11 @@ The 403 is a bare `Content-Length: 0` from `Server: cloudflare` with **no block 
 
 **Server-side calls are unaffected, so generation does not break** — only clicking through from a page does. But note the last row: the pod proxy is Cloudflare-fronted like the old tunnel was, so the original **`Python-urllib` UA → 403** trap applies here too. Every Python call site already sends `InvisibleAtlas/1.0` via `iw_common.comfy.cf_headers()`; never add a ComfyUI call that skips it.
 
-**What to do:** open the pod URL in a fresh tab (works today); or check the pod's exposed-port settings in RunPod for a public/authenticated toggle. A launcher **same-origin proxy** would also work (the `same-origin` row above proves it, and it is rule 3's sanctioned "same-origin serve"), but proxying ComfyUI including its `/ws` socket is real work — don't start there.
+**What to do — expose 8188 as a TCP port** (RunPod → Edit Pod, alongside the HTTP one). That yields a direct `http://<ip>:<publicPort>` which is not behind the proxy, so the cross-site rule never applies **and** the `/ws` drop above stops too. The `/comfyui` card picks it up automatically: `podProbe` reads `runtime.ports` on each poll and `directUrlFromPorts` (`$lib/server/runpod.ts`) turns a TCP-typed, public, `privatePort: 8188` entry into the link. RunPod assigns that external port **at each resume and it changes every start**, so it is read live and never cached — unlike the proxy URL, it cannot be derived from the pod id.
+
+Until a pod has that TCP port, the card shows **"Copy ComfyUI URL"** instead of a link that would 403, plus a one-line note. Nothing is silently broken either way. Note the direct endpoint is plain `http://` (no TLS) — acceptable for internal R&D, but it is unencrypted.
+
+A launcher **same-origin proxy** would also work (the `same-origin` row above proves it, and it is rule 3's sanctioned "same-origin serve"), but proxying ComfyUI including its `/ws` socket is real work — don't start there.
 
 > Unconfirmed: whether this is **new** RunPod behaviour or something we simply had not hit. It could not be compared against an older pod (`a1tqn0tzbqtvr1` was stopped, returning 404). Starting an old pod and clicking through from the launcher would settle it.
 
@@ -156,8 +160,8 @@ bash /workspace/start-comfyui.sh
 Both are **native in ComfyUI core** from the `v0.33.1` pin (`comfy/ldm/flux` + the built-in `Flux.2 …` blueprints) — no custom node, so nothing to rebuild. Only the weights are missing, and they come from Hugging Face straight onto the Network Volume (not via R2 — no reason to pay two transfers for a public set):
 
 ```
-py services/atlas-tool/runpod/fetch-models.py --list
-py services/atlas-tool/runpod/fetch-models.py --set flux2-klein --dest /workspace/ComfyUI/models
+python fetch-models.py --list
+python fetch-models.py --set flux2-klein --dest /workspace/ComfyUI/models
 ```
 
 - **`flux2-klein`** (12.5 GB, **apache-2.0**) — start here. The only FLUX.2 variant that is both licence-clean enough to ever ship in a game (unlike FLUX.1-dev/PuLID, which stay R&D-only) and small enough to run without CPU offload on the fleet's cards.

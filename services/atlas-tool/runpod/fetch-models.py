@@ -14,9 +14,9 @@ half-finished `.part` continues with an HTTP Range request (these are 4-35 GB fi
 a pod web terminal WILL drop before one finishes).
 
 Usage (on the pod):
-    py fetch-models.py --list
-    py fetch-models.py --set flux2-klein --dest /workspace/ComfyUI/models
-    py fetch-models.py --set flux2-dev --dry-run
+    python fetch-models.py --list
+    python fetch-models.py --set flux2-klein --dest /workspace/ComfyUI/models
+    python fetch-models.py --set flux2-dev --dry-run
 
 Env:
     HF_TOKEN  optional; only needed if a set's repo is gated (none are today).
