@@ -1,0 +1,49 @@
+# Lint gate — fail a PR that introduces a NEW eslint violation.
+#
+# WHY THIS EXISTS: `pnpm lint` was dead in every workspace for a long time (the shared config was
+# still eslintrc-shaped, so ESLint 9 refused to start). Nothing caught the drift, and code rotted
+# unnoticed — a component survived a refactor partly because nothing could lint it.
+#
+# HOW THE GATE WORKS: the repo carries ~277 pre-existing violations. Rather than weaken rules to
+# get to green, they are recorded in `eslint-suppressions.json`. Every rule stays at `error`, so
+# any violation NOT in that baseline fails this job. Existing debt is burned down over time by
+# deleting entries from the baseline.
+#
+# Working on the debt:
+#   pnpm exec eslint apps packages services --suppressed-only   # what is still baselined
+#   pnpm exec eslint apps packages services --prune-suppressions # drop entries you have fixed
+#
+# NOTE: the gate is the ROOT run (`pnpm lint`), not `turbo run lint`. Bulk suppressions resolve
+# paths relative to the invocation directory, so the baseline only applies from the repo root.
+# `pnpm lint:workspaces` still runs the per-package scripts, which report the raw, un-baselined
+# counts — useful for burn-down, not for gating.
+
+name: Lint
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: lint-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eslint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: eslint
+        run: pnpm lint

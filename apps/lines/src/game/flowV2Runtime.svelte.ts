@@ -70,25 +70,25 @@ import { LINES_FLOW_V2_STACKED_DOC } from './flowV2StackedDoc';
 declare global {
 	/** DEV opt-in: an arbitrary v2 FlowDoc injected at runtime so a v2 flow can drive the game
 	 *  WITHOUT a bake/deploy (the Phase-4b live-verify hook). Unset on a normal boot ⇒ v2 inert. */
-	// eslint-disable-next-line no-var
+
 	var __IE_FLOW_V2_DOC__: FlowDocV2 | undefined;
 	/** DEV opt-in: the shared function library the v2 doc's `functionCall` nodes resolve against
 	 *  (the editor's `_shared/flow-v2/functions.json`). Unset ⇒ an empty library (calls no-op). */
-	// eslint-disable-next-line no-var
+
 	var __IE_FLOW_V2_LIB__: FunctionLibraryDoc | undefined;
 	/** DEV opt-in: load the COMMITTED reference book-of flow (`LINES_FLOW_V2_DOC` + its library) so
 	 *  v2 drives a real game without a bake (mirrors v1's `__IE_FLOW_LINES__`). Unset ⇒ not loaded. */
-	// eslint-disable-next-line no-var
+
 	var __IE_FLOW_V2_LINES__: boolean | undefined;
 	/** DEV opt-in: load the stacked-picture verify flow (`LINES_FLOW_V2_STACKED_DOC` — the reference
 	 *  flow + an `enableStackedPictures` node on `reveal`) so the mode activates through the REAL flow
 	 *  interpreter. Mirrors `?flowV2=stacked`. Unset ⇒ not loaded. */
-	// eslint-disable-next-line no-var
+
 	var __IE_FLOW_V2_STACKED__: boolean | undefined;
 	/** DEBUG: an ordered trace of every flow op (event / show / hide / HOLD / RELEASE / complete /
 	 *  cue / action), captured when logging is on (`?flowlog=1`). Read it in the console to see exactly
 	 *  what the flow did, in order — the answer to "why didn't my screen show". */
-	// eslint-disable-next-line no-var
+
 	var __IE_FLOW_V2_TRACE__: string[] | undefined;
 }
 

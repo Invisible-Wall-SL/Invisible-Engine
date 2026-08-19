@@ -57,22 +57,22 @@
 
 <FadeContainer show={showBaseBackground} duration={SECOND} zIndex={-2}>
 	<SpineProvider key="foregroundAnimation" {...backgroundProps}>
-		<SpineTrack trackIndex={0} animationName={'idle'} loop />
+		<SpineTrack trackIndex={0} animationName="idle" loop />
 	</SpineProvider>
 </FadeContainer>
 <FadeContainer show={showBaseBackground && showDust} duration={SECOND} zIndex={-2}>
 	<SpineProvider key="foregroundAnimation" {...backgroundProps}>
-		<SpineTrack trackIndex={0} animationName={'dust'} loop />
+		<SpineTrack trackIndex={0} animationName="dust" loop />
 	</SpineProvider>
 </FadeContainer>
 
 <FadeContainer show={showFeatureBackground} duration={SECOND} zIndex={-1}>
 	<SpineProvider key="foregroundFeatureAnimation" {...backgroundProps}>
-		<SpineTrack trackIndex={0} animationName={'idle'} loop />
+		<SpineTrack trackIndex={0} animationName="idle" loop />
 	</SpineProvider>
 </FadeContainer>
 <FadeContainer show={showFeatureBackground && showDust} duration={SECOND} zIndex={-1}>
 	<SpineProvider key="foregroundFeatureAnimation" {...backgroundProps}>
-		<SpineTrack trackIndex={0} animationName={'dust'} loop />
+		<SpineTrack trackIndex={0} animationName="dust" loop />
 	</SpineProvider>
 </FadeContainer>

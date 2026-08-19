@@ -49,7 +49,9 @@ export function detectWebGL() {
 					// WebGL is enabled.
 					return 1;
 				}
-			} catch (e) {}
+			} catch {
+				// probing an unsupported context name just throws; try the next one
+			}
 		}
 
 		// WebGL is supported, but disabled.

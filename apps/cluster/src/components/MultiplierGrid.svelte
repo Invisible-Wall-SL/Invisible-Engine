@@ -42,7 +42,7 @@
 				{#if multiplier > 0}
 					<Container x={(reelIndex + 0.5) * SYMBOL_SIZE} y={(rowIndex + 0.5) * SYMBOL_SIZE}>
 						<SpineProvider key="anticipation" width={SYMBOL_SIZE * 0.19}>
-							<SpineTrack trackIndex={0} animationName={'payframe'} loop />
+							<SpineTrack trackIndex={0} animationName="payframe" loop />
 						</SpineProvider>
 						{#if multiplier > 1}
 							<BitmapText

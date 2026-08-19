@@ -1,0 +1,572 @@
+{
+  "apps/cluster/src/components/BoardBase.svelte": {
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/cluster/src/components/ClusterWinAmounts.svelte": {
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/cluster/src/components/FreeSpinIntro.svelte": {
+    "svelte/prefer-writable-derived": {
+      "count": 1
+    }
+  },
+  "apps/cluster/src/components/MultiplierGrid.svelte": {
+    "svelte/require-each-key": {
+      "count": 2
+    }
+  },
+  "apps/cluster/src/components/TumbleBoardBase.svelte": {
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/cluster/src/game/bookEventHandlerMap.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "apps/cluster/src/game/constants.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 6
+    }
+  },
+  "apps/cluster/src/stories/ComponentsSymbol.stories.svelte": {
+    "svelte/require-each-key": {
+      "count": 4
+    }
+  },
+  "apps/launcher-api/src/lib/BootSplash.svelte": {
+    "svelte/no-at-html-tags": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/lib/ToolTopBar.svelte": {
+    "svelte/no-at-html-tags": {
+      "count": 1
+    },
+    "svelte/no-navigation-without-resolve": {
+      "count": 2
+    }
+  },
+  "apps/launcher-api/src/lib/server/buildId.ts": {
+    "turbo/no-undeclared-env-vars": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/lib/server/db/migrate.ts": {
+    "turbo/no-undeclared-env-vars": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/lib/server/fontExport.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/+page.svelte": {
+    "svelte/no-at-html-tags": {
+      "count": 4
+    },
+    "svelte/no-navigation-without-resolve": {
+      "count": 6
+    },
+    "svelte/prefer-svelte-reactivity": {
+      "count": 2
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/admin/+page.svelte": {
+    "svelte/no-navigation-without-resolve": {
+      "count": 2
+    },
+    "svelte/no-useless-mustaches": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/atlas/+page.svelte": {
+    "svelte/no-navigation-without-resolve": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/comfyui/+page.svelte": {
+    "svelte/no-navigation-without-resolve": {
+      "count": 5
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/components/+page.svelte": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 9
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/config/+page.svelte": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 3
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/docs/[slug]/+page.svelte": {
+    "svelte/no-navigation-without-resolve": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/editor/+page.svelte": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 4
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/editor/EditorCanvas.svelte": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 32
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/editor/EditorEffectLayer.svelte": {
+    "svelte/no-dom-manipulating": {
+      "count": 1
+    },
+    "svelte/prefer-svelte-reactivity": {
+      "count": 6
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/editor/EditorProperties.svelte": {
+    "svelte/no-navigation-without-resolve": {
+      "count": 1
+    },
+    "svelte/prefer-svelte-reactivity": {
+      "count": 4
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/editor/EditorSpineLayer.svelte": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 5
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/editor/EditorTextLayer.svelte": {
+    "svelte/no-dom-manipulating": {
+      "count": 1
+    },
+    "svelte/prefer-svelte-reactivity": {
+      "count": 6
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/editor/RegionThumb.svelte": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/files/+page.svelte": {
+    "svelte/no-navigation-without-resolve": {
+      "count": 1
+    },
+    "svelte/prefer-svelte-reactivity": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/flipbook/+page.svelte": {
+    "svelte/no-navigation-without-resolve": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/flow-v2/+page.server.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/flow-v2/+page.svelte": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/fonts/FontGenerate.svelte": {
+    "svelte/no-dom-manipulating": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/fonts/FontImport.svelte": {
+    "svelte/no-dom-manipulating": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/fonts/FontPreview.svelte": {
+    "svelte/no-dom-manipulating": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/fx/+page.svelte": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 4
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/fx/FxStage.svelte": {
+    "svelte/no-dom-manipulating": {
+      "count": 1
+    },
+    "svelte/prefer-svelte-reactivity": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/game-maker/+page.svelte": {
+    "svelte/no-navigation-without-resolve": {
+      "count": 8
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/onboarding/+page.svelte": {
+    "svelte/no-navigation-without-resolve": {
+      "count": 5
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/sheet/+page.svelte": {
+    "svelte/no-navigation-without-resolve": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/spine/+page.svelte": {
+    "svelte/no-navigation-without-resolve": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/storybook/+page.svelte": {
+    "svelte/no-navigation-without-resolve": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/symbols/+page.server.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/symbols/+page.svelte": {
+    "svelte/no-navigation-without-resolve": {
+      "count": 2
+    },
+    "svelte/prefer-svelte-reactivity": {
+      "count": 4
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/symbols/SymbolFxPreview.svelte": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 1
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/symbols/SymbolSpineStage.svelte": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 3
+    }
+  },
+  "apps/launcher-api/src/routes/(app)/win-text/+page.svelte": {
+    "svelte/no-navigation-without-resolve": {
+      "count": 5
+    }
+  },
+  "apps/lines/src/components/BoardBase.svelte": {
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/lines/src/components/FreeSpinIntroVisual.svelte": {
+    "svelte/prefer-writable-derived": {
+      "count": 1
+    }
+  },
+  "apps/lines/src/components/FreeSpinOutroVisual.svelte": {
+    "svelte/prefer-writable-derived": {
+      "count": 1
+    }
+  },
+  "apps/lines/src/editor-scenes.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "apps/lines/src/game/bookEventHandlerMap.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "apps/lines/src/game/flowRuntime.svelte.ts": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 1
+    }
+  },
+  "apps/lines/src/game/flowV2Runtime.svelte.ts": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 1
+    },
+    "turbo/no-undeclared-env-vars": {
+      "count": 1
+    }
+  },
+  "apps/lines/src/game/stateGame.svelte.ts": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 1
+    }
+  },
+  "apps/lines/src/game/utils.ts": {
+    "turbo/no-undeclared-env-vars": {
+      "count": 1
+    }
+  },
+  "apps/lines/src/stories/ButtonComponentInstance.stories.svelte": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 1
+    }
+  },
+  "apps/lines/src/stories/ComponentsSymbol.stories.svelte": {
+    "svelte/require-each-key": {
+      "count": 4
+    }
+  },
+  "apps/lines/src/stories/EngineLayoutValueFeed.stories.svelte": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 1
+    }
+  },
+  "apps/lines/src/stories/HudComponentInstance.stories.svelte": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 1
+    }
+  },
+  "apps/number-picker/src/game/bookEventHandlerMap.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 11
+    }
+  },
+  "apps/price/src/components/BoardBase.svelte": {
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/price/src/components/ExpandingWilds.svelte": {
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/price/src/components/FreeSpinIntro.svelte": {
+    "svelte/prefer-writable-derived": {
+      "count": 1
+    }
+  },
+  "apps/price/src/components/StickyBoardBase.svelte": {
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/price/src/game/bookEventHandlerMap.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "apps/price/src/stories/ComponentsExpandingWild.stories.svelte": {
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/price/src/stories/ComponentsSymbol.stories.svelte": {
+    "svelte/require-each-key": {
+      "count": 4
+    }
+  },
+  "apps/scatter/src/components/BoardBase.svelte": {
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/scatter/src/components/ClusterWinAmounts.svelte": {
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/scatter/src/components/FreeSpinIntro.svelte": {
+    "svelte/prefer-writable-derived": {
+      "count": 1
+    }
+  },
+  "apps/scatter/src/components/MultiplierBoardBase.svelte": {
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/scatter/src/components/TumbleBoardBase.svelte": {
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/scatter/src/game/bookEventHandlerMap.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "apps/scatter/src/stories/ComponentsSymbol.stories.svelte": {
+    "svelte/require-each-key": {
+      "count": 4
+    }
+  },
+  "apps/ways/src/components/BoardBase.svelte": {
+    "svelte/require-each-key": {
+      "count": 1
+    }
+  },
+  "apps/ways/src/components/FreeSpinIntro.svelte": {
+    "svelte/prefer-writable-derived": {
+      "count": 1
+    }
+  },
+  "apps/ways/src/game/bookEventHandlerMap.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "apps/ways/src/stories/ComponentsSymbol.stories.svelte": {
+    "svelte/require-each-key": {
+      "count": 4
+    }
+  },
+  "packages/components-ui-pixi/src/components/InfoOverlay.svelte": {
+    "svelte/require-each-key": {
+      "count": 4
+    }
+  },
+  "packages/components-ui-pixi/src/components/InfoPaylineGrid.svelte": {
+    "svelte/require-each-key": {
+      "count": 2
+    }
+  },
+  "packages/config-lingui/index.ts": {
+    "@typescript-eslint/ban-ts-comment": {
+      "count": 1
+    }
+  },
+  "packages/engine-flow-v2/src/validate.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/engine-layout/src/lib/ComponentInstance.svelte": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 4
+    }
+  },
+  "packages/engine-layout/src/lib/LayoutScene.svelte": {
+    "svelte/prefer-svelte-reactivity": {
+      "count": 1
+    }
+  },
+  "packages/pixi-svelte/src/lib/assetLoad.ts": {
+    "@typescript-eslint/ban-ts-comment": {
+      "count": 1
+    }
+  },
+  "packages/pixi-svelte/src/lib/components/InitialiseApplication.svelte": {
+    "svelte/no-dom-manipulating": {
+      "count": 1
+    }
+  },
+  "packages/pixi-svelte/src/lib/types.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "packages/pixi-svelte/src/lib/utils.svelte.ts": {
+    "@typescript-eslint/ban-ts-comment": {
+      "count": 3
+    }
+  },
+  "packages/rgs-fetcher/src/schema.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "packages/rgs-requests/src/rgs-requests.ts": {
+    "@typescript-eslint/ban-ts-comment": {
+      "count": 1
+    }
+  },
+  "packages/rgs-translator-eagaming/src/stakeFacade.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/state-shared/src/stateModal.svelte.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "packages/utils-bet/src/types.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "packages/utils-book/src/createPlayBookUtils.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "packages/utils-book/src/types.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 7
+    }
+  },
+  "packages/utils-event-emitter/src/createEventEmitter.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "packages/utils-shared/interruptible.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    },
+    "no-async-promise-executor": {
+      "count": 1
+    }
+  },
+  "packages/utils-shared/types.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "packages/utils-slots/src/createEnhanceBoard.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "packages/utils-slots/src/createEnhanceBoardPreSpin.ts": {
+    "@typescript-eslint/ban-ts-comment": {
+      "count": 1
+    },
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "packages/utils-slots/src/createEnhanceBoardSpin.ts": {
+    "@typescript-eslint/ban-ts-comment": {
+      "count": 2
+    },
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "packages/utils-slots/src/types.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "packages/utils-sound/src/createPlayer.svelte.ts": {
+    "@typescript-eslint/no-unsafe-function-type": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "packages/utils-xstate/src/createPrimaryMachines.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "packages/utils-xstate/src/types.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  }
+}

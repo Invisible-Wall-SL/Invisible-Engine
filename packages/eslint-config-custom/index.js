@@ -26,6 +26,9 @@ export default [
 			// apps/lines alone. Building an AST for them OOMs eslint, and they are
 			// data literals, so there is nothing to lint.
 			'**/src/stories/data/',
+			// Vendored Emscripten build of the KTX transcoder, shipped next to its
+			// .wasm. Machine-generated, so its 144 core-rule hits are not ours.
+			'**/transcoders/',
 		],
 	},
 
@@ -34,7 +37,9 @@ export default [
 
 	{
 		languageOptions: {
-			ecmaVersion: 2022,
+			// 'latest', not a fixed year: the repo already uses import attributes
+			// (`with { type: 'json' }`), which a pinned 2022 cannot parse.
+			ecmaVersion: 'latest',
 			sourceType: 'module',
 			globals: { ...globals.browser, ...globals.node },
 		},
@@ -50,6 +55,9 @@ export default [
 			// the core rules only produce false positives on type-only syntax.
 			'no-undef': 'off',
 			'no-unused-vars': 'off',
+			// Reads `export type { X }` as an assignment to the imported binding.
+			// TS already rejects a real write to an import.
+			'no-import-assign': 'off',
 			'@typescript-eslint/no-unused-vars': [
 				'error',
 				{ argsIgnorePattern: '^_', varsIgnorePattern: '^_', caughtErrors: 'none' },
@@ -70,7 +78,16 @@ export default [
 		rules: {
 			'no-undef': 'off',
 			'no-unused-vars': 'off',
+			'no-import-assign': 'off',
 		},
+	},
+
+	{
+		// `turbo/no-undeclared-env-vars` guards turbo's cache keys: a task that
+		// reads an undeclared env var caches wrongly. Standalone CLI scripts are
+		// never run as turbo tasks, so the rule has nothing to protect there.
+		files: ['**/scripts/**', 'services/**', '**/*.config.{js,mjs,ts}'],
+		rules: { 'turbo/no-undeclared-env-vars': 'off' },
 	},
 
 	prettier,
