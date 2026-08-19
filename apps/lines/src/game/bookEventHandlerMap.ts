@@ -22,7 +22,7 @@ import {
 	winLineEnabledForWin,
 	winLineFullPointsFor,
 	winLinePointsFor,
-	winLineColumnWinFor,
+	winLineShapeFor,
 	winLineTextFor,
 	winLineColorFor,
 	showWinInfoMessage,
@@ -78,7 +78,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 					eventEmitter.broadcastAsync({
 						type: 'winLineShow',
 						points: winLinePointsFor(winningPositions),
-						columnWin: winLineColumnWinFor(winningPositions),
+						shape: winLineShapeFor(winningPositions),
 						fullPoints: winLineFullPointsFor(win),
 						color: winLineColorFor(win.meta?.lineIndex),
 						...winLineTextFor({
