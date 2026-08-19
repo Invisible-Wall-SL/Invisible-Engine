@@ -46,14 +46,43 @@ RunPod → Pods → Deploy, attach the Network Volume from step 1 (mounts at
   port at each start, so it changes every time — which is why the card reads it live
   rather than storing it.
 
+> ### ⚠ `raw.githubusercontent.com` 404s — THIS REPO IS PRIVATE
+> Every `curl … raw.githubusercontent.com/Invisible-Wall-SL/Invisible-Engine/…` below
+> returns **404** without credentials. GitHub answers 404 (not 401) for a private repo,
+> so it reads as "file missing" when it is really "no access" — the file is on `main`.
+>
+> Two ways through, from the pod's terminal:
+>
+> **A. Paste it.** Works with no credentials on the pod. On your machine:
+>
+> ```bash
+> gzip -9c services/atlas-tool/runpod/<file> | base64 -w0
+> ```
+>
+> then paste into the pod:
+>
+> ```bash
+> echo '<the base64>' | base64 -d | gunzip > /workspace/<file>
+> ```
+>
+> **B. Token.** A fine-grained PAT with read-only Contents on this repo:
+>
+> ```bash
+> curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
+>   https://raw.githubusercontent.com/Invisible-Wall-SL/Invisible-Engine/main/services/atlas-tool/runpod/<file> -o /workspace/<file>
+> ```
+>
+> Prefer **A** on a shared pod — a token in a shell history on a machine several people
+> reach is a credential leak, and this one can read the whole repo.
+
 ## 3. Provision (once per fresh volume)
 
 Open the pod's web terminal and run:
 
 ```bash
 cd /workspace
-curl -fsSL https://raw.githubusercontent.com/Invisible-Wall-SL/Invisible-Engine/main/services/atlas-tool/runpod/provision.sh -o provision.sh
-# (or paste the file from this repo)
+# 404s unless you add a token — see the box above; pasting the file also works.
+curl -fsSL -H "Authorization: Bearer $GH_TOKEN" https://raw.githubusercontent.com/Invisible-Wall-SL/Invisible-Engine/main/services/atlas-tool/runpod/provision.sh -o provision.sh
 bash provision.sh
 ```
 
@@ -75,11 +104,12 @@ to route it through R2 — `fetch-models.py` pulls it from Hugging Face straight
 volume instead (idempotent, and resumable via HTTP Range, which matters when a pod web
 terminal drops in the middle of a 35 GB file):
 
-Run it from the pod's web terminal. The script isn't on the volume, so fetch it the
-same way as `provision.sh`:
+Run it from the pod's web terminal. The script isn't on the volume, so get it there
+first — **the plain `curl` 404s because the repo is private**, so use one of the two
+methods in the box above (paste, or add a token):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Invisible-Wall-SL/Invisible-Engine/main/services/atlas-tool/runpod/fetch-models.py -o /workspace/fetch-models.py
+curl -fsSL -H "Authorization: Bearer $GH_TOKEN" https://raw.githubusercontent.com/Invisible-Wall-SL/Invisible-Engine/main/services/atlas-tool/runpod/fetch-models.py -o /workspace/fetch-models.py
 ```
 
 ```bash
