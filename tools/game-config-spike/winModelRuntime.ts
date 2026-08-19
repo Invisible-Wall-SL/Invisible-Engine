@@ -60,6 +60,30 @@ check(
 );
 check(ways.getNumLines() > 0, 'ways: numLines is NOT zeroed — it stays the bet-per-line divisor');
 
+// The payout divisor — what a paytable multiplier is quoted against. `buildPayTableRows` computes
+// `base = totalBet / divisor`, so getting this wrong misprices every row on the info page.
+check(
+	lines.payoutDivisor() === lines.getNumLines(),
+	'lines: the divisor is still the LINE count (parity)',
+	` (${lines.payoutDivisor()})`,
+);
+check(
+	ways.payoutDivisor() === ways.activeWaysCount(),
+	'ways: the divisor is the WAYS count, not the RGS payline count',
+	` (${ways.payoutDivisor()} ways vs ${ways.getNumLines()} lines)`,
+);
+check(
+	ways.activeWaysCount() === 243,
+	'ways: a 5x3 grid pays 243 ways (3^5, from numRows)',
+	` (${ways.activeWaysCount()})`,
+);
+const cluster = mk({ type: 'cluster', minCluster: 5, adjacency: 'orthogonal' });
+check(
+	cluster.payoutDivisor() === 1,
+	'cluster: multipliers apply to the whole bet (divisor 1)',
+	` (${cluster.payoutDivisor()})`,
+);
+
 console.log('\ncapturing the boot warning for a ways config:');
 const seen: string[] = [];
 const realWarn = console.warn;

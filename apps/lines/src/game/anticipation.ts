@@ -69,8 +69,16 @@ function buildReach(board: string[][]): {
 		config.symbols[symbol]?.special_properties?.includes('wild') ?? false;
 	const isSpecial = scatterName ? (symbol: string) => symbol === scatterName : undefined;
 
+	// Reachability is computed PER PAYLINE — "could this reel still complete a paying run on some
+	// line". A ways/cluster/scatter game has no lines for that question to be about, and its reach is
+	// a genuinely different calculation (a ways board's remaining potential is a product of per-reel
+	// counts, not a walk along fixed rows). Rather than feed line maths a model it does not fit,
+	// anticipation stands DOWN for a non-lines model: `getPaylines()` already returns [] there, so
+	// this is explicit rather than incidental — the guard states the decision so it survives someone
+	// later "fixing" that empty list. Anticipation is opt-in per flow anyway, so off is the correct
+	// degradation, not a lost feature. See docs/design/game-type-templates.md (Phase D).
 	const paylines = getPaylines();
-	const payingSymbols = [...payBySymbol.keys()];
+	const payingSymbols = paylines.length ? [...payBySymbol.keys()] : [];
 	const numLines = getNumLines();
 	const linePay = (symbol: string, runLength: number) =>
 		payBySymbol.get(symbol)?.get(runLength) ?? 0;
