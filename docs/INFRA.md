@@ -79,7 +79,7 @@ The launcher now applies pending Drizzle migrations **itself**, at server startu
 
 ## ComfyUI R&D pod (RunPod)
 
-On-demand RunPod GPU **pods** running the **interactive ComfyUI web UI** for artist R&D — the surface where an artist builds/tunes a workflow that later becomes an Atlas Maker blueprint. It is **distinct from `services/atlas-serverless`** (the headless serverless worker that runs baked blueprints, `COMFYUI_REF=v0.3.66`) and from the local RTX-4070 tunnel above. Only these pods expose an interactive UI. Each is reached at the RunPod proxy URL `https://<podId>-8188.proxy.runpod.net` — no Cloudflare Access in front (RunPod's own proxy auth). See `docs/design/runpod-comfyui-backend.md` and `docs/design/comfyui-serverless.md`; current state in `docs/status/comfyui.md`.
+On-demand RunPod GPU **pods** running the **interactive ComfyUI web UI** for artist R&D — the surface where an artist builds/tunes a workflow that later becomes an Atlas Maker blueprint. It is **distinct from `services/atlas-serverless`** (the headless serverless worker that runs baked blueprints, `COMFYUI_REF=v0.33.1`) and from the local RTX-4070 tunnel above. Only these pods expose an interactive UI. Each is reached at the RunPod proxy URL `https://<podId>-8188.proxy.runpod.net` — no Cloudflare Access in front (RunPod's own proxy auth). See `docs/design/runpod-comfyui-backend.md` and `docs/design/comfyui-serverless.md`; current state in `docs/status/comfyui.md`.
 
 - **This is now a FLEET, not one pod.** The launcher keeps several pods on **different GPU cards** and the artist starts whichever has a free GPU. Two operational cautions: **(1) run only ONE pod at a time when they share a Network Volume** — concurrent pods writing the same volume (models + custom nodes) risk write conflicts; **(2) a stopped pod does NOT reserve its GPU**, so a Start can fail ("not enough free GPUs") on scarce cards (e.g. Blackwell) — which is exactly why we keep more than one card.
 - **The fleet is admin-managed in the DB, not env** — `app_settings` key **`runpodPods`** = JSON `[{id,label}, …]`, edited under the launcher's **Admin → Settings → "ComfyUI R&D pod fleet"** (add/remove pods, each = pod id + label like "RTX 4090"). Each pod's ComfyUI URL is **derived from its id** (`https://<id>-8188.proxy.runpod.net`); no per-pod URL is stored. `RUNPOD_POD_ID`/`COMFY_RND_URL` are now only the **legacy single-pod fallback** (synthesized as a "Default" pod when `runpodPods` is empty).
@@ -103,7 +103,7 @@ Three causes worth ruling out in order, before suspecting the graph:
 The launcher's idle auto-stop was a fourth cause until 2026-08-19 — fixed in PR #334, see `docs/status/comfyui.md`.
 
 ### ✅ Recommended: deploy the pod FROM the baked image
-Deploy each R&D pod from the **baked GHCR image** `ghcr.io/invisible-wall-sl/atlas-comfy-pod:latest` (built by `services/atlas-comfy-pod/` — see its [README](../services/atlas-comfy-pod/README.md)). Everything Python — ComfyUI `v0.3.66`, **cu128 torch (Blackwell)**, all custom nodes (IPAdapter_plus, RMBG, controlnet_aux, PuLID_ComfyUI, the vendored PuLID-Flux, ComfyUI-Manager) and the face stack — is **already in the image**, so:
+Deploy each R&D pod from the **baked GHCR image** `ghcr.io/invisible-wall-sl/atlas-comfy-pod:latest` (built by `services/atlas-comfy-pod/` — see its [README](../services/atlas-comfy-pod/README.md)). Everything Python — ComfyUI `v0.33.1`, **cu128 torch (Blackwell, pinned)**, all custom nodes (IPAdapter_plus, RMBG, controlnet_aux, PuLID_ComfyUI, the vendored PuLID-Flux, ComfyUI-Manager) and the face stack — is **already in the image**, so:
 - **It survives RunPod recreating the container on resume.** Hand-installed deps do NOT: a resume changes the container id and wipes site-packages (`tqdm`/`torch` gone → ComfyUI crash-loops). Models are safe (on the volume); only container packages are lost. The baked image is the permanent fix — the manual runbook below is only a fallback for a pod that predates the image.
 - **No "Container Start Command" is needed** — the image auto-starts ComfyUI on 8188 and keeps the container alive (`sleep infinity`), so a ComfyUI crash never locks you out of the terminal.
 - Deploy: RunPod → Pods → Deploy → custom image `ghcr.io/invisible-wall-sl/atlas-comfy-pod:latest`, a Blackwell GPU, **attach `Invisible_RunPod_Storage` at `/workspace`**, expose HTTP **8188**. Models stay on the volume at `/workspace/ComfyUI/models` (baked `extra_model_paths.yaml` points there). Adding a model = drop it on the volume; only a new custom **node** needs an image rebuild (push under `services/atlas-comfy-pod/**` → CI rebuilds + pushes). Startup log: `tail -f /workspace/comfyui.log`.
@@ -128,16 +128,38 @@ bash /workspace/start-comfyui.sh
 ```
 (`start-comfyui.sh` lives on the Network Volume, mounted at `/workspace`, and `cd`s into `/workspace/ComfyUI` then launches `python main.py --listen 0.0.0.0 --port 8188`.) **Without this**, pressing **Start** from the `/comfyui` card boots the pod but ComfyUI never comes up — the proxy URL just hangs/502s. This is the single most important pod-config step.
 
+### FLUX.2 / Qwen-Image on an R&D pod
+Both are **native in ComfyUI core** from the `v0.33.1` pin (`comfy/ldm/flux` + the built-in `Flux.2 …` blueprints) — no custom node, so nothing to rebuild. Only the weights are missing, and they come from Hugging Face straight onto the Network Volume (not via R2 — no reason to pay two transfers for a public set):
+
+```
+py services/atlas-tool/runpod/fetch-models.py --list
+py services/atlas-tool/runpod/fetch-models.py --set flux2-klein --dest /workspace/ComfyUI/models
+```
+
+- **`flux2-klein`** (12.5 GB, **apache-2.0**) — start here. The only FLUX.2 variant that is both licence-clean enough to ever ship in a game (unlike FLUX.1-dev/PuLID, which stay R&D-only) and small enough to run without CPU offload on the fleet's cards.
+- **`flux2-dev`** (53.8 GB, **non-commercial**) — quality comparison only. Its ~35 GB of diffusion weights exceed the biggest card we have (32 GB RTX PRO 4500), so ComfyUI falls back to CPU offload and it is slow. **Check the volume has ~54 GB spare first** — it was sized for SDXL/FLUX.1.
+- The shared `flux2-vae` file is served from the `Comfy-Org/flux2-dev` repo (licensed `other`, not apache-2.0), so confirm its terms before anything from klein ships commercially.
+
+- **`qwen-image`** (30.1 GB, **apache-2.0**) — the base the cartoon-character pipeline sits on (ComfyUI's built-in "Text to Image (Qwen-Image 2512)" blueprint). ~30 GB on disk but the encoder and diffusion model load in sequence, so peak VRAM is ~20 GB, inside a 24 GB card.
+- **`qwen-toon`** (0.6 GB, **apache-2.0**) — renderartist's Toon-Tacular style LoRA for Qwen-Image.
+
+**A LoRA binds to ONE base architecture.** `qwen-toon` declares `base_model: Qwen/Qwen-Image-2512`, so it loads onto `qwen-image` and **not** onto FLUX.2 or FLUX.1; `flux2-dev-turbo` is likewise FLUX.2-only. Pairing a LoRA with the wrong base either errors on load or produces noise. Qwen-Image + its LoRA are the only **fully** apache-2.0 image path we have — everything is licence-clean end to end, unlike FLUX.1-dev/PuLID.
+
+The script is idempotent and resumes a partial download over HTTP Range — which matters, because a pod web terminal will drop before a 35 GB file finishes. Re-running a set the volume already has is a no-op.
+
+**FLUX 3 is NOT available to fetch.** BFL announced it 2026-07-23 (multimodal: image/video/audio/action-prediction) but it is playground + API only — there is no `black-forest-labs/FLUX.3*` repo on Hugging Face and no `flux3` support in ComfyUI core. An open-weight **FLUX 3 [dev]** is confirmed in their launch plan with no date, no licence, and no parameter count published. Until weights land there is nothing for a pod to load; when they do, adding a set is a single `MODEL_SETS` entry in `fetch-models.py`.
+
 ### Pod software setup (LEGACY manual runbook — persists on the Network Volume)
 > **Legacy only.** These steps are already baked into `atlas-comfy-pod`. Use them only to repair a pre-baked-image pod, or to understand what the image encodes. On a baked-image pod they are unnecessary (and re-running `pip install torch` by hand won't survive a container recreate — that's the whole reason for the baked image).
 
 These were needed to get the artist's FLUX/PuLID blueprint running on a hand-built pod. Run from the pod's web terminal / SSH; everything under `/workspace` survives stop/start.
 
-1. **Pin ComfyUI to `v0.3.66`** (in `/workspace/ComfyUI`):
+1. **Pin ComfyUI to `v0.33.1`** (in `/workspace/ComfyUI`):
    ```
-   git fetch --depth 1 origin refs/tags/v0.3.66:refs/tags/v0.3.66 && git checkout v0.3.66
+   git fetch --depth 1 origin refs/tags/v0.33.1:refs/tags/v0.33.1 && git checkout v0.33.1
    ```
-   Later ComfyUI ships `comfy_kitchen` / `quant_ops`, which crashes on older torch (`infer_schema`). `v0.3.66` is the **last pre-`comfy_kitchen` release** and **matches the serverless worker** (`services/atlas-serverless/Dockerfile` `COMFYUI_REF=v0.3.66`) so R&D and production stay in lockstep. **Do NOT let ComfyUI-Manager "Update ComfyUI".**
+   Pin to a **tag**, never master: an unpinned core changes generation behaviour with no commit, and lets the pod and the serverless worker drift apart. The ref **must match the serverless worker** (`services/atlas-serverless/Dockerfile` `COMFYUI_REF`) so R&D and production stay in lockstep — bump both in ONE PR. **Still do NOT use ComfyUI-Manager's "Update ComfyUI"**: it patches the ephemeral container layer, so on a baked-image pod it silently reverts on the next container recreate. Bump the `ARG` and rebuild instead.
+   > Superseded history: we held `v0.3.66` from 2025-10-21 to 2026-08-19 because `comfy/quant_ops.py` pulled in the `comfy_kitchen` backend, whose na3d op annotated a param as `list[int]` and was rejected by torch's `infer_schema` (crash on import). Fixed upstream — `quant_ops.py` no longer registers a `torch.library` op and `comfy_kitchen` is a version-pinned wheel in ComfyUI's own `requirements.txt`.
 2. **Blackwell GPU needs cu128 torch.** The base image's `torch 2.4.1+cu124` has **no Blackwell (`sm_120`) kernels** → `CUDA error: no kernel image is available`. Fix:
    ```
    pip install --upgrade torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
@@ -148,7 +170,7 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
    - `cubiq/PuLID_ComfyUI`
    - the artist's **modified** `ComfyUI-PuLID-Flux` — vendored in-repo at `services/atlas-serverless/custom_nodes/ComfyUI-PuLID-Flux/`. The stock `balazik/ComfyUI-PuLID-Flux` node lacks the `attn_mask` fix and errors `forward_orig() got an unexpected keyword argument 'attn_mask'`; use the vendored copy, not the upstream one.
    Then the face stack: `pip install insightface onnxruntime-gpu facexlib`.
-4. **ComfyUI-Manager quirk (expected):** Manager is at security level **"middle"** but reports **"outdated"** — which **disables its install buttons** — because of the `v0.3.66` pin. **Install custom nodes from the terminal instead** (step 3). This is expected, not a fault; do not "update" to re-enable the buttons.
+4. **ComfyUI-Manager "outdated" alert:** while the core sat on `v0.3.66`, Manager reported *"Security Alert: ComfyUI outdated. Installations blocked"* and greyed out its install buttons even at security level **"middle"**. The `v0.33.1` bump clears it. If it ever comes back, it means the pin has gone stale again — **re-check whether the pin still has a reason** rather than clicking "Update ComfyUI" (which cannot persist; see step 1). Installing custom nodes from the terminal (step 3) is the workaround, but the real fix on a baked-image pod is to add the node under `services/atlas-comfy-pod/custom_nodes/` and let CI rebuild.
 
 ### Cost model
 - **GPU is billed per-second only while the pod is Running.** Closing the browser does **NOT** stop it — only **Stop** (the card's Stop button, or idle auto-stop) halts GPU billing.
