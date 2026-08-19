@@ -105,9 +105,11 @@ headless contract tests, never by execution (see Open items).
   scrubbing across a cinematic usable instead of a machine-gun of effects. Editor-side an `fx:`
   cue drives the stage FX overlay the Rigger already vendors; the other namespaces name things
   that only exist in a game, so they surface in the status line rather than silently doing
-  nothing. **Depth belongs to the SET, not the cue**: an `fx:` cue fires an effect node that lives
-  in the bound set, so `stage.setZ` (the 🎬 row in the timeline) is what puts a cue's effect in
-  front of a rig — see Recent changes for why the preview can only show that as a band. Game-side `<FlowV2Cinematics>` routes them: sounds through the player (guarded by
+  nothing. **Depth belongs to the LAYER, not the cue**: `stage.setZ` — the **⚡ fx** row in the
+  timeline, which becomes **🎬 set** once a Scene is bound — is what puts a cue's effect in front
+  of a rig. The row appears as soon as ONE `fx:` cue exists, with or without a set (see Recent
+  changes: gating it on a bound Scene left the common case with no control at all). At an
+  in-between depth the row says the preview can only show bands — see Recent changes for why. Game-side `<FlowV2Cinematics>` routes them: sounds through the player (guarded by
   `hasSound`, since howler declines an unknown sprite key silently), everything else broadcast on
   the event bus under its bare name — the SAME seam a rig's timeline events use, so a cinematic
   cue and a rig event are indistinguishable downstream.
@@ -312,6 +314,23 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 - Nothing external.
 
 ## Recent changes
+
+- 2026-08-19 — **Yesterday's cue-depth fix only worked if a Scene was bound (owner: "I can only move
+  FX up and down on the cue and not in the timeline").** The depth row was gated on
+  `doc.stage.sceneId`, but an `fx:` cue draws at that depth with or without a set — so the common
+  case (fire an effect, no Scene bound) rendered NO row, no `▲▼`, and the effect stayed nailed behind
+  every rig, while the cue inspector cheerfully said "move its 🎬 row in the timeline" about a row that
+  was never emitted. Measured before the fix: `setRowInTimeline: 0`, `depthButtons: 0`.
+  The row is the DEPTH BAND, so it is now emitted whenever anything draws in it — a bound Scene
+  **or** any `fx:` cue — and it names what it actually is: **⚡ fx** with only cues, **🎬 set** once a
+  Scene is bound (calling it "set" with no set names something the author never created).
+  Also: at an in-between depth the row now states that **the preview can only show bands** (every rig
+  is in one WebGL canvas, FX in another, so the overlay can sit above or below the whole cast but
+  never between two rigs — the game honours the real depth). Without that line a correctly authored
+  depth looks like a broken control, which is half of what this report was.
+  Verified live with no Scene bound: the row appears with the first `fx:` cue, ▼ raises the overlay
+  (`fxInFront` true, `setZ` 0), ▲ lowers it, undo restores it, and with two rigs the in-between
+  position shows the preview caveat and drops it again at the top of the stack (17 assertions).
 
 - 2026-08-18 — **The mask editor was a dead end on its own (owner: "what am I supposed to do once I
   add a bone? I do not see any bone in the canvas, I can't edit any bone anywhere, and I can't

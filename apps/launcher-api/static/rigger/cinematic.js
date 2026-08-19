@@ -983,6 +983,12 @@ window.RiggerCinematic = (function () {
 	 * lives IN the set, so the set's depth IS the cue's depth.
 	 */
 	const stageSetZ = () => (doc.stage.setZ == null ? -1 : doc.stage.setZ);
+
+	/** Does anything in this cinematic fire an FX effect? That alone earns the depth row. */
+	const hasFxCue = () => {
+		const t = cueTrack();
+		return !!(t && t.keys && t.keys.some((k) => String(k.cue || '').startsWith('fx:')));
+	};
 	/** True when the set is above every actor — the only band the rigs-in-one-canvas preview can show. */
 	const setInFront = () => stageSetZ() >= doc.stage.cast.length - 1;
 
@@ -1118,7 +1124,13 @@ window.RiggerCinematic = (function () {
 		// The SET is a layer among the actors, not a fixed backdrop. Its row is emitted where its
 		// z puts it, so the timeline reads top-to-bottom as back-to-front exactly like the cast
 		// rows already do (▲ = move behind, the cast list's own wording).
-		const wantSet = !!doc.stage.sceneId;
+		// The row is the DEPTH BAND, and a bound Scene is only one of the two things that draw in it —
+		// an `fx:` cue draws there too, with or without a set. Gating the row on `sceneId` alone left
+		// the common case with no control at all: fire an FX cue, no Scene bound, and the effect is
+		// nailed behind every rig while the cue inspector cheerfully says "move its 🎬 row in the
+		// timeline" — a row that was never rendered (owner: "I can only move FX up and down on the
+		// cue and not in the timeline").
+		const wantSet = !!doc.stage.sceneId || hasFxCue();
 		let setDone = false;
 		const emitSetBefore = (z) => {
 			if (wantSet && !setDone && z > stageSetZ()) {
@@ -1232,10 +1244,17 @@ window.RiggerCinematic = (function () {
 			if (entry.kind === 'set') {
 				row.classList.add('cineChanRow', 'cineSetRow');
 				const sc = scenes.find((s) => s.id === doc.stage.sceneId);
+				// With a Scene bound this row is the SET; with only cues it is purely the FX depth.
+				// Calling it "set" in the second case names something the author never created.
+				const bound = !!doc.stage.sceneId;
 				const g = document.createElement('div');
 				g.className = 'cineGutter';
 				g.innerHTML =
-					'<span class="cineTrackName cineChanName" title="The bound set draws here — everything in it, including an fx: cue\'s effect">🎬 set</span>' +
+					'<span class="cineTrackName cineChanName" title="' +
+					(bound
+						? 'The bound set draws here — everything in it, including an fx: cue\'s effect'
+						: 'Where fx: cues draw. Bind a Scene above and its sprites, text and FX draw here too.') +
+					'">' + (bound ? '🎬 set' : '⚡ fx') + '</span>' +
 					'<button data-setz="-1" title="Move behind"' + (stageSetZ() <= -1 ? ' disabled' : '') + '>▲</button>' +
 					'<button data-setz="1" title="Move in front"' + (setInFront() ? ' disabled' : '') + '>▼</button>';
 				row.appendChild(g);
@@ -1249,9 +1268,17 @@ window.RiggerCinematic = (function () {
 							? 'in front of every rig'
 							: 'in front of ' + (stageSetZ() + 1) + ' of ' + doc.stage.cast.length + ' rigs'
 					: 'no rigs cast yet';
+				// The preview draws every rig into ONE canvas and FX into another, so it can only put the
+				// overlay above or below the WHOLE cast — never between two rigs. At an in-between depth
+				// the stage therefore cannot show what the game will do, and saying nothing here makes
+				// a correct authored depth look like a broken control.
+				const banded = doc.stage.cast.length > 1 && stageSetZ() >= 0 && !setInFront();
 				lane.innerHTML =
-					'<span class="cineSetNote">' + esc((sc && (sc.name || sc.id)) || doc.stage.sceneId) +
-					' — sprites, text and FX · ' + where + '</span>';
+					'<span class="cineSetNote">' +
+					(bound ? esc((sc && (sc.name || sc.id)) || doc.stage.sceneId) + ' — sprites, text and FX' : 'fx: cues draw here') +
+					' · ' + where +
+					(banded ? ' · the preview can only show it behind or in front of EVERY rig — the game honours this depth' : '') +
+					'</span>';
 				row.appendChild(lane);
 				el.appendChild(row);
 				continue;
@@ -2266,7 +2293,7 @@ ${keys.length ? '' : '<div class="cineNote">Cues fire as the playhead crosses th
 	<label>time<input type="number" step="0.05" min="0" data-cueact="time" value="${+sel.time.toFixed(3)}"></label>
 </div>
 <div class="cineRow"><button id="cineDelCue" title="Delete this cue">🗑 Delete cue</button></div>
-<div class="cineNote">${fxEffects.length ? 'Pick an FX effect from the list — it stays complete however the cue is already set — or type an <code>sfx:</code> / <code>music:</code> / <code>signal:</code> name the game knows.' : 'This project has no authored FX effects yet — author them in /fx, or type a sound or signal name.'} An <code>fx:</code> cue draws on the <b>set</b> layer — move its 🎬 row in the timeline to put the effect in front of a rig.</div>`;
+<div class="cineNote">${fxEffects.length ? 'Pick an FX effect from the list — it stays complete however the cue is already set — or type an <code>sfx:</code> / <code>music:</code> / <code>signal:</code> name the game knows.' : 'This project has no authored FX effects yet — author them in /fx, or type a sound or signal name.'} An <code>fx:</code> cue draws on the <b>⚡ fx</b> row in the timeline (it appears as soon as one <code>fx:</code> cue exists, and becomes the <b>🎬 set</b> row once a Scene is bound) — move that row with ▲▼ to put the effect in front of a rig.</div>`;
 	}
 
 	/** Inspector for a selected property/camera key — time, value and its outgoing interpolation. */
