@@ -137,6 +137,10 @@ FLUX.2 needs **no custom node** — it is native in ComfyUI core from the `v0.33
 | `flux2-dev-turbo` | 2.8 GB | inherits dev's non-commercial terms | Add-on for `flux2-dev` |
 | `qwen-image` | 30.1 GB | **apache-2.0** (model + encoder + VAE) | Yes — loads in sequence, so peak VRAM ~20 GB |
 | `qwen-toon` | 0.6 GB | **apache-2.0** | Add-on for `qwen-image` |
+| `wan22-t2v` | 35.6 GB | **apache-2.0** | Yes — two-expert MoE loads one at a time, peak ~14 GB |
+| `wan22-i2v` | 35.6 GB | **apache-2.0** | Yes — shares encoder + VAE with `wan22-t2v` |
+| `wan22-turbo` | 4.9 GB | **apache-2.0** | Add-on: 4-step LoRAs for both Wan sets |
+| `wan22-ti2v-5b` | 18.2 GB | **apache-2.0** | Yes — the light one; needs its OWN `wan2.2_vae` |
 
 **Start with `flux2-klein`.** It is the only FLUX.2 variant that is both Apache-2.0 (so it
 could ever ship in a game, unlike FLUX.1-dev/PuLID which are R&D-only) and small enough to
@@ -154,9 +158,21 @@ is a no-op — the size check skips whatever is current.
 > or FLUX.1 — the weights are shaped to Qwen-Image's layers. Likewise `flux2-dev-turbo` is
 > FLUX.2-only. Pairing a LoRA with the wrong base either errors on load or produces noise.
 
-> One caveat the script also prints: the `flux2-vae` file both FLUX.2 sets use is served from
-> the `Comfy-Org/flux2-dev` repo, which is licensed `other`, not apache-2.0. Confirm the
-> VAE's terms yourself before anything from klein ships commercially.
+**Wan 2.2 is video, and it is native in ComfyUI core** (`comfy/ldm/wan`) — **no custom node**,
+and core ships the `Text to Video (Wan 2.2)` / `Image to Video (Wan 2.2)` blueprints and the
+video-save nodes. Wan **2.2 supersedes 2.1**; 2.1's encoder and VAE are still what 2.2 uses,
+which is why those files come from the 2.1 repo. Everything Wan is apache-2.0. Pull
+`wan22-turbo` alongside a Wan set — the built-in blueprints already wire those 4-step LoRAs
+in, so without them the blueprint opens with a missing LoRA.
+
+> `flux2-klein` sources its encoder and VAE from the klein-purposed **apache-2.0** repo, so
+> that path is licence-clean end to end. Its `flux2-vae` is a DIFFERENT build from
+> `flux2-dev`'s — same filename, 2 KB apart, different sha — so pulling both FLUX.2 sets
+> writes `vae/flux2-vae.safetensors` once, from whichever is listed first. Re-run the set you
+> actually mean with `--force` if you switch between them.
+
+> **Check free space first: `df -h /workspace`.** These sets are large and the volume was
+> sized for SDXL/FLUX.1 — klein + qwen + both Wan sets + turbo is roughly 145 GB.
 
 ## 4. Start ComfyUI
 

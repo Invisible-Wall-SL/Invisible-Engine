@@ -43,13 +43,18 @@ HF = "https://huggingface.co"
 MODEL_SETS: dict[str, dict] = {
 	"flux2-klein": {
 		"title": "FLUX.2 [klein] 4B (fp8)",
-		"license": "apache-2.0 — the diffusion model AND its Qwen3 text encoder",
+		"license": "apache-2.0 — diffusion model, Qwen3 text encoder AND vae",
 		"note": (
 			"The practical R&D target on our fleet: ~12.5 GB of weights, peak VRAM well "
 			"inside a 24 GB card. Mirrors ComfyUI's built-in blueprint "
-			"'Image Edit (Flux.2 Klein 4B)'. NOTE: flux2-vae is served from the "
-			"Comfy-Org/flux2-dev repo (licensed 'other'), so confirm the VAE's terms "
-			"yourself before anything commercial ships."
+			"'Image Edit (Flux.2 Klein 4B)'. Encoder and vae come from the klein-purposed "
+			"apache-2.0 repo, so this set is licence-clean END TO END — the one image path "
+			"here that could ship in a game. (The encoder is byte-identical to the "
+			"z_image_turbo copy; the vae is a DIFFERENT build from the flux2-dev one — same "
+			"filename, 2 KB apart, different sha. Pulling flux2-klein and flux2-dev together "
+			"therefore writes vae/flux2-vae.safetensors once, from whichever set is listed "
+			"first. Re-run the set you actually mean with --force if you switch between them.) "
+			"A 3.85 GB fp4 encoder exists in the same repo if VRAM ever gets tight."
 		),
 		"files": [
 			{
@@ -61,14 +66,14 @@ MODEL_SETS: dict[str, dict] = {
 			{
 				"dir": "text_encoders",
 				"name": "qwen_3_4b.safetensors",
-				"url": f"{HF}/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors",
+				"url": f"{HF}/Comfy-Org/vae-text-encorder-for-flux-klein-4b/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors",
 				"size": 8_040_000_000,
 			},
 			{
 				"dir": "vae",
 				"name": "flux2-vae.safetensors",
-				"url": f"{HF}/Comfy-Org/flux2-dev/resolve/main/split_files/vae/flux2-vae.safetensors",
-				"size": 340_000_000,
+				"url": f"{HF}/Comfy-Org/vae-text-encorder-for-flux-klein-4b/resolve/main/split_files/vae/flux2-vae.safetensors",
+				"size": 336_211_292,
 			},
 		],
 	},
@@ -115,6 +120,143 @@ MODEL_SETS: dict[str, dict] = {
 				"name": "Flux_2-Turbo-LoRA_comfyui.safetensors",
 				"url": f"{HF}/Comfy-Org/flux2-dev/resolve/main/split_files/loras/Flux_2-Turbo-LoRA_comfyui.safetensors",
 				"size": 2_760_000_000,
+			},
+		],
+	},
+	"wan22-t2v": {
+		"title": "Wan 2.2 T2V A14B (text -> video, fp8)",
+		"license": "apache-2.0 — model, umt5 encoder and VAE alike",
+		"note": (
+			"Native in ComfyUI core (comfy/ldm/wan) — NO custom node, and core ships the "
+			"'Text to Video (Wan 2.2)' blueprint plus the video save nodes. It is a two-expert "
+			"MoE: the high- and low-noise models load one at a time, so peak VRAM is ~14 GB "
+			"rather than the 35.6 GB on disk. Pull `wan22-turbo` too — 4-step inference instead "
+			"of 20+ is the difference between iterating and waiting."
+		),
+		"files": [
+			{
+				"dir": "diffusion_models",
+				"name": "wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+				"url": f"{HF}/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_high_noise_14B_fp8_scaled.safetensors",
+				"size": 14_290_000_000,
+			},
+			{
+				"dir": "diffusion_models",
+				"name": "wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+				"url": f"{HF}/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_t2v_low_noise_14B_fp8_scaled.safetensors",
+				"size": 14_290_000_000,
+			},
+			{
+				"dir": "text_encoders",
+				"name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+				"url": f"{HF}/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+				"size": 6_740_000_000,
+			},
+			{
+				"dir": "vae",
+				"name": "wan_2.1_vae.safetensors",
+				"url": f"{HF}/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors",
+				"size": 250_000_000,
+			},
+		],
+	},
+	"wan22-i2v": {
+		"title": "Wan 2.2 I2V A14B (image -> video, fp8)",
+		"license": "apache-2.0",
+		"note": (
+			"Same shape as wan22-t2v, driven from a still instead of a prompt — the one that "
+			"matters if you want to animate art the pipeline already produced. Shares the umt5 "
+			"encoder and VAE with wan22-t2v, so pulling both costs ~14.3 GB extra, not 35.6."
+		),
+		"files": [
+			{
+				"dir": "diffusion_models",
+				"name": "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+				"url": f"{HF}/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+				"size": 14_290_000_000,
+			},
+			{
+				"dir": "diffusion_models",
+				"name": "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+				"url": f"{HF}/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+				"size": 14_290_000_000,
+			},
+			{
+				"dir": "text_encoders",
+				"name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+				"url": f"{HF}/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+				"size": 6_740_000_000,
+			},
+			{
+				"dir": "vae",
+				"name": "wan_2.1_vae.safetensors",
+				"url": f"{HF}/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors",
+				"size": 250_000_000,
+			},
+		],
+	},
+	"wan22-turbo": {
+		"title": "Wan 2.2 lightx2v 4-step LoRAs (t2v + i2v)",
+		"license": "apache-2.0",
+		"note": (
+			"Add-on: cuts inference to 4 steps. Both the t2v and i2v pairs, since each expert "
+			"(high/low noise) needs its own. The built-in Wan 2.2 blueprints already wire these "
+			"in, so without them those blueprints load with a missing LoRA."
+		),
+		"files": [
+			{
+				"dir": "loras",
+				"name": "wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
+				"url": f"{HF}/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors",
+				"size": 1_230_000_000,
+			},
+			{
+				"dir": "loras",
+				"name": "wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors",
+				"url": f"{HF}/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_low_noise.safetensors",
+				"size": 1_230_000_000,
+			},
+			{
+				"dir": "loras",
+				"name": "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+				"url": f"{HF}/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+				"size": 1_230_000_000,
+			},
+			{
+				"dir": "loras",
+				"name": "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+				"url": f"{HF}/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+				"size": 1_230_000_000,
+			},
+		],
+	},
+	"wan22-ti2v-5b": {
+		"title": "Wan 2.2 TI2V 5B (text+image -> video, fp16)",
+		"license": "apache-2.0",
+		"note": (
+			"The light one: 5B doing both t2v and i2v, ~18 GB total against ~36 GB for a 14B "
+			"set. Note it needs its OWN vae (wan2.2_vae, 1.41 GB) — NOT the wan_2.1_vae the 14B "
+			"models use; pairing the wrong one fails at load. ComfyUI ships no built-in "
+			"blueprint for it, so expect to wire the graph by hand."
+		),
+		"files": [
+			{
+				"dir": "diffusion_models",
+				"name": "wan2.2_ti2v_5B_fp16.safetensors",
+				"url": f"{HF}/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors",
+				"size": 10_000_000_000,
+			},
+			{
+				"dir": "text_encoders",
+				"name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+				"url": f"{HF}/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+				"size": 6_740_000_000,
+			},
+			{
+				"dir": "vae",
+				"name": "wan2.2_vae.safetensors",
+				"url": f"{HF}/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan2.2_vae.safetensors",
+				"size": 1_410_000_000,
 			},
 		],
 	},
