@@ -1,6 +1,6 @@
 import type { ServerPayEntry } from 'utils-shared/paytable';
 
-import { getActiveGameConfig, getNumLines, getSymbolsInPlay } from './gameConfig';
+import { getActiveGameConfig, getSymbolsInPlay, payoutDivisor } from './gameConfig';
 import type { SymbolName } from './types';
 
 /**
@@ -14,8 +14,19 @@ import type { SymbolName } from './types';
  * Cheap — a handful of symbols and a couple of dozen lines — so there is no memo to go stale.
  */
 
-/** Number of paylines — the bet-per-line divisor for line payouts (total bet / numLines). */
-export const numLines = (): number => getNumLines();
+/**
+ * The stake a paytable multiplier is quoted against, as a divisor of the total bet
+ * (`buildPayTableRows` computes `base = totalBet / this`).
+ *
+ * Was `getNumLines()`. It now follows the win model — the line count for a lines game, the WAYS
+ * count for a ways game (a spin buys every way, so the per-way stake is `totalBet / ways`), and 1
+ * for cluster/scatter, whose multipliers apply to the whole bet. Without this a ways game priced
+ * every payout against `totalBet / 20` — the RGS's payline count, which decides nothing there.
+ *
+ * The name stays `numLines` because `InfoManifest` declares that field; it is only ever used as a
+ * divisor and is never rendered as a label. See `payoutDivisor` in `engine-game`.
+ */
+export const numLines = (): number => payoutDivisor();
 
 /**
  * Display order, high-value first. A PREFERENCE, not a filter: a symbol the config has that isn't

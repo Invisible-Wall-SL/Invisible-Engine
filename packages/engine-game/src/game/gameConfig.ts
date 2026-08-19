@@ -236,6 +236,46 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		return resolveWinModel(getActiveGameConfig());
 	}
 
+	/**
+	 * How many WAYS the grid pays — the product of each reel's visible rows (a 5×3 board pays
+	 * 3⁵ = 243). The ways analogue of the line count: buying a spin buys every way, so the
+	 * per-way stake is `totalBet / waysCount` exactly as the per-line stake is `totalBet / numLines`.
+	 *
+	 * Read from the config's own `numRows` (one entry per reel), so a stepped or resized grid is
+	 * counted correctly rather than assumed to be uniform.
+	 */
+	function activeWaysCount(): number {
+		const rows = getActiveGameConfig().numRows;
+		if (!rows.length) return 1;
+		return rows.reduce((product, r) => product * Math.max(1, Math.floor(r)), 1);
+	}
+
+	/**
+	 * The stake a paytable multiplier is quoted against, as a divisor of the total bet.
+	 *
+	 * `buildPayTableRows` computes `base = totalBet / divisor` for every non-scatter entry, so this
+	 * is what makes the info page price a payout correctly for the game's win model:
+	 *
+	 *   - `lines`   → the line count. A multiplier pays per LINE.
+	 *   - `ways`    → the ways count. A multiplier pays per WAY, and a spin buys all of them.
+	 *   - `cluster` / `scatter` → 1. Those models have no per-line/per-way subdivision; a multiplier
+	 *     applies to the whole bet, which is already how `mode: 'scatter'` entries are priced.
+	 *
+	 * Named for what it IS rather than `numLines`, because the number stopped being a line count the
+	 * moment a game could pay by ways. It is only ever a divisor — nothing renders it as a label.
+	 */
+	function payoutDivisor(): number {
+		switch (activeWinModel().type) {
+			case 'ways':
+				return activeWaysCount();
+			case 'cluster':
+			case 'scatter':
+				return 1;
+			default:
+				return getNumLines();
+		}
+	}
+
 	/** Visible rows on the first reel — the info page's grid height. */
 	function getNumRows(): number {
 		return getActiveGameConfig().numRows[0] ?? 3;
@@ -533,6 +573,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		activeWinLevelChain,
 		activeWinLevelData,
 		activeWinLevelIsBig,
+		activeWaysCount,
 		activeWinLevels,
 		activeWinModel,
 		boardDimensions,
@@ -546,6 +587,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		initialBoard,
 		paddingReels,
 		paylineColor,
+		payoutDivisor,
 		publishWinLevelsToFacade,
 		publishWinPresentation,
 		resetGameConfigCache,
