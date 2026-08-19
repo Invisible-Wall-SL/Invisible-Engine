@@ -27,7 +27,7 @@
 >
 	<SpineTrack
 		trackIndex={0}
-		animationName={'animation'}
+		animationName="animation"
 		listener={{
 			complete: props.oncomplete,
 		}}

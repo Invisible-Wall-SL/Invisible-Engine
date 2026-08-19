@@ -64,17 +64,16 @@ import {
 import type { BookEvent, BookEventContext } from './typesBookEvent';
 
 declare global {
-	// eslint-disable-next-line no-var
 	var __IE_FLOW_DOC__: FlowDoc | undefined;
-	// eslint-disable-next-line no-var
+
 	var __IE_FLOW_LINES__: boolean | undefined;
-	// eslint-disable-next-line no-var
+
 	var __IE_FLOW_LOADING__: boolean | undefined;
-	// eslint-disable-next-line no-var
+
 	var __IE_FLOW_WIN__: boolean | undefined;
-	// eslint-disable-next-line no-var
+
 	var __IE_FLOW_COND__: boolean | undefined;
-	// eslint-disable-next-line no-var
+
 	var __IE_FLOW_FREESPIN__: boolean | undefined;
 	/**
 	 * Dev-only live-verify hook for value dataflow (design doc §11 step 4). Re-point a HUD value
@@ -86,7 +85,7 @@ declare global {
 	 * (so nothing ships-hacked), and it works even with no FlowDoc (inert interpreter). Unset ⇒ the
 	 * override map is empty ⇒ every display resolves its own `source` (parity §11.6).
 	 */
-	// eslint-disable-next-line no-var
+
 	var __IE_FLOW_VALUE__: ((instanceId: string, producerFeed: string) => void) | undefined;
 }
 

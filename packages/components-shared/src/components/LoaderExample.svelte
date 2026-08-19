@@ -12,7 +12,7 @@
 
 <LoaderBase
 	maxWidth={200}
-	backgroundColor={'#000000'}
+	backgroundColor="#000000"
 	timeout={2000}
 	src={props.src}
 	oncomplete={() => (showText = false)}

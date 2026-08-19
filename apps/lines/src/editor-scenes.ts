@@ -1153,13 +1153,13 @@ declare global {
 	/** Set on any boot that renders something OTHER than the project's live authoring —
 	 *  readable from the console / debug menu to tell "the tool didn't save it" apart from
 	 *  "the game never received it". Undefined on a healthy boot. */
-	// eslint-disable-next-line no-var
+
 	var __IE_RUNTIME_STALE__: { reason: string; at: string } | undefined;
 	/** Boot loading-screen handle defined in the static HTML shell (`app.html`). Drives the
 	 *  pre-mount splash (phase text, progress %, game name) that covers the black window before
 	 *  Pixi + the in-canvas `LoadingBar` exist. Optional-chained everywhere — undefined in
 	 *  Storybook / SSR / any host without the shell overlay. */
-	// eslint-disable-next-line no-var
+
 	var __ieBoot:
 		| {
 				title: (text: string) => void;

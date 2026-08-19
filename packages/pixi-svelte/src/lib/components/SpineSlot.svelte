@@ -18,7 +18,7 @@
 	const slotContainer = new PIXI.Container();
 	const spineEventEmitter = getContextSpineEventEmitter();
 
-	let show = $state(!Boolean(spineEventEmitter));
+	let show = $state(!spineEventEmitter);
 
 	onMount(() => {
 		// The Spine runtime's `addSlotObject` THROWS when the skeleton has no slot with

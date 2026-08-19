@@ -146,7 +146,7 @@ export function buildAnticipationArming(
 				win: Number(reach.winBounds(k)[bound].toFixed(2)),
 			});
 		}
-		// eslint-disable-next-line no-console
+
 		console.log(
 			'[ANT-DEBUG]',
 			JSON.stringify({

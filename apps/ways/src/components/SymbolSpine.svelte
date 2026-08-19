@@ -29,6 +29,6 @@
 <!-- tumble frame -->
 {#if props.showWinFrame}
 	<SpineProvider x={props.x} y={props.y} key="anticipation" width={SYMBOL_SIZE * 0.19}>
-		<SpineTrack trackIndex={0} animationName={'payframe'} loop />
+		<SpineTrack trackIndex={0} animationName="payframe" loop />
 	</SpineProvider>
 {/if}

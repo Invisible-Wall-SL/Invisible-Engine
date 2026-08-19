@@ -20,7 +20,7 @@ declare global {
 	 *  `window.__IE_FLOW_V2__.dispatch('<event>', {...})` runs an authored handler (showing/hiding
 	 *  containers, firing cues), and `.ordered()` reads the mounted set. Mirrors the existing
 	 *  `__IE_FLOW_VALUE__` dev affordance. `undefined` when no v2 doc is authored. */
-	// eslint-disable-next-line no-var
+
 	var __IE_FLOW_V2__: LinesFlowV2 | undefined;
 }
 

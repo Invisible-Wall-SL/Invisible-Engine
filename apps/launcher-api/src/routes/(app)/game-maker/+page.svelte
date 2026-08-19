@@ -202,7 +202,7 @@
 							bind:value={key}
 							oninput={() => (keyTouched = true)}
 							placeholder="book-of-borut"
-							pattern="[a-z0-9][a-z0-9_\-]{'{'}0,63{'}'}"
+							pattern="[a-z0-9][a-z0-9_\-]{'{'}0,63}"
 							spellcheck="false"
 							required
 						/>
