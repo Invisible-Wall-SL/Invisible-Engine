@@ -6,7 +6,7 @@
 	"license": "MIT",
 	"scripts": {
 		"format": "prettier --write --ignore-path=../../.prettierignore .",
-		"lint": "eslint *.js*"
+		"lint": "eslint *.js"
 	},
 	"devDependencies": {
 		"eslint": "9.21.0",
