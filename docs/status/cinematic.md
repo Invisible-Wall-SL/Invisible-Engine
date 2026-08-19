@@ -124,6 +124,29 @@ headless contract tests, never by execution (see Open items).
   start, length, clipIn, speed, loop mode (once / fill / count N / ping-pong), blend in/out,
   alpha, and replace-vs-additive. One drag = **one** undo step (the doc updates live so the stage
   follows the gesture, but history is recorded on pointerup).
+- **Inline posing — author an override ON the cinematic stage (owner's ask, third iteration).**
+  *"I would like to edit my bones straight into cinematic, and not in a new window animate … create
+  an override on top of it while I can see it playing."* Tweak Mode answered the wrong half: it gave
+  the animator, but as a surface swap (dopesheet replaces the strip timeline, rig outline replaces
+  the cast panel), which reads as leaving the cinematic — and it opened an EMPTY clip, so there was
+  nothing to look at.
+  **✎ on an actor's cast row** now turns on posing in place: bones draw on the stage, the animate
+  toolbar appears, and **nothing else moves** — timeline, cast panel and playhead all stay. The
+  actor is posed by its own layers, so you pose on top of the walk while it plays.
+  **The first key builds the override.** There is no clip to pick and no strip to add: `keyBone` →
+  `ensureCurAnim` → `ensureOverrideClip()` creates a layer above everything the actor has, a strip
+  at the playhead (2s, clamped to the cinematic), and a clip on the rig — then keys into it. Hooking
+  `ensureCurAnim` means EVERY keying path (bone drag, ◆ Key, ◆ Key all, the numeric fields) creates
+  it the same way. The strip appears on the timeline selected, ready to trim.
+  **Auto-created overrides get blend ramps, and they are load-bearing.** A strip extrapolates
+  `holdForward`, so an override with no blend-out holds its last frame for the rest of the
+  cinematic — the misstep sticks and the character limps forever. A blend-out takes alpha to 0 at
+  the strip end, which both eases the move and ENDS it. Caught by the live test, not by reading.
+  Implemented as the SAME state as Tweak Mode with `inline: true` (it needs the same three things:
+  a rig open, the lower layers posed underneath, the animator's keying paths) — only
+  `applyInlineChrome` differs, and the renderTimeline / syncPlayhead / tweakAfter branches that
+  assume a dopesheet are skipped. Tweak Mode itself is untouched and still reachable; the owner
+  asked to keep both until the shape settles.
 - **The tweak underlay — an override is authored ON TOP of the layers below it.** Tweak Mode used
   to start each frame at `setToSetupPose()`, so authoring a strip on layer 1 posed the actor from
   that clip ALONE: the base animation it overrides was not under it. The classic case makes the
@@ -332,6 +355,32 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 - Nothing external.
 
 ## Recent changes
+
+- 2026-08-19 — **"Edit my bones straight into cinematic, and not in a new window animate" (owner,
+  third iteration on the same ask — and the first two answered the wrong half).** Tweak Mode gave the
+  animator but as a SURFACE SWAP, which reads as leaving the cinematic, and it opened an EMPTY clip
+  so there was nothing to pose against. **Inline posing**: ✎ on an actor's cast row draws its bones
+  on the stage and turns on the animate toolbar, with the timeline, cast panel and playhead all
+  staying put — you pose on top of the walk while it plays.
+  **The first key builds the override.** No clip to pick, no strip to add: `keyBone` →
+  `ensureCurAnim` → `ensureOverrideClip()` creates the layer, the strip at the playhead and the clip,
+  then keys into it. Hooking `ensureCurAnim` is what makes every keying path (bone drag, ◆ Key,
+  ◆ Key all, numeric fields) build it identically.
+  **Auto-created overrides get blend ramps by default, and they are load-bearing** — a strip
+  extrapolates `holdForward`, so an override with no blend-out holds its last frame for the rest of
+  the cinematic and the character limps forever. The live test caught it; reading the code would not
+  have. A blend-out takes alpha to 0 at the strip end, which both eases the move and ends it.
+  Built as the SAME state as Tweak Mode with `inline: true` — it needs the same three things (a rig
+  open, the lower layers posed underneath, the animator's keying paths); only the chrome differs,
+  plus skipping the renderTimeline / syncPlayhead / tweakAfter branches that assume a dopesheet. One
+  bug from that reuse, caught live: `renderTimeline`'s tweak guard also blocked the CINEMATIC
+  timeline, so an auto-created strip did not appear until something else refreshed it.
+  Tweak Mode, ✎ Tweak clip and ＋ New clip are all untouched — the owner asked to keep both routes
+  until the shape settles, so nothing was removed yet.
+  Verified live on the walk/misstep scenario (18 assertions): ✎ keeps the timeline and cast panel,
+  no clip is open, the actor is posed by its own walk; one drag creates layer+strip+clip+key and the
+  strip appears selected; un-posed bones keep walking and keep moving as you scrub; and after ✎ off
+  the sequencer plays pure walk → override → pure walk, easing at both ends.
 
 - 2026-08-19 — **You could stack an override but not SEE what you were overriding (owner: "I would
   like to create a track on top of an animation so I can modify that animation in the cinematic … a

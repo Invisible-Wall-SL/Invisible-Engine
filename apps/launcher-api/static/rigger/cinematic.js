@@ -660,9 +660,12 @@ window.RiggerCinematic = (function () {
 
 	/** Where the tweaked actor is — clip-local time + stage placement — at the cinematic playhead. */
 	function tweakSample() {
-		const found = stripById(tweak.stripId);
+		const found = tweak.stripId ? stripById(tweak.stripId) : null;
 		const cast = castOf(tweak.actorId);
 		const place = cast ? EV.resolvePlace(cast.place, propertyTracksOf(tweak.actorId), time) : null;
+		// Inline posing before the first key: there is no override yet, so the actor is simply what
+		// its existing layers say it is — the author poses ON TOP of exactly that.
+		if (!found && tweak.inline) return { local: 0, place, outside: false, underlay: tweakUnderlay(null), additive: false };
 		if (!found) return { local: 0, place, outside: true, underlay: null, additive: false };
 		const strip = found.strip;
 		const outside = time < strip.start - 1e-6 || time > strip.start + strip.length + 1e-6;
@@ -693,7 +696,8 @@ window.RiggerCinematic = (function () {
 		if (!EV || !ctx.rigSkeletonData) return null;
 		const sd = ctx.rigSkeletonData();
 		if (!sd) return null;
-		const layer = track.layer || 0;
+		// No track = inline posing with no override yet: EVERY layer is underneath.
+		const layer = track ? track.layer || 0 : Infinity;
 		const lower = tracksOf(tweak.actorId).filter((t) => t.kind === 'animation' && (t.layer || 0) < layer);
 		if (!lower.length) return null;
 		const resolve = (strip) => (strip.clip && strip.clip.src === 'rig' ? sd.findAnimation(strip.clip.name) : null);
@@ -796,6 +800,98 @@ window.RiggerCinematic = (function () {
 
 	function tweakMaskClear() {
 		if (tweak) setMask(tweak.stripId, null, 'clear mask');
+	}
+
+	// ---- inline posing: author an override ON the cinematic stage ----------
+	//
+	// "I would like to edit my bones straight into cinematic, and not in a new window animate" —
+	// so this is the same tweak machinery with no chrome swap: the timeline and cast panel stay, the
+	// bones of the posed actor are drawn and draggable, and the layers below keep playing underneath.
+	// The difference that matters is that NOTHING has to exist first. There is no clip to pick and no
+	// strip to add: the first key creates them (`ensureOverrideClip`), so the sequence grows to fit
+	// what the author did rather than the author preparing a place to do it.
+
+	const OVERRIDE_LEN = 2; // seconds — the length a fresh override strip gets; drag its edge to change
+
+	async function startPosing(actorId) {
+		if (tweak) { stopPosing(); return; }
+		const cast = castOf(actorId);
+		const entry = cast && rigEntryFor(cast);
+		if (!entry) return fail('the rig this actor casts is not in this project');
+		statusMsg = '✎ opening ' + entry.name + '…';
+		renderPanel();
+		const err = await ctx.openRigForTweak(entry);
+		if (err) return fail(err);
+		const bad = ctx.beginTweak({ actorId, clip: null, stripId: null, inline: true, label: cast.rigName || entry.name || '' });
+		if (bad) return fail(bad);
+		tweak = { stripId: null, actorId, clip: null, inline: true };
+		selActorId = actorId;
+		statusMsg = '✎ drag a bone on the stage — the first key makes the override';
+		renderPanel();
+		renderTimeline();
+	}
+
+	function stopPosing() {
+		if (!tweak) return;
+		exitTweak();
+	}
+
+	/**
+	 * Called by the rig editor the moment something is keyed with no clip open — i.e. the first pose.
+	 * Creates the whole override in one go and returns the clip name:
+	 *   a LAYER above everything this actor already has, a STRIP at the playhead, and a CLIP on the rig.
+	 * Returns the existing clip on every later key, so one posing session builds one override.
+	 */
+	function ensureOverrideClip() {
+		if (!tweak || !tweak.inline) return null;
+		if (tweak.clip) return tweak.clip;
+		const cast = castOf(tweak.actorId);
+		if (!cast) return null;
+		const name = ctx.createClip('override');
+		if (!name) return null;
+		const layers = doc.tracks
+			.filter((t) => t.actorId === tweak.actorId && t.kind === 'animation')
+			.map((t) => t.layer || 0);
+		const track = {
+			id: uid('track'),
+			actorId: tweak.actorId,
+			kind: 'animation',
+			layer: layers.length ? Math.max(...layers) + 1 : 0,
+			strips: [],
+		};
+		// Clamped to the cinematic, and never shorter than a frame — a zero-length strip would key
+		// into something that can never be played back.
+		const start = Math.min(time, Math.max(doc.duration - 1 / (doc.fps || 30), 0));
+		const length = Math.max(Math.min(OVERRIDE_LEN, doc.duration - start), 1 / (doc.fps || 30));
+		const ramp = Math.min(0.15, length / 4);
+		const strip = {
+			id: uid('strip'),
+			clip: { src: 'rig', name },
+			start,
+			length,
+			clipIn: 0,
+			speed: 1,
+			loop: { mode: 'once' },
+			blend: 'replace',
+			// Ramps by DEFAULT, and they are load-bearing rather than decorative. A strip extrapolates
+			// `holdForward`, so an override with no blend-out holds its last frame for the rest of the
+			// cinematic — the misstep would stick and the character would limp forever. A blend-out
+			// takes alpha to 0 at the strip end, which both eases the move and ends it. Drag them to 0
+			// in the inspector for a hard cut.
+			blendIn: ramp,
+			blendOut: ramp,
+			alpha: 1,
+		};
+		track.strips.push(strip);
+		doc.tracks.push(track);
+		tweak.stripId = strip.id;
+		tweak.clip = name;
+		selStripId = strip.id;
+		commit('add override', 'override:' + strip.id);
+		refreshTargets();
+		renderTimeline();
+		renderPanel();
+		return name;
 	}
 
 	async function enterTweak(stripId) {
@@ -1196,9 +1292,11 @@ window.RiggerCinematic = (function () {
 	}
 
 	function renderTimeline() {
-		// While tweaking, `#timeline` holds the rig editor's DOPESHEET — that is what an author keys
-		// in. Rebuilding the strip timeline over it would wipe the dopesheet mid-edit.
-		if (tweak) return;
+		// While tweaking a strip, `#timeline` holds the rig editor's DOPESHEET — rebuilding the strip
+		// timeline over it would wipe the dopesheet mid-edit. INLINE posing is the opposite: it never
+		// leaves the sequencer, so its timeline must keep up (an auto-created override strip has to
+		// appear the moment the first key makes it).
+		if (tweak && !tweak.inline) return;
 		const el = $('#timeline');
 		if (!el || !doc) return;
 		const keepScroll = el.scrollLeft;
@@ -2070,6 +2168,7 @@ window.RiggerCinematic = (function () {
 		<span class="cineZ" title="Draw order — lower draws first (behind)">z${cast.z}</span>
 		<button data-act="up" title="Move behind">▲</button>
 		<button data-act="down" title="Move in front">▼</button>
+		<button data-act="pose" class="cinePose${tweak && tweak.inline && tweak.actorId === cast.actorId ? ' on' : ''}" title="Pose this actor's bones on the stage. Drag a bone and the first key creates an override layer on top of whatever it is already playing.">✎</button>
 		<button data-act="del" title="Remove from the cast">🗑</button>
 	</div>
 	<select data-act="clip" title="Which of this rig's animations plays">${opts}</select>
@@ -2234,7 +2333,8 @@ ${cueMarkup()}
 					return;
 				}
 				node.onclick = () => {
-					if (act === 'del') removeActor(actorId);
+					if (act === 'pose') { if (tweak && tweak.actorId === actorId) stopPosing(); else startPosing(actorId); }
+					else if (act === 'del') removeActor(actorId);
 					else if (act === 'up') moveActor(actorId, -1);
 					else if (act === 'down') moveActor(actorId, 1);
 					else if (act === 'vis') {
@@ -2617,6 +2717,10 @@ ${maskMarkup(s, actor, found.track)}
 		enterTweak,
 		exitTweak,
 		newClipForStrip,
+		startPosing,
+		stopPosing,
+		ensureOverrideClip,
+		isPosing: () => !!(tweak && tweak.inline),
 		tweakMaskNames,
 		tweakMaskInfo,
 		tweakMaskAddSelected,
