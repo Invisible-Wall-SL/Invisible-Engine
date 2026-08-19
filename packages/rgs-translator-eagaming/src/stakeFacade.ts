@@ -90,7 +90,7 @@ const findConfigEvent = (events: Play4FunBookEvent[] | undefined): Play4FunConfi
 
 /**
  * Publish the server's DECLARED boot config to a global the ENGINE reads
- * (`apps/lines/src/game/gameConfig.ts` → `serverConfig()`). The SAME decoupled-global rationale as
+ * (`engine-game`'s `gameConfig.ts` → `serverConfig()`). The SAME decoupled-global rationale as
  * `__IE_WIN_LEVELS__` (below): the facade is a drop-in for `rgs-requests` and cannot import the app,
  * so a global is the only bridge. It makes the RGS's own declaration SERVER-AUTHORITATIVE for the
  * game's derived display data — paylines / line count, the in-play symbol GATE, the cosmetic reel
@@ -226,7 +226,8 @@ const BOOK_AMOUNT_MULTIPLIER = 100;
 const BOOK_NUM_LINES = 10;
 
 /** The resolved win tiers the ENGINE published from the active game config
- *  (`apps/lines/src/game/gameConfig.ts` → `publishWinLevelsToFacade`). Only
+ *  (`engine-game`'s `gameConfig.ts` → `publishWinLevelsToFacade`, re-exported by
+ *  each game's own `game/gameConfig.ts`). Only
  *  the fields the facade needs — level, threshold (win-as-bet-multiplier), type.
  *  The facade can't import the app (it's a drop-in for `rgs-requests`), so a
  *  global is the decoupled bridge. Unset ⇒ un-authored ⇒ the coded ladder. */
