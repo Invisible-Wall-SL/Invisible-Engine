@@ -56,7 +56,14 @@ import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentat
 import { buildAnticipationArming } from './anticipation';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position, SymbolName } from './types';
-import { activeWinLevelData, boardDimensions, paddingReels, paylineColor } from './gameConfig';
+import type { WinLineShape } from '../components/WinLine.svelte';
+import {
+	activeWinLevelData,
+	activeWinModel,
+	boardDimensions,
+	paddingReels,
+	paylineColor,
+} from './gameConfig';
 import {
 	bakedSymbolNames,
 	bakedWinLineConfig,
@@ -341,15 +348,38 @@ export const winLinePointsFor = (positions: Position[]) =>
 	}));
 
 /**
- * Whether a win is a COLUMN (cluster) win rather than an ordinary single-row payline — i.e. at least
- * one reel contributes more than one paying cell. That is the shape a Book-of expansion produces:
- * the special symbol fills whole reels, so the scatter-style win carries several cells per column.
- * Tracing those as one connected polyline (sorted by reel) draws the unreadable criss-cross zig-zag;
- * `WinLine.svelte` instead draws a disconnected vertical bar per winning cell when this is true.
+ * WHICH SHAPE the win line draws for a win — decided by the project's declared win model
+ * (`/config` → `winModel`, Phase D of docs/design/game-type-templates.md) rather than by counting
+ * duplicate reels, because a duplicate reel means something different in each model:
  *
- * A normal payline has exactly one cell per reel ⇒ `false` ⇒ the connected diagonal is unchanged.
+ *   - `'path'`  — the connected polyline through the paying cells. An ordinary payline.
+ *   - `'cells'` — a disconnected vertical bar PER PAYING CELL. The Book-of expanding special fills
+ *     whole reels, so its scatter-style win carries several cells per column; tracing those as one
+ *     connected polyline draws an unreadable criss-cross zig-zag. Bars stacked in a reel touch, so
+ *     an expanded column still reads as one continuous bar.
+ *   - `'reels'` — ONE merged bar per winning REEL, spanning that reel's winning cells. A ways win
+ *     has no line geometry at all: it pays by whole-reel participation, so the readable shape is
+ *     "these reels pay", not a dash on each individual cell (and certainly not a zig-zag).
+ *
+ * The duplicate-reel heuristic survives ONLY inside the `lines` arm, which is the case it was
+ * written for: a lines game whose special symbol expands (Book of Borut). Every ordinary payline
+ * has exactly one cell per reel ⇒ `'path'` ⇒ the connected diagonal is unchanged.
  */
-export const winLineColumnWinFor = (positions: Position[]): boolean => {
+export const winLineShapeFor = (positions: Position[]): WinLineShape => {
+	switch (activeWinModel().type) {
+		case 'ways':
+			return 'reels';
+		case 'cluster':
+		case 'scatter':
+			return 'cells';
+		default:
+			return hasRepeatedReel(positions) ? 'cells' : 'path';
+	}
+};
+
+/** Whether any reel contributes more than one paying cell — impossible for a single payline, and
+ *  the signature of an expanding-special win on a lines game. */
+const hasRepeatedReel = (positions: Position[]): boolean => {
 	const seen = new Set<number>();
 	for (const position of positions) {
 		if (seen.has(position.reel)) return true;
@@ -835,7 +865,7 @@ const effects: Record<string, FlowEffect> = {
 		await awaitPresentation({
 			type: 'winLineShow',
 			points: winLinePointsFor(winningPositionsOf(win)),
-			columnWin: winLineColumnWinFor(winningPositionsOf(win)),
+			shape: winLineShapeFor(winningPositionsOf(win)),
 			fullPoints: winLineFullPointsFor(win),
 			color: winLineColorFor(payload.line as number | undefined),
 			...winLineTextFor({
