@@ -124,6 +124,24 @@ headless contract tests, never by execution (see Open items).
   start, length, clipIn, speed, loop mode (once / fill / count N / ping-pong), blend in/out,
   alpha, and replace-vs-additive. One drag = **one** undo step (the doc updates live so the stage
   follows the gesture, but history is recorded on pointerup).
+- **The tweak underlay — an override is authored ON TOP of the layers below it.** Tweak Mode used
+  to start each frame at `setToSetupPose()`, so authoring a strip on layer 1 posed the actor from
+  that clip ALONE: the base animation it overrides was not under it. The classic case makes the
+  problem obvious — a walk looping for 15s with a 2s misstep at 8s — you were keying the stumble
+  onto a T-pose and had to imagine the stride (owner: *"I would like to create a track on top of an
+  animation so I can modify that animation in the cinematic"*).
+  `tweakPose` now takes an **underlay**: the cinematic evaluates this actor's tracks on layers
+  STRICTLY BELOW the tweaked strip (through the shared `evaluateActor`, at the cinematic playhead)
+  onto the editor's skeleton, and the tweaked clip lands on top exactly as the sequencer will land
+  it. Scrub and the character keeps walking under your hands. Nothing underneath ⇒ null underlay ⇒
+  the setup pose, byte-identical to before.
+  **The clips come from the RIG EDITOR's `SkeletonData`, not the actor's** — a spine timeline
+  addresses bones by index, and these are applied to the editor's skeleton, so both must come out of
+  the same parse or an edited rig would pose the wrong bones.
+  **`poseAtTime` learned the additive form** (`MixBlend.add`: rotate/translate/shear add their
+  offset, scale adds its delta from setup), so an additive override previews as walk + offset
+  instead of replacing the walk. Measured live: replace and additive land on genuinely different
+  values, and additive equals walk + the keyed offset to 0.01.
 - **＋ New clip — authoring an override without leaving the cinematic.** An override has to live
   in a clip, and nothing in the cinematic could make one: the only route was to leave for ◆ Animate,
   create an animation, come back and find it in the strip's dropdown. Three mode switches to express
@@ -314,6 +332,31 @@ browser harness stages `anticipation` + `reelhouse_glow` — deliberately **diff
 - Nothing external.
 
 ## Recent changes
+
+- 2026-08-19 — **You could stack an override but not SEE what you were overriding (owner: "I would
+  like to create a track on top of an animation so I can modify that animation in the cinematic … a
+  walk … at the 8th second I want to make my character legs misstep").** The structure already
+  played that correctly — base loop on layer 0, a 2s strip on layer 1, blend in/out — but AUTHORING
+  it was blind: `tweakPose` opened each frame with `setToSetupPose()`, so the stumble was keyed onto
+  a T-pose instead of onto the stride it interrupts.
+  **The tweak underlay** fixes it: the cinematic evaluates this actor's STRICTLY LOWER layers
+  through the shared `evaluateActor` onto the editor's skeleton, and the tweaked clip lands on top
+  exactly as the sequencer lands it. Clips resolve from the RIG EDITOR's `SkeletonData` (timelines
+  address bones by index, and they are applied to the editor's skeleton — same parse or nothing).
+  `poseAtTime` also learned the ADDITIVE form, so an additive override previews as base + offset.
+  **And a real bug in tweak entry, found by the same test:** `beginTweak` did not assert that
+  cinematic mode was still on. The guard lived in `openRigForTweak`, so it only fired on the path
+  that OPENED a rig — anything else that knocked the mode out (a late `restoreRiggerState`
+  re-selecting the rig after the author switched to 🎬 Cinematic) left `cineMode` false with every
+  tweak flag true: `frame()` never delegates to the sequencer in that state, so the stage froze, the
+  clocks stopped and the underlay never ran, while the UI insisted it was tweaking. The invariant is
+  now asserted where tweaking turns ON, which is the only place that can guarantee it.
+  Verified live on the owner's own scenario (24 assertions): a looping walk on layer 0, a 2s strip
+  at 3s with 0.3s ramps on layer 1, ＋ New clip → key a leg. The walk poses under the override and
+  keeps moving as you scrub; every un-keyed bone stays on the walk; additive vs replace land on
+  different values and additive equals walk + offset to 0.01; and after ✔ Done the sequencer plays
+  pure walk before the strip, the full stumble mid-strip, a partial value inside the ramp, and pure
+  walk after it.
 
 - 2026-08-19 — **Yesterday's cue-depth fix only worked if a Scene was bound (owner: "I can only move
   FX up and down on the cue and not in the timeline").** The depth row was gated on
