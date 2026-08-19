@@ -615,6 +615,17 @@ line instead of silently doing nothing.
 **Nothing fires on a seek.** A backward step or a jump bigger than a frame is
 silent, which is what makes scrubbing usable rather than a machine-gun of effects.
 
+**Putting an effect in front of a rig.** Depth belongs to a *layer*, not to the
+individual cue. The moment a cinematic has one `fx:` cue, a **⚡ fx** row appears in
+the timeline among the rig rows — move it with **▲ / ▼** and every `fx:` cue draws at
+that depth. Bind a Scene and the same row becomes **🎬 set**, carrying the scene's
+sprites and text along with the effects.
+
+> **The preview can only show bands.** Every rig is drawn into one WebGL canvas and FX
+> into another, so the stage can put effects above or below the *whole* cast — never
+> sandwiched between two rigs. At an in-between depth the row says so; the game honours
+> the real per-actor depth either way.
+
 ### Undo, saving, and getting it into a game
 
 **↶ / ↷** plus Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y, with the action's name on the
