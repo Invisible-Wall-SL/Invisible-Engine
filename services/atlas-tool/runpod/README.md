@@ -105,21 +105,22 @@ to route it through R2 — `fetch-models.py` pulls it from Hugging Face straight
 volume instead (idempotent, and resumable via HTTP Range, which matters when a pod web
 terminal drops in the middle of a 35 GB file):
 
-Run it from the pod's web terminal. The script isn't on the volume, so get it there
-first — **the plain `curl` 404s because the repo is private**, so use one of the two
-methods in the box above (paste, or add a token):
+**`fetch-models.py` is BAKED into the pod image at `/fetch-models.py`** — nothing to
+download, no token, none of the private-repo problem above. It lives in the image's
+build context at `services/atlas-comfy-pod/tools/` (Docker `COPY` cannot escape the
+context, and duplicating it is how a vendored copy drifts). `--dest` defaults to the
+volume, so on a baked-image pod:
 
 ```bash
-curl -fsSL -H "Authorization: Bearer $GH_TOKEN" https://raw.githubusercontent.com/Invisible-Wall-SL/Invisible-Engine/main/services/atlas-tool/runpod/fetch-models.py -o /workspace/fetch-models.py
+python /fetch-models.py --list
 ```
 
 ```bash
-python /workspace/fetch-models.py --list
+python /fetch-models.py --set flux2-klein
 ```
 
-```bash
-python /workspace/fetch-models.py --set flux2-klein --dest /workspace/ComfyUI/models
-```
+> A pod predating this image won't have the file — rebuild the image and redeploy the
+> pod, or paste it in with method **A** above.
 
 FLUX.2 needs **no custom node** — it is native in ComfyUI core from the `v0.33.1` pin
 (`comfy/ldm/flux` plus the built-in `Flux.2 …` blueprints). Only the weights are missing.

@@ -111,6 +111,21 @@ RUN pip install --force-reinstall \
     "torch==${TORCH_REF}" "torchvision==${TORCHVISION_REF}" "torchaudio==${TORCHAUDIO_REF}" \
     --index-url https://download.pytorch.org/whl/cu128
 
+# --- Pod tools --------------------------------------------------------------------
+# BAKED so no pod ever has to fetch it. The runbook used to say `curl … from
+# raw.githubusercontent.com`, which silently 404s: this repo is PRIVATE and GitHub
+# answers 404 rather than 401 for those, so it reads as "file missing" (see
+# services/atlas-tool/runpod/README.md). Shipping the script in the image removes the
+# credential problem entirely — `python /fetch-models.py --list` just works.
+#
+# The file LIVES here (./tools/) rather than beside its siblings in
+# services/atlas-tool/runpod/ because Docker COPY cannot escape the build context. The
+# alternatives were duplicating it — the ComfyUI-PuLID-Flux compromise, which is exactly
+# how a vendored copy drifts — or moving the context to the repo root, which would ship
+# the whole monorepo to the builder on a job that already has to reclaim ~25 GB of disk.
+# One copy, in the image that consumes it.
+COPY tools/fetch-models.py /fetch-models.py
+
 # --- Entrypoint -------------------------------------------------------------------
 WORKDIR /
 COPY extra_model_paths.yaml /ComfyUI/extra_model_paths.yaml

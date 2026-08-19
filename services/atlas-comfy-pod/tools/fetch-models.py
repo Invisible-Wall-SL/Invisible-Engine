@@ -13,10 +13,14 @@ Idempotent + resumable: a file already on disk at the remote's size is skipped, 
 half-finished `.part` continues with an HTTP Range request (these are 4-35 GB files and
 a pod web terminal WILL drop before one finishes).
 
+BAKED into the R&D pod image at `/fetch-models.py`, so there is nothing to download
+first — the runbook's old `curl … raw.githubusercontent.com` silently 404s (private
+repo; GitHub answers 404, not 401). `--dest` already defaults to the volume.
+
 Usage (on the pod):
-    python fetch-models.py --list
-    python fetch-models.py --set flux2-klein --dest /workspace/ComfyUI/models
-    python fetch-models.py --set flux2-dev --dry-run
+    python /fetch-models.py --list
+    python /fetch-models.py --set flux2-klein
+    python /fetch-models.py --set flux2-dev --dry-run
 
 Env:
     HF_TOKEN  optional; only needed if a set's repo is gated (none are today).

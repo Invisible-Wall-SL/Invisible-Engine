@@ -164,9 +164,13 @@ bash /workspace/start-comfyui.sh
 Both are **native in ComfyUI core** from the `v0.33.1` pin (`comfy/ldm/flux` + the built-in `Flux.2 …` blueprints) — no custom node, so nothing to rebuild. Only the weights are missing, and they come from Hugging Face straight onto the Network Volume (not via R2 — no reason to pay two transfers for a public set):
 
 ```
-python fetch-models.py --list
-python fetch-models.py --set flux2-klein --dest /workspace/ComfyUI/models
+python /fetch-models.py --list
+python /fetch-models.py --set flux2-klein
 ```
+
+The script is **baked into the pod image** at `/fetch-models.py` (a pod older than that
+image won't have it — rebuild + redeploy, or paste it in). `--dest` defaults to the
+volume.
 
 - **`flux2-klein`** (12.5 GB, **apache-2.0**) — start here. The only FLUX.2 variant that is both licence-clean enough to ever ship in a game (unlike FLUX.1-dev/PuLID, which stay R&D-only) and small enough to run without CPU offload on the fleet's cards.
 - **`flux2-dev`** (53.8 GB, **non-commercial**) — quality comparison only. Its ~35 GB of diffusion weights exceed the biggest card we have (32 GB RTX PRO 4500), so ComfyUI falls back to CPU offload and it is slow. **Check the volume has ~54 GB spare first** — it was sized for SDXL/FLUX.1.
