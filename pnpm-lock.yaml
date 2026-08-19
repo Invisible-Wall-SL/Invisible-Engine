@@ -1543,24 +1543,30 @@ importers:
 
   packages/eslint-config-custom:
     dependencies:
+      '@eslint/js':
+        specifier: 9.21.0
+        version: 9.21.0
       '@types/node':
-        specifier: latest
+        specifier: 26.2.0
         version: 26.2.0
       '@typescript-eslint/eslint-plugin':
-        specifier: latest
+        specifier: 8.67.0
         version: 8.67.0(@typescript-eslint/parser@8.67.0(eslint@9.30.1(jiti@1.21.7))(typescript@5.8.3))(eslint@9.30.1(jiti@1.21.7))(typescript@5.8.3)
       '@typescript-eslint/parser':
-        specifier: latest
+        specifier: 8.67.0
         version: 8.67.0(eslint@9.30.1(jiti@1.21.7))(typescript@5.8.3)
       eslint-config-prettier:
-        specifier: latest
+        specifier: 10.1.8
         version: 10.1.8(eslint@9.30.1(jiti@1.21.7))
       eslint-config-turbo:
-        specifier: latest
+        specifier: 2.10.10
         version: 2.10.10(eslint@9.30.1(jiti@1.21.7))(turbo@2.5.4)
       eslint-plugin-svelte:
-        specifier: latest
+        specifier: 3.23.0
         version: 3.23.0(eslint@9.30.1(jiti@1.21.7))(svelte@5.35.1)
+      globals:
+        specifier: 16.3.0
+        version: 16.3.0
 
   packages/game-config:
     devDependencies:
@@ -3169,12 +3175,6 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
-
-  '@eslint-community/eslint-utils@4.7.0':
-    resolution: {integrity: sha512-dyybb3AcajC7uha6CvhdVRJqaKyn7w2YKqKyAN37NKYgZT36w+iRb0Dymmc5qEJ549c/S31cMMSFd75bteCpCw==}
-    engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
-    peerDependencies:
-      eslint: ^6.0.0 || ^7.0.0 || >=8.0.0
 
   '@eslint-community/eslint-utils@4.9.1':
     resolution: {integrity: sha512-phrYmNiYppR7znFEdqgfWHXR6NCkZEK7hwWDHZUjit/2/U0r6XvkDl0SYnoM51Hq7FhCGdLDT6zxCCOY1hexsQ==}
@@ -6815,11 +6815,6 @@ snapshots:
   '@esbuild/win32-x64@0.25.5':
     optional: true
 
-  '@eslint-community/eslint-utils@4.7.0(eslint@9.30.1(jiti@1.21.7))':
-    dependencies:
-      eslint: 9.30.1(jiti@1.21.7)
-      eslint-visitor-keys: 3.4.3
-
   '@eslint-community/eslint-utils@4.9.1(eslint@9.21.0(jiti@1.21.7))':
     dependencies:
       eslint: 9.21.0(jiti@1.21.7)
@@ -8414,7 +8409,7 @@ snapshots:
 
   eslint-plugin-svelte@3.23.0(eslint@9.30.1(jiti@1.21.7))(svelte@5.35.1):
     dependencies:
-      '@eslint-community/eslint-utils': 4.7.0(eslint@9.30.1(jiti@1.21.7))
+      '@eslint-community/eslint-utils': 4.9.1(eslint@9.30.1(jiti@1.21.7))
       '@jridgewell/sourcemap-codec': 1.5.4
       eslint: 9.30.1(jiti@1.21.7)
       esutils: 2.0.3
@@ -8423,7 +8418,7 @@ snapshots:
       postcss: 8.5.6
       postcss-load-config: 3.1.4(postcss@8.5.6)
       postcss-safe-parser: 7.0.1(postcss@8.5.6)
-      semver: 7.7.2
+      semver: 7.8.1
       svelte-eslint-parser: 1.7.0(svelte@5.35.1)
     optionalDependencies:
       svelte: 5.35.1
