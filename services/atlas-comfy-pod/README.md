@@ -71,3 +71,18 @@ Package settings → Change visibility) so RunPod can pull it without credential
 
 Because everything Python is baked, a resume that recreates the container comes back
 fully working — no re-install runbook.
+
+## Pod tools baked into the image
+
+- **`/fetch-models.py`** (from `tools/fetch-models.py`) — pulls a named model set from
+  Hugging Face straight onto the Network Volume. Baked because the old runbook told you
+  to `curl` it from `raw.githubusercontent.com`, which **silently 404s**: this repo is
+  private and GitHub answers 404 rather than 401, so it reads as "file missing".
+
+  ```bash
+  python /fetch-models.py --list
+  python /fetch-models.py --set flux2-klein
+  ```
+
+  Sets, sizes and licences are in `services/atlas-tool/runpod/README.md` §3b. Models are
+  NOT baked — they live on the volume, so a new model never needs an image rebuild.
