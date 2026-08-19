@@ -191,6 +191,45 @@ export type ResolvedBetMode = {
  */
 export type Paylines = Record<string, number[]>;
 
+/**
+ * HOW a win is decided — the field that turns "game type" from an editor hint into something the
+ * config actually states. Phase C of `docs/design/game-type-templates.md`.
+ *
+ * DELIBERATELY SPARSE, and the `lines` arm deliberately carries no payline data. The doc's existing
+ * top-level `paylines`/`paylineColors` stay the storage for a lines game, so:
+ *   - every config authored before this field existed normalizes byte-identically (absent ⇒ lines),
+ *   - no migration rewrites a single stored doc, and
+ *   - {@link resolveWinModel} is the ONE place the "absent means lines" default is spelled out.
+ *
+ * This diverges from the design doc's first sketch, which had the `lines` arm own `paylines`.
+ * Moving them would have been a real migration of every authored doc in R2 for no gain.
+ */
+export type WinModel =
+	| { type: 'lines' }
+	| {
+			type: 'ways';
+			/** `ltr` pays left-to-right only; `both` also pays right-to-left. */
+			direction: 'ltr' | 'both';
+			/** Fewest adjacent reels that pay. */
+			minKind: number;
+	  }
+	| {
+			type: 'cluster';
+			/** Fewest connected cells that form a paying cluster. */
+			minCluster: number;
+			adjacency: 'orthogonal' | 'diagonal';
+	  }
+	| {
+			type: 'scatter';
+			/** Fewest matching symbols anywhere on the board that pay. */
+			minCount: number;
+	  };
+
+/** Every `WinModel` discriminant, for validation + the tool's picker. */
+export const WIN_MODEL_TYPES = ['lines', 'ways', 'cluster', 'scatter'] as const;
+
+export type WinModelType = (typeof WIN_MODEL_TYPES)[number];
+
 /** A win tier's celebration bracket. `big` tiers get the full-screen big-win presentation (a spine
  *  + count-up); `small`/`medium` present as a plain number. Mirrors the coded `winLevelMap` `type`. */
 export type WinTierType = 'small' | 'medium' | 'big';
@@ -261,6 +300,12 @@ export type GameConfigDoc = {
 	 */
 	betModePresentation?: BetModePresentationMap;
 	paylines: Paylines;
+	/**
+	 * OPTIONAL win model (see {@link WinModel}). An INVISIBLE-ENGINE extension; absent ⇒ `lines`,
+	 * which is what every config authored before Phase C means. Read it through
+	 * {@link resolveWinModel} rather than directly, so the default lives in one place.
+	 */
+	winModel?: WinModel;
 	/** The symbol DICTIONARY — art/properties/payouts. Not the in-play set. */
 	symbols: Record<string, GameConfigSymbol>;
 	paddingReels: PaddingReels;

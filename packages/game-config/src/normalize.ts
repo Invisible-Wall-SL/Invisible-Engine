@@ -38,6 +38,7 @@ import {
 	type WinTierSound,
 	type WinTierType,
 } from './types';
+import { normalizeWinModel } from './winModel';
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
 	typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -408,6 +409,11 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 
 	const paylineColors = normalizePaylineColors(raw.paylineColors, new Set(Object.keys(paylines)));
 	if (paylineColors) doc.paylineColors = paylineColors;
+
+	// Kept ONLY when it departs from the default (`normalizeWinModel` returns undefined for `lines`
+	// and for garbage), so a config authored before Phase C normalizes byte-identically.
+	const winModel = normalizeWinModel(raw.winModel);
+	if (winModel) doc.winModel = winModel;
 
 	// Win tiers + escalation flags are kept ONLY when tiers are authored, so an un-authored config
 	// omits all three and stays byte-identical to a Stake export (the coded `winLevelMap` fallback).
