@@ -478,9 +478,10 @@ The timeline is an NLE-style sequencer sharing the panel the dopesheet uses:
 
 ### Animate an override (the whole recipe)
 
-To make one actor do something *on top of* what it is already doing — a wave during
-a walk, a head turn during an idle — you stack a second layer and animate into it.
-All of it happens inside 🎬 Cinematic:
+To make one actor do something *on top of* what it is already doing, you stack a
+second layer and animate into it. The worked example: a **walk looping for 15s**, and
+at **8s** the character **missteps for two seconds** as if it clipped a rock, then
+walks on. All of it happens inside 🎬 Cinematic:
 
 1. **⧉** on the actor's track row adds a **layer** above it. Layers blend bottom-up.
 2. **＋** on the new layer's row adds a **strip** at the playhead.
@@ -490,6 +491,27 @@ All of it happens inside 🎬 Cinematic:
 4. Pose bones and **◆ Key** them, exactly as in ◆ Animate. Scrub with the transport —
    the playhead is cinematic time, mapped through the strip.
 5. **💾 Save rig** in the tweak bar, then **✔ Done**.
+
+For the misstep that means: the walk strip on layer 0 with **loop to fill** across the
+whole 15s; a 2-second strip on layer 1 starting at 8s; **blend in / blend out** of
+about 0.3s on it so the stumble eases into the walk and back out; then key the legs
+inside it.
+
+> **You author it against the walk, not against a T-pose.** While you tweak a strip,
+> the layers *below* it keep playing underneath — scrub and the character walks under
+> your hands, so you can key the misstep onto the stride it actually interrupts.
+
+**replace or additive?** The strip inspector's **mode** decides how your keys meet the
+walk:
+
+- **replace** — your keys *are* the pose for the bones you keyed. Use it when the
+  misstep is a specific leg position you want exactly.
+- **additive** — your keys are an *offset added to the walk*, so the legs keep
+  striding and get displaced. Use it for a nudge, a stumble, a recoil. The animator
+  previews it the same way the game plays it: walk + your offset.
+
+Bones you never key are untouched either way, so the rest of the body keeps walking
+with no mask needed.
 
 > **The clip lives on the RIG, not on the cinematic.** That is why the tweak bar has
 > its own **💾 Save rig** and shows **unsaved** — saving the *cinematic* does not save

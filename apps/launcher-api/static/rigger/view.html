@@ -1024,6 +1024,13 @@ function cinematicBridge(){
       renderAnimSection();
       return nm;
     },
+    /**
+     * The rig editor's OWN `SkeletonData`. The tweak underlay applies the lower layers' clips to the
+     * editor's skeleton, so the timelines must come from the same parse — a timeline addresses bones
+     * and slots by INDEX, and the actor's copy can be a stale parse of a rig whose bones have since
+     * moved.
+     */
+    rigSkeletonData: () => skeletonData,
     /** The bone the author has selected on the canvas — the mask picker's "this one" button. */
     selectedBoneName: () => (selBone != null && skeletonData && skeletonData.bones[selBone] ? skeletonData.bones[selBone].name : null),
     /**
@@ -1110,10 +1117,6 @@ async function openRigForTweak(entry){
   if (dirty && !window.confirm("The open rig has unsaved changes.\n\nTweaking “" + (entry.name || "") + "” opens a different rig and discards them. Continue?"))
     return "cancelled — the open rig still has unsaved changes";
   await selectSkeleton(entry);
-  // Opening a rig runs `buildSkeleton`, which RESETS the mode to preview — so the tool has just
-  // dropped out of cinematic mode, and tweaking would begin with the sequencer no longer drawing
-  // (its frame hook only runs while `cineMode`). Put it back before the caller enters the tweak.
-  if (mode !== "cinematic") setMode("cinematic");
   return rawDoc ? null : "could not open that rig";
 }
 
@@ -1122,6 +1125,13 @@ function beginTweak(info){
   if (!rawDoc || !skeleton) return "no rig is open";
   if (!info || !info.clip) return "that strip has no clip to tweak";
   if (!animHasName(info.clip)) return "“" + info.clip + "” is not an animation in this rig";
+  // TWEAK MODE IS A STATE INSIDE CINEMATIC MODE, and the invariant is asserted HERE — at the one
+  // place that turns tweaking on — rather than at each call site. `frame()` only delegates to the
+  // sequencer while `cineMode`, so entering a tweak with the mode knocked out gives a frozen stage,
+  // no clock, and no underlay, while every flag says tweaking is on. Plenty knocks it out: opening a
+  // rig runs `buildSkeleton` → `setMode("preview")`, and a late `restoreRiggerState` can re-select
+  // the rig after the author has already switched to 🎬 Cinematic.
+  if (mode !== "cinematic") setMode("cinematic");
   tweak = { actorId: info.actorId, clip: info.clip, label: info.label || "", stripId: info.stripId, place: null };
   tweakMode = true;
   animMode = true; // every keying/posing guard in this file reads animMode — this IS the animator
@@ -1256,12 +1266,22 @@ function tweakRootRotOffset(bone){
   return bone === skeleton.bones[0] ? tweak.place.rotation : 0;
 }
 
-/** Hook 1 — pose the tweaked rig at the strip's clip-local time. */
-function tweakPose(localTime, place, delta){
+/**
+ * Hook 1 — pose the tweaked rig at the strip's clip-local time, ON TOP OF THE LAYERS BELOW IT.
+ *
+ * `underlay` poses the skeleton from this actor's lower layers first (it does its own
+ * `setToSetupPose`); the tweaked clip then lands on top exactly as the sequencer will land it.
+ * Without it you author an override against the SETUP POSE — a stumble keyed onto a T-pose rather
+ * than onto the walk it is meant to interrupt, which is the whole point of a layered override.
+ *
+ * `additive` mirrors the strip's own blend mode, so an additive override previews as an OFFSET on
+ * the base instead of replacing it.
+ */
+function tweakPose(localTime, place, delta, underlay, additive){
   if (!tweakMode || !skeleton) return;
   animTime = Math.max(0, localTime || 0);
-  skeleton.setToSetupPose();
-  if (curAnim) poseAtTime(curAnim, animTime);
+  if (underlay) underlay(skeleton); else skeleton.setToSetupPose();
+  if (curAnim) poseAtTime(curAnim, animTime, additive);
   // BEFORE the posing override, not after: `posingBone` was captured from a bone that already
   // carried the placement rotation, so adding it again here would double-count the drag.
   applyTweakPlace(place);
@@ -7895,15 +7915,28 @@ function sampleChannel(keys, t, fields){
 // Pose the live skeleton from animation `name` at time t (over the setup pose). Mirrors
 // the runtime: rotate/translate are offsets from setup, scale is a multiplier. (Verified
 // against spine-core in tools/rigger-spike/anim.mjs.)
-function poseAtTime(name, t){
+// `additive` reproduces spine's MixBlend.add: rotate/translate/shear ADD their offset to whatever
+// is already posed, and scale adds its delta from setup — so an additive strip previews on top of
+// the base pose instead of replacing it. Default (false) is the ordinary replace form, byte-identical
+// to before: every existing caller omits the argument.
+function poseAtTime(name, t, additive){
   const a = animOf(name); if (!a) return;
   if (a.bones) for (const [bn, ch] of Object.entries(a.bones)){
     const bone = skeleton.findBone(bn); if (!bone) continue; const bd = bone.data;
     let k;
-    if (ch.rotate && (k = sampleChannel(ch.rotate, t, ["value"]))) bone.rotation = bd.rotation + (k.value || 0);
-    if (ch.translate && (k = sampleChannel(ch.translate, t, ["x", "y"]))){ bone.x = bd.x + (k.x || 0); bone.y = bd.y + (k.y || 0); }
-    if (ch.scale && (k = sampleChannel(ch.scale, t, ["x", "y"]))){ bone.scaleX = bd.scaleX * (k.x ?? 1); bone.scaleY = bd.scaleY * (k.y ?? 1); }
-    if (ch.shear && (k = sampleChannel(ch.shear, t, ["x", "y"]))){ bone.shearX = bd.shearX + (k.x || 0); bone.shearY = bd.shearY + (k.y || 0); }
+    if (ch.rotate && (k = sampleChannel(ch.rotate, t, ["value"]))) bone.rotation = additive ? bone.rotation + (k.value || 0) : bd.rotation + (k.value || 0);
+    if (ch.translate && (k = sampleChannel(ch.translate, t, ["x", "y"]))){
+      if (additive){ bone.x += (k.x || 0); bone.y += (k.y || 0); }
+      else { bone.x = bd.x + (k.x || 0); bone.y = bd.y + (k.y || 0); }
+    }
+    if (ch.scale && (k = sampleChannel(ch.scale, t, ["x", "y"]))){
+      if (additive){ bone.scaleX += bd.scaleX * ((k.x ?? 1) - 1); bone.scaleY += bd.scaleY * ((k.y ?? 1) - 1); }
+      else { bone.scaleX = bd.scaleX * (k.x ?? 1); bone.scaleY = bd.scaleY * (k.y ?? 1); }
+    }
+    if (ch.shear && (k = sampleChannel(ch.shear, t, ["x", "y"]))){
+      if (additive){ bone.shearX += (k.x || 0); bone.shearY += (k.y || 0); }
+      else { bone.shearX = bd.shearX + (k.x || 0); bone.shearY = bd.shearY + (k.y || 0); }
+    }
   }
   // slot channels (5.4): attachment swap (stepped) + rgba colour
   if (a.slots){

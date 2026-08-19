@@ -626,7 +626,7 @@ window.RiggerCinematic = (function () {
 		// `evaluate` (which skips this actor) and before anything is drawn, so an in-progress edit is
 		// what the stage shows, with no re-parse per frame.
 		const tw = tweak ? tweakSample() : null;
-		if (tw) ctx.tweakPose(tw.local, tw.place, delta);
+		if (tw) ctx.tweakPose(tw.local, tw.place, delta, tw.underlay, tw.additive);
 
 		const renderer = ctx.renderer();
 		if (!renderer) return;
@@ -663,11 +663,41 @@ window.RiggerCinematic = (function () {
 		const found = stripById(tweak.stripId);
 		const cast = castOf(tweak.actorId);
 		const place = cast ? EV.resolvePlace(cast.place, propertyTracksOf(tweak.actorId), time) : null;
-		if (!found) return { local: 0, place, outside: true };
+		if (!found) return { local: 0, place, outside: true, underlay: null, additive: false };
 		const strip = found.strip;
 		const outside = time < strip.start - 1e-6 || time > strip.start + strip.length + 1e-6;
 		const r = EV.clipLocalTime(strip, time, tweakClipDur());
-		return { local: r ? r.local : strip.clipIn || 0, place, outside };
+		return {
+			local: r ? r.local : strip.clipIn || 0,
+			place,
+			outside,
+			underlay: tweakUnderlay(found.track),
+			additive: strip.blend === 'add',
+		};
+	}
+
+	/**
+	 * Pose the layers BELOW the tweaked strip onto the editor's skeleton, so an override is authored
+	 * against the animation it overrides — the walk under the stumble — instead of against the setup
+	 * pose. Returns null when there is nothing underneath, and the animator falls back to the setup
+	 * pose exactly as before.
+	 *
+	 * Strictly LOWER layers: the tweaked strip is the thing being authored, and a sibling strip on the
+	 * same layer is an alternative at that depth, not a base for it.
+	 *
+	 * The clips are resolved from the RIG EDITOR's `SkeletonData`, not the actor's: a spine timeline
+	 * addresses bones by index, and these are applied to the editor's skeleton, so both have to come
+	 * out of the same parse.
+	 */
+	function tweakUnderlay(track) {
+		if (!EV || !ctx.rigSkeletonData) return null;
+		const sd = ctx.rigSkeletonData();
+		if (!sd) return null;
+		const layer = track.layer || 0;
+		const lower = tracksOf(tweak.actorId).filter((t) => t.kind === 'animation' && (t.layer || 0) < layer);
+		if (!lower.length) return null;
+		const resolve = (strip) => (strip.clip && strip.clip.src === 'rig' ? sd.findAnimation(strip.clip.name) : null);
+		return (sk) => EV.evaluateActor(ctx.SPINE, { skeleton: sk, skeletonData: sd, tracks: lower }, time, resolve);
 	}
 
 	/**
