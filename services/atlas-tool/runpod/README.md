@@ -38,13 +38,14 @@ RunPod → Pods → Deploy, attach the Network Volume from step 1 (mounts at
 - **Template:** any recent `runpod/pytorch` CUDA 12.x image.
 - **Expose HTTP port `8188`.** RunPod gives you a proxy URL
   `https://<podId>-8188.proxy.runpod.net` — that becomes `COMFY_URL`.
-- **Also expose `8188` as a TCP port.** Optional but strongly recommended: the proxy
-  **403s any clicked link** from another site (see `docs/INFRA.md`), and it drops
-  ComfyUI's `/ws` progress socket on long renders. A TCP port gives a direct
-  `http://<ip>:<port>` that has neither problem, and the launcher's `/comfyui` card
-  links to it automatically when RunPod publishes it. RunPod assigns the external
-  port at each start, so it changes every time — which is why the card reads it live
-  rather than storing it.
+- **Also expose `8188` as a TCP port — REQUIRED, not optional.** The proxy **403s any
+  clicked link** from another site (see `docs/INFRA.md`), so **a pod without a TCP port
+  cannot be opened from the launcher at all** — the `/comfyui` card marks it
+  *⚠ not reachable* and tells you to fix it. The TCP port gives a direct
+  `http://<ip>:<port>` that skips the proxy, and the card links to it automatically.
+  It also stops the proxy dropping ComfyUI's `/ws` progress socket on long renders.
+  RunPod assigns the external port at each start, so it changes every time — which is
+  why the card reads it live rather than storing it.
 
 > ### ⚠ `raw.githubusercontent.com` 404s — THIS REPO IS PRIVATE
 > Every `curl … raw.githubusercontent.com/Invisible-Wall-SL/Invisible-Engine/…` below
