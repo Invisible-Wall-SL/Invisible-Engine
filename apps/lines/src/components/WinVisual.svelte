@@ -11,7 +11,7 @@
 	import { formatWinText } from 'engine-layout';
 
 	import { getContext } from '../game/context';
-	import { SYMBOL_SIZE } from '../game/constants';
+	import { SYMBOL_SIZE } from 'engine-game';
 	import { activeWinLevelChain } from '../game/gameConfig';
 	import type { WinLevelData } from 'engine-game';
 	import { WinAnimation, type WinAnimationStep } from 'engine-game';

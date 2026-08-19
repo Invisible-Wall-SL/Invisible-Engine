@@ -17,9 +17,8 @@ import {
 	SPIN_OPTIONS_DEFAULT,
 	SPIN_OPTIONS_FAST,
 	INITIAL_SYMBOL_STATE,
-	SCATTER_LAND_SOUND_MAP,
-	STACKED_PICTURE,
-} from './constants';
+} from 'engine-game';
+import { SCATTER_LAND_SOUND_MAP, STACKED_PICTURE } from './constants';
 import { boardDimensions, boardSizes, initialBoard } from './gameConfig';
 
 const onSymbolLand = ({ rawSymbol }: { rawSymbol: RawSymbol }) => {

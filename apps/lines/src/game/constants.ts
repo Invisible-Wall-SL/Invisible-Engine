@@ -1,60 +1,15 @@
-import type { SymbolState } from './types';
+// This game's SYMBOL + ART content: the sprite/spine bindings, the stacked-picture map and the
+// scatter-land sounds. The engine's shared feel knobs (SYMBOL_SIZE, REEL_PADDING, spin options, …)
+// moved to `engine-game` in Phase A3.5 of docs/design/game-type-templates.md — import those from
+// there, not from here.
+//
+// This module has NO imports, and must keep it that way. `publish-symbol-defaults.mjs` imports it
+// STANDALONE under Node type-stripping to read `SYMBOL_INFO_MAP`; a value import of `engine-game`
+// would pull the package barrel (and its `.svelte` components, which type-stripping cannot parse)
+// into that graph and the publish would bail. The reel strips and board grid live in `./gameConfig`
+// for the same reason.
 
-// The reel strips moved to `paddingReels()` in `./gameConfig` — deliberately NOT re-exported from
-// here. `constants.ts` must stay import-light: the build-time `publish-symbol-defaults.mjs` imports
-// this module standalone to read `SYMBOL_INFO_MAP`, and pulling in `gameConfig` → `editor-scenes`
-// would drag the whole engine graph (`state-shared`, …) into that import and the publish would bail.
-// Consumers import the strips straight from `./gameConfig`.
-
-export const SYMBOL_SIZE = 120;
-
-/**
- * Fraction of the cell a SPINE (animated) symbol fills — sprite symbols are fine at full
- * contain, but a spine character (badge + figure) reads visually bigger, so we contain its
- * bounds to `SYMBOL_SIZE × this` to bring it down to match the sprite icons. Spine-only:
- * sprites are untouched. Tune to taste (1 = same as sprites). See
- * `feedback_symbols_size_from_art_no_param`.
- */
-export const SYMBOL_SPINE_FILL = 0.5;
-
-export const REEL_PADDING = 0.53;
-
-/**
- * The tint applied to a NON-winning symbol while the win-celebration dim is on (Invisible Symbols
- * State Machine → `winCycle.dimNonWinning`). A Pixi v8 `Container.tint` multiplies down to every
- * child (sprite / spine / flipbook alike), so `0x666666` darkens a losing symbol to ~40% brightness
- * — dark enough to recede behind the lit paying line, bright enough to stay legible. `0xffffff` (the
- * default tint) is the untouched, full-bright symbol.
- */
-export const SYMBOL_DIM_TINT = 0x666666;
-
-// The board GRID (dimensions, pixel size, pre-spin fill) moved to `boardDimensions()` /
-// `boardSizes()` / `initialBoard()` in `./gameConfig` — they derive from the active game config
-// (Invisible Game Config's numReels/numRows), so authoring the grid resizes the board. Kept OUT
-// of this module for the same reason the strips are: `publish-symbol-defaults.mjs` imports
-// `constants.ts` standalone for SYMBOL_INFO_MAP, and a `gameConfig` import would drag the whole
-// engine graph into it.
-
-export const BACKGROUND_RATIO = 2039 / 1000;
-export const PORTRAIT_BACKGROUND_RATIO = 1242 / 2208;
-const PORTRAIT_RATIO = 800 / 1422;
-const LANDSCAPE_RATIO = 1600 / 900;
-const DESKTOP_RATIO = 1422 / 800;
-
-const DESKTOP_HEIGHT = 800;
-const LANDSCAPE_HEIGHT = 900;
-const PORTRAIT_HEIGHT = 1422;
-export const DESKTOP_MAIN_SIZES = { width: DESKTOP_HEIGHT * DESKTOP_RATIO, height: DESKTOP_HEIGHT };
-export const LANDSCAPE_MAIN_SIZES = {
-	width: LANDSCAPE_HEIGHT * LANDSCAPE_RATIO,
-	height: LANDSCAPE_HEIGHT,
-};
-export const PORTRAIT_MAIN_SIZES = {
-	width: PORTRAIT_HEIGHT * PORTRAIT_RATIO,
-	height: PORTRAIT_HEIGHT,
-};
-
-export const HIGH_SYMBOLS = ['H1', 'H2', 'H3', 'H4', 'H5'];
+const HIGH_SYMBOLS = ['H1', 'H2', 'H3', 'H4', 'H5'];
 
 /**
  * Stacked-picture reel mode (docs/design/stacked-picture-mode.md). A LINES-only visual: when a
@@ -74,50 +29,9 @@ export const STACKED_PICTURE = {
 	minRun: 2,
 };
 
-export const INITIAL_SYMBOL_STATE: SymbolState = 'static';
-
 const HIGH_SYMBOL_SIZE = 0.9;
 const LOW_SYMBOL_SIZE = 0.9;
 const SPECIAL_SYMBOL_SIZE = 1;
-
-const SPIN_OPTIONS_SHARED = {
-	reelBounceBackSpeed: 0.15,
-	reelSpinSpeedBeforeBounce: 4,
-	reelPaddingMultiplierNormal: 1.2,
-	reelPaddingMultiplierAnticipated: 10,
-	// Free-spin sequential-stop padding knob (higher = longer gap between reel stops). Only
-	// applies when the sequential-stop flag selects the `sequential` spinType, so the base game
-	// is unaffected.
-	reelPaddingMultiplierSequential: 4,
-	// Sequential-cascade spin speed (higher = faster reels, which also shortens the gap between
-	// stops for a given `reelPaddingMultiplierSequential`). Matches `reelSpinSpeed` by default.
-	reelSpinSpeedSequential: 3,
-	reelSpinDelay: 145,
-};
-
-export const SPIN_OPTIONS_DEFAULT = {
-	...SPIN_OPTIONS_SHARED,
-	reelPreSpinSpeed: 2,
-	reelSpinSpeed: 3,
-	reelBounceSizeMulti: 0.3,
-};
-
-export const SPIN_OPTIONS_FAST = {
-	...SPIN_OPTIONS_SHARED,
-	reelPreSpinSpeed: 5,
-	reelSpinSpeed: 5,
-	reelBounceSizeMulti: 0.05,
-};
-
-export const MOTION_BLUR_VELOCITY = 31;
-
-export const zIndexes = {
-	background: {
-		backdrop: -3,
-		normal: -2,
-		feature: -1,
-	},
-};
 
 const explosion = {
 	type: 'spine',

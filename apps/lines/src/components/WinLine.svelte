@@ -32,7 +32,7 @@
 
 	import { getContext } from '../game/context';
 	import { BoardContainer } from 'engine-game';
-	import { SYMBOL_SIZE } from '../game/constants';
+	import { SYMBOL_SIZE } from 'engine-game';
 	import { boardDimensions } from '../game/gameConfig';
 	import { bakedWinLineConfig } from '../editor-scenes';
 

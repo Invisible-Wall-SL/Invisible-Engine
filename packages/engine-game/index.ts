@@ -30,6 +30,15 @@ export {
 	type WinLevelAlias,
 } from './src/game/winLevelMap';
 
+export {
+	SYMBOL_SIZE,
+	SYMBOL_SPINE_FILL,
+	REEL_PADDING,
+	SYMBOL_DIM_TINT,
+	INITIAL_SYMBOL_STATE,
+	SPIN_OPTIONS_DEFAULT,
+	SPIN_OPTIONS_FAST,
+} from './src/game/constants';
 export { createGameContext, getGameContext, type GameContext } from './src/game/context';
 export { resolveWinMount, type WinMount } from './src/game/winOwnership';
 export {

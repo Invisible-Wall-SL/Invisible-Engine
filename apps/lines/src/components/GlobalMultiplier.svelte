@@ -22,7 +22,7 @@
 
 	import { BoardContainer } from 'engine-game';
 	import { getContext } from '../game/context';
-	import { SYMBOL_SIZE } from '../game/constants';
+	import { SYMBOL_SIZE } from 'engine-game';
 
 	type AnimationName = 'static' | 'win' | 'reset' | 'increment';
 
