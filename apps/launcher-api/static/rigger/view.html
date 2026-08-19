@@ -67,6 +67,8 @@
   .cineActorHead b { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .cineActorHead button { padding:0 5px; font-size:11px; opacity:.6; }
   .cineActorHead button:hover { opacity:1; }
+  .cineActorHead .cinePose.on { opacity:1; color:var(--accent); background:var(--panel2);
+    border-radius:4px; box-shadow:0 0 0 1px var(--accent); }
   .cineZ { color:var(--dim); font-size:10px; }
   .cinePlace { display:flex; flex-wrap:wrap; gap:4px 8px; margin-top:5px; color:var(--dim); font-size:11px; }
   .cinePlace label { display:flex; align-items:center; gap:3px; }
@@ -787,6 +789,11 @@ let cineMode = false; // cinematic mode owns the whole stage (see /rigger/cinema
 // carries the two things the animator cannot know: whose clip this is, and the stage placement to
 // draw it at. See `beginTweak` for the guards.
 let tweakMode = false, tweak = null;
+// INLINE POSING: the same tweak machinery with NO chrome swap — the cinematic timeline and cast
+// panel stay put and you pose bones on the stage, keying an override on top of whatever is playing.
+// It is the same state because it needs the same three things (a rig open, the layers below posed
+// underneath, the animator's keying paths); only the surface differs.
+let tweakInline = false;
 let animClipboard = null; // in-session animation copy/paste: { name, animation } (memory only)
 let tlDur = 1, tlGutter = 96; // dopesheet (5.2): geometry
 let tlPxPerSec = null, tlPps = 1, tlScrub = false; // timeline zoom (null = fit) + scrub-drag
@@ -1123,8 +1130,11 @@ async function openRigForTweak(entry){
 /** Enter tweak mode on an already-open rig. `info` = { actorId, clip, label, stripId }. */
 function beginTweak(info){
   if (!rawDoc || !skeleton) return "no rig is open";
-  if (!info || !info.clip) return "that strip has no clip to tweak";
-  if (!animHasName(info.clip)) return "“" + info.clip + "” is not an animation in this rig";
+  // Inline posing starts with NO clip — the override is created by the first key (see
+  // `ensureCurAnim`), because asking an author to name a clip before they have posed anything is
+  // exactly the ceremony this mode exists to remove.
+  if (!info || (!info.clip && !info.inline)) return "that strip has no clip to tweak";
+  if (info.clip && !animHasName(info.clip)) return "“" + info.clip + "” is not an animation in this rig";
   // TWEAK MODE IS A STATE INSIDE CINEMATIC MODE, and the invariant is asserted HERE — at the one
   // place that turns tweaking on — rather than at each call site. `frame()` only delegates to the
   // sequencer while `cineMode`, so entering a tweak with the mode knocked out gives a frozen stage,
@@ -1134,19 +1144,34 @@ function beginTweak(info){
   if (mode !== "cinematic") setMode("cinematic");
   tweak = { actorId: info.actorId, clip: info.clip, label: info.label || "", stripId: info.stripId, place: null };
   tweakMode = true;
+  tweakInline = !!info.inline;
   animMode = true; // every keying/posing guard in this file reads animMode — this IS the animator
   playing = false; $("#play").textContent = "▶ Play";
-  curAnim = info.clip;
+  curAnim = info.clip || null;
   fxClearPreview();
   tlPxPerSec = null; graphSel = []; dopeSel = []; selEvent = null;
-  applyTweakChrome(true);
+  if (tweakInline) applyInlineChrome(true); else applyTweakChrome(true);
   ensureFxOverlay(); // the rig's own event-driven FX preview, same as animate mode
-  renderTweakBar();
+  if (!tweakInline) renderTweakBar();
   renderAnimSection();
   renderEventDetail();
   renderTimeline();
-  $("#hint").textContent = "✎ tweak · pose a bone → ◆ Key · the rest of the stage plays around you · Esc = done";
+  $("#hint").textContent = tweakInline
+    ? "✎ posing on the stage · drag a bone to override what is playing · ◆ Key · Esc = stop"
+    : "✎ tweak · pose a bone → ◆ Key · the rest of the stage plays around you · Esc = done";
   return null;
+}
+
+/**
+ * Inline chrome: the cinematic KEEPS its timeline, its cast panel and its inspector. All that is
+ * added is what posing needs — the animate toolbar, the bone overlay toggles, the bone inspector,
+ * and ⤓/💾 because the override lands on the RIG and has to be saved like any other rig edit.
+ */
+function applyInlineChrome(on){
+  ["#grpRigFile", "#bonesBtn", "#meshBtn", "#boundsBtn"].forEach((sel) => { const el = $(sel); if (el) el.style.display = on ? "" : "none"; });
+  $("#animTools").style.display = on ? "flex" : "none";
+  { const el = $("#boneDetail"); if (el) el.style.display = on ? "" : "none"; }
+  if (!on){ const bm = $("#bonemark"); if (bm) bm.style.display = "none"; }
 }
 
 /**
@@ -1156,7 +1181,8 @@ function beginTweak(info){
  */
 function endTweak(){
   if (!tweakMode) return null;
-  tweakMode = false; animMode = false; tweak = null;
+  const wasInline = tweakInline;
+  tweakMode = false; tweakInline = false; animMode = false; tweak = null;
   if (skeleton){
     skeleton.x = 0; skeleton.y = 0; skeleton.scaleX = 1; skeleton.scaleY = 1;
     if (skeleton.color) skeleton.color.a = 1;
@@ -1168,7 +1194,7 @@ function endTweak(){
     } catch (e){ console.warn("[Tweak] re-parse failed", e); }
   }
   fxClearPreview();
-  applyTweakChrome(false);
+  if (wasInline) applyInlineChrome(false); else applyTweakChrome(false);
   $("#hint").textContent = "cinematic · cast rigs at the left · place them · scrub or play the whole stage";
   return skeletonData || null;
 }
@@ -1324,6 +1350,7 @@ function tweakOverlays(){
 function tweakAfter(cineTime, outside){
   if (!tweakMode) return;
   updateBoneMarker();
+  if (tweakInline) return; // the cinematic owns its own playhead and readouts
   positionPlayhead();
   const tn = $("#timeNum"); if (tn && document.activeElement !== tn) tn.value = roundN(animTime, 3);
   syncTweakBar(cineTime, outside);
@@ -8057,6 +8084,15 @@ function upsertKey(arr, time, fields){
 function ensureCurAnim(){
   if (!rawDoc) return null;
   if (curAnim && animHasName(curAnim)) return curAnim;
+  // INLINE POSING — this is where an override is born. Every keying path in this file funnels
+  // through here, so hooking it means dragging a bone, ◆ Key, ◆ Key all and the numeric fields all
+  // create the override the same way: a layer above, a strip at the playhead, and a clip to hold it.
+  // The author never names a clip or adds a strip; they pose, and the sequence grows to fit.
+  if (tweakInline && window.RiggerCinematic){
+    const made = window.RiggerCinematic.ensureOverrideClip();
+    if (made){ curAnim = made; refreshAnimSelect(); renderAnimSection(); return curAnim; }
+    return null;
+  }
   rawDoc.animations = rawDoc.animations || {};
   let nm = firstAnimName();
   if (!nm){ nm = uniqueAnimName("animation"); rawDoc.animations[nm] = { bones: {} }; }
@@ -9181,8 +9217,9 @@ function renderTimeline(){
   const tl = $("#timeline"); if (!tl) return;
   // Cinematic mode borrows the same strip of screen for its OWN timeline (tracks + strips).
   // Only one of the two is ever built, so they never fight over the element.
-  // Tweaking a strip is the animator, so it gets the DOPESHEET — that is what you key in.
-  if (cineMode && !tweakMode){
+  // Tweaking a strip is the animator, so it gets the DOPESHEET — that is what you key in. Inline
+  // posing is the opposite: you never leave the sequencer, so the strip timeline stays.
+  if (cineMode && (!tweakMode || tweakInline)){
     tl.style.display = "block";
     if (window.RiggerCinematic) window.RiggerCinematic.renderTimeline();
     return;
@@ -10177,6 +10214,9 @@ function syncPlayhead(){
   // NOT call this in tweak mode (it drives the readouts itself), which is what keeps the two from
   // fighting: this function means "the author moved the playhead", nothing else.
   if (tweakMode){
+    // Inline posing has no dopesheet: the cinematic ruler IS the playhead, and mapping a clip-local
+    // seek back would fight it.
+    if (tweakInline) return;
     if (window.RiggerCinematic) window.RiggerCinematic.seekFromLocal(animTime);
     positionPlayhead();
     const tn2 = $("#timeNum"); if (tn2 && document.activeElement !== tn2) tn2.value = roundN(animTime, 3);
@@ -10781,7 +10821,7 @@ function wire(){
     e.preventDefault();
     // Cinematic owns this element in its mode — zoom ITS timeline, not the dopesheet's (whose
     // tlPxPerSec would be the wrong variable and would rebuild the wrong view).
-    if (cineMode && !tweakMode){ if (window.RiggerCinematic) window.RiggerCinematic.zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15); return; }
+    if (cineMode && (!tweakMode || tweakInline)){ if (window.RiggerCinematic) window.RiggerCinematic.zoom(e.deltaY < 0 ? 1.15 : 1 / 1.15); return; }
     tlZoom(e.deltaY < 0 ? 1.15 : 1 / 1.15);
   }, { passive: false });
   window.addEventListener("mouseup", () => {

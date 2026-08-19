@@ -476,12 +476,40 @@ The timeline is an NLE-style sequencer sharing the panel the dopesheet uses:
   in/out, alpha, and replace-vs-additive. Blend ramps are drawn inside the strip
   and additive strips are tinted, so the stack reads at a glance.
 
-### Animate an override (the whole recipe)
+### Animate an override — pose it straight on the stage
 
-To make one actor do something *on top of* what it is already doing, you stack a
-second layer and animate into it. The worked example: a **walk looping for 15s**, and
-at **8s** the character **missteps for two seconds** as if it clipped a rock, then
-walks on. All of it happens inside 🎬 Cinematic:
+The short version: **press ✎ on the actor, scrub to the moment, drag a bone.** That is
+the whole thing. Worked example — a **walk looping for 15s**, and at **8s** the
+character **missteps for two seconds** as if it clipped a rock:
+
+1. **✎** on the actor's row in the cast panel. Its bones appear on the stage and the
+   animate toolbar (◆ Key) turns on. You have not left the cinematic: the timeline,
+   the cast panel and the playhead are all still there.
+2. Scrub to **8s**. The actor is posed by its walk, and keeps walking as you scrub.
+3. **Drag a bone.** That first key builds the whole override for you — a layer above
+   the walk, a 2-second strip starting at the playhead, and a clip on the rig to hold
+   it. The strip appears on the timeline, selected, ready to trim.
+4. Keep posing and keying. Everything you don't touch keeps walking.
+5. **💾 Save rig**, then **✎** again to stop.
+
+> **The override eases in and out by default**, and that is not decoration: a strip
+> holds its last frame forever, so an override with no blend-out would leave your
+> character limping for the rest of the shot. The auto-created strip gets short ramps
+> at both ends. Set them to 0 in the strip inspector for a hard cut.
+
+**The clip lives on the RIG.** ✎ opens that actor's rig in the editor (asking first if
+another rig had unsaved changes), so the override is a rig animation like any other —
+save it with **💾 Save**, and it is reusable anywhere.
+
+**replace or additive?** The strip inspector's **mode** decides how your keys meet the
+walk. **replace** (the default) means your keys *are* the pose for the bones you keyed.
+**additive** means they are an *offset added to the walk*, so the legs keep striding
+and get displaced — usually what you want for a stumble or a recoil.
+
+### The longer route: author a clip in the animator
+
+The same override can be built strip-first, which is worth knowing when you want the
+dopesheet, curves or the graph editor rather than posing on the stage:
 
 1. **⧉** on the actor's track row adds a **layer** above it. Layers blend bottom-up.
 2. **＋** on the new layer's row adds a **strip** at the playhead.
