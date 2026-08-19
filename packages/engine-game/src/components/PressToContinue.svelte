@@ -6,7 +6,7 @@
 	import { stateUi, stateUrlDerived } from 'state-shared';
 	import { Sprite } from 'pixi-svelte';
 
-	import { getContext } from '../game/context';
+	import { getGameContext } from '../game/context';
 
 	type Props = {
 		onpress: () => void;
@@ -17,7 +17,7 @@
 	};
 
 	const props: Props = $props();
-	const context = getContext();
+	const context = getGameContext();
 
 	// Claim the press for as long as this overlay is up. The full-screen rect below already owns
 	// the POINTER (it covers the canvas), and this makes the KEYBOARD follow the same owner: the

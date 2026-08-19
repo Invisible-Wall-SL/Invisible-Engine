@@ -6,8 +6,8 @@
 	import type { WinLevelData } from 'engine-game';
 
 	import { getContext } from '../game/context';
-	import PressToContinue from './PressToContinue.svelte';
-	import WinCoins from './WinCoins.svelte';
+	import { PressToContinue } from 'engine-game';
+	import { WinCoins } from 'engine-game';
 	import OutroStatePublisher from './OutroStatePublisher.svelte';
 	import { freeSpinOutroState } from '../game/freeSpinOutroState.svelte';
 

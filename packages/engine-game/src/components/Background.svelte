@@ -15,11 +15,11 @@
 	import { SECOND } from 'constants-shared/time';
 	import { stateUi } from 'state-shared';
 
-	import { getContext } from '../game/context';
+	import { getGameContext } from '../game/context';
 
 	const { cover }: { cover?: BackgroundCover } = $props();
 
-	const context = getContext();
+	const context = getGameContext();
 
 	// The drifting `dust` smoke is ambient atmosphere. While a full-screen tap-to-continue overlay is
 	// up (`continuePressCount > 0` — a retrigger celebration, the intro/outro gates), it sits behind

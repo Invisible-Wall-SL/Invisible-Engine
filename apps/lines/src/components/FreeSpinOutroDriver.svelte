@@ -8,7 +8,7 @@
 	import { getContext } from '../game/context';
 	import { FREE_SPIN_STEPS } from '../game/freeSpinOwnership';
 	import { getFlowInterpreter } from '../game/flowInterpreterHolder';
-	import CountUpInteraction from './CountUpInteraction.svelte';
+	import { CountUpInteraction } from 'engine-game';
 	import OutroStatePublisher from './OutroStatePublisher.svelte';
 	import { freeSpinOutroState } from '../game/freeSpinOutroState.svelte';
 

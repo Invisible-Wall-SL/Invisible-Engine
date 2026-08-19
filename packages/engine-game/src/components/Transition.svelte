@@ -6,7 +6,7 @@
 	import { waitForResolve } from 'utils-shared/wait';
 
 	import TransitionAnimation from './TransitionAnimation.svelte';
-	import { getContext } from '../game/context';
+	import { getGameContext } from '../game/context';
 
 	// `boundToInstance` = mounted as the bound child of the `transition` componentInstance
 	// (§17): render the wipe at LOCAL origin so the instance node's transform places it.
@@ -14,7 +14,7 @@
 	// byte-identical to before the migration. Encoded on the def, so no per-game flag.
 	const { boundToInstance = false }: { boundToInstance?: boolean } = $props();
 
-	const context = getContext();
+	const context = getGameContext();
 
 	let transitioning = $state(false);
 	let oncomplete = $state(() => {});

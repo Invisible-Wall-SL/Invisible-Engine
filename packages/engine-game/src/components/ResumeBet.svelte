@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { stateBet } from 'state-shared';
-	import { getContext } from '../game/context';
+	import { getGameContext } from '../game/context';
 	import { onMount } from 'svelte';
 
-	const context = getContext();
+	const context = getGameContext();
 
 	onMount(() => {
 		if (stateBet.betToResume?.active && stateBet.betToResume.mode) {

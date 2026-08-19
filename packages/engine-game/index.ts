@@ -30,7 +30,7 @@ export {
 	type WinLevelAlias,
 } from './src/game/winLevelMap';
 
-export { createGameContext } from './src/game/context';
+export { createGameContext, getGameContext, type GameContext } from './src/game/context';
 export { resolveWinMount, type WinMount } from './src/game/winOwnership';
 export {
 	freeSpinsRemaining,
@@ -41,3 +41,20 @@ export { eventSignal } from './src/game/signalSource';
 export { boolSource } from './src/game/boolSource.svelte';
 export { textSource } from './src/game/textSource.svelte';
 export { valueSource } from './src/game/valueSource.svelte';
+
+export { default as Background, type BackgroundCover } from './src/components/Background.svelte';
+export { default as BoardContainer } from './src/components/BoardContainer.svelte';
+export { default as CountUpInteraction } from './src/components/CountUpInteraction.svelte';
+export { default as FreeSpinIntroGate } from './src/components/FreeSpinIntroGate.svelte';
+export { default as PressToContinue } from './src/components/PressToContinue.svelte';
+export { default as ResumeBet } from './src/components/ResumeBet.svelte';
+export {
+	default as Transition,
+	type EmitterEventTransition,
+} from './src/components/Transition.svelte';
+export { default as TransitionAnimation } from './src/components/TransitionAnimation.svelte';
+export {
+	default as WinAnimation,
+	type WinAnimationStep,
+} from './src/components/WinAnimation.svelte';
+export { default as WinCoins } from './src/components/WinCoins.svelte';

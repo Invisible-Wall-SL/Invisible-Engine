@@ -31,7 +31,7 @@
 	import { roundSkip } from 'utils-shared/skipToken';
 
 	import { getContext } from '../game/context';
-	import BoardContainer from './BoardContainer.svelte';
+	import { BoardContainer } from 'engine-game';
 	import { SYMBOL_SIZE } from '../game/constants';
 	import { boardDimensions } from '../game/gameConfig';
 	import { bakedWinLineConfig } from '../editor-scenes';

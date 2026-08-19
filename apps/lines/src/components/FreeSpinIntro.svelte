@@ -13,7 +13,7 @@
 	// `freeSpinIntroVisual` componentInstance as SEPARATE scene nodes instead (gated by
 	// `FREE_SPIN_OVERLAY_INSTANCES`, see editor-scenes). Both gate + visual subscribe to
 	// the `freeSpinIntro*` events independently, so behaviour is identical either way.
-	import FreeSpinIntroGate from './FreeSpinIntroGate.svelte';
+	import { FreeSpinIntroGate } from 'engine-game';
 	import FreeSpinIntroVisual from './FreeSpinIntroVisual.svelte';
 
 	const props: {

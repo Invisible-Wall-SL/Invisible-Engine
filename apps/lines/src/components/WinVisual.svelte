@@ -14,8 +14,8 @@
 	import { SYMBOL_SIZE } from '../game/constants';
 	import { activeWinLevelChain } from '../game/gameConfig';
 	import type { WinLevelData } from 'engine-game';
-	import WinAnimation, { type WinAnimationStep } from './WinAnimation.svelte';
-	import WinCoins from './WinCoins.svelte';
+	import { WinAnimation, type WinAnimationStep } from 'engine-game';
+	import { WinCoins } from 'engine-game';
 	import { winState } from '../game/winState.svelte';
 	import { bakedWinText } from '../editor-scenes';
 
