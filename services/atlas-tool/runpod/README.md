@@ -61,7 +61,7 @@ bash provision.sh
 Set your R2 creds in the pod's env before running (Pod → Edit → Environment):
 `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`.
 
-## 3b. Optional: fetch an upstream model set (FLUX.2)
+## 3b. Optional: fetch an upstream model set (FLUX.2 / Qwen-Image)
 
 `pull-models.py` mirrors **our** curated R2 set. For a big public set there's no reason
 to route it through R2 — `fetch-models.py` pulls it from Hugging Face straight onto the
@@ -84,15 +84,28 @@ FLUX.2 needs **no custom node** — it is native in ComfyUI core from the `v0.33
 | `flux2-klein` | 12.5 GB | **apache-2.0** (model + Qwen3 encoder) | Yes — comfortable on a 24 GB card |
 | `flux2-dev` | 53.8 GB | **non-commercial** (BFL FLUX.2 [dev]) | Not really — 35 GB of weights vs a 32 GB max card, so CPU offload |
 | `flux2-dev-turbo` | 2.8 GB | inherits dev's non-commercial terms | Add-on for `flux2-dev` |
+| `qwen-image` | 30.1 GB | **apache-2.0** (model + encoder + VAE) | Yes — loads in sequence, so peak VRAM ~20 GB |
+| `qwen-toon` | 0.6 GB | **apache-2.0** | Add-on for `qwen-image` |
 
 **Start with `flux2-klein`.** It is the only FLUX.2 variant that is both Apache-2.0 (so it
 could ever ship in a game, unlike FLUX.1-dev/PuLID which are R&D-only) and small enough to
 run without offload on the cards in the fleet. `flux2-dev` is for quality comparison only —
 check the Network Volume has ~54 GB spare first; it was sized for SDXL/FLUX.1.
 
-> One caveat the script also prints: the `flux2-vae` file both sets use is served from the
-> `Comfy-Org/flux2-dev` repo, which is licensed `other`, not apache-2.0. Confirm the VAE's
-> terms yourself before anything from klein ships commercially.
+**`qwen-image` is the base the cartoon-character pipeline sits on** (ComfyUI's built-in
+"Text to Image (Qwen-Image 2512)" blueprint), and `qwen-toon` is renderartist's Toon-Tacular
+style LoRA for it. Both Apache-2.0, so unlike the FLUX.1-dev/PuLID path they stay
+licence-clean end to end. Running `qwen-image` against a volume that already has those files
+is a no-op — the size check skips whatever is current.
+
+> **A LoRA binds to ONE base architecture.** `qwen-toon` declares
+> `base_model: Qwen/Qwen-Image-2512`, so it loads onto `qwen-image` and **not** onto FLUX.2
+> or FLUX.1 — the weights are shaped to Qwen-Image's layers. Likewise `flux2-dev-turbo` is
+> FLUX.2-only. Pairing a LoRA with the wrong base either errors on load or produces noise.
+
+> One caveat the script also prints: the `flux2-vae` file both FLUX.2 sets use is served from
+> the `Comfy-Org/flux2-dev` repo, which is licensed `other`, not apache-2.0. Confirm the
+> VAE's terms yourself before anything from klein ships commercially.
 
 ## 4. Start ComfyUI
 

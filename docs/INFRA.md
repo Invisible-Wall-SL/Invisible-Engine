@@ -128,8 +128,8 @@ bash /workspace/start-comfyui.sh
 ```
 (`start-comfyui.sh` lives on the Network Volume, mounted at `/workspace`, and `cd`s into `/workspace/ComfyUI` then launches `python main.py --listen 0.0.0.0 --port 8188`.) **Without this**, pressing **Start** from the `/comfyui` card boots the pod but ComfyUI never comes up — the proxy URL just hangs/502s. This is the single most important pod-config step.
 
-### FLUX.2 on an R&D pod
-FLUX.2 is **native in ComfyUI core** from the `v0.33.1` pin (`comfy/ldm/flux` + the built-in `Flux.2 …` blueprints) — no custom node, so nothing to rebuild. Only the weights are missing, and they come from Hugging Face straight onto the Network Volume (not via R2 — no reason to pay two transfers for a public set):
+### FLUX.2 / Qwen-Image on an R&D pod
+Both are **native in ComfyUI core** from the `v0.33.1` pin (`comfy/ldm/flux` + the built-in `Flux.2 …` blueprints) — no custom node, so nothing to rebuild. Only the weights are missing, and they come from Hugging Face straight onto the Network Volume (not via R2 — no reason to pay two transfers for a public set):
 
 ```
 py services/atlas-tool/runpod/fetch-models.py --list
@@ -140,7 +140,14 @@ py services/atlas-tool/runpod/fetch-models.py --set flux2-klein --dest /workspac
 - **`flux2-dev`** (53.8 GB, **non-commercial**) — quality comparison only. Its ~35 GB of diffusion weights exceed the biggest card we have (32 GB RTX PRO 4500), so ComfyUI falls back to CPU offload and it is slow. **Check the volume has ~54 GB spare first** — it was sized for SDXL/FLUX.1.
 - The shared `flux2-vae` file is served from the `Comfy-Org/flux2-dev` repo (licensed `other`, not apache-2.0), so confirm its terms before anything from klein ships commercially.
 
-The script is idempotent and resumes a partial download over HTTP Range — which matters, because a pod web terminal will drop before a 35 GB file finishes.
+- **`qwen-image`** (30.1 GB, **apache-2.0**) — the base the cartoon-character pipeline sits on (ComfyUI's built-in "Text to Image (Qwen-Image 2512)" blueprint). ~30 GB on disk but the encoder and diffusion model load in sequence, so peak VRAM is ~20 GB, inside a 24 GB card.
+- **`qwen-toon`** (0.6 GB, **apache-2.0**) — renderartist's Toon-Tacular style LoRA for Qwen-Image.
+
+**A LoRA binds to ONE base architecture.** `qwen-toon` declares `base_model: Qwen/Qwen-Image-2512`, so it loads onto `qwen-image` and **not** onto FLUX.2 or FLUX.1; `flux2-dev-turbo` is likewise FLUX.2-only. Pairing a LoRA with the wrong base either errors on load or produces noise. Qwen-Image + its LoRA are the only **fully** apache-2.0 image path we have — everything is licence-clean end to end, unlike FLUX.1-dev/PuLID.
+
+The script is idempotent and resumes a partial download over HTTP Range — which matters, because a pod web terminal will drop before a 35 GB file finishes. Re-running a set the volume already has is a no-op.
+
+**FLUX 3 is NOT available to fetch.** BFL announced it 2026-07-23 (multimodal: image/video/audio/action-prediction) but it is playground + API only — there is no `black-forest-labs/FLUX.3*` repo on Hugging Face and no `flux3` support in ComfyUI core. An open-weight **FLUX 3 [dev]** is confirmed in their launch plan with no date, no licence, and no parameter count published. Until weights land there is nothing for a pod to load; when they do, adding a set is a single `MODEL_SETS` entry in `fetch-models.py`.
 
 ### Pod software setup (LEGACY manual runbook — persists on the Network Volume)
 > **Legacy only.** These steps are already baked into `atlas-comfy-pod`. Use them only to repair a pre-baked-image pod, or to understand what the image encodes. On a baked-image pod they are unnecessary (and re-running `pip install torch` by hand won't survive a container recreate — that's the whole reason for the baked image).

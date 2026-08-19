@@ -114,6 +114,55 @@ MODEL_SETS: dict[str, dict] = {
 			},
 		],
 	},
+	"qwen-image": {
+		"title": "Qwen-Image 2512 (fp8)",
+		"license": "apache-2.0 — model, Qwen2.5-VL encoder and VAE alike",
+		"note": (
+			"The base the cartoon-character pipeline is built on. ~30 GB on disk, but the "
+			"encoder and the diffusion model load in sequence, so peak VRAM is ~20 GB — "
+			"inside a 24 GB card. Matches ComfyUI's built-in 'Text to Image (Qwen-Image "
+			"2512)' blueprint. Safe to run if the volume already has these: the size check "
+			"skips whatever is current."
+		),
+		"files": [
+			{
+				"dir": "diffusion_models",
+				"name": "qwen_image_2512_fp8_e4m3fn.safetensors",
+				"url": f"{HF}/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/diffusion_models/qwen_image_2512_fp8_e4m3fn.safetensors",
+				"size": 20_430_000_000,
+			},
+			{
+				"dir": "text_encoders",
+				"name": "qwen_2.5_vl_7b_fp8_scaled.safetensors",
+				"url": f"{HF}/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors",
+				"size": 9_380_000_000,
+			},
+			{
+				"dir": "vae",
+				"name": "qwen_image_vae.safetensors",
+				"url": f"{HF}/Comfy-Org/Qwen-Image_ComfyUI/resolve/main/split_files/vae/qwen_image_vae.safetensors",
+				"size": 250_000_000,
+			},
+		],
+	},
+	"qwen-toon": {
+		"title": "Toon-Tacular LoRA for Qwen-Image (renderartist)",
+		"license": "apache-2.0 — clean for a shipped game, like its base",
+		"note": (
+			"Cartoon/toon style LoRA. Its declared base is Qwen/Qwen-Image-2512, so it binds "
+			"to the `qwen-image` set ONLY — a LoRA's weights are shaped to one base "
+			"architecture, and it will not load onto FLUX.2 (or FLUX.1). Pull `qwen-image` "
+			"too, or it has nothing to bind to."
+		),
+		"files": [
+			{
+				"dir": "loras",
+				"name": "Toon_Tacular_Qwen_renderartist_3750_v1.safetensors",
+				"url": f"{HF}/renderartist/Toon-Tacular-Qwen-LoRA/resolve/main/Toon_Tacular_Qwen_renderartist_3750_v1.safetensors",
+				"size": 590_000_000,
+			},
+		],
+	},
 }
 
 
