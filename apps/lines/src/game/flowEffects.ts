@@ -50,7 +50,7 @@ import {
 import { eventEmitter } from './eventEmitter';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { stateApp } from './stateApp';
-import { type WinLevelData } from './winLevelMap';
+import { type WinLevelData } from 'engine-game';
 import { stateGame, stateGameDerived, getSymbolX, stackedScrollStrip } from './stateGame.svelte';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { buildAnticipationArming } from './anticipation';

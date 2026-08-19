@@ -3,7 +3,7 @@
 	import { waitForResolve } from 'utils-shared/wait';
 	import { CanvasSizeRectangle } from 'components-layout';
 	import { OnMount } from 'components-shared';
-	import type { WinLevelData } from '../game/winLevelMap';
+	import type { WinLevelData } from 'engine-game';
 
 	import { getContext } from '../game/context';
 	import PressToContinue from './PressToContinue.svelte';

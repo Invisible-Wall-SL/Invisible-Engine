@@ -14,7 +14,7 @@ import { bakedGameConfig } from '../editor-scenes';
 import compiledConfig from './config';
 import { SYMBOL_SIZE } from './constants';
 import type { GameType, RawSymbol } from './types';
-import { winLevelMap, type WinLevel, type WinLevelData } from './winLevelMap';
+import { winLevelMap, type WinLevel, type WinLevelData } from 'engine-game';
 
 /**
  * The game config the game actually runs on — Phase 3 of `docs/design/invisible-game-config.md`.

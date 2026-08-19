@@ -159,19 +159,19 @@
 		hasAuthoredFreeSpinOutro,
 		resolveFreeSpinOutroMount,
 	} from '../game/freeSpinOwnership';
-	import { resolveWinMount } from '../game/winOwnership';
-	import { freeSpinOutroState } from '../game/freeSpinOutroState.svelte';
-	import { winState } from '../game/winState.svelte';
 	import {
+		boolSource,
+		eventSignal,
 		freeSpinsCurrent,
 		freeSpinsRemaining,
 		freeSpinsTotal,
-	} from '../game/freeSpinCounterValues';
+		resolveWinMount,
+		textSource,
+		valueSource,
+	} from 'engine-game';
+	import { freeSpinOutroState } from '../game/freeSpinOutroState.svelte';
+	import { winState } from '../game/winState.svelte';
 	import { rebuildBoard, setBoardOverride, stateGame } from '../game/stateGame.svelte';
-	import { valueSource } from '../game/valueSource.svelte';
-	import { boolSource } from '../game/boolSource.svelte';
-	import { textSource } from '../game/textSource.svelte';
-	import { eventSignal } from '../game/signalSource';
 	import { HUD_BUTTON_INSTANCES } from '../game/editorFlags';
 	import {
 		bakedEditorArtAssets,
@@ -1338,7 +1338,7 @@
 	// component instance is placed in a scene (pure parity with the doc-less boot) —
 	// `<ComponentInstance>` only subscribes a signal a cue names. `win` fires when the
 	// win presentation begins (`winShow`); `bigWin` fires only on the `'big'` win-level
-	// tier (covers big/superwin/mega/epic/max — see game/winLevelMap.ts).
+	// tier (covers big/superwin/mega/epic/max — see engine-game's winLevelMap).
 	// `freeSpinStart`/`freeSpinEnd` fire on the free-spin lifecycle: the intro presents
 	// (`freeSpinIntroShow`, broadcast by the coded `freeSpinTrigger` handler) and the outro
 	// presents (`freeSpinOutroShow`, broadcast by the coded `freeSpinEnd` handler) — the

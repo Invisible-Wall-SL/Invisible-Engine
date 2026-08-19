@@ -19,3 +19,24 @@ export {
 	type SymbolInfoMap,
 	type Position,
 } from './src/game/types';
+
+export {
+	winLevelMap,
+	type WinLevelMap,
+	type WinLevel,
+	type WinLevelType,
+	type WinLevelAnimation,
+	type WinLevelData,
+	type WinLevelAlias,
+} from './src/game/winLevelMap';
+
+export { resolveWinMount, type WinMount } from './src/game/winOwnership';
+export {
+	freeSpinsRemaining,
+	freeSpinsTotal,
+	freeSpinsCurrent,
+} from './src/game/freeSpinCounterValues';
+export { eventSignal } from './src/game/signalSource';
+export { boolSource } from './src/game/boolSource.svelte';
+export { textSource } from './src/game/textSource.svelte';
+export { valueSource } from './src/game/valueSource.svelte';

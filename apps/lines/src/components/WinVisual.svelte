@@ -13,7 +13,7 @@
 	import { getContext } from '../game/context';
 	import { SYMBOL_SIZE } from '../game/constants';
 	import { activeWinLevelChain } from '../game/gameConfig';
-	import type { WinLevelData } from '../game/winLevelMap';
+	import type { WinLevelData } from 'engine-game';
 	import WinAnimation, { type WinAnimationStep } from './WinAnimation.svelte';
 	import WinCoins from './WinCoins.svelte';
 	import { winState } from '../game/winState.svelte';
