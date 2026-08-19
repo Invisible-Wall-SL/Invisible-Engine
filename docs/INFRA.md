@@ -88,6 +88,30 @@ On-demand RunPod GPU **pods** running the **interactive ComfyUI web UI** for art
   - RTX 4090 — id `avpq09jo5c9uyt`
   - RTX PRO 4500 Blackwell (32 GB) — id `a1tqn0tzbqtvr1` (name `ComfyUI_RD`)
 
+### "Access to <podId>-8188.proxy.runpod.net was denied" — clicking through from a tool
+**Symptom:** the pod link 403s (Chrome: *"You don't have authorisation to view this page"*) when you click it **from a page** — the launcher's `/comfyui` card, the Atlas Maker, anywhere — but pasting the SAME url into a fresh tab works. Nothing is wrong with the pod.
+
+**Cause:** RunPod's proxy rejects any browser request that arrives with **`Sec-Fetch-Site: cross-site`**. The browser stamps that header from the *initiator* origin, so a click from `app.invisiblewall.org` gets it and an address-bar navigation (`Sec-Fetch-Site: none`) does not. Measured against a live pod:
+
+| request | result |
+|---|---|
+| top-level nav, `Sec-Fetch-Site: cross-site` | **403** |
+| iframe, `cross-site` | **403** |
+| iframe, `same-origin` | 200 |
+| no `Sec-Fetch-Site` (address bar / fresh tab) | 200 |
+| server-side: curl / undici / node / no UA | 200 |
+| server-side: `User-Agent: Python-urllib/*` | **403** |
+
+**It is NOT an iframe problem** — the destination is irrelevant (a `same-origin` iframe returns 200); only the initiator origin matters. `/comfyui` is correctly full-page and needs no change. Don't "fix" this by reworking framing.
+
+The 403 is a bare `Content-Length: 0` from `Server: cloudflare` with **no block page and no `cf-mitigated` header**, i.e. RunPod's own edge anti-hotlink rule, not a Cloudflare WAF challenge — so no User-Agent or Referer tweak gets past it.
+
+**Server-side calls are unaffected, so generation does not break** — only clicking through from a page does. But note the last row: the pod proxy is Cloudflare-fronted like the old tunnel was, so the original **`Python-urllib` UA → 403** trap applies here too. Every Python call site already sends `InvisibleAtlas/1.0` via `iw_common.comfy.cf_headers()`; never add a ComfyUI call that skips it.
+
+**What to do:** open the pod URL in a fresh tab (works today); or check the pod's exposed-port settings in RunPod for a public/authenticated toggle. A launcher **same-origin proxy** would also work (the `same-origin` row above proves it, and it is rule 3's sanctioned "same-origin serve"), but proxying ComfyUI including its `/ws` socket is real work — don't start there.
+
+> Unconfirmed: whether this is **new** RunPod behaviour or something we simply had not hit. It could not be compared against an older pod (`a1tqn0tzbqtvr1` was stopped, returning 404). Starting an old pod and clicking through from the launcher would settle it.
+
 ### Debugging "ComfyUI disconnected" on a pod
 ComfyUI reports execution errors **over the `/ws` progress socket**, so when that socket drops the failing node never turns red and you get a generic disconnect instead of the error — even though the server recorded it. `/history` keeps it, and there are now two ways to read it back.
 
