@@ -1,5 +1,16 @@
 {
 	"extends": "config-ts/base.json",
 	"include": ["."],
-	"exclude": ["dist", "build", "node_modules"]
+	"exclude": [
+		"node_modules",
+		// BUILD OUTPUT — not just noise, a hard failure. `config-ts/base.json` sets
+		// `allowJs`/`checkJs`, so without these the compiler pulls in the multi-megabyte bundles
+		// under `.svelte-kit/output` and `build/` and dies with a heap OOM before reporting a single
+		// real error. That is why this app had no type-check for so long.
+		"dist",
+		"build",
+		".svelte-kit",
+		"storybook-static",
+		".turbo"
+	]
 }

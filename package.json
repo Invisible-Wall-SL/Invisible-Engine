@@ -21,14 +21,16 @@
     "gen:flow-vocab": "node scripts/gen-flow-vocabulary.mjs",
     "gen:flow-vocab:check": "node scripts/gen-flow-vocabulary.mjs --check",
     "gen:flow-v2-sounds": "node scripts/gen-flow-v2-sound-enums.mjs",
-    "gen:flow-v2-sounds:check": "node scripts/gen-flow-v2-sound-enums.mjs --check"
+    "gen:flow-v2-sounds:check": "node scripts/gen-flow-v2-sound-enums.mjs --check",
+    "check:undefined-names": "node scripts/check-undefined-names.mjs"
   },
   "dependencies": {
     "eslint": "9.39.5",
     "eslint-config-custom": "workspace:*",
     "prettier": "3.5.2",
     "prettier-plugin-svelte": "3.3.3",
-    "turbo": "2.4.4"
+    "turbo": "2.4.4",
+    "typescript": "5.8.3"
   },
   "engines": {
     "node": ">=22.16.0"
