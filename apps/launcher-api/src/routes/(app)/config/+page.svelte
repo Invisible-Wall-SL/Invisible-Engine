@@ -965,6 +965,8 @@
 									><span>RTP</span><input
 										type="number"
 										step="0.001"
+										min="0"
+										max="1"
 										bind:value={doc.betModes[key].rtp}
 									/></label
 								>
@@ -1395,9 +1397,8 @@
 			<h2>Paylines</h2>
 			{#if winModelType !== 'lines'}
 				<div class="banner locked">
-					<strong
-						>This game pays by {winModelType}, so these paylines are not used.</strong
-					> They stay saved (switching back to Lines restores them) but nothing below affects play.
+					<strong>This game pays by {winModelType}, so these paylines are not used.</strong> They stay
+					saved (switching back to Lines restores them) but nothing below affects play.
 				</div>
 			{/if}
 			{#if data.serverPaylines}

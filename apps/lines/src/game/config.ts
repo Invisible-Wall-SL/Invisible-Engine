@@ -125,18 +125,22 @@ export default {
 				},
 			],
 		},
+		// The wild SUBSTITUTES; it advertises no payout of its own.
+		//
+		// It used to carry `{3:5, 4:10, 5:20}`, inherited from the upstream sample, and that payout
+		// could never be won: `W` is on no reel strip, so `symbolsInPlay` excludes it, and
+		// `projectWild` (publishGame) gates the mock's wild on that SAME in-play set — "a wild that
+		// merely sits in the dictionary with a paytable but is never dealt stays wild-less". The
+		// paytable was therefore inert everywhere except the INFO PAGE, which advertised three
+		// payouts a player cannot collect. `validateGameConfigDoc` has warned about exactly this for
+		// a while ("the `W` bug, generalized"); every project seeded from this template inherited it.
+		//
+		// Removing the row is behaviour-NEUTRAL: nothing reads it today. The alternative fix — put
+		// `W` on the strips so the wild is actually dealt — is deliberately NOT taken here, because
+		// that changes hit frequencies and starts feeding the mock a wild, i.e. it is game MATH and
+		// belongs with a math export rather than a lint fix.
 		W: {
-			paytable: [
-				{
-					'5': 20,
-				},
-				{
-					'4': 10,
-				},
-				{
-					'3': 5,
-				},
-			],
+			paytable: null,
 			special_properties: ['wild', 'multiplier'],
 		},
 		H3: {
