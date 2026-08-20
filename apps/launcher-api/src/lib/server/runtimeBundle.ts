@@ -487,7 +487,10 @@ export async function ensureDeployExports(
 	const extraSpineNames = cinematicRigNames(cinematicDocs);
 	const [editorArt, fontIndex, symbols, flowIndex, flowV2Index, cinematicIndex] = await Promise.all(
 		[
-			step('art', timings, () => exportEditorArt(client, projectKey, { extraSpineNames })),
+			// `timings` goes in too: `art` dominates the assemble, and the per-PHASE breakdown it folds
+			// back in (`art:manifests` / `art:images` / `art:spines` / `art:prune:list`) is what says
+			// which loop to attack.
+			step('art', timings, () => exportEditorArt(client, projectKey, { extraSpineNames, timings })),
 			step('fonts', timings, () => exportEditorFonts(client, projectKey)),
 			step('symbols', timings, () => exportEditorSymbols(client, projectKey)),
 			step('flow', timings, () => exportEditorFlow(client, projectKey)),
