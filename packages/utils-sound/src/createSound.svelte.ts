@@ -1,4 +1,4 @@
-import { Howler } from 'howler';
+import { Howl, Howler } from 'howler';
 
 import { type LoadedAudio } from 'pixi-svelte';
 import { stateSoundDerived } from 'state-shared';

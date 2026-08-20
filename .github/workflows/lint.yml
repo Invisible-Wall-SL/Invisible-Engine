@@ -48,6 +48,19 @@ jobs:
       - name: eslint
         run: pnpm lint
 
+      # Undefined-identifier gate — the ONE type error a `vite build` can never catch. An app's
+      # `build` is a bare `vite build`, and esbuild transpiles per file without type-checking, so
+      # #373 shipped a renamed-away identifier to every online game and killed the first free spin
+      # of every Book-of round. eslint could not help: typescript-eslint leaves `no-undef` off
+      # because it defers to the compiler, and nothing here ran the compiler.
+      #
+      # Deliberately narrow (see the script header): `tsc --noResolve`, reporting only
+      # TS2304/TS2552/TS18004. That scope is what makes it need no baseline — the repo is clean
+      # under this rule today, so any hit is new and real. A FULL type-check is still owed;
+      # `docs/status/engine.md` records the debt it would have to clear first.
+      - name: no undefined identifiers
+        run: pnpm check:undefined-names
+
       # Generated-fixture gate. `apps/lines/src/game/emitterVocabulary.ts` and the launcher's
       # `emitterVocabularies.ts` are codegen output ("GENERATED — do not edit"), derived from the
       # game's emitter union + flowEffects catalog. Nothing enforced that, and the drift is silent
