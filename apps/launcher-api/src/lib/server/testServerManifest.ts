@@ -143,6 +143,40 @@ export async function engineDeployStatus(runtimeId: string): Promise<EngineDeplo
 
 export type MockProtocol = 'lines' | 'book' | 'ways' | 'cluster' | 'scatter';
 
+/**
+ * Map an authored game KIND to the mock RGS protocol the Invisible Test Server deals it. Book-of
+ * games use the `book` mock (buy-feature + free spins); `ways`, `cluster` and `scatter` each select
+ * their own win evaluator (Phase D of `docs/design/game-type-templates.md`); everything else gets
+ * the plain `lines` mock.
+ *
+ * Lives HERE, beside `MockProtocol`, rather than inside `publishGame.ts`, because two callers need
+ * it for opposite reasons: publish STAMPS the result into the manifest, while the Game Maker card
+ * compares a project's LIVE kind against the stamped value to flag a game whose published protocol
+ * has fallen behind its kind. A second copy would let those two disagree — which is precisely the
+ * drift the card exists to report.
+ */
+export function protocolFor(gameType: string): MockProtocol {
+	if (gameType === 'bookOf') return 'book';
+	if (gameType === 'ways') return 'ways';
+	// `cluster` reuses the lines mock's shape too, swapping only how wins are DECIDED (a flood fill
+	// instead of a payline walk). It is TEST infrastructure — the mock's paytable is keyed by payline
+	// run lengths, so a cluster's payout is approximated; see `evaluateClusters`.
+	if (gameType === 'cluster') return 'cluster';
+	// `scatter` likewise — a count-anywhere evaluator, and the only one that also ships the project's
+	// own paytable because its pricing is by count, not by run length. See `projectSymbolPaytable`.
+	if (gameType === 'scatter') return 'scatter';
+	return 'lines';
+}
+
+/**
+ * The ONE shared prebuilt runtime bundle every online game is served from
+ * (`test_server/_runtime/lines/`). The id is historical: it means "the shared engine runtime", NOT
+ * "the lines game" — the bundle is built from `apps/lines`, which carries the whole engine, and a
+ * published game behaves as ways/cluster/scatter because its CONFIG says so. See `runtimeFor` in
+ * `publishGame.ts` for why there is deliberately only one.
+ */
+export const SHARED_RUNTIME_ID = 'lines';
+
 export interface TestServerGameEntry {
 	protocol: MockProtocol;
 	name: string;

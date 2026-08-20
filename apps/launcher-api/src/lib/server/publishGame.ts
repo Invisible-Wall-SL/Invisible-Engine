@@ -27,6 +27,8 @@ import { invalidateRuntimeBundle } from './runtimeBundleCache';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { loadSymbolsDoc } from './symbolsStorage';
 import {
+	protocolFor,
+	SHARED_RUNTIME_ID,
 	upsertTestServerGame,
 	type MockProtocol,
 	type TestServerGameEntry,
@@ -65,24 +67,6 @@ async function hasOwnBuiltBundle(key: string): Promise<boolean> {
 }
 
 /**
- * Map an authored game kind to its mock RGS protocol. Book-of games use the `book` mock
- * (buy-feature + free spins); `ways` uses the lines mock with its ways win evaluator (Phase D of
- * `docs/design/game-type-templates.md`); everything else uses the plain `lines` mock.
- */
-function protocolFor(gameType: string): MockProtocol {
-	if (gameType === 'bookOf') return 'book';
-	if (gameType === 'ways') return 'ways';
-	// `cluster` reuses the lines mock too, swapping only how wins are DECIDED (a flood fill instead of
-	// a payline walk). It is TEST infrastructure — the mock's paytable is keyed by payline run lengths,
-	// so a cluster's payout is approximated; see `evaluateClusters`.
-	if (gameType === 'cluster') return 'cluster';
-	// `scatter` likewise — a count-anywhere evaluator, and the only one that also ships the project's
-	// own paytable because its pricing is by count, not by run length. See `projectSymbolPaytable`.
-	if (gameType === 'scatter') return 'scatter';
-	return 'lines';
-}
-
-/**
  * The prebuilt runtime bundle id a game is served from (`test_server/_runtime/<runtime>/`).
  *
  * EVERY game type shares ONE bundle, and that is a decision, not a gap — it replaces the old
@@ -104,10 +88,11 @@ function protocolFor(gameType: string): MockProtocol {
  *
  * The id stays `'lines'` for compatibility: every published manifest already references it, and
  * `runtime-release.yml` auto-publishes it on every engine merge. The name is historical — it means
- * "the shared engine runtime", not "the lines game".
+ * "the shared engine runtime", not "the lines game", which is why the Game Maker card no longer
+ * PRINTS it (it read as a game type: "lines runtime" on a cluster game). See `SHARED_RUNTIME_ID`.
  */
 function runtimeFor(_gameType: string): string {
-	return 'lines';
+	return SHARED_RUNTIME_ID;
 }
 
 /** Flatten a symbol's `[{ '5': 20 }, { '3': 5 }]` paytable rows to an `{ occurs: multiplier }` map. */
