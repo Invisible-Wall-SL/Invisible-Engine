@@ -387,14 +387,14 @@ before (the saved doc). Build-verified + node-harness-verified; launcher render 
 
 ## Open items / next
 
-0. ✅ ~~**Make `RegionPicker` store a SCOPEABLE atlas key**~~ — DONE (2026-08-20, see Recent
-   changes): `SheetAsset` gained a resolved `manifestKey`, and all four picker lists now come from
-   the shared `pickSheetsFrom`. **Still open behind it:** existing docs authored before this keep
-   their un-scopeable refs. `/config`'s are repaired on the ship path; the Scene Editor doc's are
-   not, so they render via `parseScopedFrameRef`'s bare-name degradation — correct art wherever the
-   frame name is unique, and the flat-cache collision the scoping exists to prevent wherever it
-   isn't. A doc-level repair pass (the `loadFlipbookDoc` / `loadGameConfigDoc` pattern applied to
-   the layout doc's image params) would close it.
+0. ✅ ~~**Un-scopeable atlas refs**~~ — CLOSED (2026-08-20, three changes, see Recent changes):
+   `parseScopedFrameRef` degrades one instead of dropping the art; `RegionPicker` no longer writes
+   them (`SheetAsset.manifestKey` + the shared `pickSheetsFrom`); and every doc that already holds
+   one — clips, card params, the layout doc, component defs — is repaired on the ship path. The one
+   deliberate gap left: the repair's candidate test is loose by design (`needsAtlasRefRepair`
+   accepts any path-shaped prefix), so a non-art string containing `::` is offered to the resolver
+   and survives only because the resolver declines it. Tightening that would need the component
+   DEFS at `loadDoc` time, which it cannot see; the fixture pins the behaviour instead.
 
 1. ✅ ~~**Live-verify the launcher surfaces**~~ — DONE (owner click-through, 2026-08-04): `/config`
    panels, off-grid payline block, raw-JSON paste, save round-trip, the `Match grid` repair flow,
@@ -414,6 +414,16 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 - _None._ The live-verify that was the standing external gate is done (owner-confirmed 2026-08-04).
 
 ## Recent changes
+
+- 2026-08-20 — **Docs that already hold an un-scopeable atlas ref are repaired on the ship path — the layout doc and component defs join the clips and card params.** The picker no longer writes these refs, but every doc authored before that still carries them. **What this restores is the atlas PIN, not missing art:** since `parseScopedFrameRef` degrades an un-scopeable prefix to the bare frame name, the art already renders — what it loses is the scoping, so two sheets packing the same frame name collide in the flat texture cache and the last-loaded one wins. That is the silent wrong-art-in-game failure the scoping was introduced to end, and it is what this closes.
+
+  **One new repair, wired at the seams that already existed.** `repairLayoutDocAtlasRefs` runs inside `editorStorage.loadDoc` — the ship-path loader every downstream reader goes through (the runtime bundle, the editor-art export, the bake's `/api/editor/doc`) — while the editor's own `loadDocWithEtag` stays untouched, because it backs the compare-and-swap and a save must round-trip what it loaded. It covers a sprite's `assetKey` (a WHOLE atlas ref, unlike every other field) and its `region`, plus `componentInstance` param values. Component defs need a second entry point: `loadComponent` has no client key, so `repairComponentDefsAtlasRefs` runs where the defs are resolved and the client key is in hand — beside `resolveSpineKeysForComponentDefs`, the post-resolve fixup it is the atlas twin of.
+
+  **A false alarm found while wiring it:** `collectArtRefs` added a sprite's `region` to `usedRegions` RAW, but a region can itself be a scoped ref (what an image-kind param binding stores). The dangling guard then compared `<assetKey>::<frame>` against bare region names and reported a perfectly good frame as "in NO shipped atlas". It now parses the region the same way `LayoutNodeView` does, and adds the pinned manifest to the export set.
+
+  **The candidate test is deliberately loose**, matching the clip and card-param repairs: `needsAtlasRefRepair` accepts any path-shaped prefix, so a non-art param value containing `::` IS offered to the resolver. That is safe — a repair can only make a ref MORE specific, so an unresolvable prefix comes back untouched — and costs one cached R2 listing. The fixture pins it rather than pretending otherwise, because the alternative (tightening by param KIND) needs the component defs at `loadDoc` time, which it cannot see.
+
+  Verified: new `apps/launcher-api/atlasRefRepair.fixture.ts` (18 assertions, bundled with the esbuild recipe in `apps/launcher-api/CLAUDE.md`) drives the walk with a STUB resolver, so what is under test is which fields carry an atlas ref and — the half that matters more — what is left strictly alone: prose, a spine bundle name shaped like a scoped ref, a `spine`-kind param default, a text node, a non-string param, and a correct ref. The stubbed resolver is also how the loose-candidate behaviour got caught: the first run showed a prose value being offered to it, and the assertion now states that contract instead of a wrong one. `launcher-api` builds clean; eslint clean on the changed files.
 
 - 2026-08-20 — **The region picker now stores a scopeable atlas key — the root cause behind the missing card art, fixed at the source.** The earlier fix repaired `/config`'s refs on the way out; this stops them being written wrong. `RegionPicker` scopes a pick by its `sheets[].key`, and for a Sheet-Maker sheet that key came from `listSheets`, which reports the R2 output PREFIX (`…/sheets/S_Gem/`). The editor-art export registers a sheet's textures under its MANIFEST key, so every scoped pick from a sheet named a namespace nothing registers — silently, in all four tools that write scoped refs (`/editor`, `/components`, `/symbols`, `/config`), not just the config.
 

@@ -44,6 +44,7 @@ import { listComponentDefaults } from './componentDefaultsStorage';
 import { loadComponent } from './componentStorage';
 import { exportBootSplashes } from './bootSplashExport';
 import { exportEditorArt, type EditorArtIndex } from './editorArtExport';
+import { repairComponentDefsAtlasRefs } from './atlasRefRepair';
 import { loadDoc as loadEditorDoc } from './editorStorage';
 import { getGlobalLayoutProfile } from './layoutProfile';
 import { pruneUnreachableEffects } from './effectReachability';
@@ -353,6 +354,13 @@ async function assembleRuntimeBundle(
 	// scene tree, or their spines never load in the built game (key mismatch).
 	resolveSpineKeysForComponentDefs(
 		{ defs: componentDefs, versions: componentVersions },
+		clientKey,
+		projectKey,
+	);
+	// The atlas-ref twin of that rewrite: `loadComponent` has no client key, so a def's own sprite
+	// nodes and `image`-param defaults are repaired here, where the doc's already were in `loadDoc`.
+	await repairComponentDefsAtlasRefs(
+		[...Object.values(componentDefs), ...componentVersions],
 		clientKey,
 		projectKey,
 	);

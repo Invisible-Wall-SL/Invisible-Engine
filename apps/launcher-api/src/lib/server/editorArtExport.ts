@@ -43,6 +43,7 @@ import {
 import { EDITOR_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import { betModeCardIds, betModeCardParamRefs } from 'game-config';
 import { sheetVersion } from './assetVersion';
+import { repairComponentDefsAtlasRefs } from './atlasRefRepair';
 import { loadComponent } from './componentStorage';
 import { loadDoc } from './editorStorage';
 import { loadGameConfigDoc } from './gameConfigStorage';
@@ -209,7 +210,13 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 
 	const visit = (node: LayoutNode): void => {
 		if (node.kind === 'sprite' && typeof node.region === 'string' && node.region) {
-			refs.usedRegions.add(node.region);
+			// A sprite `region` can itself be a SCOPED ref (`<assetKey>::<frame>` — what an
+			// image-kind param binding stores), which is how `LayoutNodeView` reads it. Adding the
+			// raw value would put a string no sheet can carry into `usedRegions`, and the dangling
+			// guard below would then report a perfectly good frame as "in NO shipped atlas".
+			const scoped = parseScopedFrameRef(node.region);
+			refs.usedRegions.add(scoped.region);
+			if (scoped.assetKey) refs.manifestKeys.add(scoped.assetKey);
 		}
 		if (node.kind === 'sprite' && isManifestAssetKey(node.assetKey)) {
 			refs.manifestKeys.add(node.assetKey);
@@ -391,6 +398,10 @@ export async function exportEditorArt(
 		? [...cardComponentIds, FEATURE_CARD_DEF.id]
 		: cardComponentIds;
 	const defs = await resolveReferencedDefs(doc, projectKey, cardParamSeedIds);
+	// `loadDoc` repaired the doc's own atlas refs; do the same for the defs BEFORE collecting, so a
+	// def whose art was authored against a sheet output prefix queues that sheet's real MANIFEST
+	// key — the key the runtime, reading the same repaired defs, will look the frame up under.
+	await repairComponentDefsAtlasRefs(Object.values(defs), clientKey, projectKey);
 	const refs = collectArtRefs(doc, defs);
 
 	// Collect art/spine keys referenced through the config's per-mode `cardParams` overrides — the
