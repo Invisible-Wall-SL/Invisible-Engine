@@ -15,7 +15,7 @@
  * subgraph; a caller wires the subgraph's `entry` off its `event` node and appends after its `tails`.
  */
 
-import type { DataEdge, DataSource, ExecEdge, Node, PinPath } from '../types';
+import type { DataEdge, DataSource, ExecEdge, Node, PinPath, TemplateVocabulary } from '../types';
 
 // ---------------------------------------------------------------------------
 // DataSource helpers (the accessors an author reads a payload off — `$trigger`, `$context`, `$item`).
@@ -343,4 +343,45 @@ export const BOOK_OF_CHOREO: Record<string, ChoreoStep[]> = {
 		{ k: 'cue', ref: 'winHide' },
 		{ k: 'action', ref: 'winHide' },
 	],
+};
+
+/**
+ * Project a choreography onto a template's vocabulary — the SAME beats, minus everything that
+ * template does not declare.
+ *
+ * A game type that adds no mechanic (`ways`) still wants the whole standard presentation: the reel
+ * spin, the win count-up, the free-spin arc. What it must NOT inherit is the surfaces of a mechanic
+ * it doesn't have. Filtering the choreography is how a derived seed stays honest without a second
+ * hand-maintained copy that would drift from this one.
+ *
+ * Two cuts, because a mechanic shows up in two shapes:
+ *  - a whole EVENT the type never receives (`setExpandingSymbol`, `expandBookColumns`) — dropped
+ *    with its entire chain, which is safe because each event is wired off its own `gameSignals` pin.
+ *  - a single STEP inside an event the type DOES receive — `freeSpinEnd` fires `specialBookHide`
+ *    mid-chain, so the step goes and the beats either side re-link.
+ *
+ * Recurses into `forEach` bodies. Actions and cues are checked against the vocabulary that will
+ * validate the resulting doc, so a projected choreography can never reference a surface the palette
+ * would reject.
+ */
+export const choreoForVocabulary = (
+	choreo: Record<string, ChoreoStep[]>,
+	vocab: TemplateVocabulary,
+): Record<string, ChoreoStep[]> => {
+	const events = new Set(vocab.events.map((e) => e.name));
+	const actions = new Set(vocab.actions.map((a) => a.name));
+	const cues = new Set(vocab.cues.map((c) => c.name));
+
+	const keep = (steps: ChoreoStep[]): ChoreoStep[] =>
+		steps
+			.filter((step) =>
+				step.k === 'action' ? actions.has(step.ref) : step.k === 'cue' ? cues.has(step.ref) : true,
+			)
+			.map((step) => (step.k === 'forEach' ? { ...step, body: keep(step.body) } : step));
+
+	return Object.fromEntries(
+		Object.entries(choreo)
+			.filter(([event]) => events.has(event))
+			.map(([event, steps]) => [event, keep(steps)]),
+	);
 };

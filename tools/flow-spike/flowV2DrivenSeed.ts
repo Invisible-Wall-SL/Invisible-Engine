@@ -30,6 +30,8 @@ import {
 	BOOK_OF_DRIVEN_SEED_DOC,
 	BOOK_OF_DRIVEN_SEED_LIBRARY,
 	BOOK_OF_VOCAB,
+	WAYS_DRIVEN_SEED_DOC,
+	WAYS_VOCAB,
 	createContainerMountModel,
 	createFlowV2Env,
 	flowOwnsSignal,
@@ -160,6 +162,51 @@ for (const id of [
 	'freeSpinOutro',
 ]) {
 	check(`after complete:loading: ${id} is shown`, mount.isShown(id));
+}
+
+// --- 7. The ways seed: same spine, no book mechanic, validates against its OWN vocab -------------
+// The point of deriving it rather than hand-writing one: the seed a new project opens on must
+// type-check against the palette that project is authored with, or the canvas opens on errors.
+{
+	const waysIssues = validateFlowDoc(
+		WAYS_DRIVEN_SEED_DOC,
+		WAYS_VOCAB,
+		BOOK_OF_DRIVEN_SEED_LIBRARY,
+		BOOK_OF_DRIVEN_SEED_CONTAINER_EVENTS,
+	);
+	const waysErrors = waysIssues.filter((i) => i.severity === 'error');
+	for (const e of waysErrors) console.log(`   ways validation error: ${e.code} — ${e.message}`);
+	check('ways seed: validateFlowDoc reports NO errors against WAYS_VOCAB', waysErrors.length === 0);
+
+	check("ways seed: templateId is 'ways'", WAYS_DRIVEN_SEED_DOC.templateId === 'ways');
+
+	// The book mechanic is gone in BOTH shapes it took: whole event chains, and one mid-chain cue.
+	const waysRefs = new Set(WAYS_DRIVEN_SEED_DOC.graph.nodes.map((n) => n.ref).filter(Boolean));
+	for (const ref of [
+		'setSpecialSymbol',
+		'expandBookColumns',
+		'specialBookReveal',
+		'specialBookHide',
+		'specialBook',
+	]) {
+		check(`ways seed: no \`${ref}\` node`, !waysRefs.has(ref));
+	}
+	check(
+		'ways seed: no `specialBook` container',
+		!WAYS_DRIVEN_SEED_DOC.containers.some((c) => c.id === 'specialBook'),
+	);
+
+	// …and nothing ELSE is gone: it must keep the whole shared lifecycle spine and presentation.
+	const bookRefs = new Set(BOOK_OF_DRIVEN_SEED_DOC.graph.nodes.map((n) => n.ref).filter(Boolean));
+	const extra = [...waysRefs].filter((r) => !bookRefs.has(r));
+	check('ways seed: introduces no ref book-of lacks', extra.length === 0, extra.join(','));
+	check(
+		'ways seed: still owns `load` (⇒ drives every screen)',
+		flowOwnsSignal(WAYS_DRIVEN_SEED_DOC, 'load'),
+	);
+	for (const ref of ['revealBoard', 'setWinBookEventAmount', 'commitBuyBonus', 'selectBetMode']) {
+		check(`ways seed: keeps \`${ref}\``, waysRefs.has(ref));
+	}
 }
 
 console.log('');
