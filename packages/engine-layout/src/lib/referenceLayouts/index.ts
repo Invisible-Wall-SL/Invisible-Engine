@@ -36,23 +36,24 @@ export {
  *
  * Returns `undefined` for an unknown game type.
  */
-const FULL_SCENE_SOURCES: Record<
-	string,
-	{ name: string; build: () => LayoutDoc; filled?: true }
-> = {
-	// `filled` kinds ship a board-frame-bearing layout — so "Import composed
-	// reference" (§19.6) is meaningful for them (the filled doc carries art). The
-	// project-aware import endpoint rewrites their bare frame names to the active
-	// project's atlas region. The non-filled engine-skeleton kinds have no art, so
-	// importing them would equal scaffolding — pointless, hence not importable.
-	lines: { name: 'Lines', build: () => defaultLayout('lines'), filled: true },
-	bookOf: { name: 'Book of', build: () => bookofReferenceLayout(), filled: true },
-	// Engine-skeleton kinds (§19.8): no filled `import`, but offered in the
-	// "New game from kind" picker via the scaffold projection.
-	ways: { name: 'Ways', build: () => waysReferenceLayout() },
-	cluster: { name: 'Cluster', build: () => clusterReferenceLayout() },
-	scatter: { name: 'Scatter', build: () => scatterReferenceLayout() },
-};
+const FULL_SCENE_SOURCES: Record<string, { name: string; build: () => LayoutDoc; filled?: true }> =
+	{
+		// `filled` kinds ship a board-frame-bearing layout — so "Import composed
+		// reference" (§19.6) is meaningful for them (the filled doc carries art). The
+		// project-aware import endpoint rewrites their bare frame names to the active
+		// project's atlas region. The non-filled engine-skeleton kinds have no art, so
+		// importing them would equal scaffolding — pointless, hence not importable.
+		lines: { name: 'Lines', build: () => defaultLayout('lines'), filled: true },
+		bookOf: { name: 'Book of', build: () => bookofReferenceLayout(), filled: true },
+		// Engine-skeleton kinds (§19.8): no filled `import`, but offered in the
+		// "New game from kind" picker via the scaffold projection.
+		// `ways` is FILLED: it shares the reference art + board geometry with `lines`, so its layout is
+		// worth importing (see `referenceLayouts/ways.ts`). `cluster`/`scatter` stay engine-skeleton —
+		// neither template is being built, and both would need a tumble mechanic the runtime lacks.
+		ways: { name: 'Ways', build: () => waysReferenceLayout(), filled: true },
+		cluster: { name: 'Cluster', build: () => clusterReferenceLayout() },
+		scatter: { name: 'Scatter', build: () => scatterReferenceLayout() },
+	};
 
 export function getFullSceneSet(gameType: string): LayoutDoc | undefined {
 	return FULL_SCENE_SOURCES[gameType]?.build();

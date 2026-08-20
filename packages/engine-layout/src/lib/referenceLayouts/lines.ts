@@ -70,7 +70,12 @@ const fsCounterOverrides: Partial<Record<LayoutType, NodeOverride>> = {
 	portrait: fsCounterPos(MAIN_SIZES_MAP.portrait),
 };
 
-const sceneName = (id: string) => linesTemplate.scenes.find((scene) => scene.id === id)?.name ?? id;
+/**
+ * Scene display names. The standard template's scene set is identical for every type it serves
+ * (#362 — `ways` equals `lines` apart from `gameType`), so ONE lookup names both.
+ */
+const STANDARD_SCENES = linesTemplate.scenes;
+const sceneName = (id: string) => STANDARD_SCENES.find((scene) => scene.id === id)?.name ?? id;
 
 /** Engine-flip options forwarded to {@link hudScenes}; default OFF = parity. */
 export interface DefaultLayoutOptions {
@@ -108,8 +113,30 @@ export interface DefaultLayoutOptions {
 	winInstance?: boolean;
 }
 
+/**
+ * The game types this generator can produce a FILLED (art-bearing) reference layout for, and the
+ * one thing that differs between them.
+ *
+ * `lines` and `ways` share everything this doc places: the same `_runtime/lines` bundle and coded
+ * components, the same 5x3 board (`engine-game` `SYMBOL_SIZE = 120`, `REEL_PADDING = 0.53`), and —
+ * checked frame-for-frame — the same `reelsFrame` atlas, down to identical source rectangles for
+ * `frame_bg.png` / `frame_edge.png` / `Frame_FSCounter.png`. So a ways reference layout needs no new
+ * art and no second generator; it needs this one to stop hardcoding `'lines'`.
+ *
+ * `specialBook` is the exception. `apps/lines` IS the Book-of reference game, so its layout carries
+ * the expanding-symbol reveal scene even though `standardTemplate` does not declare it (slots
+ * constrain, they don't forbid). A ways game has no expanding symbol — the same cut the flow
+ * starter seed makes when it drops the `specialBook` container — so the scene is omitted rather
+ * than shipped as scenery nothing will ever reveal.
+ */
+const REFERENCE_TYPES: Record<string, { specialBook: boolean }> = {
+	lines: { specialBook: true },
+	ways: { specialBook: false },
+};
+
 export function defaultLayout(gameType: string, options: DefaultLayoutOptions = {}): LayoutDoc {
-	if (gameType !== 'lines') {
+	const spec = REFERENCE_TYPES[gameType];
+	if (!spec) {
 		throw new Error(`defaultLayout: unsupported gameType "${gameType}"`);
 	}
 
@@ -312,8 +339,8 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 
 	return {
 		version: 1,
-		projectKey: 'lines',
-		gameType: 'lines',
+		projectKey: gameType,
+		gameType,
 		mainSizesMap: MAIN_SIZES_MAP,
 		scenes: [
 			{
@@ -492,28 +519,32 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 					},
 				],
 			},
-			{
-				// Special-Book bonus overlay: the expanding-symbol reveal (shuffle → land →
-				// idle). A board-centred `canvas`-space bind anchor; the coded `SpecialBook`
-				// self-shows/animates off the `specialBookReveal`/`specialBookHide` book
-				// events and renders the chosen symbol via the symbol state machine. The
-				// editor only positions it.
-				id: 'specialBook',
-				name: sceneName('specialBook'),
-				space: 'canvas',
-				nodes: [
-					{
-						id: 'special-book',
-						slotId: 'specialBook',
-						label: 'Special Book',
-						kind: 'container',
-						x: 0,
-						y: 0,
-						bind: { component: 'SpecialBook' },
-						children: [],
-					},
-				],
-			},
+			// Special-Book bonus overlay: the expanding-symbol reveal (shuffle → land →
+			// idle). A board-centred `canvas`-space bind anchor; the coded `SpecialBook`
+			// self-shows/animates off the `specialBookReveal`/`specialBookHide` book
+			// events and renders the chosen symbol via the symbol state machine. The
+			// editor only positions it. Book-of mechanic ⇒ omitted for a type without one.
+			...(spec.specialBook
+				? [
+						{
+							id: 'specialBook',
+							name: sceneName('specialBook'),
+							space: 'canvas' as const,
+							nodes: [
+								{
+									id: 'special-book',
+									slotId: 'specialBook',
+									label: 'Special Book',
+									kind: 'container' as const,
+									x: 0,
+									y: 0,
+									bind: { component: 'SpecialBook' },
+									children: [],
+								},
+							],
+						},
+					]
+				: []),
 			// Select-Feature (buy-bonus) menu — the engine-default in-canvas SELECT scene (dimmed
 			// backdrop + `featureCard` repeater), shared with every reference layout + the
 			// `<BuyFeatureScreen>` takeover fallback (`buyFeatureScene.ts`). An author repositions/

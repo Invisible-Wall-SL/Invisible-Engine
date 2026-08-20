@@ -66,26 +66,26 @@ Cross-cutting design docs (not tools — platform/pipeline plans):
 
 Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide priority order.
 
-1. **A FILLED (art-bearing) reference layout for `ways`** — `ways` is otherwise now a first-class
-   authoring kind (slot template, `/flow` palette, `/flow-v2` vocabulary + starter seed, win model,
-   per-way pricing, ways mock protocol); only the art-bearing layout is missing, so it scaffolds
-   from a bare skeleton and isn't offered in "Import composed reference". Blocked on real ways art —
-   and may be better authored ONLINE as a custom kind (editor design §21) than committed as code.
-   **`cluster` / `scatter` are OUT of scope** (owner decision, 2026-08-19): neither template will be
-   built, and both would need the tumble/cascade mechanic the shared runtime has never carried
-   (`tumbleBoard`, `updateTumbleWin`, `updateGlobalMult`, plus `updateGrid` / `boardMultiplierInfo`)
-   — a new board mechanic, not a template. Their win models stay declared and correctly priced.
-   ([status/editor](status/editor.md))
-2. **Rigger auto-weights quality** — geodesic/heat skinner + character-mesh validation gate.
-3. **Blueprint model auto-download** (ComfyUI-Manager API) — uploaded blueprints assume their
+1. **Rigger auto-weights quality** — geodesic/heat skinner + character-mesh validation gate.
+2. **Blueprint model auto-download** (ComfyUI-Manager API) — uploaded blueprints assume their
    models are already installed.
-4. Smaller: the concurrency **force-always Save** fix (symbols/fx/localization wire `onclick={save}`,
+3. Smaller: the concurrency **force-always Save** fix (symbols/fx/localization wire `onclick={save}`,
    passing the event as `force` → manual Save silently overwrites; change to `() => save()`);
    **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists, no UI yet);
    wire `gen-flow-vocabulary --check` into CI/pre-commit; refresh
     [tools/fx.md](tools/fx.md) for the new Emission/Movement/Colour/Blend/Presets sliders (rule 9).
 
-**Recently closed** (2026-08-05 → 08-18):
+**Recently closed** (2026-08-05 → 08-20):
+
+- **`ways` is a first-class authoring kind** (2026-08-20, #361–#364 + the filled layout). It now has
+  a slot template, a `/flow` emitter palette, its own `/flow-v2` vocabulary + starter flow seed, and
+  a FILLED reference layout — on top of the win model, per-way pricing and ways mock protocol that
+  landed in #355/#357/#360. It needed no new art: `apps/ways` ships the same `reelsFrame` atlas as
+  `apps/lines`, frame-for-frame. **`cluster` / `scatter` are OUT of scope** (owner decision,
+  2026-08-19): neither template will be built, and both would need the tumble/cascade mechanic the
+  shared runtime has never carried (`tumbleBoard`, `updateTumbleWin`, `updateGlobalMult`, plus
+  `updateGrid` / `boardMultiplierInfo`) — a new board mechanic, not a template. Their win models stay
+  declared and correctly priced. ([status/editor](status/editor.md) · [status/flow](status/flow.md))
 
 - **Invisible Cinematic — Phases 0–3 COMPLETE + Tweak Mode** (built 2026-08-17, tweak 2026-08-18).
   Double-clicking a strip now opens its clip in the animator with the rest of the stage posed around

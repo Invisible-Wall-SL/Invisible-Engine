@@ -5,7 +5,8 @@
 	"type": "module",
 	"scripts": {
 		"select": "tsx select.ts",
-		"boardglow": "tsx boardGlow.ts"
+		"boardglow": "tsx boardGlow.ts",
+		"waysreference": "tsx waysReference.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",
