@@ -22,7 +22,7 @@
 <script lang="ts">
 	import BaseSprite from './BaseSprite.svelte';
 	import { getContextApp } from '../context.svelte';
-	import { warnMissingAsset } from '../missingAsset';
+	import { hasAssetKey, warnMissingAsset } from '../missingAsset';
 	import type { LoadedSprite } from '../types';
 
 	const { debug, key, fallbackKey, contain, ...baseSpriteProps }: Props = $props();
@@ -63,8 +63,12 @@
 	 mounts generically behind the loading screen, not gated behind it) legitimately
 	 renders `Texture.EMPTY` until its bundle arrives, then resolves reactively. Gate the
 	 diagnostic on `stateApp.loaded` so it flags a genuinely absent key, not one in flight.
-	 `debug` still forces the log. -->
-{#if texture === PIXI.Texture.EMPTY && context.stateApp.loaded}
+	 `debug` still forces the log.
+
+	 Also skipped when NO key is assigned at all (`hasAssetKey`): an unset key is an
+	 un-pointed authoring node, not a missing asset, and it renders nothing either way —
+	 reporting it buries the real missing keys under noise no boot can ever clear. -->
+{#if texture === PIXI.Texture.EMPTY && context.stateApp.loaded && (hasAssetKey(key) || hasAssetKey(fallbackKey))}
 	{warnMissingAsset(
 		`Sprite: key "${key}"${fallbackKey ? ` (fallback "${fallbackKey}")` : ''} is not found in the loadedAssets`,
 	)}
