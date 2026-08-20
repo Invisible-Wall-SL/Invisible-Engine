@@ -53,14 +53,95 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
    `pnpm check:path-imports`.
 
    **⚠️ Open:**
-   1. **No ways project has been played end-to-end yet** — the honest Phase D gate.
+   1. **The client still does not EVALUATE a non-lines win, and no ways project has been played
+      end-to-end yet** — the honest Phase D gate. The model is READ (surfaces adapt) but the engine
+      presents whatever the RGS reports, so `warnOnGameConfigIssues` warns at boot that a declared
+      ways/cluster/scatter game is being played as lines.
    2. `apps/ways` strips are **cosmetic, evenly weighted — NOT a math export**. Fine as a client
       default; not fine shipped for money.
    3. `cluster` still has empty-placeholder `paddingReels`, so it ships no config default.
    4. A game only ever ships an **authored** config, so setting a project game type without
       pressing Save in `/config` leaves it playing as lines. See [tools/game-config](../tools/game-config.md).
 
-1. **Game-type templates — Phase A extraction (IN PROGRESS).** Plan: `docs/design/game-type-templates.md`. A0 landed (`packages/engine-game` scaffolded, type-only slice, fingerprint gate); **A1 landed** — 7 generic leaf modules lifted (`winLevelMap`, `winOwnership`, `freeSpinCounterValues`, `signalSource`, the three `*Source` runes wrappers), 19 import sites rewritten, no shims. Two gate lessons from A1: the fingerprint is exact only for **type-only** slices (a real file move reorders rollup's graph and reshuffles minified names), so relocation slices are verified with **`scripts/bundle-modules.mjs`** (sourcemap build → compare the module set + per-module content hashes); and a string-literal comparison **cannot** work on this bundle (lodash regexes containing quotes desync any scanner, template literals embed renamed identifiers) — that was tried and deleted. Also recomputed from the real import graph: `utils.ts`/`symbolMap.ts` are NOT leaves (they reach `bookEventHandlerMap`, `flowEffects`, `../editor-scenes`) and `constants.ts` is mixed (generic feel knobs + this game's symbol names/art), so all three need splitting or a later slice. **A2 landed** — and it forced a plan change: the context could NOT be relocated, because four things in it are app-bound (`eventEmitter` is typed by a union assembled from the COMPONENTS, mechanic events included, and components rely on that precise typing; `stateApp` from this game's assets + baked editor art; `stateLayout` from this game's ratios/sizes; plus `stateGame`/`i18nDerived`). The keystone is a dependency **inversion** — `createGameContext()` owns the wiring, `apps/lines/src/game/context.ts` is now a thin composition root — which is **Phase B's mechanic contract arriving early**, for state and events rather than the win model. Phase A therefore cannot fully precede Phase B; owner approved pulling B forward. Encouraging for B: `stateGame`'s 607 lines are ~95% generic, with only TWO mechanic-specific fields (`expandedSymbol`, `winLineColor`), so the contract is small. A2 also set the precedent that a slice changing runtime WIRING (not just relocating code) gets booted against the mock RGS, not just module-set-checked. **A3 landed** — `getGameContext()` (package-side accessor, typed by declaration merging: the app declares `interface GameContext extends LinesContext`, the only direction available since a package must never import from an app) plus the first **10** components moved. Not the planned 44: that number counted only whether a component mentions the MECHANIC, ignoring what each IMPORTS — most still reach app modules that have not moved (`stateGame` 11, `constants` 10, `utils` 7, `gameConfig` 7), the set must be closed under sibling imports (`Win` looks clean but pulls `WinGate`/`WinVisual`), and `BoardFrame`/`Effects` import `../editor-scenes` while `TapToContinue` imports `flowV2InterpreterHolder`. **A3.5 landed — `constants.ts` split.** Engine feel knobs (`SYMBOL_SIZE`, `SYMBOL_SPINE_FILL`, `REEL_PADDING`, `SYMBOL_DIM_TINT`, `INITIAL_SYMBOL_STATE`, `SPIN_OPTIONS_DEFAULT`/`FAST`) → package; this game's `STACKED_PICTURE` / `SYMBOL_INFO_MAP` / `SCATTER_LAND_SOUND_MAP` stay. The halves had no cross-references, so the cut was clean. **Hard constraint to preserve:** the app's `constants.ts` now has ZERO imports and must keep it that way — `apps/launcher-api/scripts/publish-symbol-defaults.mjs` imports it STANDALONE under Node type-stripping to read `SYMBOL_INFO_MAP`, and the `engine-game` barrel re-exports `.svelte` components that type-stripping cannot parse, so a value import from there would silently break the publish. Seven dead exports were deleted rather than moved (moving them would have created dead API in a new package): `MOTION_BLUR_VELOCITY`, `zIndexes`, `BACKGROUND_RATIO`, `PORTRAIT_BACKGROUND_RATIO`, the three `*_MAIN_SIZES` — note `FreeSpinAnimation.svelte` has a LOCAL `BACKGROUND_RATIO` with a different value, and the main sizes are duplicated as literals inside `stateLayout.ts`, which is what actually feeds the layout. **A4 landed — `stateGame` inverted into `createGameState()`.** The board/reel machinery (lattice, spin profiles, anticipation, stacked runs, win-dim) is in the package; this game's grid/layout/sounds are injected as `deps`. `apps/lines/src/game/stateGame.svelte.ts` is now 75 lines of composition + re-export, so all 21 call sites are unchanged. **Correction worth keeping:** the earlier "~95% generic" figure counted MECHANIC mentions and does not predict extractability — the real coupling was six app deps plus `onSymbolLand`, which hardcodes this game's `'S'`/`'W'` ids and cue names (it stayed in the app). And this did NOT unblock the component queue as previously claimed: of the 11 component importers, six import only `stateGame` itself, which package components already reach via `getGameContext()`, and most of those are book/expanding mechanic components that **stay in the app by design**. The reason to do it is that the board machinery is what a `ways`/`cluster` build would otherwise fork. Two implementation notes: types that depend on factory internals (`Reel`, `ReelSymbol`, `MultiplierSymbol`, `StackedPictureRun`) are **derived from the factory's return type** rather than re-declared, so they cannot drift from `buildBoard`; and the real risk was array identity, not typing — `enhancedBoard` closes over `stateGame.board` at module init and `rebuildBoard` splices rather than reassigns, so the factory must be called exactly once at app module scope. **A5 landed — `gameConfig` seamed.** The `runtime → baked → compiled` resolution, its memo, the win-tier ladder, the board grid and the config warnings all moved to `createGameConfig()`; only the two SOURCES are injected (`bakedGameConfig()` and the compiled `./config`). App file: 462 → 45 lines, 23 functions re-exported, 21 consumers untouched. Cleanest seam in Phase A — the file was already type-agnostic apart from its two inputs, and the `__IE_SERVER_CONFIG__`/`__IE_WIN_LEVELS__` globals needed nothing because they are deliberately decoupled bridges to the Play4Fun facade. **`getPaylines`/`getNumLines`/`paylineColor` moved across UNCHANGED and are still lines-shaped — they are exactly what Phase C turns into the `winModel` arm**, and were left alone so this relocation stayed provable. Remaining before more components can move: `utils` and `symbolMap`, which need `editor-scenes`/`assets` seams. **Also worth re-scoping:** ~13 of the components still in `apps/lines` are lines/book mechanic components that should NEVER move, so the extraction is closer to done than a raw file count suggests. Two gotchas worth not rediscovering: a dependency scan pattern of `[a-zA-Z.]*` **silently excludes digits**, hiding every `flowV2*` import; and `sed -i` over a glob rewrites line endings in ALL matched files, which git normalizes away but the **sourcemap-based module check does not** — it reported 27 phantom changed modules until the untouched files were restored. Subsumes the old "reference layouts for `ways`/`cluster`/`scatter`" item — only `lines`/`bookOf` have rich reference scene sets, and those land as Phase D/E once a game type is a mechanic rather than an app folder.
+1. **Game-type templates — Phase A extraction: A0–A5 have all landed; the remainder is small and
+   named.** Plan: [design/game-type-templates.md](../design/game-type-templates.md).
+   `packages/engine-game` now holds the type-agnostic engine layer — 7 leaf modules, the context
+   (inverted, not moved), `createGameState()`, `createGameConfig()`, the `constants` split and 10
+   components. `apps/lines/src/game/stateGame.svelte.ts` is 75 lines of composition + re-export and
+   `gameConfig.ts` is 45, with every call site untouched. `getPaylines`/`getNumLines`/`paylineColor`
+   moved across unchanged so the relocation stayed provable, and Phase C/D then turned them into the
+   win-model arms they were left in place for (item 0 above, which also owns what Phase D still
+   owes).
+
+   **What is genuinely left:** `utils` and `symbolMap`, which need `editor-scenes`/`assets` seams —
+   and they gate most of the remaining component queue. **Re-scoped:** ~13 of the components still
+   in `apps/lines` are lines/book mechanic components that should NEVER move, so a raw file count
+   overstates the remainder. Reference scene sets for a type other than `lines`/`bookOf` are Phase E
+   (a game type as an authoring KIND), not Phase A — they belong to [status/editor](editor.md) and
+   [status/flow](flow.md), and subsume the old "reference layouts for `ways`/`cluster`/`scatter`"
+   item.
+
+   **The gate, and what it cost to build.** The fingerprint is exact only for **type-only** slices
+   (a real file move reorders rollup's graph and reshuffles minified names), so relocation slices
+   are verified with **`scripts/bundle-modules.mjs`** (sourcemap build → compare the module set +
+   per-module content hashes); a string-literal comparison **cannot** work on this bundle (lodash
+   regexes containing quotes desync any scanner, template literals embed renamed identifiers) —
+   that was tried and deleted. A2 set the precedent that a slice changing runtime **wiring** (not
+   just relocating code) gets booted against the mock RGS, not just module-set-checked. Two gotchas
+   worth not rediscovering: a dependency scan pattern of `[a-zA-Z.]*` **silently excludes digits**,
+   hiding every `flowV2*` import; and `sed -i` over a glob rewrites line endings in ALL matched
+   files, which git normalizes away but the **sourcemap-based module check does not** — it reported
+   27 phantom changed modules until the untouched files were restored.
+
+   **Per-slice detail worth keeping.** **A1** — recomputed from the real import graph, `utils.ts`
+   and `symbolMap.ts` are NOT leaves (they reach `bookEventHandlerMap`, `flowEffects`,
+   `../editor-scenes`) and `constants.ts` was mixed, so all three needed splitting or a later slice.
+   **A2** — the context could NOT be relocated, because four things in it are app-bound
+   (`eventEmitter` is typed by a union assembled from the COMPONENTS, mechanic events included, and
+   components rely on that precise typing; `stateApp` from this game's assets + baked editor art;
+   `stateLayout` from this game's ratios/sizes; plus `stateGame`/`i18nDerived`). The keystone is a
+   dependency **inversion** — `createGameContext()` owns the wiring, `apps/lines/src/game/context.ts`
+   is a thin composition root — which is **Phase B's mechanic contract arriving early**, for state
+   and events rather than the win model; Phase A therefore cannot fully precede Phase B, and the
+   owner approved pulling B forward. **A3** — `getGameContext()` is typed by declaration merging
+   (the app declares `interface GameContext extends LinesContext`, the only direction available
+   since a package must never import from an app). Only **10** components moved, not the planned 44:
+   that number counted whether a component mentions the MECHANIC and ignored what each IMPORTS, the
+   set must be closed under sibling imports (`Win` looks clean but pulls `WinGate`/`WinVisual`), and
+   `BoardFrame`/`Effects` import `../editor-scenes` while `TapToContinue` imports
+   `flowV2InterpreterHolder`. **A3.5** — engine feel knobs (`SYMBOL_SIZE`, `SYMBOL_SPINE_FILL`,
+   `REEL_PADDING`, `SYMBOL_DIM_TINT`, `INITIAL_SYMBOL_STATE`, `SPIN_OPTIONS_DEFAULT`/`FAST`) →
+   package; this game's `STACKED_PICTURE` / `SYMBOL_INFO_MAP` / `SCATTER_LAND_SOUND_MAP` stay. The
+   halves had no cross-references, so the cut was clean. **Hard constraint to preserve:** the app's
+   `constants.ts` now has ZERO imports and must keep it that way —
+   `apps/launcher-api/scripts/publish-symbol-defaults.mjs` imports it STANDALONE under Node
+   type-stripping to read `SYMBOL_INFO_MAP`, and the `engine-game` barrel re-exports `.svelte`
+   components that type-stripping cannot parse, so a value import from there would silently break
+   the publish. Seven dead exports were deleted rather than moved (moving them would have created
+   dead API in a new package): `MOTION_BLUR_VELOCITY`, `zIndexes`, `BACKGROUND_RATIO`,
+   `PORTRAIT_BACKGROUND_RATIO`, the three `*_MAIN_SIZES` — note `FreeSpinAnimation.svelte` has a
+   LOCAL `BACKGROUND_RATIO` with a different value, and the main sizes are duplicated as literals
+   inside `stateLayout.ts`, which is what actually feeds the layout. **A4** — the board/reel
+   machinery (lattice, spin profiles, anticipation, stacked runs, win-dim) is in the package; this
+   game's grid/layout/sounds are injected as `deps`. **Correction worth keeping:** the earlier "~95%
+   generic" figure counted MECHANIC mentions and does not predict extractability — the real coupling
+   was six app deps plus `onSymbolLand`, which hardcodes this game's `'S'`/`'W'` ids and cue names
+   (it stayed in the app). It did NOT unblock the component queue: of the 11 component importers,
+   six import only `stateGame` itself, which package components already reach via `getGameContext()`,
+   and most of those are book/expanding mechanic components that **stay in the app by design**. The
+   reason to do it is that the board machinery is what a `ways`/`cluster` build would otherwise fork.
+   Two implementation notes: types that depend on factory internals (`Reel`, `ReelSymbol`,
+   `MultiplierSymbol`, `StackedPictureRun`) are **derived from the factory's return type** rather
+   than re-declared, so they cannot drift from `buildBoard`; and the real risk was array identity,
+   not typing — `enhancedBoard` closes over `stateGame.board` at module init and `rebuildBoard`
+   splices rather than reassigns, so the factory must be called exactly once at app module scope.
+   **A5** — the `runtime → baked → compiled` resolution, its memo, the win-tier ladder, the board
+   grid and the config warnings all moved to `createGameConfig()`; only the two SOURCES are injected
+   (`bakedGameConfig()` and the compiled `./config`). App file: 462 → 45 lines, 23 functions
+   re-exported, 21 consumers untouched. Cleanest seam in Phase A — the file was already type-agnostic
+   apart from its two inputs, and the `__IE_SERVER_CONFIG__`/`__IE_WIN_LEVELS__` globals needed
+   nothing because they are deliberately decoupled bridges to the Play4Fun facade.
+
 2. ✅ ~~**B4 — HUD migration**~~ — **DONE for `apps/lines` (shipped 2026-06-08).** Live Balance/Win/Bet readouts render as `hudReadout` component instances behind the parity gate. Remaining: the **Borut mirror (B4.6)** submodule bump + owner live-verify.
 3. **Three-knob reel grid + Borut mirror tail** — the reel-grid split (2026-07-03) was NOT yet published to `_runtime/lines` at the time of writing and not mirrored to Borut's engine submodule; verify it rode a later runtime publish.
 4. **Author the sequential-reel-stop / flow effect nodes** into a target game's FlowDoc online — the mode is capability-only until authored; mirror the game-side wiring into standalone `bookofborut`.
@@ -73,6 +154,8 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 - **Live-verify of shipped runtime changes** — win-line draw, sequential stop timing, spine symbol size, and author extra-scene z-order need an in-browser confirmation the headless build can't give.
 
 ## Recent changes
+
+- 2026-08-20 — **The game-type-templates plan is finally readable: `docs/design/game-type-templates.md` now exists.** It was cited as the authoritative numbered plan from ~14 code comments and both status files, and had never been written — so rule 7's "read the registered next step" pointed at nothing. Reconstructed from the shipped work (#355 / #357 / #360, plus the `engine/ways-authoring-kind` branch for Phase E), with a section per named phase — A0–A5, B, C, D, E — so every citation resolves. It also records the owner decision of 2026-08-19 that **`cluster` / `scatter` templates will NOT be built**: both need the tumble/cascade mechanic the shared runtime has never carried (`tumbleBoard`, `updateTumbleWin`, `updateGlobalMult`, plus `updateGrid` for cluster and `boardMultiplierInfo` for scatter), which makes them a board mechanic rather than a template; their win models stay declared and correctly priced. Open item 1 above was rewritten at the same time: its headline still said Phase A was IN PROGRESS with only A0/A1 landed, which its own body (A2–A5) and `packages/engine-game` on disk both contradicted.
 
 - 2026-08-19 — **A ways win drew four disconnected vertical dashes instead of a win line — the cluster heuristic can't tell a ways win from a Book-of expansion.** `WinLine.svelte` has always had two shapes, picked by a `columnWin` flag that `winLineColumnWinFor` computed as "does any reel pay more than one cell". That is exactly right for the case it was written for (a **lines** game whose special symbol expands to fill whole reels — Book of Borut — where a connected polyline traces an unreadable criss-cross zig-zag) and exactly wrong for **ways**, where a duplicate reel is the normal case, not the exception. Project `test3` (`winModel: {type:'ways', direction:'ltr', minKind:3}`, 5×3, zero paylines) paid hearts on reels 1-4 with reel 4 contributing two cells — 2 ways — and the flag flipped, so the line rendered as one short bar per paying cell. The shape is now decided by the **declared win model**, not by counting reels: `winLineShapeFor()` returns `'reels'` for `ways`, `'cells'` for `cluster`/`scatter`, and for `lines` keeps the duplicate-reel heuristic (so the shipped Book-of expansion is byte-unchanged). The new `'reels'` shape merges a reel's winning cells into ONE bar spanning topmost→bottommost ± half a cell — a ways win pays by whole-reel participation, so the reel is the unit, and cells on the same reel join even when they are NOT adjacent. Reels are keyed by the point's `x` (`getSymbolX(reel)`, one exact value per reel), so the grouping is lossless without threading reel indices through the emitter event. `columnWin?: boolean` on `winLineShow` becomes `shape?: WinLineShape` — not in any FlowDoc or emitter vocabulary, so nothing authored changes — and all three dispatch sites (coded handler, `showWinLine` effect, resting win cycle) share the one helper as before. Both bar shapes still skip the head-trace reveal and the full-payline underlay, and still stamp the amount ONCE centred over the winning columns. `svelte-check` 0 errors. **Ships to online games with a Runtime release** (they run the shared `_runtime/lines` bundle).
 
