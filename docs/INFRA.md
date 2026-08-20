@@ -150,6 +150,8 @@ The launcher's `/comfyui` card lists the fleet and can **start/stop** each pod (
 | `RUNPOD_API_KEY` | RunPod API key used to start/stop every pod (secret; shared across the fleet). |
 | `RUNPOD_POD_ID` | **Legacy fallback only** — a single pod id, synthesized as a "Default" pod when `runpodPods` is empty. Prefer the admin fleet editor. |
 | `COMFY_RND_URL` | **Legacy fallback only** — overrides the derived URL for the single `RUNPOD_POD_ID` pod. Not used once a fleet is configured. |
+| `COMFY_VOLUME_POD_ID` | **Optional.** Pod id of an **always-on volume pod** used ONLY to read what's installed for the card's "What's installed" panel (models on the Network Volume + loaded node packs). Point it at a cheap **CPU pod** that mounts the same volume and runs ComfyUI in CPU mode — it never generates, it only answers HTTP — and the panel keeps working with the whole GPU fleet stopped. Unset → the panel falls back to any running GPU pod. |
+| `COMFY_VOLUME_URL` | **Optional.** Explicit base URL for that reader, overriding the id-derived one. |
 
 - **Idle auto-stop is NOT env** — it's **admin-configured** and stored in the `app_settings` table (`runpodIdleEnabled`, `runpodIdleMinutes`, default **20**). An admin toggles it + sets the minutes from the launcher admin UI; the launcher stops an idle pod after that many minutes (a non-empty ComfyUI render queue counts as activity, so a running render is never interrupted).
 

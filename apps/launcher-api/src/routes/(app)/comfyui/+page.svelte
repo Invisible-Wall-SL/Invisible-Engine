@@ -22,13 +22,42 @@
 		pods: Pod[];
 	}
 
+	interface ModelFolder {
+		folder: string;
+		files: string[];
+		truncated: boolean;
+	}
+	interface NodePack {
+		name: string;
+		nodes: number;
+		version?: string;
+		onVolume?: boolean;
+	}
+	interface Inventory {
+		reader: { id: string; label: string } | null;
+		models: ModelFolder[];
+		packs: NodePack[];
+		modelsVia?: string;
+		packsVia?: string;
+		note?: string;
+		fetchedAt: number;
+	}
+
 	let status = $state<StatusResp | null>(null);
 	// Per-pod transient UI state, keyed by pod id.
 	let busy = $state<Record<string, boolean>>({});
 	let starting = $state<Record<string, boolean>>({});
 	let errors = $state<Record<string, string>>({});
 
+	let inventory = $state<Inventory | null>(null);
+	let invBusy = $state(false);
+	let invError = $state('');
+	let invOpen = $state(false);
+
 	const pods = $derived(status?.pods ?? []);
+	const modelCount = $derived(
+		(inventory?.models ?? []).reduce((sum, folder) => sum + folder.files.length, 0),
+	);
 
 	function isReady(p: Pod): boolean {
 		return p.status === 'running' && p.ready;
@@ -59,7 +88,35 @@
 	});
 
 	function applyStatus(resp: StatusResp): void {
+		const wasReady = pods.some(isReady);
 		status = resp;
+		// A pod coming up is the one moment the inventory can change from "nothing
+		// answered" to a real listing, so re-read it then — but only then. This is not
+		// part of the 5s poll: a pack listing can cost an /object_info scan.
+		if (!wasReady && resp.pods.some(isReady) && !inventory?.reader) void loadInventory();
+	}
+
+	/**
+	 * Read what's installed. Deliberately NOT polled — the server caches for 60s and the
+	 * Refresh button forces a fresh read, which is what you want right after installing
+	 * something on a pod.
+	 */
+	async function loadInventory(refresh = false): Promise<void> {
+		if (invBusy) return;
+		invBusy = true;
+		invError = '';
+		try {
+			const res = await fetch(`/comfyui/inventory${refresh ? '?refresh=1' : ''}`);
+			if (res.ok) {
+				inventory = (await res.json()) as Inventory;
+			} else {
+				invError = 'Could not read the pods.';
+			}
+		} catch {
+			invError = 'Network error — try again.';
+		} finally {
+			invBusy = false;
+		}
 	}
 
 	async function refresh(): Promise<void> {
@@ -139,6 +196,9 @@
 	onMount(() => {
 		if (!data.podControl) return;
 		void refresh();
+		// One read on load: an always-on volume pod answers even with the whole GPU fleet
+		// stopped, so this is usually a real listing rather than an empty panel.
+		void loadInventory();
 		const poll = setInterval(() => void refresh(), 5000);
 		// Heartbeat: keep the fleet alive only while the tab is actually visible, so a
 		// forgotten hidden tab lets the idle watchdog reclaim the GPU.
@@ -298,6 +358,109 @@
 							{/if}
 						</p>
 					{/if}
+
+					<!-- What's installed. Collapsed by default: it answers a question you ask
+					     occasionally ("is that LoRA up there?"), and the fleet controls are what
+					     the page is for. -->
+					<div class="inv">
+						<button class="inv-head" onclick={() => (invOpen = !invOpen)} aria-expanded={invOpen}>
+							<span class="inv-title">
+								What's installed
+								{#if inventory?.reader}
+									<span class="sub">
+										{modelCount} models · {inventory.packs.length} node packs
+									</span>
+								{/if}
+							</span>
+							<span class="chev" class:open={invOpen}>›</span>
+						</button>
+
+						{#if invOpen}
+							<div class="inv-body">
+								{#if invBusy && !inventory}
+									<div class="statusline"><span class="spinner"></span> Reading the pods…</div>
+								{:else}
+									{#if inventory?.reader}
+										<p class="hint">
+											Read live from <strong>{inventory.reader.label}</strong
+											>{#if inventory.modelsVia}
+												via <code>{inventory.modelsVia}</code>{/if}.
+										</p>
+									{/if}
+									{#if invError}<p class="err">{invError}</p>{/if}
+									{#if inventory?.note}<p class="hint">{inventory.note}</p>{/if}
+
+									{#if inventory && inventory.models.length > 0}
+										<h3>
+											Models <span class="sub"
+												>Network Volume — shared by every pod, survives a stop</span
+											>
+										</h3>
+										<ul class="folders">
+											{#each inventory.models as folder (folder.folder)}
+												<li>
+													<details>
+														<summary>
+															<span class="fname">{folder.folder}</span>
+															<span class="count">
+																{folder.files.length}{folder.truncated ? '+' : ''}
+															</span>
+														</summary>
+														<ul class="files">
+															{#each folder.files as file (file)}
+																<li>{file}</li>
+															{/each}
+														</ul>
+													</details>
+												</li>
+											{/each}
+										</ul>
+									{/if}
+
+									{#if inventory && inventory.packs.length > 0}
+										<h3>
+											Custom node packs
+											<span class="sub">
+												loaded by {inventory.reader?.label ?? 'the pod'}{#if inventory.packsVia}
+													· <code>{inventory.packsVia}</code>{/if}
+											</span>
+										</h3>
+										<ul class="packs">
+											{#each inventory.packs as pack (pack.name)}
+												<li>
+													<span class="fname">{pack.name}</span>
+													{#if pack.version}<span class="ver">{pack.version}</span>{/if}
+													{#if pack.nodes > 0}<span class="count">{pack.nodes} nodes</span>{/if}
+													{#if pack.onVolume === false}
+														<span class="badge warn" title="Not on the volume — lost on recreate">
+															container
+														</span>
+													{/if}
+												</li>
+											{/each}
+										</ul>
+										<p class="note">
+											Node packs live in the pod's <strong>container image</strong>, not on the
+											volume. Anything installed later with ComfyUI-Manager is written to the
+											container and <strong>disappears when the pod is recreated on resume</strong>
+											— to keep a pack, add it to
+											<code>services/atlas-comfy-pod/Dockerfile</code> and rebuild the image.
+										</p>
+									{/if}
+								{/if}
+
+								<div class="inv-actions">
+									<button
+										class="secondary sm"
+										onclick={() => loadInventory(true)}
+										disabled={invBusy}
+									>
+										{invBusy ? 'Reading…' : 'Refresh'}
+									</button>
+								</div>
+							</div>
+						{/if}
+					</div>
 				{/if}
 
 				<ol class="flow">
@@ -526,6 +689,118 @@
 		margin: 6px 0 0;
 		font-size: 12px;
 		color: #8a8a93;
+	}
+	.inv {
+		margin: 14px 0 0;
+		border: 1px solid #23232c;
+		border-radius: 12px;
+		background: #14141a;
+		overflow: hidden;
+	}
+	.inv-head {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 12px;
+		width: 100%;
+		background: transparent;
+		border: none;
+		cursor: pointer;
+		color: #e6e6ee;
+		font: inherit;
+		font-size: 14px;
+		font-weight: 600;
+		text-align: left;
+		padding: 14px 18px;
+	}
+	.inv-head:hover {
+		color: #7ee0c0;
+	}
+	.chev {
+		color: #8a8a93;
+		transition: transform 0.15s ease;
+	}
+	.chev.open {
+		transform: rotate(90deg);
+	}
+	.inv-body {
+		padding: 0 18px 16px;
+		border-top: 1px solid #23232c;
+	}
+	.inv-body h3 {
+		margin: 16px 0 8px;
+		font-size: 13px;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: #a9a9b4;
+	}
+	.sub {
+		font-weight: 400;
+		font-size: 12px;
+		letter-spacing: 0;
+		text-transform: none;
+		color: #8a8a93;
+	}
+	.folders,
+	.packs {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		font-size: 13px;
+	}
+	.folders > li,
+	.packs > li {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 7px 0;
+		border-bottom: 1px solid #1d1d25;
+	}
+	.folders > li {
+		display: block;
+	}
+	.folders summary {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		cursor: pointer;
+		list-style: none;
+	}
+	.folders summary::-webkit-details-marker {
+		display: none;
+	}
+	.folders summary::before {
+		content: '›';
+		color: #6a6a76;
+	}
+	.folders details[open] summary::before {
+		color: #7ee0c0;
+	}
+	.fname {
+		color: #e2e2ea;
+		word-break: break-all;
+	}
+	.count,
+	.ver {
+		font-size: 12px;
+		color: #8a8a93;
+		flex: none;
+	}
+	.count {
+		margin-left: auto;
+	}
+	.files {
+		list-style: none;
+		margin: 6px 0 8px 16px;
+		padding: 0 0 0 10px;
+		border-left: 1px solid #2a2a34;
+		font-size: 12px;
+		color: #a9a9b4;
+		line-height: 1.7;
+		word-break: break-all;
+	}
+	.inv-actions {
+		margin-top: 16px;
 	}
 	.err {
 		margin: 10px 0 0;
