@@ -343,6 +343,10 @@ const toBookEventAmount = (winCents: number, betCents: number): number => {
 	return result;
 };
 
+/** Rows `padReel` adds ABOVE the visible grid — the offset any server-side row index needs to
+ *  become an engine row index. */
+const BOARD_PADDING_ROWS = 1;
+
 /** Pad a 3-row reel to 5 cells (1 above + 1 below) for Stake's spin buffer. */
 const padReel = (reel: string[]): string[] => {
 	if (reel.length === 0) return [];
@@ -596,6 +600,36 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 				if (gameType === 'freegame' || totalFs > 0) {
 					push({ type: 'setTotalWin', amount: runningTotal });
 				}
+				break;
+			}
+			/**
+			 * Cascade PRESENTATION FIXTURE (`CASCADE=1` on the mock) → the engine's `tumbleBoard`
+			 * book event.
+			 *
+			 * ⚠️ `tumbleStep` is NOT a captured Play4Fun event. Every other case in this switch was
+			 * verified against a real session; this one translates a shape the mock invents, so that
+			 * the cascade overlay has something to play. It is inert unless the mock is explicitly
+			 * asked to emit it, and a real provider's cascade should REPLACE this rather than be bent
+			 * to fit it.
+			 */
+			case 'tumbleStep': {
+				const ctx = e.context as {
+					exploding?: { reel: number; row: number }[];
+					newSymbols?: string[][];
+				};
+				push({
+					type: 'tumbleBoard',
+					// The engine pads the board one row top+bottom, and the mock's positions index the
+					// VISIBLE grid — so shift by the same padding the reveal applies, or the wrong cells
+					// explode.
+					explodingSymbols: (ctx.exploding ?? []).map((p) => ({
+						reel: p.reel,
+						row: p.row + BOARD_PADDING_ROWS,
+					})),
+					newSymbols: (ctx.newSymbols ?? []).map((reel) =>
+						reel.map((name) => ({ name: mapSymbol(activeMapping, name) })),
+					),
+				});
 				break;
 			}
 			case 'enterBonus': {
