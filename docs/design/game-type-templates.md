@@ -409,3 +409,14 @@ The honest list of what this plan has not delivered, in the order it matters:
 4. **A real math export for `apps/ways`.** Its strips are cosmetic and evenly weighted. Legitimate for
    a client that never computes wins, but a ways default currently seeds a plausible-looking board
    whose symbol frequencies mean nothing — not fine shipped for money.
+
+   The export itself has to come from a math engine; authoring frequencies in a client repo would be
+   fabricating game math, which is exactly what `apps/ways/src/game/config.ts` says it is refusing to
+   do. What DOES exist now is the check that receives one: `pnpm --filter game-config-spike run
+   waysmath` deals boards off any doc's strips, scores them with the engine's ways rule and reports
+   RTP, hit rate, scatter-trigger rate and per-symbol contribution — so an arriving export can be
+   held against what the provider claims, instead of being trusted. Run against the current
+   placeholder it reports the state plainly: **0.13% RTP against a declared 0.97**, a scatter trigger
+   on **1 board in 6**, and a declared wild that never appears on a strip and so can never land.
+   `waysCrosscheck` pins the scorer to `mock-rgs-server`'s `evaluateWays` over 40,000 boards, so the
+   measurement describes the engine's rule rather than a second opinion about it.
