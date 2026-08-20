@@ -135,8 +135,10 @@
 	};
 </script>
 
+<!-- `none` while DISABLED so an inert button does not SWALLOW the pointer — the press falls
+	 through to the overlay beneath the chrome. See the note in `components-pixi/Button.svelte`. -->
 <Container
-	eventMode="static"
+	eventMode={disabled ? 'none' : 'static'}
 	cursor={disabled ? 'not-allowed' : 'pointer'}
 	onpointerover={() => {
 		if (!disabled) hovered = true;

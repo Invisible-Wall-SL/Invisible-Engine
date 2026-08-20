@@ -971,8 +971,10 @@
 
 {#snippet rendered(root: LayoutNode)}
 	{#if interactive}
+		<!-- `none` while DISABLED so an inert button does not SWALLOW the pointer — the press
+			 falls through to the overlay beneath the chrome. See `components-pixi/Button.svelte`. -->
 		<Container
-			eventMode="static"
+			eventMode={liveDisabled ? 'none' : 'static'}
 			{cursor}
 			onpointerover={() => {
 				if (!liveDisabled) hovered = true;

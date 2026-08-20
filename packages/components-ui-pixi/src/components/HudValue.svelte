@@ -91,7 +91,13 @@
 </script>
 
 {#if isBet}
-	<Container eventMode="static" cursor={disabled ? 'not-allowed' : 'pointer'} onpointerup={onpress}>
+	<!-- `none` while DISABLED so an inert surface does not SWALLOW the pointer — see the note in
+		 `components-pixi/Button.svelte`. -->
+	<Container
+		eventMode={disabled ? 'none' : 'static'}
+		cursor={disabled ? 'not-allowed' : 'pointer'}
+		onpointerup={onpress}
+	>
 		<CatalogText x={offsetX} {anchor} text={value} {style} />
 	</Container>
 {:else}
