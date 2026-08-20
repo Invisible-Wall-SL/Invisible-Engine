@@ -351,8 +351,31 @@ export async function exportEditorArt(
 	 * "renders in the tool, blank in the game" trap rule 8 exists to prevent. Same shape as the
 	 * `cardComponentIds` / FX-atlas seeds below: runtime-chosen refs the walk is blind to.
 	 */
-	opts?: { extraSpineNames?: Iterable<string> },
+	opts?: {
+		extraSpineNames?: Iterable<string>;
+		/**
+		 * Optional per-PHASE timings, folded into the caller's record and surfaced on
+		 * `/api/editor/runtime`'s `Server-Timing` header.
+		 *
+		 * `art` is ~34s of a ~37s assemble (measured 2026-08-20), and the top-level number cannot say
+		 * WHY. The page store already skips re-encoding, so the cost is not compute — the suspicion is
+		 * that the three export loops below run one item at a time, each making several sequential R2
+		 * round-trips. These sub-timings are what turns that into a measurement before anyone
+		 * parallelises a loop that writes shipped game art.
+		 */
+		timings?: Record<string, number>;
+	},
 ): Promise<EditorArtIndex> {
+	/** Record a phase's elapsed ms under `art:<name>`, or run it untimed when no record was passed. */
+	const phase = async <T>(name: string, run: () => Promise<T>): Promise<T> => {
+		if (!opts?.timings) return run();
+		const startedAt = Date.now();
+		try {
+			return await run();
+		} finally {
+			opts.timings[`art:${name}`] = Date.now() - startedAt;
+		}
+	};
 	const doc = (await loadDoc(clientKey, projectKey)) as LayoutDoc;
 	// Seed the def walk with the config's per-mode buy-feature card ids so each card's OWN art rides
 	// this export — those ids are chosen at runtime, so `collectComponentIds` (the static scene walk)
@@ -540,9 +563,11 @@ export async function exportEditorArt(
 		coveredBySheet.set(manifestKey, new Set(set.regions.map((r) => r.name)));
 	};
 
-	for (const manifestKey of refs.manifestKeys) {
-		await exportManifest(manifestKey);
-	}
+	await phase('manifests', async () => {
+		for (const manifestKey of refs.manifestKeys) {
+			await exportManifest(manifestKey);
+		}
+	});
 
 	// Image-kind params reference regions by NAME only — locate each missing one
 	// among the project's atlases and export its containing sheet too.
@@ -568,16 +593,18 @@ export async function exportEditorArt(
 	// pointing at the shared page (relative to the asset base, so `_pages/…`). A whole-texture
 	// sprite has no atlas coords, so a downscaled KTX2 twin just lowers its resolution.
 	const images: EditorArtImage[] = [];
-	for (const imageKey of refs.imageKeys) {
-		const ext = /\.(png|webp|jpe?g)$/i.exec(imageKey)?.[1].toLowerCase() ?? 'png';
-		const shared = await pageStore.ensure(imageKey, ext);
-		if (!shared) continue;
-		images.push({
-			key: imageKey,
-			file: `_pages/${shared.file}`,
-			ktx2: shared.ktx2File ? `_pages/${shared.ktx2File}` : undefined,
-		});
-	}
+	await phase('images', async () => {
+		for (const imageKey of refs.imageKeys) {
+			const ext = /\.(png|webp|jpe?g)$/i.exec(imageKey)?.[1].toLowerCase() ?? 'png';
+			const shared = await pageStore.ensure(imageKey, ext);
+			if (!shared) continue;
+			images.push({
+				key: imageKey,
+				file: `_pages/${shared.file}`,
+				ktx2: shared.ktx2File ? `_pages/${shared.ktx2File}` : undefined,
+			});
+		}
+	});
 
 	// Spine bundles: copy each referenced bundle into deploy/editor-art/ via the shared
 	// helper (atlas + skeleton + pages; a Rigger `.irig` skeleton is shipped as `.json`
@@ -601,44 +628,46 @@ export async function exportEditorArt(
 		...[...refs.spineNames].map((name) => `${SUB.spines(clientKey, projectKey)}/${name}/`),
 	];
 	if (spineAssetKeys.length > 0) {
-		const skeletonIndex = await loadSkeletonIndex(clientKey, projectKey);
-		const exportedSpines = new Set<string>();
-		const spineStem = (assetKey: string): string => {
-			const base = assetKey.replace(/\/$/, '');
-			const tail = base.slice(base.lastIndexOf('/') + 1).replace(/[^a-zA-Z0-9_-]/g, '_');
-			return tail || 'spine';
-		};
-		for (const assetKey of spineAssetKeys) {
-			// Dedup by the REGISTRATION key (the bundle NAME) so a bundle referenced by BOTH a
-			// node (full assetKey) and a param (name → synthetic assetKey) exports once; a coded
-			// key with no R2 bundle falls back to its assetKey.
-			const gameKey = bundleFromAssetKey(clientKey, projectKey, assetKey);
-			const dedupKey = gameKey ?? assetKey;
-			if (exportedSpines.has(dedupKey)) continue;
-			exportedSpines.add(dedupKey);
-			let stem = spineStem(assetKey);
-			for (let i = 2; usedStems.has(stem); i++) stem = `${spineStem(assetKey)}_${i}`;
-			usedStems.add(stem);
-			const result = await exportSpineBundle({
-				clientKey,
-				projectKey,
-				assetKey,
-				deployPrefix,
-				subtree: 'editor-art',
-				stem,
-				skeletonIndex,
-				scale: EDITOR_SPINE_LOAD_SCALE,
-				// Share the page store so a rig atlas page that matches a sheet page (or another
-				// rig's) dedups to ONE shared `_pages/` texture instead of a private copy per rig.
-				pageStore,
-			});
-			if (!result) continue;
-			// Register under the plain bundle NAME — not the full prefix — or the runtime
-			// lookup misses and the spine never loads in the built game.
-			if (gameKey) result.entry.key = gameKey;
-			for (const k of result.written) written.add(k);
-			spines.push(result.entry);
-		}
+		await phase('spines', async () => {
+			const skeletonIndex = await loadSkeletonIndex(clientKey, projectKey);
+			const exportedSpines = new Set<string>();
+			const spineStem = (assetKey: string): string => {
+				const base = assetKey.replace(/\/$/, '');
+				const tail = base.slice(base.lastIndexOf('/') + 1).replace(/[^a-zA-Z0-9_-]/g, '_');
+				return tail || 'spine';
+			};
+			for (const assetKey of spineAssetKeys) {
+				// Dedup by the REGISTRATION key (the bundle NAME) so a bundle referenced by BOTH a
+				// node (full assetKey) and a param (name → synthetic assetKey) exports once; a coded
+				// key with no R2 bundle falls back to its assetKey.
+				const gameKey = bundleFromAssetKey(clientKey, projectKey, assetKey);
+				const dedupKey = gameKey ?? assetKey;
+				if (exportedSpines.has(dedupKey)) continue;
+				exportedSpines.add(dedupKey);
+				let stem = spineStem(assetKey);
+				for (let i = 2; usedStems.has(stem); i++) stem = `${spineStem(assetKey)}_${i}`;
+				usedStems.add(stem);
+				const result = await exportSpineBundle({
+					clientKey,
+					projectKey,
+					assetKey,
+					deployPrefix,
+					subtree: 'editor-art',
+					stem,
+					skeletonIndex,
+					scale: EDITOR_SPINE_LOAD_SCALE,
+					// Share the page store so a rig atlas page that matches a sheet page (or another
+					// rig's) dedups to ONE shared `_pages/` texture instead of a private copy per rig.
+					pageStore,
+				});
+				if (!result) continue;
+				// Register under the plain bundle NAME — not the full prefix — or the runtime
+				// lookup misses and the spine never loads in the built game.
+				if (gameKey) result.entry.key = gameKey;
+				for (const k of result.written) written.add(k);
+				spines.push(result.entry);
+			}
+		});
 	}
 
 	// Cross-sheet region-name collisions. Each sheet is registered scoped by its
@@ -722,8 +751,9 @@ export async function exportEditorArt(
 	// page store lives in a SIBLING `_pages/` prefix (outside `editor-art/`), so prune it too —
 	// against `pageStore.written`, which includes every page REUSED from a previous run (the
 	// content-cache adds reused keys to `written`), so an unchanged page is never wrongly deleted.
-	const existing = await listAllKeys(artPrefix);
-	const stalePages = await listAllKeys(`${deployPrefix}_pages/`);
+	const [existing, stalePages] = await phase('prune:list', () =>
+		Promise.all([listAllKeys(artPrefix), listAllKeys(`${deployPrefix}_pages/`)]),
+	);
 	const stale = [
 		...existing.filter((k) => !written.has(k)),
 		...stalePages.filter((k) => !pageStore.written.has(k)),
