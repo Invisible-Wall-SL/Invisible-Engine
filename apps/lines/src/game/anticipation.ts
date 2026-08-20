@@ -127,8 +127,8 @@ function buildReach(board: string[][]): {
 				board,
 				paylines,
 				payingSymbols,
-				linePay,
-				numLines,
+				linePay: symbolPay,
+				numLines: getNumLines(),
 				isWild,
 				isSpecial: (symbol) => symbol === special,
 			})
