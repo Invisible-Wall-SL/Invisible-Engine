@@ -161,12 +161,17 @@ async function pickReader(): Promise<{ url: string; id: string; label: string } 
 	}
 
 	for (const pod of await probeFleet()) {
-		if (pod.status === 'running' && pod.ready) {
-			// `pod.url` is already the proxy that ANSWERED (probeFleet resolves it); the
-			// direct ip:port is the fallback for a pod whose HTTP proxy port is gone
-			// because 8188 was exposed as TCP.
-			const url = trimUrl(pod.url) || trimUrl(pod.directUrl ?? '');
-			if (url) return { url, id: pod.id, label: pod.label };
+		if (pod.status !== 'running' || !pod.ready) continue;
+		// `pod.url` is the proxy that answered ONLY when one did — otherwise `probeFleet`
+		// leaves the DERIVED hostname there, and on a TCP-only pod that hostname 404s
+		// every path (measured on the running Blackwell pod: `/system_stats` and
+		// `/object_info` alike, a bare `Content-Length: 0` from RunPod's edge). Since
+		// `ready` can be true purely on the strength of the direct endpoint, the url must
+		// be RE-CONFIRMED rather than trusted: reading the dead hostname is indisputably
+		// "the pod answered nothing", which the panel then reports as a ComfyUI whose
+		// model API moved — a wrong and very confusing thing to tell someone.
+		for (const url of [trimUrl(pod.url), trimUrl(pod.directUrl ?? '')]) {
+			if (url && (await comfyReady(url))) return { url, id: pod.id, label: pod.label };
 		}
 	}
 	return null;
