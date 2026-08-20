@@ -6,6 +6,15 @@
 	let { data }: { data: PageData } = $props();
 
 	type PodStatus = 'running' | 'stopped' | 'starting' | 'unknown';
+	interface PodSpecs {
+		gpu?: string;
+		gpuCount?: number;
+		vramGb?: number;
+		cpu?: string;
+		vcpuCount?: number;
+		memoryGb?: number;
+		costPerHr?: number;
+	}
 	interface Pod {
 		id: string;
 		label: string;
@@ -13,6 +22,7 @@
 		status: PodStatus;
 		ready: boolean;
 		directUrl?: string;
+		specs?: PodSpecs;
 	}
 	interface StatusResp {
 		configured: boolean;
@@ -58,6 +68,39 @@
 	const modelCount = $derived(
 		(inventory?.models ?? []).reduce((sum, folder) => sum + folder.files.length, 0),
 	);
+
+	/**
+	 * The three figures that decide WHICH card to start: price, VRAM, processor. Each is
+	 * rendered only when RunPod actually reported it — a spec line is there to be trusted,
+	 * so a guess or an em-dash placeholder would be worse than the missing row.
+	 */
+	function specRows(p: Pod): { label: string; value: string }[] {
+		const s = p.specs;
+		if (!s) return [];
+		const rows: { label: string; value: string }[] = [];
+
+		if (s.costPerHr != null) {
+			rows.push({
+				label: 'Cost/hr',
+				value: `$${s.costPerHr.toFixed(s.costPerHr < 1 ? 3 : 2)}`,
+			});
+		}
+
+		if (s.vramGb != null || s.gpu) {
+			const per = s.vramGb != null ? `${s.vramGb} GB` : '';
+			const vram = s.vramGb != null && (s.gpuCount ?? 1) > 1 ? `${s.gpuCount} × ${per}` : per;
+			rows.push({ label: 'VRAM', value: [vram, s.gpu].filter(Boolean).join(' · ') });
+		}
+
+		const cpu = [
+			s.cpu,
+			s.vcpuCount != null ? `${s.vcpuCount} vCPU` : '',
+			s.memoryGb != null ? `${s.memoryGb} GB RAM` : '',
+		].filter(Boolean);
+		if (cpu.length) rows.push({ label: 'Processor', value: cpu.join(' · ') });
+
+		return rows;
+	}
 
 	function isReady(p: Pod): boolean {
 		return p.status === 'running' && p.ready;
@@ -269,6 +312,17 @@
 										<span class="badge off"><span class="dot off"></span> stopped</span>
 									{/if}
 								</div>
+
+								{#if specRows(pod).length}
+									<dl class="specs">
+										{#each specRows(pod) as row (row.label)}
+											<div class="spec">
+												<dt>{row.label}</dt>
+												<dd>{row.value}</dd>
+											</div>
+										{/each}
+									</dl>
+								{/if}
 
 								<div class="pod-actions">
 									{#if isReady(pod)}
@@ -583,6 +637,30 @@
 	.misconfig code {
 		color: #e0c0a8;
 		word-break: break-all;
+	}
+	/* Specs sit between the pod's name and its buttons: they're what you read to decide
+	   which card to start, so they belong above the action, not below it. */
+	.specs {
+		margin: 12px 0 0;
+		padding: 0;
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+		gap: 8px 16px;
+	}
+	.spec {
+		min-width: 0;
+	}
+	.specs dt {
+		font-size: 11px;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: #7a7a84;
+	}
+	.specs dd {
+		margin: 2px 0 0;
+		font-size: 13px;
+		color: #c3c3cc;
+		font-variant-numeric: tabular-nums;
 	}
 	.pod-actions {
 		display: flex;

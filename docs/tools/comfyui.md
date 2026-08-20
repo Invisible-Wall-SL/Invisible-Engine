@@ -49,6 +49,13 @@ The panel has two shapes depending on how the launcher is configured:
    - **starting** (amber, "Warming up ~2 min…") → a **Cancel** button; the row switches
      itself to **running** as soon as that pod's ComfyUI answers.
    - **stopped** (grey) → a **Start** button.
+
+   Under the badge each row shows the card's **Cost/hr**, **VRAM** and **Processor**,
+   read live from RunPod — so you pick by what the job needs (does the model fit? what
+   does an hour cost?) rather than by the label alone. A figure RunPod doesn't report is
+   left out rather than guessed; VRAM and the GPU name only appear once RunPod has
+   assigned the pod a machine, so a pod that has never run in this launcher session can
+   show price alone until its first Start.
 2. Pick a card and click **Start**. This resumes that RunPod GPU; expect about
    **2 minutes** before ComfyUI is reachable. If RunPod has no GPU of that card free,
    the Start fails and the reason (e.g. "not enough free GPUs") shows **inline on that
