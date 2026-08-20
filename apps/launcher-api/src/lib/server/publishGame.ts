@@ -76,6 +76,9 @@ function protocolFor(gameType: string): MockProtocol {
 	// a payline walk). It is TEST infrastructure — the mock's paytable is keyed by payline run lengths,
 	// so a cluster's payout is approximated; see `evaluateClusters`.
 	if (gameType === 'cluster') return 'cluster';
+	// `scatter` likewise — a count-anywhere evaluator, and the only one that also ships the project's
+	// own paytable because its pricing is by count, not by run length. See `projectSymbolPaytable`.
+	if (gameType === 'scatter') return 'scatter';
 	return 'lines';
 }
 
@@ -158,6 +161,34 @@ function projectLineSymbols(doc: GameConfigDoc): string[] | undefined {
 }
 
 /**
+ * The project's per-symbol paytable in the mock's SERVER vocabulary, as `{ PIC1: { 8: 3, … } }`.
+ *
+ * Only the `scatter` model needs this, and it needs it for a concrete reason: a scatter game prices
+ * by HOW MANY of a symbol are on the board (8, 9, 10, 13+ …), while the mock's own table is keyed by
+ * payline RUN LENGTHS (3/4/5). Clamping a count of 12 into a 5-run row would make every scatter win
+ * pay the same number — degenerate enough to be useless for testing. The authored table already has
+ * the right shape, so it travels instead of being approximated. (Cluster has no such table to send,
+ * which is why it clamps and says so.)
+ *
+ * In-play gate + client→server translation, same as `projectLineSymbols`.
+ */
+function projectSymbolPaytable(
+	doc: GameConfigDoc,
+): Record<string, Record<string, number>> | undefined {
+	const inPlay = new Set(symbolsInPlay(doc));
+	const out: Record<string, Record<string, number>> = {};
+	for (const server of Object.keys(linesMapping.symbols)) {
+		if (server === 'WILD') continue;
+		const client = mapSymbol(linesMapping, server);
+		if (!inPlay.has(client)) continue;
+		const rows = doc.symbols[client]?.paytable;
+		if (!rows?.length) continue;
+		out[server] = paytableToOccursMap(rows);
+	}
+	return Object.keys(out).length ? out : undefined;
+}
+
+/**
  * Resolve a project's board grid from its authored Game Config, in the shape the test-server mock
  * wants (`{ reels, rows, paylines: rows[][], wild? }`). Mirrors the test-server's own `linesGrid`
  * derivation so the mock deals the SAME dimensions + paylines the client draws, plus the in-play wild
@@ -174,7 +205,7 @@ async function projectGrid(
 	// without them it would fall back to the generic defaults rather than the shape the project
 	// declared. (`ways`/`book` still keep the shared default: `ways` needs nothing beyond the board,
 	// and the book mock owns its own shape.)
-	if (protocol !== 'lines' && protocol !== 'cluster') return undefined;
+	if (protocol !== 'lines' && protocol !== 'cluster' && protocol !== 'scatter') return undefined;
 	try {
 		const doc = await loadGameConfigDoc(clientKey, projectKey);
 		if (!doc) return undefined;
@@ -204,6 +235,12 @@ async function projectGrid(
 			model.type === 'cluster'
 				? { minCluster: model.minCluster, adjacency: model.adjacency }
 				: undefined;
+		// Scatter pays by COUNT anywhere, so the mock needs the threshold and — unlike cluster — the
+		// project's own count-keyed paytable, which the mock's run-length table cannot stand in for.
+		const scatter =
+			model.type === 'scatter'
+				? { minCount: model.minCount, symbolPaytable: projectSymbolPaytable(doc) }
+				: undefined;
 		return {
 			reels,
 			rows,
@@ -212,6 +249,7 @@ async function projectGrid(
 			...(stacked ? { stacked: true } : {}),
 			...(symbols ? { symbols } : {}),
 			...(cluster ?? {}),
+			...(scatter ?? {}),
 		};
 	} catch {
 		return undefined;

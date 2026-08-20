@@ -352,6 +352,71 @@ export const evaluateClusters = (reels, betPerCluster, wild = null, opts = {}) =
 	return wins;
 };
 
+/**
+ * Evaluate SCATTER-PAYS wins (`winModel: 'scatter'`) — every symbol pays on COUNT anywhere.
+ *
+ * ⚠️ Not to be confused with {@link evaluateScatters} directly below, which is a different thing
+ * wearing a similar name: that one pays the SCAT feature symbol and triggers free spins, and it runs
+ * for EVERY win model. This one is the win model itself, where an ordinary H1/L2 pays because eight
+ * of them are on the board, wherever they landed.
+ *
+ * Unlike the cluster evaluator, this does NOT approximate the payout. A scatter game prices by count
+ * (8, 9, 10, 13+ …) and the project ships exactly that table (`grid.symbolPaytable`, in server
+ * symbols), so the real values travel. The mock's own run-length table is the fallback for a project
+ * that sent none, and it will read oddly — every count above 5 pays the 5-row — which is the honest
+ * signal that the paytable did not arrive.
+ *
+ * Wilds substitute. Positions go out as the flat `{reel,row}` list `stakeFacade`'s `winPositions`
+ * reads for a non-payline win, same as ways and cluster.
+ */
+export const evaluateScatterPays = (reels, betPerSpin, wild = null, opts = {}) => {
+	const minCount = Math.max(2, Math.round(Number(opts.minCount ?? 8)));
+	const table = opts.symbolPaytable ?? null;
+	const wildPay = wild?.paytable ?? null;
+	const isWild = (sym) => wildPay !== null && sym === 'WILD';
+	const wins = [];
+
+	for (const symbol of LINE_SYMBOLS) {
+		const positions = [];
+		for (let reel = 0; reel < reels.length; reel++) {
+			for (let row = 0; row < reels[reel].length; row++) {
+				const cell = reels[reel][row];
+				if (cell === symbol || isWild(cell)) positions.push({ reel, row });
+			}
+		}
+		if (positions.length < minCount) continue;
+
+		const priceRow = table?.[symbol] ?? PAY_TABLE[symbol];
+		if (!priceRow) continue;
+		// The highest priced tier at or below the count — ordinary paytable semantics, where a row is
+		// a THRESHOLD ("10+") rather than an exact match.
+		//
+		// It matters for a SPARSE table: the sample scatter config happens to list every count from 8
+		// to 36, but a table of `{8, 9, 10, 13}` is perfectly legal, and an exact-match lookup pays
+		// NOTHING for a count of 11 — a win the player can see on the board that silently scores
+		// zero. Also does the clamping the fallback run-length table needs, since any count above 5
+		// simply resolves to the 5 row.
+		const tier = Object.keys(priceRow)
+			.map(Number)
+			.filter((n) => n <= positions.length)
+			.sort((a, b) => a - b)
+			.pop();
+		const mult = tier === undefined ? 0 : (priceRow[tier] ?? 0);
+		if (!mult) continue;
+
+		wins.push({
+			what: symbol,
+			occurs: positions.length,
+			mode: 'scatterPays',
+			pay: mult * betPerSpin,
+			mpInfo: { mp: 1, replacements: 0 },
+			mpBonusInfo: null,
+			context: Object.assign(positions, { count: positions.length }),
+		});
+	}
+	return wins;
+};
+
 /** Evaluate scatter pays. SCATs pay anywhere on the board (not bound to a
  *  payline). Returns at most one win event with all scatter positions. */
 const evaluateScatters = (reels, totalStake) => {
@@ -477,11 +542,16 @@ export function createMockRgs(opts = {}) {
 	// How wins are decided. `lines` keeps the payline evaluator (default ⇒ every existing caller is
 	// byte-identical); `ways` swaps in the ways evaluator. Both then share the same scatter pass and
 	// the same event stream.
-	const winModel = ['ways', 'cluster'].includes(opts.winModel) ? opts.winModel : 'lines';
+	const winModel = ['ways', 'cluster', 'scatter'].includes(opts.winModel) ? opts.winModel : 'lines';
 	/** Cluster shape, straight from the project's declared win model. Defaults match `normalizeWinModel`. */
 	const clusterOpts = {
 		minCluster: opts.minCluster ?? 5,
 		adjacency: opts.adjacency === 'diagonal' ? 'diagonal' : 'orthogonal',
+	};
+	/** Scatter-pays shape + the project's own count-keyed paytable. Default matches `normalizeWinModel`. */
+	const scatterPaysOpts = {
+		minCount: opts.minCount ?? 8,
+		symbolPaytable: opts.symbolPaytable ?? null,
 	};
 
 	// Opt-in WILD support (per-project, injected by the test server from a game's config). When a
@@ -766,7 +836,11 @@ export function createMockRgs(opts = {}) {
 							? evaluateWays(reels, pendingRound.betPerLine, wild)
 							: winModel === 'cluster'
 								? evaluateClusters(reels, pendingRound.betPerLine, wild, clusterOpts)
-								: evaluatePaylines(reels, pendingRound.betPerLine, paylines, wild);
+								: winModel === 'scatter'
+									? // Priced against the TOTAL stake, not a per-line slice: a scatter-pays
+										// multiplier applies to the whole bet (`payoutDivisor` returns 1 for it).
+										evaluateScatterPays(reels, pendingRound.total, wild, scatterPaysOpts)
+									: evaluatePaylines(reels, pendingRound.betPerLine, paylines, wild);
 					const scatterWin = evaluateScatters(reels, pendingRound.total);
 					const wins = scatterWin ? [...lineWins, scatterWin] : lineWins;
 					const totalWin = wins.reduce((s, w) => s + w.pay, 0);

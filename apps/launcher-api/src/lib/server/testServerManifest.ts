@@ -141,7 +141,7 @@ export async function engineDeployStatus(runtimeId: string): Promise<EngineDeplo
 	return { status: 'unknown' };
 }
 
-export type MockProtocol = 'lines' | 'book' | 'ways' | 'cluster';
+export type MockProtocol = 'lines' | 'book' | 'ways' | 'cluster' | 'scatter';
 
 export interface TestServerGameEntry {
 	protocol: MockProtocol;
@@ -181,6 +181,11 @@ export interface TestServerGameEntry {
 		minCluster?: number;
 		/** Whether corner-touching cells join a cluster, from the project's `winModel` (`cluster` only). */
 		adjacency?: 'orthogonal' | 'diagonal';
+		/** Smallest count-anywhere that pays, from the project's `winModel` (`scatter` only). */
+		minCount?: number;
+		/** The project's own count-keyed paytable in SERVER symbols (`scatter` only) — its pricing is
+		 *  by count, which the mock's run-length table cannot express. See `projectSymbolPaytable`. */
+		symbolPaytable?: Record<string, Record<string, number>>;
 	};
 }
 
