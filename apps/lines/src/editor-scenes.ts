@@ -1141,6 +1141,17 @@ export function bakedFontSrcBase(): string {
 }
 
 /**
+ * The same prefix for the BOOT SPLASH, which resolves `_boot/boot.json` + its spine bundles
+ * out of the deploy tree. Read at layout mount — i.e. AFTER `+layout.ts`'s `load()` has
+ * settled the runtime bundle — so runtime mode returns the launcher's absolute base rather
+ * than the page-relative default. Both forms preserve file extensions, which `Assets.load`
+ * needs to pick a spine parser.
+ */
+export function bootSplashAssetBase(): string {
+	return srcBase();
+}
+
+/**
  * URL flag the LAUNCHER adds to its own "launch game" links. It marks a boot as an
  * AUTHORING boot, which is the only case that gets the on-screen stale-data banner —
  * the same published URL is what players load, and a player who hits a transient launcher
@@ -1166,6 +1177,10 @@ declare global {
 				phase: (text: string) => void;
 				progress: (pct: number) => void;
 				done: () => void;
+				/** Run `cb` once the overlay has cleared (immediately if it already has). The
+				 *  boot-splash sequence waits on this so its spine marks aren't played beneath
+				 *  an opaque overlay. */
+				whenDone: (cb: () => void) => void;
 		  }
 		| undefined;
 }

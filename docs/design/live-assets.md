@@ -242,6 +242,42 @@ online path.
 - Measured on Book of Borut (2026-07-27): 61 MB → ~26 MB static/assets (28 dead PNG twins +
   2 audio formats = 34.8 MB), with the `mmBG.*` authoring duplicate surfaced for review.
 
+## Boot-splash export — the pre-canvas marks reach the build (added 2026-08-20)
+
+The one asset class that CANNOT ride the runtime bundle: the two boot splashes
+(engine mark, then the game's own) paint at frame 0, long before
+`/api/editor/runtime` resolves, so they cannot be told where their own art lives.
+
+`bootSplashExport.ts` therefore mirrors both spine bundles to **fixed** paths and
+writes an index beside them:
+
+```
+deploy/_boot/boot.json      { engine?: {...}, game?: {...} }
+deploy/_boot/engine/…       from _shared/spines/<bundle>            (admin-set, global)
+deploy/_boot/game/…         from <C>/<P>/spines/<bundle>            (GameSettings.bootLoader)
+```
+
+Because the paths are fixed, the splash needs no lookup — it fetches
+`assetBase + '_boot/boot.json'` and follows the entries. `assetBase` is the
+page-relative `assets/` on a baked build and the launcher's **path-form**
+`/api/deploy/f/<token>/<client>/<project>/` in runtime mode; both preserve file
+extensions, which `Assets.load` requires to select a spine parser (the
+query-form `?rel=` would not — see `gotcha_pixi_assetsload_querystring_url`).
+
+It runs inside `ensureDeployExports`, so Publish and the live assemble share one
+export path, and it reuses `exportSpineBundle` rather than owning any copying of
+its own — a boot logo is an ordinary spine that happens to be read early.
+
+Two constraints it must keep:
+
+- **No shared `_pages/` dedup.** `editorArtExport` prunes that store against its
+  own written set, so a boot page deduped in there would be deleted by the next
+  art export. Per-bundle page copies keep `_boot/` self-contained.
+- **Prune `_boot/` only** — symmetrically, never `editor-art/` or `_pages/`.
+
+Everything fails open: a missing index, a renamed bundle, or a tier that won't
+render skips that splash instead of blocking boot.
+
 ## The shared build/deploy token (admin-managed)
 
 All of the build-time endpoints above (`/api/deploy`, `/api/editor/doc`,

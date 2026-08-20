@@ -42,6 +42,7 @@ import {
 import { betModeCardIds, type GameConfigDoc } from 'game-config';
 import { listComponentDefaults } from './componentDefaultsStorage';
 import { loadComponent } from './componentStorage';
+import { exportBootSplashes } from './bootSplashExport';
 import { exportEditorArt, type EditorArtIndex } from './editorArtExport';
 import { loadDoc as loadEditorDoc } from './editorStorage';
 import { getGlobalLayoutProfile } from './layoutProfile';
@@ -496,6 +497,11 @@ export async function ensureDeployExports(
 			step('flow', timings, () => exportEditorFlow(client, projectKey)),
 			step('flowV2', timings, () => exportEditorFlowV2(client, projectKey)),
 			step('cinematics', timings, () => exportCinematics(client, projectKey, cinematicDocs)),
+			// Boot splashes are a SIDE EFFECT here, not part of the bundle: the splash paints
+			// before this bundle is fetched, so it reads `deploy/_boot/boot.json` directly. It
+			// rides this export because that is the one path both Publish and the live assemble
+			// share — the same reason everything else in this list is here.
+			step('bootSplash', timings, () => exportBootSplashes(client, projectKey)),
 		],
 	);
 	// Forward an authored flow only — an un-authored doc stays undefined so the runtime

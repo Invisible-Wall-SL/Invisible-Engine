@@ -9,6 +9,7 @@ import {
 	type LayoutType,
 	type Scene,
 } from 'engine-layout';
+import { normalizeBootSplashRef } from 'constants-shared/bootSplash';
 import { editorDocKey } from './projectPaths';
 import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
@@ -217,6 +218,11 @@ function normalizeGameSettings(input: unknown): GameSettings | undefined {
 		if (typeof f.spaceHold === 'boolean') features.spaceHold = f.spaceHold;
 		if (Object.keys(features).length > 0) out.features = features;
 	}
+	// The project's boot splash. This whitelist is a DROP list for anything it doesn't name,
+	// so a new `GameSettings` field must be threaded here or it round-trips away silently on
+	// the next save — the field would appear to save in the editor and never reach R2.
+	const bootLoader = normalizeBootSplashRef(input.bootLoader);
+	if (bootLoader) out.bootLoader = bootLoader;
 	return Object.keys(out).length > 0 ? out : undefined;
 }
 

@@ -56,6 +56,20 @@ export async function resolveSkeletonsRoot(
 	return null;
 }
 
+/**
+ * Resolve a bundle in the shared root ONLY, never the project. Used by the engine boot
+ * mark, which is global by definition: `resolveBundlePrefix` prefers the project root, so
+ * a project that happened to own a bundle of the same name would silently shadow the
+ * engine's own mark — the one thing the admin tier exists to prevent.
+ */
+export async function resolveSharedBundlePrefix(
+	bundle: string,
+	name: string,
+): Promise<string | null> {
+	const shared = spineBundleSharedPath(bundle);
+	return (await objectExists(`${shared}/${name}`)) ? shared : null;
+}
+
 /** Pick the first existing bundle prefix: per-project, then shared `_shared/`. */
 export async function resolveBundlePrefix(
 	clientKey: string,
@@ -312,6 +326,16 @@ export function bundleFromAssetKey(
  * `[]` when the index is missing or unparseable. The shared read primitive for any
  * caller that needs to resolve a folder → `{ atlas_file, skeleton_file, … }`.
  */
+export async function loadSharedSkeletonIndex(): Promise<SkeletonIndexEntry[]> {
+	const indexText = await getObjectText('_shared/spines/skeletons.json');
+	if (!indexText) return [];
+	try {
+		return (JSON.parse(indexText).skeletons ?? []) as SkeletonIndexEntry[];
+	} catch {
+		return [];
+	}
+}
+
 export async function loadSkeletonIndex(
 	clientKey: string,
 	projectKey: string,
@@ -623,9 +647,7 @@ export async function resolveEditorSpineMeta(
 		};
 		// Spine 4.x writes `skins` as an array of `{ name }` (older exports as an object
 		// keyed by skin name); `slots` / `bones` are always arrays of `{ name }`.
-		const named = (
-			v: Array<{ name?: unknown }> | Record<string, unknown> | undefined,
-		): string[] =>
+		const named = (v: Array<{ name?: unknown }> | Record<string, unknown> | undefined): string[] =>
 			Array.isArray(v)
 				? v.map((e) => e?.name).filter((n): n is string => typeof n === 'string')
 				: Object.keys(v ?? {});
@@ -703,6 +725,9 @@ export async function exportSpineBundle(opts: {
 	 * page shared by several rigs / the editor-art sheets loads as ONE GPU texture (fixes the rig
 	 * page-duplication VRAM leak). Omitted (e.g. `symbolExport`) ⇒ the per-bundle copy, unchanged. */
 	pageStore?: PageStore;
+	/** Resolve the bundle in `_shared/spines/` ONLY (see {@link resolveSharedBundlePrefix}).
+	 * Set by the engine boot-mark export; every other caller wants project-first. */
+	forceShared?: boolean;
 }): Promise<ExportedSpineBundle | null> {
 	const { clientKey, projectKey, assetKey, deployPrefix, subtree, stem, skeletonIndex, pageStore } =
 		opts;
@@ -714,7 +739,9 @@ export async function exportSpineBundle(opts: {
 	const entry = skeletonIndex.find((e) => e.folder === folder);
 	if (!entry) return null;
 
-	const prefix = await resolveBundlePrefix(clientKey, projectKey, folder, entry.atlas_file);
+	const prefix = opts.forceShared
+		? await resolveSharedBundlePrefix(folder, entry.atlas_file)
+		: await resolveBundlePrefix(clientKey, projectKey, folder, entry.atlas_file);
 	if (!prefix) return null;
 
 	// Ship the CURRENT sheet geometry, not the rig's creation-time snapshot: self-heal the

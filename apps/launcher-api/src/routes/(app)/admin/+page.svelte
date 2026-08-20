@@ -1,8 +1,10 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import Emblem from '$lib/Emblem.svelte';
+	import ColorField from '$lib/ColorField.svelte';
 	import LayoutProfileEditor from '$lib/LayoutProfileEditor.svelte';
 	import { roleLabel } from '$lib/roles';
+	import { BOOT_SPLASH_DEFAULT_BACKGROUND } from 'constants-shared/bootSplash';
 	import type { LayoutProfile } from 'engine-layout';
 	import type { PageData, ActionData } from './$types';
 
@@ -292,6 +294,15 @@
 			form?.action === 'rotateDeployToken'
 			? (form.deployToken ?? null)
 			: null,
+	);
+
+	// --- Settings: engine boot mark ---
+	// Working copy of the GLOBAL first-splash spine. A blank bundle is the CLEAR case, so
+	// the form posts it as-is rather than having a separate reset control.
+	let bootBundle = $state(data.bootSplash.engine?.bundle ?? '');
+	let bootAnimation = $state(data.bootSplash.engine?.animation ?? '');
+	let bootBackground = $state(
+		data.bootSplash.engine?.background ?? BOOT_SPLASH_DEFAULT_BACKGROUND.engine,
 	);
 
 	// --- Settings: ComfyUI R&D pod fleet ---
@@ -1445,6 +1456,72 @@
 			</div>
 
 			<div class="card">
+				<h3>Engine boot mark</h3>
+				<p class="muted hint">
+					The spine that opens <strong>every</strong> game — the engine's own mark, shown before the
+					game's splash. This replaced the Stake logo, so it is admin-owned: a client cannot change
+					it from their project. Pick from the shared spine library (<span class="mono"
+						>_shared/spines/</span
+					>) — publish a bundle there with the
+					<a href="/files">FTP Browser</a> or the <a href="/rigger">Rigger</a>. A game picks up a
+					change on its <strong>next publish</strong>; already-open games keep the mark they booted
+					with.
+					{#if data.bootSplash.engine}
+						<span class="pill on">{data.bootSplash.engine.bundle}</span>
+					{:else}
+						<span class="pill off">no engine mark</span>
+					{/if}
+				</p>
+
+				{#if data.bootSplash.bundles.length === 0}
+					<p class="muted hint">
+						Nothing has been published to <span class="mono">_shared/spines/</span> yet — upload a
+						spine bundle there (and make sure it is listed in that folder's
+						<span class="mono">skeletons.json</span>) before setting a mark.
+					</p>
+				{/if}
+
+				<form method="POST" action="?/saveBootSplash" use:enhance class="boot-mark">
+					<label>
+						Spine bundle
+						<select name="bundle" bind:value={bootBundle}>
+							<option value="">— none (skip the engine splash) —</option>
+							{#each data.bootSplash.bundles as b (b.folder)}
+								<option value={b.folder}>{b.name}</option>
+							{/each}
+							{#if bootBundle && !data.bootSplash.bundles.some((b) => b.folder === bootBundle)}
+								<!-- The saved bundle is no longer in the library (renamed or removed). Keep it
+								     selectable so saving something else is a deliberate act, not an accident of
+								     the dropdown silently falling back to the first entry. -->
+								<option value={bootBundle}>{bootBundle} (missing)</option>
+							{/if}
+						</select>
+					</label>
+					<label>
+						Animation
+						<input
+							name="animation"
+							type="text"
+							autocomplete="off"
+							placeholder="e.g. Idle — blank uses the first clip"
+							bind:value={bootAnimation}
+						/>
+					</label>
+					<label class="boot-mark-colour">
+						Background
+						<ColorField bind:value={bootBackground} title="Colour painted behind the mark" />
+						<input type="hidden" name="background" value={bootBackground} />
+					</label>
+					<button type="submit">Save engine mark</button>
+				</form>
+				<p class="muted hint">
+					Leave <strong>Animation</strong> blank only if the skeleton's first clip is the right one —
+					a spine left on its setup pose renders empty, which looks like a broken splash rather than
+					an unset one.
+				</p>
+			</div>
+
+			<div class="card">
 				<h3>Edge cache &amp; build</h3>
 				<p class="muted hint">
 					Force Cloudflare to drop its cached copies for the
@@ -2057,6 +2134,24 @@
 	}
 	.project-row.create input {
 		flex: 1;
+	}
+
+	/* --- Settings: engine boot mark --- */
+	.boot-mark {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		gap: 12px;
+	}
+
+	.boot-mark label {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+
+	.boot-mark-colour {
+		align-items: flex-start;
 	}
 
 	/* --- Settings: deploy token --- */

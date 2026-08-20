@@ -10,6 +10,8 @@ import {
 	roleHasCapability,
 } from '$lib/roles';
 import { hashPassword } from '$lib/server/auth';
+import { getEngineBootSplash, setEngineBootSplash } from '$lib/server/bootSplash';
+import { loadSharedSkeletonIndex } from '$lib/server/spine';
 import { BUILD_ID } from '$lib/server/buildId';
 import { purgeEverything } from '$lib/server/cfPurge';
 import { getDb } from '$lib/server/db';
@@ -164,6 +166,16 @@ export const load: PageServerLoad = async ({ locals }) => {
 	// admin-set default from the coded fallback.
 	const globalLayoutProfile = await getGlobalLayoutProfile();
 
+	// The ENGINE boot mark (first pre-game splash, every game). Non-secret. The picker offers the
+	// shared spine library — `_shared/spines/` only, because this mark is deliberately global and
+	// must not be satisfiable by a per-project bundle. An empty list means nothing has been
+	// published there yet, which the UI says explicitly rather than rendering an empty dropdown.
+	const bootSplashEngine = await getEngineBootSplash();
+	const sharedSpineBundles = (await loadSharedSkeletonIndex()).map((e) => ({
+		folder: e.folder,
+		name: e.name || e.folder,
+	}));
+
 	// ComfyUI R&D pod FLEET (RunPod): the admin-editable pod list + idle config + a live
 	// per-pod status readout. The fleet is probed only when pod control is configured
 	// (key present + non-empty fleet). Best-effort: the RunPod helpers are fail-safe, so
@@ -210,6 +222,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 			// A short masked preview so an admin can sanity-check WHICH token is live
 			// without revealing it. Never the full value.
 			masked: deployToken ? maskToken(deployToken) : null,
+		},
+		bootSplash: {
+			engine: bootSplashEngine ?? null,
+			bundles: sharedSpineBundles,
 		},
 		layoutProfile: {
 			// The effective default sent to the editor: the admin-set one, else the coded default.
@@ -783,6 +799,34 @@ export const actions: Actions = {
 		const token = generateDeployToken();
 		await setAppSetting(DEPLOY_TOKEN_KEY, token, admin.id);
 		return { action: 'rotateDeployToken', ok: 'Deploy token rotated.', deployToken: token };
+	},
+
+	/**
+	 * Set (or CLEAR) the global engine boot mark — the spine that opens every game (admin-only).
+	 * Submitting a blank `bundle` clears it, which is why there is no separate reset action: an
+	 * unusable ref and an absent one are the same state by contract (`normalizeBootSplashRef`).
+	 *
+	 * The new mark reaches a game on its next deploy export — a publish, or the next live runtime
+	 * assemble — because `deploy/_boot/` is written there. It is NOT retroactive to an already
+	 * loaded page.
+	 */
+	saveBootSplash: async ({ request, locals }) => {
+		const admin = await requireAdmin(locals);
+		const data = await request.formData();
+		const ref = await setEngineBootSplash(
+			{
+				bundle: String(data.get('bundle') ?? ''),
+				animation: String(data.get('animation') ?? ''),
+				background: String(data.get('background') ?? ''),
+			},
+			admin.id,
+		);
+		return {
+			action: 'saveBootSplash',
+			ok: ref
+				? `Engine boot mark set to "${ref.bundle}". Games pick it up on their next publish.`
+				: 'Engine boot mark cleared — games will open on their own splash.',
+		};
 	},
 
 	/** Save the pipeline-wide default layout profile (admin-only). Body: JSON `profile`. */

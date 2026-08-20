@@ -19,6 +19,10 @@
 		<script>
 			(function () {
 				var s = { title: '', phase: '', progress: null, finished: false };
+				// Subscribers waiting for the overlay to clear. The boot-splash SEQUENCE
+				// (engine mark → game mark) uses this so its spine animations play in front of
+				// the player instead of underneath this overlay, which outlives them.
+				var doneCbs = [];
 				function el(id) {
 					return document.getElementById(id);
 				}
@@ -43,11 +47,21 @@
 					if (s.finished) return;
 					s.finished = true;
 					var root = el('ie-boot');
-					if (!root) return;
-					root.classList.add('ie-boot-done');
-					setTimeout(function () {
-						if (root && root.parentNode) root.parentNode.removeChild(root);
-					}, 500);
+					if (root) {
+						root.classList.add('ie-boot-done');
+						setTimeout(function () {
+							if (root && root.parentNode) root.parentNode.removeChild(root);
+						}, 500);
+					}
+					// Fire subscribers even when the markup is absent (Storybook, a stripped
+					// shell) — a missing overlay must not strand whoever is waiting on it.
+					var cbs = doneCbs;
+					doneCbs = [];
+					for (var i = 0; i < cbs.length; i++) {
+						try {
+							cbs[i]();
+						} catch (e) {}
+					}
 				}
 				window.__ieBoot = {
 					title: function (x) {
@@ -66,6 +80,11 @@
 						apply();
 					},
 					done: done,
+					whenDone: function (cb) {
+						if (typeof cb !== 'function') return;
+						if (s.finished) cb();
+						else doneCbs.push(cb);
+					},
 				};
 				window.__ieBootApply = apply;
 				// Runtime (online) boot: the dominant cost is the JS hydrate (~7s) THEN the

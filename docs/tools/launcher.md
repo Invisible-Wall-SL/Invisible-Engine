@@ -67,8 +67,35 @@ the launcher itself.
   walkthrough. Currently a first version; a fuller per-role onboarding is
   planned (backlog B6).
 - **`/admin`** (admins only) — tabbed: Users, Roles, Tools, Projects, Clients,
-  Games, Sessions, **Costs**, Settings.
+  Games, Sessions, **Costs**, Settings (deploy token, layout default, **engine
+  boot mark**, ComfyUI pod fleet, edge cache).
 - **Sign out** — header form posting to `/auth/logout`.
+
+### Admin → Settings → Engine boot mark
+
+The spine that opens **every** game — the engine's own logo, shown before the
+game's own splash. This is what replaced the Stake Engine loader, so it is
+deliberately admin-owned: a client editing their project cannot change it.
+
+Pick a bundle from the **shared** spine library (`_shared/spines/`), publish
+into it with the [FTP Browser](/docs/ftp-browser) or the
+[Rigger](/docs/rigger), then set:
+
+| Field | Notes |
+|---|---|
+| **Spine bundle** | The `_shared/spines/<bundle>` folder. Only the shared root is offered — a same-named project bundle can never shadow the engine mark. `— none —` skips the engine splash entirely. |
+| **Animation** | The clip to play. Leave blank only if the skeleton's *first* clip is the right one: a spine left on its setup pose renders **empty**, which reads as a broken splash rather than an unset one. |
+| **Background** | Painted immediately, before the spine loads, so boot never flashes white. |
+
+The bundle must be listed in that folder's `skeletons.json` (the Rigger and the
+spine upload flow write it). A bundle that is renamed or removed keeps showing
+in the dropdown marked `(missing)` so you notice rather than silently getting a
+different logo.
+
+**When it takes effect:** on a game's **next publish** (or its next live runtime
+assemble), because the mark ships through that project's `deploy/_boot/` tree.
+It is not retroactive to an already-loaded page. The per-game second splash is
+set separately, per project, in Scene Editor → Game Settings → Boot splash.
 
 ### Admin → Costs
 

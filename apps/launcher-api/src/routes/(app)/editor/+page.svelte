@@ -22,6 +22,11 @@
 		normalizeLayoutProfile,
 		type LayoutProfile,
 	} from 'engine-layout';
+	import ColorField from '$lib/ColorField.svelte';
+	import {
+		BOOT_SPLASH_DEFAULT_BACKGROUND,
+		normalizeBootSplashRef,
+	} from 'constants-shared/bootSplash';
 	import LayoutProfileEditor from '$lib/LayoutProfileEditor.svelte';
 	// The ONE generated sound-name list (from `apps/lines/src/game/sound.ts`), reused so the win
 	// component's per-tier SFX / BGM dropdowns offer the game's real sounds — not a hand-copied list.
@@ -1970,12 +1975,25 @@
 	let featureSpaceHold = $state<boolean>(data.doc.settings?.features?.spaceHold ?? true);
 	const ukLocked = $derived(jurisdiction === 'UK');
 
+	// The project's own BOOT SPLASH — the second pre-game screen, after the admin-owned engine
+	// mark. A blank bundle means "no game splash", so the panel needs no separate clear button.
+	let bootLoaderBundle = $state<string>(data.doc.settings?.bootLoader?.bundle ?? '');
+	let bootLoaderAnimation = $state<string>(data.doc.settings?.bootLoader?.animation ?? '');
+	let bootLoaderBackground = $state<string>(
+		data.doc.settings?.bootLoader?.background ?? BOOT_SPLASH_DEFAULT_BACKGROUND.game,
+	);
+
 	/** Build the doc's `settings` object from the panel state (omitted entirely when
 	 * it matches the engine default — `default` jurisdiction + every feature on — so a
 	 * pristine doc stays `settings`-free, additive/parity with older docs). */
 	function buildGameSettings(): GameSettings | undefined {
 		const allOn = featureTurbo && featureAutoplay && featureSpaceHold;
-		if (jurisdiction === 'default' && allOn) return undefined;
+		const bootLoader = normalizeBootSplashRef({
+			bundle: bootLoaderBundle,
+			animation: bootLoaderAnimation,
+			background: bootLoaderBackground,
+		});
+		if (jurisdiction === 'default' && allOn && !bootLoader) return undefined;
 		const settings: GameSettings = {};
 		if (jurisdiction !== 'default') settings.jurisdiction = jurisdiction;
 		if (!allOn) {
@@ -1985,6 +2003,7 @@
 				spaceHold: featureSpaceHold,
 			};
 		}
+		if (bootLoader) settings.bootLoader = bootLoader;
 		return settings;
 	}
 
@@ -3141,9 +3160,9 @@
 						<PanelSection id="layout-profile" title="Layout">
 							<div class="gs-body">
 								<p class="gs-note">
-									The device buckets this game targets — their resolution/aspect and the window
-									rule that selects each. Edit to make Desktop and Landscape identical, add a
-									widescreen bucket, and so on.
+									The device buckets this game targets — their resolution/aspect and the window rule
+									that selects each. Edit to make Desktop and Landscape identical, add a widescreen
+									bucket, and so on.
 									{#if layoutProfileIsOverride}
 										<span class="lp-badge override">project override</span>
 									{:else}
@@ -3173,10 +3192,10 @@
 						<PanelSection id="canvas-size" title="Canvas Size">
 							<div class="gs-body">
 								<p class="gs-note">
-									The game's MAIN box for <strong>{activeProfile.buckets.find(
-											(b) => b.id === currentLayoutType,
-										)?.label ?? currentLayoutType}</strong> — the runtime scales it to fill the window.
-									Author your nodes against this box.
+									The game's MAIN box for <strong
+										>{activeProfile.buckets.find((b) => b.id === currentLayoutType)?.label ??
+											currentLayoutType}</strong
+									> — the runtime scales it to fill the window. Author your nodes against this box.
 								</p>
 								<label class="gs-field">
 									<span class="gs-label">Width</span>
@@ -3282,6 +3301,50 @@
 								{#if ukLocked}
 									<p class="gs-locked">UK overrides — all speed features are off in-game.</p>
 								{/if}
+
+								<hr class="gs-rule" />
+								<p class="gs-note">
+									<strong>Boot splash</strong> — this game's own mark, shown after the engine mark (which
+									is set once for the whole pipeline in Admin → Settings). Ships on publish.
+								</p>
+								<label class="gs-field">
+									<span class="gs-label">Spine</span>
+									<select
+										class="gs-select"
+										bind:value={bootLoaderBundle}
+										onchange={onGameSettingChange}
+									>
+										<option value="">— none —</option>
+										{#each data.assets.spines as sp (sp.name)}
+											<option value={sp.name}>{sp.name}{sp.shared ? ' (shared)' : ''}</option>
+										{/each}
+									</select>
+								</label>
+								{#if bootLoaderBundle}
+									<label class="gs-field">
+										<span class="gs-label">Animation</span>
+										<input
+											class="gs-select"
+											type="text"
+											autocomplete="off"
+											placeholder="blank = first clip"
+											bind:value={bootLoaderAnimation}
+											onchange={onGameSettingChange}
+										/>
+									</label>
+									<label class="gs-field">
+										<span class="gs-label">Background</span>
+										<ColorField
+											bind:value={bootLoaderBackground}
+											title="Colour painted behind the mark"
+											onchange={onGameSettingChange}
+										/>
+									</label>
+									<p class="gs-note">
+										Set an explicit animation unless the first clip is the right one — a spine left
+										on its setup pose renders empty.
+									</p>
+								{/if}
 							</div>
 						</PanelSection>
 					</div>
@@ -3351,7 +3414,8 @@
 				>
 					Revert to inherited default
 				</button>
-				<button type="button" class="lp-done" onclick={() => (layoutModalOpen = false)}>Done</button>
+				<button type="button" class="lp-done" onclick={() => (layoutModalOpen = false)}>Done</button
+				>
 			</footer>
 		</div>
 	</div>
@@ -4186,6 +4250,12 @@
 		font-size: 11px;
 		line-height: 1.4;
 		color: #777;
+	}
+	.gs-rule {
+		width: 100%;
+		margin: 4px 0 0;
+		border: 0;
+		border-top: 1px solid #2a2a2a;
 	}
 	.cs-input {
 		width: 84px;

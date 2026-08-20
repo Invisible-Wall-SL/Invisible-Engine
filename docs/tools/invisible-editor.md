@@ -239,6 +239,24 @@ keep mounting at their layout positions through the engine's bound-component
 registry. As with every R2 asset class, anything the layout references must also
 travel the export → deploy → bake → pull chain to ship inside the game bundle.
 
+### Game Settings → Boot splash
+
+The right panel's **Game Settings** section carries this game's own boot splash —
+the second pre-game screen, shown after the engine mark (which is set once for
+the whole pipeline in Admin → Settings and is not editable here). It replaced the
+"Add Your Loader" placeholder.
+
+Pick a **Spine** from the project's spine library (shared bundles are offered too,
+marked `(shared)`), an **Animation**, and a **Background**. `— none —` skips the
+game splash so boot goes straight from the engine mark into the game.
+
+Set the animation explicitly unless the skeleton's *first* clip is the right one:
+a spine left on its resting/setup pose renders **empty**, which looks like a
+broken splash rather than an unset one.
+
+The splash ships through the project's `deploy/_boot/` tree, so it reaches the
+game on the next **Publish** — the same trip as the rest of your art.
+
 ### Advanced modes (optional)
 
 - **Components** — the left **Components** tab lists reusable prefabs (overlays,

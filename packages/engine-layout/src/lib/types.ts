@@ -5,6 +5,7 @@
  * model as utils-layout's `mainSizesMap` (uniform scale per layoutType).
  */
 import type { LayoutProfile } from 'constants-shared/layoutProfile';
+import type { BootSplashRef } from 'constants-shared/bootSplash';
 
 /**
  * A layout bucket id. Historically a closed union (`desktop`/`tablet`/`landscape`/
@@ -833,6 +834,15 @@ export interface GameSettings {
 		autoplay?: boolean;
 		spaceHold?: boolean;
 	};
+	/**
+	 * The project's own BOOT SPLASH — the second pre-canvas screen, shown after the
+	 * global engine mark (which is admin-owned and lives in `app_settings`, not here).
+	 * Names a spine bundle under `<client>/<project>/spines/`, falling back to
+	 * `_shared/spines/` like every other spine reference. Absent ⇒ the tier is skipped
+	 * entirely and boot goes straight from the engine mark to the game.
+	 * See `constants-shared/bootSplash`.
+	 */
+	bootLoader?: BootSplashRef;
 }
 
 export interface LayoutDoc {
