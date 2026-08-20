@@ -78,11 +78,14 @@
 				if (disposed) return;
 				el.appendChild(app.canvas);
 
-				const [atlas, skeletonRaw] = (await Assets.load(urls)) as [
-					SPINE_PIXI.TextureAtlas,
-					Uint8Array | unknown,
-				];
+				// `Assets.load(string[])` resolves to a record KEYED BY URL, not an array — the same
+				// shape `pixi-svelte`'s `getProcessed` indexes with `rawAsset[src.atlas]`. Destructuring
+				// it as a tuple yields `undefined` and silently skips the splash.
+				const loaded = (await Assets.load(urls)) as Record<string, unknown>;
+				const atlas = loaded[urls[0]] as SPINE_PIXI.TextureAtlas | undefined;
+				const skeletonRaw = loaded[urls[1]];
 				if (disposed) return;
+				if (!atlas || skeletonRaw == null) throw new Error('boot spine assets missing');
 
 				const attachmentLoader = new SPINE_PIXI.AtlasAttachmentLoader(atlas);
 				const parser =
