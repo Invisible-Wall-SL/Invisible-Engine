@@ -2,7 +2,7 @@
 
 > Design: [flow-driven-game](../design/flow-driven-game.md) · [live-assets](../design/live-assets.md) · [games-deploy](../design/games-deploy.md) · Agent: `.claude/agents/engine-pixi-svelte.md`
 
-**One-line state:** Shipped — the shared runtime (`runtime:lines`, built from `apps/lines` + `packages/*`) carries every scoped feature on `main`; the `apps/{lines,cluster,ways,scatter,number-picker,price}` are dev/reference games, and only `lines`/`bookOf` have rich reference scene sets.
+**One-line state:** Shipped — the shared runtime (`runtime:lines`, built from `apps/lines` + `packages/*`) carries every scoped feature on `main`; the `apps/{lines,cluster,ways,scatter,number-picker,price}` are dev/reference games, and `lines`/`bookOf`/`ways` have rich (art-bearing) reference scene sets.
 
 ## Current state
 
