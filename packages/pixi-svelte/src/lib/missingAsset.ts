@@ -13,3 +13,15 @@ export const warnMissingAsset = (message: string): void => {
 	warned.add(message);
 	console.error(message);
 };
+
+/**
+ * Whether an asset key is ASSIGNED at all. An empty/absent key is not a missing asset — it is a
+ * node the author has not pointed at anything yet, which the editor treats as a legitimate state
+ * ("an empty `spineKey` ⇒ no rig resolves ⇒ nothing renders"). Nothing renders either way, so
+ * reporting it as an error only buries the real missing keys under noise a boot can never clear.
+ *
+ * Lives here, beside {@link warnMissingAsset}, so the four diagnostics that use it (`Sprite`,
+ * `SpineProvider`, `SpriteSheet`, `Particles`) share ONE rule instead of re-deriving it.
+ */
+export const hasAssetKey = (key: string | undefined): boolean =>
+	typeof key === 'string' && key.length > 0;

@@ -69,6 +69,11 @@
 	// `animationMap: undefined` (a small/medium tier presents as a plain number).
 	type TierPresentation = {
 		spine: string;
+		/** The count slot ON THAT TIER'S SPINE. Resolved per tier for the same reason the spine is: a
+		 *  tier pointing at its own rig almost never repeats the base bundle's slot name, and the shared
+		 *  `slotName` applied to it silently failed to mount the count
+		 *  (`[SpineSlot] no slot "slot_win_count"`). Falls back to the shared value ⇒ parity. */
+		slotName: string;
 		animationMap?: { intro: string; idle: string; outro: string };
 	};
 	const resolveTierPresentation = (
@@ -78,11 +83,16 @@
 		const alias = data.alias;
 		const conv = data.animation;
 		const spine = stringParam(`${alias}Spine`) ?? data.spineKey ?? winSpine;
+		const tierSlot = stringParam(`${alias}Slot`) ?? slotName;
 		const intro = stringParam(`${alias}Intro`) ?? stringParam('introAnimation') ?? conv?.intro;
 		const idle = stringParam(`${alias}Idle`) ?? stringParam('idleAnimation') ?? conv?.idle;
 		const outro = stringParam(`${alias}Outro`) ?? stringParam('exitAnimation') ?? conv?.outro;
-		if (!intro && !idle && !outro) return { spine };
-		return { spine, animationMap: { intro: intro ?? '', idle: idle ?? '', outro: outro ?? '' } };
+		if (!intro && !idle && !outro) return { spine, slotName: tierSlot };
+		return {
+			spine,
+			slotName: tierSlot,
+			animationMap: { intro: intro ?? '', idle: idle ?? '', outro: outro ?? '' },
+		};
 	};
 
 	const activePresentation = $derived(resolveTierPresentation(winLevelData));
@@ -90,6 +100,9 @@
 	/** The spine bundle for the active (single-tier) presentation: per-tier component spine ?? the
 	 *  config/coded tier's `spineKey` ?? the shared `winSpine` — closing the single-tier `spineKey` gap. */
 	const activeSpine = $derived(activePresentation?.spine ?? winSpine);
+	/** The count slot for the active (single-tier) presentation — per-tier `<alias>Slot` ?? the shared
+	 *  `slotName`. Resolved here so the single-tier path tracks its own spine exactly as the chain does. */
+	const activeSlotName = $derived(activePresentation?.slotName ?? slotName);
 
 	/**
 	 * The SEQUENTIAL-ESCALATION chain (Invisible Game Config win tiers): the ordered tiers a win plays
@@ -115,7 +128,7 @@
 					!!entry.pres?.animationMap,
 			)
 			.map(({ tier, pres }) => ({
-				step: { key: pres.spine, slotName, animationMap: pres.animationMap },
+				step: { key: pres.spine, slotName: pres.slotName, animationMap: pres.animationMap },
 				// The count-up amount (book units) of this tier — `threshold × BOOK_AMOUNT_MULTIPLIER` (a book
 				// amount IS the win-as-bet-multiplier × that constant; `threshold` is that multiplier). The GATE
 				// SEEKS the count here on a tap; the tier WALK is idle-complete driven (not this), so the walk is
@@ -176,7 +189,7 @@
 		<WinAnimation
 			animationMap={resolvedAnimationMap}
 			key={activeSpine}
-			{slotName}
+			slotName={activeSlotName}
 			chain={escalationChain}
 			forceStep={winState.escalationForceStep}
 			onStepIndex={(i) => (winState.escalationStepIndex = i)}

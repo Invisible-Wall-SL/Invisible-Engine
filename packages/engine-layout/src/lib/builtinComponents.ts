@@ -965,7 +965,8 @@ export const FREE_SPIN_OUTRO_VISUAL_DEF: ComponentDef = {
  * {@link DEFAULT_WIN_TIERS} (the coded `winLevelMap`'s big tiers) so an un-authored project renders
  * byte-identically; the editor rebuilds the def from the ACTIVE config's tiers on load.
  *
- * Per tier `<alias>` the group carries: `<alias>Spine` (spine picker), `<alias>Intro`/`Idle`/`Outro`
+ * Per tier `<alias>` the group carries: `<alias>Spine` (spine picker), `<alias>Slot` (that spine's
+ * count slot), `<alias>Intro`/`Idle`/`Outro`
  * (`spineAnimation` dropdowns of the tier's chosen spine — no blind typing), `<alias>Duration` (ms),
  * `<alias>Sfx`, `<alias>Bgm`. Resolution per field, at runtime: the PER-TIER value ?? the SHARED set
  * (`winSpine`/`introAnimation`/`idleAnimation`/`exitAnimation`, all tiers) ?? the config/coded tier's
@@ -1003,8 +1004,9 @@ export const DEFAULT_WIN_TIERS: WinTierMeta[] = [
 export type WinSoundOptions = { bgm: string[]; sfx: string[] };
 
 /**
- * Per-tier presentation params for the `win` component — a spine picker + intro/idle/outro dropdowns
- * (of that spine's animations) + duration + sfx/bgm, ONE collapsible group per tier, keyed by the
+ * Per-tier presentation params for the `win` component — a spine picker + a count-slot dropdown +
+ * intro/idle/outro dropdowns (of that spine's animations) + duration + sfx/bgm, ONE collapsible
+ * group per tier, keyed by the
  * tier's ALIAS so the runtime resolves each field by `<alias><Field>`. Generated from a big-tier list
  * (the active config's tiers, or {@link DEFAULT_WIN_TIERS} un-authored) so the component's groups mirror
  * the config's tiers. The per-tier `<alias>Spine` carries NO default, so an unset tier spine falls back
@@ -1029,6 +1031,13 @@ export function winTierPresentationParams(
 		}
 		return [
 			{ key: spineParam, kind: 'spine', group: name, label: 'spine bundle' },
+			// The tier's own COUNT SLOT. A tier that points at its own rig almost never repeats the base
+			// bundle's slot name, and without this there was no way to say so: every tier inherited the
+			// shared `slotName`, so the count silently failed to mount on any tier whose spine lacked it
+			// (`[SpineSlot] no slot "slot_win_count"`). Empty ⇒ the shared `slotName` ⇒ parity. The
+			// dropdown lists the TIER spine's slots, falling back to `winSpine`'s when the tier spine is
+			// unset — the same resolution the intro/idle/outro dropdowns already use.
+			{ key: `${alias}Slot`, kind: 'spineSlot', spineParam, group: name, label: 'count slot' },
 			{ key: `${alias}Intro`, kind: 'spineAnimation', spineParam, group: name, label: 'intro' },
 			{ key: `${alias}Idle`, kind: 'spineAnimation', spineParam, group: name, label: 'idle' },
 			{ key: `${alias}Outro`, kind: 'spineAnimation', spineParam, group: name, label: 'outro' },

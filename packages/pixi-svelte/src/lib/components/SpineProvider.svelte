@@ -29,7 +29,7 @@
 	import { anchorToPivot } from '../utils.svelte';
 	import { getContextApp } from '../context.svelte';
 	import { getSpineLoadScale } from '../spineLoadScale';
-	import { warnMissingAsset } from '../missingAsset';
+	import { hasAssetKey, warnMissingAsset } from '../missingAsset';
 
 	const {
 		debug,
@@ -91,7 +91,7 @@
 <!-- Load-aware diagnostic: a spine mounted by the (now generically mounted) game tree
 	 during the asset-load window has no `spineData` yet and resolves once its bundle
 	 arrives — only flag it as missing once loading is done. See Sprite.svelte. -->
-{#if !spineData && context.stateApp.loaded}
+{#if !spineData && context.stateApp.loaded && hasAssetKey(key)}
 	{warnMissingAsset(`Spine: key "${key}" is not found in loadedAssets`)}
 {/if}
 
