@@ -2099,7 +2099,25 @@ def api_import_plist(fields: dict, files: list) -> dict:
                 "sheet": sheet, "display_name": sheet, "active_sheet": sheet,
                 "canvas_w": loaded.get("canvas_w", parsed["width"]),
                 "canvas_h": loaded.get("canvas_h", parsed["height"]),
-                "padding": 2, "allow_rotation": True,
+                # allow_rotation is FALSE here even though the imported sheet had rotated
+                # frames, and that is the point: `api_load_sheet` above just UN-ROTATED every
+                # frame into an upright loose sprite, so arming rotation would immediately
+                # re-rotate art we had just normalised — silently re-importing the one thing
+                # that makes atlases ambiguous.
+                #
+                # A rotated region is the only place PixiJS and Spine disagree: our packers
+                # store it 90 CW (the TexturePacker/Pixi convention, proven by
+                # atlas-tool/_rot_roundtrip_check.py), while Spine's parser wants CCW, so a
+                # rotated region only renders upright in a rig once its page pixels are
+                # reoriented 180 (`reorientRotatedRegionsForSpine` in the launcher). Nothing
+                # rotated means nothing to disagree about.
+                #
+                # This matches the pipeline default everywhere else (`packer.pack` /
+                # `pack.arrange` default allow_rotation=False; Atlas Maker's auto-pack passes
+                # False explicitly). The UI checkbox stays available for an artist who needs
+                # the packing density and accepts the reorient round-trip — it just is not
+                # switched on behind their back by an import.
+                "padding": 2, "allow_rotation": False,
                 "loaded": {"path": loaded.get("source_path"),
                            "dir": loaded.get("source_dir"),
                            "name": sheet, "is_project": True},

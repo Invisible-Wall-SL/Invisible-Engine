@@ -264,7 +264,15 @@ def compose(regions: list[dict], width: int, height: int,
     margin around the original image, baked into the region's frame.
 
     image_for maps region name -> a PIL Image or a path. Rotated regions are
-    stored rotated 90 degrees clockwise (Spine `rotate:90` convention)."""
+    stored rotated 90 degrees CLOCKWISE -- the TexturePacker / PixiJS convention
+    (identical to atlas-tool/batch_atlas.py, proven by its _rot_roundtrip_check.py).
+
+    NOT the Spine convention, which this docstring used to claim and which is the
+    exact inverse: Spine's atlas parser wants a `rotate:90` region packed COUNTER-
+    clockwise, so a CW-packed one renders 180 degrees upside down in a rig until its
+    page pixels are reoriented (`reorientRotatedRegionsForSpine`, launcher-side).
+    That wrong comment is how this bug keeps getting reintroduced -- believe the
+    round-trip test, not this file's history."""
     sheet = Image.new("RGBA", (max(1, int(width)), max(1, int(height))), (0, 0, 0, 0))
     for r in regions:
         src = image_for.get(r["name"])
