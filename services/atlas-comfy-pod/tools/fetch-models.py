@@ -123,6 +123,41 @@ MODEL_SETS: dict[str, dict] = {
 			},
 		],
 	},
+	"pulid-flux2": {
+		"title": "PuLID for FLUX.2 (identity adapter, klein v1 + v2)",
+		"license": (
+			"MIT weights + MIT node, BUT the pipeline is NON-COMMERCIAL: it needs "
+			"InsightFace antelopev2 for face embedding, which is research-only"
+		),
+		"note": (
+			"Face-identity adapter: give it a reference face and FLUX.2 keeps that identity. "
+			"Needs the ComfyUI-PuLID-Flux2 custom node, which IS baked into the pod image — "
+			"unlike Wan and FLUX.2 this is NOT core-native, so a pod predating that image "
+			"has the weights and no nodes to load them. Binds to `flux2-klein` (the author "
+			"recommends klein over dev). v1 and v2 are alternative trainings of the same "
+			"shape, not a versioned upgrade path — both are listed so they can be compared; "
+			"the card suggests strength 1.4. EVA-CLIP is fetched automatically by the node "
+			"on first run, and antelopev2 by insightface, so neither is listed here. "
+			"LICENCE: antelopev2 is non-commercial research only, so anything made through "
+			"this path is R&D — it can never ship in a game, and it pulls klein (otherwise "
+			"our one licence-clean image path) into non-commercial the moment a face is "
+			"attached. Use `qwen-image` for anything shippable."
+		),
+		"files": [
+			{
+				"dir": "pulid",
+				"name": "pulid_flux2_klein_v1.safetensors",
+				"url": f"{HF}/Fayens/Pulid-Flux2/resolve/main/pulid_flux2_klein_v1.safetensors",
+				"size": 1_364_389_800,
+			},
+			{
+				"dir": "pulid",
+				"name": "pulid_flux2_klein_v2.safetensors",
+				"url": f"{HF}/Fayens/Pulid-Flux2/resolve/main/pulid_flux2_klein_v2.safetensors",
+				"size": 1_364_389_800,
+			},
+		],
+	},
 	"wan22-t2v": {
 		"title": "Wan 2.2 T2V A14B (text -> video, fp8)",
 		"license": "apache-2.0 — model, umt5 encoder and VAE alike",

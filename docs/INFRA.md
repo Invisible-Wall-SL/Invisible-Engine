@@ -137,7 +137,7 @@ Three causes worth ruling out in order, before suspecting the graph:
 The launcher's idle auto-stop was a fourth cause until 2026-08-19 — fixed in PR #334, see `docs/status/comfyui.md`.
 
 ### ✅ Recommended: deploy the pod FROM the baked image
-Deploy each R&D pod from the **baked GHCR image** `ghcr.io/invisible-wall-sl/atlas-comfy-pod:latest` (built by `services/atlas-comfy-pod/` — see its [README](../services/atlas-comfy-pod/README.md)). Everything Python — ComfyUI `v0.33.1`, **cu128 torch (Blackwell, pinned)**, all custom nodes (IPAdapter_plus, RMBG, controlnet_aux, PuLID_ComfyUI, the vendored PuLID-Flux, ComfyUI-Manager) and the face stack — is **already in the image**, so:
+Deploy each R&D pod from the **baked GHCR image** `ghcr.io/invisible-wall-sl/atlas-comfy-pod:latest` (built by `services/atlas-comfy-pod/` — see its [README](../services/atlas-comfy-pod/README.md)). Everything Python — ComfyUI `v0.33.1`, **cu128 torch (Blackwell, pinned)**, all custom nodes (IPAdapter_plus, RMBG, controlnet_aux, PuLID_ComfyUI, the vendored PuLID-Flux, PuLID-Flux2, ComfyUI-Manager) and the face stack — is **already in the image**, so:
 - **It survives RunPod recreating the container on resume.** Hand-installed deps do NOT: a resume changes the container id and wipes site-packages (`tqdm`/`torch` gone → ComfyUI crash-loops). Models are safe (on the volume); only container packages are lost. The baked image is the permanent fix — the manual runbook below is only a fallback for a pod that predates the image.
 - **No "Container Start Command" is needed** — the image auto-starts ComfyUI on 8188 and keeps the container alive (`sleep infinity`), so a ComfyUI crash never locks you out of the terminal.
 - Deploy: RunPod → Pods → Deploy → custom image `ghcr.io/invisible-wall-sl/atlas-comfy-pod:latest`, a Blackwell GPU, **attach `Invisible_RunPod_Storage` at `/workspace`**, expose HTTP **8188**. Models stay on the volume at `/workspace/ComfyUI/models` (baked `extra_model_paths.yaml` points there). Adding a model = drop it on the volume; only a new custom **node** needs an image rebuild (push under `services/atlas-comfy-pod/**` → CI rebuilds + pushes). Startup log: `tail -f /workspace/comfyui.log`.
@@ -175,6 +175,10 @@ python /fetch-models.py --set flux2-klein
 The script is **baked into the pod image** at `/fetch-models.py` (a pod older than that
 image won't have it — rebuild + redeploy, or paste it in). `--dest` defaults to the
 volume.
+
+**Wan 2.2 (video) is core-native too** (`comfy/ldm/wan` + the built-in `Text to Video (Wan 2.2)` / `Image to Video (Wan 2.2)` blueprints) — `wan22-t2v`, `wan22-i2v`, `wan22-turbo`, `wan22-ti2v-5b`. Pull `wan22-turbo` alongside a Wan set or the built-in blueprints open with a missing LoRA.
+
+**`pulid-flux2` is the exception to "no custom node".** The FLUX.2 identity adapter needs `ComfyUI-PuLID-Flux2`, which is baked into the image — so unlike every set above, weights alone are not enough and a pod on an older image cannot load them. It is also **R&D-only**: node and weights are MIT, but it depends on InsightFace **antelopev2**, which is non-commercial research only, so attaching a face pulls otherwise-Apache `flux2-klein` into non-commercial. Anything that must ship in a game stays on `qwen-image`.
 
 - **`flux2-klein`** (12.5 GB, **apache-2.0**) — start here. The only FLUX.2 variant that is both licence-clean enough to ever ship in a game (unlike FLUX.1-dev/PuLID, which stay R&D-only) and small enough to run without CPU offload on the fleet's cards.
 - **`flux2-dev`** (53.8 GB, **non-commercial**) — quality comparison only. Its ~35 GB of diffusion weights exceed the biggest card we have (32 GB RTX PRO 4500), so ComfyUI falls back to CPU offload and it is slow. **Check the volume has ~54 GB spare first** — it was sized for SDXL/FLUX.1.

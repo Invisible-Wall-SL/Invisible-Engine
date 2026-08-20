@@ -137,6 +137,7 @@ FLUX.2 needs **no custom node** — it is native in ComfyUI core from the `v0.33
 | `flux2-dev-turbo` | 2.8 GB | inherits dev's non-commercial terms | Add-on for `flux2-dev` |
 | `qwen-image` | 30.1 GB | **apache-2.0** (model + encoder + VAE) | Yes — loads in sequence, so peak VRAM ~20 GB |
 | `qwen-toon` | 0.6 GB | **apache-2.0** | Add-on for `qwen-image` |
+| `pulid-flux2` | 2.7 GB | MIT weights + node, but **non-commercial** in practice (antelopev2) | Yes — tiny; needs `flux2-klein` **and** the baked custom node |
 | `wan22-t2v` | 35.6 GB | **apache-2.0** | Yes — two-expert MoE loads one at a time, peak ~14 GB |
 | `wan22-i2v` | 35.6 GB | **apache-2.0** | Yes — shares encoder + VAE with `wan22-t2v` |
 | `wan22-turbo` | 4.9 GB | **apache-2.0** | Add-on: 4-step LoRAs for both Wan sets |
@@ -164,6 +165,23 @@ video-save nodes. Wan **2.2 supersedes 2.1**; 2.1's encoder and VAE are still wh
 which is why those files come from the 2.1 repo. Everything Wan is apache-2.0. Pull
 `wan22-turbo` alongside a Wan set — the built-in blueprints already wire those 4-step LoRAs
 in, so without them the blueprint opens with a missing LoRA.
+
+**PuLID for FLUX.2 is the one set here that needs a CUSTOM NODE.** Everything else in this
+table is core-native, so weights alone are enough. `pulid-flux2` is not: it is inert without
+`ComfyUI-PuLID-Flux2`, which is baked into the pod image — so a pod running an image built
+before that node landed will have the weights and nothing able to load them. Rebuild and
+redeploy, don't hand-install (Manager installs land in the ephemeral container and vanish on
+the next recreate). It binds to `flux2-klein`; the author recommends klein over dev. `v1` and
+`v2` are alternative trainings of the same shape rather than an upgrade path, so both ship
+and you pick by eye — start at strength 1.4. EVA-CLIP and antelopev2 download themselves on
+first run.
+
+> **`pulid-flux2` is R&D-ONLY, and it contaminates klein.** The node and the weights are both
+> MIT, which looks clean — but the pipeline needs **InsightFace antelopev2**, whose pretrained
+> models are *non-commercial research only*. So the moment you attach a face, `flux2-klein`
+> stops being the licence-clean end-to-end path it otherwise is, and nothing produced through
+> it can ship in a game. Same bucket as the FLUX.1 `PuLID-Flux` path. For anything shippable,
+> stay on `qwen-image`.
 
 > `flux2-klein` sources its encoder and VAE from the klein-purposed **apache-2.0** repo, so
 > that path is licence-clean end to end. Its `flux2-vae` is a DIFFERENT build from
