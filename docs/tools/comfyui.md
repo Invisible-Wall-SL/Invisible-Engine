@@ -79,6 +79,34 @@ The panel has two shapes depending on how the launcher is configured:
 Once published, the blueprint appears in the Atlas Maker's pipeline selector alongside
 the built-in SDXL/FLUX/gpt_image pipelines, and any region can generate through it.
 
+### What's installed (models + custom nodes)
+
+Under the pod list there's a collapsible **What's installed** panel that answers "is
+that checkpoint/LoRA/node actually up there?" without opening ComfyUI. It is read
+**live from a pod** — never from a list someone maintains by hand — and it separates
+the two things people conflate:
+
+- **Models** — the contents of the shared **Network Volume**, grouped by folder
+  (`checkpoints`, `loras`, `vae`, …). Click a folder to see the filenames. Every pod
+  mounts the same volume, so this list is the same whichever pod answered, and a model
+  you drop on the volume stays there when a pod stops.
+- **Custom node packs** — what the answering pod's ComfyUI actually loaded, with how
+  many nodes each pack registers. **These live in the pod's container image, not on the
+  volume**: a pack you install with ComfyUI-Manager is written into the running
+  container and **disappears the next time RunPod recreates the pod** (which happens on
+  resume). To keep a pack, it has to be added to the pod image
+  (`services/atlas-comfy-pod/Dockerfile`) and the image rebuilt. The panel says so
+  inline, because this is the single most confusing thing about the fleet.
+
+The panel reads once when the page loads and again when you press **Refresh** (press it
+right after installing something — the server caches the answer for a minute). It never
+starts or stops a pod.
+
+**It works with the whole GPU fleet stopped**, provided an always-on **volume pod** is
+configured — a cheap CPU pod that mounts the same Network Volume and serves ComfyUI's
+HTTP API. Without one, the panel can only read from a GPU pod that happens to be
+running, and otherwise says so. See *Managing the fleet* below.
+
 ### Managing the fleet (admins)
 
 The fleet is managed in the launcher's admin panel, not on this page: **Admin panel →
@@ -92,6 +120,13 @@ Settings → "ComfyUI R&D pod fleet"**. There an admin can:
   as a synthesized "Default" pod when the list is empty.
 - **Configure idle auto-stop** — the enable toggle + idle minutes (default 20) for the
   watchdog described below.
+
+The optional **volume pod** that keeps *What's installed* answering while the GPU fleet
+is stopped is set in the launcher environment, not the admin UI: `COMFY_VOLUME_POD_ID`
+(a RunPod pod id — its ComfyUI URL is derived like any other pod) or `COMFY_VOLUME_URL`
+(an explicit base URL). Point it at an always-on CPU pod that mounts the same Network
+Volume and runs ComfyUI in CPU mode; it only ever has to answer HTTP, never generate.
+Leave both empty and the panel falls back to any running GPU pod.
 
 ### Cost control (please read)
 
@@ -153,9 +188,13 @@ fails with a missing-node/model error rather than producing art.
   in; the pod's container start command has to launch ComfyUI itself. If that's not set
   up, Start boots the GPU but the row stays "starting" forever because ComfyUI never
   answers. See the pod setup in `docs/INFRA.md` ("ComfyUI R&D pod").
-- **Managing the pod's models/nodes still lives in RunPod.** The panel starts, stops,
-  and opens the pod, but installing checkpoints/LoRAs and custom nodes happens on the
-  pod itself (web terminal / SSH), not from this page.
+- **You can see the pod's models/nodes, but not change them from here.** *What's
+  installed* lists them; installing a checkpoint/LoRA or a custom node still happens on
+  the pod itself (web terminal / SSH / ComfyUI-Manager), not from this page.
+- **"Which packs are permanent?" is only answered when the pod can tell us.** Without a
+  reporting route on the pod, the panel lists the packs ComfyUI loaded but cannot say
+  which sit on the volume and which are container-only — hence the blanket warning
+  rather than a per-pack marker.
 - **Blueprint round-trip is owner-verify-owed.** The Atlas Maker blueprint pipeline is
   code-complete but a full live generate through a published blueprint is still owed
   (see `docs/design/invisible-blueprints.md` §7). Treat a freshly published blueprint

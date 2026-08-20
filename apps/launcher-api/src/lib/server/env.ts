@@ -99,6 +99,20 @@ export const ENV = {
 	get RUNPOD_POD_ID() {
 		return env.RUNPOD_POD_ID ?? '';
 	},
+	// OPTIONAL: an always-on pod used ONLY to read what is installed, for the /comfyui
+	// "What's installed" panel. Models live on the shared Network Volume, so any pod that
+	// mounts it can list them — point this at a cheap always-on CPU pod serving ComfyUI
+	// (`python main.py --cpu` is enough; it never generates) and the panel answers with no
+	// GPU billed and no pod started. `COMFY_VOLUME_POD_ID` is a RunPod pod id (its ComfyUI
+	// URL is derived like every other pod); `COMFY_VOLUME_URL` overrides with an explicit
+	// base URL. Both EMPTY = fall back to any ready pod in the R&D fleet. Read-only: no
+	// code path here can resume, stop or bill a pod.
+	get COMFY_VOLUME_POD_ID() {
+		return env.COMFY_VOLUME_POD_ID ?? '';
+	},
+	get COMFY_VOLUME_URL() {
+		return env.COMFY_VOLUME_URL ?? '';
+	},
 	// Sheet Maker (cloud Python tool) — the re-hosted sheet_server, opened
 	// full-page from /sheet behind the launcher (same pattern as the Atlas tool).
 	// Code default to the current Railway service; env overrides.
