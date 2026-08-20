@@ -407,6 +407,52 @@ export function createMockRgs(opts = {}) {
 	// runs + a full-height WILD so the engine's stacked-picture reel mode has data to render. Opt-in
 	// (`STACKED=1` env or `createMockRgs({ stacked: true })`); OFF ⇒ the normal weighted deal.
 	const stackedDeal = opts.stacked === true || process.env.STACKED === '1';
+	/** Emit the cascade presentation fixture on every spin — see the note at its emit site. */
+	const cascadeFixture = opts.cascade === true || process.env.CASCADE === '1';
+
+	/**
+	 * A short, deterministic cascade for the fixture: blow up one symbol's cells, refill from above,
+	 * twice. Deterministic on purpose — a fixture whose steps vary run to run is useless for judging
+	 * whether an ANIMATION looks right.
+	 *
+	 * Each step names the cells that explode and the replacements that fall in per reel, which is
+	 * exactly what `tumbleBoard` needs to drive the overlay.
+	 */
+	const cascadeSteps = (reels) => {
+		const steps = [];
+		// Pick the most common line symbol on the board — a cascade with nothing to explode shows
+		// nothing, and the fixture should always have something to look at.
+		const counts = new Map();
+		for (const reel of reels) {
+			for (const cell of reel) {
+				if (cell === 'SCAT' || cell === 'WILD') continue;
+				counts.set(cell, (counts.get(cell) ?? 0) + 1);
+			}
+		}
+		let target = null;
+		let best = 0;
+		for (const [name, n] of counts) if (n > best) (best = n), (target = name);
+		if (!target) return steps;
+
+		let board = reels.map((reel) => [...reel]);
+		for (let step = 0; step < 2; step++) {
+			const exploding = [];
+			board.forEach((reel, r) => {
+				reel.forEach((cell, row) => {
+					if (cell === target) exploding.push({ reel: r, row });
+				});
+			});
+			if (!exploding.length) break;
+			// Survivors fall; the gaps refill from the top with a fresh weighted draw.
+			const newSymbols = board.map((reel) => {
+				const gaps = reel.filter((c) => c === target).length;
+				return Array.from({ length: gaps }, () => pickCell());
+			});
+			board = board.map((reel, r) => [...newSymbols[r], ...reel.filter((c) => c !== target)]);
+			steps.push({ exploding, newSymbols });
+		}
+		return steps;
+	};
 	// PICs that the lines facade maps to HIGH symbols (PIC1..PIC4 → H1..H4); WILD → W. These are the
 	// symbols the mode stacks, so the test deal draws runs of them — intersected with the allowed pool
 	// so a restricted project never stacks an out-of-play symbol (fall back to the full line pool).
@@ -627,6 +673,21 @@ export function createMockRgs(opts = {}) {
 					});
 					for (const w of wins) events.push({ event: 'spinWin', context: w });
 					events.push({ event: 'playedSpin', context: reels });
+					// PRESENTATION FIXTURE, opt-in and off by default (`CASCADE=1`, same idiom as
+					// `FORCE_TRIGGER` / `BIG_WIN` / `STACKED`). It exists so the cascade overlay has
+					// something to play against — before this, `TumbleBoard` could not be seen at all,
+					// because no RGS the engine talks to sends a tumble.
+					//
+					// ⚠️ NOT A PROTOCOL CLAIM. There is no capture of a real cascade game, so this shape
+					// is OURS, invented for the fixture. Everything else in this mock is faithful to a
+					// captured Play4Fun session; this is the one part that is not, which is exactly why it
+					// is gated off and labelled. A real provider's cascade almost certainly looks different
+					// — treat this as the thing that proves the PRESENTATION works, never as the wire.
+					if (cascadeFixture) {
+						for (const step of cascadeSteps(reels)) {
+							events.push({ event: 'tumbleStep', context: step });
+						}
+					}
 					events.push({ event: 'gameEnd', context: { win: totalWin } });
 
 					// Round-close rules (from real captures):

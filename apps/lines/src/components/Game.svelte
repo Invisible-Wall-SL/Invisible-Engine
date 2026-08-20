@@ -401,13 +401,7 @@
 		// Special-Book bonus overlay — board-centred, self-shows/animates off the
 		// `specialBookReveal`/`specialBookHide` book events; the doc owns only placement.
 		SpecialBook,
-		// Cascade (tumble) overlay — mounted only while a `tumbleBoard` event plays, then unmounted.
-		// Self-shows off the tumble cues exactly as `SpecialBook` does off its own, so a game whose
-		// RGS never sends `tumbleBoard` never mounts it and is unaffected. The doc owns only placement.
-		TumbleBoard,
-		// Multiplier-collect overlay — the scatter family's second mechanic. Mounted only while a
-		// `boardMultiplierInfo` event plays; a game whose RGS never sends one never mounts it.
-		MultiplierBoard,
+
 		// Phase 3 — the OPTIONAL press-to-continue book-reveal GATE (dim + press + round-await),
 		// mirroring `FreeSpinIntroGate`. Armed by an AWAITABLE `bookRevealGateShow` broadcast the
 		// author drops into the choreography when they want a tap (vs the auto-play `delay`).
@@ -2006,6 +2000,22 @@
 				<BoardFrame active={boardGlowActive} />
 			{/if}
 			<Board />
+			<!-- The cascade + multiplier-collect overlays, mounted BESIDE the board because that is
+					 what they are: `TumbleBoard` stands in for the reels for the length of a tumble
+					 (`boardHide` → it shows → `boardShow`), and `MultiplierBoard` flies the landed
+					 multipliers to the board centre. Both render NOTHING until their own cue arrives, so a
+					 game whose RGS never sends `tumbleBoard`/`boardMultiplierInfo` is byte-identical with
+					 them here — which is why they can mount unconditionally rather than behind a game-type
+					 test the runtime has no way to make.
+
+					 Mounted DIRECTLY rather than through `registerBoundComponents` (where they started, and
+					 where they were unreachable — a registry entry only says a scene node MAY bind them,
+					 and nothing did, so they never mounted and their cues fired into nothing). A direct
+					 mount also cannot double-subscribe the way a bind anchor plus a coded mount would. They
+					 need no placement: both position themselves from `boardLayout()`, so there is nothing
+					 for an author to move. -->
+			<TumbleBoard />
+			<MultiplierBoard />
 		{/snippet}
 
 		<MainContainer>
