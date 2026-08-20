@@ -77,9 +77,7 @@ The spine that opens **every** game — the engine's own logo, shown before the
 game's own splash. This is what replaced the Stake Engine loader, so it is
 deliberately admin-owned: a client editing their project cannot change it.
 
-Pick a bundle from the **shared** spine library (`_shared/spines/`), publish
-into it with the [FTP Browser](/docs/ftp-browser) or the
-[Rigger](/docs/rigger), then set:
+Pick a bundle from the **shared** spine library (`_shared/spines/`), then set:
 
 | Field | Notes |
 |---|---|
@@ -87,10 +85,27 @@ into it with the [FTP Browser](/docs/ftp-browser) or the
 | **Animation** | The clip to play. Leave blank only if the skeleton's *first* clip is the right one: a spine left on its setup pose renders **empty**, which reads as a broken splash rather than an unset one. |
 | **Background** | Painted immediately, before the spine loads, so boot never flashes white. |
 
-The bundle must be listed in that folder's `skeletons.json` (the Rigger and the
-spine upload flow write it). A bundle that is renamed or removed keeps showing
-in the dropdown marked `(missing)` so you notice rather than silently getting a
-different logo.
+A bundle that is renamed or removed keeps showing in the dropdown marked
+`(missing)` so you notice rather than silently getting a different logo.
+
+#### Getting a spine INTO the shared library
+
+Rigs are authored inside a project, so a new mark starts life at
+`<client>/<project>/spines/`. **Bring a spine into the shared library** (same
+card) copies one across: pick the project, pick the bundle, submit. It is a
+**copy, not a link** — the engine mark opens every game, so it must not break
+when that project is renamed or deleted. Re-promoting the same name overwrites
+it. This is the only writer of `_shared/spines/`.
+
+The bundle must be listed in its project's `spines/skeletons.json`, which is
+what makes a folder of files loadable (it names the skeleton and the atlas). If
+it isn't listed, open the rig in the [Rigger](/docs/rigger) and save — or
+re-sync its atlas — first.
+
+> **`_shared/rigs/` is a different library.** It holds skeleton *documents*
+> (bones, slots, skins, animations) with **no atlas and no page textures** —
+> things you *apply* onto art in the Rigger. A game cannot load one, so a rig
+> there is not a boot mark. What you want is a spine **bundle**.
 
 **When it takes effect:** on a game's **next publish** (or its next live runtime
 assemble), because the mark ships through that project's `deploy/_boot/` tree.

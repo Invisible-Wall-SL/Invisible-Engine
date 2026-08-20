@@ -12,6 +12,7 @@ import {
 import { hashPassword } from '$lib/server/auth';
 import { getEngineBootSplash, setEngineBootSplash } from '$lib/server/bootSplash';
 import { loadSharedSkeletonIndex } from '$lib/server/spine';
+import { PromoteError, promoteSpineToShared } from '$lib/server/sharedSpinePromote';
 import { BUILD_ID } from '$lib/server/buildId';
 import { purgeEverything } from '$lib/server/cfPurge';
 import { getDb } from '$lib/server/db';
@@ -799,6 +800,39 @@ export const actions: Actions = {
 		const token = generateDeployToken();
 		await setAppSetting(DEPLOY_TOKEN_KEY, token, admin.id);
 		return { action: 'rotateDeployToken', ok: 'Deploy token rotated.', deployToken: token };
+	},
+
+	/**
+	 * Copy a PROJECT's spine bundle into the shared library so it can be used as the engine boot
+	 * mark (admin-only). Body: `project`, `bundle`.
+	 *
+	 * This is the only writer of `_shared/spines/`. Without it the engine tier is unfillable:
+	 * every producer (the Rigger above all) writes project-scoped bundles, and `_shared/rigs/`
+	 * holds skeleton docs with no atlas or pages — not something a game can load.
+	 */
+	promoteSpine: async ({ request, locals }) => {
+		await requireAdmin(locals);
+		const data = await request.formData();
+		const projectKey = String(data.get('project') ?? '').trim();
+		const bundle = String(data.get('bundle') ?? '').trim();
+		if (!projectKey || !bundle) {
+			return fail(400, { action: 'promoteSpine', error: 'Pick a project and a bundle.' });
+		}
+		const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
+		try {
+			const { entry, files, replaced } = await promoteSpineToShared(clientKey, projectKey, bundle);
+			return {
+				action: 'promoteSpine',
+				ok:
+					`${replaced ? 'Replaced' : 'Added'} "${entry.folder}" in the shared library ` +
+					`(${files} files). Pick it above to make it the engine mark.`,
+			};
+		} catch (err) {
+			if (err instanceof PromoteError) {
+				return fail(400, { action: 'promoteSpine', error: err.message });
+			}
+			throw err;
+		}
 	},
 
 	/**

@@ -305,6 +305,41 @@
 		data.bootSplash.engine?.background ?? BOOT_SPLASH_DEFAULT_BACKGROUND.engine,
 	);
 
+	// --- Settings: promote a project spine into the shared library ---
+	// `_shared/spines/` has no other writer: every producer (the Rigger especially) writes
+	// project-scoped bundles, so without this the engine mark has nothing to choose from.
+	let promoteProject = $state('');
+	let promoteBundle = $state('');
+	let promoteBundles = $state<{ folder: string; name: string }[]>([]);
+	let promoteBusy = $state(false);
+	let promoteNote = $state('');
+
+	async function loadPromotableBundles(key: string): Promise<void> {
+		promoteBundle = '';
+		promoteBundles = [];
+		promoteNote = '';
+		if (!key) return;
+		promoteBusy = true;
+		try {
+			const res = await fetch(`/api/admin/spines?project=${encodeURIComponent(key)}`);
+			if (!res.ok) {
+				promoteNote = `Could not list bundles (${res.status}).`;
+				return;
+			}
+			const out = (await res.json()) as { bundles?: { folder: string; name: string }[] };
+			promoteBundles = out.bundles ?? [];
+			if (promoteBundles.length === 0) {
+				promoteNote =
+					'No spine bundles listed in this project’s spines/skeletons.json. Open the rig in ' +
+					'the Rigger and save (or re-sync its atlas) first.';
+			}
+		} catch {
+			promoteNote = 'Could not reach the server.';
+		} finally {
+			promoteBusy = false;
+		}
+	}
+
 	// --- Settings: ComfyUI R&D pod fleet ---
 	// Editable working copy of the admin-managed pod list. The URL is derived from the
 	// id (`https://<id>-8188.proxy.runpod.net`) server-side, so only id + label are here.
@@ -1462,10 +1497,9 @@
 					game's splash. This replaced the Stake logo, so it is admin-owned: a client cannot change
 					it from their project. Pick from the shared spine library (<span class="mono"
 						>_shared/spines/</span
-					>) — publish a bundle there with the
-					<a href="/files">FTP Browser</a> or the <a href="/rigger">Rigger</a>. A game picks up a
-					change on its <strong>next publish</strong>; already-open games keep the mark they booted
-					with.
+					>). Rigs are authored per project, so get one in there with
+					<strong>Bring a spine into the shared library</strong> below. A game picks up a change on
+					its <strong>next publish</strong>; already-open games keep the mark they booted with.
 					{#if data.bootSplash.engine}
 						<span class="pill on">{data.bootSplash.engine.bundle}</span>
 					{:else}
@@ -1475,9 +1509,8 @@
 
 				{#if data.bootSplash.bundles.length === 0}
 					<p class="muted hint">
-						Nothing has been published to <span class="mono">_shared/spines/</span> yet — upload a
-						spine bundle there (and make sure it is listed in that folder's
-						<span class="mono">skeletons.json</span>) before setting a mark.
+						The shared library is empty — use <strong>Bring a spine into the shared library</strong>
+						below to copy one in from a project, then pick it here.
 					</p>
 				{/if}
 
@@ -1519,6 +1552,52 @@
 					a spine left on its setup pose renders empty, which looks like a broken splash rather than
 					an unset one.
 				</p>
+
+				<hr class="boot-rule" />
+
+				<h4>Bring a spine into the shared library</h4>
+				<p class="muted hint">
+					Rigs are authored inside a project, so a new mark starts life at
+					<span class="mono">&lt;client&gt;/&lt;project&gt;/spines/</span>. This copies one into
+					<span class="mono">_shared/spines/</span> so it can be picked above. It is a
+					<strong>copy</strong>, not a link — the engine mark must not break if that project is
+					renamed or deleted. Re-promoting the same name overwrites it.
+					<br />
+					Not to be confused with <span class="mono">_shared/rigs/</span>, which holds skeleton
+					documents (no atlas, no textures) that you <em>apply</em> onto art in the Rigger — a game cannot
+					load those.
+				</p>
+
+				<form method="POST" action="?/promoteSpine" use:enhance class="boot-mark">
+					<label>
+						Project
+						<select
+							name="project"
+							bind:value={promoteProject}
+							onchange={() => loadPromotableBundles(promoteProject)}
+						>
+							<option value="">— pick a project —</option>
+							{#each data.projects as p (p.key)}
+								<option value={p.key}>{p.name}</option>
+							{/each}
+						</select>
+					</label>
+					<label>
+						Spine bundle
+						<select name="bundle" bind:value={promoteBundle} disabled={promoteBundles.length === 0}>
+							<option value="">{promoteBusy ? 'loading…' : '— pick a bundle —'}</option>
+							{#each promoteBundles as b (b.folder)}
+								<option value={b.folder}>{b.name}</option>
+							{/each}
+						</select>
+					</label>
+					<button type="submit" disabled={!promoteProject || !promoteBundle}>
+						Copy to shared library
+					</button>
+				</form>
+				{#if promoteNote}
+					<p class="muted hint">{promoteNote}</p>
+				{/if}
 			</div>
 
 			<div class="card">
@@ -2152,6 +2231,12 @@
 
 	.boot-mark-colour {
 		align-items: flex-start;
+	}
+
+	.boot-rule {
+		margin: 18px 0 0;
+		border: 0;
+		border-top: 1px solid #2a2a2a;
 	}
 
 	/* --- Settings: deploy token --- */
