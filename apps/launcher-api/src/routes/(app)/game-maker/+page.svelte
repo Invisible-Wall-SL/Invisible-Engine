@@ -19,6 +19,8 @@
 
 	let { data }: { data: PageData } = $props();
 
+	type Project = (typeof data.projects)[number];
+
 	// Locale + currency the Play links open in. Shared with the home page's pickers via
 	// storage, read on mount so SSR and first client render agree.
 	let launchLocale = $state(DEFAULT_LAUNCH_LOCALE);
@@ -43,7 +45,7 @@
 	let copied = $state<string>('');
 
 	// Publish confirmation: the project pending confirmation (null = no dialog).
-	let confirmProject = $state<(typeof data.projects)[number] | null>(null);
+	let confirmProject = $state<Project | null>(null);
 
 	// "3 days ago" / "just now" from an epoch-ms timestamp. Null ⇒ never edited.
 	function relativeTime(ms: number | null): string {
@@ -62,29 +64,205 @@
 		return `${years} year${years === 1 ? '' : 's'} ago`;
 	}
 
-	// Build a `?project=<key>` launch URL for a tool, so the opened tool binds to
-	// THIS project (project-explicit scoping) instead of the hidden session scope.
-	function launchUrl(tool: string, projectKey: string): string {
-		return `/${tool}?project=${encodeURIComponent(projectKey)}`;
+	/** Slugify a typed name into a project key (shared by the create + duplicate forms). */
+	function slugify(value: string): string {
+		return value
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-+|-+$/g, '')
+			.slice(0, 64);
 	}
 
 	// Auto-derive a key slug from the typed name until the user edits the key.
 	let keyTouched = $state(false);
 	function onNameInput(value: string) {
 		name = value;
-		if (!keyTouched) {
-			key = value
-				.toLowerCase()
-				.replace(/[^a-z0-9]+/g, '-')
-				.replace(/^-+|-+$/g, '')
-				.slice(0, 64);
+		if (!keyTouched) key = slugify(value);
+	}
+
+	// ---------------------------------------------------------------------------------------------
+	// Browsing the list: filter → sort → (optionally) group by client.
+	//
+	// The list only grows, so the card itself is no longer the unit you scan — the toolbar is. The
+	// search box deliberately matches the PROFILE chips too, so "cluster", "stacked" or "buy
+	// feature" find the games that use them without anyone maintaining a second tag list.
+	// ---------------------------------------------------------------------------------------------
+	const UNASSIGNED = '__unassigned__';
+
+	let search = $state('');
+	let filterClient = $state('');
+	let filterType = $state('');
+	let filterStatus = $state('');
+	let sortBy = $state<'edited' | 'name' | 'key' | 'published'>('edited');
+	let groupByClient = $state(true);
+
+	const filtersActive = $derived(
+		Boolean(search.trim() || filterClient || filterType || filterStatus),
+	);
+
+	/** Distinct `{ value, label }` options, label-sorted — the shape both filter selects want. */
+	function options(rows: { value: string; label: string }[]): { value: string; label: string }[] {
+		const byValue: Record<string, string> = {};
+		for (const row of rows) byValue[row.value] = row.label;
+		return Object.entries(byValue)
+			.map(([value, label]) => ({ value, label }))
+			.sort((a, b) => a.label.localeCompare(b.label));
+	}
+
+	/** Clients that actually own a project here, plus Unassigned when one is unassigned. */
+	const clientOptions = $derived(
+		options(
+			data.projects.map((p) => ({
+				value: p.clientKey ?? UNASSIGNED,
+				label: p.clientName ?? 'Unassigned',
+			})),
+		),
+	);
+
+	/** Game kinds present in the list (not the whole creatable union — a filter for nothing is noise). */
+	const typeOptions = $derived(
+		options(
+			data.projects.map((p) => ({
+				value: p.gameType,
+				label: data.gameKinds.find((k) => k.id === p.gameType)?.name ?? p.gameType,
+			})),
+		),
+	);
+
+	/** Everything about a project a search should reach — identity plus its whole profile. */
+	function haystack(p: Project): string {
+		return [
+			p.name,
+			p.key,
+			p.clientName ?? 'unassigned',
+			...p.profile.facts.map((f) => f.text),
+			...p.profile.features.map((f) => f.text),
+		]
+			.join(' ')
+			.toLowerCase();
+	}
+
+	function matchesStatus(p: Project): boolean {
+		switch (filterStatus) {
+			case 'published':
+				return p.published;
+			case 'unpublished':
+				return !p.published;
+			case 'stale':
+				return p.published && p.engineStale;
+			default:
+				return true;
+		}
+	}
+
+	const filtered = $derived.by(() => {
+		const terms = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+		const rows = data.projects.filter((p) => {
+			if (filterClient && (p.clientKey ?? UNASSIGNED) !== filterClient) return false;
+			if (filterType && p.gameType !== filterType) return false;
+			if (!matchesStatus(p)) return false;
+			if (terms.length === 0) return true;
+			const hay = haystack(p);
+			return terms.every((t) => hay.includes(t));
+		});
+
+		// Nulls sort last in both timestamp orders — "never edited" is not "edited longest ago".
+		const byTime = (a: number | null, b: number | null) => (b ?? -1) - (a ?? -1);
+		return rows.sort((a, b) => {
+			switch (sortBy) {
+				case 'name':
+					return a.name.localeCompare(b.name);
+				case 'key':
+					return a.key.localeCompare(b.key);
+				case 'published':
+					return byTime(a.publishedAt, b.publishedAt);
+				default:
+					return byTime(a.scenesUpdatedAt, b.scenesUpdatedAt);
+			}
+		});
+	});
+
+	/** The filtered list as client sections (one "All projects" section when grouping is off). */
+	const groups = $derived.by(() => {
+		if (!groupByClient) return [{ id: 'all', label: '', projects: filtered }];
+		const byClient: Record<string, { id: string; label: string; projects: Project[] }> = {};
+		for (const p of filtered) {
+			const id = p.clientKey ?? UNASSIGNED;
+			byClient[id] ??= { id, label: p.clientName ?? 'Unassigned', projects: [] };
+			byClient[id].projects.push(p);
+		}
+		return Object.values(byClient).sort((a, b) => a.label.localeCompare(b.label));
+	});
+
+	function clearFilters() {
+		search = '';
+		filterClient = '';
+		filterType = '';
+		filterStatus = '';
+	}
+
+	// ---------------------------------------------------------------------------------------------
+	// Duplicate / copy to another client.
+	// ---------------------------------------------------------------------------------------------
+	let dupSource = $state<Project | null>(null);
+	let dupName = $state('');
+	let dupKey = $state('');
+	let dupKeyTouched = $state(false);
+	let dupClient = $state('');
+	let dupScope = $state<'setup' | 'full'>('setup');
+	let dupBusy = $state(false);
+	let dupErr = $state('');
+	let dupMsg = $state('');
+
+	function openDuplicate(p: Project) {
+		dupSource = p;
+		dupName = `${p.name} copy`;
+		dupKey = slugify(`${p.key} copy`);
+		dupKeyTouched = false;
+		dupClient = p.clientKey ?? '';
+		dupScope = 'setup';
+		dupErr = '';
+		dupMsg = '';
+	}
+
+	function onDupNameInput(value: string) {
+		dupName = value;
+		if (!dupKeyTouched) dupKey = slugify(value);
+	}
+
+	async function runDuplicate() {
+		const source = dupSource;
+		if (!source) return;
+		dupBusy = true;
+		dupErr = '';
+		try {
+			const res = await fetch('/api/game-maker/duplicate', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					source: source.key,
+					key: dupKey,
+					name: dupName,
+					clientKey: dupClient,
+					scope: dupScope,
+				}),
+			});
+			const out = await res.json().catch(() => ({}));
+			if (!res.ok) throw new Error(out?.error ?? `Duplicate failed (${res.status}).`);
+			dupSource = null;
+			dupMsg = `Copied ${source.name} → ${dupName} (${out.copied} files, ${out.rebased} re-pointed).`;
+			await invalidateAll();
+		} catch (e) {
+			dupErr = e instanceof Error ? e.message : 'Duplicate failed.';
+		} finally {
+			dupBusy = false;
 		}
 	}
 
 	// Open the confirmation dialog naming the project + its scenes' last-edited time
 	// before publishing — the decouple makes the wrong project structurally hard, and
 	// this makes the RIGHT one obvious (catches a stale publish).
-	function requestPublish(project: (typeof data.projects)[number]) {
+	function requestPublish(project: Project) {
 		publishErr = { ...publishErr, [project.key]: '' };
 		confirmProject = project;
 	}
@@ -240,118 +418,203 @@
 		</section>
 
 		<section class="card">
-			<h2>Your projects</h2>
+			<div class="section-head">
+				<h2>Your projects</h2>
+				<span class="count">
+					{filtered.length === data.projects.length
+						? `${data.projects.length}`
+						: `${filtered.length} of ${data.projects.length}`}
+				</span>
+			</div>
+
 			{#if data.projects.length === 0}
 				<p class="muted">No projects yet — create one above.</p>
 			{:else}
-				<ul class="projects">
-					{#each data.projects as p (p.key)}
-						<li>
-							<div class="meta">
-								<span class="pname">{p.name}</span>
-								<span class="pkey">{p.key}</span>
-								{#if p.clientName}<span class="pclient">{p.clientName}</span>{/if}
-								<span class="pedited">scenes edited {relativeTime(p.scenesUpdatedAt)}</span>
-							</div>
-							<div class="launch">
-								{#if data.launchTools.editor}
-									<a class="tool" href={launchUrl('editor', p.key)}>Edit</a>
-								{/if}
-								{#if data.launchTools.atlasTool}
-									<a class="tool" href={launchUrl('atlas', p.key)}>Atlas</a>
-								{/if}
-								{#if data.launchTools.fontMaker}
-									<a class="tool" href={launchUrl('fonts', p.key)}>Fonts</a>
-								{/if}
-								{#if data.launchTools.symbols}
-									<a class="tool" href={launchUrl('symbols', p.key)}>Symbols</a>
-								{/if}
-								{#if data.launchTools.localization}
-									<a class="tool" href={launchUrl('localization', p.key)}>Localization</a>
-								{/if}
-							</div>
-							<div class="pub">
-								<button
-									class="primary"
-									onclick={() => requestPublish(p)}
-									disabled={publishing[p.key]}
-								>
-									{#if publishing[p.key]}
-										Publishing…
-									{:else}
-										{p.published ? 'Re-publish' : 'Publish'}
-									{/if}
-								</button>
-								{#if p.published && p.url}
-									<a class="play" href={playUrl(p.url)} target="_blank" rel="noopener noreferrer">
-										Play ↗
-									</a>
-									<select
-										class="play-lang"
-										title="Language the Play link opens the game in"
-										value={launchLocale}
-										onchange={(e) => {
-											launchLocale = e.currentTarget.value;
-											storeLocale(launchLocale);
-										}}
-									>
-										{#each LAUNCH_LOCALES as code (code)}
-											<option value={code}>{localeLabel(code)}</option>
-										{/each}
-									</select>
-									<select
-										class="play-lang"
-										title="Currency the Play link formats every amount with"
-										value={launchCurrency}
-										onchange={(e) => {
-											launchCurrency = e.currentTarget.value;
-											storeCurrency(launchCurrency);
-										}}
-									>
-										{#each LAUNCH_CURRENCIES as code (code)}
-											<option value={code}>{code}</option>
-										{/each}
-									</select>
-									<button class="copy" onclick={() => copyUrl(p.url!, p.key)}>
-										{copied === p.key ? 'Copied' : 'Copy URL'}
-									</button>
-								{/if}
-								{#if publishErr[p.key]}<span class="err">{publishErr[p.key]}</span>{/if}
-							</div>
-							{#if p.published && p.engineStale}
-								<div
-									class="stale"
-									role="status"
-									title={`Engine runtime released ${shortDate(p.runtimeReleasedAt)}; this game was last published ${shortDate(p.publishedAt)}.`}
-								>
-									<span class="stale-dot"></span>
-									<div class="stale-body">
-										<strong>Engine update available.</strong>
-										The shared engine runtime shipped after this game was last published, so the running
-										game may still be on the old engine. Republish to re-hydrate it.
+				<div class="toolbar">
+					<input
+						class="search"
+						type="search"
+						bind:value={search}
+						placeholder="Search name, key, client, or feature (e.g. “stacked”, “cluster”)…"
+						spellcheck="false"
+					/>
+					<select bind:value={filterClient} title="Filter by client">
+						<option value="">All clients</option>
+						{#each clientOptions as c (c.value)}
+							<option value={c.value}>{c.label}</option>
+						{/each}
+					</select>
+					<select bind:value={filterType} title="Filter by game type">
+						<option value="">All types</option>
+						{#each typeOptions as t (t.value)}
+							<option value={t.value}>{t.label}</option>
+						{/each}
+					</select>
+					<select bind:value={filterStatus} title="Filter by publish state">
+						<option value="">Any status</option>
+						<option value="published">Published</option>
+						<option value="unpublished">Not published</option>
+						<option value="stale">Engine stale</option>
+					</select>
+					<select bind:value={sortBy} title="Sort order">
+						<option value="edited">Recently edited</option>
+						<option value="published">Recently published</option>
+						<option value="name">Name A–Z</option>
+						<option value="key">Key A–Z</option>
+					</select>
+					<label class="check" title="Group the list into client sections">
+						<input type="checkbox" bind:checked={groupByClient} />
+						Group by client
+					</label>
+					{#if filtersActive}
+						<button class="ghost" onclick={clearFilters}>Clear</button>
+					{/if}
+				</div>
+
+				{#if dupMsg}<p class="ok dup-msg">{dupMsg}</p>{/if}
+
+				{#if filtered.length === 0}
+					<p class="muted">Nothing matches these filters.</p>
+				{:else}
+					{#each groups as group (group.id)}
+						{#if group.label}
+							<h3 class="group">
+								{group.label} <span class="gcount">{group.projects.length}</span>
+							</h3>
+						{/if}
+						<ul class="projects">
+							{#each group.projects as p (p.key)}
+								<li>
+									<div class="meta">
+										<span class="pname">{p.name}</span>
+										<span class="pkey">{p.key}</span>
+										{#if !groupByClient && p.clientName}
+											<span class="pclient">{p.clientName}</span>
+										{/if}
+										<span class="pedited">scenes edited {relativeTime(p.scenesUpdatedAt)}</span>
 									</div>
-									<button
-										class="stale-cta"
-										onclick={() => requestPublish(p)}
-										disabled={publishing[p.key]}
-									>
-										{publishing[p.key] ? 'Republishing…' : 'Republish + Reconcile'}
-									</button>
-									{#if data.canPurgeCache}
-										<a class="stale-link" href="/admin">still stale? purge edge cache</a>
+
+									<div class="profile">
+										<div class="prow">
+											<span class="plabel">Game</span>
+											<div class="chips">
+												{#each p.profile.facts as fact (fact.id)}
+													<span class="chip fact" title={fact.title}>{fact.text}</span>
+												{/each}
+											</div>
+										</div>
+										<div class="prow">
+											<span class="plabel">Using</span>
+											<div class="chips">
+												{#each p.profile.features as feature (feature.id)}
+													<span class="chip feature" title={feature.title}>{feature.text}</span>
+												{:else}
+													<span class="chip none" title="No optional mechanic is switched on yet.">
+														no optional features yet
+													</span>
+												{/each}
+											</div>
+										</div>
+									</div>
+
+									<div class="pub">
+										<button
+											class="primary"
+											onclick={() => requestPublish(p)}
+											disabled={publishing[p.key]}
+										>
+											{#if publishing[p.key]}
+												Publishing…
+											{:else}
+												{p.published ? 'Re-publish' : 'Publish'}
+											{/if}
+										</button>
+										{#if p.published && p.url}
+											<a
+												class="play"
+												href={playUrl(p.url)}
+												target="_blank"
+												rel="noopener noreferrer"
+											>
+												Play ↗
+											</a>
+											<select
+												class="play-lang"
+												title="Language the Play link opens the game in"
+												value={launchLocale}
+												onchange={(e) => {
+													launchLocale = e.currentTarget.value;
+													storeLocale(launchLocale);
+												}}
+											>
+												{#each LAUNCH_LOCALES as code (code)}
+													<option value={code}>{localeLabel(code)}</option>
+												{/each}
+											</select>
+											<select
+												class="play-lang"
+												title="Currency the Play link formats every amount with"
+												value={launchCurrency}
+												onchange={(e) => {
+													launchCurrency = e.currentTarget.value;
+													storeCurrency(launchCurrency);
+												}}
+											>
+												{#each LAUNCH_CURRENCIES as code (code)}
+													<option value={code}>{code}</option>
+												{/each}
+											</select>
+											<button class="copy" onclick={() => copyUrl(p.url!, p.key)}>
+												{copied === p.key ? 'Copied' : 'Copy URL'}
+											</button>
+										{/if}
+										<button
+											class="dup"
+											title="Copy this game to a new project — same client, or another one, to reskin it"
+											onclick={() => openDuplicate(p)}
+										>
+											Duplicate…
+										</button>
+										{#if publishErr[p.key]}<span class="err">{publishErr[p.key]}</span>{/if}
+									</div>
+
+									{#if p.published && p.engineStale}
+										<div
+											class="stale"
+											role="status"
+											title={`Engine runtime released ${shortDate(p.runtimeReleasedAt)}; this game was last published ${shortDate(p.publishedAt)}.`}
+										>
+											<span class="stale-dot"></span>
+											<div class="stale-body">
+												<strong>Engine update available.</strong>
+												The shared engine runtime shipped after this game was last published, so the
+												running game may still be on the old engine. Republish to re-hydrate it.
+											</div>
+											<button
+												class="stale-cta"
+												onclick={() => requestPublish(p)}
+												disabled={publishing[p.key]}
+											>
+												{publishing[p.key] ? 'Republishing…' : 'Republish + Reconcile'}
+											</button>
+											{#if data.canPurgeCache}
+												<a class="stale-link" href="/admin">still stale? purge edge cache</a>
+											{/if}
+										</div>
+									{:else if p.published && p.engineComparable}
+										<span class="fresh" title={`Last published ${shortDate(p.publishedAt)}.`}>
+											engine up to date
+										</span>
 									{/if}
-								</div>
-							{:else if p.published && p.engineComparable}
-								<span class="fresh" title={`Last published ${shortDate(p.publishedAt)}.`}>
-									engine up to date
-								</span>
-							{/if}
-							{#if p.published && p.url}
-								<a class="url" href={p.url} target="_blank" rel="noopener noreferrer">{p.url}</a>
-							{/if}
-						</li>
+									{#if p.published && p.url}
+										<a class="url" href={p.url} target="_blank" rel="noopener noreferrer">{p.url}</a
+										>
+									{/if}
+								</li>
+							{/each}
+						</ul>
 					{/each}
-				</ul>
+				{/if}
 			{/if}
 		</section>
 	</main>
@@ -385,6 +648,76 @@
 			</div>
 		</div>
 	{/if}
+
+	{#if dupSource}
+		<div class="modal-backdrop" role="presentation" onclick={() => (dupSource = null)}>
+			<div
+				class="modal wide"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="dup-title"
+				onclick={(e) => e.stopPropagation()}
+			>
+				<h3 id="dup-title">Duplicate {dupSource.name}</h3>
+				<p class="confirm-note">
+					Copies the game onto a new project key — same client for a variant, another client to
+					reskin it. Asset references inside the copied documents are re-pointed at the new project,
+					so the copy never reads the original's files.
+				</p>
+				<div class="grid">
+					<label>
+						New name
+						<input
+							value={dupName}
+							oninput={(e) => onDupNameInput(e.currentTarget.value)}
+							placeholder="e.g. Book of Borut — Acme"
+						/>
+					</label>
+					<label>
+						New key
+						<input
+							bind:value={dupKey}
+							oninput={() => (dupKeyTouched = true)}
+							spellcheck="false"
+							placeholder="book-of-borut-acme"
+						/>
+					</label>
+					<label>
+						Client
+						<select bind:value={dupClient}>
+							<option value="">Unassigned</option>
+							{#each data.clients as c (c.key)}
+								<option value={c.key}>{c.name}</option>
+							{/each}
+						</select>
+					</label>
+					<label>
+						What to copy
+						<select bind:value={dupScope}>
+							<option value="setup">Game setup only (scenes, flow, config, symbols, text)</option>
+							<option value="full">Everything, including atlases, spines and fonts</option>
+						</select>
+					</label>
+				</div>
+				<p class="confirm-note">
+					{#if dupScope === 'setup'}
+						Fast. The copy keeps the whole game but points at no art yet — bring your own for the
+						reskin.
+					{:else}
+						The copy plays immediately and you replace art in place. Large projects can take a
+						while, and very large ones are refused (move those with the FTP Browser).
+					{/if}
+				</p>
+				{#if dupErr}<p class="err">{dupErr}</p>{/if}
+				<div class="confirm-actions">
+					<button onclick={() => (dupSource = null)} disabled={dupBusy}>Cancel</button>
+					<button class="primary" onclick={runDuplicate} disabled={dupBusy || !dupKey || !dupName}>
+						{dupBusy ? 'Copying…' : 'Duplicate'}
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -398,7 +731,7 @@
 	main {
 		flex: 1;
 		padding: 24px;
-		max-width: 880px;
+		max-width: 980px;
 		width: 100%;
 		margin: 0 auto;
 		display: flex;
@@ -415,6 +748,19 @@
 		margin: 0 0 6px;
 		font-size: 16px;
 		letter-spacing: 0.02em;
+	}
+	.section-head {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		margin-bottom: 12px;
+	}
+	.section-head h2 {
+		margin: 0;
+	}
+	.count {
+		font-size: 12px;
+		color: #7a7a86;
 	}
 	.hint,
 	.muted {
@@ -493,6 +839,65 @@
 		color: #ff8c8c;
 		font-size: 13px;
 	}
+	/* --- browse toolbar --------------------------------------------------------------------- */
+	.toolbar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+		margin-bottom: 14px;
+	}
+	.toolbar select {
+		padding: 6px 8px;
+		font-size: 12px;
+	}
+	.search {
+		flex: 1 1 260px;
+		min-width: 200px;
+		padding: 6px 10px;
+		font-size: 12px;
+	}
+	.check {
+		flex-direction: row;
+		align-items: center;
+		gap: 6px;
+		font-size: 12px;
+		color: #9a9aa6;
+		white-space: nowrap;
+	}
+	.check input {
+		accent-color: #2b8d6f;
+	}
+	.ghost {
+		padding: 6px 10px;
+		font-size: 12px;
+		font-weight: 500;
+		color: #9a9aa6;
+	}
+	.dup-msg {
+		margin: 0 0 12px;
+	}
+	h3.group {
+		margin: 18px 0 8px;
+		font-size: 12px;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: #7ee0c0;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	h3.group:first-of-type {
+		margin-top: 0;
+	}
+	.gcount {
+		font-size: 11px;
+		font-weight: 500;
+		letter-spacing: 0;
+		text-transform: none;
+		color: #6c6c78;
+	}
 	.projects {
 		list-style: none;
 		margin: 0;
@@ -535,32 +940,64 @@
 		color: #7a7a86;
 		margin-left: auto;
 	}
-	.launch {
+	/* --- the profile block (what this game IS + what it uses) -------------------------------- */
+	.profile {
 		display: flex;
-		flex-wrap: wrap;
+		flex-direction: column;
 		gap: 6px;
 	}
-	.launch .tool {
-		display: inline-flex;
-		align-items: center;
-		padding: 4px 10px;
-		border-radius: 7px;
-		border: 1px solid #2c2c38;
-		background: #16161d;
-		color: #b9b9c4;
-		text-decoration: none;
-		font-size: 12px;
-		font-weight: 600;
+	.prow {
+		display: flex;
+		align-items: baseline;
+		gap: 10px;
 	}
-	.launch .tool:hover {
-		border-color: #3a8f74;
-		color: #e8e8ee;
+	.plabel {
+		flex: none;
+		width: 44px;
+		font-size: 10px;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: #6c6c78;
+		padding-top: 2px;
+	}
+	.chips {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 5px;
+	}
+	.chip {
+		font-size: 11px;
+		line-height: 1.5;
+		border-radius: 6px;
+		padding: 2px 8px;
+		border: 1px solid transparent;
+		cursor: default;
+	}
+	.chip.fact {
+		background: #17212a;
+		border-color: #27404f;
+		color: #a9cfe4;
+	}
+	.chip.feature {
+		background: #1a2320;
+		border-color: #2b5546;
+		color: #9fd9c2;
+	}
+	.chip.none {
+		color: #62626e;
+		border-color: #26262f;
 	}
 	.pub {
 		display: flex;
 		align-items: center;
 		gap: 10px;
 		flex-wrap: wrap;
+	}
+	.dup {
+		margin-left: auto;
+		font-weight: 500;
+		color: #9a9aa6;
 	}
 	.stale {
 		display: flex;
@@ -630,6 +1067,9 @@
 		max-width: 440px;
 		width: 100%;
 	}
+	.modal.wide {
+		max-width: 620px;
+	}
 	.modal h3 {
 		margin: 0 0 12px;
 		font-size: 16px;
@@ -650,6 +1090,9 @@
 		font-size: 12px;
 		color: #9a9aa6;
 		line-height: 1.5;
+	}
+	.modal .grid + .confirm-note {
+		margin-top: 14px;
 	}
 	.confirm-actions {
 		display: flex;
@@ -687,6 +1130,13 @@
 	@media (max-width: 640px) {
 		.grid {
 			grid-template-columns: 1fr;
+		}
+		.prow {
+			flex-direction: column;
+			gap: 4px;
+		}
+		.plabel {
+			width: auto;
 		}
 	}
 </style>
