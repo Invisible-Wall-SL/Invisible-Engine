@@ -55,12 +55,18 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 	// sync below MUTATES `doc`, so the client doc deliberately differs from the stored
 	// bytes — the etag guards the stored OBJECT, and must not be re-derived from the
 	// payload.
-	const { doc, etag: docEtag, seeded } = await loadFlowV2DocForEditor(clientKey, projectKey);
-	const { lib: library, etag: libraryEtag } = await loadFlowV2LibraryWithEtag();
 	// The Scene Editor's friendly screen NAMES, keyed by scene id — so the container nodes
 	// (show/hideContainer) can label themselves "HUD - Bottom BAR" instead of the raw id
 	// (`hud_kv04zk3j`). Best-effort: an unsaved / standalone project just yields an empty map.
+	// Loaded BEFORE the flow doc because its `gameType` selects which starter an un-seeded project
+	// opens on (a ways project must not be handed the Book-of flow).
 	const layout = await loadDoc(clientKey, projectKey);
+	const {
+		doc,
+		etag: docEtag,
+		seeded,
+	} = await loadFlowV2DocForEditor(clientKey, projectKey, layout.gameType);
+	const { lib: library, etag: libraryEtag } = await loadFlowV2LibraryWithEtag();
 	const sceneNames: Record<string, string> = Object.fromEntries(
 		(layout.scenes ?? []).map((s) => [s.id, s.name ?? s.id]),
 	);

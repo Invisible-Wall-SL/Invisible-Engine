@@ -1,4 +1,4 @@
-import { freshBookOfDrivenSeedDoc, type FlowDoc as FlowDocV2 } from 'engine-flow-v2';
+import { freshDrivenSeedDoc, type FlowDoc as FlowDocV2 } from 'engine-flow-v2';
 import { flowV2DocKey } from './projectPaths';
 import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
@@ -17,7 +17,7 @@ import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
  *    or malformed. The BAKE/EXPORT + FX consumers rely on this: an un-authored project must FALL
  *    THROUGH to the coded handlers, never bake a substituted reference (that would break §7 parity).
  *  - {@link loadFlowV2DocForEditor} NEVER returns null — a project with no stored doc is SEEDED with
- *    a deep clone of the fully FLOW-DRIVEN starter (`freshBookOfDrivenSeedDoc`), so the `/flow-v2`
+ *    a deep clone of its GAME TYPE's fully FLOW-DRIVEN starter (`freshDrivenSeedDoc`), so the `/flow-v2`
  *    editor opens on a real, editable, saveable loading→tap→basegame flow that drives the whole game
  *    (reel + HUD + free-spins) once saved (not a throwaway sample). Seeding is editor-only; it never
  *    reaches the ship chain until the author actually saves.
@@ -77,6 +77,11 @@ export async function loadFlowV2DocWithEtag(
  * of the fully FLOW-DRIVEN starter so the `/flow-v2` canvas opens on a real, editable, saveable flow
  * that drives the whole game (reel + HUD + free-spins) instead of a client-side throwaway sample.
  *
+ * `gameType` is the project's LayoutDoc `gameType`, which selects WHICH starter is cloned — a ways
+ * project must not open on the Book-of flow (it would author expanding-symbol beats its runtime never
+ * fires, against a palette that no longer declares them). An unregistered/absent type falls back to
+ * the book-of seed, exactly as before, so `lines` and a standalone project are unchanged.
+ *
  * `seeded` tells the client the doc it holds is not yet stored (drives the "new · unsaved" pill),
  * while `etag` preserves the correct first-save precondition:
  *  - absent object → `etag === null` → the first save creates it (`ifNoneMatch: '*'`).
@@ -89,10 +94,11 @@ export async function loadFlowV2DocWithEtag(
 export async function loadFlowV2DocForEditor(
 	clientKey: string,
 	projectKey: string,
+	gameType?: string,
 ): Promise<{ doc: FlowDocV2; etag: string | null; seeded: boolean }> {
 	const { doc, etag } = await loadFlowV2DocWithEtag(clientKey, projectKey);
 	if (doc) return { doc, etag, seeded: false };
-	return { doc: freshBookOfDrivenSeedDoc(), etag, seeded: true };
+	return { doc: freshDrivenSeedDoc(gameType), etag, seeded: true };
 }
 
 /**
