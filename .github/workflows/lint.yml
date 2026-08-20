@@ -47,3 +47,16 @@ jobs:
 
       - name: eslint
         run: pnpm lint
+
+      # Generated-fixture gate. `apps/lines/src/game/emitterVocabulary.ts` and the launcher's
+      # `emitterVocabularies.ts` are codegen output ("GENERATED — do not edit"), derived from the
+      # game's emitter union + flowEffects catalog. Nothing enforced that, and the drift is silent
+      # by construction: the palette simply offers fewer cues than the game broadcasts, which looks
+      # like a missing feature rather than a stale file.
+      #
+      # It went stale for four commits once — #355 moved `EmitterEventTransition` into a workspace
+      # package, the generator could not resolve a bare specifier and threw, and because nobody runs
+      # a generator that has no gate, three real entries stayed missing from the palette until #361
+      # regenerated it. This is that gate.
+      - name: flow vocabulary is up to date
+        run: node scripts/gen-flow-vocabulary.mjs --check
