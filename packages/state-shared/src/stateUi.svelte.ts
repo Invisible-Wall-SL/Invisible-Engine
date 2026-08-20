@@ -161,6 +161,47 @@ export const stateUi = $state({
 export const hasContinuePress = () => stateUi.continuePressCount > 0;
 
 /**
+ * The live press-to-continue handlers, oldest first. Held OUTSIDE `$state` because they are
+ * callbacks, not reactive data (the reactive half is `continuePressCount` above) - same
+ * discipline as `spinHoldResolve` below.
+ *
+ * Why a registry at all: an overlay's own full-screen hit rect sits at the overlay's z, so any
+ * chrome painted ABOVE it (the HUD - spin, turbo, bet steppers) hit-tests FIRST and swallows the
+ * click. The press then does nothing at all: the button is inert under the celebration lock, and
+ * the tap never reaches the overlay. Hovering the spin button therefore made the celebration
+ * unskippable until the player moved the pointer off it. The fix is a single canvas-top INPUT MASK
+ * ({@link runTopContinuePress}) the game mounts above every band, so the overlay masks the chrome
+ * instead of the chrome masking the overlay. The mask needs to know WHICH overlay's press to run -
+ * that is this registry.
+ */
+const continuePressHandlers: { id: number; onpress: () => void }[] = [];
+let continuePressNextId = 1;
+
+/**
+ * Register `onpress` as a live press-to-continue handler and return its unregister. Called by the
+ * `PressToContinue` overlay alongside the `continuePressCount` bump.
+ */
+export const registerContinuePress = (onpress: () => void): (() => void) => {
+	const id = continuePressNextId++;
+	continuePressHandlers.push({ id, onpress });
+	return () => {
+		const index = continuePressHandlers.findIndex((entry) => entry.id === id);
+		if (index >= 0) continuePressHandlers.splice(index, 1);
+	};
+};
+
+/**
+ * Run the NEWEST live press-to-continue handler - the canvas-top input mask's press body.
+ *
+ * Newest, not oldest: two gates overlap across a fade-out/fade-in, and the one that just mounted is
+ * the one in front of the player. That mirrors what the per-overlay hit rects did on their own (the
+ * later mount painted on top and won the hit test). No handler => no-op.
+ */
+export const runTopContinuePress = (): void => {
+	continuePressHandlers[continuePressHandlers.length - 1]?.onpress();
+};
+
+/**
  * Whether a non-skippable celebration presentation currently owns the screen: the
  * free-spin intro, the free-spin outro, or the win panel. While true the spin button
  * locks (goes inert) so a press can't slam-fast-forward the celebration — read by

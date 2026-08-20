@@ -64,6 +64,7 @@ export { valueSource } from './src/game/valueSource.svelte';
 
 export { default as Background, type BackgroundCover } from './src/components/Background.svelte';
 export { default as BoardContainer } from './src/components/BoardContainer.svelte';
+export { default as ContinuePressMask } from './src/components/ContinuePressMask.svelte';
 export { default as CountUpInteraction } from './src/components/CountUpInteraction.svelte';
 export { default as FreeSpinIntroGate } from './src/components/FreeSpinIntroGate.svelte';
 export { default as PressToContinue } from './src/components/PressToContinue.svelte';
