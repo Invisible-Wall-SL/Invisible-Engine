@@ -101,6 +101,37 @@ type BookEventExpandBookColumns = {
 	symbol: SymbolName;
 };
 
+// --- cascade (tumble) --------------------------------------------------------------------------
+// The three events a tumbling game adds. They are DECLARED here — in the shared runtime's union —
+// rather than in a separate game, because `_runtime/lines` is the one bundle every online game runs;
+// a mechanic that is not in this union cannot reach a published project at all. A game whose RGS
+// never sends them is unaffected: the handlers below only run on an event that arrives.
+
+// One cascade step: the winning cells blow up, the survivors fall, and `newSymbols` drop in from
+// above. Sent repeatedly — once per tumble — until a step produces no win.
+type BookEventTumbleBoard = {
+	index: number;
+	type: 'tumbleBoard';
+	explodingSymbols: Position[];
+	newSymbols: RawSymbol[][];
+};
+
+// The running total ACROSS the cascade chain, which is not the same number as `setWin`: a tumble
+// round pays once at the end, but the player watches it climb step by step.
+type BookEventUpdateTumbleWin = {
+	index: number;
+	type: 'updateTumbleWin';
+	amount: number;
+};
+
+// The cascade multiplier as it escalates. `1` means the chain has reset, which is why the handler
+// treats that value as "clear the running total" rather than "multiply by one".
+type BookEventUpdateGlobalMult = {
+	index: number;
+	type: 'updateGlobalMult';
+	globalMult: number;
+};
+
 // customised
 type BookEventCreateBonusSnapshot = {
 	index: number;
@@ -115,6 +146,9 @@ export type BookEvent =
 	| BookEventFreeSpinTrigger
 	| BookEventUpdateFreeSpin
 	| BookEventCreateBonusSnapshot
+	| BookEventTumbleBoard
+	| BookEventUpdateTumbleWin
+	| BookEventUpdateGlobalMult
 	| BookEventFinalWin
 	| BookEventSetWin
 	| BookEventFreeSpinEnd

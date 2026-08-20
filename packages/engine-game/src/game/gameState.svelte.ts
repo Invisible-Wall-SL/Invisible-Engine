@@ -151,6 +151,23 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	};
 
 	/**
+	 * Reactive symbol resting SEAT Y in board-local space — the Y analogue of {@link getSymbolX}, and
+	 * the seat a symbol occupies when the reel is at rest.
+	 *
+	 * It is `rowPitchLocal * (rowIndex + getSymbolLead())`, which is exactly the resting position
+	 * `createReelForSpinning` computes for a spinning reel (it is handed the same two getters), so a
+	 * symbol placed through here lands on the identical seat as one that arrived by spinning. That
+	 * matters for any overlay that positions symbols itself — a tumble/cascade board, which slides
+	 * symbols DOWN into the seats a settled reel would have used. Reading the geometry rather than
+	 * assuming `SYMBOL_SIZE` is what makes it correct on a stepped or resized grid.
+	 *
+	 * `rowIndex` may be negative or past the visible rows: the padding row above the board is -1, and
+	 * symbols queued to fall in sit further above still.
+	 */
+	const getSymbolY = (rowIndex: number) =>
+		boardGeometry().rowPitchLocal * (rowIndex + getSymbolLead());
+
+	/**
 	 * Reactive symbol resting SEAT (pitch fractions) fed to `createReelForSpinning`.
 	 * Folds the row LEAD (`rowLead` — seats the cluster) with the per-cell art SEAT
 	 * ALIGNMENT (`symbolAlignY`, expressed as a fraction of the pitch). Defaults
@@ -221,7 +238,6 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 			return reel;
 		});
 	};
-
 
 	type MultiplierSymbol = {
 		initX: number;
@@ -639,6 +655,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 
 	return {
 		getSymbolX,
+		getSymbolY,
 		getWinLevelDataByWinLevelAlias,
 		rebuildBoard,
 		setBoardOverride,

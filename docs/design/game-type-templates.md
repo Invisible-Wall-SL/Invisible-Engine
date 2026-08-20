@@ -372,7 +372,47 @@ cost this paragraph is meant to stop the next person paying.
 
 The detail is owned by [status/flow.md](../status/flow.md) and [status/editor.md](../status/editor.md).
 
-## Scoped out — `cluster` and `scatter` templates will not be built
+## Phase F — the cascade mechanic (`cluster`)
+
+**Owner decision, 2026-08-20**, reversing the 2026-08-19 scope-out below. The analysis that produced
+that decision was right about the SHAPE — a cascade is a board mechanic, not a template — and wrong
+about the cost. Reading the reference implementation rather than its event list showed why:
+
+- **The tumble is an OVERLAY, not a change to the board.** `TumbleBoard` mounts for the duration of a
+  cascade and unmounts again: `boardHide` → show → explode → remove → slide → `boardSettle` →
+  `boardShow`. A game that never tumbles never mounts it. That seam is what let the mechanic land in
+  the shared runtime without putting its risk on lines or book-of.
+- **`explosion` is already an authorable symbol state.** It has been in `SYMBOL_STATES` all along and
+  is not gated as book-only, so a cascade's defining animation is authored in `/symbols` like any
+  other state. The mechanic needed no symbol tooling of its own.
+
+**Phases 1–2 are on `main`:** the tumble state and overlay, three book events (`tumbleBoard`,
+`updateTumbleWin`, `updateGlobalMult`) and their handlers, seven cues in the regenerated `/flow`
+palette, and a registered `/flow-v2` `cluster` vocabulary that is the standard palette plus exactly
+the cascade surfaces.
+
+One thing did NOT port: the reference game seats symbols at `(index + 0.5) * SYMBOL_SIZE`, which this
+runtime outgrew when the reel grid became authorable (row pitch, lead, per-cell alignment, nudge). A
+cascade must drop a symbol onto the SAME seat a settled reel would give it, so `getSymbolY` was added
+beside `getSymbolX` as the shared resting-seat expression — the one `createReelForSpinning` already
+computes — and the tumble reads it. Matching a constant would have worked until the first project
+resized its grid.
+
+**What Phase F still owes**, and why a cluster game cannot yet be published:
+
+1. **The wire.** No RGS the engine talks to sends `tumbleBoard`. Both mocks speak the Play4Fun
+   vocabulary and `stakeFacade` translates it, and every piece of that stack was verified against a
+   real capture. There is no capture of a cascade game, so the wire representation would be INVENTED
+   rather than transcribed — then implemented twice (mock generation, facade translation), and
+   discovered wrong the first time a real provider sends one. Held deliberately: get a capture first
+   if the game comes from a provider; if the math is ours, the wire is ours to define.
+2. **The math.** `apps/cluster` ships empty-placeholder `paddingReels`, so there is no committed
+   config default to seed a project from — the same gap as the ways math export, one step worse.
+   Cascade RTP is chain-dependent, so the ways verifier does not cover it either.
+3. **`scatter`.** Deliberately not started. The tumble core is shared, so scatter is much cheaper
+   once cluster is proven; starting both would double the surface before either has run.
+
+## Scoped out — the 2026-08-19 decision (superseded for `cluster` by Phase F)
 
 **Owner decision, 2026-08-19.** Neither template will be built, and the reason is structural rather
 than a matter of priority.

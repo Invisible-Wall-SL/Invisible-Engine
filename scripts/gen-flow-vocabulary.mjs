@@ -77,6 +77,7 @@ const GAMES = [
 			EmitterEventFreeSpinCounter: 'Free spins',
 			EmitterEventFreeSpinOutro: 'Free spins',
 			EmitterEventSpecialBook: 'Special book',
+			EmitterEventTumbleBoard: 'Cascade',
 			EmitterEventSound: 'Sound',
 			EmitterEventTransition: 'Transition',
 		},

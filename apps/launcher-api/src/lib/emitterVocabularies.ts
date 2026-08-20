@@ -320,6 +320,48 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Sound',
 			},
 			{
+				type: 'tumbleBoardShow',
+				group: 'Cascade',
+			},
+			{
+				type: 'tumbleBoardHide',
+				group: 'Cascade',
+			},
+			{
+				type: 'tumbleBoardInit',
+				group: 'Cascade',
+				fields: [
+					{
+						key: 'addingBoard',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'tumbleBoardReset',
+				group: 'Cascade',
+			},
+			{
+				type: 'tumbleBoardExplode',
+				group: 'Cascade',
+				fields: [
+					{
+						key: 'explodingPositions',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'tumbleBoardRemoveExploded',
+				group: 'Cascade',
+			},
+			{
+				type: 'tumbleBoardSlideDown',
+				group: 'Cascade',
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -512,6 +554,15 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'createBonusSnapshot',
+			},
+			{
+				type: 'tumbleBoard',
+			},
+			{
+				type: 'updateTumbleWin',
+			},
+			{
+				type: 'updateGlobalMult',
 			},
 			{
 				type: 'finalWin',
@@ -837,6 +888,48 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Sound',
 			},
 			{
+				type: 'tumbleBoardShow',
+				group: 'Cascade',
+			},
+			{
+				type: 'tumbleBoardHide',
+				group: 'Cascade',
+			},
+			{
+				type: 'tumbleBoardInit',
+				group: 'Cascade',
+				fields: [
+					{
+						key: 'addingBoard',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'tumbleBoardReset',
+				group: 'Cascade',
+			},
+			{
+				type: 'tumbleBoardExplode',
+				group: 'Cascade',
+				fields: [
+					{
+						key: 'explodingPositions',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'tumbleBoardRemoveExploded',
+				group: 'Cascade',
+			},
+			{
+				type: 'tumbleBoardSlideDown',
+				group: 'Cascade',
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -1029,6 +1122,15 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'createBonusSnapshot',
+			},
+			{
+				type: 'tumbleBoard',
+			},
+			{
+				type: 'updateTumbleWin',
+			},
+			{
+				type: 'updateGlobalMult',
 			},
 			{
 				type: 'finalWin',
@@ -1354,6 +1456,48 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Sound',
 			},
 			{
+				type: 'tumbleBoardShow',
+				group: 'Cascade',
+			},
+			{
+				type: 'tumbleBoardHide',
+				group: 'Cascade',
+			},
+			{
+				type: 'tumbleBoardInit',
+				group: 'Cascade',
+				fields: [
+					{
+						key: 'addingBoard',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'tumbleBoardReset',
+				group: 'Cascade',
+			},
+			{
+				type: 'tumbleBoardExplode',
+				group: 'Cascade',
+				fields: [
+					{
+						key: 'explodingPositions',
+						kind: 'object',
+						required: true,
+					},
+				],
+			},
+			{
+				type: 'tumbleBoardRemoveExploded',
+				group: 'Cascade',
+			},
+			{
+				type: 'tumbleBoardSlideDown',
+				group: 'Cascade',
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -1546,6 +1690,15 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'createBonusSnapshot',
+			},
+			{
+				type: 'tumbleBoard',
+			},
+			{
+				type: 'updateTumbleWin',
+			},
+			{
+				type: 'updateGlobalMult',
 			},
 			{
 				type: 'finalWin',
