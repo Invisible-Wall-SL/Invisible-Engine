@@ -81,11 +81,26 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
   a slot template, a `/flow` emitter palette, its own `/flow-v2` vocabulary + starter flow seed, and
   a FILLED reference layout — on top of the win model, per-way pricing and ways mock protocol that
   landed in #355/#357/#360. It needed no new art: `apps/ways` ships the same `reelsFrame` atlas as
-  `apps/lines`, frame-for-frame. **`cluster` / `scatter` are OUT of scope** (owner decision,
-  2026-08-19): neither template will be built, and both would need the tumble/cascade mechanic the
-  shared runtime has never carried (`tumbleBoard`, `updateTumbleWin`, `updateGlobalMult`, plus
-  `updateGrid` / `boardMultiplierInfo`) — a new board mechanic, not a template. Their win models stay
-  declared and correctly priced. ([status/editor](status/editor.md) · [status/flow](status/flow.md))
+  `apps/lines`, frame-for-frame. **`cluster` / `scatter` were scoped OUT on 2026-08-19 — and that
+  decision was REVERSED the next day** (see the next entry). Their win models were already declared
+  and correctly priced. ([status/editor](status/editor.md) · [status/flow](status/flow.md))
+
+- **The cascade (tumble) + multiplier-collect mechanics are in the shared runtime** (2026-08-20,
+  #375 then #377 — cluster Phases 1–2, then scatter Phases 1–2). This reverses the 2026-08-19
+  scope-out above, which was right that a cascade is a board **mechanic** rather than a template and
+  wrong about what one costs. Two findings shrank it: the tumble is an **overlay** that mounts for
+  the duration of a cascade and unmounts again (`boardHide → tumbleBoardShow → init → explode →
+  removeExploded → slideDown → boardSettle → tumbleBoardHide → boardShow`), so a game that never
+  tumbles never mounts it — the seam that let the mechanic land in the shared runtime without putting
+  its risk on `lines` or `bookOf`; and **`explosion` was already an authorable symbol state**, so a
+  cascade's defining animation is authored in `/symbols` like any other and the mechanic needed no
+  symbol tooling of its own. Landed: `stateTumble.svelte.ts`, `TumbleBoard`/`TumbleSymbol`, three
+  book events, seven `/flow` cues and a registered `/flow-v2` `cluster` vocabulary, then scatter's
+  `boardMultiplierInfo` + six more cues on a `SCATTER_VOCAB` that INHERITS `CLUSTER_VOCAB` (the two
+  share the whole cascade, so declaring the tumble surfaces twice would only let them drift). Both
+  live in `apps/lines` because that IS the shared runtime bundle. Whether the `cluster` / `scatter`
+  **templates** get built is now a separate, much smaller question.
+  ([status/engine](status/engine.md))
 
 - **Invisible Cinematic — Phases 0–3 COMPLETE + Tweak Mode** (built 2026-08-17, tweak 2026-08-18).
   Double-clicking a strip now opens its clip in the animator with the rest of the stage posed around
