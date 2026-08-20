@@ -72,8 +72,8 @@ Per-tool "next" lives in each `docs/status/<tool>.md`; this is the pipeline-wide
 3. Smaller: the concurrency **force-always Save** fix (symbols/fx/localization wire `onclick={save}`,
    passing the event as `force` → manual Save silently overwrites; change to `() => save()`);
    **Rigger Phase 3.6d** (hull-loop reordering — the 3.6c permutation primitive exists, no UI yet);
-   wire `gen-flow-vocabulary --check` into CI/pre-commit; refresh
-    [tools/fx.md](tools/fx.md) for the new Emission/Movement/Colour/Blend/Presets sliders (rule 9).
+   refresh [tools/fx.md](tools/fx.md) for the new Emission/Movement/Colour/Blend/Presets sliders
+   (rule 9).
 
 **Recently closed** (2026-08-05 → 08-20):
 
