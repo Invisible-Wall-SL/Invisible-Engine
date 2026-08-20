@@ -385,6 +385,40 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		}
 	},
 
+	/**
+	 * The multiplier-COLLECT beat: show the running cascade total, mount the collect overlay, let each
+	 * multiplier play in place, then fly them to the board centre and announce the combined total.
+	 *
+	 * The two animated steps are AWAITED for the same reason the cascade's are — each is a real
+	 * animation whose completion the Symbols tool authors, and not waiting would run the flight over
+	 * the top of a win state still playing.
+	 *
+	 * The totals ride the game's ORDINARY win meter rather than a bespoke readout, so a project that
+	 * authored its win text gets this beat for free. That is a deliberate simplification of the
+	 * reference, which carried a second `tumbleWinAmount`/`multiplierTotal` display stack of its own.
+	 */
+	boardMultiplierInfo: async (bookEvent: BookEventOfType<'boardMultiplierInfo'>) => {
+		eventEmitter.broadcast({ type: 'winShow' });
+		eventEmitter.broadcast({
+			type: 'winUpdate',
+			amount: bookEvent.winInfo.tumbleWin,
+			winLevel: 0,
+		});
+
+		eventEmitter.broadcast({ type: 'multiplierBoardShow' });
+		eventEmitter.broadcast({ type: 'multiplierBoardInit' });
+		await eventEmitter.broadcastAsync({ type: 'multiplierBoardAnimate' });
+		await eventEmitter.broadcastAsync({ type: 'multiplierBoardMove' });
+		eventEmitter.broadcast({ type: 'multiplierBoardReset' });
+		eventEmitter.broadcast({ type: 'multiplierBoardHide' });
+
+		eventEmitter.broadcast({
+			type: 'winUpdate',
+			amount: bookEvent.winInfo.totalWin,
+			winLevel: 0,
+		});
+	},
+
 	finalWin: async (bookEvent: BookEventOfType<'finalWin'>) => {
 		// Do nothing
 	},

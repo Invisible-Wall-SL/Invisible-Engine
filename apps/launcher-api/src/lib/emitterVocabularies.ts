@@ -362,6 +362,30 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Cascade',
 			},
 			{
+				type: 'multiplierBoardShow',
+				group: 'Multipliers',
+			},
+			{
+				type: 'multiplierBoardHide',
+				group: 'Multipliers',
+			},
+			{
+				type: 'multiplierBoardInit',
+				group: 'Multipliers',
+			},
+			{
+				type: 'multiplierBoardReset',
+				group: 'Multipliers',
+			},
+			{
+				type: 'multiplierBoardAnimate',
+				group: 'Multipliers',
+			},
+			{
+				type: 'multiplierBoardMove',
+				group: 'Multipliers',
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -563,6 +587,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'updateGlobalMult',
+			},
+			{
+				type: 'boardMultiplierInfo',
 			},
 			{
 				type: 'finalWin',
@@ -930,6 +957,30 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Cascade',
 			},
 			{
+				type: 'multiplierBoardShow',
+				group: 'Multipliers',
+			},
+			{
+				type: 'multiplierBoardHide',
+				group: 'Multipliers',
+			},
+			{
+				type: 'multiplierBoardInit',
+				group: 'Multipliers',
+			},
+			{
+				type: 'multiplierBoardReset',
+				group: 'Multipliers',
+			},
+			{
+				type: 'multiplierBoardAnimate',
+				group: 'Multipliers',
+			},
+			{
+				type: 'multiplierBoardMove',
+				group: 'Multipliers',
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -1131,6 +1182,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'updateGlobalMult',
+			},
+			{
+				type: 'boardMultiplierInfo',
 			},
 			{
 				type: 'finalWin',
@@ -1498,6 +1552,30 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Cascade',
 			},
 			{
+				type: 'multiplierBoardShow',
+				group: 'Multipliers',
+			},
+			{
+				type: 'multiplierBoardHide',
+				group: 'Multipliers',
+			},
+			{
+				type: 'multiplierBoardInit',
+				group: 'Multipliers',
+			},
+			{
+				type: 'multiplierBoardReset',
+				group: 'Multipliers',
+			},
+			{
+				type: 'multiplierBoardAnimate',
+				group: 'Multipliers',
+			},
+			{
+				type: 'multiplierBoardMove',
+				group: 'Multipliers',
+			},
+			{
 				type: 'transition',
 				group: 'Transition',
 			},
@@ -1699,6 +1777,9 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			},
 			{
 				type: 'updateGlobalMult',
+			},
+			{
+				type: 'boardMultiplierInfo',
 			},
 			{
 				type: 'finalWin',

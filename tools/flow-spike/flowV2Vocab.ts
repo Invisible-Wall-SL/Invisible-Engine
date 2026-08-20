@@ -21,6 +21,7 @@
 import {
 	BOOK_OF_VOCAB,
 	CLUSTER_VOCAB,
+	SCATTER_VOCAB,
 	WAYS_VOCAB,
 	templateVocabulary,
 	validateFlowDoc,
@@ -175,7 +176,7 @@ const main = () => {
 	console.log('Invisible Flow v2 — Phase 4c vocabulary harness\n');
 
 	console.log('1. internal consistency, per registered template:');
-	for (const vocab of [BOOK_OF_VOCAB, WAYS_VOCAB, CLUSTER_VOCAB]) {
+	for (const vocab of [BOOK_OF_VOCAB, WAYS_VOCAB, CLUSTER_VOCAB, SCATTER_VOCAB]) {
 		const id = vocab.templateId;
 		const declaredStructs = new Set(vocab.structs.map((s) => s.name));
 		const declaredEnums = new Set(vocab.enums.map((e) => e.name));
@@ -354,6 +355,70 @@ const main = () => {
 		assert(
 			'the book-of reveal flow is REJECTED against the cluster vocab',
 			validateFlowDoc(REVEAL_DOC, CLUSTER_VOCAB, LIBRARY).length > 0,
+		);
+	}
+
+	console.log('\n5. SCATTER_VOCAB is the cascade PLUS the multiplier collect:');
+	{
+		const names = <T extends { name: string }>(l: T[]) => l.map((x) => x.name);
+		const only = <T extends { name: string }>(a: T[], b: T[]) =>
+			names(a).filter((n) => !names(b).includes(n));
+
+		// Scatter is built ON cluster, not beside it — so it must INHERIT the whole cascade. Asserted
+		// explicitly: if someone later rebases it on the standard palette, the tumble would vanish
+		// silently and a scatter flow would lose the beat it is mostly made of.
+		for (const inherited of ['tumbleBoard', 'updateTumbleWin', 'updateGlobalMult']) {
+			assert(
+				`scatter inherits the cascade event \`${inherited}\``,
+				names(SCATTER_VOCAB.events).includes(inherited),
+			);
+		}
+		assert(
+			'scatter inherits the cascade cues',
+			names(SCATTER_VOCAB.cues).includes('tumbleBoardExplode') &&
+				names(SCATTER_VOCAB.cues).includes('tumbleBoardSlideDown'),
+		);
+
+		const scatterOnly = [
+			...only(SCATTER_VOCAB.events, CLUSTER_VOCAB.events),
+			...only(SCATTER_VOCAB.cues, CLUSTER_VOCAB.cues),
+		].sort();
+		assert(
+			'over cluster, scatter adds exactly the collect surfaces',
+			JSON.stringify(scatterOnly) ===
+				JSON.stringify(
+					[
+						'boardMultiplierInfo',
+						'multiplierBoardShow',
+						'multiplierBoardHide',
+						'multiplierBoardInit',
+						'multiplierBoardReset',
+						'multiplierBoardAnimate',
+						'multiplierBoardMove',
+					].sort(),
+				),
+			scatterOnly.join(','),
+		);
+		assert(
+			'scatter takes nothing AWAY from cluster',
+			only(CLUSTER_VOCAB.events, SCATTER_VOCAB.events).length === 0 &&
+				only(CLUSTER_VOCAB.cues, SCATTER_VOCAB.cues).length === 0,
+		);
+		assert(
+			'scatter declares the multiplier symbol M, cluster does not',
+			(() => {
+				const symbolsOf = (v: TemplateVocabulary) =>
+					v.enums.find((e) => e.name === 'SymbolName')?.values ?? [];
+				return symbolsOf(SCATTER_VOCAB).includes('M') && !symbolsOf(CLUSTER_VOCAB).includes('M');
+			})(),
+		);
+		assert(
+			"templateVocabulary('scatter') resolves to the scatter vocab",
+			templateVocabulary('scatter').templateId === 'scatter',
+		);
+		assert(
+			'the book-of reveal flow is REJECTED against the scatter vocab',
+			validateFlowDoc(REVEAL_DOC, SCATTER_VOCAB, LIBRARY).length > 0,
 		);
 	}
 

@@ -11,6 +11,7 @@
 import type { TemplateVocabulary } from '../types';
 import { BOOK_OF_VOCAB } from './bookOf';
 import { CLUSTER_VOCAB } from './cluster';
+import { SCATTER_VOCAB } from './scatter';
 import { WAYS_VOCAB } from './ways';
 
 /** Every registered template vocabulary, keyed by `templateId`. */
@@ -18,6 +19,7 @@ export const TEMPLATE_VOCABULARIES: Record<string, TemplateVocabulary> = {
 	[BOOK_OF_VOCAB.templateId]: BOOK_OF_VOCAB,
 	[WAYS_VOCAB.templateId]: WAYS_VOCAB,
 	[CLUSTER_VOCAB.templateId]: CLUSTER_VOCAB,
+	[SCATTER_VOCAB.templateId]: SCATTER_VOCAB,
 };
 
 /**

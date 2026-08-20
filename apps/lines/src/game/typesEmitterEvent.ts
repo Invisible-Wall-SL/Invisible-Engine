@@ -8,6 +8,7 @@ import type { EmitterEventWin } from '../components/Win.svelte';
 import type { EmitterEventWinLine } from '../components/WinLine.svelte';
 import type { EmitterEventSound } from '../components/Sound.svelte';
 import type { EmitterEventTumbleBoard } from '../components/TumbleBoard.svelte';
+import type { EmitterEventMultiplierBoard } from '../components/MultiplierBoard.svelte';
 import type { EmitterEventTransition } from 'engine-game';
 
 export type EmitterEventGame =
@@ -21,4 +22,5 @@ export type EmitterEventGame =
 	| EmitterEventSpecialBook
 	| EmitterEventSound
 	| EmitterEventTumbleBoard
+	| EmitterEventMultiplierBoard
 	| EmitterEventTransition;

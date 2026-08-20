@@ -223,6 +223,7 @@
 	import FreeSpinOutroVisual from './FreeSpinOutroVisual.svelte';
 	import SpecialBook from './SpecialBook.svelte';
 	import TumbleBoard from './TumbleBoard.svelte';
+	import MultiplierBoard from './MultiplierBoard.svelte';
 	import FreeSpinIntroSymbolReveal from './FreeSpinIntroSymbolReveal.svelte';
 	import BookRevealGate from './BookRevealGate.svelte';
 	import ExpandingSymbol from './ExpandingSymbol.svelte';
@@ -404,6 +405,9 @@
 		// Self-shows off the tumble cues exactly as `SpecialBook` does off its own, so a game whose
 		// RGS never sends `tumbleBoard` never mounts it and is unaffected. The doc owns only placement.
 		TumbleBoard,
+		// Multiplier-collect overlay — the scatter family's second mechanic. Mounted only while a
+		// `boardMultiplierInfo` event plays; a game whose RGS never sends one never mounts it.
+		MultiplierBoard,
 		// Phase 3 — the OPTIONAL press-to-continue book-reveal GATE (dim + press + round-await),
 		// mirroring `FreeSpinIntroGate`. Armed by an AWAITABLE `bookRevealGateShow` broadcast the
 		// author drops into the choreography when they want a tap (vs the auto-play `delay`).

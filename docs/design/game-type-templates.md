@@ -409,8 +409,18 @@ resized its grid.
 2. **The math.** `apps/cluster` ships empty-placeholder `paddingReels`, so there is no committed
    config default to seed a project from — the same gap as the ways math export, one step worse.
    Cascade RTP is chain-dependent, so the ways verifier does not cover it either.
-3. **`scatter`.** Deliberately not started. The tumble core is shared, so scatter is much cheaper
-   once cluster is proven; starting both would double the surface before either has run.
+3. **`scatter` phases 1–2 are on `main` too** (2026-08-20). It cost roughly a third of cluster,
+   which is the prediction the shared-core argument was making: scatter is the cascade PLUS a
+   multiplier collect, so `SCATTER_VOCAB` is built ON `CLUSTER_VOCAB` rather than beside it, and the
+   only new surfaces are `boardMultiplierInfo` and six cues. Two things fell out of the reference
+   rather than being written: `stateGame.multiplierBoard` was ALREADY in the shared board state from
+   the Phase A extraction — scatter's model, lifted and then left with no consumer — and the collect
+   test became `RawSymbol.multiplier !== undefined` instead of the reference's hardcoded
+   `name === 'M'`, which would have collected nothing in a project that renamed its symbol.
+
+   It shares cluster's blockers exactly (no wire, no capture), and is one step better off in one
+   respect: it ships a committed config default (`gameConfig/scatter.json`), where cluster's upstream
+   strips are empty placeholders.
 
 ## Scoped out — the 2026-08-19 decision (superseded for `cluster` by Phase F)
 

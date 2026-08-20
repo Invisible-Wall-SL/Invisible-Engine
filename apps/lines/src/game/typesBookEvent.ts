@@ -132,6 +132,25 @@ type BookEventUpdateGlobalMult = {
 	globalMult: number;
 };
 
+// Multiplier COLLECT — the scatter family's second mechanic, on top of the cascade. Sent when a step
+// landed multiplier symbols: they play in place, fly to the board centre, and their values combine
+// into `boardMult`. `winInfo` carries the three amounts that beat displays.
+//
+// Note the upstream sample typed these three as LITERALS (`tumbleWin: 400`), which is a
+// paste-the-example-values slip rather than a contract — they are ordinary numbers.
+type BookEventBoardMultiplierInfo = {
+	index: number;
+	type: 'boardMultiplierInfo';
+	multInfo: {
+		positions: (Position & { multiplier: number })[];
+	};
+	winInfo: {
+		tumbleWin: number;
+		boardMult: number;
+		totalWin: number;
+	};
+};
+
 // customised
 type BookEventCreateBonusSnapshot = {
 	index: number;
@@ -149,6 +168,7 @@ export type BookEvent =
 	| BookEventTumbleBoard
 	| BookEventUpdateTumbleWin
 	| BookEventUpdateGlobalMult
+	| BookEventBoardMultiplierInfo
 	| BookEventFinalWin
 	| BookEventSetWin
 	| BookEventFreeSpinEnd
