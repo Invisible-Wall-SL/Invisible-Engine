@@ -1,5 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 import { validateGameConfigDoc } from 'game-config';
+import { pickSheetsFrom } from '$lib/pickSheets';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listComponents } from '$lib/server/componentStorage';
@@ -107,14 +108,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 			category: c.category,
 			params: c.params ?? [],
 		})),
-		// The region-picker source for `image` card params: atlas MANIFESTS + sheets (atlas pages
-		// aren't manifests). Mirrors the editor's `pickSheets` derivation; `{ key, name }` only.
-		pickSheets: [
-			...assets.atlases
-				.filter((a) => a.kind === 'atlas-manifest')
-				.map((a) => ({ key: a.key, name: a.name })),
-			...assets.sheets.map((s) => ({ key: s.key, name: s.name })),
-		],
+		// The region-picker source for `image` card params — the SAME list the editor, the component
+		// editor and the symbols tool build, so the four writers of scoped frame refs cannot drift.
+		pickSheets: pickSheetsFrom(assets),
 		// The spine-bundle source for `spine` card params (project + shared bundles). `{ name, key,
 		// shared }` — `name` is the value a `spine` param stores; `key` is the R2 prefix the animation
 		// dropdown keys its `/api/editor/spine/meta` fetch by.
