@@ -117,8 +117,14 @@ export async function fetchSpineBundleFile(
 	bundle: string,
 	name: string,
 	preferPng: boolean,
+	opts: { forceShared?: boolean } = {},
 ): Promise<SpineFile | null> {
-	const prefix = await resolveBundlePrefix(clientKey, projectKey, bundle, name);
+	// `forceShared` exists for the engine boot mark, which resolves shared-ONLY when it ships.
+	// A preview that fell back to a same-named project bundle would show something other than
+	// what the export will actually produce — the one thing a preview must never do.
+	const prefix = opts.forceShared
+		? await resolveSharedBundlePrefix(bundle, name)
+		: await resolveBundlePrefix(clientKey, projectKey, bundle, name);
 	if (!prefix) return null;
 	const key = `${prefix}/${name}`;
 

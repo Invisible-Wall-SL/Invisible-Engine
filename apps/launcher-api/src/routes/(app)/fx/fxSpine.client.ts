@@ -47,10 +47,18 @@ export interface LoadedFxSpine {
 	bones: string[];
 }
 
-/** Build the `/spine/file` URL for one file of a bundle (the Viewer's per-file endpoint). */
-function fileUrl(dirB64: string, name: string, preferPng = false): string {
+/** Build the `/spine/file` URL for one file of a bundle (the Viewer's per-file endpoint).
+ * `shared` pins the lookup to `_shared/spines/` (the engine boot-mark preview). */
+function fileUrl(dirB64: string, name: string, preferPng = false, shared = false): string {
 	const pp = preferPng ? '&pp=1' : '';
-	return `/spine/file?dir=${encodeURIComponent(dirB64)}&name=${encodeURIComponent(name)}${pp}`;
+	const sh = shared ? '&shared=1' : '';
+	return `/spine/file?dir=${encodeURIComponent(dirB64)}&name=${encodeURIComponent(name)}${pp}${sh}`;
+}
+
+/** Options for {@link loadFxSpine}. */
+export interface LoadSpineOptions {
+	/** Resolve the bundle in `_shared/spines/` only, never the active project. */
+	shared?: boolean;
 }
 
 /**
@@ -58,15 +66,21 @@ function fileUrl(dirB64: string, name: string, preferPng = false): string {
  * each atlas page to a Pixi `Texture` (loaded through `/spine/file`), then reads the
  * skeleton (`.json`/`.irig` via `SkeletonJson`, `.skel` via `SkeletonBinary`).
  */
-export async function loadFxSpine(entry: FxSkeletonEntry): Promise<LoadedFxSpine> {
-	const atlasText = await (await fetch(fileUrl(entry.dir_b64, entry.atlas_file))).text();
+export async function loadFxSpine(
+	entry: FxSkeletonEntry,
+	opts: LoadSpineOptions = {},
+): Promise<LoadedFxSpine> {
+	const shared = opts.shared === true;
+	const atlasText = await (
+		await fetch(fileUrl(entry.dir_b64, entry.atlas_file, false, shared))
+	).text();
 	const atlas = new SPINE.TextureAtlas(atlasText);
 
 	// Wire each atlas page to its texture. The page `name` is the image filename the atlas
 	// references; we load it through `/spine/file` (preferring a `.png` sibling, as the
 	// Viewer + the server's atlasPreferPng do, to avoid lossy-WebP alpha).
 	for (const page of atlas.pages) {
-		const tex = (await Assets.load(fileUrl(entry.dir_b64, page.name, true))) as Texture;
+		const tex = (await Assets.load(fileUrl(entry.dir_b64, page.name, true, shared))) as Texture;
 		page.setTexture(SPINE.SpineTexture.from(tex.source));
 	}
 
@@ -74,12 +88,14 @@ export async function loadFxSpine(entry: FxSkeletonEntry): Promise<LoadedFxSpine
 	let skeletonData: SPINE.SkeletonData;
 	if (entry.format === 'skel') {
 		const bytes = new Uint8Array(
-			await (await fetch(fileUrl(entry.dir_b64, entry.skeleton_file))).arrayBuffer(),
+			await (await fetch(fileUrl(entry.dir_b64, entry.skeleton_file, false, shared))).arrayBuffer(),
 		);
 		const binary = new SPINE.SkeletonBinary(attachmentLoader);
 		skeletonData = binary.readSkeletonData(bytes);
 	} else {
-		const json = await (await fetch(fileUrl(entry.dir_b64, entry.skeleton_file))).json();
+		const json = await (
+			await fetch(fileUrl(entry.dir_b64, entry.skeleton_file, false, shared))
+		).json();
 		const reader = new SPINE.SkeletonJson(attachmentLoader);
 		skeletonData = reader.readSkeletonData(json);
 	}

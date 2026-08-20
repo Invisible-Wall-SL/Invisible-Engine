@@ -172,9 +172,15 @@ export const load: PageServerLoad = async ({ locals }) => {
 	// must not be satisfiable by a per-project bundle. An empty list means nothing has been
 	// published there yet, which the UI says explicitly rather than rendering an empty dropdown.
 	const bootSplashEngine = await getEngineBootSplash();
+	// The FULL index entry, not just a label: the live preview loads the skeleton client-side
+	// through `/spine/file`, which addresses a bundle by `dir_b64` + the two filenames.
 	const sharedSpineBundles = (await loadSharedSkeletonIndex()).map((e) => ({
 		folder: e.folder,
 		name: e.name || e.folder,
+		dir_b64: e.dir_b64,
+		skeleton_file: e.skeleton_file,
+		atlas_file: e.atlas_file,
+		format: e.format,
 	}));
 
 	// ComfyUI R&D pod FLEET (RunPod): the admin-editable pod list + idle config + a live

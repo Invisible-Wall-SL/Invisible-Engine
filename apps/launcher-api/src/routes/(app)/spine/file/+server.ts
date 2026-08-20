@@ -11,6 +11,9 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 	const dirB64 = url.searchParams.get('dir') ?? '';
 	const name = url.searchParams.get('name') ?? '';
 	const preferPng = url.searchParams.get('pp') === '1';
+	// `shared=1` pins the lookup to `_shared/spines/` — used by the engine boot-mark preview,
+	// which must resolve exactly the way its export does.
+	const forceShared = url.searchParams.get('shared') === '1';
 	if (!dirB64 || !name) throw error(400, 'missing dir/name');
 
 	let bundle: string;
@@ -27,7 +30,9 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		(await getActiveProjectKey(cookies.get(SESSION_COOKIE))) ?? DEFAULT_PROJECT_KEY;
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 
-	const file = await fetchSpineBundleFile(clientKey, projectKey, bundle, name, preferPng);
+	const file = await fetchSpineBundleFile(clientKey, projectKey, bundle, name, preferPng, {
+		forceShared,
+	});
 	if (!file) throw error(404, 'not found');
 	return new Response(file.body, {
 		headers: { 'content-type': file.contentType, 'cache-control': 'no-store' },

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import Emblem from '$lib/Emblem.svelte';
+	import BootMarkPreview from '$lib/BootMarkPreview.svelte';
 	import ColorField from '$lib/ColorField.svelte';
 	import LayoutProfileEditor from '$lib/LayoutProfileEditor.svelte';
 	import { roleLabel } from '$lib/roles';
@@ -310,6 +311,30 @@
 		data.bootSplash.engine?.background ?? BOOT_SPLASH_DEFAULT_BACKGROUND.engine,
 	);
 	let bootSize = $state(data.bootSplash.engine?.size ?? BOOT_SPLASH_DEFAULT_SIZE);
+
+	/** Animation names read off the previewed skeleton — replaces a free-text box whose value you
+	 * could not verify against the rig. */
+	let bootAnimations = $state<string[]>([]);
+
+	/** The index entry behind the CURRENT selection, or null. `$derived` so picking a bundle
+	 * reloads the preview without any manual wiring. */
+	const bootEntry = $derived(data.bootSplash.bundles.find((b) => b.folder === bootBundle) ?? null);
+
+	/**
+	 * Re-seed the editable copies from the server's canonical values after a save.
+	 *
+	 * SvelteKit's default `enhance` calls `update()`, which RESETS the form on success — the
+	 * native reset blanks the inputs while the Svelte state behind `bind:value` keeps its value,
+	 * so the panel showed an empty Animation box and a bundle you could no longer identify. The
+	 * forms below pass `reset: false`; this re-seed then makes the panel show what was actually
+	 * stored (trimmed, clamped, defaults applied) rather than what was typed.
+	 */
+	function reseedBootMark(): void {
+		bootBundle = data.bootSplash.engine?.bundle ?? '';
+		bootAnimation = data.bootSplash.engine?.animation ?? '';
+		bootBackground = data.bootSplash.engine?.background ?? BOOT_SPLASH_DEFAULT_BACKGROUND.engine;
+		bootSize = data.bootSplash.engine?.size ?? BOOT_SPLASH_DEFAULT_SIZE;
+	}
 
 	// --- Settings: promote a project spine into the shared library ---
 	// `_shared/spines/` has no other writer: every producer (the Rigger especially) writes
@@ -1520,7 +1545,19 @@
 					</p>
 				{/if}
 
-				<form method="POST" action="?/saveBootSplash" use:enhance class="boot-mark">
+				<form
+					method="POST"
+					action="?/saveBootSplash"
+					use:enhance={() => {
+						return async ({ update }) => {
+							// `reset: false` — a native form reset blanks the inputs while the bound state
+							// keeps its value, which is what wiped the Animation box on every save.
+							await update({ reset: false });
+							reseedBootMark();
+						};
+					}}
+					class="boot-mark"
+				>
 					<label>
 						Spine bundle
 						<select name="bundle" bind:value={bootBundle}>
@@ -1538,13 +1575,28 @@
 					</label>
 					<label>
 						Animation
-						<input
-							name="animation"
-							type="text"
-							autocomplete="off"
-							placeholder="e.g. Idle — blank uses the first clip"
-							bind:value={bootAnimation}
-						/>
+						{#if bootAnimations.length > 0}
+							<select name="animation" bind:value={bootAnimation}>
+								<option value="">— first clip ({bootAnimations[0]}) —</option>
+								{#each bootAnimations as a (a)}
+									<option value={a}>{a}</option>
+								{/each}
+								{#if bootAnimation && !bootAnimations.includes(bootAnimation)}
+									<!-- Saved clip is not on this skeleton (renamed, or the bundle changed under
+									     it). Keep it visible and labelled instead of silently snapping to another
+									     clip — the runtime falls back to the first, and you should know that. -->
+									<option value={bootAnimation}>{bootAnimation} (not on this rig)</option>
+								{/if}
+							</select>
+						{:else}
+							<input
+								name="animation"
+								type="text"
+								autocomplete="off"
+								placeholder="blank uses the first clip"
+								bind:value={bootAnimation}
+							/>
+						{/if}
 					</label>
 					<label class="boot-mark-colour">
 						Background
@@ -1564,6 +1616,31 @@
 					</label>
 					<button type="submit">Save engine mark</button>
 				</form>
+
+				<div class="boot-preview-row">
+					<BootMarkPreview
+						entry={bootEntry}
+						animation={bootAnimation}
+						size={bootSize}
+						background={bootBackground}
+						bind:animations={bootAnimations}
+					/>
+					<div class="boot-saved">
+						<span class="muted">Currently saved</span>
+						{#if data.bootSplash.engine}
+							<dl>
+								<dt>Spine</dt>
+								<dd class="mono">{data.bootSplash.engine.bundle}</dd>
+								<dt>Animation</dt>
+								<dd class="mono">{data.bootSplash.engine.animation ?? '(first clip)'}</dd>
+								<dt>Size</dt>
+								<dd class="mono">{(data.bootSplash.engine.size ?? 1).toFixed(2)}×</dd>
+							</dl>
+						{:else}
+							<p class="muted">Nothing set — games open on their own splash.</p>
+						{/if}
+					</div>
+				</div>
 				<p class="muted hint">
 					<strong>Size</strong> is a multiplier on the automatic fit, not an absolute size — 1.00×
 					is the mark scaled to sit inside a safe box, so it holds on every screen. Above ~1.6× it
@@ -1589,7 +1666,14 @@
 					load those.
 				</p>
 
-				<form method="POST" action="?/promoteSpine" use:enhance class="boot-mark">
+				<form
+					method="POST"
+					action="?/promoteSpine"
+					use:enhance={() => {
+						return async ({ update }) => await update({ reset: false });
+					}}
+					class="boot-mark"
+				>
 					<label>
 						Project
 						<select
@@ -2256,6 +2340,30 @@
 
 	.boot-mark-size input[type='range'] {
 		width: 180px;
+	}
+
+	.boot-preview-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-start;
+		gap: 16px;
+		margin-top: 12px;
+	}
+
+	.boot-saved dl {
+		display: grid;
+		grid-template-columns: auto auto;
+		gap: 2px 10px;
+		margin: 6px 0 0;
+		font-size: 12px;
+	}
+
+	.boot-saved dt {
+		color: #8a887f;
+	}
+
+	.boot-saved dd {
+		margin: 0;
 	}
 
 	.boot-rule {
