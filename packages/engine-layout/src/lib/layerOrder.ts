@@ -62,6 +62,12 @@ export const LAYER_BAND_TAKEOVER = 9_000;
 /** Fixed z for the engine-owned top layer (free-spin gates, info overlay) — always above
  *  every list-ordered AND pinned screen, so no authoring can bury a round-blocking gate. */
 export const LAYER_BAND_TOP = 10_000;
+/** Fixed z for the press-to-continue INPUT MASK — the one layer above {@link LAYER_BAND_TOP}
+ *  itself. While a `tapToContinue` overlay is up, a full-canvas hit rect mounts here so the tap
+ *  lands on the overlay wherever the pointer happens to be resting; without it the HUD (which
+ *  paints above most overlays) swallowed the click and the celebration could not be skipped.
+ *  Nothing else may live at this band — anything mounted here would block the mask's own tap. */
+export const LAYER_BAND_INPUT_MASK = 11_000;
 
 /**
  * The zIndex a screen mounts at — the SINGLE resolver every mount path uses, so one screen

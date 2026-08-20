@@ -25,6 +25,7 @@
 	import {
 		getSpinButtonKey,
 		getSpinPressSound,
+		isCelebrationLocked,
 		isSpinButtonDisabled,
 		isSpinButtonSpinning,
 		runSpinOrSlamStop,
@@ -111,6 +112,7 @@
 		isSceneLayerPinned,
 		LAYER_BAND_BACKGROUND,
 		LAYER_BAND_BACKGROUND_CODED,
+		LAYER_BAND_INPUT_MASK,
 		LAYER_BAND_TAKEOVER,
 		LAYER_BAND_TOP,
 		LAYER_BAND_WIN_PRESENTATION,
@@ -211,7 +213,7 @@
 	import WinGate from './WinGate.svelte';
 	import WinVisual from './WinVisual.svelte';
 	import FreeSpinIntro from './FreeSpinIntro.svelte';
-	import { FreeSpinIntroGate } from 'engine-game';
+	import { ContinuePressMask, FreeSpinIntroGate } from 'engine-game';
 	import FreeSpinIntroFlowGate from './FreeSpinIntroFlowGate.svelte';
 	import FreeSpinIntroVisual from './FreeSpinIntroVisual.svelte';
 	import FreeSpinCounter from './FreeSpinCounter.svelte';
@@ -1704,14 +1706,17 @@
 			active: boolSource(() => stateBetDerived.hasAutoBetCounter()),
 		},
 		// ButtonTurbo — toggle persistent turbo. Active while turbo is on; disabled
-		// while space is held. (The stop-button turbo nuance is a `subscribeOnMount`
+		// while space is held, and while a non-skippable celebration owns the screen (the same
+		// `isCelebrationLocked` read the spin button greys on — the `<ContinuePressMask>` already
+		// eats the press there, so the button must look dead rather than silently do nothing).
+		// (The stop-button turbo nuance is a `subscribeOnMount`
 		// concern of the coded button, not part of the press/flag contract here.)
 		turbo: {
 			onpress: () => {
 				context.eventEmitter.broadcast({ type: 'soundPressGeneral' });
 				routeActionThroughFlow('turbo', doToggleTurbo);
 			},
-			disabled: boolSource(() => stateBet.isSpaceHold),
+			disabled: boolSource(() => stateBet.isSpaceHold || isCelebrationLocked()),
 			active: boolSource(() => stateBet.isTurbo),
 		},
 		// ButtonIncrease — step the bet to the next larger option. Disabled while not
@@ -2437,6 +2442,24 @@
 	<FlowV2Cinematics flow={flowV2Handle} />
 
 	<DebugStage />
+
+	<!--
+		Press-to-continue INPUT MASK — the LAST thing in the stack, at its own band above
+		`LAYER_BAND_TOP`. While any `PressToContinue` is live (free-spin intro/outro, big win, an
+		authored `tapToContinue` screen) this full-canvas hit rect absorbs the tap wherever the
+		pointer is and runs that overlay's press.
+
+		Without it the overlay's own hit rect sits at the OVERLAY's z, so the HUD — which paints
+		above most overlays — hit-tested first: a pointer resting on the spin button ate the click
+		(the button is inert under the celebration lock, so nothing happened at all) and the player had
+		to move off the button to skip the cinematic; turbo/menu/bet were worse, still fully live under
+		a full-screen overlay. Locking a button's press can't fix that — an inert button still eats the
+		pointer — so the overlay masks the chrome instead. Mounted only while a press is live ⇒ the
+		HUD is untouched the rest of the time (parity).
+	-->
+	<Container zIndex={LAYER_BAND_INPUT_MASK}>
+		<ContinuePressMask />
+	</Container>
 </App>
 
 <Modals disabledModals={['payTable', 'gameRules']}>

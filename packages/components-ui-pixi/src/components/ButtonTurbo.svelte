@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { stateBet, stateBetDerived } from 'state-shared';
+	import { isCelebrationLocked } from 'utils-shared/spinStop';
 
 	import UiButton from './UiButton.svelte';
 	import { UI_BASE_SIZE } from '../constants';
@@ -10,7 +11,11 @@
 	const context = getContext();
 	const sizes = { width: UI_BASE_SIZE, height: UI_BASE_SIZE };
 	const active = $derived(stateBet.isTurbo);
-	const disabled = $derived(stateBet.isSpaceHold);
+	// Greyed while a non-skippable celebration owns the screen, on the SAME read as the spin
+	// button (`utils-shared/spinStop`). The press is already dead there — the game's canvas-top
+	// `<ContinuePressMask>` absorbs it so a tap over this button skips the cinematic instead of
+	// silently toggling turbo — so the button must LOOK dead too.
+	const disabled = $derived(stateBet.isSpaceHold || isCelebrationLocked());
 
 	const onpress = () => {
 		context.eventEmitter.broadcast({ type: 'soundPressGeneral' });

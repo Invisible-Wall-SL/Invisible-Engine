@@ -16,8 +16,13 @@ import {
  * screen yet is running (`hasUnskippablePresentation` — the free-spin intro's scatter-match phase
  * and the book reveal, the window BEFORE the intro screen mounts). Any one locks the press + greys
  * it, so a slam can't trip the round token in a gap and skip the celebration that follows.
+ *
+ * Exported because the SPIN button is not the only chrome that must stand down: the turbo toggle
+ * greys off the same read. Greying is the AFFORDANCE only — what actually stops a stray press
+ * landing on the HUD is the game's canvas-top `<ContinuePressMask>`, since an inert button still
+ * swallows the pointer it sits under.
  */
-const isCelebrationLocked = (): boolean =>
+export const isCelebrationLocked = (): boolean =>
 	hasCelebrationOverlay() || hasContinuePress() || hasUnskippablePresentation();
 
 import { roundSkip } from './skipToken';
