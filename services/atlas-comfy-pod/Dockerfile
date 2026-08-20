@@ -139,6 +139,25 @@ RUN pip install --force-reinstall \
     "torch==${TORCH_REF}" "torchvision==${TORCHVISION_REF}" "torchaudio==${TORCHAUDIO_REF}" \
     --index-url https://download.pytorch.org/whl/cu128
 
+# --- dependency sanity (MUST be after the LAST pip step) ---------------------------
+# The requirements loop above runs each node's file with `|| true`, so one node's stale
+# pin silently rewrites a package every other node shares and the build still goes green.
+# That is exactly how ComfyUI-PuLID-Flux2's `ml_dtypes==0.3.2` shipped an image whose face
+# stack could not import (2026-08-20). Two checks, because they catch different things:
+#
+#   `pip check` — METADATA conflicts, advisory (`|| true`). This image carries long-standing
+#   benign overlaps (three opencv distributions sharing the `cv2` namespace), and failing on
+#   those would block every build for a condition nobody is fixing today. Read it in the log.
+#
+#   verify-deps.py — IMPORTS, and it FAILS the build. This is the one that catches an ABI
+#   break, which pip check cannot see: onnx declares `ml_dtypes` with no version bound, so
+#   0.3.2 resolved clean and only fell over at import. An image whose face stack cannot be
+#   imported is not worth publishing, and 30 seconds here beats a pod deploy and a confused
+#   artist. Baked in (like fetch-models.py) so a live pod can re-run it after a hand install.
+COPY tools/verify-deps.py /verify-deps.py
+RUN pip check || true
+RUN python /verify-deps.py
+
 # --- Pod tools --------------------------------------------------------------------
 # BAKED so no pod ever has to fetch it. The runbook used to say `curl … from
 # raw.githubusercontent.com`, which silently 404s: this repo is PRIVATE and GitHub
