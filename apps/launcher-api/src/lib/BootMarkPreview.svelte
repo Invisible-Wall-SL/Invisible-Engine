@@ -53,6 +53,28 @@
 	const FIT_W = 0.6;
 	const FIT_H = 0.45;
 
+	/**
+	 * Match the renderer to the host box, skipping a ZERO measurement.
+	 *
+	 * This panel lives inside an admin tab marked `hidden`, i.e. `display: none` until Settings is
+	 * selected — so the renderer is stood up against a 0×0 element. `resizeTo` alone cannot cope
+	 * with that: it feeds the 0 straight to `TextureSource.resize`, whose `width ||= this.width`
+	 * treats 0 as "keep what you have", so the stage silently KEPT Pixi's 800×600 default forever.
+	 * With `autoDensity` writing that default back as an inline `width: 800px` (which beats the
+	 * stylesheet's `width: 100%`), the mark was drawn at the centre of an 800×600 stage inside a
+	 * ~360×200 window with `overflow: hidden` — off-screen, and the panel read as a dead black box.
+	 * A ResizeObserver fires on the display:none→visible transition, which is exactly the moment
+	 * the real size first exists.
+	 */
+	function applySize(el: HTMLDivElement): void {
+		if (!app) return;
+		const w = el.clientWidth;
+		const h = el.clientHeight;
+		if (w <= 0 || h <= 0) return;
+		if (app.screen.width !== w || app.screen.height !== h) app.renderer.resize(w, h);
+		layout();
+	}
+
 	function layout(): void {
 		if (!app || !holder || !loaded) return;
 		const data = loaded.skeletonData;
@@ -70,6 +92,7 @@
 		const el = host;
 		if (!el) return;
 		let disposed = false;
+		let observer: ResizeObserver | undefined;
 
 		void (async () => {
 			try {
@@ -80,7 +103,6 @@
 					antialias: true,
 					resolution: window.devicePixelRatio || 1,
 					autoDensity: true,
-					resizeTo: el,
 				});
 				if (disposed) {
 					created.destroy({ removeView: true });
@@ -89,6 +111,9 @@
 				el.appendChild(created.canvas);
 				app = created;
 				created.renderer.on('resize', layout);
+				observer = new ResizeObserver(() => applySize(el));
+				observer.observe(el);
+				applySize(el);
 				ready = true;
 			} catch {
 				status = 'Preview needs WebGL, which this browser did not provide.';
@@ -98,6 +123,7 @@
 		return () => {
 			disposed = true;
 			ready = false;
+			observer?.disconnect();
 			app?.destroy({ removeView: true }, { children: true, texture: true, textureSource: true });
 			app = undefined;
 			holder = undefined;
