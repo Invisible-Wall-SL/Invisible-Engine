@@ -14,7 +14,7 @@
 
 	import { BoardContainer } from 'engine-game';
 	import type { RawSymbol, SymbolState } from 'engine-game';
-	import { waitForResolve } from 'utils-shared/wait';
+	import { waitForResolve, waitForTimeout } from 'utils-shared/wait';
 
 	import MultiplierBoardBase from './MultiplierBoardBase.svelte';
 	import { getContext } from '../game/context';
@@ -39,6 +39,9 @@
 
 	/** Row index of the padding row above the visible board — the board array is padded top+bottom. */
 	const PADDING_ROW = -1;
+
+	/** Longest the collect beat waits on a multiplier's `oncomplete`. See its use below. */
+	const COLLECT_BEAT_CAP_MS = 650;
 
 	/**
 	 * A cell qualifies by CARRYING A MULTIPLIER, not by being named `M`.
@@ -104,9 +107,19 @@
 		},
 		// Each multiplier plays its authored `win` state where it sits; the beat ends when the LAST
 		// one reports back, so none is still animating when the flight starts.
+		//
+		// RACED against a cap for the same reason the cascade's beats are: a symbol only reports
+		// `oncomplete` when its state actually animates, so a project that authored no `win` art for
+		// its multiplier would hang here forever and freeze the round. An authored animation still
+		// drives the timing; an unauthored one costs a bounded beat.
 		multiplierBoardAnimate: async () => {
 			await Promise.all(
-				collected().map((symbol) => waitForResolve((resolve) => (symbol.oncomplete = resolve))),
+				collected().map((symbol) =>
+					Promise.race([
+						waitForResolve((resolve) => (symbol.oncomplete = resolve)),
+						waitForTimeout(COLLECT_BEAT_CAP_MS),
+					]),
+				),
 			);
 		},
 		// ...then they converge on the board centre, where the total is shown. Read off `boardLayout`
