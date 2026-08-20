@@ -79,7 +79,8 @@ const winKey = (win: CycleWin): string =>
 /**
  * Record the wins the cycle will replay. Called for EVERY book event on every dispatch path:
  * `reveal` clears (a new spin's board invalidates the previous spin's wins — this is what makes a
- * free-spin feature cycle its LAST spin rather than the whole book), `winInfo` ACCUMULATES.
+ * free-spin feature cycle its LAST spin rather than the whole book), `tumbleBoard` clears for the
+ * same reason (see below), `winInfo` ACCUMULATES.
  *
  * Accumulates, rather than assigns, because the number of `winInfo` events per spin is a property
  * of the SOURCE BOOK, not of the game. The reference books put every win in ONE event
@@ -90,12 +91,22 @@ const winKey = (win: CycleWin): string =>
  *
  * De-duplicated by {@link winKey} so a book that emits per-line events AND a summary event cannot
  * make a line appear twice in the rotation.
+ *
+ * A CASCADE INVALIDATES ITS OWN WINS. `tumbleBoard` blows the winning cells off the board and drops
+ * new symbols into their seats, so every win recorded before it describes a board that no longer
+ * exists. The cycle replays by POSITION, so without this clear the resting board is narrated with
+ * the previous step's line traced over whatever tumbled into those cells — a frame around symbols
+ * that never paid. Clearing here leaves exactly the wins that landed AFTER the last cascade step,
+ * which is what is actually on screen; a chain that ends because nothing more pays therefore
+ * replays nothing and the settled board simply rests. Same reasoning as `reveal`, same two clears.
  */
 export const recordWinCycleWins = (bookEvent: BookEvent): void => {
-	if (bookEvent.type === 'reveal') {
+	if (bookEvent.type === 'reveal' || bookEvent.type === 'tumbleBoard') {
 		wins = [];
-		// The next spin's board invalidates the previous round's win-dim — clear it here (the same
+		// The next board invalidates the previous round's win-dim — clear it here (the same
 		// "until the next spin" boundary that resets `wins`), so a losing spin's board is full-bright.
+		// On a cascade it also lifts the dim before the survivors fall, so the refilled board is not
+		// darkened by the cells the previous step paid on.
 		setWinDim(false, {});
 		return;
 	}
@@ -143,8 +154,7 @@ export const winLineColorForPositions = (positions: Position[]): string | undefi
 	const target = positionsKey(positions);
 	const match = wins.find(
 		(win) =>
-			positionsKey(win.positions) === target ||
-			positionsKey(winningPositionsOf(win)) === target,
+			positionsKey(win.positions) === target || positionsKey(winningPositionsOf(win)) === target,
 	);
 	return match ? winLineColorFor(match.meta?.lineIndex) : undefined;
 };
