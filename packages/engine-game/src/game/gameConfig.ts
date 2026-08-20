@@ -90,6 +90,9 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	function resetGameConfigCache(): void {
 		cached = null;
 		warned = false;
+		// A verdict reached before the live bundle landed was reached against the COMPILED template's
+		// board, not the authored one — re-decide it against the config the game will actually run.
+		gridChecked = false;
 	}
 
 	// ---------------------------------------------------------------------------
@@ -118,9 +121,56 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	/** The RGS-declared config, or `undefined` when no config event has been published (⇒ parity). A
 	 *  config with no symbols is treated as absent — it cannot describe an in-play set or strips. */
 	function serverConfig(): ServerGameConfig | undefined {
+		warnOnServerGridMismatch();
 		const cfg = (globalThis as { __IE_SERVER_CONFIG__?: ServerGameConfig }).__IE_SERVER_CONFIG__;
 		if (!cfg || !Array.isArray(cfg.symbols) || cfg.symbols.length === 0) return undefined;
 		return cfg;
+	}
+
+	/** Latched once a server config actually DECLARES a window, so {@link warnOnServerGridMismatch}
+	 *  costs one comparison rather than one per render. Released by {@link resetGameConfigCache}. */
+	let gridChecked = false;
+
+	/**
+	 * Say out loud, once, when the RGS's DECLARED board and the board this client draws disagree.
+	 *
+	 * {@link boardDimensions} sizes the board off Invisible Game Config (`numReels`/`numRows`), which
+	 * an online project fetches LIVE — so a grid change lands on the client immediately. The Invisible
+	 * Test Server's mock sizes ITS board off a copy of that grid synced into the test-server manifest
+	 * (`test_server/games.json`, field `grid`) at PUBLISH time. Change the grid without republishing
+	 * and the two drift: the client draws 6×6 while the mock keeps dealing 5×3, the reels and rows
+	 * outside the server's board never receive a symbol, and wins are evaluated on a grid nobody is
+	 * looking at.
+	 *
+	 * Nothing else noticed. The server overlay only ever consumed `window` to size the cosmetic blur
+	 * (`serverPaddingReels`), so a mismatch this total presented as "the game stopped working" and
+	 * cost a network-probe session to name. Both numbers are right here — say it.
+	 *
+	 * Fired from BOTH ends, because neither alone is enough. `Game.svelte` calls it at boot, which is
+	 * deterministic today: `<Authenticate>` gates the game's mount on the very request whose `config`
+	 * event publishes the overlay, so it is already in by then. `serverConfig()` calls it too, so a
+	 * host that mounts the game FIRST and authenticates after still gets the check on the next
+	 * accessor read instead of silently never. Idempotent either way. A config with no `window`
+	 * decides nothing, so a host that omits it is byte-identical to before (parity).
+	 */
+	function warnOnServerGridMismatch(): void {
+		if (gridChecked) return;
+		const win = (globalThis as { __IE_SERVER_CONFIG__?: ServerGameConfig }).__IE_SERVER_CONFIG__
+			?.window;
+		const reels = Math.round(Number(win?.reels));
+		const rows = Math.round(Number(win?.rows));
+		if (!Number.isFinite(reels) || !Number.isFinite(rows) || reels < 1 || rows < 1) return;
+		gridChecked = true;
+
+		const board = boardDimensions();
+		if (reels === board.x && rows === board.y) return;
+		console.error(
+			`[game-config] error: the RGS deals a ${reels}×${rows} board but this game draws ` +
+				`${board.x}×${board.y} (Invisible Game Config numReels/numRows). The reels and rows ` +
+				'outside the server board never receive a symbol, and wins are evaluated on a grid the ' +
+				'client is not showing. Re-publish the game so the test server picks up this grid, or ' +
+				'set the config back to the size the server deals.',
+		);
 	}
 
 	/**
@@ -591,5 +641,6 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		publishWinPresentation,
 		resetGameConfigCache,
 		warnOnGameConfigIssues,
+		warnOnServerGridMismatch,
 	};
 }
