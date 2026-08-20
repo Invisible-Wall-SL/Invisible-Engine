@@ -5,14 +5,14 @@ one of your project's atlas sheets, put them in **order**, set a frame rate, wat
 result play, and save it as a named **clip**. The saved artifact is a `FlipbookClip`
 stored in the project's cloud storage at `<client>/<project>/clips/<id>.clip.json`.
 
-> **Status (as of 2026-07-20):** **Authoring only.** You can create, order, preview,
-> save, rename, copy and delete clips today, and the tool warns you when a clip
-> references a region its sheet no longer has. What is **not** wired yet: nothing
-> *consumes* a clip. FX, the Symbols State Machine and the Scene Editor cannot
-> reference one, and clips do not yet travel the export → `deploy/` → bake → pull →
-> register chain, so **a clip does not appear in a shipped game**. Author away — the
-> docs you save now are the real format and will be picked up when the consumers land.
-> See "What it does not do yet" and `docs/design/invisible-flipbook.md`.
+> **Status (as of 2026-08-20):** **Authoring + shipping.** You can create, order,
+> preview, save, rename, copy and delete clips, and the tool warns you when a clip
+> references a region its sheet no longer has. Clips now travel the full
+> export → `deploy/` → bake → pull → `registerFlipbooks` chain, so a clip **does**
+> reach a shipped game. Two tools consume one today: **Invisible FX** (a layer's
+> particle art) and the **Symbols State Machine** (a symbol×state cell). The **Scene
+> Editor** still cannot place a clip directly. See "What it does not do yet" and
+> `docs/design/invisible-flipbook.md`.
 
 ## What it is
 
@@ -128,10 +128,8 @@ exactly why the tool shouts about it here rather than letting it surface later.
 
 ## What it does not do yet
 
-- **No consumer reads a clip.** FX layers, symbol states and Scene Editor nodes cannot
-  reference a `clipId` yet.
-- **A clip does not ship.** The export → `deploy/` → bake → pull → register chain has
-  not been wired for clips, so nothing you author here reaches a running game.
+- **The Scene Editor cannot place a clip.** FX layers and symbol×state cells resolve a
+  `clipId`; scene nodes do not.
 - **No cross-sheet clips.** One sheet per clip.
 - **No onion-skinning, no per-frame timing.** Every frame in a clip lasts exactly
   `1 / fps` seconds; hold a pose by duplicating the frame.
