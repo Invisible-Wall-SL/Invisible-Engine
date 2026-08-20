@@ -131,6 +131,7 @@
 		publishWinPresentation,
 		resetGameConfigCache,
 		warnOnGameConfigIssues,
+		warnOnServerGridMismatch,
 	} from '../game/gameConfig';
 	import { syncBetModeMeta } from '../game/betModeMeta';
 	import { infoManifest } from '../game/infoManifest';
@@ -289,6 +290,14 @@
 	// an authored config is only known here, at runtime. Runs after the runtime-bundle branch above
 	// so it inspects the config the game will actually run, not the one it booted with.
 	warnOnGameConfigIssues(getActiveSymbolInfoMap());
+
+	// And say out loud when the RGS is dealing a DIFFERENT board than the one we just sized. The
+	// board follows Invisible Game Config, which an online project fetches live; the mock RGS follows
+	// a copy of that grid synced at publish. Change the grid without republishing and the client
+	// draws 6×6 while the server deals 5×3 — a total mismatch that, until this line, presented only
+	// as a game that stopped working. Safe here: `<Authenticate>` gates this mount on the request
+	// that publishes the overlay, so the server's declared window is already in.
+	warnOnServerGridMismatch();
 
 	// Build the bet-selector / buy-bonus menu from the ACTIVE config (Invisible Game Config Phase 6),
 	// replacing the shared `DEFAULT_BET_MODE_META` placeholder for this game. Runs after the
