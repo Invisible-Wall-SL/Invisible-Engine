@@ -172,7 +172,7 @@ const makeMock = (protocol, label, grid, gameKey) => {
 	// `ways` reuses the lines mock entirely and only swaps how wins are DECIDED — the session, round
 	// lifecycle, scatter pass and event vocabulary are identical between them, which is why this is
 	// an option rather than a third forked mock. See docs/design/game-type-templates.md (Phase D).
-	const winModel = protocol === 'ways' || protocol === 'cluster' ? protocol : 'lines';
+	const winModel = ['ways', 'cluster', 'scatter'].includes(protocol) ? protocol : 'lines';
 	return createLinesMock({
 		label,
 		winModel,
@@ -226,6 +226,22 @@ const validGrid = (grid) => {
 			: null;
 	const adjacency =
 		grid.adjacency === 'diagonal' || grid.adjacency === 'orthogonal' ? grid.adjacency : null;
+	const minCount =
+		Number.isFinite(Number(grid.minCount)) && Number(grid.minCount) >= 2
+			? Math.round(Number(grid.minCount))
+			: null;
+	// The project's count-keyed paytable, forwarded verbatim. Shape-checked rather than trusted: the
+	// manifest is external, and a malformed table would leave every scatter win silently unpriced.
+	const symbolPaytable =
+		grid.symbolPaytable &&
+		typeof grid.symbolPaytable === 'object' &&
+		Object.keys(grid.symbolPaytable).length &&
+		Object.values(grid.symbolPaytable).every(
+			(row) =>
+				row && typeof row === 'object' && Object.values(row).every((v) => typeof v === 'number'),
+		)
+			? grid.symbolPaytable
+			: null;
 	return {
 		reels,
 		rows,
@@ -235,6 +251,8 @@ const validGrid = (grid) => {
 		...(symbols ? { symbols } : {}),
 		...(minCluster ? { minCluster } : {}),
 		...(adjacency ? { adjacency } : {}),
+		...(minCount ? { minCount } : {}),
+		...(symbolPaytable ? { symbolPaytable } : {}),
 	};
 };
 
@@ -325,7 +343,9 @@ async function hydrate() {
 	const nextBundles = {};
 	const runtimeIds = new Set();
 	for (const [key, meta] of Object.entries(source.games)) {
-		const protocol = ['book', 'ways', 'cluster'].includes(meta.protocol) ? meta.protocol : 'lines';
+		const protocol = ['book', 'ways', 'cluster', 'scatter'].includes(meta.protocol)
+			? meta.protocol
+			: 'lines';
 		const runtime = typeof meta.runtime === 'string' && meta.runtime ? meta.runtime : null;
 		nextRegistry[key] = { protocol, name: meta.name ?? key, runtime, grid: validGrid(meta.grid) };
 		if (runtime) {

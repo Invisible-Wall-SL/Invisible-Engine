@@ -550,23 +550,18 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 			);
 		}
 
-		// A project can DECLARE any win model in `/config` (Phase C). `lines`, `ways` and `cluster`
-		// are now honoured end to end — priced correctly, drawn with the right win-line shape, and
-		// PAID by an evaluator that matches (the Invisible Test Server's mock has a ways walker and a
-		// cluster flood fill). `scatter` is the one left: its client surfaces read the model
-		// correctly, but no evaluator pays it, so a scatter project is still dealt line wins.
+		// There WAS a boot warning here for a declared-but-unhonoured win model. It is gone because
+		// all four are now honoured end to end: priced correctly (`payoutDivisor`), drawn with the
+		// right win-line shape, anticipation either running (`lines`/`ways`) or standing down, and
+		// PAID by a matching evaluator in the Invisible Test Server's mock — a payline walk, a ways
+		// walk, a cluster flood fill, and a scatter count-anywhere.
 		//
-		// Say so at boot rather than letting such a game look merely wrong: the symptom is
-		// indistinguishable from a math bug, and this is the one place that knows it is expected.
-		const model = activeWinModel();
-		if (model.type === 'scatter') {
-			console.warn(
-				`[game-config] warning: this config declares a '${model.type}' win model, but the engine ` +
-					'has no EVALUATOR — the client surfaces read the model correctly, but nothing pays ' +
-					'it, so the board is dealt LINE wins. The declaration is stored, validated and ' +
-					'priced correctly. See docs/design/game-type-templates.md (Phase D).',
-			);
-		}
+		// Restore it if a FIFTH model is ever added to `WIN_MODEL_TYPES`: the symptom of an
+		// unhonoured model is a game that pays line wins while claiming to be something else, which
+		// is indistinguishable from a math bug, and this is the one place that would know it is
+		// expected. What it must NOT become again is a warning that outlives the gap — this one
+		// claimed for a while that every client surface fell back to line behaviour, which had
+		// stopped being true.
 	}
 
 	return {
