@@ -358,8 +358,10 @@ The safety argument here is again byte-identity: these modules produce Book of B
 document, so the existing `bookOf` values must serialize unchanged after the split.
 
 Where it stands: the `ways` authoring kind (slot template, `/flow` palette, `/flow-v2` vocabulary and
-per-template seed) lives on the **`engine/ways-authoring-kind` branch and is NOT on `main`**. The
-detail is owned by [status/flow.md](../status/flow.md) and [status/editor.md](../status/editor.md).
+per-template seed) is **on `main`** (#361–#364). What Phase E still owes is the FILLED, art-bearing
+reference layout — without it a ways project scaffolds from a bare skeleton and is not offered in
+"Import composed reference". The detail is owned by [status/flow.md](../status/flow.md) and
+[status/editor.md](../status/editor.md).
 
 ## Scoped out — `cluster` and `scatter` templates will not be built
 
@@ -396,9 +398,8 @@ The honest list of what this plan has not delivered, in the order it matters:
 3. **A FILLED reference layout for `ways`** (Phase E) — and it may be better authored ONLINE as a
    custom kind ([invisible-editor.md](invisible-editor.md) §21) than committed as a third hardcoded
    layout.
-4. **Landing the `ways` authoring kind on `main`** (Phase E).
-5. **The remaining Phase A slices** — `utils` and `symbolMap`, which need `editor-scenes` and
+4. **The remaining Phase A slices** — `utils` and `symbolMap`, which need `editor-scenes` and
    `assets` seams of their own, and the components gated behind them.
-6. **A real math export for `apps/ways`.** Its strips are cosmetic and evenly weighted. Legitimate for
+5. **A real math export for `apps/ways`.** Its strips are cosmetic and evenly weighted. Legitimate for
    a client that never computes wins, but a ways default currently seeds a plausible-looking board
    whose symbol frequencies mean nothing — not fine shipped for money.
