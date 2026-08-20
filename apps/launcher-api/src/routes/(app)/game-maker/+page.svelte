@@ -499,7 +499,9 @@
 											<span class="plabel">Game</span>
 											<div class="chips">
 												{#each p.profile.facts as fact (fact.id)}
-													<span class="chip fact" title={fact.title}>{fact.text}</span>
+													<span class="chip {fact.tone ?? 'fact'}" title={fact.title}
+														>{fact.text}</span
+													>
 												{/each}
 											</div>
 										</div>
@@ -983,6 +985,13 @@
 		background: #1a2320;
 		border-color: #2b5546;
 		color: #9fd9c2;
+	}
+	/* Drift the author has to act on (e.g. a published protocol behind the game kind) — amber so it
+	   reads as "do something" among chips that are otherwise neutral statements of fact. */
+	.chip.warn {
+		background: #2a2113;
+		border-color: #6b4f1d;
+		color: #f0c674;
 	}
 	.chip.none {
 		color: #62626e;
