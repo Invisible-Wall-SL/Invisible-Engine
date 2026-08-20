@@ -98,11 +98,24 @@ COPY custom_nodes/ComfyUI-Invisible-ErrorRecall /ComfyUI/custom_nodes/ComfyUI-In
 
 # Install every node's Python deps (incl. the vendored PuLID folder + Manager).
 RUN for r in */requirements.txt; do echo "== deps: $r =="; pip install -r "$r" || true; done
-# PuLID / PuLID-Flux face stack — install explicitly so a thin requirements.txt can't miss it.
-# open-clip-torch is PuLID-Flux2's EVA-CLIP loader. Its requirements.txt also hard-pins
-# ml_dtypes==0.3.2, which the loop above may apply; left unpinned here deliberately so a
-# transitive downgrade shows up in the build log rather than being frozen in by us.
-RUN pip install insightface onnxruntime-gpu facexlib timm ftfy open-clip-torch
+# PuLID / PuLID-Flux face stack — install explicitly so a thin requirements.txt can't miss
+# it, AND so a stale pin in one node can't drag a shared package backwards.
+#
+# open-clip-torch is PuLID-Flux2's EVA-CLIP loader. That node's requirements.txt also pins
+# `ml_dtypes==0.3.2` and `numpy<2.0.0`, and the loop above applied both: the first build
+# with it shipped ml_dtypes 0.3.2 (down from the 0.6.0 onnx->insightface had pulled) and
+# onnx 1.19.0 (down from 1.22.0). numpy recovered on its own — the cu128 torch step below
+# reinstalls 2.4.6 last — and that is what made the pin dangerous rather than merely wrong:
+# ml_dtypes 0.3.2 is a Jan-2024 C extension built against the numpy 1.x array API, so under
+# numpy 2 it raises `AttributeError: _ARRAY_API not found` on import (verified directly).
+# onnx declares ml_dtypes as a hard dependency and insightface imports onnx, so leaving it
+# un-importable puts the whole face stack at risk — including the FLUX.1 PuLID-Flux path
+# that predates this node and was verified working.
+#
+# FLOORS, not pins: raise what a node dragged down, without freezing a version here that
+# the requirements above would then fight over on every rebuild.
+RUN pip install insightface onnxruntime-gpu facexlib timm ftfy open-clip-torch \
+    "ml_dtypes>=0.5.4" "onnx>=1.22"
 
 # ComfyUI-Manager: security level "middle" so artists can add nodes from the web UI on a
 # remote pod. Pre-seed its config in BOTH known locations (newer Manager reads
@@ -125,6 +138,25 @@ ARG TORCHAUDIO_REF=2.11.0
 RUN pip install --force-reinstall \
     "torch==${TORCH_REF}" "torchvision==${TORCHVISION_REF}" "torchaudio==${TORCHAUDIO_REF}" \
     --index-url https://download.pytorch.org/whl/cu128
+
+# --- dependency sanity (MUST be after the LAST pip step) ---------------------------
+# The requirements loop above runs each node's file with `|| true`, so one node's stale
+# pin silently rewrites a package every other node shares and the build still goes green.
+# That is exactly how ComfyUI-PuLID-Flux2's `ml_dtypes==0.3.2` shipped an image whose face
+# stack could not import (2026-08-20). Two checks, because they catch different things:
+#
+#   `pip check` — METADATA conflicts, advisory (`|| true`). This image carries long-standing
+#   benign overlaps (three opencv distributions sharing the `cv2` namespace), and failing on
+#   those would block every build for a condition nobody is fixing today. Read it in the log.
+#
+#   verify-deps.py — IMPORTS, and it FAILS the build. This is the one that catches an ABI
+#   break, which pip check cannot see: onnx declares `ml_dtypes` with no version bound, so
+#   0.3.2 resolved clean and only fell over at import. An image whose face stack cannot be
+#   imported is not worth publishing, and 30 seconds here beats a pod deploy and a confused
+#   artist. Baked in (like fetch-models.py) so a live pod can re-run it after a hand install.
+COPY tools/verify-deps.py /verify-deps.py
+RUN pip check || true
+RUN python /verify-deps.py
 
 # --- Pod tools --------------------------------------------------------------------
 # BAKED so no pod ever has to fetch it. The runbook used to say `curl … from
