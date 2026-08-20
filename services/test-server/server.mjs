@@ -172,7 +172,7 @@ const makeMock = (protocol, label, grid, gameKey) => {
 	// `ways` reuses the lines mock entirely and only swaps how wins are DECIDED — the session, round
 	// lifecycle, scatter pass and event vocabulary are identical between them, which is why this is
 	// an option rather than a third forked mock. See docs/design/game-type-templates.md (Phase D).
-	const winModel = protocol === 'ways' ? 'ways' : 'lines';
+	const winModel = protocol === 'ways' || protocol === 'cluster' ? protocol : 'lines';
 	return createLinesMock({
 		label,
 		winModel,
@@ -192,11 +192,11 @@ const validGrid = (grid) => {
 	const reels = Math.round(Number(grid.reels));
 	const rows = Math.round(Number(grid.rows));
 	const paylines = Array.isArray(grid.paylines) ? grid.paylines : [];
+	// A `cluster` grid legitimately carries NO paylines (nothing pays along a line), so the payline
+	// requirement holds only when there are paylines to check. An empty list is valid; a malformed
+	// one is still rejected.
 	const shaped =
-		reels > 0 &&
-		rows > 0 &&
-		paylines.length > 0 &&
-		paylines.every((line) => Array.isArray(line) && line.length === reels);
+		reels > 0 && rows > 0 && paylines.every((line) => Array.isArray(line) && line.length === reels);
 	if (!shaped) return null;
 	const wildPay = grid.wild && typeof grid.wild === 'object' ? grid.wild.paytable : null;
 	const wild =
@@ -217,6 +217,15 @@ const validGrid = (grid) => {
 		grid.symbols.length
 			? grid.symbols
 			: null;
+	// Cluster geometry, forwarded verbatim so the mock pays the shape the project's win model
+	// declares. Defensive like the rest: a malformed value is dropped and the mock's own defaults
+	// (5 / orthogonal, matching `normalizeWinModel`) stand.
+	const minCluster =
+		Number.isFinite(Number(grid.minCluster)) && Number(grid.minCluster) >= 2
+			? Math.round(Number(grid.minCluster))
+			: null;
+	const adjacency =
+		grid.adjacency === 'diagonal' || grid.adjacency === 'orthogonal' ? grid.adjacency : null;
 	return {
 		reels,
 		rows,
@@ -224,6 +233,8 @@ const validGrid = (grid) => {
 		...(wild ? { wild } : {}),
 		...(stacked ? { stacked: true } : {}),
 		...(symbols ? { symbols } : {}),
+		...(minCluster ? { minCluster } : {}),
+		...(adjacency ? { adjacency } : {}),
 	};
 };
 
@@ -314,7 +325,7 @@ async function hydrate() {
 	const nextBundles = {};
 	const runtimeIds = new Set();
 	for (const [key, meta] of Object.entries(source.games)) {
-		const protocol = ['book', 'ways'].includes(meta.protocol) ? meta.protocol : 'lines';
+		const protocol = ['book', 'ways', 'cluster'].includes(meta.protocol) ? meta.protocol : 'lines';
 		const runtime = typeof meta.runtime === 'string' && meta.runtime ? meta.runtime : null;
 		nextRegistry[key] = { protocol, name: meta.name ?? key, runtime, grid: validGrid(meta.grid) };
 		if (runtime) {

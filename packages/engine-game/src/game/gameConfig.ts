@@ -550,20 +550,21 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 			);
 		}
 
-		// A project can DECLARE any win model in `/config` (Phase C), but the shared runtime only
-		// HONOURS some of them. `ways` is honoured throughout: the paytable prices per way, the win
-		// line draws merged per-reel bars, and reel anticipation runs the ways reach. `cluster` and
-		// `scatter` are still declaration-only — every client surface that reads the model falls back
-		// to line behaviour for them. Say so at boot rather than letting such a game look merely
-		// wrong: the symptom is indistinguishable from a math bug, and this is the one place that
-		// knows it is expected.
+		// A project can DECLARE any win model in `/config` (Phase C). `lines`, `ways` and `cluster`
+		// are now honoured end to end — priced correctly, drawn with the right win-line shape, and
+		// PAID by an evaluator that matches (the Invisible Test Server's mock has a ways walker and a
+		// cluster flood fill). `scatter` is the one left: its client surfaces read the model
+		// correctly, but no evaluator pays it, so a scatter project is still dealt line wins.
+		//
+		// Say so at boot rather than letting such a game look merely wrong: the symptom is
+		// indistinguishable from a math bug, and this is the one place that knows it is expected.
 		const model = activeWinModel();
-		if (model.type === 'cluster' || model.type === 'scatter') {
+		if (model.type === 'scatter') {
 			console.warn(
 				`[game-config] warning: this config declares a '${model.type}' win model, but the engine ` +
-					'has no runtime for it — the game is being presented as LINES. The declaration is ' +
-					'stored, validated and priced correctly; only the presentation is missing. See ' +
-					'docs/design/game-type-templates.md (Phase D).',
+					'has no EVALUATOR — the client surfaces read the model correctly, but nothing pays ' +
+					'it, so the board is dealt LINE wins. The declaration is stored, validated and ' +
+					'priced correctly. See docs/design/game-type-templates.md (Phase D).',
 			);
 		}
 	}

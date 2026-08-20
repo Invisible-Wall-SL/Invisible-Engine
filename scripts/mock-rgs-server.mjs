@@ -253,6 +253,105 @@ export const evaluateWays = (reels, betPerWay, wild = null) => {
 	return wins;
 };
 
+/**
+ * Evaluate CLUSTER pays (`winModel: 'cluster'`).
+ *
+ * A cluster is a connected group of one symbol, `minCluster` cells or larger. Connectivity is
+ * `orthogonal` (edge-sharing) or `diagonal` (corners count too) — both come from the project's
+ * declared win model, so the mock pays the shape the config says it pays. Wilds substitute, and a
+ * wild can join clusters of DIFFERENT symbols at once, which is why the flood fill runs per candidate
+ * symbol rather than partitioning the board once.
+ *
+ * ⚠️ TEST APPROXIMATION on the payout. This mock's paytable is keyed by 3/4/5 `occurs` (a payline
+ * game's run lengths), and a cluster is 5+ cells by definition — so a cluster of 9 has no row to read.
+ * The size is CLAMPED to the largest row the symbol has. That is deliberately crude: it makes the
+ * mock pay something sane for testing PRESENTATION, and it is not a cluster paytable. A real cluster
+ * game prices by cluster size and needs a math export — the same line held for the ways strips.
+ *
+ * A corollary worth knowing when configuring a test project: a cluster SMALLER than the lowest
+ * priced run simply does not pay. So a `minCluster` below the paytable's floor (3 here) silently
+ * finds clusters that never pay out, which reads as "clusters do not work". Keep `minCluster` at or
+ * above the smallest `occurs` the symbols price.
+ *
+ * Positions go out as a flat `{reel,row}` list, the shape `stakeFacade`'s `winPositions` reads for a
+ * non-payline win (`Array.isArray(ctx)`), exactly as the ways evaluator does.
+ */
+export const evaluateClusters = (reels, betPerCluster, wild = null, opts = {}) => {
+	const minCluster = Math.max(2, Math.round(Number(opts.minCluster ?? 5)));
+	const diagonal = opts.adjacency === 'diagonal';
+	const wildPay = wild?.paytable ?? null;
+	const isWild = (sym) => wildPay !== null && sym === 'WILD';
+	const wins = [];
+
+	const NEIGHBOURS = diagonal
+		? [
+				[1, 0],
+				[-1, 0],
+				[0, 1],
+				[0, -1],
+				[1, 1],
+				[1, -1],
+				[-1, 1],
+				[-1, -1],
+			]
+		: [
+				[1, 0],
+				[-1, 0],
+				[0, 1],
+				[0, -1],
+			];
+
+	for (const symbol of LINE_SYMBOLS) {
+		const matches = (reel, row) => {
+			const cell = reels[reel]?.[row];
+			return cell !== undefined && (cell === symbol || isWild(cell));
+		};
+		const seen = new Set();
+		const key = (reel, row) => `${reel}:${row}`;
+
+		for (let reel = 0; reel < reels.length; reel++) {
+			for (let row = 0; row < reels[reel].length; row++) {
+				if (seen.has(key(reel, row)) || !matches(reel, row)) continue;
+
+				// Flood fill this connected group.
+				const group = [];
+				const stack = [[reel, row]];
+				seen.add(key(reel, row));
+				while (stack.length) {
+					const [r, c] = stack.pop();
+					group.push({ reel: r, row: c });
+					for (const [dr, dc] of NEIGHBOURS) {
+						const nr = r + dr;
+						const nc = c + dc;
+						if (seen.has(key(nr, nc)) || !matches(nr, nc)) continue;
+						seen.add(key(nr, nc));
+						stack.push([nr, nc]);
+					}
+				}
+
+				if (group.length < minCluster) continue;
+				const table = PAY_TABLE[symbol];
+				if (!table) continue;
+				// Clamp to the largest priced run — see the note above about why this is an approximation.
+				const priced = Math.max(...Object.keys(table).map(Number));
+				const mult = table[Math.min(group.length, priced)] ?? 0;
+				if (!mult) continue;
+
+				wins.push({
+					what: symbol,
+					occurs: group.length,
+					mode: 'cluster',
+					pay: mult * betPerCluster,
+					mpInfo: { mp: 1, replacements: 0 },
+					mpBonusInfo: null,
+					context: Object.assign(group, { cluster: group.length }),
+				});
+			}
+		}
+	}
+	return wins;
+};
+
 /** Evaluate scatter pays. SCATs pay anywhere on the board (not bound to a
  *  payline). Returns at most one win event with all scatter positions. */
 const evaluateScatters = (reels, totalStake) => {
@@ -378,7 +477,12 @@ export function createMockRgs(opts = {}) {
 	// How wins are decided. `lines` keeps the payline evaluator (default ⇒ every existing caller is
 	// byte-identical); `ways` swaps in the ways evaluator. Both then share the same scatter pass and
 	// the same event stream.
-	const winModel = opts.winModel === 'ways' ? 'ways' : 'lines';
+	const winModel = ['ways', 'cluster'].includes(opts.winModel) ? opts.winModel : 'lines';
+	/** Cluster shape, straight from the project's declared win model. Defaults match `normalizeWinModel`. */
+	const clusterOpts = {
+		minCluster: opts.minCluster ?? 5,
+		adjacency: opts.adjacency === 'diagonal' ? 'diagonal' : 'orthogonal',
+	};
 
 	// Opt-in WILD support (per-project, injected by the test server from a game's config). When a
 	// project puts a wild symbol IN PLAY (on its strips) with a paytable, `opts.wild.paytable` is the
@@ -660,7 +764,9 @@ export function createMockRgs(opts = {}) {
 					const lineWins =
 						winModel === 'ways'
 							? evaluateWays(reels, pendingRound.betPerLine, wild)
-							: evaluatePaylines(reels, pendingRound.betPerLine, paylines, wild);
+							: winModel === 'cluster'
+								? evaluateClusters(reels, pendingRound.betPerLine, wild, clusterOpts)
+								: evaluatePaylines(reels, pendingRound.betPerLine, paylines, wild);
 					const scatterWin = evaluateScatters(reels, pendingRound.total);
 					const wins = scatterWin ? [...lineWins, scatterWin] : lineWins;
 					const totalWin = wins.reduce((s, w) => s + w.pay, 0);

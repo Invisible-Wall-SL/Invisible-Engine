@@ -15,7 +15,7 @@
  * "Publish" is a DATA + MANIFEST operation: re-running it re-exports + re-registers,
  * never rebuilds. The generic runtime boots the project from the live fetch.
  */
-import { symbolsInPlay, type GameConfigDoc, type PaytableRow } from 'game-config';
+import { resolveWinModel, symbolsInPlay, type GameConfigDoc, type PaytableRow } from 'game-config';
 import { linesMapping, mapSymbol } from 'rgs-translator-eagaming/game-mappings';
 import { ENV } from './env';
 import { createGame, gameExists, renameGame, setGameProject, setGameUrl } from './games';
@@ -72,6 +72,10 @@ async function hasOwnBuiltBundle(key: string): Promise<boolean> {
 function protocolFor(gameType: string): MockProtocol {
 	if (gameType === 'bookOf') return 'book';
 	if (gameType === 'ways') return 'ways';
+	// `cluster` reuses the lines mock too, swapping only how wins are DECIDED (a flood fill instead of
+	// a payline walk). It is TEST infrastructure — the mock's paytable is keyed by payline run lengths,
+	// so a cluster's payout is approximated; see `evaluateClusters`.
+	if (gameType === 'cluster') return 'cluster';
 	return 'lines';
 }
 
@@ -166,7 +170,11 @@ async function projectGrid(
 	clientKey: string,
 	projectKey: string,
 ): Promise<TestServerGameEntry['grid']> {
-	if (protocol !== 'lines') return undefined;
+	// `cluster` needs a grid too — it is the only way `minCluster`/`adjacency` reach the mock, and
+	// without them it would fall back to the generic defaults rather than the shape the project
+	// declared. (`ways`/`book` still keep the shared default: `ways` needs nothing beyond the board,
+	// and the book mock owns its own shape.)
+	if (protocol !== 'lines' && protocol !== 'cluster') return undefined;
 	try {
 		const doc = await loadGameConfigDoc(clientKey, projectKey);
 		if (!doc) return undefined;
@@ -174,7 +182,11 @@ async function projectGrid(
 		const rowsList = Array.isArray(doc.numRows) && doc.numRows.length ? doc.numRows : [3];
 		const rows = Math.max(1, Math.round(Math.max(...rowsList)));
 		const paylines = Object.values(doc.paylines ?? {});
-		if (!Number.isFinite(reels) || !paylines.length) return undefined;
+		// A cluster game legitimately has NO paylines, so the payline requirement applies only where
+		// paylines are what pays. Requiring them here is what would have made a cluster project fall
+		// back to the shared lines grid and pay line wins.
+		if (!Number.isFinite(reels)) return undefined;
+		if (protocol === 'lines' && !paylines.length) return undefined;
 		const wild = projectWild(doc);
 		// `stacked`: does this project have the stacked-picture reel mode ON? Gated on the SAME master
 		// toggle the symbol bake reads (`stackedPictures.enabled` + ≥1 authored symbol) so the mock deals
@@ -185,6 +197,13 @@ async function projectGrid(
 		// symbol the project marks UNUSED (off the strips) truly never lands against our own mock.
 		// Omitted for an all-in-play project ⇒ the mock deals its full default pool (byte-identical).
 		const symbols = projectLineSymbols(doc);
+		// The cluster shape the mock evaluates against, straight from the project's declared win
+		// model — so the mock pays the geometry `/config` says it pays, not a hardcoded guess.
+		const model = resolveWinModel(doc);
+		const cluster =
+			model.type === 'cluster'
+				? { minCluster: model.minCluster, adjacency: model.adjacency }
+				: undefined;
 		return {
 			reels,
 			rows,
@@ -192,6 +211,7 @@ async function projectGrid(
 			...(wild ? { wild } : {}),
 			...(stacked ? { stacked: true } : {}),
 			...(symbols ? { symbols } : {}),
+			...(cluster ?? {}),
 		};
 	} catch {
 		return undefined;

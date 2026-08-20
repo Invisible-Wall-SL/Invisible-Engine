@@ -141,7 +141,7 @@ export async function engineDeployStatus(runtimeId: string): Promise<EngineDeplo
 	return { status: 'unknown' };
 }
 
-export type MockProtocol = 'lines' | 'book' | 'ways';
+export type MockProtocol = 'lines' | 'book' | 'ways' | 'cluster';
 
 export interface TestServerGameEntry {
 	protocol: MockProtocol;
@@ -172,10 +172,15 @@ export interface TestServerGameEntry {
 	grid?: {
 		reels: number;
 		rows: number;
+		/** Empty for a model with no lines (`cluster`) — the mock then pays by its own evaluator. */
 		paylines: number[][];
 		wild?: { paytable: Record<string, number> };
 		stacked?: boolean;
 		symbols?: string[];
+		/** Smallest connected group that pays, from the project's `winModel` (`cluster` only). */
+		minCluster?: number;
+		/** Whether corner-touching cells join a cluster, from the project's `winModel` (`cluster` only). */
+		adjacency?: 'orthogonal' | 'diagonal';
 	};
 }
 
