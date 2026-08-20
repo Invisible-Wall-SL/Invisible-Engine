@@ -5,6 +5,7 @@
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
+	import { pickSheetsFrom } from '$lib/pickSheets';
 	import {
 		buttonBindToInstance,
 		engineOwnedOnly,
@@ -491,12 +492,7 @@
 
 	/** Atlas/sheet manifests an `image`-kind param can pick frames from (the region
 	 * picker source). Atlas pages aren't manifests, so only `atlas-manifest`s + sheets. */
-	const pickSheets = $derived([
-		...data.assets.atlases
-			.filter((a) => a.kind === 'atlas-manifest')
-			.map((a) => ({ key: a.key, name: a.name })),
-		...data.assets.sheets.map((s) => ({ key: s.key, name: s.name })),
-	]);
+	const pickSheets = $derived(pickSheetsFrom(data.assets));
 
 	/**
 	 * Normalise a container into a component `root`: identity placement, keeping only

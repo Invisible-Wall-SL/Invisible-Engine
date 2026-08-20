@@ -13,6 +13,7 @@
  * `assetKey` — for a `sheet` we resolve the manifest key under its output prefix
  * here, then hand the resolved manifest key back to the client as `assetKey`.
  */
+import { pickManifestKey } from '../pickSheets';
 import { pickDeployedPage } from './deployedPage';
 import { SUB } from './projectPaths';
 import {
@@ -148,10 +149,9 @@ export async function resolveManifestKey(sheet: string): Promise<string | null> 
 	if (isManifestKey(sheet)) return sheet;
 	const prefix = sheet.endsWith('/') ? sheet : `${sheet}/`;
 	const listed = await listObjects(prefix, 500);
-	const jsons = listed.keys.filter((k) => k.endsWith('.json'));
-	// Prefer the Sheet Maker AI manifest; fall back to any JSON in the prefix.
-	const am = jsons.find((k) => basename(k).startsWith('atlas_manifest_'));
-	return am ?? jsons[0] ?? null;
+	// `pickManifestKey` is shared with the asset listing that feeds the region picker, so the key a
+	// pick is SCOPED BY and the key this repair resolves to can never be different JSONs.
+	return pickManifestKey(listed.keys.filter((k) => k.endsWith('.json')));
 }
 
 /**

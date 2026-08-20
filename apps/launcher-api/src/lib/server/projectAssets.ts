@@ -3,8 +3,9 @@
  * canvas (later step) reads this manifest to populate its asset palette. We
  * only return keys + names — never object contents.
  */
+import { manifestKeyByFolder } from '../pickSheets';
 import { SUB } from './projectPaths';
-import { listObjects } from './r2';
+import { listAllKeys, listObjects } from './r2';
 
 export type AtlasKind = 'atlas-manifest' | 'atlas-page';
 
@@ -24,8 +25,16 @@ export interface SpineAsset {
 
 export interface SheetAsset {
 	name: string;
+	/** The sheet's R2 output PREFIX — what the FTP browser and the sheet tool address it by. */
 	key: string;
 	kind: 'sheet';
+	/**
+	 * The sheet's MANIFEST key, resolved from its folder. This — not {@link SheetAsset.key} — is
+	 * the key an atlas-scoped frame ref must name (`<manifestKey>::<region>`), because the
+	 * editor-art export registers a sheet's textures under its manifest. Absent when the folder
+	 * holds no JSON (a sheet that never finished exporting).
+	 */
+	manifestKey?: string;
 }
 
 export interface ProjectAssets {
@@ -98,12 +107,24 @@ async function listSpines(client: string, project: string): Promise<SpineAsset[]
 	return out;
 }
 
+/**
+ * Sheet folders + the MANIFEST key each one is scoped by (see {@link SheetAsset.manifestKey}).
+ * `manifestKeyByFolder` derives every manifest from ONE recursive listing and states why it does
+ * so, and shares its selection rule with `resolveManifestKey`.
+ */
 async function listSheets(client: string, project: string): Promise<SheetAsset[]> {
 	const root = `${SUB.sheets(client, project)}/`;
 	const res = await listObjects(root, MAX_PER_KIND);
-	return res.prefixes
+	const folders = res.prefixes
 		.map((p) => ({ name: bundleName(p, root), key: p, kind: 'sheet' as const }))
 		.filter((s) => s.name);
+	if (folders.length === 0) return folders;
+
+	const manifests = manifestKeyByFolder(root, await listAllKeys(root));
+	return folders.map((s) => {
+		const manifestKey = manifests.get(s.key);
+		return manifestKey ? { ...s, manifestKey } : s;
+	});
 }
 
 /** Build a read-only `ProjectAssets` snapshot for `(client, project)`. */

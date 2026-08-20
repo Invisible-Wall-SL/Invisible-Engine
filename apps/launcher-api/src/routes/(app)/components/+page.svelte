@@ -4,6 +4,7 @@
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
+	import { pickSheetsFrom } from '$lib/pickSheets';
 	import {
 		BUTTON_STATE_PARAMS,
 		ENGINE_ACTION_CATALOG,
@@ -44,12 +45,7 @@
 	let { data }: { data: PageData } = $props();
 
 	/** Atlas/sheet manifests an `image`-kind param can pick frames from (region picker). */
-	const pickSheets = $derived([
-		...data.assets.atlases
-			.filter((a) => a.kind === 'atlas-manifest')
-			.map((a) => ({ key: a.key, name: a.name })),
-		...data.assets.sheets.map((s) => ({ key: s.key, name: s.name })),
-	]);
+	const pickSheets = $derived(pickSheetsFrom(data.assets));
 
 	/** Components the project can use (shared + project shadow). Mutable so a save
 	 * reflects in the sidebar without a reload. */

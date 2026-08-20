@@ -387,15 +387,14 @@ before (the saved doc). Build-verified + node-harness-verified; launcher render 
 
 ## Open items / next
 
-0. **Make `RegionPicker` store a SCOPEABLE atlas key** (root cause of the 2026-08-20 missing-card-art
-   bug below). Its `sheets[].key` comes from `listSheets`, which reports the R2 output PREFIX
-   (`…/sheets/S_Gem/`), so a frame picked from a Sheet-Maker sheet is stored as
-   `…/sheets/S_Gem/::frame` — a namespace the editor-art export never registers. `/config` card
-   params are now repaired on the ship path, but the Scene Editor's image params, `/components` and
-   `/symbols` are NOT. Fix at the source: resolve each sheet entry to its manifest key
-   (`resolveManifestKey`) where `pickSheets` is derived, so every new pick is canonical. Changing
-   `SheetAsset.key` itself is the tempting one-liner and is WRONG — that field is an R2 prefix for
-   the FTP browser and the sheet tool.
+0. ✅ ~~**Make `RegionPicker` store a SCOPEABLE atlas key**~~ — DONE (2026-08-20, see Recent
+   changes): `SheetAsset` gained a resolved `manifestKey`, and all four picker lists now come from
+   the shared `pickSheetsFrom`. **Still open behind it:** existing docs authored before this keep
+   their un-scopeable refs. `/config`'s are repaired on the ship path; the Scene Editor doc's are
+   not, so they render via `parseScopedFrameRef`'s bare-name degradation — correct art wherever the
+   frame name is unique, and the flat-cache collision the scoping exists to prevent wherever it
+   isn't. A doc-level repair pass (the `loadFlipbookDoc` / `loadGameConfigDoc` pattern applied to
+   the layout doc's image params) would close it.
 
 1. ✅ ~~**Live-verify the launcher surfaces**~~ — DONE (owner click-through, 2026-08-04): `/config`
    panels, off-grid payline block, raw-JSON paste, save round-trip, the `Match grid` repair flow,
@@ -415,6 +414,16 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 - _None._ The live-verify that was the standing external gate is done (owner-confirmed 2026-08-04).
 
 ## Recent changes
+
+- 2026-08-20 — **The region picker now stores a scopeable atlas key — the root cause behind the missing card art, fixed at the source.** The earlier fix repaired `/config`'s refs on the way out; this stops them being written wrong. `RegionPicker` scopes a pick by its `sheets[].key`, and for a Sheet-Maker sheet that key came from `listSheets`, which reports the R2 output PREFIX (`…/sheets/S_Gem/`). The editor-art export registers a sheet's textures under its MANIFEST key, so every scoped pick from a sheet named a namespace nothing registers — silently, in all four tools that write scoped refs (`/editor`, `/components`, `/symbols`, `/config`), not just the config.
+
+  **`SheetAsset` gains `manifestKey`; `key` is untouched.** Changing `key` is the tempting one-liner and is wrong — that field is the R2 prefix the FTP browser and the sheet tool address a sheet by. The new field is resolved in `listSheets` from ONE recursive listing of the sheets root rather than a `resolveManifestKey` round trip per sheet: this runs on ordinary page loads, and N sequential R2 listings is the sort of cost that quietly makes a tool slow to open. Only files DIRECTLY in a sheet folder count — not a shortcut, but a match for what `resolveManifestKey`'s delimited listing can see, since counting a nested JSON here would let the picker name a manifest the repair pass would never resolve to.
+
+  **All four picker lists were the SAME hand-copied derivation**, which is how they could have drifted apart without anyone noticing. They now share `pickSheetsFrom` (`$lib/pickSheets.ts`), and `pickManifestKey` — "which of a folder's JSONs IS the manifest" — has one implementation used by both the picker's listing and `resolveManifestKey`. A disagreement between those two is precisely the bug, so they no longer get to disagree. A sheet with no resolvable manifest is still listed under its prefix: its frames stay pickable, and a ref scoped by it degrades to the bare frame name rather than vanishing.
+
+  **What this does NOT fix:** docs authored before today keep their un-scopeable refs. `/config`'s are repaired on the ship path; the Scene Editor doc's are not, so they resolve through the bare-name degradation — right art wherever the frame name is unique, ambiguous wherever it isn't. See Open item 0.
+
+  Verified: new `node apps/launcher-api/pickSheets.fixture.ts` (12 assertions, runs directly because `$lib/pickSheets.ts` is dependency-free by design) pins the manifest choice, the folder attribution including the nested-JSON trap and a JSON-less sheet, and — the regression itself — that a sheet WITH a manifest can never yield its output prefix. `launcher-api` builds clean; eslint clean on the changed files.
 
 - 2026-08-20 — **A buy-feature card's button art was simply absent in-game — the region picker stores an atlas ref the runtime cannot scope by.** Owner's console on the live Borut remake: `Sprite: key "invisible_wall/bookofborutremake/sheets/S_Game_UI2/::T_UI_BuyBack_glow.png" is not found in the loadedAssets`. The frame exists and the sheet ships; the KEY is unresolvable. An `image`-kind card param stores `<atlas>::<frame>`, and `RegionPicker` builds the atlas half from its `sheets[].key` — which for a Sheet-Maker sheet is the R2 OUTPUT PREFIX (`…/sheets/S_Game_UI2/`), not the `<path>/<name>.json` manifest key. The editor-art export registers a sheet's frames under its MANIFEST key, so the ref named a namespace that is never registered.
 

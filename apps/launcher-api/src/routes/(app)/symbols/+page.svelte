@@ -14,6 +14,7 @@
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
+	import { pickSheetsFrom } from '$lib/pickSheets';
 	import RegionPicker from '../editor/RegionPicker.svelte';
 	import {
 		clearRegionCache,
@@ -181,12 +182,7 @@
 	});
 
 	/** Atlases + sheets a sprite frame can be picked from (mirrors the editor). */
-	const pickSheets = $derived([
-		...data.assets.atlases
-			.filter((a) => a.kind === 'atlas-manifest')
-			.map((a) => ({ key: a.key, name: a.name })),
-		...data.assets.sheets.map((s) => ({ key: s.key, name: s.name })),
-	]);
+	const pickSheets = $derived(pickSheetsFrom(data.assets));
 
 	/** The engine's BUILT-IN sheets, which carry the coded-default symbol art (`w.png`,
 	 * `s.png`, `explodedW.png`, the h1-h5 / l1-l4 frames) — engine art every game bundles +
