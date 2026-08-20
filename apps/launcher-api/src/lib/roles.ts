@@ -201,7 +201,8 @@ export const TOOLS: Record<string, ToolDef> = {
 	atlasTool: {
 		id: 'atlasTool',
 		name: 'Invisible Atlas Maker',
-		description: 'Online sprite-atlas generator and inspector.',
+		description:
+			"AI-generate a game's atlas art region by region — prompts, seeds and variants — then pack and deploy the sheet.",
 		kind: 'online',
 		url: '/atlas',
 		icon: TOOL_ICONS.atlasTool,
@@ -218,7 +219,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		id: 'rigger',
 		name: 'Invisible Rigger',
 		description:
-			'Online Spine skeleton inspector and rig editor — browse bones, slots, skins, meshes and weights.',
+			'Online rig editor — build bones, meshes and weights over your art, animate them on a dopesheet, and save a Spine-compatible rig the game plays.',
 		kind: 'online',
 		url: '/rigger',
 		icon: TOOL_ICONS.rigger,
@@ -276,7 +277,8 @@ export const TOOLS: Record<string, ToolDef> = {
 	localization: {
 		id: 'localization',
 		name: 'Invisible Localization',
-		description: 'Write game text and auto-translate it into many languages (Claude).',
+		description:
+			'Write game text, auto-translate it into many languages with Claude, and review each line before it ships.',
 		kind: 'online',
 		url: '/localization',
 		icon: TOOL_ICONS.localization,
@@ -292,7 +294,8 @@ export const TOOLS: Record<string, ToolDef> = {
 	gameConfig: {
 		id: 'gameConfig',
 		name: 'Invisible Game Config',
-		description: "The game's math contract: symbols, paytable, paylines, grid, bet modes, strips.",
+		description:
+			"The game's math contract: symbols and paytable, win model (lines/ways/cluster/scatter), grid, paylines, bet modes, big-win tiers.",
 		kind: 'online',
 		url: '/config',
 		icon: TOOL_ICONS.gameConfig,
@@ -300,7 +303,8 @@ export const TOOLS: Record<string, ToolDef> = {
 	editor: {
 		id: 'editor',
 		name: 'Invisible Scene Editor',
-		description: 'Place images/spine on game screens and export the layout the engine renders.',
+		description:
+			'Place art, spine, text and components on game screens and export the layout the engine renders.',
 		kind: 'online',
 		url: '/editor',
 		icon: TOOL_ICONS.editor,
@@ -308,7 +312,8 @@ export const TOOLS: Record<string, ToolDef> = {
 	ftpBrowser: {
 		id: 'ftpBrowser',
 		name: 'Invisible FTP Browser',
-		description: "Browse and manage the project's cloud asset storage (upload, move, delete).",
+		description:
+			"Browse and manage the project's cloud asset storage (upload, download, move, delete).",
 		kind: 'online',
 		url: '/files',
 		icon: TOOL_ICONS.ftpBrowser,
@@ -333,7 +338,8 @@ export const TOOLS: Record<string, ToolDef> = {
 	fontMaker: {
 		id: 'fontMaker',
 		name: 'Invisible Font Maker',
-		description: 'Create, view, and save bitmap fonts for your games.',
+		description:
+			'Import a BMFont or bake one from a TTF/OTF, preview it live, and save the fonts your games use.',
 		kind: 'online',
 		url: '/fonts',
 		icon: TOOL_ICONS.fontMaker,
@@ -342,7 +348,8 @@ export const TOOLS: Record<string, ToolDef> = {
 		id: 'symbols',
 		name: 'Invisible Symbols State Machine',
 		barName: 'Symbols SM',
-		description: 'Rebind each symbol×state to a sprite frame or spine animation from R2.',
+		description:
+			'Rebind each symbol×state to a sprite frame, a spine animation or a flipbook clip from R2.',
 		kind: 'online',
 		url: '/symbols',
 		icon: TOOL_ICONS.symbols,
@@ -371,7 +378,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		name: 'Invisible FX',
 		barName: 'FX',
 		description:
-			'Author particle effects — tune emitter layers live in a WebGL preview, draw particle art from project atlases, and save an effect the game can fire.',
+			'Author particle effects — tune emitter layers live in a WebGL preview, draw particle art from project atlases, pin a layer to a Spine bone, and save an effect the game can fire.',
 		kind: 'online',
 		url: '/fx',
 		icon: TOOL_ICONS.fx,
@@ -381,7 +388,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		name: 'Invisible Flipbook',
 		barName: 'Flipbook',
 		description:
-			'Author frame animations from an atlas sheet — order the frames, set the rate, preview it playing, and save a clip that FX, symbols and scenes can all reference.',
+			'Author frame animations from an atlas sheet — order the frames, set the rate, preview it playing, and save a clip that FX and the Symbols State Machine can reference.',
 		kind: 'online',
 		url: '/flipbook',
 		icon: TOOL_ICONS.flipbook,
