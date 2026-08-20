@@ -852,6 +852,7 @@ export const actions: Actions = {
 				bundle: String(data.get('bundle') ?? ''),
 				animation: String(data.get('animation') ?? ''),
 				background: String(data.get('background') ?? ''),
+				size: data.get('size'),
 			},
 			admin.id,
 		);

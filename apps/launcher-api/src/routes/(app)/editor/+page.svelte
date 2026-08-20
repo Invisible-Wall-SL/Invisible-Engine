@@ -25,6 +25,9 @@
 	import ColorField from '$lib/ColorField.svelte';
 	import {
 		BOOT_SPLASH_DEFAULT_BACKGROUND,
+		BOOT_SPLASH_DEFAULT_SIZE,
+		BOOT_SPLASH_MAX_SIZE,
+		BOOT_SPLASH_MIN_SIZE,
 		normalizeBootSplashRef,
 	} from 'constants-shared/bootSplash';
 	import LayoutProfileEditor from '$lib/LayoutProfileEditor.svelte';
@@ -1982,6 +1985,9 @@
 	let bootLoaderBackground = $state<string>(
 		data.doc.settings?.bootLoader?.background ?? BOOT_SPLASH_DEFAULT_BACKGROUND.game,
 	);
+	let bootLoaderSize = $state<number>(
+		data.doc.settings?.bootLoader?.size ?? BOOT_SPLASH_DEFAULT_SIZE,
+	);
 
 	/** Build the doc's `settings` object from the panel state (omitted entirely when
 	 * it matches the engine default — `default` jurisdiction + every feature on — so a
@@ -1992,6 +1998,7 @@
 			bundle: bootLoaderBundle,
 			animation: bootLoaderAnimation,
 			background: bootLoaderBackground,
+			size: bootLoaderSize,
 		});
 		if (jurisdiction === 'default' && allOn && !bootLoader) return undefined;
 		const settings: GameSettings = {};
@@ -3340,9 +3347,22 @@
 											onchange={onGameSettingChange}
 										/>
 									</label>
+									<label class="gs-field">
+										<span class="gs-label">Size {bootLoaderSize.toFixed(2)}×</span>
+										<input
+											class="gs-select"
+											type="range"
+											min={BOOT_SPLASH_MIN_SIZE}
+											max={BOOT_SPLASH_MAX_SIZE}
+											step="0.05"
+											bind:value={bootLoaderSize}
+											onchange={onGameSettingChange}
+										/>
+									</label>
 									<p class="gs-note">
-										Set an explicit animation unless the first clip is the right one — a spine left
-										on its setup pose renders empty.
+										Size multiplies the automatic fit (1.00× = fits a safe box on every screen);
+										above ~1.6× it can run past the viewport. Set an explicit animation unless the
+										first clip is the right one — a spine left on its setup pose renders empty.
 									</p>
 								{/if}
 							</div>

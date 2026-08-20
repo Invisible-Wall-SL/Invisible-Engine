@@ -4,7 +4,12 @@
 	import ColorField from '$lib/ColorField.svelte';
 	import LayoutProfileEditor from '$lib/LayoutProfileEditor.svelte';
 	import { roleLabel } from '$lib/roles';
-	import { BOOT_SPLASH_DEFAULT_BACKGROUND } from 'constants-shared/bootSplash';
+	import {
+		BOOT_SPLASH_DEFAULT_BACKGROUND,
+		BOOT_SPLASH_DEFAULT_SIZE,
+		BOOT_SPLASH_MAX_SIZE,
+		BOOT_SPLASH_MIN_SIZE,
+	} from 'constants-shared/bootSplash';
 	import type { LayoutProfile } from 'engine-layout';
 	import type { PageData, ActionData } from './$types';
 
@@ -304,6 +309,7 @@
 	let bootBackground = $state(
 		data.bootSplash.engine?.background ?? BOOT_SPLASH_DEFAULT_BACKGROUND.engine,
 	);
+	let bootSize = $state(data.bootSplash.engine?.size ?? BOOT_SPLASH_DEFAULT_SIZE);
 
 	// --- Settings: promote a project spine into the shared library ---
 	// `_shared/spines/` has no other writer: every producer (the Rigger especially) writes
@@ -1545,9 +1551,24 @@
 						<ColorField bind:value={bootBackground} title="Colour painted behind the mark" />
 						<input type="hidden" name="background" value={bootBackground} />
 					</label>
+					<label class="boot-mark-size">
+						Size <span class="mono">{bootSize.toFixed(2)}×</span>
+						<input
+							type="range"
+							min={BOOT_SPLASH_MIN_SIZE}
+							max={BOOT_SPLASH_MAX_SIZE}
+							step="0.05"
+							bind:value={bootSize}
+						/>
+						<input type="hidden" name="size" value={bootSize} />
+					</label>
 					<button type="submit">Save engine mark</button>
 				</form>
 				<p class="muted hint">
+					<strong>Size</strong> is a multiplier on the automatic fit, not an absolute size — 1.00×
+					is the mark scaled to sit inside a safe box, so it holds on every screen. Above ~1.6× it
+					can run past the viewport edges. You'll see the change on a game's next publish.
+					<br />
 					Leave <strong>Animation</strong> blank only if the skeleton's first clip is the right one —
 					a spine left on its setup pose renders empty, which looks like a broken splash rather than
 					an unset one.
@@ -2231,6 +2252,10 @@
 
 	.boot-mark-colour {
 		align-items: flex-start;
+	}
+
+	.boot-mark-size input[type='range'] {
+		width: 180px;
 	}
 
 	.boot-rule {

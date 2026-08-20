@@ -96,6 +96,7 @@ async function exportTier(
 			skeleton: exported.entry.skeleton,
 			scale: exported.entry.scale,
 			...(ref.animation ? { animation: ref.animation } : {}),
+			...(ref.size !== undefined ? { size: ref.size } : {}),
 			background: ref.background ?? BOOT_SPLASH_DEFAULT_BACKGROUND[tier],
 		},
 		written: exported.written,

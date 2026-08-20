@@ -1,7 +1,11 @@
 <script lang="ts">
 	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
 	import { Application, Assets, Container } from 'pixi.js';
-	import { BOOT_SPLASH_HOLD_MS, type BootSplashEntry } from 'constants-shared/bootSplash';
+	import {
+		BOOT_SPLASH_DEFAULT_SIZE,
+		BOOT_SPLASH_HOLD_MS,
+		type BootSplashEntry,
+	} from 'constants-shared/bootSplash';
 
 	/**
 	 * ONE boot-splash tier: a spine logo on a solid background, as a full-screen overlay.
@@ -111,8 +115,11 @@
 					const w = skeletonData.width || spine.width || 1;
 					const h = skeletonData.height || spine.height || 1;
 					// Fit inside a conservative box so a wide mark can't touch the screen edges on
-					// mobile; the smaller of the two axes wins so nothing is ever cropped.
-					const scale = Math.min((app!.screen.width * 0.6) / w, (app!.screen.height * 0.45) / h);
+					// mobile; the smaller of the two axes wins so nothing is ever cropped. The author's
+					// `size` then scales that fit — RELATIVE, so one value holds on every screen, and
+					// applied after the fit because the fit normalizes the parser's `scale` away.
+					const fitted = Math.min((app!.screen.width * 0.6) / w, (app!.screen.height * 0.45) / h);
+					const scale = fitted * (entry.size ?? BOOT_SPLASH_DEFAULT_SIZE);
 					holder.scale.set(scale > 0 && Number.isFinite(scale) ? scale : 1);
 					holder.position.set(app!.screen.width / 2, app!.screen.height / 2);
 				};

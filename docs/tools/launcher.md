@@ -84,6 +84,7 @@ Pick a bundle from the **shared** spine library (`_shared/spines/`), then set:
 | **Spine bundle** | The `_shared/spines/<bundle>` folder. Only the shared root is offered — a same-named project bundle can never shadow the engine mark. `— none —` skips the engine splash entirely. |
 | **Animation** | The clip to play. Leave blank only if the skeleton's *first* clip is the right one: a spine left on its setup pose renders **empty**, which reads as a broken splash rather than an unset one. |
 | **Background** | Painted immediately, before the spine loads, so boot never flashes white. |
+| **Size** | Multiplier on the automatic fit, **not** an absolute size. `1.00×` is the mark scaled to sit inside a safe box, so one value holds on every screen. Above ~`1.6×` it can run past the viewport edges. Range `0.1×`–`3×`. |
 
 A bundle that is renamed or removed keeps showing in the dropdown marked
 `(missing)` so you notice rather than silently getting a different logo.

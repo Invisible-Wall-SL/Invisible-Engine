@@ -48,6 +48,29 @@ export const BOOT_SPLASH_DEFAULT_BACKGROUND: Record<BootSplashTier, string> = {
 };
 
 /**
+ * Author-set SIZE multiplier applied on top of the automatic fit (see `LoaderSpine`). `1` is the
+ * fit itself — the mark scaled to sit inside a conservative safe box — so this is "a bit bigger /
+ * a bit smaller than that", not an absolute size. Kept relative rather than absolute so one value
+ * holds across every screen the game runs on.
+ *
+ * Clamped: below the floor the mark is invisible and reads as a broken splash, and far above the
+ * ceiling it is cropped by the viewport with no way to tell from the control that that happened.
+ * Values above 1 CAN exceed the safe box — that is the author's call, which is the point of the
+ * knob, but it is why the ceiling is not larger.
+ */
+export const BOOT_SPLASH_DEFAULT_SIZE = 1;
+export const BOOT_SPLASH_MIN_SIZE = 0.1;
+export const BOOT_SPLASH_MAX_SIZE = 3;
+
+/** Coerce an author-set size into the clamped range, or `undefined` when unset/unusable
+ * (⇒ {@link BOOT_SPLASH_DEFAULT_SIZE}). */
+export function normalizeBootSplashSize(input: unknown): number | undefined {
+	const n = typeof input === 'number' ? input : Number(input);
+	if (!Number.isFinite(n) || n <= 0) return undefined;
+	return Math.min(Math.max(n, BOOT_SPLASH_MIN_SIZE), BOOT_SPLASH_MAX_SIZE);
+}
+
+/**
  * How long a tier's splash stays up once its spine is ready, in ms. Matches the
  * 2000ms `FINISH_ONCE_TIMEOUT` the gif loaders used, so the boot rhythm is unchanged.
  */
@@ -68,15 +91,22 @@ export interface BootSplashRef {
 	animation?: string;
 	/** CSS colour painted behind the spine, and during the load before it appears. */
 	background?: string;
+	/** Multiplier on the automatic fit — see {@link BOOT_SPLASH_DEFAULT_SIZE}. Absent ⇒ `1`. */
+	size?: number;
 }
 
 /** One tier as the EXPORTER wrote it — paths relative to `deploy/` (= `assets/`). */
 export interface BootSplashEntry {
 	atlas: string;
 	skeleton: string;
+	/** Spine PARSER load scale (skeleton units). Distinct from `size`, which is a display
+	 * multiplier applied after the fit — the fit normalizes parser scale away, so a size knob
+	 * could not be expressed through this one. */
 	scale: number;
 	animation?: string;
 	background: string;
+	/** Author's size multiplier on the fit. Absent ⇒ {@link BOOT_SPLASH_DEFAULT_SIZE}. */
+	size?: number;
 }
 
 /** `deploy/_boot/boot.json`. A tier is absent when unconfigured or unresolvable. */
@@ -102,9 +132,13 @@ export function normalizeBootSplashRef(input: unknown): BootSplashRef | undefine
 	if (!bundle || !BUNDLE_RE.test(bundle)) return undefined;
 	const animation = typeof raw.animation === 'string' ? raw.animation.trim() : '';
 	const background = typeof raw.background === 'string' ? raw.background.trim() : '';
+	const size = normalizeBootSplashSize(raw.size);
 	return {
 		bundle,
 		...(animation ? { animation } : {}),
 		...(background ? { background } : {}),
+		// Omit the default so an untouched ref stays byte-identical to one saved before the knob
+		// existed — "unset" and "set to 1" must not be two different stored shapes.
+		...(size !== undefined && size !== BOOT_SPLASH_DEFAULT_SIZE ? { size } : {}),
 	};
 }

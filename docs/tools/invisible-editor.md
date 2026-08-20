@@ -247,8 +247,13 @@ the whole pipeline in Admin → Settings and is not editable here). It replaced 
 "Add Your Loader" placeholder.
 
 Pick a **Spine** from the project's spine library (shared bundles are offered too,
-marked `(shared)`), an **Animation**, and a **Background**. `— none —` skips the
-game splash so boot goes straight from the engine mark into the game.
+marked `(shared)`), an **Animation**, a **Background**, and a **Size**.
+`— none —` skips the game splash so boot goes straight from the engine mark into
+the game.
+
+**Size** multiplies the automatic fit rather than setting an absolute size —
+`1.00×` is the mark scaled to sit inside a safe box, so the same value holds on
+every screen the game runs on. Above about `1.6×` it can run past the viewport.
 
 Set the animation explicitly unless the skeleton's *first* clip is the right one:
 a spine left on its resting/setup pose renders **empty**, which looks like a
