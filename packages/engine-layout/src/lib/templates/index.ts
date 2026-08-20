@@ -2,6 +2,7 @@ import type { GameTemplate } from '../types';
 
 import { bookofTemplate } from './bookof';
 import { linesTemplate } from './lines';
+import { waysTemplate } from './ways';
 
 /**
  * Built-in game-type templates — the code **fallback** used when no
@@ -12,6 +13,7 @@ import { linesTemplate } from './lines';
 const TEMPLATES: Record<string, GameTemplate> = {
 	lines: linesTemplate,
 	bookOf: bookofTemplate,
+	ways: waysTemplate,
 };
 
 /** The built-in template for a game type, or `undefined` if none is registered. */
@@ -24,4 +26,5 @@ export function listTemplateGameTypes(): string[] {
 	return Object.keys(TEMPLATES);
 }
 
-export { linesTemplate, bookofTemplate };
+export { linesTemplate, bookofTemplate, waysTemplate };
+export { standardTemplate } from './standard';
