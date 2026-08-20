@@ -54,11 +54,22 @@
 			pressed = false;
 		}
 	});
+
+	// A DISABLED button must not SWALLOW the pointer. Every handler below already early-returns on
+	// `disabled`, but the container stayed `eventMode: 'static'`, so it still won the hit test and ate
+	// the press — it just did nothing with it. That is why a pointer resting on the spin (or turbo)
+	// button made a celebration unskippable: the button is inert under the celebration lock, and the
+	// full-screen tap surface of the overlay BENEATH it (`PressToContinue`, `CountUpInteraction`)
+	// never saw the gesture, so the player had to move the pointer off the chrome first.
+	//
+	// `'none'` skips this container AND its children in the hit test, so the press falls through to
+	// whatever the overlay put under the chrome. Fixing it here — at the one place a button decides it
+	// is inert — is what makes a canvas-top input mask + gesture registry unnecessary.
 </script>
 
 <Container
 	{...containerProps}
-	eventMode="static"
+	eventMode={disabled ? 'none' : 'static'}
 	cursor={disabled ? 'not-allowed' : 'pointer'}
 	pivot={anchorToPivot({ sizes, anchor })}
 	onpointerover={() => {

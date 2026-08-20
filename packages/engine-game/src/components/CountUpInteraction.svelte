@@ -3,8 +3,6 @@
 
 	import { CanvasSizeRectangle } from 'components-layout';
 	import { OnHotkey } from 'components-shared';
-	import { registerSkipGesture } from 'state-shared';
-	import { isCelebrationLocked } from 'utils-shared/spinStop';
 
 	// The shared, authorable INPUT SURFACE for a count-up (the WIN overlay + the free-spin OUTRO).
 	// Two INDEPENDENT toggles authored per game on the count-up action node (`winUpdate` /
@@ -140,23 +138,6 @@
 		clearKeyTimer();
 		keyHeld = false;
 	};
-
-	// CANVAS-TOP ROUTING. The rectangle below paints at the count-up overlay's z, so the HUD — which
-	// paints above it — hit-tests first: a pointer resting on the spin button swallowed the tap, and
-	// the button is inert under the celebration lock, so the gesture reached NOTHING. That made a
-	// skippable presentation unskippable unless the player first moved the pointer off the chrome.
-	// The fix is the game's canvas-top `<ContinuePressMask>` (the same one press-to-continue already
-	// uses): register the gesture and it absorbs the press wherever it lands, above every band.
-	//
-	// Registered ONLY while the chrome is already inert (`isCelebrationLocked` — the very predicate
-	// the spin/turbo buttons grey off). A count-up that does NOT own the screen leaves the HUD live,
-	// and a mask over a live spin button would steal a real press; there the rectangle below keeps
-	// today's behaviour (the HUD wins the hit test). While the mask is up it paints ABOVE this
-	// rectangle and Pixi dispatches to one target only, so the gesture can never fire twice.
-	$effect(() => {
-		if (!enabled || !isCelebrationLocked()) return;
-		return registerSkipGesture({ onDown: pointerDown, onUp: pointerUp, onCancel: pointerCancel });
-	});
 
 	onDestroy(() => {
 		clearPointerTimer();

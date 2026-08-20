@@ -12,9 +12,10 @@
 	const sizes = { width: UI_BASE_SIZE, height: UI_BASE_SIZE };
 	const active = $derived(stateBet.isTurbo);
 	// Greyed while a non-skippable celebration owns the screen, on the SAME read as the spin
-	// button (`utils-shared/spinStop`). The press is already dead there — the game's canvas-top
-	// `<ContinuePressMask>` absorbs it so a tap over this button skips the cinematic instead of
-	// silently toggling turbo — so the button must LOOK dead too.
+	// button (`utils-shared/spinStop`). The press is already dead there — and a disabled button
+	// stops hit-testing entirely (`components-pixi/Button.svelte`), so a tap over it reaches the
+	// celebration's own surface and skips the cinematic instead of silently toggling turbo — so
+	// the button must LOOK dead too.
 	const disabled = $derived(stateBet.isSpaceHold || isCelebrationLocked());
 
 	const onpress = () => {
