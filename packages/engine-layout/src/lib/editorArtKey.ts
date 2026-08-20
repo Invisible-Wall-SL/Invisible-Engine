@@ -45,8 +45,14 @@ export function isBareManifestBasename(ref: unknown): ref is string {
  * A game-bundled key like `symbolsStatic` matches neither form and needs no repair.
  */
 export function needsAtlasRefRepair(ref: unknown): ref is string {
-	if (typeof ref !== 'string' || ref === '' || isManifestAssetKey(ref)) return false;
-	return isBareManifestBasename(ref) || ref.includes('/');
+	if (typeof ref !== 'string' || ref === '') return false;
+	// Read both tests BEFORE the guards decide: `isManifestAssetKey` / `isBareManifestBasename` are
+	// declared `ref is string`, so once `ref` is already a string TS narrows it to `never` in their
+	// NEGATIVE branches — and `ref.includes(…)` after one of those is a type error (it compiled only
+	// because nothing in this repo type-checks `packages/`).
+	const looksLikePath = ref.includes('/');
+	const bareBasename = isBareManifestBasename(ref);
+	return !isManifestAssetKey(ref) && (bareBasename || looksLikePath);
 }
 
 /** The per-sheet key PREFIX (separator included) the editor-art `sprites` loader
@@ -73,9 +79,13 @@ export function scopedFrameRef(assetKey: string, region: string): string {
 }
 
 /**
- * Split a stored frame ref into its atlas + region. A value WITHOUT a manifest prefix
- * (a legacy bare name, or one that merely happens to contain `::`) returns just the
- * region with no `assetKey`, so old bindings resolve exactly as before.
+ * Split a stored frame ref into its atlas + region. A value WITHOUT a manifest prefix returns just
+ * the region with no `assetKey`, so old bindings resolve exactly as before — but WHICH region
+ * depends on what the prefix is:
+ *
+ * - a legacy BARE NAME, or a name that merely happens to contain `::` ⇒ the whole value (parity);
+ * - an atlas ref the runtime cannot scope by (bare manifest basename / Sheet-Maker output prefix)
+ *   ⇒ the region AFTER it, so an unrepaired ref still resolves against the bare frame key.
  */
 export function parseScopedFrameRef(value: string | undefined): {
 	assetKey?: string;
@@ -86,6 +96,17 @@ export function parseScopedFrameRef(value: string | undefined): {
 	if (i <= 0) return { region: value };
 	const assetKey = value.slice(0, i);
 	const region = value.slice(i + 2);
-	if (!region || !isManifestAssetKey(assetKey)) return { region: value };
-	return { assetKey, region };
+	if (!region) return { region: value };
+	if (isManifestAssetKey(assetKey)) return { assetKey, region };
+	// The prefix NAMES an atlas, but in a form the runtime cannot scope by — a bare manifest
+	// basename, or a Sheet-Maker output prefix (see {@link needsAtlasRefRepair}). Turning those into
+	// full manifest keys is the SHIP PATH's job, and a ref that arrives here unrepaired must still
+	// render: drop the un-scopeable prefix and read the BARE region, which the `sprites` loader
+	// registers alongside every scoped frame. Keeping the WHOLE string as a region name is the one
+	// outcome that cannot work — no frame is named `<prefix>::<region>`, so the sprite draws nothing
+	// AND the editor-art export reports the ref as a dangling region instead of shipping the sheet
+	// that packs it. This loses the atlas pin, so it is a DEGRADATION, not the fix — the repair is.
+	if (needsAtlasRefRepair(assetKey)) return { region };
+	// Not an atlas ref at all — a region name that merely CONTAINS `::`. Unchanged (parity).
+	return { region: value };
 }

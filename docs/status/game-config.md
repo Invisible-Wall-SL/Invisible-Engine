@@ -387,6 +387,16 @@ before (the saved doc). Build-verified + node-harness-verified; launcher render 
 
 ## Open items / next
 
+0. **Make `RegionPicker` store a SCOPEABLE atlas key** (root cause of the 2026-08-20 missing-card-art
+   bug below). Its `sheets[].key` comes from `listSheets`, which reports the R2 output PREFIX
+   (`…/sheets/S_Gem/`), so a frame picked from a Sheet-Maker sheet is stored as
+   `…/sheets/S_Gem/::frame` — a namespace the editor-art export never registers. `/config` card
+   params are now repaired on the ship path, but the Scene Editor's image params, `/components` and
+   `/symbols` are NOT. Fix at the source: resolve each sheet entry to its manifest key
+   (`resolveManifestKey`) where `pickSheets` is derived, so every new pick is canonical. Changing
+   `SheetAsset.key` itself is the tempting one-liner and is WRONG — that field is an R2 prefix for
+   the FTP browser and the sheet tool.
+
 1. ✅ ~~**Live-verify the launcher surfaces**~~ — DONE (owner click-through, 2026-08-04): `/config`
    panels, off-grid payline block, raw-JSON paste, save round-trip, the `Match grid` repair flow,
    per-payline colour in-game, AND a non-5×3 end-to-end spin all verified live. The one gap offline
@@ -405,6 +415,16 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 - _None._ The live-verify that was the standing external gate is done (owner-confirmed 2026-08-04).
 
 ## Recent changes
+
+- 2026-08-20 — **A buy-feature card's button art was simply absent in-game — the region picker stores an atlas ref the runtime cannot scope by.** Owner's console on the live Borut remake: `Sprite: key "invisible_wall/bookofborutremake/sheets/S_Game_UI2/::T_UI_BuyBack_glow.png" is not found in the loadedAssets`. The frame exists and the sheet ships; the KEY is unresolvable. An `image`-kind card param stores `<atlas>::<frame>`, and `RegionPicker` builds the atlas half from its `sheets[].key` — which for a Sheet-Maker sheet is the R2 OUTPUT PREFIX (`…/sheets/S_Game_UI2/`), not the `<path>/<name>.json` manifest key. The editor-art export registers a sheet's frames under its MANIFEST key, so the ref named a namespace that is never registered.
+
+  **Two failures, not one.** `parseScopedFrameRef` demands a full manifest key, and on anything else returned the WHOLE value as a bare region name — so the sprite looked up a key no sheet can ever carry (nothing draws), and `editorArtExport`'s `addImageRef`, which shares that helper, filed the same string as a dangling region (it is the sole entry in the project's `editorArt.missing`). Both readers were consistently wrong in the same way, which is why nothing flagged it.
+
+  **Fixed on the ship path, with a degradation behind it.** `loadGameConfigDoc` — the loader `runtimeBundle`, `editorArtExport` and `publishGame` all go through, and the exact counterpart of `loadFlipbookDoc` — now repairs `betModePresentation.*.cardParams` refs through the shared `createAtlasRefResolver`, so the prefix resolves to the real manifest key and the export ships the sheet under the same key the runtime looks up. Gated on a repairable ref actually being present, so a correctly-authored config costs no R2 calls. The editor's own read path (`loadGameConfigDocWithEtag`) is deliberately NOT repaired — it backs the conditional-write contract, and a save must round-trip what was loaded. Behind that, `parseScopedFrameRef` now degrades an un-scopeable prefix to the BARE frame name (which the `sprites` loader registers alongside every scoped frame) instead of a guaranteed miss, so an unrepaired ref from anywhere still renders. That loses the atlas pin, so it is a safety net, not the fix.
+
+  **The root cause is still open and is NOT config-specific:** `RegionPicker`'s `sheets[].key` comes from `listSheets`, which reports the R2 prefix, so every consumer — `/config` card params, the Scene Editor's image params, `/components`, `/symbols` — can still store an un-scopeable ref today. Only the config's is repaired on ship; the editor doc's is not. The clean fix is for the picker's sheet entries to carry the RESOLVED manifest key (`resolveManifestKey`), which would make every new pick canonical. Filed under Open items.
+
+  Verified: new `node packages/engine-layout/scopedFrameRef.fixture.ts` (19 assertions) pins all three prefix shapes — full manifest key keeps the atlas pin, an un-scopeable prefix degrades to the bare region, and a region name that merely CONTAINS `::` survives whole (the parity case a naive split would break). Also fixed a pre-existing type error it exposed: `needsAtlasRefRepair` called `.includes` on a value TS had narrowed to `never` (its `ref is string` guards narrow an already-string argument away in their negative branches) — it shipped only because nothing type-checks `packages/`. `apps/lines` + `launcher-api` build clean; eslint clean.
 
 - 2026-08-20 — **The lines template advertised a payout no player could win.** Owner's `/config` on `test4` showed `symbols.W.paytable — W pays in the paytable but appears on no reel strip`. It is not a `test4` problem: the committed **`lines.json` template** carried it (`W` = `{3:5, 4:10, 5:20}`, on no strip), so EVERY project seeded from lines inherited an unwinnable advertised payout — `ways` and `scatter` were already clean. `validateGameConfigDoc` has flagged exactly this for a while ("the `W` bug, generalized"), so the warning was correct and simply unactioned. **Behaviour-neutral to remove:** `projectWild` (publishGame) gates the mock's wild on the SAME `symbolsInPlay` set — "a wild that merely sits in the dictionary with a paytable but is never dealt stays wild-less" — so nothing read the row except the INFO PAGE, which showed three payouts a player cannot collect. Fixed at source (`apps/lines/src/game/config.ts` → `paytable: null`) and regenerated. **The alternative fix was deliberately NOT taken:** putting `W` on the strips would make the wild actually deal, which changes hit frequencies and starts feeding the mock a wild — that is game MATH and belongs with a math export, not a lint fix. The residual warning is now the milder branch of the same rule (`W is in the dictionary but appears on no reel strip`), which is the honest state: the sample declares a wild it does not deal. **Existing projects keep the old row** — their authored config lives in R2, so `test4` needs "Reset to template default" or W's paytable cleared by hand to clear the warning there. Also: the bet-mode **RTP** input gained the `min`/`max` bounds the identity RTP already had (both were already `type="number"` — an earlier claim that RTP was free text was wrong). Both apps build; eslint clean.
 
