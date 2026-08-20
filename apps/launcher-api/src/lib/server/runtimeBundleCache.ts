@@ -111,6 +111,7 @@ function trim(): void {
 export async function getRuntimeBundle(
 	projectKey: string,
 	includeUnreviewed = false,
+	timings?: Record<string, number>,
 ): Promise<RuntimeBundle> {
 	// Authoring boots see unreviewed translations, players do not — so the two variants
 	// must never share a cache entry, or whichever assembled first leaks into the other.
@@ -133,7 +134,7 @@ export async function getRuntimeBundle(
 	const epoch = epochOf(projectKey);
 	const run = (async () => {
 		try {
-			const bundle = await buildRuntimeBundle(projectKey, includeUnreviewed);
+			const bundle = await buildRuntimeBundle(projectKey, includeUnreviewed, timings);
 			// A publish that landed mid-assemble bumped the epoch: this bundle was read BEFORE it,
 			// so serve it to the callers already waiting but never cache it for anyone else.
 			if (epochOf(projectKey) === epoch) {

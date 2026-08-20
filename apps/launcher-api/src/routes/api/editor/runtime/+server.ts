@@ -38,8 +38,40 @@ import type { RequestHandler } from './$types';
 const CORS_HEADERS = {
 	'Access-Control-Allow-Origin': '*',
 	'Access-Control-Allow-Methods': 'GET, OPTIONS',
+	// `Server-Timing` is not a CORS-safelisted response header, so a cross-origin reader (the game,
+	// or DevTools on a game tab) cannot see it unless it is EXPOSED. Without this the header ships
+	// and is invisible exactly where it is most useful.
+	'Access-Control-Expose-Headers': 'Server-Timing',
 	'Cache-Control': 'no-store',
 };
+
+/**
+ * The assemble's per-step breakdown as a `Server-Timing` header, so "which exporter cost the 33
+ * seconds" is readable from a browser instead of only from the launcher's console.
+ *
+ * This exists because the cost is real and growing: `bookofborutremake` assembles in ~33s and its
+ * FIRST request 502s at the gateway (the game survives only because `fetchRuntimeWithRetry` joins
+ * the in-flight run), while a near-empty project answers in under 5s. The difference is per-project
+ * CONTENT walked by the exporters on every read, so every project trends toward the slow number as
+ * it fills up. Fixing that means moving exports off the read path — and this header is the data that
+ * says which exporter to move first (see `runtimeBundleCache`'s "THE REAL FIX" note).
+ *
+ * Empty in, nothing out: a cache hit or an in-flight join did no work, and reporting someone else's
+ * numbers would be worse than reporting none.
+ */
+function serverTimingHeader(timings: Record<string, number>): Record<string, string> {
+	const entries = Object.entries(timings);
+	if (!entries.length) return {};
+	const value = entries
+		// Step names are internal labels (`cinematics:load`), and `Server-Timing` names must be
+		// tokens — so anything outside the token charset becomes `_` rather than emitting a header
+		// a parser will reject and a reader will never see.
+		.map(
+			([name, ms]) => `${name.replace(/[^A-Za-z0-9!#$%&'*+\-.^_`|~]/g, '_')};dur=${Math.round(ms)}`,
+		)
+		.join(', ');
+	return { 'Server-Timing': value };
+}
 
 export const GET: RequestHandler = async ({ url }) => {
 	const secret = await getDeployToken();
@@ -62,7 +94,11 @@ export const GET: RequestHandler = async ({ url }) => {
 		// an author can see machine output in the running game before vetting it. The
 		// player-facing bundle and the build-time bake stay reviewed-only.
 		const authoring = url.searchParams.get('authoring') === '1';
-		const bundle = await getRuntimeBundle(projectKey, authoring);
+		// Per-step assemble timings, surfaced as `Server-Timing` below. Stays EMPTY when this request
+		// did not assemble (a cache hit, or a join onto someone else's in-flight run) — which is the
+		// honest answer for those requests rather than someone else's numbers.
+		const timings: Record<string, number> = {};
+		const bundle = await getRuntimeBundle(projectKey, authoring, timings);
 
 		// Absolute PATH prefix the runtime prepends to every deploy-relative asset
 		// path (`json`/`file`/`atlas`/`skeleton` below). MUST be the path form
@@ -80,7 +116,10 @@ export const GET: RequestHandler = async ({ url }) => {
 		// game title (e.g. "Book of Borut") instead of the bare slug. Falls back to the key.
 		const name = (await projectName(projectKey)) ?? projectKey;
 
-		return json({ assetBase, name, ...bundle }, { headers: CORS_HEADERS });
+		return json(
+			{ assetBase, name, ...bundle },
+			{ headers: { ...CORS_HEADERS, ...serverTimingHeader(timings) } },
+		);
 	} catch (e) {
 		console.error('runtime bundle failed:', e);
 		throw error(502, 'Failed to assemble the runtime bundle.');
