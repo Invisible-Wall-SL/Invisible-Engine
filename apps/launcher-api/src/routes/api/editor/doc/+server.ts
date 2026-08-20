@@ -2,6 +2,7 @@ import { error, json } from '@sveltejs/kit';
 import { applyHudGameNameDefault, collectComponentIds, collectComponentPins } from 'engine-layout';
 import type { ComponentDef, LayoutDoc } from 'engine-layout';
 import { getDeployToken } from '$lib/server/appSettings';
+import { repairComponentDefsAtlasRefs } from '$lib/server/atlasRefRepair';
 import { loadComponent } from '$lib/server/componentStorage';
 import { listComponentDefaults } from '$lib/server/componentDefaultsStorage';
 import { loadDoc } from '$lib/server/editorStorage';
@@ -31,7 +32,8 @@ function rewriteSpineKeys(node: unknown, clientKey: string, projectKey: string):
 		const bundle = bundleFromAssetKey(clientKey, projectKey, n.assetKey);
 		if (bundle) n.assetKey = bundle;
 	}
-	if (Array.isArray(n.children)) for (const c of n.children) rewriteSpineKeys(c, clientKey, projectKey);
+	if (Array.isArray(n.children))
+		for (const c of n.children) rewriteSpineKeys(c, clientKey, projectKey);
 }
 
 function resolveSpineKeysForGame(doc: unknown, clientKey: string, projectKey: string): void {
@@ -39,7 +41,8 @@ function resolveSpineKeysForGame(doc: unknown, clientKey: string, projectKey: st
 	if (Array.isArray(scenes)) {
 		for (const scene of scenes) {
 			const nodes = (scene as { nodes?: unknown })?.nodes;
-			if (Array.isArray(nodes)) for (const node of nodes) rewriteSpineKeys(node, clientKey, projectKey);
+			if (Array.isArray(nodes))
+				for (const node of nodes) rewriteSpineKeys(node, clientKey, projectKey);
 		}
 	}
 }
@@ -166,6 +169,14 @@ export const GET: RequestHandler = async ({ url }) => {
 		// A placed component's OWN spine nodes need the same prefix→bundle-name rewrite as the
 		// scene tree, or their spines never load in the built game (key mismatch).
 		resolveSpineKeysForComponentDefs(resolved, clientKey, projectKey);
+		// The atlas-ref twin of that rewrite — `loadDoc` above already repaired the doc's own refs.
+		if (resolved) {
+			await repairComponentDefsAtlasRefs(
+				[...Object.values(resolved.defs), ...resolved.versions],
+				clientKey,
+				projectKey,
+			);
+		}
 		return json(
 			{
 				clientKey,

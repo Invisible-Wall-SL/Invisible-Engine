@@ -10,6 +10,7 @@ import {
 	type Scene,
 } from 'engine-layout';
 import { normalizeBootSplashRef } from 'constants-shared/bootSplash';
+import { repairLayoutDocAtlasRefs } from './atlasRefRepair';
 import { editorDocKey } from './projectPaths';
 import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
@@ -50,7 +51,12 @@ export async function loadDoc(
 	projectKey: string,
 	gameType?: string,
 ): Promise<LayoutDoc> {
-	return (await loadDocWithEtag(clientKey, projectKey, gameType)).doc;
+	const { doc } = await loadDocWithEtag(clientKey, projectKey, gameType);
+	// Ship path only, which is exactly why the repair belongs HERE and not in `loadDocWithEtag`:
+	// every reader that hands this doc onward (the runtime bundle, the editor-art export, the
+	// bake's `/api/editor/doc`) comes through this function, while the editor's own read keeps the
+	// ETag contract and must round-trip what it loaded. See `repairLayoutDocAtlasRefs`.
+	return repairLayoutDocAtlasRefs(doc, clientKey, projectKey);
 }
 
 /**
