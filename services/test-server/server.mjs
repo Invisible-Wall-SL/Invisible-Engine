@@ -151,13 +151,36 @@ const linesGrid = (() => {
 // `grid` is THIS project's own board (from its Game Config, carried in the manifest entry). When
 // present it deals the project's real numReels/numRows/paylines so the mock matches the client that
 // authored e.g. 5 rows; absent ⇒ the shared `linesGrid` default (apps/lines). Book keeps its shape.
-const makeMock = (protocol, label, grid) => {
+/**
+ * Games allowed to emit the cascade PRESENTATION FIXTURE, as a comma-separated list of game keys
+ * (`CASCADE_GAMES=test4`), or `*` for all.
+ *
+ * Per-GAME rather than a bare on/off, because this one process serves every game: a global flag
+ * would make the shipped Book of Borut cascade on every spin. Unset ⇒ nobody cascades, which is the
+ * only safe default for a fixture that invents wire events.
+ */
+const CASCADE_GAMES = new Set(
+	(process.env.CASCADE_GAMES ?? '')
+		.split(',')
+		.map((s) => s.trim())
+		.filter(Boolean),
+);
+const cascadeEnabledFor = (gameKey) => CASCADE_GAMES.has('*') || CASCADE_GAMES.has(gameKey);
+
+const makeMock = (protocol, label, grid, gameKey) => {
 	if (protocol === 'book') return createBookMock({ label });
 	// `ways` reuses the lines mock entirely and only swaps how wins are DECIDED — the session, round
 	// lifecycle, scatter pass and event vocabulary are identical between them, which is why this is
 	// an option rather than a third forked mock. See docs/design/game-type-templates.md (Phase D).
 	const winModel = protocol === 'ways' ? 'ways' : 'lines';
-	return createLinesMock({ label, winModel, ...(grid ?? linesGrid ?? {}) });
+	return createLinesMock({
+		label,
+		winModel,
+		// Explicit boolean either way — an absent value would let the mock fall back to the
+		// process-wide `CASCADE` env and cascade every game on this server.
+		cascade: cascadeEnabledFor(gameKey),
+		...(grid ?? linesGrid ?? {}),
+	});
 };
 
 /** Accept a manifest `grid` only when it is well-formed (reels + rows + numReels-wide paylines); any
@@ -327,7 +350,7 @@ async function hydrate() {
 	mocks = Object.fromEntries(
 		Object.entries(nextRegistry).map(([key, meta]) => [
 			key,
-			makeMock(meta.protocol, `mock:${key}`, meta.grid),
+			makeMock(meta.protocol, `mock:${key}`, meta.grid, key),
 		]),
 	);
 }

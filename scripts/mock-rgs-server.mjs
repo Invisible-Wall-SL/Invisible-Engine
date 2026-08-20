@@ -407,8 +407,16 @@ export function createMockRgs(opts = {}) {
 	// runs + a full-height WILD so the engine's stacked-picture reel mode has data to render. Opt-in
 	// (`STACKED=1` env or `createMockRgs({ stacked: true })`); OFF ⇒ the normal weighted deal.
 	const stackedDeal = opts.stacked === true || process.env.STACKED === '1';
-	/** Emit the cascade presentation fixture on every spin — see the note at its emit site. */
-	const cascadeFixture = opts.cascade === true || process.env.CASCADE === '1';
+	/**
+	 * Emit the cascade presentation fixture on every spin — see the note at its emit site.
+	 *
+	 * An EXPLICIT `opts.cascade` always wins, including `false`. That matters because one
+	 * Invisible Test Server process serves EVERY game: a purely env-driven flag would cascade
+	 * `bookofborutremake` too, which is a shipped game. The server therefore decides per game and
+	 * passes a boolean; the bare `CASCADE=1` env stays for the standalone CLI, where there is only
+	 * one game and no ambiguity.
+	 */
+	const cascadeFixture = opts.cascade ?? process.env.CASCADE === '1';
 
 	/**
 	 * A short, deterministic cascade for the fixture: blow up one symbol's cells, refill from above,
