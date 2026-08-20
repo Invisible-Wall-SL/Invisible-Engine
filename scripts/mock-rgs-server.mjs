@@ -593,17 +593,71 @@ export function createMockRgs(opts = {}) {
 	const cascadeFixture = opts.cascade ?? process.env.CASCADE === '1';
 
 	/**
-	 * A short, deterministic cascade for the fixture: blow up one symbol's cells, refill from above,
-	 * twice. Deterministic on purpose — a fixture whose steps vary run to run is useless for judging
-	 * whether an ANIMATION looks right.
+	 * A short, deterministic cascade for the fixture: blow up cells, refill from above. Deterministic
+	 * on purpose — a fixture whose steps vary run to run is useless for judging whether an ANIMATION
+	 * looks right.
+	 *
+	 * THE CELLS THAT PAID ARE THE CELLS THAT EXPLODE. That is the defining rule of a cascade, and
+	 * getting it wrong is not a cosmetic difference: the client narrates the win over the cells it
+	 * was told paid, so a fixture that blows up an unrelated symbol shows a win frame around symbols
+	 * that survive and survivors falling out of a frame that stays. So when the spin PAID, step 1
+	 * removes exactly this spin's winning cells and the chain stops there — the mock does not
+	 * re-evaluate the refilled board, so a second step could only explode cells nothing paid on.
+	 *
+	 * The old most-common-symbol pass survives as the NO-WIN fallback only, so the overlay is still
+	 * exercisable on a dead spin (the reason the fixture exists at all).
 	 *
 	 * Each step names the cells that explode and the replacements that fall in per reel, which is
 	 * exactly what `tumbleBoard` needs to drive the overlay.
 	 */
-	const cascadeSteps = (reels) => {
+	const cascadeSteps = (reels, wins = []) => {
 		const steps = [];
-		// Pick the most common line symbol on the board — a cascade with nothing to explode shows
-		// nothing, and the fixture should always have something to look at.
+		let board = reels.map((reel) => [...reel]);
+
+		/** One step: the named cells go, the survivors fall, the gaps refill from the top. */
+		const addStep = (exploding) => {
+			if (!exploding.length) return;
+			const gone = new Set(exploding.map((p) => `${p.reel}:${p.row}`));
+			const newSymbols = board.map((reel, r) =>
+				Array.from({ length: reel.filter((_, row) => gone.has(`${r}:${row}`)).length }, () =>
+					pickCell(),
+				),
+			);
+			board = board.map((reel, r) => [
+				...newSymbols[r],
+				...reel.filter((_, row) => !gone.has(`${r}:${row}`)),
+			]);
+			steps.push({ exploding, newSymbols });
+		};
+
+		// This spin's paying cells, in the mock's own VISIBLE-grid coordinates (the client shifts them
+		// by its board padding). A flat `{reel,row}` context names them directly (cluster / ways /
+		// scatter-pays); a payline context names the whole line, of which only the leftmost `occurs`
+		// reels pay — the same slice the client lights. The SCAT trigger win carries neither shape, so
+		// it contributes nothing and the scatters are never blown off a board that is triggering.
+		const seen = new Set();
+		const paidCells = [];
+		for (const win of wins) {
+			const ctx = win.context;
+			const cells = Array.isArray(ctx)
+				? ctx
+				: Array.isArray(ctx?.payline)
+					? ctx.payline.slice(0, win.occurs).map((row, reel) => ({ reel, row }))
+					: [];
+			for (const { reel, row } of cells) {
+				const key = `${reel}:${row}`;
+				if (seen.has(key)) continue;
+				seen.add(key);
+				paidCells.push({ reel, row });
+			}
+		}
+		if (paidCells.length) {
+			addStep(paidCells);
+			return steps;
+		}
+
+		// No win to cascade on — pick the most common line symbol so the overlay still has something
+		// to play against.
 		const counts = new Map();
 		for (const reel of reels) {
 			for (const cell of reel) {
@@ -616,7 +670,6 @@ export function createMockRgs(opts = {}) {
 		for (const [name, n] of counts) if (n > best) (best = n), (target = name);
 		if (!target) return steps;
 
-		let board = reels.map((reel) => [...reel]);
 		for (let step = 0; step < 2; step++) {
 			const exploding = [];
 			board.forEach((reel, r) => {
@@ -625,13 +678,7 @@ export function createMockRgs(opts = {}) {
 				});
 			});
 			if (!exploding.length) break;
-			// Survivors fall; the gaps refill from the top with a fresh weighted draw.
-			const newSymbols = board.map((reel) => {
-				const gaps = reel.filter((c) => c === target).length;
-				return Array.from({ length: gaps }, () => pickCell());
-			});
-			board = board.map((reel, r) => [...newSymbols[r], ...reel.filter((c) => c !== target)]);
-			steps.push({ exploding, newSymbols });
+			addStep(exploding);
 		}
 		return steps;
 	};
@@ -872,7 +919,7 @@ export function createMockRgs(opts = {}) {
 					// is gated off and labelled. A real provider's cascade almost certainly looks different
 					// — treat this as the thing that proves the PRESENTATION works, never as the wire.
 					if (cascadeFixture) {
-						for (const step of cascadeSteps(reels)) {
+						for (const step of cascadeSteps(reels, wins)) {
 							events.push({ event: 'tumbleStep', context: step });
 						}
 					}
