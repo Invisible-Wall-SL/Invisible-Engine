@@ -19,7 +19,7 @@
 	import { backOut } from 'svelte/easing';
 
 	import { BoardContext } from 'components-shared';
-	import { waitForResolve } from 'utils-shared/wait';
+	import { waitForResolve, waitForTimeout } from 'utils-shared/wait';
 
 	import { BoardContainer } from 'engine-game';
 
@@ -57,6 +57,30 @@
 
 	/** Row index of the padding row above the visible board — where a falling symbol starts. */
 	const PADDING_ROW = -1;
+
+	/**
+	 * Longest a cascade beat waits on a symbol's `oncomplete` before moving on.
+	 *
+	 * A symbol only reports completion when its state actually ANIMATES. `SymbolSprite` fires
+	 * `oncomplete` from an `$effect` gated on `symbolInfo` CHANGING, so a symbol whose `explosion`
+	 * (or `land`) state resolves to the same art it is already showing — the normal case for a
+	 * project that has authored neither — never reports at all. Awaiting that unconditionally
+	 * deadlocks the beat, and with it the round: the book event never finishes, so the spin button
+	 * stays disabled and the game looks frozen.
+	 *
+	 * Observed on `test4` exactly that way — the cascade played, then the game would not accept
+	 * another spin, intermittently, because whether it hung depended on WHICH symbol exploded.
+	 *
+	 * So every wait is RACED against this cap: an authored animation still drives the timing (it
+	 * resolves first), and an unauthored one costs a bounded beat instead of hanging forever. Same
+	 * reasoning as `Board.svelte`'s `STACKED_WIN_HOLD_MS`, which exists because a covered cell mounts
+	 * no `<Symbol>` at all — a different cause, the identical failure.
+	 */
+	const CASCADE_BEAT_CAP_MS = 650;
+
+	/** Await a symbol's completion, but never longer than {@link CASCADE_BEAT_CAP_MS}. */
+	const awaitBeat = (arm: (resolve: () => void) => void) =>
+		Promise.race([waitForResolve(arm), waitForTimeout(CASCADE_BEAT_CAP_MS)]);
 
 	const createTumbleSymbol = ({
 		initY,
@@ -114,7 +138,7 @@
 					const tumbleSymbol = stateTumble.base[position.reel]?.[position.row];
 					if (!tumbleSymbol) return;
 					tumbleSymbol.symbolState = 'explosion';
-					await waitForResolve((resolve) => (tumbleSymbol.oncomplete = resolve));
+					await awaitBeat((resolve) => (tumbleSymbol.oncomplete = resolve));
 				}),
 			);
 		},
@@ -137,12 +161,16 @@
 						if (symbolIndex > 0 && symbolIndex < tumbleReel.length - 1) {
 							tumbleSymbol.symbolState = 'land';
 							stateGameDerived.onSymbolLand({ rawSymbol: tumbleSymbol.rawSymbol });
-							await waitForResolve((resolve) => {
+							await awaitBeat((resolve) => {
 								tumbleSymbol.oncomplete = () => {
 									tumbleSymbol.symbolState = 'static';
 									resolve();
 								};
 							});
+							// The cap can win the race, which would leave the cell parked on `land` forever —
+							// visible as a symbol stuck mid-animation once the cascade ends. Settling here is
+							// idempotent: the completion path already set it.
+							tumbleSymbol.symbolState = 'static';
 						}
 					}),
 				),
