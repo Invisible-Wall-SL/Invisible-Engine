@@ -20,7 +20,8 @@
  */
 
 import * as SPINE from '@esotericsoftware/spine-pixi-v8';
-import { Assets, type Texture } from 'pixi.js';
+import type { TextureSource } from 'pixi.js';
+import { loadPageSource } from '$lib/fx/effectEmitter.client';
 
 /** One skeleton entry, exactly the shape `/spine/skeletons` returns (a subset we consume). */
 export interface FxSkeletonEntry {
@@ -63,7 +64,7 @@ export interface LoadSpineOptions {
 
 /**
  * Load a skeleton entry into a live `spine-pixi-v8` `Spine`. Fetches the atlas text, wires
- * each atlas page to a Pixi `Texture` (loaded through `/spine/file`), then reads the
+ * each atlas page to a Pixi `TextureSource` (loaded through `/spine/file`), then reads the
  * skeleton (`.json`/`.irig` via `SkeletonJson`, `.skel` via `SkeletonBinary`).
  */
 export async function loadFxSpine(
@@ -71,17 +72,27 @@ export async function loadFxSpine(
 	opts: LoadSpineOptions = {},
 ): Promise<LoadedFxSpine> {
 	const shared = opts.shared === true;
+	// `pp=1` belongs on the ATLAS request, not the page one: the WebP→PNG preference is a rewrite
+	// of the page lines INSIDE the atlas text (the server's `atlasPreferPng`), which is exactly
+	// where the Viewer's `view.html` puts it. Asking for it on the page image is a no-op — by then
+	// the filename has already been decided.
 	const atlasText = await (
-		await fetch(fileUrl(entry.dir_b64, entry.atlas_file, false, shared))
+		await fetch(fileUrl(entry.dir_b64, entry.atlas_file, true, shared))
 	).text();
 	const atlas = new SPINE.TextureAtlas(atlasText);
 
 	// Wire each atlas page to its texture. The page `name` is the image filename the atlas
-	// references; we load it through `/spine/file` (preferring a `.png` sibling, as the
-	// Viewer + the server's atlasPreferPng do, to avoid lossy-WebP alpha).
+	// references, loaded through `/spine/file`.
+	//
+	// NOT `Assets.load`. Pixi's resolver picks a loader by the URL's apparent EXTENSION and drops
+	// the query string first, so `/spine/file?dir=…&name=….png` reads as extension-less: the load
+	// resolves to `null` ("we don't know how to parse it") and reading `.source` off that threw,
+	// killing every skeleton load through this helper. `loadPageSource` fetches the bytes and
+	// decodes them itself — the same fix the FX emitters' own page loading already carries.
+	const pageCache = new Map<string, TextureSource>();
 	for (const page of atlas.pages) {
-		const tex = (await Assets.load(fileUrl(entry.dir_b64, page.name, true, shared))) as Texture;
-		page.setTexture(SPINE.SpineTexture.from(tex.source));
+		const url = fileUrl(entry.dir_b64, page.name, false, shared);
+		page.setTexture(SPINE.SpineTexture.from(await loadPageSource(url, pageCache)));
 	}
 
 	const attachmentLoader = new SPINE.AtlasAttachmentLoader(atlas);
