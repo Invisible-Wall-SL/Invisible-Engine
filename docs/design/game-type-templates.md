@@ -402,8 +402,16 @@ The honest list of what this plan has not delivered, in the order it matters:
 
 1. **A ways project published and played end-to-end.** The Phase D gate. Everything else is verified
    offline or against the mock.
-2. **Non-lines win EVALUATION in the client.** The model is read, not honoured; the boot warning
-   stands until it is.
+2. **Cluster/scatter presentation in the client.** `ways` is now honoured everywhere the client reads
+   the model — priced per way (#357), drawn as merged per-reel bars (#360), and, as of
+   `createWaysReach`, teased by reel anticipation with a reach that converges on the board's real
+   payout. `cluster`/`scatter` remain declaration-only: every model-aware surface falls back to line
+   behaviour, and the boot warning now names only those two. Closing them is a board MECHANIC
+   (tumble/cascade), not a reach implementation — see the scoped-out section above.
+
+   Worth knowing: the client still never DETERMINES wins. It receives `winInfo` with positions from
+   the RGS. The only place it evaluates a board is anticipation, which is why that was the whole of
+   the work here.
 3. **The remaining Phase A slices** — `utils` and `symbolMap`, which need `editor-scenes` and
    `assets` seams of their own, and the components gated behind them.
 4. **A real math export for `apps/ways`.** Its strips are cosmetic and evenly weighted. Legitimate for

@@ -116,15 +116,37 @@ export function createLinesReach(args: LinesReachArgs): AnticipationReach {
 		return { max: maxSum / divisor, min: minSum / divisor };
 	};
 
-	const triggerBounds = (lockedReelCount: number): ReachBounds => {
-		if (!args.isSpecial) return { min: 0, max: 0 };
-		const locked = clamp(lockedReelCount);
+	return {
+		winBounds,
+		triggerBounds: createTriggerBounds(args.board, args.isSpecial, maxSpecialsPerReel),
+		numReels,
+	};
+}
+
+/**
+ * TRIGGER-reach, shared by every win model.
+ *
+ * A scatter triggers on a COUNT ANYWHERE on the board — it is not read along a payline and not
+ * multiplied by ways — so this axis is identical whether the game pays by lines or by ways, and
+ * lives here rather than in either evaluator. That is not a coincidence worth hiding: the whole
+ * reason `ways` can reuse the classic "tease the 3rd scatter" behaviour unchanged is that its
+ * feature trigger was never a line calculation in the first place.
+ */
+function createTriggerBounds(
+	board: string[][],
+	isSpecial: ((symbol: string) => boolean) | undefined,
+	maxSpecialsPerReel: number,
+): (lockedReelCount: number) => ReachBounds {
+	const numReels = board.length;
+	return (lockedReelCount: number): ReachBounds => {
+		if (!isSpecial) return { min: 0, max: 0 };
+		const locked = Math.max(0, Math.min(lockedReelCount, numReels));
 
 		// Specials pay/trigger ANYWHERE, so count across every visible row of a reel, not a line.
 		let lockedCount = 0;
 		for (let reel = 0; reel < locked; reel++) {
-			for (const symbol of args.board[reel]) {
-				if (args.isSpecial(symbol)) lockedCount += 1;
+			for (const symbol of board[reel]) {
+				if (isSpecial(symbol)) lockedCount += 1;
 			}
 		}
 
@@ -133,6 +155,106 @@ export function createLinesReach(args: LinesReachArgs): AnticipationReach {
 		const unlockedReels = numReels - locked;
 		return { min: lockedCount, max: lockedCount + unlockedReels * maxSpecialsPerReel };
 	};
+}
 
-	return { winBounds, triggerBounds, numReels };
+export interface WaysReachArgs {
+	/** Final VISIBLE board, `board[reelIndex][rowIndex]` = symbol name. */
+	board: string[][];
+	/** Candidate base symbols — every symbol with a paytable. Include the wild: a pure-wild run pays
+	 *  as the wild. Excludes scatter (it pays on the trigger axis). */
+	payingSymbols: string[];
+	/** Pay for a left-anchored run of `runLength` of `symbol`, in BET-PER-WAY units — the same
+	 *  paytable the lines model quotes per line (`payoutDivisor`, #357). 0 for a non-paying length. */
+	wayPay: (symbol: string, runLength: number) => number;
+	/** Whether `symbol` substitutes for any base symbol (wild). */
+	isWild: (symbol: string) => boolean;
+	/** Whether `symbol` is the feature-trigger special (scatter). Omit ⇒ trigger-reach is `{0,0}`. */
+	isSpecial?: (symbol: string) => boolean;
+	/** Optimistic cap on specials an unlocked reel may still contribute. Default 1. */
+	maxSpecialsPerReel?: number;
+}
+
+/**
+ * WAYS reachability — the ways analogue of {@link createLinesReach}, and the reason anticipation no
+ * longer has to stand down on a ways game.
+ *
+ * Three things make this a genuinely different calculation rather than lines math with the paylines
+ * swapped out, which is why feeding a ways board to the line walker was refused rather than fudged:
+ *
+ *  1. **There is no row to walk.** A reel either CONTAINS the symbol or it does not; what matters is
+ *     HOW MANY of its cells do, because the pay multiplies by the product of those per-reel counts.
+ *     So the locked prefix carries a running product, not a run of single cells.
+ *  2. **Symbols do not compete.** A payline pays its single best interpretation, so lines takes a max
+ *     across candidate symbols and sums across lines. Ways has no lines and every symbol that
+ *     completes a run pays at once, so this SUMS across symbols — the same thing `evaluateWays` does.
+ *  3. **The optimistic case has to choose a length.** An unbroken prefix can ride the unlocked reels,
+ *     but a longer run is not automatically worth more: `mult(r)` may be absent at some `r` while the
+ *     ways product keeps growing. So the optimistic bound maximises `mult(r) x ways(r)` over every
+ *     reachable length rather than assuming full width the way the line walker safely can.
+ *
+ * `waysCount` (the divisor that turns per-way pays into a total-bet multiplier) is the product of
+ * each reel's VISIBLE row count, read off the board rather than from config — the board is what was
+ * actually dealt, so a stepped or resized grid counts correctly. Mirrors `activeWaysCount`.
+ */
+export function createWaysReach(args: WaysReachArgs): AnticipationReach {
+	const numReels = args.board.length;
+	const rowsOn = args.board.map((reel) => reel.length);
+	const waysCount = rowsOn.reduce((product, rows) => product * Math.max(1, rows), 1);
+	const clamp = (k: number) => Math.max(0, Math.min(k, numReels));
+
+	const matchCount = (reel: number, base: string) =>
+		args.board[reel].filter((cell) => cell === base || args.isWild(cell)).length;
+
+	const winBounds = (lockedReelCount: number): ReachBounds => {
+		const locked = clamp(lockedReelCount);
+		let maxSum = 0;
+		let minSum = 0;
+
+		for (const base of args.payingSymbols) {
+			// Walk the locked reels, carrying the ways PRODUCT alongside the run length. The run ends
+			// at the first locked reel holding none of the symbol.
+			let prefix = 0;
+			let prefixWays = 1;
+			let broken = false;
+			for (let reel = 0; reel < locked; reel++) {
+				const count = matchCount(reel, base);
+				if (count === 0) {
+					broken = true;
+					break;
+				}
+				prefix += 1;
+				prefixWays *= count;
+			}
+
+			// GUARANTEED: every unlocked reel breaks the run, so the run is exactly the matched prefix
+			// and its ways product is exactly what is already on the board.
+			minSum += args.wayPay(base, prefix) * prefixWays;
+
+			if (broken) {
+				// A broken run cannot be rescued by an unlocked reel — the optimistic case is the same
+				// fixed win the guaranteed case sees.
+				maxSum += args.wayPay(base, prefix) * prefixWays;
+				continue;
+			}
+
+			// OPTIMISTIC: the unlocked reels can land the symbol on EVERY row. Take the best reachable
+			// length rather than assuming full width — see (3) above.
+			let bestPay = args.wayPay(base, prefix) * prefixWays;
+			let ways = prefixWays;
+			for (let reel = locked; reel < numReels; reel++) {
+				ways *= Math.max(1, rowsOn[reel]);
+				const pay = args.wayPay(base, reel + 1) * ways;
+				if (pay > bestPay) bestPay = pay;
+			}
+			maxSum += bestPay;
+		}
+
+		return { max: maxSum / waysCount, min: minSum / waysCount };
+	};
+
+	return {
+		winBounds,
+		triggerBounds: createTriggerBounds(args.board, args.isSpecial, args.maxSpecialsPerReel ?? 1),
+		numReels,
+	};
 }

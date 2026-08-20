@@ -550,16 +550,19 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 			);
 		}
 
-		// A project can DECLARE ways/cluster/scatter in `/config` (Phase C), but no runtime implements
-		// one yet — `runtimeFor()` still resolves every project to the lines bundle. Say so at boot
-		// rather than letting a ways game look merely wrong: the symptom (line wins on a ways config)
-		// is indistinguishable from a math bug, and this is the one place that knows it is expected.
+		// A project can DECLARE any win model in `/config` (Phase C), but the shared runtime only
+		// HONOURS some of them. `ways` is honoured throughout: the paytable prices per way, the win
+		// line draws merged per-reel bars, and reel anticipation runs the ways reach. `cluster` and
+		// `scatter` are still declaration-only — every client surface that reads the model falls back
+		// to line behaviour for them. Say so at boot rather than letting such a game look merely
+		// wrong: the symptom is indistinguishable from a math bug, and this is the one place that
+		// knows it is expected.
 		const model = activeWinModel();
-		if (model.type !== 'lines') {
+		if (model.type === 'cluster' || model.type === 'scatter') {
 			console.warn(
 				`[game-config] warning: this config declares a '${model.type}' win model, but the engine ` +
-					'has no runtime for it yet — the game is being played as LINES. The declaration is ' +
-					'stored and validated; only the evaluation is missing. See ' +
+					'has no runtime for it — the game is being presented as LINES. The declaration is ' +
+					'stored, validated and priced correctly; only the presentation is missing. See ' +
 					'docs/design/game-type-templates.md (Phase D).',
 			);
 		}

@@ -1,4 +1,4 @@
-import { createLinesReach } from 'utils-slots';
+import { createLinesReach, createWaysReach } from 'utils-slots';
 import type { AnticipationReach, ReelAnticipationArming } from 'utils-slots';
 
 import { stateGame } from './stateGame.svelte';
@@ -8,6 +8,7 @@ import {
 	getPaylines,
 	boardDimensions,
 	activeBigTiers,
+	activeWinModel,
 } from './gameConfig';
 import { paytable } from './paytable';
 import type { BookEventOfType } from './typesBookEvent';
@@ -69,29 +70,50 @@ function buildReach(board: string[][]): {
 		config.symbols[symbol]?.special_properties?.includes('wild') ?? false;
 	const isSpecial = scatterName ? (symbol: string) => symbol === scatterName : undefined;
 
-	// Reachability is computed PER PAYLINE — "could this reel still complete a paying run on some
-	// line". A ways/cluster/scatter game has no lines for that question to be about, and its reach is
-	// a genuinely different calculation (a ways board's remaining potential is a product of per-reel
-	// counts, not a walk along fixed rows). Rather than feed line maths a model it does not fit,
-	// anticipation stands DOWN for a non-lines model: `getPaylines()` already returns [] there, so
-	// this is explicit rather than incidental — the guard states the decision so it survives someone
-	// later "fixing" that empty list. Anticipation is opt-in per flow anyway, so off is the correct
-	// degradation, not a lost feature. See docs/design/game-type-templates.md (Phase D).
+	// The reach calculation follows the DECLARED WIN MODEL, because "could this reel still complete a
+	// paying run" is a different question per model and the wrong walker does not merely mis-tease —
+	// it reports a reachable AMOUNT that the win tiers then threshold against.
+	//
+	//  - `lines` walks each payline's fixed rows.
+	//  - `ways` has no rows to walk: a reel either holds the symbol or it does not, and the pay
+	//    multiplies by the product of the per-reel counts. See `createWaysReach`.
+	//  - `cluster`/`scatter` still stand DOWN. Their reach is a third calculation again (adjacency
+	//    growth, whole-board counts) and neither has a runtime, so feeding either a walker built for
+	//    something else would be worse than teasing nothing. Anticipation is opt-in per flow, so off
+	//    is a correct degradation rather than a lost feature.
+	//
+	// See docs/design/game-type-templates.md (Phase D).
+	const model = activeWinModel().type;
 	const paylines = getPaylines();
-	const payingSymbols = paylines.length ? [...payBySymbol.keys()] : [];
-	const numLines = getNumLines();
-	const linePay = (symbol: string, runLength: number) =>
+	const symbolPay = (symbol: string, runLength: number) =>
 		payBySymbol.get(symbol)?.get(runLength) ?? 0;
+	const payingSymbols = [...payBySymbol.keys()];
 
-	const reach = createLinesReach({
-		board,
-		paylines,
-		payingSymbols,
-		linePay,
-		numLines,
-		isWild,
-		isSpecial,
-	});
+	const reach =
+		model === 'ways'
+			? createWaysReach({
+					board,
+					payingSymbols,
+					// The SAME paytable the lines model quotes per line, quoted per way — `payoutDivisor`
+					// (#357) is what makes the two denominations agree, and `createWaysReach` divides by
+					// the ways count exactly as the line walker divides by `numLines`.
+					wayPay: symbolPay,
+					isWild,
+					isSpecial,
+				})
+			: createLinesReach({
+					board,
+					paylines,
+					// `cluster`/`scatter` arrive here too, and stand down through this list: `getPaylines()`
+					// returns [] for a model with no lines, so with no candidate symbols the win axis sums
+					// to zero and nothing arms. Stated rather than left implicit, because the stand-down
+					// reads as an accident otherwise and would not survive someone "fixing" that empty list.
+					payingSymbols: paylines.length ? payingSymbols : [],
+					linePay: symbolPay,
+					numLines: getNumLines(),
+					isWild,
+					isSpecial,
+				});
 
 	// Book-of expanding-special axis (Book-of ONLY, free spins ONLY): when the round's expanding
 	// symbol is set (`setExpandingSymbol` at feature start → cleared at `freeSpinEnd`), tease its
