@@ -13,6 +13,7 @@ import { getFlowV2 } from './flowV2InterpreterHolder';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { playBookEvent } from './utils';
 import { stateGame, stateGameDerived, stackedScrollStrip } from './stateGame.svelte';
+import { tumbleBoardCombined } from './stateTumble.svelte';
 import { buildAnticipationArming } from './anticipation';
 import {
 	winLevelSoundsPlay,
@@ -325,6 +326,65 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 		stateUi.winShow = false;
 		stateUi.bigWinShow = false;
 	},
+	/**
+	 * One cascade step, in the order the player sees it: hide the reels, mount the tumble overlay,
+	 * blow up the winners, drop the survivors, then hand the settled result back to the ordinary
+	 * board and unmount.
+	 *
+	 * The explode and slide are AWAITED because each is a real animation with a completion the
+	 * Symbols tool authors; running them unawaited would cascade the next step over the top of the
+	 * one still playing. `boardSettle` re-seats the reel board on the combined result so that when
+	 * the overlay goes away the reels already show what the cascade left behind — the swap back is
+	 * invisible.
+	 */
+	tumbleBoard: async (bookEvent: BookEventOfType<'tumbleBoard'>) => {
+		eventEmitter.broadcast({ type: 'boardHide' });
+		eventEmitter.broadcast({ type: 'tumbleBoardShow' });
+		eventEmitter.broadcast({ type: 'tumbleBoardInit', addingBoard: bookEvent.newSymbols });
+		await eventEmitter.broadcastAsync({
+			type: 'tumbleBoardExplode',
+			explodingPositions: bookEvent.explodingSymbols,
+		});
+		eventEmitter.broadcast({ type: 'tumbleBoardRemoveExploded' });
+		await eventEmitter.broadcastAsync({ type: 'tumbleBoardSlideDown' });
+		eventEmitter.broadcast({
+			type: 'boardSettle',
+			board: tumbleBoardCombined().map((tumbleReel) =>
+				tumbleReel.map((tumbleSymbol) => tumbleSymbol.rawSymbol),
+			),
+		});
+		eventEmitter.broadcast({ type: 'tumbleBoardReset' });
+		eventEmitter.broadcast({ type: 'tumbleBoardHide' });
+		eventEmitter.broadcast({ type: 'boardShow' });
+	},
+
+	/**
+	 * The running cascade total. Routed through the SAME win meter the rest of the game uses rather
+	 * than a tumble-specific readout, so a project that authored its win text/meter gets the cascade
+	 * for free. `amount` of 0 means the chain paid nothing this step and there is nothing to show.
+	 */
+	updateTumbleWin: async (bookEvent: BookEventOfType<'updateTumbleWin'>) => {
+		if (bookEvent.amount <= 0) return;
+		eventEmitter.broadcast({ type: 'winShow' });
+		eventEmitter.broadcast({
+			type: 'winUpdate',
+			amount: bookEvent.amount,
+			winLevel: 0,
+		});
+	},
+
+	/**
+	 * The cascade multiplier. A value of 1 is the chain RESETTING, not a x1 step — so it clears the
+	 * running win rather than announcing a multiplier, which is the one place this event is easy to
+	 * get backwards.
+	 */
+	updateGlobalMult: async (bookEvent: BookEventOfType<'updateGlobalMult'>) => {
+		if (bookEvent.globalMult === 1) {
+			eventEmitter.broadcast({ type: 'winHide' });
+			stateUi.winShow = false;
+		}
+	},
+
 	finalWin: async (bookEvent: BookEventOfType<'finalWin'>) => {
 		// Do nothing
 	},

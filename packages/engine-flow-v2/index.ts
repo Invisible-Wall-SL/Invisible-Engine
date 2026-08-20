@@ -14,6 +14,7 @@ export * from './src/preview';
 export * from './src/reference/standardVocab';
 export * from './src/reference/bookOf';
 export * from './src/reference/ways';
+export * from './src/reference/cluster';
 export * from './src/reference/soundEnums.generated';
 export * from './src/reference/bookOfChoreo';
 export * from './src/reference/registry';

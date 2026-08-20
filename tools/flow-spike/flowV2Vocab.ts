@@ -20,6 +20,7 @@
 
 import {
 	BOOK_OF_VOCAB,
+	CLUSTER_VOCAB,
 	WAYS_VOCAB,
 	templateVocabulary,
 	validateFlowDoc,
@@ -174,7 +175,7 @@ const main = () => {
 	console.log('Invisible Flow v2 — Phase 4c vocabulary harness\n');
 
 	console.log('1. internal consistency, per registered template:');
-	for (const vocab of [BOOK_OF_VOCAB, WAYS_VOCAB]) {
+	for (const vocab of [BOOK_OF_VOCAB, WAYS_VOCAB, CLUSTER_VOCAB]) {
 		const id = vocab.templateId;
 		const declaredStructs = new Set(vocab.structs.map((s) => s.name));
 		const declaredEnums = new Set(vocab.enums.map((e) => e.name));
@@ -298,6 +299,61 @@ const main = () => {
 			'the book-of reveal flow is REJECTED against the ways vocab',
 			waysIssues.length > 0,
 			'validated clean — the ways palette is not constraining anything',
+		);
+	}
+
+	console.log('\n4. CLUSTER_VOCAB adds the cascade, and nothing else:');
+	{
+		const names = <T extends { name: string }>(l: T[]) => l.map((x) => x.name);
+		const only = <T extends { name: string }>(a: T[], b: T[]) =>
+			names(a).filter((n) => !names(b).includes(n));
+
+		// Cluster = the standard palette + the cascade. It must NOT inherit the book-of mechanic, and
+		// must not quietly grow anything else either — asserted in both directions.
+		const clusterOnly = [
+			...only(CLUSTER_VOCAB.events, WAYS_VOCAB.events),
+			...only(CLUSTER_VOCAB.cues, WAYS_VOCAB.cues),
+		].sort();
+		assert(
+			'over the standard palette, cluster adds exactly the cascade surfaces',
+			JSON.stringify(clusterOnly) ===
+				JSON.stringify(
+					[
+						'tumbleBoard',
+						'updateTumbleWin',
+						'updateGlobalMult',
+						'tumbleBoardShow',
+						'tumbleBoardHide',
+						'tumbleBoardInit',
+						'tumbleBoardReset',
+						'tumbleBoardExplode',
+						'tumbleBoardRemoveExploded',
+						'tumbleBoardSlideDown',
+					].sort(),
+				),
+			clusterOnly.join(','),
+		);
+		assert(
+			'cluster does NOT inherit the book-of mechanic',
+			!names(CLUSTER_VOCAB.events).includes('setExpandingSymbol') &&
+				!names(CLUSTER_VOCAB.actions).includes('setSpecialSymbol') &&
+				!names(CLUSTER_VOCAB.cues).includes('specialBookReveal'),
+		);
+		assert(
+			'cluster declares its OWN symbol set (no L5, no H5)',
+			(() => {
+				const symbols = CLUSTER_VOCAB.enums.find((e) => e.name === 'SymbolName')?.values ?? [];
+				return !symbols.includes('L5') && !symbols.includes('H5');
+			})(),
+		);
+		assert(
+			"templateVocabulary('cluster') resolves to the cluster vocab",
+			templateVocabulary('cluster').templateId === 'cluster',
+		);
+		// The palette must CONSTRAIN: a book-of flow has no business validating against cluster.
+		assert(
+			'the book-of reveal flow is REJECTED against the cluster vocab',
+			validateFlowDoc(REVEAL_DOC, CLUSTER_VOCAB, LIBRARY).length > 0,
 		);
 	}
 

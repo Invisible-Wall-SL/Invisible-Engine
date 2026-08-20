@@ -59,6 +59,7 @@ export const {
 	setWinDim,
 	winDimCellKey,
 	getSymbolX,
+	getSymbolY,
 	rebuildBoard,
 	stackedScrollStrip,
 	stackedPictureRuns,
