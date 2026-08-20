@@ -343,7 +343,8 @@ unregistered:
   not deal; the seed then opens the canvas on validation errors over beats the runtime would never
   send.
 - **A FILLED (art-bearing) reference layout** — without one, a project scaffolds from a bare skeleton
-  and is not offered in "Import composed reference".
+  and is not offered in "Import composed reference". Cheaper than it looks when the type shares the
+  reference art: it is the same generator, told a second game type.
 
 The design rule for all four is **split, don't copy**. The screen set is a property of the RUNTIME,
 not of how a game pays, and the flow vocabulary was already the shared runtime's surface transcribed
@@ -357,11 +358,19 @@ drift.
 The safety argument here is again byte-identity: these modules produce Book of Borut's shipped flow
 document, so the existing `bookOf` values must serialize unchanged after the split.
 
-Where it stands: the `ways` authoring kind (slot template, `/flow` palette, `/flow-v2` vocabulary and
-per-template seed) is **on `main`** (#361–#364). What Phase E still owes is the FILLED, art-bearing
-reference layout — without it a ways project scaffolds from a bare skeleton and is not offered in
-"Import composed reference". The detail is owned by [status/flow.md](../status/flow.md) and
-[status/editor.md](../status/editor.md).
+Where it stands: **Phase E is complete on `main`** — the slot template, `/flow` palette, `/flow-v2`
+vocabulary and per-template seed (#361–#364), and the FILLED reference layout (#367).
+
+The fourth surface resolved more cheaply than this plan assumed, and the assumption is worth
+recording because it was wrong for a day: the filled layout was believed to be blocked on ways art
+that did not exist. It did exist. `apps/ways` and `apps/lines` ship byte-identical `reelsFrame`
+atlases — the same eight frames with the same source rectangles — on top of the same 5x3@120 board.
+So "split, don't copy" applied here too: `defaultLayout` stopped hardcoding `'lines'` rather than a
+second generator being written, and the ONE thing that varies is the `specialBook` scene, which a
+type without the expanding-symbol mechanic omits. Believing a blocker instead of checking it is the
+cost this paragraph is meant to stop the next person paying.
+
+The detail is owned by [status/flow.md](../status/flow.md) and [status/editor.md](../status/editor.md).
 
 ## Scoped out — `cluster` and `scatter` templates will not be built
 
@@ -395,11 +404,8 @@ The honest list of what this plan has not delivered, in the order it matters:
    offline or against the mock.
 2. **Non-lines win EVALUATION in the client.** The model is read, not honoured; the boot warning
    stands until it is.
-3. **A FILLED reference layout for `ways`** (Phase E) — and it may be better authored ONLINE as a
-   custom kind ([invisible-editor.md](invisible-editor.md) §21) than committed as a third hardcoded
-   layout.
-4. **The remaining Phase A slices** — `utils` and `symbolMap`, which need `editor-scenes` and
+3. **The remaining Phase A slices** — `utils` and `symbolMap`, which need `editor-scenes` and
    `assets` seams of their own, and the components gated behind them.
-5. **A real math export for `apps/ways`.** Its strips are cosmetic and evenly weighted. Legitimate for
+4. **A real math export for `apps/ways`.** Its strips are cosmetic and evenly weighted. Legitimate for
    a client that never computes wins, but a ways default currently seeds a plausible-looking board
    whose symbol frequencies mean nothing — not fine shipped for money.
