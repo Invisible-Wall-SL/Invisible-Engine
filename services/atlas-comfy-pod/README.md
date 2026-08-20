@@ -16,8 +16,10 @@ ComfyUI just auto-starts on port **8188**.
 
 ## What's in the image
 
-- **ComfyUI** pinned to **v0.3.66** (matches the serverless worker; last release before
-  `comfy_kitchen`/`quant_ops`). Do **not** let ComfyUI-Manager "Update ComfyUI".
+- **ComfyUI** pinned to **v0.33.1** (must stay equal to the serverless worker's
+  `COMFYUI_REF` — bump both in ONE PR; see the Dockerfile for why the old v0.3.66 pin was
+  held and why it expired). Do **not** let ComfyUI-Manager "Update ComfyUI": it patches the
+  ephemeral container layer only, so it silently reverts on the next container recreate.
 - **torch cu128** (`>= 2.7`, `--index-url .../cu128`) — **mandatory for Blackwell** (RTX PRO
   4000/4500, `sm_120`). A cu124 build throws "no kernel image is available". Installed as the
   **last** pip step so ComfyUI/node requirements can't clobber it back to cu124.
