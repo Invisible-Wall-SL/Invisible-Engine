@@ -6,7 +6,9 @@
 	"scripts": {
 		"doc": "tsx docModel.ts",
 		"inspect": "tsx inspect.ts",
-		"winmodel": "tsx winModelRuntime.ts"
+		"winmodel": "tsx winModelRuntime.ts",
+		"waysmath": "tsx waysMath.ts",
+		"wayscrosscheck": "tsx waysCrosscheck.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",
