@@ -1178,6 +1178,14 @@ const RUNTIME_RETRY_DELAYS_MS = [1_000, 3_000];
  * succeed, but must exist at all: boot AWAITS this fetch, so a hung request with no timeout is
  * an indefinitely black screen.
  *
+ * ⚠️ RAISING THIS IS USUALLY THE WRONG FIX. Measured 2026-08-20 against `bookofborutremake`: the
+ * assemble takes ~33s and the GATEWAY 502s the first attempt at about that mark — well inside this
+ * 60s cap, which was never reached. So the binding limit is upstream of this number, and the boot
+ * survives only because the retry joins the in-flight assemble. What actually helps is making
+ * `/api/editor/runtime` cheaper; its `Server-Timing` header says which exporter to attack. The cost
+ * scales with project CONTENT (a near-empty project answers in under 5s), so it returns as any
+ * project fills up.
+ *
  * ⚠️ This number ROTS as a project grows — it was 30s against a then-measured ~17-19s assemble,
  * and by 2026-08 Book of Borut Remake was answering in 29.6-34.2s (183 KB bundle, measured over
  * three fetches). The cap sat *inside* that spread, so the first attempt aborted at the moment
@@ -1233,8 +1241,11 @@ async function fetchRuntimeWithRetry(url: string): Promise<Response> {
 			if (res.ok && elapsed > attemptCap * RUNTIME_SLOW_ATTEMPT_RATIO) {
 				console.warn(
 					`[runtime] live data fetch took ${elapsed}ms of a ${attemptCap}ms cap — the bundle ` +
-						`assemble is approaching the timeout. Raise RUNTIME_ATTEMPT_TIMEOUT_MS (or speed up ` +
-						`/api/editor/runtime) before it starts aborting and silently serving STALE BAKED data.`,
+						`assemble is slow enough to be at risk. NOTE: raising RUNTIME_ATTEMPT_TIMEOUT_MS is ` +
+						`usually the WRONG fix — measured 2026-08-20, the gateway gives up around 33s, well ` +
+						`inside this cap, so the first attempt 502s and only the retry's join onto the ` +
+						`in-flight assemble rescues the boot. Speed up /api/editor/runtime instead: read its ` +
+						`Server-Timing header to see which exporter dominates.`,
 				);
 			}
 			// Client errors are deterministic — fail fast rather than retry a bad token.

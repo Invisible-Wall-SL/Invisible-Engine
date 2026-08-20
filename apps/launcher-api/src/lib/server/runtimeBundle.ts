@@ -48,11 +48,7 @@ import { getGlobalLayoutProfile } from './layoutProfile';
 import { pruneUnreachableEffects } from './effectReachability';
 import { exportEditorFlow } from './flowExport';
 import { exportEditorFlowV2 } from './flowV2Export';
-import {
-	cinematicRigNames,
-	exportCinematics,
-	loadAuthoredCinematics,
-} from './cinematicExport';
+import { cinematicRigNames, exportCinematics, loadAuthoredCinematics } from './cinematicExport';
 import type { CinematicDoc } from './cinematicStorage';
 import { exportEditorFonts } from './fontExport';
 import { exportEffects } from './effectExport';
@@ -296,8 +292,14 @@ function formatTimings(timings: Record<string, number>): string {
 export async function buildRuntimeBundle(
 	projectKey: string,
 	includeUnreviewed = false,
+	out?: Record<string, number>,
 ): Promise<RuntimeBundle> {
-	const timings: Record<string, number> = {};
+	// The caller may supply the record so the per-step breakdown can leave this process — see the
+	// `Server-Timing` header on `/api/editor/runtime`. Until it could, this data existed only in the
+	// launcher's console, which is the wrong place for it: the whole point of the breakdown is to
+	// find which exporter blew the budget, and the person debugging a slow boot is looking at a
+	// browser, not at Railway.
+	const timings: Record<string, number> = out ?? {};
 	try {
 		return await assembleRuntimeBundle(projectKey, timings, includeUnreviewed);
 	} finally {
@@ -483,14 +485,16 @@ export async function ensureDeployExports(
 		loadAuthoredCinematics(client, projectKey),
 	);
 	const extraSpineNames = cinematicRigNames(cinematicDocs);
-	const [editorArt, fontIndex, symbols, flowIndex, flowV2Index, cinematicIndex] = await Promise.all([
-		step('art', timings, () => exportEditorArt(client, projectKey, { extraSpineNames })),
-		step('fonts', timings, () => exportEditorFonts(client, projectKey)),
-		step('symbols', timings, () => exportEditorSymbols(client, projectKey)),
-		step('flow', timings, () => exportEditorFlow(client, projectKey)),
-		step('flowV2', timings, () => exportEditorFlowV2(client, projectKey)),
-		step('cinematics', timings, () => exportCinematics(client, projectKey, cinematicDocs)),
-	]);
+	const [editorArt, fontIndex, symbols, flowIndex, flowV2Index, cinematicIndex] = await Promise.all(
+		[
+			step('art', timings, () => exportEditorArt(client, projectKey, { extraSpineNames })),
+			step('fonts', timings, () => exportEditorFonts(client, projectKey)),
+			step('symbols', timings, () => exportEditorSymbols(client, projectKey)),
+			step('flow', timings, () => exportEditorFlow(client, projectKey)),
+			step('flowV2', timings, () => exportEditorFlowV2(client, projectKey)),
+			step('cinematics', timings, () => exportCinematics(client, projectKey, cinematicDocs)),
+		],
+	);
 	// Forward an authored flow only — an un-authored doc stays undefined so the runtime
 	// interpreter is inert and the game runs its coded path (parity, §7). `isAuthoredFlow`
 	// is the SAME gate the interpreter's `isActive` uses, so the baked slot and the runtime
