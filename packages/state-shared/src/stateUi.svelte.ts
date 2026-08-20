@@ -140,6 +140,13 @@ export const stateUi = $state({
 	 */
 	continuePressCount: 0,
 	/**
+	 * How many canvas-top SKIP GESTURE surfaces are live (the count-up hold/tap surface,
+	 * `engine-game`'s `CountUpInteraction`). Non-zero ⇒ the `<ContinuePressMask>` mounts and routes
+	 * its pointer gesture, exactly as it already does for a press-to-continue. Maintained by
+	 * {@link registerSkipGesture}; read via {@link hasSkipGesture}.
+	 */
+	skipGestureCount: 0,
+	/**
 	 * SPIN HOLD — the round is paused mid-book waiting for the player to press SPIN. Raised by the
 	 * game (`apps/lines` `freeSpinHold.ts`) after a big win inside a free-spin feature, so the
 	 * feature rests on its winning board instead of rolling the next spin on its own.
@@ -199,6 +206,63 @@ export const registerContinuePress = (onpress: () => void): (() => void) => {
  */
 export const runTopContinuePress = (): void => {
 	continuePressHandlers[continuePressHandlers.length - 1]?.onpress();
+};
+
+/** The pointer phases a canvas-top skip surface needs routed to it. */
+export type SkipGestureHandlers = {
+	onDown?: () => void;
+	onUp?: () => void;
+	onCancel?: () => void;
+};
+
+/**
+ * The live skip-gesture handlers, oldest first — the count-up twin of `continuePressHandlers`, and
+ * held outside `$state` for the same reason (callbacks, not reactive data).
+ *
+ * Why it exists: a count-up's tap-to-skip / hold-to-speed-up surface is a full-canvas rect rendered
+ * at the OVERLAY's z, so the HUD — which paints above it — hit-tests first. A pointer resting on the
+ * spin button therefore swallowed the tap, and since the button is inert under the celebration lock
+ * the tap did nothing at all: the count-up was unskippable until the player moved the pointer off
+ * the chrome (the exact bug {@link registerContinuePress} already fixed for press-to-continue).
+ * Unlike a press-to-continue a count-up does NOT always own the screen, so the surface registers
+ * here only while the chrome is already inert — see `CountUpInteraction`.
+ *
+ * A gesture spans down→up, so all three phases route (not just the press): a hold must start and
+ * end on the same surface or `speedScale` would stick.
+ */
+const skipGestureHandlers: { id: number; handlers: SkipGestureHandlers }[] = [];
+let skipGestureNextId = 1;
+
+/** Whether a canvas-top skip gesture is live (see `stateUi.skipGestureCount`). */
+export const hasSkipGesture = () => stateUi.skipGestureCount > 0;
+
+/**
+ * Register a skip gesture for the canvas-top input mask to route to, and return its unregister.
+ * Called by `engine-game`'s `CountUpInteraction` while a count-up runs under an inert HUD.
+ */
+export const registerSkipGesture = (handlers: SkipGestureHandlers): (() => void) => {
+	const id = skipGestureNextId++;
+	skipGestureHandlers.push({ id, handlers });
+	stateUi.skipGestureCount += 1;
+	return () => {
+		const index = skipGestureHandlers.findIndex((entry) => entry.id === id);
+		if (index < 0) return;
+		skipGestureHandlers.splice(index, 1);
+		stateUi.skipGestureCount -= 1;
+	};
+};
+
+/**
+ * Route one pointer phase to the NEWEST live skip gesture — newest for the same reason
+ * {@link runTopContinuePress} is: the surface that just mounted is the one in front of the player.
+ * No handler ⇒ no-op.
+ */
+export const runTopSkipGesture = (phase: 'down' | 'up' | 'cancel'): void => {
+	const entry = skipGestureHandlers[skipGestureHandlers.length - 1];
+	if (!entry) return;
+	if (phase === 'down') entry.handlers.onDown?.();
+	else if (phase === 'up') entry.handlers.onUp?.();
+	else entry.handlers.onCancel?.();
 };
 
 /**
