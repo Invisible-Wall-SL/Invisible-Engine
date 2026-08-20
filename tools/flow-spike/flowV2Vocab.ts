@@ -20,6 +20,8 @@
 
 import {
 	BOOK_OF_VOCAB,
+	WAYS_VOCAB,
+	templateVocabulary,
 	validateFlowDoc,
 	validateFunctionDef,
 	type FlowDoc,
@@ -171,39 +173,44 @@ const REVEAL_DOC: FlowDoc = {
 const main = () => {
 	console.log('Invisible Flow v2 — Phase 4c vocabulary harness\n');
 
-	console.log('1. BOOK_OF_VOCAB internal consistency:');
-	{
-		const declaredStructs = new Set(BOOK_OF_VOCAB.structs.map((s) => s.name));
-		const declaredEnums = new Set(BOOK_OF_VOCAB.enums.map((e) => e.name));
-		const ref = collectReferenced(BOOK_OF_VOCAB);
+	console.log('1. internal consistency, per registered template:');
+	for (const vocab of [BOOK_OF_VOCAB, WAYS_VOCAB]) {
+		const id = vocab.templateId;
+		const declaredStructs = new Set(vocab.structs.map((s) => s.name));
+		const declaredEnums = new Set(vocab.enums.map((e) => e.name));
+		const ref = collectReferenced(vocab);
 		const missingStructs = [...ref.structs].filter((n) => !declaredStructs.has(n));
 		const missingEnums = [...ref.enums].filter((n) => !declaredEnums.has(n));
 		assert(
-			'every referenced struct is declared',
+			`${id}: every referenced struct is declared`,
 			missingStructs.length === 0,
 			missingStructs.join(','),
 		);
-		assert('every referenced enum is declared', missingEnums.length === 0, missingEnums.join(','));
+		assert(
+			`${id}: every referenced enum is declared`,
+			missingEnums.length === 0,
+			missingEnums.join(','),
+		);
 
 		const dupNames = [
-			...dupes(BOOK_OF_VOCAB.structs.map((s) => s.name)),
-			...dupes(BOOK_OF_VOCAB.enums.map((e) => e.name)),
-			...dupes(BOOK_OF_VOCAB.events.map((e) => e.name)),
-			...dupes(BOOK_OF_VOCAB.actions.map((a) => a.name)),
-			...dupes(BOOK_OF_VOCAB.cues.map((c) => c.name)),
-			...dupes(BOOK_OF_VOCAB.collections.map((c) => c.name)),
+			...dupes(vocab.structs.map((s) => s.name)),
+			...dupes(vocab.enums.map((e) => e.name)),
+			...dupes(vocab.events.map((e) => e.name)),
+			...dupes(vocab.actions.map((a) => a.name)),
+			...dupes(vocab.cues.map((c) => c.name)),
+			...dupes(vocab.collections.map((c) => c.name)),
 		];
-		assert('no duplicate declaration names', dupNames.length === 0, dupNames.join(','));
+		assert(`${id}: no duplicate declaration names`, dupNames.length === 0, dupNames.join(','));
 
-		// The shared StaggerStop is offered only where its `requires` is satisfied — assert book-of does.
+		// The shared StaggerStop is offered only where its `requires` is satisfied — assert both are.
 		const req = STAGGER_STOP.requires;
-		const actionNames = new Set(BOOK_OF_VOCAB.actions.map((a) => a.name));
-		const collNames = new Set(BOOK_OF_VOCAB.collections.map((c) => c.name));
+		const actionNames = new Set(vocab.actions.map((a) => a.name));
+		const collNames = new Set(vocab.collections.map((c) => c.name));
 		const satisfied =
 			(req.actions ?? []).every((a) => actionNames.has(a)) &&
 			(req.structs ?? []).every((s) => declaredStructs.has(s)) &&
 			(req.collections ?? []).every((c) => collNames.has(c));
-		assert('StaggerStop.requires (stopReel / Reel / reels) satisfied by book-of', satisfied);
+		assert(`${id}: StaggerStop.requires (stopReel / Reel / reels) satisfied`, satisfied);
 	}
 
 	console.log('\n2. a representative reference flow validates clean against the real vocab:');
@@ -220,6 +227,77 @@ const main = () => {
 			'the book-of reveal flow validates with 0 issues',
 			docIssues.length === 0,
 			docIssues.map((i) => `${i.code}:${i.message}`).join(' | '),
+		);
+	}
+
+	console.log('\n3. WAYS_VOCAB is the standard palette, and the registry actually serves it:');
+	{
+		// Ways adds no mechanic: it must be the standard set MINUS the six book-of surfaces, and
+		// nothing else. Asserted in both directions so neither list can quietly grow.
+		const names = <T extends { name: string }>(l: T[]) => l.map((x) => x.name);
+		const only = <T extends { name: string }>(a: T[], b: T[]) =>
+			names(a).filter((n) => !names(b).includes(n));
+
+		assert(
+			'ways offers no event book-of does not',
+			only(WAYS_VOCAB.events, BOOK_OF_VOCAB.events).length === 0,
+		);
+		assert(
+			'ways offers no action book-of does not',
+			only(WAYS_VOCAB.actions, BOOK_OF_VOCAB.actions).length === 0,
+		);
+		assert(
+			'ways offers no cue book-of does not',
+			only(WAYS_VOCAB.cues, BOOK_OF_VOCAB.cues).length === 0,
+		);
+
+		const bookOnly = [
+			...only(BOOK_OF_VOCAB.events, WAYS_VOCAB.events),
+			...only(BOOK_OF_VOCAB.actions, WAYS_VOCAB.actions),
+			...only(BOOK_OF_VOCAB.cues, WAYS_VOCAB.cues),
+		].sort();
+		assert(
+			'the whole difference is the six book-mechanic surfaces',
+			JSON.stringify(bookOnly) ===
+				JSON.stringify(
+					[
+						'expandBookColumns',
+						'expandBookColumns',
+						'setExpandingSymbol',
+						'setSpecialSymbol',
+						'specialBookHide',
+						'specialBookReveal',
+					].sort(),
+				),
+			bookOnly.join(','),
+		);
+
+		// The symbol dropdown is the one per-type value: ways ships H5 and no L5.
+		const symbols = (v: TemplateVocabulary) =>
+			v.enums.find((e) => e.name === 'SymbolName')?.values ?? [];
+		assert(
+			'ways declares its OWN symbol set (H5, no L5)',
+			symbols(WAYS_VOCAB).includes('H5') && !symbols(WAYS_VOCAB).includes('L5'),
+			symbols(WAYS_VOCAB).join(','),
+		);
+
+		// The reason this vocabulary had to exist: an unregistered id silently rides the book-of
+		// fallback, so a ways project was offered a palette its runtime never fires.
+		assert(
+			"templateVocabulary('ways') resolves to the ways vocab, not the fallback",
+			templateVocabulary('ways').templateId === 'ways',
+		);
+		assert(
+			'an unknown id still falls back to book-of (parity)',
+			templateVocabulary('no-such-template').templateId === 'bookOf',
+		);
+
+		// And the palette genuinely CONSTRAINS: the book-of reveal flow must NOT validate against ways.
+		const waysIssues = validateFlowDoc(REVEAL_DOC, WAYS_VOCAB, LIBRARY);
+		assert(
+			'the book-of reveal flow is REJECTED against the ways vocab',
+			waysIssues.length > 0,
+			'validated clean — the ways palette is not constraining anything',
 		);
 	}
 
