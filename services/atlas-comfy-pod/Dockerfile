@@ -98,11 +98,24 @@ COPY custom_nodes/ComfyUI-Invisible-ErrorRecall /ComfyUI/custom_nodes/ComfyUI-In
 
 # Install every node's Python deps (incl. the vendored PuLID folder + Manager).
 RUN for r in */requirements.txt; do echo "== deps: $r =="; pip install -r "$r" || true; done
-# PuLID / PuLID-Flux face stack — install explicitly so a thin requirements.txt can't miss it.
-# open-clip-torch is PuLID-Flux2's EVA-CLIP loader. Its requirements.txt also hard-pins
-# ml_dtypes==0.3.2, which the loop above may apply; left unpinned here deliberately so a
-# transitive downgrade shows up in the build log rather than being frozen in by us.
-RUN pip install insightface onnxruntime-gpu facexlib timm ftfy open-clip-torch
+# PuLID / PuLID-Flux face stack — install explicitly so a thin requirements.txt can't miss
+# it, AND so a stale pin in one node can't drag a shared package backwards.
+#
+# open-clip-torch is PuLID-Flux2's EVA-CLIP loader. That node's requirements.txt also pins
+# `ml_dtypes==0.3.2` and `numpy<2.0.0`, and the loop above applied both: the first build
+# with it shipped ml_dtypes 0.3.2 (down from the 0.6.0 onnx->insightface had pulled) and
+# onnx 1.19.0 (down from 1.22.0). numpy recovered on its own — the cu128 torch step below
+# reinstalls 2.4.6 last — and that is what made the pin dangerous rather than merely wrong:
+# ml_dtypes 0.3.2 is a Jan-2024 C extension built against the numpy 1.x array API, so under
+# numpy 2 it raises `AttributeError: _ARRAY_API not found` on import (verified directly).
+# onnx declares ml_dtypes as a hard dependency and insightface imports onnx, so leaving it
+# un-importable puts the whole face stack at risk — including the FLUX.1 PuLID-Flux path
+# that predates this node and was verified working.
+#
+# FLOORS, not pins: raise what a node dragged down, without freezing a version here that
+# the requirements above would then fight over on every rebuild.
+RUN pip install insightface onnxruntime-gpu facexlib timm ftfy open-clip-torch \
+    "ml_dtypes>=0.5.4" "onnx>=1.22"
 
 # ComfyUI-Manager: security level "middle" so artists can add nodes from the web UI on a
 # remote pod. Pre-seed its config in BOTH known locations (newer Manager reads
