@@ -1,5 +1,5 @@
 import { ENV } from './env';
-import { comfyReady, probeFleet, resolveProxyUrl } from './runpod';
+import { comfyReady, podProbe, probeFleet, resolveProxyUrl } from './runpod';
 
 /**
  * "What is actually installed on the pods" — read LIVE from a running ComfyUI rather
@@ -147,8 +147,17 @@ async function pickReader(): Promise<{ url: string; id: string; label: string } 
 
 	const volumePodId = ENV.COMFY_VOLUME_POD_ID.trim();
 	if (volumePodId) {
-		const url = await resolveProxyUrl(volumePodId);
-		if (url) return { url, id: volumePodId, label: 'Volume pod' };
+		// The proxy first, then the DIRECT ip:port — a pod that exposes 8188 as TCP has no
+		// HTTP proxy on it at all (the hostname answers a bare 404), which is precisely the
+		// shape a hand-made CPU pod tends to have. Measured on the first real volume pod:
+		// every proxy port 404'd. Without this fallback the reader would be unreachable on
+		// a pod that is running ComfyUI perfectly well. Same rule `probeFleet` follows.
+		const proxy = await resolveProxyUrl(volumePodId);
+		if (proxy) return { url: proxy, id: volumePodId, label: 'Volume pod' };
+		const direct = trimUrl((await podProbe(volumePodId)).directUrl ?? '');
+		if (direct && (await comfyReady(direct))) {
+			return { url: direct, id: volumePodId, label: 'Volume pod' };
+		}
 	}
 
 	for (const pod of await probeFleet()) {
