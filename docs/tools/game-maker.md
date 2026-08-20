@@ -33,7 +33,9 @@ re-registers it; it never rebuilds a bundle.
 
 ## How to use it
 
-The page has two cards: **Create a game** and **Your projects**.
+The page has two cards: **Create a game** and **Your projects**. Each project in
+the second card shows what kind of game it is and which features it uses, can be
+filtered/sorted/grouped by client, and can be duplicated onto a new key.
 
 ### Create a game
 
@@ -58,11 +60,84 @@ Atlas Maker, Sheet Maker, Font Maker, Symbols State Machine, and Localization �
 all scoped to this project. Nothing about authoring lives in Game Maker itself; it
 is the create-and-publish surface.
 
+### Reading a project card
+
+Every card under **Your projects** answers "what *is* this game?" in two rows of
+chips, derived live from the project's own authoring data — nothing to fill in and
+nothing that can go stale:
+
+- **Game** — its identity: the game kind, how it pays (line pays / *N* ways /
+  cluster / scatter, with the threshold and direction), the board (`5 × 3`, or
+  `5 reels · 3/4/5/4/3 rows` for a stepped one), payline count, RTP, max win, and
+  — once published — which shared engine runtime serves it and which mock-RGS
+  protocol it is dealt. A last chip says whether the project has authored its own
+  Game Config or is still inheriting its game type's template.
+- **Using** — the optional mechanics and presentation features it actually has
+  switched on: wild / scatter / multiplier symbols, cascading (tumble) reels,
+  multiplier collect, expanding book symbol, buy feature, ante bet, stacked
+  pictures, the win-line display and full-payline trace, per-line win colours,
+  winning-symbol replay (and its dim / hold-after-big-win variants), win-frame
+  highlight, free-spin board glow, book-symbol VFX, reel anticipation, explosion
+  animations, named symbols, big-win tiers and tier escalation.
+
+Hover any chip for what it means and where it comes from. A project that has
+switched nothing on says *"no optional features yet"* rather than listing the
+engine's whole menu — the list reports what a game **uses**, not what it could.
+
+The feature list grows with the engine: each new optional mechanic adds one entry
+to the detector table in `src/lib/server/gameProfile.ts`, so a shipped mechanic is
+never invisible here.
+
+### Finding a project
+
+Above the list is a browse toolbar, because the list only grows:
+
+- **Search** matches the name, key, client **and the profile chips** — so
+  `stacked`, `cluster` or `buy feature` finds the games that use them. Multiple
+  words all have to match.
+- **All clients** / **All types** / **Any status** narrow the list. *Status* covers
+  Published, Not published, and **Engine stale** (the amber badge below) so you can
+  pull up exactly the games that need a republish.
+- **Sort** by recently edited (default), recently published, name, or key.
+- **Group by client** (on by default) splits the list into per-client sections with
+  a count each. Turn it off for one flat, globally sorted list; the client then
+  shows as a pill on each card instead.
+
+The heading shows `N of M` whenever a filter is narrowing the list, and **Clear**
+resets every filter at once.
+
+### Duplicate (reskin for another client)
+
+**Duplicate…** on a card copies the whole game onto a new project key — the same
+client for a variant, a different client to reskin it for them. You choose:
+
+- **New name / new key / client** — the key auto-follows the name until you edit it,
+  same as the create form.
+- **What to copy:**
+  - **Game setup only** (default) — scenes, both flow docs, Game Config, symbols,
+    win text, strings, the project's editor components and their defaults, plus the
+    atlas/sheet config seeds. Fast; the copy keeps the entire game and points at no
+    art yet, which is what you want when new art is coming.
+  - **Everything, including atlases, spines and fonts** — additionally copies the
+    asset folders, so the copy plays immediately and you replace art in place.
+    Large projects take a while and very large ones are refused outright (move
+    those with the [FTP Browser](ftp-browser.md) instead) — the copy is never
+    silently truncated.
+
+Asset references **inside** the copied documents are re-pointed at the new project
+as they are copied, so the duplicate never quietly reads the original's files (and
+does not break when the original is edited or deleted). The copy inherits the
+source's game type, is created unpublished, and mints its own read token on its
+first publish.
+
+You need the Game Maker tool and access to the source project; unlike Publish, it
+is not admin-only.
+
 ### Publish (and Re-publish)
 
-Each project row under **Your projects** shows its name, key, and client, plus a
-**Publish** button (it reads **Re-publish** once the game already exists).
-Clicking it runs the server-side publish, which:
+Each project card under **Your projects** carries a **Publish** button (it reads
+**Re-publish** once the game already exists). Clicking it runs the server-side
+publish, which:
 
 1. **Freshens the `deploy/` exports** so the live runtime serves the project's
    current art, fonts, and symbols (the same export step the live editor runtime

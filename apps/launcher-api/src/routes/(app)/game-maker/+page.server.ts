@@ -1,7 +1,9 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { ADMIN_PANEL_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { clientExists, listClients } from '$lib/server/clients';
+import { resolveGameConfig } from '$lib/server/gameConfigDefaults';
 import { selectableGameKinds } from '$lib/server/gameKinds';
+import { buildGameProfile } from '$lib/server/gameProfile';
 import { listGames } from '$lib/server/games';
 import { UNASSIGNED_CLIENT, editorDocKey } from '$lib/server/projectPaths';
 import { scaffoldProject } from '$lib/server/projectScaffold';
@@ -13,10 +15,8 @@ import {
 } from '$lib/server/projects';
 import { listAllObjects } from '$lib/server/r2';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import {
-	loadTestServerManifest,
-	runtimeBundleReleasedAt,
-} from '$lib/server/testServerManifest';
+import { loadTestServerManifest, runtimeBundleReleasedAt } from '$lib/server/testServerManifest';
+import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -75,9 +75,8 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 		toolOverrides,
 	);
 
-	// Which authoring tools the role can launch from the hub — drives which
-	// per-project links the page renders (only tools the user actually has).
-	const toolIds = new Set(tools.map((t) => t.id));
+	// Kind id → display name, for the profile's "what kind of game is this" chip.
+	const kindNames = new Map(gameKinds.map((k) => [k.id, k.name]));
 
 	// Engine-staleness signal: when was each referenced generic runtime bundle last
 	// released (its `_runtime/<id>/index.html` mtime in R2). Resolved once per distinct
@@ -111,14 +110,33 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 			const runtimeId = entry?.runtime ?? null;
 			const publishedAt = entry?.updatedAt ? Date.parse(entry.updatedAt) : NaN;
 			const releasedAt = runtimeId ? (runtimeReleasedAt.get(runtimeId) ?? null) : null;
-			const canCompare =
-				Boolean(game) && releasedAt !== null && Number.isFinite(publishedAt);
+			const canCompare = Boolean(game) && releasedAt !== null && Number.isFinite(publishedAt);
 			const engineStale = canCompare && releasedAt! > publishedAt;
+
+			// The card's "what IS this game" summary. Two extra R2 reads per project (the config +
+			// the symbols doc); everything else is already in hand. Both loaders degrade to a
+			// usable value rather than throwing, so one unreadable doc costs a chip, not the page.
+			const [config, symbols] = await Promise.all([
+				resolveGameConfig(clientKey, p.key, p.gameType),
+				loadSymbolsDoc(clientKey, p.key),
+			]);
+			const profile = buildGameProfile({
+				gameTypeId: p.gameType,
+				gameTypeName: kindNames.get(p.gameType) ?? p.gameType,
+				config: config.doc,
+				configSource: config.source,
+				symbols,
+				runtimeId,
+				protocol: entry?.protocol ?? null,
+			});
 
 			return {
 				key: p.key,
 				name: p.name,
+				clientKey: p.clientKey,
 				clientName: p.clientName,
+				gameType: p.gameType,
+				profile,
 				published: Boolean(game),
 				url: game?.url ?? null,
 				// Publish-confirmation signal: when the project's scenes were last edited.
@@ -139,15 +157,6 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 		gameKinds,
 		projects,
 		canPurgeCache,
-		// Per-project launch links are gated on these tool ids (the hub only links to
-		// tools the role can open). Order here mirrors the row's button order.
-		launchTools: {
-			editor: toolIds.has('editor'),
-			atlasTool: toolIds.has('atlasTool'),
-			fontMaker: toolIds.has('fontMaker'),
-			symbols: toolIds.has('symbols'),
-			localization: toolIds.has('localization'),
-		},
 	};
 };
 

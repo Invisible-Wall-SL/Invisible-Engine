@@ -119,6 +119,9 @@ export type AccessibleProjectWithClient = {
 	name: string;
 	clientKey: string | null;
 	clientName: string | null;
+	/** The project's game kind, defaulted exactly as {@link projectGameType} defaults it, so a
+	 *  caller never has to re-apply the legacy-null fallback. */
+	gameType: string;
 	launcherProfile: unknown;
 };
 
@@ -140,6 +143,7 @@ export async function accessibleProjectsWithClient(
 		name: p.name,
 		clientKey: p.clientKey,
 		clientName: p.clientKey === null ? null : (clientNames.get(p.clientKey) ?? null),
+		gameType: p.gameType ? p.gameType : DEFAULT_GAME_KIND,
 		launcherProfile: p.launcherProfile,
 	}));
 }

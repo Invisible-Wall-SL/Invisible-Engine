@@ -208,7 +208,7 @@
   },
   "apps/launcher-api/src/routes/(app)/game-maker/+page.svelte": {
     "svelte/no-navigation-without-resolve": {
-      "count": 8
+      "count": 3
     }
   },
   "apps/launcher-api/src/routes/(app)/onboarding/+page.svelte": {
