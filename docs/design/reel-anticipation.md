@@ -116,8 +116,16 @@ Reads paylines + paytable from the active game config (`config.ts` `paylines`, `
 - Board `max`/`min` = sum over paylines (+ scatter row if the scatter can still reach its pay
   count). Scatter reachability also feeds the **feature-trigger** tease when the game wants it.
 
-Ways / cluster / scatter games each get their own `AnticipationReach` implementation behind the
-same interface, later. Lines first — that's the Book-of remake.
+Each win model gets its own `AnticipationReach` implementation behind the same interface. `lines`
+came first (it is the Book-of remake); `ways` followed as `createWaysReach`, which is a genuinely
+different walk rather than lines math with the paylines swapped: a reel either holds the symbol or
+it does not, the pay multiplies by the PRODUCT of per-reel counts, every paying symbol contributes
+at once instead of a line taking its single best, and the optimistic bound has to maximise
+`mult(r) x ways(r)` over the reachable lengths because a longer run is not automatically worth more.
+
+`cluster`/`scatter` are still deferred, and stand down rather than borrow a walker built for
+something else. `triggerBounds` is shared by every model — a scatter count was never a line
+calculation — which is why the classic "tease the 3rd scatter" behaviour needed no ways variant.
 
 ### Two reach dimensions — win-reach AND trigger-reach
 
@@ -272,7 +280,9 @@ authorable from the `/symbols` **Reel anticipation** panel:
 
 ## Non-goals / open questions
 
-- Ways/cluster/scatter reachability math (interface is designed for it; implementations deferred).
+- Cluster/scatter reachability math (interface is designed for it; implementations deferred — they
+  stand down at runtime rather than borrowing the line walker). `ways` is DONE — `createWaysReach`,
+  fixture-verified to converge on the board's real payout, not merely to be monotonic.
 - Zoom framing when anticipating reels are non-contiguous (e.g. reels 0 and 4) — likely zoom to the
   bounding span; revisit in Phase 3.
 - Regulatory note: `possible`-mode near-miss teasing is manufactured entirely client-side (the server
