@@ -1178,13 +1178,19 @@ const RUNTIME_RETRY_DELAYS_MS = [1_000, 3_000];
  * succeed, but must exist at all: boot AWAITS this fetch, so a hung request with no timeout is
  * an indefinitely black screen.
  *
- * ⚠️ RAISING THIS IS USUALLY THE WRONG FIX. Measured 2026-08-20 against `bookofborutremake`: the
- * assemble takes ~33s and the GATEWAY 502s the first attempt at about that mark — well inside this
- * 60s cap, which was never reached. So the binding limit is upstream of this number, and the boot
- * survives only because the retry joins the in-flight assemble. What actually helps is making
- * `/api/editor/runtime` cheaper; its `Server-Timing` header says which exporter to attack. The cost
- * scales with project CONTENT (a near-empty project answers in under 5s), so it returns as any
- * project fills up.
+ * ⚠️ RAISING THIS IS USUALLY THE WRONG FIX. Measured 2026-08-20 against `bookofborutremake` over
+ * three requests: the assemble takes **34-38s**, and this 60s cap was never reached in any of them.
+ * One request still 502'd (at 33.5s) while two LONGER ones succeeded (36.3s, 38.5s) — so the
+ * endpoint fails INTERMITTENTLY upstream of us rather than at a fixed threshold, and no value of
+ * this constant prevents that. The boot survives a 502 only because the retry joins the in-flight
+ * assemble.
+ *
+ * What actually helps is making `/api/editor/runtime` cheaper, and its `Server-Timing` header now
+ * names the target precisely: `art` (~34s) and `symbols` (~30s) run in parallel and are essentially
+ * the WHOLE assemble — every other step combined is under 5s. Both have to move off the read path
+ * to gain anything, since dropping one leaves the other on the critical path. Doing so would take
+ * the assemble to roughly 8s. The cost scales with project CONTENT (a near-empty project answers in
+ * under 5s), so it returns as any project fills up.
  *
  * ⚠️ This number ROTS as a project grows — it was 30s against a then-measured ~17-19s assemble,
  * and by 2026-08 Book of Borut Remake was answering in 29.6-34.2s (183 KB bundle, measured over
@@ -1242,10 +1248,10 @@ async function fetchRuntimeWithRetry(url: string): Promise<Response> {
 				console.warn(
 					`[runtime] live data fetch took ${elapsed}ms of a ${attemptCap}ms cap — the bundle ` +
 						`assemble is slow enough to be at risk. NOTE: raising RUNTIME_ATTEMPT_TIMEOUT_MS is ` +
-						`usually the WRONG fix — measured 2026-08-20, the gateway gives up around 33s, well ` +
-						`inside this cap, so the first attempt 502s and only the retry's join onto the ` +
-						`in-flight assemble rescues the boot. Speed up /api/editor/runtime instead: read its ` +
-						`Server-Timing header to see which exporter dominates.`,
+						`usually the WRONG fix — measured 2026-08-20 the assemble runs 34-38s and this cap ` +
+						`was never reached, yet the endpoint still 502s intermittently upstream of us. ` +
+						`Speed up /api/editor/runtime instead: its Server-Timing header shows 'art' and ` +
+						`'symbols' are essentially the whole cost.`,
 				);
 			}
 			// Client errors are deterministic — fail fast rather than retry a bad token.
