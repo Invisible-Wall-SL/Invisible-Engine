@@ -280,16 +280,24 @@ export type ReelBehaviour = {
 	 */
 	columnStaggerMs?: number;
 	/**
-	 * CLEAR the board before the new symbols fall in: every cell of the outgoing board plays its
-	 * authored `explosion` state and leaves, and only then does the new board drop. Absent ⇒ `false`
-	 * ⇒ the outgoing board is simply gone when the new one arrives, which is what a drop-in round did
-	 * before this knob existed.
+	 * CLEAR the outgoing symbols instead of just replacing them: they play their authored `explosion`
+	 * state and leave, and only then do their replacements fall in. Absent ⇒ `false` ⇒ the outgoing
+	 * symbols are simply gone when the new ones arrive.
 	 *
-	 * Only meaningful with {@link swapInPlace} AND `swapStyle: 'dropIn'`. A rolling round has no
-	 * drop-in to clear ahead of, and a `'columnCascade'` already empties each column by DRAINING it —
-	 * running a clear there would be two clears for one round. `resolveReelBehaviour` enforces both so
-	 * the dependency is stated in ONE place; the STORED value is left alone, so switching style or
-	 * mode and back does not lose the setting.
+	 * WHAT IT MEANS DEPENDS ON THE STYLE, because "the thing being replaced" does:
+	 * - `'dropIn'` — the whole board clears at once, ahead of the single fall.
+	 * - `'columnCascade'` — each column clears ON ITS OWN BEAT, in place of that column's DRAIN. The
+	 *   column pops away rather than sliding out of the bottom of the window; the sweep, the stagger
+	 *   and the refill are otherwise identical.
+	 *
+	 * It is NOT redundant with the cascade's drain, which is the mistake the first cut of this field
+	 * made by gating it to `'dropIn'`. A drain and a clear are two different PICTURES of the same
+	 * beat — one slides the column out, the other pops it in place — and which one a game wants is
+	 * exactly the kind of thing this block exists to let a project choose.
+	 *
+	 * Only meaningful with {@link swapInPlace}: a rolling round replaces nothing, it re-spins.
+	 * `resolveReelBehaviour` enforces that so the dependency is stated in ONE place; the STORED value
+	 * is left alone, so toggling the mode off and back does not lose the setting.
 	 */
 	clearBoard?: boolean;
 };

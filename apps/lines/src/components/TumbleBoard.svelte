@@ -48,7 +48,20 @@
 		  }
 		| { type: 'tumbleBoardReset' }
 		| { type: 'tumbleBoardExplode'; explodingPositions: ExplodingPositions }
-		| { type: 'tumbleBoardRemoveExploded' }
+		| {
+				type: 'tumbleBoardRemoveExploded';
+				/**
+				 * Remove only from THIS column. Absent ⇒ every column, which is the cascade's own step,
+				 * byte-identical to before this field existed.
+				 *
+				 * Scoping is not tidiness here, it is CORRECTNESS for the per-column clear. A column
+				 * cascade runs its columns concurrently on an absolute stagger, so column `i + 1` can be
+				 * mid-explosion while column `i` reaches its removal. An unscoped filter removes every
+				 * symbol currently in the `explosion` state — including the neighbour's, whose animation
+				 * is still playing — so the column ahead would lose its symbols early and silently.
+				 */
+				reelIndex?: number;
+		  }
 		| {
 				type: 'tumbleBoardSlideDown';
 				/** Slide ONE column into its seats. Absent ⇒ every column, byte-identical to before this
@@ -293,9 +306,19 @@
 				}),
 			);
 		},
-		tumbleBoardRemoveExploded: () => {
-			stateTumble.base = stateTumble.base.map((tumbleReel) =>
-				tumbleReel.filter((tumbleSymbol) => tumbleSymbol.symbolState !== 'explosion'),
+		tumbleBoardRemoveExploded: ({ reelIndex }) => {
+			// Absent ⇒ every column, reached by the same expression as before the field existed
+			// (parity by early return, not by a generalised path that happens to include everything).
+			if (reelIndex === undefined) {
+				stateTumble.base = stateTumble.base.map((tumbleReel) =>
+					tumbleReel.filter((tumbleSymbol) => tumbleSymbol.symbolState !== 'explosion'),
+				);
+				return;
+			}
+			const tumbleReel = stateTumble.base[reelIndex];
+			if (!tumbleReel) return;
+			stateTumble.base[reelIndex] = tumbleReel.filter(
+				(tumbleSymbol) => tumbleSymbol.symbolState !== 'explosion',
 			);
 		},
 		/**

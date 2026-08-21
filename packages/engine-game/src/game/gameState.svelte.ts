@@ -318,16 +318,19 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	const boardColumnStaggerMs = () => deps.reelBehaviour().columnStaggerMs;
 
 	/**
-	 * Does the outgoing board CLEAR — every visible cell plays its authored `explosion` state and
-	 * leaves — before the new one falls in?
+	 * Do the OUTGOING symbols clear — play their authored `explosion` state and leave — instead of
+	 * simply being replaced?
 	 *
-	 * Only ever true on a swap-in-place board using the `'dropIn'` style. The config resolver
-	 * enforces both preconditions, so the dependency is stated once, in the schema this and the
-	 * authoring tool both read: a rolling round has no drop-in to clear ahead of, and a column
-	 * cascade already empties each column by DRAINING it, so a clear there would be two clears for
-	 * one round.
+	 * Named for the symbols rather than for the board because WHAT clears depends on the style: the
+	 * whole board at once under `'dropIn'`, one column per beat under `'columnCascade'`, where it
+	 * takes the place of that column's drain. It is not a `'dropIn'`-only knob (an earlier cut of it
+	 * was, on the grounds that a cascade's drain already empties the column — but a drain and a clear
+	 * are two different pictures of the same beat, and choosing between them is the point).
+	 *
+	 * Only ever true on a swap-in-place board; the config resolver owns that precondition, so the
+	 * dependency is stated once, in the schema this and the authoring tool both read.
 	 */
-	const boardClearsBeforeDrop = () => deps.reelBehaviour().clearBoard;
+	const boardClearsOutgoing = () => deps.reelBehaviour().clearBoard;
 
 	/**
 	 * The board's authored GROUND TILE art, resolved to the texture keys a `<Sprite>` looks up — or
@@ -937,7 +940,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		boardSwapsInPlace,
 		boardSwapStyle,
 		boardColumnStaggerMs,
-		boardClearsBeforeDrop,
+		boardClearsOutgoing,
 		boardTileArt,
 		anticipationActive,
 		sequentialStopActive,

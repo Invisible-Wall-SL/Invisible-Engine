@@ -352,6 +352,13 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 		{
 			type: 'tumbleBoardRemoveExploded',
 			group: 'Cascade',
+			fields: [
+				{
+					key: 'reelIndex',
+					kind: 'number',
+					required: false,
+				},
+			],
 		},
 		{
 			type: 'tumbleBoardSlideDown',

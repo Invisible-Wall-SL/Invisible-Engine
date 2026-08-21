@@ -1586,36 +1586,34 @@
 				{/if}
 			</p>
 
-			{#if swapStyle !== 'columnCascade'}
-				<label class="check"
-					><input
-						type="checkbox"
-						checked={clearBoard}
-						onchange={(e) => setReelSwitch('clearBoard', e.currentTarget.checked)}
-						disabled={lease.readOnly || !swapInPlace}
-					/><span>Clear the board before the new symbols fall in</span></label
-				>
-				<p class="hint">
-					Every symbol on the outgoing board plays its <strong>Explosion</strong> state from the
-					Symbols tool and leaves, and only then does the new board drop. Off, the old board is
-					simply gone when the new one arrives.
-					{#if clearBoard && !swapInPlace}
-						<em
-							>Inert while the reels roll — a rolling round has no drop-in to clear ahead of. It
-							stays saved and takes effect the moment you tick
-							<strong>Swap symbols in place</strong>.</em
-						>
-					{/if}
-				</p>
-			{:else if clearBoard}
-				<p class="hint">
+			<label class="check"
+				><input
+					type="checkbox"
+					checked={clearBoard}
+					onchange={(e) => setReelSwitch('clearBoard', e.currentTarget.checked)}
+					disabled={lease.readOnly || !swapInPlace}
+				/><span>Clear the board before the new symbols fall in</span></label
+			>
+			<p class="hint">
+				The outgoing symbols play their <strong>Explosion</strong> state from the Symbols tool and
+				leave, instead of simply being replaced.
+				{#if swapStyle === 'columnCascade'}
+					Per <strong>column</strong>, on that column's own beat: the column pops away
+					<em>instead of</em>
+					draining out of the bottom. The sweep, the stagger and the refill are unchanged — this only
+					changes how each column empties.
+				{:else}
+					The whole board clears at once, ahead of the fall. Off, the old board is simply gone when
+					the new one arrives.
+				{/if}
+				A symbol with no authored Explosion state vanishes rather than popping.
+				{#if clearBoard && !swapInPlace}
 					<em
-						>The separate <strong>clear the board</strong> step stays saved but is ignored under a
-						column cascade — draining each column is already that column clearing. Switch back to
-						<strong>Drop in</strong> to use it.</em
+						>Inert while the reels roll — a rolling round replaces nothing, it re-spins. It stays
+						saved and takes effect the moment you tick <strong>Swap symbols in place</strong>.</em
 					>
-				</p>
-			{/if}
+				{/if}
+			</p>
 			{#each issuesFor('reelBehaviour') as issue (issue.path + issue.message)}
 				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 			{/each}

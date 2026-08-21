@@ -34,12 +34,17 @@ const isSwapStyle = (value: unknown): value is SwapStyle =>
  * Every default in one place, and they are all "what the engine did before this block existed": the
  * reels roll, a swap drops the whole board in at once, and nothing clears first.
  *
- * `clearBoard` is ANDed with its two preconditions here rather than at the consumer. It only has a
- * meaning inside the drop-in reveal — a rolling round never reaches a swap presentation, and a
- * `columnCascade` already empties each column by DRAINING it, so a clear there would be two clears
- * for one round. Resolving it honestly and re-gating it at the call site would be the same rule
- * written twice, which is how one of the two eventually gets it wrong. The stored doc keeps whatever
- * the author ticked (see {@link normalizeReelBehaviour}), so changing style or mode is lossless.
+ * `clearBoard` is ANDed with its ONE precondition here rather than at the consumer: it needs
+ * `swapInPlace`, because a rolling round replaces nothing — it re-spins. It is deliberately NOT
+ * gated on the style any more. The first cut of this field restricted it to `'dropIn'` on the
+ * grounds that a `columnCascade` "already empties each column by draining it", and that was wrong:
+ * a drain and a clear are two different PICTURES of the same beat — one slides the column out of
+ * the window, the other pops it in place — so under a cascade the clear REPLACES the drain, per
+ * column, rather than duplicating it. Deciding between those two is exactly what this block is for.
+ *
+ * Resolving it honestly and re-gating at the call site would be the same rule written twice, which
+ * is how one of the two eventually gets it wrong. The stored doc keeps whatever the author ticked
+ * (see {@link normalizeReelBehaviour}), so changing style or mode is lossless.
  *
  * `swapStyle` is matched against the RECOGNISED literals rather than passed through, for the same
  * reason `swapInPlace` is compared to `true`: the block is authored data, so a doc written against a
@@ -60,7 +65,7 @@ export function resolveReelBehaviour(
 			typeof stagger === 'number' && Number.isFinite(stagger) && stagger >= 0
 				? Math.min(stagger, REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS)
 				: undefined,
-		clearBoard: swapInPlace && swapStyle === 'dropIn' && authored?.clearBoard === true,
+		clearBoard: swapInPlace && authored?.clearBoard === true,
 	};
 }
 
@@ -72,10 +77,10 @@ export function resolveReelBehaviour(
  * existed, and no stored doc is rewritten by this field arriving. `'dropIn'` is therefore dropped
  * rather than stored: it IS the default.
  *
- * `clearBoard` is kept even when the mode or the style makes it inert, and that is the one
- * deliberate exception to "only what departs": it is a SETTING the author ticked, and silently
- * dropping it on save would mean a round-trip through the tool quietly undid their work the moment
- * they switched style to compare. {@link resolveReelBehaviour} is what makes it inert; the validator
+ * `clearBoard` is kept even when the mode makes it inert, and that is the one deliberate exception
+ * to "only what departs": it is a SETTING the author ticked, and silently dropping it on save would
+ * mean a round-trip through the tool quietly undid their work the moment they unticked the mode to
+ * compare. {@link resolveReelBehaviour} is what makes it inert; the validator
  * says so out loud.
  */
 export function normalizeReelBehaviour(raw: unknown): ReelBehaviour | undefined {

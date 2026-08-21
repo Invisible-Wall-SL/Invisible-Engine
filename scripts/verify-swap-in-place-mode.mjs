@@ -258,7 +258,7 @@ return {
 	boardSwapsInPlace,
 	boardSwapStyle,
 	boardColumnStaggerMs,
-	boardClearsBeforeDrop,
+	boardClearsOutgoing,
 	getSymbolSeat,
 	anticipationActive,
 	sequentialStopActive,
@@ -475,14 +475,13 @@ for (const swapInPlace of [false, undefined, 'true', 1, null]) {
 	}
 }
 
-// THE CLEAR STEP — the one knob whose preconditions the SCHEMA owns, so the engine and the authoring
-// tool cannot answer "is this live" differently. A rolling round has no drop-in to clear ahead of; a
-// column cascade already empties each column by DRAINING it, so a clear there would be two clears
-// for one round.
+// THE CLEAR STEP — the one knob whose precondition the SCHEMA owns, so the engine and the authoring
+// tool cannot answer "is this live" differently. It needs `swapInPlace` and nothing else: a rolling
+// round replaces nothing, it re-spins. Both styles honour it — the whole board at once under
+// `dropIn`, one column per beat under `columnCascade`, where it takes the place of the drain.
 {
-	const clearing = (reelBehaviour) =>
-		engineFor(undefined, {}, reelBehaviour).boardClearsBeforeDrop();
-	check('nothing authored ⇒ nothing clears', engineFor(undefined).boardClearsBeforeDrop(), false);
+	const clearing = (reelBehaviour) => engineFor(undefined, {}, reelBehaviour).boardClearsOutgoing();
+	check('nothing authored ⇒ nothing clears', engineFor(undefined).boardClearsOutgoing(), false);
 	check('clearBoard with no mode ⇒ inert', clearing({ clearBoard: true }), false);
 	check(
 		'clearBoard + swapInPlace ⇒ live (dropIn is the default style)',
@@ -494,10 +493,14 @@ for (const swapInPlace of [false, undefined, 'true', 1, null]) {
 		clearing({ ...SWAP, swapStyle: 'dropIn', clearBoard: true }),
 		true,
 	);
+	// THE CORRECTION (owner-reported): an earlier cut gated this to `dropIn`, reasoning that a
+	// cascade's drain already empties the column. It does — but a drain and a clear are two different
+	// PICTURES of that beat (slide out of the window vs pop in place), so under a cascade the clear
+	// REPLACES the drain, per column. Gating it there took a real choice away from the author.
 	check(
-		'clearBoard under a columnCascade ⇒ inert, the drain IS the clear',
+		'clearBoard under a columnCascade ⇒ LIVE, the clear replaces the drain per column',
 		clearing({ ...SWAP, swapStyle: 'columnCascade', clearBoard: true }),
-		false,
+		true,
 	);
 	check('swapInPlace alone does not imply a clear', clearing(SWAP), false);
 	for (const clearBoard of [false, undefined, 'true', 1, null]) {
@@ -641,14 +644,30 @@ const flowEffects = read('apps/lines/src/game/flowEffects.ts');
 // The CLEAR step lives beside it and is the drop-in's only branch, so it is sliced too — asserting
 // the sequence against a hand-written stand-in would prove the fixture, not the game. Prepended to
 // the drop-in slice below, because the drop-in calls it by name.
-const clearSource = sliceBetween(
-	flowEffects,
-	'clearBoardBeforeDrop',
-	'const clearBoardBeforeDrop = async (',
-	'\n};\n',
-);
+const clearSource = [
+	sliceBetween(
+		flowEffects,
+		'visibleColumnPositions',
+		'const visibleColumnPositions = (',
+		';\n',
+	).replace(/\(reelIndex: number, strip: readonly unknown\[\]\)/, '(reelIndex, strip)'),
+	sliceBetween(
+		flowEffects,
+		'clearOutgoingSymbols',
+		'const clearOutgoingSymbols = async (',
+		'\n};\n',
+	).replace('(reelIndex?: number)', '(reelIndex)'),
+].join('\n');
 if (!clearSource.includes('tumbleBoardExplode') || !clearSource.includes('RemoveExploded')) {
-	throw new Error('clearBoardBeforeDrop no longer runs the explode + remove pair');
+	throw new Error('clearOutgoingSymbols no longer runs the explode + remove pair');
+}
+if (/:\s*(number|readonly)/.test(clearSource)) {
+	throw new Error('the clear slice grew a type annotation this fixture cannot strip');
+}
+// The per-column removal MUST name its column. A cascade runs its columns concurrently on an
+// absolute stagger, so an unscoped filter would take a neighbour's symbols mid-explosion.
+if (!clearSource.includes("type: 'tumbleBoardRemoveExploded', reelIndex")) {
+	throw new Error('the per-column clear no longer scopes its removal to the column');
 }
 const dropInSource = sliceBetween(
 	flowEffects,
@@ -683,8 +702,8 @@ check(
 );
 check(
 	'the drop-in asks the config before it clears, and clears BEFORE it queues the new board',
-	dropInSource.indexOf('boardClearsBeforeDrop()') > -1 &&
-		dropInSource.indexOf('boardClearsBeforeDrop()') < dropInSource.indexOf('tumbleBoardInit'),
+	dropInSource.indexOf('boardClearsOutgoing()') > -1 &&
+		dropInSource.indexOf('boardClearsOutgoing()') < dropInSource.indexOf('tumbleBoardInit'),
 	true,
 );
 check(
@@ -724,6 +743,11 @@ const columnCascadeSource = sliceBetween(
 	'const columnCascadeRevealBoard = async (',
 	'\n};\n',
 ).replace(": BookEventOfType<'reveal'>", '');
+/** What the fixture EVALUATES for a cascade run. The body references `clearOutgoingSymbols` on its
+ *  clearing branch, so the helper is in scope for every run; `columnCascadeSource` stays pure so the
+ *  "a reveal explodes nothing of its own" guard below still has something to guard. */
+const columnCascadePresentation = `${clearSource}\n${columnCascadeSource}`;
+
 const COLUMN_CASCADE_STAGGER_MS = Number(
 	sliceBetween(
 		flowEffects,
@@ -909,10 +933,26 @@ const runReveal = async ({
 		if (event.type === 'tumbleBoardInit' && event.reelIndex !== undefined) {
 			entry.baseLengthBefore = runtime.stateTumble.base[event.reelIndex]?.length;
 		}
+		// Column lengths ACROSS a removal — the only way to see the per-column clear's real hazard.
+		// A cascade runs its columns concurrently on an absolute stagger, so column `i + 1` can be
+		// mid-explosion while column `i` reaches its removal; an unscoped filter would take the
+		// neighbour's symbols too, and the END state would not show it (each column's own scoped
+		// init resets `base` anyway). Sampled before AND after, so the diff is exact.
+		if (event.type === 'tumbleBoardRemoveExploded') {
+			entry.baseLengthsBefore = runtime.stateTumble.base.map((column) => column.length);
+		}
 		// The symbols a drain is about to move, held by reference so their FINAL y can be read after
 		// the fall — the overlay drops them out of its own layers, so there is nowhere else to look.
 		// The clear step's aim, recorded so "exactly the visible rows" is asserted on the real payload.
-		if (event.type === 'tumbleBoardExplode') entry.explodingPositions = event.explodingPositions;
+		// An explode names no column of its own — it carries POSITIONS — so when every position falls
+		// in one reel, that reel is stamped on the entry. It is what makes a per-column clear
+		// attributable at all, and deriving it here (rather than trusting a field the cue does not
+		// have) keeps the fixture honest about where the column came from.
+		if (event.type === 'tumbleBoardExplode') {
+			entry.explodingPositions = event.explodingPositions;
+			const reels = new Set(event.explodingPositions.map((position) => position.reel));
+			if (reels.size === 1) entry.reelIndex = [...reels][0];
+		}
 		if (event.type === 'tumbleBoardDrain') {
 			entry.draining = [...(runtime.stateTumble.base[event.reelIndex] ?? [])];
 		}
@@ -923,6 +963,9 @@ const runReveal = async ({
 		entry.overlayTile = runtime.overlayTileArt()?.key ?? null;
 		entry.reelsShowing = runtime.reelsShowing();
 		if (entry.draining) entry.drainedY = entry.draining.map((symbol) => symbol.symbolY.current);
+		if (entry.baseLengthsBefore) {
+			entry.baseLengthsAfter = runtime.stateTumble.base.map((column) => column.length);
+		}
 	};
 	const eventEmitter = {
 		broadcast: (event) => {
@@ -951,7 +994,7 @@ const runReveal = async ({
 		runtime.tumbleBoardCombined,
 		{
 			boardColumnStaggerMs: () => staggerMs,
-			boardClearsBeforeDrop: () => clearBoard,
+			boardClearsOutgoing: () => clearBoard,
 			boardRaw: () => previousBoard,
 		},
 		(ms) => clock.wait(ms),
@@ -1112,7 +1155,10 @@ check(
 
 console.log('--- 4. the column cascade ---');
 
-const cascade = await runReveal({ name: 'columnCascadeRevealBoard', source: columnCascadeSource });
+const cascade = await runReveal({
+	name: 'columnCascadeRevealBoard',
+	source: columnCascadePresentation,
+});
 
 /** The one logged entry for a cue on a given column (the cascade fires each exactly once). */
 const entryFor = (run, type, reelIndex) =>
@@ -1295,7 +1341,7 @@ const columnSpan = (run, reelIndex) =>
 {
 	const wave = await runReveal({
 		name: 'columnCascadeRevealBoard',
-		source: columnCascadeSource,
+		source: columnCascadePresentation,
 		staggerMs: 20,
 	});
 	const span = columnSpan(wave, 0);
@@ -1316,7 +1362,7 @@ const columnSpan = (run, reelIndex) =>
 
 	const sequential = await runReveal({
 		name: 'columnCascadeRevealBoard',
-		source: columnCascadeSource,
+		source: columnCascadePresentation,
 		staggerMs: 5000,
 	});
 	for (let reelIndex = 0; reelIndex + 1 < REELS; reelIndex += 1) {
@@ -1349,7 +1395,7 @@ const columnSpan = (run, reelIndex) =>
 	// be swallowed by the `??` that applies the default.
 	const together = await runReveal({
 		name: 'columnCascadeRevealBoard',
-		source: columnCascadeSource,
+		source: columnCascadePresentation,
 		staggerMs: 0,
 	});
 	check(
@@ -1380,7 +1426,7 @@ const TILE = { key: 'ground::tile', fallbackKey: 'tile' };
 {
 	const tiled = await runReveal({
 		name: 'columnCascadeRevealBoard',
-		source: columnCascadeSource,
+		source: columnCascadePresentation,
 		tileArt: TILE,
 	});
 	// The invariant, checked at EVERY step rather than at a chosen moment: the overlay draws the
@@ -1431,7 +1477,7 @@ const TILE = { key: 'ground::tile', fallbackKey: 'tile' };
 	// it is not optional: `apps/lines` is the shared `_runtime/lines` bundle every online game runs.
 	const untiled = await runReveal({
 		name: 'columnCascadeRevealBoard',
-		source: columnCascadeSource,
+		source: columnCascadePresentation,
 	});
 	check(
 		'a board with no tileRegion mounts no tile layer at any point of the swap',
@@ -1605,6 +1651,140 @@ console.log('--- 7. the outgoing board can be cleared first ---');
 			.map((symbol) => symbol.name)
 			.sort()
 			.join(','),
+	);
+}
+
+// ---------------------------------------------------------------------------
+// 8 — THE PER-COLUMN CLEAR, driven.
+// ---------------------------------------------------------------------------
+
+console.log('--- 8. a column cascade can CLEAR each column instead of draining it ---');
+
+{
+	// PARITY FIRST: the cascade run at the top of part 4 authored no clear, so it must still drain,
+	// with no explode/remove anywhere. `apps/lines` is the shared `_runtime/lines` bundle.
+	check(
+		'clearBoard off ⇒ every column still DRAINS',
+		cascade.types.filter((type) => type === 'tumbleBoardDrain').length,
+		REELS,
+	);
+	check(
+		'clearBoard off ⇒ nothing explodes',
+		cascade.types.some((type) => type.startsWith('tumbleBoardExplode')),
+		false,
+	);
+
+	const cleared = await runReveal({
+		name: 'columnCascadeRevealBoard',
+		source: columnCascadePresentation,
+		clearBoard: true,
+	});
+
+	// THE SWAP: the clear takes the DRAIN'S PLACE. Not "as well as" — a column that both popped and
+	// slid out would play the beat twice, and the drain would animate symbols already removed.
+	check('clearBoard on ⇒ no column drains', cleared.types.includes('tumbleBoardDrain'), false);
+	check(
+		'clearBoard on ⇒ every column explodes instead',
+		cleared.types.filter((type) => type === 'tumbleBoardExplode').length,
+		REELS,
+	);
+	check(
+		'...and every explosion is removed',
+		cleared.types.filter((type) => type === 'tumbleBoardRemoveExploded').length,
+		REELS,
+	);
+
+	// PER COLUMN, in order, and each column's own beat is explode → remove → refill → slide.
+	for (let reel = 0; reel < REELS; reel += 1) {
+		const beats = cleared.log.filter(
+			(entry) => entry.reelIndex === reel && entry.type !== 'boardSettle',
+		);
+		check(
+			`column ${reel} clears then refills, in that order`,
+			beats.map((entry) => entry.type).join(' → '),
+			[
+				'tumbleBoardExplode',
+				'tumbleBoardRemoveExploded',
+				'tumbleBoardInit',
+				'tumbleBoardSlideDown',
+			].join(' → '),
+		);
+		// The explode is aimed at THIS column's visible rows only — the padded buffers stay put.
+		const explode = beats.find((entry) => entry.type === 'tumbleBoardExplode');
+		check(
+			`column ${reel} explodes exactly its visible rows`,
+			explode.explodingPositions.map((position) => `${position.reel}:${position.row}`).join(','),
+			Array.from({ length: ROWS }, (_unused, row) => `${reel}:${row + 1}`).join(','),
+		);
+	}
+
+	// THE HAZARD, asserted directly. The columns overlap on the default stagger, so at the moment
+	// column `i` removes, column `i + 1` may already be mid-explosion. An unscoped filter would take
+	// its symbols too — invisible in the END state, because each column's own scoped init resets
+	// `base` regardless, and visible in the live game only as a column emptying before its turn.
+	const removals = cleared.log.filter((entry) => entry.type === 'tumbleBoardRemoveExploded');
+	check(
+		'every removal names its column',
+		removals.every((entry) => entry.reelIndex !== undefined),
+		true,
+	);
+	for (const entry of removals) {
+		const changed = entry.baseLengthsBefore
+			.map((length, reel) => (length === entry.baseLengthsAfter[reel] ? null : reel))
+			.filter((reel) => reel !== null);
+		check(
+			`the removal for column ${entry.reelIndex} touches ONLY column ${entry.reelIndex}`,
+			changed.join(','),
+			String(entry.reelIndex),
+		);
+	}
+	// And the overlap the hazard depends on is REAL in this run, not hypothetical — otherwise the
+	// assertion above would be passing for want of anything to catch.
+	const overlapped = removals.some((entry) =>
+		cleared.log.some(
+			(other) =>
+				other.type === 'tumbleBoardExplode' &&
+				other.reelIndex !== entry.reelIndex &&
+				other.at <= entry.at &&
+				other.done > entry.at,
+		),
+	);
+	check('the columns genuinely overlap, so the scoping is load-bearing here', overlapped, true);
+
+	// THE END STATE IS UNCHANGED. The clear rewrites the layer the settle reads, so the cascade's own
+	// contract — the reel board ends holding exactly what a spin would have settled — is re-asserted
+	// THROUGH it, by object identity rather than assumed to survive.
+	check('the cleared cascade settles one column per reel', cleared.settled?.length, REELS);
+	for (let reel = 0; reel < REELS; reel += 1) {
+		check(`cleared reel ${reel} is a full padded strip`, cleared.settled[reel].length, STRIP);
+		for (let row = 0; row < STRIP; row += 1) {
+			check(
+				`cleared cell (${reel}, ${row}) IS the revealed symbol`,
+				cleared.settled[reel][row],
+				cleared.revealedBoard[reel][row],
+			);
+		}
+	}
+	const clearedNames = new Set(cleared.settled.flat().map((symbol) => symbol.name));
+	check(
+		'and nothing of the exploded board survived into it',
+		cleared.previousBoard.flat().some((symbol) => clearedNames.has(symbol.name)),
+		false,
+	);
+	check('exactly the visible rows landed', cleared.landed.length, REELS * ROWS);
+
+	// The sweep is still LEFT TO RIGHT — clearing must not disturb the ordering the stagger buys.
+	const firstBeatAt = Array.from({ length: REELS }, (_unused, reel) =>
+		Math.min(
+			...cleared.log
+				.filter((entry) => entry.reelIndex === reel && entry.type === 'tumbleBoardExplode')
+				.map((entry) => entry.at),
+		),
+	);
+	check(
+		'the clear sweeps left to right, strictly',
+		firstBeatAt.every((at, reel) => reel === 0 || at > firstBeatAt[reel - 1]),
+		true,
 	);
 }
 
