@@ -11,7 +11,7 @@ mock RGS.
 The missing rung in the all-online pipeline. Everything else is already authored
 in the browser — create the project, lay out scenes from a game-type template,
 make atlases / sheets / fonts / symbols / strings — but until now the only way to
-*ship* that into a runnable game was to drop to the CLI, stand up a standalone
+_ship_ that into a runnable game was to drop to the CLI, stand up a standalone
 GitHub repo, and click **Build & publish** in the desktop launcher. Game Maker
 closes that gap.
 
@@ -62,11 +62,11 @@ is the create-and-publish surface.
 
 ### Reading a project card
 
-Every card under **Your projects** answers "what *is* this game?" in two rows of
+Every card under **Your projects** answers "what _is_ this game?" in two rows of
 chips, derived live from the project's own authoring data — nothing to fill in and
 nothing that can go stale:
 
-- **Game** — its identity: the game kind, how it pays (line pays / *N* ways /
+- **Game** — its identity: the game kind, how it pays (line pays / _N_ ways /
   cluster / scatter, with the threshold and direction), the board (`5 × 3`, or
   `5 reels · 3/4/5/4/3 rows` for a stepped one), payline count, RTP, max win, and
   — once published — which shared engine runtime serves it and which mock-RGS
@@ -81,7 +81,7 @@ nothing that can go stale:
   animations, named symbols, big-win tiers and tier escalation.
 
 Hover any chip for what it means and where it comes from. A project that has
-switched nothing on says *"no optional features yet"* rather than listing the
+switched nothing on says _"no optional features yet"_ rather than listing the
 engine's whole menu — the list reports what a game **uses**, not what it could.
 
 The feature list grows with the engine: each new optional mechanic adds one entry
@@ -95,7 +95,7 @@ Above the list is a browse toolbar, because the list only grows:
 - **Search** matches the name, key, client **and the profile chips** — so
   `stacked`, `cluster` or `buy feature` finds the games that use them. Multiple
   words all have to match.
-- **All clients** / **All types** / **Any status** narrow the list. *Status* covers
+- **All clients** / **All types** / **Any status** narrow the list. _Status_ covers
   Published, Not published, and **Engine stale** (the amber badge below) so you can
   pull up exactly the games that need a republish.
 - **Sort** by recently edited (default), recently published, name, or key.
@@ -149,9 +149,14 @@ publish, which:
    read-modify-write so siblings are never dropped) with this game's
    `{ protocol, name, runtime }` — `protocol` is the mock RGS to spin against
    (`book` for book-of games, otherwise `lines`); `runtime` is the prebuilt
-   generic bundle id.
+   generic bundle id. It also writes the pointer (launcher origin + read token)
+   the test server uses to re-read the project's [Game Config](/docs/game-config)
+   live, so **changing the game's math afterwards does not need a re-publish** —
+   the mock picks up a new grid, payline set or win model within seconds of a save.
+   The board/cascade values written here are only the fallback for when the
+   launcher can't be reached.
 4. **Registers the portal game** with a launch URL that points the generic
-   runtime at *this* project's live data
+   runtime at _this_ project's live data
    (`…/<key>/?runtime=1&project=<key>&k=<readToken>&…`), gated by the read token,
    wired to the per-key mock RGS proxy.
 5. **Refreshes the test server** (best-effort — a slow or failed refresh never
@@ -166,10 +171,10 @@ plays at `https://games.invisiblewall.org/<key>/`, spinning against the mock RGS
 The two small dropdowns beside **Play ↗** choose the **language** and the
 **currency** that link opens the game in (`?lang=` / `?currency=`) — the same pair
 of pickers as the portal's **Games** section, and the choice is remembered across
-both. Currency changes only how amounts are *formatted*: the mock wallet holds the
+both. Currency changes only how amounts are _formatted_: the mock wallet holds the
 same fake money whatever you pick, so this is the way to check a HUD in `EUR`,
 `BRL`, or a long code like `XGC` without touching the RGS. The **Copy URL** button
-deliberately copies the *player's* URL, without these authoring overrides.
+deliberately copies the _player's_ URL, without these authoring overrides.
 
 A language the project has no translations for renders in the source language — an
 untranslated locale falls back by design, so the game looks like it "ignored" the
@@ -185,11 +190,11 @@ old behavior" ghost-chase, each published project row shows an engine-freshness
 signal:
 
 - **Amber "Engine update available" badge** — the shared engine runtime shipped
-  *after* this game was last published, so the running game may still be on the
+  _after_ this game was last published, so the running game may still be on the
   old engine. It carries a **Republish + Reconcile** button (the same publish flow
   as above — it re-exports the project and refreshes the test server, which
-  re-hydrates it against the current runtime). Admins also get a *"still stale?
-  purge edge cache"* link to `/admin` for the rarer case where the Cloudflare edge
+  re-hydrates it against the current runtime). Admins also get a _"still stale?
+  purge edge cache"_ link to `/admin` for the rarer case where the Cloudflare edge
   is holding a stale file. The badge clears itself once you republish. Hover it for
   the exact runtime-release vs. last-publish dates.
 - **Subtle "engine up to date"** — the game was published against (or after) the

@@ -84,8 +84,9 @@ with its win model stores nothing.
 symbol state, like Land or Win. A project that has not authored one will see the
 winners simply vanish, which reads as a bug and is not one.
 
-**Republish after changing it.** The tumble is dealt by the server, so the setting
-reaches the game through a publish, not a save.
+**Reload the game after changing it.** The tumble is dealt by the server, and the
+Invisible Test Server re-reads this config on its own (see _Reaching the server_
+below) — so a save plus a reload is enough. No republish.
 
 ### Collecting multipliers
 
@@ -196,12 +197,12 @@ badges — reflect the server's declared symbols at runtime.
 
 Each bet mode is one card, read top to bottom as four labelled blocks:
 
-| Block             | What it holds                                                                                                                                  |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| Block             | What it holds                                                                                                                                   |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Math**          | Cost × (a multiple of the base bet), RTP, Max win ×, and the **Feature** / **Buy bonus** toggles — the engine config shape the math team ships. |
-| **Menu**          | **Kind**, **Order**, and the **Card** component this mode renders.                                                                             |
-| **Copy**          | **Title**, **Button**, **Bet label**, **Description**, **Dialog**.                                                                             |
-| **Card graphics** | Per-mode overrides of the card component's params, clustered by the group each param declares (Panel · Icon · Spine · Button).                 |
+| **Menu**          | **Kind**, **Order**, and the **Card** component this mode renders.                                                                              |
+| **Copy**          | **Title**, **Button**, **Bet label**, **Description**, **Dialog**.                                                                              |
+| **Card graphics** | Per-mode overrides of the card component's params, clustered by the group each param declares (Panel · Icon · Spine · Button).                  |
 
 The card is **colour-coded by kind** — a blue rail for `base`, gold for `buy`, teal
 for `ante` — matching the chip this mode gets in the menu preview above, so a card
@@ -263,10 +264,10 @@ template default** restores that starting point at any time.
 
 ## Making a ways game
 
-Four steps, and step 3 is the one people miss.
+Three steps, and step 3 is the one people miss.
 
 1. **Set the project's game type to `ways`** (project settings). This decides which
-   template the config opens on and which mock RGS a publish points the game at.
+   template the config opens on and which mock RGS the game is dealt by.
 2. **Open this tool.** A project that hasn't authored a config yet opens on the
    `ways` template, which already has the win model set (pays left to right, from
    3 adjacent reels).
@@ -274,11 +275,9 @@ Four steps, and step 3 is the one people miss.
    ships an **authored** config — a project that has never saved one ships no config
    at all and falls back to the compiled lines template. A game type set but never
    saved is exactly why a "ways" project still plays like lines.
-4. **Publish** the game. That's what writes the manifest entry telling the server to
-   deal **ways** wins rather than line wins.
 
-For a project that **already has a saved config** (so it won't pick up the ways
-template), just set _How wins are decided_ → **Ways**, save, and republish.
+Then reload the game. For a project that **already has a saved config** (so it won't
+pick up the ways template), just set _How wins are decided_ → **Ways** and save.
 
 **How to tell it worked**, in the running game:
 
@@ -295,5 +294,23 @@ step. On save it lands in the project's cloud storage; the next build (or live
 runtime fetch) picks it up and the game resolves **your authored config → the baked
 config → the compiled template**, in that order. An un-authored project falls all
 the way through to the compiled template and is byte-identical to a stock build.
+
+## Reaching the server
+
+The half of this config that is **math** — the grid, paylines, which symbols are in
+play, the win model, tumbling — has to be dealt by the RGS, not just drawn by the
+client. On the Invisible Test Server it is: the mock re-reads this config directly
+(within a few seconds of a save) and rebuilds the board it deals, so **save, reload
+the game, done**. There is no republish step, and no way for the server to be
+dealing a different board from the one you authored here.
+
+Two cases where that doesn't hold, both of which the game says out loud in the
+browser console as a `[game-config]` error naming both boards:
+
+- **A game published before this existed** (or built through the desktop launcher).
+  Its server entry has no pointer back to this config, so it keeps dealing whatever
+  the last publish froze. **Publish it once** and it follows from then on.
+- **A real RGS.** A production server owns its own certified math and does not
+  follow the client — there, the config has to be set to the board the server deals.
 
 See the design plan in `docs/design/invisible-game-config.md`.
