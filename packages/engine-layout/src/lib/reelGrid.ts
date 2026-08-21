@@ -174,6 +174,13 @@ export function resolveAnticipationProfile(
  * back row to a point or mirror it. A `1` is deliberately KEPT (it is a legal authored value that
  * happens to mean flat, and the editor should read back what the author typed) — the flat decision
  * is made once, by the engine's seat function, not smuggled in here.
+ *
+ * `swapStyle` is matched against the two RECOGNISED literals rather than passed through, for the
+ * same reason `swapInPlace` is compared to `true`: the block is authored data, so a doc written
+ * against a future (or mistyped) vocabulary must resolve to ABSENT — which the engine reads as the
+ * shipped drop-in — instead of reaching a presentation branch that does not exist. `columnStaggerMs`
+ * takes any finite `>= 0`; a zero is a legal authoring choice (every column starts together, which
+ * is a drain-then-refill board with no sweep) and only a negative would run the sweep backwards.
  */
 export function resolveReelGridPerspective(
 	node: ReelGridNode | undefined,
@@ -185,6 +192,8 @@ export function resolveReelGridPerspective(
 	if (num(p.farScale) && p.farScale > 0) out.farScale = p.farScale;
 	if (num(p.vanishX)) out.vanishX = p.vanishX;
 	if (p.swapInPlace === true) out.swapInPlace = true;
+	if (p.swapStyle === 'dropIn' || p.swapStyle === 'columnCascade') out.swapStyle = p.swapStyle;
+	if (num(p.columnStaggerMs) && p.columnStaggerMs >= 0) out.columnStaggerMs = p.columnStaggerMs;
 	return Object.keys(out).length ? out : undefined;
 }
 

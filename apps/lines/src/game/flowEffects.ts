@@ -33,7 +33,7 @@ import {
 	type GameMessageKind,
 } from 'state-shared';
 import { stateBonus, stateBonusDerived } from 'components-ui-html';
-import { waitForResolve } from 'utils-shared/wait';
+import { waitForResolve, waitForTimeout } from 'utils-shared/wait';
 import { roundSkip } from 'utils-shared/skipToken';
 import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { SECOND } from 'constants-shared/time';
@@ -528,6 +528,89 @@ const dropInRevealBoard = async (bookEvent: BookEventOfType<'reveal'>) => {
 };
 
 /**
+ * Default ms between one column starting its swap and the next one starting — the `columnCascade`
+ * sweep's speed when the author sets no `columnStaggerMs`.
+ *
+ * 140 sits beside the reel spin's own per-reel stagger (`reelSpinDelay: 145` in the engine's spin
+ * constants), so a swapping board sweeps left to right at the speed the reels already do — the
+ * number an author's eye is calibrated on. It is also comfortably SHORTER than the floor a column
+ * takes (its drain plus its slide, before a single `land` beat), which is what makes the default
+ * read as a WAVE: column `i + 1` always starts while column `i` is still moving. Author a stagger
+ * longer than a whole column to get the strictly sequential reading instead — that is the one knob
+ * covering both, and the reason there is no second switch for it.
+ */
+const COLUMN_CASCADE_STAGGER_MS = 140;
+
+/**
+ * THE COLUMN CASCADE — the other swap-in-place reveal (docs/design/perspective-board-mode.md
+ * §"The mode switch", `swapStyle: 'columnCascade'`).
+ *
+ * The resting board DRAINS instead of being replaced wholesale: column by column, left to right,
+ * the standing symbols fall out of the bottom of the window and the column's replacements fall in
+ * from above behind them. Same overlay, same components, same cues as the drop-in — only the
+ * grouping and the timing differ, which is the whole reason the tumble board is an overlay in the
+ * first place.
+ *
+ * WHY THE COLUMNS ARE SWAPPED THROUGH `base` AND A SCOPED INIT, not through one up-front
+ * `tumbleBoardInit` with the new board as the adding layer. `tumbleBoardCombined` stacks a column's
+ * `adding` ABOVE its `base`, and `TumbleBoardBase` reads each symbol's ROW — its x and its row
+ * scale — from that combined index. Queueing every column's replacements at the start would
+ * therefore push the columns that have NOT drained yet down by a whole strip of indices, and on a
+ * perspective board (the board this style exists for) they would snap to the wrong x and the wrong
+ * size the instant the cascade began, while still sitting at their resting y. Queued per column,
+ * only the column being swapped ever has both layers, and it is empty by then — so the replacements
+ * take indices 0…n and land on exactly the seats they were aimed at.
+ *
+ * `keepBase: false` on the scoped init is load-bearing, not belt and braces: without it the init
+ * would rebuild that column's survivor layer from the LIVE reel board, resurrecting the symbols the
+ * drain just removed.
+ *
+ * THE STAGGER IS ABSOLUTE, not chained: column `i` starts at `i * staggerMs` from the top of the
+ * sweep whatever the columns before it are doing. That is what makes ONE knob cover both readings of
+ * "left to right" — short ⇒ the columns overlap into a wave, longer than a whole column ⇒ column
+ * `i + 1` cannot start until column `i` has finished, which is the strictly sequential reading. A
+ * chained "wait for the previous column, then wait the stagger" could only ever express the second.
+ *
+ * The END STATE is the same contract the drop-in asserts: with every column's `base` drained empty
+ * and its `adding` holding that column's revealed strip, `tumbleBoardCombined()` IS
+ * `bookEvent.board`, which is precisely what `enhancedBoard.spin` would have left on each reel. The
+ * reel board therefore ends this beat holding the revealed symbols, which is what every downstream
+ * consumer reads — win lines, `winInfo`, the resting-board win cycle.
+ */
+const columnCascadeRevealBoard = async (bookEvent: BookEventOfType<'reveal'>) => {
+	const staggerMs = stateGameDerived.boardColumnStaggerMs() ?? COLUMN_CASCADE_STAGGER_MS;
+	eventEmitter.broadcast({ type: 'boardHide' });
+	eventEmitter.broadcast({ type: 'tumbleBoardShow' });
+	// The resting board becomes the survivor layer — that is the thing that drains. `addingBoard: []`
+	// queues nothing: every column's replacements arrive later, on that column's own beat.
+	eventEmitter.broadcast({ type: 'tumbleBoardInit', addingBoard: [] });
+	await Promise.all(
+		bookEvent.board.map(async (_reel, reelIndex) => {
+			// Column 0 starts immediately; the rest wait their absolute slot. A `0` stagger is a legal
+			// authored value and correctly makes every column start together.
+			if (reelIndex > 0) await waitForTimeout(staggerMs * reelIndex);
+			await eventEmitter.broadcastAsync({ type: 'tumbleBoardDrain', reelIndex });
+			eventEmitter.broadcast({
+				type: 'tumbleBoardInit',
+				addingBoard: bookEvent.board,
+				keepBase: false,
+				reelIndex,
+			});
+			await eventEmitter.broadcastAsync({ type: 'tumbleBoardSlideDown', reelIndex });
+		}),
+	);
+	eventEmitter.broadcast({
+		type: 'boardSettle',
+		board: tumbleBoardCombined().map((tumbleReel) =>
+			tumbleReel.map((tumbleSymbol) => tumbleSymbol.rawSymbol),
+		),
+	});
+	eventEmitter.broadcast({ type: 'tumbleBoardReset' });
+	eventEmitter.broadcast({ type: 'tumbleBoardHide' });
+	eventEmitter.broadcast({ type: 'boardShow' });
+};
+
+/**
  * THE REVEAL, for BOTH drivers — the coded `bookEventHandlerMap.reveal` handler and the flow-v2
  * `revealBoard` effect (`__IE_FLOW_V2__` owns `reveal` when a doc authors it).
  *
@@ -569,6 +652,13 @@ export const presentReveal = async ({
 	// instead of rolling. Absent `swapInPlace` this is false and the spin below is reached exactly as
 	// it always was — the reel path is untouched, `lines` and `bookOf` still roll.
 	if (stateGameDerived.boardSwapsInPlace()) {
+		// The swap STYLE, early-returned rather than generalised. `'dropIn'` — which is what an absent
+		// `swapStyle` resolves to, i.e. every board authored before this existed — reaches the exact
+		// call it reached yesterday, not a per-column path parameterised down to one column.
+		if (stateGameDerived.boardSwapStyle() === 'columnCascade') {
+			await columnCascadeRevealBoard(bookEvent);
+			return;
+		}
 		await dropInRevealBoard(bookEvent);
 		return;
 	}
