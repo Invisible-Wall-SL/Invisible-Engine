@@ -263,11 +263,17 @@ const validGrid = (grid) => {
 		)
 			? grid.symbolPaytable
 			: null;
+	// `multiplier` (set at publish when the project declares a multiplier symbol IN PLAY) lets a
+	// cascading scatter game land multiplier cells during a tumble and collect them afterwards.
+	// Absent/false ⇒ the mock deals none, so a project with no multiplier art never gets blank
+	// cells. See mock-rgs-server `collectFixture`.
+	const multiplier = grid.multiplier === true;
 	return {
 		reels,
 		rows,
 		paylines,
 		...(wild ? { wild } : {}),
+		...(multiplier ? { multiplier: true } : {}),
 		...(stacked ? { stacked: true } : {}),
 		...(symbols ? { symbols } : {}),
 		...(minCluster ? { minCluster } : {}),

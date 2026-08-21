@@ -83,6 +83,26 @@ winners simply vanish, which reads as a bug and is not one.
 **Republish after changing it.** The tumble is dealt by the server, so the setting
 reaches the game through a publish, not a save.
 
+### Collecting multipliers
+
+A **scatter** game that tumbles also collects. Multiplier symbols land in the
+refills during a cascade; when the chain ends they play their **Win** state where
+they sit, fly to the middle of the board, and their values add up into one board
+multiplier that multiplies the round.
+
+There is nothing to switch on. It happens when all of this is true:
+
+- the win model is **Scatter**;
+- **Winners tumble** is on (multipliers land _in_ a tumble — with no tumble there is
+  nowhere for them to land);
+- the project has a symbol whose **special properties** include `multiplier`, and that
+  symbol appears on a reel strip.
+
+That last one is the gate worth knowing about: a multiplier symbol sitting in the
+dictionary but on no strip can never be dealt, so the game will tumble and never
+collect. The stock **scatter** template already ships `M` as a multiplier symbol and
+puts it on the strips, so a project seeded from it collects out of the box.
+
 ## Big win tiers
 
 By default the game uses a built-in table of win levels (BIG / SUPER / MEGA / EPIC /
