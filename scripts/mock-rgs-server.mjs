@@ -593,6 +593,31 @@ export function createMockRgs(opts = {}) {
 	const cascadeFixture = opts.cascade ?? process.env.CASCADE === '1';
 
 	/**
+	 * The multiplier-COLLECT fixture — scatter's second mechanic, riding on the cascade.
+	 *
+	 * Gated on all three of: a `scatter` win model, the cascade being on (multipliers land IN a
+	 * tumble, so with no tumble there is nothing to land in), and the project actually declaring
+	 * a multiplier symbol IN PLAY (`opts.multiplier`, set at publish from `special_properties`).
+	 * That last gate is what stops a project with no multiplier art having blank cells dealt at
+	 * it — and it is a project-level fact rather than a hardcoded symbol id, for the same reason
+	 * the client tests `RawSymbol.multiplier !== undefined` instead of `name === 'M'`.
+	 */
+	const collectFixture = winModel === 'scatter' && cascadeFixture && opts.multiplier === true;
+
+	/**
+	 * The mock's SERVER name for a multiplier cell, and the values it deals.
+	 *
+	 * ⚠️ The wire shape is OURS, like `tumbleStep`: a cell reads `MULT:<value>`, because the reels
+	 * are a `string[][]` and the value has to ride WITH the cell. A side table of positions would
+	 * have to be kept in step with every refill, and would desync the first time one moved. The
+	 * facade splits on the colon; nothing else in this protocol uses one.
+	 */
+	const MULT_SYMBOL = 'MULT';
+	const MULT_VALUES = [2, 3, 5, 10];
+	/** Roughly one refilled cell in six carries a multiplier — enough to see the beat most spins. */
+	const MULT_RATE = 1 / 6;
+
+	/**
 	 * A short, deterministic cascade for the fixture: blow up cells, refill from above. Deterministic
 	 * on purpose — a fixture whose steps vary run to run is useless for judging whether an ANIMATION
 	 * looks right.
@@ -614,13 +639,22 @@ export function createMockRgs(opts = {}) {
 		const steps = [];
 		let board = reels.map((reel) => [...reel]);
 
+		/**
+		 * One refilled cell. With the collect fixture on, some arrive carrying a multiplier — which
+		 * is how a scatter game lands them: DURING a tumble, into the gap the winners left behind.
+		 */
+		const pickRefill = () =>
+			collectFixture && nextRand() < MULT_RATE
+				? `${MULT_SYMBOL}:${MULT_VALUES[Math.floor(nextRand() * MULT_VALUES.length)]}`
+				: pickCell();
+
 		/** One step: the named cells go, the survivors fall, the gaps refill from the top. */
 		const addStep = (exploding) => {
 			if (!exploding.length) return;
 			const gone = new Set(exploding.map((p) => `${p.reel}:${p.row}`));
 			const newSymbols = board.map((reel, r) =>
 				Array.from({ length: reel.filter((_, row) => gone.has(`${r}:${row}`)).length }, () =>
-					pickCell(),
+					pickRefill(),
 				),
 			);
 			board = board.map((reel, r) => [
@@ -653,6 +687,7 @@ export function createMockRgs(opts = {}) {
 		}
 		if (paidCells.length) {
 			addStep(paidCells);
+			steps.finalBoard = board;
 			return steps;
 		}
 
@@ -680,7 +715,36 @@ export function createMockRgs(opts = {}) {
 			if (!exploding.length) break;
 			addStep(exploding);
 		}
+		steps.finalBoard = board;
 		return steps;
+	};
+
+	/**
+	 * The collect beat, read off the board the cascade FINISHED on — the same board the client is
+	 * looking at when this fires, which is what makes `multiplierBoardInit` (which re-reads the
+	 * settled board rather than trusting the event's positions) agree with it.
+	 *
+	 * The multipliers SUM. That is a choice, not a capture: it is what the reference game's
+	 * `boardMult` does, and it keeps a two-multiplier board meaningfully better than a
+	 * one-multiplier board without the runaway a product gives. Returns `null` when there is
+	 * nothing to say — no multipliers, or no win for them to multiply, because a collect that
+	 * turns 0 into 0 is a cinematic about nothing.
+	 */
+	const collectStep = (finalBoard, tumbleWin) => {
+		if (!collectFixture || !finalBoard || tumbleWin <= 0) return null;
+		const positions = [];
+		finalBoard.forEach((reel, r) => {
+			reel.forEach((cell, row) => {
+				if (typeof cell !== 'string' || !cell.startsWith(`${MULT_SYMBOL}:`)) return;
+				const multiplier = Number(cell.slice(MULT_SYMBOL.length + 1));
+				if (Number.isFinite(multiplier) && multiplier > 0) {
+					positions.push({ reel: r, row, multiplier });
+				}
+			});
+		});
+		if (!positions.length) return null;
+		const boardMult = positions.reduce((sum, p) => sum + p.multiplier, 0);
+		return { positions, tumbleWin, boardMult, totalWin: tumbleWin * boardMult };
 	};
 	// PICs that the lines facade maps to HIGH symbols (PIC1..PIC4 → H1..H4); WILD → W. These are the
 	// symbols the mode stacks, so the test deal draws runs of them — intersected with the allowed pool
@@ -805,7 +869,13 @@ export function createMockRgs(opts = {}) {
 			events.push({
 				event: 'config',
 				context: {
-					symbols: wild ? [...SYMBOLS, 'WILD'] : SYMBOLS,
+					// `MULT` is declared only when the collect fixture can deal it, so the facade's
+					// unknown-symbol warning stays meaningful for every other game.
+					symbols: [
+						...SYMBOLS,
+						...(wild ? ['WILD'] : []),
+						...(collectFixture ? [MULT_SYMBOL] : []),
+					],
 					window: { reels: reelCount, rows: rowCount },
 					paylines,
 					wildSymbols: wild ? ['WILD'] : [],
@@ -918,12 +988,26 @@ export function createMockRgs(opts = {}) {
 					// captured Play4Fun session; this is the one part that is not, which is exactly why it
 					// is gated off and labelled. A real provider's cascade almost certainly looks different
 					// — treat this as the thing that proves the PRESENTATION works, never as the wire.
+					// The round payout, which the collect beat may MULTIPLY. Kept separate from
+					// `totalWin` (what the wins themselves add up to) so the two cannot drift: the meter,
+					// `gameEnd`, `gameRoundOver` and the balance all read this one.
+					let roundWin = totalWin;
 					if (cascadeFixture) {
-						for (const step of cascadeSteps(reels, wins)) {
+						const steps = cascadeSteps(reels, wins);
+						for (const step of steps) {
 							events.push({ event: 'tumbleStep', context: step });
 						}
+						// Multipliers landed in the refills → collect them. Emitted AFTER the last tumble
+						// and BEFORE `gameEnd`, because the client re-reads the SETTLED board to find
+						// them: firing it earlier would collect off a board about to be destroyed.
+						const collect = collectStep(steps.finalBoard, totalWin);
+						if (collect) {
+							events.push({ event: 'multiplierCollect', context: collect });
+							roundWin = collect.totalWin;
+						}
 					}
-					events.push({ event: 'gameEnd', context: { win: totalWin } });
+					pendingRound.win = roundWin;
+					events.push({ event: 'gameEnd', context: { win: roundWin } });
 
 					// Round-close rules (from real captures):
 					//   - play.context = '' (or undefined): auto-collect.
@@ -931,10 +1015,10 @@ export function createMockRgs(opts = {}) {
 					//     If win = 0, the server auto-closes even with null context
 					//     (nothing to collect → no point keeping the round open).
 					const explicitAutoCollect = a.context === '' || a.context === undefined;
-					const zeroWinAutoClose = a.context === null && totalWin === 0;
+					const zeroWinAutoClose = a.context === null && roundWin === 0;
 					if (explicitAutoCollect || zeroWinAutoClose) {
-						session.balance += totalWin;
-						events.push({ event: 'gameRoundOver', context: { win: totalWin } });
+						session.balance += roundWin;
+						events.push({ event: 'gameRoundOver', context: { win: roundWin } });
 						pendingRound.closed = true;
 					}
 					break;
