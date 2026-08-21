@@ -295,6 +295,20 @@ Working on `main`:
   produces the baked contract; the engine team builds `bundle.symbols.stacked` (a **Book of Borut
   submodule bump** delivers it once both tracks land). Old sparse doc-global
   `{ enabled?: boolean }` superseded (the toggle now also gates the bake).
+- **Stacked pictures — runtime rendering fixes** (2026-08-10, PRs #283 + #286; `apps/lines/src`, ships
+  to online games via a `_runtime/lines` runtime release). Two bugs in how the tall picture renders on
+  the settled board:
+  - **Over-height run stretched the picture** (#283) — a landed run LONGER than the authored height was
+    scanned uncapped, so `naturalCells` grew past the height and the art stretched. Fix: `computeStackedRuns`
+    (`stateGame.svelte.ts`) caps EVERY run at the authored height, so an over-height column tiles fixed
+    height-tall pictures; genuine partials (run < height) unaffected.
+  - **Spine tall art rendered vertically offset** (#286) — clipped at the top, gapped at the bottom.
+    **Durable rule: a stacked SPINE tall art must use `anchor={0}`, NOT `0.5`** (`StackedPicture.svelte`).
+    A spine's pivot is in its LOCAL skeleton frame, so `anchor 0.5` pivots by `box/2` and shifts the art up
+    by `boxH²/(2·skeleton.height)` (≈107px for a 3-cell Wild). Symbol rigs are authored origin-centred, so
+    `anchor 0` ⇒ pivot `(0,0)` centres the art on the box — the `SymbolSpineMain` convention. The shared
+    `SpineProvider` pivot was deliberately NOT changed (a global rewrite would shift every symbol in every
+    game). Sprite/flipbook branches keep `anchor 0.5` (texture centre).
 - **Full deploy chain** (export → `deploy/editor-symbols/` → bake → pull → register):
   spine-aware `symbolExport.ts`, `POST /api/editor/export-symbols`, `bake-editor-doc.mjs`
   wiring, `pull-project-assets.mjs` prune entry, `bakedSymbolMap()` / `bakedSymbolAssets()`.
