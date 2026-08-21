@@ -608,10 +608,17 @@ export interface ReelGridNode extends BaseNode {
 }
 
 /**
- * The two SHAPE knobs of perspective board mode, plus the mode switch
- * (`docs/design/perspective-board-mode.md` §"The model"). The lattice is not replaced — every
- * existing knob (lead, gaps, non-square cells, seat alignment, nudge) keeps meaning exactly what it
- * means today and is merely CONTRACTED toward the vanishing point by its row's scale.
+ * The two SHAPE knobs of perspective board mode (`docs/design/perspective-board-mode.md`
+ * §"The model"). The lattice is not replaced — every existing knob (lead, gaps, non-square cells,
+ * seat alignment, nudge) keeps meaning exactly what it means today and is merely CONTRACTED toward
+ * the vanishing point by its row's scale.
+ *
+ * SHAPE ONLY. The board's BEHAVIOUR — whether a round rolls or swaps symbols in place, which swap
+ * style, the per-column stagger — is NOT here. Those three lived on this block while the mode was
+ * first built, and it was the wrong home: a `reelGrid` node is authored PER layoutType, so the
+ * schema allowed a board that rolled in portrait and swapped in landscape, or that swept at two
+ * different speeds depending on the phone. Whether and how a round swaps is one fact about the GAME,
+ * so it is authored once, in the Invisible Game Config's `reelBehaviour` block (`game-config`).
  */
 export interface ReelGridPerspective {
 	/**
@@ -632,43 +639,6 @@ export interface ReelGridPerspective {
 	 * painted ground art whose vanishing point sits off-centre.
 	 */
 	vanishX?: number;
-	/**
-	 * Board BEHAVIOUR: replace symbols IN PLACE (drop-in + cascade) instead of rolling the reels.
-	 * Deliberately independent of {@link farScale} — a stylised game may want a converging grid that
-	 * still rolls, or a flat board that swaps. Absent ⇒ `false`. Schema only for now: nothing reads
-	 * it until the mode switch (phase 2 of the design's build plan).
-	 */
-	swapInPlace?: boolean;
-	/**
-	 * HOW a swap-in-place board presents a new board. Absent ⇒ `'dropIn'` — the shipped behaviour,
-	 * where the whole new board falls in at once, with no drain phase and no per-column stagger.
-	 *
-	 * A SIBLING of {@link swapInPlace} rather than a widening of it. `swapInPlace` is already a
-	 * shipped boolean living in authored docs, so turning it into a union would either break every
-	 * doc that stores `true` or force a `true | 'dropIn' | 'columnCascade'` shape whose "is the mode
-	 * on" test is three comparisons instead of one. A separate field also states the dependency
-	 * honestly: a style with no `swapInPlace` beside it is INERT, because the mode switch is the only
-	 * thing that routes a reveal to a swap presentation at all.
-	 *
-	 * - `'dropIn'` — the whole board falls in together (the shipped drop-in).
-	 * - `'columnCascade'` — the resting board DRAINS column by column, left to right, and each column
-	 *   refills from the top as it empties. {@link columnStaggerMs} sets the spacing.
-	 *
-	 * Only these two literals are honoured; anything else resolves to absent ⇒ `'dropIn'`.
-	 */
-	swapStyle?: 'dropIn' | 'columnCascade';
-	/**
-	 * Milliseconds between one column STARTING its swap and the next one starting, under
-	 * `swapStyle: 'columnCascade'`. Absent ⇒ the engine's default (140 ms, which sits beside the reel
-	 * spin's own 145 ms `reelSpinDelay` per-reel stagger, so the sweep reads at a familiar speed).
-	 *
-	 * ONE knob covers both readings of "left to right", which is why there is no second mode switch
-	 * beside it: a column takes at minimum its drain plus its slide, so a stagger SHORTER than that
-	 * overlaps the columns into a wave, and one LONGER than a whole column makes them strictly
-	 * sequential — column 2 only starts once column 1 has finished. Negative / non-finite ⇒ absent.
-	 * Ignored entirely by `'dropIn'`.
-	 */
-	columnStaggerMs?: number;
 }
 
 /**

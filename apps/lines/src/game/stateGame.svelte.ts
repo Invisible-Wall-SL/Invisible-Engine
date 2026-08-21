@@ -5,7 +5,7 @@ import { stateLayoutDerived } from './stateLayout';
 import { eventEmitter } from './eventEmitter';
 import { bakedStackedConfig } from '../editor-scenes';
 import { SCATTER_LAND_SOUND_MAP, STACKED_PICTURE } from './constants';
-import { boardDimensions, boardSizes, initialBoard } from './gameConfig';
+import { activeReelBehaviour, boardDimensions, boardSizes, initialBoard } from './gameConfig';
 
 /**
  * This game's board state: the engine machinery from `engine-game`, wired to THIS game's config,
@@ -50,6 +50,10 @@ const gameState = createGameState<GameType>({
 	stackedConfig: bakedStackedConfig,
 	stackedFallback: STACKED_PICTURE,
 	onSymbolLand,
+	// How a round PRESENTS — roll or swap in place, clear first, stagger the columns. Passed as the
+	// accessor, not its value: the live runtime bundle resolves after this module evaluates, so a
+	// value read here would freeze every board to the compiled sample config.
+	reelBehaviour: activeReelBehaviour,
 });
 
 export const {

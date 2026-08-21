@@ -117,6 +117,57 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 		});
 	}
 
+	// Reel behaviour — every one of these describes a config that SAVES and RENDERS but silently
+	// does nothing, which is the class of problem this validator exists to say out loud.
+	const behaviour = doc.reelBehaviour;
+	if (behaviour && behaviour.swapInPlace !== true) {
+		if (behaviour.clearBoard) {
+			issues.push({
+				severity: 'warning',
+				path: 'reelBehaviour.clearBoard',
+				message:
+					'Clear the board before the drop-in is set, but the board still rolls — a rolling round has no drop-in to clear ahead of, so this does nothing until Swap symbols in place is on.',
+			});
+		}
+		if (behaviour.swapStyle) {
+			issues.push({
+				severity: 'warning',
+				path: 'reelBehaviour.swapStyle',
+				message:
+					'A swap style is set but the board still rolls — the style only picks HOW a swap presents, so it does nothing until Swap symbols in place is on.',
+			});
+		}
+	}
+	// A column cascade DRAINS each column, which is already that column emptying. Running the clear
+	// as well would be two clears for one round, so the resolver ignores it — say why.
+	if (behaviour?.clearBoard && behaviour.swapInPlace && behaviour.swapStyle === 'columnCascade') {
+		issues.push({
+			severity: 'warning',
+			path: 'reelBehaviour.clearBoard',
+			message:
+				'A column cascade already empties each column by draining it, so the separate clear step is ignored. It applies to the drop-in style.',
+		});
+	}
+	if (behaviour?.swapStyle === 'columnCascade' && typeof behaviour.columnStaggerMs === 'number') {
+		// Not a range check — `normalizeReelBehaviour` already clamped the value. What is left to say
+		// is what a LEGAL value costs.
+		const total = behaviour.columnStaggerMs * Math.max(0, doc.numReels - 1);
+		if (total > 1000) {
+			issues.push({
+				severity: 'warning',
+				path: 'reelBehaviour.columnStaggerMs',
+				message: `Each column starts ${behaviour.columnStaggerMs} ms after the one before it, so on ${doc.numReels} reels the last column only starts ${total} ms in — every round is that much slower.`,
+			});
+		}
+	} else if (typeof behaviour?.columnStaggerMs === 'number' && behaviour.swapInPlace) {
+		issues.push({
+			severity: 'warning',
+			path: 'reelBehaviour.columnStaggerMs',
+			message:
+				'A column stagger is set but the swap style is the drop-in, which lands the whole board at once. Choose the column cascade style for the columns to fall at different times.',
+		});
+	}
+
 	// The `W` bug, generalized: a payout advertised for a symbol the game never deals.
 	for (const [name, symbol] of Object.entries(doc.symbols)) {
 		if (inPlay.has(name)) continue;

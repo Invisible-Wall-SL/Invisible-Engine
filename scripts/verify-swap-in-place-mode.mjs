@@ -4,7 +4,19 @@
 //
 // WHAT IT PROVES, in five parts.
 //
-//   1. `swapInPlace` IS INDEPENDENT OF `farScale`. This is the trap the whole phase turns on. The
+//   1. THE BEHAVIOUR IS AUTHORED IN THE GAME CONFIG, and it is INDEPENDENT OF `farScale`. Two
+//      claims that have to hold together.
+//
+//      `swapInPlace`, `swapStyle` and `columnStaggerMs` are the `reelBehaviour` block of the
+//      Invisible Game Config — one answer for the whole game. They used to live on the Scene
+//      Editor's `reelGrid` node beside the vanishing point, and that was the wrong home: a
+//      `reelGrid` node is authored PER layoutType, so the schema allowed a board that rolled in
+//      portrait and swapped in landscape, or swept at two speeds depending on the phone. The whole
+//      chain is exercised here — authored block → the REAL `resolveReelBehaviour` → the engine's
+//      accessors — including the case that would fail most quietly: a node saved before the move
+//      still carries the old fields (`normalizeNode` is pass-through), and they must have NO effect.
+//
+//      Independence is the trap the phase turns on, and it survives the move. The
 //      seat algebra calls a board FLAT — and `boardPerspective()` returns `undefined` — whenever
 //      `farScale` is absent, non-finite, `<= 0` or exactly `1`. That is correct for geometry and
 //      wrong for the mode, because the design keeps the two knobs separate on purpose: "a stylised
@@ -13,6 +25,11 @@
 //      `boardSwapsInPlace` derived from `boardPerspective()` would make it do nothing at all, with
 //      no error anywhere to find. Both functions are sliced out of the real module and asserted
 //      against each other over the whole cross-product of the two knobs.
+//
+//      The one dependency that IS enforced lives in the schema, not in a consumer: `clearBoard`
+//      needs `swapInPlace` and the `dropIn` style (a column cascade already empties each column by
+//      draining it, so a clear there would be two clears for one round). Answered once, so the
+//      engine and the authoring tool cannot answer it differently.
 //
 //   2. THE STAND-DOWNS return their OFF value. Reel anticipation, sequential reel stop and
 //      stacked-picture mode are reel-shaped; a board with no roll stands them down. Each is gated at
@@ -169,6 +186,56 @@ if (/:\s*(ReelGridNode|ReelGridPerspective|unknown)/.test(resolverSource)) {
 	throw new Error('resolveReelGridPerspective grew a type annotation this fixture cannot strip');
 }
 
+// The REAL CONFIG resolver, so the mode is proved through the chain an author's saved config
+// actually travels: `/config` → `reelBehaviour` block → `resolveReelBehaviour` → the engine's
+// accessors. Stubbing it would leave the defaults ("absent means the reels roll") asserted only
+// against a description of themselves — and the defaults ARE the parity claim for every project
+// that never opened the section.
+const behaviourModule = read('packages/game-config/src/reelBehaviour.ts');
+const behaviourSource = [
+	sliceBetween(behaviourModule, 'isSwapStyle', 'const isSwapStyle = ', ';\n'),
+	sliceBetween(
+		behaviourModule,
+		'resolveReelBehaviour',
+		'export function resolveReelBehaviour(',
+		'\n}\n',
+	),
+]
+	.join('\n')
+	.replace('export function', 'function')
+	.replace(/\(\s*doc:[\s\S]*?\n\): ResolvedReelBehaviour \{/, '(doc) {')
+	.replace(/\(value: unknown\): value is SwapStyle =>/, '(value) =>')
+	.replace(/ as SwapStyle/g, '');
+if (/:\s*(Pick|ResolvedReelBehaviour|SwapStyle|unknown)/.test(behaviourSource)) {
+	throw new Error('resolveReelBehaviour grew a type annotation this fixture cannot strip');
+}
+// Read from the schema rather than restated, so adding a style there without teaching this fixture
+// about it fails here instead of silently going untested.
+const SWAP_STYLES = (() => {
+	const match = read('packages/game-config/src/types.ts').match(
+		/export const SWAP_STYLES = \[([\s\S]*?)\] as const;/,
+	);
+	if (!match) throw new Error('types.ts no longer declares SWAP_STYLES');
+	return match[1]
+		.split(',')
+		.map((entry) => entry.trim().replace(/^'|'$/g, ''))
+		.filter(Boolean);
+})();
+const behaviourCeiling = (() => {
+	const match = behaviourModule.match(/export const REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS = (\d+);/);
+	if (!match) throw new Error('reelBehaviour.ts no longer exports the column-stagger ceiling');
+	return Number(match[1]);
+})();
+
+/** The engine's `deps.reelBehaviour`, built the way the app builds it: the REAL resolver, over the
+ *  block a project would have authored in `/config` → Reel behaviour. */
+const behaviourDep = new Function(
+	'SWAP_STYLES',
+	'REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS',
+	'reelBehaviour',
+	`${behaviourSource}\nreturn () => resolveReelBehaviour({ reelBehaviour });`,
+);
+
 const constantsSource = read('packages/engine-game/src/game/constants.ts');
 const readConst = (name) => {
 	const match = constantsSource.match(new RegExp(`export const ${name} = ([\\d.]+);`));
@@ -191,6 +258,7 @@ return {
 	boardSwapsInPlace,
 	boardSwapStyle,
 	boardColumnStaggerMs,
+	boardClearsBeforeDrop,
 	getSymbolSeat,
 	anticipationActive,
 	sequentialStopActive,
@@ -199,10 +267,13 @@ return {
 );
 
 /**
- * @param perspective the authored `perspective` block, or undefined for "no block at all"
+ * @param perspective the authored `perspective` block on the reelGrid NODE — SHAPE only now — or
+ *   undefined for "no block at all"
  * @param flags the three reel-shaped runtime flags, as a game's `stateGame` carries them
+ * @param behaviour the authored `reelBehaviour` block in the GAME CONFIG, or undefined for "the
+ *   project never opened the Reel behaviour section"
  */
-const engineFor = (perspective, flags = {}) =>
+const engineFor = (perspective, flags = {}, behaviour = undefined) =>
 	buildEngine(
 		readConst('SYMBOL_SIZE'),
 		readConst('REEL_PADDING'),
@@ -211,6 +282,7 @@ const engineFor = (perspective, flags = {}) =>
 		{
 			layout: { layoutType: () => 'desktop' },
 			boardDimensions: () => ({ x: 5, y: 3 }),
+			reelBehaviour: behaviourDep(SWAP_STYLES, behaviourCeiling, behaviour),
 		},
 		{
 			anticipationMode: false,
@@ -220,27 +292,66 @@ const engineFor = (perspective, flags = {}) =>
 		},
 	);
 
-console.log('--- 1. the mode switch is independent of the geometry ---');
+console.log('--- 1. the behaviour is authored in the CONFIG, independently of the geometry ---');
 
-// THE TRAP, stated as the assertion: a bare `swapInPlace` switches the MODE on while leaving the
-// board geometrically flat. Both halves matter — an implementation gated on `boardPerspective()`
-// fails the first line, and one that quietly turned the geometry on fails the second.
+const SWAP = { swapInPlace: true };
+
+// THE TRAP, stated as the assertion: the mode switches ON while leaving the board geometrically
+// FLAT. Both halves matter — an implementation gated on `boardPerspective()` fails the first line,
+// and one that quietly turned the geometry on fails the second.
 {
-	const engine = engineFor({ swapInPlace: true });
-	check('bare swapInPlace: the mode is ON', engine.boardSwapsInPlace(), true);
-	check('bare swapInPlace: the board is still FLAT', engine.boardPerspective(), undefined);
+	const engine = engineFor(undefined, {}, SWAP);
+	check('config swapInPlace: the mode is ON', engine.boardSwapsInPlace(), true);
+	check('config swapInPlace: the board is still FLAT', engine.boardPerspective(), undefined);
 	const flat = engineFor(undefined);
 	check(
-		'bare swapInPlace: the seat is byte-identical to a board with no perspective at all',
+		'config swapInPlace: the seat is byte-identical to a board that authored nothing',
 		engine.getSymbolSeat(3, 2).y,
 		flat.getSymbolSeat(3, 2).y,
 	);
 	check(
-		'bare swapInPlace: and so is its x',
+		'config swapInPlace: and so is its x',
 		engine.getSymbolSeat(3, 2).x,
 		flat.getSymbolSeat(3, 2).x,
 	);
-	check('bare swapInPlace: and its scale', engine.getSymbolSeat(3, 2).scale, 1);
+	check('config swapInPlace: and its scale', engine.getSymbolSeat(3, 2).scale, 1);
+}
+
+// THE MOVE, asserted where it would fail most quietly.
+//
+// All three behaviour knobs (`swapInPlace`, `swapStyle`, `columnStaggerMs`) used to live on the
+// reelGrid node's `perspective` block, and that was the wrong home: a `reelGrid` node is authored
+// PER layoutType, so the schema allowed a board that rolled in portrait and swapped in landscape, or
+// swept at two different speeds depending on the phone. They now live in the game config, once.
+//
+// A node saved before the move still CARRIES the old fields — `normalizeNode` is pass-through, so
+// they survive every save — and they must have no effect. An engine still reading them would keep
+// working on exactly the docs where they are wrong, and the `/config` switch the author is now
+// looking at would appear to do nothing.
+{
+	const stale = engineFor({ swapInPlace: true, swapStyle: 'columnCascade', columnStaggerMs: 300 });
+	check(
+		'a stale perspective.swapInPlace does NOT switch the mode',
+		stale.boardSwapsInPlace(),
+		false,
+	);
+	check('a stale perspective.swapStyle is not read', stale.boardSwapStyle(), 'dropIn');
+	check('a stale perspective.columnStaggerMs is not read', stale.boardColumnStaggerMs(), undefined);
+	check(
+		'...and a stale block with farScale beside it still does its GEOMETRY',
+		typeof engineFor({ farScale: 0.6, swapInPlace: true }).boardPerspective(),
+		'object',
+	);
+	check(
+		'the config decides, whatever the node says',
+		engineFor({ swapInPlace: true }, {}, { swapInPlace: false }).boardSwapsInPlace(),
+		false,
+	);
+	check(
+		'...in both directions',
+		engineFor({ swapInPlace: false }, {}, SWAP).boardSwapsInPlace(),
+		true,
+	);
 }
 
 // The mirror image: a converging grid that still ROLLS. `farScale` alone must not switch the mode.
@@ -252,19 +363,19 @@ console.log('--- 1. the mode switch is independent of the geometry ---');
 
 // Both together, and neither.
 {
-	const both = engineFor({ farScale: 0.6, swapInPlace: true });
+	const both = engineFor({ farScale: 0.6 }, {}, SWAP);
 	check('both knobs: the mode is ON', both.boardSwapsInPlace(), true);
 	check('both knobs: the geometry is ON', typeof both.boardPerspective(), 'object');
 
 	const none = engineFor(undefined);
-	check('no block: the mode is OFF', none.boardSwapsInPlace(), false);
-	check('no block: the geometry is OFF', none.boardPerspective(), undefined);
+	check('nothing authored: the mode is OFF', none.boardSwapsInPlace(), false);
+	check('nothing authored: the geometry is OFF', none.boardPerspective(), undefined);
 }
 
-// Every "flat" `farScale` the seat algebra rejects must STILL leave `swapInPlace` alone — this is
-// the regression that a shared early-return would reintroduce.
+// Every "flat" `farScale` the seat algebra rejects must STILL leave the mode alone — this is the
+// regression a shared early-return would reintroduce.
 for (const farScale of [1, 0, -0.5, Number.NaN, Number.POSITIVE_INFINITY, undefined]) {
-	const engine = engineFor({ farScale, swapInPlace: true });
+	const engine = engineFor({ farScale }, {}, SWAP);
 	check(
 		`flat farScale=${String(farScale)}: the mode is still ON`,
 		engine.boardSwapsInPlace(),
@@ -279,25 +390,24 @@ for (const farScale of [1, 0, -0.5, Number.NaN, Number.POSITIVE_INFINITY, undefi
 
 // And the off state is genuinely off: only a real `true` counts, because the block is authored data.
 for (const swapInPlace of [false, undefined, 'true', 1, null]) {
-	const engine = engineFor({ swapInPlace });
 	check(
 		`swapInPlace=${JSON.stringify(swapInPlace)} is not the mode`,
-		engine.boardSwapsInPlace(),
+		engineFor(undefined, {}, { swapInPlace }).boardSwapsInPlace(),
 		false,
 	);
 }
 
 // THE SWAP STYLE — a sibling of the mode switch, with the same defensive shape. Absent ⇒ `'dropIn'`
-// ⇒ the shipped presentation, which is the parity claim for every board authored before it existed.
+// ⇒ the shipped presentation, the parity claim for every project authored before it existed.
 {
 	const none = engineFor(undefined);
-	check('no block at all ⇒ the shipped drop-in', none.boardSwapStyle(), 'dropIn');
-	check('no block at all ⇒ no authored stagger', none.boardColumnStaggerMs(), undefined);
+	check('nothing authored ⇒ the shipped drop-in', none.boardSwapStyle(), 'dropIn');
+	check('nothing authored ⇒ no authored stagger', none.boardColumnStaggerMs(), undefined);
 
-	const swapping = engineFor({ swapInPlace: true });
+	const swapping = engineFor(undefined, {}, SWAP);
 	check('swapInPlace with no style ⇒ the shipped drop-in', swapping.boardSwapStyle(), 'dropIn');
 
-	const cascade = engineFor({ swapInPlace: true, swapStyle: 'columnCascade' });
+	const cascade = engineFor(undefined, {}, { swapInPlace: true, swapStyle: 'columnCascade' });
 	check(
 		'an authored columnCascade survives the resolver',
 		cascade.boardSwapStyle(),
@@ -306,12 +416,12 @@ for (const swapInPlace of [false, undefined, 'true', 1, null]) {
 	check('and it does not switch the geometry on', cascade.boardPerspective(), undefined);
 	check('and the mode is still on', cascade.boardSwapsInPlace(), true);
 
-	// The style is authored DATA, so anything that is not one of the two recognised literals must
-	// read as the shipped drop-in rather than reach a presentation branch that does not exist.
+	// The style is authored DATA, so anything that is not one of the recognised literals must read as
+	// the shipped drop-in rather than reach a presentation branch that does not exist.
 	for (const swapStyle of ['columncascade', 'cascade', '', 0, 1, true, null, undefined, {}]) {
 		check(
 			`swapStyle=${JSON.stringify(swapStyle)} ⇒ the shipped drop-in`,
-			engineFor({ swapInPlace: true, swapStyle }).boardSwapStyle(),
+			engineFor(undefined, {}, { swapInPlace: true, swapStyle }).boardSwapStyle(),
 			'dropIn',
 		);
 	}
@@ -319,23 +429,35 @@ for (const swapInPlace of [false, undefined, 'true', 1, null]) {
 	// at all, so this is only ever read on a board that swaps.
 	check(
 		'a style with no swapInPlace leaves the mode off',
-		engineFor({ swapStyle: 'columnCascade' }).boardSwapsInPlace(),
+		engineFor(undefined, {}, { swapStyle: 'columnCascade' }).boardSwapsInPlace(),
 		false,
 	);
+	// Every DECLARED style must be reachable — a literal added to the schema and forgotten in the
+	// resolver would otherwise fall silently back to the drop-in.
+	for (const swapStyle of SWAP_STYLES) {
+		check(
+			`the declared style ${swapStyle} round-trips`,
+			engineFor(undefined, {}, { swapInPlace: true, swapStyle }).boardSwapStyle(),
+			swapStyle,
+		);
+	}
 }
 
 // THE STAGGER — passed through raw (the presentation owns the default), and `0` must survive, since
 // "every column at once" is a legal authoring choice that a truthiness test would silently replace.
 {
-	check(
-		'an authored stagger survives',
-		engineFor({ swapInPlace: true, columnStaggerMs: 320 }).boardColumnStaggerMs(),
-		320,
-	);
+	const cascading = (columnStaggerMs) =>
+		engineFor(undefined, {}, { swapInPlace: true, swapStyle: 'columnCascade', columnStaggerMs });
+	check('an authored stagger survives', cascading(320).boardColumnStaggerMs(), 320);
 	check(
 		'a zero stagger survives — it means "no sweep", not "unset"',
-		engineFor({ swapInPlace: true, columnStaggerMs: 0 }).boardColumnStaggerMs(),
+		cascading(0).boardColumnStaggerMs(),
 		0,
+	);
+	check(
+		'a stagger above the ceiling is clamped by the schema, not by a caller',
+		cascading(99999).boardColumnStaggerMs(),
+		behaviourCeiling,
 	);
 	for (const columnStaggerMs of [
 		-1,
@@ -347,8 +469,42 @@ for (const swapInPlace of [false, undefined, 'true', 1, null]) {
 	]) {
 		check(
 			`columnStaggerMs=${String(columnStaggerMs)} ⇒ unset, the presentation's default applies`,
-			engineFor({ swapInPlace: true, columnStaggerMs }).boardColumnStaggerMs(),
+			cascading(columnStaggerMs).boardColumnStaggerMs(),
 			undefined,
+		);
+	}
+}
+
+// THE CLEAR STEP — the one knob whose preconditions the SCHEMA owns, so the engine and the authoring
+// tool cannot answer "is this live" differently. A rolling round has no drop-in to clear ahead of; a
+// column cascade already empties each column by DRAINING it, so a clear there would be two clears
+// for one round.
+{
+	const clearing = (reelBehaviour) =>
+		engineFor(undefined, {}, reelBehaviour).boardClearsBeforeDrop();
+	check('nothing authored ⇒ nothing clears', engineFor(undefined).boardClearsBeforeDrop(), false);
+	check('clearBoard with no mode ⇒ inert', clearing({ clearBoard: true }), false);
+	check(
+		'clearBoard + swapInPlace ⇒ live (dropIn is the default style)',
+		clearing({ ...SWAP, clearBoard: true }),
+		true,
+	);
+	check(
+		'clearBoard + swapInPlace + dropIn ⇒ live',
+		clearing({ ...SWAP, swapStyle: 'dropIn', clearBoard: true }),
+		true,
+	);
+	check(
+		'clearBoard under a columnCascade ⇒ inert, the drain IS the clear',
+		clearing({ ...SWAP, swapStyle: 'columnCascade', clearBoard: true }),
+		false,
+	);
+	check('swapInPlace alone does not imply a clear', clearing(SWAP), false);
+	for (const clearBoard of [false, undefined, 'true', 1, null]) {
+		check(
+			`clearBoard=${JSON.stringify(clearBoard)} is not a clear`,
+			clearing({ ...SWAP, clearBoard }),
+			false,
 		);
 	}
 }
@@ -371,7 +527,7 @@ for (const [accessor, flag] of standDowns) {
 			flagValue,
 		);
 
-		const swapping = engineFor({ swapInPlace: true }, { [flag]: flagValue });
+		const swapping = engineFor(undefined, { [flag]: flagValue }, SWAP);
 		check(
 			`${accessor} with ${flag}=${flagValue}, swapInPlace ⇒ stood down`,
 			swapping[accessor](),
@@ -381,7 +537,7 @@ for (const [accessor, flag] of standDowns) {
 		// And it stands down on a FLAT swapping board too — the same trap, one level down: gating a
 		// stand-down on the geometry would leave every reel behaviour live on exactly the board that
 		// has no reels.
-		const flatSwapping = engineFor({ farScale: 1, swapInPlace: true }, { [flag]: flagValue });
+		const flatSwapping = engineFor({ farScale: 1 }, { [flag]: flagValue }, SWAP);
 		check(
 			`${accessor} with ${flag}=${flagValue}, flat + swapInPlace ⇒ stood down`,
 			flatSwapping[accessor](),
@@ -482,15 +638,35 @@ const tumbleStateSource = [
 
 // The reveal presentation itself, sliced out of the shared module both drivers now call.
 const flowEffects = read('apps/lines/src/game/flowEffects.ts');
+// The CLEAR step lives beside it and is the drop-in's only branch, so it is sliced too — asserting
+// the sequence against a hand-written stand-in would prove the fixture, not the game. Prepended to
+// the drop-in slice below, because the drop-in calls it by name.
+const clearSource = sliceBetween(
+	flowEffects,
+	'clearBoardBeforeDrop',
+	'const clearBoardBeforeDrop = async (',
+	'\n};\n',
+);
+if (!clearSource.includes('tumbleBoardExplode') || !clearSource.includes('RemoveExploded')) {
+	throw new Error('clearBoardBeforeDrop no longer runs the explode + remove pair');
+}
 const dropInSource = sliceBetween(
 	flowEffects,
 	'dropInRevealBoard',
 	'const dropInRevealBoard = async (',
 	'\n};\n',
 ).replace(": BookEventOfType<'reveal'>", '');
+// A reveal has nothing to explode of its OWN — nothing has won yet. The explode/remove pair reaches
+// a round only through the authored clear step above, which is a separate claim with its own run
+// below; leaked back into the drop-in body it would fire on every project, authored or not.
 if (dropInSource.includes('tumbleBoardExplode') || dropInSource.includes('RemoveExploded')) {
 	throw new Error('dropInRevealBoard explodes symbols — a reveal has nothing to explode yet');
 }
+/** What the fixture actually EVALUATES for a drop-in run: the clear helper the body calls by name,
+ *  then the body. `dropInSource` stays pure so the explode guard above still has something to
+ *  guard. */
+const dropInPresentation = `${clearSource}\n${dropInSource}`;
+
 // `presentReveal` must route through it rather than the spin when the mode is on. Asserted on the
 // SOURCE because the branch reads `stateGameDerived`, which a Node fixture cannot stand up whole.
 const presentReveal = sliceBetween(
@@ -503,6 +679,12 @@ check(
 	'presentReveal branches on the board mode',
 	presentReveal.includes('stateGameDerived.boardSwapsInPlace()') &&
 		presentReveal.includes('await dropInRevealBoard(bookEvent);'),
+	true,
+);
+check(
+	'the drop-in asks the config before it clears, and clears BEFORE it queues the new board',
+	dropInSource.indexOf('boardClearsBeforeDrop()') > -1 &&
+		dropInSource.indexOf('boardClearsBeforeDrop()') < dropInSource.indexOf('tumbleBoardInit'),
 	true,
 );
 check(
@@ -702,6 +884,7 @@ const runReveal = async ({
 	name,
 	source,
 	staggerMs,
+	clearBoard = false,
 	tileArt,
 	previousBoard = boardOf('old'),
 	revealedBoard = boardOf('new'),
@@ -728,6 +911,8 @@ const runReveal = async ({
 		}
 		// The symbols a drain is about to move, held by reference so their FINAL y can be read after
 		// the fall — the overlay drops them out of its own layers, so there is nowhere else to look.
+		// The clear step's aim, recorded so "exactly the visible rows" is asserted on the real payload.
+		if (event.type === 'tumbleBoardExplode') entry.explodingPositions = event.explodingPositions;
 		if (event.type === 'tumbleBoardDrain') {
 			entry.draining = [...(runtime.stateTumble.base[event.reelIndex] ?? [])];
 		}
@@ -764,7 +949,11 @@ const runReveal = async ({
 	)(
 		eventEmitter,
 		runtime.tumbleBoardCombined,
-		{ boardColumnStaggerMs: () => staggerMs },
+		{
+			boardColumnStaggerMs: () => staggerMs,
+			boardClearsBeforeDrop: () => clearBoard,
+			boardRaw: () => previousBoard,
+		},
 		(ms) => clock.wait(ms),
 		COLUMN_CASCADE_STAGGER_MS,
 	);
@@ -774,7 +963,7 @@ const runReveal = async ({
 	return { log, types, settled, landed, revealedBoard, previousBoard, runtime, clock };
 };
 
-const dropIn = await runReveal({ name: 'dropInRevealBoard', source: dropInSource });
+const dropIn = await runReveal({ name: 'dropInRevealBoard', source: dropInPresentation });
 
 // THE SEQUENCE — the cascade's, minus the two steps a reveal has nothing to do with.
 check(
@@ -1224,7 +1413,7 @@ const TILE = { key: 'ground::tile', fallbackKey: 'tile' };
 	// The drop-in gets the identical treatment — the tile fix is the OVERLAY's, not the cascade's.
 	const tiledDropIn = await runReveal({
 		name: 'dropInRevealBoard',
-		source: dropInSource,
+		source: dropInPresentation,
 		tileArt: TILE,
 	});
 	check(
@@ -1296,6 +1485,130 @@ const TILE = { key: 'ground::tile', fallbackKey: 'tile' };
 }
 
 // ---------------------------------------------------------------------------
+// 7 — THE CLEAR STEP, driven.
+// ---------------------------------------------------------------------------
+
+console.log('--- 7. the outgoing board can be cleared first ---');
+
+{
+	// PARITY FIRST, and it is the claim that matters most: `apps/lines` is the shared
+	// `_runtime/lines` bundle every online game runs, so a project that never opened the Reel
+	// behaviour section must broadcast the same cues in the same order it did before the knob
+	// existed. Asserted against the run at the top of part 3, which is exactly that project.
+	check(
+		'clearBoard off ⇒ the drop-in sequence is untouched, cue for cue',
+		dropIn.types.join(' → '),
+		[
+			'boardHide',
+			'tumbleBoardShow',
+			'tumbleBoardInit',
+			'tumbleBoardSlideDown',
+			'boardSettle',
+			'tumbleBoardReset',
+			'tumbleBoardHide',
+			'boardShow',
+		].join(' → '),
+	);
+
+	const cleared = await runReveal({
+		name: 'dropInRevealBoard',
+		source: dropInPresentation,
+		clearBoard: true,
+	});
+
+	// THE SEQUENCE — the cascade's two missing steps, put back AHEAD of the drop-in rather than
+	// folded into it. The order is the whole feature: an explode after the new board was queued
+	// would blow up the incoming symbols instead of the outgoing ones.
+	check(
+		'clearBoard on ⇒ the outgoing board explodes and is removed BEFORE the new one is queued',
+		cleared.types.join(' → '),
+		[
+			'boardHide',
+			'tumbleBoardShow',
+			'tumbleBoardInit',
+			'tumbleBoardExplode',
+			'tumbleBoardRemoveExploded',
+			'tumbleBoardInit',
+			'tumbleBoardSlideDown',
+			'boardSettle',
+			'tumbleBoardReset',
+			'tumbleBoardHide',
+			'boardShow',
+		].join(' → '),
+	);
+	// Stated separately so a reorder fails on the REASON, not just on the string.
+	check(
+		'the explode is awaited before the removal — a removal mid-animation eats the explosion',
+		cleared.log.find((entry) => entry.type === 'tumbleBoardExplode').done <=
+			cleared.log.find((entry) => entry.type === 'tumbleBoardRemoveExploded').at,
+		true,
+	);
+	check(
+		'and the whole clear finishes before the new board is queued',
+		cleared.log.find((entry) => entry.type === 'tumbleBoardRemoveExploded').at <=
+			cleared.log.filter((entry) => entry.type === 'tumbleBoardInit')[1].at,
+		true,
+	);
+	// It COSTS something on the clock. A clear that took zero time would mean the explode beat was
+	// never actually awaited, which is the failure the two ordering checks above cannot see.
+	check(
+		'clearing takes real time, so the beat is genuinely awaited',
+		cleared.log.find((entry) => entry.type === 'tumbleBoardSlideDown').at >
+			dropIn.log.find((entry) => entry.type === 'tumbleBoardSlideDown').at,
+		true,
+	);
+
+	// EXACTLY THE VISIBLE ROWS EXPLODE. A column is a padded strip, and exploding the buffers would
+	// buy a beat-race per hidden cell for no picture. The positions are also asserted to be the
+	// OUTGOING board's, which is what makes this a clear rather than a mis-aimed one.
+	const explodedAt = cleared.log.find((entry) => entry.type === 'tumbleBoardExplode');
+	check(
+		'the clear explodes one cell per visible seat',
+		explodedAt.explodingPositions.length,
+		REELS * ROWS,
+	);
+	check(
+		'and they are exactly the visible rows of every reel',
+		explodedAt.explodingPositions.map(({ reel, row }) => `${reel}:${row}`).join(','),
+		Array.from({ length: REELS }, (_unused, reel) =>
+			Array.from({ length: ROWS }, (_row, row) => `${reel}:${row + 1}`).join(','),
+		).join(','),
+	);
+
+	// THE END STATE IS UNCHANGED. The clear rewrites the very layer the settle reads, so the drop-in's
+	// own contract — the reel board ends holding exactly what a spin would have settled — has to be
+	// re-asserted THROUGH it, by object identity, not assumed to survive.
+	check('the cleared run still settles one column per reel', cleared.settled?.length, REELS);
+	for (let reel = 0; reel < REELS; reel += 1) {
+		check(`cleared reel ${reel} is a full padded strip`, cleared.settled[reel].length, STRIP);
+		for (let row = 0; row < STRIP; row += 1) {
+			check(
+				`cleared cell (${reel}, ${row}) IS the revealed symbol`,
+				cleared.settled[reel][row],
+				cleared.revealedBoard[reel][row],
+			);
+		}
+	}
+	const clearedNames = new Set(cleared.settled.flat().map((symbol) => symbol.name));
+	check(
+		'and nothing of the exploded board survived into it',
+		cleared.previousBoard.flat().some((symbol) => clearedNames.has(symbol.name)),
+		false,
+	);
+	// The land beat is untouched too: only the visible rows land, and they are the NEW board's.
+	check('exactly the visible rows landed', cleared.landed.length, REELS * ROWS);
+	check(
+		'and they are the revealed board’s visible cells',
+		cleared.landed.slice().sort().join(','),
+		cleared.revealedBoard
+			.flatMap((reel) => reel.slice(1, 1 + ROWS))
+			.map((symbol) => symbol.name)
+			.sort()
+			.join(','),
+	);
+}
+
+// ---------------------------------------------------------------------------
 // THE PRE-SPIN STANDS DOWN TOO — the roll the reveal cannot unwind.
 //
 // `presentReveal` skipping `enhancedBoard.spin` is NOT enough to stop a swap-in-place board
@@ -1344,8 +1657,10 @@ if (failures) {
 	process.exit(1);
 }
 console.log(
-	`${checks} checks — swapInPlace switches the board MODE independently of farScale, the reel-shaped\n` +
-		`behaviours stand down with it, a drop-in reveal leaves the reel board holding exactly the symbols\n` +
-		`a spin would have settled on, a columnCascade drains and refills LEFT TO RIGHT onto the same end\n` +
-		`state with the stagger as the one knob, and the ground tiles never blink out across a swap.`,
+	`${checks} checks — the board's behaviour is authored in the game CONFIG (not per layout ratio),\n` +
+		`the mode switches independently of farScale, the reel-shaped behaviours stand down with it, a\n` +
+		`drop-in reveal leaves the reel board holding exactly the symbols a spin would have settled on\n` +
+		`— with or without the clear step ahead of it — a columnCascade drains and refills LEFT TO\n` +
+		`RIGHT onto that same end state with the stagger as the one knob, and the ground tiles never\n` +
+		`blink out across a swap.`,
 );

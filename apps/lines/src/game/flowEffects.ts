@@ -485,6 +485,43 @@ const boolOr = (value: unknown, fallback: boolean): boolean =>
 	typeof value === 'boolean' ? value : fallback;
 
 /**
+ * CLEAR THE BOARD — the outgoing board leaves before the new one falls in, when the project's Reel
+ * behaviour asks for it (`/config` → Reel behaviour → "Clear the board before the drop-in").
+ *
+ * Without it, a drop-in round simply REPLACES: `boardHide` takes the old board off screen in the
+ * same frame the overlay mounts, so the new symbols fall onto a board that was never seen to empty.
+ * With it, every VISIBLE cell plays its authored `explosion` state — the same state a cascade's
+ * winners play, authored once in `/symbols` — and only then does the drop-in run.
+ *
+ * DROP-IN ONLY. A `columnCascade` already empties each column by DRAINING it, so a clear there would
+ * be two clears for one round; the config resolver is what says so, once, and this function is
+ * simply never reached on that style.
+ *
+ * NO NEW CUES. It is `tumbleBoardInit` (the resting board as the survivor layer, nothing queued
+ * above it) → `tumbleBoardExplode` → `tumbleBoardRemoveExploded`, i.e. precisely the two steps the
+ * drop-in leaves out of the cascade, run for their own sake. The drop-in's own `keepBase: false`
+ * init follows and rebuilds both layers, so this beat's only lasting effect is the animation.
+ *
+ * Only the visible rows explode. A column is a PADDED strip (one buffer row above, one below), and
+ * blowing up symbols nobody can see would buy a beat-race per hidden cell for no picture — the same
+ * reason `tumbleBoardSlideDown` lands only the rows between the buffers.
+ */
+const clearBoardBeforeDrop = async () => {
+	eventEmitter.broadcast({ type: 'tumbleBoardInit', addingBoard: [] });
+	await eventEmitter.broadcastAsync({
+		type: 'tumbleBoardExplode',
+		explodingPositions: stateGameDerived
+			.boardRaw()
+			.flatMap((reel, reelIndex) =>
+				reel
+					.map((_rawSymbol, row) => ({ reel: reelIndex, row }))
+					.filter(({ row }) => row > 0 && row < reel.length - 1),
+			),
+	});
+	eventEmitter.broadcast({ type: 'tumbleBoardRemoveExploded' });
+};
+
+/**
  * THE DROP-IN REVEAL — the opening board of a round arriving on a board that does not roll
  * (docs/design/perspective-board-mode.md §"The mode switch").
  *
@@ -493,6 +530,10 @@ const boolOr = (value: unknown, fallback: boolean): boolean =>
  * (`tumbleBoardRemoveExploded`). What is left is exactly the beats that carry a board in from above —
  * hide the reels, mount the overlay, queue the new board above the window, slide it down, hand the
  * result back to the reels, unmount. Same components, same cues, no new presentation code.
+ *
+ * Those two steps come BACK, ahead of everything else, when the project asks the outgoing board to
+ * leave first — see {@link clearBoardBeforeDrop}. Off by default, so the sequence above is what an
+ * un-authored project still gets.
  *
  * `keepBase: false` is the one thing the cascade never says: the whole board is being replaced, so
  * there are no survivors (see the flag's doc on `tumbleBoardInit`). That is also what makes the
@@ -510,6 +551,8 @@ const boolOr = (value: unknown, fallback: boolean): boolean =>
 const dropInRevealBoard = async (bookEvent: BookEventOfType<'reveal'>) => {
 	eventEmitter.broadcast({ type: 'boardHide' });
 	eventEmitter.broadcast({ type: 'tumbleBoardShow' });
+	// Off by default ⇒ the sequence below is the whole reveal, cue for cue, exactly as it shipped.
+	if (stateGameDerived.boardClearsBeforeDrop()) await clearBoardBeforeDrop();
 	eventEmitter.broadcast({
 		type: 'tumbleBoardInit',
 		addingBoard: bookEvent.board,

@@ -225,6 +225,80 @@ export type WinModel =
 			minCount: number;
 	  };
 
+/**
+ * HOW THE BOARD PRESENTS A ROUND — the "Reel behaviour" contract
+ * (`docs/design/perspective-board-mode.md` §"The mode switch").
+ *
+ * This lives in the game config, NOT on the Scene Editor's `reelGrid` node, and the distinction is
+ * the point: the Scene Editor authors WHERE the board sits and what it looks like PER RATIO, while
+ * whether a round rolls or swaps is a property of the GAME — one answer for every layout, every
+ * scene and every screen it is drawn on. Authoring it beside the vanishing point invited a portrait
+ * board that rolls and a landscape one that swaps, which is not a configuration anybody wants and
+ * not a bug anybody would find.
+ *
+ * Every field is OPTIONAL and every default is the behaviour that shipped before this existed — the
+ * reels roll, the drop-in style, no clear — so a config that omits the block (which is every config
+ * authored to date) is byte-identical. Read it
+ * through `resolveReelBehaviour` rather than touching the fields, for the same reason
+ * `resolveCascade` and `resolveWinModel` exist: otherwise the defaults get re-implemented per call
+ * site and eventually mis-implemented at one of them.
+ */
+export type ReelBehaviour = {
+	/**
+	 * Replace symbols IN PLACE — the opening board of a round DROPS IN and cascades instead of the
+	 * reels rolling. Absent ⇒ `false` ⇒ the reels roll exactly as they always have.
+	 *
+	 * With this on, the reel-shaped behaviours stand down because there is no roll for them to
+	 * describe: reel anticipation (and its camera), sequential reel stop, and stacked pictures.
+	 */
+	swapInPlace?: boolean;
+	/**
+	 * HOW a swap-in-place board presents the new board. Absent ⇒ `'dropIn'`.
+	 *
+	 * A SIBLING of {@link swapInPlace} rather than a widening of it, and it stays one here: the mode
+	 * is a boolean already sitting in authored docs, so a union would either break those docs or make
+	 * "is the mode on" three comparisons instead of one. It also states the dependency honestly — a
+	 * style with no `swapInPlace` beside it is INERT, because the mode switch is the only thing that
+	 * routes a reveal to a swap presentation at all.
+	 *
+	 * - `'dropIn'` — the whole new board falls in together (the shipped drop-in).
+	 * - `'columnCascade'` — the resting board DRAINS column by column, left to right, and each column
+	 *   refills from the top as it empties. {@link columnStaggerMs} sets the spacing.
+	 */
+	swapStyle?: SwapStyle;
+	/**
+	 * Milliseconds between one column STARTING its swap and the next one starting, under
+	 * `swapStyle: 'columnCascade'`. Absent ⇒ the presentation's own default (140 ms, which sits beside
+	 * the reel spin's 145 ms per-reel stagger so the sweep reads at a familiar speed).
+	 *
+	 * ONE knob covers both readings of "the columns fall at different times", which is why there is no
+	 * second switch beside it: a column takes at minimum its drain plus its slide, so a stagger SHORTER
+	 * than that overlaps the columns into a wave, and one LONGER than a whole column makes them
+	 * strictly sequential — column 2 only starts once column 1 has finished. `0` is a legal authored
+	 * value (every column at once, no sweep) and is therefore NOT the same as absent. Negative or
+	 * non-finite ⇒ absent. Ignored entirely by `'dropIn'`.
+	 */
+	columnStaggerMs?: number;
+	/**
+	 * CLEAR the board before the new symbols fall in: every cell of the outgoing board plays its
+	 * authored `explosion` state and leaves, and only then does the new board drop. Absent ⇒ `false`
+	 * ⇒ the outgoing board is simply gone when the new one arrives, which is what a drop-in round did
+	 * before this knob existed.
+	 *
+	 * Only meaningful with {@link swapInPlace} AND `swapStyle: 'dropIn'`. A rolling round has no
+	 * drop-in to clear ahead of, and a `'columnCascade'` already empties each column by DRAINING it —
+	 * running a clear there would be two clears for one round. `resolveReelBehaviour` enforces both so
+	 * the dependency is stated in ONE place; the STORED value is left alone, so switching style or
+	 * mode and back does not lose the setting.
+	 */
+	clearBoard?: boolean;
+};
+
+/** Every {@link ReelBehaviour.swapStyle} literal, for validation + the tool's picker. */
+export const SWAP_STYLES = ['dropIn', 'columnCascade'] as const;
+
+export type SwapStyle = (typeof SWAP_STYLES)[number];
+
 /** Every `WinModel` discriminant, for validation + the tool's picker. */
 export const WIN_MODEL_TYPES = ['lines', 'ways', 'cluster', 'scatter'] as const;
 
@@ -314,6 +388,15 @@ export type GameConfigDoc = {
 	 * Read it through `resolveCascade` rather than directly, so the default lives in one place.
 	 */
 	cascade?: boolean;
+	/**
+	 * OPTIONAL board/reel BEHAVIOUR (see {@link ReelBehaviour}) — does a round roll or swap in place,
+	 * does the outgoing board clear first, and do the columns fall staggered. An INVISIBLE-ENGINE
+	 * extension, not part of the math export; absent ⇒ rolling reels, no clear, no stagger, which is
+	 * every config authored before this field existed.
+	 *
+	 * Read it through `resolveReelBehaviour` rather than directly, so the defaults live in one place.
+	 */
+	reelBehaviour?: ReelBehaviour;
 	/** The symbol DICTIONARY — art/properties/payouts. Not the in-play set. */
 	symbols: Record<string, GameConfigSymbol>;
 	paddingReels: PaddingReels;

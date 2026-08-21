@@ -170,17 +170,14 @@ export function resolveAnticipationProfile(
  * leaves the board exactly as it is today rather than being clamped into something the author never
  * asked for. No node / no `perspective` / nothing usable in it ⇒ `undefined`.
  *
- * `farScale` is range-checked because it is the mode's ON switch and a `<= 0` would collapse the
- * back row to a point or mirror it. A `1` is deliberately KEPT (it is a legal authored value that
+ * `farScale` is range-checked because it is the geometry's ON switch and a `<= 0` would collapse
+ * the back row to a point or mirror it. A `1` is deliberately KEPT (it is a legal authored value that
  * happens to mean flat, and the editor should read back what the author typed) — the flat decision
  * is made once, by the engine's seat function, not smuggled in here.
  *
- * `swapStyle` is matched against the two RECOGNISED literals rather than passed through, for the
- * same reason `swapInPlace` is compared to `true`: the block is authored data, so a doc written
- * against a future (or mistyped) vocabulary must resolve to ABSENT — which the engine reads as the
- * shipped drop-in — instead of reaching a presentation branch that does not exist. `columnStaggerMs`
- * takes any finite `>= 0`; a zero is a legal authoring choice (every column starts together, which
- * is a drain-then-refill board with no sweep) and only a negative would run the sweep backwards.
+ * SHAPE ONLY — the board's behaviour (roll vs swap, the swap style, the per-column stagger) is
+ * resolved from the game config's `reelBehaviour` block instead, because it is one fact about the
+ * game rather than about one ratio's layout.
  */
 export function resolveReelGridPerspective(
 	node: ReelGridNode | undefined,
@@ -191,9 +188,6 @@ export function resolveReelGridPerspective(
 	const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 	if (num(p.farScale) && p.farScale > 0) out.farScale = p.farScale;
 	if (num(p.vanishX)) out.vanishX = p.vanishX;
-	if (p.swapInPlace === true) out.swapInPlace = true;
-	if (p.swapStyle === 'dropIn' || p.swapStyle === 'columnCascade') out.swapStyle = p.swapStyle;
-	if (num(p.columnStaggerMs) && p.columnStaggerMs >= 0) out.columnStaggerMs = p.columnStaggerMs;
 	return Object.keys(out).length ? out : undefined;
 }
 

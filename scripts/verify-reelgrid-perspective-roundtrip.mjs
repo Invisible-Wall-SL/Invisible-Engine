@@ -12,6 +12,10 @@
 //   * `normalizeNode` is PASS-THROUGH — it validates `kind` against `NODE_KINDS` and a non-empty
 //     `id`, then returns the node whole, deliberately, "to preserve forward-compatible fields".
 //
+// That pass-through is also why the tail of this file asserts what is NOT on the block: the board's
+// BEHAVIOUR moved to the game config (`reelBehaviour`), and pass-through would happily carry a
+// stale `swapInPlace` back out of an old doc forever.
+//
 // So a new field on `ReelGridNode` should survive where the same field on `Scene` would not. That
 // is a claim about code we did not write, standing between an author's input and the runtime, and
 // "should" is not good enough for a field the whole perspective feature is switched on by — an
@@ -28,6 +32,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE = join(ROOT, 'apps/launcher-api/src/lib/server/editorStorage.ts');
+const read = (path) => readFileSync(join(ROOT, path), 'utf8');
 
 const source = readFileSync(SOURCE, 'utf8').replace(/\r\n/g, '\n');
 
@@ -101,7 +106,7 @@ const node = {
 	gapY: 6,
 	reelPadding: 0.53,
 	rowPadding: 0.5,
-	perspective: { farScale: 0.6, vanishX: 320, swapInPlace: true },
+	perspective: { farScale: 0.6, vanishX: 320 },
 };
 
 const saved = normalizeNode(structuredClone(node));
@@ -110,7 +115,6 @@ check('the node survives normalization at all', saved !== null && saved !== unde
 check('perspective block survives', typeof saved?.perspective, 'object');
 check('farScale survives', saved?.perspective?.farScale, 0.6);
 check('vanishX survives', saved?.perspective?.vanishX, 320);
-check('swapInPlace survives', saved?.perspective?.swapInPlace, true);
 // The lattice fields alongside it, so this fails for the right reason if the policy ever changes.
 check('cellSize survives', saved?.cellSize, 120);
 check('gapY survives', saved?.gapY, 6);
@@ -119,18 +123,23 @@ check('gapY survives', saved?.gapY, 6);
 const minimal = normalizeNode({ kind: 'reelGrid', id: 'g2', perspective: { farScale: 0.5 } });
 check('minimal node survives', minimal?.perspective?.farScale, 0.5);
 
-// A BARE `swapInPlace`, with no `farScale` beside it — a FLAT board that swaps in place. The two
-// knobs are independent by design ("a stylised game may want a converging grid that still rolls, or
-// a flat board that swaps"), so this is a legal configuration, not an incomplete one. It gets its
-// own case because it is the shape that would break most quietly: every geometry reader calls this
-// board flat, so if the save path dropped a lone `swapInPlace` for want of a `farScale` to belong
-// to, the author would reload into a board that neither converges NOR swaps, with nothing to blame.
-const swapOnly = normalizeNode({ kind: 'reelGrid', id: 'g3', perspective: { swapInPlace: true } });
-check('a bare swapInPlace survives', swapOnly?.perspective?.swapInPlace, true);
+// The board's BEHAVIOUR is NOT here. `swapInPlace` lived on this block while the mode was first
+// built and has moved to the game config's `reelBehaviour`, because a `reelGrid` node is authored
+// PER layoutType and the schema therefore allowed a board that rolled in portrait and swapped in
+// landscape. Asserted rather than assumed, because `normalizeNode` is PASS-THROUGH: it would carry
+// a stale `swapInPlace` from an old doc straight back out, and a reader still looking for it there
+// would keep working on exactly the docs where it is wrong.
+const layoutTypes = read('packages/engine-layout/src/lib/types.ts');
+const layoutResolver = read('packages/engine-layout/src/lib/reelGrid.ts');
 check(
-	'and it is not handed a farScale it never authored',
-	swapOnly?.perspective?.farScale,
-	undefined,
+	'ReelGridPerspective no longer declares swapInPlace',
+	layoutTypes.includes('swapInPlace'),
+	false,
+);
+check(
+	'and resolveReelGridPerspective no longer reads it',
+	layoutResolver.includes('swapInPlace'),
+	false,
 );
 
 // And the guards still reject what they always rejected, so this is not just "returns its input".
@@ -145,5 +154,6 @@ if (failures) {
 	process.exit(1);
 }
 console.log(
-	`${checks} checks — a reelGrid node's perspective block survives the editor save path intact.`,
+	`${checks} checks — a reelGrid node's perspective block survives the editor save path intact, and
+` + `carries SHAPE only: the board's behaviour lives in the game config.`,
 );

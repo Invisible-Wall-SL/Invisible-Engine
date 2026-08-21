@@ -45,6 +45,8 @@ before — an un-authored project still runs the compiled template.
   scatter: fewest symbols). This is what makes a project a ways game rather than a
   lines one. See _Making a ways game_ below. The same panel carries **Winners
   tumble** — see _Tumbling (cascade)_ below.
+- **Reel behaviour** — how a round **arrives** on the board: whether the reels roll
+  at all, and if not, how the new symbols get there. See _Reel behaviour_ below.
 - **Paylines** — a visual grid, one cell per reel per line, showing the **live server
   (RGS) line set** the game actually deals at runtime — **auto-loaded** when the page
   opens (best-effort; falls back to the saved config if the RGS is unreachable).
@@ -52,6 +54,62 @@ before — an un-authored project still runs the compiled template.
   (see _Server-defined paylines_ below).
 - **Big win tiers** — the big-win celebrations the game plays, as an ordered list.
   See _Big win tiers_ below. Leave it empty to keep the game's built-in tiers.
+
+## Reel behaviour
+
+Most slots roll. This panel is where a project says it does something else — and it
+lives here, rather than in the Scene Editor beside the board's shape, because it is
+**one fact about the game**. A reel grid node is authored per aspect ratio, so
+putting the switch there would have allowed a board that rolled in portrait and
+swapped in landscape.
+
+Everything in the panel is off by default. A project that never opens it stores
+nothing, and its board behaves exactly as it always has.
+
+**Swap symbols in place — no spinning reels.** The board stops rolling: the new
+symbols arrive from above and settle into their seats. Because there is no roll
+left to describe, the reel-shaped behaviours stand down while this is on — **reel
+anticipation** (and its camera), **sequential reel stop** and **stacked pictures**.
+None of them is lost; untick this and they come back. Everything below only applies
+while this is on.
+
+**Swap style** — how the new board gets there.
+
+- **Drop in** — the whole board falls at once. This is the shipped behaviour and
+  what you get if you never touch the field.
+- **Column cascade — left to right** — the standing board drains out of the bottom
+  column by column, and each column refills from the top as it empties. This is the
+  "the symbols fall, and when a column is empty new ones drop in" reading.
+
+**Column stagger (ms)** — only shown for a column cascade, and it is the one knob
+for _"the columns fall at different times"_. It is the gap between one column
+starting and the next starting:
+
+- **blank** — the engine's default, 140 ms, which sits beside the reels' own
+  per-reel stagger, so the sweep reads at a familiar speed. The columns overlap
+  into a **wave**.
+- **short** (under a whole column's worth) — more overlap, a faster wave.
+- **long** (roughly 1000 ms or more on a 5-reel board) — column 2 does not start
+  until column 1 has finished: strictly **sequential**.
+- **0** — every column starts together, so the board drains and refills as one.
+
+The panel tells you what the last column pays: _"on 5 reels the last column starts
+560 ms after the first"_. Past about a second in total you get a warning, because
+every round is that much slower.
+
+**Clear the board before the new symbols fall in** — only shown for the **drop in**
+style. Every symbol on the outgoing board plays its **Explosion** state (authored
+per symbol in the Symbols tool) and leaves; only then does the new board drop. Off,
+the old board is simply gone when the new one arrives. A project that has not
+authored an Explosion state will see the symbols vanish rather than pop.
+
+A column cascade has no such option because draining a column already _is_ that
+column clearing — ticking both would be two clears for one round, and the tool
+says so rather than doing it twice.
+
+Settings you switch off are **kept**, not deleted: tick the clear step, switch to a
+column cascade to compare, and switching back restores it. The panel and the
+warnings tell you when a saved setting is currently inert.
 
 ## Tumbling (cascade)
 

@@ -829,38 +829,6 @@
 		markDirty();
 	}
 
-	/** The MODE switch, kept independent of the shape knobs on purpose (a stylised game may want a
-	 *  converging grid that still rolls, or a flat board that swaps). Off ⇒ the key is deleted, not
-	 *  written as `false`, so it too leaves no trace. */
-	function writeSwapInPlace(n: ReelGridNode, on: boolean): void {
-		const p: ReelGridPerspective = { ...(n.perspective ?? {}) };
-		if (on) p.swapInPlace = true;
-		else delete p.swapInPlace;
-		n.perspective = Object.keys(p).length ? p : undefined;
-		markDirty();
-	}
-
-	/** HOW a swapping board presents a new board. The shipped drop-in is stored as ABSENT, never as
-	 *  `'dropIn'`, so a board authored before this field existed serialises byte-identically — the
-	 *  same sparse rule as every other knob in this block. */
-	function writeSwapStyle(n: ReelGridNode, raw: string): void {
-		const p: ReelGridPerspective = { ...(n.perspective ?? {}) };
-		if (raw === 'columnCascade') p.swapStyle = 'columnCascade';
-		else delete p.swapStyle;
-		n.perspective = Object.keys(p).length ? p : undefined;
-		markDirty();
-	}
-
-	/** The column cascade's sweep speed. Blank ⇒ the key is removed ⇒ the engine's default. `0` is a
-	 *  legal value (every column at once, no sweep), so the emptiness test is NaN, not falsiness. */
-	function writeColumnStaggerMs(n: ReelGridNode, raw: number): void {
-		const p: ReelGridPerspective = { ...(n.perspective ?? {}) };
-		if (Number.isFinite(raw) && raw >= 0) p.columnStaggerMs = raw;
-		else delete p.columnStaggerMs;
-		n.perspective = Object.keys(p).length ? p : undefined;
-		markDirty();
-	}
-
 	// The project's font catalog (the same `/api/editor/fonts` the editor canvas
 	// renders from), so the font dropdown offers exactly the fonts that will show.
 	let fontList = $state<EditorFont[]>([]);
@@ -3719,50 +3687,13 @@
 					units — leave it blank to converge on the lattice centre, set it to match painted ground art
 					whose vanishing point sits off-centre.
 				</p>
-				<label class="field check">
-					<input
-						type="checkbox"
-						checked={node.perspective?.swapInPlace === true}
-						onchange={(e) => writeSwapInPlace(node, e.currentTarget.checked)}
-					/>
-					<span>swap symbols in place (no spinning reels)</span>
-				</label>
 				<p class="muted small">
-					Independent of the shape: a stylised game may want a converging grid that still rolls, or
-					a flat board that swaps. With this on, a round drops the new board in and cascades instead
-					of rolling — and the reel-shaped behaviours (anticipation, sequential stop, stacked
-					pictures) stand down.
-				</p>
-				<div class="spin-grid">
-					<label class="field">
-						<span>swap style</span>
-						<select
-							value={node.perspective?.swapStyle ?? 'dropIn'}
-							onchange={(e) => writeSwapStyle(node, e.currentTarget.value)}
-						>
-							<option value="dropIn">drop in (whole board at once)</option>
-							<option value="columnCascade">column cascade (left to right)</option>
-						</select>
-					</label>
-					<label class="field">
-						<span>column stagger (ms)</span>
-						<input
-							type="number"
-							step="10"
-							placeholder="140"
-							value={node.perspective?.columnStaggerMs ?? ''}
-							oninput={(e) => writeColumnStaggerMs(node, e.currentTarget.valueAsNumber)}
-						/>
-					</label>
-				</div>
-				<p class="muted small">
-					Only read when <strong>swap symbols in place</strong> is on. <strong>drop in</strong> is
-					the shipped behaviour — the whole new board falls in at once.
-					<strong>column cascade</strong> drains the standing board out of the bottom column by
-					column, left to right, and refills each column from the top as it empties.
-					<strong>column stagger</strong> is the gap between one column starting and the next: short
-					(blank = 140 ms) overlaps them into a wave, longer than a whole column makes them strictly
-					sequential.
+					This section is the board's SHAPE only. Whether a round rolls or <strong
+						>swaps symbols in place</strong
+					>, which swap style it uses (drop in / column cascade), and the per-column stagger are one
+					fact about the GAME rather than about this ratio's layout — a board that rolled in
+					portrait and swapped in landscape is not a configuration anyone wants — so they are set
+					once in <strong>Game Config → Reel behaviour</strong>.
 				</p>
 			</details>
 		</section>

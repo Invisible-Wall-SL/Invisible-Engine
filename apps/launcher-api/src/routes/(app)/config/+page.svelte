@@ -13,6 +13,7 @@
 		resolveWinModel,
 		resolveCascade,
 		cascadeDefaultFor,
+		REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS,
 		symbolsInPlay,
 		validateGameConfigDoc,
 		type BetModeKind,
@@ -543,6 +544,62 @@
 		}
 		doc.cascade = on;
 	}
+
+	/**
+	 * REEL BEHAVIOUR — how a round PRESENTS (roll vs swap in place, the swap style, the per-column
+	 * stagger, the clear step). Every knob defaults OFF, and each writer DELETES its key rather than
+	 * storing the default, so a project that never opens this section stores no `reelBehaviour` block
+	 * at all and normalizes byte-identically to a config written before the block existed — the same
+	 * rule `setCascade` follows.
+	 *
+	 * The controls bind to the STORED value, not to `resolveReelBehaviour`'s. The resolver makes
+	 * "clear the board" inert while the reels roll (no drop-in to clear ahead of) and under a column
+	 * cascade (the drain already clears), and reading the resolved value here would mean changing the
+	 * style silently unticked — and then discarded — a box the author had set. The hints below say
+	 * it is inert instead; the validator warns too.
+	 */
+	const swapInPlace = $derived(doc.reelBehaviour?.swapInPlace === true);
+	const swapStyle = $derived(doc.reelBehaviour?.swapStyle ?? 'dropIn');
+	const clearBoard = $derived(doc.reelBehaviour?.clearBoard === true);
+	const columnStaggerMs = $derived(doc.reelBehaviour?.columnStaggerMs);
+
+	/** Write the block back, dropping it entirely once nothing is left switched on. */
+	function writeReelBehaviour(next: NonNullable<GameConfigDoc['reelBehaviour']>): void {
+		if (Object.keys(next).length) doc.reelBehaviour = next;
+		else delete doc.reelBehaviour;
+	}
+
+	function setReelSwitch(key: 'swapInPlace' | 'clearBoard', on: boolean): void {
+		const next = { ...(doc.reelBehaviour ?? {}) };
+		if (on) next[key] = true;
+		else delete next[key];
+		writeReelBehaviour(next);
+	}
+
+	/** The shipped drop-in is stored as ABSENT, never as `'dropIn'`, so a config that picks the
+	 *  default serialises byte-identically to one written before the field existed. */
+	function setSwapStyle(raw: string): void {
+		const next = { ...(doc.reelBehaviour ?? {}) };
+		if (raw === 'columnCascade') next.swapStyle = 'columnCascade';
+		else delete next.swapStyle;
+		writeReelBehaviour(next);
+	}
+
+	/** A blank box deletes the key ⇒ the engine's own default (140 ms). `0` is a LEGAL value (every
+	 *  column at once, no sweep), so the emptiness test is NaN, not falsiness — the same trap the
+	 *  Scene Editor's spin fields have. Clamped to the ceiling `normalizeReelBehaviour` enforces on
+	 *  save, so the box cannot show a number the doc will not keep. */
+	function setColumnStagger(raw: number): void {
+		const next = { ...(doc.reelBehaviour ?? {}) };
+		if (Number.isFinite(raw) && raw >= 0) {
+			next.columnStaggerMs = Math.round(Math.min(raw, REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS));
+		} else delete next.columnStaggerMs;
+		writeReelBehaviour(next);
+	}
+
+	/** What the LAST column pays, which is what an author actually feels when they raise the
+	 *  per-column value — the validator warns on the same number. */
+	const columnStaggerTotalMs = $derived((columnStaggerMs ?? 0) * Math.max(0, doc.numReels - 1));
 
 	/** Write one numeric field on the active arm. Ignores a blank/NaN box so a half-typed number
 	 *  doesn't collapse the model to 0 mid-keystroke. */
@@ -1456,6 +1513,110 @@
 				</p>
 			{/if}
 			{#each issuesFor('winModel') as issue (issue.path + issue.message)}
+				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
+			{/each}
+		</section>
+
+		<!-- Reel behaviour --------------------------------------------------------->
+		<section>
+			<h2>Reel behaviour</h2>
+			<p class="hint">
+				How a round ARRIVES on the board. This is one answer for the whole game — not per screen and
+				not per aspect ratio — which is why it lives here rather than in the Scene Editor beside the
+				board's shape.
+			</p>
+			<label class="check"
+				><input
+					type="checkbox"
+					checked={swapInPlace}
+					onchange={(e) => setReelSwitch('swapInPlace', e.currentTarget.checked)}
+					disabled={lease.readOnly}
+				/><span>Swap symbols in place — no spinning reels</span></label
+			>
+			<p class="hint">
+				The board does not roll: the new symbols fall in from above and settle into their seats.
+				With this on, the reel-shaped behaviours stand down because there is no roll left for them
+				to describe — <strong>reel anticipation</strong> (and its camera),
+				<strong>sequential reel stop</strong>
+				and <strong>stacked pictures</strong>. Nothing is lost by turning it back off. Everything
+				below only applies while this is on.
+			</p>
+
+			<div class="fields">
+				<label
+					><span>Swap style</span><select
+						value={swapStyle}
+						onchange={(e) => setSwapStyle(e.currentTarget.value)}
+						disabled={lease.readOnly || !swapInPlace}
+					>
+						<option value="dropIn">Drop in — the whole board falls at once</option>
+						<option value="columnCascade">Column cascade — left to right</option>
+					</select></label
+				>
+				{#if swapStyle === 'columnCascade'}
+					<label
+						><span>Column stagger (ms)</span><input
+							type="number"
+							min="0"
+							max={REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS}
+							step="10"
+							placeholder="140"
+							value={columnStaggerMs ?? ''}
+							oninput={(e) => setColumnStagger(e.currentTarget.valueAsNumber)}
+							disabled={lease.readOnly}
+						/></label
+					>
+				{/if}
+			</div>
+			<p class="hint">
+				<strong>Drop in</strong> replaces the board in one movement.
+				<strong>Column cascade</strong>
+				drains the standing board out of the bottom column by column, left to right, refilling each column
+				from the top as it empties.
+				{#if swapStyle === 'columnCascade'}
+					<strong>Column stagger</strong> is the gap between one column starting and the next, and
+					it is the one knob for "the columns fall at different times": short (blank = 140 ms)
+					overlaps them into a wave, longer than a whole column makes them strictly sequential,
+					<strong>0</strong> starts every column together.
+					{#if columnStaggerMs}
+						<em
+							>On {doc.numReels} reels the last column starts {columnStaggerTotalMs} ms after the first.</em
+						>
+					{/if}
+				{/if}
+			</p>
+
+			{#if swapStyle !== 'columnCascade'}
+				<label class="check"
+					><input
+						type="checkbox"
+						checked={clearBoard}
+						onchange={(e) => setReelSwitch('clearBoard', e.currentTarget.checked)}
+						disabled={lease.readOnly || !swapInPlace}
+					/><span>Clear the board before the new symbols fall in</span></label
+				>
+				<p class="hint">
+					Every symbol on the outgoing board plays its <strong>Explosion</strong> state from the
+					Symbols tool and leaves, and only then does the new board drop. Off, the old board is
+					simply gone when the new one arrives.
+					{#if clearBoard && !swapInPlace}
+						<em
+							>Inert while the reels roll — a rolling round has no drop-in to clear ahead of. It
+							stays saved and takes effect the moment you tick
+							<strong>Swap symbols in place</strong>.</em
+						>
+					{/if}
+				</p>
+			{:else if clearBoard}
+				<p class="hint">
+					<em
+						>The separate <strong>clear the board</strong> step stays saved but is ignored under a
+						column cascade — draining each column is already that column clearing. Switch back to
+						<strong>Drop in</strong> to use it.</em
+					>
+				</p>
+			{/if}
+			{#each issuesFor('reelBehaviour') as issue (issue.path + issue.message)}
 				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
 			{/each}
 		</section>
