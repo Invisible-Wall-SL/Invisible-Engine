@@ -325,6 +325,25 @@ Working on `main`:
 
 ## Recent changes
 
+- 2026-08-21 — **The Explosion state finally has a default to bind: `_shared/spines/engine-explosion`.**
+  `Explosion` was the only state the shared library offered nothing for — `_shared/sheets/` seeds
+  sprite sheets only, and `_shared/spines/` held just the engine boot mark. Since only the cascade
+  asks for `explosion` and an unauthored state falls back to `static`, a tumble showed symbols
+  sitting still as they were removed. Seeded the Stake engine's own explosion (13-frame Spine
+  `sequence` attachment over two slots, the second `additive` — NOT a Flipbook clip, whose single
+  ordered frame list cannot carry the second layer) as a shared bundle via
+  `apps/launcher-api/scripts/seed-shared-engine-explosion.mjs`, which insert-or-replaces one entry
+  in `_shared/spines/skeletons.json` rather than rewriting it (`r2-sync-spines.mjs` would have
+  deleted the boot-mark entry).
+  **Fixed the trap it exposed on the way:** `loadSkeletonIndex` reads the shared index only when the
+  project has NONE of its own, but `exportSpineBundle` returns `null` on a missing entry — so for any
+  project that owns a `spines/skeletons.json` (every project that has used the Rigger) a bundle bound
+  from `_shared/spines/` previewed in the tool and shipped **nothing, in silence**. `symbolExport.ts`
+  and `editorArtExport.ts` now resolve through the new `loadSkeletonIndexWithShared()` (project-first
+  concat, matching what `bootSplashExport` already hand-rolled and the tie-break
+  `resolveBundlePrefix` applies to the files). ⏳ owner verify: bind `engine-explosion` on a cascade
+  game's Explosion column, rebuild, confirm it plays in the shipped build.
+
 - 2026-07-28 — **Scatter now gets the win-highlight frame when it pays.** The `highlight` win frame
   (`bakedHighlight()`) is drawn on any symbol reaching `state === 'win'`, but `Symbol.svelte` was
   gating it behind `!['S', 'M']` — so the scatter (`S`), which reaches `'win'` via

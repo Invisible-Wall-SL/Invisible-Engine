@@ -435,6 +435,27 @@ It is **read-only** from the tools: nothing in the launcher writes to `_shared/s
 so the library is curated out-of-band. To make art your own, export it into the
 project's own sheets with the Sheet Maker and rebind.
 
+### The shared SPINE library
+
+The spine-bundle picker has the same two tiers. A bundle listed as **shared** comes from
+`_shared/spines/`, resolves project-first (a project bundle of the same name shadows it),
+and ships through the same export chain.
+
+| Bundle             | Animation   | What it is                                     |
+| ------------------ | ----------- | ---------------------------------------------- |
+| `engine-explosion` | `explosion` | the engine sample explosion — the **Explosion** state's default art |
+
+`engine-explosion` exists because `Explosion` was the one state with nothing to bind. Only
+the cascade asks for it, so almost nobody authors it, and an unauthored state falls back to
+`static` — a symbol that sits still while the board tumbles it away. Bind this and a
+cascade reads correctly before you have commissioned an explosion of your own.
+
+It is a **Spine**, not a Flipbook clip, even though the animation is 13 frames: the frames
+are a Spine `sequence` attachment played on two slots, the second `additive`, and a clip's
+single ordered frame list cannot carry that second layer. (There is also no shared clip
+library — clips are per-project only.) Bind it like any other spine cell: pick
+`engine-explosion`, animation `explosion`.
+
 What is in it today:
 
 | Sheet               | Frames                                     |

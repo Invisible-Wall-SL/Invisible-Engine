@@ -56,7 +56,7 @@ import { SUB } from './projectPaths';
 import {
 	bundleFromAssetKey,
 	exportSpineBundle,
-	loadSkeletonIndex,
+	loadSkeletonIndexWithShared,
 	type ExportedSpineEntry,
 } from './spine';
 import { deleteObjects, listAllKeys, putObjectText } from './r2';
@@ -654,7 +654,7 @@ export async function exportEditorArt(
 	];
 	if (spineAssetKeys.length > 0) {
 		await phase('spines', async () => {
-			const skeletonIndex = await loadSkeletonIndex(clientKey, projectKey);
+			const skeletonIndex = await loadSkeletonIndexWithShared(clientKey, projectKey);
 			const exportedSpines = new Set<string>();
 			const spineStem = (assetKey: string): string => {
 				const base = assetKey.replace(/\/$/, '');
