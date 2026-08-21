@@ -15,8 +15,9 @@
 
 	const props: Props = $props();
 	// Same resolver the reel symbols use, so a tumbling symbol renders through the SAME authored
-	// state art — including `explosion`, which the Invisible Symbols tool already authors as a first
-	// class state. That is why the cascade needs no symbol tooling of its own.
+	// state art — including `tumbleExplosion`, the cascade's own pop, which the Invisible Symbols
+	// tool authors as a first-class state next to the on-reel `explosion`. That is why the cascade
+	// needs no symbol tooling of its own.
 	const symbolInfo = $derived(
 		getSymbolInfo({
 			rawSymbol: props.tumbleSymbol.rawSymbol,

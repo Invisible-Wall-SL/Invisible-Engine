@@ -26,6 +26,10 @@ export const isUsableCell = (cell: CellLike): boolean => Boolean(cell && cell.as
  * The state a symbol actually draws, given what its map holds.
  *
  * - the Special-Book states inherit `win` — the reveal/idle should mirror the live win art;
+ * - `tumbleExplosion` inherits `explosion`, so a project that binds only ONE explosion keeps the
+ *   cascade it already had: the second binding EXISTS to let a game use a different skeleton when
+ *   the tumble removes a symbol than when something morphs it on the reel, and a game with nothing
+ *   to say about that difference must not be punished for it;
  * - `stacked` inherits `static`, so the mode renders the icon before a tall picture is bound;
  * - ANY unauthored state now inherits `static` as a last resort, because a symbol sitting in its
  *   resting art is a better answer than a symbol that is not drawn at all — and a far better one
@@ -39,5 +43,6 @@ export const resolveSymbolState = (states: StateMapLike, state: string): string 
 	if (state === 'bookIntro' || state === 'bookIdle') {
 		if (isUsableCell(states.win)) return 'win';
 	}
+	if (state === 'tumbleExplosion' && isUsableCell(states.explosion)) return 'explosion';
 	return isUsableCell(states.static) ? 'static' : null;
 };

@@ -357,6 +357,32 @@ export async function loadSkeletonIndex(
 	}
 }
 
+/**
+ * The skeleton index an EXPORT must resolve a bundle against: the project's entries first,
+ * then the shared library's.
+ *
+ * {@link loadSkeletonIndex} reads the shared index only when the project has NONE of its own,
+ * which is too weak for any export whose FILES resolve project-then-shared
+ * ({@link resolveBundlePrefix}). A project that owns a `skeletons.json` — every project that
+ * has ever used the Rigger — finds no entry for a bundle bound from `_shared/spines/`, and
+ * {@link exportSpineBundle} returns `null` on a missing entry, so the bundle is skipped in
+ * silence: it previews in the tool and ships nothing. That is the "shows in the editor ≠ it
+ * ships" trap, and it is why `bootSplashExport` already hand-rolls this concat.
+ *
+ * Project-first so a project's own bundle still wins a name collision — the same tie-break the
+ * file resolution applies.
+ */
+export async function loadSkeletonIndexWithShared(
+	clientKey: string,
+	projectKey: string,
+): Promise<SkeletonIndexEntry[]> {
+	const [own, shared] = await Promise.all([
+		loadSkeletonIndex(clientKey, projectKey),
+		loadSharedSkeletonIndex(),
+	]);
+	return [...own, ...shared];
+}
+
 /** Page-image filenames declared by an atlas. A page block starts at file start /
  * after a blank line: the FIRST non-property line there is the page image; every
  * other non-indented, no-`:` line is a region name. Region names CAN carry an image

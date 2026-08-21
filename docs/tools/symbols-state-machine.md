@@ -9,7 +9,8 @@ standard deploy chain.
 
 A grid editor for a game's `symbol × state → asset` map. Every game hardcodes a
 `SYMBOL_INFO_MAP` — a binding for each symbol (e.g. `H1…H5`, `L1…L5`, `W`, `S`) in each
-of six animation **states** (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`).
+of six animation **states** (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`) —
+plus `Tumble explosion` on a cascading game.
 This tool turns that map into an editable surface: each cell is a **sprite** (a sheet
 frame), a **spine** (a bundle + animation name), or a **flipbook** (an Invisible Flipbook
 clip — an ordered, timed run of atlas frames). Edits are stored as a **sparse override
@@ -51,7 +52,8 @@ tool top bar). Switch projects from the launcher before opening the tool.
 
 1. **Read the grid.** Rows are the game's symbols; the six columns are the states
    (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`). Book games add two more
-   (`Book intro`, `Book idle`). Stacked-picture tall art is **not** a grid column — it is
+   (`Book intro`, `Book idle`); a **cascading** game adds `Tumble explosion` (see
+   [Two explosions](#two-explosions) below). Stacked-picture tall art is **not** a grid column — it is
    authored in the **Stacked pictures** section (below). Each cell shows its
    **effective binding** — your override if you've made one, otherwise the game's coded
    default. Sprite cells render a frame thumbnail; spine cells render a live animation
@@ -434,6 +436,56 @@ It behaves exactly like a sheet the project owns:
 It is **read-only** from the tools: nothing in the launcher writes to `_shared/sheets/`,
 so the library is curated out-of-band. To make art your own, export it into the
 project's own sheets with the Sheet Maker and rebind.
+
+### The shared spine library
+
+The spine-bundle picker has the same two tiers. A bundle badged **shared** comes from
+`_shared/spines/`, resolves project-first (a project bundle of the same name shadows it),
+and ships through the same export chain. The full library — chrome and symbols alike — is
+listed in [the Scene Editor guide](invisible-editor.md#the-shared-spine-library); the
+bundles that matter here are:
+
+| Bundle | Animations | Bind it to |
+| --- | --- | --- |
+| `engine-symbol-h1`…`h5`, `engine-symbol-l1`…`l4` | `<id>`, `<id>_static` | that symbol's Win / Static |
+| `engine-symbol-m` | `2x`…`10x` × `_land` `_static`, `low`/`mid`/`high_multiplier_*` | the multiplier |
+| `engine-symbol-s` | `scatter_static` `_spin` `_land` `_win` | the scatter, state for state |
+| `engine-symbol-w` | `wild_dynamite` `_static` `_land` `_exploded_static` | the wild |
+| `engine-explosion` | `explosion` | **Explosion**, on any symbol |
+| `engine-win-meter-explosion` | `explosion` | **Tumble explosion** — the engine's second, larger burst |
+
+`engine-explosion` exists because `Explosion` was the one state with nothing to bind. Only
+the cascade asks for it, so almost nobody authors it, and an unauthored state falls back to
+`static` — a symbol that sits still while the board tumbles it away. Bind this and a
+cascade reads correctly before you have commissioned an explosion of your own.
+
+### Two explosions
+
+A symbol can blow up for two different reasons, and they are **two separate columns**:
+
+- **`Explosion`** — the symbol is destroyed IN PLACE on a resting reel. The Book-of column
+  expand is the one that does this: the old symbol pops and the book takes its seat.
+- **`Tumble explosion`** — the **cascade** removes the symbol, on the tumble overlay,
+  with the board about to fall. Only a cascading game gets this column, so it appears when
+  `/config` → **Cascade** is on (it is on by default for a cluster / scatter win model).
+
+**Leaving a `Tumble explosion` cell empty is not a gap** — it falls through to that
+symbol's `Explosion` binding, which is exactly what the engine did before the two were
+split. Bind it only when the cascade should look different from the in-place pop; the
+engine ships two explosion skeletons for precisely that (`engine-explosion` is the tight
+symbol burst, `engine-win-meter-explosion` the larger one).
+
+It is a **Spine**, not a Flipbook clip, even though the animation is 13 frames: the frames
+are a Spine `sequence` attachment played on two slots, the second `additive`, and a clip's
+single ordered frame list cannot carry that second layer. (There is also no shared clip
+library — clips are per-project only.) Bind it like any other spine cell: pick
+`engine-explosion`, animation `explosion`.
+
+**One thing to watch on weight.** The symbol bundles were split out of one shared atlas, so
+each carries its own copy of that ~0.75MB page. The Scene Editor's export dedups identical
+pages; **the symbols export does not** — it copies a page per bound bundle. Binding all
+nine `engine-symbol-*` picture spines therefore ships ~6.6MB where one packed sheet would
+ship ~0.75MB. Fine for getting a game readable; pack your own sheet before you ship.
 
 What is in it today:
 

@@ -20,12 +20,28 @@ export const SYMBOL_STATES = [
 	'win',
 	'postWinStatic',
 	'explosion',
+	'tumbleExplosion',
 	'bookIntro',
 	'bookIdle',
 	'stacked',
 ] as const;
 
 export type SymbolStateName = (typeof SYMBOL_STATES)[number];
+
+/**
+ * The CASCADE-only state — the explosion a symbol plays when the tumble overlay REMOVES it, as
+ * opposed to the `explosion` an on-reel symbol plays when something morphs it in place (the
+ * Book-of column expand). Upstream bound one skeleton to both beats because each of its games
+ * shipped a single `symbols3/explosion`; they are different moments — a cascade pop reads under a
+ * falling board, a morph pop reads on a resting reel — and the engine's own Spine set carries a
+ * separate explosion for each, so they are separate bindings here.
+ *
+ * Unauthored it INHERITS `explosion` (`apps/lines/src/game/symbolCell.ts`), which is what keeps a
+ * project that never binds it byte-identical to before this state existed. Valid in the doc for
+ * every game (the schema accepts it so bindings round-trip), but the Symbols grid only shows its
+ * column for a game that actually cascades — same gating idea as {@link BOOK_SYMBOL_STATES}.
+ */
+export const CASCADE_SYMBOL_STATES = ['tumbleExplosion'] as const;
 
 /** The book-only states. Valid in the doc for EVERY game (the schema accepts them so a
  *  book game's bindings always round-trip), but the Symbols grid only shows their columns
@@ -47,6 +63,7 @@ export const SYMBOL_STATE_LABELS: Record<SymbolStateName, string> = {
 	win: 'Win',
 	postWinStatic: 'Post-win',
 	explosion: 'Explosion',
+	tumbleExplosion: 'Tumble explosion',
 	bookIntro: 'Book reveal',
 	bookIdle: 'Book idle',
 	stacked: 'Stacked picture',

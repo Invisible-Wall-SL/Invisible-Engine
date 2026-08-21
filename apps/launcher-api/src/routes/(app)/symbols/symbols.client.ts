@@ -9,6 +9,7 @@
 
 import {
 	BOOK_SYMBOL_STATES,
+	CASCADE_SYMBOL_STATES,
 	SYMBOL_STATE_LABELS,
 	SYMBOL_STATES,
 	type SymbolNameEntry,
@@ -31,18 +32,43 @@ const BOOK_STATE_SET = new Set<SymbolState>(BOOK_STATES);
  *  fallback) — it is just filtered out of {@link visibleStatesFor} here. */
 const NON_GRID_STATE_SET = new Set<SymbolState>(['stacked']);
 
+/** The cascade-only states. Same deal as {@link BOOK_STATES}: the doc accepts them for every game,
+ *  but the grid only shows their columns for a project that actually tumbles — see
+ *  {@link visibleStatesFor}. */
+export const CASCADE_STATES = CASCADE_SYMBOL_STATES;
+const CASCADE_STATE_SET = new Set<SymbolState>(CASCADE_STATES);
+
 /** Human labels for the column headers — shared with the Scene Editor's `symbolState`
  *  dropdown so a state reads the same in both tools. */
 export const STATE_LABELS: Record<SymbolState, string> = SYMBOL_STATE_LABELS;
 
+/**
+ * Column-header tooltips, for the states whose NAME does not carry the whole rule.
+ *
+ * Partial on purpose: a state gets an entry only when leaving it out would mislead. `Tumble
+ * explosion` needs one because an EMPTY cell there is not a gap — it inherits `Explosion` — and a
+ * blank column that silently works is exactly the kind of thing an author re-authors by hand.
+ */
+export const STATE_HINTS: Partial<Record<SymbolState, string>> = {
+	tumbleExplosion:
+		'The explosion played when the cascade REMOVES this symbol, as opposed to the Explosion played when something morphs it in place on the reel. Leave a cell empty to reuse this symbol’s Explosion binding.',
+};
+
 /** The columns the grid renders for a given project: always the base states, plus the two book states
- *  ONLY for a book game (`gameType === 'bookOf'`). The `stacked` state is never a column (see
- *  {@link NON_GRID_STATE_SET}). Mirrors the launcher's `GameKind` ids (`$lib/roles`); kept inline because
- *  this module is browser-side and the roles list is not worth importing for one literal. */
-export function visibleStatesFor(gameType: string | undefined): readonly SymbolState[] {
+ *  ONLY for a book game (`gameType === 'bookOf'`) and the cascade state ONLY for a project that
+ *  tumbles (`cascade` — the server resolves it through `resolveCascade`, so an authored
+ *  `/config` answer beats the win model's default and a lines game that turned the tumble ON gets
+ *  the column). The `stacked` state is never a column (see {@link NON_GRID_STATE_SET}). Mirrors the
+ *  launcher's `GameKind` ids (`$lib/roles`); kept inline because this module is browser-side and the
+ *  roles list is not worth importing for one literal. */
+export function visibleStatesFor(
+	gameType: string | undefined,
+	cascade = false,
+): readonly SymbolState[] {
 	return SYMBOL_STATES.filter((s) => {
 		if (NON_GRID_STATE_SET.has(s)) return false;
 		if (BOOK_STATE_SET.has(s)) return gameType === 'bookOf';
+		if (CASCADE_STATE_SET.has(s)) return cascade;
 		return true;
 	});
 }

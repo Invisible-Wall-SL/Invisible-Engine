@@ -16,7 +16,8 @@ Working on `main`:
 
 - **The tool page** (`/symbols`, `(app)` route, `ssr = false`, auth + role gate;
   `admin`/`developer`/`artist` by default). Grid = symbols × the six states (`Static`,
-  `Spin`, `Land`, `Win`, `Post-win`, `Explosion`). Each cell shows its effective binding
+  `Spin`, `Land`, `Win`, `Post-win`, `Explosion`), plus `Tumble explosion` on a cascading
+  project and the two book states on a book game. Each cell shows its effective binding
   (override or coded default): sprite frame thumbnail, a live spine animation on the
   shared canvas, or a flipbook clip's first frame. Cell editor toggles
   **Sprite / Spine / Flipbook**, uses the editor's `RegionPicker` / spine-bundle picker /
@@ -324,6 +325,70 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+
+- 2026-08-21 — **The cascade's explosion is its own binding: `Tumble explosion`.**
+  Upstream played ONE `explosion` state at two different moments — the cascade removing a winning
+  symbol, and something morphing a symbol in place on a resting reel (the Book-of column expand) —
+  because each Stake sample game shipped a single `symbols3/explosion` skeleton. The engine's own
+  Spine set carries more than one (`engine-explosion`, `engine-win-meter-explosion`), and the two
+  beats read differently: one pops under a falling board, the other on a board standing still.
+  Split them. New state `tumbleExplosion` in the ONE home (`engine-layout/symbolStates`), so the
+  Symbols grid, the Scene Editor's `symbolState` dropdown, the Symbol Debug overlay and the doc
+  schema all pick it up from the same list. The cascade (`tumbleBoardExplode` + both
+  `tumbleBoardRemoveExploded` filters, which is also what `/config`'s "clear the board" style
+  runs through) now plays `tumbleExplosion`; `expandBookColumns` keeps `explosion`.
+  **Nothing changes for a project that binds one explosion:** `resolveSymbolState` makes
+  `tumbleExplosion` INHERIT `explosion` before the `static` last resort, asserted in
+  `apps/lines/src/game/symbolCell.fixture.ts`. The column is gated on `resolveCascade` (server
+  `load` → `visibleStatesFor(gameType, cascade)`) rather than the game kind, so a lines project
+  that switched the cascade on in `/config` gets the column and a cluster project gets it without
+  authoring anything. Header carries a tooltip saying an empty cell reuses `Explosion`, because a
+  blank column that silently works is what gets re-authored by hand.
+  ⏳ owner verify: on a cascading project bind `engine-win-meter-explosion` to `Tumble explosion`
+  for one symbol, rebuild, and confirm the tumble pops with it while the Book-of expand still uses
+  `Explosion`.
+
+- 2026-08-21 — **`_shared/spines/` now carries the engine's whole Spine set (29 bundles), not just the boot mark.**
+  Follow-on to the explosion below, same cause: the shared library seeded sprite SHEETS only, so a
+  new project could bind no animation at all. Seeded every skeleton `apps/lines` ships — chrome
+  (`engine-loader`, `engine-transition`, `engine-bigwin`, `engine-anticipation`,
+  `engine-reelhouse-glow`, `engine-foreground[-feature]`, `engine-buy-button`, `engine-fs-*`,
+  `engine-global-multiplier`, `engine-cluster-pay`, `engine-tumble-*`, `engine-win-meter-explosion`)
+  and symbols (`engine-symbol-h1`…`l4`, `-m`, `-s`, `-w`). ~16.4MB in R2.
+  **Split ONE BUNDLE PER SKELETON, deliberately.** Upstream packs many skeletons behind one shared
+  atlas (`symbols/` holds nine), but a spine cell/node stores a bundle PREFIX plus an animation name
+  — there is no skeleton selector, and `resolveEditorSpine` / `exportSpineBundle` both take the
+  folder's FIRST `skeletons.json` entry. Shipping `symbols/` whole would have published nine
+  skeletons of which only `h1` could resolve, and binding `h3` would preview wrong AND ship wrong —
+  the same silent class of bug as the index gap below. **Known cost, not a surprise:** a split family
+  re-copies its atlas page per skeleton, and `symbolExport` does NOT use the content-addressed
+  `PageStore` that `editorArtExport` does (its `_pages/` store lives under a different deploy
+  subtree), so binding all nine picture spines ships ~6.6MB where a packed sheet ships ~0.75MB.
+  Documented in the guide; giving `symbolExport` a page store is a separate job.
+  Seeder: `apps/launcher-api/scripts/seed-shared-engine-spines.mjs` (idempotent, `--dry-run`,
+  `--only <bundle>`; merges into `skeletons.json` so the boot-mark entry survives). Verified against
+  R2 after seeding: 30 prefixes, 30 index entries, exactly one entry per folder, every skeleton +
+  atlas + page present and each atlas' page line resolving, boot mark intact, no orphans.
+  ⏳ owner verify in the picker.
+
+- 2026-08-21 — **The Explosion state finally has a default to bind: `_shared/spines/engine-explosion`.**
+  `Explosion` was the only state the shared library offered nothing for — `_shared/sheets/` seeds
+  sprite sheets only, and `_shared/spines/` held just the engine boot mark. Since only the cascade
+  asks for `explosion` and an unauthored state falls back to `static`, a tumble showed symbols
+  sitting still as they were removed. Seeded the Stake engine's own explosion (13-frame Spine
+  `sequence` attachment over two slots, the second `additive` — NOT a Flipbook clip, whose single
+  ordered frame list cannot carry the second layer) as a shared bundle via
+  `apps/launcher-api/scripts/seed-shared-engine-explosion.mjs`, which insert-or-replaces one entry
+  in `_shared/spines/skeletons.json` rather than rewriting it (`r2-sync-spines.mjs` would have
+  deleted the boot-mark entry).
+  **Fixed the trap it exposed on the way:** `loadSkeletonIndex` reads the shared index only when the
+  project has NONE of its own, but `exportSpineBundle` returns `null` on a missing entry — so for any
+  project that owns a `spines/skeletons.json` (every project that has used the Rigger) a bundle bound
+  from `_shared/spines/` previewed in the tool and shipped **nothing, in silence**. `symbolExport.ts`
+  and `editorArtExport.ts` now resolve through the new `loadSkeletonIndexWithShared()` (project-first
+  concat, matching what `bootSplashExport` already hand-rolled and the tie-break
+  `resolveBundlePrefix` applies to the files). ⏳ owner verify: bind `engine-explosion` on a cascade
+  game's Explosion column, rebuild, confirm it plays in the shipped build.
 
 - 2026-07-28 — **Scatter now gets the win-highlight frame when it pays.** The `highlight` win frame
   (`bakedHighlight()`) is drawn on any symbol reaching `state === 'win'`, but `Symbol.svelte` was

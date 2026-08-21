@@ -104,7 +104,11 @@ Rigs are authored inside a project, so a new mark starts life at
 card) copies one across: pick the project, pick the bundle, submit. It is a
 **copy, not a link** — the engine mark opens every game, so it must not break
 when that project is renamed or deleted. Re-promoting the same name overwrites
-it. This is the only writer of `_shared/spines/`.
+it. This is the only writer of `_shared/spines/` **from the launcher UI** — the
+library's curated engine set is seeded out-of-band by
+`apps/launcher-api/scripts/seed-shared-engine-spines.mjs`, which merges its entries into
+`skeletons.json` rather than rewriting it, so a promotion and a re-seed never clobber each
+other. See [the shared spine library](invisible-editor.md#the-shared-spine-library).
 
 The bundle must be listed in its project's `spines/skeletons.json`, which is
 what makes a folder of files loadable (it names the skeleton and the atlas). If

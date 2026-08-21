@@ -23,7 +23,8 @@ SYMBOL_INFO_MAP['H1']['static'] = { type: 'sprite', assetKey: 'h1.webp', sizeRat
 ```
 
 Symbols: `H1…H5`, `L1…L5`, `W`, `S`. States: `static`, `spin`, `land`, `win`,
-`postWinStatic`, `explosion` (`apps/lines/src/game/types.ts#SYMBOL_STATES`). Each cell is
+`postWinStatic`, `explosion`, `tumbleExplosion`
+(`packages/engine-layout/src/lib/symbolStates.ts#SYMBOL_STATES`). Each cell is
 either a **sprite** (`assetKey` = a sheet frame key, e.g. `h1.webp`) or a **spine**
 (`assetKey` = a registered spine bundle + `animationName`).
 

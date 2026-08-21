@@ -43,7 +43,7 @@ import { sheetVersion } from './assetVersion';
 import { loadRegionSet, type EditorRegionSet } from './editorRegions';
 import { listProjectAssets } from './projectAssets';
 import { SUB } from './projectPaths';
-import { exportSpineBundle, loadSkeletonIndex } from './spine';
+import { exportSpineBundle, loadSkeletonIndexWithShared } from './spine';
 import { SYMBOL_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
 import {
@@ -482,7 +482,7 @@ export async function exportEditorSymbols(
 	const spines: SymbolSpine[] = [];
 	const exportedSpines = new Set<string>();
 	const skeletonIndex =
-		refs.spineKeys.size > 0 ? await loadSkeletonIndex(clientKey, projectKey) : [];
+		refs.spineKeys.size > 0 ? await loadSkeletonIndexWithShared(clientKey, projectKey) : [];
 
 	for (const assetKey of refs.spineKeys) {
 		if (exportedSpines.has(assetKey)) continue;

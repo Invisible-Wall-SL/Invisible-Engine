@@ -29,6 +29,7 @@
 	import SymbolSpineStage from './SymbolSpineStage.svelte';
 	import SymbolSpritePreview from './SymbolSpritePreview.svelte';
 	import {
+		STATE_HINTS,
 		STATE_LABELS,
 		visibleStatesFor,
 		anticipationFieldValue,
@@ -130,9 +131,12 @@
 	const stackedSet = $derived(new Set(stackedList.map((s) => s.name)));
 
 	// The state columns the grid renders: the base 6, plus the two book-only states
-	// (`bookIntro`/`bookIdle`) ONLY for a book game. The `stacked` state is never a grid column — its
-	// tall art lives in the "Stacked pictures" section. Book states stay gated on the server `gameType`.
-	const visibleStates = $derived(visibleStatesFor(data.gameType));
+	// (`bookIntro`/`bookIdle`) ONLY for a book game, plus `tumbleExplosion` ONLY for a project that
+	// cascades. The `stacked` state is never a grid column — its tall art lives in the "Stacked
+	// pictures" section. Both gates come from the server: `gameType` for the book states, the
+	// `resolveCascade`d answer for the tumble one (so /config's cascade switch drives it, not the
+	// game kind).
+	const visibleStates = $derived(visibleStatesFor(data.gameType, data.cascade));
 
 	// Symbols whose EFFECTIVE binding is a SPINE with no animation. A spine plays an animation, so with
 	// none selected it draws only its (usually empty) setup pose ⇒ a BLANK cell in-game. Flag it here so
@@ -2548,7 +2552,7 @@
 							<tr>
 								<th class="corner">Symbol</th>
 								{#each visibleStates as state (state)}
-									<th>{STATE_LABELS[state]}</th>
+									<th title={STATE_HINTS[state]}>{STATE_LABELS[state]}</th>
 								{/each}
 							</tr>
 						</thead>
