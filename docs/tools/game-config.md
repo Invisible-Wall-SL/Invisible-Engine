@@ -97,15 +97,20 @@ The panel tells you what the last column pays: _"on 5 reels the last column star
 560 ms after the first"_. Past about a second in total you get a warning, because
 every round is that much slower.
 
-**Clear the board before the new symbols fall in** — only shown for the **drop in**
-style. Every symbol on the outgoing board plays its **Explosion** state (authored
-per symbol in the Symbols tool) and leaves; only then does the new board drop. Off,
-the old board is simply gone when the new one arrives. A project that has not
-authored an Explosion state will see the symbols vanish rather than pop.
+**Clear the board before the new symbols fall in** — available for **both** styles, and what it
+does follows the style, because what is being replaced does:
 
-A column cascade has no such option because draining a column already _is_ that
-column clearing — ticking both would be two clears for one round, and the tool
-says so rather than doing it twice.
+- **Drop in** — the whole board clears at once, ahead of the fall.
+- **Column cascade** — each column clears **on its own beat, instead of draining**. The column pops
+  away rather than sliding out of the bottom of the window; the sweep, the stagger and the refill
+  are otherwise identical. It is one or the other, never both — a column that popped _and_ slid out
+  would play the beat twice.
+
+Either way the outgoing symbols play their **Explosion** state, authored per symbol in the Symbols
+tool. A symbol with no Explosion state vanishes rather than popping.
+
+So the two styles give you four pictures, not three: drop-in replace, drop-in clear-then-drop,
+cascade drain-and-refill, cascade pop-and-refill.
 
 Settings you switch off are **kept**, not deleted: tick the clear step, switch to a
 column cascade to compare, and switching back restores it. The panel and the

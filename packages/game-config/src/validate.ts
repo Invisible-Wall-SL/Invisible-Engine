@@ -138,16 +138,6 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 			});
 		}
 	}
-	// A column cascade DRAINS each column, which is already that column emptying. Running the clear
-	// as well would be two clears for one round, so the resolver ignores it — say why.
-	if (behaviour?.clearBoard && behaviour.swapInPlace && behaviour.swapStyle === 'columnCascade') {
-		issues.push({
-			severity: 'warning',
-			path: 'reelBehaviour.clearBoard',
-			message:
-				'A column cascade already empties each column by draining it, so the separate clear step is ignored. It applies to the drop-in style.',
-		});
-	}
 	if (behaviour?.swapStyle === 'columnCascade' && typeof behaviour.columnStaggerMs === 'number') {
 		// Not a range check — `normalizeReelBehaviour` already clamped the value. What is left to say
 		// is what a LEGAL value costs.

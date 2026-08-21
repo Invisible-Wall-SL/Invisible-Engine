@@ -10,12 +10,15 @@
  *     drops the whole board in at once, nothing clears — and a config that switches nothing on
  *     stores NO block at all. `apps/lines` is the shared `_runtime/lines` bundle every online game
  *     runs, so a default that leaked into storage would change every one of them.
- *  2. THE DEPENDENCIES ARE ANSWERED ONCE. `clearBoard` needs `swapInPlace` AND the `dropIn` style (a
- *     column cascade already empties each column by draining it, so a clear there would be two
- *     clears for one round). Resolving it honestly and re-gating it at the consumer would be the
- *     same rule written twice, which is how one of the two eventually gets it wrong.
- *  3. ...but the STORED value survives its preconditions being turned off. Ticking "clear the
- *     board", then switching style to compare, must not silently discard the tick — a tool that
+ *  2. THE DEPENDENCY IS ANSWERED ONCE. `clearBoard` needs `swapInPlace` — a rolling round replaces
+ *     nothing, it re-spins — and that is its ONLY precondition. It is deliberately not gated on the
+ *     style: an earlier cut restricted it to `dropIn` because a cascade "already empties each column
+ *     by draining it", which was wrong. A drain and a clear are two different pictures of the same
+ *     beat, so under a cascade the clear REPLACES the drain per column. Resolving it honestly and
+ *     re-gating at the consumer would be the same rule written twice, which is how one of the two
+ *     eventually gets it wrong.
+ *  3. ...but the STORED value survives that precondition being turned off. Ticking "clear the
+ *     board", then unticking the mode to compare, must not silently discard the tick — a tool that
  *     loses an author's setting on a round-trip is worse than one that never offered it.
  *  4. `columnStaggerMs` RESOLVES TO `number | undefined`, never to a defaulted number. `0` is a
  *     legal authored value ("every column at once") and absent means "the presentation's own
@@ -74,7 +77,7 @@ check('a future vocabulary falls back to dropIn', styleOf('sweep'), 'dropIn');
 check('a typo falls back to dropIn', styleOf('columncascade'), 'dropIn');
 check('a non-string falls back to dropIn', styleOf(2), 'dropIn');
 
-console.log('\nclearBoard needs the mode AND the drop-in style — the resolver owns both');
+console.log('\nclearBoard needs the mode, and ONLY the mode — the resolver owns it');
 const clearOf = (reelBehaviour: unknown) =>
 	resolveReelBehaviour({ reelBehaviour } as never).clearBoard;
 check('clearBoard alone resolves OFF', clearOf({ clearBoard: true }), false);
@@ -88,11 +91,14 @@ check(
 	clearOf({ clearBoard: true, swapInPlace: true, swapStyle: 'dropIn' }),
 	true,
 );
-// A column cascade DRAINS each column, which is already that column emptying.
+// THE CORRECTION. An earlier cut gated this to `dropIn`, reasoning that a cascade's drain already
+// empties the column. It does — but a drain and a clear are two different PICTURES of that beat
+// (slide out of the window vs pop in place), so under a cascade the clear REPLACES the drain, per
+// column. Gating it there took a real choice away from the author.
 check(
-	'clearBoard under a column cascade resolves OFF — the drain is the clear',
+	'clearBoard under a column cascade resolves ON — the clear replaces the drain, per column',
 	clearOf({ clearBoard: true, swapInPlace: true, swapStyle: 'columnCascade' }),
-	false,
+	true,
 );
 check('swapInPlace alone does not imply a clear', clearOf({ swapInPlace: true }), false);
 
@@ -232,14 +238,14 @@ check(
 check('a clearing drop-in raises nothing', pathsOf(clearing), []);
 check('a modest sweep raises nothing', pathsOf(sweeping), []);
 check(
-	'a clear under a column cascade is warned about — the drain already clears',
+	'a clear under a column cascade raises nothing — it is a legal, meaningful combination',
 	pathsOf(
 		normalizeGameConfigDoc({
 			...base,
 			reelBehaviour: { swapInPlace: true, swapStyle: 'columnCascade', clearBoard: true },
 		}) as GameConfigDoc,
 	),
-	['warning reelBehaviour.clearBoard'],
+	[],
 );
 check(
 	'a stagger on the drop-in style is warned about — nothing staggers there',

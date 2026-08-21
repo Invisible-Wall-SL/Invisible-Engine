@@ -485,40 +485,60 @@ const boolOr = (value: unknown, fallback: boolean): boolean =>
 	typeof value === 'boolean' ? value : fallback;
 
 /**
- * CLEAR THE BOARD — the outgoing board leaves before the new one falls in, when the project's Reel
- * behaviour asks for it (`/config` → Reel behaviour → "Clear the board before the drop-in").
+ * The VISIBLE cells of a column, as explode positions.
  *
- * Without it, a drop-in round simply REPLACES: `boardHide` takes the old board off screen in the
- * same frame the overlay mounts, so the new symbols fall onto a board that was never seen to empty.
- * With it, every VISIBLE cell plays its authored `explosion` state — the same state a cascade's
- * winners play, authored once in `/symbols` — and only then does the drop-in run.
+ * A column is a PADDED strip (one buffer row above the board, one below), and blowing up symbols
+ * nobody can see would buy a beat-race per hidden cell for no picture — the same reason
+ * `tumbleBoardSlideDown` lands only the rows between the buffers. The indices are into the tumble
+ * board's own `base` column, which is built from the padded strip, so the visible band is
+ * `1 … length - 2`.
+ */
+const visibleColumnPositions = (reelIndex: number, strip: readonly unknown[]) =>
+	strip
+		.map((_cell, row) => ({ reel: reelIndex, row }))
+		.filter(({ row }) => row > 0 && row < strip.length - 1);
+
+/**
+ * CLEAR the outgoing symbols — they play their authored `explosion` state and leave, instead of
+ * simply being replaced (`/config` → Reel behaviour → "Clear the board before the new symbols fall
+ * in").
  *
- * DROP-IN ONLY. A `columnCascade` already empties each column by DRAINING it, so a clear there would
- * be two clears for one round; the config resolver is what says so, once, and this function is
- * simply never reached on that style.
+ * `reelIndex` is what makes this serve BOTH styles from one implementation:
+ *  - absent — the whole board clears at once, which is the drop-in's opener. Without it the drop-in
+ *    just replaces: `boardHide` takes the old board off screen in the same frame the overlay mounts,
+ *    so the new symbols fall onto a board that was never seen to empty.
+ *  - a column — that column clears on its own beat, IN PLACE OF ITS DRAIN under a column cascade.
+ *    The column pops away rather than sliding out of the window; the sweep, the stagger and the
+ *    refill are otherwise unchanged.
+ *
+ * THE REMOVAL IS SCOPED TO THE COLUMN, and that is correctness rather than symmetry: a cascade runs
+ * its columns concurrently on an absolute stagger, so column `i + 1` can be mid-explosion while
+ * column `i` reaches its removal. An unscoped filter takes every symbol currently in the `explosion`
+ * state — the neighbour's included, mid-animation.
  *
  * NO NEW CUES. It is `tumbleBoardInit` (the resting board as the survivor layer, nothing queued
- * above it) → `tumbleBoardExplode` → `tumbleBoardRemoveExploded`, i.e. precisely the two steps the
- * drop-in leaves out of the cascade, run for their own sake. The drop-in's own `keepBase: false`
- * init follows and rebuilds both layers, so this beat's only lasting effect is the animation.
- *
- * Only the visible rows explode. A column is a PADDED strip (one buffer row above, one below), and
- * blowing up symbols nobody can see would buy a beat-race per hidden cell for no picture — the same
- * reason `tumbleBoardSlideDown` lands only the rows between the buffers.
+ * above it) → `tumbleBoardExplode` → `tumbleBoardRemoveExploded`: precisely the two steps a swap
+ * reveal otherwise leaves out of the cascade, run for their own sake. Each caller's own scoped init
+ * follows and rebuilds the layers, so this beat's only lasting effect is the animation.
  */
-const clearBoardBeforeDrop = async () => {
-	eventEmitter.broadcast({ type: 'tumbleBoardInit', addingBoard: [] });
+const clearOutgoingSymbols = async (reelIndex?: number) => {
+	const board = stateGameDerived.boardRaw();
+	if (reelIndex === undefined) {
+		eventEmitter.broadcast({ type: 'tumbleBoardInit', addingBoard: [] });
+		await eventEmitter.broadcastAsync({
+			type: 'tumbleBoardExplode',
+			explodingPositions: board.flatMap((strip, reel) => visibleColumnPositions(reel, strip)),
+		});
+		eventEmitter.broadcast({ type: 'tumbleBoardRemoveExploded' });
+		return;
+	}
+	// The cascade has already seeded `base` with the whole resting board, so this column needs no
+	// init of its own — only its own cells exploded, and only its own survivors filtered.
 	await eventEmitter.broadcastAsync({
 		type: 'tumbleBoardExplode',
-		explodingPositions: stateGameDerived
-			.boardRaw()
-			.flatMap((reel, reelIndex) =>
-				reel
-					.map((_rawSymbol, row) => ({ reel: reelIndex, row }))
-					.filter(({ row }) => row > 0 && row < reel.length - 1),
-			),
+		explodingPositions: visibleColumnPositions(reelIndex, board[reelIndex] ?? []),
 	});
-	eventEmitter.broadcast({ type: 'tumbleBoardRemoveExploded' });
+	eventEmitter.broadcast({ type: 'tumbleBoardRemoveExploded', reelIndex });
 };
 
 /**
@@ -532,7 +552,7 @@ const clearBoardBeforeDrop = async () => {
  * result back to the reels, unmount. Same components, same cues, no new presentation code.
  *
  * Those two steps come BACK, ahead of everything else, when the project asks the outgoing board to
- * leave first — see {@link clearBoardBeforeDrop}. Off by default, so the sequence above is what an
+ * leave first — see {@link clearOutgoingSymbols}. Off by default, so the sequence above is what an
  * un-authored project still gets.
  *
  * `keepBase: false` is the one thing the cascade never says: the whole board is being replaced, so
@@ -552,7 +572,7 @@ const dropInRevealBoard = async (bookEvent: BookEventOfType<'reveal'>) => {
 	eventEmitter.broadcast({ type: 'boardHide' });
 	eventEmitter.broadcast({ type: 'tumbleBoardShow' });
 	// Off by default ⇒ the sequence below is the whole reveal, cue for cue, exactly as it shipped.
-	if (stateGameDerived.boardClearsBeforeDrop()) await clearBoardBeforeDrop();
+	if (stateGameDerived.boardClearsOutgoing()) await clearOutgoingSymbols();
 	eventEmitter.broadcast({
 		type: 'tumbleBoardInit',
 		addingBoard: bookEvent.board,
@@ -622,17 +642,24 @@ const COLUMN_CASCADE_STAGGER_MS = 140;
  */
 const columnCascadeRevealBoard = async (bookEvent: BookEventOfType<'reveal'>) => {
 	const staggerMs = stateGameDerived.boardColumnStaggerMs() ?? COLUMN_CASCADE_STAGGER_MS;
+	// Read ONCE, before the sweep: every column must empty the same way, and re-reading it per column
+	// would let a mid-round config swap produce a board that half drained and half popped.
+	const clearsOutgoing = stateGameDerived.boardClearsOutgoing();
 	eventEmitter.broadcast({ type: 'boardHide' });
 	eventEmitter.broadcast({ type: 'tumbleBoardShow' });
-	// The resting board becomes the survivor layer — that is the thing that drains. `addingBoard: []`
-	// queues nothing: every column's replacements arrive later, on that column's own beat.
+	// The resting board becomes the survivor layer — that is the thing that drains (or clears).
+	// `addingBoard: []` queues nothing: every column's replacements arrive later, on its own beat.
 	eventEmitter.broadcast({ type: 'tumbleBoardInit', addingBoard: [] });
 	await Promise.all(
 		bookEvent.board.map(async (_reel, reelIndex) => {
 			// Column 0 starts immediately; the rest wait their absolute slot. A `0` stagger is a legal
 			// authored value and correctly makes every column start together.
 			if (reelIndex > 0) await waitForTimeout(staggerMs * reelIndex);
-			await eventEmitter.broadcastAsync({ type: 'tumbleBoardDrain', reelIndex });
+			// HOW the column empties, and the two are alternatives rather than a sequence: a drain
+			// slides it out of the bottom of the window, a clear pops it in place. Both leave the
+			// column empty for the refill below, so nothing downstream changes.
+			if (clearsOutgoing) await clearOutgoingSymbols(reelIndex);
+			else await eventEmitter.broadcastAsync({ type: 'tumbleBoardDrain', reelIndex });
 			eventEmitter.broadcast({
 				type: 'tumbleBoardInit',
 				addingBoard: bookEvent.board,

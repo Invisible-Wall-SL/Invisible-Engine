@@ -36,8 +36,9 @@ replaces symbols in place: the outgoing ones play out and the incoming ones fall
   `columnCascade` (#425) drains the standing board column by column, left to right, refilling each
   column as it empties, with `columnStaggerMs` as the single knob covering both readings of "left to
   right" (short ⇒ a wave, longer than a column ⇒ strictly sequential, `0` ⇒ all at once). `clearBoard`
-  is the drop-in's own opener — the outgoing board plays its authored `explosion` state and leaves
-  before the new one arrives — and is inert under a cascade, whose drain already clears.
+  makes the outgoing symbols play their authored `explosion` state and leave, rather than simply
+  being replaced: the whole board at once under `dropIn`, and per column — in place of that column's
+  DRAIN — under `columnCascade`.
 
 ## What already exists (and why this is small)
 
@@ -140,14 +141,21 @@ reelBehaviour?: {
 	swapStyle?: 'dropIn' | 'columnCascade';
 	/** Ms between one column starting its swap and the next. Absent ⇒ the presentation's 140. */
 	columnStaggerMs?: number;
-	/** dropIn only: the outgoing board plays its `explosion` state and leaves first. Absent ⇒ false. */
+	/** The outgoing symbols play their `explosion` state and leave first. Absent ⇒ false. */
 	clearBoard?: boolean;
 };
 ```
 
-`resolveReelBehaviour` owns every default AND both of `clearBoard`'s preconditions (it needs the
-mode, and it needs the `dropIn` style — a column cascade already empties each column by draining
-it). One answer, so the engine and the authoring tool cannot disagree about whether a knob is live.
+`resolveReelBehaviour` owns every default AND `clearBoard`'s one precondition — it needs the mode,
+because a rolling round replaces nothing, it re-spins. One answer, so the engine and the authoring
+tool cannot disagree about whether a knob is live.
+
+`clearBoard` is deliberately NOT gated on the style. The first cut of it was, on the grounds that a
+`columnCascade` "already empties each column by draining it" — which was wrong, and the owner said
+so on first use. A drain and a clear are two different PICTURES of the same beat: one slides the
+column out of the window, the other pops it in place. So under a cascade the clear REPLACES the
+drain, per column, and choosing between them is exactly what this block exists for. The gate had
+quietly removed a real choice.
 The engine reads the block through `deps.reelBehaviour` on `createGameState`, the same seam the
 board grid already arrives on.
 
