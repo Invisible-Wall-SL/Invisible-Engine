@@ -174,7 +174,12 @@
 	} from 'engine-game';
 	import { freeSpinOutroState } from '../game/freeSpinOutroState.svelte';
 	import { winState } from '../game/winState.svelte';
-	import { rebuildBoard, setBoardOverride, stateGame } from '../game/stateGame.svelte';
+	import {
+		rebuildBoard,
+		setBoardOverride,
+		stateGame,
+		stateGameDerived,
+	} from '../game/stateGame.svelte';
 	import { HUD_BUTTON_INSTANCES } from '../game/editorFlags';
 	import {
 		bakedEditorArtAssets,
@@ -2028,13 +2033,20 @@
 		{/snippet}
 
 		<MainContainer>
-			{#if stateGame.anticipationMode}
+			{#if stateGameDerived.anticipationActive()}
 				<!-- Reel-anticipation mode (Phase 3): a dedicated camera wraps the reel stack +
 						 the anticipation overlays (spine stack + grey-out) so the zoom/pan never fights
 						 MainContainer or the editor coordinate boxes. Both are inside the camera so they
 						 zoom together; the camera + overlays are identity until a reel arms. The camera is
 						 gated on the Flow-authored `anticipationZoom` toggle (default on ⇒ Phase 3 unchanged);
-						 off ⇒ the overlays render without the zoom (spine stack + grey-out only). -->
+						 off ⇒ the overlays render without the zoom (spine stack + grey-out only).
+
+						 `anticipationActive()` rather than the raw flag: on a swap-in-place board the whole
+						 feature stands down (there is no roll to hold), and the `{:else}` here is the exact
+						 path a game with the mode off already takes — the bare reel stack, no camera, no
+						 overlays. That also takes the geometry-bound anticipation GREY-OUT down with it.
+						 The per-symbol win dim is a different feature entirely (`SYMBOL_DIM_TINT` through
+						 `SymbolWrap`, no geometry) and is untouched. -->
 				{#if stateGame.anticipationZoom}
 					<AnticipationCamera>
 						{@render reelStack()}

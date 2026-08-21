@@ -119,6 +119,20 @@ check('gapY survives', saved?.gapY, 6);
 const minimal = normalizeNode({ kind: 'reelGrid', id: 'g2', perspective: { farScale: 0.5 } });
 check('minimal node survives', minimal?.perspective?.farScale, 0.5);
 
+// A BARE `swapInPlace`, with no `farScale` beside it — a FLAT board that swaps in place. The two
+// knobs are independent by design ("a stylised game may want a converging grid that still rolls, or
+// a flat board that swaps"), so this is a legal configuration, not an incomplete one. It gets its
+// own case because it is the shape that would break most quietly: every geometry reader calls this
+// board flat, so if the save path dropped a lone `swapInPlace` for want of a `farScale` to belong
+// to, the author would reload into a board that neither converges NOR swaps, with nothing to blame.
+const swapOnly = normalizeNode({ kind: 'reelGrid', id: 'g3', perspective: { swapInPlace: true } });
+check('a bare swapInPlace survives', swapOnly?.perspective?.swapInPlace, true);
+check(
+	'and it is not handed a farScale it never authored',
+	swapOnly?.perspective?.farScale,
+	undefined,
+);
+
 // And the guards still reject what they always rejected, so this is not just "returns its input".
 check('unknown kind is rejected', normalizeNode({ kind: 'nope', id: 'x' }), null);
 check('missing id is rejected', normalizeNode({ kind: 'reelGrid' }), null);

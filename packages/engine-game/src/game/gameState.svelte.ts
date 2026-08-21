@@ -252,6 +252,25 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	};
 
 	/**
+	 * The board's MODE: does a round replace symbols IN PLACE (drop-in + cascade) instead of rolling
+	 * the reels? (docs/design/perspective-board-mode.md §"The mode switch".)
+	 *
+	 * DELIBERATELY NOT DERIVED FROM {@link boardPerspective}, which is the whole reason it is its own
+	 * function. `boardPerspective()` is `undefined` whenever the board is geometrically FLAT — no
+	 * `farScale`, a non-finite one, `<= 0`, or exactly `1` — which is the right answer for the seat
+	 * algebra and the WRONG one for the mode. The design keeps the two knobs independent on purpose:
+	 * "a stylised game may want a converging grid that still rolls, or a flat board that swaps".
+	 * `{ swapInPlace: true }` with no `farScale` is therefore a LEGAL, intended configuration, and
+	 * gating this on the geometry would make it silently do nothing with no error to find.
+	 *
+	 * So it reads the authored block directly. `resolveReelGridPerspective` hands back the RAW authored
+	 * values (only the engine decides what "flat" means) and already coerces `swapInPlace` to `true` or
+	 * absent — so absent ⇒ `false` ⇒ everything gated on it takes the path it takes today.
+	 */
+	const boardSwapsInPlace = () =>
+		resolveReelGridPerspective(boardOverride.node ?? undefined)?.swapInPlace === true;
+
+	/**
 	 * The scale ONE row draws at: `farScale` at the back, exactly `1` at the front, linear between.
 	 *
 	 * The depth is CLAMPED to the visible rows rather than extrapolated, and that is a deliberate
@@ -477,6 +496,25 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		stackedPictureMode: false,
 	});
 
+	/**
+	 * THE REEL-SHAPED BEHAVIOURS, and whether they are live.
+	 *
+	 * Three of the flags declared just above describe things a ROLLING reel does — it holds for a
+	 * tease, it stops one column at a time, it scrolls a strip of tall pictures past a window. A board
+	 * that swaps in place has no roll for any of them to describe, so when {@link boardSwapsInPlace} is
+	 * on they STAND DOWN (docs/design/perspective-board-mode.md §"The mode switch"). Nothing is
+	 * deleted: `apps/lines` is the shared `_runtime/lines` bundle every online game runs, and `lines`
+	 * and `bookOf` still roll — standing down means each behaviour reads the OFF value it already has
+	 * an established path for (`buildAnticipationArming` → `undefined`, `forceSequentialStop` →
+	 * falsy, the stacked readers → the strip unchanged / an empty run list), not a new branch.
+	 *
+	 * They live HERE, next to the flags, because each flag has several readers and gating a flag at its
+	 * readers is how the readers drift. One definition each, at the source.
+	 */
+	const anticipationActive = () => stateGame.anticipationMode && !boardSwapsInPlace();
+	const sequentialStopActive = () => stateGame.sequentialReelStop && !boardSwapsInPlace();
+	const stackedPicturesActive = () => stateGame.stackedPictureMode && !boardSwapsInPlace();
+
 	/** Key a board cell for the win-dim membership set (`reel:row`). Shared by the writer
 	 *  (`winSymbolCycle`) and the reader (`ReelSymbol`) so the two can never drift on the format. */
 	const winDimCellKey = (reel: number, row: number): string => `${reel}:${row}`;
@@ -570,12 +608,13 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	/**
 	 * When the stacked-picture mode is on, seed a reel's SCROLL strip with natural-height BLOCKS of the
 	 * stacked symbols, so tall pictures ROLL through the reel during the whole spin (not only on landing).
-	 * Each stacked-symbol occurrence becomes `height` copies; everything else is untouched. OFF ⇒ the strip
-	 * is returned unchanged (byte-parity). Purely cosmetic — this is only the scroll filler (`paddingBoard`);
+	 * Each stacked-symbol occurrence becomes `height` copies; everything else is untouched. OFF — or a
+	 * board that swaps in place, which has no scroll for a picture to roll through ⇒ the strip is
+	 * returned unchanged (byte-parity). Purely cosmetic — this is only the scroll filler (`paddingBoard`);
 	 * the RESULT board (`revealEvent.board`) is separate, so a partial result still crops on landing.
 	 */
 	const stackedScrollStrip = (strips: RawSymbol[][]): RawSymbol[][] => {
-		if (!stateGame.stackedPictureMode) return strips;
+		if (!stackedPicturesActive()) return strips;
 		const { symbols, heightOf } = resolvedStacked();
 		return strips.map((strip) =>
 			strip.flatMap((symbol) => {
@@ -588,10 +627,11 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	};
 
 	/** Scan every SETTLED reel for contiguous runs of an eligible symbol (length ≥ minRun) and turn each
-	 *  into a `StackedPictureRun`. Empty when the mode is off (byte-parity). Reads live $state, so callers
-	 *  read it reactively. */
+	 *  into a `StackedPictureRun`. Empty when the mode is off — or stood down (see
+	 *  {@link stackedPicturesActive}) — so `stackedCoverage` empties with it (byte-parity). Reads live
+	 *  $state, so callers read it reactively. */
 	const computeStackedRuns = (): StackedPictureRun[] => {
-		if (!stateGame.stackedPictureMode) return [];
+		if (!stackedPicturesActive()) return [];
 		const rows = deps.boardDimensions().y;
 		const { symbols: stackedSet, heightOf, artOf, fullHeightOnly, edgeCutoffs } = resolvedStacked();
 		const { rowPitchLocal } = boardGeometry();
@@ -820,6 +860,9 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		boardLayout,
 		boardGeometry,
 		boardPerspective,
+		boardSwapsInPlace,
+		anticipationActive,
+		sequentialStopActive,
 		boardWindowHeight,
 		boardRaw,
 		scatterLandIndex,

@@ -38,17 +38,26 @@ const targetY = new Tween(0, { duration: 380, easing: cubicOut });
 
 /**
  * Re-aim the camera at the current anticipation state — the driver (call from a component `$effect`
- * so it re-runs when the armed reels / tier change). Gated on the SAME `anticipationMode` +
+ * so it re-runs when the armed reels / tier change). Gated on the SAME `anticipationActive()` +
  * `anticipationZoom` toggles that mount the reel camera, so an opted-in screen and the board are
- * always coherent: when the reel zoom is off (or the mode is off) the camera eases to identity for
- * everyone. The target is only re-read while armed, so it's held through the release.
+ * always coherent: when the reel zoom is off (or the mode is off, or the board swaps in place) the
+ * camera eases to identity for everyone. The target is only re-read while armed, so it's held
+ * through the release.
  */
 export const updateAnticipationCameraTarget = (): void => {
 	// Read the two toggles FIRST and short-circuit: when the mode is off the effect that calls this
 	// tracks only `anticipationMode` (the `&&` never reads the board), so it does NOT re-run on every
 	// reel-motion tick of a normal spin — off-path parity/perf. Flipping the mode on re-runs it, which
 	// then reads the armed reels; flipping it off re-runs it into the `zoom.set(1)` ease-back.
-	if (stateGame.anticipationMode && stateGame.anticipationZoom) {
+	//
+	// This ONE read is also where the anticipation CAMERA stands down on a swap-in-place board
+	// (`anticipationActive`) — including for a screen that opted in with `Scene.zoomWithAnticipation`.
+	// Such a screen carries no toggle of its own: it renders whatever `anticipationCameraTransform()`
+	// publishes, so with the driver short-circuited the zoom stays parked at 1, which IS the identity
+	// transform an un-armed board publishes today. The opt-in tick keeps meaning what it means and
+	// simply never fires — the existing at-rest path, rather than a second gate in engine-layout, which
+	// is generic and must not learn what a board mode is.
+	if (stateGameDerived.anticipationActive() && stateGame.anticipationZoom) {
 		const active = activeReelIndices();
 		const tier = activeMaxTier();
 		if (active.length && tier) {
