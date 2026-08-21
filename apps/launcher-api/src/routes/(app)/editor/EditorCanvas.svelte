@@ -2292,16 +2292,40 @@
 		// the same resolver `EditorSpineLayer` reads — so a sprite symbol drawn here and a spine
 		// symbol drawn by the WebGL layer land on the SAME seat.
 		const geo = reelGridGeometry(node, t.anchor, gridDimensions);
-		const { cellW, cellH, left, top } = geo;
+		const { left, top } = geo;
 		const w = geo.width;
 		const h = geo.height;
+		// Board OUTLINE: a rect while the board is flat (the literal call, unchanged), a TRAPEZOID
+		// once a perspective is authored — the geometry hands back the 4 corners so no vanishing-point
+		// math lives in this drawing code. Each CELL stays an axis-aligned rectangle either way: every
+		// cell in a row shares that row's scale, so a row contracts uniformly and only the BOARD
+		// converges. `clip` is the outline's axis-aligned bound, matching the game's rectangular
+		// `BoardMask` (which deliberately over-extends so the widest row is never clipped).
+		const outlinePath = (): void => {
+			ctx.beginPath();
+			if (!geo.outline) {
+				ctx.rect(left, top, w, h);
+				return;
+			}
+			ctx.moveTo(geo.outline[0].x, geo.outline[0].y);
+			for (let k = 1; k < geo.outline.length; k += 1)
+				ctx.lineTo(geo.outline[k].x, geo.outline[k].y);
+			ctx.closePath();
+		};
 
 		ctx.fillStyle = 'rgba(93, 176, 255, 0.06)';
-		ctx.fillRect(left, top, w, h);
+		if (geo.outline) {
+			outlinePath();
+			ctx.fill();
+		} else {
+			ctx.fillRect(left, top, w, h);
+		}
 
 		ctx.lineWidth = 1;
 		ctx.strokeStyle = 'rgba(93, 176, 255, 0.45)';
-		for (const seat of geo.seats) ctx.strokeRect(seat.x, seat.y, cellW, cellH);
+		// The cell box comes off the SEAT (`w`/`h`), never off `geo.cellW`/`cellH` — under perspective
+		// a back-row cell is smaller than a front-row one, and the seat is where that lives.
+		for (const seat of geo.seats) ctx.strokeRect(seat.x, seat.y, seat.w, seat.h);
 
 		// Real symbol art per cell: the static binding drawn CENTRED on the seat, CLIPPED to the
 		// board window, and CONTAIN-fit to the cell by its own art (no size param — matches the
@@ -2310,8 +2334,8 @@
 		// same geometry), so this path only marks the ones it can't render yet; an unresolved
 		// sprite frame falls back to the amber marker square.
 		const statics = symbolStatics;
-		const drawMarker = (cx: number, cy: number, label?: string): void => {
-			const sym = Math.min(cellW, cellH);
+		const drawMarker = (cx: number, cy: number, cw: number, ch: number, label?: string): void => {
+			const sym = Math.min(cw, ch);
 			ctx.fillStyle = 'rgba(255, 196, 93, 0.10)';
 			ctx.strokeStyle = 'rgba(255, 196, 93, 0.7)';
 			ctx.fillRect(cx - sym / 2, cy - sym / 2, sym, sym);
@@ -2324,23 +2348,26 @@
 		};
 		for (const seat of geo.seats) {
 			const { cx, cy } = seat;
+			// This CELL's box — its own size under perspective, `cellW`/`cellH` while flat.
+			const cellW = seat.w;
+			const cellH = seat.h;
 			const cell = statics.length
 				? statics[(seat.j * geo.reels + seat.i) % statics.length]
 				: undefined;
 			if (!cell) {
-				drawMarker(cx, cy);
+				drawMarker(cx, cy, cellW, cellH);
 				continue;
 			}
 			if (cell.type === 'spine') {
 				// The spine overlay renders this cell's real skeleton once the bundle is ready
 				// (it reports the key via `readySpineKeys`) — until then the amber marker stands in,
 				// exactly like a spine NODE's placeholder.
-				if (!readySpineKeys.has(cell.assetKey)) drawMarker(cx, cy, 'spine');
+				if (!readySpineKeys.has(cell.assetKey)) drawMarker(cx, cy, cellW, cellH, 'spine');
 				continue;
 			}
 			const found = findRegion(cell.assetKey, cell.assetKey);
 			if (!found) {
-				drawMarker(cx, cy);
+				drawMarker(cx, cy, cellW, cellH);
 				continue;
 			}
 			// Symbol size comes from the ART, not a size param: CONTAIN-fit the region into
@@ -2362,7 +2389,9 @@
 			// at the window edge here exactly as it does live.
 			ctx.save();
 			ctx.beginPath();
-			ctx.rect(left, top, w, h);
+			const clip = geo.clip;
+			if (clip) ctx.rect(clip.x, clip.y, clip.w, clip.h);
+			else ctx.rect(left, top, w, h);
 			ctx.clip();
 			ctx.translate(cx, cy);
 			const symTransform: import('engine-layout').ResolvedTransform = {
@@ -2379,7 +2408,12 @@
 
 		ctx.lineWidth = 2;
 		ctx.strokeStyle = '#5db0ff';
-		ctx.strokeRect(left, top, w, h);
+		if (geo.outline) {
+			outlinePath();
+			ctx.stroke();
+		} else {
+			ctx.strokeRect(left, top, w, h);
+		}
 	}
 
 	/**

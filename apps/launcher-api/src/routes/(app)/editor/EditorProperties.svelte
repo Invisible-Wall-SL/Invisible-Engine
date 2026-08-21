@@ -34,6 +34,7 @@
 		type LayoutType,
 		type NodeOverride,
 		type ReelGridNode,
+		type ReelGridPerspective,
 		type ReelSpinProfile,
 		type Scene,
 		type SpineCue,
@@ -795,6 +796,47 @@
 		else (a as Record<string, number | string>)[key] = raw;
 		// Drop an empty object so an untouched node carries no `anticipation` (parity).
 		n.anticipation = Object.keys(a).length ? a : undefined;
+		markDirty();
+	}
+
+	// PERSPECTIVE board mode (reelGrid node) — docs/design/perspective-board-mode.md. Two SHAPE
+	// knobs plus the mode switch, all sparse: nothing is written until the author types something,
+	// and clearing a field removes it again, so an untouched node serialises byte-identically to
+	// today. That parity is the whole contract of the feature — `apps/lines` is the shared runtime
+	// bundle every online game runs, so a stray `perspective: {}` on a live board is a risk with no
+	// upside.
+	const PERSPECTIVE_FIELDS: {
+		key: 'farScale' | 'vanishX';
+		label: string;
+		step: number;
+		placeholder: string;
+	}[] = [
+		{ key: 'farScale', label: 'far scale', step: 0.01, placeholder: '1 (flat)' },
+		{ key: 'vanishX', label: 'vanishing point x', step: 1, placeholder: 'board centre' },
+	];
+
+	function readPerspective(n: ReelGridNode, key: 'farScale' | 'vanishX') {
+		return n.perspective?.[key] ?? '';
+	}
+
+	/** Write ONE perspective field. A blank / NaN input deletes it; an empty block becomes
+	 *  `undefined` so the node carries no `perspective` at all. */
+	function writePerspective(n: ReelGridNode, key: 'farScale' | 'vanishX', raw: number): void {
+		const p: ReelGridPerspective = { ...(n.perspective ?? {}) };
+		if (Number.isFinite(raw)) p[key] = raw;
+		else delete p[key];
+		n.perspective = Object.keys(p).length ? p : undefined;
+		markDirty();
+	}
+
+	/** The MODE switch, kept independent of the shape knobs on purpose (a stylised game may want a
+	 *  converging grid that still rolls, or a flat board that swaps). Off ⇒ the key is deleted, not
+	 *  written as `false`, so it too leaves no trace. */
+	function writeSwapInPlace(n: ReelGridNode, on: boolean): void {
+		const p: ReelGridPerspective = { ...(n.perspective ?? {}) };
+		if (on) p.swapInPlace = true;
+		else delete p.swapInPlace;
+		n.perspective = Object.keys(p).length ? p : undefined;
 		markDirty();
 	}
 
@@ -3626,6 +3668,50 @@
 						</label>
 					{/each}
 				</div>
+			</details>
+			<details class="spin-tuning">
+				<summary>Perspective (advanced)</summary>
+				<p class="muted small">
+					Lays the SAME lattice on a converging ground plane instead of a flat rectangle — cells
+					further back sit closer together and draw smaller. Blank <strong>far scale</strong> (or 1)
+					= the flat board, unchanged. Every other knob above keeps meaning what it means; it is contracted
+					toward the vanishing point by its row's scale.
+				</p>
+				<div class="spin-grid">
+					{#each PERSPECTIVE_FIELDS as f (f.key)}
+						<label class="field">
+							<span>{f.label}</span>
+							<input
+								type="number"
+								step={f.step}
+								placeholder={f.placeholder}
+								value={readPerspective(node, f.key)}
+								oninput={(e) => writePerspective(node, f.key, e.currentTarget.valueAsNumber)}
+							/>
+						</label>
+					{/each}
+				</div>
+				<p class="muted small">
+					<strong>far scale</strong> is the BACK row's size relative to the front row (0.6 = the
+					furthest row draws at 60 %). It drives the size shrink AND the row-pitch compression, so
+					the two can never drift apart. <strong>vanishing point x</strong> is in the game's board-local
+					units — leave it blank to converge on the lattice centre, set it to match painted ground art
+					whose vanishing point sits off-centre.
+				</p>
+				<label class="field check">
+					<input
+						type="checkbox"
+						checked={node.perspective?.swapInPlace === true}
+						onchange={(e) => writeSwapInPlace(node, e.currentTarget.checked)}
+					/>
+					<span>swap symbols in place (no spinning reels)</span>
+				</label>
+				<p class="muted small">
+					Independent of the shape: a stylised game may want a converging grid that still rolls, or
+					a flat board that swaps. With this on, a round drops the new board in and cascades instead
+					of rolling — and the reel-shaped behaviours (anticipation, sequential stop, stacked
+					pictures) stand down.
+				</p>
 			</details>
 		</section>
 	{:else if node.kind === 'text'}
