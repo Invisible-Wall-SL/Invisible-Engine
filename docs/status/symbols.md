@@ -325,6 +325,29 @@ Working on `main`:
 
 ## Recent changes
 
+- 2026-08-21 — **`_shared/spines/` now carries the engine's whole Spine set (29 bundles), not just the boot mark.**
+  Follow-on to the explosion below, same cause: the shared library seeded sprite SHEETS only, so a
+  new project could bind no animation at all. Seeded every skeleton `apps/lines` ships — chrome
+  (`engine-loader`, `engine-transition`, `engine-bigwin`, `engine-anticipation`,
+  `engine-reelhouse-glow`, `engine-foreground[-feature]`, `engine-buy-button`, `engine-fs-*`,
+  `engine-global-multiplier`, `engine-cluster-pay`, `engine-tumble-*`, `engine-win-meter-explosion`)
+  and symbols (`engine-symbol-h1`…`l4`, `-m`, `-s`, `-w`). ~16.4MB in R2.
+  **Split ONE BUNDLE PER SKELETON, deliberately.** Upstream packs many skeletons behind one shared
+  atlas (`symbols/` holds nine), but a spine cell/node stores a bundle PREFIX plus an animation name
+  — there is no skeleton selector, and `resolveEditorSpine` / `exportSpineBundle` both take the
+  folder's FIRST `skeletons.json` entry. Shipping `symbols/` whole would have published nine
+  skeletons of which only `h1` could resolve, and binding `h3` would preview wrong AND ship wrong —
+  the same silent class of bug as the index gap below. **Known cost, not a surprise:** a split family
+  re-copies its atlas page per skeleton, and `symbolExport` does NOT use the content-addressed
+  `PageStore` that `editorArtExport` does (its `_pages/` store lives under a different deploy
+  subtree), so binding all nine picture spines ships ~6.6MB where a packed sheet ships ~0.75MB.
+  Documented in the guide; giving `symbolExport` a page store is a separate job.
+  Seeder: `apps/launcher-api/scripts/seed-shared-engine-spines.mjs` (idempotent, `--dry-run`,
+  `--only <bundle>`; merges into `skeletons.json` so the boot-mark entry survives). Verified against
+  R2 after seeding: 30 prefixes, 30 index entries, exactly one entry per folder, every skeleton +
+  atlas + page present and each atlas' page line resolving, boot mark intact, no orphans.
+  ⏳ owner verify in the picker.
+
 - 2026-08-21 — **The Explosion state finally has a default to bind: `_shared/spines/engine-explosion`.**
   `Explosion` was the only state the shared library offered nothing for — `_shared/sheets/` seeds
   sprite sheets only, and `_shared/spines/` held just the engine boot mark. Since only the cascade

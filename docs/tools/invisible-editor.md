@@ -124,7 +124,8 @@ Open the **Library** tab. It is grouped into:
 - **Atlases** — composed atlas pages and atlas manifests. Manifest entries
   expand to their individual regions, which you drag in one at a time.
 - **Spines** — the project's spine bundles (plus shared `_shared/` bundles,
-  badged "shared"). There is an **Upload spines** action to sync a folder of
+  badged "shared" — see [the shared spine library](#the-shared-spine-library)).
+  There is an **Upload spines** action to sync a folder of
   Spine bundles into the project's storage.
 - **Sheets** — sheet outputs; expand to drag individual regions.
 - **Effects** — the project's authored **Invisible FX** particle effects; drag
@@ -140,6 +141,51 @@ Open the **Library** tab. It is grouped into:
   effect on the beat. Left as **free**, the effect just plays at its placed
   position. The effect's particle atlas ships automatically (the export bakes it
   in) — no need to place the atlas separately.
+
+### The shared spine library
+
+Bundles badged **shared** come from `_shared/spines/` — a cross-project library any
+project can place from without owning it, the spine twin of `_shared/sheets/`. It
+resolves **project-first**: a project bundle of the same name shadows the shared one, so
+the library can never override work a project owns. Shared bundles travel the export →
+`deploy/` → bake → pull chain exactly like project ones.
+
+It is seeded with the engine's own set — the animation `apps/lines` ships — so a new
+project has something to place before it has commissioned anything:
+
+| Bundle | Animations |
+| --- | --- |
+| `engine-loader` | `title_screen` |
+| `engine-transition` | `animation` |
+| `engine-bigwin` | `big_win` / `super_win` / `mega_win` / `epic_win` / `max_win`, each `_intro` `_idle` `_exit` |
+| `engine-anticipation` | `anticipation[1-4]_intro` `_loop` `_out`, plus `payframe` (the win frame) |
+| `engine-reelhouse-glow` | `reelhouse_glow_start` `_idle` `_exit` |
+| `engine-foreground` · `engine-foreground-feature` | `idle`, `dust` |
+| `engine-buy-button` | `buy_button_default` `_hover` `_click` `_disabled`, `_active_intro` `_idle` `_exit` |
+| `engine-fs-screen` · `engine-fs-screen-number` · `engine-fs-total-number` | `intro`, `idle` |
+| `engine-global-multiplier` | `static`, `increment`, `win`, `reset` |
+| `engine-cluster-pay` | `win`, `multiwin` |
+| `engine-tumble-win` · `engine-tumble-multiplier` | `explosion`, `idle` / `static`, `explosion_mobile` |
+| `engine-win-meter-explosion` | `explosion` |
+| `engine-symbol-h1`…`h5`, `engine-symbol-l1`…`l4` | `<id>`, `<id>_static` |
+| `engine-symbol-m` | the multiplier set (`2x`…`10x` × `_land` `_static`, `low`/`mid`/`high_multiplier_*`) |
+| `engine-symbol-s` | `scatter_static` `_spin` `_land` `_win` |
+| `engine-symbol-w` | `wild_dynamite` `_static` `_land` `_exploded_static` |
+| `engine-explosion` | `explosion` — the Symbols tool's Explosion default ([why](symbols-state-machine.md#the-shared-spine-library)) |
+
+**One bundle per skeleton, by design.** Upstream packs several skeletons behind one
+shared atlas (`symbols/` holds h1…l4). The editor addresses a bundle by FOLDER plus an
+animation name — there is no skeleton selector, and the resolver takes the folder's first
+`skeletons.json` entry — so a folder shipped whole would publish nine skeletons of which
+only `h1` could ever resolve. They are split so every animation is actually placeable.
+The cost is that a split family re-copies its atlas page per skeleton; the editor's export
+dedups identical pages content-addressed, so placing several costs one page, but the
+Symbols export does not (see the note in its guide).
+
+The library is **read-only from the tools** — it is curated out-of-band by
+`apps/launcher-api/scripts/seed-shared-engine-spines.mjs`, plus the admin panel's
+"bring a spine into the shared library" promote for the engine boot mark. To make one your
+own, place it, then re-author it in the [Rigger](/docs/rigger) under your project.
 
 **Drag any library item onto the canvas** to spawn a node in the active screen.
 The editor renders the real texture (and spine bundles preview as a live

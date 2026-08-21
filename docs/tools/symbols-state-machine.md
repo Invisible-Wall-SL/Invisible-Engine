@@ -435,15 +435,21 @@ It is **read-only** from the tools: nothing in the launcher writes to `_shared/s
 so the library is curated out-of-band. To make art your own, export it into the
 project's own sheets with the Sheet Maker and rebind.
 
-### The shared SPINE library
+### The shared spine library
 
-The spine-bundle picker has the same two tiers. A bundle listed as **shared** comes from
+The spine-bundle picker has the same two tiers. A bundle badged **shared** comes from
 `_shared/spines/`, resolves project-first (a project bundle of the same name shadows it),
-and ships through the same export chain.
+and ships through the same export chain. The full library — chrome and symbols alike — is
+listed in [the Scene Editor guide](invisible-editor.md#the-shared-spine-library); the
+bundles that matter here are:
 
-| Bundle             | Animation   | What it is                                     |
-| ------------------ | ----------- | ---------------------------------------------- |
-| `engine-explosion` | `explosion` | the engine sample explosion — the **Explosion** state's default art |
+| Bundle | Animations | Bind it to |
+| --- | --- | --- |
+| `engine-symbol-h1`…`h5`, `engine-symbol-l1`…`l4` | `<id>`, `<id>_static` | that symbol's Win / Static |
+| `engine-symbol-m` | `2x`…`10x` × `_land` `_static`, `low`/`mid`/`high_multiplier_*` | the multiplier |
+| `engine-symbol-s` | `scatter_static` `_spin` `_land` `_win` | the scatter, state for state |
+| `engine-symbol-w` | `wild_dynamite` `_static` `_land` `_exploded_static` | the wild |
+| `engine-explosion` | `explosion` | **Explosion**, on any symbol |
 
 `engine-explosion` exists because `Explosion` was the one state with nothing to bind. Only
 the cascade asks for it, so almost nobody authors it, and an unauthored state falls back to
@@ -455,6 +461,12 @@ are a Spine `sequence` attachment played on two slots, the second `additive`, an
 single ordered frame list cannot carry that second layer. (There is also no shared clip
 library — clips are per-project only.) Bind it like any other spine cell: pick
 `engine-explosion`, animation `explosion`.
+
+**One thing to watch on weight.** The symbol bundles were split out of one shared atlas, so
+each carries its own copy of that ~0.75MB page. The Scene Editor's export dedups identical
+pages; **the symbols export does not** — it copies a page per bound bundle. Binding all
+nine `engine-symbol-*` picture spines therefore ships ~6.6MB where one packed sheet would
+ship ~0.75MB. Fine for getting a game readable; pack your own sheet before you ship.
 
 What is in it today:
 
