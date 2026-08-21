@@ -34,6 +34,9 @@ function repairablePrefix(value: unknown): string | null {
 function nodeRefs(node: LayoutNode): unknown[] {
 	if (node.kind === 'sprite') return [node.assetKey, node.region];
 	if (node.kind === 'componentInstance') return Object.values(node.params ?? {});
+	// A reel grid's GROUND TILE art is a scoped frame ref like a sprite's `region`, so it can
+	// arrive in the same un-scopeable legacy form and lose the same atlas PIN.
+	if (node.kind === 'reelGrid') return [node.tileRegion];
 	return [];
 }
 
@@ -97,6 +100,10 @@ async function repairNode(node: LayoutNode, resolve: Resolve): Promise<void> {
 		}
 		// `region` may itself be a scoped ref (what an image-kind param binding stores).
 		node.region = (await repairScoped(node.region, resolve)) as string | undefined;
+		return;
+	}
+	if (node.kind === 'reelGrid') {
+		node.tileRegion = (await repairScoped(node.tileRegion, resolve)) as string | undefined;
 		return;
 	}
 	if (node.kind === 'componentInstance' && node.params) {

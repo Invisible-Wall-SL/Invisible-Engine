@@ -225,6 +225,20 @@ function collectArtRefs(doc: LayoutDoc, defs: Record<string, ComponentDef>): Art
 		} else if (node.kind === 'spine' && typeof node.assetKey === 'string' && node.assetKey) {
 			refs.spineKeys.add(node.assetKey);
 		}
+		// A `reelGrid` node's GROUND TILE art (docs/design/perspective-board-mode.md §"The tiles").
+		// This `visit` is a per-node-kind WHITELIST, so a kind it has never heard of contributes
+		// nothing — and because the editor reads R2 directly, a tile authored without this branch
+		// would look perfect while it was being placed and ship as a missing frame.
+		//
+		// `addImageRef`, not a copy of the sprite branch above, because the tile key stores exactly
+		// the shape an image-kind param binding stores: a scoped ref pins its atlas (the manifest is
+		// exported and the BARE region is marked used — never the raw `<assetKey>::<frame>` string,
+		// which no sheet can carry and which the dangling guard below would then report as "in NO
+		// shipped atlas"), while a legacy bare name joins the name-guess pool resolved against the
+		// project's atlases.
+		if (node.kind === 'reelGrid' && typeof node.tileRegion === 'string' && node.tileRegion) {
+			addImageRef(refs, node.tileRegion);
+		}
 		if (node.kind === 'componentInstance' && node.params) {
 			const imgKeys = imageParamKeys.get(node.componentId);
 			const spineKeys = spineParamKeys.get(node.componentId);
