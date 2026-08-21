@@ -8,7 +8,9 @@
 		"inspect": "tsx inspect.ts",
 		"winmodel": "tsx winModelRuntime.ts",
 		"waysmath": "tsx waysMath.ts",
-		"wayscrosscheck": "tsx waysCrosscheck.ts"
+		"wayscrosscheck": "tsx waysCrosscheck.ts",
+		"scattermath": "tsx scatterMath.ts",
+		"scattercrosscheck": "tsx scatterCrosscheck.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",
