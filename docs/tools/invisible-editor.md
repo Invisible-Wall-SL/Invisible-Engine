@@ -69,7 +69,7 @@ higher in the list draws further back, lower draws in front. Drag the grip to
 re-stack it; there is no separate layer number to keep in sync.
 
 The list orders screens **above the reels**. The reel board is engine-owned and is
-not itself a screen, so dragging a screen above the **Base game** row does *not*
+not itself a screen, so dragging a screen above the **Base game** row does _not_
 put it behind the reels — for that, tick **Behind the reels** in Properties. That
 mounts the screen under the board and in front of the background; screens behind
 the reels still order against each other by their list position.
@@ -135,7 +135,7 @@ Open the **Library** tab. It is grouped into:
   (still loading, or a bone-attached effect). Change which effect a placed node
   references from the Properties panel. There you can also **attach the effect to
   a rig**: pick a placed Spine node from the "attach to rig" dropdown and the
-  effect rides that rig — a *bone*-placed layer (set in Invisible FX) follows the
+  effect rides that rig — a _bone_-placed layer (set in Invisible FX) follows the
   rig's bone, and the rig's timeline events (authored in the Rigger) fire the
   effect on the beat. Left as **free**, the effect just plays at its placed
   position. The effect's particle atlas ships automatically (the export bakes it
@@ -184,7 +184,7 @@ and **Edit as component** (materialise a container into the Component Editor).
 
 When the **reel grid** node is selected, its Properties panel includes a **"Symbol
 size (× cell)"** Width/Height control. This sets how big the symbol art renders
-*inside* each reel cell, as a fraction of one cell — `1` fills the cell, `0.9`
+_inside_ each reel cell, as a fraction of one cell — `1` fills the cell, `0.9`
 insets it slightly. It applies to **every** symbol on the board, and a **Reset**
 button clears it so the game falls back to its built-in per-symbol sizes.
 
@@ -192,8 +192,49 @@ This is the one place symbol size is authored. (It used to live in the Invisible
 Symbols State Machine, but size is a layout concern, so it moved here to the reel.)
 It is stored as `reelGrid.symbolSizeRatios` on the layout doc and travels to the
 game on the normal scene bake — no separate asset step. Resizing the reel cell
-itself (`cellSize`) scales the grid *and* the symbols together; this control
-changes only the symbol's size *within* its cell.
+itself (`cellSize`) scales the grid _and_ the symbols together; this control
+changes only the symbol's size _within_ its cell.
+
+#### Perspective (advanced)
+
+With the **reel grid** node selected, a **"Perspective (advanced)"** section sits
+below "Anticipation (advanced)". It lays the board out on a converging ground
+plane instead of a flat rectangle: cells further back draw smaller and sit closer
+together, so ordinary upright artwork reads as standing on ground.
+
+- **Far scale** — the back row's size relative to the front row. `0.6` draws the
+  furthest row at 60%. Blank or `1` means a flat board, byte-identical to before,
+  which is the off state. Values above `1` are legal and invert the depth.
+- **Vanishing point x** — the board-local x the columns converge toward, in the
+  game's board units. Blank means the lattice centre, which makes a symmetric
+  board converge symmetrically; set it to match painted ground art whose
+  vanishing point sits off-centre.
+- **Swap symbols in place** — a board behaviour, not a shape: the reels stop
+  rolling and a round replaces symbols in place (the opening board drops in, wins
+  explode, survivors slide down). It is deliberately independent of Far scale —
+  a converging board may still roll, and a flat board may swap.
+
+The preview mirrors the game exactly. Both the 2D canvas and the spine layer read
+one shared geometry, so a sprite symbol and a spine symbol land on the same seat;
+an offline fixture asserts the editor's seats equal the game's across every grid
+shape. Every existing knob keeps working — reel/row padding, gaps, non-square
+cells, per-cell alignment and per-ratio overrides all still mean what they mean,
+and shrink with their row.
+
+Nothing is written to the layout doc until you set a field, so an untouched board
+is unchanged.
+
+#### Ground tiles
+
+The reel grid can also stamp a **tile** image once per cell, drawn from the same
+lattice that seats the symbols — so the tiles and the symbols can never drift out
+of alignment, and they re-fit per aspect ratio for free. Prefer this to ground art
+with the grid painted into it, which has to be hand-matched to pixels and drifts
+the moment a per-ratio override moves the board.
+
+Tiles paint behind every symbol, scale with their row under perspective, and dim
+with the win highlight — the paying cells' tiles stay bright while the rest darken,
+in lockstep with the symbols above them.
 
 ### 5. Author across device layouts
 
@@ -255,7 +296,7 @@ the game.
 `1.00×` is the mark scaled to sit inside a safe box, so the same value holds on
 every screen the game runs on. Above about `1.6×` it can run past the viewport.
 
-Set the animation explicitly unless the skeleton's *first* clip is the right one:
+Set the animation explicitly unless the skeleton's _first_ clip is the right one:
 a spine left on its resting/setup pose renders **empty**, which looks like a
 broken splash rather than an unset one.
 
