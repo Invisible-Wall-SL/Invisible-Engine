@@ -5,7 +5,7 @@
  * Paste this into the browser console of a live Play4Fun-backed game tab
  * (e.g. https://eagaming.com/game/hot-fruits/) to inject a polished
  * presentation panel that shows the live protocol traffic side-by-side
- * with our Stake Engine translation.
+ * with our Invisible Engine translation.
  *
  * Two views:
  *   - Executive: friendly summary of bet → server reply → engine state
@@ -640,7 +640,7 @@
 		if (winEv) lines.push(`<div class="ie-exec-row"><span class="label">Server win</span><span class="value win">+${fmtMoney(winEv.context.pay)} on ${winEv.context.what} ×${winEv.context.occurs}</span></div>`);
 		if (reels) lines.push(`<div class="ie-exec-row"><span class="label">Reels</span><span class="value">${reels.map((r) => r.join('·')).join(' | ')}</span></div>`);
 		if (t.round) {
-			lines.push(`<div class="ie-exec-row"><span class="label">Stake state</span><span class="value">${(t.round.state ?? []).length} book event(s)</span></div>`);
+			lines.push(`<div class="ie-exec-row"><span class="label">Engine state</span><span class="value">${(t.round.state ?? []).length} book event(s)</span></div>`);
 			if (t.round.roundID) lines.push(`<div class="ie-exec-row"><span class="label">Round ID</span><span class="value">${t.round.roundID}</span></div>`);
 		}
 		if (t.balance) lines.push(`<div class="ie-exec-row"><span class="label">New balance</span><span class="value">${fmtMoney(t.balance.amount)}</span></div>`);
@@ -651,7 +651,7 @@
 	const renderEng = (entry) => {
 		const cols = [
 			{
-				cls: 'outgoing', head: '↑ Outgoing (Stake intent)',
+				cls: 'outgoing', head: '↑ Outgoing (engine intent)',
 				body: JSON.stringify({
 					url: entry.url,
 					method: entry.method,
@@ -665,7 +665,7 @@
 				body: JSON.stringify(entry.response, null, 2) || entry.rawText || '(empty)',
 			},
 			{
-				cls: 'translated', head: '⇄ Translated (Stake shape)',
+				cls: 'translated', head: '⇄ Translated (engine shape)',
 				body: JSON.stringify(entry.translated, null, 2),
 			},
 		];

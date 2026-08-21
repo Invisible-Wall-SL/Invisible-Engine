@@ -1,8 +1,8 @@
 /**
- * Bidirectional translator between the Stake Engine internal request shape
+ * Bidirectional translator between the Invisible Engine internal request shape
  * and the Play4Fun batched-action `/rgs/engine` protocol.
  *
- *   Stake Engine                        Play4Fun
+ *   Invisible Engine                        Play4Fun
  *   ────────────                        ────────
  *   requestBet({amount, mode, …}) ──►   [{action:'bet', context:[a,b]},
  *                                        {action:'play', context:''|null}]
@@ -10,7 +10,7 @@
  *   res_play { round: { state: [] } } ◄── { events:[], platform:{balance,…} }
  *
  * The Play4Fun `events` array IS already a sequence of book events in the
- * shape Stake Engine consumes — translation mostly relays them through and
+ * shape Invisible Engine consumes — translation mostly relays them through and
  * reshapes the platform/balance envelope.
  */
 
@@ -24,12 +24,12 @@ import {
 	type Play4FunResponse,
 } from './types';
 
-/** API_AMOUNT_MULTIPLIER from constants-shared/bet — Stake Engine multiplies
+/** API_AMOUNT_MULTIPLIER from constants-shared/bet — Invisible Engine multiplies
  *  the human bet by this when sending. We don't import it here to keep this
  *  package free of internal-engine deps; the caller scales bet/payout as needed. */
 
-export interface StakeBetRequest {
-	/** Bet amount in Stake Engine's integer units (already multiplied). */
+export interface EngineBetRequest {
+	/** Bet amount in Invisible Engine's integer units (already multiplied). */
 	amount: number;
 	mode: string;
 	currency: string;
@@ -43,7 +43,7 @@ export interface StakeBetRequest {
 	playContext?: PlayContext;
 }
 
-export interface StakeBetResponse {
+export interface EngineBetResponse {
 	status: { statusCode: 'SUCCESS' | string; statusMessage?: string };
 	balance?: { amount: number; currency: string };
 	round?: {
@@ -60,7 +60,7 @@ export interface StakeBetResponse {
 	_raw?: Play4FunResponse;
 }
 
-const buildBetContext = (req: StakeBetRequest): BetContext => {
+const buildBetContext = (req: EngineBetRequest): BetContext => {
 	const linesOrConfig = req.betLinesOrConfig ?? 5;
 	const betPerLine = Math.max(1, Math.round(req.amount / linesOrConfig));
 	return [linesOrConfig, betPerLine];
@@ -68,7 +68,7 @@ const buildBetContext = (req: StakeBetRequest): BetContext => {
 
 /** Build the request body for a bet+play round. Default is auto-collect mode
  *  (`play.context = ''`) which closes the round in a single round-trip. */
-export const buildBetActions = (req: StakeBetRequest): Play4FunRequestBody => {
+export const buildBetActions = (req: EngineBetRequest): Play4FunRequestBody => {
 	const playContext: PlayContext = req.playContext === undefined ? '' : req.playContext;
 	return [
 		{ action: 'bet', context: buildBetContext(req) },
@@ -107,12 +107,12 @@ const computeRoundFinancials = (events: Play4FunBookEvent[]): { amount?: number;
 	return { amount, payout, payoutMultiplier, active };
 };
 
-/** Reshape a Play4Fun response into the Stake Engine `res_play` shape so the
+/** Reshape a Play4Fun response into the Invisible Engine `res_play` shape so the
  *  existing book-event pipeline can consume it. */
 export const translateBetResponse = (
 	raw: Play4FunResponse | null | undefined,
 	currency = 'USD',
-): StakeBetResponse => {
+): EngineBetResponse => {
 	if (!raw) {
 		return { status: { statusCode: 'ERR_UE', statusMessage: 'no response' } };
 	}

@@ -1,10 +1,10 @@
 /**
- * Dedicated entry that re-exports the Stake-shaped facade only.
+ * Dedicated entry that re-exports the engine-shaped facade only.
  *
  * Aliased by apps via Vite resolve.alias when they want to swap their
  * `rgs-requests` import for the Play4Fun-backed implementation:
  *
- *   resolve.alias['rgs-requests'] = 'rgs-translator-eagaming/stake-facade'
+ *   resolve.alias['rgs-requests'] = 'rgs-translator-eagaming/engine-facade'
  */
 
 export {
@@ -14,7 +14,7 @@ export {
 	requestEndEvent,
 	requestReplay,
 	getSessionState,
-} from './src/stakeFacade';
+} from './src/engineFacade';
 
 /** Re-export of `BetType` from the original rgs-requests, kept identical so
  *  game code that does `import type { BetType } from 'rgs-requests'` continues

@@ -6,7 +6,7 @@
 //
 // Why over HTTP rather than calling the evaluator: the evaluator is unit-checked separately by
 // check-ways-evaluator.mjs. What this covers is the part that silently breaks — that the win
-// survives the round lifecycle and reaches the wire in the shape `stakeFacade.winPositions` can
+// survives the round lifecycle and reaches the wire in the shape `engineFacade.winPositions` can
 // read. A ways win whose positions arrive as an object instead of an array still PAYS and lights
 // up nothing, which looks like an art bug rather than a protocol one.
 

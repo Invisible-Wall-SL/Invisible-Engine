@@ -72,7 +72,7 @@ export interface Play4FunConfigContext {
 	[extra: string]: unknown;
 }
 
-/** Each event mirrors the Stake Engine book-event shape: a tagged record with
+/** Each event mirrors the Invisible Engine book-event shape: a tagged record with
  *  an `event` discriminator and a context payload whose shape depends on the
  *  tag. Listed below are the events we've observed; treat the union as open. */
 export type Play4FunBookEvent =

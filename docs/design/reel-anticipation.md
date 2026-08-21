@@ -11,7 +11,7 @@
 ## The ask
 
 Add reel **anticipation** as a swappable **mode** (like sequential reel stop — enable/disable +
-signal-driven), but a much richer one than Stake's built-in:
+signal-driven), but a much richer one than the upstream SDK's built-in:
 
 - **Client-computed from the final board**, not a server `anticipation[]` flag.
 - **Per reel column.** As reels settle one by one, decide per reel whether a qualifying win is
@@ -27,7 +27,7 @@ signal-driven), but a much richer one than Stake's built-in:
   configured in the **Symbols SM editor**.
 
 This is the classic reel-tease mechanic (Gates of Olympus slowing the last reels, Book-of games
-teasing the 3rd book). Stake's SDK ships only a thin, server-driven, binary version of it.
+teasing the 3rd book). The upstream SDK ships only a thin, server-driven, binary version of it.
 
 ## What exists today (and why it's not enough)
 
@@ -50,10 +50,10 @@ graded, and escalating**.
 Two independent methods (a server flag AND a client calc) would be confusing, and the server one is
 already effectively **dead**:
 
-- The live facade hard-zeros it: `stakeFacade.ts` emits `anticipation: reels.map(() => 0)`. So the
+- The live facade hard-zeros it: `engineFacade.ts` emits `anticipation: reels.map(() => 0)`. So the
   ACTUAL running game (Play4Fun / Borut through the facade) never receives a non-zero flag — server
   anticipation is inert in production today.
-- The only non-zero data anywhere is the upstream Stake **Storybook sample books**
+- The only non-zero data anywhere is the upstream **Storybook sample books**
   (`anticipation: [0, 0, 1, 2, 3]`, always on bonus/free-spin books) — a dev-only surface. Its
   purpose was **scatter / feature-trigger tease** in free spins, with per-reel escalating intensity.
 - Crucially, the server can NEVER supply a **near-miss** tease: a near-miss is just a losing spin, so

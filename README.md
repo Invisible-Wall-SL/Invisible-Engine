@@ -132,7 +132,7 @@ pnpm run dev --filter=lines
 
 - It is all good to have that error screen for now, because we have not connected to the RGS with DEV mode. We will show you how to do that in the launch-a-game step.
 
-- For more information about how the authentication is handled, please refer to [Authenticate.svelte](https://github.com/StakeEngine/web-sdk/blob/main/packages/components-shared/src/components/Authenticate.svelte)
+- For more information about how the authentication is handled, please refer to [Authenticate.svelte](https://github.com/Invisible-Wall-SL/Invisible-Engine/blob/main/packages/components-shared/src/components/Authenticate.svelte)
 
 <a name="buildAGame"></a>
 
@@ -159,7 +159,6 @@ build
   |-assets
   |-favicon.svg
   |-loader.gif
-  |-stake-engine-loader.gif
 ```
 - Now you are ready to upload a game!
 
@@ -196,7 +195,7 @@ Congratulations! You've completed the tutorial. You can explore the more content
   - A: You can use anything as long as it compiles to a static website, it is only recommended to use the web-sdk for the easiest development and integration experience as everything is already set up for you, but you can also just fork it or take certain parts of it.
 
 - Q: If we use our own UI/Web SDK, how can we pass configuration data into it?
-  - A: About how we handle authentication, configuration, jurisdiction and so on, you can find the answers and an example here: [Authenticate.svelte](https://github.com/StakeEngine/web-sdk/blob/main/packages/components-shared/src/components/Authenticate.svelte)
+  - A: About how we handle authentication, configuration, jurisdiction and so on, you can find the answers and an example here: [Authenticate.svelte](https://github.com/Invisible-Wall-SL/Invisible-Engine/blob/main/packages/components-shared/src/components/Authenticate.svelte)
 
 - Q: Do you have any specific policies (or methods) for handling currencies?
   - A: Check the function "numberToCurrencyString" in "packages/utils-shared/amount.ts", you will find that any currency that can be handled by "i18n.number" is supported. The currency will be passed in from the authentication request like this "stateBet.currency = authenticateData.balance.currency;". Two special currencies from the social casino like `stake.us` will be handled by "NO_LOCALISATION_CURRENCY_MAP".
@@ -241,7 +240,7 @@ const BET_TYPE_METHODS_MAP = {
 
 - Q: From what I see, most of the animated graphics seem to be spine, is their any other alternatives that you know of, besides spine?
   - A: Spritesheet animation is a good alternative.
-Check out the example of spritesheet animation here: [SpriteSheet.stories.svelte](https://github.com/StakeEngine/web-sdk/blob/main/packages/pixi-svelte-storybook/src/stories/SpriteSheet.stories.svelte)
+Check out the example of spritesheet animation here: [SpriteSheet.stories.svelte](https://github.com/Invisible-Wall-SL/Invisible-Engine/blob/main/packages/pixi-svelte-storybook/src/stories/SpriteSheet.stories.svelte)
 
 - Q: Is there a mechanism to switch from a game type (i.e. lines) to another game type (i.e. cluster) as a mechanic?
   - A: It's easy. What you can do:

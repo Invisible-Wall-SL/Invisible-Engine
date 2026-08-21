@@ -3380,7 +3380,7 @@
 			<p class="muted small">
 				Board layout — position, cell size, non-square cell width/height, gaps and reel/row padding
 				all drive the LIVE in-game board. Reels/rows are descriptive (the RGS sets the real board
-				shape; a mismatch only warns). Symbol art keeps its aspect (Stake sizing); gaps space the
+				shape; a mismatch only warns). Symbol art keeps its aspect (engine sizing); gaps space the
 				cells, padding insets the whole grid. Position the grid with the Transform section above.
 			</p>
 			<div class="row">

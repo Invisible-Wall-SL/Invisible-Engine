@@ -9,7 +9,7 @@
  *
  * `apps/ways` ships COSMETIC padding reels — every symbol equally often — and says so in its
  * `config.ts`: "inventing those here would be fabricating game math". `apps/lines` ships REAL
- * 217-cell strips that came from Stake's math export, where the frequencies ARE the hit rate. A
+ * 217-cell strips that came from the math SDK export, where the frequencies ARE the hit rate. A
  * real ways export has to come from a math engine; it is not something to hand-tune in a client
  * repo.
  *

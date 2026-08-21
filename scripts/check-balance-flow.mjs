@@ -3,14 +3,14 @@
  *   requestBet      → returns interim (bet debited, win NOT yet credited)
  *   requestEndRound → returns final (win credited)
  */
-import { requestAuthenticate, requestBet, requestEndRound } from '../packages/rgs-translator-eagaming/stake-facade.ts';
+import { requestAuthenticate, requestBet, requestEndRound } from '../packages/rgs-translator-eagaming/engine-facade.ts';
 
 const url = `http://localhost:${process.env.PORT ?? 7777}`;
 const sid = `flow-${Date.now()}`;
 
 const auth = await requestAuthenticate({ sessionID: sid, rgsUrl: url, language: 'en' });
 const startStake = auth.balance.amount;
-console.log(`auth balance (Stake units): ${startStake}  (= $${startStake / 1_000_000})`);
+console.log(`auth balance (engine units): ${startStake}  (= $${startStake / 1_000_000})`);
 
 for (let i = 0; i < 80; i++) {
 	const bet = await requestBet({
@@ -32,7 +32,7 @@ for (let i = 0; i < 80; i++) {
 	const finalStake = end.balance.amount;
 	console.log(`  requestEndRound returned (final): ${finalStake}  (= $${finalStake / 1_000_000})`);
 
-	const expectedDelta = winMultiplier * 2 * 1_000_000; // win in Stake units
+	const expectedDelta = winMultiplier * 2 * 1_000_000; // win in engine units
 	const actualDelta = finalStake - interimStake;
 	console.log(`  delta: ${actualDelta}  (expect ${expectedDelta})`);
 	if (actualDelta === expectedDelta) console.log(`  ✓ count-up will animate from $${interimStake / 1_000_000} to $${finalStake / 1_000_000}`);

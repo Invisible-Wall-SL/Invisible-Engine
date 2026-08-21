@@ -59,7 +59,7 @@ const bool = (v: unknown, fallback: boolean): boolean => (typeof v === 'boolean'
 
 /**
  * One paytable row. A multi-key object (`{ '5': 20, '4': 10 }`) is SPLIT into one row per key
- * rather than rejected: the Stake export writes single-entry rows, but a hand-written or
+ * rather than rejected: the math export writes single-entry rows, but a hand-written or
  * tool-emitted config reasonably writes one object, and both mean the same thing.
  */
 const normalizePaytable = (raw: unknown): PaytableRow[] | undefined => {
@@ -214,7 +214,7 @@ const normalizeCardParams = (
  * Per-mode presentation. Kept only for a mode that actually EXISTS in `betModes` (`validModes`) and
  * only the fields that carry meaning — a `kind`, an `order`, and non-empty copy. An entry that
  * resolves to nothing is dropped, so the whole map is omitted when un-authored and an un-presented
- * config stays byte-identical to a Stake export. Mirrors `normalizePaylineColors`.
+ * config stays byte-identical to a math export. Mirrors `normalizePaylineColors`.
  */
 const normalizeBetModePresentation = (
 	raw: unknown,
@@ -339,7 +339,7 @@ const normalizeWinTier = (raw: unknown): WinLevelTier | undefined => {
 /**
  * The authored win tiers. A list of well-formed tiers, or `undefined` when the block is absent or
  * describes no usable tier — the un-authored signal, so an un-authored config is byte-identical to a
- * Stake export and the game keeps its coded `winLevelMap`. Order is preserved (the ladder is
+ * math export and the game keeps its coded `winLevelMap`. Order is preserved (the ladder is
  * positional); the validator flags non-ascending thresholds rather than reordering the author's work.
  */
 const normalizeWinLevels = (raw: unknown): WinLevelTier[] | undefined => {
@@ -422,7 +422,7 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 	if (cascade !== undefined) doc.cascade = cascade;
 
 	// Win tiers + escalation flags are kept ONLY when tiers are authored, so an un-authored config
-	// omits all three and stays byte-identical to a Stake export (the coded `winLevelMap` fallback).
+	// omits all three and stays byte-identical to a math export (the coded `winLevelMap` fallback).
 	const winLevels = normalizeWinLevels(raw.winLevels);
 	if (winLevels) {
 		doc.winLevels = winLevels;

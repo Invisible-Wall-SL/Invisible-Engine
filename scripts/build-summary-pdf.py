@@ -65,13 +65,13 @@ def section(title, flowables):
 story = []
 
 story.append(Paragraph("Riassunto del lavoro — stato attuale", title_style))
-story.append(Paragraph("Progetto Invisible Engine · adattamento Stake Engine ↔ Play4Fun", subtitle_style))
+story.append(Paragraph("Progetto Invisible Engine · adattamento Invisible Engine ↔ Play4Fun", subtitle_style))
 
 story.append(section("Cosa ho costruito finora", [
     bullets([
-        "Un <b>traduttore</b> (<font face='Courier'>packages/rgs-translator-eagaming</font>) che fa da ponte tra il protocollo Play4Fun (usato da EAGaming / Hot Fruits) e quello atteso dallo Stake Engine.",
+        "Un <b>traduttore</b> (<font face='Courier'>packages/rgs-translator-eagaming</font>) che fa da ponte tra il protocollo Play4Fun (usato da EAGaming / Hot Fruits) e quello atteso dallo Invisible Engine.",
         "Un <b>mock server</b> locale (<font face='Courier'>scripts/mock-rgs-server.mjs</font>) che imita Play4Fun, così posso sviluppare e testare senza dipendere dal server reale.",
-        "Un <b>facade</b> che espone l'intero sistema nella forma che lo Stake Engine già conosce (stessi nomi di funzioni, stessa shape dei dati).",
+        "Un <b>facade</b> che espone l'intero sistema nella forma che lo Invisible Engine già conosce (stessi nomi di funzioni, stessa shape dei dati).",
         "L'app <font face='Courier'>lines</font> punta al facade tramite alias Vite — nessuna modifica all'engine originale.",
     ]),
 ]))
@@ -95,7 +95,7 @@ story.append(section("Cosa funziona", [
     ]),
 ]))
 
-story.append(section("Cosa so dello Stake Engine (architettura)", [
+story.append(section("Cosa so dello Invisible Engine (architettura)", [
     bullets([
         "Monorepo Turborepo con <b>6 app di gioco</b> (<font face='Courier'>lines</font>, <font face='Courier'>cluster</font>, <font face='Courier'>scatter</font>, <font face='Courier'>ways</font>, <font face='Courier'>number-picker</font>, <font face='Courier'>price</font>) e ~30 pacchetti condivisi.",
         "Stack: <b>Svelte 5 + SvelteKit</b>, <b>PixiJS 8</b> per il rendering, <b>XState 5</b> per la macchina a stati del gioco, <b>pixi-svelte</b> come ponte dichiarativo interno.",

@@ -404,7 +404,7 @@ resized its grid.
    server's own fixture DOES, by default, for `cluster`/`scatter` — a project can also state
    `cascade` in its Game Config. That makes the mechanic exercisable; it does not make the wire
    captured, and the paragraph below still holds for a real provider.) Both mocks speak the Play4Fun
-   vocabulary and `stakeFacade` translates it, and every piece of that stack was verified against a
+   vocabulary and `engineFacade` translates it, and every piece of that stack was verified against a
    real capture. There is no capture of a cascade game, so the wire representation would be INVENTED
    rather than transcribed — then implemented twice (mock generation, facade translation), and
    discovered wrong the first time a real provider sends one. Held deliberately: get a capture first

@@ -29,7 +29,6 @@
 		"FIG_NEW_SESSION": "1"
 	},
 	"svelte.enable-ts-plugin": true,
-	"svelte.plugin.css.globals": "stake-kit/src/styles/base.scss,stake-kit/src/styles/theme-stake.scss",
 	"cSpell.language": "en-GB",
 	"cSpell.enabledFileTypes": { "svelte": true },
 	"xstate.nestTypegenFiles": false,
@@ -43,12 +42,7 @@
 		"package.json": "package-lock.json, yarn.lock, pnpm-lock.yaml"
 	},
 	"window.commandCenter": true,
-	"cSpell.words": [
-		"bigwin",
-		"Payline",
-		"pixi",
-		"xstate"
-	],
+	"cSpell.words": ["bigwin", "Payline", "pixi", "xstate"],
 	"workbench.editor.empty.hint": "hidden",
 	"scm.showHistoryGraph": false
 }

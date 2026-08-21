@@ -21,16 +21,16 @@ export default defineConfig(({ mode }) => {
 	};
 
 	// Optional protocol switch: when PUBLIC_RGS_TRANSPORT=play4fun is set, alias
-	// `rgs-requests` to the Play4Fun-backed Stake-shaped facade.
+	// `rgs-requests` to the Play4Fun-backed engine-shaped facade.
 	//
 	// We point at the absolute path to the facade source rather than the package
-	// subpath ('rgs-translator-eagaming/stake-facade') so that resolution works
+	// subpath ('rgs-translator-eagaming/engine-facade') so that resolution works
 	// from every consumer (utils-xstate, components-shared, utils-bet, utils-book)
 	// without each of them needing rgs-translator-eagaming as a declared dep.
 	if (process.env.PUBLIC_RGS_TRANSPORT === 'play4fun') {
 		overrides.resolve = {
 			alias: {
-				'rgs-requests': resolve(here, '../../packages/rgs-translator-eagaming/stake-facade.ts'),
+				'rgs-requests': resolve(here, '../../packages/rgs-translator-eagaming/engine-facade.ts'),
 			},
 		};
 		console.info('[apps/lines] PUBLIC_RGS_TRANSPORT=play4fun — using Play4Fun translator');

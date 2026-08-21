@@ -477,7 +477,7 @@
       "count": 1
     }
   },
-  "packages/rgs-translator-eagaming/src/stakeFacade.ts": {
+  "packages/rgs-translator-eagaming/src/engineFacade.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
     }

@@ -122,7 +122,7 @@ export function syncBetModeMeta(): void {
 
 /**
  * Publish each mode's buy COST MULTIPLIER to a global the RGS FACADE reads
- * (`packages/rgs-translator-eagaming/stakeFacade.ts` → `betModeCostMultiplier`). The facade is a
+ * (`packages/rgs-translator-eagaming/engineFacade.ts` → `betModeCostMultiplier`). The facade is a
  * drop-in for `rgs-requests` and can't import this app, so a global is the decoupled bridge — the
  * mirror of `publishWinLevelsToFacade`. It lets the facade charge the SELECTED mode's cost
  * (`betAmount × costMultiplier`, the price its card shows) instead of a fixed buy premium, so the

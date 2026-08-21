@@ -52,7 +52,7 @@ const toLineEntry = (name: SymbolName, rows: Record<string, number>[]): ServerPa
  *
  * Gated on the STRIPS, not the dictionary (`getSymbolsInPlay`). `config.symbols` is the symbol
  * DICTIONARY — art, properties, payouts — and legitimately describes symbols a given game does not
- * deal. The upstream Stake sample defines `W` as a wild+multiplier, but neither RGS the engine talks
+ * deal. The upstream sample defines `W` as a wild+multiplier, but neither RGS the engine talks
  * to emits one, so the paytable advertised a 20/10/5 wild the player could never win. The strips are
  * the one statement of what reaches the board, so they are the gate — self-maintaining in both
  * directions: a game whose math DOES deal a wild puts it back on its strips and the row returns with
@@ -78,7 +78,7 @@ function lineEntries(): ServerPayEntry[] {
 
 /**
  * The scatter row. Still synthesized: the scatter pays from ×3 on the whole total bet, and those
- * multipliers have no home in the Stake config shape, so the config cannot state them yet. The
+ * multipliers have no home in the engine config shape, so the config cannot state them yet. The
  * SYMBOL is read from the config (the first in-play one carrying the `scatter` property) instead of
  * assumed to be `S`, so a project that names its scatter differently still gets the right row.
  *

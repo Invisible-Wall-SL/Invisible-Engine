@@ -33,7 +33,7 @@ You are a **Frontend Framework Developer** acting as the technical lead on this 
 - You understand the full monorepo architecture and how packages compose together
 
 ## Project Context
-This is a **personal fork / revision** of the Stake Engine web SDK (`twist-turbo`). The owner is building their own branch of the platform on GitHub. The goal is to iterate on the engine — improving the framework, adding new game types, and evolving the architecture.
+This is **Invisible Engine**, the in-house game engine owned by Invisible Wall SL. It began as a fork of the Stake Engine web SDK and is now our own branch of the platform. The goal is to iterate on the engine — improving the framework, adding new game types, and evolving the architecture.
 
 ## Repository
 - **Monorepo tool:** Turborepo + pnpm workspaces
@@ -103,7 +103,7 @@ pnpm storybook    # Storybook on port 6001
 
 ### Remotes (important — get this right)
 - **`origin` = `Invisible-Wall-SL/Invisible-Engine`** — OUR fork. **All commits + pushes go here.** This is what Railway auto-deploys from.
-- **`upstream` = `StakeEngine/web-sdk`** — the original Stake Engine SDK. **Read-only** (fetch to pull in upstream changes; the owner's account CANNOT push here — it 403s).
+- **`upstream` = `StakeEngine/web-sdk`** — the upstream SDK this engine forked from. **Read-only** (fetch to pull in upstream changes; the owner's account CANNOT push here — it 403s).
 - ⚠️ The local `main` branch may be set to *track* `upstream/main` (a clone artifact). That makes a bare `git push` / `git status` ahead-behind compare against the wrong remote and a bare push 403. **Always push explicitly with `git push origin main`**, or fix tracking once with `git branch --set-upstream-to=origin/main main`.
 
 ### One unified repo + games as submodules (see `docs/design/games-deploy.md`)
@@ -141,18 +141,18 @@ When you finish meaningful work, write it up per **rule 6**: the detail goes in 
 - Smoke tests for protocol round-trip
 - Demo overlay (paste-into-game-tab presentation panel)
 
-**Phase 2 — Stake game running on Play4Fun:** ✅ done
-- Stake-shaped facade (`stake-facade.ts`): drop-in replacement for `rgs-requests`
+**Phase 2 — engine game running on Play4Fun:** ✅ done
+- Engine-shaped facade (`engine-facade.ts`): drop-in replacement for `rgs-requests`
 - Vite alias in `apps/lines` enables it via `PUBLIC_RGS_TRANSPORT=play4fun`
 - `apps/lines` runs unmodified against the local mock through our facade:
   - Symbol mapping (`PIC*` → `H*`/`L*`/`S`) in facade
-  - Amount scaling (Play4Fun cents ↔ Stake API millions) in facade
+  - Amount scaling (Play4Fun cents ↔ engine API millions) in facade
   - Event-vocabulary adapter (`playedSpin` → `reveal`, `spinWin` → `winInfo`,
     `gameEnd` → `setTotalWin`, `gameRoundOver` → `finalWin`)
-  - Reveal board padded 3 rows → 5 rows for Stake's animation buffer
+  - Reveal board padded 3 rows → 5 rows for the engine's animation buffer
   - Two-step balance flow: `requestBet` returns interim, `requestEndRound`
     returns final (wallet "fills up" in sync with the count-up animation)
-  - bookEvent amounts use Stake's `BOOK_AMOUNT_MULTIPLIER` (fixed-point
+  - bookEvent amounts use the engine's `BOOK_AMOUNT_MULTIPLIER` (fixed-point
     bet-multipliers), not absolute amounts
 - Verified end-to-end: correct symbols, correct math, correct round flow
 
@@ -167,7 +167,7 @@ When you finish meaningful work, write it up per **rule 6**: the detail goes in 
 
 ## Comm Translator (rgs-translator-eagaming → Play4Fun protocol)
 
-Plug-and-play translator package. Maps the Stake Engine internal request shape to the **Play4Fun** `/rgs/engine` batched-action protocol. Lives in [packages/rgs-translator-eagaming](packages/rgs-translator-eagaming) — kept separate so the original `rgs-fetcher`/`rgs-requests` path stays default and can be swapped per-app.
+Plug-and-play translator package. Maps the Invisible Engine internal request shape to the **Play4Fun** `/rgs/engine` batched-action protocol. Lives in [packages/rgs-translator-eagaming](packages/rgs-translator-eagaming) — kept separate so the original `rgs-fetcher`/`rgs-requests` path stays default and can be swapped per-app.
 
 > **Naming note:** the package is currently named `rgs-translator-eagaming` because the discovery target was `eagaming.com`. We've since confirmed the actual protocol belongs to **Play4Fun** (the EAGaming brand wrapper proxies to a Play4Fun RGS host, e.g. `www.best00qpin.com`). Will likely rename to `rgs-translator-play4fun` once we've verified the same protocol on another brand. Internal types/functions already use `Play4Fun*` names with `EAGaming*` back-compat aliases.
 
@@ -194,7 +194,7 @@ Body: [{action, context}, …]
 }
 ```
 
-The `events` array IS the Stake-Engine book-event sequence — translation is mostly pass-through.
+The `events` array IS the Invisible Engine book-event sequence — translation is mostly pass-through.
 
 **`seq` is NOT a monotonic counter:** resets to 0 each new round, increments only within an in-flight round. Owned by the session state (`startRound()` / `nextSeq()` / `bindRound(gid)` / `endRound()`).
 

@@ -7,7 +7,7 @@
  * online project currently shares the ONE `apps/lines/src/game/config.ts` compiled into the shared
  * `_runtime/lines` bundle — same symbol dictionary, same 20 paylines, same strips for everyone.
  *
- * The shape mirrors the Stake-Engine config the math team already produces, **byte-compatible on
+ * The shape mirrors the Invisible Engine config the math team already produces, **byte-compatible on
  * purpose**: `special_properties` and `max_win` are snake_case because that is how a real config
  * arrives, and paste-in from the math team is a first-class flow. Do not "tidy" the wire names.
  *
@@ -22,7 +22,7 @@ export const GAME_CONFIG_DOC_VERSION = 1;
  * One paytable row: occurrence-count → payout multiplier, e.g. `{ '5': 20 }`.
  *
  * A LIST of single-entry objects rather than one `{ '5': 20, '4': 10 }` map, because that is the
- * Stake export shape. Multi-key objects are tolerated on read (see `normalizeSymbol`) so a
+ * math export shape. Multi-key objects are tolerated on read (see `normalizeSymbol`) so a
  * hand-written or tool-emitted config is not rejected for being tidier than the export.
  */
 export type PaytableRow = Record<string, number>;
@@ -39,7 +39,7 @@ export type GameConfigSymbol = {
 	special_properties?: string[];
 };
 
-/** One cell of a cosmetic reel strip. An object (not a bare string) to match the Stake shape. */
+/** One cell of a cosmetic reel strip. An object (not a bare string) to match the engine shape. */
 export type ReelStripCell = { name: string };
 
 /** One reel's strip, top to bottom. */
@@ -55,7 +55,7 @@ export type ReelStrip = ReelStripCell[];
  */
 export type PaddingReels = Record<string, ReelStrip[]>;
 
-/** One entry of the bet selector / buy-bonus menu. `max_win` is snake_case per the Stake export. */
+/** One entry of the bet selector / buy-bonus menu. `max_win` is snake_case per the math export. */
 export type BetMode = {
 	cost: number;
 	feature: boolean;
@@ -67,7 +67,7 @@ export type BetMode = {
 /**
  * How a bet mode presents in the menu:
  * - `base` — the default stake; no card, it's just the game.
- * - `ante` — a persistent boost the player toggles on and leaves on (Stake calls it "activate").
+ * - `ante` — a persistent boost the player toggles on and leaves on (the upstream SDK calls it "activate").
  * - `buy` — a one-shot purchase of the feature.
  *
  * `ante` is EXPLICIT-only: the two math booleans (`feature`/`buyBonus`) cannot express it (the base
@@ -94,7 +94,7 @@ export type BetModeText = {
 
 /**
  * The PRESENTATION of a bet mode — kind, menu order, and copy. An INVISIBLE-ENGINE extension, NOT
- * part of the Stake export (which owns only the math half, {@link BetMode}); a paste-in config
+ * part of the math export (which owns only the math half, {@link BetMode}); a paste-in config
  * simply omits it, exactly like {@link GameConfigDoc.paylineColors}. Kept OUT of `betModes` so those
  * entries round-trip a math export byte-for-byte.
  */
@@ -294,7 +294,7 @@ export type GameConfigDoc = {
 	betModes: Record<string, BetMode>;
 	/**
 	 * OPTIONAL per-mode presentation (kind / order / copy) for the bet-selector + buy-bonus menu, keyed
-	 * by the SAME mode id as {@link betModes}. An INVISIBLE-ENGINE extension, not part of the Stake
+	 * by the SAME mode id as {@link betModes}. An INVISIBLE-ENGINE extension, not part of the math
 	 * export — a paste-in config omits it and the runtime derives sane defaults (see `resolveBetModes`).
 	 * Sparse: only modes with an override appear.
 	 */
@@ -319,7 +319,7 @@ export type GameConfigDoc = {
 	paddingReels: PaddingReels;
 	/**
 	 * OPTIONAL per-payline colour, keyed by the SAME payline id as {@link paylines}, as a `#rrggbb`
-	 * hex string. An INVISIBLE-ENGINE extension, not part of the Stake export — a paste-in config
+	 * hex string. An INVISIBLE-ENGINE extension, not part of the math export — a paste-in config
 	 * simply omits it. When set for a line, the win line draws in this colour instead of the single
 	 * Symbols-tool default, and the colour is broadcast so assets shown on that win can pick it up
 	 * (the reusable win-colour hook). A line with no entry falls back to the default, so leaving it
@@ -328,7 +328,7 @@ export type GameConfigDoc = {
 	paylineColors?: Record<string, string>;
 	/**
 	 * OPTIONAL config-authored WIN TIERS (big-win levels) — an ordered list, ascending by `threshold`.
-	 * An INVISIBLE-ENGINE extension, not part of the Stake export; a paste-in config omits it. When
+	 * An INVISIBLE-ENGINE extension, not part of the math export; a paste-in config omits it. When
 	 * ABSENT the game keeps its coded `winLevelMap` table AND the facade's coded threshold ladder — an
 	 * un-authored project is byte-identical to before (see `resolveWinLevels`). When present, both the
 	 * facade's tier computation and the big-win component read this list instead.

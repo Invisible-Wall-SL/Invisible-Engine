@@ -17,7 +17,7 @@
 import { createServer, type Server } from 'node:http';
 
 import { createMockRgs } from '../../scripts/mock-rgs-server.mjs';
-import { requestAuthenticate, requestBet } from './src/stakeFacade.ts';
+import { requestAuthenticate, requestBet } from './src/engineFacade.ts';
 
 const report: string[] = [];
 let failures = 0;

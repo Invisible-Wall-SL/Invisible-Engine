@@ -1525,8 +1525,8 @@
 				<h3>Engine boot mark</h3>
 				<p class="muted hint">
 					The spine that opens <strong>every</strong> game — the engine's own mark, shown before the
-					game's splash. This replaced the Stake logo, so it is admin-owned: a client cannot change
-					it from their project. Pick from the shared spine library (<span class="mono"
+					game's splash. This replaced the old vendor logo, so it is admin-owned: a client cannot
+					change it from their project. Pick from the shared spine library (<span class="mono"
 						>_shared/spines/</span
 					>). Rigs are authored per project, so get one in there with
 					<strong>Bring a spine into the shared library</strong> below. A game picks up a change on

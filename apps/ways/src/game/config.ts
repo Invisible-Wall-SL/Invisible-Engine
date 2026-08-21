@@ -150,7 +150,7 @@ export default {
 	},
 	// COSMETIC padding reels — the spinning blur, the initial board, and the in-play GATE
 	// (which symbols this game can show). NOT weighted math strips: `lines` and `scatter` ship
-	// 200+ cell strips from Stake's math export where the frequencies ARE the hit rate, and
+	// 200+ cell strips from the math SDK export where the frequencies ARE the hit rate, and
 	// inventing those here would be fabricating game math. The client never computes wins — the
 	// RGS does — and the engine synthesizes exactly this kind of plain rotation itself when the
 	// RGS is authoritative (`serverPaddingReels`, "the real weighted strips never reach the

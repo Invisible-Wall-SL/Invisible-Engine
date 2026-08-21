@@ -1,16 +1,16 @@
 # rgs-translator-eagaming
 
-Plug-and-play translator between the **Stake Engine** internal RGS request shape and the **Play4Fun `/rgs/engine`** batched-action protocol used by EAGaming-fronted casinos (and likely other Play4Fun-backed brands).
+Plug-and-play translator between the **Invisible Engine** internal RGS request shape and the **Play4Fun `/rgs/engine`** batched-action protocol used by EAGaming-fronted casinos (and likely other Play4Fun-backed brands).
 
 > **Naming note:** the package is currently named `rgs-translator-eagaming` because EAGaming was the discovery target. The actual protocol belongs to **Play4Fun** — the EAGaming brand wrapper proxies through to a Play4Fun RGS host (e.g. `www.best00qpin.com`). Will rename to `rgs-translator-play4fun` once we verify the same protocol on a second brand. Internal types/functions already use `Play4Fun*` names with `EAGaming*` aliases for back-compat.
 
 ## Why this exists
 
-Stake Engine games expect a particular RGS surface — a handful of single-purpose endpoints (`/wallet/play`, `/wallet/authenticate`, `/wallet/end-round`, …), each with its own request and response shape. The Play4Fun protocol is different: a single endpoint that takes a batched array of actions, with `seq` and `gid` query params managing a per-round state machine.
+Invisible Engine games expect a particular RGS surface — a handful of single-purpose endpoints (`/wallet/play`, `/wallet/authenticate`, `/wallet/end-round`, …), each with its own request and response shape. The Play4Fun protocol is different: a single endpoint that takes a batched array of actions, with `seq` and `gid` query params managing a per-round state machine.
 
 This package converts between the two so that:
 
-- The existing Stake Engine games (`apps/lines`, etc.) can run against a Play4Fun backend without modifying the game logic.
+- The existing Invisible Engine games (`apps/lines`, etc.) can run against a Play4Fun backend without modifying the game logic.
 - Future translators for other operator protocols can follow the same pattern.
 
 The original `rgs-fetcher` / `rgs-requests` path still works untouched — this is opt-in.
@@ -43,7 +43,7 @@ Body: [{action, context}, …]
 ```ts
 {
   events: [
-    // already in Stake-Engine book-event format — pass-through
+    // already in Invisible Engine book-event format — pass-through
     { event: 'bet',           context: {...} },
     { event: 'gameStart',     context: {...} },
     { event: 'spinStart',     context: {...} },
@@ -142,19 +142,19 @@ buildSingleAction('myCustomAction', { foo: 1 });
 
 ### `translateBetResponse(raw, currency?)`
 
-Reshapes a `Play4FunResponse` into the Stake Engine `res_play` shape so the existing `utils-book` event pipeline can consume it unchanged.
+Reshapes a `Play4FunResponse` into the Invisible Engine `res_play` shape so the existing `utils-book` event pipeline can consume it unchanged.
 
 ```ts
 import { translateBetResponse } from 'rgs-translator-eagaming';
 
-const stake = translateBetResponse(result.response, 'USD');
-// stake.status     -> { statusCode: 'SUCCESS' }
-// stake.balance    -> { amount: 1290, currency: 'USD' }
-// stake.round      -> { roundID, amount, payout, payoutMultiplier, active, state: events[] }
-// stake._raw       -> the original Play4FunResponse, kept for debugging
+const translated = translateBetResponse(result.response, 'USD');
+// translated.status     -> { statusCode: 'SUCCESS' }
+// translated.balance    -> { amount: 1290, currency: 'USD' }
+// translated.round      -> { roundID, amount, payout, payoutMultiplier, active, state: events[] }
+// translated._raw       -> the original Play4FunResponse, kept for debugging
 ```
 
-The `state` field IS the events array — already in the right shape for Stake Engine's book-event handlers.
+The `state` field IS the events array — already in the right shape for Invisible Engine's book-event handlers.
 
 ## End-to-end usage
 
@@ -175,9 +175,9 @@ session.startRound();
 const r = await fetcher.post({
   body: buildBetActions({ amount: 10, mode: 'BASE', currency: 'USD', betLinesOrConfig: 5 }),
 });
-const stake = translateBetResponse(r.response);
-console.log('events:', stake.round.state);
-console.log('balance:', stake.balance.amount);
+const translated = translateBetResponse(r.response);
+console.log('events:', translated.round.state);
+console.log('balance:', translated.balance.amount);
 session.endRound();
 
 // Manual-collect round (two round-trips)

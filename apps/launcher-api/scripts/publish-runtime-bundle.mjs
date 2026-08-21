@@ -11,7 +11,7 @@
 //     node apps/launcher-api/scripts/publish-runtime-bundle.mjs lines apps/lines/build
 //
 // !! PUBLIC_RGS_TRANSPORT=play4fun IS REQUIRED. The test server's mock RGS speaks
-// Play4Fun; a bundle built without it uses the default Stake transport, never
+// Play4Fun; a bundle built without it uses the default native transport, never
 // completes the RGS handshake, and the game hangs on the loading screen (blank).
 //
 // The bundle is a normal `apps/lines` build (doc:null placeholder). A game URL

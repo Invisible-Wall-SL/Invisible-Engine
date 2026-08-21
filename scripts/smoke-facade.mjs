@@ -1,10 +1,10 @@
 /**
- * Smoke test for the Stake-shaped facade against the mock RGS.
+ * Smoke test for the engine-shaped facade against the mock RGS.
  *
  * Exercises the same call shapes that apps/lines makes during boot + spin:
  *   1. requestAuthenticate → expect { status, balance, config{betLevels,…} }
  *   2. requestBet         → expect { status, balance, round{state[...]} }
- *      where state events have {index, type} (Stake vocab, post-adapter)
+ *      where state events have {index, type} (engine vocab, post-adapter)
  *   3. requestEndRound    → expect { status, balance }
  *
  * Pre-req: mock running (node scripts/mock-rgs-server.mjs).
@@ -27,7 +27,7 @@ const ok = (msg) => console.log(`✓ ${msg}`);
 let facade;
 try {
 	facade = await import(
-		new URL('../packages/rgs-translator-eagaming/stake-facade.ts', import.meta.url).href
+		new URL('../packages/rgs-translator-eagaming/engine-facade.ts', import.meta.url).href
 	);
 } catch (err) {
 	console.error('TS import failed:', err.message);
@@ -61,7 +61,7 @@ const main = async () => {
 	if (!Array.isArray(bet.round?.state)) fail('bet missing round.state', bet);
 	if (bet.round.state.length === 0) fail('bet round.state empty', bet);
 
-	// Check Stake-vocab adapter ran (events should have {index, type})
+	// Check engine-vocab adapter ran (events should have {index, type})
 	const sample = bet.round.state[0];
 	if (typeof sample?.index !== 'number') fail('event missing .index — adapter did not run', sample);
 	if (typeof sample?.type !== 'string') fail('event missing .type — adapter did not run', sample);
@@ -70,12 +70,12 @@ const main = async () => {
 	if (!types.some((t) => t === 'reveal')) fail('expected a reveal event after adapter', types);
 	if (!types.some((t) => t === 'setTotalWin' || t === 'finalWin')) fail('expected setTotalWin/finalWin', types);
 
-	// Symbols on the reveal board should be Stake-vocab (H1-H5/L1-L5/S), not
+	// Symbols on the reveal board should be engine-vocab (H1-H5/L1-L5/S), not
 	// Play4Fun (PIC1-PIC7/SCAT) — the symbol map should have run.
 	const reveal = bet.round.state.find((e) => e.type === 'reveal');
 	const allSymbols = (reveal?.board ?? []).flat().map((c) => c.name);
-	const stakeNames = new Set(['H1','H2','H3','H4','H5','L1','L2','L3','L4','L5','S','W']);
-	const unmapped = allSymbols.filter((n) => !stakeNames.has(n));
+	const engineNames = new Set(['H1','H2','H3','H4','H5','L1','L2','L3','L4','L5','S','W']);
+	const unmapped = allSymbols.filter((n) => !engineNames.has(n));
 	if (unmapped.length > 0) fail(`unmapped Play4Fun symbols leaked through adapter: ${unmapped}`, allSymbols);
 	ok(`bet: balance=${bet.balance?.amount}, events=[${types.join(', ')}], symbols mapped`);
 

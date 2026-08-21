@@ -13,7 +13,7 @@ tested it end-to-end. The live-verify gap that was the last open item is closed.
 **Phase 1 — schema + storage (done).**
 
 - `packages/game-config` — dependency-free, Node-resolvable (mirrors `engine-flipbook`):
-  - `types.ts` — `GameConfigDoc`, byte-compatible with the Stake export (`special_properties`,
+  - `types.ts` — `GameConfigDoc`, byte-compatible with the math export (`special_properties`,
     `max_win`, single-entry paytable rows kept verbatim so paste-in works).
   - `normalize.ts` — `normalizeGameConfigDoc`, idempotent. Returns **`undefined`**, never an empty
     config, when the input can't describe a game: "no doc" must mean _fall through to the template_,
@@ -90,7 +90,7 @@ guarantee traded for a runtime one, as planned.
 `INITIAL_BOARD`, not from `numReels`/`numRows`, so an authored grid size does NOT yet resize the
 board — scene geometry and layout coordinates are pinned to it, and that deserves its own change.
 The scatter paytable row is also still synthesized (`[2, 20, 200]`) because those multipliers have
-no home in the Stake config shape; only the scatter's SYMBOL is read from the config now.
+no home in the engine config shape; only the scatter's SYMBOL is read from the config now.
 
 **Deviation from the design doc, deliberate:** Phase 1 called for a Zod `GameConfigDoc` in the
 launcher. It has none. A Zod mirror would be a second, hand-copied answer to "what is a valid
@@ -136,11 +136,11 @@ of the tool).
 **6a — schema + resolver (done, offline-verified).**
 
 - `packages/game-config`: new OPTIONAL top-level `betModePresentation?: Record<mode, { kind?, order?,
-text? }>` on `GameConfigDoc` — an Invisible-Engine extension a Stake paste-in omits, mirroring
+text? }>` on `GameConfigDoc` — an Invisible-Engine extension a math-export paste-in omits, mirroring
   `paylineColors` (kept OFF `betModes` so those entries round-trip a math export byte-for-byte).
   `kind` = `base | ante | buy`; `text` = title/description/button/dialog/betAmountLabel SOURCE strings.
 - `normalizeBetModePresentation` — sparse, drops an entry for a mode not in `betModes` (like a colour
-  for a deleted line); the whole map omitted when un-authored ⇒ byte-identical to a Stake export.
+  for a deleted line); the whole map omitted when un-authored ⇒ byte-identical to a math export.
 - `betModes.ts` — `resolveBetModes(doc)`: the ONE place folding math + presentation into the ordered
   `ResolvedBetMode[]` the menu needs, owning the `buyBonus→kind` derivation (`ante` is explicit-only —
   the two booleans can't express a persistent toggle) and the default copy (id as title, verb per
@@ -252,14 +252,14 @@ winSpine`). Duration + sound are consumed OUT of the tree (`WinGate` duration, `
 ## Config-authored win tiers (big-win levels) + sequential escalation
 
 The coded win-level table (`apps/lines/src/game/winLevelMap.ts`, 1..10) and the facade's hardcoded
-threshold ladder (`stakeFacade.ts` `computeWinLevel`) are now OPTIONALLY replaced by a config-authored
+threshold ladder (`engineFacade.ts` `computeWinLevel`) are now OPTIONALLY replaced by a config-authored
 tier list. All four phases landed; engine + schema build + typecheck + spike verified. Launcher
 `/config` panel render is owner-verify-owed (launcher-only), as with the rest of the tool.
 
 **Schema (`packages/game-config`).** New OPTIONAL `winLevels?: WinLevelTier[]` on `GameConfigDoc` (an
 ordered tier list — `alias`/`name`/`threshold` (win-as-bet-multiplier)/`type` (`small|medium|big`) +
 optional `animation{intro,idle,outro}`/`spineKey`/`sound{sfx,bgm}`/`durationMs`) plus top-level
-`escalateTiers?`/`escalateFrom?`. An Invisible-Engine extension a Stake paste-in omits, mirroring
+`escalateTiers?`/`escalateFrom?`. An Invisible-Engine extension a math-export paste-in omits, mirroring
 `paylineColors`/`betModePresentation`. `normalizeWinLevels` is sparse (the whole block + flags omitted
 when un-authored ⇒ byte-identical). `winLevels.ts` resolver: `resolveWinLevels` (assigns 1-based
 `level`), `resolveWinLevel(doc, betMult)` (the threshold ladder), `winLevelType(doc, level)` (the
@@ -282,7 +282,7 @@ optional chaining). `Game.svelte` calls `publishWinLevelsToFacade()` at boot aft
 
 **The facade↔engine contract.** The facade can't import the app (it's a drop-in for `rgs-requests`),
 so `publishWinLevelsToFacade()` writes the resolved tiers (level/threshold/type only) to
-`globalThis.__IE_WIN_LEVELS__`; `stakeFacade.ts` reads it in `computeWinLevel` (authored ladder, else
+`globalThis.__IE_WIN_LEVELS__`; `engineFacade.ts` reads it in `computeWinLevel` (authored ladder, else
 the coded ladder) and the big-win gate `isBigWinLevel` (authored `type === 'big'`, else `>= 6`), so a
 3-tier config triggers big-win on its own big tier. Un-authored ⇒ the global is cleared ⇒ both fall back
 byte-identically.
@@ -322,7 +322,7 @@ against the book mock (18-check node harness, all pass). Launcher render is owne
 (launcher-only), as with the rest of the tool. Needs a **Runtime release + republish** to reach online
 games (the reading code ships in `_runtime/lines`).
 
-- **Facade → engine bridge.** `stakeFacade.ts` `captureConfig` publishes the server's boot config
+- **Facade → engine bridge.** `engineFacade.ts` `captureConfig` publishes the server's boot config
   (`{ availablePayLines, symbols, window }`, `symbols` mapped into client space) to
   `globalThis.__IE_SERVER_CONFIG__` — the `__IE_WIN_LEVELS__` pattern in reverse (facade→engine),
   since the facade can't import the app. Cleared/undefined when no `config` event ⇒ parity.
@@ -427,7 +427,7 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
   **The check is `warnOnServerGridMismatch()` in `engine-game`'s `gameConfig.ts`**, and it is fired from BOTH ends because neither alone is sound. `Game.svelte` calls it at boot — deterministic today, since `<Authenticate>` gates the game's mount on the very request whose `config` event publishes `__IE_SERVER_CONFIG__`, so the declared window is already in. `serverConfig()` calls it too, so a host that mounts the game first and authenticates after still gets the check on the next accessor read instead of silently never. It latches on the first config that actually declares a `window`, so it costs one comparison rather than one per render, and `resetGameConfigCache()` releases the latch — a verdict reached before the live runtime bundle landed was reached against the COMPILED template's board, not the authored one.
 
-  **`console.error`, not `warn`**, matching this file's existing rule: an error is for a config that cannot render what it claims. Every cell outside the server's board stays empty and wins are scored on a grid nobody is looking at, which is not a cosmetic drift. A config with no `window` decides nothing, so a host that omits it (plain `rgs-requests`, the real Stake RGS) is byte-identical to before.
+  **`console.error`, not `warn`**, matching this file's existing rule: an error is for a config that cannot render what it claims. Every cell outside the server's board stays empty and wins are scored on a grid nobody is looking at, which is not a cosmetic drift. A config with no `window` decides nothing, so a host that omits it (plain `rgs-requests`, the real engine RGS) is byte-identical to before.
 
   Verified live, both directions, against `apps/lines` on the Play4Fun facade + the standalone mock: `REELS=7 ROWS=7 node scripts/mock-rgs-server.mjs` → `[game-config] error: the RGS deals a 7×7 board but this game draws 5×3 …`, exactly once despite the dev double-mount that prints the neighbouring `symbols.W` warning twice; the same mock at its default 5×3 → silent. `tsc --noEmit` on `engine-game` shows the same three pre-existing errors as `origin/main` and no new ones; eslint + prettier clean.
 
@@ -463,7 +463,7 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 
 - 2026-08-20 — **The lines template advertised a payout no player could win.** Owner's `/config` on `test4` showed `symbols.W.paytable — W pays in the paytable but appears on no reel strip`. It is not a `test4` problem: the committed **`lines.json` template** carried it (`W` = `{3:5, 4:10, 5:20}`, on no strip), so EVERY project seeded from lines inherited an unwinnable advertised payout — `ways` and `scatter` were already clean. `validateGameConfigDoc` has flagged exactly this for a while ("the `W` bug, generalized"), so the warning was correct and simply unactioned. **Behaviour-neutral to remove:** `projectWild` (publishGame) gates the mock's wild on the SAME `symbolsInPlay` set — "a wild that merely sits in the dictionary with a paytable but is never dealt stays wild-less" — so nothing read the row except the INFO PAGE, which showed three payouts a player cannot collect. Fixed at source (`apps/lines/src/game/config.ts` → `paytable: null`) and regenerated. **The alternative fix was deliberately NOT taken:** putting `W` on the strips would make the wild actually deal, which changes hit frequencies and starts feeding the mock a wild — that is game MATH and belongs with a math export, not a lint fix. The residual warning is now the milder branch of the same rule (`W is in the dictionary but appears on no reel strip`), which is the honest state: the sample declares a wild it does not deal. **Existing projects keep the old row** — their authored config lives in R2, so `test4` needs "Reset to template default" or W's paytable cleared by hand to clear the warning there. Also: the bet-mode **RTP** input gained the `min`/`max` bounds the identity RTP already had (both were already `type="number"` — an earlier claim that RTP was free text was wrong). Both apps build; eslint clean.
 
-- 2026-08-20 — **A ways math VERIFIER — so an arriving math export can be checked instead of trusted.** `apps/ways` ships cosmetic padding reels and says so in `config.ts` ("inventing those here would be fabricating game math"); `apps/lines` ships real 217-cell strips that came from Stake's math export. The export itself has to come from a math engine, so the gap that COULD be closed here is the check that receives one. `pnpm --filter game-config-spike run waysmath` reads any Game Config doc, deals boards off its strips (independent uniform stop per reel, `numRows` consecutive cells with wraparound — the property a uniform strip set does not have), scores them with the ways rule priced per WAY (`totalBet / waysCount`, #357), and reports RTP, hit rate, best spin, scatter-trigger rate and per-symbol contribution. Everything is read from the doc — paying symbols, wilds, scatters, board shape — so it verifies any project, not just `apps/ways`. **What it says about the current placeholder:** 0.13% RTP against a declared `rtp: 0.97`, a 3+ scatter board **1 spin in 6** (lines, for contrast: 1 in 1,190), and a declared wild `W` that appears on no strip and therefore can never land. **Two guards against the tool itself lying.** `waysCrosscheck` holds the doc-scorer against `mock-rgs-server`'s `evaluateWays` over 40,000 random boards — symbol, run length, ways count AND pay amount, with and without wild substitution — because a second implementation of one rule is how a measurement quietly stops describing the game; the mock evaluator can't just be imported, being bound to its own PIC/SCAT vocabulary and hardcoded paytable. And the tool REFUSES to print an RTP for a non-`ways` doc (it would understate the return by the ratio of the two divisors and still read like a measurement) — it prints the strip diagnostic and stops. It also prints its own scope every run: base-game symbol pays only, no free-spin feature (the award structure isn't declared in the config, so no total RTP is computable), and the reminder that the client never computes wins — the RGS does, and in production it is external. Lives in `tools/game-config-spike` rather than a new workspace package, deliberately: adding one churned `pnpm-lock.yaml` with unrelated lingui peer re-resolution, which CI's `--frozen-lockfile` would have had to swallow. Verification tooling only — no engine or runtime change.
+- 2026-08-20 — **A ways math VERIFIER — so an arriving math export can be checked instead of trusted.** `apps/ways` ships cosmetic padding reels and says so in `config.ts` ("inventing those here would be fabricating game math"); `apps/lines` ships real 217-cell strips that came from the math SDK export. The export itself has to come from a math engine, so the gap that COULD be closed here is the check that receives one. `pnpm --filter game-config-spike run waysmath` reads any Game Config doc, deals boards off its strips (independent uniform stop per reel, `numRows` consecutive cells with wraparound — the property a uniform strip set does not have), scores them with the ways rule priced per WAY (`totalBet / waysCount`, #357), and reports RTP, hit rate, best spin, scatter-trigger rate and per-symbol contribution. Everything is read from the doc — paying symbols, wilds, scatters, board shape — so it verifies any project, not just `apps/ways`. **What it says about the current placeholder:** 0.13% RTP against a declared `rtp: 0.97`, a 3+ scatter board **1 spin in 6** (lines, for contrast: 1 in 1,190), and a declared wild `W` that appears on no strip and therefore can never land. **Two guards against the tool itself lying.** `waysCrosscheck` holds the doc-scorer against `mock-rgs-server`'s `evaluateWays` over 40,000 random boards — symbol, run length, ways count AND pay amount, with and without wild substitution — because a second implementation of one rule is how a measurement quietly stops describing the game; the mock evaluator can't just be imported, being bound to its own PIC/SCAT vocabulary and hardcoded paytable. And the tool REFUSES to print an RTP for a non-`ways` doc (it would understate the return by the ratio of the two divisors and still read like a measurement) — it prints the strip diagnostic and stops. It also prints its own scope every run: base-game symbol pays only, no free-spin feature (the award structure isn't declared in the config, so no total RTP is computable), and the reminder that the client never computes wins — the RGS does, and in production it is external. Lives in `tools/game-config-spike` rather than a new workspace package, deliberately: adding one churned `pnpm-lock.yaml` with unrelated lingui peer re-resolution, which CI's `--frozen-lockfile` would have had to swallow. Verification tooling only — no engine or runtime change.
 - 2026-08-19 — **`/config` can author the win model** — new "How wins are decided" panel above Paylines, picking lines / ways / cluster / scatter. **The picker DELETES `winModel` when Lines is chosen** rather than writing `{type:'lines'}`: the server normalizes that away on save, so writing it would leave the page permanently "Unsaved" (reloaded doc ≠ in-memory doc). Switching to another arm seeds exactly the defaults `normalizeWinModel` would fill, so the tool shows what would actually be stored. Paylines gain a banner when the model isn't lines — they stay saved (switching back restores them) but don't affect play, mirroring the validator, which already skips payline checks there. A blunt note warns that a non-lines model only changes what the config **declares** — the engine has no runtime for those types yet, so the game still plays as lines. ⏳ **NOT live-verified:** `/config` is auth-gated (correctly 303s to `/login`), so the panel needs an owner click-through — specifically that arms switch cleanly and a Lines project doesn't read dirty after saving.
 
 - 2026-08-19 — **Per-type committed defaults: `scatter` ships its own, and a silently-dropped tier set was repaired.** `gameConfigDefaults` had exactly one template (`lines`) and fell back to it for every other type, so a project marked anything else inherited the lines dictionary and its 20 paylines. `scatter.json` now ships with `winModel: {type:'scatter', minCount:8}`, the minimum **derived from the game's own paytable** rather than written down (a game whose smallest paying row is 8 has `minCount: 8` by definition; hard-coding it would let the model drift from the payouts). Measured: ways 3, cluster 5, scatter 8. **⚠️ Regression found + fixed here:** the generator reads `winLevelMap.ts` as a sibling of the config, and Phase A moved `apps/lines`' copy into `engine-game` — the surrounding `try/catch` cannot tell "this game has no tiers" from "the file moved", so regenerating silently dropped **all 10 win tiers** (112 lines) from the lines default while still validating clean. Now tries sibling → `engine-game`, and **warns loudly** when neither is found. **`ways`/`cluster` are deliberately unregistered:** their upstream sample configs ship `paddingReels: { basegame: '', … }` — empty-string placeholders, and the strips are the in-play gate, so such a default would seed a blank board. Closing it needs real strips authored in those configs; synthesizing them is game math, not packaging. `--check` stays green and usable as a CI gate.
@@ -538,7 +538,7 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
 - 2026-08-03 — **Config-authored win tiers (big-win levels) + sequential escalation.** New OPTIONAL
   `winLevels?` tier list + `escalateTiers?`/`escalateFrom?` on `GameConfigDoc`, resolver in
   `winLevels.ts`, validators, ~30 spike checks (all pass; the CRLF `lines.json` drift is the lone
-  pre-existing failure). Runtime routes `stakeFacade.ts` `computeWinLevel`/big-win gate (via the
+  pre-existing failure). Runtime routes `engineFacade.ts` `computeWinLevel`/big-win gate (via the
   `globalThis.__IE_WIN_LEVELS__` bridge) and the engine's win-level lookup (`activeWinLevelData` in
   `gameConfig.ts`, consumed by `bookEventHandlerMap`/`flowEffects`/`unskippablePresentation`) through
   the authored tiers. Escalation in `WinAnimation`/`WinVisual` (per-tier intro+idle chain, final-tier
@@ -574,7 +574,7 @@ existing game (now `apps/lines`, with the accessor-based files), so a new game i
     the reels a widen added are authorable instead of a dead-end error. Fixes the "changed board
     size → error with no way to add strips" report.
   - **Per-payline colour** — new OPTIONAL `paylineColors: Record<lineId, '#rrggbb'>` on
-    `GameConfigDoc` (an Invisible-Engine extension, NOT part of the Stake export; a paste-in config
+    `GameConfigDoc` (an Invisible-Engine extension, NOT part of the math export; a paste-in config
     omits it). `normalizePaylineColors` keeps only colours for a line that exists and is a valid hex
     (`#rgb`/`#rrggbb`, expanded), so it's idempotent and an un-coloured config is byte-identical to
     before. Rides the existing config bake→pull chain — no new asset class. `/config` Paylines panel

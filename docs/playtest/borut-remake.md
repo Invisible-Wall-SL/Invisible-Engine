@@ -96,7 +96,7 @@ note them as expected. Owner dispositions:
 - **`paylines: ? declared` warning — FIXED 2026-07-21.** The facade config cross-check now (a) reads the
   correct wire field `availablePayLines` (renamed in `types.ts`), and (b) only logs when there's ACTUAL
   drift (grid mismatch / unmapped / orphaned symbols) instead of dumping a full report every session —
-  a healthy config is now silent (`stakeFacade.ts` `runConfigCrossCheck`). Payline math was always fine.
+  a healthy config is now silent (`engineFacade.ts` `runConfigCrossCheck`). Payline math was always fine.
 
 ## Known issues / regression guards (found 2026-07-21 via Claude-in-Chrome)
 - **BUY FEATURE menu copy is off-theme placeholder text (CONTENT BUG).** The five feature tiles read

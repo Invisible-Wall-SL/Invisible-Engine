@@ -100,7 +100,7 @@ visibility** — the user must keep the game tab visible (side-by-side) for the 
   the frozen-rAF limit above. Confirmed boot handle `__IE_FLOW_V2__.dispatch('tapToStart')`. Flagged:
   ~15s `/api/editor/runtime` assemble (inside the 502/stale-fallback danger window — cf. game-maker
   status open item 6) and minor boot warnings (duplicate texture/bitmap-font registration;
-  `[stake-facade] paylines: ? declared`). No edits/commits/ship (detect-only).
+  `[engine-facade] paylines: ? declared`). No edits/commits/ship (detect-only).
 - 2026-07-21 — **FULL live playtest of `bookofborutremake` via Claude-in-Chrome** (S2/S3 unblocked).
   Verified end-to-end with real clicks + screenshots: tap-to-start → base game; base spin debits the
   exact bet ($52,904.50→$52,903.50, Win $0, RGS `bet` 200); BUY FEATURE debits exactly 100× ($100);

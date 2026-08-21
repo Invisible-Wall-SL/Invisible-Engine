@@ -13,22 +13,22 @@ const preview: Preview = {
 		viewport: {
 			options: {
 				...INITIAL_VIEWPORTS,
-				stake: {
-					name: 'stake iframe',
+				engine: {
+					name: 'game iframe',
 					styles: {
 						width: '1200px',
 						height: '675px',
 					},
 				},
-				stakeMini: {
-					name: 'stake mini player',
+				engineMini: {
+					name: 'mini player',
 					styles: {
 						width: '400px',
 						height: '225px',
 					},
 				},
-				stakeMiniExpanded: {
-					name: 'stake mini player (expanded)',
+				engineMiniExpanded: {
+					name: 'mini player (expanded)',
 					styles: {
 						width: '800px',
 						height: '450px',
@@ -38,7 +38,7 @@ const preview: Preview = {
 		},
 	},
 	initialGlobals: {
-		viewport: { value: 'stake', isRotated: false },
+		viewport: { value: 'engine', isRotated: false },
 	},
 };
 
