@@ -6,7 +6,7 @@
  * (`resolveBundlePrefix` already falls back project → shared, so one code path
  * serves both):
  *
- *  - `engine` — the ENGINE mark (this replaced Stake's `stake-engine-loader.gif`).
+ *  - `engine` — the ENGINE mark (this replaced the old vendor `stake-engine-loader.gif`).
  *    GLOBAL: one bundle for every game, held in `_shared/spines/<bundle>` and named
  *    by the admin-only `app_settings` key. A client cannot change it.
  *  - `game` — the GAME's own mark (this replaced the "Add Your Loader" placeholder).

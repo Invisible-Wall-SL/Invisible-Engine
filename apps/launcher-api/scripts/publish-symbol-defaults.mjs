@@ -9,7 +9,7 @@
 // must be in the `symbols` dictionary AND appear on the `paddingReels` strips.
 // `SYMBOL_INFO_MAP` holds visual defaults for every symbol the engine *can*
 // render (e.g. an unused H5); the dictionary alone is not enough either, since it
-// legitimately describes symbols a given game never deals (the Stake sample's `W`
+// legitimately describes symbols a given game never deals (the upstream sample's `W`
 // wild, which no RGS here emits). The STRIPS are what reaches the board, so the
 // tool grid mirrors the built game. Disable with --no-config-filter.
 //
@@ -292,7 +292,7 @@ async function loadGateConfig() {
  *  - `paddingReels` are the REEL STRIPS — the one client-side statement of what
  *    reaches the board. This is the real in-play set.
  *
- * The dictionary alone was the wrong gate: the upstream Stake sample declares a
+ * The dictionary alone was the wrong gate: the upstream sample declares a
  * `W` wild+multiplier that neither RGS the engine talks to ever emits, so the
  * grid offered a W row (dynamite art) for a symbol that could never land — the
  * same stale-sample leak that put W on the spinning reels and in the paytable.

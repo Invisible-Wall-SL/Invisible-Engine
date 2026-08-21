@@ -85,7 +85,7 @@ const winKey = (win: CycleWin): string =>
  * Accumulates, rather than assigns, because the number of `winInfo` events per spin is a property
  * of the SOURCE BOOK, not of the game. The reference books put every win in ONE event
  * (`wins: [w1, w2, w3]`), but the Play4Fun facade — which is what the shipped Book of Borut runs on
- * — flushes one event PER win (`reveal → winInfo×N → setTotalWin`, `stakeFacade.adaptEventsForStake`).
+ * — flushes one event PER win (`reveal → winInfo×N → setTotalWin`, `engineFacade.adaptEventsForEngine`).
  * Assigning therefore kept only the LAST line on exactly the games that pay several, which is the
  * bug this fixes. Both shapes now land the same list.
  *

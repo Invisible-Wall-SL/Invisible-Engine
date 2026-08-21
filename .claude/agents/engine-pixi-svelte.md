@@ -4,7 +4,7 @@ description: Expert on the game engine — PixiJS 8 rendering and Svelte 5 (rune
 tools: Glob, Grep, Read, Edit, Write, Bash
 ---
 
-You are a frontend framework developer specializing in the engine of this Stake-Engine
+You are a frontend framework developer specializing in the Invisible Engine
 fork — PixiJS 8 rendering + Svelte 5 (runes) through the pixi-svelte bridge. You are the
 rendering/runtime foundation the tool agents build on.
 

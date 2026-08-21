@@ -98,7 +98,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	// ---------------------------------------------------------------------------
 	// Server-config overlay — the RGS's DECLARED boot config, server-authoritative at runtime.
 	//
-	// The Play4Fun facade (`packages/rgs-translator-eagaming/stakeFacade.ts`) publishes the server's
+	// The Play4Fun facade (`packages/rgs-translator-eagaming/engineFacade.ts`) publishes the server's
 	// boot `config` event to `globalThis.__IE_SERVER_CONFIG__` (mirror of the `__IE_WIN_LEVELS__`
 	// engine→facade bridge, in reverse: facade→engine, since the facade cannot import this app). When
 	// it is present the RGS is the authority on the game's DERIVED display data — paylines / line count,
@@ -108,7 +108,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	// doc: the `config` event arrives asynchronously (during `requestAuthenticate`), which can be AFTER
 	// the memo resets at boot, and these accessors run per-render / per-spin — so a live read picks the
 	// config up the moment it lands, with no cache to invalidate. Undefined ⇒ no config event (a dev app
-	// on plain `rgs-requests`, the real Stake RGS, or any host with no facade) ⇒ every accessor falls
+	// on plain `rgs-requests`, the real engine RGS, or any host with no facade) ⇒ every accessor falls
 	// through to the authored doc, byte-identical to before (parity).
 	// ---------------------------------------------------------------------------
 
@@ -550,7 +550,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 
 	/**
 	 * Publish the resolved tiers (level + threshold + type only) to a global the RGS FACADE reads
-	 * (`packages/rgs-translator-eagaming/stakeFacade.ts`). The facade is a drop-in for `rgs-requests` and
+	 * (`packages/rgs-translator-eagaming/engineFacade.ts`). The facade is a drop-in for `rgs-requests` and
 	 * cannot import this app, so a global is the decoupled bridge: it lets the facade emit a `winLevel`
 	 * from the AUTHORED ladder and gate big-win on the authored `type`, instead of its hardcoded ladder.
 	 * Cleared (set to the un-authored signal) when the project authors no tiers, so the facade falls back

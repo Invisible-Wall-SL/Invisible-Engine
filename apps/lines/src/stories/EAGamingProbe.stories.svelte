@@ -78,11 +78,7 @@
 	const fireBetPlay = guard(async () => {
 		const body = buildBetActions({ amount, mode: 'BASE', currency: 'USD', contextExtras: [extra] });
 		const result = await fetcher.post({ body, headers });
-		push(
-			'bet+play',
-			result,
-			result.response ? translateBetResponse(result.response) : undefined,
-		);
+		push('bet+play', result, result.response ? translateBetResponse(result.response) : undefined);
 	});
 
 	const fireEmpty = guard(async () => {
@@ -108,8 +104,8 @@
 	<header>
 		<h2>EAGaming Protocol Probe</h2>
 		<p>
-			Sends batched-action POSTs to <code>{baseUrl}/game/engine</code>. Use this to
-			reverse-engineer response shapes before wiring the translator into a real game.
+			Sends batched-action POSTs to <code>{baseUrl}/game/engine</code>. Use this to reverse-engineer
+			response shapes before wiring the translator into a real game.
 		</p>
 	</header>
 
@@ -176,7 +172,7 @@
 				</details>
 				{#if entry.translated}
 					<details>
-						<summary>translated → Stake shape</summary>
+						<summary>translated → engine shape</summary>
 						<pre>{JSON.stringify(entry.translated, null, 2)}</pre>
 					</details>
 				{/if}
@@ -184,6 +180,8 @@
 		{/each}
 	</section>
 </div>
+
+<Story name="probe" />
 
 <style>
 	.probe {
@@ -289,5 +287,3 @@
 		color: #2563eb;
 	}
 </style>
-
-<Story name="probe" />

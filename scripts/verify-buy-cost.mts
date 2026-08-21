@@ -3,7 +3,7 @@
  *
  * Proves the two halves of the charge chain, end to end, against the REAL book mock
  * (`scripts/mock-rgs-server-book.mjs` — Book of Borut's live RGS) and the REAL facade
- * (`packages/rgs-translator-eagaming/src/stakeFacade.ts`):
+ * (`packages/rgs-translator-eagaming/src/engineFacade.ts`):
  *
  *   Part 1 (mock):   a `bet` wire context [cost, betPerLine] debits betPerLine × NUM_LINES × cost,
  *                    so each buy cost multiplier (25 / 50 / 100) charges its own price — not a fixed 100.
@@ -19,7 +19,7 @@ import { createMockRgs } from './mock-rgs-server-book.mjs';
 import {
 	requestAuthenticate,
 	requestBet,
-} from '../packages/rgs-translator-eagaming/src/stakeFacade';
+} from '../packages/rgs-translator-eagaming/src/engineFacade';
 
 const NUM_LINES = 10;
 const BET_PER_LINE = 10; // cents, = the facade's round(betAmount×100 / BOOK_NUM_LINES) for a $1 bet

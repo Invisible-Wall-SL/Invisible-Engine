@@ -110,7 +110,7 @@ story.append(Paragraph("Stake <i>lines</i> → Hot Fruits · breakdown del lavor
 # ---------------- Goal ----------------
 story.append(section("Obiettivo", [
     Paragraph(
-        "Ridurre il gioco <font face='Courier'>lines</font> dello Stake Engine a una forma compatibile con i segnali "
+        "Ridurre il gioco <font face='Courier'>lines</font> dello Invisible Engine a una forma compatibile con i segnali "
         "che il server Play4Fun di Hot Fruits invia: meno paylines, niente wild, niente freegame, "
         "niente buy-bonus, paytable allineata. Il risultato è un'app <font face='Courier'>lines</font> che, alimentata "
         "dal traduttore, riproduce fedelmente il comportamento di Hot Fruits.",
@@ -162,7 +162,7 @@ story.append(phase(
 
 story.append(phase(
     3, "Modulazione via config — <i>nessuna modifica all'engine</i>",
-    "Sfruttare la modularità già presente in Stake Engine: la maggior parte delle feature si attiva o spegne in base al config e agli eventi che il server manda. Evitiamo qualunque chirurgia sull'engine, che romperebbe il funzionamento per altri giochi che usano wild, freegame e buy-bonus.",
+    "Sfruttare la modularità già presente in Invisible Engine: la maggior parte delle feature si attiva o spegne in base al config e agli eventi che il server manda. Evitiamo qualunque chirurgia sull'engine, che romperebbe il funzionamento per altri giochi che usano wild, freegame e buy-bonus.",
     [
         "<b>Wild — niente da fare a livello engine.</b> Il codice del gioco non contiene alcun riferimento hardcoded al simbolo <font face='Courier'>W</font>: la wild è puramente dichiarata via <font face='Courier'>special_properties: ['wild']</font> nel config. Rimosso dal config, l'engine non lo cerca più.",
         "<b>Freegame — disattivata di fatto, struttura mantenuta.</b> Il path freegame parte solo all'arrivo dell'evento <font face='Courier'>freeSpinTrigger</font> dal server. Hot Fruits non lo invia, quindi non viene mai eseguito. <b>Importante:</b> manteniamo <font face='Courier'>paddingReels.freegame</font> nel config (anche con stack minimi) perché l'engine accede dinamicamente a <font face='Courier'>paddingReels[gameType]</font> e va in errore se la chiave manca. È una difesa, non una modifica.",
@@ -183,7 +183,7 @@ story.append(phase(
         "Convertire le 5 paylines Play4Fun nelle 5 paylines Stake corrispondenti, riconciliando l'ordine.",
         "Filtrare eventi/posizioni fuori griglia o con simboli sconosciuti, con log esplicito.",
     ],
-    "<font face='Courier'>packages/rgs-translator-eagaming/src/{types,gameMappings,stakeFacade}.ts</font>",
+    "<font face='Courier'>packages/rgs-translator-eagaming/src/{types,gameMappings,engineFacade}.ts</font>",
 ))
 
 story.append(phase(
@@ -240,7 +240,7 @@ doc = SimpleDocTemplate(
     OUTPUT, pagesize=A4,
     leftMargin=2 * cm, rightMargin=2 * cm,
     topMargin=2 * cm, bottomMargin=2 * cm,
-    title="Piano di adattamento Stake lines verso Hot Fruits",
+    title="Piano di adattamento engine lines verso Hot Fruits",
     author="Invisible Engine",
 )
 doc.build(story)

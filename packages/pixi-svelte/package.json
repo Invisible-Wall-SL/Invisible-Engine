@@ -10,7 +10,7 @@
 	],
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/StakeEngine/web-sdk/tree/main/packages/pixi-svelte"
+		"url": "https://github.com/Invisible-Wall-SL/Invisible-Engine/tree/main/packages/pixi-svelte"
 	},
 	"scripts": {
 		"format": "prettier --write --ignore-path=../../.prettierignore .",

@@ -119,7 +119,7 @@ win can pick it up (leave it unset to use the single default from the Symbols to
 Colours are keyed by line **index**, so they line up with the server's lines in order
 (a line past the end of the authored config keys its colour by its 1-based position).
 
-When there is **no** server declaration (a stock dev build, or the real Stake RGS),
+When there is **no** server declaration (a stock dev build, or the real engine RGS),
 the game falls back to the authored/compiled paylines and strips exactly as before.
 
 ## The strips are the gate
@@ -143,7 +143,7 @@ Each bet mode is one card, read top to bottom as four labelled blocks:
 
 | Block             | What it holds                                                                                                                                  |
 | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Math**          | Cost × (a multiple of the base bet), RTP, Max win ×, and the **Feature** / **Buy bonus** toggles — the Stake-export shape the math team ships. |
+| **Math**          | Cost × (a multiple of the base bet), RTP, Max win ×, and the **Feature** / **Buy bonus** toggles — the engine config shape the math team ships. |
 | **Menu**          | **Kind**, **Order**, and the **Card** component this mode renders.                                                                             |
 | **Copy**          | **Title**, **Button**, **Bet label**, **Description**, **Dialog**.                                                                             |
 | **Card graphics** | Per-mode overrides of the card component's params, clustered by the group each param declares (Panel · Icon · Spine · Button).                 |
@@ -187,7 +187,7 @@ modes" section; a translation you write there lands in-game.
 
 ## Pasting in a config from the math team
 
-A Stake-Engine config arrives as JSON. Click **raw JSON** (top of the page), paste
+A Invisible Engine config arrives as JSON. Click **raw JSON** (top of the page), paste
 it, and **Apply** — the same validation a save runs checks it first. The snake_case
 fields the export uses (`special_properties`, `max_win`) are kept verbatim.
 

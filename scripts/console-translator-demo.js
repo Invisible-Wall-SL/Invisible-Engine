@@ -7,7 +7,7 @@
  *     server accepts.
  *   - Our session state (sid + seq + gid lifecycle) matches reality.
  *   - Our translateBetResponse reshapes real Play4Fun responses into the
- *     Stake Engine format the games consume.
+ *     Invisible Engine format the games consume.
  *
  * Usage:
  *   1. Open https://eagaming.com/game/hot-fruits/?locale=en

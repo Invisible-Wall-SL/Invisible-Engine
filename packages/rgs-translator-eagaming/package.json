@@ -10,9 +10,9 @@
 			"types": "./index.ts",
 			"default": "./index.ts"
 		},
-		"./stake-facade": {
-			"types": "./stake-facade.ts",
-			"default": "./stake-facade.ts"
+		"./engine-facade": {
+			"types": "./engine-facade.ts",
+			"default": "./engine-facade.ts"
 		},
 		"./game-mappings": {
 			"types": "./src/gameMappings.ts",

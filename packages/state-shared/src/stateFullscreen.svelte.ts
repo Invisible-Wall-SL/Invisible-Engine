@@ -1,8 +1,8 @@
 /**
  * Fullscreen — a BROWSER capability the engine owns itself.
  *
- * The Stake SDK ships the `jurisdiction.disabledFullscreen` PERMISSION flag but never
- * implemented the mechanic: on Stake the casino wrapper owned the fullscreen button in
+ * The upstream SDK ships the `jurisdiction.disabledFullscreen` PERMISSION flag but never
+ * implemented the mechanic: on the host casino the wrapper owned the fullscreen button in
  * its own chrome, so the game only needed to know whether it was allowed. A standalone
  * game has no wrapper, hence this module.
  *

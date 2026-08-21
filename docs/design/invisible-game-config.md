@@ -19,7 +19,7 @@ That is not a theoretical gap. It is what produced the reported bug:
 
 > "I can still see the dynamite (W) when the reel is rolling, but it never actually lands."
 
-`W` is a wild in the upstream Stake sample config. Neither RGS the engine talks to emits one
+`W` is a wild in the upstream sample config. Neither RGS the engine talks to emits one
 (`mock-rgs-server.mjs` → `PIC1..PIC7 + SCAT`; `mock-rgs-server-book.mjs` → `PIC1..PIC4`,
 `ACE/KING/QUEEN/JACK/TEN`, `SCAT`, with `wildSymbols: ['SCAT']`). So `W` could only ever flash
 past during the roll, sit in the paytable advertising a payout nobody could win, and occupy a row
@@ -35,7 +35,7 @@ Each project owns a **config document** — the frontend's view of the game's ma
 authored online in a new tool, shipped through the existing live-asset chain, and read by the
 runtime in place of the compiled template config.
 
-A template ships its **Stake-Engine default config** as the starting point (that is the format the
+A template ships its **Invisible Engine default config** as the starting point (that is the format the
 math team already produces), and the owner edits it online from there.
 
 ## What the config is — and is not
@@ -78,7 +78,7 @@ Each phase is shippable on its own and leaves the tree green.
 
 **Phase 1 — the schema + storage.** `packages/game-config` (dependency-free, Node-resolvable, so
 contracts are fixture-verifiable — mirrors `engine-flipbook`): a Zod `GameConfigDoc` matching the
-Stake config shape, `normalizeGameConfigDoc`, and a `configDocKey` under
+engine config shape, `normalizeGameConfigDoc`, and a `configDocKey` under
 `<client>/<project>/config/config.json`. Server storage in `apps/launcher-api/src/lib/server/
 gameConfigStorage.ts` with the standard ETag compare-and-swap
 (`docs/design/multi-user-concurrency.md` Phase 1). Offline fixture in `tools/game-config-spike`.
@@ -108,7 +108,7 @@ Panels: **Identity** (provider/game/id/RTP) · **Grid** (reels/rows) · **Bet mo
 **Symbols** (the dictionary + paytable rows, with an in-play badge driven by the strips) ·
 **Paylines** (visual 5×3 grid editor, not raw JSON) · **Reel strips** (per game type, per reel,
 with a symbol-frequency readout). A raw-JSON escape hatch with schema validation for paste-in from
-the math team — that is how a Stake config actually arrives.
+the math team — that is how an engine config actually arrives.
 
 **Phase 5 — retire the duplication.** Once the game reads the authored config, delete the
 per-consumer workarounds it replaces and point `publish-symbol-defaults.mjs`'s filter at the
@@ -138,7 +138,7 @@ Split by *one fact, one home*:
 | Icon / dialog image / volatility art | **deferred** — an asset class, referenced by key via the live-asset pipeline, NOT literal URLs |
 
 **Decision (was open #-none; made here):** the presentation is a NEW OPTIONAL top-level field, NOT
-extra keys on each `BetMode`. `betModes` is byte-compatible with the Stake math export on purpose, so
+extra keys on each `BetMode`. `betModes` is byte-compatible with the math export on purpose, so
 its entries must round-trip a paste-in untouched. This mirrors the `paylineColors` precedent exactly —
 an Invisible-Engine extension a paste-in simply omits:
 

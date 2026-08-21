@@ -306,7 +306,7 @@
 	syncBetModeMeta();
 
 	// Publish the resolved win tiers (level/threshold/type) to the global the RGS FACADE reads
-	// (`stakeFacade.ts`), so an authored config's tier ladder + big-win gate drive the win level the
+	// (`engineFacade.ts`), so an authored config's tier ladder + big-win gate drive the win level the
 	// facade emits. Runs after the runtime-bundle branch, on the config the game will actually run.
 	// Un-authored ⇒ the global is cleared and the facade keeps its coded ladder (byte-identical).
 	publishWinLevelsToFacade();

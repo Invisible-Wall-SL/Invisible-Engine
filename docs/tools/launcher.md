@@ -74,7 +74,7 @@ the launcher itself.
 ### Admin → Settings → Engine boot mark
 
 The spine that opens **every** game — the engine's own logo, shown before the
-game's own splash. This is what replaced the Stake Engine loader, so it is
+game's own splash. This is what replaced the Invisible Engine loader, so it is
 deliberately admin-owned: a client editing their project cannot change it.
 
 Pick a bundle from the **shared** spine library (`_shared/spines/`), then set:

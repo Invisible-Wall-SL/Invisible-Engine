@@ -1,5 +1,5 @@
 /**
- * Stake-shaped facade.
+ * Engine-shaped facade.
  *
  * Re-exports the function surface of `rgs-requests` (`requestAuthenticate`,
  * `requestBet`, `requestEndRound`, `requestEndEvent`, `requestReplay`) but
@@ -9,17 +9,17 @@
  * All cross-protocol translation lives here so the upstream Play4Fun source
  * (mock or real backend) can stay protocol-faithful:
  *
- *   - Symbol vocabulary: PIC1-PIC7/SCAT (Play4Fun) → H1-H5/L1-L5/S (Stake)
+ *   - Symbol vocabulary: PIC1-PIC7/SCAT (Play4Fun) → H1-H5/L1-L5/S (engine)
  *     via gameMappings.linesMapping
- *   - Amount scaling: integer cents (Play4Fun) ↔ millions (Stake API)
- *     via stakeToPlay4Fun / play4FunToStake
+ *   - Amount scaling: integer cents (Play4Fun) ↔ millions (engine API)
+ *     via engineToPlay4Fun / play4FunToEngine
  *   - Event vocabulary: bet/play/spinWin/playedSpin/gameEnd → reveal/
- *     winInfo/setTotalWin/finalWin via adaptEventsForStake
+ *     winInfo/setTotalWin/finalWin via adaptEventsForEngine
  *
- * Use as a Vite alias drop-in to make any Stake Engine game speak Play4Fun
+ * Use as a Vite alias drop-in to make any Invisible Engine game speak Play4Fun
  * without touching the game code itself:
  *
- *   resolve.alias['rgs-requests'] = '<absolute path to>/stake-facade.ts'
+ *   resolve.alias['rgs-requests'] = '<absolute path to>/engine-facade.ts'
  *
  * Sessions are kept module-local and keyed by sessionID, so seq/gid lifecycle
  * is preserved across calls within the same playing session.
@@ -38,8 +38,8 @@ import { isPlay4FunError } from './types';
 import type { Play4FunBookEvent, Play4FunConfigContext, Play4FunResponse } from './types';
 import {
 	mapSymbol,
-	stakeToPlay4Fun,
-	play4FunToStake,
+	engineToPlay4Fun,
+	play4FunToEngine,
 	resolveActiveMapping,
 	linesMapping,
 	bookMapping,
@@ -100,7 +100,7 @@ const findConfigEvent = (events: Play4FunBookEvent[] | undefined): Play4FunConfi
  * falls back to the authored doc, byte-identical to before (parity).
  *
  * `symbols` is mapped through `activeMapping` FIRST — the reveal board, wins and the whole engine
- * run in Stake CLIENT-symbol space (`H1`/`L1`/`S`), never the server's raw vocabulary
+ * run in ENGINE client-symbol space (`H1`/`L1`/`S`), never the server's raw vocabulary
  * (`PIC1`/`ACE`/`SCAT`), because `mapSymbol` translates every reveal cell (see the `reveal` push).
  * Publishing the raw names would make the in-play GATE and the auto-generated strips speak a
  * vocabulary the client dictionary and symbol-art map don't know — a blank paytable and undrawable
@@ -162,7 +162,7 @@ const runConfigCrossCheck = (sid: string, cfg: Play4FunConfigContext): void => {
 	// EVERY session — pure noise in a shipped game. Stay silent when all checks pass.
 	if (!unmapped.length && !orphaned.length) return;
 
-	const lines: string[] = [`[stake-facade] config cross-check for sid=${sid}`];
+	const lines: string[] = [`[engine-facade] config cross-check for sid=${sid}`];
 	if (unmapped.length)
 		lines.push(`  unmapped server symbols (will pass through): ${unmapped.join(', ')}`);
 	if (orphaned.length)
@@ -182,7 +182,7 @@ const isKnownSymbol = (sid: string, name: string): boolean => {
 	if (!warnedUnknownSymbols.has(key)) {
 		warnedUnknownSymbols.add(key);
 		console.warn(
-			`[stake-facade] reveal contained symbol "${name}" not declared in server config — passing through`,
+			`[engine-facade] reveal contained symbol "${name}" not declared in server config — passing through`,
 		);
 	}
 	return false;
@@ -207,7 +207,7 @@ const clampBoardToGrid = (sid: string, board: string[][]): string[][] => {
 		const key = `${sid}:grid`;
 		if (!warnedUnknownSymbols.has(key)) {
 			warnedUnknownSymbols.add(key);
-			console.warn(`[stake-facade] reveal exceeded declared grid ${reels}×${rows}, trimmed`);
+			console.warn(`[engine-facade] reveal exceeded declared grid ${reels}×${rows}, trimmed`);
 		}
 	}
 	return out;
@@ -215,14 +215,14 @@ const clampBoardToGrid = (sid: string, board: string[][]): string[][] => {
 
 // ---------- event-vocabulary adapter ----------
 
-/** Stake's BOOK_AMOUNT_MULTIPLIER (constants-shared/bet.ts). bookEvent amounts
+/** The engine's BOOK_AMOUNT_MULTIPLIER (constants-shared/bet.ts). bookEvent amounts
  *  (setTotalWin, finalWin, winInfo wins/totalWin) are NOT absolute money
  *  amounts — they're fixed-point multipliers of the wagered bet. amount=100
  *  means "1× bet", amount=300 means "3× bet". Display = amount/100 × bet. */
 const BOOK_AMOUNT_MULTIPLIER = 100;
 
 /** Book-of games declare 10 paylines; the Play4Fun bet total = betPerLine ×
- *  this. Used to derive betPerLine from the Stake bet amount. */
+ *  this. Used to derive betPerLine from the engine bet amount. */
 const BOOK_NUM_LINES = 10;
 
 /** The resolved win tiers the ENGINE published from the active game config
@@ -258,7 +258,7 @@ const betModeCostMultiplier = (mode: string): number => {
 	return typeof cost === 'number' && cost > 0 ? cost : 1;
 };
 
-/** Map a win (cents) + bet (cents) to a Stake winLevel. When the project has
+/** Map a win (cents) + bet (cents) to an engine winLevel. When the project has
  *  AUTHORED win tiers (Invisible Game Config), the level is read from that
  *  ladder — the highest tier whose threshold the win reaches. Otherwise the
  *  coded 1..10 ladder is used verbatim (byte-identical for an un-authored game).
@@ -313,14 +313,14 @@ const debugEnabled = (): boolean => {
 	}
 };
 const ieLog = (...args: unknown[]) => {
-	if (debugEnabled()) console.log('[stake-facade]', ...args);
+	if (debugEnabled()) console.log('[engine-facade]', ...args);
 };
 
-/** Convert a Play4Fun cents win + the round's bet (also in cents) to a Stake
+/** Convert a Play4Fun cents win + the round's bet (also in cents) to an engine
  *  bookEvent amount (the bet-multiplier in fixed-point hundredths). Returns 0
  *  for a zero bet to avoid division by zero.
  *
- *  Stake's display flow (see packages/utils-shared/amount.ts):
+ *  the engine's display flow (see packages/utils-shared/amount.ts):
  *    bookEventAmount / BOOK_AMOUNT_MULTIPLIER × wageredBetAmount = $-on-screen.
  *  Worked example: $2 bet, win $0.40 → bookEventAmount 20 → display $0.40 ✓.
  *  If the on-screen amount looks off by 100× or shows only decimals, the
@@ -347,7 +347,7 @@ const toBookEventAmount = (winCents: number, betCents: number): number => {
  *  become an engine row index. */
 const BOARD_PADDING_ROWS = 1;
 
-/** Pad a 3-row reel to 5 cells (1 above + 1 below) for Stake's spin buffer. */
+/** Pad a 3-row reel to 5 cells (1 above + 1 below) for the engine's spin buffer. */
 const padReel = (reel: string[]): string[] => {
 	if (reel.length === 0) return [];
 	return [reel[0], ...reel, reel[reel.length - 1]];
@@ -365,7 +365,7 @@ const winPositions = (c: { mode?: string; context?: unknown }): { reel: number; 
 };
 
 /** Translate an ordered Play4Fun event stream — base game OR a full aggregated
- *  free-spin round — into the Stake-engine book-event sequence. Processed
+ *  free-spin round — into the Invisible Engine book-event sequence. Processed
  *  sequentially (not bucketed) so multi-spin bonus rounds keep their order:
  *
  *    base:  reveal → winInfo×N → setTotalWin → finalWin
@@ -374,8 +374,8 @@ const winPositions = (c: { mode?: string; context?: unknown }): { reel: number; 
  *           → freeSpinEnd → setTotalWin → finalWin
  *
  *  Within each spin, Play4Fun emits spinWin BEFORE playedSpin; we hold the wins
- *  and flush them as winInfo right after the reveal (Stake wants board first). */
-const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[] => {
+ *  and flush them as winInfo right after the reveal (the engine wants board first). */
+const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown[] => {
 	const ordered: Record<string, unknown>[] = [];
 	const push = (ev: Record<string, unknown>) => ordered.push({ index: ordered.length, ...ev });
 
@@ -710,13 +710,13 @@ const sessionFor = (sid: string) => {
 	return s;
 };
 
-/** Stake's createPrimaryMachines runs a two-step balance update on a winning
+/** The engine's createPrimaryMachines runs a two-step balance update on a winning
  *  spin: requestBet returns the bet-debited (interim) balance, then
  *  requestEndRound returns the final balance with the win credited.
  *  The dramatic count-up animation rides between them.
  *
  *  Play4Fun auto-collects atomically in one round-trip, so the response
- *  already contains the post-win balance. We synthesise the Stake flow by
+ *  already contains the post-win balance. We synthesise the engine flow by
  *  stashing the final balance per-session and returning the interim
  *  (= final − win) from requestBet. */
 const pendingFinalBalance = new Map<string, number>();
@@ -737,11 +737,11 @@ const fetcherFor = (sid: string, rgsUrl: string) =>
 
 // ---------- balance helpers ----------
 
-/** Pull the Play4Fun balance from a response and scale up to Stake units. */
+/** Pull the Play4Fun balance from a response and scale up to engine units. */
 const balanceOf = (response: unknown): number | undefined => {
 	if (!response || typeof response !== 'object') return undefined;
 	const p4f = (response as { platform?: { balance?: number } }).platform?.balance;
-	return typeof p4f === 'number' ? play4FunToStake(p4f) : undefined;
+	return typeof p4f === 'number' ? play4FunToEngine(p4f) : undefined;
 };
 
 // ---------- public API (matches rgs-requests) ----------
@@ -776,7 +776,7 @@ export const requestAuthenticate = async (options: {
 	return {
 		status: { statusCode: 'SUCCESS' as const },
 		balance: balance !== undefined ? { amount: balance, currency: 'USD' } : undefined,
-		// Synthesised config so the bet UI boots. Levels in Stake API units.
+		// Synthesised config so the bet UI boots. Levels in engine API units.
 		config: {
 			betLevels: [
 				100_000, // $0.10
@@ -815,7 +815,7 @@ export const requestAuthenticate = async (options: {
  *  the original rgs-requests does. Convert to Play4Fun cents (×100), send
  *  bet+play (auto-collect), translate + adapt the response.
  *
- *  IMPORTANT: amount is in user-display units, NOT Stake API millions.
+ *  IMPORTANT: amount is in user-display units, NOT engine API millions.
  *  The engine's createPrimaryMachines.ts passes stateBet.betAmount directly
  *  (e.g. 2), and the original rgs-requests multiplies by API_AMOUNT_MULTIPLIER
  *  internally before sending. Our facade does the equivalent: user-amount ×
@@ -871,7 +871,7 @@ export const requestBet = async (options: {
 			status: { statusCode: `ERR_${raw.errorCode}`, statusMessage: raw.error },
 			balance:
 				typeof balanceCents === 'number'
-					? { amount: play4FunToStake(balanceCents), currency: options.currency }
+					? { amount: play4FunToEngine(balanceCents), currency: options.currency }
 					: undefined,
 			error: raw.error,
 			message: `${raw.error} (code ${raw.errorCode})`,
@@ -887,7 +887,7 @@ export const requestBet = async (options: {
 	);
 	if (cfg) runConfigCrossCheck(options.sessionID, cfg);
 
-	// Aggregate the whole round into one event stream. The Stake engine consumes
+	// Aggregate the whole round into one event stream. The engine consumes
 	// a round as a single book; Play4Fun delivers free spins as separate `play`
 	// requests, so when a bet enters the bonus we drive the remaining spins +
 	// the closing `collect` here and concatenate every event.
@@ -916,7 +916,7 @@ export const requestBet = async (options: {
 		events: allEvents,
 		platform: (lastResponse as { platform?: unknown } | null)?.platform,
 	} as Play4FunResponse;
-	const stake = translateBetResponse(aggregated, options.currency);
+	const translated = translateBetResponse(aggregated, options.currency);
 
 	// Two-step balance: interim (bet debited, win NOT yet credited) now; final
 	// stashed for requestEndRound to return after the count-up animation.
@@ -928,22 +928,25 @@ export const requestBet = async (options: {
 	const interimCents = finalCents - winCents;
 	pendingFinalBalance.set(options.sessionID, finalCents);
 
-	if (stake.balance) {
-		stake.balance = { ...stake.balance, amount: play4FunToStake(interimCents) };
+	if (translated.balance) {
+		translated.balance = { ...translated.balance, amount: play4FunToEngine(interimCents) };
 	}
-	if (stake.round) {
-		if (typeof stake.round.amount === 'number') {
-			stake.round.amount = play4FunToStake(stake.round.amount);
+	if (translated.round) {
+		if (typeof translated.round.amount === 'number') {
+			translated.round.amount = play4FunToEngine(translated.round.amount);
 		}
-		if (typeof stake.round.payout === 'number') {
-			stake.round.payout = play4FunToStake(stake.round.payout);
+		if (typeof translated.round.payout === 'number') {
+			translated.round.payout = play4FunToEngine(translated.round.payout);
 		}
-		if (stake.round.state) {
-			stake.round.state = adaptEventsForStake(options.sessionID, stake.round.state) as never;
+		if (translated.round.state) {
+			translated.round.state = adaptEventsForEngine(
+				options.sessionID,
+				translated.round.state,
+			) as never;
 		}
 	}
 
-	return stake;
+	return translated;
 };
 
 export const requestEndRound = async (options: { sessionID: string; rgsUrl: string }) => {
@@ -958,7 +961,7 @@ export const requestEndRound = async (options: { sessionID: string; rgsUrl: stri
 		pendingFinalBalance.delete(options.sessionID);
 		return {
 			status: { statusCode: 'SUCCESS' as const },
-			balance: { amount: play4FunToStake(stashed), currency: 'USD' },
+			balance: { amount: play4FunToEngine(stashed), currency: 'USD' },
 		};
 	}
 

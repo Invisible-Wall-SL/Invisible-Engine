@@ -127,7 +127,7 @@
 
 	// ── Bet modes ────────────────────────────────────────────────────────────────
 	// A mode has TWO halves: the math (`betModes[key]` — cost/feature/buyBonus/rtp/max_win, the
-	// Stake-export shape) and the OPTIONAL presentation (`betModePresentation[key]` — kind/order/copy,
+	// engine config shape) and the OPTIONAL presentation (`betModePresentation[key]` — kind/order/copy,
 	// an Invisible-Engine extension). The presentation is stored SPARSELY, exactly like payline
 	// colours: an unset field has no entry, so a config with no authored presentation is byte-identical
 	// to a math-only paste-in. `resolveBetModes` folds the two into the ordered menu the game renders.
@@ -459,10 +459,10 @@
 	}
 
 	// ── Payline colours ────────────────────────────────────────────────────────────
-	// OPTIONAL per-line colour (an Invisible-Engine extension of the Stake config). When a line has
+	// OPTIONAL per-line colour (an Invisible-Engine extension of the engine config). When a line has
 	// one, the game draws its win line in that colour AND broadcasts it so assets shown on the win can
 	// tint to match — see `paylineColor()` / `stateGame.winLineColor` in the engine. Stored sparsely:
-	// a line with no colour has no entry, so an un-coloured config is byte-identical to a Stake export.
+	// a line with no colour has no entry, so an un-coloured config is byte-identical to a math export.
 	const DEFAULT_PAYLINE_COLOR = '#7ee0c0';
 	function hasPaylineColor(id: string): boolean {
 		return Boolean(doc.paylineColors?.[id]);
@@ -538,7 +538,7 @@
 	});
 
 	// ── Win tiers (big-win levels) ─────────────────────────────────────────────────
-	// OPTIONAL config-authored win tiers (an Invisible-Engine extension, not part of the Stake export).
+	// OPTIONAL config-authored win tiers (an Invisible-Engine extension, not part of the math export).
 	// The owner sets the COUNT, names each tier, its amount THRESHOLD (win as a multiple of the total
 	// bet), its type, and — for a big tier — its intro/idle/outro spine animation. Stored SPARSELY like
 	// the payline colours: the whole `winLevels` block (and the escalation flags) exist ONLY once a
@@ -640,7 +640,7 @@
 	}
 
 	// ── Raw JSON escape hatch ─────────────────────────────────────────────────────
-	// A Stake config arrives as JSON from the math team; this is how it comes in and how a power
+	// A engine config arrives as JSON from the math team; this is how it comes in and how a power
 	// user checks the exact shape. "Apply" runs the SAME normalizer the server and game run, so what
 	// applies here is what would save — no second interpretation.
 	let rawOpen = $state(false);
@@ -919,7 +919,7 @@
 			<h2>Bet modes</h2>
 			<p class="hint">
 				Each entry in the bet selector / buy-bonus menu. The <strong>math</strong> (cost × the base
-				bet, RTP, max win, and whether the mode has the feature / is a bought bonus) is the Stake
+				bet, RTP, max win, and whether the mode has the feature / is a bought bonus) is the math
 				export shape. The <strong>presentation</strong> is ours: <strong>Kind</strong> —
 				<code>base</code>, a persistent <code>ante</code>, or a one-shot <code>buy</code> (leave on
 				<em>auto</em> to derive it from the math) — a menu <strong>Order</strong>, the
@@ -952,7 +952,7 @@
 						</div>
 
 						<div class="bm-block">
-							<span class="bm-legend">Math <em>the Stake export shape</em></span>
+							<span class="bm-legend">Math <em>the math-team export shape</em></span>
 							<div class="bm-fields bm-math">
 								<label class="fld"
 									><span>Cost ×</span><input
@@ -1596,8 +1596,8 @@
 			<div class="modal" onclick={(e) => e.stopPropagation()} role="presentation">
 				<h2>Raw JSON</h2>
 				<p class="hint">
-					Paste a Stake-shaped config from the math team, or edit the whole doc directly. Apply runs
-					the same validation a save does.
+					Paste an engine-shaped config from the math team, or edit the whole doc directly. Apply
+					runs the same validation a save does.
 				</p>
 				<textarea class="raw" bind:value={rawText} spellcheck="false"></textarea>
 				{#if rawError}<p class="inline-issue error">{rawError}</p>{/if}

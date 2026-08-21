@@ -1,4 +1,4 @@
-import { requestBet } from '../packages/rgs-translator-eagaming/stake-facade.ts';
+import { requestBet } from '../packages/rgs-translator-eagaming/engine-facade.ts';
 
 const RGS_URL = `http://localhost:${Number(process.env.PORT ?? 7777)}`;
 

@@ -229,7 +229,7 @@ const reelsCovering = (reels, special) => {
 /** The minimum reel coverage that makes the special expand and pay. Mirrors the
  *  paytable: royals and PIC2–4 pay from 3-of-a-kind, so they need 3 reels; PIC1
  *  (the top symbol) pays from 2-of-a-kind, so it expands from 2 — the Book-of-Ra
- *  deluxe rule. This gate MUST match the client morph gate in `stakeFacade.ts`
+ *  deluxe rule. This gate MUST match the client morph gate in `engineFacade.ts`
  *  so the reels that visibly expand are exactly the reels that pay. */
 const specialExpandsAt = (special, reelCount) => reelCount >= (special === 'PIC1' ? 2 : 3);
 

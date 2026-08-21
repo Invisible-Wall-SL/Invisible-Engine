@@ -235,7 +235,7 @@ export default defineConfig(({ mode }) => {
 	if (process.env.PUBLIC_RGS_TRANSPORT === 'play4fun') {
 		overrides.resolve = {
 			alias: {
-				'rgs-requests': resolve(here, './engine/packages/rgs-translator-eagaming/stake-facade.ts'),
+				'rgs-requests': resolve(here, './engine/packages/rgs-translator-eagaming/engine-facade.ts'),
 			},
 		};
 	}

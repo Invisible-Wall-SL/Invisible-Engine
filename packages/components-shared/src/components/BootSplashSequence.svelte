@@ -10,13 +10,13 @@
 	/**
 	 * The pre-game splash SEQUENCE: the engine mark, then the game's own mark, each a spine
 	 * exported to `deploy/_boot/` (see `constants-shared/bootSplash`). Replaces the pair of
-	 * hardcoded gif loaders — `LoaderStakeEngine` (Stake's mark, shipped in every app's
+	 * hardcoded gif loaders — `LoaderStakeEngine` (the old vendor mark, shipped in every app's
 	 * `static/`) and `LoaderExample` ("Add Your Loader").
 	 *
 	 * ORDERING — why this waits instead of mounting straight away. `apps/lines` paints the
 	 * `#ie-boot` overlay from the HTML shell at `z-index: 99999`, and holds it until every
 	 * asset is loaded. The old gif loaders sat UNDER it at `z-index: 999` and burned their
-	 * 2s timers unseen, which is why Stake's mark is invisible online and only shows in the
+	 * 2s timers unseen, which is why that mark is invisible online and only shows in the
 	 * dev games (whose `app.html` has no shell). Running a spine ANIMATION under an opaque
 	 * overlay would be pointless in exactly the same way, so the sequence starts only once
 	 * the boot overlay is done — giving the honest order: progress bar → engine mark → game

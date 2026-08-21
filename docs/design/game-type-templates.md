@@ -401,7 +401,7 @@ resized its grid.
 **What Phase F still owes**, and why a cluster game cannot yet be published:
 
 1. **The wire.** No RGS the engine talks to sends `tumbleBoard`. Both mocks speak the Play4Fun
-   vocabulary and `stakeFacade` translates it, and every piece of that stack was verified against a
+   vocabulary and `engineFacade` translates it, and every piece of that stack was verified against a
    real capture. There is no capture of a cascade game, so the wire representation would be INVENTED
    rather than transcribed — then implemented twice (mock generation, facade translation), and
    discovered wrong the first time a real provider sends one. Held deliberately: get a capture first

@@ -1,4 +1,4 @@
-import { requestBet } from '../packages/rgs-translator-eagaming/stake-facade.ts';
+import { requestBet } from '../packages/rgs-translator-eagaming/engine-facade.ts';
 
 const url = `http://localhost:${process.env.PORT ?? 7777}`;
 
@@ -32,7 +32,7 @@ for (let i = 0; i < 80; i++) {
 		console.log(`  finalWin.amount:    ${fw?.amount}   (expect ${expected})`);
 		console.log(`  winInfo final totalWin: ${wi[wi.length - 1]?.totalWin}  (expect ${expected})`);
 		console.log(`  winInfo wins[0].win:    ${wi[0]?.wins[0]?.win}  (expect ≈${Math.round((pays[0] / betCents) * 100)})`);
-		console.log(`\nBalance returned (Stake API units): ${r.balance?.amount}`);
+		console.log(`\nBalance returned (engine API units): ${r.balance?.amount}`);
 		console.log(`UI display (÷1,000,000): $${(r.balance?.amount ?? 0) / 1_000_000}`);
 		process.exit(0);
 	}

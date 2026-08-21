@@ -47,7 +47,7 @@ consumers (see `engine-pixi-svelte`).
    never `error()`. A missing object and a corrupt one need OPPOSITE preconditions — keep
    `existed` separate from the doc or a corrupt `config.json` becomes permanently unsaveable.
 5. **Snake_case is not a typo.** `special_properties` and `max_win` come verbatim from the math
-   team's Stake export. Keep the wire shape byte-compatible so paste-in works; do not "tidy" it.
+   team's math export. Keep the wire shape byte-compatible so paste-in works; do not "tidy" it.
 6. **Explicitly OUT of scope** — real reel strips/weights/RTP simulation (the math team owns
    those; `paddingReels` is the cosmetic blur filler that happens to be the in-play statement),
    and anything the Scene Editor / Symbols SM / Flow / Win Text already owns.

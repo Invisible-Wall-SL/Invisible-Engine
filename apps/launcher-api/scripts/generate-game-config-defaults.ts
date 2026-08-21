@@ -57,7 +57,7 @@ const BUILT_IN: Record<string, string> = {
 // `ways` had the same gap and now carries COSMETIC strips (see the comment on its `paddingReels`) —
 // evenly weighted filler, explicitly not a math export. That is legitimate for the client, which
 // never computes wins, but note the consequence: a `ways` default seeds a plausible-looking board
-// whose symbol frequencies mean nothing. A real Stake math export should replace them.
+// whose symbol frequencies mean nothing. A real math export should replace them.
 //
 // To close `cluster`: author its `paddingReels` the same way, then add the entry here and to
 // WIN_MODEL_BY_TYPE below.

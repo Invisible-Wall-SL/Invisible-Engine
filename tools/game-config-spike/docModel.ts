@@ -12,7 +12,7 @@
  * Proves: (1) the shipped template normalizes to a valid doc with no ERRORS — it must, since an
  * un-authored project ships it verbatim; (2) the in-play GATE reads the strips, not the dictionary
  * — the `W` bug, asserted directly; (3) garbage and half-configs return `undefined` (fall through
- * to the template) rather than an empty config that would blank the board; (4) the Stake wire shape
+ * to the template) rather than an empty config that would blank the board; (4) the engine wire shape
  * (`special_properties`, `max_win`, single-entry paytable rows) round-trips byte-compatibly;
  * (5) the validator catches a payline pointing off the grid and a strip dealing an undrawable
  * symbol; (6) normalization is IDEMPOTENT (the save→reload fixed point); (7) the COMMITTED template
@@ -130,9 +130,9 @@ assert(
 );
 
 // ---------------------------------------------------------------------------
-// 4. The Stake wire shape survives verbatim — paste-in from the math team is the flow.
+// 4. The engine wire shape survives verbatim — paste-in from the math team is the flow.
 // ---------------------------------------------------------------------------
-console.log('\nStake wire shape');
+console.log('\nengine wire shape');
 const pasted = normalizeGameConfigDoc({
 	providerName: 'acme',
 	gameName: 'acme_book',
@@ -154,7 +154,7 @@ const pasted = normalizeGameConfigDoc({
 		],
 	},
 });
-assert(pasted !== undefined, 'a hand-pasted Stake-shaped config normalizes');
+assert(pasted !== undefined, 'a hand-pasted engine-shaped config normalizes');
 if (pasted) {
 	assert(
 		eq(pasted.symbols.SCAT.special_properties, ['scatter', 'wild']),
@@ -525,7 +525,7 @@ assert(
 console.log('\nwin tiers — per-template default (winLevelMapToTiers → the "Load default tiers" seed)');
 // The default the tool seeds is the TEMPLATE's own tiers, converted from that template's coded
 // winLevelMap. It must be a valid, error-free ladder, and its resolver must reproduce the coded
-// facade ladder (stakeFacade computeWinLevel) — otherwise a template-seeded project would behave
+// facade ladder (engineFacade computeWinLevel) — otherwise a template-seeded project would behave
 // differently from the un-authored fallback it mirrors. `seeded` uses the SAME converter the
 // generator does, so this also covers the /config "Load default tiers" button (it clones these).
 const seededTiers = winLevelMapToTiers(winLevelMap);
@@ -551,7 +551,7 @@ assert(
 	(derived.winLevels?.length ?? 0) === 10,
 	'the committed lines.json template default ships the 10 tiers',
 );
-// The coded facade ladder (stakeFacade.computeWinLevel), sample → expected level:
+// The coded facade ladder (engineFacade.computeWinLevel), sample → expected level:
 const codedLadder: Array<[number, number]> = [
 	[0, 1], // no win → zero
 	[0.5, 2], // < 1.5 → standard

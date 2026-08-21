@@ -1,6 +1,6 @@
 # Onboarding
 
-Welcome. This is a Turborepo + pnpm monorepo: a Stake-Engine fork (Svelte 5 + PixiJS 8) plus a Studio/pipeline platform (launcher + cloud asset tools). Read order: this file → root `CLAUDE.md` → `docs/INFRA.md` → `docs/STATUS.md`.
+Welcome. This is a Turborepo + pnpm monorepo: the Invisible Engine (Svelte 5 + PixiJS 8, forked from the Stake Engine web SDK) plus a Studio/pipeline platform (launcher + cloud asset tools). Read order: this file → root `CLAUDE.md` → `docs/INFRA.md` → `docs/STATUS.md`.
 
 ## Prerequisites
 - **Node ≥ 22.16.0**

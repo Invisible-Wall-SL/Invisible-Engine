@@ -29,7 +29,7 @@ import { pathToFileURL } from 'node:url';
 // ---------- pure game data (read-only, shared across instances) ----------
 
 // Symbol vocabulary mirrors what the live Hot Fruits server sends. Translation
-// to per-game symbols (H1/L1/S/W for Stake's lines) happens in the facade,
+// to per-game symbols (H1/L1/S/W for the engine's lines) happens in the facade,
 // not here — the mock stays faithful to real Play4Fun output.
 const SYMBOLS = ['PIC1', 'PIC2', 'PIC3', 'PIC4', 'PIC5', 'PIC6', 'PIC7', 'SCAT'];
 const LINE_SYMBOLS = SYMBOLS.filter((s) => s !== 'SCAT');
@@ -211,7 +211,7 @@ const dedupeCoincidingWins = (wins) => {
  * math. Wilds substitute for the paying symbol exactly as they do on a payline.
  *
  * Positions are emitted as a BARE ARRAY of `{reel,row}` because that is the only non-payline shape
- * `stakeFacade`'s `winPositions` reads (`Array.isArray(ctx)`). An object wrapper silently yields no
+ * `engineFacade`'s `winPositions` reads (`Array.isArray(ctx)`). An object wrapper silently yields no
  * positions — the win would pay but light up nothing.
  */
 export const evaluateWays = (reels, betPerWay, wild = null) => {
@@ -273,7 +273,7 @@ export const evaluateWays = (reels, betPerWay, wild = null) => {
  * finds clusters that never pay out, which reads as "clusters do not work". Keep `minCluster` at or
  * above the smallest `occurs` the symbols price.
  *
- * Positions go out as a flat `{reel,row}` list, the shape `stakeFacade`'s `winPositions` reads for a
+ * Positions go out as a flat `{reel,row}` list, the shape `engineFacade`'s `winPositions` reads for a
  * non-payline win (`Array.isArray(ctx)`), exactly as the ways evaluator does.
  */
 export const evaluateClusters = (reels, betPerCluster, wild = null, opts = {}) => {
@@ -366,7 +366,7 @@ export const evaluateClusters = (reels, betPerCluster, wild = null, opts = {}) =
  * that sent none, and it will read oddly — every count above 5 pays the 5-row — which is the honest
  * signal that the paytable did not arrive.
  *
- * Wilds substitute. Positions go out as the flat `{reel,row}` list `stakeFacade`'s `winPositions`
+ * Wilds substitute. Positions go out as the flat `{reel,row}` list `engineFacade`'s `winPositions`
  * reads for a non-payline win, same as ways and cluster.
  */
 export const evaluateScatterPays = (reels, betPerSpin, wild = null, opts = {}) => {

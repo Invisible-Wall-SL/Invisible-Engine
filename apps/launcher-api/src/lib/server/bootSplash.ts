@@ -8,7 +8,7 @@ import { loadDocWithEtag } from './editorStorage';
 
 /**
  * The GLOBAL engine boot mark — which `_shared/spines/<bundle>` plays as the first
- * pre-canvas splash of every game (what Stake's gif used to occupy). Stored in
+ * pre-canvas splash of every game (what the old vendor gif used to occupy). Stored in
  * `app_settings` as JSON, exactly like {@link LAYOUT_PROFILE_DEFAULT_KEY}.
  *
  * NON-SECRET, but admin-WRITE-only: this is the engine's own mark, so a client editing
