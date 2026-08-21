@@ -326,6 +326,32 @@ Working on `main`:
 
 ## Recent changes
 
+- 2026-08-21 — **Two engine rigs drew at the wrong size, because a spine symbol is sized by
+  its DECLARED canvas, not by the pixels it shows.** `spineSizeScale` contain-fits
+  `skeleton.data.width/height`; the Scene Editor's `measureSpineBounds` reads the same rect.
+  Upstream's scatter (`symbols2/S`) declared 4078×3307 around a 805×984 resting gem — its
+  `rays1..3` bones are scaled ×4 and fully transparent in the setup pose (`color: …00`), yet
+  the artist's canvas covers them at full animated spread — so the fit drew the gem at ~30% of
+  an H symbol. The multiplier (`symbols2/M`) had the mirror bug: a 400×400 canvas around
+  540×567 of `low_multiplier_static`, overflowing its cell by ~40%. Both canvases retightened
+  to the origin-centred extent of their RESTING art (S 828×1092, M 666×672), measured with
+  `@esotericsoftware/spine-core` over the visible (alpha > 0) attachments — the convention
+  `h1` already follows. The art is untouched: only the four `"skeleton"` header numbers moved,
+  in all five byte-identical `apps/*` copies. Fill ratios now land in the family's band —
+  scatter 0.90 of the fitted box (was 0.30), multiplier 0.84 (was 1.42), against h1 0.98 /
+  h5 0.83. Note the scatter's `scatter_win` burst measures 2109×2099, so at the corrected size
+  it deliberately spills ~2 cells wide — check it against `BoardMask` clipping.
+  ⚠️ **Not live yet:** `_shared/spines/engine-symbol-{s,m}` in R2 still carry the old canvas
+  until `node scripts/seed-shared-engine-spines.mjs --only engine-symbol-s` (then `-m`) is
+  re-run with R2 credentials, and any project that already exported those bundles needs a
+  re-export.
+- 2026-08-21 — **The Symbols grid preview fitted the wrong rect.** `SymbolSpinePreview`
+  measured live setup-pose `getBounds()` and fell back to the authored canvas only when the
+  export omitted it — the exact inverse of `measureSpineBounds`, the shared helper whose own
+  docstring already claims the Symbols grid as a caller. So any rig whose canvas and resting
+  art disagree previewed at a size the board would never show. It now calls
+  `measureSpineBounds`, once per loaded instance (the rect is pose-independent, and
+  re-measuring each frame would `setToSetupPose()` over the applied animation).
 - 2026-08-21 — **The cascade's explosion is its own binding: `Tumble explosion`.**
   Upstream played ONE `explosion` state at two different moments — the cascade removing a winning
   symbol, and something morphing a symbol in place on a resting reel (the Book-of column expand) —
