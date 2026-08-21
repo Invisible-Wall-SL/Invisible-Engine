@@ -299,6 +299,7 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		id: 'paylineColors',
 		title: 'Per-payline win colours authored in the Game Config.',
 		text: (ctx) => {
+			if (!winLineActive(ctx)) return null;
 			const count = Object.keys(ctx.config?.paylineColors ?? {}).length;
 			return count > 0 ? `Per-line win colours (${count})` : null;
 		},
