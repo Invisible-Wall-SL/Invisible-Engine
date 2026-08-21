@@ -10,14 +10,17 @@
 	const props: Props = $props();
 	const context = getContext();
 
-	// Visible window height = rows × the reel's ACTUAL row pitch. The symbols are
-	// pitched at `boardGeometry().rowPitchLocal` (driven by the editor reel-grid
-	// override's cellHeight+gapY); the mask must use the same pitch or a shorter
-	// pitch lets a padding row leak through. No override ⇒ rowPitchLocal ===
-	// SYMBOL_SIZE ⇒ identical to `boardLayout().height` (byte-parity).
-	const windowHeight = $derived(
-		boardDimensions().y * context.stateGameDerived.boardGeometry().rowPitchLocal,
-	);
+	// Visible window height comes from the engine's ONE definition of it — `boardWindowHeight()`,
+	// which `SymbolWrap`'s in-frame cull reads too. The two used to compute the same expression
+	// independently, and they must not drift: a symbol culled at a different height than the mask
+	// clips at pops instead of sliding under the edge. Flat, it is still rows × the reel's ACTUAL
+	// row pitch (the editor reel-grid override's cellHeight+gapY; no override ⇒ rowPitchLocal ===
+	// SYMBOL_SIZE ⇒ identical to `boardLayout().height`, byte-parity). Under perspective the rows
+	// no longer share a pitch, so it becomes their SUM — but the mask stays a RECTANGLE: in a
+	// symmetric one-point projection the far edge is a straight horizontal line, and the mask
+	// already over-extends horizontally by SYMBOL_SIZE each side, so the widest (front) row is
+	// never clipped.
+	const windowHeight = $derived(context.stateGameDerived.boardWindowHeight());
 
 	// Visible window width = the flush board width GROWN by the horizontal gap spread.
 	// The symbol cluster is pushed rightward by `columnExtraLocal` per reel index

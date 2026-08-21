@@ -5,7 +5,6 @@
 	import { getContextBoard } from 'components-shared';
 
 	import { getContext } from '../game/context';
-	import { boardDimensions } from '../game/gameConfig';
 
 	type Props = {
 		debug?: boolean;
@@ -28,15 +27,16 @@
 	const show = $derived(
 		(boardContext.animate && props.animating) || (!boardContext.animate && !props.animating),
 	);
-	// Frame bound must track the reel's ACTUAL row pitch (the editor reel-grid
-	// override's cellHeight+gapY), same as BoardMask. A fixed SYMBOL_SIZE bound lets
-	// the bottom padding row's symbol leak onto the unmasked animate layer when the
-	// override pitch is shorter than SYMBOL_SIZE — the phantom spine "4th row" below
-	// the window. No override ⇒ rowPitchLocal === SYMBOL_SIZE (byte-parity).
+	// Frame bound is the SAME quantity BoardMask clips at, so it comes from the same
+	// place: `boardWindowHeight()`, the engine's one definition. Flat, that is still
+	// rows × the reel's ACTUAL row pitch (the editor reel-grid override's
+	// cellHeight+gapY) — a fixed SYMBOL_SIZE bound lets the bottom padding row's
+	// symbol leak onto the unmasked animate layer when the override pitch is shorter
+	// than SYMBOL_SIZE, the phantom spine "4th row" below the window. Computing it
+	// here as well as in the mask is how the two drift apart the first time one of
+	// them learns about perspective and the other does not.
 	const top = 0;
-	const bottom = $derived(
-		boardDimensions().y * context.stateGameDerived.boardGeometry().rowPitchLocal,
-	);
+	const bottom = $derived(context.stateGameDerived.boardWindowHeight());
 	const inFrame = $derived(props.y >= top && props.y <= bottom);
 	// A flat seat passes `undefined`, NOT 1, because `1` is not a no-op in Pixi v8: assigning
 	// `container.scale` swaps the shared `defaultScale` singleton for an owned `ObservablePoint` and

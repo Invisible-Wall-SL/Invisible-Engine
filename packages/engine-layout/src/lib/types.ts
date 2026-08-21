@@ -577,6 +577,48 @@ export interface ReelGridNode extends BaseNode {
 	 * + track names; `sound` is the loop sfx name.
 	 */
 	anticipation?: AnticipationProfile;
+	/**
+	 * PERSPECTIVE board mode (`docs/design/perspective-board-mode.md`): the same lattice laid out on
+	 * a converging ground plane instead of on a flat rectangle. Absent — or present with no usable
+	 * {@link ReelGridPerspective.farScale} — ⇒ the flat board, byte-identical to today. That is the
+	 * whole contract of the feature, because `apps/lines` is the shared runtime bundle every online
+	 * game runs, so a moved float here is a board that silently shifted on live games.
+	 */
+	perspective?: ReelGridPerspective;
+}
+
+/**
+ * The two SHAPE knobs of perspective board mode, plus the mode switch
+ * (`docs/design/perspective-board-mode.md` §"The model"). The lattice is not replaced — every
+ * existing knob (lead, gaps, non-square cells, seat alignment, nudge) keeps meaning exactly what it
+ * means today and is merely CONTRACTED toward the vanishing point by its row's scale.
+ */
+export interface ReelGridPerspective {
+	/**
+	 * The BACK row's scale relative to the front row — `0.6` = the furthest row draws at 60 %.
+	 * Intended range `(0, 1]`. It drives BOTH the size shrink and the row-pitch compression, so the
+	 * two can never drift apart, which is why the pitch is not a second knob.
+	 *
+	 * This field is the mode's ON switch: absent, non-finite, `<= 0` (which would collapse or mirror
+	 * the board) or exactly `1` (the identity) all mean FLAT, and the engine then takes the flat
+	 * code path rather than multiplying through by a 1. A value `> 1` is legal and inverts the
+	 * depth (the back row draws LARGER) — unusual, but authored on purpose is authored on purpose.
+	 */
+	farScale?: number;
+	/**
+	 * The board-LOCAL x the columns converge toward — the vanishing point, in the same space
+	 * `getSymbolX` returns. Absent ⇒ the lattice CENTRE (the midpoint of the first and last column
+	 * seats), which is what makes a symmetric board converge symmetrically. Author it to match
+	 * painted ground art whose vanishing point sits off-centre.
+	 */
+	vanishX?: number;
+	/**
+	 * Board BEHAVIOUR: replace symbols IN PLACE (drop-in + cascade) instead of rolling the reels.
+	 * Deliberately independent of {@link farScale} — a stylised game may want a converging grid that
+	 * still rolls, or a flat board that swaps. Absent ⇒ `false`. Schema only for now: nothing reads
+	 * it until the mode switch (phase 2 of the design's build plan).
+	 */
+	swapInPlace?: boolean;
 }
 
 /**
