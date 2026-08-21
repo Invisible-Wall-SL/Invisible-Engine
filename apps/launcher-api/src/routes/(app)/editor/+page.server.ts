@@ -215,13 +215,25 @@ export const actions: Actions = {
 		// deliberately a separate field rather than an omitted etag, so an unguarded
 		// write is always an explicit choice in the payload, never an accident.
 		const baseEtag = writeBaseEtagForm(form);
+		// `backup: 'always'` = "this save is committing a DESTRUCTIVE layout swap" (a scaffold /
+		// custom-kind / reference load the author accepted). Those are exactly the writes someone
+		// wants back, and they are rare, so they bypass the autosave coalescing window in
+		// `editorDocBackups.ts`. The client asserts it; the default is `'auto'`, so a tab running
+		// an older bundle simply gets the ordinary coalesced backup rather than none.
+		const backup = form.get('backup') === 'always' ? 'always' : 'auto';
 
 		let saved: LayoutDoc;
 		let etag: string | null;
 		try {
 			// `saveDoc` normalizes + stamps `updatedAt`, so the wire payload is the
 			// only validation barrier we need.
-			({ doc: saved, etag } = await saveDoc(clientKey, projectKey, parsed as LayoutDoc, baseEtag));
+			({ doc: saved, etag } = await saveDoc(
+				clientKey,
+				projectKey,
+				parsed as LayoutDoc,
+				baseEtag,
+				backup,
+			));
 		} catch (e) {
 			if (e instanceof ConflictError) {
 				// Someone else saved this project since this tab loaded it. Refuse rather

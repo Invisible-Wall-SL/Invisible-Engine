@@ -11,6 +11,7 @@ import {
 } from 'engine-layout';
 import { normalizeBootSplashRef } from 'constants-shared/bootSplash';
 import { repairLayoutDocAtlasRefs } from './atlasRefRepair';
+import { backupBeforeOverwrite, pruneBackups, type BackupMode } from './editorDocBackups';
 import { editorDocKey } from './projectPaths';
 import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
 
@@ -114,21 +115,49 @@ function seedFreshDoc(projectKey: string, gameType?: string): LayoutDoc {
  * doc (scaffold/import). Never reach for it to make a 409 go away: the 409 IS the
  * feature. Returns the stored doc and its new ETag, so an autosaving client can keep
  * saving without re-reading.
+ *
+ * `backup` decides how hard to try to preserve the bytes this write replaces
+ * ({@link BackupMode}); `'always'` is for a save that is destroying a layout on purpose
+ * (a scaffold/reference load being committed, a restore). The three steps below are
+ * ordered, and the order is the load-bearing part of this function:
+ *
+ *  1. **Preserve the previous bytes.** It has to be first — the bucket has no object
+ *     versioning, so the old bytes cease to exist the instant the PUT lands. This step
+ *     may THROW, and when it does the save does not happen: a write that cannot prove
+ *     what it is about to overwrite is exactly the fail-safe-vs-fail-loud bug
+ *     `docs/design/multi-user-concurrency.md` records against `readComponent`.
+ *  2. **The guarded PUT.** Untouched. If it 409s, step 1's copy is an orphan — see the
+ *     ordering argument in `editorDocBackups.ts` for why an orphan here is inert and
+ *     cannot reproduce the component snapshots' forever-409 (short version: nothing ever
+ *     RECOMPUTES a backup key, and backup writes carry no precondition).
+ *  3. **Prune.** Only after the PUT succeeded, and only when step 1 actually wrote
+ *     something, so retention can never delete history for a write that did not happen.
+ *     Best-effort: a failed prune leaves extra objects, which is the harmless direction,
+ *     and must not turn a landed save into an error the author sees.
  */
 export async function saveDoc(
 	clientKey: string,
 	projectKey: string,
 	doc: LayoutDoc,
 	baseEtag?: string | null,
+	backup: BackupMode = 'auto',
 ): Promise<{ doc: LayoutDoc; etag: string | null }> {
 	const next = normalizeDoc(doc, projectKey);
 	next.updatedAt = new Date().toISOString();
+	const backupId = await backupBeforeOverwrite(clientKey, projectKey, backup);
 	const etag = await putObjectText(
 		editorDocKey(clientKey, projectKey),
 		JSON.stringify(next, null, 2),
 		'application/json',
 		precondition(baseEtag),
 	);
+	if (backupId) {
+		try {
+			await pruneBackups(clientKey, projectKey);
+		} catch (e) {
+			console.error('[editor] backup prune failed', e);
+		}
+	}
 	return { doc: next, etag };
 }
 
