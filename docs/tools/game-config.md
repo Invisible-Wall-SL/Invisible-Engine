@@ -59,6 +59,10 @@ A **tumbling** (cascading) game removes the symbols that just paid, drops the on
 above them into the gap, refills from the top, and pays again on the new board — for
 as long as the new board keeps paying.
 
+The chain runs until a board pays nothing, and the round pays the **sum of every**
+board in it. A spin that pays nothing to begin with does not tumble at all — the
+board simply sits until the next spin.
+
 **You normally do not set this.** It follows the win model, because for two of them
 it is not a variant but the mechanic itself:
 

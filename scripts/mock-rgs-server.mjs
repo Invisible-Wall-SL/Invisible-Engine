@@ -605,6 +605,13 @@ export function createMockRgs(opts = {}) {
 	const collectFixture = winModel === 'scatter' && cascadeFixture && opts.multiplier === true;
 
 	/**
+	 * Does this game cascade because of WHAT IT IS, rather than because a demo flag asked it to?
+	 * Mirrors `CASCADE_PROTOCOLS` in the test server. It decides one thing: whether a spin that paid
+	 * NOTHING still tumbles (a demo does, so the overlay is visible; a real tumble game does not).
+	 */
+	const nativeCascade = winModel === 'cluster' || winModel === 'scatter';
+
+	/**
 	 * The mock's SERVER name for a multiplier cell, and the values it deals.
 	 *
 	 * ⚠️ The wire shape is OURS, like `tumbleStep`: a cell reads `MULT:<value>`, because the reels
@@ -617,27 +624,82 @@ export function createMockRgs(opts = {}) {
 	/** Roughly one refilled cell in six carries a multiplier — enough to see the beat most spins. */
 	const MULT_RATE = 1 / 6;
 
+	/** How many times one spin may cascade before the mock stops it. */
+	const CASCADE_MAX_STEPS = 12;
+
 	/**
-	 * A short, deterministic cascade for the fixture: blow up cells, refill from above. Deterministic
-	 * on purpose — a fixture whose steps vary run to run is useless for judging whether an ANIMATION
-	 * looks right.
+	 * Score a board the way THIS game's win model scores it — the same switch the spin uses, lifted
+	 * out so the cascade chain below cannot drift from it. A second implementation of "what pays" is
+	 * exactly how a mock quietly stops describing the game.
 	 *
-	 * THE CELLS THAT PAID ARE THE CELLS THAT EXPLODE. That is the defining rule of a cascade, and
-	 * getting it wrong is not a cosmetic difference: the client narrates the win over the cells it
-	 * was told paid, so a fixture that blows up an unrelated symbol shows a win frame around symbols
-	 * that survive and survivors falling out of a frame that stays. So when the spin PAID, step 1
-	 * removes exactly this spin's winning cells and the chain stops there — the mock does not
-	 * re-evaluate the refilled board, so a second step could only explode cells nothing paid on.
-	 *
-	 * The old most-common-symbol pass survives as the NO-WIN fallback only, so the overlay is still
-	 * exercisable on a dead spin (the reason the fixture exists at all).
-	 *
-	 * Each step names the cells that explode and the replacements that fall in per reel, which is
-	 * exactly what `tumbleBoard` needs to drive the overlay.
+	 * Deliberately EXCLUDES the SCAT free-spin trigger. Whether scatters landing mid-cascade should
+	 * retrigger is a game-math decision no capture has answered, and quietly saying yes here would
+	 * change how often the bonus fires; the trigger stays scored on the dealt board only.
 	 */
-	const cascadeSteps = (reels, wins = []) => {
+	const evaluatePayWins = (board, round) => {
+		if (winModel === 'ways') return evaluateWays(board, round.betPerLine, wild);
+		if (winModel === 'cluster') return evaluateClusters(board, round.betPerLine, wild, clusterOpts);
+		// Priced against the TOTAL stake, not a per-line slice: a scatter-pays multiplier applies to
+		// the whole bet (`payoutDivisor` returns 1 for it).
+		if (winModel === 'scatter')
+			return evaluateScatterPays(board, round.total, wild, scatterPaysOpts);
+		return evaluatePaylines(board, round.betPerLine, paylines, wild);
+	};
+
+	/**
+	 * The cells a win list actually paid on, in the mock's own VISIBLE-grid coordinates (the client
+	 * shifts them by its board padding).
+	 *
+	 * A flat `{reel,row}` context names them directly (cluster / ways / scatter-pays); a payline
+	 * context names the whole line, of which only the leftmost `occurs` reels pay — the same slice
+	 * the client lights. The SCAT trigger win carries neither shape, so it contributes nothing and
+	 * the scatters are never blown off a board that is triggering.
+	 */
+	const payingCells = (wins) => {
+		const seen = new Set();
+		const cells = [];
+		for (const win of wins) {
+			const ctx = win.context;
+			const list = Array.isArray(ctx)
+				? ctx
+				: Array.isArray(ctx?.payline)
+					? ctx.payline.slice(0, win.occurs).map((row, reel) => ({ reel, row }))
+					: [];
+			for (const { reel, row } of list) {
+				const key = `${reel}:${row}`;
+				if (seen.has(key)) continue;
+				seen.add(key);
+				cells.push({ reel, row });
+			}
+		}
+		return cells;
+	};
+
+	/**
+	 * THE CASCADE CHAIN: winners leave, survivors fall, the gaps refill — and the NEW board is scored
+	 * again, for as long as it keeps paying.
+	 *
+	 * This used to stop after one step, and that was a real defect rather than a simplification: a
+	 * player could read eight matching symbols off the settled board and watch nothing happen. The
+	 * one-shot made sense only while the cascade was a presentation fixture with no evaluator behind
+	 * it — the mock paid paylines and could not score a cluster or a scatter board at all. Once
+	 * `evaluateClusters` / `evaluateScatterPays` landed, refusing to re-score was just wrong.
+	 *
+	 * THE CELLS THAT PAID ARE THE CELLS THAT EXPLODE, at every step. The client narrates a win over
+	 * the cells it was told paid, so exploding anything else shows a win frame around symbols that
+	 * survive and survivors falling out of a frame that stays.
+	 *
+	 * Each step carries the wins of the board it PRODUCED, not the ones it destroyed. That is what
+	 * lets the facade narrate each step's payout on the board it belongs to: the dealt board's wins
+	 * ride the ordinary spin flush, and every later board's wins are flushed straight after the
+	 * tumble that revealed it.
+	 *
+	 * ⚠️ The wire shape is OURS, not a capture — see the emit site.
+	 */
+	const cascadeSteps = (reels, wins, round) => {
 		const steps = [];
 		let board = reels.map((reel) => [...reel]);
+		let runningWin = wins.reduce((sum, w) => sum + w.pay, 0);
 
 		/**
 		 * One refilled cell. With the collect fixture on, some arrive carrying a multiplier — which
@@ -648,9 +710,8 @@ export function createMockRgs(opts = {}) {
 				? `${MULT_SYMBOL}:${MULT_VALUES[Math.floor(nextRand() * MULT_VALUES.length)]}`
 				: pickCell();
 
-		/** One step: the named cells go, the survivors fall, the gaps refill from the top. */
-		const addStep = (exploding) => {
-			if (!exploding.length) return;
+		/** Blow the named cells out of `board`, drop the survivors, refill from the top. */
+		const applyExplosion = (exploding) => {
 			const gone = new Set(exploding.map((p) => `${p.reel}:${p.row}`));
 			const newSymbols = board.map((reel, r) =>
 				Array.from({ length: reel.filter((_, row) => gone.has(`${r}:${row}`)).length }, () =>
@@ -661,61 +722,70 @@ export function createMockRgs(opts = {}) {
 				...newSymbols[r],
 				...reel.filter((_, row) => !gone.has(`${r}:${row}`)),
 			]);
-			steps.push({ exploding, newSymbols });
+			return newSymbols;
 		};
 
-		// This spin's paying cells, in the mock's own VISIBLE-grid coordinates (the client shifts them
-		// by its board padding). A flat `{reel,row}` context names them directly (cluster / ways /
-		// scatter-pays); a payline context names the whole line, of which only the leftmost `occurs`
-		// reels pay — the same slice the client lights. The SCAT trigger win carries neither shape, so
-		// it contributes nothing and the scatters are never blown off a board that is triggering.
-		const seen = new Set();
-		const paidCells = [];
-		for (const win of wins) {
-			const ctx = win.context;
-			const cells = Array.isArray(ctx)
-				? ctx
-				: Array.isArray(ctx?.payline)
-					? ctx.payline.slice(0, win.occurs).map((row, reel) => ({ reel, row }))
-					: [];
-			for (const { reel, row } of cells) {
-				const key = `${reel}:${row}`;
-				if (seen.has(key)) continue;
-				seen.add(key);
-				paidCells.push({ reel, row });
-			}
-		}
-		if (paidCells.length) {
-			addStep(paidCells);
-			steps.finalBoard = board;
-			return steps;
-		}
-
-		// No win to cascade on — pick the most common line symbol so the overlay still has something
-		// to play against.
-		const counts = new Map();
-		for (const reel of reels) {
-			for (const cell of reel) {
-				if (cell === 'SCAT' || cell === 'WILD') continue;
-				counts.set(cell, (counts.get(cell) ?? 0) + 1);
-			}
-		}
-		let target = null;
-		let best = 0;
-		for (const [name, n] of counts) if (n > best) (best = n), (target = name);
-		if (!target) return steps;
-
-		for (let step = 0; step < 2; step++) {
-			const exploding = [];
-			board.forEach((reel, r) => {
-				reel.forEach((cell, row) => {
-					if (cell === target) exploding.push({ reel: r, row });
-				});
-			});
+		let pending = wins;
+		let capped = false;
+		for (;;) {
+			const exploding = payingCells(pending);
 			if (!exploding.length) break;
-			addStep(exploding);
+			if (steps.length >= CASCADE_MAX_STEPS) {
+				capped = true;
+				break;
+			}
+			const newSymbols = applyExplosion(exploding);
+			// Score what just fell in. This is the line the old one-shot refused to run.
+			const boardWins = evaluatePayWins(board, round);
+			runningWin += boardWins.reduce((sum, w) => sum + w.pay, 0);
+			steps.push({ exploding, newSymbols, wins: boardWins, runningWin });
+			pending = boardWins;
 		}
+
+		// A cap is a coverage claim, so say so rather than truncating in silence.
+		if (capped) {
+			console.warn(
+				`[${label}] cascade hit the ${CASCADE_MAX_STEPS}-step cap — chain truncated, board still paying`,
+			);
+		}
+
+		// A DEAD SPIN on a game whose cascade was forced on for the demo (`CASCADE_GAMES` over a
+		// lines/book game) still gets the old most-common-symbol pass, so the overlay is exercisable
+		// with no win — the reason the fixture existed at all. A cluster/scatter game does NOT: for
+		// those the cascade is the mechanic, and a real tumble game whose spin paid nothing simply
+		// sits there. Blowing up non-paying symbols was the tell that this was a demo, not a game.
+		if (!steps.length && !nativeCascade) {
+			const counts = new Map();
+			for (const reel of reels) {
+				for (const cell of reel) {
+					if (cell === 'SCAT' || cell === 'WILD') continue;
+					counts.set(cell, (counts.get(cell) ?? 0) + 1);
+				}
+			}
+			let target = null;
+			let best = 0;
+			for (const [name, n] of counts) if (n > best) (best = n), (target = name);
+			if (target) {
+				for (let step = 0; step < 2; step++) {
+					const exploding = [];
+					board.forEach((reel, r) => {
+						reel.forEach((cell, row) => {
+							if (cell === target) exploding.push({ reel: r, row });
+						});
+					});
+					if (!exploding.length) break;
+					const newSymbols = applyExplosion(exploding);
+					// `demo: true` marks a step that is DECORATION: it explodes symbols nothing paid on,
+					// so it adds no win. It still carries the round's running total rather than 0 — a
+					// spin can pay a SCAT trigger (which names no cells, so it cascades nothing) and
+					// then take this path, and reporting 0 there would step the meter backwards.
+					steps.push({ exploding, newSymbols, wins: [], runningWin, demo: true });
+				}
+			}
+		}
+
 		steps.finalBoard = board;
+		steps.chainWin = runningWin;
 		return steps;
 	};
 
@@ -948,16 +1018,7 @@ export function createMockRgs(opts = {}) {
 					}
 					const reels = stackedDeal ? spinReelsStacked() : spinReels();
 					pendingRound.reels = reels;
-					const lineWins =
-						winModel === 'ways'
-							? evaluateWays(reels, pendingRound.betPerLine, wild)
-							: winModel === 'cluster'
-								? evaluateClusters(reels, pendingRound.betPerLine, wild, clusterOpts)
-								: winModel === 'scatter'
-									? // Priced against the TOTAL stake, not a per-line slice: a scatter-pays
-										// multiplier applies to the whole bet (`payoutDivisor` returns 1 for it).
-										evaluateScatterPays(reels, pendingRound.total, wild, scatterPaysOpts)
-									: evaluatePaylines(reels, pendingRound.betPerLine, paylines, wild);
+					const lineWins = evaluatePayWins(reels, pendingRound);
 					const scatterWin = evaluateScatters(reels, pendingRound.total);
 					const wins = scatterWin ? [...lineWins, scatterWin] : lineWins;
 					const totalWin = wins.reduce((s, w) => s + w.pay, 0);
@@ -993,14 +1054,17 @@ export function createMockRgs(opts = {}) {
 					// `gameEnd`, `gameRoundOver` and the balance all read this one.
 					let roundWin = totalWin;
 					if (cascadeFixture) {
-						const steps = cascadeSteps(reels, wins);
+						const steps = cascadeSteps(reels, wins, pendingRound);
 						for (const step of steps) {
 							events.push({ event: 'tumbleStep', context: step });
 						}
+						// The chain pays the sum of every board it scored, not just the dealt one.
+						roundWin = steps.chainWin;
 						// Multipliers landed in the refills → collect them. Emitted AFTER the last tumble
 						// and BEFORE `gameEnd`, because the client re-reads the SETTLED board to find
-						// them: firing it earlier would collect off a board about to be destroyed.
-						const collect = collectStep(steps.finalBoard, totalWin);
+						// them: firing it earlier would collect off a board about to be destroyed. It
+						// multiplies the WHOLE chain, which is what makes the beat feel like a payoff.
+						const collect = collectStep(steps.finalBoard, roundWin);
 						if (collect) {
 							events.push({ event: 'multiplierCollect', context: collect });
 							roundWin = collect.totalWin;
