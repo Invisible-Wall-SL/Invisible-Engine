@@ -24,8 +24,8 @@
  * And a scatter game CASCADES, so its return is chain-dependent: the dealt board is only the first
  * of several, and scoring one board understates the game by whatever the chain multiplies. The
  * simulation plays each spin to the end of its chain, refilling from the same strips, and reports
- * how often the chain hits the mock's 12-step cap — a chain that keeps hitting the cap is a game
- * that never settles.
+ * how often a chain is still paying after 25 tumbles — a game whose chains do that never
+ * settles at all.
  *
  * WHAT THE NUMBER IS NOT. The client never computes wins; the RGS does, and in production it is
  * external. An RTP printed here is the return implied BY THESE STRIPS under this paytable. It is a
@@ -39,7 +39,7 @@ import { resolveWinModel } from 'game-config';
 
 import { buildRules, dealFromStrips, makeRng, scatterCount, type Doc } from './waysEvaluator';
 import {
-	CASCADE_MAX_STEPS,
+	RUNAWAY_AT,
 	evaluateScatterPaysDoc,
 	minCountOf,
 	playSpin,
@@ -171,9 +171,9 @@ if (cascade) {
 	console.log(`  average chain              ${(totalSteps / spins).toFixed(2)} tumbles per spin`);
 	const cappedRate = cappedChains / spins;
 	console.log(
-		`  hit the ${CASCADE_MAX_STEPS}-step cap        ${pct(cappedRate)}` +
+		`  still paying at ${RUNAWAY_AT} tumbles   ${pct(cappedRate)}` +
 			(cappedRate > 0.01
-				? '  <-- the board is still paying when the chain is cut off; it never settles'
+				? '  <-- these chains never settle; the threshold is below the average symbol count'
 				: ''),
 	);
 }

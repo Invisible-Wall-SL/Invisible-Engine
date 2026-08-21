@@ -17,8 +17,15 @@
 
 import { type Cell, type Doc, type Rules } from './waysEvaluator';
 
-/** The mock's own cap, mirrored: a chain that reaches it is truncated, not left to run. */
-export const CASCADE_MAX_STEPS = 12;
+/**
+ * The bound THIS TOOL stops counting at — deliberately NOT the mock`s runaway guard (200).
+ *
+ * A verifier that followed the engine`s bound would spend 200 tumbles per spin on exactly the
+ * configs it exists to condemn, and report "average chain 200" where "this never settles" is
+ * the useful sentence. A chain still paying at 25 is already pathological, so that is where the
+ * measurement stops and calls it runaway. Nothing here shapes the game; it shapes the report.
+ */
+export const RUNAWAY_AT = 25;
 
 export type ScatterWin = {
 	symbol: string;
@@ -92,7 +99,7 @@ export type ChainResult = {
 	pay: number;
 	/** How many TUMBLES happened. 0 = the dealt board paid nothing (or paid, on a non-cascading run). */
 	steps: number;
-	/** True when the chain was still paying when it hit {@link CASCADE_MAX_STEPS}. */
+	/** True when the chain was still paying when the tool stopped at {@link RUNAWAY_AT}. */
 	capped: boolean;
 	/** Symbols that paid on the DEALT board — the threshold diagnostic, before any tumble. */
 	dealtWins: ScatterWin[];
@@ -122,7 +129,7 @@ export const playSpin = (
 	let wins = dealtWins;
 	let steps = 0;
 	while (wins.length) {
-		if (steps >= CASCADE_MAX_STEPS) return { pay, steps, capped: true, dealtWins };
+		if (steps >= RUNAWAY_AT) return { pay, steps, capped: true, dealtWins };
 		const gone = new Set(wins.flatMap((w) => w.positions.map((p) => `${p.reel}:${p.row}`)));
 		current = current.map((reel, r) => {
 			const kept = reel.filter((_, row) => !gone.has(`${r}:${row}`));
