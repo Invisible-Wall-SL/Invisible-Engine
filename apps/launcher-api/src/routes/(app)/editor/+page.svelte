@@ -1110,6 +1110,16 @@
 		markDirty();
 	}
 
+	/**
+	 * Set the moment a wholesale layout swap is accepted, cleared when the save that carries it
+	 * lands. It rides on the next save as `backup=always` so the server preserves the layout
+	 * being replaced no matter where the autosave coalescing window happens to be — the
+	 * scaffold-load clobber is the exact scenario `scenes.json` had no recovery from.
+	 * Deliberately NOT cleared by `discardCrossType` (a reload clears it anyway) and not by a
+	 * failed save, so a retry still asks for the backup.
+	 */
+	let pendingDestructiveSave = $state(false);
+
 	/** Adopt a loaded `LayoutDoc`'s scenes (+ its game type and frame sizes) as the
 	 * project's layout, after confirming if it would discard placed nodes. */
 	function adoptScenes(
@@ -1128,6 +1138,7 @@
 				? `Load the ${gameType} scenes? This replaces the current layout on screen.\n\nNothing is saved until you make an edit, so your project's saved layout is safe — but if you then edit, the load is what gets saved.`
 				: `Load the ${gameType} scenes onto the canvas?\n\nNothing is saved until you make an edit.`;
 		if (!confirm(warn)) return;
+		pendingDestructiveSave = true;
 		scenes = structuredClone(doc.scenes);
 		if (doc.mainSizesMap) mainSizesMap = structuredClone(doc.mainSizesMap);
 		authoringGameType = gameType;
@@ -1691,6 +1702,11 @@
 			// '' encodes "no doc existed when I loaded" (FormData has no null); omitted when forcing.
 			if (force) fields.force = '1';
 			else fields.baseEtag = baseEtag ?? '';
+			// This save is the one that COMMITS a wholesale layout swap to R2, so it must not
+			// coalesce into the server's 5-minute backup window: it is precisely the write an
+			// author asks to undo. Set on the `adoptScenes` clobber path and cleared only once
+			// the save actually lands, so a refused/failed save keeps the flag for the retry.
+			if (pendingDestructiveSave) fields.backup = 'always';
 			const out = (await postAction('save', fields)) as {
 				saved?: boolean;
 				updatedAt?: string;
@@ -1704,6 +1720,7 @@
 			loadedPreview = false;
 			crossTypeLoaded = false;
 			crossTypeFrom = '';
+			pendingDestructiveSave = false;
 			return { ok: true, etag: out.etag ?? null };
 		},
 	});
@@ -1951,6 +1968,89 @@
 			lastError = saveState.message;
 		}
 		return saved;
+	}
+
+	// ---------- version history ----------
+
+	/**
+	 * Browse the rolling backups of this project's `scenes.json` and restore one
+	 * (`/api/editor/backups`). Every save preserves the bytes it replaces, so this is the way
+	 * back from a bad edit, a bad reference/scaffold load, or an "Overwrite with mine".
+	 *
+	 * Native `confirm`/`prompt` on purpose: this page already drives every other
+	 * destroy-and-replace decision that way (`adoptScenes`, the kind overwrite, `discardCrossType`),
+	 * and a bespoke modal would be a new UI surface for one rarely-opened list. `location.reload()`
+	 * afterwards rather than swapping the doc in place — the restored doc has to re-run the whole
+	 * load (template, warnings, region resolution, the ETag the next save CASes against), and a
+	 * reload is the one way to get all of that right.
+	 */
+	let historyBusy = $state(false);
+	async function openHistory(): Promise<void> {
+		if (historyBusy) return;
+		historyBusy = true;
+		try {
+			const res = await fetch('/api/editor/backups');
+			if (!res.ok) {
+				lastError = `Couldn't load version history (${res.status}).`;
+				return;
+			}
+			const { backups } = (await res.json()) as {
+				backups: { id: string; savedAt: string; size: number }[];
+			};
+			if (backups.length === 0) {
+				alert(
+					'No earlier versions yet.\n\nA version is preserved each time a save replaces ' +
+						'the stored layout, so the first ones appear after your next few saves.',
+				);
+				return;
+			}
+			const lines = backups.map(
+				(b, i) =>
+					`${i + 1}. ${new Date(b.savedAt).toLocaleString()}  (${Math.round(b.size / 1024)} KB)`,
+			);
+			const answer = prompt(
+				`Earlier versions of this project's layout, newest first.\n\n${lines.join('\n')}\n\n` +
+					'Type a number to RESTORE that version (your current layout is preserved as a new ' +
+					'version first, so this is undoable). Cancel to close.',
+			);
+			const pick = Number(answer);
+			if (!answer || !Number.isInteger(pick) || pick < 1 || pick > backups.length) return;
+			const chosen = backups[pick - 1];
+			if (lease.readOnly) {
+				lastError = 'Another author is editing this project — take over before restoring.';
+				return;
+			}
+			if (saveState.dirty && !confirm('You have unsaved changes. Restore anyway and lose them?')) {
+				return;
+			}
+			await restoreBackup(chosen.id);
+		} catch (e) {
+			lastError = e instanceof Error ? e.message : "Couldn't load version history.";
+		} finally {
+			historyBusy = false;
+		}
+	}
+
+	/**
+	 * POST one restore. Sends the ETag this tab holds, so a restore issued from a tab that has
+	 * gone stale LOSES to the concurrent author and answers 409 rather than quietly reverting
+	 * their work — "restore" is not a licence for an unguarded write. Cancels the pending
+	 * autosave first: the timer would otherwise fire against the pre-restore local doc and
+	 * immediately undo the restore.
+	 */
+	async function restoreBackup(id: string): Promise<void> {
+		saveState.cancelAutosave();
+		const res = await fetch('/api/editor/backups', {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ id, baseEtag: saveState.etag }),
+		});
+		if (res.ok) {
+			location.reload();
+			return;
+		}
+		const body = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+		lastError = body.message ?? body.error ?? `Restore failed (${res.status}).`;
 	}
 
 	// ---------- template authoring (§7.5) ----------
@@ -2424,6 +2524,15 @@
 			{:else}
 				<span class="save-pill ok" title={lastSavedAt || ''}>Saved {savedAgo}</span>
 			{/if}
+			<button
+				class="save-btn"
+				type="button"
+				disabled={historyBusy}
+				title="Earlier versions of this layout. Every save preserves the one it replaces, so a bad edit or a bad reference/scaffold load can be rolled back."
+				onclick={() => void openHistory()}
+			>
+				History…
+			</button>
 			{#if warnings.length > 0}
 				<span class="save-pill error" title="Required template slots with no node filling them">
 					{warnings.length}

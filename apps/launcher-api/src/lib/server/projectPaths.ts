@@ -211,6 +211,75 @@ export function editorDocKey(client: string, project: string): string {
 }
 
 /**
+ * Rolling backups of a project's Scene Editor doc — `<client>/<project>/editor/backups/`.
+ * The editor autosaves straight over `scenes.json`, so without these a bad edit, a bad
+ * reference/scaffold load, or a restore of the wrong thing is UNRECOVERABLE (the documented
+ * fallback was scavenging a `/api/editor/runtime` dump and un-rewriting its spine keys).
+ *
+ * Its OWN sub-prefix, not a sibling of `scenes.json`, so `editor/` keeps holding exactly the
+ * three authored docs (`scenes.json`, `flow.json`, `flow-v2.json`) and a listing that expects
+ * them can never trip over backup objects.
+ */
+export function editorDocBackupsPrefix(client: string, project: string): string {
+	return `${SUB.editor(client, project)}/backups/`;
+}
+
+/**
+ * The file stem of one backup: `scenes-<stamp>-<tag>`, where `<stamp>` is a compact UTC ISO
+ * instant (`YYYYMMDDTHHMMSSmmmZ`) and `<tag>` is the first 8 hex chars of the ETag of the bytes
+ * being preserved (`noetag` when R2 returned none).
+ *
+ * **This shape is the whole point, and it is deliberately NOT a version counter.** The
+ * component library's `<id>.v<N>.json` snapshots carry a landmine recorded in
+ * `docs/design/multi-user-concurrency.md`: because `N` is RECOMPUTED from the stored state on
+ * every save, an orphan snapshot at `N+1` (left behind by a lost CAS on the latest pointer) is
+ * re-derived by every later save, which then collides with it and 409s FOREVER, unforceably.
+ *
+ * A stamp+ETag key has no such mode, for two independent reasons:
+ *  1. Nothing ever RECOMPUTES this key. It is derived from the clock and from the ETag of the
+ *     object being copied — never from a scan of what backups already exist — so a later save
+ *     cannot land on an earlier save's key by re-deriving it.
+ *  2. Where it CAN repeat (the same prior ETag copied twice inside the same millisecond) the
+ *     two copies are byte-identical by construction, so the second write is an idempotent
+ *     no-op rather than a collision. Backup writes carry NO precondition, so a repeat cannot
+ *     fail either.
+ *
+ * The stamp leads the tag so a plain lexicographic sort of the listing IS chronological order —
+ * retention and the history UI need no per-object HEAD for `LastModified`.
+ */
+export function editorDocBackupId(at: Date, etag: string | null): string {
+	const stamp = at.toISOString().replace(/[-:.]/g, '');
+	const hex = (etag ?? '').replace(/[^0-9a-fA-F]/g, '').toLowerCase();
+	return `scenes-${stamp}-${hex ? hex.slice(0, 8).padEnd(8, '0') : 'noetag'}`;
+}
+
+/**
+ * The one shape a backup id may have. Ids arrive from the browser on RESTORE, so this is a
+ * path-injection gate as much as a parser: the id is validated here and the R2 key is REBUILT
+ * from the caller's own `(client, project)` — a client-supplied key is never trusted.
+ */
+export const EDITOR_DOC_BACKUP_ID_RE = /^scenes-(\d{8}T\d{9}Z)-(?:[0-9a-f]{8}|noetag)$/;
+
+/** Full R2 key for a backup id under a project's backup prefix. */
+export function editorDocBackupKey(client: string, project: string, id: string): string {
+	return `${editorDocBackupsPrefix(client, project)}${id}.json`;
+}
+
+/**
+ * Recover the instant encoded in a backup id as an ISO string, or `null` when the id is not a
+ * backup id. Reads the KEY rather than the object's `LastModified` so a listing alone is enough
+ * — and so a server-side copy (which stamps its own mtime) can never misreport when the bytes
+ * it preserved were actually authored.
+ */
+export function editorDocBackupSavedAt(id: string): string | null {
+	const m = EDITOR_DOC_BACKUP_ID_RE.exec(id);
+	if (!m) return null;
+	const s = m[1];
+	const time = `${s.slice(9, 11)}:${s.slice(11, 13)}:${s.slice(13, 15)}.${s.slice(15, 18)}`;
+	return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}T${time}Z`;
+}
+
+/**
  * `<client>/<project>/win-text/win-text.json` — the Invisible Win Text doc: the
  * TEMPLATES the game says about a win (win-line message, amount format, win-level
  * tiers, toast). Pure config, no assets, so it travels verbatim like
