@@ -212,6 +212,44 @@ console.log(flat);
 check('cascade off: no steps at all', flat.totalSteps, 0);
 flatServer.close();
 
+// --- a STALE pool that still lists MULT as a line symbol -------------------------
+//
+// `MULT` reached the published pool from the mapping table's key set, and the mock dealt it as an
+// ordinary board symbol: bare, valueless, on every reveal. The client mapped that to a symbol with
+// no multiplier and no art. Fixed at publish AND here, so a project already carrying the bad pool
+// is repaired by a deploy rather than by remembering to republish — which is what this pins.
+const staleServer = await startMock(7804, {
+	winModel: 'scatter',
+	cascade: true,
+	multiplier: true,
+	reels: 6,
+	rows: 5,
+	paylines: [],
+	minCount: 8,
+	symbols: ['PIC1', 'PIC2', 'PIC3', 'PIC4', 'PIC5', 'PIC6', 'SCAT', 'MULT'],
+});
+console.log('\n--- scatter whose published pool still lists MULT ---');
+let bare = 0;
+let valued = 0;
+for (let i = 0; i < 30; i++) {
+	const d = await hush(() => spin(7804, `stale${i}`, i));
+	const ev = d.events ?? [];
+	const cells = [
+		...(ev.find((e) => e.event === 'playedSpin')?.context ?? []).flat(),
+		...ev
+			.filter((e) => e.event === 'tumbleStep')
+			.flatMap((e) => (e.context.newSymbols ?? []).flat()),
+	];
+	for (const cell of cells) {
+		if (cell === 'MULT') bare += 1;
+		else if (String(cell).startsWith('MULT:')) valued += 1;
+	}
+}
+console.log({ bare, valued });
+check('a bare, valueless MULT is never dealt', bare, 0);
+check('the collect fixture still deals valued ones', valued > 0, true);
+staleServer.close();
+
 for (const line of report) console.log(line);
 console.log(
 	failures === 0
