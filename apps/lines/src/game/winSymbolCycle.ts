@@ -175,6 +175,12 @@ const refreshWinDim = (): void => {
 			cells[winDimCellKey(position.reel, position.row)] = true;
 		}
 	}
+	// An EMPTY lit set is never a win presentation — it is a win that reached us with no positions,
+	// and activating on it darkens all of the board and lights none of it. Leave the dim off and the
+	// board simply stays bright, which is what an un-locatable win should look like. (The mock used
+	// to send exactly that for a scatter pay; fixed at the source, guarded here so the next one
+	// cannot black out the board.)
+	if (!Object.keys(cells).length) return;
 	setWinDim(true, cells);
 };
 
