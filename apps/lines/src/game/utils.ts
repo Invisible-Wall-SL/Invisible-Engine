@@ -199,6 +199,9 @@ export const hexToTintNumber = (hex: string | undefined): number | undefined => 
 	return Number.isNaN(n) ? undefined : n;
 };
 
+/** Symbols already reported as having no art — one warning each, not one per frame. */
+const warnedMissingArt = new Set<string>();
+
 // other utils
 export const getSymbolInfo = ({
 	rawSymbol,
@@ -215,6 +218,37 @@ export const getSymbolInfo = ({
 	// authored Symbols-State-Machine override) unless a book binding is explicitly authored,
 	// so the reveal/idle always mirrors the live win art rather than a stale coded default.
 	const map = getActiveSymbolInfoMap();
+
+	/**
+	 * A symbol the map has never heard of RENDERS NOTHING — it does not take the game down.
+	 *
+	 * Every lookup below indexes `map[name][state]`, so an unknown name used to throw
+	 * "Cannot read properties of undefined" from inside a render, which unmounts the whole board:
+	 * the player loses the reels, not one cell. That is a catastrophic response to a cosmetic gap,
+	 * and the gap is REACHABLE by ordinary authoring — a config can name a symbol (a multiplier, a
+	 * new picture) before anyone binds art for it in the Symbols tool, and the merge in
+	 * `getActiveSymbolInfoMap` unions BOTH key sets, so the name exists everywhere except the art.
+	 *
+	 * `warnOnGameConfigIssues` already reports this at boot as an error. It was detected and not
+	 * survivable, which is the worst of both.
+	 */
+	if (!map[rawSymbol.name]) {
+		if (!warnedMissingArt.has(rawSymbol.name)) {
+			warnedMissingArt.add(rawSymbol.name);
+			console.warn(
+				`[symbols] "${rawSymbol.name}" is dealt but has no art bound in /symbols — rendering nothing for it`,
+			);
+		}
+		const resolved = resolveSymbolSizeRatios(rawSymbol.name, state);
+		return {
+			missingArt: true as const,
+			type: undefined,
+			assetKey: undefined,
+			sizeRatios: { width: resolved.width, height: resolved.height },
+			symbolFit: resolved.fit,
+		};
+	}
+
 	// Special-Book states inherit `win` (above); the stacked-picture state inherits `static` when a
 	// project has not yet authored a tall picture for the symbol — so the mode renders SOMETHING (the
 	// icon, cropped/placed) before real art is bound in the Symbols State Machine.
@@ -227,6 +261,7 @@ export const getSymbolInfo = ({
 	const cell = map[rawSymbol.name][resolveState];
 	const resolved = resolveSymbolSizeRatios(rawSymbol.name, resolveState);
 	return {
+		missingArt: false as const,
 		...cell,
 		sizeRatios: { width: resolved.width, height: resolved.height },
 		symbolFit: resolved.fit,
