@@ -7,6 +7,7 @@ import { roundSkip } from 'utils-shared/skipToken';
 
 import { boardDimensions } from './gameConfig';
 import { getActiveSymbolInfoMap, resolveSymbolSizeRatios } from './symbolMap';
+import { resolveSymbolState } from './symbolCell';
 import { eventEmitter } from './eventEmitter';
 import type { Bet, BookEvent, BookEventOfType } from './typesBookEvent';
 import { bookEventHandlerMap } from './bookEventHandlerMap';
@@ -249,15 +250,29 @@ export const getSymbolInfo = ({
 		};
 	}
 
-	// Special-Book states inherit `win` (above); the stacked-picture state inherits `static` when a
-	// project has not yet authored a tall picture for the symbol — so the mode renders SOMETHING (the
-	// icon, cropped/placed) before real art is bound in the Symbols State Machine.
-	const resolveState =
-		(state === 'bookIntro' || state === 'bookIdle') && !map[rawSymbol.name][state]
-			? 'win'
-			: state === 'stacked' && !map[rawSymbol.name][state]
-				? 'static'
-				: state;
+	// WHICH STATE this symbol actually draws. The rule lives in `symbolCell.ts`, import-free so it
+	// can be exercised offline — see the reasoning there. The short version: an unauthored state
+	// used to spread as nothing, and `Symbol.svelte`'s last arm is the SPINE renderer, so it fell
+	// through and handed `SpineProvider` an undefined key. `key.match(...)` then threw mid-render and
+	// took the board with it. `explosion` is where it bites, because the cascade is the only caller
+	// and a project-only symbol (a multiplier) has no coded cell to inherit.
+	const resolveState = resolveSymbolState(map[rawSymbol.name], state);
+	if (!resolveState) {
+		if (!warnedMissingArt.has(rawSymbol.name)) {
+			warnedMissingArt.add(rawSymbol.name);
+			console.warn(
+				`[symbols] "${rawSymbol.name}" has no usable art for "${state}" (and none for "static") — rendering nothing for it`,
+			);
+		}
+		const fallback = resolveSymbolSizeRatios(rawSymbol.name, state);
+		return {
+			missingArt: true as const,
+			type: undefined,
+			assetKey: undefined,
+			sizeRatios: { width: fallback.width, height: fallback.height },
+			symbolFit: fallback.fit,
+		};
+	}
 	const cell = map[rawSymbol.name][resolveState];
 	const resolved = resolveSymbolSizeRatios(rawSymbol.name, resolveState);
 	return {
