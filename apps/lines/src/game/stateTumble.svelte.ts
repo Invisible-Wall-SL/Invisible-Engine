@@ -2,6 +2,8 @@ import { Tween } from 'svelte/motion';
 
 import type { RawSymbol, SymbolState } from 'engine-game';
 
+import { combineTumbleReel } from './tumbleBoardLayout';
+
 /**
  * Cascade (tumble) board state — the symbols a tumbling board owns while the cascade plays.
  *
@@ -44,12 +46,14 @@ export const stateTumble = $state({
 });
 
 /**
- * The two layers as one column-major board, `adding` FIRST because those symbols sit above the
- * survivors and land on top of them. The combined index is what each symbol's target seat is derived
+ * The two layers as one column-major board — see `combineTumbleReel`, which owns the rule and the
+ * padding contract it turns on. The combined index is what each symbol's target seat is derived
  * from during the slide, and what is broadcast as the settled board once the cascade finishes.
  */
 export const tumbleBoardCombined = (): TumbleSymbol[][] =>
-	stateTumble.base.map((reel, reelIndex) => [...(stateTumble.adding[reelIndex] ?? []), ...reel]);
+	stateTumble.base.map((reel, reelIndex) =>
+		combineTumbleReel(reel, stateTumble.adding[reelIndex] ?? []),
+	);
 
 /** Drop both layers — the cascade is over and the ordinary reel board takes the screen back. */
 export const resetTumbleBoard = () => {
