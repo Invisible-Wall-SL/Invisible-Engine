@@ -4,6 +4,7 @@ import type {
 	LayoutDoc,
 	LayoutType,
 	ReelGridNode,
+	ReelGridPerspective,
 	ReelSpinProfile,
 } from './types';
 
@@ -158,6 +159,31 @@ export function resolveAnticipationProfile(
 	if (str(p.loopAnimation)) out.loopAnimation = p.loopAnimation;
 	if (str(p.outAnimation)) out.outAnimation = p.outAnimation;
 	if (str(p.sound)) out.sound = p.sound;
+	return Object.keys(out).length ? out : undefined;
+}
+
+/**
+ * Read the authored PERSPECTIVE block off a `reelGrid` node
+ * (`docs/design/perspective-board-mode.md`). Same defensive shape as the two resolvers above: only
+ * the fields the author actually set, and only when they are readable, so an unreadable value
+ * leaves the board exactly as it is today rather than being clamped into something the author never
+ * asked for. No node / no `perspective` / nothing usable in it ⇒ `undefined`.
+ *
+ * `farScale` is range-checked because it is the mode's ON switch and a `<= 0` would collapse the
+ * back row to a point or mirror it. A `1` is deliberately KEPT (it is a legal authored value that
+ * happens to mean flat, and the editor should read back what the author typed) — the flat decision
+ * is made once, by the engine's seat function, not smuggled in here.
+ */
+export function resolveReelGridPerspective(
+	node: ReelGridNode | undefined,
+): ReelGridPerspective | undefined {
+	const p = node?.perspective;
+	if (!p) return undefined;
+	const out: ReelGridPerspective = {};
+	const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+	if (num(p.farScale) && p.farScale > 0) out.farScale = p.farScale;
+	if (num(p.vanishX)) out.vanishX = p.vanishX;
+	if (p.swapInPlace === true) out.swapInPlace = true;
 	return Object.keys(out).length ? out : undefined;
 }
 

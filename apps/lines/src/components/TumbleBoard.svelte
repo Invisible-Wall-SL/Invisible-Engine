@@ -7,7 +7,27 @@
 	export type EmitterEventTumbleBoard =
 		| { type: 'tumbleBoardShow' }
 		| { type: 'tumbleBoardHide' }
-		| { type: 'tumbleBoardInit'; addingBoard: AddingBoard }
+		| {
+				type: 'tumbleBoardInit';
+				addingBoard: AddingBoard;
+				/**
+				 * Keep the CURRENT board as the survivor (`base`) layer? Absent ⇒ `true` = the cascade,
+				 * exactly as it has always worked.
+				 *
+				 * `false` is the swap-in-place DROP-IN reveal (docs/design/perspective-board-mode.md
+				 * §"The mode switch"), where `addingBoard` is the whole new board and there are no
+				 * survivors. It has to be said explicitly, because "no survivors" is not something the
+				 * cascade's own steps can express: the drop-in runs WITHOUT `tumbleBoardExplode` /
+				 * `tumbleBoardRemoveExploded`, so nothing would ever filter the old board out of `base`.
+				 * Left in, the combined column would be twice as tall — which would settle the reels on a
+				 * double-height board and fire `land` on the off-screen half.
+				 *
+				 * "No survivors" is still ONE EMPTY COLUMN PER REEL, not an empty array:
+				 * `tumbleBoardCombined` maps over `base`, so a `[]` base would combine to `[]` and the
+				 * adding layer would never be drawn or settled at all.
+				 */
+				keepBase?: boolean;
+		  }
 		| { type: 'tumbleBoardReset' }
 		| { type: 'tumbleBoardExplode'; explodingPositions: ExplodingPositions }
 		| { type: 'tumbleBoardRemoveExploded' }
@@ -111,6 +131,14 @@
 			);
 		});
 
+	/**
+	 * NO survivors — one EMPTY column per reel. The drop-in reveal replaces the whole board, so the
+	 * base layer holds nothing; the columns themselves still have to exist because
+	 * `tumbleBoardCombined` maps over `base` and would otherwise combine to nothing. Shaped from the
+	 * live board so the reel COUNT is the real one, exactly like the two initialisers beside it.
+	 */
+	const initTumbleBoardNoBase = (): TumbleSymbol[][] => stateGameDerived.boardRaw().map(() => []);
+
 	/** The board as it stands right now, seated exactly where the reels left it. */
 	const initTumbleBoardBase = () =>
 		stateGameDerived.boardRaw().map((rawSymbolReel, reelIndex) =>
@@ -125,9 +153,10 @@
 	context.eventEmitter.subscribeOnMount({
 		tumbleBoardShow: () => (show = true),
 		tumbleBoardHide: () => (show = false),
-		tumbleBoardInit: ({ addingBoard }) => {
+		tumbleBoardInit: ({ addingBoard, keepBase }) => {
 			stateTumble.adding = initTumbleBoardAdding({ addingBoard });
-			stateTumble.base = initTumbleBoardBase();
+			// Absent ⇒ the cascade's survivor layer, byte-identical to before the flag existed.
+			stateTumble.base = keepBase === false ? initTumbleBoardNoBase() : initTumbleBoardBase();
 		},
 		tumbleBoardReset: () => resetTumbleBoard(),
 		tumbleBoardExplode: async ({ explodingPositions }) => {
