@@ -7,6 +7,7 @@ import { createGetWinLevelDataByWinLevelAlias } from 'utils-shared/winLevel';
 import {
 	resolveReelGridFromNode,
 	resolveReelGridPerspective,
+	resolveReelGridTileArt,
 	resolveReelSpinProfile,
 	type ReelGridNode,
 } from 'engine-layout';
@@ -269,6 +270,21 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	 */
 	const boardSwapsInPlace = () =>
 		resolveReelGridPerspective(boardOverride.node ?? undefined)?.swapInPlace === true;
+
+	/**
+	 * The board's authored GROUND TILE art, resolved to the texture keys a `<Sprite>` looks up — or
+	 * `undefined`, which is every board that exists today and means NO tile layer mounts at all
+	 * (`docs/design/perspective-board-mode.md` §"The tiles").
+	 *
+	 * Deliberately NOT gated on {@link boardPerspective}, for the same reason {@link boardSwapsInPlace}
+	 * is not: a tiled ground plane is an independent decision from a converging one, and a flat board
+	 * is allowed to want tiles. Gating it would make an authored tile silently render nothing with no
+	 * error to find.
+	 *
+	 * The resolution lives in `engine-layout` beside the ref format itself, so the game, the export
+	 * chain and (later) the editor preview all read the same value the same way.
+	 */
+	const boardTileArt = () => resolveReelGridTileArt(boardOverride.node ?? undefined);
 
 	/**
 	 * The scale ONE row draws at: `farScale` at the back, exactly `1` at the front, linear between.
@@ -861,6 +877,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		boardGeometry,
 		boardPerspective,
 		boardSwapsInPlace,
+		boardTileArt,
 		anticipationActive,
 		sequentialStopActive,
 		boardWindowHeight,

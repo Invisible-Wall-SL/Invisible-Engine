@@ -28,10 +28,14 @@
 	import { BoardContainer } from 'engine-game';
 	import BoardMask from './BoardMask.svelte';
 	import BoardBase from './BoardBase.svelte';
+	import BoardTiles from './BoardTiles.svelte';
 	import BookVfx from './BookVfx.svelte';
 	import StackedPictures from './StackedPictures.svelte';
 
 	const context = getContext();
+
+	/** Authored ground-tile art — `undefined` for every board that has none. See the layer below. */
+	const tileArt = $derived(context.stateGameDerived.boardTileArt());
 
 	/** The win beat a stacked-picture cell holds in place of a per-icon win spine (its `<Symbol>` is
 	 *  never mounted, so there is no `oncomplete` to await). A readable minimum so the win still lands
@@ -84,6 +88,22 @@
 	<BoardContext animate={false}>
 		<BoardContainer>
 			<BoardMask />
+			<!--
+				GROUND TILES (docs/design/perspective-board-mode.md §"The tiles") — the FIRST painted
+				child, so the whole layer sits behind every symbol. Two reasons it is one flat layer
+				rather than interleaved row-by-row with the symbols: a tile has no vertical extent, so
+				it must NEVER occlude a character standing anywhere on the board; and animating symbols
+				live on a SEPARATE board container above this one, so interleaving could not cover them
+				anyway. It sits inside the same `BoardContainer` as the symbols (so it shares their
+				coordinate space) and after `BoardMask` (so the board window clips it identically).
+
+				The `{#if}` is the parity guarantee: with no authored tile art the component is never
+				constructed, so an un-tiled board's scene graph is byte-identical to before this
+				existed.
+			-->
+			{#if tileArt}
+				<BoardTiles art={tileArt} />
+			{/if}
 			<BoardBase />
 			<!-- Free-spin book VFX shares the resting board's coordinate space + mask; its bg/fg
 				 layers interleave with the symbols by zIndex. Inert unless a bookVfx is baked. -->

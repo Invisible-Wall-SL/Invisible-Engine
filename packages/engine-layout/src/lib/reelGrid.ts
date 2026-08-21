@@ -1,3 +1,4 @@
+import { editorArtTextureKey, isManifestAssetKey, parseScopedFrameRef } from './editorArtKey';
 import { resolveTransform } from './resolveTransform';
 import type {
 	AnticipationProfile,
@@ -185,6 +186,49 @@ export function resolveReelGridPerspective(
 	if (num(p.vanishX)) out.vanishX = p.vanishX;
 	if (p.swapInPlace === true) out.swapInPlace = true;
 	return Object.keys(out).length ? out : undefined;
+}
+
+/**
+ * The two `loadedAssets` keys a ground TILE resolves to: the ATLAS-SCOPED editor-art key
+ * (`<assetKey>::<frame>`) and the bare frame name to fall back to. Exactly the pair
+ * `LayoutNodeView` hands a sprite node's `<Sprite key= fallbackKey=>`, because a tile IS an
+ * ordinary sprite frame — anything else would be a second lookup policy to keep in step with the
+ * first.
+ */
+export interface ReelGridTileArt {
+	/** Scoped key first, so a frame name packed by two atlases resolves to the one the author picked. */
+	key: string;
+	/** The bare frame name — parity for game-bundled sheets and for any registration predating the
+	 *  editor-art namespacing. Absent when the ref carries no scopeable atlas to begin with. */
+	fallbackKey?: string;
+}
+
+/**
+ * Read the authored GROUND TILE art off a `reelGrid` node and resolve it to texture keys
+ * (`docs/design/perspective-board-mode.md` §"The tiles"). Same defensive shape as the resolvers
+ * above: `undefined` unless there is something actually drawable, so a board with no tile art
+ * mounts no tile layer at all rather than a layer of empty textures.
+ *
+ * The split goes through `parseScopedFrameRef` rather than a hand-rolled `::` search: that function
+ * already knows the three prefix shapes apart (a real manifest key, an un-scopeable atlas ref that
+ * degrades to the bare frame, and a frame name that merely CONTAINS `::`), and a second parser is a
+ * second thing to get wrong. The resolution below then mirrors `LayoutNodeView`'s `spriteRef`
+ * step for step, so a tile and a sprite bound to the same frame can never resolve differently.
+ */
+export function resolveReelGridTileArt(
+	node: ReelGridNode | undefined,
+): ReelGridTileArt | undefined {
+	const raw = node?.tileRegion;
+	if (typeof raw !== 'string' || raw === '') return undefined;
+	const { assetKey, region } = parseScopedFrameRef(raw);
+	if (!region) return undefined;
+	if (isManifestAssetKey(assetKey)) {
+		return { key: editorArtTextureKey(assetKey, region), fallbackKey: region };
+	}
+	// No scopeable atlas in the ref — a legacy bare frame name, or a game-bundled sheet's frame.
+	// The bare key is what the flat texture map holds, so it IS the lookup (atlas-blind, exactly as
+	// a bare sprite region is today).
+	return { key: region };
 }
 
 /** The board's grid COUNT — `{ reels, rows }`. The one dimension both the game and the editor now

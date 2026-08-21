@@ -585,6 +585,26 @@ export interface ReelGridNode extends BaseNode {
 	 * game runs, so a moved float here is a board that silently shifted on live games.
 	 */
 	perspective?: ReelGridPerspective;
+	/**
+	 * GROUND TILE art — the frame stamped once per cell, at the cell's SEAT and scaled by its row
+	 * (`docs/design/perspective-board-mode.md` §"The tiles"). Drawing the tiles from the same lattice
+	 * that seats the symbols is the whole point: a tile grid painted INTO the ground art has to be
+	 * hand-matched to pixels and drifts out of alignment the first time a per-ratio override moves the
+	 * board, whereas these re-fit per aspect ratio for free and can never desync from the seats.
+	 *
+	 * A SIBLING of {@link ReelGridNode.perspective}, not a field inside it, because a tiled ground
+	 * plane is not a perspective-only idea — a flat board can want one too, and the design lists the
+	 * tiles as their own phase precisely because they are an independent decision. Nesting them would
+	 * also mean an authored tile renders nothing until a `farScale` is set beside it.
+	 *
+	 * Stored as a SCOPED FRAME REF (`<assetKey>::<frame>`) — the same shape a {@link SpriteNode}'s
+	 * `region` and an image-kind param binding store — so it resolves through `parseScopedFrameRef`
+	 * and travels the editor-art export chain as an ordinary sprite frame. A legacy BARE frame name
+	 * still resolves (atlas-blind, exactly as a bare sprite region does). Absent / empty ⇒ no tile
+	 * layer mounts AT ALL, which is byte-parity — and that matters because `apps/lines` is the shared
+	 * runtime bundle every online game runs.
+	 */
+	tileRegion?: string;
 }
 
 /**
