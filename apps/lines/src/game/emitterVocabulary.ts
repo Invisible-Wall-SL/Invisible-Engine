@@ -358,6 +358,17 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			group: 'Cascade',
 		},
 		{
+			type: 'tumbleBoardDrain',
+			group: 'Cascade',
+			fields: [
+				{
+					key: 'reelIndex',
+					kind: 'number',
+					required: true,
+				},
+			],
+		},
+		{
 			type: 'multiplierBoardShow',
 			group: 'Multipliers',
 		},

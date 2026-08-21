@@ -362,6 +362,17 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Cascade',
 			},
 			{
+				type: 'tumbleBoardDrain',
+				group: 'Cascade',
+				fields: [
+					{
+						key: 'reelIndex',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'multiplierBoardShow',
 				group: 'Multipliers',
 			},
@@ -957,6 +968,17 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 				group: 'Cascade',
 			},
 			{
+				type: 'tumbleBoardDrain',
+				group: 'Cascade',
+				fields: [
+					{
+						key: 'reelIndex',
+						kind: 'number',
+						required: true,
+					},
+				],
+			},
+			{
 				type: 'multiplierBoardShow',
 				group: 'Multipliers',
 			},
@@ -1550,6 +1572,17 @@ export const EMITTER_VOCABULARIES: Record<string, EmitterVocabulary> = {
 			{
 				type: 'tumbleBoardSlideDown',
 				group: 'Cascade',
+			},
+			{
+				type: 'tumbleBoardDrain',
+				group: 'Cascade',
+				fields: [
+					{
+						key: 'reelIndex',
+						kind: 'number',
+						required: true,
+					},
+				],
 			},
 			{
 				type: 'multiplierBoardShow',

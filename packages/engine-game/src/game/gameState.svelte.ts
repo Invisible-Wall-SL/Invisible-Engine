@@ -272,6 +272,37 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		resolveReelGridPerspective(boardOverride.node ?? undefined)?.swapInPlace === true;
 
 	/**
+	 * HOW a swap-in-place board presents a new board — `'dropIn'` (the shipped behaviour: the whole
+	 * board falls in at once) or `'columnCascade'` (the resting board drains column by column, left
+	 * to right, each column refilling as it empties). See
+	 * `docs/design/perspective-board-mode.md` §"The mode switch".
+	 *
+	 * Absent ⇒ `'dropIn'`, and the caller EARLY-RETURNS the shipped drop-in on that answer rather
+	 * than routing it through a generalised per-column path that happens to reproduce it. Same
+	 * discipline as {@link getSymbolSeat}'s flat branch and for the same reason: `apps/lines` is the
+	 * shared `_runtime/lines` bundle every online game runs, so "equivalent" is not good enough.
+	 *
+	 * Not gated on {@link boardSwapsInPlace} even though it only MEANS anything there: a style on a
+	 * rolling board is already inert (the reveal reaches no swap presentation at all), and gating
+	 * would put the same condition in two places for no behaviour.
+	 */
+	const boardSwapStyle = () =>
+		resolveReelGridPerspective(boardOverride.node ?? undefined)?.swapStyle ?? 'dropIn';
+
+	/**
+	 * The authored per-column stagger for `'columnCascade'`, in ms — or `undefined` for "the
+	 * presentation's own default". Deliberately NOT defaulted here: the number is a TIMING, and every
+	 * other cascade timing (the beat cap, the slide duration) lives with the presentation that spends
+	 * it, so the default belongs beside them rather than in the geometry module.
+	 *
+	 * `resolveReelGridPerspective` has already dropped a non-finite or negative value, so anything
+	 * that arrives here is a usable delay — including `0`, which is a legal authoring choice (drain
+	 * and refill every column at once, no sweep) and must therefore survive the `??` at the call site.
+	 */
+	const boardColumnStaggerMs = () =>
+		resolveReelGridPerspective(boardOverride.node ?? undefined)?.columnStaggerMs;
+
+	/**
 	 * The board's authored GROUND TILE art, resolved to the texture keys a `<Sprite>` looks up — or
 	 * `undefined`, which is every board that exists today and means NO tile layer mounts at all
 	 * (`docs/design/perspective-board-mode.md` §"The tiles").
@@ -877,6 +908,8 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		boardGeometry,
 		boardPerspective,
 		boardSwapsInPlace,
+		boardSwapStyle,
+		boardColumnStaggerMs,
 		boardTileArt,
 		anticipationActive,
 		sequentialStopActive,
