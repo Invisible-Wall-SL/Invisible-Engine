@@ -152,12 +152,24 @@ const linesGrid = (() => {
 // present it deals the project's real numReels/numRows/paylines so the mock matches the client that
 // authored e.g. 5 rows; absent ⇒ the shared `linesGrid` default (apps/lines). Book keeps its shape.
 /**
- * Games allowed to emit the cascade PRESENTATION FIXTURE, as a comma-separated list of game keys
- * (`CASCADE_GAMES=test4`), or `*` for all.
+ * Protocols that cascade BY DEFAULT. A `cluster` / `scatter` game IS a tumble game — the cells that
+ * paid leave the board and the survivors fall into the gap — so for those the cascade is the
+ * MECHANIC, not a test fixture, and a game of that type that never tumbles is simply broken. Adding
+ * a future tumble type here is the whole change needed on this side.
+ *
+ * Keying it off the protocol keeps every bit of safety the allowlist below was built for: a
+ * `lines` or `book` game still cannot cascade by accident, so the shipped Book of Borut is
+ * untouched with no env set at all.
+ */
+const CASCADE_PROTOCOLS = new Set(['cluster', 'scatter']);
+
+/**
+ * OVERRIDE for the protocols that do not cascade on their own, as a comma-separated list of game
+ * keys (`CASCADE_GAMES=test1`), or `*` for all. This is how a `lines` game is made to exercise the
+ * tumble overlay; for `cluster`/`scatter` it is redundant.
  *
  * Per-GAME rather than a bare on/off, because this one process serves every game: a global flag
- * would make the shipped Book of Borut cascade on every spin. Unset ⇒ nobody cascades, which is the
- * only safe default for a fixture that invents wire events.
+ * would make the shipped Book of Borut cascade on every spin.
  */
 const CASCADE_GAMES = new Set(
 	(process.env.CASCADE_GAMES ?? '')
@@ -165,9 +177,18 @@ const CASCADE_GAMES = new Set(
 		.map((s) => s.trim())
 		.filter(Boolean),
 );
-const cascadeEnabledFor = (gameKey) => CASCADE_GAMES.has('*') || CASCADE_GAMES.has(gameKey);
+/**
+ * Does this game tumble? The project's OWN authored answer wins (`cascade` in its manifest entry,
+ * synced from its Game Config at publish), then the protocol default, then the env override. A
+ * project can therefore turn the cascade off on a cluster game, or on for a lines game, which an
+ * env-only gate could never express per project.
+ */
+const cascadeEnabledFor = (gameKey, protocol, authored) => {
+	if (typeof authored === 'boolean') return authored;
+	return CASCADE_PROTOCOLS.has(protocol) || CASCADE_GAMES.has('*') || CASCADE_GAMES.has(gameKey);
+};
 
-const makeMock = (protocol, label, grid, gameKey) => {
+const makeMock = (protocol, label, grid, gameKey, cascade) => {
 	if (protocol === 'book') return createBookMock({ label });
 	// `ways` reuses the lines mock entirely and only swaps how wins are DECIDED — the session, round
 	// lifecycle, scatter pass and event vocabulary are identical between them, which is why this is
@@ -178,7 +199,7 @@ const makeMock = (protocol, label, grid, gameKey) => {
 		winModel,
 		// Explicit boolean either way — an absent value would let the mock fall back to the
 		// process-wide `CASCADE` env and cascade every game on this server.
-		cascade: cascadeEnabledFor(gameKey),
+		cascade: cascadeEnabledFor(gameKey, protocol, cascade),
 		...(grid ?? linesGrid ?? {}),
 	});
 };
@@ -347,7 +368,16 @@ async function hydrate() {
 			? meta.protocol
 			: 'lines';
 		const runtime = typeof meta.runtime === 'string' && meta.runtime ? meta.runtime : null;
-		nextRegistry[key] = { protocol, name: meta.name ?? key, runtime, grid: validGrid(meta.grid) };
+		// `cascade` is the project's OWN authored answer, synced from its Game Config at publish.
+		// Absent ⇒ undefined, and the protocol default decides. Only a real boolean overrides it.
+		const cascade = typeof meta.cascade === 'boolean' ? meta.cascade : undefined;
+		nextRegistry[key] = {
+			protocol,
+			name: meta.name ?? key,
+			runtime,
+			grid: validGrid(meta.grid),
+			cascade,
+		};
 		if (runtime) {
 			// Served from the shared runtime bundle (loaded once below) — no per-key files.
 			runtimeIds.add(runtime);
@@ -381,7 +411,7 @@ async function hydrate() {
 	mocks = Object.fromEntries(
 		Object.entries(nextRegistry).map(([key, meta]) => [
 			key,
-			makeMock(meta.protocol, `mock:${key}`, meta.grid, key),
+			makeMock(meta.protocol, `mock:${key}`, meta.grid, key, meta.cascade),
 		]),
 	);
 }

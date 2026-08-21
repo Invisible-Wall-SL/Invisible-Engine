@@ -306,6 +306,14 @@ export type GameConfigDoc = {
 	 * {@link resolveWinModel} rather than directly, so the default lives in one place.
 	 */
 	winModel?: WinModel;
+	/**
+	 * OPTIONAL cascade (tumble) override. An INVISIBLE-ENGINE extension; absent ⇒ the win model's
+	 * default — `cluster` / `scatter` tumble, `lines` / `ways` do not. Set it only to DEPART from
+	 * that: `false` on a cluster game, or `true` to give a lines game the tumble overlay.
+	 *
+	 * Read it through `resolveCascade` rather than directly, so the default lives in one place.
+	 */
+	cascade?: boolean;
 	/** The symbol DICTIONARY — art/properties/payouts. Not the in-play set. */
 	symbols: Record<string, GameConfigSymbol>;
 	paddingReels: PaddingReels;
