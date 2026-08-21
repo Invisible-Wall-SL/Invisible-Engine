@@ -205,6 +205,15 @@ const FACTS: readonly ChipSource[] = [
 ];
 
 /**
+ * Whether the win-line overlay is actually drawn. Its sub-options are only real when it is: the
+ * overlay stands down for a non-lines win model, so a ways or cluster game must not report a
+ * payline feature it never shows.
+ */
+function winLineActive(ctx: ProfileContext): boolean {
+	return ctx.winModel.type === 'lines' && ctx.symbols.winLine?.enabled !== false;
+}
+
+/**
  * The OPTIONAL feature table — "Using: …". One entry per switchable mechanic or presentation
  * feature. **This is the list that grows**: adding a mechanic to the engine means adding a row here
  * in the same change, so a shipped feature can never be invisible on the hub.
@@ -276,15 +285,15 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		id: 'winLine',
 		title:
 			'The win-line overlay traced over a paying payline with the amount stamped on it. On unless switched off in the Symbols tool.',
-		text: (ctx) =>
-			ctx.winModel.type === 'lines' && ctx.symbols.winLine?.enabled !== false
-				? 'Win-line display'
-				: null,
+		text: (ctx) => (winLineActive(ctx) ? 'Win-line display' : null),
 	},
 	{
 		id: 'fullPayline',
 		title: 'The win line traces the WHOLE payline, not just the winning segment.',
-		text: (ctx) => (ctx.symbols.winLine?.line?.fullPayline === true ? 'Full-payline trace' : null),
+		text: (ctx) =>
+			winLineActive(ctx) && ctx.symbols.winLine?.line?.fullPayline === true
+				? 'Full-payline trace'
+				: null,
 	},
 	{
 		id: 'paylineColors',
