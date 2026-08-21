@@ -795,11 +795,17 @@
 		// spine preview ignores rotation everywhere, as the top-level path does).
 		const sx = Math.hypot(a, b) || 1;
 		const sy = Math.hypot(c, d) || 1;
-		const w = geo.cellW * sx;
-		const h = geo.cellH * sy;
 		for (const seat of geo.seats) {
 			const cell = symbolStatics[(seat.j * geo.reels + seat.i) % symbolStatics.length];
 			if (!cell || cell.type !== 'spine' || !cell.assetKey) continue;
+			// The box is the SEAT's own cell — `seat.w`/`seat.h` already carry this ROW's PERSPECTIVE
+			// scale (and are `geo.cellW`/`cellH` verbatim on a flat board), so the depth shrink
+			// multiplies in EXACTLY ONCE: `placeInCell` contain-fits the rig into this box, and the
+			// world matrix composed above is the BOARD node's — it carries no per-row term. Same shape
+			// as the game, where `SymbolWrap` scales the symbol container and the spine contain-fits
+			// inside it.
+			const w = seat.w * sx;
+			const h = seat.h * sy;
 			// Seat CENTRE mapped to world, then expanded back to a box — the same point the 2D
 			// canvas centres a sprite symbol on.
 			const wx = tx + a * seat.cx + c * seat.cy;

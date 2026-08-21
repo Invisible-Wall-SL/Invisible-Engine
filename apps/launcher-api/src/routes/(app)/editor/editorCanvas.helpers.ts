@@ -5,6 +5,7 @@ import {
 	instancePreviewSpineBundle,
 	resolveBoundValue,
 	resolveComponentParams,
+	resolveReelGridPerspective,
 	resolveTransform,
 	type BoneRiderBinding,
 	type ComponentDef,
@@ -681,7 +682,7 @@ export function expandedAABBContains(p: Vec2, pts: Vec2[], pad: number): boolean
 }
 
 /** One symbol seat of a reel board, in the `reelGrid` node's OWN local space (the caller
- * applies the node transform / world matrix). `x`/`y` is the cell BOX (the reel window
+ * applies the node transform / world matrix). `x`/`y`/`w`/`h` is the cell BOX (the reel window
  * cell); `cx`/`cy` is the SEAT centre the symbol art is centred on — the cell centre moved
  * by the reel/row lead + the per-cell alignment. */
 export interface ReelGridSeat {
@@ -690,6 +691,25 @@ export interface ReelGridSeat {
 	j: number;
 	x: number;
 	y: number;
+	/**
+	 * Cell BOX size. On a flat board this is `cellW`/`cellH` verbatim (the same float, not a
+	 * product) — under perspective it is this ROW's size, i.e. `cellW * scale` / `cellH * scale`.
+	 * Consumers must size a symbol off THESE, never off `cellW`/`cellH`, or a back-row symbol draws
+	 * at the front row's size.
+	 */
+	w: number;
+	h: number;
+	/**
+	 * This row's PERSPECTIVE scale — exactly `1` on a flat board (the literal, not a computed one).
+	 * The game applies the identical number to the symbol container (`getSymbolSeat().scale`), so a
+	 * consumer that multiplies the cell box by it lands on the live symbol's size.
+	 */
+	scale: number;
+	/**
+	 * The SEAT centre the symbol art is centred on — the cell centre moved by the reel/row lead and
+	 * the per-cell alignment. Under perspective those two offsets are scaled with the row, so a
+	 * symbol sits the same FRACTION into a shallow back-row cell as into a deep front-row one.
+	 */
 	cx: number;
 	cy: number;
 }
@@ -701,13 +721,53 @@ export interface ReelGridGeometry {
 	rows: number;
 	cellW: number;
 	cellH: number;
-	/** Board box (every cell + the gaps between them), anchored + board-nudged. */
+	/**
+	 * Board box (every cell + the gaps between them), anchored + board-nudged. This stays the FLAT
+	 * footprint even under perspective — it is the un-contracted extent the model contracts FROM,
+	 * and the node's own transform/selection box is drawn against it. For the shape actually on
+	 * screen use {@link outline} / {@link clip}.
+	 */
 	left: number;
 	top: number;
 	width: number;
 	height: number;
 	seats: ReelGridSeat[];
+	/**
+	 * The board's on-screen OUTLINE under perspective — 4 corners in draw order (back-left,
+	 * back-right, front-right, front-left). Absent ⇒ FLAT, and the outline is exactly the
+	 * `(left, top, width, height)` rect, which is what the caller keeps drawing so the flat board
+	 * cannot move by a float bit.
+	 *
+	 * It is a TRAPEZOID, not a general quad, and each individual CELL is still an axis-aligned
+	 * rectangle: every cell in a row shares that row's scale, so a row contracts uniformly about the
+	 * vanishing point and stays a rectangle. It is the BOARD that converges, not the cell.
+	 */
+	outline?: Vec2[];
+	/**
+	 * Axis-aligned clip window under perspective (the bounding box of {@link outline}). Absent ⇒
+	 * FLAT, and the caller clips to the `(left, top, width, height)` rect as before.
+	 *
+	 * Deliberately a RECTANGLE and deliberately the OUTER bound: the game masks the board window
+	 * with a rectangle too (`BoardMask` — "in a symmetric one-point projection the far edge is a
+	 * straight horizontal line"), and it over-extends horizontally by a whole cell so the widest
+	 * (front) row is never clipped. Clipping the editor to the trapezoid instead would crop art at
+	 * the back of the board that the live game shows.
+	 */
+	clip?: { x: number; y: number; w: number; h: number };
 }
+
+/**
+ * The engine's board-LOCAL cell unit — `SYMBOL_SIZE` in
+ * `packages/engine-game/src/game/constants.ts`. Written as a literal because `engine-game` is a
+ * RUNTIME package the launcher does not (and should not) depend on; `engine-layout` carries the
+ * same literal for the same reason (see `builtinComponents.ts`'s coded panel width).
+ *
+ * It is needed for exactly ONE thing: an authored `vanishX` is in the game's board-local space (the
+ * space `getSymbolX` returns), so converting it to editor px needs the board container's scale,
+ * `cellSize / SYMBOL_SIZE`. Every other term below is derived from the flat editor lattice and
+ * never touches it.
+ */
+const BOARD_LOCAL_CELL = 120;
 
 /**
  * Resolve a `reelGrid` node's board geometry in its own local space — the ONE definition
@@ -721,6 +781,17 @@ export interface ReelGridGeometry {
  * reel/row LEAD (`reelPadding`/`rowPadding`, in cell-SIZE units — seats the whole cluster)
  * plus the per-cell SEAT ALIGNMENT (`symbolAlignX/Y`, in cell-W/H units — art inside its own
  * cell). Both default 0.5 ⇒ no offset ⇒ centred.
+ *
+ * PERSPECTIVE (`docs/design/perspective-board-mode.md`) is mirrored here from the engine's
+ * `getSymbolSeat` — see the block inside. It is authored on the node, so it must be resolved in
+ * THIS one function: a consumer that re-derived a scale ramp or a vanishing-point contraction in
+ * its own drawing code would be a second definition, and the 2D board preview and the WebGL spine
+ * layer would stop agreeing on where a symbol sits — the exact drift this helper exists to prevent.
+ *
+ * Without an authored perspective the function EARLY-RETURNS the flat lattice, expression for
+ * expression, rather than multiplying a scale of 1 through it (that subtracts and adds back around
+ * the vanishing point, and that rounds). `scripts/verify-reel-grid-geometry.mjs` asserts both the
+ * byte-parity and the equivalence with the engine's seats.
  */
 export function reelGridGeometry(
 	node: Extract<LayoutNode, { kind: 'reelGrid' }>,
@@ -754,8 +825,125 @@ export function reelGridGeometry(
 		for (let j = 0; j < rows; j++) {
 			const x = left + i * pitchX;
 			const y = top + j * pitchY;
-			seats.push({ i, j, x, y, cx: x + cellW / 2 + seatDX, cy: y + cellH / 2 + seatDY });
+			seats.push({
+				i,
+				j,
+				x,
+				y,
+				w: cellW,
+				h: cellH,
+				scale: 1,
+				cx: x + cellW / 2 + seatDX,
+				cy: y + cellH / 2 + seatDY,
+			});
 		}
 	}
-	return { reels, rows, cellW, cellH, left, top, width, height, seats };
+	const flat: ReelGridGeometry = { reels, rows, cellW, cellH, left, top, width, height, seats };
+
+	// ---- PERSPECTIVE (docs/design/perspective-board-mode.md) ------------------------------------
+	// The mode's ON switch, read + guarded EXACTLY as the engine's `boardPerspective` reads it:
+	// absent, non-finite, `<= 0` (collapses/mirrors the board) or exactly `1` (the identity) all
+	// mean FLAT, and flat is this early return of the expressions above — not the algebra below with
+	// a scale that happens to be 1. Nothing authors a perspective on a live game yet, so a moved
+	// float here is a board preview that silently disagrees with the game it is previewing.
+	const authored = resolveReelGridPerspective(node);
+	const farScale = authored?.farScale;
+	if (typeof farScale !== 'number' || !Number.isFinite(farScale) || farScale <= 0 || farScale === 1)
+		return flat;
+
+	// The depth ramp: `scale(row) = farScale + perRow * row`, so the BACK row (0, visually furthest)
+	// draws at `farScale` and the FRONT row draws at exactly 1. A one-row board has no depth to ramp
+	// across, so every row sits at `farScale` — a uniformly smaller board, not a divide by zero.
+	// Identical to `perspectiveRowScale` in `gameState.svelte.ts`; the clamp is a no-op for the
+	// editor's `0..rows-1` but is kept so the two read as the same function.
+	const frontRow = rows > 1 ? rows - 1 : 0;
+	const perRow = frontRow > 0 ? (1 - farScale) / frontRow : 0;
+	const rowScale = (row: number) => farScale + perRow * Math.min(Math.max(row, 0), frontRow);
+	// `Σ_{k<row} scale(k)` in units of `pitchY` — how many base row pitches deep a row sits once
+	// every row above it has contributed only its OWN (compressed) pitch. The engine's closed form
+	// (`perspectiveRowSum`), branch for branch, so the editor's depth cannot drift from the game's.
+	const rowSum = (row: number) => {
+		const ramp = (r: number) => farScale * r + (perRow * r * (r - 1)) / 2;
+		if (row <= 0) return farScale * row;
+		if (row <= frontRow) return ramp(row);
+		return ramp(frontRow) + (row - frontRow);
+	};
+
+	// The board-local ORIGIN, in editor px — the affine map between the game's seat space and this
+	// one, written out because the whole point of this block is that the two agree.
+	//
+	// The game seats in board-LOCAL units (`SYMBOL_SIZE`-based) inside a container scaled by
+	// `cellSize / SYMBOL_SIZE`; the editor seats in layout px. Folding the game's container pivot
+	// through that scale gives `editorX = X0 + boardScale * gameX` with
+	// `X0 = left + (cellW - cellSize) / 2` and `Y0 = top - gapY / 2` — i.e. the game's board-local
+	// origin is half a NON-SQUARE overhang right of the board box's left edge, and half a row GAP
+	// above its top edge (the game's row pitch cell wraps the gap symmetrically around the drawn
+	// cell). Both collapse to `left`/`top` on the square, flush board.
+	const boardScale = node.cellSize / BOARD_LOCAL_CELL;
+	const originX = left + (cellW - node.cellSize) / 2;
+	const originY = top - gapY / 2;
+	// The vanishing point, in editor px. Authored ⇒ it is a board-LOCAL x (the space `getSymbolX`
+	// returns), so it travels the map above. Absent ⇒ the lattice CENTRE: the midpoint of the FIRST
+	// and LAST column SEATS, which is what the engine defaults to — taken from the seats themselves,
+	// not from the board box, so the lead + alignment terms are included and a symmetric board
+	// contracts symmetrically.
+	const authoredVanishX = authored?.vanishX;
+	const seatCx = (i: number) => left + i * pitchX + cellW / 2 + seatDX;
+	const vanishX =
+		typeof authoredVanishX === 'number' && Number.isFinite(authoredVanishX)
+			? originX + boardScale * authoredVanishX
+			: (seatCx(0) + seatCx(reels - 1)) / 2;
+	/** Contract a flat board-local x toward the vanishing point by a row's scale. */
+	const converge = (x: number, scale: number) => vanishX + (x - vanishX) * scale;
+
+	const perspectiveSeats: ReelGridSeat[] = seats.map((s) => {
+		const scale = rowScale(s.j);
+		const w = cellW * scale;
+		const h = cellH * scale;
+		// The cell BOX: its centre converges with its row and it shrinks with its row. Its top edge
+		// is the running sum of the compressed row pitches, plus the half-gap that pitch carries
+		// (itself compressed) — so the cells of a gapped board stay separated by a gap that shrinks
+		// with them.
+		const boxCx = converge(s.x + cellW / 2, scale);
+		const boxCy = originY + pitchY * rowSum(s.j) + (pitchY * scale) / 2;
+		// The SEAT is the box centre plus the lead + alignment offsets — scaled, so a symbol sits the
+		// same FRACTION into a shallow back-row cell as into a deep front-row one. That is the same
+		// composition the engine makes, where those terms ride INSIDE the contracted `getSymbolX`
+		// and inside `pitch * scale * getSymbolLead()`.
+		return {
+			i: s.i,
+			j: s.j,
+			x: boxCx - w / 2,
+			y: boxCy - h / 2,
+			w,
+			h,
+			scale,
+			cx: boxCx + seatDX * scale,
+			cy: boxCy + seatDY * scale,
+		};
+	});
+
+	// The board OUTLINE. A row's board edge is that row's contraction of the FLAT edge (the cell
+	// half-widths cancel exactly), so only the back and front rows are needed: the sides are
+	// straight lines between them.
+	const backScale = rowScale(0);
+	const frontScale = rowScale(frontRow);
+	const backY = originY + (gapY * backScale) / 2;
+	const frontY = originY + pitchY * rowSum(frontRow) + (gapY * frontScale) / 2 + cellH * frontScale;
+	const outline: Vec2[] = [
+		{ x: converge(left, backScale), y: backY },
+		{ x: converge(left + width, backScale), y: backY },
+		{ x: converge(left + width, frontScale), y: frontY },
+		{ x: converge(left, frontScale), y: frontY },
+	];
+	const xs = outline.map((p) => p.x);
+	const ys = outline.map((p) => p.y);
+	const clipX = Math.min(...xs);
+	const clipY = Math.min(...ys);
+	return {
+		...flat,
+		seats: perspectiveSeats,
+		outline,
+		clip: { x: clipX, y: clipY, w: Math.max(...xs) - clipX, h: Math.max(...ys) - clipY },
+	};
 }
