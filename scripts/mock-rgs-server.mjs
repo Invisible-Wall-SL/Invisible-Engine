@@ -418,7 +418,13 @@ export const evaluateScatterPays = (reels, betPerSpin, wild = null, opts = {}) =
 };
 
 /** Evaluate scatter pays. SCATs pay anywhere on the board (not bound to a
- *  payline). Returns at most one win event with all scatter positions. */
+ *  payline). Returns at most one win event with all scatter positions.
+ *
+ *  ⚠️ This is the ONE win in either mock whose positions ride in a NESTED `{ positions: [...] }`
+ *  rather than as a bare array — the book mock emits the bare array for the same event, and the
+ *  facade silently read `[]` here until `winPositions` learned the nested shape. No capture settles
+ *  which one a real Play4Fun sends, so the divergence stays and the facade reads both; changing this
+ *  to an array would only hide a shape the client must survive anyway. */
 const evaluateScatters = (reels, totalStake) => {
 	const positions = [];
 	for (let reel = 0; reel < reels.length; reel++) {
@@ -511,7 +517,8 @@ const pathEndsWith = (pathname, route) => {
  *
  * @param {{ startBalance?: number, seed?: string, label?: string, reels?: number, rows?: number,
  *   paylines?: number[][], wild?: { paytable: Record<string, number> }, stacked?: boolean,
- *   symbols?: string[], winModel?: 'lines' | 'ways' }} [opts] `symbols` restricts the dealt line
+ *   symbols?: string[], winModel?: 'lines' | 'ways' | 'cluster' | 'scatter', quiet?: boolean }} [opts]
+ *   `symbols` restricts the dealt line
  *   pool to the project's in-play symbols in SERVER vocabulary (PIC* plus SCAT); absent ⇒ the full
  *   default pool. `winModel` selects how wins are DECIDED — everything else (session, seq, round
  *   lifecycle, scatters, free spins, the whole event vocabulary) is identical between the two, which
@@ -523,6 +530,9 @@ export function createMockRgs(opts = {}) {
 	const startBalance = Number(opts.startBalance ?? process.env.START_BALANCE ?? 10_000);
 	const seed = opts.seed ?? process.env.SEED;
 	const label = opts.label ?? 'mock';
+	/** Silence the per-request line. For gates, which spin hundreds of rounds and bury their own
+	 *  output under it — never for the CLI or the test server, where it is the only trace there is. */
+	const quiet = opts.quiet === true;
 
 	// Grid the mock deals — the game's authored grid when the test server injects it, else the
 	// faithful Hot Fruits 5×3. `paylines` MUST be numReels-wide (one row index per reel); an
@@ -530,19 +540,32 @@ export function createMockRgs(opts = {}) {
 	// the config's own paylines alongside its dimensions.
 	const reelCount = Math.max(1, Math.round(Number(opts.reels ?? DEFAULT_REELS)));
 	const rowCount = Math.max(1, Math.round(Number(opts.rows ?? DEFAULT_ROWS)));
-	const authoredPaylines =
-		Array.isArray(opts.paylines) && opts.paylines.length ? opts.paylines : DEFAULT_PAYLINES;
-	// Keep the authored set when it already touches every row; otherwise the game's real dimensions
-	// have outgrown its lines (the classic 5×3 lines on a resized 5×5 board), so deal a generated set
-	// that covers the whole grid — the server "picks up" rows/reels instead of a stale line subset.
-	const paylines = coversAllRows(authoredPaylines, rowCount)
-		? authoredPaylines
-		: standardPaylines(reelCount, rowCount);
 
 	// How wins are decided. `lines` keeps the payline evaluator (default ⇒ every existing caller is
 	// byte-identical); `ways` swaps in the ways evaluator. Both then share the same scatter pass and
 	// the same event stream.
 	const winModel = ['ways', 'cluster', 'scatter'].includes(opts.winModel) ? opts.winModel : 'lines';
+
+	// Only a LINES game has paylines. Ways / cluster / scatter-pays decide a win without them, and
+	// their configs authored none — but the fallback below reads an empty list as "absent" and
+	// substituted the stock 5×3 set, which then failed `coversAllRows` on their taller boards and
+	// got REGENERATED into 13 phantom lines. Those 13 were declared on the wire, so the client
+	// derived a per-line stake from lines the server never pays, and the ways/cluster payout base
+	// was a thirteenth of what the paytable quotes. Declaring none is the honest wire.
+	const paylinesLess = winModel !== 'lines';
+	/** How many ways the grid pays — the product of each reel's visible rows, uniform here (a 5×3
+	 *  board pays 3⁵ = 243). The client computes the same number in `activeWaysCount()`. */
+	const waysCount = Math.max(1, rowCount ** reelCount);
+	const authoredPaylines =
+		Array.isArray(opts.paylines) && opts.paylines.length ? opts.paylines : DEFAULT_PAYLINES;
+	// Keep the authored set when it already touches every row; otherwise the game's real dimensions
+	// have outgrown its lines (the classic 5×3 lines on a resized 5×5 board), so deal a generated set
+	// that covers the whole grid — the server "picks up" rows/reels instead of a stale line subset.
+	const paylines = paylinesLess
+		? []
+		: coversAllRows(authoredPaylines, rowCount)
+			? authoredPaylines
+			: standardPaylines(reelCount, rowCount);
 	/** Cluster shape, straight from the project's declared win model. Defaults match `normalizeWinModel`. */
 	const clusterOpts = {
 		minCluster: opts.minCluster ?? 5,
@@ -791,9 +814,11 @@ export function createMockRgs(opts = {}) {
 			});
 		}
 
-		console.log(
-			`[${label}] sid=${sid} seq=${seq} gid=${gid ?? '-'} actions=${JSON.stringify(actions.map((a) => a.action))}`,
-		);
+		if (!quiet) {
+			console.log(
+				`[${label}] sid=${sid} seq=${seq} gid=${gid ?? '-'} actions=${JSON.stringify(actions.map((a) => a.action))}`,
+			);
+		}
 
 		const events = [];
 
@@ -878,16 +903,31 @@ export function createMockRgs(opts = {}) {
 					}
 					const reels = stackedDeal ? spinReelsStacked() : spinReels();
 					pendingRound.reels = reels;
+					// The stake a paytable multiplier is quoted against — the server side of the client's
+					// `payoutDivisor()` (`engine-game/src/game/gameConfig.ts`), and it MUST mirror it or
+					// the info page prices a win differently from the wallet that credits it:
+					//   lines   → per LINE   (total / numLines, which IS `betPerLine`)
+					//   ways    → per WAY    (total / waysCount — a 5×3 board pays 243 ways)
+					//   cluster → whole bet  (divisor 1)
+					//   scatter → whole bet  (divisor 1)
+					// `ways` used to price per LINE against phantom regenerated paylines, so a ways win
+					// paid ~19× what its own paytable quoted; `cluster` had the same slice against a
+					// divisor of 1. Fractional cents are fine and deliberate — a 243-way base rounded to
+					// a whole cent would distort every ways payout.
+					const payoutBase =
+						winModel === 'ways'
+							? pendingRound.total / waysCount
+							: winModel === 'cluster' || winModel === 'scatter'
+								? pendingRound.total
+								: pendingRound.betPerLine;
 					const lineWins =
 						winModel === 'ways'
-							? evaluateWays(reels, pendingRound.betPerLine, wild)
+							? evaluateWays(reels, payoutBase, wild)
 							: winModel === 'cluster'
-								? evaluateClusters(reels, pendingRound.betPerLine, wild, clusterOpts)
+								? evaluateClusters(reels, payoutBase, wild, clusterOpts)
 								: winModel === 'scatter'
-									? // Priced against the TOTAL stake, not a per-line slice: a scatter-pays
-										// multiplier applies to the whole bet (`payoutDivisor` returns 1 for it).
-										evaluateScatterPays(reels, pendingRound.total, wild, scatterPaysOpts)
-									: evaluatePaylines(reels, pendingRound.betPerLine, paylines, wild);
+									? evaluateScatterPays(reels, payoutBase, wild, scatterPaysOpts)
+									: evaluatePaylines(reels, payoutBase, paylines, wild);
 					const scatterWin = evaluateScatters(reels, pendingRound.total);
 					const wins = scatterWin ? [...lineWins, scatterWin] : lineWins;
 					const totalWin = wins.reduce((s, w) => s + w.pay, 0);
