@@ -18,7 +18,7 @@
 
 	import MultiplierBoardBase from './MultiplierBoardBase.svelte';
 	import { getContext } from '../game/context';
-	import { getSymbolX, getSymbolY, stateGame, stateGameDerived } from '../game/stateGame.svelte';
+	import { getSymbolSeat, stateGame, stateGameDerived } from '../game/stateGame.svelte';
 
 	/**
 	 * The MULTIPLIER-COLLECT overlay — the scatter family's second mechanic, on top of the cascade.
@@ -65,8 +65,9 @@
 		const isVisibleRow = symbolIndex > 0 && symbolIndex < reelLength - 1;
 		if (rawSymbol.multiplier === undefined || !isVisibleRow) return undefined;
 
-		const initX = getSymbolX(reelIndex);
-		const initY = getSymbolY(symbolIndex + PADDING_ROW);
+		const seat = getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW);
+		const initX = seat.x;
+		const initY = seat.y;
 
 		const multiplierSymbol = $state({
 			initX,

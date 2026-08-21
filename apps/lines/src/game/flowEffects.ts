@@ -51,7 +51,7 @@ import { eventEmitter } from './eventEmitter';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { stateApp } from './stateApp';
 import { type WinLevelData } from 'engine-game';
-import { stateGame, stateGameDerived, getSymbolX, stackedScrollStrip } from './stateGame.svelte';
+import { stateGame, stateGameDerived, getSymbolSeat, stackedScrollStrip } from './stateGame.svelte';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { buildAnticipationArming } from './anticipation';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
@@ -337,13 +337,17 @@ export const showWinInfoMessage = ({
 	}
 };
 
+/** Row index of the padding row above the visible board — a book `position.row` indexes the PADDED
+ *  strip (one buffer row top and bottom), so the lattice row it seats is one less. */
+const PADDING_ROW = -1;
+
 /**
- * The board-local centre points the line traces: `getSymbolX(reel)` + the live symbol centre Y.
+ * The board-local centre points the line traces: the cell's SEAT x + the live symbol centre Y.
  * Mounted inside WinLine's <BoardContainer> so these align with the rendered reels.
  */
 export const winLinePointsFor = (positions: Position[]) =>
 	positions.map((position) => ({
-		x: getSymbolX(position.reel),
+		x: getSymbolSeat(position.reel, position.row + PADDING_ROW).x,
 		y: stateGame.board[position.reel].reelState.symbols[position.row].symbolY(),
 	}));
 

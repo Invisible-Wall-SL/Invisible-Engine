@@ -187,6 +187,35 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	};
 
 	/**
+	 * Reactive SEAT of ONE CELL — the single answer to "where does (reel, row) sit, and how big is
+	 * it". {@link getSymbolX}/{@link getSymbolY} stay exactly as they are and are what this composes,
+	 * because plenty of callers legitimately want a whole COLUMN's x rather than a cell's: the win
+	 * line groups its per-reel bars by that exact value, and the anticipation camera centres a whole
+	 * column on it.
+	 *
+	 * It exists because the lattice is separable — `x = f(reel)`, `y = g(row)`, one board scale —
+	 * only while the board is FLAT. Perspective (docs/design/perspective-board-mode.md) breaks all
+	 * three at once: converging columns make `x` depend on the ROW too, the row pitch compresses with
+	 * depth, and each row draws at its OWN scale. A call site that composes `getSymbolX(reel)` with a
+	 * live y can express none of that, so every per-cell seat has to come through one function before
+	 * the model can exist — which is all this phase does.
+	 *
+	 * TODAY IT IS FLAT: nothing authors a perspective yet, so it returns literally the two getters
+	 * plus `scale: 1`. Literally the same CALLS, not an equivalent re-derivation — re-deriving the
+	 * same algebra in a different association order moves the last float bit and would silently shift
+	 * the board. `scripts/verify-symbol-seat.mjs` asserts that offline, as exact equality.
+	 *
+	 * `rowIndex` shares {@link getSymbolY}'s domain: it is a POSITION on the lattice, not an index
+	 * into the visible rows. It may be negative (the padding row above the board is -1) and may sit
+	 * far above it (a cascade stacks its replacements at `symbolIndex - 1 - addingReel.length`).
+	 */
+	const getSymbolSeat = (reelIndex: number, rowIndex: number) => {
+		// Phase 1's perspective branch goes HERE, and an authored-flat board must fall through to this
+		// same return rather than to a `scale === 1` multiply — parity has to stay one code path.
+		return { x: getSymbolX(reelIndex), y: getSymbolY(rowIndex), scale: 1 };
+	};
+
+	/**
 	 * Build one spinning reel per column, sized + seeded from the ACTIVE game config (Invisible Game
 	 * Config). A FACTORY, not a module-scope const, so it can be re-run after the live runtime bundle
 	 * lands — see {@link rebuildBoard}: the online config resolves asynchronously AFTER this module
@@ -656,6 +685,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	return {
 		getSymbolX,
 		getSymbolY,
+		getSymbolSeat,
 		getWinLevelDataByWinLevelAlias,
 		rebuildBoard,
 		setBoardOverride,

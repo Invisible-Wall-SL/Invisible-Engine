@@ -209,6 +209,11 @@ export const activeMaxTier = (): AnticipationTier | null => {
  * override) `getSymbolX` reproduces `SYMBOL_SIZE · (reelIndex + REEL_PADDING)`, `scale === 1` and
  * `pivot.x === width/2`, so this is byte-identical to the previous
  * `layout.x − layout.width·0.5 + (reelIndex + REEL_PADDING)·SYMBOL_SIZE`.
+ *
+ * Deliberately NOT a `getSymbolSeat` call: this is a whole COLUMN's centre — the camera pans to it
+ * and the grey-out fills it top to bottom — so there is no one row to seat it against. A converging
+ * board would not have a single column x at all, which is why perspective stands the anticipation
+ * behaviours DOWN instead of porting them to a trapezoid (docs/design/perspective-board-mode.md).
  */
 export const reelCenterX = (reelIndex: number): number => {
 	const layout = stateGameDerived.boardLayout();
