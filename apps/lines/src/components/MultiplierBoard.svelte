@@ -12,6 +12,7 @@
 	import { Tween } from 'svelte/motion';
 	import { quartInOut } from 'svelte/easing';
 
+	import { BoardContext } from 'components-shared';
 	import { BoardContainer } from 'engine-game';
 	import type { RawSymbol, SymbolState } from 'engine-game';
 	import { waitForResolve, waitForTimeout } from 'utils-shared/wait';
@@ -142,7 +143,29 @@
 </script>
 
 {#if show}
-	<BoardContainer>
-		<MultiplierBoardBase />
-	</BoardContainer>
+	<!--
+		TWO layers, exactly as `Board.svelte` and `TumbleBoard.svelte` mount them — and the
+		`BoardContext` is not decoration here, it is what makes a multiplier symbol render AT ALL.
+		`MultiplierSymbol` draws through `SymbolWrap`, which reads `getContextBoard()` to decide
+		whether it belongs on this layer; with no provider above it that read is `undefined`, and the
+		first symbol of the collect beat throws "Cannot read properties of undefined (reading
+		'animate')" — taking the round down with it. This overlay shipped without one, so the beat
+		crashed on every project that landed a multiplier.
+
+		BOTH layers rather than one, for the same reason the two boards have both: the split IS
+		`animating` (a spine symbol overflows its cell, so it draws unmasked above the mask), and
+		`SymbolWrap` renders a symbol on exactly one of them. A single layer would silently hide
+		whichever half of a project's multiplier art it did not match — a quieter bug than the crash.
+	-->
+	<BoardContext animate={false}>
+		<BoardContainer>
+			<MultiplierBoardBase />
+		</BoardContainer>
+	</BoardContext>
+
+	<BoardContext animate={true}>
+		<BoardContainer>
+			<MultiplierBoardBase />
+		</BoardContainer>
+	</BoardContext>
 {/if}
