@@ -29,6 +29,15 @@ const primaryMachines = createPrimaryMachines<Bet>({
 		clearWinPresentation();
 		if ((stateBet.isTurbo && stateXstateDerived.isAutoBetting()) || stateBet.isSpaceHold) return;
 		stateBet.winBookEventAmount = 0;
+		// A swap-in-place board has no roll to pre-start, and this is the ONE place the roll begins
+		// that the reveal cannot stand down: the pre-spin fires on the BUTTON PRESS, before the RGS
+		// has answered, so `presentReveal` skipping `enhancedBoard.spin` never unwinds it. Left in, the
+		// reels roll from the press until the drop-in hides them — which is exactly what a swap-in-place
+		// board is defined as not doing, and it reads as "the reels spin, then stop mid-spin and new
+		// symbols appear". It also flattens the board on the way: a rolling strip runs far past the
+		// visible rows, and the seat's depth ramp clamps there, so every symbol draws at front-row
+		// size for the length of the roll. Off ⇒ this is unreachable and the pre-spin is untouched.
+		if (stateGameDerived.boardSwapsInPlace()) return;
 		await stateGameDerived.enhancedBoard.preSpin({
 			paddingBoard: paddingReels(stateGame.gameType),
 		});
