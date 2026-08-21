@@ -198,7 +198,15 @@ async function projectMultiplier(
 
 function projectLineSymbols(doc: GameConfigDoc): string[] | undefined {
 	const inPlay = new Set(symbolsInPlay(doc));
-	const serverPool = Object.keys(linesMapping.symbols).filter((server) => server !== 'WILD');
+	// `WILD` and `MULT` are excluded because neither is a LINE symbol: each has its own switch
+	// (`wild`, `multiplier`) deciding whether the mock deals it at all. This pool is built from
+	// the MAPPING TABLE's keys, so any entry added there for a special symbol lands in the deal
+	// pool unless it is named here — which is exactly how `MULT` started being dealt as an
+	// ordinary board symbol, valueless, on every reveal.
+	const NON_LINE_SERVER_SYMBOLS = new Set(['WILD', 'MULT']);
+	const serverPool = Object.keys(linesMapping.symbols).filter(
+		(server) => !NON_LINE_SERVER_SYMBOLS.has(server),
+	);
 	const allowed = serverPool.filter((server) => inPlay.has(mapSymbol(linesMapping, server)));
 	if (!allowed.length || allowed.length === serverPool.length) return undefined;
 	return allowed;

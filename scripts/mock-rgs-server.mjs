@@ -569,8 +569,15 @@ export function createMockRgs(opts = {}) {
 	// (H1/L1/S/…) to it, so the mock needs ZERO mapping knowledge. Absent/empty ⇒ the faithful full
 	// pool + scatter. SCAT rides in the pool as a flag; strip it out to get the LINE pool. Guard: an
 	// empty line pool (misconfigured filter) falls back to the full default — never deal a blank board.
+	//
+	// `MULT` is stripped here as well as at publish. It is NOT a line symbol — it is dealt only by
+	// the collect fixture, WITH a value (`MULT:5`) — but it reaches this pool from the mapping
+	// table`s key set, so a manifest published while it was in there would deal bare, valueless
+	// `MULT` cells on every board. The client maps those to a symbol with no multiplier and no
+	// art. Stripping it in BOTH places means a project already carrying the bad pool is fixed by
+	// this deploy rather than by remembering to republish.
 	const allowedSymbols = Array.isArray(opts.symbols)
-		? opts.symbols.filter((s) => typeof s === 'string')
+		? opts.symbols.filter((s) => typeof s === 'string' && s !== 'MULT')
 		: [];
 	const restrictSymbols = allowedSymbols.length > 0;
 	const scatterEnabled = restrictSymbols ? allowedSymbols.includes('SCAT') : true;
