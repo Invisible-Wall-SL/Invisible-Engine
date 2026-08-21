@@ -344,7 +344,10 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 	{
 		id: 'explosionState',
 		title: 'Symbols have an authored explosion animation — the cascade’s defining beat.',
-		text: (ctx) => (ctx.states.has('explosion') ? 'Explosion animations' : null),
+		text: (ctx) =>
+			ctx.states.has('explosion') || ctx.states.has('tumbleExplosion')
+				? 'Explosion animations'
+				: null,
 	},
 	{
 		id: 'symbolNames',

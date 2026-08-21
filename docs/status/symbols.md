@@ -16,7 +16,8 @@ Working on `main`:
 
 - **The tool page** (`/symbols`, `(app)` route, `ssr = false`, auth + role gate;
   `admin`/`developer`/`artist` by default). Grid = symbols × the six states (`Static`,
-  `Spin`, `Land`, `Win`, `Post-win`, `Explosion`). Each cell shows its effective binding
+  `Spin`, `Land`, `Win`, `Post-win`, `Explosion`), plus `Tumble explosion` on a cascading
+  project and the two book states on a book game. Each cell shows its effective binding
   (override or coded default): sprite frame thumbnail, a live spine animation on the
   shared canvas, or a flipbook clip's first frame. Cell editor toggles
   **Sprite / Spine / Flipbook**, uses the editor's `RegionPicker` / spine-bundle picker /
@@ -324,6 +325,28 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+
+- 2026-08-21 — **The cascade's explosion is its own binding: `Tumble explosion`.**
+  Upstream played ONE `explosion` state at two different moments — the cascade removing a winning
+  symbol, and something morphing a symbol in place on a resting reel (the Book-of column expand) —
+  because each Stake sample game shipped a single `symbols3/explosion` skeleton. The engine's own
+  Spine set carries more than one (`engine-explosion`, `engine-win-meter-explosion`), and the two
+  beats read differently: one pops under a falling board, the other on a board standing still.
+  Split them. New state `tumbleExplosion` in the ONE home (`engine-layout/symbolStates`), so the
+  Symbols grid, the Scene Editor's `symbolState` dropdown, the Symbol Debug overlay and the doc
+  schema all pick it up from the same list. The cascade (`tumbleBoardExplode` + both
+  `tumbleBoardRemoveExploded` filters, which is also what `/config`'s "clear the board" style
+  runs through) now plays `tumbleExplosion`; `expandBookColumns` keeps `explosion`.
+  **Nothing changes for a project that binds one explosion:** `resolveSymbolState` makes
+  `tumbleExplosion` INHERIT `explosion` before the `static` last resort, asserted in
+  `apps/lines/src/game/symbolCell.fixture.ts`. The column is gated on `resolveCascade` (server
+  `load` → `visibleStatesFor(gameType, cascade)`) rather than the game kind, so a lines project
+  that switched the cascade on in `/config` gets the column and a cluster project gets it without
+  authoring anything. Header carries a tooltip saying an empty cell reuses `Explosion`, because a
+  blank column that silently works is what gets re-authored by hand.
+  ⏳ owner verify: on a cascading project bind `engine-win-meter-explosion` to `Tumble explosion`
+  for one symbol, rebuild, and confirm the tumble pops with it while the Book-of expand still uses
+  `Explosion`.
 
 - 2026-08-21 — **`_shared/spines/` now carries the engine's whole Spine set (29 bundles), not just the boot mark.**
   Follow-on to the explosion below, same cause: the shared library seeded sprite SHEETS only, so a

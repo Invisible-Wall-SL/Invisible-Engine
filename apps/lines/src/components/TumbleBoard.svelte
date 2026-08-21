@@ -57,8 +57,8 @@
 				 * Scoping is not tidiness here, it is CORRECTNESS for the per-column clear. A column
 				 * cascade runs its columns concurrently on an absolute stagger, so column `i + 1` can be
 				 * mid-explosion while column `i` reaches its removal. An unscoped filter removes every
-				 * symbol currently in the `explosion` state — including the neighbour's, whose animation
-				 * is still playing — so the column ahead would lose its symbols early and silently.
+				 * symbol currently in the `tumbleExplosion` state — including the neighbour's, whose
+				 * animation is still playing — so the column ahead would lose its symbols early and silently.
 				 */
 				reelIndex?: number;
 		  }
@@ -77,8 +77,8 @@
 		 * A cue of its own rather than a field on one of the four above, because it is a motion none
 		 * of them performs: `tumbleBoardSlideDown` moves symbols INTO their seats and never removes
 		 * anything, `tumbleBoardRemoveExploded` removes without animating, and `tumbleBoardExplode`
-		 * plays an authored `explosion` state — which is exactly what a drain is NOT (nothing has won,
-		 * so nothing pops). Folding a delete into the slide would put a mutation inside the step every
+		 * plays an authored `tumbleExplosion` state — which is exactly what a drain is NOT (nothing
+		 * has won, so nothing pops). Folding a delete into the slide would put a mutation inside the step every
 		 * cascade already runs, which is the one step that must stay byte-identical.
 		 *
 		 * The removal is the cue's OWN completion, not a follow-up: a drain that left its symbols on
@@ -294,14 +294,20 @@
 		},
 		tumbleBoardReset: () => resetTumbleBoard(),
 		tumbleBoardExplode: async ({ explodingPositions }) => {
-			// Every winning cell plays its authored `explosion` state at once, and the step is not done
-			// until the LAST one reports back — a cascade that removed symbols before their explosion
-			// finished would eat the animation the Symbols tool exists to author.
+			// Every winning cell plays its authored `tumbleExplosion` state at once, and the step is not
+			// done until the LAST one reports back — a cascade that removed symbols before their
+			// explosion finished would eat the animation the Symbols tool exists to author.
+			//
+			// `tumbleExplosion`, NOT `explosion`: the cascade's pop and the on-reel morph's pop are
+			// separate bindings in /symbols (`engine-layout/symbolStates`), because they are separate
+			// moments and the engine's Spine set ships a separate skeleton for each. A project that
+			// binds only the one inherits it here (`resolveSymbolState`), so this reads identically to
+			// before the split until someone actually authors the cascade's own.
 			await Promise.all(
 				explodingPositions.map(async (position) => {
 					const tumbleSymbol = stateTumble.base[position.reel]?.[position.row];
 					if (!tumbleSymbol) return;
-					tumbleSymbol.symbolState = 'explosion';
+					tumbleSymbol.symbolState = 'tumbleExplosion';
 					await awaitBeat((resolve) => (tumbleSymbol.oncomplete = resolve));
 				}),
 			);
@@ -311,14 +317,14 @@
 			// (parity by early return, not by a generalised path that happens to include everything).
 			if (reelIndex === undefined) {
 				stateTumble.base = stateTumble.base.map((tumbleReel) =>
-					tumbleReel.filter((tumbleSymbol) => tumbleSymbol.symbolState !== 'explosion'),
+					tumbleReel.filter((tumbleSymbol) => tumbleSymbol.symbolState !== 'tumbleExplosion'),
 				);
 				return;
 			}
 			const tumbleReel = stateTumble.base[reelIndex];
 			if (!tumbleReel) return;
 			stateTumble.base[reelIndex] = tumbleReel.filter(
-				(tumbleSymbol) => tumbleSymbol.symbolState !== 'explosion',
+				(tumbleSymbol) => tumbleSymbol.symbolState !== 'tumbleExplosion',
 			);
 		},
 		/**

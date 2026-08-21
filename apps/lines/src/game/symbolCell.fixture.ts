@@ -62,6 +62,32 @@ check('bookIntro inherits win', resolveSymbolState(book, 'bookIntro'), 'win');
 check('bookIdle inherits win', resolveSymbolState(book, 'bookIdle'), 'win');
 check('stacked inherits static', resolveSymbolState(book, 'stacked'), 'static');
 
+console.log('\nthe cascade explosion inherits the on-reel one');
+const oneExplosion: StateMapLike = { static: sprite('s'), explosion: spine('boom') };
+check(
+	'an UNBOUND tumble explosion plays the normal explosion — the pre-split behaviour, kept',
+	resolveSymbolState(oneExplosion, 'tumbleExplosion'),
+	'explosion',
+);
+check(
+	'...and a bound one wins, which is the whole point of the second binding',
+	resolveSymbolState(
+		{ ...oneExplosion, tumbleExplosion: spine('cascade_boom') },
+		'tumbleExplosion',
+	),
+	'tumbleExplosion',
+);
+check(
+	'the on-reel explosion is NEVER redirected to the cascade one',
+	resolveSymbolState({ static: sprite('s'), tumbleExplosion: spine('cascade_boom') }, 'explosion'),
+	'static',
+);
+check(
+	'neither explosion bound ⇒ static, not a crash mid-tumble',
+	resolveSymbolState(M, 'tumbleExplosion'),
+	'static',
+);
+
 console.log('\nwhen there is genuinely nothing to draw');
 check('no map at all ⇒ null', resolveSymbolState(undefined, 'static'), null);
 check('an empty map ⇒ null', resolveSymbolState({}, 'explosion'), null);

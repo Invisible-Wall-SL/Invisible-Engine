@@ -1,5 +1,5 @@
 import { error, redirect } from '@sveltejs/kit';
-import { symbolsInPlay } from 'game-config';
+import { resolveCascade, symbolsInPlay } from 'game-config';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listClips } from '$lib/server/flipbookStorage';
@@ -110,6 +110,12 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// The grid gates the two book-only state columns (`bookIntro`/`bookIdle`) on
 		// this — they show only for a book game (`gameType === 'bookOf'`).
 		gameType,
+		// Does this project tumble? Gates the `Tumble explosion` column, which only means anything to
+		// a cascading game. Resolved (not the raw stored field) so the answer matches the one the game
+		// itself acts on: absent ⇒ the win model's default, so a cluster/scatter project gets the
+		// column without authoring anything and a lines project that switched the cascade ON in
+		// /config gets it too.
+		cascade: resolveCascade(configDoc ?? undefined),
 		doc,
 		defaults,
 		inPlaySymbols,

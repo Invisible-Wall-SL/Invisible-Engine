@@ -499,8 +499,8 @@ const visibleColumnPositions = (reelIndex: number, strip: readonly unknown[]) =>
 		.filter(({ row }) => row > 0 && row < strip.length - 1);
 
 /**
- * CLEAR the outgoing symbols — they play their authored `explosion` state and leave, instead of
- * simply being replaced (`/config` → Reel behaviour → "Clear the board before the new symbols fall
+ * CLEAR the outgoing symbols — they play their authored `tumbleExplosion` state and leave,
+ * instead of simply being replaced (`/config` → Reel behaviour → "Clear the board before the new symbols fall
  * in").
  *
  * `reelIndex` is what makes this serve BOTH styles from one implementation:
@@ -513,8 +513,8 @@ const visibleColumnPositions = (reelIndex: number, strip: readonly unknown[]) =>
  *
  * THE REMOVAL IS SCOPED TO THE COLUMN, and that is correctness rather than symmetry: a cascade runs
  * its columns concurrently on an absolute stagger, so column `i + 1` can be mid-explosion while
- * column `i` reaches its removal. An unscoped filter takes every symbol currently in the `explosion`
- * state — the neighbour's included, mid-animation.
+ * column `i` reaches its removal. An unscoped filter takes every symbol currently in the
+ * `tumbleExplosion` state — the neighbour's included, mid-animation.
  *
  * NO NEW CUES. It is `tumbleBoardInit` (the resting board as the survivor layer, nothing queued
  * above it) → `tumbleBoardExplode` → `tumbleBoardRemoveExploded`: precisely the two steps a swap

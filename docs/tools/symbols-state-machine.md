@@ -9,7 +9,8 @@ standard deploy chain.
 
 A grid editor for a game's `symbol × state → asset` map. Every game hardcodes a
 `SYMBOL_INFO_MAP` — a binding for each symbol (e.g. `H1…H5`, `L1…L5`, `W`, `S`) in each
-of six animation **states** (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`).
+of six animation **states** (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`) —
+plus `Tumble explosion` on a cascading game.
 This tool turns that map into an editable surface: each cell is a **sprite** (a sheet
 frame), a **spine** (a bundle + animation name), or a **flipbook** (an Invisible Flipbook
 clip — an ordered, timed run of atlas frames). Edits are stored as a **sparse override
@@ -51,7 +52,8 @@ tool top bar). Switch projects from the launcher before opening the tool.
 
 1. **Read the grid.** Rows are the game's symbols; the six columns are the states
    (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`). Book games add two more
-   (`Book intro`, `Book idle`). Stacked-picture tall art is **not** a grid column — it is
+   (`Book intro`, `Book idle`); a **cascading** game adds `Tumble explosion` (see
+   [Two explosions](#two-explosions) below). Stacked-picture tall art is **not** a grid column — it is
    authored in the **Stacked pictures** section (below). Each cell shows its
    **effective binding** — your override if you've made one, otherwise the game's coded
    default. Sprite cells render a frame thumbnail; spine cells render a live animation
@@ -450,11 +452,28 @@ bundles that matter here are:
 | `engine-symbol-s` | `scatter_static` `_spin` `_land` `_win` | the scatter, state for state |
 | `engine-symbol-w` | `wild_dynamite` `_static` `_land` `_exploded_static` | the wild |
 | `engine-explosion` | `explosion` | **Explosion**, on any symbol |
+| `engine-win-meter-explosion` | `explosion` | **Tumble explosion** — the engine's second, larger burst |
 
 `engine-explosion` exists because `Explosion` was the one state with nothing to bind. Only
 the cascade asks for it, so almost nobody authors it, and an unauthored state falls back to
 `static` — a symbol that sits still while the board tumbles it away. Bind this and a
 cascade reads correctly before you have commissioned an explosion of your own.
+
+### Two explosions
+
+A symbol can blow up for two different reasons, and they are **two separate columns**:
+
+- **`Explosion`** — the symbol is destroyed IN PLACE on a resting reel. The Book-of column
+  expand is the one that does this: the old symbol pops and the book takes its seat.
+- **`Tumble explosion`** — the **cascade** removes the symbol, on the tumble overlay,
+  with the board about to fall. Only a cascading game gets this column, so it appears when
+  `/config` → **Cascade** is on (it is on by default for a cluster / scatter win model).
+
+**Leaving a `Tumble explosion` cell empty is not a gap** — it falls through to that
+symbol's `Explosion` binding, which is exactly what the engine did before the two were
+split. Bind it only when the cascade should look different from the in-place pop; the
+engine ships two explosion skeletons for precisely that (`engine-explosion` is the tight
+symbol burst, `engine-win-meter-explosion` the larger one).
 
 It is a **Spine**, not a Flipbook clip, even though the animation is 13 frames: the frames
 are a Spine `sequence` attachment played on two slots, the second `additive`, and a clip's
