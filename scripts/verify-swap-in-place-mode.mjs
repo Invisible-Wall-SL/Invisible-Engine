@@ -618,6 +618,49 @@ return { handlers, tumbleBoardCombined };`,
 	check('keepBase false ⇒ an empty column stays empty, not missing', replaced[2].length, 0);
 }
 
+// ---------------------------------------------------------------------------
+// THE PRE-SPIN STANDS DOWN TOO — the roll the reveal cannot unwind.
+//
+// `presentReveal` skipping `enhancedBoard.spin` is NOT enough to stop a swap-in-place board
+// rolling, because it is not the only thing that starts a roll. `actor.ts`'s `onNewGameStart` fires
+// `enhancedBoard.preSpin` on the BUTTON PRESS, before the RGS has answered, so the reveal's branch
+// never unwinds it. Left in, the reels rolled from the press until the drop-in hid them — reported
+// from a live game as "the reels spin, then stop mid-spin and new symbols appear", together with
+// the board going FLAT for that whole roll (a rolling strip runs far past the visible rows, and the
+// seat's depth ramp clamps there, so every symbol draws at front-row size).
+//
+// Asserted at source level: a Node fixture cannot stand up the XState actor, but it can insist the
+// guard exists, sits BEFORE the call it guards, and does not swallow the rest of the handler.
+// ---------------------------------------------------------------------------
+{
+	const actor = read('apps/lines/src/game/actor.ts');
+	const guard = actor.indexOf('boardSwapsInPlace()');
+	const preSpin = actor.indexOf('enhancedBoard.preSpin(');
+	check('actor.ts guards the pre-spin on boardSwapsInPlace()', guard > -1, true);
+	check(
+		'...and the guard comes BEFORE the pre-spin it guards',
+		guard > -1 && guard < preSpin,
+		true,
+	);
+	check(
+		'...and it returns rather than falling through',
+		/if \(stateGameDerived\.boardSwapsInPlace\(\)\) return;/.test(actor),
+		true,
+	);
+	// The rest of `onNewGameStart` must NOT be skipped: clearing the previous round's presentation
+	// and zeroing the win amount are not the roll, and a swap-in-place board still needs both.
+	check(
+		'...and the win-presentation clear still runs before the guard',
+		actor.indexOf('clearWinPresentation()') < guard,
+		true,
+	);
+	check(
+		'...and winBookEventAmount is still zeroed before the guard',
+		actor.indexOf('winBookEventAmount = 0') < guard,
+		true,
+	);
+}
+
 console.log('');
 if (failures) {
 	console.log(`${failures} FAILED of ${checks} checks`);
