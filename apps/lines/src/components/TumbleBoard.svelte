@@ -112,6 +112,7 @@
 		resetTumbleBoard,
 		type TumbleSymbol,
 	} from '../game/stateTumble.svelte';
+	import { PAD_ROWS_ABOVE } from '../game/tumbleBoardLayout';
 
 	/**
 	 * The CASCADE board — mounted only while a tumble plays, then unmounted again.
@@ -148,8 +149,9 @@
 	 */
 	let reelBoardShown = $state(true);
 
-	/** Row index of the padding row above the visible board — where a falling symbol starts. */
-	const PADDING_ROW = -1;
+	/** Row index of the padding row above the visible board — where a falling symbol starts. Derived
+	 *  from `PAD_ROWS_ABOVE` so the seat offset and the layer stacking read the same fact. */
+	const PADDING_ROW = -PAD_ROWS_ABOVE;
 
 	/**
 	 * Longest a cascade beat waits on a symbol's `oncomplete` before moving on.
