@@ -19,10 +19,11 @@
 </script>
 
 <script lang="ts">
-	import { waitForResolve, waitForTimeout } from 'utils-shared/wait';
+	import { waitForTimeout } from 'utils-shared/wait';
 	import { BoardContext } from 'components-shared';
 
 	import { getContext } from '../game/context';
+	import { awaitSymbolBeat, WIN_BEAT_CAP_MS } from '../game/symbolBeat';
 	import { winLineColorForPositions } from '../game/winSymbolCycle';
 	import { stackedCoverage, winDimCellKey } from '../game/stateGame.svelte';
 	import { BoardContainer } from 'engine-game';
@@ -62,6 +63,17 @@
 			// on it forever. The stacked-picture mode's win beat is the tall picture itself, not a per-icon
 			// win spine, so a covered cell holds a fixed beat instead of awaiting an animation that can't
 			// complete. Off / non-stacked games have an empty coverage set ⇒ every cell awaits as before.
+			//
+			// Stacked coverage is only the case we can name UP FRONT, though. Every OTHER cell awaits an
+			// `oncomplete` that a symbol only reports when its `win` state actually plays something, and
+			// several ordinary authorings never do (no art bound for `win`, a seat out of frame, a spine
+			// whose bound animation isn't in the skeleton or loops) — see `awaitSymbolBeat`. Unbounded, one
+			// such cell hangs `Promise.all`, and with it `winInfo` and the whole round: the spin button
+			// stays disabled and the game reads as frozen until the player slams. So the wait is RACED
+			// against `WIN_BEAT_CAP_MS` — a runaway guard sized well above any authored win
+			// animation, so authored art still sets the pace and only a cell that can never report pays
+			// it. The `postWinStatic` revert below runs on BOTH paths, which is what makes this the fix
+			// rather than a mitigation: the cap ends the lit state too, so nothing is left glowing.
 			const covered = stackedCoverage();
 			const getPromises = () =>
 				symbolPositions.map(async (position) => {
@@ -71,7 +83,7 @@
 					if (covered.has(winDimCellKey(position.reel, position.row))) {
 						await waitForTimeout(STACKED_WIN_HOLD_MS);
 					} else {
-						await waitForResolve((resolve) => (reelSymbol.oncomplete = resolve));
+						await awaitSymbolBeat((resolve) => (reelSymbol.oncomplete = resolve), WIN_BEAT_CAP_MS);
 					}
 					reelSymbol.symbolState = 'postWinStatic';
 					reelSymbol.winLineColor = undefined;

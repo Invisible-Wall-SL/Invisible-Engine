@@ -97,7 +97,6 @@
 	import { backOut, cubicIn } from 'svelte/easing';
 
 	import { BoardContext } from 'components-shared';
-	import { waitForResolve, waitForTimeout } from 'utils-shared/wait';
 
 	import { BoardContainer } from 'engine-game';
 
@@ -105,6 +104,7 @@
 	import BoardTiles from './BoardTiles.svelte';
 	import BoardMask from './BoardMask.svelte';
 	import { getContext } from '../game/context';
+	import { awaitSymbolBeat, TRANSIT_BEAT_CAP_MS } from '../game/symbolBeat';
 	import { getSymbolSeat, stateGameDerived } from '../game/stateGame.svelte';
 	import {
 		stateTumble,
@@ -154,28 +154,15 @@
 	const PADDING_ROW = -PAD_ROWS_ABOVE;
 
 	/**
-	 * Longest a cascade beat waits on a symbol's `oncomplete` before moving on.
+	 * Await a symbol's completion, but never longer than {@link TRANSIT_BEAT_CAP_MS}.
 	 *
-	 * A symbol only reports completion when its state actually ANIMATES. `SymbolSprite` fires
-	 * `oncomplete` from an `$effect` gated on `symbolInfo` CHANGING, so a symbol whose `explosion`
-	 * (or `land`) state resolves to the same art it is already showing — the normal case for a
-	 * project that has authored neither — never reports at all. Awaiting that unconditionally
-	 * deadlocks the beat, and with it the round: the book event never finishes, so the spin button
-	 * stays disabled and the game looks frozen.
-	 *
-	 * Observed on `test4` exactly that way — the cascade played, then the game would not accept
-	 * another spin, intermittently, because whether it hung depended on WHICH symbol exploded.
-	 *
-	 * So every wait is RACED against this cap: an authored animation still drives the timing (it
-	 * resolves first), and an unauthored one costs a bounded beat instead of hanging forever. Same
-	 * reasoning as `Board.svelte`'s `STACKED_WIN_HOLD_MS`, which exists because a covered cell mounts
-	 * no `<Symbol>` at all — a different cause, the identical failure.
+	 * Both the cap and the race live in `game/symbolBeat.ts` now — the win beat (`Board.svelte`) and
+	 * the multiplier collect (`MultiplierBoard.svelte`) need exactly the same guard for exactly the
+	 * same reason, and the win beat shipped for months without one. See that module for WHY a symbol
+	 * can fail to report at all, and what a cap being a runaway guard rather than a pace costs.
 	 */
-	const CASCADE_BEAT_CAP_MS = 650;
-
-	/** Await a symbol's completion, but never longer than {@link CASCADE_BEAT_CAP_MS}. */
 	const awaitBeat = (arm: (resolve: () => void) => void) =>
-		Promise.race([waitForResolve(arm), waitForTimeout(CASCADE_BEAT_CAP_MS)]);
+		awaitSymbolBeat(arm, TRANSIT_BEAT_CAP_MS);
 
 	const createTumbleSymbol = ({
 		initY,
