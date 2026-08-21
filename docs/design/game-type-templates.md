@@ -46,7 +46,7 @@ and the `lines` mechanic.
 
 Two constraints shape every phase below and are worth stating once:
 
-1. **A package must never import from an app.** Every seam is therefore an *inversion*: the app
+1. **A package must never import from an app.** Every seam is therefore an _inversion_: the app
    stays the composition root and hands the engine what it needs, or hands it a type through
    declaration merging. There is no direction in which `engine-game` can reach back.
 2. **Parity is the gate.** None of this is a feature; it is a rearrangement of code that a live
@@ -115,7 +115,7 @@ it are bound to the app and cannot be generalised away:
 - `stateGame` / `i18nDerived` are the app's own.
 
 So the context is **inverted** rather than relocated: `createGameContext()` in the package owns the
-*wiring* — which Svelte context keys get set, and the exact shape and precedence of what
+_wiring_ — which Svelte context keys get set, and the exact shape and precedence of what
 `getContext()` returns — while `apps/lines/src/game/context.ts` becomes a thin composition root that
 builds the instances and passes them in. The factory is fully generic in the app's own types, so
 nothing is widened or erased; the returned context is inferred.
@@ -196,7 +196,7 @@ need nothing — they are deliberately decoupled bridges to the Play4Fun facade.
 
 ## Phase B — the mechanic contract
 
-Once Phase A has lifted the shared layer, what remains in an app *is* the mechanic. Phase B is the
+Once Phase A has lifted the shared layer, what remains in an app _is_ the mechanic. Phase B is the
 definition of the seam between the two: the named set of things a game type must supply to the
 engine, and the named set the engine gives back.
 
@@ -207,7 +207,7 @@ The contract has two halves.
   itself. This half is what Phase A2 pulled forward, because the context could not be relocated
   without it.
 - **Book events and presentation** — which book events a type receives, and what handling each one
-  means. This half is what decides whether a candidate type is a *template* at all: `lines`,
+  means. This half is what decides whether a candidate type is a _template_ at all: `lines`,
   `bookOf` and `ways` share one book-event union (a ways `BookEvent` union is a strict subset of
   lines', and its `winInfo` is identical field-for-field), which is why `ways` adds no mechanic. A
   type that introduces new board events is a new mechanic, not a template — see
@@ -230,24 +230,24 @@ runtime and the validator can both act on it.
 `GameConfigDoc` gains a **`winModel`** discriminated union (`packages/game-config/src/types.ts`,
 `winModel.ts`):
 
-| arm | fields | meaning |
-|---|---|---|
-| `lines` | *(none)* | pays along declared paylines — the default |
-| `ways` | `direction` (`ltr` \| `both`), `minKind` | pays on adjacent-reel participation |
-| `cluster` | `minCluster`, `adjacency` (`orthogonal` \| `diagonal`) | pays on connected groups |
-| `scatter` | `minCount` | pays on total count anywhere on the board |
+| arm       | fields                                                 | meaning                                    |
+| --------- | ------------------------------------------------------ | ------------------------------------------ |
+| `lines`   | _(none)_                                               | pays along declared paylines — the default |
+| `ways`    | `direction` (`ltr` \| `both`), `minKind`               | pays on adjacent-reel participation        |
+| `cluster` | `minCluster`, `adjacency` (`orthogonal` \| `diagonal`) | pays on connected groups                   |
+| `scatter` | `minCount`                                             | pays on total count anywhere on the board  |
 
 The decisions, and why they are what they are:
 
 - **The `lines` arm carries no payline data.** The plan's first sketch had it own `paylines`. It does
   not, because `paylines`/`paylineColors` already live at the top level of the doc and moving them
   would have meant a real migration of every authored doc in R2 for no functional gain.
-- **`lines` is the default and is never stored.** The normalizer *drops* it. The invariant is "store
+- **`lines` is the default and is never stored.** The normalizer _drops_ it. The invariant is "store
   only what departs from the default", and the payoff is that every config authored before this
   field existed normalizes **byte-identically** — not one stored doc is rewritten.
 - **Read it through `resolveWinModel()`, never `doc.winModel`.** "Absent means lines" is a rule that
   gets re-implemented, and eventually mis-implemented, at every site that reads the raw field.
-- **Validation follows the model.** A non-lines doc *skips* the payline checks — that table is inert,
+- **Validation follows the model.** A non-lines doc _skips_ the payline checks — that table is inert,
   not wrong, for a game that never reads it — and gets its own bounds checks instead (more adjacent
   reels than the grid is wide; a cluster bigger than the board). The generic symbol checks still run
   for every model.
@@ -255,7 +255,7 @@ The decisions, and why they are what they are:
   because the two are the same fact: a cluster game whose smallest paying row is 5 has
   `minCluster: 5` by definition. Hardcoding lets the declared model drift from the payouts it
   describes.
-- **The `/config` picker must mirror the normalizer.** Choosing Lines *deletes* the field rather than
+- **The `/config` picker must mirror the normalizer.** Choosing Lines _deletes_ the field rather than
   writing `{type:'lines'}`; each other arm is seeded with exactly the defaults the normalizer would
   fill in. Otherwise the doc looks dirty, saves, and comes back changed.
 
@@ -271,7 +271,7 @@ the runtime's single read of the model, and every adaptation below keys off it i
 - `paylineColor()` returns `undefined` — gated inside the resolver rather than at its two call sites,
   so the rule has one home. A non-lines win's `meta.lineIndex` is not a payline id, and the ordinal
   mapping would otherwise colour a win from an unrelated line's swatch.
-- **Anticipation stands down.** Reachability is computed *per payline* — "could this reel still
+- **Anticipation stands down.** Reachability is computed _per payline_ — "could this reel still
   complete a paying run on some line". A ways board's remaining potential is a product of per-reel
   counts, not a walk along fixed rows: a genuinely different calculation, and feeding line maths a
   model it does not fit is how a tease goes quietly wrong. The guard is explicit rather than
@@ -293,11 +293,11 @@ repointing it safe.
 **The win line's shape comes from the model, not from counting reels.** `winLineShapeFor()` picks one
 of three shapes, because a duplicate reel means something different in each model:
 
-| model | shape | drawn as |
-|---|---|---|
-| `lines` | duplicate-reel heuristic → `path` or `cells` | the connected polyline; `cells` only for an expanding special that fills whole reels |
-| `ways` | `reels` | one merged bar per winning reel, spanning that reel's winning cells |
-| `cluster` / `scatter` | `cells` | a bar per paying cell — now stated rather than inferred |
+| model                 | shape                                        | drawn as                                                                             |
+| --------------------- | -------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `lines`               | duplicate-reel heuristic → `path` or `cells` | the connected polyline; `cells` only for an expanding special that fills whole reels |
+| `ways`                | `reels`                                      | one merged bar per winning reel, spanning that reel's winning cells                  |
+| `cluster` / `scatter` | `cells`                                      | a bar per paying cell — now stated rather than inferred                              |
 
 A ways win pays by whole-reel participation, so the reel is the readable unit; cells on one reel join
 into a single bar even when they are not adjacent. The duplicate-reel heuristic survives only inside
@@ -322,7 +322,7 @@ only for a type that needs bespoke COMPILED code the shared bundle cannot carry.
 
 **What Phase D still owes:** the engine READS the model but does not yet **evaluate** a non-lines win
 — it presents whatever the RGS reports. A project can therefore declare itself ways, validate as ways
-and be dealt ways wins by the mock, and still be *played* as lines by the client. The config resolver
+and be dealt ways wins by the mock, and still be _played_ as lines by the client. The config resolver
 says exactly that at boot rather than letting the symptom (line wins on a ways config) look like a
 math bug. Closing this is the phase's real gate, together with a ways project actually published and
 played end-to-end.
@@ -425,6 +425,11 @@ resized its grid.
    respect: it ships a committed config default (`gameConfig/scatter.json`), where cluster's upstream
    strips are empty placeholders.
 
+   **The collect beat has a wire as of 2026-08-21** (`multiplierCollect` → `boardMultiplierInfo`),
+   on the same terms as `tumbleStep`: ours, fixture-only, labelled at both ends, to be REPLACED by
+   a real provider's shape rather than bent to fit. Scatter is therefore exercisable end to end —
+   tumble AND collect — while the capture blocker is unchanged.
+
 ## Scoped out — the 2026-08-19 decision (superseded for `cluster` by Phase F)
 
 **Owner decision, 2026-08-19.** Neither template will be built, and the reason is structural rather
@@ -465,6 +470,7 @@ The honest list of what this plan has not delivered, in the order it matters:
    Worth knowing: the client still never DETERMINES wins. It receives `winInfo` with positions from
    the RGS. The only place it evaluates a board is anticipation, which is why that was the whole of
    the work here.
+
 3. **The remaining Phase A slices** — `utils` and `symbolMap`, which need `editor-scenes` and
    `assets` seams of their own, and the components gated behind them.
 4. **A real math export for `apps/ways`.** Its strips are cosmetic and evenly weighted. Legitimate for
@@ -474,7 +480,7 @@ The honest list of what this plan has not delivered, in the order it matters:
    The export itself has to come from a math engine; authoring frequencies in a client repo would be
    fabricating game math, which is exactly what `apps/ways/src/game/config.ts` says it is refusing to
    do. What DOES exist now is the check that receives one: `pnpm --filter game-config-spike run
-   waysmath` deals boards off any doc's strips, scores them with the engine's ways rule and reports
+waysmath` deals boards off any doc's strips, scores them with the engine's ways rule and reports
    RTP, hit rate, scatter-trigger rate and per-symbol contribution — so an arriving export can be
    held against what the provider claims, instead of being trusted. Run against the current
    placeholder it reports the state plainly: **0.13% RTP against a declared 0.97**, a scatter trigger

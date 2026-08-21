@@ -191,6 +191,11 @@ export interface TestServerGameEntry {
 		/** The project's own count-keyed paytable in SERVER symbols (`scatter` only) — its pricing is
 		 *  by count, which the mock's run-length table cannot express. See `projectSymbolPaytable`. */
 		symbolPaytable?: Record<string, Record<string, number>>;
+		/** `true` when the project declares a multiplier symbol IN PLAY (`special_properties`
+		 *  contains `multiplier`, and it appears on a strip). A cascading scatter game then lands
+		 *  multiplier cells during a tumble and collects them into a board multiplier. Absent ⇒ the
+		 *  mock deals none, so a project with no multiplier art never has blank cells dealt at it. */
+		multiplier?: boolean;
 	};
 }
 

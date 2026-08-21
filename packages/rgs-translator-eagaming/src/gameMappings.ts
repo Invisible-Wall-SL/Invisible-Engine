@@ -55,6 +55,11 @@ export const linesMapping: GameMapping = {
 		// WILD → W: only the stacked-picture test deal (mock `STACKED=1`) emits WILD, so the engine's
 		// stacked-picture mode has a full-height Wild to render. Harmless otherwise (never dealt).
 		WILD: 'W',
+		// MULT → M: the multiplier-collect fixture (a scatter game whose project declares a
+		// multiplier symbol) deals `MULT:<value>` cells during a cascade. `M` is the name the
+		// reference scatter game and the committed `scatter.json` template both use, so a project
+		// seeded from that template already has art for it. Never dealt for any other game.
+		MULT: 'M',
 		SCAT: 'S',
 	},
 	scatter: 'S',

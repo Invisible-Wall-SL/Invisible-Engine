@@ -152,6 +152,24 @@ function projectWild(doc: GameConfigDoc): { paytable: Record<string, number> } |
  * intentionally excluded: the existing `wild` field already governs whether the mock deals a wild.
  * An empty pool (misconfig) ⇒ `undefined` ⇒ the mock keeps its full default (never deals a blank board).
  */
+/**
+ * Does this project declare a MULTIPLIER symbol that can actually land?
+ *
+ * Gated on `symbolsInPlay` for the same reason `projectWild` is: a symbol that merely sits in
+ * the dictionary but appears on no strip can never be dealt, and telling the mock to deal one
+ * would put a cell on the board that the project has no art for.
+ *
+ * Deliberately does NOT name the symbol. The mock deals its own `MULT` cells and the facade
+ * maps them; what the project contributes is the ANSWER to "is this a multiplier game", which
+ * is a property of the config rather than of any particular symbol id.
+ */
+function projectMultiplier(doc: GameConfigDoc): boolean {
+	const inPlay = new Set(symbolsInPlay(doc));
+	return Object.entries(doc.symbols).some(
+		([name, sym]) => inPlay.has(name) && sym.special_properties?.includes('multiplier'),
+	);
+}
+
 function projectLineSymbols(doc: GameConfigDoc): string[] | undefined {
 	const inPlay = new Set(symbolsInPlay(doc));
 	const serverPool = Object.keys(linesMapping.symbols).filter((server) => server !== 'WILD');
@@ -247,6 +265,9 @@ async function projectGrid(
 		// The cluster shape the mock evaluates against, straight from the project's declared win
 		// model — so the mock pays the geometry `/config` says it pays, not a hardcoded guess.
 		const model = resolveWinModel(doc);
+		// Scatter is the only model that collects multipliers today, so the flag rides only for it —
+		// a lines game declaring a multiplier symbol should not start dealing them.
+		const multiplier = model.type === 'scatter' && projectMultiplier(doc);
 		const cluster =
 			model.type === 'cluster'
 				? { minCluster: model.minCluster, adjacency: model.adjacency }
@@ -264,6 +285,7 @@ async function projectGrid(
 			...(wild ? { wild } : {}),
 			...(stacked ? { stacked: true } : {}),
 			...(symbols ? { symbols } : {}),
+			...(multiplier ? { multiplier: true } : {}),
 			...(cluster ?? {}),
 			...(scatter ?? {}),
 		};
