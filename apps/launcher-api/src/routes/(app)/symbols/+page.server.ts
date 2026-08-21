@@ -42,23 +42,25 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		sessionToken: cookies.get(SESSION_COOKIE),
 		user: locals.user,
 	});
-	const [loaded, assets, gameType, published, configDoc, fonts, clips, effects] = await Promise.all([
-		loadSymbolsDocWithEtag(clientKey, projectKey),
-		listProjectAssets(clientKey, projectKey),
-		projectGameType(projectKey),
-		loadPublishedSymbolDefaults(clientKey, projectKey),
-		// The LIVE game config — its in-play strips are unioned into the grid below so a symbol just
-		// put in play in Invisible Game Config shows here on reload (the published defaults are baked).
-		loadGameConfigDoc(clientKey, projectKey),
-		resolveEditorFonts(clientKey, projectKey),
-		// Invisible Flipbook clips — the third binding kind a cell can take, alongside a
-		// sprite frame and a spine animation. Rows only (id/name/frame count/primary sheet/
-		// first frame); the clip's full ordered frame list is the /flipbook tool's business.
-		listClips(clientKey, projectKey),
-		// Invisible FX effects (id + name) — the fourth kind a Book-symbol VFX layer can take.
-		// Same list the editor's effect-node picker uses (`/api/editor/effects`).
-		listEffects(clientKey, projectKey),
-	]);
+	const [loaded, assets, gameType, published, configDoc, fonts, clips, effects] = await Promise.all(
+		[
+			loadSymbolsDocWithEtag(clientKey, projectKey),
+			listProjectAssets(clientKey, projectKey),
+			projectGameType(projectKey),
+			loadPublishedSymbolDefaults(clientKey, projectKey),
+			// The LIVE game config — its in-play strips are unioned into the grid below so a symbol just
+			// put in play in Invisible Game Config shows here on reload (the published defaults are baked).
+			loadGameConfigDoc(clientKey, projectKey),
+			resolveEditorFonts(clientKey, projectKey),
+			// Invisible Flipbook clips — the third binding kind a cell can take, alongside a
+			// sprite frame and a spine animation. Rows only (id/name/frame count/primary sheet/
+			// first frame); the clip's full ordered frame list is the /flipbook tool's business.
+			listClips(clientKey, projectKey),
+			// Invisible FX effects (id + name) — the fourth kind a Book-symbol VFX layer can take.
+			// Same list the editor's effect-node picker uses (`/api/editor/effects`).
+			listEffects(clientKey, projectKey),
+		],
+	);
 	// Win-amount text is bitmap text, so the font dropdown lists the project's BITMAP
 	// fonts (Font Maker output). The four engine builtins (gold/goldblur/silver/purple)
 	// are hardcoded in each game's Game.svelte rather than in the R2 catalog, so the page
@@ -84,6 +86,13 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		if (!mergedSymbols[name]) mergedSymbols[name] = {} as (typeof mergedSymbols)[string];
 	}
 	const defaults = { ...baseDefaults, symbols: mergedSymbols };
+	// Which of those symbols this project actually DEALS. The union above is one-way on purpose,
+	// so a grid keeps every symbol the template baked in — including ones the project has since
+	// configured away. Left unlabelled that reads as a disagreement between /config and this page
+	// (the reported "there is an L5 here that is nowhere in my config"). The grid badges them
+	// instead of dropping them: additive stays additive, and provenance stops being invisible.
+	// `null` when there is no config doc to compare against — unknown, so nothing is badged.
+	const inPlaySymbols = configDoc ? inPlayNames : null;
 	// The project's config-authored BIG-win tiers drive the reel-anticipation panel: ONE FX column per
 	// big tier, keyed by its alias — mirroring the same tiers the game arms (`activeBigTiers`), so the
 	// panel grows/shrinks with `/config` rather than a fixed big/mega/massive triple. Resolved after
@@ -103,6 +112,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		gameType,
 		doc,
 		defaults,
+		inPlaySymbols,
 		assets,
 		fonts: bitmapFonts,
 		clips,
