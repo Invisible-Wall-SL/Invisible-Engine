@@ -510,6 +510,107 @@ console.log(
 	`\n${checks} assertions across ${GRIDS.length} grids x ${DIMS.length} board sizes x ` +
 		`${FLAT_PERSPECTIVES.length} flat variants + ${FAR_SCALES.length} perspectives`,
 );
+// ---------------------------------------------------------------------------
+// THE BOARD MUST FIT INSIDE ITS OWN MASK.
+//
+// `BoardMask` is sized from `boardWindowHeight()`, which is built from the SEATS. So every visible
+// row's cell has to sit inside it — otherwise the bottom row is clipped, which is exactly what was
+// reported from a live 8x8 board at `farScale` 0.9: "the board gets cut at the bottom".
+//
+// The cause was not the mask. It was that `ReelSymbol` drew a resting symbol at the REEL's y rather
+// than the seat's, and `createReelForSpinning` steps by a UNIFORM pitch — the flat lattice — while
+// the seat's y is a running sum of pitches that SHRINK with depth. The two agree on a flat board by
+// construction and diverge under perspective, accumulating downward: on that board the last row
+// landed 48 board-local units below its seat, past a mask sized to the seats.
+//
+// So this asserts the invariant the mask depends on (every row fits), and separately asserts that
+// the reel's own uniform-pitch expression DIVERGES from the seat under perspective — because that
+// divergence is the reason `ReelSymbol` has to branch, and a future change that quietly made them
+// agree again would make the branch dead code rather than wrong code.
+// ---------------------------------------------------------------------------
+for (const [gridLabel, grid] of GRIDS) {
+	for (const [reels, rows] of DIMS) {
+		for (const farScale of [undefined, ...FAR_SCALES]) {
+			const perspective = farScale === undefined ? undefined : { farScale };
+			const g = gettersFor(grid, { reels, rows }, perspective);
+			const geometry = g.boardGeometry();
+			const label = `${gridLabel} | ${farScale === undefined ? 'flat' : `farScale ${farScale}`} | ${reels}x${rows}`;
+			const windowHeight = g.boardWindowHeight();
+
+			// ONLY for CENTRED seating. The containment is `pitch * (1 - lead) - 0.5 * cellHeight`, and
+			// `lead` folds `rowPadding` and `symbolAlignY` — so a board that deliberately seats its art
+			// LOW in the cell (`symbolAlignY` → 1, the "feet on the tile" convention this design
+			// recommends for perspective) pushes the bottom row's art past the window on purpose. That
+			// is pre-existing and true on a FLAT board too — asserting it here as a universal invariant
+			// was tried first and it failed the flat `symbolAlignY != 0.5` grids, which are correct
+			// code. The mask is a WINDOW; art seated below its cell leaves it. Recorded as its own
+			// assertion below rather than smoothed over, because it is a real trap for that convention.
+			const centred = geometry.rowLead === 0.5 && geometry.symbolAlignY === 0.5;
+			for (let row = 0; row < rows && centred; row += 1) {
+				const seat = g.getSymbolSeat(0, row);
+				const halfCell = 0.5 * geometry.cellHeightLocal * seat.scale;
+				// `<=` with a hair of slack for float association: the LAST row is flush with the
+				// window bottom by construction, so an exact `<` would be wrong, not stricter.
+				const fits = seat.y + halfCell <= windowHeight + 1e-9;
+				same(`${label} | row ${row} :: the cell sits inside the mask window`, fits, true);
+			}
+			// Off-centre seating is deliberately NOT asserted either way. It moves the art within its
+			// cell by design, so whether the bottom row overflows the window or falls short of it
+			// depends on WHICH way the author moved it — there is no invariant to pin, only the
+			// consequence to know about. (Asserting "it overflows" was tried too, and fails the grids
+			// that seat art HIGH.)
+
+			// The reel's own resting expression, verbatim from `createReelForSpinning`:
+			// `reelY.current + (symbolIndex + getSymbolLead()) * getSymbolHeight()` with the reel homed
+			// at `-getSymbolHeight()`, i.e. strip index `i` rests at `pitch * (i - 1 + lead)`.
+			const reelRestY = (row) => geometry.rowPitchLocal * (row + g.getSymbolLead());
+			const lastRow = rows - 1;
+			const seatY = g.getSymbolSeat(0, lastRow).y;
+			if (farScale === undefined) {
+				same(`${label} :: flat — the reel and the seat agree exactly`, reelRestY(lastRow), seatY);
+			} else {
+				same(
+					`${label} :: perspective — the reel's uniform pitch DIVERGES from the seat`,
+					reelRestY(lastRow) > seatY,
+					true,
+				);
+			}
+		}
+	}
+}
+
+const readSrc = (rel) => readFileSync(join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
+// ---------------------------------------------------------------------------
+// AND `ReelSymbol` MUST TAKE THE RESTING y FROM THE SEAT.
+//
+// The containment above is a property of the SEATS. It only reaches the screen if the component
+// that draws a resting symbol actually uses them. It did not: `y` came from the reel's live
+// `symbolY()`, which steps by a uniform pitch, so under perspective the board hung below a mask
+// sized to the seats and the bottom row was clipped.
+//
+// A Node fixture cannot mount the component, so this is asserted on its source — the same standing
+// as the pre-spin guard in `verify-swap-in-place-mode.mjs`.
+// ---------------------------------------------------------------------------
+{
+	const reelSymbol = readSrc('apps/lines/src/components/ReelSymbol.svelte');
+	same(
+		'ReelSymbol branches its y on an authored perspective',
+		/boardPerspective\(\)\s*&&\s*!spinning\s*\?\s*seat\.y/.test(reelSymbol),
+		true,
+	);
+	same(
+		'...and falls back to the live reel y otherwise (flat parity, and mid-roll)',
+		/:\s*props\.reelSymbol\.symbolY\(\)/.test(reelSymbol),
+		true,
+	);
+	same(
+		'...and reads the reel MOTION rather than guessing at rest',
+		/reelState\.motion === 'spinning'/.test(reelSymbol),
+		true,
+	);
+	same('...and binds that y, not the raw live one', /\n\t\t\{y\}\n/.test(reelSymbol), true);
+}
+
 if (failures) {
 	console.log(`${failures} FAILED — the seat contract is broken.`);
 	process.exit(1);
