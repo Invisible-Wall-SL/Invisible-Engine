@@ -15,22 +15,15 @@
  * "Publish" is a DATA + MANIFEST operation: re-running it re-exports + re-registers,
  * never rebuilds. The generic runtime boots the project from the live fetch.
  */
-import { resolveWinModel, symbolsInPlay, type GameConfigDoc, type PaytableRow } from 'game-config';
-import { linesMapping, mapSymbol } from 'rgs-translator-eagaming/game-mappings';
 import { ENV } from './env';
 import { createGame, gameExists, renameGame, setGameProject, setGameUrl } from './games';
+import { resolveMockContract } from './mockContract';
 import { UNASSIGNED_CLIENT } from './projectPaths';
 import { getOrMintReadToken, projectClientKey, projectGameType, projectName } from './projects';
 import { listAllObjects } from './r2';
 import { ensureDeployExports } from './runtimeBundle';
 import { invalidateRuntimeBundle } from './runtimeBundleCache';
-import { loadGameConfigDoc } from './gameConfigStorage';
-import { loadSymbolsDoc } from './symbolsStorage';
-import {
-	upsertTestServerGame,
-	type MockProtocol,
-	type TestServerGameEntry,
-} from './testServerManifest';
+import { upsertTestServerGame } from './testServerManifest';
 
 export interface PublishResult {
 	/** The game key (== the project key). */
@@ -65,24 +58,6 @@ async function hasOwnBuiltBundle(key: string): Promise<boolean> {
 }
 
 /**
- * Map an authored game kind to its mock RGS protocol. Book-of games use the `book` mock
- * (buy-feature + free spins); `ways` uses the lines mock with its ways win evaluator (Phase D of
- * `docs/design/game-type-templates.md`); everything else uses the plain `lines` mock.
- */
-function protocolFor(gameType: string): MockProtocol {
-	if (gameType === 'bookOf') return 'book';
-	if (gameType === 'ways') return 'ways';
-	// `cluster` reuses the lines mock too, swapping only how wins are DECIDED (a flood fill instead of
-	// a payline walk). It is TEST infrastructure — the mock's paytable is keyed by payline run lengths,
-	// so a cluster's payout is approximated; see `evaluateClusters`.
-	if (gameType === 'cluster') return 'cluster';
-	// `scatter` likewise — a count-anywhere evaluator, and the only one that also ships the project's
-	// own paytable because its pricing is by count, not by run length. See `projectSymbolPaytable`.
-	if (gameType === 'scatter') return 'scatter';
-	return 'lines';
-}
-
-/**
  * The prebuilt runtime bundle id a game is served from (`test_server/_runtime/<runtime>/`).
  *
  * EVERY game type shares ONE bundle, and that is a decision, not a gap — it replaces the old
@@ -110,239 +85,6 @@ function runtimeFor(_gameType: string): string {
 	return 'lines';
 }
 
-/** Flatten a symbol's `[{ '5': 20 }, { '3': 5 }]` paytable rows to an `{ occurs: multiplier }` map. */
-function paytableToOccursMap(rows: PaytableRow[]): Record<string, number> {
-	const map: Record<string, number> = {};
-	for (const row of rows) {
-		for (const [occurs, mult] of Object.entries(row)) {
-			if (typeof mult === 'number' && Number.isFinite(mult)) map[occurs] = mult;
-		}
-	}
-	return map;
-}
-
-/**
- * The project's IN-PLAY wild, in the shape the mock wants (`{ paytable: occurs→multiplier }`), or
- * `undefined`. Keyed off the SAME in-play gate as the paytable, roll and `/symbols`: a symbol counts
- * only once it's ON THE STRIPS (`symbolsInPlay`) — a wild that merely sits in the dictionary with a
- * paytable but is never dealt stays wild-less, which is why an authored-but-unused `W` doesn't pay.
- * The lines facade maps the mock's `WILD` to the game symbol `W`, so the in-play wild is expected to
- * be `W`.
- */
-function projectWild(doc: GameConfigDoc): { paytable: Record<string, number> } | undefined {
-	const inPlay = new Set(symbolsInPlay(doc));
-	const entry = Object.entries(doc.symbols).find(
-		([name, sym]) =>
-			inPlay.has(name) && sym.special_properties?.includes('wild') && sym.paytable?.length,
-	);
-	const paytable = entry?.[1].paytable;
-	return paytable ? { paytable: paytableToOccursMap(paytable) } : undefined;
-}
-
-/**
- * The project's IN-PLAY line-symbol pool in the mock's SERVER vocabulary (`PIC*`/`SCAT`), or
- * `undefined` when it equals the full default set (so an all-in-play project stays byte-identical —
- * the field is simply omitted). Keyed off the SAME `symbolsInPlay` gate as the paytable/roll/wild.
- *
- * The space mismatch is the reason this lives HERE: `symbolsInPlay` answers in CLIENT symbol names
- * (`H1`, `L1`, `S`, …) but the mock deals SERVER names (`PIC1`, `PIC5`, `SCAT`, …). We translate with
- * the lines facade's own `linesMapping` — keep each server symbol whose mapped client name is in play
- * — so the mock consumes a plain server-space array with ZERO mapping knowledge (no table duplicated
- * into the `.mjs`). `SCAT` rides along only when its client symbol (`S`) is in play. `WILD` is
- * intentionally excluded: the existing `wild` field already governs whether the mock deals a wild.
- * An empty pool (misconfig) ⇒ `undefined` ⇒ the mock keeps its full default (never deals a blank board).
- */
-/**
- * The project's in-play MULTIPLIER symbol, by name, or `undefined`.
- *
- * Gated on `symbolsInPlay` for the same reason `projectWild` is: a symbol that merely sits in
- * the dictionary but appears on no strip can never be dealt.
- */
-function projectMultiplierSymbol(doc: GameConfigDoc): string | undefined {
-	const inPlay = new Set(symbolsInPlay(doc));
-	return Object.entries(doc.symbols).find(
-		([name, sym]) => inPlay.has(name) && sym.special_properties?.includes('multiplier'),
-	)?.[0];
-}
-
-/**
- * Should the mock deal multiplier cells at this project?
- *
- * Two conditions, and the second one is the one that cost a live game. The config DECLARING a
- * multiplier symbol is not enough: the symbol also has to be RENDERABLE, i.e. bound to art in
- * the Symbols tool. `test5` declared `M` on its strips with no art behind it, so the moment a
- * `MULT` cell landed the board threw "Cannot read properties of undefined (reading 'static')"
- * and the player lost the reels.
- *
- * The engine no longer crashes on that (a symbol with no art renders nothing now), but dealing
- * an invisible symbol is still wrong — a blank cell that pays is worse than no cell at all. So
- * the mock is told to deal them only when the project can actually show one.
- *
- * `static` specifically, because that is the state a resting board renders and the exact one
- * that threw. Best-effort: an unreadable symbols doc ⇒ `false` ⇒ no multipliers, never a crash.
- */
-async function projectMultiplier(
-	doc: GameConfigDoc,
-	clientKey: string,
-	projectKey: string,
-): Promise<boolean> {
-	const name = projectMultiplierSymbol(doc);
-	if (!name) return false;
-	try {
-		const symbols = await loadSymbolsDoc(clientKey, projectKey);
-		return Boolean(symbols.symbols?.[name]?.static);
-	} catch {
-		return false;
-	}
-}
-
-function projectLineSymbols(doc: GameConfigDoc): string[] | undefined {
-	const inPlay = new Set(symbolsInPlay(doc));
-	// `WILD` and `MULT` are excluded because neither is a LINE symbol: each has its own switch
-	// (`wild`, `multiplier`) deciding whether the mock deals it at all. This pool is built from
-	// the MAPPING TABLE's keys, so any entry added there for a special symbol lands in the deal
-	// pool unless it is named here — which is exactly how `MULT` started being dealt as an
-	// ordinary board symbol, valueless, on every reveal.
-	const NON_LINE_SERVER_SYMBOLS = new Set(['WILD', 'MULT']);
-	const serverPool = Object.keys(linesMapping.symbols).filter(
-		(server) => !NON_LINE_SERVER_SYMBOLS.has(server),
-	);
-	const allowed = serverPool.filter((server) => inPlay.has(mapSymbol(linesMapping, server)));
-	if (!allowed.length || allowed.length === serverPool.length) return undefined;
-	return allowed;
-}
-
-/**
- * The project's per-symbol paytable in the mock's SERVER vocabulary, as `{ PIC1: { 8: 3, … } }`.
- *
- * Only the `scatter` model needs this, and it needs it for a concrete reason: a scatter game prices
- * by HOW MANY of a symbol are on the board (8, 9, 10, 13+ …), while the mock's own table is keyed by
- * payline RUN LENGTHS (3/4/5). Clamping a count of 12 into a 5-run row would make every scatter win
- * pay the same number — degenerate enough to be useless for testing. The authored table already has
- * the right shape, so it travels instead of being approximated. (Cluster has no such table to send,
- * which is why it clamps and says so.)
- *
- * In-play gate + client→server translation, same as `projectLineSymbols`.
- */
-function projectSymbolPaytable(
-	doc: GameConfigDoc,
-): Record<string, Record<string, number>> | undefined {
-	const inPlay = new Set(symbolsInPlay(doc));
-	const out: Record<string, Record<string, number>> = {};
-	for (const server of Object.keys(linesMapping.symbols)) {
-		if (server === 'WILD') continue;
-		const client = mapSymbol(linesMapping, server);
-		if (!inPlay.has(client)) continue;
-		const rows = doc.symbols[client]?.paytable;
-		if (!rows?.length) continue;
-		out[server] = paytableToOccursMap(rows);
-	}
-	return Object.keys(out).length ? out : undefined;
-}
-
-/**
- * Resolve a project's board grid from its authored Game Config, in the shape the test-server mock
- * wants (`{ reels, rows, paylines: rows[][], wild? }`). Mirrors the test-server's own `linesGrid`
- * derivation so the mock deals the SAME dimensions + paylines the client draws, plus the in-play wild
- * so `W` can pay. Lines protocol only; best-effort (no authored doc / odd config ⇒ `undefined` ⇒ the
- * mock keeps its shared default). `numRows` is the per-reel array, so `rows` is its max (a stepped
- * board is a rectangle tall enough to hold it).
- */
-/**
- * The project's OWN cascade answer, or `undefined` when it never stated one.
- *
- * Deliberately reads the stored field rather than `resolveCascade`: the resolved value would be a
- * boolean for EVERY project, and the test server treats a boolean as authoritative — which would
- * pin every unauthored game and break the `CASCADE_GAMES` escape hatch on lines games.
- */
-async function projectCascade(clientKey: string, projectKey: string): Promise<boolean | undefined> {
-	try {
-		const doc = await loadGameConfigDoc(clientKey, projectKey);
-		return typeof doc?.cascade === 'boolean' ? doc.cascade : undefined;
-	} catch {
-		return undefined;
-	}
-}
-
-async function projectGrid(
-	protocol: MockProtocol,
-	clientKey: string,
-	projectKey: string,
-): Promise<TestServerGameEntry['grid']> {
-	// `cluster` needs a grid too — it is the only way `minCluster`/`adjacency` reach the mock, and
-	// without them it would fall back to the generic defaults rather than the shape the project
-	// declared. (`ways`/`book` still keep the shared default: `ways` needs nothing beyond the board,
-	// and the book mock owns its own shape.)
-	if (protocol !== 'lines' && protocol !== 'cluster' && protocol !== 'scatter') return undefined;
-	try {
-		const doc = await loadGameConfigDoc(clientKey, projectKey);
-		if (!doc) return undefined;
-		const reels = Math.max(1, Math.round(Number(doc.numReels)));
-		const rowsList = Array.isArray(doc.numRows) && doc.numRows.length ? doc.numRows : [3];
-		const rows = Math.max(1, Math.round(Math.max(...rowsList)));
-		const paylines = Object.values(doc.paylines ?? {});
-		// A cluster game legitimately has NO paylines, so the payline requirement applies only where
-		// paylines are what pays. Requiring them here is what would have made a cluster project fall
-		// back to the shared lines grid and pay line wins.
-		if (!Number.isFinite(reels)) return undefined;
-		if (protocol === 'lines' && !paylines.length) return undefined;
-		const wild = projectWild(doc);
-		// `stacked`: does this project have the stacked-picture reel mode ON? Gated on the SAME master
-		// toggle the symbol bake reads (`stackedPictures.enabled` + ≥1 authored symbol) so the mock deals
-		// tall-symbol runs — incl. guaranteed edge cutoffs — only for a project that actually stacks
-		// pictures. Best-effort: a missing/empty symbols doc ⇒ no flag ⇒ the normal weighted deal.
-		const stacked = await projectStacked(clientKey, projectKey);
-		// `symbols`: the in-play line-symbol pool in the mock's SERVER vocabulary (PIC*/SCAT), so a
-		// symbol the project marks UNUSED (off the strips) truly never lands against our own mock.
-		// Omitted for an all-in-play project ⇒ the mock deals its full default pool (byte-identical).
-		const symbols = projectLineSymbols(doc);
-		// The cluster shape the mock evaluates against, straight from the project's declared win
-		// model — so the mock pays the geometry `/config` says it pays, not a hardcoded guess.
-		const model = resolveWinModel(doc);
-		// Scatter is the only model that collects multipliers today, so the flag rides only for it —
-		// a lines game declaring a multiplier symbol should not start dealing them.
-		const multiplier =
-			model.type === 'scatter' && (await projectMultiplier(doc, clientKey, projectKey));
-		const cluster =
-			model.type === 'cluster'
-				? { minCluster: model.minCluster, adjacency: model.adjacency }
-				: undefined;
-		// Scatter pays by COUNT anywhere, so the mock needs the threshold and — unlike cluster — the
-		// project's own count-keyed paytable, which the mock's run-length table cannot stand in for.
-		const scatter =
-			model.type === 'scatter'
-				? { minCount: model.minCount, symbolPaytable: projectSymbolPaytable(doc) }
-				: undefined;
-		return {
-			reels,
-			rows,
-			paylines,
-			...(wild ? { wild } : {}),
-			...(stacked ? { stacked: true } : {}),
-			...(symbols ? { symbols } : {}),
-			...(multiplier ? { multiplier: true } : {}),
-			...(cluster ?? {}),
-			...(scatter ?? {}),
-		};
-	} catch {
-		return undefined;
-	}
-}
-
-/**
- * True when the project has the stacked-picture reel mode enabled in its symbols doc (the SAME
- * `stackedPictures.enabled` master toggle `symbolExport` gates the baked `stacked` config on). Used to
- * tell the test-server mock to deal stacked boards. Best-effort — any read/parse failure ⇒ `false`.
- */
-async function projectStacked(clientKey: string, projectKey: string): Promise<boolean> {
-	try {
-		const doc = await loadSymbolsDoc(clientKey, projectKey);
-		return doc.stackedPictures?.enabled === true && (doc.stackedPictures.symbols?.length ?? 0) > 0;
-	} catch {
-		return false;
-	}
-}
-
 /**
  * Publish (or re-publish) a project as a playable test-server game. `projectKey` is
  * the BARE launcher project key; it is also used verbatim as the GAME key.
@@ -365,7 +107,10 @@ export async function publishGame(
 	const readToken = await getOrMintReadToken(projectKey);
 	if (!readToken) throw new Error(`Unknown project '${projectKey}'.`);
 
-	const protocol = protocolFor(gameType);
+	// The project's math contract for the mock RGS (protocol + grid + cascade), from its Game Config.
+	// The SAME derivation `/api/game-config/mock` serves live, so the snapshot written below can only
+	// ever be an older copy of the live answer — never a different one.
+	const { protocol, grid, cascade } = await resolveMockContract(projectKey);
 	const runtime = runtimeFor(gameType);
 	const key = projectKey;
 
@@ -383,24 +128,20 @@ export async function publishGame(
 		);
 	}
 
-	// Deal THIS project's OWN board grid on the mock RGS (not the shared apps/lines default), so a
-	// project that authored e.g. 5 rows doesn't mismatch its client (roll with 5, settle with fewer).
-	// Best-effort + lines-only (the book mock owns its own shape): an un-authored/odd config ⇒ no grid
-	// ⇒ the test server falls back to its shared default. `paylines` are the config's row-index arrays.
-	const grid = await projectGrid(protocol, clientKey, projectKey);
-
-	// Does this project tumble? Only an EXPLICIT departure travels: the normalizer stores `cascade`
-	// only when it disagrees with the win model's own default, so an unauthored game sends nothing
-	// and the test server's protocol default decides (and its `CASCADE_GAMES` override still works
-	// on a lines game). Sending the resolved boolean unconditionally would silently defeat that.
-	const cascade = await projectCascade(clientKey, projectKey);
-
 	// 4 + 5. Merge the test-server manifest (read-modify-write, preserves siblings).
+	//
+	// `docBase` + `readToken` are what turn the entry from a FROZEN copy of the math into a pointer
+	// back at the live one: the test server re-reads `/api/game-config/mock` with them, so editing
+	// `/config` changes the board the mock deals without a republish. The grid/cascade below stay as
+	// the fallback for when that fetch can't be made (launcher down, entry published before this).
+	// Neither field is a new exposure — both appear verbatim in the public game URL built below.
 	await upsertTestServerGame(key, {
 		protocol,
 		name,
 		runtime,
 		updatedAt: new Date().toISOString(),
+		docBase: launcherOrigin.replace(/\/+$/, ''),
+		readToken,
 		...(grid ? { grid } : {}),
 		...(cascade === undefined ? {} : { cascade }),
 	});

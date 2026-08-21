@@ -150,6 +150,21 @@ export interface TestServerGameEntry {
 	runtime?: string;
 	/** ISO timestamp — passed IN by the caller (no `Date.now()` here). */
 	updatedAt: string;
+	/**
+	 * Launcher origin + this project's public read token — together, the pointer that lets the test
+	 * server re-read the project's LIVE math contract (`GET <docBase>/api/game-config/mock?project=
+	 * <key>&k=<readToken>`) instead of trusting the `grid`/`cascade` snapshot below.
+	 *
+	 * That is the whole point of them: `/config` is fetched live by the CLIENT (its `numReels`/
+	 * `numRows` resize the board on the next reload) while the mock used to deal whatever the last
+	 * publish froze — so editing the grid and not republishing left the client drawing 8×4 against a
+	 * server still dealing 5×3. The snapshot stays as the fallback for an entry published before this
+	 * existed, or a launcher that can't be reached.
+	 *
+	 * Not a new exposure: both values appear verbatim in the public game URL this same publish writes.
+	 */
+	docBase?: string;
+	readToken?: string;
 	/** Does this game CASCADE (tumble)? Present only when the project's Game Config DEPARTS from what
 	 *  its win model already implies — `cluster`/`scatter` tumble by default, `lines`/`ways` do not —
 	 *  so an unauthored game leaves the test server's protocol default (and its `CASCADE_GAMES`

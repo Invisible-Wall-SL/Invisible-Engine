@@ -15,6 +15,11 @@
  *   { "games": { "hotfruits": { "protocol": "lines", "name": "Hot Fruits" }, … } }
  * The service hydrates everything from R2 on boot (and on POST /refresh).
  *
+ * The MATH a mock deals (grid, paylines, symbol pool, cascade) is NOT owned by that
+ * manifest: it belongs to the project's Invisible Game Config, which this server
+ * re-reads live from the launcher and applies without a republish. The manifest's
+ * copy is only the offline fallback. See "the LIVE math contract" below.
+ *
  * Games are PUBLISHED to R2 by apps/launcher-api/scripts/publish-game-bundle.mjs.
  *
  * Env:
@@ -95,6 +100,9 @@ let bundles = {};
 let runtimeBundles = {};
 /** gameKey -> mock instance ({ handle }) */
 let mocks = {};
+/** gameKey -> { checkedAt: epochMs, inFlight: Promise|null } — the live-contract poll (see
+ *  `refreshContract`). Rebuilt on hydrate so a refresh re-checks every game immediately. */
+let contracts = {};
 /** in-flight guard so overlapping POST /refresh calls coalesce into one hydrate */
 let refreshing = false;
 
@@ -148,9 +156,10 @@ const linesGrid = (() => {
 	}
 })();
 
-// `grid` is THIS project's own board (from its Game Config, carried in the manifest entry). When
-// present it deals the project's real numReels/numRows/paylines so the mock matches the client that
-// authored e.g. 5 rows; absent ⇒ the shared `linesGrid` default (apps/lines). Book keeps its shape.
+// `grid` is THIS project's own board, from its Game Config — read LIVE by `refreshContract` below,
+// with the manifest entry's copy as the fallback. When present it deals the project's real
+// numReels/numRows/paylines so the mock matches the client that authored e.g. 5 rows; absent ⇒ the
+// shared `linesGrid` default (apps/lines). Book keeps its own shape.
 /**
  * Protocols that cascade BY DEFAULT. A `cluster` / `scatter` game IS a tumble game — the cells that
  * paid leave the board and the survivors fall into the gap — so for those the cascade is the
@@ -283,6 +292,101 @@ const validGrid = (grid) => {
 	};
 };
 
+// ---------- the LIVE math contract (the config decides the game) ----------
+
+/**
+ * The mock's math — grid, paylines, symbol pool, protocol, cascade — belongs to the PROJECT's
+ * Invisible Game Config, and until now it only travelled at PUBLISH time, frozen into
+ * `test_server/games.json`. The client reads that same config LIVE, so the two drifted the moment an
+ * author resized the board without republishing: the client drew (say) 8×4 while this mock kept
+ * dealing 5×3, every cell outside the server's board stayed empty, and wins were scored on a board
+ * nobody was looking at. "Remember to republish" is not a contract — so the mock now PULLS.
+ *
+ * `publishGame` stamps `docBase` + `readToken` into the manifest entry; with them this server
+ * re-reads `GET <docBase>/api/game-config/mock?project=<key>&k=<token>` (the SAME derivation the
+ * publish snapshot came from, so the two can never describe different games) and rebuilds that
+ * game's mock the moment the answer changes.
+ *
+ * Best-effort by construction: no pointer, an unreachable launcher or a malformed answer all leave
+ * the current mock exactly as it is, so an entry published before this existed — and a launcher
+ * outage — degrade to the old frozen-snapshot behaviour instead of breaking play.
+ */
+const CONTRACT_TTL_MS = Number(process.env.CONTRACT_TTL_MS ?? 10_000);
+/** Hard cap on the launcher round-trip, so a hung launcher can't hang a spin. */
+const CONTRACT_TIMEOUT_MS = Number(process.env.CONTRACT_TIMEOUT_MS ?? 4_000);
+
+const MOCK_PROTOCOLS = new Set(['lines', 'book', 'ways', 'cluster', 'scatter']);
+
+/** Normalize a contract from EITHER source (manifest snapshot or live endpoint) into what
+ *  `makeMock` consumes. Both go through `validGrid`, so the live answer gets the same defensive
+ *  shape-check the external manifest already got — one gate, no second answer. */
+const normalizeContract = (raw, fallbackProtocol) => ({
+	protocol: MOCK_PROTOCOLS.has(raw?.protocol) ? raw.protocol : fallbackProtocol,
+	cascade: typeof raw?.cascade === 'boolean' ? raw.cascade : undefined,
+	grid: validGrid(raw?.grid),
+});
+
+/** A contract's identity — what decides whether the mock has to be rebuilt. Key order is fixed by
+ *  `normalizeContract`/`validGrid`, so equal contracts stringify identically. */
+const fingerprintOf = (c) => JSON.stringify([c.protocol, c.cascade ?? null, c.grid ?? null]);
+
+/**
+ * Replace a game's mock with one built from `contract`, carrying player BALANCES across (the board
+ * changed, the wallet did not). Open rounds are deliberately dropped: a round dealt on the previous
+ * grid cannot be settled on the new one. `configSent: false` is the point of the reset — the client
+ * gets a fresh `config` event, so its `__IE_SERVER_CONFIG__` overlay describes the board now dealt.
+ */
+const swapMock = (key, contract) => {
+	const previous = own(mocks, key);
+	const next = makeMock(contract.protocol, `mock:${key}`, contract.grid, key, contract.cascade);
+	if (previous?.sessions && next.sessions) {
+		for (const [sid, session] of previous.sessions) {
+			next.sessions.set(sid, { balance: session.balance, round: null, configSent: false });
+		}
+	}
+	mocks[key] = next;
+	registry[key] = { ...own(registry, key), ...contract, fingerprint: fingerprintOf(contract) };
+};
+
+/**
+ * Re-read one game's live contract (at most once per {@link CONTRACT_TTL_MS}) and rebuild its mock
+ * when it changed. Awaited on the RGS path so a config edit is live on the very next spin rather
+ * than the one after it; failures are cached for the same TTL so a down launcher is asked once per
+ * window, not once per request.
+ */
+async function refreshContract(key) {
+	const meta = own(registry, key);
+	if (!meta?.docBase || !meta?.readToken) return;
+	const state = (contracts[key] ??= { checkedAt: 0, inFlight: null });
+	if (state.inFlight) return state.inFlight;
+	if (Date.now() - state.checkedAt < CONTRACT_TTL_MS) return;
+
+	state.inFlight = (async () => {
+		try {
+			const url =
+				`${meta.docBase}/api/game-config/mock?project=${encodeURIComponent(key)}` +
+				`&k=${encodeURIComponent(meta.readToken)}`;
+			const res = await fetch(url, { signal: AbortSignal.timeout(CONTRACT_TIMEOUT_MS) });
+			if (!res.ok) throw new Error(`HTTP ${res.status}`);
+			const live = normalizeContract(await res.json(), meta.protocol);
+			if (fingerprintOf(live) === meta.fingerprint) return;
+			const board = live.grid ? `${live.grid.reels}×${live.grid.rows}` : 'its default grid';
+			console.info(
+				`[test-server] '${key}' config changed — now dealing ${board} (${live.protocol})`,
+			);
+			swapMock(key, live);
+		} catch (e) {
+			console.warn(
+				`[test-server] '${key}' live config unavailable (${e.message}) — keeping the published one`,
+			);
+		} finally {
+			state.checkedAt = Date.now();
+			state.inFlight = null;
+		}
+	})();
+	return state.inFlight;
+}
+
 const streamToBuffer = async (stream) => {
 	const chunks = [];
 	for await (const chunk of stream) chunks.push(chunk);
@@ -363,6 +467,7 @@ async function hydrate() {
 		bundles = {};
 		runtimeBundles = {};
 		mocks = {};
+		contracts = {};
 		return;
 	}
 
@@ -377,12 +482,18 @@ async function hydrate() {
 		// `cascade` is the project's OWN authored answer, synced from its Game Config at publish.
 		// Absent ⇒ undefined, and the protocol default decides. Only a real boolean overrides it.
 		const cascade = typeof meta.cascade === 'boolean' ? meta.cascade : undefined;
+		const contract = { protocol, cascade, grid: validGrid(meta.grid) };
 		nextRegistry[key] = {
-			protocol,
+			...contract,
 			name: meta.name ?? key,
 			runtime,
-			grid: validGrid(meta.grid),
-			cascade,
+			// The pointer back at the project's LIVE config (see `refreshContract`). Absent for a game
+			// published before this shipped, or one published by the standalone script — such a game
+			// simply keeps dealing the snapshot below, exactly as it did before.
+			docBase: typeof meta.docBase === 'string' ? meta.docBase.replace(/\/+$/, '') : null,
+			readToken: typeof meta.readToken === 'string' ? meta.readToken : null,
+			// What the mock is currently built from, so a live re-read can tell "unchanged" from "changed".
+			fingerprint: fingerprintOf(contract),
 		};
 		if (runtime) {
 			// Served from the shared runtime bundle (loaded once below) — no per-key files.
@@ -414,6 +525,9 @@ async function hydrate() {
 	registry = nextRegistry;
 	bundles = nextBundles;
 	runtimeBundles = nextRuntimeBundles;
+	// Drop the poll state with the mocks it described, so the first request after a refresh re-reads
+	// every game's live contract instead of coasting on the previous window.
+	contracts = {};
 	mocks = Object.fromEntries(
 		Object.entries(nextRegistry).map(([key, meta]) => [
 			key,
@@ -505,9 +619,11 @@ const handleRequest = async (req, res) => {
 	// mock RGS: /api/<gameKey>/...  → dispatch to that game's mock (matches by suffix)
 	if (pathname.startsWith('/api/')) {
 		const gameKey = pathname.split('/')[2];
-		const mock = own(mocks, gameKey);
-		if (!mock) return sendJson(res, 404, { error: `unknown game '${gameKey}'` });
-		return mock.handle(req, res, url);
+		if (!own(mocks, gameKey)) return sendJson(res, 404, { error: `unknown game '${gameKey}'` });
+		// Re-read the project's live Game Config first (TTL-throttled, best-effort) so a board resized
+		// in `/config` is dealt on THIS spin, not after a republish. May replace `mocks[gameKey]`.
+		await refreshContract(gameKey);
+		return own(mocks, gameKey).handle(req, res, url);
 	}
 
 	// root index

@@ -136,11 +136,17 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 *
 	 * {@link boardDimensions} sizes the board off Invisible Game Config (`numReels`/`numRows`), which
 	 * an online project fetches LIVE — so a grid change lands on the client immediately. The Invisible
-	 * Test Server's mock sizes ITS board off a copy of that grid synced into the test-server manifest
-	 * (`test_server/games.json`, field `grid`) at PUBLISH time. Change the grid without republishing
-	 * and the two drift: the client draws 6×6 while the mock keeps dealing 5×3, the reels and rows
-	 * outside the server's board never receive a symbol, and wins are evaluated on a grid nobody is
-	 * looking at.
+	 * Test Server's mock now re-reads that SAME config live too (`GET /api/game-config/mock`, see
+	 * `services/test-server/server.mjs`), so against our own mock the two agree within seconds of a
+	 * save and this check should never fire. It stays because it still catches the cases where the
+	 * server genuinely is not following: a game whose manifest entry predates that pointer (published
+	 * before it shipped, or by the standalone desktop script) and therefore still deals the frozen
+	 * publish-time snapshot, a launcher the test server cannot reach, and a REAL RGS — which is
+	 * authoritative by design and will never follow the client's config.
+	 *
+	 * Left undetected the failure is total: the client draws 6×6 while the server deals 5×3, the reels
+	 * and rows outside the server's board never receive a symbol, and wins are evaluated on a grid
+	 * nobody is looking at.
 	 *
 	 * Nothing else noticed. The server overlay only ever consumed `window` to size the cosmetic blur
 	 * (`serverPaddingReels`), so a mismatch this total presented as "the game stopped working" and
@@ -168,8 +174,10 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 			`[game-config] error: the RGS deals a ${reels}×${rows} board but this game draws ` +
 				`${board.x}×${board.y} (Invisible Game Config numReels/numRows). The reels and rows ` +
 				'outside the server board never receive a symbol, and wins are evaluated on a grid the ' +
-				'client is not showing. Re-publish the game so the test server picks up this grid, or ' +
-				'set the config back to the size the server deals.',
+				'client is not showing. The test server follows this config on its own, so a mismatch ' +
+				'means it is not following: publish the game once (older entries have no pointer back to ' +
+				'the live config), or — against a real RGS, which is authoritative — set the config back ' +
+				'to the size the server deals.',
 		);
 	}
 

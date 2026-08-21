@@ -22,6 +22,15 @@ One small Node service that does two jobs:
    `scripts/mock-rgs-server-book.mjs` for `book`-of games), refactored into a
    `createMockRgs()` factory.
 
+   **The mock follows the project's config, live.** The board it deals — grid,
+   paylines, in-play symbols, win model, tumbling — is not owned by the manifest
+   below. The server re-reads it from the project's [Invisible Game Config](/docs/game-config)
+   (`GET <launcher>/api/game-config/mock`, at most once every ~10s per game) and
+   rebuilds that game's mock as soon as the answer changes, carrying player balances
+   across. So resizing a board in `/config` takes a save and a reload — not a
+   republish. The manifest's `grid`/`cascade` are only the fallback for a launcher
+   that can't be reached, or an entry published before this existed.
+
 ```
 launcher portal  → opens →  https://games.invisiblewall.org/<gameKey>/?…&rgs_url=games.invisiblewall.org/api/<gameKey>
                                    │                                              │
@@ -46,6 +55,7 @@ on `POST /refresh`, secret-gated when `TEST_SERVER_SECRET` is set).
 The desktop **Invisible Launcher** has a **☁ Build & publish** button on the Projects
 toolbar. Select a project whose `game.publish` block is filled in (cloud key, display
 name, protocol `lines`/`book`, build cwd/cmd/out, build env), click it, and it:
+
 1. **builds** the game (`pnpm …`, with the play4fun env),
 2. **uploads** the `build/` bundle to R2 `test_server/<key>/` + merges the manifest,
 3. **refreshes** the test server (`POST /refresh`),
@@ -57,7 +67,7 @@ name, protocol `lines`/`book`, build cwd/cmd/out, build env), click it, and it:
    git remote) + the `game.publish` block. Every OTHER launcher then gets it on **↻ Sync
    from cloud**, which `git clone --recurse-submodules` the repo into
    `Projects/<client>/<key>` and can Build & publish with no typing. This is why building
-   from a real checkout matters — a freshly-synced *empty* folder has no remote to
+   from a real checkout matters — a freshly-synced _empty_ folder has no remote to
    capture, which is the failure mode that left a project un-clonable (build then runs
    `pnpm` in an empty dir → `ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND`). One-time bootstrap for
    such a project: `apps/launcher-api/scripts/seed-project-profile.mjs` (or Build & publish
@@ -95,11 +105,11 @@ Then restart the service (or `POST /refresh`) so it picks up the new bundle.
 
 Add a row in `/admin → Games` (managed via `apps/launcher-api`, `games` table):
 
-| field | Hot Fruits | Book of Borut |
-|---|---|---|
-| key | `hotfruits` | `bookofborut` |
-| name | Hot Fruits | Book of Borut |
-| url | `https://games.invisiblewall.org/hotfruits/?sessionID=demo&rgs_url=games.invisiblewall.org/api/hotfruits&lang=en&currency=USD&device=desktop` | `https://games.invisiblewall.org/bookofborut/?sessionID=demo&rgs_url=games.invisiblewall.org/api/bookofborut&lang=en&currency=USD&device=desktop` |
+| field | Hot Fruits                                                                                                                                    | Book of Borut                                                                                                                                     |
+| ----- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| key   | `hotfruits`                                                                                                                                   | `bookofborut`                                                                                                                                     |
+| name  | Hot Fruits                                                                                                                                    | Book of Borut                                                                                                                                     |
+| url   | `https://games.invisiblewall.org/hotfruits/?sessionID=demo&rgs_url=games.invisiblewall.org/api/hotfruits&lang=en&currency=USD&device=desktop` | `https://games.invisiblewall.org/bookofborut/?sessionID=demo&rgs_url=games.invisiblewall.org/api/bookofborut&lang=en&currency=USD&device=desktop` |
 
 The launcher home appends `&project=<activeProject>`; the game ignores unknown
 params. After that, every logged-in user can launch from any machine.
@@ -115,13 +125,13 @@ params. After that, every logged-in user can launch from any machine.
 
 ## Endpoints
 
-| route | purpose |
-|---|---|
-| `GET /healthz` | `{ ok, games: [...] }` |
-| `GET /` | simple index listing hosted games |
-| `GET /<gameKey>/[path]` | serve the game bundle (path defaults to `index.html`) |
-| `* /api/<gameKey>/rgs/engine` | mock RGS for that game |
-| `POST /refresh[?secret=]` | re-hydrate bundles from R2 |
+| route                         | purpose                                               |
+| ----------------------------- | ----------------------------------------------------- |
+| `GET /healthz`                | `{ ok, games: [...] }`                                |
+| `GET /`                       | simple index listing hosted games                     |
+| `GET /<gameKey>/[path]`       | serve the game bundle (path defaults to `index.html`) |
+| `* /api/<gameKey>/rgs/engine` | mock RGS for that game                                |
+| `POST /refresh[?secret=]`     | re-hydrate bundles from R2                            |
 
 ## Manifest contract (`test_server/games.json`)
 
@@ -133,9 +143,15 @@ never drops the others:
 ```
 
 Three places share this shape; keep them in lockstep:
+
 - **producer** — `apps/launcher-api/scripts/publish-game-bundle.mjs` (CLI)
 - **producer** — the desktop launcher's `publish_game()` (`Invisible_Launcher.py`)
 - **consumer** — `services/test-server/server.mjs` (`protocol` → which mock; `name` → index page)
+
+The online publish (`publishGame.ts`) additionally writes `docBase` + `readToken` —
+the pointer the server uses to re-read the project's live config (above). Both values
+already appear verbatim in the public game URL, so this is not a new exposure. The two
+producers listed here can't mint a read token, so their games keep the frozen snapshot.
 
 ## Local dev
 
