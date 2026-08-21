@@ -404,8 +404,30 @@
 		doc.symbols[name] = {};
 		newSymbol = '';
 	}
+	/**
+	 * Delete a symbol from the DICTIONARY — and take it off the reel STRIPS on the way out.
+	 *
+	 * Deleting only the dictionary entry left every strip still dealing the name, which
+	 * `validateGameConfigDoc` correctly calls a BLOCKING error ("appears on a reel strip but has no
+	 * entry in the symbol dictionary") — a board that deals what it cannot draw. The trap was that
+	 * the page then offered no way out: `toggleInPlay`, the one control that strips a symbol off the
+	 * reels, early-returns when the symbol is missing from the dictionary. So removing a symbol
+	 * produced a config the tool refused to save and gave you no control to repair, short of the raw
+	 * JSON editor.
+	 *
+	 * A reel must always deal SOMETHING, so a reel left empty by the filter falls back to another
+	 * surviving symbol rather than keeping the deleted one (which would just re-raise the error).
+	 */
 	function removeSymbol(name: string) {
 		delete doc.symbols[name];
+		const fallback = Object.keys(doc.symbols)[0];
+		for (const gt of Object.keys(doc.paddingReels)) {
+			doc.paddingReels[gt] = doc.paddingReels[gt].map((reel) => {
+				const kept = reel.filter((cell) => cell.name !== name);
+				if (kept.length) return kept;
+				return fallback ? [{ name: fallback }] : reel;
+			});
+		}
 	}
 	/** Put a symbol ON the reel strips (making it IN PLAY / dealable) or take it OFF — the click behind
 	 *  the in-play badge, so a symbol reaches the board without hand-editing raw JSON. Adds one cell to
