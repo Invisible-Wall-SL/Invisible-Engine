@@ -179,14 +179,6 @@ function projectSymbolPaytable(
 }
 
 /**
- * Resolve a project's board grid from its authored Game Config, in the shape the test-server mock
- * wants (`{ reels, rows, paylines: rows[][], wild? }`). Mirrors the test-server's own `linesGrid`
- * derivation so the mock deals the SAME dimensions + paylines the client draws, plus the in-play wild
- * so `W` can pay. Lines protocol only; best-effort (no authored doc / odd config ⇒ `undefined` ⇒ the
- * mock keeps its shared default). `numRows` is the per-reel array, so `rows` is its max (a stepped
- * board is a rectangle tall enough to hold it).
- */
-/**
  * The project's OWN cascade answer, or `undefined` when it never stated one.
  *
  * Deliberately reads the stored field rather than `resolveCascade`: the resolved value would be a
@@ -202,16 +194,28 @@ async function projectCascade(clientKey: string, projectKey: string): Promise<bo
 	}
 }
 
+/**
+ * Resolve a project's board grid from its authored Game Config, in the shape the test-server mock
+ * wants (`{ reels, rows, paylines: rows[][], wild?, … }`). Mirrors the test-server's own `linesGrid`
+ * derivation so the mock deals the SAME dimensions the client draws, plus the in-play wild so `W`
+ * can pay. Best-effort: no authored doc / odd config ⇒ `undefined` ⇒ the mock keeps its shared
+ * default. `numRows` is the per-reel array, so `rows` is its max (a stepped board is a rectangle
+ * tall enough to hold it).
+ */
 async function projectGrid(
 	protocol: MockProtocol,
 	clientKey: string,
 	projectKey: string,
 ): Promise<TestServerGameEntry['grid']> {
-	// `cluster` needs a grid too — it is the only way `minCluster`/`adjacency` reach the mock, and
-	// without them it would fall back to the generic defaults rather than the shape the project
-	// declared. (`ways`/`book` still keep the shared default: `ways` needs nothing beyond the board,
-	// and the book mock owns its own shape.)
-	if (protocol !== 'lines' && protocol !== 'cluster' && protocol !== 'scatter') return undefined;
+	// EVERY protocol that runs on the lines mock needs its grid — that mock's board dimensions are the
+	// grid. `ways` was excluded here on the reasoning that it "needs nothing beyond the board", which
+	// is backwards: the board IS what it needs, and without it a ways project silently fell back to
+	// the shared `apps/lines` 5×3 no matter what it authored (the live `test3` drew 8×4 against a 5×3
+	// deal). `cluster`/`scatter` additionally carry their `minCluster`/`adjacency`/`minCount` shape.
+	//
+	// `book` is the one real exception: it runs `createBookMock`, which owns its own board and is
+	// handed no grid at all, so deriving one for it would be dead data.
+	if (protocol === 'book') return undefined;
 	try {
 		const doc = await loadGameConfigDoc(clientKey, projectKey);
 		if (!doc) return undefined;
@@ -219,9 +223,10 @@ async function projectGrid(
 		const rowsList = Array.isArray(doc.numRows) && doc.numRows.length ? doc.numRows : [3];
 		const rows = Math.max(1, Math.round(Math.max(...rowsList)));
 		const paylines = Object.values(doc.paylines ?? {});
-		// A cluster game legitimately has NO paylines, so the payline requirement applies only where
-		// paylines are what pays. Requiring them here is what would have made a cluster project fall
-		// back to the shared lines grid and pay line wins.
+		// A `cluster`, `scatter` or `ways` game legitimately has NO paylines, so the payline requirement
+		// applies only where paylines are what pays. Requiring them everywhere is what would have made
+		// such a project fall back to the shared lines grid and pay line wins. The mock generates a
+		// full-coverage set from the dimensions for its own reveal shape; the evaluator ignores it.
 		if (!Number.isFinite(reels)) return undefined;
 		if (protocol === 'lines' && !paylines.length) return undefined;
 		const wild = projectWild(doc);
