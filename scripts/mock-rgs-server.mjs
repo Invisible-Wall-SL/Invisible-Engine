@@ -631,8 +631,25 @@ export function createMockRgs(opts = {}) {
 	/** Roughly one refilled cell in six carries a multiplier — enough to see the beat most spins. */
 	const MULT_RATE = 1 / 6;
 
-	/** How many times one spin may cascade before the mock stops it. */
-	const CASCADE_MAX_STEPS = 12;
+	/**
+	 * RUNAWAY GUARD — the bound that stops an infinite loop, deliberately far above anything
+	 * gameplay should reach.
+	 *
+	 * It was 12, and that was wrong in a way worth recording: a cap low enough to be hit is a cap
+	 * that SHAPES the game, and the shape it makes is the one thing a cascade must never do —
+	 * come to rest on a board that is still paying. The player watches winners sit there unlit and
+	 * concludes the game is broken. On the live `test5` it fired on 99.8% of spins.
+	 *
+	 * The real problem there was never the cap: `minCount 9` on a 64-cell board means every symbol
+	 * clears the threshold on a typical deal, so the chain genuinely never ends. A cap cannot fix
+	 * broken math, it can only hide it — and hiding it cost a day of hunting a presentation bug
+	 * that was a config bug. So the bound moves out of the way, and a game that still reaches it
+	 * is told, loudly, that its CONFIG is the problem and which tool measures it.
+	 *
+	 * A correctly configured scatter game does not come close: measured on the committed template,
+	 * chains average well under one tumble.
+	 */
+	const CASCADE_RUNAWAY_GUARD = 200;
 
 	/**
 	 * Score a board the way THIS game's win model scores it — the same switch the spin uses, lifted
@@ -737,7 +754,7 @@ export function createMockRgs(opts = {}) {
 		for (;;) {
 			const exploding = payingCells(pending);
 			if (!exploding.length) break;
-			if (steps.length >= CASCADE_MAX_STEPS) {
+			if (steps.length >= CASCADE_RUNAWAY_GUARD) {
 				capped = true;
 				break;
 			}
@@ -749,10 +766,15 @@ export function createMockRgs(opts = {}) {
 			pending = boardWins;
 		}
 
-		// A cap is a coverage claim, so say so rather than truncating in silence.
+		// Reaching the guard is a statement about the CONFIG, not a routine truncation, so it says
+		// so and names the tool that measures it rather than logging a bare number.
 		if (capped) {
 			console.warn(
-				`[${label}] cascade hit the ${CASCADE_MAX_STEPS}-step cap — chain truncated, board still paying`,
+				`[${label}] cascade ran ${CASCADE_RUNAWAY_GUARD} tumbles without settling — the board is ` +
+					'STILL paying and the chain was cut off. This is a MATH problem, not a presentation ' +
+					'one: a win threshold at or below the average symbol count per board means every ' +
+					'board pays, forever. Measure it with ' +
+					'`pnpm --filter game-config-spike run scattermath -- --config <doc>`.',
 			);
 		}
 

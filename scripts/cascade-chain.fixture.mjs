@@ -182,7 +182,10 @@ const sc = await survey(7801, 'sc', 60);
 console.log(sc);
 check('scatter: chains of more than one step happen', sc.chained > 0, true);
 check('scatter: a dead spin never tumbles', sc.deadSpinsWithSteps, 0);
-check('scatter: the chain stays under the cap', sc.maxSteps <= 12, true);
+// The engine guard is 200 and a sane config never approaches it, so the assertion worth
+// making is that a correctly configured game SETTLES — not that it stays under a bound it
+// cannot reach.
+check('scatter: chains settle on their own, well short of the guard', sc.maxSteps < 25, true);
 scatterServer.close();
 
 // --- a lines game with the cascade FORCED on (the demo path) ---------------------
@@ -250,6 +253,35 @@ check('a bare, valueless MULT is never dealt', bare, 0);
 check('the collect fixture still deals valued ones', valued > 0, true);
 staleServer.close();
 
+// --- a chain that CANNOT settle ------------------------------------------------
+//
+// The guard is the one path that only runs when a config is broken, so it is the one most
+// likely to rot unnoticed. Two symbols on a 64-cell board with a threshold of 4 means every
+// refill pays again, forever — the shape `test5` had, taken to its limit. What matters is that
+// the round still ENDS: a mock that loops here takes the test server down for every game.
+const runawayServer = await startMock(7805, {
+	winModel: 'scatter',
+	cascade: true,
+	reels: 8,
+	rows: 8,
+	paylines: [],
+	minCount: 4,
+	symbols: ['PIC1', 'PIC2'],
+});
+console.log('\n--- a cascade that cannot settle ---');
+const startedAt = process.hrtime.bigint();
+const runaway = await hush(() => spin(7805, 'runaway', 0));
+const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+const runawaySteps = (runaway.events ?? []).filter((e) => e.event === 'tumbleStep');
+console.log({ steps: runawaySteps.length, ms: Math.round(elapsedMs) });
+check('the round terminates rather than looping', runawaySteps.length > 0, true);
+check('...at the guard, not before it', runawaySteps.length, 200);
+check(
+	'...and the guard is far enough out that a settling chain never reaches it',
+	runawaySteps.length > 40,
+	true,
+);
+runawayServer.close();
 for (const line of report) console.log(line);
 console.log(
 	failures === 0
