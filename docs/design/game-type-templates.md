@@ -425,6 +425,10 @@ resized its grid.
    respect: it ships a committed config default (`gameConfig/scatter.json`), where cluster's upstream
    strips are empty placeholders.
 
+   **The cascade CHAINS as of 2026-08-21.** The mock re-scores each refilled board with the
+   project's own win model and keeps going until one pays nothing, so a cluster/scatter game
+   behaves like a tumble game rather than tumbling once. It does not touch the capture blocker.
+
    **The collect beat has a wire as of 2026-08-21** (`multiplierCollect` → `boardMultiplierInfo`),
    on the same terms as `tumbleStep`: ours, fixture-only, labelled at both ends, to be REPLACED by
    a real provider's shape rather than bent to fit. Scatter is therefore exercisable end to end —

@@ -641,6 +641,7 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 				const ctx = e.context as {
 					exploding?: { reel: number; row: number }[];
 					newSymbols?: string[][];
+					wins?: typeof pendingWins;
 				};
 				push({
 					type: 'tumbleBoard',
@@ -658,6 +659,18 @@ const adaptEventsForStake = (sid: string, events: Play4FunBookEvent[]): unknown[
 						reel.map((cell) => toRawSymbol(activeMapping, cell)),
 					),
 				});
+				// A cascading board pays AGAIN, and each step carries the wins of the board it just
+				// revealed — so they are narrated here, right after the tumble that produced them,
+				// rather than with the dealt board's wins. Flushing them at the reveal instead would
+				// draw step 3's win frame over the board step 1 was still showing.
+				//
+				// Reuses the ordinary win flush, which is the point: `runningTotal` keeps accumulating
+				// through the chain, so the meter climbs across the whole cascade instead of resetting
+				// to each step's own figure.
+				if (ctx.wins?.length) {
+					pendingWins = ctx.wins;
+					flushWins();
+				}
 				break;
 			}
 			/**

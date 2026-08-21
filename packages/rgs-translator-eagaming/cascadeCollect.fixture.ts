@@ -90,6 +90,7 @@ console.log(`\ndriving the REAL facade against the REAL mock over ${ROUNDS} roun
 let sawTumble = false;
 let sawCollect = false;
 let sawMultiplierOnBoard = false;
+let sawChain = false;
 
 for (let i = 0; i < ROUNDS; i++) {
 	const events = await hush(() => playRound(`fixture-${i}`));
@@ -97,6 +98,29 @@ for (let i = 0; i < ROUNDS; i++) {
 
 	const tumbles = events.filter((e) => e.type === 'tumbleBoard');
 	if (tumbles.length) sawTumble = true;
+	if (tumbles.length > 1) sawChain = true;
+
+	// THE CHAIN'S NARRATION. A cascading board pays again, and each step's win has to be narrated on
+	// the board that step revealed — so a `winInfo` may follow a `tumbleBoard`, and the LAST tumble
+	// must have none after it (the chain ends precisely because that board paid nothing).
+	if (tumbles.length) {
+		const lastTumble = types.lastIndexOf('tumbleBoard');
+		const winInfoAfterLastTumble = types.findIndex((t, at) => t === 'winInfo' && at > lastTumble);
+		check(
+			`round ${i}: nothing pays after the final tumble — that is why the chain stopped`,
+			winInfoAfterLastTumble,
+			-1,
+		);
+
+		// The meter only ever climbs across a chain. A step that reset it to its own figure would
+		// show the player the round going backwards mid-cascade.
+		let previous = -1;
+		for (const e of events.filter((ev) => ev.type === 'winInfo')) {
+			const total = e.totalWin as number;
+			check(`round ${i}: the win meter never steps back mid-chain`, total >= previous, true);
+			previous = total;
+		}
+	}
 
 	for (const tumble of tumbles) {
 		const newSymbols = tumble.newSymbols as { name: string; multiplier?: number }[][];
@@ -171,6 +195,7 @@ for (let i = 0; i < ROUNDS; i++) {
 }
 
 check('the cascade translated at all', sawTumble, true);
+check('a CHAIN of more than one tumble translated', sawChain, true);
 check('a refilled multiplier reached the board', sawMultiplierOnBoard, true);
 check('the collect beat translated at all', sawCollect, true);
 
