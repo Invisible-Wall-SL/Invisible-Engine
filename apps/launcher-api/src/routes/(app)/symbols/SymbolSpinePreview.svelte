@@ -3,6 +3,8 @@
 	import {
 		disposeSpineInstance,
 		loadSpineInstance,
+		measureSpineBounds,
+		type SpineArtBounds,
 		type SpineInstance,
 	} from '../editor/editorSpine.client';
 	import {
@@ -31,6 +33,10 @@
 	let gl: WebGLRenderingContext | null = null;
 	let renderer: SpineSceneRenderer | null = null;
 	let instance: SpineInstance | null = null;
+	// Measured ONCE per instance: `measureSpineBounds` runs `setToSetupPose()` on its
+	// fallback path, which would wipe the applied animation frame if the render loop
+	// re-measured. The rect is pose-independent, so once is also correct.
+	let artBounds: SpineArtBounds | null = null;
 	let raf = 0;
 	let lastTime = 0;
 	let playingAnim: string | null = null;
@@ -65,6 +71,7 @@
 		}
 		if (!renderer && canvas) renderer = createSceneRenderer(canvas, gl);
 		instance = inst;
+		artBounds = measureSpineBounds(inst);
 		playingAnim = null;
 		status = 'ready';
 		onAnimations?.(inst.data.animations.map((a) => a.name));
@@ -84,30 +91,29 @@
 			disposeSpineInstance(instance);
 			instance = null;
 		}
+		artBounds = null;
 		playingAnim = null;
 	}
 
-	/** Contain-fit the skeleton's setup bounds into the square canvas (centred). */
+	/**
+	 * Contain-fit the rig into the square canvas (centred) against `measureSpineBounds` —
+	 * the AUTHORED skeleton canvas, which is the same rect the game's `spineSizeScale` and
+	 * the Scene Editor's reel cells measure. This preview used to fit live setup-pose
+	 * bounds instead, which disagrees with what ships whenever a rig's canvas and its
+	 * resting art differ: the scatter's invisible ray burst (bones scaled ×4) made the grid
+	 * draw a gem a third the size the board shows.
+	 */
 	function fitSkeleton(inst: SpineInstance, w: number, h: number): void {
 		const skel = inst.skeleton;
-		const offset = { x: 0, y: 0 };
-		const span = { x: 0, y: 0 };
+		const { offX, offY, bw, bh } = (artBounds ??= measureSpineBounds(inst));
 		skel.scaleX = 1;
 		skel.scaleY = 1;
 		skel.setToSetupPose();
 		skel.updateWorldTransform(getSpinePhysics());
-		try {
-			skel.getBounds(offset, span, []);
-		} catch {
-			/* bounds unavailable */
-		}
-		const data = inst.skeleton.data as unknown as { width?: number; height?: number };
-		const bw = span.x > 0 ? span.x : (data.width ?? w);
-		const bh = span.y > 0 ? span.y : (data.height ?? h);
 		const pad = 0.86;
 		const s = Math.min(w / bw, h / bh) * pad;
-		const cx = span.x > 0 ? offset.x + span.x / 2 : 0;
-		const cy = span.y > 0 ? offset.y + span.y / 2 : 0;
+		const cx = offX + bw / 2;
+		const cy = offY + bh / 2;
 		skel.x = w / 2 - s * cx;
 		skel.y = h / 2 + s * cy;
 		skel.scaleX = s;
