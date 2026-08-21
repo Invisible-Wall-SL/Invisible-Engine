@@ -43,7 +43,8 @@ before — an un-authored project still runs the compiled template.
   **ways**, **cluster** or **scatter**, plus that model's own settings (ways: which
   direction and the fewest reels; cluster: fewest cells and how they connect;
   scatter: fewest symbols). This is what makes a project a ways game rather than a
-  lines one. See _Making a ways game_ below.
+  lines one. See _Making a ways game_ below. The same panel carries **Winners
+  tumble** — see _Tumbling (cascade)_ below.
 - **Paylines** — a visual grid, one cell per reel per line, showing the **live server
   (RGS) line set** the game actually deals at runtime — **auto-loaded** when the page
   opens (best-effort; falls back to the saved config if the RGS is unreachable).
@@ -51,6 +52,36 @@ before — an un-authored project still runs the compiled template.
   (see _Server-defined paylines_ below).
 - **Big win tiers** — the big-win celebrations the game plays, as an ordered list.
   See _Big win tiers_ below. Leave it empty to keep the game's built-in tiers.
+
+## Tumbling (cascade)
+
+A **tumbling** (cascading) game removes the symbols that just paid, drops the ones
+above them into the gap, refills from the top, and pays again on the new board — for
+as long as the new board keeps paying.
+
+**You normally do not set this.** It follows the win model, because for two of them
+it is not a variant but the mechanic itself:
+
+| Win model   | Winners tumble |
+| ----------- | -------------- |
+| **Lines**   | no             |
+| **Ways**    | no             |
+| **Cluster** | **yes**        |
+| **Scatter** | **yes**        |
+
+The **Winners tumble** dropdown is there for the cases that depart from that — a
+cluster game you want to settle like a normal reel game, or a lines game you want to
+give the tumble to. The hint under the panel tells you when the project is
+overriding its type's default. Only a departure is saved, so a project that agrees
+with its win model stores nothing.
+
+**Authoring the explosion.** As a winning symbol leaves the board it plays its
+**Explosion** state from the [Symbols tool](/docs/symbols) — an ordinary authorable
+symbol state, like Land or Win. A project that has not authored one will see the
+winners simply vanish, which reads as a bug and is not one.
+
+**Republish after changing it.** The tumble is dealt by the server, so the setting
+reaches the game through a publish, not a save.
 
 ## Big win tiers
 

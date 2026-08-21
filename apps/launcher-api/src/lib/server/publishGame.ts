@@ -196,6 +196,22 @@ function projectSymbolPaytable(
  * mock keeps its shared default). `numRows` is the per-reel array, so `rows` is its max (a stepped
  * board is a rectangle tall enough to hold it).
  */
+/**
+ * The project's OWN cascade answer, or `undefined` when it never stated one.
+ *
+ * Deliberately reads the stored field rather than `resolveCascade`: the resolved value would be a
+ * boolean for EVERY project, and the test server treats a boolean as authoritative — which would
+ * pin every unauthored game and break the `CASCADE_GAMES` escape hatch on lines games.
+ */
+async function projectCascade(clientKey: string, projectKey: string): Promise<boolean | undefined> {
+	try {
+		const doc = await loadGameConfigDoc(clientKey, projectKey);
+		return typeof doc?.cascade === 'boolean' ? doc.cascade : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 async function projectGrid(
 	protocol: MockProtocol,
 	clientKey: string,
@@ -316,6 +332,12 @@ export async function publishGame(
 	// ⇒ the test server falls back to its shared default. `paylines` are the config's row-index arrays.
 	const grid = await projectGrid(protocol, clientKey, projectKey);
 
+	// Does this project tumble? Only an EXPLICIT departure travels: the normalizer stores `cascade`
+	// only when it disagrees with the win model's own default, so an unauthored game sends nothing
+	// and the test server's protocol default decides (and its `CASCADE_GAMES` override still works
+	// on a lines game). Sending the resolved boolean unconditionally would silently defeat that.
+	const cascade = await projectCascade(clientKey, projectKey);
+
 	// 4 + 5. Merge the test-server manifest (read-modify-write, preserves siblings).
 	await upsertTestServerGame(key, {
 		protocol,
@@ -323,6 +345,7 @@ export async function publishGame(
 		runtime,
 		updatedAt: new Date().toISOString(),
 		...(grid ? { grid } : {}),
+		...(cascade === undefined ? {} : { cascade }),
 	});
 
 	// 6. Register the game. The launch URL boots the generic runtime (`?runtime=1`)

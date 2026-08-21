@@ -39,6 +39,7 @@ import {
 	type WinTierType,
 } from './types';
 import { normalizeWinModel } from './winModel';
+import { normalizeCascade } from './mechanics';
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
 	typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -414,6 +415,11 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 	// and for garbage), so a config authored before Phase C normalizes byte-identically.
 	const winModel = normalizeWinModel(raw.winModel);
 	if (winModel) doc.winModel = winModel;
+
+	// Same rule: kept ONLY when the project disagrees with what its win model already implies, so a
+	// cluster game that simply tumbles stores nothing and stays byte-identical to a math export.
+	const cascade = normalizeCascade(raw.cascade, winModel?.type ?? 'lines');
+	if (cascade !== undefined) doc.cascade = cascade;
 
 	// Win tiers + escalation flags are kept ONLY when tiers are authored, so an un-authored config
 	// omits all three and stays byte-identical to a Stake export (the coded `winLevelMap` fallback).

@@ -150,6 +150,11 @@ export interface TestServerGameEntry {
 	runtime?: string;
 	/** ISO timestamp — passed IN by the caller (no `Date.now()` here). */
 	updatedAt: string;
+	/** Does this game CASCADE (tumble)? Present only when the project's Game Config DEPARTS from what
+	 *  its win model already implies — `cluster`/`scatter` tumble by default, `lines`/`ways` do not —
+	 *  so an unauthored game leaves the test server's protocol default (and its `CASCADE_GAMES`
+	 *  override) in charge. Synced on publish from `resolveCascade`. */
+	cascade?: boolean;
 	/** The project's OWN board grid (from its Game Config), so the mock RGS deals THIS project's
 	 *  `numReels`/`numRows`/`paylines` instead of the shared `apps/lines` default — otherwise a project
 	 *  that authored e.g. 5 rows mismatches the client (rolls with 5, settles to fewer). Absent ⇒ the
