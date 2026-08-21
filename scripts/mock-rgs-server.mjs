@@ -438,7 +438,14 @@ const evaluateScatters = (reels, totalStake) => {
 		pay: mult * totalStake,
 		mpInfo: { mp: 1, replacements: 0 },
 		mpBonusInfo: null,
-		context: { positions },
+		// A BARE array, like every sibling evaluator and the book mock — that is the ONLY shape the
+		// facade's `winPositions` reads (`Array.isArray(context)`). It used to be a `{ positions }`
+		// wrapper, chosen so `payingCells` would skip the scatters when picking the cells a cascade
+		// blows up. That worked, but it also stripped the positions from the CLIENT's `winInfo`: no
+		// scatter highlight, no free-spin trigger animation, and — on a scatter-only paying spin — an
+		// EMPTY win-dim set, which darkened every cell on the board and lit none. The cascade
+		// exclusion now lives in `payingCells`, keyed off what the win IS rather than a context shape.
+		context: Object.assign(positions, { count }),
 	};
 };
 
@@ -676,13 +683,18 @@ export function createMockRgs(opts = {}) {
 	 *
 	 * A flat `{reel,row}` context names them directly (cluster / ways / scatter-pays); a payline
 	 * context names the whole line, of which only the leftmost `occurs` reels pay — the same slice
-	 * the client lights. The SCAT trigger win carries neither shape, so it contributes nothing and
-	 * the scatters are never blown off a board that is triggering.
+	 * the client lights.
+	 *
+	 * The SCAT trigger/pay win is skipped by WHAT IT IS, so the scatters are never blown off a board
+	 * that is triggering. It used to be excluded by shape instead — its context was wrapped in a
+	 * `{ positions }` object no reader here understood — but the facade could not read that shape
+	 * either, so the scatter cells never reached the client at all. Exclude here, emit there.
 	 */
 	const payingCells = (wins) => {
 		const seen = new Set();
 		const cells = [];
 		for (const win of wins) {
+			if (win.mode === 'scatter' && win.what === 'SCAT') continue;
 			const ctx = win.context;
 			const list = Array.isArray(ctx)
 				? ctx

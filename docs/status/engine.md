@@ -157,6 +157,18 @@ What runs on `main` today (this is the ENGINE side — the runtime + reference g
 
 ## Recent changes
 
+- 2026-08-21 — **A scatter pay dimmed the WHOLE board and lit none of it.** Owner reported a cluster game going dark on a win with no win overlay. The dim is real and correct machinery (`/symbols` → win cycle → "Dim non-winning symbols"): it lights the paying cells and darkens the rest. The paying cells were empty.
+
+  **The mock stripped them.** `evaluateScatters` was the ONLY evaluator that wrapped its cells — `context: { positions }` where `evaluateClusters` / `evaluateWays` / `evaluateScatterPays` and the whole book mock emit a bare array. The facade's `winPositions` reads `Array.isArray(context)` then `context.payline`, so the wrapper matched neither and every SCAT win reached the client with `positions: []`.
+
+  **The wrapper was load-bearing, which is why it survived.** It was chosen so `payingCells` — the cells a cascade blows up — would skip the scatters, and its comment said exactly that: "the SCAT trigger win carries neither shape, so it contributes nothing". It did the job. It just did it by making the win unreadable to everyone, the client included. The exclusion now lives in `payingCells` keyed off `mode === 'scatter' && what === 'SCAT'` — what the win IS, not what its context looks like — and the positions go out as a bare array.
+
+  **Three things were broken at once, and only one was visible.** With no positions: the win-dim set was empty, so on a scatter-ONLY paying spin `setWinDim(true, {})` darkened all 36 cells and lit zero; `boardWithAnimateSymbols` got no cells, so no symbol entered its `win` state and no highlight drew; and `scatterTriggerPositions` was empty, so a free-spin TRIGGER animated no scatters either. A cluster game surfaced it first because scatter-only paying spins are ordinary there and there is no payline to carry the set — on a lines game a line win almost always covered for it.
+
+  **Guarded engine-side too:** `refreshWinDim` now returns instead of activating on an empty lit set. Dimming 100% of the board is never a correct win presentation, whatever sent the win.
+
+  Verified offline against the real mock over the real reader: pre-fix, 8/8 scatter rounds arrived with 0 positions and 7 of them would have darkened the entire board; post-fix all 8 carry their cells. Cascade safety re-checked over 93 tumble steps — no SCAT cell is ever blown off the board. **Reaches the live test server on the next deploy from `main`;** the `refreshWinDim` guard needs a Runtime release.
+
 - 2026-08-21 — **The cascade's 12-step cap was shaping the game, so a chain that would have settled came to rest still paying.** Owner reported the win frames looking wrong after a tumble: frames on mixed symbols, on a board that had stopped. The positions were correct — every step's cells were verified against the board that step produced — and the cause was the cap. A cascade ends when a board pays nothing; a cap low enough to be hit ends it somewhere else, and the somewhere-else is the one state a cascade must never rest in.
 
   **The measurement that settled it:** a mock configured 8x8 with `minCount 4` runs **40 tumbles and then settles on its own**. The old cap cut that off at 12 — truncating a chain that had a natural end, three times too early. So the bound was never protecting against runaway chains in any real sense; it was cutting normal ones short.
