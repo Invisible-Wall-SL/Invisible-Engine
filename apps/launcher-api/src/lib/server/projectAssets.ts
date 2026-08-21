@@ -4,7 +4,7 @@
  * only return keys + names — never object contents.
  */
 import { manifestKeyByFolder } from '../pickSheets';
-import { SUB } from './projectPaths';
+import { SUB, sharedSheetsPrefix } from './projectPaths';
 import { listAllKeys, listObjects } from './r2';
 
 export type AtlasKind = 'atlas-manifest' | 'atlas-page';
@@ -35,6 +35,8 @@ export interface SheetAsset {
 	 * holds no JSON (a sheet that never finished exporting).
 	 */
 	manifestKey?: string;
+	/** `true` when the sheet comes from the cross-project `_shared/sheets/` library. */
+	shared: boolean;
 }
 
 export interface ProjectAssets {
@@ -113,16 +115,40 @@ async function listSpines(client: string, project: string): Promise<SpineAsset[]
  * so, and shares its selection rule with `resolveManifestKey`.
  */
 async function listSheets(client: string, project: string): Promise<SheetAsset[]> {
-	const root = `${SUB.sheets(client, project)}/`;
-	const res = await listObjects(root, MAX_PER_KIND);
-	const folders = res.prefixes
-		.map((p) => ({ name: bundleName(p, root), key: p, kind: 'sheet' as const }))
-		.filter((s) => s.name);
+	const projectRoot = `${SUB.sheets(client, project)}/`;
+	const sharedRoot = `${sharedSheetsPrefix('')}`;
+
+	const [own, shared] = await Promise.all([
+		listObjects(projectRoot, MAX_PER_KIND),
+		listObjects(sharedRoot, MAX_PER_KIND),
+	]);
+
+	// A project sheet SHADOWS a shared one of the same name — same precedence as spines, and the
+	// same reason: the library is a fallback, never something that can override work a project owns.
+	const folders: SheetAsset[] = [];
+	const seen = new Set<string>();
+	for (const p of own.prefixes) {
+		const name = bundleName(p, projectRoot);
+		if (!name) continue;
+		seen.add(name);
+		folders.push({ name, key: p, kind: 'sheet', shared: false });
+	}
+	for (const p of shared.prefixes) {
+		const name = bundleName(p, sharedRoot);
+		if (!name || seen.has(name)) continue;
+		folders.push({ name, key: p, kind: 'sheet', shared: true });
+	}
 	if (folders.length === 0) return folders;
 
-	const manifests = manifestKeyByFolder(root, await listAllKeys(root));
+	// Manifests are derived per ROOT, because `manifestKeyByFolder` strips the root it is given.
+	const [ownManifests, sharedManifests] = await Promise.all([
+		seen.size ? listAllKeys(projectRoot).then((k) => manifestKeyByFolder(projectRoot, k)) : null,
+		folders.some((f) => f.shared)
+			? listAllKeys(sharedRoot).then((k) => manifestKeyByFolder(sharedRoot, k))
+			: null,
+	]);
 	return folders.map((s) => {
-		const manifestKey = manifests.get(s.key);
+		const manifestKey = (s.shared ? sharedManifests : ownManifests)?.get(s.key);
 		return manifestKey ? { ...s, manifestKey } : s;
 	});
 }

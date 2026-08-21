@@ -43,6 +43,7 @@ export function allowedPrefixes(
 	const prefixes = [`${projectPrefix(clientKey, projectKey)}/`];
 	if (opts.includeSharedSpines) prefixes.push('_shared/spines/');
 	if (opts.includeSharedFonts) prefixes.push('_shared/fonts/');
+	if (opts.includeSharedSheets) prefixes.push('_shared/sheets/');
 	if (opts.includeBlueprints) prefixes.push('_shared/blueprints/');
 	return prefixes;
 }
@@ -74,6 +75,13 @@ export interface GateOptions {
 	includeSharedSpines?: boolean;
 	/** Pass through to `allowedPrefixes` (editor opts into `_shared/fonts/`). */
 	includeSharedFonts?: boolean;
+	/**
+	 * Pass through to `allowedPrefixes` — the `_shared/sheets/` art library. READ-ONLY in practice:
+	 * nothing in the launcher writes there, so the library is seeded out-of-band and a tool can only
+	 * bind from it. If a publish-to-shared flow is ever added it needs its own capability, the way
+	 * `fontPublish` gates `_shared/fonts/` — this flag alone must never be treated as a write gate.
+	 */
+	includeSharedSheets?: boolean;
 	/** Pass through to `allowedPrefixes` (atlas opts into `_shared/blueprints/`). */
 	includeBlueprints?: boolean;
 }
@@ -112,6 +120,7 @@ export async function gate(
 	const prefixes = allowedPrefixes(clientKey, projectKey, {
 		includeSharedSpines: opts.includeSharedSpines,
 		includeSharedFonts: opts.includeSharedFonts,
+		includeSharedSheets: opts.includeSharedSheets,
 		includeBlueprints: opts.includeBlueprints,
 	});
 	return { clientKey, projectKey, prefixes };

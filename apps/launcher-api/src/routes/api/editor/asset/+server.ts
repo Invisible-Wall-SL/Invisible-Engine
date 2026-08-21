@@ -21,6 +21,8 @@ export const GET: RequestHandler = async ({ url, locals, cookies, request }) => 
 		forbiddenMessage: 'Your role does not have access to the project assets.',
 		includeSharedSpines: true,
 		includeSharedFonts: true,
+		// The shared art library — a sheet bound from `_shared/sheets/` streams its page through here.
+		includeSharedSheets: true,
 	});
 
 	const key = url.searchParams.get('key');
