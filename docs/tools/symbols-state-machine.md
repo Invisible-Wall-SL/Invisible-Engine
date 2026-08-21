@@ -76,7 +76,8 @@ tool top bar). Switch projects from the launcher before opening the tool.
    name when you leave Spine, the clip when you leave Flipbook), since a frame name is not
    a spine bundle is not a clip.
    - **Sprite:** use the **Frame** picker (the same `RegionPicker` the editor uses) to
-     choose a frame from any of the project's atlases/sheets.
+     choose a frame from any of the project's atlases/sheets — plus the **shared art
+     library** (see below).
    - **Spine:** pick a **Spine bundle** from the project's (and shared) bundles, then pick
      an **Animation**. Once the bundle loads, the animation list is populated from the
      skeleton; if it hasn't loaded yet you can type the animation name. Leaving it blank
@@ -413,6 +414,26 @@ game it must travel the standard live-assets chain, exactly like editor art and 
 
 So a complete rebind is: edit in the tool → **Save** → a tokened game build (export →
 bake → pull → register) → republish.
+
+## The shared art library
+
+Sheets listed with a **shared** flag come from `_shared/sheets/` — a cross-project
+library any project can bind art from without owning it. It is seeded with the
+engine's own symbol set, so a project has something to draw before it has
+commissioned anything of its own.
+
+It behaves exactly like a sheet the project owns:
+
+- bind a frame from it in any cell, the same way;
+- it travels the export → deploy → bake → pull chain, so art bound from the library
+  really ships (it is addressed by the full key of its manifest, which every consumer
+  reads verbatim);
+- **a project sheet of the same name shadows the shared one** — the library is a
+  fallback and can never override work a project owns.
+
+It is **read-only** from the tools: nothing in the launcher writes to `_shared/sheets/`,
+so the library is curated out-of-band. To make art your own, export it into the
+project's own sheets with the Sheet Maker and rebind.
 
 ## Known limitations / TODOs
 
