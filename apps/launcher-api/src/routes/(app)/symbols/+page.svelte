@@ -2539,7 +2539,7 @@
 							{unusedCount}
 							{unusedCount === 1 ? 'symbol is' : 'symbols are'}
 							marked <strong>not dealt</strong> — they are on no reel strip in
-							<a href="/config">Invisible Game Config</a>, and came from the template this project
+							<strong>Invisible Game Config</strong>, and came from the template this project
 							was seeded from. Art authored for them never renders.
 						</p>
 					{/if}
