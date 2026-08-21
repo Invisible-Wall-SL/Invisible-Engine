@@ -448,6 +448,41 @@ const evaluateScatters = (reels, totalStake) => {
 	};
 };
 
+/**
+ * Round every win to a WHOLE unit, because Play4Fun pays whole values — its wire carries integer
+ * credits (100 = $1.00) and no capture has ever shown a fraction of one.
+ *
+ * The evaluators work in exact arithmetic against a payout base that is often fractional: a ways
+ * base is the stake divided by 243, and a count-keyed scatter table quotes multipliers like 2.5. So
+ * the fractions are real, they just must not reach the wire. Rounding once HERE — after evaluation,
+ * before the events — is what keeps the round total, the balance and every `spinWin` integral
+ * together; rounding the base instead would distort each payout by up to a whole unit, and rounding
+ * per evaluator would let the sum drift away from the parts.
+ *
+ * A win worth LESS THAN HALF a unit rounds to zero and is DROPPED rather than emitted at `pay: 0`:
+ * a zero-pay win still starts a win presentation on the client, so the player would watch a count-up
+ * to nothing. Dropping is also the honest answer — a server that pays whole values genuinely cannot
+ * pay that win. It is reachable at the bottom of the bet ladder on a wide ways board (a 243-way slice
+ * of a 10-unit stake is 0.04, so a 5× single-way win is worth 0.2), which is a bet-LEVEL problem: a
+ * real Play4Fun game quotes levels that divide by its own line/way count. Logged once per session
+ * rather than dropped silently — a win that vanishes without a trace is the failure mode this whole
+ * area keeps producing.
+ */
+const toWholeUnits = (wins, onDropped) => {
+	const kept = [];
+	let dropped = 0;
+	for (const w of wins) {
+		const pay = Math.round(w.pay);
+		if (pay <= 0) {
+			dropped++;
+			continue;
+		}
+		kept.push(pay === w.pay ? w : { ...w, pay });
+	}
+	if (dropped && onDropped) onDropped(dropped);
+	return kept;
+};
+
 // ---------- pure HTTP plumbing ----------
 
 /** Build CORS headers compatible with credentials:'include'. The browser
@@ -556,6 +591,18 @@ export function createMockRgs(opts = {}) {
 	/** How many ways the grid pays — the product of each reel's visible rows, uniform here (a 5×3
 	 *  board pays 3⁵ = 243). The client computes the same number in `activeWaysCount()`. */
 	const waysCount = Math.max(1, rowCount ** reelCount);
+
+	/** Say ONCE that whole-unit rounding is eating sub-unit wins, and why. See `toWholeUnits`. */
+	let reportedSubUnitDrop = false;
+	const reportSubUnitDrop = (count) => {
+		if (reportedSubUnitDrop || quiet) return;
+		reportedSubUnitDrop = true;
+		console.warn(
+			`[${label}] ${count} win(s) this spin were worth less than a whole credit and were dropped — ` +
+				`this server pays whole values only. Raise the bet level, or lower the ${winModel} payout ` +
+				`granularity: the base is the stake ÷ ${winModel === 'ways' ? waysCount : 1}.`,
+		);
+	};
 	const authoredPaylines =
 		Array.isArray(opts.paylines) && opts.paylines.length ? opts.paylines : DEFAULT_PAYLINES;
 	// Keep the authored set when it already touches every row; otherwise the game's real dimensions
@@ -912,8 +959,11 @@ export function createMockRgs(opts = {}) {
 					//   scatter → whole bet  (divisor 1)
 					// `ways` used to price per LINE against phantom regenerated paylines, so a ways win
 					// paid ~19× what its own paytable quoted; `cluster` had the same slice against a
-					// divisor of 1. Fractional cents are fine and deliberate — a 243-way base rounded to
-					// a whole cent would distort every ways payout.
+					// divisor of 1.
+					//
+					// The base itself may be fractional (a 243-way slice of a whole-unit stake usually
+					// is) — rounding HERE would distort every ways payout by up to a whole unit. The
+					// rounding belongs on the PAY, once, at the wire: see `toWholeUnits` below.
 					const payoutBase =
 						winModel === 'ways'
 							? pendingRound.total / waysCount
@@ -929,7 +979,10 @@ export function createMockRgs(opts = {}) {
 									? evaluateScatterPays(reels, payoutBase, wild, scatterPaysOpts)
 									: evaluatePaylines(reels, payoutBase, paylines, wild);
 					const scatterWin = evaluateScatters(reels, pendingRound.total);
-					const wins = scatterWin ? [...lineWins, scatterWin] : lineWins;
+					const wins = toWholeUnits(
+						scatterWin ? [...lineWins, scatterWin] : lineWins,
+						reportSubUnitDrop,
+					);
 					const totalWin = wins.reduce((s, w) => s + w.pay, 0);
 					pendingRound.win = totalWin;
 

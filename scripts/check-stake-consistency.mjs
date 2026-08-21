@@ -18,9 +18,15 @@
  * number the win presentation counts up to, against the number the wallet settles. They are computed
  * from different fields by different code paths, so they only agree when the stake agrees.
  *
- * Also pins the position payload, because a win that pays but lights up nothing reads as an art bug:
- * the LINES mock's SCAT win nests its cells under `{ positions }` while every other win (and the book
- * mock's own SCAT) sends a bare array, and the facade dropped the nested one on the floor.
+ * Also pins two things a win can get wrong without ever looking wrong:
+ *
+ *   - **Whole credits.** Play4Fun pays whole values; our evaluators work in exact arithmetic against
+ *     a base that is often fractional (a ways base is the stake ÷ 243). The fractions must not reach
+ *     the wire, and a win rounded away must not arrive at `pay: 0` — that still starts a win
+ *     presentation, so the player counts up to nothing.
+ *   - **Positions.** A win that pays but lights up nothing reads as an art bug: the LINES mock's SCAT
+ *     win nests its cells under `{ positions }` while every other win (and the book mock's own SCAT)
+ *     sends a bare array, and the facade dropped the nested one on the floor.
  */
 
 import { createServer } from 'node:http';
@@ -96,7 +102,16 @@ async function play(model) {
 
 	await facade.requestAuthenticate({ rgsUrl, sessionID, language: 'en' });
 
-	const out = { betEcho: null, winRounds: [], winsSeen: 0, scatterWin: null, emptyPositions: 0 };
+	const out = {
+		betEcho: null,
+		winRounds: [],
+		winsSeen: 0,
+		scatterWin: null,
+		emptyPositions: 0,
+		fractionalPays: 0,
+		zeroPays: 0,
+		rawWinsSeen: 0,
+	};
 	for (let i = 0; i < 200; i++) {
 		const bet = await facade.requestBet({
 			rgsUrl,
@@ -108,6 +123,15 @@ async function play(model) {
 		if (bet.error) break;
 		const raw = bet._raw?.events ?? [];
 		out.betEcho ??= raw.find((e) => e.event === 'bet')?.context ?? null;
+
+		// The RAW wire, before the facade converts to bet-multipliers: Play4Fun pays WHOLE credits.
+		for (const e of raw) {
+			if (e.event !== 'spinWin') continue;
+			out.rawWinsSeen++;
+			const pay = e.context?.pay;
+			if (!Number.isInteger(pay)) out.fractionalPays++;
+			else if (pay <= 0) out.zeroPays++;
+		}
 
 		const state = bet.round?.state ?? [];
 		for (const e of state) {
@@ -162,7 +186,26 @@ for (const model of MODELS) {
 			: ` (${r.winRounds.length} rounds)`,
 	);
 
-	// 3. A win that pays must light something up.
+	// 3. Play4Fun pays WHOLE credits — no fractions on the wire, and no zero-pay win either (a
+	//    zero would still start a win presentation, so the player counts up to nothing).
+	//    `ways` is the one that would break this on its own: its payout base is the stake ÷ 243.
+	//
+	//    Scoped to the four models of the LINES mock on purpose. The BOOK mock deliberately emits a
+	//    zero-pay SCAT entry so the scatters still glow on the trigger spin — verified to produce no
+	//    fractional pay of its own, so it needs no rounding and must not be "fixed" to match this.
+	check(r.rawWinsSeen > 0, 'wins reach the wire', ` (${r.rawWinsSeen})`);
+	check(
+		r.fractionalPays === 0,
+		'every win pays a WHOLE credit',
+		` (${r.fractionalPays}/${r.rawWinsSeen} fractional)`,
+	);
+	check(
+		r.zeroPays === 0,
+		'no win is emitted at pay 0',
+		` (${r.zeroPays}/${r.rawWinsSeen} zero-pay)`,
+	);
+
+	// 4. A win that pays must light something up.
 	check(r.winsSeen > 0, 'wins reach the client', ` (${r.winsSeen})`);
 	check(
 		r.emptyPositions === 0,
@@ -170,7 +213,7 @@ for (const model of MODELS) {
 		` (${r.emptyPositions}/${r.winsSeen} empty)`,
 	);
 
-	// 4. The nested `{ positions }` shape specifically — the one the facade used to drop.
+	// 5. The nested `{ positions }` shape specifically — the one the facade used to drop.
 	check(!!r.scatterWin, 'a SCAT (free-spin trigger) win occurs');
 	if (r.scatterWin) {
 		check(
