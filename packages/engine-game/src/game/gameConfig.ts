@@ -3,11 +3,13 @@ import {
 	resolveWinLevel,
 	resolveWinLevelChain,
 	resolveWinLevels,
+	resolveReelBehaviour,
 	resolveWinModel,
 	symbolsInPlay,
 	validateGameConfigDoc,
 	winLevelType,
 	type GameConfigDoc,
+	type ResolvedReelBehaviour,
 	type ResolvedWinTier,
 	type WinModel,
 } from 'game-config';
@@ -292,6 +294,23 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 */
 	function activeWinModel(): WinModel {
 		return resolveWinModel(getActiveGameConfig());
+	}
+
+	/**
+	 * HOW THE BOARD PRESENTS A ROUND — roll or swap in place, clear the outgoing board first, and how
+	 * long each column waits before it falls. Resolved from the active config, defaults already
+	 * applied (`ReelBehaviour`).
+	 *
+	 * Read through `resolveReelBehaviour` rather than off the doc, so "absent means the reels roll"
+	 * is spelled out once, and so the `clearBoard`-needs-`swapInPlace` dependency cannot be answered
+	 * differently here than it is in the tool that authors it.
+	 *
+	 * NOT memoised beyond `getActiveGameConfig`'s own memo: this is three field reads, and a second
+	 * cache would be a second thing `resetGameConfigCache()` has to remember to drop — the exact
+	 * omission that freezes an online game to the sample config.
+	 */
+	function activeReelBehaviour(): ResolvedReelBehaviour {
+		return resolveReelBehaviour(getActiveGameConfig());
 	}
 
 	/**
@@ -632,6 +651,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		activeWinLevelIsBig,
 		activeWaysCount,
 		activeWinLevels,
+		activeReelBehaviour,
 		activeWinModel,
 		boardDimensions,
 		boardSizes,

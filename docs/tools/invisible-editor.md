@@ -209,10 +209,13 @@ together, so ordinary upright artwork reads as standing on ground.
   game's board units. Blank means the lattice centre, which makes a symmetric
   board converge symmetrically; set it to match painted ground art whose
   vanishing point sits off-centre.
-- **Swap symbols in place** — a board behaviour, not a shape: the reels stop
-  rolling and a round replaces symbols in place (the opening board drops in, wins
-  explode, survivors slide down). It is deliberately independent of Far scale —
-  a converging board may still roll, and a flat board may swap.
+  This section is the board's **shape only**. Whether a round rolls or **swaps
+  symbols in place**, which swap style it uses, and how long each column waits
+  before it falls are set in **Game Config → Reel behaviour**, not here — they are
+  one fact about the game, while a reel grid node is authored per aspect ratio, and
+  a board that rolled in portrait but swapped in landscape is not a configuration
+  anyone wants. The two remain independent of each other: a converging board may
+  still roll, and a flat board may swap.
 
 The preview mirrors the game exactly. Both the 2D canvas and the spine layer read
 one shared geometry, so a sprite symbol and a spine symbol land on the same seat;

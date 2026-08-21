@@ -58,6 +58,22 @@ export interface GameStateDeps<TGameType extends string> {
 	/** GAME CONTENT: what this game plays when a symbol lands (its scatter counter + wild cue).
 	 *  Supplied by the app, re-exposed on `stateGameDerived` so existing callers are unchanged. */
 	onSymbolLand: (args: { rawSymbol: RawSymbol }) => void;
+	/**
+	 * How the board PRESENTS a round — `activeReelBehaviour()` from the app's game config, defaults
+	 * already applied (roll vs swap in place, the swap style, the per-column stagger, the clear step).
+	 *
+	 * A dep rather than a direct read, for the same reason the grid is one: this module is the shared
+	 * board machinery and the config resolver is the app's (`createGameConfig` is constructed there,
+	 * against that game's own compiled template). Passing the ACCESSOR rather than the value keeps it
+	 * LIVE — the live runtime bundle resolves after module evaluation, so a value read here would
+	 * freeze every board to the compiled sample config.
+	 */
+	reelBehaviour: () => {
+		swapInPlace: boolean;
+		swapStyle: 'dropIn' | 'columnCascade';
+		columnStaggerMs: number | undefined;
+		clearBoard: boolean;
+	};
 }
 
 /** The tall picture art for a stacked symbol (from the authored config). Mirrors a `SymbolCellInfo`
@@ -253,54 +269,65 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	};
 
 	/**
-	 * The board's MODE: does a round replace symbols IN PLACE (drop-in + cascade) instead of rolling
-	 * the reels? (docs/design/perspective-board-mode.md §"The mode switch".)
+	 * THE BOARD'S MODE: does a round replace symbols IN PLACE (drop-in or column cascade) instead of
+	 * rolling the reels? (docs/design/perspective-board-mode.md §"The mode switch".)
 	 *
-	 * DELIBERATELY NOT DERIVED FROM {@link boardPerspective}, which is the whole reason it is its own
-	 * function. `boardPerspective()` is `undefined` whenever the board is geometrically FLAT — no
-	 * `farScale`, a non-finite one, `<= 0`, or exactly `1` — which is the right answer for the seat
-	 * algebra and the WRONG one for the mode. The design keeps the two knobs independent on purpose:
-	 * "a stylised game may want a converging grid that still rolls, or a flat board that swaps".
-	 * `{ swapInPlace: true }` with no `farScale` is therefore a LEGAL, intended configuration, and
-	 * gating this on the geometry would make it silently do nothing with no error to find.
+	 * Read from the GAME CONFIG's `reelBehaviour` block, not from the `reelGrid` node beside the
+	 * geometry above. It lived on the node while the mode was first built, and that was the wrong
+	 * home: a `reelGrid` node is authored PER layoutType, so the schema allowed a board that rolled
+	 * in portrait and swapped in landscape. Whether a round rolls is one fact about the game, so it
+	 * is authored once, in `/config` → Reel behaviour.
 	 *
-	 * So it reads the authored block directly. `resolveReelGridPerspective` hands back the RAW authored
-	 * values (only the engine decides what "flat" means) and already coerces `swapInPlace` to `true` or
-	 * absent — so absent ⇒ `false` ⇒ everything gated on it takes the path it takes today.
+	 * Still DELIBERATELY INDEPENDENT of {@link boardPerspective}, which is why the three behaviour
+	 * accessors stay declared here beside the geometry they are NOT derived from. `boardPerspective()`
+	 * is `undefined` whenever the board is geometrically FLAT — no `farScale`, a non-finite one,
+	 * `<= 0`, or exactly `1` — which is the right answer for the seat algebra and the WRONG one for
+	 * the mode: "a stylised game may want a converging grid that still rolls, or a flat board that
+	 * swaps". A flat board that swaps is a legal, intended configuration, and gating this on the
+	 * geometry would make it silently do nothing with no error to find.
 	 */
-	const boardSwapsInPlace = () =>
-		resolveReelGridPerspective(boardOverride.node ?? undefined)?.swapInPlace === true;
+	const boardSwapsInPlace = () => deps.reelBehaviour().swapInPlace;
 
 	/**
 	 * HOW a swap-in-place board presents a new board — `'dropIn'` (the shipped behaviour: the whole
 	 * board falls in at once) or `'columnCascade'` (the resting board drains column by column, left
-	 * to right, each column refilling as it empties). See
-	 * `docs/design/perspective-board-mode.md` §"The mode switch".
+	 * to right, each column refilling as it empties).
 	 *
-	 * Absent ⇒ `'dropIn'`, and the caller EARLY-RETURNS the shipped drop-in on that answer rather
-	 * than routing it through a generalised per-column path that happens to reproduce it. Same
-	 * discipline as {@link getSymbolSeat}'s flat branch and for the same reason: `apps/lines` is the
-	 * shared `_runtime/lines` bundle every online game runs, so "equivalent" is not good enough.
+	 * Absent ⇒ `'dropIn'` (resolved in the config schema), and the caller EARLY-RETURNS the shipped
+	 * drop-in on that answer rather than routing it through a generalised per-column path that
+	 * happens to reproduce it. Same discipline as {@link getSymbolSeat}'s flat branch and for the
+	 * same reason: `apps/lines` is the shared `_runtime/lines` bundle every online game runs, so
+	 * "equivalent" is not good enough.
 	 *
 	 * Not gated on {@link boardSwapsInPlace} even though it only MEANS anything there: a style on a
 	 * rolling board is already inert (the reveal reaches no swap presentation at all), and gating
 	 * would put the same condition in two places for no behaviour.
 	 */
-	const boardSwapStyle = () =>
-		resolveReelGridPerspective(boardOverride.node ?? undefined)?.swapStyle ?? 'dropIn';
+	const boardSwapStyle = () => deps.reelBehaviour().swapStyle;
 
 	/**
 	 * The authored per-column stagger for `'columnCascade'`, in ms — or `undefined` for "the
-	 * presentation's own default". Deliberately NOT defaulted here: the number is a TIMING, and every
-	 * other cascade timing (the beat cap, the slide duration) lives with the presentation that spends
-	 * it, so the default belongs beside them rather than in the geometry module.
+	 * presentation's own default". Deliberately NOT defaulted to a number anywhere upstream: the
+	 * number is a TIMING, and every other cascade timing (the beat cap, the slide duration) lives
+	 * with the presentation that spends it.
 	 *
-	 * `resolveReelGridPerspective` has already dropped a non-finite or negative value, so anything
-	 * that arrives here is a usable delay — including `0`, which is a legal authoring choice (drain
-	 * and refill every column at once, no sweep) and must therefore survive the `??` at the call site.
+	 * The config resolver has already dropped a non-finite or negative value, so anything that
+	 * arrives here is a usable delay — including `0`, which is a legal authoring choice (drain and
+	 * refill every column at once, no sweep) and must therefore survive the `??` at the call site.
 	 */
-	const boardColumnStaggerMs = () =>
-		resolveReelGridPerspective(boardOverride.node ?? undefined)?.columnStaggerMs;
+	const boardColumnStaggerMs = () => deps.reelBehaviour().columnStaggerMs;
+
+	/**
+	 * Does the outgoing board CLEAR — every visible cell plays its authored `explosion` state and
+	 * leaves — before the new one falls in?
+	 *
+	 * Only ever true on a swap-in-place board using the `'dropIn'` style. The config resolver
+	 * enforces both preconditions, so the dependency is stated once, in the schema this and the
+	 * authoring tool both read: a rolling round has no drop-in to clear ahead of, and a column
+	 * cascade already empties each column by DRAINING it, so a clear there would be two clears for
+	 * one round.
+	 */
+	const boardClearsBeforeDrop = () => deps.reelBehaviour().clearBoard;
 
 	/**
 	 * The board's authored GROUND TILE art, resolved to the texture keys a `<Sprite>` looks up — or
@@ -308,8 +335,8 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	 * (`docs/design/perspective-board-mode.md` §"The tiles").
 	 *
 	 * Deliberately NOT gated on {@link boardPerspective}, for the same reason {@link boardSwapsInPlace}
-	 * is not: a tiled ground plane is an independent decision from a converging one, and a flat board
-	 * is allowed to want tiles. Gating it would make an authored tile silently render nothing with no
+	 * is not gated on it either: a tiled ground plane is an independent decision from a converging
+	 * one, and a flat board is allowed to want tiles. Gating it would make an authored tile silently render nothing with no
 	 * error to find.
 	 *
 	 * The resolution lives in `engine-layout` beside the ref format itself, so the game, the export
@@ -910,6 +937,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		boardSwapsInPlace,
 		boardSwapStyle,
 		boardColumnStaggerMs,
+		boardClearsBeforeDrop,
 		boardTileArt,
 		anticipationActive,
 		sequentialStopActive,

@@ -32,6 +32,12 @@ replaces symbols in place: the outgoing ones play out and the incoming ones fall
 - **The mode swaps defaults, it does not delete paths.** `apps/lines` is the shared runtime bundle
   for every online game, so the reel path stays fully intact — lines and book-of still roll. Turning
   perspective on changes which behaviours are wired, not which code ships.
+- **Two swap styles, and a clear step.** `dropIn` is the original: the whole board falls at once.
+  `columnCascade` (#425) drains the standing board column by column, left to right, refilling each
+  column as it empties, with `columnStaggerMs` as the single knob covering both readings of "left to
+  right" (short ⇒ a wave, longer than a column ⇒ strictly sequential, `0` ⇒ all at once). `clearBoard`
+  is the drop-in's own opener — the outgoing board plays its authored `explosion` state and leaves
+  before the new one arrives — and is inert under a cascade, whose drain already clears.
 
 ## What already exists (and why this is small)
 
@@ -114,14 +120,45 @@ perspective?: {
 	farScale?: number;
 	/** Board-local x the columns converge toward. Absent ⇒ the lattice centre. */
 	vanishX?: number;
-	/** Board behaviour: swap-in-place instead of rolling reels. Absent ⇒ false. */
-	swapInPlace?: boolean;
 };
 ```
 
+**SHAPE ONLY — the behaviour lives in the game config.** `swapInPlace` was originally specified
+here (and shipped here, alongside `swapStyle` / `columnStaggerMs` in #425), and that was the wrong
+home. A `reelGrid` node is authored **per `layoutType`**, so the schema allowed a board that rolled
+in portrait and swapped in landscape, or that swept at two different speeds depending on the phone —
+not a configuration anyone would author on purpose, and not a bug anyone would think to look for.
+Whether and how a round swaps is **one fact about the game**, so it moved to the Invisible Game
+Config's `reelBehaviour` block (`packages/game-config/src/reelBehaviour.ts`), authored in `/config`
+→ **Reel behaviour**:
+
+```ts
+reelBehaviour?: {
+	/** Replace symbols in place instead of rolling the reels. Absent ⇒ false. */
+	swapInPlace?: boolean;
+	/** How a swap presents. Absent ⇒ 'dropIn' (the shipped whole-board fall). */
+	swapStyle?: 'dropIn' | 'columnCascade';
+	/** Ms between one column starting its swap and the next. Absent ⇒ the presentation's 140. */
+	columnStaggerMs?: number;
+	/** dropIn only: the outgoing board plays its `explosion` state and leaves first. Absent ⇒ false. */
+	clearBoard?: boolean;
+};
+```
+
+`resolveReelBehaviour` owns every default AND both of `clearBoard`'s preconditions (it needs the
+mode, and it needs the `dropIn` style — a column cascade already empties each column by draining
+it). One answer, so the engine and the authoring tool cannot disagree about whether a knob is live.
+The engine reads the block through `deps.reelBehaviour` on `createGameState`, the same seam the
+board grid already arrives on.
+
+The knobs remain **independent of `farScale`** — that was always the point ("a stylised game may
+want a converging grid that still rolls, or a flat board that swaps") and the move does not change
+it; `boardSwapsInPlace` is still deliberately not derived from `boardPerspective()`.
+
 `swapInPlace` is kept separate from `farScale` on purpose: a stylised game may want a converging grid
 that still rolls, or a flat board that swaps. They are independent decisions and the schema should
-not force them together.
+not force them together — which is also why they ended up in two different docs entirely, one per
+ratio and one per game.
 
 **Open decision:** whether `perspective` needs per-`layoutType` overrides. `resolveTransform` already
 resolves position/scale per ratio; if a portrait layout wants a shallower perspective than landscape,

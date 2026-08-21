@@ -38,6 +38,7 @@ import {
 	type WinTierSound,
 	type WinTierType,
 } from './types';
+import { normalizeReelBehaviour } from './reelBehaviour';
 import { normalizeWinModel } from './winModel';
 import { normalizeCascade } from './mechanics';
 
@@ -420,6 +421,12 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 	// cluster game that simply tumbles stores nothing and stays byte-identical to a math export.
 	const cascade = normalizeCascade(raw.cascade, winModel?.type ?? 'lines');
 	if (cascade !== undefined) doc.cascade = cascade;
+
+	// Board BEHAVIOUR (roll vs swap-in-place, the clear step, the per-column stagger). Kept only when
+	// something is actually switched on, so a config that leaves the board alone stores no block at
+	// all and stays byte-identical to a math export.
+	const reelBehaviour = normalizeReelBehaviour(raw.reelBehaviour);
+	if (reelBehaviour) doc.reelBehaviour = reelBehaviour;
 
 	// Win tiers + escalation flags are kept ONLY when tiers are authored, so an un-authored config
 	// omits all three and stays byte-identical to a math export (the coded `winLevelMap` fallback).
