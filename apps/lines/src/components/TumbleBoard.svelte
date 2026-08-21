@@ -26,7 +26,7 @@
 	import TumbleBoardBase from './TumbleBoardBase.svelte';
 	import BoardMask from './BoardMask.svelte';
 	import { getContext } from '../game/context';
-	import { getSymbolY, stateGameDerived } from '../game/stateGame.svelte';
+	import { getSymbolSeat, stateGameDerived } from '../game/stateGame.svelte';
 	import {
 		stateTumble,
 		tumbleBoardCombined,
@@ -43,12 +43,12 @@
 	 * mechanic off every game that does not tumble — a lines or book-of game never mounts this and is
 	 * byte-identical with it in the bundle.
 	 *
-	 * Seats come from the shared `getSymbolY`, NOT from a fixed `SYMBOL_SIZE` step. The reference
+	 * Seats come from the shared `getSymbolSeat`, NOT from a fixed `SYMBOL_SIZE` step. The reference
 	 * cluster game could assume `(index + 0.5) * SYMBOL_SIZE` because its board had one geometry; this
 	 * runtime's board has an authorable reel grid (row pitch, lead, per-cell alignment, nudge), so a
 	 * symbol dropped by the cascade must land on the SAME seat a settled reel would have given it.
-	 * `getSymbolY` is the exact resting-seat expression `createReelForSpinning` uses, which is what
-	 * makes the two agree by construction rather than by a matching constant.
+	 * `getSymbolSeat` composes the exact resting-seat expression `createReelForSpinning` uses, which
+	 * is what makes the two agree by construction rather than by a matching constant.
 	 */
 
 	const context = getContext();
@@ -105,7 +105,7 @@
 			const addingReel = addingBoard[reelIndex] ?? [];
 			return addingReel.map((rawSymbol, symbolIndex) =>
 				createTumbleSymbol({
-					initY: getSymbolY(symbolIndex + PADDING_ROW - addingReel.length),
+					initY: getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW - addingReel.length).y,
 					rawSymbol,
 				}),
 			);
@@ -113,13 +113,14 @@
 
 	/** The board as it stands right now, seated exactly where the reels left it. */
 	const initTumbleBoardBase = () =>
-		stateGameDerived
-			.boardRaw()
-			.map((rawSymbolReel) =>
-				rawSymbolReel.map((rawSymbol, symbolIndex) =>
-					createTumbleSymbol({ initY: getSymbolY(symbolIndex + PADDING_ROW), rawSymbol }),
-				),
-			);
+		stateGameDerived.boardRaw().map((rawSymbolReel, reelIndex) =>
+			rawSymbolReel.map((rawSymbol, symbolIndex) =>
+				createTumbleSymbol({
+					initY: getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW).y,
+					rawSymbol,
+				}),
+			),
+		);
 
 	context.eventEmitter.subscribeOnMount({
 		tumbleBoardShow: () => (show = true),
@@ -149,9 +150,9 @@
 		},
 		tumbleBoardSlideDown: async () => {
 			await Promise.all(
-				tumbleBoardCombined().flatMap((tumbleReel) =>
+				tumbleBoardCombined().flatMap((tumbleReel, reelIndex) =>
 					tumbleReel.map(async (tumbleSymbol, symbolIndex) => {
-						const targetY = getSymbolY(symbolIndex + PADDING_ROW);
+						const targetY = getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW).y;
 						if (targetY === tumbleSymbol.symbolY.current) return;
 
 						await tumbleSymbol.symbolY.set(targetY, { duration: 200, easing: backOut });

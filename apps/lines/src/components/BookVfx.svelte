@@ -25,7 +25,7 @@
 	import { resolveFlipbook } from 'engine-layout';
 
 	import { getContext } from '../game/context';
-	import { getSymbolX, stateGame } from '../game/stateGame.svelte';
+	import { getSymbolSeat, stateGame } from '../game/stateGame.svelte';
 	import { boardDimensions } from '../game/gameConfig';
 	import { bakedBookVfx, bakedEffects } from '../editor-scenes';
 	import type { BookVfxLayer } from '../editor-scenes';
@@ -52,9 +52,13 @@
 	// symbol that happens to carry the special name must NOT sprout VFX above/below the board.
 	const frameBottom = $derived(boardDimensions().y * geometry.rowPitchLocal);
 
+	/** Row index of the padding row above the visible board — the board strip is padded top+bottom,
+	 *  so a strip index is one MORE than the lattice row `getSymbolSeat` seats. */
+	const PADDING_ROW = -1;
+
 	// Every resting-board cell holding the special symbol, at its board-local centre (the SAME
-	// `getSymbolX(reel)` / `reelSymbol.symbolY()` the symbols themselves use). A full-column expanded
-	// special symbol yields one entry per row, so mounting per cell naturally covers the whole column.
+	// `getSymbolSeat(reel, row).x` / `reelSymbol.symbolY()` the symbols themselves use). A full-column
+	// expanded special symbol yields one entry per row, so mounting per cell covers the whole column.
 	const cells = $derived.by(() => {
 		if (!active) return [] as { key: string; x: number; y: number }[];
 		const special = stateGame.specialSymbol;
@@ -64,7 +68,8 @@
 				if (reelSymbol.rawSymbol.name !== special) return;
 				const y = reelSymbol.symbolY();
 				if (y < 0 || y > frameBottom) return;
-				out.push({ key: `${reelIndex}:${row}`, x: getSymbolX(reelIndex), y });
+				const seat = getSymbolSeat(reelIndex, row + PADDING_ROW);
+				out.push({ key: `${reelIndex}:${row}`, x: seat.x, y });
 			});
 		});
 		return out;

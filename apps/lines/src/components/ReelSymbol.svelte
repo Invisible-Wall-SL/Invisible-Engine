@@ -3,7 +3,7 @@
 	import SymbolWrap from './SymbolWrap.svelte';
 	import { getSymbolInfo } from '../game/utils';
 	import {
-		getSymbolX,
+		getSymbolSeat,
 		stateGame,
 		stackedCoverage,
 		winDimCellKey,
@@ -18,6 +18,18 @@
 	};
 
 	const props: Props = $props();
+
+	/** Row index of the padding row above the visible board — `props.row` indexes the PADDED strip. */
+	const PADDING_ROW = -1;
+
+	/**
+	 * This cell's seat on the board lattice. Only `x` (and the row `scale`) are taken from it: `y`
+	 * stays the LIVE `symbolY()` off the spinning reel, which is the whole point of a rolling board —
+	 * the seat's y is where the symbol comes to REST, and mid-spin it is somewhere else entirely.
+	 * The two agree at rest by construction (`createReelForSpinning` is handed the same getters).
+	 */
+	const seat = $derived(getSymbolSeat(props.reelIndex, props.row + PADDING_ROW));
+
 	const symbolInfo = $derived(
 		getSymbolInfo({ rawSymbol: props.reelSymbol.rawSymbol, state: props.reelSymbol.symbolState }),
 	);
@@ -34,8 +46,9 @@
 
 {#if !covered}
 	<SymbolWrap
-		x={getSymbolX(props.reelIndex)}
+		x={seat.x}
 		y={props.reelSymbol.symbolY()}
+		scale={seat.scale}
 		tint={dimmed ? SYMBOL_DIM_TINT : 0xffffff}
 		animating={symbolInfo.type === 'spine' &&
 			(props.reelSymbol.symbolState === 'land' ||
