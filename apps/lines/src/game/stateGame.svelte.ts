@@ -60,6 +60,7 @@ export const {
 	winDimCellKey,
 	getSymbolX,
 	getSymbolY,
+	getSymbolSeat,
 	rebuildBoard,
 	stackedScrollStrip,
 	stackedPictureRuns,

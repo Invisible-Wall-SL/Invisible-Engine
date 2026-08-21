@@ -11,6 +11,8 @@
 		resolveBetModes,
 		resolveWinLevels,
 		resolveWinModel,
+		resolveCascade,
+		cascadeDefaultFor,
 		symbolsInPlay,
 		validateGameConfigDoc,
 		type BetModeKind,
@@ -499,6 +501,25 @@
 		if (type === 'cluster')
 			doc.winModel = { type: 'cluster', minCluster: 5, adjacency: 'orthogonal' };
 		if (type === 'scatter') doc.winModel = { type: 'scatter', minCount: 8 };
+	}
+
+	/**
+	 * Does this game tumble? Follows the win model unless the project overrides it.
+	 *
+	 * Mirrors `normalizeCascade` exactly, for the same reason `setWinModelType` mirrors
+	 * `normalizeWinModel`: the field is stored ONLY when it departs from the type's default, so
+	 * choosing the default here DELETES it rather than writing the same boolean back — otherwise the
+	 * doc looks dirty, saves, and comes back changed.
+	 */
+	const cascadeDefault = $derived(cascadeDefaultFor(winModelType));
+	const cascadeOn = $derived(resolveCascade(doc));
+
+	function setCascade(on: boolean) {
+		if (on === cascadeDefaultFor(resolveWinModel(doc).type)) {
+			delete doc.cascade;
+			return;
+		}
+		doc.cascade = on;
 	}
 
 	/** Write one numeric field on the active arm. Ignores a blank/NaN box so a half-typed number
@@ -1379,12 +1400,37 @@
 						/></label
 					>
 				{/if}
+				<label
+					><span>Winners tumble</span><select
+						value={cascadeOn ? 'on' : 'off'}
+						onchange={(e) => setCascade(e.currentTarget.value === 'on')}
+						disabled={lease.readOnly}
+					>
+						<option value="on">yes — winning symbols leave, the rest fall in</option>
+						<option value="off">no — the board stays until the next spin</option>
+					</select></label
+				>
 			</div>
+			<p class="hint">
+				<strong>Tumble (cascade)</strong> removes the symbols that just paid and drops the ones
+				above them into the gap, refilling from the top — then pays again on the new board. It
+				follows the win model unless you change it here: <strong>cluster</strong> and
+				<strong>scatter</strong>
+				games tumble by default, <strong>lines</strong> and <strong>ways</strong> do not.
+				{#if cascadeOn !== cascadeDefault}
+					<em
+						>This project overrides the default for a {winModelType} game (normally
+						{cascadeDefault ? 'on' : 'off'}).</em
+					>
+				{/if}
+				Symbols play their <strong>Explosion</strong> state from the Symbols tool as they leave — a project
+				that hasn't authored one will see them simply vanish.
+			</p>
 			{#if winModelType !== 'lines'}
 				<p class="hint muted-note">
-					Changing this changes only what the config <em>declares</em>. The engine still needs a
-					runtime for this game type — until then the game plays as lines regardless of what is
-					saved here.
+					Every win model is honoured end to end — the test server scores the board by this model,
+					and the client's payline-specific surfaces stand down for it. Republish after changing it:
+					the model reaches the test server's mock RGS only through a publish.
 				</p>
 			{/if}
 			{#each issuesFor('winModel') as issue (issue.path + issue.message)}

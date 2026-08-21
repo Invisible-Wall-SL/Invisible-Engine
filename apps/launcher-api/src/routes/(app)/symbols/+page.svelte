@@ -104,6 +104,17 @@
 
 	// Symbol rows come from the coded defaults (the source of truth for the set).
 	const symbolNames = $derived(Object.keys(data.defaults.symbols));
+	/**
+	 * Symbols this project never deals — in the grid only because the template it was seeded from
+	 * baked them in, and the server union never removes a baked symbol (so a symbol mid-authoring
+	 * cannot vanish). Authoring one is harmless and completely wasted, which is worth saying on
+	 * screen rather than leaving the page to contradict /config in silence.
+	 *
+	 * Empty when the project has no Game Config to compare against — unknown, so nothing is badged.
+	 */
+	const inPlaySet = $derived(data.inPlaySymbols ? new Set(data.inPlaySymbols) : null);
+	const isUnused = (name: string) => !!inPlaySet && !inPlaySet.has(name);
+	const unusedCount = $derived(symbolNames.filter(isUnused).length);
 
 	// Whether stacked-picture authoring is on for this project — a per-project master toggle (default
 	// OFF) that both shows the "Stacked pictures" config block below and gates whether the stacked config
@@ -1780,6 +1791,7 @@
 											<button
 												type="button"
 												class="stacked-chip"
+												class:unused={isUnused(name)}
 												class:on={stackedSet.has(name)}
 												onclick={() => toggleStackedSymbol(name)}
 												title={stackedSet.has(name)
@@ -2522,6 +2534,15 @@
 				{#if symbolNames.length === 0}
 					<p class="muted">No symbols defined for this game type.</p>
 				{:else}
+					{#if unusedCount > 0}
+						<p class="hint">
+							{unusedCount}
+							{unusedCount === 1 ? 'symbol is' : 'symbols are'}
+							marked <strong>not dealt</strong> — they are on no reel strip in
+							<strong>Invisible Game Config</strong>, and came from the template this project
+							was seeded from. Art authored for them never renders.
+						</p>
+					{/if}
 					<table class="grid" style="--cell: {previewSize}px">
 						<thead>
 							<tr>
@@ -2534,9 +2555,16 @@
 						<tbody>
 							{#each symbolNames as symbol (symbol)}
 								{@const named = doc.names?.[symbol]}
-								<tr>
+								<tr class:unused-row={isUnused(symbol)}>
 									<th class="rowhead">
 										<span class="sym-id">{symbol}</span>
+										{#if isUnused(symbol)}
+											<span
+												class="sym-unused"
+												title="This project never deals {symbol} — it is on no reel strip in Invisible Game Config. It appears here because the template this project was seeded from included it. Authoring art for it has no effect; remove it in /config to stop seeing it."
+												>not dealt</span
+											>
+										{/if}
 										<!-- The DISPLAY NAME: what the game calls this symbol out loud. Invisible Win
 										     Text prints it as {symbolName}, so a win says "4 Bananas" instead of the
 										     unspeakable id — or "4 of a kind", which is what it had to say before a
@@ -2944,6 +2972,25 @@
 	.sym-id {
 		display: block;
 		margin-bottom: 4px;
+	}
+	/* A symbol the project never deals: present because the template baked it in, kept because the
+	   server union is deliberately additive. Muted rather than hidden — the row stays fully usable. */
+	.sym-unused {
+		display: inline-block;
+		margin-bottom: 4px;
+		padding: 1px 6px;
+		font-size: 10px;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: #b08a5a;
+		background: #2a2118;
+		border: 1px solid #4a3a26;
+		border-radius: 999px;
+		cursor: help;
+	}
+	.unused-row .sym-id {
+		opacity: 0.6;
 	}
 	.sym-name {
 		display: block;
@@ -3500,6 +3547,11 @@
 		color: #0b0b0f;
 		background: #7fb2ff;
 		border-color: #7fb2ff;
+	}
+	/* Same provenance signal on the stacked-picture picker, which reads the same symbol list. */
+	.stacked-chip.unused:not(.on) {
+		color: #7a7a86;
+		border-style: dashed;
 	}
 	.stacked-row {
 		display: flex;

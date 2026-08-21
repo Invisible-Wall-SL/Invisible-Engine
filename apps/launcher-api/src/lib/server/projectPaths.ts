@@ -61,6 +61,20 @@ export const SHARED_ENGINE_STORYBOOK_PREFIX = '_shared/storybook/engine';
 /** Cross-project shared spines, outside any single project: `_shared/spines/<bundle>`. */
 export const sharedSpinesPrefix = (bundle: string) => `_shared/spines/${bundle}`;
 
+/**
+ * Cross-project shared SHEETS, outside any single project: `_shared/sheets/<folder>`.
+ *
+ * The library any project can bind art from without owning it — seeded with the engine's own
+ * symbol set, so a new project has something to draw before it has commissioned anything.
+ *
+ * It needs no resolver of its own, and that is worth stating because it looks like it should: a
+ * sheet is addressed by the FULL R2 key of its manifest (`isManifestAssetKey` = contains `/`,
+ * ends `.json`), and every consumer — `loadRegionSet`, `resolvePageKey`, the editor-art export —
+ * reads that key verbatim and looks for the page image in the manifest's OWN directory first. So
+ * a shared sheet travels the export → deploy → bake → pull chain exactly like a project one.
+ */
+export const sharedSheetsPrefix = (folder: string) => `_shared/sheets/${folder}`;
+
 /** Cross-project shared fonts, outside any single project: `_shared/fonts/<folder>`. */
 export const sharedFontsPrefix = (folder: string) => `_shared/fonts/${folder}`;
 

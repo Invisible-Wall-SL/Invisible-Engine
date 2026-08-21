@@ -347,6 +347,31 @@ const toBookEventAmount = (winCents: number, betCents: number): number => {
  *  become an engine row index. */
 const BOARD_PADDING_ROWS = 1;
 
+/**
+ * Split a board cell into its symbol name and the value it carries.
+ *
+ * A plain cell is just a name. A cell dealt by the multiplier-collect fixture reads
+ * `MULT:<value>` — the value has to travel WITH the cell because the board is a `string[][]`
+ * and a refill can move any row (see the mock).
+ *
+ * ⚠️ Like `tumbleStep`, this encoding is OURS and not a captured Play4Fun shape. It is inert
+ * for every cell without a colon, which is every cell any real session has ever sent.
+ */
+const parseCell = (cell: string): { name: string; multiplier?: number } => {
+	const colon = cell.indexOf(':');
+	if (colon === -1) return { name: cell };
+	const multiplier = Number(cell.slice(colon + 1));
+	if (!Number.isFinite(multiplier) || multiplier <= 0) return { name: cell };
+	return { name: cell.slice(0, colon), multiplier };
+};
+
+/** A board cell as the engine wants it: the MAPPED symbol name, plus any value it carries. */
+const toRawSymbol = (mapping: GameMapping, cell: string): { name: string; multiplier?: number } => {
+	const { name, multiplier } = parseCell(cell);
+	const mapped = mapSymbol(mapping, name);
+	return multiplier === undefined ? { name: mapped } : { name: mapped, multiplier };
+};
+
 /** Pad a 3-row reel to 5 cells (1 above + 1 below) for the engine's spin buffer. */
 const padReel = (reel: string[]): string[] => {
 	if (reel.length === 0) return [];
@@ -511,9 +536,11 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 			case 'playedSpin': {
 				const raw = (e.context as string[][]) ?? [];
 				const reels = clampBoardToGrid(sid, raw).map((reel) =>
-					reel.map((name) => {
-						isKnownSymbol(sid, name);
-						return name;
+					reel.map((cell) => {
+						// The WHITELIST check reads the base name, so a `MULT:5` cell is judged as `MULT`
+						// — otherwise every distinct value would warn as its own unknown symbol.
+						isKnownSymbol(sid, parseCell(cell).name);
+						return cell;
 					}),
 				);
 				// Book-of mechanic (Book of Thermopylae): during free spins the
@@ -535,9 +562,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				if (gameType === 'freegame') emitBonusCounter();
 				push({
 					type: 'reveal',
-					board: reels.map((reel) =>
-						padReel(reel).map((name) => ({ name: mapSymbol(activeMapping, name) })),
-					),
+					board: reels.map((reel) => padReel(reel).map((cell) => toRawSymbol(activeMapping, cell))),
 					paddingPositions: reels.map(() => 0),
 					gameType,
 				});
@@ -616,6 +641,7 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 				const ctx = e.context as {
 					exploding?: { reel: number; row: number }[];
 					newSymbols?: string[][];
+					wins?: typeof pendingWins;
 				};
 				push({
 					type: 'tumbleBoard',
@@ -626,10 +652,69 @@ const adaptEventsForEngine = (sid: string, events: Play4FunBookEvent[]): unknown
 						reel: p.reel,
 						row: p.row + BOARD_PADDING_ROWS,
 					})),
+					// A refilled cell may CARRY a multiplier (`MULT:5`). It has to arrive on the board as
+					// `{name, multiplier}`, because the collect beat below re-reads the settled board to
+					// find them — mapping the name alone would land a multiplier the client cannot see.
 					newSymbols: (ctx.newSymbols ?? []).map((reel) =>
-						reel.map((name) => ({ name: mapSymbol(activeMapping, name) })),
+						reel.map((cell) => toRawSymbol(activeMapping, cell)),
 					),
 				});
+				// A cascading board pays AGAIN, and each step carries the wins of the board it just
+				// revealed — so they are narrated here, right after the tumble that produced them,
+				// rather than with the dealt board's wins. Flushing them at the reveal instead would
+				// draw step 3's win frame over the board step 1 was still showing.
+				//
+				// Reuses the ordinary win flush, which is the point: `runningTotal` keeps accumulating
+				// through the chain, so the meter climbs across the whole cascade instead of resetting
+				// to each step's own figure.
+				if (ctx.wins?.length) {
+					pendingWins = ctx.wins;
+					flushWins();
+				}
+				break;
+			}
+			/**
+			 * Multiplier-COLLECT fixture → the engine's `boardMultiplierInfo`.
+			 *
+			 * ⚠️ `multiplierCollect` is NOT a captured Play4Fun event, for the same reason
+			 * `tumbleStep` is not: no capture of a scatter game exists, so its shape is ours. It is
+			 * inert unless the mock is asked for it (a scatter project that declares a multiplier
+			 * symbol), and a real provider should REPLACE it rather than have this bent to fit.
+			 *
+			 * Amounts convert like every other payout here — the engine wants bet-multiplier fixed
+			 * point, not cents. `boardMult` is a bare multiplier and is passed through untouched.
+			 */
+			case 'multiplierCollect': {
+				const ctx = e.context as {
+					positions?: { reel: number; row: number; multiplier: number }[];
+					tumbleWin?: number;
+					boardMult?: number;
+					totalWin?: number;
+				};
+				const tumbleWinCents = ctx.tumbleWin ?? 0;
+				const totalWinCents = ctx.totalWin ?? tumbleWinCents;
+				const totalWinAmount = toBookEventAmount(totalWinCents, betBaseCents);
+				push({
+					type: 'boardMultiplierInfo',
+					multInfo: {
+						// Same padding shift the reveal applies, or the collect lights the wrong cells.
+						positions: (ctx.positions ?? []).map((p) => ({
+							reel: p.reel,
+							row: p.row + BOARD_PADDING_ROWS,
+							multiplier: p.multiplier,
+						})),
+					},
+					winInfo: {
+						tumbleWin: toBookEventAmount(tumbleWinCents, betBaseCents),
+						boardMult: ctx.boardMult ?? 1,
+						totalWin: totalWinAmount,
+					},
+				});
+				// The round now pays the MULTIPLIED total, so `runningTotal` — the meter figure every
+				// later `setTotalWin` is built from — has to move with it, or the win meter would end
+				// the round on the PRE-multiplier number the collect just animated away from.
+				// In book-event units, not cents: this counter is fixed-point bet-multipliers.
+				runningTotal = totalWinAmount;
 				break;
 			}
 			case 'enterBonus': {

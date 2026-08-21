@@ -1,12 +1,15 @@
 <script lang="ts">
 	import Symbol from './Symbol.svelte';
 	import SymbolWrap from './SymbolWrap.svelte';
-	import { getSymbolX } from '../game/stateGame.svelte';
+	import { getSymbolSeat } from '../game/stateGame.svelte';
 	import { getSymbolInfo } from '../game/utils';
 	import type { TumbleSymbol } from '../game/stateTumble.svelte';
 
 	type Props = {
 		reelIndex: number;
+		/** The lattice row this symbol is falling INTO — its target seat, not where it currently is.
+		 *  Handed down by `TumbleBoardBase` because a cascade symbol has no reel to ask; see there. */
+		row: number;
 		tumbleSymbol: TumbleSymbol;
 	};
 
@@ -20,11 +23,15 @@
 			state: props.tumbleSymbol.symbolState,
 		}),
 	);
+	// `y` stays the live fall Tween — the seat only says where the symbol is HEADED, which is exactly
+	// the seat `tumbleBoardSlideDown` tweens it to.
+	const seat = $derived(getSymbolSeat(props.reelIndex, props.row));
 </script>
 
 <SymbolWrap
-	x={getSymbolX(props.reelIndex)}
+	x={seat.x}
 	y={props.tumbleSymbol.symbolY.current}
+	scale={seat.scale}
 	animating={symbolInfo.type === 'spine'}
 >
 	<Symbol

@@ -1,6 +1,6 @@
 import _ from 'lodash';
 
-import { recordBookEvent, checkIsMultipleRevealEvents, type BookEventHandlerMap } from 'utils-book';
+import { type BookEventHandlerMap } from 'utils-book';
 import { stateBet, stateUi, showMessage } from 'state-shared';
 import { sequence } from 'utils-shared/sequence';
 import { waitForResolve } from 'utils-shared/wait';
@@ -12,10 +12,10 @@ import { eventEmitter } from './eventEmitter';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { playBookEvent } from './utils';
-import { stateGame, stateGameDerived, stackedScrollStrip } from './stateGame.svelte';
+import { stateGame } from './stateGame.svelte';
 import { tumbleBoardCombined } from './stateTumble.svelte';
-import { buildAnticipationArming } from './anticipation';
 import {
+	presentReveal,
 	winLevelSoundsPlay,
 	winLevelSoundsStop,
 	animateSymbols,
@@ -29,33 +29,21 @@ import {
 	showWinInfoMessage,
 } from './flowEffects';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
-import { activeWinLevelData, boardDimensions, paddingReels } from './gameConfig';
+import { activeWinLevelData, boardDimensions } from './gameConfig';
 
 export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {
+	/**
+	 * The reveal — the bonus-game record, the game type, the cleared expansion and the board itself,
+	 * all through the SHARED {@link presentReveal}. Its twin, the flow-v2 `revealBoard` effect, calls
+	 * the identical function: whether the board rolls or drops in (swap-in-place mode) is decided in
+	 * ONE place, so a flow-driven game and a coded one cannot disagree about it.
+	 *
+	 * `soundScatterCounterClear` stays HERE rather than moving inside, because the flow path does not
+	 * broadcast it — it authors that cue as a Broadcast node. It is the one part of the reveal the two
+	 * paths were never meant to share.
+	 */
 	reveal: async (bookEvent: BookEventOfType<'reveal'>, { bookEvents }: BookEventContext) => {
-		const isBonusGame = checkIsMultipleRevealEvents({ bookEvents });
-		if (isBonusGame) {
-			// The per-spin slam re-arm is NOT here: a free spin's first event is `updateFreeSpin`, not
-			// `reveal`, so re-arming here left the counter update of the next spin to be presented under
-			// the previous spin's tripped token (`unskippablePresentation.ts`). The multiple-reveal guard
-			// still governs these two, which genuinely belong to the reveal: the stop button is enabled
-			// for the roll, and `recordBookEvent` records THIS reveal's index for the resume path.
-			eventEmitter.broadcast({ type: 'stopButtonEnable' });
-			recordBookEvent({ bookEvent });
-		}
-
-		stateGame.gameType = bookEvent.gameType;
-		// A new board ⇒ last spin's expansion is over. Cleared BEFORE the spin so a `winInfo` can
-		// only claim "on N reels" when THIS spin's `expandBookColumns` set it again.
-		stateGame.expandedSymbol = null;
-		await stateGameDerived.enhancedBoard.spin({
-			revealEvent: bookEvent,
-			// Stacked-picture mode seeds the scroll strip with natural-height blocks so tall pictures roll
-			// during the spin; a no-op when the mode is off (byte-parity).
-			paddingBoard: stackedScrollStrip(paddingReels(bookEvent.gameType)),
-			forceSequentialStop: stateGame.sequentialReelStop,
-			computeArming: buildAnticipationArming(bookEvent),
-		});
+		await presentReveal({ bookEvent, bookEvents });
 		eventEmitter.broadcast({ type: 'soundScatterCounterClear' });
 	},
 	winInfo: async (bookEvent: BookEventOfType<'winInfo'>) => {

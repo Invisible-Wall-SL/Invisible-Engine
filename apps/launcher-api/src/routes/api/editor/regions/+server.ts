@@ -19,6 +19,8 @@ export const GET: RequestHandler = async ({ url, locals, cookies }) => {
 		altTools: ['fx', 'rigger', 'flipbook', 'gameConfig'],
 		forbiddenMessage: 'Your role does not have access to the project assets.',
 		includeSharedSpines: true,
+		// ...and its regions are read through here, so both halves need the library in scope.
+		includeSharedSheets: true,
 	});
 
 	const sheet = url.searchParams.get('sheet');

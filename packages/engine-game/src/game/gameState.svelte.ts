@@ -4,7 +4,12 @@ import type { Tween } from 'svelte/motion';
 import { stateBet } from 'state-shared';
 import { createEnhanceBoard, createReelForSpinning } from 'utils-slots';
 import { createGetWinLevelDataByWinLevelAlias } from 'utils-shared/winLevel';
-import { resolveReelGridFromNode, resolveReelSpinProfile, type ReelGridNode } from 'engine-layout';
+import {
+	resolveReelGridFromNode,
+	resolveReelGridPerspective,
+	resolveReelSpinProfile,
+	type ReelGridNode,
+} from 'engine-layout';
 
 import type { RawSymbol, SymbolState, SymbolName } from './types';
 import { winLevelMap } from './winLevelMap';
@@ -61,6 +66,19 @@ export type StackedArt = {
 	assetKey: string;
 	animationName?: string;
 	clipId?: string;
+};
+
+/**
+ * The authored perspective, resolved into the numbers the seat algebra actually consumes
+ * (`docs/design/perspective-board-mode.md` §"The model"). Never constructed for a flat board — its
+ * absence IS "flat", which is what lets the seat function early-return today's expressions instead
+ * of multiplying them by a 1. See `boardPerspective` for what each field means.
+ */
+type BoardPerspective = {
+	farScale: number;
+	perRow: number;
+	frontRow: number;
+	vanishX: number;
 };
 
 export function createGameState<TGameType extends string>(deps: GameStateDeps<TGameType>) {
@@ -187,6 +205,179 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	};
 
 	/**
+	 * The authored PERSPECTIVE model, resolved into the three numbers the seat algebra needs — or
+	 * `undefined`, which means FLAT and is what every board that exists today resolves to
+	 * (docs/design/perspective-board-mode.md §"The model").
+	 *
+	 * `undefined` is the load-bearing part. `farScale = 1` collapses the algebra mathematically, but
+	 * NOT in floating point: `vanishX + (getSymbolX(reel) - vanishX) * 1` subtracts and adds back,
+	 * which rounds. So "flat" has to be a MISSING model that the callers below early-return on, not a
+	 * scale of 1 they multiply through — see {@link getSymbolSeat}.
+	 *
+	 * - `farScale` — the back row's scale. Absent / non-finite / `<= 0` / exactly `1` ⇒ flat.
+	 * - `perRow`  — the depth SLOPE: `scale(row) = farScale + perRow * clamp(row)`, so that the back
+	 *   row (0) draws at `farScale` and the front row draws at exactly 1.
+	 * - `frontRow` — the last visible row, i.e. where the depth ramp ends.
+	 * - `vanishX` — the authored vanishing point, defaulting to the lattice CENTRE: the midpoint of
+	 *   the first and last COLUMN SEATS. Taken from `getSymbolX` itself rather than from a board-size
+	 *   constant so it is the true centre of the columns that actually exist — `getSymbolX` is affine
+	 *   in the reel index, so the midpoint of its extremes IS the mean of every column, which is what
+	 *   makes a symmetric board contract symmetrically (column `i` and column `n-1-i` move by equal
+	 *   and opposite amounts). A board-size constant would miss by the lead + seat-alignment terms.
+	 */
+	const boardPerspective = () => {
+		const authored = resolveReelGridPerspective(boardOverride.node ?? undefined);
+		const farScale = authored?.farScale;
+		if (
+			typeof farScale !== 'number' ||
+			!Number.isFinite(farScale) ||
+			farScale <= 0 ||
+			farScale === 1
+		) {
+			return undefined;
+		}
+		const rows = deps.boardDimensions().y;
+		const frontRow = Number.isFinite(rows) && rows > 1 ? rows - 1 : 0;
+		// A one-row (or degenerate) board has no depth to ramp across, so every row sits at
+		// `farScale` — a uniformly smaller board rather than a division by zero.
+		const perRow = frontRow > 0 ? (1 - farScale) / frontRow : 0;
+		const reels = deps.boardDimensions().x;
+		const lastReel = Number.isFinite(reels) && reels > 1 ? Math.floor(reels) - 1 : 0;
+		const authoredVanishX = authored?.vanishX;
+		const vanishX =
+			typeof authoredVanishX === 'number' && Number.isFinite(authoredVanishX)
+				? authoredVanishX
+				: (getSymbolX(0) + getSymbolX(lastReel)) / 2;
+		return { farScale, perRow, frontRow, vanishX };
+	};
+
+	/**
+	 * The board's MODE: does a round replace symbols IN PLACE (drop-in + cascade) instead of rolling
+	 * the reels? (docs/design/perspective-board-mode.md §"The mode switch".)
+	 *
+	 * DELIBERATELY NOT DERIVED FROM {@link boardPerspective}, which is the whole reason it is its own
+	 * function. `boardPerspective()` is `undefined` whenever the board is geometrically FLAT — no
+	 * `farScale`, a non-finite one, `<= 0`, or exactly `1` — which is the right answer for the seat
+	 * algebra and the WRONG one for the mode. The design keeps the two knobs independent on purpose:
+	 * "a stylised game may want a converging grid that still rolls, or a flat board that swaps".
+	 * `{ swapInPlace: true }` with no `farScale` is therefore a LEGAL, intended configuration, and
+	 * gating this on the geometry would make it silently do nothing with no error to find.
+	 *
+	 * So it reads the authored block directly. `resolveReelGridPerspective` hands back the RAW authored
+	 * values (only the engine decides what "flat" means) and already coerces `swapInPlace` to `true` or
+	 * absent — so absent ⇒ `false` ⇒ everything gated on it takes the path it takes today.
+	 */
+	const boardSwapsInPlace = () =>
+		resolveReelGridPerspective(boardOverride.node ?? undefined)?.swapInPlace === true;
+
+	/**
+	 * The scale ONE row draws at: `farScale` at the back, exactly `1` at the front, linear between.
+	 *
+	 * The depth is CLAMPED to the visible rows rather than extrapolated, and that is a deliberate
+	 * choice: `rowIndex` is a lattice POSITION, and the positions the board actually uses run well
+	 * outside `0..frontRow` — the padding row is -1 and a cascade stacks its replacements at
+	 * `symbolIndex - 1 - addingReel.length`, which on a 5-row board reaches -6. Extrapolated, the
+	 * scale there would cross zero and go NEGATIVE (mirrored art), and the summed y would turn back
+	 * on itself so a symbol queued above the board would be seated BELOW it and "fall" upwards.
+	 * Clamping instead continues the ground plane above the board at the BACK row's size and pitch:
+	 * a replacement waits at the depth of the row behind the board and grows as it lands.
+	 *
+	 * {@link perspectiveRowSum} clamps identically, because the two MUST agree: y is the running sum
+	 * of these scales, so if the off-board scale and the off-board pitch disagreed, a falling symbol
+	 * would not land on the seat it was aimed at.
+	 */
+	const perspectiveRowScale = (model: BoardPerspective, rowIndex: number) =>
+		model.farScale + model.perRow * Math.min(Math.max(rowIndex, 0), model.frontRow);
+
+	/**
+	 * `Σ_{k<row} scale(k)` in units of `rowPitchLocal` — how many base pitches deep row `row` sits,
+	 * once each row above it has contributed only its OWN (compressed) pitch.
+	 *
+	 * Written closed-form, not as a loop, because the domain is not `0..rows-1`: the sum has to
+	 * answer for negative and fractional rows too (see {@link perspectiveRowScale}). Since `scale` is
+	 * affine in `k`, the sum has an exact closed form that extends there naturally —
+	 * `Σ_{k=0}^{row-1} (a + b·k) = a·row + b·row·(row-1)/2` — which is the middle branch below. The
+	 * two outer branches are the CLAMPED regions, where the scale is constant (`farScale` behind the
+	 * board, `1` in front of it) so the sum is plainly linear; all three branches meet exactly at the
+	 * joins (`row = 0` and `row = frontRow`), so y is continuous and increases with the row.
+	 *
+	 * At integer rows in `0..frontRow` this is literally the design's Σ — `scripts/verify-symbol-seat.mjs`
+	 * asserts it against a loop-sum rather than trusting the algebra. Between two integer rows it is
+	 * the analytic continuation of that sum, which is all a fractional row can ask for; no call site
+	 * seats a fractional row anyway (mid-flight y comes from the reel/tween, never from the seat).
+	 */
+	const perspectiveRowSum = (model: BoardPerspective, rowIndex: number) => {
+		const ramp = (row: number) => model.farScale * row + (model.perRow * row * (row - 1)) / 2;
+		if (rowIndex <= 0) return model.farScale * rowIndex;
+		if (rowIndex <= model.frontRow) return ramp(rowIndex);
+		return ramp(model.frontRow) + (rowIndex - model.frontRow);
+	};
+
+	/**
+	 * The board WINDOW's height in board-local space — ONE definition of "how tall is the visible
+	 * board", shared by the mask that clips it (`BoardMask`) and the in-frame test that culls symbols
+	 * outside it (`SymbolWrap`). Those two components each computed this expression themselves; they
+	 * have to agree exactly or a symbol is culled at a different height than the mask clips, so under
+	 * perspective — where the answer stops being a multiplication — it is defined once, here.
+	 */
+	const boardWindowHeight = () => {
+		const model = boardPerspective();
+		// FLAT: literally the expression both components used, in the same order (rows × the reel's
+		// ACTUAL row pitch), so the window cannot move by a float bit.
+		if (!model) return deps.boardDimensions().y * boardGeometry().rowPitchLocal;
+		// PERSPECTIVE: the rows no longer share a pitch, so the window is the SUM of the per-row
+		// pitches — which is exactly the depth of the row one past the front row, i.e. the bottom edge
+		// of the front row's cell.
+		return boardGeometry().rowPitchLocal * perspectiveRowSum(model, deps.boardDimensions().y);
+	};
+
+	/**
+	 * Reactive SEAT of ONE CELL — the single answer to "where does (reel, row) sit, and how big is
+	 * it". {@link getSymbolX}/{@link getSymbolY} stay exactly as they are and are what this composes,
+	 * because plenty of callers legitimately want a whole COLUMN's x rather than a cell's: the win
+	 * line groups its per-reel bars by that exact value, and the anticipation camera centres a whole
+	 * column on it.
+	 *
+	 * It exists because the lattice is separable — `x = f(reel)`, `y = g(row)`, one board scale —
+	 * only while the board is FLAT. Perspective (docs/design/perspective-board-mode.md) breaks all
+	 * three at once: converging columns make `x` depend on the ROW too, the row pitch compresses with
+	 * depth, and each row draws at its OWN scale. A call site that composes `getSymbolX(reel)` with a
+	 * live y can express none of that, so every per-cell seat has to come through one function before
+	 * the model can exist — which is all this phase does.
+	 *
+	 * WITHOUT AN AUTHORED PERSPECTIVE IT IS FLAT, and that is an EARLY RETURN of literally the two
+	 * getters plus `scale: 1` — the same CALLS, not an equivalent re-derivation. The perspective
+	 * algebra does collapse to them when `farScale` is 1, but only on paper:
+	 * `vanishX + (getSymbolX(reel) - vanishX) * 1` subtracts and adds back, and that rounds. Since
+	 * nothing authors a perspective yet, a single moved bit here is a board that silently shifted on
+	 * every online game with no authored change to blame. `scripts/verify-symbol-seat.mjs` asserts
+	 * the parity offline, as exact equality.
+	 *
+	 * `rowIndex` shares {@link getSymbolY}'s domain: it is a POSITION on the lattice, not an index
+	 * into the visible rows. It may be negative (the padding row above the board is -1) and may sit
+	 * far above it (a cascade stacks its replacements at `symbolIndex - 1 - addingReel.length`).
+	 * {@link perspectiveRowScale} explains what depth means out there.
+	 */
+	const getSymbolSeat = (reelIndex: number, rowIndex: number) => {
+		const model = boardPerspective();
+		if (!model) return { x: getSymbolX(reelIndex), y: getSymbolY(rowIndex), scale: 1 };
+		const scale = perspectiveRowScale(model, rowIndex);
+		const { rowPitchLocal } = boardGeometry();
+		return {
+			// The column is CONTRACTED toward the vanishing point by its row's scale — `getSymbolX` is
+			// reused verbatim, so lead, gaps, non-square cells and seat alignment all still mean what
+			// they mean today, and they shrink with their row, which is what perspective requires.
+			x: model.vanishX + (getSymbolX(reelIndex) - model.vanishX) * scale,
+			// Depth (the running sum of the compressed pitches) plus this row's OWN lead, itself scaled
+			// so the seat sits the same FRACTION into a shallower row as it does into a deep one.
+			y:
+				rowPitchLocal * perspectiveRowSum(model, rowIndex) +
+				rowPitchLocal * scale * getSymbolLead(),
+			scale,
+		};
+	};
+
+	/**
 	 * Build one spinning reel per column, sized + seeded from the ACTIVE game config (Invisible Game
 	 * Config). A FACTORY, not a module-scope const, so it can be re-run after the live runtime bundle
 	 * lands — see {@link rebuildBoard}: the online config resolves asynchronously AFTER this module
@@ -305,6 +496,25 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		stackedPictureMode: false,
 	});
 
+	/**
+	 * THE REEL-SHAPED BEHAVIOURS, and whether they are live.
+	 *
+	 * Three of the flags declared just above describe things a ROLLING reel does — it holds for a
+	 * tease, it stops one column at a time, it scrolls a strip of tall pictures past a window. A board
+	 * that swaps in place has no roll for any of them to describe, so when {@link boardSwapsInPlace} is
+	 * on they STAND DOWN (docs/design/perspective-board-mode.md §"The mode switch"). Nothing is
+	 * deleted: `apps/lines` is the shared `_runtime/lines` bundle every online game runs, and `lines`
+	 * and `bookOf` still roll — standing down means each behaviour reads the OFF value it already has
+	 * an established path for (`buildAnticipationArming` → `undefined`, `forceSequentialStop` →
+	 * falsy, the stacked readers → the strip unchanged / an empty run list), not a new branch.
+	 *
+	 * They live HERE, next to the flags, because each flag has several readers and gating a flag at its
+	 * readers is how the readers drift. One definition each, at the source.
+	 */
+	const anticipationActive = () => stateGame.anticipationMode && !boardSwapsInPlace();
+	const sequentialStopActive = () => stateGame.sequentialReelStop && !boardSwapsInPlace();
+	const stackedPicturesActive = () => stateGame.stackedPictureMode && !boardSwapsInPlace();
+
 	/** Key a board cell for the win-dim membership set (`reel:row`). Shared by the writer
 	 *  (`winSymbolCycle`) and the reader (`ReelSymbol`) so the two can never drift on the format. */
 	const winDimCellKey = (reel: number, row: number): string => `${reel}:${row}`;
@@ -398,12 +608,13 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	/**
 	 * When the stacked-picture mode is on, seed a reel's SCROLL strip with natural-height BLOCKS of the
 	 * stacked symbols, so tall pictures ROLL through the reel during the whole spin (not only on landing).
-	 * Each stacked-symbol occurrence becomes `height` copies; everything else is untouched. OFF ⇒ the strip
-	 * is returned unchanged (byte-parity). Purely cosmetic — this is only the scroll filler (`paddingBoard`);
+	 * Each stacked-symbol occurrence becomes `height` copies; everything else is untouched. OFF — or a
+	 * board that swaps in place, which has no scroll for a picture to roll through ⇒ the strip is
+	 * returned unchanged (byte-parity). Purely cosmetic — this is only the scroll filler (`paddingBoard`);
 	 * the RESULT board (`revealEvent.board`) is separate, so a partial result still crops on landing.
 	 */
 	const stackedScrollStrip = (strips: RawSymbol[][]): RawSymbol[][] => {
-		if (!stateGame.stackedPictureMode) return strips;
+		if (!stackedPicturesActive()) return strips;
 		const { symbols, heightOf } = resolvedStacked();
 		return strips.map((strip) =>
 			strip.flatMap((symbol) => {
@@ -416,10 +627,11 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	};
 
 	/** Scan every SETTLED reel for contiguous runs of an eligible symbol (length ≥ minRun) and turn each
-	 *  into a `StackedPictureRun`. Empty when the mode is off (byte-parity). Reads live $state, so callers
-	 *  read it reactively. */
+	 *  into a `StackedPictureRun`. Empty when the mode is off — or stood down (see
+	 *  {@link stackedPicturesActive}) — so `stackedCoverage` empties with it (byte-parity). Reads live
+	 *  $state, so callers read it reactively. */
 	const computeStackedRuns = (): StackedPictureRun[] => {
-		if (!stateGame.stackedPictureMode) return [];
+		if (!stackedPicturesActive()) return [];
 		const rows = deps.boardDimensions().y;
 		const { symbols: stackedSet, heightOf, artOf, fullHeightOnly, edgeCutoffs } = resolvedStacked();
 		const { rowPitchLocal } = boardGeometry();
@@ -647,6 +859,11 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		onSymbolLand: deps.onSymbolLand,
 		boardLayout,
 		boardGeometry,
+		boardPerspective,
+		boardSwapsInPlace,
+		anticipationActive,
+		sequentialStopActive,
+		boardWindowHeight,
 		boardRaw,
 		scatterLandIndex,
 		enhancedBoard,
@@ -656,6 +873,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	return {
 		getSymbolX,
 		getSymbolY,
+		getSymbolSeat,
 		getWinLevelDataByWinLevelAlias,
 		rebuildBoard,
 		setBoardOverride,

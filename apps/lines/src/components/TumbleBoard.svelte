@@ -7,7 +7,27 @@
 	export type EmitterEventTumbleBoard =
 		| { type: 'tumbleBoardShow' }
 		| { type: 'tumbleBoardHide' }
-		| { type: 'tumbleBoardInit'; addingBoard: AddingBoard }
+		| {
+				type: 'tumbleBoardInit';
+				addingBoard: AddingBoard;
+				/**
+				 * Keep the CURRENT board as the survivor (`base`) layer? Absent ⇒ `true` = the cascade,
+				 * exactly as it has always worked.
+				 *
+				 * `false` is the swap-in-place DROP-IN reveal (docs/design/perspective-board-mode.md
+				 * §"The mode switch"), where `addingBoard` is the whole new board and there are no
+				 * survivors. It has to be said explicitly, because "no survivors" is not something the
+				 * cascade's own steps can express: the drop-in runs WITHOUT `tumbleBoardExplode` /
+				 * `tumbleBoardRemoveExploded`, so nothing would ever filter the old board out of `base`.
+				 * Left in, the combined column would be twice as tall — which would settle the reels on a
+				 * double-height board and fire `land` on the off-screen half.
+				 *
+				 * "No survivors" is still ONE EMPTY COLUMN PER REEL, not an empty array:
+				 * `tumbleBoardCombined` maps over `base`, so a `[]` base would combine to `[]` and the
+				 * adding layer would never be drawn or settled at all.
+				 */
+				keepBase?: boolean;
+		  }
 		| { type: 'tumbleBoardReset' }
 		| { type: 'tumbleBoardExplode'; explodingPositions: ExplodingPositions }
 		| { type: 'tumbleBoardRemoveExploded' }
@@ -26,7 +46,7 @@
 	import TumbleBoardBase from './TumbleBoardBase.svelte';
 	import BoardMask from './BoardMask.svelte';
 	import { getContext } from '../game/context';
-	import { getSymbolY, stateGameDerived } from '../game/stateGame.svelte';
+	import { getSymbolSeat, stateGameDerived } from '../game/stateGame.svelte';
 	import {
 		stateTumble,
 		tumbleBoardCombined,
@@ -43,12 +63,12 @@
 	 * mechanic off every game that does not tumble — a lines or book-of game never mounts this and is
 	 * byte-identical with it in the bundle.
 	 *
-	 * Seats come from the shared `getSymbolY`, NOT from a fixed `SYMBOL_SIZE` step. The reference
+	 * Seats come from the shared `getSymbolSeat`, NOT from a fixed `SYMBOL_SIZE` step. The reference
 	 * cluster game could assume `(index + 0.5) * SYMBOL_SIZE` because its board had one geometry; this
 	 * runtime's board has an authorable reel grid (row pitch, lead, per-cell alignment, nudge), so a
 	 * symbol dropped by the cascade must land on the SAME seat a settled reel would have given it.
-	 * `getSymbolY` is the exact resting-seat expression `createReelForSpinning` uses, which is what
-	 * makes the two agree by construction rather than by a matching constant.
+	 * `getSymbolSeat` composes the exact resting-seat expression `createReelForSpinning` uses, which
+	 * is what makes the two agree by construction rather than by a matching constant.
 	 */
 
 	const context = getContext();
@@ -105,28 +125,38 @@
 			const addingReel = addingBoard[reelIndex] ?? [];
 			return addingReel.map((rawSymbol, symbolIndex) =>
 				createTumbleSymbol({
-					initY: getSymbolY(symbolIndex + PADDING_ROW - addingReel.length),
+					initY: getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW - addingReel.length).y,
 					rawSymbol,
 				}),
 			);
 		});
 
+	/**
+	 * NO survivors — one EMPTY column per reel. The drop-in reveal replaces the whole board, so the
+	 * base layer holds nothing; the columns themselves still have to exist because
+	 * `tumbleBoardCombined` maps over `base` and would otherwise combine to nothing. Shaped from the
+	 * live board so the reel COUNT is the real one, exactly like the two initialisers beside it.
+	 */
+	const initTumbleBoardNoBase = (): TumbleSymbol[][] => stateGameDerived.boardRaw().map(() => []);
+
 	/** The board as it stands right now, seated exactly where the reels left it. */
 	const initTumbleBoardBase = () =>
-		stateGameDerived
-			.boardRaw()
-			.map((rawSymbolReel) =>
-				rawSymbolReel.map((rawSymbol, symbolIndex) =>
-					createTumbleSymbol({ initY: getSymbolY(symbolIndex + PADDING_ROW), rawSymbol }),
-				),
-			);
+		stateGameDerived.boardRaw().map((rawSymbolReel, reelIndex) =>
+			rawSymbolReel.map((rawSymbol, symbolIndex) =>
+				createTumbleSymbol({
+					initY: getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW).y,
+					rawSymbol,
+				}),
+			),
+		);
 
 	context.eventEmitter.subscribeOnMount({
 		tumbleBoardShow: () => (show = true),
 		tumbleBoardHide: () => (show = false),
-		tumbleBoardInit: ({ addingBoard }) => {
+		tumbleBoardInit: ({ addingBoard, keepBase }) => {
 			stateTumble.adding = initTumbleBoardAdding({ addingBoard });
-			stateTumble.base = initTumbleBoardBase();
+			// Absent ⇒ the cascade's survivor layer, byte-identical to before the flag existed.
+			stateTumble.base = keepBase === false ? initTumbleBoardNoBase() : initTumbleBoardBase();
 		},
 		tumbleBoardReset: () => resetTumbleBoard(),
 		tumbleBoardExplode: async ({ explodingPositions }) => {
@@ -149,9 +179,9 @@
 		},
 		tumbleBoardSlideDown: async () => {
 			await Promise.all(
-				tumbleBoardCombined().flatMap((tumbleReel) =>
+				tumbleBoardCombined().flatMap((tumbleReel, reelIndex) =>
 					tumbleReel.map(async (tumbleSymbol, symbolIndex) => {
-						const targetY = getSymbolY(symbolIndex + PADDING_ROW);
+						const targetY = getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW).y;
 						if (targetY === tumbleSymbol.symbolY.current) return;
 
 						await tumbleSymbol.symbolY.set(targetY, { duration: 200, easing: backOut });

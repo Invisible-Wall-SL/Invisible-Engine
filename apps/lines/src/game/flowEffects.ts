@@ -51,7 +51,8 @@ import { eventEmitter } from './eventEmitter';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { stateApp } from './stateApp';
 import { type WinLevelData } from 'engine-game';
-import { stateGame, stateGameDerived, getSymbolX, stackedScrollStrip } from './stateGame.svelte';
+import { stateGame, stateGameDerived, getSymbolSeat, stackedScrollStrip } from './stateGame.svelte';
+import { tumbleBoardCombined } from './stateTumble.svelte';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { buildAnticipationArming } from './anticipation';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
@@ -337,13 +338,17 @@ export const showWinInfoMessage = ({
 	}
 };
 
+/** Row index of the padding row above the visible board — a book `position.row` indexes the PADDED
+ *  strip (one buffer row top and bottom), so the lattice row it seats is one less. */
+const PADDING_ROW = -1;
+
 /**
- * The board-local centre points the line traces: `getSymbolX(reel)` + the live symbol centre Y.
+ * The board-local centre points the line traces: the cell's SEAT x + the live symbol centre Y.
  * Mounted inside WinLine's <BoardContainer> so these align with the rendered reels.
  */
 export const winLinePointsFor = (positions: Position[]) =>
 	positions.map((position) => ({
-		x: getSymbolX(position.reel),
+		x: getSymbolSeat(position.reel, position.row + PADDING_ROW).x,
 		y: stateGame.board[position.reel].reelState.symbols[position.row].symbolY(),
 	}));
 
@@ -479,6 +484,115 @@ const toConfidence = (value: unknown): 'possible' | 'guaranteed' | undefined =>
 const boolOr = (value: unknown, fallback: boolean): boolean =>
 	typeof value === 'boolean' ? value : fallback;
 
+/**
+ * THE DROP-IN REVEAL — the opening board of a round arriving on a board that does not roll
+ * (docs/design/perspective-board-mode.md §"The mode switch").
+ *
+ * It is the CASCADE's own sequence minus the two steps a reveal has no business doing: nothing has
+ * won yet, so nothing explodes (`tumbleBoardExplode`) and nothing is filtered out
+ * (`tumbleBoardRemoveExploded`). What is left is exactly the beats that carry a board in from above —
+ * hide the reels, mount the overlay, queue the new board above the window, slide it down, hand the
+ * result back to the reels, unmount. Same components, same cues, no new presentation code.
+ *
+ * `keepBase: false` is the one thing the cascade never says: the whole board is being replaced, so
+ * there are no survivors (see the flag's doc on `tumbleBoardInit`). That is also what makes the
+ * SETTLE correct — with an empty base `tumbleBoardCombined()` IS the adding layer, i.e. exactly
+ * `bookEvent.board`, which is precisely the strip `enhancedBoard.spin` would have left on each reel
+ * (`createEnhanceBoardSpin` sets `reelState.symbols` from `revealEvent.board[reelIndex]`). So the
+ * reel board ends this beat holding the revealed symbols — which is what every downstream consumer
+ * reads: win lines, `winInfo`, and the resting-board win cycle all address `stateGame.board`.
+ *
+ * NOT skippable, deliberately: the shipped cascade is not either (it holds its own tweens with no
+ * skip token), and inventing a second slam path for the same overlay is how the two drift. The stop
+ * button still enables for a bonus reveal; pressing it settles reels that are already at rest, which
+ * is the same no-op it already is during a cascade.
+ */
+const dropInRevealBoard = async (bookEvent: BookEventOfType<'reveal'>) => {
+	eventEmitter.broadcast({ type: 'boardHide' });
+	eventEmitter.broadcast({ type: 'tumbleBoardShow' });
+	eventEmitter.broadcast({
+		type: 'tumbleBoardInit',
+		addingBoard: bookEvent.board,
+		keepBase: false,
+	});
+	await eventEmitter.broadcastAsync({ type: 'tumbleBoardSlideDown' });
+	eventEmitter.broadcast({
+		type: 'boardSettle',
+		board: tumbleBoardCombined().map((tumbleReel) =>
+			tumbleReel.map((tumbleSymbol) => tumbleSymbol.rawSymbol),
+		),
+	});
+	eventEmitter.broadcast({ type: 'tumbleBoardReset' });
+	eventEmitter.broadcast({ type: 'tumbleBoardHide' });
+	eventEmitter.broadcast({ type: 'boardShow' });
+};
+
+/**
+ * THE REVEAL, for BOTH drivers — the coded `bookEventHandlerMap.reveal` handler and the flow-v2
+ * `revealBoard` effect (`__IE_FLOW_V2__` owns `reveal` when a doc authors it).
+ *
+ * There are two call sites and only ever one of them runs, which is exactly why this is one
+ * function: the two bodies were already line-for-line twins ("the coded `reveal` handler's twin,
+ * verbatim"), and the board MODE is a branch that would otherwise have to be added to both. A mode
+ * switch that reached the coded path but not the flow one — or the reverse — is a game that rolls on
+ * some spins and drops in on others, with nothing authored to explain it.
+ *
+ * Everything the reveal does BESIDES presenting the board is in here too, in the original order: the
+ * bonus-game record + stop-button enable, `gameType`, and clearing `expandedSymbol`. The coded
+ * handler's trailing `soundScatterCounterClear` stays with its caller — the flow authors that as a
+ * Broadcast node instead, which is the one genuine difference between the two.
+ */
+export const presentReveal = async ({
+	bookEvent,
+	bookEvents,
+}: {
+	bookEvent: BookEventOfType<'reveal'>;
+	bookEvents: BookEvent[];
+}) => {
+	const isBonusGame = checkIsMultipleRevealEvents({ bookEvents });
+	if (isBonusGame) {
+		// The per-spin slam re-arm is NOT here: a free spin's first event is `updateFreeSpin`, not
+		// `reveal`, so re-arming here left the counter update of the next spin to be presented under
+		// the previous spin's tripped token (`unskippablePresentation.ts`). The multiple-reveal guard
+		// still governs these two, which genuinely belong to the reveal: the stop button is enabled
+		// for the roll, and `recordBookEvent` records THIS reveal's index for the resume path.
+		eventEmitter.broadcast({ type: 'stopButtonEnable' });
+		recordBookEvent({ bookEvent });
+	}
+
+	stateGame.gameType = bookEvent.gameType;
+	// A new board ⇒ last spin's expansion is over. Cleared BEFORE the board arrives so a `winInfo` can
+	// only claim "on N reels" when THIS spin's `expandBookColumns` set it again.
+	stateGame.expandedSymbol = null;
+
+	// THE MODE SWITCH. A swap-in-place board has no reel path at all, so the opening board drops in
+	// instead of rolling. Absent `swapInPlace` this is false and the spin below is reached exactly as
+	// it always was — the reel path is untouched, `lines` and `bookOf` still roll.
+	if (stateGameDerived.boardSwapsInPlace()) {
+		await dropInRevealBoard(bookEvent);
+		return;
+	}
+
+	await stateGameDerived.enhancedBoard.spin({
+		revealEvent: bookEvent,
+		// Stacked-picture mode seeds the scroll strip with natural-height blocks so tall pictures roll
+		// during the spin; a no-op (returns the strip unchanged) when the mode is off or stood down
+		// (byte-parity).
+		paddingBoard: stackedScrollStrip(paddingReels(bookEvent.gameType)),
+		// Sequential reel stop stands down with the roll. It needs no branch of its own: this whole
+		// call is unreachable on a swap-in-place board, and `sequentialStopActive()` reads false there
+		// anyway — belt and braces, so a future caller that reaches the spin some other way still
+		// cannot re-arm a per-reel stop stagger on a board with no reels to stagger.
+		forceSequentialStop: stateGameDerived.sequentialStopActive(),
+		// Client-computed reel anticipation — MUST be here rather than at either caller: a flow-v2 game
+		// (the Book-of remake) drives its reveals through the effect while the coded path drives the
+		// rest, so a policy passed at only one of them silently never arms on the other. That is what
+		// this function being shared buys. Off by default ⇒ `undefined` (parity), and it returns
+		// `undefined` on a swap-in-place board for the same reason as above.
+		computeArming: buildAnticipationArming(bookEvent),
+	});
+};
+
 // ---------------------------------------------------------------------------
 // The named-effect map — the implementation side of every `effect` node in the
 // apps/lines FlowDoc (`flowDoc.ts`). Bodies are the coded handler leaves, verbatim.
@@ -511,39 +625,17 @@ const effects: Record<string, FlowEffect> = {
 	},
 
 	/**
-	 * `reveal` leaf — the bonus-game record + the awaited board spin. Mirrors the coded
-	 * `reveal` handler exactly: the bonus-game branch records the event (for resume) +
-	 * enables stop, sets `gameType`, then spins the board awaited. The `soundScatterCounterClear`
-	 * that follows in the coded handler is a plain broadcast — authored as a Broadcast node.
+	 * `reveal` leaf — the whole reveal, through {@link presentReveal}, which the coded
+	 * `bookEventHandlerMap.reveal` handler calls as well. It used to be that handler's body copied
+	 * here; it is now literally the same function, so the two can no longer answer the board MODE
+	 * question differently. The `soundScatterCounterClear` the coded handler broadcasts afterwards is
+	 * authored as a Broadcast node instead.
 	 */
-	revealBoard: async (payload) => {
-		const bookEvent = payload.bookEvent as BookEventOfType<'reveal'>;
-		const bookEvents = payload.bookEvents as BookEvent[];
-		const isBonusGame = checkIsMultipleRevealEvents({ bookEvents });
-		if (isBonusGame) {
-			// The per-spin slam re-arm is NOT here — it hangs off `updateFreeSpin`, the free spin's
-			// FIRST event (`unskippablePresentation.ts`). The coded `reveal` handler's twin, verbatim.
-			eventEmitter.broadcast({ type: 'stopButtonEnable' });
-			recordBookEvent({ bookEvent });
-		}
-		stateGame.gameType = bookEvent.gameType;
-		// The coded `reveal` handler's twin: a new board ends the last spin's expansion, so only THIS
-		// spin's `expandBookColumns` can license the "on N reels" win text.
-		stateGame.expandedSymbol = null;
-		await stateGameDerived.enhancedBoard.spin({
-			revealEvent: bookEvent,
-			// Stacked-picture mode seeds the scroll strip with natural-height blocks so tall pictures roll
-			// during the spin; a no-op (returns the strip unchanged) when the mode is off (byte-parity).
-			paddingBoard: stackedScrollStrip(paddingReels(bookEvent.gameType)),
-			forceSequentialStop: stateGame.sequentialReelStop,
-			// Client-computed reel anticipation — MUST be passed here too, not only in the coded
-			// `bookEventHandlerMap` reveal handler: a flow-v2 game (the Book-of remake) drives its
-			// reveals through THIS effect, so without this the whole anticipation feature (win + scatter
-			// + book axes) silently never arms on a flow-authored board — exactly why the free-spin book
-			// tease didn't show. Off by default ⇒ `buildAnticipationArming` returns undefined (parity).
-			computeArming: buildAnticipationArming(bookEvent),
-		});
-	},
+	revealBoard: async (payload) =>
+		presentReveal({
+			bookEvent: payload.bookEvent as BookEventOfType<'reveal'>,
+			bookEvents: payload.bookEvents as BookEvent[],
+		}),
 
 	/**
 	 * Enable free-spin sequential reel stop — each reel stops consecutively (`sequentialReelStop`).

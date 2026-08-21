@@ -1,7 +1,7 @@
 import { createLinesReach, createWaysReach } from 'utils-slots';
 import type { AnticipationReach, ReelAnticipationArming } from 'utils-slots';
 
-import { stateGame } from './stateGame.svelte';
+import { stateGame, stateGameDerived } from './stateGame.svelte';
 import {
 	getActiveGameConfig,
 	getNumLines,
@@ -138,15 +138,20 @@ function buildReach(board: string[][]): {
 }
 
 /**
- * Build the per-reel arming policy for one reveal, or `undefined` when anticipation mode is off (the
+ * Build the per-reel arming policy for one reveal, or `undefined` when anticipation is not active (the
  * spin then runs the plain path — byte-parity). The returned function is called by
  * `createEnhanceBoardSpin` with the index of the reel about to settle: `winBounds(reelIndex)` /
  * `triggerBounds(reelIndex)` express what is still reachable given reels `0..reelIndex-1` are locked.
+ *
+ * "Not active" is the authored mode being off OR the board swapping in place — an anticipating reel is
+ * a reel that HOLDS, which a board with no roll cannot do (`stateGameDerived.anticipationActive`).
+ * This `undefined` is the one seam the whole feature already switches off through, so standing it down
+ * costs no new branch here or in the spin.
  */
 export function buildAnticipationArming(
 	revealEvent: BookEventOfType<'reveal'>,
 ): ((reelIndex: number) => ReelAnticipationArming | null) | undefined {
-	if (!stateGame.anticipationMode) return undefined;
+	if (!stateGameDerived.anticipationActive()) return undefined;
 
 	// Reveal boards are padded one row top+bottom (`padReel`); the VISIBLE window is rows 1..y, which
 	// is what the paylines index into. (Phase 3 owns pixel-accurate presentation; this slice matches

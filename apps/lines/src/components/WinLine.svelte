@@ -242,7 +242,10 @@
 	 *  (± half a cell). A ways win pays by whole-reel participation, so the reel is the unit: cells
 	 *  on the same reel become a single continuous bar even when they are NOT adjacent, rather than
 	 *  the scatter of one-cell dashes `traceColumns` would leave. Reels are keyed by the point's `x`,
-	 *  which is `getSymbolX(reel)` — one exact value per reel, so the grouping is lossless. */
+	 *  which is the cell SEAT's x (`winLinePointsFor`) — on a FLAT board that is one exact value per
+	 *  reel, so the grouping is lossless. A converging board would give each row its own x and this
+	 *  would have to key on the reel index instead; perspective stands the ways/roll behaviours down
+	 *  (docs/design/perspective-board-mode.md), so it is not that today. */
 	function traceReels(graphics: DrawGraphics, pts: WinLinePoint[], half: number): void {
 		const spans: { x: number; top: number; bottom: number }[] = [];
 		for (const pt of pts) {

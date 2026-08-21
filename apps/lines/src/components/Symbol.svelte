@@ -24,9 +24,16 @@
 	const symbolInfo = $derived(getSymbolInfo({ rawSymbol: props.rawSymbol, state: props.state }));
 	const isSprite = $derived(symbolInfo.type === 'sprite');
 	const isFlipbook = $derived(symbolInfo.type === 'flipbook');
+	// No art bound for this symbol: draw no art at all. The `{:else}` arm below is the SPINE
+	// renderer, so falling through would hand it an undefined bundle — the blank-binding crash
+	// one layer down from the one `getSymbolInfo` now absorbs. Any value the symbol CARRIES (a
+	// multiplier) still draws, because that is the part the player needs to read.
+	const hasArt = $derived(!symbolInfo.missingArt);
 </script>
 
-{#if isFlipbook}
+{#if !hasArt}
+	<!-- nothing to draw -->
+{:else if isFlipbook}
 	<SymbolFlipbook {symbolInfo} x={props.x} y={props.y} oncomplete={props.oncomplete} />
 {:else if isSprite}
 	<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={props.oncomplete} />

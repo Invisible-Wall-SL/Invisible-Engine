@@ -150,6 +150,11 @@ export interface TestServerGameEntry {
 	runtime?: string;
 	/** ISO timestamp — passed IN by the caller (no `Date.now()` here). */
 	updatedAt: string;
+	/** Does this game CASCADE (tumble)? Present only when the project's Game Config DEPARTS from what
+	 *  its win model already implies — `cluster`/`scatter` tumble by default, `lines`/`ways` do not —
+	 *  so an unauthored game leaves the test server's protocol default (and its `CASCADE_GAMES`
+	 *  override) in charge. Synced on publish from `resolveCascade`. */
+	cascade?: boolean;
 	/** The project's OWN board grid (from its Game Config), so the mock RGS deals THIS project's
 	 *  `numReels`/`numRows`/`paylines` instead of the shared `apps/lines` default — otherwise a project
 	 *  that authored e.g. 5 rows mismatches the client (rolls with 5, settles to fewer). Absent ⇒ the
@@ -186,6 +191,11 @@ export interface TestServerGameEntry {
 		/** The project's own count-keyed paytable in SERVER symbols (`scatter` only) — its pricing is
 		 *  by count, which the mock's run-length table cannot express. See `projectSymbolPaytable`. */
 		symbolPaytable?: Record<string, Record<string, number>>;
+		/** `true` when the project declares a multiplier symbol IN PLAY (`special_properties`
+		 *  contains `multiplier`, and it appears on a strip). A cascading scatter game then lands
+		 *  multiplier cells during a tumble and collects them into a board multiplier. Absent ⇒ the
+		 *  mock deals none, so a project with no multiplier art never has blank cells dealt at it. */
+		multiplier?: boolean;
 	};
 }
 

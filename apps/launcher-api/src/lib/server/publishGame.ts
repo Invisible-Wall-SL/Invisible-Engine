@@ -152,9 +152,61 @@ function projectWild(doc: GameConfigDoc): { paytable: Record<string, number> } |
  * intentionally excluded: the existing `wild` field already governs whether the mock deals a wild.
  * An empty pool (misconfig) ⇒ `undefined` ⇒ the mock keeps its full default (never deals a blank board).
  */
+/**
+ * The project's in-play MULTIPLIER symbol, by name, or `undefined`.
+ *
+ * Gated on `symbolsInPlay` for the same reason `projectWild` is: a symbol that merely sits in
+ * the dictionary but appears on no strip can never be dealt.
+ */
+function projectMultiplierSymbol(doc: GameConfigDoc): string | undefined {
+	const inPlay = new Set(symbolsInPlay(doc));
+	return Object.entries(doc.symbols).find(
+		([name, sym]) => inPlay.has(name) && sym.special_properties?.includes('multiplier'),
+	)?.[0];
+}
+
+/**
+ * Should the mock deal multiplier cells at this project?
+ *
+ * Two conditions, and the second one is the one that cost a live game. The config DECLARING a
+ * multiplier symbol is not enough: the symbol also has to be RENDERABLE, i.e. bound to art in
+ * the Symbols tool. `test5` declared `M` on its strips with no art behind it, so the moment a
+ * `MULT` cell landed the board threw "Cannot read properties of undefined (reading 'static')"
+ * and the player lost the reels.
+ *
+ * The engine no longer crashes on that (a symbol with no art renders nothing now), but dealing
+ * an invisible symbol is still wrong — a blank cell that pays is worse than no cell at all. So
+ * the mock is told to deal them only when the project can actually show one.
+ *
+ * `static` specifically, because that is the state a resting board renders and the exact one
+ * that threw. Best-effort: an unreadable symbols doc ⇒ `false` ⇒ no multipliers, never a crash.
+ */
+async function projectMultiplier(
+	doc: GameConfigDoc,
+	clientKey: string,
+	projectKey: string,
+): Promise<boolean> {
+	const name = projectMultiplierSymbol(doc);
+	if (!name) return false;
+	try {
+		const symbols = await loadSymbolsDoc(clientKey, projectKey);
+		return Boolean(symbols.symbols?.[name]?.static);
+	} catch {
+		return false;
+	}
+}
+
 function projectLineSymbols(doc: GameConfigDoc): string[] | undefined {
 	const inPlay = new Set(symbolsInPlay(doc));
-	const serverPool = Object.keys(linesMapping.symbols).filter((server) => server !== 'WILD');
+	// `WILD` and `MULT` are excluded because neither is a LINE symbol: each has its own switch
+	// (`wild`, `multiplier`) deciding whether the mock deals it at all. This pool is built from
+	// the MAPPING TABLE's keys, so any entry added there for a special symbol lands in the deal
+	// pool unless it is named here — which is exactly how `MULT` started being dealt as an
+	// ordinary board symbol, valueless, on every reveal.
+	const NON_LINE_SERVER_SYMBOLS = new Set(['WILD', 'MULT']);
+	const serverPool = Object.keys(linesMapping.symbols).filter(
+		(server) => !NON_LINE_SERVER_SYMBOLS.has(server),
+	);
 	const allowed = serverPool.filter((server) => inPlay.has(mapSymbol(linesMapping, server)));
 	if (!allowed.length || allowed.length === serverPool.length) return undefined;
 	return allowed;
@@ -196,6 +248,22 @@ function projectSymbolPaytable(
  * mock keeps its shared default). `numRows` is the per-reel array, so `rows` is its max (a stepped
  * board is a rectangle tall enough to hold it).
  */
+/**
+ * The project's OWN cascade answer, or `undefined` when it never stated one.
+ *
+ * Deliberately reads the stored field rather than `resolveCascade`: the resolved value would be a
+ * boolean for EVERY project, and the test server treats a boolean as authoritative — which would
+ * pin every unauthored game and break the `CASCADE_GAMES` escape hatch on lines games.
+ */
+async function projectCascade(clientKey: string, projectKey: string): Promise<boolean | undefined> {
+	try {
+		const doc = await loadGameConfigDoc(clientKey, projectKey);
+		return typeof doc?.cascade === 'boolean' ? doc.cascade : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 async function projectGrid(
 	protocol: MockProtocol,
 	clientKey: string,
@@ -231,6 +299,10 @@ async function projectGrid(
 		// The cluster shape the mock evaluates against, straight from the project's declared win
 		// model — so the mock pays the geometry `/config` says it pays, not a hardcoded guess.
 		const model = resolveWinModel(doc);
+		// Scatter is the only model that collects multipliers today, so the flag rides only for it —
+		// a lines game declaring a multiplier symbol should not start dealing them.
+		const multiplier =
+			model.type === 'scatter' && (await projectMultiplier(doc, clientKey, projectKey));
 		const cluster =
 			model.type === 'cluster'
 				? { minCluster: model.minCluster, adjacency: model.adjacency }
@@ -248,6 +320,7 @@ async function projectGrid(
 			...(wild ? { wild } : {}),
 			...(stacked ? { stacked: true } : {}),
 			...(symbols ? { symbols } : {}),
+			...(multiplier ? { multiplier: true } : {}),
 			...(cluster ?? {}),
 			...(scatter ?? {}),
 		};
@@ -316,6 +389,12 @@ export async function publishGame(
 	// ⇒ the test server falls back to its shared default. `paylines` are the config's row-index arrays.
 	const grid = await projectGrid(protocol, clientKey, projectKey);
 
+	// Does this project tumble? Only an EXPLICIT departure travels: the normalizer stores `cascade`
+	// only when it disagrees with the win model's own default, so an unauthored game sends nothing
+	// and the test server's protocol default decides (and its `CASCADE_GAMES` override still works
+	// on a lines game). Sending the resolved boolean unconditionally would silently defeat that.
+	const cascade = await projectCascade(clientKey, projectKey);
+
 	// 4 + 5. Merge the test-server manifest (read-modify-write, preserves siblings).
 	await upsertTestServerGame(key, {
 		protocol,
@@ -323,6 +402,7 @@ export async function publishGame(
 		runtime,
 		updatedAt: new Date().toISOString(),
 		...(grid ? { grid } : {}),
+		...(cascade === undefined ? {} : { cascade }),
 	});
 
 	// 6. Register the game. The launch URL boots the generic runtime (`?runtime=1`)
