@@ -5,6 +5,7 @@
 	import {
 		getSymbolSeat,
 		stateGame,
+		stateGameDerived,
 		stackedCoverage,
 		winDimCellKey,
 		type ReelSymbol,
@@ -22,13 +23,37 @@
 	/** Row index of the padding row above the visible board — `props.row` indexes the PADDED strip. */
 	const PADDING_ROW = -1;
 
-	/**
-	 * This cell's seat on the board lattice. Only `x` (and the row `scale`) are taken from it: `y`
-	 * stays the LIVE `symbolY()` off the spinning reel, which is the whole point of a rolling board —
-	 * the seat's y is where the symbol comes to REST, and mid-spin it is somewhere else entirely.
-	 * The two agree at rest by construction (`createReelForSpinning` is handed the same getters).
-	 */
+	/** This cell's seat on the lattice — `x` and the row `scale` always come from here. */
 	const seat = $derived(getSymbolSeat(props.reelIndex, props.row + PADDING_ROW));
+
+	/**
+	 * `y` is the one axis with two possible sources, and which one is TRUE depends on the board.
+	 *
+	 * `createReelForSpinning` places a symbol at a UNIFORM pitch —
+	 * `reelY + (symbolIndex + lead) * symbolHeight` — which IS the flat lattice. On a flat board the
+	 * live y and the seat's y therefore agree by construction, and this reads exactly as it did
+	 * before the branch existed.
+	 *
+	 * Under PERSPECTIVE they do NOT agree: the rows compress with depth, so the seat's y is a running
+	 * SUM of shrinking pitches while the reel keeps stepping by a constant one. The gap accumulates
+	 * downward — on an 8-row board at `farScale` 0.9 the last row lands 48 board-local units below its
+	 * seat — and since `BoardMask` is sized from the SEATS (`boardWindowHeight`), the bottom row is
+	 * clipped. That is the reported "the board gets cut at the bottom", and it shows up most sharply
+	 * during a win: a winning symbol moves to the ANIMATE layer, which carries no mask and so draws in
+	 * full, right beside a masked neighbour that does not.
+	 *
+	 * At REST the seat wins. It is what the mask, the ground tiles and the cascade's targets already
+	 * use, and a resting symbol belongs on its seat by definition. Mid-ROLL the live y wins, because
+	 * the seat only says where a symbol will come to rest and nothing about where it is on the way.
+	 * A perspective board is not meant to roll at all — that is what `swapInPlace` is for, and
+	 * perspective spinning reels are explicitly out of scope — but the two knobs are independent, so a
+	 * doc MAY author a converging board that still rolls, and freezing its symbols mid-spin would be a
+	 * worse bug than the one this fixes.
+	 */
+	const spinning = $derived(stateGame.board[props.reelIndex]?.reelState.motion === 'spinning');
+	const y = $derived(
+		stateGameDerived.boardPerspective() && !spinning ? seat.y : props.reelSymbol.symbolY(),
+	);
 
 	const symbolInfo = $derived(
 		getSymbolInfo({ rawSymbol: props.reelSymbol.rawSymbol, state: props.reelSymbol.symbolState }),
@@ -47,7 +72,7 @@
 {#if !covered}
 	<SymbolWrap
 		x={seat.x}
-		y={props.reelSymbol.symbolY()}
+		{y}
 		scale={seat.scale}
 		tint={dimmed ? SYMBOL_DIM_TINT : 0xffffff}
 		animating={symbolInfo.type === 'spine' &&
