@@ -153,21 +153,47 @@ function projectWild(doc: GameConfigDoc): { paytable: Record<string, number> } |
  * An empty pool (misconfig) ⇒ `undefined` ⇒ the mock keeps its full default (never deals a blank board).
  */
 /**
- * Does this project declare a MULTIPLIER symbol that can actually land?
+ * The project's in-play MULTIPLIER symbol, by name, or `undefined`.
  *
  * Gated on `symbolsInPlay` for the same reason `projectWild` is: a symbol that merely sits in
- * the dictionary but appears on no strip can never be dealt, and telling the mock to deal one
- * would put a cell on the board that the project has no art for.
- *
- * Deliberately does NOT name the symbol. The mock deals its own `MULT` cells and the facade
- * maps them; what the project contributes is the ANSWER to "is this a multiplier game", which
- * is a property of the config rather than of any particular symbol id.
+ * the dictionary but appears on no strip can never be dealt.
  */
-function projectMultiplier(doc: GameConfigDoc): boolean {
+function projectMultiplierSymbol(doc: GameConfigDoc): string | undefined {
 	const inPlay = new Set(symbolsInPlay(doc));
-	return Object.entries(doc.symbols).some(
+	return Object.entries(doc.symbols).find(
 		([name, sym]) => inPlay.has(name) && sym.special_properties?.includes('multiplier'),
-	);
+	)?.[0];
+}
+
+/**
+ * Should the mock deal multiplier cells at this project?
+ *
+ * Two conditions, and the second one is the one that cost a live game. The config DECLARING a
+ * multiplier symbol is not enough: the symbol also has to be RENDERABLE, i.e. bound to art in
+ * the Symbols tool. `test5` declared `M` on its strips with no art behind it, so the moment a
+ * `MULT` cell landed the board threw "Cannot read properties of undefined (reading 'static')"
+ * and the player lost the reels.
+ *
+ * The engine no longer crashes on that (a symbol with no art renders nothing now), but dealing
+ * an invisible symbol is still wrong — a blank cell that pays is worse than no cell at all. So
+ * the mock is told to deal them only when the project can actually show one.
+ *
+ * `static` specifically, because that is the state a resting board renders and the exact one
+ * that threw. Best-effort: an unreadable symbols doc ⇒ `false` ⇒ no multipliers, never a crash.
+ */
+async function projectMultiplier(
+	doc: GameConfigDoc,
+	clientKey: string,
+	projectKey: string,
+): Promise<boolean> {
+	const name = projectMultiplierSymbol(doc);
+	if (!name) return false;
+	try {
+		const symbols = await loadSymbolsDoc(clientKey, projectKey);
+		return Boolean(symbols.symbols?.[name]?.static);
+	} catch {
+		return false;
+	}
 }
 
 function projectLineSymbols(doc: GameConfigDoc): string[] | undefined {
@@ -267,7 +293,8 @@ async function projectGrid(
 		const model = resolveWinModel(doc);
 		// Scatter is the only model that collects multipliers today, so the flag rides only for it —
 		// a lines game declaring a multiplier symbol should not start dealing them.
-		const multiplier = model.type === 'scatter' && projectMultiplier(doc);
+		const multiplier =
+			model.type === 'scatter' && (await projectMultiplier(doc, clientKey, projectKey));
 		const cluster =
 			model.type === 'cluster'
 				? { minCluster: model.minCluster, adjacency: model.adjacency }
