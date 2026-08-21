@@ -2,10 +2,10 @@
 "skeleton": {
 	"hash": "31r77E2n7I4",
 	"spine": "4.1.23",
-	"x": -200,
-	"y": -200,
-	"width": 400,
-	"height": 400,
+	"x": -333,
+	"y": -336,
+	"width": 666,
+	"height": 672,
 	"images": "./img/",
 	"audio": ""
 },
