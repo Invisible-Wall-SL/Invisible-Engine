@@ -1,15 +1,30 @@
 #!/bin/sh
 # Shared pre-commit hook. Enable once per clone:
 #   git config core.hooksPath scripts/git-hooks
+
+# `core.hooksPath` is an ABSOLUTE path into the main clone, so EVERY worktree runs the hook
+# file from whatever branch that clone happens to be on — which can be NEWER than the tree
+# being committed. A checker that landed after a worktree's base commit is then simply absent
+# from it, and `node <missing>.mjs` aborts the commit with a MODULE_NOT_FOUND stack that reads
+# like a broken repo rather than a stale branch. Skip a checker this tree does not have, and
+# say so, instead of blocking a commit on it.
+run_check() {
+	if [ ! -f "$1" ]; then
+		echo "pre-commit: skipping $1 — not in this branch's tree"
+		return 0
+	fi
+	node "$@"
+}
+
 # Blocks commits that contain likely secrets.
-node scripts/check-secrets.mjs || exit 1
+run_check scripts/check-secrets.mjs || exit 1
 
 # The editor scene-set JSON (packages/engine-layout/scenes/*.json) is GENERATED
 # from the TS reference layouts and read by the per-project seed — one source of
 # truth. If a generator/template/seed/JSON file is staged, verify the committed
 # JSON isn't stale, so the seed can't drift from the engine again.
 if git diff --cached --name-only | grep -qE '^packages/engine-layout/(src/lib/(referenceLayouts|templates)/|scenes/)|^apps/launcher-api/scripts/seed-game-editor'; then
-	node packages/engine-layout/scripts/gen-scene-sets.mjs --check || {
+	run_check packages/engine-layout/scripts/gen-scene-sets.mjs --check || {
 		echo "→ run: pnpm --filter engine-layout gen:scenes  (then: git add packages/engine-layout/scenes)"
 		exit 1
 	}
@@ -20,7 +35,7 @@ fi
 # animation/slot/bone dropdowns for a builtin component's coded default spine. If a coded
 # spine bundle or the generator/registry is staged, verify the committed file isn't stale.
 if git diff --cached --name-only | grep -qE '^apps/lines/static/assets/spines/|^packages/engine-layout/(scripts/gen-builtin-spines|src/lib/builtinSpineMeta)'; then
-	node packages/engine-layout/scripts/gen-builtin-spines.mjs --check || {
+	run_check packages/engine-layout/scripts/gen-builtin-spines.mjs --check || {
 		echo "→ run: pnpm --filter engine-layout gen:builtin-spines  (then: git add packages/engine-layout/src/lib/builtinSpineMeta.generated.ts)"
 		exit 1
 	}
@@ -32,7 +47,7 @@ fi
 # CODE (an import breaks when a file is added, deleted or renamed; a docs-only commit cannot
 # break one), and the check itself takes ~0.5s over the whole repo.
 if git diff --cached --name-only --diff-filter=ACDMR | grep -qE '\.(ts|mts|mjs|js|svelte)$'; then
-	node scripts/check-path-imports.mjs || {
+	run_check scripts/check-path-imports.mjs || {
 		echo "→ a moved module left a stale import. Update the importer above, or move the module back."
 		exit 1
 	}
