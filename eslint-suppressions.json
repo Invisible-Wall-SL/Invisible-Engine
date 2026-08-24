@@ -510,9 +510,6 @@
   "packages/utils-shared/interruptible.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 1
-    },
-    "no-async-promise-executor": {
-      "count": 1
     }
   },
   "packages/utils-shared/types.ts": {
