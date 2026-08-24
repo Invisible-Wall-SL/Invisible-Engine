@@ -46,11 +46,6 @@ export interface EditorRegionSet {
 	pageWidth: number;
 	pageHeight: number;
 	regions: EditorRegion[];
-	/** True for a verbatim cocos2d `.plist` import. Its rotated frames use the TexturePacker
-	 * pack direction (which PIXI un-rotates natively) — the OPPOSITE of the Sheet Maker's own
-	 * packer. `RegionThumb` reads this to un-rotate the matching way, so the preview agrees with
-	 * the runtime. Absent/false ⇒ the Sheet-Maker convention (today's behaviour). */
-	tpRotated?: boolean;
 }
 
 /**
@@ -496,16 +491,11 @@ export async function loadRegionSet(
 	const pageWidth = num(man.atlas?.width) ?? num(man.width) ?? 0;
 	const pageHeight = num(man.atlas?.height) ?? num(man.height) ?? 0;
 
-	// A verbatim plist import packs rotated frames the TexturePacker way (PIXI-native); flag it so
-	// the preview un-rotates to match the runtime rather than the Sheet Maker's own packer.
-	const tpRotated = isRecord(man.import) && man.import.kind === 'plist';
-
 	return {
 		assetKey: manifestKey,
 		pageKey: pageKey ?? '',
 		pageWidth,
 		pageHeight,
 		regions,
-		...(tpRotated ? { tpRotated: true } : {}),
 	};
 }

@@ -30,10 +30,6 @@ export interface RegionSet {
 	pageWidth: number;
 	pageHeight: number;
 	regions: EditorRegion[];
-	/** True for a verbatim cocos2d `.plist` import — its rotated frames use the TexturePacker
-	 * (PIXI-native) pack direction, so `RegionThumb` un-rotates them the opposite way from a
-	 * Sheet-Maker-packed sheet, keeping the preview in step with the runtime. */
-	tpRotated?: boolean;
 }
 
 /** The drag payload for a single region (`application/x-iw-asset`). */

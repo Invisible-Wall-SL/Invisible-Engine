@@ -115,10 +115,10 @@ plist's file name), and click **Import .plist atlas** (`/api/import-plist`).
 The atlas is reused **as is** — the page is written **byte-for-byte** (never
 re-encoded) and every rect stays exactly where it was, so a game already bound to
 those coordinates keeps rendering, rotated frames included. cocos2d packs a
-rotated frame the same way the game runtime (PIXI) un-rotates it, so it renders
-correctly straight from the untouched page; the `/flipbook` preview un-rotates it
-the matching way via the `tpRotated` flag (the Sheet Maker's own packer goes the
-opposite way). No pixels are changed on import.
+rotated frame the same way the game runtime (PIXI) un-rotates it — 90° clockwise,
+the same direction the Sheet Maker's own packer uses — so it renders correctly
+straight from the untouched page, and every preview un-rotates it the one matching
+way. No pixels are changed on import.
 
 The import writes
 `sheets/<sheet>/<sheet>.png`, a TexturePacker JSON, and

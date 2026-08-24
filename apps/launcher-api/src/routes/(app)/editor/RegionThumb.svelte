@@ -69,23 +69,21 @@
 			const dx = baseX + offX * scale;
 			const dy = baseY + offY * scale;
 			// On-page packed rect: a `rotated` frame is stored (h × w) — swap, then un-rotate 90°.
-			// DIRECTION matters and the two sources disagree: a Sheet-Maker-packed frame un-rotates
-			// CW (matching that packer + its own slicer's PIL rotate(-90)); a verbatim cocos2d
-			// `.plist` import un-rotates the OTHER way (the TexturePacker convention PIXI uses in the
-			// game), flagged by `set.tpRotated`. Getting this wrong renders the frame 180° out.
+			// DIRECTION matters, and there is only ONE: every producer stores a rotated frame 90° CW
+			// (the TexturePacker/PixiJS convention) — the Sheet Maker's `compose`, the Atlas Maker's
+			// `fit_to_region`, a cocos2d `.plist` import and a native TexturePacker atlas alike, pinned
+			// by `services/sheet-tool/rot_convention_check.py`. So the un-rotation is always CCW, the
+			// same draw `EditorCanvas.drawRegion` does. This used to branch on `set.tpRotated` and
+			// un-rotate CW for anything that wasn't a plist import, on the belief that "the Sheet
+			// Maker's own packer goes the other way" — the exact misconception that check file exists
+			// to kill. It rendered every rotated frame of a native TexturePacker sheet 180° out (the
+			// engine's own `symbolsStatic`: h3/h4/h5/l1/l3/l4/s all pack rotated).
 			const pw = region.rotated ? region.h : region.w;
 			const ph = region.rotated ? region.w : region.h;
 			if (region.rotated) {
 				c.save();
-				if (set.tpRotated) {
-					// CCW — the mirror of the CW branch (corner + sign both flipped), verified by
-					// mapping the drawn rect's corners onto the dest box.
-					c.translate(dx, dy + dh);
-					c.rotate(-Math.PI / 2);
-				} else {
-					c.translate(dx + dw, dy);
-					c.rotate(Math.PI / 2);
-				}
+				c.translate(dx, dy + dh);
+				c.rotate(-Math.PI / 2);
 				c.drawImage(img, region.x, region.y, pw, ph, 0, 0, dh, dw);
 				c.restore();
 			} else {
