@@ -16,6 +16,8 @@ import { getFlowInterpreter } from './flowInterpreterHolder';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { runBookEventPresentation, startsCelebration } from './unskippablePresentation';
 import { recordWinCycleWins, startWinCycle, stopWinCycle } from './winSymbolCycle';
+import { showAllWinLines, winsOnThisBoard } from './flowEffects';
+import { bakedWinLineConfig } from '../editor-scenes';
 import { clearSpinHold, holdAfterBigWin } from './freeSpinHold';
 import type { RawSymbol, SymbolState } from './types';
 
@@ -55,6 +57,18 @@ const dispatchBookEvent = async (
 	// Recorded HERE, ahead of dispatch, so the idle win-symbol cycle sees every spin's wins whichever
 	// path presents them — a flow-owned `winInfo` never reaches the coded handler map.
 	recordWinCycleWins(bookEvent);
+
+	// ALL-AT-ONCE WIN LINES (Symbols State Machine → "Show all win lines at once"): draw EVERY paying
+	// line of this event together, up front, and leave them on screen. Placed HERE — the one seam all
+	// three dispatch paths cross, the same reason `recordWinCycleWins` lives here — because a
+	// flow-owned `winInfo` never reaches the coded handler map, and this mode has to look the same on
+	// a flow-driven game as on a coded one. The per-win draws downstream stand down in this mode (the
+	// coded handler skips them, the `showWinLine` effect returns early), and nothing hides the set
+	// until the next spin. Awaited so the lines are up before the symbols celebrate — the beat order
+	// the one-at-a-time narration plays. Off (the default) this is a single boolean read.
+	if (bookEvent.type === 'winInfo' && bakedWinLineConfig().line.allAtOnce) {
+		await showAllWinLines(winsOnThisBoard(bookEvent, context.bookEvents));
+	}
 
 	// Capture the retrigger's extra-spins count for the `freeSpinsAdded` / `freeSpinsAddedText` value
 	// sources — universally (ahead of dispatch) so it's populated whichever path presents the retrigger:

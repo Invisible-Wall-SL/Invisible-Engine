@@ -260,7 +260,13 @@ project. When it's on, two groups of controls appear:
   config** on (default) draws each winning line in that payline's colour from the Invisible
   Game Config, falling back to the **Colour** swatch when the config has none — so the swatch
   is greyed out (overridden). Turn it off to make the swatch authoritative and ignore the
-  config colour.
+  config colour. **Show all win lines at once** on/off (default **Off**) and its **Delay
+  between lines** (seconds; disabled unless the toggle is on) change how a multi-line win is
+  told: off, the spin narrates one line at a time — draw it, light its symbols, clear it, next.
+  On, every paying line of the spin appears together, each one a short beat after the last, each
+  in its own payline colour, and they all stay on screen until the next spin; the symbols still
+  celebrate one win at a time underneath them. Set the delay to 0s to have every line appear in
+  the same frame.
 - **Win amount text** — **Font** (chosen from the project's bitmap fonts — the engine
   builtins `gold`/`goldblur`/`silver`/`purple` plus any Font-Maker fonts); **Size** (a
   fraction of the symbol size); **Colour**. Because the amount is bitmap text, the colour

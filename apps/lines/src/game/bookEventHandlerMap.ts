@@ -30,6 +30,7 @@ import {
 } from './flowEffects';
 import type { BookEvent, BookEventOfType, BookEventContext } from './typesBookEvent';
 import { activeWinLevelData, boardDimensions } from './gameConfig';
+import { bakedWinLineConfig } from '../editor-scenes';
 
 export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContext> = {
 	/**
@@ -48,6 +49,12 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	},
 	winInfo: async (bookEvent: BookEventOfType<'winInfo'>) => {
 		eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_winlevel_small' });
+		// ALL-AT-ONCE MODE (Symbols State Machine → "Show all win lines at once"): every paying line of
+		// this event was already drawn together, up front, by `dispatchBookEvent` — the seam every
+		// dispatch path crosses — and must STAY on screen while the symbols celebrate. So the per-win
+		// show/hide below stands down and this handler only lights the symbols; nothing clears the set
+		// until the next spin (`clearWinPresentation`).
+		const allAtOnce = bakedWinLineConfig().line.allAtOnce;
 		await sequence(bookEvent.wins, async (win) => {
 			// The win-line geometry + gate live in `flowEffects` so the coded handler and the
 			// `showWinLine` / `hideWinLine` flow effects are one source of truth (parity by
@@ -55,7 +62,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 			// `winLineEnabledForWin` skips a scatter win / a disabled overlay.
 			const winningPositions = winningPositionsOf(win);
 
-			const showWinLine = winLineEnabledForWin(win);
+			const showWinLine = !allAtOnce && winLineEnabledForWin(win);
 			if (showWinLine) {
 				// Awaited: when the line is configured to animate, WinLine.svelte resolves this
 				// only after the line has drawn first→last and the amount is revealed, so the

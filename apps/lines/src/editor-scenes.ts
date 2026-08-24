@@ -313,6 +313,8 @@ type BakedBundle = {
 				fullPayline?: boolean;
 				fullPaylineColor?: string;
 				useConfigColor?: boolean;
+				allAtOnce?: boolean;
+				allAtOnceDelay?: number;
 			};
 			text?: { font?: string; size?: number; color?: string };
 		};
@@ -798,6 +800,13 @@ export type ResolvedWinLine = {
 		/** Draw the line in the config's winning-payline colour (when it has one), falling back to
 		 * `color`. Default ON (config wins). OFF makes `color` authoritative and ignores config. */
 		useConfigColor: boolean;
+		/** Show EVERY paying line of the round at the same time — each appearing `allAtOnceDelay`
+		 * after the previous one, in its own payline colour, all STAYING on screen together until the
+		 * next spin — instead of narrating them one at a time. Default OFF (the one-at-a-time
+		 * narration, byte-identical to before). */
+		allAtOnce: boolean;
+		/** The beat between two lines appearing in all-at-once mode, in SECONDS. */
+		allAtOnceDelay: number;
 	};
 	text: { font: string; size: number; color: string };
 };
@@ -821,6 +830,8 @@ export function bakedWinLineConfig(): ResolvedWinLine {
 			fullPayline: w?.line?.fullPayline ?? false,
 			fullPaylineColor: w?.line?.fullPaylineColor ?? '#4a90d9',
 			useConfigColor: w?.line?.useConfigColor ?? true,
+			allAtOnce: w?.line?.allAtOnce ?? false,
+			allAtOnceDelay: w?.line?.allAtOnceDelay ?? 0.12,
 		},
 		text: {
 			font: w?.text?.font ?? 'gold',

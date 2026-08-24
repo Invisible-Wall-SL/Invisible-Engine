@@ -915,6 +915,8 @@
 		fullPayline: false,
 		fullPaylineColor: '#4a90d9',
 		useConfigColor: true,
+		allAtOnce: false,
+		allAtOnceDelay: 0.12,
 		font: 'gold',
 		size: 0.5,
 		textColor: '#ffffff',
@@ -2107,11 +2109,53 @@
 											oninput={(hex) => patchWinLineLine({ fullPaylineColor: hex })}
 										/>
 									</label>
+									<div class="field">
+										<span class="label">Show all win lines at once</span>
+										<label class="switch sm" class:on={wlLine.allAtOnce ?? WL_DEFAULTS.allAtOnce}>
+											<input
+												type="checkbox"
+												checked={wlLine.allAtOnce ?? WL_DEFAULTS.allAtOnce}
+												onchange={(e) => patchWinLineLine({ allAtOnce: e.currentTarget.checked })}
+											/>
+											<span class="track"><span class="knob"></span></span>
+											<span class="switch-label"
+												>{(wlLine.allAtOnce ?? WL_DEFAULTS.allAtOnce) ? 'On' : 'Off'}</span
+											>
+										</label>
+									</div>
+									<label
+										class="field"
+										class:disabled={!(wlLine.allAtOnce ?? WL_DEFAULTS.allAtOnce)}
+									>
+										<span class="label"
+											>Delay between lines {(
+												wlLine.allAtOnceDelay ?? WL_DEFAULTS.allAtOnceDelay
+											).toFixed(2)}s</span
+										>
+										<input
+											type="range"
+											min="0"
+											max="0.5"
+											step="0.02"
+											disabled={!(wlLine.allAtOnce ?? WL_DEFAULTS.allAtOnce)}
+											value={wlLine.allAtOnceDelay ?? WL_DEFAULTS.allAtOnceDelay}
+											oninput={(e) =>
+												patchWinLineLine({ allAtOnceDelay: Number(e.currentTarget.value) })}
+										/>
+									</label>
 								</div>
 								<p class="wl-note">
 									Off (the default), the line traces only the winning symbols, up to where the
 									amount is stamped. On, the WHOLE payline is drawn across all reels in the colour
 									above, with the winning segment on top.
+								</p>
+								<p class="wl-note">
+									<strong>Show all win lines at once</strong> changes how a multi-line win is told: instead
+									of one line at a time — draw, light its symbols, clear, next — every paying line of
+									the spin appears together, each one a short beat after the last, each in its own payline
+									colour from the Game Config, and they all STAY on screen until the next spin. The symbols
+									still celebrate one win at a time underneath them. Set the beat to 0s to have every
+									line appear in the same frame.
 								</p>
 							</div>
 
