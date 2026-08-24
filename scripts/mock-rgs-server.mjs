@@ -51,10 +51,36 @@ const DEFAULT_PAYLINES = [
 	[2, 1, 0, 1, 2],
 ];
 
-/** True when the payline set touches EVERY row of a `rows`-tall grid — the gate for keeping an
- *  authored set as-is. A set that skips rows (e.g. the stock 5×3 lines on a resized 5×5 board) leaves
- *  those rows permanently unwinnable, which is exactly the "nothing pays on the bottom row" report. */
+/** Rows per reel, from either shape `createMockRgs` accepts: a NUMBER (every reel that tall — the
+ *  only shape that existed before stepped grids) or the per-reel ARRAY the game config carries. Short
+ *  arrays repeat their last entry rather than collapsing to a default, so a half-written override
+ *  still describes a board. */
+export const rowsPerReel = (rows, reels, fallback) => {
+	if (Array.isArray(rows) && rows.length) {
+		const clean = rows.map((r) => Math.max(1, Math.round(Number(r)) || 0) || 1);
+		return Array.from({ length: reels }, (_unused, i) => clean[i] ?? clean[clean.length - 1]);
+	}
+	const flat = Math.max(1, Math.round(Number(rows ?? fallback)) || 0) || 1;
+	return Array.from({ length: reels }, () => flat);
+};
+
+/** True when the payline set touches every row THAT EXISTS — the gate for keeping an authored set
+ *  as-is. A set that skips rows (e.g. the stock 5×3 lines on a resized 5×5 board) leaves those rows
+ *  permanently unwinnable, which is exactly the "nothing pays on the bottom row" report.
+ *
+ *  `rows` may be the per-reel array. On a stepped grid "every row" is per COLUMN: a line cannot
+ *  reach row 4 of a 3-row reel, so demanding board-wide coverage there would reject every legal set
+ *  and regenerate lines forever. A number behaves exactly as before. */
 export const coversAllRows = (paylines, rows) => {
+	if (Array.isArray(rows)) {
+		if (!paylines.length) return false;
+		return rows.every((height, reel) => {
+			const used = new Set();
+			for (const line of paylines) if (line[reel] !== undefined) used.add(line[reel]);
+			for (let r = 0; r < height; r++) if (!used.has(r)) return false;
+			return true;
+		});
+	}
 	const used = new Set();
 	for (const line of paylines) for (const r of line) used.add(r);
 	for (let r = 0; r < rows; r++) if (!used.has(r)) return false;
@@ -67,12 +93,20 @@ export const coversAllRows = (paylines, rows) => {
  *  a single-dip "V" and single-peak "^" between each adjacent row-pair. Deterministic (no RNG) and
  *  deduped. Horizontals alone guarantee every row is a winning row. */
 export const standardPaylines = (reels, rows) => {
+	// Per-reel heights; a plain number is the uniform board this always assumed.
+	const heights = rowsPerReel(rows, reels, rows);
+	const tallest = Math.max(...heights);
 	const mid = Math.round((reels - 1) / 2);
+	// A line must name a row THAT REEL HAS. On a uniform board every reel has every row and this is
+	// the identity, so the generated set is byte-identical to before. On a stepped board the line is
+	// pulled onto the nearest row the short column owns — which is what makes a horizontal across a
+	// 3/4/5/4/3 diamond bend with the board's own silhouette instead of pointing off it.
+	const on = (reel, row) => Math.max(0, Math.min(row, heights[reel] - 1));
 	const lines = [];
-	for (let r = 0; r < rows; r++) lines.push(Array.from({ length: reels }, () => r));
-	for (let r = 0; r < rows - 1; r++) {
-		lines.push(Array.from({ length: reels }, (_unused, c) => (c === mid ? r + 1 : r)));
-		lines.push(Array.from({ length: reels }, (_unused, c) => (c === mid ? r : r + 1)));
+	for (let r = 0; r < tallest; r++) lines.push(Array.from({ length: reels }, (_u, c) => on(c, r)));
+	for (let r = 0; r < tallest - 1; r++) {
+		lines.push(Array.from({ length: reels }, (_unused, c) => on(c, c === mid ? r + 1 : r)));
+		lines.push(Array.from({ length: reels }, (_unused, c) => on(c, c === mid ? r : r + 1)));
 	}
 	const seen = new Set();
 	return lines.filter((line) => {
@@ -516,7 +550,8 @@ const pathEndsWith = (pathname, route) => {
  * and RNG, so mounting several instances side-by-side (e.g. one per game) keeps
  * their balances independent.
  *
- * @param {{ startBalance?: number, seed?: string, label?: string, reels?: number, rows?: number,
+ * @param {{ startBalance?: number, seed?: string, label?: string, reels?: number,
+ *   rows?: number | number[], rowsPerReel?: number[],
  *   paylines?: number[][], wild?: { paytable: Record<string, number> }, stacked?: boolean,
  *   symbols?: string[], winModel?: 'lines' | 'ways' }} [opts] `symbols` restricts the dealt line
  *   pool to the project's in-play symbols in SERVER vocabulary (PIC* plus SCAT); absent ⇒ the full
@@ -536,15 +571,26 @@ export function createMockRgs(opts = {}) {
 	// injected set out of sync with `reels` would index off the board, so the test server passes
 	// the config's own paylines alongside its dimensions.
 	const reelCount = Math.max(1, Math.round(Number(opts.reels ?? DEFAULT_REELS)));
-	const rowCount = Math.max(1, Math.round(Number(opts.rows ?? DEFAULT_ROWS)));
+	// `rows` is a NUMBER (uniform, the only shape before stepped grids) or the config's per-reel
+	// ARRAY. `rowHeights` is the authority for what each column deals; `rowCount` stays the tallest
+	// column — the BOUNDING BOX — because that is what the board-wide callers below mean by "rows"
+	// (the padded reveal envelope, the free-spin window, the stacked showcase). On a uniform board
+	// every entry equals `rowCount` and every draw below is byte-identical to before.
+	// Accepts either spelling. The test server spreads a manifest `grid` in wholesale, and that
+	// object carries BOTH `rows` (the bounding box, for every reader that wants one number) and
+	// `rowsPerReel` (the per-column list, present only when the project authored a stepped grid), so
+	// the array wins where it exists and `rows` is the answer everywhere else.
+	const rowHeights = rowsPerReel(opts.rowsPerReel ?? opts.rows, reelCount, DEFAULT_ROWS);
+	const rowCount = Math.max(...rowHeights);
+	const isStepped = rowHeights.some((r) => r !== rowHeights[0]);
 	const authoredPaylines =
 		Array.isArray(opts.paylines) && opts.paylines.length ? opts.paylines : DEFAULT_PAYLINES;
 	// Keep the authored set when it already touches every row; otherwise the game's real dimensions
 	// have outgrown its lines (the classic 5×3 lines on a resized 5×5 board), so deal a generated set
 	// that covers the whole grid — the server "picks up" rows/reels instead of a stale line subset.
-	const paylines = coversAllRows(authoredPaylines, rowCount)
+	const paylines = coversAllRows(authoredPaylines, isStepped ? rowHeights : rowCount)
 		? authoredPaylines
-		: standardPaylines(reelCount, rowCount);
+		: standardPaylines(reelCount, isStepped ? rowHeights : rowCount);
 
 	// How wins are decided. `lines` keeps the payline evaluator (default ⇒ every existing caller is
 	// byte-identical); `ways` swaps in the ways evaluator. Both then share the same scatter pass and
@@ -896,9 +942,14 @@ export function createMockRgs(opts = {}) {
 	// EXACT same RNG stream as before (no extra `nextRand` call) — default deals stay byte-identical.
 	const WILD_RATE = 0.05;
 	const pickCell = wild ? () => (nextRand() < WILD_RATE ? 'WILD' : pickSymbol()) : pickSymbol;
-	/** reelCount reels × rowCount visible rows */
+	/** reelCount reels, each dealing ITS OWN visible rows. Uniform ⇒ every column is `rowCount` deep
+	 *  and the RNG stream is byte-identical to before; stepped ⇒ a short column draws fewer cells,
+	 *  because dealing it a full-height column and letting the client discard the overflow is how the
+	 *  server and the board end up disagreeing about what was scored. */
 	const spinReels = () =>
-		Array.from({ length: reelCount }, () => Array.from({ length: rowCount }, pickCell));
+		Array.from({ length: reelCount }, (_unused, reel) =>
+			Array.from({ length: rowHeights[reel] }, pickCell),
+		);
 
 	/**
 	 * Stacked-picture test deal — engineered to showcase ALL crops every spin (the real math rarely
@@ -913,21 +964,25 @@ export function createMockRgs(opts = {}) {
 	 * regardless of the project's authored heights — the cutoffs are guaranteed, not probabilistic.
 	 * Non-run cells fall back to the normal weighted draw. Only used when `stackedDeal` is on.
 	 */
-	const partialWildLen = () => Math.max(2, Math.min(rowCount - 1, 2 + Math.floor(nextRand() * 2))); // 2..3, < rows
+	const partialWildLen = (height) =>
+		Math.max(2, Math.min(height - 1, 2 + Math.floor(nextRand() * 2))); // 2..3, < that column's rows
 	const spinReelsStacked = () =>
 		Array.from({ length: reelCount }, (_ignored, reel) => {
+			// Every bound below is THIS column's height, so the engineered top/bottom cutoffs land on
+			// the edges of the column the player actually sees. Uniform ⇒ identical to `rowCount`.
+			const rowCount = rowHeights[reel];
 			const column = Array.from({ length: rowCount }, pickSymbol);
 			// Last reel: the whole 5-tall Wild (checked first so a 1- or 2-reel grid still gets a full stack).
 			if (reel === reelCount - 1) return Array.from({ length: rowCount }, () => 'WILD');
 			// Reel 0: partial WILD pinned to the TOP edge (rows 0..len-1) ⇒ bottom-of-picture cutoff.
 			if (reel === 0 && rowCount >= 2) {
-				const len = partialWildLen();
+				const len = partialWildLen(rowCount);
 				for (let i = 0; i < len; i++) column[i] = 'WILD';
 				return column;
 			}
 			// Reel 1: partial WILD pinned to the BOTTOM edge (last len rows) ⇒ top-of-picture cutoff.
 			if (reel === 1 && rowCount >= 3) {
-				const len = partialWildLen();
+				const len = partialWildLen(rowCount);
 				for (let i = 0; i < len; i++) column[rowCount - len + i] = 'WILD';
 				return column;
 			}
@@ -987,7 +1042,15 @@ export function createMockRgs(opts = {}) {
 						...(wild ? ['WILD'] : []),
 						...(collectFixture ? [MULT_SYMBOL] : []),
 					],
-					window: { reels: reelCount, rows: rowCount },
+					// `rows` stays the BOUNDING BOX (the tallest column), which is what every existing
+					// reader means by it. `rowsPerReel` is added only for a STEPPED board, so a uniform
+					// game's config event is byte-identical to before — and a client that has never
+					// heard of stepped grids keeps reading `rows` and behaves exactly as it does today.
+					window: {
+						reels: reelCount,
+						rows: rowCount,
+						...(isStepped ? { rowsPerReel: rowHeights } : {}),
+					},
 					paylines,
 					wildSymbols: wild ? ['WILD'] : [],
 					paytable: Object.fromEntries(
@@ -1212,7 +1275,21 @@ if (isMainModule) {
 		const n = Number(process.env[name]);
 		return Number.isFinite(n) && n > 0 ? Math.floor(n) : undefined;
 	};
-	const mock = createMockRgs({ label: 'mock', reels: envInt('REELS'), rows: envInt('ROWS') });
+	// `ROWS` takes a single height (`ROWS=5`) or a per-reel list for a STEPPED grid
+	// (`ROWS=3,4,5,4,3`), so a diamond board can be dealt from the CLI without a published project.
+	// A single value parses to a number, exactly as before.
+	const envRows = () => {
+		const raw = (process.env.ROWS ?? '').trim();
+		if (!raw) return undefined;
+		if (!raw.includes(',')) return envInt('ROWS');
+		const list = raw
+			.split(',')
+			.map((part) => Number(part.trim()))
+			.filter((n) => Number.isFinite(n) && n > 0)
+			.map(Math.floor);
+		return list.length ? list : undefined;
+	};
+	const mock = createMockRgs({ label: 'mock', reels: envInt('REELS'), rows: envRows() });
 	const server = createServer((req, res) => {
 		const url = new URL(req.url, `http://${req.headers.host}`);
 		return mock.handle(req, res, url);

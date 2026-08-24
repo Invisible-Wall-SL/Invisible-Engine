@@ -191,7 +191,13 @@ export interface TestServerGameEntry {
 	 *  `/config` never lands against our own mock. Absent ⇒ the mock deals its full default pool. */
 	grid?: {
 		reels: number;
+		/** The BOUNDING BOX height — the tallest column. Unchanged meaning for a rectangular board. */
 		rows: number;
+		/** Visible rows per COLUMN, present only when the project authored a STEPPED grid (its
+		 *  `numRows` are not all equal). The mock deals each column to its own height, so the board it
+		 *  scores is the board the client draws. Absent ⇒ every column is `rows` deep, exactly as
+		 *  before this existed. */
+		rowsPerReel?: number[];
 		/** Empty for a model with no lines (`cluster`) — the mock then pays by its own evaluator. */
 		paylines: number[][];
 		wild?: { paytable: Record<string, number> };

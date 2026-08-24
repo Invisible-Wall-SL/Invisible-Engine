@@ -193,12 +193,19 @@ const isKnownSymbol = (sid: string, name: string): boolean => {
 const clampBoardToGrid = (sid: string, board: string[][]): string[][] => {
 	const cfg = capturedConfig.get(sid);
 	if (!cfg?.window) return board;
-	const { reels, rows } = cfg.window;
+	const { reels, rows, rowsPerReel } = cfg.window;
 	let trimmed = false;
-	const out = board.slice(0, reels).map((reel) => {
-		if (reel.length > rows) {
+	// A STEPPED board is clamped per COLUMN. Clamping it to the bounding box would let a reel dealt
+	// full height survive into a short column, where the client would seat rows the server never
+	// scored — the client board silently diverging from the scored board, which is the most
+	// expensive class of bug this layer can produce. Absent ⇒ the board-wide clamp, unchanged.
+	const limitFor = (reel: number) =>
+		rowsPerReel && rowsPerReel[reel] !== undefined ? rowsPerReel[reel] : rows;
+	const out = board.slice(0, reels).map((reel, index) => {
+		const limit = limitFor(index);
+		if (reel.length > limit) {
 			trimmed = true;
-			return reel.slice(0, rows);
+			return reel.slice(0, limit);
 		}
 		return reel;
 	});

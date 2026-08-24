@@ -147,10 +147,17 @@ const linesGrid = (() => {
 		const path = join(HERE, '../../apps/launcher-api/src/lib/data/gameConfig/lines.json');
 		const doc = JSON.parse(readFileSync(path, 'utf8'));
 		const reels = Math.max(1, Math.round(Number(doc.numReels)));
-		const rows = Math.max(1, Math.round(Math.max(...(doc.numRows ?? [3]))));
+		const declared = doc.numRows ?? [3];
+		const rows = Math.max(1, Math.round(Math.max(...declared)));
+		const perReel = Array.from({ length: reels }, (_unused, i) =>
+			Math.max(1, Math.round(Number(declared[i] ?? declared[declared.length - 1]))),
+		);
 		const paylines = Object.values(doc.paylines ?? {});
 		if (!Number.isFinite(reels) || !paylines.length) return null;
-		return { reels, rows, paylines };
+		// `rowsPerReel` only when the columns differ — a rectangular board passes the exact object it
+		// passed before stepped grids existed.
+		const stepped = perReel.some((r) => r !== perReel[0]);
+		return stepped ? { reels, rows, rowsPerReel: perReel, paylines } : { reels, rows, paylines };
 	} catch {
 		return null;
 	}
@@ -222,6 +229,16 @@ const validGrid = (grid) => {
 	const reels = Math.round(Number(grid.reels));
 	const rows = Math.round(Number(grid.rows));
 	const paylines = Array.isArray(grid.paylines) ? grid.paylines : [];
+	// Per-column heights, defensively validated like everything else off the external manifest: it
+	// must be a `reels`-long list of positive integers, or it is dropped and the board stays
+	// rectangular. A malformed entry must not be able to deal a column of NaN cells.
+	const rawPerReel = Array.isArray(grid.rowsPerReel) ? grid.rowsPerReel.map(Number) : null;
+	const rowsPerReel =
+		rawPerReel &&
+		rawPerReel.length === reels &&
+		rawPerReel.every((r) => Number.isFinite(r) && r > 0 && r <= rows)
+			? rawPerReel.map((r) => Math.round(r))
+			: null;
 	// A `cluster` grid legitimately carries NO paylines (nothing pays along a line), so the payline
 	// requirement holds only when there are paylines to check. An empty list is valid; a malformed
 	// one is still rejected.
@@ -280,6 +297,7 @@ const validGrid = (grid) => {
 	return {
 		reels,
 		rows,
+		...(rowsPerReel ? { rowsPerReel } : {}),
 		paylines,
 		...(wild ? { wild } : {}),
 		...(multiplier ? { multiplier: true } : {}),
