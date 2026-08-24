@@ -61,12 +61,27 @@ bundle to every online game, so "byte-identical" is the bar, and it is asserted 
 Two things had to stop being board-wide.
 
 **The mask.** `BoardMask` is one rectangle over the whole `BoardContainer`, sized to the bounding
-box — so a 3-row column would roll visibly through the empty space its taller neighbours occupy. A
-stepped board wraps each column in its own container carrying its own clip window (`ReelColumn`),
-taken from `boardWindowForReel`. Horizontally it is `BoardMask`'s rectangle **verbatim**,
-`SYMBOL_SIZE` of slack included, so a spine that overhangs its cell sideways is clipped exactly
-where it is today; only the vertical edges differ per column. The animate layer stays unmasked, as
-it is today — a winning symbol moves there precisely so it can draw outside the window.
+box — so a 3-row column would roll visibly through the empty space its taller neighbours occupy.
+
+A stepped board is clipped instead by **one compound mask**, whose geometry is the **union of the
+per-column windows** (`boardMaskColumns`). The obvious alternative — a container per column, each
+carrying its own rectangle — works, and was built first, but it forces the scene graph to be
+**column-major**, which is the one thing perspective cannot live with (see below). A single mask
+needs no grouping at all: the child list stays exactly as flat as it is today, so paint order is
+untouched.
+
+The columns **tile**, they do not overlap. Each runs from the midpoint between it and its left
+neighbour to the midpoint on its right, with `BoardMask`'s existing `SYMBOL_SIZE` of slack added
+only at the two **outer** edges. Overlapping them — giving every column the full board width, which
+a per-column container can safely do — would let a tall neighbour's rectangle cover the notch beside
+a short column, and a symbol scrolling through that notch would be drawn where the board does not
+exist. Exact tiling is what makes the union mean _the visible board_.
+
+The horizontal cost is that a symbol overhanging past the midpoint is clipped **where its neighbour
+has no window** — i.e. only in the notches, which is where the board genuinely ends. Everywhere two
+columns' windows overlap vertically, the neighbour's own polygon covers the overhang and it draws
+exactly as it does today. The animate layer stays unmasked, as it is now — a winning symbol moves
+there precisely so it can draw outside the window.
 
 **The cull.** `SymbolWrap` culled against `boardWindowHeight()`. On a stepped board that is not
 merely imprecise: a short column is pushed **down** into the box, so its padding row — the buffer
@@ -84,15 +99,22 @@ column jumps the instant it settles:
   while they roll rather than only describing where they come to rest;
 - the seat gets it through **`rowSeatIndex`**, folded into the row index before the seat algebra.
 
-### Not combined with perspective
+### It composes with perspective
 
-A stepped board paints **column-major** (each column is its own container). Perspective paints
-**row-major**, so a front-row character covers the row behind it. The orderings are mutually
-exclusive; perspective wins the tie as the shipped mode, and the board draws as a rectangle.
+A stepped board and a [perspective board](perspective-board-mode.md) work together, and the compound
+mask is the reason. They were mutually exclusive under the per-column-container design: perspective
+paints **row-major** so a front-row character covers the row behind it, and grouping the children by
+column forces **column-major**. With one mask there is no grouping, so both `BoardBase` branches are
+untouched and either mode — or both — can be authored.
 
-The **config validator cannot see this** — perspective is authored on the `reelGrid` **node** in the
-Scene Editor layout, not in the config doc. A check there would silently never fire, so the warning
-lives in `reelGridWarnings`, the one surface where both facts are visible at once.
+Under perspective each column's polygon is sampled at **every one of its row boundaries**, down one
+edge and back up the other, rather than being a four-corner trapezoid. That is worth recording,
+because the trapezoid looks obviously right and is not: it interpolates its edges linearly in **y**,
+while the contraction is linear in the **row** and y is a quadratic sum of compressed row pitches.
+The two disagree enough in mid-column that a cell's centre can land inside its **neighbour's**
+polygon — the symbol would then be clipped by the wrong column's window. One segment per row bounds
+that error by a single row's contraction, which no cell can cross. The fixture caught this directly;
+it was not reasoned out in advance.
 
 ## How it is dealt
 
@@ -132,7 +154,7 @@ per reel. Two helpers had to learn the same rule:
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `scripts/verify-stepped-grid.mjs` (240)                          | The resolver's placement under all three alignments; the deal is ragged end-to-end through a real bet; the server declares its shape; `clampBoardToGrid` (sliced from the real facade) cuts per column; and the per-column window is wired into both symbol renderers. |
 | `packages/rgs-translator-eagaming/cascadeBoard.fixture.ts` (937) | A cascade's one invariant — the board the client shows is the board the server scored — over a rectangle, a ramp and a diamond.                                                                                                                                        |
-| `scripts/verify-symbol-seat.mjs` (274,644)                       | The seat contract, now including a stepped section across four alignments — and that the rolling y and the resting seat agree.                                                                                                                                         |
+| `scripts/verify-symbol-seat.mjs` (274,644)                       | The seat contract, now including a stepped section across four alignments; that the rolling y and the resting seat agree; and that the compound mask covers every cell exactly once, under three perspective settings.                                                 |
 
 **The two load-bearing parity assertions:**
 
@@ -185,7 +207,6 @@ Tween alive across a mid-cascade filter is untouched.
 
 ## Known gaps
 
-- **Perspective + stepped** draws as a rectangle (above). Warned, not supported.
 - The **`ways` reach** policy already counts per-column rows off the dealt board, so it is correct by
   construction — but it has not been exercised against a stepped deal.
 - **Nothing stepped has been driven through a full round in a browser.** The preview pane will not

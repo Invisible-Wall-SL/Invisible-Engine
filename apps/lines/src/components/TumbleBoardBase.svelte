@@ -1,9 +1,7 @@
 <script lang="ts">
 	import TumbleSymbol from './TumbleSymbol.svelte';
-	import ReelColumn from './ReelColumn.svelte';
 	import { tumbleBoardCombined } from '../game/stateTumble.svelte';
 	import { stateGameDerived } from '../game/stateGame.svelte';
-	import { activeGrid } from '../game/gameConfig';
 
 	/** Row index of the padding row above the visible board — the combined column starts there, which
 	 *  is the same mapping `tumbleBoardSlideDown` tweens each symbol's target seat with. */
@@ -16,25 +14,6 @@
 	 * non-negotiable).
 	 */
 	const perspective = $derived(!!stateGameDerived.boardPerspective());
-
-	/**
-	 * Does the board have columns of differing height (docs/design/stepped-grid.md)? A stepped
-	 * cascade needs the SAME per-column clip window the resting reel board grew, for the same two
-	 * reasons and then one of its own:
-	 *
-	 *  - the resting cascade layer is clipped by the board-wide `BoardMask` rectangle, which is the
-	 *    BOUNDING BOX — so a short column's replacements, which are stacked deliberately ABOVE its
-	 *    window waiting to fall, sit at a y that is still inside that rectangle and would simply be
-	 *    DRAWN, hanging above the column;
-	 *  - a DRAIN slides a column's symbols out through the bottom of its own window, which on a short
-	 *    column is likewise still inside the board — they would fall a little way and then just sit
-	 *    there instead of leaving.
-	 *
-	 * The columns are already the outer loop below, so this is a wrapper rather than a restructure.
-	 * Not combined with `perspective`, which needs the row-major flat list — the same mutually
-	 * exclusive paint orders as `BoardBase`, resolved the same way and warned about in the editor.
-	 */
-	const stepped = $derived(!perspective && activeGrid().stepped);
 
 	/**
 	 * The cascade's symbols emitted back row first — as ONE flat list, not nested row/reel loops.
@@ -64,19 +43,6 @@
 {#if perspective}
 	{#each rowOrder as seat (seat.tumbleSymbol)}
 		<TumbleSymbol reelIndex={seat.reelIndex} row={seat.row} tumbleSymbol={seat.tumbleSymbol} />
-	{/each}
-{:else if stepped}
-	{#each tumbleBoardCombined() as tumbleSymbols, reelIndex (reelIndex)}
-		<!-- The column wrapper carries this column's own clip window. A symbol never changes COLUMN
-		     during a cascade — it only moves up and down within one — so grouping by column cannot
-		     move a symbol between keyed blocks, and the object keying below is as stable as it is in
-		     the flat branch. (Grouping by ROW would not be: that is what the perspective branch's
-		     one flat list exists to avoid.) -->
-		<ReelColumn {reelIndex}>
-			{#each tumbleSymbols as tumbleSymbol, symbolIndex (tumbleSymbol)}
-				<TumbleSymbol {reelIndex} row={symbolIndex + PADDING_ROW} {tumbleSymbol} />
-			{/each}
-		</ReelColumn>
 	{/each}
 {:else}
 	{#each tumbleBoardCombined() as tumbleSymbols, reelIndex (reelIndex)}

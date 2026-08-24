@@ -103,6 +103,7 @@ return {
 	boardPerspective,
 	boardWindowHeight,
 	boardWindowForReel,
+	boardMaskColumns,
 	rowSeatIndex,
 };`,
 );
@@ -716,6 +717,145 @@ console.log(
 	`\n${checks} assertions across ${GRIDS.length} grids x ${DIMS.length} board sizes x ` +
 		`${FLAT_PERSPECTIVES.length} flat variants + ${FAR_SCALES.length} perspectives`,
 );
+
+// ---------------------------------------------------------------------------
+// THE COMPOUND MASK covers the board and nothing else.
+//
+// A stepped board is clipped by ONE mask whose geometry is the union of the per-column windows,
+// rather than by a container per column. That choice is what lets a stepped board ALSO be a
+// perspective board — grouping the children by column forces a column-major scene graph, and
+// perspective needs a row-major one so a front-row character paints over the row behind it.
+//
+// So the shape has to be right, and "right" is exactly two claims, both tested here by asking
+// whether a point is inside the union (ray casting) rather than by comparing edge coordinates:
+//
+//   1. EVERY VISIBLE CELL IS COVERED. A seat the board draws must be inside the mask, or a real
+//      symbol is clipped away.
+//   2. EVERY NOTCH IS NOT. The space beside a short column — inside the bounding box, outside that
+//      column's window — must be OUTSIDE the union, or a symbol scrolling through the short column
+//      is drawn in a place the board does not exist. This is the failure a single board-wide
+//      rectangle has, and the whole reason the shape is compound.
+//
+// Run under BOTH a flat and a perspective board, because the second is the case the shape exists to
+// make possible.
+// ---------------------------------------------------------------------------
+{
+	/** Ray casting: is `(x, y)` inside this polygon? */
+	const inside = (polygon, x, y) => {
+		let hit = false;
+		for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+			const a = polygon[i];
+			const b = polygon[j];
+			if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) hit = !hit;
+		}
+		return hit;
+	};
+	const inUnion = (columns, x, y) => columns.some((column) => inside(column, x, y));
+
+	const SHAPES = [
+		['diamond 3/4/5/4/3', [3, 4, 5, 4, 3], 'center'],
+		['diamond, bottom', [3, 4, 5, 4, 3], 'bottom'],
+		['diamond, top', [3, 4, 5, 4, 3], 'top'],
+		['ramp 2/3/4/5/6', [2, 3, 4, 5, 6], 'center'],
+	];
+	const BOARDS = [
+		['flat', undefined],
+		['perspective 0.7', { farScale: 0.7 }],
+		['perspective 0.45 + vanishX', { farScale: 0.45, vanishX: 120 }],
+	];
+
+	for (const [gridLabel, grid] of GRIDS) {
+		for (const [boardLabel, perspective] of BOARDS) {
+			for (const [shapeLabel, rows, align] of SHAPES) {
+				const where = `${gridLabel} | ${boardLabel} | ${shapeLabel}`;
+				const g = gettersFor(grid, { reels: rows.length, rows: Math.max(...rows) }, perspective, {
+					rows,
+					align,
+				});
+				const columns = g.boardMaskColumns();
+				checks += 1;
+				if (!columns || columns.length !== rows.length) {
+					fail(`${where} :: expected one mask polygon per column`);
+					continue;
+				}
+				for (let reel = 0; reel < rows.length; reel += 1) {
+					const rowsHere = rows[reel];
+					const owners = (x, y) => columns.filter((column) => inside(column, x, y)).length;
+
+					// EVERY PROBE COMES FROM THE SEAT PATH, never from the polygon's own vertices. That is
+					// the whole point: a probe derived from the ring would follow any error in the ring
+					// and report success — the first version of this test did exactly that, and a
+					// deliberate one-pitch shift of every interior boundary sailed through it.
+					//
+					// The point probed is the MIDPOINT BETWEEN TWO ADJACENT CELLS' seats. A seat is an
+					// anchor, and an authored `symbolAlignY` of 0 or 1 (feet on the tile) puts it exactly
+					// ON a cell edge, where point-in-polygon is a coin flip; a midpoint of two of them is
+					// strictly interior for any alignment.
+					for (let k = 0; k + 1 < rowsHere; k += 1) {
+						const a = g.getSymbolSeat(reel, k);
+						const b = g.getSymbolSeat(reel, k + 1);
+						const x = (a.x + b.x) / 2;
+						const y = (a.y + b.y) / 2;
+						checks += 1;
+						const n = owners(x, y);
+						// EXACTLY ONE, not "at least one". Overlapping columns are how a tall neighbour's
+						// polygon swallows the notch beside a short column — and a symbol scrolling through
+						// that notch would then be drawn where the board does not exist.
+						if (n !== 1)
+							fail(
+								`${where} :: reel ${reel} between cells ${k}/${k + 1} is in ${n} columns, want 1`,
+							);
+					}
+
+					// THE NOTCH — the region beside a short column, inside the bounding box but outside
+					// the board — is not probed directly, on purpose. Every point that names it has to be
+					// built from a SEAT, and a seat is an anchor: an authored `symbolAlignY` of 1 (feet on
+					// the tile) or a shifted `rowLead` moves it off its cell's centre by design, so a
+					// probe "one row above the window" lands somewhere between the notch and the window
+					// edge depending on the grid. That measures the probe, not the mask.
+					//
+					// It follows from two things that ARE tested independently:
+					//
+					//   · this column's polygon spans exactly its own window in y — asserted just below
+					//     against `boardWindowForReel`, which is a different function computed a
+					//     different way (and is itself checked against the row pitch in the stepped
+					//     section above);
+					//   · the columns do not overlap in x — the `want 1` assertion above, probed from the
+					//     seat path rather than from the polygon's own vertices.
+					//
+					// A notch can only be covered by some column's polygon. It is not this column's (its
+					// polygon stops at its window), and it is not a neighbour's (their polygons do not
+					// reach this column's x). So nothing covers it.
+					const ring = columns[reel];
+					const window = g.boardWindowForReel(reel);
+					const ringTop = Math.min(...ring.map((point) => point.y));
+					const ringBottom = Math.max(...ring.map((point) => point.y));
+					checks += 1;
+					if (Math.abs(ringTop - window.top) > 1e-9)
+						fail(`${where} :: reel ${reel} polygon starts at ${ringTop}, window at ${window.top}`);
+					checks += 1;
+					if (Math.abs(ringBottom - (window.top + window.height)) > 1e-9)
+						fail(
+							`${where} :: reel ${reel} polygon ends at ${ringBottom}, window at ${window.top + window.height}`,
+						);
+				}
+				// Every polygon must be a quad, and finite — a NaN corner silently masks nothing.
+				for (const column of columns) {
+					checks += 1;
+					if (
+						column.length < 4 ||
+						column.some((p) => !Number.isFinite(p.x) || !Number.isFinite(p.y))
+					)
+						fail(`${where} :: a mask polygon is not a finite ring`);
+				}
+			}
+		}
+		// A UNIFORM board must answer `undefined` — the single `Rectangle` mask, unchanged.
+		const flat = gettersFor(grid, { reels: 5, rows: 3 }, undefined, { rows: [3, 3, 3, 3, 3] });
+		same(`${gridLabel} | uniform :: no compound mask`, flat.boardMaskColumns(), undefined);
+	}
+}
+
 if (failures) {
 	console.log(`${failures} FAILED — the seat contract is broken.`);
 	process.exit(1);

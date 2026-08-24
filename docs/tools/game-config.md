@@ -40,12 +40,9 @@ before — an un-authored project still runs the compiled template.
   down), _Top-aligned_, or _Bottom-aligned_ (a pyramid standing on a flat floor).
   Only the reels shorter than the tallest move.
 
-  One combination is **warned about rather than supported**: a stepped board that
-  also has a board **perspective** authored on its reel-grid node draws as a full
-  rectangle, because the two need opposite paint orders and perspective wins. The
-  warning appears in the Scene Editor, beside the node that owns the perspective.
-  Cascading (tumbling) games work on a stepped board. See
-  [stepped grids](../design/stepped-grid.md).
+  A stepped board composes with everything else the board can do — it can
+  **cascade** (tumble), and it can carry a board **perspective** authored on its
+  reel-grid node. See [stepped grids](../design/stepped-grid.md).
 
 - **Bet modes** — each entry in the bet selector / buy-bonus menu, edited as a
   per-mode card: the **math** (cost, feature, buy-bonus, RTP, max win) plus the

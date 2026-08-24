@@ -265,22 +265,11 @@ export function reelGridWarnings(doc: LayoutDoc, grid: GridDimensions | undefine
 	if (!node) return [];
 	const reels = Math.max(1, Math.round(node.reels));
 	const rows = Math.max(1, Math.round(node.rows));
+	// NOTE: a stepped grid and a board PERSPECTIVE compose. They were mutually exclusive while a
+	// stepped board clipped itself with one container per column, which forces a column-major scene
+	// graph where perspective needs a row-major one; the clip is a single compound mask now
+	// (`boardMaskColumns`), which needs no grouping at all, so there is nothing left to warn about.
 	const warnings: string[] = [];
-
-	// A STEPPED grid paints column by column (each column carries its own clip window), and that is
-	// the one ordering a PERSPECTIVE board cannot use — it paints back-to-front by ROW so a front-row
-	// character covers the row behind it. The board renderer resolves the tie in perspective's favour
-	// and draws a full rectangle, so the author has to hear about it. This is the only surface where
-	// both facts are visible: the perspective lives on this node, the row counts live in the config,
-	// and the config validator can see only one of them.
-	if (grid.rowsPerReel && resolveReelGridPerspective(node)?.farScale !== undefined) {
-		warnings.push(
-			`The game config gives the reels different row counts (${grid.rowsPerReel.join('/')}) and this ` +
-				`node has a board perspective. Only one can decide the paint order, and perspective wins — ` +
-				`the board will draw as a full ${grid.reels}×${grid.rows} rectangle until the perspective is ` +
-				`removed.`,
-		);
-	}
 
 	if (reels !== grid.reels || rows !== grid.rows) {
 		warnings.push(

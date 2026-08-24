@@ -164,22 +164,15 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 		});
 	}
 
-	// STEPPED GRIDS (docs/design/stepped-grid.md). Every issue here describes a config that SAVES and
-	// RENDERS but does not mean what its author thinks — the class this validator exists to say out
-	// loud, and the reason a non-uniform `numRows` was dangerous before the board could draw one.
-	if (grid.stepped) {
-		// NOTE: the stepped-vs-PERSPECTIVE conflict is not checked here. Perspective is authored on the
-		// reelGrid NODE in the Scene Editor layout, not in this doc, so this validator cannot see it —
-		// and a check that silently never fires is worse than no check. It lives in the editor's
-		// `reelGridWarnings`, beside the node that owns it.
-		//
-		// NOTE: a stepped board that CASCADES needs no warning. That was checked here at first, on the
-		// assumption that the tumble overlay seated its falling replacements against the board's row
-		// count — it does not. Every seat in the cascade goes through `getSymbolSeat(reelIndex, …)`,
-		// the drain drops by the COLUMN's own length, and `combineTumbleReel` is length-agnostic, so
-		// the mechanic was already per-column. `cascadeBoard.fixture.ts` now drives a ramp and a
-		// diamond through the real mock + facade + board rule to hold that.
-	} else if (doc.gridAlign) {
+	// STEPPED GRIDS (docs/design/stepped-grid.md).
+	//
+	// There is deliberately NO warning about a stepped board here beyond the inert-alignment one
+	// below. Two were tried and both turned out to be wrong: a stepped CASCADE works (every cascade
+	// seat already goes through `getSymbolSeat(reelIndex, ...)` and a drain drops by the COLUMN's own
+	// length), and stepped + PERSPECTIVE composes now that the clip is a single compound mask rather
+	// than one container per column. A validator that cries wolf is worse than a quiet one -- it
+	// teaches an author to skim the panel, which is the panel's only job.
+	if (!grid.stepped && doc.gridAlign) {
 		// An authored alignment on a rectangular board is inert — there is no slack to place. The
 		// normalizer already drops it, so this only fires for a doc that reached the validator without
 		// being normalized (a paste-in inspected before save), which is exactly when saying so helps.

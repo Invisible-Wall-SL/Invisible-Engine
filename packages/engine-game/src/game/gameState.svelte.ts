@@ -430,6 +430,96 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		return { top, height: bottom - top };
 	};
 
+	/**
+	 * THE BOARD'S CLIP SHAPE, as one polygon per column — or `undefined`, which is every uniform
+	 * board and means "one rectangle", the mask `BoardMask` has always drawn.
+	 *
+	 * WHY A COMPOUND MASK RATHER THAN A CONTAINER PER COLUMN. A stepped board has to clip each column
+	 * to its own window, and the obvious way is to wrap each column in its own container carrying its
+	 * own mask. That works, but it forces the scene graph to be COLUMN-MAJOR — and perspective needs
+	 * it ROW-major, because a front-row character has to paint over the row behind it and a
+	 * `pixi-svelte` child's paint order is its mount order. Grouping by column made the two modes
+	 * mutually exclusive.
+	 *
+	 * A single mask whose geometry is the UNION of the per-column windows needs no grouping at all.
+	 * The child list stays exactly as flat as it is today, so paint order is untouched and both
+	 * `BoardBase` branches — flat and perspective — work unchanged. One mask, on the same container
+	 * that has always carried one.
+	 *
+	 * THE COLUMNS TILE, they do not overlap. Each column's polygon runs from the midpoint between it
+	 * and its left neighbour to the midpoint on its right, with `BoardMask`'s existing `SYMBOL_SIZE`
+	 * of slack added only at the two OUTER edges. Overlapping them — giving every column the full
+	 * board width, the way a per-column container safely can — would let a tall neighbour's rectangle
+	 * cover the notch beside a short column, and a symbol scrolling through that notch would be drawn
+	 * in a place the board does not exist. Exact tiling is what makes the union mean "the visible
+	 * board", which is the whole point of the shape.
+	 *
+	 * The horizontal cost is that a symbol overhanging past the midpoint into a neighbour's column is
+	 * clipped WHERE THAT NEIGHBOUR HAS NO WINDOW — i.e. only in the notches, which is where the board
+	 * genuinely ends. Everywhere the two columns' windows overlap vertically, the neighbour's own
+	 * polygon covers the overhang and it draws exactly as it does today.
+	 *
+	 * UNDER PERSPECTIVE each column is a TRAPEZOID, not a rectangle: its edges contract toward the
+	 * vanishing point with depth, by the same `perspectiveRowScale` its symbols do. That is what keeps
+	 * the tiling exact at every depth — axis-aligned rectangles sized off the front row would be too
+	 * wide at the back, and the notches would leak again.
+	 */
+	const boardMaskColumns = () => {
+		const grid = deps.activeGrid();
+		if (!grid.stepped) return undefined;
+		const model = boardPerspective();
+		const reels = grid.reels;
+		const { rowPitchLocal } = boardGeometry();
+		// Column CENTRES, and the pitch between them. `getSymbolX` is affine in the reel index, so the
+		// difference of any adjacent pair is the pitch; a one-column board has no pair, and falls back
+		// to the flush cell width the board is measured in.
+		const centre = (reel: number) => getSymbolX(reel);
+		const pitch = reels > 1 ? centre(1) - centre(0) : SYMBOL_SIZE;
+		/** The left edge of column `reel` — and, at `reel === reels`, the board's right edge. */
+		const boundary = (reel: number) => {
+			if (reel <= 0) return centre(0) - pitch / 2 - SYMBOL_SIZE;
+			if (reel >= reels) return centre(reels - 1) + pitch / 2 + SYMBOL_SIZE;
+			return (centre(reel - 1) + centre(reel)) / 2;
+		};
+		const contract = (x: number, scale: number) =>
+			model ? model.vanishX + (x - model.vanishX) * scale : x;
+
+		return Array.from({ length: reels }, (_unused, reel) => {
+			const left = boundary(reel);
+			const right = boundary(reel + 1);
+			const offsetRows = grid.rowOffsetForReel(reel);
+			const rowsHere = grid.rowsForReel(reel);
+			/**
+			 * One vertex on one edge, at one of this column's ROW BOUNDARIES.
+			 *
+			 * Sampled per row boundary rather than as a four-corner trapezoid, and that is worth
+			 * recording because the trapezoid looks obviously right: it interpolates its edges linearly
+			 * in Y, while the perspective contraction is linear in the ROW and y is a quadratic sum of
+			 * compressed row pitches. The two disagree in the middle of a column by enough that a
+			 * cell's centre can land inside its NEIGHBOUR's polygon — so a symbol would be clipped by
+			 * the wrong column's window. One segment per row bounds that error by a single row's
+			 * contraction, which no cell can cross.
+			 *
+			 * FLAT boards take the same path with `contract` as the identity and every row at the same
+			 * pitch, so the extra vertices are collinear and the ring IS the rectangle. One shape, one
+			 * code path — there is no parity to protect here, since a uniform board never reaches this
+			 * function at all.
+			 */
+			const edgeAt = (row: number, x: number) => ({
+				x: contract(x, model ? perspectiveRowScale(model, row) : 1),
+				y: model ? rowPitchLocal * perspectiveRowSum(model, row) : row * rowPitchLocal,
+			});
+			// Down the left edge, then back up the right. No local annotation: this block is SLICED and
+			// type-stripped by `verify-symbol-seat.mjs`, where only parameter annotations survive.
+			return [
+				...Array.from({ length: rowsHere + 1 }, (_u, step) => edgeAt(offsetRows + step, left)),
+				...Array.from({ length: rowsHere + 1 }, (_u, step) =>
+					edgeAt(offsetRows + rowsHere - step, right),
+				),
+			];
+		});
+	};
+
 	const boardWindowHeight = () => {
 		const model = boardPerspective();
 		// FLAT: literally the expression both components used, in the same order (rows × the reel's
@@ -1003,6 +1093,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		sequentialStopActive,
 		boardWindowHeight,
 		boardWindowForReel,
+		boardMaskColumns,
 		boardRaw,
 		scatterLandIndex,
 		enhancedBoard,

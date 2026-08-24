@@ -853,13 +853,6 @@ export function reelGridGeometry(
 	}
 	const flat: ReelGridGeometry = { reels, rows, cellW, cellH, left, top, width, height, seats };
 
-	// A STEPPED board is drawn FLAT. It paints column by column in the game (each column owns its
-	// clip window) and perspective paints row by row; the two orderings are mutually exclusive, the
-	// board renderer resolves the tie in perspective's favour, and the editor has to preview what the
-	// game will actually draw rather than a board that exists in neither mode. The author is told
-	// about the conflict by `reelGridWarnings`, which can see both facts at once.
-	if (dims?.rowsPerReel) return flat;
-
 	// ---- PERSPECTIVE (docs/design/perspective-board-mode.md) ------------------------------------
 	// The mode's ON switch, read + guarded EXACTLY as the engine's `boardPerspective` reads it:
 	// absent, non-finite, `<= 0` (collapses/mirrors the board) or exactly `1` (the identity) all

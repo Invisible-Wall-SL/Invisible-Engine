@@ -21,9 +21,10 @@
 //      short column does not have, and `coversAllRows` judges coverage per column (a board-wide
 //      test can never be satisfied by a stepped grid, so it would regenerate lines forever).
 //   5. The CLIENT holds the server to its declaration — `clampBoardToGrid` cuts per column.
-//   6. The per-column window actually reaches the symbols, on the reel board AND the cascade
-//      overlay. Asserted against the source, because Svelte template wiring cannot be executed
-//      from Node — and it is the half that no amount of data-level testing can see.
+//   6. The per-column window actually reaches the symbols, and the clip is ONE compound mask
+//      rather than a container per column — which is what lets a stepped board also be a
+//      perspective board. Asserted against the source, because Svelte template wiring cannot
+//      be executed from Node, and it is the half no data-level test can see.
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -339,20 +340,17 @@ const dealOnce = async (opts) => {
 // ---------------------------------------------------------------------------
 // 6. THE PER-COLUMN WINDOW ACTUALLY REACHES THE SYMBOLS.
 //
-// A stepped board's clip window is only worth having if every layer that draws a symbol is wired to
-// it, and the wiring is Svelte TEMPLATE structure — it cannot be imported and executed from Node.
+// A stepped board's clip window is only worth having if the layers that draw a symbol are wired to
+// it, and that wiring is Svelte TEMPLATE structure — it cannot be imported and executed from Node.
 // So it is asserted against the SOURCE, the same way `verify-symbol-seat.mjs` asserts `ReelSymbol`'s
-// two y sources. These are cheap and they catch the regression that matters: someone deleting a
-// `reelIndex` prop or a `stepped` branch and every fixture above still passing, because none of them
-// can see a component.
+// two y sources. Cheap, and it catches the regression no other fixture here can see: someone
+// dropping a `reelIndex` prop or the compound-mask branch while every data-level check stays green.
 //
-// WHY IT MATTERS ON THE CASCADE LAYER SPECIFICALLY. The tumble overlay's resting layer is clipped by
-// the board-wide `BoardMask` rectangle — the BOUNDING BOX. A short column's replacements are stacked
-// deliberately ABOVE its window waiting to fall, and its drained symbols slide out BELOW it; on a
-// stepped board both of those y values are still inside the bounding box, so without a per-column
-// window they are simply drawn — refills hanging above the column, drained symbols parked under it.
-// The seats were already right (everything goes through `getSymbolSeat(reelIndex, …)`); it was the
-// clip and the cull that were board-wide.
+// The CLIP is one mask over the union of the column windows, NOT a container per column. That
+// distinction is the whole reason a stepped board can also be a perspective board: grouping the
+// children by column forces a column-major scene graph, and perspective needs a row-major one so a
+// front-row character paints over the row behind it. A compound mask needs no grouping, so both
+// `BoardBase` branches stay exactly as they were.
 // ---------------------------------------------------------------------------
 {
 	const read = (rel) => readFileSync(join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
@@ -360,8 +358,13 @@ const dealOnce = async (opts) => {
 		checks += 1;
 		if (!re.test(read(rel))) fail(`wiring :: ${label}`, `${rel} no longer matches ${re}`);
 	};
+	const hasNot = (label, rel, re) => {
+		checks += 1;
+		if (re.test(read(rel))) fail(`wiring :: ${label}`, `${rel} unexpectedly matches ${re}`);
+	};
 
-	// Both symbol renderers must hand `SymbolWrap` the column, or it culls board-wide.
+	// Both symbol renderers must hand `SymbolWrap` the column, or the unmasked animate layer culls
+	// board-wide — and a short column's padding row is INSIDE the board-wide window, so it would draw.
 	has(
 		'ReelSymbol passes reelIndex to SymbolWrap',
 		'apps/lines/src/components/ReelSymbol.svelte',
@@ -379,39 +382,25 @@ const dealOnce = async (opts) => {
 		'apps/lines/src/components/SymbolWrap.svelte',
 		/activeGrid\(\)\.stepped[\s\S]{0,120}?boardWindowForReel\(props\.reelIndex\)/,
 	);
-	// Both boards must wrap their columns when stepped — the reel board and the cascade overlay.
-	for (const [label, rel] of [
-		['BoardBase', 'apps/lines/src/components/BoardBase.svelte'],
-		['TumbleBoardBase', 'apps/lines/src/components/TumbleBoardBase.svelte'],
-	]) {
-		has(
-			`${label} has a stepped branch`,
-			rel,
-			/const stepped = \$derived\(!perspective && activeGrid\(\)\.stepped\)/,
-		);
-		has(`${label} wraps its columns in ReelColumn`, rel, /<ReelColumn \{reelIndex\}>/);
-	}
-	// …and neither may combine it with perspective, which needs the opposite paint order.
+	// The mask is compound, and it is still ONE mask on the same container.
+	has(
+		'BoardMask draws the compound shape when stepped',
+		'apps/lines/src/components/BoardMask.svelte',
+		/\{#if maskColumns\}[\s\S]{0,400}?<Graphics[\s\S]{0,300}?isMask/,
+	);
+	has(
+		'BoardMask keeps the single Rectangle for a uniform board',
+		'apps/lines/src/components/BoardMask.svelte',
+		/\{:else\}[\s\S]{0,200}?<Rectangle isMask x=\{-SYMBOL_SIZE\}/,
+	);
+	// THE PARITY CLAIM THAT MATTERS MOST: neither board groups its children per column any more, so
+	// the scene graph — and therefore the paint order both modes depend on — is untouched.
 	for (const rel of [
 		'apps/lines/src/components/BoardBase.svelte',
 		'apps/lines/src/components/TumbleBoardBase.svelte',
 	]) {
-		checks += 1;
-		if (!/!perspective && activeGrid\(\)\.stepped/.test(read(rel)))
-			fail(`wiring :: ${rel} must not combine stepped with perspective`);
+		hasNot(`${rel} does not group children per column`, rel, /ReelColumn/);
 	}
-	// ReelColumn must clip from the SAME accessor SymbolWrap culls with, or the two drift.
-	has(
-		'ReelColumn clips from boardWindowForReel',
-		'apps/lines/src/components/ReelColumn.svelte',
-		/boardWindowForReel\(props\.reelIndex\)/,
-	);
-	// …and must leave the ANIMATE layer unmasked, exactly as the board-wide mask does today.
-	has(
-		'ReelColumn masks only the resting layer',
-		'apps/lines/src/components/ReelColumn.svelte',
-		/\{#if !boardContext\.animate\}[\s\S]{0,300}?isMask/,
-	);
 }
 
 console.log(`\n${checks} assertions`);
