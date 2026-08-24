@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { FadeContainer, WinCountUpProvider } from 'components-pixi';
-	import { waitForResolve } from 'utils-shared/wait';
+	import { waitForResolve, waitForTimeout } from 'utils-shared/wait';
 	import { roundSkip } from 'utils-shared/skipToken';
 	import { CanvasSizeRectangle } from 'components-layout';
 	import { OnMount } from 'components-shared';
@@ -28,6 +28,27 @@
 	// The coded press already self-suppresses under v2 (`codedPressOwned`), so a headless mount adds no
 	// visible surface. Default `false` ⇒ the full gate (driven seed / today) — byte-identical.
 	const { headless = false }: { headless?: boolean } = $props();
+
+	/**
+	 * RUNAWAY GUARD on the final tier's outro — the same discipline `game/symbolBeat.ts` applies to the
+	 * win beat, for the same reason: this wait BLOCKS THE ROUND, so it must never be unbounded.
+	 *
+	 * `concludePresentation` waits for the outro's `complete`, and a spine only reports that when the
+	 * bound animation actually plays once — not when its name is absent from the skeleton, and not when
+	 * the clip loops. Either way the overlay sits on screen and the round never ends. `WinAnimation`
+	 * already short-circuits the two authorings it can NAME up front (no outro, or the idle reused as
+	 * one); this bounds everything it cannot.
+	 *
+	 * Sized off the ART, like `WIN_BEAT_CAP_MS`. Measured across the reference `bigwin` rig: every
+	 * `*_win_exit` is 467ms and the longest clip of any kind that is not a resting loop is a 1667ms
+	 * intro. 4000ms is ~8.5× a real exit — room for a project that authors a far longer flourish and
+	 * for a frame-starved device — while still being a third of an idle cycle (12000ms), so a
+	 * mis-authored outro costs a bounded pause rather than the whole loop.
+	 *
+	 * Raise this before shortening it: if a game's tier outro is genuinely being cut off, this number
+	 * is the bug, not the animation.
+	 */
+	const ESCALATION_OUTRO_CAP_MS = 4_000;
 
 	const context = getContext();
 
@@ -139,17 +160,37 @@
 	}
 
 	/** A promise that resolves when the escalation outro completes (`WinAnimation` sets the latch).
-	 *  Reactive→promise bridge via a disposable root effect; resolves immediately if already complete. */
+	 *  Reactive→promise bridge via a disposable root effect; resolves immediately if already complete.
+	 *  RACED against {@link ESCALATION_OUTRO_CAP_MS} — this wait blocks the round, so it is never
+	 *  allowed to be unbounded. */
 	function waitForEscalationOutro(): Promise<void> {
 		if (winState.escalationOutroComplete) return Promise.resolve();
 		return new Promise<void>((resolve) => {
-			const stop = $effect.root(() => {
+			// ONE settle point for both racers, so the loser cannot resolve twice, cannot warn about an
+			// outro that did land, and — the reason this isn't a bare `Promise.race` — cannot leave the
+			// watcher root running for the rest of the session on every capped win.
+			let stop = () => {};
+			let settled = false;
+			const settle = (capped: boolean) => {
+				if (settled) return;
+				settled = true;
+				stop();
+				if (capped) {
+					console.warn(
+						`[WinGate] the win tier's outro did not report complete within ${ESCALATION_OUTRO_CAP_MS}ms — ` +
+							'concluding anyway. Check that the final tier\'s "outro" names an animation that exists ' +
+							'in its spine and plays once (a looping clip never fires `complete`).',
+					);
+				}
+				resolve();
+			};
+			stop = $effect.root(() => {
 				$effect(() => {
-					if (winState.escalationOutroComplete) {
-						resolve();
-						stop();
-					}
+					if (winState.escalationOutroComplete) settle(false);
 				});
+			});
+			void waitForTimeout(ESCALATION_OUTRO_CAP_MS).then(() => {
+				if (!winState.escalationOutroComplete) settle(true);
 			});
 		});
 	}
@@ -237,9 +278,7 @@
 					<!-- Post-count-up tap concludes via `concludePresentation` so an escalation's outro is
 						awaited (not cut). Pre-completion tap still slams the count-up (`finishCountUp`), then
 						OnMount concludes. Un-escalating ⇒ concludes immediately (byte-identical tap-to-slam). -->
-					<PressToContinue
-						onpress={() => (countUpCompleted ? dismissNow() : finishCountUp())}
-					/>
+					<PressToContinue onpress={() => (countUpCompleted ? dismissNow() : finishCountUp())} />
 				{:else if !countUpCompleted}
 					<!-- Authorable count-up interaction (hold-to-fast-forward and/or tap-to-skip), mounted ONLY
 						 while the count-up runs (flow path) so it never intercepts the authored `bigWin`
@@ -252,6 +291,26 @@
 						bind:speedScale={interactionSpeedScale}
 						onSkip={() => stepOrSkip(jumpTo, finishCountUp)}
 					/>
+				{:else if !headless}
+					<!-- POST-COUNT-UP DISMISS (flow path). The branch above unmounts the moment the count-up
+						completes, and the coded press is suppressed under v2 — which left the overlay with NO
+						tap surface at all for the whole window between the count landing and the outro
+						finishing. On the remake that window is the entire wait, so a player who tapped to
+						dismiss after the number settled was tapping nothing.
+
+						`PressToContinue` rather than another `CountUpInteraction`: it registers with
+						`registerContinuePress`, so the canvas-top `<ContinuePressMask>` mounts and absorbs the
+						tap WHEREVER the pointer rests — including over live HUD chrome, which hit-tests above
+						this overlay's own rect and would otherwise swallow it. `hidePrompt` keeps the coded
+						`MM_pressanywhere` sprite off a v2 screen the author composed themselves, which is the
+						only reason the press was suppressed here in the first place.
+
+						`!headless` is the ownership line `resolveWinMount` already draws: headless ⇒ the flow
+						OWNS `setWin` and the authored container owns dim / art / tap, so the engine must not
+						add a second tap surface. Non-headless ⇒ the engine owns the overlay (it is drawing the
+						dim scrim right above), so it owns the dismiss press too — exactly as the coded path
+						always has. -->
+					<PressToContinue hidePrompt onpress={dismissNow} />
 				{/if}
 			{/snippet}
 		</WinCountUpProvider>

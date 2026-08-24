@@ -14,6 +14,8 @@
 	import { SpineProvider, SpineTrack, SpineSlot } from 'pixi-svelte';
 	import { EDITOR_SPINE_LOAD_SCALE } from 'engine-layout';
 
+	import { tierHasExit } from '../game/winEscalation';
+
 	type AnimationState = 'intro' | 'idle' | 'outro';
 
 	type Props = {
@@ -117,6 +119,17 @@
 	// slows below normal.
 	const rampTimeScale = $derived(escalating && !countUpComplete ? Math.max(speedScale, 1) : 1);
 
+	// Whether the FINAL tier has a distinct EXIT clip — i.e. whether there is anything whose
+	// `complete` could end the presentation. The rule (and why an outro authored as the idle is not
+	// one) lives in `game/winEscalation.ts`, so the gate's round-blocking wait and this walk read the
+	// same definition and it can be exercised without a renderer.
+	const finalHasExit = $derived(tierHasExit(steps[steps.length - 1].animationMap));
+
+	// Whether the chain has already been concluded for THIS presentation. A plain `let`, not `$state`:
+	// nothing renders off it, and a read-modify-write of reactive state inside the very `$effect` that
+	// writes it is the loop that shipped in `#396`.
+	let chainConcluded = false;
+
 	// ESCALATION ONLY — conclude the chain when the count-up finishes.
 	//
 	// On the natural walk we're already on the final tier's looping idle, so this just flips it to the
@@ -125,16 +138,19 @@
 	// completes that advance the chain, so `countUpComplete` can latch on a NON-final tier. Rather than
 	// let the chain crawl on (number done, tiers still walking) or get cut off, COLLAPSE straight to the
 	// final tier and play its outro — the player lands on the biggest tier's art as it exits, a clean
-	// coherent end. Guarded on `escalating` + `animationState !== 'outro'` so it fires once and the
-	// single-tier path never gains an outro it did not have before (byte-identical).
+	// coherent end. Guarded on `escalating` + `chainConcluded` so it fires once and the single-tier path
+	// never gains an outro it did not have before (byte-identical).
 	$effect(() => {
-		if (!escalating || !countUpComplete || animationState === 'outro') return;
+		if (!escalating || !countUpComplete || chainConcluded) return;
+		chainConcluded = true;
 		if (!isFinalStep) stepIndex = steps.length - 1;
+		if (!finalHasExit) {
+			// No exit to play ⇒ nothing whose `complete` could ever arrive. Report done now and leave the
+			// tier's idle on screen until the overlay hides. The guard used to cover only the EMPTY name.
+			onOutroComplete?.();
+			return;
+		}
 		animationState = 'outro';
-		// SAFETY: the gate now WAITS for the outro's `complete` before concluding — but a mis-authored
-		// tier with an empty outro name plays nothing, so `complete` never fires. Signal completion
-		// immediately in that case so the gate can never hang (it concluded on its own timer before).
-		if (!steps[steps.length - 1].animationMap.outro) onOutroComplete?.();
 	});
 
 	// ESCALATION ONLY — rewind the walk when a NEW presentation begins (the overlay persists across
@@ -147,16 +163,17 @@
 		if (escalating && wasCountUpComplete && !countUpComplete) {
 			stepIndex = 0;
 			animationState = 'intro';
+			chainConcluded = false;
 		}
 		wasCountUpComplete = countUpComplete;
 	});
 
 	// TAP-TO-STEP — a tap bumps `forceStep`; jump the walk FORWARD to it (never back), playing that
 	// tier's intro. The natural idle-complete walk keeps advancing between taps, so this only ever
-	// accelerates the walk to the tapped tier. Guarded off during the outro (the final-tier collapse
-	// owns that) and clamped to the last tier. Escalation only; inert on the single-tier path.
+	// accelerates the walk to the tapped tier. Guarded off once the chain has concluded (the final-tier
+	// collapse owns the end) and clamped to the last tier. Escalation only; inert on the single-tier path.
 	$effect(() => {
-		if (!escalating || animationState === 'outro') return;
+		if (!escalating || chainConcluded || animationState === 'outro') return;
 		const target = Math.min(forceStep, steps.length - 1);
 		if (target > stepIndex) {
 			stepIndex = target;
@@ -166,6 +183,23 @@
 
 	// Publish the active tier so the GATE can seek the count to the next tier's amount + slam on the last.
 	$effect(() => onStepIndex?.(stepIndex));
+
+	/**
+	 * RE-APPLY TOKEN for the track — a value that differs on every walk transition.
+	 *
+	 * `<SpineTrack>` decides whether to (re)start an animation by VALUE (`shouldApplySpineAnimation`:
+	 * `animationName !== track.animationName`), which is right for a declarative binding and wrong for
+	 * a WALK, where the next phase can legitimately name the clip that is already playing — a tier
+	 * whose outro is authored to its own idle, or two adjacent tiers sharing a clip. The track then
+	 * silently never restarts: the running entry keeps going, and its `complete` arrives at the end of
+	 * the OLD cycle rather than the new one's.
+	 *
+	 * `stepIndex * 3 + phase` is injective over (tier, phase), so consecutive states always differ and
+	 * every transition re-applies — including the rewind to (0, intro) for a repeat win. Byte-identical
+	 * wherever the names already differ (the token only ever ADDS a reason to apply, never removes one).
+	 */
+	const PHASE_ORDER: Record<AnimationState, number> = { intro: 0, idle: 1, outro: 2 };
+	const replayToken = $derived(stepIndex * 3 + PHASE_ORDER[animationState]);
 </script>
 
 <!--
@@ -185,6 +219,7 @@
 		trackIndex={0}
 		animationName={current.animationMap[animationState]}
 		loop={idleLoops}
+		replay={replayToken}
 		timeScale={rampTimeScale}
 		listener={{
 			complete: () => {
