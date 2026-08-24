@@ -73,6 +73,7 @@
 	<SymbolWrap
 		x={seat.x}
 		{y}
+		reelIndex={props.reelIndex}
 		scale={seat.scale}
 		tint={dimmed ? SYMBOL_DIM_TINT : 0xffffff}
 		animating={symbolInfo.type === 'spine' &&
