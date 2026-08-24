@@ -31,6 +31,7 @@ export const {
 	payoutDivisor,
 	getNumRows,
 	boardDimensions,
+	activeGrid,
 	boardSizes,
 	initialBoard,
 	activeWinLevels,

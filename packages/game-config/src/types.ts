@@ -360,6 +360,13 @@ export type WinLevelTier = {
 export type ResolvedWinTier = WinLevelTier & { level: number };
 
 /**
+ * Where a SHORT column sits inside the board's bounding box on a stepped grid — `center` (the
+ * default, and what a 3/4/5/4/3 diamond wants), `top`, or `bottom` (a ground-anchored pyramid).
+ * One fact about the whole board, so it is authored once at the top level rather than per reel.
+ */
+export type GridAlign = 'center' | 'top' | 'bottom';
+
+/**
  * The whole authored config. **DENSE, not sparse** — unlike Win Text or the Symbols SM, a project
  * either has a complete config or has none at all and falls through to the compiled template. A
  * half-merged config is a config with a missing symbol dictionary, so there is no partial doc type.
@@ -373,6 +380,15 @@ export type GameConfigDoc = {
 	numReels: number;
 	/** Visible rows per reel — one entry per reel, so a stepped grid is expressible. */
 	numRows: number[];
+	/**
+	 * OPTIONAL vertical alignment of a SHORT column inside the board's bounding box, when
+	 * {@link numRows} is non-uniform. An INVISIBLE-ENGINE extension, not part of the math export;
+	 * absent ⇒ `center`, which is what a 3/4/5/4/3 diamond wants. Inert on a uniform grid — every
+	 * column is already full height, so there is no slack to place.
+	 *
+	 * Read it through `resolveGrid` rather than directly, so the default lives in one place.
+	 */
+	gridAlign?: GridAlign;
 	betModes: Record<string, BetMode>;
 	/**
 	 * OPTIONAL per-mode presentation (kind / order / copy) for the bet-selector + buy-bonus menu, keyed

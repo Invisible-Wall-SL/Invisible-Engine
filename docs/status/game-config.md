@@ -123,6 +123,96 @@ commits, three surfaces:
 about the grid (the scene-geometry anchors, the HUD layout) is config-driven — those remain authored
 in the Scene Editor per game.
 
+## Stepped grids (2026-08-24) — `numRows` finally means what it says
+
+> Design: [docs/design/stepped-grid.md](../design/stepped-grid.md)
+
+`numRows` has been a per-reel array since Phase 1 and its doc comment always claimed "so a stepped
+grid is expressible", but only the MATH read it that way (`activeWaysCount`, the per-reel payline
+bounds check, `boardText`). Every renderer and dealer collapsed it to `Math.max(...)`. A non-uniform
+config therefore SAVED, VALIDATED and SHIPPED while the board drew a rectangle against it — the
+paytable pricing 720 ways over a 5×5 board, the RGS dealing five rows into a three-row column. It
+was reachable by typing a number into the Grid panel. This closes that.
+
+- **`packages/game-config/src/grid.ts`** — `resolveGrid`, the ONE resolver both halves read:
+  `rowsForReel` (how tall) + `rowOffsetForReel` (where it sits, in rows, FRACTIONAL so a 4-row column
+  centred in a 5-row box lands on the half-cell stagger that makes 3/4/5/4/3 a diamond).
+  `stepped` is the parity gate — false for every board that exists, and every consumer early-returns
+  its EXISTING path on it, not an equivalent one.
+- **`gridAlign`** (`center` | `top` | `bottom`) is a new optional top-level field, stored only when
+  it departs from `center` AND the grid is actually stepped, so a math-export paste-in round-trips
+  byte-for-byte. Authored in the Grid panel, which shows the control only for a stepped grid.
+- **Game** — `boardDimensions()` still reports the BOUNDING BOX (scene anchors are pinned to it) but
+  stops claiming every column fills it. Each column gets its own clip window (`ReelColumn`) and its
+  own cull bound; the offset rides into the reel as part of its `symbolLead` AND into the resting
+  seat via `rowSeatIndex`, because `ReelSymbol` picks between those two y sources every frame.
+- **Dealer chain** — `/config` doc → `mockContract` → manifest → test-server → mock, each hop sending
+  `rowsPerReel` only when the columns differ. The mock declares what it dealt
+  (`config.window.rowsPerReel`) and the facade clamps PER COLUMN against that declaration.
+  `ROWS=3,4,5,4,3` deals a diamond from the CLI.
+- **Editor** — `reelGridGeometry` seats each column at its own height/offset from the SAME
+  `resolveGrid` output, so the preview cannot show a board the game will not draw.
+
+**Verified.** `verify-stepped-grid.mjs` (229 assertions, new) + a stepped section in
+`verify-symbol-seat.mjs` (now 274,644). The two that matter are parity: the same seed dealt with
+`rows: 3` and `rows: [3,3,3,3,3]` gives byte-identical responses (the RNG stream is untouched), and
+a uniform seat is still literally `getSymbolX`/`getSymbolY` asserted with `Object.is`. Live in
+`apps/lines` + mock, read off the Pixi scene graph: a 3/4/5/4/3 config draws five masked column
+containers holding 3/4/5/4/3 symbols at offsets 1/0.5/0/0.5/1; reverting to 5×3 returns ONE mask
+with all 15 symbol containers as direct children.
+
+**Cascade + stepped WORKS** (2026-08-24). It was first flagged as a gap on the reasoning that the
+tumble overlay seats falling replacements against the board's row count — that was wrong. Every seat
+in the cascade already goes through `getSymbolSeat(reelIndex, …)`, a drain drops by the COLUMN's own
+length, `combineTumbleReel` is length-agnostic, and the mock refills exactly what it removed per
+reel. What WAS board-wide was the same pair the reel board fixed: the CLIP (the resting cascade layer
+is clipped by the board-wide `BoardMask`, so a short column's replacements — stacked deliberately
+ABOVE its window — sit inside the bounding box and would be drawn hanging above it, and its drained
+symbols would park below it instead of leaving) and the CULL (`TumbleSymbol` passed `SymbolWrap` no
+`reelIndex`). `TumbleBoardBase` now wraps its columns in the same `ReelColumn`; grouping by COLUMN is
+safe where grouping by row is not, since a symbol never changes column mid-cascade, so the object
+keying that keeps a falling symbol's Tween alive is untouched. `cascadeBoard.fixture.ts` runs a ramp
+and a diamond beside its rectangle — 937 assertions over 291 tumble steps.
+
+**Perspective + stepped COMPOSES** (2026-08-24), and the fix was to change how a stepped board is
+CLIPPED rather than to reconcile two paint orders. The first design gave each column its own
+container + mask, which forces a COLUMN-major scene graph; perspective paints ROW-major so a
+front-row character covers the row behind it, and that made them mutually exclusive. The clip is now
+ONE compound mask whose geometry is the union of the per-column windows (`boardMaskColumns`), so
+there is no grouping at all — the child list stays flat, both `BoardBase` branches are untouched, and
+either mode (or both) can be authored. `ReelColumn` is deleted; `BoardBase` and `TumbleBoardBase` are
+byte-identical to `main` again. The columns TILE rather than overlap, because an overlapping polygon
+would let a tall neighbour cover the notch beside a short column. Under perspective each column is
+sampled at every one of its ROW BOUNDARIES rather than drawn as a four-corner trapezoid — a trapezoid
+interpolates linearly in y while the contraction is linear in the ROW, and the two disagree enough
+mid-column that a cell can land inside its neighbour's polygon. The fixture caught that; it was not
+foreseen.
+
+**WAYS on a stepped board — a real bug found and fixed (2026-08-24).** The gap note said the ways
+reach was "correct by construction" because `createWaysReach` takes each column's height off the
+board it is handed. It does — but the board it was HANDED was wrong.
+`buildAnticipationArming` sliced the padded reveal to the BOUNDING BOX (`reel.slice(1, 1 + y)`,
+`y = max(numRows)`), so a 3-row column — which arrives as 5 padded cells — kept its bottom PADDING
+row: four cells in a three-cell column. Undetectable downstream, because a ways pay is a product over
+the per-reel counts divided by the ways count and BOTH move, so the round just pays the wrong
+multiple (3x4x5x4x3 = 720 ways vs 3125 if every column is counted as five); for `lines` an off-screen
+symbol can complete a run. Now sliced by `grid.rowsForReel(reelIndex)` — identical on a uniform
+board. `anticipationWaysReach.fixture.ts` gained a ragged-board section that converges on the real
+win AND asserts that padding the short columns out to the box gives a different answer, so the slice
+cannot regress silently; `verify-stepped-grid.mjs` asserts the slice itself. The rest of the family
+was already safe: `bookEventHandlerMap` and `flowEffects` walk the visible rows behind a
+`row < symbols.length - 1` guard, which bounds them by the column's own strip.
+
+**Open / not wired:**
+- A stepped board has not been driven through a full ROUND in a browser: the pane would not
+  composite, which also throttles the animation clock, so a round never settles and a second spin
+  never arms. A single spin DOES fire (spacebar). The RESTING board is verified live and
+  quantitatively — `renderer.extract` reads the painted pixels back, and a 3/4/5/4/3 config paints
+  column spans of 2.98 / 3.95 / 5.00 / 3.94 / 2.92 rows starting at 1.03 / 0.54 / 0 / 0.63 / 1.10,
+  which is the diamond including its half-row stagger (the sub-row deviations are the symbol art's
+  own margins). Reverting to 5x3 puts the mask back on the `Rectangle` path (`fill`+`stroke`, not the
+  compound `fill`) with 15 symbols at y 60/180/300. The reveal + cascade paths are covered offline.
+
 ## Phase 6 — bet modes authorable + localizable (the buy-features/bonus surface)
 
 The buy-bonus / ante menu the player sees was hardcoded: `ModalBuyBonus` → `BonusCards` read

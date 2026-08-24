@@ -36,6 +36,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { editorArtTextureKey } from '../packages/engine-layout/src/lib/editorArtKey.ts';
+import { resolveGrid } from '../packages/game-config/src/grid.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // Normalized to LF: the repo checks out CRLF on Windows and every anchor below is written with \n.
@@ -350,6 +351,13 @@ const gettersFor = (grid, dims, perspective) =>
 		{
 			layout: { layoutType: () => 'desktop' },
 			boardDimensions: () => ({ x: dims.reels, y: dims.rows }),
+			// Uniform: these fixtures do not exercise stepped grids, so every seat below takes the
+			// same pass-through it took before `activeGrid` existed.
+			activeGrid: () =>
+				resolveGrid({
+					numReels: dims.reels,
+					numRows: Array.from({ length: dims.reels }, () => dims.rows),
+				}),
 		},
 	);
 

@@ -44,6 +44,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { resolveGrid } from '../packages/game-config/src/grid.ts';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE = join(ROOT, 'packages/engine-game/src/game/gameState.svelte.ts');
 
@@ -100,6 +102,9 @@ return {
 	getSymbolSeat,
 	boardPerspective,
 	boardWindowHeight,
+	boardWindowForReel,
+	boardMaskColumns,
+	rowSeatIndex,
 };`,
 );
 
@@ -108,7 +113,7 @@ return {
  * @param dims `{ reels, rows }` — only the perspective path reads them
  * @param perspective the RAW authored block, handed to the seat unfiltered (see the header)
  */
-const gettersFor = (grid, dims = { reels: 5, rows: 3 }, perspective = undefined) =>
+const gettersFor = (grid, dims = { reels: 5, rows: 3 }, perspective = undefined, rowsPerReel) =>
 	buildGetters(
 		SYMBOL_SIZE,
 		REEL_PADDING,
@@ -118,6 +123,15 @@ const gettersFor = (grid, dims = { reels: 5, rows: 3 }, perspective = undefined)
 		{
 			layout: { layoutType: () => 'desktop' },
 			boardDimensions: () => ({ x: dims.reels, y: dims.rows }),
+			// The REAL `resolveGrid`, not a stub of it — the parity claim below is only worth
+			// something if `stepped` is decided by the shipped code. Absent `rowsPerReel` ⇒ a uniform
+			// board, which is every case in the matrix above.
+			activeGrid: () =>
+				resolveGrid({
+					numReels: dims.reels,
+					numRows: rowsPerReel?.rows ?? Array.from({ length: dims.reels }, () => dims.rows),
+					gridAlign: rowsPerReel?.align,
+				}),
 		},
 	);
 
@@ -506,10 +520,6 @@ for (const [gridLabel, grid] of GRIDS) {
 	}
 }
 
-console.log(
-	`\n${checks} assertions across ${GRIDS.length} grids x ${DIMS.length} board sizes x ` +
-		`${FLAT_PERSPECTIVES.length} flat variants + ${FAR_SCALES.length} perspectives`,
-);
 // ---------------------------------------------------------------------------
 // THE BOARD MUST FIT INSIDE ITS OWN MASK.
 //
@@ -609,6 +619,241 @@ const readSrc = (rel) => readFileSync(join(ROOT, rel), 'utf8').replace(/\r\n/g, 
 		true,
 	);
 	same('...and binds that y, not the raw live one', /\n\t\t\{y\}\n/.test(reelSymbol), true);
+}
+
+// ---------------------------------------------------------------------------
+// STEPPED GRIDS (docs/design/stepped-grid.md) — a non-uniform `numRows`.
+//
+// Two claims, and the second is the one that actually bites:
+//
+//  1. Each column is displaced by its share of the bounding box's slack, per the authored
+//     alignment. A 3/4/5/4/3 board centred in a 5-row box offsets by 1 / 0.5 / 0 / 0.5 / 1.
+//  2. THE ROLLING Y AND THE RESTING SEAT AGREE. `ReelSymbol` picks between them every frame
+//     (the seat at rest under perspective, the live reel y otherwise), so if the two are offset
+//     by different amounts a stepped column JUMPS the instant it settles. The reel places a
+//     symbol at `reelY + (symbolIndex + lead) * pitch` and comes to rest at `reelY = -pitch`, so
+//     the resting live y of visible row r is `pitch * (r + lead + offset)`, which is
+//     `getSymbolY(r + offset)`.
+//
+//     Checked to a TOLERANCE, deliberately, unlike every other assertion in this file. The two
+//     expressions associate their multiply and add differently and so have never been bit-equal —
+//     a UNIFORM board already drifts ~2.8e-14 between them today, so demanding `Object.is` here
+//     would be asserting a property the shipped code never had. The tolerance is not slack: the
+//     failure this guards is an offset reaching one path and not the other, which misplaces a
+//     column by at least half a row (~45 board units on a default pitch) — fifteen orders of
+//     magnitude above the float noise, so 1e-9 separates them with room to spare.
+// ---------------------------------------------------------------------------
+{
+	const STEPPED = [
+		['diamond 3/4/5/4/3', [3, 4, 5, 4, 3], 'center', [1, 0.5, 0, 0.5, 1]],
+		['diamond, top-aligned', [3, 4, 5, 4, 3], 'top', [0, 0, 0, 0, 0]],
+		['diamond, bottom-aligned', [3, 4, 5, 4, 3], 'bottom', [2, 1, 0, 1, 2]],
+		['ramp 2/3/4/5/6', [2, 3, 4, 5, 6], 'center', [2, 1.5, 1, 0.5, 0]],
+		['single short reel', [4, 4, 2, 4, 4], 'bottom', [0, 0, 2, 0, 0]],
+	];
+	for (const [gridLabel, grid] of GRIDS) {
+		for (const [label, rows, align, expected] of STEPPED) {
+			const resolved = resolveGrid({ numReels: rows.length, numRows: rows, gridAlign: align });
+			const g = gettersFor(grid, { reels: rows.length, rows: Math.max(...rows) }, undefined, {
+				rows,
+				align,
+			});
+			// The stub must actually be driving a stepped grid, or everything below is vacuous.
+			same(`${gridLabel} | ${label} :: grid.stepped`, resolved.stepped, true);
+			const { rowPitchLocal } = g.boardGeometry();
+			for (let reel = 0; reel < rows.length; reel += 1) {
+				const where = `${gridLabel} | ${label} | reel ${reel}`;
+				const offset = resolved.rowOffsetForReel(reel);
+				// 1. the authored alignment placed the column where the design says
+				same(`${where} :: row offset`, offset, expected[reel]);
+				same(`${where} :: rowSeatIndex folds the offset in`, g.rowSeatIndex(reel, 0), offset);
+				// 2. the window this column masks + culls at
+				const win = g.boardWindowForReel(reel);
+				same(`${where} :: window top`, win.top, offset * rowPitchLocal);
+				same(`${where} :: window height`, win.height, rows[reel] * rowPitchLocal);
+				// the column's window must sit INSIDE the bounding box, or the mask leaks
+				if (win.top < 0 || win.top + win.height > g.boardWindowHeight() + 1e-9)
+					fail(`${where} :: column window escapes the board window`);
+				checks += 1;
+				for (let r = 0; r < rows[reel]; r += 1) {
+					const seat = g.getSymbolSeat(reel, r);
+					// THE INVARIANT: resting live y === seat y, exactly.
+					const lead = g.getSymbolLead() + g.rowSeatIndex(reel, 0);
+					const restingLiveY = -rowPitchLocal + (r + 1 + lead) * rowPitchLocal;
+					if (Math.abs(restingLiveY - seat.y) > 1e-9)
+						fail(
+							`${where} | row ${r} :: rolling y vs resting seat y  live=${restingLiveY} seat=${seat.y}`,
+						);
+					checks += 1;
+					same(
+						`${where} | row ${r} :: seat.y === getSymbolY(r + offset)`,
+						seat.y,
+						g.getSymbolY(r + offset),
+					);
+					// a stepped board is still FLAT, so x and scale are untouched by the offset
+					same(`${where} | row ${r} :: seat.x unmoved`, seat.x, g.getSymbolX(reel));
+					same(`${where} | row ${r} :: seat.scale === 1`, seat.scale, 1);
+				}
+			}
+		}
+	}
+	// A UNIFORM grid must take the pass-through: the same call, not an equivalent one.
+	for (const [gridLabel, grid] of GRIDS) {
+		const g = gettersFor(grid, { reels: 5, rows: 3 }, undefined, { rows: [3, 3, 3, 3, 3] });
+		for (let reel = 0; reel < 5; reel += 1) {
+			same(`${gridLabel} | uniform :: rowSeatIndex is identity`, g.rowSeatIndex(reel, -1), -1);
+			const win = g.boardWindowForReel(reel);
+			same(`${gridLabel} | uniform :: window top is 0`, win.top, 0);
+			same(
+				`${gridLabel} | uniform :: window height is the board window`,
+				win.height,
+				g.boardWindowHeight(),
+			);
+		}
+	}
+}
+
+console.log(
+	`\n${checks} assertions across ${GRIDS.length} grids x ${DIMS.length} board sizes x ` +
+		`${FLAT_PERSPECTIVES.length} flat variants + ${FAR_SCALES.length} perspectives`,
+);
+
+// ---------------------------------------------------------------------------
+// THE COMPOUND MASK covers the board and nothing else.
+//
+// A stepped board is clipped by ONE mask whose geometry is the union of the per-column windows,
+// rather than by a container per column. That choice is what lets a stepped board ALSO be a
+// perspective board — grouping the children by column forces a column-major scene graph, and
+// perspective needs a row-major one so a front-row character paints over the row behind it.
+//
+// So the shape has to be right, and "right" is exactly two claims, both tested here by asking
+// whether a point is inside the union (ray casting) rather than by comparing edge coordinates:
+//
+//   1. EVERY VISIBLE CELL IS COVERED. A seat the board draws must be inside the mask, or a real
+//      symbol is clipped away.
+//   2. EVERY NOTCH IS NOT. The space beside a short column — inside the bounding box, outside that
+//      column's window — must be OUTSIDE the union, or a symbol scrolling through the short column
+//      is drawn in a place the board does not exist. This is the failure a single board-wide
+//      rectangle has, and the whole reason the shape is compound.
+//
+// Run under BOTH a flat and a perspective board, because the second is the case the shape exists to
+// make possible.
+// ---------------------------------------------------------------------------
+{
+	/** Ray casting: is `(x, y)` inside this polygon? */
+	const inside = (polygon, x, y) => {
+		let hit = false;
+		for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+			const a = polygon[i];
+			const b = polygon[j];
+			if (a.y > y !== b.y > y && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) hit = !hit;
+		}
+		return hit;
+	};
+	const inUnion = (columns, x, y) => columns.some((column) => inside(column, x, y));
+
+	const SHAPES = [
+		['diamond 3/4/5/4/3', [3, 4, 5, 4, 3], 'center'],
+		['diamond, bottom', [3, 4, 5, 4, 3], 'bottom'],
+		['diamond, top', [3, 4, 5, 4, 3], 'top'],
+		['ramp 2/3/4/5/6', [2, 3, 4, 5, 6], 'center'],
+	];
+	const BOARDS = [
+		['flat', undefined],
+		['perspective 0.7', { farScale: 0.7 }],
+		['perspective 0.45 + vanishX', { farScale: 0.45, vanishX: 120 }],
+	];
+
+	for (const [gridLabel, grid] of GRIDS) {
+		for (const [boardLabel, perspective] of BOARDS) {
+			for (const [shapeLabel, rows, align] of SHAPES) {
+				const where = `${gridLabel} | ${boardLabel} | ${shapeLabel}`;
+				const g = gettersFor(grid, { reels: rows.length, rows: Math.max(...rows) }, perspective, {
+					rows,
+					align,
+				});
+				const columns = g.boardMaskColumns();
+				checks += 1;
+				if (!columns || columns.length !== rows.length) {
+					fail(`${where} :: expected one mask polygon per column`);
+					continue;
+				}
+				for (let reel = 0; reel < rows.length; reel += 1) {
+					const rowsHere = rows[reel];
+					const owners = (x, y) => columns.filter((column) => inside(column, x, y)).length;
+
+					// EVERY PROBE COMES FROM THE SEAT PATH, never from the polygon's own vertices. That is
+					// the whole point: a probe derived from the ring would follow any error in the ring
+					// and report success — the first version of this test did exactly that, and a
+					// deliberate one-pitch shift of every interior boundary sailed through it.
+					//
+					// The point probed is the MIDPOINT BETWEEN TWO ADJACENT CELLS' seats. A seat is an
+					// anchor, and an authored `symbolAlignY` of 0 or 1 (feet on the tile) puts it exactly
+					// ON a cell edge, where point-in-polygon is a coin flip; a midpoint of two of them is
+					// strictly interior for any alignment.
+					for (let k = 0; k + 1 < rowsHere; k += 1) {
+						const a = g.getSymbolSeat(reel, k);
+						const b = g.getSymbolSeat(reel, k + 1);
+						const x = (a.x + b.x) / 2;
+						const y = (a.y + b.y) / 2;
+						checks += 1;
+						const n = owners(x, y);
+						// EXACTLY ONE, not "at least one". Overlapping columns are how a tall neighbour's
+						// polygon swallows the notch beside a short column — and a symbol scrolling through
+						// that notch would then be drawn where the board does not exist.
+						if (n !== 1)
+							fail(
+								`${where} :: reel ${reel} between cells ${k}/${k + 1} is in ${n} columns, want 1`,
+							);
+					}
+
+					// THE NOTCH — the region beside a short column, inside the bounding box but outside
+					// the board — is not probed directly, on purpose. Every point that names it has to be
+					// built from a SEAT, and a seat is an anchor: an authored `symbolAlignY` of 1 (feet on
+					// the tile) or a shifted `rowLead` moves it off its cell's centre by design, so a
+					// probe "one row above the window" lands somewhere between the notch and the window
+					// edge depending on the grid. That measures the probe, not the mask.
+					//
+					// It follows from two things that ARE tested independently:
+					//
+					//   · this column's polygon spans exactly its own window in y — asserted just below
+					//     against `boardWindowForReel`, which is a different function computed a
+					//     different way (and is itself checked against the row pitch in the stepped
+					//     section above);
+					//   · the columns do not overlap in x — the `want 1` assertion above, probed from the
+					//     seat path rather than from the polygon's own vertices.
+					//
+					// A notch can only be covered by some column's polygon. It is not this column's (its
+					// polygon stops at its window), and it is not a neighbour's (their polygons do not
+					// reach this column's x). So nothing covers it.
+					const ring = columns[reel];
+					const window = g.boardWindowForReel(reel);
+					const ringTop = Math.min(...ring.map((point) => point.y));
+					const ringBottom = Math.max(...ring.map((point) => point.y));
+					checks += 1;
+					if (Math.abs(ringTop - window.top) > 1e-9)
+						fail(`${where} :: reel ${reel} polygon starts at ${ringTop}, window at ${window.top}`);
+					checks += 1;
+					if (Math.abs(ringBottom - (window.top + window.height)) > 1e-9)
+						fail(
+							`${where} :: reel ${reel} polygon ends at ${ringBottom}, window at ${window.top + window.height}`,
+						);
+				}
+				// Every polygon must be a quad, and finite — a NaN corner silently masks nothing.
+				for (const column of columns) {
+					checks += 1;
+					if (
+						column.length < 4 ||
+						column.some((p) => !Number.isFinite(p.x) || !Number.isFinite(p.y))
+					)
+						fail(`${where} :: a mask polygon is not a finite ring`);
+				}
+			}
+		}
+		// A UNIFORM board must answer `undefined` — the single `Rectangle` mask, unchanged.
+		const flat = gettersFor(grid, { reels: 5, rows: 3 }, undefined, { rows: [3, 3, 3, 3, 3] });
+		same(`${gridLabel} | uniform :: no compound mask`, flat.boardMaskColumns(), undefined);
+	}
 }
 
 if (failures) {

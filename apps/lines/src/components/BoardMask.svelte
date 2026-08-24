@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Rectangle } from 'pixi-svelte';
+	import { Graphics, Rectangle } from 'pixi-svelte';
 
 	import { getContext } from '../game/context';
 	import { SYMBOL_SIZE } from 'engine-game';
@@ -32,10 +32,37 @@
 		context.stateGameDerived.boardLayout().width +
 			(boardDimensions().x - 1) * context.stateGameDerived.boardGeometry().columnExtraLocal,
 	);
+	/**
+	 * A STEPPED board's clip shape: one polygon per column, from the engine's
+	 * {@link boardMaskColumns} — `undefined` for every uniform board, which takes the single
+	 * `Rectangle` below, the same call it has always taken.
+	 *
+	 * It is ONE mask either way. The alternative — a container per column, each with its own
+	 * rectangle — would force the scene graph to be column-major, and perspective needs it row-major
+	 * so a front-row character paints over the row behind it. A compound mask needs no grouping, so
+	 * the two modes stop being mutually exclusive and the child list stays exactly as flat as it is
+	 * today.
+	 */
+	const maskColumns = $derived(context.stateGameDerived.boardMaskColumns());
 </script>
 
 {#if props.debug}
 	<Rectangle alpha={0.5} backgroundColor={0xffffff} width={windowWidth} height={windowHeight} />
 {/if}
 
-<Rectangle isMask x={-SYMBOL_SIZE} width={windowWidth + SYMBOL_SIZE * 2} height={windowHeight} />
+{#if maskColumns}
+	<Graphics
+		isMask
+		draw={(graphics) => {
+			// One fill over every column's polygon — the union IS the visible board. The columns tile
+			// rather than overlap (see `boardMaskColumns`), so the notch beside a short column is left
+			// out of the shape, which is precisely what stops a symbol scrolling through it.
+			for (const column of maskColumns) {
+				graphics.poly(column.map((point) => ({ x: point.x, y: point.y })));
+			}
+			graphics.fill({ color: 0xffffff });
+		}}
+	/>
+{:else}
+	<Rectangle isMask x={-SYMBOL_SIZE} width={windowWidth + SYMBOL_SIZE * 2} height={windowHeight} />
+{/if}

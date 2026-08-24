@@ -222,6 +222,13 @@ async function projectGrid(
 		const reels = Math.max(1, Math.round(Number(doc.numReels)));
 		const rowsList = Array.isArray(doc.numRows) && doc.numRows.length ? doc.numRows : [3];
 		const rows = Math.max(1, Math.round(Math.max(...rowsList)));
+		// Per-column heights, padded to `reels` the way the config's own resolver does. Sent ONLY when
+		// the columns actually differ, so a rectangular project's manifest entry is byte-identical to
+		// before — the same discipline the config doc uses for every optional block.
+		const perReel = Array.from({ length: reels }, (_unused, i) =>
+			Math.max(1, Math.round(Number(rowsList[i] ?? rowsList[rowsList.length - 1]))),
+		);
+		const rowsPerReel = perReel.some((r) => r !== perReel[0]) ? perReel : undefined;
 		const paylines = Object.values(doc.paylines ?? {});
 		// A `cluster`, `scatter` or `ways` game legitimately has NO paylines, so the payline requirement
 		// applies only where paylines are what pays. Requiring them everywhere is what would have made
@@ -259,6 +266,7 @@ async function projectGrid(
 		return {
 			reels,
 			rows,
+			...(rowsPerReel ? { rowsPerReel } : {}),
 			paylines,
 			...(wild ? { wild } : {}),
 			...(stacked ? { stacked: true } : {}),

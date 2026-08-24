@@ -27,11 +27,23 @@ before — an un-authored project still runs the compiled template.
 
 - **Identity** — provider, game name, game ID, RTP. Shown on the info page and used
   in the RGS handshake.
-- **Grid** — reel count and visible rows (per reel, so a stepped grid works). This
-  is the board's size everywhere: the game renders this many reels and rows, the
-  Scene Editor draws its preview at this size, and a dev game's mock RGS deals it.
-  Changing the reel count re-shapes the row list but leaves paylines and strips
-  alone — mismatches surface as errors rather than silently trimming your work.
+- **Grid** — reel count and visible rows, **per reel**. This is the board's size
+  everywhere: the game renders this many reels and rows, the Scene Editor draws its
+  preview at this size, and a dev game's mock RGS deals it. Changing the reel count
+  re-shapes the row list but leaves paylines and strips alone — mismatches surface
+  as errors rather than silently trimming your work.
+
+  Give the reels **different row counts** for a **stepped board** — a `3/4/5/4/3`
+  diamond, a `2/3/4/5/6` ramp. Each column then draws, and is dealt, at its own
+  height. A **Short column sits** control appears once the heights differ:
+  _Centred_ (the classic diamond — a 4-row reel beside a 5-row one sits half a cell
+  down), _Top-aligned_, or _Bottom-aligned_ (a pyramid standing on a flat floor).
+  Only the reels shorter than the tallest move.
+
+  A stepped board composes with everything else the board can do — it can
+  **cascade** (tumble), and it can carry a board **perspective** authored on its
+  reel-grid node. See [stepped grids](../design/stepped-grid.md).
+
 - **Bet modes** — each entry in the bet selector / buy-bonus menu, edited as a
   per-mode card: the **math** (cost, feature, buy-bonus, RTP, max win) plus the
   **presentation** (kind, menu order, and the copy the card shows). See _Bet

@@ -238,7 +238,16 @@ export function resolveReelGridTileArt(
  *  size off: Invisible Game Config's `numReels` / `max(numRows)`. */
 export interface GridDimensions {
 	reels: number;
+	/** The BOUNDING BOX height — `max(numRows)`. */
 	rows: number;
+	/** Visible rows per COLUMN, present only for a STEPPED grid (docs/design/stepped-grid.md). The
+	 *  preview draws each column at its own height when this is here; absent ⇒ a rectangle, exactly
+	 *  as before. */
+	rowsPerReel?: number[];
+	/** Where a short column sits in the bounding box, in ROWS from the top — one entry per reel,
+	 *  present alongside `rowsPerReel`. Resolved by `game-config`'s `resolveGrid` so the editor draws
+	 *  the placement the GAME will use rather than re-deriving the alignment rule. */
+	rowOffsets?: number[];
 }
 
 /**
@@ -256,10 +265,18 @@ export function reelGridWarnings(doc: LayoutDoc, grid: GridDimensions | undefine
 	if (!node) return [];
 	const reels = Math.max(1, Math.round(node.reels));
 	const rows = Math.max(1, Math.round(node.rows));
-	if (reels === grid.reels && rows === grid.rows) return [];
-	return [
-		`Reel grid node is ${reels}×${rows} but the game config is ${grid.reels}×${grid.rows}. ` +
-			`The config drives the board size (cell size, padding and position still come from the node); ` +
-			`update the node's reels/rows to match, or leave it — the config wins.`,
-	];
+	// NOTE: a stepped grid and a board PERSPECTIVE compose. They were mutually exclusive while a
+	// stepped board clipped itself with one container per column, which forces a column-major scene
+	// graph where perspective needs a row-major one; the clip is a single compound mask now
+	// (`boardMaskColumns`), which needs no grouping at all, so there is nothing left to warn about.
+	const warnings: string[] = [];
+
+	if (reels !== grid.reels || rows !== grid.rows) {
+		warnings.push(
+			`Reel grid node is ${reels}×${rows} but the game config is ${grid.reels}×${grid.rows}. ` +
+				`The config drives the board size (cell size, padding and position still come from the node); ` +
+				`update the node's reels/rows to match, or leave it — the config wins.`,
+		);
+	}
+	return warnings;
 }

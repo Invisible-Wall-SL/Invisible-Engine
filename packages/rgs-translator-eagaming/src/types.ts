@@ -58,7 +58,13 @@ export interface Play4FunConfigContext {
 	/** Closed vocabulary of symbols the server will ever emit. */
 	symbols: string[];
 	/** Visible grid dimensions. */
-	window: { reels: number; rows: number };
+	/**
+	 * The grid the server is dealing. `rows` is the BOUNDING BOX — the tallest column — which is what
+	 * it has always meant and what a rectangular board makes indistinguishable from "every column".
+	 * `rowsPerReel` is present only when the two differ (a stepped grid), so a server that never
+	 * heard of them sends exactly the shape it always sent.
+	 */
+	window: { reels: number; rows: number; rowsPerReel?: number[] };
 	/** Active paylines — the real Play4Fun wire field is `availablePayLines`
 	 *  (NOT `paylines`, which is the per-round *bet* event's field). Each entry is
 	 *  one row-index per reel. */
@@ -77,7 +83,10 @@ export interface Play4FunConfigContext {
  *  tag. Listed below are the events we've observed; treat the union as open. */
 export type Play4FunBookEvent =
 	| { event: 'config'; context: Play4FunConfigContext }
-	| { event: 'bet'; context: { total: number; betPerLine: number; paylines: number[][]; maxWinCap: number } }
+	| {
+			event: 'bet';
+			context: { total: number; betPerLine: number; paylines: number[][]; maxWinCap: number };
+	  }
 	| { event: 'gameStart'; context: { totalBet: number; betPerLine: number } }
 	| {
 			event: 'spinStart';
@@ -135,8 +144,12 @@ export interface Play4FunErrorResponse {
 export type Play4FunResponse = Play4FunSuccessResponse | Play4FunErrorResponse;
 
 /** Type guard: did the server return an error envelope? */
-export const isPlay4FunError = (r: Play4FunResponse | null | undefined): r is Play4FunErrorResponse =>
-	!!r && typeof (r as Play4FunErrorResponse).error === 'string' && typeof (r as Play4FunErrorResponse).errorCode === 'number';
+export const isPlay4FunError = (
+	r: Play4FunResponse | null | undefined,
+): r is Play4FunErrorResponse =>
+	!!r &&
+	typeof (r as Play4FunErrorResponse).error === 'string' &&
+	typeof (r as Play4FunErrorResponse).errorCode === 'number';
 
 /** Known error codes (extend as we discover more). */
 export const Play4FunErrorCodes = {

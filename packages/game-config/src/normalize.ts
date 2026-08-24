@@ -39,6 +39,8 @@ import {
 	type WinTierType,
 } from './types';
 import { normalizeReelBehaviour } from './reelBehaviour';
+
+import { resolveGridAlign } from './grid';
 import { normalizeWinModel } from './winModel';
 import { normalizeCascade } from './mechanics';
 
@@ -427,6 +429,15 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 	// all and stays byte-identical to a math export.
 	const reelBehaviour = normalizeReelBehaviour(raw.reelBehaviour);
 	if (reelBehaviour) doc.reelBehaviour = reelBehaviour;
+
+	// Grid ALIGNMENT is kept only when it departs from the `center` default AND the grid is actually
+	// stepped. Both halves matter: the first keeps a paste-in math export byte-identical, the second
+	// stops a uniform board from carrying a field that can never do anything — the inert-setting
+	// failure mode the validator exists to shout about.
+	const gridAlign = resolveGridAlign(raw.gridAlign);
+	if (gridAlign !== 'center' && doc.numRows.some((r) => r !== doc.numRows[0])) {
+		doc.gridAlign = gridAlign;
+	}
 
 	// Win tiers + escalation flags are kept ONLY when tiers are authored, so an un-authored config
 	// omits all three and stays byte-identical to a math export (the coded `winLevelMap` fallback).

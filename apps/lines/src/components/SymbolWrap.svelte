@@ -5,6 +5,7 @@
 	import { getContextBoard } from 'components-shared';
 
 	import { getContext } from '../game/context';
+	import { activeGrid } from '../game/gameConfig';
 
 	type Props = {
 		debug?: boolean;
@@ -18,6 +19,9 @@
 		 *  board gives every row `1`. Applied to the container the symbol art already sizes itself
 		 *  inside, so the art's own contain-fit is untouched and the scale multiplies once. */
 		scale?: number;
+		/** Which column this cell belongs to. Only read on a STEPPED board, where the cull window is
+		 *  per column rather than board-wide — see `bottom` below. */
+		reelIndex?: number;
 		children: Snippet;
 	};
 
@@ -35,8 +39,25 @@
 	// than SYMBOL_SIZE, the phantom spine "4th row" below the window. Computing it
 	// here as well as in the mask is how the two drift apart the first time one of
 	// them learns about perspective and the other does not.
-	const top = 0;
-	const bottom = $derived(context.stateGameDerived.boardWindowHeight());
+	//
+	// On a STEPPED board the window is per COLUMN, and that is not a refinement — it is load-bearing.
+	// A short column is pushed DOWN into the bounding box, so its padding row (the buffer cell above
+	// the visible window) lands at a y that is still inside the board-wide window. Culled against the
+	// board it would therefore be drawn: a phantom symbol sitting above a short column on the unmasked
+	// animate layer. `boardWindowForReel` is the same accessor `ReelColumn` masks with, so the cull
+	// and the clip stay one answer. A uniform board answers `{ top: 0, height: boardWindowHeight() }`
+	// by CALLING `boardWindowHeight()`, so this reads exactly as it did before the branch existed.
+	const steppedWindow = $derived(
+		props.reelIndex !== undefined && activeGrid().stepped
+			? context.stateGameDerived.boardWindowForReel(props.reelIndex)
+			: undefined,
+	);
+	const top = $derived(steppedWindow ? steppedWindow.top : 0);
+	const bottom = $derived(
+		steppedWindow
+			? steppedWindow.top + steppedWindow.height
+			: context.stateGameDerived.boardWindowHeight(),
+	);
 	const inFrame = $derived(props.y >= top && props.y <= bottom);
 	// A flat seat passes `undefined`, NOT 1, because `1` is not a no-op in Pixi v8: assigning
 	// `container.scale` swaps the shared `defaultScale` singleton for an owned `ObservablePoint` and

@@ -20,6 +20,7 @@ import { resolveWinLevels } from './winLevels';
 import type { GameConfigDoc } from './types';
 import { resolveWinModel } from './winModel';
 
+import { resolveGrid } from './grid';
 export type GameConfigIssueSeverity = 'error' | 'warning';
 
 export type GameConfigIssue = {
@@ -40,7 +41,7 @@ export type GameConfigIssue = {
 export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => {
 	const issues: GameConfigIssue[] = [];
 	const inPlay = new Set(symbolsInPlay(doc));
-	const maxRows = Math.max(...doc.numRows, 0);
+	const grid = resolveGrid(doc);
 
 	if (doc.numReels <= 0) {
 		issues.push({ severity: 'error', path: 'numReels', message: 'Grid has no reels.' });
@@ -55,12 +56,17 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 			});
 		}
 		strips.forEach((strip, reel) => {
-			// A strip shorter than the visible window cannot fill the column while spinning.
-			if (strip.length && strip.length < maxRows) {
+			// A strip shorter than the visible window cannot fill the column while spinning. Measured
+			// against THAT COLUMN's height, not the board's tallest: on a stepped grid a 3-row column
+			// is fully served by a 3-cell strip, and flagging it against a 5-row neighbour would report
+			// an error about a column that is already full. Uniform grids are unaffected — every
+			// column's height IS the max.
+			const visible = grid.rowsForReel(reel);
+			if (strip.length && strip.length < visible) {
 				issues.push({
 					severity: 'error',
 					path: `paddingReels.${gameType}.${reel}`,
-					message: `Reel ${reel + 1} strip has ${strip.length} cells, fewer than the ${maxRows} visible rows.`,
+					message: `Reel ${reel + 1} strip has ${strip.length} cells, fewer than the ${visible} visible rows.`,
 				});
 			}
 		});
@@ -155,6 +161,26 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 			path: 'reelBehaviour.columnStaggerMs',
 			message:
 				'A column stagger is set but the swap style is the drop-in, which lands the whole board at once. Choose the column cascade style for the columns to fall at different times.',
+		});
+	}
+
+	// STEPPED GRIDS (docs/design/stepped-grid.md).
+	//
+	// There is deliberately NO warning about a stepped board here beyond the inert-alignment one
+	// below. Two were tried and both turned out to be wrong: a stepped CASCADE works (every cascade
+	// seat already goes through `getSymbolSeat(reelIndex, ...)` and a drain drops by the COLUMN's own
+	// length), and stepped + PERSPECTIVE composes now that the clip is a single compound mask rather
+	// than one container per column. A validator that cries wolf is worse than a quiet one -- it
+	// teaches an author to skim the panel, which is the panel's only job.
+	if (!grid.stepped && doc.gridAlign) {
+		// An authored alignment on a rectangular board is inert — there is no slack to place. The
+		// normalizer already drops it, so this only fires for a doc that reached the validator without
+		// being normalized (a paste-in inspected before save), which is exactly when saying so helps.
+		issues.push({
+			severity: 'warning',
+			path: 'gridAlign',
+			message:
+				'A column alignment is set but every reel is the same height, so there is nothing to align. Give the reels different row counts for it to do anything.',
 		});
 	}
 

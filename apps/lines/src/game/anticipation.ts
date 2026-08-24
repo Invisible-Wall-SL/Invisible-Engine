@@ -6,7 +6,7 @@ import {
 	getActiveGameConfig,
 	getNumLines,
 	getPaylines,
-	boardDimensions,
+	activeGrid,
 	activeBigTiers,
 	activeWinModel,
 } from './gameConfig';
@@ -153,11 +153,20 @@ export function buildAnticipationArming(
 ): ((reelIndex: number) => ReelAnticipationArming | null) | undefined {
 	if (!stateGameDerived.anticipationActive()) return undefined;
 
-	// Reveal boards are padded one row top+bottom (`padReel`); the VISIBLE window is rows 1..y, which
+	// Reveal boards are padded one row top+bottom (`padReel`); the VISIBLE window is rows 1..n, which
 	// is what the paylines index into. (Phase 3 owns pixel-accurate presentation; this slice matches
 	// the facade's padding.)
-	const { y } = boardDimensions();
-	const board = revealEvent.board.map((reel) => reel.slice(1, 1 + y).map((cell) => cell.name));
+	//
+	// `n` is THIS COLUMN's row count, not the board's. On a stepped grid they differ, and the board's
+	// is wrong in a way nothing downstream can detect: a 3-row column arrives as 5 padded cells, so
+	// slicing to the 5-row BOUNDING BOX keeps its bottom padding row. The reach would then see four
+	// cells in a three-cell column — inflating the ways product (which is the product of the per-reel
+	// counts) and letting a padding symbol complete a run that is not on screen. Uniform grids give
+	// every column the board's own row count, so this is the same slice it has always been.
+	const grid = activeGrid();
+	const board = revealEvent.board.map((reel, reelIndex) =>
+		reel.slice(1, 1 + grid.rowsForReel(reelIndex)).map((cell) => cell.name),
+	);
 
 	const { reach, bookReach, bookTriggerCount } = buildReach(board);
 	const bound = stateGame.anticipationConfidence === 'guaranteed' ? 'min' : 'max';
