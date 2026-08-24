@@ -245,7 +245,24 @@
 		}
 	}
 
-	const PAD = 0.86;
+	/**
+	 * NO inset: a spine cell contain-fits its DECLARED canvas to the cell exactly, which is both
+	 * what the board does and what the sprite thumbnail beside it does.
+	 *
+	 * The game's numbers look like they disagree and don't: a symbol bundle is baked with
+	 * `SYMBOL_SPINE_LOAD_SCALE` (2) and `SymbolSpineMain` contain-fits it to
+	 * `cell × SYMBOL_SPINE_FILL` (0.5) — but `parser.scale` scales skeleton GEOMETRY while
+	 * `SkeletonJson` copies `data.width/height` through UNSCALED, so `spineSizeScale` divides by
+	 * the raw canvas and the 2 × 0.5 nets out to one full cell (the "tuned pair" in
+	 * `spineLoadScale.ts`). The preview loads at `EDITOR_SPINE_LOAD_SCALE` (1) and fits to the
+	 * same raw canvas, so it is already 1:1 with the board — a `0.86` pad here used to be the
+	 * ONLY thing making a spine cell read smaller than its sprite neighbours.
+	 *
+	 * Consequence to keep in mind: a win animation peaks well past the resting canvas (1.4–1.8×
+	 * for h1–h5), and this stage has no per-cell clip, so a pop can bleed over its neighbours.
+	 * That is the same overflow the board shows, and hiding it behind an inset also hid the
+	 * loose rig canvases it was masking.
+	 */
 
 	/** Place + draw one ready instance into a cell rect (CSS px, relative to the canvas).
 	 *  Same fit + camera-mirror compensation as `SymbolSpinePreview`, generalised to an
@@ -263,7 +280,7 @@
 		if (!gl || !renderer) return;
 		const { offX, offY, bw, bh } = entry.bounds;
 		const skel = entry.instance.skeleton;
-		const s = Math.min(w / bw, h / bh) * PAD;
+		const s = Math.min(w / bw, h / bh);
 		const cx = bw > 0 ? offX + bw / 2 : 0;
 		const cy = bh > 0 ? offY + bh / 2 : 0;
 		// Art centre at cell centre (pre-mirror), y-up runtime → y-down canvas (scaleY < 0).

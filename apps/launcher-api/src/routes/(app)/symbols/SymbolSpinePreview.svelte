@@ -110,8 +110,10 @@
 		skel.scaleY = 1;
 		skel.setToSetupPose();
 		skel.updateWorldTransform(getSpinePhysics());
-		const pad = 0.86;
-		const s = Math.min(w / bw, h / bh) * pad;
+		// No inset — the declared canvas fills the box, matching the board and the grid's own
+		// `SymbolSpineStage`. See the sizing note there for why the game's ×2 load scale and
+		// ×0.5 `SYMBOL_SPINE_FILL` net out to one full cell.
+		const s = Math.min(w / bw, h / bh);
 		const cx = offX + bw / 2;
 		const cy = offY + bh / 2;
 		skel.x = w / 2 - s * cx;
