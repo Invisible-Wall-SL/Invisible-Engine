@@ -2379,126 +2379,129 @@
 
 					<div class="wl-config">
 						<div class="wl-group">
-							<div class="field">
-								<span class="label">Overlay spine</span>
-								<select
-									value={doc.anticipation?.spineKey ?? ''}
-									onchange={(e) => setAnticipationSpine(e.currentTarget.value)}
-								>
-									<option value="">Default (coded anticipation spine)</option>
-									{#each anticipationSpineBundles as b (b.key)}
-										<option value={b.key}>{b.name}</option>
-									{/each}
-								</select>
-								<span class="wl-note">
-									The per-reel overlay skeleton. The default is the game's built-in
-									<code>anticipation</code> spine; a swapped bundle must expose the
-									<code>anticipation_intro / _loop / _out</code> animations (the game still owns the
-									intro → loop → out chaining).
-								</span>
-							</div>
-
-							<div class="field">
-								<span class="label">Overlay animation</span>
-								{#if anticipationAnimations.length}
+							<div class="ant-fields">
+								<div class="field">
+									<span class="label">Overlay spine</span>
 									<select
-										value={doc.anticipation?.animationSet ?? 'anticipation'}
-										onchange={(e) =>
-											setAnticipationAnimation(
-												e.currentTarget.value === 'anticipation' ? '' : e.currentTarget.value,
-											)}
+										value={doc.anticipation?.spineKey ?? ''}
+										onchange={(e) => setAnticipationSpine(e.currentTarget.value)}
 									>
-										{#each anticipationSets as base (base)}
-											<option value={base}>
-												{base}{base === 'anticipation' ? ' (unnumbered — default)' : ''}
-											</option>
+										<option value="">Default (coded anticipation spine)</option>
+										{#each anticipationSpineBundles as b (b.key)}
+											<option value={b.key}>{b.name}</option>
 										{/each}
 									</select>
-								{:else}
-									<input
-										type="text"
-										placeholder="anticipation"
-										value={doc.anticipation?.animationSet ?? ''}
-										oninput={(e) => setAnticipationAnimation(e.currentTarget.value)}
-									/>
-								{/if}
-								<span class="wl-note">
-									Which animation SET the overlay plays — a spine's differently-sized anticipations.
-									The game appends <code>_intro / _loop / _out</code>, so this is the base name
-									(e.g. <code>anticipation3</code> → <code>anticipation3_intro</code>). The
-									unnumbered
-									<code>anticipation</code> is the game's default.
-								</span>
-							</div>
-
-							<div class="field">
-								<span class="label">Overlay size (cells)</span>
-								<div class="ant-size">
-									<label>
-										<span>Width</span>
-										<input
-											type="number"
-											min="0.1"
-											step="0.1"
-											placeholder="0.56"
-											value={doc.anticipation?.overlayWidthCells ?? ''}
-											oninput={(e) => setAnticipationOverlaySize('width', e.currentTarget.value)}
-										/>
-									</label>
-									<label>
-										<span>Height</span>
-										<input
-											type="number"
-											min="0.1"
-											step="0.1"
-											placeholder="1.6"
-											value={doc.anticipation?.overlayHeightCells ?? ''}
-											oninput={(e) => setAnticipationOverlaySize('height', e.currentTarget.value)}
-										/>
-									</label>
+									<span class="wl-note">
+										The per-reel overlay skeleton. The default is the game's built-in
+										<code>anticipation</code> spine; a swapped bundle must expose the
+										<code>anticipation_intro / _loop / _out</code> animations (the game still owns the
+										intro → loop → out chaining).
+									</span>
 								</div>
-								<span class="wl-note">
-									The overlay box the animation is scaled to fit, in cells (1 = one symbol). The
-									coded default is a narrow beam (<code>0.56 × 1.6</code>); for a full-column
-									anticipation set the height to your reel's row count (e.g. <code>5</code>) and the
-									width to about <code>1</code>. Leave blank to keep the coded beam.
-								</span>
-							</div>
 
-							<div class="field">
-								<span class="label">Activation sound</span>
-								<select
-									value={doc.anticipation?.activationSound ?? ''}
-									onchange={(e) => setAnticipationActivation(e.currentTarget.value)}
-								>
-									<option value="">Default (coded sfx_anticipation_start)</option>
-									{#each SOUND_EFFECT_NAMES as name (name)}
-										<option value={name}>{name}</option>
-									{/each}
-								</select>
-								<span class="wl-note">
-									The one-shot STING fired the moment a reel arms the tease. Its volume escalates
-									per tier below (Sting volume). Leave on Default to keep the coded
-									<code>sfx_anticipation_start</code>.
-								</span>
-							</div>
+								<div class="field">
+									<span class="label">Overlay animation</span>
+									{#if anticipationAnimations.length}
+										<select
+											value={doc.anticipation?.animationSet ?? 'anticipation'}
+											onchange={(e) =>
+												setAnticipationAnimation(
+													e.currentTarget.value === 'anticipation' ? '' : e.currentTarget.value,
+												)}
+										>
+											{#each anticipationSets as base (base)}
+												<option value={base}>
+													{base}{base === 'anticipation' ? ' (unnumbered — default)' : ''}
+												</option>
+											{/each}
+										</select>
+									{:else}
+										<input
+											type="text"
+											placeholder="anticipation"
+											value={doc.anticipation?.animationSet ?? ''}
+											oninput={(e) => setAnticipationAnimation(e.currentTarget.value)}
+										/>
+									{/if}
+									<span class="wl-note">
+										Which animation SET the overlay plays — a spine's differently-sized
+										anticipations. The game appends <code>_intro / _loop / _out</code>, so this is
+										the base name (e.g. <code>anticipation3</code> →
+										<code>anticipation3_intro</code>). The unnumbered
+										<code>anticipation</code> is the game's default.
+									</span>
+								</div>
 
-							<div class="field">
-								<span class="label">Loop sound</span>
-								<select
-									value={doc.anticipation?.loopSound ?? ''}
-									onchange={(e) => setAnticipationLoop(e.currentTarget.value)}
-								>
-									<option value="">Default (coded sfx_anticipation)</option>
-									{#each SOUND_EFFECT_NAMES as name (name)}
-										<option value={name}>{name}</option>
-									{/each}
-								</select>
-								<span class="wl-note">
-									The sustained LOOP that fades in while a reel is still anticipating. Its target
-									volume escalates per tier below (Loop volume). Leave on Default to keep the coded
-									<code>sfx_anticipation</code>.
-								</span>
+								<div class="field">
+									<span class="label">Overlay size (cells)</span>
+									<div class="ant-size">
+										<label>
+											<span>Width</span>
+											<input
+												type="number"
+												min="0.1"
+												step="0.1"
+												placeholder="0.56"
+												value={doc.anticipation?.overlayWidthCells ?? ''}
+												oninput={(e) => setAnticipationOverlaySize('width', e.currentTarget.value)}
+											/>
+										</label>
+										<label>
+											<span>Height</span>
+											<input
+												type="number"
+												min="0.1"
+												step="0.1"
+												placeholder="1.6"
+												value={doc.anticipation?.overlayHeightCells ?? ''}
+												oninput={(e) => setAnticipationOverlaySize('height', e.currentTarget.value)}
+											/>
+										</label>
+									</div>
+									<span class="wl-note">
+										The overlay box the animation is scaled to fit, in cells (1 = one symbol). The
+										coded default is a narrow beam (<code>0.56 × 1.6</code>); for a full-column
+										anticipation set the height to your reel's row count (e.g. <code>5</code>) and
+										the width to about <code>1</code>. Leave blank to keep the coded beam.
+									</span>
+								</div>
+
+								<div class="field">
+									<span class="label">Activation sound</span>
+									<select
+										value={doc.anticipation?.activationSound ?? ''}
+										onchange={(e) => setAnticipationActivation(e.currentTarget.value)}
+									>
+										<option value="">Default (coded sfx_anticipation_start)</option>
+										{#each SOUND_EFFECT_NAMES as name (name)}
+											<option value={name}>{name}</option>
+										{/each}
+									</select>
+									<span class="wl-note">
+										The one-shot STING fired the moment a reel arms the tease. Its volume escalates
+										per tier below (Sting volume). Leave on Default to keep the coded
+										<code>sfx_anticipation_start</code>.
+									</span>
+								</div>
+
+								<div class="field">
+									<span class="label">Loop sound</span>
+									<select
+										value={doc.anticipation?.loopSound ?? ''}
+										onchange={(e) => setAnticipationLoop(e.currentTarget.value)}
+									>
+										<option value="">Default (coded sfx_anticipation)</option>
+										{#each SOUND_EFFECT_NAMES as name (name)}
+											<option value={name}>{name}</option>
+										{/each}
+									</select>
+									<span class="wl-note">
+										The sustained LOOP that fades in while a reel is still anticipating. Its target
+										volume escalates per tier below (Loop volume). Leave on Default to keep the
+										coded
+										<code>sfx_anticipation</code>.
+									</span>
+								</div>
 							</div>
 
 							{#if bigTiers.length === 0}
@@ -3793,6 +3796,16 @@
 	.wl-fields input[type='range'] {
 		width: 100%;
 		accent-color: #5b8cff;
+	}
+	/* Anticipation: the mode-wide fields sit side by side so the panel stays short. */
+	.ant-fields {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+		gap: 14px 20px;
+		align-items: start;
+	}
+	.ant-fields .wl-note {
+		max-width: none;
 	}
 	/* Overlay size: two compact labelled number inputs side by side. */
 	.ant-size {
