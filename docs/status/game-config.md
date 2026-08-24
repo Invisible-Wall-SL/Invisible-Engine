@@ -123,6 +123,56 @@ commits, three surfaces:
 about the grid (the scene-geometry anchors, the HUD layout) is config-driven — those remain authored
 in the Scene Editor per game.
 
+## Stepped grids (2026-08-24) — `numRows` finally means what it says
+
+> Design: [docs/design/stepped-grid.md](../design/stepped-grid.md)
+
+`numRows` has been a per-reel array since Phase 1 and its doc comment always claimed "so a stepped
+grid is expressible", but only the MATH read it that way (`activeWaysCount`, the per-reel payline
+bounds check, `boardText`). Every renderer and dealer collapsed it to `Math.max(...)`. A non-uniform
+config therefore SAVED, VALIDATED and SHIPPED while the board drew a rectangle against it — the
+paytable pricing 720 ways over a 5×5 board, the RGS dealing five rows into a three-row column. It
+was reachable by typing a number into the Grid panel. This closes that.
+
+- **`packages/game-config/src/grid.ts`** — `resolveGrid`, the ONE resolver both halves read:
+  `rowsForReel` (how tall) + `rowOffsetForReel` (where it sits, in rows, FRACTIONAL so a 4-row column
+  centred in a 5-row box lands on the half-cell stagger that makes 3/4/5/4/3 a diamond).
+  `stepped` is the parity gate — false for every board that exists, and every consumer early-returns
+  its EXISTING path on it, not an equivalent one.
+- **`gridAlign`** (`center` | `top` | `bottom`) is a new optional top-level field, stored only when
+  it departs from `center` AND the grid is actually stepped, so a math-export paste-in round-trips
+  byte-for-byte. Authored in the Grid panel, which shows the control only for a stepped grid.
+- **Game** — `boardDimensions()` still reports the BOUNDING BOX (scene anchors are pinned to it) but
+  stops claiming every column fills it. Each column gets its own clip window (`ReelColumn`) and its
+  own cull bound; the offset rides into the reel as part of its `symbolLead` AND into the resting
+  seat via `rowSeatIndex`, because `ReelSymbol` picks between those two y sources every frame.
+- **Dealer chain** — `/config` doc → `mockContract` → manifest → test-server → mock, each hop sending
+  `rowsPerReel` only when the columns differ. The mock declares what it dealt
+  (`config.window.rowsPerReel`) and the facade clamps PER COLUMN against that declaration.
+  `ROWS=3,4,5,4,3` deals a diamond from the CLI.
+- **Editor** — `reelGridGeometry` seats each column at its own height/offset from the SAME
+  `resolveGrid` output, so the preview cannot show a board the game will not draw.
+
+**Verified.** `verify-stepped-grid.mjs` (229 assertions, new) + a stepped section in
+`verify-symbol-seat.mjs` (now 274,644). The two that matter are parity: the same seed dealt with
+`rows: 3` and `rows: [3,3,3,3,3]` gives byte-identical responses (the RNG stream is untouched), and
+a uniform seat is still literally `getSymbolX`/`getSymbolY` asserted with `Object.is`. Live in
+`apps/lines` + mock, read off the Pixi scene graph: a 3/4/5/4/3 config draws five masked column
+containers holding 3/4/5/4/3 symbols at offsets 1/0.5/0/0.5/1; reverting to 5×3 returns ONE mask
+with all 15 symbol containers as direct children.
+
+**Open / not wired:**
+
+- **Cascade + stepped is unverified.** The tumble overlay seats falling replacements against the
+  board's row count, not the column's, so a short column may drop refills from the wrong height.
+  The validator warns; it is not fixed.
+- **Perspective + stepped draws as a rectangle.** The two need opposite paint orders (row-major vs
+  column-major) and perspective wins. Warned in `reelGridWarnings` — NOT in the config validator,
+  which cannot see the perspective (it lives on the reelGrid node, not in the config doc).
+- A stepped board has not been driven through a full spin in a browser; the pane would not
+  composite, so the reveal path is covered offline (the facade clamp is sliced from the real source
+  and asserted) rather than by clicking Spin.
+
 ## Phase 6 — bet modes authorable + localizable (the buy-features/bonus surface)
 
 The buy-bonus / ante menu the player sees was hardcoded: `ModalBuyBonus` → `BonusCards` read

@@ -796,7 +796,10 @@ const BOARD_LOCAL_CELL = 120;
 export function reelGridGeometry(
 	node: Extract<LayoutNode, { kind: 'reelGrid' }>,
 	anchor: { x: number; y: number } | undefined,
-	dims: { reels: number; rows: number } | null | undefined,
+	dims:
+		| { reels: number; rows: number; rowsPerReel?: number[]; rowOffsets?: number[] }
+		| null
+		| undefined,
 ): ReelGridGeometry {
 	const reels = Math.max(1, Math.round(dims?.reels ?? node.reels));
 	const rows = Math.max(1, Math.round(dims?.rows ?? node.rows));
@@ -820,11 +823,21 @@ export function reelGridGeometry(
 	const seatDX = node.cellSize * (leadX - 0.5) + cellW * (alignX - 0.5);
 	const seatDY = node.cellSize * (leadY - 0.5) + cellH * (alignY - 0.5);
 
+	// STEPPED GRIDS (docs/design/stepped-grid.md) — how many rows THIS column shows, and how far
+	// down it sits. Both come pre-resolved from the server (`resolveGrid`, the same resolver the game
+	// runs), so the editor previews the placement the game will draw rather than re-deriving the
+	// alignment rule and drifting from it. Absent ⇒ every column is `rows` tall at offset 0, which is
+	// the literal loop that was here before.
+	const rowsAt = (reel: number) => dims?.rowsPerReel?.[reel] ?? rows;
+	const offsetAt = (reel: number) => dims?.rowOffsets?.[reel] ?? 0;
+
 	const seats: ReelGridSeat[] = [];
 	for (let i = 0; i < reels; i++) {
-		for (let j = 0; j < rows; j++) {
+		const columnRows = rowsAt(i);
+		const columnOffset = offsetAt(i);
+		for (let j = 0; j < columnRows; j++) {
 			const x = left + i * pitchX;
-			const y = top + j * pitchY;
+			const y = top + (j + columnOffset) * pitchY;
 			seats.push({
 				i,
 				j,
@@ -839,6 +852,13 @@ export function reelGridGeometry(
 		}
 	}
 	const flat: ReelGridGeometry = { reels, rows, cellW, cellH, left, top, width, height, seats };
+
+	// A STEPPED board is drawn FLAT. It paints column by column in the game (each column owns its
+	// clip window) and perspective paints row by row; the two orderings are mutually exclusive, the
+	// board renderer resolves the tie in perspective's favour, and the editor has to preview what the
+	// game will actually draw rather than a board that exists in neither mode. The author is told
+	// about the conflict by `reelGridWarnings`, which can see both facts at once.
+	if (dims?.rowsPerReel) return flat;
 
 	// ---- PERSPECTIVE (docs/design/perspective-board-mode.md) ------------------------------------
 	// The mode's ON switch, read + guarded EXACTLY as the engine's `boardPerspective` reads it:

@@ -21,6 +21,7 @@ import type { GameConfigDoc } from './types';
 import { resolveWinModel } from './winModel';
 
 import { resolveGrid } from './grid';
+import { resolveCascade } from './mechanics';
 export type GameConfigIssueSeverity = 'error' | 'warning';
 
 export type GameConfigIssue = {
@@ -161,6 +162,38 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 			path: 'reelBehaviour.columnStaggerMs',
 			message:
 				'A column stagger is set but the swap style is the drop-in, which lands the whole board at once. Choose the column cascade style for the columns to fall at different times.',
+		});
+	}
+
+	// STEPPED GRIDS (docs/design/stepped-grid.md). Every issue here describes a config that SAVES and
+	// RENDERS but does not mean what its author thinks — the class this validator exists to say out
+	// loud, and the reason a non-uniform `numRows` was dangerous before the board could draw one.
+	if (grid.stepped) {
+		// NOTE: the stepped-vs-PERSPECTIVE conflict is not checked here. Perspective is authored on the
+		// reelGrid NODE in the Scene Editor layout, not in this doc, so this validator cannot see it —
+		// and a check that silently never fires is worse than no check. It lives in the editor's
+		// `reelGridWarnings`, beside the node that owns it.
+		//
+		// A cascade refills a column from above; nothing about that is board-wide, but the tumble
+		// overlay seats its falling replacements off the board's row count rather than the column's, so
+		// say that it is untested here rather than implying it is wired.
+		if (resolveCascade(doc)) {
+			issues.push({
+				severity: 'warning',
+				path: 'numRows',
+				message:
+					'The columns are different heights and the board cascades. Tumbling seats its falling symbols against the board, not against each column, so a short column may drop its refills from the wrong height. Verify a tumble on this board before shipping it.',
+			});
+		}
+	} else if (doc.gridAlign) {
+		// An authored alignment on a rectangular board is inert — there is no slack to place. The
+		// normalizer already drops it, so this only fires for a doc that reached the validator without
+		// being normalized (a paste-in inspected before save), which is exactly when saying so helps.
+		issues.push({
+			severity: 'warning',
+			path: 'gridAlign',
+			message:
+				'A column alignment is set but every reel is the same height, so there is nothing to align. Give the reels different row counts for it to do anything.',
 		});
 	}
 

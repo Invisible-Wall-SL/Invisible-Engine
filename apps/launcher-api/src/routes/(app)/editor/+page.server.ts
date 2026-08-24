@@ -3,9 +3,10 @@ import {
 	findUnfilledRequiredSlots,
 	getFullSceneSet,
 	reelGridWarnings,
+	type GridDimensions,
 	type LayoutDoc,
 } from 'engine-layout';
-import { resolveBetModes, resolveWinLevels } from 'game-config';
+import { resolveBetModes, resolveGrid, resolveWinLevels, type GameConfigDoc } from 'game-config';
 import type { RepeaterSourceMap } from './editorCanvas.helpers';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
@@ -54,6 +55,28 @@ async function gate(
 	// The save MUST target the SAME explicit project the page was loaded with, so the
 	// action resolves scope from its own `url` (`?project=`) — not the session alone.
 	return resolveToolScope({ url, sessionToken: cookies.get(SESSION_COOKIE), user: locals.user });
+}
+
+/**
+ * The board grid COUNT the editor draws and validates against, from the project's authored Game
+ * Config — `{ reels, rows }` as before, plus the per-column shape when the grid is STEPPED
+ * (docs/design/stepped-grid.md).
+ *
+ * `rowsPerReel`/`rowOffsets` come from `resolveGrid`, the SAME resolver the game runs, rather than
+ * from a second reading of `numRows` here. The alignment rule (where a short column sits in the
+ * bounding box) then has one implementation, so the editor cannot preview a board the game will not
+ * draw. Omitted entirely for a uniform grid, so the preview takes its existing rectangular path.
+ */
+function gridDimensionsOf(doc: GameConfigDoc | null | undefined): GridDimensions | undefined {
+	if (!doc) return undefined;
+	const grid = resolveGrid(doc);
+	if (!grid.stepped) return { reels: grid.reels, rows: grid.maxRows };
+	return {
+		reels: grid.reels,
+		rows: grid.maxRows,
+		rowsPerReel: grid.rows,
+		rowOffsets: grid.rows.map((_r, i) => grid.rowOffsetForReel(i)),
+	};
 }
 
 export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => {
@@ -108,9 +131,7 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 	// is validated against it. `resolveGameConfig` prefers the authored doc, else the game-type
 	// template default; `null` (no default at all) ⇒ the reelGrid node keeps its own reels/rows.
 	const { doc: gameConfigDoc } = await resolveGameConfig(clientKey, projectKey, resolvedGameType);
-	const gridDimensions = gameConfigDoc
-		? { reels: gameConfigDoc.numReels, rows: Math.max(...gameConfigDoc.numRows, 1) }
-		: undefined;
+	const gridDimensions = gridDimensionsOf(gameConfigDoc);
 	// The `win` component authors its per-tier PRESENTATION (spine/animations/duration/sound) from the
 	// config's BIG tiers, keyed by alias — so the component's groups mirror the config. Null when the
 	// project hasn't authored `winLevels` ⇒ the client keeps the built-in default tiers (byte-identical).
@@ -257,9 +278,7 @@ export const actions: Actions = {
 		// Same config-grid source as the load, so the save round-trip re-checks the reelGrid node
 		// against the authored numReels/numRows rather than a stale template board.
 		const { doc: savedGameConfig } = await resolveGameConfig(clientKey, projectKey, savedGameType);
-		const savedGrid = savedGameConfig
-			? { reels: savedGameConfig.numReels, rows: Math.max(...savedGameConfig.numRows, 1) }
-			: undefined;
+		const savedGrid = gridDimensionsOf(savedGameConfig);
 		const warnings = template
 			? [...findUnfilledRequiredSlots(saved, template), ...reelGridWarnings(saved, savedGrid)]
 			: [];

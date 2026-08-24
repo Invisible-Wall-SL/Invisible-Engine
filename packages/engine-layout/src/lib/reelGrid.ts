@@ -238,7 +238,16 @@ export function resolveReelGridTileArt(
  *  size off: Invisible Game Config's `numReels` / `max(numRows)`. */
 export interface GridDimensions {
 	reels: number;
+	/** The BOUNDING BOX height — `max(numRows)`. */
 	rows: number;
+	/** Visible rows per COLUMN, present only for a STEPPED grid (docs/design/stepped-grid.md). The
+	 *  preview draws each column at its own height when this is here; absent ⇒ a rectangle, exactly
+	 *  as before. */
+	rowsPerReel?: number[];
+	/** Where a short column sits in the bounding box, in ROWS from the top — one entry per reel,
+	 *  present alongside `rowsPerReel`. Resolved by `game-config`'s `resolveGrid` so the editor draws
+	 *  the placement the GAME will use rather than re-deriving the alignment rule. */
+	rowOffsets?: number[];
 }
 
 /**
@@ -256,10 +265,29 @@ export function reelGridWarnings(doc: LayoutDoc, grid: GridDimensions | undefine
 	if (!node) return [];
 	const reels = Math.max(1, Math.round(node.reels));
 	const rows = Math.max(1, Math.round(node.rows));
-	if (reels === grid.reels && rows === grid.rows) return [];
-	return [
-		`Reel grid node is ${reels}×${rows} but the game config is ${grid.reels}×${grid.rows}. ` +
-			`The config drives the board size (cell size, padding and position still come from the node); ` +
-			`update the node's reels/rows to match, or leave it — the config wins.`,
-	];
+	const warnings: string[] = [];
+
+	// A STEPPED grid paints column by column (each column carries its own clip window), and that is
+	// the one ordering a PERSPECTIVE board cannot use — it paints back-to-front by ROW so a front-row
+	// character covers the row behind it. The board renderer resolves the tie in perspective's favour
+	// and draws a full rectangle, so the author has to hear about it. This is the only surface where
+	// both facts are visible: the perspective lives on this node, the row counts live in the config,
+	// and the config validator can see only one of them.
+	if (grid.rowsPerReel && resolveReelGridPerspective(node)?.farScale !== undefined) {
+		warnings.push(
+			`The game config gives the reels different row counts (${grid.rowsPerReel.join('/')}) and this ` +
+				`node has a board perspective. Only one can decide the paint order, and perspective wins — ` +
+				`the board will draw as a full ${grid.reels}×${grid.rows} rectangle until the perspective is ` +
+				`removed.`,
+		);
+	}
+
+	if (reels !== grid.reels || rows !== grid.rows) {
+		warnings.push(
+			`Reel grid node is ${reels}×${rows} but the game config is ${grid.reels}×${grid.rows}. ` +
+				`The config drives the board size (cell size, padding and position still come from the node); ` +
+				`update the node's reels/rows to match, or leave it — the config wins.`,
+		);
+	}
+	return warnings;
 }

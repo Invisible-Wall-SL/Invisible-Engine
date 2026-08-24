@@ -63,6 +63,16 @@
 	const symbolNames = $derived(Object.keys(doc.symbols));
 	const gameTypes = $derived(Object.keys(doc.paddingReels));
 	const maxRows = $derived(Math.max(...doc.numRows, 1));
+	/** Do the reels differ in height? Drives the alignment control below, which has nothing to place
+	 *  on a rectangular board. See `docs/design/stepped-grid.md`. */
+	const stepped = $derived(doc.numRows.some((r) => r !== doc.numRows[0]));
+	/** Where a SHORT column sits in the board's bounding box. Stored only when it departs from the
+	 *  `center` default, mirroring every other optional block, so a rectangular config stays
+	 *  byte-identical to a math-export paste-in. */
+	const setGridAlign = (value: string) => {
+		if (value === 'top' || value === 'bottom') doc.gridAlign = value;
+		else delete doc.gridAlign;
+	};
 
 	// ── Grid ────────────────────────────────────────────────────────────────────
 	// Reel count is the spine of the config: paylines and strips are indexed by it. Changing it
@@ -973,6 +983,11 @@
 				<strong>Shrinking</strong> leaves the extra reels in place (trimming loses authored strips);
 				use <strong>Match grid</strong> to drop them down to the new count.
 			</p>
+			<p class="hint">
+				Give the reels <strong>different row counts</strong> for a stepped board — a
+				<code>3/4/5/4/3</code> diamond, or a pyramid. The game draws each column at its own height, the
+				server deals it that way, and a payline can only name a row its reel actually has.
+			</p>
 			<div class="fields">
 				<label
 					><span>Reels</span><input
@@ -1003,6 +1018,25 @@
 					>
 				{/each}
 			</div>
+			{#if stepped}
+				<div class="fields">
+					<label
+						><span>Short column sits</span><select
+							value={doc.gridAlign ?? 'center'}
+							onchange={(e) => setGridAlign(e.currentTarget.value)}
+						>
+							<option value="center">Centred (diamond)</option>
+							<option value="top">Top-aligned</option>
+							<option value="bottom">Bottom-aligned (pyramid)</option>
+						</select></label
+					>
+				</div>
+				<p class="hint">
+					Only the reels shorter than the tallest move. <strong>Centred</strong> gives the classic
+					diamond — a 4-row reel beside a 5-row one sits half a cell down.
+					<strong>Bottom-aligned</strong> stands the board on a flat floor.
+				</p>
+			{/if}
 			{#if gridMismatch}
 				<div class="grid-fix">
 					<span
