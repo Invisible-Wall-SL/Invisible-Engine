@@ -326,6 +326,46 @@ Working on `main`:
 
 ## Recent changes
 
+- 2026-08-21 — **The no-animation banner was crying wolf, and the grid disagreed with the game
+  about an empty `Tumble explosion` cell.** Three fixes, one report ("why do I get all these
+  warnings? I do not see anything wrong").
+  - **The warning's claim was two months stale.** It fired on any spine cell left on
+    `(first animation)` and said the cell "renders blank in-game". That stopped being true when
+    `pixi-svelte`'s `SpineTrack` gained its fallback to `skeletonData.animations[0]` — so a rig
+    carrying ONE animation (`_shared/spines/engine-explosion`, most symbol rigs) plays exactly
+    what picking it by hand would. Leaving it unpicked is a supported choice: this tool's own
+    dropdown offers it and `SymbolSpinePreview` honours it. The banner now resolves each
+    candidate bundle's animation COUNT from `/api/editor/spine/meta` and only speaks when the
+    skeleton does not make the choice for you — **0** (setup pose ⇒ genuinely blank) or **2+**
+    (plays whichever the export listed first — the `R_spinbutton`-bound-to-`W` trap the check
+    was written for, which is silently WRONG, not blank). A count of 1, and an unresolved one,
+    are dropped: a banner that fires on "don't know" is what teaches an author to ignore it.
+  - **`effectiveCell` now mirrors the engine's `resolveSymbolState`.** It never modelled
+    `tumbleExplosion` → `explosion`, so an unbound Tumble-explosion cell read "unset" in the grid
+    while the game played the symbol's Explosion binding — a blank column that silently works is
+    exactly what gets re-authored by hand. It also jumped straight to `win` for the book states
+    without checking the state's OWN binding first, so a published default `bookIntro` showed the
+    win art here and the bookIntro art in-game. Inherited cells now render the borrowed art with
+    an `inherits <state>` badge + dashed border, and every cell's tooltip names where its binding
+    comes from. Deliberately NOT mirrored: that rule's `static` last resort — it is a crash-guard,
+    and painting every unbound cell with resting art would destroy the grid's only signal for
+    "nothing is bound here" (the `unset` chip's tooltip says it instead).
+  - **The two rules are now pinned together offline.** `pnpm --filter launcher-api
+    check:symbol-state-parity` (`scripts/check-symbol-state-parity.ts`, tsx) runs a symbol's state
+    map through BOTH `resolveSymbolState` and `effectiveCell` for every state, from an authored
+    override AND from a published default, and asserts they agree — including the one divergence
+    that is deliberate (`static` last resort), so it stays a decision rather than becoming drift
+    again. It fails 13 assertions against the pre-fix `effectiveCell`.
+  - **A `_shared/` spine could not preview in any real project.** `resolveEditorSpine` read
+    `loadSkeletonIndex`, which consults the shared index only when the project has NONE of its own
+    — and all 5 real projects own one. So a bundle bound from `_shared/spines/` found no entry and
+    returned `null`, even though `resolveBundlePrefix` resolves its FILES project-then-shared.
+    Switched to `loadSkeletonIndexWithShared`, the same reasoning `symbolExport` /
+    `editorArtExport` already apply to the export path (2026-08-21, below); the READ path was left
+    behind, which is what made the freshly seeded `engine-explosion` unpreviewable. Also widened
+    `/api/editor/spine/meta`'s `altTools` to include `symbols`, so the animation-count lookup is
+    reachable for a symbols-only role.
+
 - 2026-08-21 — **Two engine rigs drew at the wrong size, because a spine symbol is sized by
   its DECLARED canvas, not by the pixels it shows.** `spineSizeScale` contain-fits
   `skeleton.data.width/height`; the Scene Editor's `measureSpineBounds` reads the same rect.
