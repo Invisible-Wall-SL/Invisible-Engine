@@ -161,6 +161,14 @@ const winLineLineSchema = z
 		 *  one), falling back to the `color` swatch. Absent ⇒ ON (historic behaviour). Only the OFF
 		 *  override (`false`) persists — it makes the `color` swatch authoritative and ignores config. */
 		useConfigColor: z.boolean().optional(),
+		/** Show EVERY paying line of the round AT THE SAME TIME instead of one after another: each
+		 *  line appears a beat after the previous one (see `allAtOnceDelay`) in its own payline colour
+		 *  and they all STAY on screen together until the next spin. Absent ⇒ OFF ⇒ the default
+		 *  one-line-at-a-time narration, byte-identical to before. */
+		allAtOnce: z.boolean().optional(),
+		/** The beat between two lines appearing in `allAtOnce` mode, in SECONDS. Unset ⇒ the coded
+		 *  default resolved in `bakedWinLineConfig()`. Only meaningful with `allAtOnce` on. */
+		allAtOnceDelay: z.number().optional(),
 	})
 	.strict();
 

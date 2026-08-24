@@ -454,6 +454,110 @@ export const winLineTextFor = ({
 	};
 };
 
+/** The fields any win-line dispatch site needs from a win — the shape shared by a book `winInfo`
+ *  entry and a recorded win-cycle entry, so {@link showAllWinLines} takes either. */
+type WinLineWin = {
+	symbol: SymbolName;
+	kind: number;
+	positions: Position[];
+	win: number;
+	meta?: { lineIndex?: number };
+};
+
+/**
+ * EVERY win the CURRENT BOARD pays, gathered from the whole book — the set {@link showAllWinLines}
+ * draws when `bookEvent` is the board's FIRST `winInfo`, and an empty list for every later one.
+ *
+ * WHY LOOK AHEAD. How many `winInfo` events a spin emits is a property of the SOURCE BOOK, not of
+ * the game: the reference books put every win in ONE event (`wins: [w1, w2, w3]`), while the
+ * Play4Fun facade — what the shipped games run on — flushes one event PER win. Drawing only
+ * `bookEvent.wins` would therefore land the lines one whole symbol-celebration apart on exactly the
+ * games that pay several, which is not "at the same time". Collecting the run of `winInfo` events
+ * that belong to this board puts them all up a beat apart on both book shapes.
+ *
+ * The board's run ends at the next event that INVALIDATES it — a new `reveal` (the next free spin)
+ * or a `tumbleBoard` (a cascade blows the paying cells away), the same two boundaries the resting
+ * win cycle clears its recorded wins on. Everything else in between is presentation.
+ *
+ * Returns [] when an earlier `winInfo` in the same run already drew the set, so the lines are
+ * stamped ONCE per board however many events carry them.
+ */
+export const winsOnThisBoard = (
+	bookEvent: BookEventOfType<'winInfo'>,
+	bookEvents: BookEvent[],
+): WinLineWin[] => {
+	const invalidates = (event: BookEvent) => event.type === 'reveal' || event.type === 'tumbleBoard';
+	const at = bookEvents.indexOf(bookEvent);
+	// Not in the list (a synthesised event): fall back to just this event's wins — one board, one
+	// draw, which is what a lone event means.
+	if (at < 0) return bookEvent.wins;
+	for (let i = at - 1; i >= 0 && !invalidates(bookEvents[i]); i -= 1) {
+		if (bookEvents[i].type === 'winInfo') return [];
+	}
+	const wins: WinLineWin[] = [];
+	for (let i = at; i < bookEvents.length && !invalidates(bookEvents[i]); i += 1) {
+		const event = bookEvents[i];
+		if (event.type === 'winInfo') wins.push(...event.wins);
+	}
+	return wins;
+};
+
+/**
+ * ALL-AT-ONCE WIN LINES — draw EVERY paying line of the round together, each in its own payline
+ * colour, and leave them up (Invisible Symbols State Machine → "Show all win lines at once").
+ *
+ * The alternative to the default narration, which shows one line, animates its symbols, hides it,
+ * and moves on. Here the lines are stamped out back-to-back — separated only by the authored
+ * `allAtOnceDelay` beat, so they read as arriving together rather than in a queue — and NOTHING
+ * hides them: `WinLine.svelte` ignores the per-win `winLineHide` in this mode, so the set survives
+ * the symbol celebration and the resting board until the next spin clears it (`clearWinPresentation`).
+ *
+ * Broadcast, never awaited: an awaited animated draw would serialise the lines back into a queue,
+ * which is exactly what this mode exists to avoid. Each line still traces at its authored speed —
+ * they just trace at the same time.
+ *
+ * The per-win gate is the SAME `winLineEnabledForWin` the default path uses, so a scatter win still
+ * draws no line and the overlay's master toggle still has the final say.
+ *
+ * Returns whether it drew anything, so a caller can tell "the set is on screen" from "nothing
+ * qualified" (the resting cycle uses it to decide whether it owns a line to clear).
+ */
+export const showAllWinLines = async (
+	wins: WinLineWin[],
+	{ stamp = true }: { stamp?: boolean } = {},
+): Promise<boolean> => {
+	const { allAtOnceDelay } = bakedWinLineConfig().line;
+	let drew = false;
+	for (const win of wins) {
+		if (!winLineEnabledForWin(win)) continue;
+		const positions = winningPositionsOf(win);
+		if (!positions.length) continue;
+		// The beat BETWEEN two lines — never before the first, so the set starts the instant the win
+		// does. A slam collapses it (`roundSkip.wait`), which is the right reading of "show me the
+		// result now": every line appears in the same frame.
+		if (drew) await roundSkip.wait(Math.max(0, allAtOnceDelay) * SECOND);
+		drew = true;
+		eventEmitter.broadcast({
+			type: 'winLineShow',
+			points: winLinePointsFor(positions),
+			shape: winLineShapeFor(positions),
+			fullPoints: winLineFullPointsFor(win),
+			color: winLineColorFor(win.meta?.lineIndex),
+			// `stamp: false` keeps the lines while dropping their amounts (the resting cycle's
+			// `showText` switch). Empty strings ⇒ `WinLine.svelte` draws the line and stamps nothing.
+			...(stamp
+				? winLineTextFor({
+						symbol: win.symbol,
+						kind: win.kind,
+						amount: win.win,
+						line: win.meta?.lineIndex,
+					})
+				: { amount: '', message: '' }),
+		});
+	}
+	return drew;
+};
+
 const winLevelDataOf = (winLevel: number): WinLevelData | undefined => activeWinLevelData(winLevel);
 
 /** A flow payload field as a real number, or `undefined` so the callee's own default applies. The
@@ -1114,6 +1218,10 @@ const effects: Record<string, FlowEffect> = {
 		// toast that follows — see `rememberWinSymbol`.
 		rememberWinSymbol(win.symbol, win.kind);
 		if (!winLineEnabledForWin(win)) return;
+		// All-at-once mode drew the whole round's lines together in `dispatchBookEvent`; re-showing
+		// this one here would only re-stamp it. (Its sibling `hideWinLine` needs no such guard —
+		// `WinLine.svelte` ignores a per-win hide in this mode.)
+		if (bakedWinLineConfig().line.allAtOnce) return;
 		await awaitPresentation({
 			type: 'winLineShow',
 			points: winLinePointsFor(winningPositionsOf(win)),

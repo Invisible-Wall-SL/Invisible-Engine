@@ -85,6 +85,14 @@ Working on `main`:
   export/bake; the renderer gets the full path as `winLineShow.fullPoints`
   (`flowEffects#winLineFullPointsFor`, gated on the flag), fed by BOTH the coded `winInfo`
   handler and the post-win replay. ⏳ owner visual-verify.
+- **Show all win lines at once** (2026-08-24, default OFF). `winLine.line.allAtOnce` +
+  `line.allAtOnceDelay` (seconds, coded default `0.12`): every paying line of a spin is drawn
+  TOGETHER — each appearing one beat after the last, in its own payline colour — and they all STAY
+  on screen until the next spin, instead of the default draw → light symbols → clear → next
+  narration. The symbols still celebrate one win at a time underneath them. Off (absent) ⇒ the
+  one-at-a-time narration, byte-identical. Sparse: only the ON override persists, and the delay
+  drops with it. Verified live on `apps/lines` + the mock (three lines up together, 121ms apart,
+  surviving the celebration and restored by the resting replay).
 - **Use payline colour from config** (2026-08-07, default ON). `winLine.line.useConfigColor`
   (sparse; absent ⇒ ON, only the OFF override persists — proven byte-parity offline over the
   real `setWinLineLine`). ON keeps today's `coreColor = winColor ?? line.color` in
@@ -325,6 +333,28 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+
+- 2026-08-24 — **A game can now show ALL of a spin's win lines at the same time** (owner request).
+  New sparse `winLine.line.allAtOnce` (+ `allAtOnceDelay`, default 0.12s) in the Symbols tool's
+  **Win line** group. The renderer was the real work: `WinLine.svelte` held ONE line
+  (`points`/`amount`/`progress` singletons) and now holds a keyed LIST — each entry with its own
+  points, colour, shape, stamp and draw `Tween` — so the default mode is simply "the list never
+  grows past one" (parity). A line is keyed by the cells it traces, so re-showing one replaces it
+  rather than stacking a copy; all strokes render before all stamps, so a later line can't be drawn
+  over an earlier line's amount. `winLineHide` grew an `all` flag: in this mode a PER-WIN hide is
+  ignored (the lines staying up IS the mode) and only the round-level clears (next spin,
+  `clearWinPresentation`, cycle stop) wipe the set.
+  The draw itself is fired from `dispatchBookEvent` (`showAllWinLines`) — the ONE seam all three
+  dispatch paths cross, the same reason `recordWinCycleWins` lives there — because a flow-owned
+  `winInfo` never reaches the coded handler map, so a flow-driven game (the shipped remake) had to
+  behave identically. It looks AHEAD through the book (`winsOnThisBoard`) for every `winInfo`
+  belonging to the current board: how many `winInfo` events a spin emits is a property of the
+  SOURCE BOOK, not the game — the reference books put every win in one event while the Play4Fun
+  facade flushes one PER win — so without the look-ahead the shipped games would have landed their
+  lines a whole symbol-celebration apart instead of a beat. The coded handler and the `showWinLine`
+  effect stand down in this mode; the resting win cycle re-broadcasts the whole set once and then
+  cycles only the symbols underneath it. **Engine change — needs a Borut submodule bump + runtime
+  release to reach the remake.**
 
 - 2026-08-21 — **The no-animation banner was crying wolf, and the grid disagreed with the game
   about an empty `Tumble explosion` cell.** Three fixes, one report ("why do I get all these

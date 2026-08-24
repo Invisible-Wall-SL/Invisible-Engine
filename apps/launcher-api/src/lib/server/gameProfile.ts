@@ -296,6 +296,15 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 				: null,
 	},
 	{
+		id: 'allWinLines',
+		title:
+			'Every paying line of a spin is drawn at the same time and stays on screen together, instead of being narrated one at a time.',
+		text: (ctx) =>
+			winLineActive(ctx) && ctx.symbols.winLine?.line?.allAtOnce === true
+				? 'All win lines at once'
+				: null,
+	},
+	{
 		id: 'paylineColors',
 		title: 'Per-payline win colours authored in the Game Config.',
 		text: (ctx) => {

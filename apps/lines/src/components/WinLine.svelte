@@ -25,7 +25,13 @@
 				 *  participation). Both bar shapes stamp the amount ONCE, centred. Absent ⇒ `'path'`. */
 				shape?: WinLineShape;
 		  }
-		| { type: 'winLineHide' };
+		| {
+				type: 'winLineHide';
+				/** Wipe EVERY drawn line, not just the current one. Only meaningful with "show all win
+				 *  lines at once" on, where a per-win hide is deliberately ignored so the round's lines
+				 *  stay on screen together; the round-level clears (next spin, cycle stop) set this. */
+				all?: boolean;
+		  };
 </script>
 
 <script lang="ts">
@@ -50,28 +56,49 @@
 	const line = cfg.line;
 	const text = cfg.text;
 
-	let points = $state<WinLinePoint[]>([]);
-	// The whole payline (all reels), drawn as a static underlay when "Show full payline" is on.
-	let fullPoints = $state<WinLinePoint[]>([]);
-	/** The winning payline's authored colour (Invisible Game Config), when it has one. Overrides the
-	 *  single Symbols-tool line colour for this win; `undefined` ⇒ the authored default draws. */
-	let winColor = $state<string | undefined>(undefined);
-	// Which shape this win draws: the connected polyline, per-cell bars, or one merged bar per
-	// winning reel. See the `shape` field on `winLineShow`.
-	let shape = $state<WinLineShape>('path');
-	/** Both bar shapes share every "not a traced path" branch below (no head-trace, amount stamped
-	 *  once over the whole set). */
-	const bars = $derived(shape !== 'path');
-	let amount = $state('');
-	/** The authored per-win message (Invisible Win Text), already localized + interpolated by
-	 *  `winLineTextFor`. Empty unless authored — that is the parity default, since the win line
-	 *  had no message layer before the tool existed. */
-	let message = $state('');
-	// The amount is stamped only AFTER the line finishes drawing (immediately when the
-	// draw isn't animated). Gated so an animated line reveals first → last → amount.
-	let revealed = $state(true);
-	// Draw progress 0→1 along the polyline. Instant (duration 0) unless animated.
-	const progress = new Tween(1, { duration: 0 });
+	/** ONE drawn line. The overlay holds a LIST because "show all win lines at once" keeps every
+	 *  paying line of the round on screen together; the default one-at-a-time narration is simply
+	 *  the list never growing past a single entry. */
+	type DrawnLine = {
+		id: number;
+		/** Identity of the drawn line (its traced cells + shape). A line re-shown while it is already
+		 *  up — the resting win cycle redraws the round's lines — REPLACES its earlier entry rather
+		 *  than stacking a second copy on top of it. */
+		key: string;
+		points: WinLinePoint[];
+		/** The whole payline (all reels), drawn as a static underlay when "Show full payline" is on. */
+		fullPoints: WinLinePoint[];
+		/** The winning payline's authored colour (Invisible Game Config), when it has one. Overrides
+		 *  the single Symbols-tool line colour for this win; `undefined` ⇒ the authored default. */
+		color: string | undefined;
+		/** Which shape this win draws: the connected polyline, per-cell bars, or one merged bar per
+		 *  winning reel. See the `shape` field on `winLineShow`. */
+		shape: WinLineShape;
+		amount: string;
+		/** The authored per-win message (Invisible Win Text), already localized + interpolated by
+		 *  `winLineTextFor`. Empty unless authored — that is the parity default, since the win line
+		 *  had no message layer before the tool existed. */
+		message: string;
+		/** Draw progress 0→1 along the polyline. Instant (duration 0) unless animated. The amount is
+		 *  stamped only once this reaches 1, so an animated line reveals first → last → amount. */
+		progress: Tween<number>;
+		/** The stamp's RENDERED box, reported by `ResponsiveBitmapText` (its `maxWidth` is only the
+		 *  cap, not the drawn width). Until it has measured, a font-size estimate keeps the FIRST
+		 *  frame close so the amount doesn't visibly jump once the real size arrives. */
+		labelSize: { width: number; height: number };
+	};
+
+	let lines = $state<DrawnLine[]>([]);
+	let nextId = 0;
+
+	/** Whether every paying line of the round stays on screen TOGETHER (Invisible Symbols State
+	 *  Machine → "Show all win lines at once"). Off (the default) ⇒ each `winLineShow` REPLACES the
+	 *  drawn line and every `winLineHide` clears it — byte-identical to before this switch. */
+	const allAtOnce = cfg.line.allAtOnce;
+
+	/** Names a drawn line by the cells it traces, so the same line shown twice stays ONE entry. */
+	const lineKey = (points: WinLinePoint[], shape: WinLineShape): string =>
+		`${shape}|${points.map((point) => `${Math.round(point.x)}:${Math.round(point.y)}`).join(',')}`;
 
 	/** Total pixel length of the polyline (for a length-proportional draw duration). */
 	function pathLength(pts: WinLinePoint[]): number {
@@ -84,51 +111,53 @@
 
 	context.eventEmitter.subscribeOnMount({
 		winLineShow: async (emitterEvent) => {
-			points = emitterEvent.points;
-			fullPoints = emitterEvent.fullPoints ?? [];
-			amount = emitterEvent.amount;
-			message = emitterEvent.message;
-			winColor = emitterEvent.color;
-			shape = emitterEvent.shape ?? 'path';
-			// Publish the reusable win colour so any asset shown on this win can tint itself to the
-			// winning payline. Cleared on hide. `null` when the line has no authored colour.
-			context.stateGame.winLineColor = emitterEvent.color ?? null;
+			const shape = emitterEvent.shape ?? 'path';
 			// A slammed round draws the line COMPLETE at once (final state, not a dropped line). A bar
 			// shape never head-traces (there is no single path to sweep) — its bars all appear
-			// together, so it takes the instant branch too. Read from the event, not the `shape` state,
-			// so this cannot race the assignment above.
-			const drawsBars = (emitterEvent.shape ?? 'path') !== 'path';
-			if (
+			// together, so it takes the instant branch too.
+			const animated =
 				line.animated &&
 				!roundSkip.isSkipped() &&
-				!drawsBars &&
-				emitterEvent.points.length >= 2
-			) {
-				revealed = false;
-				progress.set(0, { duration: 0 });
-				// ~220ms per 4 symbol-widths of line, scaled by speed, clamped to a sane range.
-				const len = pathLength(emitterEvent.points);
-				const duration = Math.min(
-					2000,
-					Math.max(180, ((len / (SYMBOL_SIZE * 4)) * 220) / line.speed),
-				);
-				await progress.set(1, { duration });
-				revealed = true;
-			} else {
-				progress.set(1, { duration: 0 });
-				revealed = true;
+				shape === 'path' &&
+				emitterEvent.points.length >= 2;
+			const entry: DrawnLine = {
+				id: (nextId += 1),
+				key: lineKey(emitterEvent.points, shape),
+				points: emitterEvent.points,
+				fullPoints: emitterEvent.fullPoints ?? [],
+				color: emitterEvent.color,
+				shape,
+				amount: emitterEvent.amount,
+				message: emitterEvent.message,
+				progress: new Tween(animated ? 0 : 1, { duration: 0 }),
+				labelSize: { width: 0, height: 0 },
+			};
+			// Publish the reusable win colour so any asset shown on this win can tint itself to the
+			// winning payline. Cleared on hide. `null` when the line has no authored colour. With every
+			// line on screen at once this is the LAST one drawn — the one just announced.
+			context.stateGame.winLineColor = emitterEvent.color ?? null;
+			if (!allAtOnce) lines = [entry];
+			else {
+				const at = lines.findIndex((drawn) => drawn.key === entry.key);
+				if (at >= 0) lines[at] = entry;
+				else lines.push(entry);
 			}
+			if (!animated) return;
+			// ~220ms per 4 symbol-widths of line, scaled by speed, clamped to a sane range.
+			const len = pathLength(emitterEvent.points);
+			const duration = Math.min(
+				2000,
+				Math.max(180, ((len / (SYMBOL_SIZE * 4)) * 220) / line.speed),
+			);
+			await entry.progress.set(1, { duration });
 		},
-		winLineHide: () => {
-			points = [];
-			fullPoints = [];
-			amount = '';
-			message = '';
-			winColor = undefined;
-			shape = 'path';
+		winLineHide: (emitterEvent) => {
+			// In all-at-once mode a PER-WIN hide is ignored — the lines staying up together IS the
+			// mode. Only a round-level clear (`all`: the next spin, or the win cycle stopping) wipes
+			// them. Off, every hide clears the single drawn line, exactly as before.
+			if (allAtOnce && !emitterEvent.all) return;
+			lines = [];
 			context.stateGame.winLineColor = null;
-			revealed = true;
-			progress.set(1, { duration: 0 });
 		},
 	});
 
@@ -148,25 +177,17 @@
 	 *  cells stacked in the same reel merge into one continuous vertical bar. */
 	const cellHalf = $derived(context.stateGameDerived.boardGeometry().rowPitchLocal / 2);
 
-	/** The amount's RENDERED box, reported by `ResponsiveBitmapText` (its `maxWidth` is only the cap,
-	 *  not the drawn width). Until it has measured, a font-size estimate keeps the FIRST frame close
-	 *  so the amount doesn't visibly jump once the real size arrives. */
-	let labelSize = $state({ width: 0, height: 0 });
-	const labelBox = $derived({
-		width: labelSize.width || SYMBOL_SIZE * text.size * 2,
-		height: labelSize.height || SYMBOL_SIZE * text.size,
-	});
-
 	/** Gap between the line's end and the stamped amount. */
 	const LABEL_GAP = SYMBOL_SIZE * 0.55;
 
 	/**
-	 * What the line stamps: the authored message ABOVE the amount, as ONE text block rather than
-	 * two nodes — so the measured `labelBox` covers both lines and the in-window placement below
+	 * What a line stamps: the authored message ABOVE the amount, as ONE text block rather than
+	 * two nodes — so the measured label box covers both lines and the in-window placement below
 	 * (flip + clamp) keeps governing the whole stamp. Unauthored ⇒ `message` is empty ⇒ this is
 	 * exactly the amount, byte-identical to before.
 	 */
-	const labelText = $derived(message ? `${message}\n${amount}` : amount);
+	const labelTextOf = (drawn: DrawnLine): string =>
+		drawn.message ? `${drawn.message}\n${drawn.amount}` : drawn.amount;
 
 	const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
@@ -178,9 +199,14 @@
 	 * line ending on the last reel can push the text past the right edge). The text anchors top-centre,
 	 * so its box spans `x ± width/2` by `y … y + height`.
 	 */
-	const label = $derived.by(() => {
+	function labelFor(drawn: DrawnLine): { x: number; y: number } | undefined {
+		const points = drawn.points;
 		if (!points.length) return undefined;
-		const { width, height } = labelBox;
+		/** Both bar shapes share every "not a traced path" branch (no head-trace, amount stamped
+		 *  once over the whole set). */
+		const bars = drawn.shape !== 'path';
+		const width = drawn.labelSize.width || SYMBOL_SIZE * text.size * 2;
+		const height = drawn.labelSize.height || SYMBOL_SIZE * text.size;
 		// A bar shape stamps ONCE, centred over the winning columns (their x-extent) just beneath the
 		// lowest bar; an ordinary payline stamps at its last paying symbol. Both then flip-above +
 		// clamp to stay inside the reel window, exactly as before.
@@ -200,7 +226,7 @@
 			x: clamp(anchorX, width / 2, Math.max(width / 2, windowWidth - width / 2)),
 			y: clamp(y, 0, Math.max(0, windowHeight - height)),
 		};
-	});
+	}
 
 	/** Trace the polyline into the graphics path, but only up to `p` (0→1) of its total
 	 *  length — interpolating the final partial segment so the head advances smoothly. */
@@ -263,19 +289,20 @@
 	}
 
 	// Re-created whenever the points or the draw progress change, so the <Graphics>
-	// redraws the growing line (the closure captures the current progress value).
-	const draw = $derived.by(() => {
-		const pts = points;
-		const full = fullPoints;
-		const p = progress.current;
-		const drawn = shape;
+	// redraws the growing line (the closure captures the current progress value). Called from the
+	// template per drawn line, so each line in the all-at-once set gets its own stroke pass.
+	function drawFor(entry: DrawnLine) {
+		const pts = entry.points;
+		const full = entry.fullPoints;
+		const p = entry.progress.current;
+		const drawn = entry.shape;
 		const half = cellHalf;
 		const coreWidth = SYMBOL_SIZE * line.width;
 		// The winning payline's authored colour (Invisible Game Config) overrides BOTH the core line
 		// and its glow halo, so the whole line reads as that colour — UNLESS the author turned off
 		// "Use payline colour from config", which makes the Symbols-tool swatch authoritative. When on
 		// (default) or the win has no config colour, the swatch is the fallback (byte-parity with before).
-		const configColor = line.useConfigColor ? winColor : undefined;
+		const configColor = line.useConfigColor ? entry.color : undefined;
 		const coreColor = configColor ?? line.color;
 		const haloColor = configColor ?? line.glowColor;
 		// Stamp the current shape into the path: merged per-reel bars for a ways win, per-cell bars for
@@ -330,30 +357,38 @@
 				join: 'round',
 			});
 		};
-	});
+	}
 </script>
 
-{#if points.length}
+{#if lines.length}
 	<BoardContainer>
-		<Graphics {draw} />
+		<!-- Every line strokes BEFORE any stamp, so with the whole round on screen at once a later
+		     line's graphics can never be drawn over an earlier line's amount. -->
+		{#each lines as entry (entry.id)}
+			<Graphics draw={drawFor(entry)} />
+		{/each}
 
-		{#if label && revealed && labelText}
-			<Container x={label.x} y={label.y}>
-				<ResponsiveBitmapText
-					anchor={{ x: 0.5, y: 0 }}
-					maxWidth={SYMBOL_SIZE * 3}
-					onresize={(sizes) => (labelSize = sizes)}
-					text={labelText}
-					style={{
-						fontFamily: text.font,
-						fontSize: SYMBOL_SIZE * text.size,
-						fill: text.color,
-						align: 'center',
-						fontWeight: 'bold',
-						letterSpacing: 0,
-					}}
-				/>
-			</Container>
-		{/if}
+		{#each lines as entry (entry.id)}
+			{@const label = labelFor(entry)}
+			{@const labelText = labelTextOf(entry)}
+			{#if label && entry.progress.current >= 1 && labelText}
+				<Container x={label.x} y={label.y}>
+					<ResponsiveBitmapText
+						anchor={{ x: 0.5, y: 0 }}
+						maxWidth={SYMBOL_SIZE * 3}
+						onresize={(sizes) => (entry.labelSize = sizes)}
+						text={labelText}
+						style={{
+							fontFamily: text.font,
+							fontSize: SYMBOL_SIZE * text.size,
+							fill: text.color,
+							align: 'center',
+							fontWeight: 'bold',
+							letterSpacing: 0,
+						}}
+					/>
+				</Container>
+			{/if}
+		{/each}
 	</BoardContainer>
 {/if}

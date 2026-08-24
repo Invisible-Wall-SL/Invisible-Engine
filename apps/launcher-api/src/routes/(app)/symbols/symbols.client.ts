@@ -191,6 +191,12 @@ export interface WinLineLineStyle {
 	 *  wins, swatch is the fallback). Persist ONLY the OFF override (`false`), which makes the
 	 *  `color` swatch authoritative and ignores the config colour. */
 	useConfigColor?: boolean;
+	/** Show EVERY paying line of the round at the same time (each appearing a beat after the last,
+	 *  all staying on screen together) instead of one after another. Absent ⇒ OFF ⇒ the default
+	 *  narration. Only the ON override persists. */
+	allAtOnce?: boolean;
+	/** Seconds between two lines appearing in all-at-once mode. Unset ⇒ coded default. */
+	allAtOnceDelay?: number;
 }
 
 /** Win-amount text style (a bitmap font, so `color` is a tint multiply). `size` is a
@@ -739,6 +745,12 @@ function pruneWinLine(winLine: WinLineConfig | undefined): WinLineConfig | undef
 		// `useConfigColor` defaults ON (absent ⇒ config colour wins), so ONLY its OFF override
 		// persists — a `true` is the default and must drop to keep an untouched doc byte-identical.
 		if (line.useConfigColor !== false) delete line.useConfigColor;
+		// `allAtOnce` defaults OFF, so only the ON override persists — and its delay is meaningless
+		// without it, so that drops with it.
+		if (line.allAtOnce !== true) {
+			delete line.allAtOnce;
+			delete line.allAtOnceDelay;
+		}
 		if (Object.keys(line).length) next.line = line;
 	}
 	if (text) next.text = text;

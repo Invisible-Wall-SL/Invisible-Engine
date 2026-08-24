@@ -6,6 +6,10 @@
  * so this module re-lights them on a loop from the moment the round's presentation finishes until
  * the next bet starts.
  *
+ * SHOWING ALL LINES AT ONCE changes the replay's shape, not its job: the round's lines are already
+ * on screen together, so the cycle re-broadcasts the whole set once (keyed, so nothing doubles) and
+ * leaves it up for the entire rotation while the symbols keep cycling one win at a time underneath.
+ *
  * THE LINE RIDES ALONG, unless switched off. Each pass draws that win's line and stamps its
  * amount before lighting its symbols — the same beat order the spin played — and clears it again
  * between passes, so the rotation reads as the round's own per-win narration on repeat. Turning
@@ -39,6 +43,7 @@ import { waitForTimeout } from 'utils-shared/wait';
 import { eventEmitter } from './eventEmitter';
 import {
 	animateSymbols,
+	showAllWinLines,
 	showWinInfoMessage,
 	winLineColorFor,
 	winLineEnabledForWin,
@@ -51,7 +56,7 @@ import {
 import { setWinDim, winDimCellKey } from './stateGame.svelte';
 import type { BookEvent, BookEventOfType } from './typesBookEvent';
 import type { Position } from './types';
-import { bakedWinCycleConfig } from '../editor-scenes';
+import { bakedWinCycleConfig, bakedWinLineConfig } from '../editor-scenes';
 
 type CycleWin = BookEventOfType<'winInfo'>['wins'][number];
 
@@ -188,11 +193,12 @@ const refreshWinDim = (): void => {
  *  whoever ends the pass, and a cycle that never draws one leaves the round's own line alone. */
 let lineOnScreen = false;
 
-/** Clear a line this cycle drew (no-op otherwise — never touches a line the round left). */
+/** Clear the line(s) this cycle drew (no-op otherwise — never touches a line the round left).
+ *  `all` so it also wipes an all-at-once SET, where a per-win hide is deliberately ignored. */
 const clearCycleLine = (): void => {
 	if (!lineOnScreen) return;
 	lineOnScreen = false;
-	eventEmitter.broadcast({ type: 'winLineHide' });
+	eventEmitter.broadcast({ type: 'winLineHide', all: true });
 };
 
 /** Stop a running cycle. Idempotent — safe to call when nothing is running. */
@@ -223,7 +229,7 @@ export const stopWinCycle = (): void => {
 export const clearWinPresentation = (): void => {
 	stopWinCycle();
 	lineOnScreen = false;
-	eventEmitter.broadcast({ type: 'winLineHide' });
+	eventEmitter.broadcast({ type: 'winLineHide', all: true });
 	clearMessage();
 	setWinDim(false, {});
 };
@@ -258,13 +264,31 @@ export const startWinCycle = async (): Promise<void> => {
 	const token = generation;
 	const gapMs = Math.max(MIN_GAP_MS, cfg.delay * SECOND);
 
+	// ALL-AT-ONCE MODE: the round's lines are ALREADY on screen together and must stay there, so the
+	// replay never draws or clears one per pass — it re-broadcasts the whole set ONCE (idempotent:
+	// `WinLine.svelte` keys a line by the cells it traces, so a line already up is replaced, not
+	// doubled) and then cycles only the SYMBOLS underneath it. Re-broadcasting rather than trusting
+	// the round's own draw is what makes the replay self-sufficient: a flow-driven game, or a book
+	// whose lines were cleared, still ends up with the full set on the resting board.
+	const allAtOnce = bakedWinLineConfig().line.allAtOnce;
+	if (allAtOnce && cfg.showLine) {
+		if (
+			await showAllWinLines(
+				entries.map((entry) => entry.win),
+				{ stamp: cfg.showText },
+			)
+		)
+			lineOnScreen = true;
+		if (token !== generation) return;
+	}
+
 	while (token === generation) {
 		for (const { win, positions } of entries) {
 			if (token !== generation) return;
 			// `winLineEnabledForWin` is the SAME gate the round uses, so the replay inherits its
 			// rules for free: a scatter pays "anywhere" and draws no line, and the whole overlay
 			// obeys the Symbols-State-Machine win-line toggle. Those wins still light their symbols.
-			const withLine = cfg.showLine && winLineEnabledForWin(win);
+			const withLine = !allAtOnce && cfg.showLine && winLineEnabledForWin(win);
 			if (withLine) {
 				lineOnScreen = true;
 				// The stamped AMOUNT is gated INDEPENDENTLY of the line (`showText`): the author can
@@ -308,7 +332,8 @@ export const startWinCycle = async (): Promise<void> => {
 			}
 			await animateSymbols({ positions, color: winLineColorFor(win.meta?.lineIndex) });
 			if (token !== generation) return;
-			clearCycleLine();
+			// Never between passes in all-at-once mode — the whole set stays up until the next spin.
+			if (!allAtOnce) clearCycleLine();
 			await waitForTimeout(gapMs);
 		}
 	}
