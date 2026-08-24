@@ -400,23 +400,57 @@ export interface SymbolDefaults {
 	highlight?: HighlightCell;
 }
 
-/** The effective binding for a cell = override ?? coded default (may be absent). */
+/** Which state a cell INHERITS its binding from when it has none of its own. Mirrors the engine's
+ *  `resolveSymbolState` (`apps/lines/src/game/symbolCell.ts`) — the ONE rule that decides what a
+ *  symbol actually draws — so the grid shows what ships instead of an empty cell the game fills in.
+ *
+ *  Deliberately stops short of that rule's LAST resort (any unauthored state falls back to `static`).
+ *  That arm is a crash-guard, not an authoring rule: mirroring it here would paint every unbound cell
+ *  with the symbol's resting art and destroy the grid's only signal for "nothing is bound here". The
+ *  two arms below are different — both are advertised in the UI (the `Tumble explosion` column hint,
+ *  the book-state docs), so the preview owes the author a matching picture. */
+const INHERITS_FROM = (state: SymbolState): SymbolState | null => {
+	// Book states (`bookIntro`/`bookIdle`) mirror the live win art.
+	if (BOOK_STATE_SET.has(state)) return 'win';
+	// A project that binds ONE explosion keeps the cascade it already had — the second binding
+	// exists only so a game CAN use a different skeleton when the tumble removes a symbol.
+	if (state === 'tumbleExplosion') return 'explosion';
+	return null;
+};
+
+/** A cell only renders if it names the asset to render — the engine's `isUsableCell`. */
+const usable = (cell: SymbolCell | undefined): boolean => Boolean(cell?.assetKey);
+
+/**
+ * The effective binding for a cell = override ?? coded default ?? the state it INHERITS from
+ * ({@link INHERITS_FROM}), any of which may be absent.
+ *
+ * `inheritedFrom` names the donor state when the cell has no binding of its own, so the grid can
+ * say so rather than presenting borrowed art as if it were authored here.
+ */
 export function effectiveCell(
 	doc: SymbolsDoc,
 	defaults: SymbolDefaults,
 	symbol: string,
 	state: SymbolState,
-): { cell: SymbolCell | undefined; overridden: boolean } {
-	const override = doc.symbols[symbol]?.[state];
-	if (override) return { cell: override, overridden: true };
-	// Book states (`bookIntro`/`bookIdle`) inherit the symbol's EFFECTIVE win binding
-	// (authored override > published/coded default) unless explicitly bound — mirroring
-	// the engine's `getSymbolInfo`, so the preview matches what ships in-game.
-	if (BOOK_STATE_SET.has(state)) {
-		const win = doc.symbols[symbol]?.['win'] ?? defaults.symbols[symbol]?.['win'];
-		return { cell: win, overridden: false };
+): { cell: SymbolCell | undefined; overridden: boolean; inheritedFrom?: SymbolState } {
+	/** A state's own binding: the authored override first, then the published/coded default. */
+	const own = (s: SymbolState): SymbolCell | undefined =>
+		doc.symbols[symbol]?.[s] ?? defaults.symbols[symbol]?.[s];
+
+	const mine = own(state);
+	const overridden = Boolean(doc.symbols[symbol]?.[state]);
+	// The state's OWN binding wins, exactly as `resolveSymbolState` checks `states[state]` first.
+	// (Book states used to skip this and jump straight to `win`, so a published default `bookIntro`
+	// showed the win art here while the game played the bookIntro one.)
+	if (usable(mine)) return { cell: mine, overridden };
+
+	const donor = INHERITS_FROM(state);
+	if (donor) {
+		const inherited = own(donor);
+		if (usable(inherited)) return { cell: inherited, overridden: false, inheritedFrom: donor };
 	}
-	return { cell: defaults.symbols[symbol]?.[state], overridden: false };
+	return { cell: mine, overridden };
 }
 
 /** Set an override cell, returning a NEW doc (immutable update for `$state`). */
