@@ -14,6 +14,7 @@ import {
 
 import type { RawSymbol, SymbolState, SymbolName } from './types';
 import { winLevelMap } from './winLevelMap';
+import type { ResolvedGrid } from 'game-config';
 import {
 	SYMBOL_SIZE,
 	REEL_PADDING,
@@ -39,6 +40,10 @@ export interface GameStateDeps<TGameType extends string> {
 	/** Board grid from the active Invisible Game Config (`gameConfig.ts` in the app). */
 	initialBoard: () => RawSymbol[][];
 	boardDimensions: () => { x: number; y: number };
+	/** The per-column grid (`activeGrid()` in the app). `stepped` is false for every board authored
+	 *  before stepped grids existed, and every consumer below early-returns its rectangular path on
+	 *  that answer — see `docs/design/stepped-grid.md`. */
+	activeGrid: () => ResolvedGrid;
 	boardSizes: () => { width: number; height: number };
 	/** `stateLayoutDerived` — the app owns it because it carries that game's ratios/main sizes. */
 	layout: {
@@ -397,6 +402,34 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	 * have to agree exactly or a symbol is culled at a different height than the mask clips, so under
 	 * perspective — where the answer stops being a multiplication — it is defined once, here.
 	 */
+	/**
+	 * ONE COLUMN's visible window in board-local pixels — `{ top, height }` — the per-reel analogue
+	 * of {@link boardWindowHeight}, and what a stepped board's per-column mask and cull clip at.
+	 *
+	 * A uniform board answers `{ top: 0, height: boardWindowHeight() }` for every column, by CALLING
+	 * `boardWindowHeight()` rather than recomputing it: the two must not drift, for the same reason
+	 * the mask and the cull share one definition — a symbol culled at a height the mask clips
+	 * differently pops instead of sliding under the edge.
+	 */
+	const boardWindowForReel = (reelIndex: number) => {
+		const height = boardWindowHeight();
+		const grid = deps.activeGrid();
+		if (!grid.stepped) return { top: 0, height };
+		const model = boardPerspective();
+		const { rowPitchLocal } = boardGeometry();
+		const offsetRows = grid.rowOffsetForReel(reelIndex);
+		const rows = grid.rowsForReel(reelIndex);
+		// FLAT: the rows share a pitch, so both edges are a plain multiplication.
+		if (!model) {
+			return { top: offsetRows * rowPitchLocal, height: rows * rowPitchLocal };
+		}
+		// PERSPECTIVE: the rows do not share a pitch, so each edge is the running depth SUM at that
+		// row — the same quantity `boardWindowHeight` takes for the whole board, sampled twice.
+		const top = rowPitchLocal * perspectiveRowSum(model, offsetRows);
+		const bottom = rowPitchLocal * perspectiveRowSum(model, offsetRows + rows);
+		return { top, height: bottom - top };
+	};
+
 	const boardWindowHeight = () => {
 		const model = boardPerspective();
 		// FLAT: literally the expression both components used, in the same order (rows × the reel's
@@ -435,10 +468,29 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	 * far above it (a cascade stacks its replacements at `symbolIndex - 1 - addingReel.length`).
 	 * {@link perspectiveRowScale} explains what depth means out there.
 	 */
+	/**
+	 * This column's vertical PLACEMENT inside the bounding box, in rows — `0` for every column of a
+	 * uniform board, and a literal pass-through of `rowIndex` there, so the flat seat below stays the
+	 * same CALL rather than an equivalent one (`scripts/verify-symbol-seat.mjs` asserts that as exact
+	 * equality). On a stepped grid a short column is pushed down by its share of the slack, which is
+	 * what makes 3/4/5/4/3 read as a diamond.
+	 *
+	 * It is folded into the ROW INDEX rather than added to the resulting y because that is the same
+	 * axis `createReelForSpinning` is offset on (`buildBoard` adds it to that reel's `symbolLead`).
+	 * The live rolling y and the resting seat must agree cell-for-cell — `ReelSymbol` picks between
+	 * them per frame — so they have to be offset in the same units, once.
+	 */
+	const rowSeatIndex = (reelIndex: number, rowIndex: number) => {
+		const grid = deps.activeGrid();
+		if (!grid.stepped) return rowIndex;
+		return rowIndex + grid.rowOffsetForReel(reelIndex);
+	};
+
 	const getSymbolSeat = (reelIndex: number, rowIndex: number) => {
 		const model = boardPerspective();
-		if (!model) return { x: getSymbolX(reelIndex), y: getSymbolY(rowIndex), scale: 1 };
-		const scale = perspectiveRowScale(model, rowIndex);
+		const seatRow = rowSeatIndex(reelIndex, rowIndex);
+		if (!model) return { x: getSymbolX(reelIndex), y: getSymbolY(seatRow), scale: 1 };
+		const scale = perspectiveRowScale(model, seatRow);
 		const { rowPitchLocal } = boardGeometry();
 		return {
 			// The column is CONTRACTED toward the vanishing point by its row's scale — `getSymbolX` is
@@ -448,8 +500,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 			// Depth (the running sum of the compressed pitches) plus this row's OWN lead, itself scaled
 			// so the seat sits the same FRACTION into a shallower row as it does into a deep one.
 			y:
-				rowPitchLocal * perspectiveRowSum(model, rowIndex) +
-				rowPitchLocal * scale * getSymbolLead(),
+				rowPitchLocal * perspectiveRowSum(model, seatRow) + rowPitchLocal * scale * getSymbolLead(),
 			scale,
 		};
 	};
@@ -466,7 +517,13 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 			const reel = createReelForSpinning({
 				reelIndex,
 				symbolHeight: () => boardGeometry().rowPitchLocal,
-				symbolLead: () => getSymbolLead(),
+				// The reel places every symbol at `reelY + (symbolIndex + lead) * pitch`, so this reel's
+				// share of the bounding-box slack rides in as part of the LEAD — one term, applied to
+				// the whole column, and it therefore travels with the symbols while they roll instead of
+				// only describing where they come to rest. `rowSeatIndex` folds the identical term into
+				// the resting seat, which is what keeps `ReelSymbol`'s two y sources agreeing. Uniform
+				// grids add a literal 0 term-free (the `stepped` guard), so the lead is the same call.
+				symbolLead: () => getSymbolLead() + rowSeatIndex(reelIndex, 0),
 				initialSymbols: init[reelIndex],
 				initialSymbolState: INITIAL_SYMBOL_STATE,
 				onReelStopping: () => {
@@ -945,6 +1002,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		anticipationActive,
 		sequentialStopActive,
 		boardWindowHeight,
+		boardWindowForReel,
 		boardRaw,
 		scatterLandIndex,
 		enhancedBoard,

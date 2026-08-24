@@ -44,6 +44,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { resolveGrid } from '../packages/game-config/src/grid.ts';
+
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE = join(ROOT, 'packages/engine-game/src/game/gameState.svelte.ts');
 
@@ -100,6 +102,8 @@ return {
 	getSymbolSeat,
 	boardPerspective,
 	boardWindowHeight,
+	boardWindowForReel,
+	rowSeatIndex,
 };`,
 );
 
@@ -108,7 +112,7 @@ return {
  * @param dims `{ reels, rows }` — only the perspective path reads them
  * @param perspective the RAW authored block, handed to the seat unfiltered (see the header)
  */
-const gettersFor = (grid, dims = { reels: 5, rows: 3 }, perspective = undefined) =>
+const gettersFor = (grid, dims = { reels: 5, rows: 3 }, perspective = undefined, rowsPerReel) =>
 	buildGetters(
 		SYMBOL_SIZE,
 		REEL_PADDING,
@@ -118,6 +122,15 @@ const gettersFor = (grid, dims = { reels: 5, rows: 3 }, perspective = undefined)
 		{
 			layout: { layoutType: () => 'desktop' },
 			boardDimensions: () => ({ x: dims.reels, y: dims.rows }),
+			// The REAL `resolveGrid`, not a stub of it — the parity claim below is only worth
+			// something if `stepped` is decided by the shipped code. Absent `rowsPerReel` ⇒ a uniform
+			// board, which is every case in the matrix above.
+			activeGrid: () =>
+				resolveGrid({
+					numReels: dims.reels,
+					numRows: rowsPerReel?.rows ?? Array.from({ length: dims.reels }, () => dims.rows),
+					gridAlign: rowsPerReel?.align,
+				}),
 		},
 	);
 
@@ -506,10 +519,6 @@ for (const [gridLabel, grid] of GRIDS) {
 	}
 }
 
-console.log(
-	`\n${checks} assertions across ${GRIDS.length} grids x ${DIMS.length} board sizes x ` +
-		`${FLAT_PERSPECTIVES.length} flat variants + ${FAR_SCALES.length} perspectives`,
-);
 // ---------------------------------------------------------------------------
 // THE BOARD MUST FIT INSIDE ITS OWN MASK.
 //
@@ -611,6 +620,102 @@ const readSrc = (rel) => readFileSync(join(ROOT, rel), 'utf8').replace(/\r\n/g, 
 	same('...and binds that y, not the raw live one', /\n\t\t\{y\}\n/.test(reelSymbol), true);
 }
 
+// ---------------------------------------------------------------------------
+// STEPPED GRIDS (docs/design/stepped-grid.md) — a non-uniform `numRows`.
+//
+// Two claims, and the second is the one that actually bites:
+//
+//  1. Each column is displaced by its share of the bounding box's slack, per the authored
+//     alignment. A 3/4/5/4/3 board centred in a 5-row box offsets by 1 / 0.5 / 0 / 0.5 / 1.
+//  2. THE ROLLING Y AND THE RESTING SEAT AGREE. `ReelSymbol` picks between them every frame
+//     (the seat at rest under perspective, the live reel y otherwise), so if the two are offset
+//     by different amounts a stepped column JUMPS the instant it settles. The reel places a
+//     symbol at `reelY + (symbolIndex + lead) * pitch` and comes to rest at `reelY = -pitch`, so
+//     the resting live y of visible row r is `pitch * (r + lead + offset)`, which is
+//     `getSymbolY(r + offset)`.
+//
+//     Checked to a TOLERANCE, deliberately, unlike every other assertion in this file. The two
+//     expressions associate their multiply and add differently and so have never been bit-equal —
+//     a UNIFORM board already drifts ~2.8e-14 between them today, so demanding `Object.is` here
+//     would be asserting a property the shipped code never had. The tolerance is not slack: the
+//     failure this guards is an offset reaching one path and not the other, which misplaces a
+//     column by at least half a row (~45 board units on a default pitch) — fifteen orders of
+//     magnitude above the float noise, so 1e-9 separates them with room to spare.
+// ---------------------------------------------------------------------------
+{
+	const STEPPED = [
+		['diamond 3/4/5/4/3', [3, 4, 5, 4, 3], 'center', [1, 0.5, 0, 0.5, 1]],
+		['diamond, top-aligned', [3, 4, 5, 4, 3], 'top', [0, 0, 0, 0, 0]],
+		['diamond, bottom-aligned', [3, 4, 5, 4, 3], 'bottom', [2, 1, 0, 1, 2]],
+		['ramp 2/3/4/5/6', [2, 3, 4, 5, 6], 'center', [2, 1.5, 1, 0.5, 0]],
+		['single short reel', [4, 4, 2, 4, 4], 'bottom', [0, 0, 2, 0, 0]],
+	];
+	for (const [gridLabel, grid] of GRIDS) {
+		for (const [label, rows, align, expected] of STEPPED) {
+			const resolved = resolveGrid({ numReels: rows.length, numRows: rows, gridAlign: align });
+			const g = gettersFor(grid, { reels: rows.length, rows: Math.max(...rows) }, undefined, {
+				rows,
+				align,
+			});
+			// The stub must actually be driving a stepped grid, or everything below is vacuous.
+			same(`${gridLabel} | ${label} :: grid.stepped`, resolved.stepped, true);
+			const { rowPitchLocal } = g.boardGeometry();
+			for (let reel = 0; reel < rows.length; reel += 1) {
+				const where = `${gridLabel} | ${label} | reel ${reel}`;
+				const offset = resolved.rowOffsetForReel(reel);
+				// 1. the authored alignment placed the column where the design says
+				same(`${where} :: row offset`, offset, expected[reel]);
+				same(`${where} :: rowSeatIndex folds the offset in`, g.rowSeatIndex(reel, 0), offset);
+				// 2. the window this column masks + culls at
+				const win = g.boardWindowForReel(reel);
+				same(`${where} :: window top`, win.top, offset * rowPitchLocal);
+				same(`${where} :: window height`, win.height, rows[reel] * rowPitchLocal);
+				// the column's window must sit INSIDE the bounding box, or the mask leaks
+				if (win.top < 0 || win.top + win.height > g.boardWindowHeight() + 1e-9)
+					fail(`${where} :: column window escapes the board window`);
+				checks += 1;
+				for (let r = 0; r < rows[reel]; r += 1) {
+					const seat = g.getSymbolSeat(reel, r);
+					// THE INVARIANT: resting live y === seat y, exactly.
+					const lead = g.getSymbolLead() + g.rowSeatIndex(reel, 0);
+					const restingLiveY = -rowPitchLocal + (r + 1 + lead) * rowPitchLocal;
+					if (Math.abs(restingLiveY - seat.y) > 1e-9)
+						fail(
+							`${where} | row ${r} :: rolling y vs resting seat y  live=${restingLiveY} seat=${seat.y}`,
+						);
+					checks += 1;
+					same(
+						`${where} | row ${r} :: seat.y === getSymbolY(r + offset)`,
+						seat.y,
+						g.getSymbolY(r + offset),
+					);
+					// a stepped board is still FLAT, so x and scale are untouched by the offset
+					same(`${where} | row ${r} :: seat.x unmoved`, seat.x, g.getSymbolX(reel));
+					same(`${where} | row ${r} :: seat.scale === 1`, seat.scale, 1);
+				}
+			}
+		}
+	}
+	// A UNIFORM grid must take the pass-through: the same call, not an equivalent one.
+	for (const [gridLabel, grid] of GRIDS) {
+		const g = gettersFor(grid, { reels: 5, rows: 3 }, undefined, { rows: [3, 3, 3, 3, 3] });
+		for (let reel = 0; reel < 5; reel += 1) {
+			same(`${gridLabel} | uniform :: rowSeatIndex is identity`, g.rowSeatIndex(reel, -1), -1);
+			const win = g.boardWindowForReel(reel);
+			same(`${gridLabel} | uniform :: window top is 0`, win.top, 0);
+			same(
+				`${gridLabel} | uniform :: window height is the board window`,
+				win.height,
+				g.boardWindowHeight(),
+			);
+		}
+	}
+}
+
+console.log(
+	`\n${checks} assertions across ${GRIDS.length} grids x ${DIMS.length} board sizes x ` +
+		`${FLAT_PERSPECTIVES.length} flat variants + ${FAR_SCALES.length} perspectives`,
+);
 if (failures) {
 	console.log(`${failures} FAILED — the seat contract is broken.`);
 	process.exit(1);

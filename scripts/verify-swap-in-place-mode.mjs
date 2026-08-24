@@ -90,6 +90,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveGrid } from '../packages/game-config/src/grid.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // The repo checks out CRLF on Windows; every slice marker below is written with `\n`.
@@ -282,6 +283,9 @@ const engineFor = (perspective, flags = {}, behaviour = undefined) =>
 		{
 			layout: { layoutType: () => 'desktop' },
 			boardDimensions: () => ({ x: 5, y: 3 }),
+			// Uniform: these fixtures do not exercise stepped grids, so every seat below takes the
+			// same pass-through it took before `activeGrid` existed.
+			activeGrid: () => resolveGrid({ numReels: 5, numRows: [3, 3, 3, 3, 3] }),
 			reelBehaviour: behaviourDep(SWAP_STYLES, behaviourCeiling, behaviour),
 		},
 		{

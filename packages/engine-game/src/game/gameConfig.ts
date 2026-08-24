@@ -3,12 +3,14 @@ import {
 	resolveWinLevel,
 	resolveWinLevelChain,
 	resolveWinLevels,
+	resolveGrid,
 	resolveReelBehaviour,
 	resolveWinModel,
 	symbolsInPlay,
 	validateGameConfigDoc,
 	winLevelType,
 	type GameConfigDoc,
+	type ResolvedGrid,
 	type ResolvedReelBehaviour,
 	type ResolvedWinTier,
 	type WinModel,
@@ -61,6 +63,9 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 */
 
 	let cached: GameConfigDoc | null = null;
+	/** {@link activeGrid}'s identity-keyed memo — see the note there for why it is not reset-managed. */
+	let gridMemoFor: GameConfigDoc | null = null;
+	let gridMemo: ResolvedGrid | null = null;
 
 	/**
 	 * The compiled template, normalized. Kept as a lazily-built fallback rather than a module-scope
@@ -371,8 +376,41 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 * freeze to the compiled template.
 	 */
 	function boardDimensions(): { x: number; y: number } {
+		const grid = activeGrid();
+		return { x: grid.reels, y: grid.maxRows };
+	}
+
+	/**
+	 * THE GRID — per-column heights and their vertical placement, resolved once
+	 * (`game-config`'s {@link resolveGrid}). The accessor every surface that needs to know how tall
+	 * ONE column is reads, in place of assuming {@link boardDimensions}`.y`.
+	 *
+	 * `boardDimensions()` above is deliberately unchanged and still reports the BOUNDING BOX: it is
+	 * what the board's pixel footprint, its layout anchor and its scene coordinates are pinned to,
+	 * and a stepped board still occupies that whole rectangle. What changes is that the rectangle
+	 * is no longer a claim that every column FILLS it.
+	 *
+	 * Read `grid.stepped` before branching. It is false for every board that exists today, and each
+	 * consumer keeps its existing rectangular code path on that answer — not an equivalent one, the
+	 * same one. `apps/lines` ships as the shared `_runtime/lines` bundle to every online game, so a
+	 * uniform board must come out the far side untouched.
+	 *
+	 * A FUNCTION, not a const, for the reason the header gives: the live online config resolves
+	 * after this module evaluates, so a const would freeze to the compiled template's grid.
+	 */
+	function activeGrid(): ResolvedGrid {
 		const config = getActiveGameConfig();
-		return { x: config.numReels, y: Math.max(...config.numRows, 1) };
+		// Memoised on the config's IDENTITY, not in a cache of its own. `resolveGrid` allocates two
+		// arrays and this runs per cell per render, so re-resolving it every call is real garbage on
+		// the hot path — but a second cache would be a second thing `resetGameConfigCache()` has to
+		// remember to drop, which is the omission that freezes an online game to the template (see
+		// `activeReelBehaviour`, which stays un-memoised for exactly that reason — it is three field
+		// reads and allocates nothing). Keying on the object reference gets the memo without the
+		// bookkeeping: dropping `cached` yields a NEW doc object, so this invalidates itself.
+		if (gridMemo && gridMemoFor === config) return gridMemo;
+		gridMemoFor = config;
+		gridMemo = resolveGrid(config);
+		return gridMemo;
 	}
 
 	/** The board's PIXEL footprint (gap-less) — `SYMBOL_SIZE × the grid count`. The old
@@ -393,12 +431,16 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 * empty — a blank initial cell renders as nothing, the failure `warnOnGameConfigIssues` guards.
 	 */
 	function initialBoard(): RawSymbol[][] {
-		const { x, y } = boardDimensions();
+		const grid = activeGrid();
 		const strips = paddingReels('basegame');
 		const fallback = Object.keys(getActiveGameConfig().symbols)[0] ?? 'H1';
-		const cells = y + 2;
-		return Array.from({ length: x }, (_unused, reel) => {
+		return Array.from({ length: grid.reels }, (_unused, reel) => {
 			const strip = strips[reel] ?? [];
+			// `rows + 2` per COLUMN, not per board: the ±1 padding buffers this column's own window,
+			// and `createReelForSpinning` takes each reel's length from the array it is handed
+			// (`reelLength = initialSymbols.length`), so a short column becomes a short reel with no
+			// further plumbing. Uniform grids give every column the same `maxRows + 2` as before.
+			const cells = grid.rowsForReel(reel) + 2;
 			return Array.from({ length: cells }, (_c, i) =>
 				strip.length ? strip[i % strip.length] : { name: fallback },
 			);
@@ -653,6 +695,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		activeWinLevels,
 		activeReelBehaviour,
 		activeWinModel,
+		activeGrid,
 		boardDimensions,
 		boardSizes,
 		getActiveGameConfig,

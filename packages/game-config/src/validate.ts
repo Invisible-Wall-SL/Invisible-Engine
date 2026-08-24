@@ -20,6 +20,7 @@ import { resolveWinLevels } from './winLevels';
 import type { GameConfigDoc } from './types';
 import { resolveWinModel } from './winModel';
 
+import { resolveGrid } from './grid';
 export type GameConfigIssueSeverity = 'error' | 'warning';
 
 export type GameConfigIssue = {
@@ -40,7 +41,7 @@ export type GameConfigIssue = {
 export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => {
 	const issues: GameConfigIssue[] = [];
 	const inPlay = new Set(symbolsInPlay(doc));
-	const maxRows = Math.max(...doc.numRows, 0);
+	const grid = resolveGrid(doc);
 
 	if (doc.numReels <= 0) {
 		issues.push({ severity: 'error', path: 'numReels', message: 'Grid has no reels.' });
@@ -55,12 +56,17 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 			});
 		}
 		strips.forEach((strip, reel) => {
-			// A strip shorter than the visible window cannot fill the column while spinning.
-			if (strip.length && strip.length < maxRows) {
+			// A strip shorter than the visible window cannot fill the column while spinning. Measured
+			// against THAT COLUMN's height, not the board's tallest: on a stepped grid a 3-row column
+			// is fully served by a 3-cell strip, and flagging it against a 5-row neighbour would report
+			// an error about a column that is already full. Uniform grids are unaffected — every
+			// column's height IS the max.
+			const visible = grid.rowsForReel(reel);
+			if (strip.length && strip.length < visible) {
 				issues.push({
 					severity: 'error',
 					path: `paddingReels.${gameType}.${reel}`,
-					message: `Reel ${reel + 1} strip has ${strip.length} cells, fewer than the ${maxRows} visible rows.`,
+					message: `Reel ${reel + 1} strip has ${strip.length} cells, fewer than the ${visible} visible rows.`,
 				});
 			}
 		});

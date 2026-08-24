@@ -5,7 +5,13 @@ import { stateLayoutDerived } from './stateLayout';
 import { eventEmitter } from './eventEmitter';
 import { bakedStackedConfig } from '../editor-scenes';
 import { SCATTER_LAND_SOUND_MAP, STACKED_PICTURE } from './constants';
-import { activeReelBehaviour, boardDimensions, boardSizes, initialBoard } from './gameConfig';
+import {
+	activeGrid,
+	activeReelBehaviour,
+	boardDimensions,
+	boardSizes,
+	initialBoard,
+} from './gameConfig';
 
 /**
  * This game's board state: the engine machinery from `engine-game`, wired to THIS game's config,
@@ -44,6 +50,7 @@ const gameState = createGameState<GameType>({
 	initialGameType: 'basegame' as GameType,
 	initialBoard,
 	boardDimensions,
+	activeGrid,
 	boardSizes,
 	layout: stateLayoutDerived,
 	eventEmitter,
