@@ -21,7 +21,6 @@ import type { GameConfigDoc } from './types';
 import { resolveWinModel } from './winModel';
 
 import { resolveGrid } from './grid';
-import { resolveCascade } from './mechanics';
 export type GameConfigIssueSeverity = 'error' | 'warning';
 
 export type GameConfigIssue = {
@@ -174,17 +173,12 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 		// and a check that silently never fires is worse than no check. It lives in the editor's
 		// `reelGridWarnings`, beside the node that owns it.
 		//
-		// A cascade refills a column from above; nothing about that is board-wide, but the tumble
-		// overlay seats its falling replacements off the board's row count rather than the column's, so
-		// say that it is untested here rather than implying it is wired.
-		if (resolveCascade(doc)) {
-			issues.push({
-				severity: 'warning',
-				path: 'numRows',
-				message:
-					'The columns are different heights and the board cascades. Tumbling seats its falling symbols against the board, not against each column, so a short column may drop its refills from the wrong height. Verify a tumble on this board before shipping it.',
-			});
-		}
+		// NOTE: a stepped board that CASCADES needs no warning. That was checked here at first, on the
+		// assumption that the tumble overlay seated its falling replacements against the board's row
+		// count — it does not. Every seat in the cascade goes through `getSymbolSeat(reelIndex, …)`,
+		// the drain drops by the COLUMN's own length, and `combineTumbleReel` is length-agnostic, so
+		// the mechanic was already per-column. `cascadeBoard.fixture.ts` now drives a ramp and a
+		// diamond through the real mock + facade + board rule to hold that.
 	} else if (doc.gridAlign) {
 		// An authored alignment on a rectangular board is inert — there is no slack to place. The
 		// normalizer already drops it, so this only fires for a doc that reached the validator without

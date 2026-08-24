@@ -161,17 +161,30 @@ a uniform seat is still literally `getSymbolX`/`getSymbolY` asserted with `Objec
 containers holding 3/4/5/4/3 symbols at offsets 1/0.5/0/0.5/1; reverting to 5×3 returns ONE mask
 with all 15 symbol containers as direct children.
 
+**Cascade + stepped WORKS** (2026-08-24). It was first flagged as a gap on the reasoning that the
+tumble overlay seats falling replacements against the board's row count — that was wrong. Every seat
+in the cascade already goes through `getSymbolSeat(reelIndex, …)`, a drain drops by the COLUMN's own
+length, `combineTumbleReel` is length-agnostic, and the mock refills exactly what it removed per
+reel. What WAS board-wide was the same pair the reel board fixed: the CLIP (the resting cascade layer
+is clipped by the board-wide `BoardMask`, so a short column's replacements — stacked deliberately
+ABOVE its window — sit inside the bounding box and would be drawn hanging above it, and its drained
+symbols would park below it instead of leaving) and the CULL (`TumbleSymbol` passed `SymbolWrap` no
+`reelIndex`). `TumbleBoardBase` now wraps its columns in the same `ReelColumn`; grouping by COLUMN is
+safe where grouping by row is not, since a symbol never changes column mid-cascade, so the object
+keying that keeps a falling symbol's Tween alive is untouched. `cascadeBoard.fixture.ts` runs a ramp
+and a diamond beside its rectangle — 937 assertions over 291 tumble steps.
+
 **Open / not wired:**
 
-- **Cascade + stepped is unverified.** The tumble overlay seats falling replacements against the
-  board's row count, not the column's, so a short column may drop refills from the wrong height.
-  The validator warns; it is not fixed.
 - **Perspective + stepped draws as a rectangle.** The two need opposite paint orders (row-major vs
   column-major) and perspective wins. Warned in `reelGridWarnings` — NOT in the config validator,
   which cannot see the perspective (it lives on the reelGrid node, not in the config doc).
-- A stepped board has not been driven through a full spin in a browser; the pane would not
-  composite, so the reveal path is covered offline (the facade clamp is sliced from the real source
-  and asserted) rather than by clicking Spin.
+- A stepped board has not been driven through a full ROUND in a browser: the pane would not
+  composite, which also throttles the animation clock, so a round never settles and a second spin
+  never arms. A single spin DOES fire (spacebar), and the static board was verified live off the Pixi
+  scene graph. The reveal + cascade paths are covered offline instead — the facade clamp is sliced
+  from the real source, and `verify-stepped-grid.mjs` §6 asserts against the SOURCE that the
+  per-column window is wired into both symbol renderers, which is the half no data-level test sees.
 
 ## Phase 6 — bet modes authorable + localizable (the buy-features/bonus surface)
 

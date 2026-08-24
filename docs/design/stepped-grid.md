@@ -128,10 +128,11 @@ per reel. Two helpers had to learn the same rule:
 
 ## Verification
 
-| Fixture                                    | What it holds                                                                                                                                                                                           |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `scripts/verify-stepped-grid.mjs` (229)    | The resolver's placement under all three alignments; the deal is ragged end-to-end through a real bet; the server declares its shape; `clampBoardToGrid` (sliced from the real facade) cuts per column. |
-| `scripts/verify-symbol-seat.mjs` (274,644) | The seat contract, now including a stepped section across four alignments — and that the rolling y and the resting seat agree.                                                                          |
+| Fixture                                                          | What it holds                                                                                                                                                                                                                                                          |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scripts/verify-stepped-grid.mjs` (240)                          | The resolver's placement under all three alignments; the deal is ragged end-to-end through a real bet; the server declares its shape; `clampBoardToGrid` (sliced from the real facade) cuts per column; and the per-column window is wired into both symbol renderers. |
+| `packages/rgs-translator-eagaming/cascadeBoard.fixture.ts` (937) | A cascade's one invariant — the board the client shows is the board the server scored — over a rectangle, a ramp and a diamond.                                                                                                                                        |
+| `scripts/verify-symbol-seat.mjs` (274,644)                       | The seat contract, now including a stepped section across four alignments — and that the rolling y and the resting seat agree.                                                                                                                                         |
 
 **The two load-bearing parity assertions:**
 
@@ -154,11 +155,41 @@ composite, so a screenshot would have proved less):
 - reverted to `5×3` → **one** mask, on the board container, all 15 symbol containers as its direct
   children at y 60/180/300. The flat structure is unchanged, not merely equivalent.
 
+## The cascade
+
+A cascade explodes the paying cells, drops the survivors and refills the gaps from above — and every
+part of that is naturally per-column, which is why it needed less work than it first appeared.
+
+It was initially flagged as a gap on the reasoning that the tumble overlay seats its falling
+replacements against the board's row count. **That was wrong.** Every seat in the cascade already
+goes through `getSymbolSeat(reelIndex, …)`; a drain drops each symbol by the **column's own** length
+(`dropRows = draining.length`); the refills are stacked `addingReel.length` rows above **that
+column's** window; `combineTumbleReel` is length-agnostic; and the mock's `applyExplosion` refills
+exactly as many cells as it removed from each reel. The mechanic was per-column already.
+
+What was **not** per-column was the same pair the reel board had to fix — the **clip** and the
+**cull**:
+
+- the resting cascade layer is clipped by the board-wide `BoardMask` rectangle, so a short column's
+  replacements — stacked deliberately _above_ its window, waiting to fall — sit at a y that is still
+  inside the bounding box and would simply be drawn, hanging above the column;
+- its drained symbols slide out _below_ that window, likewise still inside the box, so they would
+  fall a little way and then park there instead of leaving;
+- `TumbleSymbol` handed `SymbolWrap` no `reelIndex`, so the unmasked animate layer culled board-wide.
+
+`TumbleBoardBase` now wraps each column in the same `ReelColumn` the reel board uses, and
+`TumbleSymbol` passes its column down. The columns were already the outer loop, so this is a wrapper
+rather than a restructure — and grouping by **column** is safe where grouping by row is not: a symbol
+never changes column during a cascade, so the object keying that keeps a falling symbol's `symbolY`
+Tween alive across a mid-cascade filter is untouched.
+
 ## Known gaps
 
-- **Cascade/tumble is unverified on a stepped board.** The tumble overlay seats its falling
-  replacements against the board's row count rather than the column's, so a short column may drop
-  refills from the wrong height. The validator warns; it is not wired.
 - **Perspective + stepped** draws as a rectangle (above). Warned, not supported.
 - The **`ways` reach** policy already counts per-column rows off the dealt board, so it is correct by
   construction — but it has not been exercised against a stepped deal.
+- **Nothing stepped has been driven through a full round in a browser.** The preview pane will not
+  composite, which also throttles the animation clock, so a round never settles and a second spin
+  never arms. The static board was verified live off the Pixi scene graph; the cascade is covered by
+  `cascadeBoard.fixture.ts` plus source-level assertions that the per-column window is actually wired
+  into both symbol renderers (`verify-stepped-grid.mjs` §6) — the half no data-level test can see.

@@ -7,7 +7,7 @@
 // prevent coming back: a server dealing a rectangle at a board that draws a diamond means the client
 // seats cells the server never scored — the client board silently diverging from the scored board.
 //
-// Four claims:
+// Six claims:
 //
 //   1. `resolveGrid` — the one resolver both halves read — places columns where the design says,
 //      under each of the three alignments, and reports `stepped` honestly.
@@ -20,6 +20,10 @@
 //   4. The payline helpers understand per-column heights: `standardPaylines` never names a row a
 //      short column does not have, and `coversAllRows` judges coverage per column (a board-wide
 //      test can never be satisfied by a stepped grid, so it would regenerate lines forever).
+//   5. The CLIENT holds the server to its declaration — `clampBoardToGrid` cuts per column.
+//   6. The per-column window actually reaches the symbols, on the reel board AND the cascade
+//      overlay. Asserted against the source, because Svelte template wiring cannot be executed
+//      from Node — and it is the half that no amount of data-level testing can see.
 
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -329,6 +333,84 @@ const dealOnce = async (opts) => {
 			tall.map((c) => [...c]),
 		).map((c) => c.length),
 		[3, 3, 3, 3, 3],
+	);
+}
+
+// ---------------------------------------------------------------------------
+// 6. THE PER-COLUMN WINDOW ACTUALLY REACHES THE SYMBOLS.
+//
+// A stepped board's clip window is only worth having if every layer that draws a symbol is wired to
+// it, and the wiring is Svelte TEMPLATE structure — it cannot be imported and executed from Node.
+// So it is asserted against the SOURCE, the same way `verify-symbol-seat.mjs` asserts `ReelSymbol`'s
+// two y sources. These are cheap and they catch the regression that matters: someone deleting a
+// `reelIndex` prop or a `stepped` branch and every fixture above still passing, because none of them
+// can see a component.
+//
+// WHY IT MATTERS ON THE CASCADE LAYER SPECIFICALLY. The tumble overlay's resting layer is clipped by
+// the board-wide `BoardMask` rectangle — the BOUNDING BOX. A short column's replacements are stacked
+// deliberately ABOVE its window waiting to fall, and its drained symbols slide out BELOW it; on a
+// stepped board both of those y values are still inside the bounding box, so without a per-column
+// window they are simply drawn — refills hanging above the column, drained symbols parked under it.
+// The seats were already right (everything goes through `getSymbolSeat(reelIndex, …)`); it was the
+// clip and the cull that were board-wide.
+// ---------------------------------------------------------------------------
+{
+	const read = (rel) => readFileSync(join(ROOT, rel), 'utf8').replace(/\r\n/g, '\n');
+	const has = (label, rel, re) => {
+		checks += 1;
+		if (!re.test(read(rel))) fail(`wiring :: ${label}`, `${rel} no longer matches ${re}`);
+	};
+
+	// Both symbol renderers must hand `SymbolWrap` the column, or it culls board-wide.
+	has(
+		'ReelSymbol passes reelIndex to SymbolWrap',
+		'apps/lines/src/components/ReelSymbol.svelte',
+		/<SymbolWrap[\s\S]{0,200}?reelIndex=\{props\.reelIndex\}/,
+	);
+	has(
+		'TumbleSymbol passes reelIndex to SymbolWrap',
+		'apps/lines/src/components/TumbleSymbol.svelte',
+		/<SymbolWrap[\s\S]{0,200}?reelIndex=\{props\.reelIndex\}/,
+	);
+	// SymbolWrap must GATE the per-column window on `stepped`, or a uniform board starts allocating a
+	// window object per symbol per render for the answer it already had.
+	has(
+		'SymbolWrap gates the per-column window on stepped',
+		'apps/lines/src/components/SymbolWrap.svelte',
+		/activeGrid\(\)\.stepped[\s\S]{0,120}?boardWindowForReel\(props\.reelIndex\)/,
+	);
+	// Both boards must wrap their columns when stepped — the reel board and the cascade overlay.
+	for (const [label, rel] of [
+		['BoardBase', 'apps/lines/src/components/BoardBase.svelte'],
+		['TumbleBoardBase', 'apps/lines/src/components/TumbleBoardBase.svelte'],
+	]) {
+		has(
+			`${label} has a stepped branch`,
+			rel,
+			/const stepped = \$derived\(!perspective && activeGrid\(\)\.stepped\)/,
+		);
+		has(`${label} wraps its columns in ReelColumn`, rel, /<ReelColumn \{reelIndex\}>/);
+	}
+	// …and neither may combine it with perspective, which needs the opposite paint order.
+	for (const rel of [
+		'apps/lines/src/components/BoardBase.svelte',
+		'apps/lines/src/components/TumbleBoardBase.svelte',
+	]) {
+		checks += 1;
+		if (!/!perspective && activeGrid\(\)\.stepped/.test(read(rel)))
+			fail(`wiring :: ${rel} must not combine stepped with perspective`);
+	}
+	// ReelColumn must clip from the SAME accessor SymbolWrap culls with, or the two drift.
+	has(
+		'ReelColumn clips from boardWindowForReel',
+		'apps/lines/src/components/ReelColumn.svelte',
+		/boardWindowForReel\(props\.reelIndex\)/,
+	);
+	// …and must leave the ANIMATE layer unmasked, exactly as the board-wide mask does today.
+	has(
+		'ReelColumn masks only the resting layer',
+		'apps/lines/src/components/ReelColumn.svelte',
+		/\{#if !boardContext\.animate\}[\s\S]{0,300}?isMask/,
 	);
 }
 

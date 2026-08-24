@@ -32,6 +32,7 @@
 <SymbolWrap
 	x={seat.x}
 	y={props.tumbleSymbol.symbolY.current}
+	reelIndex={props.reelIndex}
 	scale={seat.scale}
 	animating={symbolInfo.type === 'spine'}
 >
