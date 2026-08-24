@@ -188,6 +188,21 @@ interpolates linearly in y while the contraction is linear in the ROW, and the t
 mid-column that a cell can land inside its neighbour's polygon. The fixture caught that; it was not
 foreseen.
 
+**WAYS on a stepped board — a real bug found and fixed (2026-08-24).** The gap note said the ways
+reach was "correct by construction" because `createWaysReach` takes each column's height off the
+board it is handed. It does — but the board it was HANDED was wrong.
+`buildAnticipationArming` sliced the padded reveal to the BOUNDING BOX (`reel.slice(1, 1 + y)`,
+`y = max(numRows)`), so a 3-row column — which arrives as 5 padded cells — kept its bottom PADDING
+row: four cells in a three-cell column. Undetectable downstream, because a ways pay is a product over
+the per-reel counts divided by the ways count and BOTH move, so the round just pays the wrong
+multiple (3x4x5x4x3 = 720 ways vs 3125 if every column is counted as five); for `lines` an off-screen
+symbol can complete a run. Now sliced by `grid.rowsForReel(reelIndex)` — identical on a uniform
+board. `anticipationWaysReach.fixture.ts` gained a ragged-board section that converges on the real
+win AND asserts that padding the short columns out to the box gives a different answer, so the slice
+cannot regress silently; `verify-stepped-grid.mjs` asserts the slice itself. The rest of the family
+was already safe: `bookEventHandlerMap` and `flowEffects` walk the visible rows behind a
+`row < symbols.length - 1` guard, which bounds them by the column's own strip.
+
 **Open / not wired:**
 - A stepped board has not been driven through a full ROUND in a browser: the pane would not
   composite, which also throttles the animation clock, so a round never settles and a second spin

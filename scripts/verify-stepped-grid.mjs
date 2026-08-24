@@ -21,7 +21,8 @@
 //      short column does not have, and `coversAllRows` judges coverage per column (a board-wide
 //      test can never be satisfied by a stepped grid, so it would regenerate lines forever).
 //   5. The CLIENT holds the server to its declaration — `clampBoardToGrid` cuts per column.
-//   6. The per-column window actually reaches the symbols, and the clip is ONE compound mask
+//   6. The per-column window actually reaches the symbols, the reveal reaches ANTICIPATION per
+//      column too, and the clip is ONE compound mask
 //      rather than a container per column — which is what lets a stepped board also be a
 //      perspective board. Asserted against the source, because Svelte template wiring cannot
 //      be executed from Node, and it is the half no data-level test can see.
@@ -393,6 +394,23 @@ const dealOnce = async (opts) => {
 		'apps/lines/src/components/BoardMask.svelte',
 		/\{:else\}[\s\S]{0,200}?<Rectangle isMask x=\{-SYMBOL_SIZE\}/,
 	);
+	// ANTICIPATION reads the reveal PER COLUMN. A reveal arrives padded one row top and bottom, and
+	// slicing every column to the BOUNDING BOX leaves a short column carrying its bottom padding row
+	// — four cells in a three-cell column. Nothing downstream can detect that: for `ways` the pay is
+	// a product over the per-reel counts divided by the ways count, and both move, so the round
+	// simply pays the wrong multiple; for `lines` an off-screen symbol can complete a run. The fix is
+	// one slice, and this is the assertion that keeps it.
+	has(
+		'buildAnticipationArming slices the reveal per column',
+		'apps/lines/src/game/anticipation.ts',
+		/reel\.slice\(1, 1 \+ grid\.rowsForReel\(reelIndex\)\)/,
+	);
+	hasNot(
+		'…and not to the bounding box',
+		'apps/lines/src/game/anticipation.ts',
+		/slice\(1, 1 \+ y\)/,
+	);
+
 	// THE PARITY CLAIM THAT MATTERS MOST: neither board groups its children per column any more, so
 	// the scene graph — and therefore the paint order both modes depend on — is untouched.
 	for (const rel of [

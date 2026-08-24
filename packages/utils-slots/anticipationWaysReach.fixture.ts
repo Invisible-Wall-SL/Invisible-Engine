@@ -12,7 +12,13 @@
  *   - a run already broken among the locked reels cannot be rescued by an unlocked one;
  *   - the ways product is honoured: widening a reel's matching cells multiplies the win;
  *   - trigger-reach behaves exactly as it does for lines, because a scatter count was never a line
- *     calculation to begin with.
+ *     calculation to begin with;
+ *   - and all of the above on a STEPPED board (docs/design/stepped-grid.md), where the columns are
+ *     different heights. Ways is the win model a stepped grid moves most: a pay is the PRODUCT of the
+ *     per-reel matching counts divided by the ways count, and the ways count is the product of the
+ *     per-reel ROW counts — so one column measured at the wrong height moves every number in the
+ *     round. `createWaysReach` takes those heights off the board it is handed, which is exactly why
+ *     the board handed to it must be sliced PER COLUMN (see `buildAnticipationArming`).
  */
 
 import { createWaysReach } from './src/anticipationReach.ts';
@@ -191,6 +197,72 @@ console.log('\n4. trigger-reach counts scatters anywhere, as it does for lines:'
 		Array.from({ length: 6 }, (_, k) => reach.triggerBounds(k).max).every(
 			(m, k, all) => k === 0 || m <= all[k - 1] + 1e-9,
 		),
+	);
+}
+
+// --- 4. STEPPED BOARDS (docs/design/stepped-grid.md) ---------------------------------------
+// The columns are different heights, so `board[reel].length` varies. Everything ways does is a
+// product over the reels, and `createWaysReach` takes each reel's height from the array it is handed
+// — so the reach is right only if that array is the VISIBLE window of each column rather than the
+// bounding box. `buildAnticipationArming` slices per column for exactly this reason: slicing every
+// column to `max(numRows)` leaves a SHORT column carrying its bottom PADDING row, which both inflates
+// the ways product and lets an off-screen symbol complete a run.
+console.log('\n4. stepped boards — ragged columns:');
+{
+	// 3/4/5/4/3, the diamond.
+	const STEPPED = [
+		['H1', 'H1', 'L1'],
+		['H1', 'L2', 'L3', 'L4'],
+		['W', 'H1', 'H1', 'L4', 'L1'],
+		['H1', 'L2', 'H1', 'L3'],
+		['H1', 'L1', 'L2'],
+	];
+	check(
+		'the fixture board really is ragged',
+		JSON.stringify(STEPPED.map((reel) => reel.length)) === JSON.stringify([3, 4, 5, 4, 3]),
+	);
+
+	const reach = reachFor(STEPPED);
+	const bounds = Array.from({ length: reach.numReels + 1 }, (_, k) => reach.winBounds(k));
+	for (const [k, b] of bounds.entries()) {
+		console.log(`  k=${k}  min=${b.min.toFixed(6)}  max=${b.max.toFixed(6)}`);
+	}
+
+	check(
+		'max is non-increasing in k',
+		bounds.every((b, k) => k === 0 || b.max <= bounds[k - 1].max + 1e-9),
+	);
+	check(
+		'min is non-decreasing in k',
+		bounds.every((b, k) => k === 0 || b.min >= bounds[k - 1].min - 1e-9),
+	);
+	check(
+		'min <= max at every k',
+		bounds.every((b) => b.min <= b.max + 1e-9),
+	);
+
+	const final = bounds[reach.numReels];
+	const actual = trueWin(STEPPED);
+	check('bounds meet at k = numReels', near(final.min, final.max));
+	check(
+		`they meet at the REAL win on a ragged board (${actual.toFixed(6)})`,
+		near(final.min, actual) && near(final.max, actual),
+		`got min=${final.min} max=${final.max}`,
+	);
+
+	// THE ONE THAT MATTERS. A short column measured at the bounding box's height — which is what a
+	// board sliced to `max(numRows)` hands over — changes the ways count, and with it every payout in
+	// the round: 3x4x5x4x3 = 720 ways, against 5^5 = 3125 if every column is counted as five. Assert
+	// that padding the short columns out to the box gives a DIFFERENT answer, so the day the
+	// per-column slice regresses this fails loudly instead of quietly paying the wrong multiple.
+	const raggedWays = STEPPED.reduce((product, reel) => product * reel.length, 1);
+	check(`the ways count is the ragged product (${raggedWays})`, raggedWays === 720);
+	const asRectangle = STEPPED.map((reel) => [...reel, ...Array(5 - reel.length).fill('L5')]);
+	const boxedWin = trueWin(asRectangle);
+	check(
+		'padding a short column out to the bounding box CHANGES the win',
+		!near(actual, boxedWin),
+		`ragged=${actual} boxed=${boxedWin} (${raggedWays} vs ${5 ** 5} ways)`,
 	);
 }
 

@@ -154,6 +154,7 @@ per reel. Two helpers had to learn the same rule:
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `scripts/verify-stepped-grid.mjs` (240)                          | The resolver's placement under all three alignments; the deal is ragged end-to-end through a real bet; the server declares its shape; `clampBoardToGrid` (sliced from the real facade) cuts per column; and the per-column window is wired into both symbol renderers. |
 | `packages/rgs-translator-eagaming/cascadeBoard.fixture.ts` (937) | A cascade's one invariant — the board the client shows is the board the server scored — over a rectangle, a ramp and a diamond.                                                                                                                                        |
+| `packages/utils-slots/anticipationWaysReach.fixture.ts`          | Ways reach on a ragged board: the bounds converge on the real win, and padding a short column out to the bounding box provably changes it — so the per-column slice cannot regress silently.                                                                           |
 | `scripts/verify-symbol-seat.mjs` (274,644)                       | The seat contract, now including a stepped section across four alignments; that the rolling y and the resting seat agree; and that the compound mask covers every cell exactly once, under three perspective settings.                                                 |
 
 **The two load-bearing parity assertions:**
@@ -205,10 +206,38 @@ rather than a restructure — and grouping by **column** is safe where grouping 
 never changes column during a cascade, so the object keying that keeps a falling symbol's `symbolY`
 Tween alive across a mid-cascade filter is untouched.
 
+## Ways, and the bug the gap note was hiding
+
+`ways` is the win model a stepped grid moves most. A pay is the **product** of the per-reel matching
+counts, divided by the **ways count** — itself the product of the per-reel **row** counts. So one
+column measured at the wrong height moves every number in the round: `3×4×5×4×3` is 720 ways, and
+counting all five columns as five gives 3125.
+
+`createWaysReach` was already correct: it takes each column's height from the board it is handed
+(`board[reel].length`), which is why the gap note said "correct by construction". What that note
+missed is that **the board it was handed was wrong**.
+
+`buildAnticipationArming` sliced the padded reveal to the **bounding box**:
+
+```ts
+const { y } = boardDimensions();
+reel.slice(1, 1 + y); // y = max(numRows)
+```
+
+A reveal is padded one row top and bottom, so a 3-row column arrives as 5 cells and that slice keeps
+its **bottom padding row** — four cells in a three-cell column. Nothing downstream can detect it: the
+ways pay simply comes out at the wrong multiple, and for `lines` an off-screen symbol can complete a
+run. It now slices by `grid.rowsForReel(reelIndex)`; on a uniform board that is the same number, so
+the slice is unchanged.
+
+The rest of the family was already safe, and worth recording as such: `bookEventHandlerMap` and
+`flowEffects` walk the visible rows with a `row < symbols.length - 1` guard, which bounds them by the
+column's own strip rather than by the board.
+
 ## Known gaps
 
-- The **`ways` reach** policy already counts per-column rows off the dealt board, so it is correct by
-  construction — but it has not been exercised against a stepped deal.
+- Nothing outstanding on the board itself. See the verification notes above for what is covered
+  offline versus live.
 - **Nothing stepped has been driven through a full round in a browser.** The preview pane will not
   composite, which also throttles the animation clock, so a round never settles and a second spin
   never arms. The static board was verified live off the Pixi scene graph; the cascade is covered by
