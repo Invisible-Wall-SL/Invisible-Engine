@@ -572,16 +572,68 @@ const REELS = 5;
 /** A reel strip is padded one buffer row top and bottom, so it is `rows + 2` long. */
 const STRIP = ROWS + 2;
 
+// The board's PADDING fact left the component too, and earlier: #443 moved `PAD_ROWS_ABOVE` and the
+// stacking rule into `apps/lines/src/game/tumbleBoardLayout.ts` — plain TS on purpose, because that
+// rule had shipped wrong for months precisely because nothing outside a browser could execute it.
+// This fixture was already broken by that move; the marker crash above simply died first and hid it.
+//
+// Both are sliced rather than restated, and `combineTumbleReel` especially: it is what
+// `tumbleBoardCombined` stacks each column by, so it decides WHERE the refills sit relative to the
+// pads — and a fixture that stacked by its own copy of that rule would assert the settle contract
+// cell for cell against a board the shipped one no longer produces. That is the exact shape of the
+// bug #443 fixed, so it is the one thing here that must not be a restatement.
+const tumbleLayoutSource = read('apps/lines/src/game/tumbleBoardLayout.ts');
+const layoutHelpers = [
+	sliceBetween(tumbleLayoutSource, 'PAD_ROWS_ABOVE', 'export const PAD_ROWS_ABOVE = ', ';\n'),
+	sliceBetween(
+		tumbleLayoutSource,
+		'combineTumbleReel',
+		'export const combineTumbleReel = ',
+		'];\n',
+	),
+]
+	.join('')
+	.replace(/export const /g, 'const ')
+	.replace('<T>(baseReel: T[], addingReel: T[]): T[] =>', '(baseReel, addingReel) =>');
+
+// The beat CAP the cascade races against is no longer declared in the component. It used to be
+// `CASCADE_BEAT_CAP_MS`, sliced from `TumbleBoard.svelte` right here; #442 moved both the race and
+// the cap into `apps/lines/src/game/symbolBeat.ts`, because the win beat (`Board.svelte`) and the
+// multiplier collect need the identical guard for the identical reason, and the win beat had
+// shipped for months without one. Nothing about the cascade's behaviour changed — the same race
+// against the same 650ms — but the declaration this fixture keyed on left the file, and the marker
+// went with it, so the fixture crashed before asserting anything rather than failing a check.
+//
+// So the race and the cascade's own cap are sliced out of THAT module and prepended to the helpers,
+// rather than restated here: the fixture still drives the SHIPPED race against the SHIPPED number
+// (every `land` beat below resolves through it, since no symbol reports `oncomplete` with no
+// renderer mounted), and a rename in `symbolBeat.ts` now fails as loudly as one in the component.
+const symbolBeatSource = read('apps/lines/src/game/symbolBeat.ts');
+const beatHelpers = [
+	sliceBetween(symbolBeatSource, 'awaitSymbolBeat', 'export const awaitSymbolBeat = ', ';\n'),
+	sliceBetween(
+		symbolBeatSource,
+		'TRANSIT_BEAT_CAP_MS',
+		'export const TRANSIT_BEAT_CAP_MS = ',
+		';\n',
+	),
+]
+	.join('')
+	.replace(/export const /g, 'const ')
+	.replace('(arm: (resolve: () => void) => void, capMs: number)', '(arm, capMs)');
+
 // The real cascade board's helpers + cue handlers, sliced out of `TumbleBoard.svelte`. Only the
 // module's TYPE annotations are removed; the bodies are the shipped ones.
 const tumbleComponent = read('apps/lines/src/components/TumbleBoard.svelte');
 const componentScript = tumbleComponent.slice(tumbleComponent.lastIndexOf('<script lang="ts">'));
 const helpers = (
+	layoutHelpers +
+	beatHelpers +
 	sliceBetween(componentScript, 'PADDING_ROW', '\tconst PADDING_ROW =', ';\n') +
 	sliceBetween(
 		componentScript,
 		'the TumbleBoard helpers',
-		'\tconst CASCADE_BEAT_CAP_MS =',
+		'\tconst awaitBeat =',
 		'\tcontext.eventEmitter.subscribeOnMount({',
 	)
 )
@@ -596,6 +648,11 @@ const helpers = (
 	.replace(/\$state\(/g, '(')
 	.replace(/\$derived\(/g, '(');
 for (const name of [
+	'PAD_ROWS_ABOVE',
+	'combineTumbleReel',
+	'awaitSymbolBeat',
+	'TRANSIT_BEAT_CAP_MS',
+	'awaitBeat',
 	'initTumbleBoardAddingReel',
 	'initTumbleBoardAdding',
 	'initTumbleBoardNoBase',
@@ -609,7 +666,7 @@ for (const name of [
 }
 // The strippers above are hand-written, so an annotation this fixture does not know about would be
 // evaluated as JavaScript and throw somewhere unhelpful. Fail on the annotation instead.
-if (/:\s*(number|RawSymbol|TumbleSymbol|AddingBoard)\b/.test(helpers)) {
+if (/:\s*(number|RawSymbol|TumbleSymbol|AddingBoard|T)\b/.test(helpers)) {
 	throw new Error('the TumbleBoard helper slice grew a type annotation this fixture cannot strip');
 }
 
@@ -1078,7 +1135,15 @@ check(
 );
 
 // PARITY of the cue extension: `keepBase` absent is the cascade, byte-for-byte — the current board
-// stays as the survivor layer and the adding layer sits on top of it.
+// stays as the survivor layer, and the adding layer is spliced into it by the shipped
+// `combineTumbleReel`, which puts the refills BELOW the top padding row rather than above it.
+//
+// That splice is #443, and it is why these read top-down rather than "adding first". Stacking the
+// refills onto the whole column left it as `[…new…, pad, …survivors…, pad]`, with the TOP pad
+// stranded in the middle, and three things broke on that at once: the settled board stopped
+// matching the board the server had scored, the slide aimed the refills one row too high, and
+// `tumbleBoardSlideDown`'s "visible rows only" guard (first and last entries are padding) skipped a
+// real symbol's `land` to play one for the stranded pad. The pads belong at the two ends.
 {
 	const previousBoard = boardOf('old');
 	const runtime = buildTumbleRuntime({ clock: createClock(), previousBoard });
@@ -1086,12 +1151,13 @@ check(
 	runtime.handlers.tumbleBoardInit({ type: 'tumbleBoardInit', addingBoard: adding });
 	const combined = runtime.tumbleBoardCombined();
 	check('keepBase absent ⇒ the survivors stay', combined[0].length, 1 + STRIP);
-	check('keepBase absent ⇒ the adding layer is on top', combined[0][0].rawSymbol.name, 'a0');
 	check(
-		'keepBase absent ⇒ the survivor below it is the old board',
-		combined[0][1].rawSymbol.name,
+		'keepBase absent ⇒ the top padding row is still the pad',
+		combined[0][0].rawSymbol.name,
 		'old0-0',
 	);
+	check('keepBase absent ⇒ the adding layer sits below it', combined[0][1].rawSymbol.name, 'a0');
+	check('keepBase absent ⇒ the survivors follow it', combined[0][2].rawSymbol.name, 'old0-1');
 
 	runtime.handlers.tumbleBoardInit({
 		type: 'tumbleBoardInit',

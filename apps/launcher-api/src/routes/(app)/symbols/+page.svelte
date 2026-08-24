@@ -138,23 +138,88 @@
 	// game kind).
 	const visibleStates = $derived(visibleStatesFor(data.gameType, data.cascade));
 
-	// Symbols whose EFFECTIVE binding is a SPINE with no animation. A spine plays an animation, so with
-	// none selected it draws only its (usually empty) setup pose ⇒ a BLANK cell in-game. Flag it here so
-	// an authored-but-invisible symbol is caught in the tool, not discovered live (the R_spinbutton/W
-	// case). Grouped by symbol, each with the affected state labels.
-	const spineNoAnimWarnings = $derived.by(() => {
-		const out: { symbol: string; states: string[] }[] = [];
+	/**
+	 * Cells whose EFFECTIVE binding is a SPINE left on `(first animation)`.
+	 *
+	 * CANDIDATES, not warnings. Leaving the animation unpicked is a supported choice — it is an
+	 * option in this tool's own dropdown, `SymbolSpinePreview` honours it, and since
+	 * `pixi-svelte`'s `SpineTrack` gained its fallback the game plays
+	 * `skeletonData.animations[0]` rather than drawing the setup pose. So a rig that carries ONE
+	 * animation (an explosion, most symbol rigs) renders exactly what picking it by hand would.
+	 *
+	 * It only bites when the skeleton does not make that choice for you — see
+	 * {@link spineAnimWarnings}. Keyed by `previewKey ?? assetKey` because a shared-atlas bundle
+	 * holds several skeletons and only the `previewKey` names the one this cell draws.
+	 */
+	const animlessSpineCells = $derived.by(() => {
+		const out: { symbol: string; state: SymbolState; key: string }[] = [];
 		for (const symbol of symbolNames) {
-			const states: string[] = [];
 			for (const state of visibleStates) {
 				const { cell } = effectiveCell(doc, data.defaults, symbol, state);
 				if (cell?.type === 'spine' && cell.assetKey && !cell.animationName) {
-					states.push(STATE_LABELS[state] ?? state);
+					out.push({ symbol, state, key: cell.previewKey ?? cell.assetKey });
 				}
 			}
-			if (states.length) out.push({ symbol, states });
 		}
 		return out;
+	});
+
+	/** How many animations each candidate bundle carries, parsed from the skeleton in R2 (the same
+	 *  `/api/editor/spine/meta` the editor's spine dropdowns read — no WebGL, no bundle download).
+	 *  `null` = asked and could not tell (unknown bundle, or a binary `.skel` only a live render can
+	 *  read) ⇒ never warn. A banner that fires on "don't know" is what teaches an author to ignore it. */
+	let spineAnimCounts = $state<Record<string, number | null>>({});
+	/** Keys already requested. A plain record, deliberately NOT `$state`: the effect below reads it to
+	 *  decide what to fetch, and a reactive read-then-write of the same value re-triggers that effect
+	 *  forever. It also dedupes the key list, so the fetch runs once per bundle however many cells
+	 *  bind it. */
+	const requestedAnimCounts: Record<string, true> = {};
+
+	$effect(() => {
+		for (const { key } of animlessSpineCells) {
+			if (requestedAnimCounts[key]) continue;
+			requestedAnimCounts[key] = true;
+			void (async () => {
+				try {
+					const res = await fetch(`/api/editor/spine/meta?key=${encodeURIComponent(key)}`);
+					const meta = res.ok ? await res.json() : null;
+					spineAnimCounts[key] =
+						meta?.found && Array.isArray(meta.animations) ? meta.animations.length : null;
+				} catch {
+					spineAnimCounts[key] = null;
+				}
+			})();
+		}
+	});
+
+	/**
+	 * The candidates that actually warrant saying something, grouped by symbol AND bundle so the
+	 * count quoted is the count of the rig named beside it.
+	 *
+	 * - `0` animations ⇒ the cell really does draw its setup pose: a blank symbol in-game.
+	 * - `2+` ⇒ it plays whichever one the export happened to list first, which is the trap this
+	 *   check was written for (a UI rig bound to `W`) — silently WRONG, not blank.
+	 * - `1` (and an unresolved count) says nothing and is dropped.
+	 */
+	const spineAnimWarnings = $derived.by(() => {
+		const groups: Record<
+			string,
+			{ symbol: string; bundle: string; count: number; states: string[] }
+		> = {};
+		for (const c of animlessSpineCells) {
+			const count = spineAnimCounts[c.key];
+			if (typeof count !== 'number' || count === 1) continue;
+			const id = `${c.symbol}\n${c.key}`;
+			const trimmed = c.key.replace(/\/$/, '');
+			groups[id] ??= {
+				symbol: c.symbol,
+				bundle: trimmed.split('/').pop() ?? trimmed,
+				count,
+				states: [],
+			};
+			groups[id].states.push(STATE_LABELS[c.state] ?? c.state);
+		}
+		return Object.values(groups);
 	});
 
 	// Responsive cell sizing — the grid fills the page WIDTH so it no longer sits tiny
@@ -378,6 +443,10 @@
 		// sheet stays stale on the sprite path until a hard page reload. The spine path is
 		// busted by `reloadToken`; the server self-heals the frozen bundle geometry.
 		clearRegionCache();
+		// Same reason, for the animation COUNTS behind the no-animation warning: a re-exported rig can
+		// gain or lose animations, and both answers are cached per bundle key for the page's lifetime.
+		for (const key of Object.keys(requestedAnimCounts)) delete requestedAnimCounts[key];
+		spineAnimCounts = {};
 		try {
 			await invalidateAll();
 		} finally {
@@ -506,6 +575,24 @@
 		if (cell.animationName) parts.push(cell.animationName);
 		if (cell.type === 'flipbook') parts.push(clipLabel(cell.clipId));
 		return parts.join(' · ');
+	}
+
+	/** The cell button's tooltip: its binding, plus WHERE that binding comes from when it is not the
+	 *  cell's own. Two cases the grid alone can't show — a state that INHERITS another's binding
+	 *  (`effectiveCell`), and an unbound one, which the engine's `resolveSymbolState` resolves to the
+	 *  symbol's `static` art rather than drawing nothing. The grid keeps showing "unset" (its only
+	 *  signal that nothing is authored here); the tooltip is where the rest of the truth goes. */
+	function cellTitle(
+		eff: { cell: SymbolCell | undefined; inheritedFrom?: SymbolState },
+		state: SymbolState,
+	): string {
+		if (eff.inheritedFrom) {
+			const from = STATE_LABELS[eff.inheritedFrom] ?? eff.inheritedFrom;
+			const here = STATE_LABELS[state] ?? state;
+			return `${cellLabel(eff.cell)}\n(nothing bound for ${here} — inherited from ${from})`;
+		}
+		if (!eff.cell) return `unset — the game falls back to this symbol's ${STATE_LABELS.static} art`;
+		return cellLabel(eff.cell);
 	}
 
 	function isFocused(symbol: string, state: SymbolState): boolean {
@@ -1076,14 +1163,25 @@
 	<div class="body" class:has-panel={!!focus}>
 		<div class="grid-area">
 			<div class="grid-scroll" bind:this={gridScroll}>
-				{#if spineNoAnimWarnings.length}
+				{#if spineAnimWarnings.length}
 					<div class="anim-warn">
-						<strong>⚠ Spine art with no animation</strong> — a spine plays an animation, so with
-						none picked it renders a <strong>blank</strong> cell in-game. Pick an animation for
-						these (or switch them to a sprite/flipbook):
+						<strong>⚠ Spine binding with no animation picked</strong> — these cells are on
+						<code>(first animation)</code>, and their rig does not make that choice for you. Pick
+						one explicitly (or switch the cell to a sprite/flipbook):
 						<ul>
-							{#each spineNoAnimWarnings as w (w.symbol)}
-								<li><code>{w.symbol}</code> — {w.states.join(', ')}</li>
+							{#each spineAnimWarnings as w (w.symbol + w.bundle)}
+								<li>
+									<code>{w.symbol}</code> — {w.states.join(', ')}
+									<span class="why">
+										{#if w.count === 0}
+											<code>{w.bundle}</code> has no animations at all, so the cell draws its setup
+											pose — a <strong>blank</strong> symbol in-game.
+										{:else}
+											<code>{w.bundle}</code> has {w.count} animations; the cell plays whichever the
+											export listed <strong>first</strong>.
+										{/if}
+									</span>
+								</li>
 							{/each}
 						</ul>
 					</div>
@@ -2543,8 +2641,8 @@
 							{unusedCount}
 							{unusedCount === 1 ? 'symbol is' : 'symbols are'}
 							marked <strong>not dealt</strong> — they are on no reel strip in
-							<strong>Invisible Game Config</strong>, and came from the template this project
-							was seeded from. Art authored for them never renders.
+							<strong>Invisible Game Config</strong>, and came from the template this project was
+							seeded from. Art authored for them never renders.
 						</p>
 					{/if}
 					<table class="grid" style="--cell: {previewSize}px">
@@ -2599,8 +2697,9 @@
 												class:overridden={eff.overridden}
 												class:focused={isFocused(symbol, state)}
 												class:empty={!eff.cell}
+												class:inherited={!!eff.inheritedFrom}
 												onclick={() => openCell(symbol, state)}
-												title={cellLabel(eff.cell)}
+												title={cellTitle(eff, state)}
 											>
 												<div class="preview">
 													{#if !eff.cell}
@@ -2650,6 +2749,11 @@
 												</div>
 												<div class="cell-foot">
 													{#if eff.overridden}<span class="badge">edited</span>{/if}
+													{#if eff.inheritedFrom}
+														<span class="badge inherits">
+															inherits {STATE_LABELS[eff.inheritedFrom] ?? eff.inheritedFrom}
+														</span>
+													{/if}
 												</div>
 											</button>
 											{#if eff.overridden}
@@ -2935,6 +3039,10 @@
 	.anim-warn code {
 		color: #f0d9a8;
 	}
+	.anim-warn .why {
+		display: block;
+		color: #bd9a66;
+	}
 	.grid-scroll {
 		position: absolute;
 		inset: 0;
@@ -3050,6 +3158,10 @@
 	.cell.empty {
 		opacity: 0.7;
 	}
+	/* Nothing bound HERE — the art shown is borrowed from the state named in the foot badge. */
+	.cell.inherited {
+		border-style: dashed;
+	}
 	.preview {
 		width: var(--cell, 56px);
 		height: var(--cell, 56px);
@@ -3127,6 +3239,7 @@
 		height: 14px;
 		display: flex;
 		align-items: center;
+		gap: 4px;
 	}
 	.badge {
 		font-size: 9px;
@@ -3134,6 +3247,11 @@
 		background: #1c2240;
 		border-radius: 3px;
 		padding: 1px 4px;
+	}
+	/* Borrowed art, not authored here — a different claim from "edited", so a different colour. */
+	.badge.inherits {
+		color: #8f9aa8;
+		background: #1b2028;
 	}
 	.reset {
 		position: absolute;

@@ -580,7 +580,14 @@ export async function resolveEditorSpine(
 	assetKey: string,
 	preferPng: boolean,
 ): Promise<EditorSpineDescriptor | null> {
-	const entries = await loadSkeletonIndex(clientKey, projectKey);
+	// `…WithShared`, NOT `loadSkeletonIndex`: the latter reads the shared index only when the
+	// project has NONE of its own, so every project that has ever used the Rigger (all of them)
+	// finds no entry for a bundle bound from `_shared/spines/` and this returned `null` — a failed
+	// preview for a binding whose FILES `resolveBundlePrefix` below resolves project-then-shared.
+	// Same reasoning `symbolExport`/`editorArtExport` already apply to the EXPORT path (see
+	// `loadSkeletonIndexWithShared`); the READ path was left behind, which is what made the seeded
+	// `_shared/spines/engine-explosion` unpreviewable — and its animation list unreadable.
+	const entries = await loadSkeletonIndexWithShared(clientKey, projectKey);
 	// Resolve the skeleton, most-specific first:
 	//  1. a full R2 bundle PREFIX → the FIRST skeleton in that folder (the editor's
 	//     by-folder model — one skeleton per placed spine node);

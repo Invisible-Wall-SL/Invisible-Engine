@@ -59,7 +59,14 @@ tool top bar). Switch projects from the launcher before opening the tool.
    default. Sprite cells render a frame thumbnail; spine cells render a live animation
    on the shared spine canvas (a chip labels the bundle + animation); flipbook cells render
    the clip's **first frame** as a still, captioned with the clip name + frame count. A cell
-   with no binding shows `unset`.
+   with no binding shows `unset` — and the game falls back to that symbol's `Static` art
+   rather than drawing nothing.
+
+   Two states borrow another's binding when they have none of their own, and a cell showing
+   borrowed art says so: dashed border, an **inherits &lt;state&gt;** badge, and a tooltip naming
+   the donor. `Tumble explosion` borrows `Explosion` (see [Two explosions](#two-explosions));
+   `Book intro` / `Book idle` borrow `Win`. Binding the cell yourself replaces the borrowed
+   art — leaving it alone is a legitimate answer, not an unfinished one.
 
    Flipbook cells are deliberately _not_ animated in the grid: N per-cell tickers would cost
    far more than the one shared spine canvas, and the question the grid answers is "which
@@ -82,8 +89,16 @@ tool top bar). Switch projects from the launcher before opening the tool.
      library** (see below).
    - **Spine:** pick a **Spine bundle** from the project's (and shared) bundles, then pick
      an **Animation**. Once the bundle loads, the animation list is populated from the
-     skeleton; if it hasn't loaded yet you can type the animation name. Leaving it blank
-     plays the skeleton's first animation. A live **Preview** plays the chosen animation.
+     skeleton; if it hasn't loaded yet you can type the animation name. Leaving it on
+     **(first animation)** plays the skeleton's first — a fine answer for a rig that carries
+     exactly one (most symbol rigs, and `engine-explosion`). A live **Preview** plays the
+     chosen animation.
+
+     A banner above the grid lists the cells where that fallback is not safe, and only those:
+     a rig with **no** animations (the cell draws its setup pose — a blank symbol in-game),
+     or one with **several**, where you get whichever the export happened to list first. The
+     banner names the rig and its animation count. It stays quiet for a one-animation rig,
+     because there the choice is already made for you.
    - **Flipbook:** pick a **Clip** from the project's Invisible Flipbook clips (each
      listed with its frame count). Picking a clip sets the cell's `clipId` _and_ its
      `assetKey` to the clip's primary sheet, so the cell is never assetless. The panel
@@ -471,9 +486,11 @@ A symbol can blow up for two different reasons, and they are **two separate colu
 
 **Leaving a `Tumble explosion` cell empty is not a gap** — it falls through to that
 symbol's `Explosion` binding, which is exactly what the engine did before the two were
-split. Bind it only when the cascade should look different from the in-place pop; the
-engine ships two explosion skeletons for precisely that (`engine-explosion` is the tight
-symbol burst, `engine-win-meter-explosion` the larger one).
+split. The grid draws that borrowed art and badges the cell **inherits Explosion**, so an
+empty column is visibly working rather than silently working. Bind it only when the
+cascade should look different from the in-place pop; the engine ships two explosion
+skeletons for precisely that (`engine-explosion` is the tight symbol burst,
+`engine-win-meter-explosion` the larger one).
 
 It is a **Spine**, not a Flipbook clip, even though the animation is 13 frames: the frames
 are a Spine `sequence` attachment played on two slots, the second `additive`, and a clip's
