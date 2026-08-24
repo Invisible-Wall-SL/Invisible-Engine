@@ -1,6 +1,7 @@
 # Stepped grids — a board whose columns are different heights
 
-> Status: **BUILT** (2026-08-24), engine-verified live. Phases 1–3 landed on `engine/stepped-grid`.
+> Status: **SHIPPED** (2026-08-24) — merged as #445 (`553848a4`) and carried to the online
+> games by the automatic runtime release, verified in the live bundle.
 > Off by default in the only sense that matters: `stepped` is false for every board authored before
 > this, and every consumer early-returns its existing rectangular path on that answer — the same
 > discipline as [perspective board mode](perspective-board-mode.md) and

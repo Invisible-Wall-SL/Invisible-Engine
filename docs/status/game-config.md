@@ -123,7 +123,9 @@ commits, three surfaces:
 about the grid (the scene-geometry anchors, the HUD layout) is config-driven — those remain authored
 in the Scene Editor per game.
 
-## Stepped grids (2026-08-24) — `numRows` finally means what it says
+## Stepped grids — SHIPPED (2026-08-24, #445 `553848a4`, runtime-released)
+
+`numRows` finally means what it says.
 
 > Design: [docs/design/stepped-grid.md](../design/stepped-grid.md)
 
