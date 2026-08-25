@@ -17,9 +17,8 @@
 	}
 	type StockStatus = 'High' | 'Medium' | 'Low' | 'None';
 	interface PodAvailability {
-		stockStatus: StockStatus;
-		rentedCount?: number;
-		totalCount?: number;
+		available?: boolean;
+		stockStatus?: StockStatus;
 		dataCenterId?: string;
 	}
 	interface Pod {
@@ -111,32 +110,36 @@
 	}
 
 	/**
-	 * GPU stock, shown only on a card that ISN'T holding a GPU — a running pod already has
-	 * its card, so the question is only ever "would Start work right now?".
+	 * GPU availability, shown only on a card that ISN'T holding a GPU — a running pod already
+	 * has its card, so the question is only ever "would Start work right now?".
 	 *
-	 * `Low` and `None` read as a fault (orange); `High`/`Medium` stay neutral rather than
-	 * green, because green here means running and a second green badge would say the pod is
-	 * up when it is stopped.
+	 * SAY NOTHING RATHER THAN SAY SOMETHING VAGUE. The first version of this badge rendered
+	 * the coarse `stockStatus` word for every card and read "GPU stock low" on all six, in a
+	 * region where most were not rentable at all — worse than no badge, because it looked
+	 * like an answer. So a badge now needs RunPod's explicit `available` boolean; the coarse
+	 * word only speaks up for `None`, which is the one value of it that is unambiguous.
+	 *
+	 * Orange reads as a fault. "Available" stays neutral rather than green: green means
+	 * running on this panel, and a second green badge would say a stopped pod is up.
 	 */
-	function stockClass(s: StockStatus): string {
-		return s === 'Low' || s === 'None' ? 'warn' : '';
+	function stockBadge(p: Pod): { label: string; cls: string } | null {
+		const a = p.availability;
+		if (!a) return null;
+		if (a.available === false) return { label: 'no GPUs free', cls: 'warn' };
+		if (a.available === true) return { label: 'GPU available', cls: '' };
+		if (a.stockStatus === 'None') return { label: 'no GPUs free', cls: 'warn' };
+		return null;
 	}
-	function stockLabel(s: StockStatus): string {
-		return s === 'None' ? 'no GPUs free' : `GPU stock ${s.toLowerCase()}`;
-	}
-	/** The tooltip carries what the badge can't: the counts, the SCOPE, and the caveat. */
+	/** The tooltip carries what the badge can't: the SCOPE, the nuance, and the caveat. */
 	function stockTitle(p: Pod): string {
 		const a = p.availability;
 		if (!a) return '';
 		const where = a.dataCenterId ? `in ${a.dataCenterId}` : 'across all data centres';
-		const counts =
-			a.rentedCount != null && a.totalCount != null
-				? ` — ${a.rentedCount} of ${a.totalCount} rented`
-				: '';
+		const stock = a.stockStatus ? ` RunPod rates stock there ${a.stockStatus.toLowerCase()}.` : '';
 		const scope = a.dataCenterId
 			? ''
-			: ". This pod can only resume where its disk is, so a global reading can look healthier than this pod's region.";
-		return `RunPod reports ${a.stockStatus.toLowerCase()} stock for ${p.specs?.gpu ?? 'this GPU'} ${where}${counts}. Stock moves — a Start can still lose the race${scope}`;
+			: " This pod can only resume where its disk already is, so a fleet-wide reading can look healthier than this pod's own region — set RUNPOD_DATA_CENTER_ID to pin it.";
+		return `RunPod reports ${p.specs?.gpu ?? 'this GPU'} as ${a.available === false ? 'not rentable' : 'rentable'} ${where}.${stock} Stock moves, so a Start can still lose the race.${scope}`;
 	}
 
 	function isReady(p: Pod): boolean {
@@ -346,14 +349,12 @@
 										{:else if isWarming(pod)}
 											<span class="badge warm"><span class="spinner sm"></span> starting</span>
 										{:else}
-											<!-- Stock sits BEFORE the status badge: on a stopped card it is the
-											     thing that decides whether clicking Start is worth it. -->
-											{#if pod.availability}
-												<span
-													class="badge {stockClass(pod.availability.stockStatus)}"
-													title={stockTitle(pod)}
-												>
-													{stockLabel(pod.availability.stockStatus)}
+											<!-- Availability sits BEFORE the status badge: on a stopped card it is
+											     the thing that decides whether clicking Start is worth it. -->
+											{@const stock = stockBadge(pod)}
+											{#if stock}
+												<span class="badge {stock.cls}" title={stockTitle(pod)}>
+													{stock.label}
 												</span>
 											{/if}
 											<span class="badge off"><span class="dot off"></span> stopped</span>
