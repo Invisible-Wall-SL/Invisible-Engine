@@ -84,6 +84,26 @@ const symbolNameSchema = z
 /** Symbol id → display name. Sparse: an unnamed symbol is simply absent and falls back to its id. */
 const symbolNamesSchema = z.record(z.string().min(1), symbolNameSchema);
 
+/**
+ * PER-SYMBOL SOUND OVERRIDES — the cue one specific symbol plays when it enters one specific state.
+ *
+ * A SEPARATE section rather than a `sound` field on {@link symbolCellSchema}, and that is load-
+ * bearing: the doc is merged over the coded map cell-by-cell (`mergeSymbolMap` in
+ * `apps/lines/src/game/symbolMap.ts` spreads per STATE), so an override cell carrying only a sound
+ * would replace the whole binding and take the state's ART with it. Sound and art are also
+ * independently interesting — "the bell dings when it lands" is a thing to say about a symbol whose
+ * art nobody has touched.
+ *
+ * Sparse at both levels and free-form (a game's audiosprite key), so no enum coupling to a specific
+ * game's sound set — an unknown name is declined silently in-game, exactly like the anticipation
+ * sounds above. Absent ⇒ the symbol falls through to the config's game-wide slot for that moment
+ * (`game-config/sounds`), which is where the shipped defaults live.
+ */
+const symbolSoundsSchema = z.record(
+	z.string().min(1),
+	z.record(z.enum(SYMBOL_STATES), z.string().min(1)),
+);
+
 /** Global win-frame ("highlight") override — a single spine that loops over winning
  *  symbols. Optional + spine-only: absent means the game uses its built-in default.
  *
@@ -395,6 +415,7 @@ export const symbolsDocSchema = z
 		version: z.literal(1).default(1),
 		symbols: symbolMapSchema.default({}),
 		names: symbolNamesSchema.optional(),
+		symbolSounds: symbolSoundsSchema.optional(),
 		highlight: highlightCellSchema.optional(),
 		boardGlow: boardGlowSchema.optional(),
 		winLine: winLineSchema.optional(),
@@ -483,6 +504,19 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	// Sparse like every other optional field: a project that never named a symbol persists no
 	// `names` key at all, so its doc stays byte-identical to before this existed.
 	if (Object.keys(names).length) next.names = names;
+	// Per-symbol sound overrides, pruned at BOTH levels: a blank name drops the state, and a symbol
+	// with no states left drops entirely. Clearing every dropdown must round-trip to no key at all,
+	// or the symbol keeps shipping an empty override object that reads as "authored" forever.
+	const symbolSounds: NonNullable<SymbolsDoc['symbolSounds']> = {};
+	for (const [symbol, states] of Object.entries(doc.symbolSounds ?? {})) {
+		const kept: Record<string, string> = {};
+		for (const [state, name] of Object.entries(states ?? {})) {
+			const trimmed = name?.trim();
+			if (trimmed) kept[state] = trimmed;
+		}
+		if (Object.keys(kept).length) symbolSounds[symbol] = kept;
+	}
+	if (Object.keys(symbolSounds).length) next.symbolSounds = symbolSounds;
 	if (doc.highlight) next.highlight = doc.highlight;
 	// Copied explicitly — this rebuild is a whitelist, so a field that passes Zod but isn't listed
 	// here is still dropped on save (the silent round-trip trap).

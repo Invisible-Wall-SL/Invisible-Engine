@@ -9,6 +9,7 @@ import { bookEventAmountToCurrencyString } from 'utils-shared/amount';
 import { SECOND } from 'constants-shared/time';
 
 import { eventEmitter } from './eventEmitter';
+import { playWildExplodeSound } from './soundBindings';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { playBookEvent } from './utils';
@@ -156,7 +157,7 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 				// 1. Explode the existing symbol and wait for the spine to finish. A slammed round
 				//    stops waiting for the spine — the swap below still runs for EVERY cell, so the
 				//    expanded board still lands at its final state, just instantly.
-				eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_wild_explode' });
+				playWildExplodeSound();
 				reelSymbol.symbolState = 'explosion';
 				await roundSkip.race(waitForResolve((resolve) => (reelSymbol.oncomplete = resolve)));
 				// 2. Swap to the special and play its land spine in the cleared cell.

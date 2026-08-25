@@ -6,6 +6,7 @@
 		builtinSheetKey,
 		builtinSpineMeta,
 		parseScopedFrameRef,
+		SYMBOL_STATE_LABELS,
 		scopedFrameRef,
 	} from 'engine-layout';
 	import { SOUND_EFFECT_NAMES } from 'engine-flow-v2';
@@ -56,6 +57,7 @@
 		setHighlight,
 		setOverride,
 		setSymbolName,
+		withSymbolSound,
 		setWinCycleDelay,
 		setWinCycleDimNonWinning,
 		setWinCycleEnabled,
@@ -1156,6 +1158,37 @@
 	 *  other tool keep referring to `H1`). Feeds Invisible Win Text's `{symbolName}`. */
 	function setName(symbol: string, form: 'singular' | 'plural', value: string): void {
 		doc = setSymbolName(doc, symbol, form, value);
+	}
+
+	/**
+	 * The states a PER-SYMBOL sound is offered for — deliberately only the ones the engine actually
+	 * fires a per-symbol cue on, not the whole `SYMBOL_STATES` set.
+	 *
+	 * Offering a state nothing plays is the precise failure this whole feature exists to undo: the
+	 * `tumble_win_*` ladder sat in the audiosprite AND in the flow editor's sound library for the
+	 * life of the fork, looking bound, playing nothing. A dropdown that saves a cue no code path
+	 * reads would recreate that at the symbol level.
+	 *
+	 * `tumbleExplosion` is gated on the project actually cascading, the same server-resolved answer
+	 * (`/config`'s cascade switch) that gates its column in the grid above.
+	 */
+	const SYMBOL_SOUND_STATES = $derived(
+		data.cascade ? (['land', 'tumbleExplosion'] as const) : (['land'] as const),
+	);
+
+	/** How many symbol×state cues are bound — the section's badge, and the gate on "Clear all". */
+	const symbolSoundCount = $derived(
+		Object.values(doc.symbolSounds ?? {}).reduce((n, states) => n + Object.keys(states).length, 0),
+	);
+
+	function setSymbolSound(symbol: string, state: string, name: string): void {
+		doc = withSymbolSound(doc, symbol, state, name);
+	}
+
+	function clearSymbolSounds(): void {
+		const next = { ...doc };
+		delete next.symbolSounds;
+		doc = next;
 	}
 </script>
 
@@ -2504,6 +2537,66 @@
 							</div>
 						</div>
 					{/if}
+				</section>
+
+				<section class="winline symbolsounds" class:expanded={true}>
+					<div class="wl-head">
+						<div class="wl-text">
+							<h2>Symbol sounds</h2>
+							<p class="wl-sub">
+								A cue THIS symbol plays entering a state, overriding the game-wide sound for that
+								moment. Everything here is optional and starts empty: the sounds a game makes by
+								default are bound once for the whole game in
+								<strong>Invisible Game Config → Sounds</strong>, and a symbol only needs a row here
+								when it should sound different from its kind.
+							</p>
+						</div>
+						{#if symbolSoundCount > 0}
+							<div class="hl-actions">
+								<span class="badge">{symbolSoundCount} bound</span>
+								<button type="button" class="ghost" onclick={clearSymbolSounds}>Clear all</button>
+							</div>
+						{/if}
+					</div>
+					<div class="wl-config">
+						<p class="wl-note">
+							Only the states the engine actually fires a per-symbol cue on are offered — binding a
+							sound to a state nothing plays is how <code>tumble_win_1…5</code> sat unused in the
+							audiosprite for years while looking bound.
+							<strong>Land</strong>
+							fires as the symbol settles into its cell, on the reels and on a cascade refill alike,
+							and REPLACES the game-wide landing cue for this symbol.
+							{#if data.cascade}
+								<strong>Tumble explosion</strong> fires as a cascade blows the symbol away, and is
+								heard <em>alongside</em> the cascade's own pop rather than instead of it — the pop is
+								the beat, this is the symbol's voice in it.
+							{/if}
+						</p>
+						<div class="ss-grid">
+							<div class="ss-row ss-head">
+								<span>Symbol</span>
+								{#each SYMBOL_SOUND_STATES as state (state)}
+									<span>{SYMBOL_STATE_LABELS[state]}</span>
+								{/each}
+							</div>
+							{#each symbolNames as symbol (symbol)}
+								<div class="ss-row">
+									<code>{symbol}</code>
+									{#each SYMBOL_SOUND_STATES as state (state)}
+										<select
+											value={doc.symbolSounds?.[symbol]?.[state] ?? ''}
+											onchange={(e) => setSymbolSound(symbol, state, e.currentTarget.value)}
+										>
+											<option value="">Game default</option>
+											{#each SOUND_EFFECT_NAMES as name (name)}
+												<option value={name}>{name}</option>
+											{/each}
+										</select>
+									{/each}
+								</div>
+							{/each}
+						</div>
+					</div>
 				</section>
 
 				<section class="winline anticipation" class:expanded={true}>
@@ -4037,6 +4130,39 @@
 		color: #777;
 		line-height: 1.4;
 		max-width: 640px;
+	}
+	/* ── Per-symbol sounds ────────────────────────────────────────────────────────
+	   One row per symbol, one dropdown per state the engine actually fires a per-symbol cue on.
+	   `auto-fit` rather than a fixed track count, because the state list is GATED (a non-cascading
+	   project has no Tumble-explosion column) — so the row fills whatever states it was handed
+	   instead of leaving a dead column behind. */
+	.ss-grid {
+		margin-top: 12px;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		max-width: 640px;
+	}
+	.ss-row {
+		display: grid;
+		grid-template-columns: 70px repeat(auto-fit, minmax(160px, 1fr));
+		align-items: center;
+		gap: 8px;
+	}
+	.ss-row code {
+		font-size: 12px;
+		color: #b9b9c4;
+	}
+	.ss-row select {
+		font-size: 12px;
+		width: 100%;
+	}
+	.ss-head {
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: #6f6f7d;
+		margin-bottom: 2px;
 	}
 	.wl-reset {
 		align-self: flex-start;

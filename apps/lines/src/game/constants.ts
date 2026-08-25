@@ -1,7 +1,8 @@
-// This game's SYMBOL + ART content: the sprite/spine bindings, the stacked-picture map and the
-// scatter-land sounds. The engine's shared feel knobs (SYMBOL_SIZE, REEL_PADDING, spin options, …)
-// moved to `engine-game` in Phase A3.5 of docs/design/game-type-templates.md — import those from
-// there, not from here.
+// This game's SYMBOL + ART content: the sprite/spine bindings and the stacked-picture map. The
+// engine's shared feel knobs (SYMBOL_SIZE, REEL_PADDING, spin options, …) moved to `engine-game` in
+// Phase A3.5 of docs/design/game-type-templates.md — import those from there, not from here. The
+// scatter-land sound ladder moved to the Invisible Game Config sound SLOTS (`game-config/sounds`),
+// so it is authorable per project rather than a constant only an engine edit could change.
 //
 // This module has NO imports, and must keep it that way. `publish-symbol-defaults.mjs` imports it
 // STANDALONE under Node type-stripping to read `SYMBOL_INFO_MAP`; a value import of `engine-game`
@@ -256,12 +257,4 @@ export const SYMBOL_INFO_MAP = {
 			sizeRatios: sSizeRatios,
 		},
 	},
-} as const;
-
-export const SCATTER_LAND_SOUND_MAP = {
-	1: 'sfx_scatter_stop_1',
-	2: 'sfx_scatter_stop_2',
-	3: 'sfx_scatter_stop_3',
-	4: 'sfx_scatter_stop_4',
-	5: 'sfx_scatter_stop_5',
 } as const;

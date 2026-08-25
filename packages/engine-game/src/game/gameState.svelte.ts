@@ -14,7 +14,7 @@ import {
 
 import type { RawSymbol, SymbolState, SymbolName } from './types';
 import { winLevelMap } from './winLevelMap';
-import type { ResolvedGrid } from 'game-config';
+import type { ResolvedGrid, ResolvedSounds } from 'game-config';
 import {
 	SYMBOL_SIZE,
 	REEL_PADDING,
@@ -80,6 +80,15 @@ export interface GameStateDeps<TGameType extends string> {
 		columnStaggerMs: number | undefined;
 		clearBoard: boolean;
 	};
+	/**
+	 * WHAT THIS GAME PLAYS at each named presentation moment — `activeSounds()` from the app's game
+	 * config, catalogue defaults already applied (`game-config/sounds`).
+	 *
+	 * An ACCESSOR, and a dep rather than a direct read, for the same two reasons `reelBehaviour` is
+	 * one: the config resolver belongs to the app, and the live runtime bundle resolves after this
+	 * module evaluates — a value read here would freeze every game to the compiled sample bindings.
+	 */
+	sounds: () => ResolvedSounds;
 }
 
 /** The tall picture art for a stacked symbol (from the authored config). Mirrors a `SymbolCellInfo`
@@ -618,9 +627,16 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 				initialSymbols: init[reelIndex],
 				initialSymbolState: INITIAL_SYMBOL_STATE,
 				onReelStopping: () => {
+					// The reel-stop LADDER, indexed by this reel's own position, so the left-to-right stop
+					// rises in pitch. Every reel used to play `sfx_reel_stop_1` — the audiosprite has
+					// shipped rungs 2–5 since the fork and nothing ever reached them. The pick clamps, so
+					// a board wider than the ladder holds on the last rung instead of falling silent.
+					const cue = deps.sounds().pick('reelStop', reelIndex);
+					if (!cue) return;
 					deps.eventEmitter.broadcast({
 						type: 'soundOnce',
-						name: 'sfx_reel_stop_1',
+						name: cue.name,
+						volume: cue.volume,
 						forcePlay: !stateBet.isTurbo,
 					});
 				},

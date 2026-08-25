@@ -15,6 +15,7 @@ import { setPendingScatterAwardFs } from './flowEffects';
 import { getFlowInterpreter } from './flowInterpreterHolder';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { runBookEventPresentation, startsCelebration } from './unskippablePresentation';
+import { trackCascadeStep } from './soundBindings';
 import { recordWinCycleWins, startWinCycle, stopWinCycle } from './winSymbolCycle';
 import { showAllWinLines, winsOnThisBoard } from './flowEffects';
 import { bakedWinLineConfig } from '../editor-scenes';
@@ -57,6 +58,12 @@ const dispatchBookEvent = async (
 	// Recorded HERE, ahead of dispatch, so the idle win-symbol cycle sees every spin's wins whichever
 	// path presents them — a flow-owned `winInfo` never reaches the coded handler map.
 	recordWinCycleWins(bookEvent);
+
+	// Same seam, same reason: which rung of the tumble-explosion ladder the next cascade pop plays
+	// (and whether the pop is a cascade at all, rather than the board CLEAR that shares its cue).
+	// A flow-owned `tumbleBoard` never reaches the coded handler map either, and a flow-driven game
+	// has to sound the same as a coded one.
+	trackCascadeStep(bookEvent);
 
 	// ALL-AT-ONCE WIN LINES (Symbols State Machine → "Show all win lines at once"): draw EVERY paying
 	// line of this event together, up front, and leave them on screen. Placed HERE — the one seam all

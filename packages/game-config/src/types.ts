@@ -16,6 +16,8 @@
  * launcher (`gameConfigStorage.ts`); the TYPE lives here because the game and the tool must agree.
  */
 
+import type { GameSounds } from './sounds';
+
 export const GAME_CONFIG_DOC_VERSION = 1;
 
 /**
@@ -449,6 +451,17 @@ export type GameConfigDoc = {
 	escalateTiers?: boolean;
 	/** The `alias` of the tier the escalation starts from. Unset ⇒ the first `big` tier. */
 	escalateFrom?: string;
+	/**
+	 * OPTIONAL game-wide SOUND SLOT bindings (see `./sounds`) — which cue the engine plays at each
+	 * named presentation moment (the cascade pop, the reel-stop ladder, the landing cues). An
+	 * INVISIBLE-ENGINE extension, not part of the math export; a paste-in config omits it.
+	 *
+	 * SPARSE and departure-only: every slot ships a coded default in the catalogue, so an absent
+	 * block means "play the full default set", NOT silence. Read it through `resolveSounds` rather
+	 * than directly, so the defaults live in one place — and so a slot the author never touched
+	 * keeps tracking the catalogue instead of freezing to whatever it held the day they saved.
+	 */
+	sounds?: GameSounds;
 	updatedAt?: string;
 };
 

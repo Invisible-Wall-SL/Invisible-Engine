@@ -5,6 +5,7 @@ import {
 	resolveWinLevels,
 	resolveGrid,
 	resolveReelBehaviour,
+	resolveSounds,
 	resolveWinModel,
 	symbolsInPlay,
 	validateGameConfigDoc,
@@ -12,6 +13,7 @@ import {
 	type GameConfigDoc,
 	type ResolvedGrid,
 	type ResolvedReelBehaviour,
+	type ResolvedSounds,
 	type ResolvedWinTier,
 	type WinModel,
 } from 'game-config';
@@ -316,6 +318,24 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 */
 	function activeReelBehaviour(): ResolvedReelBehaviour {
 		return resolveReelBehaviour(getActiveGameConfig());
+	}
+
+	/**
+	 * WHAT THE GAME PLAYS AT EACH NAMED PRESENTATION MOMENT — the cascade pop, the reel-stop ladder,
+	 * the landing cues — resolved from the active config with the catalogue defaults already applied
+	 * (`game-config/sounds`).
+	 *
+	 * Note the inverted default: every other optional block here resolves an absent value to "what
+	 * the engine did before the block existed", and for sound that was NOTHING — the cue had no
+	 * literal to play. So an absent block resolves to the full catalogue instead, and a project that
+	 * never opens the Sounds panel gets the whole sound set rather than the silence it has now.
+	 *
+	 * NOT memoised beyond `getActiveGameConfig`'s own memo, for the same reason `activeReelBehaviour`
+	 * isn't: a second cache is a second thing `resetGameConfigCache()` has to remember to drop, which
+	 * is the omission that freezes an online game to the sample config.
+	 */
+	function activeSounds(): ResolvedSounds {
+		return resolveSounds(getActiveGameConfig());
 	}
 
 	/**
@@ -702,6 +722,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		activeWaysCount,
 		activeWinLevels,
 		activeReelBehaviour,
+		activeSounds,
 		activeWinModel,
 		activeGrid,
 		boardDimensions,

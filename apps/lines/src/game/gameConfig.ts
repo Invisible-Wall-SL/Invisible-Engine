@@ -38,6 +38,7 @@ export const {
 	activeWaysCount,
 	activeWinModel,
 	activeReelBehaviour,
+	activeSounds,
 	publishWinPresentation,
 	activeWinLevelData,
 	activeWinLevelByAlias,

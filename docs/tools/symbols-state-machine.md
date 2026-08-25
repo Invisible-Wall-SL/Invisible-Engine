@@ -84,6 +84,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
    type clears the asset binding _and_ every field that no longer applies (the animation
    name when you leave Spine, the clip when you leave Flipbook), since a frame name is not
    a spine bundle is not a clip.
+
    - **Sprite:** use the **Frame** picker (the same `RegionPicker` the editor uses) to
      choose a frame from any of the project's atlases/sheets — plus the **shared art
      library** (see below).
@@ -99,6 +100,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
      or one with **several**, where you get whichever the export happened to list first. The
      banner names the rig and its animation count. It stays quiet for a one-animation rig,
      because there the choice is already made for you.
+
    - **Flipbook:** pick a **Clip** from the project's Invisible Flipbook clips (each
      listed with its frame count). Picking a clip sets the cell's `clipId` _and_ its
      `assetKey` to the clip's primary sheet, so the cell is never assetless. The panel
@@ -106,6 +108,7 @@ tool top bar). Switch projects from the launcher before opening the tool.
      lives in [Invisible Flipbook](/docs/flipbook), which owns the clip.
      If the project has **no clips yet**, the Flipbook button is disabled with a pointer
      at `/flipbook` rather than an empty dropdown.
+
 5. **Apply.** **Apply** writes the draft into the working doc as an override (it requires
    an asset to be chosen). The cell updates immediately and is marked **edited**. The
    panel also has a **Reset to default** action for an overridden cell.
@@ -234,8 +237,9 @@ the stacked config lives here (there is no per-cell `Stacked picture` grid colum
 - For each stacked symbol, a **Height (cells tall)** number (≥ 1) — how many cells the picture spans
   — and **two picture slots**, each with its own preview and its own **Sprite / Spine / Flipbook**
   picker (the same one the grid cells use):
-  - **Edit picture** — the *resting* picture, what the stack shows by default. Usually the still.
-  - **Add / Edit win picture** — the *winning* picture, shown only while that stack is part of a
+
+  - **Edit picture** — the _resting_ picture, what the stack shows by default. Usually the still.
+  - **Add / Edit win picture** — the _winning_ picture, shown only while that stack is part of a
     paying line: the spine or flipbook it pays out with. **Optional** — leave it unset (or **Clear**
     it) and the stack simply keeps showing its resting picture through the win, exactly as before
     this slot existed.
@@ -384,9 +388,36 @@ by the engine's `bakedWinCycleConfig()` (defaults: on, 0.4s, line drawn, text dr
 no dim, no hold). The replay itself is `apps/lines/src/game/winSymbolCycle.ts`, so every
 `runtime:lines` game has it.
 
+### Symbol sounds
+
+Below the win-symbol replay is the **Symbol sounds** section — the cue **one symbol** plays
+entering **one state**, overriding the game-wide sound for that moment.
+
+It starts empty, and that is the normal state to leave it in. The sounds a game makes by
+default are bound once for the whole game in [Invisible Game Config](game-config.md) →
+**Sounds** — the reel-stop ladder, the cascade pop, the picture / royal / scatter / wild
+landing cues — and a symbol only needs a row here when it should sound **different from its
+kind**. A crown that chimes when it lands; a bomb whose cascade pop is its own bang.
+
+Only the states the engine actually fires a per-symbol cue on are offered:
+
+- **Land** — as the symbol settles into its cell, on the reels **and** on a cascade refill.
+  This one **replaces** the game-wide landing cue for this symbol.
+- **Tumble explosion** — as a cascade blows the symbol away. Shown only for a cascading
+  project (same gate as the grid column). This one is heard **alongside** the cascade's own
+  pop, not instead of it: the pop is the beat, this is the symbol's voice in it.
+
+Other states are deliberately absent. Offering a state nothing plays is how a sound comes to
+_look_ bound while playing nothing — the failure this section exists to fix, and one this
+repo shipped for years (`tumble_win_1…5` sat in every game's audiosprite, and in the Flow
+editor's sound library, with no code path ever playing a rung).
+
+**Clear all** empties the section; clearing a single dropdown back to _Game default_ removes
+just that binding, and a symbol with nothing left bound disappears from the doc entirely.
+
 ### Reel anticipation
 
-Below the win-symbol replay is the **Reel anticipation** section — the presentation FX for the
+Below the symbol sounds is the **Reel anticipation** section — the presentation FX for the
 client-computed _tease_ mode (the reels slowing/escalating while a big win is still reachable on
 the reels yet to stop). It is a **game-level** panel, not per-symbol, mirroring Highlight and Win
 lines. The **mode itself is armed and disarmed from Flow** (enable / disable anticipation); this
@@ -501,14 +532,14 @@ and ships through the same export chain. The full library — chrome and symbols
 listed in [the Scene Editor guide](invisible-editor.md#the-shared-spine-library); the
 bundles that matter here are:
 
-| Bundle | Animations | Bind it to |
-| --- | --- | --- |
-| `engine-symbol-h1`…`h5`, `engine-symbol-l1`…`l4` | `<id>`, `<id>_static` | that symbol's Win / Static |
-| `engine-symbol-m` | `2x`…`10x` × `_land` `_static`, `low`/`mid`/`high_multiplier_*` | the multiplier |
-| `engine-symbol-s` | `scatter_static` `_spin` `_land` `_win` | the scatter, state for state |
-| `engine-symbol-w` | `wild_dynamite` `_static` `_land` `_exploded_static` | the wild |
-| `engine-explosion` | `explosion` | **Explosion**, on any symbol |
-| `engine-win-meter-explosion` | `explosion` | **Tumble explosion** — the engine's second, larger burst |
+| Bundle                                           | Animations                                                      | Bind it to                                               |
+| ------------------------------------------------ | --------------------------------------------------------------- | -------------------------------------------------------- |
+| `engine-symbol-h1`…`h5`, `engine-symbol-l1`…`l4` | `<id>`, `<id>_static`                                           | that symbol's Win / Static                               |
+| `engine-symbol-m`                                | `2x`…`10x` × `_land` `_static`, `low`/`mid`/`high_multiplier_*` | the multiplier                                           |
+| `engine-symbol-s`                                | `scatter_static` `_spin` `_land` `_win`                         | the scatter, state for state                             |
+| `engine-symbol-w`                                | `wild_dynamite` `_static` `_land` `_exploded_static`            | the wild                                                 |
+| `engine-explosion`                               | `explosion`                                                     | **Explosion**, on any symbol                             |
+| `engine-win-meter-explosion`                     | `explosion`                                                     | **Tumble explosion** — the engine's second, larger burst |
 
 `engine-explosion` exists because `Explosion` was the one state with nothing to bind. Only
 the cascade asks for it, so almost nobody authors it, and an unauthored state falls back to
