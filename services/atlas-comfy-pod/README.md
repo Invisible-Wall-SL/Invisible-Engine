@@ -66,6 +66,30 @@ it on the volume, no rebuild. Only a genuinely new custom **node** needs a rebui
 | `extra_model_paths.yaml` | points ComfyUI at `/workspace/ComfyUI/models` on the volume |
 | `custom_nodes/ComfyUI-PuLID-Flux/` | the artist's vendored, modified PuLID-Flux node |
 
+## Trying a node without a rebuild (the volume test lane)
+
+The image is the shipping path, but you do not have to rebuild it to try something. ComfyUI
+loads custom nodes from **every** path it knows about, and `extra_model_paths.yaml` adds the
+Network Volume to that list — so from the pod's web terminal:
+
+```bash
+cd /workspace/ComfyUI/custom_nodes
+git clone https://github.com/owner/some-node
+pip install --target /workspace/pysite -r some-node/requirements.txt   # if it has any
+pkill -f "python main.py"; nohup bash -c 'cd /ComfyUI && python main.py --listen 0.0.0.0 --port 8188' > /workspace/comfyui.log 2>&1 &
+```
+
+Both halves live on the volume — the node **and** its deps, via `PYTHONPATH=/workspace/pysite`
+(set by `start.sh`) — so this survives RunPod recreating the container, which is what wipes
+anything installed into the container itself.
+
+**It is a test lane, not a shipping path.** A node living only on a volume is un-pinned,
+invisible in git, can differ between pods, and does not exist on the serverless worker — a
+blueprint built against it would fail somewhere else, later. `/comfyui` flags anything loaded
+that is not in [`nodes.json`](nodes.json) for exactly that reason. When one turns out to be a
+keeper, bake it: paste its URL into **Custom nodes → Add** on `/comfyui`, or add the entry here
+by hand.
+
 ## Build
 
 Automated: pushing changes under `services/atlas-comfy-pod/**` triggers

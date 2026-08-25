@@ -6,8 +6,23 @@
 #
 # Adding/testing a new model = drop the file in the right subfolder on the volume
 # (or R2-pull it there). No image rebuild.
+# `custom_nodes` is NOT a model folder, and it is the interesting line here. ComfyUI's
+# `init_external_custom_nodes()` scans EVERY path in `folder_paths.get_folder_paths(
+# "custom_nodes")`, and this file's keys are appended to that list — so a node cloned into
+# /workspace/ComfyUI/custom_nodes is loaded alongside the baked ones AND survives RunPod
+# recreating the container (which is what wipes anything installed by hand).
+#
+# That makes it a TEST LANE: try a node in two minutes with no image rebuild and no pod
+# redeploy. It is deliberately not the shipping path — a node living only on a volume is
+# un-pinned, invisible in git, can differ between pods, and does not exist on the serverless
+# worker. The /comfyui panel flags anything loaded that is not in nodes.json for exactly that
+# reason. Verified against the v0.33.1 pin, not assumed.
+#
+# Its Python deps need the same treatment: `pip install --target /workspace/pysite`, which
+# start.sh puts on PYTHONPATH.
 comfyui:
   base_path: /workspace/ComfyUI/
+  custom_nodes: custom_nodes
   checkpoints: models/checkpoints
   clip: models/clip
   clip_vision: models/clip_vision
