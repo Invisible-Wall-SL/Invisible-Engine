@@ -49,8 +49,9 @@ The panel has two shapes depending on how the launcher is configured:
    - **starting** (amber, "Warming up ~2 min…") → a **Cancel** button; the row switches
      itself to **running** as soon as that pod's ComfyUI answers.
    - **stopped** (grey) → a **Start** button, and a second badge saying whether that card
-     can be rented right now: **GPU available** (grey), **GPU stock low** or **no GPUs
-     free** (orange). Hover it for the data centre the answer covers. It is a *hint*:
+     can be rented right now — **GPU available** (grey), **GPU stock low** or **no GPUs
+     free** (orange) — mirroring what RunPod's own console shows for that card in your
+     region. Hover it for the data centre the answer covers. It is a *hint*:
      stock moves between the reading and your click, so a Start can still come back "not
      enough free GPUs" — but a card reading **no GPUs free** is one to skip.
 
