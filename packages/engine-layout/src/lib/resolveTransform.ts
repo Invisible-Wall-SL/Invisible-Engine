@@ -50,10 +50,11 @@ export function resolveTransform(node: LayoutNode, layoutType: LayoutType): Reso
 		node.kind === 'spine' ||
 		node.kind === 'container' ||
 		node.kind === 'rect' ||
-		node.kind === 'text'
+		node.kind === 'text' ||
+		node.kind === 'flipbook'
 			? node
 			: undefined;
-	const tintedBase = node.kind === 'sprite' ? node : undefined;
+	const tintedBase = node.kind === 'sprite' || node.kind === 'flipbook' ? node : undefined;
 
 	return {
 		x: override.x ?? node.x,

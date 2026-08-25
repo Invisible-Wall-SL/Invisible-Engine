@@ -185,8 +185,14 @@ own cost.
      prefers the clip's order and fps when present. Existing docs keep working.
    - **Symbols** — widen `symbolCellSchema.type` to `'sprite' | 'spine' | 'flipbook'` + a
      `SymbolFlipbook.svelte` branch in `Symbol.svelte`.
-   - **Scene Editor** — `FlipbookNode` in the `LayoutNode` union (`types.ts:528`) + a
+   - **Scene Editor** — ✅ done. `FlipbookNode` in the `LayoutNode` union + a
      `node.kind === 'flipbook'` branch in `LayoutNodeView.svelte`, next to the `sprite` branch.
+     Two things the plan did not anticipate: (a) the editor does NOT need a placeholder chip —
+     a clip is atlas frames in order, so the 2D canvas plays it through the same region draw a
+     sprite uses (the `effect` chip exists because a WebGL emitter genuinely cannot run there);
+     (b) trap #2 below bit exactly where predicted, so `LAYOUT_NODE_KINDS` is now an exported
+     runtime value that `editorStorage.ts`'s accepted-kind set derives from — a hand-copied list
+     would have DROPPED every placed node on save, silently and green.
 7. **Export/bake/pull/register wiring** + the `docs/status/flipbook.md` status file.
 
 `COMPONENT_PARAM_KINDS` gains a frame-list/clip kind only if flipbooks should be bindable
