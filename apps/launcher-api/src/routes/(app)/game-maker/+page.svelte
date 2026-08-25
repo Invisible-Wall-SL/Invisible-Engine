@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
@@ -259,6 +260,128 @@
 		}
 	}
 
+	// ---------------------------------------------------------------------------------------------
+	// Bulk re-publish — "the engine shipped, reconcile every game" in one action.
+	//
+	// A runtime release re-hydrates nothing by itself: every published game still needs its publish
+	// flow re-run before it is on the new engine, and doing that one project at a time is the chore
+	// this replaces. The run is a BACKGROUND job on the server (one at a time, sequential), so this
+	// page only starts it and polls — closing the tab or navigating away does not stop it, and
+	// re-opening the page re-attaches to whatever is in flight.
+	// ---------------------------------------------------------------------------------------------
+	type BulkItem = {
+		key: string;
+		name: string;
+		status: 'pending' | 'running' | 'ok' | 'skipped' | 'error';
+		message?: string;
+		ms?: number;
+	};
+	type BulkJob = {
+		id: string;
+		scope: 'stale' | 'published';
+		startedAt: number;
+		finishedAt: number | null;
+		startedBy: string;
+		cancelRequested: boolean;
+		running: boolean;
+		total: number;
+		done: number;
+		ok: number;
+		failed: number;
+		skipped: number;
+		current: string | null;
+		items: BulkItem[];
+	};
+
+	let bulkJob = $state<BulkJob | null>(null);
+	let bulkErr = $state('');
+	let bulkBusy = $state(false);
+	let bulkConfirm = $state<null | 'stale' | 'published'>(null);
+
+	const bulkRunning = $derived(bulkJob?.running ?? false);
+	const staleCount = $derived(data.projects.filter((p) => p.published && p.engineStale).length);
+	const publishedCount = $derived(data.projects.filter((p) => p.published).length);
+
+	async function refreshBulk() {
+		try {
+			const res = await fetch('/api/game-maker/publish-all');
+			if (!res.ok) return;
+			const out = await res.json();
+			const wasRunning = bulkJob?.running ?? false;
+			bulkJob = (out?.job as BulkJob | null) ?? null;
+			// The run stamps every game's `updatedAt`, so the staleness badges are only correct
+			// again once the page's own data is refetched.
+			if (wasRunning && !bulkJob?.running) await invalidateAll();
+		} catch {
+			// a transient poll failure is not worth surfacing — the next tick retries
+		}
+	}
+
+	// Attach to an already-running job on load (someone else's, or your own from another tab).
+	onMount(() => {
+		if (data.canAdmin) void refreshBulk();
+	});
+
+	// Poll only while something is running. `bulkRunning` is a derived BOOLEAN so a poll that
+	// changes nothing else doesn't tear down and rebuild the interval.
+	$effect(() => {
+		if (!bulkRunning) return;
+		const timer = setInterval(() => void refreshBulk(), 2000);
+		return () => clearInterval(timer);
+	});
+
+	async function startBulk(scope: 'stale' | 'published') {
+		bulkConfirm = null;
+		bulkBusy = true;
+		bulkErr = '';
+		try {
+			const res = await fetch('/api/game-maker/publish-all', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ scope }),
+			});
+			const out = await res.json().catch(() => ({}));
+			if (out?.job) bulkJob = out.job as BulkJob;
+			if (!res.ok) bulkErr = out?.error ?? `Bulk republish failed (${res.status}).`;
+		} catch (e) {
+			bulkErr = e instanceof Error ? e.message : 'Bulk republish failed.';
+		} finally {
+			bulkBusy = false;
+		}
+	}
+
+	async function cancelBulk() {
+		bulkBusy = true;
+		try {
+			const res = await fetch('/api/game-maker/publish-all', { method: 'DELETE' });
+			const out = await res.json().catch(() => ({}));
+			if (out?.job) bulkJob = out.job as BulkJob;
+		} catch {
+			// ignore — the poll keeps the panel honest
+		} finally {
+			bulkBusy = false;
+		}
+	}
+
+	/** How many games the chosen scope would cover, for the confirmation dialog. */
+	const bulkScopeCount = (scope: 'stale' | 'published') =>
+		scope === 'stale' ? staleCount : publishedCount;
+
+	function bulkStatusLabel(item: BulkItem): string {
+		switch (item.status) {
+			case 'ok':
+				return 'republished';
+			case 'error':
+				return 'failed';
+			case 'skipped':
+				return 'skipped';
+			case 'running':
+				return 'publishing…';
+			default:
+				return 'queued';
+		}
+	}
+
 	// Open the confirmation dialog naming the project + its scenes' last-edited time
 	// before publishing — the decouple makes the wrong project structurally hard, and
 	// this makes the RIGHT one obvious (catches a stale publish).
@@ -425,7 +548,79 @@
 						? `${data.projects.length}`
 						: `${filtered.length} of ${data.projects.length}`}
 				</span>
+				{#if data.canAdmin && publishedCount > 0}
+					<div class="bulk-actions">
+						{#if staleCount > 0}
+							<button
+								class="bulk-cta"
+								onclick={() => (bulkConfirm = 'stale')}
+								disabled={bulkRunning || bulkBusy}
+								title="Re-run the publish flow for every game whose engine is behind the shipped runtime"
+							>
+								Republish {staleCount} stale game{staleCount === 1 ? '' : 's'}
+							</button>
+						{/if}
+						<button
+							class="bulk-alt"
+							onclick={() => (bulkConfirm = 'published')}
+							disabled={bulkRunning || bulkBusy}
+							title="Re-run the publish flow for every published game, stale or not"
+						>
+							Republish all ({publishedCount})
+						</button>
+					</div>
+				{/if}
 			</div>
+
+			{#if bulkErr}<p class="err bulk-err">{bulkErr}</p>{/if}
+
+			{#if bulkJob}
+				<div class="bulk" class:done={!bulkJob.running}>
+					<div class="bulk-head">
+						<strong>
+							{#if bulkJob.running}
+								Republishing {bulkJob.total} game{bulkJob.total === 1 ? '' : 's'}…
+							{:else if bulkJob.cancelRequested}
+								Republish stopped
+							{:else}
+								Republished {bulkJob.ok} of {bulkJob.total}
+							{/if}
+						</strong>
+						<span class="bulk-sub">
+							{bulkJob.done}/{bulkJob.total} done · {bulkJob.ok} ok
+							{#if bulkJob.skipped}· {bulkJob.skipped} skipped{/if}
+							{#if bulkJob.failed}· {bulkJob.failed} failed{/if}
+							· started by {bulkJob.startedBy}
+						</span>
+						{#if bulkJob.running}
+							<button class="ghost" onclick={cancelBulk} disabled={bulkJob.cancelRequested}>
+								{bulkJob.cancelRequested ? 'Stopping…' : 'Stop after this game'}
+							</button>
+						{:else}
+							<button class="ghost" onclick={() => (bulkJob = null)}>Dismiss</button>
+						{/if}
+					</div>
+					<div class="bulk-bar">
+						<span style={`width:${bulkJob.total ? (bulkJob.done / bulkJob.total) * 100 : 0}%`}
+						></span>
+					</div>
+					<ul class="bulk-items">
+						{#each bulkJob.items as item (item.key)}
+							<li class={`bulk-item ${item.status}`}>
+								<span class="bi-name">{item.name}</span>
+								<span class="bi-key">{item.key}</span>
+								<span class="bi-status">{bulkStatusLabel(item)}</span>
+								{#if item.message}<span class="bi-msg" title={item.message}>{item.message}</span
+									>{/if}
+							</li>
+						{/each}
+					</ul>
+					<p class="hint bulk-hint">
+						A publish re-exports the project, so each game takes roughly 20 seconds and they run one
+						at a time. The run continues on the server — you can leave this page.
+					</p>
+				</div>
+			{/if}
 
 			{#if data.projects.length === 0}
 				<p class="muted">No projects yet — create one above.</p>
@@ -521,7 +716,10 @@
 										<button
 											class="primary"
 											onclick={() => requestPublish(p)}
-											disabled={publishing[p.key]}
+											disabled={publishing[p.key] || bulkRunning}
+											title={bulkRunning
+												? 'A bulk republish is running — publishes run one at a time.'
+												: undefined}
 										>
 											{#if publishing[p.key]}
 												Publishing…
@@ -593,7 +791,7 @@
 											<button
 												class="stale-cta"
 												onclick={() => requestPublish(p)}
-												disabled={publishing[p.key]}
+												disabled={publishing[p.key] || bulkRunning}
 											>
 												{publishing[p.key] ? 'Republishing…' : 'Republish + Reconcile'}
 											</button>
@@ -643,6 +841,50 @@
 					<button onclick={() => (confirmProject = null)}>Cancel</button>
 					<button class="primary" onclick={confirmPublish}>
 						{confirmProject.published ? 'Re-publish' : 'Publish'}
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
+
+	{#if bulkConfirm}
+		<div class="modal-backdrop" role="presentation" onclick={() => (bulkConfirm = null)}>
+			<div
+				class="modal"
+				role="dialog"
+				aria-modal="true"
+				aria-labelledby="bulk-title"
+				onclick={(e) => e.stopPropagation()}
+			>
+				<h3 id="bulk-title">
+					Republish {bulkScopeCount(bulkConfirm)}
+					game{bulkScopeCount(bulkConfirm) === 1 ? '' : 's'}?
+				</h3>
+				<p class="confirm-body">
+					{#if bulkConfirm === 'stale'}
+						Every published game whose engine is behind the shipped runtime will be re-published —
+						the same <strong>Republish + Reconcile</strong> each stale row offers, run in one pass.
+					{:else}
+						<strong>Every</strong> published game you have access to will be re-published, whether or
+						not its engine is stale.
+					{/if}
+				</p>
+				<p class="confirm-note">
+					This covers all your projects, not just the ones matching the current filters. Each game
+					is re-exported and re-registered in turn (~20s each), so
+					{bulkScopeCount(bulkConfirm)} game{bulkScopeCount(bulkConfirm) === 1 ? '' : 's'} takes about
+					{Math.max(1, Math.round((bulkScopeCount(bulkConfirm) * 20) / 60))} minute{Math.max(
+						1,
+						Math.round((bulkScopeCount(bulkConfirm) * 20) / 60),
+					) === 1
+						? ''
+						: 's'}. Games with their own desktop build are skipped, and each game's current saved
+					scenes are what ships.
+				</p>
+				<div class="confirm-actions">
+					<button onclick={() => (bulkConfirm = null)}>Cancel</button>
+					<button class="primary" onclick={() => startBulk(bulkConfirm!)} disabled={bulkBusy}>
+						{bulkBusy ? 'Starting…' : 'Republish'}
 					</button>
 				</div>
 			</div>
@@ -838,6 +1080,121 @@
 	.err {
 		color: #ff8c8c;
 		font-size: 13px;
+	}
+	/* --- bulk republish --------------------------------------------------------------------- */
+	.bulk-actions {
+		margin-left: auto;
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.bulk-cta {
+		padding: 6px 12px;
+		font-size: 12px;
+		background: #7a5c12;
+		border-color: #a67c1a;
+		color: #fff5dc;
+	}
+	.bulk-cta:hover:not(:disabled) {
+		background: #916d16;
+		border-color: #c8961f;
+	}
+	.bulk-alt {
+		padding: 6px 12px;
+		font-size: 12px;
+	}
+	.bulk-err {
+		margin: 0 0 12px;
+	}
+	.bulk {
+		border: 1px solid #33334a;
+		background: #16161f;
+		border-radius: 8px;
+		padding: 10px 12px;
+		margin-bottom: 14px;
+	}
+	.bulk.done {
+		border-color: #2b4038;
+	}
+	.bulk-head {
+		display: flex;
+		align-items: baseline;
+		flex-wrap: wrap;
+		gap: 10px;
+	}
+	.bulk-head strong {
+		font-size: 13px;
+	}
+	.bulk-sub {
+		flex: 1 1 auto;
+		font-size: 11px;
+		color: #8a8a99;
+	}
+	.bulk-bar {
+		height: 4px;
+		border-radius: 999px;
+		background: #26263a;
+		overflow: hidden;
+		margin: 10px 0;
+	}
+	.bulk-bar span {
+		display: block;
+		height: 100%;
+		background: #5b8def;
+		transition: width 0.3s ease;
+	}
+	.bulk-items {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		max-height: 240px;
+		overflow-y: auto;
+		display: grid;
+		gap: 2px;
+	}
+	.bulk-item {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		font-size: 12px;
+		padding: 3px 0;
+		color: #7a7a86;
+	}
+	.bulk-item .bi-name {
+		color: #c9c9d4;
+	}
+	.bulk-item .bi-key {
+		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-size: 11px;
+		color: #6a6a78;
+	}
+	.bulk-item .bi-status {
+		margin-left: auto;
+		font-size: 11px;
+	}
+	.bulk-item .bi-msg {
+		flex: 1 1 100%;
+		font-size: 11px;
+		color: #a08a6a;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.bulk-item.running .bi-status {
+		color: #7aa2f7;
+	}
+	.bulk-item.ok .bi-status {
+		color: #6fbf8b;
+	}
+	.bulk-item.skipped .bi-status {
+		color: #c9a24a;
+	}
+	.bulk-item.error .bi-status {
+		color: #ff8c8c;
+	}
+	.bulk-hint {
+		margin: 10px 0 0;
+		font-size: 11px;
 	}
 	/* --- browse toolbar --------------------------------------------------------------------- */
 	.toolbar {

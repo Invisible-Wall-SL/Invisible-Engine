@@ -205,6 +205,38 @@ signal:
 This is a read-only indicator: it never changes how a game runs, only tells you
 when a republish would pick up newer engine code.
 
+### Republish every game at once (bulk)
+
+After an engine release, every published game is stale at once, and pressing
+**Republish + Reconcile** on each row in turn is the chore this replaces. The
+**Your projects** header carries two bulk buttons (admins only, the same gate as
+Publish itself):
+
+- **Republish N stale games** — appears only while at least one game shows the
+  amber badge. It runs the exact same publish flow, once per stale game.
+- **Republish all (N)** — every published game you can access, stale or not.
+
+Both cover **all** your projects, not just the ones the current filters show —
+the confirmation dialog says so, and states how many games and roughly how long
+(a publish re-exports the project, so budget ~20 seconds each).
+
+The run happens **on the server, one game at a time**. A progress panel appears
+under the header with a bar, a live per-game list (_queued · publishing… ·
+republished · skipped · failed_), and who started it. Because the work is a
+background job you can **leave the page** — come back and the panel re-attaches to
+the run in progress. **Stop after this game** ends the run cleanly: the game being
+published finishes (a half-written publish would half-register a game), and the
+rest stay queued.
+
+Games that have their own desktop build are **skipped** with the reason shown,
+never overwritten, and a game that fails is reported in place while the run
+carries on — one bad project can't strand the other twenty. While a bulk run is
+going, the per-project Publish buttons are disabled: publishes are deliberately
+serialised, because a publish is the launcher's most memory-hungry operation.
+
+Only one bulk run exists at a time; a second admin pressing the button gets told
+one is already going, and sees the same panel.
+
 ## The model (no repo, no build)
 
 A game does **not** need rebuilding to change its art, layout, fonts, strings,
