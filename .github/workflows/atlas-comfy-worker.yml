@@ -7,6 +7,9 @@ on:
     branches: [main, serverless-comfyui]
     paths:
       - services/atlas-serverless/**
+      # The node list lives with the R&D pod image and is SHARED — a promotion is an edit to
+      # that file, and prod has to rebuild for it to mean anything.
+      - services/atlas-comfy-pod/nodes.json
       - .github/workflows/atlas-comfy-worker.yml
   workflow_dispatch: {}
 
@@ -36,6 +39,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ONE node list, two images. This build takes the entries flagged `prod`; the R&D pod
+      # takes them all. Copied in rather than shared because Docker COPY cannot escape its
+      # build context, and moving the context to the repo root would ship the whole monorepo
+      # to a runner that already reclaims ~25 GB of disk to fit a CUDA image.
+      - name: Take the shared node list into this build context
+        run: cp services/atlas-comfy-pod/nodes.json services/atlas-serverless/nodes.json
 
       - name: Build and push
         uses: docker/build-push-action@v6

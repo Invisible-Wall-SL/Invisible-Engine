@@ -25,6 +25,7 @@ Full design + rationale: [`docs/design/comfyui-serverless.md`](../../docs/design
 | `start.sh` | launches ComfyUI in the background, then the handler |
 | `extra_model_paths.yaml` | points ComfyUI at `/runpod-volume/ComfyUI/models` |
 | `custom_nodes/ComfyUI-PuLID-Flux/` | the artist's vendored, modified PuLID node |
+| *(node list)* | **not here** — `services/atlas-comfy-pod/nodes.json`, filtered to entries flagged `prod`. CI copies it into this build context; a copy in this folder is gitignored so a stale one cannot be committed. |
 
 ## Build
 

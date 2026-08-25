@@ -101,6 +101,8 @@ The panel has two shapes depending on how the launcher is configured:
 
    Each node also shows whether a live pod actually **loaded** it — `loaded · N classes` in green, `not seen` in amber, or `frontend only` for the one pack that registers no node classes. That is the check the build itself cannot make: a node can install perfectly and still register nothing, which is how a node pinned behind our ComfyUI version fails. If the pod the list was read from is on an older build, a line above the list says so — anything added since will read "not seen" for a reason that has nothing to do with the node.
 
+   Each node is also marked **prod** or **R&D only**. "prod" means it is baked into the serverless worker as well — the Atlas Maker's generation path — so a blueprint can use it. **R&D only** means a blueprint using that node will *not* run in the Atlas Maker. Admins can **promote** or **demote**; promoting rebuilds the prod image, so do it once a pod off the R&D image has rendered clean with the node, not before.
+
 Once published, the blueprint appears in the Atlas Maker's pipeline selector alongside
 the built-in SDXL/FLUX/gpt_image pipelines, and any region can generate through it.
 
