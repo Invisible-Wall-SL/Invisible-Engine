@@ -48,15 +48,18 @@ The panel has two shapes depending on how the launcher is configured:
    - **running** (green) → an **Open ComfyUI ↗** button and a **Stop** button.
    - **starting** (amber, "Warming up ~2 min…") → a **Cancel** button; the row switches
      itself to **running** as soon as that pod's ComfyUI answers.
-   - **stopped** (grey) → a **Start** button, and — when RunPod gives a definite answer —
-     a second badge saying whether that card can be rented right now: **GPU available**
-     (grey) or **no GPUs free** (orange). Hover it for the data centre the answer covers.
-     It is a *hint*: stock moves between the reading and your click, so a Start can still
-     come back "not enough free GPUs" — but a card reading **no GPUs free** is one to skip.
-     **No badge means RunPod would not say**, and the row looks exactly as it did before —
-     that is deliberate. An earlier version showed RunPod's coarse "stock" word on every
-     card and read *low* on all of them in a region where most were not rentable at all;
-     a vague badge is worse than none, because it looks like an answer.
+   - **stopped** (grey) → a **Start** button, and a second badge saying whether that card
+     can be rented right now: **GPU available** (grey), **GPU stock low** or **no GPUs
+     free** (orange). Hover it for the data centre the answer covers. It is a *hint*:
+     stock moves between the reading and your click, so a Start can still come back "not
+     enough free GPUs" — but a card reading **no GPUs free** is one to skip.
+
+     **No badge means RunPod would not say**, and the row then looks exactly as it did
+     before the feature existed. If that is because RunPod refused the question, a short
+     orange line under the fleet quotes its answer, so a missing badge is never a silent
+     one. (An early version showed RunPod's *pricing* stock word on every card and read
+     "low" on all of them in a region where most were not rentable — a vague badge is
+     worse than none, because it looks like an answer.)
 
    Under the badge each row shows the card's **Cost/hr**, **VRAM** and **Processor**,
    read live from RunPod — so you pick by what the job needs (does the model fit? what
