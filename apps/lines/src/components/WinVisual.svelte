@@ -194,6 +194,7 @@
 			forceStep={winState.escalationForceStep}
 			onStepIndex={(i) => (winState.escalationStepIndex = i)}
 			countUpComplete={winState.countUpComplete}
+			holdOutro={winState.awaitingDismiss}
 			speedScale={winState.escalationSpeedScale}
 			onOutroComplete={() => (winState.escalationOutroComplete = true)}
 			width={boundToInstance ? undefined : context.stateGameDerived.boardLayout().width}

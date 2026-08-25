@@ -45,6 +45,17 @@ import type { WinLevelData } from 'engine-game';
  *   GATE knows whether a next tier exists (step) or it's the final tier (slam).
  * - `escalationForceStep` — the GATE bumps this on each tap; `WinAnimation` jumps the walk forward to it.
  * All three empty/0 when un-escalating. `WinGate` resets the step fields per win.
+ *
+ * `awaitingDismiss` — the final tier's count-up was LANDED by an explicit tap, so the presentation
+ * HOLDS on the total until a second (dismiss) tap. A tap on the final tier is two different intents —
+ * "show me the number now" and "I am done, get off my screen" — and collapsing both into the one tap meant
+ * the amount the player tapped to SEE flashed past in the ~300ms settle. So the landing tap only lands:
+ * `WinAnimation` keeps the final tier's idle looping instead of flipping to its outro (`holdOutro`),
+ * and the gate's conclusion waits on the dismiss press — which sets `escalationOutroComplete`, so the overlay
+ * still hides INSTANTLY with the outro skipped (#295's intent, unchanged). Set ONLY on the escalation
+ * path — a plain win has no tiers and no outro, so holding it would just make small wins sticky — and
+ * only by a tap that actually reached the gate, which is also what proves the gate owns the tap (see
+ * `WinGate.holdOnLand`). Every other win concludes exactly as before. Reset on `winShow`/`winHide`.
  */
 export const winState = $state<{
 	winLevelData: WinLevelData | undefined;
@@ -58,6 +69,7 @@ export const winState = $state<{
 	escalationBoundaries: number[];
 	escalationStepIndex: number;
 	escalationForceStep: number;
+	awaitingDismiss: boolean;
 }>({
 	winLevelData: undefined,
 	amount: 0,
@@ -70,4 +82,5 @@ export const winState = $state<{
 	escalationBoundaries: [],
 	escalationStepIndex: 0,
 	escalationForceStep: 0,
+	awaitingDismiss: false,
 });
