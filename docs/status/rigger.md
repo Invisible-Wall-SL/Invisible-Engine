@@ -38,7 +38,10 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 3. **Phase 3.6d hull-loop reordering** — drag to change the boundary winding order (a pure permutation the 3.6c primitive already supports; no UI yet) — the only remaining 3.6 sub-item. (Phases 3.6a UV panel, 3.6b constraint edges, and 3.6c hull promote/demote all shipped + **owner-verified live 2026-08-04**, see Recent changes.)
 4. **Localized text — live-verify + the next slice.** The authoring path and the runtime swap
    shipped 2026-08-17, and the re-bake became **automatic on rig open** 2026-08-18 (Recent
-   changes) — so "the tool has no signal that `/localization` moved on" is closed. Still NOT
+   changes) — so "the tool has no signal that `/localization` moved on" is closed. The fit rule
+   that keeps a long translation inside its art was **repaired 2026-08-25** (it was shrinking the
+   pixels while the attachment stretched them back); a meshed text element still cannot be
+   fitted, see Recent changes. Still NOT
    built: a **rename** for a text element (the id is the attachment name, so it is locked after
    creation), and **placed/persistent FX slots** (the other half of design §12.4a). Owner
    live-verify is owed against real R2 + a real game, and nobody has yet *looked* at baked rig
@@ -60,6 +63,36 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-08-25 — **The fit rule shrank the pixels and the rig stretched them straight back — a
+  translation still overflowed its button.** Reported live: `Acheter fonctionnalité` ran off the
+  buy-feature button exactly as before the 2026-08-18 fit shipped. The fit itself was working —
+  `fitTilesToSource` re-rasterised French at 28px inside English's width — but `width`/`height`
+  on a region attachment was only ever written when the attachment was **created**.
+  `placeTextAttachments` bailed on sight of an existing one (`if (bag[attName]) continue;`,
+  "keep an authored placement"), so the `.irig` kept declaring the pre-fit box and Spine scaled
+  the new, narrower region right back up into it. On screen: unchanged, and slightly softer.
+  Every rig baked before the fit was in this state, and re-baking by hand hit the same path.
+  Fixed by splitting what the attachment owns: **size is the tool's** (the art's natural size,
+  refreshed from the atlas region on every bake), **placement is the author's**
+  (`x`/`y`/`rotation`/`scaleX`/`scaleY`, untouched — `scale` is their size knob). A mesh is
+  skipped: its size is its vertices. A rig already re-baked since 2026-08-18 would otherwise
+  have been stranded — its pixels are correct and its attachment is not, which no existing drift
+  rule saw — so `textElementDrift` gained **`(wrong size)`**, and it clears on the cheap
+  re-attach path with no rasterising (`textDriftNeedsBake`, now extracted rather than restated
+  in the gate). Both new rules fail CLOSED on missing data, like the width rule: an attachment
+  with no declared size is *unknown*, not wrong. Gate `rigtext-autosync.mjs` 36/36, and
+  **decisive on five separate broken copies** (restoring the old bail; dropping the size rule;
+  removing either fail-closed guard; routing `(wrong size)` through a full re-bake). The first
+  version of that gate matched SOURCE TEXT and let two of the five pass — case 17 now RUNS
+  `placeTextAttachments` against a stubbed skeleton instead.
+  **Known limit, not fixed here:** a text element converted to a **mesh** cannot be fitted at
+  all. Its other locales are Spine `linkedmesh` children, which inherit the parent's vertices by
+  definition, so a shrunk region is stretched back onto the source's hull whatever its own size
+  says. Fitting a meshed element needs either a per-locale scale on the slot or dropping the
+  linked-mesh share (and with it the one-deform-drives-all-locales promise of §12.4a) — a
+  deliberate design call, not a patch. Region attachments (a plain button label) are unaffected.
+  **Not retroactive:** a deployed game keeps its old rig until the rig is re-opened in `/rigger`
+  (which now auto-repairs it) and the game is re-published.
 - 2026-08-20 — **⟳ Re-sync atlas flipped rotated regions 180°, and the cause was the boot-splash mirror shadowing the real page — a same-day regression, now fixed + guarded.** Symptom: re-syncing `R_InvisibleEngine` turned a rig that rendered CORRECTLY into one whose wordmark read `NI` instead of `IN`, with mirrored parts. Chain: `pickDeployedPage` answers "which deployed page IS this sheet?" by basename stem, newest-first, excluding only `deploy/editor-<kind>/` as derived bake output. The new `deploy/_boot/<tier>/` mirror (shipped that morning) copies a spine bundle's page under the SAME filename, **already reoriented 180° for Spine**, and rewrites it on every `ensureDeployExports` — so it was always the newest stem match and won the ranking. `ensureBundleAtlasFresh` then re-derived the bundle from that page and ran `reorientRotatedRegionsForSpine` a SECOND time, leaving every rotated region 180° out. Fix: the exclusion is now structural (`DERIVED_SUBTREE_RE` = `editor-<kind>` | `_boot` | `_pages`) with the rule stated as *a page we WROTE from another page can never be the source of truth for that other page* — `_pages` joins it for the same reason even though its content-addressed names made a stem collision unlikely. **The convention itself was re-derived from the vendored runtime and is unchanged:** `spine-webgl-4.2.js` maps texture upper-left → displayed upper-RIGHT for `degrees == 90` (a 90° CW display rotation), so storage must be CCW while our packers store CW — the 180° reorient is right, it was just running twice. Also confirmed CORRECT and left alone: `regionsToSpineAtlas` writes `bounds` with UPRIGHT `w,h`, which is what the parser wants (it derives the `(h×w)` footprint itself at `u2 = (x + height)/pageWidth`). Guarded by `pnpm --filter launcher-api run check:deployed-page` (9 assertions), **mutation-verified** — restoring the old `editor-*`-only exclusion fails exactly the three `_boot`/`_pages` cases, and a `_bootcamp/` look-alike is asserted NOT excluded so the fix stays surgical. **Not retroactive:** any rig re-synced while the bug was live is still flipped; re-sync it once more after this deploys and it resolves the real `sprites/` page and reorients once.
 - 2026-08-18 — **Two rig-editor crashes, found while building the cinematic's Tweak Mode** (which
   drives this file's animator, so its bugs are this tool's bugs). Both are old, both are one-line:
