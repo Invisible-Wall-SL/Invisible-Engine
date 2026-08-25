@@ -321,8 +321,11 @@ export function nodeBox(
 	repeaterCount?: number,
 ): NodeBox {
 	// A repeater defaults its unset anchor to 0 (extend-right) like a sprite, so the selection rect
-	// frames the same footprint the runtime <Repeater> lays out (parity).
-	const anchorlessKind = node.kind === 'sprite' || node.kind === 'repeater';
+	// frames the same footprint the runtime <Repeater> lays out (parity). A flipbook is atlas art
+	// drawn through the SAME region path as a sprite, so it must share the sprite's anchor default
+	// or its selection box would straddle the origin while the frame drew from the top-left.
+	const anchorlessKind =
+		node.kind === 'sprite' || node.kind === 'repeater' || node.kind === 'flipbook';
 	const ax = t.anchor?.x ?? (anchorlessKind ? 0 : 0.5);
 	const ay = t.anchor?.y ?? (anchorlessKind ? 0 : 0.5);
 	// A componentInstance DRAWS its def's content (drawComponentInstance expands
@@ -371,7 +374,9 @@ export function nodeBox(
 	// must fall through to the text branch, or resizing its box does nothing on-canvas.
 	if (node.preview && node.kind !== 'text')
 		return { w: node.preview.w ?? 160, h: node.preview.h ?? 100, ax, ay };
-	if (node.kind === 'sprite') {
+	// A flipbook frames exactly like the region sprite it animates — its `naturalSize` is the
+	// clip's FIRST frame, so the box stays still while the animation plays through it.
+	if (node.kind === 'sprite' || node.kind === 'flipbook') {
 		const nat = naturalSize(node);
 		const w = t.width ?? nat?.w ?? 100;
 		const h = t.height ?? nat?.h ?? 100;

@@ -99,6 +99,12 @@
 				return '⊞';
 			case 'repeater':
 				return '⧉';
+			case 'flipbook':
+				return '🎞';
+			case 'effect':
+				return '✨';
+			case 'rect':
+				return '▬';
 		}
 	}
 

@@ -27,6 +27,7 @@
 
 import type { LayoutDoc, Scene } from 'engine-layout';
 import {
+	flipbookCycleMs,
 	getComponent,
 	resolveEffect,
 	sceneAnimationDurationMs,
@@ -467,6 +468,10 @@ export const createLinesFlowV2 = (
 		return sceneAnimationDurationMs(scene, {
 			spineClipMs,
 			effectMs,
+			// A placed flipbook's beat is `frames / fps` off the boot-registered clip — no asset load
+			// needed, a clip IS its frame list. `flipbookCycleMs` owns the loop rule (a loop has no end,
+			// so it reports nothing and can never hold a showContainer on an ambient background).
+			flipbookMs: flipbookCycleMs,
 			resolveComponent: (defId) => {
 				const def = getComponent(defId);
 				return def ? { root: def.root } : undefined;

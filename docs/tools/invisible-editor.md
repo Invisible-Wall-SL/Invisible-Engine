@@ -141,6 +141,27 @@ Open the **Library** tab. It is grouped into:
   effect on the beat. Left as **free**, the effect just plays at its placed
   position. The effect's particle atlas ships automatically (the export bakes it
   in) — no need to place the atlas separately.
+- **Flipbooks** — the project's authored **Invisible Flipbook** clips (frame
+  animations packed off an atlas sheet), each row showing its first frame and its
+  frame count. Drag one in to place it. The canvas **plays it in place**, at its
+  real position and size, so you can time it against the rest of the screen — no
+  toggle and no overlay, because a clip is just atlas frames in order. A 🎞
+  placeholder chip marks a clip that no longer exists (see below).
+  In the Properties panel you can re-target the **clip**, set an explicit
+  **width/height** (blank = the frames' native size), and override **fps** and
+  **loop** for _this placement only_ — leave them blank to play the clip exactly
+  as authored in [Invisible Flipbook](flipbook.md). Re-authoring a clip there
+  updates every placement; the layout only stores the clip's id.
+  The clip's sheet ships automatically — no need to place the atlas separately.
+
+  > The canvas previews **every** clip looping, so you can always see the
+  > animation. A _play once_ clip still stops on its last frame in the game.
+
+  > If a clip is deleted or renamed in Invisible Flipbook after being placed, the
+  > node keeps its position but the game renders **nothing** for it (deliberately —
+  > there is no fallback art, because a wrong animation is worse than none). The
+  > editor calls it out in two places: the node draws a 🎞 chip, and it is counted
+  > in the header's **asset issues** pill.
 
 ### The shared spine library
 
