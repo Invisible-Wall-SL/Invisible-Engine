@@ -61,6 +61,12 @@ export interface PodSpecs {
 	 */
 	gpuTypeId?: string;
 	dataCenterId?: string;
+	/**
+	 * The container image the pod is deployed from. Rendered, unlike the two keys above:
+	 * "which build is this pod on" is the question Phase 1 of the node manager exists to
+	 * answer, and until now it was only answerable in the RunPod console.
+	 */
+	imageName?: string;
 }
 
 /** A probed pod: fleet entry + its live status and ComfyUI readiness. */
@@ -419,6 +425,7 @@ function specsComplete(s: PodSpecs): boolean {
 }
 
 interface PodSpecFields {
+	imageName?: string | null;
 	costPerHr?: number | string | null;
 	gpuCount?: number | null;
 	vcpuCount?: number | null;
@@ -463,6 +470,7 @@ export async function podSpecs(podId: string): Promise<PodSpecs | undefined> {
 	// every card its Processor line. As its own tier it costs one wasted call per refresh and
 	// nothing else.
 	const fields = [
+		`costPerHr gpuCount vcpuCount memoryInGb imageName machine { gpuDisplayName gpuTypeId cpuTypeId dataCenterId }`,
 		`costPerHr gpuCount vcpuCount memoryInGb machine { gpuDisplayName gpuTypeId cpuTypeId dataCenterId }`,
 		`costPerHr gpuCount vcpuCount memoryInGb machine { gpuDisplayName gpuTypeId cpuTypeId }`,
 		`costPerHr gpuCount vcpuCount memoryInGb machine { gpuDisplayName }`,
@@ -500,6 +508,7 @@ export async function podSpecs(podId: string): Promise<PodSpecs | undefined> {
 	assign('vcpuCount', positive(pod.vcpuCount));
 	assign('memoryGb', positive(pod.memoryInGb));
 	assign('costPerHr', positive(pod.costPerHr));
+	assign('imageName', text(pod.imageName));
 	assign('gpuTypeId', text(pod.machine?.gpuTypeId));
 	assign('dataCenterId', text(pod.machine?.dataCenterId));
 

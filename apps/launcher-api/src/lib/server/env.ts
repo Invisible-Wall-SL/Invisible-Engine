@@ -254,6 +254,15 @@ export const ENV = {
 		return env.GITHUB_ENGINE_READ_TOKEN ?? '';
 	},
 	// The engine repo the pending-compare runs against. Non-secret → code default; env overrides.
+	// OPTIONAL: a GitHub token with **`actions: write`** on GITHUB_ENGINE_REPO, used ONLY to
+	// press "Rebuild image" on `/comfyui` (workflow_dispatch on atlas-comfy-pod.yml) and to read
+	// that workflow's runs. Deliberately NOT reusing GITHUB_ENGINE_READ_TOKEN: that one is
+	// read-only by design and should stay that way — dispatching a workflow is a write, and a
+	// token that can do it is a different blast radius. Unset = the Rebuild button explains it
+	// is unconfigured instead of failing.
+	get GITHUB_ACTIONS_TOKEN() {
+		return env.GITHUB_ACTIONS_TOKEN ?? '';
+	},
 	get GITHUB_ENGINE_REPO() {
 		return env.GITHUB_ENGINE_REPO ?? 'Invisible-Wall-SL/Invisible-Engine';
 	},

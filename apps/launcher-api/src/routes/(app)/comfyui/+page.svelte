@@ -14,6 +14,7 @@
 		vcpuCount?: number;
 		memoryGb?: number;
 		costPerHr?: number;
+		imageName?: string;
 	}
 	type StockStatus = 'High' | 'Medium' | 'Low' | 'None';
 	type AvailabilitySource = 'datacenter' | 'price';
@@ -69,6 +70,39 @@
 	let starting = $state<Record<string, boolean>>({});
 	let errors = $state<Record<string, string>>({});
 
+	interface ImageBuild {
+		status: string;
+		conclusion?: string;
+		sha: string;
+		url?: string;
+		startedAt?: string;
+		image: string;
+	}
+	interface BuildState {
+		configured: boolean;
+		latest?: ImageBuild;
+		error?: string;
+		dispatched?: boolean;
+	}
+	/** Result of moving a pod onto a build — before/after, so nothing is asserted. */
+	interface PodImageState {
+		imageName?: string;
+		ports?: string[];
+		volumeMountPath?: string;
+		networkVolumeId?: string;
+	}
+	interface MoveResult {
+		ok: boolean;
+		before?: PodImageState;
+		after?: PodImageState;
+		error?: string;
+	}
+
+	let build = $state<BuildState | null>(null);
+	let buildBusy = $state(false);
+	let moving = $state<Record<string, boolean>>({});
+	let moved = $state<Record<string, MoveResult>>({});
+
 	let inventory = $state<Inventory | null>(null);
 	let invBusy = $state(false);
 	let invError = $state('');
@@ -108,6 +142,13 @@
 			s.memoryGb != null ? `${s.memoryGb} GB RAM` : '',
 		].filter(Boolean);
 		if (cpu.length) rows.push({ label: 'Processor', value: cpu.join(' · ') });
+
+		// Which BUILD this pod is running. Only answerable in the RunPod console until now,
+		// and it is the first thing you need after adding a custom node.
+		if (s.imageName) {
+			const tag = s.imageName.split(':').pop() ?? s.imageName;
+			rows.push({ label: 'Image', value: tag === 'latest' ? 'latest (mutable)' : tag });
+		}
 
 		return rows;
 	}
@@ -228,6 +269,87 @@
 		}
 	}
 
+	/** The 12-char tag CI pushes — long enough to be unambiguous, short enough for a card. */
+	function shortSha(sha: string): string {
+		return sha.slice(0, 12);
+	}
+	function buildRunning(b: BuildState | null): boolean {
+		return b?.latest?.status === 'queued' || b?.latest?.status === 'in_progress';
+	}
+	/** Is this pod on the newest SUCCESSFUL build? Unknown image => don't claim either way. */
+	function podOnLatest(p: Pod): boolean | null {
+		const image = p.specs?.imageName;
+		const sha = build?.latest?.conclusion === 'success' ? build.latest.sha : undefined;
+		if (!image || !sha) return null;
+		return image.endsWith(`:${shortSha(sha)}`);
+	}
+
+	async function loadBuild(): Promise<void> {
+		try {
+			const res = await fetch('/comfyui/build');
+			if (res.ok) build = (await res.json()) as BuildState;
+		} catch {
+			// Transient; the panel keeps the last known build rather than blanking.
+		}
+	}
+
+	async function rebuild(): Promise<void> {
+		if (buildBusy) return;
+		buildBusy = true;
+		try {
+			const res = await fetch('/comfyui/build', { method: 'POST' });
+			build = (await res.json()) as BuildState;
+		} catch (err) {
+			build = {
+				configured: true,
+				...build,
+				error: err instanceof Error ? err.message : 'Could not reach the launcher.',
+			};
+		} finally {
+			buildBusy = false;
+		}
+	}
+
+	async function moveToLatest(pod: Pod): Promise<void> {
+		const sha = build?.latest?.sha;
+		if (!sha || moving[pod.id]) return;
+		const tag = shortSha(sha);
+		if (
+			!confirm(
+				`Move "${pod.label}" to build ${tag}?
+
+RunPod recreates the container, so anything ` +
+					`installed by hand on it is lost. Models on the Network Volume are not affected.`,
+			)
+		) {
+			return;
+		}
+		moving[pod.id] = true;
+		delete moved[pod.id];
+		try {
+			const res = await fetch('/comfyui/pod-image', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ podId: pod.id, sha: tag }),
+			});
+			const data = (await res.json().catch(() => ({}))) as MoveResult & {
+				fleet?: StatusResp;
+				message?: string;
+			};
+			moved[pod.id] = res.ok
+				? data
+				: { ok: false, error: data.error ?? data.message ?? `Request failed (${res.status}).` };
+			if (data.fleet) applyStatus(data.fleet);
+		} catch (err) {
+			moved[pod.id] = {
+				ok: false,
+				error: err instanceof Error ? err.message : 'Could not reach the launcher.',
+			};
+		} finally {
+			moving[pod.id] = false;
+		}
+	}
+
 	async function start(podId: string): Promise<void> {
 		if (busy[podId]) return;
 		busy[podId] = true;
@@ -300,6 +422,13 @@
 		// stopped, so this is usually a real listing rather than an empty panel.
 		void loadInventory();
 		const poll = setInterval(() => void refresh(), 5000);
+		// The build state is read once on load and then only while something is actually
+		// building. GitHub's authed rate limit is shared with the rest of the launcher, and
+		// a number that changes every few minutes does not belong in a 5s poll.
+		void loadBuild();
+		const buildPoll = setInterval(() => {
+			if (buildRunning(build)) void loadBuild();
+		}, 15000);
 		// Heartbeat: keep the fleet alive only while the tab is actually visible, so a
 		// forgotten hidden tab lets the idle watchdog reclaim the GPU.
 		const beat = setInterval(() => {
@@ -309,6 +438,7 @@
 		}, 60000);
 		return () => {
 			clearInterval(poll);
+			clearInterval(buildPoll);
 			clearInterval(beat);
 		};
 	});
@@ -390,6 +520,24 @@
 									</dl>
 								{/if}
 
+								{#if moved[pod.id]}
+									{@const m = moved[pod.id]}
+									<!-- Shows what the pod IS now, read back after the change, rather than
+									     claiming success. The ports and volume lines are the point: they are
+									     what a careless PATCH could have disturbed. -->
+									<p class="movenote" class:bad={!m.ok}>
+										{#if m.ok}
+											Image: <code>{m.before?.imageName ?? '?'}</code> →
+											<code>{m.after?.imageName ?? '?'}</code>. Volume
+											<code>{m.after?.volumeMountPath ?? '—'}</code> and ports
+											<code>{m.after?.ports?.join(', ') || '—'}</code> unchanged. Start it to pick the
+											new image up.
+										{:else}
+											Could not change the image — {m.error}
+										{/if}
+									</p>
+								{/if}
+
 								<div class="pod-actions">
 									{#if isReady(pod)}
 										{#if pod.directUrl}
@@ -428,6 +576,16 @@
 											{busy[pod.id] ? 'Stopping…' : 'Stop'}
 										</button>
 									{:else if isStopped(pod)}
+										{#if data.canAdmin && podOnLatest(pod) === false && build?.latest}
+											<button
+												class="secondary sm"
+												onclick={() => void moveToLatest(pod)}
+												disabled={moving[pod.id]}
+												title="Point this pod at the newest successful build. RunPod recreates the container; the Network Volume is untouched."
+											>
+												{moving[pod.id] ? 'Moving…' : `Update to ${shortSha(build.latest.sha)}`}
+											</button>
+										{/if}
 										<button
 											class="open sm btn"
 											onclick={() => start(pod.id)}
@@ -466,6 +624,57 @@
 							</li>
 						{/each}
 					</ul>
+
+					<!-- The pod IMAGE: what CI last built, and a way to ask it to build again.
+					     Sits under the fleet because it answers a question you ask AFTER adding
+					     a node ("is it built yet, and is this pod on it?"), not before picking
+					     a card. See docs/design/comfyui-node-manager.md. -->
+					{#if build}
+						<div class="imagebar">
+							<div class="imagebar-head">
+								<span class="imagebar-title">Pod image</span>
+								{#if !build.configured}
+									<span class="imagebar-meta">
+										Set <code>GITHUB_ACTIONS_TOKEN</code> on the launcher (scope
+										<code>actions: write</code>) to build from here.
+									</span>
+								{:else if build.latest}
+									{@const b = build.latest}
+									<span class="imagebar-meta">
+										<code>{shortSha(b.sha)}</code>
+										{#if b.status !== 'completed'}
+											· <span class="spinner sm"></span> building
+										{:else if b.conclusion === 'success'}
+											· built
+										{:else}
+											· <span class="bad">{b.conclusion ?? 'failed'}</span>
+										{/if}
+										{#if b.url}
+											·
+											<!-- An absolute github.com run URL, so SvelteKit's resolve() does not apply.
+											     Disabled inline rather than added to eslint-suppressions.json: the
+											     baseline is for burning DOWN existing debt, not for parking new lines. -->
+											<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+											<a href={b.url} target="_blank" rel="noopener noreferrer">log ↗</a>
+										{/if}
+									</span>
+								{/if}
+								{#if data.canAdmin && build.configured}
+									<button
+										class="secondary sm"
+										onclick={() => void rebuild()}
+										disabled={buildBusy || buildRunning(build)}
+										title="Runs the pod-image workflow on main. A cached rebuild is ~2 min; a full one ~30."
+									>
+										{buildBusy ? 'Asking…' : buildRunning(build) ? 'Building…' : 'Rebuild image'}
+									</button>
+								{/if}
+							</div>
+							{#if build.error}
+								<p class="avail-note">{build.error}</p>
+							{/if}
+						</div>
+					{/if}
 
 					<!-- Only rendered when the badges are missing BECAUSE RunPod refused. Silence
 					     was how this feature failed twice: the blank row looked identical to a
@@ -853,6 +1062,49 @@
 		margin: 6px 0 0;
 		font-size: 12px;
 		color: #8a8a93;
+	}
+	/* The pod-image bar: one line of state plus one button, so it reads as a footnote to the
+	   fleet rather than competing with the cards for attention. */
+	.imagebar {
+		margin: 12px 0 0;
+	}
+	.imagebar-head {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		flex-wrap: wrap;
+	}
+	.imagebar-title {
+		font-size: 11px;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: #7a7a84;
+	}
+	.imagebar-meta {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 12px;
+		color: #8a8a93;
+	}
+	.imagebar-meta code {
+		color: #c3c3cc;
+	}
+	.bad {
+		color: #e0a077;
+	}
+	.movenote {
+		margin: 10px 0 0;
+		font-size: 12px;
+		line-height: 1.5;
+		color: #8a8a93;
+	}
+	.movenote code {
+		color: #c3c3cc;
+		word-break: break-all;
+	}
+	.movenote.bad {
+		color: #c9a88f;
 	}
 	/* Quieter than a fault, louder than nothing: one missing feature, not a broken fleet. */
 	.avail-note {

@@ -70,9 +70,11 @@ Move the node clones, their requirements loop and the apt extras below the torch
 
 Shipped: `constraints.txt` is exported as `PIP_CONSTRAINT` so it binds every pip step (and every pip on a live pod); torch moved to the FIRST pip step and is now installed once instead of twice; the face stack moved above the nodes; `verify-deps.py` gained a torch-BUILD assertion to replace what the ordering used to guarantee. **Gate MET, measured 2026-08-25:** a fully-cached rebuild is **2m6s**, against 33m for a full one, so a node-only change lands around 3-4 minutes once its own layers are added. The export/push worry was unfounded in the way that mattered: the ~18 minutes of push in a FULL build is the cost of uploading every layer as new, and with a cached prefix only the changed layers upload. Phase 1 can therefore be an interactive button rather than a fire-and-forget job. Details in [status/comfyui](../status/comfyui.md).
 
-### Phase 1 — Rebuild + Move-pod buttons (no node editing yet)
+### Phase 1 — Rebuild + Move-pod buttons (no node editing yet) — ✅ DONE (2026-08-25)
 Two server actions and two buttons on `/comfyui`: **Rebuild image** (`workflow_dispatch` → poll the run → show status inline, reusing the existing poll) and **Move this pod to build `<sha>`** (`PATCH /pods/{podId}` with the `:<sha>` tag, then resume). Show each pod's current image tag on its card. Needs `GITHUB_ACTIONS_TOKEN` (scope `actions: write`) on the launcher.
 *This phase alone removes the RunPod console from the loop* — worth shipping on its own.
+
+Shipped as planned, plus one thing the plan did not call for: **the move READS the pod before it writes.** RunPod REST had never been called from here, and its own docs describe the PATCH as "potentially triggering a reset" — so the endpoint GETs the pod first (proving base URL, auth and field names with a request that cannot break anything), PATCHes only `imageName`, then reads back and reports before/after including ports and volume mount. That turns "trust me" into evidence for the one call here that can damage something. Moving a RUNNING pod is refused outright.
 
 ### Phase 2 — `nodes.json` + the add/remove UI
 The Dockerfile reads the list; the page grows a node table (name · pinned SHA · commit date · remove) and an **Add node** form that resolves a URL to a SHA and commits the change. Adding a node = one commit + one dispatch, both from the browser.
