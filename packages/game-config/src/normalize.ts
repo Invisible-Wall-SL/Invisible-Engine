@@ -39,6 +39,7 @@ import {
 	type WinTierType,
 } from './types';
 import { normalizeReelBehaviour } from './reelBehaviour';
+import { normalizeSounds } from './sounds';
 
 import { resolveGridAlign } from './grid';
 import { normalizeWinModel } from './winModel';
@@ -448,6 +449,13 @@ export const normalizeGameConfigDoc = (raw: unknown): GameConfigDoc | undefined 
 		const escalateFrom = str(raw.escalateFrom)?.trim();
 		if (escalateFrom) doc.escalateFrom = escalateFrom;
 	}
+
+	// Sound-slot bindings, kept only where they DEPART from the catalogue default, so a config that
+	// never opens the Sounds panel stores no block and stays byte-identical to a math export — while
+	// still playing the full default sound set, which is the point of a LIVE catalogue rather than a
+	// copied one.
+	const sounds = normalizeSounds(raw.sounds);
+	if (sounds) doc.sounds = sounds;
 
 	const updatedAt = str(raw.updatedAt);
 	if (updatedAt) doc.updatedAt = updatedAt;

@@ -68,6 +68,7 @@ export const SOUND_EFFECT_NAMES: string[] = [
 	'tumble_win_2',
 	'tumble_win_3',
 	'tumble_win_4',
+	'tumble_win_5',
 ];
 
 /** Every playable sound name (`SoundName` = `MusicName | SoundEffectName`). */

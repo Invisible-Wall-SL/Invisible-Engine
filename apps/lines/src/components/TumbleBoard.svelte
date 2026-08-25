@@ -113,6 +113,7 @@
 		type TumbleSymbol,
 	} from '../game/stateTumble.svelte';
 	import { PAD_ROWS_ABOVE } from '../game/tumbleBoardLayout';
+	import { playSymbolTumbleExplosionSound, playTumbleExplosionSound } from '../game/soundBindings';
 
 	/**
 	 * The CASCADE board — mounted only while a tumble plays, then unmounted again.
@@ -292,10 +293,23 @@
 			// moments and the engine's Spine set ships a separate skeleton for each. A project that
 			// binds only the one inherits it here (`resolveSymbolState`), so this reads identically to
 			// before the split until someone actually authors the cascade's own.
+			//
+			// THE POP NOW MAKES A SOUND. It never has: the audiosprite has shipped a five-rung
+			// `tumble_win_*` ladder since the fork with no code path playing a rung of it, so the board
+			// blew up in silence while the names sat in the flow editor's sound library looking bound.
+			// Broadcast ONCE for the whole step (a five-symbol win is one pop, not five), before the
+			// animations rather than after, so the cue lands with the picture instead of trailing the
+			// slowest cell. `playTumbleExplosionSound` stands down when this cue is the board CLEAR
+			// rather than a cascade — see `soundBindings`.
+			playTumbleExplosionSound();
 			await Promise.all(
 				explodingPositions.map(async (position) => {
 					const tumbleSymbol = stateTumble.base[position.reel]?.[position.row];
 					if (!tumbleSymbol) return;
+					// A symbol may also carry its OWN pop (Invisible Symbols → per-symbol sound), heard
+					// alongside the step's cue rather than instead of it. Unbound — the normal case — this
+					// broadcasts nothing at all.
+					playSymbolTumbleExplosionSound(tumbleSymbol.rawSymbol.name);
 					tumbleSymbol.symbolState = 'tumbleExplosion';
 					await awaitBeat((resolve) => (tumbleSymbol.oncomplete = resolve));
 				}),

@@ -335,6 +335,29 @@ Working on `main`:
 
 ## Recent changes
 
+- 2026-08-25 — **New "Symbol sounds" section — the cue ONE symbol plays entering ONE state.** The
+  per-symbol half of the sound-binding work (the game-wide half is `/config` → Sounds; see
+  `docs/status/engine.md` for the whole story). New `symbolSounds` on the doc: `symbol → state →
+  audiosprite key`, sparse at both levels, assetless (the name addresses a region of the game's own
+  audiosprite), travelling export → bake → `bakedSymbolSounds()`.
+  - **A SEPARATE section, not a `sound` field on the state cell** — and that is load-bearing. The doc
+    is merged over the coded map cell-by-cell (`mergeSymbolMap` spreads per STATE), so an override
+    cell carrying only a sound would replace the whole binding and take the state's ART with it. The
+    two are also independently interesting: "the bell dings when it lands" is a thing to say about a
+    symbol whose art nobody has touched.
+  - **Only the states the engine actually fires a per-symbol cue on are offered** — `land` (which
+    REPLACES the game-wide landing cue for that symbol) and, for a cascading project only,
+    `tumbleExplosion` (heard ALONGSIDE the cascade's own pop, since the pop is the beat and this is
+    the symbol's voice in it). The schema accepts every state so bindings round-trip, but the UI
+    refuses to offer one nothing plays: a dropdown that saves a cue no code path reads is exactly how
+    `tumble_win_1…5` came to sit in the audiosprite for years looking bound.
+  - **The save-path whitelist and the dirty signature both had to learn the field**, the two traps
+    this file already carries warnings about: `normalizeSymbolsDoc` rebuilds explicitly (an unlisted
+    field is dropped silently on save) and `docSignature` drives the dirty flag (an unlisted field
+    means Save stays disabled while the author edits). Both pinned by
+    `pnpm --filter launcher-api check:sound-bindings`, which round-trips through the REAL
+    `normalizeSymbolsDoc` rather than only the Zod parse.
+
 - 2026-08-25 — **A stacked symbol authors TWO pictures: the resting one and the winning one**
   (owner request). The "Stacked pictures" section had a single `art` per symbol, so a stack that was
   paying looked exactly like a stack that was idling. Each stacked entry now carries an optional

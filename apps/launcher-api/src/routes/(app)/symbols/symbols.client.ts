@@ -371,6 +371,13 @@ export interface SymbolsDoc {
 	 *  symbol is absent and every sentence falls back to printing its id. Read by Invisible Win
 	 *  Text as `{symbolName}`; the shared resolution lives in `engine-layout/symbolNames.ts`. */
 	names?: Record<string, SymbolNameEntry>;
+	/** PER-SYMBOL SOUND: symbol id → state → audiosprite key, the cue THIS symbol plays entering
+	 *  THAT state. Sparse at both levels; a symbol/state with no entry falls through to the
+	 *  game-wide sound SLOT for that moment (Invisible Game Config → Sounds), which is where the
+	 *  engine's shipped defaults live. A separate section rather than a field on the state cell
+	 *  because the doc merges cell-by-cell over the coded map — a cell carrying only a sound would
+	 *  replace the binding and take the state's ART with it. */
+	symbolSounds?: Record<string, Record<string, string>>;
 	/** Global win-frame spine that loops over winning symbols. Absent = the game's
 	 *  built-in default (a local `payframe` spine). Set ONLY when the user overrides
 	 *  it with an R2 spine bundle; never written for the default. Carries an optional
@@ -1215,9 +1222,20 @@ export function docSignature(doc: SymbolsDoc): string {
 					: null,
 			}
 		: null;
+	// Listed here or binding a per-symbol sound never marks the page dirty and Save stays disabled —
+	// the same trap every sibling above carries a warning about. Both levels sorted, so a cue picked
+	// in an arbitrary row order still hashes stable.
+	const symbolSounds: Record<string, unknown> = {};
+	for (const symbol of Object.keys(doc.symbolSounds ?? {}).sort()) {
+		const states = doc.symbolSounds![symbol];
+		const ordered: Record<string, string> = {};
+		for (const state of SYMBOL_STATES) if (states[state]) ordered[state] = states[state];
+		symbolSounds[symbol] = ordered;
+	}
 	return JSON.stringify({
 		symbols,
 		names,
+		symbolSounds,
 		highlight,
 		boardGlow,
 		winLine,
@@ -1226,6 +1244,30 @@ export function docSignature(doc: SymbolsDoc): string {
 		bookVfx,
 		anticipation,
 	});
+}
+
+/**
+ * Bind (or clear) ONE symbol's cue for ONE state. New doc, sparse at both levels: a blank name drops
+ * the state, and a symbol left with no states drops entirely — so clearing every dropdown round-trips
+ * to no `symbolSounds` key at all rather than leaving an empty object that reads as "authored".
+ * Mirrors the server's prune in `symbolsStorage.ts`.
+ */
+export function withSymbolSound(
+	doc: SymbolsDoc,
+	symbol: string,
+	state: string,
+	name: string,
+): SymbolsDoc {
+	const all = { ...(doc.symbolSounds ?? {}) };
+	const states = { ...(all[symbol] ?? {}) };
+	if (name) states[state] = name;
+	else delete states[state];
+	if (Object.keys(states).length) all[symbol] = states;
+	else delete all[symbol];
+	const next = { ...doc };
+	if (Object.keys(all).length) next.symbolSounds = all;
+	else delete next.symbolSounds;
+	return next;
 }
 
 /** Raised when a save lost to a concurrent author, so the page can offer a choice

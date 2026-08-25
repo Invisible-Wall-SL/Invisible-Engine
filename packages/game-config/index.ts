@@ -7,4 +7,5 @@ export * from './src/winLevels';
 export * from './src/winModel';
 export * from './src/mechanics';
 export * from './src/reelBehaviour';
+export * from './src/sounds';
 export * from './src/grid';

@@ -477,6 +477,36 @@ before (the saved doc). Build-verified + node-harness-verified; launcher render 
   mock (`availablePayLines`), **5** from the lines mock (`paylines`), and **`null`** for an unreachable
   host — exactly as intended.
 
+## Sounds panel — the game-wide sound SLOTS (2026-08-25)
+
+New `sounds` block on `GameConfigDoc` + a **Sounds** section in `/config`: which cue the game plays
+at each named presentation moment. This is the game-wide half of the sound-binding work; the
+per-symbol half is `/symbols` → Symbol sounds. **The full story — why 26 of 53 shipped sounds had
+never played, and the slot model — is in `docs/status/engine.md` (2026-08-25).**
+
+What is specific to this tool:
+
+- **`packages/game-config/src/sounds.ts`** owns the catalogue (`SOUND_SLOTS`), the binding type
+  (`GameSounds`), the resolver (`resolveSounds` → `slot`/`pick`), the departure-only normalizer
+  (`normalizeSounds`), and the id-free picture/royal routing (`landSlotForSymbol`). Dependency-free
+  like the rest of the package, so it is fixture-verifiable offline —
+  `packages/game-config/sounds.fixture.ts`, 36 claims.
+- **The default is INVERTED from every other optional block here.** Elsewhere absent means "what the
+  engine did before this block existed"; for sound that was *nothing*, so absent resolves to the full
+  catalogue instead. A block that defaulted to the old behaviour would ship the fix switched off.
+- **The panel stores only DEPARTURES.** A binding equal to the catalogue is dropped on normalize, so
+  a config that opens the panel and saves serialises byte-identically to one written before the block
+  existed — and keeps TRACKING the catalogue rather than pinning that day's copy. `resolveSounds`
+  is read through everywhere for the same reason `resolveReelBehaviour` is: the tool and the engine
+  must not be able to answer "what does absent mean" differently.
+- **`enabled: false` is the only silence**; an empty `names` list means "give me the default back",
+  which is the far likelier accident. The `+`/`−` rung controls refuse to go below one for that
+  reason.
+- Verified: the fixture above, `pnpm --filter launcher-api build` (green — a bundle check, not
+  types), `pnpm --filter launcher-api check:sound-bindings`, and a live spin in `apps/lines` proving
+  the resolved bindings reach Howler. ⏳ **The `/config` Sounds panel itself is not owner-verified in
+  the browser** — build-green only, same caveat every launcher panel carries.
+
 ## Open items / next
 
 0. ✅ ~~**Un-scopeable atlas refs**~~ — CLOSED (2026-08-20, three changes, see Recent changes):

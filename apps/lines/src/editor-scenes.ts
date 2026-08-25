@@ -178,6 +178,13 @@ type BakedBundle = {
 		 * Text interpolates them as `{symbolName}`, so renaming a symbol in `/symbols` rewrites
 		 * every win sentence with no template edit. Absent → each symbol speaks as its own id. */
 		names?: SymbolNameMap;
+		/** PER-SYMBOL SOUND OVERRIDES (Invisible Symbols State Machine output) — symbol → state →
+		 * audiosprite key, the cue that ONE symbol plays entering ONE state. Pure text, no asset:
+		 * the name addresses a region of the game's own audiosprite, which ships with the game.
+		 * Sparse at both levels; a symbol/state with no entry falls through to the config's
+		 * game-wide sound slot for that moment (`game-config/sounds`), which is where the shipped
+		 * defaults live. Absent → every symbol uses the slots. */
+		symbolSounds?: Record<string, Record<string, string>>;
 		/** Single GLOBAL win-highlight frame (Invisible Symbols State Machine output). `assetKey`
 		 * is the engine spine-asset key the bundle registers — the highlight spine bundle is
 		 * exported to `deploy/editor-symbols/` and registered via `index.spines` exactly like the
@@ -720,6 +727,21 @@ export function bakedSymbolNames(): SymbolNameMap {
 	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.names ?? {};
 	if (!hasBakedDoc()) return {};
 	return bakedBundle.symbols?.names ?? {};
+}
+
+/**
+ * PER-SYMBOL SOUND OVERRIDES authored in the Invisible Symbols State Machine — the cue one symbol
+ * plays entering one state, which wins over the config's game-wide slot for that moment.
+ *
+ * Mirrors `bakedSymbolNames`' runtime→baked→empty resolution, and returns `{}` rather than
+ * `undefined` for the same reason: every caller wants to do one lookup and get nothing back, not to
+ * null-check first. An empty map means every symbol falls through to the slots, which is the state
+ * an un-authored project ships in.
+ */
+export function bakedSymbolSounds(): Record<string, Record<string, string>> {
+	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.symbolSounds ?? {};
+	if (!hasBakedDoc()) return {};
+	return bakedBundle.symbols?.symbolSounds ?? {};
 }
 
 /**

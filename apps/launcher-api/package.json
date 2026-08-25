@@ -23,6 +23,7 @@
 		"gen:game-config-defaults": "tsx scripts/generate-game-config-defaults.ts",
 		"check:game-config-defaults": "tsx scripts/generate-game-config-defaults.ts --check",
 		"check:symbol-state-parity": "tsx scripts/check-symbol-state-parity.ts",
+		"check:sound-bindings": "tsx --tsconfig tsconfig.scripts.json scripts/check-sound-bindings.ts",
 		"check:deployed-page": "node --experimental-strip-types scripts/check-deployed-page.mjs",
 		"r2:sync-spines": "node scripts/r2-sync-spines.mjs",
 		"pull:assets": "node scripts/pull-project-assets.mjs"

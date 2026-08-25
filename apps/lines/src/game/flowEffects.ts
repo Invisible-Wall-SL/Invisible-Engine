@@ -48,6 +48,7 @@ import {
 } from 'engine-layout';
 
 import { eventEmitter } from './eventEmitter';
+import { playWildExplodeSound } from './soundBindings';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { stateApp } from './stateApp';
 import { type WinLevelData } from 'engine-game';
@@ -1003,7 +1004,7 @@ const effects: Record<string, FlowEffect> = {
 			for (let row = 1; row <= boardDimensions().y && row < symbols.length - 1; row++) {
 				const reelSymbol = symbols[row];
 				if (!reelSymbol || reelSymbol.rawSymbol.name === special) continue;
-				eventEmitter.broadcast({ type: 'soundOnce', name: 'sfx_wild_explode' });
+				playWildExplodeSound();
 				reelSymbol.symbolState = 'explosion';
 				await roundSkip.race(waitForResolve((resolve) => (reelSymbol.oncomplete = resolve)));
 				reelSymbol.rawSymbol = { ...reelSymbol.rawSymbol, name: special };
