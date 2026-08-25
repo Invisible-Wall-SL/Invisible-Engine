@@ -98,6 +98,34 @@
 		error?: string;
 	}
 
+	interface PodNode {
+		name: string;
+		url?: string;
+		sha?: string;
+		vendored?: boolean;
+		note?: string;
+	}
+	interface NodeList {
+		configured: boolean;
+		nodes?: PodNode[];
+		error?: string;
+	}
+	interface ResolvedNode {
+		name: string;
+		url: string;
+		sha: string;
+		subject?: string;
+		date?: string;
+	}
+
+	let nodeList = $state<NodeList | null>(null);
+	let nodesOpen = $state(false);
+	let addUrl = $state('');
+	let addNote = $state('');
+	let resolved = $state<ResolvedNode | null>(null);
+	let nodeBusy = $state(false);
+	let nodeError = $state('');
+
 	let build = $state<BuildState | null>(null);
 	let buildBusy = $state(false);
 	let moving = $state<Record<string, boolean>>({});
@@ -287,6 +315,107 @@
 		return image.endsWith(`:${shortSha(sha)}`);
 	}
 
+	async function loadNodes(): Promise<void> {
+		try {
+			const res = await fetch('/comfyui/nodes');
+			if (res.ok) nodeList = (await res.json()) as NodeList;
+		} catch {
+			// Transient; the section keeps whatever it last showed.
+		}
+	}
+
+	/** Step 1: what WOULD be pinned. Nothing is written, so this is safe to press freely. */
+	async function resolveNode(): Promise<void> {
+		if (!addUrl.trim() || nodeBusy) return;
+		nodeBusy = true;
+		nodeError = '';
+		resolved = null;
+		try {
+			const res = await fetch('/comfyui/nodes', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ url: addUrl }),
+			});
+			const data = (await res.json().catch(() => ({}))) as {
+				node?: ResolvedNode;
+				error?: string;
+				message?: string;
+			};
+			if (res.ok && data.node) resolved = data.node;
+			else nodeError = data.error ?? data.message ?? `Could not resolve (${res.status}).`;
+		} catch (err) {
+			nodeError = err instanceof Error ? err.message : 'Could not reach the launcher.';
+		} finally {
+			nodeBusy = false;
+		}
+	}
+
+	/** Step 2: commit it. One commit on main, which also triggers the image build. */
+	async function commitNode(): Promise<void> {
+		if (!resolved || nodeBusy) return;
+		nodeBusy = true;
+		nodeError = '';
+		try {
+			const res = await fetch('/comfyui/nodes', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ url: addUrl, note: addNote, commit: true }),
+			});
+			const data = (await res.json().catch(() => ({}))) as {
+				ok?: boolean;
+				list?: PodNode[];
+				error?: string;
+				message?: string;
+			};
+			if (res.ok && data.ok) {
+				if (data.list && nodeList) nodeList = { ...nodeList, nodes: data.list };
+				addUrl = '';
+				addNote = '';
+				resolved = null;
+				void loadBuild();
+			} else {
+				nodeError = data.error ?? data.message ?? `Could not add it (${res.status}).`;
+			}
+		} catch (err) {
+			nodeError = err instanceof Error ? err.message : 'Could not reach the launcher.';
+		} finally {
+			nodeBusy = false;
+		}
+	}
+
+	async function dropNode(name: string): Promise<void> {
+		if (nodeBusy) return;
+		if (
+			!confirm(`Remove ${name} from the image?
+
+Commits to main and rebuilds.`)
+		)
+			return;
+		nodeBusy = true;
+		nodeError = '';
+		try {
+			const res = await fetch(`/comfyui/nodes?name=${encodeURIComponent(name)}`, {
+				method: 'DELETE',
+			});
+			const data = (await res.json().catch(() => ({}))) as {
+				ok?: boolean;
+				list?: PodNode[];
+				error?: string;
+				message?: string;
+			};
+			if (res.ok && data.ok) {
+				if (data.list && nodeList) nodeList = { ...nodeList, nodes: data.list };
+				void loadBuild();
+			} else {
+				nodeError = data.error ?? data.message ?? `Could not remove it (${res.status}).`;
+			}
+		} catch (err) {
+			nodeError = err instanceof Error ? err.message : 'Could not reach the launcher.';
+		} finally {
+			nodeBusy = false;
+		}
+	}
+
 	async function loadBuild(): Promise<void> {
 		try {
 			const res = await fetch('/comfyui/build');
@@ -429,6 +558,7 @@ RunPod recreates the container, so anything ` +
 		// building. GitHub's authed rate limit is shared with the rest of the launcher, and
 		// a number that changes every few minutes does not belong in a 5s poll.
 		void loadBuild();
+		void loadNodes();
 		const buildPoll = setInterval(() => {
 			if (buildRunning(build)) void loadBuild();
 		}, 15000);
@@ -675,6 +805,96 @@ RunPod recreates the container, so anything ` +
 							</div>
 							{#if build.error}
 								<p class="avail-note">{build.error}</p>
+							{/if}
+
+							<!-- The node list. Collapsed by default: it is the answer to a question you
+							     ask when something is missing, not every time you start a pod. -->
+							{#if nodeList?.nodes}
+								<button
+									class="nodes-toggle"
+									onclick={() => (nodesOpen = !nodesOpen)}
+									aria-expanded={nodesOpen}
+								>
+									{nodesOpen ? '▾' : '▸'} Custom nodes ({nodeList.nodes.length})
+								</button>
+								{#if nodesOpen}
+									<ul class="nodes">
+										{#each nodeList.nodes as node (node.name)}
+											<li class="node">
+												<div class="node-head">
+													<span class="node-name">{node.name}</span>
+													{#if node.vendored}
+														<span class="node-sha">vendored in the repo</span>
+													{:else}
+														<code class="node-sha">{node.sha}</code>
+													{/if}
+													{#if data.canAdmin && !node.vendored}
+														<button
+															class="node-drop"
+															onclick={() => void dropNode(node.name)}
+															disabled={nodeBusy}
+															title="Remove from nodes.json — commits to main and rebuilds"
+														>
+															remove
+														</button>
+													{/if}
+												</div>
+												{#if node.note}
+													<p class="node-note">{node.note}</p>
+												{/if}
+											</li>
+										{/each}
+									</ul>
+
+									{#if data.canAdmin}
+										<!-- Two steps, deliberately: RESOLVE shows the exact commit that would be
+										     pinned, so nobody writes down a ref they have not looked at. A node on
+										     a floating branch is how silent drift comes back. -->
+										<div class="node-add">
+											<input
+												class="node-input"
+												type="url"
+												placeholder="https://github.com/owner/repo"
+												bind:value={addUrl}
+												disabled={nodeBusy}
+											/>
+											<input
+												class="node-input"
+												type="text"
+												placeholder="note (optional) — why it is here, what it breaks on"
+												bind:value={addNote}
+												disabled={nodeBusy}
+											/>
+											{#if resolved}
+												<p class="node-resolved">
+													Pins <code>{resolved.name}</code> at <code>{resolved.sha}</code>
+													{#if resolved.subject}— “{resolved.subject}”{/if}
+													{#if resolved.date}({resolved.date.slice(0, 10)}){/if}
+												</p>
+												<button
+													class="secondary sm"
+													onclick={() => void commitNode()}
+													disabled={nodeBusy}
+												>
+													{nodeBusy ? 'Committing…' : 'Add & commit'}
+												</button>
+											{:else}
+												<button
+													class="secondary sm"
+													onclick={() => void resolveNode()}
+													disabled={nodeBusy || !addUrl.trim()}
+												>
+													{nodeBusy ? 'Resolving…' : 'Resolve'}
+												</button>
+											{/if}
+										</div>
+									{/if}
+									{#if nodeError}
+										<p class="avail-note">{nodeError}</p>
+									{/if}
+								{/if}
+							{:else if nodeList?.error}
+								<p class="avail-note">Node list unavailable — {nodeList.error}</p>
 							{/if}
 						</div>
 					{/if}
@@ -1116,6 +1336,82 @@ RunPod recreates the container, so anything ` +
 	}
 	.movenote.bad {
 		color: #c9a88f;
+	}
+	.nodes-toggle {
+		margin: 10px 0 0;
+		padding: 0;
+		background: none;
+		border: none;
+		font-size: 12px;
+		color: #8a8a93;
+		cursor: pointer;
+	}
+	.nodes-toggle:hover {
+		color: #c3c3cc;
+	}
+	.nodes {
+		list-style: none;
+		margin: 8px 0 0;
+		padding: 0;
+		display: grid;
+		gap: 8px;
+	}
+	.node-head {
+		display: flex;
+		align-items: baseline;
+		gap: 8px;
+		flex-wrap: wrap;
+	}
+	.node-name {
+		font-size: 13px;
+		color: #c3c3cc;
+	}
+	.node-sha {
+		font-size: 11px;
+		color: #7a7a84;
+	}
+	.node-drop {
+		padding: 0;
+		background: none;
+		border: none;
+		font-size: 11px;
+		color: #8a7a72;
+		cursor: pointer;
+		text-decoration: underline;
+	}
+	.node-drop:hover:not(:disabled) {
+		color: #e0a077;
+	}
+	.node-note {
+		margin: 2px 0 0;
+		font-size: 11px;
+		line-height: 1.5;
+		color: #7a7a84;
+	}
+	.node-add {
+		display: grid;
+		gap: 8px;
+		margin: 12px 0 0;
+		justify-items: start;
+	}
+	.node-input {
+		width: 100%;
+		max-width: 520px;
+		padding: 7px 10px;
+		font-size: 12px;
+		color: #e6e6ee;
+		background: #14141a;
+		border: 1px solid #2a2a34;
+		border-radius: 8px;
+	}
+	.node-resolved {
+		margin: 0;
+		font-size: 12px;
+		line-height: 1.5;
+		color: #8a8a93;
+	}
+	.node-resolved code {
+		color: #c3c3cc;
 	}
 	/* Quieter than a fault, louder than nothing: one missing feature, not a broken fleet. */
 	.avail-note {

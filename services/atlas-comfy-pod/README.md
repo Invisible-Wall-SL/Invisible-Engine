@@ -32,8 +32,10 @@ ComfyUI just auto-starts on port **8188**.
   the cheap-and-stable layers now sit above them, so **adding a node no longer reinstalls
   torch and the face stack**.
 - **Custom nodes** baked in:
-  - stock, cloned from GitHub **at pinned commit SHAs** (the `*_REF` ARGs — bump one
-    deliberately, the same way `COMFYUI_REF` is bumped): `ComfyUI_IPAdapter_plus`,
+  - stock, cloned from GitHub **at pinned commit SHAs**, listed in
+    [`nodes.json`](nodes.json) rather than in Dockerfile ARGs — so `/comfyui` can add and
+    remove them without a repo checkout, and each entry carries its own `note` explaining
+    why it is there: `ComfyUI_IPAdapter_plus`,
     `ComfyUI-RMBG`, `comfyui_controlnet_aux`, `PuLID_ComfyUI` (the SDXL `Pulid*` nodes),
     `ComfyUI-PuLID-Flux2` (FLUX.2 face ID — R&D only, see the Dockerfile licence note),
     **`ComfyUI-VideoHelperSuite`** (video load / combine / preview — upstream ships no
@@ -59,6 +61,7 @@ it on the volume, no rebuild. Only a genuinely new custom **node** needs a rebui
 |---|---|
 | `Dockerfile` | builds the interactive pod image — ordered stable-first, **custom nodes last** |
 | `constraints.txt` | version rules for every pip step (and every pip on a live pod); **where torch is pinned** |
+| `nodes.json` | **the custom node list** — what the Dockerfile clones, and what `/comfyui` edits |
 | `start.sh` | **CMD** — starts ComfyUI in the background + `sleep infinity` (crash-safe) |
 | `extra_model_paths.yaml` | points ComfyUI at `/workspace/ComfyUI/models` on the volume |
 | `custom_nodes/ComfyUI-PuLID-Flux/` | the artist's vendored, modified PuLID-Flux node |
