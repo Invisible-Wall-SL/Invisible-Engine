@@ -16,6 +16,9 @@
  * Run: node --experimental-strip-types packages/engine-game/fixtures/winTapLand.fixture.ts
  */
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { resolveWinTap } from '../src/game/winEscalation.ts';
 
@@ -204,6 +207,74 @@ assert.deepEqual(
 	{ kind: 'land', hold: true },
 	'expected the only tier of a one-tier chain to land-and-hold',
 );
+
+// ---------------------------------------------------------------------------------------------
+// THE SEEK TARGET. A step is two things: the walk jumps to the tapped tier's ART, and the COUNT is
+// sought to that tier's amount. The second half was dead on every project that authors its config.
+//
+// `WinVisual` derives each tier's target as `threshold × BOOK_AMOUNT_MULTIPLIER` off the presentation
+// object, and `tierToWinLevelData` — the authored-config path — did not carry `threshold` through, so
+// `?? 0` gave `[0, 0, 0, 0, 0]`. Nothing failed: `jumpTo` clamps FORWARD ONLY, so seeking to 0 is a
+// no-op and the tap still stepped the tier art while the number carried on from wherever it was.
+// Observed on `test6`, 5 tiers, all boundaries 0. The coded `winLevelMap` fallback carries a
+// threshold, which is why the un-authored dev games never showed it.
+// ---------------------------------------------------------------------------------------------
+const BOOK_AMOUNT_MULTIPLIER = 100;
+/** `test6`'s authored big tiers (`__IE_WIN_LEVELS__`, read off the live game). */
+const TIER_THRESHOLDS = [50, 60, 70, 80, 100];
+
+/** `WinCountUpProvider.jumpTo` — never backwards, never past the total. */
+const seek = (current: number, target: number, total: number) =>
+	Math.max(current, Math.min(Math.max(target, current), total));
+
+const boundariesFrom = (thresholds: (number | undefined)[]) =>
+	thresholds.map((threshold) => (threshold ?? 0) * BOOK_AMOUNT_MULTIPLIER);
+
+// BEFORE — the projection dropped `threshold`, so every target was 0 and every seek was inert.
+const dropped = boundariesFrom(TIER_THRESHOLDS.map(() => undefined));
+assert.deepEqual(dropped, [0, 0, 0, 0, 0], 'expected a dropped threshold to zero every boundary');
+assert.equal(
+	seek(4_891, dropped[3], 12_000),
+	4_891,
+	'expected a 0 target to leave the count exactly where it was — the silent half of the bug',
+);
+
+// AFTER — the tier carries its own threshold, so a tap seeks the count to that tier's amount.
+const boundaries = boundariesFrom(TIER_THRESHOLDS);
+assert.deepEqual(boundaries, [5_000, 6_000, 7_000, 8_000, 10_000]);
+assert.ok(
+	boundaries.every((b, i) => i === 0 || b > boundaries[i - 1]),
+	'expected boundaries to ascend with the ladder',
+);
+assert.equal(
+	seek(4_891, boundaries[3], 12_000),
+	8_000,
+	'expected the tap to snap the count forward',
+);
+// Still forward-only: a tap on a tier the count has already passed must not rewind the number.
+assert.equal(seek(9_000, boundaries[1], 12_000), 9_000, 'expected a passed tier not to pull back');
+// And never past the total, whatever the ladder says.
+assert.equal(seek(9_000, boundaries[4], 9_500), 9_500, 'expected the seek to clamp at the total');
+
+// The wiring itself is a Svelte template plus a closure inside `createGameConfig`, neither of which
+// can be imported and executed from Node — so it is asserted against the SOURCE, the same way
+// `scripts/verify-stepped-grid.mjs` §6 asserts the per-column window reaches both symbol renderers.
+// This is the only check that can see the regression: re-drop the field and every data-level
+// assertion above still passes while the live game goes quietly back to `[0, 0, …]`.
+{
+	const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+	const read = (rel: string) => readFileSync(join(root, rel), 'utf8').replace(/\r\n/g, '\n');
+	assert.match(
+		read('packages/engine-game/src/game/gameConfig.ts'),
+		/function tierToWinLevelData[\s\S]{0,900}?threshold: tier\.threshold/,
+		'expected the authored-config tier projection to carry `threshold`',
+	);
+	assert.match(
+		read('apps/lines/src/components/WinVisual.svelte'),
+		/boundaryAmount: \(tier\.threshold \?\? 0\) \* BOOK_AMOUNT_MULTIPLIER/,
+		'expected the seek target to be derived from the tier threshold',
+	);
+}
 
 console.log(
 	'\nOK — the final-tier tap lands the total and holds it for a dismiss tap; stepping, the instant dismiss and un-escalating wins are unchanged.',

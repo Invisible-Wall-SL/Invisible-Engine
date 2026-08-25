@@ -468,6 +468,14 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 			level: tier.level,
 			alias: tier.alias,
 			type: tier.type,
+			// CARRIED, not dropped. A resolved tier knows its own threshold and one consumer needs it on
+			// the presentation object: the big-win tap-to-step SEEKS the count to the tapped tier's amount
+			// (`threshold × BOOK_AMOUNT_MULTIPLIER`, `WinVisual.escalationBoundaries`). Omitting it read as
+			// harmless — the level already comes from the resolver — but it made every AUTHORED config's
+			// boundaries `[0, 0, …]` through `?? 0`, so on exactly the projects that author their tiers the
+			// tap stepped the tier ART while the number carried on counting from wherever it was. The coded
+			// `winLevelMap` fallback carries a threshold, which is why this only ever broke real games.
+			threshold: tier.threshold,
 			text: tier.name || null,
 			presentDuration: tier.durationMs ?? 0,
 			sound: { sfx: tier.sound?.sfx, bgm: tier.sound?.bgm },
