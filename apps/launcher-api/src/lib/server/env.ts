@@ -99,6 +99,16 @@ export const ENV = {
 	get RUNPOD_POD_ID() {
 		return env.RUNPOD_POD_ID ?? '';
 	},
+	// OPTIONAL: the data centre the fleet lives in (e.g. `EU-RO-1`), used ONLY to scope the
+	// per-card GPU stock reading. Stock is reported per GPU TYPE, but a stopped pod can only
+	// resume where its disk already is — so an unfiltered figure answers a different question
+	// than the one the artist is asking. `podSpecs` tries to read the pod's own data centre
+	// first and this is the fallback for when RunPod's schema doesn't hand it over; the whole
+	// fleet shares one region anyway (the Network Volume pins it). Empty = ask globally and
+	// SAY SO on the card, rather than quietly implying a local answer.
+	get RUNPOD_DATA_CENTER_ID() {
+		return env.RUNPOD_DATA_CENTER_ID ?? '';
+	},
 	// OPTIONAL: an always-on pod used ONLY to read what is installed, for the /comfyui
 	// "What's installed" panel. Models live on the shared Network Volume, so any pod that
 	// mounts it can list them — point this at a cheap always-on CPU pod serving ComfyUI
