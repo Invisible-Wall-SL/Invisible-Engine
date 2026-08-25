@@ -202,13 +202,21 @@ export interface WinLineLineStyle {
 /** Win-amount text style (a bitmap font, so `color` is a tint multiply). `size` is a
  *  multiple of the symbol size. */
 export interface WinLineTextStyle {
+	/** Whether the amount is stamped at all — the text's OWN switch, independent of the line's, so
+	 *  a project can stamp the amount with no line under it. Absent ⇒ it follows the line's switch
+	 *  (what a pre-split doc's single toggle meant). */
+	enabled?: boolean;
 	font?: string;
 	size?: number;
 	color?: string;
+	/** WHERE the amount is stamped: at the winning line's end (`'line'`, absent ⇒ the default) or in
+	 *  the middle of the reel window (`'boardCenter'`). Only the non-default value persists. */
+	placement?: 'line' | 'boardCenter';
 }
 
-/** Global win-line overlay config. Sparse: `enabled` absent = ON; only `{ enabled: false }`
- *  persists the OFF state; `line`/`text` carry only the fields the author changed. */
+/** Global win-line overlay config. Sparse: `enabled` is the LINE's switch — absent = ON, only
+ *  `{ enabled: false }` persists the OFF state; the amount text has its own `text.enabled`.
+ *  `line`/`text` carry only the fields the author changed. */
 export interface WinLineConfig {
 	enabled?: boolean;
 	line?: WinLineLineStyle;
@@ -674,9 +682,22 @@ export function clearBookVfxLayer(doc: SymbolsDoc, slot: BookVfxSlot): SymbolsDo
 	return next;
 }
 
-/** The effective "show win lines" flag = the doc's value ?? `true` (game default). */
+/** The effective "draw the win LINE" flag = the doc's value ?? `true` (game default). Governs the
+ *  traced line only — the stamped amount is {@link winLineTextEnabled}. */
 export function winLineEnabled(doc: SymbolsDoc): boolean {
 	return doc.winLine?.enabled ?? true;
+}
+
+/** The effective "stamp the win AMOUNT" flag. Falls back to {@link winLineEnabled} when unset, so
+ *  every doc authored before the two were split reads exactly as its single toggle meant; once the
+ *  author touches this section it stands on its own (text with no line, or a line with no amount). */
+export function winLineTextEnabled(doc: SymbolsDoc): boolean {
+	return doc.winLine?.text?.enabled ?? winLineEnabled(doc);
+}
+
+/** The effective stamp PLACEMENT: at the winning line's end, or centred in the reel window. */
+export function winLineTextPlacement(doc: SymbolsDoc): 'line' | 'boardCenter' {
+	return doc.winLine?.text?.placement ?? 'line';
 }
 
 /** The effective "keep the winning SYMBOLS animating until the next spin" flag — the game's
@@ -753,7 +774,13 @@ function pruneWinLine(winLine: WinLineConfig | undefined): WinLineConfig | undef
 		}
 		if (Object.keys(line).length) next.line = line;
 	}
-	if (text) next.text = text;
+	if (text) {
+		// The amount's switch DEFAULTS to the line's, and its placement defaults to the line's end —
+		// so a value equal to its default drops, keeping an untouched project shipping no `winLine`.
+		if (text.enabled === (winLine.enabled ?? true)) delete text.enabled;
+		if (text.placement === 'line') delete text.placement;
+		if (Object.keys(text).length) next.text = text;
+	}
 	return Object.keys(next).length ? next : undefined;
 }
 
@@ -766,13 +793,27 @@ function withWinLine(doc: SymbolsDoc, winLine: WinLineConfig): SymbolsDoc {
 	return next;
 }
 
-/** Set the global "show win lines" flag, returning a NEW doc (immutable update). Kept
+/** Set the "draw the win LINE" flag, returning a NEW doc (immutable update). Kept
  *  sparse: turning it ON drops the `enabled` field (preserving any style); only OFF
- *  persists `enabled: false`. */
+ *  persists `enabled: false`.
+ *
+ *  The amount's switch DEFAULTS to this one, so flipping the line would silently drag the text with
+ *  it — unless the text is pinned first. Pinning its current effective value keeps the amount
+ *  exactly where the author left it; `pruneWinLine` then drops the pin again whenever it happens to
+ *  agree with the new line state, so the doc stays sparse. */
 export function setWinLineEnabled(doc: SymbolsDoc, enabled: boolean): SymbolsDoc {
 	const winLine: WinLineConfig = { ...(doc.winLine ?? {}) };
+	winLine.text = { ...(winLine.text ?? {}), enabled: winLineTextEnabled(doc) };
 	if (enabled) delete winLine.enabled;
 	else winLine.enabled = false;
+	return withWinLine(doc, winLine);
+}
+
+/** Set the "stamp the win AMOUNT" flag, returning a NEW doc. Sparse via `pruneWinLine`: the flag
+ *  persists only while it DISAGREES with the line's, since that is its default. */
+export function setWinLineTextEnabled(doc: SymbolsDoc, enabled: boolean): SymbolsDoc {
+	const winLine: WinLineConfig = { ...(doc.winLine ?? {}) };
+	winLine.text = { ...(winLine.text ?? {}), enabled };
 	return withWinLine(doc, winLine);
 }
 
@@ -991,12 +1032,20 @@ export function setWinLineText(doc: SymbolsDoc, patch: Partial<WinLineTextStyle>
 	return withWinLine(doc, winLine);
 }
 
-/** Reset the win-line STYLE to defaults (clears `line`/`text`), keeping the on/off
- *  state. New doc. */
-export function clearWinLineStyle(doc: SymbolsDoc): SymbolsDoc {
+/** Reset the LINE style to defaults (clears `line`), keeping every on/off state and the amount
+ *  text untouched — the two are separate sections in the tool, so each resets only its own. New doc. */
+export function clearWinLineLineStyle(doc: SymbolsDoc): SymbolsDoc {
 	const winLine: WinLineConfig = { ...(doc.winLine ?? {}) };
 	delete winLine.line;
-	delete winLine.text;
+	return withWinLine(doc, winLine);
+}
+
+/** Reset the win-amount TEXT style to defaults (font/size/colour/placement), keeping the section's
+ *  own on/off state. New doc. */
+export function clearWinLineTextStyle(doc: SymbolsDoc): SymbolsDoc {
+	const winLine: WinLineConfig = { ...(doc.winLine ?? {}) };
+	winLine.text =
+		winLine.text?.enabled === undefined ? undefined : { enabled: winLine.text.enabled };
 	return withWinLine(doc, winLine);
 }
 

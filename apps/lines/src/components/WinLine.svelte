@@ -96,6 +96,17 @@
 	 *  drawn line and every `winLineHide` clears it — byte-identical to before this switch. */
 	const allAtOnce = cfg.line.allAtOnce;
 
+	/** The overlay's two halves are authored as separate sections in the tool, so each draws on its
+	 *  own switch: the traced line, and the stamped amount. `winLineEnabledForWin` already skipped
+	 *  the whole broadcast when BOTH are off, so at least one of these is true here. */
+	const showLine = line.enabled;
+	const showText = text.enabled;
+
+	/** Stamp the amount in the middle of the reel window instead of at the line's end. In this mode
+	 *  only the most recently shown line stamps — with "show all win lines at once" every amount
+	 *  would otherwise land on the same spot and render as one unreadable pile. */
+	const centreText = text.placement === 'boardCenter';
+
 	/** Names a drawn line by the cells it traces, so the same line shown twice stays ONE entry. */
 	const lineKey = (points: WinLinePoint[], shape: WinLineShape): string =>
 		`${shape}|${points.map((point) => `${Math.round(point.x)}:${Math.round(point.y)}`).join(',')}`;
@@ -114,8 +125,10 @@
 			const shape = emitterEvent.shape ?? 'path';
 			// A slammed round draws the line COMPLETE at once (final state, not a dropped line). A bar
 			// shape never head-traces (there is no single path to sweep) — its bars all appear
-			// together, so it takes the instant branch too.
+			// together, so it takes the instant branch too. With the line turned off there is nothing
+			// to reveal, so the stamp must not wait on a tween that reveals nothing.
 			const animated =
+				showLine &&
 				line.animated &&
 				!roundSkip.isSkipped() &&
 				shape === 'path' &&
@@ -198,6 +211,9 @@
 	 * are then clamped as a safety net (a short board or large font can overflow either way, and a
 	 * line ending on the last reel can push the text past the right edge). The text anchors top-centre,
 	 * so its box spans `x ± width/2` by `y … y + height`.
+	 *
+	 * `boardCenter` placement short-circuits all of that: the stamp sits in the middle of the reel
+	 * window regardless of where the win landed, which is the point of the mode.
 	 */
 	function labelFor(drawn: DrawnLine): { x: number; y: number } | undefined {
 		const points = drawn.points;
@@ -207,6 +223,11 @@
 		const bars = drawn.shape !== 'path';
 		const width = drawn.labelSize.width || SYMBOL_SIZE * text.size * 2;
 		const height = drawn.labelSize.height || SYMBOL_SIZE * text.size;
+		// Centred on the reel window's own middle — the text anchors top-centre, so the box is
+		// lifted by half its height to sit ON the centre rather than hang below it.
+		if (centreText) {
+			return { x: windowWidth / 2, y: Math.max(0, (windowHeight - height) / 2) };
+		}
 		// A bar shape stamps ONCE, centred over the winning columns (their x-extent) just beneath the
 		// lowest bar; an ordinary payline stamps at its last paying symbol. Both then flip-above +
 		// clamp to stay inside the reel window, exactly as before.
@@ -364,14 +385,17 @@
 	<BoardContainer>
 		<!-- Every line strokes BEFORE any stamp, so with the whole round on screen at once a later
 		     line's graphics can never be drawn over an earlier line's amount. -->
-		{#each lines as entry (entry.id)}
-			<Graphics draw={drawFor(entry)} />
-		{/each}
+		{#if showLine}
+			{#each lines as entry (entry.id)}
+				<Graphics draw={drawFor(entry)} />
+			{/each}
+		{/if}
 
-		{#each lines as entry (entry.id)}
+		{#each lines as entry, index (entry.id)}
 			{@const label = labelFor(entry)}
 			{@const labelText = labelTextOf(entry)}
-			{#if label && entry.progress.current >= 1 && labelText}
+			{@const stamps = showText && (!centreText || index === lines.length - 1)}
+			{#if stamps && label && entry.progress.current >= 1 && labelText}
 				<Container x={label.x} y={label.y}>
 					<ResponsiveBitmapText
 						anchor={{ x: 0.5, y: 0 }}

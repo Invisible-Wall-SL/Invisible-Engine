@@ -243,41 +243,65 @@ the `enableStackedPictures` Flow effect.)
 
 ### Win lines
 
-Below the board glow is the **Win lines** section: a single **global** on/off toggle plus
-the style of the in-game winning-payline overlay — the line traced across each winning
-payline, with the win amount stamped under its end. It is pure config (no asset, no
-preview). The toggle is **On by default**; flip it off to hide the overlay for the whole
-project. When it's on, two groups of controls appear:
+Below the board glow is the **Win lines** section: the in-game winning-payline overlay's
+**line** — the stroke traced across each winning payline — with its own **global** on/off
+toggle. The stamped win amount is the **separate** section right below it (see [Win amount
+text](#win-amount-text)), so the two are authored independently: turn Win lines off and Win
+amount text on to announce the amount with no line drawn under it, or the reverse. Both are
+pure config (no asset, no preview). The toggle is **On by default**; when it's on the line
+controls appear:
 
-- **Line** — **Use payline colour from config** on/off (default **On**); **Colour**;
-  **Thickness** (a fraction of the symbol size); **Glow** on/off and its **Glow colour**;
-  **Animated draw** on/off (the line draws from the first paying tile to the last, _then_ the
-  amount appears) and its **Speed** (a draw-speed multiplier; disabled unless Animated is on);
-  **Show full payline** on/off and its **Full payline colour**. Off (default) the line traces
-  only the winning symbols, up to where the amount is stamped; on, the WHOLE payline is drawn
-  across all reels in the chosen colour, with the winning segment on top (the colour is that
-  underlay's only style option; disabled unless the toggle is on). **Use payline colour from
-  config** on (default) draws each winning line in that payline's colour from the Invisible
-  Game Config, falling back to the **Colour** swatch when the config has none — so the swatch
-  is greyed out (overridden). Turn it off to make the swatch authoritative and ignore the
-  config colour. **Show all win lines at once** on/off (default **Off**) and its **Delay
-  between lines** (seconds; disabled unless the toggle is on) change how a multi-line win is
-  told: off, the spin narrates one line at a time — draw it, light its symbols, clear it, next.
-  On, every paying line of the spin appears together, each one a short beat after the last, each
-  in its own payline colour, and they all stay on screen until the next spin; the symbols still
-  celebrate one win at a time underneath them. Set the delay to 0s to have every line appear in
-  the same frame.
-- **Win amount text** — **Font** (chosen from the project's bitmap fonts — the engine
-  builtins `gold`/`goldblur`/`silver`/`purple` plus any Font-Maker fonts); **Size** (a
-  fraction of the symbol size); **Colour**. Because the amount is bitmap text, the colour
-  _tints_ it — clean on a light font, but tinting an already-coloured font (e.g. gold) just
-  darkens it, so to recolour cleanly pick a differently-coloured font.
+**Use payline colour from config** on/off (default **On**); **Colour**;
+**Thickness** (a fraction of the symbol size); **Glow** on/off and its **Glow colour**;
+**Animated draw** on/off (the line draws from the first paying tile to the last, _then_ the
+amount appears) and its **Speed** (a draw-speed multiplier; disabled unless Animated is on);
+**Show full payline** on/off and its **Full payline colour**. Off (default) the line traces
+only the winning symbols, up to where the amount is stamped; on, the WHOLE payline is drawn
+across all reels in the chosen colour, with the winning segment on top (the colour is that
+underlay's only style option; disabled unless the toggle is on). **Use payline colour from
+config** on (default) draws each winning line in that payline's colour from the Invisible
+Game Config, falling back to the **Colour** swatch when the config has none — so the swatch
+is greyed out (overridden). Turn it off to make the swatch authoritative and ignore the
+config colour. **Show all win lines at once** on/off (default **Off**) and its **Delay
+between lines** (seconds; disabled unless the toggle is on) change how a multi-line win is
+told: off, the spin narrates one line at a time — draw it, light its symbols, clear it, next.
+On, every paying line of the spin appears together, each one a short beat after the last, each
+in its own payline colour, and they all stay on screen until the next spin; the symbols still
+celebrate one win at a time underneath them. Set the delay to 0s to have every line appear in
+the same frame.
 
-A **Reset win-line style** button clears the style back to the game's coded defaults while
-leaving the on/off state alone.
+A **Reset line style** button clears the line style back to the game's coded defaults while
+leaving every on/off state — and the amount text — alone.
 
-Every field is optional and **sparse**: only the on/off (when off) and the fields you
-actually change are written, under `winLine: { enabled?, line?, text? }` on the doc.
+### Win amount text
+
+Its own section, with its own on/off toggle: the win amount stamped for each paying line,
+with the authored win message (Invisible Win Text) above it. The toggle **follows the Win
+lines toggle until you touch it** — which is exactly what the single toggle these two
+replaced used to mean, so an existing project reads unchanged. Once set it stands alone, so
+you can stamp the amount with no line under it, or draw the line and say nothing.
+
+- **Font** (chosen from the project's bitmap fonts — the engine builtins
+  `gold`/`goldblur`/`silver`/`purple` plus any Font-Maker fonts); **Size** (a fraction of
+  the symbol size); **Colour**. Because the amount is bitmap text, the colour _tints_ it —
+  clean on a light font, but tinting an already-coloured font (e.g. gold) just darkens it, so
+  to recolour cleanly pick a differently-coloured font.
+- **Position** — **At the winning line** (default) stamps the amount just past the last
+  paying symbol, flipping above the line when there is no room below it and clamped to stay
+  inside the reel window. **Centre of the reels** ignores where the win landed and puts the
+  amount in the middle of the reel window instead. In centre mode only **one** amount is on
+  screen at a time — the win just announced — so with **Show all win lines at once** on you
+  read the wins being narrated rather than every amount piled on the same spot.
+
+A **Reset text style** button clears the font/size/colour/position back to the coded
+defaults, leaving this section's on/off alone.
+
+Every field of both sections is optional and **sparse**: only an on/off that differs from
+its default and the fields you actually change are written, under
+`winLine: { enabled?, line?, text? }` on the doc — `enabled` is the LINE's switch,
+`text.enabled` the amount's (absent ⇒ it follows the line's), and `text.placement` the
+position (absent ⇒ at the line).
+
 Colours are CSS hex strings; `width`/`size` are multiples of the symbol size; `speed`
 scales the animated-draw duration; `line.fullPayline`/`line.fullPaylineColor` carry the full
 payline option; `line.useConfigColor` carries the config-colour toggle (default ON, so only
@@ -318,11 +342,11 @@ still draws the line — just without the number under it. (It's disabled when t
 off, since there's no line for the amount to sit under.) Stored as `winCycle.showText` (only
 the off-state persists).
 
-That switch only asks the replay to _reuse_ the line; the **Win lines** section above still
-owns whether a line exists at all. With the overlay off nothing is drawn either way, and a
-scatter win — which pays "anywhere", not on a line — never draws one but still lights its
-symbols. This is also why the replay is its own section rather than a win-line setting:
-switching the overlay off must not stop the symbols.
+That switch only asks the replay to _reuse_ the line; the **Win lines** and **Win amount
+text** sections above still own whether a line and an amount exist at all. With both off
+nothing is drawn either way, and a scatter win — which pays "anywhere", not on a line — never
+draws one but still lights its symbols. This is also why the replay is its own section rather
+than a win-line setting: switching the overlay off must not stop the symbols.
 
 A free-spin feature replays its **last** spin's wins. The replay is skipped while autoplay or
 space-hold is running, since the next spin is already on its way.

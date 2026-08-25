@@ -121,20 +121,34 @@ to also carry line + text **style**. It is still **pure config — no asset, no 
     "line": { "color": "#ff3366", "width": 0.04, "glow": true, "glowColor": "#ff88aa",
               "animated": true, "speed": 1.5,
               "fullPayline": true, "fullPaylineColor": "#4a90d9" },
-    "text": { "font": "silver", "size": 0.6, "color": "#ffffff" }
+    "text": { "enabled": true, "font": "silver", "size": 0.6, "color": "#ffffff",
+              "placement": "boardCenter" }   // enabled: present only when it DIFFERS from the line's
   }
 }
 ```
 
 - **Contract field (end to end):** `winLine?: { enabled?; line?; text? }` on `SymbolsDoc`
   (schema in `symbolsStorage.ts`; client type + sparse setters in `symbols.client.ts`).
-  Every field is optional; the EFFECTIVE on/off is `doc.winLine?.enabled ?? true` and each
-  style field falls through to the game's coded default. Colours are CSS hex strings
-  (Pixi 8 `ColorSource`); `line.width`/`text.size` are multiples of `SYMBOL_SIZE`;
-  `line.speed` scales the animated-draw duration.
+  Every field is optional; each style field falls through to the game's coded default.
+  Colours are CSS hex strings (Pixi 8 `ColorSource`); `line.width`/`text.size` are multiples
+  of `SYMBOL_SIZE`; `line.speed` scales the animated-draw duration.
+- **TWO switches, not one (2026-08-24).** The line and the stamped amount are separate
+  sections in the tool, so a project can announce an amount with no line under it (or the
+  reverse): the EFFECTIVE line on/off is `doc.winLine?.enabled ?? true`, the EFFECTIVE text
+  on/off is `doc.winLine?.text?.enabled ?? <the line's>`. That fallback is what makes the
+  split free: a doc written when one toggle governed both — including `{ enabled: false }` —
+  still means exactly what it meant. `bakedWinLineEnabled()` is their OR (whether the overlay
+  is broadcast at all); `WinLine.svelte` then draws each half on its own flag.
+- **Amount placement.** `text.placement` (`'line'` default | `'boardCenter'`) moves the stamp
+  from the winning line's end to the middle of the reel window. In `boardCenter` only the
+  LAST-shown line stamps — with `line.allAtOnce` on, every amount would otherwise land on the
+  identical spot.
 - **Sparse on purpose.** Default (on, default style) writes nothing. Only the off-state
-  (`enabled: false`) and the individual fields the author changes are persisted; "Reset
-  win-line style" clears `line`/`text`; turning the toggle back on clears `enabled`.
+  (`enabled: false`), a `text.enabled` that DISAGREES with it, a non-default `text.placement`,
+  and the individual fields the author changes are persisted; the two "Reset … style" buttons
+  clear `line` / `text` respectively (keeping the on/off states); turning a toggle back to its
+  default clears its flag. Client and server prune identically — they must, or the page reads
+  dirty right after a clean save.
 - **Show full payline (added 2026-07-27).** `line.fullPayline` (bool, default off) draws the
   WHOLE payline across all reels — not just the winning segment — as a static underlay beneath
   the winning line, in `line.fullPaylineColor` (its ONLY style option, coded default `#4a90d9`).
