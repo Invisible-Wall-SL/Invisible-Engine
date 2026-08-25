@@ -1,7 +1,7 @@
 import { error, json } from '@sveltejs/kit';
 import { requireComfyAccess } from '$lib/server/comfyAccess';
 import { requireComfyAdmin } from '$lib/server/comfyAdmin';
-import { addNode, readNodeList, removeNode, resolveNode } from '$lib/server/nodeList';
+import { addNode, readNodeList, removeNode, resolveNode, setNodeProd } from '$lib/server/nodeList';
 import type { RequestHandler } from './$types';
 
 const NO_STORE = { 'cache-control': 'no-store' };
@@ -65,6 +65,28 @@ export const DELETE: RequestHandler = async ({ locals, url }) => {
 	if (!name) throw error(400, 'Missing name.');
 
 	const result = await removeNode(name, author(locals));
+	return json(
+		{ ...result, list: await readNodeList().then((l) => l.nodes) },
+		{ status: result.ok ? 200 : 400, headers: NO_STORE },
+	);
+};
+
+/**
+ * PROMOTE or demote (`{ name, prod }`) — whether the node is also baked into the serverless
+ * worker, the Atlas Maker's generation path.
+ *
+ * Its own verb rather than a field on add, because it is its own decision: the standing rule
+ * is to promote only after a pod off the R&D image has rendered clean, and the commit this
+ * writes rebuilds the PROD image by itself.
+ */
+export const PATCH: RequestHandler = async ({ locals, request }) => {
+	await requireComfyAdmin(locals);
+	const body = (await request.json().catch(() => ({}))) as { name?: unknown; prod?: unknown };
+	const name = typeof body.name === 'string' ? body.name.trim() : '';
+	if (!name) throw error(400, 'Missing name.');
+	if (typeof body.prod !== 'boolean') throw error(400, 'Expected prod: true | false.');
+
+	const result = await setNodeProd(name, body.prod, author(locals));
 	return json(
 		{ ...result, list: await readNodeList().then((l) => l.nodes) },
 		{ status: result.ok ? 200 : 400, headers: NO_STORE },

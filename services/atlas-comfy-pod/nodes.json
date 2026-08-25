@@ -24,31 +24,42 @@
 		"extension. The panel checks each node against what a live pod actually loaded, and that",
 		"check reads /object_info, which only ever sees packs that register classes. Without this",
 		"flag such a pack reads as 'not seen' forever, and an expected warning is how people learn",
-		"to ignore warnings."
+		"to ignore warnings.",
+		"",
+		"`prod: true` also bakes the node into the SERVERLESS WORKER (services/atlas-serverless),",
+		"which is the Atlas Maker generation path. Most nodes are R&D-only and stay off it: some",
+		"are licence-encumbered (PuLID-Flux2 needs non-commercial antelopev2), some are simply not",
+		"needed in prod. Promotion is DELIBERATE — the standing rule is to promote only after a",
+		"pod off the R&D image renders clean, and a blueprint using an unpromoted node will not",
+		"run in the Atlas Maker."
 	],
 	"nodes": [
 		{
 			"name": "ComfyUI_IPAdapter_plus",
 			"url": "https://github.com/cubiq/ComfyUI_IPAdapter_plus",
 			"sha": "a0f451a5113c",
+			"prod": true,
 			"note": "IPAdapter. Dormant upstream since April 2025; survived the v0.33.1 core bump."
 		},
 		{
 			"name": "ComfyUI-RMBG",
 			"url": "https://github.com/1038lab/ComfyUI-RMBG",
 			"sha": "9edb2bec3900",
+			"prod": true,
 			"note": "Background removal."
 		},
 		{
 			"name": "comfyui_controlnet_aux",
 			"url": "https://github.com/Fannovel16/comfyui_controlnet_aux",
 			"sha": "e8b689a513c3",
+			"prod": true,
 			"note": "ControlNet preprocessors (AIO_Preprocessor)."
 		},
 		{
 			"name": "PuLID_ComfyUI",
 			"url": "https://github.com/cubiq/PuLID_ComfyUI",
 			"sha": "93e0c4c226b8",
+			"prod": true,
 			"note": "The SDXL Pulid* nodes, incl. PulidModelLoader used by Characterdesignertest3."
 		},
 		{
@@ -72,6 +83,7 @@
 		{
 			"name": "ComfyUI-PuLID-Flux",
 			"vendored": true,
+			"prod": true,
 			"note": "The artist's MODIFIED PuLID-Flux. Cloning stock balazik would drop the attn_mask fix and break the blueprint. See custom_nodes/README.md."
 		},
 		{

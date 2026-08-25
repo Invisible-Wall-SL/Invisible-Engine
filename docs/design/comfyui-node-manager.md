@@ -86,8 +86,12 @@ After a build lands and a pod is moved, hit the pod's `/object_info` and check t
 
 Shipped as a JOIN rather than a new probe: `nodes.json` is what should be on the image, and the inventory panel already read which packs the answering pod loaded, so the comparison happens in the browser with no extra request. Two things kept it honest. A pack that registers NO node classes (a frontend extension) can never appear in `/object_info`, so it carries `noClasses: true` and reads "frontend only" — an expected warning is how people learn to ignore warnings. And when the reading pod is on an older build, "not seen" is meaningless: the section says so once, and the tooltip blames the build rather than the node.
 
-### Phase 4 — Promote to the serverless worker
+### Phase 4 — Promote to the serverless worker — ✅ DONE (2026-08-25)
 The same list, a second target, an explicit button; keeps `atlas-serverless` in lockstep on purpose rather than by memory.
+
+Shipped as a `prod` flag on the entry. The worker Dockerfile reads the SAME `nodes.json`, filtered to `prod`; CI copies the file into that build context (Docker COPY cannot escape it, and moving the context to the repo root would ship the monorepo to a runner already reclaiming ~25 GB). Because the worker's workflow watches the file, a promotion rebuilds prod by itself.
+
+**Proven to be a no-op on landing:** the four nodes the worker clones today were flagged `prod`, and the new loop — lifted verbatim out of the Dockerfile and run against the real list — emits exactly those four names at exactly those four SHAs. Prod's node set does not move when this merges; only where the list LIVES does.
 
 ### Phase 5 — The volume test lane *(optional)*
 `custom_nodes:` in `extra_model_paths.yaml` + `PYTHONPATH=/workspace/pysite` in `start.sh`, and a UI affordance that installs a node there for an immediate try, clearly marked temporary, with a "bake this one" action that turns it into a Phase 2 commit.

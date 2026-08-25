@@ -103,6 +103,7 @@
 		url?: string;
 		sha?: string;
 		vendored?: boolean;
+		prod?: boolean;
 		noClasses?: boolean;
 		note?: string;
 	}
@@ -429,6 +430,48 @@
 				void loadBuild();
 			} else {
 				nodeError = data.error ?? data.message ?? `Could not add it (${res.status}).`;
+			}
+		} catch (err) {
+			nodeError = err instanceof Error ? err.message : 'Could not reach the launcher.';
+		} finally {
+			nodeBusy = false;
+		}
+	}
+
+	/**
+	 * Promote a node to the serverless worker, or take it off. Confirms hard: this one rebuilds
+	 * the PROD generation image, and the standing rule is to promote only after a pod off the
+	 * R&D image has rendered clean.
+	 */
+	async function toggleProd(node: PodNode): Promise<void> {
+		if (nodeBusy) return;
+		const to = !node.prod;
+		const warning = to
+			? `Promote ${node.name} to the serverless worker?
+
+That is the Atlas Maker's PROD generation path. It commits to main and rebuilds the prod image. Promote only after a pod off the R&D image has rendered clean with it.`
+			: `Take ${node.name} off the serverless worker?
+
+Any blueprint that uses it will stop running in the Atlas Maker.`;
+		if (!confirm(warning)) return;
+		nodeBusy = true;
+		nodeError = '';
+		try {
+			const res = await fetch('/comfyui/nodes', {
+				method: 'PATCH',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ name: node.name, prod: to }),
+			});
+			const data = (await res.json().catch(() => ({}))) as {
+				ok?: boolean;
+				list?: PodNode[];
+				error?: string;
+				message?: string;
+			};
+			if (res.ok && data.ok) {
+				if (data.list && nodeList) nodeList = { ...nodeList, nodes: data.list };
+			} else {
+				nodeError = data.error ?? data.message ?? `Could not change it (${res.status}).`;
 			}
 		} catch (err) {
 			nodeError = err instanceof Error ? err.message : 'Could not reach the launcher.';
@@ -895,7 +938,32 @@ RunPod recreates the container, so anything ` +
 															{loaded.label}
 														</span>
 													{/if}
+													{#if node.prod}
+														<span
+															class="node-state ok"
+															title="Also baked into the serverless worker — usable by Atlas Maker blueprints."
+														>
+															prod
+														</span>
+													{:else}
+														<span
+															class="node-state muted"
+															title="R&D pod only. A blueprint using this node will NOT run in the Atlas Maker until it is promoted."
+														>
+															R&D only
+														</span>
+													{/if}
 													{#if data.canAdmin && !node.vendored}
+														<button
+															class="node-drop"
+															onclick={() => void toggleProd(node)}
+															disabled={nodeBusy}
+															title={node.prod
+																? 'Take it off the serverless worker — rebuilds the prod image'
+																: 'Also bake it into the serverless worker — rebuilds the PROD image'}
+														>
+															{node.prod ? 'demote' : 'promote'}
+														</button>
 														<button
 															class="node-drop"
 															onclick={() => void dropNode(node.name)}

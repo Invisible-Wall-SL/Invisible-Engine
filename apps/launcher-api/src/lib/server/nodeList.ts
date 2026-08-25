@@ -25,6 +25,13 @@ export interface PodNode {
 	sha?: string;
 	vendored?: boolean;
 	/**
+	 * Also baked into the SERVERLESS WORKER — the Atlas Maker's generation path. Most nodes are
+	 * R&D-only and stay off it: some are licence-encumbered, most are simply not needed there.
+	 * A blueprint using an unpromoted node will not run in the Atlas Maker, which is the whole
+	 * reason this flag is visible in the panel rather than buried in a Dockerfile.
+	 */
+	prod?: boolean;
+	/**
 	 * The pack registers no NODE CLASSES (a frontend/UI extension). The panel checks each node
 	 * against what a live pod loaded, and that check reads `/object_info` — which only ever
 	 * sees packs that register classes. Without this flag such a pack reads "not seen" forever.
@@ -253,4 +260,59 @@ export async function removeNode(
 	const doc: NodesDoc = { ...list.doc, nodes: list.nodes.filter((n) => n !== target) };
 	const message = `infra(pod): drop ${target.name} from the R&D image\n\nRemoved from /comfyui by ${author.name}.`;
 	return commitNodes(doc, list.revision, message, author);
+}
+
+/**
+ * Promote a node to the serverless worker, or take it back off.
+ *
+ * Deliberately its own action rather than a side effect of adding: the worker is the PROD
+ * generation path, and the standing rule is to promote only after a pod off the R&D image
+ * has rendered clean. Flipping this triggers a prod worker rebuild all by itself, because
+ * that image's workflow watches this file.
+ */
+export async function setNodeProd(
+	name: string,
+	prod: boolean,
+	author: CommitAuthor,
+): Promise<{ ok: boolean; error?: string }> {
+	const list = await readNodeList();
+	if (list.error || !list.nodes || !list.revision || !list.doc) {
+		return { ok: false, error: list.error ?? 'Could not read the node list.' };
+	}
+	const target = list.nodes.find((n) => n.name.toLowerCase() === name.toLowerCase());
+	if (!target) return { ok: false, error: `${name} is not on the list.` };
+	if (!!target.prod === prod) return { ok: true };
+
+	const doc: NodesDoc = {
+		...list.doc,
+		nodes: list.nodes.map((n) => (n === target ? withProd(n, prod) : n)),
+	};
+	const message = prod
+		? `infra(pod): promote ${target.name} to the serverless worker
+
+Promoted from /comfyui by ${author.name}. Rebuilds the PROD generation image.`
+		: `infra(pod): drop ${target.name} from the serverless worker
+
+Demoted from /comfyui by ${author.name}. Rebuilds the PROD generation image.`;
+	return commitNodes(doc, list.revision, message, author);
+}
+
+/**
+ * Set or clear `prod` while keeping the field ORDER the file already uses (name → where →
+ * pin → prod → …). Rewriting an entry as a fresh object would reshuffle its keys and turn a
+ * one-flag change into a diff nobody can read.
+ */
+function withProd(node: PodNode, prod: boolean): PodNode {
+	const out: PodNode = {} as PodNode;
+	let placed = false;
+	for (const [key, value] of Object.entries(node)) {
+		if (key === 'prod') continue;
+		(out as Record<string, unknown>)[key] = value;
+		if (!placed && (key === 'sha' || key === 'vendored')) {
+			if (prod) (out as Record<string, unknown>).prod = true;
+			placed = true;
+		}
+	}
+	if (prod && !placed) out.prod = true;
+	return out;
 }

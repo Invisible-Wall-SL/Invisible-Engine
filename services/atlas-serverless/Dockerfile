@@ -44,21 +44,30 @@ RUN pip install -r /ComfyUI/requirements.txt
 # artist only modified pulidflux.py in the separate ComfyUI-PuLID-Flux folder).
 #
 # PINNED TO COMMITS — these were bare `git clone`s of the default branch, so a rebuild
-# could pull different node code against a frozen core with no commit of ours. Keep the
-# SHAs equal to services/atlas-comfy-pod so R&D and prod run identical node code.
+# could pull different node code against a frozen core with no commit of ours.
+#
+# The list is now `nodes.json`, the SAME file the R&D pod image uses, filtered to the entries
+# flagged `prod`. One list, two targets: that is what keeps R&D and prod on identical node
+# code by construction instead of by remembering to edit two Dockerfiles. Promotion is a
+# deliberate act — flip `prod` on an entry (from /comfyui or by hand) and this image picks it
+# up on its next build. Most nodes stay off: some are licence-encumbered, most are simply not
+# needed on the generation path.
+#
+# The file is COPIED INTO this build context by the workflow rather than shared, because
+# Docker COPY cannot escape its context and moving the context to the repo root would ship
+# the whole monorepo to a builder that already reclaims ~25 GB of disk to fit a CUDA image.
+# It is gitignored here so a stale copy can never be committed.
 WORKDIR /ComfyUI/custom_nodes
-# 12-char SHAs, not 40: a full hex SHA trips the repo secret scanner, and a trailing
-# `# pragma` would be swallowed into the ARG value rather than read as a comment.
-ARG IPADAPTER_REF=a0f451a5113c
-ARG RMBG_REF=9edb2bec3900
-ARG CONTROLNET_AUX_REF=e8b689a513c3
-ARG PULID_REF=93e0c4c226b8
-RUN set -eux; \
-    clone_at() { git clone "$1" "$2" && git -C "$2" checkout --quiet "$3"; }; \
-    clone_at https://github.com/cubiq/ComfyUI_IPAdapter_plus      ComfyUI_IPAdapter_plus "${IPADAPTER_REF}"; \
-    clone_at https://github.com/1038lab/ComfyUI-RMBG              ComfyUI-RMBG           "${RMBG_REF}"; \
-    clone_at https://github.com/Fannovel16/comfyui_controlnet_aux comfyui_controlnet_aux "${CONTROLNET_AUX_REF}"; \
-    clone_at https://github.com/cubiq/PuLID_ComfyUI               PuLID_ComfyUI          "${PULID_REF}"
+COPY nodes.json /nodes.json
+RUN set -eu; \
+    python -c "import json;print('\n'.join('%s|%s|%s' % (n['name'], n['url'], n['sha']) for n in json.load(open('/nodes.json'))['nodes'] if n.get('url') and n.get('prod')))" > /tmp/nodes.txt; \
+    test -s /tmp/nodes.txt; \
+    while IFS='|' read -r name url sha; do \
+        [ -n "$name" ] || continue; \
+        echo "== clone: $name @ $sha"; \
+        git clone --quiet "$url" "$name"; \
+        git -C "$name" checkout --quiet "$sha"; \
+    done < /tmp/nodes.txt
 # PuLID-Flux is the artist's LOCALLY-MODIFIED node — it is VENDORED in this repo and
 # copied in as-is, NOT cloned. Cloning balazik/ComfyUI-PuLID-Flux would silently drop
 # the artist's edits and break the Characterdesignertest3 blueprint. See ./custom_nodes/README.md.
