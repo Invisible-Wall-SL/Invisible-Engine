@@ -23,9 +23,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1
 
+# ffmpeg is here for ComfyUI-VideoHelperSuite. Its own dep `imageio-ffmpeg` ships a
+# bundled binary, so the pack imports without this — but that build is a fixed, reduced
+# one, and the pack's h265 / ProRes / av1-webm / NVENC format presets want a full encoder
+# set. VHS scores every ffmpeg it can find by codec support and takes the best
+# (`ffmpeg_suitability` in videohelpersuite/utils.py), so shipping both is safe.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git build-essential cmake curl wget ca-certificates \
-        libgl1 libglib2.0-0 \
+        libgl1 libglib2.0-0 ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # --- ComfyUI ----------------------------------------------------------------------
@@ -80,6 +85,13 @@ ARG PULID_REF=93e0c4c226b8
 # LICENCE: node and weights are MIT, but it needs InsightFace antelopev2, which is
 # non-commercial research only — so this path is R&D and can never ship in a game.
 ARG PULID_FLUX2_REF=3a0a3f5f1826
+# Video Helper Suite (Kosinkadink) — load / combine / preview video, the plumbing every
+# ComfyUI video workflow is built on. Upstream publishes NO tags, so this is the tip of
+# master on the day it was added (2026-08-25); bump it deliberately like the others.
+# Two couplings to core worth knowing when a bump goes wrong, because both fail at
+# IMPORT rather than at render: nodes.py imports `comfy_api.v0_0_2` and uses
+# `IO.MatchType` (present in our v0.33.1 pin — checked), and it registers a web extension.
+ARG VHS_REF=02dfc5ee26ce
 ARG MANAGER_REF=f39cbd56feca
 RUN set -eux; \
     clone_at() { git clone "$1" "$2" && git -C "$2" checkout --quiet "$3"; }; \
@@ -88,6 +100,7 @@ RUN set -eux; \
     clone_at https://github.com/Fannovel16/comfyui_controlnet_aux comfyui_controlnet_aux "${CONTROLNET_AUX_REF}"; \
     clone_at https://github.com/cubiq/PuLID_ComfyUI               PuLID_ComfyUI          "${PULID_REF}"; \
     clone_at https://github.com/iFayens/ComfyUI-PuLID-Flux2       ComfyUI-PuLID-Flux2    "${PULID_FLUX2_REF}"; \
+    clone_at https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite ComfyUI-VideoHelperSuite "${VHS_REF}"; \
     clone_at https://github.com/Comfy-Org/ComfyUI-Manager         ComfyUI-Manager        "${MANAGER_REF}"
 # Vendored, artist-modified PuLID-Flux (duplicated into this build context so COPY can
 # reach it — Docker COPY can't escape the context to ../atlas-serverless).

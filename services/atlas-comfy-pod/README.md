@@ -24,13 +24,20 @@ ComfyUI just auto-starts on port **8188**.
   4000/4500, `sm_120`). A cu124 build throws "no kernel image is available". Installed as the
   **last** pip step so ComfyUI/node requirements can't clobber it back to cu124.
 - **Custom nodes** baked in:
-  - stock, cloned from GitHub: `ComfyUI_IPAdapter_plus`, `ComfyUI-RMBG`,
-    `comfyui_controlnet_aux`, `PuLID_ComfyUI` (the SDXL `Pulid*` nodes),
-    **ComfyUI-Manager** (security level `middle`, so artists can add nodes from the web UI).
+  - stock, cloned from GitHub **at pinned commit SHAs** (the `*_REF` ARGs — bump one
+    deliberately, the same way `COMFYUI_REF` is bumped): `ComfyUI_IPAdapter_plus`,
+    `ComfyUI-RMBG`, `comfyui_controlnet_aux`, `PuLID_ComfyUI` (the SDXL `Pulid*` nodes),
+    `ComfyUI-PuLID-Flux2` (FLUX.2 face ID — R&D only, see the Dockerfile licence note),
+    **`ComfyUI-VideoHelperSuite`** (video load / combine / preview — upstream ships no
+    tags, so `VHS_REF` is a master SHA), **ComfyUI-Manager** (security level `middle`,
+    so artists can add nodes from the web UI).
   - **vendored** (artist's modified copy): `ComfyUI-PuLID-Flux` → see
     [`custom_nodes/README.md`](custom_nodes/README.md) (duplicated from the serverless copy
     because Docker `COPY` can't escape the build context).
-- **Face stack**: `insightface onnxruntime-gpu facexlib timm ftfy`.
+- **Face stack**: `insightface onnxruntime-gpu facexlib timm ftfy open-clip-torch`.
+- **ffmpeg** (apt) for VideoHelperSuite. Its `imageio-ffmpeg` dep bundles a reduced
+  binary; the pack's h265 / ProRes / av1-webm / NVENC presets want a full encoder set,
+  and VHS scores both and takes the better one.
 - **Qwen-Image** needs no custom node (native in ComfyUI) — the core deps cover it.
 
 **Models are NOT in the image.** They come from the attached Network Volume via

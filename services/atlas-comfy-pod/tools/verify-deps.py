@@ -34,6 +34,10 @@ MODULES = [
 	"torch",
 	"open_clip",
 	"safetensors",
+	# VideoHelperSuite's ffmpeg locator. If this one is missing the pack still imports
+	# and only fails at RENDER with "No valid ffmpeg found" — the apt ffmpeg is a second
+	# chance, not the primary path, so check the dep the requirements loop can swallow.
+	"imageio_ffmpeg",
 ]
 
 
