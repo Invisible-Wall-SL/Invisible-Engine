@@ -76,8 +76,10 @@ Two server actions and two buttons on `/comfyui`: **Rebuild image** (`workflow_d
 
 Shipped as planned, plus one thing the plan did not call for: **the move READS the pod before it writes.** RunPod REST had never been called from here, and its own docs describe the PATCH as "potentially triggering a reset" — so the endpoint GETs the pod first (proving base URL, auth and field names with a request that cannot break anything), PATCHes only `imageName`, then reads back and reports before/after including ports and volume mount. That turns "trust me" into evidence for the one call here that can damage something. Moving a RUNNING pod is refused outright.
 
-### Phase 2 — `nodes.json` + the add/remove UI
+### Phase 2 — `nodes.json` + the add/remove UI — ✅ DONE (2026-08-25)
 The Dockerfile reads the list; the page grows a node table (name · pinned SHA · commit date · remove) and an **Add node** form that resolves a URL to a SHA and commits the change. Adding a node = one commit + one dispatch, both from the browser.
+
+Shipped. The Dockerfile reads `nodes.json` with python (no jq in the image) into a pipe-separated loop, and `skipRequirements` is data now too. Two things the plan did not spell out: the per-node REASONS moved out of the Dockerfile comment block into each entry's `note`, so the justification travels with the pin and the panel can show it; and adding is **two steps** — resolve, look at the commit subject and date, then commit — because a form that writes a ref you have not looked at is the drift these SHAs exist to prevent.
 
 ### Phase 3 — Post-build smoke: do the new node's classes register?
 After a build lands and a pod is moved, hit the pod's `/object_info` and check the added pack contributed classes; surface a per-node **verified / not seen** badge. This is the check `verify-deps.py` structurally cannot do, and the one that would flag a node pinned behind our core.

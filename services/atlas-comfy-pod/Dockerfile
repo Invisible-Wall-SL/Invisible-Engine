@@ -118,40 +118,29 @@ RUN pip install insightface onnxruntime-gpu facexlib timm ftfy open-clip-torch s
 # outdated, installs blocked" state without anyone changing a file here. Bump a SHA
 # deliberately, the same way COMFYUI_REF is bumped.
 WORKDIR /ComfyUI/custom_nodes
-# 12-char SHAs, not 40: a full hex SHA trips the repo secret scanner, and a trailing
-# `# pragma` would be swallowed into the ARG value rather than read as a comment.
-ARG IPADAPTER_REF=a0f451a5113c
-ARG RMBG_REF=9edb2bec3900
-ARG CONTROLNET_AUX_REF=e8b689a513c3
-ARG PULID_REF=93e0c4c226b8
-# PuLID for FLUX.2 (iFayens). NOT core-native like FLUX.2/Wan — the weights are inert
-# without this node, so `pulid-flux2` in fetch-models.py is only usable from an image
-# built at or after this line. Two standing risks, both reasons to smoke-test it rather
-# than trust it: (a) it works by monkey-patching block.forward and model_function_wrapper,
-# the most fragile possible coupling to core internals, and its last commit (2026-05-21)
-# predates our v0.33.1 bump by ~3 months; (b) its own tracker carries an open
-# SingleStreamBlock attn_mask kwarg conflict — the same class of bug the vendored FLUX.1
-# PuLID-Flux needed a local fix for. If it breaks, vendor + patch it the way that one was.
-# LICENCE: node and weights are MIT, but it needs InsightFace antelopev2, which is
-# non-commercial research only — so this path is R&D and can never ship in a game.
-ARG PULID_FLUX2_REF=3a0a3f5f1826
-# Video Helper Suite (Kosinkadink) — load / combine / preview video, the plumbing every
-# ComfyUI video workflow is built on. Upstream publishes NO tags, so this is the tip of
-# master on the day it was added (2026-08-25); bump it deliberately like the others.
-# Two couplings to core worth knowing when a bump goes wrong, because both fail at
-# IMPORT rather than at render: nodes.py imports `comfy_api.v0_0_2` and uses
-# `IO.MatchType` (present in our v0.33.1 pin — checked), and it registers a web extension.
-ARG VHS_REF=02dfc5ee26ce
-ARG MANAGER_REF=f39cbd56feca
-RUN set -eux; \
-    clone_at() { git clone "$1" "$2" && git -C "$2" checkout --quiet "$3"; }; \
-    clone_at https://github.com/cubiq/ComfyUI_IPAdapter_plus      ComfyUI_IPAdapter_plus "${IPADAPTER_REF}"; \
-    clone_at https://github.com/1038lab/ComfyUI-RMBG              ComfyUI-RMBG           "${RMBG_REF}"; \
-    clone_at https://github.com/Fannovel16/comfyui_controlnet_aux comfyui_controlnet_aux "${CONTROLNET_AUX_REF}"; \
-    clone_at https://github.com/cubiq/PuLID_ComfyUI               PuLID_ComfyUI          "${PULID_REF}"; \
-    clone_at https://github.com/iFayens/ComfyUI-PuLID-Flux2       ComfyUI-PuLID-Flux2    "${PULID_FLUX2_REF}"; \
-    clone_at https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite ComfyUI-VideoHelperSuite "${VHS_REF}"; \
-    clone_at https://github.com/Comfy-Org/ComfyUI-Manager         ComfyUI-Manager        "${MANAGER_REF}"
+# The list itself is ./nodes.json, NOT a wall of ARGs — that is what lets the launcher add a
+# node from /comfyui without a repo checkout (Phase 2 of docs/design/comfyui-node-manager.md).
+# It stays in git either way, so an image still reproduces from `git checkout <sha> && docker build`.
+#
+# Read with PYTHON rather than jq: the base image already has python, and adding an apt package
+# to parse a file we control is a worse trade. The pipe-separated intermediate keeps the shell
+# loop POSIX (`IFS='|' read`), since RUN executes under dash, not bash.
+#
+# Each node is pinned to a COMMIT. These were bare `git clone`s of the default branch once, so
+# any rebuild could pull different node code against a frozen core — a bigger silent-drift hole
+# than the core pin itself, and how ComfyUI-Manager updated itself into a "core is outdated,
+# installs blocked" state without anyone changing a file here. The per-node reasons that used to
+# live in this comment block now travel with the entries, in nodes.json's `note` fields.
+COPY nodes.json /nodes.json
+RUN set -eu; \
+    python -c "import json;print('\n'.join('%s|%s|%s' % (n['name'], n['url'], n['sha']) for n in json.load(open('/nodes.json'))['nodes'] if n.get('url')))" > /tmp/nodes.txt; \
+    test -s /tmp/nodes.txt; \
+    while IFS='|' read -r name url sha; do \
+        [ -n "$name" ] || continue; \
+        echo "== clone: $name @ $sha"; \
+        git clone --quiet "$url" "$name"; \
+        git -C "$name" checkout --quiet "$sha"; \
+    done < /tmp/nodes.txt
 # Vendored, artist-modified PuLID-Flux (duplicated into this build context so COPY can
 # reach it — Docker COPY can't escape the context to ../atlas-serverless).
 COPY custom_nodes/ComfyUI-PuLID-Flux /ComfyUI/custom_nodes/ComfyUI-PuLID-Flux
@@ -175,7 +164,7 @@ COPY custom_nodes/ComfyUI-Invisible-ErrorRecall /ComfyUI/custom_nodes/ComfyUI-In
 # (insightface, onnxruntime-gpu, open-clip-torch, safetensors) is installed explicitly by the
 # face-stack step above, which is exactly the install line upstream tells you to use instead.
 RUN set -eu; \
-    SKIP='ComfyUI-PuLID-Flux2'; \
+    SKIP="$(python -c "import json;print(' '.join(json.load(open('/nodes.json')).get('skipRequirements', [])))")"; \
     failed=''; \
     for r in */requirements.txt; do \
         node="${r%/requirements.txt}"; \

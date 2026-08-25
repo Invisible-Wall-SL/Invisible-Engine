@@ -1,0 +1,78 @@
+{
+	"_readme": [
+		"The custom nodes baked into the R&D pod image — DATA, not Dockerfile ARGs, so the",
+		"launcher can add and remove them from /comfyui without a repo checkout (ComfyUI Node",
+		"Manager Phase 2; see docs/design/comfyui-node-manager.md).",
+		"",
+		"Edited two ways, and both end as a commit on main: by hand here, or by the /comfyui",
+		"node table, which resolves a repo URL to its tip SHA and writes this file through the",
+		"GitHub contents API. Git stays the source of truth either way — an image must always",
+		"be reproducible from `git checkout <sha> && docker build`.",
+		"",
+		"`sha` is REQUIRED for every cloned node and is a 12-char commit id. Never a branch:",
+		"a floating ref means a plain rebuild can change generation behaviour with no commit",
+		"of ours, which is the drift the pinning work of 2026-08-19 exists to prevent. (12",
+		"chars, not 40, because a full hex sha trips this repo's secret scanner.)",
+		"",
+		"`vendored: true` entries are NOT cloned — they are COPY'd from ./custom_nodes/ by the",
+		"Dockerfile. They are listed here so one file answers 'what is on the image', which is",
+		"what the panel shows; the Dockerfile skips them.",
+		"",
+		"`skipRequirements` names folders whose requirements.txt is deliberately NEVER installed."
+	],
+	"nodes": [
+		{
+			"name": "ComfyUI_IPAdapter_plus",
+			"url": "https://github.com/cubiq/ComfyUI_IPAdapter_plus",
+			"sha": "a0f451a5113c",
+			"note": "IPAdapter. Dormant upstream since April 2025; survived the v0.33.1 core bump."
+		},
+		{
+			"name": "ComfyUI-RMBG",
+			"url": "https://github.com/1038lab/ComfyUI-RMBG",
+			"sha": "9edb2bec3900",
+			"note": "Background removal."
+		},
+		{
+			"name": "comfyui_controlnet_aux",
+			"url": "https://github.com/Fannovel16/comfyui_controlnet_aux",
+			"sha": "e8b689a513c3",
+			"note": "ControlNet preprocessors (AIO_Preprocessor)."
+		},
+		{
+			"name": "PuLID_ComfyUI",
+			"url": "https://github.com/cubiq/PuLID_ComfyUI",
+			"sha": "93e0c4c226b8",
+			"note": "The SDXL Pulid* nodes, incl. PulidModelLoader used by Characterdesignertest3."
+		},
+		{
+			"name": "ComfyUI-PuLID-Flux2",
+			"url": "https://github.com/iFayens/ComfyUI-PuLID-Flux2",
+			"sha": "3a0a3f5f1826",
+			"note": "PuLID for FLUX.2. R&D ONLY — needs InsightFace antelopev2, non-commercial. Fragile: monkey-patches block.forward and model_function_wrapper, and its last commit predates our core pin. Its requirements.txt is in skipRequirements."
+		},
+		{
+			"name": "ComfyUI-VideoHelperSuite",
+			"url": "https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite",
+			"sha": "02dfc5ee26ce",
+			"note": "Video load / combine / preview. Upstream publishes NO tags, so this is a master SHA. Imports comfy_api.v0_0_2 IO.MatchType at module level — a core bump can break it at IMPORT, not at render."
+		},
+		{
+			"name": "ComfyUI-Manager",
+			"url": "https://github.com/Comfy-Org/ComfyUI-Manager",
+			"sha": "f39cbd56feca",
+			"note": "Security level middle, pre-seeded by the Dockerfile. Do NOT let it 'Update ComfyUI' — that patches the ephemeral container only."
+		},
+		{
+			"name": "ComfyUI-PuLID-Flux",
+			"vendored": true,
+			"note": "The artist's MODIFIED PuLID-Flux. Cloning stock balazik would drop the attn_mask fix and break the blueprint. See custom_nodes/README.md."
+		},
+		{
+			"name": "ComfyUI-Invisible-ErrorRecall",
+			"vendored": true,
+			"note": "Ours, frontend-only: re-surfaces a run's error on the failing node when the /ws socket dropped."
+		}
+	],
+	"skipRequirements": ["ComfyUI-PuLID-Flux2"]
+}
