@@ -103,6 +103,7 @@
 		url?: string;
 		sha?: string;
 		vendored?: boolean;
+		noClasses?: boolean;
 		note?: string;
 	}
 	interface NodeList {
@@ -313,6 +314,59 @@
 		const sha = build?.latest?.conclusion === 'success' ? build.latest.sha : undefined;
 		if (!image || !sha) return null;
 		return image.endsWith(`:${shortSha(sha)}`);
+	}
+
+	/**
+	 * Does a live pod actually have this node LOADED?
+	 *
+	 * The join `verify-deps.py` structurally cannot do: that proves the shared dep base still
+	 * imports, and says nothing about whether the node you just added registered its classes.
+	 * A node pinned behind our core, or one that reaches into core internals, fails exactly
+	 * here — it installs clean and then contributes nothing.
+	 *
+	 * Both halves already existed: `nodes.json` is what SHOULD be on the image, and the
+	 * inventory panel already reads which packs the answering pod loaded (via ComfyUI-Manager,
+	 * else a streamed `/object_info` scan that stamps each class with its `custom_nodes.<pack>`
+	 * module). This is the comparison, done in the browser because both are already here.
+	 */
+	const loadedPacks = $derived(
+		new Map((inventory?.packs ?? []).map((p) => [p.name.toLowerCase(), p])),
+	);
+	/** The fleet row the inventory was read from, when it is one of ours. */
+	const readerPod = $derived(status?.pods.find((p) => p.id === inventory?.reader?.id));
+	/**
+	 * A pod on an older image legitimately lacks anything added since it was built, so "not
+	 * seen" would be noise rather than news. The section says so ONCE instead of every row
+	 * carrying a caveat.
+	 */
+	const readerBehind = $derived(!!readerPod && podOnLatest(readerPod) === false);
+
+	function nodeLoaded(node: PodNode): { label: string; cls: string; title: string } | null {
+		// Nothing answered, so there is nothing to compare against — say nothing.
+		if (!inventory?.packs?.length) return null;
+		if (node.noClasses) {
+			return {
+				label: 'frontend only',
+				cls: 'muted',
+				title:
+					'Registers no node classes, so it never appears in /object_info. Not checkable, and not a fault.',
+			};
+		}
+		const pack = loadedPacks.get(node.name.toLowerCase());
+		if (pack) {
+			return {
+				label: `loaded · ${pack.nodes} classes`,
+				cls: 'ok',
+				title: `${inventory?.reader?.label ?? 'The reading pod'} has this pack loaded, registering ${pack.nodes} node classes.`,
+			};
+		}
+		return {
+			label: 'not seen',
+			cls: 'caution',
+			title: readerBehind
+				? `${inventory?.reader?.label ?? 'The reading pod'} is on an older build, so a recently added node is EXPECTED to be missing. Move it to the latest build to make this meaningful.`
+				: `${inventory?.reader?.label ?? 'The reading pod'} did not report this pack. If it is on the current build, the node failed to register — check the pod's startup log.`,
+		};
 	}
 
 	async function loadNodes(): Promise<void> {
@@ -818,8 +872,16 @@ RunPod recreates the container, so anything ` +
 									{nodesOpen ? '▾' : '▸'} Custom nodes ({nodeList.nodes.length})
 								</button>
 								{#if nodesOpen}
+									{#if readerBehind}
+										<p class="node-caveat">
+											Loaded-state read from <strong>{inventory?.reader?.label}</strong>, which is
+											on an older build — anything added since will read “not seen”. Update it to
+											the latest build to make the check meaningful.
+										</p>
+									{/if}
 									<ul class="nodes">
 										{#each nodeList.nodes as node (node.name)}
+											{@const loaded = nodeLoaded(node)}
 											<li class="node">
 												<div class="node-head">
 													<span class="node-name">{node.name}</span>
@@ -827,6 +889,11 @@ RunPod recreates the container, so anything ` +
 														<span class="node-sha">vendored in the repo</span>
 													{:else}
 														<code class="node-sha">{node.sha}</code>
+													{/if}
+													{#if loaded}
+														<span class="node-state {loaded.cls}" title={loaded.title}>
+															{loaded.label}
+														</span>
 													{/if}
 													{#if data.canAdmin && !node.vendored}
 														<button
@@ -1369,6 +1436,24 @@ RunPod recreates the container, so anything ` +
 	.node-sha {
 		font-size: 11px;
 		color: #7a7a84;
+	}
+	.node-state {
+		font-size: 11px;
+	}
+	.node-state.ok {
+		color: #7ee0c0;
+	}
+	.node-state.caution {
+		color: #d8bd77;
+	}
+	.node-state.muted {
+		color: #6a6a76;
+	}
+	.node-caveat {
+		margin: 8px 0 0;
+		font-size: 11px;
+		line-height: 1.5;
+		color: #8a8a93;
 	}
 	.node-drop {
 		padding: 0;

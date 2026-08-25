@@ -24,6 +24,12 @@ export interface PodNode {
 	url?: string;
 	sha?: string;
 	vendored?: boolean;
+	/**
+	 * The pack registers no NODE CLASSES (a frontend/UI extension). The panel checks each node
+	 * against what a live pod loaded, and that check reads `/object_info` — which only ever
+	 * sees packs that register classes. Without this flag such a pack reads "not seen" forever.
+	 */
+	noClasses?: boolean;
 	note?: string;
 }
 

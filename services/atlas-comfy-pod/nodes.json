@@ -18,7 +18,13 @@
 		"Dockerfile. They are listed here so one file answers 'what is on the image', which is",
 		"what the panel shows; the Dockerfile skips them.",
 		"",
-		"`skipRequirements` names folders whose requirements.txt is deliberately NEVER installed."
+		"`skipRequirements` names folders whose requirements.txt is deliberately NEVER installed.",
+		"",
+		"`noClasses: true` means the pack registers no NODE CLASSES — it is a frontend or UI",
+		"extension. The panel checks each node against what a live pod actually loaded, and that",
+		"check reads /object_info, which only ever sees packs that register classes. Without this",
+		"flag such a pack reads as 'not seen' forever, and an expected warning is how people learn",
+		"to ignore warnings."
 	],
 	"nodes": [
 		{
@@ -71,6 +77,7 @@
 		{
 			"name": "ComfyUI-Invisible-ErrorRecall",
 			"vendored": true,
+			"noClasses": true,
 			"note": "Ours, frontend-only: re-surfaces a run's error on the failing node when the /ws socket dropped."
 		}
 	],
