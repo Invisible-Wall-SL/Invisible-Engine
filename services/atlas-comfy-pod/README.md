@@ -20,9 +20,17 @@ ComfyUI just auto-starts on port **8188**.
   `COMFYUI_REF` — bump both in ONE PR; see the Dockerfile for why the old v0.3.66 pin was
   held and why it expired). Do **not** let ComfyUI-Manager "Update ComfyUI": it patches the
   ephemeral container layer only, so it silently reverts on the next container recreate.
-- **torch cu128** (`>= 2.7`, `--index-url .../cu128`) — **mandatory for Blackwell** (RTX PRO
-  4000/4500, `sm_120`). A cu124 build throws "no kernel image is available". Installed as the
-  **last** pip step so ComfyUI/node requirements can't clobber it back to cu124.
+- **torch cu128** (`--index-url .../cu128`) — **mandatory for Blackwell** (RTX PRO 4000/4500,
+  `sm_120`). A cu124 build throws "no kernel image is available". Installed as the **first**
+  pip step, and held there by [`constraints.txt`](constraints.txt) rather than by ordering
+  (see below). **To bump torch, edit `constraints.txt`** — the install step names no versions.
+- **[`constraints.txt`](constraints.txt)** — exported as `PIP_CONSTRAINT`, so it binds every
+  pip install in the image **and every pip install on a live pod**, including ComfyUI-Manager's
+  "install node" button. It pins torch and floors `numpy` / `ml_dtypes` / `onnx`, so a node's
+  stale pin fails **its own** install instead of quietly rewriting a package the rest of the
+  image shares. That is what freed the custom nodes to move to the bottom of the Dockerfile:
+  the cheap-and-stable layers now sit above them, so **adding a node no longer reinstalls
+  torch and the face stack**.
 - **Custom nodes** baked in:
   - stock, cloned from GitHub **at pinned commit SHAs** (the `*_REF` ARGs — bump one
     deliberately, the same way `COMFYUI_REF` is bumped): `ComfyUI_IPAdapter_plus`,
@@ -43,13 +51,14 @@ ComfyUI just auto-starts on port **8188**.
 **Models are NOT in the image.** They come from the attached Network Volume via
 [`extra_model_paths.yaml`](extra_model_paths.yaml), which points ComfyUI at
 `/workspace/ComfyUI/models` (where the artist already keeps Qwen etc.). Add a model = drop
-it on the volume, no rebuild. Only a genuinely new custom **node** needs a rebuild.
+it on the volume, no rebuild. Only a genuinely new custom **node** needs a rebuild — and since the node section is the last thing in the Dockerfile, that rebuild reuses every layer above it. A change to the apt line or to `constraints.txt` is still a full rebuild, which is the right trade for two things that move about once a year.
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `Dockerfile` | builds the interactive pod image (cu128 torch installed LAST) |
+| `Dockerfile` | builds the interactive pod image — ordered stable-first, **custom nodes last** |
+| `constraints.txt` | version rules for every pip step (and every pip on a live pod); **where torch is pinned** |
 | `start.sh` | **CMD** — starts ComfyUI in the background + `sleep infinity` (crash-safe) |
 | `extra_model_paths.yaml` | points ComfyUI at `/workspace/ComfyUI/models` on the volume |
 | `custom_nodes/ComfyUI-PuLID-Flux/` | the artist's vendored, modified PuLID-Flux node |

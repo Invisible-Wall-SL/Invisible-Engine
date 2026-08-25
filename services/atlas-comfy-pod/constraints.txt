@@ -1,0 +1,44 @@
+# Version rules applied to EVERY pip install in this image — and to every pip install on a
+# live pod, because the Dockerfile exports this file as `PIP_CONSTRAINT`. A constraint does
+# not install anything; it bounds what any install is allowed to resolve to.
+#
+# WHY THIS FILE EXISTS
+# The image used to hold torch in place by ORDERING: force-reinstall the cu128 build as the
+# very last pip step, so nothing after it could clobber it. That worked, and it cost us the
+# build. The volatile part of the image (the custom nodes) had to sit ABOVE the expensive
+# part, so adding one node invalidated the node-requirements loop, the face stack and a 3 GB
+# torch reinstall — the reason adding VideoHelperSuite cost a 34-minute rebuild.
+#
+# A constraint enforces the same thing without dictating order, so the node section can move
+# to the cheap tail of the Dockerfile. Two things fall out of that, both of them wins:
+#   * torch is installed ONCE. It used to go in twice — a stock build pulled by ComfyUI's
+#     requirements, then the cu128 force-reinstall on top.
+#   * a node's stale pin now fails ITS OWN install instead of silently rewriting a package
+#     the rest of the image shares. That is `ComfyUI-PuLID-Flux2`'s `ml_dtypes==0.3.2`
+#     (2026-08-20), which resolved clean, shipped, and left the face stack un-importable.
+#
+# TO BUMP TORCH: change it HERE, not in the Dockerfile — the install step names no versions,
+# it resolves them from this file. Keep these equal to services/atlas-serverless.
+
+# --- torch: the Blackwell (sm_120) cu128 build ------------------------------------------
+# Pinned exactly. `==2.11.0` is satisfied by the installed `2.11.0+cu128` (PEP 440 ignores a
+# local label when the specifier has none), so a later install that merely REQUIRES torch is
+# satisfied by what is already there and never re-resolves it off PyPI. The CUDA build is
+# not expressible here — that comes from the index URL, and `verify-deps.py` asserts it.
+torch==2.11.0
+torchvision==0.26.0
+torchaudio==2.11.0
+
+# --- floors: raise what a node's requirements.txt would otherwise drag down ---------------
+# numpy earns its floor twice over now. `ComfyUI-PuLID-Flux2` pins `numpy<2.0.0`, and under
+# the old ordering the trailing torch reinstall happened to put numpy 2.x back afterwards —
+# accidental cover that disappears the moment torch stops being last. Without this line,
+# moving torch earlier would have re-opened the exact hole this file is here to close.
+numpy>=2
+# ml_dtypes 0.3.2 is a Jan-2024 C extension built against the numpy 1.x array API: under
+# numpy 2 it raises `AttributeError: _ARRAY_API not found` on import. onnx declares ml_dtypes
+# with NO version bound and insightface imports onnx, so a bad resolve here takes the whole
+# face stack down — and `pip check` cannot see it, because the metadata is satisfied and the
+# failure only appears at import.
+ml_dtypes>=0.5.4
+onnx>=1.22

@@ -12,17 +12,29 @@
 #
 # CI: .github/workflows/atlas-comfy-pod.yml → ghcr.io/invisible-wall-sl/atlas-comfy-pod
 #
+# LAYER ORDER IS LOAD-BEARING. Docker's cache is linear: change a layer and everything
+# below it rebuilds. So this file is ordered CHEAP-AND-STABLE FIRST, VOLATILE LAST —
+# base → torch → ComfyUI core → face stack → CUSTOM NODES → checks → entrypoint. Adding
+# a custom node is the common change and it must only invalidate the tail. Torch used to
+# be last, held there so no node's requirements.txt could clobber the cu128 build; that
+# job now belongs to ./constraints.txt, which enforces it without dictating order. Read
+# that file before moving anything in here.
+#
 # --- Base -------------------------------------------------------------------------
 # BLACKWELL (sm_120) is mandatory here: the R&D pods are RTX PRO 4000/4500 Blackwell.
 # torch MUST be a cu128 build (>= 2.7) or the GPU throws "no kernel image is available".
 # The serverless base is pytorch 2.6 + cuda12.4 (cu124) and will NOT run on Blackwell,
-# so we start from a CUDA 12.8 PyTorch base and (re)install cu128 torch LAST (below).
+# so we start from a CUDA 12.8 PyTorch base and install cu128 torch over it (below).
 FROM pytorch/pytorch:2.8.0-cuda12.8-cudnn9-runtime
 
 ENV DEBIAN_FRONTEND=noninteractive \
     PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1
 
+# System packages. This layer is near the top, so touching it still costs a FULL rebuild —
+# that is the right trade for something that changes once a year, but it does mean a node
+# needing a new apt package is the one node addition that is not cheap.
+#
 # ffmpeg is here for ComfyUI-VideoHelperSuite. Its own dep `imageio-ffmpeg` ships a
 # bundled binary, so the pack imports without this — but that build is a fixed, reduced
 # one, and the pack's h265 / ProRes / av1-webm / NVENC format presets want a full encoder
@@ -32,6 +44,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git build-essential cmake curl wget ca-certificates \
         libgl1 libglib2.0-0 ffmpeg \
     && rm -rf /var/lib/apt/lists/*
+
+# --- Dependency rules (must precede every pip step) --------------------------------
+# `PIP_CONSTRAINT` is pip's env form of `--constraint`, so EVERY pip install below obeys
+# this file without each step having to remember to pass it — including pip installs made
+# later on a LIVE pod, by hand or by ComfyUI-Manager's "install node" button. That last
+# part is new protection: until now a Manager install could pull a node whose requirements
+# quietly downgraded torch on a running pod.
+COPY constraints.txt /constraints.txt
+ENV PIP_CONSTRAINT=/constraints.txt
+
+# --- cu128 torch (FIRST pip step, so it is installed exactly once) -----------------
+# This used to be the LAST pip step, force-reinstalled over whatever ComfyUI and the nodes
+# had dragged in. Now it goes first and constraints.txt keeps it: `torch==2.11.0` is
+# already satisfied by `2.11.0+cu128`, so every later `pip install` that merely requires
+# torch skips it instead of re-resolving a stock build off PyPI. Net effect — torch is
+# downloaded once per build rather than twice, and it can never be silently swapped.
+#
+# Versions live in constraints.txt, NOT here: naming them in both places is how two files
+# start disagreeing. `TORCH_CUDA` is the one thing the constraint file cannot express (a
+# local build tag is not a version bound), so it is an ARG — and it is handed to
+# verify-deps.py below, which FAILS the build if the installed torch is not that build.
+ARG TORCH_CUDA=cu128
+RUN pip install --force-reinstall torch torchvision torchaudio \
+    --index-url "https://download.pytorch.org/whl/${TORCH_CUDA}"
+ENV EXPECTED_TORCH_CUDA=${TORCH_CUDA}
 
 # --- ComfyUI ----------------------------------------------------------------------
 # Pinned to a TAG on purpose — never track master. An unpinned core would let a plain
@@ -53,10 +90,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ARG COMFYUI_REF=v0.33.1
 RUN git clone https://github.com/comfyanonymous/ComfyUI /ComfyUI \
     && cd /ComfyUI && git checkout "${COMFYUI_REF}"
-# NOTE: this pulls stock cu124 torch as a dependency — that's fine, we force cu128 last.
 RUN pip install -r /ComfyUI/requirements.txt
 
-# --- Custom nodes -----------------------------------------------------------------
+# --- Face stack -------------------------------------------------------------------
+# The PuLID / PuLID-Flux face packages, installed EXPLICITLY so a thin node
+# requirements.txt can't miss one. It sits above the custom nodes rather than below them
+# now: it used to run afterwards to undo damage the node loop had done, and constraints.txt
+# prevents that damage instead of repairing it. Keeping it here means adding a node doesn't
+# reinstall onnxruntime-gpu.
+#
+# open-clip-torch is PuLID-Flux2's EVA-CLIP loader, and `safetensors` completes the exact set
+# that node's own requirements.txt tells you to install by hand instead of running the file
+# (the loop below skips it for that reason — see there). `ml_dtypes` and `onnx` are NOT named
+# here any more: their floors moved into constraints.txt, where they also bind the node
+# requirements loop (see that file for what those two floors are protecting against).
+RUN pip install insightface onnxruntime-gpu facexlib timm ftfy open-clip-torch safetensors
+
+# --- Custom nodes (THE VOLATILE TAIL — everything above must stay cached) ----------
 # Baked so a recreated container already has them (the whole point of this image).
 # Stock nodes cloned from GitHub; the artist's MODIFIED PuLID-Flux is COPY'd from the
 # in-repo vendored copy (see ./custom_nodes/README.md — cloning stock balazik would drop
@@ -110,25 +160,36 @@ COPY custom_nodes/ComfyUI-PuLID-Flux /ComfyUI/custom_nodes/ComfyUI-PuLID-Flux
 COPY custom_nodes/ComfyUI-Invisible-ErrorRecall /ComfyUI/custom_nodes/ComfyUI-Invisible-ErrorRecall
 
 # Install every node's Python deps (incl. the vendored PuLID folder + Manager).
-RUN for r in */requirements.txt; do echo "== deps: $r =="; pip install -r "$r" || true; done
-# PuLID / PuLID-Flux face stack — install explicitly so a thin requirements.txt can't miss
-# it, AND so a stale pin in one node can't drag a shared package backwards.
 #
-# open-clip-torch is PuLID-Flux2's EVA-CLIP loader. That node's requirements.txt also pins
-# `ml_dtypes==0.3.2` and `numpy<2.0.0`, and the loop above applied both: the first build
-# with it shipped ml_dtypes 0.3.2 (down from the 0.6.0 onnx->insightface had pulled) and
-# onnx 1.19.0 (down from 1.22.0). numpy recovered on its own — the cu128 torch step below
-# reinstalls 2.4.6 last — and that is what made the pin dangerous rather than merely wrong:
-# ml_dtypes 0.3.2 is a Jan-2024 C extension built against the numpy 1.x array API, so under
-# numpy 2 it raises `AttributeError: _ARRAY_API not found` on import (verified directly).
-# onnx declares ml_dtypes as a hard dependency and insightface imports onnx, so leaving it
-# un-importable puts the whole face stack at risk — including the FLUX.1 PuLID-Flux path
-# that predates this node and was verified working.
+# One node's failure must not fail the whole build, so this stays non-fatal — but it is no
+# longer SILENT. Under constraints.txt a node whose requirements.txt contradicts a floor
+# now fails to resolve instead of quietly rewriting a package every other node shares. That
+# is the trade: the shared base survives, and THAT node may be short a dependency. The `!!`
+# summary is what tells you which one — so it must stay rare, which is what SKIP is for.
 #
-# FLOORS, not pins: raise what a node dragged down, without freezing a version here that
-# the requirements above would then fight over on every rebuild.
-RUN pip install insightface onnxruntime-gpu facexlib timm ftfy open-clip-torch \
-    "ml_dtypes>=0.5.4" "onnx>=1.22"
+# SKIP = files we deliberately never install, so an EXPECTED failure never trains anyone to
+# scroll past `!!`. Today that is `ComfyUI-PuLID-Flux2`, whose requirements.txt opens with
+# upstream's own warning — "Do NOT run pip install -r requirements.txt if you already have a
+# working ComfyUI" — and then pins `numpy<2.0.0` and `ml_dtypes==0.3.2`, the pair that shipped
+# an image whose face stack could not import (2026-08-20). Everything it legitimately needs
+# (insightface, onnxruntime-gpu, open-clip-torch, safetensors) is installed explicitly by the
+# face-stack step above, which is exactly the install line upstream tells you to use instead.
+RUN set -eu; \
+    SKIP='ComfyUI-PuLID-Flux2'; \
+    failed=''; \
+    for r in */requirements.txt; do \
+        node="${r%/requirements.txt}"; \
+        case " $SKIP " in \
+            *" $node "*) echo "== skip: $r  (deliberate — see Dockerfile)"; continue;; \
+        esac; \
+        echo "== deps: $r =="; \
+        pip install -r "$r" || failed="$failed $r"; \
+    done; \
+    if [ -n "$failed" ]; then \
+        echo "!! node requirements FAILED:$failed"; \
+        echo "!! Usually a pin that contradicts /constraints.txt. The shared dep base is"; \
+        echo "!! intact (that is what the constraint is for) but those nodes may be short a dep."; \
+    fi
 
 # ComfyUI-Manager: security level "middle" so artists can add nodes from the web UI on a
 # remote pod. Pre-seed its config in BOTH known locations (newer Manager reads
@@ -138,35 +199,22 @@ RUN mkdir -p /ComfyUI/user/default/ComfyUI-Manager && \
         /ComfyUI/user/default/ComfyUI-Manager/config.ini \
         /ComfyUI/custom_nodes/ComfyUI-Manager/config.ini > /dev/null
 
-# --- cu128 torch (MUST be the LAST pip step) --------------------------------------
-# Every step above (ComfyUI + each node's requirements.txt) can drag torch back to a
-# stock cu124 build (we hit exactly this — torch kept reverting to 2.4.1+cu124). Force
-# the Blackwell-capable cu128 build in LAST so nothing can clobber it.
-# VERSION-PINNED too: this step used to install whatever cu128 torch was newest that day,
-# so two rebuilds a week apart shipped different torch. These are the versions current
-# when the v0.33.1 bump landed; keep them equal to the serverless worker's.
-ARG TORCH_REF=2.11.0
-ARG TORCHVISION_REF=0.26.0
-ARG TORCHAUDIO_REF=2.11.0
-RUN pip install --force-reinstall \
-    "torch==${TORCH_REF}" "torchvision==${TORCHVISION_REF}" "torchaudio==${TORCHAUDIO_REF}" \
-    --index-url https://download.pytorch.org/whl/cu128
-
 # --- dependency sanity (MUST be after the LAST pip step) ---------------------------
-# The requirements loop above runs each node's file with `|| true`, so one node's stale
-# pin silently rewrites a package every other node shares and the build still goes green.
-# That is exactly how ComfyUI-PuLID-Flux2's `ml_dtypes==0.3.2` shipped an image whose face
-# stack could not import (2026-08-20). Two checks, because they catch different things:
+# The requirements loop above is non-fatal, so one node's stale pin can still leave the
+# image in a state the build itself is happy with. Three checks, because they catch
+# different things:
 #
 #   `pip check` — METADATA conflicts, advisory (`|| true`). This image carries long-standing
 #   benign overlaps (three opencv distributions sharing the `cv2` namespace), and failing on
 #   those would block every build for a condition nobody is fixing today. Read it in the log.
 #
-#   verify-deps.py — IMPORTS, and it FAILS the build. This is the one that catches an ABI
+#   verify-deps.py IMPORTS — and it FAILS the build. This is the one that catches an ABI
 #   break, which pip check cannot see: onnx declares `ml_dtypes` with no version bound, so
-#   0.3.2 resolved clean and only fell over at import. An image whose face stack cannot be
-#   imported is not worth publishing, and 30 seconds here beats a pod deploy and a confused
-#   artist. Baked in (like fetch-models.py) so a live pod can re-run it after a hand install.
+#   0.3.2 resolved clean and only fell over at import (2026-08-20).
+#
+#   verify-deps.py TORCH BUILD — also fatal, and it is the guard that replaces "torch must
+#   be the last pip step". Ordering used to make the cu128 build unclobberable; now
+#   constraints.txt does, and this asserts the result rather than trusting either.
 COPY tools/verify-deps.py /verify-deps.py
 RUN pip check || true
 RUN python /verify-deps.py
