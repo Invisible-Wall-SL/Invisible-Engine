@@ -15,6 +15,13 @@
 		memoryGb?: number;
 		costPerHr?: number;
 	}
+	type StockStatus = 'High' | 'Medium' | 'Low' | 'None';
+	interface PodAvailability {
+		stockStatus: StockStatus;
+		rentedCount?: number;
+		totalCount?: number;
+		dataCenterId?: string;
+	}
 	interface Pod {
 		id: string;
 		label: string;
@@ -23,6 +30,7 @@
 		ready: boolean;
 		directUrl?: string;
 		specs?: PodSpecs;
+		availability?: PodAvailability;
 	}
 	interface StatusResp {
 		configured: boolean;
@@ -100,6 +108,35 @@
 		if (cpu.length) rows.push({ label: 'Processor', value: cpu.join(' · ') });
 
 		return rows;
+	}
+
+	/**
+	 * GPU stock, shown only on a card that ISN'T holding a GPU — a running pod already has
+	 * its card, so the question is only ever "would Start work right now?".
+	 *
+	 * `Low` and `None` read as a fault (orange); `High`/`Medium` stay neutral rather than
+	 * green, because green here means running and a second green badge would say the pod is
+	 * up when it is stopped.
+	 */
+	function stockClass(s: StockStatus): string {
+		return s === 'Low' || s === 'None' ? 'warn' : '';
+	}
+	function stockLabel(s: StockStatus): string {
+		return s === 'None' ? 'no GPUs free' : `GPU stock ${s.toLowerCase()}`;
+	}
+	/** The tooltip carries what the badge can't: the counts, the SCOPE, and the caveat. */
+	function stockTitle(p: Pod): string {
+		const a = p.availability;
+		if (!a) return '';
+		const where = a.dataCenterId ? `in ${a.dataCenterId}` : 'across all data centres';
+		const counts =
+			a.rentedCount != null && a.totalCount != null
+				? ` — ${a.rentedCount} of ${a.totalCount} rented`
+				: '';
+		const scope = a.dataCenterId
+			? ''
+			: ". This pod can only resume where its disk is, so a global reading can look healthier than this pod's region.";
+		return `RunPod reports ${a.stockStatus.toLowerCase()} stock for ${p.specs?.gpu ?? 'this GPU'} ${where}${counts}. Stock moves — a Start can still lose the race${scope}`;
 	}
 
 	function isReady(p: Pod): boolean {
@@ -301,16 +338,27 @@
 					<ul class="fleet">
 						{#each pods as pod (pod.id)}
 							<li class="pod">
-								<!-- Leave room for a future per-pod "GPU available" dot before the label. -->
 								<div class="pod-head">
 									<span class="pod-label">{pod.label}</span>
-									{#if isReady(pod)}
-										<span class="badge on"><span class="dot on"></span> running</span>
-									{:else if isWarming(pod)}
-										<span class="badge warm"><span class="spinner sm"></span> starting</span>
-									{:else}
-										<span class="badge off"><span class="dot off"></span> stopped</span>
-									{/if}
+									<span class="pod-badges">
+										{#if isReady(pod)}
+											<span class="badge on"><span class="dot on"></span> running</span>
+										{:else if isWarming(pod)}
+											<span class="badge warm"><span class="spinner sm"></span> starting</span>
+										{:else}
+											<!-- Stock sits BEFORE the status badge: on a stopped card it is the
+											     thing that decides whether clicking Start is worth it. -->
+											{#if pod.availability}
+												<span
+													class="badge {stockClass(pod.availability.stockStatus)}"
+													title={stockTitle(pod)}
+												>
+													{stockLabel(pod.availability.stockStatus)}
+												</span>
+											{/if}
+											<span class="badge off"><span class="dot off"></span> stopped</span>
+										{/if}
+									</span>
 								</div>
 
 								{#if specRows(pod).length}
@@ -598,6 +646,15 @@
 		font-size: 15px;
 		font-weight: 600;
 		color: #e6e6ee;
+	}
+	/* Status, and on a stopped card the GPU-stock reading, group together on the right.
+	   Wraps rather than squeezing the label on a narrow card. */
+	.pod-badges {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 8px;
+		flex-wrap: wrap;
 	}
 	.badge {
 		display: inline-flex;

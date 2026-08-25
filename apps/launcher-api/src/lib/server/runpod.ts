@@ -53,6 +53,14 @@ export interface PodSpecs {
 	memoryGb?: number;
 	/** USD per hour while the pod runs. */
 	costPerHr?: number;
+	/**
+	 * RunPod's own id for the card (`NVIDIA GeForce RTX 4090`) and the data centre the pod
+	 * sits in. Neither is rendered — they are LOOKUP KEYS: `podAvailability` needs both to
+	 * ask whether a GPU of this type is free where this pod could actually resume. They ride
+	 * along here because the query that would fetch them is the one `podSpecs` already makes.
+	 */
+	gpuTypeId?: string;
+	dataCenterId?: string;
 }
 
 /** A probed pod: fleet entry + its live status and ComfyUI readiness. */
@@ -63,6 +71,8 @@ export interface PodState extends FleetPod {
 	directUrl?: string;
 	/** Hardware + price, best-effort (see `podSpecs`). */
 	specs?: PodSpecs;
+	/** Is a GPU free to rent? Read only for a pod that isn't holding one — `podAvailability`. */
+	availability?: PodAvailability;
 }
 
 /**
@@ -417,6 +427,7 @@ interface PodSpecFields {
 		gpuDisplayName?: string | null;
 		gpuTypeId?: string | null;
 		cpuTypeId?: string | null;
+		dataCenterId?: string | null;
 	} | null;
 }
 
@@ -445,7 +456,14 @@ export async function podSpecs(podId: string): Promise<PodSpecs | undefined> {
 		if (Date.now() - cached.at < ttl) return cached.specs;
 	}
 
+	// `dataCenterId` gets its OWN top tier rather than joining the tier below it. RunPod
+	// documents that field on `Machine`, but a pod hands back a `PodMachineInfo` and we have
+	// not confirmed it is there — and one unknown field fails the WHOLE query. Merged into
+	// the tier below, an absent field would take `cpuTypeId` down with it and silently cost
+	// every card its Processor line. As its own tier it costs one wasted call per refresh and
+	// nothing else.
 	const fields = [
+		`costPerHr gpuCount vcpuCount memoryInGb machine { gpuDisplayName gpuTypeId cpuTypeId dataCenterId }`,
 		`costPerHr gpuCount vcpuCount memoryInGb machine { gpuDisplayName gpuTypeId cpuTypeId }`,
 		`costPerHr gpuCount vcpuCount memoryInGb machine { gpuDisplayName }`,
 		`costPerHr gpuCount vcpuCount memoryInGb`,
@@ -482,9 +500,144 @@ export async function podSpecs(podId: string): Promise<PodSpecs | undefined> {
 	assign('vcpuCount', positive(pod.vcpuCount));
 	assign('memoryGb', positive(pod.memoryInGb));
 	assign('costPerHr', positive(pod.costPerHr));
+	assign('gpuTypeId', text(pod.machine?.gpuTypeId));
+	assign('dataCenterId', text(pod.machine?.dataCenterId));
 
 	specsCache.set(podId, { at: Date.now(), specs });
 	return specs;
+}
+
+/** RunPod's own stock indicator for a GPU type — the one its console draws. */
+export type StockStatus = 'High' | 'Medium' | 'Low' | 'None';
+
+/**
+ * Whether a GPU of a pod's type is FREE to rent right now.
+ *
+ * Until this existed a card only learned the fleet was dry when **Start** failed with
+ * "not enough free GPUs" — the artist discovered it one click at a time. RunPod answers
+ * up front on the GPU TYPE (`gpuTypes(...).lowestPrice.stockStatus`), not on the pod.
+ *
+ * It is a HINT, not a promise: stock moves between the read and the resume, so a `Medium`
+ * card can still lose the race. The inline Start error stays for exactly that reason —
+ * this pre-empts most of those clicks, it does not replace the failure path.
+ */
+export interface PodAvailability {
+	stockStatus: StockStatus;
+	/** GPUs of this type rented / in total, when RunPod reports them (0 is meaningful). */
+	rentedCount?: number;
+	totalCount?: number;
+	/**
+	 * The data centre the figure is scoped to. ABSENT means the answer is global, which is
+	 * a weaker claim than it looks — a stopped pod can only resume where its disk already
+	 * is, so global stock can read healthy while this pod's region has nothing. The card
+	 * says which one it got rather than letting a global number pass as a local one.
+	 */
+	dataCenterId?: string;
+}
+
+/**
+ * Stock is live state, so it gets a SHORT cache of its own — unlike the 6h GPU table or
+ * the 10min specs, and unlike either it must never ride inside the 5s status poll uncached.
+ * Keyed by gpu type + data centre, so pods on the same card share one reading.
+ */
+const availabilityCache = new Map<string, { at: number; value: PodAvailability | null }>();
+const AVAILABILITY_TTL_MS = 60 * 1000;
+const AVAILABILITY_RETRY_MS = 30 * 1000;
+
+/** Only the four values RunPod documents; anything else is treated as no answer. */
+function stockStatusOf(value: unknown): StockStatus | undefined {
+	switch (text(value)?.toLowerCase()) {
+		case 'high':
+			return 'High';
+		case 'medium':
+			return 'Medium';
+		case 'low':
+			return 'Low';
+		case 'none':
+			return 'None';
+		default:
+			return undefined;
+	}
+}
+
+/** A reported count: unlike `positive`, ZERO is a real answer here (none rented). */
+function count(value: unknown): number | undefined {
+	const n = typeof value === 'string' ? Number(value) : typeof value === 'number' ? value : NaN;
+	return Number.isFinite(n) && n >= 0 ? n : undefined;
+}
+
+/**
+ * Is a GPU of this type available to rent? Best-effort and never throws — no answer means
+ * the card renders exactly as it did before this existed.
+ *
+ * Tiered like `podSpecs`, dropping the least-certain thing first: the data-centre FILTER
+ * (which narrows the answer to where this pod could actually resume) and then the
+ * rented/total COUNTS, so a schema we've read but not run against costs a detail rather
+ * than the whole reading.
+ */
+export async function podAvailability(
+	gpuTypeId?: string,
+	dataCenterId?: string,
+): Promise<PodAvailability | undefined> {
+	if (!ENV.RUNPOD_API_KEY || !gpuTypeId) return undefined;
+	const dc = dataCenterId || ENV.RUNPOD_DATA_CENTER_ID || undefined;
+
+	const key = `${gpuTypeId}|${dc ?? '*'}`;
+	const cached = availabilityCache.get(key);
+	if (cached) {
+		const ttl = cached.value ? AVAILABILITY_TTL_MS : AVAILABILITY_RETRY_MS;
+		if (Date.now() - cached.at < ttl) return cached.value ?? undefined;
+	}
+
+	// JSON.stringify, not a bare template: a gpu type id is free text from RunPod
+	// (`NVIDIA RTX PRO 4500 Blackwell`) and would otherwise break the query on a quote.
+	const id = JSON.stringify(gpuTypeId);
+	const tiers: { filter: string; selection: string; scoped: boolean }[] = [
+		...(dc
+			? [
+					{
+						filter: `gpuCount:1, dataCenterId:${JSON.stringify(dc)}, secureCloud:true`,
+						selection: `stockStatus rentedCount totalCount`,
+						scoped: true,
+					},
+					{
+						filter: `gpuCount:1, dataCenterId:${JSON.stringify(dc)}, secureCloud:true`,
+						selection: `stockStatus`,
+						scoped: true,
+					},
+				]
+			: []),
+		{ filter: `gpuCount:1, secureCloud:true`, selection: `stockStatus`, scoped: false },
+	];
+
+	type LowestPrice = { stockStatus?: unknown; rentedCount?: unknown; totalCount?: unknown };
+	type GpuTypeRow = { id?: string; lowestPrice?: LowestPrice | null };
+
+	for (const tier of tiers) {
+		const result = await gql(
+			`query { gpuTypes(input:{id:${id}}) { id lowestPrice(input:{${tier.filter}}) { ${tier.selection} } } }`,
+		);
+		const rows = (result?.data as { gpuTypes?: GpuTypeRow[] } | undefined)?.gpuTypes;
+		if (!Array.isArray(rows) || rows.length === 0) continue;
+		const price = rows[0]?.lowestPrice;
+		const stockStatus = stockStatusOf(price?.stockStatus);
+		if (!stockStatus) continue;
+
+		const value: PodAvailability = { stockStatus };
+		const rented = count(price?.rentedCount);
+		const total = count(price?.totalCount);
+		if (rented != null) value.rentedCount = rented;
+		if (total != null) value.totalCount = total;
+		if (tier.scoped && dc) value.dataCenterId = dc;
+
+		availabilityCache.set(key, { at: Date.now(), value });
+		return value;
+	}
+
+	// Negative-cache: without it a rejected query would be re-sent for every stopped pod on
+	// every 5s poll, forever.
+	availabilityCache.set(key, { at: Date.now(), value: null });
+	return undefined;
 }
 
 /**
@@ -505,6 +658,13 @@ export async function probeFleet(): Promise<PodState[]> {
 			// answers, the pod is up.
 			const proxyUrl = await resolveProxyUrl(p.id);
 			const ready = !!proxyUrl || (!!probe.directUrl && (await comfyReady(probe.directUrl)));
+			// Stock is only a question for a pod that ISN'T holding a GPU — a running or
+			// resuming one already has its card. Asking anyway would spend a call per poll
+			// to answer something nobody is looking at. Cached 60s, so this is near-free.
+			const availability =
+				probe.status === 'running' || probe.status === 'starting'
+					? undefined
+					: await podAvailability(specs?.gpuTypeId, specs?.dataCenterId);
 			return {
 				...p,
 				// Surface the url that actually answers, so the "paste this" fallback on
@@ -514,6 +674,7 @@ export async function probeFleet(): Promise<PodState[]> {
 				ready,
 				directUrl: probe.directUrl,
 				specs,
+				availability,
 			};
 		}),
 	);
@@ -533,6 +694,7 @@ export interface FleetPayload {
 		ready: boolean;
 		directUrl?: string;
 		specs?: PodSpecs;
+		availability?: PodAvailability;
 	}[];
 }
 
@@ -560,6 +722,7 @@ export async function fleetPayload(): Promise<FleetPayload> {
 			ready: p.ready,
 			directUrl: p.directUrl,
 			specs: p.specs,
+			availability: p.availability,
 		})),
 	};
 }
