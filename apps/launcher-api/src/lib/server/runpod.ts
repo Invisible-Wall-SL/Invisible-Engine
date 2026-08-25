@@ -507,8 +507,20 @@ export async function podSpecs(podId: string): Promise<PodSpecs | undefined> {
 	return specs;
 }
 
-/** RunPod's coarse stock word for a GPU type — High / Medium / Low / None. */
+/** RunPod's stock word for a GPU type — High / Medium / Low / None. */
 export type StockStatus = 'High' | 'Medium' | 'Low' | 'None';
+
+/**
+ * Where an availability reading came from. This is NOT bookkeeping — the UI trusts the two
+ * sources differently, and conflating them is what put a wrong badge on every card:
+ *
+ * - `datacenter` — `gpuAvailability` on a DATA CENTRE. Per region, per card, and the source
+ *   RunPod's own console draws its availability indicator from. Trustworthy.
+ * - `price` — `gpuTypes(...).lowestPrice.stockStatus`. Reports stock **at the lowest price
+ *   point**, a market signal. It read `Low` on all six cards in a region where most were not
+ *   rentable at all (2026-08-25), so the panel shows it only when it says `None`.
+ */
+export type AvailabilitySource = 'datacenter' | 'price';
 
 /**
  * Whether a GPU is free to rent where a pod could actually resume.
@@ -516,20 +528,12 @@ export type StockStatus = 'High' | 'Medium' | 'Low' | 'None';
  * Until this existed a card only learned the fleet was dry when **Start** failed with
  * "not enough free GPUs" — the artist discovered it one click at a time.
  *
- * The FIRST attempt asked `gpuTypes(...).lowestPrice.stockStatus`, and that was the wrong
- * question: it reports how much stock exists *at the lowest price point*, a market signal,
- * and it read "Low" on every card in a region where most were not rentable at all (reported
- * off the live fleet, 2026-08-25). `myself.datacenters.gpuAvailability` answers the question
- * actually being asked, and hands back an explicit BOOLEAN per data centre.
- *
  * Still a hint, not a promise: stock moves between the read and the resume, so the inline
  * Start error stays. This pre-empts most of those clicks; it does not replace the failure path.
  */
 export interface PodAvailability {
-	/**
-	 * RunPod's explicit "can this be rented right now". ABSENT means only the coarse stock
-	 * word answered — see `stockStatus`, and what the UI will and won't say about it.
-	 */
+	source: AvailabilitySource;
+	/** RunPod's explicit "can this be rented right now", when the schema hands it over. */
 	available?: boolean;
 	stockStatus?: StockStatus;
 	/**
@@ -555,7 +559,18 @@ let availabilityCache: { at: number; table: Map<string, AvailabilityRow> | null 
 let availabilityInflight: Promise<Map<string, AvailabilityRow> | null> | null = null;
 const AVAILABILITY_TTL_MS = 60 * 1000;
 const AVAILABILITY_RETRY_MS = 30 * 1000;
-let warnedNoAvailability = false;
+
+/**
+ * Why the table is empty, in RunPod's own words. Surfaced in the panel — not just logged —
+ * because the first two attempts at this feature failed SILENTLY on a machine whose logs the
+ * person looking at the blank badges could not read.
+ */
+let availabilityError: string | undefined;
+
+/** Why the availability badges are missing, if they are. `undefined` when all is well. */
+export function availabilityNote(): string | undefined {
+	return availabilityError;
+}
 
 /** Only the four values RunPod documents; anything else is treated as no answer. */
 function stockStatusOf(value: unknown): StockStatus | undefined {
@@ -592,12 +607,40 @@ function availabilityKey(dataCenterId: string | undefined, gpuTypeId: string): s
 }
 
 /**
- * Every card's rentability, per data centre, in one call.
+ * The four shapes we know of for "which cards are free, per data centre", most informative
+ * first. TIERED for the same reason `podSpecs` is: one unknown field fails the WHOLE query,
+ * and this feature has now been broken twice by a single field name.
  *
- * `myself.datacenters` is the only route to it — there is no top-level `dataCenters` query
- * (the root fields are `cpuTypes`, `gpuTypes`, `myself`, `pod`). Returns `null` when RunPod
- * doesn't answer, which the caller reads as "fall back to the coarse word", NOT as "none free".
+ * The `available` boolean is documented on `GpuAvailability` but has never answered here, so
+ * every route is tried with it and then without. `dataCenters` at the root is the shape
+ * RunPod's own console sends (`getAllDatacenters`); `myself.datacenters` is what the
+ * published schema documents. Both exist in the wild, so ask for both rather than pick.
  */
+const AVAILABILITY_TIERS = [
+	`query { dataCenters { id gpuAvailability(input:{gpuCount:1, secureCloud:true}) { gpuTypeId available stockStatus } } }`,
+	`query { dataCenters { id gpuAvailability(input:{gpuCount:1, secureCloud:true}) { gpuTypeId stockStatus } } }`,
+	`query { myself { datacenters { id gpuAvailability(input:{gpuCount:1, secureCloud:true}) { gpuTypeId available stockStatus } } } }`,
+	`query { myself { datacenters { id gpuAvailability(input:{gpuCount:1, secureCloud:true}) { gpuTypeId stockStatus } } } }`,
+];
+
+type AvailabilityGqlRow = { gpuTypeId?: unknown; available?: unknown; stockStatus?: unknown };
+type AvailabilityGqlCentre = { id?: unknown; gpuAvailability?: AvailabilityGqlRow[] | null };
+
+/** Pull the data-centre list out of either shape. */
+function centresOf(result: GqlResult | null): AvailabilityGqlCentre[] | undefined {
+	const data = result?.data as
+		| {
+				dataCenters?: AvailabilityGqlCentre[] | null;
+				myself?: { datacenters?: AvailabilityGqlCentre[] | null } | null;
+		  }
+		| undefined;
+	const direct = data?.dataCenters;
+	if (Array.isArray(direct) && direct.length) return direct;
+	const viaMyself = data?.myself?.datacenters;
+	if (Array.isArray(viaMyself) && viaMyself.length) return viaMyself;
+	return undefined;
+}
+
 async function gpuAvailabilityTable(): Promise<Map<string, AvailabilityRow> | null> {
 	if (availabilityCache) {
 		const ttl = availabilityCache.table ? AVAILABILITY_TTL_MS : AVAILABILITY_RETRY_MS;
@@ -613,52 +656,50 @@ async function gpuAvailabilityTable(): Promise<Map<string, AvailabilityRow> | nu
 }
 
 async function readAvailabilityTable(): Promise<Map<string, AvailabilityRow> | null> {
-	type Row = { gpuTypeId?: unknown; available?: unknown; stockStatus?: unknown };
-	type DataCentre = { id?: unknown; gpuAvailability?: Row[] | null };
-	const result = await gql(
-		`query { myself { datacenters { id gpuAvailability(input:{gpuCount:1, secureCloud:true}) { gpuTypeId available stockStatus } } } }`,
-	);
-	const centres = (result?.data as { myself?: { datacenters?: DataCentre[] } | null } | undefined)
-		?.myself?.datacenters;
+	let firstFailure: string | undefined;
 
-	if (!Array.isArray(centres) || centres.length === 0) {
-		if (!warnedNoAvailability) {
-			warnedNoAvailability = true;
-			console.warn(
-				'[runpod] myself.datacenters.gpuAvailability returned nothing — GPU stock badges ' +
-					'fall back to the coarse lowestPrice word, which the UI only surfaces for "None". ' +
-					`First error: ${firstError(result) ?? 'none reported'}`,
-			);
+	for (const query of AVAILABILITY_TIERS) {
+		const result = await gql(query);
+		const centres = centresOf(result);
+		if (!centres) {
+			firstFailure ??= firstError(result) ?? 'RunPod returned no data centres';
+			continue;
 		}
-		availabilityCache = { at: Date.now(), table: null };
-		return null;
+
+		const table = new Map<string, AvailabilityRow>();
+		for (const centre of centres) {
+			const centreId = text(centre?.id);
+			for (const row of centre?.gpuAvailability ?? []) {
+				const gpu = text(row?.gpuTypeId);
+				if (!gpu) continue;
+				const value: AvailabilityRow = {};
+				if (typeof row.available === 'boolean') value.available = row.available;
+				const stock = stockStatusOf(row.stockStatus);
+				if (stock) value.stockStatus = stock;
+				if (centreId) table.set(availabilityKey(centreId, gpu), value);
+				const anyKey = availabilityKey(undefined, gpu);
+				table.set(anyKey, mergeRows(table.get(anyKey), value));
+			}
+		}
+		if (table.size === 0) {
+			firstFailure ??= 'RunPod listed data centres but no GPUs in them';
+			continue;
+		}
+
+		availabilityError = undefined;
+		availabilityCache = { at: Date.now(), table };
+		return table;
 	}
 
-	const table = new Map<string, AvailabilityRow>();
-	for (const centre of centres) {
-		const centreId = text(centre?.id);
-		for (const row of centre?.gpuAvailability ?? []) {
-			const gpu = text(row?.gpuTypeId);
-			if (!gpu) continue;
-			const value: AvailabilityRow = {};
-			if (typeof row.available === 'boolean') value.available = row.available;
-			const stock = stockStatusOf(row.stockStatus);
-			if (stock) value.stockStatus = stock;
-			if (centreId) table.set(availabilityKey(centreId, gpu), value);
-			const anyKey = availabilityKey(undefined, gpu);
-			table.set(anyKey, mergeRows(table.get(anyKey), value));
-		}
-	}
-
-	warnedNoAvailability = false;
-	availabilityCache = { at: Date.now(), table };
-	return table;
+	availabilityError = firstFailure ?? 'RunPod did not answer';
+	availabilityCache = { at: Date.now(), table: null };
+	return null;
 }
 
 /**
- * The COARSE fallback, used only when the per-data-centre table is unavailable. Kept because
- * half an answer beats none — but the page shows it ONLY when it says `None`. "Low" from this
- * field is exactly what shipped the wrong badge.
+ * The COARSE fallback, used only when no data-centre route answered. Kept because half an
+ * answer beats none — but it is tagged `price`, and the panel shows it only when it says
+ * `None`. "Low" from this field is exactly what shipped the wrong badge.
  */
 async function coarseStock(
 	gpuTypeId: string,
@@ -676,13 +717,14 @@ async function coarseStock(
 	const rows = (result?.data as { gpuTypes?: GpuTypeRow[] } | undefined)?.gpuTypes;
 	if (!Array.isArray(rows) || rows.length === 0) return undefined;
 	// Match the row we ASKED for rather than trusting position. A filter that silently
-	// widened would otherwise put one card's reading on every row in the fleet — which is
-	// the exact shape of the bug this function is now only a fallback for.
+	// widened would otherwise put one card's reading on every row in the fleet.
 	const wanted = gpuKey(gpuTypeId);
 	const row = rows.find((r) => gpuKey(text(r?.id) ?? '') === wanted);
 	const stockStatus = stockStatusOf(row?.lowestPrice?.stockStatus);
 	if (!stockStatus) return undefined;
-	return dataCenterId ? { stockStatus, dataCenterId } : { stockStatus };
+	return dataCenterId
+		? { source: 'price', stockStatus, dataCenterId }
+		: { source: 'price', stockStatus };
 }
 
 /**
@@ -699,11 +741,11 @@ export async function podAvailability(
 	const table = await gpuAvailabilityTable();
 	if (table) {
 		const scoped = dc ? table.get(availabilityKey(dc, gpuTypeId)) : undefined;
-		if (scoped) return { ...scoped, dataCenterId: dc };
+		if (scoped) return { source: 'datacenter', ...scoped, dataCenterId: dc };
 		// The card is known, but not in a data centre we could name. Report it fleet-wide and
 		// let the UI say so, rather than passing a global figure off as a local one.
 		const anywhere = table.get(availabilityKey(undefined, gpuTypeId));
-		if (anywhere) return { ...anywhere };
+		if (anywhere) return { source: 'datacenter', ...anywhere };
 	}
 
 	return coarseStock(gpuTypeId, dc);
@@ -755,6 +797,13 @@ export interface FleetPayload {
 	idleEnabled: boolean;
 	idleMinutes: number;
 	leaseMinutes: number;
+	/**
+	 * Why the GPU-availability badges are missing, when they are. Present ONLY on failure,
+	 * so the panel stays quiet in the normal case. It exists because this feature has now
+	 * failed silently twice, on a service whose logs the person staring at the blank badges
+	 * cannot read — a diagnostic nobody can reach is not a diagnostic.
+	 */
+	availabilityNote?: string;
 	pods: {
 		id: string;
 		label: string;
@@ -783,6 +832,11 @@ export async function fleetPayload(): Promise<FleetPayload> {
 		idleEnabled: idle.enabled,
 		idleMinutes: idle.minutes,
 		leaseMinutes: leaseMinutesLeft(),
+		// Only when a badge is actually missing because of it — a pod that simply has no
+		// reading yet (never started, so no gpu type known) is not a fault worth reporting.
+		availabilityNote: pods.some((p) => p.status !== 'running' && !p.availability)
+			? availabilityNote()
+			: undefined,
 		pods: pods.map((p) => ({
 			id: p.id,
 			label: p.label,

@@ -16,7 +16,9 @@
 		costPerHr?: number;
 	}
 	type StockStatus = 'High' | 'Medium' | 'Low' | 'None';
+	type AvailabilitySource = 'datacenter' | 'price';
 	interface PodAvailability {
+		source: AvailabilitySource;
 		available?: boolean;
 		stockStatus?: StockStatus;
 		dataCenterId?: string;
@@ -36,6 +38,7 @@
 		idleEnabled: boolean;
 		idleMinutes: number;
 		leaseMinutes: number;
+		availabilityNote?: string;
 		pods: Pod[];
 	}
 
@@ -125,10 +128,17 @@
 	function stockBadge(p: Pod): { label: string; cls: string } | null {
 		const a = p.availability;
 		if (!a) return null;
+		// The explicit boolean wins wherever RunPod gives one.
 		if (a.available === false) return { label: 'no GPUs free', cls: 'warn' };
 		if (a.available === true) return { label: 'GPU available', cls: '' };
+		// A per-data-centre stock word is a real answer about THIS region, so it is shown in
+		// full. The `price` source is not — it reports stock at the lowest price point, which
+		// read `Low` on every card in a region where most were unrentable. From that source
+		// only `None` is unambiguous enough to render.
 		if (a.stockStatus === 'None') return { label: 'no GPUs free', cls: 'warn' };
-		return null;
+		if (a.source !== 'datacenter' || !a.stockStatus) return null;
+		if (a.stockStatus === 'Low') return { label: 'GPU stock low', cls: 'warn' };
+		return { label: 'GPU available', cls: '' };
 	}
 	/** The tooltip carries what the badge can't: the SCOPE, the nuance, and the caveat. */
 	function stockTitle(p: Pod): string {
@@ -449,6 +459,17 @@
 							</li>
 						{/each}
 					</ul>
+
+					<!-- Only rendered when the badges are missing BECAUSE RunPod refused. Silence
+					     was how this feature failed twice: the blank row looked identical to a
+					     healthy one, and the only explanation lived in a log the person looking
+					     at the panel can't reach. -->
+					{#if status.availabilityNote}
+						<p class="avail-note">
+							GPU availability unavailable — RunPod said: “{status.availabilityNote}”. Cards still
+							start normally; only the availability badge is missing.
+						</p>
+					{/if}
 
 					{#if status.idleEnabled}
 						<p class="idle-note">
@@ -825,6 +846,17 @@
 		margin: 6px 0 0;
 		font-size: 12px;
 		color: #8a8a93;
+	}
+	/* Quieter than a fault, louder than nothing: one missing feature, not a broken fleet. */
+	.avail-note {
+		margin: 10px 0 0;
+		font-size: 12px;
+		line-height: 1.5;
+		color: #c9a88f;
+		background: #241a14;
+		border: 1px solid #7a4a2a;
+		border-radius: 8px;
+		padding: 8px 10px;
 	}
 	.inv {
 		margin: 14px 0 0;
