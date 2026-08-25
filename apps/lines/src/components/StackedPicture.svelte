@@ -9,7 +9,8 @@
 	/**
 	 * One tall stacked picture for the stacked-picture reel mode (docs/design/stacked-picture-mode.md).
 	 * Draws the AUTHORED tall art (`run.art` — the Symbols-State-Machine stacked config, sprite / spine /
-	 * flipbook) into a box `naturalCells` tall, then masks it to `visibleCells` cells at `run.hiddenAbove`
+	 * flipbook — swapping to `run.winArt` while the stack is part of a paying line) into a box
+	 * `naturalCells` tall, then masks it to `visibleCells` cells at `run.hiddenAbove`
 	 * so a partial stack shows N/M of the picture. Most runs top-align (`hiddenAbove === 0` ⇒ top N/M); a
 	 * partial pinned to the board's TOP edge sets `hiddenAbove` so the BOTTOM N/M shows and the rest runs
 	 * off-screen above (see the run scan). When no config art is authored (dev / coded fallback) it falls
@@ -24,9 +25,33 @@
 	const context = getContext();
 
 	const geometry = $derived(context.stateGameDerived.boardGeometry());
-	// Prefer the authored config art; fall back to the symbol's `stacked` state binding when unset.
+
+	/**
+	 * Is this stack currently PAYING? The cells a tall picture covers mount no `<Symbol>`, but the win
+	 * presentation still walks them — `Board.svelte` sets `symbolState = 'win'` on every paying cell and
+	 * reverts it to `postWinStatic` once the beat is over — so the covered cells' own state is the
+	 * truthful, already-reactive signal for "this picture is the one paying right now". A line usually
+	 * crosses ONE cell of the run, so ANY lit covered cell lights the whole picture: the tall picture IS
+	 * the symbol, and half a picture cannot pay.
+	 *
+	 * Short-circuits when nothing is authored to swap to, so a project with a single stacked picture
+	 * never even reads the board — its render path is byte-identical to before this existed.
+	 */
+	const winning = $derived.by(() => {
+		if (!run.winArt) return false;
+		const symbols = context.stateGame.board[run.reel]?.reelState.symbols;
+		if (!symbols) return false;
+		for (let row = run.topRow; row < run.topRow + run.visibleCells; row += 1)
+			if (symbols[row]?.symbolState === 'win') return true;
+		return false;
+	});
+
+	// The authored WINNING picture while this stack pays, else the authored resting picture; with neither
+	// authored, the symbol's `stacked` state binding (the coded-fallback path).
 	const info = $derived(
-		run.art ?? getSymbolInfo({ rawSymbol: { name: run.name }, state: 'stacked' }),
+		(winning ? run.winArt : undefined) ??
+			run.art ??
+			getSymbolInfo({ rawSymbol: { name: run.name }, state: 'stacked' }),
 	);
 
 	// Box = cell width × the FULL picture height (naturalCells). Art is stretched to fill it, so a

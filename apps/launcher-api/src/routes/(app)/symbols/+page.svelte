@@ -76,6 +76,9 @@
 		removeStackedSymbol,
 		setStackedSymbolHeight,
 		setStackedSymbolArt,
+		clearStackedSymbolWinArt,
+		setStackedWinHoldMs,
+		STACKED_WIN_HOLD_MS_DEFAULT,
 		winCycleDimNonWinning,
 		winCycleEnabled,
 		winCycleHoldAfterBigWin,
@@ -99,6 +102,7 @@
 		type BookVfxLayer,
 		type BookVfxSlot,
 		type SymbolCell,
+		type StackedArtSlot,
 		type SymbolCellType,
 		type SymbolState,
 		type SymbolsDoc,
@@ -978,11 +982,17 @@
 		doc = setStackedEdgeCutoffs(doc, value);
 	}
 
-	/** Seed a new stacked symbol's tall art from the symbol's effective binding (its win/static art), so
-	 *  the picker opens on the real symbol instead of a blank cell — and, crucially, so the entry is never
-	 *  created assetless (the schema's `art.assetKey` is required; a blank one would 400 the save). */
-	function seedStackedArt(symbol: string): SymbolCell {
-		for (const state of ['win', 'static', 'land', 'spin'] as SymbolState[]) {
+	/** Seed a stacked symbol's tall art from the symbol's effective binding, so the picker opens on the
+	 *  real symbol instead of a blank cell — and, crucially, so the entry is never created assetless (the
+	 *  schema's `art.assetKey` is required; a blank one would 400 the save). The state ORDER is the slot's:
+	 *  the resting picture prefers the still `static`, the win picture prefers the animated `win`, so each
+	 *  slot opens on the binding it is most likely to want. */
+	function seedStackedArt(symbol: string, slot: StackedArtSlot = 'art'): SymbolCell {
+		const order: SymbolState[] =
+			slot === 'winArt'
+				? (['win', 'static', 'land', 'spin'] as SymbolState[])
+				: (['static', 'win', 'land', 'spin'] as SymbolState[]);
+		for (const state of order) {
 			const eff = effectiveCell(doc, data.defaults, symbol, state);
 			if (eff.cell?.assetKey) {
 				const c = $state.snapshot(eff.cell) as SymbolCell;
@@ -1011,17 +1021,32 @@
 	}
 
 	// The tall-art editor reuses the SAME side panel + `draft` machinery as a grid cell (a stacked art is
-	// just a `SymbolCell`), but Apply writes to the stacked symbol instead of a grid override.
-	let stackedEdit = $state<{ symbol: string } | null>(null);
+	// just a `SymbolCell`), but Apply writes to the stacked symbol instead of a grid override. `slot` says
+	// WHICH of the symbol's two pictures is open — the resting `art` or the winning `winArt` — so one
+	// panel serves both.
+	let stackedEdit = $state<{ symbol: string; slot: StackedArtSlot } | null>(null);
 
-	function openStackedArt(symbol: string): void {
+	function openStackedArt(symbol: string, slot: StackedArtSlot = 'art'): void {
 		closeCell(); // a grid cell and the stacked art share the panel — only one is open at a time
-		const existing = doc.stackedPictures?.symbols?.find((s) => s.name === symbol)?.art;
+		const entry = doc.stackedPictures?.symbols?.find((s) => s.name === symbol);
+		const existing = slot === 'winArt' ? entry?.winArt : entry?.art;
 		// `$state.snapshot` (NOT `structuredClone`): the doc is a `$state` proxy and clone throws on it
 		// (same trap as `openCell`/`openHighlight`).
-		draft = existing ? ($state.snapshot(existing) as SymbolCell) : seedStackedArt(symbol);
+		draft = existing ? ($state.snapshot(existing) as SymbolCell) : seedStackedArt(symbol, slot);
 		draftAnimations = [];
-		stackedEdit = { symbol };
+		stackedEdit = { symbol, slot };
+	}
+
+	/** Drop a symbol's WIN picture — the stack then keeps showing its resting picture while it pays. */
+	function clearStackedWinArt(symbol: string): void {
+		doc = clearStackedSymbolWinArt(doc, symbol);
+		if (stackedEdit?.symbol === symbol && stackedEdit.slot === 'winArt') closeStackedArt();
+	}
+
+	/** The stacked win-beat hold (ms). A blank box drops the key ⇒ the game's coded default. */
+	function setStackedWinHold(value: string): void {
+		const trimmed = value.trim();
+		doc = setStackedWinHoldMs(doc, trimmed === '' ? undefined : Number(trimmed));
 	}
 
 	function closeStackedArt(): void {
@@ -1037,7 +1062,7 @@
 		const art: SymbolCell = { type: draft.type, assetKey: draft.assetKey };
 		if (draft.type === 'spine' && draft.animationName) art.animationName = draft.animationName;
 		if (draft.type === 'flipbook' && draft.clipId) art.clipId = draft.clipId;
-		doc = setStackedSymbolArt(doc, stackedEdit.symbol, art);
+		doc = setStackedSymbolArt(doc, stackedEdit.symbol, art, stackedEdit.slot);
 		closeStackedArt();
 	}
 
@@ -1850,8 +1875,9 @@
 							<p class="wl-sub">
 								Turn a symbol into a single <strong>tall picture</strong> that fills several cells
 								for the stacked-picture reel mode. Pick which symbols are stacked, how many cells
-								tall each is, and the tall picture itself — that picture is the <em>only</em> thing a
-								stacked symbol shows. Off by default.
+								tall each is, and each one's two pictures: the <em>resting</em> picture it normally
+								shows, and an optional <em>winning</em> picture it swaps to while it pays. A tall
+								picture is the <em>only</em> thing a stacked symbol shows. Off by default.
 							</p>
 						</div>
 						<label class="switch" class:on={stackedOn}>
@@ -1924,6 +1950,25 @@
 								{/if}
 							</div>
 
+							<div class="wl-group">
+								<label class="field">
+									<span class="label">Win beat (ms)</span>
+									<input
+										type="number"
+										min="0"
+										step="50"
+										placeholder={String(STACKED_WIN_HOLD_MS_DEFAULT)}
+										value={doc.stackedPictures?.winHoldMs ?? ''}
+										oninput={(e) => setStackedWinHold(e.currentTarget.value)}
+									/>
+								</label>
+								<p class="hint">
+									How long a winning stack stays lit — the beat its win picture plays for. The cells
+									under a tall picture have no per-symbol win animation to wait on, so the game
+									holds this fixed time instead. Blank ⇒ {STACKED_WIN_HOLD_MS_DEFAULT}ms.
+								</p>
+							</div>
+
 							{#each stackedList as s (s.name)}
 								<div class="wl-group stacked-row">
 									<div class="stacked-art-preview">
@@ -1945,12 +1990,12 @@
 											<button
 												type="button"
 												class="apply"
-												class:editing={stackedEdit?.symbol === s.name}
-												onclick={() => openStackedArt(s.name)}
+												class:editing={stackedEdit?.symbol === s.name && stackedEdit.slot === 'art'}
+												onclick={() => openStackedArt(s.name, 'art')}
 											>
-												{stackedEdit?.symbol === s.name
-													? 'Editing tall picture…'
-													: 'Edit tall picture'}
+												{stackedEdit?.symbol === s.name && stackedEdit.slot === 'art'
+													? 'Editing picture…'
+													: 'Edit picture'}
 											</button>
 											<button
 												type="button"
@@ -1961,6 +2006,48 @@
 											</button>
 										</div>
 										<p class="hint mono">{cellLabel(s.art)}</p>
+									</div>
+									<!--
+										The WIN picture — the same authoring surface as the resting one, in its own slot.
+										Optional: unset, the stack simply keeps showing its resting picture while it pays,
+										which is exactly how this behaved before the slot existed.
+									-->
+									<div class="stacked-art-preview">
+										{@render stackedArtPreview(s.winArt, 96)}
+									</div>
+									<div class="stacked-controls">
+										<h3>{s.name} · winning</h3>
+										<p class="hint">
+											Shown while this stack is part of a paying line — the animation it pays out
+											with. Unset ⇒ it keeps showing the picture on the left.
+										</p>
+										<div class="stacked-art-actions">
+											<button
+												type="button"
+												class="apply"
+												class:editing={stackedEdit?.symbol === s.name &&
+													stackedEdit.slot === 'winArt'}
+												onclick={() => openStackedArt(s.name, 'winArt')}
+											>
+												{stackedEdit?.symbol === s.name && stackedEdit.slot === 'winArt'
+													? 'Editing win picture…'
+													: s.winArt
+														? 'Edit win picture'
+														: 'Add win picture'}
+											</button>
+											{#if s.winArt}
+												<button
+													type="button"
+													class="ghost"
+													onclick={() => clearStackedWinArt(s.name)}
+												>
+													Clear
+												</button>
+											{/if}
+										</div>
+										<p class="hint mono">
+											{s.winArt ? cellLabel(s.winArt) : 'inherits the picture'}
+										</p>
 									</div>
 								</div>
 							{/each}
@@ -2896,7 +2983,9 @@
 				<div class="panel-head">
 					<h2>
 						{#if stackedEdit}
-							{stackedEdit.symbol} · Tall picture
+							{stackedEdit.symbol} · {stackedEdit.slot === 'winArt'
+								? 'Winning tall picture'
+								: 'Tall picture'}
 						{:else if focus}
 							{focus.symbol} · {STATE_LABELS[focus.state]}
 						{/if}
@@ -3790,6 +3879,9 @@
 	}
 	.stacked-row {
 		display: flex;
+		/* Two preview+controls PAIRS (resting picture, win picture) — side by side when the section is
+		   wide enough, stacked when it isn't, so neither pair's controls get squeezed. */
+		flex-wrap: wrap;
 		gap: 16px;
 		align-items: flex-start;
 		padding: 12px;
@@ -3811,6 +3903,7 @@
 	}
 	.stacked-controls {
 		display: flex;
+		flex: 1 1 240px;
 		flex-direction: column;
 		gap: 8px;
 		min-width: 0;
