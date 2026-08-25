@@ -128,17 +128,24 @@
 	function stockBadge(p: Pod): { label: string; cls: string } | null {
 		const a = p.availability;
 		if (!a) return null;
-		// The explicit boolean wins wherever RunPod gives one.
-		if (a.available === false) return { label: 'no GPUs free', cls: 'warn' };
-		if (a.available === true) return { label: 'GPU available', cls: '' };
-		// A per-data-centre stock word is a real answer about THIS region, so it is shown in
-		// full. The `price` source is not — it reports stock at the lowest price point, which
-		// read `Low` on every card in a region where most were unrentable. From that source
-		// only `None` is unambiguous enough to render.
-		if (a.stockStatus === 'None') return { label: 'no GPUs free', cls: 'warn' };
-		if (a.source !== 'datacenter' || !a.stockStatus) return null;
-		if (a.stockStatus === 'Low') return { label: 'GPU stock low', cls: 'warn' };
-		return { label: 'GPU available', cls: '' };
+		const FREE = { label: 'GPU available', cls: '' };
+		const LOW = { label: 'GPU stock low', cls: 'warn' };
+		const NONE = { label: 'no GPUs free', cls: 'warn' };
+
+		// The `price` source reports stock at the cheapest price point, not availability. Only
+		// `None` is unambiguous enough to render from it; the rest is what read "low" across a
+		// whole fleet and started this.
+		if (a.source !== 'datacenter') return a.stockStatus === 'None' ? NONE : null;
+
+		// Not rentable at all.
+		if (a.available === false || a.stockStatus === 'None') return NONE;
+		// Rentable, but scarce — and this MUST outrank the boolean rather than be hidden by it.
+		// `available: true` only means "more than zero"; RunPod's own console flags these cards
+		// red as Low, and an earlier order here checked the boolean first and rendered a calm
+		// "GPU available" on a fleet the console was warning about.
+		if (a.stockStatus === 'Low') return LOW;
+		if (a.available === true || a.stockStatus) return FREE;
+		return null;
 	}
 	/** The tooltip carries what the badge can't: the SCOPE, the nuance, and the caveat. */
 	function stockTitle(p: Pod): string {

@@ -567,6 +567,13 @@ const AVAILABILITY_RETRY_MS = 30 * 1000;
  */
 let availabilityError: string | undefined;
 
+/**
+ * The data-centre ids RunPod actually returned. Kept ONLY so a scoping miss can name
+ * them: the whole failure mode here is a string that didn't match, and until now only
+ * one side of that comparison was visible to anyone.
+ */
+let availabilityCentres = new Set<string>();
+
 /** Why the availability badges are missing, if they are. `undefined` when all is well. */
 export function availabilityNote(): string | undefined {
 	return availabilityError;
@@ -657,6 +664,8 @@ async function gpuAvailabilityTable(): Promise<Map<string, AvailabilityRow> | nu
 
 async function readAvailabilityTable(): Promise<Map<string, AvailabilityRow> | null> {
 	let firstFailure: string | undefined;
+	// A scoping note from the last cycle must not outlive the read that produced it.
+	availabilityError = undefined;
 
 	for (const query of AVAILABILITY_TIERS) {
 		const result = await gql(query);
@@ -667,8 +676,10 @@ async function readAvailabilityTable(): Promise<Map<string, AvailabilityRow> | n
 		}
 
 		const table = new Map<string, AvailabilityRow>();
+		const centreIds = new Set<string>();
 		for (const centre of centres) {
 			const centreId = text(centre?.id);
+			if (centreId) centreIds.add(centreId);
 			for (const row of centre?.gpuAvailability ?? []) {
 				const gpu = text(row?.gpuTypeId);
 				if (!gpu) continue;
@@ -687,6 +698,7 @@ async function readAvailabilityTable(): Promise<Map<string, AvailabilityRow> | n
 		}
 
 		availabilityError = undefined;
+		availabilityCentres = centreIds;
 		availabilityCache = { at: Date.now(), table };
 		return table;
 	}
@@ -742,10 +754,28 @@ export async function podAvailability(
 	if (table) {
 		const scoped = dc ? table.get(availabilityKey(dc, gpuTypeId)) : undefined;
 		if (scoped) return { source: 'datacenter', ...scoped, dataCenterId: dc };
-		// The card is known, but not in a data centre we could name. Report it fleet-wide and
-		// let the UI say so, rather than passing a global figure off as a local one.
-		const anywhere = table.get(availabilityKey(undefined, gpuTypeId));
-		if (anywhere) return { source: 'datacenter', ...anywhere };
+
+		// NO fleet-wide fallback. It used to roll every data centre up and take the BEST
+		// answer, which is optimistic by construction: a card sold out in this pod's region
+		// reads "available" because some other region has one. A stopped pod can only resume
+		// where its disk already is, so that answer is not merely vague, it is wrong — and it
+		// is what put "GPU available" on a fleet RunPod's own console was flagging Low.
+		//
+		// So say nothing, and say WHY, with the data-centre ids RunPod actually returned —
+		// the whole failure here is a string that didn't match, and only one side of that
+		// comparison was ever visible.
+		const known = [...availabilityCentres].sort();
+		const list = known.join(', ') || 'none';
+		const dcListed = !!dc && known.some((id) => id.toLowerCase() === dc.toLowerCase());
+		availabilityError = !dc
+			? `availability could not be scoped: this pod's data centre is unknown. Set RUNPOD_DATA_CENTER_ID to one of: ${list}.`
+			: !dcListed
+				? `availability could not be scoped: "${dc}" is not a data centre RunPod lists for this account (it lists: ${list}). Set RUNPOD_DATA_CENTER_ID to one of those.`
+				: // The region matched; the CARD did not. Said separately because the fix is a
+					// different one — nothing to configure, RunPod simply does not list this GPU
+					// there — and a message blaming the env var would send you down the wrong path.
+					`RunPod's availability list for ${dc} does not mention "${gpuTypeId}", so that card shows no reading.`;
+		return undefined;
 	}
 
 	return coarseStock(gpuTypeId, dc);
