@@ -133,6 +133,12 @@
 				// amount IS the win-as-bet-multiplier × that constant; `threshold` is that multiplier). The GATE
 				// SEEKS the count here on a tap; the tier WALK is idle-complete driven (not this), so the walk is
 				// robust to a fast/instant count-up.
+				//
+				// `?? 0` is a genuine tier at the bottom of the ladder, NOT a missing field: both builders of a
+				// `WinLevelData` carry the threshold (the coded `winLevelMap` rows and, since this bug,
+				// `tierToWinLevelData`). While the authored path dropped it, every boundary here was 0 and the
+				// seek was silently inert — `jumpTo` clamps forward-only — so a tap stepped the tier ART and
+				// left the number where it was. `winTapLand.fixture.ts` asserts both halves of that wire.
 				boundaryAmount: (tier.threshold ?? 0) * BOOK_AMOUNT_MULTIPLIER,
 			}));
 		return tiers.length ? tiers : undefined;
@@ -194,6 +200,7 @@
 			forceStep={winState.escalationForceStep}
 			onStepIndex={(i) => (winState.escalationStepIndex = i)}
 			countUpComplete={winState.countUpComplete}
+			holdOutro={winState.awaitingDismiss}
 			speedScale={winState.escalationSpeedScale}
 			onOutroComplete={() => (winState.escalationOutroComplete = true)}
 			width={boundToInstance ? undefined : context.stateGameDerived.boardLayout().width}

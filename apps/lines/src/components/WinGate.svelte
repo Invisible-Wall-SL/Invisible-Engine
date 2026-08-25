@@ -8,7 +8,7 @@
 
 	import { getContext } from '../game/context';
 	import { flowV2DrivesScreens } from '../game/flowV2Runtime.svelte';
-	import { CountUpInteraction } from 'engine-game';
+	import { CountUpInteraction, resolveWinTap } from 'engine-game';
 	import { PressToContinue } from 'engine-game';
 	import WinStatePublisher from './WinStatePublisher.svelte';
 	import { winState } from '../game/winState.svelte';
@@ -50,6 +50,19 @@
 	 */
 	const ESCALATION_OUTRO_CAP_MS = 4_000;
 
+	/**
+	 * RUNAWAY GUARD on the LAND-then-dismiss hold (`winState.awaitingDismiss`) — the same discipline as
+	 * {@link ESCALATION_OUTRO_CAP_MS}, for the same reason: the hold BLOCKS THE ROUND, and a player who
+	 * taps to land the total and then puts the phone down (or an autospin run left unattended) must not
+	 * leave the round open forever.
+	 *
+	 * Sized off READING TIME, not off the art: ten seconds is far longer than anyone needs to read a
+	 * number they just tapped to see, and still short of the tier idle's own 12000ms loop, so the
+	 * overlay never sits through a whole cycle waiting on a tap that is not coming. A dismiss press ends
+	 * it instantly at any point; this only decides how long an ABANDONED win screen lingers.
+	 */
+	const DISMISS_HOLD_CAP_MS = 10_000;
+
 	const context = getContext();
 
 	// Under a v2 flow that DRIVES the screens, the authored container's `tapToContinue` overlay is
@@ -85,6 +98,13 @@
 	// finds no boundary to step to and slams (byte-identical). `codedPressOwned` ⇒ the coded slam, untouched.
 	const canTapStep = $derived(!codedPressOwned && tapToSkip);
 
+	// HEADLESS holds too, and the dismiss press below mounts for it: the tap that arms the hold PROVES
+	// the engine owns the tap. An authored container's own `tapToContinue` registers a continue press,
+	// and that mounts the canvas-top `<ContinuePressMask>`, which absorbs the tap wherever it lands — so
+	// where a container owns the tap, `CountUpInteraction` never sees one, no tap ever lands the count,
+	// and no hold is ever armed. Only a presentation whose taps actually reach the gate can hold, which
+	// is exactly the presentation the gate can also dismiss.
+
 	// Publish the live HOLD multiplier to the escalation chain, so `WinAnimation` speeds up the tier
 	// intro/idle spines in lockstep with the accelerating count-up (a smooth ramp, not a snap). 1 when
 	// hold-to-speed-up is off / the coded path / not held ⇒ the escalation runs at normal speed
@@ -114,22 +134,45 @@
 	 */
 	function stepOrSkip(jumpTo: (target: number) => void, finish: () => void) {
 		const boundaries = winState.escalationBoundaries;
-		const idx = winState.escalationStepIndex;
-		const next = idx + 1;
-		if (winState.escalationActive && next < boundaries.length) {
-			winState.escalationForceStep = next;
-			jumpTo(boundaries[next]);
+		const action = resolveWinTap({
+			escalating: winState.escalationActive,
+			tierIndex: winState.escalationStepIndex,
+			tierCount: boundaries.length,
+		});
+		if (action.kind === 'step') {
+			winState.escalationForceStep = action.toTier;
+			jumpTo(boundaries[action.toTier]);
 			return;
 		}
-		// FINAL tier (or un-escalating) — the player tapped to DISMISS, not to step. Slam the count-up AND
-		// arm the outro-skip so the overlay hides the moment the slam lands: the outro exists to play out an
-		// AUTO / fast-forwarded conclusion cleanly (that path is untouched), NOT to hold a deliberate dismiss
-		// tap for its full duration. Set the skip flag WITHOUT concluding here — `OnMount`'s
-		// `concludePresentation` (once the slam completes the count-up + broadcasts `winCountUpComplete`)
-		// then finds the outro wait already satisfied and resolves at once, preserving event ordering.
-		// Inert when un-escalating (the conclusion never waited on the outro) ⇒ byte-identical.
+		// FINAL tier (or un-escalating) — there is no next tier to step to, so LAND the total.
 		finish();
+		if (action.hold) {
+			// ESCALATION — landing is not dismissing. Hold the presentation on the final tier's idle with the
+			// total on screen (`WinAnimation` defers its outro on `holdOutro`) until the player taps AGAIN:
+			// this tap asked to SEE the number, and concluding ~300ms later showed it to nobody. The dismiss
+			// press then hides the overlay instantly (it sets `escalationOutroComplete`, skipping the outro —
+			// #295's intent, unchanged). Bounded by {@link DISMISS_HOLD_CAP_MS}.
+			winState.awaitingDismiss = true;
+			return;
+		}
+		// Un-escalating (no tiers, no outro) — the flag is inert and the conclusion resolves at once, exactly
+		// as before: a small win's count-up still slams and gets out of the way. Byte-identical.
 		winState.escalationOutroComplete = true;
+	}
+
+	/** The CODED press's pre-completion tap: slam the count-up and, on the escalation path, hold the
+	 *  overlay on the total for the dismiss press (the flow path's twin is {@link stepOrSkip}'s final
+	 *  branch). `tierCount: 0` because this surface cannot step — it has no tier walk to step, so
+	 *  `resolveWinTap` always lands, and only the escalation flag decides the hold. Un-escalating ⇒ a
+	 *  bare slam, exactly as before. */
+	function landCountUp(finish: () => void) {
+		finish();
+		const action = resolveWinTap({
+			escalating: winState.escalationActive,
+			tierIndex: 0,
+			tierCount: 0,
+		});
+		if (action.kind === 'land' && action.hold) winState.awaitingDismiss = true;
 	}
 
 	/**
@@ -159,12 +202,19 @@
 		oncomplete();
 	}
 
-	/** A promise that resolves when the escalation outro completes (`WinAnimation` sets the latch).
-	 *  Reactive→promise bridge via a disposable root effect; resolves immediately if already complete.
-	 *  RACED against {@link ESCALATION_OUTRO_CAP_MS} — this wait blocks the round, so it is never
-	 *  allowed to be unbounded. */
+	/** A promise that resolves when the presentation may end — the escalation outro completing
+	 *  (`WinAnimation` sets the latch) or, when the player LANDED the total with a tap, their dismiss
+	 *  press (`dismissNow` sets the same latch). Reactive→promise bridge via a disposable root effect;
+	 *  resolves immediately if already complete. RACED against a cap — this wait blocks the round, so it
+	 *  is never allowed to be unbounded — and WHICH cap applies depends on what is actually being waited
+	 *  for: an animation that should already be playing ({@link ESCALATION_OUTRO_CAP_MS}) or a human
+	 *  ({@link DISMISS_HOLD_CAP_MS}). */
 	function waitForEscalationOutro(): Promise<void> {
 		if (winState.escalationOutroComplete) return Promise.resolve();
+		// Read once, at the wait's start: the hold is armed by the tap that landed the count-up — always
+		// before this runs — and must not flip the cap mid-wait.
+		const holding = winState.awaitingDismiss;
+		const capMs = holding ? DISMISS_HOLD_CAP_MS : ESCALATION_OUTRO_CAP_MS;
 		return new Promise<void>((resolve) => {
 			// ONE settle point for both racers, so the loser cannot resolve twice, cannot warn about an
 			// outro that did land, and — the reason this isn't a bare `Promise.race` — cannot leave the
@@ -175,7 +225,7 @@
 				if (settled) return;
 				settled = true;
 				stop();
-				if (capped) {
+				if (capped && !holding) {
 					console.warn(
 						`[WinGate] the win tier's outro did not report complete within ${ESCALATION_OUTRO_CAP_MS}ms — ` +
 							'concluding anyway. Check that the final tier\'s "outro" names an animation that exists ' +
@@ -189,7 +239,7 @@
 					if (winState.escalationOutroComplete) settle(false);
 				});
 			});
-			void waitForTimeout(ESCALATION_OUTRO_CAP_MS).then(() => {
+			void waitForTimeout(capMs).then(() => {
 				if (!winState.escalationOutroComplete) settle(true);
 			});
 		});
@@ -210,6 +260,7 @@
 			// Reset the tap-to-step walk trackers so a repeat win starts at the first tier.
 			winState.escalationForceStep = 0;
 			winState.escalationStepIndex = 0;
+			winState.awaitingDismiss = false;
 		},
 		winHide: () => {
 			show = false;
@@ -217,6 +268,7 @@
 			concluded = false;
 			winState.escalationForceStep = 0;
 			winState.escalationStepIndex = 0;
+			winState.awaitingDismiss = false;
 			// Reset the count-up-complete latch when the win DISMISSES — the load-bearing reset for a
 			// REPEAT win. Under an authored flow the win container (and its `tapArmAfterSignal:
 			// 'winCountUpComplete'` tap) is mounted by `showContainer` BEFORE that win's `winShow`
@@ -276,9 +328,11 @@
 
 				{#if codedPressOwned}
 					<!-- Post-count-up tap concludes via `concludePresentation` so an escalation's outro is
-						awaited (not cut). Pre-completion tap still slams the count-up (`finishCountUp`), then
-						OnMount concludes. Un-escalating ⇒ concludes immediately (byte-identical tap-to-slam). -->
-					<PressToContinue onpress={() => (countUpCompleted ? dismissNow() : finishCountUp())} />
+						awaited (not cut). Pre-completion tap slams the count-up (`finishCountUp`) and, on the
+						escalation path, HOLDS the overlay on the total until the next press dismisses it — this
+						press is already the two-tap surface, it just used to lose the first tap's number to the
+						settle. Un-escalating ⇒ concludes immediately (byte-identical tap-to-slam). -->
+					<PressToContinue onpress={() => (countUpCompleted ? dismissNow() : landCountUp(finishCountUp))} />
 				{:else if !countUpCompleted}
 					<!-- Authorable count-up interaction (hold-to-fast-forward and/or tap-to-skip), mounted ONLY
 						 while the count-up runs (flow path) so it never intercepts the authored `bigWin`
@@ -291,7 +345,7 @@
 						bind:speedScale={interactionSpeedScale}
 						onSkip={() => stepOrSkip(jumpTo, finishCountUp)}
 					/>
-				{:else if !headless}
+				{:else if !headless || winState.awaitingDismiss}
 					<!-- POST-COUNT-UP DISMISS (flow path). The branch above unmounts the moment the count-up
 						completes, and the coded press is suppressed under v2 — which left the overlay with NO
 						tap surface at all for the whole window between the count landing and the outro
@@ -309,7 +363,12 @@
 						OWNS `setWin` and the authored container owns dim / art / tap, so the engine must not
 						add a second tap surface. Non-headless ⇒ the engine owns the overlay (it is drawing the
 						dim scrim right above), so it owns the dismiss press too — exactly as the coded path
-						always has. -->
+						always has.
+
+						`|| winState.awaitingDismiss` is the one headless exception, and it is not a second tap
+						surface: the hold only exists BECAUSE a tap reached the gate, which (see `holdOnLand`)
+						means no authored container claimed the press. Without it a headless hold would have
+						nothing to end it but its cap. -->
 					<PressToContinue hidePrompt onpress={dismissNow} />
 				{/if}
 			{/snippet}

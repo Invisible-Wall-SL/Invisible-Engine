@@ -125,9 +125,11 @@ export type WinLevelData = {
 	level: number;
 	alias: string;
 	type: WinLevelType;
-	/** Win-as-bet-multiplier at/above which this tier is reached — carried so the config-defaults
-	 *  generator can read the coded ladder as data. Optional: a runtime-built tier omits it (its level
-	 *  already comes from the resolver). */
+	/** Win-as-bet-multiplier at/above which this tier is reached. The config-defaults generator reads
+	 *  the coded ladder through it, and the big-win tap-to-step SEEKS the count to it
+	 *  (`WinVisual.escalationBoundaries`) — so a tier built from an authored config carries it too
+	 *  (`tierToWinLevelData`), which is what makes the two paths agree. Optional only because a tier
+	 *  assembled outside those two builders has no ladder position to state. */
 	threshold?: number;
 	text: string | null;
 	presentDuration: number;

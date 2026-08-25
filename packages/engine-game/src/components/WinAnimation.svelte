@@ -58,6 +58,15 @@
 		 *  while the chain is still mid-walk (a fast-forward / tap-to-skip of the count-up), the chain
 		 *  COLLAPSES to the final tier and plays its outro cleanly, so the escalation is never truncated. */
 		countUpComplete?: boolean;
+		/**
+		 * HOLD the final tier's idle instead of flipping it to the outro when {@link countUpComplete}
+		 * latches — the player LANDED the count-up with a tap and the gate is now holding the total on
+		 * screen for their dismiss press (`winState.awaitingDismiss`). Playing the exit here would take the
+		 * number away in the same beat they asked to see it. Clearing it is not what resumes the end: the
+		 * dismiss press satisfies the gate's wait directly and the overlay fades from this idle, so the
+		 * outro stays skipped on a deliberate dismiss. Escalation only; unset ⇒ today's behaviour exactly.
+		 */
+		holdOutro?: boolean;
 		/** Fired when the FINAL tier's OUTRO completes (escalation path only) — the gate awaits this before
 		 *  concluding the presentation, so a collapsed/fast-forwarded chain still finishes its outro. Never
 		 *  fires on the single-tier path (no outro), so that path is byte-identical. */
@@ -85,6 +94,7 @@
 		forceStep = 0,
 		onStepIndex,
 		countUpComplete = false,
+		holdOutro = false,
 		onOutroComplete,
 		speedScale = 1,
 		width,
@@ -142,6 +152,9 @@
 	// never gains an outro it did not have before (byte-identical).
 	$effect(() => {
 		if (!escalating || !countUpComplete || chainConcluded) return;
+		// The tap that landed the count-up is holding the total on screen — stay on the idle and do NOT
+		// mark the chain concluded, so the collapse below still runs untouched if the hold ever lapses.
+		if (holdOutro) return;
 		chainConcluded = true;
 		if (!isFinalStep) stepIndex = steps.length - 1;
 		if (!finalHasExit) {

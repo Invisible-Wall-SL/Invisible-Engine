@@ -53,7 +53,12 @@ export {
 } from './src/game/gameState.svelte';
 export { resolveWinMount, type WinMount } from './src/game/winOwnership';
 
-export { tierHasExit, type TierAnimationMap } from './src/game/winEscalation';
+export {
+	tierHasExit,
+	resolveWinTap,
+	type TierAnimationMap,
+	type WinTapAction,
+} from './src/game/winEscalation';
 export {
 	freeSpinsRemaining,
 	freeSpinsTotal,

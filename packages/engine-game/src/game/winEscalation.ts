@@ -37,3 +37,39 @@ export type TierAnimationMap = {
  */
 export const tierHasExit = (animationMap: TierAnimationMap): boolean =>
 	!!animationMap.outro && animationMap.outro !== animationMap.idle;
+
+/** What a TAP during the win count-up does: advance the chain one tier, or LAND the total. */
+export type WinTapAction =
+	| { kind: 'step'; toTier: number }
+	| { kind: 'land'; hold: boolean };
+
+/**
+ * What a tap on the win presentation means, given where the tier walk currently is.
+ *
+ * A tap is not one intent. Mid-chain it means "next tier, faster". On the FINAL tier — where there
+ * is nothing left to step to — it means "show me the number now". Neither of those is "get off my
+ * screen": the escalating win exists to be looked at, and a tap asking to SEE the total is the
+ * worst possible moment to take it away. So the landing tap only LANDS, and the presentation then
+ * HOLDS on the total until a second, deliberate tap dismisses it (`WinGate.awaitingDismiss` →
+ * `WinAnimation.holdOutro`) — the two-tap grammar every other slot uses for a big win.
+ *
+ * `hold` is the escalation flag, not a separate authoring: an UN-escalating win has no tiers, no
+ * outro and nothing to look at once the number lands, so holding it would only make small wins
+ * sticky. That path lands and concludes exactly as it always has.
+ *
+ * Extracted here, with {@link tierHasExit}, because it decides how long a presentation BLOCKS THE
+ * ROUND — the class of rule this file exists to keep testable without a renderer (see
+ * `packages/engine-game/fixtures/winTapLand.fixture.ts`).
+ */
+export const resolveWinTap = (ctx: {
+	/** Whether a tier CHAIN is presenting (`winState.escalationActive`). */
+	escalating: boolean;
+	/** The tier the walk is showing (`winState.escalationStepIndex`). */
+	tierIndex: number;
+	/** How many tiers the chain renders. 0 on a surface that cannot step (the coded press). */
+	tierCount: number;
+}): WinTapAction => {
+	const next = ctx.tierIndex + 1;
+	if (ctx.escalating && next < ctx.tierCount) return { kind: 'step', toTier: next };
+	return { kind: 'land', hold: ctx.escalating };
+};
