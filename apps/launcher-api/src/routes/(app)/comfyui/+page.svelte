@@ -650,7 +650,12 @@ RunPod recreates the container, so anything ` +
 											· <span class="bad">{b.conclusion ?? 'failed'}</span>
 										{/if}
 										{#if b.url}
-											· <a href={b.url} target="_blank" rel="noopener noreferrer">log ↗</a>
+											·
+											<!-- An absolute github.com run URL, so SvelteKit's resolve() does not apply.
+											     Disabled inline rather than added to eslint-suppressions.json: the
+											     baseline is for burning DOWN existing debt, not for parking new lines. -->
+											<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+											<a href={b.url} target="_blank" rel="noopener noreferrer">log ↗</a>
 										{/if}
 									</span>
 								{/if}
