@@ -25,7 +25,7 @@
 	import { getContext } from '../game/context';
 	import { awaitSymbolBeat, WIN_BEAT_CAP_MS } from '../game/symbolBeat';
 	import { winLineColorForPositions } from '../game/winSymbolCycle';
-	import { stackedCoverage, winDimCellKey } from '../game/stateGame.svelte';
+	import { stackedCoverage, stackedWinHoldMs, winDimCellKey } from '../game/stateGame.svelte';
 	import { BoardContainer } from 'engine-game';
 	import BoardMask from './BoardMask.svelte';
 	import BoardBase from './BoardBase.svelte';
@@ -40,7 +40,9 @@
 
 	/** The win beat a stacked-picture cell holds in place of a per-icon win spine (its `<Symbol>` is
 	 *  never mounted, so there is no `oncomplete` to await). A readable minimum so the win still lands
-	 *  even when a paying line is entirely covered by stacked runs. */
+	 *  even when a paying line is entirely covered by stacked runs. The Symbols tool's `winHoldMs`
+	 *  overrides it — this beat is also how long an authored WIN picture plays, so a project with a
+	 *  longer win animation says so there rather than living with this default. */
 	const STACKED_WIN_HOLD_MS = 650;
 
 	let show = $state(true);
@@ -81,7 +83,7 @@
 					reelSymbol.winLineColor = color;
 					reelSymbol.symbolState = 'win';
 					if (covered.has(winDimCellKey(position.reel, position.row))) {
-						await waitForTimeout(STACKED_WIN_HOLD_MS);
+						await waitForTimeout(stackedWinHoldMs() ?? STACKED_WIN_HOLD_MS);
 					} else {
 						await awaitSymbolBeat((resolve) => (reelSymbol.oncomplete = resolve), WIN_BEAT_CAP_MS);
 					}

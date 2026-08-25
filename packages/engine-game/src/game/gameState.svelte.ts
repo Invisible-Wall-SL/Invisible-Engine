@@ -54,9 +54,10 @@ export interface GameStateDeps<TGameType extends string> {
 	/** Authored stacked-picture config (`bakedStackedConfig()`), or a falsy value to use the
 	 *  fallback below. */
 	stackedConfig: () => {
-		symbols?: { name: string; height?: number; art?: StackedArt }[];
+		symbols?: { name: string; height?: number; art?: StackedArt; winArt?: StackedArt }[];
 		fullHeightOnly?: boolean;
 		edgeCutoffs?: boolean;
+		winHoldMs?: number;
 	} | null;
 	/** The coded fallback when nothing is authored (`STACKED_PICTURE` in the app). */
 	stackedFallback: { symbols: string[]; heights: Record<string, number> };
@@ -781,6 +782,9 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		hiddenAbove: number;
 		/** The authored tall art (undefined ⇒ fall back to the `stacked` state binding). */
 		art?: StackedArt;
+		/** The authored WINNING tall art — what the picture becomes while this stack is part of a paying
+		 *  line. Undefined ⇒ nothing to swap to, so the run draws `art` throughout (byte-parity). */
+		winArt?: StackedArt;
 	};
 
 	/**
@@ -793,6 +797,9 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		symbols: Set<string>;
 		heightOf: (name: string) => number | undefined;
 		artOf: (name: string) => StackedArt | undefined;
+		/** The picture the stack swaps to while it PAYS, when one is authored. Undefined ⇒ the stack
+		 *  keeps showing `artOf` through the win (how this behaved before the slot existed). */
+		winArtOf: (name: string) => StackedArt | undefined;
 		/** When true, a landed run shorter than the symbol's height shows the normal icons, not a cropped
 		 *  tall picture (authored global toggle). Default false ⇒ partial runs crop the picture. */
 		fullHeightOnly: boolean;
@@ -815,6 +822,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 				symbols: new Set(byName.keys()),
 				heightOf: (name) => byName.get(name)?.height,
 				artOf: (name) => byName.get(name)?.art,
+				winArtOf: (name) => byName.get(name)?.winArt,
 				fullHeightOnly: baked.fullHeightOnly === true,
 				edgeCutoffs: baked.edgeCutoffs === true,
 			};
@@ -824,6 +832,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 			symbols: new Set(deps.stackedFallback.symbols),
 			heightOf: (name) => deps.stackedFallback.heights[name],
 			artOf: () => undefined,
+			winArtOf: () => undefined,
 			fullHeightOnly: false,
 			edgeCutoffs: false,
 		};
@@ -857,7 +866,14 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	const computeStackedRuns = (): StackedPictureRun[] => {
 		if (!stackedPicturesActive()) return [];
 		const rows = deps.boardDimensions().y;
-		const { symbols: stackedSet, heightOf, artOf, fullHeightOnly, edgeCutoffs } = resolvedStacked();
+		const {
+			symbols: stackedSet,
+			heightOf,
+			artOf,
+			winArtOf,
+			fullHeightOnly,
+			edgeCutoffs,
+		} = resolvedStacked();
 		const { rowPitchLocal } = boardGeometry();
 		const runs: StackedPictureRun[] = [];
 		stateGame.board.forEach((reel, reelIndex) => {
@@ -965,6 +981,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 					x: getSymbolX(reelIndex),
 					topEdgeY: symbols[idx].symbolY() - rowPitchLocal / 2,
 					art: artOf(name),
+					winArt: winArtOf(name),
 				});
 				idx = end + 1;
 			}
@@ -990,6 +1007,11 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	/** `reel:row` keys hidden because a stacked picture covers them — read by `ReelSymbol` to skip the
 	 *  single-cell art under a run (no doubling). Empty when the mode is off (byte-parity). */
 	const stackedCoverage = (): Set<string> => stackedCoverageSet;
+
+	/** The AUTHORED win-beat hold (ms) for a stacked cell, or `undefined` for the game's coded default.
+	 *  A covered cell has no `<Symbol>` to report an `oncomplete`, so its win beat is a fixed wait; this
+	 *  is the knob that sizes that wait to an authored `winArt` animation. */
+	const stackedWinHoldMs = (): number | undefined => deps.stackedConfig()?.winHoldMs;
 
 	/**
 	 * Rebuild the board from the CURRENT active config, replacing `stateGame.board`. Called once from
@@ -1111,6 +1133,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		stackedCoverage,
 		stackedPictureRuns,
 		stackedScrollStrip,
+		stackedWinHoldMs,
 		stateGame,
 		stateGameDerived,
 		winDimCellKey,

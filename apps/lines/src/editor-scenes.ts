@@ -219,6 +219,15 @@ type BakedBundle = {
 					animationName?: string;
 					clipId?: string;
 				};
+				/** The winning variant of the tall picture — drawn while the stack is part of a paying
+				 *  line (typically the spine/flipbook that animates the payout, where `art` is the still
+				 *  the stack rests on). Absent → the stack keeps showing `art` through the win. */
+				winArt?: {
+					type: 'sprite' | 'spine' | 'flipbook';
+					assetKey: string;
+					animationName?: string;
+					clipId?: string;
+				};
 			}>;
 			/** When true, a tall picture shows ONLY on a full-height stack; a landed run shorter than the
 			 *  symbol's `height` renders the normal single icons instead. Absent → partial runs show the
@@ -230,6 +239,11 @@ type BakedBundle = {
 			 *  Any run length qualifies (even 1). Absent → no edge cut-off; edge partials follow
 			 *  `fullHeightOnly` like any other partial. Independent of `fullHeightOnly`. */
 			edgeCutoffs?: boolean;
+			/** How long (ms) a stacked cell HOLDS its win beat. A covered cell mounts no `<Symbol>`, so
+			 *  the game can't await a per-icon win animation there and waits a fixed beat instead; this
+			 *  is what matches that beat to an authored `winArt` animation. Absent → the coded
+			 *  `STACKED_WIN_HOLD_MS`. */
+			winHoldMs?: number;
 		};
 		/** Free-spin BOOK VFX (Invisible Symbols State Machine output): a two-layer effect drawn on
 		 * the book/special symbol during free spins — `background` behind the symbol art,

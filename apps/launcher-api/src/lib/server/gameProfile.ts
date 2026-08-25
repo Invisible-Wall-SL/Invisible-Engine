@@ -273,9 +273,11 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		text: (ctx) => {
 			const stacked = ctx.symbols.stackedPictures;
 			if (stacked?.enabled !== true || !stacked.symbols?.length) return null;
+			const winArtCount = stacked.symbols.filter((s) => s.winArt?.assetKey).length;
 			const notes = [
 				stacked.fullHeightOnly ? 'full-height only' : null,
 				stacked.edgeCutoffs ? 'edge cutoffs' : null,
+				winArtCount ? plural(winArtCount, 'win picture') : null,
 			].filter(Boolean);
 			const suffix = notes.length ? ` · ${notes.join(', ')}` : '';
 			return `Stacked pictures (${plural(stacked.symbols.length, 'symbol')})${suffix}`;
