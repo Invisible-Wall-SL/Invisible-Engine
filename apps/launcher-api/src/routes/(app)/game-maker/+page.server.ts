@@ -15,7 +15,8 @@ import {
 } from '$lib/server/projects';
 import { listAllObjects } from '$lib/server/r2';
 import { getRoleOverrides } from '$lib/server/roleToolAccess';
-import { loadTestServerManifest, runtimeBundleReleasedAt } from '$lib/server/testServerManifest';
+import { engineStalenessIndex } from '$lib/server/engineStaleness';
+import { loadTestServerManifest } from '$lib/server/testServerManifest';
 import { loadSymbolsDoc } from '$lib/server/symbolsStorage';
 import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { Actions, PageServerLoad } from './$types';
@@ -78,19 +79,11 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 	// Kind id → display name, for the profile's "what kind of game is this" chip.
 	const kindNames = new Map(gameKinds.map((k) => [k.id, k.name]));
 
-	// Engine-staleness signal: when was each referenced generic runtime bundle last
-	// released (its `_runtime/<id>/index.html` mtime in R2). Resolved once per distinct
-	// runtime id — normally just `lines` — and compared below against each game's own
-	// last-publish time so the page can flag a game whose RUNNING engine is behind the
-	// current one (the "republish + reconcile, don't chase a ghost" prompt).
-	const runtimeIds = new Set<string>();
-	for (const entry of Object.values(manifest.games)) {
-		if (entry.runtime) runtimeIds.add(entry.runtime);
-	}
-	const runtimeReleasedAt = new Map<string, number | null>();
-	await Promise.all(
-		[...runtimeIds].map(async (id) => runtimeReleasedAt.set(id, await runtimeBundleReleasedAt(id))),
-	);
+	// Engine-staleness signal: each game's last publish vs. the release time of the shared
+	// runtime bundle it is served from — the "republish + reconcile, don't chase a ghost"
+	// prompt. Resolved through the SHARED index so this badge and the bulk republish endpoint
+	// (`/api/game-maker/publish-all`) can never disagree about which games are stale.
+	const staleness = await engineStalenessIndex(manifest);
 
 	// Which projects already have a registered (published) game + its launch URL,
 	// so the page can show "Re-publish" + the current play link.
@@ -102,16 +95,8 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 			// when the project has no client) so the scenes-doc key matches the editor.
 			const clientKey = p.clientKey ?? UNASSIGNED_CLIENT;
 
-			// Compare the game's last publish (manifest `updatedAt`) against its runtime's
-			// release time. Only runtime-served games (a `runtime` field) can drift this way;
-			// desktop games pin their engine in their own bundle and aren't published here.
-			// Missing/unparseable timestamps ⇒ can't compare ⇒ not flagged (no false alarm).
 			const entry = manifest.games[p.key];
-			const runtimeId = entry?.runtime ?? null;
-			const publishedAt = entry?.updatedAt ? Date.parse(entry.updatedAt) : NaN;
-			const releasedAt = runtimeId ? (runtimeReleasedAt.get(runtimeId) ?? null) : null;
-			const canCompare = Boolean(game) && releasedAt !== null && Number.isFinite(publishedAt);
-			const engineStale = canCompare && releasedAt! > publishedAt;
+			const engine = staleness.for(p.key, Boolean(game));
 
 			// The card's "what IS this game" summary. Two extra R2 reads per project (the config +
 			// the symbols doc); everything else is already in hand. Both loaders degrade to a
@@ -126,7 +111,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				config: config.doc,
 				configSource: config.source,
 				symbols,
-				runtimeId,
+				runtimeId: engine.runtimeId,
 				protocol: entry?.protocol ?? null,
 			});
 
@@ -142,12 +127,12 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 				// Publish-confirmation signal: when the project's scenes were last edited.
 				scenesUpdatedAt: await scenesLastModified(clientKey, p.key),
 				// Engine-staleness: true when a newer runtime shipped after this game's last
-				// publish. `canCompare` distinguishes "up to date" from "unknown" for the UI.
-				engineStale,
-				engineComparable: canCompare,
-				runtimeId,
-				runtimeReleasedAt: releasedAt,
-				publishedAt: Number.isFinite(publishedAt) ? publishedAt : null,
+				// publish. `engineComparable` distinguishes "up to date" from "unknown" for the UI.
+				engineStale: engine.stale,
+				engineComparable: engine.comparable,
+				runtimeId: engine.runtimeId,
+				runtimeReleasedAt: engine.runtimeReleasedAt,
+				publishedAt: engine.publishedAt,
 			};
 		}),
 	);
