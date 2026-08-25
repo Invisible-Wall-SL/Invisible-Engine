@@ -38,7 +38,8 @@
 		clearBookVfxLayer,
 		clearHighlight,
 		clearOverride,
-		clearWinLineStyle,
+		clearWinLineLineStyle,
+		clearWinLineTextStyle,
 		docSignature,
 		effectiveCell,
 		effectiveHighlight,
@@ -65,6 +66,7 @@
 		setWinLineEnabled,
 		setWinLineLine,
 		setWinLineText,
+		setWinLineTextEnabled,
 		setStackedPicturesEnabled,
 		setStackedFullHeightOnly,
 		setStackedEdgeCutoffs,
@@ -81,6 +83,8 @@
 		winCycleShowMessage,
 		winCycleShowText,
 		winLineEnabled,
+		winLineTextEnabled,
+		winLineTextPlacement,
 		WIN_CYCLE_DELAY_DEFAULT,
 		SYMBOL_CELL_TYPES,
 		SYMBOL_CELL_TYPE_LABELS,
@@ -896,12 +900,15 @@
 		bookVfxDraft.offset = next.x || next.y ? next : undefined;
 	}
 
-	// ── Global win-line overlay (on/off + style) ──────────────────────────────
-	// A plain on/off plus line + win-amount-text styling for the in-game winning-payline
-	// overlay (pure config, no asset). Effective on/off defaults to ON when the doc has no
-	// `winLine`; every style field falls through to the coded defaults below when unset, so
-	// the doc stays sparse (only authored, non-default fields persist).
+	// ── Win-line overlay: the LINE and the AMOUNT TEXT, two independent sections ──
+	// Pure config, no asset. The traced line and the stamped amount each own their switch, so a
+	// project can stamp the amount with no line under it (or draw the line and say nothing). The
+	// text's switch DEFAULTS to the line's — exactly what the single toggle these replaced meant —
+	// so an existing project reads unchanged until the author touches the text section. Every style
+	// field falls through to the coded defaults below when unset, keeping the doc sparse.
 	const winLineOn = $derived(winLineEnabled(doc));
+	const winTextOn = $derived(winLineTextEnabled(doc));
+	const winTextPlacement = $derived(winLineTextPlacement(doc));
 
 	// The game's coded win-line defaults (mirror Book of Borut's WinLine.svelte). Shown as
 	// the input values when the author hasn't overridden a field.
@@ -943,6 +950,10 @@
 
 	function toggleWinLine(enabled: boolean): void {
 		doc = setWinLineEnabled(doc, enabled);
+	}
+
+	function toggleWinLineText(enabled: boolean): void {
+		doc = setWinLineTextEnabled(doc, enabled);
 	}
 
 	// ── Stacked pictures (master toggle + per-symbol tall art + height) ────────
@@ -1043,7 +1054,11 @@
 	const wcHold = $derived(winCycleHoldAfterBigWin(doc));
 
 	function resetWinLineStyle(): void {
-		doc = clearWinLineStyle(doc);
+		doc = clearWinLineLineStyle(doc);
+	}
+
+	function resetWinTextStyle(): void {
+		doc = clearWinLineTextStyle(doc);
 	}
 
 	// ── Reel anticipation (the escalating tease mode's presentation FX) ────────
@@ -1958,9 +1973,9 @@
 						<div class="wl-text">
 							<h2>Win lines</h2>
 							<p class="wl-sub">
-								The line traced across each winning payline, with the win amount stamped under its
-								end. On by default; turn it off to hide the overlay, or style the line and the
-								amount text below.
+								The line traced across each winning payline. On by default; turn it off to draw no
+								line, or style it below. The stamped win amount is its own section underneath — turn
+								this one off and that one on to show the amount with no line under it.
 							</p>
 						</div>
 						<label class="switch" class:on={winLineOn}>
@@ -2159,8 +2174,38 @@
 								</p>
 							</div>
 
+							<button type="button" class="ghost wl-reset" onclick={resetWinLineStyle}>
+								Reset line style
+							</button>
+						</div>
+					{/if}
+				</section>
+
+				<section class="winline" class:expanded={winTextOn}>
+					<div class="wl-head">
+						<div class="wl-text">
+							<h2>Win amount text</h2>
+							<p class="wl-sub">
+								The win amount stamped for each paying line, with the authored win message above it.
+								Its own switch, separate from the line: leave this on with Win lines off to announce
+								the amount without drawing anything across the reels.
+							</p>
+						</div>
+						<label class="switch" class:on={winTextOn}>
+							<input
+								type="checkbox"
+								checked={winTextOn}
+								onchange={(e) => toggleWinLineText(e.currentTarget.checked)}
+							/>
+							<span class="track"><span class="knob"></span></span>
+							<span class="switch-label">{winTextOn ? 'On' : 'Off'}</span>
+						</label>
+					</div>
+
+					{#if winTextOn}
+						<div class="wl-config">
 							<div class="wl-group">
-								<h3>Win amount text</h3>
+								<h3>Style</h3>
 								<div class="wl-fields">
 									<label class="field">
 										<span class="label">Font</span>
@@ -2191,16 +2236,37 @@
 											oninput={(hex) => patchWinLineText({ color: hex })}
 										/>
 									</label>
+									<label class="field">
+										<span class="label">Position</span>
+										<select
+											value={winTextPlacement}
+											onchange={(e) =>
+												patchWinLineText({
+													placement: e.currentTarget.value as 'line' | 'boardCenter',
+												})}
+										>
+											<option value="line">At the winning line</option>
+											<option value="boardCenter">Centre of the reels</option>
+										</select>
+									</label>
 								</div>
 								<p class="wl-note">
 									The amount uses a bitmap font, so the colour tints it — clean on a light font, but
 									tinting an already-coloured font (e.g. gold) just darkens it. To recolour cleanly,
 									pick a differently-coloured font.
 								</p>
+								<p class="wl-note">
+									<strong>Position</strong> decides where the amount lands.
+									<em>At the winning line</em> (the default) stamps it just past the last paying
+									symbol, flipping above the line when there is no room below.
+									<em>Centre of the reels</em> ignores where the win landed and puts it in the middle
+									of the reel window instead — one amount at a time, so with "show all win lines at once"
+									on you read the win being announced rather than every amount piled on the same spot.
+								</p>
 							</div>
 
-							<button type="button" class="ghost wl-reset" onclick={resetWinLineStyle}>
-								Reset win-line style
+							<button type="button" class="ghost wl-reset" onclick={resetWinTextStyle}>
+								Reset text style
 							</button>
 						</div>
 					{/if}

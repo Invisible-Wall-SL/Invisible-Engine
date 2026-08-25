@@ -137,8 +137,10 @@ const boardGlowSchema = z
 
 /** Win-line overlay config (Invisible Symbols State Machine). All fields optional and
  *  sparse — anything unset falls through to the game's coded defaults, so an untouched
- *  project ships no `winLine` and renders byte-identical. `enabled` absent means ON;
- *  `{ enabled: false }` turns the overlay OFF. Colours are CSS hex strings (Pixi 8
+ *  project ships no `winLine` and renders byte-identical. `enabled` is the LINE's switch:
+ *  absent means ON, `{ enabled: false }` draws no line. The stamped amount has its OWN
+ *  switch (`text.enabled`) which falls back to this one, so the two are authored
+ *  independently and an old one-toggle doc still means the same thing. Colours are CSS hex strings (Pixi 8
  *  `ColorSource` consumes them directly); `width`/`size` are multiples of the symbol
  *  size; `speed` is a draw-speed multiplier. No assets here — the chosen `text.font`
  *  travels via the existing font pipeline. */
@@ -174,9 +176,18 @@ const winLineLineSchema = z
 
 const winLineTextSchema = z
 	.object({
+		/** Whether the win AMOUNT is stamped at all — the text's own switch, independent of the
+		 *  line's (`winLine.enabled`), so a project can stamp the amount with no line drawn under it.
+		 *  Absent ⇒ it follows the line's switch, which is what every doc authored before the split
+		 *  meant by one toggle over both. */
+		enabled: z.boolean().optional(),
 		font: z.string().optional(),
 		size: z.number().optional(),
 		color: z.string().optional(),
+		/** WHERE the amount is stamped. `'line'` (absent ⇒ default, byte-identical to before) puts it
+		 *  at the winning line's end; `'boardCenter'` puts it in the middle of the reel window
+		 *  instead, where only the most recently announced win stamps so the amounts never pile up. */
+		placement: z.enum(['line', 'boardCenter']).optional(),
 	})
 	.strict();
 
@@ -393,13 +404,21 @@ export function emptySymbolsDoc(): SymbolsDoc {
 }
 
 /** Drop empty `line`/`text` style objects and a now-empty `winLine`, so a reset
- *  round-trips to "no winLine" (sparse) rather than persisting `{}`. */
+ *  round-trips to "no winLine" (sparse) rather than persisting `{}`. `text.enabled`
+ *  defaults to the LINE's switch and `text.placement` defaults to `'line'`, so a value
+ *  equal to its default drops too — otherwise a project that only ever looked at the
+ *  panel would start shipping a `winLine`. Mirrors the client's `pruneWinLine`. */
 function pruneWinLine(winLine: SymbolsDoc['winLine']): SymbolsDoc['winLine'] {
 	if (!winLine) return undefined;
 	const next: NonNullable<SymbolsDoc['winLine']> = {};
 	if (winLine.enabled === false) next.enabled = false;
 	if (winLine.line && Object.keys(winLine.line).length) next.line = winLine.line;
-	if (winLine.text && Object.keys(winLine.text).length) next.text = winLine.text;
+	if (winLine.text) {
+		const text = { ...winLine.text };
+		if (text.enabled === (winLine.enabled ?? true)) delete text.enabled;
+		if (text.placement === 'line') delete text.placement;
+		if (Object.keys(text).length) next.text = text;
+	}
 	return Object.keys(next).length ? next : undefined;
 }
 

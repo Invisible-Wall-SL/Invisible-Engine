@@ -316,7 +316,13 @@ type BakedBundle = {
 				allAtOnce?: boolean;
 				allAtOnceDelay?: number;
 			};
-			text?: { font?: string; size?: number; color?: string };
+			text?: {
+				enabled?: boolean;
+				font?: string;
+				size?: number;
+				color?: string;
+				placement?: 'line' | 'boardCenter';
+			};
 		};
 	};
 	/** The authored win-text TEMPLATES (Invisible Win Text output), fetched from
@@ -772,8 +778,10 @@ export function bakedAnticipation():
 }
 
 /**
- * Whether the win-line overlay is drawn — the Invisible Symbols State Machine's global toggle.
- * Defaults to `true` (un-baked or unauthored keeps showing it); the author can turn it off.
+ * Whether the win-line overlay is presented AT ALL — either half of it. The Invisible Symbols State
+ * Machine authors the line and the stamped amount as two independent switches, so this is their OR:
+ * with both off nothing is broadcast, with either on the overlay runs and `WinLine.svelte` decides
+ * which half it draws. Defaults to `true` (un-baked or unauthored keeps showing both).
  */
 export function bakedWinLineEnabled(): boolean {
 	return bakedWinLineConfig().enabled;
@@ -785,8 +793,12 @@ export function bakedWinLineEnabled(): boolean {
  * `SYMBOL_SIZE`; colours are CSS hex strings; `speed` scales the animated draw duration.
  * The Invisible Symbols State Machine authors the overrides. */
 export type ResolvedWinLine = {
+	/** Whether the overlay is presented at all — `line.enabled || text.enabled`. */
 	enabled: boolean;
 	line: {
+		/** Whether the traced line is drawn. Independent of `text.enabled`, so a project can stamp
+		 * the amount with no line under it (and vice versa). */
+		enabled: boolean;
 		color: string;
 		width: number;
 		glow: boolean;
@@ -808,7 +820,18 @@ export type ResolvedWinLine = {
 		/** The beat between two lines appearing in all-at-once mode, in SECONDS. */
 		allAtOnceDelay: number;
 	};
-	text: { font: string; size: number; color: string };
+	text: {
+		/** Whether the win amount is stamped. Defaults to the LINE's switch, so a doc authored
+		 * before the two were split still reads as one toggle over both. */
+		enabled: boolean;
+		font: string;
+		size: number;
+		color: string;
+		/** WHERE the amount is stamped: `'line'` at the winning line's end (the default), or
+		 * `'boardCenter'` in the middle of the reel window — where only the most recently announced
+		 * win stamps, so an all-at-once round doesn't pile every amount on one spot. */
+		placement: 'line' | 'boardCenter';
+	};
 };
 
 export function bakedWinLineConfig(): ResolvedWinLine {
@@ -818,9 +841,12 @@ export function bakedWinLineConfig(): ResolvedWinLine {
 			? bakedBundle.symbols?.winLine
 			: undefined;
 	const color = w?.line?.color ?? '#ffcc00';
+	const lineEnabled = w?.enabled ?? true;
+	const textEnabled = w?.text?.enabled ?? lineEnabled;
 	return {
-		enabled: w?.enabled ?? true,
+		enabled: lineEnabled || textEnabled,
 		line: {
+			enabled: lineEnabled,
 			color,
 			width: w?.line?.width ?? 0.03,
 			glow: w?.line?.glow ?? false,
@@ -834,9 +860,11 @@ export function bakedWinLineConfig(): ResolvedWinLine {
 			allAtOnceDelay: w?.line?.allAtOnceDelay ?? 0.12,
 		},
 		text: {
+			enabled: textEnabled,
 			font: w?.text?.font ?? 'gold',
 			size: w?.text?.size ?? 0.5,
 			color: w?.text?.color ?? '#ffffff',
+			placement: w?.text?.placement ?? 'line',
 		},
 	};
 }

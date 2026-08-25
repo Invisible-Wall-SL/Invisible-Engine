@@ -72,8 +72,9 @@ Working on `main`:
   `winLine`-tinted frame on a multi-colour-payline config. **Engine change — needs a Borut
   submodule bump + runtime release to reach the remake.**
 - **Doc-level globals** (design §S6): `highlight` (win-frame spine, sparse, spine-only,
-  default = built-in `payframe`) and `winLine` (payline overlay on/off + line/text style,
-  sparse config, no asset). Both travel verbatim through `symbolExport.ts` →
+  default = built-in `payframe`) and `winLine` (payline overlay + line/text style, sparse
+  config, no asset — TWO switches since 2026-08-24: `enabled` is the line's, `text.enabled`
+  the stamped amount's, the latter defaulting to the former). Both travel verbatim through `symbolExport.ts` →
   `bake-editor-doc.mjs` → `bundle.symbols.*`. The `winLine` renderer was ported into the
   **shared engine** (`apps/lines/components/WinLine.svelte` + `bakedWinLineConfig()`,
   `806d6cf`), so every `runtime:lines` game draws it (default-on) — Book of Borut _remake_
@@ -115,8 +116,8 @@ Working on `main`:
   only the last line there. **The line rides along by default** — `showLine` (tool switch
   "Replay the win line too", default ON) draws each win's line + stamped amount on its pass,
   cleared between passes and on stop; off ⇒ symbols only, and the cycle then emits no line cues
-  at all. `winLineEnabledForWin` is the shared gate, so the Win-lines toggle still has the final
-  say and a scatter win lights symbols with no line. Its OWN section in the tool ("Winning
+  at all. `winLineEnabledForWin` is the shared gate, so the Win-lines / Win-amount-text toggles
+  still have the final say and a scatter win lights symbols with no line. Its OWN section in the tool ("Winning
   symbols after the spin"), NOT a `winLine` field, so switching the overlay off can never stop
   the symbols. **`showText` (2026-07-27, default ON, tool switch "Replay the win text too")
   decouples the stamped amount from the line:** with `showLine` on, `showText` off keeps the
@@ -333,6 +334,29 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+
+- 2026-08-24 — **The win LINE and the win AMOUNT TEXT are two sections, and the amount can sit in
+  the middle of the reels** (owner request). The tool's one "Win lines" toggle governed both halves
+  of the overlay, so there was no way to announce an amount without drawing a line under it. Split:
+  `winLine.enabled` now means the LINE, the new `winLine.text.enabled` means the AMOUNT, and the
+  text's switch **defaults to the line's** — which is exactly what the single toggle meant, so every
+  existing doc (including `{ enabled: false }`) reads unchanged and stays sparse. `bakedWinLineEnabled()`
+  became the OR of the two (the overlay is broadcast when either half draws), and `WinLine.svelte`
+  now decides per half: no `<Graphics>` pass with the line off, no stamp with the text off, and an
+  animated draw is forced instant when there is no line to reveal (the stamp must not wait on a tween
+  that reveals nothing). `setWinLineEnabled` PINS the text's effective value before flipping the line,
+  so toggling the line can never silently drag the text with it; both prunes drop a pin that agrees
+  with its default. Each section now resets only its own style.
+  New `winLine.text.placement`: `'boardCenter'` stamps the amount in the middle of the reel
+  window (`windowWidth/2`, `(windowHeight - height)/2` — the same live geometry the in-window
+  clamp uses, so an authored reel-grid override is tracked) instead of at the line's end. In that
+  mode only the LAST-shown line stamps: with "show all win lines at once" on, every amount would
+  otherwise land on the identical spot and render as one unreadable pile.
+  Verified offline against the real client helpers + `normalizeSymbolsDoc`: 18 round-trip
+  assertions (legacy doc → both off; line off + text on → `{enabled:false,text:{enabled:true}}`;
+  toggling the line back on leaves the text on and the doc sparse; placement persists only when
+  non-default; each reset keeps the other section) — client and server prune agree exactly, so a
+  save can't come back dirty.
 
 - 2026-08-24 — **A game can now show ALL of a spin's win lines at the same time** (owner request).
   New sparse `winLine.line.allAtOnce` (+ `allAtOnceDelay`, default 0.12s) in the Symbols tool's
