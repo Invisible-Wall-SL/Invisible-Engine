@@ -556,6 +556,24 @@
 		node.kind === 'rect' ? (transform.height ?? node.height) * sizeScaleY : 0,
 	);
 	const rectColor = $derived(node.kind === 'rect' ? (node.color ?? 0xffffff) : 0xffffff);
+
+	/**
+	 * The registered clip for a `flipbook` node, with this PLACEMENT's `fps`/`loop` folded in.
+	 *
+	 * A `$derived`, not an inline expression in the markup, because identity matters downstream:
+	 * `<Flipbook>` derives its texture array from this object, and a fresh object on every render
+	 * re-derives that array — which used to re-assign `AnimatedSprite.textures` and stop playback
+	 * dead (PIXI's setter calls `gotoAndStop(0)`). The `AnimatedSprite` fix makes that harmless,
+	 * but there is no reason to rebuild the clip when nothing about it changed. Returns the
+	 * REGISTERED object untouched when the placement overrides nothing — the common case.
+	 */
+	const flipbookClip = $derived.by(() => {
+		if (node.kind !== 'flipbook') return undefined;
+		const clip = resolveFlipbook(node.clipId);
+		if (!clip) return undefined;
+		if (node.fps === undefined && node.loop === undefined) return clip;
+		return { ...clip, fps: node.fps ?? clip.fps, loop: node.loop ?? clip.loop };
+	});
 </script>
 
 {#if transform.visible && revealed}
@@ -1017,12 +1035,9 @@
 			editor" is what the game draws. `fps`/`loop` are per-PLACEMENT overrides of the clip's own
 			values — absent ⇒ the authored clip is played verbatim.
 		-->
-		{@const clip = resolveFlipbook(node.clipId)}
-		{#if clip}
+		{#if flipbookClip}
 			<Flipbook
-				clip={node.fps !== undefined || node.loop !== undefined
-					? { ...clip, fps: node.fps ?? clip.fps, loop: node.loop ?? clip.loop }
-					: clip}
+				clip={flipbookClip}
 				x={posX}
 				y={posY}
 				anchor={transform.anchor}
