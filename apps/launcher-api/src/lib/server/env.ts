@@ -258,8 +258,11 @@ export const ENV = {
 	// press "Rebuild image" on `/comfyui` (workflow_dispatch on atlas-comfy-pod.yml) and to read
 	// that workflow's runs. Deliberately NOT reusing GITHUB_ENGINE_READ_TOKEN: that one is
 	// read-only by design and should stay that way — dispatching a workflow is a write, and a
-	// token that can do it is a different blast radius. Unset = the Rebuild button explains it
-	// is unconfigured instead of failing.
+	// token that can do it is a different blast radius. FALLS BACK to GIT_CLONE_TOKEN, which may
+	// or may not work: cloning is GitHub's `contents` permission and dispatching is `actions`, so
+	// a CLASSIC PAT (`repo` covers both) dispatches while a FINE-GRAINED one needs "Actions: Read
+	// and write" ticked separately. Tried rather than assumed — a 403 says so in the panel. Unset
+	// entirely = the Rebuild button explains it is unconfigured instead of failing.
 	get GITHUB_ACTIONS_TOKEN() {
 		return env.GITHUB_ACTIONS_TOKEN ?? '';
 	},

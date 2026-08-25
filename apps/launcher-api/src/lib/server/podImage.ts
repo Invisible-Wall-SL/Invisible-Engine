@@ -12,8 +12,8 @@ import { ENV } from './env';
  * `:latest`.
  *
  * TWO different APIs, deliberately kept in one module because they are one workflow:
- * - GitHub REST for the build (dispatch + read runs), authed with `GITHUB_ACTIONS_TOKEN`,
- *   which needs `actions: write` — the existing `GITHUB_ENGINE_READ_TOKEN` cannot dispatch.
+ * - GitHub REST for the build (dispatch + read runs) — see `dispatchToken()` for which
+ *   credential it uses and why there are two candidates.
  * - RunPod REST (`https://rest.runpod.io/v1`) for the pod's image. NOT the GraphQL endpoint
  *   the rest of `runpod.ts` uses: changing a pod's image is only exposed on REST.
  *
@@ -64,9 +64,32 @@ export function imageForSha(sha: string): string {
 	return `${POD_IMAGE_REPO}:${sha}`;
 }
 
+/**
+ * The credential for the build calls, preferring a dedicated one and falling back to the
+ * git clone token — the same best-effort shape `engineSource.ts` already uses.
+ *
+ * Whether the fallback WORKS depends on what kind of token it is, and the distinction is
+ * easy to get wrong: cloning and pushing is GitHub's `contents` permission, while
+ * dispatching a workflow is `actions`. A CLASSIC PAT's broad `repo` scope covers both, so
+ * it dispatches fine. A FINE-GRAINED PAT needs "Actions: Read and write" ticked separately
+ * on this repo, and one scoped to the game repos will not have it.
+ *
+ * So it is tried rather than assumed: if it works, no new secret is needed; if it does not,
+ * GitHub answers 403 and the panel shows that sentence verbatim, which is a better way to
+ * learn a token's scopes than reasoning about them.
+ *
+ * Least privilege still prefers a dedicated fine-grained `GITHUB_ACTIONS_TOKEN` with only
+ * Actions on the engine repo: the fallback runs this path with a credential that can also
+ * push game-repo code, and while the only request it can make is a POST to one fixed
+ * dispatch URL, that is a wider blast radius than the job needs.
+ */
+function dispatchToken(): string {
+	return ENV.GITHUB_ACTIONS_TOKEN || ENV.GIT_CLONE_TOKEN;
+}
+
 async function githubFetch(path: string, init?: RequestInit): Promise<Response | string> {
-	const token = ENV.GITHUB_ACTIONS_TOKEN;
-	if (!token) return 'GITHUB_ACTIONS_TOKEN is not set on the launcher.';
+	const token = dispatchToken();
+	if (!token) return 'Neither GITHUB_ACTIONS_TOKEN nor GIT_CLONE_TOKEN is set on the launcher.';
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 	try {
@@ -91,7 +114,14 @@ async function githubFetch(path: string, init?: RequestInit): Promise<Response |
 /** GitHub's error body is usually the most useful sentence available — surface it. */
 async function githubError(res: Response): Promise<string> {
 	const body = (await res.json().catch(() => null)) as { message?: string } | null;
-	return `GitHub ${res.status}: ${body?.message ?? res.statusText}`;
+	const message = `GitHub ${res.status}: ${body?.message ?? res.statusText}`;
+	// 403 here is almost always one thing, and naming it saves a scope hunt: the token can
+	// reach the repo but lacks `actions`. A classic PAT gets this via `repo`; a fine-grained
+	// one needs "Actions: Read and write" ticked for this repository specifically.
+	if (res.status === 403 && !ENV.GITHUB_ACTIONS_TOKEN) {
+		return `${message} — the fallback GIT_CLONE_TOKEN cannot dispatch workflows. Set GITHUB_ACTIONS_TOKEN to a token with Actions: Read and write on this repo.`;
+	}
+	return message;
 }
 
 interface WorkflowRun {
@@ -114,7 +144,7 @@ const BUILD_TTL_MS = 15_000;
 
 export async function latestImageBuild(force = false): Promise<BuildState> {
 	if (!force && buildCache && Date.now() - buildCache.at < BUILD_TTL_MS) return buildCache.state;
-	if (!ENV.GITHUB_ACTIONS_TOKEN) return { configured: false };
+	if (!dispatchToken()) return { configured: false };
 
 	const repo = ENV.GITHUB_ENGINE_REPO;
 	const res = await githubFetch(
