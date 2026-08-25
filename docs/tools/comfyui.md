@@ -99,6 +99,8 @@ The panel has two shapes depending on how the launcher is configured:
 
    **Custom nodes** under that bar lists everything baked into the image, with each node's pin and the note explaining why it is there. Admins can **add** one: paste a GitHub repo URL, press **Resolve** — which shows the exact commit that would be pinned, with its subject and date — then **Add & commit**. That writes `services/atlas-comfy-pod/nodes.json` on `main`, attributed to you, and the commit triggers the image build by itself. **remove** does the same in reverse. Two entries are marked *vendored in the repo*: those are files, not list rows, and are changed in a PR.
 
+   Each node also shows whether a live pod actually **loaded** it — `loaded · N classes` in green, `not seen` in amber, or `frontend only` for the one pack that registers no node classes. That is the check the build itself cannot make: a node can install perfectly and still register nothing, which is how a node pinned behind our ComfyUI version fails. If the pod the list was read from is on an older build, a line above the list says so — anything added since will read "not seen" for a reason that has nothing to do with the node.
+
 Once published, the blueprint appears in the Atlas Maker's pipeline selector alongside
 the built-in SDXL/FLUX/gpt_image pipelines, and any region can generate through it.
 

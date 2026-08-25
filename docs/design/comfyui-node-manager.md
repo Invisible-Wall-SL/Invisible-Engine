@@ -81,8 +81,10 @@ The Dockerfile reads the list; the page grows a node table (name · pinned SHA �
 
 Shipped. The Dockerfile reads `nodes.json` with python (no jq in the image) into a pipe-separated loop, and `skipRequirements` is data now too. Two things the plan did not spell out: the per-node REASONS moved out of the Dockerfile comment block into each entry's `note`, so the justification travels with the pin and the panel can show it; and adding is **two steps** — resolve, look at the commit subject and date, then commit — because a form that writes a ref you have not looked at is the drift these SHAs exist to prevent.
 
-### Phase 3 — Post-build smoke: do the new node's classes register?
+### Phase 3 — Post-build smoke: do the new node's classes register? — ✅ DONE (2026-08-25)
 After a build lands and a pod is moved, hit the pod's `/object_info` and check the added pack contributed classes; surface a per-node **verified / not seen** badge. This is the check `verify-deps.py` structurally cannot do, and the one that would flag a node pinned behind our core.
+
+Shipped as a JOIN rather than a new probe: `nodes.json` is what should be on the image, and the inventory panel already read which packs the answering pod loaded, so the comparison happens in the browser with no extra request. Two things kept it honest. A pack that registers NO node classes (a frontend extension) can never appear in `/object_info`, so it carries `noClasses: true` and reads "frontend only" — an expected warning is how people learn to ignore warnings. And when the reading pod is on an older build, "not seen" is meaningless: the section says so once, and the tooltip blames the build rather than the node.
 
 ### Phase 4 — Promote to the serverless worker
 The same list, a second target, an explicit button; keeps `atlas-serverless` in lockstep on purpose rather than by memory.
