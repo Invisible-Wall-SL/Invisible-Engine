@@ -170,7 +170,7 @@
 		const a = p.availability;
 		if (!a) return null;
 		const FREE = { label: 'GPU available', cls: '' };
-		const LOW = { label: 'GPU stock low', cls: 'warn' };
+		const LOW = { label: 'GPU stock low', cls: 'caution' };
 		const NONE = { label: 'no GPUs free', cls: 'warn' };
 
 		// The `price` source reports stock at the cheapest price point, not availability. Only
@@ -180,7 +180,10 @@
 
 		// Not rentable at all.
 		if (a.available === false || a.stockStatus === 'None') return NONE;
-		// Rentable, but scarce — and this MUST outrank the boolean rather than be hidden by it.
+		// Rentable, but scarce. Amber, NOT the orange of "no GPUs free": those two are different
+		// answers — one says try it, the other says do not bother — and rendering them in the
+		// same colour threw that distinction away.
+		// This MUST also outrank the boolean rather than be hidden by it.
 		// `available: true` only means "more than zero"; RunPod's own console flags these cards
 		// red as Low, and an earlier order here checked the boolean first and rendered a calm
 		// "GPU available" on a fleet the console was warning about.
@@ -910,6 +913,14 @@ RunPod recreates the container, so anything ` +
 		color: #7ee0c0;
 	}
 	.badge.warm {
+		border-color: #6a5a2a;
+		color: #d8bd77;
+	}
+	/* Scarce, not absent. Shares the amber of "starting" on purpose — this panel already
+	   uses that hue for "proceed, with an eye on it", and one more red-ish token would blur
+	   the line with .warn, which means something is actually wrong. The two never appear on
+	   the same card anyway: "starting" is a running state, stock only shows on a stopped one. */
+	.badge.caution {
 		border-color: #6a5a2a;
 		color: #d8bd77;
 	}
