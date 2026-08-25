@@ -56,6 +56,13 @@
 		type RegionDragPayload,
 		type RegionSet,
 	} from './editorRegions.client';
+	import {
+		clearClipCache,
+		clipFrameAt,
+		clipFrameIndexAt,
+		fetchClips,
+		type EditorClip,
+	} from './editorFlipbooks.client';
 	import BusyOverlay from '$lib/BusyOverlay.svelte';
 	import EditorItemOverlay from './EditorItemOverlay.svelte';
 	import EditorEffectLayer from './EditorEffectLayer.svelte';
@@ -68,8 +75,17 @@
 	interface AssetDragPayload {
 		// `text` / `rect` are not assets — they're blank ELEMENTS the
 		// Library's "Elements" palette drags in (key is unused for those).
-		// `effect` carries an authored FX id in `key` (the Library's Effects section).
-		kind: 'atlas-page' | 'atlas-manifest' | 'sheet' | 'spine' | 'text' | 'rect' | 'effect';
+		// `effect` carries an authored FX id in `key` (the Library's Effects section);
+		// `flipbook` an authored clip id (the Library's Flipbooks section).
+		kind:
+			| 'atlas-page'
+			| 'atlas-manifest'
+			| 'sheet'
+			| 'spine'
+			| 'text'
+			| 'rect'
+			| 'effect'
+			| 'flipbook';
 		key: string;
 		name: string;
 	}
@@ -1165,6 +1181,11 @@
 		clearRegionCache(); // also drop the module-level fetchRegions cache (page key + rects)
 		clearPageImages(); // drop the Library thumbnails' shared page decodes (+ bust their HTTP cache)
 		clearFontCatalogCache(); // drop the module-level font catalog so it re-fetches
+		// A clip re-authored in /flipbook (frames reordered, fps changed) is exactly as stale as a
+		// re-packed atlas, so "Reload art" must re-read it too — otherwise a placed node keeps
+		// playing the old frame list until a full page reload.
+		clearClipCache();
+		loadClips();
 		// Drop the cross-atlas name→manifest map too, else a name-resolved sprite keeps
 		// pointing at the manifest the previous scan locked onto — Reload art would do
 		// nothing for it. Cleared + flagged for rebuild on the next draw().
@@ -1337,6 +1358,81 @@
 		});
 	}
 
+	// ---------- flipbook clips (placed `flipbook` nodes) ----------
+	// A `flipbook` node stores only a `clipId`; the ordered frame list lives in the clip doc, so
+	// the canvas resolves it here — the exact mirror of how the game resolves it through
+	// `registerFlipbooks`. Frames are ordinary atlas regions, so each one draws through the SAME
+	// `drawArtRegionSprite` a region sprite uses (no second cropping routine, and a lazily-loaded
+	// sheet self-heals through `findRegion`'s fetch-then-redraw).
+	const clipsById = new Map<string, EditorClip>();
+	function loadClips(): void {
+		void fetchClips().then((list) => {
+			clipsById.clear();
+			for (const clip of list) clipsById.set(clip.id, clip);
+			draw(); // force the repaint directly — the map is deliberately non-reactive (see below)
+		});
+	}
+	loadClips();
+
+	/**
+	 * Wall-clock ms driving in-place clip PLAYBACK. Unlike an effect (a WebGL emitter the 2D canvas
+	 * genuinely cannot run, hence its placeholder chip), a flipbook is just atlas frames in order —
+	 * so the editor can show the real animation where it will play, which is the only way to judge
+	 * a clip's placement and timing against the rest of the screen.
+	 *
+	 * Deliberately NOT `$state`, and neither is `clipsById`: `draw()` reads both, and several
+	 * redraw `$effect`s call `draw()` synchronously — so a reactive clock would be TRACKED by every
+	 * one of them and re-run the whole set 60 times a second. The ticker owns the repaint instead
+	 * (calling `draw()` itself, the same way `ensureRegionSet` does when regions resolve).
+	 *
+	 * The loop is gated on a VISIBLE scene actually carrying a flipbook node, so a project without
+	 * one pays nothing and the canvas keeps repainting purely on demand as it does today.
+	 */
+	let clipClockMs = 0;
+	$effect(() => {
+		void scenes;
+		void scene;
+		void hiddenSceneIds;
+		const playing = scenes.some((s) => !hiddenSceneIds.has(s.id) && sceneHasFlipbook(s));
+		if (!playing) return;
+		let raf = 0;
+		const tick = (now: number): void => {
+			// The PAGE clock, not an elapsed-since-mount one: this effect re-runs on any scene/visibility
+			// change, and an offset clock would restart every placed clip from frame 0 each time.
+			clipClockMs = now;
+			draw();
+			raf = requestAnimationFrame(tick);
+		};
+		raf = requestAnimationFrame(tick);
+		return () => cancelAnimationFrame(raf);
+	});
+
+	/** Does a scene carry a placed `kind:'flipbook'` node ANYWHERE in its tree (incl. nested in a
+	 * container / component instance)? Gates the playback clock above — mirroring `sceneHasEffect`. */
+	function sceneHasFlipbook(s: Scene): boolean {
+		return nodesHaveFlipbook(s.nodes, 0, []);
+	}
+	function nodesHaveFlipbook(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
+		for (const n of nodes) {
+			if (n.kind === 'flipbook') return true;
+			if (n.kind === 'container' && nodesHaveFlipbook(n.children, depth, stack)) return true;
+			if (n.kind === 'componentInstance') {
+				const def = componentMap.get(n.componentId);
+				if (!def || depth >= MAX_COMPONENT_DEPTH || stack.includes(def.id)) continue;
+				if (nodesHaveFlipbook(def.root.children, depth + 1, [...stack, def.id])) return true;
+			}
+		}
+		return false;
+	}
+
+	/** The frame a placed clip shows RIGHT NOW — `(assetKey, region)` ready for the region draw.
+	 * `null` for an unregistered / empty clip, which then draws its dangling placeholder. */
+	function flipbookFrame(clipId: string): { assetKey: string; region: string } | null {
+		const clip = clipsById.get(clipId);
+		if (!clip || clip.frames.length === 0) return null;
+		return clipFrameAt(clip, clipFrameIndexAt(clip, clipClockMs));
+	}
+
 	/** Resolved stand-in art for a `bind` anchor (explicit override → catalog default
 	 * against the project's assets). The 2D canvas + the spine overlay both resolve
 	 * through this so they agree on ONE art per anchor. Triggers the lazy sprite-region
@@ -1397,6 +1493,16 @@
 			const found = findRegion(node.assetKey, node.region);
 			if (found) return regionNaturalSize(found.region);
 			return null;
+		}
+		// A placed clip sizes off its FIRST frame, not the frame currently playing: frames of one
+		// animation are rarely identical rects, and a natural size that changed 24 times a second
+		// would jitter the selection box, the resize handles and the hit-test under the cursor.
+		if (node.kind === 'flipbook') {
+			const clip = clipsById.get(node.clipId);
+			if (!clip || clip.frames.length === 0) return null;
+			const first = clipFrameAt(clip, 0);
+			const found = findRegion(first.assetKey, first.region);
+			return found ? regionNaturalSize(found.region) : null;
 		}
 		// A directly-placed spine node's natural size comes from the WebGL overlay's
 		// setup-pose bounds (the 2D canvas can't measure a skeleton), keyed by the bundle
@@ -2155,6 +2261,25 @@
 					t.anchor?.y ?? 0.5,
 					'#3a5a4a',
 					`✨ ${node.label ?? node.effectId}`,
+				);
+			}
+		} else if (node.kind === 'flipbook') {
+			// A placed Invisible Flipbook clip PLAYS here — unlike an effect (a WebGL emitter this 2D
+			// canvas genuinely can't run) a clip is just atlas frames in order, so the author sees the
+			// real animation at its real placement. The current frame draws through the SAME region
+			// path a sprite uses, so trim, rotation and cross-atlas resolution all behave identically.
+			// A dangling / un-baked clipId has no frames to draw: the labelled chip says so, and the
+			// node stays selectable and movable so the reference can be re-pointed in Properties.
+			const frame = flipbookFrame(node.clipId);
+			if (frame) {
+				drawArtRegionSprite(ctx, frame.assetKey, frame.region, t, node.label, t.tint);
+			} else {
+				drawPlaceholder(
+					ctx,
+					t.anchor?.x ?? 0.5,
+					t.anchor?.y ?? 0.5,
+					'#3a4a5a',
+					`🎞 ${node.label ?? node.clipId}`,
 				);
 			}
 		} else if (node.kind === 'repeater') {
@@ -3543,6 +3668,12 @@
 			// real `<EffectPlayer>`.
 			case 'effect':
 				return { ...base, kind: 'effect', effectId: p.key };
+			// An authored Invisible Flipbook clip (id in `key`). Spawned UNSIZED, like a spine and
+			// unlike a region sprite: the frames are atlas art, so the node draws at the frames'
+			// native size until the author resizes it — and the sheet behind them may still be
+			// loading at drop time, so there is no native size to bake in yet.
+			case 'flipbook':
+				return { ...base, kind: 'flipbook', clipId: p.key };
 			// Blank elements (the Library's "Elements" palette) — a default text node
 			// (edited via Properties → Text).
 			case 'text':

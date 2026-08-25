@@ -2,6 +2,7 @@ import {
 	getFullSceneSet,
 	normalizeHudScenes,
 	normalizeLayoutProfile,
+	LAYOUT_NODE_KINDS,
 	type GameJurisdiction,
 	type GameSettings,
 	type LayoutDoc,
@@ -25,17 +26,16 @@ const DEFAULT_MAIN_SIZES: Record<LayoutType, { width: number; height: number }> 
 
 const LAYOUT_TYPES: LayoutType[] = ['desktop', 'tablet', 'landscape', 'portrait'];
 
-const NODE_KINDS = new Set<LayoutNode['kind']>([
-	'container',
-	'sprite',
-	'spine',
-	'text',
-	'rect',
-	'componentInstance',
-	'reelGrid',
-	'effect',
-	'repeater',
-]);
+/**
+ * Accepted node kinds — DERIVED from `engine-layout`'s exported list, never hand-copied.
+ *
+ * `normalizeNode` DROPS a node whose kind isn't here, so a hand-maintained copy means every node
+ * of a newly added kind is silently deleted on save: the editor draws it, the round-trip erases it,
+ * and the launcher build (a bare `vite build`, no `svelte-check`) stays green throughout. That is
+ * the `COMPONENT_PARAM_KINDS` failure mode this repo already paid for twice — see the guide's
+ * "don't rely on a compile-time guard here".
+ */
+const NODE_KINDS = new Set<LayoutNode['kind']>(LAYOUT_NODE_KINDS);
 
 /**
  * Load a project's editor document, falling back to an empty valid `LayoutDoc`.

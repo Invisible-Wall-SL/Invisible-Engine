@@ -17,6 +17,7 @@
 	import {
 		Container,
 		EffectPlayer,
+		Flipbook,
 		Rectangle,
 		RiggedEffect,
 		Sprite,
@@ -44,6 +45,7 @@
 	import { hostedComponentSpace } from './boundComponentCatalog';
 	import { resolveComponent } from './registerComponents';
 	import { resolveEffect } from './registerEffects';
+	import { resolveFlipbook } from './registerFlipbooks';
 	import { resolveRigFx } from './registerRigFx';
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentPress } from './componentActionsContext';
@@ -1003,6 +1005,35 @@
 			>
 				<EffectPlayer doc={effectDoc} />
 			</Container>
+		{/if}
+	{:else if node.kind === 'flipbook'}
+		<!--
+			Placed Invisible Flipbook clip: the frame-animation twin of the `sprite` branch above.
+			The clip resolves from the boot-registered clips (`registerFlipbooks` ← `bakedFlipbooks()`);
+			a dangling / un-baked id ⇒ undefined ⇒ nothing mounts (never crashes, and deliberately no
+			whole-sheet fallback — see <Flipbook>). `<Flipbook>` resolves the ordered frames to textures
+			itself, so this branch only supplies placement, exactly like <Sprite>: size folded into
+			width/height (scale then stays 1) or a plain `scale` when unsized, so "what you size in the
+			editor" is what the game draws. `fps`/`loop` are per-PLACEMENT overrides of the clip's own
+			values — absent ⇒ the authored clip is played verbatim.
+		-->
+		{@const clip = resolveFlipbook(node.clipId)}
+		{#if clip}
+			<Flipbook
+				clip={node.fps !== undefined || node.loop !== undefined
+					? { ...clip, fps: node.fps ?? clip.fps, loop: node.loop ?? clip.loop }
+					: clip}
+				x={posX}
+				y={posY}
+				anchor={transform.anchor}
+				scale={sizedScale}
+				rotation={transform.rotation}
+				alpha={transform.alpha}
+				zIndex={transform.zIndex}
+				width={sizedWidth}
+				height={sizedHeight}
+				tint={transform.tint}
+			/>
 		{/if}
 	{/if}
 {/if}

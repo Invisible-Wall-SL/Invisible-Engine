@@ -7,6 +7,12 @@
 		type RegionDragPayload,
 		type RegionSet,
 	} from './editorRegions.client';
+	import {
+		clipFrameAt,
+		DEFAULT_CLIP_FPS,
+		fetchClips,
+		type EditorClip,
+	} from './editorFlipbooks.client';
 	import PanelSection from './PanelSection.svelte';
 	import RegionThumb from './RegionThumb.svelte';
 
@@ -37,6 +43,10 @@
 	 * from `/api/editor/effects` (the same list the `/fx` picker uses). Each is a
 	 * draggable row that spawns an `effect` node. `null` = still loading. */
 	let effects = $state<{ id: string; name: string }[] | null>(null);
+	/** The project's authored Invisible Flipbook clips, from the shared per-page cache (the same
+	 * list the Properties picker and the canvas read, so they can't disagree). Each is a draggable
+	 * row that spawns a `flipbook` node. `null` = still loading. */
+	let clips = $state<EditorClip[] | null>(null);
 	onMount(() => {
 		void fetch('/api/editor/effects')
 			.then((r) => (r.ok ? r.json() : { effects: [] }))
@@ -46,12 +56,16 @@
 			.catch(() => {
 				effects = [];
 			});
+		void fetchClips().then((list) => {
+			clips = list;
+		});
 	});
 
 	const atlasCount = $derived(assets.atlases.length);
 	const spineCount = $derived(assets.spines.length);
 	const sheetCount = $derived(assets.sheets.length);
 	const effectCount = $derived(effects?.length ?? 0);
+	const clipCount = $derived(clips?.length ?? 0);
 
 	async function toggleExpand(key: string): Promise<void> {
 		const open = !expanded[key];
@@ -77,6 +91,33 @@
 		}
 	});
 
+	// Hydrate the sheet behind each clip's FIRST frame so the Flipbooks rail shows the art rather
+	// than a generic glyph — a clip is only identifiable by what it looks like. Reuses the SAME
+	// `regionSets` cache the atlas/sheet groups fill, so a sheet already expanded above is free.
+	$effect(() => {
+		for (const clip of clips ?? []) {
+			const key = clipFrameAt(clip, 0).assetKey;
+			if (!key || regionSets[key] !== undefined) continue;
+			regionSets = { ...regionSets, [key]: null };
+			void fetchRegions(key).then((set) => {
+				regionSets = { ...regionSets, [key]: set };
+			});
+		}
+	});
+
+	/** A clip's first frame resolved against the loaded region sets, for its rail thumbnail.
+	 * `null` while the sheet loads, or when the frame is gone (a renamed/deleted region — the
+	 * `/flipbook` tool is where that is diagnosed; here it just falls back to the glyph). */
+	function clipThumb(
+		clip: EditorClip,
+	): { set: RegionSet; region: RegionSet['regions'][number] } | null {
+		const ref = clipFrameAt(clip, 0);
+		const set = regionSets[ref.assetKey];
+		if (!set) return null;
+		const region = set.regions.find((r) => r.name === ref.region);
+		return region ? { set, region } : null;
+	}
+
 	function onAssetDragStart(
 		e: DragEvent,
 		asset: { kind: string; key: string; name: string },
@@ -90,6 +131,16 @@
 	function onEffectDragStart(e: DragEvent, effect: { id: string; name: string }): void {
 		if (!e.dataTransfer) return;
 		const payload = { kind: 'effect', key: effect.id, name: effect.name };
+		e.dataTransfer.setData('application/x-iw-asset', JSON.stringify(payload));
+		e.dataTransfer.effectAllowed = 'copy';
+	}
+
+	/** Drag a clip out as a `flipbook` node. Only the ID travels — the frame list belongs to the
+	 * clip doc and reaches the game through the flipbook bake, so re-authoring the clip updates
+	 * every placement instead of freezing a copy into the layout (the `effect` payload's rule). */
+	function onClipDragStart(e: DragEvent, clip: EditorClip): void {
+		if (!e.dataTransfer) return;
+		const payload = { kind: 'flipbook', key: clip.id, name: clip.name };
 		e.dataTransfer.setData('application/x-iw-asset', JSON.stringify(payload));
 		e.dataTransfer.effectAllowed = 'copy';
 	}
@@ -225,6 +276,35 @@
 				</li>
 			{:else}
 				<li class="muted">No effects yet — make one in Invisible FX.</li>
+			{/each}
+		{/if}
+	</ul>
+</PanelSection>
+
+<PanelSection id="lib-flipbooks" title="Flipbooks" count={clipCount}>
+	<ul>
+		{#if clips === null}
+			<li class="muted">Loading flipbooks…</li>
+		{:else}
+			{#each clips as clip (clip.id)}
+				{@const thumb = clipThumb(clip)}
+				<li
+					draggable="true"
+					data-clip-id={clip.id}
+					data-clip-name={clip.name}
+					title={`${clip.name} · ${clip.frames.length} frame${clip.frames.length === 1 ? '' : 's'} · ${clip.fps ?? DEFAULT_CLIP_FPS}fps${clip.loop === false ? ' · once' : ' · loop'}`}
+					ondragstart={(e) => onClipDragStart(e, clip)}
+				>
+					{#if thumb}
+						<RegionThumb set={thumb.set} region={thumb.region} size={22} />
+					{:else}
+						<span class="glyph">🎞</span>
+					{/if}
+					<span class="name">{clip.name}</span>
+					<span class="tag">{clip.frames.length}f</span>
+				</li>
+			{:else}
+				<li class="muted">No flipbooks yet — make one in Invisible Flipbook.</li>
 			{/each}
 		{/if}
 	</ul>

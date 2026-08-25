@@ -717,6 +717,39 @@ export interface EffectNode extends BaseNode {
 	hostSpineId?: string;
 }
 
+/**
+ * A placed Invisible Flipbook clip (design `invisible-flipbook.md` §"Build plan" step 6) — the
+ * third consumer of an authored `FlipbookClip`, beside an FX emitter's art and a symbol state.
+ * References the clip by `clipId` (its file stem in `<client>/<project>/clips/<id>.clip.json`, the
+ * same id `/api/editor/flipbooks` lists); the clip itself ships through the flipbook export chain
+ * (`bakedFlipbooks()` → `registerFlipbooks()`), so the node carries only the id + placement —
+ * never the frame list.
+ *
+ * Sized exactly like a {@link SpriteNode}: `width`/`height` (with `scale` folded in) drive the
+ * drawn box, and an unsized node renders at the frames' native size. That is deliberate — a clip
+ * is atlas art, so an author places it with the same handles as the still frame it animates.
+ *
+ * A dangling / un-baked `clipId` resolves to `undefined` and renders NOTHING (never crashes) —
+ * `<Flipbook>` has no whole-sheet fallback by design, because a scrambled animation of unrelated
+ * frames is worse than a blank. The editor surfaces the dangling id as an asset warning instead.
+ */
+export interface FlipbookNode extends BaseNode {
+	kind: 'flipbook';
+	/** The authored clip's id (file stem of its `.clip.json`), resolved via `registerFlipbooks`. */
+	clipId: string;
+	width?: number;
+	height?: number;
+	tint?: number;
+	/**
+	 * Per-PLACEMENT playback overrides of the clip's authored values. Absent ⇒ the clip's own
+	 * `fps` / `loop` (which is the normal case — timing belongs to the clip). They exist because
+	 * the same clip is legitimately reused at different beats: a looping ambient flame in one
+	 * screen and a one-shot burst in another, without authoring two near-identical clips.
+	 */
+	fps?: number;
+	loop?: boolean;
+}
+
 /** How a {@link RepeaterNode} arranges its per-item instances. */
 export interface RepeaterLayout {
 	/** `row` lays every item out along +x; `grid` wraps to a new row every `columns` items. */
@@ -759,7 +792,33 @@ export type LayoutNode =
 	| ComponentInstanceNode
 	| ReelGridNode
 	| EffectNode
+	| FlipbookNode
 	| RepeaterNode;
+
+/**
+ * Every {@link LayoutNode} kind as a RUNTIME value — the one list a validator may enumerate.
+ *
+ * It exists because `apps/launcher-api`'s doc normalizer rebuilds each node against a `Set` of
+ * accepted kinds and DROPS anything else. Hand-maintaining that set means a new kind silently
+ * deletes every node an author places: the editor draws it, the save round-trips it away, and the
+ * launcher build is a bare `vite build` with no `svelte-check`, so nothing goes red. Deriving the
+ * set from here — the {@link COMPONENT_PARAM_KINDS} precedent — makes the union the single source
+ * of truth, and the `satisfies` below fails the type-check if a kind is listed that isn't in it.
+ * The reverse direction (a union member missing from this list) is asserted by the offline fixture
+ * `pnpm --filter flipbook-spike run scene-node`, since a type-check alone cannot catch it.
+ */
+export const LAYOUT_NODE_KINDS = [
+	'container',
+	'sprite',
+	'spine',
+	'text',
+	'rect',
+	'componentInstance',
+	'reelGrid',
+	'effect',
+	'flipbook',
+	'repeater',
+] as const satisfies readonly LayoutNode['kind'][];
 
 export interface Scene {
 	id: string;

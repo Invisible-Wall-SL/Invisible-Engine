@@ -9,10 +9,10 @@ stored in the project's cloud storage at `<client>/<project>/clips/<id>.clip.jso
 > preview, save, rename, copy and delete clips, and the tool warns you when a clip
 > references a region its sheet no longer has. Clips now travel the full
 > export → `deploy/` → bake → pull → `registerFlipbooks` chain, so a clip **does**
-> reach a shipped game. Two tools consume one today: **Invisible FX** (a layer's
-> particle art) and the **Symbols State Machine** (a symbol×state cell). The **Scene
-> Editor** still cannot place a clip directly. See "What it does not do yet" and
-> `docs/design/invisible-flipbook.md`.
+> reach a shipped game. All three consumers now read one: **Invisible FX** (a layer's
+> particle art), the **Symbols State Machine** (a symbol×state cell) and the **Scene
+> Editor** (a placed `flipbook` element — drag it from the Library's Flipbooks
+> section). See "What it does not do yet" and `docs/design/invisible-flipbook.md`.
 
 ## What it is
 
@@ -128,9 +128,6 @@ exactly why the tool shouts about it here rather than letting it surface later.
 
 ## What it does not do yet
 
-- **The Scene Editor cannot place a clip.** FX layers and symbol×state cells resolve a
-  `clipId`; scene nodes do not.
-- **No cross-sheet clips.** One sheet per clip.
 - **No onion-skinning, no per-frame timing.** Every frame in a clip lasts exactly
   `1 / fps` seconds; hold a pose by duplicating the frame.
 - **No reverse/ping-pong playback**, and no in-tool trimming of the source art (that is
@@ -142,6 +139,6 @@ exactly why the tool shouts about it here rather than letting it surface later.
 - Current state: [`../status/flipbook.md`](../status/flipbook.md)
 - The sheets it reads: [Invisible Sheet Maker](sheet-maker.md) ·
   [Invisible Atlas Maker](atlas-maker.md)
-- The tools that will consume clips: [Invisible FX](fx.md) ·
+- The tools that consume clips: [Invisible FX](fx.md) ·
   [Invisible Symbols State Machine](symbols-state-machine.md) ·
   [Invisible Scene Editor](invisible-editor.md)

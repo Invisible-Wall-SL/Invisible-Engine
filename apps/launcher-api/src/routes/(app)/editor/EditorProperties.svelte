@@ -45,6 +45,7 @@
 	import { onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import { fetchFontCatalog, type EditorFont } from './fonts.client';
+	import { DEFAULT_CLIP_FPS, fetchClips, type EditorClip } from './editorFlipbooks.client';
 	import RegionPicker from './RegionPicker.svelte';
 	import { isParamGroupOpen, setParamGroupOpen } from './groupCollapse.client';
 	import type { SpineMeta } from './spineRuntime.client';
@@ -852,6 +853,10 @@
 	// The project's authored Invisible FX effects (id + name), for the `effect` node's
 	// picker — the same list `/api/editor/effects` gives the Library's Effects section.
 	let effectList = $state<{ id: string; name: string }[]>([]);
+	/** The project's authored Invisible Flipbook clips, for the `flipbook` node's picker — the
+	 * SAME shared per-page cache the Library section and the canvas read, so the three can't
+	 * disagree about which clips exist. */
+	let clipList = $state<EditorClip[]>([]);
 	onMount(() => {
 		void fetchFontCatalog().then((c) => {
 			fontList = c.fonts;
@@ -864,11 +869,20 @@
 				effectList = data.effects ?? [];
 			})
 			.catch(() => {});
+		void fetchClips().then((list) => {
+			clipList = list;
+		});
 	});
 
 	/** Display name for an effect id (falls back to the raw id when the list is missing it). */
 	function effectName(id: string): string {
 		return effectList.find((e) => e.id === id)?.name ?? id;
+	}
+
+	/** The selected clip, or `undefined` for a dangling id (a clip deleted in `/flipbook` after it
+	 * was placed) — which the panel says out loud rather than showing an empty picker. */
+	function clipOf(id: string): EditorClip | undefined {
+		return clipList.find((c) => c.id === id);
 	}
 
 	/** The selected text node's font kind from the catalog (`null` = game default
@@ -1093,8 +1107,15 @@
 		if (Number.isNaN(value)) return;
 		if (isOverrideMode) {
 			(ensureOverride(n) as Record<string, unknown>)[axis] = value;
-		} else if (n.kind === 'sprite' || n.kind === 'spine' || n.kind === 'rect') {
-			(n as Record<string, unknown>)[axis] = value;
+		} else if (
+			n.kind === 'sprite' ||
+			n.kind === 'spine' ||
+			n.kind === 'rect' ||
+			n.kind === 'flipbook'
+		) {
+			// `as unknown as` — an interface has no implicit index signature, so the direct cast is a
+			// comparability error (the same double-cast `setSpineSize` below already uses).
+			(n as unknown as Record<string, unknown>)[axis] = value;
 		}
 		markDirty();
 	}
@@ -1110,6 +1131,24 @@
 	 */
 	function setSpineSize(n: LayoutNode, axis: 'width' | 'height', raw: number): void {
 		if (n.kind !== 'spine') return;
+		setClearableSize(n, axis, raw);
+	}
+
+	/**
+	 * A flipbook's size box. Same contract as {@link setSpineSize}: an explicit width/height wins,
+	 * and a BLANK field clears the dimension back to the frames' native atlas size — which the
+	 * panel advertises, so `setSpriteSize` alone would be wrong here (it early-returns on NaN, so a
+	 * size once typed could never be taken back).
+	 */
+	function setFlipbookSize(n: LayoutNode, axis: 'width' | 'height', raw: number): void {
+		if (n.kind !== 'flipbook') return;
+		setClearableSize(n, axis, raw);
+	}
+
+	/** The shared body of the two clearable size setters above: blank ⇒ delete the field (or the
+	 * per-layoutType override), else write it and reset a non-1 base scale so the typed number IS
+	 * the on-screen size. */
+	function setClearableSize(n: LayoutNode, axis: 'width' | 'height', raw: number): void {
 		const cleared = Number.isNaN(raw);
 		if (isOverrideMode) {
 			if (cleared) clearOverrideKey(n, axis);
@@ -4234,6 +4273,110 @@
 				the rig's timeline events (authored in the Rigger) fire the effect on the beat.
 			</p>
 		</section>
+	{:else if node.kind === 'flipbook'}
+		{@const clip = clipOf(node.clipId)}
+		<section>
+			<h3>Flipbook</h3>
+			{#if clip}
+				<p class="muted small">
+					Invisible Flipbook clip <strong>{clip.name}</strong>
+					<code>{node.clipId}</code>
+					· {clip.frames.length} frame{clip.frames.length === 1 ? '' : 's'}
+					· {clip.fps ?? DEFAULT_CLIP_FPS}fps · {clip.loop === false ? 'plays once' : 'loops'}
+				</p>
+			{:else}
+				<p class="muted small warn">
+					Clip <code>{node.clipId}</code> is not in this project — it was deleted or renamed in
+					Invisible Flipbook. The game renders <strong>nothing</strong> for it. Pick another below.
+				</p>
+			{/if}
+			<div class="row">
+				<label class="field wide">
+					<span>clip</span>
+					<select
+						value={node.clipId}
+						onchange={(e) => {
+							node.clipId = e.currentTarget.value;
+							markDirty();
+						}}
+					>
+						{#if !clip}
+							<option value={node.clipId}>{node.clipId} (missing)</option>
+						{/if}
+						{#each clipList as c (c.id)}
+							<option value={c.id}>{c.name} · {c.frames.length}f</option>
+						{/each}
+					</select>
+				</label>
+			</div>
+			<div class="row">
+				<label class="field">
+					<span>width</span>
+					<input
+						type="number"
+						step="1"
+						value={t.width ?? node.width ?? ''}
+						placeholder="native"
+						oninput={(e) => setFlipbookSize(node, 'width', e.currentTarget.valueAsNumber)}
+					/>
+				</label>
+				<label class="field">
+					<span>height</span>
+					<input
+						type="number"
+						step="1"
+						value={t.height ?? node.height ?? ''}
+						placeholder="native"
+						oninput={(e) => setFlipbookSize(node, 'height', e.currentTarget.valueAsNumber)}
+					/>
+				</label>
+			</div>
+			<div class="row">
+				<label class="field">
+					<span>fps</span>
+					<input
+						type="number"
+						step="1"
+						min="1"
+						value={node.fps ?? ''}
+						placeholder={String(clip?.fps ?? DEFAULT_CLIP_FPS)}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							if (Number.isFinite(v) && v > 0) node.fps = v;
+							else delete node.fps;
+							markDirty();
+						}}
+					/>
+				</label>
+				<label class="field">
+					<span>loop</span>
+					<select
+						value={node.loop === undefined ? '' : node.loop ? 'yes' : 'no'}
+						onchange={(e) => {
+							const v = e.currentTarget.value;
+							if (v === 'yes') node.loop = true;
+							else if (v === 'no') node.loop = false;
+							else delete node.loop;
+							markDirty();
+						}}
+					>
+						<option value="">clip default ({clip?.loop === false ? 'once' : 'loop'})</option>
+						<option value="yes">loop</option>
+						<option value="no">play once</option>
+					</select>
+				</label>
+			</div>
+			<p class="muted small">
+				Frames, order and the clip's own timing are authored in <strong>Invisible Flipbook</strong>
+				— re-authoring the clip updates every placement. <em>fps</em> and <em>loop</em> here override
+				it for THIS placement only; leave them blank to play the clip as authored. A blank size draws
+				the frames at their native atlas size.
+			</p>
+			<p class="muted small">
+				The canvas plays every clip on a loop so you can see it — a <em>play once</em> clip still stops
+				on its last frame in the game.
+			</p>
+		</section>
 	{:else if node.kind === 'repeater'}
 		<section>
 			<h3>Repeater</h3>
@@ -4516,6 +4659,11 @@
 	.muted {
 		color: #666;
 		font-size: 12px;
+	}
+	/* A reference that points at nothing (a deleted clip) renders NOTHING in the game and is
+	   otherwise indistinguishable from an empty picker — so it is coloured, not muted. */
+	.muted.warn {
+		color: #d98a3a;
 	}
 	.override-hint {
 		border-left: 3px solid #c98a2b;

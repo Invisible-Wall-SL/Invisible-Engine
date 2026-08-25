@@ -61,6 +61,7 @@
 	import PanelResizers from './PanelResizers.svelte';
 	import PanelSection from './PanelSection.svelte';
 	import type { SpineMeta } from './spineRuntime.client';
+	import { fetchClips } from './editorFlipbooks.client';
 	import { findById, flattenSceneIds, genComponentId, removeNode } from './layoutTree.client';
 	import type { PageData } from './$types';
 
@@ -402,6 +403,14 @@
 		return knownAssets.prefixes.some((p) => assetKey.startsWith(p));
 	}
 
+	/** Ids of the project's authored flipbook clips — `null` until the shared list resolves. Read
+	 * ONLY by {@link contentWarnings}; the Library, the Properties picker and the canvas each read
+	 * the same cached list for their own purposes. */
+	let clipIds = $state<Set<string> | null>(null);
+	void fetchClips().then((list) => {
+		clipIds = new Set(list.map((c) => c.id));
+	});
+
 	/** Live, non-blocking content warnings (missing/unassigned asset references),
 	 * surfaced next to the slot warnings. Recomputed as the author edits. */
 	const contentWarnings = $derived.by(() => {
@@ -423,6 +432,18 @@
 							message: `${n.kind} "${n.label ?? n.id}" → missing asset "${key}"`,
 						});
 					}
+				}
+				// A `flipbook` node references a CLIP, not an asset key, so `isKnownAsset` can't see it —
+				// and a dangling clip is the quietest failure in the editor: the node keeps its
+				// transform and draws nothing at all in the game (no whole-sheet fallback, by design).
+				// Only flagged once the clip list has actually landed, so the warning pill doesn't
+				// blink "missing" for every placement during the first paint.
+				if (n.kind === 'flipbook' && clipIds !== null && !clipIds.has(n.clipId)) {
+					out.push({
+						sceneId,
+						nodeId: n.id,
+						message: `flipbook "${n.label ?? n.id}" → missing clip "${n.clipId}"`,
+					});
 				}
 				if (n.kind === 'container') walk(n.children, sceneId);
 			}

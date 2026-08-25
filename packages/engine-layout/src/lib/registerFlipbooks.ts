@@ -43,3 +43,27 @@ export function resolveFlipbook(clipId: string): FlipbookClipEntry | undefined {
 export function clearFlipbooks(): void {
 	registry.clear();
 }
+
+/** Playback default when a clip omits `fps`. Mirrors `engine-flipbook`'s `DEFAULT_FLIPBOOK_FPS` —
+ * duplicated as a literal for the SAME reason `FlipbookClipEntry` is declared structurally above:
+ * this package must not gain a dependency just for one constant. */
+const DEFAULT_FPS = 24;
+
+/**
+ * How long ONE pass of a registered clip takes, in wall-clock ms — the flipbook analogue of a spine
+ * animation's `duration`. `loopOverride` is a placement's own `loop` (absent ⇒ the clip's authored
+ * value).
+ *
+ * Returns `undefined` for an unregistered id, an empty clip, AND — deliberately — an effectively
+ * LOOPING one. A loop has no end, so reporting one cycle as its length would let a caller treat an
+ * ambient background as "the screen's animation" and hold a flow beat on it forever-in-miniature.
+ * Callers that genuinely want one cycle of a looping clip (a symbol state timing its own revert)
+ * measure it themselves; a duration WALK must not.
+ */
+export function flipbookCycleMs(clipId: string, loopOverride?: boolean): number | undefined {
+	const clip = registry.get(clipId);
+	if (!clip || !Array.isArray(clip.frames) || clip.frames.length === 0) return undefined;
+	if (loopOverride ?? clip.loop ?? true) return undefined;
+	const fps = typeof clip.fps === 'number' && clip.fps > 0 ? clip.fps : DEFAULT_FPS;
+	return (clip.frames.length / fps) * 1000;
+}

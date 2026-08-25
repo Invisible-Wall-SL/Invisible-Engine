@@ -7,6 +7,7 @@
 		"doc": "tsx docModel.ts",
 		"registry": "tsx registry.ts",
 		"frames": "tsx resolveFrames.ts",
+		"scene-node": "tsx sceneNode.ts",
 		"sequences": "tsx sequences.ts",
 		"anim": "tsx animationPlist.ts",
 		"atlas-ref": "tsx atlasRefRepair.ts"
