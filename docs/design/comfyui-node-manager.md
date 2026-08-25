@@ -93,8 +93,14 @@ Shipped as a `prod` flag on the entry. The worker Dockerfile reads the SAME `nod
 
 **Proven to be a no-op on landing:** the four nodes the worker clones today were flagged `prod`, and the new loop — lifted verbatim out of the Dockerfile and run against the real list — emits exactly those four names at exactly those four SHAs. Prod's node set does not move when this merges; only where the list LIVES does.
 
-### Phase 5 — The volume test lane *(optional)*
+### Phase 5 — The volume test lane *(optional)* — ✅ DONE, minus one part on purpose (2026-08-25)
 `custom_nodes:` in `extra_model_paths.yaml` + `PYTHONPATH=/workspace/pysite` in `start.sh`, and a UI affordance that installs a node there for an immediate try, clearly marked temporary, with a "bake this one" action that turns it into a Phase 2 commit.
+
+**Shipped:** the lane itself. `custom_nodes: custom_nodes` in `extra_model_paths.yaml` (ComfyUI scans every path in `get_folder_paths("custom_nodes")`, and this file's keys are appended to that list — checked against the `v0.33.1` pin), and `PYTHONPATH=/workspace/pysite` plus the two `mkdir -p`s in `start.sh` so a node's DEPS persist too. A node cloned there is loaded and survives a container recreate: try one in two minutes, no rebuild, no redeploy.
+
+**Shipped: the loop closes.** The panel flags any pack a pod has loaded that `nodes.json` does not know about — the reverse of the Phase 3 check. That is either the lane working as intended or ComfyUI-Manager having installed into the container; either way it is not in the image, so a fresh pod and the serverless worker do not have it, and it names the node so the keeper can be baked and the experiment ignored.
+
+**NOT shipped, deliberately: an "install it for me" button.** The launcher has no shell on a pod, so that button would need a new pod-side route that git-clones an arbitrary URL and pip-installs it — remote code execution by design, reachable by anyone who can reach the pod, and impossible to verify from here. The lane is two shell lines in a terminal the artist already has; the button would be the riskiest thing in this whole tool to save typing them. The runbook is in the pod README.
 
 ## Risks / failure modes
 

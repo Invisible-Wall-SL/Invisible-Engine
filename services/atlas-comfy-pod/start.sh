@@ -10,6 +10,15 @@
 # crashes are visible from the pod terminal even after a restart: `tail -f /workspace/comfyui.log`.
 #
 # Because this auto-starts on 8188, NO RunPod "Container Start Command" is needed.
+# The VOLUME TEST LANE (see extra_model_paths.yaml). A node cloned into
+# /workspace/ComfyUI/custom_nodes is loaded by ComfyUI and survives a container recreate —
+# but its Python deps would not, because site-packages lives in the ephemeral container. So
+# a second, volume-backed import root: `pip install --target /workspace/pysite <dep>` and it
+# persists too. Created here rather than assumed, since ComfyUI listing a missing custom_nodes
+# path is not worth risking on boot.
+mkdir -p /workspace/ComfyUI/custom_nodes /workspace/pysite
+export PYTHONPATH="/workspace/pysite${PYTHONPATH:+:$PYTHONPATH}"
+
 cd /ComfyUI
 nohup python main.py --listen 0.0.0.0 --port 8188 > /workspace/comfyui.log 2>&1 &
 

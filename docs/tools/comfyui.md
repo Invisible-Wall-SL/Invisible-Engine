@@ -103,6 +103,8 @@ The panel has two shapes depending on how the launcher is configured:
 
    Each node is also marked **prod** or **R&D only**. "prod" means it is baked into the serverless worker as well — the Atlas Maker's generation path — so a blueprint can use it. **R&D only** means a blueprint using that node will *not* run in the Atlas Maker. Admins can **promote** or **demote**; promoting rebuilds the prod image, so do it once a pod off the R&D image has rendered clean with the node, not before.
 
+   If the pod has loaded a pack that is **not in the image**, the section names it. That is either a node being tried on the Network Volume — the supported way to try one without a rebuild, see the pod README — or one ComfyUI-Manager installed into the container, which will vanish the next time RunPod recreates it. Either way a fresh pod does not have it, so bake the keepers with **Add**.
+
 Once published, the blueprint appears in the Atlas Maker's pipeline selector alongside
 the built-in SDXL/FLUX/gpt_image pipelines, and any region can generate through it.
 

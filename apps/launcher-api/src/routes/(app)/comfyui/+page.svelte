@@ -342,6 +342,23 @@
 	 */
 	const readerBehind = $derived(!!readerPod && podOnLatest(readerPod) === false);
 
+	/**
+	 * Packs the pod has LOADED that `nodes.json` knows nothing about — the reverse of the check
+	 * below, and the other half of the volume test lane.
+	 *
+	 * One of two things, both worth seeing: a node being tried on the Network Volume (the lane
+	 * working as intended), or one ComfyUI-Manager installed into the container, which will
+	 * vanish the next time RunPod recreates it. Either way it is NOT in the image, so it does
+	 * not exist on a fresh pod or on the serverless worker — and a blueprint built against it
+	 * would fail somewhere else, later, for a reason nobody could see from here.
+	 */
+	const unbakedPacks = $derived(
+		(inventory?.packs ?? []).filter(
+			(pack) =>
+				!(nodeList?.nodes ?? []).some((n) => n.name.toLowerCase() === pack.name.toLowerCase()),
+		),
+	);
+
 	function nodeLoaded(node: PodNode): { label: string; cls: string; title: string } | null {
 		// Nothing answered, so there is nothing to compare against — say nothing.
 		if (!inventory?.packs?.length) return null;
@@ -980,6 +997,18 @@ RunPod recreates the container, so anything ` +
 											</li>
 										{/each}
 									</ul>
+
+									{#if unbakedPacks.length}
+										<!-- Loaded but not baked. Named rather than summarised, because the fix is
+										     per-node: bake the keeper, ignore the experiment. -->
+										<p class="node-caveat">
+											<strong>Not in the image:</strong>
+											{unbakedPacks.map((p) => p.name).join(', ')}. Loaded by
+											{inventory?.reader?.label ?? 'the reading pod'} from the Network Volume or installed
+											into its container — either way a fresh pod will not have it, and neither will
+											the serverless worker. Add it below to bake it in.
+										</p>
+									{/if}
 
 									{#if data.canAdmin}
 										<!-- Two steps, deliberately: RESOLVE shows the exact commit that would be
