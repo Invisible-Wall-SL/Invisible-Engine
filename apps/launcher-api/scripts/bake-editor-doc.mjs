@@ -469,22 +469,44 @@ async function main() {
 			const stacked = (() => {
 				const st = s?.stacked;
 				if (!st || typeof st !== 'object' || !Array.isArray(st.symbols)) return undefined;
+				// One picture slot → its contract fields, or undefined when nothing is bound. Shared by the
+				// resting `art` and the optional winning `winArt` so neither can drift from the other.
+				const artOf = (art) => {
+					if (!art || typeof art !== 'object' || typeof art.assetKey !== 'string' || !art.assetKey)
+						return undefined;
+					const out = { type: art.type, assetKey: art.assetKey };
+					if (typeof art.animationName === 'string' && art.animationName)
+						out.animationName = art.animationName;
+					if (typeof art.clipId === 'string' && art.clipId) out.clipId = art.clipId;
+					return out;
+				};
 				const out = [];
 				for (const sym of st.symbols) {
 					if (!sym || typeof sym !== 'object') continue;
 					if (typeof sym.name !== 'string' || !sym.name) continue;
 					if (typeof sym.height !== 'number' || !Number.isFinite(sym.height)) continue;
-					const art = sym.art;
-					if (!art || typeof art !== 'object' || typeof art.assetKey !== 'string' || !art.assetKey)
-						continue;
-					const artOut = { type: art.type, assetKey: art.assetKey };
-					if (typeof art.animationName === 'string' && art.animationName)
-						artOut.animationName = art.animationName;
-					if (typeof art.clipId === 'string' && art.clipId) artOut.clipId = art.clipId;
-					out.push({ name: sym.name, height: sym.height, art: artOut });
+					const artOut = artOf(sym.art);
+					if (!artOut) continue;
+					// The WIN picture is optional — a symbol without one keeps showing `art` while it pays.
+					const winArtOut = artOf(sym.winArt);
+					out.push({
+						name: sym.name,
+						height: sym.height,
+						art: artOut,
+						...(winArtOut ? { winArt: winArtOut } : {}),
+					});
 				}
 				return out.length
-					? { symbols: out, ...(st.fullHeightOnly === true ? { fullHeightOnly: true } : {}) }
+					? {
+							symbols: out,
+							...(st.fullHeightOnly === true ? { fullHeightOnly: true } : {}),
+							// Was silently dropped here while the exporter emitted it, so a baked bundle lost the
+							// edge cut-offs the project had authored.
+							...(st.edgeCutoffs === true ? { edgeCutoffs: true } : {}),
+							...(typeof st.winHoldMs === 'number' && Number.isFinite(st.winHoldMs)
+								? { winHoldMs: st.winHoldMs }
+								: {}),
+						}
 					: undefined;
 			})();
 			symbols = {

@@ -127,7 +127,15 @@ export interface SymbolExportStackedArt {
 	clipId?: string;
 }
 export interface SymbolExportStacked {
-	symbols: { name: string; height: number; art: SymbolExportStackedArt }[];
+	symbols: {
+		name: string;
+		height: number;
+		art: SymbolExportStackedArt;
+		/** The RESTING picture's winning variant — drawn while the stack is part of a paying line.
+		 *  Absent ⇒ the stack keeps showing `art` through the win (how this behaved before the slot
+		 *  existed). Its asset ships via the same `refs` as `art`. */
+		winArt?: SymbolExportStackedArt;
+	}[];
 	/** When true, a tall picture shows ONLY at full stack height; shorter landed runs fall back to the
 	 *  normal single icons. Absent ⇒ partial runs crop the picture (default). */
 	fullHeightOnly?: boolean;
@@ -135,6 +143,9 @@ export interface SymbolExportStacked {
 	 *  tall picture regardless of `fullHeightOnly` (top edge → bottom N/M, bottom edge → top N/M; any
 	 *  run length, even 1). Absent ⇒ edge partials follow `fullHeightOnly`. Independent toggle. */
 	edgeCutoffs?: boolean;
+	/** How long (ms) a stacked cell holds its win beat — the knob that matches that beat to an authored
+	 *  `winArt` animation. Absent ⇒ the game's coded `STACKED_WIN_HOLD_MS`. */
+	winHoldMs?: number;
 }
 
 export interface SymbolExportResult {
@@ -259,9 +270,23 @@ function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 	// (rule 8). Gated the same as the emitted `stacked` field (master toggle on) so a disabled project
 	// ships nothing. A flipbook art's clip rides the editor-art clip walk (skipped here, like a cell).
 	if (doc.stackedPictures?.enabled === true) {
-		for (const s of doc.stackedPictures.symbols ?? []) addCellRefs(s.art, refs);
+		for (const s of doc.stackedPictures.symbols ?? []) {
+			addCellRefs(s.art, refs);
+			addCellRefs(s.winArt, refs);
+		}
 	}
 	return refs;
+}
+
+/** Reduce ONE authored stacked picture to the baked contract's art fields — the kind, its asset, and
+ *  whichever of `animationName`/`clipId` that kind uses. Never a `sizeRatios`: stacked art is sized by
+ *  the symbol's `height` in cells, not a ratio. Shared by both picture slots so the resting and the
+ *  winning picture can never bake through different rules. */
+function stackedArt(cell: SymbolCell): SymbolExportStackedArt {
+	const art: SymbolExportStackedArt = { type: cell.type, assetKey: cell.assetKey };
+	if (cell.animationName) art.animationName = cell.animationName;
+	if (cell.clipId) art.clipId = cell.clipId;
+	return art;
 }
 
 /** Route ONE sprite/spine/flipbook cell's asset into the shared `refs` — the exact split
@@ -592,13 +617,16 @@ export async function exportEditorSymbols(
 		doc.stackedPictures?.enabled === true && stackedSyms.length
 			? {
 					symbols: stackedSyms.map((s) => {
-						const art: SymbolExportStackedArt = { type: s.art.type, assetKey: s.art.assetKey };
-						if (s.art.animationName) art.animationName = s.art.animationName;
-						if (s.art.clipId) art.clipId = s.art.clipId;
-						return { name: s.name, height: s.height, art };
+						const art = stackedArt(s.art);
+						// The win picture is optional — a symbol without one keeps showing `art` while it pays.
+						const winArt = s.winArt?.assetKey ? stackedArt(s.winArt) : undefined;
+						return { name: s.name, height: s.height, art, ...(winArt ? { winArt } : {}) };
 					}),
 					...(doc.stackedPictures.fullHeightOnly ? { fullHeightOnly: true } : {}),
 					...(doc.stackedPictures.edgeCutoffs ? { edgeCutoffs: true } : {}),
+					...(doc.stackedPictures.winHoldMs !== undefined
+						? { winHoldMs: doc.stackedPictures.winHoldMs }
+						: {}),
 				}
 			: undefined;
 

@@ -224,22 +224,33 @@ it this section's override).
 
 A **Stacked pictures** section (above Win lines) with a master on/off toggle, **off by default**.
 Turn it on to make a symbol into a single **tall picture** that fills several cells for the
-stacked-picture reel mode — that tall picture is the **only** thing a stacked symbol shows. All of
+stacked-picture reel mode — a tall picture is the **only** thing a stacked symbol shows. All of
 the stacked config lives here (there is no per-cell `Stacked picture` grid column any more):
 
 - A **multi-select** of your symbols (click a chip to make it stacked; click again to un-stack).
+- A **Win beat (ms)** number — how long a winning stack stays lit, which is also how long its win
+  picture (below) plays for. The cells under a tall picture have no per-symbol win animation for the
+  game to wait on, so it holds this fixed time instead. Leave it blank for the built-in 650 ms.
 - For each stacked symbol, a **Height (cells tall)** number (≥ 1) — how many cells the picture spans
-  — and an **Edit tall picture** button that opens the same **Sprite / Spine / Flipbook** picker the
-  grid cells use (with a small live preview). When you add a symbol its art is seeded from that
-  symbol's own win/static art, so the picker opens on the real symbol; swap it to your tall picture.
+  — and **two picture slots**, each with its own preview and its own **Sprite / Spine / Flipbook**
+  picker (the same one the grid cells use):
+  - **Edit picture** — the *resting* picture, what the stack shows by default. Usually the still.
+  - **Add / Edit win picture** — the *winning* picture, shown only while that stack is part of a
+    paying line: the spine or flipbook it pays out with. **Optional** — leave it unset (or **Clear**
+    it) and the stack simply keeps showing its resting picture through the win, exactly as before
+    this slot existed.
+
+  Each slot is seeded from the symbol's own art when you first open it — the resting slot from its
+  `Static` binding, the win slot from its `Win` binding — so the picker opens on the real symbol;
+  swap it for your tall picture.
 
 Unlike the earlier version, this config **is shipped**: with the toggle on and at least one symbol
-authored it bakes as `bundle.symbols.stacked = { symbols: [{ name, height, art }] }`, and each tall
-`art` asset travels the normal symbol export/bake chain (spine bundle / sprite sheet) exactly like a
-per-cell binding — so the picture that shows in the tool is the one the game loads. Everything is
-sparse: turn the toggle off (or author nothing) and the project bakes **no** `stacked` field and is
-byte-identical to before. (Whether the stacked-picture reel mode is armed in-game is still gated by
-the `enableStackedPictures` Flow effect.)
+authored it bakes as `bundle.symbols.stacked = { symbols: [{ name, height, art, winArt? }] }`, and
+each tall picture's asset travels the normal symbol export/bake chain (spine bundle / sprite sheet)
+exactly like a per-cell binding — so the picture that shows in the tool is the one the game loads.
+Everything is sparse: turn the toggle off (or author nothing) and the project bakes **no** `stacked`
+field and is byte-identical to before. (Whether the stacked-picture reel mode is armed in-game is
+still gated by the `enableStackedPictures` Flow effect.)
 
 ### Win lines
 

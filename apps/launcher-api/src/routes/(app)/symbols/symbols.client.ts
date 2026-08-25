@@ -232,6 +232,10 @@ export interface StackedSymbol {
 	/** How many CELLS tall the picture is (≥ 1) — the crop denominator. */
 	height: number;
 	art: SymbolCell;
+	/** The WINNING variant of the tall picture — what the stack shows while it is part of a paying line
+	 *  (typically the spine/flipbook that animates the payout, where `art` is a still). Optional and
+	 *  INHERITING: absent ⇒ the stack keeps showing `art` through the win. */
+	winArt?: SymbolCell;
 }
 
 /** Stacked-picture config. `enabled` is the per-project master toggle (default OFF, the INVERSE of
@@ -250,12 +254,19 @@ export interface StackedPicturesConfig {
 	 *  picture (the visible slice of a symbol scrolled partly off-screen) regardless of
 	 *  `fullHeightOnly` — any run length, even 1. Independent toggle. Mirrors the server schema. */
 	edgeCutoffs?: boolean;
+	/** How long (ms) a stacked cell holds its win beat — the knob that matches that beat to an authored
+	 *  {@link StackedSymbol.winArt} animation. Absent ⇒ the game's coded default. */
+	winHoldMs?: number;
 	symbols?: StackedSymbol[];
 }
 
 /** The default height (cells) a symbol gets when first made stacked — a picture spanning two cells is
  *  the minimal "stacked". The author re-picks it in the height input. */
 export const STACKED_HEIGHT_DEFAULT = 2;
+
+/** The coded win-beat hold (ms) a stacked cell uses when `winHoldMs` is unset — mirrors the game's
+ *  `STACKED_WIN_HOLD_MS`. Shown as the placeholder in the tool so the author knows what they inherit. */
+export const STACKED_WIN_HOLD_MS_DEFAULT = 650;
 
 /** An anticipation escalation tier — the ALIAS of a config-authored big-win tier (`/config`). The
  *  panel renders ONE FX column per configured big tier, keyed by alias (no longer a fixed
@@ -833,7 +844,12 @@ function withStackedPictures(doc: SymbolsDoc, config: StackedPicturesConfig): Sy
 	if (config.enabled === true) next.enabled = true;
 	if (config.fullHeightOnly === true) next.fullHeightOnly = true;
 	if (config.edgeCutoffs === true) next.edgeCutoffs = true;
-	const symbols = (config.symbols ?? []).filter((s) => s.name && s.art?.assetKey);
+	if (config.winHoldMs !== undefined) next.winHoldMs = config.winHoldMs;
+	// Mirrors the server's `pruneStackedPictures`: a half-picked `winArt` is dropped (an absent win
+	// picture is legal — the stack just keeps showing `art` while it pays).
+	const symbols = (config.symbols ?? [])
+		.filter((s) => s.name && s.art?.assetKey)
+		.map((s) => (s.winArt?.assetKey ? s : { name: s.name, height: s.height, art: s.art }));
 	if (symbols.length) next.symbols = symbols;
 	const out = { ...doc };
 	if (Object.keys(next).length) out.stackedPictures = next;
@@ -912,10 +928,42 @@ export function setStackedSymbolHeight(doc: SymbolsDoc, name: string, height: nu
 	return withStackedPictures(doc, config);
 }
 
-/** Set one stacked symbol's tall art (the picker "Apply"). New doc. */
-export function setStackedSymbolArt(doc: SymbolsDoc, name: string, art: SymbolCell): SymbolsDoc {
+/** One stacked symbol's two picture SLOTS: the resting picture every stack shows by default, and the
+ *  optional winning variant it swaps to while it pays. Named so the tool's one picker panel can write
+ *  either without a second set of setters. */
+export type StackedArtSlot = 'art' | 'winArt';
+
+/** Set one stacked symbol's tall art for a slot (the picker "Apply"). New doc. */
+export function setStackedSymbolArt(
+	doc: SymbolsDoc,
+	name: string,
+	art: SymbolCell,
+	slot: StackedArtSlot = 'art',
+): SymbolsDoc {
 	const config: StackedPicturesConfig = { ...(doc.stackedPictures ?? {}) };
-	config.symbols = (config.symbols ?? []).map((s) => (s.name === name ? { ...s, art } : s));
+	config.symbols = (config.symbols ?? []).map((s) =>
+		s.name !== name ? s : slot === 'winArt' ? { ...s, winArt: art } : { ...s, art },
+	);
+	return withStackedPictures(doc, config);
+}
+
+/** Clear one stacked symbol's WIN picture, so the stack falls back to showing `art` while it pays.
+ *  Only the optional slot can be cleared — `art` is what the entry exists for. New doc. */
+export function clearStackedSymbolWinArt(doc: SymbolsDoc, name: string): SymbolsDoc {
+	const config: StackedPicturesConfig = { ...(doc.stackedPictures ?? {}) };
+	config.symbols = (config.symbols ?? []).map((s) =>
+		s.name === name ? { name: s.name, height: s.height, art: s.art } : s,
+	);
+	return withStackedPictures(doc, config);
+}
+
+/** Set the stacked win-beat hold (ms) — how long a stacked cell stays in its win state, so the beat can
+ *  match an authored `winArt` animation. `undefined` (or a negative value) drops the key ⇒ the game's
+ *  coded default. New doc. */
+export function setStackedWinHoldMs(doc: SymbolsDoc, value: number | undefined): SymbolsDoc {
+	const config: StackedPicturesConfig = { ...(doc.stackedPictures ?? {}) };
+	if (value === undefined || !Number.isFinite(value) || value < 0) delete config.winHoldMs;
+	else config.winHoldMs = Math.round(value);
 	return withStackedPictures(doc, config);
 }
 

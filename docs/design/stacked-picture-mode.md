@@ -2,8 +2,9 @@
 
 > Status: IMPLEMENTED (engine + mock, 2026-08-05), visuals only. Off by default ⇒ byte-parity until
 > the Flow `enableStackedPictures` effect turns it on. LINES-only (a Book-of never stacks pictures).
-> Follow-ups: real tall-picture art + the `/symbols` `stacked` column authoring; wilds-substitute
-> runs; win-math; a real RGS emitting stacked boards (only the local mock is wired).
+> Follow-ups: real tall-picture art; wilds-substitute runs; win-math; a real RGS emitting stacked
+> boards (only the local mock is wired). Authoring is done — the `/symbols` "Stacked pictures"
+> section owns which symbols stack, their height, and each one's resting + winning picture.
 
 ## The ask
 
@@ -87,7 +88,23 @@ is **no** reveal-path `computeArming` hook.
    then a `<Rectangle isMask>` reveals only the top `visibleCells`. `StackedPictures.svelte` maps the
    runs; mounted in `Board.svelte` inside the resting board container (shares `getSymbolX`/`symbolY`
    coordinates + the board window mask).
-6. **Suppress doubles** — `ReelSymbol.svelte` skips a cell in `stackedCoverage()` so the single-cell
+6. **Two picture slots — resting + winning** (owner ask 2026-08-25). A stacked symbol authors `art`
+   (the picture it normally shows — typically a still) and an optional `winArt` (what it becomes while
+   that stack is part of a **paying line** — the spine/flipbook it pays out with). Both are ordinary
+   `SymbolCell` bindings on the same stacked entry, so `winArt` ships through the identical
+   export→bake→register chain as `art` and needs no new asset class.
+   - **The win signal is the covered cells' own `symbolState`.** A covered cell mounts no `<Symbol>`,
+     but the win presentation still walks it — `Board.svelte` sets `symbolState = 'win'` on every
+     paying cell and reverts it to `postWinStatic` after the beat — so `StackedPicture` reads those
+     cells directly. **Any** lit covered cell lights the whole picture (a line usually crosses one
+     cell of the run; half a picture cannot pay). No new event, no new state field.
+   - **`winHoldMs`** (authored beside the other stacked toggles) sizes the win beat a covered cell
+     holds — the fixed wait that exists *because* there is no per-icon `oncomplete` to await. It is
+     therefore also how long an authored `winArt` animation plays; absent ⇒ the coded
+     `STACKED_WIN_HOLD_MS` (650), byte-identical to before.
+   - Sparse throughout: no `winArt` ⇒ the run carries none ⇒ `StackedPicture` never even reads the
+     board, and the render path is what it was before the slot existed.
+7. **Suppress doubles** — `ReelSymbol.svelte` skips a cell in `stackedCoverage()` so the single-cell
    icons under a run don't draw beneath the picture.
 
 ## Test data (mock)
@@ -109,6 +126,11 @@ per-project hardcode. Test data only — no protocol change; the default (mode-o
 
 ## Verification
 
+- Node fixture (`scratchpad/stacked-winart.fixture.ts`, run with a `$env` stub) proves the two-slot
+  data contract: `art` + `winArt` round-trip through the tool's client model AND the server schema,
+  a blank win picture is stripped client-side (and rejected server-side rather than silently saved),
+  clearing it leaves the resting picture intact, `winHoldMs` stays sparse, and an un-authored project
+  still persists no `stackedPictures` key at all — all pass.
 - Node fixture (`scratchpad/stacked-scan.fixture.mjs`) proves the run-scan + crop math: the owner's
   example (H4 run → top 3/4), Wild full 5/5 & clipped 3/5, min-run gate, distinct runs, high-pay-only
   gating, and 3×3 / 10×10 scaling — all pass.

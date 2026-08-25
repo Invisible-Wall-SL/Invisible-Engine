@@ -335,6 +335,22 @@ Working on `main`:
 
 ## Recent changes
 
+- 2026-08-25 — **A stacked symbol authors TWO pictures: the resting one and the winning one**
+  (owner request). The "Stacked pictures" section had a single `art` per symbol, so a stack that was
+  paying looked exactly like a stack that was idling. Each stacked entry now carries an optional
+  `winArt` beside `art`: `art` is the default/resting picture (usually the still), `winArt` what the
+  stack becomes **while it is part of a paying line** (the spine/flipbook it pays out with). Both are
+  ordinary `SymbolCell` bindings authored with the same picker, so `winArt` ships through the
+  identical export→bake→pull→register chain (`bundle.symbols.stacked[].winArt`) and introduces no new
+  asset class. The runtime signal is the covered cells' own `symbolState`: `Board.svelte` already sets
+  `win` on every paying cell (and reverts it after the beat), so `StackedPicture` reads them and swaps
+  — any one lit covered cell lights the whole picture, since half a picture cannot pay. A new
+  `winHoldMs` sizes that beat (the fixed wait a covered cell holds *because* it has no per-icon
+  `oncomplete` to await), which is also how long an authored win animation plays; blank ⇒ the coded
+  650 ms. Sparse throughout: no `winArt` ⇒ the run carries none, `StackedPicture` never reads the
+  board, and the render path is byte-identical to before. Also fixed in passing: `bake-editor-doc.mjs`
+  silently DROPPED `edgeCutoffs` while the exporter emitted it, so a baked bundle lost the edge
+  cut-offs its project had authored. See [docs/design/stacked-picture-mode.md](../design/stacked-picture-mode.md).
 - 2026-08-24 — **The win LINE and the win AMOUNT TEXT are two sections, and the amount can sit in
   the middle of the reels** (owner request). The tool's one "Win lines" toggle governed both halves
   of the overlay, so there was no way to announce an amount without drawing a line under it. Split:

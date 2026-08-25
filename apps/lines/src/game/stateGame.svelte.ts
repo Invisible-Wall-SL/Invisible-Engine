@@ -76,6 +76,7 @@ export const {
 	stackedScrollStrip,
 	stackedPictureRuns,
 	stackedCoverage,
+	stackedWinHoldMs,
 	getWinLevelDataByWinLevelAlias,
 } = gameState;
 

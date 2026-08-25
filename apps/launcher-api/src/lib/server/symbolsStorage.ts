@@ -202,7 +202,8 @@ const winLineSchema = z
 /** One stacked symbol's authored config (Invisible Symbols State Machine → stacked-picture reel mode,
  *  `docs/design/stacked-picture-mode.md`). `height` is how many CELLS tall the picture is (the crop
  *  denominator); `art` is the tall picture itself, authored via the SAME per-cell binding schema the
- *  grid uses (sprite frame / spine bundle+animation / flipbook clip). The tall picture is the ONLY
+ *  grid uses (sprite frame / spine bundle+animation / flipbook clip). `art` is the RESTING picture (the
+ *  default a stacked symbol shows) and `winArt` its optional winning variant. A tall picture is the ONLY
  *  thing a stacked symbol renders — all of its stacked config lives in this one block, no longer a
  *  per-cell `stacked` grid column. */
 const stackedSymbolSchema = z
@@ -210,6 +211,11 @@ const stackedSymbolSchema = z
 		name: z.string().min(1),
 		height: z.number().int().min(1),
 		art: symbolCellSchema,
+		/** The tall picture's WINNING variant — what the stack shows while it is part of a paying line
+		 *  (a spine/flipbook that animates the payout), authored with the same picker as `art`. Optional
+		 *  and INHERITING: absent ⇒ the stack keeps showing `art` through the win, byte-identical to
+		 *  before this existed. `art` stays the default/resting picture. */
+		winArt: symbolCellSchema.optional(),
 	})
 	.strict();
 
@@ -233,6 +239,11 @@ const stackedPicturesSchema = z
 		 *  `fullHeightOnly` — top edge shows the bottom N/M, bottom edge the top N/M. Any run length
 		 *  qualifies (even 1). Independent toggle: absent/false ⇒ edge partials follow `fullHeightOnly`. */
 		edgeCutoffs: z.boolean().optional(),
+		/** How long (ms) a stacked cell HOLDS its win beat. A covered cell mounts no `<Symbol>`, so the
+		 *  game can't await a per-icon win animation there and waits a fixed beat instead — this is the
+		 *  knob that lets that beat match an authored `winArt` animation. Absent ⇒ the coded default
+		 *  (`STACKED_WIN_HOLD_MS`), byte-identical to before. */
+		winHoldMs: z.number().int().min(0).optional(),
 		symbols: z.array(stackedSymbolSchema).optional(),
 	})
 	.strict();
@@ -435,7 +446,12 @@ function pruneStackedPictures(
 	if (config.enabled === true) next.enabled = true;
 	if (config.fullHeightOnly === true) next.fullHeightOnly = true;
 	if (config.edgeCutoffs === true) next.edgeCutoffs = true;
-	const symbols = (config.symbols ?? []).filter((s) => s.name && s.art?.assetKey);
+	if (config.winHoldMs !== undefined) next.winHoldMs = config.winHoldMs;
+	// A half-picked `winArt` is dropped rather than persisted (same rule as a blank `art`, except an
+	// absent win picture is legal here — the stack simply keeps showing `art` while it pays).
+	const symbols = (config.symbols ?? [])
+		.filter((s) => s.name && s.art?.assetKey)
+		.map((s) => (s.winArt?.assetKey ? s : { name: s.name, height: s.height, art: s.art }));
 	if (symbols.length) next.symbols = symbols;
 	return Object.keys(next).length ? next : undefined;
 }
