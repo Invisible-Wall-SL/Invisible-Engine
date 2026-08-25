@@ -56,6 +56,12 @@ const mainSrc = readFileSync(MAIN, 'utf8')
 const localesForSrc = extractFn(mainSrc, 'localesFor');
 const driftSrc = extractFn(viewSrc, 'textElementDrift');
 const attExistsSrc = extractFn(viewSrc, 'textAttachmentExists');
+const attDefSrc = extractFn(viewSrc, 'textAttachmentDef');
+const isMeshSrc = extractFn(viewSrc, 'isRawMeshDef');
+// The bake-vs-re-attach branch used to be RESTATED here. It is the tool's decision, so a copy
+// of it could agree with the gate while the tool did something else — which is exactly how a
+// new no-bake reason would slip through as a full re-rasterise. Extracted, like the rest.
+const needsBakeSrc = extractFn(viewSrc, 'textDriftNeedsBake');
 
 // `localesFor` closes over the module-level `strings`; `textElementDrift` over `rawDoc` and
 // `window.RiggerText`. Rebuild exactly that environment, so both run as written.
@@ -63,9 +69,10 @@ const harness = new Function(
 	'strings',
 	'rawDoc',
 	'window',
-	`${localesForSrc}\n${attExistsSrc}\n${driftSrc}\n` +
+	`${localesForSrc}\n${isMeshSrc}\n${attDefSrc}\n${attExistsSrc}\n${driftSrc}\n` +
+		`${needsBakeSrc}\n` +
 		`window.RiggerText = { localesFor };\n` +
-		`return { localesFor, textElementDrift };`,
+		`return { localesFor, textElementDrift, textDriftNeedsBake };`,
 );
 
 /** Run the real functions against one scenario. */
@@ -73,9 +80,7 @@ function run({ strings, skeleton, element }) {
 	const win = {};
 	const api = harness(strings, skeleton, win);
 	const why = api.textElementDrift(element);
-	// The tool's own branch: anything that is not purely a missing attachment needs new pixels.
-	const needsBake = why.some((w) => !w.endsWith('(not in the rig)'));
-	return { why, needsBake };
+	return { why, needsBake: api.textDriftNeedsBake(why) };
 }
 
 // ---- fixtures ---------------------------------------------------------------------------
@@ -102,6 +107,27 @@ const SKEL = (locales) => ({
 			attachments: {
 				text_buyfeature: Object.fromEntries(
 					locales.map((l) => [`buyfeature@${l}`, { path: `text/buyfeature/${l}` }]),
+				),
+			},
+		},
+	],
+});
+
+/**
+ * A skeleton whose attachments carry a DECLARED SIZE (and optionally a mesh) — `defs` maps a
+ * locale to what its attachment says it is. `SKEL` above leaves the size off, which is its own
+ * meaningful case: an attachment written before the tool recorded one.
+ */
+const SKEL_SIZED = (defs) => ({
+	skins: [
+		{
+			name: 'default',
+			attachments: {
+				text_buyfeature: Object.fromEntries(
+					Object.entries(defs).map(([l, d]) => [
+						`buyfeature@${l}`,
+						{ path: `text/buyfeature/${l}`, ...d },
+					]),
 				),
 			},
 		},
@@ -316,7 +342,190 @@ const FOUR = [
 	);
 }
 
-// ---- 13. the bake's PREREQUISITES ---------------------------------------------------------
+// ---- 13. an attachment left at the PREVIOUS bake's size ----------------------------------
+// The live failure this pass fixes. The fit rule shrank French from 421px to 246px and re-baked
+// the pixels, but `placeTextAttachments` skipped the attachment that already existed, so the
+// `.irig` still declared the old 421x96 box and Spine scaled the smaller region right back up
+// into it. On screen: unchanged, which is what "the fit never ran" looked like. The pixels are
+// already correct, so clearing this must NOT re-rasterise.
+{
+	const { why, needsBake } = run({
+		strings: STRINGS({ fr: FR }),
+		skeleton: SKEL_SIZED({
+			en: { width: 247, height: 96 },
+			fr: { width: 421, height: 96 }, // frozen at the pre-fit bake
+		}),
+		element: EL([
+			{ locale: 'en', text: 'Buy Feature', w: 247, h: 96, fontSize: 48 },
+			{ locale: 'fr', text: FR, w: 246, h: 56, fontSize: 28 }, // fitted art, already baked
+		]),
+	});
+	check('stale size: reported as drift', why.join(',') === 'fr (wrong size)', why.join(', '));
+	check(
+		'stale size: repairs WITHOUT re-rasterising',
+		why.length > 0 && needsBake === false,
+		why.join(', '),
+	);
+}
+
+// ---- 14. ...and an attachment that agrees with its art is clean ---------------------------
+// The convergence half. Without it the sync would rewrite and save the rig on every open.
+{
+	const { why } = run({
+		strings: STRINGS({ fr: FR }),
+		skeleton: SKEL_SIZED({ en: { width: 247, height: 96 }, fr: { width: 246, height: 56 } }),
+		element: EL([
+			{ locale: 'en', text: 'Buy Feature', w: 247, h: 96, fontSize: 48 },
+			{ locale: 'fr', text: FR, w: 246, h: 56, fontSize: 28 },
+		]),
+	});
+	check('size in sync: no drift', why.length === 0, why.join(', '));
+}
+
+// ---- 15. an attachment with NO declared size is unknown, not wrong ------------------------
+// Fail CLOSED on missing data, exactly as the width rule does. Every attachment written before
+// the tool recorded a size looks like this, and treating them as drift would re-attach the
+// whole library on sight.
+{
+	const { why } = run({
+		strings: STRINGS({ fr: FR }),
+		skeleton: SKEL(['en', 'fr']),
+		element: EL([
+			{ locale: 'en', text: 'Buy Feature', w: 247, h: 96, fontSize: 48 },
+			{ locale: 'fr', text: FR, w: 246, h: 56, fontSize: 28 },
+		]),
+	});
+	check('no declared size: not treated as drift', why.length === 0, why.join(', '));
+}
+
+// ---- 16. a MESH locale is left alone ------------------------------------------------------
+// A mesh's size is its vertices; it has no `width`/`height` to be wrong. (A linkedmesh
+// additionally INHERITS the source's geometry, so a fitted locale on a meshed element cannot
+// shrink at all -- a known limit recorded in the status file, not one this rule can paper over.)
+{
+	const { why } = run({
+		strings: STRINGS({ fr: FR }),
+		skeleton: SKEL_SIZED({
+			en: { width: 247, height: 96 },
+			// width/height present and STALE on purpose: a mesh def carries them, so this only
+			// stays clean if the MESH guard is what skips it.
+			fr: {
+				type: 'mesh',
+				uvs: [0, 0, 1, 0, 1, 1, 0, 1],
+				triangles: [0, 1, 2, 2, 3, 0],
+				width: 421,
+				height: 96,
+			},
+		}),
+		element: EL([
+			{ locale: 'en', text: 'Buy Feature', w: 247, h: 96, fontSize: 48 },
+			{ locale: 'fr', text: FR, w: 246, h: 56, fontSize: 28 },
+		]),
+	});
+	check('mesh locale: not treated as a size mismatch', why.length === 0, why.join(', '));
+}
+
+// ---- 17. the tool actually WRITES the size back -------------------------------------------
+// The oracle can only REPORT the mismatch; `placeTextAttachments` is what clears it, so this
+// runs the real function rather than matching its source. Source-matching was tried first and
+// was not decisive: a copy that restored the original `continue` under a different spelling
+// still went green, which is the same class of failure the gate exists to catch.
+//
+// Everything it closes over is stubbed to the shape the tool gives it: a skeleton document, an
+// atlas that answers `findRegion`, and no-op UI callbacks.
+function runPlace({ bag, region }) {
+	const placeSrc = extractFn(viewSrc, 'placeTextAttachments');
+	const isMesh = extractFn(viewSrc, 'isRawMeshDef');
+	const rawDoc = {
+		bones: [{ name: 'root' }],
+		slots: [{ name: 'text_buyfeature', bone: 'text_buyfeature' }],
+		skins: [{ name: 'default', attachments: { text_buyfeature: bag } }],
+	};
+	new Function(
+		'rawDoc',
+		'$',
+		'selBone',
+		'skeletonData',
+		'assetMgr',
+		'selected',
+		'element',
+		'attachments',
+		`${isMesh}\n${placeSrc}\n` +
+			`function rebuildFromRawDoc(){}\nfunction selectSlot(){}\nfunction markDirty(){}\n` +
+			`placeTextAttachments(element, attachments);`,
+	)(
+		rawDoc,
+		() => ({ value: 'default' }),
+		null,
+		{ bones: [] },
+		{ require: () => ({ findRegion: (n) => (n === 'text/buyfeature/fr' ? region : null) }) },
+		{ atlas_file: 'rig.atlas' },
+		{ id: 'buyfeature', slot: 'text_buyfeature', sourceLocale: 'en' },
+		[{ elementId: 'buyfeature', locale: 'fr', region: 'text/buyfeature/fr', text: FR }],
+	);
+	return rawDoc.skins[0].attachments.text_buyfeature;
+}
+
+{
+	// A region attachment frozen at the pre-fit size, with placement the author chose.
+	const bag = runPlace({
+		bag: {
+			'buyfeature@en': { path: 'text/buyfeature/en', width: 247, height: 96 },
+			'buyfeature@fr': {
+				path: 'text/buyfeature/fr',
+				width: 421,
+				height: 96,
+				x: 12,
+				y: -4,
+				rotation: 3,
+				scaleX: 1.25,
+			},
+		},
+		region: { originalWidth: 246, originalHeight: 56 },
+	});
+	const fr = bag['buyfeature@fr'];
+	check('place: the stale size is rewritten from the region', fr.width === 246 && fr.height === 56,
+		`${fr.width}x${fr.height}`);
+	check(
+		'place: the authored placement survives untouched',
+		fr.x === 12 && fr.y === -4 && fr.rotation === 3 && fr.scaleX === 1.25,
+		JSON.stringify(fr),
+	);
+}
+
+{
+	// The author has meshed this locale. Its size IS its vertices — writing a region size onto
+	// it would mean nothing, and clobbering the mesh would lose their work outright.
+	const mesh = {
+		path: 'text/buyfeature/fr',
+		type: 'mesh',
+		uvs: [0, 0, 1, 0, 1, 1, 0, 1],
+		triangles: [0, 1, 2, 2, 3, 0],
+		width: 421,
+		height: 96,
+	};
+	const bag = runPlace({
+		bag: { 'buyfeature@en': { path: 'text/buyfeature/en' }, 'buyfeature@fr': mesh },
+		region: { originalWidth: 246, originalHeight: 56 },
+	});
+	const fr = bag['buyfeature@fr'];
+	check('place: a meshed locale is left entirely alone',
+		fr.type === 'mesh' && fr.width === 421 && fr.height === 96 && fr.triangles.length === 6,
+		JSON.stringify(fr));
+}
+
+{
+	// A region the atlas cannot answer for. Guessing a size would be worse than keeping the last
+	// known one — the art is missing, and a zero-sized attachment hides the problem.
+	const bag = runPlace({
+		bag: { 'buyfeature@fr': { path: 'text/buyfeature/fr', width: 421, height: 96 } },
+		region: null,
+	});
+	check('place: an unresolvable region leaves the size as it was',
+		bag['buyfeature@fr'].width === 421, JSON.stringify(bag['buyfeature@fr']));
+}
+
+// ---- 18. the bake's PREREQUISITES ---------------------------------------------------------
 // Caught live, not here: the auto-sync loaded strings and not fonts, so every tile of a re-bake
 // came back "the font could not be loaded" and the whole bake was lost. The gate reasons about
 // drift, not pixels, so it could not have seen it — but it can pin the two guards added after.

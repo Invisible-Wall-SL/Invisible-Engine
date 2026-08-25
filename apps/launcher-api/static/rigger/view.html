@@ -2614,16 +2614,56 @@ function textElementDrift(el){
     }
   }
 
+  // Art the SKELETON no longer matches. `width`/`height` on a region attachment is the art's
+  // natural size, and it was only ever written when the attachment was first created — so a
+  // re-bake that CHANGES that size left the old box behind and Spine scaled the new region
+  // straight back up into it. That cancelled the fit rule outright: the bake shrank the
+  // translation's pixels and the rig stretched them right back, so the button read exactly as
+  // wide as before and the fit looked like it had never run.
+  //
+  // Skeleton-only, so it clears on the cheap re-attach path — the pixels are already correct.
+  for (const v of el.variants || []){
+    const att = textAttachmentDef(el, v.locale);
+    // Nothing to compare against is case 2's job below; a mesh carries its size in its own
+    // vertices; and an attachment with NO declared size is unknown, not wrong — fail closed,
+    // exactly as the width rule above does, or every pre-size attachment re-attaches on sight.
+    if (!att || isRawMeshDef(att)) continue;
+    if (typeof att.width !== "number" || typeof att.height !== "number") continue;
+    if (Math.round(att.width) !== v.w || Math.round(att.height) !== v.h){
+      out.push(v.locale + " (wrong size)");
+    }
+  }
+
   for (const v of el.variants || []){
     if (!textAttachmentExists(el, v.locale)) out.push(v.locale + " (not in the rig)");
   }
   return out;
 }
 
-function textAttachmentExists(el, locale){
+/**
+ * Which drift needs new PIXELS, and which only needs the skeleton rewritten.
+ *
+ * `(not in the rig)` and `(wrong size)` are both skeleton gaps — the atlas already holds the
+ * right art — so they take the re-attach path, which rasterises nothing. Named rather than
+ * inlined at the call site so the gate can hold the tool to this exact branch.
+ */
+function textDriftNeedsBake(why){
+  const reattachOnly = [" (not in the rig)", " (wrong size)"];
+  return why.some((w) => !reattachOnly.some((r) => w.endsWith(r)));
+}
+
+/** The raw attachment def for one locale of a text element, from whichever skin carries it. */
+function textAttachmentDef(el, locale){
   const name = el.id + "@" + locale;
-  return (rawDoc && rawDoc.skins || []).some(
-    (sk) => sk.attachments && sk.attachments[el.slot] && sk.attachments[el.slot][name]);
+  for (const sk of (rawDoc && rawDoc.skins) || []){
+    const bag = sk.attachments && sk.attachments[el.slot];
+    if (bag && bag[name]) return bag[name];
+  }
+  return null;
+}
+
+function textAttachmentExists(el, locale){
+  return !!textAttachmentDef(el, locale);
 }
 
 /**
@@ -2672,7 +2712,7 @@ async function autoSyncRigText(){
     console.info("[RigText] auto-sync — " + summary);
 
     // Does anything need new PIXELS, or is the atlas already right and only the rig behind?
-    const needsBake = stale.some((s) => s.why.some((w) => !w.endsWith("(not in the rig)")));
+    const needsBake = textDriftNeedsBake(stale.flatMap((s) => s.why));
     showLoading(needsBake ? "Updating text for " + stale.length + " element(s)…" : "Restoring localized text…");
     const ok = needsBake ? await rebakeAllTextElements() : await placeAllTextAttachments();
     if (ok) showNotice((needsBake
@@ -3020,9 +3060,10 @@ async function bakeAndPlaceText(){
  * animatable without disturbing the art it sits on — it can be moved, scaled and keyed on its
  * own. It is parented to the selected bone so it still rides whatever that bone does.
  *
- * Re-running this for an existing element is additive: existing attachments keep their authored
- * placement (and any mesh/weights on them), and only MISSING locales are added — which is the
- * "a new translation got reviewed" path.
+ * Re-running this for an existing element is additive in PLACEMENT: existing attachments keep
+ * their authored x/y/rotation/scale (and any mesh/weights on them), and only MISSING locales are
+ * added — the "a new translation got reviewed" path. Their SIZE is refreshed from the atlas
+ * every time, because the art's natural size is the tool's to know and a re-bake can change it.
  */
 function placeTextAttachments(element, attachments){
   if (!rawDoc || !attachments.length) return;
@@ -3053,7 +3094,20 @@ function placeTextAttachments(element, attachments){
   const src = bag[sourceName] || null;
   for (const att of attachments){
     const attName = element.id + "@" + att.locale;
-    if (bag[attName]) continue; // keep an authored placement / mesh / weights
+    const existing = bag[attName];
+    if (existing){
+      // The author's placement and any mesh/weights stay — but NOT the size. `width`/`height`
+      // is the art's NATURAL size and belongs to the tool; the author's size knob is
+      // `scaleX`/`scaleY`, which is untouched here. Leaving it frozen at the previous bake's
+      // value is what made the fit rule invisible (see `textElementDrift`). A mesh is skipped:
+      // its size is its vertices, and rewriting a region size onto it would mean nothing.
+      const r = findRegion(att.region);
+      if (r && !isRawMeshDef(existing)){
+        existing.width = r.originalWidth || r.width || 0;
+        existing.height = r.originalHeight || r.height || 0;
+      }
+      continue;
+    }
     if (src && isRawMeshDef(src) && src.type !== "linkedmesh"){
       // The source locale has already been given a mesh (and possibly weights + deform). A new
       // locale must INHERIT that geometry, not arrive as a flat quad beside it.
