@@ -1,4 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
+import { ADMIN_PANEL_CAPABILITY, roleHasCapability } from '$lib/roles';
+import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { podControlConfigured } from '$lib/server/runpod';
 import type { PageServerLoad } from './$types';
 
@@ -18,5 +20,11 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 	// stop + open ComfyUI, plus the R&D→blueprint guidance. `podControl` gates it: when
 	// the RunPod key is missing or the fleet is empty the page shows the set-me landing.
 	// The pod list itself is fetched client-side from `/comfyui/status` (live statuses).
-	return { podControl: await podControlConfigured() };
+	// `canAdmin` only decides what the page RENDERS — the endpoints re-check it themselves
+	// (`requireComfyAdmin`), because a hidden button is not a permission.
+	const roleOverrides = await getRoleOverrides(locals.user.role);
+	return {
+		podControl: await podControlConfigured(),
+		canAdmin: roleHasCapability(locals.user.role, ADMIN_PANEL_CAPABILITY, roleOverrides),
+	};
 };

@@ -95,6 +95,8 @@ The panel has two shapes depending on how the launcher is configured:
    long as the pod runs, so stop it when you finish a session (see *Cost control*
    below).
 
+   Each row also shows the **Image** it is deployed from — the build tag, or `latest (mutable)` for a pod deployed before this existed. Under the fleet, **Pod image** names the newest CI build and, for admins, offers **Rebuild image**: it runs the pod-image workflow on `main` (a cached rebuild is ~2 min, a full one ~30) and the line updates itself while it runs. When a stopped pod is behind the newest successful build, an **Update to `<sha>`** button appears on its row. That reads the pod, changes only its image, reads it back, and then tells you what changed — including that the ports and the `/workspace` volume were untouched. RunPod recreates the container, so anything hand-installed on that pod is lost; **models on the Network Volume are not**. A running pod refuses the change — stop it first.
+
 Once published, the blueprint appears in the Atlas Maker's pipeline selector alongside
 the built-in SDXL/FLUX/gpt_image pipelines, and any region can generate through it.
 
