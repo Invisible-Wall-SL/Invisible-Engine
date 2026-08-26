@@ -35,7 +35,7 @@
 	import LayoutProfileEditor from '$lib/LayoutProfileEditor.svelte';
 	// The ONE generated sound-name list (from `apps/lines/src/game/sound.ts`), reused so the win
 	// component's per-tier SFX / BGM dropdowns offer the game's real sounds — not a hand-copied list.
-	import { MUSIC_NAMES, SOUND_EFFECT_NAMES } from 'engine-flow-v2';
+	// The win-tier sound pickers offer the engine's own sounds PLUS this project's uploads.
 	import type {
 		ComponentDef,
 		ComponentInstanceNode,
@@ -467,7 +467,7 @@
 	/** The game's real sounds for the win component's per-tier SFX / BGM dropdowns — the ONE generated
 	 * enum (`engine-flow-v2`). BGM = the `bgm_*` beds; SFX = the non-bgm cues (`sfx_*` / `jng_*`). This
 	 * is the SHIPPED (`apps/lines`) sound set — a game with its own `sounds.json` isn't reflected yet. */
-	const WIN_SOUND_OPTIONS = { bgm: MUSIC_NAMES, sfx: SOUND_EFFECT_NAMES };
+	const WIN_SOUND_OPTIONS = $derived({ bgm: data.soundOptions.music, sfx: data.soundOptions.sfx });
 
 	/**
 	 * Rebuild the `win` component's per-tier PRESENTATION groups from the ACTIVE game config's big

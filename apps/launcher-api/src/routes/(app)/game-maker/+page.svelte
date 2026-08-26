@@ -43,6 +43,8 @@
 	// Per-project publish state, keyed by project key.
 	let publishing = $state<Record<string, boolean>>({});
 	let publishErr = $state<Record<string, string>>({});
+	/** A non-blocking note left by the last publish — today, what its sounds are licensed as. */
+	let publishNote = $state<Record<string, string>>({});
 	let copied = $state<string>('');
 
 	// Publish confirmation: the project pending confirmation (null = no dialog).
@@ -396,17 +398,58 @@
 		if (project) await publish(project.key);
 	}
 
-	async function publish(projectKey: string) {
+	async function publish(projectKey: string, allowUnapproved = false) {
 		publishing = { ...publishing, [projectKey]: true };
 		publishErr = { ...publishErr, [projectKey]: '' };
 		try {
 			const res = await fetch('/api/game-maker/publish', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ project: projectKey }),
+				body: JSON.stringify({
+					project: projectKey,
+					...(allowUnapproved ? { allowUnapproved } : {}),
+				}),
 			});
 			const out = await res.json().catch(() => ({}));
+			// An UNAPPROVED-SOUNDS refusal is the one blocked publish an author may legitimately push
+			// past — it protects a review step, not a real game's files. So it asks, once, naming the
+			// sounds. Every other block (a game with its own desktop build) stays final: overriding it
+			// would overwrite something that cannot be rebuilt from here.
+			if (res.status === 409 && out?.reason === 'unapproved-sounds' && !allowUnapproved) {
+				const names: string[] = Array.isArray(out.details) ? out.details : [];
+				const ok = confirm(
+					`${out.error}\n\n` +
+						`These play in the game but nobody has signed them off:\n  ${names.join('\n  ')}\n\n` +
+						`Publish anyway?`,
+				);
+				if (!ok) {
+					publishErr = { ...publishErr, [projectKey]: out.error };
+					return;
+				}
+				await publish(projectKey, true);
+				return;
+			}
 			if (!res.ok) throw new Error(out?.error ?? `Publish failed (${res.status}).`);
+			// Licensing is surfaced ONCE, here — the moment a build goes out is when "who owns this
+			// audio" stops being paperwork, and the only moment everyone is looking.
+			const sounds = out?.sounds as
+				| { bound: number; missingLicence: string[]; nonCommercial: string[] }
+				| undefined;
+			if (sounds?.nonCommercial?.length) {
+				publishNote = {
+					...publishNote,
+					[projectKey]:
+						`Shipped ${sounds.bound} project sound${sounds.bound === 1 ? '' : 's'}. ` +
+						`⚠ non-commercial licence on: ${sounds.nonCommercial.join(', ')}.`,
+				};
+			} else if (sounds?.missingLicence?.length) {
+				publishNote = {
+					...publishNote,
+					[projectKey]:
+						`Shipped ${sounds.bound} project sound${sounds.bound === 1 ? '' : 's'}. ` +
+						`No licence recorded for: ${sounds.missingLicence.join(', ')}.`,
+				};
+			}
 			// Reload so the project row shows the new play URL + "published" state.
 			await invalidateAll();
 		} catch (e) {
@@ -774,6 +817,7 @@
 											Duplicate…
 										</button>
 										{#if publishErr[p.key]}<span class="err">{publishErr[p.key]}</span>{/if}
+										{#if publishNote[p.key]}<span class="note">{publishNote[p.key]}</span>{/if}
 									</div>
 
 									{#if p.published && p.engineStale}
@@ -1195,6 +1239,10 @@
 	.bulk-hint {
 		margin: 10px 0 0;
 		font-size: 11px;
+	}
+	.note {
+		color: #d3b483;
+		font-size: 12px;
 	}
 	/* --- browse toolbar --------------------------------------------------------------------- */
 	.toolbar {

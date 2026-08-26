@@ -3,7 +3,7 @@ import type { Howl } from 'howler';
 import type { PlayOptions, GetSound, GetSoundMap } from './types';
 
 export function createPlayOnce<TSoundName extends string>(options: {
-	howl: Howl;
+	howlFor: (soundName: TSoundName) => Howl | undefined;
 	newSound: (value: TSoundName) => GetSound<TSoundName>;
 	getSoundMap: () => GetSoundMap<TSoundName>;
 	initSoundVolume: (soundName: TSoundName) => void;
@@ -15,7 +15,14 @@ export function createPlayOnce<TSoundName extends string>(options: {
 	// (the user's mixer setting still applies) rather than overriding it. `undefined` ⇒ keep the sound's
 	// existing `soundVolume` (1 for a fresh play), so a `soundOnce` without `volume` is byte-identical.
 	const playOnce = (sound: Sound, volume?: number) => {
-		const soundId = options.howl.play(sound.soundName);
+		// A name no bank declares leaves the map UNTOUCHED. It used to be written as `playing` with a
+		// null id (howler returns null for an unknown sprite), which never receives an `end` event — so
+		// the name was pinned 'playing' for the session and could never play again, even once a bank
+		// carrying it loaded.
+		const howl = options.howlFor(sound.soundName);
+		if (!howl) return;
+
+		const soundId = howl.play(sound.soundName);
 		options.getSoundMap()[sound.soundName] = {
 			...sound,
 			soundId,
@@ -25,9 +32,9 @@ export function createPlayOnce<TSoundName extends string>(options: {
 
 		options.initSoundVolume(sound.soundName);
 
-		options.howl.on('end', (soundIdOnEnd) => {
+		howl.on('end', (soundIdOnEnd) => {
 			if (soundIdOnEnd === soundId) {
-				options.howl.stop(soundId);
+				howl.stop(soundId);
 				delete options.getSoundMap()[sound.soundName];
 			}
 		});

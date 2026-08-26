@@ -44,6 +44,17 @@ domain-A surface needs paths only a domain-B resolver defines — but note it do
 
 ⚠️ **The Invisible Sound library list is NOT a 4th instance** — do not count it toward the extraction. Every impl above is a MATRIX (rows × columns of same-typed cells, one entity per row and one attribute per column); `/sound` is a per-entity row of heterogeneous controls (play button, text, select, number, toggles, a `<details>` metadata panel). A `<DataTable>` built to cover both would be a layout engine, not a table. See §13.
 
+### 13. Per-entity editable list (row = one record, mixed controls)
+| Impl | Domain | File(s) | Status |
+|---|---|---|---|
+| Invisible Sound library — sectioned rows: audition button, name/kind/section, duration, volume, loop, approve pill, delete, plus a collapsible provenance panel | A | `(app)/sound/+page.svelte` | first instance — build the 2nd against this, extract on the 3rd |
+| **Audio audition** — ONE shared `<audio>` element for the whole list (not one per row), src swapped on play, plays at the row's authored volume so what you hear is what the game plays | A | same file | the reusable bit if a second tool ever previews audio |
+| **Upload drop-zone** — drag/drop + "choose files", `accept` derived from the shared extension whitelist, per-file progress, client-side duration measured with `decodeAudioData` before the POST | A | same file | ditto |
+
+→ Distinct from §2: there are no columns, and a row's controls differ by field type. If a second tool needs one, copy from `/sound` rather than reinventing, and extract on the third (the rule §2 is living out).
+
+⚠️ **The Invisible Sound library list is NOT a 4th instance** — do not count it toward the extraction. Every impl above is a MATRIX (rows × columns of same-typed cells, one entity per row and one attribute per column); `/sound` is a per-entity row of heterogeneous controls (play button, text, select, number, toggles, a `<details>` metadata panel). A `<DataTable>` built to cover both would be a layout engine, not a table. See §13.
+
 ### 14. Generated-variant gallery (N AI results for one prompt, pick one)
 | Impl | Domain | File(s) | Status |
 |---|---|---|---|

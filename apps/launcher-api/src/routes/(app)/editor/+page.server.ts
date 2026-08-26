@@ -1,3 +1,5 @@
+import { soundOptionsFor } from '$lib/soundOptions';
+import { loadSoundsDoc } from '$lib/server/soundsStorage';
 import { error, fail, redirect } from '@sveltejs/kit';
 import {
 	findUnfilledRequiredSlots,
@@ -194,6 +196,9 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		doc,
 		docEtag,
 		assets,
+		/** What the win-tier sound pickers may offer: the engine's own sounds PLUS the ones this
+		 *  project uploaded in Invisible Sound. */
+		soundOptions: soundOptionsFor(await loadSoundsDoc(clientKey, projectKey)),
 		template,
 		templateEtag,
 		warnings,

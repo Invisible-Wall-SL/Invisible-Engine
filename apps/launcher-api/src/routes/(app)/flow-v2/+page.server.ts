@@ -1,3 +1,5 @@
+import { soundOptionsFor } from '$lib/soundOptions';
+import { loadSoundsDoc } from '$lib/server/soundsStorage';
 import { error, redirect } from '@sveltejs/kit';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
@@ -155,6 +157,9 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 		projectKey,
 		doc,
 		docEtag,
+		/** What every sound picker on this page may offer: the engine's own sounds PLUS the ones this
+		 *  project uploaded in Invisible Sound. Before this, an uploaded sound was unselectable here. */
+		soundOptions: soundOptionsFor(await loadSoundsDoc(clientKey, projectKey)),
 		seeded,
 		library,
 		libraryEtag,

@@ -24,6 +24,7 @@
 		type PinContext,
 		type PinDir,
 	} from 'engine-flow-v2';
+	import { withProjectSounds } from '$lib/soundOptions';
 	import { LIBRARY } from './sample';
 	import { typeColor } from './palette';
 	import {
@@ -80,7 +81,13 @@
 	// The template VOCABULARY is resolved from the doc's `templateId` via the shared registry
 	// (Phase — per-project vocab loading), not hardcoded — so a future template is a data change.
 	// Only `book-of` exists today; an unknown id falls back to it (registry-side).
-	const vocab = $derived(templateVocabulary(doc.templateId));
+	//
+	// Its three sound enums are then widened with the project's OWN uploaded sounds, so a cue can be
+	// pointed at one from the inspector. Options only: `validate.ts` tests an enum literal with
+	// `typeof value === 'string'` and never checks membership, so a graph naming a project sound was
+	// always valid — it just could not be authored. A project with no library gets the vocabulary
+	// back unchanged, object identity included.
+	const vocab = $derived(withProjectSounds(templateVocabulary(doc.templateId), data.soundOptions));
 
 	// §6.1 — the container-event surface (ContainerId → its configured component-event decls). The
 	// server projects the actual Scene-Editor scenes (`data.containerEvents`); an unsaved project with

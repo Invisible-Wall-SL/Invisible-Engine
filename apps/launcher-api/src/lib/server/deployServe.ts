@@ -34,6 +34,11 @@ const EXT_CONTENT_TYPES: Record<string, string> = {
 	mp3: 'audio/mpeg',
 	ogg: 'audio/ogg',
 	wav: 'audio/wav',
+	// The rest of the Invisible Sound upload whitelist. Without these a published `.m4a` or `.webm`
+	// is served as `application/octet-stream`: Web Audio decodes from the ArrayBuffer regardless, but
+	// howler's HTML5 fallback goes by the type and would decline it.
+	m4a: 'audio/mp4',
+	webm: 'audio/webm',
 };
 
 export function deployContentType(rel: string): string {

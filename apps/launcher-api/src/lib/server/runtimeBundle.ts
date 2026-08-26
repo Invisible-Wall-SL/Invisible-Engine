@@ -35,6 +35,7 @@ import {
 	collectComponentPins,
 	type ComponentDef,
 	type FontCatalog,
+	type SoundCatalog,
 	type LayoutDoc,
 	type RigFxBinding,
 	type WinTextDoc,
@@ -53,6 +54,7 @@ import { exportEditorFlowV2 } from './flowV2Export';
 import { cinematicRigNames, exportCinematics, loadAuthoredCinematics } from './cinematicExport';
 import type { CinematicDoc } from './cinematicStorage';
 import { exportEditorFonts } from './fontExport';
+import { exportProjectSounds } from './soundExport';
 import { exportEffects } from './effectExport';
 import { exportClips } from './flipbookExport';
 import { loadDoc as loadLocalizationDoc } from './localization';
@@ -79,6 +81,9 @@ export interface RuntimeBundle {
 	componentDefaults: Record<string, Record<string, unknown>>;
 	editorArt: EditorArtIndex;
 	fonts: { catalog: FontCatalog };
+	/** The project's own sound library (Invisible Sound), turned into extra audio banks by
+	 *  `bakedSoundBanks`. Always present, like `fonts`: an empty catalog yields no banks (parity). */
+	sounds: { catalog: SoundCatalog };
 	localization: { sourceLang: string; messages: Record<string, Record<string, string>> };
 	symbols: SymbolExportResult;
 	/** The authored presentation graph (Invisible Flow). Omitted unless the project
@@ -375,7 +380,7 @@ async function assembleRuntimeBundle(
 	// must stay null so the bundle omits `config` and the game runs its compiled template. See the
 	// `config` field's note on the bundle type.
 	const [
-		{ editorArt, fonts, symbols, flow, flowV2, flowV2Library, cinematics },
+		{ editorArt, fonts, sounds, symbols, flow, flowV2, flowV2Library, cinematics },
 		localization,
 		effectIndex,
 		rigFx,
@@ -434,6 +439,7 @@ async function assembleRuntimeBundle(
 		componentDefaults,
 		editorArt,
 		fonts: { catalog: fonts.catalog },
+		sounds: { catalog: sounds.catalog },
 		localization,
 		symbols,
 		// Omit an un-authored flow so the runtime interpreter stays inert (parity, §7).
@@ -478,6 +484,7 @@ export async function ensureDeployExports(
 ): Promise<{
 	editorArt: EditorArtIndex;
 	fonts: { catalog: FontCatalog };
+	sounds: { catalog: SoundCatalog };
 	symbols: SymbolExportResult;
 	/** The exported FlowDoc, or undefined when the project authored no flow (parity). */
 	flow?: FlowDoc;
@@ -494,13 +501,14 @@ export async function ensureDeployExports(
 		loadAuthoredCinematics(client, projectKey),
 	);
 	const extraSpineNames = cinematicRigNames(cinematicDocs);
-	const [editorArt, fontIndex, symbols, flowIndex, flowV2Index, cinematicIndex] = await Promise.all(
-		[
+	const [editorArt, fontIndex, soundIndex, symbols, flowIndex, flowV2Index, cinematicIndex] =
+		await Promise.all([
 			// `timings` goes in too: `art` dominates the assemble, and the per-PHASE breakdown it folds
 			// back in (`art:manifests` / `art:images` / `art:spines` / `art:prune:list`) is what says
 			// which loop to attack.
 			step('art', timings, () => exportEditorArt(client, projectKey, { extraSpineNames, timings })),
 			step('fonts', timings, () => exportEditorFonts(client, projectKey)),
+			step('sounds', timings, () => exportProjectSounds(client, projectKey)),
 			step('symbols', timings, () => exportEditorSymbols(client, projectKey)),
 			step('flow', timings, () => exportEditorFlow(client, projectKey)),
 			step('flowV2', timings, () => exportEditorFlowV2(client, projectKey)),
@@ -510,8 +518,7 @@ export async function ensureDeployExports(
 			// rides this export because that is the one path both Publish and the live assemble
 			// share — the same reason everything else in this list is here.
 			step('bootSplash', timings, () => exportBootSplashes(client, projectKey)),
-		],
-	);
+		]);
 	// Forward an authored flow only — an un-authored doc stays undefined so the runtime
 	// interpreter is inert and the game runs its coded path (parity, §7). `isAuthoredFlow`
 	// is the SAME gate the interpreter's `isActive` uses, so the baked slot and the runtime
@@ -520,6 +527,7 @@ export async function ensureDeployExports(
 	return {
 		editorArt,
 		fonts: { catalog: fontIndex.catalog },
+		sounds: { catalog: soundIndex.catalog },
 		symbols,
 		...(isAuthoredFlow(flowIndex.flow) ? { flow: flowIndex.flow } : {}),
 		...(flowV2Index.flowV2 ? { flowV2: flowV2Index.flowV2 } : {}),

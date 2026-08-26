@@ -3,7 +3,7 @@ import type { Howl } from 'howler';
 import type { PlayOptions, GetSound, GetSoundMap } from './types';
 
 export function createPlayMusic<TSoundName extends string>(options: {
-	howl: Howl;
+	howlFor: (soundName: TSoundName) => Howl | undefined;
 	newSound: (value: TSoundName) => GetSound<TSoundName>;
 	getSoundMap: () => GetSoundMap<TSoundName>;
 	initSoundVolume: (soundName: TSoundName) => void;
@@ -12,7 +12,7 @@ export function createPlayMusic<TSoundName extends string>(options: {
 
 	const pauseAllMusic = () => {
 		(Object.values(options.getSoundMap()) as Sound[]).forEach((existingSound) => {
-			options.howl.pause(existingSound.soundId);
+			options.howlFor(existingSound.soundName)?.pause(existingSound.soundId);
 			options.getSoundMap()[existingSound.soundName] = {
 				...existingSound,
 				soundState: 'paused',
@@ -20,9 +20,15 @@ export function createPlayMusic<TSoundName extends string>(options: {
 		});
 	};
 
+	// The howl is resolved BEFORE `pauseAllMusic`, so a track no bank declares leaves the current
+	// music playing instead of stopping it to play nothing. Music is the one player where the old
+	// order was audibly wrong: an unknown name silenced the game.
 	const newMusic = (sound: Sound) => {
+		const howl = options.howlFor(sound.soundName);
+		if (!howl) return;
+
 		pauseAllMusic();
-		const soundId = options.howl.play(sound.soundName);
+		const soundId = howl.play(sound.soundName);
 		options.getSoundMap()[sound.soundName] = {
 			...sound,
 			soundId,
@@ -32,8 +38,11 @@ export function createPlayMusic<TSoundName extends string>(options: {
 	};
 
 	const resumeMusic = (sound: Sound) => {
+		const howl = options.howlFor(sound.soundName);
+		if (!howl) return;
+
 		pauseAllMusic();
-		options.howl.play(sound.soundId);
+		howl.play(sound.soundId);
 		options.getSoundMap()[sound.soundName] = {
 			...sound,
 			soundState: 'playing',

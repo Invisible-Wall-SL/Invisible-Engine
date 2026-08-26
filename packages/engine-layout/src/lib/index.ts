@@ -50,6 +50,8 @@ export * from './normalizeHudScenes';
 export * from './buttonStateImage';
 export * from './fontCatalog';
 export * from './registerFontCatalog';
+export * from './soundLibrary';
+export * from './bakedSounds';
 export * from './bakedFonts';
 export * from './hudText';
 export * from './registerBoundComponents';

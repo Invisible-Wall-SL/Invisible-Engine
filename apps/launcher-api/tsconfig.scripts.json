@@ -2,7 +2,9 @@
 	"extends": "./tsconfig.json",
 	"compilerOptions": {
 		"paths": {
-			"$env/dynamic/private": ["./scripts/lib/env-stub.ts"]
+			"$env/dynamic/private": ["./scripts/lib/env-stub.ts"],
+			"$lib": ["./src/lib"],
+			"$lib/*": ["./src/lib/*"]
 		}
 	}
 }

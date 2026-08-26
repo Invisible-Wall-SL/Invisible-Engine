@@ -10,6 +10,7 @@ import type {
 	LayoutNode,
 	ResolvedWinText,
 	RigFxBinding,
+	SoundCatalog,
 	SymbolNameMap,
 	WinTextDoc,
 	CinematicDoc,
@@ -121,6 +122,12 @@ type BakedBundle = {
 	 * so a bitmap descriptor's relative page refs resolve. Registered at boot so
 	 * editor-authored fonts reach the shipped game. */
 	fonts?: { catalog: FontCatalog };
+	/** The project's own sound library (Invisible Sound), exported to `deploy/sounds/` and
+	 * mirrored into `static/assets/` by the deploy pull. The catalog's `prefix` is that subtree
+	 * (`sounds`); each entry names one flat audio file plus the sprite region it becomes. Loaded
+	 * at boot as extra audio BANKS, appended after the shipped audiosprite so a project sound of
+	 * the same name overrides it. */
+	sounds?: { catalog: SoundCatalog };
 	/** Localization-tool strings (source text + REVIEWED translations) in Lingui
 	 * message-map shape — merged into the game catalog so editor-authored
 	 * localization keys resolve in the shipped game. */
@@ -446,10 +453,13 @@ export function isRuntimeBundleActive(): boolean {
 	return hasRuntimeBundle();
 }
 
-/** Asset URL prefix: the launcher's absolute `/api/deploy?…&rel=` base in runtime
- * mode (so cross-origin deploy files resolve), else the page-relative `assets/`
- * (the deploy mirror) used by the baked path. Keeps every registration KEY identical
- * across the two modes — only the resolved `src` URL differs. */
+/** Asset URL prefix: the launcher's absolute `/api/deploy/f/<token>/<client>/<project>/` base in
+ * runtime mode (so cross-origin deploy files resolve), else the page-relative `assets/` (the deploy
+ * mirror) used by the baked path. Keeps every registration KEY identical across the two modes —
+ * only the resolved `src` URL differs. The runtime form is a PATH, not `?…&rel=`, and deliberately
+ * so: a sub-file named inside a parent (a spine atlas page, a bitmap-font page) is loaded RELATIVE
+ * to its parent's URL, and the query form would drop the token and project on that resolution. See
+ * `/api/editor/runtime`. */
 function srcBase(): string {
 	return hasRuntimeBundle() ? runtimeBundle!.assetBase : 'assets/';
 }
@@ -1132,6 +1142,20 @@ export function bakedFontCatalog(): FontCatalog | undefined {
 }
 
 /**
+ * The project's own SOUND LIBRARY (Invisible Sound), as exported into `deploy/sounds/`. Feed it to
+ * the engine's shared `bakedSoundBanks` to get the extra audio banks `sound.load()` takes — the
+ * runtime half lives in `engine-layout` so every game shares one implementation.
+ *
+ * Undefined when un-baked or when the project has uploaded nothing, which is what keeps a game with
+ * no sounds of its own playing exactly the shipped audiosprite and nothing else (parity).
+ */
+export function bakedSoundCatalog(): SoundCatalog | undefined {
+	if (hasRuntimeBundle()) return runtimeBundle!.sounds?.catalog;
+	if (!hasBakedDoc()) return undefined;
+	return bakedBundle.sounds?.catalog;
+}
+
+/**
  * The baked Localization-tool strings as a per-locale messages map, merged into
  * the game's Lingui catalog (LAST, so a project's reviewed strings override a
  * code catalog on key clash). Empty when un-baked / nothing localized — parity.
@@ -1212,6 +1236,16 @@ const DEFAULT_DOC_BASE = 'https://app.invisiblewall.org';
  * mode returns `'assets/'` so the engine helpers behave exactly as before (parity).
  */
 export function bakedFontSrcBase(): string {
+	return srcBase();
+}
+
+/**
+ * The same prefix for the project's SOUND banks, which howler fetches by URL itself (they never go
+ * through the pixi asset loader). Read in `EnableSound`'s `onMount` — i.e. after `+layout.ts`'s
+ * `load()` has settled the runtime bundle — so runtime mode returns the launcher's absolute base
+ * rather than the page-relative default.
+ */
+export function bakedSoundSrcBase(): string {
 	return srcBase();
 }
 

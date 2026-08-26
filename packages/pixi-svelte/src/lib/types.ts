@@ -18,6 +18,13 @@ export type LoadedAudio<TSoundName extends string> = {
 		[name: string]: [number, number] | [number, number, boolean];
 	};
 	config: Record<TSoundName, { volume: number }>;
+	/**
+	 * Howler's explicit codec list, parallel to `src`. Absent ⇒ howler sniffs the extension itself,
+	 * which is right for a plain path and is what the shipped audiosprite has always relied on.
+	 * A bank whose URL carries its filename in a QUERY STRING must declare it — see
+	 * `utils-sound/banks.ts` → `soundFormatsFor`.
+	 */
+	format?: string[];
 };
 export type LoadedAsset = LoadedSpine | LoadedSprite | LoadedSpriteSheet | LoadedAudio<string>;
 export type LoadedAssets = PIXI.Dict<LoadedAsset>;

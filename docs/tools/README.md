@@ -31,6 +31,7 @@ full-page — never in an iframe). Local tools you install on your own machine.
 | **Invisible Rigger** | `/rigger` | admin · developer · animator | [rigger.md](rigger.md) |
 | **Invisible Cinematic** | `/rigger` → 🎬 Cinematic (a mode, not a separate tool — so no registry entry of its own) | admin · developer · animator | [rigger.md §Cinematic mode](rigger.md#cinematic-mode) |
 | **Invisible Font Maker** | `/fonts` | admin · developer · artist · pipeline tester | [font-maker.md](font-maker.md) |
+| **Invisible Sound** | `/sound` | admin · music/SFX · developer · artist · pipeline tester | [sound.md](sound.md) |
 | **Invisible Win Text** | `/win-text` | admin · developer · artist · pipeline tester · localization reviewer | [win-text.md](win-text.md) |
 | **Invisible Game Config** | `/config` | admin · developer · artist · pipeline tester | [game-config.md](game-config.md) |
 | **Invisible Localization** | `/localization` | admin · developer · artist · pipeline tester · localization reviewer | [localization.md](localization.md) |
