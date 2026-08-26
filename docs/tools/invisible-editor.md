@@ -154,6 +154,13 @@ Open the **Library** tab. It is grouped into:
   updates every placement; the layout only stores the clip's id.
   The clip's sheet ships automatically — no need to place the atlas separately.
 
+  On a `background` screen — or with **Fill → Cover / full-screen fill** ticked on a
+  `canvas` screen — a clip fills the window edge-to-edge instead of drawing at its
+  placed size, exactly like a background image does. It then stops being draggable
+  and resizable: tune it with **cover scale** / **fit** in the Background section and
+  **scale.x** / **scale.y** in Transform. The fill is measured from the clip's **first
+  frame**, so frames of different sizes don't make the backdrop breathe.
+
   > The canvas previews **every** clip looping, so you can always see the
   > animation. A _play once_ clip still stops on its last frame in the game.
 
