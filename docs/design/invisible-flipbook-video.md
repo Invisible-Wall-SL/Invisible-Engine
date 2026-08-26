@@ -166,6 +166,22 @@ time. Expose it once the enum is read off a live `/object_info`.
 would flatten an animated WEBP to frame 0. The video runner needs its own persist branch. This is
 new code beside the still path, **not** a change to it.
 
+## Two libraries, one store
+
+A blueprint declares a **`kind`** — `image` (the Atlas Maker's region generation) or
+`video` (this mode). They share the `_shared/blueprints/` store but are **not
+interchangeable**: a video graph pushed through the still-image runner produces nothing
+usable, and an image graph offered in the video picker is a trap. So each tool's PICKER
+filters to its own kind, while the MANAGEMENT list stays unfiltered — hiding a kind there
+would strand it with no way to delete it.
+
+**Declared, never inferred.** "Does the graph end in an animated save node?" would be a
+guess that silently mis-files a blueprint the moment someone uses a save node we did not
+anticipate. **Absent = `image`**, so every blueprint authored before this keeps working
+and keeps appearing exactly where it did. `video_runner` re-checks the kind as well:
+the picker is filtered, but a stale tab can still name an image blueprint, and running
+one burns a GPU job to produce a single still.
+
 ## Where each piece runs
 
 | Piece | Home | Why |
