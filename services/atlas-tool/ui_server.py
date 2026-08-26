@@ -4941,25 +4941,26 @@ class Handler(BaseHTTPRequestHandler):
         self._resolve_context()
         self._resolve_publish()
         length = int(self.headers.get("Content-Length", 0))
+        # The tool's own page POSTs to BARE paths and carries its (client, project)
+        # in cookies. The launcher proxy has no cookies, so it MUST append
+        # `?k=&client=&project=&user=` — and a raw `self.path` comparison never
+        # matches a proxied POST, so the route silently falls through to the 404.
+        # GET has always parsed (see do_GET); this makes POST agree. Every bare
+        # path is unchanged by the parse, so the tool's own calls behave exactly
+        # as before — the only difference is that a proxied call now resolves.
+        post_path = urllib.parse.urlparse(self.path).path
         # Blueprint upload writes attacker-sized JSON to the SHARED library +
         # staging, so cap it (a real workflow graph is well under this).
-        if self.path == "/uploadblueprint" and length > 4_000_000:
+        if post_path == "/uploadblueprint" and length > 4_000_000:
             self._send(200, "text/plain",
                        b"Blueprint upload too large (max ~4 MB).")
             return
         raw = self.rfile.read(length).decode("utf-8")
-        # The tool's own page POSTs to BARE paths and carries its (client, project)
-        # in cookies. The launcher proxy has no cookies, so it must append
-        # `?k=&client=&project=&user=` — which means a raw `self.path` comparison
-        # never matches a proxied POST and it falls through to the 404 below. GET
-        # already parses (see do_GET); the routes reached through the proxy compare
-        # against `post_path` so both callers work.
-        post_path = urllib.parse.urlparse(self.path).path
-        if self.path == "/save":
+        if post_path == "/save":
             self._send(200, "text/plain", self._save(json.loads(raw)).encode())
-        elif self.path == "/saveconfig":
+        elif post_path == "/saveconfig":
             self._send(200, "text/plain", self._saveconfig(json.loads(raw)).encode())
-        elif self.path == "/render":
+        elif post_path == "/render":
             payload = json.loads(raw)
             names = payload.get("names", [])
             variants = int(payload.get("variants", 1))
@@ -4970,29 +4971,29 @@ class Handler(BaseHTTPRequestHandler):
                                  args=(names, variants, ctx, user),
                                  daemon=True).start()
             self._send(200, "text/plain", b"started")
-        elif self.path == "/createatlas":
+        elif post_path == "/createatlas":
             if not _render_state["running"]:
                 ctx = (project_paths.client_name(), project_paths.project_name())
                 threading.Thread(target=run_compose, args=(ctx,),
                                  daemon=True).start()
             self._send(200, "text/plain", b"composing")
-        elif self.path == "/stop":
+        elif post_path == "/stop":
             self._send(200, "text/plain", stop_render().encode())
-        elif self.path == "/delvariants":
+        elif post_path == "/delvariants":
             self._send(200, "text/plain", self._delvariants(json.loads(raw)).encode())
-        elif self.path == "/newatlas":
+        elif post_path == "/newatlas":
             self._send(200, "text/plain", self._newatlas(json.loads(raw)).encode())
-        elif self.path == "/addregion":
+        elif post_path == "/addregion":
             self._send(200, "text/plain", self._addregion(json.loads(raw)).encode())
-        elif self.path == "/delregion":
+        elif post_path == "/delregion":
             self._send(200, "text/plain", self._delregion(json.loads(raw)).encode())
-        elif self.path == "/saveadv":
+        elif post_path == "/saveadv":
             self._send(200, "text/plain", self._saveadv(json.loads(raw)).encode())
-        elif self.path == "/saveglobalstyle":
+        elif post_path == "/saveglobalstyle":
             self._send(200, "text/plain", self._saveglobalstyle(json.loads(raw)).encode())
-        elif self.path == "/uploadatlas":
+        elif post_path == "/uploadatlas":
             self._send(200, "text/plain", self._uploadatlas(json.loads(raw)).encode())
-        elif self.path == "/uploadblueprint":
+        elif post_path == "/uploadblueprint":
             try:
                 payload = json.loads(raw)
             except ValueError:
@@ -5001,14 +5002,14 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._send(200, "text/plain",
                        self._uploadblueprint(payload).encode())
-        elif self.path == "/deleteblueprint":
+        elif post_path == "/deleteblueprint":
             self._send(200, "text/plain",
                        self._deleteblueprint(json.loads(raw)).encode())
-        elif self.path == "/refresh":
+        elif post_path == "/refresh":
             self._send(200, "text/plain", self._refresh().encode())
-        elif self.path == "/clearcache":
+        elif post_path == "/clearcache":
             self._send(200, "text/plain", self._clearcache().encode())
-        elif self.path == "/sliceatlas":
+        elif post_path == "/sliceatlas":
             self._send(200, "text/plain", self._sliceatlas().encode())
         elif urllib.parse.urlparse(self.path).path == "/deployatlas":
             # `page_only=1` query param = explicit user override (the "Page-only
@@ -5020,27 +5021,27 @@ class Handler(BaseHTTPRequestHandler):
             force_page_only = _po in ("1", "true", "yes", "on")
             self._send(200, "text/plain",
                        self._deployatlas(force_page_only=force_page_only).encode())
-        elif self.path == "/setref":
+        elif post_path == "/setref":
             self._send(200, "text/plain", self._setref(json.loads(raw)).encode())
-        elif self.path == "/clearref":
+        elif post_path == "/clearref":
             self._send(200, "text/plain", self._clearref(json.loads(raw)).encode())
-        elif self.path == "/setoutput":
+        elif post_path == "/setoutput":
             self._send(200, "text/plain", self._setoutput(json.loads(raw)).encode())
-        elif self.path == "/userefimg":
+        elif post_path == "/userefimg":
             self._send(200, "text/plain", self._userefimg(json.loads(raw)).encode())
-        elif self.path == "/userefall":
+        elif post_path == "/userefall":
             self._send(200, "text/plain", self._userefall(json.loads(raw)).encode())
-        elif self.path == "/clearoutput":
+        elif post_path == "/clearoutput":
             self._send(200, "text/plain", self._clearoutput(json.loads(raw)).encode())
-        elif self.path == "/shinefrom":
+        elif post_path == "/shinefrom":
             self._send(200, "text/plain", self._shinefrom(json.loads(raw)).encode())
-        elif self.path == "/shinemode":
+        elif post_path == "/shinemode":
             self._send(200, "text/plain", self._shinemode(json.loads(raw)).encode())
-        elif self.path == "/copyfrom":
+        elif post_path == "/copyfrom":
             self._send(200, "text/plain", self._copyfrom(json.loads(raw)).encode())
-        elif self.path == "/setmode":
+        elif post_path == "/setmode":
             self._send(200, "text/plain", self._setmode(json.loads(raw)).encode())
-        elif self.path == "/fxbuild":
+        elif post_path == "/fxbuild":
             self._send(200, "text/plain", self._fxbuild(json.loads(raw)).encode())
         elif post_path in ("/video/generate", "/video/cancel", "/video/delete",
                            "/video/toclip"):
@@ -5050,7 +5051,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         # Durability: mirror staging refs to R2 after handlers that write/remove
         # ref images, so they survive container restarts (R2 is source of truth).
-        if self.path in _REF_MUTATING_ROUTES and R2_PREFIX:
+        if post_path in _REF_MUTATING_ROUTES and R2_PREFIX:
             try:
                 storage.push_dir(INPUT_DIR, f"{R2_PREFIX}/input")
             except Exception:  # noqa: BLE001

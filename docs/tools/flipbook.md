@@ -177,7 +177,7 @@ The left rail, top to bottom:
 
 | Field | What it does |
 |---|---|
-| **Blueprint** | Which ComfyUI network to run. **Only video blueprints are listed.** To publish one, use the Atlas Maker's **New blueprint** modal and set **Kind** to *Video* — the blueprint library is shared infrastructure, so it has one authoring surface; only the PICKERS are separated. Blueprints declare which tool they belong to, and the Atlas Maker's image networks are deliberately not offered here — they would generate a still, not an animation. Its description appears underneath. |
+| **Blueprint** | Which ComfyUI network to run. **Only video blueprints are listed.** **＋ Blueprint** (next to *Generate*, if you hold the publish permission) uploads a new one: pick a ComfyUI **API-format** export, point each role at a node, and it publishes as a video blueprint. It offers no `width`/`height` roles on purpose — binding those makes the runner push the Atlas Maker's still-image size (1024) through an 80-frame batch. Expose generation size as a setting instead. Blueprints declare which tool they belong to, and the Atlas Maker's image networks are deliberately not offered here — they would generate a still, not an animation. Its description appears underneath. |
 | **Prompt** / **Negative** | What should happen in the animation, and what to avoid. |
 | **Source image** | The still to animate. **Pick…** browses your project's R2 files — the packed sheets, the loose sprite sources and the reference-image folders. An image-to-video blueprint refuses to start without one. |
 | **Variations** | How many to generate (1–12). Each is a separate render with its own seed. |

@@ -1,10 +1,12 @@
 import { error, redirect } from '@sveltejs/kit';
-import { roleHasTool } from '$lib/roles';
+import { BLUEPRINT_PUBLISH_CAPABILITY, roleHasCapability, roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { loadRegionSet } from '$lib/server/editorRegions';
 import { listClips, loadClip, type FlipbookClipRow } from '$lib/server/flipbookStorage';
 import { SUB } from '$lib/server/projectPaths';
 import { listObjects } from '$lib/server/r2';
+import { getRoleOverrides } from '$lib/server/roleToolAccess';
+import { getToolOverrides } from '$lib/server/userToolAccess';
 import { resolveToolScope } from '$lib/server/toolScope';
 import type { FlipbookClip } from 'engine-flipbook';
 import type { PageServerLoad } from './$types';
@@ -81,5 +83,28 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		openedEtag = loaded.etag;
 	}
 
-	return { clientKey, projectKey, tools, atlases, clips, openedClip, openedEtag };
+	// Whether THIS user may publish to the shared blueprint library. The proxy
+	// re-checks it server-side (it is the real gate); this only decides whether the
+	// video mode offers the button at all, so nobody is handed a 403 to discover.
+	const [roleOverrides, userOverrides] = await Promise.all([
+		getRoleOverrides(locals.user.role),
+		getToolOverrides(locals.user.id),
+	]);
+	const canPublishBlueprints = roleHasCapability(
+		locals.user.role,
+		BLUEPRINT_PUBLISH_CAPABILITY,
+		roleOverrides,
+		userOverrides,
+	);
+
+	return {
+		clientKey,
+		projectKey,
+		tools,
+		atlases,
+		clips,
+		openedClip,
+		openedEtag,
+		canPublishBlueprints,
+	};
 };
