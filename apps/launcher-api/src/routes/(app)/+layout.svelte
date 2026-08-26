@@ -9,7 +9,7 @@
 		data,
 	}: {
 		children: Snippet;
-		data?: { tools?: { id: string; name: string; url: string }[] };
+		data?: { tools?: { id: string; name: string; url: string; handsOff?: boolean }[] };
 	} = $props();
 
 	// Heavy tool routes (FX, Flow, Editor…) ship large JS chunks (PixiJS, Spine,
@@ -29,6 +29,12 @@
 	// A HARD load of a tool page is covered by the shell's vanilla twin instead (injected by
 	// `hooks.server.ts`, lifted from the ROOT `+layout.svelte`) — there is no app running to
 	// mount <BootSplash> at that point.
+	//
+	// A `handsOff` tool (Spine/Rigger's static `view.html`, Atlas/Sheet Maker's Python
+	// origin) is NOT splashed here: its route redirects out of the app, SvelteKit finishes
+	// that redirect with a full page load, and the destination document boots the very same
+	// CRT itself — so splashing the hop plays the screen twice, ours and then theirs from
+	// the top. The destination owns the one loading screen.
 	const SPLASH_DELAY_MS = 200;
 
 	let boot = $state<{ id: string; name: string } | null>(null);
@@ -39,7 +45,7 @@
 		const to = navigating.to;
 		if (to) {
 			const target = data?.tools?.find((t) => t.url === to.url.pathname);
-			if (!target) return;
+			if (!target || target.handsOff) return;
 			navDone = false;
 			if (timer === undefined) {
 				timer = setTimeout(() => {
