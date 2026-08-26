@@ -16,7 +16,7 @@
 	 */
 	import { onDestroy } from 'svelte';
 
-	let { projectKey }: { projectKey: string } = $props();
+	let { projectKey, canPublish = false }: { projectKey: string; canPublish?: boolean } = $props();
 
 	interface BlueprintParam {
 		key: string;
@@ -370,6 +370,184 @@
 		}
 	}
 
+	// --- publish a video blueprint ---------------------------------------------
+	// The Atlas Maker has its own New-blueprint modal, but this one is the VIDEO
+	// tool's: it omits the `width`/`height` roles entirely. Binding those on a video
+	// blueprint is actively harmful — the generic runner fills them from the
+	// atlas-tool's still-image GEN_WIDTH/GEN_HEIGHT, whose default is 1024, and
+	// 1024² across an 81-frame batch is a VRAM and wall-clock blowup. A picker that
+	// cannot offer the trap is better than one that documents it.
+	//
+	// The candidate filter below MIRRORS `bpCandidates` in ui_server.py. It cannot
+	// be shared — that is a Python-rendered page and this is Svelte, opposite sides
+	// of the A/B line in docs/ui-inventory.md — so keep the two in step by hand.
+	const PUBLISH_ROLES = [
+		{ role: 'positive', field: 'text', required: true, hint: 'the prompt' },
+		{ role: 'negative', field: 'text', required: false, hint: '' },
+		{ role: 'seed', field: 'seed', required: true, hint: 'per-variation seed' },
+		{ role: 'style_ref', field: 'image', required: false, hint: 'the still to animate' },
+		{ role: 'shape_ref', field: 'image', required: false, hint: '' },
+		{ role: 'output', field: '', required: true, hint: 'the save node' },
+	] as const;
+
+	type Graph = Record<
+		string,
+		{ class_type?: string; inputs?: Record<string, unknown>; _meta?: { title?: string } }
+	>;
+	let pubOpen = $state(false);
+	let pubGraph = $state<Graph | null>(null);
+	let pubFile = $state('');
+	let pubName = $state('');
+	let pubDesc = $state('');
+	let pubBindings = $state<Record<string, string>>({});
+	let pubParams = $state<
+		{ key: string; label: string; type: string; node: string; field: string; def: string }[]
+	>([]);
+	let pubBusy = $state(false);
+	let pubMsg = $state('');
+
+	function candidates(role: string): { id: string; label: string }[] {
+		if (!pubGraph) return [];
+		const out: { id: string; label: string }[] = [];
+		for (const [id, n] of Object.entries(pubGraph)) {
+			const ct = String(n?.class_type ?? '');
+			const inp = (n?.inputs ?? {}) as Record<string, unknown>;
+			let ok = false;
+			if (role === 'positive' || role === 'negative') ok = /CLIPTextEncode/i.test(ct);
+			else if (role === 'seed') ok = 'seed' in inp || 'noise_seed' in inp;
+			else if (role === 'style_ref' || role === 'shape_ref') ok = /LoadImage/i.test(ct);
+			// A save node is whatever the runner can stamp `filename_prefix` onto —
+			// testing the class name for /SaveImage/ is what hid SaveAnimatedWEBP.
+			else if (role === 'output') ok = 'filename_prefix' in inp || /Save|VideoCombine/i.test(ct);
+			if (ok) out.push({ id, label: `${n?._meta?.title || ct} #${id}` });
+		}
+		return out;
+	}
+
+	/** Every node input a param could drive, so the author picks rather than types. */
+	const paramTargets = $derived.by(() => {
+		if (!pubGraph) return [] as { node: string; field: string; label: string }[];
+		const out: { node: string; field: string; label: string }[] = [];
+		for (const [id, n] of Object.entries(pubGraph)) {
+			for (const [field, v] of Object.entries(n?.inputs ?? {})) {
+				// A linked input is driven by another node; only widget values are tunable.
+				if (Array.isArray(v)) continue;
+				out.push({
+					node: id,
+					field,
+					label: `${n?._meta?.title || n?.class_type} #${id} · ${field}`,
+				});
+			}
+		}
+		return out;
+	});
+
+	async function pickWorkflow(e: Event): Promise<void> {
+		const f = (e.currentTarget as HTMLInputElement).files?.[0];
+		if (!f) return;
+		pubMsg = '';
+		pubFile = f.name;
+		try {
+			const parsed = JSON.parse(await f.text()) as Graph;
+			const nodes = Object.values(parsed ?? {});
+			if (!nodes.length || !nodes.every((n) => n && typeof n === 'object' && 'class_type' in n)) {
+				pubMsg =
+					'That is not an API-format export. In ComfyUI use Settings → "Save (API Format)" — the editor workflow.json carries canvas positions instead of a node dict.';
+				pubGraph = null;
+				return;
+			}
+			pubGraph = parsed;
+			if (!pubName) pubName = f.name.replace(/\.json$/i, '');
+			// Pre-fill anything unambiguous, so the common case is confirm-and-go.
+			const next: Record<string, string> = {};
+			for (const r of PUBLISH_ROLES) {
+				const c = candidates(r.role);
+				if (c.length === 1) next[r.role] = c[0].id;
+			}
+			pubBindings = next;
+		} catch (err) {
+			pubGraph = null;
+			pubMsg = `Could not read that file: ${(err as Error).message}`;
+		}
+	}
+
+	async function publishBlueprint(overwrite = false): Promise<void> {
+		if (!pubGraph) return;
+		const missing = PUBLISH_ROLES.filter((r) => r.required && !pubBindings[r.role]);
+		if (missing.length) {
+			pubMsg = `Bind ${missing.map((m) => m.role).join(', ')} first.`;
+			return;
+		}
+		pubBusy = true;
+		pubMsg = '';
+		try {
+			const bindings: Record<string, { node: string; field?: string }> = {};
+			for (const r of PUBLISH_ROLES) {
+				const node = pubBindings[r.role];
+				if (!node) continue;
+				bindings[r.role] = r.role === 'output' ? { node } : { node, field: r.field };
+			}
+			const res = await fetch(api('publish'), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					name: pubName,
+					description: pubDesc,
+					base: 'wan22-i2v',
+					workflow_text: JSON.stringify(pubGraph),
+					bindings,
+					params: pubParams
+						.filter((p) => p.key && p.node && p.field)
+						.map((p) => ({
+							key: p.key,
+							label: p.label || p.key,
+							type: p.type,
+							node: p.node,
+							field: p.field,
+							default:
+								p.type === 'bool'
+									? p.def === 'true'
+									: p.type === 'int' || p.type === 'float'
+										? Number(p.def)
+										: p.def,
+						})),
+					overwrite,
+				}),
+			});
+			// The tool answers in PLAIN TEXT, and a user-fixable problem comes back
+			// as a readable string with a 200 — so show it verbatim.
+			const text = await res.text();
+			if (!res.ok) {
+				pubMsg = text || `Publish failed (${res.status}).`;
+				return;
+			}
+			if (text.startsWith('⚠') && text.includes('already exists') && !overwrite) {
+				if (
+					confirm(`${text.replace('⚠ ', '')}
+
+Overwrite it?`)
+				) {
+					await publishBlueprint(true);
+					return;
+				}
+				pubMsg = text;
+				return;
+			}
+			pubMsg = text;
+			if (!text.startsWith('✖')) {
+				// Re-list so the new blueprint is selectable without a reload.
+				blueprints = await getJson<Blueprint[]>('blueprints');
+				const mine = blueprints.find((b) => (b.name ?? '') === pubName);
+				if (mine) blueprintId = mine.id;
+				pubOpen = false;
+			}
+		} catch (e) {
+			pubMsg = (e as Error).message;
+		} finally {
+			pubBusy = false;
+		}
+	}
+
 	// --- source-image picker ---------------------------------------------------
 	let picking = $state(false);
 	let pickPath = $state('');
@@ -417,7 +595,18 @@
 
 <div class="vbody">
 	<aside class="rail">
-		<h3>Generate</h3>
+		<div class="railhead">
+			<h3>Generate</h3>
+			{#if canPublish}
+				<button
+					class="sm"
+					title="Publish a ComfyUI video network to the shared library"
+					onclick={() => (pubOpen = true)}
+				>
+					＋ Blueprint
+				</button>
+			{/if}
+		</div>
 
 		{#if loading}
 			<p class="empty">Loading blueprints…</p>
@@ -715,6 +904,112 @@
 		</div>
 	{/if}
 
+	{#if pubOpen}
+		<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+		<div class="backdrop" onclick={() => (pubOpen = false)}></div>
+		<div class="picker wide">
+			<header>
+				<strong>Publish a video blueprint</strong>
+				<button onclick={() => (pubOpen = false)}>✕</button>
+			</header>
+			<p class="hint">
+				Pick a ComfyUI <b>API-format</b> export (Settings → “Save (API Format)”), then point each
+				role at a node. It publishes as a <b>video</b> blueprint, so it appears here and not in the Atlas
+				Maker.
+			</p>
+
+			<label class="fld">
+				<span>Workflow file</span>
+				<input type="file" accept=".json" onchange={pickWorkflow} disabled={pubBusy} />
+			</label>
+			{#if pubFile}<p class="hint">{pubFile}</p>{/if}
+
+			{#if pubGraph}
+				<label class="fld"><span>Name</span><input bind:value={pubName} disabled={pubBusy} /></label
+				>
+				<label class="fld"
+					><span>Description</span><textarea bind:value={pubDesc} rows="2" disabled={pubBusy}
+					></textarea></label
+				>
+
+				<div class="fld"><span>Bindings (role → node)</span></div>
+				{#each PUBLISH_ROLES as r (r.role)}
+					<label class="fld sm">
+						<span>{r.role}{r.required ? ' *' : ''}{r.hint ? ` — ${r.hint}` : ''}</span>
+						<select
+							value={pubBindings[r.role] ?? ''}
+							disabled={pubBusy}
+							onchange={(e) => (pubBindings = { ...pubBindings, [r.role]: e.currentTarget.value })}
+						>
+							<option value="">(not used)</option>
+							{#each candidates(r.role) as c (c.id)}
+								<option value={c.id}>{c.label}</option>
+							{/each}
+						</select>
+					</label>
+				{/each}
+				<p class="hint">
+					There is deliberately no <b>width</b>/<b>height</b> role here. On a video blueprint the runner
+					would fill them from the Atlas Maker's still-image defaults (1024), and 1024² across an 80-frame
+					batch is a VRAM and wall-clock blowup. Expose generation size as a setting below instead.
+				</p>
+
+				<div class="fld">
+					<span>Exposed settings (optional)</span>
+					<button
+						class="sm"
+						disabled={pubBusy}
+						onclick={() =>
+							(pubParams = [
+								...pubParams,
+								{ key: '', label: '', type: 'int', node: '', field: '', def: '' },
+							])}>＋ Add</button
+					>
+				</div>
+				{#each pubParams as prm, i (i)}
+					<div class="prow">
+						<input placeholder="key" bind:value={prm.key} disabled={pubBusy} />
+						<select bind:value={prm.type} disabled={pubBusy}>
+							<option>int</option><option>float</option><option>text</option>
+							<option>bool</option><option>select</option>
+						</select>
+						<select
+							value={prm.node && prm.field ? `${prm.node} ${prm.field}` : ''}
+							disabled={pubBusy}
+							onchange={(e) => {
+								const [n, f] = e.currentTarget.value.split(' ');
+								prm.node = n ?? '';
+								prm.field = f ?? '';
+							}}
+						>
+							<option value="">(node · input)</option>
+							{#each paramTargets as t (t.node + t.field)}
+								<option value={`${t.node} ${t.field}`}>{t.label}</option>
+							{/each}
+						</select>
+						<input placeholder="default" bind:value={prm.def} disabled={pubBusy} />
+						<button
+							class="danger sm"
+							disabled={pubBusy}
+							onclick={() => (pubParams = pubParams.filter((_, j) => j !== i))}>✕</button
+						>
+					</div>
+				{/each}
+
+				<div class="actions">
+					<button
+						class="go"
+						disabled={pubBusy || !pubName.trim()}
+						onclick={() => publishBlueprint()}
+					>
+						{pubBusy ? 'Publishing…' : '⬆ Publish blueprint'}
+					</button>
+				</div>
+			{/if}
+			{#if pubMsg}<p class="pill err">{pubMsg}</p>{/if}
+		</div>
+	{/if}
+
 	{#if picking}
 		<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 		<div class="backdrop" onclick={() => (picking = false)}></div>
@@ -784,6 +1079,28 @@
 		margin-top: 8px;
 		padding: 6px 8px;
 		line-height: 1.4;
+	}
+	.railhead {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+	button.sm {
+		font-size: 11px;
+		padding: 3px 7px;
+	}
+	.prow {
+		display: flex;
+		gap: 4px;
+		margin-bottom: 5px;
+	}
+	.prow input {
+		min-width: 0;
+		flex: 1;
+	}
+	.prow select {
+		min-width: 0;
+		flex: 1.4;
 	}
 	.diag {
 		color: #fbbf24;
