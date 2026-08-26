@@ -12,6 +12,8 @@
 	 */
 	import { onMount } from 'svelte';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
+	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
+	import VideoMode from './VideoMode.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
@@ -29,6 +31,14 @@
 	import type { PageData } from './$types';
 
 	let { data }: { data: PageData } = $props();
+
+	/**
+	 * Which surface this page is showing. `clips` is the frame-list authoring the tool has always
+	 * been; `video` is the generate-and-pick mode (docs/design/invisible-flipbook-video.md). They
+	 * share nothing but the project, so the video mode lives in its own component rather than
+	 * doubling the length of this one.
+	 */
+	let mode = $state<'clips' | 'video'>('clips');
 
 	/** Sentinel id for a never-saved clip — the save keys the R2 file off the NAME instead
 	 * (mirrors `/fx`'s untitled effect), so distinct names produce distinct files. */
@@ -561,285 +571,300 @@
 		projectKey={data.projectKey}
 	>
 		{#snippet meta()}
-			<!-- Another author (or your own other tab) holds this clip's lease → read-only here.
+			<CanvasModeBar
+				inline
+				options={[
+					{ value: 'clips', label: 'Clips', title: 'Author a clip from atlas frames' },
+					{ value: 'video', label: '🎬 Video', title: 'Generate video from a blueprint' },
+				]}
+				bind:value={mode}
+				ariaLabel="Flipbook mode"
+			/>
+			{#if mode === 'clips'}
+				<!-- Another author (or your own other tab) holds this clip's lease → read-only here.
 			     The doc saveState refuses to save (its blockWhen); Take over is always offered. -->
-			<PresenceBanner {lease} />
-			{#if saveError}
-				<span class="pill err">{saveError}</span>
-			{:else if savedNote}
-				<span class="pill ok">{savedNote}</span>
+				<PresenceBanner {lease} />
+				{#if saveError}
+					<span class="pill err">{saveError}</span>
+				{:else if savedNote}
+					<span class="pill ok">{savedNote}</span>
+				{/if}
+				{#if missingFrames.length}
+					<span class="pill err" title={missingFrames.join(', ')}>
+						{missingFrames.length} missing region{missingFrames.length === 1 ? '' : 's'}
+					</span>
+				{/if}
+				<span>{clip.frames.length} frame{clip.frames.length === 1 ? '' : 's'}</span>
 			{/if}
-			{#if missingFrames.length}
-				<span class="pill err" title={missingFrames.join(', ')}>
-					{missingFrames.length} missing region{missingFrames.length === 1 ? '' : 's'}
-				</span>
-			{/if}
-			<span>{clip.frames.length} frame{clip.frames.length === 1 ? '' : 's'}</span>
 		{/snippet}
 	</ToolTopBar>
 
-	<div class="body">
-		<aside class="rail">
-			<div class="head">
-				<h3>Clips</h3>
-				<button class="add" onclick={newClip}>+ New</button>
-			</div>
+	{#if mode === 'clips'}
+		<div class="body">
+			<aside class="rail">
+				<div class="head">
+					<h3>Clips</h3>
+					<button class="add" onclick={newClip}>+ New</button>
+				</div>
 
-			<!-- The animation plist is authored elsewhere (a cocos project, an exporter) and states
+				<!-- The animation plist is authored elsewhere (a cocos project, an exporter) and states
 			     the sequence outright — holds, order and rate — so it beats anything inferred from
 			     filenames. It travels both ways because we ship the format, not just read it. -->
-			<div class="plistbox">
-				<h4>Animation plist</h4>
-				<label class="ppick">
-					<span>{importing ? 'Importing…' : 'Import .plist…'}</span>
-					<input
-						type="file"
-						accept=".plist"
-						disabled={importing || lease.readOnly}
-						onchange={(e) => {
-							const f = e.currentTarget.files?.[0];
-							e.currentTarget.value = '';
-							if (f) void importAnimationPlist(f);
-						}}
-					/>
-				</label>
-				<a class="pexport" href="/api/flipbook/animations" download>⤓ Export all clips</a>
-				<p class="phint">
-					An <b>animation</b> plist (ordered frames + timing), not a sprite-sheet plist — those go in
-					the Sheet Maker.
-				</p>
-				{#if importNote}<p class="pnote">{importNote}</p>{/if}
-				{#if importError}
-					<p class="perr">{importError}</p>
-					{#if /sprite-SHEET/.test(importError)}
-						<!-- The overwhelmingly likely mistake, so name the fix rather than the fault: a
-						     sheet plist and an animation plist look identical from the outside. -->
-						<p class="phint">
-							That is the file the <b>Sheet Maker</b> takes — it lists frame rectangles, not a
-							sequence. An animation plist has an <code>animations</code> key and is written by the game
-							project or cocos tooling, not by TexturePacker.
-						</p>
-					{/if}
-				{/if}
-			</div>
-			<ul class="cliplist">
-				{#each clips as row (row.id)}
-					<li>
-						<button class:active={row.id === pickerId} onclick={() => openClip(row.id)}>
-							<span class="nm">{row.name}</span>
-							<span class="ct">{row.frames}f</span>
-						</button>
-					</li>
-				{:else}
-					<li class="empty">No saved clips yet.</li>
-				{/each}
-			</ul>
-
-			<div class="railactions">
-				<label class="field">
-					<span>Name</span>
-					<input
-						value={clip.name}
-						onchange={(e) => (clip = { ...clip, name: e.currentTarget.value })}
-					/>
-				</label>
-				<button class="primary" disabled={busy || lease.readOnly} onclick={() => save()}>
-					{saveState.busy ? 'Saving…' : '⤓ Save'}
-				</button>
-				<button disabled={busy || lease.readOnly} onclick={saveAs}>⧉ Save As…</button>
-				<button
-					class="danger"
-					disabled={busy || !pickerId || lease.readOnly}
-					onclick={deleteOpen}
-				>
-					🗑 Delete
-				</button>
-			</div>
-		</aside>
-
-		<section class="center">
-			<div class="preview">
-				<div class="stage">
-					{#if current?.set && current.record}
-						<RegionThumb set={current.set} region={current.record} size={240} />
-					{:else}
-						<div class="ph">
-							{clip.frames.length ? 'Frame not found in this sheet' : 'Add frames to preview'}
-						</div>
-					{/if}
-				</div>
-				<div class="transport">
-					<button
-						class="play"
-						disabled={clip.frames.length === 0}
-						onclick={() => (playing = !playing)}
-					>
-						{playing ? '❚❚ Pause' : '▶ Play'}
-					</button>
-					<input
-						class="scrub"
-						type="range"
-						min="0"
-						max={Math.max(0, clip.frames.length - 1)}
-						step="1"
-						disabled={clip.frames.length === 0}
-						value={frameIndex}
-						oninput={(e) => {
-							playing = false;
-							frameIndex = Number(e.currentTarget.value);
-						}}
-					/>
-					<span class="pos">
-						{clip.frames.length ? frameIndex + 1 : 0} / {clip.frames.length}
-					</span>
-					<label class="field inline">
-						<span>fps</span>
+				<div class="plistbox">
+					<h4>Animation plist</h4>
+					<label class="ppick">
+						<span>{importing ? 'Importing…' : 'Import .plist…'}</span>
 						<input
-							class="num"
-							type="number"
-							min="1"
-							max="120"
-							step="1"
-							value={fps}
-							onchange={(e) => setFps(Number(e.currentTarget.value))}
+							type="file"
+							accept=".plist"
+							disabled={importing || lease.readOnly}
+							onchange={(e) => {
+								const f = e.currentTarget.files?.[0];
+								e.currentTarget.value = '';
+								if (f) void importAnimationPlist(f);
+							}}
 						/>
 					</label>
-					<label class="check">
-						<input
-							type="checkbox"
-							checked={loop}
-							onchange={(e) => (clip = { ...clip, loop: e.currentTarget.checked })}
-						/>
-						<span>Loop</span>
-					</label>
-				</div>
-				{#if currentName}<div class="curname">{currentName}</div>{/if}
-			</div>
-
-			<div class="frames">
-				<h3>Frames — drag to reorder</h3>
-				<ol class="framelist">
-					{#each clip.frames as name, i (i)}
-						{@const look = frameLookup(name)}
-						<li
-							draggable="true"
-							class:dragging={dragFrom === i}
-							class:over={dragOver === i}
-							class:current={i === frameIndex}
-							class:missing={allSheetsLoaded && !look.record}
-							ondragstart={() => (dragFrom = i)}
-							ondragend={() => {
-								dragFrom = null;
-								dragOver = null;
-							}}
-							ondragover={(e) => {
-								e.preventDefault();
-								dragOver = i;
-							}}
-							ondrop={(e) => {
-								e.preventDefault();
-								onDrop(i);
-							}}
-						>
-							<span class="ord">{i + 1}</span>
-							<span class="thumb">
-								{#if look.set && look.record}
-									<RegionThumb set={look.set} region={look.record} size={40} />
-								{:else}
-									<span class="noart">?</span>
-								{/if}
-							</span>
-							<button
-								class="nm"
-								title="Show this frame"
-								onclick={() => {
-									playing = false;
-									frameIndex = i;
-								}}>{look.region}</button
-							>
-							<!-- Which PAGE this frame lives on. Shown only when the clip actually spans
-							     sheets, so a normal single-sheet clip gains no clutter. -->
-							{#if clipSheets.length > 1}
-								<span class="sheetchip" title={look.assetKey}>{sheetLabel(look.assetKey)}</span>
-							{/if}
-							<button
-								class="mini"
-								title="Duplicate (hold this frame)"
-								onclick={() => duplicateFrame(i)}
-							>
-								⧉
-							</button>
-							<button class="mini danger" title="Remove frame" onclick={() => removeFrame(i)}>
-								✕
-							</button>
-						</li>
-					{:else}
-						<li class="empty">
-							No frames yet — click regions on the right to append them, in order.
-						</li>
-					{/each}
-				</ol>
-			</div>
-		</section>
-
-		<aside class="picker">
-			<h3>Source sheet</h3>
-			<select
-				class="sheet"
-				value={sheetKey}
-				onchange={(e) => pickSheet(e.currentTarget.value)}
-				disabled={data.atlases.length === 0}
-			>
-				{#each data.atlases as atlas (atlas.manifestKey)}
-					<option value={atlas.manifestKey}>{atlas.label}</option>
-				{:else}
-					<option value="">No atlases in this project</option>
-				{/each}
-			</select>
-			{#if sequenceOffers.length > 0}
-				<div class="seqs">
-					<h4>Detected animation{sequenceOffers.length === 1 ? '' : 's'}</h4>
-					<p class="seqhint">
-						Consecutively-numbered regions — probably one animation each. Sheets are combined only
-						when their frame numbers do NOT overlap (a multipacked atlas); sheets that reuse the
-						same numbering each get their own run, so a clip never mixes two symbols.
+					<a class="pexport" href="/api/flipbook/animations" download>⤓ Export all clips</a>
+					<p class="phint">
+						An <b>animation</b> plist (ordered frames + timing), not a sprite-sheet plist — those go
+						in the Sheet Maker.
 					</p>
-					<!-- Keyed by sheet + FIRST FRAME, not by stem: one sheet can offer several runs of the
+					{#if importNote}<p class="pnote">{importNote}</p>{/if}
+					{#if importError}
+						<p class="perr">{importError}</p>
+						{#if /sprite-SHEET/.test(importError)}
+							<!-- The overwhelmingly likely mistake, so name the fix rather than the fault: a
+						     sheet plist and an animation plist look identical from the outside. -->
+							<p class="phint">
+								That is the file the <b>Sheet Maker</b> takes — it lists frame rectangles, not a
+								sequence. An animation plist has an <code>animations</code> key and is written by the
+								game project or cocos tooling, not by TexturePacker.
+							</p>
+						{/if}
+					{/if}
+				</div>
+				<ul class="cliplist">
+					{#each clips as row (row.id)}
+						<li>
+							<button class:active={row.id === pickerId} onclick={() => openClip(row.id)}>
+								<span class="nm">{row.name}</span>
+								<span class="ct">{row.frames}f</span>
+							</button>
+						</li>
+					{:else}
+						<li class="empty">No saved clips yet.</li>
+					{/each}
+				</ul>
+
+				<div class="railactions">
+					<label class="field">
+						<span>Name</span>
+						<input
+							value={clip.name}
+							onchange={(e) => (clip = { ...clip, name: e.currentTarget.value })}
+						/>
+					</label>
+					<button class="primary" disabled={busy || lease.readOnly} onclick={() => save()}>
+						{saveState.busy ? 'Saving…' : '⤓ Save'}
+					</button>
+					<button disabled={busy || lease.readOnly} onclick={saveAs}>⧉ Save As…</button>
+					<button
+						class="danger"
+						disabled={busy || !pickerId || lease.readOnly}
+						onclick={deleteOpen}
+					>
+						🗑 Delete
+					</button>
+				</div>
+			</aside>
+
+			<section class="center">
+				<div class="preview">
+					<div class="stage">
+						{#if current?.set && current.record}
+							<RegionThumb set={current.set} region={current.record} size={240} />
+						{:else}
+							<div class="ph">
+								{clip.frames.length ? 'Frame not found in this sheet' : 'Add frames to preview'}
+							</div>
+						{/if}
+					</div>
+					<div class="transport">
+						<button
+							class="play"
+							disabled={clip.frames.length === 0}
+							onclick={() => (playing = !playing)}
+						>
+							{playing ? '❚❚ Pause' : '▶ Play'}
+						</button>
+						<input
+							class="scrub"
+							type="range"
+							min="0"
+							max={Math.max(0, clip.frames.length - 1)}
+							step="1"
+							disabled={clip.frames.length === 0}
+							value={frameIndex}
+							oninput={(e) => {
+								playing = false;
+								frameIndex = Number(e.currentTarget.value);
+							}}
+						/>
+						<span class="pos">
+							{clip.frames.length ? frameIndex + 1 : 0} / {clip.frames.length}
+						</span>
+						<label class="field inline">
+							<span>fps</span>
+							<input
+								class="num"
+								type="number"
+								min="1"
+								max="120"
+								step="1"
+								value={fps}
+								onchange={(e) => setFps(Number(e.currentTarget.value))}
+							/>
+						</label>
+						<label class="check">
+							<input
+								type="checkbox"
+								checked={loop}
+								onchange={(e) => (clip = { ...clip, loop: e.currentTarget.checked })}
+							/>
+							<span>Loop</span>
+						</label>
+					</div>
+					{#if currentName}<div class="curname">{currentName}</div>{/if}
+				</div>
+
+				<div class="frames">
+					<h3>Frames — drag to reorder</h3>
+					<ol class="framelist">
+						{#each clip.frames as name, i (i)}
+							{@const look = frameLookup(name)}
+							<li
+								draggable="true"
+								class:dragging={dragFrom === i}
+								class:over={dragOver === i}
+								class:current={i === frameIndex}
+								class:missing={allSheetsLoaded && !look.record}
+								ondragstart={() => (dragFrom = i)}
+								ondragend={() => {
+									dragFrom = null;
+									dragOver = null;
+								}}
+								ondragover={(e) => {
+									e.preventDefault();
+									dragOver = i;
+								}}
+								ondrop={(e) => {
+									e.preventDefault();
+									onDrop(i);
+								}}
+							>
+								<span class="ord">{i + 1}</span>
+								<span class="thumb">
+									{#if look.set && look.record}
+										<RegionThumb set={look.set} region={look.record} size={40} />
+									{:else}
+										<span class="noart">?</span>
+									{/if}
+								</span>
+								<button
+									class="nm"
+									title="Show this frame"
+									onclick={() => {
+										playing = false;
+										frameIndex = i;
+									}}>{look.region}</button
+								>
+								<!-- Which PAGE this frame lives on. Shown only when the clip actually spans
+							     sheets, so a normal single-sheet clip gains no clutter. -->
+								{#if clipSheets.length > 1}
+									<span class="sheetchip" title={look.assetKey}>{sheetLabel(look.assetKey)}</span>
+								{/if}
+								<button
+									class="mini"
+									title="Duplicate (hold this frame)"
+									onclick={() => duplicateFrame(i)}
+								>
+									⧉
+								</button>
+								<button class="mini danger" title="Remove frame" onclick={() => removeFrame(i)}>
+									✕
+								</button>
+							</li>
+						{:else}
+							<li class="empty">
+								No frames yet — click regions on the right to append them, in order.
+							</li>
+						{/each}
+					</ol>
+				</div>
+			</section>
+
+			<aside class="picker">
+				<h3>Source sheet</h3>
+				<select
+					class="sheet"
+					value={sheetKey}
+					onchange={(e) => pickSheet(e.currentTarget.value)}
+					disabled={data.atlases.length === 0}
+				>
+					{#each data.atlases as atlas (atlas.manifestKey)}
+						<option value={atlas.manifestKey}>{atlas.label}</option>
+					{:else}
+						<option value="">No atlases in this project</option>
+					{/each}
+				</select>
+				{#if sequenceOffers.length > 0}
+					<div class="seqs">
+						<h4>Detected animation{sequenceOffers.length === 1 ? '' : 's'}</h4>
+						<p class="seqhint">
+							Consecutively-numbered regions — probably one animation each. Sheets are combined only
+							when their frame numbers do NOT overlap (a multipacked atlas); sheets that reuse the
+							same numbering each get their own run, so a clip never mixes two symbols.
+						</p>
+						<!-- Keyed by sheet + FIRST FRAME, not by stem: one sheet can offer several runs of the
 					     same stem (a gap splits a run), and every Sheet-Maker sheet uses the stem `frame`,
 					     so a stem key collides and Svelte drops rows. A run's first frame is unique. -->
-					{#each sequenceOffers as seq (`${seq.primary}::${seq.frames[0]}`)}
-						<button
-							class="seq"
-							class:seqhere={seq.primary === sheetKey}
-							onclick={() => useSequence(seq)}
-						>
-							<span class="sqn">{seq.sheets.map(sheetLabel).join(' + ')}</span>
-							<span class="sqc"
-								>{seq.stem} · {seq.frames.length} frames{seq.sheets.length > 1
-									? ` · ${seq.sheets.length} sheets`
-									: ''}</span
+						{#each sequenceOffers as seq (`${seq.primary}::${seq.frames[0]}`)}
+							<button
+								class="seq"
+								class:seqhere={seq.primary === sheetKey}
+								onclick={() => useSequence(seq)}
 							>
+								<span class="sqn">{seq.sheets.map(sheetLabel).join(' + ')}</span>
+								<span class="sqc"
+									>{seq.stem} · {seq.frames.length} frames{seq.sheets.length > 1
+										? ` · ${seq.sheets.length} sheets`
+										: ''}</span
+								>
+							</button>
+						{/each}
+					</div>
+				{/if}
+
+				<input class="filter" placeholder="Filter regions…" bind:value={regionFilter} />
+
+				<div class="grid">
+					{#each visibleRegions as region (region.name)}
+						<button class="cell" title={region.name} onclick={() => appendFrame(region.name)}>
+							{#if regionSet}<RegionThumb set={regionSet} {region} size={56} />{/if}
+							<span class="cn">{region.name}</span>
 						</button>
+					{:else}
+						<p class="empty">
+							{regionSet ? 'No regions match.' : 'Loading regions…'}
+						</p>
 					{/each}
 				</div>
-			{/if}
-
-			<input class="filter" placeholder="Filter regions…" bind:value={regionFilter} />
-
-			<div class="grid">
-				{#each visibleRegions as region (region.name)}
-					<button class="cell" title={region.name} onclick={() => appendFrame(region.name)}>
-						{#if regionSet}<RegionThumb set={regionSet} {region} size={56} />{/if}
-						<span class="cn">{region.name}</span>
-					</button>
-				{:else}
-					<p class="empty">
-						{regionSet ? 'No regions match.' : 'Loading regions…'}
-					</p>
-				{/each}
-			</div>
-		</aside>
-	</div>
+			</aside>
+		</div>
+	{:else}
+		<VideoMode projectKey={data.projectKey} />
+	{/if}
 </div>
 
 <style>
