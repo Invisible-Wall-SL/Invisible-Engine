@@ -358,6 +358,44 @@ def test_resume_after_restart() -> None:
     check("and it says why", "restart" in v0["error"].lower(), True)
 
 
+def test_cancel_a_session_we_do_not_own() -> None:
+    """The session someone most wants to stop is the one a restart orphaned — and
+    refusing that ("no such running session") left the stop button inert while the
+    stored doc went on claiming to run."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(
+        {"blueprint": "wan22_i2v_flipbook", "prompt": "p", "source_ref": "r.png",
+         "variations": 2}, ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+
+    key = "clientx/projecty/video/%s/meta.json" % sid
+    meta = json.loads(objects[key])
+    meta["status"] = "running"
+    meta["variations"][0].update(status="running", job_id="job-abc")
+    meta["variations"][1].update(status="queued")
+    objects[key] = json.dumps(meta).encode()
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+
+    cancelled = []
+    video_runner._cancel_job = lambda jid: cancelled.append(jid)
+
+    res = video_runner.cancel_session(sid)
+    check("cancelling an unowned session succeeds", res["ok"], True)
+    check("it was recognised as unowned", res["adopted"], True)
+    check("the in-flight job is stopped remotely", cancelled, ["job-abc"])
+
+    after = json.loads(objects[key])
+    check("the stored session stops claiming to run", after["status"], "cancelled")
+    check("its unfinished variations are closed out",
+          [v["status"] for v in after["variations"]], ["cancelled", "cancelled"])
+
+    check_raises("an unknown session is still refused",
+                 lambda: video_runner.cancel_session("20990101_000000_dead"),
+                 "no such session")
+
+
 def test_request_validation() -> None:
     _stub_world()
     ctx = ("clientx", "projecty")
@@ -388,6 +426,7 @@ if __name__ == "__main__":
     test_blueprint_kind()
     test_wrong_kind_is_refused()
     test_resume_after_restart()
+    test_cancel_a_session_we_do_not_own()
     test_request_validation()
     print()
     if FAILED:
