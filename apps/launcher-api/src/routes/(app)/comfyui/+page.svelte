@@ -121,7 +121,10 @@
 	}
 
 	let nodeList = $state<NodeList | null>(null);
-	let nodesOpen = $state(false);
+	// OPEN by default. Collapsed, it was a grey ▸ line below the fold that the person who
+	// asked for this feature scrolled straight past — discoverability beats tidiness for the
+	// thing the panel exists to do.
+	let nodesOpen = $state(true);
 	let addUrl = $state('');
 	let addNote = $state('');
 	let resolved = $state<ResolvedNode | null>(null);
@@ -390,9 +393,20 @@
 	async function loadNodes(): Promise<void> {
 		try {
 			const res = await fetch('/comfyui/nodes');
-			if (res.ok) nodeList = (await res.json()) as NodeList;
-		} catch {
-			// Transient; the section keeps whatever it last showed.
+			if (res.ok) {
+				nodeList = (await res.json()) as NodeList;
+				return;
+			}
+			const body = (await res.json().catch(() => ({}))) as { message?: string };
+			nodeList = {
+				configured: true,
+				error: `GET /comfyui/nodes → ${res.status}${body.message ? `: ${body.message}` : ''}`,
+			};
+		} catch (err) {
+			nodeList = {
+				configured: true,
+				error: err instanceof Error ? err.message : 'Could not reach /comfyui/nodes.',
+			};
 		}
 	}
 
@@ -533,9 +547,23 @@ Commits to main and rebuilds.`)
 	async function loadBuild(): Promise<void> {
 		try {
 			const res = await fetch('/comfyui/build');
-			if (res.ok) build = (await res.json()) as BuildState;
-		} catch {
-			// Transient; the panel keeps the last known build rather than blanking.
+			if (res.ok) {
+				build = (await res.json()) as BuildState;
+				return;
+			}
+			// A failed read must leave STATE, never null. `null` used to hide this entire
+			// section — the Rebuild button AND the node list — with no trace, which is the
+			// silent failure this panel has been bitten by twice.
+			const body = (await res.json().catch(() => ({}))) as { message?: string };
+			build = {
+				configured: true,
+				error: `GET /comfyui/build → ${res.status}${body.message ? `: ${body.message}` : ''}`,
+			};
+		} catch (err) {
+			build = {
+				configured: true,
+				error: err instanceof Error ? err.message : 'Could not reach /comfyui/build.',
+			};
 		}
 	}
 
@@ -876,192 +904,194 @@ RunPod recreates the container, so anything ` +
 					     Sits under the fleet because it answers a question you ask AFTER adding
 					     a node ("is it built yet, and is this pod on it?"), not before picking
 					     a card. See docs/design/comfyui-node-manager.md. -->
-					{#if build}
-						<div class="imagebar">
-							<div class="imagebar-head">
-								<span class="imagebar-title">Pod image</span>
-								{#if !build.configured}
-									<span class="imagebar-meta">
-										Set <code>GITHUB_ACTIONS_TOKEN</code> on the launcher (scope
-										<code>actions: write</code>) to build from here.
-									</span>
-								{:else if build.latest}
-									{@const b = build.latest}
-									<span class="imagebar-meta">
-										<code>{shortSha(b.sha)}</code>
-										{#if b.status !== 'completed'}
-											· <span class="spinner sm"></span> building
-										{:else if b.conclusion === 'success'}
-											· built
-										{:else}
-											· <span class="bad">{b.conclusion ?? 'failed'}</span>
-										{/if}
-										{#if b.url}
-											·
-											<!-- An absolute github.com run URL, so SvelteKit's resolve() does not apply.
+					<div class="imagebar">
+						<div class="imagebar-head">
+							<span class="imagebar-title">Pod image</span>
+							{#if !build}
+								<span class="imagebar-meta">reading…</span>
+							{:else if !build.configured}
+								<span class="imagebar-meta">
+									Set <code>GITHUB_ACTIONS_TOKEN</code> on the launcher (scope
+									<code>actions: write</code>) to build from here.
+								</span>
+							{:else if build.latest}
+								{@const b = build.latest}
+								<span class="imagebar-meta">
+									<code>{shortSha(b.sha)}</code>
+									{#if b.status !== 'completed'}
+										· <span class="spinner sm"></span> building
+									{:else if b.conclusion === 'success'}
+										· built
+									{:else}
+										· <span class="bad">{b.conclusion ?? 'failed'}</span>
+									{/if}
+									{#if b.url}
+										·
+										<!-- An absolute github.com run URL, so SvelteKit's resolve() does not apply.
 											     Disabled inline rather than added to eslint-suppressions.json: the
 											     baseline is for burning DOWN existing debt, not for parking new lines. -->
-											<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
-											<a href={b.url} target="_blank" rel="noopener noreferrer">log ↗</a>
-										{/if}
-									</span>
-								{/if}
-								{#if data.canAdmin && build.configured}
-									<button
-										class="secondary sm"
-										onclick={() => void rebuild()}
-										disabled={buildBusy || buildRunning(build)}
-										title="Runs the pod-image workflow on main. A cached rebuild is ~2 min; a full one ~30."
-									>
-										{buildBusy ? 'Asking…' : buildRunning(build) ? 'Building…' : 'Rebuild image'}
-									</button>
-								{/if}
-							</div>
-							{#if build.error}
-								<p class="avail-note">{build.error}</p>
+										<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -->
+										<a href={b.url} target="_blank" rel="noopener noreferrer">log ↗</a>
+									{/if}
+								</span>
 							{/if}
-
-							<!-- The node list. Collapsed by default: it is the answer to a question you
-							     ask when something is missing, not every time you start a pod. -->
-							{#if nodeList?.nodes}
+							{#if data.canAdmin && build?.configured}
 								<button
-									class="nodes-toggle"
-									onclick={() => (nodesOpen = !nodesOpen)}
-									aria-expanded={nodesOpen}
+									class="secondary sm"
+									onclick={() => void rebuild()}
+									disabled={buildBusy || buildRunning(build)}
+									title="Runs the pod-image workflow on main. A cached rebuild is ~2 min; a full one ~30."
 								>
-									{nodesOpen ? '▾' : '▸'} Custom nodes ({nodeList.nodes.length})
+									{buildBusy ? 'Asking…' : buildRunning(build) ? 'Building…' : 'Rebuild image'}
 								</button>
-								{#if nodesOpen}
-									{#if readerBehind}
-										<p class="node-caveat">
-											Loaded-state read from <strong>{inventory?.reader?.label}</strong>, which is
-											on an older build — anything added since will read “not seen”. Update it to
-											the latest build to make the check meaningful.
-										</p>
-									{/if}
-									<ul class="nodes">
-										{#each nodeList.nodes as node (node.name)}
-											{@const loaded = nodeLoaded(node)}
-											<li class="node">
-												<div class="node-head">
-													<span class="node-name">{node.name}</span>
-													{#if node.vendored}
-														<span class="node-sha">vendored in the repo</span>
-													{:else}
-														<code class="node-sha">{node.sha}</code>
-													{/if}
-													{#if loaded}
-														<span class="node-state {loaded.cls}" title={loaded.title}>
-															{loaded.label}
-														</span>
-													{/if}
-													{#if node.prod}
-														<span
-															class="node-state ok"
-															title="Also baked into the serverless worker — usable by Atlas Maker blueprints."
-														>
-															prod
-														</span>
-													{:else}
-														<span
-															class="node-state muted"
-															title="R&D pod only. A blueprint using this node will NOT run in the Atlas Maker until it is promoted."
-														>
-															R&D only
-														</span>
-													{/if}
-													{#if data.canAdmin && !node.vendored}
-														<button
-															class="node-drop"
-															onclick={() => void toggleProd(node)}
-															disabled={nodeBusy}
-															title={node.prod
-																? 'Take it off the serverless worker — rebuilds the prod image'
-																: 'Also bake it into the serverless worker — rebuilds the PROD image'}
-														>
-															{node.prod ? 'demote' : 'promote'}
-														</button>
-														<button
-															class="node-drop"
-															onclick={() => void dropNode(node.name)}
-															disabled={nodeBusy}
-															title="Remove from nodes.json — commits to main and rebuilds"
-														>
-															remove
-														</button>
-													{/if}
-												</div>
-												{#if node.note}
-													<p class="node-note">{node.note}</p>
-												{/if}
-											</li>
-										{/each}
-									</ul>
-
-									{#if unbakedPacks.length}
-										<!-- Loaded but not baked. Named rather than summarised, because the fix is
-										     per-node: bake the keeper, ignore the experiment. -->
-										<p class="node-caveat">
-											<strong>Not in the image:</strong>
-											{unbakedPacks.map((p) => p.name).join(', ')}. Loaded by
-											{inventory?.reader?.label ?? 'the reading pod'} from the Network Volume or installed
-											into its container — either way a fresh pod will not have it, and neither will
-											the serverless worker. Add it below to bake it in.
-										</p>
-									{/if}
-
-									{#if data.canAdmin}
-										<!-- Two steps, deliberately: RESOLVE shows the exact commit that would be
-										     pinned, so nobody writes down a ref they have not looked at. A node on
-										     a floating branch is how silent drift comes back. -->
-										<div class="node-add">
-											<input
-												class="node-input"
-												type="url"
-												placeholder="https://github.com/owner/repo"
-												bind:value={addUrl}
-												disabled={nodeBusy}
-											/>
-											<input
-												class="node-input"
-												type="text"
-												placeholder="note (optional) — why it is here, what it breaks on"
-												bind:value={addNote}
-												disabled={nodeBusy}
-											/>
-											{#if resolved}
-												<p class="node-resolved">
-													Pins <code>{resolved.name}</code> at <code>{resolved.sha}</code>
-													{#if resolved.subject}— “{resolved.subject}”{/if}
-													{#if resolved.date}({resolved.date.slice(0, 10)}){/if}
-												</p>
-												<button
-													class="secondary sm"
-													onclick={() => void commitNode()}
-													disabled={nodeBusy}
-												>
-													{nodeBusy ? 'Committing…' : 'Add & commit'}
-												</button>
-											{:else}
-												<button
-													class="secondary sm"
-													onclick={() => void resolveNode()}
-													disabled={nodeBusy || !addUrl.trim()}
-												>
-													{nodeBusy ? 'Resolving…' : 'Resolve'}
-												</button>
-											{/if}
-										</div>
-									{/if}
-									{#if nodeError}
-										<p class="avail-note">{nodeError}</p>
-									{/if}
-								{/if}
-							{:else if nodeList?.error}
-								<p class="avail-note">Node list unavailable — {nodeList.error}</p>
 							{/if}
 						</div>
-					{/if}
+						{#if build?.error}
+							<p class="avail-note">{build.error}</p>
+						{/if}
+
+						<!-- The node list. Collapsed by default: it is the answer to a question you
+							     ask when something is missing, not every time you start a pod. -->
+						{#if nodeList?.nodes}
+							<button
+								class="nodes-toggle"
+								onclick={() => (nodesOpen = !nodesOpen)}
+								aria-expanded={nodesOpen}
+							>
+								{nodesOpen ? '▾' : '▸'} Custom nodes ({nodeList.nodes.length})
+							</button>
+							{#if nodesOpen}
+								{#if readerBehind}
+									<p class="node-caveat">
+										Loaded-state read from <strong>{inventory?.reader?.label}</strong>, which is on
+										an older build — anything added since will read “not seen”. Update it to the
+										latest build to make the check meaningful.
+									</p>
+								{/if}
+								<ul class="nodes">
+									{#each nodeList.nodes as node (node.name)}
+										{@const loaded = nodeLoaded(node)}
+										<li class="node">
+											<div class="node-head">
+												<span class="node-name">{node.name}</span>
+												{#if node.vendored}
+													<span class="node-sha">vendored in the repo</span>
+												{:else}
+													<code class="node-sha">{node.sha}</code>
+												{/if}
+												{#if loaded}
+													<span class="node-state {loaded.cls}" title={loaded.title}>
+														{loaded.label}
+													</span>
+												{/if}
+												{#if node.prod}
+													<span
+														class="node-state ok"
+														title="Also baked into the serverless worker — usable by Atlas Maker blueprints."
+													>
+														prod
+													</span>
+												{:else}
+													<span
+														class="node-state muted"
+														title="R&D pod only. A blueprint using this node will NOT run in the Atlas Maker until it is promoted."
+													>
+														R&D only
+													</span>
+												{/if}
+												{#if data.canAdmin && !node.vendored}
+													<button
+														class="node-drop"
+														onclick={() => void toggleProd(node)}
+														disabled={nodeBusy}
+														title={node.prod
+															? 'Take it off the serverless worker — rebuilds the prod image'
+															: 'Also bake it into the serverless worker — rebuilds the PROD image'}
+													>
+														{node.prod ? 'demote' : 'promote'}
+													</button>
+													<button
+														class="node-drop"
+														onclick={() => void dropNode(node.name)}
+														disabled={nodeBusy}
+														title="Remove from nodes.json — commits to main and rebuilds"
+													>
+														remove
+													</button>
+												{/if}
+											</div>
+											{#if node.note}
+												<p class="node-note">{node.note}</p>
+											{/if}
+										</li>
+									{/each}
+								</ul>
+
+								{#if unbakedPacks.length}
+									<!-- Loaded but not baked. Named rather than summarised, because the fix is
+										     per-node: bake the keeper, ignore the experiment. -->
+									<p class="node-caveat">
+										<strong>Not in the image:</strong>
+										{unbakedPacks.map((p) => p.name).join(', ')}. Loaded by
+										{inventory?.reader?.label ?? 'the reading pod'} from the Network Volume or installed
+										into its container — either way a fresh pod will not have it, and neither will the
+										serverless worker. Add it below to bake it in.
+									</p>
+								{/if}
+
+								{#if data.canAdmin}
+									<!-- Two steps, deliberately: RESOLVE shows the exact commit that would be
+										     pinned, so nobody writes down a ref they have not looked at. A node on
+										     a floating branch is how silent drift comes back. -->
+									<div class="node-add">
+										<input
+											class="node-input"
+											type="url"
+											placeholder="https://github.com/owner/repo"
+											bind:value={addUrl}
+											disabled={nodeBusy}
+										/>
+										<input
+											class="node-input"
+											type="text"
+											placeholder="note (optional) — why it is here, what it breaks on"
+											bind:value={addNote}
+											disabled={nodeBusy}
+										/>
+										{#if resolved}
+											<p class="node-resolved">
+												Pins <code>{resolved.name}</code> at <code>{resolved.sha}</code>
+												{#if resolved.subject}— “{resolved.subject}”{/if}
+												{#if resolved.date}({resolved.date.slice(0, 10)}){/if}
+											</p>
+											<button
+												class="secondary sm"
+												onclick={() => void commitNode()}
+												disabled={nodeBusy}
+											>
+												{nodeBusy ? 'Committing…' : 'Add & commit'}
+											</button>
+										{:else}
+											<button
+												class="secondary sm"
+												onclick={() => void resolveNode()}
+												disabled={nodeBusy || !addUrl.trim()}
+											>
+												{nodeBusy ? 'Resolving…' : 'Resolve'}
+											</button>
+										{/if}
+									</div>
+								{/if}
+								{#if nodeError}
+									<p class="avail-note">{nodeError}</p>
+								{/if}
+							{/if}
+						{:else if nodeList?.error}
+							<p class="avail-note">Custom nodes unavailable — {nodeList.error}</p>
+						{:else}
+							<p class="node-caveat">Reading the node list…</p>
+						{/if}
+					</div>
 
 					<!-- Only rendered when the badges are missing BECAUSE RunPod refused. Silence
 					     was how this feature failed twice: the blank row looked identical to a
