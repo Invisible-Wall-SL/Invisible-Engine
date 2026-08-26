@@ -40,6 +40,8 @@
 		backgroundCoverStretch,
 		backgroundFit,
 		coverTransform,
+		isCoverArtKind,
+		isCoverFitKind,
 	} from './coverTransform';
 	import { componentDesignSize } from './componentDesignSize';
 	import { hostedComponentSpace } from './boundComponentCatalog';
@@ -161,23 +163,25 @@
 	// and feeds the per-axis cover scale to the `<Sprite>`. A background skeleton is
 	// authored around its own origin, matching apps/lines `Background.svelte`.
 	const isBackground = $derived(space === 'background');
-	// Per-node cover-fit opt-in (`node.coverFit`) for a sprite/spine in a normal
+	// Per-node cover-fit opt-in (`node.coverFit`) for a sprite/spine/flipbook in a normal
 	// `canvas`-space (flow-gated) scene: it runs the SAME cover path as `background`
 	// space (target = the canvas/window, same cover inputs) but the scene stays flow-
 	// gated (NOT a persistent background). `isCover` is the unified trigger every cover
 	// derived below reads, so a `background` scene AND every non-cover node are byte-
-	// identical to before (parity). Scoped to sprite/spine — a `componentInstance` cover
-	// stays `background`-only (see `bgComponent`), matching the editor toggle's scope.
+	// identical to before (parity). Scoped to sprite/spine/flipbook — a `componentInstance`
+	// cover stays `background`-only (see `bgComponent`), matching the editor toggle's scope.
 	const isCanvasCoverFit = $derived(
-		space === 'canvas' &&
-			node.coverFit === true &&
-			(node.kind === 'sprite' || node.kind === 'spine'),
+		space === 'canvas' && node.coverFit === true && isCoverFitKind(node),
 	);
 	const isCover = $derived(isBackground || isCanvasCoverFit);
+	// Sprite + flipbook: the kinds whose cover is measured from ONE atlas texture, so both take
+	// the identical `bgTexture` → `coverTransform` → `bg` path below. A spine covers through
+	// `bgSpineBox` and a componentInstance through `bgComponent` instead.
+	const isCoverArtNode = $derived(isCoverArtKind(node));
 	const bgCoverScale = $derived(backgroundCoverScale(node));
 	const bgStretch = $derived(backgroundCoverStretch(node));
 	const bgFit = $derived(backgroundFit(node));
-	// A background SPRITE covers the canvas via a true `coverTransform` from the
+	// A background SPRITE / FLIPBOOK covers the canvas via a true `coverTransform` from the
 	// loaded texture's NATURAL size (both axes) — never the old ratio-based
 	// `normalBackgroundLayout`, which set only one axis and left a sprite's other axis
 	// at natural pixels (PIXI's `width`/`height` setter only touches the matching
@@ -187,15 +191,16 @@
 	// editor's 2D draw (`natural × scale`). Until the texture resolves, natural dims are
 	// `0` and `coverTransform` falls back to a centred `coverScale × stretch`.
 	const bgTexture = $derived.by(() => {
-		if (!isCover || node.kind !== 'sprite') return undefined;
+		if (!isCover || !isCoverArtNode) return undefined;
 		const assets = appContext.stateApp.loadedAssets;
+		const ref = node.kind === 'flipbook' ? flipbookCoverRef : spriteRef;
 		const tex =
-			(spriteKey ? assets?.[spriteKey] : undefined) ??
-			(spriteFallbackKey ? assets?.[spriteFallbackKey] : undefined);
+			(ref?.key ? assets?.[ref.key] : undefined) ??
+			(ref?.fallbackKey ? assets?.[ref.fallbackKey] : undefined);
 		return tex as unknown as { width?: number; height?: number } | undefined;
 	});
 	const bg = $derived.by(() => {
-		if (!isCover || node.kind !== 'sprite') return undefined;
+		if (!isCover || !isCoverArtNode) return undefined;
 		const canvasBox = layoutContext.stateLayoutDerived.canvasSizes();
 		const artWidth = bgTexture?.width && bgTexture.width > 0 ? bgTexture.width : 0;
 		const artHeight = bgTexture?.height && bgTexture.height > 0 ? bgTexture.height : 0;
@@ -573,6 +578,29 @@
 		if (!clip) return undefined;
 		if (node.fps === undefined && node.loop === undefined) return clip;
 		return { ...clip, fps: node.fps ?? clip.fps, loop: node.loop ?? clip.loop };
+	});
+
+	/**
+	 * Texture keys for a COVERING flipbook's sizing frame — its FIRST frame, resolved with the
+	 * same scoped→bare precedence `<Flipbook>`'s `resolveClipFrames` uses, so the cover measures
+	 * the very texture that plays.
+	 *
+	 * First frame, not the playing one: frames of a clip rarely share a trim rect, and a cover
+	 * recomputed per frame would pulse the backdrop `fps` times a second. It is also the frame the
+	 * editor sizes off (`EditorCanvas.naturalSize`), so the preview and the game agree. Undefined
+	 * for a non-cover / non-flipbook node ⇒ the sprite path is byte-identical (parity).
+	 */
+	const flipbookCoverRef = $derived.by(() => {
+		const clip = flipbookClip;
+		if (!isCover || node.kind !== 'flipbook' || !clip) return undefined;
+		const first = clip.frames?.[0];
+		if (!first) return undefined;
+		const parsed = parseScopedFrameRef(first);
+		const sheet = parsed.assetKey ?? clip.assetKey;
+		return {
+			key: isManifestAssetKey(sheet) ? editorArtTextureKey(sheet, parsed.region) : undefined,
+			fallbackKey: parsed.region,
+		};
 	});
 </script>
 
@@ -1034,19 +1062,25 @@
 			width/height (scale then stays 1) or a plain `scale` when unsized, so "what you size in the
 			editor" is what the game draws. `fps`/`loop` are per-PLACEMENT overrides of the clip's own
 			values — absent ⇒ the authored clip is played verbatim.
+
+			`bg` is the cover branch, shared verbatim with <Sprite> above: a clip on a `background`
+			screen (or a `coverFit` one on a flow-gated `canvas` screen) fills the window with a true
+			aspect-preserving cover instead of drawing at its authored size — the clip's first frame
+			supplies the natural dims (`flipbookCoverRef`). Without it a full-bleed animated backdrop
+			had to be hand-scaled to the window and letterboxed on every other device ratio.
 		-->
 		{#if flipbookClip}
 			<Flipbook
 				clip={flipbookClip}
-				x={posX}
-				y={posY}
-				anchor={transform.anchor}
-				scale={sizedScale}
+				x={bg ? bg.x : posX}
+				y={bg ? bg.y : posY}
+				anchor={bg ? { x: 0.5, y: 0.5 } : transform.anchor}
+				scale={bg ? bg.scale : sizedScale}
 				rotation={transform.rotation}
 				alpha={transform.alpha}
 				zIndex={transform.zIndex}
-				width={sizedWidth}
-				height={sizedHeight}
+				width={bg ? undefined : sizedWidth}
+				height={bg ? undefined : sizedHeight}
 				tint={transform.tint}
 			/>
 		{/if}

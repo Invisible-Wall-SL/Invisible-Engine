@@ -15,6 +15,7 @@
 		ENGINE_SIGNAL_CATALOG,
 		fontParamKeysOf,
 		getEditableParams,
+		isCoverFitKind,
 		isHudButtonBind,
 		resolveOverrideTextStyle,
 		resolveTransform,
@@ -1473,14 +1474,12 @@
 	}
 
 	// ---------- per-node cover / full-screen fill (canvas-space, flow-gated) ----------
-	// A sprite/spine in a `canvas`-space (flow-gated) scene can opt into true cover-fit
+	// A sprite/spine/flipbook in a `canvas`-space (flow-gated) scene can opt into true cover-fit
 	// (`node.coverFit`) — the SAME cover math a `background` scene applies, but WITHOUT the
 	// always-on persistent mounting, so the flow still shows/hides the screen. Turning it on
 	// reveals the "Background" cover section (scale + fit) via `isBackgroundCover`. Not needed
-	// for a `background` scene (that already covers) or non-sprite/spine kinds.
-	const canCoverFit = $derived(
-		sceneSpace === 'canvas' && (node?.kind === 'sprite' || node?.kind === 'spine'),
-	);
+	// for a `background` scene (that already covers) or a kind that cannot cover.
+	const canCoverFit = $derived(sceneSpace === 'canvas' && !!node && isCoverFitKind(node));
 	const coverFitOn = $derived(node?.coverFit === true);
 	function setCoverFitFlag(n: LayoutNode, on: boolean): void {
 		if (on) n.coverFit = true;

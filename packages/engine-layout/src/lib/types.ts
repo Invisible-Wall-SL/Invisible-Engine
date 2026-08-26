@@ -110,14 +110,15 @@ interface BaseNode {
 	fit?: 'cover' | 'contain';
 	/**
 	 * Per-node opt-in to true cover-fit (aspect-preserving fill to the canvas/window)
-	 * for a sprite/spine node in a normal `canvas`-space (flow-gated) scene — the SAME
-	 * cover math the `background` space applies ({@link coverTransform} +
-	 * {@link BaseNode.coverScale}/{@link BaseNode.fit}/`scale` stretch), but WITHOUT the
-	 * always-on persistent-background mounting of `Scene.space === 'background'`. So a
-	 * flow screen (free-spin intro, etc.) can host a full-screen stretched animation that
-	 * the flow still shows/hides. Orthogonal to `background` space (a `coverFit` node is
-	 * NOT persistent). Ignored for a `background`-space node (that already covers) and for
-	 * non-sprite/spine kinds. Additive — absent = today's authored transform (parity).
+	 * for a cover-capable node (`isCoverFitKind` — sprite / spine / flipbook) in a normal
+	 * `canvas`-space (flow-gated) scene — the SAME cover math the `background` space applies
+	 * ({@link coverTransform} + {@link BaseNode.coverScale}/{@link BaseNode.fit}/`scale`
+	 * stretch), but WITHOUT the always-on persistent-background mounting of
+	 * `Scene.space === 'background'`. So a flow screen (free-spin intro, etc.) can host a
+	 * full-screen stretched animation that the flow still shows/hides. Orthogonal to
+	 * `background` space (a `coverFit` node is NOT persistent). Ignored for a
+	 * `background`-space node (that already covers) and for every other kind. Additive —
+	 * absent = today's authored transform (parity).
 	 */
 	coverFit?: boolean;
 	/**
@@ -856,7 +857,8 @@ export interface Scene {
 	 * - `background` — full-bleed cover layer: nodes cover-fit the canvas via true
 	 *   cover, the node's {@link BaseNode.coverScale} acting as the uniform cover
 	 *   multiplier (default 1 = exact edge-to-edge) and `scale.x`/`scale.y` as the
-	 *   free non-uniform stretch on top. For a static background image/spine;
+	 *   free non-uniform stretch on top. Covers a background image, spine or flipbook
+	 *   clip (`isCoverFitKind`) and a componentInstance as one composed unit;
 	 *   animated multi-state crossfade stays coded.
 	 * Additive — absent = `game`.
 	 */

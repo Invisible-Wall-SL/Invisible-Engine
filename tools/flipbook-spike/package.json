@@ -10,7 +10,8 @@
 		"scene-node": "tsx sceneNode.ts",
 		"sequences": "tsx sequences.ts",
 		"anim": "tsx animationPlist.ts",
-		"atlas-ref": "tsx atlasRefRepair.ts"
+		"atlas-ref": "tsx atlasRefRepair.ts",
+		"cover": "tsx coverFit.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",

@@ -9,11 +9,12 @@
 // `.svelte`) into one ESM file Node can run. The `isCover` GATE + the sprite/spine cover-input
 // construction below MIRROR the runtime `LayoutNodeView.svelte` (`isCanvasCoverFit` / `isCover` / the
 // `bg` derived) exactly, so this is the offline proof that:
-//  (a) a `coverFit` sprite/spine in a `canvas` scene cover-fits identically to a `background` node
-//      (same `coverTransform` output for identical art / target / cover params);
+//  (a) a `coverFit` sprite/spine/flipbook in a `canvas` scene cover-fits identically to a
+//      `background` node (same `coverTransform` output for identical art / target / cover params);
 //  (b) `coverFit` unset ⇒ the node uses its authored transform, no cover (byte-identical parity);
 //  (c) `background` space still covers regardless of the flag (unchanged);
-//  (d) the flag is scoped to sprite/spine (a `rect`/`container`/`componentInstance` never covers).
+//  (d) the flag is scoped to the cover-capable kinds (`rect`/`container`/`componentInstance` never
+//      cover through it).
 import { rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -29,6 +30,8 @@ const bundled = await esbuild.build({
 			backgroundCoverScale,
 			backgroundCoverStretch,
 			backgroundFit,
+			isCoverArtKind,
+			isCoverFitKind,
 		} from '../src/lib/coverTransform.ts';`,
 		resolveDir: HERE,
 		loader: 'ts',
@@ -50,7 +53,14 @@ try {
 	await rm(tmp, { force: true });
 }
 
-const { coverTransform, backgroundCoverScale, backgroundCoverStretch, backgroundFit } = mod;
+const {
+	coverTransform,
+	backgroundCoverScale,
+	backgroundCoverStretch,
+	backgroundFit,
+	isCoverArtKind,
+	isCoverFitKind,
+} = mod;
 
 let failures = 0;
 const assert = (cond, msg) => {
@@ -64,10 +74,7 @@ const assert = (cond, msg) => {
 
 // ---- runtime mirror: the `isCover` gate from LayoutNodeView.svelte (`isCanvasCoverFit || isBackground`) ----
 const isCover = (space, node) =>
-	space === 'background' ||
-	(space === 'canvas' &&
-		node.coverFit === true &&
-		(node.kind === 'sprite' || node.kind === 'spine'));
+	space === 'background' || (space === 'canvas' && node.coverFit === true && isCoverFitKind(node));
 
 // ---- runtime mirror: resolve the on-screen transform of a sprite/spine node in a scene ----
 // When `isCover`, the runtime replaces the authored transform with a centred true-cover (the `bg`
@@ -109,7 +116,7 @@ const ART = { width: 1920, height: 1080 };
 const TARGET = { width: 1280, height: 900 };
 
 // ---- (a) EQUIVALENCE: coverFit sprite in a canvas scene == the same node in a background scene ----
-for (const kind of ['sprite', 'spine']) {
+for (const kind of ['sprite', 'spine', 'flipbook']) {
 	// Authored transform values that MUST be ignored once cover kicks in — a raw offset + a free
 	// per-axis stretch (`scale`) + a cover zoom + a fit. If cover honoured x/y the two would differ.
 	const node = { kind, x: 137, y: -42, scale: { x: 1, y: 1.2 }, coverScale: 1.1, fit: 'cover' };
@@ -160,6 +167,23 @@ for (const kind of ['rect', 'container', 'componentInstance']) {
 		`coverFit on a ${kind} in a canvas scene does NOT cover (out of scope)`,
 	);
 }
+
+// ---- (d2) the SHARED kind predicates — the single list every cover gate reads ----
+// These exist because the kind list used to be spelled out at each gate (runtime `isCanvasCoverFit`,
+// `EditorCanvas.nodeTransform` + `isBackgroundCover`, `+page.svelte` `isBackgroundCoverSelected`,
+// `EditorProperties.canCoverFit`): adding the `flipbook` kind updated none of them, so a placed clip
+// on a background screen kept its authored size instead of filling the window. Assert the membership
+// directly so a future kind can't be half-added again.
+for (const kind of ['sprite', 'spine', 'flipbook']) {
+	assert(isCoverFitKind({ kind }), `${kind} is a cover-fit kind (every gate reads this list)`);
+}
+for (const kind of ['rect', 'container', 'componentInstance', 'text', 'effect']) {
+	assert(!isCoverFitKind({ kind }), `${kind} is NOT a cover-fit kind`);
+}
+// The texture-measured subset — a spine covers through its own `fit`, not `bgTexture`.
+assert(isCoverArtKind({ kind: 'sprite' }), 'sprite covers from its texture (bg path)');
+assert(isCoverArtKind({ kind: 'flipbook' }), 'flipbook covers from its first frame (bg path)');
+assert(!isCoverArtKind({ kind: 'spine' }), 'spine does NOT take the texture cover path');
 
 // ---- extra: fit:'contain' flows through identically too (not just 'cover') ----
 {

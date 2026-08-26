@@ -118,3 +118,33 @@ export function backgroundCoverStretch(node: BackgroundCoverNode): { x: number; 
 export function backgroundFit(node: BackgroundCoverNode): 'cover' | 'contain' {
 	return node.preview?.art?.fit ?? node.fit ?? 'cover';
 }
+
+/**
+ * Node kinds that COVER the window — full-bleed automatically in a `space:'background'` scene, or
+ * on the per-node `coverFit` opt-in in a flow-gated `canvas` scene.
+ *
+ * THE single definition, read by the runtime (`LayoutNodeView`'s `isCanvasCoverFit`) and by every
+ * editor surface (`EditorCanvas.nodeTransform` + `isBackgroundCover`, the Properties "Fill" toggle
+ * and cover section). It exists because the same kind list was previously spelled out at each of
+ * those gates: adding the `flipbook` kind updated none of them, so a placed clip on a background
+ * screen kept its authored size — it never filled the window and stayed drag-resizable in the
+ * editor, unlike every other background art node.
+ *
+ * A `componentInstance` covers as a composed unit and is deliberately NOT here: it has no single
+ * piece of art to measure (its size is the union of its children) and it covers only in
+ * `background` space, never through the `coverFit` opt-in.
+ */
+export function isCoverFitKind(node: { kind: string }): boolean {
+	return node.kind === 'sprite' || node.kind === 'spine' || node.kind === 'flipbook';
+}
+
+/**
+ * The subset of {@link isCoverFitKind} whose cover is measured from ONE atlas TEXTURE's natural
+ * size — a still `sprite` and a `flipbook` (the same atlas art, played in order; it measures its
+ * FIRST frame). Both take the identical texture → {@link coverTransform} → centred per-axis
+ * `scale` path. A `spine` is excluded: it has no texture to measure and covers through
+ * pixi-svelte's `fit` from `skeleton.data` dims instead.
+ */
+export function isCoverArtKind(node: { kind: string }): boolean {
+	return node.kind === 'sprite' || node.kind === 'flipbook';
+}

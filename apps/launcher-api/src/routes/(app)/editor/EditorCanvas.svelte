@@ -11,6 +11,7 @@
 		coverTransform,
 		hostedComponentSpace,
 		instancePreviewSpineBundle,
+		isCoverFitKind,
 		isHudScene,
 		MAX_COMPONENT_DEPTH,
 		parseScopedFrameRef,
@@ -384,12 +385,12 @@
 		if (space === 'standard') {
 			return standardToWorld(t, sceneCtx);
 		}
-		// A `coverFit` sprite/spine in a `canvas`-space (flow-gated) scene cover-fits the
+		// A `coverFit` sprite/spine/flipbook in a `canvas`-space (flow-gated) scene cover-fits the
 		// window with the SAME true-cover helper the `background` path uses — mirroring the
 		// runtime `LayoutNodeView` (`isCanvasCoverFit`), so the preview is WYSIWYG. Scoped to
-		// sprite/spine (a componentInstance cover stays background-only). Checked BEFORE the
-		// plain canvas mapping below, which would otherwise place it at its raw transform.
-		if (space === 'canvas' && node.coverFit && (node.kind === 'sprite' || node.kind === 'spine')) {
+		// sprite/spine/flipbook (a componentInstance cover stays background-only). Checked BEFORE
+		// the plain canvas mapping below, which would otherwise place it at its raw transform.
+		if (space === 'canvas' && node.coverFit && isCoverFitKind(node)) {
 			return backgroundTransform(node, t);
 		}
 		if (space === 'canvas') {
@@ -404,10 +405,7 @@
 			// keeps editor == game.
 			return { ...t, ...anchoredPosition(t, space, frameWidth, frameHeight) };
 		}
-		if (
-			space === 'background' &&
-			(node.kind === 'sprite' || node.kind === 'spine' || node.kind === 'componentInstance')
-		) {
+		if (space === 'background' && (isCoverFitKind(node) || node.kind === 'componentInstance')) {
 			return backgroundTransform(node, t);
 		}
 		// game space: map the node's main-box coords into the fixed window the way
@@ -790,19 +788,14 @@
 		// A cover-placement anchor (the full-bleed Background) stays non-draggable;
 		// every other preview-art anchor is offset-draggable.
 		if (art && art.placement === 'cover') return true;
-		// A `canvas`-space `coverFit` sprite/spine is auto-cover-fit too (its transform is
+		// A `canvas`-space `coverFit` node is auto-cover-fit too (its transform is
 		// synthesised by `backgroundTransform`), so it must not drag/scale/rotate either —
 		// the cover is edited via the Properties cover scale + fit + Transform stretch.
-		if (
-			scene.space === 'canvas' &&
-			node.coverFit &&
-			(node.kind === 'sprite' || node.kind === 'spine')
-		) {
+		if (scene.space === 'canvas' && node.coverFit && isCoverFitKind(node)) {
 			return true;
 		}
 		return (
-			scene.space === 'background' &&
-			(node.kind === 'sprite' || node.kind === 'spine' || node.kind === 'componentInstance')
+			scene.space === 'background' && (isCoverFitKind(node) || node.kind === 'componentInstance')
 		);
 	}
 
