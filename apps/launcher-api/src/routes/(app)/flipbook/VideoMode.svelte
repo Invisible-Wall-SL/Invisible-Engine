@@ -71,6 +71,19 @@
 	let err = $state('');
 	let loading = $state(true);
 
+	/** Why the blueprint list is empty. Fetched only when it IS empty — an empty
+	 * picker used to be indistinguishable between "never seeded", "service has not
+	 * restarted since", and "the blueprint was rejected", and none of those say a
+	 * word in the UI. See `library_status` in blueprints.py. */
+	interface Library {
+		in_r2: string[];
+		on_disk: string[];
+		loaded: { id: string; kind: string; name: string }[];
+		skipped: { id: string; why: string }[];
+		r2_error: string;
+	}
+	let library = $state<Library | null>(null);
+
 	const blueprint = $derived(blueprints.find((b) => b.id === blueprintId) ?? null);
 	const params = $derived(blueprint?.params ?? []);
 	const running = $derived(session?.status === 'running' || session?.status === 'queued');
@@ -85,6 +98,27 @@
 			else groups.push({ group: name, items: [p] });
 		}
 		return groups;
+	});
+
+	/** One plain sentence naming the actual cause, derived from the three facts the
+	 * tool reports: what R2 holds, what hydrated to disk, and what validated. */
+	const verdict = $derived.by(() => {
+		if (!library) return '';
+		if (library.r2_error) {
+			return `The tool cannot reach the asset store, so it is serving whatever was already cached on disk — which is why a freshly seeded blueprint will not appear no matter how many times you restart. Error: ${library.r2_error}`;
+		}
+		const mine = library.in_r2.filter((id) => !library!.on_disk.includes(id));
+		if (mine.length) {
+			return `${mine.join(', ')} ${mine.length === 1 ? 'is' : 'are'} in the asset store but ${mine.length === 1 ? 'has' : 'have'} not been pulled to this service yet — restart the Atlas Maker service, which hydrates the library at container start.`;
+		}
+		if (library.skipped.length) {
+			return `Rejected: ${library.skipped.map((s) => `${s.id} (${s.why})`).join('; ')}`;
+		}
+		const img = library.loaded.filter((b) => b.kind !== 'video');
+		if (!library.in_r2.length) {
+			return 'The shared blueprint library is empty — nothing has been seeded to the asset store yet.';
+		}
+		return `The library holds ${library.loaded.length} blueprint${library.loaded.length === 1 ? '' : 's'}, ${img.length} of them image blueprints belonging to the Atlas Maker, and no video ones. Publish a video blueprint, then restart the Atlas Maker service.`;
 	});
 
 	const api = (route: string, qs = '') => `/api/flipbook/video/${route}${qs ? `?${qs}` : ''}`;
@@ -111,6 +145,10 @@
 		try {
 			blueprints = await getJson<Blueprint[]>('blueprints');
 			if (!blueprintId && blueprints.length) blueprintId = blueprints[0].id;
+			// Only when there is nothing to show — this is a diagnosis, not a poll.
+			if (!blueprints.length) {
+				library = await getJson<Library>('library').catch(() => null);
+			}
 			recent = await getJson<Session[]>('sessions');
 			// Re-attach to a session still running from a previous visit — the runner survives a
 			// page reload, so the grid should too rather than looking like nothing happened.
@@ -387,9 +425,24 @@
 			<p class="empty">
 				No <b>video</b> blueprints in the shared library. This list shows only blueprints published as
 				video networks — the Atlas Maker's image blueprints belong to a different tool and are deliberately
-				not offered here. Publish one, then restart the Atlas Maker service: the library hydrates at
-				container start.
+				not offered here.
 			</p>
+			{#if verdict}
+				<p class="diag">{verdict}</p>
+			{/if}
+			{#if library}
+				<details class="grp">
+					<summary>What the tool actually sees</summary>
+					<p class="hint">
+						<b>In the asset store:</b>
+						{library.in_r2.join(', ') || 'nothing'}<br />
+						<b>Pulled to this service:</b>
+						{library.on_disk.join(', ') || 'nothing'}<br />
+						<b>Loaded:</b>
+						{library.loaded.map((b) => `${b.id} (${b.kind})`).join(', ') || 'nothing'}
+					</p>
+				</details>
+			{/if}
 		{:else}
 			<label class="fld">
 				<span>Blueprint</span>
@@ -731,6 +784,16 @@
 		margin-top: 8px;
 		padding: 6px 8px;
 		line-height: 1.4;
+	}
+	.diag {
+		color: #fbbf24;
+		font-size: 11px;
+		line-height: 1.5;
+		margin: 0 0 10px;
+		padding: 8px;
+		border: 1px solid #78350f;
+		border-radius: 6px;
+		background: #1c1408;
 	}
 	.hint {
 		color: #64748b;
