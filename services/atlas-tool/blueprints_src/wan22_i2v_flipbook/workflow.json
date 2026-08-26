@@ -519,12 +519,13 @@
   "202": {
     "inputs": {
       "model": "BiRefNet_toonout",
-      "mask_blur": 0.8,
+      "sensitivity": 1.0,
+      "mask_blur": 1,
       "mask_offset": 5,
       "invert_output": false,
       "refine_foreground": false,
       "background": "Alpha",
-      "background_color": "Alpha",
+      "background_color": "#222222",
       "image": [
         "196",
         0

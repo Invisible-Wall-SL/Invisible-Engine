@@ -97,6 +97,51 @@ def test_workflow_build() -> None:
           bp["graph"]["170"]["inputs"]["text"].startswith("The white dragon"), True)
 
 
+def test_birefnet_surface_is_complete() -> None:
+    """Every BiRefNet input is exposed and drivable. Checked against the node's
+    REAL contract (1038lab/ComfyUI-RMBG at the pinned RMBG_REF), because a param
+    whose value is out of the node's domain is a run-time graph rejection, not a
+    validation error we would catch here."""
+    bp = load_blueprint()
+    cutout = {p["key"]: p for p in bp["params"] if p.get("group") == "Cutout"}
+    driven = {p["field"] for p in cutout.values() if p["node"] == "202"}
+    check("every BiRefNet node input is exposed", driven, {
+        "model", "sensitivity", "mask_blur", "mask_offset",
+        "invert_output", "refine_foreground", "background", "background_color"})
+
+    # Types + domains must match the node, or an override is rejected at run time.
+    check("mask_blur is an INT (the node declares INT 0-64, not float)",
+          (cutout["mask_blur"]["type"], cutout["mask_blur"]["min"], cutout["mask_blur"]["max"]),
+          ("int", 0, 64))
+    check("mask_offset keeps the node's -20..20 domain",
+          (cutout["mask_offset"]["min"], cutout["mask_offset"]["max"]), (-20, 20))
+    check("sensitivity keeps the node's 0..1 domain",
+          (cutout["sensitivity"]["min"], cutout["sensitivity"]["max"]), (0.0, 1.0))
+    check("the model list is the node's full 12",
+          len(cutout["birefnet_model"]["options"]), 12)
+    check("and the authored default is in it",
+          cutout["birefnet_model"]["default"] in cutout["birefnet_model"]["options"], True)
+    check("background offers exactly the node's two modes",
+          cutout["background"]["options"], ["Alpha", "Color"])
+
+    # An override must actually reach the node.
+    wf = video_runner.build_video_workflow(
+        bp, "p", "", 1, "r.png",
+        {"birefnet_model": "BiRefNet-matting", "sensitivity": 0.75, "mask_blur": 4,
+         "invert_output": True, "background": "Color", "background_color": "#ff00ff"}, "px")
+    got = {k: v for k, v in wf["202"]["inputs"].items() if k != "image"}
+    check("every override lands on the node", got, {
+        "model": "BiRefNet-matting", "sensitivity": 0.75, "mask_blur": 4,
+        "mask_offset": 5, "invert_output": True, "refine_foreground": False,
+        "background": "Color", "background_color": "#ff00ff"})
+
+    # An out-of-domain select falls back rather than poisoning the graph.
+    wf = video_runner.build_video_workflow(
+        bp, "p", "", 1, "r.png", {"birefnet_model": "NotAModel"}, "px")
+    check("an unknown model falls back to the default",
+          wf["202"]["inputs"]["model"], "BiRefNet_toonout")
+
+
 def test_param_clamping() -> None:
     bp = load_blueprint()
     wf = video_runner.build_video_workflow(
@@ -418,6 +463,7 @@ def test_request_validation() -> None:
 
 if __name__ == "__main__":
     test_workflow_build()
+    test_birefnet_surface_is_complete()
     test_param_clamping()
     test_source_image_required()
     test_output_picking()
