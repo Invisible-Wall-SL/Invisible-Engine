@@ -4,7 +4,7 @@
  * Server — with NO desktop launcher, NO per-game repo, and NO build:
  *
  *   1. resolve the project's client + game type,
- *   2. freshen the `deploy/` exports so the live runtime serves current art/fonts/
+ *   2. freshen the `deploy/` exports so the live runtime serves current art/fonts/sounds/
  *      symbols (the SAME `ensureDeployExports` the live `/api/editor/runtime` runs),
  *   3. mint/get the project's read-only token (gates the public live fetches),
  *   4. map gameType → mock `protocol` + shared `runtime` bundle id,
@@ -15,6 +15,7 @@
  * "Publish" is a DATA + MANIFEST operation: re-running it re-exports + re-registers,
  * never rebuilds. The generic runtime boots the project from the live fetch.
  */
+import type { SoundLicenceSummary } from '$lib/soundUsage';
 import { ENV } from './env';
 import { createGame, gameExists, renameGame, setGameProject, setGameUrl } from './games';
 import { resolveMockContract } from './mockContract';
@@ -22,6 +23,7 @@ import { UNASSIGNED_CLIENT } from './projectPaths';
 import { getOrMintReadToken, projectClientKey, projectGameType, projectName } from './projects';
 import { listAllObjects } from './r2';
 import { ensureDeployExports } from './runtimeBundle';
+import { checkSoundsForPublish } from './soundPublishCheck';
 import { invalidateRuntimeBundle } from './runtimeBundleCache';
 import { upsertTestServerGame } from './testServerManifest';
 
@@ -31,6 +33,9 @@ export interface PublishResult {
 	/** The full playable game URL on the test server (also returned as `playUrl`). */
 	url: string;
 	playUrl: string;
+	/** What this publish shipped, licence-wise — surfaced ONCE, here, because the moment a build
+	 *  goes out is when "who owns this audio" stops being paperwork. Never blocking. */
+	sounds: SoundLicenceSummary;
 }
 
 /**
@@ -40,7 +45,14 @@ export interface PublishResult {
  * so the UI explains why, instead of silently clobbering a real game.
  */
 export class PublishBlockedError extends Error {
-	constructor(message: string) {
+	constructor(
+		message: string,
+		/** What blocked it, for a UI that can offer a way through. `own-bundle` never can — it would
+		 *  clobber a real game — while `unapproved-sounds` is a deliberate-override case. */
+		readonly reason: 'own-bundle' | 'unapproved-sounds' = 'own-bundle',
+		/** The names behind the refusal, so the UI lists them instead of saying "something". */
+		readonly details: string[] = [],
+	) {
 		super(message);
 		this.name = 'PublishBlockedError';
 	}
@@ -92,12 +104,27 @@ function runtimeFor(_gameType: string): string {
 export async function publishGame(
 	projectKey: string,
 	launcherOrigin: string,
+	options: { allowUnapproved?: boolean } = {},
 ): Promise<PublishResult> {
 	const clientKey = (await projectClientKey(projectKey)) ?? UNASSIGNED_CLIENT;
 	const gameType = await projectGameType(projectKey);
 	const name = (await projectName(projectKey)) ?? projectKey;
 
-	// 2. Freshen deploy/ so the live runtime serves the current art/fonts/symbols.
+	// 1a. THE SOUND GATE. Before anything is written: a sound the game plays that nobody has
+	// approved must not reach players unnoticed. Deliberately refused here rather than dropped from
+	// the export — a missing sound is SILENT, and silence is the one defect QA cannot see.
+	const soundCheck = await checkSoundsForPublish(clientKey, projectKey);
+	if (soundCheck.unapproved.length && !options.allowUnapproved) {
+		throw new PublishBlockedError(
+			`${soundCheck.unapproved.length} sound${soundCheck.unapproved.length === 1 ? '' : 's'} ` +
+				`the game plays ${soundCheck.unapproved.length === 1 ? 'is' : 'are'} still marked draft: ` +
+				`${soundCheck.unapproved.join(', ')}. Approve them in Invisible Sound, or publish anyway.`,
+			'unapproved-sounds',
+			soundCheck.unapproved,
+		);
+	}
+
+	// 2. Freshen deploy/ so the live runtime serves the current art/fonts/sounds/symbols.
 	await ensureDeployExports(projectKey, clientKey);
 	// A bundle assembled moments before this publish landed would keep being served for the
 	// rest of its TTL, so a publish-then-reload could still show pre-publish data. Drop it.
@@ -176,5 +203,5 @@ export async function publishGame(
 		// ignore — the test server re-hydrates on its own cadence too.
 	}
 
-	return { key, url, playUrl: url };
+	return { key, url, playUrl: url, sounds: soundCheck.licences };
 }

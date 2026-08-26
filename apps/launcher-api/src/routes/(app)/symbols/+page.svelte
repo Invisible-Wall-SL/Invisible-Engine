@@ -9,7 +9,7 @@
 		SYMBOL_STATE_LABELS,
 		scopedFrameRef,
 	} from 'engine-layout';
-	import { SOUND_EFFECT_NAMES } from 'engine-flow-v2';
+	// Every sound picker on this page offers the engine's own sounds PLUS this project's uploads.
 	import { invalidateAll } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import { SaveState } from '$lib/saveState.svelte';
@@ -2588,7 +2588,7 @@
 											onchange={(e) => setSymbolSound(symbol, state, e.currentTarget.value)}
 										>
 											<option value="">Game default</option>
-											{#each SOUND_EFFECT_NAMES as name (name)}
+											{#each data.soundOptions.sfx as name (name)}
 												<option value={name}>{name}</option>
 											{/each}
 										</select>
@@ -2719,7 +2719,7 @@
 										onchange={(e) => setAnticipationActivation(e.currentTarget.value)}
 									>
 										<option value="">Default (coded sfx_anticipation_start)</option>
-										{#each SOUND_EFFECT_NAMES as name (name)}
+										{#each data.soundOptions.sfx as name (name)}
 											<option value={name}>{name}</option>
 										{/each}
 									</select>
@@ -2737,7 +2737,7 @@
 										onchange={(e) => setAnticipationLoop(e.currentTarget.value)}
 									>
 										<option value="">Default (coded sfx_anticipation)</option>
-										{#each SOUND_EFFECT_NAMES as name (name)}
+										{#each data.soundOptions.sfx as name (name)}
 											<option value={name}>{name}</option>
 										{/each}
 									</select>

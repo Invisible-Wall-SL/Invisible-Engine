@@ -15,8 +15,9 @@ const NO_STORE = { 'cache-control': 'no-store' };
  * `adminPanel` capability — Phase 1 keeps publish an admin operation. Body:
  * `{ project: string }`. On success returns the playable game URL.
  *
- *   POST /api/game-maker/publish   { "project": "<key>" }
- *   → 200 { ok, key, url, playUrl }
+ *   POST /api/game-maker/publish   { "project": "<key>", "allowUnapproved"?: true }
+ *   → 200 { ok, key, url, playUrl, sounds }
+ *   → 409 { error, reason, details }   — blocked; `unapproved-sounds` is overridable
  */
 export const POST: RequestHandler = async ({ request, locals, url, cookies }) => {
 	if (!locals.user) return json({ error: 'Unauthorized' }, { status: 401, headers: NO_STORE });
@@ -26,7 +27,7 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 		return json({ error: 'Forbidden' }, { status: 403, headers: NO_STORE });
 	}
 
-	let body: { project?: unknown };
+	let body: { project?: unknown; allowUnapproved?: unknown };
 	try {
 		body = await request.json();
 	} catch {
@@ -38,9 +39,13 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 		return json({ error: 'Unknown project' }, { status: 400, headers: NO_STORE });
 	}
 
+	// The explicit "ship it anyway" for a sound the game plays that nobody has approved. Only ever
+	// set by an author answering the refusal below — never a default, or the gate would be decorative.
+	const allowUnapproved = body.allowUnapproved === true;
+
 	try {
 		// The runtime fetches its authoring data back from THIS launcher's origin.
-		const result = await publishGame(project, url.origin);
+		const result = await publishGame(project, url.origin, { allowUnapproved });
 		// Pin the session's active project to the one just published — publishing is an
 		// EXPLICIT action on a specific project, so the whole UI (top bar + home selector)
 		// should now agree on it. Without this the active scope keeps whatever it drifted
@@ -56,7 +61,13 @@ export const POST: RequestHandler = async ({ request, locals, url, cookies }) =>
 		// A blocked publish (e.g. a game with its own desktop build) is a 409 with the
 		// explanation, so the UI tells the user WHY instead of a generic failure.
 		if (e instanceof PublishBlockedError) {
-			return json({ error: e.message }, { status: 409, headers: NO_STORE });
+			// `reason` + `details` so the UI can tell an overridable refusal (unapproved sounds) from a
+			// final one (a game with its own desktop build, which overwriting would destroy) — and can
+			// list the sounds instead of saying "something".
+			return json(
+				{ error: e.message, reason: e.reason, details: e.details },
+				{ status: 409, headers: NO_STORE },
+			);
 		}
 		console.error('publishGame failed:', e);
 		// Surface the underlying reason to the UI. The route body is `{ error }` (the

@@ -13,6 +13,8 @@
  * hyphen/underscore mismatch (`my-game` → `my_game`).
  */
 
+import { isValidSoundFile } from 'engine-layout';
+
 export const UNASSIGNED_CLIENT = 'unassigned';
 
 /**
@@ -50,6 +52,7 @@ export const SUB = {
 	fonts: (c: string, p: string) => `${projectPrefix(c, p)}/fonts`,
 	symbols: (c: string, p: string) => `${projectPrefix(c, p)}/symbols`,
 	winText: (c: string, p: string) => `${projectPrefix(c, p)}/win-text`,
+	sounds: (c: string, p: string) => `${projectPrefix(c, p)}/sounds`,
 	config: (c: string, p: string) => `${projectPrefix(c, p)}/config`,
 	cinematics: (c: string, p: string) => `${projectPrefix(c, p)}/cinematics`,
 	storybook: (c: string, p: string) => `${projectPrefix(c, p)}/storybook`,
@@ -303,6 +306,30 @@ export function editorDocBackupSavedAt(id: string): string | null {
  */
 export function winTextDocKey(client: string, project: string): string {
 	return `${SUB.winText(client, project)}/win-text.json`;
+}
+
+/**
+ * `<client>/<project>/sounds/sounds.json` — the Invisible Sound library doc: which sounds the
+ * project owns, their provenance, and whether they are approved to ship.
+ * See `docs/design/invisible-sound.md` §4.
+ */
+export function soundsDocKey(client: string, project: string): string {
+	return `${SUB.sounds(client, project)}/sounds.json`;
+}
+
+/**
+ * `<client>/<project>/sounds/files/<file>` — one uploaded audio file.
+ *
+ * UNLIKE the docs above, this tool ships real assets, so these travel the full rule-8 chain into
+ * `deploy/sounds/` at S4. The filename is validated by `isValidSoundFile` (bare, no directory part,
+ * known audio extension) before it can reach the doc, so the caller cannot address an object
+ * outside the project's own subtree; this asserts it again rather than trusting that, because a
+ * path builder that only works when its input was already checked is a path builder that will
+ * eventually be called with an unchecked one.
+ */
+export function soundFileKey(client: string, project: string, file: string): string {
+	if (!isValidSoundFile(file)) throw new Error(`Invalid sound filename: ${file}`);
+	return `${SUB.sounds(client, project)}/files/${file}`;
 }
 
 /**

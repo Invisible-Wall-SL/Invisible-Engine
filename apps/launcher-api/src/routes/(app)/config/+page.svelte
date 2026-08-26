@@ -25,7 +25,7 @@
 	} from 'game-config';
 	// The game's real sound vocabulary — the SAME generated list the flow editor's sound-cue dropdown
 	// and the Symbols tool's anticipation pickers offer, so a name means the same thing in all three.
-	import { SOUND_EFFECT_NAMES } from 'engine-flow-v2';
+	// Every sound picker on this page offers the engine's own sounds PLUS this project's uploads.
 	import { BUILTIN_SPINE_NAMES, builtinSpineMeta, type ComponentParam } from 'engine-layout';
 	// The Scene Editor's art/region picker — REUSED here (the SAME cross-route import the Symbols
 	// tool uses) so the Card-graphics `image` params get the exact same visual frame picker instead
@@ -657,7 +657,7 @@
 	 *  top of the ladder is the one choice that changes nothing audible until the author picks. */
 	function addSlotRung(id: SoundSlotId): void {
 		const names = slotNames(id);
-		setSlotNames(id, [...names, names[names.length - 1] ?? SOUND_EFFECT_NAMES[0]]);
+		setSlotNames(id, [...names, names[names.length - 1] ?? data.soundOptions.sfx[0]]);
 	}
 
 	/** Never below one rung: an empty list reads as "give me the default back" (see `normalizeSounds`),
@@ -1811,7 +1811,7 @@
 									onchange={(e) => setSlotRung(slot.id, index, e.currentTarget.value)}
 									disabled={lease.readOnly || !enabled}
 								>
-									{#each SOUND_EFFECT_NAMES as option (option)}
+									{#each data.soundOptions.sfx as option (option)}
 										<option value={option}>{option}</option>
 									{/each}
 								</select>

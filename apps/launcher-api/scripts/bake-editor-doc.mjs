@@ -303,6 +303,31 @@ async function main() {
 			);
 		}
 
+	// Export the project's sound library (Invisible Sound) into R2 `deploy/sounds/` so the
+	// deploy mirror that runs next pulls the audio files, and embed the catalog so the game
+	// loads each one as an extra audio bank. Without this an uploaded sound auditions in the
+	// tool and is MISSING from the shipped game — the same gap the font export closed.
+	let sounds = { catalog: { prefix: 'sounds', sounds: [] } };
+	const soundsUrl =
+		`${base}/api/editor/export-sounds?project=${encodeURIComponent(project)}` +
+		`&k=${encodeURIComponent(token)}`;
+	if (dryRun) {
+		console.info('(dry run) skipping the sound export — it writes to R2 deploy/.');
+	} else
+		try {
+			const soundRes = await fetchRetry(soundsUrl, { method: 'POST' }, 'sound export');
+			if (!soundRes.ok) {
+				bail(`Sound export failed: HTTP ${soundRes.status} — ${await bodySnippet(soundRes)}`);
+			}
+			const s = await soundRes.json();
+			if (s?.catalog && Array.isArray(s.catalog.sounds)) sounds = { catalog: s.catalog };
+		} catch (err) {
+			if (err instanceof BakeBail) throw err;
+			bail(
+				`Could not reach ${base}/api/editor/export-sounds — ${err instanceof Error ? err.message : err}`,
+			);
+		}
+
 	// Export the symbol→state asset bindings (Invisible Symbols State Machine) into
 	// R2 `deploy/editor-symbols/` (sprite sheets keyed by their own frame names +
 	// verbatim spine bundles) so the deploy mirror that runs next pulls them, and
@@ -939,6 +964,10 @@ async function main() {
 		fonts,
 		localization,
 		symbols,
+		// The project's own sound library (Invisible Sound). Always present, like `fonts`: an empty
+		// catalog costs ~30 bytes and `bakedSoundBanks` turns it into no banks at all, so a project
+		// with no sounds of its own behaves exactly as before (parity).
+		sounds,
 		// The authored win-text templates (Invisible Win Text). Omitted unless the project
 		// authored something, keeping the bundle byte-identical for every game with no win-text
 		// work — `bakedWinText()` applies the coded defaults when absent (parity).

@@ -186,6 +186,10 @@ export const TOOL_ICONS: Record<string, string> = {
 		'<path d="M3 6a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-8l-5 4v-4H5a2 2 0 0 1-2-2z"/>' +
 			'<line x1="7" y1="8" x2="17" y2="8"/><line x1="7" y1="11.5" x2="13" y2="11.5"/>',
 	),
+	sound: I(
+		'<path d="M4 9.5v5h3.5L12 18V6L7.5 9.5H4z"/>' +
+			'<path d="M15.5 9.5a4 4 0 0 1 0 5"/><path d="M18 7a7.5 7.5 0 0 1 0 10"/>',
+	),
 	// game controller / play (create + publish a playable game)
 	gameMaker: I(
 		'<rect x="2" y="7" width="20" height="10" rx="4"/><line x1="7" y1="12" x2="9" y2="12"/>' +
@@ -302,6 +306,15 @@ export const TOOLS: Record<string, ToolDef> = {
 		kind: 'online',
 		url: '/win-text',
 		icon: TOOL_ICONS.winText,
+	},
+	sound: {
+		id: 'sound',
+		name: 'Invisible Sound',
+		description:
+			'Every sound the game owns: upload music and SFX, listen, record where each came from, and approve the ones cleared to ship.',
+		kind: 'online',
+		url: '/sound',
+		icon: TOOL_ICONS.sound,
 	},
 	gameConfig: {
 		id: 'gameConfig',
@@ -433,7 +446,7 @@ export const TOOL_STAGES: ToolStage[] = [
 		id: 'assets',
 		label: 'Assets',
 		accent: '#f5b95c',
-		tools: ['atlasTool', 'comfyui', 'sheetMaker', 'fontMaker', 'rigger', 'flipbook', 'fx'],
+		tools: ['atlasTool', 'comfyui', 'sheetMaker', 'fontMaker', 'sound', 'rigger', 'flipbook', 'fx'],
 	},
 	{
 		id: 'build',
@@ -501,6 +514,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'symbols',
 		'componentEditor',
 		'fontMaker',
+		'sound',
 		'ftpBrowser',
 		'storybook',
 	],
@@ -519,6 +533,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'symbols',
 		'componentEditor',
 		'fontMaker',
+		'sound',
 	],
 	animator: ['spineViewer', 'rigger', 'spine'],
 	pipelineTester: [
@@ -533,6 +548,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'atlasTool',
 		'sheetMaker',
 		'fontMaker',
+		'sound',
 		'spineViewer',
 		'localization',
 		'winText',
@@ -541,7 +557,7 @@ export const ROLE_TOOLS: Record<Role, string[]> = {
 		'invisibleLauncher',
 	],
 	localizationReviewer: ['localization', 'winText'],
-	audio: ['ftpBrowser', 'storybook', 'invisibleLauncher'],
+	audio: ['sound', 'ftpBrowser', 'storybook', 'invisibleLauncher'],
 };
 
 /**
@@ -718,6 +734,7 @@ const TOOL_DOC_SLUG: Record<string, string> = {
 	flow: 'flow',
 	fx: 'fx',
 	flipbook: 'flipbook',
+	sound: 'sound',
 };
 
 /**
