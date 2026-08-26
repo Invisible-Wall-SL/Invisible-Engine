@@ -1,7 +1,10 @@
 import { error } from '@sveltejs/kit';
+import { BLUEPRINT_PUBLISH_CAPABILITY, roleHasCapability } from '$lib/roles';
 import { ENV } from '$lib/server/env';
 import { r2Slug } from '$lib/server/projectPaths';
+import { getRoleOverrides } from '$lib/server/roleToolAccess';
 import { gate } from '$lib/server/toolScope';
+import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { RequestHandler } from './$types';
 
 /**
@@ -45,6 +48,8 @@ const POST_ROUTES: Record<string, string> = {
 	// Extract → trim → pack → write sheet(s). Runs inline in the tool (seconds of
 	// Pillow work), so this request is slow-ish but synchronous.
 	toclip: '/video/toclip',
+	// Publish a blueprint to the SHARED library. Gated twice over — see `forward`.
+	publish: '/uploadblueprint',
 };
 
 /** Query params the proxy forwards. Anything else is dropped rather than relayed. */
@@ -81,12 +86,44 @@ async function forward(
 		if (v !== null) params.set(p, v);
 	}
 
+	// Publishing writes to the library EVERY project reads, so it carries its own
+	// capability on top of the tool gate — the same `blueprintPublish` check the
+	// /atlas handoff makes. The gate is by KNOWLEDGE OF THE SECRET, not a
+	// forgeable flag: every flipbook user already holds `?k=`, so `bp` is appended
+	// only for a holder, and the tool refuses to publish without it.
+	let outgoing = body;
+	if (target === '/uploadblueprint') {
+		if (!ENV.ATLAS_BLUEPRINT_SECRET) {
+			throw error(503, 'Blueprint publishing is not configured (ATLAS_BLUEPRINT_SECRET).');
+		}
+		// `gate` above throws 401 without a session, so a user exists here — but say
+		// so in the types rather than coercing a Role to '' and hoping.
+		const user = locals.user;
+		if (!user) throw error(401, 'Not signed in.');
+		const [roleOverrides, userOverrides] = await Promise.all([
+			getRoleOverrides(user.role),
+			getToolOverrides(user.id),
+		]);
+		if (!roleHasCapability(user.role, BLUEPRINT_PUBLISH_CAPABILITY, roleOverrides, userOverrides)) {
+			throw error(403, "You don't have permission to publish blueprints. Ask an admin.");
+		}
+		params.set('bp', ENV.ATLAS_BLUEPRINT_SECRET);
+		// This is the VIDEO tool's uploader, so what it publishes is a video
+		// blueprint — decided here rather than trusted from the client, which
+		// would let this route quietly publish into the Atlas Maker's picker.
+		try {
+			outgoing = JSON.stringify({ ...JSON.parse(body ?? '{}'), kind: 'video' });
+		} catch {
+			throw error(400, 'Request body was not valid JSON.');
+		}
+	}
+
 	let res: Response;
 	try {
 		res = await fetch(`${base}${target}?${params.toString()}`, {
 			method: body === undefined ? 'GET' : 'POST',
 			headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-			body,
+			body: outgoing,
 		});
 	} catch (e) {
 		// A generation session is long-running and the tool cold-starts on Railway, so an

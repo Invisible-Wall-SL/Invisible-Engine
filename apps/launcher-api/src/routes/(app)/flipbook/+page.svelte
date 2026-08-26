@@ -863,7 +863,7 @@
 			</aside>
 		</div>
 	{:else}
-		<VideoMode projectKey={data.projectKey} />
+		<VideoMode projectKey={data.projectKey} canPublish={data.canPublishBlueprints} />
 	{/if}
 </div>
 
