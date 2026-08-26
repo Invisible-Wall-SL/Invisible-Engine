@@ -25,6 +25,14 @@ A file browser can be one shared Svelte component **within** the launcher, but t
 
 → **Target shared component:** `<R2Browser>` (domain A) backed by one gated, project-scoped list endpoint. The FTP version (`ftpScope.ts`) is the reference for scoping.
 
+⚠️ **A 5th browser was deliberately NOT built (2026-08-26).** The Flipbook Video mode needs a
+source-image picker whose returned paths the atlas-tool's ref resolver can consume (`sheets/…`,
+`sheet_src/…`, input-rooted `refs/…`). A launcher-side picker would have to reproduce that
+per-root relativization and would drift from it, so `/flipbook`'s picker **proxies the domain-B
+`/fsbrowse`** through `api/flipbook/video/[...path]` instead. Precedent worth copying when a
+domain-A surface needs paths only a domain-B resolver defines — but note it does NOT make
+`/fsbrowse` a domain-A component: it is reachable only through that gated, allow-listed proxy.
+
 ### 2. Table / data-grid view
 | Impl | Domain | File(s) | Status |
 |---|---|---|---|
@@ -33,6 +41,28 @@ A file browser can be one shared Svelte component **within** the launcher, but t
 | Win Text grid (rows = symbols, cols = match counts, editable cells; placeholder shows the inherited value) | A | `(app)/win-text/+page.svelte` | bespoke — 3rd instance; **extract next** |
 
 → **Target:** a small `<DataTable>` (columns def + rows + per-row actions) in `components-shared`. Would simplify admin (health-eval #3), localization, and win-text. The win-text grid adds a requirement the other two don't have: a cell's **placeholder** renders its inherited/effective value, so the extraction needs a per-cell "fallback display" hook.
+
+⚠️ **The Invisible Sound library list is NOT a 4th instance** — do not count it toward the extraction. Every impl above is a MATRIX (rows × columns of same-typed cells, one entity per row and one attribute per column); `/sound` is a per-entity row of heterogeneous controls (play button, text, select, number, toggles, a `<details>` metadata panel). A `<DataTable>` built to cover both would be a layout engine, not a table. See §13.
+
+### 14. Generated-variant gallery (N AI results for one prompt, pick one)
+| Impl | Domain | File(s) | Status |
+|---|---|---|---|
+| Atlas Maker per-region variant gallery (thumbs + seed lock + delete) | B | `services/atlas-tool/ui_server.py` (`/vthumb/`, `/vfull/`, `_serve_variant`) | reference B impl |
+| Flipbook **Video mode** results grid (self-playing animated-WEBP tiles on a checkerboard, seed copy, per-tile status/error) | A | `apps/launcher-api/src/routes/(app)/flipbook/VideoMode.svelte` | first A impl |
+
+→ Same idea either side of the A/B line (generate N, browse, pick one), so keep them visually
+consistent like §4 — but they cannot share code. The A impl needs no `<video>`: an animated WEBP
+plays and loops in a plain `<img>`, and the checkerboard is load-bearing (it is how the author
+sees whether the cutout produced real alpha).
+
+### 13. Per-entity editable list (row = one record, mixed controls)
+| Impl | Domain | File(s) | Status |
+|---|---|---|---|
+| Invisible Sound library — sectioned rows: audition button, name/kind/section, duration, volume, loop, approve pill, delete, plus a collapsible provenance panel | A | `(app)/sound/+page.svelte` | first instance — build the 2nd against this, extract on the 3rd |
+| **Audio audition** — ONE shared `<audio>` element for the whole list (not one per row), src swapped on play, plays at the row's authored volume so what you hear is what the game plays | A | same file | the reusable bit if a second tool ever previews audio |
+| **Upload drop-zone** — drag/drop + "choose files", `accept` derived from the shared extension whitelist, per-file progress, client-side duration measured with `decodeAudioData` before the POST | A | same file | ditto |
+
+→ Distinct from §2: there are no columns, and a row's controls differ by field type. If a second tool needs one, copy from `/sound` rather than reinventing, and extract on the third (the rule §2 is living out).
 
 ### 3. Page layout
 | Impl | Domain | File(s) | Status |

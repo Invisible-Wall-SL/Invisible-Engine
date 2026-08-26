@@ -1,11 +1,16 @@
 # Invisible Flipbook
 
-An online **frame-animation authoring tool**. You take the regions already packed into
-one of your project's atlas sheets, put them in **order**, set a frame rate, watch the
-result play, and save it as a named **clip**. The saved artifact is a `FlipbookClip`
-stored in the project's cloud storage at `<client>/<project>/clips/<id>.clip.json`.
+An online **frame-animation authoring tool**, in two modes.
 
-> **Status (as of 2026-08-20):** **Authoring + shipping.** You can create, order,
+- **Clips** — take the regions already packed into your project's atlas sheets, put them
+  in **order**, set a frame rate, watch the result play, and save it as a named **clip**.
+- **🎬 Video** — *generate* the animation instead: run a ComfyUI blueprint, get several
+  video variations side by side, pick the one you like, and turn its frames into a clip.
+
+Either way the saved artifact is a `FlipbookClip` in the project's cloud storage at
+`<client>/<project>/clips/<id>.clip.json`.
+
+> **Status (as of 2026-08-26):** **Clips: authoring + shipping.** You can create, order,
 > preview, save, rename, copy and delete clips, and the tool warns you when a clip
 > references a region its sheet no longer has. Clips now travel the full
 > export → `deploy/` → bake → pull → `registerFlipbooks` chain, so a clip **does**
@@ -13,6 +18,12 @@ stored in the project's cloud storage at `<client>/<project>/clips/<id>.clip.jso
 > particle art), the **Symbols State Machine** (a symbol×state cell) and the **Scene
 > Editor** (a placed `flipbook` element — drag it from the Library's Flipbooks
 > section). See "What it does not do yet" and `docs/design/invisible-flipbook.md`.
+>
+> **🎬 Video mode: built, but not yet proven on a real generation.** Every step exists and
+> is covered by offline tests, but no video has been generated through it end to end yet —
+> the blueprint still has to be published to the shared library and one job run for real.
+> Treat the first run as a shakedown. See
+> [`../design/invisible-flipbook-video.md`](../design/invisible-flipbook-video.md).
 
 ## What it is
 
@@ -21,17 +32,21 @@ named cells — TexturePacker's frame table is a name→rectangle lookup with no
 Invisible Flipbook adds the one concept that exists nowhere else: **an ordered, named,
 timed group of frames**.
 
-- **A clip is one animation.** It has a name, one **source sheet**, an **ordered** list
-  of region names, an **fps**, and a **loop** flag.
+- **A clip is one animation.** It has a name, a **primary source sheet**, an **ordered**
+  list of region names, an **fps**, and a **loop** flag.
 - **The order is authored, not inherited.** It is not the packing order and not the
   order you happened to click. You drag frames up and down until the animation reads
   right.
 - **A repeated frame is a hold.** Duplicating a frame is a first-class edit, not a
   mistake — repeating region `explode_04` three times holds that pose for three frames.
   Nothing de-duplicates your list.
-- **One sheet per clip.** All of a clip's frames come from a single atlas sheet.
-  Switching sheets clears the frame list (the tool asks first), because the old region
-  names cannot be resolved against a different page.
+- **A clip may span several sheets.** Each frame is either a bare region name (resolved
+  against the clip's primary sheet) or a sheet-scoped reference, so one animation can pull
+  frames from more than one page. That is not a nicety: a multipacked export routinely
+  interleaves one animation across pages, and the 🎬 Video mode produces multi-page clips
+  as a matter of course when an animation is long. **Switching the source sheet does not
+  clear your frame list** — it is the normal way to add frames from another page, and rows
+  carry a sheet chip once a clip spans more than one.
 - **The join to the sheet is by region NAME.** That is what lets you re-pack, resize or
   add to a sheet in the Sheet Maker without breaking a clip — but it also means
   **renaming or deleting a region breaks any clip that used it** (see "Broken frames").
@@ -47,6 +62,11 @@ timed group of frames**.
 
 ## The screen
 
+The tool bar carries a **Clips / 🎬 Video** switch — the two modes share nothing but the
+active project, so switching is instant and loses no work.
+
+### Clips mode
+
 Three columns under the shared tool bar. The bar's right-hand side always shows the
 current frame count, the last save result, and a red **"N missing regions"** pill if the
 clip references frames its sheet no longer has.
@@ -57,7 +77,15 @@ clip references frames its sheet no longer has.
 | **Centre — Preview + Frames** | The playback canvas with its transport (play/pause, scrubber, fps, loop) on top; the **ordered frame list** underneath. |
 | **Right — Source sheet** | A dropdown of the project's atlas sheets, a filter box, and a clickable grid of that sheet's regions. |
 
-## How to use it
+### 🎬 Video mode
+
+A generation form on the left and a grid of results on the right — described in full under
+[🎬 Video mode](#-video-mode--generate-the-animation) below.
+
+## How to use it — Clips
+
+Assembling a clip from frames that already exist. To generate the animation instead, skip
+to [🎬 Video mode](#-video-mode--generate-the-animation).
 
 ### 1. Open it and pick a project
 
@@ -126,16 +154,117 @@ removing the frame and clicking the correct region, or by restoring the name in 
 Sheet Maker. Do not leave it: a silently shortened animation looks plausible, which is
 exactly why the tool shouts about it here rather than letting it surface later.
 
+## 🎬 Video mode — generate the animation
+
+Instead of assembling frames someone already drew, you describe the motion and a model
+generates it. The mode runs a **blueprint** (a saved ComfyUI network from the shared
+library the Atlas Maker uses), gives you several variations to choose between, and turns
+the one you pick into a normal clip.
+
+> **This costs GPU time.** Every variation is a separate job on a paid serverless
+> endpoint. Four variations is four renders. The tool runs them one at a time and lets you
+> cancel, but nothing here is free — decide the variation count deliberately.
+
+### It animates a picture
+
+The reference blueprint is **image-to-video**: it takes a still and moves it. So the
+useful move is to point it at art you already have — a symbol's source sprite — and let
+the model animate *that*, rather than inventing a subject from a prompt alone.
+
+### 1. Set up the generation
+
+The left rail, top to bottom:
+
+| Field | What it does |
+|---|---|
+| **Blueprint** | Which ComfyUI network to run. The list is the shared library — the same one the Atlas Maker uses, so a blueprint published there shows up here. Its description appears underneath. |
+| **Prompt** / **Negative** | What should happen in the animation, and what to avoid. |
+| **Source image** | The still to animate. **Pick…** browses your project's R2 files — the packed sheets, the loose sprite sources and the reference-image folders. An image-to-video blueprint refuses to start without one. |
+| **Variations** | How many to generate (1–12). Each is a separate render with its own seed. |
+| **Settings groups** | Every knob the blueprint's author exposed, grouped as they named them — duration, fps, generation size, sampler settings, output size, background cutout. Each starts at the blueprint's own default; you only override what you touch. |
+
+Press **▶ Generate N**.
+
+### 2. Watch the grid fill
+
+Tiles appear immediately and fill in one at a time as each render finishes. A tile shows
+`queued`, then the live job state, then the animation itself — **playing and looping on
+its own**, on a **checkerboard**.
+
+The checkerboard is there to be read: it is how you see whether the background cutout
+actually produced **transparency**. If a tile's art sits on a solid rectangle, the cutout
+was off or produced nothing, and those frames are not usable as symbol art.
+
+Per tile: the **seed** button copies that render's seed (it reproduces that exact result),
+and **🎞 Make flipbook** starts the conversion.
+
+**■ Cancel** stops a running session — no further variations start, and the in-flight job
+is cancelled on the endpoint so it stops costing money.
+
+Sessions are listed in the dropdown above the grid and persist: close the tab, come back,
+and a session still running reattaches. **Nothing prunes them**, so use 🗑 on sessions you
+are done with.
+
+### 3. Turn a variation into a clip
+
+**🎞 Make flipbook** opens a panel that first reads the animation and tells you what is
+there — frame count, size, frame rate — and **warns you if the frames have no
+transparency** before you spend anything on packing them.
+
+| Field | What it does |
+|---|---|
+| **Clip name** | The clip's name, and the name of the sheet its frames get packed into. |
+| **From** / **To** | The slice of the animation to keep. Generations usually have a dead run at one end. |
+| **Every** | Take every Nth frame. `2` halves the frame count *and* halves the clip's fps, so the motion still plays at the right speed. |
+| **Max px** | Downscale each frame before packing. The single biggest lever on how much atlas space the clip costs. |
+
+The panel shows exactly how many frames the current settings will pack, and at what fps,
+before you commit.
+
+Press **🎞 Pack N frames & create clip**. The tool then:
+
+1. extracts the frames, downscales them, and **alpha-trims** each one — a frame is packed
+   at the size of its actual ink, with its position inside the original canvas recorded, so
+   nothing drifts or pulses when it plays;
+2. packs them into one or more atlas pages (capped at 2048×2048 — a long animation spans
+   several pages, which is normal and costs nothing);
+3. writes the page image, its TexturePacker descriptor and a manifest into your project, so
+   the new sheet behaves like any other sheet everywhere else in the pipeline;
+4. creates the clip with the frames already in order and the fps already set, and **opens it
+   in Clips mode** — where you trim, reorder, hold frames and set the loop mode as usual.
+
+The clip's frame rate comes from the generated animation itself, divided by your **Every**
+setting — so what you saw in the grid is what the clip plays.
+
+### Things worth knowing
+
+- **Transparency is the blueprint's job, not this tool's.** The cutout happens inside the
+  ComfyUI network, before the video is ever saved. If a blueprint's cutout is switched off
+  in its settings, you get opaque frames and no amount of packing will fix them.
+- **A generated sheet is a derived artifact.** Re-running the session and packing again
+  writes a new sheet; the old one stays until you remove it.
+- **The generated videos are authoring artifacts.** They live under
+  `<client>/<project>/video/<session>/` and never ship — a game gets the packed sheet and
+  the clip, never a video file.
+
 ## What it does not do yet
 
 - **No onion-skinning, no per-frame timing.** Every frame in a clip lasts exactly
   `1 / fps` seconds; hold a pose by duplicating the frame.
 - **No reverse/ping-pong playback**, and no in-tool trimming of the source art (that is
-  the Sheet Maker's job — it owns pixels, this tool owns time).
+  the Sheet Maker's job — it owns pixels, this tool owns time). The 🎬 Video mode's
+  **Max px** is the one exception, and only because a generated frame has no sheet to go
+  back to.
+- **🎬 Video: no re-roll of a single tile.** To try again, generate another session.
+- **🎬 Video: one session at a time**, per deliberate choice — a session is several paid
+  GPU jobs, so they are not allowed to stack up.
 
 ## Related
 
 - Design + build plan: [`../design/invisible-flipbook.md`](../design/invisible-flipbook.md)
+- 🎬 Video mode design: [`../design/invisible-flipbook-video.md`](../design/invisible-flipbook-video.md)
+- Where blueprints come from: [Invisible Atlas Maker](atlas-maker.md) ·
+  [`../design/invisible-blueprints.md`](../design/invisible-blueprints.md)
 - Current state: [`../status/flipbook.md`](../status/flipbook.md)
 - The sheets it reads: [Invisible Sheet Maker](sheet-maker.md) ·
   [Invisible Atlas Maker](atlas-maker.md)

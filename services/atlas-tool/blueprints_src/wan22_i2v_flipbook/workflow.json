@@ -1,0 +1,547 @@
+{
+  "97": {
+    "inputs": {
+      "image": "video_wan2_2_14B_i2v_input_image.jpg"
+    },
+    "class_type": "LoadImage",
+    "_meta": {
+      "title": "Load Image (source frame)"
+    }
+  },
+  "165": {
+    "inputs": {
+      "width": 640,
+      "height": 640,
+      "length": [
+        "193",
+        1
+      ],
+      "batch_size": 1,
+      "positive": [
+        "170",
+        0
+      ],
+      "negative": [
+        "194",
+        0
+      ],
+      "vae": [
+        "172",
+        0
+      ],
+      "start_image": [
+        "97",
+        0
+      ]
+    },
+    "class_type": "WanImageToVideo",
+    "_meta": {
+      "title": "WanImageToVideo"
+    }
+  },
+  "167": {
+    "inputs": {
+      "shift": 5.000000000000001,
+      "model": [
+        "185",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingSD3",
+    "_meta": {
+      "title": "ModelSamplingSD3"
+    }
+  },
+  "168": {
+    "inputs": {
+      "value": 20
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Int (Steps)"
+    }
+  },
+  "170": {
+    "inputs": {
+      "text": "The white dragon warrior stands still, eyes full of determination and strength. The camera slowly moves closer or circles around the warrior, highlighting the powerful presence and heroic spirit of the character.",
+      "clip": [
+        "173",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "171": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Enable 4steps LoRA?"
+    }
+  },
+  "172": {
+    "inputs": {
+      "vae_name": "wan_2.1_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE"
+    }
+  },
+  "173": {
+    "inputs": {
+      "clip_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "type": "wan",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "Load CLIP"
+    }
+  },
+  "174": {
+    "inputs": {
+      "unet_name": "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "175": {
+    "inputs": {
+      "unet_name": "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "Load Diffusion Model"
+    }
+  },
+  "176": {
+    "inputs": {
+      "value": 10
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Int (split_step)"
+    }
+  },
+  "177": {
+    "inputs": {
+      "value": 3.5
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "Float (CFG)"
+    }
+  },
+  "178": {
+    "inputs": {
+      "lora_name": "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+      "strength_model": 1.0000000000000002,
+      "model": [
+        "174",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load LoRA"
+    }
+  },
+  "179": {
+    "inputs": {
+      "lora_name": "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+      "strength_model": 1.0000000000000002,
+      "model": [
+        "175",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "Load LoRA"
+    }
+  },
+  "180": {
+    "inputs": {
+      "add_noise": "enable",
+      "noise_seed": 264244520398999,
+      "steps": [
+        "187",
+        0
+      ],
+      "cfg": [
+        "188",
+        0
+      ],
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "start_at_step": 0,
+      "end_at_step": [
+        "186",
+        0
+      ],
+      "return_with_leftover_noise": "enable",
+      "model": [
+        "167",
+        0
+      ],
+      "positive": [
+        "165",
+        0
+      ],
+      "negative": [
+        "165",
+        1
+      ],
+      "latent_image": [
+        "165",
+        2
+      ]
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (Advanced) - high noise"
+    }
+  },
+  "181": {
+    "inputs": {
+      "add_noise": "disable",
+      "noise_seed": 0,
+      "steps": [
+        "187",
+        0
+      ],
+      "cfg": [
+        "188",
+        0
+      ],
+      "sampler_name": "euler",
+      "scheduler": "simple",
+      "start_at_step": [
+        "186",
+        0
+      ],
+      "end_at_step": [
+        "187",
+        0
+      ],
+      "return_with_leftover_noise": "disable",
+      "model": [
+        "189",
+        0
+      ],
+      "positive": [
+        "165",
+        0
+      ],
+      "negative": [
+        "165",
+        1
+      ],
+      "latent_image": [
+        "180",
+        0
+      ]
+    },
+    "class_type": "KSamplerAdvanced",
+    "_meta": {
+      "title": "KSampler (Advanced) - low noise"
+    }
+  },
+  "182": {
+    "inputs": {
+      "value": 1
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "Float (CFG)"
+    }
+  },
+  "183": {
+    "inputs": {
+      "value": 2
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Int (split_step)"
+    }
+  },
+  "184": {
+    "inputs": {
+      "value": 4
+    },
+    "class_type": "PrimitiveInt",
+    "_meta": {
+      "title": "Int (Steps)"
+    }
+  },
+  "185": {
+    "inputs": {
+      "switch": [
+        "171",
+        0
+      ],
+      "on_false": [
+        "175",
+        0
+      ],
+      "on_true": [
+        "179",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Switch (Model)"
+    }
+  },
+  "186": {
+    "inputs": {
+      "switch": [
+        "171",
+        0
+      ],
+      "on_false": [
+        "176",
+        0
+      ],
+      "on_true": [
+        "183",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Switch (Split Step)"
+    }
+  },
+  "187": {
+    "inputs": {
+      "switch": [
+        "171",
+        0
+      ],
+      "on_false": [
+        "168",
+        0
+      ],
+      "on_true": [
+        "184",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Switch (Steps)"
+    }
+  },
+  "188": {
+    "inputs": {
+      "switch": [
+        "171",
+        0
+      ],
+      "on_false": [
+        "177",
+        0
+      ],
+      "on_true": [
+        "182",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Switch (CFG)"
+    }
+  },
+  "189": {
+    "inputs": {
+      "shift": 5.000000000000001,
+      "model": [
+        "190",
+        0
+      ]
+    },
+    "class_type": "ModelSamplingSD3",
+    "_meta": {
+      "title": "ModelSamplingSD3"
+    }
+  },
+  "190": {
+    "inputs": {
+      "switch": [
+        "171",
+        0
+      ],
+      "on_false": [
+        "174",
+        0
+      ],
+      "on_true": [
+        "178",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Switch (Model)"
+    }
+  },
+  "191": {
+    "inputs": {
+      "value": 5
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "Float (Duration)"
+    }
+  },
+  "192": {
+    "inputs": {
+      "value": 16
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "Float (FPS)"
+    }
+  },
+  "193": {
+    "inputs": {
+      "expression": "floor (a * b + 1)",
+      "values.a": [
+        "191",
+        0
+      ],
+      "values.b": [
+        "192",
+        0
+      ]
+    },
+    "class_type": "ComfyMathExpression",
+    "_meta": {
+      "title": "Math Expression"
+    }
+  },
+  "194": {
+    "inputs": {
+      "text": "",
+      "clip": [
+        "173",
+        0
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "196": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "width": 320,
+      "height": 320,
+      "crop": "disabled",
+      "image": [
+        "198",
+        0
+      ]
+    },
+    "class_type": "ImageScale",
+    "_meta": {
+      "title": "Resize Image (output size)"
+    }
+  },
+  "198": {
+    "inputs": {
+      "samples": [
+        "181",
+        0
+      ],
+      "vae": [
+        "172",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE Decode"
+    }
+  },
+  "200": {
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "fps": [
+        "192",
+        0
+      ],
+      "lossless": false,
+      "quality": 90,
+      "method": "default",
+      "images": [
+        "201",
+        0
+      ]
+    },
+    "class_type": "SaveAnimatedWEBP",
+    "_meta": {
+      "title": "SaveAnimatedWEBP"
+    }
+  },
+  "201": {
+    "inputs": {
+      "switch": [
+        "203",
+        0
+      ],
+      "on_false": [
+        "196",
+        0
+      ],
+      "on_true": [
+        "202",
+        0
+      ]
+    },
+    "class_type": "ComfySwitchNode",
+    "_meta": {
+      "title": "Switch (cutout?)"
+    }
+  },
+  "202": {
+    "inputs": {
+      "model": "BiRefNet_toonout",
+      "mask_blur": 0.8,
+      "mask_offset": 5,
+      "invert_output": false,
+      "refine_foreground": false,
+      "background": "Alpha",
+      "background_color": "Alpha",
+      "image": [
+        "196",
+        0
+      ]
+    },
+    "class_type": "BiRefNetRMBG",
+    "_meta": {
+      "title": "BiRefNet Remove Background (RMBG)"
+    }
+  },
+  "203": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "RemoveBCKG?"
+    }
+  }
+}

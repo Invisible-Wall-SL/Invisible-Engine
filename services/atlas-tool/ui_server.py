@@ -41,6 +41,8 @@ import blueprints  # noqa: E402  (shared, data-driven ComfyUI pipeline library)
 import shine  # noqa: E402  (local *_shine derivation, no ComfyUI)
 import pack  # noqa: E402  (MaxRects bin packer for from-scratch auto-pack atlases)
 import runpod_control  # noqa: E402  (RunPod on-demand pod resume/idle-stop)
+import video_runner  # noqa: E402  (Flipbook video sessions — blueprint -> animated WEBP)
+import video_to_clip  # noqa: E402  (Flipbook video -> packed sheet -> clip frames)
 
 # Self-contained tool folder (Tools/<Tool Name>/). All code, config and
 # manifests live here together; per-game ComfyUI dirs come from project_paths.
@@ -4839,6 +4841,35 @@ class Handler(BaseHTTPRequestHandler):
                            qs.get("blueprint", [""])[0]))
         elif path == "/cardsdata":
             self._send(200, "application/json", self._cardsdata())
+        # --- Flipbook video sessions (docs/design/invisible-flipbook-video.md).
+        # Stateless + session-scoped: none of these touch the active manifest,
+        # so a video session and an atlas render can't clobber each other.
+        elif path == "/video/blueprints":
+            self._send(200, "application/json",
+                       json.dumps(blueprints.list_blueprints()).encode())
+        elif path == "/video/sessions":
+            self._send(200, "application/json",
+                       json.dumps(video_runner.list_sessions()).encode())
+        elif path == "/video/status":
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            s = video_runner.get_session(qs.get("session", [""])[0])
+            if s is None:
+                self._send(404, "application/json", b'{"error":"no such session"}')
+            else:
+                self._send(200, "application/json", json.dumps(s).encode())
+        elif path == "/video/probe":
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            self._send(200, "application/json",
+                       self._video_probe(qs.get("session", [""])[0],
+                                         qs.get("v", [""])[0]))
+        elif path == "/video/file":
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            blob = video_runner.read_variation(qs.get("session", [""])[0],
+                                               qs.get("v", [""])[0])
+            if blob is None:
+                self._send(404, "text/plain", b"not found")
+            else:
+                self._send(200, "image/webp", blob)
         elif path.startswith("/regionadv/"):
             self._send(200, "application/json", self._regionadv(path.rsplit("/", 1)[-1]))
         elif path == "/atlasimg":
@@ -4966,6 +4997,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain", self._setmode(json.loads(raw)).encode())
         elif self.path == "/fxbuild":
             self._send(200, "text/plain", self._fxbuild(json.loads(raw)).encode())
+        elif self.path in ("/video/generate", "/video/cancel", "/video/delete",
+                           "/video/toclip"):
+            self._send(200, "application/json", self._video(self.path, raw))
         else:
             self._send(404, "text/plain", b"not found")
             return
@@ -4978,6 +5012,61 @@ class Handler(BaseHTTPRequestHandler):
                 pass
 
     # helpers ----------------------------------------------------------
+    def _video(self, route: str, raw: str) -> bytes:
+        """POST side of the Flipbook video session API.
+
+        Anything the caller can fix comes back as `{"error": "<message>"}` with a
+        200, so the tool renders the message verbatim — same contract the
+        blueprint upload uses, and the reason `video_runner` raises `ValueError`
+        for user-fixable problems and everything else for real faults."""
+        try:
+            payload = json.loads(raw or "{}")
+        except ValueError:
+            return b'{"error":"Request body was not valid JSON."}'
+        if not isinstance(payload, dict):
+            return b'{"error":"Request body was not a JSON object."}'
+        try:
+            if route == "/video/generate":
+                # The worker thread cannot read this request thread's
+                # thread-local context, so capture it here and hand it over.
+                ctx = (project_paths.client_name(), project_paths.project_name())
+                user = getattr(self, "_user_id", "") or ""
+                return json.dumps(
+                    video_runner.start_session(payload, ctx, user)).encode()
+            sid = str(payload.get("session") or "")
+            if route == "/video/cancel":
+                return json.dumps(video_runner.cancel_session(sid)).encode()
+            if route == "/video/toclip":
+                # Packing is seconds of Pillow work, not minutes of GPU — so it
+                # runs INLINE on the request thread rather than becoming a second
+                # background-job system with its own status polling.
+                return json.dumps(video_to_clip.build_clip_sheet(
+                    sid,
+                    int(payload.get("variation") or 0),
+                    name=str(payload.get("name") or ""),
+                    start=int(payload.get("start") or 0),
+                    end=int(payload.get("end") or 0),
+                    stride=int(payload.get("stride") or 1),
+                    max_size=int(payload.get("max_size") or 0),
+                )).encode()
+            return json.dumps(video_runner.delete_session(sid)).encode()
+        except ValueError as e:
+            return json.dumps({"error": str(e)}).encode()
+        except Exception as e:  # noqa: BLE001 — never 500 into the tool UI
+            print(f"[video] {route} failed: {e}", flush=True)
+            return json.dumps({"error": f"{type(e).__name__}: {e}"}).encode()
+
+    def _video_probe(self, session: str, variation: str) -> bytes:
+        """Frame count / size / fps / has-alpha for ONE variation — what the trim
+        panel needs to show a cost before the author commits to packing."""
+        try:
+            return json.dumps(
+                video_to_clip.probe_variation(session, int(variation or 0))).encode()
+        except ValueError as e:
+            return json.dumps({"error": str(e)}).encode()
+        except Exception as e:  # noqa: BLE001 — never 500 into the tool UI
+            return json.dumps({"error": f"{type(e).__name__}: {e}"}).encode()
+
     def _latest(self, path: str) -> Path | None:
         name = urllib.parse.urlparse(path).path.rsplit("/", 1)[-1]
         return latest_output(name)
