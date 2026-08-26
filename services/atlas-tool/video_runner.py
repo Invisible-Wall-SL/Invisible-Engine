@@ -520,20 +520,57 @@ def _adopt(stored: dict) -> dict | None:
 
 
 def cancel_session(session_id: str) -> dict:
-    """Stop a running session: no further variations start, and the in-flight
-    job is cancelled remotely so it stops costing money."""
+    """Stop a session: no further variations start, and any in-flight job is
+    cancelled remotely so it stops costing money.
+
+    Works on a session this process does NOT own. That is the case that matters:
+    a session orphaned by a restart is exactly the one someone wants to stop, and
+    refusing it ("no such running session") left the only stop button inert while
+    the stored doc went on claiming to run.
+    """
     if not valid_session_id(session_id):
         raise ValueError("Bad session id.")
     with _LOCK:
         s = _SESSIONS.get(session_id)
-        if not s:
-            raise ValueError("No such running session.")
-        s["cancel"] = True
-        in_flight = [v.get("job_id") for v in s["variations"]
-                     if v["status"] == "running" and v.get("job_id")]
-    for jid in in_flight:
+        if s:
+            s["cancel"] = True
+            in_flight = [v.get("job_id") for v in s["variations"]
+                         if v["status"] == "running" and v.get("job_id")]
+    if s:
+        for jid in in_flight:
+            _cancel_job(jid)
+        return {"ok": True, "id": session_id, "cancelling": len(in_flight),
+                "adopted": False}
+
+    # Not ours: close it out in the STORED doc, so it stops claiming to run even
+    # though no thread here will ever update it.
+    raw = storage.get(f"{_video_prefix()}/{session_id}/meta.json")
+    if not raw:
+        raise ValueError("No such session.")
+    try:
+        stored = json.loads(raw)
+    except ValueError:
+        raise ValueError("That session's record is unreadable.")
+    stopped = []
+    for v in stored.get("variations", []):
+        if v.get("status") not in ("running", "queued"):
+            continue
+        # Only a RUNNING variation has a job in flight. A queued one may still
+        # carry an id from an earlier attempt, and cancelling that would target a
+        # job this session no longer owns — matching the in-memory branch, which
+        # has always filtered on `running`.
+        if v.get("status") == "running" and v.get("job_id"):
+            stopped.append(v["job_id"])
+        v["status"] = "cancelled"
+        v["finished"] = _now()
+    stored["cancel"] = True
+    stored["status"] = "cancelled"
+    stored["finished"] = _now()
+    for jid in stopped:
         _cancel_job(jid)
-    return {"ok": True, "id": session_id, "cancelling": len(in_flight)}
+    _write_meta(session_id, stored)
+    return {"ok": True, "id": session_id, "cancelling": len(stopped),
+            "adopted": True}
 
 
 def list_sessions() -> list[dict]:
