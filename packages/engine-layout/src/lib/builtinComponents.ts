@@ -994,18 +994,8 @@ export const DEFAULT_WIN_TIERS: WinTierMeta[] = [
 ];
 
 /**
- * Editor-only option lists for the per-tier SOUND dropdowns — the game's `bgm_*` beds and its
- * one-shot (`sfx_*` / `jng_*`) cues. Supplied by the editor from the ONE generated sound enum
- * (`engine-flow-v2` `MUSIC_NAMES` / `SOUND_EFFECT_NAMES`, itself generated from the game's
- * `sound.ts`), so the author picks a sound that exists instead of typing. Omitted at runtime (the
- * built-in {@link WIN_DEF} has none) — `options` is a pure editor hint, so the shipped def + saved
- * doc are unaffected.
- */
-export type WinSoundOptions = { bgm: string[]; sfx: string[] };
-
-/**
  * Per-tier presentation params for the `win` component — a spine picker + a count-slot dropdown +
- * intro/idle/outro dropdowns (of that spine's animations) + duration + sfx/bgm, ONE collapsible
+ * intro/idle/outro dropdowns (of that spine's animations) + duration, ONE collapsible
  * group per tier, keyed by the
  * tier's ALIAS so the runtime resolves each field by `<alias><Field>`. Generated from a big-tier list
  * (the active config's tiers, or {@link DEFAULT_WIN_TIERS} un-authored) so the component's groups mirror
@@ -1013,22 +1003,15 @@ export type WinSoundOptions = { bgm: string[]; sfx: string[] };
  * to the config `spineKey` then the shared `winSpine` at runtime (correct precedence); the editor's
  * animation dropdowns fall back to `winSpine`'s animations when the tier spine is unset.
  *
- * `soundOptions` (editor-only) turns the `<alias>Sfx` / `<alias>Bgm` fields into DROPDOWNS of the
- * game's real sounds (BGM = `bgm_*` beds, SFX = the non-bgm cues); omitted (the runtime call) leaves
- * them free-text `kind:'string'`. Either way an empty value ⇒ the config/coded sound (byte-identical).
+ * A tier's SOUNDS are not here. They are authored in Invisible Sound, with the rest of the game's
+ * audio and next to the button that plays it. The `<alias>Sfx` / `<alias>Bgm` params a project
+ * authored before that move are still READ at runtime (`withWinPresentation`, below the sound doc)
+ * — dropping the pickers must not silence a game that already shipped with them, only stop new ones
+ * from being written where nobody would think to look for them.
  */
-export function winTierPresentationParams(
-	tiers: WinTierMeta[],
-	soundOptions?: WinSoundOptions,
-): ComponentParam[] {
+export function winTierPresentationParams(tiers: WinTierMeta[]): ComponentParam[] {
 	return tiers.flatMap(({ alias, name }): ComponentParam[] => {
 		const spineParam = `${alias}Spine`;
-		const sfx: ComponentParam = { key: `${alias}Sfx`, kind: 'string', group: name, label: 'sfx' };
-		const bgm: ComponentParam = { key: `${alias}Bgm`, kind: 'string', group: name, label: 'bgm' };
-		if (soundOptions) {
-			if (soundOptions.sfx.length) sfx.options = soundOptions.sfx;
-			if (soundOptions.bgm.length) bgm.options = soundOptions.bgm;
-		}
 		return [
 			{ key: spineParam, kind: 'spine', group: name, label: 'spine bundle' },
 			// The tier's own COUNT SLOT. A tier that points at its own rig almost never repeats the base
@@ -1042,8 +1025,6 @@ export function winTierPresentationParams(
 			{ key: `${alias}Idle`, kind: 'spineAnimation', spineParam, group: name, label: 'idle' },
 			{ key: `${alias}Outro`, kind: 'spineAnimation', spineParam, group: name, label: 'outro' },
 			{ key: `${alias}Duration`, kind: 'number', group: name, label: 'duration (ms)' },
-			sfx,
-			bgm,
 		];
 	});
 }

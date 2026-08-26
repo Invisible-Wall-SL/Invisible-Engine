@@ -39,6 +39,7 @@ export const {
 	activeWinModel,
 	activeReelBehaviour,
 	activeSounds,
+	publishSoundBindings,
 	publishWinPresentation,
 	activeWinLevelData,
 	activeWinLevelByAlias,

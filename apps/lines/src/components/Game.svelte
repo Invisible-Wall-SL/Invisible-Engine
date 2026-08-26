@@ -127,6 +127,7 @@
 	import type { Scene } from 'engine-layout';
 
 	import {
+		publishSoundBindings,
 		publishWinLevelsToFacade,
 		publishWinPresentation,
 		resetGameConfigCache,
@@ -190,6 +191,7 @@
 		bakedRigFx,
 		bakedSymbolAssets,
 		bakedWinText,
+		bakedSoundBindings,
 		bakedWinPresentationParams,
 		fallbackEditorScenes,
 		isRuntimeBundleActive,
@@ -321,6 +323,12 @@
 	// the runtime-bundle branch, from the doc the game will actually run. Un-authored / coded-`Win`-bind
 	// ⇒ empty ⇒ every field falls back to the config/coded tier (byte-identical).
 	publishWinPresentation(bakedWinPresentationParams());
+
+	// Publish WHAT PLAYS WHEN — the Invisible Sound doc's choices, already migrated by the export from
+	// a pre-move project's config/symbols docs. Must run after the runtime-bundle branch, on the
+	// bundle the game will actually run. Un-baked dev or a bundle built before the move ⇒ undefined ⇒
+	// slots and win tiers fall back to the config/coded path exactly as before (byte-identical).
+	publishSoundBindings(bakedSoundBindings());
 
 	// DEV/testing fallback for the reel-anticipation mode. The REAL owner is now the Flow
 	// `enableAnticipationMode` effect (Phase 4, `flowEffects.ts`) — it sets these same flags from an

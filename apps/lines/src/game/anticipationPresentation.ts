@@ -1,6 +1,6 @@
 import type { AnticipationTier } from 'utils-slots';
 
-import { bakedAnticipation } from '../editor-scenes';
+import { bakedAnticipation, bakedAnticipationSounds } from '../editor-scenes';
 import { activeBigTiers, boardDimensions } from './gameConfig';
 import type { SoundEffectName } from './sound';
 import { getSymbolX, stateGame, stateGameDerived } from './stateGame.svelte';
@@ -154,13 +154,17 @@ export const resolveAnticipationAnimationBase = (): string =>
  *  `Anticipations.svelte` reads this rather than hardcoding the name. A name absent from the game's
  *  audiosprite is declined silently by howler (inaudible), so an author-typo never errors. */
 export const resolveActivationSound = (): SoundEffectName =>
-	bakedAnticipation()?.activationSound ?? DEFAULT_ANTICIPATION_ACTIVATION_SOUND;
+	(bakedAnticipationSounds()?.activation as SoundEffectName | undefined) ??
+	bakedAnticipation()?.activationSound ??
+	DEFAULT_ANTICIPATION_ACTIVATION_SOUND;
 
 /** The anticipation LOOP sound name = the authored `anticipation.loopSound` ?? the coded
  *  {@link DEFAULT_ANTICIPATION_LOOP_SOUND}. Read by `Anticipations.svelte` for the loop start / fade /
  *  stop, so a swapped loop travels through all three. */
 export const resolveLoopSound = (): SoundEffectName =>
-	bakedAnticipation()?.loopSound ?? DEFAULT_ANTICIPATION_LOOP_SOUND;
+	(bakedAnticipationSounds()?.loop as SoundEffectName | undefined) ??
+	bakedAnticipation()?.loopSound ??
+	DEFAULT_ANTICIPATION_LOOP_SOUND;
 
 /**
  * Reels currently ARMED (`anticipationLevel > 0`). Kept through the reel settle (the level clears only at

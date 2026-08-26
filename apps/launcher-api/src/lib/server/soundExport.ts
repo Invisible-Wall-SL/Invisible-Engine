@@ -1,8 +1,10 @@
-import type { SoundCatalog, SoundCatalogEntry } from 'engine-layout';
-import { soundCatalogEntries } from 'engine-layout';
+import type { SoundBindings, SoundCatalog, SoundCatalogEntry } from 'engine-layout';
+import { effectiveSoundBindings, soundCatalogEntries } from 'engine-layout';
+import { loadGameConfigDoc } from './gameConfigStorage';
 import { SUB, soundFileKey } from './projectPaths';
 import { copyObject, deleteObjects, listAllKeys, putObjectText } from './r2';
 import { loadSoundsDoc } from './soundsStorage';
+import { loadSymbolsDoc } from './symbolsStorage';
 
 /**
  * Export a project's sound library + the audio files it references into the game-loadable
@@ -28,6 +30,11 @@ import { loadSoundsDoc } from './soundsStorage';
  * test build has to be able to hear what it is reviewing, and an exporter that silently dropped
  * unapproved audio would produce exactly the unexplained silence this tool exists to end. S8 adds
  * that gate to the publish path.
+ *
+ * The catalog also carries WHAT PLAYS WHEN. Authoring moved into this tool, but a project written
+ * before that still holds its choices in the config and symbols docs — and only the export sees all
+ * three at once. So the fallback is resolved HERE, once, and the bundle ships one settled answer
+ * instead of asking every runtime read point to re-derive it from documents it may not have.
  */
 
 export interface SoundExportIndex {
@@ -60,6 +67,8 @@ export async function exportProjectSounds(
 		return pruneAndReturn(empty);
 	}
 
+	const bindings = await resolveBindings(clientKey, projectKey, doc);
+
 	const written = new Set<string>();
 	const exported: SoundCatalogEntry[] = [];
 
@@ -74,7 +83,11 @@ export async function exportProjectSounds(
 		exported.push(entry);
 	}
 
-	const catalog: SoundCatalog = { prefix: EXPORT_SUBTREE, sounds: exported };
+	const catalog: SoundCatalog = {
+		prefix: EXPORT_SUBTREE,
+		sounds: exported,
+		...(bindings ? { bindings } : {}),
+	};
 	const indexKey = `${outPrefix}index.json`;
 	await putObjectText(indexKey, JSON.stringify(catalog, null, '\t'), 'application/json');
 	written.add(indexKey);
@@ -83,4 +96,38 @@ export async function exportProjectSounds(
 	await deleteObjects(existing.filter((k) => !written.has(k)));
 
 	return { catalog };
+}
+
+/**
+ * The project's effective choices, migrated on the fly from the OLD homes when this project has not
+ * saved them here yet.
+ *
+ * Whole-doc, never per-field: if the sounds doc carries a `bindings` block it is the entire answer,
+ * exactly as {@link effectiveSoundBindings} defines it. A per-field merge would make a deliberately
+ * cleared cue reappear from the config doc that still holds it, which is the failure mode this
+ * migration exists to end rather than reproduce.
+ *
+ * A failed read of either legacy doc is swallowed: it can only ever have made the fallback richer,
+ * and the whole export must not die because a config doc is momentarily unreadable. Returns
+ * `undefined` when nothing anywhere binds a sound, so an untouched project ships no block at all.
+ */
+async function resolveBindings(
+	clientKey: string,
+	projectKey: string,
+	doc: Awaited<ReturnType<typeof loadSoundsDoc>>,
+): Promise<SoundBindings | undefined> {
+	if (doc?.bindings) return doc.bindings;
+
+	const [config, symbols] = await Promise.all([
+		loadGameConfigDoc(clientKey, projectKey).catch(() => null),
+		loadSymbolsDoc(clientKey, projectKey).catch(() => null),
+	]);
+
+	const migrated = effectiveSoundBindings(doc, {
+		configSounds: config?.sounds,
+		symbolSounds: (symbols as { symbolSounds?: unknown } | null)?.symbolSounds,
+		anticipation: (symbols as { anticipation?: unknown } | null)?.anticipation,
+		winLevels: config?.winLevels,
+	});
+	return Object.keys(migrated).length ? migrated : undefined;
 }

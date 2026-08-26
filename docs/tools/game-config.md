@@ -59,10 +59,7 @@ before — an un-authored project still runs the compiled template.
   tumble** — see _Tumbling (cascade)_ below.
 - **Reel behaviour** — how a round **arrives** on the board: whether the reels roll
   at all, and if not, how the new symbols get there. See _Reel behaviour_ below.
-- **Sounds** — which cue the game plays at each named moment: the cascade pop, the
-  reel-stop ladder, the landing cues. Every slot already has a sound, so this panel
-  is for **departing** from the shipped set rather than filling in blanks. See
-  _Sounds_ below.
+- **Sounds** — moved to [Invisible Sound](sound.md). The panel here is a pointer.
 - **Paylines** — a visual grid, one cell per reel per line, showing the **live server
   (RGS) line set** the game actually deals at runtime — **auto-loaded** when the page
   opens (best-effort; falls back to the saved config if the RGS is unreachable).
@@ -134,56 +131,18 @@ warnings tell you when a saved setting is currently inert.
 
 ## Sounds
 
-Each row is a **slot** — one named moment the game plays a cue at. Every slot already
-carries the engine's own binding, so a project that never opens this panel still makes
-all of these sounds. The panel is for **departing** from that, and a slot you leave
-alone keeps tracking the engine's, so it improves when the engine's does. The badge on
-each row says **Default** or **Custom**; **Reset to default** puts a row back to
-tracking rather than pinning today's copy of it.
+**Moved to [Invisible Sound](sound.md).** Which cue the game plays at each named moment
+— the cascade pop, the reel-stop ladder, the landing cues, the per-symbol exceptions,
+the win-tier stings — is chosen there, next to the library the cues come from and the
+button that plays them.
 
-| Slot                     | Fires when                                                                        |
-| ------------------------ | --------------------------------------------------------------------------------- |
-| **Tumble explosion**     | A tumble removes the winning symbols. One pop per cascade **step**, not per cell. |
-| **Reel stop**            | Each reel comes to rest. Quieter on a turbo spin.                                 |
-| **Picture symbol lands** | A high-paying symbol settles into its cell.                                       |
-| **Royal symbol lands**   | A low-paying card symbol settles into its cell.                                   |
-| **Scatter lands**        | A scatter settles into its cell.                                                  |
-| **Wild lands**           | A wild / multiplier settles into its cell.                                        |
-| **Wild explodes**        | The wild's own spine animation reaches its explode beat.                          |
+It moved because splitting "which sound" from "the sounds" across three tools is what
+let names sit bound to nothing for the whole life of the fork: the audiosprite shipped a
+five-rung cascade ladder that no code path ever played, and 26 of its 53 regions had
+never been heard at all.
 
-**Picture vs royal** is decided by the **paytable**, not by the symbol's name: a symbol
-paying at or below the middle of your paying dictionary is a royal, above it a picture.
-So `CHERRY`/`BELL` works exactly as `H1`/`L1` does — there is no naming convention to
-follow.
-
-### Ladders
-
-Some slots hold a **ladder** — several sounds played in order, so repeats escalate
-instead of repeating. The rung is:
-
-- **Tumble explosion** — the cascade **step**. The round's first tumble plays rung 1,
-  the second rung 2, so a long chain climbs. Restarts each spin.
-- **Reel stop** — the **reel index**, which is what gives the left-to-right stop its
-  rising pitch.
-- **Scatter lands** — the running **scatter count** this spin. That is what makes the
-  third one sound like a trigger.
-
-Past the last rung a ladder **holds there** rather than restarting — a six-reel board on
-a five-rung ladder plays rung 5 twice. Use **+** / **−** to change how many rungs a
-ladder has; it never goes below one, because an empty list means "give me the default
-back", not silence.
-
-### Volume and silence
-
-**Volume** is a 0–1 fraction; blank means the sound player's own level. **Silent** is
-the only way to turn a moment off — deliberately a different gesture from clearing the
-list, which is the far likelier accident.
-
-### Binding one symbol instead of the whole game
-
-A slot is game-wide. To make **one symbol** sound different, use
-[Invisible Symbols](symbols-state-machine.md) → **Symbol sounds**; a symbol's own cue
-wins over the slot for landing, and is heard alongside the cascade's pop.
+A project set up before the move keeps playing exactly what it played. Its choices are
+read out of this doc until someone saves in the sound tool, which moves them for good.
 
 ## Tumbling (cascade)
 
@@ -268,9 +227,10 @@ Each big tier has:
 - an amount **threshold** — the win as a multiple of the total bet at or above which
   the tier applies. Thresholds ascend down the list.
 
-The spine bundle, animation names, duration and sound are **not** on this panel — set
-them on the Win Overlay component per tier (a spine picker + intro / idle / outro
-dropdowns of that spine's animations + duration + SFX / BGM).
+The spine bundle, animation names and duration are **not** on this panel — set them on
+the Win Overlay component per tier (a spine picker + intro / idle / outro dropdowns of
+that spine's animations + duration). A tier's **sounds** are in
+[Invisible Sound](sound.md) → **Win tiers**.
 
 Reorder tiers with the ↑ / ↓ arrows. **Load default big wins** (shown when empty)
 seeds the game type's default ladder — managed floor plus its big tiers — so you can

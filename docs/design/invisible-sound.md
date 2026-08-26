@@ -55,33 +55,58 @@ a visible defect; it is nothing at all. That single fact drives two decisions in
 Files, upload/replace, audition, per-sound metadata, provenance, approval state. One name space
 per project, sectioned for browsing (music / reels / symbols / wins / UI / free spins / …).
 
-### 2.2 It owns the USAGE INDEX
+### 2.2 It owns the CHOICES
 
-A read-across table of every sound moment in the game — including the ones still hardcoded — with
-each row linking to the tool that owns its binding. §7.
+Which cue plays at each of the game's named moments, in categories: the game-wide slots, the
+per-symbol exceptions, the anticipation tease, the win tiers. Authored here, saved into the same
+doc as the library, resolved into the bundle by the export.
 
-### 2.3 It does NOT own the bindings
+### 2.3 It owns the usage index
 
-The tempting version of this tool is "one page where every sound in the game is bound". That is
-the wrong shape, for the reason `docs/status/README.md` states as the house rule: **one fact, one
-home.** A binding belongs next to the thing it describes:
+A read-across of every sound name the game asks for, checked against the library. Its job is to
+name the failure you cannot hear: a bound name the project does not have, a sound nothing plays, a
+played sound nobody approved. §7.
 
-| Binding | Home | Why it stays there |
+### 2.4 It does NOT own the flow cues
+
+A cue node on the flow graph has wires, a condition and a position in a sequence. Editing it
+anywhere else means editing it blind, so it stays in `/flow-v2` and this tool lists it read-only.
+
+That is the only exception. **Everything else moved here**, and the earlier draft of this section
+argued the opposite — that a binding belongs next to the thing it describes, one fact one home.
+The argument was wrong about which fact. "What plays at the reel stop" is not a fact about the reel
+stop; it is a fact about the game's audio, and the game's audio was scattered across three tools
+none of which could hear it. The concrete cost:
+
+- `tumble_win_1…5` shipped in the audiosprite from the day of the fork and no code path ever played
+  a rung. The names appeared in the flow editor's dropdown (generated from the `SoundName` union,
+  which lists names, not wiring), so the sound looked bound while the board popped in silence.
+- 26 of 53 audiosprite regions had never been played by anything.
+- Choosing a game's audio meant opening `/config`, `/symbols` and the Scene Editor, knowing which
+  one owned which moment, and having no way to hear any of them.
+
+| What | Where it was | Where it is |
 |---|---|---|
-| Game-wide slot (`reelStop`, `tumbleExplosion`, …) | `/config` → Sounds (`GameConfigDoc.sounds`) | The slot catalogue is the engine's contract about *when* a cue fires; it is math-adjacent config, and `normalizeSounds` stores only departures so the shipped defaults stay live. |
-| Per symbol × state | `/symbols` (`SymbolsDoc.symbolSounds`) | A symbol's land sound belongs beside its land animation. Sparse override of the above. |
-| One-off graph cue | `/flow-v2` sound-cue nodes | A cue node has wires, conditions and a position. It does not survive being edited out of its graph. |
-| Win-tier `sound{sfx,bgm}` | `/config` → win tiers | Already there, already resolved out of the tree. |
+| Game-wide slot (`reelStop`, `tumbleExplosion`, …) | `/config` → Sounds (`GameConfigDoc.sounds`) | `/sound` → Game moments |
+| Per symbol × state | `/symbols` (`SymbolsDoc.symbolSounds`) | `/sound` → Per-symbol cues |
+| Anticipation sting + loop | `/symbols` → Reel anticipation | `/sound` → Reel anticipation (the per-tier VOLUMES stay in `/symbols`: they are the intensity ramp, not a choice of sound) |
+| Win-tier `sfx`/`bgm` | `/config` win tiers + the `win` component's `<alias>Sfx`/`<alias>Bgm` params | `/sound` → Win tiers |
+| One-off graph cue | `/flow-v2` | unchanged — listed here, edited there |
 
-Moving any of these into a sound page would give the fact two homes and re-create precisely the
-drift the departure-only normalizer was written to prevent. **What is missing is the reverse
-direction, not a second forward one.**
+### 2.5 The migration is whole-doc, and one-way
 
-**Built read-only (S7).** An earlier draft of this section allowed inline editing of the `/config`
-slots and `/symbols` cues "where the write is a plain doc save it can perform honestly". It was
-dropped: it would put two more ETag-guarded save paths and two more leases on this page, and a
-binding changed without its own tool's context — a slot's ladder semantics, a symbol's state
-machine — is a binding changed blind. Every row links out instead.
+`SoundsDoc.bindings` absent means "this project has not authored here yet", and the fallback reads
+the old docs — so the page opens on what the game actually plays rather than an empty form. The
+first save writes the block and the fallback never runs again.
+
+Whole-doc, never per-field (`effectiveSoundBindings`). A per-field merge would resurrect a cue the
+author deliberately cleared here out of the config doc that still holds it, and there would be no
+gesture that means "no, really, nothing" — which is the exact class of invisible failure this tool
+exists to end. An **empty** block is still a block.
+
+The old fields stay in their schemas and are still read at runtime BELOW the sound doc, so a game
+that shipped before the move keeps sounding the same until someone opens the tool. Only the
+authoring UI was removed.
 
 ## 3. Banks — how an uploaded sound becomes playable
 
@@ -142,6 +167,14 @@ type SoundsDoc = {
   version: 1;
   updatedAt: string;
   entries: SoundEntry[];
+  bindings?: SoundBindings;   // WHAT PLAYS WHEN — absent ⇒ read the old homes (§2.5)
+};
+
+type SoundBindings = {
+  slots?: Record<SoundSlotId, { names?: string[]; volume?: number; enabled?: boolean }>;
+  symbols?: Record<string, Record<string, string>>;   // symbol → state → name
+  anticipation?: { activation?: string; loop?: string };
+  winTiers?: Record<string, { sfx?: string; bgm?: string }>;
 };
 
 type SoundEntry = {
@@ -180,8 +213,16 @@ an unlicensed upload into a signed-off one.
 `name` is the join key to every binding in the system, and it is therefore **rename-hostile in the
 same way a sheet region is** (`docs/design/invisible-flipbook.md` → "Referential integrity"). A
 rename must either be refused while the name is bound, or offered as a *rewrite* that updates the
-config doc and the symbols doc and reports the flow cues it cannot touch. Silently allowing it
-reproduces the FX `art.frames[]` dangling-ref class, and here the failure is inaudible.
+bindings block and reports the flow cues it cannot touch. Silently allowing it reproduces the FX
+`art.frames[]` dangling-ref class, and here the failure is inaudible. (Cheaper now that the
+bindings live in the same doc: the rewrite is one save, not three.)
+
+**Every level of `bindings` is sparse, and empty is dropped on save.** `{}` and absent must read
+the same to a runtime, or a project that authored a cue and then cleared it reads as
+authored-with-nothing — which is silence, not a default. The one exception is `enabled: false`: it
+is the gesture that MEANS "play nothing here", so a choice carrying only that survives alone. A
+slot's `names` are stored only when they DEPART from the catalogue, so a project matching the
+defaults keeps tracking them when they improve instead of freezing today's copy.
 
 ## 5. Chain (rule 8 — export → bake → pull → register)
 
@@ -193,14 +234,21 @@ Mirror `fontExport.ts` verbatim — it is the closest analogue (files + a catalo
    **Conditional writes** — §5.1.
 3. **Export** — `lib/server/soundExport.ts` copies each entry's file plus a catalog into
    `<client>/<project>/deploy/sounds/<file…>` + `deploy/sounds/index.json`. Prunes leftovers from a
-   previous export; idempotent.
+   previous export; idempotent. **The catalog also carries `bindings`** — the export is the one
+   place that can see the sound, config and symbols docs at once, so it settles the §2.5 fallback
+   there and the bundle ships a single answer instead of asking every runtime read point to
+   re-derive it from documents it may not have.
 4. **Bake** — `bake-editor-doc.mjs` triggers the export and embeds the catalog in the bundle.
    ⚠️ **And `lib/server/runtimeBundle.ts` too.** They are separate assemblies; a new baked-data class
    added to only one of them ships empty — the exact way `effects`/`rigFx` once did.
 5. **Pull** — `pull-project-assets.mjs` mirrors `deploy/` → `static/assets/`; file names preserved
    verbatim so the catalog's relative references resolve.
 6. **Register** — `bakedSoundCatalog()` in `editor-scenes.ts` (runtime → baked → undefined), merged
-   into the bank list at `EnableSound.svelte`.
+   into the bank list at `EnableSound.svelte`. The CHOICES ride the same accessor:
+   `bakedSoundBindings()` feeds `publishSoundBindings()` at boot (`Game.svelte`, next to
+   `publishWinPresentation`) so the slots and win tiers resolve from it, and
+   `bakedSymbolSounds()` / `bakedAnticipationSounds()` read it directly. Absent ⇒ every one of
+   them falls through to the config/symbols/coded path it used before.
 
 **Parity is the acceptance test:** with no sounds doc, the bank list is `[builtinBank]` and the game
 is byte-identical to today.
@@ -251,10 +299,10 @@ The read-across table, assembled from every binding surface plus a scan of what 
 
 | Source | Read from | Editable here? |
 |---|---|---|
-| Game-wide slots | `GameConfigDoc.sounds` + the `SOUND_SLOTS` catalogue defaults | no — links to `/config` |
-| Per symbol × state | `SymbolsDoc.symbolSounds` | no — links to `/symbols` |
-| Anticipation cues | `SymbolsDoc` anticipation sound fields | no — links to `/symbols` |
-| Win tiers | `GameConfigDoc` win levels `sound{sfx,bgm}` | no — links to `/config` |
+| Game-wide slots | `bindings.slots` + the `SOUND_SLOTS` catalogue defaults | **yes** — Game moments |
+| Per symbol × state | `bindings.symbols` | **yes** — Per-symbol cues |
+| Anticipation cues | `bindings.anticipation` | **yes** — Reel anticipation |
+| Win tiers | `bindings.winTiers` | **yes** — Win tiers |
 | Flow cues | the FlowDoc's sound-cue nodes | **no** — jump to node |
 | **Not rebindable** | derived: shipped audiosprite names that NO surface above binds | **no** — informational |
 
@@ -272,10 +320,10 @@ and each entry is a candidate for promotion into `SOUND_SLOTS`.
 > that no slot, symbol, tier or flow cue names is, by construction, one only code can reach. It is
 > also project-accurate — bind `bgm_main` in your flow and it leaves the list.
 
-**None of these rows is editable here, including the two the table above once marked "yes".** A
-slot's ladder semantics and a symbol's state machine are the context you need to change a binding
-safely; a stripped-down editor on this page would be a second, worse home for the same fact, which
-is what §2.3 exists to prevent. Every row links out instead.
+**The index is derived from what is on the page, not from the server's read of the docs.** Every
+count, chip and warning therefore answers for the state on screen now. A server-side index would be
+one save behind every edit, which on a tool whose whole job is to surface inaudible mistakes would
+be a tool that lies until you reload.
 
 Three checks fall straight out of the index:
 
@@ -327,9 +375,11 @@ boundary.
 | **S7** | Usage index + the three checks (§7), incl. the coded-literal scan | The table names every bound and unbound sound in the project |
 | **S8** | Publish gate + license summary (§6) | Publish refuses a bound draft, and the override works |
 | **S9** | Dropdown unification; retire `gen-flow-v2-sound-enums.mjs` (§8) | Every picker offers the project's own names |
+| **S10** | **Authoring moves in** — `bindings` on the doc, the categories UI, the pickers out of `/config`, `/symbols` and the Scene Editor, migration at export, runtime read path | Every moment is chosen in `/sound`, and a pre-move project's game sounds the same until someone opens it |
 
-S1–S4 are the feature ("upload a sound, hear it in the game"). S5–S6 make it a tool. S7–S9 are the
-unification, and they are what makes it worth having built.
+S1–S4 are the feature ("upload a sound, hear it in the game"). S5–S6 make it a tool. S7–S9 made the
+pickers agree on a vocabulary. **S10 is the unification the tool was asked for**: S1–S9 shipped a
+library with a read-only index and left the choices in three other tools, which is not the thing.
 
 ## 10. Open questions
 
@@ -341,7 +391,13 @@ unification, and they are what makes it worth having built.
   manual lever; whether to auto-analyse on upload (LUFS) and pre-fill it is open.
 - **Who owns the slot catalogue.** `SOUND_SLOTS` stays in `packages/game-config` — it is the
   engine's contract about *when* a slot fires, and it must remain dependency-free and
-  fixture-verifiable offline. `/sound` reads it. Do not move it.
+  fixture-verifiable offline. `/sound` reads it. Do not move it — only the author's CHOICE moved,
+  never the catalogue of what a moment IS.
+- **The old fields.** `GameConfigDoc.sounds`, `SymbolsDoc.symbolSounds`, the symbols doc's
+  anticipation sound fields and the `win` component's `<alias>Sfx`/`<alias>Bgm` params are still in
+  their schemas and still read at runtime, one rank below the sound doc. That is deliberate: a game
+  that shipped before the move must keep sounding the same until someone opens the tool. They become
+  removable once every live project has saved once in `/sound`, and not before.
 - **Builtin bank provenance.** The 53 shipped sounds inherit from the Stake Engine fork and their
   licensing has never been recorded. They should enter the index as `origin: 'builtin'` with an
   explicitly unknown license rather than being silently marked clean.

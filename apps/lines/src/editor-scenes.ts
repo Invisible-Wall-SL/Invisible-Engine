@@ -10,6 +10,7 @@ import type {
 	LayoutNode,
 	ResolvedWinText,
 	RigFxBinding,
+	SoundBindings,
 	SoundCatalog,
 	SymbolNameMap,
 	WinTextDoc,
@@ -749,9 +750,26 @@ export function bakedSymbolNames(): SymbolNameMap {
  * an un-authored project ships in.
  */
 export function bakedSymbolSounds(): Record<string, Record<string, string>> {
+	// The sound doc is the WHOLE answer when it has one — never merged with the symbols doc's own
+	// map. A per-symbol merge would resurrect a cue the author deliberately cleared in the tool from
+	// the old doc that still carries it, which is the one outcome a migration must not produce.
+	const authored = bakedSoundBindings()?.symbols;
+	if (authored) return authored;
 	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.symbolSounds ?? {};
 	if (!hasBakedDoc()) return {};
 	return bakedBundle.symbols?.symbolSounds ?? {};
+}
+
+/**
+ * WHAT PLAYS WHEN, as resolved by the sound export — the choices authored in Invisible Sound, with
+ * a pre-move project's config/symbols choices already migrated in (the export is the only place
+ * that can see all three docs, so it settles the fallback and the bundle carries one answer).
+ *
+ * `undefined` for un-baked dev and for a bundle built before the move, which is exactly when every
+ * reader should keep doing what it did before.
+ */
+export function bakedSoundBindings(): SoundBindings | undefined {
+	return bakedSoundCatalog()?.bindings;
 }
 
 /**
@@ -821,6 +839,16 @@ export function bakedAnticipation():
 	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.anticipation;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.symbols?.anticipation;
+}
+
+/**
+ * The anticipation tease's two CUES, from the sound doc. Separate from {@link bakedAnticipation}
+ * because only the sounds moved: the tease's spine, scale, tint and per-tier ramp are still authored
+ * in Invisible Symbols, and splitting the read here is what lets one field move without dragging the
+ * other twenty with it. `undefined` on either field ⇒ the symbols doc, then the coded default.
+ */
+export function bakedAnticipationSounds(): { activation?: string; loop?: string } | undefined {
+	return bakedSoundBindings()?.anticipation;
 }
 
 /**
