@@ -22,6 +22,7 @@ export const GET: RequestHandler = async ({ locals }) => {
 			configured: list.configured,
 			nodes: list.nodes,
 			skipRequirements: list.skipRequirements,
+			corePacks: list.corePacks,
 			error: list.error,
 		},
 		{ headers: NO_STORE },

@@ -27,6 +27,13 @@ yarn-error.log*
 #svelte-kit
 .svelte-kit
 build
+# `build` above is UNANCHORED, so it matches a directory called `build` at ANY depth — which
+# silently swallowed a SvelteKit route, `.../routes/(app)/comfyui/build/+server.ts`. It was
+# never committed, `git add -A` said nothing (ignored files are skipped in silence), and the
+# only symptom was a 404 in production. Source is never build output, so nothing under a
+# `src/` tree is ever ignorable.
+!**/src/**/build/
+!**/src/**/build/**
 out/
 dist
 

@@ -43,6 +43,7 @@ export interface PodNode {
 interface NodesDoc {
 	nodes: PodNode[];
 	skipRequirements?: string[];
+	corePacks?: string[];
 	[key: string]: unknown;
 }
 
@@ -50,6 +51,8 @@ export interface NodeListState {
 	configured: boolean;
 	nodes?: PodNode[];
 	skipRequirements?: string[];
+	/** Packs that ship inside ComfyUI itself — never "missing from the image". */
+	corePacks?: string[];
 	/** The blob sha the list was read at — the caller passes it back to detect a race. */
 	revision?: string;
 	error?: string;
@@ -108,6 +111,7 @@ export async function readNodeList(): Promise<NodeListState> {
 		configured: true,
 		nodes: doc.nodes,
 		skipRequirements: doc.skipRequirements ?? [],
+		corePacks: doc.corePacks ?? [],
 		revision: body?.sha,
 		doc,
 	};
