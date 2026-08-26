@@ -199,7 +199,20 @@
 	async function cancel(): Promise<void> {
 		if (!session) return;
 		try {
-			await postJson('cancel', { session: session.id });
+			// The tool answers a user-fixable refusal as 200 + {error}. Ignoring that
+			// is what made this look like a dead button: the request succeeded, the
+			// cancel did not, and nothing said so.
+			const res = await postJson<{ ok?: boolean; error?: string }>('cancel', {
+				session: session.id,
+			});
+			if (res.error) {
+				err = res.error;
+				return;
+			}
+			err = '';
+			// Reflect it immediately rather than waiting for the next poll — which,
+			// for a session whose worker already died, would never come.
+			session = await getJson<Session>('status', `session=${encodeURIComponent(session.id)}`);
 		} catch (e) {
 			err = (e as Error).message;
 		}
@@ -974,17 +987,17 @@ Overwrite it?`)
 							<option>bool</option><option>select</option>
 						</select>
 						<select
-							value={prm.node && prm.field ? `${prm.node} ${prm.field}` : ''}
+							value={prm.node && prm.field ? `${prm.node}::${prm.field}` : ''}
 							disabled={pubBusy}
 							onchange={(e) => {
-								const [n, f] = e.currentTarget.value.split(' ');
+								const [n, f] = e.currentTarget.value.split('::');
 								prm.node = n ?? '';
 								prm.field = f ?? '';
 							}}
 						>
 							<option value="">(node · input)</option>
 							{#each paramTargets as t (t.node + t.field)}
-								<option value={`${t.node} ${t.field}`}>{t.label}</option>
+								<option value={`${t.node}::${t.field}`}>{t.label}</option>
 							{/each}
 						</select>
 						<input placeholder="default" bind:value={prm.def} disabled={pubBusy} />
