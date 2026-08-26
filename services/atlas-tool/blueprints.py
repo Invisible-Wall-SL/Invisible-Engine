@@ -96,6 +96,8 @@ def hydrate(force: bool = False) -> None:
             BLUEPRINTS_STAGING,
             SHARED_BLUEPRINTS_PREFIX + "/",
         )
+        # After the pull, so we publish only what the library genuinely lacks.
+        _seed_bundled_if_missing()
     except Exception as e:  # noqa: BLE001 — first run / empty bucket / transient
         # Say it out loud. This used to be wholly silent, which meant a service
         # that could not reach R2 served stale staging copies forever with no
@@ -103,6 +105,58 @@ def hydrate(force: bool = False) -> None:
         print(f"[blueprints] hydrate FAILED ({type(e).__name__}): {e}", flush=True)
         with _HYDRATE_LOCK:
             _HYDRATED = False
+
+
+# The blueprints baked into THIS image (`COPY services/atlas-tool/ .`), which is
+# also where `seed_blueprints.py` reads from.
+BUNDLED_SRC = Path(__file__).resolve().parent / "blueprints_src"
+
+
+def _seed_bundled_if_missing() -> None:
+    """Publish the blueprints bundled in this image to the shared library, for
+    any id the library does not already have.
+
+    Why this is automatic rather than a manual `seed_blueprints.py` run: the
+    library is supposed to make "adding a built-in is just another
+    `blueprints_src/<id>/` folder" true, but that only held if somebody
+    remembered to run a script with production R2 credentials on their own
+    machine. In practice nobody did — a live bucket was found holding four
+    hand-uploaded blueprints and NONE of the three built-ins, so a folder added
+    to the repo simply never existed in the library. The service already has the
+    files and the credentials; it should not need a human courier.
+
+    NEVER overwrites. An id already present is left exactly as it is, so a
+    blueprint someone edited through the tool is safe and this is idempotent.
+    """
+    if not BUNDLED_SRC.is_dir():
+        return
+    for d in sorted(x for x in BUNDLED_SRC.iterdir() if x.is_dir()):
+        man, wf = d / "blueprint.json", d / "workflow.json"
+        if not man.is_file() or not wf.is_file():
+            continue
+        key = f"{SHARED_BLUEPRINTS_PREFIX}/{d.name}/blueprint.json"
+        try:
+            if storage.exists(key):
+                continue
+        except Exception as e:  # noqa: BLE001 — can't ask R2 ⇒ don't guess, skip
+            print(f"[blueprints] bundled-seed check failed for '{d.name}': {e}",
+                  flush=True)
+            return
+        try:
+            for name in ("blueprint.json", "workflow.json", "thumb.png"):
+                f = d / name
+                if not f.is_file():
+                    continue
+                storage.put(f"{SHARED_BLUEPRINTS_PREFIX}/{d.name}/{name}",
+                            f.read_bytes())
+                # Mirror into staging too, so it is listable on THIS boot rather
+                # than only after the next restart's pull.
+                dest = BLUEPRINTS_STAGING / d.name
+                dest.mkdir(parents=True, exist_ok=True)
+                (dest / name).write_bytes(f.read_bytes())
+            print(f"[blueprints] seeded bundled blueprint '{d.name}'", flush=True)
+        except Exception as e:  # noqa: BLE001 — one bad blueprint, keep going
+            print(f"[blueprints] could not seed bundled '{d.name}': {e}", flush=True)
 
 
 def library_status() -> dict:

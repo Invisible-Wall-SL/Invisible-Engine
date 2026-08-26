@@ -3262,6 +3262,13 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
     <label style="display:flex;flex-direction:column;gap:3px;color:#aaa">Description
      <textarea id="bpDesc" rows="2" style="background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:7px;resize:vertical"></textarea>
     </label>
+    <label style="display:flex;flex-direction:column;gap:3px;color:#aaa">Kind (which tool this blueprint is for)
+     <select id="bpKind" onchange="bpKindChanged()" style="background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:7px">
+      <option value="image">Image &mdash; Atlas Maker region generation</option>
+      <option value="video">Video &mdash; Flipbook video mode</option>
+     </select>
+    </label>
+    <div style="color:#666;font-size:11px;margin-top:-4px">Each tool lists only its own kind, so an image blueprint never shows up in the video picker and vice versa.</div>
     <label style="display:flex;flex-direction:column;gap:3px;color:#aaa">Base (ref/output conventions)
      <select id="bpBase" style="background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:7px">
       <option value="sdxl">sdxl</option><option value="flux">flux</option><option value="gpt_image">gpt_image</option>
@@ -3656,7 +3663,11 @@ function bpCandidates(role,graph){{
   else if(role==='width') ok=('width' in inp);
   else if(role==='height') ok=('height' in inp);
   else if(role==='style_ref'||role==='shape_ref') ok=/LoadImage/i.test(ct);
-  else if(role==='output') ok=/SaveImage/i.test(ct);
+  // A save node is whatever the runner can stamp a `filename_prefix` onto — that IS
+  // the contract. Testing the CLASS NAME for /SaveImage/ excluded SaveAnimatedWEBP,
+  // SaveWEBM and VHS_VideoCombine, so a video graph could never bind `output` and the
+  // modal showed "no matching node" with no way forward.
+  else if(role==='output') ok=('filename_prefix' in inp)||/Save|VideoCombine/i.test(ct);
   if(ok) out.push([id,ct]);
  }}
  return out;
@@ -3874,6 +3885,20 @@ function collectBpParams(){{
  }});
  return out;
 }}
+// Base names the ref/output CONVENTIONS, which differ per kind: the image bases are
+// the three built-in pipelines, while a video base names a model family and is only
+// metadata (nothing dispatches on it), so that list can grow without touching code.
+function bpKindChanged(){{
+ const kind=document.getElementById('bpKind').value;
+ const sel=document.getElementById('bpBase');
+ const opts=(kind==='video')
+  ? [['wan22-i2v','wan22-i2v (image → video)'],['wan22-t2v','wan22-t2v (text → video)'],['other','other']]
+  : [['sdxl','sdxl'],['flux','flux'],['gpt_image','gpt_image']];
+ sel.innerHTML='';
+ for(const [v,label] of opts){{
+  const o=document.createElement('option'); o.value=v; o.textContent=label; sel.appendChild(o);
+ }}
+}}
 async function saveBlueprint(overwrite){{
  if(!_bpGraph) return;
  let st=document.getElementById('bpstat'); st.textContent='⬆ Publishing…';
@@ -3887,6 +3912,7 @@ async function saveBlueprint(overwrite){{
  }});
  let body={{name:document.getElementById('bpName').value,
   description:document.getElementById('bpDesc').value,
+  kind:document.getElementById('bpKind').value,
   base:document.getElementById('bpBase').value,
   workflow_text:JSON.stringify(_bpGraph),
   bindings:bindings, params:collectBpParams(), overwrite:!!overwrite}};
