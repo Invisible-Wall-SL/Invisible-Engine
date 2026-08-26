@@ -1,7 +1,9 @@
 import { error, redirect } from '@sveltejs/kit';
 import { MUSIC_NAMES, SOUND_EFFECT_NAMES } from 'engine-flow-v2';
+import { SOUND_SLOTS, resolveCascade, symbolsInPlay } from 'game-config';
+import { SYMBOL_STATE_LABELS, effectiveSoundBindings } from 'engine-layout';
 import { roleHasTool } from '$lib/roles';
-import { collectSoundBindings } from '$lib/soundUsage';
+import { flowSoundBindings } from '$lib/soundUsage';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { loadFlowV2Doc } from '$lib/server/flowV2Storage';
 import { loadGameConfigDoc } from '$lib/server/gameConfigStorage';
@@ -14,13 +16,14 @@ import { getToolOverrides } from '$lib/server/userToolAccess';
 import type { PageServerLoad } from './$types';
 
 /**
- * Invisible Sound (`/sound`) — the project's SOUND LIBRARY: which sounds it owns, who made them,
- * and whether they are approved to ship.
+ * Invisible Sound (`/sound`) — every sound the game makes, in one place: the LIBRARY (what audio
+ * this project owns, who made it, whether it is approved) and the CHOICES (what plays at each
+ * named moment), authored together.
  *
- * It does NOT author bindings. Which cue plays at which moment stays in the tool that owns the
- * moment — `/config` for the game-wide slots, `/symbols` for a per-symbol cue, `/flow-v2` for a
- * graph cue — because a binding belongs beside the thing it describes, and a second home for it is
- * how the two drift. See `docs/design/invisible-sound.md` §2.3.
+ * The choices used to live in `/config`, `/symbols` and the Scene Editor. They moved here because
+ * choosing a game's audio should not mean opening three tools and knowing which one owns which
+ * moment. Flow cues are the one exception — a cue node has wires, conditions and a position, so it
+ * stays in its graph and this page only lists it.
  *
  * Granted by default to `audio` — the role this tool exists for, and which until now had no audio
  * tool at all — plus `developer`, `artist` and `pipelineTester`.
@@ -51,10 +54,19 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		loadFlowV2Doc(clientKey, projectKey),
 	]);
 
-	// The BINDINGS only — the checks run on the page, against the live library, so the index stays
-	// right as the author renames or removes a sound rather than only until they touch something.
-	// None of these three docs is editable from here, so they cannot go stale while the page is open.
-	const byName = collectSoundBindings({ config, symbols, flow });
+	/**
+	 * The author's CHOICES, seeded from wherever they currently live.
+	 *
+	 * A project written before authoring moved here still has them in the config and symbols docs, so
+	 * the page opens showing what the game actually plays rather than an empty form — and the first
+	 * save migrates them into this doc. See `effectiveSoundBindings`.
+	 */
+	const bindings = effectiveSoundBindings(doc, {
+		configSounds: config?.sounds,
+		symbolSounds: (symbols as { symbolSounds?: unknown } | null)?.symbolSounds,
+		anticipation: (symbols as { anticipation?: unknown } | null)?.anticipation,
+		winLevels: config?.winLevels,
+	});
 
 	return {
 		clientKey,
@@ -65,8 +77,39 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// The precondition the page sends back on save, so a second author can't silently clobber the
 		// whole library. `null` = "there was no doc when I loaded".
 		etag,
-		/** Sound name → what plays it. A plain object, not a `Map` — `devalue` does not carry one. */
-		bindings: Object.fromEntries(byName),
+		/** The author's choices, already migrated-or-seeded. The page edits this and saves it. */
+		bindings,
+		/** Whether those choices still live in the OLD docs — the page says so, once, because the
+		 *  first save moves them and that is worth knowing before you press it. */
+		unmigrated: !doc?.bindings,
+		/** The moments this game HAS, in the order the tool lists them. The catalogue is the engine's
+		 *  contract (`game-config/sounds`), so the tool renders what the engine will actually fire
+		 *  rather than a list of its own that could drift. */
+		slots: SOUND_SLOTS.map((slot) => ({
+			id: slot.id,
+			label: slot.label,
+			kind: slot.kind,
+			description: slot.description,
+			ladderIndex: slot.ladderIndex,
+			defaults: slot.defaults,
+		})),
+		/** Symbol ids in play, so the per-symbol rows name this game's real symbols. */
+		symbolIds: config ? symbolsInPlay(config) : [],
+		/**
+		 * ONLY the states the engine actually resolves a per-symbol cue on — `land` always,
+		 * `tumbleExplosion` when the project cascades. Offering the other eight states would let an
+		 * author bind a cue nothing will ever play and be told nothing, which is precisely how
+		 * `tumble_win_1…5` sat unheard in the audiosprite for the life of the fork.
+		 */
+		symbolStates: (resolveCascade(config ?? undefined)
+			? (['land', 'tumbleExplosion'] as const)
+			: (['land'] as const)
+		).map((state) => ({ state, label: SYMBOL_STATE_LABELS[state] })),
+		/** Win tiers, in threshold order, for the tier rows. */
+		winTiers: (config?.winLevels ?? []).map((t) => ({ alias: t.alias, name: t.name })),
+		/** Flow cues stay in the graph — listed here so the page can still show every sound the game
+		 *  plays, with a link out rather than an editor. */
+		flowCues: flowSoundBindings(flow).map((b) => ({ name: b.name, where: b.where })),
 		/**
 		 * The shipped audiosprite's own names. Sourced from the generated flow enums because that is
 		 * the list the launcher already trusts for its sound pickers; when S9 retires it this reads

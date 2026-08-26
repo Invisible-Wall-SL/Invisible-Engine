@@ -9,6 +9,7 @@
 		SOUND_FILE_EXTENSIONS,
 		SOUND_ORIGINS,
 		isValidSoundName,
+		type SoundBindings,
 		type SoundEntry,
 		type SoundOrigin,
 		type SoundsDoc,
@@ -18,12 +19,21 @@
 
 	let { data }: { data: PageData } = $props();
 
-	/** The live library. Seeded from the server's normalized doc and PUT back verbatim. */
-	let doc = $state<SoundsDoc>(structuredClone(data.doc));
+	/**
+	 * The live doc — the library AND the choices, edited and saved together.
+	 *
+	 * `bindings` is SEEDED from the server, which reads it from this doc when it has one and from the
+	 * old `/config` + `/symbols` homes when it does not. So a project that has never opened this tool
+	 * still opens on what its game actually plays, and the first real edit migrates it here.
+	 */
+	let doc = $state<SoundsDoc>({
+		...structuredClone(data.doc),
+		bindings: structuredClone(data.bindings),
+	});
 
-	/** Compared against the doc to drive the dirty pill. `$state.snapshot` because a raw
-	 *  `structuredClone` of a `$state` proxy throws `DataCloneError`. */
-	let baseline = $state(JSON.stringify(data.doc));
+	/** Compared against the doc to drive the dirty pill. Taken from the SEEDED doc, not the stored
+	 *  one — otherwise a project mid-migration would open already "unsaved" without anyone typing. */
+	let baseline = $state(JSON.stringify($state.snapshot(doc)));
 	const dirty = $derived(JSON.stringify($state.snapshot(doc)) !== baseline);
 
 	const entries = $derived(doc.entries ?? []);
@@ -63,16 +73,130 @@
 	/** Entries the save would DROP — an invalid name is not a warning, it is a deletion. */
 	const invalidNames = $derived(entries.filter((e) => !isValidSoundName(e.name)).length);
 
+	// ── what plays when ─────────────────────────────────────────────────────────────────────────
+	/**
+	 * The choices, for READING. Deliberately not `doc.bindings ??= {}`: a `$derived` that writes to
+	 * the state it reads re-runs itself, and the block is legitimately absent after a save (the
+	 * server drops an empty one) — so reads take a frozen empty and writes go through {@link editable},
+	 * which is the only place the block is created.
+	 */
+	const NO_CHOICES: SoundBindings = Object.freeze({});
+	const choices = $derived(doc.bindings ?? NO_CHOICES);
+
+	/** The choices, for WRITING — creates the block on first edit. */
+	const editable = (): SoundBindings => (doc.bindings ??= {});
+
+	/** Every cue a picker may offer: this project's sounds first, then the engine's own. */
+	const pickable = $derived([
+		...entries.map((e) => e.name),
+		...data.builtinNames.filter((n) => !entries.some((e) => e.name === n)),
+	]);
+
+	/** What a slot plays right now — authored, or the catalogue's own defaults. Shown rather than an
+	 *  empty control, because "unset" here means "the engine's default", never "silence". */
+	const slotNames = (slot: (typeof data.slots)[number]): string[] => {
+		const authored = choices.slots?.[slot.id]?.names;
+		return authored?.length ? [...authored] : [...slot.defaults];
+	};
+	const slotEnabled = (id: string) => choices.slots?.[id]?.enabled !== false;
+
+	/** Store only a DEPARTURE from the catalogue — the same rule the engine resolves by, so a project
+	 *  matching the defaults keeps tracking them when they improve instead of freezing today's copy. */
+	function setSlotNames(slot: (typeof data.slots)[number], names: string[]) {
+		const slots = (editable().slots ??= {});
+		const entry = (slots[slot.id] ??= {});
+		const isDefault =
+			names.length === slot.defaults.length && names.every((n, i) => n === slot.defaults[i]);
+		if (isDefault) delete entry.names;
+		else entry.names = names;
+		if (!Object.keys(entry).length) delete slots[slot.id];
+	}
+
+	function setSlotEnabled(id: string, on: boolean) {
+		const slots = (editable().slots ??= {});
+		const entry = (slots[id] ??= {});
+		if (on) delete entry.enabled;
+		else entry.enabled = false;
+		if (!Object.keys(entry).length) delete slots[id];
+	}
+
+	function setSymbolCue(symbol: string, state: string, name: string) {
+		const symbols = (editable().symbols ??= {});
+		const states = (symbols[symbol] ??= {});
+		if (name) states[state] = name;
+		else delete states[state];
+		if (!Object.keys(states).length) delete symbols[symbol];
+	}
+
+	function setAnticipation(field: 'activation' | 'loop', name: string) {
+		const ant = (editable().anticipation ??= {});
+		if (name) ant[field] = name;
+		else delete ant[field];
+	}
+
+	function setTierCue(alias: string, field: 'sfx' | 'bgm', name: string) {
+		const tiers = (editable().winTiers ??= {});
+		const tier = (tiers[alias] ??= {});
+		if (name) tier[field] = name;
+		else delete tier[field];
+	}
+
+	/** The per-symbol section lists symbols that HAVE a cue, plus any you add — a grid of every
+	 *  symbol × every state would be mostly empty and unreadable. */
+	let extraSymbols = $state<string[]>([]);
+	const symbolRows = $derived([
+		...new Set([...Object.keys(choices.symbols ?? {}), ...extraSymbols]),
+	]);
+	let addSymbol = $state('');
+
+	function dropSymbol(symbol: string) {
+		if (doc.bindings?.symbols) delete doc.bindings.symbols[symbol];
+		extraSymbols = extraSymbols.filter((s) => s !== symbol);
+	}
+
+	/** Immutable list edits — `with`/`toSpliced` are ES2023 and this app does not target it. */
+	const replaceAt = (list: string[], i: number, value: string) =>
+		list.map((n, k) => (k === i ? value : n));
+	const removeAt = (list: string[], i: number) => list.filter((_, k) => k !== i);
+
+	/** The library entry a name refers to, or `undefined` for an engine built-in (nothing to audition
+	 *  — the shipped audiosprite is one file the browser cannot seek by region here). */
+	const entryByName = (name: string) => entries.find((e) => e.name === name);
+
 	// ── usage index ─────────────────────────────────────────────────────────────────────────────
-	// The bindings come from the server (the config / symbols / flow docs, which this page cannot
-	// edit); the CHECKS re-run here on every keystroke, so renaming a sound immediately shows it
-	// becoming unbound rather than staying green until a reload.
-	const bindings = $derived(data.bindings as Record<string, SoundBinding[]>);
+	// Derived from the CHOICES above rather than from the server's read of the docs, so every count,
+	// chip and warning on this page answers for what is on screen now — the moment authoring moved
+	// here, a server-side index would have been one save behind every edit. Flow is the exception:
+	// its cues live in the graph, so they arrive from the server and are listed, not edited.
+	const bindings = $derived.by(() => {
+		const index: Record<string, SoundBinding[]> = {};
+		const add = (name: string | undefined, source: SoundBinding['source'], where: string) => {
+			if (!name) return;
+			(index[name] ??= []).push({ name, source, where, href: SOURCE_HREF[source] });
+		};
+		for (const slot of data.slots) {
+			if (!slotEnabled(slot.id)) continue;
+			slotNames(slot).forEach((name, i) =>
+				add(name, 'slot', slot.kind === 'ladder' ? `${slot.label} · rung ${i + 1}` : slot.label),
+			);
+		}
+		for (const [symbol, states] of Object.entries(choices.symbols ?? {}))
+			for (const [state, name] of Object.entries(states))
+				add(name, 'symbol', `${symbol} · ${state}`);
+		add(choices.anticipation?.activation, 'anticipation', 'Anticipation sting');
+		add(choices.anticipation?.loop, 'anticipation', 'Anticipation loop');
+		for (const [alias, tier] of Object.entries(choices.winTiers ?? {})) {
+			add(tier.sfx, 'winTier', `${alias} · sting`);
+			add(tier.bgm, 'winTier', `${alias} · music`);
+		}
+		for (const cue of data.flowCues) add(cue.name, 'flow', cue.where);
+		return index;
+	});
 	const boundNames = $derived(Object.keys(bindings));
 	const checks = $derived(
 		checkSoundLibrary(
 			$state.snapshot(doc),
-			(name) => Boolean(bindings[name]?.length),
+			(name) => boundNames.includes(name),
 			boundNames,
 			data.builtinNames,
 		),
@@ -83,11 +207,18 @@
 	const usesOf = (name: string): SoundBinding[] => bindings[name] ?? [];
 
 	const SOURCE_LABEL: Record<SoundBinding['source'], string> = {
-		slot: 'Game Config',
-		winTier: 'Game Config',
-		symbol: 'Symbols',
-		anticipation: 'Symbols',
+		slot: 'Moment',
+		winTier: 'Win tier',
+		symbol: 'Symbol',
+		anticipation: 'Anticipation',
 		flow: 'Flow',
+	};
+	const SOURCE_HREF: Record<SoundBinding['source'], string> = {
+		slot: '',
+		winTier: '',
+		symbol: '',
+		anticipation: '',
+		flow: '/flow-v2',
 	};
 
 	let showNotRebindable = $state(false);
@@ -305,6 +436,47 @@
 
 <svelte:head><title>Invisible Sound — {data.projectKey}</title></svelte:head>
 
+<!--
+	One picker, rendered wherever a cue is chosen. A name the library no longer carries stays in the
+	list as a flagged option rather than silently resetting to the first entry — a rename upstream
+	should be visible here, not quietly re-bound to something else.
+-->
+{#snippet pick(value: string, onpick: (name: string) => void, allowEmpty: boolean)}
+	<select
+		class="pick"
+		class:missing={Boolean(value) && !pickable.includes(value)}
+		{value}
+		disabled={lease.readOnly}
+		onchange={(e) => onpick(e.currentTarget.value)}
+	>
+		{#if allowEmpty}<option value="">— none —</option>{/if}
+		{#each pickable as name (name)}<option value={name}>{name}</option>{/each}
+		{#if value && !pickable.includes(value)}
+			<option value={String(value)}>⚠ {value} — no such sound</option>
+		{/if}
+	</select>
+{/snippet}
+
+{#snippet audition(name: string)}
+	{@const entry = entryByName(name)}
+	{#if entry}
+		<button
+			class="play small"
+			class:on={playingId === entry.id}
+			onclick={() => toggle(entry)}
+			title="Listen"
+		>
+			{playingId === entry.id ? '■' : '▶'}
+		</button>
+	{:else}
+		<span
+			class="play small ghost"
+			title="An engine sound — it lives inside the shipped audiosprite, so there is no single file to play here"
+			>·</span
+		>
+	{/if}
+{/snippet}
+
 <audio bind:this={player} onended={() => (playingId = null)} hidden></audio>
 
 <div class="page">
@@ -351,13 +523,228 @@
 		{/if}
 
 		<p class="intro">
-			Every sound this game owns. Upload them here, listen, say where each came from, and approve
-			the ones that are cleared to ship. <strong>Which cue plays when</strong> is not set here — a
-			game-wide moment lives in <a href="/config">Invisible Game Config</a>, a per-symbol cue in
-			<a href="/symbols">Invisible Symbols</a>, and a one-off in
-			<a href="/flow-v2">Invisible Flow</a>. Those tools bind a sound by the
-			<strong>name</strong> you give it below.
+			Every sound this game makes, and every sound it owns. The sections below are the game's
+			<strong>moments</strong> — pick what each one plays, mute it, or hear it. Underneath is the
+			<strong>library</strong>: upload new audio, say where it came from, and approve what is
+			cleared to ship. Cues placed on the <a href="/flow-v2">flow graph</a> are the one thing still authored
+			elsewhere, and they are listed here so nothing is hidden.
 		</p>
+
+		{#if data.unmigrated}
+			<p class="warn migrate">
+				<strong>This project's choices still live in the old tools.</strong> They have been read out
+				of <a href="/config">Invisible Game Config</a> and <a href="/symbols">Invisible Symbols</a>
+				so this page opens on what the game actually plays today. Your next
+				<strong>save</strong> moves them here for good, and those tools stop deciding.
+			</p>
+		{/if}
+
+		<section class="authoring">
+			<h2>Game moments</h2>
+			<p class="hint">
+				Every beat the engine sounds. A moment you leave alone plays the engine's own cue — a real
+				sound, not silence — so this list is complete from day one and you change only what should
+				differ.
+			</p>
+
+			{#each data.slots as slot (slot.id)}
+				{@const names = slotNames(slot)}
+				{@const on = slotEnabled(slot.id)}
+				{@const changed = Boolean(choices.slots?.[slot.id]?.names)}
+				<div class="moment" class:muted={!on}>
+					<div class="moment-head">
+						<span class="moment-label">{slot.label}</span>
+						{#if slot.kind === 'ladder'}<span class="tag">ladder of {names.length}</span>{/if}
+						{#if changed}<span class="tag changed">changed</span>{/if}
+						<span class="spacer"></span>
+						{#if changed}
+							<button
+								class="linky"
+								disabled={lease.readOnly}
+								onclick={() => setSlotNames(slot, [...slot.defaults])}
+							>
+								reset to default
+							</button>
+						{/if}
+						<label class="toggle" title="Silence this moment entirely">
+							<input
+								type="checkbox"
+								checked={on}
+								disabled={lease.readOnly}
+								onchange={(e) => setSlotEnabled(slot.id, e.currentTarget.checked)}
+							/>
+							{on ? 'plays' : 'silent'}
+						</label>
+					</div>
+					<p class="moment-desc">{slot.description}</p>
+					{#if slot.ladderIndex}
+						<p class="moment-desc idx">Which rung plays is decided by {slot.ladderIndex}</p>
+					{/if}
+					<div class="cues">
+						{#each names as name, i (i)}
+							<div class="cue">
+								{#if slot.kind === 'ladder'}<span class="rung">{i + 1}</span>{/if}
+								{@render pick(
+									name,
+									(v) => setSlotNames(slot, v ? replaceAt(names, i, v) : removeAt(names, i)),
+									names.length > 1,
+								)}
+								{@render audition(name)}
+							</div>
+						{/each}
+						{#if slot.kind === 'ladder'}
+							<button
+								class="linky add"
+								disabled={lease.readOnly || !pickable.length}
+								onclick={() =>
+									setSlotNames(slot, [...names, names[names.length - 1] ?? pickable[0]])}
+							>
+								+ rung
+							</button>
+						{/if}
+					</div>
+				</div>
+			{/each}
+			<p class="hint">
+				A ladder's last rung <strong>holds</strong>: a sixth reel or a ninth cascade step keeps
+				playing it rather than falling silent. Clearing a moment's only cue is not offered — use
+				<strong>silent</strong>, so "the author meant nothing here" stays distinguishable from "the
+				author emptied it by accident".
+			</p>
+		</section>
+
+		<section class="authoring">
+			<h2>Per-symbol cues</h2>
+			<p class="hint">
+				A noise ONE symbol makes at a moment, instead of the game-wide cue above. Optional, and
+				normally empty — add a row only for a symbol that should sound like itself. Only the states
+				the engine actually asks about are offered.
+			</p>
+			{#if symbolRows.length}
+				<div class="grid" style="--cols:{data.symbolStates.length}">
+					<div class="grow head">
+						<span>Symbol</span>
+						{#each data.symbolStates as st (st.state)}<span>{st.label}</span>{/each}
+						<span></span>
+					</div>
+					{#each symbolRows as symbol (symbol)}
+						<div class="grow">
+							<code>{symbol}</code>
+							{#each data.symbolStates as st (st.state)}
+								{@const bound = choices.symbols?.[symbol]?.[st.state] ?? ''}
+								<span class="cell">
+									{@render pick(bound, (v) => setSymbolCue(symbol, st.state, v), true)}
+									{@render audition(bound)}
+								</span>
+							{/each}
+							<button class="del" onclick={() => dropSymbol(symbol)} title="Remove this row"
+								>×</button
+							>
+						</div>
+					{/each}
+				</div>
+			{/if}
+			{#if data.symbolIds.length}
+				<select
+					class="addrow"
+					value={addSymbol}
+					disabled={lease.readOnly}
+					onchange={(e) => {
+						const picked = e.currentTarget.value;
+						if (picked) extraSymbols = [...extraSymbols, picked];
+						e.currentTarget.value = '';
+					}}
+				>
+					<option value="">Add a symbol…</option>
+					{#each data.symbolIds.filter((id) => !symbolRows.includes(id)) as id (id)}
+						<option value={id}>{id}</option>
+					{/each}
+				</select>
+			{:else}
+				<p class="hint">
+					This project's <a href="/config">config</a> deals no symbols yet, so there is nothing to give
+					a voice to.
+				</p>
+			{/if}
+		</section>
+
+		<section class="authoring">
+			<h2>Reel anticipation</h2>
+			<p class="hint">
+				The tease while a big win is still reachable on the reels yet to stop: a
+				<strong>sting</strong> when it starts, a <strong>loop</strong> that holds under it. Whether
+				the mode runs at all is decided in <a href="/flow-v2">Invisible Flow</a>; what it sounds
+				like is decided here.
+			</p>
+			<div class="pairs">
+				<div class="pair">
+					<span>Activation sting</span>
+					{@render pick(
+						choices.anticipation?.activation ?? '',
+						(v) => setAnticipation('activation', v),
+						true,
+					)}
+					{@render audition(choices.anticipation?.activation ?? '')}
+				</div>
+				<div class="pair">
+					<span>Sustained loop</span>
+					{@render pick(choices.anticipation?.loop ?? '', (v) => setAnticipation('loop', v), true)}
+					{@render audition(choices.anticipation?.loop ?? '')}
+				</div>
+			</div>
+		</section>
+
+		{#if data.winTiers.length}
+			<section class="authoring">
+				<h2>Win tiers</h2>
+				<p class="hint">
+					What a celebration sounds like at each tier — the one-shot <strong>sting</strong> that
+					opens it and the <strong>music</strong> that runs under the count-up. Which tiers exist,
+					and at what multiple, is <a href="/config">config</a>; what they sound like is here.
+				</p>
+				<div class="grid tiers">
+					<div class="grow head">
+						<span>Tier</span><span>Sting</span><span>Music bed</span>
+					</div>
+					{#each data.winTiers as tier (tier.alias)}
+						{@const bound = choices.winTiers?.[tier.alias] ?? {}}
+						<div class="grow">
+							<code>{tier.name}</code>
+							<span class="cell">
+								{@render pick(bound.sfx ?? '', (v) => setTierCue(tier.alias, 'sfx', v), true)}
+								{@render audition(bound.sfx ?? '')}
+							</span>
+							<span class="cell">
+								{@render pick(bound.bgm ?? '', (v) => setTierCue(tier.alias, 'bgm', v), true)}
+								{@render audition(bound.bgm ?? '')}
+							</span>
+						</div>
+					{/each}
+				</div>
+			</section>
+		{/if}
+
+		<section class="authoring">
+			<h2>Flow cues <span class="tag">read-only</span></h2>
+			<p class="hint">
+				A cue placed on the graph. It has wires, a condition and a position in a sequence, so it
+				stays where it can see them — change one in <a href="/flow-v2">Invisible Flow</a>. Listed
+				here so this page can still show <em>every</em> sound the game makes.
+			</p>
+			{#if data.flowCues.length}
+				<div class="flowlist">
+					{#each data.flowCues as cue, i (i)}
+						<div class="flowrow">
+							<code>{cue.name}</code>
+							<span>{cue.where}</span>
+							{@render audition(cue.name)}
+						</div>
+					{/each}
+				</div>
+			{:else}
+				<p class="hint">No node in this project's flow plays a sound.</p>
+			{/if}
+		</section>
 
 		<section>
 			<h2>Add sounds</h2>
@@ -624,17 +1011,17 @@
 		<section>
 			<h2>What's actually played</h2>
 			<p class="hint">
-				Read from <a href="/config">Invisible Game Config</a>,
-				<a href="/symbols">Invisible Symbols</a> and <a href="/flow-v2">Invisible Flow</a> — the
-				tools that own <em>when</em> a sound plays. This page only reports; change a binding where it
-				lives.
+				Everything the sections above bind, plus the flow's own cues, checked against the library. A
+				problem here is one you cannot hear: a sound the game asks for and does not have plays
+				nothing and reports nothing.
 			</p>
 
 			{#if checks.missing.length}
 				<p class="warn">
 					<strong>Something asks for a sound that doesn't exist:</strong>
 					{checks.missing.join(', ')}. Nothing plays at those moments — and the game reports no
-					error, it just goes quiet. Either upload a sound with that name, or fix the binding.
+					error, it just goes quiet. Either upload a sound with that name, or pick another one
+					above.
 				</p>
 			{/if}
 			{#if checks.unapprovedBound.length}
@@ -655,8 +1042,8 @@
 							? ''
 							: 's'}:</strong
 					>
-					{checks.unbound.join(', ')}. Either bind {checks.unbound.length === 1 ? 'it' : 'them'} in one
-					of the tools above, or rename to match a built-in sound to replace it.
+					{checks.unbound.join(', ')}. Either give {checks.unbound.length === 1 ? 'it' : 'them'} a moment
+					above, or rename to match a built-in sound to replace it.
 				</p>
 			{/if}
 			{#if entries.length > 0 && !checks.missing.length && !checks.unbound.length}
@@ -677,7 +1064,7 @@
 			</button>
 			{#if showNotRebindable}
 				<p class="hint">
-					These ship with the engine and are played from its own code — no slot, symbol, tier or
+					These ship with the engine and are played from its own code — no moment, symbol, tier or
 					flow cue names them, so there is nothing to point somewhere else. To change one, upload
 					your own sound <strong>under the same name</strong> and it replaces it.
 				</p>
@@ -688,6 +1075,180 @@
 </div>
 
 <style>
+	/* ── the authoring sections ── */
+	.moment {
+		border: 1px solid #23232e;
+		border-radius: 8px;
+		padding: 10px 12px;
+		margin-bottom: 8px;
+		background: #101018;
+	}
+	.moment.muted {
+		opacity: 0.55;
+	}
+	.moment-head {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.moment-label {
+		font-size: 13px;
+		font-weight: 600;
+	}
+	.spacer {
+		flex: 1;
+	}
+	.tag {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		padding: 2px 6px;
+		border-radius: 999px;
+		background: #1c1c27;
+		color: #8b8b98;
+	}
+	.tag.changed {
+		background: #14372f;
+		color: #7ee0c0;
+	}
+	.toggle {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 11px;
+		color: #8b8b98;
+		white-space: nowrap;
+	}
+	.moment-desc {
+		margin: 6px 0 0;
+		font-size: 12px;
+		color: #8b8b98;
+		line-height: 1.55;
+		max-width: 860px;
+	}
+	.moment-desc.idx {
+		color: #6f6f7d;
+	}
+	.cues {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+		margin-top: 10px;
+	}
+	.cue {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+	.rung {
+		font-size: 10px;
+		color: #6f6f7d;
+		width: 14px;
+		text-align: right;
+	}
+	:global(select.pick) {
+		background: #16161f;
+		border: 1px solid #2a2a37;
+		border-radius: 6px;
+		color: #e8e8ee;
+		font-size: 12px;
+		padding: 4px 6px;
+		max-width: 220px;
+	}
+	:global(select.pick.missing) {
+		border-color: #b4553f;
+		color: #f0a58f;
+	}
+	:global(.play.small) {
+		width: 22px;
+		height: 22px;
+		font-size: 10px;
+		line-height: 1;
+		padding: 0;
+	}
+	:global(.play.small.ghost) {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		border: 1px solid transparent;
+		background: none;
+		color: #3a3a48;
+		cursor: default;
+	}
+	.grid {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		margin-top: 10px;
+	}
+	.grow {
+		display: grid;
+		grid-template-columns: 90px repeat(var(--cols, 2), minmax(140px, 240px)) auto;
+		align-items: center;
+		gap: 10px;
+	}
+	.grid.tiers .grow {
+		grid-template-columns: 140px minmax(140px, 240px) minmax(140px, 240px);
+	}
+	.grow.head {
+		font-size: 10px;
+		text-transform: uppercase;
+		letter-spacing: 0.08em;
+		color: #6f6f7d;
+	}
+	.grow code {
+		font-size: 12px;
+		color: #cfcfda;
+	}
+	.cell {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+	.addrow {
+		margin-top: 10px;
+		background: #16161f;
+		border: 1px solid #2a2a37;
+		border-radius: 6px;
+		color: #e8e8ee;
+		font-size: 12px;
+		padding: 5px 7px;
+	}
+	.pairs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 20px;
+		margin-top: 10px;
+	}
+	.pair {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		font-size: 12px;
+		color: #b9b9c4;
+	}
+	.flowlist {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		margin-top: 10px;
+	}
+	.flowrow {
+		display: grid;
+		grid-template-columns: 220px 1fr auto;
+		align-items: center;
+		gap: 10px;
+		font-size: 12px;
+		color: #8b8b98;
+	}
+	.flowrow code {
+		color: #cfcfda;
+	}
+	.warn.migrate {
+		margin-bottom: 22px;
+	}
+
 	.page {
 		display: flex;
 		flex-direction: column;

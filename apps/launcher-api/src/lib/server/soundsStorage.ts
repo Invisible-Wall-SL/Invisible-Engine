@@ -6,6 +6,7 @@ import {
 	isValidSoundFile,
 	isValidSoundName,
 	type SoundEntry,
+	type SoundSlotChoice,
 	type SoundsDoc,
 } from 'engine-layout';
 import { soundsDocKey } from './projectPaths';
@@ -56,10 +57,41 @@ const entrySchema = z
 	})
 	.strip();
 
+/** A cue name as STORED in a binding. Free-form on purpose: it may name a library sound, a region
+ *  of the shipped audiosprite, or one a project has not uploaded yet — and an unknown name is
+ *  inaudible rather than invalid, which the usage index reports far better than a save error. */
+const cueName = z.string();
+
+const slotChoiceSchema = z
+	.object({
+		names: z.array(cueName).optional(),
+		volume: z.number().optional(),
+		enabled: z.boolean().optional(),
+	})
+	.strip();
+
+const bindingsSchema = z
+	.object({
+		slots: z.record(z.string().min(1), slotChoiceSchema).optional(),
+		symbols: z.record(z.string().min(1), z.record(z.string().min(1), cueName)).optional(),
+		anticipation: z
+			.object({ activation: cueName.optional(), loop: cueName.optional() })
+			.strip()
+			.optional(),
+		winTiers: z
+			.record(
+				z.string().min(1),
+				z.object({ sfx: cueName.optional(), bgm: cueName.optional() }).strip(),
+			)
+			.optional(),
+	})
+	.strip();
+
 export const soundsDocSchema = z
 	.object({
 		version: z.literal(1).default(1),
 		entries: z.array(entrySchema).optional(),
+		bindings: bindingsSchema.optional(),
 		updatedAt: z.string().optional(),
 	})
 	.strip();
@@ -178,6 +210,12 @@ export function normalizeSoundsDoc(input: unknown): SoundsDoc {
 	entries.reverse();
 
 	const next: SoundsDoc = { version: 1, entries };
+
+	// The CHOICES half. Pruned to what actually says something: an empty slot entry, a symbol with no
+	// states left, a blank cue name — each is the residue of a control being cleared, and storing it
+	// would make "authored" and "reset to default" indistinguishable on the next read.
+	const bindings = normalizeBindings(doc.bindings);
+	if (bindings) next.bindings = bindings;
 	// `updatedAt` must survive the READ, not only the write. `saveSoundsDoc` stamps it into the
 	// object, so a normalize that dropped it would half-persist a field — written to R2, invisible to
 	// every reader — which is the silent round-trip trap this module warns about, committed by the
@@ -185,6 +223,60 @@ export function normalizeSoundsDoc(input: unknown): SoundsDoc {
 	const updatedAt = trimmed(doc.updatedAt);
 	if (updatedAt) next.updatedAt = updatedAt;
 	return next;
+}
+
+/**
+ * Prune the choices block. Every level is sparse, and an EMPTY level is dropped rather than stored:
+ * `{}` and absent must mean the same thing to a reader, or a project that once authored a cue and
+ * then cleared it would read as authored-with-nothing — which is silence, not a default.
+ *
+ * `enabled: false` is the exception that survives on its own: it is the one gesture that means
+ * "play nothing here", so a choice carrying only that is a real choice.
+ */
+function normalizeBindings(raw: SoundsDoc['bindings']): SoundsDoc['bindings'] | undefined {
+	if (!raw) return undefined;
+	const out: NonNullable<SoundsDoc['bindings']> = {};
+
+	const slots: Record<string, SoundSlotChoice> = {};
+	for (const [id, choice] of Object.entries(raw.slots ?? {})) {
+		const next: SoundSlotChoice = {};
+		const names = (choice?.names ?? []).map((n) => n.trim()).filter(Boolean);
+		if (names.length) next.names = names;
+		const volume = readVolume(choice?.volume);
+		if (volume !== undefined) next.volume = volume;
+		if (choice?.enabled === false) next.enabled = false;
+		if (Object.keys(next).length) slots[id] = next;
+	}
+	if (Object.keys(slots).length) out.slots = slots;
+
+	const symbols: Record<string, Record<string, string>> = {};
+	for (const [symbol, states] of Object.entries(raw.symbols ?? {})) {
+		const kept: Record<string, string> = {};
+		for (const [state, name] of Object.entries(states ?? {})) {
+			const n = trimmed(name);
+			if (n) kept[state] = n;
+		}
+		if (Object.keys(kept).length) symbols[symbol] = kept;
+	}
+	if (Object.keys(symbols).length) out.symbols = symbols;
+
+	const activation = trimmed(raw.anticipation?.activation);
+	const loop = trimmed(raw.anticipation?.loop);
+	if (activation || loop) {
+		out.anticipation = { ...(activation ? { activation } : {}), ...(loop ? { loop } : {}) };
+	}
+
+	const winTiers: Record<string, { sfx?: string; bgm?: string }> = {};
+	for (const [alias, tier] of Object.entries(raw.winTiers ?? {})) {
+		const sfx = trimmed(tier?.sfx);
+		const bgm = trimmed(tier?.bgm);
+		if (sfx || bgm) winTiers[alias] = { ...(sfx ? { sfx } : {}), ...(bgm ? { bgm } : {}) };
+	}
+	if (Object.keys(winTiers).length) out.winTiers = winTiers;
+
+	// An entirely empty block is dropped, so a project that opens the tool and saves without choosing
+	// anything serialises byte-identically to one written before the block existed.
+	return Object.keys(out).length ? out : undefined;
 }
 
 /**

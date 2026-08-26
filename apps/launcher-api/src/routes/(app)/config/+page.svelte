@@ -14,18 +14,12 @@
 		resolveCascade,
 		cascadeDefaultFor,
 		REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS,
-		SOUND_SLOTS,
-		soundSlot,
 		symbolsInPlay,
 		validateGameConfigDoc,
 		type BetModeKind,
 		type GameConfigDoc,
 		type GameConfigIssue,
-		type SoundSlotId,
 	} from 'game-config';
-	// The game's real sound vocabulary — the SAME generated list the flow editor's sound-cue dropdown
-	// and the Symbols tool's anticipation pickers offer, so a name means the same thing in all three.
-	// Every sound picker on this page offers the engine's own sounds PLUS this project's uploads.
 	import { BUILTIN_SPINE_NAMES, builtinSpineMeta, type ComponentParam } from 'engine-layout';
 	// The Scene Editor's art/region picker — REUSED here (the SAME cross-route import the Symbols
 	// tool uses) so the Card-graphics `image` params get the exact same visual frame picker instead
@@ -600,100 +594,6 @@
 		else delete next.swapStyle;
 		writeReelBehaviour(next);
 	}
-
-	/* ---- Sounds -------------------------------------------------------------------------------
-	 * The game-wide SOUND SLOTS: which cue the engine plays at each named presentation moment.
-	 *
-	 * Every slot ships a coded default (the catalogue in `game-config/sounds`), and the panel edits
-	 * DEPARTURES from it — an untouched slot stores nothing, so it keeps tracking the catalogue
-	 * instead of freezing to whatever it held the day someone opened this page. That is why the rows
-	 * below always render the RESOLVED names (authored ?? default) while writing only real changes.
-	 */
-
-	/** The rungs a slot currently resolves to — what the game would play right now. */
-	function slotNames(id: SoundSlotId): string[] {
-		const authored = doc.sounds?.[id]?.names;
-		return authored?.length ? [...authored] : [...soundSlot(id).defaults];
-	}
-
-	/** Is this slot still on the catalogue default, rung for rung? Drives the row's pill and whether
-	 *  "Reset" is offered at all. */
-	function slotIsDefault(id: SoundSlotId): boolean {
-		const names = slotNames(id);
-		const defaults = soundSlot(id).defaults;
-		return names.length === defaults.length && names.every((n, i) => n === defaults[i]);
-	}
-
-	const slotEnabled = (id: SoundSlotId): boolean => doc.sounds?.[id]?.enabled !== false;
-
-	/** Write one slot back, dropping the entry (and then the whole block) once nothing DEPARTS from
-	 *  the catalogue — the same "store only what changed" rule `normalizeSounds` applies on save, so
-	 *  the panel and the server cannot disagree about what an untouched slot serialises to. */
-	function writeSlot(id: SoundSlotId, next: NonNullable<GameConfigDoc['sounds']>[SoundSlotId]) {
-		const sounds = { ...(doc.sounds ?? {}) };
-		if (next && Object.keys(next).length) sounds[id] = next;
-		else delete sounds[id];
-		if (Object.keys(sounds).length) doc.sounds = sounds;
-		else delete doc.sounds;
-	}
-
-	/** Names equal to the catalogue are stored as ABSENT, never as a copy. */
-	function setSlotNames(id: SoundSlotId, names: string[]): void {
-		const current = { ...(doc.sounds?.[id] ?? {}) };
-		const defaults = soundSlot(id).defaults;
-		const isDefault = names.length === defaults.length && names.every((n, i) => n === defaults[i]);
-		if (isDefault || !names.length) delete current.names;
-		else current.names = names;
-		writeSlot(id, current);
-	}
-
-	function setSlotRung(id: SoundSlotId, index: number, name: string): void {
-		const names = slotNames(id);
-		names[index] = name;
-		setSlotNames(id, names);
-	}
-
-	/** Add a rung by repeating the last one — a new rung has to BE something, and duplicating the
-	 *  top of the ladder is the one choice that changes nothing audible until the author picks. */
-	function addSlotRung(id: SoundSlotId): void {
-		const names = slotNames(id);
-		setSlotNames(id, [...names, names[names.length - 1] ?? data.soundOptions.sfx[0]]);
-	}
-
-	/** Never below one rung: an empty list reads as "give me the default back" (see `normalizeSounds`),
-	 *  so removing the last rung would silently restore the catalogue instead of shortening the ladder.
-	 *  Silencing a slot is the `Silent` switch, deliberately a different gesture. */
-	function removeSlotRung(id: SoundSlotId): void {
-		const names = slotNames(id);
-		if (names.length <= 1) return;
-		setSlotNames(id, names.slice(0, -1));
-	}
-
-	function setSlotVolume(id: SoundSlotId, raw: number): void {
-		const current = { ...(doc.sounds?.[id] ?? {}) };
-		// Blank ⇒ the player's own default. `0` is a legal authored value (inaudible but still fired),
-		// so emptiness is NaN rather than falsiness — the same trap the stagger box has.
-		if (Number.isNaN(raw)) delete current.volume;
-		else current.volume = Math.min(Math.max(raw, 0), 1);
-		writeSlot(id, current);
-	}
-
-	function setSlotEnabled(id: SoundSlotId, on: boolean): void {
-		const current = { ...(doc.sounds?.[id] ?? {}) };
-		if (on) delete current.enabled;
-		else current.enabled = false;
-		writeSlot(id, current);
-	}
-
-	/** Back to the catalogue — drops the entry entirely rather than writing the defaults in, so the
-	 *  slot resumes tracking the catalogue rather than pinning today's copy of it. */
-	const resetSlot = (id: SoundSlotId): void => writeSlot(id, undefined);
-
-	/** How many slots depart from the catalogue — the section header's at-a-glance answer to "has
-	 *  anyone touched the sound of this game". */
-	const customSlotCount = $derived(
-		SOUND_SLOTS.filter((s) => !slotIsDefault(s.id) || !slotEnabled(s.id) || doc.sounds?.[s.id]?.volume !== undefined).length, // prettier-ignore
-	);
 
 	/** A blank box deletes the key ⇒ the engine's own default (140 ms). `0` is a LEGAL value (every
 	 *  column at once, no sweep), so the emptiness test is NaN, not falsiness — the same trap the
@@ -1757,111 +1657,12 @@
 		<section>
 			<h2>Sounds</h2>
 			<p class="hint">
-				What the game PLAYS at each named moment. Every slot below already has a sound — these are
-				the engine's shipped bindings, not blanks — so a game you never touch here still makes all
-				of them. Change one only to depart from the default; a slot left alone keeps tracking the
-				engine's, so it improves when the engine's does.
-				{#if customSlotCount > 0}
-					<em
-						>{customSlotCount}
-						{customSlotCount === 1 ? 'slot departs' : 'slots depart'} from the default.</em
-					>
-				{/if}
+				Moved. What the game plays at each moment — the reel-stop ladder, the cascade pop, the
+				landing cues, the per-symbol exceptions and the win-tier stings — is authored in
+				<a href="/sound">Invisible Sound</a>, next to the library the cues are picked from and the
+				button that plays them. Splitting "which sound" from "the sounds" across two tools is what
+				let a name sit bound to nothing for the whole life of the fork.
 			</p>
-			<p class="hint">
-				A <strong>ladder</strong> is several sounds played in order so repeats escalate rather than
-				repeating — the cascade climbing <code>tumble_win_1…5</code> as a tumble chains, the reels
-				stopping up the scale left to right. Past the last rung it holds there rather than
-				restarting. To bind a sound to ONE symbol instead of the whole game, use
-				<strong>Invisible Symbols</strong> — a symbol's own cue wins over the slot.
-			</p>
-
-			{#each SOUND_SLOTS as slot (slot.id)}
-				{@const names = slotNames(slot.id)}
-				{@const enabled = slotEnabled(slot.id)}
-				{@const isDefault = slotIsDefault(slot.id)}
-				<div class="sound-slot" class:silenced={!enabled}>
-					<div class="sound-head">
-						<span class="label">{slot.label}</span>
-						<span class="pill {isDefault ? 'default' : 'custom'}"
-							>{isDefault ? 'Default' : 'Custom'}</span
-						>
-						{#if !isDefault}
-							<button
-								type="button"
-								class="linkish"
-								onclick={() => resetSlot(slot.id)}
-								disabled={lease.readOnly}>Reset to default</button
-							>
-						{/if}
-					</div>
-					<p class="hint">
-						{slot.description}
-						{#if slot.ladderIndex}
-							The rung is {slot.ladderIndex}
-						{/if}
-					</p>
-
-					<div class="sound-rungs">
-						{#each names as name, index (index)}
-							<label class="rung">
-								{#if slot.kind === 'ladder'}<span class="rung-n">{index + 1}</span>{/if}
-								<select
-									value={name}
-									onchange={(e) => setSlotRung(slot.id, index, e.currentTarget.value)}
-									disabled={lease.readOnly || !enabled}
-								>
-									{#each data.soundOptions.sfx as option (option)}
-										<option value={option}>{option}</option>
-									{/each}
-								</select>
-							</label>
-						{/each}
-						{#if slot.kind === 'ladder'}
-							<button
-								type="button"
-								class="rung-btn"
-								onclick={() => addSlotRung(slot.id)}
-								disabled={lease.readOnly || !enabled}
-								title="Add a rung">+</button
-							>
-							<button
-								type="button"
-								class="rung-btn"
-								onclick={() => removeSlotRung(slot.id)}
-								disabled={lease.readOnly || !enabled || names.length <= 1}
-								title="Remove the last rung">−</button
-							>
-						{/if}
-					</div>
-
-					<div class="sound-opts">
-						<label class="vol"
-							><span>Volume</span><input
-								type="number"
-								min="0"
-								max="1"
-								step="0.05"
-								placeholder="default"
-								value={doc.sounds?.[slot.id]?.volume ?? ''}
-								oninput={(e) => setSlotVolume(slot.id, e.currentTarget.valueAsNumber)}
-								disabled={lease.readOnly || !enabled}
-							/></label
-						>
-						<label class="check"
-							><input
-								type="checkbox"
-								checked={!enabled}
-								onchange={(e) => setSlotEnabled(slot.id, !e.currentTarget.checked)}
-								disabled={lease.readOnly}
-							/><span>Silent — play nothing at this moment</span></label
-						>
-					</div>
-				</div>
-			{/each}
-			{#each issuesFor('sounds') as issue (issue.path + issue.message)}
-				<p class="inline-issue {issue.severity}"><code>{issue.path}</code> — {issue.message}</p>
-			{/each}
 		</section>
 
 		<!-- Paylines --------------------------------------------------------------->
@@ -2452,88 +2253,6 @@
 		font-size: 12px;
 		color: #b9b9c4;
 	}
-	/* ── Sound slots ──────────────────────────────────────────────────────────────
-	   One card per named presentation moment. A ladder's rungs wrap rather than scroll, so a
-	   five-rung ladder reads as a row on a wide screen and a block on a narrow one. */
-	.sound-slot {
-		border: 1px solid #24242e;
-		border-radius: 8px;
-		padding: 12px 14px;
-		margin-bottom: 10px;
-		background: #131319;
-	}
-	.sound-slot.silenced {
-		opacity: 0.55;
-	}
-	.sound-head {
-		display: flex;
-		align-items: center;
-		gap: 10px;
-		margin-bottom: 4px;
-	}
-	.sound-head .label {
-		font-size: 12px;
-		font-weight: 600;
-		color: #d8d8e2;
-	}
-	.sound-slot .hint {
-		margin-bottom: 10px;
-	}
-	.sound-rungs {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 8px;
-	}
-	.rung {
-		display: flex;
-		align-items: center;
-		gap: 6px;
-	}
-	.rung-n {
-		font-size: 11px;
-		color: #6f6f7d;
-		min-width: 12px;
-		text-align: right;
-	}
-	.rung select {
-		font-size: 12px;
-	}
-	.rung-btn {
-		width: 26px;
-		height: 26px;
-		border: 1px solid #2c2c38;
-		border-radius: 6px;
-		background: #1a1a22;
-		color: #b9b9c4;
-		cursor: pointer;
-		font-size: 14px;
-		line-height: 1;
-	}
-	.rung-btn:disabled {
-		opacity: 0.4;
-		cursor: default;
-	}
-	.sound-opts {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 18px;
-		margin-top: 10px;
-	}
-	.sound-opts .vol {
-		flex-direction: row;
-		align-items: center;
-		gap: 6px;
-		text-transform: none;
-		letter-spacing: 0;
-		font-size: 12px;
-		color: #8b8b98;
-	}
-	.sound-opts .vol input {
-		width: 90px;
-	}
-
 	/* ── Bet-mode cards ───────────────────────────────────────────────────────────
 	   One accent per KIND, shared with the `.mp-chip` menu preview above, so a card and its chip
 	   are recognisably the same mode. Only the bet-mode cards opt in (`data-kind`); the win-tier

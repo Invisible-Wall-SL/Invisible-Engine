@@ -390,30 +390,9 @@ no dim, no hold). The replay itself is `apps/lines/src/game/winSymbolCycle.ts`, 
 
 ### Symbol sounds
 
-Below the win-symbol replay is the **Symbol sounds** section — the cue **one symbol** plays
-entering **one state**, overriding the game-wide sound for that moment.
-
-It starts empty, and that is the normal state to leave it in. The sounds a game makes by
-default are bound once for the whole game in [Invisible Game Config](game-config.md) →
-**Sounds** — the reel-stop ladder, the cascade pop, the picture / royal / scatter / wild
-landing cues — and a symbol only needs a row here when it should sound **different from its
-kind**. A crown that chimes when it lands; a bomb whose cascade pop is its own bang.
-
-Only the states the engine actually fires a per-symbol cue on are offered:
-
-- **Land** — as the symbol settles into its cell, on the reels **and** on a cascade refill.
-  This one **replaces** the game-wide landing cue for this symbol.
-- **Tumble explosion** — as a cascade blows the symbol away. Shown only for a cascading
-  project (same gate as the grid column). This one is heard **alongside** the cascade's own
-  pop, not instead of it: the pop is the beat, this is the symbol's voice in it.
-
-Other states are deliberately absent. Offering a state nothing plays is how a sound comes to
-_look_ bound while playing nothing — the failure this section exists to fix, and one this
-repo shipped for years (`tumble_win_1…5` sat in every game's audiosprite, and in the Flow
-editor's sound library, with no code path ever playing a rung).
-
-**Clear all** empties the section; clearing a single dropdown back to _Game default_ removes
-just that binding, and a symbol with nothing left bound disappears from the doc entirely.
+**Moved to [Invisible Sound](sound.md) → Per-symbol cues.** The cue one symbol plays entering one
+state — a crown that chimes as it lands, a bomb whose cascade pop is its own bang — is chosen there,
+beside the game-wide moment it overrides and the library it comes from.
 
 ### Reel anticipation
 
@@ -451,14 +430,9 @@ per-tier):
   built-in `anticipation` spine; a swapped bundle must expose the `anticipation_intro / _loop / _out`
   animations, since the game still owns the intro → loop → out chaining (same contract as the board
   glow). Only R2 spine bundles already available to the project are offered — no new asset class.
-- **Activation sound** — the one-shot **sting** fired the moment a reel arms the tease. Default is
-  the coded `sfx_anticipation_start`.
-- **Loop sound** — the sustained **loop** that fades in while a reel is still anticipating. Default
-  is the coded `sfx_anticipation`.
-
-The two sound dropdowns list the game's real sound-effect names (the shipped audiosprite, sourced
-from `SOUND_EFFECT_NAMES` — the same list the Flow / Editor sound pickers use). Leaving either on
-**Default** keeps the coded name.
+The tease's two cues — the activation **sting** and the sustained **loop** — are chosen in
+[Invisible Sound](sound.md) → **Reel anticipation**. Their per-tier **volumes** stay here: those are
+part of the intensity ramp below, not a choice of sound.
 
 Every field falls through to the game's coded value when left at its default, so the doc stays
 sparse: an untouched project ships **no `anticipation` key** and the mode is byte-identical to
@@ -466,15 +440,16 @@ before this panel existed. **Reset to default** (shown once anything is overridd
 section.
 
 Stored as `anticipation: { spineKey?, activationSound?, loopSound?, tiers?: Record<tierAlias, TierFx> }`
-— `activationSound` / `loopSound` are global (one each), and the `tiers` record is keyed by the config
+— `activationSound` / `loopSound` are no longer authored here (a project that set them before the
+move is still read, one rank below the sound doc), and the `tiers` record is keyed by the config
 big-win tier **alias** (dynamic, sparse: only overridden tiers appear), each value a sparse
 `{ zoom?, overlayScale?, overlayAlpha?, overlayTint?, soundVolume?, stingVolume? }` (tint is a
 `#rrggbb` hex). Passed through verbatim to `bundle.symbols.anticipation` at export/bake; the engine
 resolves it in `apps/lines/src/game/anticipationPresentation.ts` (`resolveTierFx` /
 `resolveAnticipationSpineKey` / `resolveActivationSound` / `resolveLoopSound`), merging each authored
 field over the coded `codedTierFx` ramp for that tier's rank among the config big tiers
-(`activeBigTiers`), and the authored sound names over the coded `sfx_anticipation_start` /
-`sfx_anticipation`.
+(`activeBigTiers`). The two cue names resolve sound doc → this doc → the coded
+`sfx_anticipation_start` / `sfx_anticipation`.
 
 ### Saving is not the last step — shipping a rebind
 

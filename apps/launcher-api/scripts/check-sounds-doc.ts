@@ -25,6 +25,8 @@ import {
 	isValidSoundName,
 	soundCatalogEntries,
 	soundNames,
+	effectiveSoundBindings,
+	legacySoundBindings,
 	type SoundEntry,
 	type SoundsDoc,
 } from 'engine-layout';
@@ -493,6 +495,65 @@ console.log("\n18. every picker offers the project's own sounds, not just the en
 	// Identity, not just equality: a project with no sounds must leave the editor's vocabulary exactly
 	// as it found it.
 	check('no project sounds ⇒ the SAME object back', withProjectSounds(vocab, bare) === vocab, true);
+}
+
+console.log('\n19. WHAT PLAYS WHEN survives the round trip, and only what departs is stored');
+{
+	const round = (bindings: SoundsDoc['bindings']) =>
+		normalizeSoundsDoc({ version: 1, entries: [], bindings }).bindings;
+
+	check('a slot choice survives', round({ slots: { reelStop: { names: ['a', 'b'] } } }), { slots: { reelStop: { names: ['a', 'b'] } } }); // prettier-ignore
+	// The whole point of the sparse form: an empty level and an absent level must READ the same, or
+	// a cleared cue becomes "authored, plays nothing" — which is silence, not a default.
+	check('an empty slot entry is dropped', round({ slots: { reelStop: {} } }), undefined);
+	check('an empty names list is dropped', round({ slots: { reelStop: { names: [] } } }), undefined);
+	check(
+		'blank names are dropped',
+		round({ slots: { reelStop: { names: ['  ', ''] } } }),
+		undefined,
+	);
+	// …but SILENCE is a real choice, and the only one that can stand alone.
+	check('enabled:false stands on its own', round({ slots: { reelStop: { enabled: false } } }), { slots: { reelStop: { enabled: false } } }); // prettier-ignore
+	check('enabled:true is not stored', round({ slots: { reelStop: { enabled: true } } }), undefined);
+
+	check('a per-symbol cue survives', round({ symbols: { H1: { land: 'my_land' } } }), { symbols: { H1: { land: 'my_land' } } }); // prettier-ignore
+	check('an empty symbol is dropped', round({ symbols: { H1: {} } }), undefined);
+	check('anticipation cues survive', round({ anticipation: { activation: 'sting' } }), { anticipation: { activation: 'sting' } }); // prettier-ignore
+	check('an empty anticipation block is dropped', round({ anticipation: {} }), undefined);
+	check('a tier cue survives', round({ winTiers: { big: { bgm: 'bed' } } }), { winTiers: { big: { bgm: 'bed' } } }); // prettier-ignore
+	check('an empty tier is dropped', round({ winTiers: { big: {} } }), undefined);
+	check('an entirely empty block is dropped', round({}), undefined);
+	check('no block at all round-trips to nothing', normalizeSoundsDoc({ version: 1, entries: [] }).bindings, undefined); // prettier-ignore
+}
+
+console.log('\n20. the migration out of /config and /symbols is WHOLE-DOC, and one-way');
+{
+	const legacy = {
+		configSounds: { reelStop: { names: ['old_stop'] } },
+		symbolSounds: { H1: { land: 'old_land' } },
+		anticipation: { activationSound: 'old_sting', loopSound: 'old_loop' },
+		winLevels: [{ alias: 'big', sound: { bgm: 'old_bed' } }],
+	} as Parameters<typeof legacySoundBindings>[0];
+
+	const read = legacySoundBindings(legacy);
+	check('the config slots come across', read.slots, { reelStop: { names: ['old_stop'] } });
+	check('the per-symbol cues come across', read.symbols, { H1: { land: 'old_land' } });
+	check('the anticipation cues are RENAMED to the new field names', read.anticipation, { activation: 'old_sting', loop: 'old_loop' }); // prettier-ignore
+	check('the tier beds come across keyed by alias', read.winTiers, { big: { bgm: 'old_bed' } });
+
+	// A project that has never opened the tool reads through to the old docs …
+	check('no bindings block ⇒ the legacy read', effectiveSoundBindings({ version: 1 }, legacy), read); // prettier-ignore
+	check('no doc at all ⇒ the legacy read', effectiveSoundBindings(null, legacy), read);
+	check('neither ⇒ nothing', effectiveSoundBindings(null), {});
+
+	// … and the FIRST save ends that, wholesale. This is the claim that matters: a per-field merge
+	// would resurrect a cue the author deliberately cleared here from the config doc that still holds
+	// it, and the author would have no way to tell the tool "no, really, nothing".
+	const authored: SoundsDoc = { version: 1, bindings: { slots: { reelStop: { names: ['new_stop'] } } } }; // prettier-ignore
+	check('a bindings block is the WHOLE answer', effectiveSoundBindings(authored, legacy), authored.bindings); // prettier-ignore
+	check('…so a legacy symbol cue does NOT leak through', effectiveSoundBindings(authored, legacy).symbols, undefined); // prettier-ignore
+	// An EMPTY block is still a block: "I cleared everything" must not read as "I have not started".
+	check('an empty authored block still wins', effectiveSoundBindings({ version: 1, bindings: {} }, legacy), {}); // prettier-ignore
 }
 
 console.log(

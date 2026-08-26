@@ -11,12 +11,14 @@ import {
 	validateGameConfigDoc,
 	winLevelType,
 	type GameConfigDoc,
+	type GameSounds,
 	type ResolvedGrid,
 	type ResolvedReelBehaviour,
 	type ResolvedSounds,
 	type ResolvedWinTier,
 	type WinModel,
 } from 'game-config';
+import type { SoundBindings } from 'engine-layout';
 
 import { SYMBOL_SIZE } from './constants';
 import type { RawSymbol } from './types';
@@ -335,7 +337,8 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	 * is the omission that freezes an online game to the sample config.
 	 */
 	function activeSounds(): ResolvedSounds {
-		return resolveSounds(getActiveGameConfig());
+		const slots = soundBindings?.slots;
+		return resolveSounds(slots ? { sounds: slots as GameSounds } : getActiveGameConfig());
 	}
 
 	/**
@@ -529,6 +532,31 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		winPresentation = params ?? {};
 	}
 
+	// ---------------------------------------------------------------------------
+	// WHAT PLAYS WHEN — the Invisible Sound doc's choices, published at boot from the baked catalog.
+	//
+	// Sound authoring used to live in the config doc (`sounds`, `winLevels[].sound`) and the symbols
+	// doc. It lives in the sound tool now, and the EXPORT resolves the migration, so what arrives here
+	// is one settled answer. Absent ⇒ every read below falls through to the config/coded path exactly
+	// as before, which is what keeps an un-migrated project and un-baked dev byte-identical.
+	// ---------------------------------------------------------------------------
+
+	let soundBindings: SoundBindings | undefined;
+
+	/**
+	 * Publish the project's sound choices. Called at boot after {@link resetGameConfigCache}, from the
+	 * game's own baked-catalog accessor — the same shape as {@link publishWinPresentation}, and for
+	 * the same reason: this package cannot reach a game's bundle, so the game hands it in.
+	 */
+	function publishSoundBindings(bindings: SoundBindings | undefined): void {
+		soundBindings = bindings;
+	}
+
+	/** A tier's authored cues, or `undefined` when the sound doc says nothing about it. */
+	function tierSoundBinding(alias: string): { sfx?: string; bgm?: string } | undefined {
+		return soundBindings?.winTiers?.[alias];
+	}
+
 	function presentationString(key: string): string | undefined {
 		const v = winPresentation[key];
 		return typeof v === 'string' && v.length > 0 ? v : undefined;
@@ -546,8 +574,13 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 	function withWinPresentation(data: WinLevelData): WinLevelData {
 		const alias = data.alias;
 		const duration = presentationNumber(`${alias}Duration`);
-		const sfx = presentationString(`${alias}Sfx`);
-		const bgm = presentationString(`${alias}Bgm`);
+		// The sound tool outranks the win instance's params, which outrank the config/coded tier. It
+		// has to: it is the surface that lists every tier at once, so a cue picked there and then
+		// silently overruled by a param buried in a component instance would be indistinguishable
+		// from a cue that simply does not play.
+		const authored = tierSoundBinding(alias);
+		const sfx = authored?.sfx ?? presentationString(`${alias}Sfx`);
+		const bgm = authored?.bgm ?? presentationString(`${alias}Bgm`);
 		if (duration === undefined && sfx === undefined && bgm === undefined) return data;
 		return {
 			...data,
@@ -723,6 +756,7 @@ export function createGameConfig<TGameType extends string>(deps: GameConfigDeps)
 		activeWinLevels,
 		activeReelBehaviour,
 		activeSounds,
+		publishSoundBindings,
 		activeWinModel,
 		activeGrid,
 		boardDimensions,

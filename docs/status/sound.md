@@ -2,10 +2,10 @@
 
 > Design: [docs/design/invisible-sound.md](../design/invisible-sound.md) · Guide: [docs/tools/sound.md](../tools/sound.md) · Agent: — (unbuilt)
 
-**One-line state:** **the build plan is complete** — S1 through S9. A project can upload sounds,
-describe and approve them, select them in every tool that binds a cue, see what is played and what
-is not, and ship them through the full asset chain behind a publish gate. Reachable at `/sound` by
-`audio`, `developer`, `artist`, `pipelineTester` and `admin`.
+**One-line state:** **the build plan is complete** — S1 through S10. A project chooses what plays at
+every moment of the game HERE, in categories, from a library it uploads, describes and approves in
+the same page — and ships the lot through the full asset chain behind a publish gate. Reachable at
+`/sound` by `audio`, `developer`, `artist`, `pipelineTester` and `admin`.
 
 ⏳ **The one thing outstanding is a human click-through.** Every step was verified offline, against
 real R2, or in a browser via the engine side; the launcher pages themselves need a signed-in pass,
@@ -165,20 +165,85 @@ a sound picker offer" — the engine's own sounds plus this project's, project f
   and the publish gate need them to tell a re-skin from an unused sound. Its ROLE retired: it is the
   base of the list now, not the whole of it.
 
+**S10 — authoring moved in (built; compiles, type-checks and the contract fixtures hold — NOT
+live-verified).** S1–S9 shipped a library with a read-only index and left every choice in three other
+tools, which is not the tool that was asked for. The choices are now made here, in categories, and
+the pickers are gone from `/config`, `/symbols` and the Scene Editor.
+
+- **`SoundsDoc.bindings`** (`packages/engine-layout/src/lib/soundLibrary.ts`) holds `slots`,
+  `symbols`, `anticipation` and `winTiers`. Every level is sparse and an empty level is DROPPED on
+  save, because `{}` and absent must read the same to a runtime — a project that authored a cue and
+  then cleared it must not read as authored-with-nothing, which is silence rather than a default.
+  `enabled: false` is the one exception that stands alone: it is the gesture that *means* "play
+  nothing here". Slot names are stored only when they DEPART from the catalogue.
+- **The migration is whole-doc and one-way** (`effectiveSoundBindings`). No block ⇒ read
+  `/config`'s `sounds` + `winLevels[].sound` and `/symbols`' `symbolSounds` + anticipation cues, so
+  the page opens on what the game actually plays. The first save writes the block and the fallback
+  never runs again. Never a per-field merge: that would resurrect a deliberately cleared cue from the
+  config doc that still holds it, and leave no gesture meaning "no, really, nothing".
+- **The export settles it.** `soundExport.ts` is the only place that can see all three docs at once,
+  so it resolves the fallback and puts the answer on the catalog (`SoundCatalog.bindings`). Both
+  bundle assemblies already carry the catalog, so the choices travel the chain with no new link.
+- **The runtime reads it in one place per surface.** `publishSoundBindings()` (engine-game
+  `gameConfig.ts`, called from `Game.svelte` beside `publishWinPresentation`) feeds `activeSounds()`
+  and the win-tier overlay; `bakedSymbolSounds()` and `bakedAnticipationSounds()` read the same
+  catalog. Absent ⇒ every one falls through to the config/symbols/coded path it used before, so
+  un-baked dev and a bundle built before the move are byte-identical.
+- **The old fields were NOT deleted.** `GameConfigDoc.sounds`, `SymbolsDoc.symbolSounds`, the symbols
+  doc's anticipation cues and the `win` component's `<alias>Sfx`/`<alias>Bgm` params are still in
+  their schemas and still read one rank below the sound doc. Only the authoring UI went. A game that
+  shipped before the move keeps sounding the same until someone opens the tool.
+- **The usage index is now derived on the page**, from the choices on screen rather than the server's
+  read of the docs — on a tool whose job is to surface inaudible mistakes, an index one save behind
+  every edit is a tool that lies until you reload.
+- **Win-tier precedence changed**: the sound doc outranks the `win` component instance's params,
+  which outrank the config/coded tier. It has to — `/sound` is the surface that lists every tier at
+  once, so a cue picked there and silently overruled by a param buried in a component instance would
+  be indistinguishable from a cue that just does not play.
+
 ## Open items / next
 
-1. **Click through `/sound` once.** Everything below the UI is verified; the page itself has only
-   been compiled and type-checked. Upload a sound, name it, approve it, save, and confirm it
-   survives a reload — then bind it in `/config` and hear it in a game.
-2. S7–S9 — the usage index, the publish gate, and retiring `soundEnums.generated.ts`. See the
-   design doc's build plan. **S8 is the one the guide already promises**: `docs/tools/sound.md` tells
-   authors a publish warns about bound drafts, and that check does not exist yet.
+1. **Click through `/sound` once.** Everything below the UI is verified — offline fixtures, real-R2
+   harnesses, mutation tests, the engine side in a browser. The page itself has only been compiled
+   and type-checked, because the launcher pages need a signed-in session. Open a project that has
+   sound choices in `/config`/`/symbols`, confirm the page opens on what the game already plays and
+   says so, change one moment, save, reload, and hear it in a game.
+2. **Retire the old fields.** `GameConfigDoc.sounds`, `SymbolsDoc.symbolSounds`, the symbols doc's
+   anticipation cues and the `win` component's `<alias>Sfx`/`<alias>Bgm` params are dead weight
+   once every live project has saved once in `/sound`. Until then they are the only thing keeping a
+   pre-move game sounding the way it shipped.
+3. **Renaming is still hostile.** Renaming a library sound does not repoint the moments that play
+   it — the picker turns red and says so, which is better than silence, but a rewrite is now cheap
+   (one doc, one save) and worth doing.
 
 ## Blocked (owner / external)
 
 - _None._
 
 ## Recent changes
+
+- 2026-08-26 — **Authoring moved into the tool — the game's sounds are chosen here now.** Design step
+  S10. S1–S9 built a library, a usage index and a set of pickers that agreed on a vocabulary, then
+  left the actual choices in `/config`, `/symbols` and the Scene Editor. That is not the tool that
+  was asked for, and the earlier design's §2.3 argued explicitly for keeping them apart. The argument
+  was wrong about which fact was being homed: "what plays at the reel stop" is not a fact about the
+  reel stop, it is a fact about the game's audio — and the game's audio was spread across three tools
+  none of which could play a sound.
+
+  `/sound` now opens on the moments: **Game moments** (every slot, with its ladder rungs, its
+  plain-words description of what fires it, a silent switch and a reset-to-default), **Per-symbol
+  cues**, **Reel anticipation**, **Win tiers**, and **Flow cues** read-only with a link out. Every
+  picker offers the project's sounds first and the engine's after, and every row has a ▶.
+
+  The Sounds panel is gone from `/config`, the Symbol-sounds section and the two anticipation sound
+  dropdowns are gone from `/symbols`, and the `<alias>Sfx`/`<alias>Bgm` params are gone from the Win
+  Overlay component's editor params. Each leaves a pointer where it stood.
+
+  **Nothing was deleted from a schema.** The old fields are still read at runtime, one rank below the
+  sound doc, so a project that shipped before the move sounds identical until someone saves here.
+  They become removable once every live project has saved once, and not before.
+
+  ⏳ Not live-verified: the launcher pages need a signed-in session I have no way to obtain.
 
 - 2026-08-26 — **One list, one source — every sound picker now offers the project's own sounds.**
   Design step S9, and the last of the build plan. `soundOptions.ts` answers "what may a picker

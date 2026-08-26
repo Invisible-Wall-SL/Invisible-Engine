@@ -467,7 +467,6 @@
 	/** The game's real sounds for the win component's per-tier SFX / BGM dropdowns — the ONE generated
 	 * enum (`engine-flow-v2`). BGM = the `bgm_*` beds; SFX = the non-bgm cues (`sfx_*` / `jng_*`). This
 	 * is the SHIPPED (`apps/lines`) sound set — a game with its own `sounds.json` isn't reflected yet. */
-	const WIN_SOUND_OPTIONS = $derived({ bgm: data.soundOptions.music, sfx: data.soundOptions.sfx });
 
 	/**
 	 * Rebuild the `win` component's per-tier PRESENTATION groups from the ACTIVE game config's big
@@ -487,7 +486,7 @@
 			const base = def.params.filter((p) => !p.group || p.group === 'Animations (all tiers)');
 			return {
 				...def,
-				params: [...base, ...winTierPresentationParams(tiers, WIN_SOUND_OPTIONS)],
+				params: [...base, ...winTierPresentationParams(tiers)],
 			};
 		});
 	}
