@@ -271,6 +271,46 @@ def test_session_lifecycle() -> None:
           [k for k in objects if sid in k], [])
 
 
+def test_blueprint_kind() -> None:
+    """A blueprint belongs to ONE tool. The Atlas Maker's image networks and the
+    Flipbook's video networks share a library but must never share a picker."""
+    import blueprints
+
+    bp_dir = BP_DIR
+    manifest = json.loads((bp_dir / "blueprint.json").read_text(encoding="utf-8"))
+    graph = json.loads((bp_dir / "workflow.json").read_text(encoding="utf-8"))
+
+    check("the shipped blueprint declares itself video",
+          blueprints.validate_against_graph("wan", dict(manifest), graph)["kind"],
+          "video")
+
+    # Every blueprint authored before `kind` existed must keep working AND keep
+    # showing up in the Atlas Maker, so absent means image.
+    legacy = {k: v for k, v in manifest.items() if k != "kind"}
+    check("an absent kind defaults to image",
+          blueprints.validate_against_graph("legacy", legacy, graph)["kind"], "image")
+
+    bad = dict(manifest)
+    bad["kind"] = "audio"
+    check_raises("an unknown kind is refused",
+                 lambda: blueprints.validate_against_graph("bad", bad, graph),
+                 "not one of")
+
+
+def test_wrong_kind_is_refused() -> None:
+    """Defence in depth: the picker is filtered, but a stale tab can still name an
+    image blueprint, and running one here burns a GPU job for a single still."""
+    _stub_world()
+    bp = load_blueprint()
+    bp["meta"] = {**bp["meta"], "kind": "image", "name": "Some Atlas Network"}
+    video_runner.blueprints.get_blueprint = lambda i: bp
+    check_raises("an IMAGE blueprint is refused by the video runner",
+                 lambda: video_runner.start_session(
+                     {"blueprint": "x", "prompt": "p", "source_ref": "r.png",
+                      "variations": 1}, ("clientx", "projecty")),
+                 "belongs to the Atlas Maker")
+
+
 def test_request_validation() -> None:
     _stub_world()
     ctx = ("clientx", "projecty")
@@ -298,6 +338,8 @@ if __name__ == "__main__":
     test_output_picking()
     test_session_id_validation()
     test_session_lifecycle()
+    test_blueprint_kind()
+    test_wrong_kind_is_refused()
     test_request_validation()
     print()
     if FAILED:
