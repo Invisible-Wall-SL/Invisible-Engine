@@ -66,6 +66,14 @@ export interface ToolDef {
 	kind: ToolKind;
 	/** Online tools: the private-area URL the launcher opens with the session token. */
 	url?: string;
+	/**
+	 * The `url` REDIRECTS to another document that boots its own CRT splash (the static
+	 * `view.html` twin, or a Python tool's `splash_html`). SvelteKit finishes such a
+	 * redirect with a full page load, so the launcher must NOT play `<BootSplash>` for
+	 * the hop — the screen would run twice, ours and then theirs from the top.
+	 * See docs/ui-inventory.md §12.
+	 */
+	handsOff?: true;
 	/** Inline, stroke-based SVG (currentColor) shown on the tool card + onboarding. */
 	icon?: string;
 	/** Local tools: metadata the launcher uses to download + install on the machine. */
@@ -205,6 +213,7 @@ export const TOOLS: Record<string, ToolDef> = {
 			"AI-generate a game's atlas art region by region — prompts, seeds and variants — then pack and deploy the sheet.",
 		kind: 'online',
 		url: '/atlas',
+		handsOff: true,
 		icon: TOOL_ICONS.atlasTool,
 	},
 	spineViewer: {
@@ -213,6 +222,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		description: 'Online viewer for Spine skeletons and animations.',
 		kind: 'online',
 		url: '/spine',
+		handsOff: true,
 		icon: TOOL_ICONS.spineViewer,
 	},
 	rigger: {
@@ -222,6 +232,7 @@ export const TOOLS: Record<string, ToolDef> = {
 			'Online rig editor — build bones, meshes and weights over your art, animate them on a dopesheet, and save a Spine-compatible rig the game plays.',
 		kind: 'online',
 		url: '/rigger',
+		handsOff: true,
 		icon: TOOL_ICONS.rigger,
 	},
 	invisibleLauncher: {
@@ -272,6 +283,7 @@ export const TOOLS: Record<string, ToolDef> = {
 		description: 'Online sprite-sheet packer for game-ready atlases.',
 		kind: 'online',
 		url: '/sheet',
+		handsOff: true,
 		icon: TOOL_ICONS.sheetMaker,
 	},
 	localization: {
