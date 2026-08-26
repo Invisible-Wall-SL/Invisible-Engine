@@ -4853,6 +4853,12 @@ class Handler(BaseHTTPRequestHandler):
             # is a trap, not a feature.
             self._send(200, "application/json",
                        json.dumps(blueprints.list_blueprints(kind="video")).encode())
+        elif path == "/video/library":
+            # Diagnostic: what R2 holds vs what hydrated vs what validated. The
+            # empty-list case used to be indistinguishable between "seed never
+            # landed", "service has not restarted" and "blueprint rejected".
+            self._send(200, "application/json",
+                       json.dumps(blueprints.library_status()).encode())
         elif path == "/video/sessions":
             self._send(200, "application/json",
                        json.dumps(video_runner.list_sessions()).encode())

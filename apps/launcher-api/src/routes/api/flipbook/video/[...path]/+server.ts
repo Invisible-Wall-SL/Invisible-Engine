@@ -34,6 +34,8 @@ const GET_ROUTES: Record<string, string> = {
 	// Frame count / size / fps / has-alpha for one variation, so the trim panel can
 	// show a cost (and warn about opaque frames) before anything is packed.
 	probe: '/video/probe',
+	// Diagnostic for the empty-list case — see `library_status` in blueprints.py.
+	library: '/video/library',
 };
 
 const POST_ROUTES: Record<string, string> = {
