@@ -43,14 +43,21 @@
 	/** Entries grouped for browsing, section order following first appearance so the list does not
 	 *  reshuffle as sections are typed. */
 	const sections = $derived.by(() => {
-		const groups = new Map<string, SoundEntry[]>();
+		// A null-prototype record rather than a `Map`: section names are author-typed, so a plain object
+		// would answer `groups['constructor']` with something inherited — and a `Map` here trips
+		// `svelte/prefer-svelte-reactivity`, which cannot tell a throwaway inside a `$derived` from
+		// reactive state. The names array preserves first-appearance order.
+		const groups: Record<string, SoundEntry[]> = Object.create(null);
+		const order: string[] = [];
 		for (const entry of entries) {
 			const key = entry.section?.trim() || UNSORTED;
-			const list = groups.get(key) ?? [];
-			list.push(entry);
-			groups.set(key, list);
+			if (!groups[key]) {
+				groups[key] = [];
+				order.push(key);
+			}
+			groups[key].push(entry);
 		}
-		return [...groups.entries()];
+		return order.map((key): [string, SoundEntry[]] => [key, groups[key]]);
 	});
 
 	const approvedCount = $derived(entries.filter((e) => e.status === 'approved').length);
@@ -60,15 +67,14 @@
 	 * sharing a name means the earlier one silently vanishes — the page has to say so before the
 	 * author loses the row rather than after.
 	 */
-	const duplicateNames = $derived.by(() => {
-		const seen = new Set<string>();
-		const dupes = new Set<string>();
-		for (const entry of entries) {
-			if (seen.has(entry.name)) dupes.add(entry.name);
-			seen.add(entry.name);
-		}
-		return dupes;
-	});
+	const duplicateNames = $derived(
+		entries
+			.map((e) => e.name)
+			// every occurrence AFTER the first …
+			.filter((name, i, all) => all.indexOf(name) !== i)
+			// … then one row per repeated name, so "a, a, a" reports `a` once.
+			.filter((name, i, repeats) => repeats.indexOf(name) === i),
+	);
 
 	/** Entries the save would DROP — an invalid name is not a warning, it is a deletion. */
 	const invalidNames = $derived(entries.filter((e) => !isValidSoundName(e.name)).length);
@@ -807,10 +813,10 @@
 					<strong>drop</strong> those rows.
 				</p>
 			{/if}
-			{#if duplicateNames.size > 0}
+			{#if duplicateNames.length > 0}
 				<p class="warn">
-					<strong>Two sounds share a name ({[...duplicateNames].join(', ')}).</strong> Only the last
-					one survives a save — rename one, or the other disappears.
+					<strong>Two sounds share a name ({duplicateNames.join(', ')}).</strong> Only the last one survives
+					a save — rename one, or the other disappears.
 				</p>
 			{/if}
 
