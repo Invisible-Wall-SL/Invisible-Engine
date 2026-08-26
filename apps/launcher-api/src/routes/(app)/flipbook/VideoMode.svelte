@@ -385,8 +385,10 @@
 			<p class="empty">Loading blueprints…</p>
 		{:else if !blueprints.length}
 			<p class="empty">
-				No blueprints in the shared library. Seed one, then restart the Atlas Maker service — the
-				library hydrates at container start.
+				No <b>video</b> blueprints in the shared library. This list shows only blueprints published as
+				video networks — the Atlas Maker's image blueprints belong to a different tool and are deliberately
+				not offered here. Publish one, then restart the Atlas Maker service: the library hydrates at
+				container start.
 			</p>
 		{:else}
 			<label class="fld">

@@ -349,6 +349,15 @@ def start_session(req: dict, ctx: tuple[str, str], user: str = "") -> dict:
             f"Blueprint '{bp_id}' not found in the shared library "
             "(it may need seeding, or the tool may need a restart to hydrate).")
 
+    # The picker only lists video blueprints, but a stale tab or a hand-made
+    # request can still name an image one — and an image graph through this runner
+    # burns a GPU job to produce a single still nothing here can use.
+    kind = str((bp.get("meta") or {}).get("kind") or "image").strip().lower()
+    if kind != "video":
+        raise ValueError(
+            f"'{(bp.get('meta') or {}).get('name', bp_id)}' is an {kind} blueprint "
+            "(it belongs to the Atlas Maker). Pick a video blueprint.")
+
     prompt = str(req.get("prompt") or "").strip()
     if not prompt:
         raise ValueError("Enter a prompt.")

@@ -57,6 +57,21 @@ KNOWN_ROLES = REQUIRED_ROLES + OPTIONAL_ROLES
 # numeric (with optional min/max/step bounds).
 PARAM_TYPES = ("int", "float", "text", "bool", "select")
 
+# WHICH TOOL a blueprint belongs to. `image` blueprints drive the Atlas Maker's
+# region generation; `video` blueprints drive the Flipbook's video mode. They are
+# NOT interchangeable — a video graph pushed through the still-image runner
+# produces nothing useful, and an image graph offered in the video mode is just a
+# trap — so each tool lists only its own kind.
+#
+# Declared, never inferred. "does the graph end in an animated save node?" would
+# be a guess that silently mis-files a blueprint the moment someone uses a save
+# node we did not anticipate.
+#
+# ABSENT = "image", so every blueprint authored before this keeps working and
+# keeps showing up exactly where it did.
+BLUEPRINT_KINDS = ("image", "video")
+DEFAULT_BLUEPRINT_KIND = "image"
+
 # Hydrate the shared tree once per process (cheap, incremental pull thereafter).
 _HYDRATED = False
 _HYDRATE_LOCK = threading.Lock()
@@ -110,6 +125,12 @@ def _validate_manifest(bp_id: str, manifest: dict) -> dict:
         if not str(b.get("field", "")).strip():
             raise ValueError(
                 f"blueprint '{bp_id}': role '{role}' has no 'field'")
+    kind = str(manifest.get("kind") or DEFAULT_BLUEPRINT_KIND).strip().lower()
+    if kind not in BLUEPRINT_KINDS:
+        raise ValueError(
+            f"blueprint '{bp_id}': kind '{kind}' is not one of "
+            f"{', '.join(BLUEPRINT_KINDS)}")
+    manifest["kind"] = kind
     _validate_params(bp_id, manifest, bindings)
     _validate_models(bp_id, manifest)
     _validate_custom_nodes(bp_id, manifest)
@@ -368,17 +389,27 @@ def _read_blueprint_dir(d: Path) -> dict | None:
             "params": params, "custom_nodes": custom_nodes, "meta": meta}
 
 
-def list_blueprints() -> list[dict]:
-    """All readable blueprints in the shared library -> list of meta dicts
-    ({id, name, description, base, …}), sorted by id. Hydrates first."""
+def list_blueprints(kind: str | None = None) -> list[dict]:
+    """Readable blueprints in the shared library -> list of meta dicts
+    ({id, name, description, base, kind, …}), sorted by id. Hydrates first.
+
+    `kind` filters to one tool's blueprints ("image" / "video"); None lists every
+    kind, which is what a MANAGEMENT surface wants (hiding a kind there would
+    strand it with no way to delete it). A tool's PICKER should always pass its
+    own kind — offering the other tool's networks is a trap, not a feature."""
     hydrate()
     out: list[dict] = []
     if not BLUEPRINTS_STAGING.is_dir():
         return out
+    want = str(kind).strip().lower() if kind else ""
     for d in sorted(p for p in BLUEPRINTS_STAGING.iterdir() if p.is_dir()):
         bp = _read_blueprint_dir(d)
-        if bp:
-            out.append(bp["meta"])
+        if not bp:
+            continue
+        meta = bp["meta"]
+        if want and str(meta.get("kind") or DEFAULT_BLUEPRINT_KIND) != want:
+            continue
+        out.append(meta)
     return out
 
 

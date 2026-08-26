@@ -729,7 +729,9 @@ def _pipeline_options_html(current: str) -> str:
     three built-ins (never raises into the page render)."""
     cur = current or "sdxl"
     try:
-        bps = blueprints.list_blueprints()
+        # IMAGE blueprints only — this is the Atlas Maker's pipeline picker, and a
+        # video network selected here would generate nothing usable.
+        bps = blueprints.list_blueprints(kind="image")
     except Exception:  # noqa: BLE001 — UI must render even if R2 is down
         bps = []
     # Blueprint optgroup: ids that aren't one of the three built-in keywords.
@@ -4846,8 +4848,11 @@ class Handler(BaseHTTPRequestHandler):
         # Stateless + session-scoped: none of these touch the active manifest,
         # so a video session and an atlas render can't clobber each other.
         elif path == "/video/blueprints":
+            # VIDEO blueprints only. The Atlas Maker's image networks share the
+            # same shared library but are a different tool's; offering them here
+            # is a trap, not a feature.
             self._send(200, "application/json",
-                       json.dumps(blueprints.list_blueprints()).encode())
+                       json.dumps(blueprints.list_blueprints(kind="video")).encode())
         elif path == "/video/sessions":
             self._send(200, "application/json",
                        json.dumps(video_runner.list_sessions()).encode())
@@ -4911,6 +4916,13 @@ class Handler(BaseHTTPRequestHandler):
                        b"Blueprint upload too large (max ~4 MB).")
             return
         raw = self.rfile.read(length).decode("utf-8")
+        # The tool's own page POSTs to BARE paths and carries its (client, project)
+        # in cookies. The launcher proxy has no cookies, so it must append
+        # `?k=&client=&project=&user=` — which means a raw `self.path` comparison
+        # never matches a proxied POST and it falls through to the 404 below. GET
+        # already parses (see do_GET); the routes reached through the proxy compare
+        # against `post_path` so both callers work.
+        post_path = urllib.parse.urlparse(self.path).path
         if self.path == "/save":
             self._send(200, "text/plain", self._save(json.loads(raw)).encode())
         elif self.path == "/saveconfig":
@@ -4998,9 +5010,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain", self._setmode(json.loads(raw)).encode())
         elif self.path == "/fxbuild":
             self._send(200, "text/plain", self._fxbuild(json.loads(raw)).encode())
-        elif self.path in ("/video/generate", "/video/cancel", "/video/delete",
+        elif post_path in ("/video/generate", "/video/cancel", "/video/delete",
                            "/video/toclip"):
-            self._send(200, "application/json", self._video(self.path, raw))
+            self._send(200, "application/json", self._video(post_path, raw))
         else:
             self._send(404, "text/plain", b"not found")
             return
@@ -5304,10 +5316,21 @@ class Handler(BaseHTTPRequestHandler):
         name = str(payload.get("name", "")).strip()
         if not name:
             return "Give the blueprint a name."
-        base = str(payload.get("base", "sdxl")).strip().lower() or "sdxl"
-        if base not in ("sdxl", "flux", "gpt_image"):
-            return ("✖ base must be one of sdxl / flux / gpt_image "
-                    f"(got '{base}').")
+        kind = str(payload.get("kind", "")).strip().lower() or "image"
+        if kind not in blueprints.BLUEPRINT_KINDS:
+            return (f"✖ kind must be one of "
+                    f"{' / '.join(blueprints.BLUEPRINT_KINDS)} (got '{kind}').")
+        base = str(payload.get("base", "")).strip().lower()
+        if kind == "image":
+            base = base or "sdxl"
+            if base not in ("sdxl", "flux", "gpt_image"):
+                return ("✖ base must be one of sdxl / flux / gpt_image "
+                        f"(got '{base}').")
+        else:
+            # A video blueprint's base names a model family (wan22-i2v, …), which
+            # is metadata we do not dispatch on — so it is free-form rather than a
+            # list that would need editing every time a new model lands.
+            base = base or kind
         description = str(payload.get("description", "")).strip()
         workflow_text = payload.get("workflow_text", "")
         if not str(workflow_text).strip():
@@ -5389,6 +5412,7 @@ class Handler(BaseHTTPRequestHandler):
             "author": self._publish_author(),
             "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "base": base,
+            "kind": kind,
             "bindings": clean_bindings,
             "params": clean_params,
             "models": [],

@@ -5,40 +5,247 @@
   "description": "Image-to-video for the Flipbook video session: a still (a symbol region, a piece of art) drives Wan 2.2 I2V A14B, an optional BiRefNet pass cuts the background to alpha, and the result saves as an animated WEBP whose frames become a flipbook clip. Serverless-safe: every node is ComfyUI core or 1038lab/ComfyUI-RMBG, both baked into the worker image — the original graph's ImageResizeKJv2 (KJNodes, absent from the worker) is replaced by core ImageScale, pixel-identical at these settings because the KJ node was set to keep_proportion:stretch with divisible_by:2 at 320. The save node's fps is wired to the generation fps (node 192) so the preview can never drift from the motion rate. `width`/`height` are DELIBERATELY unbound: the runner fills those roles from the atlas-tool's gen_width/gen_height, which default to 1024 — injecting that into WanImageToVideo would blow up VRAM and time on an 81-frame batch. Generation size is a param instead, defaulting to the tested 640. Frame count is floor(duration * fps + 1) = 81 at the defaults.",
   "author": "iw-builtin",
   "base": "wan22-i2v",
+  "kind": "video",
   "bindings": {
-    "positive":  { "node": "170", "field": "text" },
-    "negative":  { "node": "194", "field": "text" },
-    "seed":      { "node": "180", "field": "noise_seed" },
-    "style_ref": { "node": "97",  "field": "image" },
-    "output":    { "node": "200" }
+    "positive": {
+      "node": "170",
+      "field": "text"
+    },
+    "negative": {
+      "node": "194",
+      "field": "text"
+    },
+    "seed": {
+      "node": "180",
+      "field": "noise_seed"
+    },
+    "style_ref": {
+      "node": "97",
+      "field": "image"
+    },
+    "output": {
+      "node": "200"
+    }
   },
   "params": [
-    { "key": "duration", "label": "Duration (s)", "type": "float", "default": 5, "min": 0.5, "max": 10, "step": 0.5, "node": "191", "field": "value", "group": "Video" },
-    { "key": "fps", "label": "FPS (drives frame count + clip speed)", "type": "float", "default": 16, "min": 1, "max": 30, "step": 1, "node": "192", "field": "value", "group": "Video" },
-    { "key": "gen_width", "label": "Generation width", "type": "int", "default": 640, "min": 256, "max": 1280, "step": 16, "node": "165", "field": "width", "group": "Video" },
-    { "key": "gen_height", "label": "Generation height", "type": "int", "default": 640, "min": 256, "max": 1280, "step": 16, "node": "165", "field": "height", "group": "Video" },
-
-    { "key": "fast_lora", "label": "4-step LoRA (fast mode)", "type": "bool", "default": true, "node": "171", "field": "value", "group": "Sampler" },
-    { "key": "steps", "label": "Steps — quality mode ONLY (ignored while 4-step LoRA is on)", "type": "int", "default": 20, "min": 1, "max": 60, "step": 1, "node": "168", "field": "value", "group": "Sampler" },
-    { "key": "cfg", "label": "CFG — quality mode ONLY (ignored while 4-step LoRA is on)", "type": "float", "default": 3.5, "min": 1, "max": 10, "step": 0.5, "node": "177", "field": "value", "group": "Sampler" },
-
-    { "key": "out_width", "label": "Output frame width", "type": "int", "default": 320, "min": 64, "max": 1024, "step": 8, "node": "196", "field": "width", "group": "Output" },
-    { "key": "out_height", "label": "Output frame height", "type": "int", "default": 320, "min": 64, "max": 1024, "step": 8, "node": "196", "field": "height", "group": "Output" },
-    { "key": "lossless", "label": "Lossless WEBP (large — may exceed the job payload cap)", "type": "bool", "default": false, "node": "200", "field": "lossless", "group": "Output" },
-    { "key": "quality", "label": "WEBP quality", "type": "int", "default": 90, "min": 1, "max": 100, "step": 1, "node": "200", "field": "quality", "group": "Output" },
-
-    { "key": "remove_background", "label": "Cut background to alpha (BiRefNet)", "type": "bool", "default": true, "node": "203", "field": "value", "group": "Cutout" },
-    { "key": "mask_blur", "label": "Matte blur", "type": "float", "default": 0.8, "min": 0, "max": 8, "step": 0.1, "node": "202", "field": "mask_blur", "group": "Cutout" },
-    { "key": "mask_offset", "label": "Matte offset (grow/shrink)", "type": "int", "default": 5, "min": -20, "max": 20, "step": 1, "node": "202", "field": "mask_offset", "group": "Cutout" },
-    { "key": "refine_foreground", "label": "Refine foreground (slower, cleaner edges)", "type": "bool", "default": false, "node": "202", "field": "refine_foreground", "group": "Cutout" }
+    {
+      "key": "duration",
+      "label": "Duration (s)",
+      "type": "float",
+      "default": 5,
+      "min": 0.5,
+      "max": 10,
+      "step": 0.5,
+      "node": "191",
+      "field": "value",
+      "group": "Video"
+    },
+    {
+      "key": "fps",
+      "label": "FPS (drives frame count + clip speed)",
+      "type": "float",
+      "default": 16,
+      "min": 1,
+      "max": 30,
+      "step": 1,
+      "node": "192",
+      "field": "value",
+      "group": "Video"
+    },
+    {
+      "key": "gen_width",
+      "label": "Generation width",
+      "type": "int",
+      "default": 640,
+      "min": 256,
+      "max": 1280,
+      "step": 16,
+      "node": "165",
+      "field": "width",
+      "group": "Video"
+    },
+    {
+      "key": "gen_height",
+      "label": "Generation height",
+      "type": "int",
+      "default": 640,
+      "min": 256,
+      "max": 1280,
+      "step": 16,
+      "node": "165",
+      "field": "height",
+      "group": "Video"
+    },
+    {
+      "key": "fast_lora",
+      "label": "4-step LoRA (fast mode)",
+      "type": "bool",
+      "default": true,
+      "node": "171",
+      "field": "value",
+      "group": "Sampler"
+    },
+    {
+      "key": "steps",
+      "label": "Steps — quality mode ONLY (ignored while 4-step LoRA is on)",
+      "type": "int",
+      "default": 20,
+      "min": 1,
+      "max": 60,
+      "step": 1,
+      "node": "168",
+      "field": "value",
+      "group": "Sampler"
+    },
+    {
+      "key": "cfg",
+      "label": "CFG — quality mode ONLY (ignored while 4-step LoRA is on)",
+      "type": "float",
+      "default": 3.5,
+      "min": 1,
+      "max": 10,
+      "step": 0.5,
+      "node": "177",
+      "field": "value",
+      "group": "Sampler"
+    },
+    {
+      "key": "out_width",
+      "label": "Output frame width",
+      "type": "int",
+      "default": 320,
+      "min": 64,
+      "max": 1024,
+      "step": 8,
+      "node": "196",
+      "field": "width",
+      "group": "Output"
+    },
+    {
+      "key": "out_height",
+      "label": "Output frame height",
+      "type": "int",
+      "default": 320,
+      "min": 64,
+      "max": 1024,
+      "step": 8,
+      "node": "196",
+      "field": "height",
+      "group": "Output"
+    },
+    {
+      "key": "lossless",
+      "label": "Lossless WEBP (large — may exceed the job payload cap)",
+      "type": "bool",
+      "default": false,
+      "node": "200",
+      "field": "lossless",
+      "group": "Output"
+    },
+    {
+      "key": "quality",
+      "label": "WEBP quality",
+      "type": "int",
+      "default": 90,
+      "min": 1,
+      "max": 100,
+      "step": 1,
+      "node": "200",
+      "field": "quality",
+      "group": "Output"
+    },
+    {
+      "key": "remove_background",
+      "label": "Cut background to alpha (BiRefNet)",
+      "type": "bool",
+      "default": true,
+      "node": "203",
+      "field": "value",
+      "group": "Cutout"
+    },
+    {
+      "key": "mask_blur",
+      "label": "Matte blur",
+      "type": "float",
+      "default": 0.8,
+      "min": 0,
+      "max": 8,
+      "step": 0.1,
+      "node": "202",
+      "field": "mask_blur",
+      "group": "Cutout"
+    },
+    {
+      "key": "mask_offset",
+      "label": "Matte offset (grow/shrink)",
+      "type": "int",
+      "default": 5,
+      "min": -20,
+      "max": 20,
+      "step": 1,
+      "node": "202",
+      "field": "mask_offset",
+      "group": "Cutout"
+    },
+    {
+      "key": "refine_foreground",
+      "label": "Refine foreground (slower, cleaner edges)",
+      "type": "bool",
+      "default": false,
+      "node": "202",
+      "field": "refine_foreground",
+      "group": "Cutout"
+    }
   ],
   "models": [
-    { "field": "unet_name", "filename": "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors", "save_path": "diffusion_models", "base": "wan2.2", "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors", "size": 14290000000 },
-    { "field": "unet_name", "filename": "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors", "save_path": "diffusion_models", "base": "wan2.2", "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors", "size": 14290000000 },
-    { "field": "clip_name", "filename": "umt5_xxl_fp8_e4m3fn_scaled.safetensors", "save_path": "text_encoders", "base": "wan2.1", "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors", "size": 6740000000 },
-    { "field": "vae_name", "filename": "wan_2.1_vae.safetensors", "save_path": "vae", "base": "wan2.1", "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors", "size": 250000000 },
-    { "field": "lora_name", "filename": "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors", "save_path": "loras", "base": "wan2.2", "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors", "size": 1230000000 },
-    { "field": "lora_name", "filename": "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors", "save_path": "loras", "base": "wan2.2", "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors", "size": 1230000000 }
+    {
+      "field": "unet_name",
+      "filename": "wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+      "save_path": "diffusion_models",
+      "base": "wan2.2",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors",
+      "size": 14290000000
+    },
+    {
+      "field": "unet_name",
+      "filename": "wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+      "save_path": "diffusion_models",
+      "base": "wan2.2",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors",
+      "size": 14290000000
+    },
+    {
+      "field": "clip_name",
+      "filename": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "save_path": "text_encoders",
+      "base": "wan2.1",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "size": 6740000000
+    },
+    {
+      "field": "vae_name",
+      "filename": "wan_2.1_vae.safetensors",
+      "save_path": "vae",
+      "base": "wan2.1",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors",
+      "size": 250000000
+    },
+    {
+      "field": "lora_name",
+      "filename": "wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+      "save_path": "loras",
+      "base": "wan2.2",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors",
+      "size": 1230000000
+    },
+    {
+      "field": "lora_name",
+      "filename": "wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+      "save_path": "loras",
+      "base": "wan2.2",
+      "url": "https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors",
+      "size": 1230000000
+    }
   ],
   "custom_nodes": []
 }
