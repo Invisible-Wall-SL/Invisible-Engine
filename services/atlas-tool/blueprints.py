@@ -96,9 +96,81 @@ def hydrate(force: bool = False) -> None:
             BLUEPRINTS_STAGING,
             SHARED_BLUEPRINTS_PREFIX + "/",
         )
-    except Exception:  # noqa: BLE001 — first run / empty bucket / transient
+    except Exception as e:  # noqa: BLE001 — first run / empty bucket / transient
+        # Say it out loud. This used to be wholly silent, which meant a service
+        # that could not reach R2 served stale staging copies forever with no
+        # signal at all — see `library_status`.
+        print(f"[blueprints] hydrate FAILED ({type(e).__name__}): {e}", flush=True)
         with _HYDRATE_LOCK:
             _HYDRATED = False
+
+
+def library_status() -> dict:
+    """What the blueprint library ACTUALLY contains, and whether R2 was reachable.
+
+    This exists because the failure it diagnoses is invisible by construction:
+    `storage.pull_prefix` "never raises" (it returns 0 on error) and `hydrate`
+    swallows what is left, so a service that cannot reach R2 keeps serving
+    whatever stale copies are on its persistent volume — old blueprints present,
+    a newly-seeded one absent, and not one line of error anywhere. Diagnosing
+    that from the outside is impossible; this reports the three facts that
+    separate every cause:
+
+      * `in_r2`   — what the bucket holds RIGHT NOW (the seed's side of it)
+      * `on_disk` — what the staging mirror holds (the hydrate's side)
+      * `loaded`  — what actually parsed + validated, with each one's kind
+
+    A blueprint in `in_r2` but not `on_disk` means the service has not hydrated
+    since it was seeded (restart it). In `on_disk` but not `loaded` means it was
+    REJECTED — `skipped` says why. In neither means the seed never landed.
+    """
+    hydrate()
+    out: dict = {"in_r2": [], "on_disk": [], "loaded": [], "skipped": [],
+                 "r2_error": "", "prefix": SHARED_BLUEPRINTS_PREFIX}
+    try:
+        ids = set()
+        for obj in storage.list_keys(SHARED_BLUEPRINTS_PREFIX + "/"):
+            rest = str(obj.get("key", ""))[len(SHARED_BLUEPRINTS_PREFIX) + 1:]
+            if "/" in rest:
+                ids.add(rest.split("/", 1)[0])
+        out["in_r2"] = sorted(ids)
+    except Exception as e:  # noqa: BLE001 — an unreachable bucket IS the finding
+        out["r2_error"] = str(e)[:300]
+    try:
+        out["on_disk"] = sorted(d.name for d in BLUEPRINTS_STAGING.iterdir()
+                                if d.is_dir())
+    except OSError as e:
+        out["r2_error"] = out["r2_error"] or f"staging unreadable: {e}"
+    for name in out["on_disk"]:
+        bp = _read_blueprint_dir(BLUEPRINTS_STAGING / name)
+        if bp:
+            meta = bp["meta"]
+            out["loaded"].append({
+                "id": bp["id"],
+                "kind": str(meta.get("kind") or DEFAULT_BLUEPRINT_KIND),
+                "name": str(meta.get("name") or bp["id"]),
+            })
+        else:
+            out["skipped"].append({"id": name, "why": _rejection_reason(name)})
+    return out
+
+
+def _rejection_reason(bp_id: str) -> str:
+    """Re-run the load for ONE blueprint and return the error text, so a rejected
+    blueprint can say why in the UI instead of only in a log nobody reads."""
+    d = BLUEPRINTS_STAGING / bp_id
+    try:
+        manifest = json.loads((d / "blueprint.json").read_text(encoding="utf-8"))
+        graph = json.loads((d / "workflow.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        return f"unreadable: {e}"
+    if not isinstance(graph, dict) or not graph:
+        return "workflow.json is not an API-format node dict"
+    try:
+        _validate_manifest(bp_id, manifest)
+    except ValueError as e:
+        return str(e)
+    return "unknown"
 
 
 def _validate_manifest(bp_id: str, manifest: dict) -> dict:
