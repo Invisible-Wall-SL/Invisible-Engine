@@ -311,6 +311,53 @@ def test_wrong_kind_is_refused() -> None:
                  "belongs to the Atlas Maker")
 
 
+def test_resume_after_restart() -> None:
+    """A session lives in memory, so a deploy kills its worker mid-flight. The
+    stored meta must carry enough to re-attach to a job RunPod already ran —
+    otherwise the result (and the money) is simply lost, which is what happened.
+    """
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(
+        {"blueprint": "wan22_i2v_flipbook", "prompt": "p", "source_ref": "r.png",
+         "variations": 2}, ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+
+    key = "clientx/projecty/video/%s/meta.json" % sid
+    meta = json.loads(objects[key])
+    check("the job id is persisted, not just held in memory",
+          bool(meta["variations"][0]["job_id"]), True)
+
+    # Simulate the restart: memory is gone, only the stored meta survives, and it
+    # was captured mid-flight with variation 1 running.
+    meta["status"] = "running"
+    meta["variations"][0].update(status="running", file="", bytes=0)
+    meta["variations"][1].update(status="queued")
+    objects[key] = json.dumps(meta).encode()
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+
+    resumed = video_runner.get_session(sid)
+    check("reading an orphaned session adopts it", resumed is not None, True)
+    final = _await_session(sid)
+    check("the resumed session finishes", final.get("status"), "finished")
+    check("both variations end up done",
+          [v["status"] for v in final["variations"]], ["done", "done"])
+
+    # A variation interrupted BEFORE its id was recorded cannot be re-attached,
+    # and must not be silently re-submitted at cost.
+    meta = json.loads(objects[key])
+    meta["status"] = "running"
+    meta["variations"][0].update(status="running", job_id="", file="")
+    objects[key] = json.dumps(meta).encode()
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+    out = video_runner.get_session(sid)
+    v0 = out["variations"][0]
+    check("an unrecorded in-flight job is failed, not re-billed", v0["status"], "failed")
+    check("and it says why", "restart" in v0["error"].lower(), True)
+
+
 def test_request_validation() -> None:
     _stub_world()
     ctx = ("clientx", "projecty")
@@ -340,6 +387,7 @@ if __name__ == "__main__":
     test_session_lifecycle()
     test_blueprint_kind()
     test_wrong_kind_is_refused()
+    test_resume_after_restart()
     test_request_validation()
     print()
     if FAILED:

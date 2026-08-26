@@ -297,18 +297,38 @@ def _run_session(session_id: str, ctx: tuple[str, str]) -> None:
                 if var["status"] == "queued":
                     var["status"] = "cancelled"
             continue
+        if var["status"] in ("done", "failed", "cancelled"):
+            # Terminal already. On a RESUMED session this is what stops a paid job
+            # being submitted twice: a variation we could not re-attach to is
+            # marked failed by `_adopt` and left for the author to re-roll
+            # deliberately, rather than silently re-billed.
+            continue
         prefix = f"iwvid_{session_id}_{var['index']:03d}"
-        with _LOCK:
-            var.update(status="running", started=_now())
-            session["status"] = "running"
-        _write_meta(session_id, session)
+        # RESUME: a variation already carrying a job id was submitted by a
+        # PREVIOUS process. Re-attach to that job rather than paying for it twice
+        # — RunPod holds the result, and the GPU time is already spent.
+        existing = str(var.get("job_id") or "")
         try:
-            wf = build_video_workflow(
-                bp, session["prompt"], session["negative"], var["seed"],
-                session["source_ref"], session["params"], prefix)
-            job_id, wf = _submit(wf)
-            with _LOCK:
-                var["job_id"] = job_id
+            if existing and var["status"] == "running":
+                print(f"[video] {session_id} v{var['index']:03d} re-attaching to "
+                      f"job {existing}", flush=True)
+                job_id = existing
+            else:
+                with _LOCK:
+                    var.update(status="running", started=_now())
+                    session["status"] = "running"
+                _write_meta(session_id, session)
+                wf = build_video_workflow(
+                    bp, session["prompt"], session["negative"], var["seed"],
+                    session["source_ref"], session["params"], prefix)
+                job_id, wf = _submit(wf)
+                with _LOCK:
+                    var["job_id"] = job_id
+                # Persist the id BEFORE waiting. This used to be written only once
+                # the variation FINISHED, so a restart mid-job lost the only handle
+                # to a job that was already running (and already paid for) — the
+                # session then sat at "running" forever with its result stranded.
+                _write_meta(session_id, session)
             out = _await_job(job_id, var, should_stop)
             _, blob = _pick_video_output(out, prefix)
             fname = _persist(session_id, var["index"], blob)
@@ -433,8 +453,15 @@ def start_session(req: dict, ctx: tuple[str, str], user: str = "") -> dict:
 
 
 def get_session(session_id: str) -> dict | None:
-    """Live session state, falling back to the persisted `meta.json` so a
-    session survives a page reload or a process restart."""
+    """Live session state, falling back to the persisted `meta.json` — and
+    ADOPTING a session whose worker thread died with it.
+
+    A session lives in a module-level dict, so a deploy or a crash takes its
+    worker thread with it. Without adoption the stored meta says "running"
+    forever, a job that RunPod already finished is never collected, and the GPU
+    time is simply lost. Reading the session is the natural moment to notice,
+    because it is exactly when someone is looking at it.
+    """
     if not valid_session_id(session_id):
         return None
     with _LOCK:
@@ -445,9 +472,51 @@ def get_session(session_id: str) -> dict | None:
     if not raw:
         return None
     try:
-        return json.loads(raw)
+        stored = json.loads(raw)
     except ValueError:
         return None
+    if stored.get("status") in ("running", "queued"):
+        stored = _adopt(stored) or stored
+    return stored
+
+
+def _adopt(stored: dict) -> dict | None:
+    """Take over an orphaned session: put it back in memory and restart its
+    worker, which resumes from each variation's recorded state."""
+    global _ACTIVE
+    sid = str(stored.get("id") or "")
+    if not valid_session_id(sid):
+        return None
+    bp = blueprints.get_blueprint(str(stored.get("blueprint") or ""))
+    if not bp:
+        # Blueprint gone: say so instead of leaving it "running" forever.
+        stored["status"] = "cancelled"
+        for v in stored.get("variations", []):
+            if v.get("status") in ("running", "queued"):
+                v["status"] = "failed"
+                v["error"] = ("The blueprint this session used is no longer in "
+                              "the library, so it cannot be resumed.")
+        return stored
+    for v in stored.get("variations", []):
+        # Submitted-but-unrecorded: the id was lost with the process, so we
+        # cannot re-attach and must not silently re-submit a paid job.
+        if v.get("status") == "running" and not v.get("job_id"):
+            v["status"] = "failed"
+            v["error"] = ("Interrupted by a service restart before its job id was "
+                          "recorded — re-roll this variation.")
+    ctx = (str(stored.get("client") or ""), str(stored.get("project") or ""))
+    with _LOCK:
+        if _ACTIVE and _ACTIVE != sid:
+            active = _SESSIONS.get(_ACTIVE, {})
+            if active.get("status") in ("running", "queued"):
+                return stored  # something else is genuinely running; don't stack
+        stored["_blueprint"] = bp
+        stored.setdefault("cancel", False)
+        _SESSIONS[sid] = stored
+        _ACTIVE = sid
+    print(f"[video] adopted orphaned session {sid}", flush=True)
+    threading.Thread(target=_run_session, args=(sid, ctx), daemon=True).start()
+    return _public(stored)
 
 
 def cancel_session(session_id: str) -> dict:
