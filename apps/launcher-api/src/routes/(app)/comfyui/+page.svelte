@@ -110,6 +110,7 @@
 	interface NodeList {
 		configured: boolean;
 		nodes?: PodNode[];
+		corePacks?: string[];
 		error?: string;
 	}
 	interface ResolvedNode {
@@ -358,7 +359,11 @@
 	const unbakedPacks = $derived(
 		(inventory?.packs ?? []).filter(
 			(pack) =>
-				!(nodeList?.nodes ?? []).some((n) => n.name.toLowerCase() === pack.name.toLowerCase()),
+				!(nodeList?.nodes ?? []).some((n) => n.name.toLowerCase() === pack.name.toLowerCase()) &&
+				// Packs that ship inside ComfyUI itself are reported like any other, and are
+				// plainly not something we bake. Flagging them would be true, useless, and the
+				// kind of standing false alarm that teaches people to ignore the real ones.
+				!(nodeList?.corePacks ?? []).some((c) => c.toLowerCase() === pack.name.toLowerCase()),
 		),
 	);
 

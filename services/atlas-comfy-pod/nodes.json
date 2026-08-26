@@ -31,7 +31,12 @@
 		"are licence-encumbered (PuLID-Flux2 needs non-commercial antelopev2), some are simply not",
 		"needed in prod. Promotion is DELIBERATE — the standing rule is to promote only after a",
 		"pod off the R&D image renders clean, and a blueprint using an unpromoted node will not",
-		"run in the Atlas Maker."
+		"run in the Atlas Maker.",
+		"",
+		"`corePacks` names packs that ship INSIDE ComfyUI itself and live under its custom_nodes",
+		"folder. A pod reports them like any other pack, so without this the panel would flag them",
+		"as \"not in the image\" forever — true, useless, and the kind of standing false alarm that",
+		"teaches people to ignore the real ones."
 	],
 	"nodes": [
 		{
@@ -78,7 +83,8 @@
 			"name": "ComfyUI-Manager",
 			"url": "https://github.com/Comfy-Org/ComfyUI-Manager",
 			"sha": "f39cbd56feca",
-			"note": "Security level middle, pre-seeded by the Dockerfile. Do NOT let it 'Update ComfyUI' — that patches the ephemeral container only."
+			"noClasses": true,
+			"note": "Security level middle, pre-seeded by the Dockerfile. Do NOT let it 'Update ComfyUI' — that patches the ephemeral container only. Registers no node classes (it is a UI extension), so it never appears in /object_info — confirmed on a live pod."
 		},
 		{
 			"name": "ComfyUI-PuLID-Flux",
@@ -93,5 +99,6 @@
 			"note": "Ours, frontend-only: re-surfaces a run's error on the failing node when the /ws socket dropped."
 		}
 	],
-	"skipRequirements": ["ComfyUI-PuLID-Flux2"]
+	"skipRequirements": ["ComfyUI-PuLID-Flux2"],
+	"corePacks": ["websocket_image_save"]
 }
