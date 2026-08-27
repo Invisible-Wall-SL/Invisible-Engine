@@ -20,10 +20,26 @@
 
 name: Lint
 
+# Skipped for docs-only changes. None of the three gates below reads Markdown — eslint, a
+# narrow tsc pass, and a codegen check — so a docs commit can only ever pass, and every run
+# costs a full billed runner minute (47 of August 2026’s 420 commits to main were docs-only).
+# A change touching docs AND code still runs: paths-ignore skips only when EVERY changed file
+# matches. Safe to skip runs because this is NOT a required status check — branch protection
+# needs Pro/Team and the org is on Free — so a skipped run cannot wedge a PR as pending.
 on:
   pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '*.md'
+      - '.claude/**'
   push:
     branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
+      - '*.md'
+      - '.claude/**'
 
 concurrency:
   group: lint-${{ github.workflow }}-${{ github.head_ref || github.ref }}
