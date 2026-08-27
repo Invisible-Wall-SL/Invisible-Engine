@@ -202,6 +202,22 @@ When `swapInPlace` is on, `apps/lines` wires a different set of defaults. Nothin
   the tumble overlay — the existing sequence minus the explode step (`tumbleBoardShow` →
   `tumbleBoardInit` with the full new board as the adding layer → `slideDown` → settle → hide). Same
   components, same cues, no new presentation code.
+- **Three swap STYLES**, each an arm of its own in `presentReveal` rather than one parameterised
+  path, because `apps/lines` is the shared `_runtime/lines` bundle and the shipped path must stay
+  the shipped path:
+  - `dropIn` — the whole board falls at once (the sequence above; what an absent `swapStyle` means).
+  - `columnCascade` — the resting board drains column by column, left to right, each column
+    refilling as it empties.
+  - `emerge` — **nothing travels.** Each symbol is placed on its own seat at `duration: 0` and plays
+    its authored `intro` state there, so the arrival ANIMATION is the whole presentation. This is
+    the only style reachable for "the symbols rise out of the water", and it is not reachable by
+    shortening a fall: a fall that lands in 1 ms is still a fall, and its `land` beat still fires
+    *after* the movement rather than instead of it. `columnStaggerMs` sweeps it, defaulting to `0`
+    (the un-swept surfacing) where the cascade defaults to 140 ms.
+- **`intro` is a symbol state, not a presentation flag.** It joins `SYMBOL_STATES` in
+  `engine-layout`, gets its own `/symbols` column (gated on the project actually emerging, the way
+  `tumbleExplosion` is gated on cascading), and inherits `land` when unauthored — so switching the
+  style on before any art is bound gives a board that appears and plays its ordinary landing.
 - **Stood down with the roll:** reel anticipation (a spin-slowing tease by definition, and the owner
   of the only geometry-bound dim), the anticipation camera, sequential reel stop, and stacked-picture
   mode (lines-only, and it scans a scrolling strip that no longer exists).
@@ -236,6 +252,10 @@ explode effects on a win become available. This is a small addition and is liste
 4. **Tiles from the lattice** (optional) + per-tile win highlight.
 5. **Ship.** Nothing new to bake — this is `reelGrid` node data, which already travels the layout doc.
    Runtime release + reconcile to reach online games; the standalone bundles need a submodule bump.
+6. **The `emerge` style + the `intro` symbol state** (added 2026-08-27, after 0–5 shipped). Nothing
+   new to bake here either: the style is a `reelBehaviour` field and `intro` is an ordinary member of
+   the symbol doc, so both ride chains that already exist (`z.enum(SYMBOL_STATES)` in
+   `symbolsStorage`, verbatim pass-through in `symbolExport`).
 
 ## Risks and open questions
 
@@ -254,6 +274,9 @@ explode effects on a win become available. This is a small addition and is liste
 
 ## Explicitly out of scope
 
+- **An `intro` on the ROLLING path.** The state is scoped to the emerge arrival. A rolling reel
+  already has `land` for "the symbol arrived", and giving it a second arrival beat would mean every
+  game answering which of the two a reel stop fires.
 - **Perspective spinning reels.** `createReelForSpinning` assumes a constant pitch and a wrapping
   strip; making a rolling symbol rescale as it travels is the expensive half of this feature and the
   design removes the need for it. If a future game wants both, it is a separate plan.

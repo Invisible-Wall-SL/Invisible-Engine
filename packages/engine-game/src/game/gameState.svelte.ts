@@ -14,7 +14,7 @@ import {
 
 import type { RawSymbol, SymbolState, SymbolName } from './types';
 import { winLevelMap } from './winLevelMap';
-import type { ResolvedGrid, ResolvedSounds } from 'game-config';
+import type { ResolvedGrid, ResolvedReelBehaviour, ResolvedSounds } from 'game-config';
 import {
 	SYMBOL_SIZE,
 	REEL_PADDING,
@@ -74,12 +74,7 @@ export interface GameStateDeps<TGameType extends string> {
 	 * LIVE — the live runtime bundle resolves after module evaluation, so a value read here would
 	 * freeze every board to the compiled sample config.
 	 */
-	reelBehaviour: () => {
-		swapInPlace: boolean;
-		swapStyle: 'dropIn' | 'columnCascade';
-		columnStaggerMs: number | undefined;
-		clearBoard: boolean;
-	};
+	reelBehaviour: () => ResolvedReelBehaviour;
 	/**
 	 * WHAT THIS GAME PLAYS at each named presentation moment — `activeSounds()` from the app's game
 	 * config, catalogue defaults already applied (`game-config/sounds`).
@@ -305,8 +300,9 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 
 	/**
 	 * HOW a swap-in-place board presents a new board — `'dropIn'` (the shipped behaviour: the whole
-	 * board falls in at once) or `'columnCascade'` (the resting board drains column by column, left
-	 * to right, each column refilling as it empties).
+	 * board falls in at once), `'columnCascade'` (the resting board drains column by column, left to
+	 * right, each column refilling as it empties), or `'emerge'` (nothing travels: each symbol
+	 * appears on its own seat and plays its authored `intro` state there).
 	 *
 	 * Absent ⇒ `'dropIn'` (resolved in the config schema), and the caller EARLY-RETURNS the shipped
 	 * drop-in on that answer rather than routing it through a generalised per-column path that
@@ -321,14 +317,16 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	const boardSwapStyle = () => deps.reelBehaviour().swapStyle;
 
 	/**
-	 * The authored per-column stagger for `'columnCascade'`, in ms — or `undefined` for "the
+	 * The authored per-column stagger for the styles whose columns arrive on their own beat
+	 * (`'columnCascade'` and `'emerge'` — the schema names the set), in ms — or `undefined` for "the
 	 * presentation's own default". Deliberately NOT defaulted to a number anywhere upstream: the
 	 * number is a TIMING, and every other cascade timing (the beat cap, the slide duration) lives
 	 * with the presentation that spends it.
 	 *
 	 * The config resolver has already dropped a non-finite or negative value, so anything that
 	 * arrives here is a usable delay — including `0`, which is a legal authoring choice (drain and
-	 * refill every column at once, no sweep) and must therefore survive the `??` at the call site.
+	 * refill — or surface — every column at once, no sweep) and must therefore survive the `??` at
+	 * the call site.
 	 */
 	const boardColumnStaggerMs = () => deps.reelBehaviour().columnStaggerMs;
 

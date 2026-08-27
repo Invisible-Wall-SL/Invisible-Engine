@@ -89,7 +89,25 @@
 		 * `reelIndex` is required. An "every column" drain has no caller — the cascade always names a
 		 * column — and an optional one would be a code path nothing exercises.
 		 */
-		| { type: 'tumbleBoardDrain'; reelIndex: number };
+		| { type: 'tumbleBoardDrain'; reelIndex: number }
+		/**
+		 * APPEAR in place — every symbol is seated INSTANTLY and plays its authored `intro` state
+		 * there. The whole of the `emerge` swap style (docs/design/perspective-board-mode.md
+		 * §"The mode switch", `swapStyle: 'emerge'`).
+		 *
+		 * A cue of its own rather than a flag on `tumbleBoardSlideDown`, because it is the ABSENCE of
+		 * the motion that cue exists to perform. A slide with `duration: 0` would reach the same
+		 * seats, but it would also keep the slide's contract — tween, then `land` — and the whole
+		 * point of this style is that the arrival animation replaces the landing one rather than
+		 * following it. Folding a "do not actually move" branch into the step every cascade runs is
+		 * also the one change that could not be made without touching the shared `_runtime/lines`
+		 * bundle's hot path.
+		 *
+		 * `reelIndex` scopes it to ONE column, exactly like the slide's: absent ⇒ every column, which
+		 * is the un-swept surfacing (`columnStaggerMs: 0`, and the default for a board that authors
+		 * no stagger is the sweep driven by the caller, not by this cue).
+		 */
+		| { type: 'tumbleBoardAppear'; reelIndex?: number };
 </script>
 
 <script lang="ts">
@@ -104,7 +122,7 @@
 	import BoardTiles from './BoardTiles.svelte';
 	import BoardMask from './BoardMask.svelte';
 	import { getContext } from '../game/context';
-	import { awaitSymbolBeat, TRANSIT_BEAT_CAP_MS } from '../game/symbolBeat';
+	import { awaitSymbolBeat, INTRO_BEAT_CAP_MS, TRANSIT_BEAT_CAP_MS } from '../game/symbolBeat';
 	import { getSymbolSeat, stateGameDerived } from '../game/stateGame.svelte';
 	import {
 		stateTumble,
@@ -113,7 +131,11 @@
 		type TumbleSymbol,
 	} from '../game/stateTumble.svelte';
 	import { PAD_ROWS_ABOVE } from '../game/tumbleBoardLayout';
-	import { playSymbolTumbleExplosionSound, playTumbleExplosionSound } from '../game/soundBindings';
+	import {
+		playSymbolIntroSound,
+		playSymbolTumbleExplosionSound,
+		playTumbleExplosionSound,
+	} from '../game/soundBindings';
 
 	/**
 	 * The CASCADE board — mounted only while a tumble plays, then unmounted again.
@@ -392,6 +414,62 @@
 									// idempotent: the completion path already set it.
 									tumbleSymbol.symbolState = 'static';
 								}
+							}),
+				),
+			);
+		},
+		/**
+		 * APPEAR — the `emerge` swap style. Every symbol takes its seat with NO travel and plays its
+		 * authored `intro` state there.
+		 *
+		 * THE ORDER OF THE FIRST TWO LINES IS THE FEATURE. The state is set BEFORE the placement, so
+		 * Svelte flushes both in one batch and the cell's very first painted frame is already the
+		 * intro art. Reversed, a symbol's resting art paints for one frame, at full size, on its final
+		 * seat — a hard pop of the whole board, which is precisely the picture this style exists to
+		 * avoid. It is not a race that usually goes the right way: it is one flush, decided here.
+		 *
+		 * `duration: 0` rather than a short tween, and that IS the definition of the style. Nothing
+		 * travels; the arrival is the animation, not the movement. The symbol is still placed rather
+		 * than left where `tumbleBoardInit` stacked it (a strip above the window, where the board mask
+		 * hides it) — that stacking is the drop-in's starting line, and an emerge simply never uses it.
+		 *
+		 * PADDING ROWS ARE SEATED BUT SILENT, the same rule the slide keeps: the top and bottom rows
+		 * are off-screen buffer, so playing an intro there would fire land cues and scatter-counter
+		 * ticks for symbols nobody sees.
+		 *
+		 * The beat is capped by {@link INTRO_BEAT_CAP_MS} rather than the transit cap — an emerge is
+		 * an animation authored to be watched, not a step on the way to one, so the guard is sized off
+		 * the art (see `symbolBeat.ts`). And `symbolState` is settled to `static` AFTER the await as
+		 * well as inside the completion path, because the cap path never runs the callback and a cell
+		 * left parked on `intro` is a symbol frozen mid-rise for the rest of the round.
+		 */
+		tumbleBoardAppear: async ({ reelIndex: onlyReel }) => {
+			await Promise.all(
+				tumbleBoardCombined().flatMap((tumbleReel, reelIndex) =>
+					onlyReel !== undefined && reelIndex !== onlyReel
+						? []
+						: tumbleReel.map(async (tumbleSymbol, symbolIndex) => {
+								const visible = symbolIndex > 0 && symbolIndex < tumbleReel.length - 1;
+								if (visible) tumbleSymbol.symbolState = 'intro';
+								tumbleSymbol.symbolY.set(getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW).y, {
+									duration: 0,
+								});
+								if (!visible) return;
+								// The scatter counter and the class land cue — the SAME hook the cascade's
+								// refill calls, because an emerge IS the arrival however little it moved, and a
+								// board that arrived without ticking the counter is a bonus that never triggers.
+								stateGameDerived.onSymbolLand({ rawSymbol: tumbleSymbol.rawSymbol });
+								// …and the symbol's OWN emerge voice on top, when Invisible Symbols binds one.
+								// Additive, like the cascade pop — see `playSymbolIntroSound` for why this one
+								// layers where `land` replaces.
+								playSymbolIntroSound(tumbleSymbol.rawSymbol.name);
+								await awaitSymbolBeat((resolve) => {
+									tumbleSymbol.oncomplete = () => {
+										tumbleSymbol.symbolState = 'static';
+										resolve();
+									};
+								}, INTRO_BEAT_CAP_MS);
+								tumbleSymbol.symbolState = 'static';
 							}),
 				),
 			);

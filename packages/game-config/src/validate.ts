@@ -21,6 +21,8 @@ import type { GameConfigDoc } from './types';
 import { resolveWinModel } from './winModel';
 
 import { resolveGrid } from './grid';
+import { swapStyleUsesColumnStagger } from './reelBehaviour';
+
 export type GameConfigIssueSeverity = 'error' | 'warning';
 
 export type GameConfigIssue = {
@@ -144,7 +146,13 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 			});
 		}
 	}
-	if (behaviour?.swapStyle === 'columnCascade' && typeof behaviour.columnStaggerMs === 'number') {
+	// The stagger is live for every style whose columns arrive on their OWN beat, which the schema
+	// names once (`swapStyleUsesColumnStagger`) rather than this re-deciding it per literal — the
+	// warning below used to read `=== 'columnCascade'`, and a style added beside it would have been
+	// told its perfectly live stagger did nothing.
+	const staggeredStyle =
+		behaviour?.swapStyle !== undefined && swapStyleUsesColumnStagger(behaviour.swapStyle);
+	if (staggeredStyle && typeof behaviour?.columnStaggerMs === 'number') {
 		// Not a range check — `normalizeReelBehaviour` already clamped the value. What is left to say
 		// is what a LEGAL value costs.
 		const total = behaviour.columnStaggerMs * Math.max(0, doc.numReels - 1);
@@ -160,7 +168,7 @@ export const validateGameConfigDoc = (doc: GameConfigDoc): GameConfigIssue[] => 
 			severity: 'warning',
 			path: 'reelBehaviour.columnStaggerMs',
 			message:
-				'A column stagger is set but the swap style is the drop-in, which lands the whole board at once. Choose the column cascade style for the columns to fall at different times.',
+				'A column stagger is set but the swap style is the drop-in, which lands the whole board at once. Choose the column cascade or emerge style for the columns to arrive at different times.',
 		});
 	}
 

@@ -369,6 +369,17 @@ export const LINES_EMITTER_VOCABULARY: EmitterVocabulary = {
 			],
 		},
 		{
+			type: 'tumbleBoardAppear',
+			group: 'Cascade',
+			fields: [
+				{
+					key: 'reelIndex',
+					kind: 'number',
+					required: false,
+				},
+			],
+		},
+		{
 			type: 'multiplierBoardShow',
 			group: 'Multipliers',
 		},

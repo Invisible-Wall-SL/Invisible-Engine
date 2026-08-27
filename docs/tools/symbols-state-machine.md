@@ -10,7 +10,8 @@ standard deploy chain.
 A grid editor for a game's `symbol × state → asset` map. Every game hardcodes a
 `SYMBOL_INFO_MAP` — a binding for each symbol (e.g. `H1…H5`, `L1…L5`, `W`, `S`) in each
 of six animation **states** (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`) —
-plus `Tumble explosion` on a cascading game.
+plus `Tumble explosion` on a game that cascades or clears its board, and `Intro` on one whose
+swap style is **Emerge**.
 This tool turns that map into an editable surface: each cell is a **sprite** (a sheet
 frame), a **spine** (a bundle + animation name), or a **flipbook** (an Invisible Flipbook
 clip — an ordered, timed run of atlas frames). Edits are stored as a **sparse override
@@ -52,8 +53,10 @@ tool top bar). Switch projects from the launcher before opening the tool.
 
 1. **Read the grid.** Rows are the game's symbols; the six columns are the states
    (`Static`, `Spin`, `Land`, `Win`, `Post-win`, `Explosion`). Book games add two more
-   (`Book intro`, `Book idle`); a **cascading** game adds `Tumble explosion` (see
-   [Two explosions](#two-explosions) below). Stacked-picture tall art is **not** a grid column — it is
+   (`Book intro`, `Book idle`); a game that **cascades or clears its board** adds
+   `Tumble explosion` (see [Two explosions](#two-explosions) below); a game whose
+   `/config` → Reel behaviour → swap style is **Emerge** adds `Intro` (see
+   [The Intro state](#the-intro-state) below). Stacked-picture tall art is **not** a grid column — it is
    authored in the **Stacked pictures** section (below). Each cell shows its
    **effective binding** — your override if you've made one, otherwise the game's coded
    default. Sprite cells render a frame thumbnail; spine cells render a live animation
@@ -65,8 +68,8 @@ tool top bar). Switch projects from the launcher before opening the tool.
    Two states borrow another's binding when they have none of their own, and a cell showing
    borrowed art says so: dashed border, an **inherits &lt;state&gt;** badge, and a tooltip naming
    the donor. `Tumble explosion` borrows `Explosion` (see [Two explosions](#two-explosions));
-   `Book intro` / `Book idle` borrow `Win`. Binding the cell yourself replaces the borrowed
-   art — leaving it alone is a legitimate answer, not an unfinished one.
+   `Book intro` / `Book idle` borrow `Win`; `Intro` borrows `Land`. Binding the cell yourself
+   replaces the borrowed art — leaving it alone is a legitimate answer, not an unfinished one.
 
    Flipbook cells are deliberately _not_ animated in the grid: N per-cell tickers would cost
    far more than the one shared spine canvas, and the question the grid answers is "which
@@ -520,6 +523,27 @@ bundles that matter here are:
 the cascade asks for it, so almost nobody authors it, and an unauthored state falls back to
 `static` — a symbol that sits still while the board tumbles it away. Bind this and a
 cascade reads correctly before you have commissioned an explosion of your own.
+
+### The Intro state
+
+`Intro` is the animation a symbol plays when it **appears on its seat** — the whole of the
+**Emerge** swap style ([Invisible Game Config](./game-config.md) → Reel behaviour). Under that
+style nothing falls, slides or drains: the symbol simply is there, and this animation is the
+arrival.
+
+It could not be folded into `Land`, and that is worth stating because the two look adjacent.
+`Land` is the beat **after a movement** — the reels fire it at the end of a roll and a cascade
+fires it at the end of a fall — so a game that authored *"rise out of the water"* there would
+also play the rise on every reel stop and every cascade refill.
+
+**Leaving an `Intro` cell empty is not a gap** — it falls through to that symbol's `Land`
+binding, so a project that switches the style on before binding any art gets a board that
+appears and plays its ordinary landing. The grid draws the borrowed art and badges the cell
+**inherits Land**.
+
+The column only appears for a project whose swap style is **Emerge**, but a binding you make is
+stored for every game and survives switching the style away and back. A per-symbol *sound* for
+the same moment is picked in [Invisible Sound](./sound.md) → Per-symbol cues.
 
 ### Two explosions
 

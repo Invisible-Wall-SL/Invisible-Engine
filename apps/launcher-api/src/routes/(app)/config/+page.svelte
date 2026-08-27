@@ -14,6 +14,8 @@
 		resolveCascade,
 		cascadeDefaultFor,
 		REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS,
+		SWAP_STYLES,
+		swapStyleUsesColumnStagger,
 		symbolsInPlay,
 		validateGameConfigDoc,
 		type BetModeKind,
@@ -587,13 +589,21 @@
 	}
 
 	/** The shipped drop-in is stored as ABSENT, never as `'dropIn'`, so a config that picks the
-	 *  default serialises byte-identically to one written before the field existed. */
+	 *  default serialises byte-identically to one written before the field existed. Every OTHER
+	 *  recognised style is written through, checked against the shared vocabulary rather than
+	 *  against a literal — a per-literal check here is what silently threw away a style the picker
+	 *  itself offered. */
 	function setSwapStyle(raw: string): void {
 		const next = { ...(doc.reelBehaviour ?? {}) };
-		if (raw === 'columnCascade') next.swapStyle = 'columnCascade';
+		const picked = SWAP_STYLES.find((style) => style === raw);
+		if (picked && picked !== 'dropIn') next.swapStyle = picked;
 		else delete next.swapStyle;
 		writeReelBehaviour(next);
 	}
+
+	/** Does the CURRENT style spend the per-column stagger? One shared answer (`game-config`), so the
+	 *  field this page shows and the warning the validator raises can never disagree about it. */
+	const staggered = $derived(swapStyleUsesColumnStagger(swapStyle));
 
 	/** A blank box deletes the key ⇒ the engine's own default (140 ms). `0` is a LEGAL value (every
 	 *  column at once, no sweep), so the emptiness test is NaN, not falsiness — the same trap the
@@ -1568,9 +1578,11 @@
 				/><span>Swap symbols in place — no spinning reels</span></label
 			>
 			<p class="hint">
-				The board does not roll: the new symbols fall in from above and settle into their seats.
-				With this on, the reel-shaped behaviours stand down because there is no roll left for them
-				to describe — <strong>reel anticipation</strong> (and its camera),
+				The board does not roll. <strong>How</strong> the new symbols arrive is the swap style below
+				— they can fall in from above, sweep in column by column, or not travel at all and simply
+				surface where they stand. With this on, the reel-shaped behaviours stand down because there
+				is no roll left for them to describe —
+				<strong>reel anticipation</strong> (and its camera),
 				<strong>sequential reel stop</strong>
 				and <strong>stacked pictures</strong>. Nothing is lost by turning it back off. Everything
 				below only applies while this is on.
@@ -1585,16 +1597,17 @@
 					>
 						<option value="dropIn">Drop in — the whole board falls at once</option>
 						<option value="columnCascade">Column cascade — left to right</option>
+						<option value="emerge">Emerge — appear in place, no travel</option>
 					</select></label
 				>
-				{#if swapStyle === 'columnCascade'}
+				{#if staggered}
 					<label
 						><span>Column stagger (ms)</span><input
 							type="number"
 							min="0"
 							max={REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS}
 							step="10"
-							placeholder="140"
+							placeholder={swapStyle === 'emerge' ? '0' : '140'}
 							value={columnStaggerMs ?? ''}
 							oninput={(e) => setColumnStagger(e.currentTarget.valueAsNumber)}
 							disabled={lease.readOnly}
@@ -1606,12 +1619,25 @@
 				<strong>Drop in</strong> replaces the board in one movement.
 				<strong>Column cascade</strong>
 				drains the standing board out of the bottom column by column, left to right, refilling each column
-				from the top as it empties.
-				{#if swapStyle === 'columnCascade'}
+				from the top as it empties. <strong>Emerge</strong> is the one where nothing travels: each
+				symbol appears on its own seat and plays its <strong>Intro</strong> animation from the
+				Symbols tool right there — rising out of water, fading up, growing. Pair it with
+				<strong>Clear the board</strong>
+				below for the full picture: the old symbols leave, then the new ones surface.
+				{#if swapStyle === 'emerge'}
+					A symbol with no authored Intro falls back to its <strong>Land</strong> animation, so switching
+					this on before any art is bound gives a board that appears and plays its ordinary landing rather
+					than nothing at all.
+				{/if}
+				{#if staggered}
 					<strong>Column stagger</strong> is the gap between one column starting and the next, and
-					it is the one knob for "the columns fall at different times": short (blank = 140 ms)
-					overlaps them into a wave, longer than a whole column makes them strictly sequential,
-					<strong>0</strong> starts every column together.
+					it is the one knob for "the columns arrive at different times": short overlaps them into a
+					wave, longer than a whole column makes them strictly sequential,
+					<strong>0</strong>
+					starts every column together. Blank means this style's own default —
+					{swapStyle === 'emerge'
+						? '0, the whole board surfacing at once, because a sweep is a flourish on top of this style rather than part of it'
+						: '140 ms, because a cascade reads wrong without a sweep'}.
 					{#if columnStaggerMs}
 						<em
 							>On {doc.numReels} reels the last column starts {columnStaggerTotalMs} ms after the first.</em
@@ -1636,6 +1662,11 @@
 					<em>instead of</em>
 					draining out of the bottom. The sweep, the stagger and the refill are unchanged — this only
 					changes how each column empties.
+				{:else if swapStyle === 'emerge'}
+					Per <strong>column</strong>, on that column's own beat, ahead of the symbols surfacing
+					there. This is the half of the emerge picture that makes the old board <em>leave</em>
+					rather than simply blink out — without it, a column's old symbols are gone the instant its
+					new ones appear.
 				{:else}
 					The whole board clears at once, ahead of the fall. Off, the old board is simply gone when
 					the new one arrives.

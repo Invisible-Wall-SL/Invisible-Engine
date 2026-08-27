@@ -31,6 +31,11 @@ export const isUsableCell = (cell: CellLike): boolean => Boolean(cell && cell.as
  *   the tumble removes a symbol than when something morphs it on the reel, and a game with nothing
  *   to say about that difference must not be punished for it;
  * - `stacked` inherits `static`, so the mode renders the icon before a tall picture is bound;
+ * - `intro` inherits `land`, so switching the swap style to `emerge` before a single intro is bound
+ *   gives a board that appears and plays its ordinary landing, rather than one that appears already
+ *   at rest. `land` rather than `static` because both are ARRIVALS — the fallback should be the
+ *   nearest thing the symbol already says about arriving, and `static` is what it says about not
+ *   arriving at all;
  * - ANY unauthored state now inherits `static` as a last resort, because a symbol sitting in its
  *   resting art is a better answer than a symbol that is not drawn at all — and a far better one
  *   than a crash.
@@ -44,5 +49,6 @@ export const resolveSymbolState = (states: StateMapLike, state: string): string 
 		if (isUsableCell(states.win)) return 'win';
 	}
 	if (state === 'tumbleExplosion' && isUsableCell(states.explosion)) return 'explosion';
+	if (state === 'intro' && isUsableCell(states.land)) return 'land';
 	return isUsableCell(states.static) ? 'static' : null;
 };

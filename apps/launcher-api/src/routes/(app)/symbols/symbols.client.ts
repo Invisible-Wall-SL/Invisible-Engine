@@ -10,6 +10,7 @@
 import {
 	BOOK_SYMBOL_STATES,
 	CASCADE_SYMBOL_STATES,
+	SWAP_SYMBOL_STATES,
 	SYMBOL_STATE_LABELS,
 	SYMBOL_STATES,
 	type SymbolNameEntry,
@@ -38,6 +39,11 @@ const NON_GRID_STATE_SET = new Set<SymbolState>(['stacked']);
 export const CASCADE_STATES = CASCADE_SYMBOL_STATES;
 const CASCADE_STATE_SET = new Set<SymbolState>(CASCADE_STATES);
 
+/** The swap-only states. Same deal again: the doc accepts `intro` for every game, but the grid only
+ *  shows its column for a project whose board actually EMERGES — see {@link visibleStatesFor}. */
+export const SWAP_STATES = SWAP_SYMBOL_STATES;
+const SWAP_STATE_SET = new Set<SymbolState>(SWAP_STATES);
+
 /** Human labels for the column headers — shared with the Scene Editor's `symbolState`
  *  dropdown so a state reads the same in both tools. */
 export const STATE_LABELS: Record<SymbolState, string> = SYMBOL_STATE_LABELS;
@@ -50,25 +56,34 @@ export const STATE_LABELS: Record<SymbolState, string> = SYMBOL_STATE_LABELS;
  * blank column that silently works is exactly the kind of thing an author re-authors by hand.
  */
 export const STATE_HINTS: Partial<Record<SymbolState, string>> = {
+	intro:
+		'The animation this symbol plays when it APPEARS on its seat, under the Emerge swap style — rising out of water, fading up, growing. Nothing travels: this animation IS the arrival. Leave a cell empty to fall back to this symbol’s Land binding.',
 	tumbleExplosion:
 		'The explosion played when the cascade REMOVES this symbol, as opposed to the Explosion played when something morphs it in place on the reel. Leave a cell empty to reuse this symbol’s Explosion binding.',
 };
 
 /** The columns the grid renders for a given project: always the base states, plus the two book states
- *  ONLY for a book game (`gameType === 'bookOf'`) and the cascade state ONLY for a project that
- *  tumbles (`cascade` — the server resolves it through `resolveCascade`, so an authored
+ *  ONLY for a book game (`gameType === 'bookOf'`), the cascade state for a project that tumbles OR
+ *  clears its board on a swap, and the swap state (`intro`) ONLY for a project that emerges. Every
+ *  gate is RESOLVED server-side (`resolveCascade` / `resolveReelBehaviour`), so an authored
  *  `/config` answer beats the win model's default and a lines game that turned the tumble ON gets
- *  the column). The `stacked` state is never a column (see {@link NON_GRID_STATE_SET}). Mirrors the
+ *  the column. The `stacked` state is never a column (see {@link NON_GRID_STATE_SET}). Mirrors the
  *  launcher's `GameKind` ids (`$lib/roles`); kept inline because this module is browser-side and the
  *  roles list is not worth importing for one literal. */
 export function visibleStatesFor(
 	gameType: string | undefined,
-	cascade = false,
+	gates: { cascade?: boolean; emerge?: boolean; clears?: boolean } = {},
 ): readonly SymbolState[] {
 	return SYMBOL_STATES.filter((s) => {
 		if (NON_GRID_STATE_SET.has(s)) return false;
 		if (BOOK_STATE_SET.has(s)) return gameType === 'bookOf';
-		if (CASCADE_STATE_SET.has(s)) return cascade;
+		// The cascade state is played by TWO things, not one: a tumble removing a symbol, and the
+		// swap-in-place CLEAR step (`clearOutgoingSymbols`) emptying the board before the new symbols
+		// arrive. Gating it on `cascade` alone hid the column from exactly the projects authoring the
+		// second — a swapping lines game — which then had to bind it through `Explosion`'s silent
+		// inheritance. Either reason earns the column.
+		if (CASCADE_STATE_SET.has(s)) return Boolean(gates.cascade || gates.clears);
+		if (SWAP_STATE_SET.has(s)) return Boolean(gates.emerge);
 		return true;
 	});
 }
@@ -439,14 +454,18 @@ export interface SymbolDefaults {
  *  Deliberately stops short of that rule's LAST resort (any unauthored state falls back to `static`).
  *  That arm is a crash-guard, not an authoring rule: mirroring it here would paint every unbound cell
  *  with the symbol's resting art and destroy the grid's only signal for "nothing is bound here". The
- *  two arms below are different — both are advertised in the UI (the `Tumble explosion` column hint,
- *  the book-state docs), so the preview owes the author a matching picture. */
+ *  arms below are different — each is advertised in the UI (the `Tumble explosion` and `Intro` column
+ *  hints, the book-state docs), so the preview owes the author a matching picture. */
 const INHERITS_FROM = (state: SymbolState): SymbolState | null => {
 	// Book states (`bookIntro`/`bookIdle`) mirror the live win art.
 	if (BOOK_STATE_SET.has(state)) return 'win';
 	// A project that binds ONE explosion keeps the cascade it already had — the second binding
 	// exists only so a game CAN use a different skeleton when the tumble removes a symbol.
 	if (state === 'tumbleExplosion') return 'explosion';
+	// An emerge with no authored intro plays the symbol's ordinary LAND animation, so the grid shows
+	// that rather than an empty cell — the column hint advertises the inheritance, so the preview
+	// owes the author the matching picture.
+	if (state === 'intro') return 'land';
 	return null;
 };
 

@@ -1,7 +1,7 @@
 import { soundOptionsFor } from '$lib/soundOptions';
 import { loadSoundsDoc } from '$lib/server/soundsStorage';
 import { error, redirect } from '@sveltejs/kit';
-import { resolveCascade, symbolsInPlay } from 'game-config';
+import { resolveCascade, resolveReelBehaviour, symbolsInPlay } from 'game-config';
 import { roleHasTool } from '$lib/roles';
 import { SESSION_COOKIE } from '$lib/server/auth';
 import { listClips } from '$lib/server/flipbookStorage';
@@ -121,6 +121,27 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		// column without authoring anything and a lines project that switched the cascade ON in
 		// /config gets it too.
 		cascade: resolveCascade(configDoc ?? undefined),
+		/**
+		 * HOW this project's board arrives, resolved — the gate on the two columns that only mean
+		 * something to a swapping board.
+		 *
+		 * `emerge` gates the `Intro` column: the state is only ever played by `swapStyle: 'emerge'`,
+		 * and a column for an animation nothing fires is the exact failure this tool's gating exists
+		 * to avoid.
+		 *
+		 * `clears` is the fix to a gap the clear step shipped with. `Tumble explosion` was gated on
+		 * `cascade` alone, but a swap-in-place project with "Clear the board" ticked plays that very
+		 * state on every round (`clearOutgoingSymbols`) — so a lines game authoring the sink half of
+		 * an emerge was offered no column for it and had to reach the binding through `Explosion`'s
+		 * inheritance without ever being told that is what it was doing.
+		 */
+		reelBehaviour: (() => {
+			const resolved = resolveReelBehaviour(configDoc ?? undefined);
+			return {
+				emerge: resolved.swapInPlace && resolved.swapStyle === 'emerge',
+				clears: resolved.clearBoard,
+			};
+		})(),
 		doc,
 		defaults,
 		inPlaySymbols,

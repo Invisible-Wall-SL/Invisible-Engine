@@ -23,6 +23,11 @@
  *  4. `columnStaggerMs` RESOLVES TO `number | undefined`, never to a defaulted number. `0` is a
  *     legal authored value ("every column at once") and absent means "the presentation's own
  *     default", so collapsing the two here would make a 0 unauthorable.
+ *  5. A STYLE ADDED TO THE VOCABULARY ROUND-TRIPS. `normalizeReelBehaviour` used to compare against
+ *     the one non-default literal by hand, so `'emerge'` — a perfectly valid style the picker
+ *     offered and the resolver understood — was silently dropped on the next save, handing the
+ *     author back a drop-in. It is written against `SWAP_STYLES` now, and this fixture is what
+ *     stops it regressing to a literal.
  */
 
 import { normalizeGameConfigDoc } from './src/normalize.ts';
@@ -30,6 +35,7 @@ import {
 	REEL_BEHAVIOUR_MAX_COLUMN_STAGGER_MS,
 	normalizeReelBehaviour,
 	resolveReelBehaviour,
+	swapStyleUsesColumnStagger,
 } from './src/reelBehaviour.ts';
 import { validateGameConfigDoc } from './src/validate.ts';
 import type { GameConfigDoc } from './src/types.ts';
@@ -267,6 +273,69 @@ const slowIssue = validateGameConfigDoc(slow).find(
 );
 check('a sweep that costs over a second is warned about', slowIssue?.severity, 'warning');
 check('...and names the number the LAST column pays', slowIssue?.message.includes('1600 ms'), true);
+
+console.log('');
+console.log('the emerge style — the board surfaces in place, and the vocabulary is not hand-listed');
+check(
+	'emerge resolves as itself, not as the drop-in',
+	resolveReelBehaviour({ reelBehaviour: { swapInPlace: true, swapStyle: 'emerge' } }),
+	{ swapInPlace: true, swapStyle: 'emerge', columnStaggerMs: undefined, clearBoard: false },
+);
+check(
+	'...and SURVIVES the normalizer (the bug a per-literal check would reintroduce)',
+	normalizeReelBehaviour({ swapInPlace: true, swapStyle: 'emerge' }),
+	{ swapInPlace: true, swapStyle: 'emerge' },
+);
+check(
+	'the default style is still DROPPED rather than stored',
+	normalizeReelBehaviour({ swapInPlace: true, swapStyle: 'dropIn' }),
+	{ swapInPlace: true },
+);
+check(
+	'a style outside the vocabulary resolves to the shipped drop-in',
+	resolveReelBehaviour({
+		reelBehaviour: { swapInPlace: true, swapStyle: 'somethingLater' },
+	} as unknown as Pick<GameConfigDoc, 'reelBehaviour'>).swapStyle,
+	'dropIn',
+);
+check(
+	'...and is not stored either',
+	normalizeReelBehaviour({ swapInPlace: true, swapStyle: 'somethingLater' }),
+	{ swapInPlace: true },
+);
+check('the stagger is live for the cascade', swapStyleUsesColumnStagger('columnCascade'), true);
+check('...and for the emerge', swapStyleUsesColumnStagger('emerge'), true);
+check('...and inert for the drop-in', swapStyleUsesColumnStagger('dropIn'), false);
+check(
+	'a stagger under emerge raises nothing — the columns really do surface on their own beat',
+	pathsOf(
+		normalizeGameConfigDoc({
+			...base,
+			reelBehaviour: { swapInPlace: true, swapStyle: 'emerge', columnStaggerMs: 140 },
+		}) as GameConfigDoc,
+	),
+	[],
+);
+check(
+	'a clear under emerge raises nothing — sink, then surface, is the pairing the style is for',
+	pathsOf(
+		normalizeGameConfigDoc({
+			...base,
+			reelBehaviour: { swapInPlace: true, swapStyle: 'emerge', clearBoard: true },
+		}) as GameConfigDoc,
+	),
+	[],
+);
+const slowEmerge = normalizeGameConfigDoc({
+	...base,
+	reelBehaviour: { swapInPlace: true, swapStyle: 'emerge', columnStaggerMs: 400 },
+}) as GameConfigDoc;
+check(
+	'...but an emerge sweep over a second is warned about, exactly like a cascade',
+	validateGameConfigDoc(slowEmerge).find((issue) => issue.path === 'reelBehaviour.columnStaggerMs')
+		?.severity,
+	'warning',
+);
 
 console.log(
 	failures === 0 ? '\nAll reel-behaviour assertions passed.\n' : `\n${failures} FAILED\n`,
