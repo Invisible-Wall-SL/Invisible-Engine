@@ -18,6 +18,9 @@
 		y?: number;
 		symbolInfo: ReturnType<typeof getSymbolInfo>;
 		oncomplete?: () => void;
+		/** Per-STATE loop from the authored cell. Overrides the clip’s own `loop`, so one clip used by
+		 * two states can repeat in one and hold in the other. Absent ⇒ the clip decides (as before). */
+		loop?: boolean;
 	};
 
 	const props: Props = $props();
@@ -83,6 +86,7 @@
 {#if clip}
 	<Flipbook
 		{clip}
+		loop={props.loop}
 		x={props.x}
 		y={props.y}
 		anchor={0.5}

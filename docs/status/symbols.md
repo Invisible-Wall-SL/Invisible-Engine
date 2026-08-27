@@ -334,6 +334,38 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+- 2026-08-27 — **A spine symbol state played once and froze; now every state has an authorable
+  Loop, and looping is the default.** Reported as *"the idle spine I place in the symbol state
+  machine only plays 2 times, and then it stops."*
+  - **Why twice, exactly.** `ReelSymbol` mounted `<Symbol>` with no `loop`, so it reached
+    `SpineTrack` as `undefined` and every spine state was a one-shot that froze on its last frame
+    (confirmed live in the running game: `loop: false`, `trackTime` 9.35 on a 2s clip). The symbol
+    lands as `land` → plays `Idle` once on the board's UNMASKED animate layer; `oncomplete` flips it
+    to `static`, which flips `animating`, and `SymbolWrap` shows a symbol only where
+    `boardContext.animate === animating` — so it re-mounts on the MASKED layer and plays `Idle` a
+    second time. Then it holds. Two plays, one animation, because both states point at `Idle`.
+  - **The real gap:** looping was not authorable anywhere for spine, and for FLIPBOOK it lived on the
+    CLIP (`clip.loop ?? true`), so one clip used by two states could not repeat in one and hold in the
+    other. Sprite cells are a single frame and have nothing to repeat.
+  - **Now:** `SymbolCellInfo.loop` (schema, doc, runtime), a **Loop** toggle in the cell editor for
+    spine + flipbook, rendered from ONE snippet so the two editors cannot drift. **ABSENT MEANS
+    LOOP** — the doc stays sparse because only a deliberate one-shot is written, and that matches what
+    flipbooks have always done. An explicit `loop` prop still wins for the callers that own the
+    decision (the Book expand/reveal riders, which loop only `bookIdle`).
+  - **This CHANGES existing games** (owner's call, asked and answered): every spine symbol state that
+    used to freeze will now repeat until an author ticks Loop off. Verified safe for the states the
+    game AWAITS — spine-core queues `complete` *"if completed a loop iteration or the animation"*, so
+    `land`/`win`/`explosion` still advance on their first cycle; they just keep animating while they
+    wait. A looping `win` now fires `oncomplete` once per cycle rather than once, which the board's
+    state set absorbs.
+  - Side effect worth knowing: a rig-FX cue keyed at t=0 of a now-looping idle re-fires every loop,
+    which is what an author expects from a repeating ambient effect.
+  - Verified: schema round-trip over the real Zod (`loop:false` kept through parse + normalize,
+    absent stays absent, a non-boolean rejected, flipbook cells too); launcher, lines, pixi-svelte and
+    engine-layout all build.
+  - ⚠️ **Pre-existing and NOT from this change:** `pnpm --filter launcher-api run
+    check:symbol-state-parity` fails 4 assertions on a clean `origin/main` checkout (`intro → unset in
+    the grid (engine draws land)`). Confirmed by stashing. Someone should fix or retire that gate.
 - 2026-08-27 — **The stage was sized from the wrong box, so every rig was painted ~1.7% too far
   right and its bound FX was not — the reported "I can see the FX in the state machine but it's
   offset".** `container` is `.grid-scroll` (`overflow:auto`); the WebGL canvas and the FX layer are

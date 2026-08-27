@@ -39,6 +39,24 @@ export type SymbolCellInfo = {
 	 *  `defaultSizeRatios`); the coded `SYMBOL_INFO_MAP` always supplies it. Render code
 	 *  reads the resolved size via `getSymbolInfo` (see `resolveSymbolSizeRatios`). */
 	sizeRatios?: { width: number; height: number };
+	/**
+	 * Repeat this state's animation instead of holding on its last frame. Absent ⇒ **loop**, which
+	 * is what a symbol state almost always wants and what a flipbook cell has always done
+	 * (`clip.loop ?? true`).
+	 *
+	 * SPINE cells had no way to say this at all: nothing authored it and the board passed no `loop`,
+	 * so every spine state was a one-shot that froze on its final frame. The give-away was a resting
+	 * symbol that appeared to "play twice and stop" — once on the unmasked animate layer as `land`,
+	 * then again after `SymbolWrap` re-mounted it on the masked layer as `static`.
+	 *
+	 * FLIPBOOK cells could loop, but only per CLIP, so one clip used by two states could not loop in
+	 * one and hold in the other. Setting it here overrides the clip for this state only.
+	 *
+	 * Safe on the states the game AWAITS (`land`, `win`, `explosion`): spine queues `complete` once
+	 * per loop iteration, not only at the end of a non-looping clip, so those still advance on their
+	 * first cycle — they just keep animating while they wait.
+	 */
+	loop?: boolean;
 };
 
 /** Symbol name → state → binding. The coded `SYMBOL_INFO_MAP` IS one of these (the
