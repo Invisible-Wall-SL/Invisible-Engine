@@ -1497,9 +1497,14 @@
 		const ids = new Set(activeScreenIds);
 		stateUi.celebrationLock.intro = ids.has('freeSpinIntro');
 		stateUi.celebrationLock.outro = ids.has('freeSpinOutro');
-		stateUi.celebrationLock.win =
-			ids.has('bigWin') ||
-			(flowV2DrivesScreens && activeScreenIds.some((id) => winAwaitTargets.has(id)));
+		// The held clause on its own, WITHOUT the coded `bigWin` id: the WIN GATE reads it to decide
+		// whether the flow already holds the presentation after the count-up, and a v1/coded `bigWin`
+		// screen holds nothing (it is a mounted scene, not a `showContainer{awaitComplete}`), so folding
+		// the id in would suppress the gate's own hold on exactly the path that needs it. The lock below
+		// still ORs both — a coded `bigWin` must grey the spin button as it always has.
+		const flowHeld = flowV2DrivesScreens && activeScreenIds.some((id) => winAwaitTargets.has(id));
+		winState.flowHoldsPresentation = flowHeld;
+		stateUi.celebrationLock.win = ids.has('bigWin') || flowHeld;
 	});
 
 	// §16.4 B6.4 — the spin/stop state machine. The decision itself lives ONCE in
