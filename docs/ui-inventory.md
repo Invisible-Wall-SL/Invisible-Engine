@@ -33,6 +33,16 @@ per-root relativization and would drift from it, so `/flipbook`'s picker **proxi
 domain-A surface needs paths only a domain-B resolver defines — but note it does NOT make
 `/fsbrowse` a domain-A component: it is reachable only through that gated, allow-listed proxy.
 
+**Still true after the picker grew two more sources (2026-08-27).** The Flipbook video picker now
+offers three tabs — project files, an atlas REGION, and a file from the author's computer — and the
+first is unchanged: it is still the proxied `/fsbrowse`, precisely because that is the only thing
+that knows the per-root relativization. The other two are not browsers. A region is not a file and a
+local file is not in the project, so each has to BECOME one: both are written to
+`input/refs/flipbook/<name>` by a presigned PUT (`api/flipbook/source-url`, which mints the key and
+the matching `refs/…` ref in one place so the two cannot drift) and the tool resolves the result
+through its normal INPUT_DIR routing. The rule to carry forward: **do not add a fourth browser —
+add a source that ends in a ref the tool already resolves.**
+
 ### 2. Table / data-grid view
 | Impl | Domain | File(s) | Status |
 |---|---|---|---|
@@ -41,6 +51,17 @@ domain-A surface needs paths only a domain-B resolver defines — but note it do
 | Win Text grid (rows = symbols, cols = match counts, editable cells; placeholder shows the inherited value) | A | `(app)/win-text/+page.svelte` | bespoke — 3rd instance; **extract next** |
 
 → **Target:** a small `<DataTable>` (columns def + rows + per-row actions) in `components-shared`. Would simplify admin (health-eval #3), localization, and win-text. The win-text grid adds a requirement the other two don't have: a cell's **placeholder** renders its inherited/effective value, so the extraction needs a per-cell "fallback display" hook.
+
+⚠️ **The Invisible Sound library list is NOT a 4th instance** — do not count it toward the extraction. Every impl above is a MATRIX (rows × columns of same-typed cells, one entity per row and one attribute per column); `/sound` is a per-entity row of heterogeneous controls (play button, text, select, number, toggles, a `<details>` metadata panel). A `<DataTable>` built to cover both would be a layout engine, not a table. See §13.
+
+### 13. Per-entity editable list (row = one record, mixed controls)
+| Impl | Domain | File(s) | Status |
+|---|---|---|---|
+| Invisible Sound library — sectioned rows: audition button, name/kind/section, duration, volume, loop, approve pill, delete, plus a collapsible provenance panel | A | `(app)/sound/+page.svelte` | first instance — build the 2nd against this, extract on the 3rd |
+| **Audio audition** — ONE shared `<audio>` element for the whole list (not one per row), src swapped on play, plays at the row's authored volume so what you hear is what the game plays | A | same file | the reusable bit if a second tool ever previews audio |
+| **Upload drop-zone** — drag/drop + "choose files", `accept` derived from the shared extension whitelist, per-file progress, client-side duration measured with `decodeAudioData` before the POST | A | same file | ditto |
+
+→ Distinct from §2: there are no columns, and a row's controls differ by field type. If a second tool needs one, copy from `/sound` rather than reinventing, and extract on the third (the rule §2 is living out).
 
 ⚠️ **The Invisible Sound library list is NOT a 4th instance** — do not count it toward the extraction. Every impl above is a MATRIX (rows × columns of same-typed cells, one entity per row and one attribute per column); `/sound` is a per-entity row of heterogeneous controls (play button, text, select, number, toggles, a `<details>` metadata panel). A `<DataTable>` built to cover both would be a layout engine, not a table. See §13.
 
@@ -84,6 +105,7 @@ sees whether the cutout produced real alpha).
 | Impl | Domain | File(s) | Status |
 |---|---|---|---|
 | Editor `RegionThumb.svelte` (9-arg drawImage crop, trim offsets) | A | `apps/launcher-api/src/lib/.../RegionThumb.svelte` | reference A impl |
+| `regionCrop.ts` — the same geometry, but at NATIVE size and out to a PNG blob (`cropRegionToPng`), for feeding a region to an image model | A | `(app)/editor/regionCrop.ts` | 2nd A consumer of the geometry; used by `/flipbook`'s video source picker |
 | Sheet Maker region rendering | B | `services/sheet-tool/ui.html` (canvas) | **reference B impl** — `computeBbox` (alpha-bbox scan) + the `#viewport` cursor-anchored wheel zoom |
 | Atlas Maker **Region Overlay Inspector** (`/atlasview`) — rect + measured art alpha bbox + trim frame over a composed page, zoom/pan, FILLS/INSET verdict | B | `services/atlas-tool/ui_server.py` (`ATLASVIEW`, `_view_region`, `_atlasview`) | ported from the Sheet Maker's idiom above; the only atlas-side region renderer |
 
@@ -153,6 +175,8 @@ is at least now single-sourced (`IW_TOOLBAR_CSS`, shared by `PAGE` + `ATLASVIEW`
 | Rigger `#loadingOverlay` (`showLoading()`/`hideLoading()`) — same idea, vanilla | static | `apps/launcher-api/static/rigger/view.html` | the static twin; keep visually aligned |
 
 → **Both halves of "a tool is opening" are covered:** a CLIENT-SIDE navigation mounts `<BootSplash>` from `(app)/+layout.svelte`; a HARD load — typed URL, refresh, a link out of a static tool, or an in-tool full navigation (Flipbook's `window.location.href = '/flipbook?clip=…'`) — has no app running yet, so `hooks.server.ts` injects the vanilla twin into the shell at `<!--iw-boot-splash-->` and the root `+layout.svelte` lifts it on mount (the root, so an error page lifts it too). Tool pages are `ssr = false`, so without this a hard load sits on a blank shell. Any new full-page navigation to a tool inherits this for free — it is keyed off `TOOLS[].url`, not per-page wiring.
+
+→ **Exactly ONE splash per open — a tool that redirects out of the app is flagged `handsOff`:** `/atlas`, `/sheet`, `/spine` and `/rigger` don't render a launcher page, they `redirect(303)` to another document (the Python origin, or the static `view.html`) that boots this same CRT itself. A client-side click still starts as a SvelteKit navigation, and SvelteKit finishes a redirect to a non-route URL with `location.href` — so without the flag `<BootSplash>` plays for the hop and the destination then plays its own from the top: the screen runs twice. `ToolDef.handsOff` marks them and `(app)/+layout.svelte` skips the splash; the destination owns the loading screen. Set it on any new tool whose route redirects to a document that carries its own splash.
 
 → **The split is the rule, not the styling:** a tool that is still OPENING (nothing usable on screen yet) shows the **CRT boot splash** — the same screen on every stack, so opening any Invisible tool feels identical. A tool that is ALREADY open and is loading/updating a part of itself (assets, a document, a publish) shows the **dimmed overlay + card**. Never boot-splash an in-tool load, and never spinner-card a tool boot. The three boot-splash impls exist only because the three origins can't share code — keep them visually identical (same convention as the tool-bar §7, mode-bar §9, and colour-field §11 twins).
 
