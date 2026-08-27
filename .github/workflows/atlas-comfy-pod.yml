@@ -5,7 +5,9 @@ name: Build Atlas ComfyUI R&D pod
 # no pull creds). Distinct from atlas-comfy-worker.yml (the headless serverless worker).
 on:
   push:
-    branches: [main, serverless-comfyui]
+    # main only. Rebuilding this image on every push to a dev branch cost real minutes for
+    # an image nothing deploys from yet; `workflow_dispatch` still builds any branch on demand.
+    branches: [main]
     paths:
       - services/atlas-comfy-pod/**
       - .github/workflows/atlas-comfy-pod.yml
@@ -46,5 +48,12 @@ jobs:
           tags: |
             ghcr.io/invisible-wall-sl/atlas-comfy-pod:latest
             ghcr.io/invisible-wall-sl/atlas-comfy-pod:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=min
+          # Registry cache with mode=max — NOT `type=gha,mode=min`. `min` caches only the
+          # FINAL layer, so every rebuild re-ran the multi-GB torch/ComfyUI/insightface pip
+          # steps from cold (~21 min a build; these two image workflows alone burned a quarter
+          # of August's Actions minutes and helped exhaust the free allowance). GHA cache is
+          # capped at 10 GB/repo besides, which a CUDA image blows straight through, so even
+          # that one layer thrashed. GHCR has no cap and is readable from every branch.
+          # `image-manifest`/`oci-mediatypes` are what GHCR needs to accept a cache manifest.
+          cache-from: type=registry,ref=ghcr.io/invisible-wall-sl/atlas-comfy-pod:buildcache
+          cache-to: type=registry,ref=ghcr.io/invisible-wall-sl/atlas-comfy-pod:buildcache,mode=max,image-manifest=true,oci-mediatypes=true
