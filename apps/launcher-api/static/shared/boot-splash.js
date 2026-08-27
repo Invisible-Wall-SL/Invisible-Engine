@@ -18,6 +18,12 @@
  * `window.load` (+ a short settle) and, as a last resort, at MAX_MS — a boot
  * splash must never be able to strand the tool behind itself.
  *
+ * Opening ONE tool can span TWO documents in a tab (this shell splash, then the
+ * static app it redirects to; or an in-tool full navigation like /fx?effect=…).
+ * The sessionStorage latch below (twin of src/lib/splashTrail.ts) lets the second
+ * one CONTINUE the first instead of replaying the power-on sweep, logo and BIOS
+ * dateline — that replay is what reads as the CRT firing twice.
+ *
  * NOT for loading something inside an already-open tool — that is the dimmed
  * overlay + card (`#loadingOverlay` here, `<BusyOverlay>` in the launcher).
  */
@@ -66,9 +72,94 @@
 	var LOGO_MS = 45;
 	var CURSOR = '<span class="iw-cur"></span>';
 
+	// ---- handoff latch + breadcrumb trail (twin of src/lib/splashTrail.ts) ----
+	// sessionStorage is per-TAB and survives a document navigation, so a splash that
+	// finds a still-warm heartbeat knows one was on screen a moment ago and picks it
+	// up. The heartbeat is rewritten on every poll tick, so the latch holds however
+	// long the first splash ran. Same-origin only (the Python tools cannot see it —
+	// that pair is covered by ToolDef.handsOff). The trail is also the diagnostic:
+	// a double crosses documents, so window.__IW_SPLASH_TRAIL__ is the only place
+	// both halves are visible at once.
+	var HEARTBEAT_KEY = 'iw:splash:alive';
+	var TRAIL_KEY = 'iw:splash:trail';
+	var HANDOFF_MS = 1500;
+	var TRAIL_MAX = 8;
+
+	function ssRead(key) {
+		try {
+			return sessionStorage.getItem(key);
+		} catch (e) {
+			return null;
+		}
+	}
+	function ssWrite(key, value) {
+		try {
+			sessionStorage.setItem(key, value);
+		} catch (e) {
+			/* no trail, no latch — the splash just plays in full, as it did before */
+		}
+	}
+	function splashTrail() {
+		try {
+			var raw = ssRead(TRAIL_KEY);
+			var parsed = raw ? JSON.parse(raw) : [];
+			return Object.prototype.toString.call(parsed) === '[object Array]' ? parsed : [];
+		} catch (e) {
+			return [];
+		}
+	}
+	function splashAlive() {
+		ssWrite(HEARTBEAT_KEY, String(Date.now()));
+	}
+	function navType() {
+		try {
+			var entry = performance.getEntriesByType('navigation')[0];
+			return (entry && entry.type) || 'unknown';
+		} catch (e) {
+			return 'unknown';
+		}
+	}
+	function splashBegin(tool) {
+		var now = Date.now();
+		var beat = Number(ssRead(HEARTBEAT_KEY));
+		var trail = splashTrail();
+		var previous = trail[trail.length - 1];
+		var cont = isFinite(beat) && beat > 0 && now - beat < HANDOFF_MS;
+		var entry = {
+			t: now,
+			impl: 'vanilla',
+			tool: tool,
+			url: location.pathname + location.search,
+			nav: navType(),
+		};
+		if (cont && previous) entry.from = previous.url;
+		trail.push(entry);
+		ssWrite(TRAIL_KEY, JSON.stringify(trail.slice(-TRAIL_MAX)));
+		splashAlive();
+		if (cont && previous) {
+			console.info(
+				'[iw-splash] continuing the splash from ' +
+					previous.url +
+					' (' +
+					previous.impl +
+					') — intro skipped. window.__IW_SPLASH_TRAIL__ for the full trail.',
+			);
+		}
+		try {
+			Object.defineProperty(window, '__IW_SPLASH_TRAIL__', {
+				configurable: true,
+				get: splashTrail,
+			});
+		} catch (e) {
+			/* nothing to expose — the trail still works */
+		}
+		return cont;
+	}
+
 	var startedAt = Date.now();
 	var ready = false;
 	var over = false;
+	var continuing = false;
 	var root = null;
 	var scr = null;
 	var lines = [];
@@ -86,7 +177,9 @@
 		return lo + Math.floor(Math.random() * (hi - lo + 1));
 	}
 	function done() {
-		return ready && Date.now() - startedAt >= MIN_MS;
+		// A CONTINUATION has no floor: MIN_MS buys the logo enough airtime to play, and
+		// a continuation does not draw one — holding the screen would only add dead time.
+		return ready && (continuing || Date.now() - startedAt >= MIN_MS);
 	}
 	function paint() {
 		if (!scr) return;
@@ -113,6 +206,7 @@
 			'.iw-dim{opacity:.55}.iw-ok{color:#9cff9c}' +
 			'.iw-cur{display:inline-block;width:.55em;height:1em;vertical-align:-2px;background:#33ff66;' +
 			'box-shadow:0 0 6px #33ff66;animation:iw-blink 1s steps(1) infinite}' +
+			'.iw-warm{animation:none}' +
 			'@keyframes iw-blink{50%{opacity:0}}' +
 			'@keyframes iw-power{0%{opacity:0;transform:scaleY(.02)}40%{opacity:1;transform:scaleY(1)}' +
 			'100%{opacity:1;transform:scaleY(1)}}' +
@@ -122,7 +216,8 @@
 		document.head.appendChild(style);
 
 		root = document.createElement('div');
-		root.className = 'iw-crt';
+		// Continuing a splash from the previous document: the tube is already on.
+		root.className = continuing ? 'iw-crt iw-warm' : 'iw-crt';
 		root.setAttribute('role', 'status');
 		root.setAttribute('aria-label', 'Opening ' + TOOL);
 		scr = document.createElement('pre');
@@ -180,7 +275,13 @@
 	}
 
 	async function run() {
+		continuing = splashBegin(TOOL);
 		install();
+		if (continuing) {
+			await phrases();
+			lift();
+			return;
+		}
 		var spaced = TOOL.toUpperCase()
 			.split(' ')
 			.map(function (w) {
@@ -211,6 +312,12 @@
 		for (var k = 0; k < intro.length && !done() && !over; k++) {
 			await typeLine(intro[k], 'iw-dim');
 		}
+		await phrases();
+		lift();
+	}
+
+	/** The `> phrase ..... [ OK ]` loop, reshuffled each cycle so a long boot never repeats. */
+	async function phrases() {
 		var pool = WORK.slice();
 		var at = pool.length; // force a shuffle on the first pull
 		while (!done() && !over) {
@@ -225,7 +332,6 @@
 			}
 			await typeLine('> ' + pool[at++], '', 'OK');
 		}
-		lift();
 	}
 
 	window.IWBoot = {
@@ -247,6 +353,7 @@
 
 	// Poll so a `done()` that lands while the typewriter sleeps still lifts promptly.
 	var poll = setInterval(function () {
+		splashAlive();
 		if (over) clearInterval(poll);
 		else if (done()) {
 			lift();
