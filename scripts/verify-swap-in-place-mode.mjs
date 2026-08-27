@@ -1965,15 +1965,32 @@ check(
 const appearHandlerSource = handlersSource
 	.slice(handlersSource.indexOf('tumbleBoardAppear:'))
 	.replace(/\s+/g, ' ');
+/** The one placement that DEFINES the style: the arriving symbol, seated instantly.
+ *
+ *  Matched exactly rather than by "the first `symbolY.set` in the handler", because the handler now
+ *  has two branches and the OTHER one — the survivor's 200 ms slide — sits first. A loose pattern
+ *  here compared the intro assignment against the survivor's placement and failed for the wrong
+ *  reason; a non-greedy `.*?` one would have spanned the two branches and passed for the wrong
+ *  reason, which is worse. */
+const INSTANT_PLACEMENT = 'tumbleSymbol.symbolY.set(seatY, { duration: 0 });';
 check(
-	"...and sets 'intro' BEFORE it places, so the first painted frame is already the intro art",
-	appearHandlerSource.indexOf("tumbleSymbol.symbolState = 'intro'") <
-		appearHandlerSource.indexOf('tumbleSymbol.symbolY.set('),
+	'the appear handler seats the arriving symbol instantly',
+	appearHandlerSource.includes(INSTANT_PLACEMENT),
 	true,
 );
 check(
-	'...and the appear handler is the one that places at duration 0',
-	/tumbleSymbol\.symbolY\.set\(.*?duration: 0/.test(appearHandlerSource),
+	"...and sets 'intro' BEFORE it places, so the first painted frame is already the intro art",
+	appearHandlerSource.indexOf("tumbleSymbol.symbolState = 'intro'") <
+		appearHandlerSource.indexOf(INSTANT_PLACEMENT),
+	true,
+);
+// The survivor half, asserted at source too: it must NOT be instant. Part 10 drives the behaviour,
+// but this says out loud that the two branches are different on purpose.
+check(
+	'...while a survivor is given the slide duration, not placed',
+	/await tumbleSymbol\.symbolY\.set\(seatY, \{ duration: 200, easing: backOut \}\)/.test(
+		appearHandlerSource,
+	),
 	true,
 );
 
@@ -2136,6 +2153,138 @@ check(
 			);
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// 10 - the CASCADE arrives the same way the spin does.
+//
+// A game that surfaces its symbols on the spin and DROPS them on a win has two behaviours, which
+// is what a style is supposed to remove. So the cascade's refill follows `swapStyle` too.
+//
+// But only the refills. `combineTumbleReel` stacks the new symbols ABOVE the survivors - that is
+// the engine's gravity model and the board the SERVER scored the next step against - so a symbol
+// that did not win still changes seat. Placing it instantly would land on the right board and show
+// the player a non-winning symbol teleporting down the column. The rule under test is therefore
+// asymmetric, and both halves are asserted here: refills appear (duration 0, `intro`), survivors
+// slide (duration 200, `land`).
+//
+// The cascade handler itself lives in `bookEventHandlerMap.ts`, which a Node fixture cannot stand
+// up (it reaches XState, the flow interpreter and the RGS). Its BRANCH is asserted at source level;
+// what the branch selects - the appear cue against a board that has survivors - is driven for real.
+// ---------------------------------------------------------------------------
+
+console.log('--- 10. the cascade arrives the same way the spin does ---');
+
+{
+	const coded = read('apps/lines/src/game/bookEventHandlerMap.ts');
+	const cascade = coded.slice(coded.indexOf('tumbleBoard: async ('));
+	const step = cascade.slice(0, cascade.indexOf('\n\t},'));
+	check(
+		'the cascade picks its arrival from the board swap STYLE',
+		step.includes("stateGameDerived.boardSwapStyle() === 'emerge'") &&
+			step.includes('stateGameDerived.boardSwapsInPlace()'),
+		true,
+	);
+	check(
+		'...choosing the appear cue over the slide',
+		/emerges \? 'tumbleBoardAppear' : 'tumbleBoardSlideDown'/.test(step),
+		true,
+	);
+	check(
+		'...and the slide is still what every other board reaches',
+		step.includes('tumbleBoardSlideDown'),
+		true,
+	);
+	check(
+		'...and the branch is read AFTER the winners are removed, not before',
+		step.indexOf('tumbleBoardRemoveExploded') < step.indexOf('boardSwapStyle()'),
+		true,
+	);
+}
+
+{
+	// A REAL CASCADE STEP against a board that HAS survivors. The bottom visible row explodes, which
+	// is the case that makes both remaining symbols relocate: a survivor BELOW an exploded cell keeps
+	// its seat, so exploding the top row would leave nothing moving and the assertions below would
+	// pass for want of anything to catch.
+	const clock = createClock();
+	const landed = [];
+	const sounded = [];
+	const moves = [];
+	const previousBoard = boardOf('old');
+	const runtime = buildTumbleRuntime({
+		clock,
+		previousBoard,
+		tileArt: undefined,
+		onLand: (name) => landed.push(name),
+		onSound: (cue) => sounded.push(cue),
+		moves,
+	});
+	// One replacement per exploded cell, which is the contract a real `tumbleBoard` event holds to.
+	const addingBoard = Array.from({ length: REELS }, (_u, reel) => [rawSymbol(`new${reel}`)]);
+	const explodingPositions = Array.from({ length: REELS }, (_u, reel) => ({ reel, row: ROWS }));
+
+	await clock.run(async () => {
+		runtime.handlers.tumbleBoardInit({ addingBoard });
+		await runtime.handlers.tumbleBoardExplode({ explodingPositions });
+		runtime.handlers.tumbleBoardRemoveExploded({});
+		await runtime.handlers.tumbleBoardAppear({});
+	});
+
+	const instant = moves.filter((m) => m.duration === 0);
+	const travelled = moves.filter((m) => m.duration !== 0);
+	check('every refill is placed instantly - one per column', instant.length, REELS);
+	check(
+		'...and every one of them at duration 0',
+		instant.every((m) => m.duration === 0),
+		true,
+	);
+	// Two survivors per column relocate: the pair that sat ABOVE the exploded bottom row.
+	check('the survivors DO travel - two per column', travelled.length, REELS * 2);
+	check(
+		'...at the slide duration, not instantly',
+		travelled.every((m) => m.duration === 200),
+		true,
+	);
+
+	// WHAT PLAYED. A refill arrives (its own emerge voice); a survivor settles (no intro cue).
+	check(
+		'only the refills ask for an emerge cue',
+		sounded.filter((c) => c.startsWith('symbol:intro:')).length,
+		REELS,
+	);
+	check(
+		'...and it is the REFILL that asks, not a survivor',
+		sounded.filter((c) => c.startsWith('symbol:intro:new')).length,
+		REELS,
+	);
+	// Every visible cell reports a landing whichever way it got there - the scatter counter cannot
+	// depend on the presentation.
+	check('every visible cell still reports a landing', landed.length, REELS * ROWS);
+
+	// THE BOARD IS THE ONE THE ENGINE'S GRAVITY MODEL PRODUCES - refills above survivors. This is the
+	// assertion that would catch a "nothing moves at all" cascade, which lands the right symbols in
+	// the WRONG cells and silently diverges from the board the server scored.
+	const combined = runtime.tumbleBoardCombined();
+	check(
+		'the refill sits ABOVE the survivors, not in the hole it filled',
+		combined[0].map((sym) => sym.rawSymbol.name).join(','),
+		['old0-0', 'new0', 'old0-1', 'old0-2', 'old0-4'].join(','),
+	);
+	// The seat stub the harness hands the runtime is `(row + 0.5) * 120`, and the runtime seats a
+	// symbol at `index - PAD_ROWS_ABOVE`; restated here so the assertion is about the ARRIVAL, not
+	// about agreeing with itself.
+	const seatOf = (index) => (index - 1 + 0.5) * 120;
+	check(
+		'...and every cell comes to rest on its own seat',
+		combined.every((reel) => reel.every((sym, index) => sym.symbolY.current === seatOf(index))),
+		true,
+	);
+	check(
+		'...with nothing left mid-animation',
+		combined.every((reel) => reel.every((sym) => sym.symbolState === 'static')),
+		true,
+	);
 }
 
 // ---------------------------------------------------------------------------

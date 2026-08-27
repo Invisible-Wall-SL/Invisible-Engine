@@ -214,6 +214,13 @@ When `swapInPlace` is on, `apps/lines` wires a different set of defaults. Nothin
     shortening a fall: a fall that lands in 1 ms is still a fall, and its `land` beat still fires
     *after* the movement rather than instead of it. `columnStaggerMs` sweeps it, defaulting to `0`
     (the un-swept surfacing) where the cascade defaults to 140 ms.
+
+    It governs the CASCADE's refill as well as the reveal — a game that surfaces on the spin and
+    drops on a win has exactly the two behaviours the style exists to remove. Only the refills,
+    though: `combineTumbleReel` stacks them ABOVE the survivors, which is the engine's gravity model
+    and the board the SERVER scored the next step against, so a symbol that did not win still
+    changes seat and must be seen to travel there. It slides and plays `land` — an emerge is about
+    how a symbol ARRIVES, and a survivor is not arriving.
 - **`intro` is a symbol state, not a presentation flag.** It joins `SYMBOL_STATES` in
   `engine-layout`, gets its own `/symbols` column (gated on the project actually emerging, the way
   `tumbleExplosion` is gated on cascading), and inherits `land` when unauthored — so switching the
