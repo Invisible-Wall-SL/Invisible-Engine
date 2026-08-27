@@ -511,6 +511,9 @@
 			animationName: type === 'spine' ? '' : undefined,
 			clipId: undefined,
 			sizeRatios: draft.sizeRatios,
+			// Survives a kind switch: “repeat or hold” is about the STATE, not about which
+			// renderer draws it, so retyping a cell should not silently re-loop a one-shot.
+			loop: draft.loop,
 		};
 		draftAnimations = [];
 	}
@@ -549,6 +552,9 @@
 			};
 		}
 		if (draft.type === 'spine' && draft.animationName) cell.animationName = draft.animationName;
+		// Sparse: absent MEANS loop, so only a deliberate one-shot is written. A sprite cell is a
+		// single frame with nothing to repeat, so it never carries the field.
+		if (draft.type !== 'sprite' && draft.loop === false) cell.loop = false;
 		if (draft.type === 'flipbook' && draft.clipId) cell.clipId = draft.clipId;
 		doc = setOverride(doc, focus.symbol, focus.state, cell);
 		closeCell();
@@ -1155,6 +1161,34 @@
 		doc = setSymbolName(doc, symbol, form, value);
 	}
 </script>
+
+<!-- Repeat-or-hold for one symbol state. Shared by the spine and flipbook editors because the
+     question is about the STATE, not about which renderer draws it — a sprite cell is a single
+     frame and has nothing to repeat, so it is the one kind that never shows this. -->
+{#snippet loopToggle()}
+	{#if draft}
+		<div class="field">
+			<span class="label">Playback</span>
+			<label class="loop-toggle">
+				<input
+					type="checkbox"
+					checked={draft.loop !== false}
+					onchange={(e) => {
+						// Sparse by design: looping is the default, so ticking it ON clears the field
+						// rather than writing `true`.
+						if (draft) draft.loop = e.currentTarget.checked ? undefined : false;
+					}}
+				/>
+				<span>Loop</span>
+			</label>
+			<span class="hint">
+				{draft.loop === false
+					? 'Plays once, then holds on its last frame.'
+					: 'Repeats for as long as the symbol is in this state.'}
+			</span>
+		</div>
+	{/if}
+{/snippet}
 
 <div class="shell">
 	<ToolTopBar
@@ -3033,6 +3067,7 @@
 					</div>
 					{#if draft.clipId}
 						{@const frame = clipFirstFrame(draft.clipId)}
+						{@render loopToggle()}
 						<div class="field">
 							<span class="label">Preview</span>
 							<div class="panel-preview">
@@ -3099,6 +3134,7 @@
 								/>
 							{/if}
 						</div>
+						{@render loopToggle()}
 						<div class="field">
 							<span class="label">Preview</span>
 							<div class="panel-preview">
@@ -3519,6 +3555,20 @@
 	.seg button:disabled {
 		opacity: 0.45;
 		cursor: not-allowed;
+	}
+	.loop-toggle {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		font-size: 13px;
+		color: #d8d8e2;
+		cursor: pointer;
+	}
+	.loop-toggle input {
+		width: 14px;
+		height: 14px;
+		accent-color: #7ee0c0;
+		cursor: pointer;
 	}
 	.hint {
 		margin: 6px 0 0;

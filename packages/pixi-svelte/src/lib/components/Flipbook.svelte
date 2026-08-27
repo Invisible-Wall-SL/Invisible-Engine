@@ -75,12 +75,14 @@
 	 */
 </script>
 
+<!-- `loop`: an explicit value from the caller WINS over the clip’s own default, so a per-STATE
+     setting can make one clip repeat in one symbol state and hold in another. -->
 {#if textures.length > 0}
 	<AnimatedSprite
 		{...spriteProps}
 		{textures}
 		{animationSpeed}
-		loop={clip.loop ?? true}
+		loop={props.loop ?? clip.loop ?? true}
 		play={play ?? true}
 	/>
 {/if}

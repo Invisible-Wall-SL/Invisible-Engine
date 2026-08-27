@@ -104,6 +104,19 @@ tool top bar). Switch projects from the launcher before opening the tool.
      banner names the rig and its animation count. It stays quiet for a one-animation rig,
      because there the choice is already made for you.
 
+   - **Playback (Loop)** — on spine and flipbook cells. **Loop is on by default**: the state’s
+     animation repeats for as long as the symbol is in that state. Untick it and the animation
+     plays once and holds on its last frame.
+
+     Loop off is what you want for a state that is a one-shot BEAT — a Land thump, an
+     Explosion. Leave it on for anything resting: a Static idle that holds on its final frame
+     reads as a frozen symbol, and if Land and Static point at the same animation you see it
+     play twice (once as it lands, once as it settles onto the resting layer) and then stop.
+
+     For a flipbook this OVERRIDES the clip’s own loop setting for this state only, so one clip
+     can repeat in one state and hold in another. Sprite cells are a single frame, so they have
+     no Playback control.
+
    - **Flipbook:** pick a **Clip** from the project's Invisible Flipbook clips (each
      listed with its frame count). Picking a clip sets the cell's `clipId` _and_ its
      `assetKey` to the clip's primary sheet, so the cell is never assetless. The panel

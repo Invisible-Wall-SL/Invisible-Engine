@@ -51,6 +51,11 @@ const symbolCellSchema = z
 		/** Required in practice for `type: 'flipbook'` — the authored clip this cell plays. */
 		clipId: z.string().min(1).optional(),
 		sizeRatios: sizeRatiosSchema.optional(),
+		/** Repeat this state’s animation instead of holding on its last frame. ABSENT MEANS LOOP, so
+		 * only a deliberate one-shot is stored — keeping the doc sparse, and matching what a flipbook
+		 * cell has always done (`clip.loop ?? true`). Spine cells had no way to say this at all, which
+		 * is why every spine state froze on its last frame. */
+		loop: z.boolean().optional(),
 	})
 	.strict()
 	.refine((c) => c.type !== 'flipbook' || !!c.clipId, {

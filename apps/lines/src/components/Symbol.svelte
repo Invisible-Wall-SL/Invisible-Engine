@@ -16,6 +16,9 @@
 		/** The paying line's authored colour for the current win (`#rrggbb`), forwarded to the win
 		 *  frame so a `winLine`-tinted highlight glows in that line's colour. */
 		winLineColor?: string;
+		/** Explicit override of the state's authored `loop`. Used by the callers that own the decision
+		 * themselves (the Book expand/reveal riders, which loop only their `bookIdle`). Omit and the
+		 * cell authored in the Symbols State Machine decides. */
 		loop?: boolean;
 	};
 
@@ -28,17 +31,26 @@
 	// one layer down from the one `getSymbolInfo` now absorbs. Any value the symbol CARRIES (a
 	// multiplier) still draws, because that is the part the player needs to read.
 	const hasArt = $derived(!symbolInfo.missingArt);
+	/**
+	 * Does this state's animation repeat? The authored cell decides, and ABSENT MEANS LOOP — the
+	 * flipbook renderer has always defaulted that way (`clip.loop ?? true`), while spine defaulted to
+	 * one-shot only because nothing ever passed a value. An explicit `loop` prop still wins, for the
+	 * callers that own the decision themselves.
+	 */
+	const loop = $derived(
+		props.loop ?? (symbolInfo.missingArt ? undefined : symbolInfo.loop) ?? true,
+	);
 </script>
 
 {#if !hasArt}
 	<!-- nothing to draw -->
 {:else if isFlipbook}
-	<SymbolFlipbook {symbolInfo} x={props.x} y={props.y} oncomplete={props.oncomplete} />
+	<SymbolFlipbook {symbolInfo} {loop} x={props.x} y={props.y} oncomplete={props.oncomplete} />
 {:else if isSprite}
 	<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={props.oncomplete} />
 {:else}
 	<SymbolSpine
-		loop={props.loop}
+		{loop}
 		{symbolInfo}
 		x={props.x}
 		y={props.y}
