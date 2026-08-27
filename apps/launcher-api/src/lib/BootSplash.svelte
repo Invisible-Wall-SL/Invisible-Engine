@@ -7,6 +7,12 @@
 	Keep the three visually identical — separate origins/stacks can't share code
 	(same rule as the tool-bar and colour-field twins, see docs/ui-inventory.md).
 
+	Opening ONE tool can span TWO documents in a tab (a route that redirects to a
+	static `view.html`, an in-tool full navigation like Flipbook's open-a-clip), and
+	each document boots its own splash. `splashTrail.ts` latches them together so the
+	second CONTINUES the first instead of replaying the power-on sweep, logo and BIOS
+	dateline — that replay is what reads as the CRT firing twice.
+
 	Contract: the parent mounts it while the tool is opening and flips `ready`
 	when the tool has arrived. The splash then finishes the line it is typing and
 	calls `onfinished` — never before `minMs`, so the logo always plays instead of
@@ -16,6 +22,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { DEFAULT_BOOT_PHRASES } from '$lib/bootPhrases';
+	import { splashAlive, splashBegin } from '$lib/splashTrail';
 
 	let {
 		tool,
@@ -86,13 +93,17 @@
 	let cancelled = false;
 	let finished = false;
 	let startedAt = 0;
+	/** This splash picked up one that was on screen in the previous document. */
+	let continuing = $state(false);
 
 	const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 	const jitter = (lo: number, hi: number) => lo + Math.floor(Math.random() * (hi - lo + 1));
 	const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-	/** True once the tool has arrived AND the screen has had its minimum airtime. */
-	const done = () => ready && Date.now() - startedAt >= minMs;
+	/** True once the tool has arrived AND the screen has had its minimum airtime.
+	 *  A CONTINUATION has no floor: `minMs` buys the logo enough airtime to play, and
+	 *  a continuation does not draw one — holding the screen would only add dead time. */
+	const done = () => ready && (continuing || Date.now() - startedAt >= minMs);
 
 	function paint(): void {
 		body = committed.join('\n') + (committed.length ? '\n' : '') + live + CURSOR;
@@ -165,16 +176,23 @@
 
 	onMount(() => {
 		startedAt = Date.now();
+		// Opening one tool can span two documents in a tab (a route that redirects to a
+		// static `view.html`, an in-tool full navigation). Replaying the power-on sweep,
+		// logo and BIOS dateline in the second document is what reads as the CRT firing
+		// TWICE — so a splash that finds a warm heartbeat picks the first one up instead.
+		continuing = splashBegin(tool, 'svelte');
 		void (async () => {
-			for (const line of logo) {
-				committed.push(`<span class="ttl">${esc(line)}</span>`);
-				paint();
-				if (done() || cancelled) break;
-				await sleep(LOGO_MS);
-			}
-			for (const line of INTRO) {
-				if (done() || cancelled) break;
-				await typeLine(line);
+			if (!continuing) {
+				for (const line of logo) {
+					committed.push(`<span class="ttl">${esc(line)}</span>`);
+					paint();
+					if (done() || cancelled) break;
+					await sleep(LOGO_MS);
+				}
+				for (const line of INTRO) {
+					if (done() || cancelled) break;
+					await typeLine(line);
+				}
 			}
 			const pool = poolForever(phrases.length ? phrases : DEFAULT_BOOT_PHRASES);
 			while (!done() && !cancelled) {
@@ -188,6 +206,7 @@
 		// `ready` can flip while the loop is asleep between lines; the timer closes
 		// that gap so the splash never outlives the tool by a full pause.
 		const poll = window.setInterval(() => {
+			splashAlive();
 			if (done()) {
 				finish();
 				window.clearInterval(poll);
@@ -201,7 +220,7 @@
 	});
 </script>
 
-<div class="crt" role="status" aria-live="polite">
+<div class="crt" class:warm={continuing} role="status" aria-live="polite">
 	<span class="sr-only">Opening {tool}…</span>
 	<pre class="scr" bind:this={screen} aria-hidden="true">{@html body}</pre>
 </div>
@@ -223,6 +242,11 @@
 			0 0 1px #33ff66,
 			0 0 6px rgba(51, 255, 102, 0.55);
 		animation: iw-power 0.55s ease-out 1;
+	}
+
+	/* Continuing a splash from the previous document: the tube is already on. */
+	.crt.warm {
+		animation: none;
 	}
 
 	/* phosphor scanlines */
