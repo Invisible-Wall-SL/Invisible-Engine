@@ -179,11 +179,33 @@ The left rail, top to bottom:
 |---|---|
 | **Blueprint** | Which ComfyUI network to run. **Only video blueprints are listed.** **＋ Blueprint** (next to *Generate*, if you hold the publish permission) uploads a new one: pick a ComfyUI **API-format** export, point each role at a node, and it publishes as a video blueprint. It offers no `width`/`height` roles on purpose — binding those makes the runner push the Atlas Maker's still-image size (1024) through an 80-frame batch. Expose generation size as a setting instead. Blueprints declare which tool they belong to, and the Atlas Maker's image networks are deliberately not offered here — they would generate a still, not an animation. Its description appears underneath. |
 | **Prompt** / **Negative** | What should happen in the animation, and what to avoid. |
-| **Source image** | The still to animate. **Pick…** browses your project's R2 files — the packed sheets, the loose sprite sources and the reference-image folders. An image-to-video blueprint refuses to start without one. |
+| **Source image** | The still to animate. **Pick…** opens a picker with **three** sources — see below. An image-to-video blueprint refuses to start without one. |
 | **Variations** | How many to generate (1–12). Each is a separate render with its own seed. |
 | **Settings groups** | Every knob the blueprint's author exposed, grouped as they named them — duration, fps, generation size, sampler settings, output size, background cutout. Each starts at the blueprint's own default; you only override what you touch. |
 
 Press **▶ Generate N**.
+
+#### Picking the source image
+
+**Pick…** opens one modal with three tabs. They differ only in where the still comes from —
+whichever you use, the blueprint receives the same thing:
+
+- **📁 Project files** — browse what the project already has in R2: the packed sheets, the
+  loose sprite sources and the reference-image folders. Nothing is copied; the file is used
+  where it lies.
+- **🧩 Atlas region** — pick one **region** out of one of the project's atlases. Choose the
+  atlas, filter by name, click a thumbnail. The region is cropped **at its own size**, keeping
+  its untrimmed frame and its transparency, so the still the model animates is exactly the art
+  the game draws — not a thumbnail of it, and not padded to a square. This is the shortest path
+  from a symbol you already packed to an animation of it.
+- **⬆ From my computer** — drop an image on the panel or choose a file. PNG, JPEG or WEBP, up
+  to 24 MB.
+
+The last two **copy the image into the project's asset store** (under
+`input/refs/flipbook/`), so the same still is available to the next run — and to the FTP
+Browser — without picking it off your disk again. The stored name includes a hash of the
+image's contents, so re-picking the same region while you iterate on a prompt reuses the one
+object instead of piling up near-duplicates.
 
 ### 2. Watch the grid fill
 

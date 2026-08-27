@@ -15,8 +15,22 @@
 	 * author sees whether the background cutout actually produced alpha.
 	 */
 	import { onDestroy } from 'svelte';
+	import RegionThumb from '../editor/RegionThumb.svelte';
+	import { fetchRegions, type EditorRegion, type RegionSet } from '../editor/editorRegions.client';
+	import { cropRegionToPng } from '../editor/regionCrop';
 
-	let { projectKey, canPublish = false }: { projectKey: string; canPublish?: boolean } = $props();
+	/** One project atlas, as `+page.server.ts` streams it for the clip editor's region picker. */
+	interface SourceAtlas {
+		manifestKey: string;
+		label: string;
+		regions: string[];
+	}
+
+	let {
+		projectKey,
+		canPublish = false,
+		atlases = [],
+	}: { projectKey: string; canPublish?: boolean; atlases?: SourceAtlas[] } = $props();
 
 	interface BlueprintParam {
 		key: string;
@@ -562,7 +576,37 @@ Overwrite it?`)
 	}
 
 	// --- source-image picker ---------------------------------------------------
+	// THREE sources, one modal. They differ only in where the still comes FROM: each tab ends by
+	// setting `sourceRef` to a path the atlas-tool's runner resolves, so nothing downstream — the
+	// blueprint, the workflow assembly, the packer — knows which tab was used.
+	//   • project — the tool's own `/fsbrowse`, proxied. It is the ONLY thing that knows the
+	//     per-root relativization a ref needs (`sheets/…` vs input-rooted `refs/…`), which is why
+	//     there is no launcher-side browser here (docs/ui-inventory.md §1).
+	//   • region  — cropped out of an atlas page in the browser, then uploaded as its own PNG.
+	//     A region is not a file, so it cannot be referenced; it has to become one.
+	//   • upload  — a file off the author's disk.
+	// The last two both land in `input/refs/flipbook/` via a presigned PUT (see the endpoint for
+	// why the bytes do not travel through the launcher).
+	type PickTab = 'project' | 'region' | 'upload';
 	let picking = $state(false);
+	let pickTab = $state<PickTab>('project');
+	/** Errors from the PICKER, shown inside the modal — a rail-level `err` would be invisible
+	 * behind the backdrop, which is where the first draft put them. */
+	let pickErr = $state('');
+	/** What is currently being cropped/uploaded, by name — drives the per-item busy state. */
+	let pickBusy = $state('');
+	/** Object URL previewing a source WE produced, so the rail shows the art and not just a path.
+	 * A project pick has no local blob and stays label-only: rebuilding an R2 key from a ref the
+	 * tool relativized per root is the exact drift §1 says not to reproduce. */
+	let sourcePreview = $state('');
+	/** Human label for the pick (region / file name). Falls back to the ref itself. */
+	let sourceLabel = $state('');
+
+	/** Cap a local pick client-side. A still this big is already past anything a video blueprint
+	 * will keep — the generation size is a param, and the model downscales to it regardless. */
+	const MAX_SOURCE_BYTES = 24 * 1024 * 1024;
+	const SOURCE_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+
 	let pickPath = $state('');
 	let pickDirs = $state<{ name: string; path: string }[]>([]);
 	let pickFiles = $state<{ name: string; path: string }[]>([]);
@@ -579,7 +623,7 @@ Overwrite it?`)
 				error?: string;
 			}>('refs', `path=${encodeURIComponent(path)}`);
 			if (!r.ok) {
-				err = r.error ?? 'Could not browse the project files.';
+				pickErr = r.error ?? 'Could not browse the project files.';
 				return;
 			}
 			pickPath = r.rel;
@@ -587,13 +631,133 @@ Overwrite it?`)
 			pickFiles = r.files;
 			pickUp = r.up;
 		} catch (e) {
-			err = (e as Error).message;
+			pickErr = (e as Error).message;
 		}
 	}
 
 	function openPicker(): void {
 		picking = true;
-		void browse('');
+		pickErr = '';
+		if (pickTab === 'project' && !pickDirs.length && !pickFiles.length) void browse('');
+	}
+
+	function setSource(ref: string, label: string, preview: string): void {
+		if (sourcePreview) URL.revokeObjectURL(sourcePreview);
+		sourcePreview = preview;
+		sourceLabel = label;
+		sourceRef = ref;
+		pickErr = '';
+		picking = false;
+	}
+
+	onDestroy(() => {
+		if (sourcePreview) URL.revokeObjectURL(sourcePreview);
+	});
+
+	const slug = (s: string): string =>
+		s
+			.toLowerCase()
+			.replace(/\.[a-z0-9]+$/, '')
+			.replace(/[^a-z0-9]+/g, '-')
+			.replace(/^-+|-+$/g, '')
+			.slice(0, 60);
+
+	/**
+	 * Store one image as a project source ref: sign, PUT straight to R2, adopt the ref.
+	 *
+	 * The name is CONTENT-ADDRESSED. Re-picking the same region (the normal way to iterate on a
+	 * prompt) then reuses the same object instead of piling near-duplicates into the project's
+	 * refs, and two authors who pick the same art converge on one key rather than clobbering each
+	 * other with different bytes under the same name.
+	 */
+	async function putSource(blob: Blob, stem: string): Promise<void> {
+		const type = SOURCE_TYPES.includes(blob.type) ? blob.type : 'image/png';
+		const ext = type === 'image/jpeg' ? '.jpg' : type === 'image/webp' ? '.webp' : '.png';
+		const bytes = new Uint8Array(await blob.arrayBuffer());
+		const digest = await crypto.subtle.digest('SHA-256', bytes);
+		const hash = Array.from(new Uint8Array(digest).slice(0, 6))
+			.map((b) => b.toString(16).padStart(2, '0'))
+			.join('');
+		const name = `${slug(stem) || 'source'}-${hash}${ext}`;
+
+		const res = await fetch('/api/flipbook/source-url', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name, contentType: type }),
+		});
+		if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+		const signed = (await res.json()) as { url: string; ref: string };
+
+		// Content-Type is baked into the signature — R2 rejects the PUT without the same header.
+		const put = await fetch(signed.url, {
+			method: 'PUT',
+			headers: { 'Content-Type': type },
+			body: bytes,
+		});
+		if (!put.ok) throw new Error(`Could not upload the image (${put.status}).`);
+
+		setSource(signed.ref, stem, URL.createObjectURL(blob));
+	}
+
+	// --- source tab: a region of one of the project's atlases --------------------
+	let sheetKey = $state(atlases[0]?.manifestKey ?? '');
+	let regionSets = $state<Record<string, RegionSet>>({});
+	let regionFilter = $state('');
+
+	function ensureRegions(key: string): void {
+		if (!key || regionSets[key]) return;
+		void fetchRegions(key).then((set) => {
+			if (set) regionSets = { ...regionSets, [key]: set };
+		});
+	}
+
+	// Fetched only once the tab is actually open: the rail loads on every visit to the mode, and
+	// a project's atlas pages are megabytes nobody asked for until they open this picker.
+	$effect(() => {
+		if (picking && pickTab === 'region') ensureRegions(sheetKey);
+	});
+
+	const regionSet = $derived(regionSets[sheetKey] ?? null);
+	const visibleRegions = $derived(
+		(regionSet?.regions ?? []).filter((r) =>
+			regionFilter ? r.name.toLowerCase().includes(regionFilter.toLowerCase()) : true,
+		),
+	);
+
+	async function pickRegion(region: EditorRegion): Promise<void> {
+		const set = regionSet;
+		if (!set || pickBusy) return;
+		pickBusy = region.name;
+		pickErr = '';
+		try {
+			await putSource(await cropRegionToPng(set, region), region.name);
+		} catch (e) {
+			pickErr = (e as Error).message;
+		}
+		pickBusy = '';
+	}
+
+	// --- source tab: a file from the author's computer ---------------------------
+	let dragOver = $state(false);
+
+	async function pickLocal(file: File | null | undefined): Promise<void> {
+		if (!file || pickBusy) return;
+		if (!SOURCE_TYPES.includes(file.type)) {
+			pickErr = `${file.name} is not a PNG, JPEG or WEBP.`;
+			return;
+		}
+		if (file.size > MAX_SOURCE_BYTES) {
+			pickErr = `${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB — the limit is ${MAX_SOURCE_BYTES / 1024 / 1024} MB.`;
+			return;
+		}
+		pickBusy = file.name;
+		pickErr = '';
+		try {
+			await putSource(file, file.name);
+		} catch (e) {
+			pickErr = (e as Error).message;
+		}
+		pickBusy = '';
 	}
 
 	function fmtAge(t: number): string {
@@ -677,12 +841,21 @@ Overwrite it?`)
 			<div class="fld">
 				<span>Source image</span>
 				<div class="srcrow">
-					<input value={sourceRef} readonly placeholder="none picked" title={sourceRef} />
+					{#if sourcePreview}
+						<img class="srcthumb" src={sourcePreview} alt="" title={sourceRef} />
+					{/if}
+					<input
+						value={sourceLabel || sourceRef}
+						readonly
+						placeholder="none picked"
+						title={sourceRef}
+					/>
 					<button onclick={openPicker} disabled={running}>Pick…</button>
 				</div>
 				<p class="hint">
 					Image-to-video animates this still. Point it at a symbol's source art and the model moves
-					that art.
+					that art — a file already in the project, a region cropped straight out of one of its
+					atlases, or an image from your computer.
 				</p>
 			</div>
 
@@ -1026,33 +1199,129 @@ Overwrite it?`)
 	{#if picking}
 		<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 		<div class="backdrop" onclick={() => (picking = false)}></div>
-		<div class="picker">
+		<div class="picker wide">
 			<header>
 				<strong>Pick a source image</strong>
 				<button onclick={() => (picking = false)}>✕</button>
 			</header>
-			<p class="crumb">{pickPath || '(root)'}</p>
-			<ul>
-				{#if pickUp !== null}
-					<li><button onclick={() => browse(pickUp ?? '')}>⬆ up</button></li>
+
+			<div class="tabs">
+				<button
+					class:on={pickTab === 'project'}
+					onclick={() => {
+						pickTab = 'project';
+						pickErr = '';
+						if (!pickDirs.length && !pickFiles.length) void browse('');
+					}}>📁 Project files</button
+				>
+				<button
+					class:on={pickTab === 'region'}
+					onclick={() => {
+						pickTab = 'region';
+						pickErr = '';
+					}}>🧩 Atlas region</button
+				>
+				<button
+					class:on={pickTab === 'upload'}
+					onclick={() => {
+						pickTab = 'upload';
+						pickErr = '';
+					}}>⬆ From my computer</button
+				>
+			</div>
+
+			{#if pickErr}<p class="pill err">{pickErr}</p>{/if}
+
+			{#if pickTab === 'project'}
+				<p class="crumb">{pickPath || '(root)'}</p>
+				<ul>
+					{#if pickUp !== null}
+						<li><button onclick={() => browse(pickUp ?? '')}>⬆ up</button></li>
+					{/if}
+					{#each pickDirs as d (d.path)}
+						<li><button onclick={() => browse(d.path)}>📁 {d.name}</button></li>
+					{/each}
+					{#each pickFiles as f (f.path)}
+						<li>
+							<button class="file" onclick={() => setSource(f.path, f.name, '')}>🖼 {f.name}</button
+							>
+						</li>
+					{/each}
+				</ul>
+				{#if !pickDirs.length && !pickFiles.length}
+					<p class="empty">Nothing here.</p>
 				{/if}
-				{#each pickDirs as d (d.path)}
-					<li><button onclick={() => browse(d.path)}>📁 {d.name}</button></li>
-				{/each}
-				{#each pickFiles as f (f.path)}
-					<li>
-						<button
-							class="file"
-							onclick={() => {
-								sourceRef = f.path;
-								picking = false;
-							}}>🖼 {f.name}</button
-						>
-					</li>
-				{/each}
-			</ul>
-			{#if !pickDirs.length && !pickFiles.length}
-				<p class="empty">Nothing here.</p>
+			{:else if pickTab === 'region'}
+				{#if atlases.length === 0}
+					<p class="empty">
+						This project has no atlases yet. Pack one in the Sheet Maker or the Atlas Maker and its
+						regions appear here.
+					</p>
+				{:else}
+					<div class="rtools">
+						<select bind:value={sheetKey} disabled={!!pickBusy}>
+							{#each atlases as a (a.manifestKey)}
+								<option value={a.manifestKey}>{a.label}</option>
+							{/each}
+						</select>
+						<input placeholder="Filter regions…" bind:value={regionFilter} />
+					</div>
+					<p class="crumb">
+						The region is cropped at its own size, keeping its untrimmed frame and its alpha — the
+						still the model animates is exactly the art the game draws.
+					</p>
+					<div class="rgrid">
+						{#each visibleRegions as region (region.name)}
+							<button
+								class="cell"
+								class:busy={pickBusy === region.name}
+								title={region.name}
+								disabled={!!pickBusy}
+								onclick={() => pickRegion(region)}
+							>
+								{#if regionSet}<RegionThumb set={regionSet} {region} size={56} />{/if}
+								<span class="cn">{pickBusy === region.name ? 'Uploading…' : region.name}</span>
+							</button>
+						{:else}
+							<p class="empty">{regionSet ? 'No regions match.' : 'Loading regions…'}</p>
+						{/each}
+					</div>
+				{/if}
+			{:else}
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<div
+					class="drop"
+					class:over={dragOver}
+					ondragover={(e) => {
+						e.preventDefault();
+						dragOver = true;
+					}}
+					ondragleave={() => (dragOver = false)}
+					ondrop={(e) => {
+						e.preventDefault();
+						dragOver = false;
+						void pickLocal(e.dataTransfer?.files?.[0]);
+					}}
+				>
+					<p>{pickBusy ? `Uploading ${pickBusy}…` : 'Drop an image here'}</p>
+					<label class="choose">
+						Choose a file…
+						<input
+							type="file"
+							accept="image/png,image/jpeg,image/webp"
+							disabled={!!pickBusy}
+							onchange={(e) => {
+								void pickLocal(e.currentTarget.files?.[0]);
+								e.currentTarget.value = '';
+							}}
+						/>
+					</label>
+				</div>
+				<p class="crumb">
+					PNG, JPEG or WEBP, up to {MAX_SOURCE_BYTES / 1024 / 1024} MB. The file is copied into this
+					project's asset store, so the same still can be reused for another run without picking it off
+					your disk again.
+				</p>
 			{/if}
 		</div>
 	{/if}
@@ -1414,5 +1683,105 @@ Overwrite it?`)
 	}
 	.picker li button.file {
 		color: #a5d8ff;
+	}
+
+	.srcthumb {
+		width: 28px;
+		height: 28px;
+		flex: none;
+		border-radius: 4px;
+		object-fit: contain;
+		background:
+			repeating-conic-gradient(#20262f 0% 25%, #171c24 0% 50%) 50% / 10px 10px,
+			#171c24;
+		border: 1px solid #1f2937;
+	}
+
+	.tabs {
+		display: flex;
+		gap: 4px;
+		margin-bottom: 10px;
+	}
+	.tabs button {
+		flex: 1;
+		font-size: 11px;
+		padding: 5px 4px;
+		background: #10161e;
+		color: #94a3b8;
+	}
+	.tabs button.on {
+		background: #1d283a;
+		color: #e2e8f0;
+		border-color: #334155;
+	}
+
+	.rtools {
+		display: flex;
+		gap: 6px;
+		margin-bottom: 6px;
+	}
+	.rtools select {
+		flex: 2;
+		min-width: 0;
+	}
+	.rtools input {
+		flex: 1;
+		min-width: 0;
+	}
+	.rgrid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+		gap: 6px;
+	}
+	.rgrid .cell {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 3px;
+		padding: 5px 3px;
+		background: #10161e;
+	}
+	.rgrid .cell.busy {
+		border-color: #3b82f6;
+	}
+	.rgrid .cn {
+		font-size: 9px;
+		color: #94a3b8;
+		max-width: 100%;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.drop {
+		display: grid;
+		place-items: center;
+		gap: 8px;
+		padding: 26px 12px;
+		border: 1px dashed #334155;
+		border-radius: 8px;
+		background: #0d1219;
+		text-align: center;
+	}
+	.drop.over {
+		border-color: #3b82f6;
+		background: #101a28;
+	}
+	.drop p {
+		margin: 0;
+		color: #94a3b8;
+		font-size: 12px;
+	}
+	.choose {
+		font-size: 11px;
+		padding: 5px 10px;
+		border-radius: 6px;
+		border: 1px solid #1f2937;
+		background: #10161e;
+		color: #cbd5e1;
+		cursor: pointer;
+	}
+	.choose input {
+		display: none;
 	}
 </style>
