@@ -137,13 +137,19 @@
 	const stackedList = $derived(stackedSymbols(doc));
 	const stackedSet = $derived(new Set(stackedList.map((s) => s.name)));
 
-	// The state columns the grid renders: the base 6, plus the two book-only states
-	// (`bookIntro`/`bookIdle`) ONLY for a book game, plus `tumbleExplosion` ONLY for a project that
-	// cascades. The `stacked` state is never a grid column — its tall art lives in the "Stacked
-	// pictures" section. Both gates come from the server: `gameType` for the book states, the
-	// `resolveCascade`d answer for the tumble one (so /config's cascade switch drives it, not the
-	// game kind).
-	const visibleStates = $derived(visibleStatesFor(data.gameType, data.cascade));
+	// The state columns the grid renders: the base states, plus the two book-only ones
+	// (`bookIntro`/`bookIdle`) ONLY for a book game, `tumbleExplosion` for a project that cascades OR
+	// clears its board on a swap, and `intro` ONLY for a project whose swap style is the emerge. The
+	// `stacked` state is never a grid column — its tall art lives in the "Stacked pictures" section.
+	// Every gate comes from the server, RESOLVED (`resolveCascade` / `resolveReelBehaviour`), so
+	// /config's own switches drive the columns rather than the game kind.
+	const visibleStates = $derived(
+		visibleStatesFor(data.gameType, {
+			cascade: data.cascade,
+			emerge: data.reelBehaviour.emerge,
+			clears: data.reelBehaviour.clears,
+		}),
+	);
 
 	/**
 	 * Cells whose EFFECTIVE binding is a SPINE left on `(first animation)`.

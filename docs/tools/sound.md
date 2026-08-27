@@ -52,9 +52,17 @@ silenced one both just… don't play.
 A noise **one** symbol makes at a moment, instead of the game-wide cue above. Optional
 and normally empty — add a row only for a symbol that should sound like itself.
 
-Only the states the engine actually asks about are offered (**Land** always, **Tumble
-explosion** when the project cascades). A dropdown for a state nothing plays would let
-you bind a cue that can never be heard, and never be told.
+Only the states the engine actually asks about are offered. A dropdown for a state nothing
+plays would let you bind a cue that can never be heard, and never be told.
+
+- **Land** — always.
+- **Tumble explosion** — when the project **cascades _or_ clears its board** on a swap. Two
+  different things play that state, and gating it on the cascade alone used to hide it from
+  exactly the projects authoring the second: a swap-in-place board with _"clear the board"_
+  ticked runs it every single round.
+- **Intro** — when the swap style is **Emerge**, the only thing that fires it. Heard
+  _alongside_ the ordinary landing cue rather than instead of it: an emerge has no game-wide
+  slot of its own, so there is nothing for it to replace.
 
 ### Reel anticipation
 

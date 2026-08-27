@@ -786,6 +786,68 @@ const columnCascadeRevealBoard = async (bookEvent: BookEventOfType<'reveal'>) =>
 };
 
 /**
+ * THE EMERGE REVEAL — the opening board of a round SURFACING in place, with no travel at all
+ * (docs/design/perspective-board-mode.md §"The mode switch", `swapStyle: 'emerge'`).
+ *
+ * The other two styles answer "where does the board come from" — above the window, or the column
+ * next door. This one answers "nowhere": each symbol takes its own seat instantly and plays its
+ * authored `intro` state there, so the ARRIVAL ANIMATION is the whole presentation. That is the
+ * picture a game whose symbols rise out of water needs, and it is not reachable by shortening a
+ * fall: a fall that lands in 1 ms is still a fall, and its `land` beat still fires after the
+ * movement rather than instead of it.
+ *
+ * STRUCTURALLY IT IS THE COLUMN CASCADE with the two motions removed. Same opener (the resting
+ * board becomes the survivor layer, nothing queued above it), same per-column absolute stagger, same
+ * scoped re-init, same settle — only the column's own beat differs: no drain, no slide, just
+ * `tumbleBoardAppear`. Reusing that skeleton is what makes the sweep, the clear step and the settled
+ * board provably the same in all three styles rather than three hand-written near-twins.
+ *
+ * THE STAGGER DEFAULTS TO ZERO here, where the cascade defaults to {@link COLUMN_CASCADE_STAGGER_MS}.
+ * A cascade is sequential by nature and reads wrong without a sweep; an emerge is the opposite —
+ * "the board appears" is the style, and a left-to-right wave is a flourish an author opts into. `0`
+ * makes every column's beat start together, which collapses the loop below to a single simultaneous
+ * appear without a second code path for it.
+ *
+ * WITHOUT the clear step, a column's old symbols are simply gone the moment its replacements are
+ * queued (`keepBase: false` on the scoped init), which is the drop-in's own "simply replaced"
+ * behaviour applied per column. WITH it, they play their authored explosion and leave first — which
+ * is the pairing this style exists for: symbols that sink out of sight, then symbols that surface.
+ */
+const emergeRevealBoard = async (bookEvent: BookEventOfType<'reveal'>) => {
+	const staggerMs = stateGameDerived.boardColumnStaggerMs() ?? 0;
+	// Read ONCE, before the sweep — same reason the cascade does: every column must empty the same
+	// way, and re-reading per column would let a mid-round config swap half-clear the board.
+	const clearsOutgoing = stateGameDerived.boardClearsOutgoing();
+	eventEmitter.broadcast({ type: 'boardHide' });
+	eventEmitter.broadcast({ type: 'tumbleBoardShow' });
+	// The resting board becomes the survivor layer, so a column that has not had its beat yet still
+	// shows the OLD symbols rather than a hole — and so the clear below has something to explode.
+	eventEmitter.broadcast({ type: 'tumbleBoardInit', addingBoard: [] });
+	await Promise.all(
+		bookEvent.board.map(async (_reel, reelIndex) => {
+			if (reelIndex > 0 && staggerMs > 0) await waitForTimeout(staggerMs * reelIndex);
+			if (clearsOutgoing) await clearOutgoingSymbols(reelIndex);
+			eventEmitter.broadcast({
+				type: 'tumbleBoardInit',
+				addingBoard: bookEvent.board,
+				keepBase: false,
+				reelIndex,
+			});
+			await eventEmitter.broadcastAsync({ type: 'tumbleBoardAppear', reelIndex });
+		}),
+	);
+	eventEmitter.broadcast({
+		type: 'boardSettle',
+		board: tumbleBoardCombined().map((tumbleReel) =>
+			tumbleReel.map((tumbleSymbol) => tumbleSymbol.rawSymbol),
+		),
+	});
+	eventEmitter.broadcast({ type: 'tumbleBoardReset' });
+	eventEmitter.broadcast({ type: 'tumbleBoardHide' });
+	eventEmitter.broadcast({ type: 'boardShow' });
+};
+
+/**
  * THE REVEAL, for BOTH drivers — the coded `bookEventHandlerMap.reveal` handler and the flow-v2
  * `revealBoard` effect (`__IE_FLOW_V2__` owns `reveal` when a doc authors it).
  *
@@ -829,9 +891,16 @@ export const presentReveal = async ({
 	if (stateGameDerived.boardSwapsInPlace()) {
 		// The swap STYLE, early-returned rather than generalised. `'dropIn'` — which is what an absent
 		// `swapStyle` resolves to, i.e. every board authored before this existed — reaches the exact
-		// call it reached yesterday, not a per-column path parameterised down to one column.
-		if (stateGameDerived.boardSwapStyle() === 'columnCascade') {
+		// call it reached yesterday, not a per-column path parameterised down to one column. Each
+		// added style gets its own arm for the same reason: this is the shared `_runtime/lines`
+		// bundle, so the shipped path must stay the shipped path, not an instance of a new one.
+		const swapStyle = stateGameDerived.boardSwapStyle();
+		if (swapStyle === 'columnCascade') {
 			await columnCascadeRevealBoard(bookEvent);
+			return;
+		}
+		if (swapStyle === 'emerge') {
+			await emergeRevealBoard(bookEvent);
 			return;
 		}
 		await dropInRevealBoard(bookEvent);

@@ -60,6 +60,23 @@ export const awaitSymbolBeat = (arm: (resolve: () => void) => void, capMs: numbe
 export const TRANSIT_BEAT_CAP_MS = 650;
 
 /**
+ * The EMERGE arrival (`tumbleBoardAppear`) — a symbol appearing on its seat and playing its
+ * authored `intro` state there.
+ *
+ * Sized between the other two, because the beat sits between them in kind. It is not a step on the
+ * way somewhere — under `swapStyle: 'emerge'` nothing travels, so the intro IS how the board
+ * arrives, an animation an artist authored to be watched, which is the argument for the win beat's
+ * long cap. But it is also on the CRITICAL PATH of every single spin, where the win beat is only on
+ * a paying one, so a blown guard here costs the player 4 seconds of nothing on every round.
+ *
+ * 2000 ms is the measured length of the LONGEST animation in the reference symbol spines (see
+ * {@link WIN_BEAT_CAP_MS}, which is sized as double that) — so a real authored emerge still wins the
+ * race and still sets the pace, and only a cell that can never report pays the cap. Raise it before
+ * shortening it: if a game's emerge is being cut off, this number is the bug.
+ */
+export const INTRO_BEAT_CAP_MS = 2_000;
+
+/**
  * The win beat (`boardWithAnimateSymbols`) — the round's per-win narration.
  *
  * Deliberately MUCH longer than {@link TRANSIT_BEAT_CAP_MS}, because this beat IS the win

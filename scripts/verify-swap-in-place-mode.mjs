@@ -617,6 +617,15 @@ const beatHelpers = [
 		'export const TRANSIT_BEAT_CAP_MS = ',
 		';\n',
 	),
+	// The emerge beat is capped separately (an arrival animation, not a step on the way to one), so
+	// the handler slice below would throw on an undefined name without it. Read from the shipped
+	// module rather than restated, like every other constant here.
+	sliceBetween(
+		symbolBeatSource,
+		'INTRO_BEAT_CAP_MS',
+		'export const INTRO_BEAT_CAP_MS = ',
+		';\n',
+	),
 ]
 	.join('')
 	.replace(/export const /g, 'const ')
@@ -822,8 +831,17 @@ if (!Number.isFinite(COLUMN_CASCADE_STAGGER_MS) || COLUMN_CASCADE_STAGGER_MS <= 
 }
 check(
 	'presentReveal branches on the swap STYLE, early-returning the shipped drop-in',
-	presentReveal.includes("stateGameDerived.boardSwapStyle() === 'columnCascade'") &&
+	presentReveal.includes('stateGameDerived.boardSwapStyle()') &&
+		presentReveal.includes("swapStyle === 'columnCascade'") &&
 		presentReveal.includes('await columnCascadeRevealBoard(bookEvent);'),
+	true,
+);
+check(
+	'...and reaches the emerge style by its own arm, not by falling through to the drop-in',
+	presentReveal.includes("swapStyle === 'emerge'") &&
+		presentReveal.includes('await emergeRevealBoard(bookEvent);') &&
+		presentReveal.indexOf('await emergeRevealBoard(bookEvent);') <
+			presentReveal.indexOf('await dropInRevealBoard(bookEvent);'),
 	true,
 );
 if (
@@ -886,12 +904,22 @@ const createClock = () => {
 };
 
 /** A `Tween` that takes its authored `duration` on the virtual clock. */
-const tweenClass = (clock) =>
+/**
+ * The overlay's `Tween`, on the virtual clock — and a LEDGER of every `set` it is asked for.
+ *
+ * The ledger exists for the emerge style, whose entire claim is a NEGATIVE one: no symbol travels.
+ * That is not observable in the end state (a drop-in and an emerge settle on identical boards) and
+ * it is not observable in the cue log either (both styles end with the symbols on their seats). The
+ * only place the difference lives is the DURATION each placement is asked for — 200 ms for a fall,
+ * `0` for an appearance — so that is what is recorded and asserted.
+ */
+const tweenClass = (clock, moves) =>
 	class Tween {
 		constructor(value) {
 			this.current = value;
 		}
 		async set(value, options) {
+			moves?.push({ to: value, duration: options?.duration, at: clock.at() });
 			await clock.wait(options?.duration);
 			this.current = value;
 		}
@@ -912,7 +940,7 @@ const boardOf = (prefix) =>
  * `true`), which is load-bearing for the tile guard: `Board.svelte` mounts showing, so the overlay
  * must start out believing the reels own the screen.
  */
-const buildTumbleRuntime = ({ clock, previousBoard, tileArt, onLand }) => {
+const buildTumbleRuntime = ({ clock, previousBoard, tileArt, onLand, onSound, moves }) => {
 	const build = new Function(
 		'Tween',
 		'backOut',
@@ -921,6 +949,14 @@ const buildTumbleRuntime = ({ clock, previousBoard, tileArt, onLand }) => {
 		'waitForTimeout',
 		'getSymbolSeat',
 		'stateGameDerived',
+		// The overlay's handlers PLAY things now (the cascade pop, a symbol's own pop, a symbol's own
+		// emerge voice). Stubbed rather than ignored, and RECORDED rather than no-op'd: what a beat
+		// sounds like is part of what it does, and a cue that stopped firing would otherwise leave no
+		// trace here at all. The real players are `soundBindings.ts`, which reads baked project data
+		// no fixture has — so what is asserted is that the beat asks, not what it picks.
+		'playTumbleExplosionSound',
+		'playSymbolTumbleExplosionSound',
+		'playSymbolIntroSound',
 		`${tumbleStateSource}
 let show = false;
 let reelBoardShown = true;
@@ -936,7 +972,7 @@ return {
 };`,
 	);
 	return build(
-		tweenClass(clock),
+		tweenClass(clock, moves),
 		(t) => t,
 		(t) => t,
 		(arm) => new Promise((resolve) => arm(resolve)),
@@ -953,6 +989,9 @@ return {
 			boardTileArt: () => tileArt,
 			onSymbolLand: ({ rawSymbol: landedSymbol }) => onLand?.(landedSymbol.name),
 		},
+		() => onSound?.('tumbleExplosion'),
+		(symbolName) => onSound?.(`symbol:tumbleExplosion:${symbolName}`),
+		(symbolName) => onSound?.(`symbol:intro:${symbolName}`),
 	);
 };
 
@@ -976,6 +1015,8 @@ const runReveal = async ({
 }) => {
 	const clock = createClock();
 	const landed = [];
+	const sounded = [];
+	const moves = [];
 	const log = [];
 	let settled;
 
@@ -984,6 +1025,8 @@ const runReveal = async ({
 		previousBoard,
 		tileArt,
 		onLand: (symbolName) => landed.push(symbolName),
+		onSound: (cue) => sounded.push(cue),
+		moves,
 	});
 
 	const logEvent = (event) => {
@@ -1064,7 +1107,7 @@ const runReveal = async ({
 
 	await clock.run(() => present({ type: 'reveal', board: revealedBoard, gameType: 'basegame' }));
 	const types = log.map((entry) => entry.type);
-	return { log, types, settled, landed, revealedBoard, previousBoard, runtime, clock };
+	return { log, types, settled, landed, sounded, moves, revealedBoard, previousBoard, runtime, clock };
 };
 
 const dropIn = await runReveal({ name: 'dropInRevealBoard', source: dropInPresentation });
@@ -1856,6 +1899,243 @@ console.log('--- 8. a column cascade can CLEAR each column instead of draining i
 		firstBeatAt.every((at, reel) => reel === 0 || at > firstBeatAt[reel - 1]),
 		true,
 	);
+}
+
+// ---------------------------------------------------------------------------
+// 9 - the EMERGE style: the board surfaces in place, and NOTHING TRAVELS.
+//
+// The claim this part exists for is a negative one, and it is invisible everywhere the other parts
+// look. An emerge and a drop-in broadcast nearly the same cues, settle on identical boards, and
+// leave every symbol on the same seat - the ONLY place they differ is the DURATION each placement
+// is asked for. So the harness's `Tween` keeps a ledger (see `tweenClass`), and the assertions below
+// are measurements of it: every emerge placement is `duration: 0`, and the drop-in control in the
+// same run is not, which is what stops "no travel" passing for want of anything that could travel.
+//
+// The other half is that the arrival ANIMATION replaces the landing one rather than following it.
+// That is asserted where it is decidable offline: the visible rows - and only the visible rows -
+// take the `intro` state, tick the scatter counter through `onSymbolLand`, and ask for a per-symbol
+// emerge cue; the padding rows are seated in silence.
+// ---------------------------------------------------------------------------
+
+console.log('--- 9. the emerge style - nothing travels ---');
+
+const emergeSource = sliceBetween(
+	flowEffects,
+	'emergeRevealBoard',
+	'const emergeRevealBoard = async (',
+	'\n};\n',
+).replace(": BookEventOfType<'reveal'>", '');
+/** Same shape as the cascade's: the body reaches `clearOutgoingSymbols` on its clearing branch, so
+ *  the helper is in scope for every run while the slice itself stays pure. */
+const emergePresentation = `${clearSource}\n${emergeSource}`;
+
+// SOURCE GUARDS - the two motions this style is DEFINED by not performing. A slide or a drain
+// appearing here would not fail a sequence assertion (both end with the symbols on their seats), so
+// it is named directly.
+check(
+	'emergeRevealBoard slides nothing - the drop-in motion is not reachable from it',
+	emergeSource.includes('tumbleBoardSlideDown'),
+	false,
+);
+check(
+	'...and drains nothing either - that motion belongs to the cascade',
+	emergeSource.includes('tumbleBoardDrain'),
+	false,
+);
+check('...it appears instead', emergeSource.includes("type: 'tumbleBoardAppear'"), true);
+// The DEFAULT differs from the cascade's on purpose: "the board appears" is the style, and a sweep
+// is a flourish an author opts into. A `?? COLUMN_CASCADE_STAGGER_MS` here would silently make every
+// emerge a wave.
+check(
+	'an un-authored emerge does NOT inherit the cascade default stagger',
+	emergeSource.includes('boardColumnStaggerMs() ?? 0'),
+	true,
+);
+// Ordering inside the handler is the anti-flash rule (see the cue's doc): the state must be set
+// BEFORE the placement, or the symbol's resting art paints for one frame on its final seat.
+/** The APPEAR handler alone, with its whitespace collapsed.
+ *
+ *  SCOPED deliberately: `tumbleBoardDrain` also calls `tumbleSymbol.symbolY.set(` and sits earlier
+ *  in the file, so an `indexOf` over the whole handler block would compare the intro assignment
+ *  against the DRAIN's placement and pass by accident.
+ *
+ *  COLLAPSED because these two assertions are about INTENT, not about line breaks. Prettier is free
+ *  to fold `{ duration: 0 }` onto its own lines when the call grows, and a fixture that failed for
+ *  that is a fixture people learn to re-write rather than read. */
+const appearHandlerSource = handlersSource
+	.slice(handlersSource.indexOf('tumbleBoardAppear:'))
+	.replace(/\s+/g, ' ');
+check(
+	"...and sets 'intro' BEFORE it places, so the first painted frame is already the intro art",
+	appearHandlerSource.indexOf("tumbleSymbol.symbolState = 'intro'") <
+		appearHandlerSource.indexOf('tumbleSymbol.symbolY.set('),
+	true,
+);
+check(
+	'...and the appear handler is the one that places at duration 0',
+	/tumbleSymbol\.symbolY\.set\(.*?duration: 0/.test(appearHandlerSource),
+	true,
+);
+
+{
+	const emerge = await runReveal({
+		name: 'emergeRevealBoard',
+		source: emergePresentation,
+		staggerMs: 0,
+	});
+
+	check(
+		'the emerge broadcasts the sweep sequence with an APPEAR in place of a slide',
+		emerge.types.join(' -> '),
+		[
+			'boardHide',
+			'tumbleBoardShow',
+			'tumbleBoardInit',
+			...Array.from({ length: REELS }, () => ['tumbleBoardInit', 'tumbleBoardAppear']).flat(),
+			'boardSettle',
+			'tumbleBoardReset',
+			'tumbleBoardHide',
+			'boardShow',
+		].join(' -> '),
+	);
+
+	// THE MEASUREMENT. Every placement the whole reveal asked for was instantaneous.
+	check('the emerge places every symbol', emerge.moves.length > 0, true);
+	check(
+		'...and NOT ONE of them travels - every placement is duration 0',
+		emerge.moves.every((move) => move.duration === 0),
+		true,
+	);
+	// THE CONTROL. The same ledger, on the shipped drop-in, must show travel - otherwise the
+	// assertion above is passing because nothing was ever measured.
+	check(
+		'...while the shipped drop-in DOES travel, so the ledger can tell them apart',
+		dropIn.moves.some((move) => move.duration > 0),
+		true,
+	);
+	check(
+		'...and the drop-in moves every symbol it places',
+		dropIn.moves.every((move) => move.duration > 0),
+		true,
+	);
+
+	// EVERY VISIBLE CELL ARRIVES, and only the visible ones. `STRIP` is `ROWS + 2`, so a style that
+	// forgot the padding guard would land 5 rows per reel instead of 3.
+	check('every visible cell reports a landing', emerge.landed.length, REELS * ROWS);
+	check(
+		'...and every one of them asks for its own emerge cue',
+		emerge.sounded.filter((cue) => cue.startsWith('symbol:intro:')).length,
+		REELS * ROWS,
+	);
+	check(
+		'...and no padding row does either - they are seated in silence',
+		emerge.landed.some((name) => name.endsWith('-0') || name.endsWith(`-${STRIP - 1}`)),
+		false,
+	);
+
+	// THE SETTLE CONTRACT, by object identity - the same claim parts 3 and 4 make, because the point
+	// of a new style is that everything downstream of it is unchanged.
+	for (let reel = 0; reel < REELS; reel += 1) {
+		for (let row = 0; row < STRIP; row += 1) {
+			check(
+				`emerge settled cell (${reel}, ${row}) IS the revealed symbol`,
+				emerge.settled[reel][row],
+				emerge.revealedBoard[reel][row],
+			);
+		}
+	}
+
+	// A ZERO stagger means every column starts together - which is what an un-authored emerge gets.
+	const firstAppear = entryFor(emerge, 'tumbleBoardAppear', 0).at;
+	for (let reelIndex = 1; reelIndex < REELS; reelIndex += 1) {
+		check(
+			`stagger 0: column ${reelIndex} surfaces on the same beat as column 0`,
+			entryFor(emerge, 'tumbleBoardAppear', reelIndex).at,
+			firstAppear,
+		);
+	}
+}
+
+{
+	// THE SWEEP. The same knob the cascade spends, spent on the same picture: a large stagger makes
+	// the columns strictly sequential.
+	const swept = await runReveal({
+		name: 'emergeRevealBoard',
+		source: emergePresentation,
+		staggerMs: 5000,
+	});
+	for (let reelIndex = 0; reelIndex + 1 < REELS; reelIndex += 1) {
+		check(
+			`stagger 5000: column ${reelIndex + 1} surfaces only after column ${reelIndex} finished`,
+			entryFor(swept, 'tumbleBoardAppear', reelIndex + 1).at >=
+				entryFor(swept, 'tumbleBoardAppear', reelIndex).done,
+			true,
+		);
+	}
+	// A timing knob that changed the OUTCOME would be a bug, not a knob.
+	for (let reel = 0; reel < REELS; reel += 1) {
+		for (let row = 0; row < STRIP; row += 1) {
+			check(
+				`swept emerge settled cell (${reel}, ${row}) IS the revealed symbol`,
+				swept.settled[reel][row],
+				swept.revealedBoard[reel][row],
+			);
+		}
+	}
+	check(
+		'...and a swept emerge still never travels',
+		swept.moves.every((move) => move.duration === 0),
+		true,
+	);
+}
+
+{
+	// SINK, THEN SURFACE - the pairing the style exists for. Each column clears on its own beat,
+	// BEFORE its replacements are queued; without that ordering the old symbols would be gone before
+	// anyone saw them leave.
+	const clearing = await runReveal({
+		name: 'emergeRevealBoard',
+		source: emergePresentation,
+		staggerMs: 0,
+		clearBoard: true,
+	});
+	for (let reelIndex = 0; reelIndex < REELS; reelIndex += 1) {
+		const explode = entryFor(clearing, 'tumbleBoardExplode', reelIndex);
+		const remove = entryFor(clearing, 'tumbleBoardRemoveExploded', reelIndex);
+		const queue = entryFor(clearing, 'tumbleBoardInit', reelIndex);
+		const appear = entryFor(clearing, 'tumbleBoardAppear', reelIndex);
+		check(`column ${reelIndex}: the outgoing symbols pop`, Boolean(explode), true);
+		check(
+			`column ${reelIndex}: ...and are removed before the replacements are queued`,
+			Boolean(remove) && Boolean(queue) && remove.at <= queue.at,
+			true,
+		);
+		check(
+			`column ${reelIndex}: ...and the new ones surface only after that`,
+			Boolean(appear) && queue.at <= appear.at,
+			true,
+		);
+		// The clear is SCOPED: an explode must aim at this column's visible rows and nothing else.
+		check(
+			`column ${reelIndex}: the pop is aimed at exactly its own visible rows`,
+			explode.explodingPositions.map((position) => `${position.reel}:${position.row}`).join(','),
+			Array.from({ length: ROWS }, (_unused, row) => `${reelIndex}:${row + 1}`).join(','),
+		);
+	}
+	check(
+		'...and clearing first still moves nothing',
+		clearing.moves.every((move) => move.duration === 0),
+		true,
+	);
+	for (let reel = 0; reel < REELS; reel += 1) {
+		for (let row = 0; row < STRIP; row += 1) {
+			check(
+				`clearing emerge settled cell (${reel}, ${row}) IS the revealed symbol`,
+				clearing.settled[reel][row],
+				clearing.revealedBoard[reel][row],
+			);
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------

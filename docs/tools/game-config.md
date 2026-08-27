@@ -79,9 +79,9 @@ swapped in landscape.
 Everything in the panel is off by default. A project that never opens it stores
 nothing, and its board behaves exactly as it always has.
 
-**Swap symbols in place — no spinning reels.** The board stops rolling: the new
-symbols arrive from above and settle into their seats. Because there is no roll
-left to describe, the reel-shaped behaviours stand down while this is on — **reel
+**Swap symbols in place — no spinning reels.** The board stops rolling. _How_ the
+new symbols arrive is the swap style below. Because there is no roll left to
+describe, the reel-shaped behaviours stand down while this is on — **reel
 anticipation** (and its camera), **sequential reel stop** and **stacked pictures**.
 None of them is lost; untick this and they come back. Everything below only applies
 while this is on.
@@ -93,18 +93,36 @@ while this is on.
 - **Column cascade — left to right** — the standing board drains out of the bottom
   column by column, and each column refills from the top as it empties. This is the
   "the symbols fall, and when a column is empty new ones drop in" reading.
+- **Emerge — appear in place, no travel** — nothing falls, slides or drains. Each
+  symbol appears on its own seat and plays its **Intro** animation right there.
 
-**Column stagger (ms)** — only shown for a column cascade, and it is the one knob
-for _"the columns fall at different times"_. It is the gap between one column
-starting and the next starting:
+**About Emerge.** The other two styles answer _"where does the board come from"_;
+this one answers _"nowhere — it surfaces where it stands"_. It is the style for a
+game whose symbols rise out of water, fade up, or grow into place, and you cannot
+get there by shortening a fall: a fall that lands instantly is still a fall, and it
+still plays its **Land** animation _after_ the movement rather than instead of it.
 
-- **blank** — the engine's default, 140 ms, which sits beside the reels' own
-  per-reel stagger, so the sweep reads at a familiar speed. The columns overlap
-  into a **wave**.
+The animation is the whole arrival, so it is authored per symbol as the **Intro**
+state in the Symbols tool — a column that only appears there once this style is on.
+A symbol with no Intro binding falls back to its **Land** animation, so switching
+the style on before any art is bound gives you a board that appears and plays its
+ordinary landing, not an empty board.
+
+Pair it with **Clear the board** below for the full picture: the old symbols play
+their Explosion and leave, then the new ones surface.
+
+**Column stagger (ms)** — shown for **Column cascade** and **Emerge**, the two
+styles whose columns arrive on their own beat. It is the one knob for _"the columns
+arrive at different times"_ — the gap between one column starting and the next:
+
+- **blank** — the style's own default. For a **cascade** that is 140 ms, which sits
+  beside the reels' own per-reel stagger so the sweep reads at a familiar speed. For
+  an **emerge** it is **0**: "the board appears" is the style, and a sweep is a
+  flourish on top of it rather than part of it.
 - **short** (under a whole column's worth) — more overlap, a faster wave.
 - **long** (roughly 1000 ms or more on a 5-reel board) — column 2 does not start
   until column 1 has finished: strictly **sequential**.
-- **0** — every column starts together, so the board drains and refills as one.
+- **0** — every column starts together, so the whole board arrives as one.
 
 The panel tells you what the last column pays: _"on 5 reels the last column starts
 560 ms after the first"_. Past about a second in total you get a warning, because
@@ -118,12 +136,15 @@ does follows the style, because what is being replaced does:
   away rather than sliding out of the bottom of the window; the sweep, the stagger and the refill
   are otherwise identical. It is one or the other, never both — a column that popped _and_ slid out
   would play the beat twice.
+- **Emerge** — each column clears **on its own beat, ahead of the symbols surfacing there**. This is
+  the half that makes the old board _leave_ rather than blink out; without it, a column's old
+  symbols are gone the instant its new ones appear.
 
-Either way the outgoing symbols play their **Explosion** state, authored per symbol in the Symbols
-tool. A symbol with no Explosion state vanishes rather than popping.
+However it is reached, the outgoing symbols play their **Explosion** state, authored per symbol in
+the Symbols tool. A symbol with no Explosion state vanishes rather than popping.
 
-So the two styles give you four pictures, not three: drop-in replace, drop-in clear-then-drop,
-cascade drain-and-refill, cascade pop-and-refill.
+So the three styles give you six pictures: drop-in replace, drop-in clear-then-drop, cascade
+drain-and-refill, cascade pop-and-refill, emerge-in-place, and sink-then-surface.
 
 Settings you switch off are **kept**, not deleted: tick the clear step, switch to a
 column cascade to compare, and switching back restores it. The panel and the

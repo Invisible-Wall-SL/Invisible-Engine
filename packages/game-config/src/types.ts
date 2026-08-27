@@ -266,19 +266,35 @@ export type ReelBehaviour = {
 	 * - `'dropIn'` — the whole new board falls in together (the shipped drop-in).
 	 * - `'columnCascade'` — the resting board DRAINS column by column, left to right, and each column
 	 *   refills from the top as it empties. {@link columnStaggerMs} sets the spacing.
+	 * - `'emerge'` — the new symbols do not TRAVEL at all. Each one appears on its own seat and plays
+	 *   its authored `intro` state there. The other two styles both answer "where does the board come
+	 *   from"; this one answers "nowhere — it surfaces in place", which is the picture a game whose
+	 *   symbols rise out of water (or fade up, or grow) needs, and which no amount of shortening a
+	 *   fall produces. {@link columnStaggerMs} sweeps it column by column.
 	 */
 	swapStyle?: SwapStyle;
 	/**
 	 * Milliseconds between one column STARTING its swap and the next one starting, under
-	 * `swapStyle: 'columnCascade'`. Absent ⇒ the presentation's own default (140 ms, which sits beside
-	 * the reel spin's 145 ms per-reel stagger so the sweep reads at a familiar speed).
+	 * `swapStyle: 'columnCascade'` and `swapStyle: 'emerge'`. Absent ⇒ the presentation's own default
+	 * (140 ms, which sits beside the reel spin's 145 ms per-reel stagger so the sweep reads at a
+	 * familiar speed).
+	 *
+	 * ONE knob serves both styles rather than each growing its own, because it is the same authored
+	 * fact — how far apart the columns start — and the two presentations differ in what a column DOES
+	 * on its beat, not in how the beats are spaced.
+	 *
+	 * The DEFAULT differs between them, though, because their defining picture does. A cascade is
+	 * sequential by nature, so absent means the 140 ms sweep. An emerge is not: "the symbols appear
+	 * in place" is the whole style, and a sweep is a flourish on top of it — so absent means `0`,
+	 * every column at once, and an author who wants the wave asks for it.
 	 *
 	 * ONE knob covers both readings of "the columns fall at different times", which is why there is no
 	 * second switch beside it: a column takes at minimum its drain plus its slide, so a stagger SHORTER
 	 * than that overlaps the columns into a wave, and one LONGER than a whole column makes them
 	 * strictly sequential — column 2 only starts once column 1 has finished. `0` is a legal authored
 	 * value (every column at once, no sweep) and is therefore NOT the same as absent. Negative or
-	 * non-finite ⇒ absent. Ignored entirely by `'dropIn'`.
+	 * non-finite ⇒ absent. Ignored entirely by `'dropIn'`, which lands the whole board in one
+	 * movement and so has no per-column beat to space.
 	 */
 	columnStaggerMs?: number;
 	/**
@@ -305,7 +321,13 @@ export type ReelBehaviour = {
 };
 
 /** Every {@link ReelBehaviour.swapStyle} literal, for validation + the tool's picker. */
-export const SWAP_STYLES = ['dropIn', 'columnCascade'] as const;
+export const SWAP_STYLES = ['dropIn', 'columnCascade', 'emerge'] as const;
+
+/** The styles whose columns arrive on their OWN beat, and which therefore spend
+ *  {@link ReelBehaviour.columnStaggerMs}. `'dropIn'` is the one that does not — it lands the whole
+ *  board in a single movement. Named once here so the validator, the authoring tool and the
+ *  presentation cannot disagree about which styles the knob is live for. */
+export const COLUMN_STAGGERED_SWAP_STYLES = ['columnCascade', 'emerge'] as const;
 
 export type SwapStyle = (typeof SWAP_STYLES)[number];
 

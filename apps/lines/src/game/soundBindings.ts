@@ -99,6 +99,21 @@ export const playSymbolTumbleExplosionSound = (symbolName: string): void => {
 };
 
 /**
+ * A single EMERGING symbol's own voice — the rise/fade/grow under `swapStyle: 'emerge'`, when
+ * Invisible Symbols binds one for it.
+ *
+ * Layer 1 only, and ADDITIVE like the cascade pop above rather than overriding like `land` below.
+ * The difference is whether there is a class cue to override: a landing symbol's own binding
+ * replaces the generic land cue because they are two answers to the SAME slot, whereas an emerge
+ * has no game-wide slot of its own — the beat it rides on is the ordinary landing cue that
+ * `onSymbolLand` plays. So a bound symbol is heard in addition to that, and an unbound game (every
+ * game today) sounds exactly like a cascade refill.
+ */
+export const playSymbolIntroSound = (symbolName: string): void => {
+	broadcastCue(symbolStateCue(symbolName, 'intro'));
+};
+
+/**
  * A SYMBOL LANDING in its cell — on the reels at the end of a spin, and on the tumble overlay when a
  * cascade refill falls in (`tumbleBoardSlideDown` calls the same hook, which is why the cascade needs
  * no landing path of its own).

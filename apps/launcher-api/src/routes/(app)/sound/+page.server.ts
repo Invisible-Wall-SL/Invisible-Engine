@@ -1,7 +1,13 @@
 import { error, redirect } from '@sveltejs/kit';
 import { MUSIC_NAMES, SOUND_EFFECT_NAMES } from 'engine-flow-v2';
-import { SOUND_SLOTS, resolveCascade, symbolsInPlay } from 'game-config';
-import { SYMBOL_STATE_LABELS, effectiveSoundBindings } from 'engine-layout';
+import {
+	SOUND_SLOTS,
+	resolveCascade,
+	resolveReelBehaviour,
+	symbolsInPlay,
+	type GameConfigDoc,
+} from 'game-config';
+import { SYMBOL_STATE_LABELS, effectiveSoundBindings, type SymbolStateName } from 'engine-layout';
 import { roleHasTool } from '$lib/roles';
 import { flowSoundBindings } from '$lib/soundUsage';
 import { SESSION_COOKIE } from '$lib/server/auth';
@@ -28,6 +34,23 @@ import type { PageServerLoad } from './$types';
  * Granted by default to `audio` — the role this tool exists for, and which until now had no audio
  * tool at all — plus `developer`, `artist` and `pipelineTester`.
  */
+/**
+ * The per-symbol cue states this project can actually hear, derived from its config.
+ *
+ * A function rather than an expression inline in the payload because it answers a question with
+ * three inputs and one hard-won correction in it (see the field's doc): the state a beat plays and
+ * the switch that turns that beat on are not the same fact, and `tumbleExplosion` shipped gated on
+ * the wrong one.
+ */
+const symbolCueStates = (config: GameConfigDoc | undefined): readonly SymbolStateName[] => {
+	const behaviour = resolveReelBehaviour(config);
+	return [
+		'land' as const,
+		...(behaviour.swapInPlace && behaviour.swapStyle === 'emerge' ? (['intro'] as const) : []),
+		...(resolveCascade(config) || behaviour.clearBoard ? (['tumbleExplosion'] as const) : []),
+	];
+};
+
 export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => {
 	if (!locals.user) throw redirect(303, '/login');
 	const { tools } = await parent();
@@ -96,15 +119,20 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		/** Symbol ids in play, so the per-symbol rows name this game's real symbols. */
 		symbolIds: config ? symbolsInPlay(config) : [],
 		/**
-		 * ONLY the states the engine actually resolves a per-symbol cue on — `land` always,
-		 * `tumbleExplosion` when the project cascades. Offering the other eight states would let an
-		 * author bind a cue nothing will ever play and be told nothing, which is precisely how
+		 * ONLY the states the engine actually resolves a per-symbol cue on. Offering the others would
+		 * let an author bind a cue nothing will ever play and be told nothing, which is precisely how
 		 * `tumble_win_1…5` sat unheard in the audiosprite for the life of the fork.
+		 *
+		 * `land` always. `tumbleExplosion` whenever the project CASCADES OR CLEARS — two things play
+		 * that state, not one, and gating it on the cascade alone hid it from exactly the projects
+		 * authoring the second: a swap-in-place board with "Clear the board" ticked runs
+		 * `clearOutgoingSymbols` on every single round. `intro` only under the `emerge` swap style,
+		 * which is the only thing that fires it.
 		 */
-		symbolStates: (resolveCascade(config ?? undefined)
-			? (['land', 'tumbleExplosion'] as const)
-			: (['land'] as const)
-		).map((state) => ({ state, label: SYMBOL_STATE_LABELS[state] })),
+		symbolStates: symbolCueStates(config ?? undefined).map((state) => ({
+			state,
+			label: SYMBOL_STATE_LABELS[state],
+		})),
 		/** Win tiers, in threshold order, for the tier rows. */
 		winTiers: (config?.winLevels ?? []).map((t) => ({ alias: t.alias, name: t.name })),
 		/** Flow cues stay in the graph — listed here so the page can still show every sound the game

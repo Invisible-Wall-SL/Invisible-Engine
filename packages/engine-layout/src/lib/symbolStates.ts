@@ -16,6 +16,7 @@
 export const SYMBOL_STATES = [
 	'static',
 	'spin',
+	'intro',
 	'land',
 	'win',
 	'postWinStatic',
@@ -54,11 +55,33 @@ export const BOOK_SYMBOL_STATES = ['bookIntro', 'bookIdle'] as const;
  *  bindings round-trip. */
 export const LINES_SYMBOL_STATES = ['stacked'] as const;
 
+/**
+ * The SWAP-only state — the animation a symbol plays when it APPEARS on its seat, under
+ * `/config` → Reel behaviour → swap style `emerge` (docs/design/perspective-board-mode.md
+ * §"The mode switch").
+ *
+ * It exists because `land` could not be reused for it. `land` is the beat AFTER a movement — the
+ * reels fire it at the end of a roll and the cascade fires it at the end of a fall — so a game that
+ * authored "rise out of the water" there would also play the rise every time a reel stopped and
+ * every time a cascade refilled. An emerge is the OPPOSITE moment: nothing travelled, so what plays
+ * is the whole arrival rather than its punctuation.
+ *
+ * Unauthored it INHERITS `land` (`apps/lines/src/game/symbolCell.ts`), which is what keeps a project
+ * that never binds it looking exactly as it does today the moment it switches the style on — an
+ * emerge with no authored intro is a board that appears and plays its ordinary landing.
+ *
+ * Valid in the doc for every game (the schema accepts it so bindings round-trip), but the Symbols
+ * grid only shows its column for a project that actually emerges — same gating idea as
+ * {@link BOOK_SYMBOL_STATES} and {@link CASCADE_SYMBOL_STATES}.
+ */
+export const SWAP_SYMBOL_STATES = ['intro'] as const;
+
 /** Human labels — the Symbols grid column headers, reused by the editor's dropdown so a
  *  state reads the same in both tools. */
 export const SYMBOL_STATE_LABELS: Record<SymbolStateName, string> = {
 	static: 'Static',
 	spin: 'Spin',
+	intro: 'Intro',
 	land: 'Land',
 	win: 'Win',
 	postWinStatic: 'Post-win',

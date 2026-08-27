@@ -1,4 +1,10 @@
-import { SWAP_STYLES, type GameConfigDoc, type ReelBehaviour, type SwapStyle } from './types';
+import {
+	COLUMN_STAGGERED_SWAP_STYLES,
+	SWAP_STYLES,
+	type GameConfigDoc,
+	type ReelBehaviour,
+	type SwapStyle,
+} from './types';
 
 /**
  * The largest per-column stagger a config may store, in milliseconds.
@@ -29,6 +35,18 @@ export type ResolvedReelBehaviour = {
 
 const isSwapStyle = (value: unknown): value is SwapStyle =>
 	SWAP_STYLES.includes(value as SwapStyle);
+
+/**
+ * Does this style spend {@link ReelBehaviour.columnStaggerMs}?
+ *
+ * The question is asked in three places — the validator (is the knob inert?), the authoring tool (do
+ * I show the field?) and the presentation (do I sweep?) — and answering it inline at each was how
+ * the first cut of the knob ended up documented for one style while the picker offered it for
+ * another. One predicate over {@link COLUMN_STAGGERED_SWAP_STYLES} instead, so adding a fourth style
+ * is a single edit to that list.
+ */
+export const swapStyleUsesColumnStagger = (style: SwapStyle): boolean =>
+	COLUMN_STAGGERED_SWAP_STYLES.includes(style as (typeof COLUMN_STAGGERED_SWAP_STYLES)[number]);
 
 /**
  * Every default in one place, and they are all "what the engine did before this block existed": the
@@ -77,6 +95,10 @@ export function resolveReelBehaviour(
  * existed, and no stored doc is rewritten by this field arriving. `'dropIn'` is therefore dropped
  * rather than stored: it IS the default.
  *
+ * `columnStaggerMs` is kept whatever the style, for the same reason `clearBoard` is kept when the
+ * mode makes it inert: it is a number the author typed, and dropping it on save would mean flipping
+ * the style to compare the two pictures quietly threw the timing away.
+ *
  * `clearBoard` is kept even when the mode makes it inert, and that is the one deliberate exception
  * to "only what departs": it is a SETTING the author ticked, and silently dropping it on save would
  * mean a round-trip through the tool quietly undid their work the moment they unticked the mode to
@@ -88,7 +110,11 @@ export function normalizeReelBehaviour(raw: unknown): ReelBehaviour | undefined 
 	const input = raw as Partial<ReelBehaviour>;
 	const out: ReelBehaviour = {};
 	if (input.swapInPlace === true) out.swapInPlace = true;
-	if (input.swapStyle === 'columnCascade') out.swapStyle = 'columnCascade';
+	// Any RECOGNISED style except the default is stored; `'dropIn'` is dropped because it IS the
+	// default. Written against the vocabulary rather than as a literal comparison per style, so a
+	// style added to `SWAP_STYLES` round-trips through the tool the day it exists instead of being
+	// silently discarded on the next save — which is what a per-literal check did to `'emerge'`.
+	if (isSwapStyle(input.swapStyle) && input.swapStyle !== 'dropIn') out.swapStyle = input.swapStyle;
 	if (input.clearBoard === true) out.clearBoard = true;
 	const stagger = input.columnStaggerMs;
 	if (typeof stagger === 'number' && Number.isFinite(stagger) && stagger >= 0) {
