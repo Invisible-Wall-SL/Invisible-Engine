@@ -334,6 +334,31 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+- 2026-08-27 — **The stage was sized from the wrong box, so every rig was painted ~1.7% too far
+  right and its bound FX was not — the reported "I can see the FX in the state machine but it's
+  offset".** `container` is `.grid-scroll` (`overflow:auto`); the WebGL canvas and the FX layer are
+  its SIBLINGS, all three `inset:0` inside `.grid-area`. So the canvas spans the full width while
+  the container's `clientWidth` is short by a scrollbar — **measured live: 885 against a 900px
+  canvas**. The backing store was `floor(885 × dpr)` but displayed across 900 CSS px, so the browser
+  stretched everything drawn by ×1.01695, growing with x: a cell at x=885 landed at 900. The FX
+  overlay is its own correctly-sized Pixi canvas, so it put each burst where the code *thought* the
+  bone was — **15px adrift at the right of the grid**, and worse the further right the symbol sat.
+  Fixed by reading the canvas's OWN box (`canvas.clientWidth/Height`), which fixes both halves at
+  once: the backing store matches what it is painted across (no stretch), the mirror axis matches
+  the cell rects — already measured against `canvas.getBoundingClientRect()` — and the FX host,
+  being the same box, agrees by construction instead of by coincidence.
+  **Note this also moved the RIGS**, which were quietly mis-drawn by up to a scrollbar's width the
+  whole time; the FX only made it visible by not sharing the error.
+  The projection is now a module, `symbolStageGeometry.ts` (`stageGeometry` / `mirrorX` /
+  `boneScreenX` / `drawnScreenX` / `cellSkeletonX`) — it survived this long because it lived inline
+  in a `requestAnimationFrame` callback where nothing could assert it. New gate
+  **`pnpm --filter launcher-api run check:symbol-stage-geometry`** holds "where we tell the overlay
+  the bone is" against "where the browser paints it" across 3 scrollbar widths × 6 device pixel
+  ratios, **mutation-verified**: shortening the backing width reproduces a 14.2px worst case and
+  drifting the mirror axis a 15.0px one; both fail the gate, the fix passes. `drawnScreenX` models
+  the BROWSER, and its premise was measured in a live DOM repro before the model was written.
+  Ironically `EditorSpineLayer` — the file this stage's header says it mirrors — always used
+  `canvas.clientWidth`; only this copy drifted.
 
 - 2026-08-27 — **A new `Intro` column — the animation a symbol plays when it APPEARS on its seat — and the `Tumble explosion` gate was wrong.** `Intro` is the authored half of the new `emerge` swap style (`/config` → Reel behaviour): under it nothing falls or slides, so this animation IS the arrival. It could not be folded into `Land`, which is the beat AFTER a movement — the reels fire it at the end of a roll and a cascade at the end of a fall — so a game that authored "rise out of the water" there would also play the rise on every reel stop and every cascade refill. Unauthored it inherits `Land` (`resolveSymbolState`), so a project that switches the style on before binding art gets a board that appears and plays its ordinary landing rather than nothing; the grid mirrors that inheritance and badges the cell, the same contract `Tumble explosion` has with `Explosion`. **The gating fix is the part worth recording:** `Tumble explosion` was shown only for a project that CASCADES, but the state is played by two things, not one — a tumble removing a symbol, and the swap-in-place CLEAR step (`clearOutgoingSymbols`), which a swapping lines game runs on every single round. Such a project was offered no column for the very state it fires and had to reach the binding through `Explosion`'s silent inheritance with nothing saying so. Both gates are resolved server-side now (`resolveCascade` / `resolveReelBehaviour`) and `visibleStatesFor` takes them as a named options object rather than a growing positional tail — the same correction is applied to the per-symbol SOUND states, which live in Invisible Sound since the move (see [sound.md](sound.md)). **Ship chain: nothing owed.** `symbolsStorage` validates states with `z.enum(SYMBOL_STATES)` and `symbolExport` passes the map through verbatim, so adding the member to `engine-layout`'s list carried `intro` the whole way (export → deploy → bake → pull → register) with no pipeline change — checked rather than assumed, per rule 8.
 

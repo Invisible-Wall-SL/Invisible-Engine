@@ -25,6 +25,12 @@
 		type FxPlayOptions,
 		type FxTransform,
 	} from '$lib/fx/fxOverlay.client';
+	import {
+		boneScreenX,
+		cellSkeletonX,
+		stageGeometry,
+		type StageGeometry,
+	} from './symbolStageGeometry';
 
 	interface Props {
 		/** The scroll container whose `[data-spine-key]` cells this draws over. */
@@ -153,16 +159,20 @@
 	 * `(b.a,b.c)` / `(b.b,b.d)` — which already carry the cell-fit scale (`skel.scaleX/Y = ±s`) and the
 	 * bone's own rotation/scale — map to screen as `(-b.a,b.c)` / `(-b.b,b.d)`. `bone` absent ⇒ the rig
 	 * origin (root bone `bones[0]`). Must be read RIGHT AFTER this cell's `drawCell` — the skeleton is
-	 * shared, so the next cell repositions it. */
+	 * shared, so the next cell repositions it.
+	 *
+	 * `cw` is the CANVAS's own CSS width, which is also the FX host's — see `frame`. It was the scroll
+	 * container's `clientWidth`, and being short by a scrollbar put every burst on a different x scale
+	 * from the rig it was supposed to ride. */
 	function fxBoneTransform(
 		instance: SpineInstance,
 		bone: string | undefined,
-		cw: number,
+		geo: StageGeometry,
 	): FxTransform | null {
 		const skel = instance.skeleton;
 		const b = bone ? skel.findBone(bone) : skel.bones[0];
 		if (!b) return null;
-		return { x: cw - b.worldX, y: b.worldY, a: -b.a, b: b.c, c: -b.b, d: b.d };
+		return { x: boneScreenX(geo, b.worldX), y: b.worldY, a: -b.a, b: b.c, c: -b.b, d: b.d };
 	}
 
 	/** Drive one cell's live FX for this frame: clear on loop, fire newly-crossed keyframes at the
@@ -171,7 +181,7 @@
 	function updateCellFx(
 		el: HTMLElement,
 		entry: Extract<Entry, { state: 'ready' }>,
-		cw: number,
+		geo: StageGeometry,
 	): void {
 		let cf = cellFx.get(el);
 		// Loop / scrub-back: drop this cell's live effects so a looping symbol doesn't accumulate a
@@ -186,7 +196,7 @@
 			const overlay = ensureOverlay();
 			if (overlay) {
 				for (const b of entry.fxCrossed) {
-					const t = fxBoneTransform(entry.instance, b.bone, cw);
+					const t = fxBoneTransform(entry.instance, b.bone, geo);
 					if (!t) continue;
 					if (!cf) {
 						cf = { active: [] };
@@ -201,7 +211,7 @@
 		// Ride the bone: reposition every active effect for this cell each frame.
 		if (cf && cf.active.length && fxOverlay) {
 			for (const fx of cf.active) {
-				const t = fxBoneTransform(entry.instance, fx.bone, cw);
+				const t = fxBoneTransform(entry.instance, fx.bone, geo);
 				if (t) fxOverlay.follow(fx.handle, t);
 			}
 		}
@@ -287,7 +297,7 @@
 		y: number,
 		w: number,
 		h: number,
-		cw: number,
+		geo: StageGeometry,
 	): void {
 		if (!gl || !renderer) return;
 		const { offX, offY, bw, bh } = entry.bounds;
@@ -296,12 +306,11 @@
 		const cx = bw > 0 ? offX + bw / 2 : 0;
 		const cy = bh > 0 ? offY + bh / 2 : 0;
 		// Art centre at cell centre (pre-mirror), y-up runtime → y-down canvas (scaleY < 0).
-		const preX = x + w / 2 - s * cx;
 		skel.y = y + h / 2 + s * cy;
 		// The camera (up=(0,-1,0)) mirrors X about the viewport centre — compensate by
 		// placing the origin at `cw - preX` and negating scaleX (identical to the single
 		// cell case where cw == cell size).
-		skel.x = cw - preX;
+		skel.x = cellSkeletonX(geo, x, w, s, cx);
 		skel.scaleX = -s;
 		skel.scaleY = -s;
 		skel.updateWorldTransform(getSpinePhysics());
@@ -315,13 +324,30 @@
 		if (!canvas || !container) return;
 
 		const dpr = window.devicePixelRatio || 1;
-		const cw = container.clientWidth;
-		const ch = container.clientHeight;
-		const W = Math.floor(cw * dpr);
-		const H = Math.floor(ch * dpr);
-		if (canvas.width !== W || canvas.height !== H) {
-			canvas.width = W;
-			canvas.height = H;
+		// Geometry comes from the CANVAS's own box, never the scroll container's.
+		//
+		// They are not the same box, and the difference is a scrollbar. `container` is `.grid-scroll`
+		// (`overflow:auto`), while this canvas and the FX layer are its SIBLINGS — all three are
+		// `inset:0` inside `.grid-area`, so the canvas spans the full width while the container's
+		// `clientWidth` is short by the scrollbar (measured live: 885 vs 900).
+		//
+		// Sizing the backing store from the short number then displaying it across the full box
+		// STRETCHED everything drawn here by ~1.7%, growing with x — a cell at x=885 landed at 900.
+		// The rig cells drifted right, and the FX overlay (a separate Pixi canvas correctly sized to
+		// its own box) did not, so a bound burst pulled away from its symbol the further right it sat.
+		// That was the reported "FX is offset in the Symbols state machine".
+		//
+		// Reading our own box fixes both halves at once: the backing store matches what it is
+		// displayed across (no stretch), the mirror axis below matches the cell rects — which are
+		// already measured against `canvas.getBoundingClientRect()` — and the FX host, being the same
+		// box, agrees by construction rather than by coincidence.
+		const geo = stageGeometry(canvas, dpr);
+		const cw = geo.cssWidth;
+		const ch = geo.cssHeight;
+		if (cw === 0 || ch === 0) return; // laid out to nothing (hidden panel) — nothing to draw
+		if (canvas.width !== geo.backingWidth || canvas.height !== geo.backingHeight) {
+			canvas.width = geo.backingWidth;
+			canvas.height = geo.backingHeight;
 		}
 
 		const delta = lastTime ? (now - lastTime) / 1000 : 0;
@@ -396,10 +422,10 @@
 			const x = r.left - base.left;
 			const y = r.top - base.top;
 			if (x + r.width < 0 || y + r.height < 0 || x > cw || y > ch) continue; // cull off-screen
-			drawCell(entry, x, y, r.width, r.height, cw);
+			drawCell(entry, x, y, r.width, r.height, geo);
 			// FX (fire on the beat + ride the bone) reads the skeleton posed by `drawCell` for THIS
 			// cell — so it MUST run right after, before the shared skeleton is reposed for the next cell.
-			updateCellFx(el, entry, cw);
+			updateCellFx(el, entry, geo);
 		}
 	}
 
