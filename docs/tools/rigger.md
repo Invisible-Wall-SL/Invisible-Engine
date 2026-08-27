@@ -152,10 +152,14 @@ With an effect bound, the rest of the panel appears:
   (particles already in flight still finish). Leave it blank and a continuous
   effect never stops on its own once fired.
 
-> **Draw-at-slot previews as on-top.** This stage draws every rig into one WebGL
-> canvas and FX into a separate canvas above it, so it can put a burst above or
-> below the whole rig but never between two of its slots. The game has no such
-> split and honours the real depth. The editor says so under the picker.
+> **What the preview can and cannot show.** The stage draws every rig into one WebGL
+> canvas and FX into a separate canvas, so it has two positions: behind the whole rig,
+> or in front of it. If **nothing is drawn behind** your chosen slot — the usual case, a
+> dedicated FX slot parked at the back — then “behind the whole rig” *is* its real depth,
+> and the preview shows it exactly. The note under the picker turns green to say so. If
+> there is art behind that slot, the burst is genuinely sandwiched and the stage cannot
+> draw it there; it previews in front, the note turns amber, and the game still honours
+> the real depth.
 
 > **One name, one set of settings.** The game keys these bindings by the event
 > **name**, so if two keys share a name and bind the same effect at the same
