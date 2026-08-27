@@ -334,6 +334,34 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+- 2026-08-27 — **The symbol-state parity gate failed on a clean `main` and could not catch anything;
+  its expectation was the stale side, not the resolver.** `check:symbol-state-parity` asserted that
+  `intro` reads `unset` in the grid while the engine draws `land`.
+  - **Both real sides already agreed.** #499 gave `intro` its `land` fallback in the engine
+    (`resolveSymbolState`) *and* in the tool (`INHERITS_FROM`), and the `Intro` column hint
+    advertises it to the author (*"Leave a cell empty to fall back to this symbol's Land binding"*) —
+    which is the tool's own stated test for which arms the grid owes a picture. The gate kept a
+    THIRD, hand-maintained copy of the inheritance table (`TOOL_INHERITS`) that #499 did not touch,
+    so it read a deliberate arm as the engine's `static` last resort and demanded a blank cell.
+  - **Fixed by deleting that copy, not by extending it.** The expectation is now DERIVED from what
+    the engine answers: its own state ⇒ the cell's own binding; `static` or nothing ⇒ `unset` (the
+    one deliberate divergence, still pinned); **any other named state ⇒ the grid must draw it and
+    name the donor.** A new inheritance arm on either side is now checked the day it lands instead of
+    rotting until someone re-copies the table.
+  - **`FULL` was also silently incomplete** — it never bound `intro`, so "every state bound" had
+    quietly become an inheritance case. It is `Record<SymbolState, SymbolCell>` now, plus a RUNTIME
+    exhaustiveness assertion, because `tsx` strips the annotation without checking it.
+  - **Mutation-tested six ways, all caught:** drop `intro → land` from the engine; drop it from the
+    tool; drop `tumbleExplosion → explosion` from the tool (the original regression); add a
+    `SYMBOL_STATE` with no binding in `FULL`; make the tool mirror the `static` last resort; make
+    `effectiveCell` consult the donor before the state's own binding. **132 checks, green.**
+  - Also: the header's `Run:` line said `npx tsx …`, which picks up a global tsx that cannot resolve
+    `engine-layout` — it is the working `pnpm --filter launcher-api …` form now.
+  - The other five launcher checks in this set pass too — four of them only after a `svelte-kit
+    sync` hook that a fresh worktree was missing (see `docs/status/launcher.md`). The sixth,
+    `check:game-config-defaults`, still fails — untouched here, already recorded in
+    `docs/status/game-config.md`, and **not** a stale-file refresh: regenerating strips the authored
+    `winLevels` block from `lines/ways/scatter.json`. Do not blind-regenerate.
 - 2026-08-27 — **A spine symbol state played once and froze; now every state has an authorable
   Loop, and looping is the default.** Reported as *"the idle spine I place in the symbol state
   machine only plays 2 times, and then it stops."*
@@ -364,8 +392,9 @@ Working on `main`:
     absent stays absent, a non-boolean rejected, flipbook cells too); launcher, lines, pixi-svelte and
     engine-layout all build.
   - ⚠️ **Pre-existing and NOT from this change:** `pnpm --filter launcher-api run
-    check:symbol-state-parity` fails 4 assertions on a clean `origin/main` checkout (`intro → unset in
-    the grid (engine draws land)`). Confirmed by stashing. Someone should fix or retire that gate.
+    check:symbol-state-parity` failed 4 assertions on a clean `origin/main` checkout (`intro → unset
+    in the grid (engine draws land)`). Confirmed by stashing. **Fixed 2026-08-27** — see the entry at
+    the top of this section; the gate’s own copy of the inheritance table was the stale side.
 - 2026-08-27 — **The stage was sized from the wrong box, so every rig was painted ~1.7% too far
   right and its bound FX was not — the reported "I can see the FX in the state machine but it's
   offset".** `container` is `.grid-scroll` (`overflow:auto`); the WebGL canvas and the FX layer are
