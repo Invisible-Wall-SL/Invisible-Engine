@@ -98,12 +98,19 @@
 	// finds no boundary to step to and slams (byte-identical). `codedPressOwned` ⇒ the coded slam, untouched.
 	const canTapStep = $derived(!codedPressOwned && tapToSkip);
 
-	// HEADLESS holds too, and the dismiss press below mounts for it: the tap that arms the hold PROVES
-	// the engine owns the tap. An authored container's own `tapToContinue` registers a continue press,
-	// and that mounts the canvas-top `<ContinuePressMask>`, which absorbs the tap wherever it lands — so
-	// where a container owns the tap, `CountUpInteraction` never sees one, no tap ever lands the count,
-	// and no hold is ever armed. Only a presentation whose taps actually reach the gate can hold, which
-	// is exactly the presentation the gate can also dismiss.
+	// HEADLESS holds too, and the dismiss press below mounts for it — but ONLY where the authored flow
+	// does not already hold the presentation itself (`winState.flowHoldsPresentation`).
+	//
+	// The premise this used to rest on was that a container owning the tap mounts `<ContinuePressMask>`,
+	// so `CountUpInteraction` never sees a tap and no hold is ever armed. That is false for the arming
+	// most win containers author: `tapArmAfterSignal: 'winCountUpComplete'`. Its tap surface does not
+	// exist DURING the count-up — which is exactly why tier-stepping works — so the landing tap reaches
+	// the gate and arms the hold, and only then does the authored tap register, on top of the gate's own
+	// dismiss press. The mask runs the TOP press alone, so every later tap went to the container (which
+	// merely latched a completion the flow had not asked for yet) while the one press that could release
+	// the gate sat underneath it, unreachable: the overlay ignored the player for the full
+	// {@link DISMISS_HOLD_CAP_MS}. So where the flow holds, the gate stands down and the authored hold +
+	// tap own the beat — one tap surface, no race. Where it does not, the gate holds as before.
 
 	// Publish the live HOLD multiplier to the escalation chain, so `WinAnimation` speeds up the tier
 	// intro/idle spines in lockstep with the accelerating count-up (a smooth ramp, not a snap). 1 when
@@ -146,7 +153,7 @@
 		}
 		// FINAL tier (or un-escalating) — there is no next tier to step to, so LAND the total.
 		finish();
-		if (action.hold) {
+		if (action.hold && !winState.flowHoldsPresentation) {
 			// ESCALATION — landing is not dismissing. Hold the presentation on the final tier's idle with the
 			// total on screen (`WinAnimation` defers its outro on `holdOutro`) until the player taps AGAIN:
 			// this tap asked to SEE the number, and concluding ~300ms later showed it to nobody. The dismiss
@@ -172,7 +179,8 @@
 			tierIndex: 0,
 			tierCount: 0,
 		});
-		if (action.kind === 'land' && action.hold) winState.awaitingDismiss = true;
+		if (action.kind === 'land' && action.hold && !winState.flowHoldsPresentation)
+			winState.awaitingDismiss = true;
 	}
 
 	/**
@@ -332,7 +340,9 @@
 						escalation path, HOLDS the overlay on the total until the next press dismisses it — this
 						press is already the two-tap surface, it just used to lose the first tap's number to the
 						settle. Un-escalating ⇒ concludes immediately (byte-identical tap-to-slam). -->
-					<PressToContinue onpress={() => (countUpCompleted ? dismissNow() : landCountUp(finishCountUp))} />
+					<PressToContinue
+						onpress={() => (countUpCompleted ? dismissNow() : landCountUp(finishCountUp))}
+					/>
 				{:else if !countUpCompleted}
 					<!-- Authorable count-up interaction (hold-to-fast-forward and/or tap-to-skip), mounted ONLY
 						 while the count-up runs (flow path) so it never intercepts the authored `bigWin`

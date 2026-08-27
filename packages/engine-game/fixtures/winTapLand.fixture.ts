@@ -39,6 +39,9 @@ type Run = {
 	playedOutro: boolean;
 	/** Wall-clock the TOTAL is readable on screen, from the landing tap to the overlay concluding. */
 	totalOnScreenMs: number;
+	/** Wall-clock, after the count lands, during which the player's dismiss tap does NOTHING. Non-zero
+	 *  only when the gate armed a hold that the authored tap has taken the press away from. */
+	ignoredTapWindowMs: number;
 };
 
 /**
@@ -57,6 +60,8 @@ const run = ({
 	taps,
 	hold,
 	dismissAfterMs,
+	flowHolds,
+	gateStandsDown,
 }: {
 	tierCount: number;
 	escalating: boolean;
@@ -64,11 +69,19 @@ const run = ({
 	taps: number;
 	hold: boolean;
 	dismissAfterMs: number | null;
+	/** The AUTHORED flow already holds this presentation open after the count-up — a
+	 *  `showContainer{awaitComplete}` container is on screen, with its own `tapToContinue` to dismiss it
+	 *  (`winState.flowHoldsPresentation`). Its tap arms on `winCountUpComplete`, i.e. only once the
+	 *  landing tap has already happened, so it takes the top of the continue-press stack afterwards. */
+	flowHolds?: boolean;
+	/** Whether the gate applies the `!flowHoldsPresentation` rule — off models the shipped regression. */
+	gateStandsDown?: boolean;
 }): Run => {
 	let tierIndex = 0;
 	let landed = false;
 	let awaitingDismiss = false;
 	let outroSkipArmed = false;
+	const standDown = (gateStandsDown ?? false) && (flowHolds ?? false);
 
 	for (let i = 0; i < taps; i++) {
 		if (landed) break; // the count-up interaction unmounts once the count lands
@@ -78,20 +91,29 @@ const run = ({
 			continue;
 		}
 		landed = true;
-		if (hold && action.hold) awaitingDismiss = true;
+		if (hold && action.hold && !standDown) awaitingDismiss = true;
 		else outroSkipArmed = true;
 	}
 
 	// Not enough taps to reach the landing one — the count-up is still running, so there is no
 	// conclusion to time yet. The stepping assertions read `tierIndex` off exactly this case.
-	if (!landed) return { tierIndex, landed, playedOutro: false, totalOnScreenMs: 0 };
+	if (!landed)
+		return { tierIndex, landed, playedOutro: false, totalOnScreenMs: 0, ignoredTapWindowMs: 0 };
 
 	// `concludePresentation`, from `OnMount`, once the slam has completed the count-up.
 	let totalOnScreenMs = SETTLE_MS;
 	let playedOutro = false;
+	let ignoredTapWindowMs = 0;
 	if (escalating && !outroSkipArmed) {
 		const capMs = awaitingDismiss ? DISMISS_HOLD_CAP_MS : ESCALATION_OUTRO_CAP_MS;
-		if (awaitingDismiss) {
+		if (awaitingDismiss && flowHolds) {
+			// BOTH hold. `<ContinuePressMask>` runs the TOP-registered press alone and the authored tap
+			// registered last, so the dismiss tap goes to the container — which only latches a completion
+			// the flow has not reached yet — and NOTHING releases the gate. The overlay ignores the player
+			// until the cap, then the flow consumes the latch and hides at once.
+			ignoredTapWindowMs = capMs;
+			totalOnScreenMs += capMs;
+		} else if (awaitingDismiss) {
 			// `WinAnimation` holds the final tier's idle (`holdOutro`), so the only thing that can end
 			// the wait is the dismiss press — or the cap, if it never comes.
 			totalOnScreenMs += Math.min(dismissAfterMs ?? Infinity, capMs);
@@ -102,7 +124,12 @@ const run = ({
 		}
 	}
 
-	return { tierIndex, landed, playedOutro, totalOnScreenMs };
+	// The gate stood down, so the AUTHORED hold is what keeps the total up: the flow reaches its
+	// `showContainer{awaitComplete}` and waits there for the tap, which now reaches the only press
+	// surface on screen.
+	if (standDown && escalating) totalOnScreenMs += dismissAfterMs ?? 0;
+
+	return { tierIndex, landed, playedOutro, totalOnScreenMs, ignoredTapWindowMs };
 };
 
 const FIVE_TIERS = { tierCount: 5, escalating: true } as const;
@@ -174,6 +201,59 @@ assert.ok(
 	DISMISS_HOLD_CAP_MS > ESCALATION_OUTRO_CAP_MS,
 	'expected the human cap to outlast the animation cap it replaces',
 );
+
+// ---------------------------------------------------------------------------------------------
+// THE FOLLOW-UP BUG (owner report on the live remake, 2026-08-27): "I could not skip the big win once
+// it reached the final amount — the progressive skipping worked, but not the final skip."
+//
+// The remake's flow ALREADY authors the land-then-dismiss beat: `winUpdate` → `showContainer
+// {awaitComplete}` → `hideContainer`, on a container whose `tapToContinue` arms on
+// `winCountUpComplete`. Arming the gate's own hold on top of that puts TWO continue presses on screen
+// where only the top one runs — and the one that can release the gate is underneath. So the gate
+// stands down where the flow holds, and the authored hold + tap own the beat alone.
+// ---------------------------------------------------------------------------------------------
+const AUTHORED = { ...FIVE_TIERS, taps: 5, hold: true, flowHolds: true } as const;
+const shipped = run({ ...AUTHORED, dismissAfterMs: 2_000, gateStandsDown: false });
+const fixed = run({ ...AUTHORED, dismissAfterMs: 2_000, gateStandsDown: true });
+
+assert.equal(
+	shipped.ignoredTapWindowMs,
+	DISMISS_HOLD_CAP_MS,
+	'expected the shipped double-hold to ignore the dismiss tap for the whole cap — the reported bug',
+);
+assert.equal(
+	fixed.ignoredTapWindowMs,
+	0,
+	'expected the dismiss tap to reach the only press surface on screen',
+);
+assert.equal(
+	fixed.totalOnScreenMs,
+	SETTLE_MS + 2_000,
+	'expected the AUTHORED hold to keep the total up until the tap — the same beat, one surface',
+);
+assert.ok(
+	shipped.totalOnScreenMs > fixed.totalOnScreenMs,
+	'expected the fix to END the presentation sooner, not to shorten how long the total is readable',
+);
+// Standing down is not going back to the 300ms flash #456 fixed: the total is readable for exactly as
+// long as it is on the engine-held path, because a hold is a hold whoever owns it.
+assert.equal(fixed.totalOnScreenMs, after.totalOnScreenMs);
+
+// A flow that authors NO hold is why the gate's hold exists — it must be untouched by the rule.
+for (const gateStandsDown of [false, true]) {
+	assert.deepEqual(
+		run({
+			...FIVE_TIERS,
+			taps: 5,
+			hold: true,
+			flowHolds: false,
+			gateStandsDown,
+			dismissAfterMs: 2_000,
+		}),
+		after,
+		'expected a flow with no authored hold to keep the gate hold exactly as it is',
+	);
+}
 
 // ---------------------------------------------------------------------------------------------
 // PARITY. An UN-escalating win has no tiers and nothing to look at once the number lands: it must
@@ -273,6 +353,31 @@ assert.equal(seek(9_000, boundaries[4], 9_500), 9_500, 'expected the seek to cla
 		read('apps/lines/src/components/WinVisual.svelte'),
 		/boundaryAmount: \(tier\.threshold \?\? 0\) \* BOOK_AMOUNT_MULTIPLIER/,
 		'expected the seek target to be derived from the tier threshold',
+	);
+
+	// The four halves of the stand-down, none of which Node can execute either. Drop any one and every
+	// timeline assertion above still passes while the live overlay goes back to ignoring the player.
+	// Asserted as SUBSTRINGS rather than patterns: what matters is the exact expression, and prettier
+	// is free to wrap it.
+	const gate = read('apps/lines/src/components/WinGate.svelte');
+	assert.equal(
+		gate.split('action.hold && !winState.flowHoldsPresentation').length - 1,
+		2,
+		'expected BOTH landing taps — the flow path and the coded press — to skip a hold the flow owns',
+	);
+	assert.ok(
+		read('apps/lines/src/components/Game.svelte').includes(
+			'winState.flowHoldsPresentation = flowHeld',
+		),
+		'expected the flow-holds flag to be published from the shown-container ∩ awaitTargets test',
+	);
+	assert.ok(
+		read('apps/lines/src/components/TapToContinue.svelte').includes('releaseWinDismissHold()'),
+		'expected the authored tap to release a gate hold it has taken the press away from',
+	);
+	assert.ok(
+		read('apps/lines/src/game/winState.svelte.ts').includes('export const releaseWinDismissHold'),
+		'expected the release helper to exist for the authored tap to call',
 	);
 }
 

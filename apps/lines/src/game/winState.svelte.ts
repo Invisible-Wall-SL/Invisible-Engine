@@ -56,6 +56,17 @@ import type { WinLevelData } from 'engine-game';
  * path — a plain win has no tiers and no outro, so holding it would just make small wins sticky — and
  * only by a tap that actually reached the gate, which is also what proves the gate owns the tap (see
  * `WinGate.holdOnLand`). Every other win concludes exactly as before. Reset on `winShow`/`winHide`.
+ *
+ * `flowHoldsPresentation` — the AUTHORED flow already holds this presentation open after the count-up
+ * (a `showContainer{awaitComplete}` container is on screen; `Game.svelte` publishes the same
+ * name-agnostic `winAwaitTargets` ∩ shown test the celebration lock reads). When it does, the gate must
+ * NOT arm `awaitingDismiss` on top of it: the flow's hold already keeps the total on screen and its
+ * `tapToContinue` already dismisses it, so a second, engine-side hold only adds a rival press surface —
+ * and `<ContinuePressMask>` runs the TOP-registered press alone, so whichever surface loses is dead.
+ * That is what left the win overlay on screen for the full `DISMISS_HOLD_CAP_MS` after the landing tap:
+ * the authored tap (armed a flush later, by the very `winCountUpComplete` the landing tap produced)
+ * shadowed the gate's dismiss press, and only that press could release the gate's hold. False with no
+ * flow / a flow that authors no hold ⇒ the gate holds exactly as it does today.
  */
 export const winState = $state<{
 	winLevelData: WinLevelData | undefined;
@@ -70,6 +81,7 @@ export const winState = $state<{
 	escalationStepIndex: number;
 	escalationForceStep: number;
 	awaitingDismiss: boolean;
+	flowHoldsPresentation: boolean;
 }>({
 	winLevelData: undefined,
 	amount: 0,
@@ -83,4 +95,26 @@ export const winState = $state<{
 	escalationStepIndex: 0,
 	escalationForceStep: 0,
 	awaitingDismiss: false,
+	flowHoldsPresentation: false,
 });
+
+/**
+ * End a pending LAND-then-dismiss hold from OUTSIDE the gate — the SAFETY NET under
+ * {@link winState.flowHoldsPresentation}.
+ *
+ * The gate's own dismiss press and an authored container's `tapToContinue` both register with
+ * `registerContinuePress`, and `<ContinuePressMask>` runs only the TOP one — so on any presentation
+ * carrying both, one of them is silently dead. The gate's hold, though, can only be released by the
+ * gate's press. Calling this from the authored tap makes the hold releasable by EITHER, so the two
+ * surfaces can no longer deadlock each other whichever way the registration order falls.
+ *
+ * Sets the SAME latch the gate's `dismissNow` does (`escalationOutroComplete`), so the conclusion the
+ * gate already has in flight resolves at once and the outro stays skipped on a deliberate dismiss
+ * (#295's intent). `awaitingDismiss` is deliberately left set — clearing it would drop
+ * `WinAnimation`'s `holdOutro` and start an exit clip in the same beat the overlay is leaving. A no-op
+ * when no hold is armed, which is every non-escalating win and every untapped one.
+ */
+export const releaseWinDismissHold = (): void => {
+	if (!winState.awaitingDismiss) return;
+	winState.escalationOutroComplete = true;
+};

@@ -3,6 +3,7 @@
 	import { getFlowComplete } from 'engine-layout';
 
 	import { fireTapToStartOnce } from '../game/flowV2InterpreterHolder';
+	import { releaseWinDismissHold } from '../game/winState.svelte';
 	import { PressToContinue } from 'engine-game';
 
 	// The coded press surface behind the engine-layout `tapToContinue` toggle (the
@@ -35,6 +36,11 @@
 		// Signals `onTapToStart` pin once (a no-op with no v2 flow / later gates; see the holder). Fired
 		// here, at the genuine TAP, so it runs even when the loading screen is a plain (non-held) container.
 		fireTapToStartOnce();
+		// A tap here is ALSO a dismiss for a win gate holding the total on screen for one
+		// (`winState.awaitingDismiss`). Both surfaces register a continue press and `<ContinuePressMask>`
+		// runs only the top one, so without this the loser's intent is simply dropped — and it is the
+		// gate's hold that BLOCKS THE ROUND. A no-op when no hold is armed. See `releaseWinDismissHold`.
+		releaseWinDismissHold();
 		// Route through the GAME-REGISTERED flow-complete hook (`getFlowComplete`), NOT the v1 holder
 		// directly: under a v2 flow it dispatches `complete:<screen>`, and it falls through to the v1
 		// interpreter otherwise. Calling the v1 holder directly is a no-op when v2 is the sole flow
