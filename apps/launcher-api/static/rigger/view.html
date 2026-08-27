@@ -9004,11 +9004,11 @@ function deleteChannelKeyAt(tr, time){
  * Keep them in step anyway; if you widen one, widen it there first.
  */
 const FX_NUM_FIELDS = {
-  "fx.alpha":    { key: "alpha",    label: "Opacity",  unit: "0–1",  step: "0.05", min: 0, max: 1,    round: 3, hint: "dims the whole burst" },
-  "fx.scale":    { key: "scale",    label: "Size",     unit: "×",    step: "0.05", min: 0, max: null, round: 3, hint: "1 = the effect's authored size" },
-  "fx.delay":    { key: "delay",    label: "Delay",    unit: "ms",   step: "10",   min: 0, max: null, round: 0, hint: "wait after the beat before it starts" },
-  "fx.duration": { key: "duration", label: "Duration", unit: "ms",   step: "50",   min: 0, max: null, round: 0, hint: "how long it EMITS; particles still finish their own life. Leave blank and a continuous effect never stops on its own." },
-  "fx.speed":    { key: "speed",    label: "Speed",    unit: "×",    step: "0.1",  min: 0, max: null, round: 3, hint: "1 = the effect's authored speed" },
+  "fx.alpha":    { key: "alpha",    label: "Opacity",  unit: "0–1",  step: "0.05", min: 0, max: 1,    round: 3, rest: "1", hint: "dims the whole burst" },
+  "fx.scale":    { key: "scale",    label: "Size",     unit: "×",    step: "0.05", min: 0, max: null, round: 3, rest: "1", hint: "1 = the effect's authored size" },
+  "fx.delay":    { key: "delay",    label: "Delay",    unit: "ms",   step: "10",   min: 0, max: null, round: 0, rest: "0", hint: "wait after the beat before it starts" },
+  "fx.duration": { key: "duration", label: "Duration", unit: "ms",   step: "50",   min: 0, max: null, round: 0, rest: "as authored", hint: "how long it EMITS; particles still finish their own life. Leave blank and a continuous effect never stops on its own." },
+  "fx.speed":    { key: "speed",    label: "Speed",    unit: "×",    step: "0.1",  min: 0, max: null, round: 3, rest: "1", hint: "1 = the effect's authored speed" },
 };
 /** The `RiggerFx.play` options for one event's `fx` binding — only the keys actually authored, so an
  * untouched binding plays exactly as it always did. `slot` is deliberately NOT passed: the overlay is
@@ -9255,7 +9255,10 @@ function renderEventDetail(){
       inp.title = spec.hint;
       // Blank = not set. Placeholder shows what the effect does on its own, so the box reads as an
       // OVERRIDE of the /fx doc rather than a value that is already in force.
-      inp.placeholder = spec.key === "duration" ? "as authored" : "1";
+      // The placeholder is what the effect does with NO override, so it has to be that field's own
+      // resting value — not a blanket "1". Delay rests at 0: showing 1 there read as "a 1ms delay is
+      // already applied", which is both wrong and unauthorable (blank means no delay at all).
+      inp.placeholder = spec.rest;
       const cur = selEvent.fx?.[spec.key];
       inp.value = typeof cur === "number" ? String(cur) : "";
       inp.style.cssText = inputCss;
