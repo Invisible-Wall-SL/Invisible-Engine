@@ -109,7 +109,13 @@ jobs:
       # while the server is mid-rehydrate (it flaps as it reloads), so we retry with backoff to ride
       # that window out — but if it still won't take we WARN and exit 0. Failing the whole job on a
       # cache poke made a green release read as a broken publish (and hid that the engine actually
-      # shipped); the server re-hydrates on its own regardless, or /refresh can be POSTed by hand.
+      # shipped). DO NOT SHORTEN THE LADDER TO SAVE CI MINUTES: it looks like idle sleeping (~93s
+      # a run, the single most expensive step in this repo’s CI) but it is the ONLY thing that
+      # makes a published bundle visible. services/test-server/server.mjs calls hydrate() from
+      # exactly two places — this endpoint and boot — so there is NO timer and NO lazy re-hydrate.
+      # If every attempt 502s the bundle sits in R2 and every online game keeps serving the OLD
+      # engine until someone redeploys the server or POSTs /refresh by hand, while this job
+      # stays GREEN.
       - name: Refresh the test server
         # Auto push-releases always refresh; a manual dispatch honours its refresh checkbox.
         if: ${{ github.event_name != 'workflow_dispatch' || inputs.refresh }}
@@ -128,5 +134,5 @@ jobs:
             echo "refresh attempt $attempt → HTTP $code"
             case "$code" in 200|202) echo "refreshed"; exit 0 ;; esac
           done
-          echo "::warning title=Test server refresh did not take::Runtime bundle IS published and the release is stamped; the test server will re-hydrate on its own (or POST /refresh by hand). Not failing the release."
+          echo "::warning title=Test server refresh did not take::Runtime bundle IS published and the release is stamped, but the test server did NOT pick it up and will NOT re-hydrate on its own — online games keep serving the previous engine until someone POSTs /refresh or the server redeploys. Not failing the release."
           exit 0
