@@ -48,6 +48,20 @@ export type RigFxOverrides = {
 	duration?: number;
 	/** Time-scale multiplier on the emitters (2 = twice as fast). */
 	speed?: number;
+	/**
+	 * Play ONCE and keep going, instead of restarting on every beat.
+	 *
+	 * The default binding is a one-shot per beat: each time the event crosses, the effect re-mounts
+	 * and plays from t=0. On a LOOPING animation that means the burst is cut off and restarted every
+	 * lap, which is right for a thump or an impact and wrong for anything ambient — drifting smoke,
+	 * bubbles, a glow — where the reset is visible as a stutter.
+	 *
+	 * With this set, the FIRST fire starts the effect and later fires of the same event are ignored,
+	 * so the emitter runs uninterrupted. It stops when the rig unmounts (or when `duration` bounds it),
+	 * NOT when the animation changes — the binding is keyed by event name, not by clip, so an ambient
+	 * effect keeps running across a state change rather than dying on it.
+	 */
+	continuous?: boolean;
 };
 
 /** One rig→effect binding: on a spine event named `event`, (re)play `effectId` from t=0, hosted on
@@ -94,6 +108,9 @@ export function readRigFxOverrides(raw: unknown): RigFxOverrides {
 	if (!raw || typeof raw !== 'object') return out;
 	const src = raw as Record<string, unknown>;
 	if (typeof src.slot === 'string' && src.slot) out.slot = src.slot;
+	// Only TRUE is carried: `continuous: false` is the default, and writing it would bloat every
+	// binding with a field that means nothing (same sparse rule as the rest of this object).
+	if (src.continuous === true) out.continuous = true;
 	for (const key of RIG_FX_OVERRIDE_KEYS) {
 		const bounds = NUMERIC_BOUNDS[key];
 		if (!bounds) continue; // `slot` is the one non-numeric key

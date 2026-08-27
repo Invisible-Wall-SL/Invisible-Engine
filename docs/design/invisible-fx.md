@@ -47,7 +47,7 @@ A first-class binding on the rig, authored per event key, source of truth = the 
   event named `N` on this rig → play effect `effectId` on `bone`". De-dup by
   `(name, effectId, bone, slot)` across animations at bake.
 
-**Per-binding overrides (2026-08-27).** `evtObj.fx` also carries six optional fields — `slot`,
+**Per-binding overrides (2026-08-27).** `evtObj.fx` also carries seven optional fields — `slot`,
 `alpha`, `scale`, `delay`, `duration`, `speed` — typed as `RigFxOverrides` in
 `engine-layout/registerRigFx.ts`, which also owns the ONE clamp (`readRigFxOverrides`) the bake, the
 registry and the previews all read through. They are OVERRIDES, not authoring: the `EffectDoc` stays
@@ -69,6 +69,13 @@ effect dimmer/slower/deeper without forking the doc.
   name that disagree cannot both reach the game — the per-keyframe timeline the previews read CAN
   express it, so the Rigger warns at the point of authoring. Guarded by
   `pnpm --filter launcher-api run check:rig-fx-overrides` (mutation-verified).
+- **`continuous` is the one BOOLEAN**, and the one that changes the FIRING MODEL rather than a value:
+  the first beat starts the effect and later beats are ignored, so a looping clip stops chopping an
+  ambient burst up once per lap. It stops when the RIG unmounts, not when the animation changes (the
+  manifest is keyed by event name, not by clip). Three renderers had to agree, because each clears
+  bursts on a loop wrap for its own reasons: `RiggedEffect`, the Rigger stage, and the `/symbols`
+  grid — and the preview overlay skips its `PREVIEW_HOLD_MS` cap for one, since capping it would show
+  the author the exact stutter the flag removes.
 - **Still NOT built:** a *persistent* FX slot — an always-on emitter living on the rig as a slot,
   keyable like any other channel (the other half of `invisible-cinematic.md` §12.4a). This is the
   one-shot cue gaining depth and modifiers, not that.

@@ -60,6 +60,18 @@ check('Infinity duration dropped', !('duration' in readRigFxOverrides({ duration
 check('string alpha dropped', !('alpha' in readRigFxOverrides({ alpha: '0.5' })));
 eq('alpha 0 is a real value, not falsy-dropped', readRigFxOverrides({ alpha: 0 }), { alpha: 0 });
 
+// `continuous` is the one BOOLEAN override: only the opt-in is stored, so the doc stays sparse and
+// a binding that never used it bakes exactly as it did before the flag existed.
+eq('continuous:true is read through', readRigFxOverrides({ continuous: true }), {
+	continuous: true,
+});
+check(
+	'continuous:false is not stored',
+	!('continuous' in readRigFxOverrides({ continuous: false })),
+);
+check('a truthy non-boolean is rejected', !('continuous' in readRigFxOverrides({ continuous: 1 })));
+check('the string true is rejected', !('continuous' in readRigFxOverrides({ continuous: 'true' })));
+
 // ── 2. bindingsFromSkeleton: what the GAME gets ─────────────────────────────────────────────────
 const skeleton = (events: unknown[]) => ({ animations: { idle: { events } } });
 
@@ -149,6 +161,16 @@ check(
 );
 check('…and bad delay with it', !('delay' in resolveRigFx('rig')[1]));
 check('unknown rig ⇒ empty, never a throw', resolveRigFx('nope').length === 0);
+
+// The flag has to TRAVEL: authored on the keyframe → baked into the manifest → out of the registry.
+check(
+	'continuous survives the bake',
+	bindingsFromSkeleton(skeleton([{ name: 'boom', fx: { effectId: 'e1', continuous: true } }]))[0]
+		?.continuous === true,
+);
+clearRigFx();
+registerRigFx({ rig2: [{ event: 'e', effectId: 'x', continuous: true }] });
+check('…and the registry', resolveRigFx('rig2')[0]?.continuous === true);
 // The folder-tolerant lookup a Symbols-shipped rig depends on must survive the clamp rewrite.
 clearRigFx();
 registerRigFx({ myrig: [{ event: 'e', effectId: 'x' }] });

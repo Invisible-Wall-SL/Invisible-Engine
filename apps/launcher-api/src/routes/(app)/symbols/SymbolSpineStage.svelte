@@ -102,7 +102,10 @@
 	/** Per-CELL live effect handles. The crossing is per-INSTANCE (shared playhead), but a bundle can
 	 * be drawn into many cells, so each visible cell owns its own handles + rides the bone itself.
 	 * A `WeakMap` on the cell element → the entry is GC'd when the grid re-renders the cell away. */
-	let cellFx = new WeakMap<HTMLElement, { active: { handle: number; bone?: string }[] }>();
+	let cellFx = new WeakMap<
+		HTMLElement,
+		{ active: { handle: number; bone?: string; continuous: boolean; src: TimedFx }[] }
+	>();
 	/** Shared empty crossing list for the (common) frames with no crossings — never mutated. */
 	const EMPTY_FX: TimedFx[] = [];
 
@@ -187,8 +190,10 @@
 		// Loop / scrub-back: drop this cell's live effects so a looping symbol doesn't accumulate a
 		// fresh burst every loop (mirrors `view.html`'s `RiggerFx.clear()` on wrap).
 		if (entry.fxLooped && cf && cf.active.length) {
-			for (const fx of cf.active) fxOverlay?.stop(fx.handle);
-			cf.active = [];
+			// A CONTINUOUS burst is meant to outlive the loop — stopping it here would restart it once per
+			// lap, the exact stutter the flag exists to remove. Only the one-shots are cleared.
+			for (const fx of cf.active) if (!fx.continuous) fxOverlay?.stop(fx.handle);
+			cf.active = cf.active.filter((fx) => fx.continuous);
 		}
 		// Fire newly-crossed keyframes. The overlay (and its Pixi context) is created only HERE, on the
 		// first real fire — a board with no bound symbols never reaches this.
@@ -203,8 +208,15 @@
 						cellFx.set(el, cf);
 					}
 					// Hand the keyframe’s own overrides to the overlay, not just the transform.
+					// Already running and continuous ⇒ this beat is deaf (the game applies the same rule).
+					if (b.continuous && cf && cf.active.some((fx) => fx.src === b)) continue;
 					const { time: _time, effectId: _id, bone: _bone, ...overrides } = b;
-					cf.active.push({ handle: overlay.play(b.effectId, t, overrides), bone: b.bone });
+					cf.active.push({
+						handle: overlay.play(b.effectId, t, overrides),
+						bone: b.bone,
+						continuous: !!b.continuous,
+						src: b,
+					});
 				}
 			}
 		}
