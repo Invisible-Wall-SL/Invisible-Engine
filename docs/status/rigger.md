@@ -43,7 +43,10 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
    pixels while the attachment stretched them back); a meshed text element still cannot be
    fitted, see Recent changes. Still NOT
    built: a **rename** for a text element (the id is the attachment name, so it is locked after
-   creation), and **placed/persistent FX slots** (the other half of design §12.4a). Owner
+   creation), and **placed/persistent FX slots** — an always-on, keyable emitter living on the rig
+   as a slot (the other half of design §12.4a). NOTE the one-shot timeline cue is a different thing
+   and it DID gain depth + modifiers on 2026-08-27 (Recent changes); what is still missing is the
+   persistent emitter. Owner
    live-verify is owed against real R2 + a real game, and nobody has yet *looked* at baked rig
    text on screen.
    The runtime half is already **live**: `.github/workflows/runtime-release.yml` auto-releases on
@@ -63,6 +66,48 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-08-27 — **A bound FX cue can now say WHERE it draws and HOW it plays: draw-at-slot depth plus
+  opacity / size / delay / duration / speed.** The binding had been `{ effectId, bone? }` since it
+  shipped, so a burst always drew on top of the whole rig at the effect's authored opacity, size and
+  timing — the three things the owner hit at once on `test6`.
+  - **Draw at slot.** `evtObj.fx.slot` names a slot; in game `<RiggedEffect>` hands its container to
+    spine-pixi's `addSlotObject`, so the burst renders at that slot's place in the draw order — behind
+    the head, in front of the body. An unknown slot name falls back to the old on-top mount instead of
+    throwing (`getSlotFromRef` does throw, and a rig re-synced with that slot renamed must not take the
+    game down). With no bone chosen the slot's own bone hosts the burst, which is also what the Rigger
+    stage now projects.
+  - **Five modifiers**, all optional, all absent by default — `alpha`, `scale`, `delay`, `duration`,
+    `speed`. **Blank is not a default:** an unset field stays absent through bake, registry and
+    runtime, which is what keeps every already-baked rig byte-identical. `duration` also closes a
+    live divergence — `forceEmit` started emission and nothing ended it, so a continuous effect fired
+    from a keyframe emitted FOREVER in-game while the previews force-stopped at ~1.5s.
+  - **One clamp, three readers.** `readRigFxOverrides` in `engine-layout` is the only place the rules
+    live; the bake, the runtime registry and the previews all read through it, and `rigFxExport.ts`
+    now IMPORTS the binding type instead of hand-mirroring it behind a "mirrors the engine-layout
+    `RigFxBinding`" comment. Out-of-range and malformed values are DROPPED, never coerced.
+  - **The limit the manifest imposes, surfaced in the UI.** The baked manifest is keyed by the event
+    NAME, so placement (`bone`, `slot`) identifies a binding and the numbers ride along from the first
+    matching keyframe — while the per-keyframe timeline the previews read CAN express two keys that
+    disagree. Rather than let a published game quietly contradict the tool, the event inspector warns
+    when two keys share a name, effect and place but differ in the numbers.
+  - **The preview cannot show slot depth, and says so.** The stage draws every rig into one WebGL
+    canvas and FX into a Pixi canvas above it, so it has two bands and no in-between — the same
+    constraint the cinematic already states for `fx:` cues. Picking a slot prints a note naming the
+    slot the game will actually draw at.
+  - Guarded by **`pnpm --filter launcher-api run check:rig-fx-overrides`** (new) — 25 assertions over
+    the real `bindingsFromSkeleton` / `fxTimelineFromSkeleton` / `registerRigFx`, **mutation-verified**
+    against three plausible regressions: putting the numbers in the dedupe key (⇒ two mounts, two
+    bursts per beat), defaulting `alpha` to 1 in the clamp, and dropping the registry-side clamp.
+  - Verified live in the Rigger against the 73-bone `anticipation` builtin, driving the real controls:
+    all six render, values clamp at both ends, a blanked box removes the key, the crossing hands the
+    authored options to the overlay, the slot's own bone hosts a slot binding, and the clash warning
+    fires on exactly the one case that clashes (six cases checked). The vendored
+    `static/rigger/vendor/rigger-fx.js` was rebuilt (+369 B) — it MUST be, or the stage keeps the old
+    two-argument `play()` and silently ignores every override.
+  - ⏳ **Not pixel-verified in a running game:** the `addSlotObject` depth, and `alpha`/`scale`/`delay`
+    riding the nested container, are verified by construction (against the spine-pixi 4.2.74 source,
+    which rewrites a slotted container's transform AND alpha every frame — hence the nesting) and by
+    the build, not by looking at a published game. That check is owed.
 - 2026-08-27 — **A bound FX cue could be invisible on the stage two different ways; both fixed in
   `view.html`.** Reported as "the FX doesn't show in the Rigger preview".
   - **The cinematic's overlay depth was sticky.** FX is a second Pixi canvas over `#cv`, and only

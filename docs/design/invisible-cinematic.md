@@ -406,6 +406,13 @@ so `/localization` stays the single source of the strings.
 timeline-event FX, which is a one-shot burst at a moment — both are wanted, and they are
 different things.
 
+> **Half of this landed 2026-08-27, and it is the half easiest to mistake for the whole.** The
+> one-shot timeline cue can now choose the SLOT it draws at (spine-pixi `addSlotObject`) and carry
+> per-binding opacity / size / delay / duration / speed, so a burst finally has real depth inside
+> the rig. It is still a burst fired by a keyframe. The PERSISTENT emitter described here — always
+> on, keyable like any other slot channel — is still not built. See
+> [status/rigger](../status/rigger.md) and [design/invisible-fx](invisible-fx.md) §"Data model".
+
 Build order note: this belongs in the RIGGER, ahead of §12.3's quick-add — it is the thing that
 makes a cinematic able to carry text at all, and it needs nothing from the cinematic to be
 useful on its own.

@@ -126,6 +126,43 @@ attached to one of the rig's bones, rides it).
 Authored events export in the `.irig` (Spine JSON) as
 `animations.<name>.events` and travel with the rig, so the game replays them.
 
+#### Bind an effect straight to the key
+
+Matching cue names is the advanced path. Normally you just **pick the effect on
+the keyframe** — the event editor's **Play effect** dropdown lists the project's
+Invisible FX effects, and the moment you choose one it plays on the stage so you
+can see it. (Sprite-particle effects only for now.) **— none (cue only) —** goes
+back to a plain broadcast.
+
+With an effect bound, the rest of the panel appears:
+
+- **On bone** — which bone the burst rides. Default is the rig origin.
+- **Draw at slot** — *where in the rig it draws*. Default is on top of everything.
+  Pick a slot and the burst renders at that slot's place in the draw order, so it
+  can sit behind the head and in front of the body. The list is in draw order,
+  back to front. With **On bone** left at its default, the slot's own bone hosts
+  the burst; set a bone and the bone decides position while the slot still decides
+  depth.
+- **Opacity**, **Size**, **Delay**, **Duration**, **Speed** — per-binding
+  overrides. They adjust *this* use of the effect without touching its definition
+  in `/fx`, so two rigs can fire the same effect dimmer, slower or deeper without
+  forking it. **Leave a box blank and nothing is overridden** — blank is not the
+  same as `1`.
+  **Duration** is the one worth knowing: it is how long the effect *emits*
+  (particles already in flight still finish). Leave it blank and a continuous
+  effect never stops on its own once fired.
+
+> **Draw-at-slot previews as on-top.** This stage draws every rig into one WebGL
+> canvas and FX into a separate canvas above it, so it can put a burst above or
+> below the whole rig but never between two of its slots. The game has no such
+> split and honours the real depth. The editor says so under the picker.
+
+> **One name, one set of settings.** The game keys these bindings by the event
+> **name**, so if two keys share a name and bind the same effect at the same
+> place but with different numbers, only the first survives — while the preview
+> here plays each as authored. The editor warns you when that happens; rename one
+> of the events to keep both.
+
 ### Edit the rig (Setup mode)
 
 - **Select** a bone, slot, mesh vertex by clicking it in the Inspector tree or

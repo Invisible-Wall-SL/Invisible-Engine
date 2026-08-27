@@ -8,6 +8,28 @@
 		event: string;
 		/** Host bone on the rig; absent ⇒ the rig origin. Resolved on the host `<SpineProvider>`. */
 		bone?: string;
+		/**
+		 * Draw the burst at THIS slot's depth in the skeleton draw order (spine-pixi `addSlotObject`),
+		 * instead of on top of the whole rig. An unknown slot name falls back to on-top.
+		 *
+		 * With no `bone`, the slot's own bone hosts the burst (a slot is a bone plus a depth). With a
+		 * `bone`, the bone still decides position — `<SpineBoneAttach>` maps through the REAL parent's
+		 * world transform, so it stays correct whatever we parented under.
+		 *
+		 * NOT named `slot`: Svelte still reads a `slot` attribute on a component as the legacy slot
+		 * assignment, which must be a static string — so `slot={binding.slot}` would not compile.
+		 */
+		drawSlot?: string;
+		/** Opacity multiplier, 0–1. */
+		alpha?: number;
+		/** Size multiplier on the whole burst. */
+		scale?: number;
+		/** Milliseconds to wait after the beat before the burst starts. */
+		delay?: number;
+		/** Milliseconds of emission, then stop (particles live out their own lifetime). */
+		duration?: number;
+		/** Time-scale multiplier on the emitters. */
+		speed?: number;
 	};
 </script>
 
@@ -56,18 +78,64 @@
 	const spine = getContextSpine();
 
 	// The effect subtree renders under this container, which we parent on the host spine so it
-	// inherits the rig's fit-scale/position/pivot (see doc note 2). Re-scope the child parent
-	// context to it, so `<EffectPlayer>` / `<SpineBoneAttach>` mount inside it.
+	// inherits the rig's fit-scale/position/pivot (see doc note 2).
 	const fxParent = new PIXI.Container();
-	spine?.addChild(fxParent);
-	createContextParent(fxParent);
+	// A SLOT binding hands `fxParent` to spine instead, which then drives it at that slot's place in
+	// the draw order. Guarded, because `addSlotObject` THROWS on an unknown slot name (`getSlotFromRef`)
+	// and a rig re-synced with that slot renamed away must degrade to the old on-top mount, not crash
+	// the game. `followAttachmentTimeline` is deliberately left off: the burst is not the slot's art
+	// and must still play on a frame where the slot shows nothing.
+	const slot =
+		props.drawSlot && spine?.skeleton?.findSlot(props.drawSlot) ? props.drawSlot : undefined;
+	if (spine && slot) spine.addSlotObject(slot, fxParent);
+	else spine?.addChild(fxParent);
+
+	// `alpha`/`scale` live on a SECOND container, not on `fxParent`, because a slotted `fxParent` is
+	// not ours any more: spine's `updateSlotObject` rewrites its position, rotation, scale AND alpha
+	// every frame from the slot's bone and colour. Nesting keeps one code shape for both mounts, and
+	// on a slotted binding the two compose — the burst inherits the slot's authored opacity and our
+	// multiplier on top of it. This is the parent `<EffectPlayer>`/`<SpineBoneAttach>` mount into.
+	const fxLocal = new PIXI.Container();
+	fxParent.addChild(fxLocal);
+	createContextParent(fxLocal);
+	$effect(() => {
+		fxLocal.alpha = props.alpha ?? 1;
+		fxLocal.scale.set(props.scale ?? 1);
+	});
 	onDestroy(() => {
+		// Detach before destroy: spine holds slotted containers in `_slotsObject` and keeps driving
+		// them, so a destroyed-but-still-registered container would be written to every frame.
+		if (spine && slot && !spine.destroyed) spine.removeSlotObject(fxParent);
+		// Shallow, both of them — the effect subtree below is owned by its own components, which tear
+		// themselves down. (This is why the original destroyed `fxParent` without `children`.)
+		if (!fxLocal.destroyed) fxLocal.destroy();
 		if (!fxParent.destroyed) fxParent.destroy();
 	});
 
 	// Bumped on every matching beat; drives the `{#key runId}` re-mount = a fresh one-shot from t=0.
 	// Stays 0 (and mounts nothing) until the first fire, so no particles appear before the beat.
 	let runId = $state(0);
+
+	// `delay` defers the MOUNT, not the emission: the burst has to start at t=0 of the effect when it
+	// does appear, and re-mounting is already how a beat plays one from the top. Each fire schedules
+	// its own timer, so two beats inside one delay window still produce two bursts.
+	let pending: ReturnType<typeof setTimeout>[] = [];
+	const fire = (): void => {
+		const delay = props.delay;
+		if (typeof delay !== 'number' || !Number.isFinite(delay) || delay <= 0) {
+			runId += 1;
+			return;
+		}
+		const timer = setTimeout(() => {
+			pending = pending.filter((t) => t !== timer);
+			runId += 1;
+		}, delay);
+		pending.push(timer);
+	};
+	onDestroy(() => {
+		for (const timer of pending) clearTimeout(timer);
+		pending = [];
+	});
 
 	$effect(() => {
 		const event = props.event;
@@ -79,7 +147,7 @@
 		// would cross-trigger this effect.
 		const listener: SPINE_PIXI.AnimationStateListener = {
 			event: (_entry, ev) => {
-				if (ev?.data?.name === event) runId += 1;
+				if (ev?.data?.name === event) fire();
 			},
 		};
 		state.addListener(listener);
@@ -91,10 +159,12 @@
 	{#key runId}
 		{#if props.bone}
 			<SpineBoneAttach boneName={props.bone} followRotation followScale>
-				<EffectPlayer doc={props.doc} forceEmit />
+				<EffectPlayer doc={props.doc} forceEmit emitSpeed={props.speed} emitFor={props.duration} />
 			</SpineBoneAttach>
 		{:else}
-			<EffectPlayer doc={props.doc} forceEmit />
+			<!-- No bone: the rig origin normally, or the SLOT's own bone when this is a slot binding
+			     (spine drives `fxParent` there, and this mounts inside it). -->
+			<EffectPlayer doc={props.doc} forceEmit emitSpeed={props.speed} emitFor={props.duration} />
 		{/if}
 	{/key}
 {/if}

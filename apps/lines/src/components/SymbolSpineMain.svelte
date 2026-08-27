@@ -55,10 +55,20 @@
 		prefix. Empty for a symbol with no bindings (parity — nothing mounts, no bus effect).
 	-->
 	{@const rigBinds = resolveRigFx(props.symbolInfo.assetKey)}
-	{#each rigBinds as b (b.event + ':' + b.effectId + ':' + (b.bone ?? ''))}
+	{#each rigBinds as b (b.event + ':' + b.effectId + ':' + (b.bone ?? '') + ':' + (b.slot ?? ''))}
 		{@const d = resolveEffect(b.effectId)}
 		{#if d}
-			<RiggedEffect doc={d} event={b.event} bone={b.bone} />
+			<RiggedEffect
+				doc={d}
+				event={b.event}
+				bone={b.bone}
+				drawSlot={b.slot}
+				alpha={b.alpha}
+				scale={b.scale}
+				delay={b.delay}
+				duration={b.duration}
+				speed={b.speed}
+			/>
 		{/if}
 	{/each}
 </SpineProvider>

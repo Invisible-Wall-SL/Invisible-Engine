@@ -918,10 +918,20 @@
 				placement, no cue-string matching. Empty for a rig with no bindings (parity — nothing mounts).
 			-->
 			{@const rigBinds = resolveRigFx(spineAssetKey ?? node.assetKey)}
-			{#each rigBinds as b (b.event + ':' + b.effectId + ':' + (b.bone ?? ''))}
+			{#each rigBinds as b (b.event + ':' + b.effectId + ':' + (b.bone ?? '') + ':' + (b.slot ?? ''))}
 				{@const d = resolveEffect(b.effectId)}
 				{#if d}
-					<RiggedEffect doc={d} event={b.event} bone={b.bone} />
+					<RiggedEffect
+						doc={d}
+						event={b.event}
+						bone={b.bone}
+						drawSlot={b.slot}
+						alpha={b.alpha}
+						scale={b.scale}
+						delay={b.delay}
+						duration={b.duration}
+						speed={b.speed}
+					/>
 				{/if}
 			{/each}
 		</SpineProvider>
