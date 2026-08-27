@@ -140,7 +140,7 @@
 	 * `$lib/server/symbolsStorage`), declared here so this client component never imports a
 	 * server module. Only the fields this layer reads. */
 	interface SymbolStaticCell {
-		type: 'sprite' | 'spine';
+		type: 'sprite' | 'spine' | 'flipbook';
 		assetKey: string;
 		/** The animation the STATIC state plays in-game (`SymbolSpineMain`'s `animationName`). */
 		animationName?: string;
