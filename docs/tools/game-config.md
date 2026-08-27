@@ -111,6 +111,12 @@ ordinary landing, not an empty board.
 Pair it with **Clear the board** below for the full picture: the old symbols play
 their Explosion and leave, then the new ones surface.
 
+**It governs a win as well as a spin.** On a cascading game the refills after a win
+appear in place too, so the board never drops symbols in from the top — one behaviour,
+not two. The symbols that did _not_ win still slide, because they are relocating rather
+than arriving: the refills stack above them, so a surviving symbol genuinely changes cell
+and has to be seen doing it.
+
 **Column stagger (ms)** — shown for **Column cascade** and **Emerge**, the two
 styles whose columns arrive on their own beat. It is the one knob for _"the columns
 arrive at different times"_ — the gap between one column starting and the next:

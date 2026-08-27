@@ -13,7 +13,7 @@ import { playWildExplodeSound } from './soundBindings';
 import { getFlowV2 } from './flowV2InterpreterHolder';
 import { awaitCue, slamHold, SLAM_MESSAGE_HOLD_MS } from './unskippablePresentation';
 import { playBookEvent } from './utils';
-import { stateGame } from './stateGame.svelte';
+import { stateGame, stateGameDerived } from './stateGame.svelte';
 import { tumbleBoardCombined } from './stateTumble.svelte';
 import {
 	presentReveal,
@@ -324,8 +324,13 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 	},
 	/**
 	 * One cascade step, in the order the player sees it: hide the reels, mount the tumble overlay,
-	 * blow up the winners, drop the survivors, then hand the settled result back to the ordinary
-	 * board and unmount.
+	 * blow up the winners, bring the board back together, then hand the settled result back to the
+	 * ordinary board and unmount.
+	 *
+	 * That fourth beat is the one that varies. A rolling board — and every swap style but one —
+	 * SLIDES: survivors and refills fall together into their seats. An `emerge` board APPEARS its
+	 * refills in place instead, so a game whose symbols surface on the spin also has them surface on
+	 * a win rather than dropping in from the top.
 	 *
 	 * The explode and slide are AWAITED because each is a real animation with a completion the
 	 * Symbols tool authors; running them unawaited would cascade the next step over the top of the
@@ -342,7 +347,16 @@ export const bookEventHandlerMap: BookEventHandlerMap<BookEvent, BookEventContex
 			explodingPositions: bookEvent.explodingSymbols,
 		});
 		eventEmitter.broadcast({ type: 'tumbleBoardRemoveExploded' });
-		await eventEmitter.broadcastAsync({ type: 'tumbleBoardSlideDown' });
+		// HOW THE REFILLS ARRIVE follows the board's own swap style, so a game does not roll one way
+		// on the spin and another way on a win. Under `emerge` the new symbols appear on their seats
+		// and play their authored `intro`; the SURVIVORS still slide, because they are relocating
+		// rather than arriving (see the cue's doc in `TumbleBoard.svelte`). Every other style — and
+		// every board that does not swap at all — reaches the slide exactly as it always has.
+		const emerges =
+			stateGameDerived.boardSwapsInPlace() && stateGameDerived.boardSwapStyle() === 'emerge';
+		await eventEmitter.broadcastAsync({
+			type: emerges ? 'tumbleBoardAppear' : 'tumbleBoardSlideDown',
+		});
 		eventEmitter.broadcast({
 			type: 'boardSettle',
 			board: tumbleBoardCombined().map((tumbleReel) =>

@@ -106,6 +106,14 @@
 		 * `reelIndex` scopes it to ONE column, exactly like the slide's: absent ⇒ every column, which
 		 * is the un-swept surfacing (`columnStaggerMs: 0`, and the default for a board that authors
 		 * no stagger is the sweep driven by the caller, not by this cue).
+		 *
+		 * TWO LAYERS, TWO ANSWERS. A REVEAL has no survivors (`keepBase: false`), so every symbol is
+		 * arriving and the cue is exactly what its name says. A CASCADE has both: the refills arrive
+		 * and appear in place, while the SURVIVORS relocate — the refills stack above them, so a
+		 * symbol that did not win still changes seat and must be seen to travel there. It therefore
+		 * slides and plays `land`, precisely as `tumbleBoardSlideDown` moves it. That is not a
+		 * compromise on the style: an emerge is about how a symbol ARRIVES, and a survivor is not
+		 * arriving.
 		 */
 		| { type: 'tumbleBoardAppear'; reelIndex?: number };
 </script>
@@ -445,33 +453,61 @@
 		 */
 		tumbleBoardAppear: async ({ reelIndex: onlyReel }) => {
 			await Promise.all(
-				tumbleBoardCombined().flatMap((tumbleReel, reelIndex) =>
-					onlyReel !== undefined && reelIndex !== onlyReel
-						? []
-						: tumbleReel.map(async (tumbleSymbol, symbolIndex) => {
-								const visible = symbolIndex > 0 && symbolIndex < tumbleReel.length - 1;
-								if (visible) tumbleSymbol.symbolState = 'intro';
-								tumbleSymbol.symbolY.set(getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW).y, {
-									duration: 0,
-								});
-								if (!visible) return;
-								// The scatter counter and the class land cue — the SAME hook the cascade's
-								// refill calls, because an emerge IS the arrival however little it moved, and a
-								// board that arrived without ticking the counter is a bonus that never triggers.
-								stateGameDerived.onSymbolLand({ rawSymbol: tumbleSymbol.rawSymbol });
-								// …and the symbol's OWN emerge voice on top, when Invisible Symbols binds one.
-								// Additive, like the cascade pop — see `playSymbolIntroSound` for why this one
-								// layers where `land` replaces.
-								playSymbolIntroSound(tumbleSymbol.rawSymbol.name);
-								await awaitSymbolBeat((resolve) => {
-									tumbleSymbol.oncomplete = () => {
-										tumbleSymbol.symbolState = 'static';
-										resolve();
-									};
-								}, INTRO_BEAT_CAP_MS);
+				tumbleBoardCombined().flatMap((tumbleReel, reelIndex) => {
+					if (onlyReel !== undefined && reelIndex !== onlyReel) return [];
+					// WHICH LAYER a symbol came from is the whole rule here, and it has to be asked
+					// before the loop: `tumbleBoardCombined` merges the two, and by identity is the only
+					// honest way to ask afterwards (a survivor and a refill can hold equal `rawSymbol`s).
+					const arriving = new Set(stateTumble.adding[reelIndex] ?? []);
+					return tumbleReel.map(async (tumbleSymbol, symbolIndex) => {
+						const visible = symbolIndex > 0 && symbolIndex < tumbleReel.length - 1;
+						const seatY = getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW).y;
+
+						// A SURVIVOR IS NOT ARRIVING — it is relocating, and it must actually travel.
+						//
+						// This is the half of the cascade the style cannot take away. `combineTumbleReel`
+						// stacks the refills ABOVE the survivors, which is the engine's gravity model and
+						// the board the SERVER scored the next step against; placing a survivor at its new
+						// seat instantly would still land on the right board, but the player would see a
+						// symbol that did not win teleport down the column. So it slides exactly as
+						// `tumbleBoardSlideDown` moves it, and plays `land`, not `intro`: nothing has
+						// arrived, something has settled.
+						if (!arriving.has(tumbleSymbol)) {
+							if (seatY === tumbleSymbol.symbolY.current) return;
+							await tumbleSymbol.symbolY.set(seatY, { duration: 200, easing: backOut });
+							if (!visible) return;
+							tumbleSymbol.symbolState = 'land';
+							stateGameDerived.onSymbolLand({ rawSymbol: tumbleSymbol.rawSymbol });
+							await awaitBeat((resolve) => {
+								tumbleSymbol.oncomplete = () => {
+									tumbleSymbol.symbolState = 'static';
+									resolve();
+								};
+							});
+							tumbleSymbol.symbolState = 'static';
+							return;
+						}
+
+						if (visible) tumbleSymbol.symbolState = 'intro';
+						tumbleSymbol.symbolY.set(seatY, { duration: 0 });
+						if (!visible) return;
+						// The scatter counter and the class land cue — the SAME hook the cascade's
+						// refill calls, because an emerge IS the arrival however little it moved, and a
+						// board that arrived without ticking the counter is a bonus that never triggers.
+						stateGameDerived.onSymbolLand({ rawSymbol: tumbleSymbol.rawSymbol });
+						// …and the symbol's OWN emerge voice on top, when Invisible Symbols binds one.
+						// Additive, like the cascade pop — see `playSymbolIntroSound` for why this one
+						// layers where `land` replaces.
+						playSymbolIntroSound(tumbleSymbol.rawSymbol.name);
+						await awaitSymbolBeat((resolve) => {
+							tumbleSymbol.oncomplete = () => {
 								tumbleSymbol.symbolState = 'static';
-							}),
-				),
+								resolve();
+							};
+						}, INTRO_BEAT_CAP_MS);
+						tumbleSymbol.symbolState = 'static';
+					});
+				}),
 			);
 		},
 	});
