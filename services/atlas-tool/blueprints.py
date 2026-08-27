@@ -96,8 +96,9 @@ def hydrate(force: bool = False) -> None:
             BLUEPRINTS_STAGING,
             SHARED_BLUEPRINTS_PREFIX + "/",
         )
-        # After the pull, so we publish only what the library genuinely lacks.
-        _seed_bundled_if_missing()
+        # After the pull, so the comparison is against what the library really
+        # holds rather than a stale local mirror.
+        _sync_bundled()
     except Exception as e:  # noqa: BLE001 — first run / empty bucket / transient
         # Say it out loud. This used to be wholly silent, which meant a service
         # that could not reach R2 served stale staging copies forever with no
@@ -112,21 +113,28 @@ def hydrate(force: bool = False) -> None:
 BUNDLED_SRC = Path(__file__).resolve().parent / "blueprints_src"
 
 
-def _seed_bundled_if_missing() -> None:
-    """Publish the blueprints bundled in this image to the shared library, for
-    any id the library does not already have.
+BUNDLED_AUTHOR = "iw-builtin"
 
-    Why this is automatic rather than a manual `seed_blueprints.py` run: the
-    library is supposed to make "adding a built-in is just another
-    `blueprints_src/<id>/` folder" true, but that only held if somebody
-    remembered to run a script with production R2 credentials on their own
-    machine. In practice nobody did — a live bucket was found holding four
-    hand-uploaded blueprints and NONE of the three built-ins, so a folder added
-    to the repo simply never existed in the library. The service already has the
-    files and the credentials; it should not need a human courier.
 
-    NEVER overwrites. An id already present is left exactly as it is, so a
-    blueprint someone edited through the tool is safe and this is idempotent.
+def _sync_bundled() -> None:
+    """Keep the shared library's copy of each BUNDLED blueprint in step with this
+    image, without ever clobbering one a human has taken over.
+
+    The first version of this only published what was MISSING, which protected
+    edits but froze every bundled blueprint at whatever was seeded first: adding
+    a param to `blueprints_src/` in the repo then had no effect on the live
+    library at all, and the tool went on serving the older definition with no
+    sign anything was stale. That is what "I am still missing some options"
+    turned out to be.
+
+    The distinction that makes an update safe is already in the data. A bundled
+    blueprint carries `author: iw-builtin`; `_uploadblueprint` stamps the real
+    username on anything published through the tool. So:
+
+      * absent            -> publish it
+      * present, still ours (author unchanged) and BYTES DIFFER -> update it
+      * present, someone else's author -> leave it completely alone
+      * present and identical -> no write at all (so this is a cheap no-op)
     """
     if not BUNDLED_SRC.is_dir():
         return
@@ -136,27 +144,41 @@ def _seed_bundled_if_missing() -> None:
             continue
         key = f"{SHARED_BLUEPRINTS_PREFIX}/{d.name}/blueprint.json"
         try:
-            if storage.exists(key):
-                continue
-        except Exception as e:  # noqa: BLE001 — can't ask R2 ⇒ don't guess, skip
-            print(f"[blueprints] bundled-seed check failed for '{d.name}': {e}",
+            stored = storage.get(key)
+        except Exception as e:  # noqa: BLE001 — can't ask R2 ⇒ don't guess
+            print(f"[blueprints] bundled-sync check failed for '{d.name}': {e}",
                   flush=True)
             return
+        action = "seeded"
+        if stored is not None:
+            if stored == man.read_bytes():
+                continue  # identical: nothing to do, and no pointless write
+            try:
+                owner = str((json.loads(stored) or {}).get("author") or "")
+            except ValueError:
+                # A copy we cannot parse is already broken — the tool skips it at
+                # load — so restoring the bundled definition strictly helps.
+                owner = BUNDLED_AUTHOR
+            if owner != BUNDLED_AUTHOR:
+                print(f"[blueprints] '{d.name}' was re-published by '{owner}' — "
+                      "leaving it alone", flush=True)
+                continue
+            action = "updated"
         try:
             for name in ("blueprint.json", "workflow.json", "thumb.png"):
                 f = d / name
                 if not f.is_file():
                     continue
-                storage.put(f"{SHARED_BLUEPRINTS_PREFIX}/{d.name}/{name}",
-                            f.read_bytes())
-                # Mirror into staging too, so it is listable on THIS boot rather
-                # than only after the next restart's pull.
+                blob = f.read_bytes()
+                storage.put(f"{SHARED_BLUEPRINTS_PREFIX}/{d.name}/{name}", blob)
+                # Mirror into staging too, so it is live on THIS boot rather than
+                # only after the next restart's pull.
                 dest = BLUEPRINTS_STAGING / d.name
                 dest.mkdir(parents=True, exist_ok=True)
-                (dest / name).write_bytes(f.read_bytes())
-            print(f"[blueprints] seeded bundled blueprint '{d.name}'", flush=True)
+                (dest / name).write_bytes(blob)
+            print(f"[blueprints] {action} bundled blueprint '{d.name}'", flush=True)
         except Exception as e:  # noqa: BLE001 — one bad blueprint, keep going
-            print(f"[blueprints] could not seed bundled '{d.name}': {e}", flush=True)
+            print(f"[blueprints] could not sync bundled '{d.name}': {e}", flush=True)
 
 
 def library_status() -> dict:
