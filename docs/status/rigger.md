@@ -66,6 +66,28 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-08-27 — **A rig FX cue can be marked CONTINUOUS, so a looping animation stops chopping it up.**
+  Asked directly: *"would it be possible to mark an FX I put in the rig as continuous? so if the
+  animation loops the FX is not resetting?"* Yes, and it was a small addition to the override set.
+  - **What was wrong:** a binding is a one-shot per beat — every time the event crosses, `RiggedEffect`
+    bumps `runId` and the `{#key runId}` re-mount replays the effect from t=0. On a LOOPING clip that
+    restarts the burst once per lap, which is right for an impact and visibly wrong for anything
+    ambient (drifting smoke, bubbles, a glow): the reset reads as a stutter.
+  - **`evtObj.fx.continuous`** — the first BOOLEAN in `RigFxOverrides`. The first fire starts the
+    effect and later fires of the same event are ignored, so the emitter runs unbroken. Sparse like
+    the rest: only the opt-IN is stored, so every existing binding bakes byte-identically.
+  - **It stops when the RIG unmounts, not when the animation changes** — the manifest is keyed by
+    event name, not by clip, so an ambient effect survives a state change instead of dying on it. An
+    authored `duration` still bounds it.
+  - **Three places had to agree**, because each kills bursts on a loop wrap for its own reasons: the
+    game (`RiggedEffect`'s re-fire guard), the Rigger stage (stop the one-shots individually instead
+    of `clear()`-ing the whole overlay), and the `/symbols` grid (same, per cell). The preview overlay
+    also skips its `PREVIEW_HOLD_MS` cap for a continuous burst — capping it would show the author the
+    exact stutter the flag exists to remove.
+  - Verified live over ~3 laps of a 1.33s looping clip with one continuous and one one-shot cue on the
+    same timeline: the continuous effect played **once** and was still live at the end; the one-shot
+    played **3 times**, once per lap. Gate `check:rig-fx-overrides` extended and **mutation-verified**
+    — storing `continuous:false` and dropping the field from the reader each fail it.
 - 2026-08-27 — **The stage now has an FX overlay on EACH side of the rig, so two cues at opposite
   depths both preview truthfully.** Reported after the previous fix: *"the layering works fine in
   game, but not in the rigger — the canvas view is still showing both FX on top of the rig."* That

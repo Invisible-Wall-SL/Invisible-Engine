@@ -931,6 +931,7 @@
 						delay={b.delay}
 						duration={b.duration}
 						speed={b.speed}
+						continuous={b.continuous}
 					/>
 				{/if}
 			{/each}

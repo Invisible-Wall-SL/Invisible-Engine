@@ -30,6 +30,9 @@
 		duration?: number;
 		/** Time-scale multiplier on the emitters. */
 		speed?: number;
+		/** Start on the first beat and keep going, ignoring later fires — so a LOOPING animation does
+		 * not chop and restart an ambient effect once per lap. See `RigFxOverrides.continuous`. */
+		continuous?: boolean;
 	};
 </script>
 
@@ -121,6 +124,11 @@
 	// its own timer, so two beats inside one delay window still produce two bursts.
 	let pending: ReturnType<typeof setTimeout>[] = [];
 	const fire = (): void => {
+		// A continuous binding is armed by its FIRST beat and then deaf: re-mounting is how a one-shot
+		// replays from t=0, so ignoring the later fires is exactly what keeps the emitter unbroken.
+		// `runId > 0` means it is already mounted; a pending delay counts too, or a beat landing inside
+		// the delay window would queue a second start.
+		if (props.continuous && (runId > 0 || pending.length > 0)) return;
 		const delay = props.delay;
 		if (typeof delay !== 'number' || !Number.isFinite(delay) || delay <= 0) {
 			runId += 1;

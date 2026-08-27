@@ -72,6 +72,15 @@ export interface FxPlayOptions {
 	duration?: number;
 	/** Time-scale multiplier on this effect's emitters. */
 	speed?: number;
+	/**
+	 * This burst is meant to run continuously, so do NOT apply {@link PREVIEW_HOLD_MS}.
+	 *
+	 * That cap exists so an infinite effect does not emit forever in a preview nobody is watching. A
+	 * continuous binding is the one case where forever is the point — capping it would show the author
+	 * the exact stutter they set the flag to remove. An authored `duration` still bounds it, because
+	 * that is a decision rather than a guess.
+	 */
+	continuous?: boolean;
 }
 
 /** The imperative surface each host drives (the Rigger assigns an instance to `window.RiggerFx`). */
@@ -253,7 +262,7 @@ export function createFxOverlay(): FxOverlayApi {
 		effect: LiveEffect,
 		layer: EmitterLayer,
 		plan: ReturnType<typeof planLayer>,
-		holdMs: number,
+		holdMs: number | null,
 	): Promise<void> {
 		const textures = await framesToTextures(layer, resolveArt, sourceCache);
 		if (effect.disposed || textures.length === 0) return;
@@ -278,15 +287,17 @@ export function createFxOverlay(): FxOverlayApi {
 		// the binding's authored `duration` when it has one, and only otherwise the preview's own
 		// PREVIEW_HOLD_MS guess — an authored duration is a decision, not a fallback, and the game
 		// honours the same number.
-		effect.timers.push(
-			setTimeout(() => {
-				try {
-					emitter.emit = false;
-				} catch {
-					/* emitter already torn down */
-				}
-			}, holdMs),
-		);
+		if (holdMs !== null) {
+			effect.timers.push(
+				setTimeout(() => {
+					try {
+						emitter.emit = false;
+					} catch {
+						/* emitter already torn down */
+					}
+				}, holdMs),
+			);
+		}
 		effect.emitters.push(emitter);
 	}
 
@@ -312,7 +323,8 @@ export function createFxOverlay(): FxOverlayApi {
 			speed: opts?.speed ?? 1,
 		};
 		effects.set(handle, effect);
-		const holdMs = opts?.duration ?? PREVIEW_HOLD_MS;
+		// `null` = never force-stop (a continuous burst with no authored duration).
+		const holdMs = opts?.duration ?? (opts?.continuous ? null : PREVIEW_HOLD_MS);
 		const delay = opts?.delay ?? 0;
 
 		void (async () => {

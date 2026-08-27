@@ -143,6 +143,12 @@ With an effect bound, the rest of the panel appears:
   back to front. With **On bone** left at its default, the slot's own bone hosts
   the burst; set a bone and the bone decides position while the slot still decides
   depth.
+- **Continuous** — off by default, which means the effect replays from the start on **every**
+  beat. On a looping animation that is once per lap: right for an impact, a visible stutter for
+  anything ambient like smoke or a glow. Tick it and the first beat starts the effect and later
+  beats are ignored, so it runs unbroken. It keeps running until the rig goes away (or until
+  **Duration** below stops it) — including across a change of animation, because a binding
+  belongs to the rig, not to one clip.
 - **Opacity**, **Size**, **Delay**, **Duration**, **Speed** — per-binding
   overrides. They adjust *this* use of the effect without touching its definition
   in `/fx`, so two rigs can fire the same effect dimmer, slower or deeper without

@@ -1546,11 +1546,20 @@ function updateFxPreview(){
     // Interval (lo, cur] crossed this frame. On a loop-wrap / scrub-back, reset and drop `lo` below 0
     // so events AT (or near) t=0 fire on the wrap — a plain `prev < e.time` can never cross t=0.
     let lo = prev;
-    if (cur < prev - 1e-4){ fxEachBand((b) => b.api.clear()); fxActive = []; lo = -1; } // loop / scrub-back
+    if (cur < prev - 1e-4){
+      // Loop / scrub-back. A CONTINUOUS burst survives the wrap — that is the whole point of the
+      // flag, and clearing the overlay wholesale would restart it once per lap, which is exactly the
+      // stutter it exists to remove. Stop the one-shots individually instead.
+      for (const fx of fxActive) if (!fx.continuous){ try { fxBands[fx.band].api.stop(fx.handle); } catch (e){} }
+      fxActive = fxActive.filter((fx) => fx.continuous);
+      lo = -1;
+    }
     // fire when the playhead enters an fx keyframe: crossing (lo, cur], t=0 included.
     for (const e of events){
       if (!(e.fx && e.fx.effectId)) continue;
       const t = e.time || 0;
+      // Already running and marked continuous → this beat is deaf, same rule the game applies.
+      if (e.fx.continuous && fxActive.some((fx) => fx.src === e)) continue;
       if (lo < t && cur >= t){
         // A slot binding rides the SLOT's bone when no bone was picked — the same rule the game
         // applies, so the burst previews where it will actually be.
@@ -1561,7 +1570,7 @@ function updateFxPreview(){
         const band = fxBands[key];
         if (!band.api){ ensureFxOverlay(key); continue; } // created lazily; it fires on a later pass
         const h = band.api.play(e.fx.effectId, tf, fxPlayOptsFor(e.fx));
-        fxActive.push({ handle: h, bone: fxHostBone(e.fx), band: key });
+        fxActive.push({ handle: h, bone: fxHostBone(e.fx), band: key, continuous: !!e.fx.continuous, src: e });
       }
     }
     // ride the bone: reposition every active effect each frame
@@ -9137,6 +9146,7 @@ const FX_NUM_FIELDS = {
 function fxPlayOptsFor(fx){
   const opts = {};
   if (!fx) return opts;
+  if (fx.continuous) opts.continuous = true;
   for (const spec of Object.values(FX_NUM_FIELDS)){
     const v = fx[spec.key];
     if (typeof v === "number" && isFinite(v)) opts[spec.key] = v;
@@ -9241,6 +9251,10 @@ function setEventKeyField(evtObj, field, raw){
     // Host bone for the bound effect (absent = rig origin). Only meaningful with an effect bound.
     if (!evtObj.fx) return;
     if (raw === "" || raw == null) delete evtObj.fx.bone; else evtObj.fx.bone = raw;
+  } else if (field === "fx.continuous"){
+    // Sparse: one-shot is the default, so only the opt-IN is written.
+    if (!evtObj.fx) return;
+    if (raw) evtObj.fx.continuous = true; else delete evtObj.fx.continuous;
   } else if (field === "fx.slot"){
     // Draw depth: render the burst at this slot's place in the draw order instead of over the rig.
     if (!evtObj.fx) return;
@@ -9382,6 +9396,24 @@ function renderEventDetail(){
       note.style.cssText = "font-size:10px;line-height:1.3;margin:1px 0 3px;opacity:.85;color:" + (exact ? "#bfe3c8" : "#ffe8b0") + ";";
       det.appendChild(note);
     }
+
+    // Continuous: start on the first beat and keep going, instead of restarting each lap.
+    const contWrap = fieldRow("Playback");
+    const contLabel = document.createElement("label");
+    contLabel.style.cssText = "display:flex;align-items:center;gap:6px;font-size:12px;color:var(--txt);cursor:pointer;";
+    const contBox = document.createElement("input");
+    contBox.type = "checkbox"; contBox.checked = !!selEvent.fx.continuous;
+    contBox.style.cssText = "width:14px;height:14px;accent-color:var(--accent2);cursor:pointer;";
+    contBox.onchange = () => { setEventKeyField(selEvent, "fx.continuous", contBox.checked); renderEventDetail(); fxFirePreview(selEvent); };
+    contLabel.appendChild(contBox);
+    const contText = document.createElement("span"); contText.textContent = "Continuous"; contLabel.appendChild(contText);
+    contWrap.appendChild(contLabel); det.appendChild(contWrap);
+    const contHint = document.createElement("div");
+    contHint.textContent = selEvent.fx.continuous
+      ? "Starts on the first beat and keeps running — a looping animation will not restart it. Stops when the rig unmounts, or after Duration below."
+      : "Restarts from the beginning on every beat. On a looping animation that means once per lap — right for an impact, a stutter for anything ambient.";
+    contHint.style.cssText = "font-size:10px;color:var(--dim);opacity:.8;line-height:1.3;margin:1px 0 3px;";
+    det.appendChild(contHint);
 
     // Per-binding overrides — adjust THIS use of the effect without forking its doc in /fx.
     const numRow = document.createElement("div"); numRow.style.cssText = "display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;";
