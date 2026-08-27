@@ -894,48 +894,77 @@ let fxReady = false, fxActive = [], fxPrevAnimTime = -1, fxPrevAnim = null, fxLo
 // exists, and the answer has to survive until it does.
 let fxInFront = true;
 /**
- * Move the FX overlay canvas above (`true`) or below (`false`) the rig canvas — the ONLY two bands
- * that exist here (`#cv` is z-index 1; see the stage CSS).
+ * TWO overlays, one per band: `front` paints above the rig canvas (z 2) and `back` below it (z 0).
  *
- * `false` means INVISIBLE, not "behind the art": `#cv` clears at alpha 1, so an overlay under it is
- * fully occluded. That band belongs to a cinematic set alone, which is why leaving cinematic mode
- * restores the front band (`setMode`) — a sticky `false` otherwise buried the animate/preview FX for
- * the rest of the page session. Applied to whatever overlay canvas is mounted; the overlay is lazy,
- * so `ensureFxOverlay` re-applies the remembered band on init.
+ * One overlay was not enough. Every live burst had to share its single band, so a cue bound to a
+ * slot at the BACK of the draw order and one bound near the front could not both be right — whichever
+ * rule was picked, one of them previewed on the wrong side of the rig. With a canvas per band each
+ * burst goes to its own side and the stage finally matches what the game draws.
+ *
+ * The `back` one only works because `#cv` now clears TRANSPARENT (see `initGL`); under the old opaque
+ * clear an overlay below it was simply invisible, which is why this was a single overlay for so long.
+ *
+ * Each is a separate Pixi Application, so each costs a WebGL context. Both are therefore LAZY: a rig
+ * whose cues all sit on one side never creates the other, and a rig with no FX creates neither.
  */
+const fxBands = { front: { api: null, canvas: null, z: "2" }, back: { api: null, canvas: null, z: "0" } };
+/** Which band the CINEMATIC asked for (its set can sit behind the cast). Remembered because the
+ * overlay is lazy: a cue can ask before the canvas exists. */
 function setFxOverlayDepth(inFront){
   fxInFront = !!inFront;
-  const c = $("#stage").querySelector("canvas:not(#cv)"); // the overlay is the only other canvas here
-  if (c) c.style.zIndex = fxInFront ? "2" : "0";
 }
-function ensureFxOverlay(){
-  if (fxReady) return Promise.resolve();
-  if (fxLoadFailed) return Promise.resolve();
+/** The band an effect should play in, as a key into {@link fxBands}. */
+const fxBandKey = (inFront) => (inFront ? "front" : "back");
+/** Every overlay that currently exists — for the calls that apply to all of them (resize, clear). */
+const fxEachBand = (fn) => { for (const k of ["front", "back"]) if (fxBands[k].api) fn(fxBands[k], k); };
+/** Load the vendored bundle once. Resolves whether or not it worked; `fxLoadFailed` is the verdict. */
+function ensureFxBundle(){
+  if (fxLoadFailed || window.RiggerFxCreate) return Promise.resolve();
   if (fxLoading) return fxLoading;
   fxLoading = new Promise((resolve) => {
     const finish = () => {
-      if (!window.RiggerFx){ console.warn("[RiggerFx] bundle loaded but window.RiggerFx missing"); fxLoadFailed = true; return resolve(); }
-      Promise.resolve(window.RiggerFx.init($("#stage")))
-        .then(() => {
-          fxReady = true;
-          setFxOverlayDepth(fxInFront); // honour a depth asked for before this canvas existed
-          console.log("[RiggerFx] overlay ready");
-        })
-        .catch((e) => { fxLoadFailed = true; console.warn("[RiggerFx] init failed", e); })
-        .then(() => resolve());
+      if (!window.RiggerFxCreate){
+        console.warn("[RiggerFx] bundle loaded but window.RiggerFxCreate missing");
+        fxLoadFailed = true;
+      }
+      resolve();
     };
-    if (window.RiggerFx){ finish(); return; }
+    if (window.RiggerFxCreate){ finish(); return; }
     console.log("[RiggerFx] loading /rigger/vendor/rigger-fx.js …");
-    const s = document.createElement("script");
+    const sc = document.createElement("script");
     // Cache-bust the stable-name vendored bundle with the deploy version `?v=` the /rigger route
     // passed in (see buildId.ts) — else the browser serves a stale rigger-fx.js after a redeploy.
     const _v = new URLSearchParams(location.search).get("v");
-    s.src = "/rigger/vendor/rigger-fx.js" + (_v ? "?v=" + encodeURIComponent(_v) : "");
-    s.onload = finish;
-    s.onerror = () => { console.warn("[RiggerFx] failed to load the overlay bundle"); fxLoadFailed = true; resolve(); }; // best-effort — don't retry-spam
-    document.head.appendChild(s);
+    sc.src = "/rigger/vendor/rigger-fx.js" + (_v ? "?v=" + encodeURIComponent(_v) : "");
+    sc.onload = finish;
+    sc.onerror = () => { console.warn("[RiggerFx] failed to load the overlay bundle"); fxLoadFailed = true; resolve(); }; // best-effort — don’t retry-spam
+    document.head.appendChild(sc);
   });
   return fxLoading;
+}
+/**
+ * Create (once) the overlay for ONE band and park its canvas at that band’s z-index. Lazy per band:
+ * a rig whose cues all sit in front never spends a WebGL context on the back overlay.
+ */
+function ensureFxOverlay(bandKey){
+  const band = fxBands[bandKey === "back" ? "back" : "front"];
+  if (band.api) return Promise.resolve();
+  if (band.pending) return band.pending;
+  band.pending = ensureFxBundle().then(() => {
+    if (fxLoadFailed || band.api) return;
+    const api = window.RiggerFxCreate();
+    // Note WHICH canvas is ours: #stage now holds up to three (the rig + one per band), so the old
+    // `canvas:not(#cv)` lookup would grab whichever came first.
+    const before = new Set([...$("#stage").querySelectorAll("canvas")]);
+    return Promise.resolve(api.init($("#stage"))).then(() => {
+      band.api = api;
+      band.canvas = [...$("#stage").querySelectorAll("canvas")].find((c) => !before.has(c)) || null;
+      if (band.canvas) band.canvas.style.zIndex = band.z;
+      fxReady = true;
+      console.log("[RiggerFx] " + (bandKey === "back" ? "back" : "front") + " overlay ready");
+    });
+  }).catch((e) => { console.warn("[RiggerFx] init failed", e); });
+  return band.pending;
 }
 // ---- cinematic mode (lazy) ------------------------------------------------
 // The multi-actor sequencer lives in /rigger/cinematic.js so this file stays the rig editor.
@@ -1003,10 +1032,14 @@ function cinematicBridge(){
      */
     fireFx: (effectId) => {
       if (!effectId) return;
-      ensureFxOverlay().then(() => {
-        if (!window.RiggerFx || !fxReady) return;
+      // The cinematic decides its own band (`setFxDepth` → `fxInFront`): a set authored behind the
+      // cast draws in the back overlay, one in front draws in the front overlay.
+      const key = fxBandKey(fxInFront);
+      ensureFxOverlay(key).then(() => {
+        const band = fxBands[key];
+        if (!band.api) return;
         const cv = $("#cv");
-        try { window.RiggerFx.play(effectId, { x: cv.clientWidth / 2, y: cv.clientHeight / 2, scale: 1, rotation: 0 }); }
+        try { band.api.play(effectId, { x: cv.clientWidth / 2, y: cv.clientHeight / 2, scale: 1, rotation: 0 }); }
         catch (e){ console.warn("[Cinematic] fx cue failed", effectId, e); }
       });
     },
@@ -1166,7 +1199,7 @@ function beginTweak(info){
   fxClearPreview();
   tlPxPerSec = null; graphSel = []; dopeSel = []; selEvent = null;
   if (tweakInline) applyInlineChrome(true); else applyTweakChrome(true);
-  ensureFxOverlay(); // the rig's own event-driven FX preview, same as animate mode
+  ensureFxOverlay("front"); // the rig's own event-driven FX preview, same as animate mode
   if (!tweakInline) renderTweakBar();
   renderAnimSection();
   renderEventDetail();
@@ -1432,6 +1465,29 @@ function fxBoneTransform(boneName){
  * and only counts slots that actually have an attachment — an empty slot draws nothing, so it cannot
  * be what the burst is hiding behind.
  */
+/**
+ * Is the band we can actually show this slot in its TRUE depth?
+ *
+ * With an overlay on each side of the rig canvas, a slot at either END of the draw order previews
+ * exactly: nothing drawn behind it means “behind everything” IS its depth, and nothing drawn in
+ * front of it means “in front of everything” is. Only a slot with art on BOTH sides is approximated,
+ * because no arrangement of two canvases can sandwich a burst inside a single rig draw.
+ *
+ * Counts only slots that carry an attachment — an empty slot draws nothing, so it cannot be what the
+ * burst is hiding behind or in front of.
+ */
+function fxDepthIsExact(slotName){
+  if (!slotName || !skeleton) return true; // no slot = “on top”, which the front overlay shows exactly
+  const order = skeleton.drawOrder || [];
+  const pos = order.findIndex((sl) => sl && sl.data && sl.data.name === slotName);
+  if (pos < 0) return true; // slot renamed away — falls back to on-top, shown exactly
+  let artBehind = false, artInFront = false;
+  for (let i = 0; i < order.length; i++){
+    if (i === pos || !order[i] || !order[i].getAttachment()) continue;
+    if (i < pos) artBehind = true; else artInFront = true;
+  }
+  return !artBehind || !artInFront;
+}
 function fxBandInFront(slotName){
   if (!slotName || !skeleton) return true;
   const order = skeleton.drawOrder || [];
@@ -1472,17 +1528,25 @@ function updateFxPreview(){
   if (!fxActive.length && !events.some((e) => e.fx && e.fx.effectId)) return;
   // Lazy-load the overlay the moment such a clip is running — robust to any entry path (state
   // restore, direct mode set) that didn't route through setMode. Idempotent + cheap.
-  if (!fxReady){ ensureFxOverlay(); return; }
-  if (!window.RiggerFx) return;
+  // Create every band THIS CLIP needs before the crossing runs. Without it the first pass over a
+  // back-band keyframe is dropped (its overlay is still being created), so a burst behind the rig
+  // only appeared on the second loop — and on a non-looping clip, never.
+  for (const e of events){
+    if (!(e.fx && e.fx.effectId)) continue;
+    const k = fxBandKey(fxBandInFront(e.fx.slot));
+    if (!fxBands[k].api) ensureFxOverlay(k);
+  }
+  if (!fxReady) return;
+  if (fxLoadFailed) return;
   try {
     // A different clip is playing: its bursts belong to the clip that left, and its keyframe times
     // are on a different timeline — drop both rather than cross the new clip against the old cursor.
-    if (ctx.anim !== fxPrevAnim){ window.RiggerFx.clear(); fxActive = []; fxPrevAnim = ctx.anim; fxPrevAnimTime = -1; }
+    if (ctx.anim !== fxPrevAnim){ fxEachBand((b) => b.api.clear()); fxActive = []; fxPrevAnim = ctx.anim; fxPrevAnimTime = -1; }
     const prev = fxPrevAnimTime, cur = ctx.time; fxPrevAnimTime = cur;
     // Interval (lo, cur] crossed this frame. On a loop-wrap / scrub-back, reset and drop `lo` below 0
     // so events AT (or near) t=0 fire on the wrap — a plain `prev < e.time` can never cross t=0.
     let lo = prev;
-    if (cur < prev - 1e-4){ window.RiggerFx.clear(); fxActive = []; lo = -1; } // loop / scrub-back
+    if (cur < prev - 1e-4){ fxEachBand((b) => b.api.clear()); fxActive = []; lo = -1; } // loop / scrub-back
     // fire when the playhead enters an fx keyframe: crossing (lo, cur], t=0 included.
     for (const e of events){
       if (!(e.fx && e.fx.effectId)) continue;
@@ -1491,26 +1555,25 @@ function updateFxPreview(){
         // A slot binding rides the SLOT's bone when no bone was picked — the same rule the game
         // applies, so the burst previews where it will actually be.
         const tf = fxBoneTransform(fxHostBone(e.fx)); if (!tf) continue;
-        const h = window.RiggerFx.play(e.fx.effectId, tf, fxPlayOptsFor(e.fx));
-        fxActive.push({ handle: h, bone: fxHostBone(e.fx), inFront: fxBandInFront(e.fx.slot) });
+        // Each burst goes to the overlay for ITS OWN side of the rig, so two cues bound at opposite
+        // ends of the draw order both preview truthfully instead of sharing one band.
+        const key = fxBandKey(fxBandInFront(e.fx.slot));
+        const band = fxBands[key];
+        if (!band.api){ ensureFxOverlay(key); continue; } // created lazily; it fires on a later pass
+        const h = band.api.play(e.fx.effectId, tf, fxPlayOptsFor(e.fx));
+        fxActive.push({ handle: h, bone: fxHostBone(e.fx), band: key });
       }
     }
-    // ONE band for every live burst — they share a canvas, so a per-fire `setFxOverlayDepth` let
-    // whichever fired LAST drag the others to its band. Two cues 40ms apart therefore both ended up
-    // wherever the second one wanted, while each inspector note still claimed its own depth was
-    // exact. Derive it from the live set instead, and prefer FRONT when they disagree: the stage
-    // cannot show two depths, and hiding a burst behind the rig is the worse of the two lies.
-    if (fxActive.length) setFxOverlayDepth(fxActive.some((fx) => fx.inFront));
     // ride the bone: reposition every active effect each frame
     for (const fx of fxActive){
       const tf = fxBoneTransform(fx.bone); if (!tf) continue;
-      window.RiggerFx.follow(fx.handle, tf);
+      fxBands[fx.band].api.follow(fx.handle, tf);
     }
   } catch (e){ /* projection hiccup — never break the render loop */ }
 }
 // Clear all live effects + reset crossing state (context switch: anim/rig/mode change).
 function fxClearPreview(){
-  if (window.RiggerFx){ try { window.RiggerFx.clear(); } catch (e){} }
+  fxEachBand((b) => { try { b.api.clear(); } catch (e){} });
   fxActive = []; fxPrevAnimTime = -1; fxPrevAnim = null;
   setFxOverlayDepth(true); // nothing playing — leave the overlay in the neutral (front) band
 }
@@ -1519,14 +1582,17 @@ function fxClearPreview(){
 // so it plays once and fades (no forever-loop). Lazy-loads the overlay if needed.
 function fxFirePreview(evtObj){
   if (!animMode || !evtObj || !evtObj.fx || !evtObj.fx.effectId) return;
-  ensureFxOverlay().then(() => {
-    if (!fxReady || !window.RiggerFx) return;
+  ensureFxOverlay(fxBandKey(fxBandInFront(evtObj.fx.slot))).then(() => {
+    if (fxLoadFailed) return;
     try {
       const host = fxHostBone(evtObj.fx);
       const tf = fxBoneTransform(host); if (!tf) return;
-      window.RiggerFx.clear(); fxActive = []; // preview only the latest pick
-      const h = window.RiggerFx.play(evtObj.fx.effectId, tf, fxPlayOptsFor(evtObj.fx));
-      fxActive.push({ handle: h, bone: host, inFront: fxBandInFront(evtObj.fx.slot) });
+      const key = fxBandKey(fxBandInFront(evtObj.fx.slot));
+      const band = fxBands[key];
+      if (!band.api) return; // its overlay is still being created — the next pick will land
+      fxEachBand((b) => b.api.clear()); fxActive = []; // preview only the latest pick
+      const h = band.api.play(evtObj.fx.effectId, tf, fxPlayOptsFor(evtObj.fx));
+      fxActive.push({ handle: h, bone: host, band: key });
     } catch (e){}
   });
 }
@@ -1585,7 +1651,7 @@ function resizeCanvas(){
   const w = Math.floor(cv.clientWidth * dpr), h = Math.floor(cv.clientHeight * dpr);
   if (cv.width !== w || cv.height !== h){
     cv.width = w; cv.height = h;
-    if (window.RiggerFx && fxReady) window.RiggerFx.resize(); // keep the FX overlay in sync
+    fxEachBand((b) => b.api.resize()); // keep every FX overlay in sync
   }
 }
 
@@ -9300,22 +9366,19 @@ function renderEventDetail(){
     slotWrap.appendChild(slotSel); det.appendChild(slotWrap);
     if (selEvent.fx?.slot){
       // The honest limit, stated where the choice is made. The stage draws every rig into ONE
-      // WebGL canvas and FX into a Pixi canvas above it, so it can put the burst above or below
-      // the whole rig but never between two of its slots. The GAME has no such split.
-      const wantsBehind = !fxBandInFront(selEvent.fx.slot);
-      // The stage has ONE overlay canvas, so every live burst shares a band. If another cue on this
-      // clip wants the other one, the preview cannot be honest about both — say so here rather than
-      // let two notes each claim to be exact while the screen shows one of them wrong.
-      const clipEvents = (rawDoc.animations[curAnim] && rawDoc.animations[curAnim].events) || [];
-      const contested = clipEvents.some((e) =>
-        e !== selEvent && e.fx && e.fx.effectId && fxBandInFront(e.fx.slot) === wantsBehind);
-      const exact = wantsBehind && !contested;
+      // WebGL canvas, with one FX overlay BELOW it and one ABOVE. So the stage can show a burst
+      // behind the whole rig or in front of it — but still never sandwiched between two slots.
+      const inFront = fxBandInFront(selEvent.fx.slot);
+      // Is the band we can show the burst’s TRUE depth? Yes at either end of the stack: nothing
+      // drawn behind it (so “behind everything” is exact) or nothing drawn in front of it (so “in
+      // front of everything” is). Only a genuinely mid-stack slot is approximated.
+      const exact = fxDepthIsExact(selEvent.fx.slot);
       const note = document.createElement("div");
       note.textContent = exact
-        ? "Previewed BEHIND the rig — nothing is drawn behind “" + selEvent.fx.slot + "”, so that is its true depth here and in game."
-        : contested
-          ? "In game this draws at “" + selEvent.fx.slot + "”'s depth. Another cue on this clip sits on the other side of the rig, and the stage has ONE overlay for both — so while they overlap the preview shows them together, in front. The game draws each at its own depth."
-          : "In game this draws at “" + selEvent.fx.slot + "”'s depth. This stage draws the whole rig into one canvas, so it can only show FX behind or in front of ALL of it — with art behind that slot, the preview shows it in front.";
+        ? (inFront
+            ? "Previewed IN FRONT of the rig — nothing is drawn in front of “" + selEvent.fx.slot + "”, so that is its true depth here and in game."
+            : "Previewed BEHIND the rig — nothing is drawn behind “" + selEvent.fx.slot + "”, so that is its true depth here and in game.")
+        : "In game this draws at “" + selEvent.fx.slot + "”'s depth, between the slots either side of it. The stage draws the whole rig into one canvas, so it can only show FX behind or in front of ALL of it — this previews " + (inFront ? "in front" : "behind") + ".";
       note.style.cssText = "font-size:10px;line-height:1.3;margin:1px 0 3px;opacity:.85;color:" + (exact ? "#bfe3c8" : "#ffe8b0") + ";";
       det.appendChild(note);
     }
