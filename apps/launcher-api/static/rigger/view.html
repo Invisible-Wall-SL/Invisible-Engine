@@ -886,11 +886,26 @@ function loadRuntime(line){
 // When the playhead crosses an event.fx keyframe, fire that Invisible FX effect as a live
 // particle burst on the stage at the bound bone (or rig origin), riding the bone per-frame.
 // Uses the vendored window.RiggerFx (a transparent Pixi overlay in #stage). All coords CSS px.
-let fxReady = false, fxActive = [], fxPrevAnimTime = -1, fxLoadFailed = false, fxLoading = null;
+let fxReady = false, fxActive = [], fxPrevAnimTime = -1, fxPrevAnim = null, fxLoadFailed = false, fxLoading = null;
 // Whether the FX overlay canvas paints above the rig canvas (see the bridge's `setFxDepth`).
 // Held here because the overlay is lazy: a cinematic can ask for a depth before the canvas
 // exists, and the answer has to survive until it does.
 let fxInFront = true;
+/**
+ * Move the FX overlay canvas above (`true`) or below (`false`) the rig canvas — the ONLY two bands
+ * that exist here (`#cv` is z-index 1; see the stage CSS).
+ *
+ * `false` means INVISIBLE, not "behind the art": `#cv` clears at alpha 1, so an overlay under it is
+ * fully occluded. That band belongs to a cinematic set alone, which is why leaving cinematic mode
+ * restores the front band (`setMode`) — a sticky `false` otherwise buried the animate/preview FX for
+ * the rest of the page session. Applied to whatever overlay canvas is mounted; the overlay is lazy,
+ * so `ensureFxOverlay` re-applies the remembered band on init.
+ */
+function setFxOverlayDepth(inFront){
+  fxInFront = !!inFront;
+  const c = $("#stage").querySelector("canvas:not(#cv)"); // the overlay is the only other canvas here
+  if (c) c.style.zIndex = fxInFront ? "2" : "0";
+}
 function ensureFxOverlay(){
   if (fxReady) return Promise.resolve();
   if (fxLoadFailed) return Promise.resolve();
@@ -901,8 +916,7 @@ function ensureFxOverlay(){
       Promise.resolve(window.RiggerFx.init($("#stage")))
         .then(() => {
           fxReady = true;
-          const c = $("#stage").querySelector("canvas:not(#cv)");
-          if (c) c.style.zIndex = fxInFront ? "2" : "0"; // honour a depth asked for before this existed
+          setFxOverlayDepth(fxInFront); // honour a depth asked for before this canvas existed
           console.log("[RiggerFx] overlay ready");
         })
         .catch((e) => { fxLoadFailed = true; console.warn("[RiggerFx] init failed", e); })
@@ -1001,14 +1015,12 @@ function cinematicBridge(){
      * Only two positions exist here, by construction: every rig is drawn into the single
      * `#cv` WebGL canvas while FX is Pixi in its own canvas, so the overlay can sit above that
      * canvas or below it, never between two rigs inside it. The game honours the real z; the
-     * cinematic asks for the band that matches (see `setInFront`). Applied to whatever overlay
-     * canvas is currently mounted — the overlay is lazy, so this is also re-applied on init.
+     * cinematic asks for the band that matches (see `setInFront`).
+     *
+     * Scoped to cinematic mode: `setMode` restores the front band on the way out, so a set authored
+     * BEHIND its cast cannot leave the animate/preview FX preview buried under the opaque rig canvas.
      */
-    setFxDepth: (inFront) => {
-      fxInFront = !!inFront;
-      const c = $("#stage").querySelector("canvas:not(#cv)"); // the overlay is the only other canvas here
-      if (c) c.style.zIndex = fxInFront ? "2" : "0";
-    },
+    setFxDepth: (inFront) => setFxOverlayDepth(inFront),
     // Tweak mode (design §4.4) — see the block below `loadRigData` for what each hook owns.
     openRigForTweak,
     beginTweak,
@@ -1379,16 +1391,55 @@ function fxBoneTransform(boneName){
   const PY = fxProject(b.worldX + b.b * L, b.worldY + b.d * L);
   return { x: O.x, y: O.y, a: (PX.x - O.x) / L, b: (PX.y - O.y) / L, c: (PY.x - O.x) / L, d: (PY.y - O.y) / L };
 }
-// Per-frame update — call AFTER poseAtTime(curAnim, animTime), only in animate mode.
+/**
+ * Which clip the FX crossing should read this frame, and where its playhead is — the one difference
+ * between the two modes that preview FX.
+ *
+ * ANIMATE authors against `curAnim`/`animTime` (the tool's own playhead). PREVIEW plays through the
+ * spine runtime instead, so the truth is the track entry: its animation name and its WRAPPED
+ * `trackTime`. Reading the live entry (not `curAnim`) also means a clip changed underneath us — via
+ * the Anim picker or a mix — is seen here, and `updateFxPreview` clears the old clip's bursts.
+ * Returns null in setup/cinematic, or with no rig open.
+ */
+function fxPlayContext(){
+  if (!rawDoc || !rawDoc.animations) return null;
+  // Animate first — the cinematic's INLINE TWEAK is animate-on-the-open-rig with `cineMode` still
+  // set (`beginTweak`), and it drives this through `tweakPose`. Testing cineMode ahead of animMode
+  // would silently kill the tweak-mode FX preview.
+  if (animMode) return curAnim ? { anim: curAnim, time: animTime } : null;
+  if (cineMode || editMode) return null;
+  const e = animState && animState.getCurrent(0);
+  const name = e && e.animation && e.animation.name;
+  if (!name || !rawDoc.animations[name]) return null;
+  // The entry's OWN clocked time, so the loop rule is the runtime's: a non-looping clip holds at the
+  // end, where a raw `trackTime % dur` would wrap past it and re-fire every cue forever. (`syncScrub`
+  // can wrap freely — it only draws a readout.) The fallback covers a runtime without the accessor.
+  const dur = e.animation.duration || 0;
+  const time = typeof e.getAnimationTime === "function"
+    ? e.getAnimationTime()
+    : (e.loop && dur > 0 ? e.trackTime % dur : Math.min(e.trackTime, dur));
+  return { anim: name, time };
+}
+// Per-frame update — call AFTER updateWorld(), in animate OR preview mode. Preview is where most
+// authors actually watch a clip back, so a cue that only fired in animate read as "the FX is broken".
 function updateFxPreview(){
-  if (!animMode || !curAnim) return;
-  // Lazy-load the overlay the moment we're animating — robust to any animate-mode entry path
-  // (state-restore, direct mode set) that didn't route through setMode. Idempotent + cheap.
+  const ctx = fxPlayContext();
+  if (!ctx) return;
+  const events = (rawDoc.animations[ctx.anim] && rawDoc.animations[ctx.anim].events) || [];
+  // Nothing to play and nothing playing ⇒ leave before touching the overlay at all. Preview reaches
+  // this on every rig open, and the browser caps live WebGL contexts (~16), so a rig with no bound
+  // keyframe must never cost one. `fxActive` keeps us in when a previous clip's bursts still need
+  // clearing or following.
+  if (!fxActive.length && !events.some((e) => e.fx && e.fx.effectId)) return;
+  // Lazy-load the overlay the moment such a clip is running — robust to any entry path (state
+  // restore, direct mode set) that didn't route through setMode. Idempotent + cheap.
   if (!fxReady){ ensureFxOverlay(); return; }
   if (!window.RiggerFx) return;
   try {
-    const events = (rawDoc.animations[curAnim] && rawDoc.animations[curAnim].events) || [];
-    const prev = fxPrevAnimTime, cur = animTime; fxPrevAnimTime = cur;
+    // A different clip is playing: its bursts belong to the clip that left, and its keyframe times
+    // are on a different timeline — drop both rather than cross the new clip against the old cursor.
+    if (ctx.anim !== fxPrevAnim){ window.RiggerFx.clear(); fxActive = []; fxPrevAnim = ctx.anim; fxPrevAnimTime = -1; }
+    const prev = fxPrevAnimTime, cur = ctx.time; fxPrevAnimTime = cur;
     // Interval (lo, cur] crossed this frame. On a loop-wrap / scrub-back, reset and drop `lo` below 0
     // so events AT (or near) t=0 fire on the wrap — a plain `prev < e.time` can never cross t=0.
     let lo = prev;
@@ -1413,7 +1464,7 @@ function updateFxPreview(){
 // Clear all live effects + reset crossing state (context switch: anim/rig/mode change).
 function fxClearPreview(){
   if (window.RiggerFx){ try { window.RiggerFx.clear(); } catch (e){} }
-  fxActive = []; fxPrevAnimTime = -1;
+  fxActive = []; fxPrevAnimTime = -1; fxPrevAnim = null;
 }
 // Fire an immediate ONE-SHOT preview of an event's bound effect at its bone — instant feedback the
 // moment you pick/change it in the inspector, even while paused (authoring). Bounded in the overlay,
@@ -7839,7 +7890,13 @@ function setMode(m){
   const wasCine = cineMode;
   cineMode = (m === "cinematic");
   if (cineMode) ensureCinematic();
-  else if (wasCine && window.RiggerCinematic) window.RiggerCinematic.deactivate();
+  else if (wasCine){
+    if (window.RiggerCinematic) window.RiggerCinematic.deactivate();
+    // The overlay band is CINEMATIC state (a set may draw behind its cast). Below the rig canvas
+    // means invisible — `#cv` clears opaque — so carrying that band out of cinematic mode buried
+    // every animate/preview burst until the page was reloaded.
+    setFxOverlayDepth(true);
+  }
   $("#outline").style.display = cineMode ? "none" : "";
   $("#cinePanel").style.display = cineMode ? "block" : "none";
   // The right-hand inspector is the rig editor's (bone/slot/event). In cinematic mode those are
@@ -7862,8 +7919,13 @@ function setMode(m){
     const el = $(sel); if (el) el.style.display = cineMode ? "none" : "";
   });
   if (cineMode){ const bm = $("#bonemark"); if (bm) bm.style.display = "none"; } // no bone selection on a multi-actor stage
+  // A mode switch is a context switch — drop live bursts whichever way it went (preview fires them
+  // now too, so animate can be entered with effects already on screen).
+  fxClearPreview();
   if (animMode) ensureFxOverlay(); // fire-and-forget: lazy-load the live FX preview overlay
-  else fxClearPreview(); // leaving animate — stop any live effects
+  // Preview is NOT armed here: it is entered on every rig open, and `updateFxPreview` loads the
+  // overlay itself the first frame a clip with a bound keyframe runs — so a rig with no FX never
+  // spends one of the browser's ~16 WebGL contexts.
   if (!animMode){ selEvent = null; renderEventDetail(); } // event keys are an animate-mode concept
   if (!editMode) meshIsolate = false; // isolated-mesh editing is a setup-mode tool only
   document.querySelectorAll('#modeSeg button').forEach((b) => {
@@ -10198,7 +10260,6 @@ function frame(now){
           else animTime = 0;
         }
         poseAtTime(curAnim, animTime);
-        updateFxPreview(); // skeleton posed + bone world coords current → live FX burst hook
         if (posingBone){ // in-progress bone drag overrides the posed value so it tracks the cursor
           const b = posingBone.bone;
           b.rotation = posingBone.rotation; b.x = posingBone.x; b.y = posingBone.y;
@@ -10222,6 +10283,10 @@ function frame(now){
     }
     // setup mode: hold whatever pose the edits set (no per-frame reset)
     updateWorld();
+    // Live FX burst hook — AFTER updateWorld(), so the bone world coords it projects are THIS
+    // frame's (they used to be read a frame early, before the transforms were rebuilt). Serves
+    // animate and preview from one call; a no-op in setup (see `fxPlayContext`).
+    updateFxPreview();
     renderer.begin();
     const isolating = editMode && meshIsolate && meshCtx;
     if (isolating) drawSkeletonIsolated();
