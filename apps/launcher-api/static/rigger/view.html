@@ -1491,11 +1491,16 @@ function updateFxPreview(){
         // A slot binding rides the SLOT's bone when no bone was picked — the same rule the game
         // applies, so the burst previews where it will actually be.
         const tf = fxBoneTransform(fxHostBone(e.fx)); if (!tf) continue;
-        setFxOverlayDepth(fxBandInFront(e.fx.slot));
         const h = window.RiggerFx.play(e.fx.effectId, tf, fxPlayOptsFor(e.fx));
-        fxActive.push({ handle: h, bone: fxHostBone(e.fx) });
+        fxActive.push({ handle: h, bone: fxHostBone(e.fx), inFront: fxBandInFront(e.fx.slot) });
       }
     }
+    // ONE band for every live burst — they share a canvas, so a per-fire `setFxOverlayDepth` let
+    // whichever fired LAST drag the others to its band. Two cues 40ms apart therefore both ended up
+    // wherever the second one wanted, while each inspector note still claimed its own depth was
+    // exact. Derive it from the live set instead, and prefer FRONT when they disagree: the stage
+    // cannot show two depths, and hiding a burst behind the rig is the worse of the two lies.
+    if (fxActive.length) setFxOverlayDepth(fxActive.some((fx) => fx.inFront));
     // ride the bone: reposition every active effect each frame
     for (const fx of fxActive){
       const tf = fxBoneTransform(fx.bone); if (!tf) continue;
@@ -1520,9 +1525,8 @@ function fxFirePreview(evtObj){
       const host = fxHostBone(evtObj.fx);
       const tf = fxBoneTransform(host); if (!tf) return;
       window.RiggerFx.clear(); fxActive = []; // preview only the latest pick
-      setFxOverlayDepth(fxBandInFront(evtObj.fx.slot));
       const h = window.RiggerFx.play(evtObj.fx.effectId, tf, fxPlayOptsFor(evtObj.fx));
-      fxActive.push({ handle: h, bone: host });
+      fxActive.push({ handle: h, bone: host, inFront: fxBandInFront(evtObj.fx.slot) });
     } catch (e){}
   });
 }
@@ -1929,6 +1933,15 @@ function buildInspector(entry){
     slotList.appendChild(afx);
   }
   const slots = skeletonData.slots;
+  // Which end is which. The list is in DRAW ORDER, so the top row is drawn first and therefore sits
+  // BEHIND — the opposite of every layer panel most people have used, where the top is the front.
+  // Unlabelled, it reads as “drag it to the top to put it over the rig” and does the exact reverse.
+  if (slots.length > 1){
+    const cap = document.createElement("div");
+    cap.textContent = "↑ behind · drawn first — in front · drawn last ↓";
+    cap.style.cssText = "font-size:10px;color:var(--dim);opacity:.75;padding:2px 4px 4px;line-height:1.3;";
+    slotList.appendChild(cap);
+  }
   slots.forEach((sd, z) => {
     const row = document.createElement("div");
     row.className = "trow" + (selSlot === sd.name ? " sel" : "");
@@ -9271,7 +9284,17 @@ function renderEventDetail(){
     const oTop = document.createElement("option"); oTop.value = ""; oTop.textContent = "— on top of the rig —"; slotSel.appendChild(oTop);
     // Draw order, not alphabetical: this list IS a depth picker, so it has to read like the stack it
     // picks from. `skeletonData.slots` is already in draw order — back to front.
-    for (const s of skeletonData.slots){ const o = document.createElement("option"); o.value = s.name; o.textContent = s.name; slotSel.appendChild(o); }
+    //
+    // The ENDS are labelled because that order is the opposite of every layer panel people know
+    // (Photoshop, After Effects put the front-most on top). An author who reads the top row as
+    // “over the rig” parks their FX slot behind everything and then reports the depth picker as
+    // broken — which is exactly what happened.
+    const lastSlot = skeletonData.slots.length - 1;
+    skeletonData.slots.forEach((s, i) => {
+      const o = document.createElement("option"); o.value = s.name;
+      o.textContent = s.name + (i === 0 ? "  — furthest BACK" : i === lastSlot ? "  — furthest FRONT" : "");
+      slotSel.appendChild(o);
+    });
     slotSel.value = selEvent.fx?.slot ?? "";
     slotSel.onchange = () => { setEventKeyField(selEvent, "fx.slot", slotSel.value); renderEventDetail(); fxFirePreview(selEvent); };
     slotWrap.appendChild(slotSel); det.appendChild(slotWrap);
@@ -9279,11 +9302,20 @@ function renderEventDetail(){
       // The honest limit, stated where the choice is made. The stage draws every rig into ONE
       // WebGL canvas and FX into a Pixi canvas above it, so it can put the burst above or below
       // the whole rig but never between two of its slots. The GAME has no such split.
-      const exact = !fxBandInFront(selEvent.fx.slot);
+      const wantsBehind = !fxBandInFront(selEvent.fx.slot);
+      // The stage has ONE overlay canvas, so every live burst shares a band. If another cue on this
+      // clip wants the other one, the preview cannot be honest about both — say so here rather than
+      // let two notes each claim to be exact while the screen shows one of them wrong.
+      const clipEvents = (rawDoc.animations[curAnim] && rawDoc.animations[curAnim].events) || [];
+      const contested = clipEvents.some((e) =>
+        e !== selEvent && e.fx && e.fx.effectId && fxBandInFront(e.fx.slot) === wantsBehind);
+      const exact = wantsBehind && !contested;
       const note = document.createElement("div");
       note.textContent = exact
         ? "Previewed BEHIND the rig — nothing is drawn behind “" + selEvent.fx.slot + "”, so that is its true depth here and in game."
-        : "In game this draws at “" + selEvent.fx.slot + "”'s depth. This stage draws the whole rig into one canvas, so it can only show FX behind or in front of ALL of it — with art behind that slot, the preview shows it in front.";
+        : contested
+          ? "In game this draws at “" + selEvent.fx.slot + "”'s depth. Another cue on this clip sits on the other side of the rig, and the stage has ONE overlay for both — so while they overlap the preview shows them together, in front. The game draws each at its own depth."
+          : "In game this draws at “" + selEvent.fx.slot + "”'s depth. This stage draws the whole rig into one canvas, so it can only show FX behind or in front of ALL of it — with art behind that slot, the preview shows it in front.";
       note.style.cssText = "font-size:10px;line-height:1.3;margin:1px 0 3px;opacity:.85;color:" + (exact ? "#bfe3c8" : "#ffe8b0") + ";";
       det.appendChild(note);
     }

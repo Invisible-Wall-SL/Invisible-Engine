@@ -66,6 +66,28 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-08-27 — **Two FX cues at different depths both previewed on the same side, and the slot list
+  read backwards.** Reported as *"I placed the new slot over the rig slot… but both my FX draw at
+  the bottom, so the drawing selection doesn't really seem to work."* Two separate causes, one of
+  them mine.
+  - **The band was last-fire-wins.** The stage has ONE overlay canvas, so every live burst shares a
+    band — but `setFxOverlayDepth` was called per FIRE, so of two cues 40ms apart the second dragged
+    the first to its band, while each inspector note still claimed its own depth was exact. The band
+    is now derived from the LIVE SET (`fxActive[].inFront`) and prefers FRONT when they disagree:
+    the stage cannot show two depths, and hiding a burst behind the rig is the worse of the two lies.
+    The note says so when it happens instead of asserting an exactness it cannot deliver.
+    **The GAME was right the whole time** — each binding gets its own `addSlotObject` at its own slot.
+  - **The slot list reads back-to-front, and said nothing about it.** `Slots (draw order)` renders
+    `skeletonData.slots` in index order, so the TOP row is drawn first and therefore sits BEHIND —
+    the opposite of every layer panel authors know, where the top is the front. Unlabelled it reads
+    as "drag it to the top to put it over the rig" and does the exact reverse, which is precisely the
+    move that was made. The list now carries `↑ behind · drawn first — in front · drawn last ↓`, and
+    the **Draw at slot** picker labels its ends (`— furthest BACK` / `— furthest FRONT`).
+  - Verified live against the 73-bone `anticipation` builtin, reproducing the owner's setup (two cues
+    0.06s and 0.0954s apart on opposite sides): both fire, the live set wants `[front, behind]`, and
+    the overlay stays at `z-index 2` instead of being dragged to 0; a lone behind-cue still resolves
+    to `z-index 0`; the contested note appears only when contested; the picker and list captions
+    render.
 - 2026-08-27 — **The stage can now actually SHOW a burst behind the rig, so "Draw at slot" is
   authorable instead of just bakeable.** Reported bluntly: *"I am still not able to author the FX
   under the rig!"* — and that was fair. Shipping the slot picker while the preview could only ever
