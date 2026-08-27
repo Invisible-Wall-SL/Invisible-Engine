@@ -63,6 +63,36 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-08-27 — **A bound FX cue could be invisible on the stage two different ways; both fixed in
+  `view.html`.** Reported as "the FX doesn't show in the Rigger preview".
+  - **The cinematic's overlay depth was sticky.** FX is a second Pixi canvas over `#cv`, and only
+    two bands exist (`z-index` 0 or 2 around the rig canvas's 1). A cinematic set authored BEHIND
+    its cast asks for band 0 via `setFxDepth(false)` — but `#cv` clears at **alpha 1**, so band 0
+    is not "behind the art", it is *invisible*, and nothing reset it on the way out. One visit to
+    Cinematic mode therefore buried every animate-mode burst for the rest of the page session.
+    The band is now cinematic-scoped: `setMode` restores the front band whenever cinematic mode is
+    left, and both writers go through one `setFxOverlayDepth` helper.
+  - **▶ Preview never ran the crossing at all.** `updateFxPreview` was gated on `animMode`, so a
+    cue fired only in ◆ Animate — not in the mode most authors watch a clip back in. It now reads
+    a per-mode `fxPlayContext()`: animate keeps the tool's own `curAnim`/`animTime`, preview reads
+    the live track entry's name + **`getAnimationTime()`** (the runtime's own clamp — a raw
+    `trackTime % dur` would wrap a NON-looping clip past its end and re-fire every cue forever).
+    A clip change now clears the outgoing clip's bursts, and the whole path exits before touching
+    the overlay when the running clip has no bound keyframe — preview is entered on every rig
+    open, and the browser caps live WebGL contexts at ~16.
+  - The single `updateFxPreview()` call also moved to **after** `updateWorld()`, so the bone
+    transforms it projects are this frame's rather than the previous frame's.
+  - Verified live on the local launcher against the 73-bone `anticipation` builtin (the no-login
+    recipe: builtin spine + fetch/XHR/`Image.src`/rAF shims, plus a recording `window.RiggerFx`
+    stub). Preview fires the keyframe once and rides the bone; looping fires once per loop;
+    **non-looping fires once while `trackTime` runs to 4× the clip length**; animate is unchanged;
+    setup is inert; an unbound clip generates zero overlay traffic; and `setFxDepth(false)` →
+    leave cinematic restores `z-index: 2`.
+  - Untouched, and still the answer to the rest of that report: an fx binding is still only
+    `{ effectId, bone? }`, so **draw order (which slot the burst sits in), opacity and timing are
+    not authorable** — that is the un-built "placed/persistent FX slots" half of
+    [design §12.4a](../design/invisible-cinematic.md). `spine-pixi-v8` has `addSlotObject`, which
+    is the primitive that build would use.
 - 2026-08-25 — **The fit rule shrank the pixels and the rig stretched them straight back — a
   translation still overflowed its button.** Reported live: `Acheter fonctionnalité` ran off the
   buy-feature button exactly as before the 2026-08-18 fit shipped. The fit itself was working —
