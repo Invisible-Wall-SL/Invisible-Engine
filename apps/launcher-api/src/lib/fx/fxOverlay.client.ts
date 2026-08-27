@@ -54,14 +54,35 @@ export interface FxTransform {
 	d: number;
 }
 
+/**
+ * The per-binding overrides a rig keyframe can carry, as the overlay consumes them. Structurally the
+ * numeric half of `engine-layout`'s `RigFxOverrides` — `slot` is absent BY DESIGN: this overlay is a
+ * separate Pixi canvas layered over a raw-WebGL rig canvas, so it can draw above or below the whole
+ * rig but never between two of its slots. The host decides which BAND a slot binding lands in; the
+ * game honours the real depth. (Same constraint the cinematic already states for its `fx:` cues.)
+ */
+export interface FxPlayOptions {
+	/** Opacity multiplier, 0–1. */
+	alpha?: number;
+	/** Size multiplier on the whole burst. */
+	scale?: number;
+	/** Milliseconds to wait before the burst starts. */
+	delay?: number;
+	/** Milliseconds of emission, then stop. Overrides the preview's own {@link PREVIEW_HOLD_MS} cap. */
+	duration?: number;
+	/** Time-scale multiplier on this effect's emitters. */
+	speed?: number;
+}
+
 /** The imperative surface each host drives (the Rigger assigns an instance to `window.RiggerFx`). */
 export interface FxOverlayApi {
 	/** Create the transparent overlay `Application` inside `hostEl` + start its ticker. Idempotent. */
 	init(hostEl: HTMLElement): Promise<void>;
 	/** Re-fit the renderer to the host (call on host resize). */
 	resize(): void;
-	/** Play an effect by id, riding the bone's on-screen transform `t`. Returns a handle. */
-	play(effectId: string, t: FxTransform): number;
+	/** Play an effect by id, riding the bone's on-screen transform `t`, with the keyframe's authored
+	 * overrides applied. Returns a handle. */
+	play(effectId: string, t: FxTransform, opts?: FxPlayOptions): number;
 	/** Update an active effect's transform (call every frame to ride the bone). */
 	follow(handle: number, t: FxTransform): void;
 	/** Dispose one effect's emitters + its container. */
@@ -74,8 +95,16 @@ export interface FxOverlayApi {
 
 /** A live per-`play()` render: its container + one emitter per resolved sprite layer. */
 interface LiveEffect {
+	/** Rides the bone — `follow()` overwrites its whole matrix every frame, so nothing else may
+	 * live on it. */
 	container: Container;
+	/** Child of `container`, where `scale` (and the layer offsets) actually live, precisely BECAUSE
+	 * the parent's matrix is rewritten per frame. Mirrors `<RiggedEffect>`'s `fxLocal`, which nests
+	 * for the same reason — there, spine rewrites the parent instead. */
+	inner: Container;
 	emitters: Emitter[];
+	/** Time-scale multiplier for this effect's emitters (the binding's `speed`). */
+	speed: number;
 	/** Pending emit-stop timers (the bounded-burst caps) — cleared on dispose. */
 	timers: ReturnType<typeof setTimeout>[];
 	/** True once torn down — a late texture resolve then skips wiring an emitter into a dead effect
@@ -171,9 +200,10 @@ export function createFxOverlay(): FxOverlayApi {
 	 * throw out of the ticker and freeze the whole overlay. */
 	function tick(deltaSeconds: number): void {
 		for (const effect of effects.values()) {
+			const scaled = deltaSeconds * effect.speed;
 			for (const emitter of effect.emitters) {
 				try {
-					emitter.update(deltaSeconds);
+					emitter.update(scaled);
 				} catch (err) {
 					console.warn('FxOverlay: emitter.update threw; stopping that emitter', err);
 					emitter.emit = false;
@@ -223,6 +253,7 @@ export function createFxOverlay(): FxOverlayApi {
 		effect: LiveEffect,
 		layer: EmitterLayer,
 		plan: ReturnType<typeof planLayer>,
+		holdMs: number,
 	): Promise<void> {
 		const textures = await framesToTextures(layer, resolveArt, sourceCache);
 		if (effect.disposed || textures.length === 0) return;
@@ -237,13 +268,16 @@ export function createFxOverlay(): FxOverlayApi {
 		// container nested in the zoom-scaled effect container, so the offset tracks stage scale.
 		const layerContainer = new Container();
 		layerContainer.position.set(plan.offset?.x ?? 0, plan.offset?.y ?? 0);
-		effect.container.addChild(layerContainer);
+		effect.inner.addChild(layerContainer);
 		const emitter = new Emitter(layerContainer, config);
 		// Force-emit ALL layers from mount, ignoring layer.trigger — the keyframe IS the trigger, and
 		// `emitterLifetime` bounds the burst (the same `forceEmit` contract the rig-bound runtime uses).
 		emitter.emit = true;
-		// Bounded preview: stop emitting after the hold cap so an INFINITE-lifetime effect doesn't run
-		// forever. A finite emitter has already self-stopped by then (this is a no-op).
+		// Bounded burst: stop emitting after `holdMs` so an INFINITE-lifetime effect doesn't run
+		// forever. A finite emitter has already self-stopped by then (this is a no-op). `holdMs` is
+		// the binding's authored `duration` when it has one, and only otherwise the preview's own
+		// PREVIEW_HOLD_MS guess — an authored duration is a decision, not a fallback, and the game
+		// honours the same number.
 		effect.timers.push(
 			setTimeout(() => {
 				try {
@@ -251,20 +285,35 @@ export function createFxOverlay(): FxOverlayApi {
 				} catch {
 					/* emitter already torn down */
 				}
-			}, PREVIEW_HOLD_MS),
+			}, holdMs),
 		);
 		effect.emitters.push(emitter);
 	}
 
 	/** Play an effect. Returns a numeric handle synchronously; textures resolve asynchronously and the
 	 * emitters activate when they land (a ready-guard against the effect being stopped meanwhile). */
-	function play(effectId: string, t: FxTransform): number {
+	function play(effectId: string, t: FxTransform, opts?: FxPlayOptions): number {
 		const handle = nextHandle++;
 		// If init hasn't resolved yet, the container is added lazily once `world` exists (below).
 		const container = new Container();
 		container.setFromMatrix(new Matrix(t.a, t.b, t.c, t.d, t.x, t.y));
-		const effect: LiveEffect = { container, emitters: [], timers: [], disposed: false };
+		// Opacity rides the OUTER container (a plain multiplier `follow()` never touches) while size
+		// rides the inner one (the outer's matrix is rewritten every frame from the bone).
+		container.alpha = opts?.alpha ?? 1;
+		const inner = new Container();
+		inner.scale.set(opts?.scale ?? 1);
+		container.addChild(inner);
+		const effect: LiveEffect = {
+			container,
+			inner,
+			emitters: [],
+			timers: [],
+			disposed: false,
+			speed: opts?.speed ?? 1,
+		};
 		effects.set(handle, effect);
+		const holdMs = opts?.duration ?? PREVIEW_HOLD_MS;
+		const delay = opts?.delay ?? 0;
 
 		void (async () => {
 			await (initPromise ?? Promise.resolve());
@@ -272,13 +321,29 @@ export function createFxOverlay(): FxOverlayApi {
 			world.addChild(container);
 			const doc = await loadEffectDoc(effectId);
 			if (effect.disposed || !doc) return;
-			for (const layer of doc.layers) {
-				const plan = planLayer(layer);
-				// Skip non-rendering layers + Tier-C spine-particle layers (no pooled Spine host here).
-				if (!plan.render || plan.particleKind === 'spine') continue;
-				await buildLayer(effect, layer, plan);
-				if (effect.disposed) return;
+			const build = async (): Promise<void> => {
+				for (const layer of doc.layers) {
+					const plan = planLayer(layer);
+					// Skip non-rendering layers + Tier-C spine-particle layers (no pooled Spine host here).
+					if (!plan.render || plan.particleKind === 'spine') continue;
+					await buildLayer(effect, layer, plan, holdMs);
+					if (effect.disposed) return;
+				}
+			};
+			// `delay` holds the BUILD, not just the emit flag, so the burst starts at t=0 of the effect
+			// when it does appear — matching `<RiggedEffect>`, which defers its mount for the same reason.
+			// The handle already exists, so `follow()`/`stop()` work normally during the wait. Scheduled
+			// rather than awaited: `disposeEffect` clears the timer, and an awaited one would leave a
+			// promise that never settles, pinning the doc and the effect for the life of the page.
+			if (delay > 0) {
+				effect.timers.push(
+					setTimeout(() => {
+						if (!effect.disposed) void build();
+					}, delay),
+				);
+				return;
 			}
+			await build();
 		})();
 
 		return handle;

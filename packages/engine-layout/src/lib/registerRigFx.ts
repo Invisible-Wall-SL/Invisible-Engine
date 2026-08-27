@@ -17,22 +17,124 @@
  * of this package, so the top-level `Map` never leaks across games.
  */
 
+/**
+ * The per-binding OVERRIDES an author sets on the keyframe, beside the effect itself. Every one is
+ * optional and every one is absent by default — a binding with none behaves exactly as it did before
+ * they existed, which is what keeps every already-baked rig byte-identical.
+ *
+ * They are overrides, not authoring: the `EffectDoc` in `/fx` stays the effect's definition, and
+ * these adjust ONE use of it on ONE beat. Two rigs can fire the same effect dimmer/slower/deeper
+ * without forking the doc.
+ */
+export type RigFxOverrides = {
+	/**
+	 * Draw the burst at this SLOT's depth in the skeleton's draw order (spine-pixi `addSlotObject`),
+	 * instead of on top of the whole rig. Absent ⇒ on top, the original behaviour.
+	 *
+	 * Also becomes the burst's HOST when no `bone` is given — a slot is a bone plus a depth, and
+	 * "draw it at the head slot" reads as "at the head", not "at the rig origin, drawn near the head".
+	 * With a `bone` set, the bone still wins for position; the slot then only decides depth.
+	 */
+	slot?: string;
+	/** Opacity multiplier, 0–1. */
+	alpha?: number;
+	/** Size multiplier on the whole burst. */
+	scale?: number;
+	/** Milliseconds to wait AFTER the beat before the burst starts. */
+	delay?: number;
+	/** Milliseconds of EMISSION, then stop. Particles already emitted still live out their own
+	 * lifetime, so this shortens the burst without cutting it off mid-flight. Absent ⇒ the effect's
+	 * own `emitterLifetime` decides, which for a continuous effect means it never stops on its own. */
+	duration?: number;
+	/** Time-scale multiplier on the emitters (2 = twice as fast). */
+	speed?: number;
+};
+
 /** One rig→effect binding: on a spine event named `event`, (re)play `effectId` from t=0, hosted on
- * `bone` (or the rig origin when absent). */
-export type RigFxBinding = {
+ * `bone` (or the rig origin when absent), with any authored {@link RigFxOverrides} applied. */
+export type RigFxBinding = RigFxOverrides & {
 	event: string;
 	effectId: string;
 	bone?: string;
 };
 
+/** The override keys, in the order the Rigger shows them. Exported as a VALUE so the bake, the
+ * runtime and the live preview iterate ONE list instead of three hand-copied ones — the same rule
+ * `COMPONENT_PARAM_KINDS` exists for (a copied allowlist silently dropped author params twice). */
+export const RIG_FX_OVERRIDE_KEYS = [
+	'slot',
+	'alpha',
+	'scale',
+	'delay',
+	'duration',
+	'speed',
+] as const;
+
+/** Numeric override bounds. `null` upper bound = unbounded above (still finite + non-negative). */
+const NUMERIC_BOUNDS: Record<string, { min: number; max: number | null }> = {
+	alpha: { min: 0, max: 1 },
+	scale: { min: 0, max: null },
+	delay: { min: 0, max: null },
+	duration: { min: 0, max: null },
+	speed: { min: 0, max: null },
+};
+
+/**
+ * Read the overrides off a RAW `event.fx` object (or an already-baked binding) into a clean,
+ * clamped set. Absent, malformed, non-finite and out-of-range values are DROPPED rather than
+ * coerced, so a hand-edited rig can never push `alpha: -3` or `speed: NaN` into an emitter — the
+ * field simply reverts to "not set", which is the behaviour that always worked.
+ *
+ * Shared by all three readers (the bake in `rigFxExport`, `<RiggedEffect>` at runtime, and the live
+ * preview overlay), because a value the bake accepts and the runtime rejects is a bug that only
+ * shows up in the shipped game.
+ */
+export function readRigFxOverrides(raw: unknown): RigFxOverrides {
+	const out: RigFxOverrides = {};
+	if (!raw || typeof raw !== 'object') return out;
+	const src = raw as Record<string, unknown>;
+	if (typeof src.slot === 'string' && src.slot) out.slot = src.slot;
+	for (const key of RIG_FX_OVERRIDE_KEYS) {
+		const bounds = NUMERIC_BOUNDS[key];
+		if (!bounds) continue; // `slot` is the one non-numeric key
+		const value = src[key];
+		if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+		if (value < bounds.min) continue;
+		if (bounds.max !== null && value > bounds.max) continue;
+		(out as Record<string, number>)[key] = value;
+	}
+	return out;
+}
+
 const registry = new Map<string, RigFxBinding[]>();
 
-/** Register the project's baked rig→FX bindings (rig assetKey → bindings). Later calls override a
- * key (parity with `registerEffects`' latest-wins). Call once at boot with `bakedRigFx()`. */
+/**
+ * Register the project's baked rig→FX bindings (rig assetKey → bindings). Later calls override a
+ * key (parity with `registerEffects`' latest-wins). Call once at boot with `bakedRigFx()`.
+ *
+ * The overrides are clamped HERE, at the one choke point every consumer reads through, rather than
+ * at each mount: `pixi-svelte` sits BELOW this package (`engine-layout` imports it, not the other
+ * way), so `<RiggedEffect>` cannot share this module and would otherwise need its own copy of the
+ * rules — the exact hand-mirrored-validation shape that has bitten this repo before. Clamping on the
+ * way in means `resolveRigFx` only ever hands out values a renderer can use as-is.
+ */
 export function registerRigFx(map: Record<string, RigFxBinding[]>): void {
 	if (!map || typeof map !== 'object') return;
 	for (const [rigKey, binds] of Object.entries(map)) {
-		if (rigKey && Array.isArray(binds)) registry.set(rigKey, binds);
+		if (!rigKey || !Array.isArray(binds)) continue;
+		const clean: RigFxBinding[] = [];
+		for (const b of binds) {
+			if (!b || typeof b.event !== 'string' || !b.event) continue;
+			if (typeof b.effectId !== 'string' || !b.effectId) continue;
+			const bone = typeof b.bone === 'string' && b.bone ? b.bone : undefined;
+			clean.push({
+				event: b.event,
+				effectId: b.effectId,
+				...(bone ? { bone } : {}),
+				...readRigFxOverrides(b),
+			});
+		}
+		registry.set(rigKey, clean);
 	}
 }
 

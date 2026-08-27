@@ -1381,6 +1381,22 @@ function fxProject(worldX, worldY){
 // the game's <SpineBoneAttach followRotation followScale>. Numerical basis (the camera projection is a
 // general zoom/pan/flip): map the bone's world axes (b.a,b.c)/(b.b,b.d) through fxProject and diff.
 // `boneName` falsy ⇒ rig origin (root bone). Guards nulls → null.
+/**
+ * Which bone hosts a binding's burst. The explicit `bone` wins; otherwise a SLOT binding is hosted by
+ * that slot's own bone (a slot is a bone plus a depth, so "draw it at the head slot" means "at the
+ * head"), and a plain binding by the rig origin. Mirrors `<RiggedEffect>`, where the same rule falls
+ * out of spine driving the slotted container — stated explicitly here because this stage has to
+ * compute the projection itself.
+ */
+function fxHostBone(fx){
+  if (!fx) return undefined;
+  if (fx.bone) return fx.bone;
+  if (fx.slot && skeletonData){
+    const s = skeletonData.slots.find((x) => x.name === fx.slot);
+    if (s && s.boneData) return s.boneData.name;
+  }
+  return undefined;
+}
 function fxBoneTransform(boneName){
   if (!skeleton) return null;
   const b = boneName ? skeleton.findBone(boneName) : skeleton.bones[0];
@@ -1449,9 +1465,11 @@ function updateFxPreview(){
       if (!(e.fx && e.fx.effectId)) continue;
       const t = e.time || 0;
       if (lo < t && cur >= t){
-        const tf = fxBoneTransform(e.fx.bone); if (!tf) continue;
-        const h = window.RiggerFx.play(e.fx.effectId, tf);
-        fxActive.push({ handle: h, bone: e.fx.bone });
+        // A slot binding rides the SLOT's bone when no bone was picked — the same rule the game
+        // applies, so the burst previews where it will actually be.
+        const tf = fxBoneTransform(fxHostBone(e.fx)); if (!tf) continue;
+        const h = window.RiggerFx.play(e.fx.effectId, tf, fxPlayOptsFor(e.fx));
+        fxActive.push({ handle: h, bone: fxHostBone(e.fx) });
       }
     }
     // ride the bone: reposition every active effect each frame
@@ -1474,10 +1492,11 @@ function fxFirePreview(evtObj){
   ensureFxOverlay().then(() => {
     if (!fxReady || !window.RiggerFx) return;
     try {
-      const tf = fxBoneTransform(evtObj.fx.bone); if (!tf) return;
+      const host = fxHostBone(evtObj.fx);
+      const tf = fxBoneTransform(host); if (!tf) return;
       window.RiggerFx.clear(); fxActive = []; // preview only the latest pick
-      const h = window.RiggerFx.play(evtObj.fx.effectId, tf);
-      fxActive.push({ handle: h, bone: evtObj.fx.bone });
+      const h = window.RiggerFx.play(evtObj.fx.effectId, tf, fxPlayOptsFor(evtObj.fx));
+      fxActive.push({ handle: h, bone: host });
     } catch (e){}
   });
 }
@@ -8973,6 +8992,63 @@ function deleteChannelKeyAt(tr, time){
 }
 
 // ---- event channel (Phase 5.4): named events fired at keyframes -------------
+/**
+ * The numeric FX overrides an event key can carry, with the input spec for each: label, unit,
+ * step, range, and how far to round what we store.
+ *
+ * These bounds MIRROR `readRigFxOverrides` in `packages/engine-layout/src/lib/registerRigFx.ts`,
+ * which is the AUTHORITY — this file is plain, import-less JS, so it cannot share the module. The
+ * mirror is safe in one direction only, and that is the direction it runs: the engine DROPS any
+ * value outside its range, so a table that drifts too permissive means "the Rigger let you type a
+ * number the bake ignores" (visible), never "the game got a value the engine rejects" (silent).
+ * Keep them in step anyway; if you widen one, widen it there first.
+ */
+const FX_NUM_FIELDS = {
+  "fx.alpha":    { key: "alpha",    label: "Opacity",  unit: "0–1",  step: "0.05", min: 0, max: 1,    round: 3, hint: "dims the whole burst" },
+  "fx.scale":    { key: "scale",    label: "Size",     unit: "×",    step: "0.05", min: 0, max: null, round: 3, hint: "1 = the effect's authored size" },
+  "fx.delay":    { key: "delay",    label: "Delay",    unit: "ms",   step: "10",   min: 0, max: null, round: 0, hint: "wait after the beat before it starts" },
+  "fx.duration": { key: "duration", label: "Duration", unit: "ms",   step: "50",   min: 0, max: null, round: 0, hint: "how long it EMITS; particles still finish their own life. Leave blank and a continuous effect never stops on its own." },
+  "fx.speed":    { key: "speed",    label: "Speed",    unit: "×",    step: "0.1",  min: 0, max: null, round: 3, hint: "1 = the effect's authored speed" },
+};
+/** The `RiggerFx.play` options for one event's `fx` binding — only the keys actually authored, so an
+ * untouched binding plays exactly as it always did. `slot` is deliberately NOT passed: the overlay is
+ * a separate canvas over the rig canvas and cannot draw between two slots (see the inspector note). */
+function fxPlayOptsFor(fx){
+  const opts = {};
+  if (!fx) return opts;
+  for (const spec of Object.values(FX_NUM_FIELDS)){
+    const v = fx[spec.key];
+    if (typeof v === "number" && isFinite(v)) opts[spec.key] = v;
+  }
+  return opts;
+}
+/**
+ * Does another event key share this one's binding IDENTITY — same name, effect, bone and slot — but
+ * carry different numeric overrides?
+ *
+ * That is the single authoring state the pipeline cannot represent: the baked manifest is keyed by
+ * the event NAME (all a spine event carries), so `bindingsFromSkeleton` de-dupes on that identity and
+ * the FIRST match's overrides win for the whole game. The live previews read the per-keyframe
+ * timeline instead and will happily play both. Detecting it here is the only place the author can see
+ * the two are about to disagree; everywhere later it just looks like the game ignoring them.
+ */
+function fxOverrideClashes(evtObj){
+  const fx = evtObj && evtObj.fx;
+  if (!fx || !fx.effectId || !rawDoc || !rawDoc.animations) return false;
+  const identity = (f) => [f.effectId, f.bone || "", f.slot || ""].join(" ");
+  const numbers = (f) => Object.values(FX_NUM_FIELDS)
+    .map((s) => (typeof f[s.key] === "number" ? f[s.key] : "")).join(" ");
+  const id = identity(fx), nums = numbers(fx);
+  for (const anim of Object.values(rawDoc.animations)){
+    if (!anim || !Array.isArray(anim.events)) continue;
+    for (const e of anim.events){
+      if (e === evtObj || !e || e.name !== evtObj.name) continue;
+      if (!e.fx || !e.fx.effectId || identity(e.fx) !== id) continue;
+      if (numbers(e.fx) !== nums) return true;
+    }
+  }
+  return false;
+}
 const animEventArr = () => { const a = animOf(curAnim); return a && Array.isArray(a.events) ? a.events : null; };
 const eventDefNames = () => (rawDoc && rawDoc.events ? Object.keys(rawDoc.events) : []);
 function eventKeyTimes(){ const arr = animEventArr(); return arr ? [...new Set(arr.map((e) => roundN(e.time, 4)))].sort((a, b) => a - b) : []; }
@@ -9044,6 +9120,26 @@ function setEventKeyField(evtObj, field, raw){
     // Host bone for the bound effect (absent = rig origin). Only meaningful with an effect bound.
     if (!evtObj.fx) return;
     if (raw === "" || raw == null) delete evtObj.fx.bone; else evtObj.fx.bone = raw;
+  } else if (field === "fx.slot"){
+    // Draw depth: render the burst at this slot's place in the draw order instead of over the rig.
+    if (!evtObj.fx) return;
+    if (raw === "" || raw == null) delete evtObj.fx.slot; else evtObj.fx.slot = raw;
+  } else if (FX_NUM_FIELDS[field]){
+    // The numeric overrides (opacity/size/delay/duration/speed). BLANK DELETES: an absent field is
+    // "not set", which is not the same as its default value — it is what keeps a rig that never used
+    // these bake byte-identical, so a cleared box must remove the key, never write `1` or `0`.
+    if (!evtObj.fx) return;
+    const key = field.slice(3); // "fx.alpha" -> "alpha"
+    if (raw === "" || raw == null){ delete evtObj.fx[key]; }
+    else {
+      const spec = FX_NUM_FIELDS[field];
+      let v = parseFloat(raw);
+      if (!isFinite(v)) { delete evtObj.fx[key]; }
+      else {
+        v = Math.max(spec.min, spec.max == null ? v : Math.min(spec.max, v));
+        evtObj.fx[key] = roundN(v, spec.round);
+      }
+    }
   }
   markDirty(); animsDirty = true; refreshAnimCounts();
 }
@@ -9115,13 +9211,75 @@ function renderEventDetail(){
   const fxHint = document.createElement("div"); fxHint.textContent = "Plays on the rig at this beat — no Scene-Editor placement needed. (Sprite-particle effects only for now.)"; fxHint.style.cssText = "font-size:10px;color:var(--dim);opacity:.8;line-height:1.3;margin:1px 0 2px;"; det.appendChild(fxHint);
 
   if (selEvent.fx?.effectId){
-    const boneWrap = fieldRow("On bone");
+    const boneWrap = fieldRow("On bone", selEvent.fx?.slot ? "position only — the slot below sets the DEPTH" : null);
     const boneSel = document.createElement("select"); boneSel.style.cssText = selectCss;
-    const oOrigin = document.createElement("option"); oOrigin.value = ""; oOrigin.textContent = "— rig origin —"; boneSel.appendChild(oOrigin);
+    const oOrigin = document.createElement("option"); oOrigin.value = "";
+    // With a slot chosen and no bone, the slot's own bone hosts the burst — say so, rather than
+    // letting "rig origin" quietly mean something else than it does everywhere else in this panel.
+    oOrigin.textContent = selEvent.fx?.slot ? "— the slot's own bone —" : "— rig origin —";
+    boneSel.appendChild(oOrigin);
     for (const b of skeletonData.bones){ const o = document.createElement("option"); o.value = b.name; o.textContent = b.name; boneSel.appendChild(o); }
     boneSel.value = selEvent.fx?.bone ?? "";
     boneSel.onchange = () => { setEventKeyField(selEvent, "fx.bone", boneSel.value); renderEventDetail(); fxFirePreview(selEvent); };
     boneWrap.appendChild(boneSel); det.appendChild(boneWrap);
+
+    // Draw depth — WHERE IN THE RIG the burst renders, not just where it sits.
+    const slotWrap = fieldRow("Draw at slot");
+    const slotSel = document.createElement("select"); slotSel.style.cssText = selectCss;
+    const oTop = document.createElement("option"); oTop.value = ""; oTop.textContent = "— on top of the rig —"; slotSel.appendChild(oTop);
+    // Draw order, not alphabetical: this list IS a depth picker, so it has to read like the stack it
+    // picks from. `skeletonData.slots` is already in draw order — back to front.
+    for (const s of skeletonData.slots){ const o = document.createElement("option"); o.value = s.name; o.textContent = s.name; slotSel.appendChild(o); }
+    slotSel.value = selEvent.fx?.slot ?? "";
+    slotSel.onchange = () => { setEventKeyField(selEvent, "fx.slot", slotSel.value); renderEventDetail(); fxFirePreview(selEvent); };
+    slotWrap.appendChild(slotSel); det.appendChild(slotWrap);
+    if (selEvent.fx?.slot){
+      // The honest limit, stated where the choice is made. The stage draws every rig into ONE
+      // WebGL canvas and FX into a Pixi canvas above it, so it can put the burst above or below
+      // the whole rig but never between two of its slots. The GAME has no such split.
+      const note = document.createElement("div");
+      note.textContent = "In game this draws at “" + selEvent.fx.slot + "”'s depth. The stage here can only draw FX over the whole rig, so the preview will look on-top.";
+      note.style.cssText = "font-size:10px;color:#ffe8b0;opacity:.85;line-height:1.3;margin:1px 0 3px;";
+      det.appendChild(note);
+    }
+
+    // Per-binding overrides — adjust THIS use of the effect without forking its doc in /fx.
+    const numRow = document.createElement("div"); numRow.style.cssText = "display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;";
+    for (const [field, spec] of Object.entries(FX_NUM_FIELDS)){
+      const w = document.createElement("label");
+      w.style.cssText = "flex:1 1 30%;display:flex;flex-direction:column;gap:2px;font-size:10px;color:var(--dim);min-width:0;";
+      const lb = document.createElement("span"); lb.textContent = spec.label + " (" + spec.unit + ")"; w.appendChild(lb);
+      const inp = document.createElement("input");
+      inp.type = "number"; inp.step = spec.step; inp.min = String(spec.min);
+      if (spec.max != null) inp.max = String(spec.max);
+      inp.title = spec.hint;
+      // Blank = not set. Placeholder shows what the effect does on its own, so the box reads as an
+      // OVERRIDE of the /fx doc rather than a value that is already in force.
+      inp.placeholder = spec.key === "duration" ? "as authored" : "1";
+      const cur = selEvent.fx?.[spec.key];
+      inp.value = typeof cur === "number" ? String(cur) : "";
+      inp.style.cssText = inputCss;
+      inp.onchange = () => {
+        setEventKeyField(selEvent, field, inp.value);
+        const nv = selEvent.fx?.[spec.key];
+        inp.value = typeof nv === "number" ? String(nv) : "";
+        fxFirePreview(selEvent);
+      };
+      w.appendChild(inp); numRow.appendChild(w);
+    }
+    det.appendChild(numRow);
+
+    // The bake keys bindings by event NAME and keeps the FIRST match's overrides, so two keyframes
+    // that share a name but disagree cannot both survive into the game — while the live previews,
+    // which read the per-keyframe timeline, WILL show both. That divergence is invisible until a
+    // published game contradicts the tool, so say it here, at the point it is created.
+    const clash = fxOverrideClashes(selEvent);
+    if (clash){
+      const warn = document.createElement("div");
+      warn.textContent = "Another “" + selEvent.name + "” key binds the same effect with different settings. In game only one wins (the first), though the preview here plays each as authored — rename this event to keep both.";
+      warn.style.cssText = "font-size:10px;color:#ffd4d4;background:#3a2326;border:1px solid var(--danger);border-radius:5px;padding:4px 6px;line-height:1.3;margin-top:4px;";
+      det.appendChild(warn);
+    }
   }
 
   // Optional payload — int / float / string. Empty ⇒ omit.

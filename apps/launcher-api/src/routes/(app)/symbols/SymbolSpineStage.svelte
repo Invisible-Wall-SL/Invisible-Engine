@@ -19,7 +19,12 @@
 		getSpinePhysics,
 		type SpineSceneRenderer,
 	} from '../editor/spineRuntime.client';
-	import { createFxOverlay, type FxOverlayApi, type FxTransform } from '$lib/fx/fxOverlay.client';
+	import {
+		createFxOverlay,
+		type FxOverlayApi,
+		type FxPlayOptions,
+		type FxTransform,
+	} from '$lib/fx/fxOverlay.client';
 
 	interface Props {
 		/** The scroll container whose `[data-spine-key]` cells this draws over. */
@@ -36,8 +41,13 @@
 	let raf = 0;
 	let lastTime = 0;
 
-	/** One timed rig→FX binding on the playing animation's timeline (from `/api/editor/rig-fx`). */
-	interface TimedFx {
+	/**
+	 * One timed rig→FX binding on the playing animation's timeline (from `/api/editor/rig-fx`).
+	 * Extends {@link FxPlayOptions} so the keyframe's authored overrides (opacity, size, delay,
+	 * duration, speed) travel straight into `overlay.play` — this grid and the Rigger stage share the
+	 * overlay, so they must also share what they hand it, or the two previews of one binding disagree.
+	 */
+	interface TimedFx extends FxPlayOptions {
 		time: number;
 		effectId: string;
 		bone?: string;
@@ -182,7 +192,9 @@
 						cf = { active: [] };
 						cellFx.set(el, cf);
 					}
-					cf.active.push({ handle: overlay.play(b.effectId, t), bone: b.bone });
+					// Hand the keyframe’s own overrides to the overlay, not just the transform.
+					const { time: _time, effectId: _id, bone: _bone, ...overrides } = b;
+					cf.active.push({ handle: overlay.play(b.effectId, t, overrides), bone: b.bone });
 				}
 			}
 		}

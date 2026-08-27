@@ -15,6 +15,9 @@
 		 * how each layer was authored). See `<EffectLayer>`'s `forceEmit`.
 		 */
 		forceEmit?: boolean;
+		/** With `forceEmit`, stop every layer emitting this many ms after mount — the rig binding's
+		 * `duration` override. See `<EffectLayer>`'s `emitFor`. */
+		emitFor?: number;
 	};
 </script>
 
@@ -44,5 +47,10 @@
 </script>
 
 {#each props.doc.layers as layer (layer.key)}
-	<EffectLayer {layer} emitSpeed={props.emitSpeed} forceEmit={props.forceEmit} />
+	<EffectLayer
+		{layer}
+		emitSpeed={props.emitSpeed}
+		forceEmit={props.forceEmit}
+		emitFor={props.emitFor}
+	/>
 {/each}

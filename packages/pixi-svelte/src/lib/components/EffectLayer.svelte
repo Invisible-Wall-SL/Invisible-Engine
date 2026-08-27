@@ -13,6 +13,17 @@
 		 * `event`-mode layer would otherwise sit dormant waiting for its own cue that never comes.
 		 */
 		forceEmit?: boolean;
+		/**
+		 * With `forceEmit`, stop emitting this many ms after mount (the rig binding's `duration`
+		 * override). Ignored without `forceEmit` — an authored `event` layer already has
+		 * `trigger.duration`, and this must not quietly become a second way to bound it.
+		 *
+		 * Why it is needed at all: `forceEmit` alone starts emission and nothing ends it, so a
+		 * continuous effect (infinite `emitterLifetime`) fired from a rig keyframe emitted FOREVER
+		 * in-game while the authoring previews force-stopped theirs after ~1.5s. Same effect, same
+		 * binding, two behaviours — this is the knob that lets the author say which one they meant.
+		 */
+		emitFor?: number;
 	};
 </script>
 
@@ -135,9 +146,19 @@
 	$effect(() => {
 		// Rig-timeline direct binding: the keyframe already gated the whole effect, so every layer
 		// emits from mount and ignores its own trigger (no bus subscription). The config's
-		// `emitterLifetime` still bounds a burst.
+		// `emitterLifetime` still bounds a burst — and `emitFor` bounds the ones it doesn't
+		// (a continuous effect, which would otherwise emit for the life of the mount).
 		if (props.forceEmit) {
 			emitting = true;
+			const emitFor = props.emitFor;
+			if (typeof emitFor === 'number' && Number.isFinite(emitFor) && emitFor >= 0) {
+				clearStop();
+				stopTimer = setTimeout(() => {
+					emitting = false;
+					stopTimer = undefined;
+				}, emitFor);
+				return clearStop;
+			}
 			return;
 		}
 

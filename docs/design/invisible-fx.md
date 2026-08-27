@@ -44,8 +44,34 @@ A first-class binding on the rig, authored per event key, source of truth = the 
 - On an event object: `evtObj.fx = { effectId: string, bone?: string }` (omit ⇒ plain cue event,
   today's behaviour). `bone` defaults to the event author's selected bone (or none = rig origin).
 - The binding is keyed at runtime by the **event NAME** (what the rebroadcast bus carries): "spine
-  event named `N` on this rig → play effect `effectId` on `bone`". De-dup by `(name, effectId, bone)`
-  across animations at bake.
+  event named `N` on this rig → play effect `effectId` on `bone`". De-dup by
+  `(name, effectId, bone, slot)` across animations at bake.
+
+**Per-binding overrides (2026-08-27).** `evtObj.fx` also carries six optional fields — `slot`,
+`alpha`, `scale`, `delay`, `duration`, `speed` — typed as `RigFxOverrides` in
+`engine-layout/registerRigFx.ts`, which also owns the ONE clamp (`readRigFxOverrides`) the bake, the
+registry and the previews all read through. They are OVERRIDES, not authoring: the `EffectDoc` stays
+the effect's definition and these adjust one use of it on one beat, so two rigs can fire the same
+effect dimmer/slower/deeper without forking the doc.
+
+- **Absent ≠ default.** An unset field stays absent end to end; that is what keeps every rig baked
+  before they existed byte-identical. Out-of-range and malformed values are DROPPED, never coerced.
+- **`slot` is DEPTH.** In game `<RiggedEffect>` hands its container to spine-pixi's `addSlotObject`,
+  so the burst renders at that slot's place in the draw order instead of over the whole rig; an
+  unknown slot name falls back to on-top rather than throwing. With no `bone`, the slot's own bone
+  hosts the burst. `alpha`/`scale` live on a nested container, because spine rewrites the slotted
+  one's transform and alpha every frame.
+- **`duration` closes a real divergence:** `forceEmit` starts emission and nothing ended it, so a
+  continuous effect fired from a keyframe emitted forever in-game while the previews force-stopped
+  at ~1.5s. It maps to `<EffectPlayer emitFor>`, and to the preview overlay's hold cap.
+- **What the manifest cannot carry:** it is keyed by event NAME, so placement (`bone`, `slot`)
+  identifies a binding and the numbers ride along from the first matching keyframe. Two keys of one
+  name that disagree cannot both reach the game — the per-keyframe timeline the previews read CAN
+  express it, so the Rigger warns at the point of authoring. Guarded by
+  `pnpm --filter launcher-api run check:rig-fx-overrides` (mutation-verified).
+- **Still NOT built:** a *persistent* FX slot — an always-on emitter living on the rig as a slot,
+  keyable like any other channel (the other half of `invisible-cinematic.md` §12.4a). This is the
+  one-shot cue gaining depth and modifiers, not that.
 
 ### Travel (rule 8 — export→bake→pull→register)
 - **export:** the rig `.irig` already ships (verbatim, carrying `evtObj.fx`). The **bake** walks each
