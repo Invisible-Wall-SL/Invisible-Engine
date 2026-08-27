@@ -33,6 +33,16 @@ per-root relativization and would drift from it, so `/flipbook`'s picker **proxi
 domain-A surface needs paths only a domain-B resolver defines — but note it does NOT make
 `/fsbrowse` a domain-A component: it is reachable only through that gated, allow-listed proxy.
 
+**Still true after the picker grew two more sources (2026-08-27).** The Flipbook video picker now
+offers three tabs — project files, an atlas REGION, and a file from the author's computer — and the
+first is unchanged: it is still the proxied `/fsbrowse`, precisely because that is the only thing
+that knows the per-root relativization. The other two are not browsers. A region is not a file and a
+local file is not in the project, so each has to BECOME one: both are written to
+`input/refs/flipbook/<name>` by a presigned PUT (`api/flipbook/source-url`, which mints the key and
+the matching `refs/…` ref in one place so the two cannot drift) and the tool resolves the result
+through its normal INPUT_DIR routing. The rule to carry forward: **do not add a fourth browser —
+add a source that ends in a ref the tool already resolves.**
+
 ### 2. Table / data-grid view
 | Impl | Domain | File(s) | Status |
 |---|---|---|---|
@@ -95,6 +105,7 @@ sees whether the cutout produced real alpha).
 | Impl | Domain | File(s) | Status |
 |---|---|---|---|
 | Editor `RegionThumb.svelte` (9-arg drawImage crop, trim offsets) | A | `apps/launcher-api/src/lib/.../RegionThumb.svelte` | reference A impl |
+| `regionCrop.ts` — the same geometry, but at NATIVE size and out to a PNG blob (`cropRegionToPng`), for feeding a region to an image model | A | `(app)/editor/regionCrop.ts` | 2nd A consumer of the geometry; used by `/flipbook`'s video source picker |
 | Sheet Maker region rendering | B | `services/sheet-tool/ui.html` (canvas) | **reference B impl** — `computeBbox` (alpha-bbox scan) + the `#viewport` cursor-anchored wheel zoom |
 | Atlas Maker **Region Overlay Inspector** (`/atlasview`) — rect + measured art alpha bbox + trim frame over a composed page, zoom/pan, FILLS/INSET verdict | B | `services/atlas-tool/ui_server.py` (`ATLASVIEW`, `_view_region`, `_atlasview`) | ported from the Sheet Maker's idiom above; the only atlas-side region renderer |
 

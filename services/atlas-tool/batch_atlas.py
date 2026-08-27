@@ -1238,6 +1238,16 @@ def _locate_ref_in_staging(relpath: str) -> Path | None:
     direct = INPUT_DIR / relpath
     if direct.exists():
         return direct
+    # Not on local disk yet. `input/` is mirrored ONCE per process (hydrate's
+    # background pull), so a ref written to R2 SINCE that pull is invisible to
+    # this container no matter how correct it is — which is the normal case for
+    # a Flipbook source image the author uploaded a minute ago. Fetch that exact
+    # key rather than re-pulling the whole subtree; the by-key mode writes to
+    # STAGING_ROOT/input/<relpath>, i.e. exactly the `direct` path above.
+    input_key = relpath if relpath.startswith("input/") else f"input/{relpath}"
+    pulled = _hydrate_from_r2_by_name(os.path.basename(relpath), r2_key=input_key)
+    if pulled is not None and pulled.exists():
+        return pulled
     # Bare-filename fallback: find it by basename anywhere under refs/, then
     # at the INPUT_DIR root. Mirrors how the UI tolerates loosely-stored refs.
     base = os.path.basename(relpath)
