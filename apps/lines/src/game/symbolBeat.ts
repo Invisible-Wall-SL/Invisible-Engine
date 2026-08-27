@@ -73,6 +73,14 @@ export const TRANSIT_BEAT_CAP_MS = 650;
  * {@link WIN_BEAT_CAP_MS}, which is sized as double that) — so a real authored emerge still wins the
  * race and still sets the pace, and only a cell that can never report pays the cap. Raise it before
  * shortening it: if a game's emerge is being cut off, this number is the bug.
+ *
+ * IT IS SPENT ONLY ON ART SOMEONE AUTHORED, and that qualifier was not free. An un-authored `intro`
+ * inherits `land` — or the resting `static` art — and neither reliably reports completion, so a
+ * board with no intro bound paid this cap IN FULL on every single arrival: a cascade step measured
+ * 2650 virtual ms against the shipped slide's 1500, reported from a live game as "a long delay".
+ * A cap the common case always pays is not a guard, it is the pace. `TumbleBoard`'s appear handler
+ * therefore asks `hasAuthoredSymbolState` first and gives everything else
+ * {@link TRANSIT_BEAT_CAP_MS}, which is what the arrival it fell back to would have cost anyway.
  */
 export const INTRO_BEAT_CAP_MS = 2_000;
 

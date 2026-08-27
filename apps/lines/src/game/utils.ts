@@ -225,6 +225,23 @@ export const hexToTintNumber = (hex: string | undefined): number | undefined => 
 const warnedMissingArt = new Set<string>();
 
 // other utils
+/**
+ * Did this symbol AUTHOR art for this state, or is it borrowing someone else's?
+ *
+ * Asked by the emerge arrival, and the reason is a timing one rather than a rendering one. A beat
+ * that waits on an animation is capped so a cell that can never report cannot hang the round — but
+ * an INHERITED state is exactly such a cell much of the time (it falls back to `land`, or to the
+ * resting `static` art, neither of which need report anything), so an un-authored intro pays the
+ * WHOLE cap on every arrival. Sized for authored art, that cap then stops being a guard and becomes
+ * the pace: it cost an un-authored cascade step 2650 ms where the shipped slide cost 1500 ms.
+ *
+ * So the caller spends the long cap only on art someone actually made, and gives everything else
+ * the ordinary transit cap. Reuses `resolveSymbolState` rather than re-deciding inheritance, so
+ * "authored" here means precisely what the renderer means by it.
+ */
+export const hasAuthoredSymbolState = (symbolName: string, state: SymbolState): boolean =>
+	resolveSymbolState(getActiveSymbolInfoMap()[symbolName], state) === state;
+
 export const getSymbolInfo = ({
 	rawSymbol,
 	state,

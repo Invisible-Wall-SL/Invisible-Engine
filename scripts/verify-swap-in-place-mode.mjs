@@ -609,6 +609,14 @@ const layoutHelpers = [
 // (every `land` beat below resolves through it, since no symbol reports `oncomplete` with no
 // renderer mounted), and a rename in `symbolBeat.ts` now fails as loudly as one in the component.
 const symbolBeatSource = read('apps/lines/src/game/symbolBeat.ts');
+/** The two caps, read from the shipped module rather than restated, so re-timing either one updates
+ *  the fixture's arithmetic instead of breaking it. */
+const capOf = (name) =>
+	Number(
+		sliceBetween(symbolBeatSource, name, `export const ${name} = `, ';\n').replace(/[^\d]/g, ''),
+	);
+const TRANSIT_CAP_MS = capOf('TRANSIT_BEAT_CAP_MS');
+const INTRO_CAP_MS = capOf('INTRO_BEAT_CAP_MS');
 const beatHelpers = [
 	sliceBetween(symbolBeatSource, 'awaitSymbolBeat', 'export const awaitSymbolBeat = ', ';\n'),
 	sliceBetween(
@@ -940,7 +948,7 @@ const boardOf = (prefix) =>
  * `true`), which is load-bearing for the tile guard: `Board.svelte` mounts showing, so the overlay
  * must start out believing the reels own the screen.
  */
-const buildTumbleRuntime = ({ clock, previousBoard, tileArt, onLand, onSound, moves }) => {
+const buildTumbleRuntime = ({ clock, previousBoard, tileArt, onLand, onSound, moves, authoredIntro }) => {
 	const build = new Function(
 		'Tween',
 		'backOut',
@@ -957,6 +965,10 @@ const buildTumbleRuntime = ({ clock, previousBoard, tileArt, onLand, onSound, mo
 		'playTumbleExplosionSound',
 		'playSymbolTumbleExplosionSound',
 		'playSymbolIntroSound',
+		// WHICH SYMBOLS AUTHORED AN INTRO. A parameter rather than a constant, because the whole
+		// point of the predicate is that the two answers cost different amounts of time, and a
+		// fixture that could only exercise one of them would not be testing the rule at all.
+		'hasAuthoredSymbolState',
 		`${tumbleStateSource}
 let show = false;
 let reelBoardShown = true;
@@ -992,6 +1004,9 @@ return {
 		() => onSound?.('tumbleExplosion'),
 		(symbolName) => onSound?.(`symbol:tumbleExplosion:${symbolName}`),
 		(symbolName) => onSound?.(`symbol:intro:${symbolName}`),
+		// Default: NOTHING is authored. That is the state every project is in the day the style
+		// ships, and it is the case that regressed — so it is the one the fixture runs by default.
+		(symbolName, state) => Boolean(authoredIntro?.(symbolName, state)),
 	);
 };
 
@@ -1010,6 +1025,7 @@ const runReveal = async ({
 	staggerMs,
 	clearBoard = false,
 	tileArt,
+	authoredIntro,
 	previousBoard = boardOf('old'),
 	revealedBoard = boardOf('new'),
 }) => {
@@ -1027,6 +1043,7 @@ const runReveal = async ({
 		onLand: (symbolName) => landed.push(symbolName),
 		onSound: (cue) => sounded.push(cue),
 		moves,
+		authoredIntro,
 	});
 
 	const logEvent = (event) => {
@@ -1988,9 +2005,7 @@ check(
 // but this says out loud that the two branches are different on purpose.
 check(
 	'...while a survivor is given the slide duration, not placed',
-	/await tumbleSymbol\.symbolY\.set\(seatY, \{ duration: 200, easing: backOut \}\)/.test(
-		appearHandlerSource,
-	),
+	/symbolY\.set\(cell\.seatY, \{ duration: 200, easing: backOut \}\)/.test(appearHandlerSource),
 	true,
 );
 
@@ -2284,6 +2299,80 @@ console.log('--- 10. the cascade arrives the same way the spin does ---');
 		'...with nothing left mid-animation',
 		combined.every((reel) => reel.every((sym) => sym.symbolState === 'static')),
 		true,
+	);
+}
+
+{
+	// THE TWO REGRESSIONS THIS BLOCK EXISTS FOR, both reported from a live game as "very broken"
+	// and "a long delay", and neither visible to any assertion that existed at the time.
+	//
+	//  (a) A refill was placed the instant the step began, while the survivor whose seat it was
+	//      taking was still sliding out of it. The refills stack directly above the survivors, so
+	//      the topmost survivor's OLD seat IS the bottom refill's new one - they overlapped for the
+	//      whole 200 ms slide.
+	//  (b) The arrival waited `INTRO_BEAT_CAP_MS` on art nobody had authored. An inherited `intro`
+	//      falls back to `land` or to the resting art, which often report nothing, so the cap was
+	//      paid IN FULL on every arrival: measured at 2650 virtual ms per cascade step against the
+	//      shipped slide's 1500.
+	const drive = async ({ authoredIntro, slide = false } = {}) => {
+		const clock = createClock();
+		const moves = [];
+		const runtime = buildTumbleRuntime({
+			clock,
+			previousBoard: boardOf('old'),
+			tileArt: undefined,
+			onLand: () => {},
+			onSound: () => {},
+			moves,
+			authoredIntro,
+		});
+		const addingBoard = Array.from({ length: REELS }, (_u, reel) => [rawSymbol(`new${reel}`)]);
+		const explodingPositions = Array.from({ length: REELS }, (_u, reel) => ({ reel, row: ROWS }));
+		await clock.run(async () => {
+			runtime.handlers.tumbleBoardInit({ addingBoard });
+			await runtime.handlers.tumbleBoardExplode({ explodingPositions });
+			runtime.handlers.tumbleBoardRemoveExploded({});
+			await (slide
+				? runtime.handlers.tumbleBoardSlideDown({})
+				: runtime.handlers.tumbleBoardAppear({}));
+		});
+		return { moves, elapsed: clock.at() };
+	};
+
+	const emerge = await drive();
+	const slide = await drive({ slide: true });
+
+	// (a) NOTHING IS PLACED UNTIL EVERY SURVIVOR HAS ARRIVED. Stated on the clock rather than as an
+	// ordering of statements, because that is the thing the player sees: the last slide must have
+	// FINISHED before the first placement happens.
+	const placedAt = emerge.moves.filter((m) => m.duration === 0).map((m) => m.at);
+	const slidDoneAt = emerge.moves.filter((m) => m.duration === 200).map((m) => m.at + m.duration);
+	check('the cascade both places and slides', placedAt.length > 0 && slidDoneAt.length > 0, true);
+	check(
+		'...and NO refill is placed before every survivor has vacated its seat',
+		Math.min(...placedAt) >= Math.max(...slidDoneAt),
+		true,
+	);
+
+	// (b) AN UN-AUTHORED EMERGE COSTS WHAT THE SLIDE COST. Not "is fast" - the same number, so the
+	// assertion cannot drift as either presentation is re-timed.
+	check(
+		'an un-authored emerge cascade costs exactly what the shipped slide costs',
+		emerge.elapsed,
+		slide.elapsed,
+	);
+
+	// ...and the long cap is still there for art that earns it.
+	const authored = await drive({ authoredIntro: (name) => name.startsWith('new') });
+	check(
+		'an AUTHORED intro is still given the long cap to play in',
+		authored.elapsed > emerge.elapsed,
+		true,
+	);
+	check(
+		'...and the difference is exactly the two caps',
+		authored.elapsed - emerge.elapsed,
+		INTRO_CAP_MS - TRANSIT_CAP_MS,
 	);
 }
 
