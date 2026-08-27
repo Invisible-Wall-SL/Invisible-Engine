@@ -342,6 +342,67 @@ def test_blueprint_kind() -> None:
                  "not one of")
 
 
+def test_bundled_blueprints_stay_in_step() -> None:
+    """Adding a param to `blueprints_src/` in the repo must reach the live library.
+
+    The first version of the self-seed only published what was MISSING, which
+    froze every bundled blueprint at whatever was seeded first — so a repo change
+    had no effect on the live tool and nothing said the definition was stale.
+    Updating is safe only because a bundled blueprint carries `author:
+    iw-builtin` while anything published through the tool is stamped with a real
+    username, which is what tells "ours, out of date" apart from "someone's now".
+    """
+    import tempfile
+
+    import blueprints
+    import storage
+
+    tmp = Path(tempfile.mkdtemp(prefix="iw-bp-"))
+    blueprints.BLUEPRINTS_STAGING = tmp
+    objects: dict[str, bytes] = {}
+    storage.get = lambda k: objects.get(k)
+    writes: list[str] = []
+
+    def put(k, b, c=None):
+        writes.append(k)
+        objects[k] = b
+
+    storage.put = put
+
+    key = "_shared/blueprints/wan22_i2v_flipbook/blueprint.json"
+    bundled = (BP_DIR / "blueprint.json").read_bytes()
+
+    def cutout_count() -> int:
+        return sum(1 for p in json.loads(objects[key])["params"]
+                   if p.get("group") == "Cutout")
+
+    blueprints._sync_bundled()
+    check("an empty library gets the bundled blueprint", cutout_count(), 9)
+
+    # THE BUG: a stored copy from an earlier release, missing the newer params.
+    stale = json.loads(bundled)
+    stale["params"] = [p for p in stale["params"] if p.get("group") != "Cutout"][:3]
+    objects[key] = json.dumps(stale).encode()
+    blueprints._sync_bundled()
+    check("a STALE stored copy is brought up to date", cutout_count(), 9)
+
+    writes.clear()
+    blueprints._sync_bundled()
+    check("an identical copy costs no write at all", writes, [])
+
+    # A human took it over: their version must survive untouched.
+    theirs = json.loads(bundled)
+    theirs["author"] = "someone"
+    theirs["name"] = "Their tuned version"
+    objects[key] = json.dumps(theirs).encode()
+    writes.clear()
+    blueprints._sync_bundled()
+    check("a re-published blueprint is never clobbered",
+          (json.loads(objects[key])["author"], json.loads(objects[key])["name"]),
+          ("someone", "Their tuned version"))
+    check("and no write was attempted on it", key in writes, False)
+
+
 def test_wrong_kind_is_refused() -> None:
     """Defence in depth: the picker is filtered, but a stale tab can still name an
     image blueprint, and running one here burns a GPU job for a single still."""
@@ -470,6 +531,7 @@ if __name__ == "__main__":
     test_session_id_validation()
     test_session_lifecycle()
     test_blueprint_kind()
+    test_bundled_blueprints_stay_in_step()
     test_wrong_kind_is_refused()
     test_resume_after_restart()
     test_cancel_a_session_we_do_not_own()
