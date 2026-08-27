@@ -105,7 +105,7 @@
 	 * `$lib/server/symbolsStorage`) — declared here so this client component never
 	 * imports a server module. Only the fields the canvas reads. */
 	interface SymbolStaticCell {
-		type: 'sprite' | 'spine';
+		type: 'sprite' | 'spine' | 'flipbook';
 		assetKey: string;
 		/** The animation the STATIC state plays in-game (`SymbolSpineMain`'s `animationName`) —
 		 * the spine layer auto-loops it so the board preview shows the same pose the game does. */
@@ -114,6 +114,10 @@
 		 * specific skeleton inside a shared-atlas symbol bundle. Preferred over `assetKey`
 		 * when loading the rig, exactly as the Symbols grid does. */
 		previewKey?: string;
+		/** The authored Invisible Flipbook clip a `flipbook` cell plays. The clip owns the ordered
+		 * frames (and may span sheets), so such a cell's `assetKey` holds its PRIMARY SHEET — a
+		 * manifest key, never a region name — and only `clipId` can resolve the frame to draw. */
+		clipId?: string;
 		sizeRatios?: { width: number; height: number };
 	}
 	type SymbolStateMap = Partial<Record<string, SymbolStaticCell>>;
@@ -273,8 +277,10 @@
 	 * cell, with the override doc's `static` cell layered on top (sparse). Computed once
 	 * (not per draw), and cycled across the grid cells so the board looks populated. A
 	 * `spine` static is drawn by `EditorSpineLayer` (WebGL) — this list is the SAME one it
-	 * receives, so both surfaces cycle the identical symbol into each cell. Empty when no
-	 * symbol data is present (graceful). */
+	 * receives, so both surfaces cycle the identical symbol into each cell. A `flipbook` static
+	 * stays on the 2D canvas: its frames are ordinary atlas regions, so `drawReelGrid` plays it
+	 * off the clip doc the same way a placed `flipbook` node does. Empty when no symbol data is
+	 * present (graceful). */
 	const symbolStatics = $derived.by<SymbolStaticCell[]>(() => {
 		if (!symbolDefaults) return [];
 		const out: SymbolStaticCell[] = [];
@@ -290,11 +296,17 @@
 				// authored override never carries one, and a sprite cell never needs one.
 				assetKey: (cell.type === 'spine' ? cell.previewKey : undefined) ?? cell.assetKey,
 				animationName: cell.animationName,
+				clipId: cell.clipId,
 				sizeRatios: cell.sizeRatios,
 			});
 		}
 		return out;
 	});
+
+	/** Any symbol whose STATIC binding is an Invisible Flipbook clip — a reel board then needs the
+	 * clip playback clock running, exactly as a placed `flipbook` node does. Declared beside
+	 * `symbolStatics` (not beside `hasSpineSymbol`) because `nodesHaveFlipbook` reads it. */
+	const hasFlipbookSymbol = $derived(symbolStatics.some((c) => c.type === 'flipbook'));
 
 	/** The "primary" selected id — the last one picked. Drives the properties panel,
 	 * the transform handles, and single-node hit-tests. Most internal code reads this;
@@ -1406,14 +1418,18 @@
 		return () => cancelAnimationFrame(raf);
 	});
 
-	/** Does a scene carry a placed `kind:'flipbook'` node ANYWHERE in its tree (incl. nested in a
-	 * container / component instance)? Gates the playback clock above — mirroring `sceneHasEffect`. */
+	/** Does a scene carry a placed `kind:'flipbook'` node — or a reel board whose symbols bind a
+	 * clip — ANYWHERE in its tree (incl. nested in a container / component instance)? Gates the
+	 * playback clock above — mirroring `sceneHasEffect` / `sceneHasSpine`. */
 	function sceneHasFlipbook(s: Scene): boolean {
 		return nodesHaveFlipbook(s.nodes, 0, []);
 	}
 	function nodesHaveFlipbook(nodes: LayoutNode[], depth: number, stack: string[]): boolean {
 		for (const n of nodes) {
 			if (n.kind === 'flipbook') return true;
+			// A reel BOARD whose symbols bind a clip animates its cells too. Without this the clock
+			// never starts for a board-only project and every cell would sit frozen on frame 0.
+			if (n.kind === 'reelGrid' && hasFlipbookSymbol) return true;
 			if (n.kind === 'container' && nodesHaveFlipbook(n.children, depth, stack)) return true;
 			if (n.kind === 'componentInstance') {
 				const def = componentMap.get(n.componentId);
@@ -2455,8 +2471,8 @@
 		// board window, and CONTAIN-fit to the cell by its own art (no size param — matches the
 		// engine's `Sprite`/`Spine` `contain`). The static list is cycled across cells so the
 		// board looks populated. A SPINE static is drawn by the WebGL spine layer (which reads the
-		// same geometry), so this path only marks the ones it can't render yet; an unresolved
-		// sprite frame falls back to the amber marker square.
+		// same geometry), so this path only marks the ones it can't render yet; a FLIPBOOK static
+		// plays here off its clip doc; an unresolved frame falls back to the amber marker square.
 		const statics = symbolStatics;
 		const drawMarker = (cx: number, cy: number, cw: number, ch: number, label?: string): void => {
 			const sym = Math.min(cw, ch);
@@ -2489,7 +2505,21 @@
 				if (!readySpineKeys.has(cell.assetKey)) drawMarker(cx, cy, cellW, cellH, 'spine');
 				continue;
 			}
-			const found = findRegion(cell.assetKey, cell.assetKey);
+			// A FLIPBOOK cell resolves through the clip doc, never through its own `assetKey` (which
+			// holds the clip's primary SHEET, not a frame). Same `clipFrameIndexAt(clipClockMs)` a
+			// placed `flipbook` node uses, so a symbol animates on the board preview in step with
+			// every other clip on screen. A dangling / still-loading clip keeps the marker and
+			// self-heals on the repaint `loadClips` forces.
+			const clipFrame = cell.type === 'flipbook' ? flipbookFrame(cell.clipId ?? '') : null;
+			if (cell.type === 'flipbook' && !clipFrame) {
+				drawMarker(cx, cy, cellW, cellH, 'clip');
+				continue;
+			}
+			// A SPRITE cell's `assetKey` is the frame NAME (the symbols doc binds regions by name),
+			// which is why both arguments are the same key on that path.
+			const artKey = clipFrame?.assetKey ?? cell.assetKey;
+			const artRegion = clipFrame?.region ?? cell.assetKey;
+			const found = findRegion(artKey, artRegion);
 			if (!found) {
 				drawMarker(cx, cy, cellW, cellH);
 				continue;
@@ -2526,7 +2556,7 @@
 				height: drawH,
 				visible: true,
 			};
-			drawArtRegionSprite(ctx, cell.assetKey, cell.assetKey, symTransform);
+			drawArtRegionSprite(ctx, artKey, artRegion, symTransform);
 			ctx.restore();
 		}
 
