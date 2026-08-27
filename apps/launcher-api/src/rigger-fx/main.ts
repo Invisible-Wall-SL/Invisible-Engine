@@ -24,11 +24,23 @@ const api: FxOverlayApi = createFxOverlay();
 declare global {
 	interface Window {
 		RiggerFx: FxOverlayApi;
+		RiggerFxCreate: typeof createFxOverlay;
 	}
 }
 
 if (typeof window !== 'undefined') {
 	window.RiggerFx = api;
+	/**
+	 * The FACTORY, not just the one instance. The Rigger stage needs TWO overlays — one below the rig
+	 * canvas and one above it — so a burst bound to a slot at the BACK of the draw order can preview
+	 * behind the art while another previews in front. With a single overlay they share a band and one
+	 * of them is always drawn on the wrong side of the rig.
+	 *
+	 * `createFxOverlay` was already written as a factory with all state closed over per instance,
+	 * precisely so two hosts could own independent overlays; this just exposes that to `view.html`,
+	 * which has no module system. `RiggerFx` stays as the first (front) instance for back-compat.
+	 */
+	window.RiggerFxCreate = createFxOverlay;
 }
 
 export default api;

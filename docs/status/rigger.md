@@ -66,6 +66,36 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-08-27 — **The stage now has an FX overlay on EACH side of the rig, so two cues at opposite
+  depths both preview truthfully.** Reported after the previous fix: *"the layering works fine in
+  game, but not in the rigger — the canvas view is still showing both FX on top of the rig."* That
+  was the design conceding, not a bug: with ONE overlay every live burst shared a band, and the rule
+  chosen when they disagreed was "prefer front", so a behind-cue was dragged on top.
+  - **Now two overlays**, lazily created per band: `back` at `z-index 0` (below `#cv`) and `front` at
+    `2` (above it), with the rig canvas sandwiched at 1. Each burst plays into the overlay for its own
+    side, so nothing has to be conceded. `createFxOverlay` was already a factory with all state closed
+    over per instance — `rigger-fx/main.ts` now also exposes it as `window.RiggerFxCreate`, since
+    `view.html` has no module system. `window.RiggerFx` stays as the front instance for back-compat.
+  - **This only became possible after the transparent clear** shipped earlier the same day: under the
+    old opaque `#cv` an overlay below it was simply invisible, which is why one overlay had been the
+    only option.
+  - **Bands are created per CLIP, before the crossing runs.** Creating one on first fire dropped that
+    first burst (its overlay was still initialising), so a behind-cue only appeared on the second loop
+    — and on a non-looping clip, never.
+  - **`fxDepthIsExact` replaces the old "behind = exact" shortcut.** With a band on each side, a slot
+    at EITHER end of the draw order previews exactly — nothing behind it, or nothing in front. Only a
+    genuinely mid-stack slot (art on both sides) is approximated, and the note now says which side it
+    chose. The "contested" wording is gone: two cues on opposite sides are no longer a conflict.
+  - Costs a second WebGL context, but only for a rig that actually uses both sides; a rig with FX on
+    one side creates one overlay, and a rig with none creates neither.
+  - Verified live against the 73-bone `anticipation` builtin with the reported two-cue setup: the
+    stack is `fx(back) z0 · #cv z1 · fx(front) z2`, and the two bursts route to **different overlay
+    instances** — `e1`→instance 1 at z2, `e2`→instance 2 at z0. Notes checked for all three cases:
+    backmost slot → exact/behind, frontmost → exact/in front, mid-stack → approximate with the side
+    named. Vendored `rigger-fx.js` rebuilt (it MUST be, or `RiggerFxCreate` is missing and the second
+    band never exists).
+  - Owner confirmed the same day: in-game layering correct, and the `/symbols` FX alignment fix is
+    **verified by eye** — that closes the pixel-check owed for it.
 - 2026-08-27 — **Two FX cues at different depths both previewed on the same side, and the slot list
   read backwards.** Reported as *"I placed the new slot over the rig slot… but both my FX draw at
   the bottom, so the drawing selection doesn't really seem to work."* Two separate causes, one of
