@@ -66,6 +66,39 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-08-27 — **The stage can now actually SHOW a burst behind the rig, so "Draw at slot" is
+  authorable instead of just bakeable.** Reported bluntly: *"I am still not able to author the FX
+  under the rig!"* — and that was fair. Shipping the slot picker while the preview could only ever
+  draw FX on top left the author choosing a depth they could not see.
+  - **Why "behind" never worked:** `#cv` cleared at **alpha 1**, so the overlay's lower band
+    (`z-index: 0`) was not "behind the art", it was *underneath an opaque sheet* — invisible. The
+    band existed but could never show anything, which is also why a cinematic set authored behind
+    its cast showed nothing at all.
+  - **Why it could not simply clear transparent:** `premultiplyAtlas` uploads every page with
+    `UNPACK_PREMULTIPLY_ALPHA_WEBGL` and `pma` is on, so the frame buffer holds PREMULTIPLIED
+    colour — but the context was created `premultipliedAlpha: false`, telling the browser to
+    multiply by alpha a second time. That mismatch was invisible only because a fully opaque buffer
+    makes premultiplied and straight identical. Measured on a half-alpha pixel: clearing transparent
+    under the old flag darkened it by **50/255**; with `premultipliedAlpha: true` it reproduces the
+    opaque render to **0.4/255**, i.e. rounding. So the flag was wrong all along and had simply never
+    been load-bearing.
+  - **Now:** the context declares premultiplied, `#cv` clears `(0,0,0,0)`, and the stage colour moved
+    to `#stage`'s CSS (`applyStageBg`, driven off the same `bgColor` so the two cannot drift).
+  - **Band choice is exact where it matters.** `fxBandInFront` reads the LIVE draw order and counts
+    only slots that actually carry an attachment: a burst with nothing drawn behind it previews in the
+    BEHIND band, which is its true depth. That is the case authors build — a dedicated FX slot parked
+    at the back, which is exactly what the owner's `FX_Slot` is. A slot with art behind it still cannot
+    be shown truthfully (one canvas, two bands), so it previews in front and the inspector now says
+    which of the two it is, in green when exact and amber when approximate.
+  - Verified live against the 73-bone `anticipation` builtin: context reports
+    `premultipliedAlpha: true`, stage background `rgb(27,29,34)`, the buffer really clears transparent
+    (683 transparent / 27 opaque / 90 partial pixels on a row across the rig — i.e. a layer beneath
+    shows through everywhere the rig did not draw and is occluded where it did), and all five band
+    cases resolve correctly (backmost → behind, frontmost/middle/none/unknown-slot → front) with the
+    overlay canvas moving between `z-index` 0 and 2.
+  - ⏳ **Not eyeballed.** The Browser pane does not composite while hidden, so there is no screenshot;
+    this is verified by frame-buffer sampling and by an isolated WebGL compositing test, not by
+    looking at it. Worth one glance on a real rig.
 - 2026-08-27 — **A bound FX cue can now say WHERE it draws and HOW it plays: draw-at-slot depth plus
   opacity / size / delay / duration / speed.** The binding had been `{ effectId, bone? }` since it
   shipped, so a burst always drew on top of the whole rig at the effect's authored opacity, size and
