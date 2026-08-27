@@ -221,6 +221,13 @@ When `swapInPlace` is on, `apps/lines` wires a different set of defaults. Nothin
     and the board the SERVER scored the next step against, so a symbol that did not win still
     changes seat and must be seen to travel there. It slides and plays `land` — an emerge is about
     how a symbol ARRIVES, and a survivor is not arriving.
+
+    Two rules the first cut of that got wrong, both reported from a live game. The survivors must
+    VACATE before anything is placed — the refills stack directly above them, so the topmost
+    survivor's old seat IS the bottom refill's new one, and placing instantly drops the new symbol
+    on top of one that has not left yet. And the long `INTRO_BEAT_CAP_MS` must be spent only on art
+    someone AUTHORED: an inherited `intro` reports nothing, so an un-authored board paid the whole
+    cap on every arrival (2650 ms a cascade step against the shipped slide's 1500).
 - **`intro` is a symbol state, not a presentation flag.** It joins `SYMBOL_STATES` in
   `engine-layout`, gets its own `/symbols` column (gated on the project actually emerging, the way
   `tumbleExplosion` is gated on cascading), and inherits `land` when unauthored — so switching the

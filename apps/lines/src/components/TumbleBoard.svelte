@@ -132,6 +132,7 @@
 	import { getContext } from '../game/context';
 	import { awaitSymbolBeat, INTRO_BEAT_CAP_MS, TRANSIT_BEAT_CAP_MS } from '../game/symbolBeat';
 	import { getSymbolSeat, stateGameDerived } from '../game/stateGame.svelte';
+	import { hasAuthoredSymbolState } from '../game/utils';
 	import {
 		stateTumble,
 		tumbleBoardCombined,
@@ -452,61 +453,100 @@
 		 * left parked on `intro` is a symbol frozen mid-rise for the rest of the round.
 		 */
 		tumbleBoardAppear: async ({ reelIndex: onlyReel }) => {
+			// ONE classification pass, so the two phases below cannot disagree about a single cell —
+			// and so `moved` is captured BEFORE anything is placed, which is the only moment it is
+			// still answerable (after phase 1 every survivor is already sitting on its seat).
+			const cells = tumbleBoardCombined().flatMap((tumbleReel, reelIndex) => {
+				if (onlyReel !== undefined && reelIndex !== onlyReel) return [];
+				// WHICH LAYER a symbol came from, by object identity: `tumbleBoardCombined` merges the
+				// two, and a survivor and a refill can hold equal `rawSymbol`s.
+				const arriving = new Set(stateTumble.adding[reelIndex] ?? []);
+				return tumbleReel.map((tumbleSymbol, symbolIndex) => {
+					const seatY = getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW).y;
+					return {
+						tumbleSymbol,
+						seatY,
+						arriving: arriving.has(tumbleSymbol),
+						// The padding rows top and bottom are off-screen buffer: seated, never sounded.
+						visible: symbolIndex > 0 && symbolIndex < tumbleReel.length - 1,
+						moved: !arriving.has(tumbleSymbol) && seatY !== tumbleSymbol.symbolY.current,
+					};
+				});
+			});
+
+			// PHASE 1 — THE SURVIVORS VACATE, and it is awaited before a single refill is placed.
+			//
+			// This ordering is not tidiness, it is the bug it fixes. A refill's seat is very often the
+			// seat a survivor is still sitting in: the refills stack directly above the survivors, so
+			// the topmost survivor's OLD seat is the bottom refill's NEW one. Placing instantly while
+			// the slide is still running drops the new symbol on top of a symbol that has not left yet,
+			// and it reads exactly as broken as it sounds. A reveal has no survivors, so this phase is
+			// empty there and the arrival below is reached in the same tick as before.
 			await Promise.all(
-				tumbleBoardCombined().flatMap((tumbleReel, reelIndex) => {
-					if (onlyReel !== undefined && reelIndex !== onlyReel) return [];
-					// WHICH LAYER a symbol came from is the whole rule here, and it has to be asked
-					// before the loop: `tumbleBoardCombined` merges the two, and by identity is the only
-					// honest way to ask afterwards (a survivor and a refill can hold equal `rawSymbol`s).
-					const arriving = new Set(stateTumble.adding[reelIndex] ?? []);
-					return tumbleReel.map(async (tumbleSymbol, symbolIndex) => {
-						const visible = symbolIndex > 0 && symbolIndex < tumbleReel.length - 1;
-						const seatY = getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW).y;
+				cells
+					.filter((cell) => cell.moved)
+					.map((cell) =>
+						cell.tumbleSymbol.symbolY.set(cell.seatY, { duration: 200, easing: backOut }),
+					),
+			);
 
-						// A SURVIVOR IS NOT ARRIVING — it is relocating, and it must actually travel.
-						//
-						// This is the half of the cascade the style cannot take away. `combineTumbleReel`
-						// stacks the refills ABOVE the survivors, which is the engine's gravity model and
-						// the board the SERVER scored the next step against; placing a survivor at its new
-						// seat instantly would still land on the right board, but the player would see a
-						// symbol that did not win teleport down the column. So it slides exactly as
-						// `tumbleBoardSlideDown` moves it, and plays `land`, not `intro`: nothing has
-						// arrived, something has settled.
-						if (!arriving.has(tumbleSymbol)) {
-							if (seatY === tumbleSymbol.symbolY.current) return;
-							await tumbleSymbol.symbolY.set(seatY, { duration: 200, easing: backOut });
-							if (!visible) return;
-							tumbleSymbol.symbolState = 'land';
-							stateGameDerived.onSymbolLand({ rawSymbol: tumbleSymbol.rawSymbol });
-							await awaitBeat((resolve) => {
-								tumbleSymbol.oncomplete = () => {
-									tumbleSymbol.symbolState = 'static';
-									resolve();
-								};
-							});
-							tumbleSymbol.symbolState = 'static';
-							return;
-						}
-
-						if (visible) tumbleSymbol.symbolState = 'intro';
-						tumbleSymbol.symbolY.set(seatY, { duration: 0 });
-						if (!visible) return;
-						// The scatter counter and the class land cue — the SAME hook the cascade's
-						// refill calls, because an emerge IS the arrival however little it moved, and a
-						// board that arrived without ticking the counter is a bonus that never triggers.
+			// PHASE 2 — the seats are clear, so the new symbols surface. The survivors play their own
+			// landing HERE, alongside the arrivals rather than ahead of them: a landing beat that gated
+			// the arrival would add its whole cap to every cascade step for a picture nobody is waiting
+			// on.
+			await Promise.all(
+				cells.map(async ({ tumbleSymbol, seatY, arriving, visible, moved }) => {
+					if (!arriving) {
+						// A survivor that never changed seat has nothing to report, exactly as the slide
+						// leaves it alone.
+						if (!moved || !visible) return;
+						tumbleSymbol.symbolState = 'land';
 						stateGameDerived.onSymbolLand({ rawSymbol: tumbleSymbol.rawSymbol });
-						// …and the symbol's OWN emerge voice on top, when Invisible Symbols binds one.
-						// Additive, like the cascade pop — see `playSymbolIntroSound` for why this one
-						// layers where `land` replaces.
-						playSymbolIntroSound(tumbleSymbol.rawSymbol.name);
-						await awaitSymbolBeat((resolve) => {
+						await awaitBeat((resolve) => {
 							tumbleSymbol.oncomplete = () => {
 								tumbleSymbol.symbolState = 'static';
 								resolve();
 							};
-						}, INTRO_BEAT_CAP_MS);
+						});
+						// The cap can win the race, which would leave the cell parked on `land` forever.
 						tumbleSymbol.symbolState = 'static';
-					});
+						return;
+					}
+
+					// THE ORDER OF THE NEXT TWO LINES IS THE FEATURE. The state is set BEFORE the
+					// placement, so Svelte flushes both in one batch and the cell's very first painted
+					// frame is already the intro art. Reversed, a symbol's resting art paints for one
+					// frame, at full size, on its final seat — a hard pop of the whole board, which is
+					// precisely the picture this style exists to avoid.
+					if (visible) tumbleSymbol.symbolState = 'intro';
+					// `duration: 0` rather than a short tween, and that IS the definition of the style.
+					// Nothing travels; the arrival is the animation, not the movement.
+					tumbleSymbol.symbolY.set(seatY, { duration: 0 });
+					if (!visible) return;
+					// The scatter counter and the class land cue — the SAME hook the cascade's refill
+					// calls, because an emerge IS the arrival however little it moved, and a board that
+					// arrived without ticking the counter is a bonus that never triggers.
+					stateGameDerived.onSymbolLand({ rawSymbol: tumbleSymbol.rawSymbol });
+					// …and the symbol's OWN emerge voice on top, when Invisible Symbols binds one.
+					// Additive, like the cascade pop — see `playSymbolIntroSound` for why this one
+					// layers where `land` replaces.
+					playSymbolIntroSound(tumbleSymbol.rawSymbol.name);
+					// THE LONG CAP IS SPENT ONLY ON ART SOMEONE MADE. An un-authored `intro` inherits
+					// `land` (or the resting art), which often has nothing to report — so waiting the
+					// intro cap on it does not wait for an animation, it just adds 2 s to every arrival.
+					// See `hasAuthoredSymbolState`.
+					await awaitSymbolBeat(
+						(resolve) => {
+							tumbleSymbol.oncomplete = () => {
+								tumbleSymbol.symbolState = 'static';
+								resolve();
+							};
+						},
+						hasAuthoredSymbolState(tumbleSymbol.rawSymbol.name, 'intro')
+							? INTRO_BEAT_CAP_MS
+							: TRANSIT_BEAT_CAP_MS,
+					);
+					tumbleSymbol.symbolState = 'static';
 				}),
 			);
 		},
