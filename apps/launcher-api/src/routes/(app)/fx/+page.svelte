@@ -670,9 +670,12 @@
 
 	Two toggles, always visible so nothing silently disappears: **On** adds or removes the
 	behavior itself (a config that never carried an alpha curve can now grow one), and **Min /
-	Max** turns each end into a per-particle RANGE. The library picks one random multiplier per
-	particle for its whole life, so the four boxes are linked by that single ratio — editing a
-	`min` re-derives it, editing a `max` moves the authored curve and the floor rides along.
+	Max** turns each end into a per-particle RANGE.
+
+	The four bounds are INDEPENDENT: each end of the curve carries its own floor, so moving one
+	never drags another. `range.varied` is keyed off the behavior TYPE, never off the numbers —
+	deriving it from "some floor < 1" made the toggle switch itself off (taking all four sliders
+	with it) the moment a min was dragged up to its max.
 -->
 {#snippet curveSection(
 	title: string,
@@ -708,21 +711,23 @@
 				<span>Min / Max (vary per particle)</span>
 			</label>
 			{#if range.varied}
-				{@render slider('Start min', range.startMin, lo, hi, step, (v) =>
+				<!-- Each `min` slider tops out at ITS OWN max, so dragging one can never overshoot into
+				     "min above max" — the four bounds stay independent and nothing else moves. -->
+				{@render slider('Start min', range.startMin, lo, range.startMax, step, (v) =>
 					patchConfig(setCurveBound(cfg, prop, 'start', 'min', v)),
 				)}
 				{@render slider('Start max', range.startMax, lo, hi, step, (v) =>
 					patchConfig(setCurveBound(cfg, prop, 'start', 'max', v)),
 				)}
-				{@render slider('End min', range.endMin, lo, hi, step, (v) =>
+				{@render slider('End min', range.endMin, lo, range.endMax, step, (v) =>
 					patchConfig(setCurveBound(cfg, prop, 'end', 'min', v)),
 				)}
 				{@render slider('End max', range.endMax, lo, hi, step, (v) =>
 					patchConfig(setCurveBound(cfg, prop, 'end', 'max', v)),
 				)}
 				<p class="hint">
-					Each particle draws ONE random multiplier and keeps it for its whole life, so the min ÷
-					max ratio ({Math.round(range.minMult * 100)}%) is shared by Start and End.
+					Each particle spawns somewhere in the Start range and ends somewhere in the End range —
+					the four bounds are independent.
 				</p>
 			{:else}
 				{@render slider('Start', range.startMax, lo, hi, step, (v) =>
@@ -1505,13 +1510,19 @@
 							<span>Min / Max (vary per particle)</span>
 						</label>
 						{#if speedRange.varied}
-							{@render slider('Speed start min', speedRange.startMin, 0, 2000, 1, (v) =>
-								patchConfig(setCurveBound(config, 'speed', 'start', 'min', v)),
+							<!-- Each `min` tops out at its own `max` — see the `curveSection` snippet. -->
+							{@render slider(
+								'Speed start min',
+								speedRange.startMin,
+								0,
+								speedRange.startMax,
+								1,
+								(v) => patchConfig(setCurveBound(config, 'speed', 'start', 'min', v)),
 							)}
 							{@render slider('Speed start max', speedRange.startMax, 0, 2000, 1, (v) =>
 								patchConfig(setCurveBound(config, 'speed', 'start', 'max', v)),
 							)}
-							{@render slider('Speed end min', speedRange.endMin, 0, 2000, 1, (v) =>
+							{@render slider('Speed end min', speedRange.endMin, 0, speedRange.endMax, 1, (v) =>
 								patchConfig(setCurveBound(config, 'speed', 'end', 'min', v)),
 							)}
 							{@render slider('Speed end max', speedRange.endMax, 0, 2000, 1, (v) =>
@@ -1527,9 +1538,8 @@
 						{/if}
 						<p class="hint">
 							Speed along the launch direction, eased over the particle's life. With Min / Max on,
-							each particle keeps one random multiplier for its whole life ({Math.round(
-								speedRange.minMult * 100,
-							)}% floor), so a slow particle stays proportionally slow.
+							each particle launches somewhere in the Start range and eases to somewhere in the End
+							range — the four bounds are independent.
 						</p>
 					{:else if moveModel === 'gravity' && grav}
 						{@render slider('Start speed min', grav.minStart, 0, 2000, 10, (v) =>

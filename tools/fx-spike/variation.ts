@@ -25,8 +25,13 @@ import {
 	bindArt,
 	FX_ALPHA_BEHAVIOR_TYPE,
 	FX_COLOR_OVERLAY_BEHAVIOR_TYPE,
+	FX_SCALE_BEHAVIOR_TYPE,
+	FX_SPEED_BEHAVIOR_TYPE,
 	FxAlphaBehavior,
 	FxColorOverlayBehavior,
+	FxScaleBehavior,
+	FxSpeedBehavior,
+	behaviorsOf,
 	normalizeEffectDoc,
 	registerFxBehaviors,
 	type EffectDoc,
@@ -39,6 +44,7 @@ import {
 	duplicateLayer,
 	emptyEffectDoc,
 	flipbookPlay,
+	FX_PRESETS,
 	hasEmission,
 	insertLayerCopy,
 	moveLayer,
@@ -90,7 +96,10 @@ const baseSnap = JSON.stringify(base);
 console.log('fx variation — curve min/max');
 const a0 = curveRange(base, 'alpha');
 assert(!!a0 && a0.startMax === 1 && a0.endMax === 0, 'alpha reads its authored endpoints (1 → 0)');
-assert(!!a0 && !a0.varied && a0.minMult === 1, 'a fresh curve is uniform (minMult 1)');
+assert(
+	!!a0 && !a0.varied && a0.startMult === 1 && a0.endMult === 1,
+	'a fresh curve is uniform (both floors 1)',
+);
 assert(!!a0 && a0.startMin === a0.startMax, 'uniform ⇒ min equals max');
 
 const variedAlpha = setCurveVaried(base, 'alpha', true);
@@ -116,25 +125,35 @@ assert(
 	'the dead minMult is dropped on downgrade',
 );
 
-// `max` moves the authored curve; `min` re-derives the shared ratio.
+// `max` moves the authored curve; `min` sets THAT END's floor and nothing else.
 const scaled = setCurveBound(base, 'scale', 'start', 'max', 2);
 assert(curveRange(scaled, 'scale')?.startMax === 2, 'setting a max writes the curve endpoint');
 const floored = setCurveBound(scaled, 'scale', 'start', 'min', 0.5);
 const fr = curveRange(floored, 'scale')!;
-assert(near(fr.minMult, 0.25), 'setting a min derives minMult = min / max');
+assert(near(fr.startMult, 0.25), 'setting a min derives that end floor = min / max');
 assert(near(fr.startMin, 0.5), 'the authored min reads straight back');
-assert(near(fr.endMin, fr.endMax * 0.25), 'the SAME ratio floors the other end (library physics)');
+assert(near(fr.endMult, 1), 'the OTHER end is untouched — the floors are independent');
 assert(
-	near(curveRange(setCurveBound(floored, 'scale', 'start', 'min', 99), 'scale')!.minMult, 1),
-	'a min above its max clamps to no variation',
+	near(curveRange(setCurveBound(floored, 'scale', 'start', 'min', 99), 'scale')!.startMult, 1),
+	'a min above its max clamps that end to no spread',
 );
 
-// Speed rides the stock `moveSpeed` minMult — no custom behavior at all.
+// Speed swaps onto its own varied twin (the stock `minMult` cannot express two floors).
 const fastVary = setCurveVaried(base, 'speed', true);
-assert(count(fastVary, 'moveSpeed') === 1, 'speed variation stays on the stock moveSpeed behavior');
 assert(
-	typesOf(fastVary).every((t) => !t.startsWith('fx')),
-	'speed variation adds NO custom behavior type',
+	count(fastVary, FX_SPEED_BEHAVIOR_TYPE) === 1,
+	'speed variation ON swaps moveSpeed → fxSpeed',
+);
+assert(count(fastVary, 'moveSpeed') === 0, 'the stock moveSpeed is gone (never both)');
+assert(
+	count(setCurveVaried(fastVary, 'speed', false), 'moveSpeed') === 1,
+	'…and variation OFF puts the stock moveSpeed back',
+);
+const scaleVary = setCurveVaried(base, 'scale', true);
+assert(count(scaleVary, FX_SCALE_BEHAVIOR_TYPE) === 1, 'scale variation ON swaps scale → fxScale');
+assert(
+	typesOf(setCurveVaried(scaleVary, 'scale', false)).every((t) => !t.startsWith('fx')),
+	'a config with variation off carries NO custom type',
 );
 
 // Enable / disable a whole curve.
@@ -153,6 +172,73 @@ assert(
 	[variedAlpha, backToPlain, floored, fastVary, reAdded].every(feeds),
 	'every edited config still feeds upgradeConfig',
 );
+
+// ---------------------------------------------------------------------------
+// 1b. The two bugs the first cut shipped (owner-reported, 2026-08-28). Both came from
+//     mapping FOUR authored bounds onto the library's THREE degrees of freedom (one
+//     whole-curve `minMult`), and from deriving the mode from the numbers.
+// ---------------------------------------------------------------------------
+console.log('');
+console.log('fx variation — regression: independent bounds + a mode that stays put');
+
+// BUG 1: with `End max` at 0, dragging `End min` reset the shared ratio to 1, which flipped
+// `varied` false — the checkbox unticked itself and the four sliders collapsed to two.
+let z = setCurveVaried(base, 'scale', true);
+z = setCurveBound(z, 'scale', 'end', 'max', 0);
+assert(curveRange(z, 'scale')?.varied === true, 'a zero End max leaves Min/Max ON');
+z = setCurveBound(z, 'scale', 'end', 'min', 0.3);
+assert(
+	curveRange(z, 'scale')?.varied === true,
+	'dragging End min against a zero End max keeps it ON',
+);
+assert(near(curveRange(z, 'scale')!.startMin, 0.25), '…and does not disturb the Start range');
+// The same self-disable fired whenever ANY min was dragged up to its max.
+const atMax = setCurveBound(setCurveVaried(base, 'scale', true), 'scale', 'start', 'min', 99);
+assert(
+	curveRange(atMax, 'scale')?.varied === true,
+	'a min dragged to or above its max keeps Min/Max ON',
+);
+assert(
+	near(curveRange(atMax, 'scale')!.startMin, curveRange(atMax, 'scale')!.startMax),
+	'…it just clamps that end to no spread',
+);
+assert(
+	curveRange(setCurveVaried(atMax, 'scale', false), 'scale')?.varied === false,
+	'only the toggle itself turns Min/Max off',
+);
+
+// BUG 2: the four bounds shared ONE ratio, so moving an End dragged the Start with it.
+let q = setCurveVaried(base, 'speed', true);
+q = setCurveBound(q, 'speed', 'start', 'max', 1656);
+q = setCurveBound(q, 'speed', 'start', 'min', 249.85);
+q = setCurveBound(q, 'speed', 'end', 'max', 1613);
+const beforeEnd = curveRange(q, 'speed')!;
+q = setCurveBound(q, 'speed', 'end', 'min', 800);
+const afterEnd = curveRange(q, 'speed')!;
+assert(near(afterEnd.endMin, 800, 1e-3), 'End min lands exactly where it was dragged');
+assert(near(afterEnd.startMin, beforeEnd.startMin), 'moving End min leaves Start min ALONE');
+assert(near(afterEnd.startMax, beforeEnd.startMax), 'moving End min leaves Start max alone');
+// …and dragging a max holds its own min at the value the author set.
+const grown = setCurveBound(q, 'speed', 'start', 'max', 1800);
+assert(
+	near(curveRange(grown, 'speed')!.startMin, 249.85, 1e-3),
+	'dragging Start max holds Start min at its ABSOLUTE value',
+);
+assert(near(curveRange(grown, 'speed')!.endMin, 800, 1e-3), '…and leaves the End range alone');
+
+// A preset's stock `minMult` is still honoured, and shows as a real (editable) range.
+const fireCfg = FX_PRESETS.find((p) => p.key === 'fire')!.build();
+const fireSpeed = curveRange(fireCfg, 'speed');
+assert(!!fireSpeed && fireSpeed.varied, 'a preset carrying the library minMult reads as varied');
+assert(
+	!!fireSpeed && near(fireSpeed.startMin, fireSpeed.startMax * 0.8),
+	'…with the legacy ratio applied to both ends',
+);
+const migrated = setCurveBound(fireCfg, 'speed', 'start', 'min', 100);
+const mb = behaviorsOf(migrated).find((b) => b.type === FX_SPEED_BEHAVIOR_TYPE);
+assert(!!mb, 'editing it migrates the behavior onto the fxSpeed twin');
+assert(mb?.config.minMult === undefined, 'and drops the now double-counting legacy minMult');
+assert(feeds(migrated), 'the migrated config still feeds upgradeConfig');
 
 // ---------------------------------------------------------------------------
 // 2. Colour overlay.
@@ -201,10 +287,20 @@ assert(feeds(locked), 'a locked config still feeds upgradeConfig');
 // ---------------------------------------------------------------------------
 console.log('');
 console.log('fx variation — custom behavior runtime');
-const chain = (n: number): FxParticleLike => {
+const chain = (n: number, rotation = 0): FxParticleLike => {
 	let head: FxParticleLike | null = null;
 	for (let i = 0; i < n; i++) {
-		head = { alpha: 1, tint: 0xffffff, agePercent: 0, config: {}, next: head };
+		head = {
+			alpha: 1,
+			tint: 0xffffff,
+			agePercent: 0,
+			x: 0,
+			y: 0,
+			rotation,
+			scale: { x: 1, y: 1 },
+			config: {},
+			next: head,
+		};
 	}
 	return head as FxParticleLike;
 };
@@ -214,35 +310,77 @@ const walk = (first: FxParticleLike): FxParticleLike[] => {
 	return out;
 };
 
-const alphaBeh = new FxAlphaBehavior({
-	alpha: {
-		list: [
-			{ time: 0, value: 1 },
-			{ time: 1, value: 0 },
-		],
-	},
-	minMult: 0.4,
+const ramp = (a: number, b: number) => ({
+	list: [
+		{ time: 0, value: a },
+		{ time: 1, value: b },
+	],
 });
-const alphaParticles = chain(200);
+
+// The load-bearing property: the two ends are randomised INDEPENDENTLY, which is the whole
+// reason for these classes (the library's single `minMult` locks them to one ratio).
+const alphaBeh = new FxAlphaBehavior({ alpha: ramp(1, 0.5), startMult: 0.4, endMult: 0.9 });
+const alphaParticles = chain(400);
 alphaBeh.initParticles(alphaParticles);
-const mults = walk(alphaParticles).map((p) => Number(p.config.fxAlphaMult));
+const f0s = walk(alphaParticles).map((p) => Number(p.config.fxAlphaF0));
+const f1s = walk(alphaParticles).map((p) => Number(p.config.fxAlphaF1));
 assert(
-	mults.every((m) => m >= 0.4 - 1e-9 && m <= 1 + 1e-9),
-	'fxAlpha picks every multiplier inside [minMult, 1]',
+	f0s.every((m) => m >= 0.4 - 1e-9 && m <= 1 + 1e-9),
+	'fxAlpha draws every START factor inside [startMult, 1]',
 );
-assert(new Set(mults).size > 1, 'the multipliers actually differ per particle');
+assert(
+	f1s.every((m) => m >= 0.9 - 1e-9 && m <= 1 + 1e-9),
+	'…and every END factor inside its own [endMult, 1]',
+);
+assert(new Set(f0s).size > 1 && new Set(f1s).size > 1, 'both factors differ per particle');
+assert(
+	f0s.some((v, i) => Math.abs(v - f1s[i]) > 0.05),
+	'the two ends are drawn INDEPENDENTLY, not from one shared multiplier',
+);
 const one = walk(alphaParticles)[0];
-const mult = Number(one.config.fxAlphaMult);
-one.agePercent = 0.5;
-alphaBeh.updateParticle(one);
-assert(near(one.alpha, 0.5 * mult), 'fxAlpha interpolates the curve and applies the multiplier');
+const [k0, k1] = [Number(one.config.fxAlphaF0), Number(one.config.fxAlphaF1)];
+assert(near(one.alpha, 1 * k0), 'fxAlpha spawns at curve(0) × its start factor');
 one.agePercent = 1;
 alphaBeh.updateParticle(one);
-assert(near(one.alpha, 0), 'fxAlpha reaches the curve end');
+assert(near(one.alpha, 0.5 * k1), 'and ends at curve(1) × its end factor');
+one.agePercent = 0.5;
+alphaBeh.updateParticle(one);
 assert(
-	Number(one.config.fxAlphaMult) === mult,
-	'a particle keeps the SAME multiplier for its whole life',
+	near(one.alpha, 0.75 * ((k0 + k1) / 2)),
+	'mid-life interpolates BOTH the curve and the factor',
 );
+assert(
+	Number(one.config.fxAlphaF0) === k0 && Number(one.config.fxAlphaF1) === k1,
+	'a particle keeps the SAME pair of factors for its whole life',
+);
+
+// Scale drives `particle.scale.x/y`, exactly like the stock ScaleBehavior.
+const scaleBeh = new FxScaleBehavior({ scale: ramp(2, 0.5), startMult: 0.5, endMult: 1 });
+const sp = chain(1);
+scaleBeh.initParticles(sp);
+assert(sp.scale.x === sp.scale.y && sp.scale.x >= 1 && sp.scale.x <= 2, 'fxScale spawns in [1, 2]');
+sp.agePercent = 1;
+scaleBeh.updateParticle(sp);
+assert(near(sp.scale.x, 0.5), 'fxScale ends exactly on the curve when that end has no spread');
+
+// Speed must reproduce the stock integration. With both floors at 1 there is no randomness, so
+// the result is checkable in closed form: a constant 100 u/s along 0° for 1s is +100 in x.
+const speedBeh = new FxSpeedBehavior({ speed: ramp(100, 100) });
+const mv = chain(1, 0);
+speedBeh.initParticles(mv);
+for (let i = 0; i < 10; i++) speedBeh.updateParticle(mv, 0.1);
+assert(near(mv.x, 100, 1e-9) && near(mv.y, 0, 1e-9), 'fxSpeed integrates along the launch angle');
+const up = chain(1, Math.PI / 2);
+speedBeh.initParticles(up);
+speedBeh.updateParticle(up, 1);
+assert(near(up.x, 0, 1e-9) && near(up.y, 100, 1e-9), 'fxSpeed honours the particle rotation');
+// The stock behavior divides by a zero-length velocity when the curve starts at 0; ours cannot.
+const zero = new FxSpeedBehavior({ speed: ramp(0, 200) });
+const zp = chain(1, 0);
+zero.initParticles(zp);
+zp.agePercent = 1;
+zero.updateParticle(zp, 0.5);
+assert(Number.isFinite(zp.x) && near(zp.x, 100), 'a zero start speed stays finite (no NaN)');
 
 const overlayBeh = new FxColorOverlayBehavior({
 	color: '#ff0000',
@@ -275,6 +413,8 @@ assert(
 registerFxBehaviors(Emitter);
 const known = (Emitter as unknown as { knownBehaviors: Record<string, unknown> }).knownBehaviors;
 assert(!!known[FX_ALPHA_BEHAVIOR_TYPE], 'registerFxBehaviors registers fxAlpha with the Emitter');
+assert(!!known[FX_SCALE_BEHAVIOR_TYPE], '…and fxScale');
+assert(!!known[FX_SPEED_BEHAVIOR_TYPE], '…and fxSpeed');
 assert(!!known[FX_COLOR_OVERLAY_BEHAVIOR_TYPE], '…and fxColorOverlay');
 
 // ---------------------------------------------------------------------------

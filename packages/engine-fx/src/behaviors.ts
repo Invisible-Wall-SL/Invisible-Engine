@@ -45,6 +45,10 @@ export interface FxParticleLike {
 	alpha: number;
 	tint: number;
 	agePercent: number;
+	x: number;
+	y: number;
+	rotation: number;
+	scale: { x: number; y: number };
 	config: Record<string, unknown>;
 	next: FxParticleLike | null;
 }
@@ -71,22 +75,87 @@ function curveAt(curve: FxCurve | undefined, t: number, fallback: number): numbe
 	return list[list.length - 1].value;
 }
 
-/** A random multiplier in `[minMult, 1]` — the library's own `ScaleBehavior` formula. */
-function randMult(minMult: number): number {
-	return Math.random() * (1 - minMult) + minMult;
+/** A random multiplier in `[mult, 1]` — the library's own `ScaleBehavior` formula. */
+function randMult(mult: number): number {
+	return Math.random() * (1 - mult) + mult;
+}
+
+/** Clamp a stored floor into 0..1; a missing/garbage value means "no variation at this end". */
+function floor(v: unknown): number {
+	const n = Number(v);
+	return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
+}
+
+/**
+ * The variation half of every ranged curve: `startMult` and `endMult` are INDEPENDENT floors,
+ * one per end of the curve.
+ *
+ * The library's own `minMult` is a SINGLE multiplier applied to the whole curve for a particle's
+ * life, which means the start and end ranges are locked to one ratio — set the start's floor and
+ * the end's floor moves with it. That is three degrees of freedom behind four authored numbers,
+ * and it reads as broken: two of the four boxes can never be set independently.
+ *
+ * So each particle draws TWO factors — `f0 ∈ [startMult, 1]` for the curve's start and
+ * `f1 ∈ [endMult, 1]` for its end — and the factor applied at time `t` interpolates between them.
+ * At `t = 0` the value lands in `[curve(0)·startMult, curve(0)]` and at `t = 1` in
+ * `[curve(1)·endMult, curve(1)]`, independently. Multi-point curves keep their shape (the factor
+ * scales the whole list), so a three-stop alpha curve still works.
+ *
+ * With both floors at 1 this is exactly the stock behavior, which is why the authoring model can
+ * swap the two types freely.
+ */
+interface RangedCurve {
+	curve: FxCurve;
+	startMult: number;
+	endMult: number;
+}
+
+/** Read the `{ curve, startMult, endMult }` triple out of a behavior config. */
+function readRanged(config: Record<string, unknown> | undefined, key: string): RangedCurve {
+	const curve = (config?.[key] as FxCurve | undefined) ?? { list: [] };
+	// `minMult` is the library's single-ratio field. Honouring it as BOTH floors keeps a config
+	// authored before the split (or by a preset) rendering exactly as it did.
+	const legacy = config?.minMult !== undefined ? floor(config.minMult) : undefined;
+	return {
+		curve,
+		startMult: config?.startMult !== undefined ? floor(config.startMult) : (legacy ?? 1),
+		endMult: config?.endMult !== undefined ? floor(config.endMult) : (legacy ?? 1),
+	};
+}
+
+/** Draw this particle's two per-end factors and stash them under `slot`. */
+function drawFactors(p: FxParticleLike, r: RangedCurve, slot: string): void {
+	p.config[`${slot}F0`] = randMult(r.startMult);
+	p.config[`${slot}F1`] = randMult(r.endMult);
+}
+
+/** The interpolated factor for a particle at time `t` (its start factor → its end factor). */
+function factorAt(p: FxParticleLike, slot: string, t: number): number {
+	const f0 = Number(p.config[`${slot}F0`] ?? 1);
+	const f1 = Number(p.config[`${slot}F1`] ?? 1);
+	return f0 + (f1 - f0) * t;
+}
+
+/** The curve value for a particle at time `t`, with its per-particle variation applied. */
+function rangedValue(p: FxParticleLike, r: RangedCurve, slot: string, t: number): number {
+	return curveAt(r.curve, t, 1) * factorAt(p, slot, t);
 }
 
 export const FX_ALPHA_BEHAVIOR_TYPE = 'fxAlpha';
 
-/** `fxAlpha`'s config — the stock `alpha` block plus Scale's `minMult` randomiser. */
+/** `fxAlpha`'s config — the stock `alpha` block plus a floor for each end of the curve. */
 export interface FxAlphaConfig {
 	alpha: FxCurve;
-	/** Each particle multiplies the whole alpha curve by a random value in `[minMult, 1]`. */
+	/** Floor for the curve's START value, 0–1 (1 = every particle starts on the curve). */
+	startMult?: number;
+	/** Floor for the curve's END value, 0–1. */
+	endMult?: number;
+	/** The library's single whole-curve ratio. Read as both floors when the pair is absent. */
 	minMult?: number;
 }
 
 /**
- * Alpha over life WITH per-particle variation — `ScaleBehavior`'s contract applied to opacity.
+ * Alpha over life WITH per-particle variation — the library has no `minMult` on `alpha` at all.
  *
  * Self-contained on purpose: it owns the curve rather than multiplying whatever a stock `alpha`
  * behavior last wrote. A "multiply the current alpha" add-on would compound its own output every
@@ -96,26 +165,102 @@ export interface FxAlphaConfig {
 export class FxAlphaBehavior {
 	static type = FX_ALPHA_BEHAVIOR_TYPE;
 	order = ORDER_NORMAL;
-	private curve: FxCurve;
-	private minMult: number;
+	private r: RangedCurve;
 
 	constructor(config: FxAlphaConfig) {
-		this.curve = config?.alpha ?? { list: [] };
-		const m = Number(config?.minMult);
-		this.minMult = Number.isFinite(m) ? Math.min(1, Math.max(0, m)) : 1;
+		this.r = readRanged(config as unknown as Record<string, unknown>, 'alpha');
 	}
 
 	initParticles(first: FxParticleLike): void {
 		for (let p: FxParticleLike | null = first; p; p = p.next) {
-			const mult = randMult(this.minMult);
-			p.config.fxAlphaMult = mult;
-			p.alpha = curveAt(this.curve, 0, 1) * mult;
+			drawFactors(p, this.r, 'fxAlpha');
+			p.alpha = rangedValue(p, this.r, 'fxAlpha', 0);
 		}
 	}
 
 	updateParticle(particle: FxParticleLike): void {
-		const mult = Number(particle.config.fxAlphaMult ?? 1);
-		particle.alpha = curveAt(this.curve, particle.agePercent, 1) * mult;
+		particle.alpha = rangedValue(particle, this.r, 'fxAlpha', particle.agePercent);
+	}
+}
+
+export const FX_SCALE_BEHAVIOR_TYPE = 'fxScale';
+
+/** `fxScale`'s config — the stock `scale` block with a floor per end instead of one `minMult`. */
+export interface FxScaleConfig {
+	scale: FxCurve;
+	startMult?: number;
+	endMult?: number;
+	minMult?: number;
+}
+
+/** Scale over life with an independently authored range at each end of the curve. */
+export class FxScaleBehavior {
+	static type = FX_SCALE_BEHAVIOR_TYPE;
+	order = ORDER_NORMAL;
+	private r: RangedCurve;
+
+	constructor(config: FxScaleConfig) {
+		this.r = readRanged(config as unknown as Record<string, unknown>, 'scale');
+	}
+
+	initParticles(first: FxParticleLike): void {
+		for (let p: FxParticleLike | null = first; p; p = p.next) {
+			drawFactors(p, this.r, 'fxScale');
+			const v = rangedValue(p, this.r, 'fxScale', 0);
+			p.scale.x = p.scale.y = v;
+		}
+	}
+
+	updateParticle(particle: FxParticleLike): void {
+		const v = rangedValue(particle, this.r, 'fxScale', particle.agePercent);
+		particle.scale.x = particle.scale.y = v;
+	}
+}
+
+export const FX_SPEED_BEHAVIOR_TYPE = 'fxSpeed';
+
+/** `fxSpeed`'s config — the stock `moveSpeed` block with a floor per end. */
+export interface FxSpeedConfig {
+	speed: FxCurve;
+	startMult?: number;
+	endMult?: number;
+	minMult?: number;
+}
+
+/**
+ * Speed along the launch direction, with an independently authored range at each end.
+ *
+ * Reproduces `SpeedBehavior` exactly (same `order`, same integration): the launch direction is
+ * taken from the particle's rotation at init, and each frame the velocity is renormalised to the
+ * current speed and integrated. One deliberate difference — the direction is stored as a UNIT
+ * vector, so a curve that starts at 0 can't produce the divide-by-zero `NaN` the stock behavior's
+ * `normalize()` hits on a zero-length velocity.
+ */
+export class FxSpeedBehavior {
+	static type = FX_SPEED_BEHAVIOR_TYPE;
+	order = ORDER_LATE;
+	private r: RangedCurve;
+
+	constructor(config: FxSpeedConfig) {
+		this.r = readRanged(config as unknown as Record<string, unknown>, 'speed');
+	}
+
+	initParticles(first: FxParticleLike): void {
+		for (let p: FxParticleLike | null = first; p; p = p.next) {
+			drawFactors(p, this.r, 'fxSpeed');
+			// The stock behavior rotates a (speed, 0) vector by the particle's rotation and then
+			// renormalises it every frame, so only the DIRECTION carries over — store it as a unit
+			// vector. `rotation` is radians here (the rotation behaviors convert on the way in).
+			p.config.fxSpeedDir = { x: Math.cos(p.rotation), y: Math.sin(p.rotation) };
+		}
+	}
+
+	updateParticle(particle: FxParticleLike, deltaSec: number): void {
+		const dir = particle.config.fxSpeedDir as { x: number; y: number } | undefined;
+		if (!dir) return;
+		const speed = rangedValue(particle, this.r, 'fxSpeed', particle.agePercent);
+		particle.x += dir.x * speed * deltaSec;
+		particle.y += dir.y * speed * deltaSec;
 	}
 }
 
@@ -208,7 +353,12 @@ export interface FxBehaviorRegistrar {
 }
 
 /** Every custom behavior an authored `EffectDoc` can reference (registration + doc-validation). */
-export const FX_BEHAVIOR_TYPES = [FX_ALPHA_BEHAVIOR_TYPE, FX_COLOR_OVERLAY_BEHAVIOR_TYPE];
+export const FX_BEHAVIOR_TYPES = [
+	FX_ALPHA_BEHAVIOR_TYPE,
+	FX_SCALE_BEHAVIOR_TYPE,
+	FX_SPEED_BEHAVIOR_TYPE,
+	FX_COLOR_OVERLAY_BEHAVIOR_TYPE,
+];
 
 /**
  * Teach an `Emitter` class the FX behaviors. Idempotent (the library's registry is a plain map
@@ -216,5 +366,7 @@ export const FX_BEHAVIOR_TYPES = [FX_ALPHA_BEHAVIOR_TYPE, FX_COLOR_OVERLAY_BEHAV
  */
 export function registerFxBehaviors(emitter: FxBehaviorRegistrar): void {
 	emitter.registerBehavior(FxAlphaBehavior as never);
+	emitter.registerBehavior(FxScaleBehavior as never);
+	emitter.registerBehavior(FxSpeedBehavior as never);
 	emitter.registerBehavior(FxColorOverlayBehavior as never);
 }

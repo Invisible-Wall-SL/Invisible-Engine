@@ -14,6 +14,8 @@ import {
 	EFFECT_DOC_VERSION,
 	FX_ALPHA_BEHAVIOR_TYPE,
 	FX_COLOR_OVERLAY_BEHAVIOR_TYPE,
+	FX_SCALE_BEHAVIOR_TYPE,
+	FX_SPEED_BEHAVIOR_TYPE,
 	behaviorsOf,
 	type BehaviorEntry,
 	type EffectDoc,
@@ -1042,9 +1044,16 @@ function defaultSpeed(startSpeed: number): Record<string, unknown> {
 export function setMovementModel(config: EmitterConfigV3, model: MovementModel): EmitterConfigV3 {
 	if (movementModel(config) === model) return config;
 	if (model === 'gravity') {
-		const speed = listEndpoints(config, 'moveSpeed', 'speed');
-		const startSpeed = speed ? speed.start : 300;
-		const stripped = removeBehaviors(config, 'moveSpeed', 'moveSpeedStatic');
+		// `curveRange`, not `listEndpoints`: the latter matches the stock `moveSpeed` type only and
+		// would miss a speed curve that variation has swapped to `fxSpeed`, silently carrying 300.
+		const speed = curveRange(config, 'speed');
+		const startSpeed = speed ? speed.startMax : 300;
+		const stripped = removeBehaviors(
+			config,
+			'moveSpeed',
+			'moveSpeedStatic',
+			FX_SPEED_BEHAVIOR_TYPE,
+		);
 		const next = cloneConfig(stripped);
 		behaviorsOf(next).push({ type: 'moveAcceleration', config: defaultGravity(startSpeed) });
 		return next;
@@ -1533,11 +1542,17 @@ const CURVE_SPECS: Record<CurveProp, CurveSpec> = {
 		plain: 'alpha',
 		defaults: [1, 0],
 	},
-	scale: { types: ['scale'], key: 'scale', varied: 'scale', plain: 'scale', defaults: [0.5, 0.15] },
+	scale: {
+		types: ['scale', FX_SCALE_BEHAVIOR_TYPE],
+		key: 'scale',
+		varied: FX_SCALE_BEHAVIOR_TYPE,
+		plain: 'scale',
+		defaults: [0.5, 0.15],
+	},
 	speed: {
-		types: ['moveSpeed'],
+		types: ['moveSpeed', FX_SPEED_BEHAVIOR_TYPE],
 		key: 'speed',
-		varied: 'moveSpeed',
+		varied: FX_SPEED_BEHAVIOR_TYPE,
 		plain: 'moveSpeed',
 		defaults: [300, 120],
 	},
@@ -1554,36 +1569,55 @@ export interface CurveRange {
 	/** The authored curve endpoints — the TOP of each end's range. */
 	startMax: number;
 	endMax: number;
-	/** The bottom of each end's range (`max × minMult`). Equals max when variation is off. */
+	/** The bottom of each end's range (`max × that end's floor`). Equals max with no variation. */
 	startMin: number;
 	endMin: number;
-	/** The shared per-particle multiplier (1 ⇒ every particle identical). */
-	minMult: number;
-	/** Whether the author has turned variation on (`minMult < 1`). */
+	/** The two INDEPENDENT per-end floors, 0–1 (1 ⇒ that end doesn't vary). */
+	startMult: number;
+	endMult: number;
+	/**
+	 * Whether the inspector shows the min/max pairs. Keyed off the behavior TYPE, never off the
+	 * numbers: deriving it from "some floor < 1" made the toggle switch ITSELF off the moment a
+	 * min was dragged up to its max, taking the four sliders with it.
+	 */
 	varied: boolean;
+}
+
+/** Clamp a stored floor into 0..1 (absent/garbage ⇒ 1 = that end doesn't vary). */
+function floorOf(v: unknown): number {
+	const n = Number(v);
+	return Number.isFinite(n) ? Math.min(1, Math.max(0, n)) : 1;
 }
 
 /**
  * Read a curve property's min/max ranges. `undefined` when the config has no behavior for it
  * (the inspector then offers to ADD one rather than silently hiding the section).
+ *
+ * The library's own `minMult` is a SINGLE whole-curve ratio, so a config carrying one (a preset,
+ * or anything authored before the split) reads as both floors — it renders exactly as it did.
  */
 export function curveRange(config: EmitterConfigV3, prop: CurveProp): CurveRange | undefined {
+	const spec = CURVE_SPECS[prop];
 	const b = curveBehavior(config, prop);
 	if (!b) return undefined;
-	const holder = b.config[CURVE_SPECS[prop].key] as { list?: ListPoint[] } | undefined;
+	const holder = b.config[spec.key] as { list?: ListPoint[] } | undefined;
 	const list = holder?.list;
 	if (!Array.isArray(list) || list.length === 0) return undefined;
 	const startMax = list[0].value;
 	const endMax = list[list.length - 1].value;
-	const raw = Number(b.config.minMult);
-	const minMult = Number.isFinite(raw) ? Math.min(1, Math.max(0, raw)) : 1;
+	const legacy = b.config.minMult !== undefined ? floorOf(b.config.minMult) : undefined;
+	const startMult = b.config.startMult !== undefined ? floorOf(b.config.startMult) : (legacy ?? 1);
+	const endMult = b.config.endMult !== undefined ? floorOf(b.config.endMult) : (legacy ?? 1);
 	return {
 		startMax,
 		endMax,
-		startMin: startMax * minMult,
-		endMin: endMax * minMult,
-		minMult,
-		varied: minMult < 1,
+		startMin: startMax * startMult,
+		endMin: endMax * endMult,
+		startMult,
+		endMult,
+		// A legacy `minMult` counts as varied so a preset's built-in spread is visible and editable
+		// rather than silently applied by the runtime behind an unticked box.
+		varied: b.type === spec.varied || (legacy !== undefined && legacy < 1),
 	};
 }
 
@@ -1621,30 +1655,52 @@ export function setCurveEnabled(
 	return next;
 }
 
-/** Rewrite a curve behavior's `minMult` immutably, swapping stock ⇄ varied type as needed. */
-function writeMinMult(config: EmitterConfigV3, prop: CurveProp, minMult: number): EmitterConfigV3 {
+/**
+ * Set a curve behavior's variation TYPE + its two per-end floors immutably.
+ *
+ * `varied` decides the behavior type on its own — never the numbers. Deriving it from "some floor
+ * < 1" is what made the toggle switch itself off (and the four sliders vanish) the moment a min
+ * was dragged up to its max. A varied behavior with both floors at 1 renders exactly like the
+ * stock one, so leaving the type alone costs nothing.
+ *
+ * Switching to the stock type drops BOTH new floors and the library's legacy `minMult`, so an
+ * effect with variation turned off carries no trace of it.
+ */
+function writeVariation(
+	config: EmitterConfigV3,
+	prop: CurveProp,
+	opts: { varied: boolean; startMult?: number; endMult?: number },
+): EmitterConfigV3 {
 	const spec = CURVE_SPECS[prop];
-	const clamped = Math.min(1, Math.max(0, Number.isFinite(minMult) ? minMult : 1));
 	const next = cloneConfig(config);
 	const b = behaviorsOf(next).find((x) => spec.types.includes(x.type));
 	if (!b) return next;
-	if (clamped >= 1) {
+	if (!opts.varied) {
 		b.type = spec.plain;
+		delete b.config.startMult;
+		delete b.config.endMult;
 		delete b.config.minMult;
-	} else {
-		b.type = spec.varied;
-		b.config.minMult = clamped;
+		return next;
 	}
+	const cur = curveRange(config, prop);
+	const clamp = (n: number): number => Math.min(1, Math.max(0, Number.isFinite(n) ? n : 1));
+	b.type = spec.varied;
+	b.config.startMult = clamp(opts.startMult ?? cur?.startMult ?? 1);
+	b.config.endMult = clamp(opts.endMult ?? cur?.endMult ?? 1);
+	// The library's single whole-curve ratio is now expressed by the pair above — carrying both
+	// would double-apply for a reader that honours `minMult`.
+	delete b.config.minMult;
 	return next;
 }
 
-/** The multiplier a freshly-enabled variation starts at — a visible but sane spread. */
+/** The floor a freshly-enabled variation starts at — a visible but sane spread. */
 const DEFAULT_MIN_MULT = 0.5;
 
 /**
- * Turn per-particle variation on/off for a curve property immutably. Turning it ON when the
- * curve is currently uniform seeds a half-strength floor; turning it OFF pins every particle to
- * the authored curve (and, for alpha, drops back to the stock behavior).
+ * Turn per-particle variation on/off for a curve property immutably. Turning it ON keeps any
+ * floors already present (including a legacy `minMult`, migrated onto both ends) and otherwise
+ * seeds a half-strength spread; turning it OFF pins every particle to the authored curve and
+ * drops back to the stock behavior.
  */
 export function setCurveVaried(
 	config: EmitterConfigV3,
@@ -1653,20 +1709,25 @@ export function setCurveVaried(
 ): EmitterConfigV3 {
 	const range = curveRange(config, prop);
 	if (!range) return config;
-	if (!on) return writeMinMult(config, prop, 1);
-	return writeMinMult(config, prop, range.minMult < 1 ? range.minMult : DEFAULT_MIN_MULT);
+	if (!on) return writeVariation(config, prop, { varied: false });
+	const seeded = range.startMult < 1 || range.endMult < 1;
+	return writeVariation(config, prop, {
+		varied: true,
+		startMult: seeded ? range.startMult : DEFAULT_MIN_MULT,
+		endMult: seeded ? range.endMult : DEFAULT_MIN_MULT,
+	});
 }
 
 /**
- * Set one bound of one end of a curve property, immutably.
+ * Set one bound of one end of a curve property, immutably. The four bounds are INDEPENDENT: the
+ * start and end each carry their own floor, so moving one never drags the others.
  *
- * - `max` writes the authored curve endpoint (the ratio, hence the matching `min`, rides along).
- * - `min` re-derives the SHARED per-particle ratio from that end (`minMult = min / max`), so the
- *   other end's floor moves with it — the library picks one multiplier per particle for its whole
- *   life, so a single ratio is the only thing it can express.
+ * - `max` writes the authored curve endpoint, holding that end's `min` at its current ABSOLUTE
+ *   value (the floor is re-derived) — dragging a max must not yank its own min along.
+ * - `min` sets that end's floor (`mult = min / max`), clamped so it can never exceed its max.
  *
- * A `min` above its `max` clamps to equal (no variation); a zero `max` can't carry a ratio, so it
- * pins the ratio to 1.
+ * A zero `max` can't express a ratio, so that end's floor pins to 1 — and, unlike before, that is
+ * confined to the end being edited and can no longer switch the whole mode off.
  */
 export function setCurveBound(
 	config: EmitterConfigV3,
@@ -1679,21 +1740,27 @@ export function setCurveBound(
 	if (!range) return config;
 	const v = Number.isFinite(value) ? value : 0;
 	const spec = CURVE_SPECS[prop];
+	const key = which === 'start' ? 'startMult' : 'endMult';
+
 	if (bound === 'max') {
-		// NOT `setListEndpoint`: it matches the behavior by its exact stock `type`, which misses
-		// alpha once variation has swapped it to `fxAlpha`. Resolve through `curveBehavior` so
-		// both twins are edited the same way.
+		// NOT `setListEndpoint`: it matches the behavior by its exact stock `type`, which misses a
+		// curve once variation has swapped it to its `fx*` twin. Resolve through `curveBehavior`.
 		const next = cloneConfig(config);
 		const b = behaviorsOf(next).find((x) => spec.types.includes(x.type));
 		const list = (b?.config[spec.key] as { list?: ListPoint[] } | undefined)?.list;
 		if (!Array.isArray(list) || list.length === 0) return next;
 		if (which === 'start') list[0].value = v;
 		else list[list.length - 1].value = v;
-		return next;
+		if (!range.varied) return next;
+		// Hold the absolute min where the author put it: re-derive this end's floor against the new
+		// max. A max dragged below its min collapses that end to no variation (floor 1).
+		const min = which === 'start' ? range.startMin : range.endMin;
+		return writeVariation(next, prop, { varied: true, [key]: v ? Math.min(1, min / v) : 1 });
 	}
+
 	const max = which === 'start' ? range.startMax : range.endMax;
-	if (!max) return writeMinMult(config, prop, 1);
-	return writeMinMult(config, prop, Math.min(1, Math.max(0, v / max)));
+	const mult = max ? Math.min(1, Math.max(0, v / max)) : 1;
+	return writeVariation(config, prop, { varied: true, [key]: mult });
 }
 
 // ---------------------------------------------------------------------------
