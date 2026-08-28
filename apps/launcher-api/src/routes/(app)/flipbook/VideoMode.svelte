@@ -73,6 +73,9 @@
 		 * (bundled blueprints sync), which is why the recipe panel never claims to show it. */
 		params?: Record<string, string | number | boolean>;
 		status: 'queued' | 'running' | 'finished' | 'cancelled';
+		/** Place in line behind the running session — 0 once it holds the runner (or is done).
+		 * Served live and never stored, so it is only ever as fresh as the last poll. */
+		queue_position?: number;
 		created: number;
 		done_count: number;
 		variations: Variation[];
@@ -110,6 +113,12 @@
 	const blueprint = $derived(blueprints.find((b) => b.id === blueprintId) ?? null);
 	const params = $derived(blueprint?.params ?? []);
 	const running = $derived(session?.status === 'running' || session?.status === 'queued');
+	/** Is ANY session holding the runner — the selected one or another in the list? Only the
+	 * button's wording depends on it (Generate vs Queue), so a stale `recent` costs nothing:
+	 * the tool decides what actually happens and answers with the session's real place in line. */
+	const anyLive = $derived(
+		running || recent.some((s) => s.status === 'running' || s.status === 'queued'),
+	);
 	/** Params bucketed by their declared `group`, in first-seen order — a plain array rather than a
 	 * Map because `svelte/prefer-svelte-reactivity` (rightly) flags a bare Map inside a rune. */
 	const paramGroups = $derived.by(() => {
@@ -213,7 +222,13 @@
 			// The tool answers user-fixable problems as 200 + {error} so the message can be shown
 			// verbatim — a 500 would only say "Internal Error".
 			if (res.error) err = res.error;
-			else session = res;
+			else {
+				session = res;
+				// Refresh the rail so a session that QUEUED shows up in it immediately — the
+				// list is otherwise only re-read when a session goes terminal, which for a
+				// queued one is a long way off.
+				recent = await getJson<Session[]>('sessions');
+			}
 		} catch (e) {
 			err = (e as Error).message;
 		}
@@ -920,7 +935,7 @@ Overwrite it?`)
 		{:else}
 			<label class="fld">
 				<span>Blueprint</span>
-				<select bind:value={blueprintId} disabled={running}>
+				<select bind:value={blueprintId}>
 					{#each blueprints as b (b.id)}
 						<option value={b.id}>{b.name ?? b.id}</option>
 					{/each}
@@ -936,15 +951,13 @@ Overwrite it?`)
 					bind:this={promptBox}
 					bind:value={prompt}
 					rows="4"
-					disabled={running}
 					placeholder="What should happen in the animation?"
 				></textarea>
 			</label>
 
 			<label class="fld">
 				<span>Negative</span>
-				<textarea bind:value={negative} rows="2" disabled={running} placeholder="(optional)"
-				></textarea>
+				<textarea bind:value={negative} rows="2" placeholder="(optional)"></textarea>
 			</label>
 
 			<div class="fld">
@@ -959,7 +972,7 @@ Overwrite it?`)
 						placeholder="none picked"
 						title={sourceRef}
 					/>
-					<button onclick={openPicker} disabled={running}>Pick…</button>
+					<button onclick={openPicker}>Pick…</button>
 				</div>
 				<p class="hint">
 					Image-to-video animates this still. Point it at a symbol's source art and the model moves
@@ -970,7 +983,7 @@ Overwrite it?`)
 
 			<label class="fld">
 				<span>Variations</span>
-				<input type="number" min="1" max="12" bind:value={variations} disabled={running} />
+				<input type="number" min="1" max="12" bind:value={variations} />
 			</label>
 
 			{#each paramGroups as g (g.group)}
@@ -983,13 +996,11 @@ Overwrite it?`)
 								<input
 									type="checkbox"
 									checked={Boolean(overrides[p.key] ?? p.default)}
-									disabled={running}
 									onchange={(e) => (overrides[p.key] = e.currentTarget.checked)}
 								/>
 							{:else if p.type === 'select'}
 								<select
 									value={String(overrides[p.key] ?? p.default ?? '')}
-									disabled={running}
 									onchange={(e) => (overrides[p.key] = e.currentTarget.value)}
 								>
 									{#each p.options ?? [] as o (o)}
@@ -999,7 +1010,6 @@ Overwrite it?`)
 							{:else if p.type === 'text'}
 								<input
 									value={String(overrides[p.key] ?? p.default ?? '')}
-									disabled={running}
 									onchange={(e) => (overrides[p.key] = e.currentTarget.value)}
 								/>
 							{:else}
@@ -1009,7 +1019,6 @@ Overwrite it?`)
 									max={p.max}
 									step={p.step ?? (p.type === 'int' ? 1 : 0.1)}
 									value={Number(overrides[p.key] ?? p.default ?? 0)}
-									disabled={running}
 									onchange={(e) => (overrides[p.key] = e.currentTarget.value)}
 								/>
 							{/if}
@@ -1018,15 +1027,24 @@ Overwrite it?`)
 				</details>
 			{/each}
 
+			<!-- Generate is ALWAYS offered. It used to be replaced by Cancel while a session ran,
+			     so the only route to a second prompt was killing the first — and a killed session
+			     is a paid render thrown away. A second run now lines up behind the first. -->
 			<div class="actions">
+				<button class="go" onclick={generate} disabled={busy || !blueprintId}>
+					{busy ? 'Starting…' : anyLive ? `＋ Queue ${variations}` : `▶ Generate ${variations}`}
+				</button>
 				{#if running}
 					<button class="danger" onclick={cancel}>■ Cancel</button>
-				{:else}
-					<button class="go" onclick={generate} disabled={busy || !blueprintId}>
-						{busy ? 'Starting…' : `▶ Generate ${variations}`}
-					</button>
 				{/if}
 			</div>
+			{#if anyLive && !busy}
+				<p class="hint">
+					{running && session?.queue_position
+						? 'This session is waiting its turn — nothing has been spent on it yet, so cancelling it is free.'
+						: 'A session is running. Queue takes your next idea in line and starts it as soon as the GPU is free — the run in progress is not disturbed.'}
+				</p>
+			{/if}
 			{#if err}<p class="pill err">{err}</p>{/if}
 		{/if}
 	</aside>
@@ -1047,19 +1065,19 @@ Overwrite it?`)
 					{#each recent as s (s.id)}
 						<option value={s.id}>
 							{s.blueprint_name ?? s.blueprint} · {s.variations?.length ?? 0} · {fmtAge(s.created)}
+							{s.status === 'running' || s.status === 'queued' ? ` · ${s.status}` : ''}
 						</option>
 					{/each}
 				</select>
 			{/if}
 			{#if session}
-				<span class="pill">{session.status}</span>
+				<span class="pill">
+					{session.status}{session.queue_position ? ` · #${session.queue_position} in line` : ''}
+				</span>
 				<span class="spacer"></span>
 				<button
 					class="sm reuse"
-					disabled={running}
-					title={running
-						? 'This session is still running — wait for it, or cancel it first'
-						: "Load this session's prompt, source image and settings into Generate. Seeds are NOT reused, so running it again gives new variations of the same idea."}
+					title="Load this session's prompt, source image and settings into Generate. Seeds are NOT reused, so running it again gives new variations of the same idea."
 					onclick={reuseSettings}>↻ Use these settings</button
 				>
 				<button
@@ -1663,6 +1681,13 @@ Overwrite it?`)
 	}
 	.actions {
 		margin-top: 6px;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+	}
+	.actions .danger {
+		width: 100%;
+		padding: 6px;
 	}
 	.go {
 		width: 100%;

@@ -244,6 +244,17 @@ The left rail, top to bottom:
 
 Press **▶ Generate N**.
 
+#### Lining up a second idea
+
+You do **not** have to wait, and you must never cancel a run just to start another. While a
+session is generating, the button reads **＋ Queue N**: write the next prompt, press it, and
+that session waits its turn and starts the moment the GPU is free. The run in progress is
+not disturbed. The session bar shows where a waiting session stands (`queued · #2 in line`).
+
+Up to four sessions may wait behind the running one. A session that has not started yet has
+spent nothing, so **■ Cancel** on a waiting session is free and instant — it simply leaves
+the line, and whatever was behind it moves up.
+
 #### Picking the source image
 
 **Pick…** opens one modal with three tabs. They differ only in where the still comes from —
@@ -279,8 +290,10 @@ was off or produced nothing, and those frames are not usable as symbol art.
 Per tile: the **seed** button copies that render's seed (it reproduces that exact result),
 and **🎞 Make flipbook** starts the conversion.
 
-**■ Cancel** stops a running session — no further variations start, and the in-flight job
-is cancelled on the endpoint so it stops costing money.
+**■ Cancel** stops a session — no further variations start, and the in-flight job is
+cancelled on the endpoint so it stops costing money. Cancelled variations read `cancelled`,
+not `failed`: a red FAILED tile always means the render itself went wrong, never that you
+stopped it.
 
 Sessions are listed in the dropdown above the grid and persist: close the tab, come back,
 and a session still running reattaches. **Nothing prunes them**, so use 🗑 on sessions you
@@ -365,8 +378,9 @@ setting — so what you saw in the grid is what the clip plays.
   the size the clip is drawn at without touching a pixel.
 - **🎬 Video: no re-roll of a single tile.** To try again, run the whole recipe again —
   **↻ Use these settings** on the session, then **▶ Generate**.
-- **🎬 Video: one session at a time**, per deliberate choice — a session is several paid
-  GPU jobs, so they are not allowed to stack up.
+- **🎬 Video: one session RUNS at a time**, per deliberate choice — a session is several
+  paid GPU jobs, and running two at once would also lose the warm-model reuse that makes a
+  session fast. Further sessions QUEUE (up to four waiting); they never run in parallel.
 
 ## Related
 

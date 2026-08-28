@@ -45,6 +45,7 @@ def check_raises(label: str, fn, needle: str = "") -> None:
 
 
 BP_DIR = Path(__file__).resolve().parent / "blueprints_src" / "wan22_i2v_flipbook"
+REAL_CANCEL_JOB = video_runner._cancel_job
 
 
 def load_blueprint() -> dict:
@@ -206,6 +207,13 @@ def _stub_world():
 
     tmp = Path(tempfile.mkdtemp(prefix="iw-video-test-"))
     objects: dict[str, bytes] = {}
+
+    # Start from an idle runner. A test that leaves a session behind would
+    # otherwise QUEUE the next test's session instead of running it.
+    video_runner._SESSIONS.clear()
+    video_runner._QUEUE.clear()
+    video_runner._ACTIVE = None
+    video_runner._cancel_job = REAL_CANCEL_JOB
 
     video_runner.storage.put = lambda k, b, c=None: objects.__setitem__(k, b)
     video_runner.storage.get = lambda k: objects.get(k)
@@ -502,6 +510,195 @@ def test_cancel_a_session_we_do_not_own() -> None:
                  "no such session")
 
 
+def _gate_first_job():
+    """Hold job1 at IN_PROGRESS until the returned event is set, so a test has a
+    genuinely running session to queue behind."""
+    import threading
+
+    import batch_atlas
+
+    gate = threading.Event()
+    passthrough = batch_atlas._runpod_get
+
+    def gated_get(path):
+        if path.endswith("job1") and not gate.is_set():
+            return {"status": "IN_PROGRESS"}
+        return passthrough(path)
+
+    batch_atlas._runpod_get = gated_get
+    return gate
+
+
+def _await_status(sid: str, want: str, timeout: float = 10.0) -> dict:
+    import time
+    deadline = time.time() + timeout
+    cur = {}
+    while time.time() < deadline:
+        cur = video_runner.get_session(sid) or {}
+        if cur.get("status") == want:
+            return cur
+        time.sleep(0.02)
+    return cur
+
+
+def _req(prompt: str, variations: int = 1) -> dict:
+    return {"blueprint": "wan22_i2v_flipbook", "prompt": prompt,
+            "source_ref": "r.png", "variations": variations}
+
+
+def test_a_second_session_queues() -> None:
+    """A second prompt LINES UP behind the running one instead of being refused.
+    The refusal is what made an author cancel a paid run just to start the next
+    idea — the tool told them to, and the cancel cost the render."""
+    _stub_world()
+    ctx = ("clientx", "projecty")
+    gate = _gate_first_job()
+    try:
+        first = video_runner.start_session(_req("one"), ctx)
+        _await_status(first["id"], "running")
+
+        second = video_runner.start_session(_req("two"), ctx)
+        third = video_runner.start_session(_req("three"), ctx)
+        check("a second session is queued, not refused", second["status"], "queued")
+        check("and it is told where it stands", second["queue_position"], 1)
+        check("a third lines up behind it", third["queue_position"], 2)
+        check("only one session holds the runner",
+              video_runner._ACTIVE, first["id"])
+        check("a waiting session has submitted nothing",
+              [v["job_id"] for v in second["variations"]], [""])
+
+        # Cancelling a session that never started is free, and closes it out here
+        # and now — no worker exists to notice the flag.
+        video_runner.cancel_session(second["id"])
+        s2 = video_runner.get_session(second["id"])
+        check("a waiting session cancels outright", s2["status"], "cancelled")
+        check("its variations are closed out",
+              [v["status"] for v in s2["variations"]], ["cancelled"])
+        check("the one behind it moves up",
+              video_runner.get_session(third["id"])["queue_position"], 1)
+        check("the running session is untouched by that cancel",
+              video_runner.get_session(first["id"])["status"], "running")
+
+        gate.set()
+        check("the running session finishes",
+              _await_session(first["id"]).get("status"), "finished")
+        check("and the queued one then runs on its own",
+              _await_session(third["id"]).get("status"), "finished")
+        check("a session cancelled while waiting is never run",
+              video_runner.get_session(second["id"])["status"], "cancelled")
+        check("the runner ends idle", video_runner._ACTIVE, None)
+        check("with nothing left in line", video_runner._QUEUE, [])
+        check("queue position is served live, never frozen into meta.json",
+              "queue_position" in json.loads(
+                  video_runner.storage.get(
+                      "clientx/projecty/video/%s/meta.json" % third["id"])),
+              False)
+    finally:
+        gate.set()
+
+
+def test_queue_depth_is_capped() -> None:
+    """The queue is serial, so it never raises the burn RATE — but it does
+    extend the tail, and an author lining up an afternoon of GPU time should be
+    told, not surprised."""
+    _stub_world()
+    ctx = ("clientx", "projecty")
+    gate = _gate_first_job()
+    running = None
+    try:
+        running = video_runner.start_session(_req("running"), ctx)
+        _await_status(running["id"], "running")
+        for i in range(video_runner.MAX_QUEUED_SESSIONS):
+            video_runner.start_session(_req("waiting %d" % i), ctx)
+        check("the queue fills to the cap",
+              len(video_runner._QUEUE), video_runner.MAX_QUEUED_SESSIONS)
+        check_raises("and the next one is refused with a way out",
+                     lambda: video_runner.start_session(_req("overflow"), ctx),
+                     "cancel one to make room")
+    finally:
+        for sid in list(video_runner._QUEUE):
+            video_runner.cancel_session(sid)
+        gate.set()
+        if running:
+            _await_session(running["id"])
+
+
+def test_cancelling_reads_as_cancelled_not_failed() -> None:
+    """Stopping a session must READ as stopped. The status poll used to run before
+    the cancel flag was re-checked, so RunPod's own CANCELLED came back first and
+    the author's stop was painted as a red FAILED tile with a raw status dict in
+    it."""
+    import batch_atlas
+
+    _stub_world()
+    stopped: set[str] = set()
+    passthrough = batch_atlas._runpod_post
+
+    def tracking_post(path, payload):
+        if path.startswith("/cancel/"):
+            stopped.add(path.rsplit("/", 1)[-1])
+            return {}
+        return passthrough(path, payload)
+
+    def cancel_aware_get(path):
+        jid = path.rsplit("/", 1)[-1]
+        # Exactly what RunPod reports once a job has been cancelled remotely —
+        # the payload that used to reach the author as their "error".
+        if jid in stopped:
+            return {"id": jid, "status": "CANCELLED"}
+        return {"status": "IN_PROGRESS"}
+
+    batch_atlas._runpod_post = tracking_post
+    batch_atlas._runpod_get = cancel_aware_get
+
+    started = video_runner.start_session(_req("stop me", variations=3),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    _await_status(sid, "running")
+    video_runner.cancel_session(sid)
+
+    final = _await_session(sid)
+    check("the session reads as cancelled", final.get("status"), "cancelled")
+    check("the in-flight variation reads as cancelled, not failed",
+          [v["status"] for v in final["variations"]],
+          ["cancelled", "cancelled", "cancelled"])
+    check("and carries no error text",
+          [v["error"] for v in final["variations"]], ["", "", ""])
+    check("the job was stopped remotely, so it stops burning",
+          sorted(stopped), ["job1"])
+    check("the runner is handed back", video_runner._ACTIVE, None)
+
+
+def test_a_dead_worker_does_not_wedge_the_runner() -> None:
+    """`_ACTIVE` was only cleared on the happy path, so any escape before it left
+    the tool answering "a video session is already running" until the container
+    restarted — with no way out from the UI."""
+    _stub_world()
+    ctx = ("clientx", "projecty")
+    real = video_runner._run_variations
+
+    def explode(sid, session):
+        raise RuntimeError("worker exploded")
+
+    video_runner._run_variations = explode
+    try:
+        dead = video_runner.start_session(_req("doomed"), ctx)
+        final = _await_session(dead["id"])
+        check("a session whose worker dies is closed out, not left running",
+              final.get("status"), "finished")
+        check("its variations say what happened",
+              [v["status"] for v in final["variations"]], ["failed"])
+        check("including why",
+              "exploded" in final["variations"][0]["error"], True)
+        check("and the runner is released", video_runner._ACTIVE, None)
+    finally:
+        video_runner._run_variations = real
+
+    nxt = video_runner.start_session(_req("after the crash"), ctx)
+    check("so the next session runs instead of being refused",
+          _await_session(nxt["id"]).get("status"), "finished")
+
+
 def test_request_validation() -> None:
     _stub_world()
     ctx = ("clientx", "projecty")
@@ -535,6 +732,10 @@ if __name__ == "__main__":
     test_wrong_kind_is_refused()
     test_resume_after_restart()
     test_cancel_a_session_we_do_not_own()
+    test_a_second_session_queues()
+    test_queue_depth_is_capped()
+    test_cancelling_reads_as_cancelled_not_failed()
+    test_a_dead_worker_does_not_wedge_the_runner()
     test_request_validation()
     print()
     if FAILED:
