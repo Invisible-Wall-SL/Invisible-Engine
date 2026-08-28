@@ -288,7 +288,31 @@ actually produced **transparency**. If a tile's art sits on a solid rectangle, t
 was off or produced nothing, and those frames are not usable as symbol art.
 
 Per tile: the **seed** button copies that render's seed (it reproduces that exact result),
-and **🎞 Make flipbook** starts the conversion.
+**🎞 Make flipbook** starts the conversion, **↻** re-rolls just that one, and **🗑** deletes it.
+
+**↻ re-rolls one tile in place** — same session, same slot number, a new render replacing the
+old one. It opens with that tile's prompt and seed already filled in, and the two are
+independent knobs:
+
+- **Hold the seed, change the prompt** — the same roll of the dice, asked for differently.
+  This is how you find out what one word actually does.
+- **Hold the prompt, take a new seed** (clear the box, or press 🎲 New) — another roll of the
+  same idea.
+
+A changed prompt is recorded on **that tile**, not on the session: the session keeps the
+prompt that still describes the rest of the grid, and a re-rolled tile shows its own prompt
+under it. Costs one GPU job, and the render that was there is deleted.
+
+**🗑 deletes one variation** and its render, for good. The grid stops showing it. The slot
+number is *not* reused — `003.webp` may already have been packed into a clip, so renumbering
+would rename someone's art underneath them.
+
+**＋ Add** (next to the session selector) appends more rolls of the same recipe to *this*
+session, rather than starting a new one — one idea stays in one grid, which is the
+comparison you are actually making. A session holds up to 36 live variations; deleting frees
+room back up.
+
+A tile still rendering can be neither re-rolled nor deleted — cancel the session first.
 
 **■ Cancel** stops a session — no further variations start, and the in-flight job is
 cancelled on the endpoint so it stops costing money. Cancelled variations read `cancelled`,
@@ -376,8 +400,6 @@ setting — so what you saw in the grid is what the clip plays.
   this tool owns time). The 🎬 Video mode's **Max px** is the one exception, and only because a
   generated frame has no sheet to go back to. The **bounds box** is not trimming: it declares
   the size the clip is drawn at without touching a pixel.
-- **🎬 Video: no re-roll of a single tile.** To try again, run the whole recipe again —
-  **↻ Use these settings** on the session, then **▶ Generate**.
 - **🎬 Video: one session RUNS at a time**, per deliberate choice — a session is several
   paid GPU jobs, and running two at once would also lose the warm-model reuse that makes a
   session fast. Further sessions QUEUE (up to four waiting); they never run in parallel.

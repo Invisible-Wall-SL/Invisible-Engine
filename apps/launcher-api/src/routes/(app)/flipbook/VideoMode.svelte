@@ -52,8 +52,14 @@
 	interface Variation {
 		index: number;
 		seed: number;
-		status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+		/** `deleted` is a slot whose render was dropped. It keeps its index — that index IS the
+		 * stored filename (`003.webp`) and a clip may have been made from it — so the grid stops
+		 * drawing it rather than the array being resequenced under everything else. */
+		status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled' | 'deleted';
 		remote_status?: string;
+		/** Set only when THIS slot was re-rolled against a different prompt than the session's.
+		 * Empty means it ran the session's prompt. */
+		prompt?: string;
 		file: string;
 		bytes: number;
 		error: string;
@@ -297,6 +303,99 @@
 	onDestroy(() => {
 		if (timer) clearInterval(timer);
 	});
+
+	// --- per-variation editing --------------------------------------------------
+	// A session's grid is the unit an author actually works in: they compare ten rolls of one
+	// idea, throw most away, and chase the two that nearly worked. All three actions below stay
+	// INSIDE the session for that reason — a re-roll that opened a new session would scatter one
+	// idea across the dropdown and hide the comparison that is the whole point.
+
+	/** The variation whose re-roll panel is open. */
+	let regen = $state<Variation | null>(null);
+	let regenPrompt = $state('');
+	let regenSeed = $state('');
+	let regenBusy = $state(false);
+	let regenErr = $state('');
+	let addCount = $state(4);
+	let tileBusy = $state(0);
+
+	/** What a variation actually ran: its own prompt if it was re-rolled against one, else the
+	 * session's. Shown on the tile so a grid with mixed prompts never lies about which is which. */
+	function effectivePrompt(v: Variation): string {
+		return v.prompt || session?.prompt || '';
+	}
+
+	function openRegen(v: Variation): void {
+		regen = v;
+		regenErr = '';
+		regenPrompt = effectivePrompt(v);
+		regenSeed = String(v.seed);
+	}
+
+	async function doRegen(): Promise<void> {
+		if (!regen || !session) return;
+		regenBusy = true;
+		regenErr = '';
+		try {
+			const res = await postJson<Session & { error?: string }>('regen', {
+				session: session.id,
+				index: regen.index,
+				prompt: regenPrompt,
+				seed: regenSeed.trim(),
+			});
+			if (res.error) regenErr = res.error;
+			else {
+				session = res;
+				regen = null;
+				recent = await getJson<Session[]>('sessions');
+			}
+		} catch (e) {
+			regenErr = (e as Error).message;
+		}
+		regenBusy = false;
+	}
+
+	async function discardVariation(v: Variation): Promise<void> {
+		if (!session) return;
+		const label = `#${String(v.index).padStart(3, '0')}`;
+		if (!confirm(`Delete variation ${label}? Its render is removed for good.`)) return;
+		tileBusy = v.index;
+		try {
+			const res = await postJson<Session & { error?: string }>('discard', {
+				session: session.id,
+				index: v.index,
+			});
+			if (res.error) err = res.error;
+			else {
+				err = '';
+				session = res;
+			}
+		} catch (e) {
+			err = (e as Error).message;
+		}
+		tileBusy = 0;
+	}
+
+	async function addVariations(): Promise<void> {
+		if (!session) return;
+		busy = true;
+		err = '';
+		try {
+			const res = await postJson<Session & { error?: string }>('add', {
+				session: session.id,
+				count: addCount,
+			});
+			if (res.error) err = res.error;
+			else {
+				err = '';
+				session = res;
+				recent = await getJson<Session[]>('sessions');
+			}
+		} catch (e) {
+			err = (e as Error).message;
+		}
+		busy = false;
+	}
 
 	// --- make a clip from a variation ------------------------------------------
 	// Two steps, deliberately: the TOOL packs the frames into sheet(s) (Pillow +
@@ -1075,6 +1174,12 @@ Overwrite it?`)
 					{session.status}{session.queue_position ? ` · #${session.queue_position} in line` : ''}
 				</span>
 				<span class="spacer"></span>
+				<!-- A span, not a label: it wraps a BUTTON as well as the number, and a label
+				     would hand the button's clicks to the input. -->
+				<span class="addn" title="Add more rolls of this same recipe to this session">
+					<input type="number" min="1" max="12" bind:value={addCount} />
+					<button class="sm" disabled={busy} onclick={addVariations}>＋ Add</button>
+				</span>
 				<button
 					class="sm reuse"
 					title="Load this session's prompt, source image and settings into Generate. Seeds are NOT reused, so running it again gives new variations of the same idea."
@@ -1143,7 +1248,7 @@ Overwrite it?`)
 			<p class="empty big">No video sessions yet. Generate one to fill this grid.</p>
 		{:else}
 			<div class="grid">
-				{#each session.variations as v (v.index)}
+				{#each session.variations.filter((v) => v.status !== 'deleted') as v (v.index)}
 					<figure class="tile" class:failed={v.status === 'failed'}>
 						<div class="thumb">
 							{#if v.status === 'done' && v.file}
@@ -1182,7 +1287,26 @@ Overwrite it?`)
 							>
 								🎞 Make flipbook
 							</button>
+							<button
+								class="tico"
+								disabled={v.status === 'running' || tileBusy === v.index}
+								title={v.status === 'running'
+									? 'Still rendering — cancel the session first'
+									: 'Re-roll this one: change the prompt, hold or re-roll the seed'}
+								onclick={() => openRegen(v)}>↻</button
+							>
+							<button
+								class="tico danger"
+								disabled={v.status === 'running' || tileBusy === v.index}
+								title={v.status === 'running'
+									? 'Still rendering — cancel the session first'
+									: 'Delete this variation'}
+								onclick={() => discardVariation(v)}>🗑</button
+							>
 						</figcaption>
+						{#if v.prompt}
+							<p class="tileprompt" title={v.prompt}>↻ {v.prompt}</p>
+						{/if}
 						{#if v.status === 'failed' && v.error}
 							<p class="tileerr">{v.error}</p>
 						{/if}
@@ -1191,6 +1315,48 @@ Overwrite it?`)
 			</div>
 		{/if}
 	</section>
+
+	{#if regen && session}
+		<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+		<div class="backdrop" onclick={() => (regen = null)}></div>
+		<div class="picker">
+			<header>
+				<strong>Re-roll #{String(regen.index).padStart(3, '0')}</strong>
+				<button onclick={() => (regen = null)}>✕</button>
+			</header>
+
+			{#if regenErr}
+				<p class="pill err">{regenErr}</p>
+			{/if}
+
+			<label class="fld">
+				<span>Prompt</span>
+				<textarea bind:value={regenPrompt} rows="4"></textarea>
+			</label>
+			<label class="fld">
+				<span>Seed</span>
+				<div class="srcrow">
+					<input bind:value={regenSeed} placeholder="blank = a new one" />
+					<button onclick={() => (regenSeed = '')}>🎲 New</button>
+				</div>
+			</label>
+			<p class="hint">
+				The two knobs are independent, and that is the point. <b>Hold the seed</b> and change the
+				prompt to see what one word does to a fixed roll of the dice. <b>Hold the prompt</b>
+				and take a new seed for another roll of the same idea. A changed prompt is recorded on this tile
+				alone — the session keeps the prompt that describes the rest of the grid.
+			</p>
+			<p class="hint">
+				This replaces #{String(regen.index).padStart(3, '0')} in place, and costs one more GPU job. The
+				render that is there now is deleted.
+			</p>
+			<div class="actions">
+				<button class="go" disabled={regenBusy || !regenPrompt.trim()} onclick={doRegen}>
+					{regenBusy ? 'Starting…' : '↻ Re-roll it'}
+				</button>
+			</div>
+		</div>
+	{/if}
 
 	{#if making}
 		<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -1899,6 +2065,34 @@ Overwrite it?`)
 		margin-left: auto;
 		font-size: 10px;
 		padding: 2px 6px;
+	}
+	.tico {
+		font-size: 11px;
+		padding: 2px 5px;
+		line-height: 1;
+	}
+	.tico.danger {
+		color: #fca5a5;
+	}
+	.tileprompt {
+		margin: 0;
+		padding: 4px 8px;
+		font-size: 10px;
+		color: #94a3b8;
+		border-top: 1px solid #1f2937;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	.addn {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+	.addn input {
+		width: 46px;
+		font-size: 11px;
+		padding: 2px 4px;
 	}
 	.tileerr {
 		margin: 0;

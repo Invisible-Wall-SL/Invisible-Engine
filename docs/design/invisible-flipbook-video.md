@@ -256,6 +256,15 @@ of a project's asset budget for one animation. So the trim step is not a nicety:
      a larger integer silently loses precision in JSON, so a "locked" seed would round to a
      different one and stop reproducing its own render.
    - A failed variation is recorded and the session continues; one bad job does not kill the run.
+   - **A session is EDITABLE, not a frozen batch.** One slot can be re-rolled in place (`/video/regen`),
+     one render deleted (`/video/discard`), and more rolls appended (`/video/add`) — all within the
+     session, because the grid is the comparison the author is making and splitting it across
+     sessions hides that. Two consequences worth stating: a re-rolled prompt is recorded on the
+     VARIATION (the session's prompt still describes every other tile), and a deleted slot keeps its
+     index (that index is the stored filename, and a clip may already be packed from it), so new
+     variations number on from the highest ever used. The worker re-picks the lowest pending slot
+     each iteration rather than iterating the list once, which is what lets any of this happen while
+     a pass is already running.
 2. **Mode UI — DONE** (2026-08-26). `/flipbook` gains a 🎬 Video mode via the canonical
    `<CanvasModeBar inline>` in the ToolTopBar's `meta` snippet; the surface itself is
    `VideoMode.svelte` (a separate component — the clip editor is already 1300 lines and the two

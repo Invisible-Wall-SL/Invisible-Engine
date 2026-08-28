@@ -5044,7 +5044,8 @@ class Handler(BaseHTTPRequestHandler):
         elif post_path == "/fxbuild":
             self._send(200, "text/plain", self._fxbuild(json.loads(raw)).encode())
         elif post_path in ("/video/generate", "/video/cancel", "/video/delete",
-                           "/video/toclip"):
+                           "/video/toclip", "/video/regen", "/video/discard",
+                           "/video/add"):
             self._send(200, "application/json", self._video(post_path, raw))
         else:
             self._send(404, "text/plain", b"not found")
@@ -5082,6 +5083,17 @@ class Handler(BaseHTTPRequestHandler):
             sid = str(payload.get("session") or "")
             if route == "/video/cancel":
                 return json.dumps(video_runner.cancel_session(sid)).encode()
+            if route in ("/video/regen", "/video/add"):
+                # Both re-open a settled session and hand it back to the runner,
+                # so both need the caller's context for the same reason generate
+                # does — a worker thread resolves paths from its own thread-local.
+                ctx = (project_paths.client_name(), project_paths.project_name())
+                fn = (video_runner.regenerate_variation if route == "/video/regen"
+                      else video_runner.add_variations)
+                return json.dumps(fn(sid, payload, ctx)).encode()
+            if route == "/video/discard":
+                return json.dumps(
+                    video_runner.discard_variation(sid, payload)).encode()
             if route == "/video/toclip":
                 # Packing is seconds of Pillow work, not minutes of GPU — so it
                 # runs INLINE on the request thread rather than becoming a second
