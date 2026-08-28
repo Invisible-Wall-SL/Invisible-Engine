@@ -711,15 +711,17 @@
 				<span>Min / Max (vary per particle)</span>
 			</label>
 			{#if range.varied}
-				<!-- Each `min` slider tops out at ITS OWN max, so dragging one can never overshoot into
-				     "min above max" — the four bounds stay independent and nothing else moves. -->
-				{@render slider('Start min', range.startMin, lo, range.startMax, step, (v) =>
+				<!-- All four thumbs share ONE axis (`lo`..`hi`). Capping a `min` slider at its own `max`
+				     instead made the min's TRACK rescale as the max was dragged, so the min thumb slid
+				     across while its value never changed — it read as "the min moves when I move the max".
+				     Overshoot is handled where it belongs, by clamping in `setCurveBound`. -->
+				{@render slider('Start min', range.startMin, lo, hi, step, (v) =>
 					patchConfig(setCurveBound(cfg, prop, 'start', 'min', v)),
 				)}
 				{@render slider('Start max', range.startMax, lo, hi, step, (v) =>
 					patchConfig(setCurveBound(cfg, prop, 'start', 'max', v)),
 				)}
-				{@render slider('End min', range.endMin, lo, range.endMax, step, (v) =>
+				{@render slider('End min', range.endMin, lo, hi, step, (v) =>
 					patchConfig(setCurveBound(cfg, prop, 'end', 'min', v)),
 				)}
 				{@render slider('End max', range.endMax, lo, hi, step, (v) =>
@@ -1522,7 +1524,7 @@
 							{@render slider('Speed start max', speedRange.startMax, 0, 2000, 1, (v) =>
 								patchConfig(setCurveBound(config, 'speed', 'start', 'max', v)),
 							)}
-							{@render slider('Speed end min', speedRange.endMin, 0, speedRange.endMax, 1, (v) =>
+							{@render slider('Speed end min', speedRange.endMin, 0, 2000, 1, (v) =>
 								patchConfig(setCurveBound(config, 'speed', 'end', 'min', v)),
 							)}
 							{@render slider('Speed end max', speedRange.endMax, 0, 2000, 1, (v) =>

@@ -226,6 +226,55 @@ assert(
 );
 assert(near(curveRange(grown, 'speed')!.endMin, 800, 1e-3), '…and leaves the End range alone');
 
+// BUG 3 (owner-reported after the first fix): "when I move the start and end MAX, the min also
+// moves". A range slider fires on EVERY drag tick, so a drag is many setCurveBound calls — and
+// the min was STORED as a ratio, re-derived against each new max. Now it is stored absolute.
+const drag = (
+	c: EmitterConfigV3,
+	which: 'start' | 'end',
+	from: number,
+	to: number,
+	step: number,
+): EmitterConfigV3 => {
+	const dir = to > from ? step : -step;
+	for (let v = from + dir; dir > 0 ? v <= to + 1e-9 : v >= to - 1e-9; v += dir) {
+		c = setCurveBound(c, 'alpha', which, 'max', Number(v.toFixed(4)));
+	}
+	return c;
+};
+let shot = setCurveVaried(setCurveEnabled(base, 'alpha', true), 'alpha', true);
+shot = setCurveBound(shot, 'alpha', 'start', 'max', 0.56);
+shot = setCurveBound(shot, 'alpha', 'start', 'min', 0.25);
+shot = setCurveBound(shot, 'alpha', 'end', 'max', 0.73);
+shot = setCurveBound(shot, 'alpha', 'end', 'min', 0.32);
+const shot0 = curveRange(shot, 'alpha')!;
+assert(shot0.startMin === 0.25 && shot0.endMin === 0.32, 'authored mins are stored VERBATIM');
+
+const draggedStart = drag(shot, 'start', 0.56, 0.9, 0.01);
+const ds = curveRange(draggedStart, 'alpha')!;
+assert(ds.startMin === 0.25, 'a 34-tick Start max drag leaves Start min EXACTLY 0.25');
+assert(ds.endMin === 0.32, '…and never touches End min');
+assert(near(ds.startMax, 0.9), '…while Start max lands where it was dragged');
+
+const draggedEnd = drag(draggedStart, 'end', 0.73, 1, 0.01);
+const de = curveRange(draggedEnd, 'alpha')!;
+assert(de.endMin === 0.32, 'an End max drag leaves End min EXACTLY 0.32');
+assert(de.startMin === 0.25, '…and never touches Start min');
+// Round-tripping a max up and back down must not smear the min through float drift.
+const roundTrip = drag(drag(shot, 'start', 0.56, 0.99, 0.01), 'start', 0.99, 0.56, 0.01);
+assert(
+	curveRange(roundTrip, 'alpha')!.startMin === 0.25,
+	'86 drag ticks up and back leave the min bit-identical (no derived-product drift)',
+);
+// The one case where a max legitimately moves its min: dragged BELOW it.
+const collapsed = drag(shot, 'start', 0.56, 0.1, 0.01);
+const cr = curveRange(collapsed, 'alpha')!;
+assert(
+	near(cr.startMin, 0.1) && near(cr.startMax, 0.1),
+	'a max dragged BELOW its min takes it down',
+);
+assert(curveRange(collapsed, 'alpha')!.endMin === 0.32, '…and still leaves the other end alone');
+
 // A preset's stock `minMult` is still honoured, and shows as a real (editable) range.
 const fireCfg = FX_PRESETS.find((p) => p.key === 'fire')!.build();
 const fireSpeed = curveRange(fireCfg, 'speed');

@@ -205,9 +205,11 @@ With a layer selected, the right **Inspector** edits it:
   toggle. Off, every particle follows the same curve. On, Start and End each split into a
   **min** and a **max**, and every particle spawns somewhere in the Start band and ends
   somewhere in the End band. **All four bounds are independent** — moving one never drags
-  another. Each `min` slider tops out at its own `max`, so it cannot overshoot, and setting
-  a min equal to its max simply means "that end doesn't vary" (it does not switch the mode
-  off — only the toggle does that).
+  another. All four sliders share one axis, so dragging a `max` moves only that thumb and its
+  `min` keeps the exact number you set. Setting a min equal to its max simply means "that end
+  doesn't vary"; it does not switch the mode off — only the toggle does that. The one case
+  where a max *does* move its min is dragging the max **below** it, which takes the min down
+  with it.
 - **Colour** — **Tint particles over life** interpolates a **Start** and **End** colour
   across each particle's life (identically for every particle). **Colour overlay
   (per-particle intensity)** is the varying one: pick an **Overlay** colour and an
