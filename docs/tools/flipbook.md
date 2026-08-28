@@ -227,6 +227,33 @@ Sessions are listed in the dropdown above the grid and persist: close the tab, c
 and a session still running reattaches. **Nothing prunes them**, so use 🗑 on sessions you
 are done with.
 
+#### What a session was asked for, and asking again
+
+A session keeps its whole recipe, not just its results. The line under the session bar is the
+prompt; **click it** to unfold the rest — blueprint, full prompt and negative, source image,
+variation count, and every setting that was **changed** from the blueprint's defaults.
+
+Only *changed* settings are recorded. Everything else ran at whatever the blueprint's own
+default was **at the time**, and since a blueprint can be updated after a run, the panel will
+not guess that value back for you. Per-render seeds live on the tiles — the seed button copies
+the one that reproduces that exact result.
+
+**↻ Use these settings** loads the whole recipe back into the left rail: blueprint, prompt,
+negative, source image, variation count and the changed settings. From there you either press
+**▶ Generate** straight away for a fresh set of variations on the same idea, or edit the
+prompt first and generate that — the caret is already in the prompt box. **Seeds are not
+reused**, so re-running an unchanged recipe gives you new results, not the same ones back. (To
+reproduce one render exactly, you want its seed, not this button.)
+
+Two things it will tell you rather than paper over:
+
+- A setting the blueprint **no longer has** is listed in the recipe as such, and is not
+  restored — it cannot be sent to a network that does not accept it.
+- If the **blueprint itself** is gone from the library, the recipe says so on the Blueprint
+  row, and only the prompt and source image are restored. The settings belong to that network;
+  applying them to whichever blueprint happens to be selected would quietly run a different
+  recipe under the same name.
+
 ### 3. Turn a variation into a clip
 
 **🎞 Make flipbook** opens a panel that first reads the animation and tells you what is
@@ -277,7 +304,8 @@ setting — so what you saw in the grid is what the clip plays.
   the Sheet Maker's job — it owns pixels, this tool owns time). The 🎬 Video mode's
   **Max px** is the one exception, and only because a generated frame has no sheet to go
   back to.
-- **🎬 Video: no re-roll of a single tile.** To try again, generate another session.
+- **🎬 Video: no re-roll of a single tile.** To try again, run the whole recipe again —
+  **↻ Use these settings** on the session, then **▶ Generate**.
 - **🎬 Video: one session at a time**, per deliberate choice — a session is several paid
   GPU jobs, so they are not allowed to stack up.
 

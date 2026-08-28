@@ -58,11 +58,20 @@
 		bytes: number;
 		error: string;
 	}
+	/** The whole recipe, not just what the grid needs to draw: the runner records `negative`,
+	 * `source_ref` and the param overrides alongside the prompt, and `_public()` returns every
+	 * one of them. Declaring them is what lets a finished session be read back and re-run. */
 	interface Session {
 		id: string;
 		blueprint: string;
 		blueprint_name?: string;
 		prompt: string;
+		negative?: string;
+		source_ref?: string;
+		/** ONLY the params the author overrode — an untouched one was never sent, so it ran at
+		 * whatever the blueprint's default was AT THE TIME. That default is not recoverable
+		 * (bundled blueprints sync), which is why the recipe panel never claims to show it. */
+		params?: Record<string, string | number | boolean>;
 		status: 'queued' | 'running' | 'finished' | 'cancelled';
 		created: number;
 		done_count: number;
@@ -185,6 +194,7 @@
 	async function generate(): Promise<void> {
 		busy = true;
 		err = '';
+		reuse = null;
 		try {
 			const payload: Record<string, unknown> = {
 				blueprint: blueprintId,
@@ -760,6 +770,104 @@ Overwrite it?`)
 		pickBusy = '';
 	}
 
+	// --- read a session's recipe back, and re-run it ---------------------------
+	// A finished session is not just a grid of results — it is the exact recipe that
+	// produced them. Both halves of that matter: SEEING what was asked for (a prompt
+	// scrolled out of the rail the moment the next session was selected), and asking
+	// for it AGAIN, either verbatim for another roll of the dice or with one word
+	// changed. Every field below already travels in the session payload; nothing new
+	// is stored and no new endpoint is called.
+
+	/** The blueprint this session RAN on, if the library still has it. `null` is a real state,
+	 * not an error: a blueprint can be deleted or renamed after a run, and everything below has
+	 * to keep telling the truth about a session whose recipe outlived its network. */
+	const recipeBlueprint = $derived(
+		session ? (blueprints.find((b) => b.id === session!.blueprint) ?? null) : null,
+	);
+
+	/** The recorded overrides, resolved against that blueprint so each one shows its human label.
+	 * A key the blueprint no longer declares keeps its raw name and is flagged — the run really
+	 * did use it. Flagged only when the blueprint IS present: when the whole blueprint is gone,
+	 * "not in the blueprint any more" would be said once per param about a thing that is not
+	 * there to have dropped them, so the Blueprint row says it once instead. */
+	const recipeParams = $derived.by(() => {
+		const used = session?.params;
+		if (!used) return [] as { key: string; label: string; value: string; gone: boolean }[];
+		const bp = recipeBlueprint;
+		return Object.entries(used).map(([key, value]) => {
+			const p = bp?.params?.find((x) => x.key === key);
+			return {
+				key,
+				label: p?.label ?? key,
+				value: typeof value === 'boolean' ? (value ? 'on' : 'off') : String(value),
+				gone: Boolean(bp) && !p,
+			};
+		});
+	});
+
+	/** Outcome of the last "Use these settings", shown next to the button. `warn` marks the
+	 * cases where something could NOT be restored — silently dropping a param would send the
+	 * author back to Generate believing they were re-running the same recipe. */
+	let reuse = $state<{ text: string; warn: boolean } | null>(null);
+	/** Focused after a restore: it lands the caret exactly where "change the prompt and
+	 * regenerate" starts, and scrolls the rail back to the top on the way. */
+	let promptBox: HTMLTextAreaElement | null = $state(null);
+
+	function reuseSettings(): void {
+		if (!session) return;
+		const s = session;
+		const bp = recipeBlueprint;
+
+		prompt = s.prompt ?? '';
+		negative = s.negative ?? '';
+		variations = Math.min(12, Math.max(1, s.variations?.length || 1));
+
+		// No blob to re-preview: the thumbnail came from bytes this tab cropped or uploaded, and
+		// rebuilding an R2 key from a ref the tool relativized per root is the drift §1 warns
+		// about. The raw ref is shown instead — it IS what gets sent.
+		if (sourcePreview) URL.revokeObjectURL(sourcePreview);
+		sourcePreview = '';
+		sourceLabel = '';
+		sourceRef = s.source_ref ?? '';
+
+		const notes: string[] = [];
+		let warn = false;
+		if (bp) {
+			blueprintId = bp.id;
+			// Only keys this blueprint still declares. `generate()` filters unknown keys out at
+			// send time anyway, so keeping them would leave the rail holding ghosts that quietly
+			// never travel.
+			const keep: Record<string, string | number | boolean> = {};
+			const dropped: string[] = [];
+			for (const [k, v] of Object.entries(s.params ?? {})) {
+				if (bp.params?.some((p) => p.key === k)) keep[k] = v;
+				else dropped.push(k);
+			}
+			overrides = keep;
+			if (dropped.length) {
+				warn = true;
+				notes.push(
+					`${dropped.join(', ')} ${dropped.length === 1 ? 'is' : 'are'} no longer part of this blueprint, so ${dropped.length === 1 ? 'it was' : 'they were'} not restored`,
+				);
+			}
+		} else {
+			// Leave the picker where it is and restore no params: they are keyed to a blueprint
+			// that is gone, and applying them to whichever one happens to be selected would send
+			// a different recipe under the same name.
+			warn = true;
+			notes.push(
+				`the blueprint “${s.blueprint_name ?? s.blueprint}” is no longer in the video library, so the settings could not be restored — only the prompt and source image were`,
+			);
+		}
+
+		err = '';
+		reuse = {
+			text: notes.length ? `Loaded, but ${notes.join('; ')}.` : 'Loaded into Generate.',
+			warn,
+		};
+		promptBox?.focus();
+	}
+
 	function fmtAge(t: number): string {
 		if (!t) return '';
 		const mins = Math.round((Date.now() / 1000 - t) / 60);
@@ -825,6 +933,7 @@ Overwrite it?`)
 			<label class="fld">
 				<span>Prompt</span>
 				<textarea
+					bind:this={promptBox}
 					bind:value={prompt}
 					rows="4"
 					disabled={running}
@@ -929,6 +1038,7 @@ Overwrite it?`)
 					value={session?.id ?? ''}
 					onchange={async (e) => {
 						const id = e.currentTarget.value;
+						reuse = null;
 						session = id
 							? await getJson<Session>('status', `session=${encodeURIComponent(id)}`)
 							: null;
@@ -943,7 +1053,15 @@ Overwrite it?`)
 			{/if}
 			{#if session}
 				<span class="pill">{session.status}</span>
-				<span class="who">{session.prompt}</span>
+				<span class="spacer"></span>
+				<button
+					class="sm reuse"
+					disabled={running}
+					title={running
+						? 'This session is still running — wait for it, or cancel it first'
+						: "Load this session's prompt, source image and settings into Generate. Seeds are NOT reused, so running it again gives new variations of the same idea."}
+					onclick={reuseSettings}>↻ Use these settings</button
+				>
 				<button
 					class="danger sm"
 					disabled={running}
@@ -952,6 +1070,56 @@ Overwrite it?`)
 				>
 			{/if}
 		</div>
+
+		{#if reuse}
+			<p class={reuse.warn ? 'diag' : 'hint'}>{reuse.text}</p>
+		{/if}
+
+		{#if session}
+			<!-- The recipe that produced this grid. Collapsed by default — the results are what
+			     the page is for — but the prompt reads in the summary either way, which is the
+			     line that used to scroll away the moment another session was selected. -->
+			<details class="recipe">
+				<summary><span class="who">{session.prompt || '(no prompt)'}</span></summary>
+				<dl>
+					<dt>Blueprint</dt>
+					<dd>
+						{session.blueprint_name ?? session.blueprint}
+						{#if !recipeBlueprint}<span class="tag warn">no longer in the video library</span>{/if}
+					</dd>
+					<dt>Prompt</dt>
+					<dd class="txt">{session.prompt || '—'}</dd>
+					{#if session.negative}
+						<dt>Negative</dt>
+						<dd class="txt">{session.negative}</dd>
+					{/if}
+					<dt>Source image</dt>
+					<dd class="txt">{session.source_ref || 'none — text-to-video'}</dd>
+					<dt>Variations</dt>
+					<dd>{session.variations?.length ?? 0}</dd>
+					{#if recipeParams.length}
+						<dt>Changed settings</dt>
+						<dd>
+							<ul class="prm">
+								{#each recipeParams as p (p.key)}
+									<li class:gone={p.gone}>
+										{p.label}<code>{p.value}</code>{#if p.gone}<span class="tag"
+												>not in the blueprint any more</span
+											>{/if}
+									</li>
+								{/each}
+							</ul>
+						</dd>
+					{/if}
+				</dl>
+				<p class="hint">
+					Only settings that were <b>changed</b> are recorded — everything else ran at the blueprint's
+					own default, and since a blueprint can be updated after a run, that default is not something
+					this panel can honestly show you after the fact. Seeds are per variation: hover a tile's seed
+					to copy the one that reproduces it exactly.
+				</p>
+			</details>
+		{/if}
 
 		{#if !session}
 			<p class="empty big">No video sessions yet. Generate one to fill this grid.</p>
@@ -1528,13 +1696,110 @@ Overwrite it?`)
 		width: auto;
 		max-width: 320px;
 	}
+	.sessbar .spacer {
+		flex: 1;
+	}
+	.reuse {
+		color: #93c5fd;
+		border-color: #1e3a5f;
+	}
 	.who {
 		color: #64748b;
 		font-size: 11px;
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		flex: 1;
+		min-width: 0;
+	}
+
+	.recipe {
+		border: 1px solid #1f2937;
+		border-radius: 8px;
+		background: #10161e;
+		padding: 6px 10px;
+		margin-bottom: 12px;
+	}
+	.recipe summary {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		cursor: pointer;
+		color: #94a3b8;
+		font-size: 11px;
+	}
+	/* `display: flex` drops the native disclosure marker (it only renders for `list-item`), so
+	   the row would read as a plain line of grey text with nothing to say it opens. */
+	.recipe summary::marker,
+	.recipe summary::-webkit-details-marker {
+		display: none;
+		content: '';
+	}
+	.recipe summary::before {
+		content: '▸';
+		flex: none;
+		color: #64748b;
+		transition: transform 0.12s ease;
+	}
+	.recipe[open] summary::before {
+		transform: rotate(90deg);
+	}
+	.recipe dl {
+		display: grid;
+		grid-template-columns: 120px 1fr;
+		gap: 4px 12px;
+		margin: 10px 0 0;
+		font-size: 12px;
+	}
+	.recipe dt {
+		color: #64748b;
+		font-size: 11px;
+		padding-top: 1px;
+	}
+	.recipe dd {
+		margin: 0;
+		color: #cbd5e1;
+		min-width: 0;
+	}
+	/* Free text can be a paragraph or a path with no spaces in it — both have to wrap
+	   rather than push the grid wider than the column. */
+	.recipe dd.txt {
+		white-space: pre-wrap;
+		overflow-wrap: anywhere;
+		line-height: 1.45;
+	}
+	.recipe .prm {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px 10px;
+	}
+	.recipe .prm li {
+		color: #94a3b8;
+		font-size: 11px;
+	}
+	.recipe .prm li.gone {
+		color: #fbbf24;
+	}
+	.recipe .prm code {
+		color: #cbd5e1;
+		background: #1f2937;
+		border-radius: 4px;
+		padding: 1px 5px;
+		margin-left: 5px;
+		font-size: 11px;
+	}
+	.recipe .tag {
+		margin-left: 6px;
+		font-style: italic;
+		font-size: 11px;
+	}
+	.recipe .tag.warn {
+		color: #fbbf24;
+	}
+	.recipe .hint {
+		margin: 10px 0 2px;
 	}
 
 	.grid {
