@@ -105,3 +105,65 @@ export function flipbookPlaybackFrameCount(
 	const n = Math.max(0, Math.floor(count));
 	return direction === 'pingpong' && n >= 3 ? 2 * n - 2 : n;
 }
+
+/**
+ * A BINDING's per-use playback overrides of a clip's own values — what a placed `flipbook` node
+ * and a `flipbook` symbol cell each carry, so one authored clip can serve several uses.
+ *
+ * A caller that owns one of these by another route LEAVES IT OUT of the object it passes. That is
+ * the caller's call to state, not this type's to assume: a symbol cell resolves `loop` through
+ * `<Flipbook>`'s own `props.loop ?? clip.loop ?? true` chain (which the Book expand/reveal riders
+ * drive), while a placed node passes no `loop` prop at all and therefore folds it here.
+ */
+export interface FlipbookPlaybackOverride {
+	fps?: number;
+	loop?: boolean;
+	direction?: FlipbookClipEntry['direction'];
+	flipX?: boolean;
+	flipY?: boolean;
+}
+
+/**
+ * One clip with one binding's overrides folded in — the single definition of that precedence,
+ * shared by the two consumers that have it (a placed node, a symbol state).
+ *
+ * It has to be a FOLD rather than props passed beside the clip, because `direction` decides the
+ * texture ARRAY `<Flipbook>` hands `AnimatedSprite`: two answers in flight would mean the frames
+ * walk one way while the duration is computed for another — which is exactly how a ping-ponged
+ * state reverts at its own turnaround.
+ *
+ * `undefined` means inherit; `false` does NOT. A binding can un-mirror a clip that is authored
+ * mirrored, and can un-loop one authored looping, which is why every field is read with `??` and
+ * never with `||`.
+ *
+ * Returns the clip UNTOUCHED when nothing is overridden — the common case. Not an optimisation:
+ * `<Flipbook>` derives its texture array from this object, so keeping the identity stable when
+ * nothing changed keeps that derivation from re-running for no reason.
+ *
+ * Lives HERE, next to the `flipbookPlaybackFrameCount` duplication and for the same stated
+ * reason: `engine-layout` must not gain a dependency on `engine-flipbook`, and every consumer
+ * that needs this already depends on `engine-layout`.
+ */
+export function foldFlipbookPlayback<T extends FlipbookPlaybackOverride>(
+	clip: T,
+	override: FlipbookPlaybackOverride | undefined,
+): T {
+	if (
+		!override ||
+		(override.fps === undefined &&
+			override.loop === undefined &&
+			override.direction === undefined &&
+			override.flipX === undefined &&
+			override.flipY === undefined)
+	) {
+		return clip;
+	}
+	return {
+		...clip,
+		fps: override.fps ?? clip.fps,
+		loop: override.loop ?? clip.loop,
+		direction: override.direction ?? clip.direction,
+		flipX: override.flipX ?? clip.flipX,
+		flipY: override.flipY ?? clip.flipY,
+	};
+}

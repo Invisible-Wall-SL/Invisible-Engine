@@ -126,6 +126,21 @@ export interface SymbolCell {
 	 *  the reel grid in the Scene Editor). OPTIONAL on an override cell; always present on a
 	 *  DEFAULT cell. */
 	sizeRatios?: SizeRatios;
+	/** Repeat this state's animation instead of holding on its last frame. Absent ⇒ loop. */
+	loop?: boolean;
+	/**
+	 * `flipbook` cells only — PER-STATE overrides of the bound clip's own playback. Absent ⇒ the
+	 * clip decides, so a clip re-authored in /flipbook still moves every state that never
+	 * overrode it. The mirror flags are genuinely tri-state: an explicit `false` un-mirrors a
+	 * clip that IS mirrored, which is why they are booleans and not just "set or unset".
+	 *
+	 * Mirrors `FlipbookNode`'s block in `engine-layout` and `SymbolCellInfo`'s in `engine-game`;
+	 * the server's `symbolCellSchema` is the one that has to agree, since it is `.strict()`.
+	 */
+	fps?: number;
+	direction?: 'forward' | 'reverse' | 'pingpong';
+	flipX?: boolean;
+	flipY?: boolean;
 }
 
 /** Symbol name → state → binding (sparse for the override doc, dense for defaults). */

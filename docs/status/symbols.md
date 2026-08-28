@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-symbols-state-machine.md](../design/invisible-symbols-state-machine.md) · Guide: [docs/tools/symbols-state-machine.md](../tools/symbols-state-machine.md) · Agent: _none yet — no `.claude/agents/symbols.md`; closest is `book-of-game` / `engine-pixi-svelte`_
 
-**One-line state:** Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece.
+**One-line state:** _(2026-08-28)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. A flipbook cell now also carries **per-state playback overrides** (walk / mirror / speed), so one clip serves several states instead of being copied.
 
 ## Current state
 
@@ -334,6 +334,44 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+- 2026-08-28 — **a flipbook cell can WALK its clip differently per state** (owner report: reversing an
+  animation in the game meant authoring a second clip). The clip was already the right place for the
+  frames and the wrong place for the walk — a placed `FlipbookNode` had carried
+  `fps`/`loop`/`direction`/`flipX`/`flipY` overrides since #515, and a symbol cell had only `loop`. It
+  now carries the same block, so one authored clip serves Land forwards and Explosion backwards.
+  - **The cost of the workaround was not file size, and saying so matters for the next call like
+    this.** A second clip is a few hundred bytes of JSON over the SAME sheet — nothing is duplicated
+    in the bundle. What a copy really forks is the clip's referential integrity: a renamed region
+    then has to be repaired in both, and the two drift silently the moment the art is re-packed.
+  - **The whole chain was already pass-through**, so the change is narrow: `symbolExport` ships
+    `map: doc.symbols` verbatim, `mergeSymbolMap` spreads whole cells, and `getSymbolInfo` spreads
+    `...cell`. Only the four TYPE declarations, the render fold and the UI needed work.
+  - **One fold, two consumers.** `foldFlipbookPlayback` in `registerFlipbooks.ts` is now the single
+    definition of "binding's override, else the clip's" — `LayoutNodeView` and `SymbolFlipbook` both
+    call it. It lives there and not in `engine-flipbook` for the reason stated beside
+    `flipbookPlaybackFrameCount`: `engine-layout` must not gain that dependency, and every consumer
+    already depends on `engine-layout`.
+  - **The fold has to be one object, not props passed beside the clip.** `direction` decides the
+    texture ARRAY, so two answers in flight means the frames walk one way while the duration is
+    computed for another — which is exactly how a ping-ponged state reverts at its own turnaround.
+    `SymbolFlipbook`'s `cycleMs` reads the folded clip for that reason. `loop` is the deliberate
+    exception: it stays a prop so `<Flipbook>`'s `props.loop ?? clip.loop ?? true` chain keeps
+    driving the Book expand/reveal riders.
+  - **`undefined` means inherit; `false` does not.** The mirror ticks start on the clip's own value
+    and write an explicit `false` only when they differ from it, so a state can un-mirror a clip
+    that IS authored mirrored — which a write-true-or-nothing checkbox could never express.
+  - **The editor canvas honours it too**, or the tool would author a reverse the board preview
+    played forwards. `flipbookMirror` was generalised from "a node" to "a binding" so both callers
+    share one precedence.
+  - Fixtures: `pnpm --filter flipbook-spike run fold` (16 checks on the fold, incl. identity-when-
+    empty and false-is-not-inherit) and `apps/launcher-api/symbolClipPlayback.fixture.ts` (10 checks
+    that the block survives the REAL `.strict()` Zod schema — the `applyDraft` whitelist and the
+    schema are two hand-written lists that nothing else forces to agree, and disagreement is either
+    a 400 on a valid save or a field silently dropped, with `vite build` green either way).
+  - **Bonus, and a warning:** widening the client `SymbolCell` cut `svelte-check` on
+    `symbols/+page.svelte` from 16 errors to 9 — `draft.loop` had been in use against a type that
+    never declared it. `pnpm build` was green throughout. See
+    [[gotcha_launcher_build_is_not_a_typecheck]].
 - 2026-08-27 — **The symbol-state parity gate failed on a clean `main` and could not catch anything;
   its expectation was the stale side, not the resolver.** `check:symbol-state-parity` asserted that
   `intro` reads `unset` in the grid while the engine draws `land`.

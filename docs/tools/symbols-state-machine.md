@@ -125,6 +125,27 @@ tool top bar). Switch projects from the launcher before opening the tool.
      If the project has **no clips yet**, the Flipbook button is disabled with a pointer
      at `/flipbook` rather than an empty dropdown.
 
+     A flipbook cell also carries three **per-state playback overrides**. Each names what
+     it is inheriting and takes effect for this one state, so **one clip can serve several
+     states** instead of being copied:
+
+     - **Walk** — **Clip's own**, Forward, **Reverse**, or **Ping-pong**. This is the one
+       that saves you a whole clip: a symbol that assembles on Land and comes apart on
+       Explosion is ONE animation, played forwards and then backwards. Ping-pong runs to
+       the end and back, so a cycle is nearly twice the frame count — and the state waits
+       for the whole bounce before it reverts.
+     - **Mirror (Flip X / Flip Y)** — flips the drawn frames about the cell's centre. A
+       render transform, so it needs no second set of art. The tick starts on the clip's own
+       value, and un-ticking a clip that IS authored mirrored writes a real "off" for this
+       state rather than falling back to the clip.
+     - **Speed** — frames per second for this state only. Empty follows the clip.
+
+     Leave them alone and the clip decides — which is what keeps a clip re-authored in
+     `/flipbook` moving every state that never overrode it. **Reversing does not need a
+     second clip**, and should not use one: a copied clip forks the frame list, so a region
+     renamed later has to be repaired in both, and the two drift the moment the art is
+     re-packed.
+
 5. **Apply.** **Apply** writes the draft into the working doc as an override (it requires
    an asset to be chosen). The cell updates immediately and is marked **edited**. The
    panel also has a **Reset to default** action for an overridden cell.

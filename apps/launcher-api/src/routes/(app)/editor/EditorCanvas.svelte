@@ -125,6 +125,15 @@
 		 * frames (and may span sheets), so such a cell's `assetKey` holds its PRIMARY SHEET — a
 		 * manifest key, never a region name — and only `clipId` can resolve the frame to draw. */
 		clipId?: string;
+		/** `flipbook` cells only — the binding's PER-STATE playback overrides of the clip's own
+		 * values. The canvas reads them so the board preview animates the way the game will: a
+		 * state authored to run in reverse that previewed forwards here would be a
+		 * what-you-author-is-not-what-you-see gap, which is the whole reason the clip plays on
+		 * this canvas at all. */
+		fps?: number;
+		direction?: 'forward' | 'reverse' | 'pingpong';
+		flipX?: boolean;
+		flipY?: boolean;
 		sizeRatios?: { width: number; height: number };
 	}
 	type SymbolStateMap = Partial<Record<string, SymbolStaticCell>>;
@@ -1456,10 +1465,10 @@
 	/** The frame a placed clip shows RIGHT NOW — `(assetKey, region)` ready for the region draw.
 	 * `null` for an unregistered / empty clip, which then draws its dangling placeholder.
 	 *
-	 * `override` carries a PLACEMENT's own `fps` / `direction` (a `flipbook` node's), so the
-	 * preview shows what THAT placement does — the point of playing a clip in place is to judge
-	 * it, and a node that reverses or halves the authored clip would otherwise animate as if it
-	 * hadn't. A symbol cell passes nothing: its clip plays as authored. */
+	 * `override` carries a BINDING's own `fps` / `direction` — a placed `flipbook` node's, or a
+	 * symbol cell's — so the preview shows what THAT binding does. The point of playing a clip in
+	 * place is to judge it, and a binding that reverses or halves the authored clip would
+	 * otherwise animate here as if it hadn't. */
 	function flipbookFrame(
 		clipId: string,
 		override?: { fps?: number; direction?: 'forward' | 'reverse' | 'pingpong' },
@@ -1469,13 +1478,20 @@
 		return clipFrameAt(clip, clipFrameIndexAt(clip, clipClockMs, override));
 	}
 
-	/** A placed clip's mirroring — the placement's override, else the clip's own. Returned as a
-	 * pair so the draw applies both axes in one `ctx.scale`. */
-	function flipbookMirror(
-		node: Extract<LayoutNode, { kind: 'flipbook' }>,
-	): { x: boolean; y: boolean } {
-		const clip = clipsById.get(node.clipId);
-		return { x: node.flipX ?? clip?.flipX ?? false, y: node.flipY ?? clip?.flipY ?? false };
+	/** A bound clip's mirroring — the BINDING's override, else the clip's own. Returned as a
+	 * pair so the draw applies both axes in one `ctx.scale`.
+	 *
+	 * Takes the three fields rather than a node, because a symbol CELL now carries the same
+	 * override block a placed node does and the precedence must not be written twice. */
+	function flipbookMirror(binding: { clipId?: string; flipX?: boolean; flipY?: boolean }): {
+		x: boolean;
+		y: boolean;
+	} {
+		const clip = binding.clipId ? clipsById.get(binding.clipId) : undefined;
+		return {
+			x: binding.flipX ?? clip?.flipX ?? false,
+			y: binding.flipY ?? clip?.flipY ?? false,
+		};
 	}
 
 	/** The clip BOX to draw a frame against — `null` when the clip declares none, in which case the
@@ -2570,7 +2586,10 @@
 			// placed `flipbook` node uses, so a symbol animates on the board preview in step with
 			// every other clip on screen. A dangling / still-loading clip keeps the marker and
 			// self-heals on the repaint `loadClips` forces.
-			const clipFrame = cell.type === 'flipbook' ? flipbookFrame(cell.clipId ?? '') : null;
+			const clipFrame =
+				cell.type === 'flipbook'
+					? flipbookFrame(cell.clipId ?? '', { fps: cell.fps, direction: cell.direction })
+					: null;
 			if (cell.type === 'flipbook' && !clipFrame) {
 				drawMarker(cx, cy, cellW, cellH, 'clip');
 				continue;
@@ -2616,7 +2635,20 @@
 				height: drawH,
 				visible: true,
 			};
-			drawArtRegionSprite(ctx, artKey, artRegion, symTransform);
+			// Mirroring is the cell's override else the clip's own — a sprite cell has neither, so
+			// `flipbookMirror` returns the identity pair and that path draws exactly as before.
+			// Mirroring through the SAME precedence a placed node uses (binding's override, else
+			// the clip's own). A sprite cell has neither a clip nor a flag, so it resolves to the
+			// identity pair and that path draws exactly as before.
+			drawArtRegionSprite(
+				ctx,
+				artKey,
+				artRegion,
+				symTransform,
+				undefined,
+				undefined,
+				flipbookMirror(cell),
+			);
 			ctx.restore();
 		}
 

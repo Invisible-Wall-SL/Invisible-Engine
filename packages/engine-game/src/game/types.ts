@@ -57,6 +57,25 @@ export type SymbolCellInfo = {
 	 * first cycle — they just keep animating while they wait.
 	 */
 	loop?: boolean;
+	/**
+	 * `flipbook` cells only — PER-STATE playback overrides of the bound clip's own values.
+	 * Absent ⇒ the clip decides, which is what every cell authored before these existed did.
+	 *
+	 * The same block a placed `FlipbookNode` carries. One clip legitimately serves several states,
+	 * and how it is WALKED is a per-use decision: a symbol that assembles on `land` and comes apart
+	 * on `explosion` is one authored animation played forwards and then backwards. Saying that with
+	 * a second clip forks the frame list — and with it the referential integrity a clip exists to
+	 * hold, since a renamed region then has to be repaired in both.
+	 *
+	 * `direction` and mirroring MUST be folded into the clip object passed to `<Flipbook>` rather
+	 * than passed beside it (the component says so): the walk decides the texture ARRAY, so there
+	 * can only be one answer per rendered clip. `loop` above is the exception — it is a live
+	 * sprite property with its own caller-override chain.
+	 */
+	fps?: number;
+	direction?: 'forward' | 'reverse' | 'pingpong';
+	flipX?: boolean;
+	flipY?: boolean;
 };
 
 /** Symbol name → state → binding. The coded `SYMBOL_INFO_MAP` IS one of these (the

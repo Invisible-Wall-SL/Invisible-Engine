@@ -47,7 +47,7 @@
 	import { hostedComponentSpace } from './boundComponentCatalog';
 	import { resolveComponent } from './registerComponents';
 	import { resolveEffect } from './registerEffects';
-	import { resolveFlipbook } from './registerFlipbooks';
+	import { foldFlipbookPlayback, resolveFlipbook } from './registerFlipbooks';
 	import { resolveRigFx } from './registerRigFx';
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentPress } from './componentActionsContext';
@@ -587,23 +587,17 @@
 		if (node.kind !== 'flipbook') return undefined;
 		const clip = resolveFlipbook(node.clipId);
 		if (!clip) return undefined;
-		if (
-			node.fps === undefined &&
-			node.loop === undefined &&
-			node.direction === undefined &&
-			node.flipX === undefined &&
-			node.flipY === undefined
-		) {
-			return clip;
-		}
-		return {
-			...clip,
-			fps: node.fps ?? clip.fps,
-			loop: node.loop ?? clip.loop,
-			direction: node.direction ?? clip.direction,
-			flipX: node.flipX ?? clip.flipX,
-			flipY: node.flipY ?? clip.flipY,
-		};
+		// The precedence lives in `registerFlipbooks` — a symbol cell folds the same block, and
+		// two copies of "override ?? clip" are two chances to disagree about whether an explicit
+		// `false` means "off" or "inherit". A placement folds `loop` too: it passes no `loop`
+		// prop, so the clip's own value IS the answer for it.
+		return foldFlipbookPlayback(clip, {
+			fps: node.fps,
+			loop: node.loop,
+			direction: node.direction,
+			flipX: node.flipX,
+			flipY: node.flipY,
+		});
 	});
 
 	/**
