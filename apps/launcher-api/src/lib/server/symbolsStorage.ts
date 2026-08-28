@@ -56,6 +56,21 @@ const symbolCellSchema = z
 		 * cell has always done (`clip.loop ?? true`). Spine cells had no way to say this at all, which
 		 * is why every spine state froze on its last frame. */
 		loop: z.boolean().optional(),
+		/**
+		 * `flipbook` cells only — PER-STATE playback overrides of the bound clip's own values.
+		 * Absent ⇒ the clip decides, so an existing cell round-trips byte-identical.
+		 *
+		 * The same block a placed `FlipbookNode` carries, for the same reason and now with a
+		 * second consumer to prove it: ONE clip serves several states, and how it is walked is a
+		 * per-USE decision. Expressing a reversed `explosion` as a second clip forks the frame
+		 * list, which forks its referential integrity too — a renamed region then has to be
+		 * repaired in both, and the two silently drift the moment the art is re-packed. `loop`
+		 * above already worked this way; `direction` and mirroring simply never followed it.
+		 */
+		fps: z.number().positive().max(240).optional(),
+		direction: z.enum(['forward', 'reverse', 'pingpong']).optional(),
+		flipX: z.boolean().optional(),
+		flipY: z.boolean().optional(),
 	})
 	.strict()
 	.refine((c) => c.type !== 'flipbook' || !!c.clipId, {

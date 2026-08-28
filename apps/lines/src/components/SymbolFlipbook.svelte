@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Flipbook, Sprite } from 'pixi-svelte';
-	import { flipbookPlaybackFrameCount, resolveFlipbook } from 'engine-layout';
+	import { flipbookPlaybackFrameCount, foldFlipbookPlayback, resolveFlipbook } from 'engine-layout';
 
 	import { getContext } from '../game/context';
 	import { getSymbolInfo } from '../game/utils';
@@ -27,15 +27,47 @@
 	const context = getContext();
 
 	const geometry = $derived(context.stateGameDerived.boardGeometry());
-	const clip = $derived(
+	const registered = $derived(
 		props.symbolInfo.clipId ? resolveFlipbook(props.symbolInfo.clipId) : undefined,
 	);
+
+	/**
+	 * The registered clip with THIS STATE's playback overrides folded in — the same fold
+	 * `LayoutNodeView` does for a placed `flipbook` node, and for the same reason: one clip serves
+	 * several states, and how it is walked is a per-use decision. A symbol that assembles on `land`
+	 * and comes apart on `explosion` is one authored animation played forwards and then backwards,
+	 * not two clips to keep in sync when the art is re-packed.
+	 *
+	 * Folded rather than passed beside the clip because `<Flipbook>` says so: `direction` decides
+	 * the texture ARRAY, so there can be exactly one answer per rendered clip. (`loop` is the
+	 * deliberate exception — a live sprite property with its own caller-override chain, which the
+	 * Book riders use.)
+	 *
+	 * Identity matters: this is a NEW object each time it recomputes, and `<AnimatedSprite>` only
+	 * re-assigns `textures` when the frame list actually CHANGED by content (`framesChanged`), so a
+	 * churning identity costs a comparison, not a restarted animation. Returning the registered
+	 * clip UNTOUCHED when nothing is overridden keeps the common path referentially stable anyway.
+	 */
+	const clip = $derived.by(() => {
+		const base = registered;
+		if (!base) return undefined;
+		const cell = props.symbolInfo;
+		// `loop` is deliberately NOT folded: it stays a prop, so `<Flipbook>`'s own
+		// `props.loop ?? clip.loop ?? true` chain keeps working — that chain is what lets the Book
+		// expand/reveal riders loop only their `bookIdle`, and folding would give it two answers.
+		return foldFlipbookPlayback(base, {
+			fps: cell.fps,
+			direction: cell.direction,
+			flipX: cell.flipX,
+			flipY: cell.flipY,
+		});
+	});
 
 	// A dangling clipId must not blank the symbol: an un-baked project, or a clip deleted after
 	// the binding was authored, falls back to the cell's `assetKey` — which for a flipbook cell
 	// is the clip's primary sheet frame — so the reel still shows art. `resolveFlipbook` never
 	// throws, so this is the only failure mode to cover.
-	const missing = $derived(!!props.symbolInfo.clipId && !clip);
+	const missing = $derived(!!props.symbolInfo.clipId && !registered);
 
 	$effect(() => {
 		if (missing) {
@@ -72,6 +104,10 @@
 	// off the authored count would flip the symbol back to `postWinStatic` at the turnaround — the
 	// same class of fault as the `oncomplete`-on-mount bug this component's docstring describes,
 	// and just as easy to read as "the win animation doesn't play" rather than as a timing bug.
+	//
+	// It reads the FOLDED clip, so a per-state `direction`/`fps` override lengthens or shortens this
+	// beat with it. That is the whole reason the fold is one object rather than props passed beside
+	// the clip: a state ping-ponged only HERE would otherwise be reverted on the authored count.
 	const DEFAULT_FPS = 24;
 	const MISSING_CLIP_HOLD_MS = 700;
 	const cycleMs = $derived(

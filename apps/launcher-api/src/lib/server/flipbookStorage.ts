@@ -45,6 +45,19 @@ export interface FlipbookClipRow {
 	 * for a multi-sheet clip). Lets a picker show a STILL thumbnail without loading the whole doc.
 	 */
 	firstFrame: string;
+	/**
+	 * The clip's OWN playback values, so a consumer that lets an author override them per binding
+	 * can name what it is inheriting ("Clip's own: reverse") instead of offering a blank default
+	 * that silently means something. The doc is already parsed to count the frames, so carrying
+	 * these costs four property reads and no extra fetch.
+	 *
+	 * Absent means the clip did not declare one, NOT that it is off — the render defaults
+	 * (`forward`, 24fps, unmirrored) live with the renderer, not here.
+	 */
+	fps?: number;
+	direction?: 'forward' | 'reverse' | 'pingpong';
+	flipX?: boolean;
+	flipY?: boolean;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -70,6 +83,7 @@ export async function listClips(clientKey: string, projectKey: string): Promise<
 		let frames = 0;
 		let assetKey = '';
 		let firstFrame = '';
+		let playback: Pick<FlipbookClipRow, 'fps' | 'direction' | 'flipX' | 'flipY'> = {};
 		const raw = await getObjectText(key);
 		if (raw) {
 			try {
@@ -82,12 +96,25 @@ export async function listClips(clientKey: string, projectKey: string): Promise<
 						const first = parsed.frames[0];
 						if (typeof first === 'string') firstFrame = first;
 					}
+					// Read defensively rather than trusting the doc: this is raw R2 JSON, not a
+					// Zod-parsed doc, and a row is used to LABEL an inherited value — a bad one
+					// would mislabel it rather than fail loudly.
+					if (typeof parsed.fps === 'number' && parsed.fps > 0) playback.fps = parsed.fps;
+					if (
+						parsed.direction === 'forward' ||
+						parsed.direction === 'reverse' ||
+						parsed.direction === 'pingpong'
+					) {
+						playback.direction = parsed.direction;
+					}
+					if (typeof parsed.flipX === 'boolean') playback.flipX = parsed.flipX;
+					if (typeof parsed.flipY === 'boolean') playback.flipY = parsed.flipY;
 				}
 			} catch {
 				// keep the id as the label — a corrupt doc still lists so it can be opened + fixed
 			}
 		}
-		rows.push({ id, name, frames, assetKey, firstFrame });
+		rows.push({ id, name, frames, assetKey, firstFrame, ...playback });
 	}
 	rows.sort((a, b) => a.name.localeCompare(b.name));
 	return rows;

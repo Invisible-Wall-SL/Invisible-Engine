@@ -8,6 +8,7 @@
 		"registry": "tsx registry.ts",
 		"frames": "tsx resolveFrames.ts",
 		"playback": "tsx playback.ts",
+		"fold": "tsx foldPlayback.ts",
 		"bounds": "tsx bounds.ts",
 		"pixi-bounds": "tsx pixiBounds.ts",
 		"scene-node": "tsx sceneNode.ts",

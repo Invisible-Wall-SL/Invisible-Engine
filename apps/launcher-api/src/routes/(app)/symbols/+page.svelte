@@ -110,6 +110,19 @@
 
 	let { data }: { data: PageData } = $props();
 
+	/** One row of `data.clips`. Taken off `PageData` rather than imported from
+	 *  `$lib/server/flipbookStorage` — that is a server module and importing it here would drag
+	 *  R2 into the client bundle. */
+	type ClipRow = PageData['clips'][number];
+
+	/** How an inherited walk is NAMED in the override picker. A clip that declares nothing walks
+	 *  forward, so the absent case has a word too — "Clip's own ( )" would say nothing. */
+	const DIRECTION_WORD: Record<'forward' | 'reverse' | 'pingpong', string> = {
+		forward: 'forward',
+		reverse: 'reverse',
+		pingpong: 'ping-pong',
+	};
+
 	// Symbol rows come from the coded defaults (the source of truth for the set).
 	const symbolNames = $derived(Object.keys(data.defaults.symbols));
 	/**
@@ -514,6 +527,13 @@
 			// Survives a kind switch: “repeat or hold” is about the STATE, not about which
 			// renderer draws it, so retyping a cell should not silently re-loop a one-shot.
 			loop: draft.loop,
+			// These do NOT survive, unlike `loop`: they describe how a FRAME LIST is walked and
+			// mirrored, which only a flipbook has. Kept across a retype they would sit in the doc
+			// meaning nothing, and come back if the author ever retyped to flipbook again.
+			fps: undefined,
+			direction: undefined,
+			flipX: undefined,
+			flipY: undefined,
 		};
 		draftAnimations = [];
 	}
@@ -556,6 +576,15 @@
 		// single frame with nothing to repeat, so it never carries the field.
 		if (draft.type !== 'sprite' && draft.loop === false) cell.loop = false;
 		if (draft.type === 'flipbook' && draft.clipId) cell.clipId = draft.clipId;
+		// Per-state playback overrides. Sparse: only a value that differs from the clip's own is
+		// written, so an untouched cell round-trips byte-identical and a clip re-authored in
+		// /flipbook still moves every binding that never overrode it.
+		if (draft.type === 'flipbook') {
+			if (draft.fps !== undefined) cell.fps = draft.fps;
+			if (draft.direction !== undefined) cell.direction = draft.direction;
+			if (draft.flipX !== undefined) cell.flipX = draft.flipX;
+			if (draft.flipY !== undefined) cell.flipY = draft.flipY;
+		}
 		doc = setOverride(doc, focus.symbol, focus.state, cell);
 		closeCell();
 	}
@@ -1186,6 +1215,102 @@
 					? 'Plays once, then holds on its last frame.'
 					: 'Repeats for as long as the symbol is in this state.'}
 			</span>
+		</div>
+	{/if}
+{/snippet}
+
+<!-- PER-STATE playback overrides for a flipbook cell — the same block a placed clip carries in
+     the Scene Editor. They exist so one authored clip can serve several states: a symbol that
+     assembles on `land` and comes apart on `explosion` is ONE animation walked forwards and then
+     backwards. Saying that with a second clip forks the frame list, and with it the referential
+     integrity a clip exists to hold — a renamed region would then need repairing in both.
+
+     Every control is SPARSE and names what it inherits: absent means "whatever the clip says",
+     which is what keeps a clip re-authored in /flipbook moving every binding that never
+     overrode it. -->
+{#snippet clipPlayback(own: ClipRow | undefined)}
+	{#if draft}
+		{@const ownDir = own?.direction ?? 'forward'}
+		{@const ownFlipX = own?.flipX === true}
+		{@const ownFlipY = own?.flipY === true}
+		<div class="field">
+			<span class="label">Walk</span>
+			<select
+				value={draft.direction ?? ''}
+				onchange={(e) => {
+					if (draft)
+						draft.direction = (e.currentTarget.value || undefined) as SymbolCell['direction'];
+				}}
+			>
+				<option value="">Clip's own ({DIRECTION_WORD[ownDir]})</option>
+				<option value="forward">Forward</option>
+				<option value="reverse">Reverse</option>
+				<option value="pingpong">Ping-pong</option>
+			</select>
+			<span class="hint">
+				{draft.direction === 'reverse'
+					? 'Plays the clip’s frames backwards — no second clip, no duplicated art.'
+					: draft.direction === 'pingpong'
+						? 'Runs to the end and back. One cycle is nearly twice the frame count, and the state waits for the whole bounce.'
+						: draft.direction === 'forward'
+							? 'Plays in the authored order.'
+							: 'Follows the clip. Change it in /flipbook and every state that never overrode it follows.'}
+			</span>
+		</div>
+		<div class="field">
+			<span class="label">Mirror</span>
+			<div class="mirror-row">
+				<label class="loop-toggle">
+					<input
+						type="checkbox"
+						checked={draft.flipX ?? ownFlipX}
+						onchange={(e) => {
+							// Sparse, but still able to say NO: an explicit `false` is written only when
+							// it differs from the clip's own value, so a state can un-mirror a clip that
+							// IS mirrored — which a write-true-or-nothing checkbox could never express.
+							if (draft) {
+								const next = e.currentTarget.checked;
+								draft.flipX = next === ownFlipX ? undefined : next;
+							}
+						}}
+					/>
+					<span>Flip X</span>
+				</label>
+				<label class="loop-toggle">
+					<input
+						type="checkbox"
+						checked={draft.flipY ?? ownFlipY}
+						onchange={(e) => {
+							if (draft) {
+								const next = e.currentTarget.checked;
+								draft.flipY = next === ownFlipY ? undefined : next;
+							}
+						}}
+					/>
+					<span>Flip Y</span>
+				</label>
+			</div>
+			<span class="hint">
+				Flips the drawn frames about the cell's centre — a render transform, so it needs no second
+				set of art.
+			</span>
+		</div>
+		<div class="field">
+			<span class="label">Speed</span>
+			<input
+				type="number"
+				min="1"
+				max="240"
+				step="1"
+				placeholder={`Clip's own (${own?.fps ?? 24} fps)`}
+				value={draft.fps ?? ''}
+				oninput={(e) => {
+					if (!draft) return;
+					const n = Number(e.currentTarget.value);
+					draft.fps = e.currentTarget.value.trim() === '' || !(n > 0) ? undefined : n;
+				}}
+			/>
+			<span class="hint">Frames per second for this state only. Empty follows the clip.</span>
 		</div>
 	{/if}
 {/snippet}
@@ -3067,7 +3192,9 @@
 					</div>
 					{#if draft.clipId}
 						{@const frame = clipFirstFrame(draft.clipId)}
+						{@const own = clipsById.get(draft.clipId)}
 						{@render loopToggle()}
+						{@render clipPlayback(own)}
 						<div class="field">
 							<span class="label">Preview</span>
 							<div class="panel-preview">
@@ -3555,6 +3682,11 @@
 	.seg button:disabled {
 		opacity: 0.45;
 		cursor: not-allowed;
+	}
+	.mirror-row {
+		display: flex;
+		gap: 16px;
+		align-items: center;
 	}
 	.loop-toggle {
 		display: flex;
