@@ -17,6 +17,7 @@
 
 import {
 	clearFlipbooks,
+	flipbookCycleMs,
 	registerFlipbooks,
 	resolveFlipbook,
 	type FlipbookClipEntry,
@@ -74,6 +75,36 @@ assert(
 );
 assert(resolveFlipbook('') === undefined, 'a clip with a blank id is refused');
 
+console.log('flipbook registry — a cycle is measured off the WALK, not the frame list');
+clearFlipbooks();
+registerFlipbooks([
+	{ ...clip('once', ['a', 'b', 'c', 'd']), fps: 10, loop: false },
+	{ ...clip('bounce', ['a', 'b', 'c', 'd']), fps: 10, loop: false, direction: 'pingpong' },
+	{ ...clip('back', ['a', 'b', 'c', 'd']), fps: 10, loop: false, direction: 'reverse' },
+	{ ...clip('ambient', ['a', 'b']), fps: 10 },
+]);
+assert(flipbookCycleMs('once') === 400, 'a 4-frame one-shot at 10fps is 400ms');
+assert(
+	flipbookCycleMs('bounce') === 600,
+	'the same clip ping-ponged is 6 ticks (2n−2), not 4 — the bug that reverts a symbol early',
+);
+assert(flipbookCycleMs('back') === 400, 'reverse walks the same number of frames');
+assert(
+	flipbookCycleMs('once', undefined, 'pingpong') === 600,
+	"a PLACEMENT's direction override changes the measured duration",
+);
+assert(
+	flipbookCycleMs('ambient') === undefined,
+	'a looping clip still reports no duration (a loop has no end)',
+);
+assert(
+	flipbookCycleMs('bounce', true) === undefined,
+	'a placement that forces looping reports no duration either',
+);
+
+clearFlipbooks();
+registerFlipbooks([clip('boom', ['a'])]);
+assert(resolveFlipbook('boom')?.id === 'boom', 're-registering after a clear works');
 clearFlipbooks();
 assert(resolveFlipbook('boom') === undefined, 'clearFlipbooks empties the registry');
 

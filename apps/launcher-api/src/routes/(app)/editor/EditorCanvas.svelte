@@ -60,10 +60,17 @@
 	import {
 		clearClipCache,
 		clipFrameAt,
+		clipFrameBox,
 		clipFrameIndexAt,
 		fetchClips,
 		type EditorClip,
 	} from './editorFlipbooks.client';
+	import {
+		artBoundsVersion,
+		artBoxGeometry,
+		clearArtBoundsCache,
+		loadArtBounds,
+	} from './editorArtBounds.client.svelte';
 	import BusyOverlay from '$lib/BusyOverlay.svelte';
 	import EditorItemOverlay from './EditorItemOverlay.svelte';
 	import EditorEffectLayer from './EditorEffectLayer.svelte';
@@ -1191,6 +1198,9 @@
 		// playing the old frame list until a full page reload.
 		clearClipCache();
 		loadClips();
+		// A box authored in another tab is exactly as stale as a re-packed atlas.
+		clearArtBoundsCache();
+		void loadArtBounds();
 		// Drop the cross-atlas name→manifest map too, else a name-resolved sprite keeps
 		// pointing at the manifest the previous scan locked onto — Reload art would do
 		// nothing for it. Cleared + flagged for rebuild on the next draw().
@@ -1384,6 +1394,9 @@
 		});
 	}
 	loadClips();
+	// The project's authored region boxes, fetched once per page load. Absent/forbidden ⇒ an empty
+	// map ⇒ every region draws on its own packed rect, exactly as before (parity).
+	void loadArtBounds();
 
 	/**
 	 * Wall-clock ms driving in-place clip PLAYBACK. Unlike an effect (a WebGL emitter the 2D canvas
@@ -1441,11 +1454,40 @@
 	}
 
 	/** The frame a placed clip shows RIGHT NOW — `(assetKey, region)` ready for the region draw.
-	 * `null` for an unregistered / empty clip, which then draws its dangling placeholder. */
-	function flipbookFrame(clipId: string): { assetKey: string; region: string } | null {
+	 * `null` for an unregistered / empty clip, which then draws its dangling placeholder.
+	 *
+	 * `override` carries a PLACEMENT's own `fps` / `direction` (a `flipbook` node's), so the
+	 * preview shows what THAT placement does — the point of playing a clip in place is to judge
+	 * it, and a node that reverses or halves the authored clip would otherwise animate as if it
+	 * hadn't. A symbol cell passes nothing: its clip plays as authored. */
+	function flipbookFrame(
+		clipId: string,
+		override?: { fps?: number; direction?: 'forward' | 'reverse' | 'pingpong' },
+	): { assetKey: string; region: string } | null {
 		const clip = clipsById.get(clipId);
 		if (!clip || clip.frames.length === 0) return null;
-		return clipFrameAt(clip, clipFrameIndexAt(clip, clipClockMs));
+		return clipFrameAt(clip, clipFrameIndexAt(clip, clipClockMs, override));
+	}
+
+	/** A placed clip's mirroring — the placement's override, else the clip's own. Returned as a
+	 * pair so the draw applies both axes in one `ctx.scale`. */
+	function flipbookMirror(
+		node: Extract<LayoutNode, { kind: 'flipbook' }>,
+	): { x: boolean; y: boolean } {
+		const clip = clipsById.get(node.clipId);
+		return { x: node.flipX ?? clip?.flipX ?? false, y: node.flipY ?? clip?.flipY ?? false };
+	}
+
+	/** The clip BOX to draw a frame against — `null` when the clip declares none, in which case the
+	 * frame draws on its own packed rect exactly as it always has. */
+	function flipbookBox(
+		clipId: string,
+		frame: { assetKey: string; region: string },
+	): { origW: number; origH: number; offX: number; offY: number } | null {
+		const clip = clipsById.get(clipId);
+		if (!clip?.bounds) return null;
+		const found = findRegion(frame.assetKey, frame.region);
+		return found ? clipFrameBox(clip, found.region) : null;
 	}
 
 	/** Resolved stand-in art for a `bind` anchor (explicit override → catalog default
@@ -1506,8 +1548,11 @@
 		if (art) return art;
 		if (node.kind === 'sprite' && node.region) {
 			const found = findRegion(node.assetKey, node.region);
-			if (found) return regionNaturalSize(found.region);
-			return null;
+			if (!found) return null;
+			// A boxed region sizes by its BOX — which is the point of declaring one: the selection
+			// frame, the resize handles and a cover-fit all stop tracking the packer's rect.
+			const boxed = artBoxGeometry(found.set.assetKey, found.region.name, found.region);
+			return boxed ? { w: boxed.origW, h: boxed.origH } : regionNaturalSize(found.region);
 		}
 		// A placed clip sizes off its FIRST frame, not the frame currently playing: frames of one
 		// animation are rarely identical rects, and a natural size that changed 24 times a second
@@ -1515,6 +1560,12 @@
 		if (node.kind === 'flipbook') {
 			const clip = clipsById.get(node.clipId);
 			if (!clip || clip.frames.length === 0) return null;
+			// A clip with a declared BOX sizes off the box, not off a frame — which is the point of
+			// declaring one: the selection box, the resize handles and a cover-fit all stop tracking
+			// whatever rect the packer happened to give frame 0.
+			if (clip.bounds && clip.bounds.w > 0 && clip.bounds.h > 0) {
+				return { w: clip.bounds.w, h: clip.bounds.h };
+			}
 			const first = clipFrameAt(clip, 0);
 			const found = findRegion(first.assetKey, first.region);
 			return found ? regionNaturalSize(found.region) : null;
@@ -2285,9 +2336,18 @@
 			// path a sprite uses, so trim, rotation and cross-atlas resolution all behave identically.
 			// A dangling / un-baked clipId has no frames to draw: the labelled chip says so, and the
 			// node stays selectable and movable so the reference can be re-pointed in Properties.
-			const frame = flipbookFrame(node.clipId);
+			const frame = flipbookFrame(node.clipId, { fps: node.fps, direction: node.direction });
 			if (frame) {
-				drawArtRegionSprite(ctx, frame.assetKey, frame.region, t, node.label, t.tint);
+				drawArtRegionSprite(
+					ctx,
+					frame.assetKey,
+					frame.region,
+					t,
+					node.label,
+					t.tint,
+					flipbookMirror(node),
+					flipbookBox(node.clipId, frame),
+				);
 			} else {
 				drawPlaceholder(
 					ctx,
@@ -2650,6 +2710,8 @@
 		t: import('engine-layout').ResolvedTransform,
 		label?: string,
 		tint?: number,
+		mirror?: { x: boolean; y: boolean },
+		box?: { origW: number; origH: number; offX: number; offY: number } | null,
 	): void {
 		const found = regionName ? findRegion(assetKey, regionName) : null;
 		const ax = t.anchor?.x ?? 0;
@@ -2660,7 +2722,18 @@
 		}
 		const img = ensureImage(found.set.pageKey);
 		const { region } = found;
-		const nat = regionNaturalSize(region);
+		// A region's OWN authored box applies to every draw of it, unless the caller passed one (a
+		// clip's box, which is about that clip rather than about the art). Looked up against the
+		// RESOLVED sheet (`found.set.assetKey`), never the requested key: `findRegion` falls back to
+		// a cross-atlas search by name, and a box scoped to the sheet the frame actually came from is
+		// the only one that can be right.
+		box = box ?? artBoxGeometry(found.set.assetKey, region.name, region);
+		// A `box` REPLACES the region's own declared size + trim offset (an Invisible Flipbook clip's
+		// bounds, already re-based onto the frame by `clipFrameBox`; or the region's own). Everything
+		// below is unchanged: a box IS a declared size and a trim offset, which is exactly what the
+		// region path already speaks — the same reason the runtime applies a box by re-stating
+		// `orig`/`trim`.
+		const nat = box ? { w: box.origW, h: box.origH } : regionNaturalSize(region);
 		// Destination box: respect explicit width/height, else the region's native size.
 		const dw = t.width ?? nat.w;
 		const dh = t.height ?? nat.h;
@@ -2675,11 +2748,22 @@
 		const scaleY = dh / nat.h;
 		const cw = region.w * scaleX;
 		const ch = region.h * scaleY;
-		const cx = -dw * ax + (region.offX ?? 0) * scaleX;
-		const cy = -dh * ay + (region.offY ?? 0) * scaleY;
+		const cx = -dw * ax + (box ? box.offX : (region.offX ?? 0)) * scaleX;
+		const cy = -dh * ay + (box ? box.offY : (region.offY ?? 0)) * scaleY;
 		// On-page packed rect: a `rotated` frame is stored (h × w) — swap.
 		const pw = region.rotated ? region.h : region.w;
 		const ph = region.rotated ? region.w : region.h;
+		// Mirroring wraps the DRAW only, never the placeholders above: a flipped label is unreadable,
+		// and a still-loading page is not the moment to show one. The origin here IS the anchor
+		// point (`cx` is already `-dw * ax`), so scaling by −1 mirrors about the same point PIXI's
+		// negative `scale` does — which is what makes the canvas and the game agree. Applied
+		// BEFORE the rotated branch's own transform on purpose: mirroring the composed result is
+		// the mirror of the drawn frame, whichever way it was packed.
+		const mirrored = mirror ? mirror.x || mirror.y : false;
+		if (mirrored) {
+			ctx.save();
+			ctx.scale(mirror?.x ? -1 : 1, mirror?.y ? -1 : 1);
+		}
 		if (region.rotated) {
 			// Page pixels are packed rotated; restore upright to MATCH THE GAME.
 			// The page is packed with PIL rotate(-90) (atlas-tool fit_to_region), so the
@@ -2696,6 +2780,7 @@
 		} else {
 			drawTintedImage(ctx, img, region.x, region.y, pw, ph, cx, cy, cw, ch, tint);
 		}
+		if (mirrored) ctx.restore();
 	}
 
 	/** Scratch canvas reused for tinted sprite draws (avoids per-frame allocation). */
@@ -3763,6 +3848,12 @@
 		// Forced repaint signal (undo/redo): a position-only restore reassigns `scenes`
 		// but changes no node count, so without this the composite can stay stale.
 		void redrawNonce;
+		// A region's declared BOX lives outside the layout doc (it describes the ART, not a
+		// placement), so no doc field changes when one is dragged — this counter is the signal.
+		// ONE cheap dependency that changes only when a box does; the boxes themselves stay in a
+		// non-reactive map for the same reason `clipsById` does (`draw()` reads it, and several
+		// effects call `draw()` synchronously).
+		void artBoundsVersion();
 		schedule();
 	});
 

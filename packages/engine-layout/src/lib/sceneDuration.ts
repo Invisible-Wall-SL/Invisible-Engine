@@ -28,13 +28,22 @@ export interface SceneDurationResolvers {
 	 *  runtime time-scale). `undefined` when the effect id doesn't resolve or has no finite duration. */
 	effectMs(effectId: string): number | undefined;
 	/**
-	 * A flipbook clip's wall-clock ms (`frames / fps`) — called for every placed `flipbook` node.
-	 * `loopOverride` is that PLACEMENT's `loop` (absent ⇒ the clip's authored value applies), and the
-	 * resolver must return `undefined` for an effectively LOOPING clip: a loop has no end, so counting
-	 * one cycle as "the screen's animation" would hold a `showContainer` for an ambient background
-	 * that was never meant to gate anything. `undefined` too for an unregistered / un-baked id.
+	 * A flipbook clip's wall-clock ms (`walked frames / fps`) — called for every placed `flipbook`
+	 * node. `loopOverride` is that PLACEMENT's `loop` (absent ⇒ the clip's authored value applies),
+	 * and the resolver must return `undefined` for an effectively LOOPING clip: a loop has no end, so
+	 * counting one cycle as "the screen's animation" would hold a `showContainer` for an ambient
+	 * background that was never meant to gate anything. `undefined` too for an unregistered /
+	 * un-baked id.
+	 *
+	 * `directionOverride` is the placement's `direction`, and it changes the ANSWER, not just the
+	 * look: a ping-pong cycle walks back through the interior frames, so it runs nearly twice as
+	 * long as the authored list. A duration measured off `frames.length` would end the beat mid-way.
 	 */
-	flipbookMs?(clipId: string, loopOverride?: boolean): number | undefined;
+	flipbookMs?(
+		clipId: string,
+		loopOverride?: boolean,
+		directionOverride?: 'forward' | 'reverse' | 'pingpong',
+	): number | undefined;
 	/** Resolve a `componentInstance`'s def id → its root subtree, so the walk descends into prefab
 	 *  content. `undefined` for an unknown def (skipped). */
 	resolveComponent(defId: string): { root: LayoutNode } | undefined;
@@ -88,7 +97,7 @@ export const sceneAnimationDurationMs = (
 				// otherwise hold for one cycle of an ambient loop that was never meant to gate anything.
 				// The resolver owns that call (it holds the clip, so it knows the authored `loop`); the
 				// override wins there exactly as it does in `<LayoutNodeView>`.
-				consider(resolvers.flipbookMs?.(node.clipId, node.loop));
+				consider(resolvers.flipbookMs?.(node.clipId, node.loop, node.direction));
 				break;
 			case 'container':
 				for (const child of node.children) walk(child);

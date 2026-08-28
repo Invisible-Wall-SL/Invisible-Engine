@@ -309,6 +309,25 @@ export function winTextDocKey(client: string, project: string): string {
 }
 
 /**
+ * `<client>/<project>/editor/art-bounds.json` — the per-REGION declared boxes: the sprite twin of
+ * a rig's `skeleton.{x,y,width,height}` and of a flipbook clip's `bounds`.
+ *
+ * Lives beside the layout doc rather than in the sheet MANIFEST on purpose. A manifest is written
+ * by the packers (Sheet Maker / Atlas Maker), so a box stored there is one re-pack away from being
+ * lost — and altering a region's trim in the manifest re-bases the coordinate space every frozen
+ * `.irig` mesh was authored against (`editorRegions.ts`'s RawRegion landmine). Kept separate, a box
+ * is authored data that survives re-packing and cannot move a rig.
+ *
+ * It never ships as its own asset class: `editorArtExport` folds each box into the `sourceSize` /
+ * `spriteSourceSize` of the TexturePacker JSON it already writes, which is where PIXI reads a
+ * declared box from anyway. So there is nothing to strand in R2 (rule 8) and no runtime change.
+ * See `docs/design/invisible-flipbook.md` §"Bounds".
+ */
+export function artBoundsDocKey(client: string, project: string): string {
+	return `${SUB.editor(client, project)}/art-bounds.json`;
+}
+
+/**
  * `<client>/<project>/sounds/sounds.json` — the Invisible Sound library doc: which sounds the
  * project owns, their provenance, and whether they are approved to ship.
  * See `docs/design/invisible-sound.md` §4.

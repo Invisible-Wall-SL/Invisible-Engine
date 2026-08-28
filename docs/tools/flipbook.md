@@ -121,8 +121,56 @@ Above the list:
   at 24 wherever it is used.
 - **Loop** on (the default) restarts at frame 1; off plays the clip once and stops on
   the last frame.
+- **play** is the DIRECTION the frames are walked — **forward** (the default),
+  **reverse**, or **ping-pong**. Reverse plays the same art backwards without you
+  duplicating anything. Ping-pong runs to the end and back down through the middle
+  frames, so a loop returns to frame 1 exactly once per cycle (the two turnaround
+  frames are not repeated — that would read as a stutter).
+- **Mirror X / Mirror Y** flip the drawn frames. No second set of art, and the whole
+  clip flips together.
 
-The name of the frame currently on screen is shown under the transport.
+The scrubber and the **N / N** counter show the position in the WALK, so a ping-ponged
+8-frame clip is 14 steps long. The name under the transport, and the highlighted row in
+the frame list, always name the AUTHORED frame that step landed on.
+
+> A ping-pong cycle lasts nearly **twice** what the frame count suggests. That matters
+> wherever a clip's length is used as a beat — a symbol's win animation, or a screen's
+> duration in Invisible Flow — and the engine measures the walk, not the list, so those
+> beats already wait for the whole bounce.
+
+### The bounds box — declaring the size a clip is drawn at
+
+Press **⬚ Bounds**. This is the flipbook twin of the Rigger's **Bounds**: a box you draw
+over the art that says *this is the space this clip occupies*. Every consumer — a reel
+symbol, a placed clip in the Scene Editor, a full-screen background — sizes and anchors
+by that box instead of by whatever rectangle the packer happened to produce.
+
+Two things it fixes, neither of which had any fix before except re-cropping and
+re-exporting the art:
+
+- **The animation changes size as it plays.** Frames of one animation rarely pack to the
+  same rectangle, and without a box each frame is fitted on its own — so the art pulses.
+  One box for the clip means one scale for every frame.
+- **The clip draws too small (or too big) next to everything around it.** Art padded with
+  empty margin reads small; art with a wide flourish reads huge. Box the part that
+  actually reads and the rest follows.
+
+The controls, once the box is open:
+
+- **⊙ Fit** draws the box around every frame's art — the usual starting point.
+- **⌖ Centre** re-centres the box on the clip's origin, keeping its size.
+- **✕ Clear** removes it: back to each frame on its own rectangle.
+- **Drag** the box body to move it, or its handles to resize. The **x / y / w / h**
+  boxes take exact numbers. `x`/`y` are the box's top-left **relative to the clip's
+  origin**, so a centred box has `x = -w/2`.
+
+**A box smaller than the art is deliberate, not a mistake.** The art is not cropped to
+it — it overflows. That is exactly how you size a symbol by its core and let a glow or a
+burst hang outside the reel cell.
+
+While the box is open the preview holds a fixed frame so the art doesn't rescale under
+the cursor as you drag. Close **⬚ Bounds** and the preview shows the boxed result — what
+the game will draw.
 
 ### 5. Name and save
 
@@ -273,10 +321,10 @@ setting — so what you saw in the grid is what the clip plays.
 
 - **No onion-skinning, no per-frame timing.** Every frame in a clip lasts exactly
   `1 / fps` seconds; hold a pose by duplicating the frame.
-- **No reverse/ping-pong playback**, and no in-tool trimming of the source art (that is
-  the Sheet Maker's job — it owns pixels, this tool owns time). The 🎬 Video mode's
-  **Max px** is the one exception, and only because a generated frame has no sheet to go
-  back to.
+- **No in-tool trimming of the source art** — that is the Sheet Maker's job (it owns pixels,
+  this tool owns time). The 🎬 Video mode's **Max px** is the one exception, and only because a
+  generated frame has no sheet to go back to. The **bounds box** is not trimming: it declares
+  the size the clip is drawn at without touching a pixel.
 - **🎬 Video: no re-roll of a single tile.** To try again, generate another session.
 - **🎬 Video: one session at a time**, per deliberate choice — a session is several paid
   GPU jobs, so they are not allowed to stack up.

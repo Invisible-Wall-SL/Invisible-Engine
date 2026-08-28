@@ -22,8 +22,18 @@
 		set: RegionSet;
 		region: EditorRegion;
 		size: number;
+		/**
+		 * Replaces the region's OWN declared canvas + trim offset for this draw — an Invisible
+		 * Flipbook clip's bounds, already re-based onto this frame (`clipFrameBox`).
+		 *
+		 * The thumbnail then fits the BOX and places the art inside it, which is what makes a
+		 * boxed clip preview at one steady scale: without it each frame is fitted on its own
+		 * declared canvas, so frames that packed to different sizes pulse as the clip plays.
+		 * Absent ⇒ byte-identical to before for every other caller.
+		 */
+		box?: { origW: number; origH: number; offX: number; offY: number } | null;
 	}
-	let { set, region, size }: Props = $props();
+	let { set, region, size, box = null }: Props = $props();
 
 	let canvas: HTMLCanvasElement | null = $state(null);
 
@@ -56,10 +66,10 @@
 			// Fit the ORIGINAL canvas instead and place the packed rect at its offset, so every
 			// frame is anchored in the same space. For an untrimmed frame (origW==w, off==0) this
 			// is byte-identical to the old centring.
-			const ow = region.origW ?? region.w;
-			const oh = region.origH ?? region.h;
-			const offX = region.offX ?? 0;
-			const offY = region.offY ?? 0;
+			const ow = box ? box.origW : (region.origW ?? region.w);
+			const oh = box ? box.origH : (region.origH ?? region.h);
+			const offX = box ? box.offX : (region.offX ?? 0);
+			const offY = box ? box.offY : (region.offY ?? 0);
 			const scale = Math.min(size / ow, size / oh);
 			// Top-left of the centred original canvas, then the trimmed rect's place within it.
 			const baseX = (size - ow * scale) / 2;
@@ -98,6 +108,7 @@
 		void set.pageKey;
 		void set.pageVersion; // content change (re-authored atlas) → fresh decode + repaint
 		void region.name;
+		void box; // a clip's declared box changed (or was dragged) → re-fit + repaint
 		void size; // resizing the canvas clears it → repaint at the new size
 		void pageVersion; // "Reload art" bump → re-fetch the page + repaint
 		paint();

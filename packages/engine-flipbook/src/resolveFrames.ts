@@ -8,6 +8,7 @@
  * ([[feedback_validate_data_contracts_offline]]).
  */
 
+import { playbackIndices } from './playback';
 import type { FlipbookClip } from './types';
 
 /** A node `assetKey` that names an R2 atlas/sheet manifest (editor-art), vs a game-bundled key
@@ -65,9 +66,9 @@ export function clipFrameRefs(
 }
 
 export interface ResolvedClipFrames {
-	/** Textures for the frames that resolved, in AUTHORED ORDER. */
+	/** Textures for the frames that resolved, in PLAYBACK ORDER (`clip.direction` applied). */
 	textures: unknown[];
-	/** Frame names that resolved to nothing, in authored order. */
+	/** Frame names that resolved to nothing, in AUTHORED order, once each per authored entry. */
 	missing: string[];
 }
 
@@ -83,15 +84,22 @@ export interface ResolvedClipFrames {
  * entire sheet when an FX layer resolves nothing, which turns a broken reference into arbitrary
  * wrong art. For an ordered animation that would play a scramble of unrelated frames, so
  * resolving nothing must render nothing.
+ *
+ * `clip.direction` is applied HERE, as a walk over the authored list (`playbackIndices`), because
+ * the texture array IS the playback order for `AnimatedSprite` — there is no second clock to
+ * teach. Resolution itself still runs ONCE per AUTHORED frame, so a ping-pong reuses the same
+ * texture object twice rather than looking it up twice, and `missing` reports each broken entry
+ * once no matter how many times the walk would have visited it (an inflated count would read as
+ * more art being broken than is).
  */
 export function resolveClipFrames(
-	clip: Pick<FlipbookClip, 'assetKey' | 'frames'>,
+	clip: Pick<FlipbookClip, 'assetKey' | 'frames' | 'direction'>,
 	loadedAssets: Record<string, unknown> | undefined,
 ): ResolvedClipFrames {
 	const frames = clip.frames ?? [];
 	if (frames.length === 0) return { textures: [], missing: [] };
 	const loaded = loadedAssets ?? {};
-	const textures: unknown[] = [];
+	const resolved: (unknown | undefined)[] = [];
 	const missing: string[] = [];
 	for (const frame of frames) {
 		// A frame may name its OWN sheet (`<assetKey>::<region>`); a bare name falls back to the
@@ -100,10 +108,18 @@ export function resolveClipFrames(
 		const sheet = ref.assetKey ?? clip.assetKey;
 		const scoped = isManifestAssetKey(sheet);
 		const tex = (scoped ? loaded[`${sheet}::${ref.region}`] : undefined) ?? loaded[ref.region];
-		if (tex !== undefined && tex !== null) textures.push(tex);
-		// Report the ENTRY as authored, not the parsed region — the author needs to know which
-		// sheet's frame vanished, and a bare region name alone is ambiguous across sheets.
-		else missing.push(frame);
+		if (tex !== undefined && tex !== null) resolved.push(tex);
+		else {
+			resolved.push(undefined);
+			// Report the ENTRY as authored, not the parsed region — the author needs to know which
+			// sheet's frame vanished, and a bare region name alone is ambiguous across sheets.
+			missing.push(frame);
+		}
+	}
+	const textures: unknown[] = [];
+	for (const i of playbackIndices(frames.length, clip.direction)) {
+		const tex = resolved[i];
+		if (tex !== undefined) textures.push(tex);
 	}
 	return { textures, missing };
 }

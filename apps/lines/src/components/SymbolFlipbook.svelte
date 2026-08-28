@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Flipbook, Sprite } from 'pixi-svelte';
-	import { resolveFlipbook } from 'engine-layout';
+	import { flipbookPlaybackFrameCount, resolveFlipbook } from 'engine-layout';
 
 	import { getContext } from '../game/context';
 	import { getSymbolInfo } from '../game/utils';
@@ -67,11 +67,23 @@
 	 * MISSING_CLIP_HOLD_MS} keeps the beat visible and the failure honest (the console error above
 	 * says which clip). Only a dangling clip pays it — a real clip is timed off its own length.
 	 */
+	// Length is measured off the WALKED frames, not the authored list: a `pingpong` clip comes back
+	// through its interior frames, so one cycle is nearly twice `frames.length`. Timing the revert
+	// off the authored count would flip the symbol back to `postWinStatic` at the turnaround — the
+	// same class of fault as the `oncomplete`-on-mount bug this component's docstring describes,
+	// and just as easy to read as "the win animation doesn't play" rather than as a timing bug.
 	const DEFAULT_FPS = 24;
 	const MISSING_CLIP_HOLD_MS = 700;
 	const cycleMs = $derived(
 		clip
-			? Math.max(1, Math.round((clip.frames.length / (clip.fps ?? DEFAULT_FPS)) * 1000))
+			? Math.max(
+					1,
+					Math.round(
+						(flipbookPlaybackFrameCount(clip.frames.length, clip.direction) /
+							(clip.fps ?? DEFAULT_FPS)) *
+							1000,
+					),
+				)
 			: MISSING_CLIP_HOLD_MS,
 	);
 

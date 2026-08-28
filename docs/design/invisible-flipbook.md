@@ -75,7 +75,85 @@ export interface FlipbookDoc {
 
 `frames` is ordered and authored; `fps`/`loop` are real fields rather than the hardcoded
 constants FX uses today. One sheet per clip in v1 — cross-sheet clips would need multi-atlas
-texture resolution at every consumer, which is not worth v1.
+texture resolution at every consumer, which is not worth v1. (Shipped since: a frame may be an
+`<assetKey>::<region>` ref, because a real multipacked export interleaves one animation across
+pages.)
+
+### Playback: how the authored order is WALKED
+
+Added after v1 (owner ask: *“control over how a flipbook animation can be played or looped — flip
+on X or Y, ping-pong, etc”*). Three fields on the clip, all optional, all defaulting to today's
+behaviour so an untouched clip is byte-identical:
+
+```ts
+direction?: 'forward' | 'reverse' | 'pingpong';  // absent ⇒ forward
+flipX?: boolean;
+flipY?: boolean;
+```
+
+**A walk over the one authored order, never a second clip.** Reversing or bouncing is a
+presentation choice made per use; expressing it by copying 49 frame names would fork the clip's
+referential integrity too — a renamed region would then need repairing in both.
+
+`playbackIndices(count, direction)` in `engine-flipbook/playback.ts` is the single definition, and
+it returns INDICES rather than names so a missing frame cannot shift the walk. Ping-pong is
+`0…n-1` then back down to `1` — the turnaround frames are NOT repeated (holding them stutters the
+two moments an eye is most likely to notice), so a cycle is `2n−2` ticks.
+
+Three consumers walk it and must not disagree: `resolveClipFrames` orders the TEXTURE array (so
+PIXI's `AnimatedSprite` needs no direction-aware clock), the `/flipbook` preview steps an index,
+and the editor canvas samples a wall clock. Mirroring is the sign of the sprite's `scale`, applied
+after the sizing props rather than as a `scale` value — PIXI's `width` setter preserves the sign of
+`scale.x`, so `abs(scale) × sign` is order-independent where a `scale={{x:-1}}` prop is a race
+between the flip and the size.
+
+**The trap this creates:** any DURATION must be measured from the walk, not from `frames.length`.
+A ping-pong symbol state whose revert is timed off the authored count flips back at the turnaround,
+which reads as “the win animation doesn't play” rather than as a timing fault — the same shape as
+the `oncomplete`-on-mount bug `SymbolFlipbook` already documents. `flipbookCycleMs` (the flow
+duration walk) and `SymbolFlipbook`'s revert both count `playbackFrameCount`.
+
+### Bounds: the box a clip is drawn at
+
+The frame-animation twin of the Rigger's size frame, and the same concept as a sprite region's box
+(`editor/art-bounds.json`, below). One optional field:
+
+```ts
+bounds?: { x: number; y: number; w: number; h: number };  // ART pixels, top-left relative to the
+                                                          // clip ORIGIN ⇒ a centred box is x = -w/2
+```
+
+Why the clip needs one at all: without it each frame is contain-fitted on its OWN packed rect, so
+frames that packed differently make the animation pulse (the failure `editorRegions.ts` already
+documents for un-trimmed plist imports), and a clip whose art is mostly empty margin draws small
+next to everything around it. One box for the clip is one scale for every frame.
+
+**It reaches pixels as `orig` + `trim`, not as new maths.** `applyClipBounds` re-states a frame with
+the box as its declared size and the art at its position inside — which is exactly the pair PIXI
+builds a texture's `orig`/`trim` from, and exactly what an ordinary trimmed atlas frame already is.
+So `<Flipbook>` rebuilds its textures (sharing each frame's `source`, so no GPU cost) and NOTHING
+downstream learns a new concept: `texture.width` reports the box, `width`/`height` size the box, the
+anchor lands on the box's centre, and cover-fit measures the box.
+
+**A box SMALLER than the art is legal and load-bearing.** The art overflows rather than being
+cropped — how a symbol is sized by the part that reads while a wide invisible flourish hangs outside
+the cell (the sprite answer to `gotcha_symbol_spine_sized_by_declared_canvas`). Pinned against the
+real pixi build by `pnpm --filter flipbook-spike run pixi-bounds`.
+
+### The sprite half: `editor/art-bounds.json`
+
+The same box for a plain atlas region, keyed `<assetKey>::<region>`, authored in the Scene Editor's
+Properties panel with the SAME overlay component (`$lib/BoundsBox.svelte`).
+
+Two deliberate placements:
+
+- **Not in the sheet manifest.** Manifests are written by the packers, so a box stored there is one
+  re-pack from being lost — and altering a region's trim in the manifest re-bases the coordinate
+  space every frozen `.irig` mesh was authored against (`editorRegions.ts`'s RawRegion landmine).
+- **Not a new shipped asset class.** `editorArtExport` folds each box into the `sourceSize` /
+  `spriteSourceSize` of the TexturePacker JSON it already writes, which is where PIXI reads a
+  declared box from. Nothing is stranded at an R2 prefix (rule 8), the game gains no code, and no
+  registry learns a new id.
 
 ## Travel (rule 8 — export→bake→pull→register)
 
@@ -194,6 +272,12 @@ own cost.
      runtime value that `editorStorage.ts`'s accepted-kind set derives from — a hand-copied list
      would have DROPPED every placed node on save, silently and green.
 7. **Export/bake/pull/register wiring** + the `docs/status/flipbook.md` status file.
+
+8. **Playback control + bounds** (post-v1, owner ask) — ✅ done. `direction`/`flipX`/`flipY` and
+   `bounds` on the clip (see the Data model sections above), per-PLACEMENT overrides of all four on
+   `FlipbookNode`, the shared `BoundsBox` overlay in `/flipbook` and the Scene Editor, and the
+   sprite half in `editor/art-bounds.json` folded into the shipped sheet at export. Fixtures:
+   `run playback`, `run bounds`, `run pixi-bounds`, plus `node apps/launcher-api/artBounds.fixture.ts`.
 
 `COMPONENT_PARAM_KINDS` gains a frame-list/clip kind only if flipbooks should be bindable
 inside components — deferred past v1 unless the owner wants it.

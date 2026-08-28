@@ -17,14 +17,21 @@
 	import { SaveState } from '$lib/saveState.svelte';
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
+	import BoundsBox from '$lib/BoundsBox.svelte';
 	import {
 		DEFAULT_FLIPBOOK_FPS,
 		animationToClip,
+		applyClipBounds,
 		clipSheetKeys,
 		detectSequencesAcross,
+		fitClipBounds,
+		isFlipbookDirection,
 		parseAnimationPlist,
 		parseFrameRef,
+		playbackIndices,
+		type FlipbookBounds,
 		type FlipbookClip,
+		type FlipbookFrameBox,
 	} from 'engine-flipbook';
 	import { fetchRegions, type RegionSet } from '../editor/editorRegions.client';
 	import RegionThumb from '../editor/RegionThumb.svelte';
@@ -416,7 +423,8 @@
 	// --- ordered frame list -----------------------------------------------------
 	function setFrames(frames: string[]): void {
 		clip = { ...clip, frames };
-		if (frameIndex >= frames.length) frameIndex = Math.max(0, frames.length - 1);
+		// The playhead is clamped against the WALK by its own effect — the walk is derived from
+		// these frames, so it re-runs on this assignment.
 	}
 
 	/** Append from the SELECTED sheet. A frame from the clip's primary sheet stores a bare name
@@ -485,7 +493,7 @@
 			frames: [...seq.frames],
 		};
 		sheetKey = seq.primary;
-		frameIndex = 0;
+		step = 0;
 	}
 
 	/** Duplicating is a first-class edit, not a convenience: a repeated frame IS a hold, and the
@@ -512,49 +520,222 @@
 	}
 
 	// --- playback ---------------------------------------------------------------
+	/**
+	 * The playhead is an index into the WALK (`playbackIndices`), not into the authored frame
+	 * list — which is the only way a reverse or ping-pong preview can be scrubbed monotonically
+	 * and still report "3 / 8" against the frames the author sees. `frameAt` maps back to the
+	 * authored index for the thumbnail, the name readout and the current-row highlight.
+	 */
 	let playing = $state(false);
-	let frameIndex = $state(0);
+	let step = $state(0);
 
 	const fps = $derived(clip.fps ?? DEFAULT_FLIPBOOK_FPS);
 	const loop = $derived(clip.loop !== false);
+	const direction = $derived(clip.direction ?? 'forward');
+	const walk = $derived(playbackIndices(clip.frames.length, clip.direction));
+	/** The AUTHORED frame index under the playhead — what the list highlights. */
+	const frameIndex = $derived(walk[step] ?? 0);
 	const currentName = $derived(clip.frames[frameIndex] ?? '');
 	const current = $derived(currentName ? frameLookup(currentName) : null);
 
 	/**
 	 * The playback clock. Deliberately accumulator-based rather than `setInterval(1000/fps)` so a
 	 * dropped rAF doesn't desynchronise the sequence — a flipbook's timing IS its content.
-	 * Reads only `playing`, `count` and `rate`, so advancing `frameIndex` cannot re-enter it.
+	 * Reads only `playing`, `count` and `rate`, so advancing `step` cannot re-enter it.
 	 */
 	$effect(() => {
-		const count = clip.frames.length;
+		const count = walk.length;
 		const rate = fps;
 		const looping = loop;
 		if (!playing || count === 0 || rate <= 0) return;
 		let raf = 0;
 		let last = performance.now();
 		let acc = 0;
-		const step = (now: number): void => {
+		const tick = (now: number): void => {
 			acc += now - last;
 			last = now;
 			const period = 1000 / rate;
 			while (acc >= period) {
 				acc -= period;
-				const next = frameIndex + 1;
+				const next = step + 1;
 				if (next >= count) {
 					if (!looping) {
 						playing = false;
 						return;
 					}
-					frameIndex = 0;
+					step = 0;
 				} else {
-					frameIndex = next;
+					step = next;
 				}
 			}
-			raf = requestAnimationFrame(step);
+			raf = requestAnimationFrame(tick);
 		};
-		raf = requestAnimationFrame(step);
+		raf = requestAnimationFrame(tick);
 		return () => cancelAnimationFrame(raf);
 	});
+
+	/** Clamp the playhead when the walk shrinks — deleting frames, or switching OUT of ping-pong,
+	 * both leave `step` past the end, which would strand the preview on a blank. */
+	$effect(() => {
+		if (step >= walk.length) step = Math.max(0, walk.length - 1);
+	});
+
+	function setDirection(v: string): void {
+		const next = isFlipbookDirection(v) ? v : 'forward';
+		// Dropped when it is the default, so a clip that never touched this saves byte-identical.
+		if (next === 'forward') {
+			const { direction: _drop, ...rest } = clip;
+			clip = rest;
+		} else {
+			clip = { ...clip, direction: next };
+		}
+		step = 0;
+	}
+
+	/** `false` is DROPPED rather than stored: absent already means "not mirrored", and writing it
+	 * out would churn every clip's bytes the first time anyone opened this control. */
+	function setFlip(axis: 'flipX' | 'flipY', on: boolean): void {
+		if (on) {
+			clip = { ...clip, [axis]: true };
+		} else {
+			const next = { ...clip };
+			delete next[axis];
+			clip = next;
+		}
+	}
+
+	// --- bounds box ---------------------------------------------------------------
+	/**
+	 * The clip's declared BOX — the frame-animation twin of the Rigger's Bounds. Everything below
+	 * works in ART PIXELS, origin-centred, the space `FlipbookBounds` is defined in.
+	 *
+	 * While the box editor is OPEN the stage deliberately fits a FIXED frame (`editorBox`) rather
+	 * than the box being dragged: fitting the box itself would rescale the art under the cursor on
+	 * every pixel of the drag, which makes it impossible to judge where the box sits against the
+	 * art. Closed, the stage fits the authored box — what the game will draw.
+	 */
+	let boundsOpen = $state(false);
+
+	/** Every frame's geometry in `FlipbookFrameBox` terms, skipping frames whose region hasn't
+	 * loaded (or has gone missing) — an auto-fit measures what it can actually see. */
+	const frameBoxes = $derived.by(() => {
+		const out: FlipbookFrameBox[] = [];
+		for (const entry of clip.frames) {
+			const look = frameLookup(entry);
+			const r = look.record;
+			if (!r) continue;
+			out.push({
+				origW: r.origW ?? r.w,
+				origH: r.origH ?? r.h,
+				offX: r.offX ?? 0,
+				offY: r.offY ?? 0,
+				artW: r.w,
+				artH: r.h,
+			});
+		}
+		return out;
+	});
+
+	/** The box that just contains every frame's art — what ⊙ Fit writes. */
+	const autoBounds = $derived(fitClipBounds(frameBoxes));
+
+	/** The FIXED art-space window the box editor works in: the auto-fit and the authored box
+	 * together, with a margin, so a box drawn well outside the art is still reachable. */
+	const editorBox = $derived.by(() => {
+		const parts = [autoBounds, clip.bounds].filter((b): b is FlipbookBounds => !!b);
+		if (parts.length === 0) return undefined;
+		const left = Math.min(...parts.map((b) => b.x));
+		const top = Math.min(...parts.map((b) => b.y));
+		const right = Math.max(...parts.map((b) => b.x + b.w));
+		const bottom = Math.max(...parts.map((b) => b.y + b.h));
+		const pad = Math.max(right - left, bottom - top) * 0.12;
+		return { x: left - pad, y: top - pad, w: right - left + pad * 2, h: bottom - top + pad * 2 };
+	});
+
+	/** Which box the STAGE is fitted to right now (see `boundsOpen` above). */
+	const stageBox = $derived(boundsOpen ? editorBox : clip.bounds);
+
+	const STAGE_SIZE = 240;
+
+	/** Art pixels → stage pixels for the open editor: the same centred contain-fit `RegionThumb`
+	 * performs on `stageBox`, so the overlay lands exactly on the art it is describing. */
+	const stageFit = $derived.by(() => {
+		const b = stageBox;
+		if (!b || !(b.w > 0) || !(b.h > 0)) return null;
+		const scale = Math.min(STAGE_SIZE / b.w, STAGE_SIZE / b.h);
+		return {
+			scale,
+			originX: (STAGE_SIZE - b.w * scale) / 2 - b.x * scale,
+			originY: (STAGE_SIZE - b.h * scale) / 2 - b.y * scale,
+		};
+	});
+
+	/** This frame's geometry re-based onto `stageBox` — `null` when no box applies, in which case
+	 * the thumbnail fits the frame's own canvas exactly as it always has. */
+	function stageFrameBox(
+		r: RegionSet['regions'][number],
+	): { origW: number; origH: number; offX: number; offY: number } | null {
+		const b = stageBox;
+		if (!b || !(b.w > 0) || !(b.h > 0)) return null;
+		const out = applyClipBounds(
+			{
+				origW: r.origW ?? r.w,
+				origH: r.origH ?? r.h,
+				offX: r.offX ?? 0,
+				offY: r.offY ?? 0,
+				artW: r.w,
+				artH: r.h,
+			},
+			b,
+		);
+		return { origW: out.origW, origH: out.origH, offX: out.offX, offY: out.offY };
+	}
+
+	function setBounds(b: FlipbookBounds | undefined): void {
+		if (!b) {
+			const { bounds: _drop, ...rest } = clip;
+			clip = rest;
+			return;
+		}
+		const round = (n: number): number => Math.round(n * 100) / 100;
+		clip = {
+			...clip,
+			bounds: {
+				x: round(b.x),
+				y: round(b.y),
+				w: round(Math.max(1, b.w)),
+				h: round(Math.max(1, b.h)),
+			},
+		};
+	}
+
+	/** Open the editor with a box already in hand: an author who has never declared one should see
+	 * the auto-fit, not an empty overlay they have to guess the first corner of. */
+	function toggleBounds(): void {
+		if (!boundsOpen && !clip.bounds && autoBounds) setBounds(autoBounds);
+		boundsOpen = !boundsOpen;
+	}
+
+	/** One axis of the box, from the numeric fields. Written as an explicit switch rather than a
+	 * computed spread key so the object stays a `FlipbookBounds` to the type-checker — this app's
+	 * build strips types without checking them, so an `any` here would never be caught. */
+	function setBoundsField(b: FlipbookBounds, key: 'x' | 'y' | 'w' | 'h', v: number): void {
+		setBounds({
+			x: key === 'x' ? v : b.x,
+			y: key === 'y' ? v : b.y,
+			w: key === 'w' ? v : b.w,
+			h: key === 'h' ? v : b.h,
+		});
+	}
+
+	function centreBounds(): void {
+		const b = clip.bounds;
+		if (b) setBounds({ x: -b.w / 2, y: -b.h / 2, w: b.w, h: b.h });
+	}
+
+	/** The stage element the box overlay measures against — `BoundsBox` converts pointer positions
+	 * back into art pixels through it. */
+	let stageEl = $state<HTMLElement | null>(null);
 
 	function setFps(v: number): void {
 		clip = { ...clip, fps: Number.isFinite(v) && v > 0 ? v : DEFAULT_FLIPBOOK_FPS };
@@ -681,13 +862,40 @@
 
 			<section class="center">
 				<div class="preview">
-					<div class="stage">
+					<div class="stage" bind:this={stageEl}>
 						{#if current?.set && current.record}
-							<RegionThumb set={current.set} region={current.record} size={240} />
+							<!-- Mirroring is a CSS transform on the thumbnail rather than a second draw path:
+							     the game mirrors with a negative sprite scale about the same centre, so a
+							     centred `scale(±1)` shows exactly what will render. -->
+							<div
+								class="mirror"
+								style:transform="scale({clip.flipX ? -1 : 1}, {clip.flipY ? -1 : 1})"
+							>
+								<RegionThumb
+									set={current.set}
+									region={current.record}
+									size={STAGE_SIZE}
+									box={stageFrameBox(current.record)}
+								/>
+							</div>
 						{:else}
 							<div class="ph">
 								{clip.frames.length ? 'Frame not found in this sheet' : 'Add frames to preview'}
 							</div>
+						{/if}
+						{#if boundsOpen && clip.bounds && stageFit}
+							<!--
+								The declared box, drawn over the art at the SAME contain-fit the thumbnail used.
+								Deliberately NOT mirrored with the art: the box is the clip's own frame of
+								reference, and a mirrored overlay would move each handle away from the edge it
+								grabs.
+							-->
+							<BoundsBox
+								bounds={clip.bounds}
+								fit={stageFit}
+								stage={stageEl}
+								onchange={(b) => setBounds(b)}
+							/>
 						{/if}
 					</div>
 					<div class="transport">
@@ -702,17 +910,19 @@
 							class="scrub"
 							type="range"
 							min="0"
-							max={Math.max(0, clip.frames.length - 1)}
+							max={Math.max(0, walk.length - 1)}
 							step="1"
-							disabled={clip.frames.length === 0}
-							value={frameIndex}
+							disabled={walk.length === 0}
+							value={step}
 							oninput={(e) => {
 								playing = false;
-								frameIndex = Number(e.currentTarget.value);
+								step = Number(e.currentTarget.value);
 							}}
 						/>
+						<!-- Position counts the WALK (a ping-pong is longer than the frame list), while the
+						     name under it and the highlighted row name the AUTHORED frame it landed on. -->
 						<span class="pos">
-							{clip.frames.length ? frameIndex + 1 : 0} / {clip.frames.length}
+							{walk.length ? step + 1 : 0} / {walk.length}
 						</span>
 						<label class="field inline">
 							<span>fps</span>
@@ -734,6 +944,77 @@
 							/>
 							<span>Loop</span>
 						</label>
+						<label class="field inline">
+							<span>play</span>
+							<select
+								class="dir"
+								value={direction}
+								onchange={(e) => setDirection(e.currentTarget.value)}
+							>
+								<option value="forward">forward</option>
+								<option value="reverse">reverse</option>
+								<option value="pingpong">ping-pong</option>
+							</select>
+						</label>
+						<label class="check">
+							<input
+								type="checkbox"
+								checked={clip.flipX === true}
+								onchange={(e) => setFlip('flipX', e.currentTarget.checked)}
+							/>
+							<span>Mirror X</span>
+						</label>
+						<label class="check">
+							<input
+								type="checkbox"
+								checked={clip.flipY === true}
+								onchange={(e) => setFlip('flipY', e.currentTarget.checked)}
+							/>
+							<span>Mirror Y</span>
+						</label>
+					</div>
+					<div class="transport">
+						<button
+							class:active={boundsOpen}
+							disabled={clip.frames.length === 0}
+							title="Declare the box every consumer sizes this clip by — the flipbook twin of the Rigger's Bounds. Without one, each frame is sized by its own packed rect."
+							onclick={toggleBounds}
+						>
+							⬚ Bounds
+						</button>
+						{#if boundsOpen}
+							{@const b = clip.bounds}
+							<button
+								disabled={!autoBounds}
+								title="Fit the box to every frame's art"
+								onclick={() => setBounds(autoBounds)}>⊙ Fit</button
+							>
+							<button disabled={!b} title="Centre the box on the clip origin" onclick={centreBounds}
+								>⌖ Centre</button
+							>
+							<button disabled={!b} title="Remove the box" onclick={() => setBounds(undefined)}
+								>✕ Clear</button
+							>
+							{#if b}
+								{#each [['x', b.x], ['y', b.y], ['w', b.w], ['h', b.h]] as const as [key, value] (key)}
+									<label class="field inline">
+										<span>{key}</span>
+										<input
+											class="num"
+											type="number"
+											step="1"
+											{value}
+											onchange={(e) => {
+												const v = e.currentTarget.valueAsNumber;
+												if (Number.isFinite(v)) setBoundsField(b, key, v);
+											}}
+										/>
+									</label>
+								{/each}
+							{:else}
+								<span class="hint">No box — each frame is sized by its own packed rect.</span>
+							{/if}
+						{/if}
 					</div>
 					{#if currentName}<div class="curname">{currentName}</div>{/if}
 				</div>
@@ -776,7 +1057,10 @@
 									title="Show this frame"
 									onclick={() => {
 										playing = false;
-										frameIndex = i;
+										// Jump to the first tick of the walk that shows this authored frame — under
+										// ping-pong a frame appears twice, and the earlier pass is the intuitive one.
+										const at = walk.indexOf(i);
+										step = at >= 0 ? at : 0;
 									}}>{look.region}</button
 								>
 								<!-- Which PAGE this frame lives on. Shown only when the clip actually spans
@@ -1033,9 +1317,28 @@
 		background: #070a0e;
 		border: 1px solid #1f2937;
 	}
+	.mirror {
+		display: grid;
+		place-items: center;
+		line-height: 0;
+	}
 	.ph {
 		color: #475569;
 		font-size: 12px;
+	}
+	.dir {
+		min-width: 96px;
+	}
+	.hint {
+		color: #64748b;
+		font-size: 11px;
+	}
+	.transport button.active {
+		border-color: #7ee0c0;
+		color: #7ee0c0;
+	}
+	.stage {
+		position: relative;
 	}
 	.transport {
 		display: flex;

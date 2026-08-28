@@ -2,10 +2,64 @@
 
 > Design: [docs/design/invisible-flipbook.md](../design/invisible-flipbook.md) · Guide: [docs/tools/flipbook.md](../tools/flipbook.md) · Agent: `.claude/agents/invisible-flipbook.md`
 
-**One-line state:** _(2026-08-26)_ **A video mode is being built** ([design](../design/invisible-flipbook-video.md)) — generate N video variations from a ComfyUI blueprint, pick one, turn its frames into a clip. Steps 0–3 are code-complete — the serverless-safe `wan22_i2v_flipbook` blueprint, the session runner, the 🎬 mode UI, and video→packed sheet→clip; **nothing is live-verified on a GPU yet** — the blueprint still has to be seeded and one real job run. Was _(2026-08-25)_ **The Scene Editor can place a clip** — a `flipbook` node in the `LayoutNode` union, dragged from the Library's new Flipbooks section, playing live on the editor canvas and mounted as `<Flipbook>` by `LayoutNodeView` in the game. Was _(2026-07-24)_: First consumer LIVE + the atlas-ref collision is closed for BOTH storable forms — a flipbook symbol plays its OWN clip, not the last-loaded sheet's. Was _(2026-07-21)_: First consumer LIVE — a flipbook clip binds as a symbol state and renders in the runtime. Was: Authoring **and shipping** work end-to-end; **no consumer reads a clip yet**. Clips are created at `/flipbook`, travel the full export→bake→pull→register chain, and are registered at boot — but nothing resolves a `clipId`, so a clip still renders nowhere in a game. Step 6 (consumers) is the only thing between a clip and pixels.
+**One-line state:** _(2026-08-28)_ **A clip now declares HOW it plays and HOW BIG it is** —
+`direction` (forward / reverse / ping-pong), `flipX`/`flipY`, and a `bounds` box drawn over the
+preview with the Rigger's drag handles; the same box exists for a plain sprite region
+(`editor/art-bounds.json`, authored in the Scene Editor and folded into the shipped sheet at
+export). Every placement can override direction/mirror as well as fps/loop. Was _(2026-08-26)_ **A video mode is being built** ([design](../design/invisible-flipbook-video.md)) — generate N video variations from a ComfyUI blueprint, pick one, turn its frames into a clip. Steps 0–3 are code-complete — the serverless-safe `wan22_i2v_flipbook` blueprint, the session runner, the 🎬 mode UI, and video→packed sheet→clip; **nothing is live-verified on a GPU yet** — the blueprint still has to be seeded and one real job run. Was _(2026-08-25)_ **The Scene Editor can place a clip** — a `flipbook` node in the `LayoutNode` union, dragged from the Library's new Flipbooks section, playing live on the editor canvas and mounted as `<Flipbook>` by `LayoutNodeView` in the game. Was _(2026-07-24)_: First consumer LIVE + the atlas-ref collision is closed for BOTH storable forms — a flipbook symbol plays its OWN clip, not the last-loaded sheet's. Was _(2026-07-21)_: First consumer LIVE — a flipbook clip binds as a symbol state and renders in the runtime. Was: Authoring **and shipping** work end-to-end; **no consumer reads a clip yet**. Clips are created at `/flipbook`, travel the full export→bake→pull→register chain, and are registered at boot — but nothing resolves a `clipId`, so a clip still renders nowhere in a game. Step 6 (consumers) is the only thing between a clip and pixels.
 
 ## Current state
-Live on `main` (steps 1–7 of the design doc's build plan; step 6's FX half is optional — see Open items):
+Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is optional — see Open items):
+
+- **Step 8 — playback control + bounds** ([design](../design/invisible-flipbook.md) §"Playback",
+  §"Bounds"). Both are the answer to one owner ask: the Rigger lets you declare the box a rig is
+  sized by, and *“we do not have a similar option for flipbooks and sprites”*.
+  - **Direction is a WALK over the authored order, not a second clip.** `playbackIndices` in
+    `engine-flipbook/playback.ts` is the single definition, returning INDICES so a missing frame
+    can't shift the walk; ping-pong is `0…n-1` then back down to `1`, turnaround frames NOT
+    repeated. `resolveClipFrames` applies it to the TEXTURE array, so PIXI's `AnimatedSprite`
+    needs no direction-aware clock — and the `/flipbook` preview + the editor canvas walk the
+    same indices, so all three agree on what frame is showing.
+  - **Every duration is measured off the walk.** A ping-pong cycle is `2n−2` ticks, so
+    `flipbookCycleMs` (the flow duration walk) and `SymbolFlipbook`'s state revert both count
+    `playbackFrameCount`. Timing either off `frames.length` reverts a symbol at the turnaround,
+    which reads as "the win animation doesn't play" rather than as a timing bug.
+  - **Mirroring is the SIGN of `scale`, applied after the sizing props.** PIXI's `width` setter is
+    `scale.x = value / localWidth * sign` — it preserves the sign — so `abs(scale) × sign` is
+    order-independent, where a `scale={{x:-1}}` prop would be a race between the flip and the size
+    (`propsSyncEffect` re-assigns every prop on any change, in object-key order).
+  - **A clip's `bounds` reaches pixels as `orig` + `trim`, not as new maths.** `applyClipBounds`
+    re-states each frame with the box as its declared size and the art at its position inside —
+    the same pair PIXI builds a texture from, and what a trimmed atlas frame already is. So
+    `<Flipbook>` rebuilds its textures (sharing each `source`: one small object per frame, no
+    upload) and nothing downstream learns a new concept: `texture.width` reports the box,
+    `width`/`height` size it, the anchor lands on its centre, cover-fit measures it.
+  - **A box SMALLER than the art is load-bearing, not a validation gap.** The art overflows rather
+    than being cropped — how a symbol is sized by the part that reads while a wide invisible
+    flourish hangs outside the cell. Verified against the REAL pixi build, not against a reading of
+    it: `pnpm --filter flipbook-spike run pixi-bounds` asserts `texture.width` is `orig` and that
+    `updateQuadBounds` positions the quad from `trim` with no clamping.
+  - **The sprite half is `editor/art-bounds.json`** — the same box for a plain region, keyed
+    `<assetKey>::<region>`, authored in the Scene Editor's Properties panel with the SAME overlay
+    (`$lib/BoundsBox.svelte`, now the canonical domain-A impl — [ui-inventory](../ui-inventory.md)
+    §15). Deliberately NOT in the sheet manifest (a packer rewrites those, and altering a region's
+    trim there re-bases every frozen `.irig` mesh — the RawRegion landmine) and deliberately NOT a
+    new shipped asset class: `editorArtExport` folds each box into the `sourceSize` /
+    `spriteSourceSize` of the TexturePacker JSON it already writes, so the game gains no code and
+    nothing is stranded at an R2 prefix (rule 8).
+  - **Defaults are DROPPED on save, never stored.** `forward`, un-mirrored and no-box are what
+    every clip authored before this played as, so an untouched clip round-trips byte-identical and
+    the normalizer stays idempotent.
+  - **`RegionThumb` gained an optional `box` prop** so the boxed preview is the shared thumbnail
+    doing its own contain-fit against the box — no second cropping routine, and every other caller
+    is byte-identical.
+  - Fixtures: `pnpm --filter flipbook-spike run playback` (20 assertions incl. the
+    `engine-layout` copy of the length formula agreeing with `engine-flipbook`'s at every count),
+    `run bounds`, `run pixi-bounds`, plus `node apps/launcher-api/artBounds.fixture.ts` for the
+    doc's scoping + degenerate-box rules. `run doc` and `run frames` extended for the new fields.
+  - **Not yet exercised on a real project.** The maths and the PIXI contract are fixtured; the two
+    UIs (the `/flipbook` box editor, the Properties panel's Art bounds) have been built and the
+    launcher builds clean, but nobody has dragged a box on a live project yet.
 
 - **Step 6 — the Scene Editor consumer.** A `flipbook` node joins the `LayoutNode` union, carrying only a `clipId` + placement (`width`/`height`/`tint`, and per-PLACEMENT `fps`/`loop` overrides). `LayoutNodeView` mounts `<Flipbook>` for it in the exact shape of the `sprite` branch — size folded into width/height so "what you size in the editor" is what the game draws. Authored by dragging a clip out of the Library's new **Flipbooks** section (`/api/editor/flipbooks` → `loadFlipbookDoc`, so the editor resolves frames through the SAME atlas-ref repair the ship path runs and can't fall into the flat bare-name cache the runtime avoids).
   - **The editor PLAYS it, it does not chip it.** Unlike an `effect` (a WebGL emitter the 2D canvas genuinely cannot run), a clip is atlas frames in order — so each frame draws through the same `drawArtRegionSprite` a region sprite uses, and the author judges the animation at its real position and size. A single rAF loop drives it, gated on a *visible* scene actually carrying a `flipbook` node (`sceneHasFlipbook`, mirroring `sceneHasEffect`), so a project without one repaints exactly as before. The preview always LOOPS — the clock is the page's, not a per-node playhead, so honouring `loop:false` would freeze a one-shot on its last frame from the moment the doc opened.

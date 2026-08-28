@@ -8,9 +8,12 @@
  * `onMount` fetch (which is what the Effects section and its Properties picker do today, and why
  * they can disagree after a re-author).
  *
- * EDITOR-SIDE preview data only: a node stores just `clipId`; frames, fps and loop stay in the
- * clip doc and reach the game through the flipbook bake, never through the layout doc.
+ * EDITOR-SIDE preview data only: a node stores just `clipId` plus its own playback overrides;
+ * frames and the clip's authored timing stay in the clip doc and reach the game through the
+ * flipbook bake, never through the layout doc.
  */
+
+import { applyClipBounds } from 'engine-flipbook';
 
 /** One authored clip — the server's `FlipbookClip`, restated structurally so this client module
  * never imports a server module (the `editorRegions.client.ts` convention). */
@@ -23,7 +26,17 @@ export interface EditorClip {
 	frames: string[];
 	fps?: number;
 	loop?: boolean;
+	/** How the authored frames are WALKED (`engine-flipbook`'s `FlipbookDirection`). */
+	direction?: ClipDirection;
+	flipX?: boolean;
+	flipY?: boolean;
+	/** The clip's declared box (art pixels, top-left relative to the clip origin). */
+	bounds?: { x: number; y: number; w: number; h: number };
 }
+
+/** Mirrors `engine-flipbook`'s `FlipbookDirection` — restated here for the same reason
+ * {@link EditorClip} is: a client module never imports a server one. */
+export type ClipDirection = 'forward' | 'reverse' | 'pingpong';
 
 /** Playback default when a clip omits `fps` — mirrors `engine-flipbook`'s `DEFAULT_FLIPBOOK_FPS`. */
 export const DEFAULT_CLIP_FPS = 24;
@@ -84,10 +97,59 @@ export function clipFrameAt(clip: EditorClip, index: number): { assetKey: string
  * never see the animation they placed. The `loop` flag is authored in `/flipbook` and shown in the
  * Properties panel; the GAME honours it. Same trade the `/flipbook` tool's own scrub preview makes.
  */
-export function clipFrameIndexAt(clip: EditorClip, nowMs: number): number {
+export function clipFrameIndexAt(clip: EditorClip, nowMs: number, override?: ClipPlayback): number {
 	const count = clip.frames.length;
 	if (count <= 1) return 0;
-	const fps = clip.fps && clip.fps > 0 ? clip.fps : DEFAULT_CLIP_FPS;
+	const rate = override?.fps ?? clip.fps;
+	const fps = rate && rate > 0 ? rate : DEFAULT_CLIP_FPS;
 	const step = Math.floor((nowMs / 1000) * fps);
+	// The walk, not the authored list: a ping-pong of n frames has 2n−2 ticks per cycle, and the
+	// tick lands on an AUTHORED index. Same rule as `engine-flipbook`'s `playbackIndices`, which is
+	// what the game walks — so the canvas shows the frame the game would show at that moment.
+	const direction = override?.direction ?? clip.direction;
+	if (direction === 'reverse') return count - 1 - (((step % count) + count) % count);
+	if (direction === 'pingpong' && count >= 3) {
+		const cycle = 2 * count - 2;
+		const at = ((step % cycle) + cycle) % cycle;
+		return at < count ? at : cycle - at;
+	}
 	return ((step % count) + count) % count;
+}
+
+/** A placement's playback overrides (a `flipbook` node's own `fps` / `direction`), so the canvas
+ * previews what THAT placement plays rather than the clip's authored defaults. */
+export interface ClipPlayback {
+	fps?: number;
+	direction?: ClipDirection;
+}
+
+/**
+ * A clip frame's geometry once the clip's declared BOX is applied — `null` for a clip with no
+ * box, which then draws exactly as it always did.
+ *
+ * `region` supplies the frame's own packed geometry in the editor's terms (`origW`/`origH` the
+ * declared size, `offX`/`offY` the art's offset inside it, `w`/`h` the art). The result is what
+ * the 2D canvas needs: the box to size against, and where the art sits inside it.
+ *
+ * Runs through `engine-flipbook`'s `applyClipBounds` — the SAME function the runtime re-states
+ * its textures with — so the canvas cannot drift from the game on where a boxed frame lands.
+ */
+export function clipFrameBox(
+	clip: EditorClip,
+	region: { w: number; h: number; origW?: number; origH?: number; offX?: number; offY?: number },
+): { origW: number; origH: number; offX: number; offY: number } | null {
+	const bounds = clip.bounds;
+	if (!bounds || !(bounds.w > 0) || !(bounds.h > 0)) return null;
+	const box = applyClipBounds(
+		{
+			origW: region.origW ?? region.w,
+			origH: region.origH ?? region.h,
+			offX: region.offX ?? 0,
+			offY: region.offY ?? 0,
+			artW: region.w,
+			artH: region.h,
+		},
+		bounds,
+	);
+	return { origW: box.origW, origH: box.origH, offX: box.offX, offY: box.offY };
 }

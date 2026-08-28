@@ -743,12 +743,20 @@ export interface FlipbookNode extends BaseNode {
 	tint?: number;
 	/**
 	 * Per-PLACEMENT playback overrides of the clip's authored values. Absent ⇒ the clip's own
-	 * `fps` / `loop` (which is the normal case — timing belongs to the clip). They exist because
-	 * the same clip is legitimately reused at different beats: a looping ambient flame in one
-	 * screen and a one-shot burst in another, without authoring two near-identical clips.
+	 * `fps` / `loop` / `direction` / mirroring (which is the normal case — timing belongs to the
+	 * clip). They exist because the same clip is legitimately reused at different beats: a looping
+	 * ambient flame in one screen and a one-shot burst in another, without authoring two
+	 * near-identical clips.
+	 *
+	 * `direction` and `flipX`/`flipY` join them for the same reason, and pay off harder: a wave
+	 * that flows left on one side of a screen and right on the other is ONE clip placed twice,
+	 * not two clips to keep in sync when the art is re-packed.
 	 */
 	fps?: number;
 	loop?: boolean;
+	direction?: 'forward' | 'reverse' | 'pingpong';
+	flipX?: boolean;
+	flipY?: boolean;
 }
 
 /** How a {@link RepeaterNode} arranges its per-item instances. */

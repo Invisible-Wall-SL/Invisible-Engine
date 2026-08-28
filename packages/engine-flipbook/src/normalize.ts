@@ -16,6 +16,8 @@
  * which keeps an unbound layer rather than destroying work in progress.
  */
 
+import { isFlipbookBounds } from './bounds';
+import { isFlipbookDirection } from './playback';
 import { FLIPBOOK_DOC_VERSION, type FlipbookClip, type FlipbookDoc } from './types';
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
@@ -53,6 +55,22 @@ export const normalizeFlipbookClip = (raw: unknown): FlipbookClip | undefined =>
 	if (rate !== undefined) clip.fps = rate;
 	const loop = bool(raw.loop);
 	if (loop !== undefined) clip.loop = loop;
+	// DEFAULTS ARE DROPPED, not stored. `forward` / not-flipped is what every clip authored
+	// before these fields existed played as, so omitting them keeps such a clip byte-identical
+	// through a save — and keeps this canonicalizer idempotent, which the fixture asserts. An
+	// unrecognised direction falls back the same way a bad fps does: to the default.
+	if (isFlipbookDirection(raw.direction) && raw.direction !== 'forward') {
+		clip.direction = raw.direction;
+	}
+	if (raw.flipX === true) clip.flipX = true;
+	if (raw.flipY === true) clip.flipY = true;
+	// The declared box is copied FIELD BY FIELD, never spread: an author's stray extra key on it
+	// would otherwise ride into the shipped doc past the strip-everything-unknown rule above. A
+	// degenerate box (zero/negative/non-finite) is dropped rather than shipped — every consumer
+	// divides by it.
+	if (isFlipbookBounds(raw.bounds)) {
+		clip.bounds = { x: raw.bounds.x, y: raw.bounds.y, w: raw.bounds.w, h: raw.bounds.h };
+	}
 	return clip;
 };
 
