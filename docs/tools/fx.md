@@ -203,11 +203,11 @@ With a layer selected, the right **Inspector** edits it:
   downward gravity = a fountain.
 - **Min / Max (vary per particle)** — Alpha, Scale and the eased Speed each carry this
   toggle. Off, every particle follows the same curve. On, Start and End each split into a
-  **min** and a **max** and each particle is randomised inside that band. One caveat worth
-  knowing: a particle draws **one** random multiplier and keeps it for its whole life, so
-  the min ÷ max **ratio is shared** between Start and End (a particle that spawns small
-  stays proportionally small). Editing a **min** sets that ratio; editing a **max** moves
-  the authored curve and the floor rides along. The percentage is shown under the sliders.
+  **min** and a **max**, and every particle spawns somewhere in the Start band and ends
+  somewhere in the End band. **All four bounds are independent** — moving one never drags
+  another. Each `min` slider tops out at its own `max`, so it cannot overshoot, and setting
+  a min equal to its max simply means "that end doesn't vary" (it does not switch the mode
+  off — only the toggle does that).
 - **Colour** — **Tint particles over life** interpolates a **Start** and **End** colour
   across each particle's life (identically for every particle). **Colour overlay
   (per-particle intensity)** is the varying one: pick an **Overlay** colour and an
@@ -257,9 +257,6 @@ mere save.
   live WebGL pixels.
 - **One atlas per layer.** A layer's frames come from a single atlas; mixing regions
   from different atlases in one layer is not supported — add another layer instead.
-- **Min / Max shares one ratio across a curve's ends.** See the Inspector note above:
-  that's the particle library's own model (one multiplier per particle, for life), not a
-  shortcut — independent start and end bands are not expressible.
 - **Not everything can vary per particle.** Frequency and Max particles are emitter-wide,
   and gravity's acceleration is a constant field — none of them are per-particle values,
   so they have no Min / Max. Lifetime, the launch arc, spin and the gravity start speed
@@ -301,12 +298,16 @@ mere save.
   re-exporting `EmitterConfigV3` verbatim from `@barvynkoa/particle-emitter`), the
   serialize/deserialize contract (`normalize.ts`), the art→config seam (`bindArt.ts`,
   which also folds the layer's flipbook `framerate`/`loop` into `animatedSingle`), and
-  `behaviors.ts` — the two CUSTOM particle behaviors the stock library has no equivalent
-  for: `fxAlpha` (the alpha curve plus a per-particle `minMult`, mirroring the library's
-  own `ScaleBehavior`) and `fxColorOverlay` (a colour laid over each particle at a random
-  intensity). They are plain, import-free classes, so `registerFxBehaviors(Emitter)` takes
-  the `Emitter` class as an argument and the package stays PixiJS-free. **Every renderer
-  must have called it** — the runtime does so in `<ParticleEmitter>`, and all three
-  launcher-side stages inherit it from `$lib/fx/effectEmitter.client.ts`, which every one
-  of them imports. A config only carries these types while the author has that knob on, so
-  an effect that doesn't use them stays 100% stock library config.
+  `behaviors.ts` — the four CUSTOM particle behaviors, needed because the library expresses
+  per-particle variation as a single whole-curve `minMult`, which locks a curve's two ends to
+  one ratio. `fxAlpha` / `fxScale` / `fxSpeed` each mirror their stock twin but carry
+  `startMult` + `endMult` — two INDEPENDENT floors, drawn per particle and interpolated across
+  its life, so the four authored bounds really are four degrees of freedom. (A legacy `minMult`
+  on a stock behavior is read as both floors, so presets and older effects render unchanged.)
+  `fxColorOverlay` is the fourth: a colour laid over each particle at a random intensity.
+  They are plain, import-free classes, so `registerFxBehaviors(Emitter)` takes the `Emitter`
+  class as an argument and the package stays PixiJS-free. **Every renderer must have called
+  it** — the runtime does so in `<ParticleEmitter>`, and all three launcher-side stages inherit
+  it from `$lib/fx/effectEmitter.client.ts`, which every one of them imports. A config only
+  carries these types while the author has that toggle on, so an effect that doesn't use them
+  stays 100% stock library config.
