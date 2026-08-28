@@ -202,8 +202,14 @@
 	const bg = $derived.by(() => {
 		if (!isCover || !isCoverArtNode) return undefined;
 		const canvasBox = layoutContext.stateLayoutDerived.canvasSizes();
-		const artWidth = bgTexture?.width && bgTexture.width > 0 ? bgTexture.width : 0;
-		const artHeight = bgTexture?.height && bgTexture.height > 0 ? bgTexture.height : 0;
+		// A clip that declares a BOX covers by the BOX, not by whatever rect frame 0 packed to — the
+		// same substitution `<Flipbook>` makes when it re-states the frames, kept in step here
+		// because this cover is measured OUTSIDE that component, straight off `loadedAssets`.
+		const clipBox = node.kind === 'flipbook' ? flipbookClip?.bounds : undefined;
+		const natWidth = clipBox?.w ?? bgTexture?.width;
+		const natHeight = clipBox?.h ?? bgTexture?.height;
+		const artWidth = natWidth && natWidth > 0 ? natWidth : 0;
+		const artHeight = natHeight && natHeight > 0 ? natHeight : 0;
 		const cover = coverTransform({
 			artWidth,
 			artHeight,
@@ -563,7 +569,12 @@
 	const rectColor = $derived(node.kind === 'rect' ? (node.color ?? 0xffffff) : 0xffffff);
 
 	/**
-	 * The registered clip for a `flipbook` node, with this PLACEMENT's `fps`/`loop` folded in.
+	 * The registered clip for a `flipbook` node, with this PLACEMENT's playback overrides folded in
+	 * (`fps` / `loop` / `direction` / `flipX` / `flipY`).
+	 *
+	 * FOLDED, not passed alongside: `<Flipbook>` reads playback off the clip object it is given, so
+	 * an override that travelled as a separate prop would give the renderer two sources for one
+	 * answer — and the walk (`direction`) has to be applied where the frames are resolved anyway.
 	 *
 	 * A `$derived`, not an inline expression in the markup, because identity matters downstream:
 	 * `<Flipbook>` derives its texture array from this object, and a fresh object on every render
@@ -576,8 +587,23 @@
 		if (node.kind !== 'flipbook') return undefined;
 		const clip = resolveFlipbook(node.clipId);
 		if (!clip) return undefined;
-		if (node.fps === undefined && node.loop === undefined) return clip;
-		return { ...clip, fps: node.fps ?? clip.fps, loop: node.loop ?? clip.loop };
+		if (
+			node.fps === undefined &&
+			node.loop === undefined &&
+			node.direction === undefined &&
+			node.flipX === undefined &&
+			node.flipY === undefined
+		) {
+			return clip;
+		}
+		return {
+			...clip,
+			fps: node.fps ?? clip.fps,
+			loop: node.loop ?? clip.loop,
+			direction: node.direction ?? clip.direction,
+			flipX: node.flipX ?? clip.flipX,
+			flipY: node.flipY ?? clip.flipY,
+		};
 	});
 
 	/**
@@ -1071,8 +1097,9 @@
 			whole-sheet fallback — see <Flipbook>). `<Flipbook>` resolves the ordered frames to textures
 			itself, so this branch only supplies placement, exactly like <Sprite>: size folded into
 			width/height (scale then stays 1) or a plain `scale` when unsized, so "what you size in the
-			editor" is what the game draws. `fps`/`loop` are per-PLACEMENT overrides of the clip's own
-			values — absent ⇒ the authored clip is played verbatim.
+			editor" is what the game draws. `fps`/`loop`/`direction`/`flipX`/`flipY` are per-PLACEMENT
+			overrides of the clip's own values, folded into the clip object above — absent ⇒ the
+			authored clip is played verbatim.
 
 			`bg` is the cover branch, shared verbatim with <Sprite> above: a clip on a `background`
 			screen (or a `coverFit` one on a flow-gated `canvas` screen) fills the window with a true

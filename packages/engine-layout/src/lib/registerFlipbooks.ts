@@ -21,6 +21,13 @@ export type FlipbookClipEntry = {
 	frames: string[];
 	fps?: number;
 	loop?: boolean;
+	/** How the authored frames are walked — `engine-flipbook`'s `FlipbookDirection`, restated as
+	 * a union for the same structural reason as the rest of this type. */
+	direction?: 'forward' | 'reverse' | 'pingpong';
+	flipX?: boolean;
+	flipY?: boolean;
+	/** The clip's declared box — `engine-flipbook`'s `FlipbookBounds`. */
+	bounds?: { x: number; y: number; w: number; h: number };
 };
 
 const registry = new Map<string, FlipbookClipEntry>();
@@ -54,16 +61,47 @@ const DEFAULT_FPS = 24;
  * animation's `duration`. `loopOverride` is a placement's own `loop` (absent ⇒ the clip's authored
  * value).
  *
+ * `directionOverride` is a placement's own `direction` (absent ⇒ the clip's), and it MATTERS: a
+ * ping-pong cycle is ~twice the authored frame count, so measuring the walk rather than the list
+ * is the difference between a beat that waits for the animation and one that cuts it in half.
+ *
  * Returns `undefined` for an unregistered id, an empty clip, AND — deliberately — an effectively
  * LOOPING one. A loop has no end, so reporting one cycle as its length would let a caller treat an
  * ambient background as "the screen's animation" and hold a flow beat on it forever-in-miniature.
  * Callers that genuinely want one cycle of a looping clip (a symbol state timing its own revert)
  * measure it themselves; a duration WALK must not.
  */
-export function flipbookCycleMs(clipId: string, loopOverride?: boolean): number | undefined {
+export function flipbookCycleMs(
+	clipId: string,
+	loopOverride?: boolean,
+	directionOverride?: FlipbookClipEntry['direction'],
+): number | undefined {
 	const clip = registry.get(clipId);
 	if (!clip || !Array.isArray(clip.frames) || clip.frames.length === 0) return undefined;
 	if (loopOverride ?? clip.loop ?? true) return undefined;
 	const fps = typeof clip.fps === 'number' && clip.fps > 0 ? clip.fps : DEFAULT_FPS;
-	return (clip.frames.length / fps) * 1000;
+	const direction = directionOverride ?? clip.direction;
+	return (flipbookPlaybackFrameCount(clip.frames.length, direction) / fps) * 1000;
+}
+
+/**
+ * Frames in ONE cycle once `direction` is applied — a ping-pong walks back through its interior
+ * frames, so it is very nearly twice as long as the authored list.
+ *
+ * Duplicated from `engine-flipbook`'s `playbackFrameCount` for the SAME reason `DEFAULT_FPS` and
+ * `FlipbookClipEntry` are: this package must not gain a dependency for one formula. It is two
+ * lines, it is fixtured on both sides, and the alternative — a duration computed from
+ * `frames.length` — reverts a ping-pong symbol state halfway through its own animation.
+ *
+ * EXPORTED because the games need it too and `engine-layout` is already their dependency:
+ * `SymbolFlipbook` times a symbol state's revert off one cycle of its clip, so it must count the
+ * same walked frames this does. Reaching for `engine-flipbook` there instead would add a package
+ * dependency to every game just to re-derive these two lines.
+ */
+export function flipbookPlaybackFrameCount(
+	count: number,
+	direction?: FlipbookClipEntry['direction'],
+): number {
+	const n = Math.max(0, Math.floor(count));
+	return direction === 'pingpong' && n >= 3 ? 2 * n - 2 : n;
 }

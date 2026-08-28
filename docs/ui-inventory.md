@@ -185,3 +185,28 @@ is at least now single-sourced (`IW_TOOLBAR_CSS`, shared by `PAGE` + `ATLASVIEW`
 → **The split is the rule, not the styling:** a tool that is still OPENING (nothing usable on screen yet) shows the **CRT boot splash** — the same screen on every stack, so opening any Invisible tool feels identical. A tool that is ALREADY open and is loading/updating a part of itself (assets, a document, a publish) shows the **dimmed overlay + card**. Never boot-splash an in-tool load, and never spinner-card a tool boot. The three boot-splash impls exist only because the three origins can't share code — keep them visually identical (same convention as the tool-bar §7, mode-bar §9, and colour-field §11 twins).
 
 → Every colour input in a Svelte tool uses `<ColorField>`; every colour input in a static/Python tool is covered by `color-field.js` — do NOT reach for a bare `<input type="color">` (the OS picker closes on the first click, can't be click-dragged, and looks different per platform; that inconsistency is exactly what this replaced). Svelte callers that store a NUMBER keep their `hexFrom()` / `fromColorInput()` conversions around the `#rrggbb` boundary; the vanilla enhancer needs no wiring — include the script and it upgrades native inputs in place, so existing `.value` reads and `input`/`change` listeners keep working. `services/atlas-tool/color-field.js` is a byte-identical copy of the canonical file (separate Railway origin can't reference it); keep them in sync, same as the tool-bar/emblem twins in §7.
+
+### 15. Bounds box (a declared size frame drawn over art)
+| Impl | Domain | File(s) | Status |
+|---|---|---|---|
+| **`BoundsBox.svelte`** — the draggable declared-size frame: an absolutely-positioned rect with 8 edge/corner handles + a move body, pointer-captured drag computed from the box as it was at pointer-down (no rounding drift), edges normalised so dragging one past its opposite flips rather than inverts. Props `bounds` (`{x,y,w,h}` in ART pixels, top-left relative to the art's ORIGIN), `fit` (`{scale,originX,originY}` — the host's art→stage mapping), `stage` (the positioned host element), `onchange`, `color`. | A | `apps/launcher-api/src/lib/BoundsBox.svelte` | **canonical for domain A** — used by `/flipbook` (a clip's box) and the Scene Editor's `ArtBoundsEditor` (a region's box) |
+| Rigger **Bounds** button + `drawBoundsOverlay`/`boundsHit`/`applyBoundsDrag` — the same frame in skeleton-world y-up, drawn through the spine renderer's `line`/`circle` overlay rather than the DOM | static | `apps/launcher-api/static/rigger/view.html` | the ORIGINAL; a separate origin (static page, WebGL overlay, y-up space) so it cannot share the component — keep the interaction identical |
+
+→ **One concept, three homes, one meaning:** a rig declares `skeleton.{x,y,width,height}`, a
+flipbook clip declares `FlipbookClip.bounds`, and a sprite region declares an entry in
+`editor/art-bounds.json`. All three say the same thing — *this is the box every consumer sizes and
+anchors by, whatever the pixels happen to be* — and all three are ART pixels, top-left relative to
+the art's own origin (its centre), so a centred box is `x = -w/2`.
+
+→ **The arithmetic has exactly one implementation:** `applyClipBounds` in `engine-flipbook`
+(`bounds.ts`) re-states a frame as `orig` (the box) + `trim` (the art inside it). The runtime calls
+it to rebuild a clip's textures, the editor canvas calls it to draw, `RegionThumb` takes the result
+as its `box` prop, and `editorArtExport` calls it to write a region's `sourceSize`/`spriteSourceSize`
+into the shipped sheet. A fourth hand-written copy is how the editor and the game start disagreeing
+about where a boxed frame lands — don't add one.
+
+→ **A box SMALLER than the art is legal and load-bearing**, not a validation gap: it is how a symbol
+is sized by the part that reads while a wide invisible flourish hangs outside the cell. PIXI draws
+it correctly (`updateQuadBounds` positions the quad from `trim` and takes only the anchor from
+`orig`) — pinned by `pnpm --filter flipbook-spike run pixi-bounds` against the real pixi build.
+

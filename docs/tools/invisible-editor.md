@@ -148,18 +148,22 @@ Open the **Library** tab. It is grouped into:
   toggle and no overlay, because a clip is just atlas frames in order. A 🎞
   placeholder chip marks a clip that no longer exists (see below).
   In the Properties panel you can re-target the **clip**, set an explicit
-  **width/height** (blank = the frames' native size), and override **fps** and
-  **loop** for _this placement only_ — leave them blank to play the clip exactly
-  as authored in [Invisible Flipbook](flipbook.md). Re-authoring a clip there
-  updates every placement; the layout only stores the clip's id.
+  **width/height** (blank = the frames' native size), and override **fps**, **loop**,
+  **direction** (forward / reverse / ping-pong) and **mirror X/Y** for _this placement
+  only_ — leave them blank to play the clip exactly as authored in
+  [Invisible Flipbook](flipbook.md). Re-authoring a clip there updates every placement;
+  the layout only stores the clip's id and these overrides. One wave clip placed twice,
+  mirrored and reversed on the second, beats two near-identical clips to keep in sync.
+  The canvas previews the placement's own direction and mirroring, not just the clip's.
   The clip's sheet ships automatically — no need to place the atlas separately.
 
   On a `background` screen — or with **Fill → Cover / full-screen fill** ticked on a
   `canvas` screen — a clip fills the window edge-to-edge instead of drawing at its
   placed size, exactly like a background image does. It then stops being draggable
   and resizable: tune it with **cover scale** / **fit** in the Background section and
-  **scale.x** / **scale.y** in Transform. The fill is measured from the clip's **first
-  frame**, so frames of different sizes don't make the backdrop breathe.
+  **scale.x** / **scale.y** in Transform. The fill is measured from the clip's **bounds
+  box** when it declares one, else from its **first frame**, so frames of different sizes
+  don't make the backdrop breathe.
 
   > The canvas previews **every** clip looping, so you can always see the
   > animation. A _play once_ clip still stops on its last frame in the game.
@@ -253,6 +257,29 @@ canvas can read the bundle's animations), background cover/fit for cover
 sprites, and the slot the node fills (when a template is loaded). It also offers
 node actions such as **Convert to reel grid**, **Convert to parametric button**,
 and **Edit as component** (materialise a container into the Component Editor).
+
+#### Art bounds — the box a sprite is sized by
+
+Select a **sprite** node and the Properties panel shows an **Art bounds** section: a
+small preview of the region with a draggable box over it. This is the sprite twin of the
+Rigger's **Bounds** and of an Invisible Flipbook clip's box — it declares *the space this
+piece of art occupies*, and everything that draws the region sizes, anchors and
+cover-fits by that box instead of by whatever rectangle the packer produced.
+
+- **⊙ Fit** boxes the region's art, **⌖ Centre** re-centres it, **✕ Clear** removes it.
+  Drag the box or type exact **x / y / w / h** — `x`/`y` are the box's top-left relative
+  to the region's **origin** (its centre), so a centred box has `x = -w/2`.
+- **A box smaller than the art is deliberate.** The art is not cropped to it; it
+  overflows. That is how you size a symbol by the part that reads and let a glow or a
+  burst hang outside the reel cell — the sprite answer to a spine rig whose canvas
+  covers invisible effects.
+
+> **It edits the ART, not this placement.** The box is stored per
+> `<assetKey>::<region>` and applies **everywhere that region is drawn** — other
+> screens, other scenes, the reel, other tools. It is saved immediately (it is not part
+> of the layout doc, so the page's Save doesn't cover it), and it reaches the game with
+> the next **art export** — the exporter writes it into the sheet the game loads, so
+> there is no extra publish step and nothing new to register.
 
 #### Symbol size on the reel
 

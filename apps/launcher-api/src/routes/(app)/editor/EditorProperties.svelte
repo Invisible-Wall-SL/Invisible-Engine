@@ -1,5 +1,6 @@
 <script lang="ts">
 	import ColorField from '$lib/ColorField.svelte';
+	import ArtBoundsEditor from './ArtBoundsEditor.svelte';
 	import {
 		backgroundCoverScale,
 		backgroundFit,
@@ -2933,6 +2934,12 @@
 				</label>
 			</div>
 		</section>
+		{#if node.region && node.assetKey}
+			<!-- Editing the ART, not this placement — the section says so, and it is stored per
+			     `<assetKey>::<region>` outside the layout doc, which is why it lives in its own
+			     component with its own save rather than in this panel's doc-dirty flow. -->
+			<ArtBoundsEditor assetKey={node.assetKey} region={node.region} />
+		{/if}
 		{#if componentMode && componentParams.length > 0}
 			<section>
 				<h3>Bind to param</h3>
@@ -4365,11 +4372,54 @@
 					</select>
 				</label>
 			</div>
+			<div class="row">
+				<label class="field">
+					<span>direction</span>
+					<select
+						value={node.direction ?? ''}
+						onchange={(e) => {
+							const v = e.currentTarget.value;
+							if (v === 'forward' || v === 'reverse' || v === 'pingpong') node.direction = v;
+							else delete node.direction;
+							markDirty();
+						}}
+					>
+						<option value="">clip default ({clip?.direction ?? 'forward'})</option>
+						<option value="forward">forward</option>
+						<option value="reverse">reverse</option>
+						<option value="pingpong">ping-pong</option>
+					</select>
+				</label>
+				<label class="field check">
+					<input
+						type="checkbox"
+						checked={node.flipX ?? clip?.flipX ?? false}
+						onchange={(e) => {
+							node.flipX = e.currentTarget.checked;
+							markDirty();
+						}}
+					/>
+					<span>mirror X</span>
+				</label>
+				<label class="field check">
+					<input
+						type="checkbox"
+						checked={node.flipY ?? clip?.flipY ?? false}
+						onchange={(e) => {
+							node.flipY = e.currentTarget.checked;
+							markDirty();
+						}}
+					/>
+					<span>mirror Y</span>
+				</label>
+			</div>
 			<p class="muted small">
 				Frames, order and the clip's own timing are authored in <strong>Invisible Flipbook</strong>
-				— re-authoring the clip updates every placement. <em>fps</em> and <em>loop</em> here override
-				it for THIS placement only; leave them blank to play the clip as authored. A blank size draws
-				the frames at their native atlas size.
+				— re-authoring the clip updates every placement. <em>fps</em>, <em>loop</em>,
+				<em>direction</em> and <em>mirror</em> here override it for THIS placement only; leave them
+				blank to play the clip as authored. A blank size draws the frames at their native atlas
+				size. A <em>ping-pong</em> cycle runs back through the middle frames, so it lasts nearly twice
+				as long as the frame count suggests.
 			</p>
 			<p class="muted small">
 				The canvas plays every clip on a loop so you can see it — a <em>play once</em> clip still stops

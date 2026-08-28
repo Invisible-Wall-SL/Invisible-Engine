@@ -19,6 +19,9 @@
  * stayed green.
  */
 
+import type { FlipbookBounds } from './bounds';
+import type { FlipbookDirection } from './playback';
+
 export const FLIPBOOK_DOC_VERSION = 1;
 
 /** Playback default when a clip omits `fps`. 24 is the animation convention and divides evenly
@@ -62,6 +65,36 @@ export interface FlipbookClip {
 	fps?: number;
 	/** Absent ⇒ looping. A one-shot clip sets this false explicitly. */
 	loop?: boolean;
+	/**
+	 * How the authored frames are WALKED — forward, reversed, or ping-ponged. Absent ⇒
+	 * {@link DEFAULT_FLIPBOOK_DIRECTION} (`forward`), which is what every clip authored before
+	 * this field existed did, so an untouched clip round-trips byte-identical.
+	 *
+	 * A walk over the one authored order, deliberately not a second clip: reversing or bouncing
+	 * an animation is a presentation choice made per use, and copying 49 frame names to express
+	 * it would fork the clip's referential integrity too (a renamed region would then have to be
+	 * repaired in both). See `playback.ts`.
+	 */
+	direction?: FlipbookDirection;
+	/**
+	 * Mirror the drawn frames horizontally / vertically. Absent ⇒ not mirrored.
+	 *
+	 * A RENDER transform, not a frame transform: it flips the sprite about its own anchor, so it
+	 * costs nothing per frame and needs no second set of art — the same reason `CinematicActor`
+	 * mirrors a rig with `scaleX` instead of shipping a mirrored skeleton.
+	 */
+	flipX?: boolean;
+	flipY?: boolean;
+	/**
+	 * The clip's declared BOX — the frame-animation twin of a rig's `skeleton.{x,y,width,height}`.
+	 * Absent ⇒ every frame is sized by its own packed rect, exactly as before.
+	 *
+	 * Art pixels, top-left relative to the clip's origin (so a centred box is `x = -w/2`). One box
+	 * for the whole clip, not one per frame, for the same reason a rig has one: it is what stops
+	 * the animation changing scale between frames, and what lets an author size a clip by the part
+	 * of it that reads rather than by the margin the packer left. See `bounds.ts`.
+	 */
+	bounds?: FlipbookBounds;
 }
 
 /** One doc per project, stored at `<client>/<project>/clips/<name>.json`. */

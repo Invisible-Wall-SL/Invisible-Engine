@@ -182,6 +182,28 @@ assert(
 	'a `::` in a region name is only a sheet ref when the prefix is a manifest path',
 );
 
+console.log('flipbook frames — the texture array IS the playback order');
+const dirLoaded = { a: 'A', b: 'B', c: 'C' };
+const dirClip = (direction?: 'forward' | 'reverse' | 'pingpong'): string =>
+	resolveClipFrames(
+		{ assetKey: 'sheet', frames: ['a', 'b', 'c'], direction },
+		dirLoaded,
+	).textures.join(',');
+assert(dirClip() === 'A,B,C', 'no direction ⇒ authored order (byte-parity with before)');
+assert(dirClip('reverse') === 'C,B,A', 'reverse resolves to the reversed texture array');
+assert(dirClip('pingpong') === 'A,B,C,B', 'ping-pong bounces back through the interior frames');
+
+console.log('flipbook frames — a missing frame is reported ONCE, however often it is walked');
+const gap = resolveClipFrames(
+	{ assetKey: 'sheet', frames: ['a', 'b', 'c'], direction: 'pingpong' },
+	{ a: 'A', c: 'C' },
+);
+assert(gap.textures.join(',') === 'A,C', 'the walk skips the frame that resolved to nothing');
+assert(
+	gap.missing.join(',') === 'b',
+	'`b` is reported once even though the ping-pong walk visits it twice',
+);
+
 console.log('');
 if (failures > 0) {
 	console.error(`FLIPBOOK FRAMES: ${failures} FAILURE(S)`);

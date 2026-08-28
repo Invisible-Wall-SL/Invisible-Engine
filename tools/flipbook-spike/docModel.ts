@@ -11,7 +11,9 @@
  * frames are KEPT (holding a frame is a real technique) while empty ones are dropped; (3) an
  * unusable clip (no id, or no assetKey) is dropped rather than poisoning the runtime; (4) fps/loop
  * round-trip, and a nonsense fps falls back to the default rather than dividing by zero
- * downstream; (5) normalization is IDEMPOTENT (the save→reload fixed point).
+ * downstream; (5) normalization is IDEMPOTENT (the save→reload fixed point); (6) the playback
+ * fields (direction + mirroring) round-trip while their DEFAULTS are dropped, so a clip that
+ * never touched them saves byte-identical.
  */
 
 import {
@@ -165,6 +167,60 @@ assert(
 	'unknown clip fields are stripped',
 );
 assert((once as FlipbookDoc).version === FLIPBOOK_DOC_VERSION, 'a stale version is restamped');
+
+// ---------------------------------------------------------------------------
+// 6. Playback fields — direction + mirroring, and the defaults that are DROPPED.
+// ---------------------------------------------------------------------------
+console.log('flipbook doc — direction + mirroring');
+const played = normalizeFlipbookDoc({
+	clips: [
+		{ id: 'a', assetKey: SHEET, frames: ['f1'], direction: 'pingpong', flipX: true },
+		{ id: 'b', assetKey: SHEET, frames: ['f1'], direction: 'reverse', flipY: true },
+		{ id: 'c', assetKey: SHEET, frames: ['f1'], direction: 'forward', flipX: false },
+		{ id: 'd', assetKey: SHEET, frames: ['f1'], direction: 'boomerang', flipX: 'yes' },
+	],
+});
+const byId = (id: string): Record<string, unknown> =>
+	played.clips.find((c) => c.id === id) as unknown as Record<string, unknown>;
+assert(byId('a').direction === 'pingpong' && byId('a').flipX === true, 'direction + flipX survive');
+assert(byId('b').direction === 'reverse' && byId('b').flipY === true, 'reverse + flipY survive');
+assert(
+	!('direction' in byId('c')),
+	'`forward` is DROPPED — it is the default, so an untouched clip stays byte-identical',
+);
+assert(!('flipX' in byId('c')), '`flipX: false` is dropped — absent already means not mirrored');
+assert(
+	!('direction' in byId('d')),
+	'an unrecognised direction falls back to the default rather than shipping',
+);
+assert(!('flipX' in byId('d')), 'a non-boolean flip is dropped, not coerced');
+const playedTwice = normalizeFlipbookDoc(played);
+assert(eq(played, playedTwice), 'the playback fields keep normalization idempotent');
+
+console.log('flipbook doc — the declared bounds box');
+const boxed = normalizeFlipbookDoc({
+	clips: [
+		{ id: 'ok', assetKey: SHEET, frames: ['f1'], bounds: { x: -50, y: -60, w: 100, h: 120 } },
+		{ id: 'zero', assetKey: SHEET, frames: ['f1'], bounds: { x: 0, y: 0, w: 0, h: 10 } },
+		{ id: 'nan', assetKey: SHEET, frames: ['f1'], bounds: { x: 'a', y: 0, w: 10, h: 10 } },
+		{ id: 'extra', assetKey: SHEET, frames: ['f1'], bounds: { x: 0, y: 0, w: 8, h: 8, junk: 1 } },
+		{ id: 'none', assetKey: SHEET, frames: ['f1'] },
+	],
+});
+const box = (id: string): Record<string, unknown> =>
+	boxed.clips.find((c) => c.id === id) as unknown as Record<string, unknown>;
+assert(
+	JSON.stringify(box('ok').bounds) === JSON.stringify({ x: -50, y: -60, w: 100, h: 120 }),
+	'a valid box round-trips exactly',
+);
+assert(!('bounds' in box('zero')), 'a zero-width box is dropped — every consumer divides by it');
+assert(!('bounds' in box('nan')), 'a non-numeric box is dropped');
+assert(
+	JSON.stringify(box('extra').bounds) === JSON.stringify({ x: 0, y: 0, w: 8, h: 8 }),
+	'the box is copied field by field, so a stray key cannot ride into the shipped doc',
+);
+assert(!('bounds' in box('none')), 'a clip with no box stays byte-identical (parity)');
+assert(eq(boxed, normalizeFlipbookDoc(boxed)), 'the box keeps normalization idempotent');
 
 console.log('');
 if (failures > 0) {

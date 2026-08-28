@@ -47,7 +47,8 @@ import { repairComponentDefsAtlasRefs } from './atlasRefRepair';
 import { loadComponent } from './componentStorage';
 import { loadDoc } from './editorStorage';
 import { loadGameConfigDoc } from './gameConfigStorage';
-import { clipFrameRefs, clipSheetKeys } from 'engine-flipbook';
+import { applyClipBounds, clipFrameRefs, clipSheetKeys } from 'engine-flipbook';
+import { artBoundsRef, loadArtBoundsDoc, type ArtBounds } from './artBoundsStorage';
 import { loadFlipbookDoc } from './flipbookStorage';
 import { listEffects, loadEffect } from './fxStorage';
 import { loadRegionSet, type EditorRegionSet } from './editorRegions';
@@ -319,20 +320,56 @@ interface TexturePackerFrame {
 	sourceSize: { w: number; h: number };
 }
 
-/** Build the TexturePacker json-hash the engine's `sprites` loader parses, with frames keyed
+/**
+ * Build the TexturePacker json-hash the engine's `sprites` loader parses, with frames keyed
  * EXACTLY by the editor region names (`SpriteNode.region` values). `sx`/`sy` scale EVERY pixel
  * coordinate — used for the KTX2 variant when its page was downscaled, so the frame rects match
  * the smaller page (identical UVs ⇒ sprites render at the same size, just lower-res). Default 1
- * ⇒ full-res, byte-identical to before. */
-function toTexturePackerJson(set: EditorRegionSet, pageFile: string, sx = 1, sy = 1): string {
+ * ⇒ full-res, byte-identical to before.
+ *
+ * `box` supplies a region's AUTHORED bounds — the sprite twin of a rig's size frame. This is the
+ * whole ship path for that feature and the reason it needs no runtime code: a declared box IS a
+ * `sourceSize`, and where the art sits inside it IS a `spriteSourceSize`, which is exactly the pair
+ * PIXI builds a texture's `orig`/`trim` from. So a boxed region arrives in the game already sized,
+ * anchored and cover-fitted by its box, through the loader that was already there. A region with no
+ * authored box writes its own packed geometry, byte-identical to before (parity).
+ */
+function toTexturePackerJson(
+	set: EditorRegionSet,
+	pageFile: string,
+	sx = 1,
+	sy = 1,
+	box?: (regionName: string) => ArtBounds | undefined,
+): string {
 	const frames: Record<string, TexturePackerFrame> = {};
 	const rx = (n: number) => Math.round(n * sx);
 	const ry = (n: number) => Math.round(n * sy);
 	for (const r of set.regions) {
-		const origW = r.origW ?? r.w;
-		const origH = r.origH ?? r.h;
-		const offX = r.offX ?? 0;
-		const offY = r.offY ?? 0;
+		const declared = box?.(r.name);
+		// The box REPLACES the region's declared canvas, and the art keeps its size at its position
+		// inside it. Computed by `applyClipBounds` rather than inline: a clip's box, a region's box
+		// and this export are the same operation in the same space, and a fourth hand-written copy of
+		// it is how the editor and the game start disagreeing about where a boxed frame lands.
+		// A box SMALLER than the art yields a negative offset and an art rect that exceeds the box:
+		// deliberate, and drawn correctly (`updateQuadBounds` positions the quad from `trim` and takes
+		// only the anchor from `orig`).
+		const geo = declared
+			? applyClipBounds(
+					{
+						origW: r.origW ?? r.w,
+						origH: r.origH ?? r.h,
+						offX: r.offX ?? 0,
+						offY: r.offY ?? 0,
+						artW: r.w,
+						artH: r.h,
+					},
+					declared,
+				)
+			: null;
+		const origW = geo ? geo.origW : (r.origW ?? r.w);
+		const origH = geo ? geo.origH : (r.origH ?? r.h);
+		const offX = geo ? geo.offX : (r.offX ?? 0);
+		const offY = geo ? geo.offY : (r.offY ?? 0);
 		frames[r.name] = {
 			frame: { x: rx(r.x), y: ry(r.y), w: rx(r.w), h: ry(r.h) },
 			rotated: r.rotated === true,
@@ -506,6 +543,24 @@ export async function exportEditorArt(
 		// Clips are additive art — never let them break the sprite/spine export.
 	}
 
+	/**
+	 * The project's AUTHORED region boxes (`<assetKey>::<region>` → box), read once and folded into
+	 * every sheet JSON written below. Empty for a project that has declared none, in which case
+	 * every frame ships its own packed geometry exactly as before.
+	 *
+	 * Read here rather than shipped as its own file: the box's whole job is to be a region's
+	 * declared size, and the shipped TexturePacker JSON already carries that field. Nothing new
+	 * reaches R2 — there is no asset class to strand (rule 8) and no runtime registration.
+	 */
+	const artBounds = (await loadArtBoundsDoc(clientKey, projectKey)).bounds;
+	const hasArtBounds = Object.keys(artBounds).length > 0;
+	/** A per-sheet box lookup, scoped so a region name that exists on two sheets can be boxed
+	 * differently on each — the same `<assetKey>::<region>` scoping every other art surface uses. */
+	const artBoundsLookup = (
+		manifestKey: string,
+	): ((r: string) => ArtBounds | undefined) | undefined =>
+		hasArtBounds ? (region: string) => artBounds[artBoundsRef(manifestKey, region)] : undefined;
+
 	const deployPrefix = `${SUB.deploy(clientKey, projectKey)}/`;
 	const artPrefix = `${deployPrefix}editor-art/`;
 
@@ -560,9 +615,10 @@ export async function exportEditorArt(
 		const shared = await pageStore.ensure(set.pageKey, pageExt);
 		if (!shared) return;
 		usedStems.add(stem);
+		const boxFor = artBoundsLookup(manifestKey);
 		await putObjectText(
 			`${deployPrefix}${jsonRel}`,
-			toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.file}`),
+			toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.file}`, 1, 1, boxFor),
 			'application/json',
 		);
 		written.add(`${deployPrefix}${jsonRel}`);
@@ -577,7 +633,7 @@ export async function exportEditorArt(
 			const sy = set.pageHeight ? shared.ktx2Height / set.pageHeight : 1;
 			await putObjectText(
 				`${deployPrefix}${ktx2Json}`,
-				toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.ktx2File}`, sx, sy),
+				toTexturePackerJson(set, `${PAGE_REF_PREFIX}${shared.ktx2File}`, sx, sy, boxFor),
 				'application/json',
 			);
 			written.add(`${deployPrefix}${ktx2Json}`);
