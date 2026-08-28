@@ -510,9 +510,9 @@ def test_cancel_a_session_we_do_not_own() -> None:
                  "no such session")
 
 
-def _gate_first_job():
-    """Hold job1 at IN_PROGRESS until the returned event is set, so a test has a
-    genuinely running session to queue behind."""
+def _gate_job(name: str = "job1"):
+    """Hold ONE job at IN_PROGRESS until the returned event is set, so a test has a
+    genuinely in-flight variation to act around."""
     import threading
 
     import batch_atlas
@@ -521,12 +521,44 @@ def _gate_first_job():
     passthrough = batch_atlas._runpod_get
 
     def gated_get(path):
-        if path.endswith("job1") and not gate.is_set():
+        if path.endswith(name) and not gate.is_set():
             return {"status": "IN_PROGRESS"}
         return passthrough(path)
 
     batch_atlas._runpod_get = gated_get
     return gate
+
+
+def _gate_first_job():
+    return _gate_job("job1")
+
+
+def _await_idle(timeout: float = 5.0) -> str | None:
+    """Wait for the runner to be handed on.
+
+    A session's status flips to terminal a beat BEFORE `_release` runs — the
+    finaliser writes `meta.json` in between — so asserting `_ACTIVE is None` the
+    instant `_await_session` returns is a race, and it is the fixture that is
+    wrong, not the hand-off."""
+    import time
+    deadline = time.time() + timeout
+    while time.time() < deadline and video_runner._ACTIVE is not None:
+        time.sleep(0.01)
+    return video_runner._ACTIVE
+
+
+def _await_var(sid: str, index: int, want: str, timeout: float = 10.0) -> dict:
+    import time
+    deadline = time.time() + timeout
+    cur = {}
+    while time.time() < deadline:
+        s = video_runner.get_session(sid) or {}
+        cur = next((v for v in s.get("variations", [])
+                    if v["index"] == index), {})
+        if cur.get("status") == want:
+            return cur
+        time.sleep(0.02)
+    return cur
 
 
 def _await_status(sid: str, want: str, timeout: float = 10.0) -> dict:
@@ -586,7 +618,7 @@ def test_a_second_session_queues() -> None:
               _await_session(third["id"]).get("status"), "finished")
         check("a session cancelled while waiting is never run",
               video_runner.get_session(second["id"])["status"], "cancelled")
-        check("the runner ends idle", video_runner._ACTIVE, None)
+        check("the runner ends idle", _await_idle(), None)
         check("with nothing left in line", video_runner._QUEUE, [])
         check("queue position is served live, never frozen into meta.json",
               "queue_position" in json.loads(
@@ -666,7 +698,7 @@ def test_cancelling_reads_as_cancelled_not_failed() -> None:
           [v["error"] for v in final["variations"]], ["", "", ""])
     check("the job was stopped remotely, so it stops burning",
           sorted(stopped), ["job1"])
-    check("the runner is handed back", video_runner._ACTIVE, None)
+    check("the runner is handed back", _await_idle(), None)
 
 
 def test_a_dead_worker_does_not_wedge_the_runner() -> None:
@@ -690,13 +722,156 @@ def test_a_dead_worker_does_not_wedge_the_runner() -> None:
               [v["status"] for v in final["variations"]], ["failed"])
         check("including why",
               "exploded" in final["variations"][0]["error"], True)
-        check("and the runner is released", video_runner._ACTIVE, None)
+        check("and the runner is released", _await_idle(), None)
     finally:
         video_runner._run_variations = real
 
     nxt = video_runner.start_session(_req("after the crash"), ctx)
     check("so the next session runs instead of being refused",
           _await_session(nxt["id"]).get("status"), "finished")
+
+
+def test_regenerate_one_variation() -> None:
+    """A tile is re-rolled IN PLACE, in the session it belongs to: same slot, same
+    number, a new render. The two knobs move independently — hold the seed and
+    change the prompt, or hold the prompt and take a new seed."""
+    _stub_world()
+    ctx = ("clientx", "projecty")
+    started = video_runner.start_session(_req("a spinning coin", 2), ctx)
+    sid = started["id"]
+    first = _await_session(sid)
+    check("the session finishes first", first.get("status"), "finished")
+    held = first["variations"][0]["seed"]
+
+    # Hold the seed, change the prompt.
+    out = video_runner.regenerate_variation(
+        sid, {"index": 1, "prompt": "a spinning coin, on fire",
+              "seed": str(held)}, ctx)
+    check("a settled session re-opens", out["status"] in ("queued", "running"), True)
+    done = _await_session(sid)
+    v1 = done["variations"][0]
+    check("the slot keeps its number", v1["index"], 1)
+    check("the seed is held exactly", v1["seed"], held)
+    check("the changed prompt is recorded on the TILE", v1["prompt"],
+          "a spinning coin, on fire")
+    check("the SESSION's prompt is untouched", done["prompt"], "a spinning coin")
+    check("so the other tile still reads as the session's",
+          done["variations"][1]["prompt"], "")
+    check("and the re-roll produced a render", v1["status"], "done")
+    check("the untouched tile was not re-run",
+          done["variations"][1]["status"], "done")
+
+    # Hold the prompt, take a new seed.
+    video_runner.regenerate_variation(
+        sid, {"index": 1, "prompt": "a spinning coin", "seed": ""}, ctx)
+    again = _await_session(sid)["variations"][0]
+    check("a blank seed rolls a fresh one", again["seed"] != held, True)
+    check("a prompt back at the session's clears the override",
+          again["prompt"], "")
+
+    check_raises("a non-numeric seed is refused",
+                 lambda: video_runner.regenerate_variation(
+                     sid, {"index": 1, "seed": "abc"}, ctx), "whole number")
+    check_raises("an empty prompt is refused",
+                 lambda: video_runner.regenerate_variation(
+                     sid, {"index": 1, "prompt": "  "}, ctx), "enter a prompt")
+    check_raises("an index this session does not have is refused",
+                 lambda: video_runner.regenerate_variation(
+                     sid, {"index": 99}, ctx), "no variation")
+
+
+def test_discard_one_variation() -> None:
+    """Deleting a tile removes its RENDER and stops the grid drawing it — but the
+    slot keeps its index, because that index IS the stored filename and a clip may
+    already have been packed from it."""
+    tmp, objects = _stub_world()
+    ctx = ("clientx", "projecty")
+    sid = video_runner.start_session(_req("p", 3), ctx)["id"]
+    _await_session(sid)
+
+    key = "clientx/projecty/video/%s/002.webp" % sid
+    check("the render is there to begin with", key in objects, True)
+
+    out = video_runner.discard_variation(sid, {"index": 2})
+    check("the slot is marked deleted", out["variations"][1]["status"], "deleted")
+    check("indexes are NOT resequenced under the survivors",
+          [v["index"] for v in out["variations"]], [1, 2, 3])
+    check("its neighbours are untouched",
+          [v["status"] for v in out["variations"]], ["done", "deleted", "done"])
+    check("the stored render is gone from R2", key in objects, False)
+    check("and gone from staging",
+          (tmp / "video" / sid / "002.webp").exists(), False)
+    check("the done count is recomputed", out["done_count"], 2)
+
+    stored = json.loads(objects["clientx/projecty/video/%s/meta.json" % sid])
+    check("and the deletion is persisted, not just held in memory",
+          stored["variations"][1]["status"], "deleted")
+
+    check_raises("re-rolling a deleted slot is refused",
+                 lambda: video_runner.regenerate_variation(
+                     sid, {"index": 2}, ctx), "deleted")
+
+
+def test_add_variations_to_a_session() -> None:
+    """More rolls of the same idea belong in the SAME grid — that grid is the
+    comparison the author is actually making."""
+    _stub_world()
+    ctx = ("clientx", "projecty")
+    sid = video_runner.start_session(_req("a coin", 2), ctx)["id"]
+    _await_session(sid)
+
+    out = video_runner.add_variations(sid, {"count": 2}, ctx)
+    check("a settled session re-opens to take them",
+          out["status"] in ("queued", "running"), True)
+    check("numbering continues from the highest slot",
+          [v["index"] for v in out["variations"]], [1, 2, 3, 4])
+
+    done = _await_session(sid)
+    check("every slot ends done",
+          [v["status"] for v in done["variations"]], ["done"] * 4)
+    check("the new ones run the session's own prompt",
+          [v["prompt"] for v in done["variations"]], [""] * 4)
+    check("each carries its own seed",
+          len({v["seed"] for v in done["variations"]}), 4)
+
+    check_raises("a runaway add is refused",
+                 lambda: video_runner.add_variations(sid, {"count": 500}, ctx),
+                 "between 1 and")
+
+    # A deleted slot frees its room but never gives its NUMBER back: 003.webp may
+    # still be referenced by a clip packed from it.
+    video_runner.discard_variation(sid, {"index": 3})
+    grown = video_runner.add_variations(sid, {"count": 1}, ctx)
+    check("numbering skips past a deleted slot",
+          [v["index"] for v in grown["variations"]], [1, 2, 3, 4, 5])
+    _await_session(sid)
+
+
+def test_a_reroll_mid_run_joins_the_pass_already_under_way() -> None:
+    """The worker RE-PICKS the lowest pending slot every iteration instead of
+    walking the list once, so arming an earlier tile while a later one is in flight
+    is collected by the running pass — no second worker, no second session."""
+    _stub_world()
+    ctx = ("clientx", "projecty")
+    gate = _gate_job("job2")
+    try:
+        sid = video_runner.start_session(_req("p", 3), ctx)["id"]
+        _await_var(sid, 1, "done")  # #001 finished; #002 is held in flight
+
+        video_runner.regenerate_variation(sid, {"index": 1, "seed": "12345"}, ctx)
+        check("the re-roll did not open a second session",
+              video_runner._QUEUE, [])
+        check("and did not take the runner off this one",
+              video_runner._ACTIVE, sid)
+
+        gate.set()
+        done = _await_session(sid)
+        check("the armed slot was re-run by the pass already going",
+              done["variations"][0]["seed"], 12345)
+        check("every slot ends done",
+              [v["status"] for v in done["variations"]], ["done"] * 3)
+    finally:
+        gate.set()
 
 
 def test_request_validation() -> None:
@@ -736,6 +911,10 @@ if __name__ == "__main__":
     test_queue_depth_is_capped()
     test_cancelling_reads_as_cancelled_not_failed()
     test_a_dead_worker_does_not_wedge_the_runner()
+    test_regenerate_one_variation()
+    test_discard_one_variation()
+    test_add_variations_to_a_session()
+    test_a_reroll_mid_run_joins_the_pass_already_under_way()
     test_request_validation()
     print()
     if FAILED:

@@ -70,6 +70,12 @@ MAX_VARIATIONS = 12
 # lines up five full sessions and walks away should be told, not surprised.
 # A waiting session has spent nothing, so cancelling one is free.
 MAX_QUEUED_SESSIONS = 4
+# A session GROWS: variations can be added to it and re-rolled in place, so the
+# per-request cap above is no longer the whole story. This is the ceiling on the
+# live (non-deleted) slots one session may hold — enough for three full runs of
+# the same idea, while keeping the grid legible and `meta.json` (rewritten after
+# every single job) small. Deleting a variation frees its room back up.
+MAX_SESSION_VARIATIONS = 36
 # Poll cadence + overall per-job cap. Wan 2.2 14B on a cold worker loads ~29 GB
 # of weights before it samples anything, so the cap is generous by necessity.
 POLL_SECONDS = 3.0
@@ -302,6 +308,36 @@ def _public(session: dict) -> dict:
     return out
 
 
+def _runner_busy() -> bool:
+    """True while a session genuinely holds the runner. A stale `_ACTIVE` — left by
+    a worker that died with its process — is NOT busy and must not lock the tool
+    out, which is the state this used to fall into permanently."""
+    with _LOCK:
+        return bool(_ACTIVE) and _SESSIONS.get(_ACTIVE, {}).get("status") in (
+            "running", "queued")
+
+
+def _dispatch(session_id: str, ctx: tuple[str, str]) -> bool:
+    """Give a session the runner if it is free, else put it at the back of the
+    line. Returns True when it starts right now.
+
+    A session that ALREADY holds the runner is left alone: its worker re-picks the
+    lowest pending variation every iteration, so a slot re-armed mid-run is
+    collected without a second thread ever touching the session.
+    """
+    global _ACTIVE
+    with _LOCK:
+        if _ACTIVE == session_id:
+            return False
+        if _runner_busy():
+            if session_id not in _QUEUE:
+                _QUEUE.append(session_id)
+            return False
+        _ACTIVE = session_id
+    threading.Thread(target=_run_session, args=(session_id, ctx), daemon=True).start()
+    return True
+
+
 def _run_session(session_id: str, ctx: tuple[str, str]) -> None:
     """Worker thread: own the runner for one session, then hand it on.
 
@@ -380,18 +416,28 @@ def _run_variations(session_id: str, session: dict) -> None:
             return bool(session.get("cancel"))
 
     bp = session["_blueprint"]
-    for var in session["variations"]:
-        if should_stop():
-            with _LOCK:
-                if var["status"] == "queued":
-                    var["status"] = "cancelled"
-            continue
-        if var["status"] in ("done", "failed", "cancelled"):
-            # Terminal already. On a RESUMED session this is what stops a paid job
-            # being submitted twice: a variation we could not re-attach to is
-            # marked failed by `_adopt` and left for the author to re-roll
-            # deliberately, rather than silently re-billed.
-            continue
+    while True:
+        with _LOCK:
+            if session.get("cancel"):
+                for v in session["variations"]:
+                    if v["status"] == "queued":
+                        v.update(status="cancelled", finished=_now())
+                break
+            # RE-PICKED every iteration rather than iterated once, so a slot armed
+            # WHILE this pass is running — a re-roll of an earlier tile, or fresh
+            # variations added to the session — is collected by the pass already
+            # under way instead of needing a second worker.
+            #
+            # `running` + a job id is the RESUME case: that job is already paid
+            # for, so it is re-attached. A variation whose id was lost is marked
+            # failed by `_adopt` and left for the author to re-roll deliberately,
+            # never silently re-billed. Every exit from the body below is terminal,
+            # so this cannot spin.
+            var = next((v for v in session["variations"]
+                        if v["status"] == "queued"
+                        or (v["status"] == "running" and v.get("job_id"))), None)
+        if var is None:
+            break
         prefix = f"iwvid_{session_id}_{var['index']:03d}"
         # RESUME: a variation already carrying a job id was submitted by a
         # PREVIOUS process. Re-attach to that job rather than paying for it twice
@@ -408,7 +454,8 @@ def _run_variations(session_id: str, session: dict) -> None:
                     session["status"] = "running"
                 _write_meta(session_id, session)
                 wf = build_video_workflow(
-                    bp, session["prompt"], session["negative"], var["seed"],
+                    bp, var.get("prompt") or session["prompt"],
+                    session["negative"], var["seed"],
                     session["source_ref"], session["params"], prefix)
                 job_id, wf = _submit(wf)
                 with _LOCK:
@@ -483,12 +530,7 @@ def start_session(req: dict, ctx: tuple[str, str], user: str = "") -> dict:
     given = given if isinstance(given, list) else []
 
     with _LOCK:
-        # `_ACTIVE` only means something while its session is genuinely live — a
-        # stale id left by a worker that died with the process must not lock the
-        # tool out, which is the state this used to fall into permanently.
-        busy = bool(_ACTIVE) and _SESSIONS.get(_ACTIVE, {}).get("status") in (
-            "running", "queued")
-        if busy and len(_QUEUE) >= MAX_QUEUED_SESSIONS:
+        if _runner_busy() and len(_QUEUE) >= MAX_QUEUED_SESSIONS:
             raise ValueError(
                 f"{len(_QUEUE)} sessions are already waiting behind the running "
                 f"one, which is the limit ({MAX_QUEUED_SESSIONS}). Cancel one to "
@@ -517,6 +559,9 @@ def start_session(req: dict, ctx: tuple[str, str], user: str = "") -> dict:
                     "seed": int(given[i]) if (i < len(given) and str(given[i]).strip())
                             else random.randrange(0, MAX_SEED),
                     "status": "queued",
+                    # Set only when this ONE slot was re-rolled against a different
+                    # prompt than the session's; empty means "the session's".
+                    "prompt": "",
                     "job_id": "",
                     "remote_status": "",
                     "file": "",
@@ -530,14 +575,210 @@ def start_session(req: dict, ctx: tuple[str, str], user: str = "") -> dict:
             "_blueprint": bp,
         }
         _SESSIONS[session_id] = session
-        if busy:
-            _QUEUE.append(session_id)
-        else:
-            _ACTIVE = session_id
 
-    if not busy:
-        threading.Thread(target=_run_session, args=(session_id, ctx),
-                         daemon=True).start()
+    _dispatch(session_id, ctx)
+    return _public(session)
+
+
+def _new_variation(index: int, seed: int | None = None) -> dict:
+    return {
+        "index": index,
+        "seed": random.randrange(0, MAX_SEED) if seed is None else int(seed),
+        "status": "queued",
+        "prompt": "",
+        "job_id": "",
+        "remote_status": "",
+        "file": "",
+        "bytes": 0,
+        "error": "",
+        "started": 0.0,
+        "finished": 0.0,
+    }
+
+
+def _load_for_edit(session_id: str, need_blueprint: bool = True) -> dict:
+    """The in-memory session, hydrating it from the stored doc when this process
+    does not hold it. Unlike `_adopt` it never starts a worker — the caller
+    decides whether there is anything left to run."""
+    if not valid_session_id(session_id):
+        raise ValueError("Bad session id.")
+    with _LOCK:
+        s = _SESSIONS.get(session_id)
+    if s:
+        return s
+    raw = storage.get(f"{_video_prefix()}/{session_id}/meta.json")
+    if not raw:
+        raise ValueError("No such session.")
+    try:
+        stored = json.loads(raw)
+    except ValueError:
+        raise ValueError("That session's record is unreadable.")
+    bp = blueprints.get_blueprint(str(stored.get("blueprint") or ""))
+    if not bp and need_blueprint:
+        raise ValueError(
+            "The blueprint this session used is no longer in the video library, "
+            "so it cannot be re-run.")
+    with _LOCK:
+        stored["_blueprint"] = bp
+        stored.setdefault("cancel", False)
+        _SESSIONS.setdefault(session_id, stored)
+        return _SESSIONS[session_id]
+
+
+def _find_variation(session: dict, index: int) -> dict:
+    for v in session.get("variations", []):
+        if v.get("index") == index:
+            return v
+    raise ValueError(f"This session has no variation #{index}.")
+
+
+def _live_variations(session: dict) -> list[dict]:
+    return [v for v in session.get("variations", []) if v.get("status") != "deleted"]
+
+
+def _drop_variation_file(session_id: str, index: int) -> None:
+    """Remove one variation's stored render from R2 and staging. Best-effort: an
+    object that is already gone IS the wanted end state, not an error."""
+    fname = f"{index:03d}.webp"
+    try:
+        storage.delete(f"{_video_prefix()}/{session_id}/{fname}")
+    except Exception as e:  # noqa: BLE001 — the local removal still stands
+        print(f"[video] could not drop {session_id}/{fname}: {e}", flush=True)
+    try:
+        (Path(project_paths.resolve()["staging_root"]) / "video" / session_id
+         / fname).unlink()
+    except OSError:
+        pass
+
+
+def _reopen(session: dict) -> None:
+    """Put a settled session back in the runnable state. A session still running
+    is left exactly as it is — its worker re-picks pending slots on its own."""
+    if session.get("cancel") and session.get("status") in ("running", "queued"):
+        raise ValueError(
+            "This session is still stopping. Give it a moment, then try again.")
+    if session.get("status") in ("finished", "cancelled"):
+        session.update(status="queued", cancel=False, finished=0.0)
+
+
+def regenerate_variation(session_id: str, req: dict, ctx: tuple[str, str]) -> dict:
+    """Re-roll ONE variation, in place, in the session it belongs to.
+
+    The two axes an author actually wants are independent and both live here:
+    hold the SEED and change the prompt to see what one word does to a fixed roll
+    of the dice, or hold the PROMPT and take a new seed for another roll of the
+    same idea. A changed prompt is recorded on the VARIATION, never on the
+    session — overwriting the session's prompt would silently relabel the
+    provenance of every other tile in the grid.
+    """
+    session = _load_for_edit(session_id)
+    try:
+        index = int(req.get("index"))
+    except (TypeError, ValueError):
+        raise ValueError("Which variation? No index was given.")
+    var = _find_variation(session, index)
+
+    with _LOCK:
+        if var["status"] == "running":
+            raise ValueError(
+                "That variation is still rendering. Cancel the session first, "
+                "then re-roll it.")
+        if var["status"] == "deleted":
+            raise ValueError("That variation was deleted.")
+        _reopen(session)
+
+        prompt = req.get("prompt")
+        if prompt is not None:
+            prompt = str(prompt).strip()
+            if not prompt:
+                raise ValueError("Enter a prompt.")
+            var["prompt"] = "" if prompt == session.get("prompt") else prompt
+
+        raw_seed = str(req.get("seed") or "").strip()
+        if raw_seed:
+            try:
+                seed = int(raw_seed)
+            except ValueError:
+                raise ValueError("A seed must be a whole number.")
+            if not 0 <= seed <= MAX_SEED:
+                raise ValueError(f"A seed must be between 0 and {MAX_SEED}.")
+        else:
+            seed = random.randrange(0, MAX_SEED)
+
+        var.update(_new_variation(index, seed), prompt=var.get("prompt", ""))
+
+    # The old render is being REPLACED. Leaving it behind would serve a stale tile
+    # for as long as the new job takes, under the same deterministic filename.
+    _drop_variation_file(session_id, index)
+    _write_meta(session_id, session)
+    _dispatch(session_id, ctx)
+    return _public(session)
+
+
+def discard_variation(session_id: str, req: dict) -> dict:
+    """Delete ONE variation's render.
+
+    The SLOT stays, marked `deleted`. Its index is its identity and its filename
+    (`003.webp`), so renumbering the grid would rename results underneath a clip
+    that was made from one. The mode simply stops drawing a deleted tile; the
+    session's own 🗑 is still what removes everything.
+    """
+    session = _load_for_edit(session_id, need_blueprint=False)
+    try:
+        index = int(req.get("index"))
+    except (TypeError, ValueError):
+        raise ValueError("Which variation? No index was given.")
+    var = _find_variation(session, index)
+
+    with _LOCK:
+        if var["status"] == "running":
+            raise ValueError(
+                "That variation is still rendering. Cancel the session first, "
+                "then delete it.")
+        var.update(status="deleted", prompt="", job_id="", remote_status="",
+                   file="", bytes=0, error="", finished=_now())
+        session["done_count"] = sum(
+            1 for v in session["variations"] if v["status"] == "done")
+
+    _drop_variation_file(session_id, index)
+    _write_meta(session_id, session)
+    return _public(session)
+
+
+def add_variations(session_id: str, req: dict, ctx: tuple[str, str]) -> dict:
+    """Append N more rolls of the SAME recipe to an existing session.
+
+    The alternative — a whole new session per handful of variations — scatters one
+    idea across a dropdown and makes the grid you are actually comparing the one
+    thing you cannot see at once.
+    """
+    session = _load_for_edit(session_id)
+    try:
+        count = int(req.get("count") or 1)
+    except (TypeError, ValueError):
+        raise ValueError("Variations must be a whole number.")
+    if count < 1 or count > MAX_VARIATIONS:
+        raise ValueError(f"Add between 1 and {MAX_VARIATIONS} variations.")
+
+    with _LOCK:
+        live = len(_live_variations(session))
+        if live + count > MAX_SESSION_VARIATIONS:
+            room = MAX_SESSION_VARIATIONS - live
+            raise ValueError(
+                f"This session already holds {live} variations and the ceiling is "
+                f"{MAX_SESSION_VARIATIONS}"
+                + (f", so there is room for {room} more."
+                   if room > 0 else
+                   " — delete some, or start a new session."))
+        _reopen(session)
+        # Numbering continues from the HIGHEST index ever used, deleted slots
+        # included: `003.webp` may still be referenced by a clip made from it.
+        nxt = max((v["index"] for v in session["variations"]), default=0) + 1
+        session["variations"].extend(
+            _new_variation(nxt + i) for i in range(count))
+
+    _write_meta(session_id, session)
+    _dispatch(session_id, ctx)
     return _public(session)
 
 
