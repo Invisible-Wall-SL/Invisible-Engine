@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-flipbook.md](../design/invisible-flipbook.md) · Guide: [docs/tools/flipbook.md](../tools/flipbook.md) · Agent: `.claude/agents/invisible-flipbook.md`
 
-**One-line state:** _(2026-08-28)_ Bounds shipped, was **unusable on first contact** (the box drew 562px from its art) and is fixed + browser-verified + fixtured; the preview is now resizable. **A clip now declares HOW it plays and HOW BIG it is** —
+**One-line state:** _(2026-08-28)_ Bounds shipped and took two fixes to become usable — the box drew 562px from its art, then the resizable preview grew in Y without limit. The preview is now a proper **pan/zoom viewport** (scroll to zoom about the pointer, drag to pan, Fit, drag-grip height), all three browser-verified and fixtured. **A clip now declares HOW it plays and HOW BIG it is** —
 `direction` (forward / reverse / ping-pong), `flipX`/`flipY`, and a `bounds` box drawn over the
 preview with the Rigger's drag handles; the same box exists for a plain sprite region
 (`editor/art-bounds.json`, authored in the Scene Editor and folded into the shipped sheet at
@@ -10,6 +10,30 @@ export). Every placement can override direction/mirror as well as fps/loop. Was 
 
 ## Current state
 Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is optional — see Open items):
+
+- **The preview grew in Y without limit until the tool was unusable — it is now a real pan/zoom
+  viewport** (owner report, within a day of the resize shipping: *“the canvas is growing in Y size
+  to the infinite, making the all tool impossible to use”*).
+  - **Cause: a measurement fed back into what it measured.** The resize observer read the stage's
+    height with `getBoundingClientRect()` — the BORDER box — and assigned it as the styled height,
+    which is the CONTENT box. Each pass added the 2px border, so the two could never converge and
+    the stage climbed 2px per tick forever. Reproduced in a browser: 248px → **650px in 200 ticks**,
+    still climbing. The new model is flat at its styled height through the same 200 passes.
+  - **The fix is the shape of the API, not a guard.** The viewport height is owned by a grip that
+    writes pointer DELTAS; the observer writes only `contentRect` into variables that no style
+    reads back, and the pane inside is absolutely positioned so it cannot size its parent. Nothing
+    measured is written back into what is measured — stated in `panZoom.ts` and pinned by
+    `node apps/launcher-api/panZoom.fixture.ts`.
+  - **It is a canvas tool now**, which is what was asked for: scroll to zoom about the pointer,
+    drag to pan, − / + / ⬚ Fit, and a drag grip for the viewport height.
+  - **Zoom changes the thumbnail's PIXEL size, never a CSS scale.** That keeps the pane unscaled,
+    so the bounds overlay's positioning context stays in plain screen pixels: `boxFit` needs no
+    zoom term and `BoundsBox` needed no change. Verified in a browser at 20 / 100 / 250 / 600%
+    and after panning — the overlay sits on its art to within 0.01px at every one, and the art
+    under the cursor is identical before and after a zoom about it.
+  - Fixtures: `node apps/launcher-api/panZoom.fixture.ts` — the anchor invariant, the clamps, and
+    the specific trap that a zoom pinned at the cap must be a NO-OP (otherwise a wheel held at the
+    limit walks the pane off screen).
 
 - **The bounds box landed nowhere near its art — and the preview is now resizable** (owner
   report, the day it shipped: *“when I click it is in a complete different place of the canvas

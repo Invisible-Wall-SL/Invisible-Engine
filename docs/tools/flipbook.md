@@ -113,9 +113,16 @@ the filter box to narrow a big sheet by name.
 
 ### 4. Set the timing and preview it
 
-**The preview is resizable** — drag the grip in its bottom-right corner. It remembers the
-size you chose. Worth making it big before drawing a bounds box: the box is placed at the
-scale you see it at, and 240px of art is not much to aim with.
+**The preview is a pan/zoom canvas**, and it behaves like one:
+
+- **Scroll to zoom**, centred on the pointer — whatever is under the cursor stays under it.
+- **Drag to pan.** Dragging a bounds-box handle moves the box, not the view.
+- **− / + / ⬚ Fit** sit in the corner; **Fit** puts the whole clip back in view at 100%.
+- **Drag the striped grip below the viewport** to make it taller or shorter. It remembers
+  the height you chose.
+
+Worth zooming in before drawing a bounds box — the box is placed at the scale you see it
+at, and a small preview is not much to aim with.
 
 Above the list:
 

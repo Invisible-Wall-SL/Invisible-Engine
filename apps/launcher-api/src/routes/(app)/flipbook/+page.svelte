@@ -19,6 +19,7 @@
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import BoundsBox from '$lib/BoundsBox.svelte';
 	import { boxFit } from '$lib/boundsFit';
+	import { centrePane, paneSize, zoomAbout } from '$lib/panZoom';
 	import {
 		DEFAULT_FLIPBOOK_FPS,
 		animationToClip,
@@ -665,56 +666,173 @@
 	 * down grows it until it hits the column width. Remembered per browser, because a preview you
 	 * resized that snapped back on the next clip would be worse than a fixed one.
 	 */
-	const STAGE_MIN = 160;
-	const STAGE_KEY = 'flipbook.stageHeight.v1';
-	let stageHeight = $state(248);
-	let stageSize = $state(240);
-	let stageOuter = $state<HTMLElement | null>(null);
+	/**
+	 * The preview VIEWPORT — a pan/zoom canvas, not a fixed window.
+	 *
+	 * Three rules this is built on, each of them paid for:
+	 *
+	 * 1. **Nothing measured is ever written back into what is measured.** The first attempt at a
+	 *    resizable preview observed the stage and assigned its height back — but the observed
+	 *    height is the BORDER box and the assigned one the CONTENT box, so each pass added the 2px
+	 *    border and the canvas grew without limit until the tool was unusable. The height is now
+	 *    owned by the grip below (pointer deltas only) and the observer feeds NOTHING that changes
+	 *    the element it watches.
+	 * 2. **Zoom changes the thumbnail's PIXEL size, never a CSS scale.** The canvas redraws at the
+	 *    zoomed size (sharp rather than upscaled), and — the part that matters — the box overlay's
+	 *    positioning context stays unscaled, so `BoundsBox` keeps measuring pointers in plain
+	 *    screen pixels and `boxFit` needs no zoom term at all.
+	 * 3. **The pane is positioned, not centred by layout.** Centring is a one-line effect while the
+	 *    view is untouched; the moment the author pans or zooms, their position is the truth.
+	 */
+	const VIEW_MIN_H = 180;
+	const VIEW_KEY = 'flipbook.viewportHeight.v1';
+	/** Viewport height. Written ONLY by the grip and the restore below — never by a measurement. */
+	let viewH = $state(320);
+	/** Measured content box, used for fitting and centring. Read-only, by rule 1. */
+	let viewW = $state(0);
+	let viewInnerH = $state(0);
+	let viewportEl = $state<HTMLElement | null>(null);
+	let zoom = $state(1);
+	/** The pane's top-left inside the viewport. */
+	let paneX = $state(0);
+	let paneY = $state(0);
+	/** Once the author pans or zooms, auto-centring stops fighting them. `⬚ Fit` clears it. */
+	let viewTouched = $state(false);
+
+	/** The thumbnail size at zoom 1: the largest square the viewport holds, with a little margin. */
+	const fitSize = $derived(Math.max(48, Math.floor(Math.min(viewW, viewInnerH)) - 16));
+	/** The thumbnail's pixel size right now — what `RegionThumb` draws at AND what `boxFit` maps
+	 * into, so the art and the box overlay can never disagree about their shared box. */
+	const stageSize = $derived(paneSize(fitSize, zoom));
 
 	$effect(() => {
-		const el = stageOuter;
+		const el = viewportEl;
 		if (!el) return;
-		// ONE observer, on the outer stage. `stageSize` drives both the thumbnail's own pixel size
-		// and `stageFit` below, so the art and the overlay can never disagree about the box they
-		// share — which is exactly what went wrong while the fit assumed a fixed 240.
-		const ro = new ResizeObserver(() => {
-			const rect = el.getBoundingClientRect();
-			const next = Math.max(STAGE_MIN, Math.floor(Math.min(rect.width, rect.height)));
-			if (next !== stageSize) stageSize = next;
-			// The grip is the only thing that changes the height, so recording it here records the
-			// author's choice — no separate drag handler to keep in step.
-			const h = Math.round(rect.height);
-			if (h !== stageHeight) {
-				stageHeight = h;
-				try {
-					localStorage.setItem(STAGE_KEY, String(h));
-				} catch {
-					/* blocked storage ⇒ the size just isn't remembered */
-				}
+		// `contentRect`, not `getBoundingClientRect()` — the content box is what the pane lives in,
+		// and mixing the two box models is precisely what made the canvas grow forever.
+		const ro = new ResizeObserver((entries) => {
+			for (const entry of entries) {
+				viewW = entry.contentRect.width;
+				viewInnerH = entry.contentRect.height;
 			}
 		});
 		ro.observe(el);
 		return () => ro.disconnect();
 	});
 
+	// Centre the pane while the view is untouched. Writes only `paneX`/`paneY`, which nothing above
+	// reads — so this can never feed itself.
+	$effect(() => {
+		const w = viewW;
+		const h = viewInnerH;
+		const s = stageSize;
+		if (viewTouched) return;
+		const at = centrePane(w, h, s);
+		paneX = at.x;
+		paneY = at.y;
+	});
+
 	onMount(() => {
 		try {
-			const saved = Number(localStorage.getItem(STAGE_KEY));
-			if (Number.isFinite(saved) && saved >= STAGE_MIN) stageHeight = saved;
+			const saved = Number(localStorage.getItem(VIEW_KEY));
+			if (Number.isFinite(saved) && saved >= VIEW_MIN_H) viewH = saved;
 		} catch {
 			/* nothing stored ⇒ the default */
 		}
 	});
 
+	/** Back to "the whole clip, centred" — the escape hatch from any pan/zoom. */
+	function fitView(): void {
+		zoom = 1;
+		viewTouched = false;
+	}
+
+	/** Zoom about a point in VIEWPORT coordinates, so the art under the cursor stays under it.
+	 * Expressed as a ratio of the pane's size before and after, which needs no art coordinates. */
+	function zoomAt(nextZoom: number, cx: number, cy: number): void {
+		const next = zoomAbout({ zoom, x: paneX, y: paneY }, fitSize, nextZoom, cx, cy);
+		if (next.zoom === zoom && next.x === paneX && next.y === paneY) return;
+		zoom = next.zoom;
+		paneX = next.x;
+		paneY = next.y;
+		viewTouched = true;
+	}
+
+	function viewportPoint(e: { clientX: number; clientY: number }): { x: number; y: number } {
+		const rect = viewportEl?.getBoundingClientRect();
+		if (!rect) return { x: 0, y: 0 };
+		return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+	}
+
+	function onWheel(e: WheelEvent): void {
+		// The page does not scroll here; the wheel is the zoom, as in every canvas tool.
+		e.preventDefault();
+		const at = viewportPoint(e);
+		zoomAt(zoom * (e.deltaY < 0 ? 1.12 : 1 / 1.12), at.x, at.y);
+	}
+
+	function zoomStep(factor: number): void {
+		zoomAt(zoom * factor, viewW / 2, viewInnerH / 2);
+	}
+
+	/** Pan. Started on the viewport background OR on the art itself; `BoundsBox` stops its own
+	 * pointer events, so dragging a box handle never pans underneath it. */
+	let panFrom: { x: number; y: number; paneX: number; paneY: number } | null = null;
+
+	function onPanStart(e: PointerEvent): void {
+		if (e.button !== 0 && e.button !== 1) return;
+		const at = viewportPoint(e);
+		panFrom = { x: at.x, y: at.y, paneX, paneY };
+		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+	}
+
+	function onPanMove(e: PointerEvent): void {
+		if (!panFrom) return;
+		const at = viewportPoint(e);
+		paneX = panFrom.paneX + (at.x - panFrom.x);
+		paneY = panFrom.paneY + (at.y - panFrom.y);
+		viewTouched = true;
+	}
+
+	function onPanEnd(e: PointerEvent): void {
+		if (!panFrom) return;
+		(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+		panFrom = null;
+	}
+
+	/** The viewport's own resize grip. Pointer DELTAS drive the height — the height is never read
+	 * back off the element, which is the whole reason the previous attempt ran away. */
+	let gripFrom: { y: number; h: number } | null = null;
+
+	function onGripStart(e: PointerEvent): void {
+		gripFrom = { y: e.clientY, h: viewH };
+		(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+		e.preventDefault();
+	}
+
+	function onGripMove(e: PointerEvent): void {
+		if (!gripFrom) return;
+		viewH = Math.max(VIEW_MIN_H, Math.round(gripFrom.h + (e.clientY - gripFrom.y)));
+	}
+
+	function onGripEnd(e: PointerEvent): void {
+		if (!gripFrom) return;
+		(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+		gripFrom = null;
+		try {
+			localStorage.setItem(VIEW_KEY, String(viewH));
+		} catch {
+			/* blocked storage ⇒ the size just isn't remembered */
+		}
+	}
+
 	/**
-	 * Art pixels → stage pixels: the same centred contain-fit `RegionThumb` performs on `stageBox`,
+	 * Art pixels → pane pixels: the same centred contain-fit `RegionThumb` performs on `stageBox`,
 	 * so the overlay lands exactly on the art it is describing.
 	 *
-	 * Expressed against the THUMBNAIL's own box, never the stage's. The stage is a wide centring
-	 * container, so measuring from its left edge put the overlay `(stageWidth − thumbnail) / 2` px
-	 * to the left of the art it was meant to sit on, and every drag inherited the same offset. The
-	 * markup now nests the thumbnail and the overlay in one exactly-sized wrapper, which is both
-	 * the positioning context and the element `BoundsBox` measures pointers against.
+	 * Expressed against the PANE — an element of exactly `stageSize` square holding both the
+	 * thumbnail and the overlay — never against the viewport around it. Measuring from the
+	 * viewport put the box half the leftover width away from its art, and every drag with it.
 	 */
 	const stageFit = $derived(boxFit(stageSize, stageBox));
 
@@ -911,18 +1029,30 @@
 			<section class="center">
 				<div class="preview">
 					<!-- Drag the grip in the stage's bottom-right corner to resize the preview. -->
-					<div class="stage" bind:this={stageOuter} style:height="{stageHeight}px">
+					<!--
+						A pan/zoom VIEWPORT, not a fixed window: wheel to zoom about the cursor, drag to
+						pan, ⬚ Fit to reset, and the grip below to resize. The pane inside is positioned
+						(not centred by layout) and is exactly `stageSize` square — it is both the box
+						overlay's positioning context and the element `BoundsBox` measures pointers
+						against, which is what keeps the box on its art at every zoom and pan.
+					-->
+					<div
+						class="viewport"
+						bind:this={viewportEl}
+						style:height="{viewH}px"
+						role="presentation"
+						onwheel={onWheel}
+						onpointerdown={onPanStart}
+						onpointermove={onPanMove}
+						onpointerup={onPanEnd}
+						onpointercancel={onPanEnd}
+					>
 						{#if current?.set && current.record}
-							<!--
-								ONE wrapper, sized to the thumbnail exactly, holding the art AND the box overlay.
-								That is load-bearing: the stage around it is a wide centring container, so an
-								overlay positioned against the STAGE sits half the leftover width away from the
-								art, and `BoundsBox` (which measures pointers against the element it is handed)
-								drags by that same offset. Nested here, the two share one origin by construction.
-							-->
 							<div
-								class="thumbwrap"
+								class="pane"
 								bind:this={stageEl}
+								style:left="{paneX}px"
+								style:top="{paneY}px"
 								style:width="{stageSize}px"
 								style:height="{stageSize}px"
 							>
@@ -960,7 +1090,24 @@
 								{clip.frames.length ? 'Frame not found in this sheet' : 'Add frames to preview'}
 							</div>
 						{/if}
+						<div class="viewbar">
+							<button title="Zoom out" onclick={() => zoomStep(1 / 1.25)}>−</button>
+							<span class="zoomval">{Math.round(zoom * 100)}%</span>
+							<button title="Zoom in" onclick={() => zoomStep(1.25)}>+</button>
+							<button title="Fit the clip in the viewport" onclick={fitView}>⬚ Fit</button>
+						</div>
 					</div>
+					<!-- Drag to resize the viewport. Pointer DELTAS only — the height is never read back
+					     off the element, which is what made an earlier version grow without limit. -->
+					<div
+						class="grip"
+						role="presentation"
+						title="Drag to resize the preview"
+						onpointerdown={onGripStart}
+						onpointermove={onGripMove}
+						onpointerup={onGripEnd}
+						onpointercancel={onGripEnd}
+					></div>
 					<div class="transport">
 						<button
 							class="play"
@@ -1372,21 +1519,58 @@
 		padding: 12px;
 		border-bottom: 1px solid #1f2937;
 	}
-	.stage {
-		display: grid;
-		place-items: center;
+	.viewport {
+		position: relative;
+		overflow: hidden;
 		border-radius: 8px;
 		background: #070a0e;
 		border: 1px solid #1f2937;
-		/* Native resize grip — `overflow` must not be `visible` for it to appear. The height is
-		   bound above, so the size the author drags to is observed, remembered, and fed straight
-		   back into the thumbnail. */
-		resize: vertical;
-		overflow: hidden;
-		min-height: 160px;
+		/* `border-box` so the styled height IS the measured height. The two box models disagreeing
+		   by the 2px border is exactly what an earlier observer fed back into itself. */
+		box-sizing: border-box;
+		min-height: 180px;
+		/* The wheel is the zoom and a drag is the pan, so the browser must not claim either. */
+		touch-action: none;
+		overscroll-behavior: contain;
+		cursor: grab;
 	}
-	.thumbwrap {
-		position: relative;
+	.viewport:active {
+		cursor: grabbing;
+	}
+	.pane {
+		position: absolute;
+	}
+	.viewbar {
+		position: absolute;
+		right: 8px;
+		bottom: 8px;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		padding: 3px 5px;
+		border-radius: 6px;
+		background: rgba(7, 10, 14, 0.82);
+		border: 1px solid #1f2937;
+	}
+	.viewbar button {
+		min-width: 24px;
+		padding: 2px 6px;
+		font-size: 11px;
+	}
+	.zoomval {
+		min-width: 38px;
+		text-align: center;
+		color: #64748b;
+		font-size: 11px;
+		font-variant-numeric: tabular-nums;
+	}
+	.grip {
+		height: 9px;
+		margin: 2px 0 0;
+		border-radius: 0 0 6px 6px;
+		background: repeating-linear-gradient(90deg, #1f2937 0 12px, transparent 12px 18px);
+		cursor: ns-resize;
+		touch-action: none;
 	}
 	.mirror {
 		display: grid;

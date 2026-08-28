@@ -212,3 +212,20 @@ is sized by the part that reads while a wide invisible flourish hangs outside th
 it correctly (`updateQuadBounds` positions the quad from `trim` and takes only the anchor from
 `orig`) — pinned by `pnpm --filter flipbook-spike run pixi-bounds` against the real pixi build.
 
+### 16. Pan/zoom canvas viewport (a positioned pane inside a clipping window)
+| Impl | Domain | File(s) | Status |
+|---|---|---|---|
+| **`panZoom.ts`** — the arithmetic: `paneSize` (zoom → pixel size, clamped), `zoomAbout` (anchored zoom — what is under the cursor stays under it), `centrePane`, `toPane`. Pure, offline-fixtured (`panZoom.fixture.ts`). The `/flipbook` preview consumes it | A | `apps/launcher-api/src/lib/panZoom.ts` | **canonical for domain A** |
+| Scene Editor canvas — its own `panX`/`panY`/`zoom` with `clientToWorld` / `worldToScreen`, wheel zoom and drag pan, wired into a 2D canvas draw rather than into DOM elements | A | `(app)/editor/EditorCanvas.svelte` | predates the module; different enough (it transforms a `ctx`, not a positioned element) that sharing was not forced — revisit if a third viewport appears |
+
+→ **Nothing measured is ever written back into what is measured.** A resize observer that read a
+stage's BORDER-box height and assigned it as the CONTENT-box height added the 2px border on every
+pass and grew the preview without limit, in a shipped build (248px → 650px in 200 ticks). The rule
+that replaced it: the height is owned by a drag grip writing pointer DELTAS, the observer writes
+only `contentRect` into values no style reads back, and the pane inside is absolutely positioned so
+it cannot size its parent.
+
+→ **Zoom by changing the pane's SIZE, not by a CSS `scale` on an ancestor.** Anything positioned
+inside a scaled element — a bounds box, a handle, a hit-test — has its pixel numbers and its
+pointer offsets silently multiplied, so it drifts at every zoom but 100%. Sizing the pane keeps its
+children in plain screen pixels and keeps a redrawn canvas sharp instead of upscaled.
