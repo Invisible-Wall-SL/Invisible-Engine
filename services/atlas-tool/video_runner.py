@@ -14,10 +14,12 @@ packed sheet and the clip, never a video.
 
 Three deliberate departures from the still-image path in `batch_atlas`:
 
-1. **Stateless.** Every call carries its own session id and its own context.
-   Nothing here reads or writes the process-global active manifest / render
-   state, so two users on one project cannot clobber each other's session (the
-   hazard `docs/status/atlas-maker.md` open item 4 describes for the still path).
+1. **Stateless, and QUEUED rather than refused.** Every call carries its own
+   session id and its own context, so nothing here reads or writes the
+   process-global active manifest / render state and two users on one project
+   cannot clobber each other's session (the hazard `docs/status/atlas-maker.md`
+   open item 4 describes for the still path). One session holds the runner at a
+   time; the next one waits in `_QUEUE` instead of being turned away.
 
 2. **Its own submit/poll loop** rather than `batch_atlas._runpod_run_and_wait`.
    That helper returns only the final output, but a video session needs the job
@@ -49,16 +51,25 @@ import blueprints
 import cloud_paths as project_paths
 import storage
 
-# One video session at a time, process-wide. A session is N GPU jobs on a paid
-# endpoint; letting sessions stack up is a spend hazard, not a feature. Mirrors
-# how `_render_state["running"]` gates the still-image render.
+# ONE session holds the runner at a time, process-wide — but a second one QUEUES
+# rather than being refused. Running sessions CONCURRENTLY is the spend hazard,
+# and it would also throw away the warm-worker reuse that makes a session
+# sequential in the first place; making the author cancel a live run just to line
+# the next prompt up is not a guard, it is a way to lose a paid render. `_ACTIVE`
+# is the session that owns the runner, `_QUEUE` is who gets it next, in order.
 _LOCK = threading.RLock()
 _SESSIONS: dict[str, dict] = {}
 _ACTIVE: str | None = None
+_QUEUE: list[str] = []
 
 # A variation count high enough to be useful, low enough that a fat-fingered
 # number can't queue an afternoon of GPU time.
 MAX_VARIATIONS = 12
+# How many sessions may WAIT behind the running one. The queue is serial, so it
+# never raises the burn RATE — but it does extend the tail, and an author who
+# lines up five full sessions and walks away should be told, not surprised.
+# A waiting session has spent nothing, so cancelling one is free.
+MAX_QUEUED_SESSIONS = 4
 # Poll cadence + overall per-job cap. Wan 2.2 14B on a cold worker loads ~29 GB
 # of weights before it samples anything, so the cap is generous by necessity.
 POLL_SECONDS = 3.0
@@ -193,13 +204,27 @@ def _await_job(job_id: str, var: dict, should_stop) -> dict:
             _cancel_job(job_id)
             raise _Cancelled()
         time.sleep(POLL_SECONDS)
+        # Re-check BEFORE reading the status. A cancel that lands during the sleep
+        # has ALREADY cancelled the job remotely, so polling first reads RunPod's
+        # CANCELLED and reports the author's own stop as a red FAILED tile with a
+        # raw status dict in it — which is exactly what a stopped session looked
+        # like.
+        if should_stop():
+            _cancel_job(job_id)
+            raise _Cancelled()
         st = batch_atlas._runpod_get(f"/status/{job_id}")
         status = str(st.get("status") or "").upper()
         with _LOCK:
             var["remote_status"] = status
         if status == "COMPLETED":
             return st.get("output") or {}
-        if status in ("FAILED", "CANCELLED", "TIMED_OUT"):
+        if status == "CANCELLED":
+            # Cancelled, but not by us — stopped in the RunPod console, or dropped
+            # by the endpoint. Say that, rather than printing the status dict.
+            raise RuntimeError(
+                "the GPU job was cancelled on RunPod before it finished — "
+                "re-roll this variation to try again")
+        if status in ("FAILED", "TIMED_OUT"):
             detail = st.get("error") or st.get("output") or st
             raise RuntimeError(f"job {status}: {str(detail)[:400]}")
     _cancel_job(job_id)
@@ -252,7 +277,10 @@ def _write_meta(session_id: str, session: dict) -> None:
     """Mirror the session to `meta.json` so a page reload (or a restart) can
     recover it. Written after every variation, not just at the end — an
     interrupted session should still list what it managed to produce."""
-    body = json.dumps(_public(session), indent=2).encode("utf-8")
+    # `queue_position` is true only at this instant, so it is served, never
+    # stored — a persisted one would still claim "3rd in line" a week later.
+    doc = {k: v for k, v in _public(session).items() if k != "queue_position"}
+    body = json.dumps(doc, indent=2).encode("utf-8")
     try:
         (_session_dir(session_id) / "meta.json").write_bytes(body)
         storage.put(f"{_video_prefix()}/{session_id}/meta.json",
@@ -265,12 +293,81 @@ def _write_meta(session_id: str, session: dict) -> None:
 # Session lifecycle
 # --------------------------------------------------------------------------
 def _public(session: dict) -> dict:
-    """The JSON-safe view of a session (drops the internal graph/thread refs)."""
-    return {k: v for k, v in session.items() if not k.startswith("_")}
+    """The JSON-safe view of a session (drops the internal graph/thread refs),
+    plus its LIVE place in line — 0 when it is running or already done."""
+    out = {k: v for k, v in session.items() if not k.startswith("_")}
+    sid = session.get("id")
+    with _LOCK:
+        out["queue_position"] = _QUEUE.index(sid) + 1 if sid in _QUEUE else 0
+    return out
 
 
 def _run_session(session_id: str, ctx: tuple[str, str]) -> None:
-    """Worker thread: run every variation in turn.
+    """Worker thread: own the runner for one session, then hand it on.
+
+    Everything that can throw lives inside, because the hand-on is a `finally`.
+    It used to be a plain assignment at the end of the happy path, so ANY escape
+    before it — a bad context, a missing `_blueprint` on an adopted doc — left
+    `_ACTIVE` pinned to a thread that no longer existed, and every later Generate
+    answered "a video session is already running" with no way out short of
+    restarting the container.
+    """
+    try:
+        # A new thread does NOT inherit the request thread's thread-local context —
+        # without this every path resolves to the env-default project.
+        project_paths.set_context(*ctx)
+        with _LOCK:
+            session = _SESSIONS.get(session_id)
+        if session:
+            try:
+                _run_variations(session_id, session)
+            except Exception as e:  # noqa: BLE001 — record it; never wedge the queue
+                print(f"[video] {session_id} runner died: {e}", flush=True)
+                with _LOCK:
+                    session["error"] = str(e)[:400]
+                    for v in session["variations"]:
+                        if v["status"] in ("queued", "running"):
+                            v.update(status="failed", error=str(e)[:400],
+                                     finished=_now())
+            with _LOCK:
+                done = sum(1 for v in session["variations"] if v["status"] == "done")
+                session.update(
+                    status="cancelled" if session.get("cancel") and not done
+                    else "finished",
+                    finished=_now(), done_count=done)
+            _write_meta(session_id, session)
+    finally:
+        _release(session_id)
+
+
+def _release(session_id: str) -> None:
+    """Hand the runner to the next session in line.
+
+    Only the session that OWNS the runner may release it: if `_ACTIVE` has moved
+    on already (a stale entry that a later Generate stepped over), a late-dying
+    thread must not hijack the queue on its way out.
+    """
+    global _ACTIVE
+    nxt = None
+    with _LOCK:
+        if _ACTIVE != session_id:
+            return
+        _ACTIVE = None
+        while _QUEUE:
+            sid = _QUEUE.pop(0)
+            s = _SESSIONS.get(sid)
+            if not s or s.get("cancel") or s.get("status") in ("finished",
+                                                               "cancelled"):
+                continue  # cancelled while it waited — nothing was ever spent on it
+            _ACTIVE = sid
+            nxt = (sid, (str(s.get("client") or ""), str(s.get("project") or "")))
+            break
+    if nxt:
+        threading.Thread(target=_run_session, args=nxt, daemon=True).start()
+
+
+def _run_variations(session_id: str, session: dict) -> None:
+    """Run every variation of one session in turn.
 
     SEQUENTIAL by design. The serverless handler deliberately keeps ComfyUI warm
     between jobs when VRAM allows, so consecutive variations reuse a loaded model
@@ -278,14 +375,6 @@ def _run_session(session_id: str, ctx: tuple[str, str]) -> None:
     trade that for N cold starts. Results still stream in one tile at a time, so
     the grid fills progressively either way.
     """
-    # A new thread does NOT inherit the request thread's thread-local context —
-    # without this every path resolves to the env-default project.
-    project_paths.set_context(*ctx)
-    with _LOCK:
-        session = _SESSIONS.get(session_id)
-    if not session:
-        return
-
     def should_stop() -> bool:
         with _LOCK:
             return bool(session.get("cancel"))
@@ -344,17 +433,6 @@ def _run_session(session_id: str, ctx: tuple[str, str]) -> None:
             print(f"[video] {session_id} v{var['index']:03d} failed: {e}", flush=True)
         _write_meta(session_id, session)
 
-    with _LOCK:
-        done = sum(1 for v in session["variations"] if v["status"] == "done")
-        session.update(
-            status="cancelled" if session.get("cancel") and not done else "finished",
-            finished=_now(), done_count=done)
-    _write_meta(session_id, session)
-    global _ACTIVE
-    with _LOCK:
-        if _ACTIVE == session_id:
-            _ACTIVE = None
-
 
 def start_session(req: dict, ctx: tuple[str, str], user: str = "") -> dict:
     """Validate a generate request and start a session. Raises ValueError with a
@@ -405,10 +483,17 @@ def start_session(req: dict, ctx: tuple[str, str], user: str = "") -> dict:
     given = given if isinstance(given, list) else []
 
     with _LOCK:
-        if _ACTIVE and _SESSIONS.get(_ACTIVE, {}).get("status") in ("running", "queued"):
+        # `_ACTIVE` only means something while its session is genuinely live — a
+        # stale id left by a worker that died with the process must not lock the
+        # tool out, which is the state this used to fall into permanently.
+        busy = bool(_ACTIVE) and _SESSIONS.get(_ACTIVE, {}).get("status") in (
+            "running", "queued")
+        if busy and len(_QUEUE) >= MAX_QUEUED_SESSIONS:
             raise ValueError(
-                "A video session is already running. Wait for it to finish, or "
-                "cancel it first.")
+                f"{len(_QUEUE)} sessions are already waiting behind the running "
+                f"one, which is the limit ({MAX_QUEUED_SESSIONS}). Cancel one to "
+                "make room — a session that has not started yet has spent "
+                "nothing, so cancelling it is free.")
         session_id = _new_session_id()
         session = {
             "id": session_id,
@@ -445,10 +530,14 @@ def start_session(req: dict, ctx: tuple[str, str], user: str = "") -> dict:
             "_blueprint": bp,
         }
         _SESSIONS[session_id] = session
-        _ACTIVE = session_id
+        if busy:
+            _QUEUE.append(session_id)
+        else:
+            _ACTIVE = session_id
 
-    threading.Thread(target=_run_session, args=(session_id, ctx),
-                     daemon=True).start()
+    if not busy:
+        threading.Thread(target=_run_session, args=(session_id, ctx),
+                         daemon=True).start()
     return _public(session)
 
 
@@ -489,13 +578,17 @@ def _adopt(stored: dict) -> dict | None:
         return None
     bp = blueprints.get_blueprint(str(stored.get("blueprint") or ""))
     if not bp:
-        # Blueprint gone: say so instead of leaving it "running" forever.
+        # Blueprint gone: say so instead of leaving it "running" forever. WRITTEN
+        # back, not just returned — an unpersisted verdict means the stored doc
+        # still says "running" and every later read re-derives the same thing.
         stored["status"] = "cancelled"
+        stored["finished"] = _now()
         for v in stored.get("variations", []):
             if v.get("status") in ("running", "queued"):
                 v["status"] = "failed"
                 v["error"] = ("The blueprint this session used is no longer in "
                               "the library, so it cannot be resumed.")
+        _write_meta(sid, stored)
         return stored
     for v in stored.get("variations", []):
         # Submitted-but-unrecorded: the id was lost with the process, so we
@@ -506,14 +599,23 @@ def _adopt(stored: dict) -> dict | None:
                           "recorded — re-roll this variation.")
     ctx = (str(stored.get("client") or ""), str(stored.get("project") or ""))
     with _LOCK:
-        if _ACTIVE and _ACTIVE != sid:
-            active = _SESSIONS.get(_ACTIVE, {})
-            if active.get("status") in ("running", "queued"):
-                return stored  # something else is genuinely running; don't stack
         stored["_blueprint"] = bp
         stored.setdefault("cancel", False)
         _SESSIONS[sid] = stored
-        _ACTIVE = sid
+        busy = (_ACTIVE and _ACTIVE != sid
+                and _SESSIONS.get(_ACTIVE, {}).get("status") in ("running",
+                                                                 "queued"))
+        if busy:
+            # Something else genuinely holds the runner. LINE THE ORPHAN UP rather
+            # than dropping it: it resumes from its recorded state, so waiting
+            # costs nothing and the jobs it already paid for are still collected.
+            if sid not in _QUEUE:
+                _QUEUE.append(sid)
+        else:
+            _ACTIVE = sid
+    if busy:
+        print(f"[video] queued orphaned session {sid}", flush=True)
+        return _public(stored)
     print(f"[video] adopted orphaned session {sid}", flush=True)
     threading.Thread(target=_run_session, args=(sid, ctx), daemon=True).start()
     return _public(stored)
@@ -534,11 +636,27 @@ def cancel_session(session_id: str) -> dict:
         s = _SESSIONS.get(session_id)
         if s:
             s["cancel"] = True
-            in_flight = [v.get("job_id") for v in s["variations"]
-                         if v["status"] == "running" and v.get("job_id")]
+            if session_id in _QUEUE:
+                _QUEUE.remove(session_id)
+            live = [v for v in s["variations"] if v["status"] == "running"]
+            in_flight = [v["job_id"] for v in live if v.get("job_id")]
+            # No variation is in flight, so no worker will ever notice the flag
+            # and close this out: it is either still WAITING in line, or its
+            # thread died with an earlier process. Settle it here rather than
+            # leaving a session that claims to run forever — which is what kept
+            # the next Generate answering "already running".
+            settle = not live and s.get("status") in ("queued", "running")
+            if settle:
+                for v in s["variations"]:
+                    if v["status"] in ("queued", "running"):
+                        v.update(status="cancelled", finished=_now())
+                s.update(status="cancelled", finished=_now())
     if s:
         for jid in in_flight:
             _cancel_job(jid)
+        if settle:
+            _write_meta(session_id, s)
+            _release(session_id)
         return {"ok": True, "id": session_id, "cancelling": len(in_flight),
                 "adopted": False}
 
@@ -611,6 +729,8 @@ def delete_session(session_id: str) -> dict:
         if s and s.get("status") in ("running", "queued"):
             raise ValueError("Cancel the session before deleting it.")
         _SESSIONS.pop(session_id, None)
+        if session_id in _QUEUE:
+            _QUEUE.remove(session_id)
     prefix = f"{_video_prefix()}/{session_id}/"
     removed = 0
     try:

@@ -245,8 +245,13 @@ of a project's asset budget for one animation. So the trim step is not a nicety:
      output, and a session needs the job id *while in flight*, for live status and for cancel.
      Cancel is remote (`POST /cancel/{job}`), so a cancelled session stops **burning**, not just
      stops reporting.
-   - **One session at a time, process-wide.** A session is N GPU jobs on a paid endpoint; letting
-     them stack is a spend hazard, not a feature. Mirrors the `_render_state["running"]` gate.
+   - **One session RUNS at a time, process-wide — the rest QUEUE.** Running sessions
+     concurrently is the spend hazard, and it would also throw away the warm-worker reuse that
+     makes a session sequential in the first place. Refusing them outright was a different
+     mistake: the tool's only advice was "cancel it first", so lining up a second prompt meant
+     killing a paid render. `_ACTIVE` owns the runner, `_QUEUE` is the line behind it (cap
+     `MAX_QUEUED_SESSIONS`, a waiting session having spent nothing and cancelling for free), and
+     the hand-off is a `finally` — a worker that dies can no longer wedge the tool.
    - **Seeds are capped at 2^53−1.** They are echoed into `meta.json`, which a browser parses —
      a larger integer silently loses precision in JSON, so a "locked" seed would round to a
      different one and stop reproducing its own render.
