@@ -250,6 +250,9 @@ EmitterLayer {
     assetKey: string;              // loadedAssets key = an atlas/sheet bundle (the `key` prop)
     frames: string[];              // region/frame names; >1 + animated = a flipbook particle
     animated?: boolean;            // AnimatedParticle vs static texture
+    weights?: number[];            // static mix only: relative spawn share per frame
+    framerate?: number;            // flipbook fps; absent/-1 = stretch across the particle's life
+    loop?: boolean;                // flipbook repeat (only meaningful with a real framerate)
   };
   placement: {
     space: 'free' | 'bone';        // free = positioned in the scene; bone = follow a rig bone

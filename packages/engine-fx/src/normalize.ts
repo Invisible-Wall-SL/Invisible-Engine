@@ -50,6 +50,14 @@ const normalizeArt = (raw: unknown): EmitterArt | undefined => {
 		);
 		if (w.every((v) => v >= 0) && w.some((v) => v > 0)) art.weights = w;
 	}
+	// Flipbook playback (`animated` only). A non-positive framerate IS match-life, which is also
+	// the default — so it's dropped rather than stored, keeping an untouched doc byte-identical.
+	// `loop` follows the same rule the library enforces: meaningless without a real fps.
+	const framerate = num(raw.framerate);
+	if (art.animated && framerate !== undefined && Number.isFinite(framerate) && framerate > 0) {
+		art.framerate = framerate;
+		if (bool(raw.loop)) art.loop = true;
+	}
 	return art;
 };
 

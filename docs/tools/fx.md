@@ -5,17 +5,17 @@ emitter **layers** — over a project's atlas art, tune each emitter live in a W
 preview, and save it. The saved artifact is an **EffectDoc** stored in the project's
 cloud storage.
 
-> **Status (as of 2026-06-25):** **Phases 1 + 2 + 4 — emitter-core authoring + Spine
-> attach + the full author→ship→fire loop.** What ships now: add emitter layers, draw their
-> particle art from a project atlas, tune the emitter live, **load a project Spine rig as a
-> backdrop and pin a layer onto one of its bones** so the particles ride the animation,
-> author **when** a layer fires (ambient, or on a game event), and save/reopen the effect.
-> A saved effect **does** travel into a game — the export → `deploy/` → bake → pull →
-> register chain is wired, and a layer set to fire **on event** plays in-game when a
-> matching event (e.g. a Flow Broadcast) crosses the runtime event bus. The one remaining
-> gap is the **spine-as-particle tier** (whole Spine clips *as* the particles), which is
-> still gated behind a make-or-break spike. See "What it does not do yet" below, and the
-> design doc for the full roadmap.
+> **Status (as of 2026-08-28):** **All three particle tiers + the full author→ship→fire
+> loop ship.** What you get: stack emitter layers (reorder, duplicate, copy/paste them —
+> including between effects), draw their particle art from a project atlas, tune every
+> emitter knob live — **direction & spread, spin, alpha, scale, speed, gravity, colour and
+> a colour overlay, each with an optional per-particle Min / Max range** — **load a project
+> Spine rig as a backdrop and pin a layer onto one of its bones**, emit **whole Spine clips
+> as the particles** (Tier C), author **when** a layer fires (ambient, or on a game event),
+> and save/reopen the effect. A saved effect travels into a game through the export →
+> `deploy/` → bake → pull → register chain, and a layer set to fire **on event** plays
+> in-game when a matching event (e.g. a Flow Broadcast) crosses the runtime event bus. See
+> the design doc for the roadmap and `docs/status/fx.md` for what is still owner-verified.
 
 ## What it is
 
@@ -85,10 +85,19 @@ error) and a live **layer count**.
 ### Build the layers
 
 The left **Layers** panel lists the effect's emitter layers. Use **+ Add** to add a
-layer, click a row to select it (the right-hand Inspector then edits that layer), and
-use the **✕** on a row to remove it. Each row shows the layer's key and how many art
-frames it has. An effect always keeps at least one layer — the **✕** is disabled when
-only one remains.
+layer, click a row to select it (the right-hand Inspector then edits that layer). Each
+row shows the layer's key, how many art frames it has, and four buttons:
+
+- **▲ / ▼** — move the layer in the stack. **List order is draw order**: the layer at the
+  bottom of the list renders in front. The preview restacks immediately.
+- **⧉** — duplicate the layer; the copy lands directly beneath the original with a fresh
+  key (`sparks` → `sparks-2`) and is selected for you.
+- **✕** — remove the layer. An effect always keeps at least one, so this is disabled when
+  only one remains.
+
+Below the list, **⧉ Copy** puts the selected layer on a clipboard and **📋 Paste** drops a
+copy in after the selected layer. The clipboard survives navigation, so this is how you
+**move a layer between effects**: copy it here, open another effect, paste.
 
 ### The preview
 
@@ -135,7 +144,11 @@ With a layer selected, the right **Inspector** edits it:
   With Flipbook off, a **Mix — per-image share** control appears with a slider per frame:
   drag them to weight how often each image is picked (a `%` readout shows the resulting
   share). This is how you make, say, a 70/30 coins-to-gems burst. Leaving the sliders even
-  gives a uniform mix.
+  gives a uniform mix. With Flipbook **on**, you also get its playback:
+  **Match particle lifetime** (the default — the frames are stretched across each
+  particle's life so the sequence plays through exactly once, however long the particle
+  lives), or untick it for an explicit **Speed (fps)** plus a **Loop while the particle
+  lives** toggle (off = the animation holds on its last frame once it has played).
 - **Placement** — where the layer's emitter sits. **Mode** is **Free (scene)** (spawns
   at the scene origin) or **Bone (rig)** (follows a bone of the loaded Spine backdrop —
   enabled only when a backdrop is loaded). In **Bone** mode a **Bone** dropdown lists the
@@ -165,11 +178,44 @@ With a layer selected, the right **Inspector** edits it:
   This is what makes "fire effect X on game event Y" authorable end-to-end: the layer
   carries the event binding, and the runtime (after the effect is shipped — see Save)
   plays it when that event crosses the bus.
+- **Layer → Preset** — drop in a ready-made effect (Fountain, Fire, Smoke, Sparks,
+  Explosion-burst, Rain, Snow, Confetti, Magic glow) and tune it. The preset replaces the
+  layer's emitter numbers; its art, placement and trigger are kept.
 - **Emitter** — the core emitter numbers: **Frequency (s)** (seconds between spawns),
-  **Max particles**, **Lifetime min/max (s)**, and a **Spawn radius** (when the emitter
-  uses a spawn-circle).
-- **Alpha**, **Scale**, **Speed** — each has a **Start** and **End** endpoint, so a
-  particle can fade, grow/shrink, and slow/accelerate over its lifetime.
+  **Max particles**, **Lifetime min/max (s)**.
+- **Spawn** — where particles are born: **Point**, **Circle** (radius), **Ring**
+  (outer + inner radius), **Rectangle** (width/height), or **Burst (ring)** — an even fan,
+  one particle every *Spacing°* from a *Start angle*, spawned *Distance* px out. Burst
+  owns the launch direction, so the Direction controls step aside while it's selected.
+- **Direction & rotation** — **Direction (°)** and **Spread (±°)** set the launch arc
+  (0° = right, 90° = up, 180° = left, 270° = down; spread 180° = every direction, and each
+  particle picks an angle inside Direction ± Spread). **Spin min/max (°/s)** and **Spin
+  accel** turn the particle as it flies — each particle picks a rate between min and max.
+  **On** adds or removes the whole direction control, so a layer that has none can grow
+  one. **Lock the particle's angle** pins the sprite to a fixed **Locked angle** —
+  particles still travel along the direction, they just don't rotate to face it, which is
+  what flat art (confetti, snowflakes, a flipbook) usually wants.
+- **Alpha**, **Scale** — each has **On** (add/remove the curve entirely) and a **Start**
+  and **End** value, so a particle can fade and grow/shrink over its lifetime.
+- **Movement** — **Eased speed** (a **Speed start**/**end** curve along the launch
+  direction) or **Gravity (acceleration)** (**Start speed min/max**, **Gravity X/Y**, a
+  **Max speed** cap, and *Rotate particle to its travel direction*). Up-direction +
+  downward gravity = a fountain.
+- **Min / Max (vary per particle)** — Alpha, Scale and the eased Speed each carry this
+  toggle. Off, every particle follows the same curve. On, Start and End each split into a
+  **min** and a **max** and each particle is randomised inside that band. One caveat worth
+  knowing: a particle draws **one** random multiplier and keeps it for its whole life, so
+  the min ÷ max **ratio is shared** between Start and End (a particle that spawns small
+  stays proportionally small). Editing a **min** sets that ratio; editing a **max** moves
+  the authored curve and the floor rides along. The percentage is shown under the sliders.
+- **Colour** — **Tint particles over life** interpolates a **Start** and **End** colour
+  across each particle's life (identically for every particle). **Colour overlay
+  (per-particle intensity)** is the varying one: pick an **Overlay** colour and an
+  **Intensity min/max**, and every particle draws its own strength in that band — 0 leaves
+  the art untouched, 1 replaces it with the overlay colour. It lays on **top** of the
+  over-life tint, so a spread here breaks up a flat-coloured burst.
+- **Blend mode** — Normal / **Add (glow)** / Screen / Multiply. Add and screen give the
+  additive glow fire, sparks and magic want.
 
 ### Save
 
@@ -198,10 +244,6 @@ mere save.
 
 ## What it does not do yet
 
-- **No spine-as-particle tier.** Emitting whole Spine clips *as* the particles is an
-  ambitious later tier gated behind a make-or-break spike (Phase 0 / Tier C in the design
-  doc); this version emits sprite particles drawn from atlas regions. (A Spine rig can be
-  a backdrop and a layer can ride a bone — but the *particles* are sprites.)
 - **It authors the effect and its trigger binding, not the broader flow.** Invisible FX
   owns the effect (its emitters, art, placement) and the event it fires on. The wider
   presentation flow — what *broadcasts* that event, and when — is authored in Invisible
@@ -215,6 +257,13 @@ mere save.
   live WebGL pixels.
 - **One atlas per layer.** A layer's frames come from a single atlas; mixing regions
   from different atlases in one layer is not supported — add another layer instead.
+- **Min / Max shares one ratio across a curve's ends.** See the Inspector note above:
+  that's the particle library's own model (one multiplier per particle, for life), not a
+  shortcut — independent start and end bands are not expressible.
+- **Not everything can vary per particle.** Frequency and Max particles are emitter-wide,
+  and gravity's acceleration is a constant field — none of them are per-particle values,
+  so they have no Min / Max. Lifetime, the launch arc, spin and the gravity start speed
+  are already authored as ranges.
 
 ## For developers
 
@@ -228,14 +277,18 @@ mere save.
   on `?effect=<id>`, and the project's emitter **vocabulary** `eventTypes` — resolved by
   the LayoutDoc `gameType` via `resolveEmitterVocabulary`, the same source `/flow` uses, so
   the Trigger picker offers exactly the events a Flow Broadcast can emit). `+page.svelte`
-  is the authoring shell (sub-bar, Layers panel, Inspector with Layer / Art / Placement /
-  Trigger / Emitter / Alpha / Scale / Speed sections, and the Backdrop bar above the
-  canvas). `FxStage.svelte` is the WebGL stage (own `PIXI.Application` + pan/zoom/
+  is the authoring shell (sub-bar, Layers panel with the stack ops, Inspector with Layer /
+  Particle / Art / Placement / Trigger / Emitter / Spawn / Direction &amp; rotation / Alpha /
+  Scale / Movement / Colour / Blend sections, and the Backdrop bar above the canvas).
+  `FxStage.svelte` is the WebGL stage (own `PIXI.Application` + pan/zoom/
   play-pause + a live `Emitter` per layer, the centre-spawned placeholder dots for an
   unbound layer, and the Tier-B Spine backdrop — loaded imperatively and ridden per-frame,
-  replicating `SpineBone` for `bone`-placed layers). `fxModel.client.ts` is the pure,
-  rune-free editing model + config/placement/**trigger** mutators (+ the bone-follow
-  coordinate math, harness-covered in `tools/fx-spike`).
+  replicating `SpineBone` for `bone`-placed layers; it also re-appends the emitter
+  containers in doc order each rebuild so a layer reorder restacks the preview).
+  `fxModel.client.ts` is the pure, rune-free editing model + config/placement/**trigger**
+  mutators, the min/max `curveRange`/`setCurveBound` seam, the colour-overlay + rotation-lock
+  + flipbook-playback setters, and the layer stack ops (+ the bone-follow coordinate math),
+  all harness-covered in `tools/fx-spike` (`variation.ts` for everything min/max-related).
   `fxSpine.client.ts` loads a project skeleton via the shared `/spine/skeletons` +
   `/spine/file` endpoints (whose `requireSpineAccess` gate now also accepts the `fx`
   tool).
@@ -245,6 +298,15 @@ mere save.
   editor-only `<id>.fx.meta.json` as two separate objects and runs `normalizeEffectDoc`
   as the gatekeeper so editor-only state never reaches the shipped doc.
 - **The shared package:** `packages/engine-fx` — the EffectDoc schema (`types.ts`,
-  re-exporting `EmitterConfigV3` verbatim from `@barvynkoa/particle-emitter`) and the
-  serialize/deserialize contract (`normalize.ts`), shared so both the launcher and the
-  engine-side player import the same types.
+  re-exporting `EmitterConfigV3` verbatim from `@barvynkoa/particle-emitter`), the
+  serialize/deserialize contract (`normalize.ts`), the art→config seam (`bindArt.ts`,
+  which also folds the layer's flipbook `framerate`/`loop` into `animatedSingle`), and
+  `behaviors.ts` — the two CUSTOM particle behaviors the stock library has no equivalent
+  for: `fxAlpha` (the alpha curve plus a per-particle `minMult`, mirroring the library's
+  own `ScaleBehavior`) and `fxColorOverlay` (a colour laid over each particle at a random
+  intensity). They are plain, import-free classes, so `registerFxBehaviors(Emitter)` takes
+  the `Emitter` class as an argument and the package stays PixiJS-free. **Every renderer
+  must have called it** — the runtime does so in `<ParticleEmitter>`, and all three
+  launcher-side stages inherit it from `$lib/fx/effectEmitter.client.ts`, which every one
+  of them imports. A config only carries these types while the author has that knob on, so
+  an effect that doesn't use them stays 100% stock library config.

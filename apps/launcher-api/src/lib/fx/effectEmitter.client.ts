@@ -7,8 +7,15 @@
  * the browser-side art loading (an authenticated `/api/editor/asset?key=…` page → a `TextureSource`)
  * and the per-frame slicing, so both stages resolve art identically and neither re-implements it.
  */
+import { Emitter } from '@barvynkoa/particle-emitter';
 import { ImageSource, Rectangle, Texture, type TextureSource } from 'pixi.js';
-import type { EmitterLayer } from 'engine-fx';
+import { registerFxBehaviors, type EmitterLayer } from 'engine-fx';
+
+// Teach the library our two custom behaviors (`fxAlpha`, `fxColorOverlay`) before any launcher-side
+// emitter inits. This module is imported by EVERY launcher stage that renders particles (`/fx`'s
+// `FxStage`, the Scene Editor's `EditorEffectLayer`, the Rigger/Symbols `fxOverlay`), so one call
+// here covers all three — the runtime's own registration lives in `<ParticleEmitter>`. Idempotent.
+registerFxBehaviors(Emitter);
 
 /** An atlas page + its per-frame rects — what a layer's `art.assetKey` resolves to. */
 export interface ResolvedArt {

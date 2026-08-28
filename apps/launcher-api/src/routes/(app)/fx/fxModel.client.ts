@@ -12,6 +12,8 @@
 
 import {
 	EFFECT_DOC_VERSION,
+	FX_ALPHA_BEHAVIOR_TYPE,
+	FX_COLOR_OVERLAY_BEHAVIOR_TYPE,
 	behaviorsOf,
 	type BehaviorEntry,
 	type EffectDoc,
@@ -1484,4 +1486,435 @@ export function applyPreset(layer: EmitterLayer, presetKey: string): EmitterLaye
 	const preset = FX_PRESETS.find((p) => p.key === presetKey);
 	if (!preset) return layer;
 	return { ...layer, config: preset.build() };
+}
+
+// ===========================================================================
+// Per-particle VARIATION — the min/max seam.
+//
+// `@barvynkoa/particle-emitter` expresses "this value differs per particle" as
+// a `minMult` on a curve behavior: one random multiplier in `[minMult, 1]` is
+// picked per particle and applied to the WHOLE curve for that particle's life
+// (`ScaleBehavior`/`SpeedBehavior`). So a min/max pair projects onto the curve
+// as `max` = the authored endpoint and `min` = `max × minMult`.
+//
+// Because the multiplier is per-particle-per-life, the SAME ratio governs both
+// ends of the curve — a particle that spawns small stays proportionally small.
+// That's the library's physics, not a shortcut: the inspector shows four boxes
+// (start min/max, end min/max) linked by that one ratio, and editing any `min`
+// re-derives it.
+//
+// `alpha` is the one curve the library gives no `minMult`. `fxAlpha` (our own
+// behavior, `engine-fx/src/behaviors.ts`) is byte-identical to the stock `alpha`
+// config plus that knob, so the two swap by TYPE alone — and a config only ever
+// carries `fxAlpha` while variation is actually on (`minMult < 1`), keeping every
+// other effect 100% stock. Same downgrade discipline as `rotation`↔`rotationStatic`.
+// ===========================================================================
+
+/** The three curve properties that support per-particle variation. */
+export type CurveProp = 'alpha' | 'scale' | 'speed';
+
+interface CurveSpec {
+	/** Behavior type(s) that can hold this curve (alpha has a stock + a varied twin). */
+	types: string[];
+	/** The behavior-config key holding the `ValueList` (`alpha` / `scale` / `speed`). */
+	key: 'alpha' | 'scale' | 'speed';
+	/** The behavior type to use when variation is ON, and when it's OFF. */
+	varied: string;
+	plain: 'alpha' | 'scale' | 'moveSpeed';
+	/** The curve a freshly-enabled behavior starts from. */
+	defaults: [number, number];
+}
+
+const CURVE_SPECS: Record<CurveProp, CurveSpec> = {
+	alpha: {
+		types: ['alpha', FX_ALPHA_BEHAVIOR_TYPE],
+		key: 'alpha',
+		varied: FX_ALPHA_BEHAVIOR_TYPE,
+		plain: 'alpha',
+		defaults: [1, 0],
+	},
+	scale: { types: ['scale'], key: 'scale', varied: 'scale', plain: 'scale', defaults: [0.5, 0.15] },
+	speed: {
+		types: ['moveSpeed'],
+		key: 'speed',
+		varied: 'moveSpeed',
+		plain: 'moveSpeed',
+		defaults: [300, 120],
+	},
+};
+
+/** Find whichever behavior currently holds a curve property (stock or varied twin). */
+function curveBehavior(config: EmitterConfigV3, prop: CurveProp): BehaviorEntry | undefined {
+	const spec = CURVE_SPECS[prop];
+	return behaviorsOf(config).find((b) => spec.types.includes(b.type));
+}
+
+/** A curve property's authored endpoints plus the per-particle range each one spans. */
+export interface CurveRange {
+	/** The authored curve endpoints — the TOP of each end's range. */
+	startMax: number;
+	endMax: number;
+	/** The bottom of each end's range (`max × minMult`). Equals max when variation is off. */
+	startMin: number;
+	endMin: number;
+	/** The shared per-particle multiplier (1 ⇒ every particle identical). */
+	minMult: number;
+	/** Whether the author has turned variation on (`minMult < 1`). */
+	varied: boolean;
+}
+
+/**
+ * Read a curve property's min/max ranges. `undefined` when the config has no behavior for it
+ * (the inspector then offers to ADD one rather than silently hiding the section).
+ */
+export function curveRange(config: EmitterConfigV3, prop: CurveProp): CurveRange | undefined {
+	const b = curveBehavior(config, prop);
+	if (!b) return undefined;
+	const holder = b.config[CURVE_SPECS[prop].key] as { list?: ListPoint[] } | undefined;
+	const list = holder?.list;
+	if (!Array.isArray(list) || list.length === 0) return undefined;
+	const startMax = list[0].value;
+	const endMax = list[list.length - 1].value;
+	const raw = Number(b.config.minMult);
+	const minMult = Number.isFinite(raw) ? Math.min(1, Math.max(0, raw)) : 1;
+	return {
+		startMax,
+		endMax,
+		startMin: startMax * minMult,
+		endMin: endMax * minMult,
+		minMult,
+		varied: minMult < 1,
+	};
+}
+
+/** A fresh behavior entry for a curve property, at its default endpoints. */
+function newCurveBehavior(prop: CurveProp): BehaviorEntry {
+	const spec = CURVE_SPECS[prop];
+	return {
+		type: spec.plain,
+		config: {
+			[spec.key]: {
+				list: [
+					{ time: 0, value: spec.defaults[0] },
+					{ time: 1, value: spec.defaults[1] },
+				],
+			},
+		},
+	};
+}
+
+/**
+ * Add or remove a curve property's behavior immutably. Removing drops BOTH the stock and varied
+ * twins; adding seeds the default curve. Already in the requested state ⇒ a no-op, so the
+ * inspector's checkbox is idempotent.
+ */
+export function setCurveEnabled(
+	config: EmitterConfigV3,
+	prop: CurveProp,
+	on: boolean,
+): EmitterConfigV3 {
+	const present = !!curveBehavior(config, prop);
+	if (present === on) return config;
+	if (!on) return removeBehaviors(config, ...CURVE_SPECS[prop].types);
+	const next = cloneConfig(config);
+	behaviorsOf(next).push(newCurveBehavior(prop));
+	return next;
+}
+
+/** Rewrite a curve behavior's `minMult` immutably, swapping stock ⇄ varied type as needed. */
+function writeMinMult(config: EmitterConfigV3, prop: CurveProp, minMult: number): EmitterConfigV3 {
+	const spec = CURVE_SPECS[prop];
+	const clamped = Math.min(1, Math.max(0, Number.isFinite(minMult) ? minMult : 1));
+	const next = cloneConfig(config);
+	const b = behaviorsOf(next).find((x) => spec.types.includes(x.type));
+	if (!b) return next;
+	if (clamped >= 1) {
+		b.type = spec.plain;
+		delete b.config.minMult;
+	} else {
+		b.type = spec.varied;
+		b.config.minMult = clamped;
+	}
+	return next;
+}
+
+/** The multiplier a freshly-enabled variation starts at — a visible but sane spread. */
+const DEFAULT_MIN_MULT = 0.5;
+
+/**
+ * Turn per-particle variation on/off for a curve property immutably. Turning it ON when the
+ * curve is currently uniform seeds a half-strength floor; turning it OFF pins every particle to
+ * the authored curve (and, for alpha, drops back to the stock behavior).
+ */
+export function setCurveVaried(
+	config: EmitterConfigV3,
+	prop: CurveProp,
+	on: boolean,
+): EmitterConfigV3 {
+	const range = curveRange(config, prop);
+	if (!range) return config;
+	if (!on) return writeMinMult(config, prop, 1);
+	return writeMinMult(config, prop, range.minMult < 1 ? range.minMult : DEFAULT_MIN_MULT);
+}
+
+/**
+ * Set one bound of one end of a curve property, immutably.
+ *
+ * - `max` writes the authored curve endpoint (the ratio, hence the matching `min`, rides along).
+ * - `min` re-derives the SHARED per-particle ratio from that end (`minMult = min / max`), so the
+ *   other end's floor moves with it — the library picks one multiplier per particle for its whole
+ *   life, so a single ratio is the only thing it can express.
+ *
+ * A `min` above its `max` clamps to equal (no variation); a zero `max` can't carry a ratio, so it
+ * pins the ratio to 1.
+ */
+export function setCurveBound(
+	config: EmitterConfigV3,
+	prop: CurveProp,
+	which: 'start' | 'end',
+	bound: 'min' | 'max',
+	value: number,
+): EmitterConfigV3 {
+	const range = curveRange(config, prop);
+	if (!range) return config;
+	const v = Number.isFinite(value) ? value : 0;
+	const spec = CURVE_SPECS[prop];
+	if (bound === 'max') {
+		// NOT `setListEndpoint`: it matches the behavior by its exact stock `type`, which misses
+		// alpha once variation has swapped it to `fxAlpha`. Resolve through `curveBehavior` so
+		// both twins are edited the same way.
+		const next = cloneConfig(config);
+		const b = behaviorsOf(next).find((x) => spec.types.includes(x.type));
+		const list = (b?.config[spec.key] as { list?: ListPoint[] } | undefined)?.list;
+		if (!Array.isArray(list) || list.length === 0) return next;
+		if (which === 'start') list[0].value = v;
+		else list[list.length - 1].value = v;
+		return next;
+	}
+	const max = which === 'start' ? range.startMax : range.endMax;
+	if (!max) return writeMinMult(config, prop, 1);
+	return writeMinMult(config, prop, Math.min(1, Math.max(0, v / max)));
+}
+
+// ---------------------------------------------------------------------------
+// Emission arc + rotation lock.
+//
+// `setEmissionArc` already UPSERTS a rotation behavior, but a config carrying
+// none at all (a burst, or a hand-authored config) used to show NO Emission
+// section, leaving the author no way to introduce a launch direction. These make
+// the section additive, and expose the library's `noRotation` — which pins the
+// particle's VISUAL angle after the movement behaviors have already read the
+// launch direction, so art can travel in an arc without spinning to face it.
+// ---------------------------------------------------------------------------
+
+/** Whether the config carries a launch-direction (rotation) behavior at all. */
+export function hasEmission(config: EmitterConfigV3): boolean {
+	return !!rotationBehavior(config);
+}
+
+/** Add or remove the launch-direction behavior immutably (omnidirectional when added). */
+export function setEmissionEnabled(config: EmitterConfigV3, on: boolean): EmitterConfigV3 {
+	if (!on) return removeBehaviors(config, 'rotation', 'rotationStatic');
+	if (rotationBehavior(config)) return config;
+	const next = cloneConfig(config);
+	behaviorsOf(next).push({ type: 'rotationStatic', config: { min: 0, max: 360 } });
+	return next;
+}
+
+/** The locked particle angle (°), or `undefined` when particles are free to face their travel. */
+export function rotationLock(config: EmitterConfigV3): number | undefined {
+	const b = behaviorsOf(config).find((x) => x.type === 'noRotation');
+	if (!b) return undefined;
+	const v = Number(b.config.rotation ?? 0);
+	return Number.isFinite(v) ? v : 0;
+}
+
+/**
+ * Pin (or release) the particle's visual angle immutably. `null` removes the lock. The lock runs
+ * AFTER the movement behaviors have read the launch direction, so locked particles still travel
+ * along the emission arc — they just don't rotate to face it (what flat art like confetti,
+ * snowflakes or a flipbook usually wants).
+ */
+export function setRotationLock(config: EmitterConfigV3, angle: number | null): EmitterConfigV3 {
+	if (angle === null) return removeBehaviors(config, 'noRotation');
+	const rotation = Number.isFinite(angle) ? (angle as number) : 0;
+	return upsertBehavior(
+		config,
+		'noRotation',
+		() => ({ rotation }),
+		(b) => {
+			b.config.rotation = rotation;
+		},
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Colour overlay (our `fxColorOverlay` behavior) — a colour laid over each
+// particle at a PER-PARTICLE random intensity. The stock `color` behavior
+// interpolates identically for every particle, so a varied tint has no library
+// equivalent; this composes ON TOP of it (it runs late), which is why the two
+// are independent toggles rather than one mode switch.
+// ---------------------------------------------------------------------------
+
+/** The overlay colour + its per-particle intensity range. */
+export interface ColorOverlay {
+	color: string;
+	min: number;
+	max: number;
+}
+
+/** Read the colour overlay, or `undefined` when the layer has none. */
+export function colorOverlay(config: EmitterConfigV3): ColorOverlay | undefined {
+	const b = behaviorsOf(config).find((x) => x.type === FX_COLOR_OVERLAY_BEHAVIOR_TYPE);
+	if (!b) return undefined;
+	const min = Number(b.config.minIntensity ?? 1);
+	const max = Number(b.config.maxIntensity ?? min);
+	return {
+		color: typeof b.config.color === 'string' ? b.config.color : '#ffffff',
+		min: Number.isFinite(min) ? min : 1,
+		max: Number.isFinite(max) ? max : 1,
+	};
+}
+
+/** The overlay a freshly-enabled layer starts with — a warm gold at a wide intensity spread. */
+function defaultOverlay(): Record<string, unknown> {
+	return { color: '#ffd166', minIntensity: 0.3, maxIntensity: 1 };
+}
+
+/** Add or remove the colour overlay immutably. */
+export function setColorOverlayEnabled(config: EmitterConfigV3, on: boolean): EmitterConfigV3 {
+	if (!on) return removeBehaviors(config, FX_COLOR_OVERLAY_BEHAVIOR_TYPE);
+	if (colorOverlay(config)) return config;
+	const next = cloneConfig(config);
+	behaviorsOf(next).push({ type: FX_COLOR_OVERLAY_BEHAVIOR_TYPE, config: defaultOverlay() });
+	return next;
+}
+
+/**
+ * Set one colour-overlay field immutably (adds the overlay if absent). The intensity bounds are
+ * clamped to 0..1 and kept ordered, so dragging `min` past `max` pushes `max` rather than
+ * inverting the range (which would read as a silently dead control).
+ */
+export function setColorOverlayField(
+	config: EmitterConfigV3,
+	field: 'color' | 'min' | 'max',
+	value: string | number,
+): EmitterConfigV3 {
+	const seeded = colorOverlay(config) ? config : setColorOverlayEnabled(config, true);
+	return upsertBehavior(seeded, FX_COLOR_OVERLAY_BEHAVIOR_TYPE, defaultOverlay, (b) => {
+		if (field === 'color') {
+			b.config.color = String(value);
+			return;
+		}
+		const v = Math.min(1, Math.max(0, Number(value) || 0));
+		const min = Number(b.config.minIntensity ?? 0);
+		const max = Number(b.config.maxIntensity ?? 1);
+		if (field === 'min') {
+			b.config.minIntensity = v;
+			if (v > max) b.config.maxIntensity = v;
+		} else {
+			b.config.maxIntensity = v;
+			if (v < min) b.config.minIntensity = v;
+		}
+	});
+}
+
+// ---------------------------------------------------------------------------
+// Flipbook playback (`art.framerate` / `art.loop`) — an ANIMATED layer's frames
+// played at an authored fps instead of always being stretched across the
+// particle's lifetime. Lives on `art` (not `config`) because it describes the
+// art; `bindArt` folds it into the `animatedSingle` behavior.
+// ---------------------------------------------------------------------------
+
+/** A flipbook layer's playback settings (`fps: null` ⇒ match the particle's lifetime). */
+export function flipbookPlay(layer: EmitterLayer): { fps: number | null; loop: boolean } {
+	const fps = layer.art.framerate;
+	const on = typeof fps === 'number' && Number.isFinite(fps) && fps > 0;
+	return { fps: on ? fps : null, loop: on && layer.art.loop === true };
+}
+
+/**
+ * Set a flipbook layer's playback speed immutably. `null` restores match-life (the sequence
+ * spans the particle's whole life), which also drops `loop` — the library ignores looping
+ * without a real fps, so keeping it would be config that lies.
+ */
+export function setFlipbookFps(layer: EmitterLayer, fps: number | null): EmitterLayer {
+	const art = { ...layer.art };
+	if (fps === null || !Number.isFinite(fps) || fps <= 0) {
+		delete art.framerate;
+		delete art.loop;
+	} else {
+		art.framerate = fps;
+	}
+	return { ...layer, art };
+}
+
+/** Set whether a flipbook repeats within one particle's life immutably (needs a real fps). */
+export function setFlipbookLoop(layer: EmitterLayer, loop: boolean): EmitterLayer {
+	const art = { ...layer.art };
+	if (loop) art.loop = true;
+	else delete art.loop;
+	return { ...layer, art };
+}
+
+// ---------------------------------------------------------------------------
+// Layer stack operations — duplicate / copy-paste / reorder.
+//
+// Layer order IS draw order (each layer's emitter is added to the world in
+// document order), so moving a layer up or down the list restacks the effect.
+// All pure: the page hands the result straight back to its `doc` rune.
+// ---------------------------------------------------------------------------
+
+/** A layer key unique within the doc, derived from `desired` (`x`, `x-2`, `x-3`, …). */
+export function uniqueLayerKey(doc: EffectDoc, desired: string): string {
+	const used = new Set(doc.layers.map((l) => l.key));
+	const base = desired.trim() || 'layer';
+	if (!used.has(base)) return base;
+	let n = 2;
+	while (used.has(`${base}-${n}`)) n++;
+	return `${base}-${n}`;
+}
+
+/** A deep, independent copy of a layer under a new key (no shared config references). */
+export function cloneLayerAs(layer: EmitterLayer, key: string): EmitterLayer {
+	return { ...(JSON.parse(JSON.stringify(layer)) as EmitterLayer), key };
+}
+
+/**
+ * Insert a copy of `layer` immediately after `afterKey` (or at the end), under a fresh unique
+ * key derived from the layer's own. Returns the new doc AND the key so the page can select it.
+ */
+export function insertLayerCopy(
+	doc: EffectDoc,
+	layer: EmitterLayer,
+	afterKey?: string,
+): { doc: EffectDoc; key: string } {
+	const key = uniqueLayerKey(doc, layer.key);
+	const copy = cloneLayerAs(layer, key);
+	const at = afterKey ? doc.layers.findIndex((l) => l.key === afterKey) : -1;
+	const layers = doc.layers.slice();
+	layers.splice(at === -1 ? layers.length : at + 1, 0, copy);
+	return { doc: { ...doc, layers }, key };
+}
+
+/** Duplicate a layer in place (the copy lands directly beneath the original). */
+export function duplicateLayer(doc: EffectDoc, key: string): { doc: EffectDoc; key: string } {
+	const layer = doc.layers.find((l) => l.key === key);
+	if (!layer) return { doc, key };
+	return insertLayerCopy(doc, layer, key);
+}
+
+/**
+ * Move a layer `delta` slots in the stack (negative = earlier/behind, positive = later/in front),
+ * immutably. Clamped at both ends, so holding the up/down button is safe.
+ */
+export function moveLayer(doc: EffectDoc, key: string, delta: number): EffectDoc {
+	const from = doc.layers.findIndex((l) => l.key === key);
+	if (from === -1) return doc;
+	const to = Math.min(doc.layers.length - 1, Math.max(0, from + delta));
+	if (to === from) return doc;
+	const layers = doc.layers.slice();
+	const [moved] = layers.splice(from, 1);
+	layers.splice(to, 0, moved);
+	return { ...doc, layers };
 }

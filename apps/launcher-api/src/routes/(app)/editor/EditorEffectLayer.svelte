@@ -429,11 +429,13 @@
 		if (textures.length === 0) return; // no art → skip (no placeholder dots in the scene)
 		// Weighted mix only when the resolved textures line up 1:1 with `frames` (a skipped region
 		// would misalign the weights → fall back to uniform), matching FxStage.
-		const weights =
-			textures.length === layer.art.frames.length ? layer.art.weights : undefined;
+		const weights = textures.length === layer.art.frames.length ? layer.art.weights : undefined;
 		// bindArt deep-clones the (texture-free) config itself, then attaches the live textures — so
 		// the emitter never sees the $state proxy and the result must NOT be re-JSON-cloned.
-		const config = bindArt(layer.config, textures, layer.art.animated ?? false, weights);
+		const config = bindArt(layer.config, textures, layer.art.animated ?? false, weights, {
+			framerate: layer.art.framerate,
+			loop: layer.art.loop,
+		});
 		const emitter = new Emitter(node.container, config);
 		emitter.emit = playing;
 		node.emitters.push(emitter);

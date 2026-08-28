@@ -124,6 +124,13 @@
 			? props.layer.art.weights
 			: undefined,
 	);
+	// Authored flipbook playback (`/fx` → Art → Speed/Loop). Undefined ⇒ `bindArt`'s match-life
+	// default, so a layer authored before the speed knob existed binds byte-identically.
+	const flipbookPlayback = $derived(
+		props.layer.art.framerate === undefined
+			? undefined
+			: { framerate: props.layer.art.framerate, loop: props.layer.art.loop },
+	);
 
 	// Live emit flag: ambient layers start emitting; event layers start dormant and the
 	// subscription below flips this on when their `eventType` fires. `forceEmit` (rig-timeline
@@ -214,6 +221,7 @@
 				key={props.layer.art.assetKey}
 				config={props.layer.config}
 				animated={props.layer.art.animated ?? false}
+				flipbook={flipbookPlayback}
 				textures={spriteTextures}
 				weights={spriteWeights}
 				{spineParticle}
@@ -227,6 +235,7 @@
 				key={props.layer.art.assetKey}
 				config={props.layer.config}
 				animated={props.layer.art.animated ?? false}
+				flipbook={flipbookPlayback}
 				textures={spriteTextures}
 				weights={spriteWeights}
 				{spineParticle}

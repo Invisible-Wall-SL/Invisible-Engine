@@ -47,6 +47,19 @@ export interface EmitterArt {
 	 * by repeating a frame's texture in the list proportional to its share.
 	 */
 	weights?: number[];
+	/**
+	 * Flipbook playback SPEED in frames/second (`animated` only). `-1` (or omitted) ties the
+	 * sequence to the particle's lifetime so it plays through exactly once however long the
+	 * particle lives — the original, and still the default, so an existing effect is unchanged.
+	 */
+	framerate?: number;
+	/**
+	 * Whether the flipbook repeats within one particle's life (`animated` only). The library
+	 * FORCES `loop: false` whenever `framerate <= 0`, so this only bites with a real fps —
+	 * `bindArt` drops it in match-life mode rather than shipping config that reads as looping
+	 * when it can't.
+	 */
+	loop?: boolean;
 }
 
 /** Where the emitter sits: free in the scene, or pinned to follow a Spine rig bone (Tier B). */

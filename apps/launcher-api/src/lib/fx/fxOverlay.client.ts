@@ -271,7 +271,10 @@ export function createFxOverlay(): FxOverlayApi {
 		const weights = textures.length === layer.art.frames.length ? layer.art.weights : undefined;
 		// bindArt deep-clones the (texture-free) config, then attaches the live textures — the result
 		// must NOT be JSON-cloned again (that would destroy the Texture objects).
-		const config = bindArt(layer.config, textures, layer.art.animated ?? false, weights);
+		const config = bindArt(layer.config, textures, layer.art.animated ?? false, weights, {
+			framerate: layer.art.framerate,
+			loop: layer.art.loop,
+		});
 		// Honor the layer's placement OFFSET (authored in /fx). The game applies it via the layer's own
 		// offset `<Container>` / `<SpineBoneAttach offset>`; mirror that with a per-layer offset
 		// container nested in the zoom-scaled effect container, so the offset tracks stage scale.

@@ -427,6 +427,7 @@
 				textures,
 				usePlaceholder ? false : (layer.art.animated ?? false),
 				weights,
+				{ framerate: layer.art.framerate, loop: layer.art.loop },
 			);
 			let entry = live.get(layer.key);
 			if (!entry) {
@@ -442,6 +443,17 @@
 				entry.hasArt = true;
 			}
 			entry.emitter.emit = playing;
+		}
+
+		// Layer order IS draw order (the runtime mounts one `<EffectLayer>` per layer in document
+		// order). Emitter containers are only ADDED when first created, so reordering the layers
+		// panel would leave the preview stacked the way the effect was FIRST authored. Re-append
+		// them in doc order every rebuild — `addChild` moves an existing child to the end, and the
+		// non-emitter children (the reference page at index 0, the backdrop spine after it) are
+		// deliberately kept at the front, so they stay behind the particles.
+		for (const layer of layers) {
+			const entry = live.get(layer.key);
+			if (entry && entry.container.parent === world) world.addChild(entry.container);
 		}
 	}
 

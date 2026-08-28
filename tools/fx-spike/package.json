@@ -15,7 +15,8 @@
 		"trigger-ui": "tsx triggerPicker.ts",
 		"particle-kind": "tsx particleKind.ts",
 		"spine-particle": "tsx spineParticle.ts",
-		"spine-particle-behavior": "tsx spineParticleBehavior.ts"
+		"spine-particle-behavior": "tsx spineParticleBehavior.ts",
+		"variation": "tsx variation.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",
