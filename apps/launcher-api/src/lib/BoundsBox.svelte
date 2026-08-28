@@ -9,7 +9,8 @@
 		h: number;
 	}
 
-	/** Art pixels → stage pixels: the centred contain-fit the stage already performed. */
+	/** Art pixels → thumbnail pixels: the centred contain-fit the host already performed. Build it
+	 * with `$lib/boundsFit`'s `boxFit`, never by hand — see the parenting rule on `stage` below. */
 	export interface BoxFit {
 		scale: number;
 		originX: number;
@@ -34,11 +35,19 @@
 	 * The host must position this inside an element with `position: relative` whose top-left is the
 	 * origin `fit` is expressed against, and pass that element as `stage` so a drag can convert
 	 * client coordinates back into art pixels.
+	 *
+	 * **That element is the THUMBNAIL, not the stage around it.** Both hosts centre a square
+	 * thumbnail inside a larger stage, and parenting this to the stage put the box
+	 * `(stageWidth − thumbnail) / 2` px away from the art it describes — 562px on a wide window —
+	 * with every drag off by the same amount, because the drag measures against whatever it is
+	 * handed. Both hosts now wrap the thumbnail and this overlay in ONE exactly-sized element.
+	 * Pinned by `node apps/launcher-api/boundsFit.fixture.ts`.
 	 */
 	interface Props {
 		bounds: Box;
 		fit: BoxFit;
-		/** The positioned host element the overlay sits in — the frame drags are measured against. */
+		/** The positioned host element the overlay sits in — the frame drags are measured against.
+		 * Must be the exactly-thumbnail-sized wrapper, never the stage (see above). */
 		stage: HTMLElement | null;
 		onchange: (b: Box) => void;
 		/** Accent colour, so a host can distinguish two kinds of box. Defaults to the brand teal. */
