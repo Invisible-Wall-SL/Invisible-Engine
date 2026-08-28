@@ -1606,15 +1606,28 @@ export function curveRange(config: EmitterConfigV3, prop: CurveProp): CurveRange
 	const startMax = list[0].value;
 	const endMax = list[list.length - 1].value;
 	const legacy = b.config.minMult !== undefined ? floorOf(b.config.minMult) : undefined;
-	const startMult = b.config.startMult !== undefined ? floorOf(b.config.startMult) : (legacy ?? 1);
-	const endMult = b.config.endMult !== undefined ? floorOf(b.config.endMult) : (legacy ?? 1);
+	// The authored floors are ABSOLUTE (`startMin`/`endMin`) — the numbers the author typed. That
+	// is what keeps the box showing what was entered and makes "dragging a max leaves its min
+	// alone" exact, instead of re-deriving a ratio on every drag tick. The two legacy ratio forms
+	// (`startMult`/`endMult`, and the library's whole-curve `minMult`) are projected back onto an
+	// absolute so nothing already saved reads differently.
+	const absOr = (abs: unknown, mult: unknown, max: number): number => {
+		if (abs !== undefined) {
+			const n = Number(abs);
+			return Number.isFinite(n) ? Math.min(Math.max(n, 0), Math.max(max, 0)) : max;
+		}
+		const ratio = mult !== undefined ? floorOf(mult) : (legacy ?? 1);
+		return max * ratio;
+	};
+	const startMin = absOr(b.config.startMin, b.config.startMult, startMax);
+	const endMin = absOr(b.config.endMin, b.config.endMult, endMax);
 	return {
 		startMax,
 		endMax,
-		startMin: startMax * startMult,
-		endMin: endMax * endMult,
-		startMult,
-		endMult,
+		startMin,
+		endMin,
+		startMult: startMax > 0 ? Math.min(1, startMin / startMax) : 1,
+		endMult: endMax > 0 ? Math.min(1, endMin / endMax) : 1,
 		// A legacy `minMult` counts as varied so a preset's built-in spread is visible and editable
 		// rather than silently applied by the runtime behind an unticked box.
 		varied: b.type === spec.varied || (legacy !== undefined && legacy < 1),
@@ -1669,7 +1682,7 @@ export function setCurveEnabled(
 function writeVariation(
 	config: EmitterConfigV3,
 	prop: CurveProp,
-	opts: { varied: boolean; startMult?: number; endMult?: number },
+	opts: { varied: boolean; startMin?: number; endMin?: number },
 ): EmitterConfigV3 {
 	const spec = CURVE_SPECS[prop];
 	const next = cloneConfig(config);
@@ -1677,18 +1690,29 @@ function writeVariation(
 	if (!b) return next;
 	if (!opts.varied) {
 		b.type = spec.plain;
+		delete b.config.startMin;
+		delete b.config.endMin;
 		delete b.config.startMult;
 		delete b.config.endMult;
 		delete b.config.minMult;
 		return next;
 	}
+	// Read against `config` (pre-edit) so an omitted end keeps the floor it already had, whichever
+	// form it was stored in — this is also where a legacy ratio migrates to an absolute.
 	const cur = curveRange(config, prop);
-	const clamp = (n: number): number => Math.min(1, Math.max(0, Number.isFinite(n) ? n : 1));
+	const at = (v: number | undefined, fallback: number, max: number): number => {
+		const n = Number(v ?? fallback);
+		return Number.isFinite(n) ? Math.min(Math.max(n, 0), Math.max(max, 0)) : 0;
+	};
+	// The maxes come from the config being WRITTEN (a `max` edit has already landed on `next`).
+	const after = curveRange(next, prop);
 	b.type = spec.varied;
-	b.config.startMult = clamp(opts.startMult ?? cur?.startMult ?? 1);
-	b.config.endMult = clamp(opts.endMult ?? cur?.endMult ?? 1);
-	// The library's single whole-curve ratio is now expressed by the pair above — carrying both
-	// would double-apply for a reader that honours `minMult`.
+	b.config.startMin = at(opts.startMin, cur?.startMin ?? 0, after?.startMax ?? 0);
+	b.config.endMin = at(opts.endMin, cur?.endMin ?? 0, after?.endMax ?? 0);
+	// The ratio forms are now expressed by the absolute pair — carrying both would double-apply
+	// for a reader that honours them.
+	delete b.config.startMult;
+	delete b.config.endMult;
 	delete b.config.minMult;
 	return next;
 }
@@ -1713,8 +1737,8 @@ export function setCurveVaried(
 	const seeded = range.startMult < 1 || range.endMult < 1;
 	return writeVariation(config, prop, {
 		varied: true,
-		startMult: seeded ? range.startMult : DEFAULT_MIN_MULT,
-		endMult: seeded ? range.endMult : DEFAULT_MIN_MULT,
+		startMin: seeded ? range.startMin : range.startMax * DEFAULT_MIN_MULT,
+		endMin: seeded ? range.endMin : range.endMax * DEFAULT_MIN_MULT,
 	});
 }
 
@@ -1740,7 +1764,7 @@ export function setCurveBound(
 	if (!range) return config;
 	const v = Number.isFinite(value) ? value : 0;
 	const spec = CURVE_SPECS[prop];
-	const key = which === 'start' ? 'startMult' : 'endMult';
+	const key = which === 'start' ? 'startMin' : 'endMin';
 
 	if (bound === 'max') {
 		// NOT `setListEndpoint`: it matches the behavior by its exact stock `type`, which misses a
@@ -1752,15 +1776,13 @@ export function setCurveBound(
 		if (which === 'start') list[0].value = v;
 		else list[list.length - 1].value = v;
 		if (!range.varied) return next;
-		// Hold the absolute min where the author put it: re-derive this end's floor against the new
-		// max. A max dragged below its min collapses that end to no variation (floor 1).
-		const min = which === 'start' ? range.startMin : range.endMin;
-		return writeVariation(next, prop, { varied: true, [key]: v ? Math.min(1, min / v) : 1 });
+		// The min is stored ABSOLUTE, so it simply stays put — `writeVariation` re-clamps it against
+		// the new max, which only bites when a max is dragged BELOW its own min.
+		return writeVariation(next, prop, { varied: true });
 	}
 
 	const max = which === 'start' ? range.startMax : range.endMax;
-	const mult = max ? Math.min(1, Math.max(0, v / max)) : 1;
-	return writeVariation(config, prop, { varied: true, [key]: mult });
+	return writeVariation(config, prop, { varied: true, [key]: Math.min(Math.max(v, 0), max) });
 }
 
 // ---------------------------------------------------------------------------

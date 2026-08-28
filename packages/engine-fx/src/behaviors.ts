@@ -110,16 +110,45 @@ interface RangedCurve {
 	endMult: number;
 }
 
+/**
+ * The floor for one end, as a RATIO of that end's curve value.
+ *
+ * The authored form is `startMin`/`endMin` — the ABSOLUTE value the author typed. Storing the
+ * absolute (rather than the ratio) is what keeps the number box showing the number that was
+ * entered, and what makes "dragging a max leaves its min alone" true by construction instead of
+ * by re-deriving a ratio on every drag tick.
+ *
+ * Two legacy forms are still honoured so nothing already saved changes how it renders: the
+ * per-end `startMult`/`endMult` ratios (shipped briefly), and the library's own single
+ * whole-curve `minMult` (the presets).
+ */
+function floorRatio(
+	config: Record<string, unknown> | undefined,
+	absKey: string,
+	multKey: string,
+	curveValue: number,
+	legacy: number | undefined,
+): number {
+	const abs = config?.[absKey];
+	if (abs !== undefined) {
+		const n = Number(abs);
+		if (!Number.isFinite(n)) return 1;
+		// A zero (or negative) curve value has no range to sit inside — nothing to vary.
+		if (curveValue <= 0) return 1;
+		return Math.min(1, Math.max(0, n / curveValue));
+	}
+	if (config?.[multKey] !== undefined) return floor(config[multKey]);
+	return legacy ?? 1;
+}
+
 /** Read the `{ curve, startMult, endMult }` triple out of a behavior config. */
 function readRanged(config: Record<string, unknown> | undefined, key: string): RangedCurve {
 	const curve = (config?.[key] as FxCurve | undefined) ?? { list: [] };
-	// `minMult` is the library's single-ratio field. Honouring it as BOTH floors keeps a config
-	// authored before the split (or by a preset) rendering exactly as it did.
 	const legacy = config?.minMult !== undefined ? floor(config.minMult) : undefined;
 	return {
 		curve,
-		startMult: config?.startMult !== undefined ? floor(config.startMult) : (legacy ?? 1),
-		endMult: config?.endMult !== undefined ? floor(config.endMult) : (legacy ?? 1),
+		startMult: floorRatio(config, 'startMin', 'startMult', curveAt(curve, 0, 1), legacy),
+		endMult: floorRatio(config, 'endMin', 'endMult', curveAt(curve, 1, 1), legacy),
 	};
 }
 
@@ -146,11 +175,14 @@ export const FX_ALPHA_BEHAVIOR_TYPE = 'fxAlpha';
 /** `fxAlpha`'s config — the stock `alpha` block plus a floor for each end of the curve. */
 export interface FxAlphaConfig {
 	alpha: FxCurve;
-	/** Floor for the curve's START value, 0–1 (1 = every particle starts on the curve). */
+	/** The lowest value a particle may START at — an ABSOLUTE value, the number the author typed. */
+	startMin?: number;
+	/** The lowest value a particle may END at — absolute. */
+	endMin?: number;
+	/** Legacy per-end RATIOS (shipped briefly); read when the absolute pair is absent. */
 	startMult?: number;
-	/** Floor for the curve's END value, 0–1. */
 	endMult?: number;
-	/** The library's single whole-curve ratio. Read as both floors when the pair is absent. */
+	/** The library's single whole-curve ratio. Read as both floors when nothing above is set. */
 	minMult?: number;
 }
 
@@ -188,6 +220,8 @@ export const FX_SCALE_BEHAVIOR_TYPE = 'fxScale';
 /** `fxScale`'s config — the stock `scale` block with a floor per end instead of one `minMult`. */
 export interface FxScaleConfig {
 	scale: FxCurve;
+	startMin?: number;
+	endMin?: number;
 	startMult?: number;
 	endMult?: number;
 	minMult?: number;
@@ -222,6 +256,8 @@ export const FX_SPEED_BEHAVIOR_TYPE = 'fxSpeed';
 /** `fxSpeed`'s config — the stock `moveSpeed` block with a floor per end. */
 export interface FxSpeedConfig {
 	speed: FxCurve;
+	startMin?: number;
+	endMin?: number;
 	startMult?: number;
 	endMult?: number;
 	minMult?: number;
