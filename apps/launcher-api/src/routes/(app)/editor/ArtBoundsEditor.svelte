@@ -13,6 +13,7 @@
 	 * everywhere that region is drawn, including other scenes and other tools. The panel says so.
 	 */
 	import BoundsBox, { type Box } from '$lib/BoundsBox.svelte';
+	import { boxFit } from '$lib/boundsFit';
 	import { fitClipBounds } from 'engine-flipbook';
 	import { fetchRegions, type RegionSet } from './editorRegions.client';
 	import RegionThumb from './RegionThumb.svelte';
@@ -103,17 +104,10 @@
 		};
 	});
 
-	/** Art pixels → stage pixels: the same centred contain-fit `RegionThumb` performs. */
-	const fit = $derived.by(() => {
-		const v = viewBox;
-		if (!v || !(v.w > 0) || !(v.h > 0)) return null;
-		const scale = Math.min(STAGE / v.w, STAGE / v.h);
-		return {
-			scale,
-			originX: (STAGE - v.w * scale) / 2 - v.x * scale,
-			originY: (STAGE - v.h * scale) / 2 - v.y * scale,
-		};
-	});
+	/** Art pixels → thumbnail pixels: the same centred contain-fit `RegionThumb` performs. Shared
+	 * with `/flipbook` (`$lib/boundsFit`) so the two box editors cannot drift apart — and so the
+	 * "relative to the THUMBNAIL, never the stage" rule has one place to be stated and fixtured. */
+	const fit = $derived(boxFit(STAGE, viewBox));
 
 	/** One axis of the box, from the numeric fields. An explicit switch rather than a computed
 	 * spread key, so the object stays an `ArtBoundsBox` to the type-checker — this app's build
@@ -143,17 +137,23 @@
 			{set ? `“${region}” is not in this sheet any more.` : 'Loading the region…'}
 		</p>
 	{:else}
-		<div class="stage" bind:this={stageEl}>
-			<RegionThumb {set} region={record} size={STAGE} box={stageFrame} />
-			{#if bounds && fit}
-				<BoundsBox
-					{bounds}
-					{fit}
-					stage={stageEl}
-					onchange={(b) => void commit(b)}
-					color="#f59e0b"
-				/>
-			{/if}
+		<div class="stage">
+			<!-- The wrapper is sized to the thumbnail EXACTLY and is what both the overlay is
+			     positioned in and `BoundsBox` measures pointers against. The stage around it carries
+			     the border, and a border alone is enough to put a drag a pixel out — the same class
+			     of mismatch that put the /flipbook overlay half a stage away from its art. -->
+			<div class="thumbwrap" bind:this={stageEl} style:width="{STAGE}px" style:height="{STAGE}px">
+				<RegionThumb {set} region={record} size={STAGE} box={stageFrame} />
+				{#if bounds && fit}
+					<BoundsBox
+						{bounds}
+						{fit}
+						stage={stageEl}
+						onchange={(b) => void commit(b)}
+						color="#f59e0b"
+					/>
+				{/if}
+			</div>
 		</div>
 		<div class="row actions">
 			<button
@@ -203,13 +203,17 @@
 
 <style>
 	.stage {
-		position: relative;
+		display: grid;
+		place-items: center;
 		width: 200px;
 		height: 200px;
 		margin: 0 auto 8px;
 		border-radius: 6px;
 		background: #07070b;
 		border: 1px solid #23232c;
+	}
+	.thumbwrap {
+		position: relative;
 	}
 	.actions {
 		gap: 6px;

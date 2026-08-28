@@ -18,6 +18,7 @@
 	import { LeaseState } from '$lib/leaseState.svelte';
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import BoundsBox from '$lib/BoundsBox.svelte';
+	import { boxFit } from '$lib/boundsFit';
 	import {
 		DEFAULT_FLIPBOOK_FPS,
 		animationToClip,
@@ -655,20 +656,67 @@
 	/** Which box the STAGE is fitted to right now (see `boundsOpen` above). */
 	const stageBox = $derived(boundsOpen ? editorBox : clip.bounds);
 
-	const STAGE_SIZE = 240;
+	/**
+	 * The preview is RESIZABLE (the stage carries a native CSS resize grip), so its size is
+	 * measured rather than fixed. A 240px square was fine for judging frame order and never fine
+	 * for placing a bounds box — the thing this preview is now also for.
+	 *
+	 * The thumbnail is square, so the size is the smaller side of the stage: dragging the grip
+	 * down grows it until it hits the column width. Remembered per browser, because a preview you
+	 * resized that snapped back on the next clip would be worse than a fixed one.
+	 */
+	const STAGE_MIN = 160;
+	const STAGE_KEY = 'flipbook.stageHeight.v1';
+	let stageHeight = $state(248);
+	let stageSize = $state(240);
+	let stageOuter = $state<HTMLElement | null>(null);
 
-	/** Art pixels → stage pixels for the open editor: the same centred contain-fit `RegionThumb`
-	 * performs on `stageBox`, so the overlay lands exactly on the art it is describing. */
-	const stageFit = $derived.by(() => {
-		const b = stageBox;
-		if (!b || !(b.w > 0) || !(b.h > 0)) return null;
-		const scale = Math.min(STAGE_SIZE / b.w, STAGE_SIZE / b.h);
-		return {
-			scale,
-			originX: (STAGE_SIZE - b.w * scale) / 2 - b.x * scale,
-			originY: (STAGE_SIZE - b.h * scale) / 2 - b.y * scale,
-		};
+	$effect(() => {
+		const el = stageOuter;
+		if (!el) return;
+		// ONE observer, on the outer stage. `stageSize` drives both the thumbnail's own pixel size
+		// and `stageFit` below, so the art and the overlay can never disagree about the box they
+		// share — which is exactly what went wrong while the fit assumed a fixed 240.
+		const ro = new ResizeObserver(() => {
+			const rect = el.getBoundingClientRect();
+			const next = Math.max(STAGE_MIN, Math.floor(Math.min(rect.width, rect.height)));
+			if (next !== stageSize) stageSize = next;
+			// The grip is the only thing that changes the height, so recording it here records the
+			// author's choice — no separate drag handler to keep in step.
+			const h = Math.round(rect.height);
+			if (h !== stageHeight) {
+				stageHeight = h;
+				try {
+					localStorage.setItem(STAGE_KEY, String(h));
+				} catch {
+					/* blocked storage ⇒ the size just isn't remembered */
+				}
+			}
+		});
+		ro.observe(el);
+		return () => ro.disconnect();
 	});
+
+	onMount(() => {
+		try {
+			const saved = Number(localStorage.getItem(STAGE_KEY));
+			if (Number.isFinite(saved) && saved >= STAGE_MIN) stageHeight = saved;
+		} catch {
+			/* nothing stored ⇒ the default */
+		}
+	});
+
+	/**
+	 * Art pixels → stage pixels: the same centred contain-fit `RegionThumb` performs on `stageBox`,
+	 * so the overlay lands exactly on the art it is describing.
+	 *
+	 * Expressed against the THUMBNAIL's own box, never the stage's. The stage is a wide centring
+	 * container, so measuring from its left edge put the overlay `(stageWidth − thumbnail) / 2` px
+	 * to the left of the art it was meant to sit on, and every drag inherited the same offset. The
+	 * markup now nests the thumbnail and the overlay in one exactly-sized wrapper, which is both
+	 * the positioning context and the element `BoundsBox` measures pointers against.
+	 */
+	const stageFit = $derived(boxFit(stageSize, stageBox));
 
 	/** This frame's geometry re-based onto `stageBox` — `null` when no box applies, in which case
 	 * the thumbnail fits the frame's own canvas exactly as it always has. */
@@ -862,40 +910,55 @@
 
 			<section class="center">
 				<div class="preview">
-					<div class="stage" bind:this={stageEl}>
+					<!-- Drag the grip in the stage's bottom-right corner to resize the preview. -->
+					<div class="stage" bind:this={stageOuter} style:height="{stageHeight}px">
 						{#if current?.set && current.record}
-							<!-- Mirroring is a CSS transform on the thumbnail rather than a second draw path:
-							     the game mirrors with a negative sprite scale about the same centre, so a
-							     centred `scale(±1)` shows exactly what will render. -->
+							<!--
+								ONE wrapper, sized to the thumbnail exactly, holding the art AND the box overlay.
+								That is load-bearing: the stage around it is a wide centring container, so an
+								overlay positioned against the STAGE sits half the leftover width away from the
+								art, and `BoundsBox` (which measures pointers against the element it is handed)
+								drags by that same offset. Nested here, the two share one origin by construction.
+							-->
 							<div
-								class="mirror"
-								style:transform="scale({clip.flipX ? -1 : 1}, {clip.flipY ? -1 : 1})"
+								class="thumbwrap"
+								bind:this={stageEl}
+								style:width="{stageSize}px"
+								style:height="{stageSize}px"
 							>
-								<RegionThumb
-									set={current.set}
-									region={current.record}
-									size={STAGE_SIZE}
-									box={stageFrameBox(current.record)}
-								/>
+								<!-- Mirroring is a CSS transform on the thumbnail rather than a second draw path:
+								     the game mirrors with a negative sprite scale about the same centre, so a
+								     centred `scale(±1)` shows exactly what will render. -->
+								<div
+									class="mirror"
+									style:transform="scale({clip.flipX ? -1 : 1}, {clip.flipY ? -1 : 1})"
+								>
+									<RegionThumb
+										set={current.set}
+										region={current.record}
+										size={stageSize}
+										box={stageFrameBox(current.record)}
+									/>
+								</div>
+								{#if boundsOpen && clip.bounds && stageFit}
+									<!--
+										The declared box, drawn over the art at the SAME contain-fit the thumbnail
+										used. Deliberately NOT mirrored with the art: the box is the clip's own frame
+										of reference, and a mirrored overlay would move each handle away from the
+										edge it grabs.
+									-->
+									<BoundsBox
+										bounds={clip.bounds}
+										fit={stageFit}
+										stage={stageEl}
+										onchange={(b) => setBounds(b)}
+									/>
+								{/if}
 							</div>
 						{:else}
 							<div class="ph">
 								{clip.frames.length ? 'Frame not found in this sheet' : 'Add frames to preview'}
 							</div>
-						{/if}
-						{#if boundsOpen && clip.bounds && stageFit}
-							<!--
-								The declared box, drawn over the art at the SAME contain-fit the thumbnail used.
-								Deliberately NOT mirrored with the art: the box is the clip's own frame of
-								reference, and a mirrored overlay would move each handle away from the edge it
-								grabs.
-							-->
-							<BoundsBox
-								bounds={clip.bounds}
-								fit={stageFit}
-								stage={stageEl}
-								onchange={(b) => setBounds(b)}
-							/>
 						{/if}
 					</div>
 					<div class="transport">
@@ -1312,10 +1375,18 @@
 	.stage {
 		display: grid;
 		place-items: center;
-		height: 248px;
 		border-radius: 8px;
 		background: #070a0e;
 		border: 1px solid #1f2937;
+		/* Native resize grip — `overflow` must not be `visible` for it to appear. The height is
+		   bound above, so the size the author drags to is observed, remembered, and fed straight
+		   back into the thumbnail. */
+		resize: vertical;
+		overflow: hidden;
+		min-height: 160px;
+	}
+	.thumbwrap {
+		position: relative;
 	}
 	.mirror {
 		display: grid;
@@ -1336,9 +1407,6 @@
 	.transport button.active {
 		border-color: #7ee0c0;
 		color: #7ee0c0;
-	}
-	.stage {
-		position: relative;
 	}
 	.transport {
 		display: flex;

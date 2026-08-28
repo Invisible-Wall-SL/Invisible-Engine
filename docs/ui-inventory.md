@@ -198,6 +198,8 @@ flipbook clip declares `FlipbookClip.bounds`, and a sprite region declares an en
 anchors by, whatever the pixels happen to be* — and all three are ART pixels, top-left relative to
 the art's own origin (its centre), so a centred box is `x = -w/2`.
 
+→ **The overlay is parented to the THUMBNAIL, never to the stage around it.** Both hosts centre a square thumbnail inside a larger stage; positioning the box against the stage puts it `(stageWidth − thumbnail) / 2` px from the art it describes and drags it by the same offset, because `BoundsBox` measures pointers against the element it is handed. That shipped once and was unusable on first contact (562px of drift on a 1400px window). Each host wraps the thumbnail and the overlay in ONE exactly-sized element; the art→screen maths lives in `$lib/boundsFit.ts` and is pinned by `node apps/launcher-api/boundsFit.fixture.ts`, which simulates both layouts.
+
 → **The arithmetic has exactly one implementation:** `applyClipBounds` in `engine-flipbook`
 (`bounds.ts`) re-states a frame as `orig` (the box) + `trim` (the art inside it). The runtime calls
 it to rebuild a clip's textures, the editor canvas calls it to draw, `RegionThumb` takes the result

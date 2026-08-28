@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-flipbook.md](../design/invisible-flipbook.md) · Guide: [docs/tools/flipbook.md](../tools/flipbook.md) · Agent: `.claude/agents/invisible-flipbook.md`
 
-**One-line state:** _(2026-08-28)_ **A clip now declares HOW it plays and HOW BIG it is** —
+**One-line state:** _(2026-08-28)_ Bounds shipped, was **unusable on first contact** (the box drew 562px from its art) and is fixed + browser-verified + fixtured; the preview is now resizable. **A clip now declares HOW it plays and HOW BIG it is** —
 `direction` (forward / reverse / ping-pong), `flipX`/`flipY`, and a `bounds` box drawn over the
 preview with the Rigger's drag handles; the same box exists for a plain sprite region
 (`editor/art-bounds.json`, authored in the Scene Editor and folded into the shipped sheet at
@@ -10,6 +10,31 @@ export). Every placement can override direction/mirror as well as fps/loop. Was 
 
 ## Current state
 Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is optional — see Open items):
+
+- **The bounds box landed nowhere near its art — and the preview is now resizable** (owner
+  report, the day it shipped: *“when I click it is in a complete different place of the canvas
+  and I can´t place it right in anyway”*). The overlay's numbers are relative to the THUMBNAIL,
+  and the thumbnail is centred inside a much wider stage — so parenting the overlay to the STAGE
+  put it `(stageWidth − thumbnail) / 2` px to the left of the art it described, with every drag
+  off by the same amount because `BoundsBox` measures pointers against whatever element it is
+  handed. Measured in a browser at a 1400px window: **562px of drift**, now 0.0. Both hosts wrap
+  the thumbnail and the overlay in ONE exactly-sized element, which is both the positioning
+  context and the drag frame. The Scene Editor's box had the same fault in miniature (its stage's
+  1px border), fixed the same way.
+  - **The fit maths is now one function**, `$lib/boundsFit.ts` (`boxFit` / `boxRect` /
+    `artAtOffset`), shared by both editors instead of copied into each — so the parenting rule has
+    one place to be stated, and one place to be pinned:
+    `node apps/launcher-api/boundsFit.fixture.ts` simulates BOTH layouts and asserts the fixed one
+    lands on the art while the old one is half the leftover width away, so a refactor that
+    re-parents the overlay fails there rather than in someone's hands.
+  - **Why the build didn't catch it, and what did:** this is geometry between two DOM elements, so
+    a green `vite build` says nothing and the offline fixtures could not see it either. It was
+    reproduced and then verified in a real browser — a standalone page carrying the page's actual
+    CSS, comparing the overlay's client rect against the rect the canvas drew for the same box,
+    at four stage sizes. That check is what the new fixture distils.
+  - **The preview stage is RESIZABLE** (owner ask). A native CSS resize grip, a `ResizeObserver`
+    feeding the measured size to both the thumbnail and the fit, and the chosen height kept in
+    `localStorage`. 240px was fine for judging frame order and never fine for placing a box.
 
 - **Step 8 — playback control + bounds** ([design](../design/invisible-flipbook.md) §"Playback",
   §"Bounds"). Both are the answer to one owner ask: the Rigger lets you declare the box a rig is
