@@ -6,8 +6,20 @@
 		type EmitterConfigV2,
 		type EmitterConfigV1,
 	} from '@barvynkoa/particle-emitter';
-	import { bindArt, behaviorsOf, emitterDeltaSeconds, type BehaviorEntry } from 'engine-fx';
+	import {
+		bindArt,
+		behaviorsOf,
+		emitterDeltaSeconds,
+		registerFxBehaviors,
+		type BehaviorEntry,
+	} from 'engine-fx';
 	import type { Texture } from 'pixi.js';
+
+	// Teach the library our two custom behaviors (`fxAlpha`, `fxColorOverlay` — per-particle alpha
+	// variation + a randomly-graded colour overlay, neither of which the stock library has). A
+	// config only carries them when the author enabled that knob in `/fx`, but registration must
+	// happen before ANY emitter inits, so it runs at module load. Idempotent.
+	registerFxBehaviors(Emitter);
 
 	import type { LoadedSpriteSheet } from '../types';
 	import {
@@ -51,6 +63,12 @@
 		 * (`animated`) path and when no explicit `textures` are supplied.
 		 */
 		weights?: number[];
+		/**
+		 * Flipbook playback for the `animated` path — the layer's authored `art.framerate` /
+		 * `art.loop`. Absent (or a non-positive framerate) ⇒ match-life: the sequence is stretched
+		 * across the particle's lifetime, the original and still-default behaviour.
+		 */
+		flipbook?: { framerate?: number; loop?: boolean };
 	};
 
 	/**
@@ -90,10 +108,11 @@
 		textures: LoadedSpriteSheet | Texture[] | undefined,
 		animated: boolean,
 		weights?: number[],
+		flipbook?: { framerate?: number; loop?: boolean },
 	): EmitterConfigV3 {
 		const art = textures ?? [];
 		if (config && 'behaviors' in config) {
-			return bindArt(config as EmitterConfigV3, art, animated, weights);
+			return bindArt(config as EmitterConfigV3, art, animated, weights, flipbook);
 		}
 		return upgradeConfig(config, art);
 	}
@@ -129,7 +148,13 @@
 					// unit-coverable), so a structural cast bridges the conservative PIXI generic.
 					layerHost: parentContext.parent as unknown as LayerHostLike,
 				})
-			: bindConfig(props.config, spriteTextures, props.animated ?? false, props.weights),
+			: bindConfig(
+					props.config,
+					spriteTextures,
+					props.animated ?? false,
+					props.weights,
+					props.flipbook,
+				),
 	);
 	// svelte-ignore state_referenced_locally
 	const emitter = new Emitter(parentContext.parent, updatedConfig);

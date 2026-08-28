@@ -50,9 +50,7 @@ export function behaviorsOf(config: EmitterConfigV3): BehaviorEntry[] {
 export function weightedTextures(textures: unknown[], weights?: number[]): unknown[] {
 	if (textures.length <= 1) return textures;
 	if (!Array.isArray(weights) || weights.length !== textures.length) return textures;
-	const clean = weights.map((w) =>
-		typeof w === 'number' && Number.isFinite(w) && w > 0 ? w : 0,
-	);
+	const clean = weights.map((w) => (typeof w === 'number' && Number.isFinite(w) && w > 0 ? w : 0));
 	const sum = clean.reduce((a, b) => a + b, 0);
 	if (sum <= 0) return textures;
 	const RESOLUTION = 100;
@@ -73,16 +71,16 @@ export function weightedTextures(textures: unknown[], weights?: number[]): unkno
  * - 0 textures ⇒ strip any art behavior (an unbound layer renders nothing, by design).
  * - 1 texture, or >1 non-animated ⇒ `textureRandom` (a static particle, random of the set —
  *   WEIGHTED by `weights` when given, via a repeated-texture multiset).
- * - >1 texture + `animated` ⇒ `animatedSingle` flipbook (`framerate: -1` = match particle
- *   life, the same `matchLife` default `upgradeConfig` would produce). `weights` are ignored
- *   here (a flipbook particle plays every frame).
+ * - >1 texture + `animated` ⇒ `animatedSingle` flipbook, played at the layer's authored
+ *   `framerate`/`loop` (`anim`) or, absent those, at `framerate: -1` = match particle life —
+ *   the same `matchLife` default `upgradeConfig` would produce, so every effect authored before
+ *   the speed knob existed is byte-identical. `weights` are ignored here (a flipbook particle
+ *   plays every frame).
  *
- * NOTE on looping: we deliberately do NOT pass `loop`. The library forces `loop: false` whenever
- * `framerate <= 0` (`particle-emitter.es.js`: `loop: framerate > 0 ? !!anim.loop : false`), so a
- * `loop: true` here was dead config that read as if flipbooks looped when they never have — each
- * particle plays the sequence exactly once over its life. Authored `fps`/`loop` arrive with the
- * flipbook clip doc (`docs/design/invisible-flipbook.md`); until then match-life is the contract,
- * and changing it would silently restyle every already-authored effect in a shipped game.
+ * NOTE on looping: `loop` is passed ONLY with a real (> 0) framerate. The library forces
+ * `loop: false` whenever `framerate <= 0` (`particle-emitter.es.js`: `loop: framerate > 0 ?
+ * !!anim.loop : false`), so a `loop: true` in match-life mode is dead config that reads as if the
+ * flipbook loops when it cannot — dropping it keeps the shipped config honest.
  *
  * `textures` are real PIXI `Texture` objects (typed opaquely here so this module stays free
  * of a PixiJS import and unit-coverable in `tools/fx-spike`). `bindArt` clones the
@@ -94,19 +92,31 @@ export function bindArt(
 	textures: unknown[],
 	animated: boolean,
 	weights?: number[],
+	anim?: { framerate?: number; loop?: boolean },
 ): EmitterConfigV3 {
 	const next: EmitterConfigV3 = JSON.parse(JSON.stringify(config));
 	const behaviors = behaviorsOf(next).filter((b) => !ART_BEHAVIOR_TYPES.has(b.type));
 	if (textures.length > 0) {
 		const art: BehaviorEntry =
 			animated && textures.length > 1
-				? {
-						type: 'animatedSingle',
-						config: { anim: { framerate: -1, textures } },
-					}
+				? { type: 'animatedSingle', config: { anim: { ...flipbookPlayback(anim), textures } } }
 				: { type: 'textureRandom', config: { textures: weightedTextures(textures, weights) } };
 		behaviors.push(art);
 	}
 	(next as { behaviors: BehaviorEntry[] }).behaviors = behaviors;
 	return next;
+}
+
+/**
+ * The `framerate`/`loop` half of an `animatedSingle` `anim` block. A non-positive/absent
+ * framerate is match-life (`-1`), where the library ignores `loop` — so `loop` is emitted only
+ * alongside a real fps.
+ */
+export function flipbookPlayback(anim?: { framerate?: number; loop?: boolean }): {
+	framerate: number;
+	loop?: boolean;
+} {
+	const fps = Number(anim?.framerate);
+	if (!Number.isFinite(fps) || fps <= 0) return { framerate: -1 };
+	return anim?.loop ? { framerate: fps, loop: true } : { framerate: fps };
 }

@@ -11,16 +11,22 @@
 		applyPreset,
 		blendMode,
 		burst,
+		colorOverlay,
+		curveRange,
+		duplicateLayer,
 		emissionArc,
 		emptyEffectDoc,
+		flipbookPlay,
 		frameMixPercents,
 		frameWeightInputs,
 		FX_PRESETS,
 		gravity,
-		listEndpoints,
+		insertLayerCopy,
 		movementModel,
+		moveLayer,
 		newLayer,
 		nextLayerKey,
+		rotationLock,
 		setFrameWeight,
 		toggleArtFrame,
 		particleColor,
@@ -28,10 +34,17 @@
 		setBlendMode,
 		setBurst,
 		setColorEnabled,
+		setColorOverlayEnabled,
+		setColorOverlayField,
 		setCoreParam,
+		setCurveBound,
+		setCurveEnabled,
+		setCurveVaried,
 		setEmissionArc,
+		setEmissionEnabled,
+		setFlipbookFps,
+		setFlipbookLoop,
 		setGravity,
-		setListEndpoint,
 		setMovementModel,
 		setParticleColor,
 		setParticleKind,
@@ -39,6 +52,7 @@
 		setPlacementOffset,
 		setPlacementSpace,
 		setParticleSpin,
+		setRotationLock,
 		setSpawnKind,
 		setSpawnRadius,
 		setSpawnRect,
@@ -54,6 +68,8 @@
 		spawnShape,
 		UNTITLED_EFFECT_ID,
 		type BlendKind,
+		type CurveProp,
+		type CurveRange,
 		type MovementModel,
 		type SpawnKind,
 		triggerMode,
@@ -190,6 +206,8 @@
 	const busy = $derived(deleting || saveState.busy);
 
 	onMount(() => {
+		// A layer copied in a previous effect survives the navigation — surface it on the button.
+		clipboardName = readClipboard()?.key ?? '';
 		// Acquire the lease for the initially-open effect (if any); inert for a fresh /fx.
 		void lease.switchDoc(leasedId);
 		const onUnload = () => lease.release();
@@ -523,10 +541,64 @@
 		if (selectedKey === key) selectedKey = clean;
 	}
 
+	// --- layer stack: duplicate / copy-paste / reorder ---------------------------
+	// The clipboard lives in `localStorage`, not just a rune, so a layer can be copied out of ONE
+	// effect and pasted into ANOTHER — opening an effect is a full page navigation here, so an
+	// in-memory clipboard would die on the way. `clipboardName` mirrors it for the button label.
+	const LAYER_CLIPBOARD_KEY = 'invisible-fx.layer-clipboard';
+	let clipboardName = $state<string>('');
+
+	function readClipboard(): EmitterLayer | null {
+		try {
+			const raw = localStorage.getItem(LAYER_CLIPBOARD_KEY);
+			if (!raw) return null;
+			const layer = JSON.parse(raw) as EmitterLayer;
+			return layer && typeof layer.key === 'string' && layer.config ? layer : null;
+		} catch {
+			return null;
+		}
+	}
+
+	function copyLayer(key: string): void {
+		const layer = doc.layers.find((l) => l.key === key);
+		if (!layer) return;
+		try {
+			localStorage.setItem(LAYER_CLIPBOARD_KEY, JSON.stringify($state.snapshot(layer)));
+			clipboardName = layer.key;
+			savedNote = `Copied "${layer.key}".`;
+		} catch {
+			saveError = 'Could not copy this layer (browser storage is unavailable).';
+		}
+	}
+
+	function pasteLayer(): void {
+		const layer = readClipboard();
+		if (!layer) return;
+		const next = insertLayerCopy(doc, layer, selectedKey || undefined);
+		doc = next.doc;
+		selectedKey = next.key;
+	}
+
+	function duplicateSelected(key: string): void {
+		const next = duplicateLayer(doc, key);
+		doc = next.doc;
+		selectedKey = next.key;
+	}
+
+	function reorderLayer(key: string, delta: number): void {
+		doc = moveLayer(doc, key, delta);
+	}
+
 	// --- inspector readouts (derived from the config) ---------------------------
-	const alphaEnds = $derived(config ? listEndpoints(config, 'alpha', 'alpha') : undefined);
-	const scaleEnds = $derived(config ? listEndpoints(config, 'scale', 'scale') : undefined);
-	const speedEnds = $derived(config ? listEndpoints(config, 'moveSpeed', 'speed') : undefined);
+	// The three varying curves read through ONE seam (`curveRange`) so alpha/scale/speed all get the
+	// same min/max treatment — `undefined` means the config carries no behavior for it yet, which
+	// the section turns into an "add it" checkbox rather than silently vanishing.
+	const alphaRange = $derived(config ? curveRange(config, 'alpha') : undefined);
+	const scaleRange = $derived(config ? curveRange(config, 'scale') : undefined);
+	const speedRange = $derived(config ? curveRange(config, 'speed') : undefined);
+	const overlay = $derived(config ? colorOverlay(config) : undefined);
+	const lockAngle = $derived(config ? rotationLock(config) : undefined);
+	const flipbook = $derived(selected ? flipbookPlay(selected) : undefined);
 	const shape = $derived(config ? spawnShape(config) : undefined);
 	const spawnSel = $derived<SpawnKind>(config ? (spawnKind(config) ?? 'circle') : 'circle');
 	const brst = $derived(config ? burst(config) : undefined);
@@ -591,6 +663,79 @@
 			onchange={(e) => apply(Number((e.currentTarget as HTMLInputElement).value))}
 		/>
 	</div>
+{/snippet}
+
+<!--
+	One varying CURVE (alpha / scale / speed) as a whole inspector section.
+
+	Two toggles, always visible so nothing silently disappears: **On** adds or removes the
+	behavior itself (a config that never carried an alpha curve can now grow one), and **Min /
+	Max** turns each end into a per-particle RANGE. The library picks one random multiplier per
+	particle for its whole life, so the four boxes are linked by that single ratio — editing a
+	`min` re-derives it, editing a `max` moves the authored curve and the floor rides along.
+-->
+{#snippet curveSection(
+	title: string,
+	cfg: EmitterConfigV3,
+	prop: CurveProp,
+	range: CurveRange | undefined,
+	lo: number,
+	hi: number,
+	step: number,
+	offHint: string,
+)}
+	<section>
+		<div class="grouphead">
+			<h3>{title}</h3>
+			<label class="toggle">
+				<input
+					type="checkbox"
+					checked={!!range}
+					onchange={(e) =>
+						patchConfig(setCurveEnabled(cfg, prop, (e.currentTarget as HTMLInputElement).checked))}
+				/>
+				<span>On</span>
+			</label>
+		</div>
+		{#if range}
+			<label class="toggle wide">
+				<input
+					type="checkbox"
+					checked={range.varied}
+					onchange={(e) =>
+						patchConfig(setCurveVaried(cfg, prop, (e.currentTarget as HTMLInputElement).checked))}
+				/>
+				<span>Min / Max (vary per particle)</span>
+			</label>
+			{#if range.varied}
+				{@render slider('Start min', range.startMin, lo, hi, step, (v) =>
+					patchConfig(setCurveBound(cfg, prop, 'start', 'min', v)),
+				)}
+				{@render slider('Start max', range.startMax, lo, hi, step, (v) =>
+					patchConfig(setCurveBound(cfg, prop, 'start', 'max', v)),
+				)}
+				{@render slider('End min', range.endMin, lo, hi, step, (v) =>
+					patchConfig(setCurveBound(cfg, prop, 'end', 'min', v)),
+				)}
+				{@render slider('End max', range.endMax, lo, hi, step, (v) =>
+					patchConfig(setCurveBound(cfg, prop, 'end', 'max', v)),
+				)}
+				<p class="hint">
+					Each particle draws ONE random multiplier and keeps it for its whole life, so the min ÷
+					max ratio ({Math.round(range.minMult * 100)}%) is shared by Start and End.
+				</p>
+			{:else}
+				{@render slider('Start', range.startMax, lo, hi, step, (v) =>
+					patchConfig(setCurveBound(cfg, prop, 'start', 'max', v)),
+				)}
+				{@render slider('End', range.endMax, lo, hi, step, (v) =>
+					patchConfig(setCurveBound(cfg, prop, 'end', 'max', v)),
+				)}
+			{/if}
+		{:else}
+			<p class="hint">{offHint}</p>
+		{/if}
+	</section>
 {/snippet}
 
 <svelte:head><title>Invisible FX</title></svelte:head>
@@ -662,7 +807,7 @@
 				<button class="add" onclick={addLayer}>+ Add</button>
 			</div>
 			<ul>
-				{#each doc.layers as layer (layer.key)}
+				{#each doc.layers as layer, i (layer.key)}
 					<li class:active={layer.key === selectedKey}>
 						<button class="pick" onclick={() => (selectedKey = layer.key)}>
 							{layer.key}
@@ -670,8 +815,24 @@
 								>{layer.art.frames.length} frame{layer.art.frames.length === 1 ? '' : 's'}</span
 							>
 						</button>
+						<!-- List order IS draw order: the last layer renders in front. -->
 						<button
-							class="del"
+							class="ico"
+							title="Move behind (earlier in the stack)"
+							disabled={i === 0}
+							onclick={() => reorderLayer(layer.key, -1)}>▲</button
+						>
+						<button
+							class="ico"
+							title="Move in front (later in the stack)"
+							disabled={i === doc.layers.length - 1}
+							onclick={() => reorderLayer(layer.key, 1)}>▼</button
+						>
+						<button class="ico" title="Duplicate layer" onclick={() => duplicateSelected(layer.key)}
+							>⧉</button
+						>
+						<button
+							class="ico del"
 							title="Remove layer"
 							disabled={doc.layers.length === 1}
 							onclick={() => removeLayer(layer.key)}>✕</button
@@ -679,6 +840,18 @@
 					</li>
 				{/each}
 			</ul>
+			<div class="clip">
+				<button
+					title="Copy the selected layer — paste it into this or any other effect"
+					disabled={!selected}
+					onclick={() => selected && copyLayer(selected.key)}>⧉ Copy</button
+				>
+				<button
+					title={clipboardName ? `Paste "${clipboardName}"` : 'Nothing copied yet'}
+					disabled={!clipboardName}
+					onclick={pasteLayer}>📋 Paste</button
+				>
+			</div>
 		</aside>
 
 		<div class="canvas">
@@ -911,6 +1084,43 @@
 									/>
 									<span>Flipbook (animate frames per particle)</span>
 								</label>
+								{#if (selected.art.animated ?? false) && flipbook}
+									<label class="row check">
+										<input
+											type="checkbox"
+											checked={flipbook.fps === null}
+											onchange={(e) =>
+												updateSelected((l) =>
+													setFlipbookFps(
+														l,
+														(e.currentTarget as HTMLInputElement).checked ? null : 24,
+													),
+												)}
+										/>
+										<span>Match particle lifetime</span>
+									</label>
+									{#if flipbook.fps !== null}
+										{@render slider('Speed (fps)', flipbook.fps, 1, 60, 1, (v) =>
+											updateSelected((l) => setFlipbookFps(l, v)),
+										)}
+										<label class="row check">
+											<input
+												type="checkbox"
+												checked={flipbook.loop}
+												onchange={(e) =>
+													updateSelected((l) =>
+														setFlipbookLoop(l, (e.currentTarget as HTMLInputElement).checked),
+													)}
+											/>
+											<span>Loop while the particle lives</span>
+										</label>
+									{/if}
+									<p class="hint">
+										Match lifetime stretches the {selected.art.frames.length} frames across each particle's
+										life (they play through exactly once). Give it a real fps instead to pin the animation
+										speed — then Loop decides whether it repeats or holds on the last frame.
+									</p>
+								{/if}
 								{#if !(selected.art.animated ?? false)}
 									<div class="mix">
 										<span class="mixhead">Mix — per-image share</span>
@@ -1138,7 +1348,7 @@
 						<p class="hint">
 							Fires particles in an even fan — one every Spacing° from the Start angle, spawned
 							Distance px out (0 = from the centre). Burst owns the launch direction, so the
-							Emission section is replaced. Pair with a short emitter lifetime for a one-shot
+							Direction controls below step aside. Pair with a short emitter lifetime for a one-shot
 							explosion.
 						</p>
 					{:else if shape?.kind === 'circle'}
@@ -1166,9 +1376,28 @@
 					{/if}
 				</section>
 
-				{#if emission}
-					<section>
-						<h3>Emission</h3>
+				<section>
+					<div class="grouphead">
+						<h3>Direction &amp; rotation</h3>
+						{#if spawnSel !== 'burst'}
+							<label class="toggle">
+								<input
+									type="checkbox"
+									checked={!!emission}
+									onchange={(e) =>
+										patchConfig(
+											setEmissionEnabled(config, (e.currentTarget as HTMLInputElement).checked),
+										)}
+								/>
+								<span>On</span>
+							</label>
+						{/if}
+					</div>
+					{#if spawnSel === 'burst'}
+						<p class="hint">
+							Burst owns the launch direction — set it with Spacing / Start angle above.
+						</p>
+					{:else if emission}
 						{@render slider('Direction (°)', emission.center, 0, 360, 1, (v) =>
 							patchConfig(setEmissionArc(config, v, emission.spread)),
 						)}
@@ -1177,7 +1406,8 @@
 						)}
 						<p class="hint">
 							Launch direction: 0° = right, 90° = up, 180° = left, 270° = down. Spread 180° = all
-							directions. A narrow upward arc + gravity makes a fountain.
+							directions (each particle picks an angle in Direction ± Spread). A narrow upward arc +
+							gravity makes a fountain.
 						</p>
 						{#if spin}
 							{@render slider('Spin min (°/s)', spin.minSpeed, -720, 720, 5, (v) =>
@@ -1186,33 +1416,63 @@
 							{@render slider('Spin max (°/s)', spin.maxSpeed, -720, 720, 5, (v) =>
 								patchConfig(setParticleSpin(config, { ...spin, maxSpeed: v })),
 							)}
+							{@render slider('Spin accel', spin.accel, -720, 720, 5, (v) =>
+								patchConfig(setParticleSpin(config, { ...spin, accel: v })),
+							)}
+							<p class="hint">
+								Spin is how fast the particle turns as it flies — each one picks a rate between min
+								and max, then accelerates by Spin accel. All zero = no spin.
+							</p>
 						{/if}
-					</section>
-				{/if}
+					{:else}
+						<p class="hint">
+							This layer has no launch direction, so particles fly straight right (0°). Turn it on
+							to author a direction + spread.
+						</p>
+					{/if}
+					<label class="row check">
+						<input
+							type="checkbox"
+							checked={lockAngle !== undefined}
+							onchange={(e) =>
+								patchConfig(
+									setRotationLock(config, (e.currentTarget as HTMLInputElement).checked ? 0 : null),
+								)}
+						/>
+						<span>Lock the particle's angle</span>
+					</label>
+					{#if lockAngle !== undefined}
+						{@render slider('Locked angle', lockAngle, 0, 360, 1, (v) =>
+							patchConfig(setRotationLock(config, v)),
+						)}
+						<p class="hint">
+							Particles still TRAVEL along the direction above — they just don't turn to face it.
+							What flat art (confetti, snowflakes, a flipbook) usually wants.
+						</p>
+					{/if}
+				</section>
 
-				{#if alphaEnds}
-					<section>
-						<h3>Alpha</h3>
-						{@render slider('Start', alphaEnds.start, 0, 1, 0.01, (v) =>
-							patchConfig(setListEndpoint(config, 'alpha', 'alpha', 'start', v)),
-						)}
-						{@render slider('End', alphaEnds.end, 0, 1, 0.01, (v) =>
-							patchConfig(setListEndpoint(config, 'alpha', 'alpha', 'end', v)),
-						)}
-					</section>
-				{/if}
+				{@render curveSection(
+					'Alpha',
+					config,
+					'alpha',
+					alphaRange,
+					0,
+					1,
+					0.01,
+					'This layer has no alpha curve — particles stay fully opaque. Turn it on to fade them.',
+				)}
 
-				{#if scaleEnds}
-					<section>
-						<h3>Scale</h3>
-						{@render slider('Start', scaleEnds.start, 0, 4, 0.05, (v) =>
-							patchConfig(setListEndpoint(config, 'scale', 'scale', 'start', v)),
-						)}
-						{@render slider('End', scaleEnds.end, 0, 4, 0.05, (v) =>
-							patchConfig(setListEndpoint(config, 'scale', 'scale', 'end', v)),
-						)}
-					</section>
-				{/if}
+				{@render curveSection(
+					'Scale',
+					config,
+					'scale',
+					scaleRange,
+					0,
+					4,
+					0.05,
+					'This layer has no scale curve — particles render at their art size. Turn it on to grow or shrink them.',
+				)}
 
 				<section>
 					<h3>Movement</h3>
@@ -1232,14 +1492,45 @@
 							<option value="gravity">Gravity (acceleration)</option>
 						</select>
 					</label>
-					{#if moveModel === 'speed' && speedEnds}
-						{@render slider('Speed start', speedEnds.start, 0, 1000, 1, (v) =>
-							patchConfig(setListEndpoint(config, 'moveSpeed', 'speed', 'start', v)),
-						)}
-						{@render slider('Speed end', speedEnds.end, 0, 1000, 1, (v) =>
-							patchConfig(setListEndpoint(config, 'moveSpeed', 'speed', 'end', v)),
-						)}
-						<p class="hint">Speed along the launch direction, eased over the particle's life.</p>
+					{#if moveModel === 'speed' && speedRange}
+						<label class="toggle wide">
+							<input
+								type="checkbox"
+								checked={speedRange.varied}
+								onchange={(e) =>
+									patchConfig(
+										setCurveVaried(config, 'speed', (e.currentTarget as HTMLInputElement).checked),
+									)}
+							/>
+							<span>Min / Max (vary per particle)</span>
+						</label>
+						{#if speedRange.varied}
+							{@render slider('Speed start min', speedRange.startMin, 0, 2000, 1, (v) =>
+								patchConfig(setCurveBound(config, 'speed', 'start', 'min', v)),
+							)}
+							{@render slider('Speed start max', speedRange.startMax, 0, 2000, 1, (v) =>
+								patchConfig(setCurveBound(config, 'speed', 'start', 'max', v)),
+							)}
+							{@render slider('Speed end min', speedRange.endMin, 0, 2000, 1, (v) =>
+								patchConfig(setCurveBound(config, 'speed', 'end', 'min', v)),
+							)}
+							{@render slider('Speed end max', speedRange.endMax, 0, 2000, 1, (v) =>
+								patchConfig(setCurveBound(config, 'speed', 'end', 'max', v)),
+							)}
+						{:else}
+							{@render slider('Speed start', speedRange.startMax, 0, 2000, 1, (v) =>
+								patchConfig(setCurveBound(config, 'speed', 'start', 'max', v)),
+							)}
+							{@render slider('Speed end', speedRange.endMax, 0, 2000, 1, (v) =>
+								patchConfig(setCurveBound(config, 'speed', 'end', 'max', v)),
+							)}
+						{/if}
+						<p class="hint">
+							Speed along the launch direction, eased over the particle's life. With Min / Max on,
+							each particle keeps one random multiplier for its whole life ({Math.round(
+								speedRange.minMult * 100,
+							)}% floor), so a slow particle stays proportionally slow.
+						</p>
 					{:else if moveModel === 'gravity' && grav}
 						{@render slider('Start speed min', grav.minStart, 0, 2000, 10, (v) =>
 							patchConfig(setGravity(config, 'minStart', v)),
@@ -1300,6 +1591,37 @@
 								oninput={(hex) => patchConfig(setParticleColor(config, 'end', hex))}
 							/>
 						</label>
+					{/if}
+					<label class="row check">
+						<input
+							type="checkbox"
+							checked={!!overlay}
+							onchange={(e) =>
+								patchConfig(
+									setColorOverlayEnabled(config, (e.currentTarget as HTMLInputElement).checked),
+								)}
+						/>
+						<span>Colour overlay (per-particle intensity)</span>
+					</label>
+					{#if overlay}
+						<label class="row">
+							<span>Overlay</span>
+							<ColorField
+								value={overlay.color}
+								oninput={(hex) => patchConfig(setColorOverlayField(config, 'color', hex))}
+							/>
+						</label>
+						{@render slider('Intensity min', overlay.min, 0, 1, 0.01, (v) =>
+							patchConfig(setColorOverlayField(config, 'min', v)),
+						)}
+						{@render slider('Intensity max', overlay.max, 0, 1, 0.01, (v) =>
+							patchConfig(setColorOverlayField(config, 'max', v)),
+						)}
+						<p class="hint">
+							Every particle draws its own intensity between min and max — 0 leaves the art
+							untouched, 1 replaces it with the overlay colour. Lays ON TOP of the over-life tint,
+							so a spread here breaks up a flat-coloured burst.
+						</p>
 					{/if}
 				</section>
 
@@ -1422,7 +1744,7 @@
 		font-size: 13px;
 	}
 	.layers {
-		width: 200px;
+		width: 244px;
 		border-right: 1px solid #1f2937;
 	}
 	.inspector {
@@ -1470,6 +1792,8 @@
 	}
 	.pick {
 		flex: 1;
+		min-width: 0;
+		overflow: hidden;
 		text-align: left;
 		padding: 6px 8px;
 		border-radius: 6px;
@@ -1486,16 +1810,49 @@
 		color: #64748b;
 		font-size: 10px;
 	}
-	.del {
-		padding: 0 8px;
+	.ico {
+		flex: none;
+		width: 22px;
+		padding: 0;
 		border-radius: 6px;
-		border: 1px solid #5b2a2a;
+		border: 1px solid #2a323d;
+		background: #14181f;
+		color: #94a3b8;
+		cursor: pointer;
+		font-size: 11px;
+		line-height: 1;
+	}
+	.ico:hover:not(:disabled) {
+		border-color: #3b82f6;
+		color: #bfdbfe;
+	}
+	.del {
+		border-color: #5b2a2a;
 		background: #1d1416;
 		color: #fca5a5;
+	}
+	.ico:disabled {
+		opacity: 0.35;
+		cursor: default;
+	}
+	.clip {
+		display: flex;
+		gap: 6px;
+		margin-top: 10px;
+		padding-top: 10px;
+		border-top: 1px solid #1f2937;
+	}
+	.clip button {
+		flex: 1;
+		padding: 5px 6px;
+		border-radius: 6px;
+		border: 1px solid #2a323d;
+		background: #14181f;
+		color: #cbd5e1;
 		cursor: pointer;
 		font-size: 11px;
 	}
-	.del:disabled {
+	.clip button:disabled {
 		opacity: 0.4;
 		cursor: default;
 	}
@@ -1539,6 +1896,28 @@
 	section:first-child {
 		border-top: none;
 		padding-top: 0;
+	}
+	/* A section heading with its on/off switch on the same line — the pattern that keeps a
+	   section VISIBLE (and addable) instead of vanishing when its behavior is absent. */
+	.grouphead {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 8px;
+	}
+	.toggle {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 11px;
+		color: #94a3b8;
+		cursor: pointer;
+	}
+	.toggle input {
+		accent-color: #3b82f6;
+	}
+	.toggle.wide {
+		margin-bottom: 8px;
 	}
 	.row {
 		display: flex;
