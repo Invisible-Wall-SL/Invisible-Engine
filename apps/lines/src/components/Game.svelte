@@ -67,6 +67,7 @@
 		registerComponents,
 		registerEffects,
 		registerFlipbooks,
+		registerRigFlipbooks,
 		registerRigFx,
 		registerComponentValues,
 		registerComponentActions,
@@ -188,6 +189,7 @@
 		bakedFontSrcBase,
 		bakedEffects,
 		bakedFlipbooks,
+		bakedRigFlipbooks,
 		bakedRigFx,
 		bakedSymbolAssets,
 		bakedWinText,
@@ -629,6 +631,11 @@
 	// resolves it → its ordered frames at render (`registerFlipbooks`/`resolveFlipbook`). No-op when
 	// un-baked / no clips (parity).
 	registerFlipbooks(bakedFlipbooks());
+	// …and the rig-timeline direct FLIPBOOK bindings, so a placed rig plays its bound CLIPS on the
+	// beat of its own animation events (`registerRigFlipbooks`/`resolveRigFlipbooks`). Registered
+	// AFTER `registerFlipbooks` for readability only — a binding resolves its clip at render, not
+	// here. No-op when un-baked / no rig has a bound clip (parity).
+	registerRigFlipbooks(bakedRigFlipbooks());
 	// Layout-doc text localization (§18): any doc text matching a catalog key —
 	// code catalogs + the baked Localization-tool strings — renders translated.
 	registerEditorTextLocalization(getMessagesMap());

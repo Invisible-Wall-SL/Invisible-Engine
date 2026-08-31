@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-flipbook.md](../design/invisible-flipbook.md) · Guide: [docs/tools/flipbook.md](../tools/flipbook.md) · Agent: `.claude/agents/invisible-flipbook.md`
 
-**One-line state:** _(2026-08-28)_ Bounds shipped and took two fixes to become usable — the box drew 562px from its art, then the resizable preview grew in Y without limit. The preview is now a proper **pan/zoom viewport** (scroll to zoom about the pointer, drag to pan, Fit, drag-grip height), all three browser-verified and fixtured. **A clip now declares HOW it plays and HOW BIG it is** —
+**One-line state:** _(2026-08-31)_ **A third consumer: the Rigger.** A rig animation event can bind a clip (`event.flipbook`) the way it already binds an FX effect, so a clip plays on a rig's own beat, on a bound bone, at a slot's depth — see [status/rigger](rigger.md). Was _(2026-08-28)_ Bounds shipped and took two fixes to become usable — the box drew 562px from its art, then the resizable preview grew in Y without limit. The preview is now a proper **pan/zoom viewport** (scroll to zoom about the pointer, drag to pan, Fit, drag-grip height), all three browser-verified and fixtured. **A clip now declares HOW it plays and HOW BIG it is** —
 `direction` (forward / reverse / ping-pong), `flipX`/`flipY`, and a `bounds` box drawn over the
 preview with the Rigger's drag handles; the same box exists for a plain sprite region
 (`editor/art-bounds.json`, authored in the Scene Editor and folded into the shipped sheet at
@@ -176,14 +176,29 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 
 ## Open items / next
 1. **Video mode live-verify is the next action, and it now covers the WHOLE feature in one sitting** — seed the blueprint (`py services/atlas-tool/seed_blueprints.py`), restart `atlas-tool`, and run ONE job. It answers the three things reading the graph cannot: whether the WEBP comes back `RGBA` with the cutout on, whether `BiRefNet_toonout`'s weights resolve on a cold worker (they are NOT in `fetch-models.py`), and whether the payload clears RunPod's ~20 MB `/status` cap. With steps 1–3 already built, that one session exercises the entire chain: generate → grid → pick → pack → clip in the editor. Everything downstream of a real WEBP is fixtured but has never seen a model's actual output.
-2. **Step 6 — consumers: DONE.** Symbols (a `flipbook` cell) and now the Scene Editor (a placed `flipbook` node) both read a clip. FX still has no `clipId?` on `EmitterArt` — an FX layer names its frames directly, so this is a convenience (author the order once in `/flipbook` instead of clicking checkboxes), not a gap.
-3. **Add the clip reachability filter**, now that placements exist to be reachable FROM, so an orphan/scratch clip stops shipping (parity with the effects prune in `bake-editor-doc.mjs`). Note the walk must cover THREE referrers, not one: scene `flipbook` nodes (incl. nested in containers + component defs) and symbol cells' `clipId`, or the prune would delete clips that are genuinely in use.
+2. **Step 6 — consumers: DONE.** Symbols (a `flipbook` cell), the Scene Editor (a placed `flipbook` node) and the Rigger (a rig-timeline `event.flipbook` binding, 2026-08-31) all read a clip. FX still has no `clipId?` on `EmitterArt` — an FX layer names its frames directly, so this is a convenience (author the order once in `/flipbook` instead of clicking checkboxes), not a gap.
+3. **Add the clip reachability filter**, now that placements exist to be reachable FROM, so an orphan/scratch clip stops shipping (parity with the effects prune in `bake-editor-doc.mjs`). Note the walk must cover FOUR referrers, not one: scene `flipbook` nodes (incl. nested in containers + component defs), symbol cells' `clipId`, and — since 2026-08-31 — the `rigFlipbooks` manifest's `clipId`s, or the prune would delete clips that are genuinely in use. The rig referrer is the awkward one: it lives in the rig `.irig`, not in the layout doc, so the filter has to read the manifest the clips export now returns rather than walking the doc.
 4. **Rename-repair hint is unconfirmed** — `src` survives a rename, but `sheet_session.json` is one open sheet's working state, so per-sheet durable recovery of `src` must be verified before the tool promises "did you mean…".
 
 ## Blocked (owner / external)
 - Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-08-31 — **The Rigger became the third consumer: a rig animation event can play a clip.**
+  Owner ask on the Rigger side (*"add flipbooks to the rigger, so I can mix rigs, flipbook and FX in
+  the animator"*); the flipbook-side story is short because almost nothing here had to change.
+  - **A clip needed NO new travel.** `flipbookExport` already ships every authored clip un-pruned and
+    reports every sheet they touch, so a rig-bound clip and its atlas were already reaching the game
+    — only the BINDING is new (`rigFlipbooks`, keyed by the rig's bundle folder, riding the same
+    `export-clips` trigger because it carries no assets of its own).
+  - **The per-use vocabulary was reused verbatim.** A binding's `fps`/`loop`/`direction`/`flipX`/
+    `flipY` go through the SAME `foldFlipbookPlayback` a placed node and a symbol cell use, so one
+    clip walks the same way wherever it is bound and there is still exactly one definition of
+    "`undefined` inherits, `false` does not".
+  - **`clipSheetKeys` earned its keep again**: the Rigger preview cuts frames per SHEET, so a clip
+    interleaved across four atlas pages previews whole rather than one-page-and-three-quarters-missing.
+  - The open reachability filter (item 3) gained a fourth referrer — see there.
+  - Details, including the preview's frame-cut geometry gate, in [status/rigger](rigger.md).
 - 2026-08-28 — **the session rail says WHICH run, not which recipe** (owner report: the list is too long and unrecognisable, with a screenshot of ~20 rows all reading `Wan 2.2 I2V — flipbook source · 10 · 3d ago`). A native `<select>` cannot show a picture, so the rail is now **`$lib/RunPicker.svelte`** — a popover whose every row is a lazy thumbnail of that run's first render + the prompt it was asked for + dim meta, with a green dot for still-working and red for stopped. **The name is DERIVED from the prompt, never stored**: no schema change, and every session already in the project gets one retroactively; it is cut on a word boundary, because a title sliced mid-word reads as corruption.
   - Built as a **shared** component and catalogued as [ui-inventory](../ui-inventory.md) §16, per the `reuse-check` procedure — nothing in domain A covered it (§6's client/project selector is flagged buggy, §14 is the tile grid inside one run), and the launcher does not consume `packages/components-*`, so `$lib/` is its shared location (where `ToolTopBar` and `ColorField` already live). It knows nothing about sessions, prompts or R2: the caller maps its records into `RunPickerItem` and derives the title.
   - The picker's face merges the **polled** session over its `recent` row, or it would still be claiming `queued · #2 in line` long after that session started rendering — `recent` is only re-read when a session goes terminal.

@@ -13,6 +13,18 @@
 
 ## Direction (2026-07-09): rig-timeline **direct FX binding** — "pick the effect on the keyframe"
 
+> **The same seam now carries flipbook clips** (2026-08-31). `event.flipbook = { clipId, bone?, … }`
+> sits beside `event.fx` and travels an exactly parallel chain — `rigFlipbookExport` →
+> `rigFlipbooks` → `registerRigFlipbooks` → `<RiggedFlipbook>` — sharing the placement half of the
+> override vocabulary, the shared preview overlay (`playFlipbook` on the SAME Pixi canvas, so a
+> burst and a clip on one beat can layer against each other), and the folder-tolerant key reduction
+> (`bundleFolderOf`). One event key may carry BOTH. The two are separate registries rather than one
+> tagged union because their override vocabularies genuinely differ — an effect has emitters
+> (`speed`, an emission `duration`), a clip has frames (`fps`, `loop`, `direction`, mirroring) — and
+> merging them would give every author six fields that mean nothing for what they picked. See
+> [design/invisible-flipbook](invisible-flipbook.md) and [status/rigger](../status/rigger.md).
+
+
 **Owner direction.** Today, firing an FX from a rig animation is a 3-tool dance: author the effect
 in `/fx` (with a `trigger.on:'event'` layer whose `eventType` = some cue), **place** it in the
 Scene Editor (an `EffectNode`, optionally `hostSpineId`-attached to the rig), then add a Rigger

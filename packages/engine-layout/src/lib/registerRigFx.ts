@@ -17,6 +17,8 @@
  * of this package, so the top-level `Map` never leaks across games.
  */
 
+import { bundleFolderOf } from './rigBundleKey';
+
 /**
  * The per-binding OVERRIDES an author sets on the keyframe, beside the effect itself. Every one is
  * optional and every one is absent by default — a binding with none behaves exactly as it did before
@@ -154,17 +156,6 @@ export function registerRigFx(map: Record<string, RigFxBinding[]>): void {
 		registry.set(rigKey, clean);
 	}
 }
-
-/** Reduce a rig key to its bundle FOLDER — the manifest key. `LayoutNodeView` passes the bare folder
- * already, but a rig shipped through the Symbols State Machine may carry the FULL R2 bundle prefix
- * (`<client>/<project>/spines/<folder>/`). Same precedent as `EffectLayer`'s `bundleFolderOf` for
- * `skeletonParticle.skeletonKey` (see invisible-fx.md §9): strip a trailing slash + match
- * `/spines/<folder>` → `<folder>`. A key with no `spines/` segment returns unchanged. */
-const bundleFolderOf = (key: string): string => {
-	const trimmed = key.endsWith('/') ? key.slice(0, -1) : key;
-	const m = trimmed.match(/(?:^|\/)spines\/(.+)$/);
-	return m ? m[1] : trimmed;
-};
 
 /** Resolve a placed rig's `assetKey` → its bindings, or `[]` when none are registered (an un-baked
  * project, or a rig with no bound events — the render branch then mounts nothing). Never throws.

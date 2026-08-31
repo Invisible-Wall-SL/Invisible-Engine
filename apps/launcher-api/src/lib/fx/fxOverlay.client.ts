@@ -23,6 +23,12 @@
  * Scope: sprite-particle layers (Tiers A/B). A `particleKind:'spine'` layer (Tier C) is SKIPPED here
  * (it needs a pooled `Spine` host the overlay doesn't provide), matching the v1 preview scope — the
  * SAME scope both hosts share.
+ *
+ * It also plays Invisible Flipbook CLIPS ({@link FxOverlayApi.playFlipbook}), because the Rigger can
+ * bind either to an animation event and both must ride the same bone through the same `follow()`.
+ * One overlay rather than a second canvas per host: a burst and a clip bound to the same beat have
+ * to be in ONE scene to layer against each other at all, and the browser caps live WebGL contexts
+ * (~16) — the reason the FX overlay is already lazy per band.
  */
 
 import { Emitter } from '@barvynkoa/particle-emitter';
@@ -34,8 +40,19 @@ import {
 	type EffectDoc,
 	type EmitterLayer,
 } from 'engine-fx';
-import { Application, Container, Matrix, type TextureSource } from 'pixi.js';
+import {
+	AnimatedSprite,
+	Application,
+	Container,
+	Matrix,
+	type Ticker,
+	type TextureSource,
+} from 'pixi.js';
 import { framesToTextures, type ResolvedArt } from './effectEmitter.client';
+import { clipToTextures, type OverlayClip } from './flipbookFrames.client';
+
+/** Re-exported so a host types its clip list against the same shape the overlay consumes. */
+export type { OverlayClip };
 
 /**
  * A bone's on-screen affine transform (all in CSS px in host space): `(x,y)` is the bone origin,
@@ -83,6 +100,28 @@ export interface FxPlayOptions {
 	continuous?: boolean;
 }
 
+/**
+ * The per-binding overrides a rig keyframe's CLIP binding can carry, as the overlay consumes them.
+ * Structurally the burst half of `engine-layout`'s `RigFlipbookOverrides`; the PLAYBACK half
+ * (`fps`/`loop`/`direction`/`flipX`/`flipY`) is not here for the same reason it is not a prop on
+ * `<RiggedFlipbook>` — the caller folds it into the clip object it passes, so the direction walk and
+ * the frame rate have exactly one answer. `slot` is absent BY DESIGN, as for FX: this overlay is a
+ * separate canvas layered over a raw-WebGL rig canvas, so it draws above or below the whole rig but
+ * never between two of its slots.
+ */
+export interface FlipbookPlayOptions {
+	/** Opacity multiplier, 0–1. */
+	alpha?: number;
+	/** Size multiplier on the whole clip. */
+	scale?: number;
+	/** Milliseconds to wait before it starts. */
+	delay?: number;
+	/** Milliseconds on screen, then taken down. Overrides the preview's own hold cap. */
+	duration?: number;
+	/** This clip is meant to run continuously, so do NOT apply the preview hold cap. */
+	continuous?: boolean;
+}
+
 /** The imperative surface each host drives (the Rigger assigns an instance to `window.RiggerFx`). */
 export interface FxOverlayApi {
 	/** Create the transparent overlay `Application` inside `hostEl` + start its ticker. Idempotent. */
@@ -92,6 +131,17 @@ export interface FxOverlayApi {
 	/** Play an effect by id, riding the bone's on-screen transform `t`, with the keyframe's authored
 	 * overrides applied. Returns a handle. */
 	play(effectId: string, t: FxTransform, opts?: FxPlayOptions): number;
+	/**
+	 * Play an Invisible Flipbook CLIP by value, riding the bone's on-screen transform `t`.
+	 *
+	 * The clip is passed WHOLE rather than by id (unlike `play`, which fetches an `EffectDoc`):
+	 * every host already holds the project's clip list — it is what the author picked from — and the
+	 * binding's playback overrides have to be folded into it before the texture array is built
+	 * anyway, so there is no id whose lookup would not immediately be re-folded.
+	 *
+	 * Returns a handle in the SAME space as `play`, so `follow`/`stop`/`clear` need no clip variant.
+	 */
+	playFlipbook(clip: OverlayClip, t: FxTransform, opts?: FlipbookPlayOptions): number;
 	/** Update an active effect's transform (call every frame to ride the bone). */
 	follow(handle: number, t: FxTransform): void;
 	/** Dispose one effect's emitters + its container. */
@@ -112,6 +162,10 @@ interface LiveEffect {
 	 * for the same reason — there, spine rewrites the parent instead. */
 	inner: Container;
 	emitters: Emitter[];
+	/** Live flipbook sprites (a clip play builds one; an effect play builds none). Advanced from the
+	 * overlay's own ticker rather than `autoUpdate`, so a clip and a burst are clocked by the SAME
+	 * tick — two clocks is how a preview drifts from what it previews. */
+	sprites: AnimatedSprite[];
 	/** Time-scale multiplier for this effect's emitters (the binding's `speed`). */
 	speed: number;
 	/** Pending emit-stop timers (the bounded-burst caps) — cleared on dispose. */
@@ -126,6 +180,12 @@ interface LiveEffect {
  * "keep looping" whether or not the animation is playing. Particles still live out their own lifetime
  * after emission stops. */
 const PREVIEW_HOLD_MS = 1500;
+
+/** Playback default when a clip omits `fps`. Mirrors `engine-flipbook`'s `DEFAULT_FLIPBOOK_FPS` and
+ * `<Flipbook>`'s own literal — restated here rather than imported for the same reason both of those
+ * are: one number, and this module's import list is load-bearing (it is vendored into a bundle with
+ * no module system). */
+const DEFAULT_FLIPBOOK_FPS = 24;
 
 /**
  * Build one independent FX overlay. All state is closed over per instance — two overlays on two
@@ -205,17 +265,31 @@ export function createFxOverlay(): FxOverlayApi {
 		app.renderer.resize(host.clientWidth, host.clientHeight);
 	}
 
-	/** Advance every active emitter one tick, isolating a degenerate config so one bad emitter can't
-	 * throw out of the ticker and freeze the whole overlay. */
-	function tick(deltaSeconds: number): void {
+	/** Advance every active emitter AND flipbook sprite one tick, isolating a degenerate config so one
+	 * bad emitter can't throw out of the ticker and freeze the whole overlay.
+	 *
+	 * Takes the ticker, not a scalar, because the two need different clocks off the same beat: an
+	 * emitter wants the engine's own `emitterDeltaSeconds` scaling (so the preview runs at game speed
+	 * — see `engine-fx`), while an `AnimatedSprite` wants PIXI's `deltaTime`, which is what its own
+	 * `animationSpeed` (`fps / 60`) is expressed against. */
+	function tick(ticker: Ticker): void {
+		const emitterSeconds = emitterDeltaSeconds(ticker.deltaMS);
 		for (const effect of effects.values()) {
-			const scaled = deltaSeconds * effect.speed;
+			const scaled = emitterSeconds * effect.speed;
 			for (const emitter of effect.emitters) {
 				try {
 					emitter.update(scaled);
 				} catch (err) {
 					console.warn('FxOverlay: emitter.update threw; stopping that emitter', err);
 					emitter.emit = false;
+				}
+			}
+			for (const sprite of effect.sprites) {
+				try {
+					sprite.update(ticker);
+				} catch (err) {
+					console.warn('FxOverlay: flipbook update threw; stopping that clip', err);
+					sprite.stop();
 				}
 			}
 		}
@@ -243,13 +317,12 @@ export function createFxOverlay(): FxOverlayApi {
 			hostEl.appendChild(canvas);
 			world = new Container();
 			app.stage.addChild(world);
-			app.ticker.add((ticker) => {
-				// Advance the emitters by the SAME scalar the in-game runtime uses (`ParticleEmitter.svelte`),
-				// so this Rigger/Symbols overlay plays FX at the real game speed — not the old 1× real-seconds
-				// (`deltaMS / 1000`) that made the preview ~2.34× slower than the game. See `engine-fx`
-				// `emitterDeltaSeconds` / `DEFAULT_EMIT_SPEED`.
-				tick(emitterDeltaSeconds(ticker.deltaMS));
-			});
+			// Advance the emitters by the SAME scalar the in-game runtime uses (`ParticleEmitter.svelte`),
+			// so this Rigger/Symbols overlay plays FX at the real game speed — not the old 1× real-seconds
+			// (`deltaMS / 1000`) that made the preview ~2.34× slower than the game. See `engine-fx`
+			// `emitterDeltaSeconds` / `DEFAULT_EMIT_SPEED`. (That scaling now happens inside `tick`,
+			// which also clocks the flipbook sprites off the same ticker.)
+			app.ticker.add(tick);
 		})();
 		return initPromise;
 	}
@@ -321,6 +394,7 @@ export function createFxOverlay(): FxOverlayApi {
 			container,
 			inner,
 			emitters: [],
+			sprites: [],
 			timers: [],
 			disposed: false,
 			speed: opts?.speed ?? 1,
@@ -364,6 +438,85 @@ export function createFxOverlay(): FxOverlayApi {
 		return handle;
 	}
 
+	/**
+	 * Play an Invisible Flipbook clip. Returns a numeric handle synchronously (the same space `play`
+	 * uses, so `follow`/`stop`/`clear` are shared); textures resolve asynchronously and the sprite
+	 * appears when they land, guarded against the play having been stopped meanwhile.
+	 *
+	 * The clip arrives with its binding's PLAYBACK overrides already folded in, so `fps`, `loop`,
+	 * `direction` and the mirroring read straight off it — exactly as `<Flipbook>` reads them in the
+	 * game.
+	 */
+	function playFlipbook(clip: OverlayClip, t: FxTransform, opts?: FlipbookPlayOptions): number {
+		const handle = nextHandle++;
+		const container = new Container();
+		container.setFromMatrix(new Matrix(t.a, t.b, t.c, t.d, t.x, t.y));
+		// Same split as `play`: opacity on the OUTER container (a plain multiplier `follow()` never
+		// touches), size on the inner one, because the outer's matrix is rewritten every frame.
+		container.alpha = opts?.alpha ?? 1;
+		const inner = new Container();
+		inner.scale.set(opts?.scale ?? 1);
+		container.addChild(inner);
+		const effect: LiveEffect = {
+			container,
+			inner,
+			emitters: [],
+			sprites: [],
+			timers: [],
+			disposed: false,
+			speed: 1,
+		};
+		effects.set(handle, effect);
+
+		// The hold cap is NOT the FX rule. There it bounds an infinite emitter; here the only clip that
+		// would run forever is a LOOPING one, and a one-shot clip longer than the cap would be cut in
+		// half by it — the preview then shows an animation ending where it does not. So: an authored
+		// duration always wins, a continuous binding is never capped, a non-looping clip ends itself,
+		// and only a looping clip gets the guess.
+		const loops = clip.loop ?? true;
+		const holdMs = opts?.duration ?? (opts?.continuous || !loops ? null : PREVIEW_HOLD_MS);
+		const delay = opts?.delay ?? 0;
+
+		void (async () => {
+			await (initPromise ?? Promise.resolve());
+			if (effect.disposed || !world) return;
+			world.addChild(container);
+			const build = async (): Promise<void> => {
+				const textures = await clipToTextures(clip, resolveArt, sourceCache);
+				if (effect.disposed || textures.length === 0) return;
+				const sprite = new AnimatedSprite({ textures, autoUpdate: false });
+				sprite.anchor.set(0.5);
+				// `fps / 60`: PIXI advances `currentFrame` by `animationSpeed` per 60Hz-normalized tick.
+				// The same formula `<Flipbook>` uses, with the same 24 default, so the preview and the
+				// game run the clip at one rate.
+				sprite.animationSpeed = (clip.fps && clip.fps > 0 ? clip.fps : DEFAULT_FLIPBOOK_FPS) / 60;
+				sprite.loop = loops;
+				// Mirroring is a render transform on the sprite's own anchor — `AnimatedSprite.svelte`
+				// applies it exactly this way, so a mirrored clip previews as it will draw.
+				sprite.scale.set(clip.flipX ? -1 : 1, clip.flipY ? -1 : 1);
+				sprite.play();
+				effect.inner.addChild(sprite);
+				effect.sprites.push(sprite);
+				if (holdMs !== null) {
+					effect.timers.push(setTimeout(() => stop(handle), holdMs));
+				}
+			};
+			// `delay` holds the BUILD, not a play flag, so the clip starts at frame 0 when it appears —
+			// matching `<RiggedFlipbook>`, which defers its mount for the same reason.
+			if (delay > 0) {
+				effect.timers.push(
+					setTimeout(() => {
+						if (!effect.disposed) void build();
+					}, delay),
+				);
+				return;
+			}
+			await build();
+		})();
+
+		return handle;
+	}
+
 	/** Update an effect's container transform so it rides the bone (position + rotation + scale). */
 	function follow(handle: number, t: FxTransform): void {
 		const effect = effects.get(handle);
@@ -385,6 +538,16 @@ export function createFxOverlay(): FxOverlayApi {
 			}
 		}
 		effect.emitters = [];
+		// Stop before the container destroy takes them: a running `AnimatedSprite` whose textures are
+		// destroyed under it keeps ticking against freed sources.
+		for (const sprite of effect.sprites) {
+			try {
+				sprite.stop();
+			} catch {
+				/* already torn down */
+			}
+		}
+		effect.sprites = [];
 		effect.container.destroy({ children: true });
 	}
 
@@ -409,5 +572,5 @@ export function createFxOverlay(): FxOverlayApi {
 		initPromise = null;
 	}
 
-	return { init, resize, play, follow, stop, clear, destroy };
+	return { init, resize, play, playFlipbook, follow, stop, clear, destroy };
 }

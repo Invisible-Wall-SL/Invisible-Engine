@@ -105,7 +105,7 @@ A floating segmented toggle at the top of the stage switches the workflow:
 **not** need one — it opens with no rig loaded and boots its own renderer, because
 it casts rigs from the project rather than editing the one on the stage.)
 
-### Timeline events (fire an effect on the beat)
+### Timeline events (fire an effect or a flipbook on the beat)
 
 An animation can carry **events** on its timeline — the purple ⚡ keys on the
 top row of the dopesheet. An event is a **named cue** that, at runtime, crosses
@@ -172,6 +172,44 @@ With an effect bound, the rest of the panel appears:
 > place but with different numbers, only the first survives — while the preview
 > here plays each as authored. The editor warns you when that happens; rename one
 > of the events to keep both.
+
+#### Bind a flipbook clip to the key
+
+Below **Play effect** is **Play flipbook**, which does the same thing for an
+**Invisible Flipbook** clip: pick one and that frame animation plays on the rig at
+that beat, on the bone you choose. The list is the project's clips — the same ones
+`/symbols` and the Scene Editor use — so author them in `/flipbook` first. It plays
+on the stage the moment you pick it, like an effect does.
+
+The two are **separate sections, not a choice**: one key can fire an effect *and* a
+clip, which is how a hit throws sparks and a frame-animated flash on the same beat.
+
+**On bone**, **Draw at slot**, **Continuous**, **Opacity**, **Size**, **Delay** and
+**Duration** mean exactly what they do for an effect, including the blank-is-not-`1`
+rule and the preview note about depth. Two differences worth knowing:
+
+- **Duration** is how long the clip stays *on screen*, not how long it emits. A
+  one-shot clip already ends itself after one pass, so this is for bounding a
+  **looping** clip — or for cutting a long one short.
+- **Speed** is in **fps**, not a multiplier, because that is the same number
+  `/flipbook`, `/symbols` and the Scene Editor show. Blank means the clip's own rate.
+
+And a row the effect binding has no equivalent for — **how this use walks the clip**:
+
+- **Loop**, **Mirror X**, **Mirror Y** — three-state: *as authored* inherits the
+  clip's own setting, and **no** is a real answer. So one binding can play a looping
+  clip once, or un-mirror a clip authored mirrored, without forking it in `/flipbook`.
+- **Direction** — *forward*, *reverse* or *ping-pong* over the authored frames.
+  Ping-pong walks back through the interior frames, so a cycle is roughly twice as
+  long as the frame list.
+
+There is deliberately **no x/y nudge**. Where the art sits relative to its origin is
+the clip's own **bounds box**, set once in `/flipbook`; a second offset here would be
+a rival answer to the same question. Move the box, or bind a different bone.
+
+> **If the clip is deleted in `/flipbook`**, the binding stays but renders nothing —
+> here and in the game. The editor says so in red under the picker, and the build
+> warns as well.
 
 ### Edit the rig (Setup mode)
 

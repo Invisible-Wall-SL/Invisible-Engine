@@ -271,6 +271,13 @@ own cost.
      (b) trap #2 below bit exactly where predicted, so `LAYOUT_NODE_KINDS` is now an exported
      runtime value that `editorStorage.ts`'s accepted-kind set derives from — a hand-copied list
      would have DROPPED every placed node on save, silently and green.
+   - **Rigger** — ✅ done (2026-08-31), and NOT in the original plan. A rig animation event binds a
+     clip (`event.flipbook = { clipId, bone?, … }`) exactly as it already binds an FX effect, baked
+     into a `rigFlipbooks` manifest and mounted by `<RiggedFlipbook>`. This is the consumer with the
+     least new machinery and the most reach: a clip gets a bone to ride, a slot's depth in the rig's
+     draw order, and a beat to fire on — none of which a placed node or a symbol cell can give it.
+     The per-use overrides are the SAME `FlipbookPlaybackOverride` block, folded through the SAME
+     `foldFlipbookPlayback`. See [status/rigger](../status/rigger.md).
 7. **Export/bake/pull/register wiring** + the `docs/status/flipbook.md` status file.
 
 8. **Playback control + bounds** (post-v1, owner ask) — ✅ done. `direction`/`flipX`/`flipY` and

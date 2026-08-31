@@ -19,13 +19,16 @@ import type { RequestHandler } from './$types';
  * fall back to the flat bare-name cache where every sheet's `frame_0000…` collide — the exact
  * cross-sheet mix-up that made one symbol play another's animation.
  *
- * Gated on `editor` (the Scene + Component editors) with the `flipbook` author as an alt-tool,
- * mirroring how `/api/editor/effects` admits `fx`/`rigger`. Scope bound to the SESSION's project.
+ * Gated on `editor` (the Scene + Component editors) with the `flipbook` author and the `rigger`
+ * author as alt-tools, mirroring how `/api/editor/effects` admits `fx`/`rigger`. The Rigger needs
+ * it for the same reason it needs the effects list: an animation event key can bind a clip
+ * directly (rig-timeline direct flipbook binding), and the stage cuts that clip's frames itself.
+ * Scope bound to the SESSION's project.
  */
 export const GET: RequestHandler = async ({ locals, cookies }) => {
 	const { clientKey, projectKey } = await gate(locals, cookies, {
 		tool: 'editor',
-		altTools: ['flipbook'],
+		altTools: ['flipbook', 'rigger'],
 		forbiddenMessage: 'Your role does not have access to the project flipbook clips.',
 	});
 

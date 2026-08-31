@@ -21,10 +21,13 @@
 	} from '../editor/spineRuntime.client';
 	import {
 		createFxOverlay,
+		type FlipbookPlayOptions,
 		type FxOverlayApi,
 		type FxPlayOptions,
 		type FxTransform,
+		type OverlayClip,
 	} from '$lib/fx/fxOverlay.client';
+	import { fetchClips, type EditorClip } from '../editor/editorFlipbooks.client';
 	import {
 		boneScreenX,
 		cellSkeletonX,
@@ -58,6 +61,25 @@
 		effectId: string;
 		bone?: string;
 	}
+	/**
+	 * The Invisible Flipbook twin: one timed rig→CLIP binding on the playing animation's timeline.
+	 * Carries the PLAYBACK half beside the burst half because the two are consumed differently — the
+	 * burst half goes to `playFlipbook`'s options, the playback half is folded into the clip before
+	 * its textures are built (`foldTimedClip`), exactly as the game folds it.
+	 */
+	interface TimedClip extends FlipbookPlayOptions {
+		time: number;
+		clipId: string;
+		bone?: string;
+		fps?: number;
+		loop?: boolean;
+		direction?: OverlayClip['direction'];
+		flipX?: boolean;
+		flipY?: boolean;
+	}
+	/** One timeline entry, whichever kind. Tagged on receipt so the crossing, the per-cell handles and
+	 * the bone-follow stay ONE code path — the two kinds differ only in the single `play` call. */
+	type TimedBinding = ({ kind: 'fx' } & TimedFx) | ({ kind: 'clip' } & TimedClip);
 	type Entry =
 		| { state: 'loading' | 'error' }
 		| {
@@ -75,7 +97,7 @@
 				 * a keyframe AT t=0 fires on frame 1. Owns the per-instance FX crossing state. */
 				fxPrev: number;
 				/** Keyframes crossed THIS frame (computed once per instance, fired per visible cell). */
-				fxCrossed: TimedFx[];
+				fxCrossed: TimedBinding[];
 				/** True when the playhead wrapped/scrubbed back this frame → visible cells clear their
 				 * live effects so a looping animation doesn't pile up a burst every loop. */
 				fxLooped: boolean;
@@ -97,17 +119,42 @@
 	let fxInitStarted = false;
 	/** Per-bundle fx timeline: `Record<anim, TimedFx[]>` or `null` (no bindings / a `.skel` / failed).
 	 * Keyed by `resolveKey`; fetched once per bundle from `/api/editor/rig-fx`. */
-	const fxTimelines = new Map<string, Record<string, TimedFx[]> | null>();
+	const fxTimelines = new Map<string, Record<string, TimedBinding[]> | null>();
 	const fxPending = new Set<string>();
+	/** The project's flipbook clips by id, for the clip bindings — fetched ONCE through the editor
+	 * family's shared `fetchClips` (the same request the Scene Editor's Library makes), so a page
+	 * showing both does not run two. Empty until it lands; a clip binding that fires before then is
+	 * skipped, and the next lap plays it. */
+	let clipsById: Map<string, EditorClip> | null = null;
+	void fetchClips().then((clips) => {
+		clipsById = new Map(clips.map((c) => [c.id, c]));
+	});
+
+	/** A timed clip binding → the clip the overlay should play, with the binding's playback overrides
+	 * folded in. Mirrors `engine-layout`'s `foldFlipbookPlayback`: `undefined` inherits, `false` does
+	 * NOT. `null` when the list has not landed or the id names no clip (the beat then renders nothing,
+	 * which is what the game does with a dangling id). */
+	function foldTimedClip(b: TimedClip): OverlayClip | null {
+		const clip = clipsById?.get(b.clipId);
+		if (!clip) return null;
+		return {
+			...clip,
+			fps: b.fps ?? clip.fps,
+			loop: b.loop ?? clip.loop,
+			direction: b.direction ?? clip.direction,
+			flipX: b.flipX ?? clip.flipX,
+			flipY: b.flipY ?? clip.flipY,
+		};
+	}
 	/** Per-CELL live effect handles. The crossing is per-INSTANCE (shared playhead), but a bundle can
 	 * be drawn into many cells, so each visible cell owns its own handles + rides the bone itself.
 	 * A `WeakMap` on the cell element → the entry is GC'd when the grid re-renders the cell away. */
 	let cellFx = new WeakMap<
 		HTMLElement,
-		{ active: { handle: number; bone?: string; continuous: boolean; src: TimedFx }[] }
+		{ active: { handle: number; bone?: string; continuous: boolean; src: TimedBinding }[] }
 	>();
 	/** Shared empty crossing list for the (common) frames with no crossings — never mutated. */
-	const EMPTY_FX: TimedFx[] = [];
+	const EMPTY_FX: TimedBinding[] = [];
 
 	/** Fetch (once) a bundle's fx timeline. Cached even when empty so we don't re-hit the endpoint. */
 	function ensureFxTimeline(resolveKey: string): void {
@@ -121,9 +168,21 @@
 					fxTimelines.set(resolveKey, null);
 					return;
 				}
-				const body = (await res.json()) as { animations?: Record<string, TimedFx[]> };
-				const anims = body.animations;
-				fxTimelines.set(resolveKey, anims && Object.keys(anims).length ? anims : null);
+				const body = (await res.json()) as {
+					animations?: Record<string, TimedFx[]>;
+					flipbooks?: Record<string, TimedClip[]>;
+				};
+				// ONE list per animation, both kinds tagged and sorted together, so the crossing below
+				// never has to know there were two sources.
+				const merged: Record<string, TimedBinding[]> = {};
+				for (const [anim, binds] of Object.entries(body.animations ?? {})) {
+					for (const b of binds) (merged[anim] ??= []).push({ ...b, kind: 'fx' });
+				}
+				for (const [anim, binds] of Object.entries(body.flipbooks ?? {})) {
+					for (const b of binds) (merged[anim] ??= []).push({ ...b, kind: 'clip' });
+				}
+				for (const list of Object.values(merged)) list.sort((a, b) => a.time - b.time);
+				fxTimelines.set(resolveKey, Object.keys(merged).length ? merged : null);
 			} catch {
 				fxTimelines.set(resolveKey, null);
 			} finally {
@@ -210,9 +269,22 @@
 					// Hand the keyframe’s own overrides to the overlay, not just the transform.
 					// Already running and continuous ⇒ this beat is deaf (the game applies the same rule).
 					if (b.continuous && cf && cf.active.some((fx) => fx.src === b)) continue;
-					const { time: _time, effectId: _id, bone: _bone, ...overrides } = b;
+					let handle: number | null = null;
+					if (b.kind === 'clip') {
+						const clip = foldTimedClip(b);
+						// No clip yet (list still in flight) or a dangling id ⇒ skip this beat rather than
+						// draw something arbitrary. A still-loading list plays on the next lap.
+						if (clip) {
+							const { alpha, scale, delay, duration, continuous } = b;
+							handle = overlay.playFlipbook(clip, t, { alpha, scale, delay, duration, continuous });
+						}
+					} else {
+						const { time: _time, kind: _kind, effectId: _id, bone: _bone, ...overrides } = b;
+						handle = overlay.play(b.effectId, t, overrides);
+					}
+					if (handle === null) continue;
 					cf.active.push({
-						handle: overlay.play(b.effectId, t, overrides),
+						handle,
 						bone: b.bone,
 						continuous: !!b.continuous,
 						src: b,
@@ -399,7 +471,7 @@
 					entry.fxLooped = true;
 					lo = -1;
 				}
-				const crossed: TimedFx[] = [];
+				const crossed: TimedBinding[] = [];
 				for (const b of tl) if (lo < b.time && cur >= b.time) crossed.push(b);
 				entry.fxCrossed = crossed;
 				entry.fxPrev = cur;

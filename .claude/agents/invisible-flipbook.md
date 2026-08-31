@@ -29,8 +29,8 @@ for the Python service's conventions.
 - **IS NOT** a pixel editor. Trimming, packing and re-packing source art is the Sheet
   Maker's job — it owns pixels, this tool owns time. The video mode's `max_size` is the
   one exception, and only because a generated frame has no sheet to go back to.
-- **IS NOT** the consumer. FX, Symbols and the Scene Editor each read a `clipId`; this
-  tool authors what they read.
+- **IS NOT** the consumer. FX, Symbols, the Scene Editor and the Rigger (a rig-timeline
+  `event.flipbook` binding) each read a `clipId`; this tool authors what they read.
 
 ## Architecture map
 - `packages/engine-flipbook` — `FlipbookDoc` / `FlipbookClip` + `normalizeFlipbookDoc`,
@@ -40,7 +40,9 @@ for the Python service's conventions.
   latest-wins, beside `registerEffects`/`registerRigFx`), `flipbookCycleMs`, and the
   shared `createAtlasRefResolver` (`manifestBasename.ts`).
 - `packages/pixi-svelte` — `<Flipbook clip={…}>`, the FIRST call site of the long-dead
-  `AnimatedSprite`. `animationSpeed = fps/60`.
+  `AnimatedSprite`. `animationSpeed = fps/60`. `<RiggedFlipbook>` mounts one on a rig's own
+  animation event (the twin of `<RiggedEffect>`; registry `registerRigFlipbooks`, bake
+  `lib/server/rigFlipbookExport.ts`) — see [status/rigger](../../docs/status/rigger.md).
 - `apps/launcher-api` — `/flipbook` (`+page.svelte` = Clips, `VideoMode.svelte` = Video),
   `/api/flipbook/{save,delete,animations}`, `/api/flipbook/video/[...path]` (the proxy),
   `lib/server/flipbookStorage.ts`.
@@ -48,7 +50,10 @@ for the Python service's conventions.
   and `video_to_clip.py` (WEBP → trim → pack → page + TP JSON + manifest), wired as
   `/video/*` routes in `ui_server.py`.
 - Fixtures: `pnpm --filter flipbook-spike run {doc,registry,frames,atlas-ref,sequences,scene-node}`,
-  and `py test_video_runner.py` / `py test_video_to_clip.py` in `services/atlas-tool`.
+  and `py test_video_runner.py` / `py test_video_to_clip.py` in `services/atlas-tool`. The rig
+  binding adds `pnpm --filter launcher-api run check:{rig-flipbook-overrides,flipbook-frames}` —
+  the second pins the launcher preview's frame CUT (rotation / trim / box / direction walk), which
+  is the one place a preview can disagree with the game about which pixels a frame is.
 
 ## Traps this tool has ALREADY paid for — do not re-open them
 - **A frame ref must be atlas-scoped (`<assetKey>::<region>`), not bare.** A bare name

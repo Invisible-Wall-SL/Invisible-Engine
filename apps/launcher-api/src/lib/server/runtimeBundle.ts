@@ -37,6 +37,7 @@ import {
 	type FontCatalog,
 	type SoundCatalog,
 	type LayoutDoc,
+	type RigFlipbookBinding,
 	type RigFxBinding,
 	type WinTextDoc,
 } from 'engine-layout';
@@ -61,6 +62,7 @@ import { loadDoc as loadLocalizationDoc } from './localization';
 import { UNASSIGNED_CLIENT } from './projectPaths';
 import { projectClientKey, projectName } from './projects';
 import { exportRigFx } from './rigFxExport';
+import { exportRigFlipbooks } from './rigFlipbookExport';
 import { loadGameConfigDoc } from './gameConfigStorage';
 import { loadWinTextDoc } from './winTextStorage';
 import { bundleFromAssetKey } from './spine';
@@ -112,6 +114,11 @@ export interface RuntimeBundle {
 	 * A clip's sheets already ship via `editorArt` (the clip walk in `exportEditorArt`), so this is
 	 * a pure-JSON add. Omitted when un-authored ⇒ `bakedFlipbooks()` returns [] (parity). */
 	flipbooks?: FlipbookClip[];
+	/** Rig-timeline direct FLIPBOOK bindings: a rig's own animation events → clips, keyed by the
+	 * rig's runtime assetKey — the frame-animation twin of {@link rigFx}. Omitted unless a rig has
+	 * ≥1 bound event — absent ⇒ `bakedRigFlipbooks()` returns {} (parity). Mirrors the offline bake
+	 * (`scripts/bake-editor-doc.mjs`). */
+	rigFlipbooks?: Record<string, RigFlipbookBinding[]>;
 	/** The authored win-text templates (Invisible Win Text). Pure config, no assets, so it is read
 	 * straight from R2 with no export step — the live twin of the offline bake's
 	 * `/api/win-text/doc` fetch. Omitted when un-authored ⇒ `bakedWinText()` yields the coded
@@ -385,6 +392,7 @@ async function assembleRuntimeBundle(
 		effectIndex,
 		rigFx,
 		clipIndex,
+		rigFlipbooks,
 		winTextDoc,
 	] = await Promise.all([
 		ensureDeployExports(projectKey, clientKey, timings),
@@ -394,6 +402,7 @@ async function assembleRuntimeBundle(
 		step('effects', timings, () => exportEffects(clientKey, projectKey)),
 		step('rigFx', timings, () => exportRigFx(clientKey, projectKey)),
 		step('flipbooks', timings, () => exportClips(clientKey, projectKey)),
+		step('rigFlipbooks', timings, () => exportRigFlipbooks(clientKey, projectKey)),
 		step('winText', timings, () => loadWinTextDoc(clientKey, projectKey)),
 	]);
 	// Only ship a doc that authors something: `loadWinTextDoc` returns `{version:1}` for a
@@ -456,8 +465,11 @@ async function assembleRuntimeBundle(
 		...(Object.keys(rigFx).length ? { rigFx } : {}),
 		// Invisible Flipbook — omit when no clips so a no-clip project stays byte-identical and
 		// `bakedFlipbooks()` returns [] (parity). Unlike effects, clips are NOT reachability-pruned
-		// (no consumer walk exists yet — see the exporter header); a clip is a name list, negligible.
+		// (the walk would need all four referrers — see the exporter header); a clip is a name list.
 		...(clipIndex.clips.length ? { flipbooks: clipIndex.clips } : {}),
+		// …and the rig-timeline clip bindings beside them, on the same omit-when-empty rule as
+		// `rigFx`: absent ⇒ `bakedRigFlipbooks()` returns {} and nothing new mounts.
+		...(Object.keys(rigFlipbooks).length ? { rigFlipbooks } : {}),
 		// Invisible Win Text — omit when un-authored so the bundle stays byte-identical and
 		// `bakedWinText()` falls back to the coded defaults (parity), exactly as the offline bake does.
 		...(winText ? { winText } : {}),

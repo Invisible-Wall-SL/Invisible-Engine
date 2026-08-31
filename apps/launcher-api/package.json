@@ -31,6 +31,10 @@
 		"check:sounds-doc": "tsx --tsconfig tsconfig.scripts.json scripts/check-sounds-doc.ts",
 		"precheck:rig-fx-overrides": "node scripts/ensure-svelte-kit.mjs",
 		"check:rig-fx-overrides": "tsx --tsconfig tsconfig.scripts.json scripts/check-rig-fx-overrides.ts",
+		"precheck:rig-flipbook-overrides": "node scripts/ensure-svelte-kit.mjs",
+		"check:rig-flipbook-overrides": "tsx --tsconfig tsconfig.scripts.json scripts/check-rig-flipbook-overrides.ts",
+		"precheck:flipbook-frames": "node scripts/ensure-svelte-kit.mjs",
+		"check:flipbook-frames": "tsx --tsconfig tsconfig.scripts.json scripts/check-flipbook-frames.ts",
 		"check:deployed-page": "node --experimental-strip-types scripts/check-deployed-page.mjs",
 		"r2:sync-spines": "node scripts/r2-sync-spines.mjs",
 		"pull:assets": "node scripts/pull-project-assets.mjs"

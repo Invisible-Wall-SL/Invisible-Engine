@@ -1,6 +1,18 @@
 <script lang="ts">
-	import { RiggedEffect, SpineProvider, SpineTrack, type SpineTrackProps } from 'pixi-svelte';
-	import { resolveEffect, resolveRigFx } from 'engine-layout';
+	import {
+		RiggedEffect,
+		RiggedFlipbook,
+		SpineProvider,
+		SpineTrack,
+		type SpineTrackProps,
+	} from 'pixi-svelte';
+	import {
+		foldFlipbookPlayback,
+		resolveEffect,
+		resolveFlipbook,
+		resolveRigFlipbooks,
+		resolveRigFx,
+	} from 'engine-layout';
 	import { stateBetDerived } from 'state-shared';
 
 	import { getContext } from '../game/context';
@@ -68,6 +80,29 @@
 				delay={b.delay}
 				duration={b.duration}
 				speed={b.speed}
+				continuous={b.continuous}
+			/>
+		{/if}
+	{/each}
+	<!--
+		Rig-timeline direct FLIPBOOK binding — the frame-animation twin of the block above
+		(`event.flipbook`, baked into the `rigFlipbooks` manifest). Same folder-tolerant lookup, same
+		`foldFlipbookPlayback` a placed node and a flipbook symbol cell use, so a clip bound on a
+		symbol's rig walks exactly as it does anywhere else. Empty for a symbol with no bindings.
+	-->
+	{@const rigClips = resolveRigFlipbooks(props.symbolInfo.assetKey)}
+	{#each rigClips as b (b.event + ':' + b.clipId + ':' + (b.bone ?? '') + ':' + (b.slot ?? ''))}
+		{@const registered = resolveFlipbook(b.clipId)}
+		{#if registered}
+			<RiggedFlipbook
+				clip={foldFlipbookPlayback(registered, b)}
+				event={b.event}
+				bone={b.bone}
+				drawSlot={b.slot}
+				alpha={b.alpha}
+				scale={b.scale}
+				delay={b.delay}
+				duration={b.duration}
 				continuous={b.continuous}
 			/>
 		{/if}

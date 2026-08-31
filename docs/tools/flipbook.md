@@ -14,10 +14,12 @@ Either way the saved artifact is a `FlipbookClip` in the project's cloud storage
 > preview, save, rename, copy and delete clips, and the tool warns you when a clip
 > references a region its sheet no longer has. Clips now travel the full
 > export → `deploy/` → bake → pull → `registerFlipbooks` chain, so a clip **does**
-> reach a shipped game. All three consumers now read one: **Invisible FX** (a layer's
-> particle art), the **Symbols State Machine** (a symbol×state cell) and the **Scene
-> Editor** (a placed `flipbook` element — drag it from the Library's Flipbooks
-> section). See "What it does not do yet" and `docs/design/invisible-flipbook.md`.
+> reach a shipped game. Four consumers read one: **Invisible FX** (a layer's particle
+> art), the **Symbols State Machine** (a symbol×state cell), the **Scene Editor** (a
+> placed `flipbook` element — drag it from the Library's Flipbooks section) and the
+> **Rigger** (an animation event key's **Play flipbook**, so a clip plays on a rig's own
+> beat, on a bone, at a slot's depth). See "What it does not do yet" and
+> `docs/design/invisible-flipbook.md`.
 >
 > **🎬 Video mode: built, but not yet proven on a real generation.** Every step exists and
 > is covered by offline tests, but no video has been generated through it end to end yet —
@@ -422,4 +424,4 @@ setting — so what you saw in the grid is what the clip plays.
   [Invisible Atlas Maker](atlas-maker.md)
 - The tools that consume clips: [Invisible FX](fx.md) ·
   [Invisible Symbols State Machine](symbols-state-machine.md) ·
-  [Invisible Scene Editor](invisible-editor.md)
+  [Invisible Scene Editor](invisible-editor.md) · [Invisible Rigger](rigger.md)

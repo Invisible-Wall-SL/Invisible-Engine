@@ -20,6 +20,7 @@
 		Flipbook,
 		Rectangle,
 		RiggedEffect,
+		RiggedFlipbook,
 		Sprite,
 		SpineBoneAttach,
 		SpineProvider,
@@ -49,6 +50,7 @@
 	import { resolveEffect } from './registerEffects';
 	import { foldFlipbookPlayback, resolveFlipbook } from './registerFlipbooks';
 	import { resolveRigFx } from './registerRigFx';
+	import { resolveRigFlipbooks } from './registerRigFlipbooks';
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentPress } from './componentActionsContext';
 	import { getComponentSignalAnims } from './componentSignalContext';
@@ -951,6 +953,32 @@
 						delay={b.delay}
 						duration={b.duration}
 						speed={b.speed}
+						continuous={b.continuous}
+					/>
+				{/if}
+			{/each}
+
+			<!--
+				Rig-timeline direct FLIPBOOK binding — the frame-animation twin of the block above
+				(`event.flipbook`, baked into the `rigFlipbooks` manifest, keyed by this rig's assetKey).
+				The clip resolves from the boot-registered clips and the binding's PLAYBACK overrides are
+				folded into it here, through the SAME `foldFlipbookPlayback` a placed node and a symbol
+				cell use — so one authored clip walks the same way wherever it is bound. A dangling /
+				un-baked id ⇒ nothing mounts. Empty for a rig with no bindings (parity).
+			-->
+			{@const rigClips = resolveRigFlipbooks(spineAssetKey ?? node.assetKey)}
+			{#each rigClips as b (b.event + ':' + b.clipId + ':' + (b.bone ?? '') + ':' + (b.slot ?? ''))}
+				{@const registered = resolveFlipbook(b.clipId)}
+				{#if registered}
+					<RiggedFlipbook
+						clip={foldFlipbookPlayback(registered, b)}
+						event={b.event}
+						bone={b.bone}
+						drawSlot={b.slot}
+						alpha={b.alpha}
+						scale={b.scale}
+						delay={b.delay}
+						duration={b.duration}
 						continuous={b.continuous}
 					/>
 				{/if}

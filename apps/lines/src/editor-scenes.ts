@@ -9,6 +9,7 @@ import type {
 	LayoutDoc,
 	LayoutNode,
 	ResolvedWinText,
+	RigFlipbookBinding,
 	RigFxBinding,
 	SoundBindings,
 	SoundCatalog,
@@ -154,11 +155,19 @@ type BakedBundle = {
 	 * from `/flipbook`, exported to `deploy/clips/` and frozen into the bundle by
 	 * `bake-editor-doc.mjs`. Each is an ORDERED run of region names within one sheet — a sheet the
 	 * editor-art export already ships, so a clip introduces no new asset. Registered at boot via
-	 * `registerFlipbooks(bakedFlipbooks())`; a consumer resolves `clipId` → clip. Unlike `effects`
-	 * these are NOT reachability-pruned at bake (no consumer references a clipId yet).
+	 * `registerFlipbooks(bakedFlipbooks())`; a consumer resolves `clipId` → clip — a symbol cell, a
+	 * placed `flipbook` node, or a rig-timeline binding (see {@link rigFlipbooks}). Unlike `effects`
+	 * these are NOT reachability-pruned at bake.
 	 * Absent/empty ⇒ `resolveFlipbook()` returns undefined and every consumer renders its static
 	 * fallback (parity). */
 	flipbooks?: FlipbookClipEntry[];
+	/** Rig-timeline direct FLIPBOOK bindings — the frame-animation twin of {@link rigFx}. A rig's OWN
+	 * animation events → clips (`event.flipbook`, read from the rig `.irig`/`.json` at bake for the
+	 * same reason: spine-pixi discards the custom field). Keyed by the rig's runtime assetKey; the
+	 * game registers it via `registerRigFlipbooks(bakedRigFlipbooks())`, and each `<RiggedFlipbook>`
+	 * plays its clip on the beat of the rig's event. The clip itself travels in `flipbooks` — this
+	 * carries only the binding. Absent/empty ⇒ `resolveRigFlipbooks()` returns [] (parity). */
+	rigFlipbooks?: Record<string, RigFlipbookBinding[]>;
 	/** Symbol→state asset bindings (Invisible Symbols State Machine output) + the index
 	 * of any sprite sheets / images / spine bundles those bindings introduce, exported to
 	 * `deploy/editor-symbols/` and mirrored into `static/assets/` by the deploy pull. The
@@ -630,6 +639,19 @@ export function bakedFlipbooks(): FlipbookClipEntry[] {
 	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
 	if (!source) return [];
 	return source.flipbooks ?? [];
+}
+
+/**
+ * The rig-timeline direct FLIPBOOK bindings baked for this project — the frame-animation twin of
+ * {@link bakedRigFx}: a rig's OWN animation events → clips, keyed by the rig's runtime assetKey.
+ * Registered at boot via `registerRigFlipbooks(bakedRigFlipbooks())`; `LayoutNodeView` and
+ * `SymbolSpineMain` resolve `resolveRigFlipbooks(assetKey)` to mount a `<RiggedFlipbook>` per
+ * binding. Empty when un-baked / no rig has a bound clip (dev parity).
+ */
+export function bakedRigFlipbooks(): Record<string, RigFlipbookBinding[]> {
+	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
+	if (!source) return {};
+	return source.rigFlipbooks ?? {};
 }
 
 /**

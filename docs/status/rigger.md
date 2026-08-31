@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-rigger.md](../design/invisible-rigger.md) · Guide: [docs/tools/rigger.md](../tools/rigger.md) · Agent: _none yet_
 
-**One-line state:** Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
+**One-line state:** _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
 
 ## Current state
 Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigger`-gated). Reads/writes byte-valid Spine 4.2 JSON under our `.irig` extension, non-destructively saved to R2 alongside the artist's source. Phases 0–6 are all on `main`:
@@ -11,7 +11,7 @@ Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigg
 - **Slots / skins** — draw-order reorder, region-attachment placement, add/rename/delete, duplicate slot, **✨ Auto FX slots** (auto-duplicate + repoint `_shine`/`_glow`/`_shadow`/… from the atlas), multi-skin.
 - **Mesh** — region→mesh convert, draw-a-mesh, move/add/remove vertex, constrained-Delaunay re-triangulate, numeric UV editing, **isolated-mesh edit** (⛶) that re-pins UVs so reshaping the wireframe never distorts the art.
 - **Weights** — bind-to-bone, per-vertex numeric editing, visual **weight brush** (radius/strength/erase + blue→red heatmap), a proximity chain-skinner auto-weight.
-- **Animation** — keyframing (per-channel + key-all), **dopesheet** (multi-select, marquee, alt-drag duplicate, per-key easing — **right-click a key in a multi-selection eases the whole selection at once**), a **graph editor** (bezier tangents), slot channels (shows / colour / opacity via one `rgba` timeline), **timeline events** (⚡ cues that cross the game event bus to fire Invisible FX), and draw-order channels.
+- **Animation** — keyframing (per-channel + key-all), **dopesheet** (multi-select, marquee, alt-drag duplicate, per-key easing — **right-click a key in a multi-selection eases the whole selection at once**), a **graph editor** (bezier tangents), slot channels (shows / colour / opacity via one `rgba` timeline), **timeline events** (⚡ cues that cross the game event bus, and that can bind an Invisible **FX effect** and/or an Invisible **Flipbook clip** directly to the beat), and draw-order channels.
 - **Localized text as ART (2026-08-17)** — a **Text (localized art)** section in Setup mode:
   pick a localization key + a project font, live-preview it, and bake it to **one atlas region
   per locale**, placed on its own bone as one region attachment per locale named
@@ -66,6 +66,61 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-08-31 — **A rig animation event can now play a FLIPBOOK CLIP, so rigs, flipbooks and FX mix in
+  the animator.** Asked directly: *"I would like to be able to add flipbooks to the rigger, so I can
+  mix rigs, flipbook and FX in the animator. we already added FX successfully, and we can use that as
+  a reference"* — so it is deliberately the same shape as the FX binding, end to end.
+  - **`event.flipbook = { clipId, bone?, … }`** beside the existing `event.fx`. Same custom-field
+    trick, same reason it needs a baked manifest: spine-pixi discards custom event fields at parse
+    time, so the binding is read from the rig `.irig`/`.json` (`rigFlipbookExport.ts`) and shipped as
+    `rigFlipbooks`, keyed by the rig's bundle folder — exactly as `rigFx` is.
+  - **Two sections on one key, not a choice.** A key can fire an effect AND a clip: a hit that throws
+    sparks and a frame-animated flash is one beat. Everything after "which binding" — band, host
+    bone, crossing, follow, stop — is ONE code path (`evtBindings` / `fxStart`), so the two cannot
+    drift apart on depth or timing the way two copies would.
+  - **The overrides are the FX six plus the clip's own playback block.** `slot`/`alpha`/`scale`/
+    `delay`/`duration`/`continuous` mean what they already mean; `fps`/`loop`/`direction`/`flipX`/
+    `flipY` are the SAME per-use vocabulary `/symbols` and the Scene Editor offer, folded through the
+    same `foldFlipbookPlayback`. Deliberately NOT a `speed` multiplier — an author setting a rate
+    here should be typing the number they type everywhere else. `duration` reads differently and the
+    UI says so: for a clip it is time ON SCREEN, which only bounds a LOOPING clip (a one-shot ends
+    itself).
+  - **`false` had to survive, unlike `continuous: false`.** `loop`/`flipX`/`flipY` all default to
+    something other than off somewhere in the chain, so a binding must be able to say `loop:false` —
+    dropping it the way the sparse rule drops `continuous:false` would make "play this one once"
+    unauthorable. Three-state selects in the inspector, an explicit type test in the clamp.
+  - **`playFlipbook` on the SHARED overlay**, not a third canvas: the browser caps live WebGL
+    contexts (~16) and a burst and a clip on one beat have to be in one scene to layer at all. Both
+    bands work for clips, so a clip bound to the backmost slot previews behind the rig with the same
+    exact/approximate note FX gets. The preview hold cap is NOT the FX rule — an authored duration
+    wins, a continuous binding is never capped, a one-shot clip ends itself, and only a LOOPING clip
+    gets the 1.5s guess (capping a 3s one-shot would show the author an animation ending where it
+    does not).
+  - **The frames are CUT, not looked up** — the one place the preview genuinely differs from the
+    game, and the one with silent failure modes. `flipbookFrames.client.ts` re-applies every geometry
+    rule the loader applies: atlas rotation (a sideways frame drawn upright is 90° wrong, once,
+    mid-animation), per-frame trim (frames of one animation are trimmed to different rects, so a
+    dropped offset makes the art jump around its own origin), the clip's declared box, and the
+    direction walk. Pinned by `check:flipbook-frames`, mutation-verified (dropping the rotation swap
+    fails it).
+  - **`/symbols` got it too.** `/api/editor/rig-fx` now returns both timelines off the SAME parsed
+    skeleton (one read, not two), and the grid tags + merges them into one crossing — so a symbol
+    whose rig binds a clip previews it there as well. This is the "three surfaces must agree" rule
+    the continuous fix established; leaving it out would make `/symbols` silently show less than the
+    Rigger.
+  - Gates: `check:rig-flipbook-overrides` (the clamp, the bake identity, the timeline, the registry)
+    and `check:flipbook-frames` (the cut geometry) — both mutation-verified. `check:rig-fx-overrides`
+    still passes after `rigFxExport` was refactored onto the shared `walkRigSkeletons`.
+  - **Verified live** on the local launcher against the 73-bone `anticipation` builtin (the
+    no-login shim technique): the "Play flipbook" section renders with the project's clips, picking
+    one writes the sparse binding, the overlay creates its Pixi app, fetches the region set + page and
+    mounts a PLAYING `AnimatedSprite` with the right textures; `direction:pingpong` → 4 textures for a
+    3-frame clip, `loop:false` → `sprite.loop false`, `fps:30` → `animationSpeed 0.5`, `scale:2` →
+    the inner container; a backmost-slot binding opened the BACK band (a second overlay) with the
+    green "nothing is drawn behind" note; the 1.5s hold stopped a looping clip and `continuous`
+    suppressed it; and one key carrying both an effect and a clip fired BOTH on the crossing path,
+    each tracked by its own binding object. Vendored `rigger-fx.js` rebuilt (it MUST be, or
+    `playFlipbook` is missing from the bundle and nothing plays).
 - 2026-08-27 — **A rig FX cue can be marked CONTINUOUS, so a looping animation stops chopping it up.**
   Asked directly: *"would it be possible to mark an FX I put in the rig as continuous? so if the
   animation loops the FX is not resetting?"* Yes, and it was a small addition to the override set.

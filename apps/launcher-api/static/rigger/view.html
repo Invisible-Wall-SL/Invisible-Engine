@@ -731,6 +731,19 @@ async function loadProjectEffects(){
   } catch { projectEffects = []; }
   if (selEvent) renderEventDetail();
 }
+// The project's Invisible Flipbook clips (lazy — null = not yet loaded). FULL clips, not a row list:
+// the preview cuts the frames itself, so it needs `frames`/`fps`/`loop`/`direction`/`bounds`, which
+// is exactly what /api/editor/flipbooks returns (the same payload the Scene Editor canvas plays).
+let projectClips = null;
+async function loadProjectClips(){
+  if (projectClips !== null) return;
+  try {
+    const r = await fetch("/api/editor/flipbooks");
+    const data = r.ok ? await r.json() : null;
+    projectClips = (data && Array.isArray(data.clips)) ? data.clips : [];
+  } catch { projectClips = []; }
+  if (selEvent) renderEventDetail();
+}
 let selIk = null; // selected IK constraint NAME (constraints panel editor + ik dopesheet track)
 let selTc = null; // selected transform constraint NAME (constraints panel editor + transform dopesheet track)
 let selPath = null; // selected path constraint NAME (constraints panel editor + path dopesheet track)
@@ -1432,6 +1445,35 @@ function fxHostBone(fx){
   }
   return undefined;
 }
+/**
+ * The live bindings on one event key — an Invisible FX burst, an Invisible Flipbook clip, or BOTH.
+ *
+ * ONE shape for the two, because everything downstream of this point is identical for them: which
+ * band they draw in, which bone hosts them, when the playhead crosses them, how they ride the bone
+ * each frame, and when they are stopped. Only the single `play` call differs (`fxStart` below).
+ *
+ * Both on one key is a supported authoring state, not an accident — a hit that throws sparks AND a
+ * frame-animated flash is one beat. `src` is the BINDING object rather than the event, so the
+ * continuous re-fire guard can tell the two apart on a key that carries both.
+ */
+function evtBindings(e){
+  const out = [];
+  if (e && e.fx && e.fx.effectId) out.push({ kind: "fx", b: e.fx });
+  if (e && e.flipbook && e.flipbook.clipId) out.push({ kind: "clip", b: e.flipbook });
+  return out;
+}
+const evtHasBinding = (e) => evtBindings(e).length > 0;
+/** Start ONE binding in a band, whichever kind it is. Returns the overlay handle, or null when the
+ * clip a binding names is not (yet) in `projectClips` — a still-loading list, or an id whose clip was
+ * deleted in /flipbook. Skipping is right for both: the next pass fires once the list lands, and a
+ * dangling id draws nothing here exactly as it will draw nothing in game. */
+function fxStart(band, entry, tf){
+  if (entry.kind === "clip"){
+    const clip = fbClipFor(entry.b);
+    return clip ? band.api.playFlipbook(clip, tf, fbPlayOptsFor(entry.b)) : null;
+  }
+  return band.api.play(entry.b.effectId, tf, fxPlayOptsFor(entry.b));
+}
 function fxBoneTransform(boneName){
   if (!skeleton) return null;
   const b = boneName ? skeleton.findBone(boneName) : skeleton.bones[0];
@@ -1525,16 +1567,17 @@ function updateFxPreview(){
   // this on every rig open, and the browser caps live WebGL contexts (~16), so a rig with no bound
   // keyframe must never cost one. `fxActive` keeps us in when a previous clip's bursts still need
   // clearing or following.
-  if (!fxActive.length && !events.some((e) => e.fx && e.fx.effectId)) return;
+  if (!fxActive.length && !events.some(evtHasBinding)) return;
   // Lazy-load the overlay the moment such a clip is running — robust to any entry path (state
   // restore, direct mode set) that didn't route through setMode. Idempotent + cheap.
   // Create every band THIS CLIP needs before the crossing runs. Without it the first pass over a
   // back-band keyframe is dropped (its overlay is still being created), so a burst behind the rig
   // only appeared on the second loop — and on a non-looping clip, never.
   for (const e of events){
-    if (!(e.fx && e.fx.effectId)) continue;
-    const k = fxBandKey(fxBandInFront(e.fx.slot));
-    if (!fxBands[k].api) ensureFxOverlay(k);
+    for (const entry of evtBindings(e)){
+      const k = fxBandKey(fxBandInFront(entry.b.slot));
+      if (!fxBands[k].api) ensureFxOverlay(k);
+    }
   }
   if (!fxReady) return;
   if (fxLoadFailed) return;
@@ -1556,21 +1599,22 @@ function updateFxPreview(){
     }
     // fire when the playhead enters an fx keyframe: crossing (lo, cur], t=0 included.
     for (const e of events){
-      if (!(e.fx && e.fx.effectId)) continue;
       const t = e.time || 0;
-      // Already running and marked continuous → this beat is deaf, same rule the game applies.
-      if (e.fx.continuous && fxActive.some((fx) => fx.src === e)) continue;
-      if (lo < t && cur >= t){
+      if (!(lo < t && cur >= t)) continue;
+      for (const entry of evtBindings(e)){
+        // Already running and marked continuous → this beat is deaf, same rule the game applies.
+        if (entry.b.continuous && fxActive.some((fx) => fx.src === entry.b)) continue;
         // A slot binding rides the SLOT's bone when no bone was picked — the same rule the game
-        // applies, so the burst previews where it will actually be.
-        const tf = fxBoneTransform(fxHostBone(e.fx)); if (!tf) continue;
-        // Each burst goes to the overlay for ITS OWN side of the rig, so two cues bound at opposite
-        // ends of the draw order both preview truthfully instead of sharing one band.
-        const key = fxBandKey(fxBandInFront(e.fx.slot));
+        // applies, so it previews where it will actually be.
+        const tf = fxBoneTransform(fxHostBone(entry.b)); if (!tf) continue;
+        // Each burst/clip goes to the overlay for ITS OWN side of the rig, so two cues bound at
+        // opposite ends of the draw order both preview truthfully instead of sharing one band.
+        const key = fxBandKey(fxBandInFront(entry.b.slot));
         const band = fxBands[key];
         if (!band.api){ ensureFxOverlay(key); continue; } // created lazily; it fires on a later pass
-        const h = band.api.play(e.fx.effectId, tf, fxPlayOptsFor(e.fx));
-        fxActive.push({ handle: h, bone: fxHostBone(e.fx), band: key, continuous: !!e.fx.continuous, src: e });
+        const h = fxStart(band, entry, tf);
+        if (h == null) continue;
+        fxActive.push({ handle: h, bone: fxHostBone(entry.b), band: key, continuous: !!entry.b.continuous, src: entry.b });
       }
     }
     // ride the bone: reposition every active effect each frame
@@ -1589,19 +1633,27 @@ function fxClearPreview(){
 // Fire an immediate ONE-SHOT preview of an event's bound effect at its bone — instant feedback the
 // moment you pick/change it in the inspector, even while paused (authoring). Bounded in the overlay,
 // so it plays once and fades (no forever-loop). Lazy-loads the overlay if needed.
-function fxFirePreview(evtObj){
-  if (!animMode || !evtObj || !evtObj.fx || !evtObj.fx.effectId) return;
-  ensureFxOverlay(fxBandKey(fxBandInFront(evtObj.fx.slot))).then(() => {
+function fxFirePreview(evtObj, only){
+  if (!animMode || !evtObj) return;
+  // `only` narrows the preview to the binding the author just touched ("fx" / "clip"). Without it a
+  // key carrying both would replay BOTH on every keystroke in either editor, which reads as the
+  // other one firing at random.
+  const entries = evtBindings(evtObj).filter((x) => !only || x.kind === only);
+  if (!entries.length) return;
+  Promise.all(entries.map((x) => ensureFxOverlay(fxBandKey(fxBandInFront(x.b.slot))))).then(() => {
     if (fxLoadFailed) return;
     try {
-      const host = fxHostBone(evtObj.fx);
-      const tf = fxBoneTransform(host); if (!tf) return;
-      const key = fxBandKey(fxBandInFront(evtObj.fx.slot));
-      const band = fxBands[key];
-      if (!band.api) return; // its overlay is still being created — the next pick will land
       fxEachBand((b) => b.api.clear()); fxActive = []; // preview only the latest pick
-      const h = band.api.play(evtObj.fx.effectId, tf, fxPlayOptsFor(evtObj.fx));
-      fxActive.push({ handle: h, bone: host, band: key });
+      for (const entry of entries){
+        const host = fxHostBone(entry.b);
+        const tf = fxBoneTransform(host); if (!tf) continue;
+        const key = fxBandKey(fxBandInFront(entry.b.slot));
+        const band = fxBands[key];
+        if (!band.api) continue; // its overlay is still being created — the next pick will land
+        const h = fxStart(band, entry, tf);
+        if (h == null) continue;
+        fxActive.push({ handle: h, bone: host, band: key });
+      }
     } catch (e){}
   });
 }
@@ -9154,28 +9206,102 @@ function fxPlayOptsFor(fx){
   return opts;
 }
 /**
- * Does another event key share this one's binding IDENTITY — same name, effect, bone and slot — but
- * carry different numeric overrides?
+ * The per-use overrides an event key's FLIPBOOK binding can carry, with the input spec for each.
+ *
+ * MIRRORS `readRigFlipbookOverrides` in `packages/engine-layout/src/lib/registerRigFlipbooks.ts`,
+ * which is the AUTHORITY — this file is plain, import-less JS, so it cannot share the module. Safe
+ * in one direction only, and that is the direction it runs: the engine DROPS any value outside its
+ * range, so a table that drifts too permissive means "the Rigger let you type a number the bake
+ * ignores" (visible), never "the game got a value the engine rejects" (silent). If you widen one,
+ * widen it there first.
+ *
+ * `fps` is here rather than a `speed` multiplier BECAUSE it is the same number /flipbook, /symbols
+ * and the Scene Editor all show. An effect has no framerate and a clip has no emitters, so the two
+ * tables do not — and should not — match.
+ */
+const FB_NUM_FIELDS = {
+  "fb.alpha":    { key: "alpha",    label: "Opacity",  unit: "0–1",  step: "0.05", min: 0, max: 1,    round: 3, rest: "1", hint: "dims the whole clip" },
+  "fb.scale":    { key: "scale",    label: "Size",     unit: "×",    step: "0.05", min: 0, max: null, round: 3, rest: "1", hint: "1 = the clip's own box, as set in /flipbook" },
+  "fb.delay":    { key: "delay",    label: "Delay",    unit: "ms",   step: "10",   min: 0, max: null, round: 0, rest: "0", hint: "wait after the beat before it starts" },
+  "fb.duration": { key: "duration", label: "Duration", unit: "ms",   step: "50",   min: 0, max: null, round: 0, rest: "as authored", hint: "how long it stays on screen. A one-shot clip already ends itself — this is for bounding a LOOPING one, or cutting a long clip short." },
+  "fb.fps":      { key: "fps",      label: "Speed",    unit: "fps",  step: "1",    min: 0, max: null, round: 2, rest: "as authored", hint: "frames per second for THIS use. Blank = the clip's own rate (24 if it never set one)." },
+};
+/** The `playFlipbook` options for one event's `flipbook` binding — only the keys actually authored,
+ * so an untouched binding plays exactly as `/flipbook` made it. `slot` is deliberately NOT passed:
+ * the overlay is a separate canvas over the rig canvas and cannot draw between two slots (see the
+ * inspector note). The PLAYBACK half is not passed either — it is folded into the clip by
+ * {@link fbClipFor}, because the direction decides the texture array itself. */
+function fbPlayOptsFor(fb){
+  const opts = {};
+  if (!fb) return opts;
+  if (fb.continuous) opts.continuous = true;
+  for (const spec of Object.values(FB_NUM_FIELDS)){
+    if (spec.key === "fps") continue; // rides the clip, not the play options
+    const v = fb[spec.key];
+    if (typeof v === "number" && isFinite(v)) opts[spec.key] = v;
+  }
+  return opts;
+}
+/**
+ * The clip a binding names, with its PLAYBACK overrides folded in — the preview twin of the game's
+ * `foldFlipbookPlayback`.
+ *
+ * A fold rather than values passed beside the clip, for the reason that function documents:
+ * `direction` decides the texture ARRAY, so two answers in flight would walk the frames one way
+ * while the timing assumed another. `undefined` means inherit and `false` does NOT — a binding can
+ * un-loop a clip authored looping — which is why every field is read with an explicit type test and
+ * never with a truthiness check.
+ *
+ * `null` when the id names no clip in the project list: a clip deleted in /flipbook, or a list that
+ * has not landed yet. The caller skips the play either way, which is what the game does too.
+ */
+function fbClipFor(fb){
+  if (!fb || !fb.clipId || !projectClips) return null;
+  const clip = projectClips.find((c) => c && c.id === fb.clipId);
+  if (!clip) return null;
+  const out = Object.assign({}, clip);
+  if (typeof fb.fps === "number" && isFinite(fb.fps) && fb.fps > 0) out.fps = fb.fps;
+  if (typeof fb.loop === "boolean") out.loop = fb.loop;
+  if (typeof fb.flipX === "boolean") out.flipX = fb.flipX;
+  if (typeof fb.flipY === "boolean") out.flipY = fb.flipY;
+  if (fb.direction) out.direction = fb.direction;
+  return out;
+}
+/**
+ * Does another event key share this one's binding IDENTITY — same name, effect/clip, bone and slot —
+ * but carry different overrides?
  *
  * That is the single authoring state the pipeline cannot represent: the baked manifest is keyed by
- * the event NAME (all a spine event carries), so `bindingsFromSkeleton` de-dupes on that identity and
- * the FIRST match's overrides win for the whole game. The live previews read the per-keyframe
- * timeline instead and will happily play both. Detecting it here is the only place the author can see
- * the two are about to disagree; everywhere later it just looks like the game ignoring them.
+ * the event NAME (all a spine event carries), so the bake de-dupes on that identity and the FIRST
+ * match's overrides win for the whole game. The live previews read the per-keyframe timeline instead
+ * and will happily play both. Detecting it here is the only place the author can see the two are
+ * about to disagree; everywhere later it just looks like the game ignoring them.
+ *
+ * ONE function for both kinds — the rule is the BAKE's, not the binding's, so a second copy would
+ * only be a second chance to state it differently.
  */
-function fxOverrideClashes(evtObj){
-  const fx = evtObj && evtObj.fx;
-  if (!fx || !fx.effectId || !rawDoc || !rawDoc.animations) return false;
-  const identity = (f) => [f.effectId, f.bone || "", f.slot || ""].join(" ");
-  const numbers = (f) => Object.values(FX_NUM_FIELDS)
-    .map((s) => (typeof f[s.key] === "number" ? f[s.key] : "")).join(" ");
-  const id = identity(fx), nums = numbers(fx);
+function bindingOverrideClashes(evtObj, kind){
+  const isClip = kind === "clip";
+  const field = isClip ? "flipbook" : "fx";
+  const idKey = isClip ? "clipId" : "effectId";
+  const specs = isClip ? FB_NUM_FIELDS : FX_NUM_FIELDS;
+  // A clip's playback block rides the same first-match rule, so it counts as an override here.
+  const flags = isClip ? ["loop", "direction", "flipX", "flipY"] : [];
+  const self = evtObj && evtObj[field];
+  if (!self || !self[idKey] || !rawDoc || !rawDoc.animations) return false;
+  const identity = (f) => [f[idKey], f.bone || "", f.slot || ""].join(" ");
+  const overrides = (f) => Object.values(specs)
+    .map((s) => (typeof f[s.key] === "number" ? f[s.key] : ""))
+    .concat(flags.map((k) => (f[k] === undefined ? "" : String(f[k]))))
+    .join(" ");
+  const id = identity(self), nums = overrides(self);
   for (const anim of Object.values(rawDoc.animations)){
     if (!anim || !Array.isArray(anim.events)) continue;
     for (const e of anim.events){
       if (e === evtObj || !e || e.name !== evtObj.name) continue;
-      if (!e.fx || !e.fx.effectId || identity(e.fx) !== id) continue;
-      if (numbers(e.fx) !== nums) return true;
+      const other = e[field];
+      if (!other || !other[idKey] || identity(other) !== id) continue;
+      if (overrides(other) !== nums) return true;
     }
   }
   return false;
@@ -9204,7 +9330,7 @@ function retimeEventKey(oldTime, newTime){
 }
 function addEventAtPlayhead(){
   if (!rawDoc || !curAnim) return;
-  loadProjectEffects();
+  loadProjectEffects(); loadProjectClips();
   // Create a blank event key at the playhead, then open its editor so the author names it.
   const a = (rawDoc.animations[curAnim] = rawDoc.animations[curAnim] || {});
   a.events = a.events || [];
@@ -9259,6 +9385,52 @@ function setEventKeyField(evtObj, field, raw){
     // Draw depth: render the burst at this slot's place in the draw order instead of over the rig.
     if (!evtObj.fx) return;
     if (raw === "" || raw == null) delete evtObj.fx.slot; else evtObj.fx.slot = raw;
+  } else if (field === "fb.clipId"){
+    // Bind an Invisible Flipbook clip to this beat. Clearing drops the whole flipbook binding, so a
+    // key that never used one stays byte-identical in the saved rig.
+    if (raw === "" || raw == null){ delete evtObj.flipbook; }
+    else {
+      evtObj.flipbook = evtObj.flipbook || {}; evtObj.flipbook.clipId = raw;
+      if (evtObj.flipbook.bone == null && selBone != null) evtObj.flipbook.bone = skeletonData.bones[selBone].name;
+    }
+  } else if (field === "fb.bone"){
+    if (!evtObj.flipbook) return;
+    if (raw === "" || raw == null) delete evtObj.flipbook.bone; else evtObj.flipbook.bone = raw;
+  } else if (field === "fb.slot"){
+    if (!evtObj.flipbook) return;
+    if (raw === "" || raw == null) delete evtObj.flipbook.slot; else evtObj.flipbook.slot = raw;
+  } else if (field === "fb.continuous"){
+    // Sparse: one-shot is the default, so only the opt-IN is written.
+    if (!evtObj.flipbook) return;
+    if (raw) evtObj.flipbook.continuous = true; else delete evtObj.flipbook.continuous;
+  } else if (field === "fb.direction"){
+    if (!evtObj.flipbook) return;
+    if (raw === "" || raw == null) delete evtObj.flipbook.direction; else evtObj.flipbook.direction = raw;
+  } else if (field === "fb.loop" || field === "fb.flipX" || field === "fb.flipY"){
+    // THREE-state, unlike `fb.continuous`: "" removes the key (inherit the clip's own value) while
+    // "0" stores a real `false`. A binding must be able to un-loop a clip authored looping, so
+    // dropping `false` the way `continuous` drops it would make that unauthorable.
+    if (!evtObj.flipbook) return;
+    const key = field.slice(3);
+    if (raw === "" || raw == null) delete evtObj.flipbook[key];
+    else evtObj.flipbook[key] = raw === true || raw === "1" || raw === "true";
+  } else if (FB_NUM_FIELDS[field]){
+    // The flipbook binding's numeric overrides. Same BLANK-DELETES rule as the FX ones below: an
+    // absent field is "not set", which is not the same as its default value, and is what keeps a rig
+    // that never used these bake byte-identically.
+    if (!evtObj.flipbook) return;
+    const spec = FB_NUM_FIELDS[field];
+    if (raw === "" || raw == null){ delete evtObj.flipbook[spec.key]; }
+    else {
+      let v = parseFloat(raw);
+      // A zero framerate is a stopped clip, not a slow one, and the engine refuses it — so the box
+      // must clear rather than store an fps the game would silently replace with 24.
+      if (!isFinite(v) || (spec.key === "fps" && v <= 0)) { delete evtObj.flipbook[spec.key]; }
+      else {
+        v = Math.max(spec.min, spec.max == null ? v : Math.min(spec.max, v));
+        evtObj.flipbook[spec.key] = roundN(v, spec.round);
+      }
+    }
   } else if (FX_NUM_FIELDS[field]){
     // The numeric overrides (opacity/size/delay/duration/speed). BLANK DELETES: an absent field is
     // "not set", which is not the same as its default value — it is what keeps a rig that never used
@@ -9288,7 +9460,7 @@ function renderEventDetail(){
   const a = animOf(curAnim);
   if (!selEvent || !a || !Array.isArray(a.events) || a.events.indexOf(selEvent) < 0){ selEvent = null; det.style.display = "none"; return; }
   det.style.display = "block";
-  loadProjectEffects(); // lazy — refreshes this panel once the effects list resolves
+  loadProjectEffects(); loadProjectClips(); // lazy — each refreshes this panel once its list resolves
 
   const title = document.createElement("div");
   title.textContent = "⚡ Event key @ " + roundN(selEvent.time ?? 0, 3) + "s";
@@ -9330,8 +9502,128 @@ function renderEventDetail(){
   timeIn.onchange = () => { setEventKeyField(selEvent, "time", timeIn.value); timeIn.value = String(selEvent.time ?? 0); renderTimeline(); renderEventDetail(); };
   timeWrap.appendChild(timeIn); det.appendChild(timeWrap);
 
-  // Fires an effect — bind an Invisible FX effect (+ optional host bone) directly to this beat.
+  // ---- what this beat PLAYS: an Invisible FX burst, an Invisible Flipbook clip, or both --------
+  // The two share their whole placement vocabulary — host bone, draw-at-slot (+ the honest note
+  // about what the stage can and cannot show), Continuous, and the per-use numeric overrides — and
+  // differ only in what they name and which numbers they take. So the shared half is built ONCE
+  // here. A second copy is how the FX note and the clip note end up saying different things about
+  // the same two overlays.
   const selectCss = "flex:1;background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:3px 6px;font-size:12px;box-sizing:border-box;width:100%;";
+  const hintLine = (text) => { const d = document.createElement("div"); d.textContent = text; d.style.cssText = "font-size:10px;color:var(--dim);opacity:.8;line-height:1.3;margin:1px 0 2px;"; det.appendChild(d); };
+
+  // Host bone. With a slot chosen and no bone, the slot's own bone hosts it — say so, rather than
+  // letting "rig origin" quietly mean something else than it does everywhere else in this panel.
+  const appendBoneRow = (binding, field, kind) => {
+    const wrap = fieldRow("On bone", binding.slot ? "position only — the slot below sets the DEPTH" : null);
+    const sel = document.createElement("select"); sel.style.cssText = selectCss;
+    const oOrigin = document.createElement("option"); oOrigin.value = "";
+    oOrigin.textContent = binding.slot ? "— the slot's own bone —" : "— rig origin —";
+    sel.appendChild(oOrigin);
+    for (const b of skeletonData.bones){ const o = document.createElement("option"); o.value = b.name; o.textContent = b.name; sel.appendChild(o); }
+    sel.value = binding.bone ?? "";
+    sel.onchange = () => { setEventKeyField(selEvent, field, sel.value); renderEventDetail(); fxFirePreview(selEvent, kind); };
+    wrap.appendChild(sel); det.appendChild(wrap);
+  };
+
+  // Draw depth — WHERE IN THE RIG it renders, not just where it sits.
+  const appendSlotRow = (binding, field, kind, what) => {
+    const wrap = fieldRow("Draw at slot");
+    const sel = document.createElement("select"); sel.style.cssText = selectCss;
+    const oTop = document.createElement("option"); oTop.value = ""; oTop.textContent = "— on top of the rig —"; sel.appendChild(oTop);
+    // Draw order, not alphabetical: this list IS a depth picker, so it has to read like the stack it
+    // picks from. `skeletonData.slots` is already in draw order — back to front.
+    //
+    // The ENDS are labelled because that order is the opposite of every layer panel people know
+    // (Photoshop, After Effects put the front-most on top). An author who reads the top row as
+    // "over the rig" parks their FX slot behind everything and then reports the depth picker as
+    // broken — which is exactly what happened.
+    const lastSlot = skeletonData.slots.length - 1;
+    skeletonData.slots.forEach((sl, i) => {
+      const o = document.createElement("option"); o.value = sl.name;
+      o.textContent = sl.name + (i === 0 ? "  — furthest BACK" : i === lastSlot ? "  — furthest FRONT" : "");
+      sel.appendChild(o);
+    });
+    sel.value = binding.slot ?? "";
+    sel.onchange = () => { setEventKeyField(selEvent, field, sel.value); renderEventDetail(); fxFirePreview(selEvent, kind); };
+    wrap.appendChild(sel); det.appendChild(wrap);
+    if (!binding.slot) return;
+    // The honest limit, stated where the choice is made. The stage draws every rig into ONE
+    // WebGL canvas, with one overlay BELOW it and one ABOVE. So the stage can show something
+    // behind the whole rig or in front of it — but still never sandwiched between two slots.
+    const inFront = fxBandInFront(binding.slot);
+    // Is the band we can show it in its TRUE depth? Yes at either end of the stack: nothing
+    // drawn behind it (so "behind everything" is exact) or nothing drawn in front of it (so "in
+    // front of everything" is). Only a genuinely mid-stack slot is approximated.
+    const exact = fxDepthIsExact(binding.slot);
+    const note = document.createElement("div");
+    note.textContent = exact
+      ? (inFront
+          ? "Previewed IN FRONT of the rig — nothing is drawn in front of “" + binding.slot + "”, so that is its true depth here and in game."
+          : "Previewed BEHIND the rig — nothing is drawn behind “" + binding.slot + "”, so that is its true depth here and in game.")
+      : "In game this draws at “" + binding.slot + "”'s depth, between the slots either side of it. The stage draws the whole rig into one canvas, so it can only show " + what + " behind or in front of ALL of it — this previews " + (inFront ? "in front" : "behind") + ".";
+    note.style.cssText = "font-size:10px;line-height:1.3;margin:1px 0 3px;opacity:.85;color:" + (exact ? "#bfe3c8" : "#ffe8b0") + ";";
+    det.appendChild(note);
+  };
+
+  // Continuous: start on the first beat and keep going, instead of restarting each lap.
+  const appendContinuousRow = (binding, field, kind, onHint, offHint) => {
+    const wrap = fieldRow("Playback");
+    const label = document.createElement("label");
+    label.style.cssText = "display:flex;align-items:center;gap:6px;font-size:12px;color:var(--txt);cursor:pointer;";
+    const box = document.createElement("input");
+    box.type = "checkbox"; box.checked = !!binding.continuous;
+    box.style.cssText = "width:14px;height:14px;accent-color:var(--accent2);cursor:pointer;";
+    box.onchange = () => { setEventKeyField(selEvent, field, box.checked); renderEventDetail(); fxFirePreview(selEvent, kind); };
+    label.appendChild(box);
+    const text = document.createElement("span"); text.textContent = "Continuous"; label.appendChild(text);
+    wrap.appendChild(label); det.appendChild(wrap);
+    hintLine(binding.continuous ? onHint : offHint);
+  };
+
+  // Per-binding numeric overrides — adjust THIS use without forking the doc it came from.
+  const appendNumericRow = (binding, specs, prefix, kind) => {
+    const row = document.createElement("div"); row.style.cssText = "display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;";
+    for (const [field, spec] of Object.entries(specs)){
+      const w = document.createElement("label");
+      w.style.cssText = "flex:1 1 30%;display:flex;flex-direction:column;gap:2px;font-size:10px;color:var(--dim);min-width:0;";
+      const lb = document.createElement("span"); lb.textContent = spec.label + " (" + spec.unit + ")"; w.appendChild(lb);
+      const inp = document.createElement("input");
+      inp.type = "number"; inp.step = spec.step; inp.min = String(spec.min);
+      if (spec.max != null) inp.max = String(spec.max);
+      inp.title = spec.hint;
+      // Blank = not set. Placeholder shows what it does on its own, so the box reads as an OVERRIDE
+      // of the authored doc rather than a value that is already in force.
+      // The placeholder is that field's own resting value — not a blanket "1". Delay rests at 0:
+      // showing 1 there read as "a 1ms delay is already applied", which is both wrong and
+      // unauthorable (blank means no delay at all).
+      inp.placeholder = spec.rest;
+      const cur = binding[spec.key];
+      inp.value = typeof cur === "number" ? String(cur) : "";
+      inp.style.cssText = inputCss;
+      inp.onchange = () => {
+        setEventKeyField(selEvent, field, inp.value);
+        const nv = (selEvent[prefix] || {})[spec.key];
+        inp.value = typeof nv === "number" ? String(nv) : "";
+        fxFirePreview(selEvent, kind);
+      };
+      w.appendChild(inp); row.appendChild(w);
+    }
+    det.appendChild(row);
+  };
+
+  // The bake keys bindings by event NAME and keeps the FIRST match's overrides, so two keyframes
+  // that share a name but disagree cannot both survive into the game — while the live previews,
+  // which read the per-keyframe timeline, WILL show both. That divergence is invisible until a
+  // published game contradicts the tool, so say it here, at the point it is created.
+  const appendClashWarning = (kind, what) => {
+    if (!bindingOverrideClashes(selEvent, kind)) return;
+    const warn = document.createElement("div");
+    warn.textContent = "Another “" + selEvent.name + "” key binds the same " + what + " with different settings. In game only one wins (the first), though the preview here plays each as authored — rename this event to keep both.";
+    warn.style.cssText = "font-size:10px;color:#ffd4d4;background:#3a2326;border:1px solid var(--danger);border-radius:5px;padding:4px 6px;line-height:1.3;margin-top:4px;";
+    det.appendChild(warn);
+  };
+
+  // ---- Invisible FX: bind an effect (+ optional host bone) directly to this beat ---------------
   const fxWrap = fieldRow("Play effect");
   const fxSel = document.createElement("select"); fxSel.style.cssText = selectCss;
   if (projectEffects === null){
@@ -9341,120 +9633,91 @@ function renderEventDetail(){
     for (const fx of projectEffects){ const o = document.createElement("option"); o.value = fx.id; o.textContent = fx.name; fxSel.appendChild(o); }
   }
   fxSel.value = selEvent.fx?.effectId ?? "";
-  fxSel.onchange = () => { setEventKeyField(selEvent, "fx.effectId", fxSel.value); renderEventDetail(); renderTimeline(); fxFirePreview(selEvent); };
+  fxSel.onchange = () => { setEventKeyField(selEvent, "fx.effectId", fxSel.value); renderEventDetail(); renderTimeline(); fxFirePreview(selEvent, "fx"); };
   fxWrap.appendChild(fxSel); det.appendChild(fxWrap);
-  const fxHint = document.createElement("div"); fxHint.textContent = "Plays on the rig at this beat — no Scene-Editor placement needed. (Sprite-particle effects only for now.)"; fxHint.style.cssText = "font-size:10px;color:var(--dim);opacity:.8;line-height:1.3;margin:1px 0 2px;"; det.appendChild(fxHint);
+  hintLine("Plays on the rig at this beat — no Scene-Editor placement needed. (Sprite-particle effects only for now.)");
 
   if (selEvent.fx?.effectId){
-    const boneWrap = fieldRow("On bone", selEvent.fx?.slot ? "position only — the slot below sets the DEPTH" : null);
-    const boneSel = document.createElement("select"); boneSel.style.cssText = selectCss;
-    const oOrigin = document.createElement("option"); oOrigin.value = "";
-    // With a slot chosen and no bone, the slot's own bone hosts the burst — say so, rather than
-    // letting "rig origin" quietly mean something else than it does everywhere else in this panel.
-    oOrigin.textContent = selEvent.fx?.slot ? "— the slot's own bone —" : "— rig origin —";
-    boneSel.appendChild(oOrigin);
-    for (const b of skeletonData.bones){ const o = document.createElement("option"); o.value = b.name; o.textContent = b.name; boneSel.appendChild(o); }
-    boneSel.value = selEvent.fx?.bone ?? "";
-    boneSel.onchange = () => { setEventKeyField(selEvent, "fx.bone", boneSel.value); renderEventDetail(); fxFirePreview(selEvent); };
-    boneWrap.appendChild(boneSel); det.appendChild(boneWrap);
+    appendBoneRow(selEvent.fx, "fx.bone", "fx");
+    appendSlotRow(selEvent.fx, "fx.slot", "fx", "FX");
+    appendContinuousRow(
+      selEvent.fx, "fx.continuous", "fx",
+      "Starts on the first beat and keeps running — a looping animation will not restart it. Stops when the rig unmounts, or after Duration below.",
+      "Restarts from the beginning on every beat. On a looping animation that means once per lap — right for an impact, a stutter for anything ambient.",
+    );
+    appendNumericRow(selEvent.fx, FX_NUM_FIELDS, "fx", "fx");
+    appendClashWarning("fx", "effect");
+  }
 
-    // Draw depth — WHERE IN THE RIG the burst renders, not just where it sits.
-    const slotWrap = fieldRow("Draw at slot");
-    const slotSel = document.createElement("select"); slotSel.style.cssText = selectCss;
-    const oTop = document.createElement("option"); oTop.value = ""; oTop.textContent = "— on top of the rig —"; slotSel.appendChild(oTop);
-    // Draw order, not alphabetical: this list IS a depth picker, so it has to read like the stack it
-    // picks from. `skeletonData.slots` is already in draw order — back to front.
-    //
-    // The ENDS are labelled because that order is the opposite of every layer panel people know
-    // (Photoshop, After Effects put the front-most on top). An author who reads the top row as
-    // “over the rig” parks their FX slot behind everything and then reports the depth picker as
-    // broken — which is exactly what happened.
-    const lastSlot = skeletonData.slots.length - 1;
-    skeletonData.slots.forEach((s, i) => {
-      const o = document.createElement("option"); o.value = s.name;
-      o.textContent = s.name + (i === 0 ? "  — furthest BACK" : i === lastSlot ? "  — furthest FRONT" : "");
-      slotSel.appendChild(o);
-    });
-    slotSel.value = selEvent.fx?.slot ?? "";
-    slotSel.onchange = () => { setEventKeyField(selEvent, "fx.slot", slotSel.value); renderEventDetail(); fxFirePreview(selEvent); };
-    slotWrap.appendChild(slotSel); det.appendChild(slotWrap);
-    if (selEvent.fx?.slot){
-      // The honest limit, stated where the choice is made. The stage draws every rig into ONE
-      // WebGL canvas, with one FX overlay BELOW it and one ABOVE. So the stage can show a burst
-      // behind the whole rig or in front of it — but still never sandwiched between two slots.
-      const inFront = fxBandInFront(selEvent.fx.slot);
-      // Is the band we can show the burst’s TRUE depth? Yes at either end of the stack: nothing
-      // drawn behind it (so “behind everything” is exact) or nothing drawn in front of it (so “in
-      // front of everything” is). Only a genuinely mid-stack slot is approximated.
-      const exact = fxDepthIsExact(selEvent.fx.slot);
-      const note = document.createElement("div");
-      note.textContent = exact
-        ? (inFront
-            ? "Previewed IN FRONT of the rig — nothing is drawn in front of “" + selEvent.fx.slot + "”, so that is its true depth here and in game."
-            : "Previewed BEHIND the rig — nothing is drawn behind “" + selEvent.fx.slot + "”, so that is its true depth here and in game.")
-        : "In game this draws at “" + selEvent.fx.slot + "”'s depth, between the slots either side of it. The stage draws the whole rig into one canvas, so it can only show FX behind or in front of ALL of it — this previews " + (inFront ? "in front" : "behind") + ".";
-      note.style.cssText = "font-size:10px;line-height:1.3;margin:1px 0 3px;opacity:.85;color:" + (exact ? "#bfe3c8" : "#ffe8b0") + ";";
-      det.appendChild(note);
-    }
+  // ---- Invisible Flipbook: bind a CLIP to the same beat ----------------------------------------
+  // The frame-animation twin of the block above. A rig can carry both on one key — a hit that throws
+  // sparks AND a frame-animated flash is one beat — so this is a second section, not a mode switch.
+  const fbWrap = fieldRow("Play flipbook");
+  const fbSel = document.createElement("select"); fbSel.style.cssText = selectCss;
+  if (projectClips === null){
+    const o = document.createElement("option"); o.value = ""; o.textContent = "loading clips…"; o.disabled = true; fbSel.appendChild(o); fbSel.disabled = true;
+  } else {
+    const oNone = document.createElement("option"); oNone.value = ""; oNone.textContent = "— none —"; fbSel.appendChild(oNone);
+    for (const c of projectClips){ const o = document.createElement("option"); o.value = c.id; o.textContent = c.name + " (" + (c.frames ? c.frames.length : 0) + "f)"; fbSel.appendChild(o); }
+  }
+  fbSel.value = selEvent.flipbook?.clipId ?? "";
+  fbSel.onchange = () => { setEventKeyField(selEvent, "fb.clipId", fbSel.value); renderEventDetail(); renderTimeline(); fxFirePreview(selEvent, "clip"); };
+  fbWrap.appendChild(fbSel); det.appendChild(fbWrap);
+  hintLine("Plays an Invisible Flipbook clip on the rig at this beat, on the bone you pick — the same clips /symbols and the Scene Editor use. Author them in /flipbook.");
 
-    // Continuous: start on the first beat and keep going, instead of restarting each lap.
-    const contWrap = fieldRow("Playback");
-    const contLabel = document.createElement("label");
-    contLabel.style.cssText = "display:flex;align-items:center;gap:6px;font-size:12px;color:var(--txt);cursor:pointer;";
-    const contBox = document.createElement("input");
-    contBox.type = "checkbox"; contBox.checked = !!selEvent.fx.continuous;
-    contBox.style.cssText = "width:14px;height:14px;accent-color:var(--accent2);cursor:pointer;";
-    contBox.onchange = () => { setEventKeyField(selEvent, "fx.continuous", contBox.checked); renderEventDetail(); fxFirePreview(selEvent); };
-    contLabel.appendChild(contBox);
-    const contText = document.createElement("span"); contText.textContent = "Continuous"; contLabel.appendChild(contText);
-    contWrap.appendChild(contLabel); det.appendChild(contWrap);
-    const contHint = document.createElement("div");
-    contHint.textContent = selEvent.fx.continuous
-      ? "Starts on the first beat and keeps running — a looping animation will not restart it. Stops when the rig unmounts, or after Duration below."
-      : "Restarts from the beginning on every beat. On a looping animation that means once per lap — right for an impact, a stutter for anything ambient.";
-    contHint.style.cssText = "font-size:10px;color:var(--dim);opacity:.8;line-height:1.3;margin:1px 0 3px;";
-    det.appendChild(contHint);
-
-    // Per-binding overrides — adjust THIS use of the effect without forking its doc in /fx.
-    const numRow = document.createElement("div"); numRow.style.cssText = "display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;";
-    for (const [field, spec] of Object.entries(FX_NUM_FIELDS)){
-      const w = document.createElement("label");
-      w.style.cssText = "flex:1 1 30%;display:flex;flex-direction:column;gap:2px;font-size:10px;color:var(--dim);min-width:0;";
-      const lb = document.createElement("span"); lb.textContent = spec.label + " (" + spec.unit + ")"; w.appendChild(lb);
-      const inp = document.createElement("input");
-      inp.type = "number"; inp.step = spec.step; inp.min = String(spec.min);
-      if (spec.max != null) inp.max = String(spec.max);
-      inp.title = spec.hint;
-      // Blank = not set. Placeholder shows what the effect does on its own, so the box reads as an
-      // OVERRIDE of the /fx doc rather than a value that is already in force.
-      // The placeholder is what the effect does with NO override, so it has to be that field's own
-      // resting value — not a blanket "1". Delay rests at 0: showing 1 there read as "a 1ms delay is
-      // already applied", which is both wrong and unauthorable (blank means no delay at all).
-      inp.placeholder = spec.rest;
-      const cur = selEvent.fx?.[spec.key];
-      inp.value = typeof cur === "number" ? String(cur) : "";
-      inp.style.cssText = inputCss;
-      inp.onchange = () => {
-        setEventKeyField(selEvent, field, inp.value);
-        const nv = selEvent.fx?.[spec.key];
-        inp.value = typeof nv === "number" ? String(nv) : "";
-        fxFirePreview(selEvent);
-      };
-      w.appendChild(inp); numRow.appendChild(w);
-    }
-    det.appendChild(numRow);
-
-    // The bake keys bindings by event NAME and keeps the FIRST match's overrides, so two keyframes
-    // that share a name but disagree cannot both survive into the game — while the live previews,
-    // which read the per-keyframe timeline, WILL show both. That divergence is invisible until a
-    // published game contradicts the tool, so say it here, at the point it is created.
-    const clash = fxOverrideClashes(selEvent);
-    if (clash){
+  if (selEvent.flipbook?.clipId){
+    // A bound clip that is not in the project list any more: the beat renders nothing, here AND in
+    // game, and there is no other signal that it was ever pointing somewhere.
+    if (projectClips && !projectClips.some((c) => c.id === selEvent.flipbook.clipId)){
       const warn = document.createElement("div");
-      warn.textContent = "Another “" + selEvent.name + "” key binds the same effect with different settings. In game only one wins (the first), though the preview here plays each as authored — rename this event to keep both.";
-      warn.style.cssText = "font-size:10px;color:#ffd4d4;background:#3a2326;border:1px solid var(--danger);border-radius:5px;padding:4px 6px;line-height:1.3;margin-top:4px;";
+      warn.textContent = "This clip no longer exists in /flipbook. The beat will render nothing — pick another clip, or clear the binding.";
+      warn.style.cssText = "font-size:10px;color:#ffd4d4;background:#3a2326;border:1px solid var(--danger);border-radius:5px;padding:4px 6px;line-height:1.3;margin:2px 0 3px;";
       det.appendChild(warn);
     }
+    appendBoneRow(selEvent.flipbook, "fb.bone", "clip");
+    appendSlotRow(selEvent.flipbook, "fb.slot", "clip", "a clip");
+    appendContinuousRow(
+      selEvent.flipbook, "fb.continuous", "clip",
+      "Starts on the first beat and keeps running — a looping animation will not restart it. Stops when the rig unmounts, or after Duration below.",
+      "Restarts from frame 0 on every beat. On a looping animation that means once per lap — right for an impact, a stutter for anything ambient.",
+    );
+
+    // How the clip is WALKED for this use. The same five knobs /symbols and the Scene Editor offer,
+    // with the same three-state meaning: blank inherits the clip's own value, and an explicit "no"
+    // is a real answer — a binding can un-loop a clip authored looping, or un-mirror a mirrored one.
+    const fbPlayRow = document.createElement("div"); fbPlayRow.style.cssText = "display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;";
+    const triField = (label, key, hint) => {
+      const w = document.createElement("label");
+      w.style.cssText = "flex:1 1 30%;display:flex;flex-direction:column;gap:2px;font-size:10px;color:var(--dim);min-width:0;";
+      const lb = document.createElement("span"); lb.textContent = label; w.appendChild(lb);
+      const sel = document.createElement("select"); sel.style.cssText = inputCss; sel.title = hint;
+      for (const opt of [["", "as authored"], ["1", "yes"], ["0", "no"]]){
+        const o = document.createElement("option"); o.value = opt[0]; o.textContent = opt[1]; sel.appendChild(o);
+      }
+      const cur = selEvent.flipbook[key];
+      sel.value = cur === undefined ? "" : (cur ? "1" : "0");
+      sel.onchange = () => { setEventKeyField(selEvent, "fb." + key, sel.value); renderEventDetail(); fxFirePreview(selEvent, "clip"); };
+      w.appendChild(sel); fbPlayRow.appendChild(w);
+    };
+    triField("Loop", "loop", "blank = the clip's own setting. A one-shot clip ends itself; a looping one runs until the rig unmounts or Duration below.");
+    const dirW = document.createElement("label");
+    dirW.style.cssText = "flex:1 1 30%;display:flex;flex-direction:column;gap:2px;font-size:10px;color:var(--dim);min-width:0;";
+    const dirLb = document.createElement("span"); dirLb.textContent = "Direction"; dirW.appendChild(dirLb);
+    const dirSel = document.createElement("select"); dirSel.style.cssText = inputCss;
+    dirSel.title = "how the authored frames are walked. Ping-pong plays ~twice as many frames per cycle, so it also takes about twice as long.";
+    for (const opt of [["", "as authored"], ["forward", "forward"], ["reverse", "reverse"], ["pingpong", "ping-pong"]]){
+      const o = document.createElement("option"); o.value = opt[0]; o.textContent = opt[1]; dirSel.appendChild(o);
+    }
+    dirSel.value = selEvent.flipbook.direction ?? "";
+    dirSel.onchange = () => { setEventKeyField(selEvent, "fb.direction", dirSel.value); renderEventDetail(); fxFirePreview(selEvent, "clip"); };
+    dirW.appendChild(dirSel); fbPlayRow.appendChild(dirW);
+    triField("Mirror X", "flipX", "blank = the clip's own setting. Mirrors the drawn frames horizontally about the clip's origin — no second set of art.");
+    triField("Mirror Y", "flipY", "blank = the clip's own setting. Mirrors the drawn frames vertically about the clip's origin.");
+    det.appendChild(fbPlayRow);
+
+    appendNumericRow(selEvent.flipbook, FB_NUM_FIELDS, "flipbook", "clip");
+    hintLine("Size multiplies the clip's own box (set that in /flipbook). The clip draws centred on its origin — there is no nudge here, because the box already says where the art sits inside it.");
+    appendClashWarning("clip", "clip");
   }
 
   // Optional payload — int / float / string. Empty ⇒ omit.
@@ -9781,11 +10044,11 @@ function renderTimeline(){
     trackKeyTimes(tr).forEach((kt) => {
       const ct = trackKeyCurve(tr, kt);
       const dot = document.createElement("div");
-      const hasFx = isEvents && eventsAt(kt).some((e) => e.fx && e.fx.effectId);
+      const hasFx = isEvents && eventsAt(kt).some(evtHasBinding);
       dot.className = "tl-key" + (Math.abs(kt - animTime) < 1e-3 ? " sel" : "") + (ct === "stepped" ? " stepped" : "") + (ct === "bezier" ? " bez" : "") + (isSlotKind ? " slot" : "") + (isEvents ? " evt" : "") + (hasFx ? " fx" : "") + (isDraw ? " draw" : "") + (dopeSelHas(tid, kt) ? " msel" : "");
       dot.style.left = "max(6px, " + ((kt / dur) * 100).toFixed(3) + "%)"; // keep a t=0 key off the sticky gutter
       dot.dataset.tid = tid; dot.dataset.t = kt; dopeDotEls[tid + "@" + kt] = dot;
-      dot.title = isEvents ? ("event(s): " + eventsAt(kt).map((e) => e.name).join(", ") + " @ " + kt.toFixed(3) + "s — click to edit name/payload · drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete" + (hasFx ? " · plays FX" : ""))
+      dot.title = isEvents ? ("event(s): " + eventsAt(kt).map((e) => e.name).join(", ") + " @ " + kt.toFixed(3) + "s — click to edit name/payload · drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete" + (hasFx ? " · plays FX / a flipbook" : ""))
         : isDraw ? ("draw order @ " + kt.toFixed(3) + "s — drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete (✎ to edit)")
         : (isChan ? tr.name + " · " + tr.label : tr.name) + " @ " + kt.toFixed(3) + "s — drag to retime · Alt-drag to duplicate · Shift-click to multi-select · double-click to delete";
       dot.onmousedown = (e) => {

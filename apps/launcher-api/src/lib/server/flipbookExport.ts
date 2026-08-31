@@ -27,11 +27,13 @@
  * ── DIVERGENCE FROM THE EFFECTS CHAIN: no reachability filter ──────────────────────────────
  * The bake prunes UNREACHABLE effects (`bake-editor-doc.mjs`, the "Ship only REACHABLE effects"
  * block) — an effect nothing places, rig-binds, or event-triggers never reaches the game. Clips
- * deliberately ship in FULL: no consumer references a `clipId` yet (design-doc step 6 — FX,
- * Symbols and Scene Editor bindings — is unbuilt), so an equivalent reachability filter would
- * compute "referenced by nothing" for every clip and ship ZERO. A clip is a name list plus two
- * numbers, so shipping them all costs negligible bytes. Add the filter here once consumers exist
- * and a clip can actually be shown to be referenced.
+ * still ship in FULL, but the reason has changed: consumers now exist (a symbol cell, a placed
+ * `flipbook` node, and a rig-timeline `event.flipbook` binding), so a filter is finally BUILDABLE —
+ * it is just not built. Writing one means walking all FOUR referrers, and the rig one does not live
+ * in the layout doc at all: it is in the rig `.irig`, reachable only through the `rigFlipbooks`
+ * manifest (`rigFlipbookExport.ts`). Missing a referrer would delete a clip that is genuinely in
+ * use, which is worse than the bytes — a clip is a name list plus two numbers. Tracked in
+ * `docs/status/flipbook.md` open item 3.
  */
 import { clipSheetKeys, type FlipbookClip } from 'engine-flipbook';
 import { loadFlipbookDoc } from './flipbookStorage';

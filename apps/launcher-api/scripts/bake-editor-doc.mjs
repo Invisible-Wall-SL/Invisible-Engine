@@ -719,9 +719,15 @@ async function main() {
 	// Export the project's Invisible Flipbook clips into R2 `deploy/clips/` so the deploy mirror
 	// pulls them, and embed them so the game registers each clip (`registerFlipbooks`). A clip
 	// ships no new assets — its frames are regions of an atlas the editor-art export already
-	// ships. Unlike effects, clips are NOT reachability-pruned: no consumer references a clipId
-	// yet, so a filter would ship zero (see flipbookExport.ts's header).
+	// ships. Unlike effects, clips are NOT reachability-pruned — a filter is buildable now that
+	// consumers exist, but it would have to walk all four referrers incl. the rig manifest below
+	// (see flipbookExport.ts's header).
 	let flipbooks;
+	// Rig-timeline direct CLIP bindings (a rig's own animation events → flipbook clips, read from the
+	// rig `.irig`/`.json`; keyed by the rig's runtime assetKey = its bundle folder). Rides the same
+	// clips export trigger — it ships no new assets, only a `clipId` into the clips above. Absent /
+	// no bound events ⇒ stays undefined ⇒ the game's `resolveRigFlipbooks()` returns [] (parity).
+	let rigFlipbooks;
 	const clipsUrl =
 		`${base}/api/editor/export-clips?project=${encodeURIComponent(project)}` +
 		`&k=${encodeURIComponent(token)}`;
@@ -738,6 +744,32 @@ async function main() {
 			// Only embed when the project authored at least one clip, keeping the bundle
 			// byte-identical for every game with no flipbook work (parity).
 			if (list.length > 0) flipbooks = list;
+			// Only embed when at least one rig has a bound event, keeping the bundle byte-identical
+			// for every game with no rig-flipbook bindings (parity).
+			if (cl?.rigFlipbooks && typeof cl.rigFlipbooks === 'object') {
+				const bound = cl.rigFlipbooks;
+				if (Object.keys(bound).length > 0) rigFlipbooks = bound;
+				// A binding whose clip was deleted in /flipbook renders NOTHING at that beat, which
+				// reads on screen as "the rig animation is broken" rather than as a dangling id. Warn
+				// loudly (non-fatal — the rest of the rig still plays, unlike a short clip, which is
+				// why the clipMissing guard above bails and this does not).
+				const shipped = new Set(list.map((c) => c && c.id));
+				const dangling = [
+					...new Set(
+						Object.values(bound)
+							.flat()
+							.map((b) => b && b.clipId)
+							.filter((id) => id && !shipped.has(id)),
+					),
+				];
+				for (const id of dangling) {
+					console.warn(
+						`WARNING: a rig animation event binds flipbook clip "${id}", which no shipped ` +
+							'clip provides. That beat will render nothing in game. Re-pick the clip in ' +
+							'/rigger, or re-create it in /flipbook.',
+					);
+				}
+			}
 		} catch (err) {
 			if (err instanceof BakeBail) throw err;
 			bail(
@@ -999,6 +1031,10 @@ async function main() {
 		// ≥1 clip, keeping the bundle byte-identical for every game with no flipbook work —
 		// `bakedFlipbooks()` returns [] when absent (parity).
 		...(flipbooks ? { flipbooks } : {}),
+		// Rig-timeline direct CLIP bindings — the frame-animation twin of `rigFx`, on the same
+		// omit-when-empty rule: `bakedRigFlipbooks()` returns {} when absent, so
+		// `resolveRigFlipbooks()` yields [] and nothing new mounts (parity).
+		...(rigFlipbooks ? { rigFlipbooks } : {}),
 	};
 
 	const sceneCount = doc.scenes.length;
