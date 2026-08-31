@@ -42,8 +42,8 @@ function protocolFor(gameType: string): MockProtocol {
 	// a payline walk). It is TEST infrastructure — the mock's paytable is keyed by payline run lengths,
 	// so a cluster's payout is approximated; see `evaluateClusters`.
 	if (gameType === 'cluster') return 'cluster';
-	// `scatter` likewise — a count-anywhere evaluator, and the only one that also ships the project's
-	// own paytable because its pricing is by count, not by run length. See `projectSymbolPaytable`.
+	// `scatter` likewise — a count-anywhere evaluator. Its pricing is by COUNT rather than run length,
+	// which is why the project's own paytable (shipped for every model) matters most here.
 	if (gameType === 'scatter') return 'scatter';
 	return 'lines';
 }
@@ -79,8 +79,10 @@ function projectWild(doc: GameConfigDoc): { paytable: Record<string, number> } |
 
 /**
  * The project's IN-PLAY line-symbol pool in the mock's SERVER vocabulary (`PIC*`/`SCAT`), or
- * `undefined` when it equals the full default set (so an all-in-play project stays byte-identical —
- * the field is simply omitted). Keyed off the SAME `symbolsInPlay` gate as the paytable/roll/wild.
+ * `undefined` only when it is EMPTY (a misconfig). Keyed off the SAME `symbolsInPlay` gate as the
+ * paytable/roll/wild. It is stated even when it equals the default set — the mock recognises that
+ * case itself (`sameAsDefaultPool`) and keeps the weighted deal, so the answer no longer depends on
+ * a mapping-table size that changes when the table grows.
  *
  * The space mismatch is the reason this lives HERE: `symbolsInPlay` answers in CLIENT symbol names
  * (`H1`, `L1`, `S`, …) but the mock deals SERVER names (`PIC1`, `PIC5`, `SCAT`, …). We translate with
@@ -162,12 +164,14 @@ function projectLineSymbols(doc: GameConfigDoc): string[] | undefined {
 /**
  * The project's per-symbol paytable in the mock's SERVER vocabulary, as `{ PIC1: { 8: 3, … } }`.
  *
- * Only the `scatter` model needs this, and it needs it for a concrete reason: a scatter game prices
- * by HOW MANY of a symbol are on the board (8, 9, 10, 13+ …), while the mock's own table is keyed by
- * payline RUN LENGTHS (3/4/5). Clamping a count of 12 into a 5-run row would make every scatter win
- * pay the same number — degenerate enough to be useless for testing. The authored table already has
- * the right shape, so it travels instead of being approximated. (Cluster has no such table to send,
- * which is why it clamps and says so.)
+ * Sent for EVERY win model, so the mock prices what `/config` authored instead of its captured Hot
+ * Fruits values. `scatter` is simply where it matters most: that model prices by HOW MANY of a symbol
+ * are on the board (8, 9, 10, 13+ …), while the mock's own table is keyed by payline RUN LENGTHS
+ * (3/4/5), so clamping a count of 12 into a 5-run row would make every scatter win pay the same
+ * number. Cluster reads its rows as thresholds for the same reason.
+ *
+ * `WILD` and `SCAT` are both excluded — each is paid by its own pass in the mock (the `wild` field
+ * and `evaluateScatters`), and giving the scatter a LINE price row made a scatter run pay twice.
  *
  * In-play gate + client→server translation, same as `projectLineSymbols`.
  */
@@ -177,7 +181,15 @@ function projectSymbolPaytable(
 	const inPlay = new Set(symbolsInPlay(doc));
 	const out: Record<string, Record<string, number>> = {};
 	for (const server of Object.keys(linesMapping.symbols)) {
-		if (server === 'WILD') continue;
+		// NEITHER SPECIAL GETS A LINE PRICE ROW. `WILD` was already excluded because the `wild` field
+		// governs it. `SCAT` has to be excluded for the same reason and was not: the mock pays scatters
+		// through its own `evaluateScatters` pass, and the templates all author a paytable on `S`, so
+		// once this table started feeding the LINE evaluator a scatter run began paying TWICE — once as
+		// the feature trigger and again as an ordinary left-to-right line win, because
+		// `evaluatePaylines` reads its base symbol off the board and `payRowOf` now found a row for it.
+		// Harmless while only the `scatter` model received this table (that model never runs the payline
+		// evaluator); a real double-pay the moment every model does.
+		if (server === 'WILD' || server === 'SCAT') continue;
 		const client = mapSymbol(linesMapping, server);
 		if (!inPlay.has(client)) continue;
 		const rows = doc.symbols[client]?.paytable;
@@ -252,8 +264,8 @@ async function projectGrid(
 		// pictures. Best-effort: a missing/empty symbols doc ⇒ no flag ⇒ the normal weighted deal.
 		const stacked = await projectStacked(clientKey, projectKey);
 		// `symbols`: the in-play line-symbol pool in the mock's SERVER vocabulary (PIC*/SCAT), so a
-		// symbol the project marks UNUSED (off the strips) truly never lands against our own mock.
-		// Omitted for an all-in-play project ⇒ the mock deals its full default pool (byte-identical).
+		// symbol the project marks UNUSED (off the strips) truly never lands against our own mock — and a
+		// symbol it DOES use reaches the deal even when only the extended names can carry it.
 		const symbols = projectLineSymbols(doc);
 		// The cluster shape the mock evaluates against, straight from the project's declared win
 		// model — so the mock pays the geometry `/config` says it pays, not a hardcoded guess.

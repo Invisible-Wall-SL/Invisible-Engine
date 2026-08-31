@@ -199,6 +199,15 @@ const PAY_TABLE = {
 	PIC5: { 3: 15, 4: 75, 5: 200 },
 	PIC6: { 3: 10, 4: 40, 5: 100 },
 	PIC7: { 2: 5, 3: 5, 4: 25, 5: 50 },
+	// The extended names (see `EXTENDED_LINE_SYMBOLS`) need a fallback row for the same reason every
+	// other symbol has one: a symbol that can be DEALT must be priceable, or it lands on the board and
+	// can never win. The launcher admits a symbol into the deal pool on the in-play gate alone, but
+	// only puts it in `symbolPaytable` if the project authored a paytable for it — so a project that
+	// puts `H5` on its strips without pricing it would otherwise deal a symbol with no row anywhere.
+	// Priced as low symbols (they map to `H5`/`L3`/`L4`); an authored table overrides per-symbol.
+	PIC8: { 3: 15, 4: 75, 5: 200 },
+	PIC9: { 3: 10, 4: 40, 5: 100 },
+	PIC10: { 3: 10, 4: 40, 5: 100 },
 };
 
 /** Scatter paytable — SCATs pay anywhere on the board, not on paylines.
@@ -247,11 +256,17 @@ export const evaluatePaylines = (reels, betPerLine, paylines, wild = null, opts 
 			else break;
 		}
 		let best = null;
-		const baseMult = base !== null ? (payRowOf(opts, base)?.[baseRun] ?? 0) : 0;
-		if (baseMult > 0) best = { what: base, occurs: baseRun, pay: payCents(baseMult * betPerLine) };
+		// THE SCATTER NEVER PAYS AS A LINE SYMBOL. `base` is read off the BOARD, so it can be `SCAT`,
+		// and the scatter is already paid by its own `evaluateScatters` pass. This never mattered while
+		// the only price list was `PAY_TABLE` (no `SCAT` row), and became a real double-pay the moment a
+		// PROJECT's table could supply one — every stock template authors a paytable on `S`. The
+		// launcher now withholds that row (`projectSymbolPaytable`); this is the mock refusing it too,
+		// so no future table can reintroduce the double-pay.
+		const baseMult = base !== null && base !== 'SCAT' ? (payRowOf(opts, base)?.[baseRun] ?? 0) : 0;
+		if (baseMult > 0) best = { what: base, occurs: baseRun, pay: baseMult * betPerLine };
 		const wildMult = wildPay && wildRun > 0 ? (wildPay[wildRun] ?? 0) : 0;
 		if (wildMult > 0) {
-			const pay = payCents(wildMult * betPerLine);
+			const pay = wildMult * betPerLine;
 			if (!best || pay > best.pay) best = { what: 'WILD', occurs: wildRun, pay };
 		}
 		if (best) {
@@ -336,7 +351,7 @@ export const evaluateWays = (reels, betPerWay, wild = null, opts = {}) => {
 			what: symbol,
 			occurs,
 			mode: 'ways',
-			pay: payCents(mult * ways * betPerWay),
+			pay: mult * ways * betPerWay,
 			mpInfo: { mp: 1, replacements: 0 },
 			mpBonusInfo: null,
 			// Flat cell list — see the note above about `winPositions`. `ways` rides along so a
@@ -426,16 +441,30 @@ export const evaluateClusters = (reels, betPerCluster, wild = null, opts = {}) =
 				if (group.length < minCluster) continue;
 				const table = payRowOf(opts, symbol);
 				if (!table) continue;
-				// Clamp to the largest priced run — see the note above about why this is an approximation.
-				const priced = Math.max(...Object.keys(table).map(Number));
-				const mult = table[Math.min(group.length, priced)] ?? 0;
+				// The highest priced tier at or below the cluster size — a row is a THRESHOLD ("8+"),
+				// which is also how `evaluateScatterPays` reads its table.
+				//
+				// This used to be an exact lookup with a clamp (`table[Math.min(size, maxRow)]`), and that
+				// was safe only while `table` was ALWAYS the mock's own dense `PAY_TABLE` (rows 3/4/5, so
+				// every size ≥ 3 hit one). Now `payRowOf` can return the PROJECT's table, which for a
+				// cluster game is routinely sparse — `{5: 1, 8: 5, 12: 20}` is an ordinary authoring — and
+				// an exact lookup drops every size in between: measured on the branch, clusters of 6, 7, 9
+				// and 11 paid NOTHING while 5, 8 and 12 paid. The player watches six connected symbols
+				// light up and score zero. Clamping is subsumed: any size above the largest row resolves
+				// to that row, so the dense fallback table behaves exactly as it did before.
+				const tier = Object.keys(table)
+					.map(Number)
+					.filter((n) => n <= group.length)
+					.sort((a, b) => a - b)
+					.pop();
+				const mult = tier === undefined ? 0 : (table[tier] ?? 0);
 				if (!mult) continue;
 
 				wins.push({
 					what: symbol,
 					occurs: group.length,
 					mode: 'cluster',
-					pay: payCents(mult * betPerCluster),
+					pay: mult * betPerCluster,
 					mpInfo: { mp: 1, replacements: 0 },
 					mpBonusInfo: null,
 					context: Object.assign(group, { cluster: group.length }),
@@ -501,7 +530,7 @@ export const evaluateScatterPays = (reels, betPerSpin, wild = null, opts = {}) =
 			what: symbol,
 			occurs: positions.length,
 			mode: 'scatterPays',
-			pay: payCents(mult * betPerSpin),
+			pay: mult * betPerSpin,
 			mpInfo: { mp: 1, replacements: 0 },
 			mpBonusInfo: null,
 			context: Object.assign(positions, { count: positions.length }),
@@ -528,7 +557,7 @@ const evaluateScatters = (reels, totalStake) => {
 		what: 'SCAT',
 		occurs: count,
 		mode: 'scatter',
-		pay: payCents(mult * totalStake),
+		pay: mult * totalStake,
 		mpInfo: { mp: 1, replacements: 0 },
 		mpBonusInfo: null,
 		// A BARE array, like every sibling evaluator and the book mock — that is the ONLY shape the
@@ -822,7 +851,28 @@ export function createMockRgs(opts = {}) {
 	 * retrigger is a game-math decision no capture has answered, and quietly saying yes here would
 	 * change how often the bonus fires; the trigger stays scored on the dealt board only.
 	 */
-	const evaluatePayWins = (board, round) => {
+	/**
+	 * Round a win list to whole CENTS — the mock’s OWN wire boundary, and deliberately NOT inside the
+	 * evaluators.
+	 *
+	 * The evaluators are exported and SHARED: `tools/game-config-spike/scatterCrosscheck.ts` and
+	 * `waysCrosscheck.ts` import them and assert, board by board, that the mock scores exactly what
+	 * the RTP verifier (`scattermath` / `waysmath`) scores — the same tool the runaway-cascade warning
+	 * tells you to run. Rounding INSIDE them broke that: the verifier stayed exact while the mock
+	 * rounded, so a `0.5` multiplier row read `1.0` from the mock and both harnesses started failing
+	 * on every fractional row — i.e. the thing that measures RTP stopped measuring the dealt game.
+	 *
+	 * Whole cents are a property of the PROTOCOL (`session.balance` is integer cents), not of the
+	 * maths. So the rounding belongs HERE, where a win becomes a payout, and the pure scorers stay
+	 * comparable to the tools that verify them. Everything downstream — the chain's `runningWin`,
+	 * `gameEnd`, the collect and the balance — derives from these rounded wins, so nothing fractional
+	 * escapes.
+	 */
+	const roundPays = (wins) => wins.map((win) => ({ ...win, pay: payCents(win.pay) }));
+
+	const evaluatePayWins = (board, round) => roundPays(evaluateRawWins(board, round));
+
+	const evaluateRawWins = (board, round) => {
 		if (winModel === 'ways') return evaluateWays(board, round.betPerLine, wild, evalOpts);
 		if (winModel === 'cluster')
 			return evaluateClusters(board, round.betPerLine, wild, { ...clusterOpts, ...evalOpts });
@@ -1233,7 +1283,9 @@ export function createMockRgs(opts = {}) {
 					const reels = stackedDeal ? spinReelsStacked() : spinReels();
 					pendingRound.reels = reels;
 					const lineWins = evaluatePayWins(reels, pendingRound);
-					const scatterWin = evaluateScatters(reels, pendingRound.total);
+					const rawScatterWin = evaluateScatters(reels, pendingRound.total);
+					// Same boundary: the scatter TRIGGER pay is a payout like any other.
+					const scatterWin = rawScatterWin ? roundPays([rawScatterWin])[0] : rawScatterWin;
 					const wins = scatterWin ? [...lineWins, scatterWin] : lineWins;
 					const totalWin = wins.reduce((s, w) => s + w.pay, 0);
 					pendingRound.win = totalWin;
