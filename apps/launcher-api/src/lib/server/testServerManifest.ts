@@ -209,8 +209,11 @@ export interface TestServerGameEntry {
 		adjacency?: 'orthogonal' | 'diagonal';
 		/** Smallest count-anywhere that pays, from the project's `winModel` (`scatter` only). */
 		minCount?: number;
-		/** The project's own count-keyed paytable in SERVER symbols (`scatter` only) — its pricing is
-		 *  by count, which the mock's run-length table cannot express. See `projectSymbolPaytable`. */
+		/** The project's own paytable in SERVER symbols, for EVERY win model — so the mock prices what
+		 *  `/config` authored rather than its captured Hot Fruits values, and so the symbols only the
+		 *  extended mapping reaches (`PIC8`/`PIC9`/`PIC10`) have a price row at all. A symbol absent
+		 *  here falls back to the mock's own table. Scatter additionally needs it because its pricing
+		 *  is by COUNT, which a run-length table cannot express. See `projectSymbolPaytable`. */
 		symbolPaytable?: Record<string, Record<string, number>>;
 		/** `true` when the project declares a multiplier symbol IN PLAY (`special_properties`
 		 *  contains `multiplier`, and it appears on a strip). A cascading scatter game then lands

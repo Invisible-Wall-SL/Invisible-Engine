@@ -15,7 +15,7 @@
  */
 import { createServer } from 'node:http';
 
-import { createMockRgs } from './mock-rgs-server.mjs';
+import { createMockRgs, evaluateClusters, evaluatePaylines } from './mock-rgs-server.mjs';
 
 const report = [];
 let failures = 0;
@@ -305,6 +305,134 @@ check(
 	true,
 );
 runawayServer.close();
+
+// --- the project's OWN dictionary is what gets dealt, and what gets paid ----------
+//
+// The question this answers: does a symbol a project puts on its strips actually land, and does it
+// pay the project's price? Both used to be no for part of the dictionary. The captured vocabulary
+// has seven line symbols to the engine's ten, so `H5`/`L3`/`L4` had no server name and could never
+// be dealt however `/config` was authored (the live `test6` authored nine and was dealt six); and
+// the project's paytable travelled for the `scatter` model alone, so everything else paid captured
+// Hot Fruits values. `PIC8`/`PIC9`/`PIC10` close the first half, `symbolPaytable` the second, and
+// they are tested together because either alone is useless: an unmapped symbol cannot be priced,
+// and a newly mapped one has no row in the mock's own table.
+const POOL = ['PIC1', 'PIC8', 'PIC9', 'PIC10', 'SCAT'];
+const AUTHORED = {
+	PIC1: { 3: 7, 4: 9, 5: 11 },
+	PIC8: { 3: 13 },
+	PIC9: { 3: 17 },
+	PIC10: { 3: 19 },
+};
+const dictServer = await startMock(7806, {
+	winModel: 'ways',
+	reels: 5,
+	rows: 4,
+	paylines: [],
+	symbols: POOL,
+	symbolPaytable: AUTHORED,
+});
+console.log('\n--- a project whose dictionary needs the extended names ---');
+const dealt = new Set();
+const paid = new Map();
+let config = null;
+for (let i = 0; i < 40; i++) {
+	const d = await hush(() => spin(7806, `dict${i}`, i));
+	const ev = d.events ?? [];
+	config ??= ev.find((e) => e.event === 'config')?.context ?? null;
+	for (const cell of (ev.find((e) => e.event === 'playedSpin')?.context ?? []).flat()) {
+		dealt.add(cell);
+	}
+	// Every win must price at the AUTHORED multiplier — `betPerLine` is 1 in `spin`, and a ways win
+	// multiplies by its PATH COUNT, so divide that back out to recover the paytable value. The count
+	// is recomputed from the positions rather than read off the win: the evaluator hangs a `ways`
+	// property on the positions ARRAY, and `JSON.stringify` drops an array's extra properties, so it
+	// never survives the wire. Harmless (nothing reads it) but it means the wire cannot be asked.
+	for (const w of ev.filter((e) => e.event === 'spinWin').map((e) => e.context)) {
+		if (w.mode !== 'ways') continue;
+		paid.set(w.what, (paid.get(w.what) ?? 0) + 1);
+		const perReel = new Map();
+		for (const { reel } of w.context) perReel.set(reel, (perReel.get(reel) ?? 0) + 1);
+		const ways = [...perReel.values()].reduce((product, n) => product * n, 1);
+		check(
+			`ways win on ${w.what} x${w.occurs} pays the AUTHORED multiplier`,
+			w.pay / ways,
+			AUTHORED[w.what]?.[w.occurs] ?? 0,
+		);
+	}
+}
+console.log({ dealt: [...dealt].sort(), paidSymbols: [...paid.keys()].sort() });
+// THE HEADLINE: the three names the captured vocabulary cannot express are dealt like any other.
+for (const extended of ['PIC8', 'PIC9', 'PIC10']) {
+	check(`${extended} is dealt (the extended mapping reaches it)`, dealt.has(extended), true);
+}
+check(
+	'nothing outside the project pool is ever dealt',
+	[...dealt].every((c) => POOL.includes(c)),
+	true,
+);
+check(
+	'an extended symbol actually pays',
+	['PIC8', 'PIC9', 'PIC10'].some((s) => paid.has(s)),
+	true,
+);
+// …and the WIRE says the same thing the deal does: both used to advertise the captured defaults.
+check('the config event advertises the project pool', config?.symbols?.sort(), [...POOL].sort());
+check('…and quotes the project paytable, not Hot Fruits values', config?.paytable?.PIC8?.pay, [
+	AUTHORED.PIC8[3],
+]);
+dictServer.close();
+
+// --- a SPARSE authored paytable prices every size in between ----------------------
+//
+// A project's paytable is sparse in a way the mock's own never is. `PAY_TABLE` prices runs 3/4/5
+// contiguously, so an exact-match lookup always hit a row; `{5: 1, 8: 5, 12: 20}` is ordinary
+// cluster authoring and leaves gaps. With an exact lookup, clusters of 6, 7, 9 and 11 paid NOTHING
+// while 5, 8 and 12 paid — the player watches six connected symbols light up and score zero. A row
+// is a THRESHOLD, so each size takes the highest row at or below it.
+const SPARSE = { PIC1: { 5: 1, 8: 5, 12: 20 } };
+const sparseBoard = (n) => {
+	const board = Array.from({ length: 14 }, () => ['PIC2', 'PIC3', 'PIC4']);
+	for (let i = 0; i < n; i++) board[i][0] = 'PIC1';
+	return board;
+};
+console.log('\n--- a cluster game on a sparse authored paytable ---');
+const sparseSizes = { 5: 1, 6: 1, 7: 1, 8: 5, 9: 5, 11: 5, 12: 20, 13: 20 };
+for (const [size, expectedMult] of Object.entries(sparseSizes)) {
+	const wins = evaluateClusters(sparseBoard(Number(size)), 100, null, {
+		minCluster: 5,
+		adjacency: 'orthogonal',
+		pool: ['PIC1'],
+		symbolPaytable: SPARSE,
+	}).filter((w) => w.what === 'PIC1');
+	check(`a cluster of ${size} pays its threshold row`, wins[0]?.pay, expectedMult * 100);
+}
+// …and the mock's own dense table is unaffected by the threshold reading.
+for (const [size, expectedMult] of Object.entries({ 3: 200, 4: 1000, 5: 5000, 9: 5000 })) {
+	const wins = evaluateClusters(sparseBoard(Number(size)), 100, null, {
+		minCluster: 3,
+		adjacency: 'orthogonal',
+		pool: ['PIC1'],
+	}).filter((w) => w.what === 'PIC1');
+	check(`the captured table still clamps: cluster of ${size}`, wins[0]?.pay, expectedMult * 100);
+}
+
+// --- a scatter never pays as an ordinary line symbol ------------------------------
+//
+// `projectSymbolPaytable` fed the LINE evaluator a row for every mapped symbol, and the templates
+// all author a paytable on `S` (= server `SCAT`). `evaluatePaylines` reads its base symbol off the
+// BOARD, so a run of scatters started paying twice: once through the feature trigger and again as a
+// left-to-right line win. The launcher now withholds the row (like `WILD`); this pins the mock end
+// of the contract — a `SCAT` row must never produce a line win.
+console.log('\n--- a scatter run does not also pay as a line ---');
+const scatterLine = evaluatePaylines(
+	[['SCAT'], ['SCAT'], ['SCAT'], ['PIC2'], ['PIC2']],
+	100,
+	[[0, 0, 0, 0, 0]],
+	null,
+	{ pool: ['PIC1', 'PIC2'], symbolPaytable: { PIC1: { 3: 2 }, SCAT: { 3: 2, 4: 10, 5: 100 } } },
+);
+check('a SCAT row in the paytable draws no line win', scatterLine.length, 0);
+
 for (const line of report) console.log(line);
 console.log(
 	failures === 0

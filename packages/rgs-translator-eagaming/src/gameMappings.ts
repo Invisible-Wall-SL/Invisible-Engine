@@ -40,9 +40,7 @@ export interface GameMapping {
  *    PIC7 (lowest, also pays 2-of-a-kind=5) → L5
  *    SCAT                                   → S
  *
- *  L3 and L4 are intentionally left unmapped — the engine `lines` game has 9 line symbols
- *  vs Hot Fruits' 7, so two L slots stay unused until apps/hotfruits trims its
- *  static config in Fase 1. */
+ *  PIC8/PIC9/PIC10 are NOT Play4Fun names — see below. */
 export const linesMapping: GameMapping = {
 	symbols: {
 		PIC1: 'H1',
@@ -52,6 +50,23 @@ export const linesMapping: GameMapping = {
 		PIC5: 'L1',
 		PIC6: 'L2',
 		PIC7: 'L5',
+		// PIC8/PIC9/PIC10 → H5/L3/L4. These three complete the engine's line dictionary, which the
+		// captured Hot Fruits vocabulary cannot: Play4Fun has seven line symbols to the engine's ten,
+		// so `H5`, `L3` and `L4` had no server name at all. That was harmless while it only meant "two
+		// L slots stay unused", and stopped being harmless once a project could AUTHOR its own symbol
+		// set: the launcher's in-play pool (`projectLineSymbols`) filters this table down and can never
+		// add, so a config that put `H5` or `L3` on its strips was silently never dealt them. The live
+		// `test6` authored nine line symbols and was dealt six.
+		//
+		// They are OURS, not a capture — the Invisible Test Server's mock is the only thing that emits
+		// them (`EXTENDED_LINE_SYMBOLS` in `scripts/mock-rgs-server.mjs`, reachable only through an
+		// explicit project pool). A real Play4Fun server never sends them, so these entries are inert
+		// on the live path and PIC1-PIC7 keep their verified meaning: Hot Fruits and Book of Borut
+		// translate exactly as before. The rank ordering above therefore stops at PIC7 by design —
+		// appending rather than renumbering is what keeps the captured half untouched.
+		PIC8: 'H5',
+		PIC9: 'L3',
+		PIC10: 'L4',
 		// WILD → W: only the stacked-picture test deal (mock `STACKED=1`) emits WILD, so the engine's
 		// stacked-picture mode has a full-height Wild to render. Harmless otherwise (never dealt).
 		WILD: 'W',
