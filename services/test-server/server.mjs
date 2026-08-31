@@ -194,14 +194,23 @@ const CASCADE_GAMES = new Set(
 		.filter(Boolean),
 );
 /**
- * Does this game tumble? The project's OWN authored answer wins (`cascade` in its manifest entry,
- * synced from its Game Config at publish), then the protocol default, then the env override. A
- * project can therefore turn the cascade off on a cluster game, or on for a lines game, which an
+ * Does this game tumble, and WHY? The project's OWN authored answer wins (`cascade` in its manifest
+ * entry, synced from its Game Config at publish), then the protocol default, then the env override.
+ * A project can therefore turn the cascade off on a cluster game, or on for a lines game, which an
  * env-only gate could never express per project.
+ *
+ * The WHY matters as much as the answer, and used to be thrown away here. Only the env override is a
+ * DEMO — a tumble bolted onto a game that does not have one, so a dead spin still tumbles and the
+ * overlay is visible. A cascade the project declared (or the protocol implies) is the game's
+ * MECHANIC, and a mechanic must not fire on a spin that paid nothing. Passing only the boolean left
+ * the mock to guess from the win model, so an authored `ways` cascade was treated as a demo and blew
+ * non-paying symbols off the board on every losing spin. Returns `{ on, demo }`.
  */
 const cascadeEnabledFor = (gameKey, protocol, authored) => {
-	if (typeof authored === 'boolean') return authored;
-	return CASCADE_PROTOCOLS.has(protocol) || CASCADE_GAMES.has('*') || CASCADE_GAMES.has(gameKey);
+	if (typeof authored === 'boolean') return { on: authored, demo: false };
+	if (CASCADE_PROTOCOLS.has(protocol)) return { on: true, demo: false };
+	const forced = CASCADE_GAMES.has('*') || CASCADE_GAMES.has(gameKey);
+	return { on: forced, demo: forced };
 };
 
 const makeMock = (protocol, label, grid, gameKey, cascade) => {
@@ -210,12 +219,15 @@ const makeMock = (protocol, label, grid, gameKey, cascade) => {
 	// lifecycle, scatter pass and event vocabulary are identical between them, which is why this is
 	// an option rather than a third forked mock. See docs/design/game-type-templates.md (Phase D).
 	const winModel = ['ways', 'cluster', 'scatter'].includes(protocol) ? protocol : 'lines';
+	const tumble = cascadeEnabledFor(gameKey, protocol, cascade);
 	return createLinesMock({
 		label,
 		winModel,
 		// Explicit boolean either way — an absent value would let the mock fall back to the
 		// process-wide `CASCADE` env and cascade every game on this server.
-		cascade: cascadeEnabledFor(gameKey, protocol, cascade),
+		cascade: tumble.on,
+		// …and whether it is the game's MECHANIC or the demo override, which only this side knows.
+		cascadeDemo: tumble.demo,
 		...(grid ?? linesGrid ?? {}),
 	});
 };

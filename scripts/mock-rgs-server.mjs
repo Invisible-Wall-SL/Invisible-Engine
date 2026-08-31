@@ -553,11 +553,14 @@ const pathEndsWith = (pathname, route) => {
  * @param {{ startBalance?: number, seed?: string, label?: string, reels?: number,
  *   rows?: number | number[], rowsPerReel?: number[],
  *   paylines?: number[][], wild?: { paytable: Record<string, number> }, stacked?: boolean,
- *   symbols?: string[], winModel?: 'lines' | 'ways' }} [opts] `symbols` restricts the dealt line
+ *   symbols?: string[], winModel?: 'lines' | 'ways' | 'cluster' | 'scatter',
+ *   cascade?: boolean, cascadeDemo?: boolean }} [opts] `symbols` restricts the dealt line
  *   pool to the project's in-play symbols in SERVER vocabulary (PIC* plus SCAT); absent ⇒ the full
  *   default pool. `winModel` selects how wins are DECIDED — everything else (session, seq, round
  *   lifecycle, scatters, free spins, the whole event vocabulary) is identical between the two, which
- *   is exactly why this is one option rather than a forked mock.
+ *   is exactly why this is one option rather than a forked mock. `cascade` says WHETHER the game
+ *   tumbles; `cascadeDemo` says the caller turned it on as a DEMO over a game that has no tumble of
+ *   its own, which is the only thing that makes a dead spin tumble (see `nativeCascade`).
  */
 export function createMockRgs(opts = {}) {
 	/** Default in Play4Fun's native integer-cents convention (100 = $1.00).
@@ -666,10 +669,21 @@ export function createMockRgs(opts = {}) {
 
 	/**
 	 * Does this game cascade because of WHAT IT IS, rather than because a demo flag asked it to?
-	 * Mirrors `CASCADE_PROTOCOLS` in the test server. It decides one thing: whether a spin that paid
-	 * NOTHING still tumbles (a demo does, so the overlay is visible; a real tumble game does not).
+	 * It decides one thing: whether a spin that paid NOTHING still tumbles (a demo does, so the
+	 * overlay is visible; a real tumble game does not).
+	 *
+	 * The answer is WHO TURNED THE CASCADE ON, not which win model is in play. Keying it off
+	 * `cluster`/`scatter` alone was wrong the moment a project could author its own answer: a `ways`
+	 * game with `cascade: true` in its Game Config is a tumble game by its author's own declaration,
+	 * yet it fell through to the demo pass and blew the most COMMON symbol off the board — twice —
+	 * on every losing spin. Measured on the live `test6`: 20 of 20 dead spins tumbled, which reads to
+	 * the player as a win that paid nothing. The demo pass is now reachable only by the route it was
+	 * built for — the bare `CASCADE=1` / `CASCADE_GAMES` demo flag over a game that does not tumble
+	 * on its own (`opts.cascadeDemo`, set by the test server, which is the side that knows WHY).
 	 */
-	const nativeCascade = winModel === 'cluster' || winModel === 'scatter';
+	const cascadeIsDemo = opts.cascadeDemo ?? opts.cascade === undefined;
+	const nativeCascade =
+		cascadeFixture && !(cascadeIsDemo && winModel !== 'cluster' && winModel !== 'scatter');
 
 	/**
 	 * The mock's SERVER name for a multiplier cell, and the values it deals.

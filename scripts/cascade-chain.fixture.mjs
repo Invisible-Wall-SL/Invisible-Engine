@@ -189,7 +189,9 @@ check('scatter: chains settle on their own, well short of the guard', sc.maxStep
 scatterServer.close();
 
 // --- a lines game with the cascade FORCED on (the demo path) ---------------------
-const linesServer = await startMock(7802, { winModel: 'lines', cascade: true });
+// `cascadeDemo` is how the test server says "the env override turned this on", which is the only
+// route to the decoration pass — see `nativeCascade` in the mock.
+const linesServer = await startMock(7802, { winModel: 'lines', cascade: true, cascadeDemo: true });
 console.log('\n--- lines, cascade forced on (CASCADE_GAMES demo path) ---');
 const ln = await survey(7802, 'ln', 30);
 console.log(ln);
@@ -199,6 +201,27 @@ check(
 	true,
 );
 linesServer.close();
+
+// --- a WAYS game whose cascade the project AUTHORED ------------------------------
+// The regression this file exists to hold from here on. A ways game is not one of the natively
+// cascading win models, so it used to fall through to the demo pass the moment its Game Config said
+// `cascade: true` — and then blew the most COMMON symbol off the board, twice, on every losing spin.
+// On the live `test6` that was 20 of 20 dead spins narrating a tumble that paid nothing. An AUTHORED
+// cascade is the game's mechanic whatever the win model, so it must behave exactly like the scatter
+// case above: chains when a board pays, sits still when one does not.
+const waysServer = await startMock(7804, {
+	winModel: 'ways',
+	cascade: true,
+	reels: 5,
+	rows: 4,
+	paylines: [],
+});
+console.log('\n--- ways, cascade authored in the Game Config ---');
+const wy = await survey(7804, 'wy', 60);
+console.log(wy);
+check('ways: an authored cascade chains', wy.chained > 0, true);
+check('ways: a dead spin never tumbles', wy.deadSpinsWithSteps, 0);
+waysServer.close();
 
 // --- a scatter game with NO cascade ----------------------------------------------
 const flatServer = await startMock(7803, {
