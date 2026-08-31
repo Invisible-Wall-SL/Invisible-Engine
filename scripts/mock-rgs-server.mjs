@@ -33,6 +33,66 @@ import { pathToFileURL } from 'node:url';
 // not here — the mock stays faithful to real Play4Fun output.
 const SYMBOLS = ['PIC1', 'PIC2', 'PIC3', 'PIC4', 'PIC5', 'PIC6', 'PIC7', 'SCAT'];
 const LINE_SYMBOLS = SYMBOLS.filter((s) => s !== 'SCAT');
+
+/**
+ * MOCK-ONLY server names, for the client symbols the captured vocabulary cannot express.
+ *
+ * Play4Fun's Hot Fruits capture has seven line symbols, and the facade maps them one-to-one onto
+ * seven of the engine's ten (`PIC1→H1 … PIC7→L5`). So a project whose Game Config puts `H5`, `L3`
+ * or `L4` on its strips authored a symbol NO server name could carry: the launcher's in-play pool
+ * filters the seven down, and can never add — those three were simply never dealt, however the
+ * config was authored. On the live `test6` that lost `H5` and `L3` outright.
+ *
+ * These names exist so the mock can express the engine's WHOLE dictionary. They are deliberately
+ * kept OUT of `SYMBOLS`/`LINE_SYMBOLS`, so they are unreachable except through an explicit
+ * `opts.symbols` pool built from a project's own config: the default deal stays the faithful seven,
+ * a real Play4Fun server never sends them, and Hot Fruits / Book of Borut are untouched. Like
+ * `tumbleStep` and `MULT:5`, this is OURS — a mock extension, not a protocol claim.
+ */
+const EXTENDED_LINE_SYMBOLS = ['PIC8', 'PIC9', 'PIC10'];
+
+/** Every name a project pool may legitimately contain — the captured set plus the extension above.
+ *  Anything else is dropped on arrival: the pool comes from an external manifest, and a symbol this
+ *  mock cannot price is a cell the client cannot render. */
+const KNOWN_POOL_SYMBOLS = new Set([...SYMBOLS, ...EXTENDED_LINE_SYMBOLS]);
+
+/**
+ * The line symbols an evaluator scores. `opts.pool` is the instance's real pool (a project's
+ * in-play set, which may include the extended names); absent ⇒ the captured seven, so every
+ * standalone caller and fixture behaves exactly as before.
+ *
+ * This exists because the evaluators used to iterate the module-level `LINE_SYMBOLS` directly.
+ * That was invisible while a pool could only ever be a SUBSET of it — the extra names simply were
+ * not on the board — and becomes wrong the moment a pool can contain a name that list lacks.
+ */
+const poolOf = (opts) => (Array.isArray(opts?.pool) && opts.pool.length ? opts.pool : LINE_SYMBOLS);
+
+/**
+ * The price row for one symbol: the PROJECT's authored paytable first, then the mock's own captured
+ * Hot Fruits table.
+ *
+ * The project's table used to travel for the `scatter` model alone, on the reasoning that only a
+ * count-priced game needed it. That left every lines/ways/cluster game paying Hot Fruits values
+ * whatever its `/config` said — and left the extended names above unpriced, since `PAY_TABLE` has
+ * no row for them. Both are the same gap: the mock should price what the project authored.
+ */
+const payRowOf = (opts, symbol) => opts?.symbolPaytable?.[symbol] ?? PAY_TABLE[symbol];
+
+/**
+ * A payout in whole CENTS — the only denomination this protocol has (100 = $1.00).
+ *
+ * The mock's own captured table is integer multipliers (Hot Fruits' `PIC1` 5-of-a-kind = 5000), so
+ * `multiplier × stake` was always a whole number and nothing ever had to say this. A PROJECT's
+ * paytable is bet-multipliers and is routinely fractional — the live `test6` prices `L1` at `0.4`
+ * — so the moment those values started pricing every model, a 3-of-a-kind at a 1-cent stake paid
+ * `0.4` cents. That is not a rounding nicety: the fraction lands in `spinWin`, in the chain total,
+ * in `gameEnd` and finally in `session.balance`, which then reads €99.996.
+ *
+ * Rounded, with a FLOOR of one cent for a win that priced above zero — a win the player can see on
+ * the board must never pay nothing, which is what `Math.round(0.4)` alone would do. Inert for the
+ * captured table (already whole), so an un-authored game is byte-identical.
+ */
+const payCents = (amount) => (amount > 0 ? Math.max(1, Math.round(amount)) : 0);
 // When false (production rule, surfaced in the config event), paylines whose win
 // lands on the IDENTICAL cells are one win — pay it once, not once per crossing
 // line. See dedupeCoincidingWins below.
@@ -166,7 +226,7 @@ function hashStr(s) {
  * its OWN paytable for a leading run of pure wilds, whichever is worth more. `wild` absent ⇒ the
  * original plain-equality behaviour, byte-identical (no game deals WILD unless a project opts in).
  */
-export const evaluatePaylines = (reels, betPerLine, paylines, wild = null) => {
+export const evaluatePaylines = (reels, betPerLine, paylines, wild = null, opts = {}) => {
 	const wildPay = wild?.paytable ?? null;
 	const isWild = (sym) => wildPay !== null && sym === 'WILD';
 	const wins = [];
@@ -187,11 +247,11 @@ export const evaluatePaylines = (reels, betPerLine, paylines, wild = null) => {
 			else break;
 		}
 		let best = null;
-		const baseMult = base !== null ? (PAY_TABLE[base]?.[baseRun] ?? 0) : 0;
-		if (baseMult > 0) best = { what: base, occurs: baseRun, pay: baseMult * betPerLine };
+		const baseMult = base !== null ? (payRowOf(opts, base)?.[baseRun] ?? 0) : 0;
+		if (baseMult > 0) best = { what: base, occurs: baseRun, pay: payCents(baseMult * betPerLine) };
 		const wildMult = wildPay && wildRun > 0 ? (wildPay[wildRun] ?? 0) : 0;
 		if (wildMult > 0) {
-			const pay = wildMult * betPerLine;
+			const pay = payCents(wildMult * betPerLine);
 			if (!best || pay > best.pay) best = { what: 'WILD', occurs: wildRun, pay };
 		}
 		if (best) {
@@ -248,12 +308,12 @@ const dedupeCoincidingWins = (wins) => {
  * `engineFacade`'s `winPositions` reads (`Array.isArray(ctx)`). An object wrapper silently yields no
  * positions — the win would pay but light up nothing.
  */
-export const evaluateWays = (reels, betPerWay, wild = null) => {
+export const evaluateWays = (reels, betPerWay, wild = null, opts = {}) => {
 	const wildPay = wild?.paytable ?? null;
 	const isWild = (sym) => wildPay !== null && sym === 'WILD';
 	const wins = [];
 
-	for (const symbol of LINE_SYMBOLS) {
+	for (const symbol of poolOf(opts)) {
 		// Per contributing reel, every row holding the symbol (or a substituting wild).
 		const perReel = [];
 		for (let reel = 0; reel < reels.length; reel++) {
@@ -267,7 +327,7 @@ export const evaluateWays = (reels, betPerWay, wild = null) => {
 		}
 
 		const occurs = perReel.length;
-		const mult = PAY_TABLE[symbol]?.[occurs] ?? 0;
+		const mult = payRowOf(opts, symbol)?.[occurs] ?? 0;
 		if (!mult) continue;
 
 		const ways = perReel.reduce((product, rows) => product * rows.length, 1);
@@ -276,7 +336,7 @@ export const evaluateWays = (reels, betPerWay, wild = null) => {
 			what: symbol,
 			occurs,
 			mode: 'ways',
-			pay: mult * ways * betPerWay,
+			pay: payCents(mult * ways * betPerWay),
 			mpInfo: { mp: 1, replacements: 0 },
 			mpBonusInfo: null,
 			// Flat cell list — see the note above about `winPositions`. `ways` rides along so a
@@ -335,7 +395,7 @@ export const evaluateClusters = (reels, betPerCluster, wild = null, opts = {}) =
 				[0, -1],
 			];
 
-	for (const symbol of LINE_SYMBOLS) {
+	for (const symbol of poolOf(opts)) {
 		const matches = (reel, row) => {
 			const cell = reels[reel]?.[row];
 			return cell !== undefined && (cell === symbol || isWild(cell));
@@ -364,7 +424,7 @@ export const evaluateClusters = (reels, betPerCluster, wild = null, opts = {}) =
 				}
 
 				if (group.length < minCluster) continue;
-				const table = PAY_TABLE[symbol];
+				const table = payRowOf(opts, symbol);
 				if (!table) continue;
 				// Clamp to the largest priced run — see the note above about why this is an approximation.
 				const priced = Math.max(...Object.keys(table).map(Number));
@@ -375,7 +435,7 @@ export const evaluateClusters = (reels, betPerCluster, wild = null, opts = {}) =
 					what: symbol,
 					occurs: group.length,
 					mode: 'cluster',
-					pay: mult * betPerCluster,
+					pay: payCents(mult * betPerCluster),
 					mpInfo: { mp: 1, replacements: 0 },
 					mpBonusInfo: null,
 					context: Object.assign(group, { cluster: group.length }),
@@ -405,12 +465,11 @@ export const evaluateClusters = (reels, betPerCluster, wild = null, opts = {}) =
  */
 export const evaluateScatterPays = (reels, betPerSpin, wild = null, opts = {}) => {
 	const minCount = Math.max(2, Math.round(Number(opts.minCount ?? 8)));
-	const table = opts.symbolPaytable ?? null;
 	const wildPay = wild?.paytable ?? null;
 	const isWild = (sym) => wildPay !== null && sym === 'WILD';
 	const wins = [];
 
-	for (const symbol of LINE_SYMBOLS) {
+	for (const symbol of poolOf(opts)) {
 		const positions = [];
 		for (let reel = 0; reel < reels.length; reel++) {
 			for (let row = 0; row < reels[reel].length; row++) {
@@ -420,7 +479,7 @@ export const evaluateScatterPays = (reels, betPerSpin, wild = null, opts = {}) =
 		}
 		if (positions.length < minCount) continue;
 
-		const priceRow = table?.[symbol] ?? PAY_TABLE[symbol];
+		const priceRow = payRowOf(opts, symbol);
 		if (!priceRow) continue;
 		// The highest priced tier at or below the count — ordinary paytable semantics, where a row is
 		// a THRESHOLD ("10+") rather than an exact match.
@@ -442,7 +501,7 @@ export const evaluateScatterPays = (reels, betPerSpin, wild = null, opts = {}) =
 			what: symbol,
 			occurs: positions.length,
 			mode: 'scatterPays',
-			pay: mult * betPerSpin,
+			pay: payCents(mult * betPerSpin),
 			mpInfo: { mp: 1, replacements: 0 },
 			mpBonusInfo: null,
 			context: Object.assign(positions, { count: positions.length }),
@@ -469,7 +528,7 @@ const evaluateScatters = (reels, totalStake) => {
 		what: 'SCAT',
 		occurs: count,
 		mode: 'scatter',
-		pay: mult * totalStake,
+		pay: payCents(mult * totalStake),
 		mpInfo: { mp: 1, replacements: 0 },
 		mpBonusInfo: null,
 		// A BARE array, like every sibling evaluator and the book mock — that is the ONLY shape the
@@ -604,11 +663,9 @@ export function createMockRgs(opts = {}) {
 		minCluster: opts.minCluster ?? 5,
 		adjacency: opts.adjacency === 'diagonal' ? 'diagonal' : 'orthogonal',
 	};
-	/** Scatter-pays shape + the project's own count-keyed paytable. Default matches `normalizeWinModel`. */
-	const scatterPaysOpts = {
-		minCount: opts.minCount ?? 8,
-		symbolPaytable: opts.symbolPaytable ?? null,
-	};
+	/** Scatter-pays shape. Default matches `normalizeWinModel`. The project's own paytable used to
+	 *  live here too; it is now on `evalOpts`, which every model reads — one home. */
+	const scatterPaysOpts = { minCount: opts.minCount ?? 8 };
 
 	// Opt-in WILD support (per-project, injected by the test server from a game's config). When a
 	// project puts a wild symbol IN PLAY (on its strips) with a paytable, `opts.wild.paytable` is the
@@ -626,19 +683,57 @@ export function createMockRgs(opts = {}) {
 	// pool + scatter. SCAT rides in the pool as a flag; strip it out to get the LINE pool. Guard: an
 	// empty line pool (misconfigured filter) falls back to the full default — never deal a blank board.
 	//
-	// `MULT` is stripped here as well as at publish. It is NOT a line symbol — it is dealt only by
-	// the collect fixture, WITH a value (`MULT:5`) — but it reaches this pool from the mapping
-	// table`s key set, so a manifest published while it was in there would deal bare, valueless
-	// `MULT` cells on every board. The client maps those to a symbol with no multiplier and no
-	// art. Stripping it in BOTH places means a project already carrying the bad pool is fixed by
-	// this deploy rather than by remembering to republish.
+	// The pool is filtered to names this mock KNOWS, because the manifest it arrives in is external
+	// and a name nothing can price or render is worse than no name at all.
+	//
+	// `MULT` is the case that proves it, and it is stripped here as well as at publish. It is NOT a
+	// line symbol — it is dealt only by the collect fixture, WITH a value (`MULT:5`) — but it reaches
+	// this pool from the mapping table`s key set, so a manifest published while it was in there would
+	// deal bare, valueless `MULT` cells on every board. The client maps those to a symbol with no
+	// multiplier and no art. Rejecting it in BOTH places means a project already carrying the bad
+	// pool is fixed by this deploy rather than by remembering to republish.
 	const allowedSymbols = Array.isArray(opts.symbols)
-		? opts.symbols.filter((s) => typeof s === 'string' && s !== 'MULT')
+		? opts.symbols.filter((s) => typeof s === 'string' && KNOWN_POOL_SYMBOLS.has(s))
 		: [];
-	const restrictSymbols = allowedSymbols.length > 0;
+	/**
+	 * A pool that IS the captured default is not a restriction — it is the default, spelled out.
+	 *
+	 * The distinction is load-bearing because `restrictSymbols` also picks the DEAL: a restricted
+	 * pool is drawn uniformly, while the default keeps Hot Fruits' weighted tiers. The launcher used
+	 * to omit the pool entirely when every symbol was in play, purely to land on this branch — a
+	 * shortcut that quietly broke the moment the mapping grew past the captured seven, since "all in
+	 * play" then meant a pool the default set does NOT contain. Deciding it here instead lets the
+	 * launcher always state the pool and keeps ONE home for what the default is.
+	 */
+	const sameAsDefaultPool =
+		allowedSymbols.length === SYMBOLS.length && SYMBOLS.every((s) => allowedSymbols.includes(s));
+	const restrictSymbols = allowedSymbols.length > 0 && !sameAsDefaultPool;
 	const scatterEnabled = restrictSymbols ? allowedSymbols.includes('SCAT') : true;
 	const linePoolRaw = restrictSymbols ? allowedSymbols.filter((s) => s !== 'SCAT') : LINE_SYMBOLS;
 	const LINE_POOL = linePoolRaw.length ? linePoolRaw : LINE_SYMBOLS;
+
+	/**
+	 * What every evaluator on this instance scores, and what it prices with — the project's own pool
+	 * and its own paytable, so "the symbols my config deals" and "the symbols my config pays" are the
+	 * same list. Spread into each evaluator call below; a standalone caller that passes neither keeps
+	 * the captured seven and the captured Hot Fruits values (`poolOf` / `payRowOf`).
+	 */
+	const evalOpts = { pool: LINE_POOL, symbolPaytable: opts.symbolPaytable ?? null };
+
+	/**
+	 * The board vocabulary + the price list this instance ACTUALLY uses, for the `config` and
+	 * `spinStart` events to advertise.
+	 *
+	 * Both used to announce the module-level defaults regardless of the pool, so a restricted game
+	 * told the client it deals `PIC7` when it never would, and quoted Hot Fruits prices for symbols
+	 * it does not pay — the wire disagreeing with the deal is exactly the confusion this whole change
+	 * is about. Unrestricted, the pool IS the default set and the table IS `PAY_TABLE`, so an
+	 * un-authored game's events are byte-identical.
+	 */
+	const DEALT_SYMBOLS = [...LINE_POOL, ...(scatterEnabled ? ['SCAT'] : [])];
+	const EFFECTIVE_PAY_TABLE = Object.fromEntries(
+		LINE_POOL.map((symbol) => [symbol, payRowOf(evalOpts, symbol)]).filter(([, row]) => row),
+	);
 
 	// Stacked-picture test mode (docs/design/stacked-picture-mode.md): deal contiguous high-symbol
 	// runs + a full-height WILD so the engine's stacked-picture reel mode has data to render. Opt-in
@@ -728,13 +823,14 @@ export function createMockRgs(opts = {}) {
 	 * change how often the bonus fires; the trigger stays scored on the dealt board only.
 	 */
 	const evaluatePayWins = (board, round) => {
-		if (winModel === 'ways') return evaluateWays(board, round.betPerLine, wild);
-		if (winModel === 'cluster') return evaluateClusters(board, round.betPerLine, wild, clusterOpts);
+		if (winModel === 'ways') return evaluateWays(board, round.betPerLine, wild, evalOpts);
+		if (winModel === 'cluster')
+			return evaluateClusters(board, round.betPerLine, wild, { ...clusterOpts, ...evalOpts });
 		// Priced against the TOTAL stake, not a per-line slice: a scatter-pays multiplier applies to
 		// the whole bet (`payoutDivisor` returns 1 for it).
 		if (winModel === 'scatter')
-			return evaluateScatterPays(board, round.total, wild, scatterPaysOpts);
-		return evaluatePaylines(board, round.betPerLine, paylines, wild);
+			return evaluateScatterPays(board, round.total, wild, { ...scatterPaysOpts, ...evalOpts });
+		return evaluatePaylines(board, round.betPerLine, paylines, wild, evalOpts);
 	};
 
 	/**
@@ -1052,7 +1148,7 @@ export function createMockRgs(opts = {}) {
 					// `MULT` is declared only when the collect fixture can deal it, so the facade's
 					// unknown-symbol warning stays meaningful for every other game.
 					symbols: [
-						...SYMBOLS,
+						...DEALT_SYMBOLS,
 						...(wild ? ['WILD'] : []),
 						...(collectFixture ? [MULT_SYMBOL] : []),
 					],
@@ -1068,20 +1164,20 @@ export function createMockRgs(opts = {}) {
 					paylines,
 					wildSymbols: wild ? ['WILD'] : [],
 					paytable: Object.fromEntries(
-						Object.entries(wild ? { ...PAY_TABLE, WILD: wild.paytable } : PAY_TABLE).map(
-							([sym, byCount]) => {
-								const counts = Object.keys(byCount)
-									.map(Number)
-									.sort((a, b) => a - b);
-								return [
-									sym,
-									{
-										occurs: counts,
-										pay: counts.map((c) => byCount[c]),
-									},
-								];
-							},
-						),
+						Object.entries(
+							wild ? { ...EFFECTIVE_PAY_TABLE, WILD: wild.paytable } : EFFECTIVE_PAY_TABLE,
+						).map(([sym, byCount]) => {
+							const counts = Object.keys(byCount)
+								.map(Number)
+								.sort((a, b) => a - b);
+							return [
+								sym,
+								{
+									occurs: counts,
+									pay: counts.map((c) => byCount[c]),
+								},
+							];
+						}),
 					),
 				},
 			});
@@ -1145,10 +1241,10 @@ export function createMockRgs(opts = {}) {
 					events.push({
 						event: 'spinStart',
 						context: {
-							symbols: wild ? [...SYMBOLS, 'WILD'] : SYMBOLS,
+							symbols: wild ? [...DEALT_SYMBOLS, 'WILD'] : DEALT_SYMBOLS,
 							symbolsPay: {
-								line: wild ? [...LINE_SYMBOLS, 'WILD'] : LINE_SYMBOLS,
-								scatter: ['SCAT'],
+								line: wild ? [...LINE_POOL, 'WILD'] : LINE_POOL,
+								scatter: scatterEnabled ? ['SCAT'] : [],
 							},
 							wildSymbols: wild ? ['WILD'] : [],
 							lineAlign: 'left',

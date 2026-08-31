@@ -146,7 +146,16 @@ function projectLineSymbols(doc: GameConfigDoc): string[] | undefined {
 		(server) => !NON_LINE_SERVER_SYMBOLS.has(server),
 	);
 	const allowed = serverPool.filter((server) => inPlay.has(mapSymbol(linesMapping, server)));
-	if (!allowed.length || allowed.length === serverPool.length) return undefined;
+	// STATED ALWAYS, not only when it is a strict subset. The old shortcut ("everything is in play ⇒
+	// omit ⇒ the mock keeps its full default") read as a parity nicety and was actually load-bearing
+	// in the wrong direction: it compared against the MAPPING's size, and the mapping now reaches
+	// three symbols (`PIC8`/`PIC9`/`PIC10` → `H5`/`L3`/`L4`) that the mock's default pool does not
+	// contain. A project with all ten line symbols in play would therefore have sent nothing and been
+	// dealt the captured seven — losing exactly the symbols this mapping was extended to reach. The
+	// mock now recognises a pool equal to its own default and keeps the weighted deal for it
+	// (`sameAsDefaultPool`), so stating the pool is free and the answer is no longer inferred from a
+	// table size that can change.
+	if (!allowed.length) return undefined;
 	return allowed;
 }
 
@@ -257,12 +266,16 @@ async function projectGrid(
 			model.type === 'cluster'
 				? { minCluster: model.minCluster, adjacency: model.adjacency }
 				: undefined;
-		// Scatter pays by COUNT anywhere, so the mock needs the threshold and — unlike cluster — the
-		// project's own count-keyed paytable, which the mock's run-length table cannot stand in for.
-		const scatter =
-			model.type === 'scatter'
-				? { minCount: model.minCount, symbolPaytable: projectSymbolPaytable(doc) }
-				: undefined;
+		// Scatter pays by COUNT anywhere, so the mock needs its threshold on top of the shared table.
+		const scatter = model.type === 'scatter' ? { minCount: model.minCount } : undefined;
+		// The project's own paytable, for EVERY win model. It used to ride with `scatter` alone, on
+		// the reasoning that only a count-priced game needed values the mock's run-length table could
+		// not stand in for. True as far as it went, but it left every lines/ways/cluster game paying
+		// the mock's captured Hot Fruits numbers whatever `/config` authored — and it left the three
+		// newly-mapped symbols (`H5`/`L3`/`L4` → `PIC8`/`PIC9`/`PIC10`) with no price row at all,
+		// since the mock's own table has none for them. Same gap, one fix: the mock prices what the
+		// project authored, and falls back to its own table per-symbol for anything unpriced.
+		const symbolPaytable = projectSymbolPaytable(doc);
 		return {
 			reels,
 			rows,
@@ -274,6 +287,7 @@ async function projectGrid(
 			...(multiplier ? { multiplier: true } : {}),
 			...(cluster ?? {}),
 			...(scatter ?? {}),
+			...(symbolPaytable ? { symbolPaytable } : {}),
 		};
 	} catch {
 		return undefined;
