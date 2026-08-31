@@ -319,9 +319,16 @@ cancelled on the endpoint so it stops costing money. Cancelled variations read `
 not `failed`: a red FAILED tile always means the render itself went wrong, never that you
 stopped it.
 
-Sessions are listed in the dropdown above the grid and persist: close the tab, come back,
-and a session still running reattaches. **Nothing prunes them**, so use 🗑 on sessions you
-are done with.
+Sessions are listed in the picker above the grid and persist: close the tab, come back, and a
+session still running reattaches. Each row shows **a thumbnail of that run's first render** and
+**the prompt it was asked for** — that is what tells one run from another, since the recipe name,
+the count and the age are the same on nearly all of them. A green dot marks a session still
+working, a red one a session that was stopped. **Nothing prunes them**, so use 🗑 on sessions
+you are done with.
+
+The name is derived from the prompt, not stored, so it costs nothing and every session you
+already have has one. If two runs read alike, it is because their prompts start alike — the
+thumbnail is the tie-breaker.
 
 #### What a session was asked for, and asking again
 
