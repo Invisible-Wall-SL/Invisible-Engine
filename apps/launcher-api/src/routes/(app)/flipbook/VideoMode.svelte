@@ -1270,39 +1270,46 @@ Overwrite it?`)
 								<span class="state">queued</span>
 							{/if}
 						</div>
+						<!-- TWO rows, not one. A 16-digit seed plus four controls needs ~300px and a
+						     grid column bottoms out at 220 — as one flex row the last buttons were
+						     pushed clean out of the card. -->
 						<figcaption>
-							<span class="ix">#{String(v.index).padStart(3, '0')}</span>
-							<button
-								class="seed"
-								title="Copy this seed — it reproduces this exact render"
-								onclick={() => navigator.clipboard?.writeText(String(v.seed))}
-							>
-								{v.seed}
-							</button>
-							<button
-								class="make"
-								disabled={v.status !== 'done'}
-								title="Pack these frames into a sheet and create a clip"
-								onclick={() => openMake(v)}
-							>
-								🎞 Make flipbook
-							</button>
-							<button
-								class="tico"
-								disabled={v.status === 'running' || tileBusy === v.index}
-								title={v.status === 'running'
-									? 'Still rendering — cancel the session first'
-									: 'Re-roll this one: change the prompt, hold or re-roll the seed'}
-								onclick={() => openRegen(v)}>↻</button
-							>
-							<button
-								class="tico danger"
-								disabled={v.status === 'running' || tileBusy === v.index}
-								title={v.status === 'running'
-									? 'Still rendering — cancel the session first'
-									: 'Delete this variation'}
-								onclick={() => discardVariation(v)}>🗑</button
-							>
+							<div class="crow">
+								<span class="ix">#{String(v.index).padStart(3, '0')}</span>
+								<button
+									class="seed"
+									title="Copy this seed — it reproduces this exact render"
+									onclick={() => navigator.clipboard?.writeText(String(v.seed))}
+								>
+									{v.seed}
+								</button>
+							</div>
+							<div class="crow">
+								<button
+									class="make"
+									disabled={v.status !== 'done'}
+									title="Pack these frames into a sheet and create a clip"
+									onclick={() => openMake(v)}
+								>
+									🎞 Make flipbook
+								</button>
+								<button
+									class="tico"
+									disabled={v.status === 'running' || tileBusy === v.index}
+									title={v.status === 'running'
+										? 'Still rendering — cancel the session first'
+										: 'Re-roll this one: change the prompt, hold or re-roll the seed'}
+									onclick={() => openRegen(v)}>↻</button
+								>
+								<button
+									class="tico danger"
+									disabled={v.status === 'running' || tileBusy === v.index}
+									title={v.status === 'running'
+										? 'Still rendering — cancel the session first'
+										: 'Delete this variation'}
+									onclick={() => discardVariation(v)}>🗑</button
+								>
+							</div>
 						</figcaption>
 						{#if v.prompt}
 							<p class="tileprompt" title={v.prompt}>↻ {v.prompt}</p>
@@ -2047,29 +2054,48 @@ Overwrite it?`)
 	}
 	figcaption {
 		display: flex;
-		align-items: center;
+		flex-direction: column;
 		gap: 6px;
 		padding: 6px 8px;
 		border-top: 1px solid #1f2937;
 	}
+	.crow {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		/* Without this a flex child refuses to shrink below its content, and the long
+		   seed pushes the row wider than the card instead of ellipsing. */
+		min-width: 0;
+	}
 	.ix {
 		font-size: 11px;
 		color: #64748b;
+		flex: 0 0 auto;
 	}
 	.seed {
 		font-size: 10px;
 		padding: 2px 6px;
 		font-family: ui-monospace, monospace;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.make {
-		margin-left: auto;
 		font-size: 10px;
 		padding: 2px 6px;
+		/* Takes the row; the two icon buttons keep their natural width beside it. */
+		flex: 1 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 	.tico {
 		font-size: 11px;
 		padding: 2px 5px;
 		line-height: 1;
+		flex: 0 0 auto;
 	}
 	.tico.danger {
 		color: #fca5a5;
