@@ -51,6 +51,33 @@ export const playBookEvent = (
 		startsCelebration(bookEvent),
 	);
 
+/**
+ * THE RUNNING WIN METER — every `winInfo` moves it, not just the round's closing `setTotalWin`.
+ *
+ * A `winInfo` already carries `totalWin`: the round's payout INCLUDING this win. On the Play4Fun
+ * facade every shipped game runs on, one event is flushed per win, so that figure is a genuine
+ * running total — it climbs across a spin's several paying lines AND across every board a cascade
+ * scores (`engineFacade`'s `runningTotal` accumulates through the whole chain). Nothing consumed it:
+ * the meter was written only by `setTotalWin`, at `gameEnd`, so a five-tumble chain narrated five
+ * wins with the Win box reading 0.00 the entire time and then snapping to the total once the board
+ * had already settled. `LabelWin` tweens the value, so each step now counts up into the next.
+ *
+ * Lives at THIS seam — with `recordWinCycleWins` and the all-at-once win lines, for the same reason:
+ * a flow-owned `winInfo` never reaches the coded handler map, and the meter has to behave the same
+ * on a flow-driven game as on a coded one.
+ *
+ * FORWARD ONLY. `playBet` zeroes the meter at the start of every round, so within a round the total
+ * can only grow; a book that omits `totalWin` (or reports a stale smaller one) would otherwise walk
+ * the meter backwards mid-celebration. `setTotalWin` still assigns the closing figure unconditionally
+ * — it is the authority on what the round paid, and by then this has usually already reached it.
+ */
+const advanceWinMeter = (bookEvent: BookEvent): void => {
+	if (bookEvent.type !== 'winInfo') return;
+	const total = bookEvent.totalWin;
+	if (!Number.isFinite(total) || total <= stateBet.winBookEventAmount) return;
+	stateBet.winBookEventAmount = total;
+};
+
 const dispatchBookEvent = async (
 	bookEvent: BookEvent,
 	context: { bookEvents: BookEvent[] },
@@ -58,6 +85,10 @@ const dispatchBookEvent = async (
 	// Recorded HERE, ahead of dispatch, so the idle win-symbol cycle sees every spin's wins whichever
 	// path presents them — a flow-owned `winInfo` never reaches the coded handler map.
 	recordWinCycleWins(bookEvent);
+
+	// Same seam, same reason: the WIN METER climbs with every win, instead of sitting at zero for
+	// the whole round and jumping once at `setTotalWin`.
+	advanceWinMeter(bookEvent);
 
 	// Same seam, same reason: which rung of the tumble-explosion ladder the next cascade pop plays
 	// (and whether the pop is a cascade at all, rather than the board CLEAR that shares its cue).
