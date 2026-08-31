@@ -15,6 +15,7 @@
 	 * author sees whether the background cutout actually produced alpha.
 	 */
 	import { onDestroy } from 'svelte';
+	import RunPicker, { type RunPickerItem } from '$lib/RunPicker.svelte';
 	import RegionThumb from '../editor/RegionThumb.svelte';
 	import { fetchRegions, type EditorRegion, type RegionSet } from '../editor/editorRegions.client';
 	import { cropRegionToPng } from '../editor/regionCrop';
@@ -982,6 +983,60 @@ Overwrite it?`)
 		promptBox?.focus();
 	}
 
+	// --- telling one session from another ---------------------------------------
+	// The rail used to be a `<select>` whose every row read the same thing: the blueprint's name,
+	// a count and an age. That names the RECIPE, not the run — twenty rows of "Wan 2.2 I2V —
+	// flipbook source · 10 · 3d ago" is a list you cannot read. What tells runs apart is what was
+	// ASKED FOR and what CAME OUT, so a row now carries both.
+
+	/** The prompt, trimmed to a line. Derived rather than stored: it costs no schema change, it
+	 * names every session already in the project, and it cannot drift from the prompt it
+	 * describes. Cut on a word boundary — a title sliced mid-word reads as corruption. */
+	function runTitle(s: Session): string {
+		const p = (s.prompt ?? '').replace(/\s+/g, ' ').trim();
+		if (!p) return s.blueprint_name ?? s.blueprint;
+		if (p.length <= 46) return p;
+		const cut = p.slice(0, 46);
+		const sp = cut.lastIndexOf(' ');
+		return `${(sp > 24 ? cut.slice(0, sp) : cut).replace(/[\s,.;:—-]+$/, '')}…`;
+	}
+
+	/** The first render this session actually produced. Undefined while nothing has landed yet —
+	 * the picker draws its checkerboard placeholder rather than a broken image. */
+	function runThumb(s: Session): string | undefined {
+		const v = s.variations?.find((x) => x.status === 'done' && x.file);
+		return v
+			? api('file', `session=${encodeURIComponent(s.id)}&v=${encodeURIComponent(v.file)}`)
+			: undefined;
+	}
+
+	function toItem(s: Session): RunPickerItem {
+		const live = (s.variations ?? []).filter((v) => v.status !== 'deleted').length;
+		const running = s.status === 'running' || s.status === 'queued';
+		const where = s.queue_position ? ` · #${s.queue_position} in line` : '';
+		return {
+			id: s.id,
+			title: runTitle(s),
+			meta: `${live} ${live === 1 ? 'variation' : 'variations'} · ${fmtAge(s.created)}${
+				running ? ` · ${s.status}${where}` : ''
+			}`,
+			thumb: runThumb(s),
+			state: running ? 'live' : s.status === 'cancelled' ? 'bad' : undefined,
+		};
+	}
+
+	/** `recent` is only re-read when a session goes terminal, but the SELECTED one is polled every
+	 * few seconds — so the live copy wins for its own row. Without this the face would still be
+	 * claiming "queued · #2 in line" long after that session started rendering. */
+	const sessionItems = $derived(
+		recent.map((s) => toItem(session && session.id === s.id ? session : s)),
+	);
+
+	async function pickSession(id: string): Promise<void> {
+		reuse = null;
+		session = id ? await getJson<Session>('status', `session=${encodeURIComponent(id)}`) : null;
+	}
+
 	function fmtAge(t: number): string {
 		if (!t) return '';
 		const mins = Math.round((Date.now() / 1000 - t) / 60);
@@ -1151,28 +1206,14 @@ Overwrite it?`)
 	<section class="main">
 		<div class="sessbar">
 			{#if recent.length}
-				<select
-					value={session?.id ?? ''}
-					onchange={async (e) => {
-						const id = e.currentTarget.value;
-						reuse = null;
-						session = id
-							? await getJson<Session>('status', `session=${encodeURIComponent(id)}`)
-							: null;
-					}}
-				>
-					{#each recent as s (s.id)}
-						<option value={s.id}>
-							{s.blueprint_name ?? s.blueprint} · {s.variations?.length ?? 0} · {fmtAge(s.created)}
-							{s.status === 'running' || s.status === 'queued' ? ` · ${s.status}` : ''}
-						</option>
-					{/each}
-				</select>
+				<RunPicker
+					items={sessionItems}
+					selected={session?.id ?? ''}
+					onselect={pickSession}
+					title="Switch session — named by its prompt, pictured by its first render"
+				/>
 			{/if}
 			{#if session}
-				<span class="pill">
-					{session.status}{session.queue_position ? ` · #${session.queue_position} in line` : ''}
-				</span>
 				<span class="spacer"></span>
 				<!-- A span, not a label: it wraps a BUTTON as well as the number, and a label
 				     would hand the button's clicks to the input. -->

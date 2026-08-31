@@ -186,6 +186,23 @@ is at least now single-sourced (`IW_TOOLBAR_CSS`, shared by `PAGE` + `ATLASVIEW`
 
 → Every colour input in a Svelte tool uses `<ColorField>`; every colour input in a static/Python tool is covered by `color-field.js` — do NOT reach for a bare `<input type="color">` (the OS picker closes on the first click, can't be click-dragged, and looks different per platform; that inconsistency is exactly what this replaced). Svelte callers that store a NUMBER keep their `hexFrom()` / `fromColorInput()` conversions around the `#rrggbb` boundary; the vanilla enhancer needs no wiring — include the script and it upgrades native inputs in place, so existing `.value` reads and `input`/`change` listeners keep working. `services/atlas-tool/color-field.js` is a byte-identical copy of the canonical file (separate Railway origin can't reference it); keep them in sync, same as the tool-bar/emblem twins in §7.
 
+### 16. Run picker (choose one of N past generations)
+| Impl | Domain | File(s) | Status |
+|---|---|---|---|
+| **`RunPicker.svelte`** — popover list; each row is a lazy thumbnail + the line you recognise the run BY + dim meta, with a live/bad status dot | A | `apps/launcher-api/src/lib/RunPicker.svelte` | **canonical for domain A** — used by `/flipbook` 🎬 Video's session rail |
+| Atlas Maker region-variant strip (thumbs of one region's generations) | B | `services/atlas-tool/ui_server.py` (`/vthumb/`) | reference B impl — see also §14 |
+
+→ Built because a native `<select>` cannot show a picture, and a list of generated runs is close
+to unusable without one: every row renders as the same recipe name plus a count and an age, which
+identifies the RECIPE and not the run (owner report on 🎬 Video, 20+ rows all reading
+"Wan 2.2 I2V — flipbook source · 10 · 3d ago"). The two things that tell runs apart are what was
+ASKED FOR and what CAME OUT, so a row carries both. The component knows nothing about sessions,
+prompts or R2 — the caller maps its own records into `RunPickerItem` **and derives the title**, so
+a title stays a caller policy (🎬 Video cuts the prompt on a word boundary). Two things to keep
+if you reuse it: thumbnails are `loading="lazy"` (opening a picker must not fetch every run's
+render), and it closes on a full-screen backdrop, not on its own clicks — the §"submenu stays
+stuck open" bug.
+
 ### 15. Bounds box (a declared size frame drawn over art)
 | Impl | Domain | File(s) | Status |
 |---|---|---|---|
