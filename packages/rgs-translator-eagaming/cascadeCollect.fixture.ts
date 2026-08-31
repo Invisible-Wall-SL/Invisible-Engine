@@ -120,6 +120,16 @@ for (let i = 0; i < ROUNDS; i++) {
 			check(`round ${i}: the win meter never steps back mid-chain`, total >= previous, true);
 			previous = total;
 		}
+
+		// …AND IT LANDS ON THE ROUND TOTAL. The client's meter now climbs with every `winInfo`
+		// (`advanceWinMeter`, apps/lines/src/game/utils.ts) instead of waiting for `setTotalWin`, so
+		// the last figure a chain announces has to BE the figure the round closes on — otherwise the
+		// meter visibly corrects itself once the board has already settled. Only where no collect
+		// ran: that beat deliberately multiplies the chain afterwards (asserted separately below).
+		const closing = events.filter((e) => e.type === 'setTotalWin').pop();
+		if (previous >= 0 && closing && !events.some((e) => e.type === 'boardMultiplierInfo')) {
+			check(`round ${i}: the climbing meter lands on the round total`, closing.amount, previous);
+		}
 	}
 
 	for (const tumble of tumbles) {
