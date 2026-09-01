@@ -173,6 +173,31 @@ page · click a region (canvas or sidebar) to select it · the sidebar filters b
 name and lists each region's parity verdict, placement mode, rect, fill %, and
 margins.
 
+## Blueprints: publishing one
+
+**＋ New blueprint** takes a ComfyUI **API-format** export (Settings → “Save (API Format)” — the
+editor's own `workflow.json` is the wrong file) and publishes it to the shared library. You then
+point each **role** at a node input: `positive`, `negative`, `seed`, `width`/`height`, the
+reference images (`style_ref` / `shape_ref`), and `output` (the save node).
+
+- **Suggested is a ranking, not a shortlist.** Every input in the graph is listed under **All node
+  inputs** beneath it, so a role is never cornered by a heuristic that did not anticipate your
+  network. Wired inputs are listed too, marked `(wired)`.
+- **Knobs pulled out into `Primitive` nodes are followed through the wire.** Most reusable graphs
+  convert their widgets to inputs, so `CLIPTextEncode.text` is a wire and the actual prompt lives
+  on a `PrimitiveString` upstream — the suggestion points at that primitive, because writing over
+  the wire would cut every other consumer of that value off from it.
+- **Unambiguous roles are filled in for you**, and a genuine choice is not guessed at: a graph with
+  two positive prompts leaves `positive` empty for you to pick. Publishing tells you which required
+  roles are still unbound rather than quietly binding one.
+
+**Exposed settings** become the knobs in **🎛 Blueprint settings**. Pick the node input first — the
+key (named after the node), the type and the default are read straight off the graph's own baked
+value, and they follow the node if you re-point the row, leaving anything you typed alone. A `text`
+setting holding prose gets **prompt-sized box** ticked automatically and renders as a full-width
+textarea; a `#222222` or a `ComfyUI` stays a narrow field. A node input can be driven by a role or
+by a setting, never both — an input a role holds is not offered to a setting.
+
 ## Blueprints: resolved-workflow export (debugging)
 
 When the active pipeline is a **blueprint** (a shareable ComfyUI graph + role

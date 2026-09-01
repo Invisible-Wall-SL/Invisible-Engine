@@ -3495,6 +3495,13 @@ function renderBpParams(p){{
    ctl=document.createElement('select');
    (d.options||[]).forEach(o=>{{let op=document.createElement('option');op.value=o;op.textContent=o;ctl.appendChild(op);}});
    if(val!=null) ctl.value=String(val);
+  }} else if(d.type==='text'&&d.multiline){{
+   // Prose (a second prompt, a caption) — a full-width box, not the narrow
+   // inline input the numeric knobs share. See `multiline` in blueprints.py.
+   ctl=document.createElement('textarea');
+   ctl.rows=3;
+   ctl.style.cssText='width:100%;resize:vertical';
+   ctl.value=(val==null)?'':String(val);
   }} else {{
    ctl=document.createElement('input');
    if(d.type==='int'||d.type==='float'){{
@@ -3650,41 +3657,112 @@ const BP_ROLES=[
  ['positive',true],['negative',false],['seed',true],
  ['width',false],['height',false],
  ['style_ref',false],['shape_ref',false],['output',true]];
+// A ComfyUI API input is either a widget value or a link [nodeId, slot].
+function bpLinkSource(v){{
+ return (Array.isArray(v) && typeof v[0]==='string') ? v[0] : null;
+}}
+// Walk backwards from a node input to the WIDGET that actually feeds it.
+//
+// "Convert widget to input" is how any reusable ComfyUI graph is authored: the
+// prompt, the seed, the size stop being widgets on the consuming node and become
+// Primitive* nodes wired in, sometimes through a relay or two. Binding the
+// consuming end would overwrite that wire with a literal and cut every other
+// consumer off from the value; binding the upstream widget is what the author
+// means. Returns the input unchanged when it is already a widget, and stops at
+// anything that is not a plain pass-through (a switch, a math node) rather than
+// guessing which of its inputs is "the" one.
+function bpResolveKnob(node,field,seen){{
+ seen=seen||[];
+ const here={{node:node,field:field}};
+ const g=_bpGraph||{{}};
+ const up=bpLinkSource(((g[node]||{{}}).inputs||{{}})[field]);
+ if(!up || seen.indexOf(up)>=0 || !g[up]) return here;
+ seen.push(up);
+ const inputs=(g[up]||{{}}).inputs||{{}};
+ const widgets=Object.keys(inputs).filter(f=>bpLinkSource(inputs[f])===null);
+ const wires=Object.keys(inputs).filter(f=>bpLinkSource(inputs[f])!==null);
+ // A primitive holding exactly one widget IS the knob.
+ if(widgets.length===1 && !wires.length) return {{node:up,field:widgets[0]}};
+ // A pass-through relay (one input, itself a wire) — keep walking.
+ if(!widgets.length && wires.length===1) return bpResolveKnob(up,wires[0],seen);
+ return here;
+}}
+// Targets that plausibly fill a role, best first — a RANKING, not a filter.
+//
+// This used to be a filter, and BP_FIELD hardcoded the field per role. That
+// holds only for a graph whose knobs are still widgets on the consuming node:
+// the moment an author converts them to inputs, the CLIPTextEncode this approves
+// takes its `text` from a wire, the role cannot write it, and the primitive that
+// actually holds the prompt is not offered at all — leaving a REQUIRED role with
+// no usable option and no way forward. Ported from VideoMode.svelte (2026-09-01),
+// which hit exactly that on a two-part Wan i2v graph.
+//
+// Rank 0 = a knob the author factored out (reached by following the wire back
+// from the node that consumes the value), because a graph carrying both a
+// primitive and the widget it feeds is one whose author already said which is
+// the control. Rank 1 = a raw widget on the consuming node. Rank 2 = a node
+// whose title says it is the OTHER polarity (a negative encoder offered for
+// `positive`) — still listed, just last.
 function bpCandidates(role,graph){{
- // Candidate-filter nodes by class_type / inputs so each role only offers
- // nodes that can plausibly fill it (matches the design's binding step).
- //
- // KNOWN LIMIT (the Flipbook's video twin has been fixed, this has not — see
- // docs/status/flipbook.md, 2026-09-01): this is a FILTER, and BP_FIELD hardcodes
- // the field per role. A graph whose knobs were "converted to input" — the prompt
- // on a PrimitiveString, the seed on a PrimitiveInt, wired into the sampler — has
- // no bindable candidate here at all: the CLIPTextEncode this approves takes its
- // `text` from a WIRE, and the primitive that actually holds the value is not
- // offered. The fix that worked in VideoMode.svelte is `resolveKnob`: follow the
- // wire back to the widget, then rank rather than exclude, with every
- // (node · input) still listed underneath.
  let out=[];
+ const add=(t,via,rank)=>{{
+  if(!graph[t.node]) return;
+  if(out.some(o=>o.node===t.node && o.field===t.field)) return;
+  out.push({{node:t.node,field:t.field,via:via,rank:rank}});
+ }};
  for(const id of Object.keys(graph)){{
   const n=graph[id]||{{}}; const ct=String(n.class_type||'');
+  const title=(n._meta&&n._meta.title)?String(n._meta.title):'';
   const inp=n.inputs||{{}};
-  let ok=false;
-  if(role==='positive'||role==='negative') ok=/CLIPTextEncode/i.test(ct);
-  else if(role==='seed') ok=('seed' in inp)||('noise_seed' in inp);
-  else if(role==='width') ok=('width' in inp);
-  else if(role==='height') ok=('height' in inp);
-  else if(role==='style_ref'||role==='shape_ref') ok=/LoadImage/i.test(ct);
-  // A save node is whatever the runner can stamp a `filename_prefix` onto — that IS
-  // the contract. Testing the CLASS NAME for /SaveImage/ excluded SaveAnimatedWEBP,
-  // SaveWEBM and VHS_VideoCombine, so a video graph could never bind `output` and the
-  // modal showed "no matching node" with no way forward.
-  else if(role==='output') ok=('filename_prefix' in inp)||/Save|VideoCombine/i.test(ct);
-  if(ok) out.push([id,ct]);
+  if(role==='output'){{
+   // A save node is whatever the runner can stamp a `filename_prefix` onto — that IS
+   // the contract. Testing the CLASS NAME for /SaveImage/ excluded SaveAnimatedWEBP,
+   // SaveWEBM and VHS_VideoCombine, so a video graph could never bind `output` and the
+   // modal showed "no matching node" with no way forward.
+   if(('filename_prefix' in inp)||/Save|VideoCombine/i.test(ct)) add({{node:id,field:''}},'',0);
+  }} else if(role==='positive'||role==='negative'){{
+   if(!/CLIPTextEncode/i.test(ct) || !('text' in inp)) continue;
+   const isNeg=/negative/i.test(title);
+   const wanted=(role==='negative')?isNeg:!isNeg;
+   const k=bpResolveKnob(id,'text');
+   const viaWire=(k.node!==id);
+   add(k, viaWire?('feeds '+bpNodeOpt(id)):'', wanted?(viaWire?0:1):2);
+  }} else if(role==='seed'){{
+   ['noise_seed','seed'].forEach(f=>{{
+    if(!(f in inp)) return;
+    const k=bpResolveKnob(id,f);
+    const viaWire=(k.node!==id);
+    add(k, viaWire?('feeds '+bpNodeOpt(id)):'', viaWire?0:1);
+   }});
+  }} else if(role==='width'||role==='height'){{
+   if(!(role in inp)) continue;
+   const k=bpResolveKnob(id,role);
+   const viaWire=(k.node!==id);
+   add(k, viaWire?('feeds '+bpNodeOpt(id)):'', viaWire?0:1);
+  }} else if(role==='style_ref'||role==='shape_ref'){{
+   if(!/LoadImage/i.test(ct)) continue;
+   add({{node:id,field:('image' in inp)?'image':(Object.keys(inp)[0]||'image')}},'',0);
+  }}
+ }}
+ return out.sort((a,b)=>a.rank-b.rank);
+}}
+// EVERY node input in the graph, so no role is ever cornered by a heuristic that
+// did not anticipate this workflow. Wired inputs are included and marked:
+// overwriting a link with a literal is legal in ComfyUI and is what the old
+// node-only picker did, so the escape hatch has to keep offering it.
+function bpAllInputs(){{
+ const g=_bpGraph||{{}}; let out=[];
+ for(const id of Object.keys(g)){{
+  const inp=(g[id]||{{}}).inputs||{{}};
+  for(const f of Object.keys(inp)){{
+   out.push({{node:id,field:f,wired:bpLinkSource(inp[f])!==null}});
+  }}
  }}
  return out;
 }}
-// Default node-input field per role (the binding's `field`). output has none.
-const BP_FIELD={{positive:'text',negative:'text',seed:'seed',width:'width',
- height:'height',style_ref:'image',shape_ref:'image'}};
+// The select value a role binding carries. `output` binds a WHOLE node, so it
+// carries the bare id; everything else carries node::field.
+function bpBindValue(role,t){{ return (role==='output')?t.node:(t.node+'::'+t.field); }}
 // Human label for a node option. Prefers the title the author gave the node in
 // ComfyUI (API exports carry it as `_meta.title`); falls back to class_type. The
 // id is kept (#id) so identically-titled nodes stay distinguishable.
@@ -3771,6 +3849,7 @@ function onBpFilePicked(){{
 }}
 function buildBpBindings(){{
  let wrap=document.getElementById('bpBindings'); wrap.innerHTML='';
+ const all=bpAllInputs();
  BP_ROLES.forEach(([role,req])=>{{
   let cands=bpCandidates(role,_bpGraph);
   let row=document.createElement('label');
@@ -3780,20 +3859,59 @@ function buildBpBindings(){{
   let sel=document.createElement('select');
   sel.dataset.bprole=role;
   sel.style.cssText='flex:1;background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:6px';
-  if(!req){{ let o=document.createElement('option'); o.value=''; o.textContent='(not used)'; sel.appendChild(o); }}
-  cands.forEach(([id,ct])=>{{ let o=document.createElement('option'); o.value=id; o.textContent=bpNodeOpt(id); sel.appendChild(o); }});
-  if(req&&!cands.length){{ let o=document.createElement('option'); o.value=''; o.textContent='⚠ no matching node'; sel.appendChild(o); }}
+  // Always offer "(not used)", even on a required role: the old modal made a
+  // required role default to whatever the filter happened to approve FIRST, so a
+  // wrong binding could publish without the author ever looking at that row.
+  let blank=document.createElement('option'); blank.value=''; blank.textContent='(not used)';
+  sel.appendChild(blank);
+  if(cands.length){{
+   let g=document.createElement('optgroup'); g.label='Suggested';
+   cands.forEach(c=>{{
+    let o=document.createElement('option');
+    o.value=bpBindValue(role,c);
+    o.textContent=bpNodeOpt(c.node)+(c.field?(' · '+c.field):'')+(c.via?(' — '+c.via):'');
+    g.appendChild(o);
+   }});
+   sel.appendChild(g);
+  }}
+  let ga=document.createElement('optgroup');
+  ga.label=(role==='output')?'All nodes':'All node inputs';
+  if(role==='output'){{
+   Object.keys(_bpGraph||{{}}).forEach(id=>{{
+    let o=document.createElement('option'); o.value=id; o.textContent=bpNodeOpt(id); ga.appendChild(o);
+   }});
+  }} else {{
+   all.forEach(t=>{{
+    let o=document.createElement('option');
+    o.value=t.node+'::'+t.field;
+    o.textContent=bpNodeOpt(t.node)+' · '+t.field+(t.wired?' (wired)':'');
+    ga.appendChild(o);
+   }});
+  }}
+  sel.appendChild(ga);
+  // Pre-fill only when the best suggestion is unambiguous — one target alone at
+  // the top rank. Two equally good candidates (a graph with a first-half and a
+  // second-half prompt) is a choice only the author can make.
+  if(cands.length && (cands.length===1 || cands[0].rank!==cands[1].rank)){{
+   sel.value=bpBindValue(role,cands[0]);
+  }}
+  sel.onchange=()=>{{ document.querySelectorAll('#bpParams .bpparam').forEach(r=>{{
+   if(r._bpRefresh) r._bpRefresh();
+  }}); }};
   row.appendChild(lbl); row.appendChild(sel); wrap.appendChild(row);
  }});
 }}
-// Current role->{{node,field}} map (from the binding selects) so a param can't
-// offer a (node,field) already driven by a role (no double-drive).
+// Current role->{{node,field}} set (from the binding selects) so a param can't
+// offer a (node,field) already driven by a role (no double-drive). Reads the
+// FIELD the author picked rather than a hardcoded per-role default.
 function bpBoundTargets(){{
  let s=new Set();
  document.querySelectorAll('#bpBindings [data-bprole]').forEach(sel=>{{
-  let role=sel.dataset.bprole, node=sel.value;
-  if(!node||role==='output') return;
-  s.add(node+'\\u0000'+(BP_FIELD[role]||''));
+  let role=sel.dataset.bprole, v=sel.value;
+  if(!v||role==='output') return;
+  let i=v.indexOf('::');
+  if(i<0) return;
+  s.add(v.slice(0,i)+'\\u0000'+v.slice(i+2));
  }});
  return s;
 }}
@@ -3810,11 +3928,49 @@ function bpParamFields(nodeId){{
  }}
  return out;
 }}
-// Infer a param type from a node input's baked value (the author can change it).
-function bpInferType(v){{
+// Infer a param type from a node input's baked value — and from the node's CLASS
+// first, because the value alone lies about whole numbers: a PrimitiveFloat
+// holding 1 (a duration, a cfg) reads as an int, and an int param would then
+// refuse the 1.5 the knob exists to allow. The author can still change it.
+function bpInferType(v,ct){{
+ ct=String(ct||'');
+ if(/PrimitiveBoolean|Boolean/i.test(ct)) return 'bool';
+ if(/PrimitiveFloat|Float/i.test(ct)) return 'float';
+ if(/PrimitiveInt/i.test(ct)) return 'int';
+ if(/PrimitiveString/i.test(ct)) return 'text';
  if(typeof v==='boolean') return 'bool';
  if(typeof v==='number') return Number.isInteger(v)?'int':'float';
  return 'text';
+}}
+// A baked string that reads as PROSE rather than a token — long, or several
+// words. What separates a second prompt from '#222222' or 'euler', and so what
+// decides whether the setting gets a prompt-sized box in the settings panel.
+function bpLooksLikeProse(v){{
+ return typeof v==='string' && (v.length>40 || /\\s\\S+\\s/.test(v.trim()));
+}}
+// A first-guess param key from the NODE's own title, not the field name. On a
+// graph whose knobs were converted to inputs every one of them is called
+// `value`, so keying off the field gave a dozen rows all keyed `value` — which
+// the tool rejects as duplicates. Kept off the reserved role names and made
+// unique against the keys already in the modal.
+// `selfEl` is the key input being filled — it MUST be excluded from the
+// uniqueness check. Counting the row's own current key made every re-point
+// collide with itself, so a row retargeted twice came out `SaveAnimatedWEBP2`,
+// then `…3`, climbing on every change.
+function bpSuggestKey(node,field,selfEl){{
+ const n=(_bpGraph||{{}})[node]||{{}};
+ const ct=String(n.class_type||'');
+ const t=(n._meta&&n._meta.title)?String(n._meta.title).trim():'';
+ let stem=((t&&t!==ct)?t:(ct+'_'+field)).replace(/[^A-Za-z0-9]+/g,'')||'param';
+ const reserved=['positive','negative','seed','width','height','style_ref','shape_ref','output'];
+ let used=[];
+ document.querySelectorAll('#bpParams .bpparam [data-pkey]').forEach(el=>{{
+  if(el!==selfEl && el.value.trim()) used.push(el.value.trim());
+ }});
+ let key=(reserved.indexOf(stem)>=0)?(stem+'_'+field):stem;
+ let i=2;
+ while(used.indexOf(key)>=0) key=stem+(i++);
+ return key;
 }}
 function addBpParam(){{
  let wrap=document.getElementById('bpParams'); if(!wrap||!_bpGraph) return;
@@ -3844,26 +4000,59 @@ function addBpParam(){{
  mn.style.cssText='background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px;width:70px';
  let mx=document.createElement('input'); mx.dataset.pmax='1'; mx.placeholder='max'; mx.type='number';
  mx.style.cssText='background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px;width:70px';
+ // A `text` param whose value is PROSE — a second prompt, a caption — gets a
+ // full-width box in the settings panel instead of the narrow inline input every
+ // other setting shares. Only ONE prompt can hold the `positive` role, so on a
+ // two-prompt graph the other reaches the author as a setting, and a narrow field
+ // is not somewhere anyone writes a prompt.
+ let mlWrap=document.createElement('label');
+ mlWrap.style.cssText='display:none;align-items:center;gap:5px;color:#888;font-size:11px';
+ let ml=document.createElement('input'); ml.type='checkbox'; ml.dataset.pmultiline='1';
+ let mlTxt=document.createElement('span'); mlTxt.textContent='prompt-sized box';
+ mlWrap.appendChild(ml); mlWrap.appendChild(mlTxt);
  let rm=document.createElement('button'); rm.type='button'; rm.textContent='✕'; rm.title='remove';
  rm.style.cssText='font-size:11px;padding:3px 7px'; rm.onclick=()=>row.remove();
  // when node changes, repopulate fields + prefill key/default/type from the baked value
  function refreshFields(){{
+  let keep=fieldSel.value;
   fieldSel.innerHTML='';
   bpParamFields(nodeSel.value).forEach(f=>{{ let o=document.createElement('option'); o.value=f; o.textContent=f; fieldSel.appendChild(o); }});
+  if(keep && bpParamFields(nodeSel.value).indexOf(keep)>=0) fieldSel.value=keep;
   syncFromField();
  }}
+ function syncTypeUi(){{
+  opts.style.display=(typeSel.value==='select')?'':'none';
+  mlWrap.style.display=(typeSel.value==='text')?'flex':'none';
+ }}
+ // What syncFromField last auto-filled. A prefill that only ran `if(!key.value)`
+ // froze the row on whatever node it was CREATED with — addBpParam ends by
+ // selecting the graph's first node, so every row came out keyed after that node
+ // and defaulted to its value, and re-pointing the row silently changed nothing
+ // but the type. Re-filling a field the author has not touched (its value is
+ // still exactly what we put there) follows the node; the moment they type,
+ // their text is theirs and the prefill stops.
+ let autoKey='', autoLabel='', autoDef='';
  function syncFromField(){{
   let v=((_bpGraph[nodeSel.value]||{{}}).inputs||{{}})[fieldSel.value];
-  if(!key.value) key.value=fieldSel.value||'';
-  if(!label.value && fieldSel.value) label.value=fieldSel.value.charAt(0).toUpperCase()+fieldSel.value.slice(1);
-  if(def.value==='' && v!==undefined && v!==null && !Array.isArray(v)) def.value=String(v);
-  typeSel.value=bpInferType(v);
-  opts.style.display=(typeSel.value==='select')?'':'none';
+  let ct=(_bpGraph[nodeSel.value]||{{}}).class_type;
+  if(key.value===''||key.value===autoKey){{
+   key.value=bpSuggestKey(nodeSel.value,fieldSel.value||'',key); autoKey=key.value;
+  }}
+  if(label.value===''||label.value===autoLabel){{ label.value=key.value; autoLabel=label.value; }}
+  if(def.value===''||def.value===autoDef){{
+   def.value=(v===undefined||v===null||Array.isArray(v))?'':String(v); autoDef=def.value;
+  }}
+  typeSel.value=bpInferType(v,ct);
+  ml.checked=(typeSel.value==='text' && bpLooksLikeProse(v));
+  syncTypeUi();
  }}
+ // A role binding changing can free or take a (node,field), so the field list is
+ // rebuilt from the binding selects rather than frozen at Add time.
+ row._bpRefresh=refreshFields;
  nodeSel.onchange=refreshFields; fieldSel.onchange=syncFromField;
- typeSel.onchange=()=>{{ opts.style.display=(typeSel.value==='select')?'':'none'; }};
+ typeSel.onchange=syncTypeUi;
  let r1=document.createElement('div'); r1.style.cssText='display:flex;gap:6px;flex-wrap:wrap;align-items:center';
- r1.appendChild(nodeSel); r1.appendChild(fieldSel); r1.appendChild(typeSel); r1.appendChild(rm);
+ r1.appendChild(nodeSel); r1.appendChild(fieldSel); r1.appendChild(typeSel); r1.appendChild(mlWrap); r1.appendChild(rm);
  let r2=document.createElement('div'); r2.style.cssText='display:flex;gap:6px;flex-wrap:wrap;align-items:center';
  r2.appendChild(key); r2.appendChild(label); r2.appendChild(def); r2.appendChild(mn); r2.appendChild(mx);
  row.appendChild(r1); row.appendChild(r2); row.appendChild(opts);
@@ -3891,6 +4080,10 @@ function collectBpParams(){{
   if(type==='select'){{
    let o=g('[data-poptions]'); if(o) p.options=o.split(',').map(s=>s.trim()).filter(Boolean);
   }}
+  if(type==='text'){{
+   let el=row.querySelector('[data-pmultiline]');
+   if(el&&el.checked) p.multiline=true;
+  }}
   out.push(p);
  }});
  return out;
@@ -3914,12 +4107,15 @@ async function saveBlueprint(overwrite){{
  let st=document.getElementById('bpstat'); st.textContent='⬆ Publishing…';
  let bindings={{}};
  document.querySelectorAll('#bpBindings [data-bprole]').forEach(sel=>{{
-  let role=sel.dataset.bprole, node=sel.value;
-  if(!node) return;
-  let b={{node:node}};
-  if(role!=='output') b.field=BP_FIELD[role]||'';
-  bindings[role]=b;
+  let role=sel.dataset.bprole, v=sel.value;
+  if(!v) return;
+  if(role==='output'){{ bindings[role]={{node:v}}; return; }}
+  let i=v.indexOf('::');
+  if(i<0) return;                       // node-only value on a field role: skip
+  bindings[role]={{node:v.slice(0,i), field:v.slice(i+2)}};
  }});
+ let missing=BP_ROLES.filter(r=>r[1]&&!bindings[r[0]]).map(r=>r[0]);
+ if(missing.length){{ st.textContent='Bind '+missing.join(', ')+' first.'; return; }}
  let body={{name:document.getElementById('bpName').value,
   description:document.getElementById('bpDesc').value,
   kind:document.getElementById('bpKind').value,

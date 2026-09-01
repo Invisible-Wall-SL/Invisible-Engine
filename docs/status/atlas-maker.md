@@ -32,12 +32,42 @@ Works today on `main` / live:
 4. **Per-user session isolation — planned, unbuilt** (design `atlas-per-user-session.md`): the active-manifest resolver is process-global, so two users on one project clobber each other's open selection + see each other's render progress. Phases 1–3 (thread `user` id → per-user overlay → per-user render state).
 5. **Access gate** — `ATLAS_TOOL_SECRET` unset → tool is open on its Railway URL; verify the launcher `?k=` flow when set.
 6. **Blueprints: owner live-verify + model auto-download** — the 8 phases are code-complete but unverified live; the ComfyUI-Manager model auto-download (so a blueprint's models install without a manual drop) is the main remaining piece ([design](../design/invisible-blueprints.md) §7).
-7. **The New-blueprint modal can't bind a graph whose knobs were "converted to input".** `bpCandidates` (`ui_server.py:3653`) FILTERS candidates by class/inputs and `BP_FIELD` hardcodes the field per role, so on a graph where the prompt lives on a `PrimitiveString` wired into the encoder there is no bindable node for `positive`/`seed` at all — the required roles simply have no usable option. **The Flipbook's video twin was fixed on 2026-09-01** ([status/flipbook](flipbook.md)): `resolveKnob` follows the wire back to the widget, suggestions became a RANKING with every `(node · input)` still listed, and a setting's key/type/default are read off the graph. **Next:** port that to `bpCandidates` — the two modals are maintained in step by hand (opposite sides of the A/B line in `../ui-inventory.md`), and they are currently diverged.
+7. ✅ ~~**The New-blueprint modal can't bind a graph whose knobs were "converted to input".**~~ — **DONE (2026-09-01)**, ported from the Flipbook's video twin the same day it was fixed there, so the two modals are back in step. See "Recent changes" below.
 
 ## Blocked (owner / external)
 _Nothing._ Both long-standing entries cleared on 2026-08-18 — see below.
 
 ## Recent changes
+- 2026-09-01 — **The New-blueprint modal binds whatever graph you import, not one shaped like the
+  built-in three.** Ported from the Flipbook's video twin the same day it was fixed there
+  ([status/flipbook](flipbook.md)), so the two hand-maintained modals are back in step.
+  - **`bpCandidates` was a FILTER and `BP_FIELD` hardcoded the field per role**, which holds only
+    while a graph's knobs are still widgets on the consuming node. Convert them to inputs — the
+    prompt on a `PrimitiveString`, the seed on a `PrimitiveInt` — and the CLIPTextEncode the filter
+    approves takes its `text` from a wire the role cannot write, while the primitive that actually
+    holds the value is not offered at all. Both REQUIRED roles then have no usable option.
+  - **`bpResolveKnob` follows the wire back to the widget**, through pass-through relays, and
+    `bpCandidates` now RANKS (knob-through-a-wire, raw widget, wrong polarity) over a complete
+    list — every `(node · input)` stays reachable under "All node inputs", wired ones marked.
+    Bindings carry `node::field` from the select, so `BP_FIELD` is gone.
+  - **Roles pre-fill only when the top rank is uniquely held**, and `(not used)` is now offered on
+    required roles too — a required role used to default to whatever the filter approved FIRST, so
+    a wrong binding could publish without the author ever looking at that row. `saveBlueprint`
+    checks the required set before posting.
+  - **A `text` param can declare `multiline`** and renders as a full-width textarea in the settings
+    panel, auto-ticked when the baked value reads as prose. `bpInferType` reads the node CLASS
+    first (a `PrimitiveFloat` holding `1` is a float, not an int).
+  - **Two bugs the browser found that reading could not.** (a) The row prefill only ran
+    `if(!key.value)`, and `addBpParam` ends by selecting the graph's FIRST node — so every row came
+    out keyed after that node and defaulted to its value, and re-pointing the row changed nothing
+    but the type. Now a field the author has not touched follows the node. (b) `bpSuggestKey`
+    counted the row's OWN key when deduping, so each re-point appended a digit
+    (`SaveAnimatedWEBP2`, `…3`).
+  - Verified: the real JS lifted out of the `PAGE` template and run in node against the reported
+    `WanLoopingVideo` export **and** a classic widget-shaped SDXL graph (the regression case —
+    `width`/`height` still bind to `EmptyLatentImage`); then the tool booted locally and the actual
+    modal driven in a browser, including a two-hop relay (`345.width → 380 → 355.value`), the
+    settings-panel textarea, and the published payload through the real `validate_against_graph`.
 - 2026-08-18 — **gpt_image and the FLUX ref/ControlNet path both work, on RunPod** (owner-tested). These were the two oldest blockers on this tool and they had the same root cause: they needed nodes/models installed on the **local** 4070 behind the tunnel (`Images to RGB` + `COMFY_ORG_API_KEY`/credits for gpt_image; FLUX ControlNets for shape_ref). Moving generation to the RunPod backend — whose worker image bakes the custom nodes and whose volume carries the models — retired the constraint rather than satisfying it. **The live Railway `atlas-tool` runs `COMFY_TRANSPORT=serverless`** (owner-confirmed 2026-08-18) — so the RunPod endpoint, not the local tunnel, is the production generation path, and the local 4070 + tunnel are no longer in the loop for Atlas Maker generation at all. Worth knowing when diagnosing: a generation failure in production is a RunPod/worker-image problem (cold start, missing baked node, endpoint quota), **not** "is Gualtiero's ComfyUI running".
 - 2026-08-15 — **each serverless variant gets a unique filename** (`_next_variant_filename`). ComfyUI names saves with an incrementing per-output counter, but every serverless job lands on a FRESH worker whose counter restarts at `00001` — so each new variant of a region collided on `<region>_00001_.png` and overwrote the previous one. The transport now mirrors ComfyUI's scheme locally (highest existing id in the batch dir + 1, same `<region>_<NNNNN>_.png` shape the gallery globs). It also prefers the **`SaveImage`** output — the one whose worker filename is region-prefixed — over any preview/temp image the graph may also emit, so a preview never gets persisted as a variant.
 - 2026-08-13 — **`batch_atlas` gained a second ComfyUI transport, selected by `COMFY_TRANSPORT`** ([design](../design/comfyui-serverless.md) §Pipeline changes, build-plan step 2). Unset / `http` (DEFAULT) = the unchanged live-ComfyUI path (`/upload/image` + `/prompt` + `/history` + `/view`); `serverless` = submit the SAME api-prompt graph to a RunPod Serverless endpoint (`RUNPOD_ENDPOINT_ID`/`RUNPOD_API_KEY`): `POST /run` with `{input:{workflow, images:[{name, image:<b64>}]}}`, poll `GET /status/{id}` (~2s, 30-min cap), decode the returned base64 image and persist it through the SAME `_persist_variant` path. The "which LoadImage refs, what filename" routing is factored into `_iter_workflow_refs` so both transports share it (`_upload_workflow_refs` for http, `_serverless_workflow_images` for base64). No behaviour change when `COMFY_TRANSPORT` is unset. _(The endpoint has since been created and generated for real — see the 08-15 and 08-18 entries above.)_
