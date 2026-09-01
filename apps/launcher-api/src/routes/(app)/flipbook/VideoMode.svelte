@@ -15,6 +15,7 @@
 	 * author sees whether the background cutout actually produced alpha.
 	 */
 	import { onDestroy } from 'svelte';
+	import { findUnexposedGates } from '$lib/blueprintGates';
 	import RunPicker, { type RunPickerItem } from '$lib/RunPicker.svelte';
 	import RegionThumb from '../editor/RegionThumb.svelte';
 	import { fetchRegions, type EditorRegion, type RegionSet } from '../editor/editorRegions.client';
@@ -1057,6 +1058,51 @@ ${endScript}</body></html>`;
 		}
 		return out;
 	});
+
+	/** Baked mode switches this graph carries that NOTHING will be able to reach.
+	 *
+	 * A published blueprint's params are the ONLY inputs the runner writes; every
+	 * other input keeps whatever the ComfyUI export saved, forever. That is what a
+	 * day of `executionTimeout` failures turned out to be — an imported graph gated
+	 * both its Wan passes on one `PrimitiveBoolean` left at `false`, selecting 50
+	 * steps with no speed LoRA, and nothing in this tool could change it. The
+	 * built-in blueprint has the identical gate and differs only in exposing it.
+	 *
+	 * Recomputed as the author binds and adds rows, so the warning CLEARS as it is
+	 * acted on rather than nagging about a switch they have just exposed.
+	 */
+	const unexposedGates = $derived(
+		findUnexposedGates(
+			pubGraph,
+			Object.values(pubBindings).filter(Boolean),
+			pubParams.filter((p) => p.node && p.field).map((p) => `${p.node}::${p.field}`),
+		),
+	);
+
+	/** Add a settings row already pointed at a gate, so the warning fixes the thing
+	 * it warns about instead of describing it. Everything else — key, type, default
+	 * — comes from `setParamTarget` reading the graph, exactly as if the author had
+	 * picked that input from the dropdown themselves. */
+	function exposeGate(node: string, field: string): void {
+		pubParams = [
+			...pubParams,
+			{
+				key: '',
+				label: '',
+				type: 'bool',
+				node: '',
+				field: '',
+				def: '',
+				options: '',
+				group: '',
+				multiline: false,
+				autoKey: '',
+				autoLabel: '',
+				autoDef: '',
+			},
+		];
+		setParamTarget(pubParams.length - 1, `${node}::${field}`);
+	}
 
 	/** A param's type read off the value the graph already bakes in — and off the
 	 * node's class first, because the value alone lies about whole numbers: a
@@ -2322,6 +2368,31 @@ Overwrite it?`)
 							])}>＋ Add</button
 					>
 				</div>
+				{#if unexposedGates.length}
+					<div class="diag">
+						<b
+							>⚠ This graph has {unexposedGates.length === 1
+								? 'a switch'
+								: `${unexposedGates.length} switches`} nothing will be able to reach.</b
+						>
+						Only exposed settings are written at render time — everything else keeps the value your ComfyUI
+						export saved, on every render, with no way to change it here.
+						{#each unexposedGates as gate (gate.node + gate.field)}
+							<div class="gate">
+								<span
+									>{nodeLabel(gate.node)} · {gate.field} — baked
+									<b>{String(gate.value)}</b>, switches {gate.switches}
+									{gate.switches === 1 ? 'input' : 'inputs'}</span
+								>
+								<button
+									class="sm"
+									disabled={pubBusy}
+									onclick={() => exposeGate(gate.node, gate.field)}>Expose</button
+								>
+							</div>
+						{/each}
+					</div>
+				{/if}
 				{#if pubParams.length}
 					<p class="hint">
 						Pick the input first — the key, type and default are read off the graph's own baked
@@ -2632,6 +2703,18 @@ Overwrite it?`)
 		resize: vertical;
 	}
 	.prow select {
+		min-width: 0;
+	}
+	/* One flagged gate inside the amber block. The button is the point: a warning
+	   that only describes the problem gets read once and skipped thereafter. */
+	.gate {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 8px;
+		margin-top: 6px;
+	}
+	.gate > span {
 		min-width: 0;
 	}
 	.diag {
