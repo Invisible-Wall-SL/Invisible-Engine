@@ -290,7 +290,8 @@ actually produced **transparency**. If a tile's art sits on a solid rectangle, t
 was off or produced nothing, and those frames are not usable as symbol art.
 
 Per tile: the **seed** button copies that render's seed (it reproduces that exact result),
-**🎞 Make flipbook** starts the conversion, **↻** re-rolls just that one, and **🗑** deletes it.
+**🎞 Make flipbook** starts the conversion, **↻** re-rolls just that one, **⧉** duplicates it with
+new settings, and **🗑** deletes it.
 
 **↻ re-rolls one tile in place** — same session, same slot number, a new render replacing the
 old one. It opens with that tile's prompt and seed already filled in, and the two are
@@ -304,6 +305,29 @@ independent knobs:
 A changed prompt is recorded on **that tile**, not on the session: the session keeps the
 prompt that still describes the rest of the grid, and a re-rolled tile shows its own prompt
 under it. Costs one GPU job, and the render that was there is deleted.
+
+**⧉ duplicates one tile with new settings** — and it is the opposite of ↻ in both directions,
+which is the point of having both. ↻ *replaces* a tile and moves two knobs; ⧉ *adds* a tile and
+moves **all** of them:
+
+- **Prompt, negative, source image, and every one of the blueprint's settings** — the same panel
+  you get when generating from scratch, opened on **what that tile actually ran**.
+- **The seed is held**, because holding it is what makes the two renders comparable: any difference
+  you then see is the setting you changed and not another roll of the dice. Clear the seed (or
+  press 🎲 New) only when you want a different roll as well.
+- **The original is not touched.** The new render appears as its own tile in the same grid, beside
+  the one it came from.
+
+This is the way to answer *"what does this setting actually do to this render?"* — the common case
+being one version **with the background removed and one without**, side by side on the same seed.
+
+The **blueprint is not one of the knobs**: it is what every tile in the grid is described by, and
+its settings are the ones the panel shows. A different blueprint is a different session — use
+**▶ Generate**.
+
+A duplicated tile says so under it: **⧉** followed by the names of what it changed, with the actual
+values on hover. Only real differences from the session's recipe are recorded, so a tile that
+changed nothing but its prompt shows only the ↻ line.
 
 **🗑 deletes one variation** and its render, for good. The grid stops showing it. The slot
 number is *not* reused — `003.webp` may already have been packed into a clip, so renumbering

@@ -812,6 +812,168 @@ def test_discard_one_variation() -> None:
                      sid, {"index": 2}, ctx), "deleted")
 
 
+def _capture_workflows():
+    """Record every graph submitted, keyed by the filename prefix the runner stamps
+    on it — which carries the variation index, so a test can ask what ONE slot
+    actually ran rather than trusting the meta it wrote about itself."""
+    import batch_atlas
+    real = batch_atlas._runpod_post
+    seen: dict[str, dict] = {}
+
+    def spy(path, payload):
+        if path == "/run":
+            wf = ((payload or {}).get("input") or {}).get("workflow") or {}
+            node = wf.get("200") or {}
+            prefix = (node.get("inputs") or {}).get("filename_prefix", "")
+            seen[str(prefix)[-3:]] = wf
+        return real(path, payload)
+
+    batch_atlas._runpod_post = spy
+    return seen
+
+
+def test_duplicate_a_variation_with_new_settings() -> None:
+    """The owner's actual experiment: the same render with the background cutout
+    on and with it off, side by side. So a duplicate ADDS a tile (the original is
+    the thing being compared against and must survive), HOLDS the seed by default
+    (or the difference you see is another roll of the dice, not the setting you
+    changed), and records only what it CHANGED (the session's recipe still
+    describes the rest of the grid)."""
+    _stub_world()
+    seen = _capture_workflows()
+    ctx = ("clientx", "projecty")
+    started = video_runner.start_session(
+        {"blueprint": "wan22_i2v_flipbook", "prompt": "a spinning coin",
+         "negative": "blurry", "source_ref": "sheet_src/H1.png", "variations": 2,
+         "params": {"duration": 2}}, ctx)
+    sid = started["id"]
+    first = _await_session(sid)
+    check("the session finishes first", first.get("status"), "finished")
+    held = first["variations"][0]["seed"]
+
+    # Same everything, cutout off.
+    out = video_runner.duplicate_variation(
+        sid, {"index": 1, "params": {"duration": 2, "remove_background": False}},
+        ctx)
+    check("a settled session re-opens to run it",
+          out["status"] in ("queued", "running"), True)
+    check("the source tile is still there",
+          [v["index"] for v in out["variations"]][:2], [1, 2])
+    done = _await_session(sid)
+    dup = done["variations"][2]
+
+    check("the duplicate is a NEW slot, appended", dup["index"], 3)
+    check("it holds the source's seed exactly", dup["seed"], held)
+    check("the source render is untouched",
+          (done["variations"][0]["seed"], done["variations"][0]["file"]),
+          (held, "001.webp"))
+    check("and it rendered", dup["status"], "done")
+    check("it records where it came from", dup["from_index"], 1)
+    check("only what CHANGED is recorded on it",
+          dup["settings"], {"params": {"duration": 2, "remove_background": False}})
+    check("an unchanged prompt is not recorded as an override", dup["prompt"], "")
+    check("the SESSION's recipe is untouched",
+          (done["prompt"], done["negative"], done["params"]),
+          ("a spinning coin", "blurry", {"duration": 2}))
+
+    # What it actually RAN — the whole point. A recorded override that never
+    # reaches the graph is the failure mode this exists to catch.
+    check("the duplicate's graph has the cutout OFF",
+          seen["003"]["203"]["inputs"]["value"], False)
+    check("while the original's had it ON",
+          seen["001"]["203"]["inputs"]["value"], True)
+    check("and everything else it did not change came along",
+          (seen["003"]["170"]["inputs"]["text"],
+           seen["003"]["194"]["inputs"]["text"],
+           seen["003"]["97"]["inputs"]["image"],
+           seen["003"]["191"]["inputs"]["value"]),
+          ("a spinning coin", "blurry", "sheet_src/H1.png", 2))
+
+    # A duplicate OF a duplicate carries the first one's changes forward. Falling
+    # back to the session's recipe here would silently revert the experiment.
+    video_runner.duplicate_variation(
+        sid, {"index": 3, "prompt": "a spinning coin, on fire"}, ctx)
+    chained = _await_session(sid)["variations"][3]
+    check("a chained duplicate keeps the settings it was made from",
+          chained["settings"], {"params": {"duration": 2, "remove_background": False}})
+    check("and takes the new prompt", chained["prompt"], "a spinning coin, on fire")
+    check("still on the same seed", chained["seed"], held)
+
+    # A deliberately EMPTY negative must mean "none", not "the session's". This is
+    # why the settings bag is read by key PRESENCE.
+    video_runner.duplicate_variation(sid, {"index": 1, "negative": ""}, ctx)
+    blank = _await_session(sid)["variations"][4]
+    check("an emptied negative is recorded as an override",
+          blank["settings"], {"negative": ""})
+    check("and the graph really ran without one",
+          seen["005"]["194"]["inputs"]["text"], "")
+
+    # A blank seed is the one way to ask for a different roll as well.
+    video_runner.duplicate_variation(sid, {"index": 1, "seed": ""}, ctx)
+    rolled = _await_session(sid)["variations"][5]
+    check("an explicitly blank seed rolls a fresh one", rolled["seed"] != held, True)
+
+    check_raises("a non-numeric seed is refused",
+                 lambda: video_runner.duplicate_variation(
+                     sid, {"index": 1, "seed": "abc"}, ctx), "whole number")
+    check_raises("an emptied prompt is refused",
+                 lambda: video_runner.duplicate_variation(
+                     sid, {"index": 1, "prompt": "   "}, ctx), "enter a prompt")
+    check_raises("an i2v duplicate with the source cleared is refused",
+                 lambda: video_runner.duplicate_variation(
+                     sid, {"index": 1, "source_ref": ""}, ctx), "source image")
+    check_raises("an index this session does not have is refused",
+                 lambda: video_runner.duplicate_variation(
+                     sid, {"index": 99}, ctx), "no variation")
+
+    video_runner.discard_variation(sid, {"index": 3})
+    check_raises("a deleted slot has no recipe left to duplicate",
+                 lambda: video_runner.duplicate_variation(
+                     sid, {"index": 3}, ctx), "deleted")
+
+    # The EXACT body the panel posts, captured from the running page — every field
+    # present, the seed as the string an <input> yields. Nothing here type-checks
+    # the wire, so this is the only place the two ends are held together.
+    video_runner.duplicate_variation(sid, {
+        "session": sid,
+        "index": 1,
+        "prompt": "a spinning coin, dramatic lighting",
+        "negative": "blurry",
+        "source_ref": "sheet_src/W.png",
+        "seed": str(held),
+        "params": {"duration": 2, "remove_background": True},
+    }, ctx)
+    posted = _await_session(sid)["variations"][-1]
+    check("the panel's own payload is accepted whole",
+          (posted["seed"], posted["prompt"], posted["status"]),
+          (held, "a spinning coin, dramatic lighting", "done"))
+    check("and only its real differences are recorded",
+          posted["settings"],
+          {"source_ref": "sheet_src/W.png",
+           "params": {"duration": 2, "remove_background": True}})
+
+
+def test_a_session_will_not_grow_past_its_ceiling() -> None:
+    """The per-session ceiling has to hold on EVERY path that grows a session, or
+    the one that skipped it becomes the way around it."""
+    _stub_world()
+    ctx = ("clientx", "projecty")
+    sid = video_runner.start_session(_req("p", 1), ctx)["id"]
+    _await_session(sid)
+    session = video_runner._SESSIONS[sid]
+    # Fill it to the ceiling without paying for the renders.
+    with video_runner._LOCK:
+        session["variations"].extend(
+            dict(video_runner._new_variation(i), status="done", file=f"{i:03d}.webp")
+            for i in range(2, video_runner.MAX_SESSION_VARIATIONS + 1))
+    check_raises("a duplicate past the ceiling is refused",
+                 lambda: video_runner.duplicate_variation(sid, {"index": 1}, ctx),
+                 "ceiling")
+    check_raises("and so is an add",
+                 lambda: video_runner.add_variations(sid, {"count": 1}, ctx),
+                 str(video_runner.MAX_SESSION_VARIATIONS))
+
+
 def test_add_variations_to_a_session() -> None:
     """More rolls of the same idea belong in the SAME grid — that grid is the
     comparison the author is actually making."""
@@ -914,6 +1076,8 @@ if __name__ == "__main__":
     test_regenerate_one_variation()
     test_discard_one_variation()
     test_add_variations_to_a_session()
+    test_duplicate_a_variation_with_new_settings()
+    test_a_session_will_not_grow_past_its_ceiling()
     test_a_reroll_mid_run_joins_the_pass_already_under_way()
     test_request_validation()
     print()
