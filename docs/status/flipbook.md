@@ -185,7 +185,7 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
   - Fixtures: `py test_video_to_clip.py` — builds a REAL animated WEBP and runs the REAL packer, asserting trim numbers, composed-page pixels, source frame order across a multi-page split, stride/range/downscale, and the blank-frame placeholder.
 
 ## Open items / next
-1. **Video mode live-verify is the next action, and it now covers the WHOLE feature in one sitting** — seed the blueprint (`py services/atlas-tool/seed_blueprints.py`), restart `atlas-tool`, and run ONE job. It answers the three things reading the graph cannot: whether the WEBP comes back `RGBA` with the cutout on, whether `BiRefNet_toonout`'s weights resolve on a cold worker (they are NOT in `fetch-models.py`), and whether the payload clears RunPod's ~20 MB `/status` cap. With steps 1–3 already built, that one session exercises the entire chain: generate → grid → pick → pack → clip in the editor. Everything downstream of a real WEBP is fixtured but has never seen a model's actual output.
+1. **Video mode HAS now run on a real GPU** — owner, 2026-09-01: *"I run it on the Runpod GPU and it works great"*. That closes the "never proven" half of this item: everything downstream of a real WEBP was fixtured and had never seen a model's actual output, and now it has. **The DETAIL is still open**, because what was reported was the outcome, not the four things only a real run can answer: whether the WEBP comes back `RGBA` with the cutout on; whether `BiRefNet_toonout`'s weights resolve on a **cold** worker (they are NOT in `fetch-models.py`); whether a full-length payload clears RunPod's ~20 MB `/status` cap; and whether the session went past the grid through **pick → pack → clip in the editor**. Treat all four as *unobserved*, not as passing — the cold-worker weight miss in particular cannot show up on a warm run, so a green session says nothing about it. Note them next time a session runs.
 2. **Step 6 — consumers: DONE.** Symbols (a `flipbook` cell), the Scene Editor (a placed `flipbook` node) and the Rigger (a rig-timeline `event.flipbook` binding, 2026-08-31) all read a clip. FX still has no `clipId?` on `EmitterArt` — an FX layer names its frames directly, so this is a convenience (author the order once in `/flipbook` instead of clicking checkboxes), not a gap.
 3. **Add the clip reachability filter**, now that placements exist to be reachable FROM, so an orphan/scratch clip stops shipping (parity with the effects prune in `bake-editor-doc.mjs`). Note the walk must cover FOUR referrers, not one: scene `flipbook` nodes (incl. nested in containers + component defs), symbol cells' `clipId`, and — since 2026-08-31 — the `rigFlipbooks` manifest's `clipId`s, or the prune would delete clips that are genuinely in use. The rig referrer is the awkward one: it lives in the rig `.irig`, not in the layout doc, so the filter has to read the manifest the clips export now returns rather than walking the doc.
 4. **Rename-repair hint is unconfirmed** — `src` survives a rename, but `sheet_session.json` is one open sheet's working state, so per-sheet durable recovery of `src` must be verified before the tool promises "did you mean…".
@@ -194,6 +194,18 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-01 — **First real GPU generation, and ⧉ confirmed live in production.** Owner ran 🎬
+  mode on the RunPod Serverless endpoint and reported it works, then confirmed the duplicate
+  button once #529 deployed (*"it works, the button is there and duplicates fine"*). That retires
+  the caveat these docs carried since the mode was built. The four specifics nobody observed are
+  folded into open item 1 rather than assumed closed — see there.
+  - **The deploy needed BOTH services and only one is externally checkable.** The launcher was
+    verified by probing the new proxy route until it flipped **404 → 401**; the control matters,
+    because a route that does not exist stays 404 while one that does reaches the auth gate, so
+    the flip is the deploy and not noise. `atlas-tool` answers **403 on every path including
+    `/`** — there is no unauthenticated deploy signal on it at all, so the only real proof of the
+    pair is pressing ⧉ once: launcher-alone shows the button and then answers a bare
+    `404 not found` on submit. Worth knowing for every future change that straddles the two.
 - 2026-09-01 — **The video-blueprint publisher ranks candidates instead of excluding them, and
   reads a graph's knobs through the wire.** Owner ask, with a `WanLoopingVideo` export that could
   not be published at all: *"my inputs have changed quite a bit from the original one … these

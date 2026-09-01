@@ -21,11 +21,12 @@ Either way the saved artifact is a `FlipbookClip` in the project's cloud storage
 > beat, on a bone, at a slot's depth). See "What it does not do yet" and
 > `docs/design/invisible-flipbook.md`.
 >
-> **🎬 Video mode: built, but not yet proven on a real generation.** Every step exists and
-> is covered by offline tests, but no video has been generated through it end to end yet —
-> the blueprint still has to be published to the shared library and one job run for real.
-> Treat the first run as a shakedown. See
-> [`../design/invisible-flipbook-video.md`](../design/invisible-flipbook-video.md).
+> **🎬 Video mode: generating for real** _(2026-09-01)_. It has been run on the GPU and
+> produces videos — the long "built but never proven on a real generation" caveat is gone.
+> Per-tile **⧉ duplicate with new settings** is live too. It is still young — the first real
+> runs are from the day this was written — so treat anything surprising as worth reporting
+> rather than as how it works.
+> See [`../design/invisible-flipbook-video.md`](../design/invisible-flipbook-video.md).
 
 ## What it is
 
