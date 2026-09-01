@@ -442,12 +442,19 @@ def _validate_params(bp_id: str, manifest: dict, bindings: dict) -> list:
                 "'options' array")
         # Normalize: keep only recognized keys (drop noise), default missing
         # label to the key. Bounds/options/step are passed through untouched.
+        #
+        # `multiline` is a presentation hint on a `text` param: the value is
+        # prose (a second prompt, a caption), not a token like `#222222`, so the
+        # tool gives it a full-width box instead of the narrow inline input every
+        # other setting gets. Purely cosmetic — the runner injects the string the
+        # same either way — but without it a graph with two prompts can only
+        # expose the second one through a field too small to read it in.
         norm = {
             "key": key, "type": ptype, "node": node, "field": field,
             "label": str(p.get("label", "")).strip() or key,
             "default": p.get("default"),
         }
-        for opt in ("min", "max", "step", "options", "group"):
+        for opt in ("min", "max", "step", "options", "group", "multiline"):
             if opt in p:
                 norm[opt] = p[opt]
         out.append(norm)
