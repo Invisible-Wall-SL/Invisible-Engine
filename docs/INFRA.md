@@ -56,7 +56,9 @@ id=$(gh api "repos/Invisible-Wall-SL/Invisible-Engine/deployments?sha=$(git rev-
 gh api "repos/Invisible-Wall-SL/Invisible-Engine/deployments/$id/statuses" --jq '[.[]|.state]|join(" ")'
 ```
 
-**Read it by COUNTING `success`: a healthy deploy of `main` ends with FOUR** (one per repo-root service). The statuses carry no service name, no description and no commit — only a project URL — so which four is not recoverable, and Railway leaves stale `in_progress` rows behind forever; they mean nothing. A settled deploy takes **~6 minutes**. On 2026-09-01 `ec07abaa` sat at **1 of 4 for 27 minutes** while the deploy 3 minutes before it had gone 4/4 in six — the same builder flake as the 2026-08-20 case above, and invisible from the outside without this count. Pushing the next commit re-triggered all four and they went green in seven.
+**Read it by COUNTING `success`: a settled deploy of `main` shows FOUR OR MORE** (one per repo-root service; Railway sometimes posts extra rows — two deploys on 2026-09-01 ended at five). The statuses carry no service name, no description and no commit — only a project URL — so *which* service succeeded is not recoverable, and Railway leaves stale `in_progress` rows behind forever; they mean nothing. **Count only `success`.**
+
+**A low count is NOT proof of a flake — deploys are wildly uneven, so wait before re-triggering.** Measured the same day: `234e4c69` went 4/4 in **6 minutes**, while `ec07abaa` three minutes later was still at **1/4 after 27 minutes** and only reached 3/4 at **+34**. Both were fine. Give a deploy **half an hour** before treating it as the builder flake documented above; re-pushing early just queues four more builds behind the ones already running, which is what makes the next one look stuck too.
 
 **Then verify the RUNNING code, not the build:**
 - **launcher** — `curl -s https://app.invisiblewall.org/_app/version.json` returns `{"version":"<ms epoch>"}`, SvelteKit's build stamp. Decode it (`new Date(Number(v))`); if it is minutes old, this deploy is live. This works for ANY launcher change, unlike probing a route for a 404 → 401 flip, which only proves a deploy when the change ADDS a route.
