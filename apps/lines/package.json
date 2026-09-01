@@ -16,7 +16,6 @@
 	"devDependencies": {
 		"eslint": "9.21.0",
 		"eslint-config-custom": "workspace:*",
-		"config-ts": "workspace:*",
 		"config-vite": "workspace:*",
 		"config-svelte": "workspace:*",
 		"config-lingui": "workspace:*",

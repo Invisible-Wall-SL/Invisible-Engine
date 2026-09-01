@@ -1,0 +1,44 @@
+{
+	"$schema": "https://json.schemastore.org/tsconfig",
+	"display": "Default",
+	// The one base every app/package `tsconfig.json` extends (`"extends": "../../tsconfig.base.json"`).
+	//
+	// It used to live in a workspace package (`config-ts/base.json`), which meant every package that
+	// wanted the shared compiler options also had to declare a devDependency on it — 42 of them — and
+	// deleting that package broke every build in the repo at once. A plain file at the root is reached
+	// by a relative path, so it needs no dependency edge and cannot be un-resolvable.
+	//
+	// `baseUrl` is deliberately NOT set. The old copy declared `"baseUrl": "."`, which resolved against
+	// the config's OWN directory — `packages/config-ts/`, a folder holding nothing but this file — so it
+	// resolved no import. Carrying it over verbatim would have quietly repointed it at the REPO ROOT and
+	// made bare specifiers like `apps/…` resolvable. Nothing declares `paths`, so dropping it is what
+	// keeps behaviour identical.
+	"compilerOptions": {
+		"strict": true,
+		"target": "es6",
+		"module": "es2020",
+		"lib": ["dom", "dom.iterable", "esnext"],
+		"composite": false,
+		"declaration": false,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"inlineSources": false,
+		"isolatedModules": true,
+		"moduleResolution": "bundler",
+		"noUnusedLocals": false,
+		"noUnusedParameters": false,
+		"preserveWatchOutput": true,
+		"skipLibCheck": true,
+		"verbatimModuleSyntax": true,
+		"ignoreDeprecations": "5.0",
+		"resolveJsonModule": false,
+		"sourceMap": false,
+		"allowJs": true,
+		"checkJs": true,
+		"jsx": "react",
+		"allowSyntheticDefaultImports": true,
+		"preserveSymlinks": true,
+		"allowImportingTsExtensions": true
+	},
+	"exclude": ["node_modules"]
+}
