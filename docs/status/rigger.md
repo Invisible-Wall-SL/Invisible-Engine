@@ -66,6 +66,20 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-09-01 — **An atlas-less ("carrier") rig shipped a page image no browser could decode, so the
+  rig — and every FX/flipbook binding on it — silently vanished in-game.** Reported as "my H1 tumble
+  explosion plays in `/symbols` but not at all in the game". The `noAtlas` placeholder page in
+  `api/rigger/new` was a spliced 1×1 PNG (a grayscale+alpha IHDR carrying an RGBA IDAT ⇒ bad IDAT
+  CRC, truncated zlib), so Chrome answered `InvalidStateError: The source image could not be
+  decoded`, `Assets.load` failed the whole bundle, the rig was missing from `loadedAssets`, and
+  `<SpineProvider>` rendered nothing — **including its children**, which for a carrier rig is the
+  entire point of it (`<RiggedEffect>` / `<RiggedFlipbook>`). Every authoring surface stayed healthy
+  because they read the `.irig` and preview clips off the TIMELINE, never through the loaded bundle:
+  the one asymmetry that lets a rig look perfect in `/rigger` + `/symbols` and draw nothing in the
+  game. Placeholder regenerated (valid 8-bit RGBA, CRCs computed); existing bundles carrying the old
+  70-byte page must have it rewritten (the page is not re-derived for a rig with no source sheet, so
+  `⟳ Re-sync atlas` cannot repair one). Verified live: the H1 `tumbleExplosion` cell went from
+  "magenta / key missing" in the in-game Symbol Debug grid to playing its bound clip + `v_splash`.
 - 2026-08-31 — **A rig animation event can now play a FLIPBOOK CLIP, so rigs, flipbooks and FX mix in
   the animator.** Asked directly: *"I would like to be able to add flipbooks to the rigger, so I can
   mix rigs, flipbook and FX in the animator. we already added FX successfully, and we can use that as
