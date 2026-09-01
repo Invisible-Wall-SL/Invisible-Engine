@@ -238,13 +238,66 @@ The left rail, top to bottom:
 
 | Field | What it does |
 |---|---|
-| **Blueprint** | Which ComfyUI network to run. **Only video blueprints are listed.** **＋ Blueprint** (next to *Generate*, if you hold the publish permission) uploads a new one: pick a ComfyUI **API-format** export, point each role at a node, and it publishes as a video blueprint. It offers no `width`/`height` roles on purpose — binding those makes the runner push the Atlas Maker's still-image size (1024) through an 80-frame batch. Expose generation size as a setting instead. Blueprints declare which tool they belong to, and the Atlas Maker's image networks are deliberately not offered here — they would generate a still, not an animation. Its description appears underneath. |
+| **Blueprint** | Which ComfyUI network to run. **Only video blueprints are listed.** **＋ Blueprint** (next to *Generate*, if you hold the publish permission) uploads a new one — see [Publishing a blueprint](#publishing-a-blueprint). Blueprints declare which tool they belong to, and the Atlas Maker's image networks are deliberately not offered here — they would generate a still, not an animation. Its description appears underneath. |
 | **Prompt** / **Negative** | What should happen in the animation, and what to avoid. |
 | **Source image** | The still to animate. **Pick…** opens a picker with **three** sources — see below. An image-to-video blueprint refuses to start without one. |
 | **Variations** | How many to generate (1–12). Each is a separate render with its own seed. |
 | **Settings groups** | Every knob the blueprint's author exposed, grouped as they named them — duration, fps, generation size, sampler settings, output size, background cutout. Each starts at the blueprint's own default; you only override what you touch. |
 
 Press **▶ Generate N**.
+
+#### Publishing a blueprint
+
+**＋ Blueprint** takes a ComfyUI **API-format** export (Settings → “Save (API Format)” — the
+editor's own `workflow.json` is the wrong file; it stores canvas positions instead of a node
+dict) and publishes it to the shared library as a **video** blueprint.
+
+You then point each **role** at a node input. A role is what the tool fills in at render time:
+the `prompt` box, the `negative` box, the per-variation `seed`, the source still
+(`style_ref` / `shape_ref`), and `output` (the save node the frames come back from).
+
+- **Suggested is a ranking, not a shortlist.** Every input in the graph is listed under **All
+  node inputs** beneath it, so a role is never cornered by a heuristic that did not anticipate
+  your network. Wired inputs are listed too, marked `(wired)`.
+- **Knobs pulled out into `Primitive` nodes are followed through the wire.** Most reusable
+  graphs convert their widgets to inputs, so `CLIPTextEncode.text` is a wire and the actual
+  prompt lives on a `PrimitiveString` upstream. The prompt suggestion points at that primitive
+  — which is what you want, because writing over the wire would cut every other consumer of
+  that value off from it.
+- **Unambiguous roles are filled in for you.** Anything with a single best candidate is
+  pre-selected. A genuine choice is not guessed at: a graph with a first-half and a second-half
+  prompt leaves `positive` empty for you to pick, and the other half belongs in a setting.
+- There are deliberately no `width`/`height` roles — binding those makes the runner push the
+  Atlas Maker's still-image size (1024) through an 80-frame batch, which is a VRAM and
+  wall-clock blowup. Expose generation size as a **setting** instead.
+
+**Exposed settings** are the knobs the generate panel then shows. Pick the node input first:
+the key, the type and the default are read straight off the graph's own baked value, so a
+setting arrives already correct. Three things to know:
+
+- **The default is what runs.** A render only sends the settings you actually changed, so
+  everything else runs at the published default. A blank default publishes as `0`.
+- **A node input can be driven by a role or by a setting, never both.** An input a role already
+  holds is greyed out in the settings picker.
+- **`group` decides where a setting appears** — settings are shown bucketed under the group
+  names you give them, in the order you first use them.
+
+##### A network with more than one prompt
+
+Only one prompt can be the `positive` role, because that role is what the panel's **Prompt** box
+writes to. A two-part network — a first-half and a second-half prompt, say — binds one of them to
+`positive` and exposes the **other as a text setting**. Both are then editable on every run.
+
+A text setting whose value is prose gets **prompt-sized box** ticked automatically (a long or
+multi-word default gives it away), and it renders as a full-width, multi-line box instead of the
+narrow inline field the numeric knobs share — a `#222222` or a `ComfyUI` stays narrow. You can
+tick or untick it yourself. Give it a group such as `Prompts` and it will sit in its own section
+directly under the Prompt and Negative boxes, **open by default** — any group holding a
+prompt-sized setting starts expanded, so a second prompt is never hidden behind a disclosure
+triangle.
+
+One asymmetry to know: **↻ re-roll** changes only the prompt and the seed, so a second prompt is
+changed with **⧉ Duplicate with new settings**, which carries every setting.
 
 #### Lining up a second idea
 

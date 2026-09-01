@@ -2,7 +2,12 @@
 
 > Design: [docs/design/invisible-flipbook.md](../design/invisible-flipbook.md) · Guide: [docs/tools/flipbook.md](../tools/flipbook.md) · Agent: `.claude/agents/invisible-flipbook.md`
 
-**One-line state:** _(2026-09-01)_ **A video tile can be DUPLICATED with new settings.** ⧉ on a
+**One-line state:** _(2026-09-01)_ **Any ComfyUI video graph can be published now, not just one
+shaped like the reference.** The ＋ Blueprint dialog follows a wire back to the `Primitive` node
+that actually holds a prompt/seed, ranks candidates instead of filtering them (every node input
+stays listed), pre-fills a role only when the best answer is unique, and reads a setting's key,
+type and default off the graph — an owner export whose knobs were all converted to inputs could
+not bind `positive` or `seed` at all before. Was _(2026-09-01)_ **A video tile can be DUPLICATED with new settings.** ⧉ on a
 finished card opens the whole recipe — prompt, negative, source image and every blueprint setting —
 holds the seed, and runs it as a NEW tile beside the original, which is how you see what one
 setting does (owner: *"a version with the background removal, and one without it"*). Still not
@@ -189,6 +194,66 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-01 — **The video-blueprint publisher ranks candidates instead of excluding them, and
+  reads a graph's knobs through the wire.** Owner ask, with a `WanLoopingVideo` export that could
+  not be published at all: *"my inputs have changed quite a bit from the original one … these
+  nodes are now gone, or anyway they are not the one I want to expose … can we make it more
+  dynamic so it would work in the future when I need to import with different operations?"*
+  - **Cause: the modal's heuristics were a FILTER, and the binding field was hardcoded per role.**
+    `positive` offered only `/CLIPTextEncode/` nodes and always wrote `inputs.text`; `seed` offered
+    only a node carrying `seed`/`noise_seed` and always wrote `inputs.seed`. That holds only for a
+    graph whose knobs are still widgets on the consuming node. The moment an author does what every
+    reusable ComfyUI graph does — "convert widget to input", so the prompt is a `PrimitiveString`
+    and the seed a `PrimitiveInt` wired in — the heuristic approves a node whose field the role
+    cannot write, and the node the author *meant* (`#369.value`) is not in the list at all. Both
+    required roles were unbindable, so the dialog could only ever answer "Bind positive, seed
+    first."
+  - **The fix is `resolveKnob`: follow the wire back to the widget.** A role suggestion for a
+    linked input walks upstream through pass-through relays to the primitive that holds the value,
+    and binds THAT. On the owner's graph this is load-bearing beyond convenience — both halves of
+    the animation read the same primitives, so writing over `CLIPTextEncode.text` would have cut
+    the second half off from the prompt.
+  - **Suggestions are now a ranking over a complete list.** Rank 0 = a knob reached through a wire,
+    1 = a raw widget, 2 = the wrong polarity (a negative encoder offered for `positive`); every
+    `(node · input)` in the graph follows under **All node inputs**. A heuristic that has not
+    anticipated a network can no longer corner a role — the worst case is a longer list.
+  - **Roles pre-fill only when the top rank is uniquely held.** On this graph that binds five of
+    six automatically (negative → `NegText #370.value`, seed → `Seed #371.value`, both refs →
+    `LoadImage #97.image`, output → `SaveAnimatedWEBP #363`) and correctly leaves `positive` empty,
+    because a first-half and a second-half prompt are two equally good answers and only the author
+    knows which is "the" prompt.
+  - **A setting reads its key, type and default off the graph.** They were typed by hand into a row
+    that defaulted to `int` and an empty default — and an empty default publishes as **0**, so an
+    exposed `ExportFPS` shipped as 0 fps. Type comes from the node's CLASS first (a `PrimitiveFloat`
+    holding `1` is a float, not an int — otherwise a duration knob refuses `1.5`). Rows also carry
+    `label` and `group`, and `select` finally has an options field (it was in the type dropdown but
+    had no way to supply `options`, so publishing one was a guaranteed rejection).
+  - **A second prompt is now a first-class field, not a 90px input.** Follow-up from the owner on
+    the same graph: *"I have 2 positive prompt, and I want both to be available to the user."* Only
+    one prompt can hold the `positive` role (it is what the Prompt box writes), so the other has to
+    reach the author as a setting — and a `text` param rendered as the 90px inline input every
+    numeric knob shares, which is not somewhere anyone writes a prompt. A param may now declare
+    `multiline`, which renders a full-width `<textarea>`; the publish row ticks it automatically
+    when the graph's baked value reads as PROSE (>40 chars, or several words), so `#222222` and
+    `ComfyUI` stay narrow and a lobster paragraph does not. **Its group also starts open** — every
+    group was a collapsed `<details>`, which is right for a dozen occasional knobs and wrong for a
+    prompt you write on every run. `multiline` had to be added to the passthrough tuples in BOTH
+    `blueprints._validate_params` and `_uploadblueprint`, which keep only recognized keys — it was
+    dropped silently otherwise. Verified in a browser (280×57 textarea for the prose param, 90px
+    for `background_color`, group auto-open, the toggle's auto-tick on all three cases) and through
+    the real `validate_against_graph`, which preserves it.
+  - **The tool's own param rules are checked before the request**: a reserved key, a duplicate key,
+    a half-filled row (silently dropped before), and a node input driven by both a role and a
+    setting — the last one greyed out in the picker at the point of choosing.
+  - Verified: the real functions extracted from the component and run against the owner's export
+    (`resolveKnob` reaches `#369/#368/#370/#371`, the prefills are exactly the five above); the
+    modal driven in a browser on an isolated harness (bindings, auto-filled setting rows, the
+    double-drive grey-out, the captured publish payload); and that payload fed through the tool's
+    real `blueprints.validate_against_graph`, which accepts it — with the encoder wires left intact
+    after injection.
+  - **`bpCandidates` in `services/atlas-tool/ui_server.py` is the Atlas Maker's twin of this and is
+    still on the old exclude-only model** — a still-image graph built the same way hits the same
+    wall there. Not touched (different tool, not in the ask); the divergence is noted in both files.
 - 2026-09-01 — **⧉ Duplicate with new settings: one tile's recipe, run again as a new tile.**
   Owner ask: *"a duplicate this with new settings button for each card already processed … keep the
   same seed and make a variation from a different prompt/settings … a version with the background

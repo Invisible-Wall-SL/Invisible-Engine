@@ -43,6 +43,12 @@
 		step?: number;
 		options?: string[];
 		group?: string;
+		/** A `text` param whose value is PROSE — a second prompt, a caption — rather than a token
+		 * like `#222222`. It gets the full-width box a prompt needs instead of the narrow inline
+		 * input every other setting shares. A graph with two prompts (this animation's first and
+		 * second half) can only bind ONE to the `positive` role; the other reaches the author as a
+		 * setting, and a 90px input is not a place anyone can write a prompt. */
+		multiline?: boolean;
 	}
 	interface Blueprint {
 		id: string;
@@ -695,69 +701,288 @@
 	// 1024² across an 81-frame batch is a VRAM and wall-clock blowup. A picker that
 	// cannot offer the trap is better than one that documents it.
 	//
-	// The candidate filter below MIRRORS `bpCandidates` in ui_server.py. It cannot
-	// be shared — that is a Python-rendered page and this is Svelte, opposite sides
-	// of the A/B line in docs/ui-inventory.md — so keep the two in step by hand.
+	// Everything below is a SUGGESTION, never a filter. The first version of this
+	// modal offered each role only the nodes a class-name heuristic approved
+	// (`/CLIPTextEncode/` for a prompt, an input named `noise_seed` for a seed) and
+	// hardcoded the input field per role. That holds exactly until a graph is
+	// authored the way most reusable ones are: knobs pulled out into `Primitive*`
+	// nodes, so `CLIPTextEncode.text` is a WIRE and the real prompt sits on a
+	// `PrimitiveString.value` upstream. The heuristic then approves a node whose
+	// field the role cannot write, and the node the author actually meant is
+	// unreachable — a required role with no usable option and no way forward.
+	// So: rank, don't exclude. Every (node · input) in the graph stays offered.
+	//
+	// The heuristics MIRROR `bpCandidates` in ui_server.py, which is still on the
+	// older exclude-only model. They cannot be shared — that is a Python-rendered
+	// page and this is Svelte, opposite sides of the A/B line in
+	// docs/ui-inventory.md — so keep the two in step by hand.
 	const PUBLISH_ROLES = [
-		{ role: 'positive', field: 'text', required: true, hint: 'the prompt' },
-		{ role: 'negative', field: 'text', required: false, hint: '' },
-		{ role: 'seed', field: 'seed', required: true, hint: 'per-variation seed' },
-		{ role: 'style_ref', field: 'image', required: false, hint: 'the still to animate' },
-		{ role: 'shape_ref', field: 'image', required: false, hint: '' },
-		{ role: 'output', field: '', required: true, hint: 'the save node' },
+		{ role: 'positive', required: true, hint: 'the prompt' },
+		{ role: 'negative', required: false, hint: '' },
+		{ role: 'seed', required: true, hint: 'per-variation seed' },
+		{ role: 'style_ref', required: false, hint: 'the still to animate' },
+		{ role: 'shape_ref', required: false, hint: '' },
+		{ role: 'output', required: true, hint: 'the save node' },
 	] as const;
+
+	/** Binding-role names the tool reserves. A param key may not collide with one
+	 * (`blueprints._validate_params` rejects it), and `width`/`height` are on the
+	 * list even though this modal has no such role — so say it here rather than
+	 * let the author find out from a publish failure. */
+	const RESERVED_KEYS = new Set([
+		'positive',
+		'negative',
+		'seed',
+		'width',
+		'height',
+		'style_ref',
+		'shape_ref',
+		'output',
+	]);
 
 	type Graph = Record<
 		string,
 		{ class_type?: string; inputs?: Record<string, unknown>; _meta?: { title?: string } }
 	>;
+	/** One writable node input — what a role binding and a param both point at. */
+	type Target = { node: string; field: string };
+	type Suggestion = { target: Target; via: string; rank: number };
+	interface PubParam {
+		key: string;
+		label: string;
+		type: string;
+		node: string;
+		field: string;
+		def: string;
+		options: string;
+		group: string;
+		multiline: boolean;
+	}
+	/** A baked string that reads as PROSE rather than a token — long, or several
+	 * words. What separates a second prompt from `#222222` or `euler`, and so what
+	 * decides whether the setting gets a prompt-sized box. Only a suggestion: the
+	 * publish row shows the resulting checkbox for the author to overrule. */
+	const looksLikeProse = (v: unknown) =>
+		typeof v === 'string' && (v.length > 40 || /\s\S+\s/.test(v.trim()));
 	let pubOpen = $state(false);
 	let pubGraph = $state<Graph | null>(null);
 	let pubFile = $state('');
 	let pubName = $state('');
 	let pubDesc = $state('');
+	/** role -> `node::field` (just `node` for `output`, which binds a whole node). */
 	let pubBindings = $state<Record<string, string>>({});
-	let pubParams = $state<
-		{ key: string; label: string; type: string; node: string; field: string; def: string }[]
-	>([]);
+	let pubParams = $state<PubParam[]>([]);
 	let pubBusy = $state(false);
 	let pubMsg = $state('');
 
-	function candidates(role: string): { id: string; label: string }[] {
-		if (!pubGraph) return [];
-		const out: { id: string; label: string }[] = [];
-		for (const [id, n] of Object.entries(pubGraph)) {
-			const ct = String(n?.class_type ?? '');
-			const inp = (n?.inputs ?? {}) as Record<string, unknown>;
-			let ok = false;
-			if (role === 'positive' || role === 'negative') ok = /CLIPTextEncode/i.test(ct);
-			else if (role === 'seed') ok = 'seed' in inp || 'noise_seed' in inp;
-			else if (role === 'style_ref' || role === 'shape_ref') ok = /LoadImage/i.test(ct);
-			// A save node is whatever the runner can stamp `filename_prefix` onto —
-			// testing the class name for /SaveImage/ is what hid SaveAnimatedWEBP.
-			else if (role === 'output') ok = 'filename_prefix' in inp || /Save|VideoCombine/i.test(ct);
-			if (ok) out.push({ id, label: `${n?._meta?.title || ct} #${id}` });
-		}
-		return out;
+	/** The node's ComfyUI title when the author gave it one, else its class. The id
+	 * is always kept, so identically-titled nodes stay distinguishable. */
+	function nodeLabel(id: string): string {
+		const n = pubGraph?.[id];
+		const ct = String(n?.class_type ?? '');
+		const t = String(n?._meta?.title ?? '').trim();
+		return t && t !== ct ? `${t} — ${ct} #${id}` : `${ct} #${id}`;
 	}
 
-	/** Every node input a param could drive, so the author picks rather than types. */
-	const paramTargets = $derived.by(() => {
-		if (!pubGraph) return [] as { node: string; field: string; label: string }[];
+	/** A ComfyUI API input is either a widget value or a link `[nodeId, slot]`. */
+	function linkSource(v: unknown): string | null {
+		return Array.isArray(v) && typeof v[0] === 'string' ? v[0] : null;
+	}
+
+	/** Walk backwards from a node input to the WIDGET that actually feeds it.
+	 *
+	 * "Convert widget to input" is how any reusable ComfyUI graph is authored: the
+	 * prompt, the seed, the duration stop being widgets on the sampler and become
+	 * `Primitive*` nodes wired in, sometimes through a relay or two. Binding the
+	 * consuming end would overwrite that wire with a literal and cut every other
+	 * consumer off from the value; binding the upstream widget is what the author
+	 * means. Returns the input unchanged when it is already a widget, and stops at
+	 * anything that is not a plain pass-through (a switch, a math node) rather
+	 * than guessing which of its inputs is "the" one. */
+	// `seen` is an array, not a Set: `svelte/prefer-svelte-reactivity` flags every
+	// mutable built-in Set/Map in a component, and reaching for `SvelteSet` here
+	// would claim a reactive structure for what is a cycle guard over a chain two
+	// or three nodes long. Same reason for `taken` and `seenKeys` below.
+	function resolveKnob(node: string, field: string, seen: string[] = []): Target {
+		const here = { node, field };
+		const up = linkSource(pubGraph?.[node]?.inputs?.[field]);
+		if (!up || seen.includes(up) || !pubGraph?.[up]) return here;
+		seen.push(up);
+		const inputs = pubGraph[up].inputs ?? {};
+		const widgets = Object.keys(inputs).filter((f) => linkSource(inputs[f]) === null);
+		const wires = Object.keys(inputs).filter((f) => linkSource(inputs[f]) !== null);
+		// A primitive holding exactly one widget IS the knob.
+		if (widgets.length === 1 && !wires.length) return { node: up, field: widgets[0] };
+		// A pass-through relay (one input, itself a wire) — keep walking.
+		if (!widgets.length && wires.length === 1) return resolveKnob(up, wires[0], seen);
+		return here;
+	}
+
+	/** Targets that plausibly fill a role, best first — a ranking, not a filter.
+	 * Rank 0 = a knob the author factored out (reached by following the wire back
+	 * from the node that consumes the value), because a graph carrying both a
+	 * primitive and the widget it feeds is one whose author already said which is
+	 * the control. Rank 1 = a raw widget on the consuming node. Rank 2 = a node
+	 * whose title says it is the OTHER polarity (a negative encoder offered for
+	 * `positive`) — still listed, just last. */
+	function roleSuggestions(role: string): Suggestion[] {
+		const g = pubGraph;
+		if (!g) return [];
+		const out: Suggestion[] = [];
+		const add = (target: Target, via: string, rank: number) => {
+			if (!g[target.node]) return;
+			if (out.some((o) => o.target.node === target.node && o.target.field === target.field)) return;
+			out.push({ target, via, rank });
+		};
+		for (const [id, n] of Object.entries(g)) {
+			const ct = String(n?.class_type ?? '');
+			const title = String(n?._meta?.title ?? '');
+			const inp = (n?.inputs ?? {}) as Record<string, unknown>;
+			if (role === 'output') {
+				// A save node is whatever the runner can stamp `filename_prefix` onto —
+				// testing the class name for /SaveImage/ is what hid SaveAnimatedWEBP.
+				if ('filename_prefix' in inp || /Save|VideoCombine/i.test(ct)) {
+					add({ node: id, field: '' }, '', 0);
+				}
+			} else if (role === 'positive' || role === 'negative') {
+				if (!/CLIPTextEncode/i.test(ct) || !('text' in inp)) continue;
+				const isNeg = /negative/i.test(title);
+				const wanted = role === 'negative' ? isNeg : !isNeg;
+				const k = resolveKnob(id, 'text');
+				const viaWire = k.node !== id;
+				add(k, viaWire ? `feeds ${nodeLabel(id)}` : '', wanted ? (viaWire ? 0 : 1) : 2);
+			} else if (role === 'seed') {
+				for (const f of ['noise_seed', 'seed']) {
+					if (!(f in inp)) continue;
+					const k = resolveKnob(id, f);
+					const viaWire = k.node !== id;
+					add(k, viaWire ? `feeds ${nodeLabel(id)}` : '', viaWire ? 0 : 1);
+				}
+			} else if (role === 'style_ref' || role === 'shape_ref') {
+				if (!/LoadImage/i.test(ct)) continue;
+				add(
+					{ node: id, field: 'image' in inp ? 'image' : (Object.keys(inp)[0] ?? 'image') },
+					'',
+					0,
+				);
+			}
+		}
+		return out.sort((a, b) => a.rank - b.rank);
+	}
+
+	/** The suggestion lists, computed once per graph rather than per render — the
+	 * modal draws six selects and each one would otherwise re-walk every node. */
+	const suggestionsByRole = $derived.by(() => {
+		const out: Record<string, Suggestion[]> = {};
+		for (const r of PUBLISH_ROLES) out[r.role] = roleSuggestions(r.role);
+		return out;
+	});
+
+	/** The `node::field` value a role select carries for a target (`output` binds a
+	 * whole node, so it carries the bare id). */
+	const bindValue = (role: string, t: Target) =>
+		role === 'output' ? t.node : `${t.node}::${t.field}`;
+
+	/** EVERY node input in the graph, so no role is ever cornered by a heuristic
+	 * that did not anticipate this workflow. Wired inputs are included and marked:
+	 * overwriting a link with a literal is legal in ComfyUI and is what the old
+	 * node-only picker did, so the escape hatch has to keep offering it. */
+	const allInputs = $derived.by(() => {
 		const out: { node: string; field: string; label: string }[] = [];
-		for (const [id, n] of Object.entries(pubGraph)) {
+		for (const [id, n] of Object.entries(pubGraph ?? {})) {
 			for (const [field, v] of Object.entries(n?.inputs ?? {})) {
-				// A linked input is driven by another node; only widget values are tunable.
-				if (Array.isArray(v)) continue;
 				out.push({
 					node: id,
 					field,
-					label: `${n?._meta?.title || n?.class_type} #${id} · ${field}`,
+					label: `${nodeLabel(id)} · ${field}${linkSource(v) === null ? '' : ' (wired)'}`,
 				});
 			}
 		}
 		return out;
 	});
+
+	/** Every node, for the `output` role — which binds a whole node, not an input. */
+	const allNodes = $derived.by(() =>
+		Object.keys(pubGraph ?? {}).map((id) => ({ id, label: nodeLabel(id) })),
+	);
+
+	/** Node inputs a PARAM could drive. Unlike a role binding this skips wired
+	 * inputs — a param is a knob in the Settings panel, and an input driven by
+	 * another node is not one. Targets already taken by a role stay in the list but
+	 * are flagged and disabled, because the tool rejects a param that re-drives a
+	 * bound input and a publish failure is the worse way to learn that. */
+	const paramTargets = $derived.by(() => {
+		const taken: Record<string, string> = {};
+		for (const r of PUBLISH_ROLES) {
+			if (r.role === 'output') continue;
+			const v = pubBindings[r.role];
+			if (v) taken[v] = r.role;
+		}
+		const out: { node: string; field: string; label: string; boundTo: string }[] = [];
+		for (const [id, n] of Object.entries(pubGraph ?? {})) {
+			for (const [field, v] of Object.entries(n?.inputs ?? {})) {
+				if (linkSource(v) !== null) continue;
+				const boundTo = taken[`${id}::${field}`] ?? '';
+				out.push({
+					node: id,
+					field,
+					label: `${nodeLabel(id)} · ${field}${boundTo ? ` — driven by the ${boundTo} role` : ''}`,
+					boundTo,
+				});
+			}
+		}
+		return out;
+	});
+
+	/** A param's type read off the value the graph already bakes in — and off the
+	 * node's class first, because the value alone lies about whole numbers: a
+	 * `PrimitiveFloat` holding 1 (a duration, an fps) reads as an int, and an int
+	 * param would then refuse the 1.5 the knob exists to allow. */
+	function inferParamType(v: unknown, classType = ''): string {
+		if (/PrimitiveBoolean|Boolean/i.test(classType)) return 'bool';
+		if (/PrimitiveFloat|Float/i.test(classType)) return 'float';
+		if (/PrimitiveInt|PrimitiveStringMultiline|PrimitiveString/i.test(classType)) {
+			return /Int/i.test(classType) ? 'int' : 'text';
+		}
+		if (typeof v === 'boolean') return 'bool';
+		if (typeof v === 'number') return Number.isInteger(v) ? 'int' : 'float';
+		return 'text';
+	}
+
+	/** A first-guess param key from the node's own title, made unique and kept off
+	 * the reserved role names. The author renames it; this just means the common
+	 * case is confirm-and-go rather than a dozen rows of typing. */
+	function suggestParamKey(node: string, field: string, mine: number): string {
+		const n = pubGraph?.[node];
+		const ct = String(n?.class_type ?? '');
+		const title = String(n?._meta?.title ?? '').trim();
+		const stem =
+			(title && title !== ct ? title : `${ct}_${field}`).replace(/[^A-Za-z0-9]+/g, '') ||
+			`param${mine + 1}`;
+		const used = new Set(pubParams.filter((_, j) => j !== mine).map((p) => p.key));
+		let key = RESERVED_KEYS.has(stem) ? `${stem}_${field}` : stem;
+		let i = 2;
+		while (used.has(key)) key = `${stem}${i++}`;
+		return key;
+	}
+
+	/** Point a param row at a (node · input) and read its type + current value off
+	 * the graph. A default left blank published as 0 — an ExportFPS of 0, a
+	 * GenWidth of 0 — because the runner sends only what the author OVERRODE, so
+	 * the baked default is what actually runs. */
+	function setParamTarget(i: number, value: string): void {
+		const [node = '', field = ''] = value.split('::');
+		const p = pubParams[i];
+		p.node = node;
+		p.field = field;
+		const baked = pubGraph?.[node]?.inputs?.[field];
+		if (baked === undefined || Array.isArray(baked)) return;
+		p.type = inferParamType(baked, String(pubGraph?.[node]?.class_type ?? ''));
+		p.def = String(baked);
+		p.multiline = p.type === 'text' && looksLikeProse(baked);
+		if (!p.key) p.key = suggestParamKey(node, field, i);
+		if (!p.label) p.label = p.key;
+	}
 
 	async function pickWorkflow(e: Event): Promise<void> {
 		const f = (e.currentTarget as HTMLInputElement).files?.[0];
@@ -774,12 +999,20 @@
 				return;
 			}
 			pubGraph = parsed;
+			// Rows from a previously picked file point at node ids this graph may not
+			// even have. Start clean rather than carry a broken target across.
+			pubParams = [];
 			if (!pubName) pubName = f.name.replace(/\.json$/i, '');
-			// Pre-fill anything unambiguous, so the common case is confirm-and-go.
+			// Pre-fill a role when its best suggestion is unambiguous — one target
+			// alone at the top rank. Two equally good candidates (a graph with a
+			// first-half and a second-half prompt) is a choice only the author can
+			// make, so it stays empty rather than being guessed at.
 			const next: Record<string, string> = {};
 			for (const r of PUBLISH_ROLES) {
-				const c = candidates(r.role);
-				if (c.length === 1) next[r.role] = c[0].id;
+				const s = roleSuggestions(r.role);
+				if (s.length && (s.length === 1 || s[0].rank !== s[1].rank)) {
+					next[r.role] = bindValue(r.role, s[0].target);
+				}
 			}
 			pubBindings = next;
 		} catch (err) {
@@ -795,14 +1028,48 @@
 			pubMsg = `Bind ${missing.map((m) => m.role).join(', ')} first.`;
 			return;
 		}
+		// A half-filled setting used to be dropped without a word, so a knob the
+		// author thought they had exposed simply was not on the published blueprint.
+		const halfDone = pubParams.find(
+			(p) => (p.key || p.node) && !(p.key.trim() && p.node && p.field),
+		);
+		if (halfDone) {
+			pubMsg = halfDone.node
+				? `The setting on ${nodeLabel(halfDone.node)} needs a key.`
+				: `The setting "${halfDone.key}" needs a node input to drive.`;
+			return;
+		}
+		// The tool's own param rules, checked here so they read as "fix this field"
+		// rather than as a failed publish. A key can't be a role name or a duplicate,
+		// and a node input can't be driven by a role AND a setting at once.
+		const seenKeys: string[] = [];
+		for (const p of pubParams) {
+			const key = p.key.trim();
+			if (!key) continue;
+			if (RESERVED_KEYS.has(key)) {
+				pubMsg = `"${key}" is a reserved binding-role name — give that setting a different key.`;
+				return;
+			}
+			if (seenKeys.includes(key)) {
+				pubMsg = `Two settings share the key "${key}".`;
+				return;
+			}
+			seenKeys.push(key);
+			const role = paramTargets.find((t) => t.node === p.node && t.field === p.field)?.boundTo;
+			if (role) {
+				pubMsg = `"${key}" drives ${nodeLabel(p.node)} · ${p.field}, which the ${role} role already drives. Point one of them somewhere else.`;
+				return;
+			}
+		}
 		pubBusy = true;
 		pubMsg = '';
 		try {
 			const bindings: Record<string, { node: string; field?: string }> = {};
 			for (const r of PUBLISH_ROLES) {
-				const node = pubBindings[r.role];
-				if (!node) continue;
-				bindings[r.role] = r.role === 'output' ? { node } : { node, field: r.field };
+				const v = pubBindings[r.role];
+				if (!v) continue;
+				const [node = '', field = ''] = v.split('::');
+				bindings[r.role] = r.role === 'output' ? { node } : { node, field };
 			}
 			const res = await fetch(api('publish'), {
 				method: 'POST',
@@ -814,10 +1081,10 @@
 					workflow_text: JSON.stringify(pubGraph),
 					bindings,
 					params: pubParams
-						.filter((p) => p.key && p.node && p.field)
+						.filter((p) => p.key.trim() && p.node && p.field)
 						.map((p) => ({
-							key: p.key,
-							label: p.label || p.key,
+							key: p.key.trim(),
+							label: p.label.trim() || p.key.trim(),
 							type: p.type,
 							node: p.node,
 							field: p.field,
@@ -827,6 +1094,19 @@
 									: p.type === 'int' || p.type === 'float'
 										? Number(p.def)
 										: p.def,
+							// Only sent when they carry something: the tool passes an
+							// empty `options`/`group` straight into the manifest, and a
+							// `select` with no options is rejected outright.
+							...(p.type === 'select'
+								? {
+										options: p.options
+											.split(',')
+											.map((o) => o.trim())
+											.filter(Boolean),
+									}
+								: {}),
+							...(p.group.trim() ? { group: p.group.trim() } : {}),
+							...(p.type === 'text' && p.multiline ? { multiline: true } : {}),
 						})),
 					overwrite,
 				}),
@@ -1226,9 +1506,15 @@ Overwrite it?`)
      only one of them would ever be fixed. `bag` is the $state record being edited, so writing
      through it updates whichever panel passed it. -->
 {#snippet paramField(p: BlueprintParam, bag: Record<string, string | number | boolean>)}
-	<label class="fld sm">
+	<label class="fld {p.type === 'text' && p.multiline ? 'prose' : 'sm'}">
 		<span>{p.label}</span>
-		{#if p.type === 'bool'}
+		{#if p.type === 'text' && p.multiline}
+			<textarea
+				rows="3"
+				value={String(bag[p.key] ?? p.default ?? '')}
+				onchange={(e) => (bag[p.key] = e.currentTarget.value)}
+			></textarea>
+		{:else if p.type === 'bool'}
 			<input
 				type="checkbox"
 				checked={Boolean(bag[p.key] ?? p.default)}
@@ -1354,8 +1640,13 @@ Overwrite it?`)
 				<input type="number" min="1" max="12" bind:value={variations} />
 			</label>
 
+			<!-- A group holding a PROSE setting starts open. Every group used to be collapsed,
+			     which is right for a dozen numeric knobs you touch occasionally and wrong for a
+			     second prompt: a graph can bind only one prompt to the `positive` role, so on a
+			     two-prompt network the other one is here — and a prompt you must go looking for
+			     behind a disclosure triangle is not one the author will remember to write. -->
 			{#each paramGroups as g (g.group)}
-				<details class="grp">
+				<details class="grp" open={g.items.some((p) => p.type === 'text' && p.multiline)}>
 					<summary>{g.group}</summary>
 					{#each g.items as p (p.key)}
 						{@render paramField(p, overrides)}
@@ -1807,9 +2098,18 @@ Overwrite it?`)
 					></textarea></label
 				>
 
-				<div class="fld"><span>Bindings (role → node)</span></div>
+				<div class="fld"><span>Bindings (role → node input)</span></div>
+				<p class="hint">
+					<b>Suggested</b> is a ranking, not a shortlist — every input in the graph is under
+					<b>All node inputs</b> below it. Graphs that pull their knobs out into
+					<code>Primitive</code> nodes are read through the wire, so a prompt suggestion points at
+					the
+					<code>PrimitiveString</code> that feeds the encoder rather than at the encoder's own wired
+					input.
+				</p>
 				{#each PUBLISH_ROLES as r (r.role)}
-					<label class="fld sm">
+					{@const sugg = suggestionsByRole[r.role] ?? []}
+					<label class="brow">
 						<span>{r.role}{r.required ? ' *' : ''}{r.hint ? ` — ${r.hint}` : ''}</span>
 						<select
 							value={pubBindings[r.role] ?? ''}
@@ -1817,9 +2117,30 @@ Overwrite it?`)
 							onchange={(e) => (pubBindings = { ...pubBindings, [r.role]: e.currentTarget.value })}
 						>
 							<option value="">(not used)</option>
-							{#each candidates(r.role) as c (c.id)}
-								<option value={c.id}>{c.label}</option>
-							{/each}
+							{#if sugg.length}
+								<optgroup label="Suggested">
+									{#each sugg as s (s.target.node + s.target.field)}
+										<option value={bindValue(r.role, s.target)}>
+											{nodeLabel(s.target.node)}{s.target.field ? ` · ${s.target.field}` : ''}{s.via
+												? ` — ${s.via}`
+												: ''}
+										</option>
+									{/each}
+								</optgroup>
+							{/if}
+							{#if r.role === 'output'}
+								<optgroup label="All nodes">
+									{#each allNodes as n (n.id)}
+										<option value={n.id}>{n.label}</option>
+									{/each}
+								</optgroup>
+							{:else}
+								<optgroup label="All node inputs">
+									{#each allInputs as t (t.node + t.field)}
+										<option value={`${t.node}::${t.field}`}>{t.label}</option>
+									{/each}
+								</optgroup>
+							{/if}
 						</select>
 					</label>
 				{/each}
@@ -1837,37 +2158,73 @@ Overwrite it?`)
 						onclick={() =>
 							(pubParams = [
 								...pubParams,
-								{ key: '', label: '', type: 'int', node: '', field: '', def: '' },
+								{
+									key: '',
+									label: '',
+									type: 'int',
+									node: '',
+									field: '',
+									def: '',
+									options: '',
+									group: '',
+									multiline: false,
+								},
 							])}>＋ Add</button
 					>
 				</div>
+				{#if pubParams.length}
+					<p class="hint">
+						Pick the input first — the key, type and default are read off the graph's own baked
+						value. A blank default publishes as <b>0</b>, and the default is what runs on every
+						render nobody overrode.
+					</p>
+				{/if}
 				{#each pubParams as prm, i (i)}
 					<div class="prow">
-						<input placeholder="key" bind:value={prm.key} disabled={pubBusy} />
+						<select
+							class="tgt"
+							value={prm.node && prm.field ? `${prm.node}::${prm.field}` : ''}
+							disabled={pubBusy}
+							onchange={(e) => setParamTarget(i, e.currentTarget.value)}
+						>
+							<option value="">(node · input)</option>
+							{#each paramTargets as t (t.node + t.field)}
+								<option
+									value={`${t.node}::${t.field}`}
+									disabled={!!t.boundTo && `${prm.node}::${prm.field}` !== `${t.node}::${t.field}`}
+									>{t.label}</option
+								>
+							{/each}
+						</select>
 						<select bind:value={prm.type} disabled={pubBusy}>
 							<option>int</option><option>float</option><option>text</option>
 							<option>bool</option><option>select</option>
 						</select>
-						<select
-							value={prm.node && prm.field ? `${prm.node}::${prm.field}` : ''}
-							disabled={pubBusy}
-							onchange={(e) => {
-								const [n, f] = e.currentTarget.value.split('::');
-								prm.node = n ?? '';
-								prm.field = f ?? '';
-							}}
-						>
-							<option value="">(node · input)</option>
-							{#each paramTargets as t (t.node + t.field)}
-								<option value={`${t.node}::${t.field}`}>{t.label}</option>
-							{/each}
-						</select>
-						<input placeholder="default" bind:value={prm.def} disabled={pubBusy} />
 						<button
 							class="danger sm"
 							disabled={pubBusy}
 							onclick={() => (pubParams = pubParams.filter((_, j) => j !== i))}>✕</button
 						>
+						<div class="pfields">
+							<input placeholder="key" bind:value={prm.key} disabled={pubBusy} />
+							<input placeholder="label" bind:value={prm.label} disabled={pubBusy} />
+							<input placeholder="default" bind:value={prm.def} disabled={pubBusy} />
+							<input placeholder="group (optional)" bind:value={prm.group} disabled={pubBusy} />
+							{#if prm.type === 'select'}
+								<input
+									class="wide"
+									placeholder="options, comma-separated"
+									bind:value={prm.options}
+									disabled={pubBusy}
+								/>
+							{/if}
+							{#if prm.type === 'text'}
+								<label class="chk" title="Give this setting a full-width box, not an inline field">
+									<input type="checkbox" bind:checked={prm.multiline} disabled={pubBusy} />
+									<span>prompt-sized box</span>
+								</label>
+							{/if}
+						</div>
 					</div>
 				{/each}
 
@@ -2060,18 +2417,72 @@ Overwrite it?`)
 		font-size: 11px;
 		padding: 3px 7px;
 	}
+	/* One role binding. Deliberately NOT `.fld.sm`, whose select is pinned to 90px —
+	   node labels carry a title, a class and an id, and 90px truncated every one of
+	   them to "Load Imag". */
+	.brow {
+		display: block;
+		margin-bottom: 6px;
+	}
+	.brow > span {
+		display: block;
+		font-size: 11px;
+		color: #94a3b8;
+		margin-bottom: 3px;
+	}
 	.prow {
-		display: flex;
+		display: grid;
+		grid-template-columns: 1fr 84px 28px;
 		gap: 4px;
-		margin-bottom: 5px;
+		margin-bottom: 8px;
+		padding: 8px;
+		border: 1px solid #1f2937;
+		border-radius: 6px;
+	}
+	.prow .pfields {
+		grid-column: 1 / -1;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 4px;
 	}
 	.prow input {
 		min-width: 0;
 		flex: 1;
 	}
+	.prow input.wide {
+		flex: 1 0 100%;
+	}
+	.prow .chk {
+		display: flex;
+		align-items: center;
+		gap: 5px;
+		flex: 1 0 100%;
+		font-size: 11px;
+		color: #94a3b8;
+	}
+	.prow .chk input {
+		width: auto;
+		flex: none;
+	}
+	/* A prose text setting (a second prompt) — label above, box below and full
+	   width, like the Prompt field it is a sibling of. `.fld.sm` would pin it to
+	   the 90px inline input every numeric knob shares. */
+	.fld.prose {
+		display: block;
+		margin-bottom: 8px;
+	}
+	.fld.prose > span {
+		display: block;
+		font-size: 11px;
+		color: #94a3b8;
+		margin-bottom: 3px;
+	}
+	.fld.prose textarea {
+		width: 100%;
+		resize: vertical;
+	}
 	.prow select {
 		min-width: 0;
-		flex: 1.4;
 	}
 	.diag {
 		color: #fbbf24;

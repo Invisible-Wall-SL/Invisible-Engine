@@ -3653,6 +3653,16 @@ const BP_ROLES=[
 function bpCandidates(role,graph){{
  // Candidate-filter nodes by class_type / inputs so each role only offers
  // nodes that can plausibly fill it (matches the design's binding step).
+ //
+ // KNOWN LIMIT (the Flipbook's video twin has been fixed, this has not — see
+ // docs/status/flipbook.md, 2026-09-01): this is a FILTER, and BP_FIELD hardcodes
+ // the field per role. A graph whose knobs were "converted to input" — the prompt
+ // on a PrimitiveString, the seed on a PrimitiveInt, wired into the sampler — has
+ // no bindable candidate here at all: the CLIPTextEncode this approves takes its
+ // `text` from a WIRE, and the primitive that actually holds the value is not
+ // offered. The fix that worked in VideoMode.svelte is `resolveKnob`: follow the
+ // wire back to the widget, then rank rather than exclude, with every
+ // (node · input) still listed underneath.
  let out=[];
  for(const id of Object.keys(graph)){{
   const n=graph[id]||{{}}; const ct=String(n.class_type||'');
@@ -5427,7 +5437,8 @@ class Handler(BaseHTTPRequestHandler):
                          "field": field,
                          "label": str(p.get("label", "")).strip() or key,
                          "default": p.get("default")}
-                for opt in ("min", "max", "step", "options", "group"):
+                for opt in ("min", "max", "step", "options", "group",
+                            "multiline"):
                     if p.get(opt) not in (None, ""):
                         entry[opt] = p[opt]
                 clean_params.append(entry)
