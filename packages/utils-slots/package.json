@@ -10,8 +10,7 @@
 	"type": "module",
 	"devDependencies": {
 		"eslint": "9.21.0",
-		"eslint-config-custom": "workspace:*",
-		"config-ts": "workspace:*"
+		"eslint-config-custom": "workspace:*"
 	},
 	"dependencies": {
 		"svelte": "5.35.1",

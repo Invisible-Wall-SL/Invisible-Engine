@@ -1,5 +1,5 @@
 {
-	"extends": "config-ts/base.json",
+	"extends": "../../tsconfig.base.json",
 	"compilerOptions": {
 		"noEmit": true,
 		"resolveJsonModule": true,

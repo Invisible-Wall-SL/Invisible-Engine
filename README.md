@@ -850,7 +850,6 @@ For every TurboRepo local package, you can import and use them in an app or in a
   ...,
   "devDependencies": {
     ...,
-    "config-ts": "workspace:*",
   },
   "dependencies": {
     ...,
@@ -869,8 +868,8 @@ The naming convention of packages is a combination of `<PACKAGE_TYPE>`, hyphen a
   - [config-lingui](/packages/config-lingui): This local package contains reusable configurations of npm package [lingui](https://www.npmjs.com/package/@lingui/core).
   - [config-storybook](/packages/config-storybook): This local package contains reusable configurations of npm package [storybook](https://www.npmjs.com/package/storybook).
   - [config-svelte](/packages/config-svelte): This local package contains reusable configurations of npm package [svelte](https://www.npmjs.com/package/svelte).
-  - [config-ts](/packages/config-ts): This local package contains reusable configurations of npm package [typescript](https://www.npmjs.com/package/typescript).
   - [config-vite](/packages/config-vite): This local package contains reusable configurations of npm package [vite](https://www.npmjs.com/package/vite).
+  - TypeScript is the exception: the shared compiler options live in [tsconfig.base.json](/tsconfig.base.json) at the repo root, not in a package. Every app/package reaches it with `"extends": "../../tsconfig.base.json"` — a relative path needs no dependency edge, so no `tsconfig.json` can be left pointing at a package that isn't installed.
 - `pixi-*`
   - [pixi-svelte](/packages/pixi-svelte): This local package contains reusable svelte components/functions/types based on [pixijs](https://www.npmjs.com/package/pixi.js) and [svelte](https://www.npmjs.com/package/svelte).
     - It creates `stateApp` and `ContextApp` as a [svelte-context](https://svelte.dev/docs/svelte/context).

@@ -12,7 +12,6 @@
 	"devDependencies": {
 		"eslint": "9.21.0",
 		"eslint-config-custom": "workspace:*",
-		"config-ts": "workspace:*",
 		"rgs-fetcher": "workspace:*",
 		"constants-shared": "workspace:*"
 	}
