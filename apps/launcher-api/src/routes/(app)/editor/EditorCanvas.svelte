@@ -5,6 +5,7 @@
 		backgroundFit,
 		boundComponentDefault,
 		boundComponentRidesBone,
+		boundComponentTileImage,
 		builtinSheetIdForRegion,
 		builtinSheetKey,
 		computeOverlayPlacement,
@@ -2149,7 +2150,39 @@
 			// HUD elements carry `preview.style` so we draw a faithful chip; others get
 			// a plain placeholder.
 			const art = anchorArt(node, instanceSpineBundle);
-			if (art?.kind === 'spine') {
+			// A coded TILE part the catalog says an instance can SKIN (the readout's Background —
+			// see `TileImageBinding`): the picked frame REPLACES the stand-in chip, drawn at the
+			// tile's coded box or the instance's size overrides, so a per-instance background
+			// previews here exactly as the game draws it. Read off `bind.component`, never a
+			// hardcoded component id; no declaration ⇒ every branch below is unchanged (parity).
+			const tile = boundComponentTileImage(node.bind.component);
+			const tileParams = instanceParams ?? componentParams;
+			const tileNum = (key?: string): number | undefined =>
+				key && typeof tileParams[key] === 'number' ? (tileParams[key] as number) : undefined;
+			const tileStr = (key?: string): string | undefined =>
+				key && typeof tileParams[key] === 'string' && tileParams[key]
+					? (tileParams[key] as string)
+					: undefined;
+			const tileT = tile
+				? {
+						...t,
+						width: tileNum(tile.widthParam) ?? tile.width,
+						height: tileNum(tile.heightParam) ?? tile.height,
+					}
+				: t;
+			const tileTint = tile ? tileNum(tile.tintParam) : undefined;
+			const tileImage = tile ? tileStr(tile.imageParam) : undefined;
+			if (tileImage) {
+				const scoped = parseScopedFrameRef(tileImage);
+				drawArtRegionSprite(
+					ctx,
+					scoped.assetKey ?? '',
+					scoped.region,
+					tileT,
+					node.label,
+					tileTint !== undefined && tileTint !== 0xffffff ? tileTint : undefined,
+				);
+			} else if (art?.kind === 'spine') {
 				// A bone-riding bind (the Scene Editor reveal preview) renders its rig from the
 				// ENCLOSING instance's spine param, not the catalog default — so check THAT key
 				// for readiness, else the placeholder would linger over the real rig (or double it
@@ -2171,6 +2204,17 @@
 			} else if (art?.kind === 'sprite' && art.region && art.assetKey) {
 				drawArtRegionSprite(ctx, art.assetKey, art.region, t, node.label);
 			} else if (node.preview?.style && !readyTextIds.has(node.id)) {
+				// A skinnable tile with no image picked still draws its chip at the RESOLVED box
+				// (coded size, or the instance's overrides) — so widening the background moves the
+				// preview too, and the chip finally stands in at the size the game paints.
+				const chipPreview = tile
+					? { ...node.preview, w: tileT.width, h: tileT.height }
+					: node.preview;
+				// The tile's recolour: the instance's `backgroundTint` over the def's `bind.props`.
+				const chipProps =
+					tileTint !== undefined
+						? { ...((node.bind.props ?? {}) as Record<string, unknown>), tint: tileTint }
+						: (node.bind.props as Record<string, unknown> | undefined);
 				// The PIXI text overlay draws this HUD anchor with its real chosen font once
 				// loaded (reported via readyTextIds); until then the chip stands in.
 				// When this `bind` is a mount inside a componentInstance (instanceParams set),
@@ -2201,7 +2245,7 @@
 						a.anchorX !== undefined ? { ...t, anchor: { x: a.anchorX, y: t.anchor?.y ?? 0 } } : t;
 					ctx.save();
 					ctx.translate(a.offsetX, 0);
-					drawHudChip(ctx, ta, node.preview, chipCaption(node, instanceParams), undefined, {
+					drawHudChip(ctx, ta, chipPreview, chipCaption(node, instanceParams), chipProps, {
 						fill: typeof fillV === 'number' ? fillV : undefined,
 						fontSize: typeof fontSizeV === 'number' ? fontSizeV : undefined,
 						fontFamily: typeof fontFamilyV === 'string' ? fontFamilyV : undefined,
@@ -2213,13 +2257,7 @@
 						a.anchorX !== undefined ? { ...t, anchor: { x: a.anchorX, y: t.anchor?.y ?? 0 } } : t;
 					ctx.save();
 					ctx.translate(a.offsetX, 0);
-					drawHudChip(
-						ctx,
-						ta,
-						node.preview,
-						chipCaption(node, componentParams),
-						node.bind.props as Record<string, unknown> | undefined,
-					);
+					drawHudChip(ctx, ta, chipPreview, chipCaption(node, componentParams), chipProps);
 					ctx.restore();
 				}
 			} else if (!node.preview?.style) {

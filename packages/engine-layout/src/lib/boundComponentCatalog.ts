@@ -1,4 +1,5 @@
 import { BUILTIN_REGION } from './builtinRegions';
+import { HUD_TILE_HEIGHT, HUD_TILE_WIDTH } from './builtinComponents';
 import type { ComponentDef, LayoutNode, LayoutType, Scene } from './types';
 
 /**
@@ -57,6 +58,29 @@ export interface BoneRiderBinding {
 	imageParam?: string;
 }
 
+/**
+ * EDITOR-PREVIEW ONLY: declares that a coded TILE part (the HUD readout's `Background`) can have
+ * its coded art REPLACED, per placed instance, by an atlas frame the author picks — so the Scene
+ * Editor draws the real frame instead of the grey stand-in chip. Keyed off `bind.component`, this
+ * names the ENCLOSING component-instance param keys the editor reads, so it stays data-driven
+ * (any future skinnable tile declares its own binding here) rather than hardcoding a component id
+ * in the canvas. The runtime reads the SAME params off the param context `<ComponentInstance>`
+ * provides — this entry only teaches the editor to preview what the game already draws. Never
+ * written to the layout doc, mirroring {@link BoundComponentPreview} and {@link BoneRiderBinding}.
+ */
+export interface TileImageBinding {
+	/** Instance param (kind `image`) whose picked frame REPLACES the coded tile. Empty ⇒ tile. */
+	imageParam: string;
+	/** Instance param (kind `color`) multiplying whichever of the two draws. */
+	tintParam?: string;
+	/** Instance params (kind `number`) overriding the tile box; blank ⇒ {@link width}/{@link height}. */
+	widthParam?: string;
+	heightParam?: string;
+	/** The coded tile's own box in component-local px — what the part draws with nothing set. */
+	width: number;
+	height: number;
+}
+
 export interface BoundComponentPreview {
 	kind: 'spine' | 'sprite';
 	/** Convention spine-bundle name (kind `spine`), resolved against project spines. */
@@ -90,6 +114,8 @@ export interface BoundComponentDefault {
 	preview?: BoundComponentPreview;
 	/** Editor-only bone-ridden stand-in symbol (see {@link BoneRiderBinding}). */
 	ridesBone?: BoneRiderBinding;
+	/** Editor-only per-instance tile skin (see {@link TileImageBinding}). */
+	tileImage?: TileImageBinding;
 	/** Where the editor places the preview (see {@link OverlayPlacement}). */
 	placement?: OverlayPlacement;
 	/** Default render order when the component is dropped as an anchor. */
@@ -113,6 +139,19 @@ export interface BoundComponentDefault {
  * game passes to `registerBoundComponents` and writes into `bind.component`.
  */
 export const BOUND_COMPONENT_DEFAULTS: Record<string, BoundComponentDefault> = {
+	// The HUD readout's Background tile. No `space`/`preview`/`placement` — it is a part INSIDE a
+	// component, never a droppable overlay anchor — so `hostedComponentSpace` still walks past it
+	// (parity). It is here only to declare the per-instance skin the editor must preview.
+	HudTicker: {
+		tileImage: {
+			imageParam: 'backgroundImage',
+			tintParam: 'backgroundTint',
+			widthParam: 'backgroundWidth',
+			heightParam: 'backgroundHeight',
+			width: HUD_TILE_WIDTH,
+			height: HUD_TILE_HEIGHT,
+		},
+	},
 	LoadingScreen: {
 		// The startup splash: the game's `loader` spine (the `title_screen`
 		// animation = the logo) over the progress bar, self-centred in
@@ -286,6 +325,15 @@ export function instancePreviewSpineBundle(
  */
 export function boundComponentRidesBone(name: string): BoneRiderBinding | undefined {
 	return BOUND_COMPONENT_DEFAULTS[name]?.ridesBone;
+}
+
+/**
+ * The per-instance tile skin a coded component declares (see {@link TileImageBinding}), or
+ * `undefined` for a tile whose art is fixed. Keyed off the `bind.component` name so the editor
+ * stays data-driven — it never hardcodes `HudTicker`.
+ */
+export function boundComponentTileImage(name: string | undefined): TileImageBinding | undefined {
+	return name ? BOUND_COMPONENT_DEFAULTS[name]?.tileImage : undefined;
 }
 
 /**
