@@ -105,3 +105,36 @@ export const INTRO_BEAT_CAP_MS = 2_000;
  * number is the bug — not the animation.
  */
 export const WIN_BEAT_CAP_MS = 4_000;
+
+/**
+ * The FLOOR under the win beat — the other end of {@link WIN_BEAT_CAP_MS}, and for the opposite
+ * failure.
+ *
+ * The cap stops a beat that can never finish. This stops one that finishes INSTANTLY, which turned
+ * out to be the far more common way a win goes unseen. A `sprite` cell is one frozen frame, so
+ * `SymbolSprite` reports `oncomplete` from an `$effect` the moment its art changes — the beat
+ * resolves in the same tick, and everything scoped to it is torn down with it: the lit symbol, and
+ * the win's stamped AMOUNT TEXT.
+ *
+ * Measured on the live `test6` at full frame rate, one cascading spin:
+ *
+ *     winInfo L2 x3  ->  2 ms     (sprite win art)   no amount text
+ *     winInfo H4 x3  ->  961 ms   (flipbook)         "€0.05" drawn at board centre
+ *     winInfo H3 x5  ->  2 ms     (sprite win art)   no amount text
+ *
+ * The owner read that as "the win amount text doesn't show after a tumble" — but the tumble was
+ * incidental. It is whichever symbol paid: two of that project's ten symbols had animated win art,
+ * so eight of ten wins flashed for one frame. A sprite bound to `win` is a legitimate authoring
+ * choice ("show this art while the win is celebrated"); it just carries no duration of its own, so
+ * the engine has to supply one.
+ *
+ * The same reasoning already exists one branch away: a stacked-covered cell mounts no `<Symbol>` and
+ * so holds `winHoldMs` (`STACKED_WIN_HOLD_MS`, 650ms) instead of awaiting a completion it can never
+ * get. This is that rule applied to the ordinary case, at the same length for the same reason — the
+ * shortest beat a player can actually read.
+ *
+ * A FLOOR, not a delay: it runs CONCURRENTLY with the animation (`Promise.all`), so authored art
+ * longer than this still sets the pace and is untouched. Only a beat that would have been shorter
+ * than a readable moment is stretched to one.
+ */
+export const WIN_BEAT_MIN_MS = 650;
