@@ -88,12 +88,13 @@ export const load: PageServerLoad = async ({ locals, cookies, parent, url }) => 
 		if (!mergedSymbols[name]) mergedSymbols[name] = {} as (typeof mergedSymbols)[string];
 	}
 	const defaults = { ...baseDefaults, symbols: mergedSymbols };
-	// Which of those symbols this project actually DEALS. The union above is one-way on purpose,
-	// so a grid keeps every symbol the template baked in — including ones the project has since
-	// configured away. Left unlabelled that reads as a disagreement between /config and this page
-	// (the reported "there is an L5 here that is nowhere in my config"). The grid badges them
-	// instead of dropping them: additive stays additive, and provenance stops being invisible.
-	// `null` when there is no config doc to compare against — unknown, so nothing is badged.
+	// Which of those symbols this project actually DEALS — and, since the owner report that /config
+	// saying UNUSED while this page still listed the symbol is a contradiction rather than a nuance,
+	// the list the grid RENDERS. The union above stays one-way, so the DOC never loses a symbol
+	// mid-authoring (its states survive untouched and its row returns the moment it goes back on a
+	// strip); the page simply stops drawing rows the game can never deal. The badge that used to
+	// explain the discrepancy is gone with it.
+	// `null` when there is no config doc to compare against — unknown, so nothing is filtered.
 	const inPlaySymbols = configDoc ? inPlayNames : null;
 	// The project's config-authored BIG-win tiers drive the reel-anticipation panel: ONE FX column per
 	// big tier, keyed by its alias — mirroring the same tiers the game arms (`activeBigTiers`), so the

@@ -46,6 +46,13 @@ set) and drops any symbol present in `SYMBOL_INFO_MAP` but not in the config (e.
 A project that published before this filter existed keeps its old full set until it
 **republishes** (any tokened build re-runs `publish:symbols`).
 
+On top of that, the grid renders **only the symbols that are IN PLAY right now** — the ones on a
+reel strip in [Invisible Game Config](game-config.md), read live. A symbol marked **UNUSED** there
+does not appear here at all, because it can never be dealt and art authored for it can never
+render. Nothing is deleted: its authored states stay in the doc untouched, and the row comes back
+with its art intact the moment you put the symbol back on a strip. (A project with no Game Config
+to compare against shows everything.)
+
 ## How to use it
 
 You always work in the context of the **active client/project** (shown top-left, with the
@@ -467,9 +474,9 @@ per-tier):
   built-in `anticipation` spine; a swapped bundle must expose the `anticipation_intro / _loop / _out`
   animations, since the game still owns the intro → loop → out chaining (same contract as the board
   glow). Only R2 spine bundles already available to the project are offered — no new asset class.
-The tease's two cues — the activation **sting** and the sustained **loop** — are chosen in
-[Invisible Sound](sound.md) → **Reel anticipation**. Their per-tier **volumes** stay here: those are
-part of the intensity ramp below, not a choice of sound.
+  The tease's two cues — the activation **sting** and the sustained **loop** — are chosen in
+  [Invisible Sound](sound.md) → **Reel anticipation**. Their per-tier **volumes** stay here: those are
+  part of the intensity ramp below, not a choice of sound.
 
 Every field falls through to the game's coded value when left at its default, so the doc stays
 sparse: an untouched project ships **no `anticipation` key** and the mode is byte-identical to
@@ -567,7 +574,7 @@ arrival.
 
 It could not be folded into `Land`, and that is worth stating because the two look adjacent.
 `Land` is the beat **after a movement** — the reels fire it at the end of a roll and a cascade
-fires it at the end of a fall — so a game that authored *"rise out of the water"* there would
+fires it at the end of a fall — so a game that authored _"rise out of the water"_ there would
 also play the rise on every reel stop and every cascade refill.
 
 **Leaving an `Intro` cell empty is not a gap** — it falls through to that symbol's `Land`
@@ -576,7 +583,7 @@ appears and plays its ordinary landing. The grid draws the borrowed art and badg
 **inherits Land**.
 
 The column only appears for a project whose swap style is **Emerge**, but a binding you make is
-stored for every game and survives switching the style away and back. A per-symbol *sound* for
+stored for every game and survives switching the style away and back. A per-symbol _sound_ for
 the same moment is picked in [Invisible Sound](./sound.md) → Per-symbol cues.
 
 ### Two explosions
