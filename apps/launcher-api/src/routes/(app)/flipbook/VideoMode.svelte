@@ -569,6 +569,125 @@
 		busy = false;
 	}
 
+	// --- view one render at full resolution -------------------------------------
+	// A grid column bottoms out at 220px, so every tile is a heavy downscale of a
+	// 512-1024px render: the alpha fringe a background cutout left behind, or a single
+	// smeared frame, is simply not visible there. This opens the render in its OWN
+	// browser window rather than an in-page overlay, because what an author does with a
+	// full-res view is COMPARE — against the grid it came from, or against a second
+	// window holding another variation — and a modal covering the grid cannot.
+
+	/** The pop-up's whole document. Self-contained on purpose: the window is a blank one
+	 * written into from here, so it inherits this page's origin (and with it the session
+	 * cookie `/api/flipbook/video/file` gates on) but none of its CSS or routes. */
+	function fullViewHtml(title: string, src: string): string {
+		// Split, and never written whole: an unbroken closing script tag anywhere in the
+		// string below would end THIS component's own script block, and the backslash escape
+		// that hides it from the parser reads as a useless one to eslint.
+		const endScript = '</' + 'script>';
+		const esc = (t: string) =>
+			t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+		return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>
+:root { color-scheme: dark; }
+html, body { margin: 0; height: 100%; background: #0b0e13; color: #94a3b8;
+  font: 12px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; }
+body { display: flex; flex-direction: column; }
+header { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 6px 10px;
+  background: #10161e; border-bottom: 1px solid #1f2937; }
+header b { color: #e2e8f0; font-weight: 600; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; }
+header .sp { margin-left: auto; }
+header .k { font-size: 11px; color: #64748b; white-space: nowrap; }
+button { font: inherit; color: #cbd5e1; background: #1f2937; border: 1px solid #2a3646;
+  border-radius: 6px; padding: 4px 9px; cursor: pointer; white-space: nowrap; }
+button:hover { background: #27364a; }
+main { flex: 1 1 auto; overflow: auto; display: flex; align-items: center;
+  justify-content: center; padding: 13px;
+  /* Same checkerboard as the grid tile, and load-bearing for the same reason: it is how
+     alpha reads as alpha and not as a matte-coloured rectangle. */
+  background-color: #0b0e13;
+  background-image:
+    linear-gradient(45deg, #171c25 25%, transparent 25%),
+    linear-gradient(-45deg, #171c25 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #171c25 75%),
+    linear-gradient(-45deg, transparent 75%, #171c25 75%);
+  background-size: 16px 16px; background-position: 0 0, 0 8px, 8px -8px, -8px 0; }
+img { display: block; margin: auto; }
+img.fit { max-width: 100%; max-height: 100%; }
+</style></head><body>
+<header><b>${esc(title)}</b><span class="k" id="dim">loading…</span><span class="sp"></span>
+<button id="t">Fit to window</button><span class="k">F toggles · Esc closes</span></header>
+<main><img id="i" alt="${esc(title)}" src="${esc(src)}"></main>
+<script>
+var img = document.getElementById('i');
+var dim = document.getElementById('dim');
+var tog = document.getElementById('t');
+var pane = document.querySelector('main');
+// Fit is decided FOR the author until they decide it themselves, and never after.
+var fit = false, chosen = false;
+function apply() {
+  img.className = fit ? 'fit' : '';
+  tog.textContent = fit ? '1:1 actual size' : 'Fit to window';
+}
+function choose(v) { chosen = true; fit = v; apply(); }
+// Whether the render fits is a question about the window it actually ended up in, not about
+// the screen: resizeTo is a request a window manager is free to ignore, and the author can
+// resize afterwards. Measuring the pane answers it in every one of those cases.
+function decide() {
+  if (chosen) return;
+  fit = img.naturalWidth > pane.clientWidth - 26 || img.naturalHeight > pane.clientHeight - 26;
+  apply();
+}
+tog.onclick = function () { choose(!fit); };
+document.onkeydown = function (e) {
+  if (e.key === 'Escape') window.close();
+  else if (e.key === 'f' || e.key === 'F') choose(!fit);
+};
+window.onresize = decide;
+img.onload = function () {
+  dim.textContent = img.naturalWidth + ' \u00d7 ' + img.naturalHeight;
+  var maxW = screen.availWidth - 80, maxH = screen.availHeight - 120;
+  window.resizeTo(
+    Math.max(360, Math.round(Math.min(img.naturalWidth + 26, maxW) + (window.outerWidth - window.innerWidth))),
+    Math.max(280, Math.round(Math.min(img.naturalHeight + 59, maxH) + (window.outerHeight - window.innerHeight)))
+  );
+  // Twice: once for the size the window has now, and once after the resize above lands. A
+  // background window gets no animation frames, so this is a timer and not rAF.
+  decide();
+  setTimeout(decide, 0);
+};
+img.onerror = function () { dim.textContent = 'could not load this render'; };
+apply();
+if (img.complete && img.naturalWidth) img.onload();
+${endScript}</body></html>`;
+	}
+
+	/** Open one done variation at 1:1 in its own window. Named per (session, variation),
+	 * so clicking the same tile twice refocuses the window already showing that render
+	 * instead of stacking a second copy of it. */
+	function openFullView(v: Variation): void {
+		if (!session || v.status !== 'done' || !v.file) return;
+		const src = new URL(
+			api('file', `session=${encodeURIComponent(session.id)}&v=${encodeURIComponent(v.file)}`),
+			location.href,
+		).href;
+		const title = `#${String(v.index).padStart(3, '0')} · ${
+			session.blueprint_name ?? session.blueprint
+		} · seed ${v.seed}`;
+		const w = window.open(
+			'',
+			`ie_flipbook_${session.id}_${v.index}`,
+			'width=640,height=700,resizable=yes,scrollbars=yes',
+		);
+		if (!w) {
+			err = 'The full-resolution view opens in a new window — allow pop-ups for this site.';
+			return;
+		}
+		w.document.write(fullViewHtml(title, src));
+		w.document.close();
+		w.focus();
+	}
+
 	// --- make a clip from a variation ------------------------------------------
 	// Two steps, deliberately: the TOOL packs the frames into sheet(s) (Pillow +
 	// the MaxRects packer live there), then the LAUNCHER writes the clip doc
@@ -1786,14 +1905,23 @@ Overwrite it?`)
 					<figure class="tile" class:failed={v.status === 'failed'}>
 						<div class="thumb">
 							{#if v.status === 'done' && v.file}
-								<!-- Animated WEBP: it plays and loops on its own. -->
-								<img
-									src={api(
-										'file',
-										`session=${encodeURIComponent(session.id)}&v=${encodeURIComponent(v.file)}`,
-									)}
-									alt={`variation ${v.index}`}
-								/>
+								<!-- Animated WEBP: it plays and loops on its own. The tile is a heavy
+								     downscale of it, so the thumbnail is also the way IN to the render at
+								     its own resolution. -->
+								<button
+									class="zoom"
+									title="Open this render at full resolution in its own window"
+									onclick={() => openFullView(v)}
+								>
+									<img
+										src={api(
+											'file',
+											`session=${encodeURIComponent(session.id)}&v=${encodeURIComponent(v.file)}`,
+										)}
+										alt={`variation ${v.index}`}
+									/>
+									<span class="zoomhint">⤢ Full resolution</span>
+								</button>
 							{:else if v.status === 'failed'}
 								<span class="state bad" title={v.error}>failed</span>
 							{:else if v.status === 'cancelled'}
@@ -2802,6 +2930,44 @@ Overwrite it?`)
 		max-width: 100%;
 		max-height: 100%;
 		display: block;
+	}
+	/* The thumbnail is a button, not a picture: it opens the render at full resolution in
+	   its own window. It has to shed the shared `button` chrome (that rule paints a slate
+	   background and a border) or the checkerboard behind the alpha disappears. */
+	.thumb button.zoom {
+		position: relative;
+		width: 100%;
+		height: 100%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0;
+		border: 0;
+		border-radius: 0;
+		background: none;
+		cursor: zoom-in;
+	}
+	.thumb button.zoom:hover {
+		background: none;
+	}
+	.thumb button.zoom:focus-visible {
+		outline: 2px solid #38bdf8;
+		outline-offset: -2px;
+	}
+	.zoomhint {
+		position: absolute;
+		inset: auto 0 0;
+		padding: 3px 6px;
+		font-size: 10px;
+		letter-spacing: 0.04em;
+		color: #cbd5e1;
+		background: rgba(9, 13, 20, 0.8);
+		opacity: 0;
+		transition: opacity 120ms ease;
+	}
+	.thumb button.zoom:hover .zoomhint,
+	.thumb button.zoom:focus-visible .zoomhint {
+		opacity: 1;
 	}
 	.state {
 		font-size: 11px;

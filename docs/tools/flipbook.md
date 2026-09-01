@@ -343,6 +343,14 @@ The checkerboard is there to be read: it is how you see whether the background c
 actually produced **transparency**. If a tile's art sits on a solid rectangle, the cutout
 was off or produced nothing, and those frames are not usable as symbol art.
 
+**Click the animation itself** to open that render at **full resolution in its own browser
+window** — the tile is a heavy downscale, and a cutout's fringe or one smeared frame does not
+survive it. The window opens sized to the render (1:1) where the screen allows, and fitted to
+the window where it does not; the header button switches between the two, **F** does the same
+from the keyboard and **Esc** closes it. It is a separate window rather than an overlay so you
+can keep it beside the grid, or open a second variation next to the first and compare. Clicking
+the same tile again reuses that variation's window instead of stacking another copy.
+
 Per tile: the **seed** button copies that render's seed (it reproduces that exact result),
 **🎞 Make flipbook** starts the conversion, **↻** re-rolls just that one, **⧉** duplicates it with
 new settings, and **🗑** deletes it.

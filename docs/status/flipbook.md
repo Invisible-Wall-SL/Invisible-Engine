@@ -194,6 +194,24 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-01 — **A tile in the 🎬 grid opens its render at full resolution, in its own window.**
+  Owner ask: *"in the grid list of the flipbook video generation, I would like to be able to click
+  on a card and open it for view in full resolution on a separated window."* A grid column bottoms
+  out at 220px, so every tile was a heavy downscale of a 512–1900px render and the two things the
+  checkerboard exists to reveal — an alpha fringe left by the cutout, one smeared frame — were not
+  actually visible in it.
+  - **A window, not an overlay, on purpose.** What an author does with a full-res view is compare:
+    against the grid it came from, or against a second variation open beside it. A modal covering
+    the grid cannot do either. The window is named per `(session, variation)`, so clicking the same
+    tile twice refocuses the window already showing that render instead of stacking copies.
+  - **No new route and no server change.** `fullViewHtml()` writes a self-contained document into a
+    blank window, which inherits the page's origin and with it the session cookie that
+    `/api/flipbook/video/file` gates on. The title (blueprint name included) is HTML-escaped into it.
+  - **Fit is measured, not predicted.** `window.resizeTo` is a request a window manager is free to
+    ignore — it was observed being ignored — so the popup decides 1:1-vs-fit from the pane it
+    actually ended up in, re-decides on resize, and stops deciding the moment the author touches the
+    toggle (button, or `F`; `Esc` closes). Verified in real Chrome against a 1791×1909 and a 386×1645
+    image: auto-fit on open, manual 1:1 sticks, same-tile reuse reports the same window object.
 - 2026-09-01 — **First real GPU generation, and ⧉ confirmed live in production.** Owner ran 🎬
   mode on the RunPod Serverless endpoint and reported it works, then confirmed the duplicate
   button once #529 deployed (*"it works, the button is there and duplicates fine"*). That retires
