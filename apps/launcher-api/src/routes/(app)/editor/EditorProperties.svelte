@@ -161,6 +161,12 @@
 		/** "Remove exposed spine": un-expose the selected spine node — drop the
 		 * `assetKey` binding + the param it created, restoring the static bundle. */
 		onUnexposeSpineParam?: (node: LayoutNode) => void;
+		/** "Expose image as param" for the selected sprite node: auto-create + bind an
+		 * `image`-kind param so the sprite's FRAME is per-instance pickable (component mode). */
+		onExposeImageParam?: (node: LayoutNode) => void;
+		/** "Remove exposed image": un-expose the selected sprite node — drop the `region`
+		 * binding + the param it created, restoring the static frame. */
+		onUnexposeImageParam?: (node: LayoutNode) => void;
 		/** Toggle an engine-catalog signal on the draft component (component mode). */
 		onToggleSignal?: (key: string) => void;
 		/** Set / clear an author param override on the selected instance (scene mode). */
@@ -231,6 +237,8 @@
 		onUnexposeTextParams,
 		onExposeSpineParam,
 		onUnexposeSpineParam,
+		onExposeImageParam,
+		onUnexposeImageParam,
 		onToggleSignal,
 		onSetInstanceParam,
 		onPreviewSpine,
@@ -549,6 +557,18 @@
 	/** True when the selected spine node's source is exposed (component mode) — the spine
 	 * source is then set per instance via the bound `spine`-kind param. */
 	const isSpineExposed = $derived(componentMode && !!exposedSpineParamKey);
+	/** The AUTHOR param the selected sprite node binds its FRAME (`region`) to — i.e. its
+	 * `paramBindings['region']` pointing at an author (not engine) component param. Undefined
+	 * when the sprite isn't exposed. The sprite twin of {@link exposedSpineParamKey}. */
+	const exposedImageParamKey = $derived.by(() => {
+		if (!node || node.kind !== 'sprite') return undefined;
+		const key = node.paramBindings?.['region'];
+		if (!key) return undefined;
+		return componentParams.find((cp) => cp.key === key && cp.author) ? key : undefined;
+	});
+	/** True when the selected sprite's frame is exposed (component mode) — its art is then
+	 * picked per instance via the bound `image`-kind param. */
+	const isImageExposed = $derived(componentMode && !!exposedImageParamKey);
 	/** Flat (ungrouped) author params — rendered above the grouped sections. */
 	const ungroupedAuthorParams = $derived(authorParams.filter((p) => !p.group));
 	/** Author params bucketed by their `group` (e.g. a text node's name) — each renders
@@ -2939,6 +2959,41 @@
 			     `<assetKey>::<region>` outside the layout doc, which is why it lives in its own
 			     component with its own save rather than in this panel's doc-dirty flow. -->
 			<ArtBoundsEditor assetKey={node.assetKey} region={node.region} />
+		{/if}
+		{#if componentMode}
+			<section>
+				<h3>Image</h3>
+				{#if isImageExposed}
+					<p class="muted small">
+						Image exposed — this sprite's art is picked <strong>per instance</strong> via the
+						<strong>{exposedImageParamKey}</strong> variable (a region picker on every placed instance).
+						The frame above is the default.
+					</p>
+					<button
+						type="button"
+						class="ghost-sm"
+						onclick={() => onUnexposeImageParam?.(node)}
+						title="Drop the binding + the param it created, restoring the fixed frame"
+					>
+						Remove exposed image
+					</button>
+				{:else}
+					<button
+						type="button"
+						class="ghost-sm"
+						onclick={() => onExposeImageParam?.(node)}
+						title="Create + bind an image param so each placed instance can pick this sprite's art"
+					>
+						✨ Expose image as param (per instance)
+					</button>
+					<p class="muted small">
+						One click — makes this sprite's <strong>art</strong> pickable per instance, so one
+						prefab (e.g. a HUD readout) shows a different image each place it is dropped. The
+						current frame becomes the default. Binding it by hand to an existing variable is the
+						<strong>Bind to param</strong> section below.
+					</p>
+				{/if}
+			</section>
 		{/if}
 		{#if componentMode && componentParams.length > 0}
 			<section>

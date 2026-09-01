@@ -108,12 +108,26 @@ component's contract. It has three parts:
   component (enter, exit, win, …). You declare the names only; the game maps book
   events to them.
 
-For text nodes there is also an **Expose as params** shortcut: it creates grouped
-author params for the node's text / font / size / colour and binds the node's
-fields to them in one click, so every placed instance can edit that text. The
-inverse un-exposes them and restores the static values. A bound field shows a
-"bound to … — static value ignored in instances" note so you know the instance,
-not the static value, wins.
+Steps 1 and 2 have a **one-click shortcut per node kind**, which is the usual way
+to do this:
+
+- **text** — **Expose as params** creates grouped author params for the node's
+  text / font / size / colour and binds the node's fields to them.
+- **sprite** — **Expose image as param** creates an `image` param and binds the
+  node's frame to it, so each placed instance picks its own art (the sprite's
+  current frame becomes the default).
+- **spine** — **Expose spine as param** does the same for the rig bundle.
+
+Each has an inverse that un-exposes and restores the static value. A bound field
+shows a "bound to … — static value ignored in instances" note so you know the
+instance, not the static value, wins.
+
+**If an instance control does nothing, the node is not bound.** A component that
+replaces a coded part with its own node (say a HUD Readout whose coded background
+tile was swapped for a project frame) still lists the coded params — the engine
+adds them to every saved copy of a built-in — but nothing in *your* copy reads
+them until you bind a node to one. Expose or bind the node and the control comes
+alive.
 
 ### 4. Save
 

@@ -11,8 +11,11 @@
 		fontParamKeysOf,
 		FREE_SPIN_COUNTER_DEF,
 		HUD_READOUT_DEF,
+		isManifestAssetKey,
+		parseScopedFrameRef,
 		pruneOrphanParamBindings,
 		resolveComponentParams,
+		scopedFrameRef,
 		STANDARD_MAIN_SIZES_MAP,
 	} from 'engine-layout';
 	import type {
@@ -974,6 +977,83 @@
 		if (componentDraft.params.length === 0) delete componentDraft.params;
 	}
 
+	/**
+	 * "Expose image as param" for a sprite node: create ONE `image`-kind author param and bind
+	 * the node's FRAME (`region`) to it, so every placed instance picks this sprite's art from
+	 * a region picker — the sprite analogue of {@link exposeSpineParam}, and the one-click form
+	 * of the "Bind to param" dropdowns.
+	 *
+	 * This is the gap that makes a FORKED component's art un-swappable per instance. A def that
+	 * replaces a coded part with its OWN sprite (the HUD Readout whose `HudTicker` background
+	 * was swapped for a project frame) still surfaces the coded params through
+	 * `mergeBuiltinCodedParams` — but nothing in that def READS them, so the instance control
+	 * appears and does nothing. Binding the sprite is what makes a picker live, and text and
+	 * spine nodes each had a one-click for it while images had only the dropdown.
+	 *
+	 * The default is the node's current SCOPED frame ref (`<assetKey>::<region>` — what the
+	 * picker stores and `LayoutNodeView` resolves), so an un-overridden instance renders exactly
+	 * what the def shows. Idempotent — a sprite already exposing its own param is left alone.
+	 */
+	function exposeImageParam(node: LayoutNode): void {
+		if (!componentDraft || node.kind !== 'sprite') return;
+		const params = componentDraft.params ?? [];
+		// A param is THIS node's own only if bound solely by it — a binding shared with another
+		// node (a duplicated sprite carries the original's bindings) must not be stolen.
+		const owners = bindingOwners(componentDraft.root);
+		const ownedByThis = (key: string): boolean => {
+			const set = owners.get(key);
+			return !!set && set.size === 1 && set.has(node.id);
+		};
+		const existingKey = node.paramBindings?.['region'];
+		if (
+			existingKey &&
+			ownedByThis(existingKey) &&
+			params.some((p) => p.key === existingKey && p.author)
+		) {
+			return; // already exposed to its own param
+		}
+		const label = node.label?.trim() || 'image';
+		const slug = label.toLowerCase().replace(/[^a-z0-9]+/g, '') || 'image';
+		const keys = new Set(params.map((p) => p.key));
+		let key = `${slug}Image`;
+		for (let i = 2; keys.has(key); i++) key = `${slug}Image${i}`;
+		const p: ComponentParam = { key, kind: 'image', label, author: true };
+		// Scope the default when the frame comes from an R2 manifest — it pins the atlas, so a
+		// name two sheets both pack cannot resolve to the wrong one. A game-bundled sheet has no
+		// manifest key to pin with, so it keeps the bare frame name (parity with old bindings).
+		const ref = isManifestAssetKey(node.assetKey)
+			? scopedFrameRef(node.assetKey, node.region ?? '')
+			: node.region;
+		if (ref) p.default = ref;
+		node.paramBindings = { ...(node.paramBindings ?? {}), region: key };
+		componentDraft.params = [...params, p];
+	}
+
+	/**
+	 * Un-expose a sprite node: drop its `region` binding + the author param it created,
+	 * restoring the static frame from the removed param's default. Leaves engine/other binds
+	 * untouched. The inverse of {@link exposeImageParam}.
+	 */
+	function unexposeImageParam(node: LayoutNode): void {
+		if (!componentDraft || node.kind !== 'sprite' || !node.paramBindings) return;
+		const params = componentDraft.params ?? [];
+		const key = node.paramBindings['region'];
+		const p = params.find((cp) => cp.key === key);
+		if (!key || !p?.author) return; // not an author-exposed image bind
+		const bindings = { ...node.paramBindings };
+		delete bindings['region'];
+		// Restore the static frame from the param default, splitting a scoped ref back into its
+		// atlas + frame so the fixed sprite renders exactly as it did before exposure.
+		if (typeof p.default === 'string' && p.default) {
+			const scoped = parseScopedFrameRef(p.default);
+			node.region = scoped.region;
+			if (scoped.assetKey) node.assetKey = scoped.assetKey;
+		}
+		node.paramBindings = Object.keys(bindings).length ? bindings : undefined;
+		componentDraft.params = params.filter((cp) => cp.key !== key);
+		if (componentDraft.params.length === 0) delete componentDraft.params;
+	}
+
 	/** Toggle the component SIGNAL identified by a catalog entry on the draft. */
 	function toggleComponentSignal(key: string): void {
 		if (!componentDraft) return;
@@ -1351,6 +1431,8 @@
 						onUnexposeTextParams={unexposeTextParams}
 						onExposeSpineParam={exposeSpineParam}
 						onUnexposeSpineParam={unexposeSpineParam}
+						onExposeImageParam={exposeImageParam}
+						onUnexposeImageParam={unexposeImageParam}
 						onToggleSignal={toggleComponentSignal}
 						onSetInstanceParam={(key, value) => {
 							if (!selectedNode || selectedNode.kind !== 'componentInstance') return;
