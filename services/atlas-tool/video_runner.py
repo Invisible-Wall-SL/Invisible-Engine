@@ -453,10 +453,10 @@ def _run_variations(session_id: str, session: dict) -> None:
                     var.update(status="running", started=_now())
                     session["status"] = "running"
                 _write_meta(session_id, session)
+                recipe = _variation_recipe(session, var)
                 wf = build_video_workflow(
-                    bp, var.get("prompt") or session["prompt"],
-                    session["negative"], var["seed"],
-                    session["source_ref"], session["params"], prefix)
+                    bp, recipe["prompt"], recipe["negative"], var["seed"],
+                    recipe["source_ref"], recipe["params"], prefix)
                 job_id, wf = _submit(wf)
                 with _LOCK:
                     var["job_id"] = job_id
@@ -596,6 +596,29 @@ def _new_variation(index: int, seed: int | None = None) -> dict:
     }
 
 
+def _variation_recipe(session: dict, var: dict) -> dict:
+    """What ONE slot actually runs: the session's recipe with that slot's own
+    overrides laid over it. The single place the two are merged — the workflow
+    build, the tile's "what is different about this one" line and the duplicate
+    panel's starting values all have to agree, and they only can if they read the
+    same function.
+
+    A slot's `settings` keys are tested for PRESENCE, not truth: a duplicate made
+    to drop the negative prompt stores `{"negative": ""}`, which must mean "no
+    negative", not "fall back to the session's". `prompt` is the older field and
+    keeps its own truthiness rule — it can never legitimately be empty.
+    """
+    st = var.get("settings")
+    st = st if isinstance(st, dict) else {}
+    params = st.get("params")
+    return {
+        "prompt": var.get("prompt") or session.get("prompt", ""),
+        "negative": st.get("negative", session.get("negative", "")),
+        "source_ref": st.get("source_ref", session.get("source_ref", "")),
+        "params": params if isinstance(params, dict) else (session.get("params") or {}),
+    }
+
+
 def _load_for_edit(session_id: str, need_blueprint: bool = True) -> dict:
     """The in-memory session, hydrating it from the stored doc when this process
     does not hold it. Unlike `_adopt` it never starts a worker — the caller
@@ -715,6 +738,113 @@ def regenerate_variation(session_id: str, req: dict, ctx: tuple[str, str]) -> di
     return _public(session)
 
 
+def _room_for_one_more(session: dict) -> None:
+    """Refuse a single new slot once the session is at its ceiling. `add_variations`
+    keeps its own check because it asks for N and can say how many would fit; this
+    one is for the paths that add exactly one, where that arithmetic is noise."""
+    live = len(_live_variations(session))
+    if live >= MAX_SESSION_VARIATIONS:
+        raise ValueError(
+            f"This session already holds {live} variations, which is the ceiling "
+            f"({MAX_SESSION_VARIATIONS}). Delete some, or start a new session.")
+
+
+def duplicate_variation(session_id: str, req: dict, ctx: tuple[str, str]) -> dict:
+    """Run ONE slot's recipe again as a NEW slot, with anything about it changed.
+
+    The difference from a re-roll is the whole point of it: a re-roll REPLACES a
+    tile and moves two knobs (prompt, seed), while this ADDS a tile and moves all
+    of them — prompt, negative, source image and every blueprint setting — while
+    HOLDING the seed by default. That is the experiment an author actually runs:
+    the same roll of the dice with the cutout on and with it off, side by side in
+    one grid. Replacing the first render would destroy the comparison being made.
+
+    What differs from the SESSION's recipe is recorded on the slot and nothing
+    else is, for the same reason a re-rolled prompt is: the session's recipe still
+    describes the rest of the grid, and overwriting it would silently relabel the
+    provenance of every other tile.
+
+    The blueprint is deliberately NOT changeable here. It is the session's
+    identity — its params are the schema every tile in the grid is described by —
+    so another blueprint is another session, which is what Generate is for.
+    """
+    session = _load_for_edit(session_id)
+    bp = session["_blueprint"]
+    try:
+        index = int(req.get("index"))
+    except (TypeError, ValueError):
+        raise ValueError("Which variation? No index was given.")
+    src = _find_variation(session, index)
+    if src.get("status") == "deleted":
+        raise ValueError(
+            "That variation was deleted, so there is no recipe left to duplicate.")
+
+    # Everything unstated falls back to what the SOURCE tile ran, not to the
+    # session's — duplicating a duplicate has to carry the first one's changes
+    # forward, or the second experiment quietly reverts to the original recipe.
+    base = _variation_recipe(session, src)
+
+    prompt = str(req.get("prompt", base["prompt"]) or "").strip()
+    if not prompt:
+        raise ValueError("Enter a prompt.")
+    negative = str(req.get("negative", base["negative"]) or "").strip()
+    source_ref = str(req.get("source_ref", base["source_ref"]) or "").strip()
+    if blueprint_wants_source_image(bp) and not source_ref:
+        raise ValueError(
+            f"'{(bp.get('meta') or {}).get('name', session.get('blueprint'))}' is "
+            "an image-to-video blueprint — pick a source image to animate.")
+
+    params = req.get("params")
+    params = params if isinstance(params, dict) else base["params"]
+
+    # A held seed is the DEFAULT, because holding it is what makes the two tiles
+    # comparable. Blank means "roll a new one" — the author asked for that.
+    if "seed" in req:
+        raw_seed = str(req.get("seed") or "").strip()
+        if raw_seed:
+            try:
+                seed = int(raw_seed)
+            except ValueError:
+                raise ValueError("A seed must be a whole number.")
+            if not 0 <= seed <= MAX_SEED:
+                raise ValueError(f"A seed must be between 0 and {MAX_SEED}.")
+        else:
+            seed = random.randrange(0, MAX_SEED)
+    else:
+        seed = int(src["seed"])
+
+    # Only DIFFERENCES from the session are stored. A slot carrying a full copy of
+    # a recipe it never departed from would read in the UI as "this tile is
+    # special" and, worse, pin settings that were never overridden — the session's
+    # `params` records only what was changed for exactly that reason.
+    settings: dict = {}
+    if negative != (session.get("negative") or ""):
+        settings["negative"] = negative
+    if source_ref != (session.get("source_ref") or ""):
+        settings["source_ref"] = source_ref
+    if params != (session.get("params") or {}):
+        settings["params"] = params
+
+    with _LOCK:
+        _room_for_one_more(session)
+        _reopen(session)
+        # Numbering continues from the HIGHEST index ever used, deleted slots
+        # included: `003.webp` may still be referenced by a clip made from it.
+        nxt = max((v["index"] for v in session["variations"]), default=0) + 1
+        var = _new_variation(nxt, seed)
+        var["prompt"] = "" if prompt == session.get("prompt") else prompt
+        if settings:
+            var["settings"] = settings
+        # Where it came from, so a grid of near-identical tiles can still say which
+        # experiment each one belongs to. Provenance only — nothing reads it back.
+        var["from_index"] = index
+        session["variations"].append(var)
+
+    _write_meta(session_id, session)
+    _dispatch(session_id, ctx)
+    return _public(session)
+
+
 def discard_variation(session_id: str, req: dict) -> dict:
     """Delete ONE variation's render.
 
@@ -737,6 +867,7 @@ def discard_variation(session_id: str, req: dict) -> dict:
                 "then delete it.")
         var.update(status="deleted", prompt="", job_id="", remote_status="",
                    file="", bytes=0, error="", finished=_now())
+        var.pop("settings", None)
         session["done_count"] = sum(
             1 for v in session["variations"] if v["status"] == "done")
 

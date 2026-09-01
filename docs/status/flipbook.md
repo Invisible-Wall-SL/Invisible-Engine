@@ -2,7 +2,12 @@
 
 > Design: [docs/design/invisible-flipbook.md](../design/invisible-flipbook.md) · Guide: [docs/tools/flipbook.md](../tools/flipbook.md) · Agent: `.claude/agents/invisible-flipbook.md`
 
-**One-line state:** _(2026-08-31)_ **A third consumer: the Rigger.** A rig animation event can bind a clip (`event.flipbook`) the way it already binds an FX effect, so a clip plays on a rig's own beat, on a bound bone, at a slot's depth — see [status/rigger](rigger.md). Was _(2026-08-28)_ Bounds shipped and took two fixes to become usable — the box drew 562px from its art, then the resizable preview grew in Y without limit. The preview is now a proper **pan/zoom viewport** (scroll to zoom about the pointer, drag to pan, Fit, drag-grip height), all three browser-verified and fixtured. **A clip now declares HOW it plays and HOW BIG it is** —
+**One-line state:** _(2026-09-01)_ **A video tile can be DUPLICATED with new settings.** ⧉ on a
+finished card opens the whole recipe — prompt, negative, source image and every blueprint setting —
+holds the seed, and runs it as a NEW tile beside the original, which is how you see what one
+setting does (owner: *"a version with the background removal, and one without it"*). Still not
+live-verified on a GPU: it is the same unproven chain as the rest of 🎬 mode. Was _(2026-08-31)_
+**A third consumer: the Rigger.** A rig animation event can bind a clip (`event.flipbook`) the way it already binds an FX effect, so a clip plays on a rig's own beat, on a bound bone, at a slot's depth — see [status/rigger](rigger.md). Was _(2026-08-28)_ Bounds shipped and took two fixes to become usable — the box drew 562px from its art, then the resizable preview grew in Y without limit. The preview is now a proper **pan/zoom viewport** (scroll to zoom about the pointer, drag to pan, Fit, drag-grip height), all three browser-verified and fixtured. **A clip now declares HOW it plays and HOW BIG it is** —
 `direction` (forward / reverse / ping-pong), `flipX`/`flipY`, and a `bounds` box drawn over the
 preview with the Rigger's drag handles; the same box exists for a plain sprite region
 (`editor/art-bounds.json`, authored in the Scene Editor and folded into the shipped sheet at
@@ -184,6 +189,46 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-01 — **⧉ Duplicate with new settings: one tile's recipe, run again as a new tile.**
+  Owner ask: *"a duplicate this with new settings button for each card already processed … keep the
+  same seed and make a variation from a different prompt/settings … a version with the background
+  removal, and one without it."*
+  - **It is the OPPOSITE of ↻ in both directions, and that is why both exist.** ↻ *replaces* a slot
+    and moves two knobs (prompt, seed); ⧉ *appends* a slot and moves every knob (prompt, negative,
+    source image, every blueprint param) while HOLDING the seed. Appending is load-bearing for the
+    stated use: the thing being compared against has to survive, or there is no comparison. Holding
+    the seed is load-bearing for the same reason — otherwise the difference you see is another roll
+    of the dice, not the setting you changed. This settles open question 2 in the design doc.
+  - **A variation can now depart from its session's recipe on more than the prompt.** A slot carries
+    an optional `settings` bag (`negative` / `source_ref` / `params`), and only what actually
+    DIFFERS from the session goes in it — a full copy would read in the grid as "this tile is
+    special" and would pin params that were never overridden.
+  - **The merge has exactly one definition**, `_variation_recipe(session, var)` in
+    `video_runner.py`. The workflow build, the tile's "what is different about this one" line and
+    the panel's starting values all read it; the client's `variationRecipe` is its twin and has to
+    stay one, or the grid describes renders the runner did not produce.
+  - **`settings` keys are read by PRESENCE, not truth.** A duplicate made to *drop* the negative
+    stores `{"negative": ""}`, which must mean "none" rather than "the session's" — the trap a
+    truthiness fallback (the older `prompt` field's rule, correct only because a prompt can never
+    legitimately be empty) would walk straight into. Fixtured.
+  - **The blueprint is deliberately NOT a knob.** It is the session's identity and its params are
+    the schema every tile in the grid is described by, so another blueprint is another session.
+  - **The card layout was the owner's stated worry and was measured, not eyeballed.** A third icon
+    button next to a label that already ellipses is exactly how a control gets pushed out of a
+    card. Verified in a browser against the tile's real CSS at eight container widths (1400 → 170):
+    the four controls stay on one line with **9px to spare** at the grid's 220px minimum, the label
+    is never truncated, and nothing leaves the card. The row also gained `flex-wrap` plus an 88px
+    floor on the label, so a card narrower than the grid's own minimum folds the icons onto a
+    second line instead of overflowing.
+  - **The source picker is one component with two destinations**, not a second copy: `openPicker`
+    takes a target and `setSource` writes to the rail's field or the panel's. Same for the param
+    field markup, now a `{#snippet}` rendered by both panels.
+  - Verified live in a browser by mounting the real component against a stubbed API: the panel
+    opens on the tile's own recipe (including a duplicated tile's, so chaining works), a pick made
+    from inside it lands in the panel and not in the rail, and the posted body is exactly what the
+    runner accepts. Fixtures: `py test_video_runner.py` —
+    `test_duplicate_a_variation_with_new_settings` (incl. that the duplicate's GRAPH really has the
+    cutout off while the original's has it on) and `test_a_session_will_not_grow_past_its_ceiling`.
 - 2026-08-31 — **The Rigger became the third consumer: a rig animation event can play a clip.**
   Owner ask on the Rigger side (*"add flipbooks to the rigger, so I can mix rigs, flipbook and FX in
   the animator"*); the flipbook-side story is short because almost nothing here had to change.

@@ -61,6 +61,17 @@
 		/** Set only when THIS slot was re-rolled against a different prompt than the session's.
 		 * Empty means it ran the session's prompt. */
 		prompt?: string;
+		/** Set only on a slot DUPLICATED with changed settings, and only for what actually
+		 * differs from the session's recipe. Keys are read by PRESENCE, not truth — a duplicate
+		 * made to drop the negative stores `{negative: ''}`, which means "none", not "the
+		 * session's". Absent entirely on every slot that ran the session's recipe. */
+		settings?: {
+			negative?: string;
+			source_ref?: string;
+			params?: Record<string, string | number | boolean>;
+		};
+		/** Which slot this one was duplicated from. Provenance for the grid; nothing reads it back. */
+		from_index?: number;
 		file: string;
 		bytes: number;
 		error: string;
@@ -118,6 +129,13 @@
 	let library = $state<Library | null>(null);
 
 	const blueprint = $derived(blueprints.find((b) => b.id === blueprintId) ?? null);
+	/** The blueprint this session RAN on, if the library still has it. `null` is a real state,
+	 * not an error: a blueprint can be deleted or renamed after a run, and everything below has
+	 * to keep telling the truth about a session whose recipe outlived its network. */
+	const recipeBlueprint = $derived(
+		session ? (blueprints.find((b) => b.id === session!.blueprint) ?? null) : null,
+	);
+
 	const params = $derived(blueprint?.params ?? []);
 	const running = $derived(session?.status === 'running' || session?.status === 'queued');
 	/** Is ANY session holding the runner — the selected one or another in the list? Only the
@@ -207,6 +225,23 @@
 		return String(raw);
 	}
 
+	/** An override bag coerced to the types its blueprint declares, with keys that blueprint no
+	 * longer has dropped. Takes the DECLARATIONS rather than reading `params`: the duplicate
+	 * panel edits against the SESSION's blueprint, which is not necessarily the one selected in
+	 * the rail, and sending a value typed against the wrong schema is a graph rejection on the
+	 * GPU rather than an error anything here can show. */
+	function coerceBag(
+		bag: Record<string, string | number | boolean>,
+		decls: BlueprintParam[],
+	): Record<string, string | number | boolean> {
+		return Object.fromEntries(
+			Object.entries(bag).flatMap(([k, v]) => {
+				const p = decls.find((x) => x.key === k);
+				return p ? [[k, coerce(p, v)]] : [];
+			}),
+		);
+	}
+
 	async function generate(): Promise<void> {
 		busy = true;
 		err = '';
@@ -218,12 +253,7 @@
 				negative,
 				source_ref: sourceRef,
 				variations,
-				params: Object.fromEntries(
-					Object.entries(overrides).flatMap(([k, v]) => {
-						const p = params.find((x) => x.key === k);
-						return p ? [[k, coerce(p, v)]] : [];
-					}),
-				),
+				params: coerceBag(overrides, params),
 			};
 			const res = await postJson<Session & { error?: string }>('generate', payload);
 			// The tool answers user-fixable problems as 200 + {error} so the message can be shown
@@ -320,16 +350,29 @@
 	let addCount = $state(4);
 	let tileBusy = $state(0);
 
-	/** What a variation actually ran: its own prompt if it was re-rolled against one, else the
-	 * session's. Shown on the tile so a grid with mixed prompts never lies about which is which. */
-	function effectivePrompt(v: Variation): string {
-		return v.prompt || session?.prompt || '';
+	/** What a variation actually RAN: the session's recipe with that slot's own overrides laid
+	 * over it. The twin of `_variation_recipe` in `video_runner.py` and it has to stay one —
+	 * this is what the tile reports and what the duplicate panel opens with, and either drifting
+	 * from what the runner builds means the grid describes renders it did not produce. */
+	function variationRecipe(v: Variation): {
+		prompt: string;
+		negative: string;
+		source_ref: string;
+		params: Record<string, string | number | boolean>;
+	} {
+		const st = v.settings ?? {};
+		return {
+			prompt: v.prompt || session?.prompt || '',
+			negative: st.negative ?? session?.negative ?? '',
+			source_ref: st.source_ref ?? session?.source_ref ?? '',
+			params: st.params ?? session?.params ?? {},
+		};
 	}
 
 	function openRegen(v: Variation): void {
 		regen = v;
 		regenErr = '';
-		regenPrompt = effectivePrompt(v);
+		regenPrompt = variationRecipe(v).prompt;
 		regenSeed = String(v.seed);
 	}
 
@@ -354,6 +397,128 @@
 			regenErr = (e as Error).message;
 		}
 		regenBusy = false;
+	}
+
+	// --- duplicate a variation with new settings --------------------------------
+	// The counterpart to a re-roll, and deliberately its opposite in both axes. A re-roll
+	// REPLACES a tile and moves two knobs; this ADDS a tile and moves every knob — prompt,
+	// negative, source image and every blueprint setting — while HOLDING the seed. That is the
+	// experiment an author actually runs: the same roll of the dice with the background cutout
+	// on and with it off, side by side in one grid. Replacing the first render would destroy the
+	// comparison being made.
+	//
+	// The blueprint is NOT one of the knobs: it is the session's identity, and its params are the
+	// schema every tile in this grid is described by. Another blueprint is another session, which
+	// is what Generate is for.
+
+	/** The variation whose duplicate panel is open. */
+	let dupOf = $state<Variation | null>(null);
+	let dupPrompt = $state('');
+	let dupNegative = $state('');
+	let dupSourceRef = $state('');
+	let dupSourceLabel = $state('');
+	let dupSourcePreview = $state('');
+	let dupSeed = $state('');
+	let dupOverrides = $state<Record<string, string | number | boolean>>({});
+	let dupBusy = $state(false);
+	let dupErr = $state('');
+
+	/** The params the DUPLICATE panel edits — the session's blueprint's, not the rail's. Those
+	 * are usually the same and occasionally are not, and a panel that showed the rail's would be
+	 * offering settings this session's graph has no nodes for. */
+	const dupParamGroups = $derived.by(() => {
+		const groups: { group: string; items: BlueprintParam[] }[] = [];
+		for (const p of recipeBlueprint?.params ?? []) {
+			const name = p.group || 'Settings';
+			const found = groups.find((g) => g.group === name);
+			if (found) found.items.push(p);
+			else groups.push({ group: name, items: [p] });
+		}
+		return groups;
+	});
+
+	function openDup(v: Variation): void {
+		const r = variationRecipe(v);
+		dupOf = v;
+		dupErr = '';
+		dupPrompt = r.prompt;
+		dupNegative = r.negative;
+		// No blob to re-preview — the ref is what travels, so the ref is what is shown. Same
+		// reason `reuseSettings` shows one: rebuilding an R2 key from a tool-relativized ref is
+		// the drift docs/ui-inventory.md §1 warns about.
+		if (dupSourcePreview) URL.revokeObjectURL(dupSourcePreview);
+		dupSourcePreview = '';
+		dupSourceLabel = '';
+		dupSourceRef = r.source_ref;
+		dupSeed = String(v.seed);
+		dupOverrides = { ...r.params };
+	}
+
+	async function doDup(): Promise<void> {
+		if (!dupOf || !session) return;
+		dupBusy = true;
+		dupErr = '';
+		try {
+			const res = await postJson<Session & { error?: string }>('duplicate', {
+				session: session.id,
+				index: dupOf.index,
+				prompt: dupPrompt,
+				negative: dupNegative,
+				source_ref: dupSourceRef,
+				seed: dupSeed.trim(),
+				params: coerceBag(dupOverrides, recipeBlueprint?.params ?? []),
+			});
+			if (res.error) dupErr = res.error;
+			else {
+				session = res;
+				dupOf = null;
+				recent = await getJson<Session[]>('sessions');
+			}
+		} catch (e) {
+			dupErr = (e as Error).message;
+		}
+		dupBusy = false;
+	}
+
+	/** What a duplicated tile changed, in the blueprint's own words — so a grid of near-identical
+	 * renders can still say which experiment each one is. Null for every slot that ran the
+	 * session's recipe, which is most of them. A param the session set and this slot did NOT is a
+	 * real difference too: it ran at the blueprint's default. */
+	function settingsSummary(v: Variation): { text: string; detail: string } | null {
+		const st = v.settings;
+		if (!st) return null;
+		const names: string[] = [];
+		const detail: string[] = [];
+		if ('negative' in st) {
+			names.push('negative');
+			detail.push(`Negative: ${st.negative || '(none)'}`);
+		}
+		if ('source_ref' in st) {
+			names.push('source image');
+			detail.push(`Source image: ${st.source_ref || '(none)'}`);
+		}
+		if (st.params) {
+			const base = session?.params ?? {};
+			for (const key of new Set([...Object.keys(st.params), ...Object.keys(base)])) {
+				const mine = st.params[key];
+				if (mine === base[key]) continue;
+				const label = recipeBlueprint?.params?.find((x) => x.key === key)?.label ?? key;
+				names.push(label);
+				detail.push(
+					`${label}: ${
+						mine === undefined
+							? "the blueprint's default"
+							: typeof mine === 'boolean'
+								? mine
+									? 'on'
+									: 'off'
+								: String(mine)
+					}`,
+				);
+			}
+		}
+		if (!names.length) return null;
+		return { text: names.join(', '), detail: detail.join('\n') };
 	}
 
 	async function discardVariation(v: Variation): Promise<void> {
@@ -760,23 +925,38 @@ Overwrite it?`)
 		}
 	}
 
-	function openPicker(): void {
+	/** Which field the next pick lands in. The picker is THREE tabs of ref-resolution logic and
+	 * a presigned upload; a second copy of it for the duplicate panel would be the duplication
+	 * `feedback_avoid_duplication` is about, and the two copies would drift the moment a fourth
+	 * source is added. One picker, addressed. */
+	let pickTarget = $state<'rail' | 'dup'>('rail');
+
+	function openPicker(target: 'rail' | 'dup' = 'rail'): void {
+		pickTarget = target;
 		picking = true;
 		pickErr = '';
 		if (pickTab === 'project' && !pickDirs.length && !pickFiles.length) void browse('');
 	}
 
 	function setSource(ref: string, label: string, preview: string): void {
-		if (sourcePreview) URL.revokeObjectURL(sourcePreview);
-		sourcePreview = preview;
-		sourceLabel = label;
-		sourceRef = ref;
+		if (pickTarget === 'dup') {
+			if (dupSourcePreview) URL.revokeObjectURL(dupSourcePreview);
+			dupSourcePreview = preview;
+			dupSourceLabel = label;
+			dupSourceRef = ref;
+		} else {
+			if (sourcePreview) URL.revokeObjectURL(sourcePreview);
+			sourcePreview = preview;
+			sourceLabel = label;
+			sourceRef = ref;
+		}
 		pickErr = '';
 		picking = false;
 	}
 
 	onDestroy(() => {
 		if (sourcePreview) URL.revokeObjectURL(sourcePreview);
+		if (dupSourcePreview) URL.revokeObjectURL(dupSourcePreview);
 	});
 
 	const slug = (s: string): string =>
@@ -892,13 +1072,6 @@ Overwrite it?`)
 	// for it AGAIN, either verbatim for another roll of the dice or with one word
 	// changed. Every field below already travels in the session payload; nothing new
 	// is stored and no new endpoint is called.
-
-	/** The blueprint this session RAN on, if the library still has it. `null` is a real state,
-	 * not an error: a blueprint can be deleted or renamed after a run, and everything below has
-	 * to keep telling the truth about a session whose recipe outlived its network. */
-	const recipeBlueprint = $derived(
-		session ? (blueprints.find((b) => b.id === session!.blueprint) ?? null) : null,
-	);
 
 	/** The recorded overrides, resolved against that blueprint so each one shows its human label.
 	 * A key the blueprint no longer declares keeps its raw name and is flagged — the run really
@@ -1047,6 +1220,47 @@ Overwrite it?`)
 	}
 </script>
 
+<!-- ONE definition of "how a blueprint param is edited", rendered by the Generate rail and by
+     the duplicate panel. Copying these five branches into the second panel is how the two would
+     come to disagree about (say) what a `select` does with a value the blueprint dropped, and
+     only one of them would ever be fixed. `bag` is the $state record being edited, so writing
+     through it updates whichever panel passed it. -->
+{#snippet paramField(p: BlueprintParam, bag: Record<string, string | number | boolean>)}
+	<label class="fld sm">
+		<span>{p.label}</span>
+		{#if p.type === 'bool'}
+			<input
+				type="checkbox"
+				checked={Boolean(bag[p.key] ?? p.default)}
+				onchange={(e) => (bag[p.key] = e.currentTarget.checked)}
+			/>
+		{:else if p.type === 'select'}
+			<select
+				value={String(bag[p.key] ?? p.default ?? '')}
+				onchange={(e) => (bag[p.key] = e.currentTarget.value)}
+			>
+				{#each p.options ?? [] as o (o)}
+					<option value={o}>{o}</option>
+				{/each}
+			</select>
+		{:else if p.type === 'text'}
+			<input
+				value={String(bag[p.key] ?? p.default ?? '')}
+				onchange={(e) => (bag[p.key] = e.currentTarget.value)}
+			/>
+		{:else}
+			<input
+				type="number"
+				min={p.min}
+				max={p.max}
+				step={p.step ?? (p.type === 'int' ? 1 : 0.1)}
+				value={Number(bag[p.key] ?? p.default ?? 0)}
+				onchange={(e) => (bag[p.key] = e.currentTarget.value)}
+			/>
+		{/if}
+	</label>
+{/snippet}
+
 <div class="vbody">
 	<aside class="rail">
 		<div class="railhead">
@@ -1126,7 +1340,7 @@ Overwrite it?`)
 						placeholder="none picked"
 						title={sourceRef}
 					/>
-					<button onclick={openPicker}>Pick…</button>
+					<button onclick={() => openPicker('rail')}>Pick…</button>
 				</div>
 				<p class="hint">
 					Image-to-video animates this still. Point it at a symbol's source art and the model moves
@@ -1144,39 +1358,7 @@ Overwrite it?`)
 				<details class="grp">
 					<summary>{g.group}</summary>
 					{#each g.items as p (p.key)}
-						<label class="fld sm">
-							<span>{p.label}</span>
-							{#if p.type === 'bool'}
-								<input
-									type="checkbox"
-									checked={Boolean(overrides[p.key] ?? p.default)}
-									onchange={(e) => (overrides[p.key] = e.currentTarget.checked)}
-								/>
-							{:else if p.type === 'select'}
-								<select
-									value={String(overrides[p.key] ?? p.default ?? '')}
-									onchange={(e) => (overrides[p.key] = e.currentTarget.value)}
-								>
-									{#each p.options ?? [] as o (o)}
-										<option value={o}>{o}</option>
-									{/each}
-								</select>
-							{:else if p.type === 'text'}
-								<input
-									value={String(overrides[p.key] ?? p.default ?? '')}
-									onchange={(e) => (overrides[p.key] = e.currentTarget.value)}
-								/>
-							{:else}
-								<input
-									type="number"
-									min={p.min}
-									max={p.max}
-									step={p.step ?? (p.type === 'int' ? 1 : 0.1)}
-									value={Number(overrides[p.key] ?? p.default ?? 0)}
-									onchange={(e) => (overrides[p.key] = e.currentTarget.value)}
-								/>
-							{/if}
-						</label>
+						{@render paramField(p, overrides)}
 					{/each}
 				</details>
 			{/each}
@@ -1290,6 +1472,7 @@ Overwrite it?`)
 		{:else}
 			<div class="grid">
 				{#each session.variations.filter((v) => v.status !== 'deleted') as v (v.index)}
+					{@const own = settingsSummary(v)}
 					<figure class="tile" class:failed={v.status === 'failed'}>
 						<div class="thumb">
 							{#if v.status === 'done' && v.file}
@@ -1313,7 +1496,10 @@ Overwrite it?`)
 						</div>
 						<!-- TWO rows, not one. A 16-digit seed plus four controls needs ~300px and a
 						     grid column bottoms out at 220 — as one flex row the last buttons were
-						     pushed clean out of the card. -->
+						     pushed clean out of the card. The action row also WRAPS: three icon
+						     buttons beside the label fit a 220px column with room to spare, but a
+						     column narrower than the minimum (the container itself is narrower) has
+						     to fold rather than push a button out of the card again. -->
 						<figcaption>
 							<div class="crow">
 								<span class="ix">#{String(v.index).padStart(3, '0')}</span>
@@ -1325,7 +1511,7 @@ Overwrite it?`)
 									{v.seed}
 								</button>
 							</div>
-							<div class="crow">
+							<div class="crow acts">
 								<button
 									class="make"
 									disabled={v.status !== 'done'}
@@ -1343,6 +1529,14 @@ Overwrite it?`)
 									onclick={() => openRegen(v)}>↻</button
 								>
 								<button
+									class="tico"
+									disabled={v.status === 'running' || tileBusy === v.index}
+									title={v.status === 'running'
+										? 'Still rendering — cancel the session first'
+										: 'Duplicate with new settings: this render stays, a NEW tile runs the same seed with whatever you change — prompt, source image, background cutout, anything'}
+									onclick={() => openDup(v)}>⧉</button
+								>
+								<button
 									class="tico danger"
 									disabled={v.status === 'running' || tileBusy === v.index}
 									title={v.status === 'running'
@@ -1354,6 +1548,9 @@ Overwrite it?`)
 						</figcaption>
 						{#if v.prompt}
 							<p class="tileprompt" title={v.prompt}>↻ {v.prompt}</p>
+						{/if}
+						{#if own}
+							<p class="tileprompt" title={own.detail}>⧉ {own.text}</p>
 						{/if}
 						{#if v.status === 'failed' && v.error}
 							<p class="tileerr">{v.error}</p>
@@ -1401,6 +1598,98 @@ Overwrite it?`)
 			<div class="actions">
 				<button class="go" disabled={regenBusy || !regenPrompt.trim()} onclick={doRegen}>
 					{regenBusy ? 'Starting…' : '↻ Re-roll it'}
+				</button>
+			</div>
+		</div>
+	{/if}
+
+	{#if dupOf && session}
+		<!-- Placed BEFORE the source picker in the DOM: every modal here shares one z-index, so
+		     the picker opened FROM this panel has to come later to paint over it. -->
+		<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+		<div class="backdrop" onclick={() => (dupOf = null)}></div>
+		<div class="picker wide">
+			<header>
+				<strong>Duplicate #{String(dupOf.index).padStart(3, '0')} with new settings</strong>
+				<button onclick={() => (dupOf = null)}>✕</button>
+			</header>
+
+			{#if dupErr}
+				<p class="pill err">{dupErr}</p>
+			{/if}
+
+			<p class="hint">
+				A <b>new tile</b> in this same grid, running the seed below with whatever you change here. #{String(
+					dupOf.index,
+				).padStart(3, '0')} is not touched — the two sit side by side, which is the comparison this is
+				for: the same roll of the dice with the background cutout on and with it off, or one word of
+				the prompt different.
+			</p>
+
+			<label class="fld">
+				<span>Prompt</span>
+				<textarea bind:value={dupPrompt} rows="4"></textarea>
+			</label>
+
+			<label class="fld">
+				<span>Negative</span>
+				<textarea bind:value={dupNegative} rows="2" placeholder="(optional)"></textarea>
+			</label>
+
+			<div class="fld">
+				<span>Source image</span>
+				<div class="srcrow">
+					{#if dupSourcePreview}
+						<img class="srcthumb" src={dupSourcePreview} alt="" title={dupSourceRef} />
+					{/if}
+					<input
+						value={dupSourceLabel || dupSourceRef}
+						readonly
+						placeholder="none picked"
+						title={dupSourceRef}
+					/>
+					<button onclick={() => openPicker('dup')}>Pick…</button>
+				</div>
+			</div>
+
+			<label class="fld">
+				<span>Seed</span>
+				<div class="srcrow">
+					<input bind:value={dupSeed} placeholder="blank = a new one" />
+					<button onclick={() => (dupSeed = '')}>🎲 New</button>
+				</div>
+			</label>
+			<p class="hint">
+				It opens on <b>this tile's own seed</b>, and that is the point: holding it is what makes the
+				two renders comparable, so any difference you see is the setting you changed and not another
+				roll of the dice. Clear it only when you want a different roll as well.
+			</p>
+
+			{#if recipeBlueprint}
+				{#each dupParamGroups as g (g.group)}
+					<details class="grp">
+						<summary>{g.group}</summary>
+						{#each g.items as p (p.key)}
+							{@render paramField(p, dupOverrides)}
+						{/each}
+					</details>
+				{/each}
+			{:else}
+				<p class="diag">
+					The blueprint “{session.blueprint_name ?? session.blueprint}” is no longer in the video
+					library, so its settings cannot be shown — and the run itself will be refused for the same
+					reason. Publish it again, or start a new session.
+				</p>
+			{/if}
+
+			<p class="hint">
+				The blueprint is fixed: it is what every tile in this grid is described by, and its settings
+				are the ones above. A different blueprint is a different session — use <b>Generate</b>.
+				Costs one more GPU job, and only what you actually change is recorded on the new tile.
+			</p>
+			<div class="actions">
+				<button class="go" disabled={dupBusy || !dupPrompt.trim()} onclick={doDup}>
+					{dupBusy ? 'Starting…' : '⧉ Duplicate it'}
 				</button>
 			</div>
 		</div>
@@ -2122,12 +2411,23 @@ Overwrite it?`)
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	/* The action row is the one that can run out of width — a label plus THREE icon buttons.
+	   It wraps rather than shrinking the label to nothing: at the grid's 220px minimum the four
+	   fit side by side with room over, and narrower than that the icons fold onto their own line
+	   instead of being pushed out of the card (which is what happened when they were one
+	   unwrapped row). */
+	.crow.acts {
+		flex-wrap: wrap;
+		row-gap: 4px;
+	}
 	.make {
 		font-size: 10px;
 		padding: 2px 6px;
-		/* Takes the row; the two icon buttons keep their natural width beside it. */
+		/* Takes the row; the icon buttons keep their natural width beside it. The floor is what
+		   makes wrapping possible at all — with `min-width: 0` the label would ellipse away to
+		   nothing before the row ever wrapped, and "🎞 M…" is not a button anyone can read. */
 		flex: 1 1 auto;
-		min-width: 0;
+		min-width: 88px;
 		overflow: hidden;
 		text-overflow: ellipsis;
 		white-space: nowrap;

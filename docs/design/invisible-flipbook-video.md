@@ -207,6 +207,25 @@ unbuilt), and a new surface should not enlist in it.
   001.webp … NNN.webp  # one per variation
 ```
 
+**A session owns ONE recipe; a slot may depart from it.** `meta.json` records the session's
+blueprint, prompt, negative, source ref and param overrides, and each variation records only where
+it *differs* — `prompt` when it was re-rolled against another one, and a `settings` bag
+(`negative` / `source_ref` / `params`) when it was duplicated with changed settings. What one slot
+actually runs is `_variation_recipe(session, var)` in `video_runner.py`, and that is the only place
+the two are merged: the workflow build, the tile's "what is different about this one" line and the
+duplicate panel's starting values all read it, so none of them can describe a render the runner did
+not produce.
+
+Storing only the differences is what keeps the grid honest. A slot carrying a full copy of a recipe
+it never departed from would read as "this tile is special", and would pin settings that were never
+overridden — the same reason the session's `params` records only what was changed. `settings` keys
+are read by PRESENCE, not truth: a duplicate made to *drop* the negative stores `{"negative": ""}`,
+which has to mean "none", not "fall back to the session's".
+
+The **blueprint is not per-slot.** It is the session's identity — its params are the schema every
+tile in that grid is described by — so another blueprint is another session, which is what Generate
+is for.
+
 Authoring artifacts only — **these never enter `deploy/`**. Nothing in a game references a video;
 the game gets the packed sheet and the clip. Rule 8 is satisfied by the existing chain, because
 `editorArtExport` already adds a clip's `assetKey` and every frame to `usedRegions`, so the sheet
@@ -320,7 +339,14 @@ of a project's asset budget for one animation. So the trim step is not a nicety:
 
 1. **Cost visibility.** N video variations on a serverless GPU is materially more expensive than N
    stills. The generate button should show an estimate before spending.
-2. **Re-roll semantics.** Does a re-rolled variation replace its tile or append? (The Atlas Maker
-   appends and keeps every variant; the same is probably right here, but video is heavier.)
+2. ~~**Re-roll semantics.** Does a re-rolled variation replace its tile or append?~~ **Settled:
+   both, as two different actions, because they answer two different questions.** ↻ **replaces**
+   (same slot, same number, the old render deleted) and moves two knobs — prompt and seed — which
+   is what you want when the render was simply wrong. ⧉ **appends** (a new slot, the source
+   untouched) and moves every knob — prompt, negative, source image, every blueprint setting —
+   while HOLDING the seed by default, which is what you want when you are *comparing*: the same
+   roll of the dice with the background cutout on and with it off, side by side. Replacing the
+   first render there would destroy the comparison being made, and re-rolling into a new slot
+   would leave a wrong render in the grid forever.
 3. **Session retention.** Nothing prunes `<project>/video/` today. A weekly sweep, a per-session
    delete, or both.

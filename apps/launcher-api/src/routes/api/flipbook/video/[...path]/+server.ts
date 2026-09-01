@@ -45,12 +45,14 @@ const POST_ROUTES: Record<string, string> = {
 	generate: '/video/generate',
 	cancel: '/video/cancel',
 	delete: '/video/delete',
-	// Per-variation editing, all three scoped to one session's own grid: re-roll a
+	// Per-variation editing, all four scoped to one session's own grid: re-roll a
 	// slot in place (optionally against a changed prompt or a held seed), drop one
-	// render, or append more rolls of the same recipe to the session.
+	// render, append more rolls of the same recipe to the session, or run one
+	// slot's recipe again as a NEW slot with any of its settings changed.
 	regen: '/video/regen',
 	discard: '/video/discard',
 	add: '/video/add',
+	duplicate: '/video/duplicate',
 	// Extract → trim → pack → write sheet(s). Runs inline in the tool (seconds of
 	// Pillow work), so this request is slow-ish but synchronous.
 	toclip: '/video/toclip',
