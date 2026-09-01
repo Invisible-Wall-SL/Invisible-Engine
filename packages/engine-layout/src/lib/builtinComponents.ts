@@ -26,18 +26,25 @@ const HUD_FONT_FAMILY = 'proxima-nova';
 
 /** Mirrors `components-ui-pixi` `UI_BASE_FONT_SIZE` (`UI_BASE_SIZE 150 * 0.3`). */
 const HUD_VALUE_FONT_SIZE = 45;
-/** A smaller caption above the value, so the readout reads label-over-number. */
-const HUD_CAPTION_FONT_SIZE = 30;
 /** White (`constants-shared` `WHITE`), the coded label fill. */
 const HUD_FILL = 0xffffff;
 /**
- * The readout's background TICKER width (`HudTicker` draws its `UiSprite` at
- * `UI_BASE_FONT_SIZE * 3 * 326/73`). Used as the default `alignWidth` — the box the
- * caption/value text aligns WITHIN — so `align: left`/`right` push the text to the
+ * The coded ticker tile's BOX — the size `HudTicker` draws its `UiSprite` at
+ * (`UI_BASE_FONT_SIZE * 3 * 326/73` × `UI_BASE_FONT_SIZE * 3`). Exported because three
+ * surfaces have to agree on it: the coded part, the editor's bound-component catalog (which
+ * previews the Background at the size the GAME draws it — the chip stood in at a made-up
+ * 240px) and an instance's `backgroundWidth`/`backgroundHeight` overrides, which fall back
+ * to exactly these numbers.
+ */
+export const HUD_TILE_WIDTH = HUD_VALUE_FONT_SIZE * 3 * (326 / 73);
+export const HUD_TILE_HEIGHT = HUD_VALUE_FONT_SIZE * 3;
+/**
+ * The readout's background TICKER width, rounded. Used as the default `alignWidth` — the box
+ * the caption/value text aligns WITHIN — so `align: left`/`right` push the text to the
  * background's edges out of the box. A readout with a wider/narrower custom background
  * just overrides `alignWidth` to its own width.
  */
-const HUD_ALIGN_WIDTH = Math.round(HUD_VALUE_FONT_SIZE * 3 * (326 / 73));
+const HUD_ALIGN_WIDTH = Math.round(HUD_TILE_WIDTH);
 
 /**
  * The single parametric HUD readout (§14.1) — one def instanced three ways
@@ -81,7 +88,7 @@ export const HUD_READOUT_DEF: ComponentDef = {
 				bind: { component: 'HudTicker' },
 				// Tile ONLY (no caption/value text) — the caption + value are their own
 				// sibling parts below, so this draws just the ticker background.
-				preview: { w: HUD_CAPTION_FONT_SIZE * 8, h: HUD_VALUE_FONT_SIZE * 3, style: 'tile' },
+				preview: { w: HUD_TILE_WIDTH, h: HUD_TILE_HEIGHT, style: 'tile' },
 				children: [],
 			},
 			{
@@ -121,6 +128,30 @@ export const HUD_READOUT_DEF: ComponentDef = {
 		{ key: 'fontSize', kind: 'number', default: HUD_VALUE_FONT_SIZE },
 		{ key: 'fontFamily', kind: 'string', default: HUD_FONT_FAMILY },
 		{ key: 'countUp', kind: 'boolean', default: false },
+		// PER-INSTANCE BACKGROUND — the `Background` part (the coded `HudTicker` tile).
+		// `backgroundImage` swaps the coded rounded-rect tile for a picked atlas frame, through
+		// the same `image`-kind region picker the button's state frames use. It is a PARAM, not
+		// another `bind.props` tile knob, precisely so it resolves per PLACED INSTANCE: balance
+		// / win / bet can each carry their own art without forking the def (the tile knobs —
+		// texture key / outline / corner radius — style the DEF, hence every instance of it).
+		// Unset ⇒ the coded tile renders exactly as before (parity). `backgroundTint` multiplies
+		// whichever of the two draws; the size pair resizes the box (blank ⇒ the coded
+		// `HUD_TILE_WIDTH` × `HUD_TILE_HEIGHT`), since a custom background is rarely 326:73 —
+		// the same reason `alignWidth` exists.
+		{ key: 'backgroundImage', kind: 'image', group: 'Background', label: 'image' },
+		{ key: 'backgroundTint', kind: 'color', group: 'Background', label: 'tint' },
+		{
+			key: 'backgroundWidth',
+			kind: 'number',
+			group: 'Background',
+			label: 'width (blank = default)',
+		},
+		{
+			key: 'backgroundHeight',
+			kind: 'number',
+			group: 'Background',
+			label: 'height (blank = default)',
+		},
 		// PER-TEXT overrides (v2) — the readout draws two texts (Caption + Value) as
 		// separate coded parts (`HudCaption`/`HudValue`); these let each be styled on its
 		// own. NO default so an unset field INHERITS the shared style above (the coded
