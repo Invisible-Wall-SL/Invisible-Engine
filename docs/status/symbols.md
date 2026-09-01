@@ -334,6 +334,13 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+- 2026-09-01 — **this stage's bound FX/clips were drawn MIRRORED, and an unsized rig drew at a
+  different size here than in the game.** Both are fixed in the shared code this stage reuses, not
+  here: `fxBoneTransform` hands the overlay a projected basis whose determinant is negative (the
+  camera mirrors x, `drawCell` sets `scaleX/scaleY = -s`), and the overlay used to apply it whole;
+  and `measureSpineBounds`'s last-resort box now agrees with the runtime's. Full story, including
+  why a particle burst hid it for a year and a Flipbook clip did not, in
+  [status/rigger](rigger.md) (2026-09-01).
 - 2026-08-28 — **a flipbook cell can WALK its clip differently per state** (owner report: reversing an
   animation in the game meant authoring a second clip). The clip was already the right place for the
   frames and the wrong place for the walk — a placed `FlipbookNode` had carried

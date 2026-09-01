@@ -538,7 +538,7 @@
         <button id="bonesBtn" class="active" title="Toggle bone overlay">Bones</button>
         <input type="range" id="boneSize" min="0.4" max="3" step="0.1" value="1" title="bone display size" style="width:64px;">
         <button id="meshBtn" title="Toggle mesh hull + triangles">Mesh</button>
-        <button id="boundsBtn" title="Show + edit the rig's size frame (skeleton bounds). Drag the handles to set a custom frame; Shift-click to re-fit automatically.">Bounds</button>
+        <button id="boundsBtn" title="Show + edit the rig's size frame (skeleton bounds). Drag the handles to set a custom frame; Shift-click to re-fit automatically. A rig with no art of its own (FX / Flipbook bindings only) is measured from its clips' boxes, or gets a placeholder frame to drag.">Bounds</button>
         <button id="fit">Reset view</button>
       </div>
       <div class="grp" id="animTools" style="display:none;">
@@ -1897,6 +1897,11 @@ function buildSkeleton(entry){
   if (typeof parsed === "string") { try { parsed = JSON.parse(parsed); } catch { parsed = null; } }
   rawDoc = parsed && Array.isArray(parsed.bones) ? parsed : null;
   normalizeKeyTimes(rawDoc);
+  // A rig that binds clips needs the project clip list for more than the inspector: it is what
+  // `bindingContentBounds` measures a carrier rig's size FROM, and that runs on save. Loading it
+  // lazily from the event panel meant a rig opened and saved without opening a key measured
+  // nothing and saved with no size at all.
+  if (rigBindsClips()) loadProjectClips();
   rawDocOriginal = rawDoc ? JSON.parse(JSON.stringify(rawDoc)) : null;
   dirty = false;
   fxClearPreview();        // new rig — drop any live FX preview from the old one
@@ -10734,10 +10739,87 @@ function computeRigBounds(){
         }
       }
     }
+    if (maxX > minX && maxY > minY){
+      skeleton.setToSetupPose(); updateWorld(); // restore the live view
+      return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    }
+    // No attachment in ANY pose ⇒ a carrier rig. Measure the content it carries instead.
+    const carried = bindingContentBounds();
     skeleton.setToSetupPose(); updateWorld(); // restore the live view
-    if (maxX > minX && maxY > minY) return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+    if (carried) return carried;
   } catch (e){ try { skeleton.setToSetupPose(); updateWorld(); } catch (e2){ /* */ } }
   return null;
+}
+
+/**
+ * Tier 3 of {@link computeRigBounds} — the box the rig's BOUND CONTENT occupies, for a rig that has
+ * no attachment anywhere to measure.
+ *
+ * A CARRIER rig (only FX / Flipbook timeline bindings, no art of its own) is invisible to
+ * `getBounds`: a binding is an EVENT, and the slots hosting one are empty. Such a rig saved with no
+ * `skeleton.width/height` at all, which is not a cosmetic gap — with no natural size, every
+ * consumer falls back to a guess and the guesses disagree (see `constants-shared/spine`), so the
+ * rig drew at one size in /symbols and another in the game. What it carries is the only real
+ * geometry it has, so that is what we measure.
+ *
+ * FLIPBOOK CLIPS ONLY, and only those that declare a box in /flipbook. A clip's `bounds` is the
+ * exact analogue of this rig's own Bounds box — an authored, pose-independent declared size. An
+ * `EffectDoc` has no such thing (particles go where the simulation sends them), so an FX binding
+ * contributes NOTHING rather than a number we invented. A rig carrying only FX therefore falls
+ * through to the hand-drawn seed, which is the honest outcome for content nobody has sized.
+ *
+ * Returns null when nothing is measurable — a still-loading clip list included, which is why the
+ * seed is the author's control and not a value written behind their back.
+ */
+/** Does this rig bind any Flipbook clip at all? Cheap enough to ask on every open, and the answer
+ * decides whether the clip list is worth fetching. */
+function rigBindsClips(){
+  if (!rawDoc || !rawDoc.animations) return false;
+  for (const a of Object.values(rawDoc.animations)){
+    const events = (a && a.events) || [];
+    for (const e of events) if (e && e.flipbook && e.flipbook.clipId) return true;
+  }
+  return false;
+}
+function bindingContentBounds(){
+  if (!skeleton || !skeletonData || !rawDoc || !projectClips) return null;
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  const add = (x, y) => {
+    if (x < minX) minX = x; if (y < minY) minY = y;
+    if (x > maxX) maxX = x; if (y > maxY) maxY = y;
+  };
+  for (const a of skeletonData.animations){
+    const authored = rawDoc.animations && rawDoc.animations[a.name];
+    const events = (authored && authored.events) || [];
+    for (const e of events){
+      const fb = e && e.flipbook;
+      if (!fb || !fb.clipId) continue;
+      const clip = fbClipFor(fb);
+      const box = clip && clip.bounds;
+      if (!box || !(box.w > 0) || !(box.h > 0)) continue;
+      // Pose AT THE BEAT: a clip bound to a bone that travels is where the bone is when it fires,
+      // not where it rests.
+      skeleton.setToSetupPose();
+      poseAtTime(a.name, e.time || 0);
+      updateWorld();
+      const host = fxHostBone(fb);
+      const b = host ? skeleton.findBone(host) : skeleton.bones[0];
+      if (!b) continue;
+      const s = (typeof fb.scale === "number" && isFinite(fb.scale) && fb.scale > 0) ? fb.scale : 1;
+      // The box is PIXI space (y DOWN, top-left relative to the clip origin); the rig is spine
+      // space (y UP). Flipping the corner's y BEFORE the bone matrix is what puts an off-centre box
+      // on the side it actually draws on, and it is the same composition the game performs — the
+      // rotate-by-`-θ` in `<SpineBoneAttach>` is exactly this flip conjugated through the bone. All
+      // four corners, so a rotated bone contributes its true AABB and not an axis-aligned guess.
+      for (const cx of [box.x * s, (box.x + box.w) * s]){
+        for (const cy of [box.y * s, (box.y + box.h) * s]){
+          add(b.worldX + b.a * cx + b.b * -cy, b.worldY + b.c * cx + b.d * -cy);
+        }
+      }
+    }
+  }
+  if (!(maxX > minX) || !(maxY > minY)) return null;
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
 }
 
 // Write the computed bounds into `rawDoc.skeleton` (rounded). No-op if unmeasurable, so a
@@ -10776,6 +10858,31 @@ function setRigBoundsRect(r){
   rawDoc.skeleton.width = r2(Math.max(1, r.w));
   rawDoc.skeleton.height = r2(Math.max(1, r.h));
   rawDoc.skeleton.iwLockBounds = true; // a hand-set frame; don't auto-overwrite on save
+  markDirty();
+}
+/** The frame a rig gets when NOTHING about it is measurable. Mirrors `SPINE_FALLBACK_NATURAL_SIZE`
+ * in `constants-shared/spine` — the size every consumer already assumes for an unsized rig — so
+ * seeding the box changes where the author can grab it, never how big the rig suddenly draws. */
+const SEED_BOUNDS_SIZE = 100;
+/**
+ * Give the Bounds box a frame to draw when there is nothing to fit one to.
+ *
+ * `rigBoundsRect` needs a positive `skeleton.width/height` to draw an edge or a handle, so a rig
+ * with no measurable size had no box — and therefore no way to be given one. That left the ONE
+ * control that could size a carrier rig unusable on exactly the rigs that need it: the button
+ * toggled, `ensureRigBounds` no-opped, and nothing appeared.
+ *
+ * Deliberately NOT locked (`iwLockBounds` is set by `setRigBoundsRect`, i.e. by the author's first
+ * drag). Until they touch it this is a placeholder, so a clip binding that later gains a box in
+ * /flipbook still auto-fits over it on the next save.
+ */
+function seedRigBounds(){
+  if (!rawDoc) return;
+  rawDoc.skeleton = rawDoc.skeleton || {};
+  rawDoc.skeleton.x = -SEED_BOUNDS_SIZE / 2;
+  rawDoc.skeleton.y = -SEED_BOUNDS_SIZE / 2;
+  rawDoc.skeleton.width = SEED_BOUNDS_SIZE;
+  rawDoc.skeleton.height = SEED_BOUNDS_SIZE;
   markDirty();
 }
 // Which bounds handle is under the cursor: a corner (nw/ne/sw/se), edge (n/s/e/w), the
@@ -11185,11 +11292,20 @@ function wire(){
     if (e.shiftKey && rawDoc && rawDoc.skeleton){
       delete rawDoc.skeleton.iwLockBounds;
       ensureRigBounds(); markDirty();
+      // Clearing the lock on a rig with nothing to measure would leave it with NO box at all —
+      // i.e. shift-click would delete the author's frame and give back nothing. Re-seed instead.
+      if (!rigBoundsRect()) seedRigBounds();
       showBounds = true; $("#boundsBtn").classList.add("active");
       return;
     }
     showBounds = !showBounds;
     if (showBounds && !rigBoundsRect()) ensureRigBounds(); // compute a frame to show if none yet
+    if (showBounds && !rigBoundsRect()){
+      // Nothing measurable at all — a carrier rig whose bound clips declare no box. Hand the author
+      // a frame to drag rather than a button that does nothing.
+      seedRigBounds();
+      showNotice("This rig has no art to measure, so its size is a placeholder — drag the frame to set it (or give its clips a box in /flipbook).", 9000);
+    }
     $("#boundsBtn").classList.toggle("active", showBounds);
   };
   $("#boneSize").oninput = e => { boneScale = parseFloat(e.target.value) || 1; };

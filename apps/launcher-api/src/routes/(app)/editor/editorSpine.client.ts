@@ -5,6 +5,8 @@
  * `SpineInstance`. All loading is async and defensive — a missing index, unknown
  * bundle, or load error resolves to `null` so the canvas keeps its placeholder.
  */
+import { SPINE_FALLBACK_NATURAL_SIZE } from 'constants-shared/spine';
+
 import { EDITOR_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import {
 	getSpinePhysics,
@@ -285,8 +287,10 @@ export interface SpineArtBounds {
  * `spineSizeScale` measures — so a preview fitted to it matches what ships. By Spine
  * convention that canvas is centred on the origin. Falls back to a live setup-pose
  * `getBounds` (with its own centre) for a rig whose export omits the size — e.g. a
- * Rigger `.irig` — and finally to a neutral 100×100 box so a degenerate rig still draws
- * something rather than vanishing.
+ * Rigger `.irig` — and finally to a neutral {@link SPINE_FALLBACK_NATURAL_SIZE} box so a
+ * degenerate rig still draws something rather than vanishing. That last box is SHARED with
+ * the runtime's `spineSizeScale`: while the two picked different fallbacks, an unmeasurable
+ * carrier rig drew at one size here and another in the game.
  *
  * Pose-independent, so a caller may measure once at load and reuse the result: measuring
  * runs `setToSetupPose()`, which would otherwise wipe an applied animation frame.
@@ -331,5 +335,6 @@ export function measureSpineBounds(inst: SpineInstance): SpineArtBounds {
 	skel.scaleX = sx;
 	skel.scaleY = sy;
 	if (size.x > 0 && size.y > 0) return { offX: offset.x, offY: offset.y, bw: size.x, bh: size.y };
-	return { offX: -50, offY: -50, bw: 100, bh: 100 };
+	const fallback = SPINE_FALLBACK_NATURAL_SIZE;
+	return { offX: -fallback / 2, offY: -fallback / 2, bw: fallback, bh: fallback };
 }

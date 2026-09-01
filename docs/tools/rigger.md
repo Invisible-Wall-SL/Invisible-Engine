@@ -88,6 +88,23 @@ overwrite your choice. **Shift-click** the Bounds button to re-fit automatically
 (clears the lock and re-measures). Use this when you want the spine to size to a
 deliberate frame (e.g. just the body) rather than the measured art extent.
 
+**A rig with no art of its own** — a *carrier* rig, whose slots exist only to host
+Invisible FX and Invisible Flipbook bindings — has nothing for the measure to
+find: a binding is a timeline **event**, not an attachment. Two things cover it:
+
+- Bound **Flipbook clips** are measured instead, using the box each clip declares
+  in `/flipbook` (its **Fit** button sets one), placed at the bone that hosts it
+  and scaled by the binding's **Size**. Give a clip a box there and its rig sizes
+  itself with no further work.
+- If nothing at all is measurable — an FX-only rig, or clips with no box — the
+  Bounds button hands you a **placeholder frame** to drag, and says so. Effects
+  are not measured: particles go where the simulation sends them, so there is no
+  honest size to read off one.
+
+This matters beyond the canvas: a rig with no natural size cannot be fitted, so
+it draws at its raw authored size wherever it ships — far too big in a symbol
+cell, in `/symbols` and in the game alike.
+
 ### The four modes
 
 A floating segmented toggle at the top of the stage switches the workflow:
