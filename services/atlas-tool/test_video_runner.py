@@ -701,6 +701,99 @@ def test_cancelling_reads_as_cancelled_not_failed() -> None:
     check("the runner is handed back", _await_idle(), None)
 
 
+def test_a_transient_status_blip_does_not_lose_a_job() -> None:
+    """One unreadable status poll must not fail a variation. RunPod's status API
+    returns the odd 500 (and a 404 for a job it has not indexed yet) while the
+    render carries on regardless — but the read raised straight out of
+    `_await_job`, so a paid, still-running twenty-minute job was reported to the
+    author as a red FAILED tile and then left burning with nobody to collect it.
+    """
+    import batch_atlas
+
+    _stub_world()
+    reads = {"n": 0}
+    b64 = __import__("base64").b64encode(b"WEBPDATA").decode()
+
+    def flaky_get(path):
+        reads["n"] += 1
+        # The exact shape the author hit: HTTP 500 mid-render, twice over.
+        if reads["n"] in (2, 3):
+            raise RuntimeError(
+                f"RunPod {path} failed: HTTP 500 Internal Server Error: "
+                '{"status":500,"title":"Internal Server Error"}')
+        if reads["n"] < 5:
+            return {"status": "IN_PROGRESS"}
+        return {"status": "COMPLETED", "output": {"images": [
+            {"filename": "out.webp", "image": b64}]}}
+
+    cancelled: list[str] = []
+    passthrough = batch_atlas._runpod_post
+
+    def tracking_post(path, payload):
+        if path.startswith("/cancel/"):
+            cancelled.append(path.rsplit("/", 1)[-1])
+            return {}
+        return passthrough(path, payload)
+
+    batch_atlas._runpod_get = flaky_get
+    batch_atlas._runpod_post = tracking_post
+
+    started = video_runner.start_session(_req("ride out a blip"),
+                                         ("clientx", "projecty"))
+    final = _await_session(started["id"])
+    check("the variation rides out the blip and completes",
+          [v["status"] for v in final["variations"]], ["done"])
+    check("with no error text", final["variations"][0]["error"], "")
+    check("and the job is NOT cancelled over a read that merely failed",
+          cancelled, [])
+
+
+def test_contact_lost_for_good_stops_the_job() -> None:
+    """The other side of the grace window: once reads have failed CONTINUOUSLY
+    for `STATUS_GRACE_SECONDS` the job really is unreachable, so it is stopped
+    rather than left to bill out the endpoint's whole timeout unread."""
+    import batch_atlas
+
+    _stub_world()
+    grace = video_runner.STATUS_GRACE_SECONDS
+    video_runner.STATUS_GRACE_SECONDS = 0.05
+
+    def always_500(path):
+        raise RuntimeError(f"RunPod {path} failed: HTTP 500 Internal Server Error")
+
+    cancelled: list[str] = []
+    passthrough = batch_atlas._runpod_post
+
+    def tracking_post(path, payload):
+        if path.startswith("/cancel/"):
+            cancelled.append(path.rsplit("/", 1)[-1])
+            return {}
+        return passthrough(path, payload)
+
+    batch_atlas._runpod_get = always_500
+    batch_atlas._runpod_post = tracking_post
+    try:
+        started = video_runner.start_session(_req("gone for good"),
+                                             ("clientx", "projecty"))
+        final = _await_session(started["id"])
+    finally:
+        video_runner.STATUS_GRACE_SECONDS = grace
+    check("a job we can no longer read is failed", 
+          [v["status"] for v in final["variations"]], ["failed"])
+    check("the message says contact was lost, not that the job failed",
+          "lost contact" in final["variations"][0]["error"], True)
+    check("and it is stopped so it stops burning", cancelled, ["job1"])
+
+
+def test_our_cap_sits_above_the_endpoints_own_timeout() -> None:
+    """`JOB_TIMEOUT_SECONDS` is a backstop for a job RunPod never resolves, NOT a
+    render budget: RunPod times a job from worker pickup, this counts from
+    submit. At 1800 it cancelled two-pass renders the endpoint was still happy to
+    finish, so it must stay well above any endpoint Execution Timeout."""
+    check("the cap is loose enough for a multi-pass video blueprint",
+          video_runner.JOB_TIMEOUT_SECONDS >= 9000, True)
+
+
 def test_a_dead_worker_does_not_wedge_the_runner() -> None:
     """`_ACTIVE` was only cleared on the happy path, so any escape before it left
     the tool answering "a video session is already running" until the container
@@ -1072,6 +1165,9 @@ if __name__ == "__main__":
     test_a_second_session_queues()
     test_queue_depth_is_capped()
     test_cancelling_reads_as_cancelled_not_failed()
+    test_a_transient_status_blip_does_not_lose_a_job()
+    test_contact_lost_for_good_stops_the_job()
+    test_our_cap_sits_above_the_endpoints_own_timeout()
     test_a_dead_worker_does_not_wedge_the_runner()
     test_regenerate_one_variation()
     test_discard_one_variation()

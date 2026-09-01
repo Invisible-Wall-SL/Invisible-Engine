@@ -79,7 +79,21 @@ MAX_SESSION_VARIATIONS = 36
 # Poll cadence + overall per-job cap. Wan 2.2 14B on a cold worker loads ~29 GB
 # of weights before it samples anything, so the cap is generous by necessity.
 POLL_SECONDS = 3.0
-JOB_TIMEOUT_SECONDS = 1800
+# Deliberately LOOSER than the endpoint's own Execution Timeout, because the two
+# clocks start in different places: RunPod times a job from when a worker picks
+# it up, this one from submit. A cap TIGHTER than the endpoint's therefore
+# cancels renders the endpoint was still happy to finish — which 30 min silently
+# became the moment a blueprint ran two Wan passes in one job. RunPod's setting
+# is the authority on how long a render may take; this is only a backstop for a
+# job it never resolves at all, so it just has to stay above it.
+JOB_TIMEOUT_SECONDS = int(os.environ.get("VIDEO_JOB_TIMEOUT_SECONDS") or 9600)
+# How long a run of UNREADABLE status polls is tolerated before a job is given up
+# on. Losing the poll is not losing the job — the worker renders (and bills)
+# either way — so one 500 from RunPod's status API must never fail a variation
+# fifteen minutes into a twenty-minute render, which is exactly what it did.
+# Budgeted in TIME rather than tries: an API wobble lasts minutes, and at a 3s
+# cadence a retry COUNT would give up in seconds.
+STATUS_GRACE_SECONDS = 180.0
 # Seeds are echoed into meta.json, which a browser parses — beyond 2^53 a JSON
 # number silently loses integer precision, so a "locked" seed would round to a
 # different one and stop reproducing its own render.
@@ -203,8 +217,18 @@ def _cancel_job(job_id: str) -> None:
 def _await_job(job_id: str, var: dict, should_stop) -> dict:
     """Poll one job to completion. Updates `var` in place with the live RunPod
     status so the UI can say "IN_QUEUE" vs "IN_PROGRESS" rather than a spinner.
-    Raises on failure/timeout; returns the worker `output` on success."""
+    Raises on failure/timeout; returns the worker `output` on success.
+
+    An UNREADABLE poll is not a failed job. RunPod's status API returns the odd
+    500, and a job it has not indexed yet can 404 for a beat; the render carries
+    on regardless. This used to let a single bad read raise straight out and kill
+    the variation — with the job left running, billing out the endpoint's whole
+    timeout, its result collected by nobody. Reads are now tolerated for
+    `STATUS_GRACE_SECONDS` of CONTINUOUS failure before the job is given up on.
+    """
     deadline = _now() + JOB_TIMEOUT_SECONDS
+    unreadable_since = 0.0
+    last_read_error = ""
     while _now() < deadline:
         if should_stop():
             _cancel_job(job_id)
@@ -218,7 +242,27 @@ def _await_job(job_id: str, var: dict, should_stop) -> dict:
         if should_stop():
             _cancel_job(job_id)
             raise _Cancelled()
-        st = batch_atlas._runpod_get(f"/status/{job_id}")
+        try:
+            st = batch_atlas._runpod_get(f"/status/{job_id}")
+        except Exception as e:  # noqa: BLE001 — a bad READ is not a bad job
+            last_read_error = str(e)
+            if not unreadable_since:
+                unreadable_since = _now()
+            if _now() - unreadable_since < STATUS_GRACE_SECONDS:
+                # Say so rather than freezing on the last status, so the author
+                # can see the tool is retrying and not that the job has stalled.
+                with _LOCK:
+                    var["remote_status"] = "RECONNECTING"
+                continue
+            # Genuinely out of contact. The job may well still be running, so
+            # stop it rather than leave it burning to the endpoint's own timeout
+            # with nobody left to collect what it produces.
+            _cancel_job(job_id)
+            raise RuntimeError(
+                f"lost contact with RunPod for "
+                f"{int(_now() - unreadable_since)}s while job {job_id} was "
+                f"running, so it was stopped — {last_read_error[:300]}")
+        unreadable_since = 0.0
         status = str(st.get("status") or "").upper()
         with _LOCK:
             var["remote_status"] = status
