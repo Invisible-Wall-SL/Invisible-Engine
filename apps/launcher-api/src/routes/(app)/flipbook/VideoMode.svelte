@@ -757,6 +757,11 @@
 		options: string;
 		group: string;
 		multiline: boolean;
+		/** What `setParamTarget` last auto-filled, so re-pointing a row follows the
+		 * new node while anything the author typed is left alone. Never published. */
+		autoKey: string;
+		autoLabel: string;
+		autoDef: string;
 	}
 	/** A baked string that reads as PROSE rather than a token — long, or several
 	 * words. What separates a second prompt from `#222222` or `euler`, and so what
@@ -978,10 +983,24 @@
 		const baked = pubGraph?.[node]?.inputs?.[field];
 		if (baked === undefined || Array.isArray(baked)) return;
 		p.type = inferParamType(baked, String(pubGraph?.[node]?.class_type ?? ''));
-		p.def = String(baked);
 		p.multiline = p.type === 'text' && looksLikeProse(baked);
-		if (!p.key) p.key = suggestParamKey(node, field, i);
-		if (!p.label) p.label = p.key;
+		// Re-fill only what the author has not touched — a field still holding
+		// exactly what we last put there. `if (!p.key)` alone froze the key on the
+		// first target the row was ever given, so re-pointing a row kept a name
+		// describing a different node; overwriting unconditionally would instead
+		// throw away a name they had typed.
+		if (p.key === '' || p.key === p.autoKey) {
+			p.key = suggestParamKey(node, field, i);
+			p.autoKey = p.key;
+		}
+		if (p.label === '' || p.label === p.autoLabel) {
+			p.label = p.key;
+			p.autoLabel = p.label;
+		}
+		if (p.def === '' || p.def === p.autoDef) {
+			p.def = String(baked);
+			p.autoDef = p.def;
+		}
 	}
 
 	async function pickWorkflow(e: Event): Promise<void> {
@@ -2168,6 +2187,9 @@ Overwrite it?`)
 									options: '',
 									group: '',
 									multiline: false,
+									autoKey: '',
+									autoLabel: '',
+									autoDef: '',
 								},
 							])}>＋ Add</button
 					>
