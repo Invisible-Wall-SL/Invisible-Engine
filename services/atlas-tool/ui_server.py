@@ -1100,15 +1100,38 @@ def _normalize_converted_region(r: dict) -> dict | None:
         h = int(pick("h"))
     except (TypeError, ValueError):
         return None
-    return {
+    out = {
         "name": name,
         "x": x, "y": y, "w": w, "h": h,
         "rotated": bool(r.get("rotated")),
         "off_x": int(pick("off_x", "offX", default=0)),
         "off_y": int(pick("off_y", "offY", default=0)),
-        "orig_w": int(pick("orig_w", "origW", default=w)),
-        "orig_h": int(pick("orig_h", "origH", default=h)),
     }
+    # TRIM, only when the source ACTUALLY carries it. Defaulting orig_* to w/h
+    # is not a harmless no-op: `fit_to_region` reads their mere PRESENCE as
+    # `spine_slot` and switches the default from `contain` to `fill`, so
+    # synthesizing them turns an untrimmed cell-grid cell into a slot whose art
+    # gets stretched to the rect. An absent trim must stay absent.
+    ow = pick("orig_w", "origW")
+    oh = pick("orig_h", "origH")
+    if ow is not None and oh is not None:
+        try:
+            out["orig_w"], out["orig_h"] = int(ow), int(oh)
+        except (TypeError, ValueError):
+            pass
+    # Creative fields survive the handoff. `fit_mode` above all: it is a
+    # PLACEMENT CONTRACT, not a preference — the Sheet Maker stamps
+    # `fit_mode:"contain"` on every cell it writes so compose replays
+    # packer.compose verbatim. Rebuilding a closed geometry-only dict dropped
+    # it, and the region then fell to the alpha-crop-and-rescale default: the
+    # rects stayed right while the art inside them was re-derived from its
+    # alpha bbox and resized to the slot.
+    for k in ("fit_mode", "prompt", "shape_ref", "seed", "mode", "pipeline",
+              "negative"):
+        v = r.get(k)
+        if v not in (None, ""):
+            out[k] = v
+    return out
 
 
 def _slice_region_from_page(src: Image.Image, region: dict) -> Image.Image | None:
@@ -1176,9 +1199,9 @@ def import_sheet_to_manifest(atlas: str) -> str | None:
     shapes are handled: raw TexturePacker (`frames`+`meta`) and an
     already-converted editor/seed manifest (`regions`+`atlas.source_image_path`).
     Each region's CURRENT art is sliced out of the page and bound as its
-    `output_override` (mirrored to R2), so the cards show the existing art and
-    Create Atlas re-packs it (re-fit from the sliced art) until the user
-    replaces a frame."""
+    `output_override` (mirrored to R2) with `fit_mode:"contain"`, so the cards
+    show the existing art and Create Atlas reproduces the sheet byte-for-byte
+    until the user replaces a frame."""
     try:
         if not atlas:
             return None
@@ -1217,6 +1240,7 @@ def import_sheet_to_manifest(atlas: str) -> str | None:
         page_name = ""
         page_ref = ""
         width = height = 0
+        cell_grid = False        # editor/seed manifest -> cells, not Spine slots
         if isinstance(doc.get("frames"), (dict, list)):
             # Raw TexturePacker (frames + meta).
             for fname, f in _tp_frame_entries(doc.get("frames")):
@@ -1228,6 +1252,7 @@ def import_sheet_to_manifest(atlas: str) -> str | None:
             height = int(size.get("h") or 0)
         elif isinstance(doc.get("regions"), list):
             # Already-converted editor/seed manifest.
+            cell_grid = True
             for r in doc.get("regions"):
                 norm = _normalize_converted_region(r)
                 if norm is not None:
@@ -1285,6 +1310,21 @@ def import_sheet_to_manifest(atlas: str) -> str | None:
                 crop.save(INPUT_DIR / rel)
                 _mirror(INPUT_DIR / rel)  # persist verbatim art to R2
                 r["output_override"] = rel
+                # A CELL's bound art is this cell, cut from the page at exactly
+                # w x h, so the faithful recompose is a verbatim paste. Say so
+                # explicitly: without it the region falls to the alpha-crop-and-
+                # rescale default, which re-derives the art from its ink bounds
+                # and resizes it to the rect -- the sheet's placement (art at
+                # natural size, centred in a padded cell) is lost and the very
+                # first Create Atlas silently rewrites every frame. setdefault,
+                # so a fit_mode the source chose still wins.
+                #
+                # NOT stamped for a raw TexturePacker/.atlas import: there the
+                # rect is a rig's authored footprint and `fill` is the deliberate
+                # default (see fit_to_region) so regenerated art fills the slot
+                # the game already renders, rather than letterboxing inside it.
+                if cell_grid:
+                    r.setdefault("fit_mode", "contain")
             except Exception:  # noqa: BLE001 — one bad region must not abort all
                 continue
 
@@ -1336,6 +1376,97 @@ def import_sheet_to_manifest(atlas: str) -> str | None:
         return out_name
     except Exception:  # noqa: BLE001 — import must never break the deep-link
         return None
+
+
+# Marker `sheet-tool/atlas_writers.build_manifest` stamps on every manifest it
+# writes. It is the only reliable way to tell a Sheet-Maker page (cells: art at
+# natural size, centred) from a rig's `.atlas` (slots: art fills the footprint),
+# and the two want opposite placement.
+_SHEET_MAKER_MARK = "Invisible Sheet Maker"
+
+
+def _page_basename(m: dict) -> str:
+    atlas = m.get("atlas") or {}
+    ref = str(atlas.get("source_image") or atlas.get("source_image_path") or "")
+    return Path(ref.replace("\\", "/")).name
+
+
+def _sheet_manifest_for(m: dict) -> dict | None:
+    """The Sheet-Maker manifest that authored the page `m` is built on, if any.
+
+    Joined on the PAGE BASENAME, which survives every rewrite of the path around
+    it (the Sheet Maker stores a bare name, an import stores `refs/atlas/<name>`).
+    Returns None whenever the evidence is absent — a rig's `.atlas` has no Sheet
+    Maker manifest, and must not be "repaired" into cell placement."""
+    page = _page_basename(m)
+    if not page or not MANIFEST_DIR.exists():
+        return None
+    for mp in sorted(MANIFEST_DIR.glob("atlas_manifest_*.json")):
+        try:
+            doc = json.loads(mp.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(doc, dict):
+            continue
+        if _SHEET_MAKER_MARK not in str(doc.get("_comment", "")):
+            continue
+        if _page_basename(doc) != page:
+            continue
+        return doc
+    return None
+
+
+def repair_sheet_fit_mode(m: dict) -> list[str]:
+    """Restore the `fit_mode` a Sheet-Maker handoff dropped. Returns the names
+    repaired (empty when there is nothing to do).
+
+    Both routes into this tool used to strip the contract, and a manifest
+    written before the fix is still stripped ON DISK — the fix stops new damage,
+    it cannot undo old:
+
+      * the editor/seed-manifest branch rebuilt each region as a closed
+        geometry-only dict, so `fit_mode` never survived;
+      * the raw-TexturePacker branch never had it — the Sheet Maker's own `.json`
+        declares `sourceSize` = the full cell, so `_tp_frame_to_region` hands
+        every cell an `orig_w`/`orig_h` whose mere PRESENCE `fit_to_region` reads
+        as `spine_slot`, defaulting it to `fill` = stretch to the rect.
+
+    Either way the rects stay right while the art inside them is re-derived from
+    its ink bounds and rescaled, so it reads as a packing bug.
+
+    Repairs from EVIDENCE, never inference: the value is copied from the region
+    of the same name in the Sheet-Maker manifest that authored this page. No
+    such manifest (a rig's `.atlas`, a from-scratch atlas) → nothing is touched,
+    so `fill` stays the default where a slot really is a rig's footprint. An
+    explicit `fit_mode` already on the region always wins — this fills a hole,
+    it does not overrule a choice."""
+    try:
+        sheet = _sheet_manifest_for(m)
+        if sheet is None:
+            return []
+        want = {}
+        for r in sheet.get("regions") or []:
+            nm, fm = r.get("name"), str(r.get("fit_mode", "")).strip()
+            if nm and fm:
+                want[nm] = fm
+        if not want:
+            return []
+        fixed = []
+        # The manifest's OWN region dicts, not `all_regions` — that returns
+        # freshly merged copies for an `.atlas`-bound manifest, so writing to
+        # them would repair nothing. `fit_mode` is creative data anyway, which
+        # `merge_atlas_regions` carries over from here by name.
+        for r in (list(m.get("regions") or [])
+                  + list(m.get("rotated_regions") or [])):
+            if not isinstance(r, dict) or str(r.get("fit_mode", "")).strip():
+                continue
+            fm = want.get(r.get("name"))
+            if fm:
+                r["fit_mode"] = fm
+                fixed.append(r["name"])
+        return fixed
+    except Exception:  # noqa: BLE001 — a repair must never break a compose
+        return []
 
 
 def _drop_fx_snapshot(name: str) -> None:
@@ -2091,6 +2222,25 @@ def run_compose(ctx: tuple[str, str] | None = None) -> None:
                         % (len(rebuilt), ", ".join(rebuilt)))
     except Exception as e:  # noqa: BLE001
         pre_note = f"[FX auto-rebuild skipped] {e}"
+    # Restore any `fit_mode` a pre-fix handoff stripped, BEFORE the subprocess
+    # reads the manifest. This is the moment the damage would land: without it
+    # a stripped cell composes through the alpha-crop-and-rescale default and
+    # every frame is silently rewritten. Says what it repaired — a placement
+    # change the user did not ask for should never be silent.
+    try:
+        m = load_manifest()
+        repaired = repair_sheet_fit_mode(m)
+        if repaired:
+            save_manifest(m)
+            _rn = ("Restored the sheet's placement on %d region(s) whose "
+                   "fit_mode an earlier handoff dropped (they would otherwise "
+                   "have been stretched to their rect): %s"
+                   % (len(repaired), ", ".join(repaired[:8])
+                      + (" …" if len(repaired) > 8 else "")))
+            pre_note = f"{pre_note}\n{_rn}" if pre_note else _rn
+    except Exception as e:  # noqa: BLE001 — never block compose on a repair
+        _rn = f"[fit_mode repair skipped] {e}"
+        pre_note = f"{pre_note}\n{_rn}" if pre_note else _rn
     # From-scratch atlases lay themselves out: pack the generated art into a
     # page and write geometry onto the manifest BEFORE the compose subprocess
     # reads it. No-op (returns None) for `.atlas`-bound / cell-grid manifests.
@@ -4962,6 +5112,15 @@ class Handler(BaseHTTPRequestHandler):
                     if resolved != _was:
                         _refresh_manifest_from_r2(resolved)
                         nm = load_manifest()
+                        # Heal a pre-fix handoff on ACTIVATION too, not only in
+                        # the compose pre-pass, so the inspector's placement
+                        # readout tells the truth straight away instead of
+                        # reporting `fill` until someone risks a Create Atlas.
+                        # Deliberately NOT gated on `export_prefix` like the
+                        # seed below: an imported manifest lost that field as
+                        # well, and the repair is evidence-gated on its own.
+                        if repair_sheet_fit_mode(nm):
+                            save_manifest(nm)
                         if bool(nm.get("export_prefix")):
                             res = self._seed_refs_into_outputs(nm, only_empty=True)
                             if res["seeded"]:
@@ -7635,6 +7794,10 @@ class Handler(BaseHTTPRequestHandler):
         if _switched_manifest:
             try:
                 nm = load_manifest()
+                # Same repair as the deep-link path — the Session dropdown is
+                # the other way a damaged manifest becomes active.
+                if repair_sheet_fit_mode(nm):
+                    save_manifest(nm)
                 if bool(nm.get("export_prefix")):
                     res = self._seed_refs_into_outputs(nm, only_empty=True)
                     # Derive any FX layers (`<base>_<mode>` cells) from their

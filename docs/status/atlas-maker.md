@@ -20,7 +20,7 @@ Works today on `main` / live:
   3. **Ink coverage** (`FILLS` / `INSET n%` / `EMPTY`) — how much of the rect the art's alpha bbox covers. A **measurement, not a producer verdict**: full-bleed art FILLS under the sheet packer too (its scale clamps at 1.0), an FX halo FILLS while its base is INSET (`T_UI_Spin_Edge` 88% vs `T_UI_Spin_Edge_glow` 100% — same art, same placement), and a `contain` region reads INSET even when upscaled. The earlier "a mixed FILLS/INSET page proves two producers" claim was **unsound and has been removed**.
 
   Handles rotated `(h × w)` footprints and draws trimmed regions' untrimmed frame in the manifest's own Y-down convention. **Code-complete, owner live-verify owed.**
-- **A Sheet-Maker cell composes byte-identically to its sheet** — the two composers used to disagree on what a rect MEANS: `sheet-tool/packer.py` `compose` scales against the **full art canvas** with a `min(…, 1.0)` clamp (**never upscales**) then centres the visible bbox, while `batch_atlas.fit_to_region` alpha-cropped to the **ink bbox** and scaled that to fill the rect with **no clamp** (upscales). Same `bounds:`, art up to ~2.5× bigger with its origin shifted from a centred inset to the rect's corner — and since the Rigger prefers the **deployed** page as soon as one exists (`editorRegions.ts` `findDeployedPage`), a Create-Atlas + deploy silently swapped a rig's pixels from the sheet's convention to the atlas's and offset every attachment. Now an **EXPLICIT** `fit_mode:"contain"` (only `sheet-tool/atlas_writers.py` writes it) routes to `_packer_compose_tile`, a verbatim replay of `packer.compose` — so republishing is a no-op for placement. **Explicit-only by design:** the default fallback also resolves to `contain` for legacy cell-grid regions, which keep their alpha-crop + letterbox. Proven byte-identical to the real `packer.compose` across 8 cases (rect bigger/smaller/equal, asymmetric padding, fully-transparent, rotated, rotated+downscale, non-square); 22/22 no-regression vs the pre-change function at `PADDING_PCT` 0.0 **and** 0.12. Keep `_packer_compose_tile` in lockstep with `packer.compose`.
+- **A Sheet-Maker cell composes byte-identically to its sheet** — the two composers used to disagree on what a rect MEANS: `sheet-tool/packer.py` `compose` scales against the **full art canvas** with a `min(…, 1.0)` clamp (**never upscales**) then centres the visible bbox, while `batch_atlas.fit_to_region` alpha-cropped to the **ink bbox** and scaled that to fill the rect with **no clamp** (upscales). Same `bounds:`, art up to ~2.5× bigger with its origin shifted from a centred inset to the rect's corner — and since the Rigger prefers the **deployed** page as soon as one exists (`editorRegions.ts` `findDeployedPage`), a Create-Atlas + deploy silently swapped a rig's pixels from the sheet's convention to the atlas's and offset every attachment. Now an **EXPLICIT** `fit_mode:"contain"` (only `sheet-tool/atlas_writers.py` writes it) routes to `_packer_compose_tile`, a verbatim replay of `packer.compose` — so republishing is a no-op for placement. **Explicit-only by design:** the default fallback also resolves to `contain` for legacy cell-grid regions, which keep their alpha-crop + letterbox. Proven byte-identical to the real `packer.compose` across 8 cases (rect bigger/smaller/equal, asymmetric padding, fully-transparent, rotated, rotated+downscale, non-square); 22/22 no-regression vs the pre-change function at `PADDING_PCT` 0.0 **and** 0.12. Keep `_packer_compose_tile` in lockstep with `packer.compose`. **Because it is explicit-only, it is only as good as whoever preserves the field** — the `Open in Atlas Maker` handoff dropped it (and forced the `fill` fallback) until 2026-09-01, so the parity path never ran for the route that carries sheets into this tool; see "Recent changes".
 - **FX layers register with their base through compose** — `fit_to_region` alpha-crops each region independently, which mis-scaled every FX layer (a glow's halo makes its alpha bbox bigger than its base's, so the glyph shrank to ~54% and drifted up to ~15px when the halo clipped a canvas edge). `batch_atlas.fx_registration_crop` now crops an FX layer to its BASE's bbox grown by the two slots' size ratio — same scale, concentric, halo kept to whatever the packed FX slot can carry. Guarded: an FX image whose canvas ≠ its base's (hand-made art) falls back to self-cropping.
 
 - **Flipbook video sessions run in THIS service** (`video_runner.py` + the `/video/*` routes in `ui_server.py`), because the blueprint library, the generic runner, the RunPod Serverless transport and the packer all already live here. The feature is the Flipbook's — its state lives in [flipbook status](flipbook.md), design in [invisible-flipbook-video.md](../design/invisible-flipbook-video.md). It deliberately does NOT touch the active-manifest globals, so it is unaffected by (and does not worsen) the per-user isolation gap in open item 4.
@@ -38,6 +38,47 @@ Works today on `main` / live:
 _Nothing._ Both long-standing entries cleared on 2026-08-18 — see below.
 
 ## Recent changes
+- 2026-09-01 — **Opening a Sheet-Maker sheet in the Atlas Maker stops stretching the art inside every
+  region.** The rects stayed exactly right while the art in them was re-derived from its ink bounds
+  and rescaled, so it read as a packing bug rather than a placement one — and it made the
+  sheet-parity work above (`fit_mode:"contain"` → `_packer_compose_tile`) unreachable for the one
+  route that needs it most.
+  - **The handoff threw the contract away.** `ui_server._normalize_converted_region` rebuilt each
+    region as a **closed geometry-only dict**, so `fit_mode` (and `prompt`/`shape_ref`/`seed`) never
+    survived `import_sheet_to_manifest`. Only `sheet-tool/atlas_writers.py` writes
+    `fit_mode:"contain"`, and only an EXPLICIT one routes to the parity path — dropping it dropped
+    the sheet's placement.
+  - **…and it synthesized the field that picks the worst fallback.** `orig_w`/`orig_h` defaulted to
+    `w`/`h`, but `fit_to_region` reads their mere PRESENCE as `spine_slot`, which flips the default
+    from `contain` to **`fill`** — alpha-crop, then stretch to the rect exactly. An untrimmed cell
+    was thereby mistaken for a rig's authored footprint. Measured on a 493×501 cell holding 360×170
+    of art: **×1.37 wide, ×2.95 tall, aspect 2.12 → 0.98.** Trim is now carried only when the source
+    actually has it.
+  - **Sliced-from-page art is marked `contain` at import.** The bound override IS the cell, cut at
+    exactly `w × h`, so the faithful recompose is a verbatim paste. Scoped to the editor/seed-manifest
+    branch — a raw TexturePacker/`.atlas` import keeps `fill`, where the rect is a rig's footprint and
+    regenerated art must fill the slot the game already renders.
+  - **The raw-TexturePacker route lands on `fill` too, and cannot be fixed at import.** The Sheet
+    Maker's own `.json` declares `sourceSize` = the full cell (`trimmed:false`), so
+    `_tp_frame_to_region` hands every cell an `orig_w`/`orig_h` and the same `spine_slot` default
+    fires. That branch also carries genuine rig slots — including untrimmed ones, where `fill` is
+    deliberate — so it cannot be blanket-switched.
+  - **`repair_sheet_fit_mode` heals what is already damaged on disk.** The fixes above stop new
+    damage; they cannot undo a manifest a pre-fix build already wrote, and re-clicking
+    `Open in Atlas Maker` only re-activates that recipe. The repair restores `fit_mode` from the
+    region of the same name in the **Sheet-Maker manifest that authored the page** (joined on the
+    page BASENAME, which survives the `refs/atlas/` rewrite; identified by the `_comment` marker
+    `build_manifest` stamps). Evidence, never inference: no authoring sheet manifest → nothing is
+    touched, so a rig's `.atlas` keeps its `fill`; an explicit `fit_mode` is never overruled. Runs in
+    the **compose pre-pass** (next to `rebuild_fx_layers` / `auto_pack_layout`, so no Create Atlas
+    can run on a stripped manifest) and on **activation** via both routes — deep-link and Session
+    dropdown — so `/atlasview`'s placement readout is truthful before anyone risks a compose. It
+    covers BOTH damage routes because it sources the truth rather than guessing at import. Idempotent,
+    and it reports what it repaired: a placement change nobody asked for should never be silent.
+  - Regression fixtures: `services/atlas-tool/test_sheet_handoff.py` (26 checks) — pins the parity
+    round-trip byte-identical, drives the repair through both damage routes, and asserts the failure
+    mode still fails, so the checks can't pass for the wrong reason. Safety cases cover the untouched
+    `.atlas`, the explicit-override, and the `rotated_regions` bucket.
 - 2026-09-01 — **The New-blueprint modal binds whatever graph you import, not one shaped like the
   built-in three.** Ported from the Flipbook's video twin the same day it was fixed there
   ([status/flipbook](flipbook.md)), so the two hand-maintained modals are back in step.
