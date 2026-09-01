@@ -799,11 +799,15 @@
 	 * means. Returns the input unchanged when it is already a widget, and stops at
 	 * anything that is not a plain pass-through (a switch, a math node) rather
 	 * than guessing which of its inputs is "the" one. */
-	function resolveKnob(node: string, field: string, seen: Set<string> = new Set()): Target {
+	// `seen` is an array, not a Set: `svelte/prefer-svelte-reactivity` flags every
+	// mutable built-in Set/Map in a component, and reaching for `SvelteSet` here
+	// would claim a reactive structure for what is a cycle guard over a chain two
+	// or three nodes long. Same reason for `taken` and `seenKeys` below.
+	function resolveKnob(node: string, field: string, seen: string[] = []): Target {
 		const here = { node, field };
 		const up = linkSource(pubGraph?.[node]?.inputs?.[field]);
-		if (!up || seen.has(up) || !pubGraph?.[up]) return here;
-		seen.add(up);
+		if (!up || seen.includes(up) || !pubGraph?.[up]) return here;
+		seen.push(up);
 		const inputs = pubGraph[up].inputs ?? {};
 		const widgets = Object.keys(inputs).filter((f) => linkSource(inputs[f]) === null);
 		const wires = Object.keys(inputs).filter((f) => linkSource(inputs[f]) !== null);
@@ -908,17 +912,17 @@
 	 * are flagged and disabled, because the tool rejects a param that re-drives a
 	 * bound input and a publish failure is the worse way to learn that. */
 	const paramTargets = $derived.by(() => {
-		const taken = new Map<string, string>();
+		const taken: Record<string, string> = {};
 		for (const r of PUBLISH_ROLES) {
 			if (r.role === 'output') continue;
 			const v = pubBindings[r.role];
-			if (v) taken.set(v, r.role);
+			if (v) taken[v] = r.role;
 		}
 		const out: { node: string; field: string; label: string; boundTo: string }[] = [];
 		for (const [id, n] of Object.entries(pubGraph ?? {})) {
 			for (const [field, v] of Object.entries(n?.inputs ?? {})) {
 				if (linkSource(v) !== null) continue;
-				const boundTo = taken.get(`${id}::${field}`) ?? '';
+				const boundTo = taken[`${id}::${field}`] ?? '';
 				out.push({
 					node: id,
 					field,
@@ -1038,7 +1042,7 @@
 		// The tool's own param rules, checked here so they read as "fix this field"
 		// rather than as a failed publish. A key can't be a role name or a duplicate,
 		// and a node input can't be driven by a role AND a setting at once.
-		const seenKeys = new Set<string>();
+		const seenKeys: string[] = [];
 		for (const p of pubParams) {
 			const key = p.key.trim();
 			if (!key) continue;
@@ -1046,11 +1050,11 @@
 				pubMsg = `"${key}" is a reserved binding-role name — give that setting a different key.`;
 				return;
 			}
-			if (seenKeys.has(key)) {
+			if (seenKeys.includes(key)) {
 				pubMsg = `Two settings share the key "${key}".`;
 				return;
 			}
-			seenKeys.add(key);
+			seenKeys.push(key);
 			const role = paramTargets.find((t) => t.node === p.node && t.field === p.field)?.boundTo;
 			if (role) {
 				pubMsg = `"${key}" drives ${nodeLabel(p.node)} · ${p.field}, which the ${role} role already drives. Point one of them somewhere else.`;
