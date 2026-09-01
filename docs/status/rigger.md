@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-rigger.md](../design/invisible-rigger.md) · Guide: [docs/tools/rigger.md](../tools/rigger.md) · Agent: _none yet_
 
-**One-line state:** _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
+**One-line state:** _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
 
 ## Current state
 Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigger`-gated). Reads/writes byte-valid Spine 4.2 JSON under our `.irig` extension, non-destructively saved to R2 alongside the artist's source. Phases 0–6 are all on `main`:
@@ -66,6 +66,48 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-09-01 — **A carrier rig had no SIZE and its bound content previewed upside down** — two
+  independent bugs, both surfacing for the first time on a rig built entirely from FX + Flipbook
+  bindings (`R_TentacleFlip`). Reported as: elements rotated 180° in `/rigger`, no Bounds box at
+  all, correct in the game, too big in `/symbols`, bigger still in the game.
+  - **No natural size.** Every measuring path is `skeleton.getBounds()`, which sees only
+    ATTACHMENTS. A binding is a timeline **event** and the slots hosting one are empty, so the
+    setup-pose measure, the animation union and the runtime's `spineNaturalBounds` all returned 0;
+    `ensureRigBounds` no-opped and the rig kept the `{ spine: '4.2' }` it was scaffolded with. The
+    Bounds box then could not draw (`rigBoundsRect` needs a positive width/height) — and its one
+    rescue path calls the same `ensureRigBounds` — so the ONE control that could have given the rig
+    a size was unusable on exactly the rigs that need it.
+  - **The two consumers then guessed DIFFERENTLY**, which is why the same rig was two sizes:
+    `measureSpineBounds` fitted a 100×100 box while `spineSizeScale` returned `{1,1}`, silently
+    dropping the requested `cell × SYMBOL_SPINE_FILL` and drawing the rig raw. That disagreement
+    read as a sizing bug in one surface rather than as the missing bounds it was. The fallback is
+    now ONE number, `SPINE_FALLBACK_NATURAL_SIZE` in `constants-shared/spine`, used by both.
+  - **Fix: measure what the rig CARRIES.** A third tier in `computeRigBounds` unions the declared
+    box of every bound Flipbook clip, posed at the beat and placed through its host bone's world
+    matrix (the clip box is PIXI y-DOWN and the rig is spine y-UP, so the corner's y is flipped
+    BEFORE the bone matrix — that is what puts an off-centre box on the side it draws on, and it is
+    exactly the composition `<SpineBoneAttach>` performs). FX contributes nothing on purpose:
+    particles have no declared extent, so there is no honest size to read. When nothing is
+    measurable the Bounds button now SEEDS a placeholder frame (unlocked, so a clip that later
+    gains a box still auto-fits over it) and says so in a notice.
+  - **The 180° was a REFLECTION the overlay carried through.** `fxBoneTransform` derives its 2×2 by
+    differencing projected points, and every stage projection here mirrors (a y-up skeleton drawn
+    into a y-down canvas; the Symbols grid mirrors x too), so `d < 0` and `setFromMatrix` drew the
+    burst flipped about its bone. Invisible for as long as FX has existed — a particle burst is
+    near-symmetric — and glaring the moment a Flipbook clip, which has an up and a down, was bound
+    (2026-08-31, one day earlier). The game never did this: `<SpineBoneAttach followRotation
+    followScale>` takes `rotation = -getWorldRotationX()` and sizes by `Math.hypot` MAGNITUDES,
+    with a comment saying why. One shared `fxMatrix` in `fxOverlay.client.ts` now strips the
+    reflection and keeps rotation + magnitudes, so **`/symbols` is fixed by the same change** — it
+    was flipped too, just hidden under the oversize.
+  - Proved offline against an independent implementation of the `<SpineBoneAttach>` rule (every
+    rotation × per-axis scale) and verified live on the local launcher with a synthesised carrier
+    rig: box seeds + draws (4 edges, 9 handles), every handle grabbable, drag locks it, the lock
+    survives `ensureRigBounds`, a 512×512 clip box yields a 512×512 rig, `scale: 2` doubles it,
+    FX-only falls through to the seed, and a normal rig is still measured by tier 1 untouched.
+    ⚠️ The vendored `static/rigger/vendor/rigger-fx.js` is rebuilt and committed — the Rigger reads
+    the overlay from THAT bundle, so a future `fxOverlay.client.ts` edit needs
+    `pnpm --filter launcher-api build:rigger-fx` or the tool keeps the old behaviour.
 - 2026-09-01 — **An atlas-less ("carrier") rig shipped a page image no browser could decode, so the
   rig — and every FX/flipbook binding on it — silently vanished in-game.** Reported as "my H1 tumble
   explosion plays in `/symbols` but not at all in the game". The `noAtlas` placeholder page in

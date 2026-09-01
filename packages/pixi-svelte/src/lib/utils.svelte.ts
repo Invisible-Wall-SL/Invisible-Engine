@@ -1,6 +1,8 @@
 import WebFont from 'webfontloader';
 import type * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
 
+import { SPINE_FALLBACK_NATURAL_SIZE } from 'constants-shared/spine';
+
 import type { PixiPoint, Sizes } from './types';
 import { spineNaturalBounds } from './spineBounds';
 
@@ -92,8 +94,10 @@ export const preloadFont = () =>
  * advanced — so the requested size silently does nothing and the spine renders raw
  * (oversized). We instead size against the pose-independent authored bounds
  * (`skeleton.data.width/height`), the same fallback the editor renderer uses. When the
- * data omits a size we fall back to the live setup bounds; if those are also degenerate
- * we leave the axis at scale 1 (nothing reliable to size against).
+ * data omits a size we fall back to the live setup bounds, then to a synthesis across the
+ * animations, and finally to {@link SPINE_FALLBACK_NATURAL_SIZE} — the number the editor's
+ * `measureSpineBounds` assumes for the same unmeasurable rig, so the two cannot draw it at
+ * two different sizes.
  *
  * Each axis is sized by the dimension given for it; when only one is given it's applied
  * uniformly to both (preserving aspect), mirroring the prior `SpineProvider` behaviour.
@@ -141,7 +145,12 @@ export function spineSizeScale({
 		if (!(naturalHeight > 0) && synth.height > 0) naturalHeight = synth.height;
 	}
 
-	if (!(naturalWidth > 0) || !(naturalHeight > 0)) return { x: 1, y: 1 };
+	// Nothing measurable anywhere (a carrier rig: no authored canvas, no attachment in any pose).
+	// Returning scale 1 here USED to silently drop the requested size and render the rig raw, while
+	// every editor surface fitted it to a 100×100 box — the same rig at two sizes. Assume the shared
+	// box instead, so the requested width/height still means something and preview matches game.
+	if (!(naturalWidth > 0)) naturalWidth = SPINE_FALLBACK_NATURAL_SIZE;
+	if (!(naturalHeight > 0)) naturalHeight = SPINE_FALLBACK_NATURAL_SIZE;
 
 	if (width !== undefined && height !== undefined) {
 		if (fit) {

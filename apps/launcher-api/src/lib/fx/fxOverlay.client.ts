@@ -60,7 +60,12 @@ export type { OverlayClip };
  * `Matrix` linear part. Carrying the full 2×2 (not just a uniform scale) lets an effect ride the
  * bone's position + ROTATION + per-axis SCALE, matching the game's
  * `<SpineBoneAttach followRotation followScale>`. Each host computes it by mapping the bone's world
- * matrix through its own stage projection (so it's correct under any zoom/pan/mirror).
+ * matrix through its own stage projection.
+ *
+ * That projection is a MIRROR on every host we have — both stages draw a y-up skeleton into a y-down
+ * canvas, and the Symbols grid mirrors x as well — so the basis handed here routinely has a negative
+ * determinant. It is stripped before it reaches a container ({@link fxMatrix}), never carried:
+ * see that function for why a reflection is a projection detail and not part of the transform.
  */
 export interface FxTransform {
 	x: number;
@@ -186,6 +191,33 @@ const PREVIEW_HOLD_MS = 1500;
  * are: one number, and this module's import list is load-bearing (it is vendored into a bundle with
  * no module system). */
 const DEFAULT_FLIPBOOK_FPS = 24;
+
+/**
+ * The Pixi matrix that places a burst on its bone — the host's projected basis with any REFLECTION
+ * removed, keeping only rotation and per-axis size.
+ *
+ * A host derives `(a,b)`/`(c,d)` by pushing the bone's world axes through its own stage projection,
+ * and every stage we have flips y (a y-up skeleton drawn into a y-down canvas; the Symbols grid
+ * mirrors x too). Handing that basis to a container verbatim draws the burst mirrored about the
+ * bone — invisible on a near-symmetric particle burst, glaring on a flipbook clip, which has an up
+ * and a down.
+ *
+ * The game is the arbiter and it does NOT mirror: `<SpineBoneAttach followRotation followScale>`
+ * takes `rotation = -bone.getWorldRotationX()` and sizes by `Math.hypot` MAGNITUDES, precisely so a
+ * negative axis (a y-flip, a mirrored skin) sizes the attachment instead of flipping it. Same rule
+ * here, so a preview and the shipped frame cannot disagree on which way up a clip plays.
+ *
+ * `atan2(b, a)` survives the flip untouched: a bone at spine rotation θ projects to `(z·cosθ,
+ * −z·sinθ)`, so the angle reads back as `−θ` — the number `<SpineBoneAttach>` assigns directly.
+ */
+function fxMatrix(t: FxTransform): Matrix {
+	const rotation = Math.atan2(t.b, t.a);
+	const scaleX = Math.hypot(t.a, t.b);
+	const scaleY = Math.hypot(t.c, t.d);
+	const cos = Math.cos(rotation);
+	const sin = Math.sin(rotation);
+	return new Matrix(cos * scaleX, sin * scaleX, -sin * scaleY, cos * scaleY, t.x, t.y);
+}
 
 /**
  * Build one independent FX overlay. All state is closed over per instance — two overlays on two
@@ -383,7 +415,7 @@ export function createFxOverlay(): FxOverlayApi {
 		const handle = nextHandle++;
 		// If init hasn't resolved yet, the container is added lazily once `world` exists (below).
 		const container = new Container();
-		container.setFromMatrix(new Matrix(t.a, t.b, t.c, t.d, t.x, t.y));
+		container.setFromMatrix(fxMatrix(t));
 		// Opacity rides the OUTER container (a plain multiplier `follow()` never touches) while size
 		// rides the inner one (the outer's matrix is rewritten every frame from the bone).
 		container.alpha = opts?.alpha ?? 1;
@@ -450,7 +482,7 @@ export function createFxOverlay(): FxOverlayApi {
 	function playFlipbook(clip: OverlayClip, t: FxTransform, opts?: FlipbookPlayOptions): number {
 		const handle = nextHandle++;
 		const container = new Container();
-		container.setFromMatrix(new Matrix(t.a, t.b, t.c, t.d, t.x, t.y));
+		container.setFromMatrix(fxMatrix(t));
 		// Same split as `play`: opacity on the OUTER container (a plain multiplier `follow()` never
 		// touches), size on the inner one, because the outer's matrix is rewritten every frame.
 		container.alpha = opts?.alpha ?? 1;
@@ -521,7 +553,7 @@ export function createFxOverlay(): FxOverlayApi {
 	function follow(handle: number, t: FxTransform): void {
 		const effect = effects.get(handle);
 		if (!effect) return;
-		effect.container.setFromMatrix(new Matrix(t.a, t.b, t.c, t.d, t.x, t.y));
+		effect.container.setFromMatrix(fxMatrix(t));
 	}
 
 	/** Dispose one effect's emitters + its container. */
