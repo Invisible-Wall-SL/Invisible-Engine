@@ -189,12 +189,52 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 2. **Step 6 — consumers: DONE.** Symbols (a `flipbook` cell), the Scene Editor (a placed `flipbook` node) and the Rigger (a rig-timeline `event.flipbook` binding, 2026-08-31) all read a clip. FX still has no `clipId?` on `EmitterArt` — an FX layer names its frames directly, so this is a convenience (author the order once in `/flipbook` instead of clicking checkboxes), not a gap.
 3. **Add the clip reachability filter**, now that placements exist to be reachable FROM, so an orphan/scratch clip stops shipping (parity with the effects prune in `bake-editor-doc.mjs`). Note the walk must cover FOUR referrers, not one: scene `flipbook` nodes (incl. nested in containers + component defs), symbol cells' `clipId`, and — since 2026-08-31 — the `rigFlipbooks` manifest's `clipId`s, or the prune would delete clips that are genuinely in use. The rig referrer is the awkward one: it lives in the rig `.irig`, not in the layout doc, so the filter has to read the manifest the clips export now returns rather than walking the doc.
 4. **Rename-repair hint is unconfirmed** — `src` survives a rename, but `sheet_session.json` is one open sheet's working state, so per-sheet durable recovery of `src` must be verified before the tool promises "did you mean…".
-5. **The ＋ Blueprint modal should flag an unexposed BOOLEAN gate.** A `PrimitiveBoolean` with no incoming wire, feeding two or more `ComfySwitchNode`s, is a mode switch — leave it undeclared and it is frozen at whatever the author's last ComfyUI run happened to leave it on, unreachable from every UI, which cost a day of `executionTimeout` failures (see Recent changes). The modal already walks the graph to rank candidates, so it has everything it needs to say *"node 361 switches 10 nodes and nothing drives it — expose it?"*. Cheap, and it catches the whole class rather than this one graph.
+5. **The ＋ Blueprint modal flags an unexposed boolean gate: DONE** (2026-09-01, see Recent changes). What is NOT covered: an unexposed **numeric** knob that is equally load-bearing (the 1024 generation size on the same blueprint reached the render the same way a wrong boolean did). A boolean gating a switch is a clean signal with no false positives; "this int matters" is not, so it was deliberately left out rather than guessed at.
 
 ## Blocked (owner / external)
 - Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-01 — **The publish modal now says which switches nothing will be able to reach.**
+  Closes the open item the `executionTimeout` outage left behind: a blueprint's `params[]` are the
+  ONLY inputs the runner writes, so an undeclared one keeps whatever the ComfyUI export saved,
+  forever — and an unticked boolean looks exactly like one that does not matter.
+  - **The signal is fan-out to switch GATES, and it has no false positives on either graph we can
+    check.** A candidate is the same shape `resolveKnob` already calls a knob (exactly one input,
+    nothing wired in) holding a boolean; it counts how many `switch` inputs it reaches. Run over the
+    built-in `wan22_i2v_flipbook` it returns nodes `171` and `203` — **exactly the two booleans that
+    blueprint's hand-written manifest exposes as params**, out of 35 nodes. That equality is the
+    fixture's central assertion: a heuristic that disagrees with the one blueprint we know is
+    correctly authored is wrong whatever else it finds.
+  - **The forward walk through `Primitive*` relays is the whole difficulty.** A ComfyUI SUBGRAPH
+    republishes an outer value as its own primitive inside, so the top-level gate drives NOTHING
+    that looks like a switch — on the graph that caused the outage, node `361` reaches its ten
+    switches through two relays in two different subgraphs. Counting direct consumers finds nothing
+    at all on precisely the graphs this exists for. Matching is by input NAME (`switch`/`boolean`),
+    not by class: `on_true`/`on_false` are inputs on that same switch node, so a class test counts
+    every switch three times.
+  - **It fixes rather than describes.** Each flagged gate carries an **Expose** button that appends
+    a settings row already pointed at it, with key/type/default read off the graph by the existing
+    `setParamTarget`. Recomputed as bindings and rows change, so it CLEARS as it is acted on —
+    a warning that cannot clear is one authors learn to skip.
+  - **Live-verified against the real imported graph**, in a browser, driving the served page's own
+    JS: the box lists `SetTurbo (#361) · value — baked false, switches 10 inputs` and
+    `RemoveBackground (#374) · ... 1 input`; one click on Expose produces a `bool` row keyed
+    `SetTurbo` defaulting `false` and drops it from the list; exposing both hides the box; removing
+    a row brings it back. The Expose button stays inside the panel down to a 420px-wide modal.
+  - **Both modals, and the drift between them is now a test.** The Atlas Maker's twin is
+    hand-written inline JS in a `.format()`ed Python page and cannot import the Svelte module (the
+    A/B line in [ui-inventory](../ui-inventory.md)) — which is how the previous pair of
+    hand-maintained heuristics in these two modals drifted until an owner hit it (#534). The
+    fixture now LIFTS `bpUnexposedGates` and friends out of `ui_server.py`, undoubles the braces
+    exactly as `PAGE.format()` does, and asserts the twin returns byte-identical results to the
+    module on both graphs. Confirmed to go red by mutating the twin.
+  - **Not covered on purpose:** an unexposed NUMERIC knob. The same blueprint's 1024 generation size
+    reached the render exactly the way the wrong boolean did, but "this int matters" has no clean
+    signal, and a warning that cries wolf is worse than none.
+  - Fixtures: `node apps/launcher-api/blueprintGates.fixture.ts` (18 assertions incl. the built-in
+    reference answer, the relay hop, the cycle guard, four must-not-flag shapes, and the twin
+    parity).
 - 2026-09-01 — **Every video job on a newly-imported blueprint failed, and the cause was one
   unexposed boolean.** Owner report: *"I have tried to run a few videos on the runpod, on a GPU with
   enough memory I used before and worked, and they all failed."* The session records

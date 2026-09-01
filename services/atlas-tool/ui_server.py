@@ -3429,6 +3429,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
     <div style="color:#aaa;font-weight:600;margin-top:8px;display:flex;align-items:center;gap:10px">Exposed settings (optional)
      <button type="button" onclick="addBpParam()" style="font-size:11px;padding:3px 8px">＋ Add</button></div>
     <div style="color:#888;font-size:11px">Tunable knobs (steps, cfg, sampler…) the author exposes. Each carries a default — the "general setting" — and renders as an editable control in the Settings panel. Pick a node + input that ISN'T already bound as a role.</div>
+    <div id="bpGates" style="display:none;color:#fbbf24;font-size:11px;line-height:1.5;border:1px solid #78350f;border-radius:6px;background:#1c1408;padding:8px;margin:6px 0"></div>
     <div id="bpParams" style="display:flex;flex-direction:column;gap:10px"></div>
    </div>
    <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
@@ -3931,6 +3932,8 @@ function openNewBlueprint(){{
  document.getElementById('bpDesc').value='';
  document.getElementById('bpstat').textContent='';
  let pw=document.getElementById('bpParams'); if(pw)pw.innerHTML='';
+ let gw=document.getElementById('bpGates');
+ if(gw){{ gw.innerHTML=''; gw.style.display='none'; }}
  document.getElementById('bpmodal').classList.add('open');
 }}
 // Dedicated "Manage blueprints" modal (its own toolbar button) — lists every
@@ -3994,6 +3997,7 @@ function onBpFilePicked(){{
   document.getElementById('bpmeta').style.display='flex';
   document.getElementById('bpSave').style.display='';
   document.getElementById('bpstat').textContent='';
+  bpGateWarn();
  }};
  rd.readAsText(f);
 }}
@@ -4047,7 +4051,7 @@ function buildBpBindings(){{
   }}
   sel.onchange=()=>{{ document.querySelectorAll('#bpParams .bpparam').forEach(r=>{{
    if(r._bpRefresh) r._bpRefresh();
-  }}); }};
+  }}); bpGateWarn(); }};
   row.appendChild(lbl); row.appendChild(sel); wrap.appendChild(row);
  }});
 }}
@@ -4122,6 +4126,125 @@ function bpSuggestKey(node,field,selfEl){{
  while(used.indexOf(key)>=0) key=stem+(i++);
  return key;
 }}
+// Baked mode switches this graph carries that NOTHING will be able to reach.
+//
+// A published blueprint's params are the ONLY inputs the runner writes; every
+// other input keeps whatever the ComfyUI export saved, forever. That is what a
+// day of `executionTimeout` failures turned out to be — an imported graph gated
+// both its Wan passes on one PrimitiveBoolean left at false, selecting 50 steps
+// with no speed LoRA, and nothing in the tool could change it. The built-in
+// blueprint has the identical gate and differs only in exposing it. An unticked
+// boolean looks exactly like one that does not matter, so the modal has to say
+// which is which.
+//
+// Kept in step BY HAND with apps/launcher-api/src/lib/blueprintGates.ts, which is
+// the tested twin (`node apps/launcher-api/blueprintGates.fixture.ts`) — this is a
+// Python-rendered page and that is Svelte, opposite sides of the A/B line in
+// docs/ui-inventory.md, so they cannot share the module.
+
+// Matched by input NAME, not by class: `on_true`/`on_false` are inputs on that
+// same switch node and are data, not the gate, so a class test counts every
+// switch three times. `switch` is what core's ComfySwitchNode uses.
+const BP_GATE_INPUTS=['switch','boolean'];
+// Which (node, input) each node FEEDS — the forward index. Every other walk here
+// runs backwards, from a consumer to the widget behind it; this one has to run
+// forwards, because the question is what a knob CONTROLS.
+function bpFeedIndex(){{
+ let out={{}}; const g=_bpGraph||{{}};
+ for(const id of Object.keys(g)){{
+  const inp=(g[id]||{{}}).inputs||{{}};
+  for(const f of Object.keys(inp)){{
+   const s=bpLinkSource(inp[f]);
+   if(!s) continue;
+   (out[s]=out[s]||[]).push({{node:id,field:f}});
+  }}
+ }}
+ return out;
+}}
+// How many switch gates a node's value ultimately reaches, following it forward
+// through Primitive* relays. The relay hop is the point: a ComfyUI SUBGRAPH
+// republishes an outer value as its own Primitive* node inside, so a top-level
+// gate drives NOTHING that looks like a switch directly, and counting only direct
+// consumers finds nothing at all on exactly the graphs this exists for.
+function bpGateReach(feeds,id,seen){{
+ seen=seen||[]; let n=0; const g=_bpGraph||{{}};
+ for(const t of (feeds[id]||[])){{
+  if(BP_GATE_INPUTS.indexOf(t.field)>=0){{ n++; continue; }}
+  const ct=String((g[t.node]||{{}}).class_type||'');
+  if(/^Primitive/i.test(ct) && seen.indexOf(t.node)<0){{
+   seen.push(t.node); n+=bpGateReach(feeds,t.node,seen);
+  }}
+ }}
+ return n;
+}}
+// A candidate is the same shape bpResolveKnob already calls a knob: exactly one
+// input, nothing wired into it. That is what a Primitive* pulled out of a widget
+// looks like, and it keeps a switch's own on_true/on_false out of the list.
+function bpUnexposedGates(){{
+ const g=_bpGraph; if(!g) return [];
+ const feeds=bpFeedIndex();
+ let taken=bpBoundTargets();
+ document.querySelectorAll('#bpParams .bpparam').forEach(row=>{{
+  let ns=row.querySelector('[data-pnode]'), fs=row.querySelector('[data-pfield]');
+  if(ns&&fs&&ns.value&&fs.value) taken.add(ns.value+'\\u0000'+fs.value);
+ }});
+ let out=[];
+ for(const id of Object.keys(g)){{
+  const inp=(g[id]||{{}}).inputs||{{}};
+  const fields=Object.keys(inp);
+  if(fields.length!==1) continue;
+  const f=fields[0];
+  if(bpLinkSource(inp[f])!==null) continue;
+  if(typeof inp[f]!=='boolean') continue;
+  if(taken.has(id+'\\u0000'+f)) continue;
+  const n=bpGateReach(feeds,id);
+  if(n) out.push({{node:id,field:f,value:inp[f],switches:n}});
+ }}
+ return out.sort((a,b)=>(b.switches-a.switches)||String(a.node).localeCompare(String(b.node)));
+}}
+// Redraw the warning. Called wherever a binding or a settings row changes, so it
+// CLEARS as it is acted on rather than nagging about a switch just exposed.
+function bpGateWarn(){{
+ let box=document.getElementById('bpGates'); if(!box) return;
+ const gates=_bpGraph?bpUnexposedGates():[];
+ if(!gates.length){{ box.style.display='none'; box.innerHTML=''; return; }}
+ box.innerHTML='';
+ let head=document.createElement('div');
+ head.innerHTML='<b>⚠ This graph has '+(gates.length===1?'a switch':(gates.length+' switches'))
+  +' nothing will be able to reach.</b> Only exposed settings are written at render '
+  +'time — everything else keeps the value your ComfyUI export saved, on every '
+  +'render, with no way to change it here.';
+ box.appendChild(head);
+ gates.forEach(gt=>{{
+  let row=document.createElement('div');
+  row.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px';
+  let txt=document.createElement('span');
+  txt.style.minWidth='0';
+  txt.textContent=bpNodeOpt(gt.node)+' · '+gt.field+' — baked '+String(gt.value)
+   +', switches '+gt.switches+(gt.switches===1?' input':' inputs');
+  let b=document.createElement('button'); b.type='button'; b.textContent='Expose';
+  b.style.cssText='font-size:11px;padding:3px 7px;flex:none';
+  b.onclick=()=>bpExposeGate(gt.node,gt.field);
+  row.appendChild(txt); row.appendChild(b);
+  box.appendChild(row);
+ }});
+ box.style.display='';
+}}
+// Add a settings row already pointed at a gate, so the warning FIXES the thing it
+// warns about instead of describing it. Key, type and default then come from
+// syncFromField reading the graph, exactly as if the input had been picked by hand.
+function bpExposeGate(node,field){{
+ addBpParam();
+ let rows=document.querySelectorAll('#bpParams .bpparam');
+ let row=rows[rows.length-1]; if(!row) return;
+ let ns=row.querySelector('[data-pnode]'), fs=row.querySelector('[data-pfield]');
+ if(!ns||!fs) return;
+ ns.value=node;
+ if(row._bpRefresh) row._bpRefresh();
+ fs.value=field;
+ fs.dispatchEvent(new Event('change'));
+ bpGateWarn();
+}}
 function addBpParam(){{
  let wrap=document.getElementById('bpParams'); if(!wrap||!_bpGraph) return;
  let row=document.createElement('div');
@@ -4161,7 +4284,8 @@ function addBpParam(){{
  let mlTxt=document.createElement('span'); mlTxt.textContent='prompt-sized box';
  mlWrap.appendChild(ml); mlWrap.appendChild(mlTxt);
  let rm=document.createElement('button'); rm.type='button'; rm.textContent='✕'; rm.title='remove';
- rm.style.cssText='font-size:11px;padding:3px 7px'; rm.onclick=()=>row.remove();
+ rm.style.cssText='font-size:11px;padding:3px 7px';
+ rm.onclick=()=>{{ row.remove(); bpGateWarn(); }};
  // when node changes, repopulate fields + prefill key/default/type from the baked value
  function refreshFields(){{
   let keep=fieldSel.value;
@@ -4195,6 +4319,7 @@ function addBpParam(){{
   typeSel.value=bpInferType(v,ct);
   ml.checked=(typeSel.value==='text' && bpLooksLikeProse(v));
   syncTypeUi();
+  bpGateWarn();
  }}
  // A role binding changing can free or take a (node,field), so the field list is
  // rebuilt from the binding selects rather than frozen at Add time.
