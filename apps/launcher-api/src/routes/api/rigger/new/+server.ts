@@ -33,9 +33,24 @@ const basename = (k: string): string => {
  *
  * Body: `{ manifestKey, name, rigId? }` or `{ noAtlas: true, name, rigId? }`.
  */
-// A 1×1 fully-transparent PNG — the placeholder page for atlas-less rigs.
+/**
+ * A 1×1 fully-transparent PNG — the placeholder page for atlas-less rigs.
+ *
+ * It MUST be a byte-valid PNG, and that is not a formality: the page is the rig bundle's only
+ * image, so a browser that refuses to decode it fails the whole `Assets.load` of the bundle. The
+ * rig is then missing from `loadedAssets`, `<SpineProvider>` renders NOTHING — and with it none of
+ * its children, including the `<RiggedEffect>` / `<RiggedFlipbook>` bindings an atlas-less
+ * "carrier" rig usually exists to fire. The symbol/node simply vanishes in-game while every
+ * authoring surface (which reads the `.irig` and previews clips off the timeline, never through
+ * the loaded bundle) looks perfectly healthy.
+ *
+ * The previous literal was a splice of two different 1×1 PNGs — a grayscale+alpha IHDR
+ * (`colorType 4`) carrying the IDAT of an RGBA one — so its IDAT CRC was wrong, its zlib stream
+ * truncated, and Chrome answered `InvalidStateError: The source image could not be decoded`.
+ * Regenerate rather than retype: 8-bit RGBA, one transparent pixel, CRCs computed.
+ */
 const BLANK_PAGE_PNG = Buffer.from(
-	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+	'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII=',
 	'base64',
 );
 export const POST: RequestHandler = async ({ request, locals, cookies }) => {
