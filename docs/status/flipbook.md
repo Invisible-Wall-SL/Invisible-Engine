@@ -189,11 +189,62 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 2. **Step 6 — consumers: DONE.** Symbols (a `flipbook` cell), the Scene Editor (a placed `flipbook` node) and the Rigger (a rig-timeline `event.flipbook` binding, 2026-08-31) all read a clip. FX still has no `clipId?` on `EmitterArt` — an FX layer names its frames directly, so this is a convenience (author the order once in `/flipbook` instead of clicking checkboxes), not a gap.
 3. **Add the clip reachability filter**, now that placements exist to be reachable FROM, so an orphan/scratch clip stops shipping (parity with the effects prune in `bake-editor-doc.mjs`). Note the walk must cover FOUR referrers, not one: scene `flipbook` nodes (incl. nested in containers + component defs), symbol cells' `clipId`, and — since 2026-08-31 — the `rigFlipbooks` manifest's `clipId`s, or the prune would delete clips that are genuinely in use. The rig referrer is the awkward one: it lives in the rig `.irig`, not in the layout doc, so the filter has to read the manifest the clips export now returns rather than walking the doc.
 4. **Rename-repair hint is unconfirmed** — `src` survives a rename, but `sheet_session.json` is one open sheet's working state, so per-sheet durable recovery of `src` must be verified before the tool promises "did you mean…".
+5. **The ＋ Blueprint modal should flag an unexposed BOOLEAN gate.** A `PrimitiveBoolean` with no incoming wire, feeding two or more `ComfySwitchNode`s, is a mode switch — leave it undeclared and it is frozen at whatever the author's last ComfyUI run happened to leave it on, unreachable from every UI, which cost a day of `executionTimeout` failures (see Recent changes). The modal already walks the graph to rank candidates, so it has everything it needs to say *"node 361 switches 10 nodes and nothing drives it — expose it?"*. Cheap, and it catches the whole class rather than this one graph.
 
 ## Blocked (owner / external)
 - Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-01 — **Every video job on a newly-imported blueprint failed, and the cause was one
+  unexposed boolean.** Owner report: *"I have tried to run a few videos on the runpod, on a GPU with
+  enough memory I used before and worked, and they all failed."* The session records
+  (`<c>/<p>/video/<id>/meta.json`) named it exactly: **`job FAILED: executionTimeout exceeded`** on
+  every variation — RunPod killing the job at ~925s, NOT ComfyUI rejecting the graph. So no node and
+  no model was missing; the graph validated and ran, and simply never finished.
+  - **A published blueprint's params are the only knobs the runner can turn, and the slow/fast gate
+    was not one of them.** The imported `wanloopingvideo__3_` graph gates both its Wan passes on node
+    `361` (`PrimitiveBoolean`, baked `false`) feeding ten `ComfySwitchNode`s. `false` selects **50
+    steps, cfg 3.5** (so two model evals a step) and the **raw 14B UNets without the lightx2v 4-step
+    LoRA**. The built-in `wan22_i2v_flipbook` has the identical gate at node `171`, also baked
+    `false` — the whole difference is that it DECLARES it as the param `fast_lora` with
+    `default: true`, and `build_video_workflow` writes every declared default onto the graph before
+    submitting. An undeclared node keeps its baked value forever, and no UI can reach it.
+  - **So a graph's baked value is a DEFAULT only for the inputs the manifest names**, which is the
+    trap the ＋ Blueprint modal still cannot warn about: it binds what you tick, and a boolean you
+    did not tick looks exactly like a boolean that does not matter. Compounded here by
+    `SetWidth`/`SetHeight` at 1024 (the export downscales to 320 regardless; the built-in generates
+    at 640) and by the graph being a LOOP — `WanImageToVideo` then `WanFirstLastFrameToVideo` fed
+    from pass 1's first/last frames, four ~14 GB UNet loads in one job. Roughly 12–24× the built-in's
+    compute for a render that takes ~100s warm.
+  - **Fixed in the live library, not in code**: `_shared/blueprints/wanloopingvideo__3_/blueprint.json`
+    gained a `fast_lora` bool (node `361`, default `true`) and dropped the generation size to 640,
+    verified through the tool's own `validate_against_graph` and then by running the real
+    `build_video_workflow` over it. Confirmed by the next owner session: first variation
+    **COMPLETED**. `blueprints.hydrate()` is once-per-process, so a library edited underneath a
+    running service needs **↻ Refresh from R2** (or a restart) — a reload of `/flipbook` will not do
+    it.
+- 2026-09-01 — **A single unreadable status poll no longer throws away a paid, still-running job.**
+  Straight after the above, one variation died on
+  `RunPod /status/… failed: HTTP 500 Internal Server Error` with `remote_status` still
+  **`IN_PROGRESS`** — the render was fine; only the read failed. `_await_job` called
+  `_runpod_get` bare, so any transport blip raised out of the poll loop, marked the variation FAILED,
+  and left the job running to bill out the endpoint's whole timeout with nobody to collect it. (The
+  same shape had already eaten a variation on a `404 job not found`.)
+  - **Tolerated in TIME, not in tries** (`STATUS_GRACE_SECONDS = 180`): an API wobble lasts minutes,
+    so at a 3s cadence a retry COUNT would give up in seconds. The tile shows `RECONNECTING` while
+    retrying rather than freezing on the last status. Only CONTINUOUS failure counts — one good read
+    resets the window. When contact really is lost the job is **cancelled** before failing, so it
+    stops burning.
+  - **`JOB_TIMEOUT_SECONDS` was 1800 and had become a second, hidden cap.** The two clocks start in
+    different places — RunPod times a job from worker pickup, this one from submit — so a tighter
+    local cap cancels renders the endpoint was still happy to finish. Now `9600`, overridable with
+    `VIDEO_JOB_TIMEOUT_SECONDS`; it must stay ABOVE the endpoint's Execution Timeout, which is the
+    authority. This only backstops a job RunPod never resolves at all. (Owner had just raised the
+    endpoint to 9000s for a 17-minute two-pass render — every one of those would have been cancelled
+    at 30 minutes by us.)
+  - Fixtures: `py test_video_runner.py` — a job rides out two mid-render 500s and completes with no
+    error and no cancel; contact lost for the whole grace window fails it, says *lost contact*, and
+    stops the job; and the local cap is asserted loose enough for a multi-pass blueprint.
 - 2026-09-01 — **A tile in the 🎬 grid opens its render at full resolution, in its own window.**
   Owner ask: *"in the grid list of the flipbook video generation, I would like to be able to click
   on a card and open it for view in full resolution on a separated window."* A grid column bottoms
