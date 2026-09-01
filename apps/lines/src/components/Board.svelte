@@ -23,7 +23,7 @@
 	import { BoardContext } from 'components-shared';
 
 	import { getContext } from '../game/context';
-	import { awaitSymbolBeat, WIN_BEAT_CAP_MS } from '../game/symbolBeat';
+	import { awaitSymbolBeat, WIN_BEAT_CAP_MS, WIN_BEAT_MIN_MS } from '../game/symbolBeat';
 	import { winLineColorForPositions } from '../game/winSymbolCycle';
 	import { stackedCoverage, stackedWinHoldMs, winDimCellKey } from '../game/stateGame.svelte';
 	import { BoardContainer } from 'engine-game';
@@ -85,7 +85,22 @@
 					if (covered.has(winDimCellKey(position.reel, position.row))) {
 						await waitForTimeout(stackedWinHoldMs() ?? STACKED_WIN_HOLD_MS);
 					} else {
-						await awaitSymbolBeat((resolve) => (reelSymbol.oncomplete = resolve), WIN_BEAT_CAP_MS);
+						// BOUNDED AT BOTH ENDS. The cap above is the runaway guard; `WIN_BEAT_MIN_MS` is the
+						// floor, and it is the one that was missing. A `sprite` bound to `win` reports
+						// `oncomplete` from an `$effect` the instant its art changes, so the beat resolved in
+						// the same tick and took the whole win presentation down with it — including the win's
+						// stamped AMOUNT TEXT, which is scoped to this beat. Measured on the live `test6`: a
+						// win on a sprite-bound symbol lasted 2ms and drew no text; the one symbol with
+						// flipbook win art lasted 961ms and drew "€0.05" at board centre. Eight of that
+						// project's ten symbols were sprite-bound, so most wins flashed for one frame.
+						//
+						// CONCURRENT, not sequential: authored art longer than the floor still sets the pace
+						// and is completely untouched (`Promise.all` settles on the slower of the two). Only a
+						// beat that would have been shorter than a readable moment is stretched to one.
+						await Promise.all([
+							awaitSymbolBeat((resolve) => (reelSymbol.oncomplete = resolve), WIN_BEAT_CAP_MS),
+							waitForTimeout(WIN_BEAT_MIN_MS),
+						]);
 					}
 					reelSymbol.symbolState = 'postWinStatic';
 					reelSymbol.winLineColor = undefined;
