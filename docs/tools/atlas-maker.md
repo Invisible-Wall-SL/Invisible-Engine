@@ -132,6 +132,20 @@ trim geometry but **no `fit_mode`**, so its regions default to `fill` and the
 parity path is unreachable — the summary says so outright. That single line
 answers "is this page a Sheet-Maker page or not?".
 
+**If a Sheet-Maker page reads `fill` here, it is repaired automatically.** Until
+2026-09-01 both import routes lost that field on the way in, so a sheet opened in
+the Atlas Maker would compose every cell through the alpha-crop-and-rescale
+default: the region rectangles stayed exactly right while the art inside them was
+stretched and rescaled — which reads as a packing bug rather than a placement one.
+Manifests written by those builds are still stripped on disk, so the tool now
+restores the value from the Sheet-Maker manifest that authored the page, both when
+the manifest becomes active and again just before Create Atlas. Create Atlas says
+what it repaired. Pages with no authoring sheet manifest (a rig's `.atlas`, a
+from-scratch atlas) are left alone, so `fill` stays the default where a slot really
+is a rig's footprint. **Nothing to do by hand** — but if this row still reads `fill`
+for a sheet you recognise, the page and the sheet manifest have drifted apart and
+the join on the page filename is failing.
+
 ### 3. Ink coverage — a measurement, not a verdict
 
 How much of the rect the art's alpha bbox covers, in the region's **unrotated
