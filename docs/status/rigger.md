@@ -108,6 +108,12 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
     `packages/pixi-svelte/fixtures/riggedBeat.fixture.ts` (mutation-verified: ignoring `time` fails
     the reported case). ⏳ Owner live-verify in `/rigger` and in a published game: needs a **re-bake**
     (Publish) for the new manifest to reach the game.
+  - **Follow-up the same day (#548):** the first release blanked the reels on the first spin —
+    `ReferenceError: rigBeatKey is not defined`. The `{#each}` keys in `LayoutNodeView` and
+    `SymbolSpineMain` called the helper but the patch that was meant to add its IMPORT never
+    landed, and Svelte compiles a bare template identifier as a global, so `launcher build` (not a
+    type-check) stayed green and the throw only surfaced when a rig with bindings rendered. Found by
+    loading the republished game in the browser and reading the console, not by reasoning.
 - 2026-09-01 — **A carrier rig had no SIZE and its bound content previewed upside down** — two
   independent bugs, both surfacing for the first time on a rig built entirely from FX + Flipbook
   bindings (`R_TentacleFlip`). Reported as: elements rotated 180° in `/rigger`, no Bounds box at

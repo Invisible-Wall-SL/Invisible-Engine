@@ -12,6 +12,7 @@
 		resolveFlipbook,
 		resolveRigFlipbooks,
 		resolveRigFx,
+		rigBeatKey,
 	} from 'engine-layout';
 	import { stateBetDerived } from 'state-shared';
 
