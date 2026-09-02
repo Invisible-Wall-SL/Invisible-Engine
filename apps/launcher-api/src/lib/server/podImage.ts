@@ -1,5 +1,6 @@
 import { ENV } from './env';
 import { githubConfigured, githubError, githubFetch } from './github';
+import { notePodImage } from './runpod';
 
 /**
  * The R&D pod IMAGE: read its build state, ask CI to rebuild it, and move a pod onto a
@@ -237,6 +238,9 @@ export async function setPodImage(
 
 	// Read back rather than trust the PATCH response: the question is what the pod IS now.
 	const after = await podImageState(podId);
+	// The fleet card reads its image out of the SPECS cache, which is built for hardware and
+	// holds for ten minutes. Without this the pod keeps advertising the build it just left.
+	notePodImage(podId, after.state?.imageName ?? imageName);
 	return {
 		ok: true,
 		before: before.state,

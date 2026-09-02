@@ -516,6 +516,23 @@ export async function podSpecs(podId: string): Promise<PodSpecs | undefined> {
 	return specs;
 }
 
+/**
+ * Correct the cached `imageName` after a move, without dropping the record.
+ *
+ * `imageName` rides along in a cache built for HARDWARE — facts that do not change, hence
+ * the 10-minute TTL. The image does change, and only we change it, so a moved pod kept
+ * reporting its old image for up to ten minutes: the card showed the previous build and
+ * "Update to <sha>" stayed on screen as if nothing had happened.
+ *
+ * Overwrite the one field rather than evicting the entry: eviction would take the
+ * merged-forward hardware line with it, which is exactly what keeps a STOPPED pod showing
+ * "RTX PRO 4500 · 32 GB" instead of blanking.
+ */
+export function notePodImage(podId: string, imageName: string): void {
+	const cached = specsCache.get(podId);
+	if (cached) cached.specs.imageName = imageName;
+}
+
 /** RunPod's stock word for a GPU type — High / Medium / Low / None. */
 export type StockStatus = 'High' | 'Medium' | 'Low' | 'None';
 
