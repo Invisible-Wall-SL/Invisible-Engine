@@ -3546,29 +3546,33 @@ function existingAtlases(){{
  return [...document.querySelectorAll('[data-cfg="manifest_path"] option')]
   .map(o=>(o.value.match(/^atlas_manifest_(.+)\\.json$/)||[])[1]).filter(Boolean);
 }}
+// Existing manifests keep their case; the server reuses that spelling.
+function newAtlasTarget(raw){{
+ let slug=atlasSlug(raw), hit=existingAtlases().find(n=>n.toLowerCase()===slug)||'';
+ return {{slug:slug, name:hit||slug, exists:!!hit}};
+}}
 function newAtlas(){{
  let i=document.getElementById('nanamein'); i.value=''; onNewAtlasName();
  document.getElementById('namodal').classList.add('open'); i.focus();
 }}
 function closeNewAtlas(){{ document.getElementById('namodal').classList.remove('open'); }}
 function onNewAtlasName(){{
- let raw=document.getElementById('nanamein').value.trim(), slug=atlasSlug(raw), t='';
- if(slug && slug!==raw) t+='Will be saved as "'+slug+'". ';
- if(slug && existingAtlases().indexOf(slug)>=0) t+='⚠ An atlas named "'+slug+'" already exists — Create will replace it with an empty atlas.';
- document.getElementById('nawarn').textContent=t;
+ let raw=document.getElementById('nanamein').value.trim(), t=newAtlasTarget(raw), w='';
+ if(t.slug && t.name!==raw) w+='Will be saved as "'+t.name+'". ';
+ if(t.exists) w+='⚠ An atlas named "'+t.name+'" already exists — Create will replace it with an empty atlas.';
+ document.getElementById('nawarn').textContent=w;
 }}
 function onNewAtlasKey(e){{
  if(e.key==='Enter' && e.target.id==='nanamein'){{ e.preventDefault(); confirmNewAtlas(); }}
 }}
 function confirmNewAtlas(){{
- let raw=document.getElementById('nanamein').value.trim(), slug=atlasSlug(raw);
- if(!slug){{ document.getElementById('nawarn').textContent='Give the atlas a name.'; document.getElementById('nanamein').focus(); return; }}
- let exists=existingAtlases().indexOf(slug)>=0;
- if(exists && !confirm('An atlas named "'+slug+'" already exists.\\n\\n'
+ let raw=document.getElementById('nanamein').value.trim(), t=newAtlasTarget(raw);
+ if(!t.slug){{ document.getElementById('nawarn').textContent='Give the atlas a name.'; document.getElementById('nanamein').focus(); return; }}
+ if(t.exists && !confirm('An atlas named "'+t.name+'" already exists.\\n\\n'
    +'Replace it with a new, empty atlas? Its manifest (regions, prompts, layout) is overwritten — on R2 too, with no undo. Generated variant images stay on disk.\\n\\n'
    +'Cancel to pick a different name.')) return;
  closeNewAtlas();
- _postReload('/newatlas',{{name:raw,overwrite:exists}});
+ _postReload('/newatlas',{{name:raw,overwrite:t.exists}});
 }}
 function addRegion(){{
  let name=prompt('Region name (letters, numbers, _ or -). You\\'ll set its prompt on the card:');
@@ -6657,13 +6661,18 @@ class Handler(BaseHTTPRequestHandler):
         if not slug:
             return "✖ Couldn't derive an atlas name from that — use letters/numbers."
         fname = f"atlas_manifest_{slug}.json"
+        # Manifests authored elsewhere (the Sheet Maker keeps case) would be a
+        # SECOND file next to the lowercase slug on Linux, so an existing name
+        # is matched ignoring case and its spelling reused.
+        fname = next((m for m in list_manifests() if m.lower() == fname.lower()), fname)
+        shown = fname[len("atlas_manifest_"):-len(".json")]
         dest = MANIFEST_DIR / fname
         if dest.exists() and not bool(payload.get("overwrite", False)):
             # Don't clobber an existing atlas — switch to it instead.
             cfg = load_config()
             cfg["manifest_path"] = fname
             save_config(cfg)
-            return (f"⚠ An atlas '{slug}' already exists — switched to it rather "
+            return (f"⚠ An atlas '{shown}' already exists — switched to it rather "
                     f"than overwriting. ✓ reload.")
         manifest = {
             "atlas": {"layout": "pack"},
@@ -6680,7 +6689,7 @@ class Handler(BaseHTTPRequestHandler):
         cfg = load_config()
         cfg["manifest_path"] = fname
         save_config(cfg)
-        return f"✓ Created atlas '{slug}' — add regions, generate, then Create Atlas."
+        return f"✓ Created atlas '{shown}' — add regions, generate, then Create Atlas."
 
     def _addregion(self, payload: dict) -> str:
         """Append a named region to the active manifest (from-scratch flow). The
