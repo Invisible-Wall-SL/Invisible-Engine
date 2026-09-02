@@ -93,6 +93,19 @@ RUN pip install --force-reinstall \
     "torch==${TORCH_REF}" "torchvision==${TORCHVISION_REF}" "torchaudio==${TORCHAUDIO_REF}" \
     --index-url https://download.pytorch.org/whl/cu128
 
+# --- build stamp --------------------------------------------------------------
+# Which commit is this worker? Deliberately the LAST thing before the cheap COPYs, so
+# a new sha busts only those layers and not the multi-GB torch/ComfyUI ones above.
+#
+# This exists because "is the endpoint running the new image?" was, three times
+# running, only answerable by archaeology — noticing that an error message quoted a
+# number that had since been changed. A serverless endpoint pinned to `:latest`
+# caches by digest, so a push to that tag does not necessarily roll the workers, and
+# nothing in the container said otherwise. Now the boot log says it and every error
+# carries it.
+ARG GIT_SHA=unknown
+ENV WORKER_BUILD=$GIT_SHA
+
 COPY extra_model_paths.yaml /ComfyUI/extra_model_paths.yaml
 COPY handler.py /handler.py
 COPY start.sh   /start.sh

@@ -54,6 +54,9 @@ jobs:
         with:
           context: services/atlas-serverless
           push: true
+          # Stamped into the image so a running worker can say which commit it is.
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           tags: |
             ghcr.io/invisible-wall-sl/atlas-comfy-worker:latest
             ghcr.io/invisible-wall-sl/atlas-comfy-worker:${{ github.sha }}
