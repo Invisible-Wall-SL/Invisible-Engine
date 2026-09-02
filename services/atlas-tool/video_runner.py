@@ -326,6 +326,28 @@ def _pick_video_output(out: dict, filename_prefix: str) -> tuple[str, bytes]:
             f"{out.get('error')}" + (f" ({detail})" if detail else ""))
     items = (out or {}).get("images") or (out or {}).get("gifs") or []
     if not items:
+        # An EMPTY result is a different failure from a result with no images in it,
+        # and the two used to read the same. The worker always returns either
+        # `{"images": …}` or `{"error": …}` — never nothing — so an empty payload
+        # from a job RunPod calls COMPLETED means the render finished and the RESULT
+        # was lost between the worker and us, which in practice means it was too big
+        # for RunPod to hand back.
+        #
+        # It is worth naming the cause, because the setting that triggers it looks
+        # unrelated: measured on one blueprint, the SAME render is 4.5 MB with the
+        # BiRefNet cutout on and blows the cap with it off — a lossless WEBP of
+        # opaque frames is several times the size of one that is mostly transparent.
+        # Turning off "remove background" therefore breaks a render for a reason
+        # nothing about backgrounds explains, and "no output files" pointed at the
+        # graph, which is exactly where the answer is not.
+        if not out:
+            raise RuntimeError(
+                "the render finished but RunPod handed back no result — which "
+                "means the file was too large for it to return (~20 MB). A "
+                "LOSSLESS animated WEBP of opaque frames is several times the size "
+                "of the same clip with an alpha cutout, so this usually appears the "
+                "moment background removal is switched off. Turn the blueprint's "
+                "`lossless` setting off, or lower the export size, and re-roll.")
         raise RuntimeError(f"job returned no output files (output={out!r})")
     base = os.path.basename(filename_prefix).lower()
     ours = [i for i in items

@@ -195,6 +195,37 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-02 — **"It is still failing when I check the bool that suppose to not run the background
+  removal" — and the answer had nothing to do with backgrounds.** Owner report; the error was
+  `job returned no output files (output={})`.
+  - **The correlation in the records is total and was the whole diagnosis.** Across five sessions of
+    `wanloopingvideo__3_`: every variation with the cutout ON finished (16 renders, 1.4–4.5 MB);
+    every variation with it OFF failed this way (16 renders, 0 exceptions).
+  - **It is not the graph, and the durations prove it.** The failing runs took **927–1061s** — full
+    generations — and RunPod reported them **COMPLETED**. The worker returns `{"images": …}` or
+    `{"error": …}` and never nothing, so an empty payload means the render finished and the RESULT
+    was lost coming back: too large for RunPod to hand over (~20 MB).
+  - **Nor is it the export size**, which is what it looks like at first. Session `_25a3` ran
+    **640×640 with the cutout ON** and every variation landed at ~4.5 MB. Same size, cutout off,
+    nothing comes back. What changes is compressibility: `SaveAnimatedWEBP` is baked
+    **`lossless: true`**, and a lossless WEBP of opaque frames is several times the size of one that
+    is mostly transparent. The cutout was silently holding the payload under the cap.
+  - **The same shape as `fast_lora`, one node along**: a load-bearing input baked into the graph
+    and never exposed, so no UI could reach it. `lossless` (and `quality`) on node `363` are now
+    params — **defaults left at the author's baked values**, because which way they point is an
+    authoring decision and only the unreachability was the bug. The built-in blueprint exposes both,
+    which is why it never hit this.
+  - **Note the gate warning could NOT have caught this**, exactly as its fixture says: `lossless` is
+    a widget among a dozen on a save node, not a boolean gating a switch. The warning is
+    deliberately narrow to stay false-positive-free; this is the cost of that choice, and it is
+    still the right trade.
+  - **The message now names the cause.** `job returned no output files (output={})` pointed at the
+    graph — the one place the answer is not. An EMPTY payload is now told apart from a populated one
+    with no images in it, and says the file was too large, that a lossless WEBP without a cutout is
+    what usually does it, and which setting fixes it.
+  - Fixtures: `test_an_empty_payload_names_its_real_cause` — the empty case explains itself and
+    names `lossless`, a populated-but-imageless result keeps the old wording, and a worker error
+    still wins over both.
 - 2026-09-02 — **Cancel does something on the session that most needs it.** Owner, testing the
   cancel fix: *"I try to click the cancel button under the queue button, but nothing is
   happening!"* — and it genuinely was not: the click reached the tool, set the flag, and left.
