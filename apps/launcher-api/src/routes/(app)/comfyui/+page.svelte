@@ -313,7 +313,7 @@
 		}
 	}
 
-	/** The 12-char tag CI pushes — long enough to be unambiguous, short enough for a card. */
+	/** DISPLAY ONLY. The tag CI pushes is the full sha — abbreviating it made pods unpullable. */
 	function shortSha(sha: string): string {
 		return sha.slice(0, 12);
 	}
@@ -340,7 +340,7 @@
 		const image = p.specs?.imageName;
 		const sha = build?.latest?.conclusion === 'success' ? build.latest.sha : undefined;
 		if (!image || !sha) return null;
-		return image.endsWith(`:${shortSha(sha)}`);
+		return image.endsWith(`:${sha}`);
 	}
 
 	/**
@@ -614,10 +614,9 @@ Commits to main and rebuilds.`)
 	async function moveToLatest(pod: Pod): Promise<void> {
 		const sha = build?.latest?.sha;
 		if (!sha || moving[pod.id]) return;
-		const tag = shortSha(sha);
 		if (
 			!confirm(
-				`Move "${pod.label}" to build ${tag}?
+				`Move "${pod.label}" to build ${shortSha(sha)}?
 
 RunPod recreates the container, so anything ` +
 					`installed by hand on it is lost. Models on the Network Volume are not affected.`,
@@ -631,7 +630,7 @@ RunPod recreates the container, so anything ` +
 			const res = await fetch('/comfyui/pod-image', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ podId: pod.id, sha: tag }),
+				body: JSON.stringify({ podId: pod.id, sha }),
 			});
 			const data = (await res.json().catch(() => ({}))) as MoveResult & {
 				fleet?: StatusResp;
