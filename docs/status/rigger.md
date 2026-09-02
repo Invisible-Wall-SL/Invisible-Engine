@@ -114,7 +114,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
     landed, and Svelte compiles a bare template identifier as a global, so `launcher build` (not a
     type-check) stayed green and the throw only surfaced when a rig with bindings rendered. Found by
     loading the republished game in the browser and reading the console, not by reasoning.
-  - **Second follow-up the same day (#550): on H1 only the FX showed, not the clip.** Per-keyframe
+  - **Second follow-up the same day (#552): on H1 only the FX showed, not the clip.** Per-keyframe
     bindings exposed a spine-pixi rule: ONE object per slot — `addSlotObject(slot)` first
     `removeSlotObject(slot)`s, pulling the previous container out of the spine. The H1 rig
     (`R_TentacleFlip`) binds `f_tentacle_exit` on `slot1` in BOTH `animation` (tumble) and
