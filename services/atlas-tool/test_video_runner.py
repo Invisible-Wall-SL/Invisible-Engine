@@ -855,6 +855,70 @@ def test_a_cancel_runpod_refuses_is_reported_not_swallowed() -> None:
     _await_session(ok["id"])
 
 
+def test_cancelling_a_session_no_worker_owns() -> None:
+    """The exact state the owner hit: "I try to click the cancel button ... but
+    nothing is happening!"
+
+    A session ADOPTED from its stored doc after a restart carries variations still
+    marked `running` — that is what they said when the old process died. The settle
+    test used to read those and infer a worker was watching, so it left everything to
+    a thread that does not exist. The session sat at "running" for over half an hour
+    and Cancel did nothing whatsoever; the flag was not even persisted, so R2 went on
+    reporting `cancel: false` while the author clicked.
+    """
+    _stub_world()
+    ctx = ("clientx", "projecty")
+
+    # Someone else holds the runner, so no worker will ever be dispatched for ours.
+    holder = video_runner.start_session(_req("holds the runner"), ctx)
+    _await_in_flight(holder["id"])
+
+    # An orphan exactly as a restart leaves it: in memory, NOT `_ACTIVE`, with a
+    # variation frozen mid-flight and a job id still attached.
+    sid = "20260902_083441_25a3"
+    orphan = {
+        "id": sid, "status": "running", "cancel": False, "client": "clientx",
+        "project": "projecty", "blueprint": "wan22_i2v_flipbook", "prompt": "p",
+        "source_ref": "r.png", "negative": "", "params": {}, "seed_base": 1,
+        "variations": [
+            {"index": 1, "status": "done", "seed": 1, "file": "001.webp",
+             "error": "", "job_id": "old1", "started": 1.0, "finished": 2.0},
+            {"index": 2, "status": "running", "seed": 2, "file": "", "error": "",
+             "job_id": "ad5b2256", "started": 3.0, "finished": None},
+            {"index": 3, "status": "queued", "seed": 3, "file": "", "error": "",
+             "job_id": "", "started": 0.0, "finished": None},
+        ],
+    }
+    with video_runner._LOCK:
+        video_runner._SESSIONS[sid] = orphan
+    check("the orphan is not the session holding the runner",
+          video_runner._ACTIVE == sid, False)
+
+    res = video_runner.cancel_session(sid)
+
+    check("cancelling it settles it here, since nothing else ever will",
+          video_runner.get_session(sid).get("status"), "cancelled")
+    check("every unfinished slot is closed out",
+          [v["status"] for v in video_runner.get_session(sid)["variations"]],
+          ["done", "cancelled", "cancelled"])
+    check("the finished one is left alone",
+          video_runner.get_session(sid)["variations"][0]["file"], "001.webp")
+    check("its in-flight job is stopped remotely", res.get("cancelling"), 1)
+
+    # The flag must reach R2, not just memory: a restart that forgets the stop was
+    # asked for is how a cancelled session comes back to life.
+    import json
+    stored = json.loads(
+        video_runner.storage.get(f"clientx/projecty/video/{sid}/meta.json"))
+    check("and the stored doc records the cancel", stored.get("cancel"), True)
+    check("as cancelled, not running", stored.get("status"), "cancelled")
+
+    # The session that DOES have a worker is untouched by any of this.
+    check("the running session still holds the runner",
+          video_runner._ACTIVE, holder["id"])
+    _await_session(holder["id"])
+
+
 def test_a_dead_worker_does_not_wedge_the_runner() -> None:
     """`_ACTIVE` was only cleared on the happy path, so any escape before it left
     the tool answering "a video session is already running" until the container
@@ -1227,6 +1291,7 @@ if __name__ == "__main__":
     test_queue_depth_is_capped()
     test_cancelling_reads_as_cancelled_not_failed()
     test_a_cancel_runpod_refuses_is_reported_not_swallowed()
+    test_cancelling_a_session_no_worker_owns()
     test_a_transient_status_blip_does_not_lose_a_job()
     test_contact_lost_for_good_stops_the_job()
     test_our_cap_sits_above_the_endpoints_own_timeout()

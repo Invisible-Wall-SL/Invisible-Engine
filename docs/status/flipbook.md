@@ -195,6 +195,26 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-02 — **Cancel does something on the session that most needs it.** Owner, testing the
+  cancel fix: *"I try to click the cancel button under the queue button, but nothing is
+  happening!"* — and it genuinely was not: the click reached the tool, set the flag, and left.
+  - **The settle test asked the wrong question.** It read "is any variation running?" and inferred
+    a worker from the answer. A session ADOPTED from its stored doc after a restart breaks that
+    inference completely — its variations still say `running` because that is what they said when
+    the old process died — so `cancel_session` saw work in flight, assumed a thread was watching
+    it, and handed everything to a worker that does not exist. It is now `_ACTIVE != session_id`,
+    which is the whole of the fact "someone will act on this".
+  - **Caught from the RECORD, not from a repro.** `<c>/<p>/video/20260902_083441_25a3/meta.json`
+    sat at `status: running`, variation 5 `running`, **`cancel: false`**, its meta untouched for 32
+    minutes while a second session wrote its own every few minutes. `cancel: false` after the
+    author had clicked is the whole diagnosis: the flag was set in memory and persisted nowhere,
+    because `_write_meta` was only reached on the settling path. It is now written on both.
+  - The two are one bug seen twice: nothing acted on the flag, and nothing recorded that it had
+    been asked for — so a restart forgot the stop as well.
+  - Fixture: `test_cancelling_a_session_no_worker_owns` builds that state exactly (a second session
+    holding the runner, an orphan in `_SESSIONS` with a frozen `running` variation and a job id)
+    and asserts the settle, the remote stop, that a finished slot is untouched, and that R2 records
+    it. Confirmed to fail against the old test.
 - 2026-09-02 — **Cancel stops the GPU, not just the wait.** Owner: *"I have canceled jobs, and the
   UI is telling me they are cancelled, but when I look at the runpod, I can see the server is still
   running and generating."*
