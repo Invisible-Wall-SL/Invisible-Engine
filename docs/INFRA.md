@@ -316,6 +316,12 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 > to run and blaming ComfyUI for it. **Keep it at or above the endpoint's Execution Timeout** —
 > RunPod's is the authority. And `CANCEL_POLL_SECONDS` (default 5) — how often a running job asks
 > whether it is still wanted.
+>
+> On `atlas-tool`, `VIDEO_PARALLEL_JOBS` (default 1) caps how many of ONE video session's
+> variations are in flight at once. RunPod wakes a second worker only when a second job is
+> waiting, so at 1 an endpoint with three workers uses one. **Set it to the endpoint's max
+> workers (the owner's is 3), never above** — the surplus just sits IN_QUEUE, and each extra
+> worker is its own cold start and its own share of the burn rate.
 
 ## DNS (Cloudflare)
 

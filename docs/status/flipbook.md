@@ -154,8 +154,8 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - **Video mode, steps 0–1** ([design](../design/invisible-flipbook-video.md)) — a `/flipbook` mode that generates video from a blueprint and turns the picked result into a clip. Landed so far, **none of it exercised on a real GPU**:
   - **`blueprints_src/wan22_i2v_flipbook/`** — the owner's Wan 2.2 I2V graph, made serverless-safe. Its one unavailable node (`ImageResizeKJv2`, KJNodes, baked into neither the worker nor the pod image) is replaced by core `ImageScale`, pixel-identical at these settings; `BiRefNetRMBG` needed nothing because it comes from `1038lab/ComfyUI-RMBG`, which the worker already bakes. `ComfySwitchNode` + `ComfyMathExpression` were verified present in ComfyUI core at the pinned v0.33.1. The save node's `fps` is now WIRED to the generation fps node rather than copied, so the preview can never drift from the motion rate again.
   - **`width`/`height` are deliberately UNBOUND.** `build_workflow_blueprint` fills those roles from `GEN_WIDTH`/`GEN_HEIGHT`, whose config default is **1024** because they were sized for stills — injecting that into `WanImageToVideo` across an 81-frame batch is a VRAM/wall-clock blowup. Generation size is a param instead. This is the single easiest way to silently wreck a video blueprint; the fixture asserts it.
-  - **`video_runner.py` + seven `/video/*` routes** — stateless, session-scoped, sequential, remote-cancelling; one session RUNS at a time and the rest QUEUE behind it. Results land in `<C>/<P>/video/<id>/` and never enter `deploy/`.
-  - Fixtures: `py test_video_runner.py` (141 checks, RunPod/R2/paths stubbed). **Count it, don't add to it** — the figure here was wrong twice, each time by doing arithmetic on the previous stale one: `grep -c '^ok'` over a run is the only honest source.
+  - **`video_runner.py` + seven `/video/*` routes** — stateless, session-scoped, remote-cancelling; one session RUNS at a time and the rest QUEUE behind it, with at most `VIDEO_PARALLEL_JOBS` (default 1) of its variations in flight at once. Results land in `<C>/<P>/video/<id>/` and never enter `deploy/`.
+  - Fixtures: `py test_video_runner.py` (245 checks, RunPod/R2/paths stubbed). **Count it, don't add to it** — the figure here was wrong twice, each time by doing arithmetic on the previous stale one: `grep -c '^ok'` over a run is the only honest source.
   - **Step 2 — the 🎬 mode UI.** `/flipbook` switches surfaces with the canonical `<CanvasModeBar inline>` in the ToolTopBar's `meta` snippet; the mode itself is `VideoMode.svelte` (its own component — the clip editor is already 1300 lines and the two share nothing but the project). Blueprint picker, prompt, source-image picker, variation count, params rendered from the blueprint's own `params[]`, live progress, results grid.
     - **No `<video>` element** — an animated WEBP plays, loops and honours alpha in a plain `<img>`. The checkerboard behind each tile is load-bearing: it is how the author sees whether the cutout produced real alpha rather than a matte-coloured rectangle.
     - **`api/flipbook/video/[...path]` is an explicit ALLOW-LIST, not a pass-through** — a forwarding rest route would hand any flipbook user the whole atlas-tool surface (`/render`, `/deleteblueprint`, `/createatlas`) under a gate that never mentions them. Canonical `toolScope.gate` on `flipbook`; the tool secret never reaches the browser.
@@ -195,6 +195,49 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-02 — **A twelve-tile grid ran on ONE of the endpoint's three workers.** Owner
+  report: the RunPod endpoint is sized for three workers, and only one ever ran, however big
+  the grid. The runner submitted one job at a time by design, and RunPod's autoscaler wakes a
+  second worker only when a second job is WAITING — so a serial runner keeps every other
+  worker asleep, whatever the endpoint is sized to.
+  - **`_run_variations` is now a dispatcher.** It claims the lowest eligible slot under
+    `_LOCK`, hands it to a daemon thread (`_run_variation`, the old loop body, with the
+    project context re-set the way `_run_session` sets it) and keeps up to `PARALLEL_JOBS`
+    in flight on a `Condition`. It returns only once every thread it started has finished,
+    because `_run_session` hands the runner to the next queued session on return. The
+    re-pick is unchanged — a re-roll or `＋ Add` armed mid-run is still collected by the
+    pass under way — and sessions still run one at a time (`_ACTIVE` / `_QUEUE` untouched):
+    this is parallelism WITHIN a session, never across them.
+  - **`VIDEO_PARALLEL_JOBS`** (default **1**, clamped 1..8) is the cap. The default is
+    deliberately serial — byte-for-byte what ran before — because each extra worker pays
+    its own cold start (the ~29 GB Wan load a warm worker would have skipped) and
+    multiplies the burn RATE by the same factor, so it only pays off on a big grid. Set it
+    to the endpoint's max workers (the owner's is 3) and never above: the surplus just sits
+    IN_QUEUE. Sessions still never overlap, so the ceiling on spend is this number, not the
+    number of sessions queued.
+  - **`meta.json` writes are serialised** under a dedicated `_META_LOCK`, snapshot + put as
+    one unit (the snapshot itself under `_LOCK`). Two variations finishing together would
+    otherwise each serialise a session the other is still mutating and race their bodies to
+    R2, where the OLDER one can land last and quietly undo a `done` that was already true.
+  - Fixtures: the fan-out peaks at exactly the cap and never above across twelve tiles,
+    each landing in its own slot; `PARALLEL_JOBS = 1` stays serial (the second job goes out
+    only after the first finished); a cancel mid-fan-out `/cancel`s every in-flight job,
+    reads `cancelled` (never `failed`) and releases the runner to a following session; one
+    failed job leaves the other eleven `done`. **Not verified on a live endpoint** — the
+    proof there is the Requests tab showing three workers busy on one session, which needs
+    `VIDEO_PARALLEL_JOBS=3` set on `atlas-tool` and a redeploy.
+  - **Two review fixes, both reproduced at `PARALLEL_JOBS > 1`.** The dispatcher's
+    condition is module-level (`_CV`) and both `_dispatch`'s already-active branch and
+    `cancel_session` `notify_all()` it, so a re-roll / `＋ Add` armed while the dispatcher
+    sleeps is submitted into a free slot at once instead of after the next in-flight job
+    happens to exit (and a stop's `queued → cancelled` sweep is immediate). That sweep now
+    also settles a `running` tile the pass never claimed — an adopted doc holding more
+    running slots than the cap now allows, whose job `cancel_session` had already
+    `/cancel`led — which used to stay `running` with no thread behind it and refuse every
+    re-roll with "still rendering. Cancel the session first". Alongside: the worker threads
+    take their project context from the same `ctx` `_run_session` sets its own from, and the
+    fixtures' `set_context` stub records its caller's thread id, so the fan-out fixture
+    proves the context is set on the worker threads rather than assuming it.
 - 2026-09-02 — **A render the worker had already uploaded could be lost by the process that came to
   collect it.** First live run of the R2 hand-off:
   `output entry carried no data: {'bytes': 5918564, 'filename': '…', 'slot': 0}` — and the file was

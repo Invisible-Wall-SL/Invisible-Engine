@@ -61,6 +61,15 @@ _LOCK = threading.RLock()
 _SESSIONS: dict[str, dict] = {}
 _ACTIVE: str | None = None
 _QUEUE: list[str] = []
+# The dispatcher's wake-up. Module-level rather than local to `_run_variations`
+# because a worker exiting is only ONE of the things that must wake it: a slot
+# re-armed mid-run (`_dispatch`) and a stop (`cancel_session`) are the others,
+# and neither could reach a condition the loop kept to itself.
+_CV = threading.Condition(_LOCK)
+# Serialises `meta.json` writes. Separate from `_LOCK` on purpose: the write is an
+# R2 put, and holding the session lock across a network call would stall every
+# status poll and every page read for its duration.
+_META_LOCK = threading.Lock()
 
 # A variation count high enough to be useful, low enough that a fat-fingered
 # number can't queue an afternoon of GPU time.
@@ -87,6 +96,17 @@ POLL_SECONDS = 3.0
 # is the authority on how long a render may take; this is only a backstop for a
 # job it never resolves at all, so it just has to stay above it.
 JOB_TIMEOUT_SECONDS = int(os.environ.get("VIDEO_JOB_TIMEOUT_SECONDS") or 9600)
+# How many of ONE session's variations may be in flight at once. Default 1 —
+# serial, exactly the behaviour before this knob existed. RunPod's autoscaler only
+# wakes a second worker when a second job is waiting, so a runner that submits one
+# job at a time leaves every other worker on the endpoint asleep, however many are
+# configured. Raising this spreads a grid across them — but each extra worker pays
+# its own cold start (the ~29 GB Wan load a warm worker would have skipped) and
+# multiplies the burn RATE by the same factor, so it only pays off on a big grid.
+# Never set it above the endpoint's max workers: the surplus jobs just sit
+# IN_QUEUE, billed for nothing and reported as waiting. Sessions still run one at
+# a time regardless — this is parallelism WITHIN a session, not across them.
+PARALLEL_JOBS = max(1, min(8, int(os.environ.get("VIDEO_PARALLEL_JOBS") or 1)))
 # How long a run of UNREADABLE status polls is tolerated before a job is given up
 # on. Losing the poll is not losing the job — the worker renders (and bills)
 # either way — so one 500 from RunPod's status API must never fail a variation
@@ -471,17 +491,27 @@ def _persist(session_id: str, index: int, blob: bytes) -> str:
 def _write_meta(session_id: str, session: dict) -> None:
     """Mirror the session to `meta.json` so a page reload (or a restart) can
     recover it. Written after every variation, not just at the end — an
-    interrupted session should still list what it managed to produce."""
-    # `queue_position` is true only at this instant, so it is served, never
-    # stored — a persisted one would still claim "3rd in line" a week later.
-    doc = {k: v for k, v in _public(session).items() if k != "queue_position"}
-    body = json.dumps(doc, indent=2).encode("utf-8")
-    try:
-        (_session_dir(session_id) / "meta.json").write_bytes(body)
-        storage.put(f"{_video_prefix()}/{session_id}/meta.json",
-                    body, "application/json")
-    except Exception as e:  # noqa: BLE001 — a meta write must not kill a session
-        print(f"[video] meta write failed for {session_id}: {e}", flush=True)
+    interrupted session should still list what it managed to produce.
+
+    Snapshot and write are ONE unit under `_META_LOCK`. With several variations in
+    flight two of them can finish together, and without this each would serialise
+    a session the other is still mutating and then race its body to R2 — where the
+    OLDER snapshot can land last and quietly undo a `done` that was already true.
+    The snapshot itself is taken under `_LOCK`, so it never walks a variation list
+    mid-append.
+    """
+    with _META_LOCK:
+        with _LOCK:
+            # `queue_position` is true only at this instant, so it is served, never
+            # stored — a persisted one would still claim "3rd in line" a week later.
+            doc = {k: v for k, v in _public(session).items() if k != "queue_position"}
+            body = json.dumps(doc, indent=2).encode("utf-8")
+        try:
+            (_session_dir(session_id) / "meta.json").write_bytes(body)
+            storage.put(f"{_video_prefix()}/{session_id}/meta.json",
+                        body, "application/json")
+        except Exception as e:  # noqa: BLE001 — a meta write must not kill a session
+            print(f"[video] meta write failed for {session_id}: {e}", flush=True)
 
 
 # --------------------------------------------------------------------------
@@ -512,11 +542,15 @@ def _dispatch(session_id: str, ctx: tuple[str, str]) -> bool:
 
     A session that ALREADY holds the runner is left alone: its worker re-picks the
     lowest pending variation every iteration, so a slot re-armed mid-run is
-    collected without a second thread ever touching the session.
+    collected without a second thread ever touching the session. It is WOKEN,
+    though: with nothing eligible and a job still in flight the dispatcher sleeps
+    on `_CV`, and until this notified it the re-armed slot sat `queued` beside
+    free workers until whichever job was in flight happened to finish.
     """
     global _ACTIVE
     with _LOCK:
         if _ACTIVE == session_id:
+            _CV.notify_all()
             return False
         if _runner_busy():
             if session_id not in _QUEUE:
@@ -545,7 +579,7 @@ def _run_session(session_id: str, ctx: tuple[str, str]) -> None:
             session = _SESSIONS.get(session_id)
         if session:
             try:
-                _run_variations(session_id, session)
+                _run_variations(session_id, session, ctx)
             except Exception as e:  # noqa: BLE001 — record it; never wedge the queue
                 print(f"[video] {session_id} runner died: {e}", flush=True)
                 with _LOCK:
@@ -591,25 +625,60 @@ def _release(session_id: str) -> None:
         threading.Thread(target=_run_session, args=nxt, daemon=True).start()
 
 
-def _run_variations(session_id: str, session: dict) -> None:
-    """Run every variation of one session in turn.
+def _run_variations(session_id: str, session: dict, ctx: tuple[str, str]) -> None:
+    """Run every variation of one session, at most `PARALLEL_JOBS` in flight.
 
-    SEQUENTIAL by design. The serverless handler deliberately keeps ComfyUI warm
-    between jobs when VRAM allows, so consecutive variations reuse a loaded model
-    instead of paying the ~29 GB Wan load again; fanning out in parallel would
-    trade that for N cold starts. Results still stream in one tile at a time, so
-    the grid fills progressively either way.
+    Each in-flight variation is a RunPod job on a worker of its own, and every
+    worker keeps its own warm model between the jobs it is handed — so a session
+    fanned out over three workers pays three cold starts and then reuses three
+    loaded models, where a serial one pays a single cold start and reuses one.
+    That is why the default is still 1: the serverless handler deliberately keeps
+    ComfyUI warm when VRAM allows, so consecutive variations on one worker skip
+    the ~29 GB Wan load, and fanning out only pays off when a grid is big enough
+    for the extra cold starts to amortise. Results stream in one tile at a time
+    either way, so the grid fills progressively.
+
+    The loop here is a DISPATCHER: it claims the lowest eligible variation, marks
+    it running and hands it to a thread, then waits on `_CV` for a slot to free
+    up — or for a slot to be re-armed, or for a stop; see `_CV`. It returns only
+    once every thread it started has finished — a variation still in flight after
+    this returns would be racing the next session, which `_run_session` hands the
+    runner to on return.
     """
     def should_stop() -> bool:
         with _LOCK:
             return bool(session.get("cancel"))
 
     bp = session["_blueprint"]
+    # `ctx` is the one `_run_session` set its own context from, passed on rather
+    # than re-derived, so there is a single answer to where this session's files
+    # land. A variation thread does NOT inherit this thread's thread-local context
+    # any more than this thread inherited the request's; without re-setting it,
+    # `_persist` and `_write_meta` land in the env-default project.
+    in_flight: set[int] = set()
+
+    def run_one(var: dict, resume: bool) -> None:
+        try:
+            project_paths.set_context(*ctx)
+            _run_variation(session_id, session, bp, var, resume, should_stop)
+        finally:
+            with _CV:
+                in_flight.discard(var["index"])
+                _CV.notify_all()
+
     while True:
-        with _LOCK:
+        with _CV:
             if session.get("cancel"):
                 for v in session["variations"]:
-                    if v["status"] == "queued":
+                    # `queued` never started. `running` and NOT claimed is a resume
+                    # candidate this pass never reached — an adopted doc holding
+                    # more running slots than the cap now allows — whose job
+                    # `cancel_session` has already `/cancel`led. No thread is behind
+                    # it, so nothing else will ever settle it; left `running`, it
+                    # refused every re-roll with "still rendering. Cancel the
+                    # session first" — after the session HAD been cancelled.
+                    if v["status"] == "queued" or (
+                            v["status"] == "running" and v["index"] not in in_flight):
                         v.update(status="cancelled", finished=_now())
                 break
             # RE-PICKED every iteration rather than iterated once, so a slot armed
@@ -620,66 +689,103 @@ def _run_variations(session_id: str, session: dict) -> None:
             # `running` + a job id is the RESUME case: that job is already paid
             # for, so it is re-attached. A variation whose id was lost is marked
             # failed by `_adopt` and left for the author to re-roll deliberately,
-            # never silently re-billed. Every exit from the body below is terminal,
-            # so this cannot spin.
+            # never silently re-billed. Every exit from the worker is terminal
+            # (and a claimed slot is excluded here), so this cannot spin.
             var = next((v for v in session["variations"]
-                        if v["status"] == "queued"
-                        or (v["status"] == "running" and v.get("job_id"))), None)
-        if var is None:
-            break
-        prefix = f"iwvid_{session_id}_{var['index']:03d}"
-        # RESUME: a variation already carrying a job id was submitted by a
-        # PREVIOUS process. Re-attach to that job rather than paying for it twice
-        # — RunPod holds the result, and the GPU time is already spent.
-        existing = str(var.get("job_id") or "")
+                        if v["index"] not in in_flight
+                        and (v["status"] == "queued"
+                             or (v["status"] == "running" and v.get("job_id")))),
+                       None)
+            if var is None:
+                if not in_flight:
+                    break
+                _CV.wait()
+                continue
+            if len(in_flight) >= PARALLEL_JOBS:
+                _CV.wait()
+                continue
+            # CLAIMED under the lock, before the thread exists, so the next
+            # iteration cannot hand the same slot to a second thread. Whether this
+            # is a re-attach is decided HERE, from the status at claim time: the
+            # resume case keeps its `running` — that is what it was when the old
+            # process died, and `started` belongs to that submit, not to this.
+            in_flight.add(var["index"])
+            resume = var["status"] == "running"
+            if not resume:
+                var.update(status="running", started=_now())
+                session["status"] = "running"
         try:
-            if existing and var["status"] == "running":
-                print(f"[video] {session_id} v{var['index']:03d} re-attaching to "
-                      f"job {existing}", flush=True)
-                job_id = existing
-                # Re-derive where that job was told to put its output. This was an
-                # empty list, so a render the worker had ALREADY uploaded could not be
-                # found by the process that came to collect it: the result said "slot
-                # 0" and there was nothing to resolve 0 against, so a finished, paid
-                # render was reported as "output entry carried no data" while the file
-                # sat in R2. The same trap the persisted `job_id` below was added for,
-                # one field along.
-                upload_keys = _upload_slot_keys(prefix)
-            else:
-                with _LOCK:
-                    var.update(status="running", started=_now())
-                    session["status"] = "running"
-                _write_meta(session_id, session)
-                recipe = _variation_recipe(session, var)
-                wf = build_video_workflow(
-                    bp, recipe["prompt"], recipe["negative"], var["seed"],
-                    recipe["source_ref"], recipe["params"], prefix)
-                job_id, wf, upload_keys = _submit(wf, prefix)
-                with _LOCK:
-                    var["job_id"] = job_id
-                # Persist the id BEFORE waiting. This used to be written only once
-                # the variation FINISHED, so a restart mid-job lost the only handle
-                # to a job that was already running (and already paid for) — the
-                # session then sat at "running" forever with its result stranded.
-                _write_meta(session_id, session)
-            out = _await_job(job_id, var, should_stop)
-            _, blob = _pick_video_output(out, prefix, upload_keys)
-            fname = _persist(session_id, var["index"], blob)
-            # The hand-off slots are scratch. `_persist` has just written the real
-            # object, so leaving them would double every session's storage and put
-            # files under the session prefix that nothing references.
-            _clear_upload_slots(upload_keys)
-            with _LOCK:
-                var.update(status="done", file=fname, bytes=len(blob),
-                           finished=_now(), error="")
-        except _Cancelled:
-            with _LOCK:
-                var.update(status="cancelled", finished=_now())
-        except Exception as e:  # noqa: BLE001 — one bad variation must not kill the rest
-            with _LOCK:
+            threading.Thread(target=run_one, args=(var, resume),
+                             daemon=True).start()
+        except RuntimeError as e:
+            # A thread that never started never reaches `run_one`'s finally, so
+            # its claim has to be undone here or the drain below waits forever.
+            with _CV:
+                in_flight.discard(var["index"])
                 var.update(status="failed", error=str(e)[:600], finished=_now())
-            print(f"[video] {session_id} v{var['index']:03d} failed: {e}", flush=True)
-        _write_meta(session_id, session)
+            print(f"[video] {session_id} v{var['index']:03d} could not start: {e}",
+                  flush=True)
+    # Drain. On cancel this is what actually stops the spend: each thread's
+    # `should_stop` makes `_await_job` cancel its own job remotely on the way out.
+    with _CV:
+        while in_flight:
+            _CV.wait()
+
+
+def _run_variation(session_id: str, session: dict, bp: dict, var: dict,
+                   resume: bool, should_stop) -> None:
+    """Run ONE claimed variation to a terminal status: submit (or re-attach),
+    await, collect, persist. Never raises — a bad variation is recorded on the
+    slot so the rest of the session carries on."""
+    prefix = f"iwvid_{session_id}_{var['index']:03d}"
+    try:
+        if resume:
+            # A variation already carrying a job id was submitted by a PREVIOUS
+            # process. Re-attach to that job rather than paying for it twice —
+            # RunPod holds the result, and the GPU time is already spent.
+            job_id = str(var.get("job_id") or "")
+            print(f"[video] {session_id} v{var['index']:03d} re-attaching to "
+                  f"job {job_id}", flush=True)
+            # Re-derive where that job was told to put its output. This was an
+            # empty list, so a render the worker had ALREADY uploaded could not be
+            # found by the process that came to collect it: the result said "slot
+            # 0" and there was nothing to resolve 0 against, so a finished, paid
+            # render was reported as "output entry carried no data" while the file
+            # sat in R2. The same trap the persisted `job_id` below was added for,
+            # one field along.
+            upload_keys = _upload_slot_keys(prefix)
+        else:
+            _write_meta(session_id, session)
+            recipe = _variation_recipe(session, var)
+            wf = build_video_workflow(
+                bp, recipe["prompt"], recipe["negative"], var["seed"],
+                recipe["source_ref"], recipe["params"], prefix)
+            job_id, wf, upload_keys = _submit(wf, prefix)
+            with _LOCK:
+                var["job_id"] = job_id
+            # Persist the id BEFORE waiting. This used to be written only once
+            # the variation FINISHED, so a restart mid-job lost the only handle
+            # to a job that was already running (and already paid for) — the
+            # session then sat at "running" forever with its result stranded.
+            _write_meta(session_id, session)
+        out = _await_job(job_id, var, should_stop)
+        _, blob = _pick_video_output(out, prefix, upload_keys)
+        fname = _persist(session_id, var["index"], blob)
+        # The hand-off slots are scratch. `_persist` has just written the real
+        # object, so leaving them would double every session's storage and put
+        # files under the session prefix that nothing references.
+        _clear_upload_slots(upload_keys)
+        with _LOCK:
+            var.update(status="done", file=fname, bytes=len(blob),
+                       finished=_now(), error="")
+    except _Cancelled:
+        with _LOCK:
+            var.update(status="cancelled", finished=_now())
+    except Exception as e:  # noqa: BLE001 — one bad variation must not kill the rest
+        with _LOCK:
+            var.update(status="failed", error=str(e)[:600], finished=_now())
+        print(f"[video] {session_id} v{var['index']:03d} failed: {e}", flush=True)
+    _write_meta(session_id, session)
 
 
 def start_session(req: dict, ctx: tuple[str, str], user: str = "") -> dict:
@@ -1209,6 +1315,11 @@ def cancel_session(session_id: str) -> dict:
         s = _SESSIONS.get(session_id)
         if s:
             s["cancel"] = True
+            # Wake the dispatcher, if one owns this session. Its `queued →
+            # cancelled` sweep runs on its next pass, and without this that pass
+            # came only when the next in-flight job exited — the stop was real
+            # but the grid went on reading `queued` until then.
+            _CV.notify_all()
             if session_id in _QUEUE:
                 _QUEUE.remove(session_id)
             live = [v for v in s["variations"] if v["status"] == "running"]
