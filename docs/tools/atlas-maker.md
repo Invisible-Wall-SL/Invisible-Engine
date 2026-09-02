@@ -60,7 +60,11 @@ Launcher /atlas ──redirect──▶ atlas-tool (Railway, Python UI)
 ## Typical workflow
 
 1. **Pick a manifest** — the tool lists manifests from R2. (These come from the
-   game's atlas, or are authored by the Invisible Sheet Maker.)
+   game's atlas, or are authored by the Invisible Sheet Maker.) Or start one from
+   scratch with **＋ New atlas**: a dialog asks for the name first and shows the
+   slug it will be stored under; a name that already exists is flagged, and
+   **Create** then asks before replacing that atlas with an empty one (Cancel,
+   Esc or a blank name change nothing).
 2. **Per region**, edit the prompt, set/lock a seed, choose style/shape refs.
    Refs can be uploaded from your machine or **picked from R2** via the
    `/fsbrowse` browser (returns R2-relative paths).
