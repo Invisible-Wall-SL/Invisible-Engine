@@ -165,7 +165,11 @@ A **container** is a Scene-Editor scene given an author-assigned **z** (a fully 
 stack position, not a fixed band). **showContainer** mounts a container at its z;
 **hideContainer** unmounts it. Because z is explicit, a celebration screen layers *over* a
 live board simply by having a higher z. The set of containers a flow can show/hide is part
-of the FlowDoc; the palette and the show/hide reference dropdowns are built from it.
+of the FlowDoc; the palette and the show/hide reference dropdowns are built from it. Every
+Scene-Editor screen is a container — a **background-space** screen too: its space only sets
+the coordinate frame (cover-fit to the window). When the flow drives the screens, nothing
+is on screen until you **show** it, so a background screen needs its own **show** (usually
+off `load`), and a splash on a background-space screen hides exactly when you **hide** it.
 
 ### Reusable functions (Collapse to Function)
 

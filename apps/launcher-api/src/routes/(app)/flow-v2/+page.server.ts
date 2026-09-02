@@ -80,16 +80,14 @@ export const load: PageServerLoad = async ({ locals, cookies, url }) => {
 	// runtime re-derives the real z from the Scene-Editor order, so this z is only a tiebreak). Returning
 	// the merged doc means the palette offers every screen immediately, and a Save persists the ones the
 	// author actually shows. `doc` is never null (a fresh project is SEEDED with the reference flow), so
-	// a brand-new project's own scenes still surface here.
+	// a brand-new project's own scenes still surface here. A `space:'background'` scene is a container
+	// like any other: under a screen-driving flow its space is only the coordinate frame (cover-fit to
+	// the window), and the flow alone decides when it is on screen — the engine no longer draws it as an
+	// always-on backdrop there (owner direction 2026-09-02), so it MUST be offered for show/hide.
 	const seen = new Set(doc.containers.map((c) => c.sceneId));
 	let z = doc.containers.reduce((m, c) => Math.max(m, c.z), 0);
 	for (const scene of layout.scenes ?? []) {
 		if (seen.has(scene.id)) continue;
-		// A `space:'background'` scene is a PERSISTENT full-bleed backdrop (§persistent-bg-scene) with
-		// its OWN engine render path (behind everything, always-on) — it is NOT a flow screen, so it
-		// must never surface as a show/hide container (that misleads the author into flow-wiring a
-		// backdrop that the engine already draws). Skip it.
-		if ((scene as { space?: string }).space === 'background') continue;
 		z += 10;
 		doc.containers.push({ id: scene.id, sceneId: scene.id, z });
 	}

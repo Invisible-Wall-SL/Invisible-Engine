@@ -1022,16 +1022,6 @@
 			: undefined,
 	);
 
-	// Authored PERSISTENT background scenes (§ persistent-bg-scene). An author's "New
-	// background screen" gets a fresh-id scene with `space: 'background'` (NOT the coded
-	// `background`-id / `space:'canvas'` spine anchor above) carrying full-bleed art.
-	// `backgroundScenes` selects them by SPACE (not id, so a custom scene id mounts) in
-	// editor order; `hasAuthoredBackground` is true only when one has real content (not
-	// just the coded `Background` bind anchor). Both are the engine-layout contract,
-	// shared with the editor + other games. `apps/lines`' fallback ships NO
-	// `space:'background'` scene (lines.ts has none on purpose), so the list is empty and
-	// the flag is false ⇒ byte-identical to today (parity).
-	const bgScenes = $derived(backgroundScenes(editorDoc.scenes));
 	const suppressCodedBackground = $derived(hasAuthoredBackground(editorDoc.scenes));
 
 	// Authored free-spin BOARD GLOW (the reel-house backdrop behind the reels). Mirrors the
@@ -1082,6 +1072,20 @@
 	// suppress on `flowV2DrivesScreens` (they'd double FlowV2Mount). Engine-owned bands (reels, gates) instead
 	// gate on `isFlowDriven` (v1 OR v2) so they still hide during loading and reveal on the game screen.
 	let flowV2DrivesScreens = $state(false);
+	// Authored background scenes (§ persistent-bg-scene). An author's "New background screen"
+	// gets a fresh-id scene with `space: 'background'` (NOT the coded `background`-id /
+	// `space:'canvas'` spine anchor above) carrying full-bleed art. `backgroundScenes` selects
+	// them by SPACE (not id, so a custom scene id mounts) in editor order; `hasAuthoredBackground`
+	// is true only when one has real content (not just the coded `Background` bind anchor). Both
+	// are the engine-layout contract, shared with the editor + other games. `apps/lines`' fallback
+	// ships NO `space:'background'` scene (lines.ts has none on purpose), so the list is empty and
+	// the flag is false ⇒ byte-identical to today (parity).
+	// ONLY the coded (non-flow-driven) path mounts these persistently. Under a v2 flow that drives
+	// the screens the space is a COORDINATE FRAME and nothing more: the scene is an ordinary
+	// container that `<FlowV2Mount>` shows/hides exactly as authored (owner direction 2026-09-02 —
+	// a splash on a background-space screen kept painting behind the game after its
+	// `hideContainer`, because this always-on layer drew a second copy the flow couldn't touch).
+	const bgScenes = $derived(flowV2DrivesScreens ? [] : backgroundScenes(editorDoc.scenes));
 	// Design doc §14 (win-overlay twin) — whether the v2 flow OWNS the `setWin` event (the ownership
 	// trigger for the headless win driver — an authored win container of ANY name), and the static set
 	// of `showContainer{awaitComplete}` target container ids (the name-agnostic celebration-lock
@@ -1920,16 +1924,19 @@
 	<EnablePixiExtension />
 
 	<!--
-		Persistent authored background (§ persistent-bg-scene). Any `space: 'background'`
-		scene the author created renders here as a full-bleed layer BEHIND everything
-		(`zIndex={-10}`, below the coded background's -3..-1 and the loading screen), and
-		OUTSIDE the loading `{#if}` so it shows across the WHOLE session — base + free game
-		and behind the splash. `<LayoutScene>` cover-fits each node to the canvas (the
-		engine's `space:'background'` path) and honours the scene's own `visibleSource`
-		gate; an ungated scene is always-on. Rendered in editor scene order (lowest first).
-		Empty list ⇒ nothing renders (parity). When at least one such scene has real
-		content, the coded bundled `<Background>` spine is suppressed so the authored art
-		REPLACES the reference background; absent ⇒ the coded `<Background>` renders as today.
+		Persistent authored background (§ persistent-bg-scene) — CODED PATH ONLY. Without a
+		screen-driving flow, any `space: 'background'` scene the author created renders here as
+		a full-bleed layer BEHIND everything (`LAYER_BAND_BACKGROUND`, below the coded
+		background and the loading screen), and OUTSIDE the loading `{#if}` so it shows across
+		the WHOLE session — base + free game and behind the splash. `<LayoutScene>` cover-fits
+		each node to the canvas (the engine's `space:'background'` path) and honours the scene's
+		own `visibleSource` gate; an ungated scene is always-on. Rendered in editor scene order
+		(lowest first). Under a v2 flow that drives the screens `bgScenes` is EMPTY — the flow
+		owns visibility universally, so a background-space screen mounts through `<FlowV2Mount>`
+		like every other container (its space only sets the coordinate frame). Empty list ⇒
+		nothing renders (parity). When at least one such scene has real content, the coded
+		bundled `<Background>` spine is suppressed so the authored art REPLACES the reference
+		background; absent ⇒ the coded `<Background>` renders as today.
 	-->
 	{#each bgScenes as scene (scene.id)}
 		<Container zIndex={LAYER_BAND_BACKGROUND}>

@@ -1240,11 +1240,15 @@ coded `<Background cover={backgroundCover}>` renders exactly as today, and the e
 untouched — that scene is `space:'canvas'`, so it is never selected as a persistent background and never
 triggers suppression.
 
-### 25.3 Flow interaction (flag for authors)
-A `space:'background'` scene that is ALSO used as a Flow screen would be **double-mounted**: once here as
-the persistent background layer (always-on, by space) and again by `<FlowMount>`/the generic mounter (when
-the interpreter authors it). The persistent layer mounts unconditionally, so an author should keep a
-background scene OUT of the Flow graph (or expect two copies). A follow-up could exclude flow-owned screens
-from the persistent set; deferred until the owner confirms the desired authoring model.
+### 25.3 Flow interaction — RESOLVED (owner direction 2026-09-02)
+The persistent layer is **coded-path only**. Under a v2 flow that drives the screens
+(`flowV2DrivesScreens`), `Game.svelte` mounts NO persistent background: a `space:'background'` scene is an
+ordinary flow container that `<FlowV2Mount>` shows/hides exactly as authored, and the `/flow-v2` container
+sync offers it like any other screen. The owner's rule: **the space only dictates the coordinate frame
+(cover-fit to the window); it is connected to nothing else** — visibility is the flow's alone, and z comes
+from the same Screens-list order / "Behind the reels" / "Always on top" ticks as every other screen. The
+double-mount this section warned about was real (a splash authored on a background-space screen stayed
+behind the game after its `hideContainer`), and is what closed it. §25.1–25.2 still describe the
+flow-less coded path, which is unchanged.
 
 
