@@ -14,7 +14,9 @@ import type { Scene } from './types';
  * scenes — in the doc's order — whose `id` is NOT in `reservedIds` (the ids the game already
  * mounts/handles, incl. any FlowDoc-authored screen ids) AND whose `space` is NOT
  * `'background'` (those are already handled by `backgroundScenes`, mounted as a persistent
- * layer behind everything). Each returned scene renders through `<LayoutScene>`, which
+ * layer behind everything on the coded path; under a screen-driving v2 flow every scene —
+ * background-space included — mounts only as a flow container). Each returned scene renders
+ * through `<LayoutScene>`, which
  * self-wraps by `scene.space` and honours `scene.visibleSource` — so no scaling/gating code
  * is needed here.
  *

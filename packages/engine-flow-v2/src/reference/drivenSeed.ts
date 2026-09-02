@@ -23,8 +23,10 @@
  *   `loading`, `basegame`, `hudBar`, `hudCorners`, `specialBook`,
  *   `freeSpinCounter`, `freeSpinIntro`, `freeSpinOutro`
  *
- * (`background` is engine-drawn `space:'background'` — NOT a flow container; `basegameOverlays` — the
- * win line + transition — renders UNCONDITIONALLY in `Game.svelte`, so it is deliberately NOT shown.)
+ * (`basegameOverlays` — the win line + transition — renders UNCONDITIONALLY in `Game.svelte`, so it is
+ * deliberately NOT shown. A fresh scaffold has no `space:'background'` scene; an author who adds one
+ * must `showContainer` it like any other screen — under a driven flow the engine draws no always-on
+ * backdrop, the space only sets the coordinate frame.)
  *
  * Structure (modelled on Book of Borut's PROVEN live driven flow, canonicalised):
  *   - `gameSignals.load`            → show `loading`.
