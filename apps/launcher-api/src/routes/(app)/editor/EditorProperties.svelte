@@ -2499,9 +2499,9 @@
 						<summary>On loaded</summary>
 						<p class="muted small">
 							Advance the flow the moment boot asset-loading finishes — completes the active flow
-							screen (and, with a signal set, fires that signal's transition), no tap needed. The
-							Loading Bar component has this ON by default (the box below shows what the game runs);
-							untick it to make the screen wait for the player's tap instead. Off otherwise.
+							screen (and, with a signal set, fires that signal's transition), no tap needed. Off by
+							default: a Loading Bar seeds only Tap to continue, so a held splash waits for the
+							player's tap. Tick this for a splash that dismisses itself.
 						</p>
 						{#each COMPLETE_ON_LOADED_PARAMS as p (p.key)}
 							<div class="row">{@render paramField(p)}</div>

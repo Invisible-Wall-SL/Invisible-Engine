@@ -345,9 +345,9 @@ export function defaultLayout(gameType: string, options: DefaultLayoutOptions = 
 		scenes: [
 			{
 				// Startup splash: a generic `loadingBar` componentInstance (the masked
-				// progress fill + percentage). It carries `completeOnLoaded: true` (seeded by
-				// `LOADING_BAR_DEF.defaultInstanceParams`), so the flow's `complete` edge fires
-				// when boot loading finishes and advances loading → basegame. The coded
+				// progress fill + percentage). It carries `tapToContinue: true` (seeded by
+				// `LOADING_BAR_DEF.defaultInstanceParams`), so the player's tap completes the
+				// loading screen and the flow advances loading → basegame. The coded
 				// LoadingScreen path is gone — the loading screen mounts generically via the
 				// flow/scene interpreter.
 				id: 'loading',

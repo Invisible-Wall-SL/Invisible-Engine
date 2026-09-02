@@ -30,8 +30,8 @@
  *
  * Structure (modelled on Book of Borut's PROVEN live driven flow, canonicalised):
  *   - `gameSignals.load`            → show `loading`.
- *   - `event complete:loading`      → hide `loading` + show the game (fired by the loading bar's
- *     `completeOnLoaded` auto-advance OR a tap — the robust trigger that does not require a tap).
+ *   - `event complete:loading`      → hide `loading` + show the game (fired by the player's tap on
+ *     the loading bar's `tapToContinue`, or by `completeOnLoaded` if the author ticks it).
  *   - `gameSignals.tapToStart`      → unlock audio (`soundMusic bgm_main`) + the SAME show set again
  *     (idempotent belt-and-suspenders for a tap-to-start loading screen).
  *   - every book event (`reveal`/`winInfo`/`setTotalWin`/`setExpandingSymbol`/`expandBookColumns`/
