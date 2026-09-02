@@ -187,6 +187,38 @@ def test_output_picking() -> None:
                  lambda: pick({"error": "OOM on node 181"}, "x"), "OOM on node 181")
 
 
+def test_an_empty_payload_names_its_real_cause() -> None:
+    """A job RunPod calls COMPLETED that hands back NOTHING is not a graph problem —
+    the worker returns `{"images": …}` or `{"error": …}` and never nothing, so an
+    empty payload means the render finished and the result was lost on the way back.
+
+    Every failure of this shape in the live records had one thing in common, and it
+    was not the graph: background removal switched OFF. The same render is 4.5 MB
+    with the cutout and blows RunPod's cap without it, because a LOSSLESS WEBP of
+    opaque frames is several times the size of a mostly-transparent one. The old
+    message said "job returned no output files", which points at the graph — the one
+    place the answer is not."""
+    check_raises(
+        "an empty payload explains itself",
+        lambda: video_runner._pick_video_output({}, "pfx"),
+        "too large")
+    check_raises(
+        "and names the setting that actually fixes it",
+        lambda: video_runner._pick_video_output({}, "pfx"),
+        "lossless")
+    # A result that DID come back but carries no images is a different fault and must
+    # keep its own message — that one really is about the graph.
+    check_raises(
+        "a populated result with no images keeps the old wording",
+        lambda: video_runner._pick_video_output({"status": "ok"}, "pfx"),
+        "no output files")
+    check_raises(
+        "and a worker error still wins over both",
+        lambda: video_runner._pick_video_output({"error": "comfy execution error"},
+                                                "pfx"),
+        "comfy execution error")
+
+
 def test_session_id_validation() -> None:
     check("accepts a generated id",
           video_runner.valid_session_id(video_runner._new_session_id()), True)
@@ -1280,6 +1312,7 @@ if __name__ == "__main__":
     test_param_clamping()
     test_source_image_required()
     test_output_picking()
+    test_an_empty_payload_names_its_real_cause()
     test_session_id_validation()
     test_session_lifecycle()
     test_blueprint_kind()
