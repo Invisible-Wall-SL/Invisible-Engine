@@ -940,12 +940,14 @@
 				placement, no cue-string matching. Empty for a rig with no bindings (parity — nothing mounts).
 			-->
 			{@const rigBinds = resolveRigFx(spineAssetKey ?? node.assetKey)}
-			{#each rigBinds as b (b.event + ':' + b.effectId + ':' + (b.bone ?? '') + ':' + (b.slot ?? ''))}
+			{#each rigBinds as b (rigBeatKey(b) + b.effectId + ':' + (b.bone ?? '') + ':' + (b.slot ?? ''))}
 				{@const d = resolveEffect(b.effectId)}
 				{#if d}
 					<RiggedEffect
 						doc={d}
 						event={b.event}
+						animation={b.animation}
+						time={b.time}
 						bone={b.bone}
 						drawSlot={b.slot}
 						alpha={b.alpha}
@@ -967,12 +969,14 @@
 				un-baked id ⇒ nothing mounts. Empty for a rig with no bindings (parity).
 			-->
 			{@const rigClips = resolveRigFlipbooks(spineAssetKey ?? node.assetKey)}
-			{#each rigClips as b (b.event + ':' + b.clipId + ':' + (b.bone ?? '') + ':' + (b.slot ?? ''))}
+			{#each rigClips as b (rigBeatKey(b) + b.clipId + ':' + (b.bone ?? '') + ':' + (b.slot ?? ''))}
 				{@const registered = resolveFlipbook(b.clipId)}
 				{#if registered}
 					<RiggedFlipbook
 						clip={foldFlipbookPlayback(registered, b)}
 						event={b.event}
+						animation={b.animation}
+						time={b.time}
 						bone={b.bone}
 						drawSlot={b.slot}
 						alpha={b.alpha}

@@ -124,7 +124,7 @@ const skeleton = (events: unknown[]) => ({ animations: { idle: { events } } });
 eq(
 	'a bare binding bakes with no override keys',
 	flipbookBindingsFromSkeleton(skeleton([{ name: 'flash', flipbook: { clipId: 'c1' } }])),
-	[{ event: 'flash', clipId: 'c1' }],
+	[{ event: 'flash', animation: 'idle', time: 0, clipId: 'c1' }],
 );
 eq(
 	'bone + slot + settings all travel',
@@ -136,32 +136,45 @@ eq(
 			},
 		]),
 	),
-	[{ event: 'flash', clipId: 'c1', bone: 'hand', slot: 'fx', loop: false, scale: 2 }],
+	[
+		{
+			event: 'flash',
+			animation: 'idle',
+			time: 0,
+			clipId: 'c1',
+			bone: 'hand',
+			slot: 'fx',
+			loop: false,
+			scale: 2,
+		},
+	],
 );
-// Rule 3 — same (event, clip, bone, slot) is ONE binding however the settings differ.
+// Rule 3 — a binding is one KEYFRAME: two keys of one name are two mounts, each on its own beat
+// with its own settings. (Name-keying made a clip on the 0.01s key and an effect on the 1s key
+// play together — the reported bug.)
+const twoKeys = flipbookBindingsFromSkeleton(
+	skeleton([
+		{ name: 'flash', flipbook: { clipId: 'c1', scale: 1 } },
+		{ time: 0.5, name: 'flash', flipbook: { clipId: 'c1', scale: 2 } },
+	]),
+);
+check('two keyframes of one name are two bindings', twoKeys.length === 2);
+eq('…each on its own beat', [twoKeys[0]?.time, twoKeys[1]?.time], [0, 0.5]);
+eq('…each with its own settings', [twoKeys[0]?.scale, twoKeys[1]?.scale], [1, 2]);
 check(
-	'two keyframes of one binding collapse to one mount',
+	'a duplicated key at one beat is ONE binding',
 	flipbookBindingsFromSkeleton(
 		skeleton([
-			{ name: 'flash', flipbook: { clipId: 'c1', scale: 1 } },
+			{ time: 0.5, name: 'flash', flipbook: { clipId: 'c1', scale: 1 } },
 			{ time: 0.5, name: 'flash', flipbook: { clipId: 'c1', scale: 2 } },
 		]),
 	).length === 1,
 );
 check(
-	'…and the FIRST match’s settings win',
+	'…but a different SLOT at that beat is a second one (placement is identity)',
 	flipbookBindingsFromSkeleton(
 		skeleton([
-			{ name: 'flash', flipbook: { clipId: 'c1', scale: 1 } },
-			{ time: 0.5, name: 'flash', flipbook: { clipId: 'c1', scale: 2 } },
-		]),
-	)[0]?.scale === 1,
-);
-check(
-	'a different SLOT is a different binding (placement is identity)',
-	flipbookBindingsFromSkeleton(
-		skeleton([
-			{ name: 'flash', flipbook: { clipId: 'c1', slot: 'a' } },
+			{ time: 0.5, name: 'flash', flipbook: { clipId: 'c1', slot: 'a' } },
 			{ time: 0.5, name: 'flash', flipbook: { clipId: 'c1', slot: 'b' } },
 		]),
 	).length === 2,
@@ -223,6 +236,21 @@ check(
 check('…and bad delay with it', !('delay' in resolveRigFlipbooks('rig')[1]));
 check('…and an unknown direction', !('direction' in resolveRigFlipbooks('rig')[1]));
 check('unknown rig ⇒ empty, never a throw', resolveRigFlipbooks('nope').length === 0);
+// The beat survives registration, and a pre-beat manifest still registers (name-only firing).
+registerRigFlipbooks({
+	beat: [
+		{ event: 'e', animation: 'win', time: 0.01, clipId: 'c1' },
+		{ event: 'e', clipId: 'legacy' },
+	],
+});
+eq(
+	'the beat rides through the registry',
+	resolveRigFlipbooks('beat').map((b) => [b.animation, b.time]),
+	[
+		['win', 0.01],
+		[undefined, undefined],
+	],
+);
 
 // The flag has to TRAVEL: authored on the keyframe → baked into the manifest → out of the registry.
 check(

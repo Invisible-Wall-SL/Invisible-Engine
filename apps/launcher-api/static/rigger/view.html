@@ -1624,6 +1624,15 @@ function updateFxPreview(){
     }
   } catch (e){ /* projection hiccup — never break the render loop */ }
 }
+// Pressing Play must fire the keys sitting UNDER the playhead. The crossing is (prev, cur], and
+// every paused frame has already walked `prev` up to the playhead itself — so a key AT the playhead
+// (t=0 most of all: the natural place for "starts with the animation") could never be crossed on
+// the first lap, `prev < t` being false, and read as skipped. Nudge the cursor a hair below the
+// playhead when playback starts, so the first moving frame crosses it.
+function fxArmPlayhead(){
+  if (!animMode) return;
+  fxPrevAnimTime = Math.min(fxPrevAnimTime, animTime - 1e-6);
+}
 // Clear all live effects + reset crossing state (context switch: anim/rig/mode change).
 function fxClearPreview(){
   fxEachBand((b) => { try { b.api.clear(); } catch (e){} });
@@ -9272,45 +9281,6 @@ function fbClipFor(fb){
   if (fb.direction) out.direction = fb.direction;
   return out;
 }
-/**
- * Does another event key share this one's binding IDENTITY — same name, effect/clip, bone and slot —
- * but carry different overrides?
- *
- * That is the single authoring state the pipeline cannot represent: the baked manifest is keyed by
- * the event NAME (all a spine event carries), so the bake de-dupes on that identity and the FIRST
- * match's overrides win for the whole game. The live previews read the per-keyframe timeline instead
- * and will happily play both. Detecting it here is the only place the author can see the two are
- * about to disagree; everywhere later it just looks like the game ignoring them.
- *
- * ONE function for both kinds — the rule is the BAKE's, not the binding's, so a second copy would
- * only be a second chance to state it differently.
- */
-function bindingOverrideClashes(evtObj, kind){
-  const isClip = kind === "clip";
-  const field = isClip ? "flipbook" : "fx";
-  const idKey = isClip ? "clipId" : "effectId";
-  const specs = isClip ? FB_NUM_FIELDS : FX_NUM_FIELDS;
-  // A clip's playback block rides the same first-match rule, so it counts as an override here.
-  const flags = isClip ? ["loop", "direction", "flipX", "flipY"] : [];
-  const self = evtObj && evtObj[field];
-  if (!self || !self[idKey] || !rawDoc || !rawDoc.animations) return false;
-  const identity = (f) => [f[idKey], f.bone || "", f.slot || ""].join(" ");
-  const overrides = (f) => Object.values(specs)
-    .map((s) => (typeof f[s.key] === "number" ? f[s.key] : ""))
-    .concat(flags.map((k) => (f[k] === undefined ? "" : String(f[k]))))
-    .join(" ");
-  const id = identity(self), nums = overrides(self);
-  for (const anim of Object.values(rawDoc.animations)){
-    if (!anim || !Array.isArray(anim.events)) continue;
-    for (const e of anim.events){
-      if (e === evtObj || !e || e.name !== evtObj.name) continue;
-      const other = e[field];
-      if (!other || !other[idKey] || identity(other) !== id) continue;
-      if (overrides(other) !== nums) return true;
-    }
-  }
-  return false;
-}
 const animEventArr = () => { const a = animOf(curAnim); return a && Array.isArray(a.events) ? a.events : null; };
 const eventDefNames = () => (rawDoc && rawDoc.events ? Object.keys(rawDoc.events) : []);
 function eventKeyTimes(){ const arr = animEventArr(); return arr ? [...new Set(arr.map((e) => roundN(e.time, 4)))].sort((a, b) => a - b) : []; }
@@ -9616,18 +9586,6 @@ function renderEventDetail(){
     det.appendChild(row);
   };
 
-  // The bake keys bindings by event NAME and keeps the FIRST match's overrides, so two keyframes
-  // that share a name but disagree cannot both survive into the game — while the live previews,
-  // which read the per-keyframe timeline, WILL show both. That divergence is invisible until a
-  // published game contradicts the tool, so say it here, at the point it is created.
-  const appendClashWarning = (kind, what) => {
-    if (!bindingOverrideClashes(selEvent, kind)) return;
-    const warn = document.createElement("div");
-    warn.textContent = "Another “" + selEvent.name + "” key binds the same " + what + " with different settings. In game only one wins (the first), though the preview here plays each as authored — rename this event to keep both.";
-    warn.style.cssText = "font-size:10px;color:#ffd4d4;background:#3a2326;border:1px solid var(--danger);border-radius:5px;padding:4px 6px;line-height:1.3;margin-top:4px;";
-    det.appendChild(warn);
-  };
-
   // ---- Invisible FX: bind an effect (+ optional host bone) directly to this beat ---------------
   const fxWrap = fieldRow("Play effect");
   const fxSel = document.createElement("select"); fxSel.style.cssText = selectCss;
@@ -9651,7 +9609,6 @@ function renderEventDetail(){
       "Restarts from the beginning on every beat. On a looping animation that means once per lap — right for an impact, a stutter for anything ambient.",
     );
     appendNumericRow(selEvent.fx, FX_NUM_FIELDS, "fx", "fx");
-    appendClashWarning("fx", "effect");
   }
 
   // ---- Invisible Flipbook: bind a CLIP to the same beat ----------------------------------------
@@ -9722,7 +9679,6 @@ function renderEventDetail(){
 
     appendNumericRow(selEvent.flipbook, FB_NUM_FIELDS, "flipbook", "clip");
     hintLine("Size multiplies the clip's own box (set that in /flipbook). The clip draws centred on its origin — there is no nudge here, because the box already says where the art sits inside it.");
-    appendClashWarning("clip", "clip");
   }
 
   // Optional payload — int / float / string. Empty ⇒ omit.
@@ -11185,7 +11141,7 @@ function hexToRGB(hex){
 }
 
 function wire(){
-  $("#play").onclick = () => { playing = !playing; $("#play").textContent = playing ? "❚❚ Pause" : "▶ Play"; };
+  $("#play").onclick = () => { playing = !playing; $("#play").textContent = playing ? "❚❚ Pause" : "▶ Play"; if (playing) fxArmPlayhead(); };
   $("#loop").onclick = () => { looping = !looping; $("#loop").classList.toggle("active", looping); if (curEntry) curEntry.loop = looping; };
   $("#anim").onchange = e => { if (animMode){ setCurAnim(e.target.value); } else setAnim(e.target.value); };
   $("#skin").onchange = e => setActiveSkin(e.target.value);

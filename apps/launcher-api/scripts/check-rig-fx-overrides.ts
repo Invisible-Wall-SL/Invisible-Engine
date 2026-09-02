@@ -14,15 +14,22 @@
  *  1. **Blank is not a default.** An unset override must stay ABSENT all the way through, so a rig
  *     that never used one bakes byte-identically to before they existed. A clamp that helpfully
  *     wrote `alpha: 1` would change every existing binding's manifest.
- *  2. **Placement identifies a binding; the numbers ride along.** The manifest is keyed by the event
- *     NAME, so `bindingsFromSkeleton` de-dupes on `(event, effectId, bone, slot)` and keeps the FIRST
- *     match's numbers. Putting the numbers in the key would mount one event twice and fire two
- *     overlapping bursts on every beat — the failure this asserts against.
+ *  2. **A binding is one KEYFRAME.** The manifest carries the beat — `animation` + `time` — beside
+ *     the event name, so two keys of one name are two bindings that fire at their own time with
+ *     their own numbers. It used to be keyed by the NAME alone, which made an effect on the 1s key
+ *     fire on the 0.01s key beside the flipbook there — the failure this asserts against. Only a
+ *     literal duplicate (same beat, same effect, same place) collapses.
  *
  * The launcher's `build` is NOT a typecheck (see apps/launcher-api/CLAUDE.md), so a green build
  * proves nothing about any of this. This runs the real modules.
  */
-import { readRigFxOverrides, registerRigFx, resolveRigFx, clearRigFx } from 'engine-layout';
+import {
+	clearRigFx,
+	readRigBeat,
+	readRigFxOverrides,
+	registerRigFx,
+	resolveRigFx,
+} from 'engine-layout';
 
 import { bindingsFromSkeleton, fxTimelineFromSkeleton } from '../src/lib/server/rigFxExport';
 
@@ -76,33 +83,59 @@ check('the string true is rejected', !('continuous' in readRigFxOverrides({ cont
 const skeleton = (events: unknown[]) => ({ animations: { idle: { events } } });
 
 eq(
-	'a bare binding bakes exactly as it always did',
+	'a bare binding bakes with its beat and no override keys',
 	bindingsFromSkeleton(skeleton([{ time: 0, name: 'boom', fx: { effectId: 'e1' } }])),
-	[{ event: 'boom', effectId: 'e1' }],
+	[{ event: 'boom', animation: 'idle', time: 0, effectId: 'e1' }],
 );
 eq(
 	'overrides ride into the manifest',
 	bindingsFromSkeleton(
 		skeleton([{ time: 0, name: 'boom', fx: { effectId: 'e1', slot: 'head', alpha: 0.4 } }]),
 	),
-	[{ event: 'boom', effectId: 'e1', slot: 'head', alpha: 0.4 }],
+	[{ event: 'boom', animation: 'idle', time: 0, effectId: 'e1', slot: 'head', alpha: 0.4 }],
 );
-// Rule 2 — the numbers are NOT part of the identity.
-const clashing = bindingsFromSkeleton(
+check(
+	'a keyframe with no time bakes as t=0 (spine omits a zero time)',
+	bindingsFromSkeleton(skeleton([{ name: 'boom', fx: { effectId: 'e1' } }]))[0]?.time === 0,
+);
+// Rule 2 — two keys of one name are TWO bindings, each with its own beat and its own numbers.
+// (The reported bug: a clip keyed at 0.01s and an effect keyed at 1s, both on the default name.)
+const twoKeys = bindingsFromSkeleton(
 	skeleton([
-		{ time: 0, name: 'boom', fx: { effectId: 'e1', alpha: 0.2 } },
-		{ time: 1, name: 'boom', fx: { effectId: 'e1', alpha: 0.9 } },
+		{ time: 0.01, name: 'event', fx: { effectId: 'e1', alpha: 0.2 } },
+		{ time: 1, name: 'event', fx: { effectId: 'e1', alpha: 0.9 } },
 	]),
 );
-check('two keys differing ONLY in a number stay ONE binding', clashing.length === 1);
-eq('…and the first one wins', clashing[0]?.alpha, 0.2);
-// …but placement IS part of it, so two depths are two bindings.
+check('two keys of one name are two bindings', twoKeys.length === 2);
+eq('…each on its own beat', [twoKeys[0]?.time, twoKeys[1]?.time], [0.01, 1]);
+eq('…each with its own numbers', [twoKeys[0]?.alpha, twoKeys[1]?.alpha], [0.2, 0.9]);
 check(
-	'differing slot ⇒ two bindings',
+	'the same name in another animation is another beat',
+	bindingsFromSkeleton({
+		animations: {
+			idle: { events: [{ name: 'event', fx: { effectId: 'e1' } }] },
+			win: { events: [{ name: 'event', fx: { effectId: 'e1' } }] },
+		},
+	})
+		.map((b) => b.animation)
+		.join() === 'idle,win',
+);
+// Only a literal duplicate collapses: same beat, same effect, same place.
+check(
+	'a duplicated key at one beat is ONE binding',
 	bindingsFromSkeleton(
 		skeleton([
-			{ time: 0, name: 'boom', fx: { effectId: 'e1', slot: 'head' } },
-			{ time: 1, name: 'boom', fx: { effectId: 'e1', slot: 'body' } },
+			{ time: 0.5, name: 'boom', fx: { effectId: 'e1', alpha: 0.2 } },
+			{ time: 0.5, name: 'boom', fx: { effectId: 'e1', alpha: 0.9 } },
+		]),
+	).length === 1,
+);
+check(
+	'…but a different slot at that beat is a second one (placement is identity)',
+	bindingsFromSkeleton(
+		skeleton([
+			{ time: 0.5, name: 'boom', fx: { effectId: 'e1', slot: 'head' } },
+			{ time: 0.5, name: 'boom', fx: { effectId: 'e1', slot: 'body' } },
 		]),
 	).length === 2,
 );
@@ -136,6 +169,21 @@ check(
 		0,
 );
 
+// ── 3b. readRigBeat: the beat clamp the registry reads through ──────────────────────────────────
+eq('a beat reads through', readRigBeat({ animation: 'win', time: 0.25 }), {
+	animation: 'win',
+	time: 0.25,
+});
+eq('t=0 is a real beat, not falsy-dropped', readRigBeat({ animation: 'win', time: 0 }), {
+	animation: 'win',
+	time: 0,
+});
+check('an empty animation name is not a beat', !('animation' in readRigBeat({ animation: '' })));
+check('a negative time is dropped', !('time' in readRigBeat({ time: -1 })));
+check('a NaN time is dropped', !('time' in readRigBeat({ time: Number.NaN })));
+check('a string time is dropped', !('time' in readRigBeat({ time: '0.5' })));
+eq('a legacy name-only binding has no beat', readRigBeat({ event: 'e', effectId: 'x' }), {});
+
 // ── 4. registerRigFx/resolveRigFx: what the RUNTIME renders ─────────────────────────────────────
 clearRigFx();
 registerRigFx({
@@ -161,6 +209,23 @@ check(
 );
 check('…and bad delay with it', !('delay' in resolveRigFx('rig')[1]));
 check('unknown rig ⇒ empty, never a throw', resolveRigFx('nope').length === 0);
+// The beat survives registration, and a pre-beat manifest still registers (name-only firing).
+registerRigFx({
+	beat: [
+		{ event: 'e', animation: 'win', time: 0.01, effectId: 'x' },
+		{ event: 'e', animation: 'win', time: 1, effectId: 'y' },
+		{ event: 'e', effectId: 'legacy' },
+	],
+});
+eq(
+	'the beat rides through the registry',
+	resolveRigFx('beat').map((b) => [b.animation, b.time]),
+	[
+		['win', 0.01],
+		['win', 1],
+		[undefined, undefined],
+	],
+);
 
 // The flag has to TRAVEL: authored on the keyframe → baked into the manifest → out of the registry.
 check(

@@ -13,6 +13,11 @@
 		clip: FlipbookClip;
 		/** The rig's OWN spine event name that fires this clip (the rebroadcast `type`). */
 		event: string;
+		/** Animation the bound keyframe lives in. Absent ⇒ fires in any animation (a manifest baked
+		 * before beats existed). */
+		animation?: string;
+		/** The bound keyframe's time, seconds. Absent ⇒ fires on any keyframe of the name. */
+		time?: number;
 		/** Host bone on the rig; absent ⇒ the rig origin. Resolved on the host `<SpineProvider>`. */
 		bone?: string;
 		/**
@@ -81,6 +86,7 @@
 	import { getContextSpine, createContextParent } from '../context.svelte';
 	import Flipbook from './Flipbook.svelte';
 	import SpineBoneAttach from './SpineBoneAttach.svelte';
+	import { riggedBeatMatches } from '../riggedBeat';
 
 	const props: Props = $props();
 	const spine = getContextSpine();
@@ -164,22 +170,30 @@
 	};
 	onDestroy(clearTimers);
 
-	$effect(() => {
-		const event = props.event;
-		const state = spine?.state;
-		if (!event || !state) return;
-
-		// Fire ONLY on THIS rig's own timeline events (scoped to the host skeleton's AnimationState),
-		// not the shared rebroadcast bus — otherwise any other rig firing an event of the same name
-		// would cross-trigger this clip.
-		const listener: SPINE_PIXI.AnimationStateListener = {
-			event: (_entry, ev) => {
-				if (ev?.data?.name === event) fire();
-			},
-		};
-		state.addListener(listener);
-		return () => state.removeListener(listener);
-	});
+	// Attached at INIT, not from an effect. The sibling `<SpineTrack>` sets the animation and poses
+	// it (`spine.update(0)`) from ITS effect, and sibling effects run in template order — so a
+	// listener attached from an effect here lands AFTER that first apply, and a key at t=0 (fired by
+	// that very pose) was lost. A key at 0.01s only ever worked because the ticker fired it a frame
+	// later. Attaching during init puts the listener on the state before any track is set.
+	//
+	// Fire ONLY on THIS rig's own timeline events (scoped to the host skeleton's AnimationState),
+	// not the shared rebroadcast bus — otherwise any other rig firing an event of the same name
+	// would cross-trigger this clip. And only on THIS binding's beat: the manifest carries the
+	// keyframe's animation + time beside the name, so two keys of one name are two bindings.
+	const listener: SPINE_PIXI.AnimationStateListener = {
+		event: (entry, ev) => {
+			if (
+				riggedBeatMatches(
+					{ event: props.event, animation: props.animation, time: props.time },
+					{ name: ev?.data?.name, animation: entry?.animation?.name, time: ev?.time },
+				)
+			) {
+				fire();
+			}
+		},
+	};
+	spine?.state?.addListener(listener);
+	onDestroy(() => spine?.state?.removeListener(listener));
 </script>
 
 {#if runId > 0}

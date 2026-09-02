@@ -73,13 +73,28 @@ export async function walkRigSkeletons(
 
 /** Every event of every animation, flattened — what a collector iterates. Sorted per-animation is
  * the caller's business (a name-keyed manifest doesn't care; a timeline does). */
-export function eventsOf(data: RawRigSkeleton): RawRigEvent[] {
+/** One event keyframe with the BEAT it sits on: its animation and its time (Spine omits `time`
+ * when it is 0, so an absent/non-number time IS t=0). */
+export interface RigBeatEvent {
+	animation: string;
+	time: number;
+	evt: RawRigEvent;
+}
+
+/** Every event keyframe of every animation, each with its beat — what both bakes and both live
+ * timelines walk. */
+export function beatsOf(data: RawRigSkeleton): RigBeatEvent[] {
 	const animations = data.animations;
 	if (!animations || typeof animations !== 'object') return [];
-	const out: RawRigEvent[] = [];
-	for (const anim of Object.values(animations)) {
+	const out: RigBeatEvent[] = [];
+	for (const [animation, anim] of Object.entries(animations)) {
 		const events = anim?.events;
-		if (Array.isArray(events)) out.push(...(events as RawRigEvent[]));
+		if (!Array.isArray(events)) continue;
+		for (const evt of events as RawRigEvent[]) {
+			const t = evt?.time;
+			const time = typeof t === 'number' && Number.isFinite(t) && t >= 0 ? t : 0;
+			out.push({ animation, time, evt });
+		}
 	}
 	return out;
 }

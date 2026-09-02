@@ -76,15 +76,20 @@ effect dimmer/slower/deeper without forking the doc.
 - **`duration` closes a real divergence:** `forceEmit` starts emission and nothing ended it, so a
   continuous effect fired from a keyframe emitted forever in-game while the previews force-stopped
   at ~1.5s. It maps to `<EffectPlayer emitFor>`, and to the preview overlay's hold cap.
-- **What the manifest cannot carry:** it is keyed by event NAME, so placement (`bone`, `slot`)
-  identifies a binding and the numbers ride along from the first matching keyframe. Two keys of one
-  name that disagree cannot both reach the game — the per-keyframe timeline the previews read CAN
-  express it, so the Rigger warns at the point of authoring. Guarded by
-  `pnpm --filter launcher-api run check:rig-fx-overrides` (mutation-verified).
+- **A binding is one KEYFRAME (2026-09-02).** The manifest carries the beat — `animation` + `time`
+  — beside the event name, and `<RiggedEffect>` matches all three off the fire (the track entry's
+  animation, the spine event's keyframe `time`). Two keys of one name are two bindings that play at
+  their own time with their own numbers. Until then the manifest was keyed by the NAME alone, so an
+  effect on the 1s key fired on the 0.01s key beside the flipbook there, and the first key's
+  numbers won for both — the Rigger's "another key binds the same effect" warning existed to
+  surface that limit, and is gone with it. A manifest baked before the beat existed still
+  registers and keeps name-only firing. Guarded by
+  `pnpm --filter launcher-api run check:rig-fx-overrides` (mutation-verified) and
+  `packages/pixi-svelte/fixtures/riggedBeat.fixture.ts`.
 - **`continuous` is the one BOOLEAN**, and the one that changes the FIRING MODEL rather than a value:
   the first beat starts the effect and later beats are ignored, so a looping clip stops chopping an
-  ambient burst up once per lap. It stops when the RIG unmounts, not when the animation changes (the
-  manifest is keyed by event name, not by clip). Three renderers had to agree, because each clears
+  ambient burst up once per lap. It stops when the RIG unmounts, not when the animation changes —
+  key it once, on the animation that starts it, since a binding is one keyframe. Three renderers had to agree, because each clears
   bursts on a loop wrap for its own reasons: `RiggedEffect`, the Rigger stage, and the `/symbols`
   grid — and the preview overlay skips its `PREVIEW_HOLD_MS` cap for one, since capping it would show
   the author the exact stutter the flag removes.

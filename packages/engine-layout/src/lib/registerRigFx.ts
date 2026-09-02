@@ -17,6 +17,7 @@
  * of this package, so the top-level `Map` never leaks across games.
  */
 
+import { readRigBeat, type RigBeat } from './rigBeat';
 import { bundleFolderOf } from './rigBundleKey';
 
 /**
@@ -60,19 +61,23 @@ export type RigFxOverrides = {
 	 *
 	 * With this set, the FIRST fire starts the effect and later fires of the same event are ignored,
 	 * so the emitter runs uninterrupted. It stops when the rig unmounts (or when `duration` bounds it),
-	 * NOT when the animation changes — the binding is keyed by event name, not by clip, so an ambient
-	 * effect keeps running across a state change rather than dying on it.
+	 * NOT when the animation changes, so an ambient effect keeps running across a state change rather
+	 * than dying on it. Key it ONCE (on the animation that starts it): a binding is one keyframe, so
+	 * the same effect keyed continuous in a second animation is a second, independent instance.
 	 */
 	continuous?: boolean;
 };
 
-/** One rig→effect binding: on a spine event named `event`, (re)play `effectId` from t=0, hosted on
- * `bone` (or the rig origin when absent), with any authored {@link RigFxOverrides} applied. */
-export type RigFxBinding = RigFxOverrides & {
-	event: string;
-	effectId: string;
-	bone?: string;
-};
+/** One rig→effect binding: on a spine event named `event` — at the {@link RigBeat} it was keyed on —
+ * (re)play `effectId` from t=0, hosted on `bone` (or the rig origin when absent), with any authored
+ * {@link RigFxOverrides} applied. One binding per KEYFRAME: two keys of one event name are two
+ * bindings, each firing at its own time with its own settings. */
+export type RigFxBinding = RigFxOverrides &
+	RigBeat & {
+		event: string;
+		effectId: string;
+		bone?: string;
+	};
 
 /** The override keys, in the order the Rigger shows them. Exported as a VALUE so the bake, the
  * runtime and the live preview iterate ONE list instead of three hand-copied ones — the same rule
@@ -150,6 +155,7 @@ export function registerRigFx(map: Record<string, RigFxBinding[]>): void {
 				event: b.event,
 				effectId: b.effectId,
 				...(bone ? { bone } : {}),
+				...readRigBeat(b),
 				...readRigFxOverrides(b),
 			});
 		}
