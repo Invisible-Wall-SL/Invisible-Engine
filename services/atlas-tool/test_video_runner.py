@@ -245,6 +245,12 @@ def test_a_render_is_read_back_from_storage_not_the_wire() -> None:
     check("an inline entry still decodes", (name2, blob2), ("pfx_00001_.webp", b"INLINE"))
 
     check_raises(
+        "with NO keys at all it says the render is in R2 and uncollected",
+        lambda: video_runner._pick_video_output(
+            {"images": [{"filename": "x.webp", "slot": 0, "bytes": 5918564}]},
+            "pfx", []),
+        "no upload keys")
+    check_raises(
         "a slot that was never handed out is refused, not read blindly",
         lambda: video_runner._pick_video_output(
             {"images": [{"filename": "x.webp", "slot": 9}]}, "pfx", keys),
@@ -255,6 +261,36 @@ def test_a_render_is_read_back_from_storage_not_the_wire() -> None:
             {"images": [{"filename": "x.webp", "slot": 0}]}, "pfx",
             ["c/p/video/_out/gone.webp"]),
         "expired")
+
+
+def test_a_resumed_job_can_still_find_its_uploaded_render() -> None:
+    """A deploy mid-render hands the job to a FRESH container, which re-attaches by
+    the persisted `job_id`. The upload keys lived only in the submitting process, so
+    the result came back saying "slot 0" with nothing to resolve 0 against, and a
+    finished, paid render was reported as "output entry carried no data" while the
+    file sat in R2 — 5.9 MB of it, exactly the size the worker reported.
+
+    The keys are DERIVED from the prefix now, which is built from the session id and
+    the variation index, so both processes compute the same list from the same two
+    facts and there is no new stored field to fall out of step."""
+    _stub_world()
+    prefix = "iwvid_20260902_135136_e5a4_001"
+    keys = video_runner._upload_slot_keys(prefix)
+    check("the keys a submitting process would sign…",
+          keys[0], "clientx/projecty/video/_out/iwvid_20260902_135136_e5a4_001_0.webp")
+    # …are the keys a DIFFERENT process derives from the same prefix, with nothing
+    # carried over between them.
+    check("…are what a fresh process derives from the prefix alone",
+          video_runner._upload_slot_keys(prefix), keys)
+
+    video_runner.storage.put(keys[0], b"THE-RENDER-THAT-WAS-NEARLY-LOST")
+    name, blob = video_runner._pick_video_output(
+        {"images": [{"filename": prefix + "_00001_.webp", "slot": 0,
+                     "bytes": 5918564}]},
+        prefix, video_runner._upload_slot_keys(prefix))
+    check("so the resumed collect finds the render",
+          blob, b"THE-RENDER-THAT-WAS-NEARLY-LOST")
+    check("under its own name", name, prefix + "_00001_.webp")
 
 
 def test_the_handoff_degrades_rather_than_failing() -> None:
@@ -1373,6 +1409,7 @@ if __name__ == "__main__":
     test_output_picking()
     test_an_empty_payload_names_its_real_cause()
     test_a_render_is_read_back_from_storage_not_the_wire()
+    test_a_resumed_job_can_still_find_its_uploaded_render()
     test_the_handoff_degrades_rather_than_failing()
     test_session_id_validation()
     test_session_lifecycle()

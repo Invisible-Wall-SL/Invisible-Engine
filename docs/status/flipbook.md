@@ -195,6 +195,27 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-02 — **A render the worker had already uploaded could be lost by the process that came to
+  collect it.** First live run of the R2 hand-off:
+  `output entry carried no data: {'bytes': 5918564, 'filename': '…', 'slot': 0}` — and the file was
+  in R2 all along, 5,918,564 bytes, exactly the size the worker reported.
+  - **The upload keys lived only in the submitting process.** A deploy mid-render (this one, as it
+    happens) hands the job to a fresh container, which re-attaches by the persisted `job_id` and
+    knows nothing else the old process arranged. The result then says `slot 0` with no key list to
+    resolve `0` against, so it fell through to the base64 branch and reported missing data for a
+    render that was finished and paid for.
+  - **Exactly the trap the persisted `job_id` was added for, one field along** — the comment saying
+    so sits four lines below the bug. Adding a second piece of per-job state without asking whether
+    it survives a restart is the repeatable mistake here, not this particular field.
+  - **Fixed by derivation, not by another stored field.** `_upload_slot_keys(prefix)` is one
+    definition called by both paths; `prefix` is built from the session id and the variation index,
+    so two different processes compute the same keys from the same two facts and nothing can fall
+    out of step.
+  - **And the misroute is now legible.** An entry naming a slot carries no bytes, so falling through
+    to base64 reported "carried no data" — which reads as a broken worker when only the lookup was
+    missing. With no keys it now says the render is in R2 and was not collected.
+  - Fixture: a fresh process derives the same keys from the prefix alone and finds the render; plus
+    the no-keys, unissued-slot and missing-object messages.
 - 2026-09-02 — **A render no longer comes back through RunPod, so its payload cap stops applying.**
   Owner: *"the 20MB limitation is a bit of a bottleneck for us, is there any way to remove it?"* —
   the cap itself, no: RunPod's limits are fixed (10 MB `/run`, 20 MB `/runsync`, plus a third again
