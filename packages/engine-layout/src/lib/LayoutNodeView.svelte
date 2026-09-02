@@ -50,6 +50,7 @@
 	import { resolveEffect } from './registerEffects';
 	import { foldFlipbookPlayback, resolveFlipbook } from './registerFlipbooks';
 	import { resolveRigFx } from './registerRigFx';
+	import { rigBeatKey } from './rigBeat';
 	import { resolveRigFlipbooks } from './registerRigFlipbooks';
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentPress } from './componentActionsContext';
