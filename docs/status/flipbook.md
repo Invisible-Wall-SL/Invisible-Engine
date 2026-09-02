@@ -257,12 +257,19 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
     from pass 1's first/last frames, four ~14 GB UNet loads in one job. Roughly 12–24× the built-in's
     compute for a render that takes ~100s warm.
   - **Fixed in the live library, not in code**: `_shared/blueprints/wanloopingvideo__3_/blueprint.json`
-    gained a `fast_lora` bool (node `361`, default `true`) and dropped the generation size to 640,
-    verified through the tool's own `validate_against_graph` and then by running the real
-    `build_video_workflow` over it. Confirmed by the next owner session: first variation
-    **COMPLETED**. `blueprints.hydrate()` is once-per-process, so a library edited underneath a
+    gained a `fast_lora` bool (node `361`) and dropped the generation size to 640, verified through
+    the tool's own `validate_against_graph` and then by running the real `build_video_workflow` over
+    it. Confirmed by the next owner session: first variation **COMPLETED** in ~17 min, which the
+    timestamps place 2½ minutes after the patch landed — so that run was fast mode at 640, not the
+    quality path. `blueprints.hydrate()` is once-per-process, so a library edited underneath a
     running service needs **↻ Refresh from R2** (or a restart) — a reload of `/flipbook` will not do
     it.
+  - **`fast_lora` now defaults to `false` again** (owner's call, 2026-09-02, endpoint timeout raised
+    to 9000s): a fresh session runs the 50-step / cfg-3.5 / raw-14B path the graph was authored
+    around. **The bug was never the value — it was that no value could be chosen.** Exposing it is
+    what the fix was; which way it points is an authoring decision, and it is a tick-box in the
+    Settings panel now, per session, with no republish. Expect roughly 25× the sampling work of that
+    17-minute render on any session that leaves the box unticked.
 - 2026-09-01 — **A single unreadable status poll no longer throws away a paid, still-running job.**
   Straight after the above, one variation died on
   `RunPod /status/… failed: HTTP 500 Internal Server Error` with `remote_status` still
