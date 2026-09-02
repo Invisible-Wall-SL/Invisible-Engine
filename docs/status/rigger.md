@@ -108,7 +108,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
     `packages/pixi-svelte/fixtures/riggedBeat.fixture.ts` (mutation-verified: ignoring `time` fails
     the reported case). ⏳ Owner live-verify in `/rigger` and in a published game: needs a **re-bake**
     (Publish) for the new manifest to reach the game.
-  - **Follow-up the same day (#548):** the first release blanked the reels on the first spin —
+  - **Follow-up the same day (#549):** the first release blanked the reels on the first spin —
     `ReferenceError: rigBeatKey is not defined`. The `{#each}` keys in `LayoutNodeView` and
     `SymbolSpineMain` called the helper but the patch that was meant to add its IMPORT never
     landed, and Svelte compiles a bare template identifier as a global, so `launcher build` (not a
