@@ -285,14 +285,18 @@
 			// The tool answers a user-fixable refusal as 200 + {error}. Ignoring that
 			// is what made this look like a dead button: the request succeeded, the
 			// cancel did not, and nothing said so.
-			const res = await postJson<{ ok?: boolean; error?: string }>('cancel', {
+			const res = await postJson<{ ok?: boolean; error?: string; warning?: string }>('cancel', {
 				session: session.id,
 			});
 			if (res.error) {
 				err = res.error;
 				return;
 			}
-			err = '';
+			// A cancel RunPod would not take leaves a job rendering at full cost while
+			// every surface here says it stopped. That is the one thing the author must
+			// not have to discover from the billing page, so it shows where an error
+			// would — the stop itself still stands.
+			err = res.warning ?? '';
 			// Reflect it immediately rather than waiting for the next poll — which,
 			// for a session whose worker already died, would never come.
 			session = await getJson<Session>('status', `session=${encodeURIComponent(session.id)}`);

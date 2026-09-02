@@ -272,6 +272,28 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 > **`COMFY_TRANSPORT` picks which ComfyUI the atlas-tool generates on — production is `serverless`.**
 > `serverless` submits the api-prompt graph to a **RunPod Serverless endpoint** (`RUNPOD_ENDPOINT_ID` + `RUNPOD_API_KEY`); unset or `http` uses the **local ComfyUI over the tunnel** (`COMFY_URL` + the two `CF_ACCESS_*` vars). Live `atlas-tool` is on `serverless` (2026-08-18), so `COMFY_URL`/`CF_ACCESS_*` are **not** on the generation path there even though they're still set — a generation failure in production is a RunPod/worker-image issue, not a local-tunnel one. Changing this var silently changes which machine's installed nodes/models a pipeline needs, which is exactly how gpt_image and the FLUX ControlNet path were blocked for months. `RUNPOD_API_KEY` is shared with the `/comfyui` R&D pod fleet; `RUNPOD_ENDPOINT_ID` is the serverless endpoint only.
 
+> ### ⚠️ The serverless WORKER needs `RUNPOD_ENDPOINT_ID` + `RUNPOD_API_KEY` too — set them on the **endpoint**, not just on `atlas-tool`
+> Without them **Cancel cannot stop a running generation.** RunPod's `/cancel` marks a job
+> cancelled, but it does **not** interrupt a synchronous handler: the worker keeps rendering to
+> completion and billing for it, and throws the result away — while the tool, the tile and the
+> button all report it stopped. (Owner, 2026-09-02: *"I have canceled jobs, and the UI is telling me
+> they are cancelled, but when I look at the runpod, I can see the server is still running and
+> generating."*)
+>
+> With them set, a running job polls its own status on the same public route the runner uses and,
+> when it sees `CANCELLED`, interrupts the prompt and kills ComfyUI. Set both under the Serverless
+> endpoint's own **Environment Variables** (RunPod does not inject them). `RUNPOD_ENDPOINT_ID` is
+> that endpoint's id — the same value `atlas-tool` already carries. The worker logs a line at the
+> first cancel check when they are missing, so the container log says which side is unset.
+>
+> Two more the worker reads, both optional: `COMFY_JOB_TIMEOUT` (default 9000s) — the worker's own
+> cap on one generation, and the **fourth** clock on a job after the endpoint's Execution Timeout,
+> `VIDEO_JOB_TIMEOUT_SECONDS` and ComfyUI itself. It was a hardcoded 1800 and silently became the
+> binding limit the moment an endpoint was set past 30 min, failing renders the endpoint was happy
+> to run and blaming ComfyUI for it. **Keep it at or above the endpoint's Execution Timeout** —
+> RunPod's is the authority. And `CANCEL_POLL_SECONDS` (default 5) — how often a running job asks
+> whether it is still wanted.
+
 ## DNS (Cloudflare)
 
 - Zone `invisiblewall.org` on Cloudflare. `www`/`app` = CNAME → Railway, **DNS-only (grey cloud)** — proxying breaks Railway TLS.

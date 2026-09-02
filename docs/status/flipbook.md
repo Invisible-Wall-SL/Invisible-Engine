@@ -195,6 +195,45 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-02 — **Cancel stops the GPU, not just the wait.** Owner: *"I have canceled jobs, and the
+  UI is telling me they are cancelled, but when I look at the runpod, I can see the server is still
+  running and generating."*
+  - **The cancel was always being sent. RunPod just does not interrupt a synchronous handler.**
+    `/cancel` marks the JOB cancelled and discards whatever it eventually returns; the worker is
+    never told, so `handler.py`'s `_await_result` went on polling ComfyUI and ComfyUI went on
+    sampling — billing for the whole render, to hand the result to nobody. Every surface on our
+    side (session, tile, button) was reporting the truth it had: we *asked*.
+  - **So the worker asks.** A running job now polls its own status on the SAME public route the
+    runner uses (`/v2/<endpoint>/status/<job>`), and on `CANCELLED` / `TIMED_OUT` / `FAILED` —
+    all three mean nobody is coming for the result — it stops itself. Deliberately the public API
+    and not an SDK internal: it is the one contract here that is already proven in production.
+  - **Stopping means `/interrupt` AND killing ComfyUI.** An interrupt lands between nodes, so a job
+    inside a 14 GB model load would sail through it; the kill is the guarantee, and frees the VRAM
+    with it. Leaving the process dead is safe — the next job's `_maybe_restart_comfy` cannot read
+    stats from a dead server, so it starts a fresh one.
+  - **Fail-safe in the direction that costs nothing:** an unreadable status is NOT a cancellation.
+    The exact mirror of the runner's grace window on the same API — there a flaky read must not
+    fail a live job, here it must not abort one.
+  - **Needs two env vars ON THE ENDPOINT** (`RUNPOD_ENDPOINT_ID`, `RUNPOD_API_KEY` — see
+    [INFRA](../INFRA.md)). Without them the worker cannot ask and behaves exactly as before, so it
+    says so in the container log at the first check rather than silently billing for cancelled work.
+  - **A cancel RunPod refuses is no longer swallowed.** `_cancel_job` caught every exception and
+    returned nothing, so a cancel that never landed left a job rendering at full cost with every
+    surface saying it had stopped. It now returns a bool, logs the failure, and `cancel_session`
+    hands back a `warning` naming the jobs — surfaced where the modal already shows errors. The
+    local stop still stands; the author is simply told what it did not reach.
+  - **A fourth clock, found while reading for this:** the worker's own `JOB_TIMEOUT` was a
+    hardcoded **1800**. With the endpoint at 9000s and `VIDEO_JOB_TIMEOUT_SECONDS` at 9600, that
+    had silently become the shortest cap on a job — a 1024² quality render would have died at 30
+    minutes reporting "generation timed out", blaming ComfyUI for a limit nobody had raised. Now
+    `COMFY_JOB_TIMEOUT`, default 9000.
+  - **`handler.py` had no tests, which is most of how this happened** — nothing runs it but a
+    rebuild, and the one behaviour that costs real money when it is wrong was never asserted. Its
+    boot block is now under `if __name__ == "__main__"` (start.sh runs it as a script, so the
+    worker is unaffected) and `py test_handler.py` covers the stop, the kill, the fail-safe read,
+    the missing-credentials warning, the untouched happy path, and the cap.
+  - Fixtures: `py services/atlas-serverless/test_handler.py`, plus a runner case that a refused
+    cancel is reported and an accepted one stays silent.
 - 2026-09-01 — **The publish modal now says which switches nothing will be able to reach.**
   Closes the open item the `executionTimeout` outage left behind: a blueprint's `params[]` are the
   ONLY inputs the runner writes, so an undeclared one keeps whatever the ComfyUI export saved,

@@ -18,6 +18,12 @@ ComfyUI's own /free can't release them and VRAM accumulates across jobs on a war
 worker until it OOMs on a 24 GB card. A fresh process per job guarantees a clean GPU.
 ComfyUI reads models from the attached Network Volume via the /ComfyUI/models symlink
 set up in start.sh.
+
+CANCELLATION needs two env vars on the endpoint — `RUNPOD_ENDPOINT_ID` and
+`RUNPOD_API_KEY`. RunPod's `/cancel` marks a job cancelled but never interrupts a
+synchronous handler, so without them a cancelled job renders to completion and bills
+for it while the UI reports it stopped. With them, a running job asks RunPod whether
+it is still wanted and stops itself when it is not. See `_job_cancelled`.
 """
 from __future__ import annotations
 
@@ -32,8 +38,19 @@ import requests
 import runpod
 
 COMFY = "http://127.0.0.1:8188"
+RUNPOD_API = "https://api.runpod.ai/v2"
 READY_TIMEOUT = 600      # ComfyUI (re)start: load nodes before a job can run
-JOB_TIMEOUT = 1800       # a single generation
+# One generation. This is the FOURTH clock on a job (endpoint Execution Timeout ->
+# `video_runner.JOB_TIMEOUT_SECONDS` -> this -> ComfyUI itself) and the only one that
+# was never raised with the others: at 1800 it silently became the binding limit the
+# moment an endpoint was set past 30 min, failing a render the endpoint was still
+# happy to run with "generation timed out" instead of anything about the real cap.
+# Keep it at or above the endpoint's Execution Timeout — RunPod's is the authority,
+# this is only a backstop for a prompt ComfyUI never finishes or reports.
+JOB_TIMEOUT = int(os.environ.get("COMFY_JOB_TIMEOUT") or 9000)
+# How often a running job asks RunPod whether it has been cancelled. 5s is ~0.3% of
+# a 30-min render's wall time and bounds the waste after a cancel to one poll.
+CANCEL_POLL_SECONDS = float(os.environ.get("CANCEL_POLL_SECONDS") or 5)
 COMFY_CMD = ["python", "-u", "/ComfyUI/main.py",
              "--listen", "127.0.0.1", "--port", "8188", "--disable-auto-launch"]
 # Between jobs, restart ComfyUI (dropping its cache) only when free VRAM falls below
@@ -111,6 +128,65 @@ def _maybe_restart_comfy() -> None:
         _restart_comfy()
 
 
+class _Cancelled(Exception):
+    """RunPod says this job was cancelled while we were rendering it."""
+
+
+_warned_no_cancel_creds = False
+
+
+def _job_cancelled(job_id: str) -> bool:
+    """Has this job been cancelled out from under us?
+
+    RunPod's `/cancel` marks the JOB cancelled, but a SYNCHRONOUS handler is never
+    interrupted — nothing here is asked to stop, so the worker renders to completion,
+    billing the whole time, and throws the result away. From the outside that reads as
+    "the UI says cancelled but the GPU is still going", which is exactly what it was.
+
+    So the worker has to ask. This is the same public status route the Atlas Maker's
+    runner polls, with the same credentials, rather than an SDK internal.
+
+    Fail-SAFE, in the direction that costs nothing: an unreadable status is NOT a
+    cancellation (a flaky read must never abort a paid render — the mirror of the
+    grace window on the runner's side of the same API).
+    """
+    global _warned_no_cancel_creds
+    eid = (os.environ.get("RUNPOD_ENDPOINT_ID") or "").strip()
+    key = (os.environ.get("RUNPOD_API_KEY") or "").strip()
+    if not eid or not key:
+        if not _warned_no_cancel_creds:
+            _warned_no_cancel_creds = True
+            print("[handler] RUNPOD_ENDPOINT_ID / RUNPOD_API_KEY are not set on this "
+                  "endpoint, so a cancelled job CANNOT be noticed here: it will render "
+                  "to completion and bill for it. Set both to make Cancel stop the GPU.",
+                  flush=True)
+        return False
+    try:
+        st = requests.get(f"{RUNPOD_API}/{eid}/status/{job_id}",
+                          headers={"Authorization": f"Bearer {key}"}, timeout=15).json()
+    except Exception:  # noqa: BLE001 — a bad READ is not a cancellation
+        return False
+    # TIMED_OUT and FAILED mean nobody is coming for this result either, so the same
+    # stop applies — there is no one left to hand it to.
+    return str(st.get("status") or "").upper() in ("CANCELLED", "TIMED_OUT", "FAILED")
+
+
+def _abort_generation() -> None:
+    """Stop the WORK, not just the wait.
+
+    `/interrupt` ends the running prompt promptly and is the graceful half; killing
+    ComfyUI is what GUARANTEES it (an interrupt lands between nodes, so a job stuck
+    inside a 14 GB model load would otherwise keep going) and frees the VRAM with it.
+    Leaving the process dead is safe: the next job's `_maybe_restart_comfy` cannot read
+    stats from a dead server, so it starts a fresh one.
+    """
+    try:
+        requests.post(f"{COMFY}/interrupt", timeout=15)
+    except Exception:  # noqa: BLE001 — the kill below is the guarantee
+        pass
+    _stop_comfy()
+
+
 def _upload_image(name: str, b64: str) -> None:
     data = base64.b64decode(b64)
     files = {"image": (name, io.BytesIO(data), "image/png")}
@@ -128,12 +204,21 @@ def _queue(workflow: dict, client_id: str) -> str:
     return r.json()["prompt_id"]
 
 
-def _await_result(prompt_id: str, timeout: int = JOB_TIMEOUT) -> dict:
-    t0 = time.time()
+def _await_result(prompt_id: str, job_id: str = "",
+                  timeout: int = JOB_TIMEOUT) -> dict:
+    """Wait for the prompt, checking every `CANCEL_POLL_SECONDS` whether the job has
+    been cancelled — this loop is where a job spends essentially all of its life, so
+    it is the only place worth watching. Raises `_Cancelled` if it has been."""
+    t0 = last_check = time.time()
     while time.time() - t0 < timeout:
         h = requests.get(f"{COMFY}/history/{prompt_id}", timeout=30).json()
         if prompt_id in h:
             return h[prompt_id]
+        now = time.time()
+        if job_id and now - last_check >= CANCEL_POLL_SECONDS:
+            last_check = now
+            if _job_cancelled(job_id):
+                raise _Cancelled()
         time.sleep(1)
     raise RuntimeError(f"generation timed out after {timeout}s")
 
@@ -174,7 +259,15 @@ def handler(job: dict) -> dict:
             _upload_image(im["name"], im["image"])
         client_id = str(uuid.uuid4())
         prompt_id = _queue(workflow, client_id)
-        hist = _await_result(prompt_id)
+        hist = _await_result(prompt_id, str(job.get("id") or ""))
+    except _Cancelled:
+        # Nobody is waiting for this result; the only thing that still matters is
+        # that the GPU stops. RunPod discards a cancelled job's output, so what is
+        # returned here is for the worker log, not for a caller.
+        print(f"[handler] job {job.get('id')} was cancelled — stopping the "
+              "generation and freeing the GPU.", flush=True)
+        _abort_generation()
+        return {"error": "cancelled", "detail": "stopped on request"}
     except Exception as e:  # noqa: BLE001
         return {"error": str(e)}
 
@@ -188,7 +281,12 @@ def handler(job: dict) -> dict:
     return {"images": images}
 
 
-# Start ComfyUI, wait until it answers, then serve.
-_start_comfy()
-_wait_for_comfy()
-runpod.serverless.start({"handler": handler})
+# Start ComfyUI, wait until it answers, then serve. Guarded so the module can be
+# IMPORTED without spawning a GPU server — `start.sh` runs this as `python -u
+# /handler.py`, so the worker is unaffected, while `test_handler.py` can exercise the
+# stopping logic. That the module could not be imported is a large part of why the
+# one behaviour here that costs money when it is wrong had no test at all.
+if __name__ == "__main__":
+    _start_comfy()
+    _wait_for_comfy()
+    runpod.serverless.start({"handler": handler})

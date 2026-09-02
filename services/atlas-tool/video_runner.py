@@ -205,13 +205,38 @@ def _submit(wf: dict) -> tuple[str, dict]:
     return str(jid), wf
 
 
-def _cancel_job(job_id: str) -> None:
-    """Best-effort remote cancel. A cancelled session should stop BURNING, not
-    just stop reporting — but a failure here must never mask the local stop."""
+def _cancel_job(job_id: str) -> bool:
+    """Remote cancel; True when RunPod accepted it. A cancelled session should stop
+    BURNING, not just stop reporting — but a failure here must never mask the local
+    stop, so it is still caught.
+
+    It is REPORTED now rather than swallowed in silence. A cancel that never landed
+    leaves a job running at full cost while every surface says it stopped, and that
+    is precisely the state nobody could see: the caller turns a False into something
+    the author is told, instead of the tool quietly believing itself.
+
+    NOTE this only asks RunPod to cancel. Whether the WORKER then stops is the
+    worker's own business — a synchronous handler is not interrupted by a cancel, so
+    `services/atlas-serverless/handler.py` has to poll for it. A True here means
+    "RunPod took the request", never "the GPU has stopped".
+    """
     try:
         batch_atlas._runpod_post(f"/cancel/{job_id}", {})
-    except Exception:  # noqa: BLE001 — local cancellation still stands
-        pass
+        return True
+    except Exception as e:  # noqa: BLE001 — local cancellation still stands
+        print(f"[video] could not cancel job {job_id} on RunPod ({e}) — it may still "
+              "be running and billing.", flush=True)
+        return False
+
+
+def _cancel_warning(failed: list) -> str:
+    """What to tell the author when RunPod would not take a cancel. Says the cost
+    out loud: a job we could not stop keeps rendering, and keeps charging."""
+    n = len(failed)
+    return (f"Stopped here, but RunPod would not cancel {n} running "
+            f"job{'' if n == 1 else 's'} ({', '.join(failed[:3])}"
+            f"{'…' if n > 3 else ''}) — {'it may' if n == 1 else 'they may'} still "
+            "be rendering and billing. Check the endpoint's Requests tab.")
 
 
 def _await_job(job_id: str, var: dict, should_stop) -> dict:
@@ -1068,13 +1093,15 @@ def cancel_session(session_id: str) -> dict:
                         v.update(status="cancelled", finished=_now())
                 s.update(status="cancelled", finished=_now())
     if s:
-        for jid in in_flight:
-            _cancel_job(jid)
+        failed = [jid for jid in in_flight if not _cancel_job(jid)]
         if settle:
             _write_meta(session_id, s)
             _release(session_id)
-        return {"ok": True, "id": session_id, "cancelling": len(in_flight),
-                "adopted": False}
+        out = {"ok": True, "id": session_id, "cancelling": len(in_flight),
+               "adopted": False}
+        if failed:
+            out["warning"] = _cancel_warning(failed)
+        return out
 
     # Not ours: close it out in the STORED doc, so it stops claiming to run even
     # though no thread here will ever update it.
@@ -1100,11 +1127,13 @@ def cancel_session(session_id: str) -> dict:
     stored["cancel"] = True
     stored["status"] = "cancelled"
     stored["finished"] = _now()
-    for jid in stopped:
-        _cancel_job(jid)
+    failed = [jid for jid in stopped if not _cancel_job(jid)]
     _write_meta(session_id, stored)
-    return {"ok": True, "id": session_id, "cancelling": len(stopped),
-            "adopted": True}
+    out = {"ok": True, "id": session_id, "cancelling": len(stopped),
+           "adopted": True}
+    if failed:
+        out["warning"] = _cancel_warning(failed)
+    return out
 
 
 def list_sessions() -> list[dict]:
