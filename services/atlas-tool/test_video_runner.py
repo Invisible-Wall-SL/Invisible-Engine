@@ -573,6 +573,24 @@ def _await_status(sid: str, want: str, timeout: float = 10.0) -> dict:
     return cur
 
 
+def _await_in_flight(sid: str, timeout: float = 10.0) -> str:
+    """Wait until a variation actually HOLDS a RunPod job id.
+
+    `_await_status(sid, "running")` is not the same thing: the worker marks the
+    variation running BEFORE it submits, so for a moment the session is running with
+    nothing in flight. A cancel landing in that window has no job to cancel — which is
+    real behaviour, but it is not what a test about cancelling a live job means to
+    exercise."""
+    import time
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for v in (video_runner.get_session(sid) or {}).get("variations", []):
+            if v.get("status") == "running" and v.get("job_id"):
+                return str(v["job_id"])
+        time.sleep(0.02)
+    return ""
+
+
 def _req(prompt: str, variations: int = 1) -> dict:
     return {"blueprint": "wan22_i2v_flipbook", "prompt": prompt,
             "source_ref": "r.png", "variations": variations}
@@ -792,6 +810,49 @@ def test_our_cap_sits_above_the_endpoints_own_timeout() -> None:
     finish, so it must stay well above any endpoint Execution Timeout."""
     check("the cap is loose enough for a multi-pass video blueprint",
           video_runner.JOB_TIMEOUT_SECONDS >= 9000, True)
+
+
+def test_a_cancel_runpod_refuses_is_reported_not_swallowed() -> None:
+    """`_cancel_job` caught every exception and said nothing, so a cancel that never
+    landed left a job rendering at full cost while the session, the tile and the
+    button all said it had stopped. The local stop still stands — but the author is
+    told, because this is money and they cannot see it anywhere else."""
+    import batch_atlas
+
+    _stub_world()
+    passthrough = batch_atlas._runpod_post
+
+    def refuse_cancels(path, payload):
+        if path.startswith("/cancel/"):
+            raise RuntimeError("RunPod /cancel/job1 failed: HTTP 500 Internal Server Error")
+        return passthrough(path, payload)
+
+    batch_atlas._runpod_post = refuse_cancels
+    batch_atlas._runpod_get = lambda path: {"status": "IN_PROGRESS"}
+
+    started = video_runner.start_session(_req("wont stop", variations=2),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    check("a job is in flight to cancel", _await_in_flight(sid), "job1")
+    res = video_runner.cancel_session(sid)
+
+    check("the cancel still returns ok — the local stop stands", res.get("ok"), True)
+    check("but it says RunPod would not take it",
+          "would not cancel" in str(res.get("warning", "")), True)
+    check("naming the job, so it can be killed by hand",
+          "job1" in str(res.get("warning", "")), True)
+    check("and saying what that costs",
+          "billing" in str(res.get("warning", "")), True)
+    final = _await_session(sid)
+    check("the session still reads as cancelled", final.get("status"), "cancelled")
+
+    # The happy path must stay silent: a warning on every cancel is one nobody reads.
+    _stub_world()
+    ok = video_runner.start_session(_req("stops fine"), ("clientx", "projecty"))
+    _await_in_flight(ok["id"])
+    check("a cancel RunPod accepts carries no warning",
+          "warning" in video_runner.cancel_session(ok["id"]), False)
+    _await_session(ok["id"])
 
 
 def test_a_dead_worker_does_not_wedge_the_runner() -> None:
@@ -1165,6 +1226,7 @@ if __name__ == "__main__":
     test_a_second_session_queues()
     test_queue_depth_is_capped()
     test_cancelling_reads_as_cancelled_not_failed()
+    test_a_cancel_runpod_refuses_is_reported_not_swallowed()
     test_a_transient_status_blip_does_not_lose_a_job()
     test_contact_lost_for_good_stops_the_job()
     test_our_cap_sits_above_the_endpoints_own_timeout()
