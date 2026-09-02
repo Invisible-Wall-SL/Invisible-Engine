@@ -286,6 +286,14 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 > that endpoint's id — the same value `atlas-tool` already carries. The worker logs a line at the
 > first cancel check when they are missing, so the container log says which side is unset.
 >
+> **Which image is a worker actually running?** The boot log answers it —
+> `[handler] atlas-comfy-worker build <sha> (JOB_TIMEOUT=…s, cancel-aware=True/False)` — and every
+> error result carries `worker_build`. **A serverless endpoint pinned to `:latest` caches by
+> digest, so pushing a new `:latest` does NOT reliably roll the workers**; that cost three rounds of
+> diagnosis, answerable only by noticing an error quoting a timeout we had since changed. CI also
+> pushes an immutable `:<commit sha>` tag — **set the endpoint's image to that** when you need a
+> specific build live, then confirm the sha in the boot log.
+>
 > Two more the worker reads, both optional: `COMFY_JOB_TIMEOUT` (default 9000s) — the worker's own
 > cap on one generation, and the **fourth** clock on a job after the endpoint's Execution Timeout,
 > `VIDEO_JOB_TIMEOUT_SECONDS` and ComfyUI itself. It was a hardcoded 1800 and silently became the

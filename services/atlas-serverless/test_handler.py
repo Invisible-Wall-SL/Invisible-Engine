@@ -191,6 +191,23 @@ def test_the_wait_returns_the_history_when_it_arrives() -> None:
     check("and nothing was killed on the happy path", killed, [])
 
 
+def test_every_error_says_which_worker_produced_it() -> None:
+    """"Is the endpoint running the new image?" was, three times running, only
+    answerable by noticing that an error quoted a number we had since changed. A
+    `:latest` endpoint caches by digest, so a push to that tag need not roll the
+    workers — and nothing in the container said otherwise. The answer now travels
+    with the failure."""
+    def body(_fake):
+        return handler.handler({"id": "j1", "input": {}})
+
+    out, _ = with_world(body, env=LIVE)
+    check("a rejected job still says what was wrong",
+          out.get("error"), "input.workflow is required")
+    check("and which build said it", out.get("worker_build"), handler.WORKER_BUILD)
+    check("which is a real value in a built image, not a placeholder",
+          isinstance(handler.WORKER_BUILD, str) and bool(handler.WORKER_BUILD), True)
+
+
 def test_job_timeout_is_not_the_binding_cap() -> None:
     """1800 silently became the shortest of four clocks the moment an endpoint was set
     past 30 min, failing a render the endpoint was happy to run and blaming ComfyUI."""
@@ -204,6 +221,7 @@ if __name__ == "__main__":
     test_a_flaky_status_read_never_aborts_a_paid_render()
     test_without_credentials_it_says_so()
     test_the_wait_returns_the_history_when_it_arrives()
+    test_every_error_says_which_worker_produced_it()
     test_job_timeout_is_not_the_binding_cap()
     print()
     if FAILED:

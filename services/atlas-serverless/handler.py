@@ -39,6 +39,11 @@ import runpod
 
 COMFY = "http://127.0.0.1:8188"
 RUNPOD_API = "https://api.runpod.ai/v2"
+# The commit this image was built from, stamped in by the Dockerfile. Printed at boot
+# and attached to every error, because a serverless endpoint pinned to `:latest`
+# caches by digest — a push to that tag need not roll the workers, and until this
+# there was nothing in the container that could tell you which code was running.
+WORKER_BUILD = os.environ.get("WORKER_BUILD") or "unknown"
 READY_TIMEOUT = 600      # ComfyUI (re)start: load nodes before a job can run
 # One generation. This is the FOURTH clock on a job (endpoint Execution Timeout ->
 # `video_runner.JOB_TIMEOUT_SECONDS` -> this -> ComfyUI itself) and the only one that
@@ -238,12 +243,19 @@ def _collect_images(hist: dict) -> list[dict]:
     return out
 
 
+def _fail(msg: str, **extra) -> dict:
+    """An error result that says WHICH WORKER produced it. `job FAILED: …` used to
+    reach the author with no way back to the code that raised it."""
+    return {"error": msg, "worker_build": WORKER_BUILD, **extra}
+
+
 def handler(job: dict) -> dict:
     global _jobs_done
+    print(f"[handler] job {job.get('id')} on worker build {WORKER_BUILD}", flush=True)
     inp = job.get("input") or {}
     workflow = inp.get("workflow")
     if not workflow:
-        return {"error": "input.workflow is required"}
+        return _fail("input.workflow is required")
 
     # Every job after the first gets a fresh ComfyUI so VRAM from the previous job
     # (including transformers-loaded models ComfyUI can't free) is fully released.
@@ -251,7 +263,7 @@ def handler(job: dict) -> dict:
         try:
             _maybe_restart_comfy()
         except Exception as e:  # noqa: BLE001
-            return {"error": f"ComfyUI restart failed: {e}"}
+            return _fail(f"ComfyUI restart failed: {e}")
     _jobs_done += 1
 
     try:
@@ -267,17 +279,17 @@ def handler(job: dict) -> dict:
         print(f"[handler] job {job.get('id')} was cancelled — stopping the "
               "generation and freeing the GPU.", flush=True)
         _abort_generation()
-        return {"error": "cancelled", "detail": "stopped on request"}
+        return _fail("cancelled", detail="stopped on request")
     except Exception as e:  # noqa: BLE001
-        return {"error": str(e)}
+        return _fail(str(e))
 
     status = hist.get("status", {})
     if status.get("status_str") == "error":
-        return {"error": "comfy execution error", "detail": status}
+        return _fail("comfy execution error", detail=status)
 
     images = _collect_images(hist)
     if not images:
-        return {"error": "generation produced no images", "detail": status}
+        return _fail("generation produced no images", detail=status)
     return {"images": images}
 
 
@@ -287,6 +299,10 @@ def handler(job: dict) -> dict:
 # stopping logic. That the module could not be imported is a large part of why the
 # one behaviour here that costs money when it is wrong had no test at all.
 if __name__ == "__main__":
+    print(f"[handler] atlas-comfy-worker build {WORKER_BUILD} "
+          f"(JOB_TIMEOUT={JOB_TIMEOUT}s, cancel-aware="
+          f"{bool(os.environ.get('RUNPOD_ENDPOINT_ID') and os.environ.get('RUNPOD_API_KEY'))})",
+          flush=True)
     _start_comfy()
     _wait_for_comfy()
     runpod.serverless.start({"handler": handler})
