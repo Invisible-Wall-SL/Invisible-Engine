@@ -1081,12 +1081,19 @@ def cancel_session(session_id: str) -> dict:
                 _QUEUE.remove(session_id)
             live = [v for v in s["variations"] if v["status"] == "running"]
             in_flight = [v["job_id"] for v in live if v.get("job_id")]
-            # No variation is in flight, so no worker will ever notice the flag
-            # and close this out: it is either still WAITING in line, or its
-            # thread died with an earlier process. Settle it here rather than
-            # leaving a session that claims to run forever — which is what kept
-            # the next Generate answering "already running".
-            settle = not live and s.get("status") in ("queued", "running")
+            # WHO WILL ACT ON THE FLAG? A worker notices `cancel` only if one
+            # actually owns this session, and `_ACTIVE` is the whole of that fact.
+            #
+            # This used to ask a different question — "is any variation running?" —
+            # and infer a worker from the answer. A session ADOPTED from its stored
+            # doc after a restart breaks that inference completely: its variations
+            # still say `running` because that is what they said when the old
+            # process died, so the old test saw work in flight, assumed a thread was
+            # watching it, and left everything to a worker that does not exist. The
+            # session then sat at "running" forever and Cancel did nothing at all —
+            # visibly nothing, since the flag was not even persisted (see below).
+            # Which is precisely the session anyone most wants to stop.
+            settle = _ACTIVE != session_id
             if settle:
                 for v in s["variations"]:
                     if v["status"] in ("queued", "running"):
@@ -1094,8 +1101,12 @@ def cancel_session(session_id: str) -> dict:
                 s.update(status="cancelled", finished=_now())
     if s:
         failed = [jid for jid in in_flight if not _cancel_job(jid)]
+        # ALWAYS persist. `cancel` used to be written only on the settling path, so
+        # on the other one the flag lived in memory and nowhere else: the stored doc
+        # went on saying `cancel: false`, and a restart forgot the stop had ever been
+        # asked for. Cheap, and it makes the record match what the author did.
+        _write_meta(session_id, s)
         if settle:
-            _write_meta(session_id, s)
             _release(session_id)
         out = {"ok": True, "id": session_id, "cancelling": len(in_flight),
                "adopted": False}
