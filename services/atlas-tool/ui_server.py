@@ -3326,7 +3326,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  <span class="ssn-field"><span>Active project{proj_qm}</span>{project_select}</span>
  <span class="ssn-field"><span>Active manifest{manifest_qm}</span>{manifest_select}</span>
  <button onclick="newAtlas()" class="alt" title="Create a brand-new, empty atlas from scratch (auto-pack layout) — asks for its name first. Add regions and generate them from prompts; Create Atlas packs them into a page automatically.">＋ New atlas</button>
- <button onclick="addRegion(this)" class="alt" title="Add a new region to the active atlas. Give it a name; edit its prompt on the card, generate, then Create Atlas re-packs the page to fit.">＋ Add region</button>
+ <button onclick="addRegion()" class="alt" title="Add a new region to the active atlas. Give it a name; edit its prompt on the card, generate, then Create Atlas re-packs the page to fit.">＋ Add region</button>
  <button onclick="refreshR2(this)" class="alt" title="Re-pull this project's manifests from R2 (e.g. after exporting a sheet from the Sheet Maker) without restarting or switching projects">↻ Refresh from R2</button>
  <button onclick="clearCache(this)" class="alt" title="Discard the local copy of this project and re-download it from R2, matching the cloud exactly. Files deleted from the cloud are dropped here too; unsaved local work is lost. R2 is the source of truth.">↺ Reset from R2</button>
  <span class="ssn-note">switching reloads the page</span>
@@ -3528,7 +3528,7 @@ function collect(){{
 function cfgData(){{let o={{}};document.querySelectorAll('[data-cfg]').forEach(el=>{{o[el.dataset.cfg]=el.value;}});return o;}}
 // From-scratch atlas flow: create an empty pack-layout atlas, add/remove
 // regions. Each POSTs, shows the server's note, and reloads on success ('✓').
-async function _postReload(url,body,btn){{
+async function _postReload(url,body){{
  let bar=document.getElementById('sessionbar'); if(bar) bar.classList.add('busy');
  let msg;
  try{{ let r=await fetch(url,{{method:'POST',body:JSON.stringify(body)}});
@@ -3539,9 +3539,8 @@ async function _postReload(url,body,btn){{
  if(bar) bar.classList.remove('busy');
  if(msg.indexOf('⚠')!==0 && msg.indexOf('✓')<0) alert(msg);
 }}
-// New atlas: the name is asked for in a dialog BEFORE anything is written. A
-// name already in the manifest dropdown is flagged live and confirmed on
-// Create (the server then gets overwrite:true); Cancel / blank changes nothing.
+// New atlas: named in a dialog BEFORE anything is written; an existing name is
+// flagged live and confirmed on Create (which then sends overwrite:true).
 function atlasSlug(s){{ return (s||'').toLowerCase().replace(/[^a-z0-9]/g,'_').slice(0,60); }}
 function existingAtlases(){{
  return [...document.querySelectorAll('[data-cfg="manifest_path"] option')]
@@ -3560,7 +3559,6 @@ function onNewAtlasName(){{
 }}
 function onNewAtlasKey(e){{
  if(e.key==='Enter' && e.target.id==='nanamein'){{ e.preventDefault(); confirmNewAtlas(); }}
- else if(e.key==='Escape'){{ e.preventDefault(); closeNewAtlas(); }}
 }}
 function confirmNewAtlas(){{
  let raw=document.getElementById('nanamein').value.trim(), slug=atlasSlug(raw);
@@ -3570,18 +3568,18 @@ function confirmNewAtlas(){{
    +'Replace it with a new, empty atlas? Its manifest (regions, prompts, layout) is overwritten — on R2 too, with no undo. Generated variant images stay on disk.\\n\\n'
    +'Cancel to pick a different name.')) return;
  closeNewAtlas();
- _postReload('/newatlas',{{name:raw,overwrite:exists}},null);
+ _postReload('/newatlas',{{name:raw,overwrite:exists}});
 }}
-function addRegion(btn){{
+function addRegion(){{
  let name=prompt('Region name (letters, numbers, _ or -). You\\'ll set its prompt on the card:');
  if(name===null) return;
  name=name.trim(); if(!name) return;
- _postReload('/addregion',{{name:name}},btn);
+ _postReload('/addregion',{{name:name}});
 }}
 function delRegion(name){{
  if(!name) return;
  if(!confirm('Remove region \"'+name+'\" from this atlas? (generated variants are kept)')) return;
- _postReload('/delregion',{{name:name}},null);
+ _postReload('/delregion',{{name:name}});
 }}
 async function switchSession(sel){{
  // Session-bar dropdowns (active project / active manifest) are context
@@ -4997,7 +4995,7 @@ function fsPick(path){{
  if(inp){{ inp.value=path; inp.dispatchEvent(new Event('change')); }}
  closeFs();
 }}
-document.addEventListener('keydown',e=>{{if(e.key==='Escape'){{closeModal();closeAdv();closeFs();}}}});
+document.addEventListener('keydown',e=>{{if(e.key==='Escape'){{closeModal();closeAdv();closeFs();closeNewAtlas();}}}});
 window.addEventListener('DOMContentLoaded',function(){{
  updateAllLocks(); refreshCredits(); setInterval(refreshCredits,60000);
 }});
