@@ -87,6 +87,7 @@
 	import Flipbook from './Flipbook.svelte';
 	import SpineBoneAttach from './SpineBoneAttach.svelte';
 	import { riggedBeatMatches } from '../riggedBeat';
+	import { attachToSlot } from '../spineSlotHost';
 
 	const props: Props = $props();
 	const spine = getContextSpine();
@@ -94,17 +95,21 @@
 	// The clip renders under this container, which we parent on the host spine so it inherits the
 	// rig's fit-scale/position/pivot (see doc note 2).
 	const fbParent = new PIXI.Container();
-	// A SLOT binding hands `fbParent` to spine instead, which then drives it at that slot's place in
-	// the draw order. Guarded, because `addSlotObject` THROWS on an unknown slot name and a rig
-	// re-synced with that slot renamed away must degrade to the old on-top mount, not crash the game.
+	// A SLOT binding puts `fbParent` under the slot's shared HOST object instead, which spine drives
+	// at that slot's place in the draw order. Shared, because spine allows ONE object per slot and
+	// `addSlotObject` evicts the previous one — and a binding is one keyframe, so the same clip keyed
+	// on one slot in two animations is two mounts (see `spineSlotHost`). Guarded, because
+	// `addSlotObject` THROWS on an unknown slot name and a rig re-synced with that slot renamed away
+	// must degrade to the old on-top mount, not crash the game.
 	const slot =
 		props.drawSlot && spine?.skeleton?.findSlot(props.drawSlot) ? props.drawSlot : undefined;
-	if (spine && slot) spine.addSlotObject(slot, fbParent);
-	else spine?.addChild(fbParent);
+	const detachSlot =
+		spine && slot ? attachToSlot(spine, slot, fbParent, () => new PIXI.Container()) : undefined;
+	if (!detachSlot) spine?.addChild(fbParent);
 
-	// `alpha`/`scale` live on a SECOND container, not on `fbParent`, because a slotted `fbParent` is
-	// not ours any more: spine's `updateSlotObject` rewrites its position, rotation, scale AND alpha
-	// every frame from the slot's bone and colour. Nesting keeps one code shape for both mounts, and
+	// `alpha`/`scale` live on a SECOND container, not on `fbParent`: on a slot binding the host above
+	// `fbParent` is spine's (its `updateSlotObject` rewrites position, rotation, scale AND alpha every
+	// frame from the slot's bone and colour). Nesting keeps one code shape for both mounts, and
 	// on a slotted binding the two compose.
 	const fbLocal = new PIXI.Container();
 	fbParent.addChild(fbLocal);
@@ -114,9 +119,9 @@
 		fbLocal.scale.set(props.scale ?? 1);
 	});
 	onDestroy(() => {
-		// Detach before destroy: spine holds slotted containers in `_slotsObject` and keeps driving
-		// them, so a destroyed-but-still-registered container would be written to every frame.
-		if (spine && slot && !spine.destroyed) spine.removeSlotObject(fbParent);
+		// Leave the shared slot host first (the last binding out unregisters it from spine, so a
+		// destroyed-but-still-registered container is never written to every frame).
+		detachSlot?.();
 		// Shallow, both of them — the clip subtree below is owned by `<Flipbook>`, which tears itself
 		// down.
 		if (!fbLocal.destroyed) fbLocal.destroy();
