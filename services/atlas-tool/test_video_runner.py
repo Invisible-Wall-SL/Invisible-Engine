@@ -15,11 +15,17 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 from pathlib import Path
 
 import video_runner
 
 FAILED: list[str] = []
+# Every `project_paths.set_context` call the stubbed world saw: (thread id, args).
+# A stub that only answered True could not tell a worker thread that set the
+# context from one that never did — and one that never did lands every file in
+# the env-default project.
+SET_CONTEXT_CALLS: list[tuple[int, tuple]] = []
 
 
 def check(label: str, got, want) -> None:
@@ -350,7 +356,9 @@ def _stub_world():
 
     video_runner.project_paths.resolve = lambda: {
         "r2_project_prefix": "clientx/projecty", "staging_root": tmp}
-    video_runner.project_paths.set_context = lambda *a, **k: True
+    SET_CONTEXT_CALLS.clear()
+    video_runner.project_paths.set_context = (
+        lambda *a, **k: SET_CONTEXT_CALLS.append((threading.get_ident(), a)) or True)
     video_runner.project_paths.project_name = lambda: "projecty"
 
     bp = load_blueprint()
@@ -1054,7 +1062,7 @@ def test_a_dead_worker_does_not_wedge_the_runner() -> None:
     ctx = ("clientx", "projecty")
     real = video_runner._run_variations
 
-    def explode(sid, session):
+    def explode(sid, session, ctx):
         raise RuntimeError("worker exploded")
 
     video_runner._run_variations = explode
@@ -1381,6 +1389,314 @@ def test_a_reroll_mid_run_joins_the_pass_already_under_way() -> None:
         gate.set()
 
 
+def _fan_out_world(fail: frozenset[str] = frozenset()) -> dict:
+    """A RunPod double for the fan-out fixtures. Every job holds at IN_PROGRESS
+    until it is released, and the double counts how many jobs are submitted but not
+    yet terminal at any one moment — the one number the fan-out must never exceed.
+    Job ids are dealt in submit order, so the first wave under a cap of 3 is always
+    `job1..job3`, and the wave that replaces it `job4..job6`."""
+    import threading
+    import time
+
+    import batch_atlas
+
+    b64 = __import__("base64").b64encode(b"WEBPDATA").decode()
+    lock = threading.Lock()
+    w: dict = {"live": set(), "peak": 0, "submitted": 0, "released": set(),
+               "cancelled": set(), "release_all": False}
+
+    def post(path, payload):
+        with lock:
+            if path == "/run":
+                w["submitted"] += 1
+                jid = f"job{w['submitted']}"
+                w["live"].add(jid)
+                w["peak"] = max(w["peak"], len(w["live"]))
+                return {"id": jid}
+            if path.startswith("/cancel/"):
+                jid = path.rsplit("/", 1)[-1]
+                w["cancelled"].add(jid)
+                w["live"].discard(jid)
+            return {}
+
+    def get(path):
+        jid = path.rsplit("/", 1)[-1]
+        with lock:
+            if jid in w["cancelled"]:
+                return {"id": jid, "status": "CANCELLED"}
+            if not (w["release_all"] or jid in w["released"]):
+                return {"status": "IN_PROGRESS"}
+            w["live"].discard(jid)
+        if jid in fail:
+            return {"status": "FAILED", "error": "worker fell over"}
+        return {"status": "COMPLETED", "output": {"images": [
+            {"filename": "out.webp", "image": b64}]}}
+
+    def release(*jids: str) -> None:
+        """Let the named jobs complete — or, with no names, every job from now on."""
+        with lock:
+            if jids:
+                w["released"].update(jids)
+            else:
+                w["release_all"] = True
+
+    def hold() -> None:
+        """Hold every job from now on again — the state a fresh double starts in,
+        without dealing the job ids from `job1` a second time."""
+        with lock:
+            w["release_all"] = False
+            w["released"].clear()
+
+    def await_live(want: set[str], timeout: float = 10.0) -> list[str]:
+        """Wait until EXACTLY these jobs are in flight. A count would be satisfied
+        by the wave that has not been collected yet; the set is not."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with lock:
+                if w["live"] == want:
+                    return sorted(w["live"])
+            time.sleep(0.02)
+        with lock:
+            return sorted(w["live"])
+
+    batch_atlas._runpod_post = post
+    batch_atlas._runpod_get = get
+    w["release"] = release
+    w["hold"] = hold
+    w["await_live"] = await_live
+    return w
+
+
+def test_parallel_jobs_fan_out_across_workers() -> None:
+    """RunPod only wakes a second worker when a second job is WAITING. The runner
+    submitted one job at a time, so an endpoint with three workers ran a twelve-tile
+    grid on one of them while the other two never left idle. With `PARALLEL_JOBS`
+    raised, up to that many of a session's variations are in flight at once —
+    and never more, because the surplus would only sit IN_QUEUE."""
+    _, objects = _stub_world()
+    w = _fan_out_world()
+    saved = video_runner.PARALLEL_JOBS
+    video_runner.PARALLEL_JOBS = 3
+    try:
+        sid = video_runner.start_session(_req("grid", 12), ("clientx", "projecty"))["id"]
+        check("three jobs go out before any has finished",
+              w["await_live"]({"job1", "job2", "job3"}), ["job1", "job2", "job3"])
+        w["release"]("job1", "job2", "job3")
+        check("the freed slots are refilled with the next three",
+              w["await_live"]({"job4", "job5", "job6"}), ["job4", "job5", "job6"])
+        w["release"]()
+        final = _await_session(sid)
+        check("all twelve end done",
+              [v["status"] for v in final["variations"]], ["done"] * 12)
+        check("each in its own slot",
+              [v["file"] for v in final["variations"]],
+              ["%03d.webp" % i for i in range(1, 13)])
+        check("the peak in flight was exactly the cap, never more", w["peak"], 3)
+        check("the session reads finished", final.get("status"), "finished")
+        # Idle FIRST: the status flips a beat before the finaliser writes
+        # `meta.json`, and the hand-off comes after that write — see `_await_idle`.
+        check("the runner ends idle", _await_idle(), None)
+        meta = json.loads(objects["clientx/projecty/video/%s/meta.json" % sid])
+        check("meta.json written by twelve threads still agrees with memory",
+              (meta["done_count"], [v["status"] for v in meta["variations"]]),
+              (12, ["done"] * 12))
+        # The context is thread-local, and a variation thread inherits nobody's.
+        workers = {t for t, _ in SET_CONTEXT_CALLS if t != threading.get_ident()}
+        check("the project context was set on at least three worker threads",
+              len(workers) >= 3, True)
+        check("and every time to the session's own client/project",
+              {a for _, a in SET_CONTEXT_CALLS}, {("clientx", "projecty")})
+    finally:
+        video_runner.PARALLEL_JOBS = saved
+        w["release"]()
+
+
+def test_default_stays_serial() -> None:
+    """The default cap is 1, and at 1 the runner is what it was: one job out, the
+    next only after it has finished. Every extra worker is a cold start and a
+    multiplied burn rate, so nobody pays for fan-out without asking for it."""
+    _stub_world()
+    w = _fan_out_world()
+    saved = video_runner.PARALLEL_JOBS
+    video_runner.PARALLEL_JOBS = 1
+    try:
+        sid = video_runner.start_session(_req("serial", 4), ("clientx", "projecty"))["id"]
+        check("one job goes out", w["await_live"]({"job1"}), ["job1"])
+        w["release"]("job1")
+        check("the second only once the first has finished",
+              w["await_live"]({"job2"}), ["job2"])
+        w["release"]()
+        final = _await_session(sid)
+        check("every slot ends done",
+              [v["status"] for v in final["variations"]], ["done"] * 4)
+        check("and at no point was more than one in flight", w["peak"], 1)
+    finally:
+        video_runner.PARALLEL_JOBS = saved
+        w["release"]()
+
+
+def test_cancel_mid_fanout_stops_every_inflight_job() -> None:
+    """Cancelling a fanned-out session has to stop EVERY job it has in flight, not
+    just the one a serial runner would have had — and must not hand the runner on
+    while any of those threads is still live, or the next session races them."""
+    _stub_world()
+    w = _fan_out_world()
+    saved = video_runner.PARALLEL_JOBS
+    video_runner.PARALLEL_JOBS = 3
+    try:
+        ctx = ("clientx", "projecty")
+        sid = video_runner.start_session(_req("stop", 12), ctx)["id"]
+        w["await_live"]({"job1", "job2", "job3"})
+        video_runner.cancel_session(sid)
+        final = _await_session(sid)
+        check("the session reads cancelled", final.get("status"), "cancelled")
+        check("every in-flight job was cancelled remotely",
+              sorted(w["cancelled"]), ["job1", "job2", "job3"])
+        check("nothing further was submitted after the stop", w["submitted"], 3)
+        check("every slot reads cancelled, none failed",
+              [v["status"] for v in final["variations"]], ["cancelled"] * 12)
+        check("and none carries an error",
+              [v["error"] for v in final["variations"]], [""] * 12)
+        check("the runner is handed back", _await_idle(), None)
+
+        w["release"]()
+        nxt = video_runner.start_session(_req("after the stop", 1), ctx)
+        check("so a following session runs",
+              _await_session(nxt["id"]).get("status"), "finished")
+    finally:
+        video_runner.PARALLEL_JOBS = saved
+        w["release"]()
+
+
+def test_one_failure_in_a_fanout_does_not_sink_the_rest() -> None:
+    """A job that fails on its worker is one red tile, exactly as it was when the
+    runner was serial. The other eleven finish."""
+    _stub_world()
+    w = _fan_out_world(fail=frozenset({"job5"}))
+    saved = video_runner.PARALLEL_JOBS
+    video_runner.PARALLEL_JOBS = 3
+    w["release"]()
+    try:
+        sid = video_runner.start_session(_req("mixed", 12), ("clientx", "projecty"))["id"]
+        final = _await_session(sid)
+        statuses = [v["status"] for v in final["variations"]]
+        check("eleven finish", statuses.count("done"), 11)
+        check("one fails", statuses.count("failed"), 1)
+        bad = next(v for v in final["variations"] if v["status"] == "failed")
+        check("and it says why", "FAILED" in bad["error"], True)
+        check("the session still reads finished, with the right count",
+              (final.get("status"), final.get("done_count")), ("finished", 11))
+        check("the runner ends idle", _await_idle(), None)
+    finally:
+        video_runner.PARALLEL_JOBS = saved
+
+
+def test_a_reroll_mid_fanout_takes_a_free_slot_at_once() -> None:
+    """With nothing eligible and a job still in flight the dispatcher sleeps on
+    its condition, and the only thing that used to wake it was a worker exiting.
+    A re-roll (or ＋ Add) armed in that state was re-picked correctly — but only
+    once the held job finished: tile 1 sat `queued` beside two free slots for as
+    long as tile 2 took. The arming call sites now wake the dispatcher themselves."""
+    _stub_world()
+    w = _fan_out_world()
+    saved = video_runner.PARALLEL_JOBS
+    video_runner.PARALLEL_JOBS = 3
+    try:
+        ctx = ("clientx", "projecty")
+        sid = video_runner.start_session(_req("wake", 2), ctx)["id"]
+        w["await_live"]({"job1", "job2"})
+        w["release"]("job1")
+        _await_var(sid, 1, "done")  # #001 finished; #002 is held in flight
+
+        video_runner.regenerate_variation(sid, {"index": 1, "seed": "777"}, ctx)
+        check("the re-roll is submitted while #002 is still held",
+              w["await_live"]({"job2", "job3"}), ["job2", "job3"])
+
+        w["release"]()
+        final = _await_session(sid)
+        check("the re-rolled tile carries its new seed",
+              final["variations"][0]["seed"], 777)
+        check("both end done",
+              [v["status"] for v in final["variations"]], ["done"] * 2)
+    finally:
+        video_runner.PARALLEL_JOBS = saved
+        w["release"]()
+
+
+def test_cancel_settles_resumed_tiles_the_cap_never_claimed() -> None:
+    """A grid run at `VIDEO_PARALLEL_JOBS=3`, the variable lowered, the service
+    redeployed: the new process adopts a doc holding three `running` tiles and,
+    under a cap of 1, claims only the first. Stop `/cancel`led all three jobs
+    remotely, but the dispatcher's sweep settled only `queued` tiles — so the two
+    it never claimed stayed `running` with no thread behind them, and re-rolling
+    either was refused for good with "still rendering. Cancel the session first"."""
+    import time
+
+    import batch_atlas
+
+    _, objects = _stub_world()
+    w = _fan_out_world()
+    w["release"]()
+    saved = video_runner.PARALLEL_JOBS
+    video_runner.PARALLEL_JOBS = 3
+    try:
+        ctx = ("clientx", "projecty")
+        sid = video_runner.start_session(_req("wide", 3), ctx)["id"]
+        _await_session(sid)
+        _await_idle()
+
+        # The restart: memory is gone, and the stored doc was captured with all
+        # three in flight — under the old, wider cap.
+        key = "clientx/projecty/video/%s/meta.json" % sid
+        meta = json.loads(objects[key])
+        meta["status"] = "running"
+        for v in meta["variations"]:
+            v.update(status="running", file="", bytes=0, finished=None)
+        objects[key] = json.dumps(meta).encode()
+        video_runner._SESSIONS.clear()
+        video_runner._ACTIVE = None
+        video_runner.PARALLEL_JOBS = 1
+        w["hold"]()
+
+        polled: set[str] = set()
+        inner = batch_atlas._runpod_get
+
+        def spy(path):
+            polled.add(path.rsplit("/", 1)[-1])
+            return inner(path)
+
+        batch_atlas._runpod_get = spy
+
+        check("reading the orphan adopts it",
+              video_runner.get_session(sid) is not None, True)
+        deadline = time.time() + 5
+        while "job1" not in polled and time.time() < deadline:
+            time.sleep(0.01)
+        check("the one slot the cap allows is re-attached and polling",
+              "job1" in polled, True)
+
+        video_runner.cancel_session(sid)
+        final = _await_session(sid)
+        check("the session reads cancelled", final.get("status"), "cancelled")
+        check("every tile reads cancelled — the two the cap never claimed included",
+              [v["status"] for v in final["variations"]], ["cancelled"] * 3)
+        check("none is left running", any(
+            v["status"] == "running" for v in final["variations"]), False)
+        check("all three jobs were stopped remotely",
+              sorted(w["cancelled"]), ["job1", "job2", "job3"])
+        check("the runner is handed back", _await_idle(), None)
+
+        # Which is the whole point: a tile the old sweep left `running` re-rolls.
+        w["release"]()
+        video_runner.regenerate_variation(sid, {"index": 2, "seed": "9"}, ctx)
+        redone = _await_session(sid)
+        check("an unclaimed tile can be re-rolled after the stop",
+              redone["variations"][1]["status"], "done")
+    finally:
+        video_runner.PARALLEL_JOBS = saved
+        w["release"]()
+
+
 def test_request_validation() -> None:
     _stub_world()
     ctx = ("clientx", "projecty")
@@ -1433,6 +1749,12 @@ if __name__ == "__main__":
     test_duplicate_a_variation_with_new_settings()
     test_a_session_will_not_grow_past_its_ceiling()
     test_a_reroll_mid_run_joins_the_pass_already_under_way()
+    test_parallel_jobs_fan_out_across_workers()
+    test_default_stays_serial()
+    test_cancel_mid_fanout_stops_every_inflight_job()
+    test_one_failure_in_a_fanout_does_not_sink_the_rest()
+    test_a_reroll_mid_fanout_takes_a_free_slot_at_once()
+    test_cancel_settles_resumed_tiles_the_cap_never_claimed()
     test_request_validation()
     print()
     if FAILED:

@@ -257,9 +257,14 @@ of a project's asset budget for one animation. So the trim step is not a nicety:
    `<C>/<P>/video/<id>/` (`meta.json` + `NNN.webp`), rewritten after **every** variation so an
    interrupted run still lists what it produced. Fixtures: `py test_video_runner.py` (46 checks,
    RunPod/R2/paths stubbed — no GPU, no credentials).
-   - **Sequential by design.** The serverless handler keeps ComfyUI warm between jobs when VRAM
-     allows, so consecutive variations reuse a loaded model instead of paying the ~29 GB Wan load
-     again; fanning out would trade that for N cold starts. Tiles still fill progressively.
+   - **Serial by default, fanned out on request.** At most `PARALLEL_JOBS` of a session's
+     variations are in flight at once (`VIDEO_PARALLEL_JOBS`, default 1); sessions themselves
+     never overlap. At 1 the serverless handler keeps ComfyUI warm between jobs when VRAM allows,
+     so consecutive variations reuse a loaded model instead of paying the ~29 GB Wan load again;
+     each extra worker pays its own cold start and multiplies the burn rate, which only
+     amortises on a big grid. RunPod wakes a second worker only when a second job is waiting,
+     so the cap is what puts an endpoint's other workers to use — set it to their number, never
+     above it. Tiles still fill progressively.
    - **Its own submit/poll loop**, not `_runpod_run_and_wait` — that helper returns only the final
      output, and a session needs the job id *while in flight*, for live status and for cancel.
      Cancel is remote (`POST /cancel/{job}`), so a cancelled session stops **burning**, not just
