@@ -3325,8 +3325,8 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  <span class="ssn-title">Session</span>
  <span class="ssn-field"><span>Active project{proj_qm}</span>{project_select}</span>
  <span class="ssn-field"><span>Active manifest{manifest_qm}</span>{manifest_select}</span>
- <button onclick="newAtlas(this)" class="alt" title="Create a brand-new, empty atlas from scratch (auto-pack layout). Add regions and generate them from prompts; Create Atlas packs them into a page automatically.">＋ New atlas</button>
- <button onclick="addRegion(this)" class="alt" title="Add a new region to the active atlas. Give it a name; edit its prompt on the card, generate, then Create Atlas re-packs the page to fit.">＋ Add region</button>
+ <button onclick="newAtlas()" class="alt" title="Create a brand-new, empty atlas from scratch (auto-pack layout) — asks for its name first. Add regions and generate them from prompts; Create Atlas packs them into a page automatically.">＋ New atlas</button>
+ <button onclick="addRegion()" class="alt" title="Add a new region to the active atlas. Give it a name; edit its prompt on the card, generate, then Create Atlas re-packs the page to fit.">＋ Add region</button>
  <button onclick="refreshR2(this)" class="alt" title="Re-pull this project's manifests from R2 (e.g. after exporting a sheet from the Sheet Maker) without restarting or switching projects">↻ Refresh from R2</button>
  <button onclick="clearCache(this)" class="alt" title="Discard the local copy of this project and re-download it from R2, matching the cloud exactly. Files deleted from the cloud are dropped here too; unsaved local work is lost. R2 is the source of truth.">↺ Reset from R2</button>
  <span class="ssn-note">switching reloads the page</span>
@@ -3372,6 +3372,16 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
    </span>
   </div>
   <div id="mgrid" class="modalgrid"></div>
+ </div>
+</div>
+<div id="namodal" class="modal" onclick="if(event.target===this)closeNewAtlas()">
+ <div class="modalbox" style="width:min(440px,92vw)" onkeydown="onNewAtlasKey(event)">
+  <div class="modalhdr"><span>New atlas</span><button onclick="closeNewAtlas()">✕ close</button></div>
+  <div style="padding:14px 18px 18px;display:flex;flex-direction:column;gap:10px">
+   <label style="font-size:13px;display:flex;align-items:center;gap:8px">Atlas name <input id="nanamein" type="text" placeholder="e.g. symbols_hd" autocomplete="off" spellcheck="false" style="flex:1;width:auto" oninput="onNewAtlasName()"></label>
+   <div id="nawarn" style="font-size:12px;color:#e0a030;min-height:16px;line-height:1.35"></div>
+   <div style="display:flex;justify-content:flex-end;gap:8px"><button class="alt" onclick="closeNewAtlas()">Cancel</button><button onclick="confirmNewAtlas()">Create</button></div>
+  </div>
  </div>
 </div>
 <div id="advmodal" class="modal" onclick="if(event.target===this)closeAdv()">
@@ -3518,7 +3528,7 @@ function collect(){{
 function cfgData(){{let o={{}};document.querySelectorAll('[data-cfg]').forEach(el=>{{o[el.dataset.cfg]=el.value;}});return o;}}
 // From-scratch atlas flow: create an empty pack-layout atlas, add/remove
 // regions. Each POSTs, shows the server's note, and reloads on success ('✓').
-async function _postReload(url,body,btn){{
+async function _postReload(url,body){{
  let bar=document.getElementById('sessionbar'); if(bar) bar.classList.add('busy');
  let msg;
  try{{ let r=await fetch(url,{{method:'POST',body:JSON.stringify(body)}});
@@ -3529,22 +3539,47 @@ async function _postReload(url,body,btn){{
  if(bar) bar.classList.remove('busy');
  if(msg.indexOf('⚠')!==0 && msg.indexOf('✓')<0) alert(msg);
 }}
-function newAtlas(btn){{
- let name=prompt('Name for the new atlas (a fresh, empty page you fill from prompts):');
- if(name===null) return;
- name=name.trim(); if(!name) return;
- _postReload('/newatlas',{{name:name}},btn);
+// New atlas: named in a dialog BEFORE anything is written; an existing name is
+// flagged live and confirmed on Create (which then sends overwrite:true).
+function atlasSlug(s){{ return (s||'').toLowerCase().replace(/[^a-z0-9]/g,'_').slice(0,60); }}
+function existingAtlases(){{
+ return [...document.querySelectorAll('[data-cfg="manifest_path"] option')]
+  .map(o=>(o.value.match(/^atlas_manifest_(.+)\\.json$/)||[])[1]).filter(Boolean);
 }}
-function addRegion(btn){{
+function newAtlas(){{
+ let i=document.getElementById('nanamein'); i.value=''; onNewAtlasName();
+ document.getElementById('namodal').classList.add('open'); i.focus();
+}}
+function closeNewAtlas(){{ document.getElementById('namodal').classList.remove('open'); }}
+function onNewAtlasName(){{
+ let raw=document.getElementById('nanamein').value.trim(), slug=atlasSlug(raw), t='';
+ if(slug && slug!==raw) t+='Will be saved as "'+slug+'". ';
+ if(slug && existingAtlases().indexOf(slug)>=0) t+='⚠ An atlas named "'+slug+'" already exists — Create will replace it with an empty atlas.';
+ document.getElementById('nawarn').textContent=t;
+}}
+function onNewAtlasKey(e){{
+ if(e.key==='Enter' && e.target.id==='nanamein'){{ e.preventDefault(); confirmNewAtlas(); }}
+}}
+function confirmNewAtlas(){{
+ let raw=document.getElementById('nanamein').value.trim(), slug=atlasSlug(raw);
+ if(!slug){{ document.getElementById('nawarn').textContent='Give the atlas a name.'; document.getElementById('nanamein').focus(); return; }}
+ let exists=existingAtlases().indexOf(slug)>=0;
+ if(exists && !confirm('An atlas named "'+slug+'" already exists.\\n\\n'
+   +'Replace it with a new, empty atlas? Its manifest (regions, prompts, layout) is overwritten — on R2 too, with no undo. Generated variant images stay on disk.\\n\\n'
+   +'Cancel to pick a different name.')) return;
+ closeNewAtlas();
+ _postReload('/newatlas',{{name:raw,overwrite:exists}});
+}}
+function addRegion(){{
  let name=prompt('Region name (letters, numbers, _ or -). You\\'ll set its prompt on the card:');
  if(name===null) return;
  name=name.trim(); if(!name) return;
- _postReload('/addregion',{{name:name}},btn);
+ _postReload('/addregion',{{name:name}});
 }}
 function delRegion(name){{
  if(!name) return;
  if(!confirm('Remove region \"'+name+'\" from this atlas? (generated variants are kept)')) return;
- _postReload('/delregion',{{name:name}},null);
+ _postReload('/delregion',{{name:name}});
 }}
 async function switchSession(sel){{
  // Session-bar dropdowns (active project / active manifest) are context
@@ -4960,7 +4995,7 @@ function fsPick(path){{
  if(inp){{ inp.value=path; inp.dispatchEvent(new Event('change')); }}
  closeFs();
 }}
-document.addEventListener('keydown',e=>{{if(e.key==='Escape'){{closeModal();closeAdv();closeFs();}}}});
+document.addEventListener('keydown',e=>{{if(e.key==='Escape'){{closeModal();closeAdv();closeFs();closeNewAtlas();}}}});
 window.addEventListener('DOMContentLoaded',function(){{
  updateAllLocks(); refreshCredits(); setInterval(refreshCredits,60000);
 }});
