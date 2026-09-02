@@ -1024,6 +1024,21 @@
 		return n.params?.[key];
 	}
 
+	/**
+	 * The value a componentInstance param EFFECTIVELY has — what the game renders. An unset param
+	 * falls through to the def's `defaultInstanceParams` seed (e.g. the Loading Bar's
+	 * `completeOnLoaded: true`), which `resolveComponentParams` applies at RUNTIME, and only then to
+	 * the param's own `default`. The panel used to read the raw value only, so a seeded-true toggle
+	 * drew UNCHECKED while the game ran it — the panel stating the opposite of the game (a splash
+	 * that auto-advanced on load while "On loaded" looked off). One fact, one value.
+	 */
+	function instanceParamEffective(n: LayoutNode | null, p: ComponentParam): unknown {
+		const raw = instanceParamValue(n, p.key);
+		if (raw !== undefined) return raw;
+		const seed = instanceComponent?.defaultInstanceParams?.[p.key];
+		return seed !== undefined ? seed : p.default;
+	}
+
 	/** Whether `key` is overridden for the active layoutType (override mode only) — drives the
 	 * per-param "overridden · reset" affordance in the instance-param panel. */
 	function instanceParamOverridden(n: LayoutNode | null, key: string): boolean {
@@ -2100,9 +2115,7 @@
 							     (`booleanParam(k) ?? prop`) — the panel stating the opposite of the game. -->
 							<input
 								type="checkbox"
-								checked={instanceParamValue(node, p.key) !== undefined
-									? Boolean(instanceParamValue(node, p.key))
-									: p.default === true}
+								checked={instanceParamEffective(node, p) === true}
 								onchange={(e) => onSetInstanceParam?.(p.key, e.currentTarget.checked)}
 							/>
 						{:else if p.kind === 'number'}
@@ -2464,7 +2477,10 @@
 					</details>
 				{/if}
 				{#if isOverlayInstance}
-					<details class="param-group" open={Boolean(node.params?.tapToContinue)}>
+					<details
+						class="param-group"
+						open={instanceParamEffective(node, TAP_TO_CONTINUE_PARAMS[0]) === true}
+					>
 						<summary>Tap to continue</summary>
 						<p class="muted small">
 							Let a tap anywhere (or Space) dismiss this overlay — completes the active flow screen
@@ -2476,12 +2492,16 @@
 							<div class="row">{@render paramField(p)}</div>
 						{/each}
 					</details>
-					<details class="param-group" open={Boolean(node.params?.completeOnLoaded)}>
+					<details
+						class="param-group"
+						open={instanceParamEffective(node, COMPLETE_ON_LOADED_PARAMS[0]) === true}
+					>
 						<summary>On loaded</summary>
 						<p class="muted small">
 							Advance the flow the moment boot asset-loading finishes — completes the active flow
-							screen (and, with a signal set, fires that signal's transition), no tap needed. Drop
-							the Loading Bar component to get this on by default. Off otherwise.
+							screen (and, with a signal set, fires that signal's transition), no tap needed. The
+							Loading Bar component has this ON by default (the box below shows what the game runs);
+							untick it to make the screen wait for the player's tap instead. Off otherwise.
 						</p>
 						{#each COMPLETE_ON_LOADED_PARAMS as p (p.key)}
 							<div class="row">{@render paramField(p)}</div>
