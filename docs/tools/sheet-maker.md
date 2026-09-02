@@ -28,14 +28,15 @@ ComfyUI** is involved.
 A single top bar (the shared tool bar — emblem, tool switcher, project picker,
 build pill, Atlas-Maker-link status), then three columns:
 
-- **Left — Sheets rail:** the project's saved sheets as a clickable list, with
-  **Load sheet**, **↻ Refresh** (re-pull from R2), **↺ Reset** (re-download from
-  R2, dropping local-only files), and **Rename…**. Click to select; double-click
-  to load.
+- **Left — Sheets rail (resizable):** the project's saved sheets as a clickable
+  list, with **Load sheet**, **↻ Refresh** (re-pull from R2), **↺ Reset**
+  (re-download from R2, dropping local-only files), and **Rename…**. Click to
+  select; double-click to load. Below it: the sheet name, **Upload** / **Import**
+  tabs (with **New sheet…**), canvas size, and **Save** / **Save As**.
 - **Centre — canvas:** the packed sheet you're editing (zoom / fit / auto-arrange).
-- **Right — properties (resizable):** sheet name + Upload/Import, canvas size, the
-  **Selected sprite** inspector, and Save. Drag the divider on its left edge to
-  resize; the width is remembered per browser.
+- **Right — Selected sprite inspector (resizable):** name, region/image size,
+  AI fields, FX layers. Drag either divider to resize; widths are remembered per
+  browser.
 
 - **Source:** `services/sheet-tool/` (stdlib `http.server` + Pillow; UI in
   `ui.html`, packing in `packer.py`, export in `atlas_writers.py`, verbatim
@@ -90,6 +91,20 @@ and a mode badge on the canvas, and untick to remove. Because the names follow
 the convention, the effect travels the pipeline without any manual re-naming.
 6. In the Atlas Maker, **restart the service** (hydrate runs at boot) for the
    new manifest to appear, then generate art from it.
+
+### Starting a new sheet
+
+**New sheet…** (Upload tab) opens a dialog that asks for the sheet's **name
+before** anything is cleared — the name is not inherited from whatever sheet was
+open, so a new sheet can't silently land on the old one's name. The dialog
+sanitises the name live (spaces and punctuation become `_`) and warns when it
+matches a sheet already in the rail; **Create** then asks you to confirm that
+saving the new sheet will replace the existing one. Cancel / Esc / a blank name
+leave the current canvas untouched. The name survives a browser refresh.
+
+**Save As (new copy)** applies the same check: if the current name is already a
+saved sheet, it asks before overwriting (Save over the sheet you loaded asks as
+before).
 
 ### Adding sprites to an existing sheet
 
