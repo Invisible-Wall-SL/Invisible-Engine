@@ -1167,18 +1167,21 @@ export const TAP_TO_CONTINUE_DEF: ComponentDef = {
 /**
  * A droppable LOADING BAR overlay (flow-driven-game §1) — the loading-gate, AUTHORABLE
  * in the flow. An author drops this on the `loading` screen from the Scene Editor palette
- * to get the boot progress bar PLUS a built-in `completeOnLoaded: true`, so the flow's
- * `complete` edge fires the moment asset-loading finishes — the author then wires what
- * happens next in `/flow` instead of it being hard-coded in `LoadingScreen.svelte`.
+ * to get the boot progress bar PLUS a built-in `tapToContinue: true`, so the player's tap
+ * completes the loading screen (a `showContainer{awaitComplete}` hold, or a `complete:loading`
+ * handoff) — the author then wires what happens next in `/flow` instead of it being
+ * hard-coded in `LoadingScreen.svelte`. Auto-advance on loaded (`completeOnLoaded`) is an
+ * explicit tick, never a seed: a screen the author holds with "await complete" waits for the
+ * tap and nothing else (owner direction 2026-09-02).
  *
  * It reuses the PROVEN coded `LoadingBar` bound part (the masked progress fill the static
  * node model can't express, already registered by the game) that {@link LOADING_INTRO_DEF}
  * mounts — but is JUST the bar (no logo/title spine), so it composes freely with whatever
  * splash art the author places around it. Same progress-bar geometry/frame/percentage params
- * as the loading-intro splash, defaulted to the coded look. The `completeOnLoaded` capability
- * itself is the SHARED `overlay` instance param (read by `<ComponentInstance>`); the def only
- * SEEDS it true on drop via `defaultInstanceParams` (an author can clear it for a non-advancing
- * bar). Additive: a doc that doesn't reference this def is unchanged.
+ * as the loading-intro splash, defaulted to the coded look. `tapToContinue` / `completeOnLoaded`
+ * are the SHARED `overlay` instance params (read by `<ComponentInstance>`); the def only SEEDS
+ * the tap via `defaultInstanceParams`. Additive: a doc that doesn't reference this def is
+ * unchanged.
  */
 export const LOADING_BAR_DEF: ComponentDef = {
 	id: 'loadingBar',
@@ -1186,17 +1189,18 @@ export const LOADING_BAR_DEF: ComponentDef = {
 	version: 1,
 	scope: 'shared',
 	category: 'overlay',
-	// The loading gate's default capabilities, applied at RUNTIME (see `resolveComponentParams`),
+	// The loading gate's default capability, applied at RUNTIME (see `resolveComponentParams`),
 	// so the bar IS a flow-driven loading gate out of the box on EVERY project — hand-authored
-	// scaffold nodes included, not just editor-dropped ones. Both are shared `overlay` params (not
-	// declared in `params`); the editor surfaces the toggles so an author can clear either.
-	//  - `completeOnLoaded`: AUTO-advance the flow the moment boot assets finish (no tap needed).
-	//  - `tapToContinue`: the RELIABLE FALLBACK — a real player tap advances the flow too (the way
-	//    Book of Borut's loading works). The boot splash covers the canvas until assets load, so the
-	//    tap can only land post-load ⇒ it never advances prematurely. If `completeOnLoaded` fires
-	//    first (the normal case) the loading screen unmounts before the tap prompt is ever seen;
-	//    if it somehow doesn't, the prompt appears and the tap still gets the player into the game.
-	defaultInstanceParams: { completeOnLoaded: true, tapToContinue: true },
+	// scaffold nodes included, not just editor-dropped ones. A shared `overlay` param (not declared
+	// in `params`); the editor surfaces the toggle so an author can clear it.
+	//  - `tapToContinue`: a real player tap advances the flow (the way Book of Borut's loading
+	//    works). The boot splash covers the canvas until assets load, so the tap can only land
+	//    post-load ⇒ it never advances prematurely.
+	// `completeOnLoaded` (auto-advance the moment boot assets finish) is deliberately NOT seeded:
+	// it used to be, and it silently completed a `showContainer{awaitComplete}` hold on load, so a
+	// splash the author wired "show → wait for the tap → hide" vanished before anyone could tap
+	// while the Scene Editor drew the toggle off. An author who wants auto-advance ticks it.
+	defaultInstanceParams: { tapToContinue: true },
 	root: {
 		id: 'loadingBar-root',
 		kind: 'container',
