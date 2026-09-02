@@ -67,12 +67,14 @@
 		prefix. Empty for a symbol with no bindings (parity — nothing mounts, no bus effect).
 	-->
 	{@const rigBinds = resolveRigFx(props.symbolInfo.assetKey)}
-	{#each rigBinds as b (b.event + ':' + b.effectId + ':' + (b.bone ?? '') + ':' + (b.slot ?? ''))}
+	{#each rigBinds as b (rigBeatKey(b) + b.effectId + ':' + (b.bone ?? '') + ':' + (b.slot ?? ''))}
 		{@const d = resolveEffect(b.effectId)}
 		{#if d}
 			<RiggedEffect
 				doc={d}
 				event={b.event}
+				animation={b.animation}
+				time={b.time}
 				bone={b.bone}
 				drawSlot={b.slot}
 				alpha={b.alpha}
@@ -91,12 +93,14 @@
 		symbol's rig walks exactly as it does anywhere else. Empty for a symbol with no bindings.
 	-->
 	{@const rigClips = resolveRigFlipbooks(props.symbolInfo.assetKey)}
-	{#each rigClips as b (b.event + ':' + b.clipId + ':' + (b.bone ?? '') + ':' + (b.slot ?? ''))}
+	{#each rigClips as b (rigBeatKey(b) + b.clipId + ':' + (b.bone ?? '') + ':' + (b.slot ?? ''))}
 		{@const registered = resolveFlipbook(b.clipId)}
 		{#if registered}
 			<RiggedFlipbook
 				clip={foldFlipbookPlayback(registered, b)}
 				event={b.event}
+				animation={b.animation}
+				time={b.time}
 				bone={b.bone}
 				drawSlot={b.slot}
 				alpha={b.alpha}

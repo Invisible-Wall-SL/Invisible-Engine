@@ -23,6 +23,7 @@
  */
 
 import type { FlipbookClipEntry, FlipbookPlaybackOverride } from './registerFlipbooks';
+import { readRigBeat, type RigBeat } from './rigBeat';
 import { bundleFolderOf } from './rigBundleKey';
 
 /**
@@ -75,20 +76,23 @@ export interface RigFlipbookOverrides extends FlipbookPlaybackOverride {
 	 * right for an impact and wrong for anything ambient — a drifting cloud, a shimmer — where the
 	 * reset is visible as a stutter. The FIRST fire then starts it and later fires are ignored.
 	 *
-	 * It stops when the RIG unmounts (or when `duration` bounds it), NOT when the animation changes:
-	 * the binding is keyed by event name, not by clip, so an ambient animation keeps running across
-	 * a state change rather than dying on it.
+	 * It stops when the RIG unmounts (or when `duration` bounds it), NOT when the animation changes,
+	 * so an ambient animation keeps running across a state change rather than dying on it. Key it
+	 * ONCE (on the animation that starts it): a binding is one keyframe, so the same clip keyed
+	 * continuous in a second animation is a second, independent instance.
 	 */
 	continuous?: boolean;
 }
 
-/** One rig→clip binding: on a spine event named `event`, (re)play `clipId` from frame 0, hosted on
- * `bone` (or the rig origin when absent), with any authored {@link RigFlipbookOverrides} applied. */
-export type RigFlipbookBinding = RigFlipbookOverrides & {
-	event: string;
-	clipId: string;
-	bone?: string;
-};
+/** One rig→clip binding: on a spine event named `event` — at the {@link RigBeat} it was keyed on —
+ * (re)play `clipId` from frame 0, hosted on `bone` (or the rig origin when absent), with any
+ * authored {@link RigFlipbookOverrides} applied. One binding per KEYFRAME, as for FX. */
+export type RigFlipbookBinding = RigFlipbookOverrides &
+	RigBeat & {
+		event: string;
+		clipId: string;
+		bone?: string;
+	};
 
 /** The NUMERIC override keys, in the order the Rigger shows them. Exported as a VALUE so the bake,
  * the runtime and the live preview iterate ONE list instead of three hand-copied ones — the same
@@ -173,6 +177,7 @@ export function registerRigFlipbooks(map: Record<string, RigFlipbookBinding[]>):
 				event: b.event,
 				clipId: b.clipId,
 				...(bone ? { bone } : {}),
+				...readRigBeat(b),
 				...readRigFlipbookOverrides(b),
 			});
 		}

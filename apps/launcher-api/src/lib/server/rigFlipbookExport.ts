@@ -23,7 +23,7 @@
  */
 import { readRigFlipbookOverrides, type RigFlipbookBinding } from 'engine-layout';
 
-import { eventsOf, walkRigSkeletons, type RawRigEvent, type RawRigSkeleton } from './rigSkeletons';
+import { beatsOf, walkRigSkeletons, type RawRigSkeleton } from './rigSkeletons';
 
 /**
  * The binding shape + the override clamp are IMPORTED from `engine-layout`, not restated here —
@@ -37,21 +37,18 @@ export type { RigFlipbookBinding };
 export type RigFlipbookManifest = Record<string, RigFlipbookBinding[]>;
 
 /**
- * Collect the de-duped bindings from one rig's parsed skeleton JSON.
+ * Collect the bindings from one rig's parsed skeleton JSON — ONE PER KEYFRAME.
  *
- * WHAT IDENTIFIES A BINDING: `(event, clipId, bone, slot)` — the clip and WHERE it is drawn. The
- * per-use overrides (opacity/size/delay/duration and the playback block) stay OUT of that key and
- * ride along from the first keyframe that matched — the identical rule `bindingsFromSkeleton`
- * documents for FX, and for the identical reason: the runtime manifest is keyed by the event NAME
- * (the only thing a spine event carries), so `<RiggedFlipbook>` mounts once per binding and fires on
- * EVERY occurrence of that name. Putting the overrides in the key would turn one event bound twice
- * at two sizes into two mounts — i.e. two overlapping clips on every fire, which is worse than the
- * second value being dropped. The Rigger warns the author where the two cannot agree.
+ * WHAT IDENTIFIES A BINDING: the beat `(animation, time)` plus `(event, clipId, bone, slot)` — the
+ * identical rule `bindingsFromSkeleton` states for FX, for the identical reason: a name-keyed
+ * manifest fired every binding of a name on every keyframe of that name, so a clip keyed at 0.01s
+ * and an effect keyed at 1s played together. With the beat baked in, `<RiggedFlipbook>` fires on its
+ * own key only and each keyframe keeps its own overrides. Only a literal duplicate is de-duped.
  */
 export function flipbookBindingsFromSkeleton(data: RawRigSkeleton): RigFlipbookBinding[] {
 	const seen = new Set<string>();
 	const out: RigFlipbookBinding[] = [];
-	for (const evt of eventsOf(data)) {
+	for (const { animation, time, evt } of beatsOf(data)) {
 		const fb = evt?.flipbook as { clipId?: unknown; bone?: unknown } | undefined;
 		const event = evt?.name;
 		const clipId = fb?.clipId;
@@ -59,10 +56,10 @@ export function flipbookBindingsFromSkeleton(data: RawRigSkeleton): RigFlipbookB
 		if (typeof clipId !== 'string' || !clipId) continue;
 		const bone = typeof fb?.bone === 'string' && fb.bone ? fb.bone : undefined;
 		const overrides = readRigFlipbookOverrides(fb);
-		const dedupe = [event, clipId, bone ?? '', overrides.slot ?? ''].join('\0');
+		const dedupe = [animation, time, event, clipId, bone ?? '', overrides.slot ?? ''].join('\0');
 		if (seen.has(dedupe)) continue;
 		seen.add(dedupe);
-		out.push({ event, clipId, ...(bone ? { bone } : {}), ...overrides });
+		out.push({ event, animation, time, clipId, ...(bone ? { bone } : {}), ...overrides });
 	}
 	return out;
 }
@@ -76,37 +73,28 @@ export type TimedRigFlipbookBinding = Omit<RigFlipbookBinding, 'event'> & { time
 export type RigFlipbookTimeline = Record<string, TimedRigFlipbookBinding[]>;
 
 /**
- * Collect timed clip bindings grouped by ANIMATION — the time-preserving sibling of
- * {@link flipbookBindingsFromSkeleton} (which de-dupes by name and drops the time). Drives the
+ * Collect timed clip bindings grouped by ANIMATION — the same beats
+ * {@link flipbookBindingsFromSkeleton} bakes, shaped for a playhead. Drives the
  * `/api/editor/rig-flipbooks` endpoint the Symbols State-Machine live overlay reads: that overlay
  * tracks each cell's playhead and starts a clip when it crosses a keyframe `time` (mirroring the
  * Rigger's `view.html`), so the per-keyframe time — not just the event name — is what it needs. NOT
  * de-duped: two keyframes of the same event at different times are two beats.
  */
 export function flipbookTimelineFromSkeleton(data: RawRigSkeleton): RigFlipbookTimeline {
-	const animations = data.animations;
-	if (!animations || typeof animations !== 'object') return {};
 	const out: RigFlipbookTimeline = {};
-	for (const [anim, body] of Object.entries(animations)) {
-		const events = body?.events;
-		if (!Array.isArray(events)) continue;
-		const binds: TimedRigFlipbookBinding[] = [];
-		for (const evt of events as RawRigEvent[]) {
-			const fb = evt?.flipbook as { clipId?: unknown; bone?: unknown } | undefined;
-			const clipId = fb?.clipId;
-			if (typeof clipId !== 'string' || !clipId) continue;
-			// Spine omits a keyframe's `time` when it's 0, so an absent/non-number time IS t=0.
-			const time = typeof evt.time === 'number' ? evt.time : 0;
-			const bone = typeof fb?.bone === 'string' && fb.bone ? fb.bone : undefined;
-			// PER-KEYFRAME overrides, unlike the name-keyed manifest: this list keeps every beat
-			// separate, so two keyframes of one event really can differ here.
-			binds.push({ time, clipId, ...(bone ? { bone } : {}), ...readRigFlipbookOverrides(fb) });
-		}
-		if (binds.length > 0) {
-			binds.sort((a, b) => a.time - b.time);
-			out[anim] = binds;
-		}
+	for (const { animation, time, evt } of beatsOf(data)) {
+		const fb = evt?.flipbook as { clipId?: unknown; bone?: unknown } | undefined;
+		const clipId = fb?.clipId;
+		if (typeof clipId !== 'string' || !clipId) continue;
+		const bone = typeof fb?.bone === 'string' && fb.bone ? fb.bone : undefined;
+		(out[animation] ??= []).push({
+			time,
+			clipId,
+			...(bone ? { bone } : {}),
+			...readRigFlipbookOverrides(fb),
+		});
 	}
+	for (const binds of Object.values(out)) binds.sort((a, b) => a.time - b.time);
 	return out;
 }
 

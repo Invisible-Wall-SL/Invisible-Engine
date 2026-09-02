@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-rigger.md](../design/invisible-rigger.md) · Guide: [docs/tools/rigger.md](../tools/rigger.md) · Agent: _none yet_
 
-**One-line state:** _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
+**One-line state:** _(2026-09-02)_ A rig event binding is now **one KEYFRAME**, not one event name: an effect on the 1s key no longer fires on the 0.01s key beside the flipbook there, each key keeps its own settings, and a key at **t=0** plays instead of being skipped (see Recent changes). Was: _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
 
 ## Current state
 Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigger`-gated). Reads/writes byte-valid Spine 4.2 JSON under our `.irig` extension, non-destructively saved to R2 alongside the artist's source. Phases 0–6 are all on `main`:
@@ -66,6 +66,48 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-09-02 — **A rig event binding is one KEYFRAME, and a key at t=0 plays.** Reported directly:
+  two event keys, a flipbook on the one at 0.01s and an effect on the one at 1s, and *"the FX will
+  start playing on the first keyframe with the flipbook"*; and *"if I put my keyframe at 0 then
+  neither the Flipbook or the FX start playing, as if they were getting skipped completely"*. Two
+  independent bugs, two independent fixes.
+  - **What was wrong (1): the manifest was keyed by the event NAME.** Both keys carry the default
+    name `event`, so the bake collapsed them onto that name and `<RiggedEffect>` / `<RiggedFlipbook>`
+    fired on EVERY keyframe of it — the effect on the 0.01s key beside the clip, the clip again at
+    1s — and the first key's settings won for both. This was a documented limit (the 2026-08-27
+    entry's "the limit the manifest imposes"), surfaced by an inspector warning telling the author
+    to rename the event. That was the wrong answer: the author asked to control each key
+    separately, and a spine event already carries what identifies its key.
+  - **The fix: bake the BEAT.** A binding now carries `animation` + `time` beside the event name
+    (`RigBeat` in `engine-layout`, read through `readRigBeat` at the same choke points as the
+    overrides), one binding per keyframe; the runtime listener matches all three off the fire — the
+    track entry's animation and the spine `Event.time` (the keyframe time, verbatim from the rig
+    JSON). `riggedBeatMatches` in `pixi-svelte` is the one rule, extracted like
+    `shouldApplySpineAnimation` so it runs headless. Absent fields match anything, so a manifest
+    baked before beats existed still registers and keeps its name-only firing until re-baked. The
+    bakes and both live timelines now walk ONE `beatsOf` list; the only thing still de-duped is a
+    literal duplicate (same beat, same effect/clip, same place). Each keyframe keeps its own
+    settings, so the inspector's "another key binds the same effect — rename it" warning and
+    `bindingOverrideClashes` are gone with the limit they described.
+  - **`continuous` reads slightly differently now:** it still starts once and survives loop wraps
+    and state changes (it stops when the rig unmounts), but a binding is one keyframe — so key an
+    ambient effect ONCE, on the animation that starts it; the same effect keyed continuous in a
+    second animation is a second instance.
+  - **What was wrong (2): a t=0 key fired before anyone listened.** The sibling `<SpineTrack>` sets
+    the animation and poses it with `spine.update(0)` from its `$effect`, and sibling effects run in
+    template order — so the listeners `<RiggedEffect>` / `<RiggedFlipbook>` attached from THEIR
+    `$effect` landed after that first apply, which is exactly when spine fires a frame-0 event. A
+    key at 0.01s only ever worked because the ticker fired it a frame later. Both now attach the
+    listener during init (removed in `onDestroy`), before any track is set.
+  - **And the Rigger preview skipped it too**, for its own reason: the crossing is `(prev, cur]`,
+    and every paused frame walks `prev` up to the playhead — so pressing Play with the playhead ON
+    a key (t=0 after a scrub-back, most of all) could never cross it on the first lap. `fxArmPlayhead`
+    nudges the cursor a hair below the playhead when Play starts.
+  - Gates: `check:rig-fx-overrides` + `check:rig-flipbook-overrides` rewritten to the per-keyframe
+    rule (**mutation-verified**: restoring the name-keyed dedupe fails 4 checks) and
+    `packages/pixi-svelte/fixtures/riggedBeat.fixture.ts` (mutation-verified: ignoring `time` fails
+    the reported case). ⏳ Owner live-verify in `/rigger` and in a published game: needs a **re-bake**
+    (Publish) for the new manifest to reach the game.
 - 2026-09-01 — **A carrier rig had no SIZE and its bound content previewed upside down** — two
   independent bugs, both surfacing for the first time on a rig built entirely from FX + Flipbook
   bindings (`R_TentacleFlip`). Reported as: elements rotated 180° in `/rigger`, no Bounds box at
