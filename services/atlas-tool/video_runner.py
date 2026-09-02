@@ -204,6 +204,20 @@ def blueprint_wants_source_image(blueprint: dict) -> bool:
 # --------------------------------------------------------------------------
 # RunPod submit / poll (own loop: we need the job id while it is in flight)
 # --------------------------------------------------------------------------
+def _upload_slot_keys(prefix: str) -> list[str]:
+    """Where this variation's hand-off objects live. ONE definition, called by both
+    the submit path and the re-attach path.
+
+    It has to be derivable rather than remembered, because the process that signs the
+    URLs need not be the process that collects the result: a deploy mid-render hands
+    the job to a fresh container, which re-attaches by the persisted `job_id` and
+    otherwise knows nothing about what the old one arranged. `prefix` is built from
+    the session id and the variation index, so both processes compute the same keys
+    from the same two facts — no new stored field to fall out of step with.
+    """
+    return [f"{_video_prefix()}/_out/{prefix}_{i}.webp" for i in range(UPLOAD_SLOTS)]
+
+
 def _upload_slots(prefix: str) -> tuple[list[str], list[str]]:
     """Presigned PUT URLs the worker can drop its outputs into, and their keys.
 
@@ -222,8 +236,7 @@ def _upload_slots(prefix: str) -> tuple[list[str], list[str]]:
     """
     urls, keys = [], []
     try:
-        for i in range(UPLOAD_SLOTS):
-            key = f"{_video_prefix()}/_out/{prefix}_{i}.webp"
+        for key in _upload_slot_keys(prefix):
             urls.append(storage.presign_put(key, UPLOAD_URL_TTL))
             keys.append(key)
     except Exception as e:  # noqa: BLE001 — no hand-off is a degraded run, not a dead one
@@ -407,7 +420,16 @@ def _pick_video_output(out: dict, filename_prefix: str,
     # worker uploads output i to slot i and reports which slot it used; teaching it
     # to choose instead would put the same decision in two places and let them
     # disagree about which file the render actually is.
-    if chosen.get("slot") is not None and upload_keys:
+    if chosen.get("slot") is not None:
+        # An entry that names a slot has NO bytes in it, so falling through to the
+        # base64 branch here reports "carried no data" — which reads as a broken
+        # worker when the render is sitting in R2, whole, and only the lookup is
+        # missing. Say what is actually absent.
+        if not upload_keys:
+            raise RuntimeError(
+                f"the worker uploaded this render (slot {chosen.get('slot')}, "
+                f"{chosen.get('bytes', '?')} bytes) but this process has no upload "
+                "keys to fetch it with — the render is in R2 and was not collected.")
         try:
             slot = int(chosen["slot"])
         except (TypeError, ValueError):
@@ -611,11 +633,18 @@ def _run_variations(session_id: str, session: dict) -> None:
         # — RunPod holds the result, and the GPU time is already spent.
         existing = str(var.get("job_id") or "")
         try:
-            upload_keys: list[str] = []
             if existing and var["status"] == "running":
                 print(f"[video] {session_id} v{var['index']:03d} re-attaching to "
                       f"job {existing}", flush=True)
                 job_id = existing
+                # Re-derive where that job was told to put its output. This was an
+                # empty list, so a render the worker had ALREADY uploaded could not be
+                # found by the process that came to collect it: the result said "slot
+                # 0" and there was nothing to resolve 0 against, so a finished, paid
+                # render was reported as "output entry carried no data" while the file
+                # sat in R2. The same trap the persisted `job_id` below was added for,
+                # one field along.
+                upload_keys = _upload_slot_keys(prefix)
             else:
                 with _LOCK:
                     var.update(status="running", started=_now())
