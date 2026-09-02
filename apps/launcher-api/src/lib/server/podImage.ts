@@ -55,11 +55,14 @@ export interface BuildState {
 	error?: string;
 }
 
-function shortSha(sha: string): string {
-	return sha.slice(0, 12);
-}
-
-/** The immutable tag for a commit. Short, because that is what CI tags and what fits a card. */
+/**
+ * The immutable tag for a commit.
+ *
+ * The FULL 40-char sha, because that is literally what CI pushes (`:${{ github.sha }}` in
+ * `atlas-comfy-pod.yml`). A 12-char tag was pushed to pods for a while and never existed in
+ * GHCR, so RunPod answered `manifest unknown` and the pod would not create. Abbreviate for
+ * display only — never for a tag.
+ */
 export function imageForSha(sha: string): string {
 	return `${POD_IMAGE_REPO}:${sha}`;
 }
@@ -107,7 +110,7 @@ export async function latestImageBuild(force = false): Promise<BuildState> {
 			sha: run.head_sha,
 			url: run.html_url,
 			startedAt: run.run_started_at ?? run.created_at,
-			image: imageForSha(shortSha(run.head_sha)),
+			image: imageForSha(run.head_sha),
 		},
 	};
 	buildCache = { at: Date.now(), state };
