@@ -195,6 +195,33 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-02 — **A render no longer comes back through RunPod, so its payload cap stops applying.**
+  Owner: *"the 20MB limitation is a bit of a bottleneck for us, is there any way to remove it?"* —
+  the cap itself, no: RunPod's limits are fixed (10 MB `/run`, 20 MB `/runsync`, plus a third again
+  for base64) and their own guidance for a large result is object storage. So the render is routed
+  around it instead.
+  - **The worker PUTs straight to R2 and returns a slot number.** `video_runner` presigns a few
+    PUT-only, single-key, expiring URLs at submit and passes them as `input.upload_urls`; nothing
+    large crosses RunPod's API at all. Verified end-to-end against the REAL bucket, not a double: a
+    3 MB body presigned, PUT with no credentials, read back byte-identical, deleted.
+  - **No credentials on the worker.** Its image is public on GHCR, so a presigned URL — one key, no
+    read, no listing, expiring — is the difference between "nothing worth stealing" and a leaked
+    bucket key. It also needs no new dependency: the image already has `requests`.
+  - **The PICKING rule stays on the tool side**, and only the bytes move. The worker uploads output
+    i to slot i in ComfyUI's own order; teaching it which file is "the render" would put one
+    decision on both sides of the wire and let them disagree.
+  - **Both directions degrade rather than fail** — a worker predating this ignores the field and
+    base64s as before; a runner that cannot reach R2 to sign runs the old way at the old ceiling; a
+    rejected upload falls back to inline per FILE, not per job. So a stale endpoint image is a
+    smaller ceiling, never a broken render.
+  - Scratch objects live at `<client>/<project>/video/_out/` and are deleted the moment the real
+    render is written. Safe there because `list_sessions` counts only `*/meta.json`, so they can
+    never be mistaken for a session.
+  - Fixtures: worker side — a 40 MB render is reported by slot with nothing inline, the bytes reach
+    the URL they were given, a 403 degrades to inline, no URLs behaves exactly as before, and slots
+    line up with output order even when one falls back. Tool side — the `.webp` still wins over a
+    preview and its bytes come from the slot it claimed, an unissued slot is refused, a missing
+    object says the URL may have expired, and an unreachable R2 still completes a session.
 - 2026-09-02 — **"It is still failing when I check the bool that suppose to not run the background
   removal" — and the answer had nothing to do with backgrounds.** Owner report; the error was
   `job returned no output files (output={})`.

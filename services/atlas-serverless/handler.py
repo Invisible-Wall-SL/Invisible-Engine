@@ -4,11 +4,17 @@ Job contract (compatible with runpod-worker-comfy):
 
     input = {
         "workflow": { ... },                 # a ComfyUI /prompt "prompt" graph (API format)
-        "images":  [ {"name": "...", "image": "<base64>"} ]   # optional LoadImage refs
+        "images":  [ {"name": "...", "image": "<base64>"} ],  # optional LoadImage refs
+        "upload_urls": ["<presigned PUT>", ...]               # optional, see _collect_images
     }
 
-Returns:  { "images": [ {"filename": "...", "image": "<base64>"} ] }
+Returns:  { "images": [ {"filename": "...", "slot": 0, "bytes": N} ] }   # uploaded
+   or:    { "images": [ {"filename": "...", "image": "<base64>"} ] }     # inline
    or:    { "error": "...", "detail": ... }
+
+`upload_urls` is what lifts RunPod's fixed payload cap: with them a render goes
+straight to object storage and only its slot number comes back. Without them (an
+older caller) everything works exactly as before, capped at ~20 MB.
 
 This handler OWNS the ComfyUI process: it starts it, waits for readiness, and
 RESTARTS it before every job after the first. The restart is deliberate — some
@@ -228,8 +234,45 @@ def _await_result(prompt_id: str, job_id: str = "",
     raise RuntimeError(f"generation timed out after {timeout}s")
 
 
-def _collect_images(hist: dict) -> list[dict]:
+def _put_to_url(url: str, data: bytes) -> bool:
+    """PUT one rendered file straight to object storage. True when it landed.
+
+    The URL is presigned by the caller and scoped to a single key, so this worker
+    holds no storage credentials — which matters, because the image is public on
+    GHCR.
+    """
+    try:
+        r = requests.put(url, data=data, timeout=900)
+    except Exception as e:  # noqa: BLE001 — fall back to the wire
+        print(f"[handler] upload failed ({e}); returning the file through RunPod "
+              "instead, which caps it at ~20 MB.", flush=True)
+        return False
+    if 200 <= r.status_code < 300:
+        return True
+    print(f"[handler] upload rejected (HTTP {r.status_code}: {r.text[:200]}); "
+          "returning the file through RunPod instead, which caps it at ~20 MB.",
+          flush=True)
+    return False
+
+
+def _collect_images(hist: dict, upload_urls: list | None = None) -> list[dict]:
+    """Gather the rendered files. With `upload_urls`, each one goes STRAIGHT to
+    object storage and only a slot number comes back.
+
+    That is what takes a render off RunPod's API, whose payload cap is fixed — 10 MB
+    on `/run`, 20 MB on `/runsync`, and base64 inflating a file by a third on the way
+    — and whose own guidance for a large result is object storage. A lossless WEBP of
+    opaque frames clears that cap easily, which is how switching a background cutout
+    off came to break a render for a reason nothing about backgrounds explains.
+
+    Output i goes to slot i, in the order ComfyUI reports them; WHICH file is the
+    render stays the caller's decision, so the two sides cannot disagree about it.
+    Falls back to base64 per file if an upload does not land, so a bad URL degrades
+    to the old ceiling instead of losing the render.
+    """
+    urls = upload_urls or []
     out: list[dict] = []
+    slot = 0
     for node_out in hist.get("outputs", {}).values():
         for img in node_out.get("images", []):
             params = {
@@ -238,8 +281,15 @@ def _collect_images(hist: dict) -> list[dict]:
                 "type": img.get("type", "output"),
             }
             data = requests.get(f"{COMFY}/view", params=params, timeout=120).content
-            out.append({"filename": img["filename"],
-                        "image": base64.b64encode(data).decode()})
+            entry = {"filename": img["filename"], "bytes": len(data)}
+            if slot < len(urls) and _put_to_url(urls[slot], data):
+                entry["slot"] = slot
+                print(f"[handler] {img['filename']} ({len(data):,} bytes) uploaded to "
+                      f"slot {slot}", flush=True)
+            else:
+                entry["image"] = base64.b64encode(data).decode()
+            out.append(entry)
+            slot += 1
     return out
 
 
@@ -287,7 +337,7 @@ def handler(job: dict) -> dict:
     if status.get("status_str") == "error":
         return _fail("comfy execution error", detail=status)
 
-    images = _collect_images(hist)
+    images = _collect_images(hist, inp.get("upload_urls"))
     if not images:
         return _fail("generation produced no images", detail=status)
     return {"images": images}
