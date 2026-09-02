@@ -98,6 +98,15 @@ STATUS_GRACE_SECONDS = 180.0
 # number silently loses integer precision, so a "locked" seed would round to a
 # different one and stop reproducing its own render.
 MAX_SEED = (1 << 53) - 1
+# How many outputs one job may hand back through R2. A video graph emits one file;
+# the spare slots cover a graph that also saves a preview. Each slot costs one
+# presigned URL (a signature, no request), so a small pool is cheaper than teaching
+# the worker our picking rule — which would put the same decision on both sides of
+# the wire and let them disagree.
+UPLOAD_SLOTS = 4
+# Long enough for a cold worker to load ~29 GB of weights and render before the URL
+# expires, since it is signed at SUBMIT time and used at the very end of the job.
+UPLOAD_URL_TTL = 4 * 3600
 
 _SESSION_RE = re.compile(r"^[A-Za-z0-9_-]{4,64}$")
 
@@ -195,14 +204,51 @@ def blueprint_wants_source_image(blueprint: dict) -> bool:
 # --------------------------------------------------------------------------
 # RunPod submit / poll (own loop: we need the job id while it is in flight)
 # --------------------------------------------------------------------------
-def _submit(wf: dict) -> tuple[str, dict]:
-    """Base64 the graph's refs, POST /run, return (job_id, mutated_workflow)."""
+def _upload_slots(prefix: str) -> tuple[list[str], list[str]]:
+    """Presigned PUT URLs the worker can drop its outputs into, and their keys.
+
+    This is what takes the render OFF RunPod's API. Their payload cap is fixed —
+    10 MB on `/run`, 20 MB on `/runsync`, and base64 inflates a file by a third on
+    the way — and their own guidance for a large result is object storage. A lossless
+    WEBP of opaque frames goes past it easily, which is why turning a background
+    cutout off used to break a render for a reason nothing about backgrounds
+    explains.
+
+    The URLs are scoped to one key each and expire, so the worker holds no
+    credentials: the image is public on GHCR, and nothing in it is worth stealing.
+
+    Best-effort. If R2 cannot be reached to sign, the job simply runs the old way and
+    returns base64 — smaller renders keep working rather than every render failing.
+    """
+    urls, keys = [], []
+    try:
+        for i in range(UPLOAD_SLOTS):
+            key = f"{_video_prefix()}/_out/{prefix}_{i}.webp"
+            urls.append(storage.presign_put(key, UPLOAD_URL_TTL))
+            keys.append(key)
+    except Exception as e:  # noqa: BLE001 — no hand-off is a degraded run, not a dead one
+        print(f"[video] could not presign upload slots ({e}); falling back to "
+              "returning the render through RunPod, which caps it at ~20 MB.",
+              flush=True)
+        return [], []
+    return urls, keys
+
+
+def _submit(wf: dict, prefix: str = "") -> tuple[str, dict, list[str]]:
+    """Base64 the graph's refs, POST /run, return (job_id, workflow, upload_keys)."""
     images = batch_atlas._serverless_workflow_images(wf)
-    resp = batch_atlas._runpod_post("/run", {"input": {"workflow": wf, "images": images}})
+    urls, keys = _upload_slots(prefix) if prefix else ([], [])
+    payload = {"workflow": wf, "images": images}
+    if urls:
+        # A worker that predates this ignores the key and base64s as before, so a
+        # stale endpoint image keeps working instead of failing on an input it does
+        # not understand.
+        payload["upload_urls"] = urls
+    resp = batch_atlas._runpod_post("/run", {"input": payload})
     jid = resp.get("id")
     if not jid:
         raise RuntimeError(f"RunPod /run did not return a job id: {resp}")
-    return str(jid), wf
+    return str(jid), wf, keys
 
 
 def _cancel_job(job_id: str) -> bool:
@@ -311,7 +357,8 @@ class _Cancelled(Exception):
     """Session cancelled by the user — not an error to report as a failure."""
 
 
-def _pick_video_output(out: dict, filename_prefix: str) -> tuple[str, bytes]:
+def _pick_video_output(out: dict, filename_prefix: str,
+                       upload_keys: list | None = None) -> tuple[str, bytes]:
     """Choose the animated WEBP from a worker result and decode it.
 
     `SaveAnimatedWEBP` reports under the worker's `images` key (verified against
@@ -355,11 +402,40 @@ def _pick_video_output(out: dict, filename_prefix: str) -> tuple[str, bytes]:
     webps = [i for i in (ours or items)
              if str(i.get("filename", "")).lower().endswith(".webp")]
     chosen = (webps or ours or items)[0]
+    name = str(chosen.get("filename") or "output.webp")
+    # The PICKING stays here, on one side of the wire, and only the BYTES move. The
+    # worker uploads output i to slot i and reports which slot it used; teaching it
+    # to choose instead would put the same decision in two places and let them
+    # disagree about which file the render actually is.
+    if chosen.get("slot") is not None and upload_keys:
+        try:
+            slot = int(chosen["slot"])
+        except (TypeError, ValueError):
+            raise RuntimeError(f"worker reported a bad upload slot: {chosen!r}")
+        if not 0 <= slot < len(upload_keys):
+            raise RuntimeError(
+                f"worker used upload slot {slot}, which was never handed out")
+        blob = storage.get(upload_keys[slot])
+        if not blob:
+            raise RuntimeError(
+                "the worker reported it uploaded the render, but nothing is at "
+                f"{upload_keys[slot]} — the upload URL may have expired mid-render.")
+        return name, blob
     b64 = chosen.get("image") or chosen.get("data")
     if not b64:
         raise RuntimeError(
             f"output entry carried no data: {str(chosen)[:200]}")
-    return str(chosen.get("filename") or "output.webp"), base64.b64decode(b64)
+    return name, base64.b64decode(b64)
+
+
+def _clear_upload_slots(keys: list | None) -> None:
+    """Delete the hand-off scratch objects. Best-effort: a leftover costs storage,
+    never a render."""
+    for k in (keys or []):
+        try:
+            storage.delete(k)
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _persist(session_id: str, index: int, blob: bytes) -> str:
@@ -535,6 +611,7 @@ def _run_variations(session_id: str, session: dict) -> None:
         # — RunPod holds the result, and the GPU time is already spent.
         existing = str(var.get("job_id") or "")
         try:
+            upload_keys: list[str] = []
             if existing and var["status"] == "running":
                 print(f"[video] {session_id} v{var['index']:03d} re-attaching to "
                       f"job {existing}", flush=True)
@@ -548,7 +625,7 @@ def _run_variations(session_id: str, session: dict) -> None:
                 wf = build_video_workflow(
                     bp, recipe["prompt"], recipe["negative"], var["seed"],
                     recipe["source_ref"], recipe["params"], prefix)
-                job_id, wf = _submit(wf)
+                job_id, wf, upload_keys = _submit(wf, prefix)
                 with _LOCK:
                     var["job_id"] = job_id
                 # Persist the id BEFORE waiting. This used to be written only once
@@ -557,8 +634,12 @@ def _run_variations(session_id: str, session: dict) -> None:
                 # session then sat at "running" forever with its result stranded.
                 _write_meta(session_id, session)
             out = _await_job(job_id, var, should_stop)
-            _, blob = _pick_video_output(out, prefix)
+            _, blob = _pick_video_output(out, prefix, upload_keys)
             fname = _persist(session_id, var["index"], blob)
+            # The hand-off slots are scratch. `_persist` has just written the real
+            # object, so leaving them would double every session's storage and put
+            # files under the session prefix that nothing references.
+            _clear_upload_slots(upload_keys)
             with _LOCK:
                 var.update(status="done", file=fname, bytes=len(blob),
                            finished=_now(), error="")

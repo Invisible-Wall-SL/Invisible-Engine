@@ -56,10 +56,14 @@ class FakeRequests:
     """Stands in for `requests`. Records every call; answers /history with `hist`
     (None = still rendering) and RunPod's status route with `remote_status`."""
 
-    def __init__(self, remote_status="IN_PROGRESS", hist=None, status_raises=False):
+    def __init__(self, remote_status="IN_PROGRESS", hist=None, status_raises=False,
+                 put_status=200, view_bytes=b"WEBPDATA"):
         self.remote_status = remote_status
         self.hist = hist
         self.status_raises = status_raises
+        self.put_status = put_status
+        self.view_bytes = view_bytes
+        self.uploaded: list = []
         self.calls: list[str] = []
 
     def get(self, url, **kw):
@@ -67,6 +71,8 @@ class FakeRequests:
         if "/history/" in url:
             return types.SimpleNamespace(
                 status_code=200, json=lambda: (self.hist or {}))
+        if "/view" in url:
+            return types.SimpleNamespace(status_code=200, content=self.view_bytes)
         if "api.runpod.ai" in url:
             if self.status_raises:
                 raise RuntimeError("HTTP 500 Internal Server Error")
@@ -78,6 +84,11 @@ class FakeRequests:
         self.calls.append(f"POST {url}")
         return types.SimpleNamespace(status_code=200, json=lambda: {},
                                      raise_for_status=lambda: None)
+
+    def put(self, url, data=None, **kw):
+        self.calls.append(f"PUT {url}")
+        self.uploaded.append((url, data))
+        return types.SimpleNamespace(status_code=self.put_status, text="nope")
 
 
 def with_world(fn, *, env: dict, **kw):
@@ -208,6 +219,83 @@ def test_every_error_says_which_worker_produced_it() -> None:
           isinstance(handler.WORKER_BUILD, str) and bool(handler.WORKER_BUILD), True)
 
 
+HIST = {"outputs": {"363": {"images": [{"filename": "iwvid_001_00001_.webp"}]}}}
+
+
+def test_a_render_goes_to_storage_not_through_runpod() -> None:
+    """RunPod's payload cap is FIXED — 10 MB on /run, 20 MB on /runsync, and base64
+    inflates a file by a third on the way — so a big render cannot be returned, only
+    routed around. A lossless WEBP of opaque frames clears that cap easily, which is
+    how turning a background cutout off came to break a render outright."""
+    big = b"x" * (40 * 1024 * 1024)
+
+    def body(_fake):
+        return handler._collect_images(HIST, ["https://r2.example/slot0?sig=abc"])
+
+    out, _ = with_world(body, env=LIVE, view_bytes=big)
+    check("the file is reported by SLOT, not by value",
+          out, [{"filename": "iwvid_001_00001_.webp", "bytes": len(big),
+                 "slot": 0}])
+    check("so nothing large crosses RunPod's API at all",
+          any("image" in e for e in out), False)
+
+
+def test_the_bytes_really_reach_the_url() -> None:
+    def body(fake):
+        handler._collect_images(HIST, ["https://r2.example/slot0?sig=abc"])
+        return fake.uploaded
+
+    out, _ = with_world(body, env=LIVE, view_bytes=b"REALBYTES")
+    check("exactly one upload, to the URL it was handed",
+          [(u, d) for u, d in out], [("https://r2.example/slot0?sig=abc", b"REALBYTES")])
+
+
+def test_a_failed_upload_degrades_instead_of_losing_the_render() -> None:
+    """A bad or expired URL must cost the ceiling, not the work."""
+    def body(_fake):
+        return handler._collect_images(HIST, ["https://r2.example/slot0?sig=abc"])
+
+    out, _ = with_world(body, env=LIVE, put_status=403, view_bytes=b"REALBYTES")
+    check("it falls back to returning the file inline", "image" in out[0], True)
+    check("and does not claim a slot it never used", "slot" in out[0], False)
+
+
+def test_without_urls_nothing_changes() -> None:
+    """An older caller sends no `upload_urls`; that path must be untouched, or a
+    stale tool and a fresh worker stop understanding each other."""
+    def body(_fake):
+        return handler._collect_images(HIST)
+
+    out, _ = with_world(body, env=LIVE, view_bytes=b"REALBYTES")
+    check("the file comes back inline, exactly as before",
+          out, [{"filename": "iwvid_001_00001_.webp", "bytes": 9,
+                 "image": "UkVBTEJZVEVT"}])
+
+
+def test_slots_line_up_with_output_order() -> None:
+    """The caller keeps the picking rule and maps slot -> key positionally, so slot i
+    MUST be output i — including when an upload fails and one comes back inline."""
+    hist = {"outputs": {"a": {"images": [{"filename": "preview.png"},
+                                         {"filename": "iwvid_001_00001_.webp"}]}}}
+
+    def body(_fake):
+        return handler._collect_images(hist, ["https://r2.example/0", "https://r2.example/1"])
+
+    out, _ = with_world(body, env=LIVE)
+    check("each output claims its own slot, in order",
+          [(e["filename"], e.get("slot")) for e in out],
+          [("preview.png", 0), ("iwvid_001_00001_.webp", 1)])
+
+    # More outputs than slots: the extras must NOT silently reuse slot 0.
+    def body2(_fake):
+        return handler._collect_images(hist, ["https://r2.example/0"])
+
+    out2, _ = with_world(body2, env=LIVE)
+    check("an output with no slot left comes back inline instead",
+          [(e["filename"], e.get("slot"), "image" in e) for e in out2],
+          [("preview.png", 0, False), ("iwvid_001_00001_.webp", None, True)])
+
+
 def test_job_timeout_is_not_the_binding_cap() -> None:
     """1800 silently became the shortest of four clocks the moment an endpoint was set
     past 30 min, failing a render the endpoint was happy to run and blaming ComfyUI."""
@@ -222,6 +310,11 @@ if __name__ == "__main__":
     test_without_credentials_it_says_so()
     test_the_wait_returns_the_history_when_it_arrives()
     test_every_error_says_which_worker_produced_it()
+    test_a_render_goes_to_storage_not_through_runpod()
+    test_the_bytes_really_reach_the_url()
+    test_a_failed_upload_degrades_instead_of_losing_the_render()
+    test_without_urls_nothing_changes()
+    test_slots_line_up_with_output_order()
     test_job_timeout_is_not_the_binding_cap()
     print()
     if FAILED:

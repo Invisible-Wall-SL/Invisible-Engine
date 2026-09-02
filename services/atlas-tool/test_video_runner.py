@@ -219,6 +219,65 @@ def test_an_empty_payload_names_its_real_cause() -> None:
         "comfy execution error")
 
 
+def test_a_render_is_read_back_from_storage_not_the_wire() -> None:
+    """The other half of lifting RunPod's payload cap: the worker reports a SLOT and
+    the bytes are fetched from R2. The picking rule stays here — teaching the worker
+    to choose would put one decision on both sides of the wire."""
+    _stub_world()
+    keys = ["c/p/video/_out/pfx_0.webp", "c/p/video/_out/pfx_1.webp"]
+    video_runner.storage.put(keys[0], b"PREVIEW")
+    video_runner.storage.put(keys[1], b"THE-REAL-RENDER")
+
+    name, blob = video_runner._pick_video_output(
+        {"images": [{"filename": "preview.png", "slot": 0},
+                    {"filename": "pfx_00001_.webp", "slot": 1}]},
+        "pfx", keys)
+    check("the .webp wins over a preview, as it always did", name, "pfx_00001_.webp")
+    check("and its bytes come from the slot it claimed", blob, b"THE-REAL-RENDER")
+
+    # Inline and uploaded entries must be able to coexist: a failed upload falls back
+    # to base64 per FILE, not per job.
+    import base64 as _b64
+    name2, blob2 = video_runner._pick_video_output(
+        {"images": [{"filename": "pfx_00001_.webp",
+                     "image": _b64.b64encode(b"INLINE").decode()}]},
+        "pfx", keys)
+    check("an inline entry still decodes", (name2, blob2), ("pfx_00001_.webp", b"INLINE"))
+
+    check_raises(
+        "a slot that was never handed out is refused, not read blindly",
+        lambda: video_runner._pick_video_output(
+            {"images": [{"filename": "x.webp", "slot": 9}]}, "pfx", keys),
+        "never handed out")
+    check_raises(
+        "and a slot whose object is missing says the URL may have expired",
+        lambda: video_runner._pick_video_output(
+            {"images": [{"filename": "x.webp", "slot": 0}]}, "pfx",
+            ["c/p/video/_out/gone.webp"]),
+        "expired")
+
+
+def test_the_handoff_degrades_rather_than_failing() -> None:
+    """R2 unreachable at submit time must cost the CEILING, not the render: the job
+    runs the old way and small renders keep working."""
+    _stub_world()
+    real = video_runner.storage.presign_put
+
+    def no_presign(key, expires=3600):
+        raise RuntimeError("R2 unreachable")
+
+    video_runner.storage.presign_put = no_presign
+    try:
+        urls, keys = video_runner._upload_slots("pfx")
+    finally:
+        video_runner.storage.presign_put = real
+    check("no slots, and no exception", (urls, keys), ([], []))
+
+    started = video_runner.start_session(_req("still runs"), ("clientx", "projecty"))
+    check("and a session still completes on the old path",
+          _await_session(started["id"]).get("status"), "finished")
+
+
 def test_session_id_validation() -> None:
     check("accepts a generated id",
           video_runner.valid_session_id(video_runner._new_session_id()), True)
@@ -1313,6 +1372,8 @@ if __name__ == "__main__":
     test_source_image_required()
     test_output_picking()
     test_an_empty_payload_names_its_real_cause()
+    test_a_render_is_read_back_from_storage_not_the_wire()
+    test_the_handoff_degrades_rather_than_failing()
     test_session_id_validation()
     test_session_lifecycle()
     test_blueprint_kind()

@@ -286,6 +286,21 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 > that endpoint's id — the same value `atlas-tool` already carries. The worker logs a line at the
 > first cancel check when they are missing, so the container log says which side is unset.
 >
+> ### A render does NOT come back through RunPod
+> RunPod's payload limits are **fixed** — 10 MB on `/run`, 20 MB on `/runsync`, with base64
+> inflating a file by a third on the way — and their own guidance for a large result is object
+> storage, not a bigger response. A lossless animated WEBP of opaque frames clears that cap easily,
+> which is how switching a background cutout off came to break a render outright (the job ran the
+> full 15 minutes, RunPod reported COMPLETED, and handed back nothing).
+>
+> So `video_runner` presigns a few **PUT-only, single-key, expiring** R2 URLs at submit time and
+> passes them as `input.upload_urls`; the worker PUTs each output straight to R2 and returns only a
+> slot number. **No storage credentials go anywhere near the worker** — its image is public on
+> GHCR. Both directions degrade safely: a worker that predates this ignores the field and base64s
+> as before, and a runner that cannot reach R2 to sign simply runs the old way at the old ceiling.
+> The scratch objects live at `<client>/<project>/video/_out/` and are deleted as soon as the real
+> render is written (`meta.json` is what makes a session, so they can never look like one).
+
 > **Which image is a worker actually running?** The boot log answers it —
 > `[handler] atlas-comfy-worker build <sha> (JOB_TIMEOUT=…s, cancel-aware=True/False)` — and every
 > error result carries `worker_build`. **A serverless endpoint pinned to `:latest` caches by

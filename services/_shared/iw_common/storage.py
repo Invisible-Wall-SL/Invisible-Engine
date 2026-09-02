@@ -62,6 +62,28 @@ def put(key: str, body: bytes, content_type: str | None = None) -> None:
     )
 
 
+def presign_put(key: str, expires: int = 3600) -> str:
+    """A URL that can PUT one object, and nothing else, for `expires` seconds.
+
+    Exists so a RunPod Serverless worker can hand a big render straight to R2
+    instead of returning it through RunPod's API, whose payload cap (10 MB on
+    `/run`, 20 MB on `/runsync`, and base64 inflating a file by a third on the way)
+    is fixed — RunPod's own guidance for a large result is object storage, not a
+    bigger response.
+
+    Presigned rather than shipping credentials to the worker: the URL is scoped to
+    ONE key, expires, and grants no read and no listing, so a worker image (which is
+    public on GHCR) never carries anything worth stealing.
+
+    NOTE no `ContentType` is signed in. If it were, the caller would have to send a
+    byte-identical header or S3 rejects the request — a needless way for an upload to
+    fail. The final object is written by the tool afterwards with a correct type.
+    """
+    return _client().generate_presigned_url(
+        "put_object", Params={"Bucket": _bucket(), "Key": key},
+        ExpiresIn=int(expires))
+
+
 def get(key: str) -> bytes | None:
     try:
         return _client().get_object(Bucket=_bucket(), Key=key)["Body"].read()
