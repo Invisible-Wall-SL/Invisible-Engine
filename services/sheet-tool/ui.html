@@ -133,6 +133,14 @@
   button:hover{background:#3b7af0}
   button.sec{background:#33333c}button.sec:hover{background:#44444f}
   button.danger{background:#7a2d2d}button.danger:hover{background:#9a3a3a}
+  /* New-sheet dialog (see newSheet() for why the name comes first) */
+  .modal{position:fixed;inset:0;background:#000a;display:flex;align-items:center;justify-content:center;z-index:100}
+  .modal[hidden]{display:none}
+  .modal .box{background:#1d1d22;border:1px solid #2a2a31;border-radius:10px;padding:16px 18px;
+    width:min(400px,90vw);box-shadow:0 12px 40px #000c}
+  .modal h2{margin:0 0 10px;font-size:12px;color:#9ad;text-transform:uppercase;letter-spacing:.04em}
+  .modal .warn{font-size:12px;color:#e9a94a;line-height:1.35;min-height:16px;margin:0 0 4px}
+  .modal .btns{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
   button.wide{width:100%;margin-top:4px}
   .field{display:flex;align-items:center;justify-content:space-between;margin-bottom:7px;gap:8px}
   .field input[type=text],.field input:not([type]){flex:1;min-width:0}
@@ -286,7 +294,7 @@
         <div id="pane-upload">
           <input type="file" id="files" accept=".png,.webp" multiple style="width:100%;margin-bottom:8px">
           <button class="wide" onclick="upload()">Upload sprites</button>
-          <button class="sec wide" onclick="newSheet()">New / clear canvas</button>
+          <button class="sec wide" onclick="newSheet()" title="Start a new, empty sheet — asks for its name first.">New sheet…</button>
           <div id="uploadmsg" class="muted" style="margin-top:6px"></div>
         </div>
         <div id="pane-load" style="display:none">
@@ -336,7 +344,7 @@
         <div class="field"><label>libGDX / Spine .atlas</label><input type="checkbox" id="f_libgdx" checked></div>
         <div class="field"><label>TexturePacker JSON</label><input type="checkbox" id="f_tp" checked></div>
         <button class="wide" onclick="doSave()" title="Overwrites the loaded sheet in place (PNG/.atlas/JSON/manifest, incl. R2) — asks first. New sheets save as a new copy.">Save</button>
-        <button class="sec wide" onclick="doSaveAs()" title="Always writes a new copy — never overwrites an existing sheet.">Save As (new copy)</button>
+        <button class="sec wide" onclick="doSaveAs()" title="Writes a new copy under the current name — asks first if a sheet of that name already exists.">Save As (new copy)</button>
         <div id="exportmsg" style="margin-top:8px"></div>
       </div>
     </div>
@@ -391,6 +399,15 @@
     </div>
   </aside>
 </main>
+
+<div id="newsheet" class="modal" hidden onclick="if(event.target===this) closeNewSheet()">
+  <div class="box" role="dialog" aria-labelledby="newsheet-title" onkeydown="onNewSheetKey(event)">
+    <h2 id="newsheet-title">New sheet</h2>
+    <div class="field"><label for="newsheet-name">Sheet name</label><input id="newsheet-name" placeholder="e.g. symbols_hd" autocomplete="off" spellcheck="false" oninput="onNewSheetName()"></div>
+    <div class="warn" id="newsheet-warn"></div>
+    <div class="btns"><button class="sec" onclick="closeNewSheet()">Cancel</button><button onclick="confirmNewSheet()">Create</button></div>
+  </div>
+</div>
 
 <script>
 let STATE=null;
@@ -520,7 +537,10 @@ async function init(){
   sheetName=$('sheet').value.trim()||'newsheet';
   // Refresh-survival: a saved session for this project rebuilds the canvas
   // exactly where the user left off (regions, names, locks, AI fields, dims).
-  if(STATE.session && Array.isArray(STATE.session.regions) && STATE.session.regions.length){
+  // A regions-less session still carries the sheet's NAME (a freshly created
+  // sheet) — restore that too, so a refresh doesn't fall back to "newsheet".
+  if(STATE.session && Array.isArray(STATE.session.regions)
+     && (STATE.session.regions.length || STATE.session.display_name)){
     restoreSession(STATE.session);
   }
   updateReadouts();
@@ -541,7 +561,7 @@ function updateReadouts(){
   if(isProject && loadedPath){
     $('identity').textContent='Editing: atlas_manifest_'+loadedName+'.json @ '+loadedDir;
   }else{
-    $('identity').textContent='New sheet (unsaved)';
+    $('identity').textContent='New sheet "'+name+'" (unsaved)';
   }
   const destDir=(isProject && loadedDir && name===loadedName) ? loadedDir : ('sheets/'+name);
   $('dest').textContent='Saves to: '+destDir+'/atlas_manifest_'+name+'.json';
@@ -973,11 +993,52 @@ window.addEventListener('keydown',e=>{
 /* ---------- canvas size ---------- */
 function applyCanvas(){ canvasW=Math.max(16,parseInt($('cw').value)||1024); canvasH=Math.max(16,parseInt($('ch').value)||1024); fitView(); markDirty(); }
 
+/* ---------- new sheet ----------
+   The name is asked for in a dialog BEFORE anything is cleared. The old one-click
+   clear left the loaded sheet's name in the box, so forgetting to retype it made
+   the next Save overwrite that sheet. Cancel/blank = nothing changes; a name that
+   is already a saved sheet is flagged live and confirmed on Create. */
+function sheetExists(name){ return sheetNames().includes(name); }
+function newSheet(){
+  const inp=$('newsheet-name'); inp.value='';
+  onNewSheetName();
+  $('newsheet').hidden=false;
+  inp.focus();
+}
+function closeNewSheet(){ $('newsheet').hidden=true; }
+function onNewSheetName(){
+  const raw=$('newsheet-name').value.trim(), name=safeNm(raw), w=$('newsheet-warn');
+  let t='';
+  if(name && name!==raw) t+='Will be saved as "'+name+'". ';
+  if(name && sheetExists(name)) t+='⚠ A sheet named "'+name+'" already exists — saving this one will replace it.';
+  w.textContent=t;
+}
+function onNewSheetKey(e){
+  if(e.key==='Enter' && e.target.id==='newsheet-name'){ e.preventDefault(); confirmNewSheet(); }
+  else if(e.key==='Escape'){ e.preventDefault(); closeNewSheet(); }
+}
+/* One wording for every "this replaces a saved sheet" question. */
+function confirmReplace(name, lead, tail){
+  return confirm(lead+'\n\nThis replaces the PNG, .atlas, JSON and manifest of "'+name
+    +'" — on R2 too, with no undo.\n\n'+tail);
+}
+function confirmNewSheet(){
+  const name=safeNm($('newsheet-name').value);
+  if(!name){ $('newsheet-warn').textContent='Give the sheet a name.'; $('newsheet-name').focus(); return; }
+  if(sheetExists(name) && !confirmReplace(name,
+    'A sheet named "'+name+'" already exists. Start a new sheet under this name anyway?',
+    'Cancel to pick a different name.')) return;
+  closeNewSheet();
+  regions=[]; sel=null; clearCanvasDom(); render(); syncInspector();
+  loadedPath=null; loadedDir=null; loadedName=null; isProject=false;
+  $('sheet').value=name; sheetName=name; activeSheet=name;
+  selectedSheet=''; renderSheetList();
+  updateReadouts();
+  markDirty();   // persist the empty, NAMED session so a refresh keeps the name
+  $('uploadmsg').className='muted'; $('uploadmsg').textContent='New sheet "'+name+'" — upload sprites to start.';
+}
+
 /* ---------- upload ---------- */
-function newSheet(){ regions=[]; sel=null; clearCanvasDom(); render(); syncInspector();
-  loadedPath=null; loadedDir=null; loadedName=null; isProject=false; updateReadouts();
-  clearSession();   // drop the persisted session too — a refresh stays blank
-  $('uploadmsg').className='muted'; $('uploadmsg').textContent='Canvas cleared.'; }
 
 async function upload(){
   const ns=$('sheet').value.trim()||'sheet';
@@ -1365,16 +1426,22 @@ function doSave(){
   // place (and mirrors the overwrite to R2). Confirm first — it's destructive and
   // has no undo; "Save As" is the safe, non-destructive path.
   if(loadedPath && isProject && currentName()===loadedName){
-    const ok=confirm('Overwrite the existing sheet "'+loadedName+'" in place?\n\n'
-      +'This replaces its PNG, .atlas, JSON and manifest in the project output — '
-      +'and on R2 — with no undo.\n\nCancel and use "Save As (new copy)" to keep '
-      +'the original untouched.');
+    const ok=confirmReplace(loadedName,'Overwrite the existing sheet "'+loadedName+'" in place?',
+      'Cancel and use "Save As (new copy)" to keep the original untouched.');
     if(!ok){ const m=$('exportmsg'); m.className='note'; m.textContent='Save cancelled — original left untouched.'; return false; }
     return runExport(loadedDir);
   }
   return doSaveAs();
 }
 async function doSaveAs(){
+  // The server writes under the payload's `sheet` (= sheetName, the sprite-pile
+  // key) and ignores `basename`, so the collision check keys on THAT name.
+  const name=safeNm(sheetName);
+  if(regions.length && sheetExists(name) && !confirmReplace(name,
+    'A sheet named "'+name+'" already exists. Overwrite it?',
+    'Cancel and change the sheet name to keep both.')){
+    const m=$('exportmsg'); m.className='note'; m.textContent='Save cancelled — "'+name+'" left untouched.'; return;
+  }
   const ok=await runExport(null);
   if(ok && $('pane-load').style.display!=='none') browse('');
 }
