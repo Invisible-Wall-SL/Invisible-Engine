@@ -876,6 +876,18 @@ def start_session(req: dict, ctx: tuple[str, str], user: str = "") -> dict:
         }
         _SESSIONS[session_id] = session
 
+    # PERSIST BEFORE DISPATCHING. Until this, a new session lived only in
+    # `_SESSIONS`: `meta.json` was first written by the WORKER, when it began the
+    # first variation. A session waiting its turn behind another therefore existed
+    # nowhere but in RAM, and a restart — a deploy, a crash — erased it with no trace
+    # at all. Not a lost render, a lost REQUEST: no file, no record, nothing to
+    # recover, exactly "as if they were never registered".
+    #
+    # Queueing is what makes it likely rather than theoretical. The tool invites you
+    # to line several ideas up behind the one running, and every one of them was
+    # unwritten until its turn came — so the more work you had queued, the more a
+    # single restart took.
+    _write_meta(session_id, session)
     _dispatch(session_id, ctx)
     return _public(session)
 

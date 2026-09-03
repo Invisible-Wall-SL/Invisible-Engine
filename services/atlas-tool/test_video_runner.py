@@ -838,6 +838,44 @@ def _req(prompt: str, variations: int = 1) -> dict:
             "source_ref": "r.png", "variations": variations}
 
 
+def test_a_queued_session_survives_a_restart() -> None:
+    """The destructive half of "after a refresh most of my generations disappear".
+
+    `meta.json` used to be written first by the WORKER, when it started the first
+    variation — so a session waiting its turn behind another existed nowhere but in
+    RAM. A restart erased it with no trace: no file, no record, nothing to recover.
+    Not a lost render, a lost REQUEST.
+
+    Queueing is what makes it likely. The tool invites you to line ideas up behind the
+    one running, and every one of them was unwritten until its turn came, so the more
+    you had queued the more a single deploy took."""
+    tmp, objects = _stub_world()
+    ctx = ("clientx", "projecty")
+
+    first = video_runner.start_session(_req("holds the runner"), ctx)
+    _await_in_flight(first["id"])
+    queued = video_runner.start_session(_req("waiting its turn"), ctx)
+    qid = queued["id"]
+    check("the second session is genuinely waiting, not running",
+          video_runner.get_session(qid).get("queue_position") >= 1, True)
+    check("and it is on disk BEFORE any worker has touched it",
+          f"clientx/projecty/video/{qid}/meta.json" in objects, True)
+
+    # The restart: memory is gone, only what reached storage survives.
+    with video_runner._LOCK:
+        video_runner._SESSIONS.clear()
+        video_runner._QUEUE.clear()
+        video_runner._ACTIVE = None
+
+    listed = [x["id"] for x in video_runner.list_sessions()]
+    check("so it is still listed after a restart", qid in listed, True)
+    back = video_runner.get_session(qid)
+    check("its prompt survived", (back or {}).get("prompt"), "waiting its turn")
+    check("with every slot it was created with",
+          len((back or {}).get("variations", [])), 1)
+    _await_session(qid)
+
+
 def test_a_second_session_queues() -> None:
     """A second prompt LINES UP behind the running one instead of being refused.
     The refusal is what made an author cancel a paid run just to start the next
@@ -1843,6 +1881,7 @@ if __name__ == "__main__":
     test_wrong_kind_is_refused()
     test_resume_after_restart()
     test_cancel_a_session_we_do_not_own()
+    test_a_queued_session_survives_a_restart()
     test_a_second_session_queues()
     test_queue_depth_is_capped()
     test_cancelling_reads_as_cancelled_not_failed()
