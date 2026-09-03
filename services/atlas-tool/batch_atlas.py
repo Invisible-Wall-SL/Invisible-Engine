@@ -852,6 +852,19 @@ def merge_atlas_regions(manifest: dict, atlas_data: dict) -> list[dict]:
     return out
 
 
+# Cap on the ONE call that submits the job (`/prompt`). It had no timeout at
+# all, so `urlopen` fell back to `socket.getdefaulttimeout()` — None — and
+# waited FOREVER. That is not theoretical: with the Cloudflare tunnel's
+# connector down, the edge still completes the TCP+TLS handshake and then never
+# answers, so the render blocked on a socket read that could not return, the
+# subprocess never exited, and the panel showed "Rendering 0/2..." indefinitely
+# with no error to show. The comment above `_COMFY_HTTP_TIMEOUT` already made
+# this exact argument for `comfy_get` (and even names /prompt as answering "in
+# tens of ms") — `comfy_post` was simply missed. Generous, because a big
+# workflow JSON crosses the tunnel here, but finite.
+_COMFY_POST_TIMEOUT = 60.0
+
+
 def comfy_post(path: str, payload: dict) -> dict:
     req = Request(
         f"{COMFY_BASE}{path}",
@@ -859,7 +872,7 @@ def comfy_post(path: str, payload: dict) -> dict:
         headers={"Content-Type": "application/json", **CF_HEADERS},
     )
     try:
-        return json.loads(urlopen(req).read())
+        return json.loads(urlopen(req, timeout=_COMFY_POST_TIMEOUT).read())
     except HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
         # A 502/503/504 comes from the Cloudflare tunnel EDGE, not ComfyUI: the
@@ -914,7 +927,11 @@ def comfy_post(path: str, payload: dict) -> dict:
         print("\n=== Payload sent (first 4 KB) ===")
         print(json.dumps(payload, indent=2)[:4096])
         raise RuntimeError(f"ComfyUI rejected the prompt (HTTP {e.code}).")
-    except (URLError, ConnectionError) as e:
+    # TimeoutError explicitly: urllib wraps a timeout waiting for the response
+    # HEADERS in URLError, but one that lands mid-BODY (after urlopen returned)
+    # surfaces raw, and it is neither a URLError nor a ConnectionError — it
+    # would escape as an unhandled traceback instead of this message.
+    except (URLError, ConnectionError, TimeoutError) as e:
         print("\n=== Cannot reach ComfyUI ===")
         print(f"No server responding at {COMFY_BASE}")
         print(f"Reason: {e}")

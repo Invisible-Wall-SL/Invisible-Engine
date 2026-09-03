@@ -2301,6 +2301,38 @@ def resolve_user_comfy_env(user_id: str) -> dict:
     return env
 
 
+def claim_render_slot() -> tuple[bool, str]:
+    """Take the render slot, or explain why not. `(started, message)`.
+
+    Two failures this closes, which together produced "it renders forever and
+    shows no error":
+
+    * `/render` used to answer "started" unconditionally — even when it had NOT
+      spawned a thread because `running` was already set. Every retry looked
+      accepted, and the panel kept polling a render that did not exist.
+    * `running` had no way back to False except the render's own `finally`. A
+      subprocess that hung (see `_COMFY_POST_TIMEOUT` — a `/prompt` with no
+      timeout against a dead tunnel connector blocked forever) left the flag
+      stuck for the life of the container, so every later render was refused
+      in silence.
+
+    So a claim now also SELF-HEALS: if the flag says running but the subprocess
+    is gone (or there never was one), the flag is stale and the slot is free."""
+    with _render_lock:
+        if _render_state["running"]:
+            proc = _render_proc
+            alive = proc is not None and proc.poll() is None
+            if alive:
+                return False, ("A render is already running — press Stop to "
+                               "cancel it before starting another.")
+            # Server log, not the panel log: `_run_cmd` resets `log` when the
+            # new render starts, so anything written here would vanish.
+            print("[render] stale 'running' flag with no live subprocess - "
+                  "clearing it and starting the new render.", flush=True)
+        _render_state.update(running=True, done=False)
+    return True, "started"
+
+
 def _comfy_answers(url: str, comfy_env: dict) -> bool:
     """One tight GET to `<url>/system_stats` with the headers the render
     subprocess will use — the per-user tunnel's CF Access token when a record
@@ -5153,7 +5185,15 @@ async function renderSel(){{
  document.getElementById('sbtn').style.display='inline-block';
  document.getElementById('toast').style.display='none';
  document.getElementById('log').style.display='block';
- await fetch('/render',{{method:'POST',body:JSON.stringify({{names:sel,variants:v}})}});
+ // The server's answer is not decoration: it refuses when a render is already
+ // running. Ignoring it used to leave the button spinning on a render this
+ // click never started.
+ let ok=await (await fetch('/render',{{method:'POST',body:JSON.stringify({{names:sel,variants:v}})}})).text();
+ if(ok.trim()!=='started'){{
+  document.getElementById('stat').textContent=ok;
+  b.disabled=false; document.getElementById('sbtn').style.display='none';
+  alert(ok); return;
+ }}
  poll();
 }}
 // Button to flash "✓ Done" on when the create/compose poll loop finishes.
@@ -5805,13 +5845,14 @@ class Handler(BaseHTTPRequestHandler):
             payload = json.loads(raw)
             names = payload.get("names", [])
             variants = int(payload.get("variants", 1))
-            if not _render_state["running"]:
+            started, msg = claim_render_slot()
+            if started:
                 ctx = (project_paths.client_name(), project_paths.project_name())
                 user = getattr(self, "_user_id", "") or ""
                 threading.Thread(target=run_render,
                                  args=(names, variants, ctx, user),
                                  daemon=True).start()
-            self._send(200, "text/plain", b"started")
+            self._send(200, "text/plain", msg.encode())
         elif post_path == "/createatlas":
             if not _render_state["running"]:
                 ctx = (project_paths.client_name(), project_paths.project_name())
