@@ -168,6 +168,29 @@ _DEFAULTS = {
 }
 
 
+def blank_over_number(key: str, value) -> bool:
+    """True when a saved BLANK would shadow a NUMERIC default.
+
+    The Settings panel posts every field it renders, blanks included, and a
+    blank global value used to be stored verbatim. `ui_server.load_config`
+    reads atlas_config.json RAW — it does NOT merge these defaults — so any key
+    a config predates rendered as an empty box, and one Save then wrote
+    `"flux_guidance": ""`. That "" overrode the 3.5 here and killed every FLUX
+    render at `float('')`:
+
+        ValueError: could not convert string to float: ''
+
+    A number has no meaningful blank, so an empty value means "unset" and the
+    default stands — which also heals a config already poisoned that way, with
+    no migration. TEXT keys are deliberately untouched: a blank
+    `flux_controlnet` / `flux_redux_style_model` DISABLES that optional node,
+    which is the documented behaviour."""
+    default = _DEFAULTS.get(key)
+    return (isinstance(default, (int, float))
+            and not isinstance(default, bool)
+            and str(value).strip() == "")
+
+
 def load_config() -> dict:
     cfg = dict(_DEFAULTS)
     for path in _config_paths():
@@ -175,7 +198,8 @@ def load_config() -> dict:
             if path.exists():
                 user = json.loads(path.read_text(encoding="utf-8"))
                 cfg.update({k: v for k, v in user.items()
-                            if not k.startswith("_")})
+                            if not k.startswith("_")
+                            and not blank_over_number(k, v)})
                 return cfg
         except (json.JSONDecodeError, OSError):
             continue
