@@ -361,6 +361,7 @@ ADV_BOOL = set()
 
 CONFIG_FIELDS = [
     ("pipeline", "Pipeline", "text"),
+    ("run_on", "Run generation on", "text"),
     ("mockup_image", "Global style mockup", "text"),
     ("checkpoint", "Checkpoint", "text"),
     ("lora", "LoRA", "text"),
@@ -475,7 +476,7 @@ ENUM_FIELDS: dict[str, list[str]] = {
 # is "both" = the two local ComfyUI pipelines (sdxl OR flux), hidden under
 # gpt_image. "all" = every pipeline incl. gpt_image (truly universal fields).
 PIPE_GROUP = {
-    "pipeline": "all", "padding_pct": "all",
+    "pipeline": "all", "run_on": "all", "padding_pct": "all",
     "comfy_org_api_key": "all", "credits_eur_rate": "all",
     "checkpoint": "sdxl", "lora": "sdxl", "lora_strength": "sdxl",
     "controlnet": "sdxl", "ipadapter_weight": "sdxl",
@@ -493,6 +494,54 @@ PIPE_GROUP = {
     "gpt_image_rembg": "gpt_image",
 }
 PIPELINE_OPTIONS = ["sdxl", "flux", "gpt_image"]
+
+# Where a render runs — the ⚙ "Run generation on" setting. Blank = whatever the
+# service env says (`COMFY_TRANSPORT`; production = serverless = pod), so an
+# untouched config keeps today's behaviour. The render subprocess reads its
+# transport from the env (`batch_atlas.COMFY_TRANSPORT`), which is why the
+# choice is applied as an env override rather than a new code path — the same
+# seam per-user routing already uses (`resolve_user_comfy_env`). The model
+# dropdowns follow the same choice (`comfy_catalog` keeps one catalog per
+# target), because the list must be the files of the machine that will load them.
+RUN_ON_OPTIONS = {
+    "pod": "RunPod — cloud GPU (serverless endpoint)",
+    "local": "My computer — my own ComfyUI over the tunnel",
+}
+RUN_ON_TRANSPORT = {"pod": "serverless", "local": "http"}
+
+
+def _env_run_on() -> str:
+    """The service default a blank setting resolves to."""
+    tr = (os.environ.get("COMFY_TRANSPORT") or "http").strip().lower()
+    return "pod" if tr == "serverless" else "local"
+
+
+def effective_run_on(cfg: dict | None = None) -> str:
+    val = str((cfg if cfg is not None else load_config()).get("run_on")
+              or "").strip().lower()
+    return val if val in RUN_ON_OPTIONS else _env_run_on()
+
+
+def run_on_env(target: str) -> dict:
+    """The env override the render subprocess needs to run on `target`."""
+    return {"COMFY_TRANSPORT": RUN_ON_TRANSPORT.get(target,
+                                                    RUN_ON_TRANSPORT[_env_run_on()])}
+
+
+def _run_on_options_html(cur: str) -> str:
+    """<option>s for the run_on <select>: the blank service default (named, so
+    the user can see what blank means), then the two targets. An unknown
+    stored value is kept selectable so saving never silently rewrites it."""
+    default_lbl = RUN_ON_OPTIONS[_env_run_on()]
+    out = [f'<option value=""{" selected" if cur == "" else ""}>'
+           f'(service default: {html.escape(default_lbl)})</option>']
+    if cur and cur not in RUN_ON_OPTIONS:
+        out.append(f'<option value="{html.escape(cur, quote=True)}" selected>'
+                   f'{html.escape(cur)} (custom)</option>')
+    for v, lbl in RUN_ON_OPTIONS.items():
+        sel = " selected" if v == cur else ""
+        out.append(f'<option value="{v}"{sel}>{html.escape(lbl)}</option>')
+    return "".join(out)
 
 # Free-text PATH fields that get a 📁 browse button (server-side file
 # picker). Model fields stay ComfyUI-driven dropdowns; these are real
@@ -532,6 +581,13 @@ _ATLAS_GEOM_NUMERIC = {"atlas_width", "atlas_height",
 # {rmbg} are filled with the current values so the tip names the actual model
 # in use (e.g. "follows the LoRA 'gameIconInstitute3d_v10' more closely").
 SETTING_HELP = {
+    "run_on":
+        "Which machine renders your regions. RunPod = the cloud GPU (the "
+        "serverless endpoint — pay per job, nothing to start; needs the models "
+        "installed on the pod volume). My computer = your own ComfyUI on your "
+        "GPU, reached over the tunnel the desktop launcher runs — your "
+        "installed models, no per-job cost. The model dropdowns below follow "
+        "this choice. Blank = the service default.",
     "rembg":
         "Remove the background after generating (subject cutout → transparent "
         "PNG). Keep ON for game icons/symbols. Turn OFF for a full-bleed image "
@@ -801,21 +857,21 @@ def _pipeline_options_html(current: str) -> str:
     return "".join(out)
 
 
-def _options_for(key: str, cache: dict) -> tuple[list[str] | None, str]:
+def _options_for(key: str, cache: dict,
+                 target: str = "local") -> tuple[list[str] | None, str]:
     """Dropdown values for a settings field, plus the marker `_opt_html` should
     put on a configured value the list doesn't carry.
 
     Precedence — live `/object_info` > the persisted catalog > the static enum
-    seed. `comfy_catalog.options` owns the first two; the seed is a floor so the
-    enum fields stay dropdowns even when NOTHING has ever answered (the hosted
-    tool runs `COMFY_TRANSPORT=serverless`, so `COMFY_BASE` normally doesn't).
-    `cache` is the per-render (node, field) memo, so a page does at most one
-    alive-probe."""
+    seed. `comfy_catalog.options` owns the first two (for the "pod" target there
+    is no live tier — see that module); the seed is a floor so the enum fields
+    stay dropdowns even when NOTHING has ever answered. `cache` is the
+    per-render (node, field) memo, so a page does at most one alive-probe."""
     nf = MODEL_FIELDS.get(key)
     if nf is not None:
         if nf not in cache:
             try:
-                cache[nf] = comfy_catalog.options(nf[0], nf[1])
+                cache[nf] = comfy_catalog.options(nf[0], nf[1], target=target)
             except Exception:  # noqa: BLE001 — UI must render even if Comfy down
                 cache[nf] = None
         avail = cache[nf]
@@ -839,41 +895,54 @@ def _rel_time(epoch: float) -> str:
     return "just now"
 
 
-def _model_status_html() -> str:
-    """The Settings panel's "where did these dropdowns come from" strip.
+def _model_status_html(target: str = "local") -> str:
+    """The Settings panel's "where did these dropdowns come from" strip, for
+    the machine the render will run on.
 
     The failure this exists for is SILENT: with nothing answering at
     COMFY_BASE, every model field used to fall back to a plain text input with
     no explanation, so a stale or mistyped checkpoint name only surfaced as a
     failed render half an hour later."""
     try:
-        st = comfy_catalog.status()
+        st = comfy_catalog.status(target)
     except Exception:  # noqa: BLE001 — the panel renders regardless
         st = {"live": False, "cached": False, "source": "", "fetchedAt": 0.0}
     btn = ('<button type="button" class="alt" onclick="refreshModels(this)" '
-           'title="Re-probe ComfyUI for its installed model lists and store '
-           'them, so these dropdowns keep working when nothing is answering">'
-           '⟳ Refresh model lists</button>'
+           'title="Re-probe the selected machine for its installed model lists '
+           'and store them, so these dropdowns keep working when nothing is '
+           'answering">⟳ Refresh model lists</button>'
            '<span id="mdlstatmsg" style="color:#999"></span>')
+    pod = target == "pod"
+    lead = f'<b>{"RunPod" if pod else "My computer"}</b> · '
+    base = html.escape(str(batch_atlas.COMFY_BASE))
     if st.get("live"):
-        return (f'<div class="mdlstat ok"><span>Model lists: '
-                f'<b>live from ComfyUI</b></span>{btn}</div>')
+        return (f'<div class="mdlstat ok"><span>{lead}Model lists: '
+                f'<b>live from your ComfyUI</b> ({base})</span>{btn}</div>')
     if st.get("cached"):
         src = html.escape(str(st.get("source") or "an earlier probe"))
         when = _rel_time(float(st.get("fetchedAt") or 0.0))
-        return (f'<div class="mdlstat warn"><span>Model lists: <b>cached '
-                f'{html.escape(when)}</b> from {src} — ComfyUI isn\'t '
-                f'answering right now</span>{btn}</div>')
-    return ('<div class="mdlstat bad"><span><b>Model lists unavailable</b> — no '
-            'ComfyUI has ever been reached from this service; these fields stay '
-            'free-text. Set <code>COMFY_CATALOG_URL</code> or start a pod, then '
-            f'⟳.</span>{btn}</div>')
+        tail = ("RunPod\'s workers can\'t be asked live — ⟳ re-reads "
+                "<code>COMFY_CATALOG_URL</code>" if pod else
+                "your ComfyUI isn\'t answering right now — start ComfyUI + the "
+                "tunnel, then ⟳")
+        return (f'<div class="mdlstat warn"><span>{lead}Model lists: <b>cached '
+                f'{html.escape(when)}</b> from {src} — {tail}</span>{btn}</div>')
+    if pod:
+        return (f'<div class="mdlstat bad"><span>{lead}<b>Model lists '
+                'unavailable</b> — serverless workers can\'t be asked; set '
+                '<code>COMFY_CATALOG_URL</code> to a pod that mounts the volume '
+                '(any /comfyui fleet pod: <code>https://&lt;pod-id&gt;-8188.proxy.'
+                f'runpod.net</code>), then ⟳.</span>{btn}</div>')
+    return (f'<div class="mdlstat bad"><span>{lead}<b>Model lists unavailable</b> '
+            f'— your ComfyUI has never answered at <code>{base}</code>; these '
+            'fields stay free-text. Start ComfyUI + the tunnel (desktop '
+            f'launcher), then ⟳.</span>{btn}</div>')
 
 
 def _control_html(key: str, typ: str, value, cache: dict, *,
                    allow_blank: bool = False, blank_label: str = "",
                    placeholder: str = "", title: str = "",
-                   step: str = "") -> str:
+                   step: str = "", target: str = "local") -> str:
     """Inner form element for a settings field: a <select> for the pipeline
     and for model-file fields (populated live from ComfyUI, current value
     always kept), else the plain <input>. All carry data-cfg so the existing
@@ -883,6 +952,8 @@ def _control_html(key: str, typ: str, value, cache: dict, *,
     if key == "pipeline":
         return (f'<select{common}>'
                 f'{_pipeline_options_html(cur or "sdxl")}</select>')
+    if key == "run_on":
+        return f'<select{common}>{_run_on_options_html(cur)}</select>'
     if key == "rembg":
         # on/off cutout toggle. Per-atlas keeps a blank "(inherit global)"
         # choice; the global config picks a concrete on/off (default on).
@@ -898,7 +969,7 @@ def _control_html(key: str, typ: str, value, cache: dict, *,
         norm = "on" if batch_atlas._truthy(cur, True) else "off"
         return (f'<select{common}>'
                 f'{_opt_html(["on", "off"], norm)}</select>')
-    avail, marker = _options_for(key, cache)
+    avail, marker = _options_for(key, cache, target)
     if avail:
         # Always offer a blank choice: per-atlas blank = inherit global;
         # global blank = literally empty (e.g. clear flux_checkpoint /
@@ -2168,6 +2239,26 @@ def resolve_user_comfy_env(user_id: str) -> dict:
     return env
 
 
+def _comfy_answers(url: str, comfy_env: dict) -> bool:
+    """One tight GET to `<url>/system_stats` with the headers the render
+    subprocess will use — the per-user tunnel's CF Access token when a record
+    is in play, else the shared one — so "My computer" fails in a sentence
+    before the render, not as a stack of upload timeouts inside it."""
+    headers = dict(batch_atlas.CF_HEADERS)
+    if "COMFY_URL" in comfy_env:
+        headers = {k: v for k, v in headers.items()
+                   if not k.lower().startswith("cf-access")}
+        if comfy_env.get("CF_ACCESS_CLIENT_ID"):
+            headers["CF-Access-Client-Id"] = comfy_env["CF_ACCESS_CLIENT_ID"]
+        if comfy_env.get("CF_ACCESS_CLIENT_SECRET"):
+            headers["CF-Access-Client-Secret"] = comfy_env["CF_ACCESS_CLIENT_SECRET"]
+    try:
+        comfy_catalog._http_get_json(f"{url.rstrip('/')}/system_stats", headers)
+        return True
+    except Exception:  # noqa: BLE001 — not answering, whatever the reason
+        return False
+
+
 def run_render(names: list[str], variants: int = 1,
                ctx: tuple[str, str] | None = None, user: str = "") -> None:
     # These run on a NEW worker thread, so the request thread's thread-local
@@ -2178,10 +2269,15 @@ def run_render(names: list[str], variants: int = 1,
     if ctx:
         project_paths.set_context(*ctx)
     comfy_env = resolve_user_comfy_env(user)
+    chosen = str(load_config().get("run_on") or "").strip().lower()
+    target = chosen if chosen in RUN_ON_OPTIONS else _env_run_on()
+    comfy_env.update(run_on_env(target))
     total = len(names) * max(1, variants)
     # RunPod on-demand: if the pod is asleep, wake it and wait for ComfyUI before
     # the subprocess tries to talk to it. Streams "waking the pod…" to the render
     # panel so the wait is visible. No-op / fail-safe when RunPod isn't configured.
+    # An EXPLICIT "My computer" never wakes a pod — that would bill a GPU the
+    # user just said not to use.
     _warm: list[str] = []
 
     def _wlog(m):
@@ -2190,7 +2286,19 @@ def run_render(names: list[str], variants: int = 1,
             _render_state.update(running=True, done=False, cur=0, total=total,
                                  log="\n".join(_warm) + "\n", diagnostics=[])
 
-    runpod_control.ensure_pod_ready(comfy_env.get("COMFY_URL", ""), log=_wlog)
+    if chosen != "local":
+        runpod_control.ensure_pod_ready(comfy_env.get("COMFY_URL", ""), log=_wlog)
+    if target == "local":
+        url = comfy_env.get("COMFY_URL") or str(batch_atlas.COMFY_BASE)
+        if not _comfy_answers(url, comfy_env):
+            with _render_lock:
+                _render_state.update(
+                    running=False, done=True, cur=0, total=total, diagnostics=[],
+                    log=(f"✖ Run generation on = My computer, but nothing "
+                         f"answered at {url}.\nStart ComfyUI and the tunnel "
+                         "(desktop launcher), or switch to RunPod in ⚙ Global "
+                         "settings, then retry.\n"))
+            return
     # The subprocess reads batch/ from local disk (already_generated seed-match
     # skips re-rendering pinned variants). It hydrates lazily, so pull it here
     # before spawning, else the subprocess sees an empty pile.
@@ -6396,13 +6504,15 @@ class Handler(BaseHTTPRequestHandler):
         # scheduler, dtype and IPAdapter weight-type fields are mapped there
         # too, and their ENUM_FIELDS entry is only the offline floor.
         pairs = sorted(set(MODEL_FIELDS.values()))
+        target = effective_run_on()
         try:
-            res = comfy_catalog.refresh(pairs)
+            res = comfy_catalog.refresh(pairs, target=target)
         except Exception as e:  # noqa: BLE001 — report, never 500 the button
             return f"⟳ Refresh failed ({type(e).__name__}: {e})"
         if not res.get("ok"):
             return f"⚠ {res.get('note') or 'Nothing to refresh.'}"
-        return (f"✓ Model lists refreshed from {res.get('source')} — "
+        who = "RunPod" if target == "pod" else "your ComfyUI"
+        return (f"✓ Model lists for {who} refreshed from {res.get('source')} — "
                 f"{res.get('fields')} list(s), {res.get('values')} value(s)")
 
     def _clearcache(self) -> str:
@@ -7268,6 +7378,9 @@ class Handler(BaseHTTPRequestHandler):
         global_fields = []   # atlas_config.json shared defaults
         atlas_fields = []    # per-atlas overrides + this atlas's geometry
         model_cache: dict = {}  # (node,field) -> list, fetched once per page
+        # The machine the render will run on — its files are the only lists
+        # worth showing, so every dropdown and the status strip follow it.
+        target = effective_run_on(cfg)
         for key, label, typ in CONFIG_FIELDS:
             step = " step=any" if typ == "number" else ""
             tip = help_for(key, cfg)
@@ -7286,7 +7399,8 @@ class Handler(BaseHTTPRequestHandler):
                 ctrl = _control_html(
                     key, typ, ov, model_cache, allow_blank=True,
                     blank_label=f"(inherit global: {gv})",
-                    placeholder=f"global: {gv}", title=itip, step=step)
+                    placeholder=f"global: {gv}", title=itip, step=step,
+                    target=target)
                 atlas_fields.append(
                     f'<label data-pipe="{pipe}"><span class="lblrow">'
                     f'{html.escape(label)} '
@@ -7295,7 +7409,7 @@ class Handler(BaseHTTPRequestHandler):
                 )
             else:
                 ctrl = _control_html(key, typ, cfg.get(key, ""), model_cache,
-                                     title=tip_esc, step=step)
+                                     title=tip_esc, step=step, target=target)
                 global_fields.append(
                     f'<label data-pipe="{pipe}"><span class="lblrow">'
                     f'{html.escape(label)}{qm}</span>{ctrl}</label>'
@@ -7324,7 +7438,7 @@ class Handler(BaseHTTPRequestHandler):
             comfy_catalog.commit_live()
         except Exception:  # noqa: BLE001 — caching is never worth a 500
             pass
-        model_status = _model_status_html()
+        model_status = _model_status_html(target)
         deploy_val = html.escape(str(m.get("deploy_path", "")))
         deploy_tip = html.escape(
             "R2 destination prefix (inside this project's space) for the "

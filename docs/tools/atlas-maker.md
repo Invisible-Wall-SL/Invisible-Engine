@@ -87,6 +87,20 @@ Three collapsible panels sit above the region grid:
   source image, deploy prefix/basename).
 - **📝 Atlas style** — the positive prefix/suffix and negative for this atlas.
 
+### Run generation on — RunPod or my computer
+
+The first field in **⚙ Global settings** picks the machine that renders:
+
+| Choice | What happens |
+|---|---|
+| *(service default: …)* — blank | whatever the service is configured for (`COMFY_TRANSPORT`; production = RunPod). An untouched project keeps today's behaviour. |
+| **RunPod — cloud GPU** | the serverless endpoint: pay per job, nothing to start; the models are whatever is installed on the pod's Network Volume. |
+| **My computer — my own ComfyUI over the tunnel** | your GPU, your installed models, no per-job cost. Needs ComfyUI running and the desktop launcher's tunnel up — if nothing answers, the render stops with one sentence saying so instead of failing half-way through. Never wakes a pod. |
+
+The model dropdowns below follow this choice: they list the files of the machine
+that will actually load them, which is why the two machines keep separate
+catalogs (next section).
+
 **Model and enum fields are dropdowns, not free text.** Two kinds:
 
 - **Installed-file lists** — checkpoint, LoRA, ControlNet, RMBG model, and the
@@ -106,26 +120,31 @@ in Atlas settings it means *inherit the global*, in Global settings it means
 
 ### The status line + ⟳ Refresh model lists
 
-At the top of **⚙ Global settings** a coloured strip says where this page's
-model lists came from:
+At the top of **⚙ Global settings** a coloured strip names the selected machine
+(*RunPod ·* / *My computer ·*) and says where this page's model lists came from:
 
 | Colour | Means |
 |---|---|
-| green — *Model lists: live from ComfyUI* | a ComfyUI answered this page load; the lists are current. |
-| amber — *Model lists: cached … from …* | ComfyUI isn't answering, so the lists come from the stored catalog (still accurate as of that time). |
-| red — *Model lists unavailable* | nothing has ever been reached; the installed-file fields fall back to free text. The fixed enums are unaffected. |
+| green — *My computer · Model lists: live from your ComfyUI (url)* | your ComfyUI answered this page load; the lists are current. Only *My computer* can be live — a serverless worker exists only while a job runs. |
+| amber — *… Model lists: cached … from …* | the lists come from that machine's stored catalog (accurate as of that time). |
+| red — *… Model lists unavailable* | nothing has ever been read for that machine; the installed-file fields fall back to free text, and the strip says what to start (*My computer*) or set (`COMFY_CATALOG_URL`, RunPod). The fixed enums are unaffected. |
 
-**⟳ Refresh model lists** re-probes ComfyUI and stores what it finds in R2
-(`_shared/comfy/catalog.json` — one catalog shared by every project, because
-what's installed is a property of the ComfyUI, not of a project). It reports the
-source and how many lists/values it read, then reloads the page.
+**⟳ Refresh model lists** re-probes the selected machine and stores what it finds
+in R2 — `_shared/comfy/catalog.json` for *My computer* (read live over the
+tunnel), `_shared/comfy/catalog-pod.json` for RunPod (read from
+`COMFY_CATALOG_URL`, an always-on pod that mounts the same Network Volume the
+workers use). One catalog per machine, shared by every project, because what's
+installed is a property of the install, not of a project — and never substituted
+for each other: the RunPod target never reads the tunnel, *My computer* never
+reads `COMFY_CATALOG_URL`. It reports the source and how many lists/values it
+read, then reloads the page.
 
-This matters because production runs `COMFY_TRANSPORT=serverless`: the RunPod
-endpoint is a job queue, not a ComfyUI HTTP server, so there is normally nothing
-live to ask. The catalog is what keeps these dropdowns populated — and pointing
-`COMFY_CATALOG_URL` at an always-on ComfyUI (e.g. the CPU volume pod) gives ⟳ a
-source it can always read. A page load never writes to R2; only ⟳ (and one
-opportunistic write when a live probe genuinely finds a changed list) does.
+This matters because production defaults to RunPod: the serverless endpoint is a
+job queue, not a ComfyUI HTTP server, so there is nothing live to ask for that
+machine. Setting `COMFY_CATALOG_URL` once (see `docs/INFRA.md`) and pressing ⟳
+is what populates the RunPod dropdowns; *My computer* needs nothing — it is live
+whenever your ComfyUI is up. A page load never writes to R2; only ⟳ (and one
+opportunistic write when a live local probe genuinely finds a changed list) does.
 
 ## 🖼 View atlas — the Region Overlay Inspector
 
