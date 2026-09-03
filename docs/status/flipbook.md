@@ -195,6 +195,26 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-03 — **A session did not exist anywhere until a worker touched it.** The destructive half
+  of *"after a refresh most of my generations disappear, as if they were never registered"* — and
+  the phrase was literally true.
+  - `start_session` built the session, put it in `_SESSIONS`, dispatched and returned. **`meta.json`
+    was first written by the WORKER**, when it began the first variation. A session waiting its turn
+    behind another therefore existed nowhere but in RAM, and a restart erased it leaving no file, no
+    record and nothing to recover. Not a lost render — a lost REQUEST.
+  - **Queueing is what makes it likely rather than theoretical.** The tool actively invites you to
+    line several ideas up behind the one running (`MAX_QUEUED_SESSIONS = 4`), and every one of them
+    was unwritten until its turn came. So the more work you had queued, the more a single deploy
+    took — and there were about a dozen deploys on 2026-09-02.
+  - Fixed by persisting before dispatch. `_adopt` already restores a doc whose variations are all
+    `queued`, so a queued session now survives a restart and resumes instead of vanishing.
+  - **Why the earlier scans said nothing was lost, and were right:** they looked for renders without
+    records and for gaps in a session's slots. A session erased before its first variation leaves
+    neither — no file, no slot, no dir. The scans bounded the damage correctly; they could not see
+    a request that never reached storage at all.
+  - Fixture: a session queued behind a running one is on disk before any worker touches it, and
+    survives `_SESSIONS` being cleared with its prompt and every slot intact. **Confirmed to fail
+    against the old order.**
 - 2026-09-03 — **A renamed setting kept the node's name in the Generate panel.** Owner, after a
   publish where every row read `BiRefNetRemoveBackgroundRMBG`, `…RMBG2`, `…RMBG3` despite the names
   they had typed: *"can we use the string I am actually inputting in the fields?"*
