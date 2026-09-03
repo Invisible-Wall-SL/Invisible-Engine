@@ -4302,7 +4302,7 @@ function addBpParam(){{
  ['int','float','text','bool','select'].forEach(t=>{{ let o=document.createElement('option'); o.value=t; o.textContent=t; typeSel.appendChild(o); }});
  let key=document.createElement('input'); key.dataset.pkey='1'; key.placeholder='key (e.g. steps)';
  key.style.cssText='background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px';
- let label=document.createElement('input'); label.dataset.plabel='1'; label.placeholder='label (e.g. Steps)';
+ let label=document.createElement('input'); label.dataset.plabel='1'; label.placeholder='label (shown in the panel)';
  label.style.cssText='background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px';
  let def=document.createElement('input'); def.dataset.pdefault='1'; def.placeholder='default';
  def.style.cssText='background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:5px';
@@ -4365,6 +4365,11 @@ function addBpParam(){{
  row._bpRefresh=refreshFields;
  nodeSel.onchange=refreshFields; fieldSel.onchange=syncFromField;
  typeSel.onchange=syncTypeUi;
+ // The label follows the key until the author types a label of their own. The
+ // label is what the settings panel SHOWS, and the row prefilled it with the
+ // suggested key — so renaming the key published a setting still labelled after
+ // the node, and the name typed into the row's first box never reached the panel.
+ key.oninput=()=>{{ if(label.value===''||label.value===autoLabel){{ label.value=key.value; autoLabel=label.value; }} }};
  let r1=document.createElement('div'); r1.style.cssText='display:flex;gap:6px;flex-wrap:wrap;align-items:center';
  r1.appendChild(nodeSel); r1.appendChild(fieldSel); r1.appendChild(typeSel); r1.appendChild(mlWrap); r1.appendChild(rm);
  let r2=document.createElement('div'); r2.style.cssText='display:flex;gap:6px;flex-wrap:wrap;align-items:center';

@@ -211,7 +211,9 @@ reference images (`style_ref` / `shape_ref`), and `output` (the save node).
 
 **Exposed settings** become the knobs in **🎛 Blueprint settings**. Pick the node input first — the
 key (named after the node), the type and the default are read straight off the graph's own baked
-value, and they follow the node if you re-point the row, leaving anything you typed alone. A `text`
+value, and they follow the node if you re-point the row, leaving anything you typed alone. The
+**label is what the settings panel shows**, and it follows the key until you type a label of your
+own — renaming the key is enough. A `text`
 setting holding prose gets **prompt-sized box** ticked automatically and renders as a full-width
 textarea; a `#222222` or a `ComfyUI` stays a narrow field. A node input can be driven by a role or
 by a setting, never both — an input a role holds is not offered to a setting.

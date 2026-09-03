@@ -195,6 +195,18 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-03 — **A renamed setting kept the node's name in the Generate panel.** Owner, after a
+  publish where every row read `BiRefNetRemoveBackgroundRMBG`, `…RMBG2`, `…RMBG3` despite the names
+  they had typed: *"can we use the string I am actually inputting in the fields?"*
+  - **Cause:** the row's first box is the **key** and the second the **label**, and the panel shows
+    the label. Picking a node prefilled BOTH with the suggested key; typing a new key left the
+    label holding the old suggestion, so the typed name was published as an id nobody sees.
+  - **Fix:** the label now follows the key while it still holds what the row auto-filled (blank, or
+    the last suggestion); a label the author typed is left alone. Placeholders say which box is
+    which (`label (shown in the panel)`). Same fix in the Atlas Maker's Python-rendered twin modal
+    (`ui_server.py` `key.oninput`), which had the identical prefill.
+  - Already-published blueprints keep their old labels — re-publish (overwrite) to pick up the
+    typed names.
 - 2026-09-03 — **Sessions "disappeared" from the picker without anything ever being lost.** Owner:
   *"my generation do not get registered … after a refresh most of my generations disappear, as if
   they were never registered! This is a destructive way of working"*.
