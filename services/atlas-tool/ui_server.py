@@ -4178,7 +4178,7 @@ async function refreshBpParamLists(p){{
  let panel=document.getElementById('bpParamsPanel');
  let res=null;
  try{{
-  let r=await fetch('/video/nodespecs',{{method:'POST',body:JSON.stringify({{blueprint:p}})}});
+  let r=await fetch('/video/nodespecs',{{method:'POST',body:JSON.stringify({{blueprint:p,surface:'atlas'}})}});
   res=await r.json();
  }}catch(e){{ return; }}
  if(!res||!res.ok||!panel||panel.dataset.bpid!==p) return;
@@ -4539,7 +4539,7 @@ function onBpFilePicked(){{
   let mine=++_bpPick;
   _bpSpecs={{}}; bpSpecsNote('');
   let classes=Object.values(g).map(n=>String((n||{{}}).class_type||'')).filter((c,i,a)=>c&&a.indexOf(c)===i);
-  fetch('/video/nodespecs',{{method:'POST',body:JSON.stringify({{classes:classes}})}})
+  fetch('/video/nodespecs',{{method:'POST',body:JSON.stringify({{classes:classes,surface:'atlas'}})}})
    .then(r=>r.json())
    .then(r=>{{
     if(mine!==_bpPick) return;
@@ -6234,7 +6234,12 @@ class Handler(BaseHTTPRequestHandler):
         model installed on the pod today shows up without a re-import.
 
         A pod that is asleep is the NORMAL case, not an error — it answers
-        `ok:false` with a note and the caller keeps what it already had."""
+        `ok:false` with a note and the caller keeps what it already had.
+
+        The contract is read for the machine that will RUN the graph: the Atlas
+        Maker page (`surface: "atlas"`) follows the project's ⚙ *Run generation
+        on*; a video render never consults that setting — it runs in-process on
+        the service default — so the Flipbook reads the default target."""
         import comfy_specs  # local import: this is the only route that reads contracts
         try:
             payload = json.loads(raw or "{}")
@@ -6242,14 +6247,16 @@ class Handler(BaseHTTPRequestHandler):
             return b'{"error":"Request body was not valid JSON."}'
         if not isinstance(payload, dict):
             return b'{"error":"Request body was not a JSON object."}'
+        target = (effective_run_on() if payload.get("surface") == "atlas"
+                  else _env_run_on())
         try:
             classes = payload.get("classes")
             bp_id = str(payload.get("blueprint") or "").strip()
             if isinstance(classes, list) and classes:
-                out = comfy_specs.specs_for_classes(classes)
+                out = comfy_specs.specs_for_classes(classes, target=target)
             elif bp_id:
                 bp = blueprints.get_blueprint(bp_id)
-                out = (comfy_specs.specs_for_blueprint(bp) if bp else
+                out = (comfy_specs.specs_for_blueprint(bp, target=target) if bp else
                        {"ok": False, "source": "", "params": {},
                         "note": f"No blueprint '{bp_id}' in the library."})
             else:
@@ -6853,6 +6860,28 @@ class Handler(BaseHTTPRequestHandler):
                     f"({type(e).__name__}: {e})")
         return f"✓ Refreshed from R2 — {n} manifest(s) available"
 
+    @staticmethod
+    def _blueprint_enum_pairs() -> set:
+        """Every (class, input) a published blueprint's select settings read their
+        list from — `options_from` when the author recorded one, else the node
+        the setting drives. Never fails ⟳ over a bad blueprint in the library."""
+        import comfy_specs
+        out: set = set()
+        try:
+            for b in blueprints.list_blueprints():
+                full = blueprints.get_blueprint(str(b.get("id", "")))
+                if not full:
+                    continue
+                graph = full.get("graph") or {}
+                for p in full.get("params") or []:
+                    if isinstance(p, dict) and p.get("type") == "select":
+                        cls, field = comfy_specs.param_class_field(p, graph)
+                        if cls:
+                            out.add((cls, field))
+        except Exception:  # noqa: BLE001 — the library is a bonus here, not the job
+            pass
+        return out
+
     def _refreshmodels(self) -> str:
         """⟳ Refresh model lists: re-probe ComfyUI for its /object_info enums
         and persist them, so the Settings dropdowns keep working while nothing
@@ -6864,8 +6893,11 @@ class Handler(BaseHTTPRequestHandler):
         batch_atlas._bust_comfy_caches()
         # MODEL_FIELDS already covers every enum-backed node — the sampler,
         # scheduler, dtype and IPAdapter weight-type fields are mapped there
-        # too, and their ENUM_FIELDS entry is only the offline floor.
-        pairs = sorted(set(MODEL_FIELDS.values()))
+        # too, and their ENUM_FIELDS entry is only the offline floor. A published
+        # blueprint's select settings are enum-backed the same way, and caching
+        # them here is what lets its dropdown show the pod's list while no pod is
+        # running (`comfy_specs.specs_for_blueprint`'s middle tier).
+        pairs = sorted(set(MODEL_FIELDS.values()) | self._blueprint_enum_pairs())
         target = effective_run_on()
         try:
             res = comfy_catalog.refresh(pairs, target=target)

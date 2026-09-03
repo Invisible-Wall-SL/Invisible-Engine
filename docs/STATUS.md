@@ -167,11 +167,10 @@ the docs were just stale — remaining tail = the Borut mirror B4.6 + live-verif
 - **Shipped-game submodule bumps (owner-owned)** — Book of Borut bumps to ship FX / Flow / info-bar,
   **plus the B4.6 HUD-readout mirror** (Borut still renders coded `UiLabel*` binds; the apps/lines
   component-instance flip reaches it only on a submodule bump + republish) ([[feedback_bump_game_submodule]]).
-- **`COMFY_CATALOG_URL` on the atlas-tool Railway service** (2026-09-03) — the always-on ComfyUI
-  the Flipbook / Atlas Maker read node contracts from (ranges, option lists) for the live sliders
-  and dropdowns; point it at the CPU volume pod `COMFY_VOLUME_POD_ID` names. Until set, production
-  shows each dropdown's BAKED list, and a setting imported from a workflow is range-checked only if
-  it was published with the pod awake. ([status/flipbook](status/flipbook.md), [INFRA](INFRA.md))
+- **Re-publish the imported video blueprint with a pod running** (owner, 2026-09-04) — the one
+  imported before the contract reader landed carries no bounds or lists; ＋ Blueprint on the
+  same API export bakes them in. No env var needed (⟳ and the reader discover a running pod
+  since #576). ([status/flipbook](status/flipbook.md))
 - ~~**prod DB migrations applied?**~~ — resolved: migrations are applied through **0014** (the
   concurrency lease table), owner-confirmed 2026-08-04. ([status/infra](status/infra.md))
 

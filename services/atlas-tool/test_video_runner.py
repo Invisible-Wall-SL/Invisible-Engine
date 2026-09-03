@@ -254,22 +254,32 @@ def test_a_sleeping_pod_is_not_an_error() -> None:
     list it already had. None of them is a failure anyone should be told about."""
     import comfy_specs
 
-    real_source, real_fetch = comfy_specs._source, comfy_specs._fetch_alt
+    cat = comfy_specs.comfy_catalog
+    real = (comfy_specs._source, cat._http_get_json, cat.load, cat.commit_live)
+    catalog: dict = {}
     try:
         comfy_specs._cache.clear()
-        comfy_specs._source = lambda: "http://comfy.test"
+        cat._pending.clear()
+        comfy_specs._source = lambda target, alive=None: "http://comfy.test"
+        # R2 stays out of it: the catalog tier is whatever this dict says.
+        cat.load = lambda target="local", force=False: catalog
+        cat.commit_live = lambda **kw: False
 
-        def fake_fetch(base, path):
-            cls = path.rsplit("/", 1)[-1]
+        def fake_fetch(url, headers, timeout=None):
+            cls = url.rsplit("/", 1)[-1]
             if cls not in OBJECT_INFO:
                 raise URLError("404")
             return {cls: OBJECT_INFO[cls]}
 
-        comfy_specs._fetch_alt = fake_fetch
+        cat._http_get_json = fake_fetch
         res = comfy_specs.specs_for_classes(["BiRefNetRMBG", "NodeThePodLacks"])
         check("a class this ComfyUI does not have is simply absent",
               sorted(res["classes"]), ["BiRefNetRMBG"])
         check("and the rest still resolved", res["ok"], True)
+        check("every COMBO list seen live is handed to the shared catalog",
+              cat._pending.get("BiRefNetRMBG|model"),
+              ["BiRefNet-general", "BiRefNet_toonout", "BiRefNet_lite",
+               "AnotherOneInstalledToday"])
 
         # The panel path: no class is recorded on these params, so each one is
         # resolved through the blueprint's OWN graph — which is what makes an
@@ -284,46 +294,59 @@ def test_a_sleeping_pod_is_not_an_error() -> None:
               "AnotherOneInstalledToday")
 
         comfy_specs._cache.clear()
-        comfy_specs._source = lambda: ""
-        res = comfy_specs.specs_for_classes(["BiRefNetRMBG"])
+        comfy_specs._source = lambda target, alive=None: ""
+        res = comfy_specs.specs_for_classes(["BiRefNetRMBG"], target="pod")
         check("nothing answering is an empty answer, never a raise",
               (res["ok"], res["classes"]), (False, {}))
         check("and it says so in one plain sentence", "asleep" in res["note"], True)
+        res = comfy_specs.specs_for_classes(["BiRefNetRMBG"], target="local")
+        check("and names the local tunnel when that is the target",
+              "did not answer" in res["note"], True)
+
+        # The middle tier: with nothing answering, a select falls back to the LAST
+        # list anything saw (the shared catalog) before the import-day bake — and a
+        # range has no such tier, so it stays whatever the blueprint published.
+        catalog.update({"fields": {"BiRefNetRMBG|model": ["FromTheCatalog"]}})
+        res = comfy_specs.specs_for_blueprint(load_blueprint())
+        check("a list comes from the catalog when the pod is asleep",
+              res["params"].get("birefnet_model"),
+              {"kind": "select", "options": ["FromTheCatalog"]})
+        check("a range does not", "sensitivity" in res["params"], False)
     finally:
-        comfy_specs._source, comfy_specs._fetch_alt = real_source, real_fetch
+        (comfy_specs._source, cat._http_get_json, cat.load, cat.commit_live) = real
         comfy_specs._cache.clear()
+        cat._pending.clear()
 
 
 def test_the_catalog_is_the_machine_that_runs_the_graph() -> None:
-    """Production is `COMFY_TRANSPORT=serverless` with `COMFY_URL` STILL SET to the
-    owner's local tunnel (docs/INFRA.md). A contract read off that box would list
-    the wrong machine's models, so under serverless only `COMFY_CATALOG_URL` is a
-    source — and under `http`, `COMFY_BASE` is."""
+    """A contract must describe the machine that will RUN the graph. "pod" is a
+    RunPod pod (pinned via `COMFY_CATALOG_URL` or discovered) and never
+    `COMFY_BASE` — production still has `COMFY_URL` set to the owner's LOCAL
+    tunnel, a different machine; "local" is `COMFY_BASE` and nothing else. The
+    rule is `comfy_catalog._probe_sources`', shared with Refresh model lists."""
     import comfy_specs
     ba = comfy_specs.batch_atlas
-    real = (ba.COMFY_TRANSPORT, ba.COMFY_BASE, comfy_specs._fetch_alt)
+    cat = comfy_specs.comfy_catalog
+    real = (ba.COMFY_BASE, cat._http_get_json, cat.runpod_control.running_pods)
     real_env = os.environ.get("COMFY_CATALOG_URL")
     try:
         ba.COMFY_BASE = "http://local.tunnel"
-        comfy_specs._fetch_alt = lambda base, path: {}
+        cat._http_get_json = lambda url, headers, timeout=None: {}
+        cat.runpod_control.running_pods = lambda: []
         os.environ["COMFY_CATALOG_URL"] = "http://catalog.pod"
 
-        ba.COMFY_TRANSPORT = "serverless"
-        check("serverless never reads the local tunnel, even when it answers",
-              comfy_specs._source(alive=lambda: True), "http://catalog.pod")
-
-        ba.COMFY_TRANSPORT = "http"
-        check("http reads the ComfyUI that runs the graph",
-              comfy_specs._source(alive=lambda: True), "http://local.tunnel")
-        check("and falls back to the catalog when that one is down",
-              comfy_specs._source(alive=lambda: False), "http://catalog.pod")
+        check("pod never reads the local tunnel, even when it answers",
+              comfy_specs._source("pod", alive=lambda: True), "http://catalog.pod")
+        check("local reads the ComfyUI that runs the graph",
+              comfy_specs._source("local", alive=lambda: True), "http://local.tunnel")
+        check("and local does not borrow the pod when it is down",
+              comfy_specs._source("local", alive=lambda: False), "")
 
         os.environ.pop("COMFY_CATALOG_URL")
-        ba.COMFY_TRANSPORT = "serverless"
-        check("serverless with no catalog set has no source at all",
-              comfy_specs._source(alive=lambda: True), "")
+        check("pod with nothing pinned and no pod running has no source at all",
+              comfy_specs._source("pod", alive=lambda: True), "")
     finally:
-        ba.COMFY_TRANSPORT, ba.COMFY_BASE, comfy_specs._fetch_alt = real
+        ba.COMFY_BASE, cat._http_get_json, cat.runpod_control.running_pods = real
         if real_env is None:
             os.environ.pop("COMFY_CATALOG_URL", None)
         else:

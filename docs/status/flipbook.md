@@ -192,13 +192,12 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 5. **The ＋ Blueprint modal flags an unexposed boolean gate: DONE** (2026-09-01, see Recent changes). What is NOT covered: an unexposed **numeric** knob that is equally load-bearing (the 1024 generation size on the same blueprint reached the render the same way a wrong boolean did). A boolean gating a switch is a clean signal with no false positives; "this int matters" is not, so it was deliberately left out rather than guessed at.
 
 ## Blocked (owner / external)
-- **`COMFY_CATALOG_URL` on the atlas-tool Railway service** (owner, 2026-09-03) — the always-on
-  ComfyUI the Flipbook and Atlas Maker panels read node CONTRACTS from (ranges, option lists) for
-  the live dropdowns and sliders. Point it at the volume pod that launcher-api's
-  `COMFY_VOLUME_POD_ID` names (`https://<podId>-8188.proxy.runpod.net`) — same Network Volume as
-  the GPU fleet, and `ComfyUI-RMBG` is `prod: true` at the same sha in `nodes.json`, so it is a
-  faithful stand-in for the serverless worker. Until set, live reads answer `ok:false` in
-  production and every dropdown shows its BAKED list; nothing breaks. See `docs/INFRA.md`.
+- **Re-publish the imported video blueprint with a pod running** (owner, 2026-09-04). The one
+  imported before the contract reader landed carries no bounds or lists; ＋ Blueprint on the
+  same API export bakes them in. No env var is needed any more: since #576 ⟳ (and this reader)
+  find a running RunPod pod through the RunPod API, and `COMFY_CATALOG_URL` is only an optional
+  pin (`docs/INFRA.md`). Until the re-publish, the panel bounds that blueprint only while a pod
+  answers or ⟳ has cached its lists, and Bck Sensitivity stays in 0..1 by hand.
 - (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
@@ -229,18 +228,30 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
     installed)", rather than being rewritten. `specs_for_blueprint` resolves a param's class
     through the blueprint's own graph, so a blueprint published BEFORE this gets live bounds and
     lists in the panel with no re-publish — whenever a catalog ComfyUI answers.
-  - **Which ComfyUI answers is the point.** Production runs `COMFY_TRANSPORT=serverless` (a job
-    queue, no `/object_info`) with `COMFY_URL` still set to the owner's LOCAL tunnel; a contract
-    read off that box would list the wrong machine's models. So under serverless only
-    `COMFY_CATALOG_URL` is consulted — see Blocked. Until it is set, live reads answer `ok:false`
-    and the baked lists stand; a sleeping pod is the normal case and never an error.
+  - **Which ComfyUI answers is the point.** A contract must describe the machine that will RUN
+    the graph. Main's #573/#576 model (`run_on`: *RunPod* vs *My computer*, one catalog each) is
+    the rule, and `comfy_specs` asks `comfy_catalog._probe_sources` for that target: *RunPod* =
+    a pinned `COMFY_CATALOG_URL` or a running pod discovered through the RunPod API, never
+    `COMFY_URL` (still set in production, and it is the owner's LOCAL tunnel); *My computer* =
+    `COMFY_URL` only. The Atlas Maker's importer/panel follow the project's `run_on` (`surface:
+    "atlas"` on the request); a video render never consults `run_on` — it runs in-process on
+    the service default — so the Flipbook reads `_env_run_on()`, the pod in production.
+    Nothing answering is normal and never an error.
+  - Built ON #571–#580's `comfy_catalog`, not beside it: its source probe, HTTP client,
+    per-target catalogs and `COMFY_CATALOG_URL`. The contract reader adds `remember()` (a COMBO
+    list seen live on *My computer* joins the local catalog's next `commit_live`) and ⟳ Refresh
+    model lists now also caches every published blueprint's select lists (`options_from`, or
+    the node the param drives) for its target — so a blueprint's dropdown shows the last-seen
+    pod list while no pod is running, before the import-day bake. Also fixed on the way: #571
+    had committed the `/video/nodespecs` dispatch line without its handler (it read a working
+    tree that already held half of this), a latent 500 on `main` that the proxy never reached.
   - Fixtures: `test_node_contracts_are_read_not_guessed`, `test_a_sleeping_pod_is_not_an_error`,
     `test_the_catalog_is_the_machine_that_runs_the_graph`,
     `test_options_from_survives_the_param_whitelist`, and
     `test_a_param_with_no_declared_domain_cannot_be_clamped` — the 400 itself, reproduced.
-  - **The owner's existing blueprint:** re-publish it (＋ Blueprint on the same API export) to bake
-    the bounds and lists in; or, once `COMFY_CATALOG_URL` is set, the panel reads them live with no
-    re-publish. Until either, keep Bck Sensitivity in 0..1.
+  - **The owner's existing blueprint:** re-publish it (＋ Blueprint on the same API export, with
+    a pod running) to bake the bounds and lists in; or rely on the live panel read whenever a
+    pod answers, and on ⟳ having cached its lists. Until either, keep Bck Sensitivity in 0..1.
 - 2026-09-03 — **A session did not exist anywhere until a worker touched it.** The destructive half
   of *"after a refresh most of my generations disappear, as if they were never registered"* — and
   the phrase was literally true.
