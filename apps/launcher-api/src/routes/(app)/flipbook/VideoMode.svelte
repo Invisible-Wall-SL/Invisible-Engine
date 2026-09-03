@@ -1576,7 +1576,7 @@ Overwrite it?`)
 
 		prompt = s.prompt ?? '';
 		negative = s.negative ?? '';
-		variations = Math.min(12, Math.max(1, s.variations?.length || 1));
+		variations = Math.max(1, s.variations?.length || 1);
 
 		// No blob to re-preview: the thumbnail came from bytes this tab cropped or uploaded, and
 		// rebuilding an R2 key from a ref the tool relativized per root is the drift §1 warns
@@ -1825,7 +1825,7 @@ Overwrite it?`)
 
 			<label class="fld">
 				<span>Variations</span>
-				<input type="number" min="1" max="12" bind:value={variations} />
+				<input type="number" min="1" bind:value={variations} />
 			</label>
 
 			<!-- A group holding a PROSE setting starts open. Every group used to be collapsed,
@@ -1879,7 +1879,7 @@ Overwrite it?`)
 				<!-- A span, not a label: it wraps a BUTTON as well as the number, and a label
 				     would hand the button's clicks to the input. -->
 				<span class="addn" title="Add more rolls of this same recipe to this session">
-					<input type="number" min="1" max="12" bind:value={addCount} />
+					<input type="number" min="1" bind:value={addCount} />
 					<button class="sm" disabled={busy} onclick={addVariations}>＋ Add</button>
 				</span>
 				<button

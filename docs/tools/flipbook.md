@@ -242,7 +242,7 @@ The left rail, top to bottom:
 | **Blueprint** | Which ComfyUI network to run. **Only video blueprints are listed.** **＋ Blueprint** (next to *Generate*, if you hold the publish permission) uploads a new one — see [Publishing a blueprint](#publishing-a-blueprint). Blueprints declare which tool they belong to, and the Atlas Maker's image networks are deliberately not offered here — they would generate a still, not an animation. Its description appears underneath. |
 | **Prompt** / **Negative** | What should happen in the animation, and what to avoid. |
 | **Source image** | The still to animate. **Pick…** opens a picker with **three** sources — see below. An image-to-video blueprint refuses to start without one. |
-| **Variations** | How many to generate (1–12). Each is a separate render with its own seed. |
+| **Variations** | How many to generate. There is no ceiling — each is a separate render with its own seed, and each one is paid GPU time. |
 | **Settings groups** | Every knob the blueprint's author exposed, grouped as they named them — duration, fps, generation size, sampler settings, output size, background cutout. Each starts at the blueprint's own default; you only override what you touch. |
 
 Press **▶ Generate N**.
@@ -397,8 +397,7 @@ would rename someone's art underneath them.
 
 **＋ Add** (next to the session selector) appends more rolls of the same recipe to *this*
 session, rather than starting a new one — one idea stays in one grid, which is the
-comparison you are actually making. A session holds up to 36 live variations; deleting frees
-room back up.
+comparison you are actually making. A session can hold as many variations as you add to it.
 
 A tile still rendering can be neither re-rolled nor deleted — cancel the session first.
 
