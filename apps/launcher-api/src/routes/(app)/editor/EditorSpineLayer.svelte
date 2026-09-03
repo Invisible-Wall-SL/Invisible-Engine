@@ -1214,9 +1214,10 @@
 	/**
 	 * Place a spine instance CONTAIN-fit into a reel-board symbol seat (world px, pre pan/zoom
 	 * — the loop bakes those in after). Same convention as {@link placeArt}'s contain branch:
-	 * the sizing rect is the AUTHORED skeleton canvas when the export has one (origin-centred
-	 * by Spine convention — and the exact rect the game's `spineSizeScale` measures), else the
-	 * live setup-pose bounds and their own centre. `scaleY < 0` flips the y-up runtime art into
+	 * the sizing rect is the AUTHORED skeleton box when the export has one — read where the
+	 * header puts it, the exact rect the game's `spineSizeScale` sizes by and
+	 * `<SpineProvider centreBox>` centres on — else the live setup-pose bounds and their own
+	 * centre. `scaleY < 0` flips the y-up runtime art into
 	 * the y-down camera, as every other branch does.
 	 */
 	function placeInCell(

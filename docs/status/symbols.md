@@ -334,6 +334,7 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+- 2026-09-02 — **The grid and the cell preview fit a rig's box where its header puts it.** `measureSpineBounds` now returns the authored `skeleton.x/y` corner instead of assuming `-w/2, -h/2`, so a Rigger rig whose Bounds frame is not centred on its origin draws AT the frame — the same rule the game now applies via `<SpineProvider centreBox>`, so grid == board again for those rigs. Spine-editor rigs are unchanged. See [rigger status](rigger.md).
 - 2026-09-01 — **this stage's bound FX/clips were drawn MIRRORED, and an unsized rig drew at a
   different size here than in the game.** Both are fixed in the shared code this stage reuses, not
   here: `fxBoneTransform` hands the overlay a projected basis whose determinant is negative (the

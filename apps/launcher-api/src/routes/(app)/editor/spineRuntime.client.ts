@@ -51,6 +51,8 @@ export interface SpineSkeleton {
 	y: number;
 	scaleX: number;
 	scaleY: number;
+	/** The parsed skeleton data — the authored box lives here (`data.x/y/width/height`). */
+	data: SpineSkeletonData;
 	/** Setup-order bones; `bones[0]` is the root (== the rig origin when an fx binding has no bone). */
 	bones: SpineBone[];
 	setToSetupPose(): void;
@@ -94,11 +96,15 @@ export interface SpineBoneMeta {
 	name: string;
 }
 export interface SpineSkeletonData {
-	/** The AUTHORED skeleton canvas (`skeleton.data.width/height`) — the pose-independent
-	 * sizing rect, origin-centred by Spine convention, and the SAME rect the game's
-	 * `spineSizeScale` fits against. `0` when the export omits it (e.g. a Rigger `.irig`),
-	 * which is why {@link measureSpineBounds} falls back to a live `getBounds`. NOTE: the
-	 * runtime does NOT scale these by the loader's `parser.scale` — only the geometry. */
+	/** The AUTHORED skeleton box (`skeleton.{x,y,width,height}`) — the pose-independent
+	 * sizing rect, and the SAME rect the game's `spineSizeScale` fits against. `x`/`y` is its
+	 * bottom-left corner in y-up skeleton coords; a Spine-editor rig centres it on the origin, a
+	 * Rigger rig need not (read it through `authoredSpineBox`, never assume). `width`/`height`
+	 * are `0` when the export omits them, which is why {@link measureSpineBounds} falls back to
+	 * a live `getBounds`. NOTE: the runtime does NOT scale any of these by the loader's
+	 * `parser.scale` — only the geometry. */
+	x?: number;
+	y?: number;
 	width: number;
 	height: number;
 	animations: SpineAnimationMeta[];

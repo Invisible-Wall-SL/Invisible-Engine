@@ -97,8 +97,9 @@
 
 	/**
 	 * Contain-fit the rig into the square canvas (centred) against `measureSpineBounds` —
-	 * the AUTHORED skeleton canvas, which is the same rect the game's `spineSizeScale` and
-	 * the Scene Editor's reel cells measure. This preview used to fit live setup-pose
+	 * the AUTHORED skeleton box, read where the header puts it, which is the same rect the
+	 * game's `spineSizeScale` + `centreBox` and the Scene Editor's reel cells fit. This
+	 * preview used to fit live setup-pose
 	 * bounds instead, which disagrees with what ships whenever a rig's canvas and its
 	 * resting art differ: the scatter's invisible ray burst (bones scaled ×4) made the grid
 	 * draw a gem a third the size the board shows.

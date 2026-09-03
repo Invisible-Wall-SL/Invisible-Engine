@@ -5,7 +5,7 @@
  * `SpineInstance`. All loading is async and defensive — a missing index, unknown
  * bundle, or load error resolves to `null` so the canvas keeps its placeholder.
  */
-import { SPINE_FALLBACK_NATURAL_SIZE } from 'constants-shared/spine';
+import { SPINE_FALLBACK_NATURAL_SIZE, authoredSpineBox } from 'constants-shared/spine';
 
 import { EDITOR_SPINE_LOAD_SCALE } from '$lib/spineScale';
 import {
@@ -282,12 +282,13 @@ export interface SpineArtBounds {
  * Measure a rig's natural sizing rect — the ONE definition every editor surface that
  * fits a skeleton into a box reads (the Scene Editor's reel cells, the Symbols grid).
  *
- * Prefers the AUTHORED skeleton canvas (`skeleton.data.width/height`): it's pose-
- * independent, present in every proper export, and it is the exact rect the game's
- * `spineSizeScale` measures — so a preview fitted to it matches what ships. By Spine
- * convention that canvas is centred on the origin. Falls back to a live setup-pose
- * `getBounds` (with its own centre) for a rig whose export omits the size — e.g. a
- * Rigger `.irig` — and finally to a neutral {@link SPINE_FALLBACK_NATURAL_SIZE} box so a
+ * Prefers the AUTHORED skeleton box (`skeleton.{x,y,width,height}`, via `authoredSpineBox`):
+ * it's pose-independent, present in every proper export, and it is the exact rect the game's
+ * `spineSizeScale` sizes by and `<SpineProvider centreBox>` centres on — so a preview fitted
+ * to it matches what ships. The box is read WHERE the header puts it: a Rigger rig's frame is
+ * rarely centred on its origin, and reading only the size used to place it as if it were.
+ * Falls back to a live setup-pose `getBounds` (with its own centre) for a rig whose export
+ * omits the size, and finally to a neutral {@link SPINE_FALLBACK_NATURAL_SIZE} box so a
  * degenerate rig still draws something rather than vanishing. That last box is SHARED with
  * the runtime's `spineSizeScale`: while the two picked different fallbacks, an unmeasurable
  * carrier rig drew at one size here and another in the game.
@@ -296,10 +297,8 @@ export interface SpineArtBounds {
  * runs `setToSetupPose()`, which would otherwise wipe an applied animation frame.
  */
 export function measureSpineBounds(inst: SpineInstance): SpineArtBounds {
-	const data = inst.skeleton.data;
-	if (data.width > 0 && data.height > 0) {
-		return { offX: -data.width / 2, offY: -data.height / 2, bw: data.width, bh: data.height };
-	}
+	const box = authoredSpineBox(inst.skeleton.data);
+	if (box) return { offX: box.x, offY: box.y, bw: box.width, bh: box.height };
 	const skel = inst.skeleton;
 	// Measure at unit scale — a caller's render loop may have baked its zoom into the
 	// skeleton's scale, which would otherwise come back multiplied into the bounds.
