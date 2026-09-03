@@ -126,7 +126,7 @@ class _PathProxy:
 
 class _StrProxy:
     """A str that always reflects the calling thread's resolved context (used
-    for R2_PREFIX / COMFY_HOST). `.get()`-style miss returns ''."""
+    for R2_PREFIX). `.get()`-style miss returns ''."""
 
     __slots__ = ("_key",)
 
@@ -164,7 +164,6 @@ STAGING_ROOT = _PathProxy("staging_root")
 MANIFEST_DIR = _PathProxy("manifest_dir")
 CONFIG_PATH = _PathProxy("staging_root", "atlas_config.json")
 R2_PREFIX = _StrProxy("r2_project_prefix")
-COMFY_HOST = _StrProxy("comfy_host")
 
 
 # Local-disk size/format helpers live in iw_common.storage (shared with the
@@ -236,7 +235,6 @@ DEFAULT_CONFIG = {
     # file the project doesn't have. Blank → active_manifest_name() resolves to
     # the project's first real manifest (matching the Session dropdown).
     "manifest_path": "",
-    "comfy_host": str(COMFY_HOST),
     "pipeline": "sdxl",
     "checkpoint": "juggernautXL_ragnarokBy.safetensors",
     "lora": "gameIconInstitute3d_v10.safetensors",
@@ -363,7 +361,6 @@ ADV_BOOL = set()
 
 CONFIG_FIELDS = [
     ("pipeline", "Pipeline", "text"),
-    ("comfy_host", "ComfyUI host:port", "text"),
     ("mockup_image", "Global style mockup", "text"),
     ("checkpoint", "Checkpoint", "text"),
     ("lora", "LoRA", "text"),
@@ -478,7 +475,7 @@ ENUM_FIELDS: dict[str, list[str]] = {
 # is "both" = the two local ComfyUI pipelines (sdxl OR flux), hidden under
 # gpt_image. "all" = every pipeline incl. gpt_image (truly universal fields).
 PIPE_GROUP = {
-    "pipeline": "all", "comfy_host": "all", "padding_pct": "all",
+    "pipeline": "all", "padding_pct": "all",
     "comfy_org_api_key": "all", "credits_eur_rate": "all",
     "checkpoint": "sdxl", "lora": "sdxl", "lora_strength": "sdxl",
     "controlnet": "sdxl", "ipadapter_weight": "sdxl",
@@ -507,7 +504,7 @@ _IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif",
 # Subset of CONFIG_FIELDS that can be overridden per-atlas. Stored in the
 # active manifest's "settings" block; atlas_config.json keeps the shared
 # default (shown as the input placeholder; blank input = inherit global).
-# Everything else (comfy_host, mockup_image, manifest_path, project) stays
+# Everything else (mockup_image, manifest_path, project) stays
 # truly global.
 PER_ATLAS_KEYS = {
     "checkpoint", "lora", "lora_strength", "controlnet", "rmbg_model", "rembg",
@@ -535,10 +532,6 @@ _ATLAS_GEOM_NUMERIC = {"atlas_width", "atlas_height",
 # {rmbg} are filled with the current values so the tip names the actual model
 # in use (e.g. "follows the LoRA 'gameIconInstitute3d_v10' more closely").
 SETTING_HELP = {
-    "comfy_host":
-        "Where ComfyUI is listening (host:port). The launcher derives this "
-        "from the active project — only change it if ComfyUI runs elsewhere. "
-        "Generation fails fast with a clear message if nothing answers here.",
     "rembg":
         "Remove the background after generating (subject cutout → transparent "
         "PNG). Keep ON for game icons/symbols. Turn OFF for a full-bleed image "

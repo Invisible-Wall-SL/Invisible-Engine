@@ -68,7 +68,6 @@ def _config_paths() -> list[Path]:
     return paths
 
 _DEFAULTS = {
-    "comfy_host": "127.0.0.1:8189",
     # CLI argparse fallback only — the cloud UI ALWAYS passes --manifest with
     # the resolved active-manifest path, so this never fires there. Blank (not
     # a fabricated sample name) so a bare run on a fresh project fails clearly
