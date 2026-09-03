@@ -71,20 +71,11 @@ _CV = threading.Condition(_LOCK)
 # status poll and every page read for its duration.
 _META_LOCK = threading.Lock()
 
-# A variation count high enough to be useful, low enough that a fat-fingered
-# number can't queue an afternoon of GPU time.
-MAX_VARIATIONS = 12
 # How many sessions may WAIT behind the running one. The queue is serial, so it
 # never raises the burn RATE — but it does extend the tail, and an author who
 # lines up five full sessions and walks away should be told, not surprised.
 # A waiting session has spent nothing, so cancelling one is free.
 MAX_QUEUED_SESSIONS = 4
-# A session GROWS: variations can be added to it and re-rolled in place, so the
-# per-request cap above is no longer the whole story. This is the ceiling on the
-# live (non-deleted) slots one session may hold — enough for three full runs of
-# the same idea, while keeping the grid legible and `meta.json` (rewritten after
-# every single job) small. Deleting a variation frees its room back up.
-MAX_SESSION_VARIATIONS = 36
 # Poll cadence + overall per-job cap. Wan 2.2 14B on a cold worker loads ~29 GB
 # of weights before it samples anything, so the cap is generous by necessity.
 POLL_SECONDS = 3.0
@@ -106,7 +97,9 @@ JOB_TIMEOUT_SECONDS = int(os.environ.get("VIDEO_JOB_TIMEOUT_SECONDS") or 9600)
 # Never set it above the endpoint's max workers: the surplus jobs just sit
 # IN_QUEUE, billed for nothing and reported as waiting. Sessions still run one at
 # a time regardless — this is parallelism WITHIN a session, not across them.
-PARALLEL_JOBS = max(1, min(8, int(os.environ.get("VIDEO_PARALLEL_JOBS") or 1)))
+# There is no ceiling here: the endpoint's worker count is the real one, and the
+# owner sets that, so a second number would only ever be wrong.
+PARALLEL_JOBS = max(1, int(os.environ.get("VIDEO_PARALLEL_JOBS") or 1))
 # How long a run of UNREADABLE status polls is tolerated before a job is given up
 # on. Losing the poll is not losing the job — the worker renders (and bills)
 # either way — so one 500 from RunPod's status API must never fail a variation
@@ -824,8 +817,8 @@ def start_session(req: dict, ctx: tuple[str, str], user: str = "") -> dict:
         count = int(req.get("variations") or 1)
     except (TypeError, ValueError):
         raise ValueError("Variations must be a whole number.")
-    if count < 1 or count > MAX_VARIATIONS:
-        raise ValueError(f"Variations must be between 1 and {MAX_VARIATIONS}.")
+    if count < 1:
+        raise ValueError("Variations must be at least 1.")
 
     params = req.get("params")
     params = params if isinstance(params, dict) else {}
@@ -1045,17 +1038,6 @@ def regenerate_variation(session_id: str, req: dict, ctx: tuple[str, str]) -> di
     return _public(session)
 
 
-def _room_for_one_more(session: dict) -> None:
-    """Refuse a single new slot once the session is at its ceiling. `add_variations`
-    keeps its own check because it asks for N and can say how many would fit; this
-    one is for the paths that add exactly one, where that arithmetic is noise."""
-    live = len(_live_variations(session))
-    if live >= MAX_SESSION_VARIATIONS:
-        raise ValueError(
-            f"This session already holds {live} variations, which is the ceiling "
-            f"({MAX_SESSION_VARIATIONS}). Delete some, or start a new session.")
-
-
 def duplicate_variation(session_id: str, req: dict, ctx: tuple[str, str]) -> dict:
     """Run ONE slot's recipe again as a NEW slot, with anything about it changed.
 
@@ -1133,7 +1115,6 @@ def duplicate_variation(session_id: str, req: dict, ctx: tuple[str, str]) -> dic
         settings["params"] = params
 
     with _LOCK:
-        _room_for_one_more(session)
         _reopen(session)
         # Numbering continues from the HIGHEST index ever used, deleted slots
         # included: `003.webp` may still be referenced by a clip made from it.
@@ -1195,19 +1176,10 @@ def add_variations(session_id: str, req: dict, ctx: tuple[str, str]) -> dict:
         count = int(req.get("count") or 1)
     except (TypeError, ValueError):
         raise ValueError("Variations must be a whole number.")
-    if count < 1 or count > MAX_VARIATIONS:
-        raise ValueError(f"Add between 1 and {MAX_VARIATIONS} variations.")
+    if count < 1:
+        raise ValueError("Variations must be at least 1.")
 
     with _LOCK:
-        live = len(_live_variations(session))
-        if live + count > MAX_SESSION_VARIATIONS:
-            room = MAX_SESSION_VARIATIONS - live
-            raise ValueError(
-                f"This session already holds {live} variations and the ceiling is "
-                f"{MAX_SESSION_VARIATIONS}"
-                + (f", so there is room for {room} more."
-                   if room > 0 else
-                   " — delete some, or start a new session."))
         _reopen(session)
         # Numbering continues from the HIGHEST index ever used, deleted slots
         # included: `003.webp` may still be referenced by a clip made from it.

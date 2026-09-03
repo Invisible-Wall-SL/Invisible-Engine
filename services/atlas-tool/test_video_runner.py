@@ -1306,25 +1306,28 @@ def test_duplicate_a_variation_with_new_settings() -> None:
            "params": {"duration": 2, "remove_background": True}})
 
 
-def test_a_session_will_not_grow_past_its_ceiling() -> None:
-    """The per-session ceiling has to hold on EVERY path that grows a session, or
-    the one that skipped it becomes the way around it."""
+def test_a_session_has_no_variation_ceiling() -> None:
+    """How many variations a grid holds is the author's call, on every path that
+    grows a session. The only refusal left is a count below one."""
     _stub_world()
     ctx = ("clientx", "projecty")
     sid = video_runner.start_session(_req("p", 1), ctx)["id"]
     _await_session(sid)
     session = video_runner._SESSIONS[sid]
-    # Fill it to the ceiling without paying for the renders.
+    # A grid far past the old ceiling, without paying for the renders.
     with video_runner._LOCK:
         session["variations"].extend(
             dict(video_runner._new_variation(i), status="done", file=f"{i:03d}.webp")
-            for i in range(2, video_runner.MAX_SESSION_VARIATIONS + 1))
-    check_raises("a duplicate past the ceiling is refused",
-                 lambda: video_runner.duplicate_variation(sid, {"index": 1}, ctx),
-                 "ceiling")
-    check_raises("and so is an add",
-                 lambda: video_runner.add_variations(sid, {"count": 1}, ctx),
-                 str(video_runner.MAX_SESSION_VARIATIONS))
+            for i in range(2, 101))
+    video_runner.duplicate_variation(sid, {"index": 1}, ctx)
+    _await_session(sid)
+    video_runner.add_variations(sid, {"count": 50}, ctx)
+    _await_session(sid)
+    check("a duplicate and a 50-wide add both land past 100 slots",
+          len(video_runner._live_variations(video_runner._SESSIONS[sid])), 151)
+    check_raises("a count below one is still refused",
+                 lambda: video_runner.add_variations(sid, {"count": -1}, ctx),
+                 "at least 1")
 
 
 def test_add_variations_to_a_session() -> None:
@@ -1348,10 +1351,6 @@ def test_add_variations_to_a_session() -> None:
           [v["prompt"] for v in done["variations"]], [""] * 4)
     check("each carries its own seed",
           len({v["seed"] for v in done["variations"]}), 4)
-
-    check_raises("a runaway add is refused",
-                 lambda: video_runner.add_variations(sid, {"count": 500}, ctx),
-                 "between 1 and")
 
     # A deleted slot frees its room but never gives its NUMBER back: 003.webp may
     # still be referenced by a clip packed from it.
@@ -1710,11 +1709,11 @@ def test_request_validation() -> None:
                  lambda: video_runner.start_session(
                      {"blueprint": "wan22_i2v_flipbook", "prompt": "x"}, ctx),
                  "source image")
-    check_raises("a runaway variation count is refused",
+    check_raises("a variation count below one is refused",
                  lambda: video_runner.start_session(
                      {"blueprint": "wan22_i2v_flipbook", "prompt": "x",
-                      "source_ref": "r.png", "variations": 500}, ctx),
-                 "between 1 and")
+                      "source_ref": "r.png", "variations": -1}, ctx),
+                 "at least 1")
 
 
 if __name__ == "__main__":
@@ -1747,7 +1746,7 @@ if __name__ == "__main__":
     test_discard_one_variation()
     test_add_variations_to_a_session()
     test_duplicate_a_variation_with_new_settings()
-    test_a_session_will_not_grow_past_its_ceiling()
+    test_a_session_has_no_variation_ceiling()
     test_a_reroll_mid_run_joins_the_pass_already_under_way()
     test_parallel_jobs_fan_out_across_workers()
     test_default_stays_serial()
