@@ -30,28 +30,37 @@ FAILED: list[str] = []
 PASSED: list[str] = []
 
 
+def _say(text: str) -> None:
+    """Print through this console's encoding, whatever it is. The panel HTML
+    under test contains glyphs (⟳) that cp1252 cannot encode, and a bare
+    `print` of a FAILING comparison then raised UnicodeEncodeError — the
+    diagnostic destroying the diagnosis, on the one run where you need it."""
+    enc = sys.stdout.encoding or "utf-8"
+    print(text.encode(enc, errors="replace").decode(enc, errors="replace"))
+
+
 def check(label: str, got, want) -> None:
     ok = got == want
-    print(f"{'ok  ' if ok else 'FAIL'} {label}")
+    _say(f"{'ok  ' if ok else 'FAIL'} {label}")
     (PASSED if ok else FAILED).append(label)
     if not ok:
-        print(f"       got  {got!r}\n       want {want!r}")
+        _say(f"       got  {got!r}\n       want {want!r}")
 
 
 def check_in(label: str, needle: str, haystack: str) -> None:
     ok = needle in haystack
-    print(f"{'ok  ' if ok else 'FAIL'} {label}")
+    _say(f"{'ok  ' if ok else 'FAIL'} {label}")
     (PASSED if ok else FAILED).append(label)
     if not ok:
-        print(f"       {needle!r} not found in:\n       {haystack!r}")
+        _say(f"       {needle!r} not found in:\n       {haystack!r}")
 
 
 def check_not_in(label: str, needle: str, haystack: str) -> None:
     ok = needle not in haystack
-    print(f"{'ok  ' if ok else 'FAIL'} {label}")
+    _say(f"{'ok  ' if ok else 'FAIL'} {label}")
     (PASSED if ok else FAILED).append(label)
     if not ok:
-        print(f"       {needle!r} unexpectedly found in:\n       {haystack!r}")
+        _say(f"       {needle!r} unexpectedly found in:\n       {haystack!r}")
 
 
 # --------------------------------------------------------------------------
@@ -269,8 +278,8 @@ def test_refresh_reads_the_configured_catalog_url() -> None:
         cc.os.environ.pop("COMFY_CATALOG_URL", None)
     check("refresh succeeded", res["ok"], True)
     check("refresh names its target", res["target"], "pod")
-    check("trailing slash trimmed from the source",
-          res["source"], "http://volume-pod:8188")
+    check("trailing slash trimmed, and the source says it was pinned",
+          res["source"], "http://volume-pod:8188 (COMFY_CATALOG_URL)")
     check("one list, two values", (res["fields"], res["values"]), (1, 2))
     check("probe hit /system_stats then /object_info", seen, [
         "http://volume-pod:8188/system_stats",
@@ -338,7 +347,9 @@ def test_targets_never_substitute_for_each_other() -> None:
     install(FakeStorage(), batch)
     out = u._model_status_html("pod")
     check_in("no pod catalog: unavailable", "Model lists unavailable", out)
-    check_in("no pod catalog: names the env var", "COMFY_CATALOG_URL", out)
+    check_in("no pod catalog: tells you to start a pod, not to set a var",
+             "/comfyui", out)
+    check_not_in("and does NOT ask for an env var", "COMFY_CATALOG_URL", out)
     # A LOCAL refresh ignores COMFY_CATALOG_URL even when it is set and
     # COMFY_BASE is down — the pod's files are not the user's files.
     st = FakeStorage()
@@ -357,11 +368,106 @@ def test_targets_never_substitute_for_each_other() -> None:
     check("local refresh with COMFY_BASE down fails", res["ok"], False)
     check("…without touching COMFY_CATALOG_URL", seen, [])
     check_in("…and says which machine", "Your ComfyUI didn't answer", res["note"])
-    # A POD refresh with nothing configured says exactly what to set.
+    # A POD refresh with nothing pinned and no pod running says what to DO.
+    # (No RUNPOD_API_KEY here, so discovery legitimately finds nothing.)
     res = cc.refresh([CKPT], target="pod", http_get=answer)
-    check("pod refresh with nothing configured fails", res["ok"], False)
-    check_in("…and names COMFY_CATALOG_URL", "COMFY_CATALOG_URL", res["note"])
+    check("pod refresh with nothing running fails", res["ok"], False)
+    check_in("…and points at /comfyui", "/comfyui page", res["note"])
     check("…without a PUT", st.puts, [])
+
+
+def test_a_running_pod_is_found_without_any_env_var() -> None:
+    """Nobody should have to copy a pod id into an env var — a pinned id goes
+    stale the moment the fleet changes. Discovery must be strictly read-only:
+    a GraphQL *query* and GETs, never podResume."""
+    POD = cc.CATALOG_KEYS["pod"]
+    st = FakeStorage()
+    install(st, FakeBatch(alive=False))
+    cc.os.environ.pop("COMFY_CATALOG_URL", None)
+
+    real = cc.runpod_control
+    class FakeRunpod:
+        def __init__(self, pods): self.pods = pods; self.calls = 0
+        def running_pods(self):
+            self.calls += 1
+            return self.pods
+        def _resume(self):  # must never be reached
+            raise AssertionError("discovery tried to START a pod")
+
+    fake = FakeRunpod([
+        {"id": "dead1", "name": "RTX 4090", "url": "https://dead1-8188.proxy.runpod.net"},
+        {"id": "good2", "name": "Blackwell", "url": "https://good2-8188.proxy.runpod.net"},
+    ])
+    cc.runpod_control = fake                    # type: ignore[assignment]
+    seen: list[str] = []
+
+    def answer(url: str, headers: dict) -> dict:
+        seen.append(url)
+        if url.startswith("https://dead1"):
+            raise OSError("pod is booting, nothing listening yet")
+        if url.endswith("/system_stats"):
+            return {"system": {}}
+        node = url.rsplit("/", 1)[-1]
+        return {node: {"input": {"required": {
+            "ckpt_name": [["volume-model.safetensors"]]}}}}
+
+    try:
+        res = cc.refresh([CKPT], target="pod", http_get=answer)
+    finally:
+        cc.runpod_control = real                # type: ignore[assignment]
+
+    check("a running pod was found with no env var set", res["ok"], True)
+    check("the first pod that ANSWERS wins, not merely the first listed",
+          res["source"], "Blackwell (good2)")
+    check("the dead pod was tried first and skipped",
+          seen[0], "https://dead1-8188.proxy.runpod.net/system_stats")
+    check("the lists came from that pod",
+          st.doc(POD)["fields"][CKPT_KEY], ["volume-model.safetensors"])
+    check("RunPod was asked exactly once", fake.calls, 1)
+    check("the id-derived URL matches the launcher's shape",
+          real.proxy_url("abc123"), "https://abc123-8188.proxy.runpod.net")
+
+
+def test_a_pinned_url_still_wins_and_no_pods_is_explained() -> None:
+    st = FakeStorage()
+    install(st, FakeBatch(alive=False))
+    real = cc.runpod_control
+
+    class NoPods:
+        def running_pods(self): return []
+
+    class OnePod:
+        def running_pods(self):
+            return [{"id": "p1", "name": "RTX 4090",
+                     "url": "https://p1-8188.proxy.runpod.net"}]
+
+    def dead(url: str, headers: dict) -> dict:
+        raise OSError("refused")
+
+    # Nothing running, nothing pinned -> say what to DO, not what to configure.
+    cc.runpod_control = NoPods()                # type: ignore[assignment]
+    cc.os.environ.pop("COMFY_CATALOG_URL", None)
+    try:
+        res = cc.refresh([CKPT], target="pod", http_get=dead)
+        check("no pods = not ok", res["ok"], False)
+        check_in("and the note says to start one", "/comfyui page", res["note"])
+        check_not_in("without demanding an env var", "COMFY_CATALOG_URL",
+                     res["note"])
+        # A pod exists but isn't serving yet -> name it, don't blame config.
+        cc.runpod_control = OnePod()            # type: ignore[assignment]
+        res = cc.refresh([CKPT], target="pod", http_get=dead)
+        check_in("a booting pod is named in the note", "RTX 4090", res["note"])
+        check_in("and suggests waiting", "booting", res["note"])
+        # An explicit override outranks discovery.
+        cc.os.environ["COMFY_CATALOG_URL"] = "http://pinned:8188"
+        cands = cc.pod_candidates()
+        check("the pinned URL is tried first", cands[0][0], "http://pinned:8188")
+        check("discovery still contributes the rest",
+              cands[1][0], "https://p1-8188.proxy.runpod.net")
+    finally:
+        cc.os.environ.pop("COMFY_CATALOG_URL", None)
+        cc.runpod_control = real                # type: ignore[assignment]
+    check("a failed discovery never PUTs", st.puts, [])
 
 
 def test_run_on_setting_maps_to_the_render_env() -> None:
@@ -465,6 +571,8 @@ if __name__ == "__main__":
                    test_refresh_reads_the_configured_catalog_url,
                    test_refresh_answering_but_listing_nothing_keeps_the_catalog,
                    test_targets_never_substitute_for_each_other,
+                   test_a_running_pod_is_found_without_any_env_var,
+                   test_a_pinned_url_still_wins_and_no_pods_is_explained,
                    test_run_on_setting_maps_to_the_render_env,
                    test_load_survives_a_broken_or_absent_catalog,
                    test_commit_live_is_content_gated,

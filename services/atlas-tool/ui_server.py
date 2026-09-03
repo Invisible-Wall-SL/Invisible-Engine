@@ -921,18 +921,18 @@ def _model_status_html(target: str = "local") -> str:
     if st.get("cached"):
         src = html.escape(str(st.get("source") or "an earlier probe"))
         when = _rel_time(float(st.get("fetchedAt") or 0.0))
-        tail = ("RunPod\'s workers can\'t be asked live — ⟳ re-reads "
-                "<code>COMFY_CATALOG_URL</code>" if pod else
+        tail = ("RunPod\'s workers can\'t be asked live — ⟳ re-reads whichever "
+                "pod is running" if pod else
                 "your ComfyUI isn\'t answering right now — start ComfyUI + the "
                 "tunnel, then ⟳")
         return (f'<div class="mdlstat warn"><span>{lead}Model lists: <b>cached '
                 f'{html.escape(when)}</b> from {src} — {tail}</span>{btn}</div>')
     if pod:
         return (f'<div class="mdlstat bad"><span>{lead}<b>Model lists '
-                'unavailable</b> — serverless workers can\'t be asked; set '
-                '<code>COMFY_CATALOG_URL</code> to a pod that mounts the volume '
-                '(any /comfyui fleet pod: <code>https://&lt;pod-id&gt;-8188.proxy.'
-                f'runpod.net</code>), then ⟳.</span>{btn}</div>')
+                'unavailable</b> — serverless workers can\'t be asked for what '
+                'is installed. Start any pod on the <b>/comfyui</b> page (they '
+                'share the volume the workers use), then ⟳ — nothing to '
+                f'configure.</span>{btn}</div>')
     return (f'<div class="mdlstat bad"><span>{lead}<b>Model lists unavailable</b> '
             f'— your ComfyUI has never answered at <code>{base}</code>; these '
             'fields stay free-text. Start ComfyUI + the tunnel (desktop '

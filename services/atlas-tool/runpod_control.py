@@ -65,6 +65,47 @@ def desired_status() -> str | None:
         return None
 
 
+def proxy_url(pod_id: str, port: int = 8188) -> str:
+    """A pod's ComfyUI URL, derived from its id exactly the way the launcher
+    derives it (`apps/launcher-api/src/lib/server/runpod.ts`). No per-pod URL is
+    stored anywhere — the id IS the address."""
+    return f"https://{pod_id}-{port}.proxy.runpod.net"
+
+
+def running_pods() -> list[dict]:
+    """Every pod on the account that is currently RUNNING, as
+    `[{id, name, url}]` — newest-looking first is not guaranteed, so callers
+    should probe in order and take the first that answers.
+
+    Read-only by construction: one GraphQL *query*, never `podResume`. Listing
+    pods cannot start one or bill anything. Returns `[]` when RunPod isn't
+    configured or anything at all goes wrong — the caller then falls back to an
+    explicitly configured URL, or reports that nothing was reachable.
+
+    Note this asks for pods, NOT serverless endpoints: a serverless worker has
+    no address and exists only while a job runs, which is exactly why the model
+    catalogue can't be read from one."""
+    if not _key():
+        return []
+    d = _gql("query { myself { pods { id name desiredStatus } } }")
+    try:
+        pods = d["data"]["myself"]["pods"] or []
+    except Exception:  # noqa: BLE001 — unknown shape ⇒ nothing to offer
+        return []
+    out = []
+    for p in pods:
+        try:
+            if str(p.get("desiredStatus", "")).upper() != "RUNNING":
+                continue
+            pid = str(p.get("id") or "").strip()
+            if pid:
+                out.append({"id": pid, "name": str(p.get("name") or pid),
+                            "url": proxy_url(pid)})
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
 def _resume() -> None:
     _gql(f'mutation {{ podResume(input:{{podId:"{_pod()}", gpuCount:1}}) '
          f'{{ id desiredStatus }} }}')

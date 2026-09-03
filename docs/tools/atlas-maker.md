@@ -131,18 +131,22 @@ At the top of **⚙ Global settings** a coloured strip names the selected machin
 
 **⟳ Refresh model lists** re-probes the selected machine and stores what it finds
 in R2 — `_shared/comfy/catalog.json` for *My computer* (read live over the
-tunnel), `_shared/comfy/catalog-pod.json` for RunPod (read from
-`COMFY_CATALOG_URL`, an always-on pod that mounts the same Network Volume the
-workers use). One catalog per machine, shared by every project, because what's
+tunnel), `_shared/comfy/catalog-pod.json` for RunPod. For RunPod there is
+**nothing to configure**: ⟳ asks the RunPod API which pods are running and reads
+the first that answers. Any running pod will do — the fleet shares the Network
+Volume the serverless workers mount, so its model list is exactly what a render
+will load. Start a pod on **/comfyui**, press ⟳, and you can stop it again; the
+catalog persists. One catalog per machine, shared by every project, because what's
 installed is a property of the install, not of a project — and never substituted
 for each other: the RunPod target never reads the tunnel, *My computer* never
 reads `COMFY_CATALOG_URL`. It reports the source and how many lists/values it
 read, then reloads the page.
 
 This matters because production defaults to RunPod: the serverless endpoint is a
-job queue, not a ComfyUI HTTP server, so there is nothing live to ask for that
-machine. Setting `COMFY_CATALOG_URL` once (see `docs/INFRA.md`) and pressing ⟳
-is what populates the RunPod dropdowns; *My computer* needs nothing — it is live
+job queue, not a ComfyUI HTTP server — a worker has no address and exists only
+while a job runs — so there is nothing live to ask for that machine. A running
+pod stands in for it. (`COMFY_CATALOG_URL` still exists as an override to pin one
+specific reader; see `docs/INFRA.md`.) *My computer* needs nothing — it is live
 whenever your ComfyUI is up. A page load never writes to R2; only ⟳ (and one
 opportunistic write when a live local probe genuinely finds a changed list) does.
 
