@@ -44,6 +44,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import batch_atlas
+import runpod_control
 import storage
 
 # Shared keys mirror the `_shared/blueprints/` and `_shared/spines/` precedent.
@@ -222,32 +223,63 @@ def _http_get_json(url: str, headers: dict, timeout: float = _PROBE_TIMEOUT) -> 
 
 
 def catalog_url() -> str:
-    """The RunPod side's list source: an always-on ComfyUI that mounts the same
-    Network Volume the serverless workers use — e.g. the CPU volume pod the
-    launcher already reads for its "What's installed" panel, or any /comfyui
-    fleet pod while it is running. Read at call time (not import) so setting
-    the Railway var takes effect on redeploy without a code change. Read-only
-    by construction: we only ever GET /object_info, so pointing this at a pod
-    never starts, resumes or bills one."""
+    """OPTIONAL override for the RunPod side's list source. Normally unset —
+    `pod_candidates()` finds a running pod on its own. Set it only to pin a
+    specific always-on reader (e.g. the CPU volume pod the launcher's
+    COMFY_VOLUME_URL points at) or to reach one the RunPod API can't list.
+
+    Read at call time (not import) so a Railway var takes effect on redeploy
+    without a code change."""
     return (os.environ.get("COMFY_CATALOG_URL") or "").strip().rstrip("/")
+
+
+def pod_candidates() -> list[tuple[str, str]]:
+    """Where the RunPod side's model lists might be read from, best first, as
+    (url, label).
+
+    An explicit COMFY_CATALOG_URL always wins. Otherwise ASK RUNPOD which pods
+    are running and derive each one's ComfyUI address from its id — nobody
+    should have to copy a pod id into an env var, and a pinned id goes stale
+    the moment the fleet changes.
+
+    Any running pod is a valid reader because the fleet shares one Network
+    Volume (`Invisible_RunPod_Storage`) — the same volume the serverless
+    workers mount — so its `/object_info` lists exactly the files a serverless
+    render will load. The chosen source is reported in the status strip, so a
+    wrong-looking list is always traceable to the pod it came from.
+
+    Strictly read-only: a GraphQL *query* plus GETs. Nothing here can start,
+    resume or bill a pod — discovering a stopped pod simply means it is not a
+    candidate."""
+    out: list[tuple[str, str]] = []
+    base = catalog_url()
+    if base:
+        out.append((base, f"{base} (COMFY_CATALOG_URL)"))
+    try:
+        for pod in runpod_control.running_pods():
+            url = str(pod.get("url") or "")
+            if url and url not in [u for u, _ in out]:
+                out.append((url, f"{pod.get('name')} ({pod.get('id')})"))
+    except Exception:  # noqa: BLE001 — discovery is a convenience, never fatal
+        pass
+    return out
 
 
 def _probe_sources(target: str, alive: Callable[[], bool],
                    http_get: Callable[[str, dict], dict],
                    ) -> tuple[str, str] | None:
-    """The one source `target` may be read from, as (base_url, label) — or None
-    when it isn't answering. Local is COMFY_BASE and nothing else; pod is
-    COMFY_CATALOG_URL and nothing else (see the module docstring for why the
-    two must never substitute for each other)."""
+    """The source `target` may be read from, as (base_url, label) — or None when
+    nothing answers. Local is COMFY_BASE and nothing else; pod is a RunPod pod
+    (discovered, or pinned via COMFY_CATALOG_URL) and never COMFY_BASE — see the
+    module docstring for why the two must not substitute for each other."""
     if _target(target) == "pod":
-        base = catalog_url()
-        if not base:
-            return None
-        try:
-            http_get(f"{base}/system_stats", dict(batch_atlas.CF_HEADERS))
-            return (base, base)
-        except Exception:  # noqa: BLE001 — not answering = not a source
-            return None
+        for base, label in pod_candidates():
+            try:
+                http_get(f"{base}/system_stats", dict(batch_atlas.CF_HEADERS))
+                return (base, label)
+            except Exception:  # noqa: BLE001 — not answering = try the next
+                continue
+        return None
     try:
         if alive():
             return (str(batch_atlas.COMFY_BASE), str(batch_atlas.COMFY_BASE))
@@ -258,15 +290,16 @@ def _probe_sources(target: str, alive: Callable[[], bool],
 
 def _unreachable_note(target: str) -> str:
     if _target(target) == "pod":
-        url = catalog_url()
-        if not url:
+        tried = pod_candidates()
+        if not tried:
             return ("RunPod's serverless workers can't be asked for their model "
-                    "lists — set COMFY_CATALOG_URL to a pod that mounts the "
-                    "Network Volume (any /comfyui fleet pod: "
-                    "https://<pod-id>-8188.proxy.runpod.net) and press ⟳ while "
-                    "it is running. The stored catalog was left untouched.")
-        return (f"Nothing answered at COMFY_CATALOG_URL ({url}) — is that pod "
-                "running? The stored catalog was left untouched.")
+                    "lists, and no pod is running to ask instead. Start one on "
+                    "the /comfyui page and press ⟳ again. The stored catalog "
+                    "was left untouched.")
+        names = ", ".join(label for _, label in tried[:4])
+        return (f"No RunPod pod answered ({names}). A pod that is booting isn't "
+                "serving ComfyUI yet — give it a minute and press ⟳ again. The "
+                "stored catalog was left untouched.")
     return (f"Your ComfyUI didn't answer at {batch_atlas.COMFY_BASE} — start "
             "ComfyUI and the tunnel (desktop launcher), then ⟳. The stored "
             "catalog was left untouched.")
