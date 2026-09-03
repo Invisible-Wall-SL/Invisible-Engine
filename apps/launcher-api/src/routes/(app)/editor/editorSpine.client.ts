@@ -113,8 +113,8 @@ async function builtinDescriptor(id: string): Promise<SpineDescriptor | null> {
 		found: true,
 		folder: entry.dir,
 		format: 'json',
-		// Both vendored skeletons are exported from Spine 4.1; the loader keeps the first
-		// runtime line a page loads, so this must match what the rest of the page uses.
+		// Both vendored skeletons are exported from Spine 4.1. Recorded for parity with the server
+		// descriptor; the editor reads every skeleton with its single 4.2 runtime, as the game does.
 		runtime: '4.1',
 		pma: /^\s*pma\s*:\s*true\s*$/im.test(atlasText.slice(0, 2000)),
 		atlasText,
@@ -219,7 +219,7 @@ export async function loadSpineInstance(
 		console.warn(`[editor] spine "${assetKey}" could not be resolved for render (no descriptor)`);
 		return null;
 	}
-	const spine = await loadSpineRuntime(descriptor.runtime);
+	const spine = await loadSpineRuntime();
 	// Cache-bust token from the editor's "Reload art" — forces a fresh fetch of
 	// the skeleton + page textures after the underlying R2 art changed. Use the
 	// right separator: builtin spine URLs (`/builtin/spines/…`) carry no query, so

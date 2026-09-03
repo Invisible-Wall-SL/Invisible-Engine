@@ -36,6 +36,7 @@
 		"precheck:flipbook-frames": "node scripts/ensure-svelte-kit.mjs",
 		"check:flipbook-frames": "tsx --tsconfig tsconfig.scripts.json scripts/check-flipbook-frames.ts",
 		"check:deployed-page": "node --experimental-strip-types scripts/check-deployed-page.mjs",
+		"check:builtin-spines": "node scripts/check-builtin-spines.mjs",
 		"r2:sync-spines": "node scripts/r2-sync-spines.mjs",
 		"pull:assets": "node scripts/pull-project-assets.mjs"
 	},
