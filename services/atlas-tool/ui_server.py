@@ -38,6 +38,7 @@ import atlas_format  # noqa: E402
 import atlas_writers  # noqa: E402  (TexturePacker JSON for game-loadable deploy)
 import batch_atlas  # noqa: E402  (reuse the geometry resolver — single source)
 import blueprints  # noqa: E402  (shared, data-driven ComfyUI pipeline library)
+import comfy_catalog  # noqa: E402  (model lists that survive a dead/serverless ComfyUI)
 import shine  # noqa: E402  (local *_shine derivation, no ComfyUI)
 import pack  # noqa: E402  (MaxRects bin packer for from-scratch auto-pack atlases)
 import runpod_control  # noqa: E402  (RunPod on-demand pod resume/idle-stop)
@@ -429,6 +430,48 @@ MODEL_FIELDS = {
     "flux_controlnet": ("ControlNetLoader", "control_net_name"),
     "flux_redux_style_model": ("StyleModelLoader", "style_model_name"),
     "flux_clip_vision": ("CLIPVisionLoader", "clip_name"),
+    "ipadapter_weight_type": ("IPAdapterAdvanced", "weight_type"),
+}
+
+# Fields whose valid values are a FIXED enum — knowable with no network at all,
+# unlike MODEL_FIELDS (which list whatever files an install happens to have).
+# This is a FLOOR, never an override: `_options_for` tries live /object_info,
+# then the persisted catalog, and only then this seed. So a ComfyUI that offers
+# a sampler we've never heard of still wins, and a value the user already has
+# configured is preserved either way (see `_opt_html`).
+#
+# Some of these have no ComfyUI enum behind them at all: `gpt_image_size`'s
+# `match_ref` and `gpt_image_rembg` are OUR options (read by the gpt_image
+# builder), and `atlas_format` is a manifest tag. Those are seed-only by nature.
+ENUM_FIELDS: dict[str, list[str]] = {
+    "flux_weight_dtype": ["default", "fp8_e4m3fn", "fp8_e4m3fn_fast",
+                          "fp8_e5m2"],
+    "flux_sampler": [
+        "euler", "euler_cfg_pp", "euler_ancestral", "euler_ancestral_cfg_pp",
+        "heun", "heunpp2", "dpm_2", "dpm_2_ancestral", "lms", "dpm_fast",
+        "dpm_adaptive", "dpmpp_2s_ancestral", "dpmpp_2s_ancestral_cfg_pp",
+        "dpmpp_sde", "dpmpp_sde_gpu", "dpmpp_2m", "dpmpp_2m_cfg_pp",
+        "dpmpp_2m_sde", "dpmpp_2m_sde_gpu", "dpmpp_3m_sde", "dpmpp_3m_sde_gpu",
+        "ddpm", "lcm", "ipndm", "ipndm_v", "deis", "res_multistep",
+        "res_multistep_cfg_pp", "gradient_estimation", "ddim", "uni_pc",
+        "uni_pc_bh2"],
+    "flux_scheduler": ["simple", "sgm_uniform", "karras", "exponential",
+                       "ddim_uniform", "beta", "normal", "linear_quadratic",
+                       "kl_optimal"],
+    "ipadapter_weight_type": [
+        "linear", "ease in", "ease out", "ease in-out", "reverse in-out",
+        "weak input", "weak output", "weak middle", "strong middle",
+        "style transfer", "composition", "strong style transfer",
+        "style and composition", "style transfer precise",
+        "composition precise"],
+    "gpt_image_model": ["gpt-image-1", "gpt-image-1.5", "gpt-image-2"],
+    "gpt_image_size": ["match_ref", "auto", "1024x1024", "1024x1536",
+                       "1536x1024", "2048x2048", "2048x1152", "1152x2048",
+                       "3840x2160", "2160x3840"],
+    "gpt_image_quality": ["low", "medium", "high"],
+    "gpt_image_background": ["opaque", "auto", "transparent"],
+    "gpt_image_rembg": ["true", "false"],
+    "atlas_format": ["RGBA8888", "RGBA4444", "RGB888", "RGB565"],
 }
 
 # Which pipeline a field belongs to (controls show/hide). Anything not listed
@@ -696,19 +739,22 @@ def help_for(key: str, cfg: dict) -> str:
     )
 
 
-def _opt_html(values, current: str, blank_label: str = "") -> str:
+def _opt_html(values, current: str, blank_label: str = "",
+              unknown_marker: str = "(not in ComfyUI)") -> str:
     """Build <option>s. A blank choice is always available when blank_label
     is given (so any model dropdown can be cleared). A non-empty current
-    value that ComfyUI doesn't list is preserved (marked) so saving never
-    silently changes it."""
+    value the list doesn't carry is preserved (marked with `unknown_marker`)
+    so saving never silently changes it — "(not in ComfyUI)" for an installed-
+    file list, "(custom)" for a static enum, where ComfyUI was never asked."""
     out = []
     vals = [str(v) for v in values]
     if blank_label:
         sel = " selected" if current == "" else ""
         out.append(f'<option value=""{sel}>{html.escape(blank_label)}</option>')
     if current and current not in vals:
+        marker = f" {unknown_marker}" if unknown_marker else ""
         out.append(f'<option value="{html.escape(current, quote=True)}" '
-                    f'selected>{html.escape(current)} (not in ComfyUI)</option>')
+                    f'selected>{html.escape(current)}{marker}</option>')
     for v in vals:
         sel = " selected" if v == current else ""
         out.append(f'<option value="{html.escape(v, quote=True)}"{sel}>'
@@ -762,6 +808,75 @@ def _pipeline_options_html(current: str) -> str:
     return "".join(out)
 
 
+def _options_for(key: str, cache: dict) -> tuple[list[str] | None, str]:
+    """Dropdown values for a settings field, plus the marker `_opt_html` should
+    put on a configured value the list doesn't carry.
+
+    Precedence — live `/object_info` > the persisted catalog > the static enum
+    seed. `comfy_catalog.options` owns the first two; the seed is a floor so the
+    enum fields stay dropdowns even when NOTHING has ever answered (the hosted
+    tool runs `COMFY_TRANSPORT=serverless`, so `COMFY_BASE` normally doesn't).
+    `cache` is the per-render (node, field) memo, so a page does at most one
+    alive-probe."""
+    nf = MODEL_FIELDS.get(key)
+    if nf is not None:
+        if nf not in cache:
+            try:
+                cache[nf] = comfy_catalog.options(nf[0], nf[1])
+            except Exception:  # noqa: BLE001 — UI must render even if Comfy down
+                cache[nf] = None
+        avail = cache[nf]
+        if avail:
+            return list(avail), "(not in ComfyUI)"
+    seed = ENUM_FIELDS.get(key)
+    if seed:
+        return list(seed), "(custom)"
+    return None, ""
+
+
+def _rel_time(epoch: float) -> str:
+    """'4 minutes ago' — a catalog's age matters more than its timestamp."""
+    if epoch <= 0:
+        return "at an unknown time"
+    secs = max(0, int(time.time() - epoch))
+    for span, unit in ((86400, "day"), (3600, "hour"), (60, "minute")):
+        if secs >= span:
+            n = secs // span
+            return f"{n} {unit}{'s' if n != 1 else ''} ago"
+    return "just now"
+
+
+def _model_status_html() -> str:
+    """The Settings panel's "where did these dropdowns come from" strip.
+
+    The failure this exists for is SILENT: with nothing answering at
+    COMFY_BASE, every model field used to fall back to a plain text input with
+    no explanation, so a stale or mistyped checkpoint name only surfaced as a
+    failed render half an hour later."""
+    try:
+        st = comfy_catalog.status()
+    except Exception:  # noqa: BLE001 — the panel renders regardless
+        st = {"live": False, "cached": False, "source": "", "fetchedAt": 0.0}
+    btn = ('<button type="button" class="alt" onclick="refreshModels(this)" '
+           'title="Re-probe ComfyUI for its installed model lists and store '
+           'them, so these dropdowns keep working when nothing is answering">'
+           '⟳ Refresh model lists</button>'
+           '<span id="mdlstatmsg" style="color:#999"></span>')
+    if st.get("live"):
+        return (f'<div class="mdlstat ok"><span>Model lists: '
+                f'<b>live from ComfyUI</b></span>{btn}</div>')
+    if st.get("cached"):
+        src = html.escape(str(st.get("source") or "an earlier probe"))
+        when = _rel_time(float(st.get("fetchedAt") or 0.0))
+        return (f'<div class="mdlstat warn"><span>Model lists: <b>cached '
+                f'{html.escape(when)}</b> from {src} — ComfyUI isn\'t '
+                f'answering right now</span>{btn}</div>')
+    return ('<div class="mdlstat bad"><span><b>Model lists unavailable</b> — no '
+            'ComfyUI has ever been reached from this service; these fields stay '
+            'free-text. Set <code>COMFY_CATALOG_URL</code> or start a pod, then '
+            f'⟳.</span>{btn}</div>')
+
+
 def _control_html(key: str, typ: str, value, cache: dict, *,
                    allow_blank: bool = False, blank_label: str = "",
                    placeholder: str = "", title: str = "",
@@ -790,20 +905,14 @@ def _control_html(key: str, typ: str, value, cache: dict, *,
         norm = "on" if batch_atlas._truthy(cur, True) else "off"
         return (f'<select{common}>'
                 f'{_opt_html(["on", "off"], norm)}</select>')
-    nf = MODEL_FIELDS.get(key)
-    if nf is not None:
-        if nf not in cache:
-            try:
-                cache[nf] = batch_atlas._available(nf[0], nf[1])
-            except Exception:  # noqa: BLE001 — UI must render even if Comfy down
-                cache[nf] = None
-        avail = cache[nf]
-        if avail:
-            # Always offer a blank choice: per-atlas blank = inherit global;
-            # global blank = literally empty (e.g. clear flux_checkpoint /
-            # flux_controlnet so the optional node is skipped).
-            bl = blank_label if allow_blank else "(blank — none)"
-            return f'<select{common}>{_opt_html(avail, cur, bl)}</select>'
+    avail, marker = _options_for(key, cache)
+    if avail:
+        # Always offer a blank choice: per-atlas blank = inherit global;
+        # global blank = literally empty (e.g. clear flux_checkpoint /
+        # flux_controlnet so the optional node is skipped).
+        bl = blank_label if allow_blank else "(blank — none)"
+        return (f'<select{common}>'
+                f'{_opt_html(avail, cur, bl, marker)}</select>')
     inp = (f'<input{common} type="{typ}" '
            f'value="{html.escape(cur, quote=True)}" '
            f'placeholder="{html.escape(placeholder, quote=True)}"{step}>')
@@ -3191,6 +3300,15 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  .sessionbar .ssn-note{{font-size:11px;color:#7e93a6;margin-left:auto}}
  .sessionbar.busy{{opacity:.65;pointer-events:none}}
  details.settings summary{{cursor:pointer;padding:12px 0;font-weight:600}}
+ /* Where the model dropdowns' values came from. Without this a degraded
+    free-text field was the only signal that anything had gone wrong. */
+ .mdlstat{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+   font-size:12px;line-height:1.45;padding:8px 10px;margin:2px 0 10px;
+   border-radius:6px;border:1px solid #36363d;background:#212127}}
+ .mdlstat.ok{{border-color:#3c6b3c;color:#9ed49e}}
+ .mdlstat.warn{{border-color:#7a6224;color:#e0bc6a}}
+ .mdlstat.bad{{border-color:#7a3535;color:#e08a8a}}
+ .mdlstat button{{font-size:12px;padding:4px 9px}}
  .cfggrid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;padding:6px 0 16px}}
  .cfggrid label{{display:flex;flex-direction:column;font-size:12px;color:#aaa;gap:3px}}
  .cfggrid .qm{{cursor:help;color:#6fb0c8;font-weight:700;margin-left:5px;border:1px solid #3a5b66;border-radius:50%;padding:0 5px;font-size:11px}}
@@ -3333,6 +3451,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
 </div>
 <details class="settings">
  <summary>⚙ Global settings (atlas_config.json — shared defaults)</summary>
+ {model_status}
  <div class="cfggrid">{global_fields}</div>
  <button onclick="saveCfg(this)" style="margin-bottom:14px">Save settings</button>
  <span id="cfgstat" style="margin-left:12px;color:#999"></span>
@@ -4481,6 +4600,20 @@ async function refreshR2(btn){{
  if(btn) btn.disabled=false;
  if(msg.indexOf('✓')===0) setTimeout(()=>location.reload(),900);
 }}
+async function refreshModels(btn){{
+ // Re-probe ComfyUI for its /object_info model lists and store them, then
+ // reload so every dropdown re-renders from the fresh catalog.
+ let s=document.getElementById('mdlstatmsg');
+ if(s)s.textContent='⟳ Probing ComfyUI…';
+ if(btn) btn.disabled=true;
+ let msg;
+ try{{ let r=await fetch('/refreshmodels',{{method:'POST',body:'{{}}'}});
+  msg=(r.status===404)?'Refresh-models endpoint missing — restart the service':await r.text();
+ }}catch(e){{ msg='Refresh-models request failed: '+e; }}
+ if(s)s.textContent=msg;
+ if(btn) btn.disabled=false;
+ if(msg.indexOf('✓')===0) setTimeout(()=>location.reload(),1200);
+}}
 async function clearCache(btn){{
  if(!confirm('Reset this project from the cloud?\\n\\nRe-downloads everything '
   +'from R2 and DROPS any local files that were deleted from the cloud. '
@@ -5554,6 +5687,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain", self._refresh().encode())
         elif post_path == "/clearcache":
             self._send(200, "text/plain", self._clearcache().encode())
+        elif post_path == "/refreshmodels":
+            self._send(200, "text/plain", self._refreshmodels().encode())
         elif post_path == "/sliceatlas":
             self._send(200, "text/plain", self._sliceatlas().encode())
         elif urllib.parse.urlparse(self.path).path == "/deployatlas":
@@ -5588,6 +5723,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "text/plain", self._setmode(json.loads(raw)).encode())
         elif post_path == "/fxbuild":
             self._send(200, "text/plain", self._fxbuild(json.loads(raw)).encode())
+        elif post_path == "/video/nodespecs":
+            self._send(200, "application/json", self._video_nodespecs(raw))
         elif post_path in ("/video/generate", "/video/cancel", "/video/delete",
                            "/video/toclip", "/video/regen", "/video/discard",
                            "/video/add", "/video/duplicate"):
@@ -6252,6 +6389,28 @@ class Handler(BaseHTTPRequestHandler):
             return ("↻ Refresh from R2 hit a snag — try again in a moment "
                     f"({type(e).__name__}: {e})")
         return f"✓ Refreshed from R2 — {n} manifest(s) available"
+
+    def _refreshmodels(self) -> str:
+        """⟳ Refresh model lists: re-probe ComfyUI for its /object_info enums
+        and persist them, so the Settings dropdowns keep working while nothing
+        is answering (the hosted tool's normal state under
+        `COMFY_TRANSPORT=serverless`).
+
+        Busts the time-based ComfyUI caches first — otherwise a pod that came up
+        30 seconds ago is still remembered as down and the probe skips it."""
+        batch_atlas._bust_comfy_caches()
+        # MODEL_FIELDS already covers every enum-backed node — the sampler,
+        # scheduler, dtype and IPAdapter weight-type fields are mapped there
+        # too, and their ENUM_FIELDS entry is only the offline floor.
+        pairs = sorted(set(MODEL_FIELDS.values()))
+        try:
+            res = comfy_catalog.refresh(pairs)
+        except Exception as e:  # noqa: BLE001 — report, never 500 the button
+            return f"⟳ Refresh failed ({type(e).__name__}: {e})"
+        if not res.get("ok"):
+            return f"⚠ {res.get('note') or 'Nothing to refresh.'}"
+        return (f"✓ Model lists refreshed from {res.get('source')} — "
+                f"{res.get('fields')} list(s), {res.get('values')} value(s)")
 
     def _clearcache(self) -> str:
         """TRUE reset of the ACTIVE (client, project) from R2: rmtree the whole
@@ -7149,25 +7308,30 @@ class Handler(BaseHTTPRequestHandler):
                     f'{html.escape(label)}{qm}</span>{ctrl}</label>'
                 )
         for ui_key, label, typ, mk in ATLAS_GEOM_FIELDS:
-            val = html.escape(str(matlas.get(mk, "")))
             step = " step=any" if typ == "number" else ""
             tip = help_for(ui_key, cfg)
             tip_esc = html.escape(tip, quote=True)
             qm = (f'<span class="qm" title="{tip_esc}">&#9432;</span>'
                   if tip else "")
-            ctl = (f'<input data-cfg="{ui_key}" type="{typ}" value="{val}"'
-                   f' title="{tip_esc}"{step}>')
-            if ui_key in FILE_FIELDS:
-                ctl = (f'<span class="filefld">{ctl}'
-                       f'<button type="button" class="fbtn" title="Browse '
-                       f'for a file (local, network \\\\share, or paste a '
-                       f'URL)" onclick="openFs(\'{ui_key}\')">📁</button>'
-                       f'</span>')
+            # Through _control_html so these get the same treatment as every
+            # other setting: atlas_format becomes its enum <select>, the two
+            # path fields keep their 📁 browse button.
+            ctl = _control_html(ui_key, typ, matlas.get(mk, ""), model_cache,
+                                title=tip_esc, step=step)
             atlas_fields.append(
                 f'<label><span class="lblrow">{html.escape(label)} '
                 f'<span style="color:#888;font-size:10px">· this atlas</span>'
                 f'{qm}</span>{ctl}</label>'
             )
+        # Both field loops are done, so model_cache now holds every list this
+        # render read. Persist them only if a LIVE probe found something the
+        # stored catalog doesn't already have — commit_live is content-gated and
+        # rate-limited precisely so a page reload is never an R2 PUT.
+        try:
+            comfy_catalog.commit_live()
+        except Exception:  # noqa: BLE001 — caching is never worth a 500
+            pass
+        model_status = _model_status_html()
         deploy_val = html.escape(str(m.get("deploy_path", "")))
         deploy_tip = html.escape(
             "R2 destination prefix (inside this project's space) for the "
@@ -7326,6 +7490,7 @@ class Handler(BaseHTTPRequestHandler):
             bp_list_js=json.dumps(bp_list),
             bp_can_publish_js=json.dumps(bool(getattr(self, "can_publish", False))),
             global_fields="".join(global_fields),
+            model_status=model_status,
             atlas_fields="".join(atlas_fields),
             spine_link=spine_link,
             manifest_select=manifest_select,

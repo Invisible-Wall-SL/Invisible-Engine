@@ -77,6 +77,56 @@ Launcher /atlas ──redirect──▶ atlas-tool (Railway, Python UI)
    Inspector** (below) before you deploy it.
 7. **Deploy** — `/deployatlas` copies the finished result to R2.
 
+## ⚙ Settings — and where the dropdowns get their values
+
+Three collapsible panels sit above the region grid:
+
+- **⚙ Global settings** — the shared defaults in `atlas_config.json`.
+- **🧩 Atlas settings** — per-atlas overrides (blank = inherit the global) plus
+  this atlas's geometry (`atlas_file`, width/height, cell size, **Atlas format**,
+  source image, deploy prefix/basename).
+- **📝 Atlas style** — the positive prefix/suffix and negative for this atlas.
+
+**Model and enum fields are dropdowns, not free text.** Two kinds:
+
+- **Installed-file lists** — checkpoint, LoRA, ControlNet, RMBG model, and the
+  FLUX unet / dual-CLIP / VAE / LoRA / ControlNet / Redux style model /
+  CLIP-Vision. These are whatever files the ComfyUI you generate on actually has,
+  so they are read from ComfyUI's `/object_info`.
+- **Fixed enums** — FLUX weight dtype / sampler / scheduler, IPAdapter weight
+  type, the five `gpt_image_*` fields and **Atlas format**. Their valid values are
+  known offline, so these stay dropdowns no matter what ComfyUI is doing.
+
+Whatever the source, **a value you already have configured is never dropped**:
+if it isn't in the offered list it stays in the dropdown, selected, marked
+`(not in ComfyUI)` (installed-file list) or `(custom)` (fixed enum). Saving the
+panel cannot silently rewrite a setting. The blank choice is still there too —
+in Atlas settings it means *inherit the global*, in Global settings it means
+*empty* (e.g. clear `flux_controlnet` so the optional node is skipped).
+
+### The status line + ⟳ Refresh model lists
+
+At the top of **⚙ Global settings** a coloured strip says where this page's
+model lists came from:
+
+| Colour | Means |
+|---|---|
+| green — *Model lists: live from ComfyUI* | a ComfyUI answered this page load; the lists are current. |
+| amber — *Model lists: cached … from …* | ComfyUI isn't answering, so the lists come from the stored catalog (still accurate as of that time). |
+| red — *Model lists unavailable* | nothing has ever been reached; the installed-file fields fall back to free text. The fixed enums are unaffected. |
+
+**⟳ Refresh model lists** re-probes ComfyUI and stores what it finds in R2
+(`_shared/comfy/catalog.json` — one catalog shared by every project, because
+what's installed is a property of the ComfyUI, not of a project). It reports the
+source and how many lists/values it read, then reloads the page.
+
+This matters because production runs `COMFY_TRANSPORT=serverless`: the RunPod
+endpoint is a job queue, not a ComfyUI HTTP server, so there is normally nothing
+live to ask. The catalog is what keeps these dropdowns populated — and pointing
+`COMFY_CATALOG_URL` at an always-on ComfyUI (e.g. the CPU volume pod) gives ⟳ a
+source it can always read. A page load never writes to R2; only ⟳ (and one
+opportunistic write when a live probe genuinely finds a changed list) does.
+
 ## 🖼 View atlas — the Region Overlay Inspector
 
 `🖼 View atlas` opens `/atlasview`: the composed page with its region geometry
@@ -284,7 +334,8 @@ you are on before hunting for a missing model.
 `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`,
 `COMFY_ORG_API_KEY` (optional, gpt_image), `ATLAS_PROJECT`,
 `ATLAS_OUTPUT_PREFIX`, `ATLAS_STAGING`, `ATLAS_TOOL_SECRET` (optional access
-gate; unset = open on its URL).
+gate; unset = open on its URL), `COMFY_CATALOG_URL` (optional; an always-on
+ComfyUI to read the Settings model lists from — see [INFRA](../INFRA.md)).
 
 ## Known gotchas / limitations
 
