@@ -12,6 +12,14 @@
 		followRotation?: boolean;
 		/** Also scale the child subtree with the bone's world scale (default: position only). */
 		followScale?: boolean;
+		/**
+		 * The child is authored in RIG units (a Rigger binding: a Flipbook clip or effect placed on this
+		 * bone in the Rigger / `/symbols`, which load every rig at scale 1). With `followScale`, also
+		 * multiply by the host bundle's LOAD scale: the reader scales bone positions and attachment
+		 * geometry by it but never a bone's own scale, so a child following only the bone's scale drew
+		 * at 1/loadScale of its authored size on a symbol bundle (read at 2). Off ⇒ unchanged.
+		 */
+		rigUnits?: boolean;
 		children: Snippet;
 	};
 </script>
@@ -41,6 +49,7 @@
 		getContextApp,
 		getContextParent,
 		getContextSpine,
+		getContextSpineLoadScale,
 		createContextParent,
 	} from '../context.svelte';
 
@@ -48,6 +57,7 @@
 	const context = getContextApp();
 	const parentContext = getContextParent();
 	const spine = getContextSpine();
+	const loadScale = getContextSpineLoadScale();
 
 	const container = new PIXI.Container();
 	parentContext.addToParent(container);
@@ -137,9 +147,13 @@
 					// parent frame. Where the container IS a rig descendant the two transforms cancel to
 					// 1, so that host is unchanged.
 					const rigToParent = worldScaleRatio(spine.worldTransform, container.parent);
+					// `rigUnits`: the ratio above also divides out a load-scale factor a parent
+					// (`RiggedFlipbook`'s local container) applied, so the factor is re-applied HERE for
+					// the bone path — the child ends up at bone scale × load scale, in rig units.
+					const units = props.rigUnits ? loadScale() : 1;
 					container.scale.set(
-						b.getWorldScaleX() * rigToParent.x,
-						b.getWorldScaleY() * rigToParent.y,
+						b.getWorldScaleX() * rigToParent.x * units,
+						b.getWorldScaleY() * rigToParent.y * units,
 					);
 				}
 			}
