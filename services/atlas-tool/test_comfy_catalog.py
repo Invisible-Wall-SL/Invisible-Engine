@@ -61,13 +61,15 @@ class FakeStorage:
     """A one-key R2. `raw` lets a test plant bytes that aren't valid JSON;
     `read_raises` / `write_raises` stand for an R2 that is simply down."""
 
-    def __init__(self, doc: dict | None = None, *, raw: bytes | None = None,
+    def __init__(self, doc: dict | None = None, *, key: str | None = None,
+                 raw: bytes | None = None,
                  read_raises: bool = False, write_raises: bool = False):
         self.objects: dict[str, bytes] = {}
+        k = key or cc.CATALOG_KEY
         if raw is not None:
-            self.objects[cc.CATALOG_KEY] = raw
+            self.objects[k] = raw
         elif doc is not None:
-            self.objects[cc.CATALOG_KEY] = json.dumps(doc).encode()
+            self.objects[k] = json.dumps(doc).encode()
         self.read_raises = read_raises
         self.write_raises = write_raises
         self.puts: list[str] = []
@@ -83,8 +85,8 @@ class FakeStorage:
         self.puts.append(key)
         self.objects[key] = body
 
-    def doc(self) -> dict:
-        raw = self.objects.get(cc.CATALOG_KEY)
+    def doc(self, key: str | None = None) -> dict:
+        raw = self.objects.get(key or cc.CATALOG_KEY)
         return json.loads(raw.decode()) if raw else {}
 
 
@@ -114,8 +116,9 @@ def install(storage: FakeStorage, batch: FakeBatch) -> None:
     cache, so each case starts from a known world."""
     cc.storage = storage           # type: ignore[assignment]
     cc.batch_atlas = batch         # type: ignore[assignment]
-    cc._cache["doc"] = None
-    cc._cache["t"] = 0.0
+    for slot in cc._cache.values():
+        slot["doc"] = None
+        slot["t"] = 0.0
     cc._pending.clear()
     cc._last_write = 0.0
 
@@ -232,7 +235,7 @@ def test_refresh_with_nothing_reachable_keeps_the_catalog() -> None:
     check("refresh reports failure", res["ok"], False)
     check("failure names no source", res["source"], "")
     check("failure still reports what is stored", res["fields"], 1)
-    check_in("failure note is readable", "No ComfyUI answered", res["note"])
+    check_in("failure note is readable", "didn't answer", res["note"])
     check("a failed refresh never PUTs", st.puts, [])
     check("the good catalog is untouched", st.doc(), good)
     check("and still serves the dropdown",
@@ -240,8 +243,12 @@ def test_refresh_with_nothing_reachable_keeps_the_catalog() -> None:
 
 
 def test_refresh_reads_the_configured_catalog_url() -> None:
+    # COMFY_CATALOG_URL is the POD target's only source. COMFY_BASE is alive
+    # here on purpose — it is the user's own machine, and a pod refresh must
+    # never read it.
+    POD = cc.CATALOG_KEYS["pod"]
     st = FakeStorage()
-    install(st, FakeBatch(alive=False))
+    install(st, FakeBatch(alive=True, lists={CKPT: ["local-only.safetensors"]}))
     cc.os.environ["COMFY_CATALOG_URL"] = "http://volume-pod:8188/"
     seen: list[str] = []
     sent_headers: list[dict] = []
@@ -257,30 +264,35 @@ def test_refresh_reads_the_configured_catalog_url() -> None:
         }}}}
 
     try:
-        res = cc.refresh([CKPT], http_get=answer)
+        res = cc.refresh([CKPT], target="pod", http_get=answer)
     finally:
         cc.os.environ.pop("COMFY_CATALOG_URL", None)
     check("refresh succeeded", res["ok"], True)
+    check("refresh names its target", res["target"], "pod")
     check("trailing slash trimmed from the source",
           res["source"], "http://volume-pod:8188")
     check("one list, two values", (res["fields"], res["values"]), (1, 2))
     check("probe hit /system_stats then /object_info", seen, [
         "http://volume-pod:8188/system_stats",
         "http://volume-pod:8188/object_info/CheckpointLoaderSimple"])
-    check("catalog stored", st.doc()["fields"][CKPT_KEY],
+    check("pod catalog stored under the pod key", st.doc(POD)["fields"][CKPT_KEY],
           ["one.safetensors", "two.safetensors"])
+    check("the local catalog was not written", cc.CATALOG_KEY in st.objects, False)
+    check("and the pod dropdown reads it, not COMFY_BASE",
+          u._options_for("checkpoint", {}, "pod"),
+          (["one.safetensors", "two.safetensors"], "(not in ComfyUI)"))
     # A source that lacks a node must not DELETE a list we already had — the
     # probe answers "what I have", not "what exists".
     st2 = FakeStorage({"fetchedAt": 3.0, "source": "old",
-                       "fields": {"RMBG|model": ["rmbg-2.0"]}})
+                       "fields": {"RMBG|model": ["rmbg-2.0"]}}, key=POD)
     install(st2, FakeBatch(alive=False))
     cc.os.environ["COMFY_CATALOG_URL"] = "http://volume-pod:8188"
     try:
-        cc.refresh([CKPT], http_get=answer)
+        cc.refresh([CKPT], target="pod", http_get=answer)
     finally:
         cc.os.environ.pop("COMFY_CATALOG_URL", None)
     check("an unprobed list is merged forward, not dropped",
-          sorted(st2.doc()["fields"]), sorted([CKPT_KEY, "RMBG|model"]))
+          sorted(st2.doc(POD)["fields"]), sorted([CKPT_KEY, "RMBG|model"]))
     # The CF Access / User-Agent headers must ride along or Cloudflare 403s the
     # request as `Python-urllib` — the trap that cost hours once already.
     check("every probe carried the CF headers",
@@ -298,6 +310,90 @@ def test_refresh_answering_but_listing_nothing_keeps_the_catalog() -> None:
     res = cc.refresh([CKPT], http_get=empty)
     check("no enums found = not ok", res["ok"], False)
     check("catalog untouched", st.doc(), good)
+
+
+# --------------------------------------------------------------------------
+# 3b. Two targets, two sources — never each other's
+# --------------------------------------------------------------------------
+def test_targets_never_substitute_for_each_other() -> None:
+    POD = cc.CATALOG_KEYS["pod"]
+    # A live COMFY_BASE (the user's machine) AND a stored pod catalog.
+    st = FakeStorage({"fetchedAt": 1.0, "source": "http://volume-pod:8188",
+                      "fields": {CKPT_KEY: ["pod.safetensors"]}}, key=POD)
+    batch = FakeBatch(alive=True, lists={CKPT: ["mine.safetensors"]})
+    install(st, batch)
+    check("pod dropdown = the pod catalog",
+          u._options_for("checkpoint", {}, "pod"),
+          (["pod.safetensors"], "(not in ComfyUI)"))
+    check("…and COMFY_BASE was never asked", batch.available_calls, [])
+    check("pod is never 'live'", cc.status("pod")["live"], False)
+    out = u._model_status_html("pod")
+    check_in("pod strip says RunPod", "RunPod", out)
+    check_in("pod strip says cached", "cached", out)
+    check_not_in("pod strip never claims live", "live from", out)
+    check("local dropdown = the live list",
+          u._options_for("checkpoint", {}, "local"),
+          (["mine.safetensors"], "(not in ComfyUI)"))
+    # No pod catalog at all → the pod strip says what to set.
+    install(FakeStorage(), batch)
+    out = u._model_status_html("pod")
+    check_in("no pod catalog: unavailable", "Model lists unavailable", out)
+    check_in("no pod catalog: names the env var", "COMFY_CATALOG_URL", out)
+    # A LOCAL refresh ignores COMFY_CATALOG_URL even when it is set and
+    # COMFY_BASE is down — the pod's files are not the user's files.
+    st = FakeStorage()
+    install(st, FakeBatch(alive=False))
+    cc.os.environ["COMFY_CATALOG_URL"] = "http://volume-pod:8188"
+    seen: list[str] = []
+
+    def answer(url: str, headers: dict) -> dict:
+        seen.append(url)
+        return {"system": {}}
+
+    try:
+        res = cc.refresh([CKPT], target="local", http_get=answer)
+    finally:
+        cc.os.environ.pop("COMFY_CATALOG_URL", None)
+    check("local refresh with COMFY_BASE down fails", res["ok"], False)
+    check("…without touching COMFY_CATALOG_URL", seen, [])
+    check_in("…and says which machine", "Your ComfyUI didn't answer", res["note"])
+    # A POD refresh with nothing configured says exactly what to set.
+    res = cc.refresh([CKPT], target="pod", http_get=answer)
+    check("pod refresh with nothing configured fails", res["ok"], False)
+    check_in("…and names COMFY_CATALOG_URL", "COMFY_CATALOG_URL", res["note"])
+    check("…without a PUT", st.puts, [])
+
+
+def test_run_on_setting_maps_to_the_render_env() -> None:
+    saved = cc.os.environ.get("COMFY_TRANSPORT")
+    try:
+        cc.os.environ["COMFY_TRANSPORT"] = "serverless"
+        check("blank + serverless env = pod",
+              u.effective_run_on({"run_on": ""}), "pod")
+        check("explicit local beats the env",
+              u.effective_run_on({"run_on": "local"}), "local")
+        check("an unknown value falls back to the env",
+              u.effective_run_on({"run_on": "gpu"}), "pod")
+        cc.os.environ["COMFY_TRANSPORT"] = "http"
+        check("blank + http env = local", u.effective_run_on({}), "local")
+        check("explicit pod beats the env",
+              u.effective_run_on({"run_on": "pod"}), "pod")
+        check("pod renders through the serverless transport",
+              u.run_on_env("pod"), {"COMFY_TRANSPORT": "serverless"})
+        check("local renders through http (the tunnel)",
+              u.run_on_env("local"), {"COMFY_TRANSPORT": "http"})
+        out = u._control_html("run_on", "text", "local", {})
+        check_in("run_on is a <select>", '<select data-cfg="run_on"', out)
+        check_in("current choice selected", '<option value="local" selected>', out)
+        check_in("blank names the service default", "(service default: ", out)
+        out = u._control_html("run_on", "text", "gpu", {})
+        check_in("unknown stored value kept and marked",
+                 '<option value="gpu" selected>gpu (custom)</option>', out)
+    finally:
+        if saved is None:
+            cc.os.environ.pop("COMFY_TRANSPORT", None)
+        else:
+            cc.os.environ["COMFY_TRANSPORT"] = saved
 
 
 # --------------------------------------------------------------------------
@@ -346,7 +442,7 @@ def test_commit_live_is_content_gated() -> None:
 
 def test_status_reports_the_right_tier() -> None:
     install(FakeStorage(), FakeBatch(alive=True))
-    check_in("live reads 'live from ComfyUI'", "live from ComfyUI",
+    check_in("live reads 'live from your ComfyUI'", "live from your ComfyUI",
              u._model_status_html())
     install(FakeStorage({"fetchedAt": 1.0, "source": "http://volume-pod:8188",
                          "fields": {CKPT_KEY: ["a"]}}), FakeBatch(alive=False))
@@ -354,7 +450,7 @@ def test_status_reports_the_right_tier() -> None:
     check_in("cached names its source", "http://volume-pod:8188", out)
     check_in("cached says ComfyUI isn't answering",
              "ComfyUI isn't answering right now", out)
-    check_not_in("cached is not shown as live", "live from ComfyUI", out)
+    check_not_in("cached is not shown as live", "live from your ComfyUI", out)
     check_in("every state offers the refresh button",
              "⟳ Refresh model lists", out)
 
@@ -368,6 +464,8 @@ if __name__ == "__main__":
                    test_refresh_with_nothing_reachable_keeps_the_catalog,
                    test_refresh_reads_the_configured_catalog_url,
                    test_refresh_answering_but_listing_nothing_keeps_the_catalog,
+                   test_targets_never_substitute_for_each_other,
+                   test_run_on_setting_maps_to_the_render_env,
                    test_load_survives_a_broken_or_absent_catalog,
                    test_commit_live_is_content_gated,
                    test_status_reports_the_right_tier):

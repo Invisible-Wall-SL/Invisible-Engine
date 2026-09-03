@@ -1,21 +1,31 @@
 """Persisted ComfyUI `/object_info` catalog, so the Settings dropdowns survive a
-ComfyUI that isn't answering.
+ComfyUI that isn't answering — one catalog per place a render can run.
 
 Why this exists: `batch_atlas._available(node, field)` reads the installed-model
 lists LIVE from `{COMFY_BASE}/object_info/<node>`, and returns `None` the moment
-`_comfy_alive()` fails. The hosted tool runs `COMFY_TRANSPORT=serverless` — the
-RunPod endpoint is a job queue, not a long-lived HTTP server, and `comfy_host` is
-blank — so `COMFY_BASE` never answers and EVERY model dropdown silently degraded
-to a free-text box. A typo in a checkpoint name then only surfaced as a failed
-render.
+`_comfy_alive()` fails. The hosted tool's default is `COMFY_TRANSPORT=serverless`
+— the RunPod endpoint is a job queue, not a long-lived HTTP server — so
+`COMFY_BASE` never answers and EVERY model dropdown silently degraded to a
+free-text box. A typo in a checkpoint name then only surfaced as a failed render.
 
-So the enum lists are cached in R2 under ONE shared, non-project key: what
-ComfyUI has installed is a property of the ComfyUI install, not of a client or a
-project, and every user of every project wants the same answer.
+Two targets, two catalogs (`TARGETS`): a render runs either on RunPod ("pod") or
+on the user's own machine ("local"), and those are different installs with
+different files. A dropdown must list the files of the machine that will
+actually load the model, so:
+  * "local" — `COMFY_BASE` (the tunnel to the user's ComfyUI) is asked LIVE, and
+    what it answers is cached under `_shared/comfy/catalog.json`.
+  * "pod" — there is nothing to ask live: serverless workers exist only while a
+    job runs. `COMFY_CATALOG_URL` (an always-on pod that mounts the same Network
+    Volume) is read on ⟳ and cached under `_shared/comfy/catalog-pod.json`.
+    `COMFY_BASE` is deliberately NEVER consulted for this target — it would show
+    the user's local files for a render that runs on the pod.
+
+Shared across every client/project: what a ComfyUI has installed is a property
+of the install, not of a client or a project.
 
 Contract, in order of trust:
-  1. a LIVE `/object_info` read (authoritative — a model added today shows up),
-  2. this catalog (the last time anything answered),
+  1. a LIVE `/object_info` read (local target only — authoritative),
+  2. the target's catalog (the last time anything answered for it),
   3. the caller's own static seed (`ui_server.ENUM_FIELDS`, for true ComfyUI
      enums whose values are fixed and knowable offline).
 
@@ -36,9 +46,15 @@ from urllib.request import Request, urlopen
 import batch_atlas
 import storage
 
-# Shared across every client/project — mirrors the `_shared/blueprints/` and
-# `_shared/spines/` precedent.
-CATALOG_KEY = "_shared/comfy/catalog.json"
+# Shared keys mirror the `_shared/blueprints/` and `_shared/spines/` precedent.
+# "local" keeps the original key: everything that ever wrote it read COMFY_BASE,
+# i.e. the user's own ComfyUI over the tunnel.
+TARGETS = ("local", "pod")
+CATALOG_KEYS = {
+    "local": "_shared/comfy/catalog.json",
+    "pod": "_shared/comfy/catalog-pod.json",
+}
+CATALOG_KEY = CATALOG_KEYS["local"]
 
 # How long a loaded catalog is trusted in-process. Short: a `refresh()` in one
 # container should show up in another within a page reload or two, and the read
@@ -51,9 +67,17 @@ _WRITE_COOLDOWN = 300.0
 # wedged host can't stall the ⟳ button for a minute.
 _PROBE_TIMEOUT = 4.0
 
-_cache: dict[str, object] = {"t": 0.0, "doc": None}
-_pending: dict[str, list[str]] = {}   # live lists seen this process, not yet stored
+_cache: dict[str, dict] = {t: {"t": 0.0, "doc": None} for t in TARGETS}
+_pending: dict[str, list[str]] = {}   # live LOCAL lists seen this process, not yet stored
 _last_write = 0.0
+
+
+def _target(target: str) -> str:
+    return target if target in CATALOG_KEYS else "local"
+
+
+def catalog_key(target: str = "local") -> str:
+    return CATALOG_KEYS[_target(target)]
 
 
 def field_key(node: str, field: str) -> str:
@@ -64,18 +88,20 @@ def field_key(node: str, field: str) -> str:
 
 # --- read path ---------------------------------------------------------------
 
-def load(*, force: bool = False) -> dict:
-    """The stored catalog, or `{}` if there isn't one / it can't be read.
+def load(target: str = "local", *, force: bool = False) -> dict:
+    """The stored catalog for `target`, or `{}` if there isn't one / it can't
+    be read.
 
     Never raises: an R2 outage or a truncated object must not take the Settings
     page down with it — it just means the dropdowns fall back a tier."""
+    slot = _cache[_target(target)]
     now = _time.time()
-    doc = _cache.get("doc")
-    if not force and doc is not None and now - float(_cache["t"]) < _LOAD_TTL:
+    doc = slot.get("doc")
+    if not force and doc is not None and now - float(slot["t"]) < _LOAD_TTL:
         return doc  # type: ignore[return-value]
     parsed: dict = {}
     try:
-        raw = storage.get(CATALOG_KEY)
+        raw = storage.get(catalog_key(target))
         if raw:
             loaded = json.loads(raw.decode("utf-8"))
             if isinstance(loaded, dict):
@@ -97,25 +123,30 @@ def load(*, force: bool = False) -> dict:
                 }
     except Exception:  # noqa: BLE001 — any R2/parse failure = "no catalog"
         parsed = {}
-    _cache["doc"] = parsed
-    _cache["t"] = now
+    slot["doc"] = parsed
+    slot["t"] = now
     return parsed
 
 
-def stored_options(node: str, field: str) -> list[str] | None:
-    """The catalog's list for one enum, or None if it isn't in there."""
-    vals = (load().get("fields") or {}).get(field_key(node, field))
+def stored_options(node: str, field: str, target: str = "local") -> list[str] | None:
+    """The target catalog's list for one enum, or None if it isn't in there."""
+    vals = (load(target).get("fields") or {}).get(field_key(node, field))
     return list(vals) if isinstance(vals, list) and vals else None
 
 
-def options(node: str, field: str, *,
+def options(node: str, field: str, *, target: str = "local",
             available: Callable[[str, str], list[str] | None] | None = None,
             ) -> list[str] | None:
-    """Valid values for `node.field` — live if ComfyUI answers, else the stored
-    catalog, else None (the caller then decides: static seed, or free text).
+    """Valid values for `node.field` on `target` — live if its ComfyUI answers,
+    else its stored catalog, else None (the caller then decides: static seed,
+    or free text).
 
-    A live hit is remembered for `commit_live()`; this function itself never
-    touches R2 beyond the cached `load()`."""
+    For "pod" there is no live source (see the module docstring), and asking
+    COMFY_BASE would answer for the WRONG machine — so it is the catalog or
+    nothing. A live LOCAL hit is remembered for `commit_live()`; this function
+    itself never touches R2 beyond the cached `load()`."""
+    if _target(target) == "pod":
+        return stored_options(node, field, "pod")
     probe = available or batch_atlas._available
     live: list[str] | None
     try:
@@ -126,19 +157,19 @@ def options(node: str, field: str, *,
         vals = [str(v) for v in live]
         _pending[field_key(node, field)] = vals
         return vals
-    return stored_options(node, field)
+    return stored_options(node, field, "local")
 
 
 def commit_live(*, now: Callable[[], float] = _time.time) -> bool:
-    """Store the live lists `options()` has seen — but only if they genuinely
-    differ from what's already in R2, and at most once per cooldown.
+    """Store the live LOCAL lists `options()` has seen — but only if they
+    genuinely differ from what's already in R2, and at most once per cooldown.
 
     This is the one write reachable from the render path, and it is
     content-gated precisely so a page reload is not an R2 PUT."""
     global _last_write
     if not _pending:
         return False
-    current = load()
+    current = load("local")
     fields = dict(current.get("fields") or {})
     if all(fields.get(k) == v for k, v in _pending.items()):
         return False
@@ -146,7 +177,7 @@ def commit_live(*, now: Callable[[], float] = _time.time) -> bool:
     if t - _last_write < _WRITE_COOLDOWN:
         return False
     fields.update(_pending)
-    if _store(fields, str(batch_atlas.COMFY_BASE), t):
+    if _store(fields, str(batch_atlas.COMFY_BASE), t, "local"):
         _last_write = t
         _pending.clear()
         return True
@@ -155,19 +186,25 @@ def commit_live(*, now: Callable[[], float] = _time.time) -> bool:
 
 # --- status (what the Settings panel tells the user) -------------------------
 
-def status(*, alive: Callable[[], bool] | None = None) -> dict:
+def status(target: str = "local", *,
+           alive: Callable[[], bool] | None = None) -> dict:
     """Where this render's model lists came from, for the panel's status line.
 
     `live` reuses `_comfy_alive()`'s cached verdict, so asking costs nothing on
-    top of the probe the dropdowns already did."""
-    probe = alive or batch_atlas._comfy_alive
-    try:
-        is_live = bool(probe())
-    except Exception:  # noqa: BLE001
-        is_live = False
-    doc = load()
+    top of the probe the dropdowns already did. For "pod" it is always False —
+    nothing can be live there — without touching COMFY_BASE at all."""
+    target = _target(target)
+    is_live = False
+    if target == "local":
+        probe = alive or batch_atlas._comfy_alive
+        try:
+            is_live = bool(probe())
+        except Exception:  # noqa: BLE001
+            is_live = False
+    doc = load(target)
     fields = doc.get("fields") or {}
     return {
+        "target": target,
         "live": is_live,
         "cached": bool(fields),
         "source": str(doc.get("source") or ""),
@@ -185,52 +222,88 @@ def _http_get_json(url: str, headers: dict, timeout: float = _PROBE_TIMEOUT) -> 
 
 
 def catalog_url() -> str:
-    """Optional always-on ComfyUI to read model lists from — e.g. the CPU volume
-    pod the launcher already reads for its "What's installed" panel. Read at call
-    time (not import) so setting the Railway var takes effect on redeploy without
-    a code change. Read-only by construction: we only ever GET /object_info, so
-    pointing this at a pod never starts, resumes or bills one."""
+    """The RunPod side's list source: an always-on ComfyUI that mounts the same
+    Network Volume the serverless workers use — e.g. the CPU volume pod the
+    launcher already reads for its "What's installed" panel, or any /comfyui
+    fleet pod while it is running. Read at call time (not import) so setting
+    the Railway var takes effect on redeploy without a code change. Read-only
+    by construction: we only ever GET /object_info, so pointing this at a pod
+    never starts, resumes or bills one."""
     return (os.environ.get("COMFY_CATALOG_URL") or "").strip().rstrip("/")
 
 
-def _probe_sources(alive: Callable[[], bool],
+def _probe_sources(target: str, alive: Callable[[], bool],
                    http_get: Callable[[str, dict], dict],
                    ) -> tuple[str, str] | None:
-    """First source that answers `/object_info`, as (base_url, label)."""
+    """The one source `target` may be read from, as (base_url, label) — or None
+    when it isn't answering. Local is COMFY_BASE and nothing else; pod is
+    COMFY_CATALOG_URL and nothing else (see the module docstring for why the
+    two must never substitute for each other)."""
+    if _target(target) == "pod":
+        base = catalog_url()
+        if not base:
+            return None
+        try:
+            http_get(f"{base}/system_stats", dict(batch_atlas.CF_HEADERS))
+            return (base, base)
+        except Exception:  # noqa: BLE001 — not answering = not a source
+            return None
     try:
         if alive():
             return (str(batch_atlas.COMFY_BASE), str(batch_atlas.COMFY_BASE))
     except Exception:  # noqa: BLE001
         pass
-    base = catalog_url()
-    if base:
-        try:
-            http_get(f"{base}/system_stats", dict(batch_atlas.CF_HEADERS))
-            return (base, base)
-        except Exception:  # noqa: BLE001 — not answering = not a source
-            pass
     return None
 
 
-def _store(fields: dict[str, list[str]], source: str, fetched_at: float) -> bool:
+def _unreachable_note(target: str) -> str:
+    if _target(target) == "pod":
+        url = catalog_url()
+        if not url:
+            return ("RunPod's serverless workers can't be asked for their model "
+                    "lists — set COMFY_CATALOG_URL to a pod that mounts the "
+                    "Network Volume (any /comfyui fleet pod: "
+                    "https://<pod-id>-8188.proxy.runpod.net) and press ⟳ while "
+                    "it is running. The stored catalog was left untouched.")
+        return (f"Nothing answered at COMFY_CATALOG_URL ({url}) — is that pod "
+                "running? The stored catalog was left untouched.")
+    return (f"Your ComfyUI didn't answer at {batch_atlas.COMFY_BASE} — start "
+            "ComfyUI and the tunnel (desktop launcher), then ⟳. The stored "
+            "catalog was left untouched.")
+
+
+def _store(fields: dict[str, list[str]], source: str, fetched_at: float,
+           target: str) -> bool:
     doc = {"fetchedAt": float(fetched_at), "source": str(source),
            "fields": {k: list(v) for k, v in fields.items() if v}}
     try:
-        storage.put(CATALOG_KEY,
+        storage.put(catalog_key(target),
                     json.dumps(doc, indent=1).encode("utf-8"),
                     content_type="application/json")
     except Exception:  # noqa: BLE001 — a failed store is not a failed refresh
         return False
-    _cache["doc"] = doc
-    _cache["t"] = _time.time()
+    slot = _cache[_target(target)]
+    slot["doc"] = doc
+    slot["t"] = _time.time()
     return True
 
 
-def refresh(pairs: Iterable[Sequence[str]], *,
+def _untouched(target: str, source: str, note: str) -> dict:
+    cur = load(target, force=True)
+    fields = cur.get("fields") or {}
+    return {
+        "ok": False, "target": _target(target), "source": source,
+        "fields": len(fields), "values": sum(len(v) for v in fields.values()),
+        "fetchedAt": float(cur.get("fetchedAt") or 0.0), "note": note,
+    }
+
+
+def refresh(pairs: Iterable[Sequence[str]], *, target: str = "local",
             alive: Callable[[], bool] | None = None,
             http_get: Callable[[str, dict], dict] | None = None,
             now: Callable[[], float] = _time.time) -> dict:
-    """Probe every (node, field) and store the result as the new catalog.
+    """Probe every (node, field) on `target`'s source and store the result as
+    that target's new catalog.
 
     `pairs` is passed in rather than read from `ui_server.MODEL_FIELDS` — that
     module imports THIS one, so reaching back would be circular.
@@ -238,20 +311,12 @@ def refresh(pairs: Iterable[Sequence[str]], *,
     A probe that reaches nothing returns `ok: False` and leaves the stored
     catalog alone: an unreachable ComfyUI is not evidence that the models are
     gone, and blanking a good catalog would take the dropdowns down with it."""
+    target = _target(target)
     probe_alive = alive or batch_atlas._comfy_alive
     get_json = http_get or (lambda url, headers: _http_get_json(url, headers))
-    src = _probe_sources(probe_alive, get_json)
+    src = _probe_sources(target, probe_alive, get_json)
     if src is None:
-        cur = load(force=True)
-        configured = " (COMFY_CATALOG_URL is not set)" if not catalog_url() else ""
-        return {
-            "ok": False, "source": "", "fields": len(cur.get("fields") or {}),
-            "values": sum(len(v) for v in (cur.get("fields") or {}).values()),
-            "fetchedAt": float(cur.get("fetchedAt") or 0.0),
-            "note": ("No ComfyUI answered — neither the configured transport nor "
-                     f"COMFY_CATALOG_URL{configured}. The stored catalog was left "
-                     "untouched."),
-        }
+        return _untouched(target, "", _unreachable_note(target))
     base, label = src
     headers = dict(batch_atlas.CF_HEADERS)
     found: dict[str, list[str]] = {}
@@ -266,26 +331,21 @@ def refresh(pairs: Iterable[Sequence[str]], *,
         if isinstance(opts, list) and opts:
             found[field_key(node, field)] = [str(v) for v in opts]
     if not found:
-        cur = load(force=True)
-        return {
-            "ok": False, "source": label,
-            "fields": len(cur.get("fields") or {}),
-            "values": sum(len(v) for v in (cur.get("fields") or {}).values()),
-            "fetchedAt": float(cur.get("fetchedAt") or 0.0),
-            "note": (f"{label} answered but listed no model enums — the stored "
-                     "catalog was left untouched."),
-        }
+        return _untouched(target, label,
+                          f"{label} answered but listed no model enums — the "
+                          "stored catalog was left untouched.")
     t = now()
     # Merged, not replaced: a source that simply doesn't have (say) the RMBG
     # node would otherwise DELETE a list we already had, dropping that field
     # back to free text. A probe answers "here is what I have", never "here is
     # what exists"; the status line's timestamp is what surfaces staleness.
-    merged = dict(load(force=True).get("fields") or {})
+    merged = dict(load(target, force=True).get("fields") or {})
     merged.update(found)
-    stored = _store(merged, label, t)
-    _pending.clear()
+    stored = _store(merged, label, t, target)
+    if target == "local":
+        _pending.clear()
     return {
-        "ok": stored, "source": label, "fields": len(found),
+        "ok": stored, "target": target, "source": label, "fields": len(found),
         "values": sum(len(v) for v in found.values()), "fetchedAt": t,
         "note": ("" if stored else
                  "Read the lists but could not write them to R2 — they apply to "
