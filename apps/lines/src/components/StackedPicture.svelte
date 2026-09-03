@@ -91,9 +91,9 @@
 
 			`anchor={0}` (NOT 0.5, unlike the sprite branch): a spine's pivot lives in its LOCAL skeleton
 			frame, not the requested box frame — anchor 0.5 would pivot by `box/2` and mis-centre the art
-			by ≈box/2 (clipping a tall rig at the top, gapping the bottom). Symbol rigs are authored
-			origin-centred (skeleton origin at the bounds centre), so anchor 0 ⇒ pivot (0,0) drops that
-			centre on the box centre — exactly how `SymbolSpineMain` centres every normal symbol.
+			by ≈box/2 (clipping a tall rig at the top, gapping the bottom). `centreBox` then drops the
+			centre of the rig's authored box on the box centre — exactly how `SymbolSpineMain` centres
+			every normal symbol, whether or not the skeleton origin happens to sit in that centre.
 		-->
 		<SpineProvider
 			key={info.assetKey}
@@ -101,6 +101,7 @@
 			width={boxW}
 			height={boxH}
 			loadScaleBase={EDITOR_SPINE_LOAD_SCALE}
+			centreBox
 		>
 			<SpineTrack trackIndex={0} animationName={info.animationName} loop />
 		</SpineProvider>

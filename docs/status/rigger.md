@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-rigger.md](../design/invisible-rigger.md) · Guide: [docs/tools/rigger.md](../tools/rigger.md) · Agent: _none yet_
 
-**One-line state:** _(2026-09-02)_ A rig event binding is now **one KEYFRAME**, not one event name: an effect on the 1s key no longer fires on the 0.01s key beside the flipbook there, each key keeps its own settings, and a key at **t=0** plays instead of being skipped (see Recent changes). Was: _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
+**One-line state:** _(2026-09-02)_ The **Bounds box is now the frame that fills a symbol cell, centred** — in `/symbols`, the Scene Editor's reel cells and the game alike; the game used to centre the skeleton ORIGIN instead, so a Rigger frame had the right size and the wrong place (see Recent changes). Was: _(2026-09-02)_ A rig event binding is now **one KEYFRAME**, not one event name: an effect on the 1s key no longer fires on the 0.01s key beside the flipbook there, each key keeps its own settings, and a key at **t=0** plays instead of being skipped (see Recent changes). Was: _(2026-09-01)_ A **carrier** rig (FX/Flipbook bindings, no art of its own) now gets a natural size — measured from the clips it carries, or hand-drawn in the Bounds box — and its bound content no longer previews mirrored (see Recent changes). Was: _(2026-08-31)_ A rig animation event can now play an **Invisible Flipbook clip** as well as an Invisible FX effect — the same binding shape, the same shared preview overlay, both on one key if you want (see Recent changes). Was: Built — Phases 0–6 on `main`, registered + documented; ⏳ the **whole tool** still needs owner live-verify (the vendored **minified** spine runtime hides browser-only bugs the headless spikes' un-mangled `spine-core` never surface).
 
 ## Current state
 Online Spine 4.2 skeleton editor at `/rigger` (launcher-native, full-page, `rigger`-gated). Reads/writes byte-valid Spine 4.2 JSON under our `.irig` extension, non-destructively saved to R2 alongside the artist's source. Phases 0–6 are all on `main`:
@@ -66,6 +66,31 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-09-02 — **The Bounds box is now the frame that fills a symbol cell — centred — everywhere, so
+  what you author here is what the board draws.** Reported as: "the rig bounds we build seem off; I
+  author them in the Rigger to get the size right in the game, but the two don't match." They could
+  not: every consumer read only `skeleton.width/height` and placed the box as if it were CENTRED ON
+  THE ORIGIN (`measureSpineBounds` returned `-w/2, -h/2`; `<SpineProvider>` pivoted on (0,0)). True
+  of every Spine-editor rig we ship (all 32 checked-in headers are `x = -w/2, y = -h/2`), false of a
+  Rigger rig: `ensureRigBounds` writes the measured setup-pose extent and a dragged frame writes
+  wherever the author put it, so a rig whose root sits at its feet had a frame the game sized
+  correctly and then hung from the wrong point — the origin at the cell centre, the frame's centre
+  somewhere else. Shrinking or growing the frame to "get the size right" then moved the art as well,
+  which is the "very difficult to match" in the report.
+  - **Fix: read the box where the header puts it.** `authoredSpineBox` (`constants-shared/spine`) is
+    the ONE reading of `skeleton.{x,y,width,height}`; `measureSpineBounds` (Scene Editor reel cells,
+    `/symbols` grid + preview) returns its real corner, and `<SpineProvider centreBox>` pivots the
+    game's rig on the box centre — scaled by the bundle's load scale and y-flipped into pixi space
+    (`spineBoxPivot`), because the header stays unscaled while the geometry does not. Opted in by the
+    three cell-fit consumers (`SymbolSpineMain`, `StackedPicture`, the paytable's `InfoOverlay`); a
+    PLACED scene spine keeps origin-at-position, which is the convention the Scene Editor draws it
+    with, so nothing else moves. A header with a size but no `x`/`y` keeps the centred reading.
+  - Parity: a centred box yields a `(0,0)` pivot, so every shipped rig is byte-identical.
+    Fixture `packages/pixi-svelte/fixtures/spineBox.fixture.ts` proves it against a real
+    `SkeletonJson` parse (centred ⇒ no-op at load 1 and 2; feet-rooted frame ⇒ box centre; a
+    missing `x` comes through `undefined`, not 0). Reaches online games via the automatic runtime
+    release; the launcher side deploys with this commit. The Bounds button's tooltip now states the
+    contract. ⏳ Owner live-verify on `test6`'s lobster rig.
 - 2026-09-02 — **A rig event binding is one KEYFRAME, and a key at t=0 plays.** Reported directly:
   two event keys, a flipbook on the one at 0.01s and an effect on the one at 1s, and *"the FX will
   start playing on the first keyframe with the flipbook"*; and *"if I put my keyframe at 0 then

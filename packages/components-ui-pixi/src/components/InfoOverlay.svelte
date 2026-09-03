@@ -160,6 +160,7 @@
 								width={iconBox * SPINE_ICON_FILL}
 								height={iconBox * SPINE_ICON_FILL}
 								fit="contain"
+								centreBox
 							>
 								<SpineTrack trackIndex={0} animationName={icon.animationName ?? ''} loop={true} />
 							</SpineProvider>

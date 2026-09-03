@@ -19,14 +19,26 @@
 		 * caring what the game's asset index happens to say. Absent ⇒ factor 1 ⇒ unchanged.
 		 */
 		loadScaleBase?: number;
+		/**
+		 * Place the CENTRE of the rig's authored box (`skeleton.{x,y,width,height}`) at (x, y)
+		 * instead of the skeleton origin. This is what "contain-fit a rig into a cell" means: the
+		 * box the Rigger's Bounds frame shows is the box that fills the cell, wherever the origin
+		 * sits inside it. Off by default — a placed scene spine keeps origin-at-position, which is
+		 * the convention the Scene Editor draws it with. A centred box (every Spine-editor rig)
+		 * makes this a no-op, so it moves only the rigs whose box the origin was not centred in.
+		 */
+		centreBox?: boolean;
 	};
 </script>
 
 <script lang="ts">
 	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
 
+	import { authoredSpineBox } from 'constants-shared/spine';
+
 	import BaseSpineProvider from './BaseSpineProvider.svelte';
 	import { anchorToPivot } from '../utils.svelte';
+	import { spineBoxPivot } from '../spineBox';
 	import { getContextApp } from '../context.svelte';
 	import { getSpineLoadScale } from '../spineLoadScale';
 	import { hasAssetKey, warnMissingAsset } from '../missingAsset';
@@ -38,6 +50,7 @@
 		children,
 		scale: scaleProp,
 		loadScaleBase,
+		centreBox,
 		...baseSpineProps
 	}: Props = $props();
 	const context = getContextApp();
@@ -84,7 +97,14 @@
 		if (!(spineData.width > 0) || !(spineData.height > 0)) return undefined;
 		const factWidth = baseSpineProps.width || spineData.width;
 		const factHeight = baseSpineProps.height || spineData.height;
-		return anchorToPivot({ anchor, sizes: { width: factWidth, height: factHeight } });
+		const base = anchorToPivot({ anchor, sizes: { width: factWidth, height: factHeight } });
+		if (!centreBox || !resolved) return base;
+		// The box is read from the UNSCALED header while the geometry (and so local space) carries
+		// the bundle's load scale — `spineBoxPivot` scales the centre up and flips its y to match.
+		const box = authoredSpineBox(spineData);
+		if (!box) return base;
+		const centre = spineBoxPivot(box, getSpineLoadScale(resolved.assetKey));
+		return { x: base.x + centre.x, y: base.y + centre.y };
 	});
 </script>
 

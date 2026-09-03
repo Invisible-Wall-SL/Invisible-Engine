@@ -81,6 +81,12 @@ animations only when the setup pose is empty (art shown solely via animation
 keys). Preferring the setup pose means the natural size matches the rig's calm
 look, not its widest animation frame.
 
+**What the frame means downstream:** for a symbol rig, the frame is the rectangle that
+fills the reel cell, **centred on the cell** — in `/symbols`, in the Scene Editor's reel
+preview and on the board alike. Where the skeleton origin sits inside the frame does
+not matter; only the frame does. To make a symbol read smaller on the board, enlarge the
+frame around the art; to shift the art within its cell, move the frame the other way.
+
 The **Bounds** toolbar button shows that frame as a teal rectangle on the canvas.
 Drag its **edge / corner** handles to resize it or the **centre** handle to move
 it — this sets a **custom** frame and _locks_ it, so the auto-fit on save won't

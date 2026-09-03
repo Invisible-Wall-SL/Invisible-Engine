@@ -43,6 +43,11 @@
 	Spine symbols read visually bigger than sprite icons (a character + badge fills its bounds),
 	so we contain-fit the rig's bounds to `cell × SYMBOL_SPINE_FILL` (< 1) to bring them down to
 	match the sprites. Spine-only knob — sprites are full contain. Tune SYMBOL_SPINE_FILL.
+
+	`centreBox`: the rect being fitted is the rig's authored box (the Rigger's Bounds frame), so
+	its CENTRE — not the skeleton origin — sits at the cell centre. Same rule the Scene Editor's
+	reel cells and the /symbols grid draw by, so the frame an author sizes in the Rigger is the
+	frame that fills the cell here.
 -->
 <SpineProvider
 	x={props.x}
@@ -51,6 +56,7 @@
 	width={geometry.cellWidthLocal * SYMBOL_SPINE_FILL}
 	height={geometry.cellHeightLocal * SYMBOL_SPINE_FILL}
 	fit="contain"
+	centreBox
 	rebroadcastEvents
 >
 	<SpineTrack
