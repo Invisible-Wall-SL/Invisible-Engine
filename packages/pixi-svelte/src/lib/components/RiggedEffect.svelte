@@ -78,7 +78,11 @@
 	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
 	import { onDestroy } from 'svelte';
 
-	import { getContextSpine, createContextParent } from '../context.svelte';
+	import {
+		getContextSpine,
+		getContextSpineLoadScale,
+		createContextParent,
+	} from '../context.svelte';
 	import EffectPlayer from './EffectPlayer.svelte';
 	import SpineBoneAttach from './SpineBoneAttach.svelte';
 	import { riggedBeatMatches } from '../riggedBeat';
