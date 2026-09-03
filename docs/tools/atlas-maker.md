@@ -293,13 +293,24 @@ reference images (`style_ref` / `shape_ref`), and `output` (the save node).
   roles are still unbound rather than quietly binding one.
 
 **Exposed settings** become the knobs in **🎛 Blueprint settings**. Pick the node input first — the
-key (named after the node), the type and the default are read straight off the graph's own baked
-value, and they follow the node if you re-point the row, leaving anything you typed alone. The
+key (named after the node) and the default are read off the graph's own baked value, and the
+**type, range and option list off the node's own contract** (what ComfyUI declares that input to
+be): a `FLOAT` declared 0..1 arrives with **min · max** filled in, a COMBO — a model name — arrives
+as a `select` with the node's real list rather than a text box. They follow the node if you
+re-point the row, leaving anything you typed alone. If ComfyUI is asleep when you pick the file the
+modal says so, and the settings fall back to a guess from the baked value with no range. The
 **label is what the settings panel shows**, and it follows the key until you type a label of your
 own — renaming the key is enough. A `text`
 setting holding prose gets **prompt-sized box** ticked automatically and renders as a full-width
 textarea; a `#222222` or a `ComfyUI` stays a narrow field. A node input can be driven by a role or
 by a setting, never both — an input a role holds is not offered to a setting.
+
+In **🎛 Blueprint settings** a numeric setting with a declared range is a **slider + number box**,
+and a typed number is clamped into the range (ComfyUI rejects a whole render over one
+out-of-range value). A dropdown's list is **re-read from ComfyUI each time the panel renders** —
+a model dropped on the pod's volume shows up without re-publishing the blueprint — and a saved
+choice the live list lacks stays selected, marked *(not installed)*. With ComfyUI asleep, the
+list the blueprint was published with is shown.
 
 ## Blueprints: resolved-workflow export (debugging)
 

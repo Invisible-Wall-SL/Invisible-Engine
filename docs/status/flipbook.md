@@ -192,9 +192,55 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 5. **The ＋ Blueprint modal flags an unexposed boolean gate: DONE** (2026-09-01, see Recent changes). What is NOT covered: an unexposed **numeric** knob that is equally load-bearing (the 1024 generation size on the same blueprint reached the render the same way a wrong boolean did). A boolean gating a switch is a clean signal with no false positives; "this int matters" is not, so it was deliberately left out rather than guessed at.
 
 ## Blocked (owner / external)
-- Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
+- **`COMFY_CATALOG_URL` on the atlas-tool Railway service** (owner, 2026-09-03) — the always-on
+  ComfyUI the Flipbook and Atlas Maker panels read node CONTRACTS from (ranges, option lists) for
+  the live dropdowns and sliders. Point it at the volume pod that launcher-api's
+  `COMFY_VOLUME_POD_ID` names (`https://<podId>-8188.proxy.runpod.net`) — same Network Volume as
+  the GPU fleet, and `ComfyUI-RMBG` is `prod: true` at the same sha in `nodes.json`, so it is a
+  faithful stand-in for the serverless worker. Until set, live reads answer `ok:false` in
+  production and every dropdown shows its BAKED list; nothing breaks. See `docs/INFRA.md`.
+- (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-03 — **A blueprint imported from a workflow carried no domain, so `sensitivity: 50`
+  reached the GPU.** Owner: *"/prompt rejected (400) … node 372 sensitivity: Value 50.0 bigger
+  than max of 1.0 — it started today, I have no problem in the atlas maker."*
+  - The ＋ Blueprint importer typed every setting from the value the graph baked in
+    (`inferParamType`): a baked `1.0` says "float" and nothing else. So an imported blueprint
+    published with no `min`/`max`, the panel had nothing to bound, and the runner's clamp
+    (`_effective_param_value`, which only bites on a DECLARED domain) had nothing to clamp to.
+    The hand-authored `wan22_i2v_flipbook` declares 0..1 and a 12-model list, which is why the
+    built-in path never showed it. The same gap put "Bck Model" in a free-text box and "Bck
+    Alpha" in a textarea: the importer could not know they were COMBOs.
+  - Fixed upstream of the clamp. `services/atlas-tool/comfy_specs.py` reads a node's REAL
+    contract from ComfyUI `/object_info` (`FLOAT`/`INT` → min/max/step, COMBO → the option list,
+    `BOOLEAN`, `STRING` multiline; ComfyUI's 1e308 "no limit" sentinels publish as unbounded),
+    served by `POST /video/nodespecs` (allow-listed in the launcher proxy). The importer prefers
+    it over the value guess (`applySpecToRow`), publishes `min`/`max`/`step`, and records
+    `options_from: {class, field}` on a select so the list can be re-read — keyed on the CLASS so
+    it survives a re-import that renumbers nodes. `blueprints._validate_params` whitelists
+    `options_from`; a key missing from that tuple is dropped silently on publish. The Atlas
+    Maker page's OWN ＋ Blueprint importer (vanilla JS in `ui_server.py`, `syncFromField`) got
+    the identical treatment — it had the identical guess — so the two importers stay in step.
+  - **Panels:** a numeric with both bounds is a slider + number box, clamped on change — HTML
+    `min`/`max` on a number input only fail form validation and never stopped the 50. Option
+    lists refresh LIVE on every panel open (the Generate rail here, 🎛 Blueprint settings on the
+    Atlas Maker page), and a saved value the live list lacks stays selected, marked "(not
+    installed)", rather than being rewritten. `specs_for_blueprint` resolves a param's class
+    through the blueprint's own graph, so a blueprint published BEFORE this gets live bounds and
+    lists in the panel with no re-publish — whenever a catalog ComfyUI answers.
+  - **Which ComfyUI answers is the point.** Production runs `COMFY_TRANSPORT=serverless` (a job
+    queue, no `/object_info`) with `COMFY_URL` still set to the owner's LOCAL tunnel; a contract
+    read off that box would list the wrong machine's models. So under serverless only
+    `COMFY_CATALOG_URL` is consulted — see Blocked. Until it is set, live reads answer `ok:false`
+    and the baked lists stand; a sleeping pod is the normal case and never an error.
+  - Fixtures: `test_node_contracts_are_read_not_guessed`, `test_a_sleeping_pod_is_not_an_error`,
+    `test_the_catalog_is_the_machine_that_runs_the_graph`,
+    `test_options_from_survives_the_param_whitelist`, and
+    `test_a_param_with_no_declared_domain_cannot_be_clamped` — the 400 itself, reproduced.
+  - **The owner's existing blueprint:** re-publish it (＋ Blueprint on the same API export) to bake
+    the bounds and lists in; or, once `COMFY_CATALOG_URL` is set, the panel reads them live with no
+    re-publish. Until either, keep Bck Sensitivity in 0..1.
 - 2026-09-03 — **A session did not exist anywhere until a worker touched it.** The destructive half
   of *"after a refresh most of my generations disappear, as if they were never registered"* — and
   the phrase was literally true.

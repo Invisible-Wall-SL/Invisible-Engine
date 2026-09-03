@@ -14,9 +14,11 @@ assertion below stands for a specific way this has gone wrong before:
 from __future__ import annotations
 
 import json
+import os
 import sys
 import threading
 from pathlib import Path
+from urllib.error import URLError
 
 import video_runner
 
@@ -124,12 +126,23 @@ def test_birefnet_surface_is_complete() -> None:
           (cutout["mask_offset"]["min"], cutout["mask_offset"]["max"]), (-20, 20))
     check("sensitivity keeps the node's 0..1 domain",
           (cutout["sensitivity"]["min"], cutout["sensitivity"]["max"]), (0.0, 1.0))
-    check("the model list is the node's full 12",
+    # The baked list is the OFFLINE FALLBACK — a sleeping pod still gets a
+    # dropdown — so it must stay complete even now that the panel re-reads the
+    # live one through `options_from`.
+    check("the baked fallback list is still the node's full 12",
           len(cutout["birefnet_model"]["options"]), 12)
     check("and the authored default is in it",
           cutout["birefnet_model"]["default"] in cutout["birefnet_model"]["options"], True)
     check("background offers exactly the node's two modes",
           cutout["background"]["options"], ["Alpha", "Color"])
+    # Where the LIVE list comes from: a model installed on the pod today must
+    # show up on reopening the blueprint, not on a re-import.
+    check("the model list says where to re-read itself",
+          cutout["birefnet_model"]["options_from"],
+          {"class": "BiRefNetRMBG", "field": "model"})
+    check("so does the background mode",
+          cutout["background"]["options_from"],
+          {"class": "BiRefNetRMBG", "field": "background"})
 
     # An override must actually reach the node.
     wf = video_runner.build_video_workflow(
@@ -155,6 +168,194 @@ def test_param_clamping() -> None:
         bp, "p", "", 1, "ref.png", {"duration": 999, "quality": -5}, "px")
     check("out-of-range override clamps to max", wf["191"]["inputs"]["value"], 10)
     check("out-of-range override clamps to min", wf["200"]["inputs"]["quality"], 1)
+
+
+def test_a_param_with_no_declared_domain_cannot_be_clamped() -> None:
+    """The live 400 this change exists for:
+
+        /prompt rejected (400): node 372 "sensitivity": Value 50.0 bigger than max of 1.0
+
+    The clamp was never missing — it only ever bites on a DECLARED domain, and a
+    blueprint imported from a workflow declared none, because the importer typed
+    each param from the value the graph baked in. So the fix is upstream of the
+    clamp: read the node's real contract (`comfy_specs`) and record it."""
+    bp = load_blueprint()
+    wf = video_runner.build_video_workflow(
+        bp, "p", "", 1, "r.png", {"sensitivity": 50.0}, "px")
+    check("a declared domain clamps the value ComfyUI would have rejected",
+          wf["202"]["inputs"]["sensitivity"], 1.0)
+
+    # The same param as an IMPORTED blueprint used to carry it: no min, no max.
+    stripped = json.loads(json.dumps(bp))
+    for p in stripped["params"]:
+        if p["key"] == "sensitivity":
+            p.pop("min", None)
+            p.pop("max", None)
+    wf = video_runner.build_video_workflow(
+        stripped, "p", "", 1, "r.png", {"sensitivity": 50.0}, "px")
+    check("with no declared domain nothing can clamp it — this IS the 400",
+          wf["202"]["inputs"]["sensitivity"], 50.0)
+
+
+# One ComfyUI `/object_info` answer, in the exact shape the real endpoint returns.
+OBJECT_INFO = {
+    "BiRefNetRMBG": {"input": {
+        "required": {
+            "image": ["IMAGE"],
+            "model": [["BiRefNet-general", "BiRefNet_toonout", "BiRefNet_lite",
+                       "AnotherOneInstalledToday"],
+                      {"default": "BiRefNet-general"}],
+            "sensitivity": ["FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0,
+                                      "step": 0.01, "round": False}],
+            "mask_blur": ["INT", {"default": 0, "min": 0, "max": 64, "step": 1}],
+            "invert_output": ["BOOLEAN", {"default": False}],
+            "background": [["Alpha", "Color"], {"default": "Alpha"}],
+        },
+        "optional": {
+            "background_color": ["STRING", {"default": "#222222", "multiline": False}],
+        }}},
+    "PrimitiveFloat": {"input": {"required": {
+        "value": ["FLOAT", {"default": 0.0, "min": -1.7976931348623157e308,
+                            "max": 1.7976931348623157e308, "step": 0.01}]}}},
+}
+
+
+def test_node_contracts_are_read_not_guessed() -> None:
+    """A baked value says "float" and nothing else. `/object_info` says 0..1, and
+    says which twelve models this ComfyUI actually has installed."""
+    import comfy_specs
+
+    specs = comfy_specs.normalize_class(OBJECT_INFO["BiRefNetRMBG"])
+    check("a COMBO becomes a select carrying the node's real list", specs["model"],
+          {"kind": "select",
+           "options": ["BiRefNet-general", "BiRefNet_toonout", "BiRefNet_lite",
+                       "AnotherOneInstalledToday"],
+           "default": "BiRefNet-general"})
+    check("a FLOAT carries the domain the 400 was about", specs["sensitivity"],
+          {"kind": "float", "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01})
+    check("an INT stays an INT (a float step would be rejected)", specs["mask_blur"],
+          {"kind": "int", "default": 0, "min": 0, "max": 64, "step": 1})
+    check("a BOOLEAN is a bool", specs["invert_output"],
+          {"kind": "bool", "default": False})
+    check("an OPTIONAL input is covered too — knobs live there routinely",
+          specs["background_color"], {"kind": "text", "multiline": False,
+                                      "default": "#222222"})
+    check("a wired input has no widget for a param to drive", "image" in specs, False)
+
+    # ComfyUI writes a sentinel, not an absent key, when an input has no limit.
+    prim = comfy_specs.normalize_class(OBJECT_INFO["PrimitiveFloat"])["value"]
+    check("a primitive's 1e308 stand-in publishes as UNBOUNDED, not as a slider",
+          ("min" in prim, "max" in prim), (False, False))
+
+
+def test_a_sleeping_pod_is_not_an_error() -> None:
+    """The pod is asleep most of the time. Unreachable, unknown class, malformed
+    spec — all of them mean "no known contract", and the caller keeps the baked
+    list it already had. None of them is a failure anyone should be told about."""
+    import comfy_specs
+
+    real_source, real_fetch = comfy_specs._source, comfy_specs._fetch_alt
+    try:
+        comfy_specs._cache.clear()
+        comfy_specs._source = lambda: "http://comfy.test"
+
+        def fake_fetch(base, path):
+            cls = path.rsplit("/", 1)[-1]
+            if cls not in OBJECT_INFO:
+                raise URLError("404")
+            return {cls: OBJECT_INFO[cls]}
+
+        comfy_specs._fetch_alt = fake_fetch
+        res = comfy_specs.specs_for_classes(["BiRefNetRMBG", "NodeThePodLacks"])
+        check("a class this ComfyUI does not have is simply absent",
+              sorted(res["classes"]), ["BiRefNetRMBG"])
+        check("and the rest still resolved", res["ok"], True)
+
+        # The panel path: no class is recorded on these params, so each one is
+        # resolved through the blueprint's OWN graph — which is what makes an
+        # already-published blueprint refresh with no re-import.
+        comfy_specs._cache.clear()
+        res = comfy_specs.specs_for_blueprint(load_blueprint())
+        check("a param resolves its class through the graph it points into",
+              res["params"]["sensitivity"],
+              {"kind": "float", "default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01})
+        check("so the model dropdown lists what the pod has TODAY",
+              res["params"]["birefnet_model"]["options"][-1],
+              "AnotherOneInstalledToday")
+
+        comfy_specs._cache.clear()
+        comfy_specs._source = lambda: ""
+        res = comfy_specs.specs_for_classes(["BiRefNetRMBG"])
+        check("nothing answering is an empty answer, never a raise",
+              (res["ok"], res["classes"]), (False, {}))
+        check("and it says so in one plain sentence", "asleep" in res["note"], True)
+    finally:
+        comfy_specs._source, comfy_specs._fetch_alt = real_source, real_fetch
+        comfy_specs._cache.clear()
+
+
+def test_the_catalog_is_the_machine_that_runs_the_graph() -> None:
+    """Production is `COMFY_TRANSPORT=serverless` with `COMFY_URL` STILL SET to the
+    owner's local tunnel (docs/INFRA.md). A contract read off that box would list
+    the wrong machine's models, so under serverless only `COMFY_CATALOG_URL` is a
+    source — and under `http`, `COMFY_BASE` is."""
+    import comfy_specs
+    ba = comfy_specs.batch_atlas
+    real = (ba.COMFY_TRANSPORT, ba.COMFY_BASE, comfy_specs._fetch_alt)
+    real_env = os.environ.get("COMFY_CATALOG_URL")
+    try:
+        ba.COMFY_BASE = "http://local.tunnel"
+        comfy_specs._fetch_alt = lambda base, path: {}
+        os.environ["COMFY_CATALOG_URL"] = "http://catalog.pod"
+
+        ba.COMFY_TRANSPORT = "serverless"
+        check("serverless never reads the local tunnel, even when it answers",
+              comfy_specs._source(alive=lambda: True), "http://catalog.pod")
+
+        ba.COMFY_TRANSPORT = "http"
+        check("http reads the ComfyUI that runs the graph",
+              comfy_specs._source(alive=lambda: True), "http://local.tunnel")
+        check("and falls back to the catalog when that one is down",
+              comfy_specs._source(alive=lambda: False), "http://catalog.pod")
+
+        os.environ.pop("COMFY_CATALOG_URL")
+        ba.COMFY_TRANSPORT = "serverless"
+        check("serverless with no catalog set has no source at all",
+              comfy_specs._source(alive=lambda: True), "")
+    finally:
+        ba.COMFY_TRANSPORT, ba.COMFY_BASE, comfy_specs._fetch_alt = real
+        if real_env is None:
+            os.environ.pop("COMFY_CATALOG_URL", None)
+        else:
+            os.environ["COMFY_CATALOG_URL"] = real_env
+
+
+def test_options_from_survives_the_param_whitelist() -> None:
+    """`_validate_params` normalizes through an explicit key whitelist, so a new
+    field that is not in it is dropped on publish with nothing said — the blueprint
+    then behaves as if the author never declared it."""
+    bp = video_runner.blueprints
+    src = {"class": "BiRefNetRMBG", "field": "model"}
+    out = bp._validate_params("t", {"params": [
+        {"key": "m", "type": "select", "node": "202", "field": "model",
+         "options": ["a"], "options_from": src},
+        {"key": "s", "type": "float", "node": "202", "field": "sensitivity",
+         "min": 0.0, "max": 1.0, "step": 0.01},
+    ]}, {})
+    check("options_from survives the whitelist", out[0]["options_from"], src)
+    check("and so do the bounds beside it",
+          (out[1]["min"], out[1]["max"], out[1]["step"]), (0.0, 1.0, 0.01))
+
+    check_raises("an options_from that is not an object is refused",
+                 lambda: bp._validate_params("t", {"params": [
+                     {"key": "m", "type": "select", "node": "1", "field": "f",
+                      "options": ["a"], "options_from": "BiRefNetRMBG"}]}, {}),
+                 "options_from")
+    check_raises("and one with no field is refused by name",
+                 lambda: bp._validate_params("t", {"params": [
+                     {"key": "m", "type": "select", "node": "1", "field": "f",
+                      "options": ["a"], "options_from": {"class": "X"}}]}, {}),
+                 "'field'")
 
 
 def test_source_image_required() -> None:
@@ -1865,6 +2066,11 @@ if __name__ == "__main__":
     test_workflow_build()
     test_birefnet_surface_is_complete()
     test_param_clamping()
+    test_a_param_with_no_declared_domain_cannot_be_clamped()
+    test_node_contracts_are_read_not_guessed()
+    test_a_sleeping_pod_is_not_an_error()
+    test_the_catalog_is_the_machine_that_runs_the_graph()
+    test_options_from_survives_the_param_whitelist()
     test_source_image_required()
     test_output_picking()
     test_an_empty_payload_names_its_real_cause()

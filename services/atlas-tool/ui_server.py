@@ -3872,6 +3872,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
      <button type="button" onclick="addBpParam()" style="font-size:11px;padding:3px 8px">＋ Add</button></div>
     <div style="color:#888;font-size:11px">Tunable knobs (steps, cfg, sampler…) the author exposes. Each carries a default — the "general setting" — and renders as an editable control in the Settings panel. Pick a node + input that ISN'T already bound as a role.</div>
     <div id="bpGates" style="display:none;color:#fbbf24;font-size:11px;line-height:1.5;border:1px solid #78350f;border-radius:6px;background:#1c1408;padding:8px;margin:6px 0"></div>
+    <p id="bpSpecsNote" style="display:none;color:#999;font-size:11px;margin:0 0 6px"></p>
     <div id="bpParams" style="display:flex;flex-direction:column;gap:10px"></div>
    </div>
    <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
@@ -4135,9 +4136,69 @@ function renderBpParams(p){{
    ctl.value=(val==null)?'':String(val);
   }}
   ctl.dataset.bpparam=key;
-  lab.appendChild(cap); lab.appendChild(ctl); grid.appendChild(lab);
+  lab.appendChild(cap);
+  // A numeric with BOTH bounds gets a slider beside the number box — two views
+  // of one value. HTML min/max on a number input only fail form validation;
+  // they never stopped a 50 being typed into a 0..1 field and sent, which is
+  // how ComfyUI came to reject a whole prompt over one `sensitivity`. Clamped
+  // on change/blur, not on every keystroke, so "0." can still become "0.5".
+  // The slider never writes into an UNTOUCHED row: blank still means default.
+  if(ctl.type==='number'&&isFinite(parseFloat(d.min))&&isFinite(parseFloat(d.max))){{
+   let lo=parseFloat(d.min), hi=parseFloat(d.max);
+   let row=document.createElement('span');
+   row.style.cssText='display:flex;gap:6px;align-items:center';
+   let rng=document.createElement('input'); rng.type='range';
+   rng.min=ctl.min; rng.max=ctl.max; rng.step=(ctl.step==='any')?'0.01':ctl.step;
+   rng.style.flex='1';
+   rng.value=(ctl.value==='')?String(d.default!=null?d.default:lo):ctl.value;
+   rng.addEventListener('input',()=>{{ ctl.value=rng.value; }});
+   let clamp=()=>{{
+    if(ctl.value==='') return;
+    let n=Math.min(hi,Math.max(lo,parseFloat(ctl.value)));
+    if(!isNaN(n)){{ ctl.value=String(n); rng.value=String(n); }}
+   }};
+   ctl.addEventListener('change',clamp); ctl.addEventListener('blur',clamp);
+   ctl.style.width='5.5em';
+   row.appendChild(rng); row.appendChild(ctl); lab.appendChild(row);
+  }} else {{
+   lab.appendChild(ctl);
+  }}
+  grid.appendChild(lab);
  }});
  panel.style.display='';
+ refreshBpParamLists(p);
+}}
+// Re-read each param's contract from the ComfyUI that answers `/video/nodespecs`
+// every time the panel renders, so a model dropped on the pod's volume today is
+// in the dropdown today — no re-import. What the panel drew first is the BAKED
+// list, and it stays when nothing answers (a sleeping pod is the normal case).
+// The saved value is never dropped: a choice the live list lacks stays selected
+// and says so — the rule the Settings panel's model fields already follow.
+async function refreshBpParamLists(p){{
+ let panel=document.getElementById('bpParamsPanel');
+ let res=null;
+ try{{
+  let r=await fetch('/video/nodespecs',{{method:'POST',body:JSON.stringify({{blueprint:p}})}});
+  res=await r.json();
+ }}catch(e){{ return; }}
+ if(!res||!res.ok||!panel||panel.dataset.bpid!==p) return;
+ Object.entries(res.params||{{}}).forEach(([key,spec])=>{{
+  let el=document.querySelector('#bpParamsGrid [data-bpparam="'+CSS.escape(key)+'"]');
+  if(!el) return;
+  if(spec.kind==='select'&&el.tagName==='SELECT'&&Array.isArray(spec.options)){{
+   let cur=el.value;
+   el.innerHTML='';
+   spec.options.forEach(o=>{{let op=document.createElement('option');op.value=o;op.textContent=o;el.appendChild(op);}});
+   if(cur&&spec.options.indexOf(cur)<0){{
+    let op=document.createElement('option');op.value=cur;op.textContent=cur+' (not installed)';el.appendChild(op);
+   }}
+   if(cur) el.value=cur;
+  }} else if((spec.kind==='int'||spec.kind==='float')&&el.type==='number'){{
+   if(spec.min!=null) el.min=spec.min;
+   if(spec.max!=null) el.max=spec.max;
+   if(spec.step!=null) el.step=spec.step;
+  }}
+ }});
 }}
 async function saveBpParams(btn){{
  let panel=document.getElementById('bpParamsPanel');
@@ -4274,6 +4335,17 @@ async function saveGlobalStyle(){{
 }}
 // --- Blueprints: upload an API-format ComfyUI graph + bind roles ----------
 let _bpGraph=null;   // parsed API/prompt node dict from the picked file
+// The graph's node CONTRACTS, class -> input -> spec, read off ComfyUI once per
+// picked file (`comfy_specs`). A baked `1.0` says "float" and nothing else; the
+// contract says 0..1, or that the input is a COMBO over the installed models.
+// Empty when nothing answered — a sleeping pod is the normal case — and each
+// setting then falls back to the baked-value guess, unbounded and listless.
+let _bpSpecs={{}};
+let _bpPick=0;       // which picked file a contract read belongs to; a stale answer must not land on the next
+function bpSpecsNote(msg){{
+ let el=document.getElementById('bpSpecsNote');
+ if(el){{ el.textContent=msg; el.style.display=msg?'':'none'; }}
+}}
 // Role -> required (must be bound) + candidate filter over (id, node).
 const BP_ROLES=[
  ['positive',true],['negative',false],['seed',true],
@@ -4462,6 +4534,20 @@ function onBpFilePicked(){{
    document.getElementById('bpstat').textContent='✖ Node "'+bad+'" has no class_type — export in API format, not the editor format.';
    return; }}
   _bpGraph=g;
+  // Not awaited: a sleeping pod would hold the modal for the read's whole timeout,
+  // so rows made in the meantime are revisited when the contracts land.
+  let mine=++_bpPick;
+  _bpSpecs={{}}; bpSpecsNote('');
+  let classes=Object.values(g).map(n=>String((n||{{}}).class_type||'')).filter((c,i,a)=>c&&a.indexOf(c)===i);
+  fetch('/video/nodespecs',{{method:'POST',body:JSON.stringify({{classes:classes}})}})
+   .then(r=>r.json())
+   .then(r=>{{
+    if(mine!==_bpPick) return;
+    _bpSpecs=(r&&r.classes)||{{}};
+    bpSpecsNote((r&&r.ok)?'':((r&&r.note)||'ComfyUI did not answer, so bounds and option lists were not read — these settings will not be range-checked.'));
+    document.querySelectorAll('#bpParams .bpparam').forEach(row=>{{ if(row._bpSync) row._bpSync(); }});
+   }})
+   .catch(()=>{{ if(mine===_bpPick) bpSpecsNote('ComfyUI could not be asked for node contracts — these settings will not be range-checked.'); }});
   if(!document.getElementById('bpName').value){{
    document.getElementById('bpName').value=f.name.replace(/\\.json$/i,''); }}
   buildBpBindings();
@@ -4776,7 +4862,7 @@ function addBpParam(){{
  // but the type. Re-filling a field the author has not touched (its value is
  // still exactly what we put there) follows the node; the moment they type,
  // their text is theirs and the prefill stops.
- let autoKey='', autoLabel='', autoDef='';
+ let autoKey='', autoLabel='', autoDef='', autoMin='', autoMax='', autoOpts='';
  function syncFromField(){{
   let v=((_bpGraph[nodeSel.value]||{{}}).inputs||{{}})[fieldSel.value];
   let ct=(_bpGraph[nodeSel.value]||{{}}).class_type;
@@ -4787,14 +4873,26 @@ function addBpParam(){{
   if(def.value===''||def.value===autoDef){{
    def.value=(v===undefined||v===null||Array.isArray(v))?'':String(v); autoDef=def.value;
   }}
-  typeSel.value=bpInferType(v,ct);
-  ml.checked=(typeSel.value==='text' && bpLooksLikeProse(v));
+  // The contract wins over the value (see `_bpSpecs`). A class ComfyUI did not
+  // describe falls back to the baked-value guess; a `Primitive*` node's own
+  // domain is wide open and stays honestly unbounded either way.
+  let spec=(_bpSpecs[ct]||{{}})[fieldSel.value];
+  typeSel.value=spec?spec.kind:bpInferType(v,ct);
+  ml.checked=(typeSel.value==='text' && ((spec&&spec.multiline===true)||bpLooksLikeProse(v)));
+  let auto=(el,was,next)=>{{ if(el.value===''||el.value===was) el.value=next; return next; }};
+  let numeric=!!spec&&(spec.kind==='int'||spec.kind==='float');
+  autoMin=auto(mn,autoMin,(numeric&&spec.min!=null)?String(spec.min):'');
+  autoMax=auto(mx,autoMax,(numeric&&spec.max!=null)?String(spec.max):'');
+  row._bpStep=(numeric&&spec.step!=null)?spec.step:null;
+  autoOpts=auto(opts,autoOpts,(spec&&spec.kind==='select')?(spec.options||[]).join(', '):'');
+  row._bpOptionsFrom=(spec&&spec.kind==='select')?{{class:ct,field:fieldSel.value}}:null;
   syncTypeUi();
   bpGateWarn();
  }}
  // A role binding changing can free or take a (node,field), so the field list is
  // rebuilt from the binding selects rather than frozen at Add time.
  row._bpRefresh=refreshFields;
+ row._bpSync=syncFromField;
  nodeSel.onchange=refreshFields; fieldSel.onchange=syncFromField;
  typeSel.onchange=syncTypeUi;
  // The label follows the key until the author types a label of their own. The
@@ -4828,8 +4926,12 @@ function collectBpParams(){{
   let mn=g('[data-pmin]'),mx=g('[data-pmax]');
   if(mn!=='') p.min=parseFloat(mn);
   if(mx!=='') p.max=parseFloat(mx);
+  if(row._bpStep!=null&&(type==='int'||type==='float')) p.step=row._bpStep;
   if(type==='select'){{
    let o=g('[data-poptions]'); if(o) p.options=o.split(',').map(s=>s.trim()).filter(Boolean);
+   // Where the list can be re-read LIVE — keyed on the node CLASS, which survives
+   // a re-import that renumbers nodes. The baked `options` stay as the fallback.
+   if(row._bpOptionsFrom) p.options_from=row._bpOptionsFrom;
   }}
   if(type==='text'){{
    let el=row.querySelector('[data-pmultiline]');
@@ -6046,6 +6148,8 @@ class Handler(BaseHTTPRequestHandler):
         elif post_path == "/fxbuild":
             self._send(200, "text/plain", self._fxbuild(json.loads(raw)).encode())
         elif post_path == "/video/nodespecs":
+            # A contract lookup, not a session action — so not through `_video`,
+            # which scopes a route to one session, and never a ref-mutating route.
             self._send(200, "application/json", self._video_nodespecs(raw))
         elif post_path in ("/video/generate", "/video/cancel", "/video/delete",
                            "/video/toclip", "/video/regen", "/video/discard",
@@ -6119,6 +6223,43 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # noqa: BLE001 — never 500 into the tool UI
             print(f"[video] {route} failed: {e}", flush=True)
             return json.dumps({"error": f"{type(e).__name__}: {e}"}).encode()
+
+    def _video_nodespecs(self, raw: str) -> bytes:
+        """What ComfyUI declares its node inputs to BE — ranges and option lists.
+
+        Two callers, one read (see `comfy_specs`): the blueprint IMPORTER sends
+        `classes[]` for the graph it is holding, so a param gets the node's own
+        min/max and a COMBO becomes a dropdown instead of a free-text box; the
+        Generate PANEL sends `blueprint` and gets each param's current list, so a
+        model installed on the pod today shows up without a re-import.
+
+        A pod that is asleep is the NORMAL case, not an error — it answers
+        `ok:false` with a note and the caller keeps what it already had."""
+        import comfy_specs  # local import: this is the only route that reads contracts
+        try:
+            payload = json.loads(raw or "{}")
+        except ValueError:
+            return b'{"error":"Request body was not valid JSON."}'
+        if not isinstance(payload, dict):
+            return b'{"error":"Request body was not a JSON object."}'
+        try:
+            classes = payload.get("classes")
+            bp_id = str(payload.get("blueprint") or "").strip()
+            if isinstance(classes, list) and classes:
+                out = comfy_specs.specs_for_classes(classes)
+            elif bp_id:
+                bp = blueprints.get_blueprint(bp_id)
+                out = (comfy_specs.specs_for_blueprint(bp) if bp else
+                       {"ok": False, "source": "", "params": {},
+                        "note": f"No blueprint '{bp_id}' in the library."})
+            else:
+                out = {"ok": False, "source": "", "classes": {},
+                       "note": "Ask for `classes` (a list) or a `blueprint` id."}
+            return json.dumps(out).encode()
+        except Exception as e:  # noqa: BLE001 — an unreadable contract is never fatal
+            print(f"[video] nodespecs failed: {e}", flush=True)
+            return json.dumps({"ok": False, "source": "", "classes": {},
+                               "note": f"{type(e).__name__}: {e}"}).encode()
 
     def _video_probe(self, session: str, variation: str) -> bytes:
         """Frame count / size / fps / has-alpha for ONE variation — what the trim

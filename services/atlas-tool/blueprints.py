@@ -375,6 +375,30 @@ def _validate_models(bp_id: str, manifest: dict) -> list:
     return out
 
 
+def _validate_options_from(bp_id: str, key: str, src) -> None:
+    """`options_from` says where a select param's list can be re-read LIVE:
+    `{"class": "<ComfyUI class_type>", "field": "<input name>"}`.
+
+    Keyed on the CLASS, never a node id — the point is "whatever this ComfyUI
+    offers for that input today", and a class survives a graph re-import that
+    renumbers every node. The baked `options` array stays as the offline
+    fallback, so a blueprint remains portable and a sleeping pod costs nothing.
+    """
+    if src in (None, ""):
+        return
+    if not isinstance(src, dict):
+        raise ValueError(
+            f"blueprint '{bp_id}': param '{key}' has an 'options_from' that is "
+            "not an object (expected {'class': ..., 'field': ...})")
+    cls = str(src.get("class", "")).strip()
+    field = str(src.get("field", "")).strip()
+    if not cls or not field:
+        raise ValueError(
+            f"blueprint '{bp_id}': param '{key}' has an 'options_from' without "
+            "a 'class' and a 'field' (the ComfyUI node class and input name its "
+            "list comes from)")
+
+
 def _validate_params(bp_id: str, manifest: dict, bindings: dict) -> list:
     """Validate the OPTIONAL `params[]` array (exposed "general settings").
 
@@ -449,12 +473,17 @@ def _validate_params(bp_id: str, manifest: dict, bindings: dict) -> list:
         # other setting gets. Purely cosmetic — the runner injects the string the
         # same either way — but without it a graph with two prompts can only
         # expose the second one through a field too small to read it in.
+        _validate_options_from(bp_id, key, p.get("options_from"))
         norm = {
             "key": key, "type": ptype, "node": node, "field": field,
             "label": str(p.get("label", "")).strip() or key,
             "default": p.get("default"),
         }
-        for opt in ("min", "max", "step", "options", "group", "multiline"):
+        # This tuple is a WHITELIST: a key missing from it is dropped silently on
+        # publish, and the blueprint then behaves as if the author never declared
+        # it. Add here first when the param shape grows.
+        for opt in ("min", "max", "step", "options", "options_from", "group",
+                    "multiline"):
             if opt in p:
                 norm[opt] = p[opt]
         out.append(norm)

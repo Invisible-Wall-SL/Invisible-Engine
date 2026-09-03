@@ -58,6 +58,10 @@ const POST_ROUTES: Record<string, string> = {
 	toclip: '/video/toclip',
 	// Publish a blueprint to the SHARED library. Gated twice over — see `forward`.
 	publish: '/uploadblueprint',
+	// A node's REAL input contract from ComfyUI's `/object_info` — the ranges and option
+	// lists the importer records on a param, and the Generate panel re-reads live. A POST
+	// because it carries either `classes[]` (the importer's graph) or `blueprint` (the panel).
+	nodespecs: '/video/nodespecs',
 };
 
 /** Query params the proxy forwards. Anything else is dropped rather than relayed. */
