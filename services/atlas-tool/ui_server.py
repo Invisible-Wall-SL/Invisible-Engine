@@ -5415,8 +5415,19 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, "application/json",
                        json.dumps(blueprints.library_status()).encode())
         elif path == "/video/sessions":
-            self._send(200, "application/json",
-                       json.dumps(video_runner.list_sessions()).encode())
+            # A listing that cannot be completed answers with an ERROR, never with the
+            # part of it that happened to load. A short list is indistinguishable from
+            # a true one at the UI, so the author reads it as work that vanished.
+            try:
+                self._send(200, "application/json",
+                           json.dumps(video_runner.list_sessions()).encode())
+            except Exception as e:  # noqa: BLE001 — the finding IS that R2 was unreadable
+                print(f"[video] session listing failed: {e}", flush=True)
+                self._send(503, "application/json", json.dumps({
+                    "error": "Could not read this project's video sessions from "
+                             "storage, so the list would have been incomplete. "
+                             "Nothing is lost — try again in a moment.",
+                }).encode())
         elif path == "/video/status":
             qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             s = video_runner.get_session(qs.get("session", [""])[0])
