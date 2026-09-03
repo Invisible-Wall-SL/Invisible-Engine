@@ -66,6 +66,7 @@ The `.irig` round-trips through the official loader (Phase 0: 120/120 skeletons,
 - **No lossless desktop-Spine `.spine` project round-trip** — an Esoteric limitation (desktop Spine can only _import_ our JSON), not ours.
 
 ## Recent changes
+- 2026-09-03 — **A carrier rig's bound clips and effects draw at their authored size in the game too.** Follow-up to the Bounds fix below: the frame was right but the lobster inside it was half-size on the board, because a symbol bundle is read at load scale 2 and a Pixi child riding a bone follows only the bone's scale. The engine now scales bound content by the host bundle's load scale, so what this tool (and /symbols) shows at load 1 is what the board draws. Details in [engine status](engine.md).
 - 2026-09-02 — **The Bounds box is now the frame that fills a symbol cell — centred — everywhere, so
   what you author here is what the board draws.** Reported as: "the rig bounds we build seem off; I
   author them in the Rigger to get the size right in the game, but the two don't match." They could

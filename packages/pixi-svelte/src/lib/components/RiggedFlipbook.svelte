@@ -83,7 +83,11 @@
 	import * as SPINE_PIXI from '@esotericsoftware/spine-pixi-v8';
 	import { onDestroy } from 'svelte';
 
-	import { getContextSpine, createContextParent } from '../context.svelte';
+	import {
+		getContextSpine,
+		getContextSpineLoadScale,
+		createContextParent,
+	} from '../context.svelte';
 	import Flipbook from './Flipbook.svelte';
 	import SpineBoneAttach from './SpineBoneAttach.svelte';
 	import { riggedBeatMatches } from '../riggedBeat';
@@ -91,6 +95,10 @@
 
 	const props: Props = $props();
 	const spine = getContextSpine();
+	// The clip's box is in RIG units (the Rigger and /symbols load every rig at 1); the host bundle may
+	// be read at another load scale, which moves bones and scales attachments but not a Pixi child —
+	// so the clip is scaled by it here. See `setContextSpineLoadScale`.
+	const loadScale = getContextSpineLoadScale();
 
 	// The clip renders under this container, which we parent on the host spine so it inherits the
 	// rig's fit-scale/position/pivot (see doc note 2).
@@ -116,7 +124,7 @@
 	createContextParent(fbLocal);
 	$effect(() => {
 		fbLocal.alpha = props.alpha ?? 1;
-		fbLocal.scale.set(props.scale ?? 1);
+		fbLocal.scale.set((props.scale ?? 1) * loadScale());
 	});
 	onDestroy(() => {
 		// Leave the shared slot host first (the last binding out unregisters it from spine, so a
@@ -204,7 +212,7 @@
 {#if runId > 0}
 	{#key runId}
 		{#if props.bone}
-			<SpineBoneAttach boneName={props.bone} followRotation followScale>
+			<SpineBoneAttach boneName={props.bone} followRotation followScale rigUnits>
 				<Flipbook clip={props.clip} anchor={0.5} />
 			</SpineBoneAttach>
 		{:else}

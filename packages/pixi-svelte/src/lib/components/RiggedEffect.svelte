@@ -86,6 +86,10 @@
 
 	const props: Props = $props();
 	const spine = getContextSpine();
+	// The effect is authored in RIG units (the Rigger and /symbols load every rig at 1); the host
+	// bundle may be read at another load scale, which moves bones and scales attachments but not a
+	// Pixi child — so the burst is scaled by it here. See `setContextSpineLoadScale`.
+	const loadScale = getContextSpineLoadScale();
 
 	// The effect subtree renders under this container, which we parent on the host spine so it
 	// inherits the rig's fit-scale/position/pivot (see doc note 2).
@@ -112,7 +116,7 @@
 	createContextParent(fxLocal);
 	$effect(() => {
 		fxLocal.alpha = props.alpha ?? 1;
-		fxLocal.scale.set(props.scale ?? 1);
+		fxLocal.scale.set((props.scale ?? 1) * loadScale());
 	});
 	onDestroy(() => {
 		// Leave the shared slot host first (the last binding out unregisters it from spine, so a
@@ -183,7 +187,7 @@
 {#if runId > 0}
 	{#key runId}
 		{#if props.bone}
-			<SpineBoneAttach boneName={props.bone} followRotation followScale>
+			<SpineBoneAttach boneName={props.bone} followRotation followScale rigUnits>
 				<EffectPlayer doc={props.doc} forceEmit emitSpeed={props.speed} emitFor={props.duration} />
 			</SpineBoneAttach>
 		{:else}

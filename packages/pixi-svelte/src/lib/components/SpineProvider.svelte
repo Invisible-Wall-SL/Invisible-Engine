@@ -39,7 +39,7 @@
 	import BaseSpineProvider from './BaseSpineProvider.svelte';
 	import { anchorToPivot } from '../utils.svelte';
 	import { spineBoxPivot } from '../spineBox';
-	import { getContextApp } from '../context.svelte';
+	import { getContextApp, setContextSpineLoadScale } from '../context.svelte';
 	import { getSpineLoadScale } from '../spineLoadScale';
 	import { hasAssetKey, warnMissingAsset } from '../missingAsset';
 
@@ -69,6 +69,10 @@
 		return data && bundle ? { data, assetKey: bundle } : undefined;
 	});
 	const spineData = $derived(resolved?.data);
+
+	// Content bound into this rig (`<RiggedFlipbook>`, `<RiggedEffect>`) is authored in RIG units and
+	// sizes itself by this — see `setContextSpineLoadScale`. A getter, so it follows `resolved`.
+	setContextSpineLoadScale(() => (resolved ? getSpineLoadScale(resolved.assetKey) : 1));
 
 	// `width`/`height` → scale is resolved in `BaseSpineProvider` (it sizes against the
 	// pose-independent authored bounds, robust to animation/skin-driven art whose setup
