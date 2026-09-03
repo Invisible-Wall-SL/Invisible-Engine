@@ -929,13 +929,9 @@ def _load_for_edit(session_id: str, need_blueprint: bool = True) -> dict:
         s = _SESSIONS.get(session_id)
     if s:
         return s
-    raw = storage.get(f"{_video_prefix()}/{session_id}/meta.json")
-    if not raw:
+    stored = _stored_session(session_id)
+    if stored is None:
         raise ValueError("No such session.")
-    try:
-        stored = json.loads(raw)
-    except ValueError:
-        raise ValueError("That session's record is unreadable.")
     bp = blueprints.get_blueprint(str(stored.get("blueprint") or ""))
     if not bp and need_blueprint:
         raise ValueError(
@@ -1208,12 +1204,8 @@ def get_session(session_id: str) -> dict | None:
         s = _SESSIONS.get(session_id)
         if s:
             return _public(s)
-    raw = storage.get(f"{_video_prefix()}/{session_id}/meta.json")
-    if not raw:
-        return None
-    try:
-        stored = json.loads(raw)
-    except ValueError:
+    stored = _stored_session(session_id)
+    if stored is None:
         return None
     if stored.get("status") in ("running", "queued"):
         stored = _adopt(stored) or stored
@@ -1331,13 +1323,9 @@ def cancel_session(session_id: str) -> dict:
 
     # Not ours: close it out in the STORED doc, so it stops claiming to run even
     # though no thread here will ever update it.
-    raw = storage.get(f"{_video_prefix()}/{session_id}/meta.json")
-    if not raw:
+    stored = _stored_session(session_id)
+    if stored is None:
         raise ValueError("No such session.")
-    try:
-        stored = json.loads(raw)
-    except ValueError:
-        raise ValueError("That session's record is unreadable.")
     stopped = []
     for v in stored.get("variations", []):
         if v.get("status") not in ("running", "queued"):
@@ -1362,27 +1350,72 @@ def cancel_session(session_id: str) -> dict:
     return out
 
 
+def _read_session_doc(key: str) -> dict | None:
+    """One session's stored doc. `None` only when it is genuinely not there or is
+    unparseable; a transport failure is RETRIED and then raised.
+
+    The retry is the point. This runs once per session on every listing, so with
+    thirty-odd sessions a single flaky read per refresh is likely rather than rare —
+    and the old code turned each one into a session that had simply ceased to exist.
+    """
+    last = None
+    for attempt in range(3):
+        try:
+            raw = storage.get_strict(key)
+        except storage.ObjectUnreadable as e:
+            last = e
+            time.sleep(0.15 * (attempt + 1))
+            continue
+        if raw is None:
+            return None
+        try:
+            return json.loads(raw)
+        except ValueError:
+            return None  # a corrupt doc really is unusable; skipping it is honest
+    raise last  # type: ignore[misc]
+
+
+def _stored_session(session_id: str) -> dict | None:
+    """This session's stored doc, or None when it genuinely is not there.
+
+    Every path that reads one goes through here, because they all had the same fault:
+    `storage.get` answers a flaky read and a missing object identically, so a moment's
+    trouble reaching R2 made a session that exists look like a session that never did
+    — "no such session" on open, on cancel, on add. The listing was only the loudest
+    version of it.
+    """
+    return _read_session_doc(f"{_video_prefix()}/{session_id}/meta.json")
+
+
 def list_sessions() -> list[dict]:
     """Every session for the calling thread's project, newest first. R2 is the
     source of truth (it survives a restart); live in-memory state wins where both
-    exist, because it is fresher than the last `meta.json` flush."""
+    exist, because it is fresher than the last `meta.json` flush.
+
+    RAISES rather than returning a short list. Both halves of this used to swallow:
+    a failed read of one session's doc was indistinguishable from that session not
+    existing (`storage.get` returns None for both), and a failed LISTING fell back to
+    whatever happened to be in memory. Either way the caller got a plausible, ordered,
+    complete-looking answer that was missing work — which is exactly what "after a
+    refresh most of my generations disappear, as if they were never registered"
+    was: nothing was ever lost from the bucket, the list just stopped mentioning it.
+
+    A short list nobody can tell is short is worse than an error, because the author
+    acts on it — re-running renders they already have, or believing an afternoon's
+    work is gone.
+    """
     out: dict[str, dict] = {}
-    try:
-        prefix = _video_prefix() + "/"
-        for obj in storage.list_keys(prefix):
-            key = obj.get("key", "")
-            if not key.endswith("/meta.json"):
-                continue
-            sid = key[len(prefix):].split("/", 1)[0]
-            raw = storage.get(key)
-            if not raw:
-                continue
-            try:
-                out[sid] = json.loads(raw)
-            except ValueError:
-                continue
-    except Exception as e:  # noqa: BLE001 — R2 hiccup: fall back to memory
-        print(f"[video] session listing failed: {e}", flush=True)
+    prefix = _video_prefix() + "/"
+    keys = [o.get("key", "") for o in storage.list_keys(prefix)
+            if str(o.get("key", "")).endswith("/meta.json")]
+    # Concurrent because it is one round trip per session and they are independent —
+    # thirty of them in series is both slow and thirty chances to trip.
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        docs = list(pool.map(_read_session_doc, keys))
+    for key, doc in zip(keys, docs):
+        if doc is not None:
+            out[key[len(prefix):].split("/", 1)[0]] = doc
     with _LOCK:
         for sid, s in _SESSIONS.items():
             if s.get("project") == project_paths.project_name():

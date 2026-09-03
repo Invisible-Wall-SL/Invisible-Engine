@@ -91,6 +91,41 @@ def get(key: str) -> bytes | None:
         return None
 
 
+class ObjectUnreadable(Exception):
+    """R2 could not be asked about this key — a timeout, a reset, a throttle, a 5xx.
+
+    NOT the same as "the object is not there", and the difference is load-bearing:
+    `get` folds both into `None`, so a caller that skips a missing object also,
+    silently, skips one it merely failed to read. Anything that enumerates and then
+    reads (a listing, a sync) needs to tell those apart or it presents a SHORT result
+    as a complete one — which is how whole video sessions vanished from the flipbook's
+    picker while sitting untouched in the bucket.
+    """
+
+
+def get_strict(key: str) -> bytes | None:
+    """Like `get`, but `None` means the object genuinely is not there.
+
+    A transport failure raises `ObjectUnreadable` instead of masquerading as absence,
+    so a caller can retry it, report it, or refuse to answer — anything except quietly
+    dropping it.
+    """
+    try:
+        return _client().get_object(Bucket=_bucket(), Key=key)["Body"].read()
+    except Exception as e:  # noqa: BLE001 — classify, don't swallow
+        # botocore raises ClientError for HTTP-level answers; only a genuine
+        # not-found is absence. Everything else — network, throttle, 5xx — is a
+        # failure to ASK, and the caller must not read it as an empty shelf.
+        code = ""
+        resp = getattr(e, "response", None)
+        if isinstance(resp, dict):
+            code = str(resp.get("Error", {}).get("Code") or "")
+            status = resp.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if code in ("NoSuchKey", "404", "NotFound") or status == 404:
+                return None
+        raise ObjectUnreadable(f"{key}: {type(e).__name__}: {e}") from e
+
+
 def exists(key: str) -> bool:
     try:
         _client().head_object(Bucket=_bucket(), Key=key)

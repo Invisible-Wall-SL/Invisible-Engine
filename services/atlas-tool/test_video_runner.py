@@ -320,6 +320,109 @@ def test_the_handoff_degrades_rather_than_failing() -> None:
           _await_session(started["id"]).get("status"), "finished")
 
 
+def test_a_session_list_is_complete_or_it_is_an_error() -> None:
+    """Owner: "after a refresh most of my generations disappear, as if they were never
+    registered!" — and nothing had ever been lost from the bucket. The LIST had
+    stopped mentioning it.
+
+    `list_sessions` reads one doc per session, and `storage.get` folds a transport
+    failure into the same `None` as a genuinely absent object. A flaky read therefore
+    made that session cease to exist, silently, in an answer that looked ordered and
+    complete. With thirty-odd sessions that is one round trip per session per refresh:
+    likely, not rare, and worse the longer you have used the tool.
+    """
+    _stub_world()
+    ctx = ("clientx", "projecty")
+    for name in ("alpha", "beta", "gamma"):
+        sid = video_runner.start_session(_req(name), ctx)["id"]
+        _await_session(sid)
+    with video_runner._LOCK:
+        video_runner._SESSIONS.clear()   # force the answer to come from storage
+    check("all three list normally", len(video_runner.list_sessions()), 3)
+
+    real = video_runner.storage.get_strict
+    hits = {"n": 0}
+
+    def flaky(key):
+        hits["n"] += 1
+        if "meta.json" in key and hits["n"] == 2:
+            raise video_runner.storage.ObjectUnreadable(f"{key}: timeout")
+        return real(key)
+
+    video_runner.storage.get_strict = flaky
+    try:
+        got = video_runner.list_sessions()
+    finally:
+        video_runner.storage.get_strict = real
+    check("a single flaky read is retried, not treated as a missing session",
+          len(got), 3)
+
+    def always_down(key):
+        raise video_runner.storage.ObjectUnreadable(f"{key}: connection reset")
+
+    video_runner.storage.get_strict = always_down
+    try:
+        check_raises(
+            "and a read that will not come back RAISES rather than shortening the list",
+            video_runner.list_sessions, "connection reset")
+    finally:
+        video_runner.storage.get_strict = real
+
+    # A doc that is genuinely gone, or corrupt, is a different thing: it really is
+    # unusable, so skipping it is honest and must NOT take the listing down with it.
+    video_runner.storage.delete("clientx/projecty/video/"
+                                + video_runner.list_sessions()[0]["id"] + "/meta.json")
+    check("a genuinely absent doc is skipped, not raised over",
+          len(video_runner.list_sessions()), 2)
+
+
+def test_opening_and_cancelling_survive_a_flaky_read_too() -> None:
+    """The listing was the loudest version, not the only one. Every path that reads a
+    stored session had the same fault, so a moment's trouble reaching R2 also produced
+    "No such session" on open and on cancel — for a session sitting right there."""
+    _stub_world()
+    sid = video_runner.start_session(_req("still here"), ("clientx", "projecty"))["id"]
+    _await_session(sid)
+    with video_runner._LOCK:
+        video_runner._SESSIONS.clear()   # force reads to go to storage
+
+    real = video_runner.storage.get_strict
+    hits = {"n": 0}
+
+    def first_read_fails(key):
+        hits["n"] += 1
+        if hits["n"] == 1:
+            raise video_runner.storage.ObjectUnreadable(f"{key}: reset by peer")
+        return real(key)
+
+    video_runner.storage.get_strict = first_read_fails
+    try:
+        got = video_runner.get_session(sid)
+    finally:
+        video_runner.storage.get_strict = real
+    check("opening a session rides out one bad read", got is not None, True)
+    check("and it is the right session", (got or {}).get("id"), sid)
+
+    hits["n"] = 0
+    video_runner.storage.get_strict = first_read_fails
+    try:
+        res = video_runner.cancel_session(sid)
+    finally:
+        video_runner.storage.get_strict = real
+    check("so does cancelling one", res.get("ok"), True)
+
+
+def test_absent_and_unreadable_are_not_the_same_answer() -> None:
+    """The root cause in one line: `storage.get` returns None for both, so every
+    caller that skips a missing object also silently skips one it failed to read."""
+    _stub_world()
+    video_runner.storage.put("clientx/projecty/video/x/meta.json", b"{}")
+    check("a stored object reads back",
+          video_runner.storage.get_strict("clientx/projecty/video/x/meta.json"), b"{}")
+    check("a genuinely absent one is None",
+          video_runner.storage.get_strict("clientx/projecty/video/nope.json"), None)
+
+
 def test_session_id_validation() -> None:
     check("accepts a generated id",
           video_runner.valid_session_id(video_runner._new_session_id()), True)
@@ -350,6 +453,10 @@ def _stub_world():
 
     video_runner.storage.put = lambda k, b, c=None: objects.__setitem__(k, b)
     video_runner.storage.get = lambda k: objects.get(k)
+    # The listing reads through `get_strict`, whose whole point is that a transport
+    # failure is NOT the same answer as a missing object — so the double has to keep
+    # them apart too, or the fixture cannot tell the bug from the fix.
+    video_runner.storage.get_strict = lambda k: objects.get(k)
     video_runner.storage.delete = lambda k: objects.pop(k, None)
     video_runner.storage.list_keys = lambda p: [
         {"key": k} for k in list(objects) if k.startswith(p)]
@@ -1726,6 +1833,9 @@ if __name__ == "__main__":
     test_a_render_is_read_back_from_storage_not_the_wire()
     test_a_resumed_job_can_still_find_its_uploaded_render()
     test_the_handoff_degrades_rather_than_failing()
+    test_a_session_list_is_complete_or_it_is_an_error()
+    test_opening_and_cancelling_survive_a_flaky_read_too()
+    test_absent_and_unreadable_are_not_the_same_answer()
     test_session_id_validation()
     test_session_lifecycle()
     test_blueprint_kind()

@@ -195,6 +195,36 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-03 — **Sessions "disappeared" from the picker without anything ever being lost.** Owner:
+  *"my generation do not get registered … after a refresh most of my generations disappear, as if
+  they were never registered! This is a destructive way of working"*.
+  - **Nothing was destroyed. The LIST stopped mentioning it.** Scanned the live bucket first —
+    15,307 objects: **0** renders present but unrecorded, **0** index gaps across 38 sessions, no
+    `done_count` disagreements, no sessions under a wrong project prefix, and all four mutation
+    paths (`add`/`duplicate`/`regenerate`/`discard`) persist before returning. The data was intact
+    the whole time.
+  - **`storage.get` answers "missing" and "could not read" identically — both `None`.** So
+    `list_sessions`, which does ONE round trip per session and skips a falsy read, turned any flaky
+    read into a session that had never existed. With thirty-odd sessions that is thirty chances per
+    refresh: likely rather than rare, and worse the longer the tool has been used. When the LISTING
+    itself failed it was quieter still — a bare `except` fell back to whatever was in memory and
+    served that as the answer.
+  - **A short list nobody can tell is short is worse than an error**, because the author acts on it:
+    re-running renders they already have, or believing an afternoon's work is gone. The listing now
+    retries a failed read, distinguishes a genuinely absent doc (skip — honest) from an unreadable
+    one (raise), and `/video/sessions` answers **503 with a readable message** rather than a
+    plausible, ordered, incomplete list. Reads are concurrent now too, which is both faster and a
+    smaller window.
+  - **`storage.get_strict` is the fix's core** — `None` only for a real not-found, `ObjectUnreadable`
+    for anything that is a failure to ASK. Classification verified against the REAL bucket: an
+    existing key returns bytes, a missing one returns `None` and does not raise (so a deleted
+    session can never take the whole listing down).
+  - **Three more reads had the same fault** and now share one path: opening a session, cancelling
+    one, and loading one to edit all produced "No such session" for a session sitting right there.
+    The listing was the loudest version, not the only one.
+  - Fixtures: a single flaky read is retried rather than dropping a session; a read that will not
+    come back raises instead of shortening the list; a genuinely absent doc is still skipped; open
+    and cancel each ride out a bad read. **Confirmed to fail against the old swallow.**
 - 2026-09-03 — **The variation caps are gone** (owner: *"we have a cap on the amounts of variations we can send to runpod … I never asked for this cap"*). Three ceilings had shipped unasked: 12 variations per Generate / ＋ Add request (`MAX_VARIATIONS`, mirrored as `max="12"` on both inputs), 36 live slots per session (`MAX_SESSION_VARIATIONS`, enforced on add and on ⧉ duplicate), and `VIDEO_PARALLEL_JOBS` clamped to 8. All three are removed — the only refusal left on a count is one below 1. The endpoint's own worker count is the real bound on parallelism and the owner sets that, so a second number in code could only ever disagree with it. Fixture: a session grows past 150 slots through both ＋ Add and ⧉, and a count of −1 is still refused (244 checks). Guides updated in both copies of `flipbook.md`.
 - 2026-09-02 — **A twelve-tile grid ran on ONE of the endpoint's three workers.** Owner
   report: the RunPod endpoint is sized for three workers, and only one ever ran, however big
