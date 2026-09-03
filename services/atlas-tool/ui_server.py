@@ -1078,6 +1078,68 @@ def _shine_controls(name: str, saved: dict) -> str:
     return _fx_controls(name, "shine", saved)
 
 
+NUMERIC_CONFIG_KEYS = {k for k, _, t in CONFIG_FIELDS if t == "number"}
+
+
+def cfg_num(v):
+    """A settings value as a number when it reads like one, else unchanged."""
+    try:
+        return float(v) if "." in str(v) else int(v)
+    except ValueError:
+        return v
+
+
+def apply_global_edit(cfg: dict, key: str, value) -> None:
+    """Apply ONE global (atlas_config.json) edit from the Settings panel.
+
+    A blank NUMERIC drops the key instead of storing "". The panel posts every
+    field it renders, blanks included, and `load_config` below reads the file
+    RAW — it does not merge `batch_atlas._DEFAULTS` — so a key the config
+    predates rendered as an empty box and one Save stored `"flux_guidance": ""`.
+    That "" then shadowed the 3.5 default and killed every FLUX render at
+    `float('')`. Dropping the key restores the default AND heals a config
+    already poisoned that way on its next save.
+
+    Text keys keep blank-means-blank: a blank `flux_controlnet` /
+    `flux_redux_style_model` disables that optional node by design. The
+    per-atlas branch already had this rule (blank = inherit the global); the
+    global branch was the one that never got it."""
+    if key in NUMERIC_CONFIG_KEYS and str(value).strip() == "":
+        cfg.pop(key, None)
+        return
+    cfg[key] = cfg_num(value) if key in NUMERIC_CONFIG_KEYS else value
+
+
+def effective_global(cfg: dict, key: str) -> str:
+    """The global value a per-atlas field actually inherits — the stored one, or
+    the engine default when it is unset. "(inherit global: )" told the author
+    the global was EMPTY when the render would use 1024; `batch_atlas` is the
+    one that decides, so ask it."""
+    gv = str(cfg.get(key, "")).strip()
+    if gv:
+        return gv
+    d = ba_default(key)
+    return "" if d is None else str(d)
+
+
+def ba_default(key: str):
+    """`batch_atlas`'s default for a settings key, or None if it has none."""
+    d = batch_atlas._DEFAULTS.get(key)
+    return None if d is None or str(d).strip() == "" else d
+
+
+def default_placeholder(key: str, typ: str, value) -> str:
+    """What an EMPTY numeric box should say. An empty box reads like "0"; the
+    render actually uses `batch_atlas._DEFAULTS[key]`, so show that. Only
+    numerics — for a text key an empty box genuinely means empty."""
+    if typ != "number" or str(value).strip() != "":
+        return ""
+    d = batch_atlas._DEFAULTS.get(key)
+    if isinstance(d, bool) or not isinstance(d, (int, float)):
+        return ""
+    return f"default: {d}"
+
+
 def load_config() -> dict:
     try:
         return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -7392,7 +7454,7 @@ class Handler(BaseHTTPRequestHandler):
                 # per-atlas override: value = manifest override (blank =
                 # inherit), placeholder / blank option shows the global.
                 ov = msettings.get(key, "")
-                gv = str(cfg.get(key, ""))
+                gv = effective_global(cfg, key)
                 itip = html.escape(
                     (tip + "  ·  " if tip else "")
                     + f"Blank = inherit global ({gv})", quote=True)
@@ -7408,8 +7470,10 @@ class Handler(BaseHTTPRequestHandler):
                     f'{qm}</span>{ctrl}</label>'
                 )
             else:
-                ctrl = _control_html(key, typ, cfg.get(key, ""), model_cache,
-                                     title=tip_esc, step=step, target=target)
+                ctrl = _control_html(
+                    key, typ, cfg.get(key, ""), model_cache, title=tip_esc,
+                    step=step, target=target,
+                    placeholder=default_placeholder(key, typ, cfg.get(key, "")))
                 global_fields.append(
                     f'<label data-pipe="{pipe}"><span class="lblrow">'
                     f'{html.escape(label)}{qm}</span>{ctrl}</label>'
@@ -8158,7 +8222,7 @@ class Handler(BaseHTTPRequestHandler):
         m = load_manifest()
         settings = m.get("settings") or {}
         atlas = m.setdefault("atlas", {})
-        numeric = {k for k, _, t in CONFIG_FIELDS if t == "number"}
+        numeric = NUMERIC_CONFIG_KEYS
         # Only persist the (still-active = PREVIOUS) manifest when this request
         # actually wrote a manifest-backed field. A pure Session-dropdown switch
         # POSTs only {manifest_path} (a config field) — unconditionally saving
@@ -8166,12 +8230,7 @@ class Handler(BaseHTTPRequestHandler):
         # switch. Settings-panel saves (which post the manifest-bound fields)
         # still persist as before.
         manifest_dirty = False
-
-        def _num(v):
-            try:
-                return float(v) if "." in str(v) else int(v)
-            except ValueError:
-                return v
+        _num = cfg_num
 
         for k, v in edits.items():
             if k == "bpParams":
@@ -8231,7 +8290,7 @@ class Handler(BaseHTTPRequestHandler):
                     settings[k] = _num(v) if k in numeric else v
                     manifest_dirty = True
             else:
-                cfg[k] = _num(v) if k in numeric else v
+                apply_global_edit(cfg, k, v)
 
         if settings:
             m["settings"] = settings
