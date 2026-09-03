@@ -274,7 +274,9 @@ the `prompt` box, the `negative` box, the per-variation `seed`, the source still
 
 **Exposed settings** are the knobs the generate panel then shows. Pick the node input first:
 the key, the type and the default are read straight off the graph's own baked value, so a
-setting arrives already correct. Three things to know:
+setting arrives already correct. The row's boxes are **key · label · default · group**: the key is
+the setting's id, the **label is what the Generate panel shows**, and it follows the key until you
+type a label of your own — so renaming the key to `bck model` is enough. Three things to know:
 
 - **The default is what runs.** A render only sends the settings you actually changed, so
   everything else runs at the published default. A blank default publishes as `0`.

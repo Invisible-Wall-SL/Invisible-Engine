@@ -1172,6 +1172,18 @@ ${endScript}</body></html>`;
 		}
 	}
 
+	/** The label follows the key until the author types a label of their own. The
+	 * label is what the Generate panel SHOWS, and the row prefilled it with the
+	 * suggested key — so renaming the key to `bck model` published a setting still
+	 * labelled `BiRefNetRemoveBackgroundRMBG`, and the name typed into the row's
+	 * first box never reached the panel. */
+	function syncLabelToKey(i: number, key: string): void {
+		const p = pubParams[i];
+		if (p.label !== '' && p.label !== p.autoLabel) return;
+		p.label = key;
+		p.autoLabel = key;
+	}
+
 	async function pickWorkflow(e: Event): Promise<void> {
 		const f = (e.currentTarget as HTMLInputElement).files?.[0];
 		if (!f) return;
@@ -2431,8 +2443,19 @@ Overwrite it?`)
 							onclick={() => (pubParams = pubParams.filter((_, j) => j !== i))}>✕</button
 						>
 						<div class="pfields">
-							<input placeholder="key" bind:value={prm.key} disabled={pubBusy} />
-							<input placeholder="label" bind:value={prm.label} disabled={pubBusy} />
+							<input
+								placeholder="key"
+								title="The setting's id — what a render sends"
+								bind:value={prm.key}
+								oninput={(e) => syncLabelToKey(i, e.currentTarget.value)}
+								disabled={pubBusy}
+							/>
+							<input
+								placeholder="label (shown in the panel)"
+								title="What the Generate panel calls this setting — follows the key until you type one"
+								bind:value={prm.label}
+								disabled={pubBusy}
+							/>
 							<input placeholder="default" bind:value={prm.def} disabled={pubBusy} />
 							<input placeholder="group (optional)" bind:value={prm.group} disabled={pubBusy} />
 							{#if prm.type === 'select'}
