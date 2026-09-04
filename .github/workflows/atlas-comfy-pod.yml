@@ -20,7 +20,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # A CUDA image (torch + ComfyUI + insightface) overruns the runner's ~14 GB
       # disk. Reclaim ~25 GB of preinstalled toolchains we don't use.

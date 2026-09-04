@@ -320,6 +320,10 @@
 	let transitions = $state.raw<SeatTransition[]>([]);
 	/** Per seat, the ONE timer that currently owns the entry: its delay before it mounts, then the
 	 *  leak cap after. Sequential per key, so one slot is enough — and one map to sweep on reset. */
+	// A plain Map, NOT a SvelteMap: nothing renders from it. It holds `setTimeout` handles so a
+	// reset can clear them, and every read is inside a callback — making it reactive would only
+	// buy a dependency no template or `$derived` has.
+	// eslint-disable-next-line svelte/prefer-svelte-reactivity
 	const transitionTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 	/** Above the symbols on the animating layer (default z 0) — the same non-zero-zIndex sort
