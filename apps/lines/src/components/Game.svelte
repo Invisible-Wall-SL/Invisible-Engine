@@ -120,6 +120,7 @@
 		sceneByRole,
 		loadingSceneId,
 		basegameSceneId,
+		collectComponentIds,
 		buyFeatureSceneId,
 		buyConfirmSceneId,
 		formatWinText,
@@ -833,9 +834,34 @@
 			? undefined
 			: { ...basegameScene, nodes: basegameScene.nodes.slice(reelGridIndex + 1) },
 	);
-	const basegameOverlaysScene = $derived(
-		editorDoc.scenes.find((scene) => scene.id === 'basegameOverlays') ?? fallbackOverlays,
+	// Whether the doc places its OWN win VISUAL — a `win` componentInstance in ANY scene (the Win
+	// Overlay component dropped on a flow screen, or the split's `winVisual` scene). When it does,
+	// the coded `bind:Win` COMPOSER must not ALSO draw a visual: `Win` is the gate PLUS a param-less
+	// `WinVisual`, so a second, unauthored big-win presentation renders board-centred over the
+	// authored one — and, having no `componentInstance` params, at the component's DEFAULTS, which is
+	// how a `showCoins: false` instance still rained coins. Degrading the node to its GATE half
+	// (`bind:WinGate`) below keeps the load-bearing part (count-up + `winState` + round-block, which
+	// the authored visual READS) and drops the duplicate art. Recurses into container children, so a
+	// win overlay nested inside an authored screen counts.
+	const docPlacesWinVisual = $derived(
+		collectComponentIds(editorDoc.scenes.flatMap((scene) => scene.nodes)).includes('win'),
 	);
+	// The overlays scene, with that degrade applied. This is exactly the `WIN_INSTANCE`-ON shape the
+	// gate/visual split was designed for — it was simply never reached by a doc that authors the
+	// visual while leaving `basegameOverlays` at the reference default, or omitting the scene
+	// entirely (then `fallbackOverlays` supplies `bind:Win`, and the game gets both halves twice).
+	// No `Win` bind, or no authored win visual ⇒ the SAME scene object back ⇒ byte-identical (parity).
+	const basegameOverlaysScene = $derived.by(() => {
+		const scene = editorDoc.scenes.find((s) => s.id === 'basegameOverlays') ?? fallbackOverlays;
+		if (!docPlacesWinVisual) return scene;
+		let degraded = false;
+		const nodes = scene.nodes.map((node) => {
+			if (node.bind?.component !== 'Win') return node;
+			degraded = true;
+			return { ...node, bind: { ...node.bind, component: 'WinGate' } };
+		});
+		return degraded ? { ...scene, nodes } : scene;
+	});
 	// Whether the (unconditionally-mounted) `basegameOverlays` scene STILL carries a coded WIN gate
 	// bind — the reference layout's `WIN_INSTANCE` shapes: `bind:Win` (the OFF composer, gate +
 	// visual) or `bind:WinGate` (the ON full-screen gate). When it does, THAT gate is the sole
