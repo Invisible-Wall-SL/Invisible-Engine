@@ -267,7 +267,7 @@ HOST = os.environ.get("ATLAS_BIND_HOST", "0.0.0.0")
 BUILD = "v15-extra-prompts"  # shown in the startup banner so you can verify the live code
 
 _render_state = {"running": False, "log": "", "done": False, "cur": 0,
-                 "total": 0, "diagnostics": []}
+                 "total": 0, "diagnostics": [], "started": 0.0}
 _render_lock = threading.Lock()
 _render_proc: subprocess.Popen | None = None
 _stopped = False
@@ -2372,14 +2372,31 @@ def claim_render_slot() -> tuple[bool, str]:
             proc = _render_proc
             alive = proc is not None and proc.poll() is None
             if alive:
-                return False, ("A render is already running — press Stop to "
-                               "cancel it before starting another.")
+                return False, ("A render is already running "
+                               f"{_render_progress()} — press Stop to cancel "
+                               "it before starting another.")
             # Server log, not the panel log: `_run_cmd` resets `log` when the
             # new render starts, so anything written here would vanish.
             print("[render] stale 'running' flag with no live subprocess - "
                   "clearing it and starting the new render.", flush=True)
-        _render_state.update(running=True, done=False)
+        _render_state.update(running=True, done=False, started=time.time())
     return True, "started"
+
+
+def _render_progress() -> str:
+    """"(3/16, started 9 minutes ago)" — what the refusal above was missing.
+
+    "A render is already running" alone cannot be acted on: it reads the same
+    whether the GPU is 3 images into a 16-image batch or wedged since lunch,
+    and the only offered remedy (Stop) destroys work in flight. The server
+    already knows both numbers; saying them turns the dialog into a decision.
+    Called under `_render_lock`."""
+    cur, total = _render_state.get("cur", 0), _render_state.get("total", 0)
+    bits = [f"{cur}/{total}"] if total else ["still starting up"]
+    started = float(_render_state.get("started") or 0.0)
+    if started:
+        bits.append(f"started {_rel_time(started)}")
+    return f"({', '.join(bits)})"
 
 
 def _comfy_answers(url: str, comfy_env: dict) -> bool:

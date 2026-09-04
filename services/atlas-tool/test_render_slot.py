@@ -79,9 +79,10 @@ class FakeProc:
         return None if self._alive else 0
 
 
-def reset(running: bool = False, proc=None) -> None:
-    u._render_state.update(running=running, done=False, log="", cur=0, total=0,
-                           diagnostics=[])
+def reset(running: bool = False, proc=None, cur: int = 0, total: int = 0,
+          started: float = 0.0) -> None:
+    u._render_state.update(running=running, done=False, log="", cur=cur,
+                           total=total, diagnostics=[], started=started)
     u._render_proc = proc                      # type: ignore[assignment]
 
 
@@ -159,6 +160,37 @@ def test_a_live_render_is_refused_out_loud() -> None:
           True)
     check("and it says what to do", "Stop" in msg, True)
     check("the live render keeps the slot", u._render_state["running"], True)
+
+
+def test_the_refusal_says_how_far_along_and_how_long() -> None:
+    """"A render is already running" alone cannot be acted on: it reads the
+    same whether the GPU is 3 images into a 16-image batch or wedged since
+    lunch — and the only offered remedy (Stop) destroys work in flight. The
+    owner hit exactly that ambiguity and had to ask whether it was safe to
+    press Stop; the answer needed a query against their GPU."""
+    import time as _t
+    reset(running=True, proc=FakeProc(alive=True), cur=3, total=16,
+          started=_t.time() - 9 * 60)
+    started, msg = u.claim_render_slot()
+    check("still refused", started, False)
+    check_in("says how far along", "3/16", msg)
+    check_in("says how long it has been going", "9 minutes ago", msg)
+    check_in("and still says what to do", "press Stop", msg)
+
+    # Before the batch size is known, say so rather than printing "0/0".
+    reset(running=True, proc=FakeProc(alive=True), cur=0, total=0,
+          started=_t.time())
+    _, msg = u.claim_render_slot()
+    check_in("an unstarted batch reads honestly", "still starting up", msg)
+    check_not_in("and never shows 0/0", "0/0", msg)
+    check_in("a fresh render reads 'just now'", "just now", msg)
+
+    # A claim stamps the clock, so the NEXT refusal can measure from it.
+    reset(running=False)
+    check("no clock before the claim", u._render_state["started"], 0.0)
+    u.claim_render_slot()
+    check("claiming stamps the start time",
+          u._render_state["started"] > 0.0, True)
 
 
 def test_a_stale_flag_heals_instead_of_blocking_forever() -> None:
@@ -301,6 +333,7 @@ if __name__ == "__main__":
                    test_a_timeout_is_reported_not_raised_raw,
                    test_an_idle_slot_is_claimed,
                    test_a_live_render_is_refused_out_loud,
+                   test_the_refusal_says_how_far_along_and_how_long,
                    test_a_stale_flag_heals_instead_of_blocking_forever,
                    test_my_computer_pointed_at_runpod_is_called_out,
                    test_the_contradiction_outranks_every_status_tier,
