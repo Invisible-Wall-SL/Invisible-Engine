@@ -293,10 +293,39 @@ def _collect_images(hist: dict, upload_urls: list | None = None) -> list[dict]:
     return out
 
 
+def _describe_execution_error(status: dict) -> str:
+    """The one line an author can act on, from ComfyUI's history `status`:
+    `<node_type> #<id>: <ExceptionType>: <message>`.
+
+    ComfyUI records the failure as an `execution_error` event under `messages`;
+    the rest of the status is bookkeeping. The message is whitespace-collapsed
+    and capped because the tool keeps 400 characters of an error, and the node
+    name has to survive ahead of a traceback-sized message."""
+    for entry in status.get("messages") or []:
+        if not (isinstance(entry, (list, tuple)) and len(entry) == 2):
+            continue
+        kind, data = entry
+        if kind != "execution_error" or not isinstance(data, dict):
+            continue
+        node = str(data.get("node_type") or "?")
+        node_id = str(data.get("node_id") or "")
+        exc = str(data.get("exception_type") or "").rsplit(".", 1)[-1]
+        msg = " ".join(str(data.get("exception_message") or "").split())[:240]
+        where = f"{node} #{node_id}" if node_id else node
+        return f"{where}: {exc}: {msg}" if exc else f"{where}: {msg}"
+    return ""
+
+
 def _fail(msg: str, **extra) -> dict:
-    """An error result that says WHICH WORKER produced it. `job FAILED: …` used to
-    reach the author with no way back to the code that raised it."""
-    return {"error": msg, "worker_build": WORKER_BUILD, **extra}
+    """An error result that says WHICH WORKER produced it — IN the message.
+
+    RunPod keeps only the `error` STRING of a failing handler result: the
+    `worker_build` and `detail` keys beside it never reached the tool, which is
+    why thirteen failed variations all read `job FAILED: comfy execution error`
+    and not one word more. The keys stay for the worker log; the string is what
+    travels."""
+    return {"error": f"{msg} [worker {WORKER_BUILD}]",
+            "worker_build": WORKER_BUILD, **extra}
 
 
 def handler(job: dict) -> dict:
@@ -335,7 +364,9 @@ def handler(job: dict) -> dict:
 
     status = hist.get("status", {})
     if status.get("status_str") == "error":
-        return _fail("comfy execution error", detail=status)
+        why = _describe_execution_error(status)
+        return _fail(f"comfy execution error — {why}" if why else "comfy execution error",
+                     detail=status)
 
     images = _collect_images(hist, inp.get("upload_urls"))
     if not images:
