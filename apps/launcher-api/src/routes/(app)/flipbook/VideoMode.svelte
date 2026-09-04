@@ -1879,7 +1879,7 @@ Overwrite it?`)
      only one of them would ever be fixed. `bag` is the $state record being edited, so writing
      through it updates whichever panel passed it. -->
 {#snippet paramField(p: BlueprintParam, bag: Record<string, string | number | boolean>)}
-	<label class="fld {p.type === 'text' && p.multiline ? 'prose' : 'sm'}">
+	<label class="fld {p.type === 'text' && p.multiline ? 'prose' : bounded(p) ? 'range' : 'sm'}">
 		<span>{p.label}</span>
 		{#if p.type === 'text' && p.multiline}
 			<textarea
@@ -3002,22 +3002,22 @@ Overwrite it?`)
 		width: 90px;
 		flex: none;
 	}
-	/* A bounded numeric: slider + number box in the 90px slot's row. The slider takes the room
-	   the label would otherwise leave empty — a 0..1 field wants more than 90px of travel. */
-	.fld.sm .range {
+	/* A bounded numeric stacks its label ABOVE a full-width slider + number box. A 0..1 field
+	   wants more travel than the 90px slot, and a long label squeezed beside a slider wrapped
+	   into a five-line column — seen live on "Steps — quality mode ONLY (…)". */
+	.fld.range .range {
 		display: flex;
 		align-items: center;
 		gap: 6px;
-		flex: 1 1 60%;
-		min-width: 0;
 	}
-	.fld.sm .range input[type='range'] {
+	.fld.range .range input[type='range'] {
 		flex: 1 1 auto;
+		min-width: 0;
 		width: auto;
-		min-width: 50px;
 	}
-	.fld.sm .range input[type='number'] {
+	.fld.range .range input[type='number'] {
 		width: 62px;
+		flex: none;
 	}
 	input,
 	select,
