@@ -13,6 +13,17 @@
 #   pnpm exec eslint apps packages services --suppressed-only   # what is still baselined
 #   pnpm exec eslint apps packages services --prune-suppressions # drop entries you have fixed
 #
+# READING A FAILURE: a baseline entry is a COUNT per file+rule, not a set of lines. The moment a
+# file exceeds its count, ESLint cannot tell the new violation from the old ones, so it reports
+# ALL of them. One added `<a href>` in `symbols/+page.svelte` (baseline 4) printed five errors and
+# read like a five-fold regression. Diff the count against the baseline before you believe the
+# number.
+#
+# NOT EVERY RULE IS FIXABLE TODAY. `svelte/no-navigation-without-resolve` is satisfied ONLY by
+# `resolve()` from `$app/paths`, which landed in SvelteKit 2.26; the launcher is on 2.17.3. Its ~48
+# baselined hits are therefore not debt anyone can pay per-file — they clear in one pass when Kit
+# is upgraded, and until then a new internal link legitimately bumps the count.
+#
 # NOTE: the gate is the ROOT run (`pnpm lint`), not `turbo run lint`. Bulk suppressions resolve
 # paths relative to the invocation directory, so the baseline only applies from the repo root.
 # `pnpm lint:workspaces` still runs the per-package scripts, which report the raw, un-baselined
