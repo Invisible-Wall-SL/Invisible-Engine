@@ -201,6 +201,20 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-04 — **A failed render now names the node and the exception — thirteen tiles read
+  `job FAILED: comfy execution error` and nothing else.** Owner, right after the contract fix
+  shipped: *"I still get job FAILED: comfy execution error"* — a DIFFERENT failure (ComfyUI
+  accepted the prompt; a node raised at runtime) and the panel could not say which. The
+  worker's `_fail` put ComfyUI's `execution_error` event (node type, id, exception, message)
+  in a `detail` key beside the `error` string — and RunPod keeps only the STRING of a failing
+  result, so `detail` and #550's `worker_build` never left the worker. Now the string itself
+  reads `comfy execution error — <node> #<id>: <Exception>: <message> [worker <sha>]`
+  (`_describe_execution_error`; message whitespace-collapsed and capped so the node survives
+  the tool's 400-character keep). Needs the worker image rebuilt (CI on a push under
+  `services/atlas-serverless/**`) AND the endpoint moved to the new `:<sha>` tag — a `:latest`
+  endpoint caches by digest (`docs/INFRA.md`). The failing session (`20260904_093054_0ed4`,
+  `WanLoopingVideo (3)`, 13/13 failed, 40 s–6 min each) stays unexplained until that lands or
+  the RunPod worker log is read for one of its job ids (`b915948a-…-e2`).
 - 2026-09-03 — **A blueprint imported from a workflow carried no domain, so `sensitivity: 50`
   reached the GPU.** Owner: *"/prompt rejected (400) … node 372 sensitivity: Value 50.0 bigger
   than max of 1.0 — it started today, I have no problem in the atlas maker."*

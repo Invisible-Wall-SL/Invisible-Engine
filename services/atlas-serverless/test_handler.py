@@ -213,10 +213,49 @@ def test_every_error_says_which_worker_produced_it() -> None:
 
     out, _ = with_world(body, env=LIVE)
     check("a rejected job still says what was wrong",
-          out.get("error"), "input.workflow is required")
+          out.get("error"), f"input.workflow is required [worker {handler.WORKER_BUILD}]")
     check("and which build said it", out.get("worker_build"), handler.WORKER_BUILD)
     check("which is a real value in a built image, not a placeholder",
           isinstance(handler.WORKER_BUILD, str) and bool(handler.WORKER_BUILD), True)
+
+
+def test_a_node_failure_names_the_node_and_the_exception() -> None:
+    """Thirteen failed variations in one session all read `job FAILED: comfy
+    execution error` and not one word more, because RunPod keeps only the `error`
+    STRING of a failing result — the `detail` beside it, which held ComfyUI's
+    node and exception, never left the worker. What an author needs to act on has
+    to be IN the string."""
+    status = {
+        "status_str": "error", "completed": False,
+        "messages": [
+            ["execution_start", {"prompt_id": "p1"}],
+            ["execution_error", {
+                "prompt_id": "p1", "node_id": "202", "node_type": "BiRefNetRMBG",
+                "exception_type": "torch.OutOfMemoryError",
+                "exception_message": "CUDA out of memory.\n  Tried to allocate 2.00 GiB. "
+                                     "GPU 0 has a total capacity of 23.5 GiB",
+                "traceback": ["File …"] * 40,
+            }],
+        ],
+    }
+    check("the node, the exception class and its first line are the summary",
+          handler._describe_execution_error(status),
+          "BiRefNetRMBG #202: OutOfMemoryError: CUDA out of memory. Tried to allocate "
+          "2.00 GiB. GPU 0 has a total capacity of 23.5 GiB")
+    check("a status with no execution_error event summarizes to nothing",
+          handler._describe_execution_error({"status_str": "error", "messages": []}), "")
+    long = dict(status)
+    long["messages"] = [["execution_error", {
+        "node_type": "KSampler", "exception_type": "RuntimeError",
+        "exception_message": "x" * 1000}]]
+    check("a traceback-sized message is capped so the node name survives the tool's 400",
+          len(handler._describe_execution_error(long)) < 300, True)
+
+    out = handler._fail(f"comfy execution error — {handler._describe_execution_error(status)}",
+                        detail=status)
+    check("and the string RunPod keeps carries node, exception AND build",
+          out["error"].startswith("comfy execution error — BiRefNetRMBG #202: OutOfMemoryError")
+          and out["error"].endswith(f"[worker {handler.WORKER_BUILD}]"), True)
 
 
 HIST = {"outputs": {"363": {"images": [{"filename": "iwvid_001_00001_.webp"}]}}}
@@ -313,6 +352,7 @@ if __name__ == "__main__":
     test_a_render_goes_to_storage_not_through_runpod()
     test_the_bytes_really_reach_the_url()
     test_a_failed_upload_degrades_instead_of_losing_the_render()
+    test_a_node_failure_names_the_node_and_the_exception()
     test_without_urls_nothing_changes()
     test_slots_line_up_with_output_order()
     test_job_timeout_is_not_the_binding_cap()

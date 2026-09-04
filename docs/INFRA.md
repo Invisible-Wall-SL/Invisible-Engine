@@ -311,7 +311,7 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 
 > **Which image is a worker actually running?** The boot log answers it —
 > `[handler] atlas-comfy-worker build <sha> (JOB_TIMEOUT=…s, cancel-aware=True/False)` — and every
-> error result carries `worker_build`. **A serverless endpoint pinned to `:latest` caches by
+> error result ENDS with `[worker <sha>]` — RunPod keeps only a failing result's `error` STRING (the `worker_build` and `detail` keys beside it never leave the worker), so the build and, since 2026-09-04, ComfyUI's failing node + exception travel inside the string. **A serverless endpoint pinned to `:latest` caches by
 > digest, so pushing a new `:latest` does NOT reliably roll the workers**; that cost three rounds of
 > diagnosis, answerable only by noticing an error quoting a timeout we had since changed. CI also
 > pushes an immutable `:<commit sha>` tag — **set the endpoint's image to that** when you need a
