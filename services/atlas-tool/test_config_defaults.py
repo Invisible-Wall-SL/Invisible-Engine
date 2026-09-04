@@ -34,6 +34,8 @@ box's cp1252 console and aborts the whole suite.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import sys
 import tempfile
@@ -206,6 +208,76 @@ def test_a_graph_with_an_empty_model_name_is_never_submitted() -> None:
     check("a node wired to another node passes", True, True)
 
 
+def test_a_wrong_family_vae_is_refused_before_the_gpu_runs() -> None:
+    """2026-09-04: a FLUX render sampled for 117s on the local 4070, then died
+    at the LAST node with
+
+        VAEDecode: Given groups=1, weight of size [64, 4, 3, 3], expected
+        input[1, 16, 128, 128] to have 4 channels, but got 16 channels instead
+
+    The Settings FLUX VAE was `taesdxl` - ComfyUI's tiny SDXL autoencoder, one
+    row from `taef1` in the dropdown. It IS a valid VAELoader name, so the
+    existence preflight waved it through to the GPU. Only the FAMILY was wrong,
+    and nothing checked that."""
+    check("taesdxl is caught for FLUX", ba.wrong_family_vae("taesdxl"), 4)
+    check("so is taesd", ba.wrong_family_vae("taesd"), 4)
+    check("taef1 (tiny FLUX) is fine", ba.wrong_family_vae("taef1"), None)
+    check("taesd3 is 16-channel too", ba.wrong_family_vae("taesd3"), None)
+    check("the real FLUX autoencoder is fine",
+          ba.wrong_family_vae("ae.safetensors"), None)
+    check("case and stray spaces do not smuggle it past",
+          ba.wrong_family_vae("  TAESDXL "), 4)
+    # The guard must stay narrow: it only knows ComfyUI's four built-in tiny
+    # AEs. Refusing every unrecognised name would block flux2-vae.safetensors,
+    # ae.sft, and whatever a user names their own file.
+    check("an unknown filename is left to ComfyUI",
+          ba.wrong_family_vae("flux2-vae.safetensors"), None)
+    check("a blank name belongs to the empty-name guard, not this one",
+          ba.wrong_family_vae(""), None)
+    check("and the table reads in the other direction too",
+          ba.wrong_family_vae("taef1", latent_channels=4), 16)
+
+    # End to end through preflight_models, with ComfyUI absent so the existence
+    # loop skips every check and only the family guard can speak.
+    saved = {k: getattr(ba, k) for k in
+             ("PIPELINE", "FLUX_VAE", "FLUX_CHECKPOINT", "_available")}
+    ba.PIPELINE, ba.FLUX_VAE, ba.FLUX_CHECKPOINT = "flux", "taesdxl", ""
+    ba._available = lambda node, field: None
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            ba.preflight_models([{"name": "naty"}])
+        code = "(no exit)"
+    except SystemExit as e:
+        code = e.code
+    finally:
+        for key, value in saved.items():
+            setattr(ba, key, value)
+    out = buf.getvalue()
+    check("the render stops before a job is queued", code, 2)
+    check_in("the message names the SETTING to fix", "flux_vae", out)
+    check_in("and the value that is wrong", "taesdxl", out)
+    check_in("and names a working replacement", "ae.safetensors", out)
+    check_in("and explains the channel mismatch", "16 channels", out)
+
+    # The all-in-one checkpoint carries its own VAE, so there is no name to be
+    # wrong about - the guard must not fire and strand that path.
+    saved_ck = (ba.PIPELINE, ba.FLUX_VAE, ba.FLUX_CHECKPOINT, ba._available)
+    ba.PIPELINE, ba.FLUX_VAE = "flux", "taesdxl"
+    ba.FLUX_CHECKPOINT = "flux1-schnell-fp8.safetensors"
+    ba._available = lambda node, field: None
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            ba.preflight_models([{"name": "naty"}])
+        raised = False
+    except SystemExit:
+        raised = True
+    finally:
+        (ba.PIPELINE, ba.FLUX_VAE,
+         ba.FLUX_CHECKPOINT, ba._available) = saved_ck
+    check("the all-in-one checkpoint path is exempt", raised, False)
+
+
 def test_blank_text_still_means_blank() -> None:
     # Documented behaviour: blank disables that optional node. If the fix had
     # been "no empty value ever shadows a default", Redux could never be
@@ -361,6 +433,7 @@ if __name__ == "__main__":
                test_a_real_value_still_wins,
                test_a_blank_required_model_falls_back_too,
                test_a_graph_with_an_empty_model_name_is_never_submitted,
+               test_a_wrong_family_vae_is_refused_before_the_gpu_runs,
                test_blank_text_still_means_blank,
                test_blank_shadows_default_is_precise,
                test_saving_a_blank_numeric_drops_the_key,
