@@ -168,8 +168,32 @@ _DEFAULTS = {
 }
 
 
-def blank_over_number(key: str, value) -> bool:
-    """True when a saved BLANK would shadow a NUMERIC default.
+# Model/enum settings that are REQUIRED wherever they appear in a graph, so a
+# blank is never a valid choice for them — only a value ComfyUI will reject
+# with `value_not_in_list`.
+#
+# The distinction that matters: an OPTIONAL model is expressed by leaving the
+# NODE OUT (see build_workflow_flux — `if FLUX_CHECKPOINT: … else: …`, and the
+# optional LoRA / ControlNet / Redux blocks), never by passing "" to a node
+# that runs. So blank stays meaningful for `flux_checkpoint`, `flux_lora`,
+# `lora`, `flux_controlnet`, `controlnet`, `flux_redux_style_model` and
+# `mockup_image` — clearing those genuinely disables that step — while a blank
+# in the set below can only ever produce:
+#
+#   /prompt rejected (400): vae_name: '' not in ['ae.safetensors', …]
+#
+# after a queued job and a cold start have already been paid for.
+REQUIRED_MODEL_KEYS = {
+    "checkpoint", "rmbg_model",
+    "flux_unet", "flux_clip_t5", "flux_clip_l", "flux_vae",
+    "flux_weight_dtype", "flux_sampler", "flux_scheduler", "flux_clip_vision",
+    "ipadapter_weight_type",
+}
+
+
+def blank_shadows_default(key: str, value) -> bool:
+    """True when a saved BLANK would shadow a default that must not be blank —
+    a NUMERIC one, or a REQUIRED_MODEL_KEYS one.
 
     The Settings panel posts every field it renders, blanks included, and a
     blank global value used to be stored verbatim. `ui_server.load_config`
@@ -182,13 +206,20 @@ def blank_over_number(key: str, value) -> bool:
 
     A number has no meaningful blank, so an empty value means "unset" and the
     default stands — which also heals a config already poisoned that way, with
-    no migration. TEXT keys are deliberately untouched: a blank
-    `flux_controlnet` / `flux_redux_style_model` DISABLES that optional node,
-    which is the documented behaviour."""
+    no migration.
+
+    The same is true of a REQUIRED model name, which the first fix wrongly left
+    out: `"flux_vae": ""` survived, reached the graph, and came back from the
+    GPU as `vae_name: '' not in [...]` — a paid job to learn that a required
+    field was empty. OPTIONAL model keys stay blank-able, because clearing them
+    really does disable a step (see REQUIRED_MODEL_KEYS for the distinction)."""
     default = _DEFAULTS.get(key)
+    if str(value).strip() != "":
+        return False
+    if key in REQUIRED_MODEL_KEYS:
+        return str(default or "").strip() != ""
     return (isinstance(default, (int, float))
-            and not isinstance(default, bool)
-            and str(value).strip() == "")
+            and not isinstance(default, bool))
 
 
 def load_config() -> dict:
@@ -199,7 +230,7 @@ def load_config() -> dict:
                 user = json.loads(path.read_text(encoding="utf-8"))
                 cfg.update({k: v for k, v in user.items()
                             if not k.startswith("_")
-                            and not blank_over_number(k, v)})
+                            and not blank_shadows_default(k, v)})
                 return cfg
         except (json.JSONDecodeError, OSError):
             continue
@@ -1180,6 +1211,65 @@ _MODEL_FIELD_NODES = {
     "clip_name2": "DualCLIPLoader",
     "style_model_name": "StyleModelLoader",
 }
+
+# Which Settings field feeds each loader input, so the guard below can name the
+# thing the user has to fix rather than the ComfyUI input they never chose.
+_FIELD_SETTING_LABEL = {
+    "vae_name": "FLUX VAE (flux_vae)",
+    "unet_name": "FLUX UNet (flux_unet)",
+    "clip_name1": "FLUX CLIP T5-XXL (flux_clip_t5)",
+    "clip_name2": "FLUX CLIP L (flux_clip_l)",
+    "clip_name": "FLUX CLIP-Vision (flux_clip_vision)",
+    "ckpt_name": "Checkpoint (checkpoint / flux_checkpoint)",
+    "lora_name": "LoRA (lora / flux_lora)",
+    "control_net_name": "ControlNet (controlnet / flux_controlnet)",
+    "style_model_name": "FLUX Redux model (flux_redux_style_model)",
+    "sampler_name": "FLUX sampler (flux_sampler)",
+    "scheduler": "FLUX scheduler (flux_scheduler)",
+    "weight_dtype": "FLUX weight dtype (flux_weight_dtype)",
+}
+
+
+def assert_models_named(wf: dict) -> None:
+    """Refuse to SUBMIT a graph that carries an empty model/enum name.
+
+    A node that should not run is left OUT of the graph — that is how every
+    optional model is expressed — so a model input that IS present and empty is
+    always a mistake, and ComfyUI always rejects it:
+
+        /prompt rejected (400): vae_name: '' not in ['ae.safetensors', …]
+
+    Before this guard that verdict cost a queued RunPod job and a cold start to
+    obtain, and arrived as a wall of JSON naming a node number. Checking the
+    built graph costs nothing and names the setting instead.
+
+    Scoped to model/enum inputs on purpose: plenty of string inputs are validly
+    empty (FLUX's negative prompt is literally `"text": ""`), and only these
+    carry an /object_info enum that "" can never satisfy."""
+    bad: list[str] = []
+    for node_id, node in sorted((wf or {}).items()):
+        if not isinstance(node, dict):
+            continue
+        cls = str(node.get("class_type", "?"))
+        for field, value in (node.get("inputs") or {}).items():
+            # A list is a wire to another node, never a name — skip it.
+            if not isinstance(value, str) or value.strip():
+                continue
+            if field in _MODEL_FIELD_NODES or field in _FIELD_SETTING_LABEL:
+                label = _FIELD_SETTING_LABEL.get(field, field)
+                bad.append(f"  node {node_id} ({cls}).{field} <- {label}")
+    if not bad:
+        return
+    print("\n=== A required model name is empty ===")
+    print("\n".join(bad))
+    print("\nComfyUI would reject this prompt with 'value_not_in_list'. Set "
+          "these in the Atlas Maker's Settings panel (an empty box there means "
+          "'unset', and a required field falls back to its default) and retry. "
+          "No job was submitted.")
+    raise RuntimeError(
+        "Refusing to submit: "
+        + "; ".join(b.strip() for b in bad)
+        + ". Set them in Settings and retry.")
 
 
 def prepare_blueprint_models_for_run(models: list) -> blueprint_models.PrepareResult:
@@ -2552,6 +2642,9 @@ def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Im
                 f"valid pipeline, then retry.")
         wf, out_node = build_workflow_blueprint(
             region, style, bp, BP_PARAM_OVERRIDES)
+    # Last gate before the graph costs anything — covers the built-in pipelines
+    # and blueprints alike, whatever produced the empty name.
+    assert_models_named(wf)
     # Serverless transport: submit the SAME api-prompt graph as a RunPod job
     # (base64 refs in, base64 image out) instead of talking to a live ComfyUI.
     if COMFY_TRANSPORT == "serverless":
