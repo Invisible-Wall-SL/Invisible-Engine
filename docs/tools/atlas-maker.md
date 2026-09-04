@@ -111,6 +111,16 @@ catalogs (next section).
   type, the five `gpt_image_*` fields and **Atlas format**. Their valid values are
   known offline, so these stay dropdowns no matter what ComfyUI is doing.
 
+**Blank means two different things, and the panel now says which.** For an
+*optional* model — `flux_checkpoint`, `flux_lora`, `lora`, `flux_controlnet`,
+`controlnet`, `flux_redux_style_model` — clearing the field genuinely disables
+that step, and the dropdown offers `(blank — none)`. For a *required* one — the
+checkpoint, FLUX UNet / CLIPs / VAE, sampler, scheduler, dtype, RMBG model —
+there is no "none": the dropdown offers `(default: …)` instead, and clearing the
+box means *unset*, so the engine default applies. A required field left empty
+used to reach the GPU and come back as `vae_name: '' not in [...]` after a
+queued job; the tool now refuses to submit such a graph and names the setting.
+
 Whatever the source, **a value you already have configured is never dropped**:
 if it isn't in the offered list it stays in the dropdown, selected, marked
 `(not in ComfyUI)` (installed-file list) or `(custom)` (fixed enum). Saving the

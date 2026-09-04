@@ -971,10 +971,19 @@ def _control_html(key: str, typ: str, value, cache: dict, *,
                 f'{_opt_html(["on", "off"], norm)}</select>')
     avail, marker = _options_for(key, cache, target)
     if avail:
-        # Always offer a blank choice: per-atlas blank = inherit global;
-        # global blank = literally empty (e.g. clear flux_checkpoint /
-        # flux_controlnet so the optional node is skipped).
-        bl = blank_label if allow_blank else "(blank — none)"
+        # Per-atlas blank = inherit the global, always offered. A GLOBAL blank
+        # means "no model" — only honest for an OPTIONAL one (clearing
+        # flux_checkpoint / flux_controlnet skips that node). For a required
+        # field there is no "none": offering it invited the choice that comes
+        # back from the GPU as `vae_name: '' not in [...]`, so it now shows the
+        # default it would fall back to instead.
+        if allow_blank:
+            bl = blank_label
+        elif key in batch_atlas.REQUIRED_MODEL_KEYS:
+            d = batch_atlas._DEFAULTS.get(key)
+            bl = f"(default: {d})" if str(d or "").strip() else ""
+        else:
+            bl = "(blank — none)"
         return (f'<select{common}>'
                 f'{_opt_html(avail, cur, bl, marker)}</select>')
     inp = (f'<input{common} type="{typ}" '
@@ -1089,10 +1098,17 @@ def cfg_num(v):
         return v
 
 
+def _blank_means_unset(key: str) -> bool:
+    """A blank on this key is 'unset' (drop it, let the default apply) rather
+    than a value. Numerics, plus the model names that are required wherever
+    they appear — see `batch_atlas.REQUIRED_MODEL_KEYS`."""
+    return key in NUMERIC_CONFIG_KEYS or key in batch_atlas.REQUIRED_MODEL_KEYS
+
+
 def apply_global_edit(cfg: dict, key: str, value) -> None:
     """Apply ONE global (atlas_config.json) edit from the Settings panel.
 
-    A blank NUMERIC drops the key instead of storing "". The panel posts every
+    A blank that means "unset" drops the key instead of storing "". The panel posts every
     field it renders, blanks included, and `load_config` below reads the file
     RAW — it does not merge `batch_atlas._DEFAULTS` — so a key the config
     predates rendered as an empty box and one Save stored `"flux_guidance": ""`.
@@ -1104,7 +1120,7 @@ def apply_global_edit(cfg: dict, key: str, value) -> None:
     `flux_redux_style_model` disables that optional node by design. The
     per-atlas branch already had this rule (blank = inherit the global); the
     global branch was the one that never got it."""
-    if key in NUMERIC_CONFIG_KEYS and str(value).strip() == "":
+    if _blank_means_unset(key) and str(value).strip() == "":
         cfg.pop(key, None)
         return
     cfg[key] = cfg_num(value) if key in NUMERIC_CONFIG_KEYS else value

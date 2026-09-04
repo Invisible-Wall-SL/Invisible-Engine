@@ -46,12 +46,36 @@ FAILED: list[str] = []
 PASSED: list[str] = []
 
 
+def _say(text: str) -> None:
+    """Print through this console's encoding, whatever it is — a FAILING
+    assertion may dump text carrying glyphs cp1252 cannot encode, and the
+    diagnostic must not destroy the diagnosis."""
+    enc = sys.stdout.encoding or "utf-8"
+    print(text.encode(enc, errors="replace").decode(enc, errors="replace"))
+
+
 def check(label: str, got, want) -> None:
     ok = got == want
-    print(f"{'ok  ' if ok else 'FAIL'} {label}")
+    _say(f"{'ok  ' if ok else 'FAIL'} {label}")
     (PASSED if ok else FAILED).append(label)
     if not ok:
-        print(f"       got  {got!r}\n       want {want!r}")
+        _say(f"       got  {got!r}\n       want {want!r}")
+
+
+def check_in(label: str, needle: str, haystack: str) -> None:
+    ok = needle in haystack
+    _say(f"{'ok  ' if ok else 'FAIL'} {label}")
+    (PASSED if ok else FAILED).append(label)
+    if not ok:
+        _say(f"       {needle!r} not found in:\n       {haystack!r}")
+
+
+def check_not_in(label: str, needle: str, haystack: str) -> None:
+    ok = needle not in haystack
+    _say(f"{'ok  ' if ok else 'FAIL'} {label}")
+    (PASSED if ok else FAILED).append(label)
+    if not ok:
+        _say(f"       {needle!r} unexpectedly found in:\n       {haystack!r}")
 
 
 def load_with(doc: dict) -> dict:
@@ -109,6 +133,79 @@ def test_a_real_value_still_wins() -> None:
     check("a zero rate is kept", cfg["credits_eur_rate"], 0)
 
 
+def test_a_blank_required_model_falls_back_too() -> None:
+    """The second half of the same outage, reported a day later:
+
+        /prompt rejected (400): vae_name: '' not in ['ae.safetensors', ...]
+
+    `flux_vae` is TEXT, so the numeric-only rule let `""` through; it reached
+    the graph and cost a queued RunPod job and a cold start to be told a
+    required field was empty. A required model has no meaningful blank either.
+    """
+    cfg = load_with({"pipeline": "flux", "flux_vae": "", "flux_unet": "",
+                     "flux_clip_t5": "", "flux_clip_l": "",
+                     "flux_sampler": "", "flux_scheduler": "",
+                     "flux_weight_dtype": "", "checkpoint": "",
+                     "rmbg_model": ""})
+    check("flux_vae falls back (the field that failed)",
+          cfg["flux_vae"], ba._DEFAULTS["flux_vae"])
+    check("flux_unet falls back", cfg["flux_unet"], ba._DEFAULTS["flux_unet"])
+    check("flux_clip_t5 falls back",
+          cfg["flux_clip_t5"], ba._DEFAULTS["flux_clip_t5"])
+    check("flux_sampler falls back",
+          cfg["flux_sampler"], ba._DEFAULTS["flux_sampler"])
+    check("checkpoint falls back", cfg["checkpoint"], ba._DEFAULTS["checkpoint"])
+    check("rmbg_model falls back", cfg["rmbg_model"], ba._DEFAULTS["rmbg_model"])
+    # ...and the OPTIONAL ones in the very same config stay blank.
+    check("flux_controlnet is still optional",
+          load_with({"flux_controlnet": ""})["flux_controlnet"], "")
+    check("flux_checkpoint is still optional",
+          load_with({"flux_checkpoint": ""})["flux_checkpoint"], "")
+    check("flux_redux_style_model is still optional",
+          load_with({"flux_redux_style_model": ""})["flux_redux_style_model"], "")
+    check("an authored required value still wins",
+          load_with({"flux_vae": "flux2-vae.safetensors"})["flux_vae"],
+          "flux2-vae.safetensors")
+
+
+def test_a_graph_with_an_empty_model_name_is_never_submitted() -> None:
+    """The guard that makes this class of bug cost nothing. The graph below is
+    the shape build_workflow_flux emits, with node "3" exactly as the GPU
+    rejected it."""
+    good = {
+        "1": {"class_type": "UNETLoader",
+              "inputs": {"unet_name": "flux1-dev.safetensors",
+                         "weight_dtype": "fp8_e4m3fn"}},
+        "3": {"class_type": "VAELoader",
+              "inputs": {"vae_name": "ae.safetensors"}},
+        "11": {"class_type": "CLIPTextEncode",
+               "inputs": {"clip": ["2", 0], "text": ""}},
+    }
+    ba.assert_models_named(good)      # must not raise
+    check("a complete graph passes", True, True)
+    check("an empty NEGATIVE PROMPT is not a model name and is left alone",
+          good["11"]["inputs"]["text"], "")
+
+    bad = json.loads(json.dumps(good))
+    bad["3"]["inputs"]["vae_name"] = ""
+    try:
+        ba.assert_models_named(bad)
+        msg = "(no error)"
+    except RuntimeError as e:
+        msg = str(e)
+    check("the empty vae_name is refused", msg != "(no error)", True)
+    check_in("the message names the node", "node 3", msg)
+    check_in("and the ComfyUI input", "vae_name", msg)
+    check_in("and the SETTING to fix, not just the node", "flux_vae", msg)
+    check_in("and says nothing was submitted", "retry", msg)
+
+    # A wire (list) is not a name, and must never be mistaken for one.
+    wired = {"5": {"class_type": "VAEDecode",
+                   "inputs": {"samples": ["4", 0], "vae": ["3", 0]}}}
+    ba.assert_models_named(wired)
+    check("a node wired to another node passes", True, True)
+
+
 def test_blank_text_still_means_blank() -> None:
     # Documented behaviour: blank disables that optional node. If the fix had
     # been "no empty value ever shadows a default", Redux could never be
@@ -125,18 +222,22 @@ def test_blank_text_still_means_blank() -> None:
           ba._DEFAULTS["flux_redux_style_model"])
 
 
-def test_blank_over_number_is_precise() -> None:
+def test_blank_shadows_default_is_precise() -> None:
     check("blank + numeric default = shadowed",
-          ba.blank_over_number("flux_guidance", ""), True)
+          ba.blank_shadows_default("flux_guidance", ""), True)
     check("whitespace counts as blank",
-          ba.blank_over_number("flux_guidance", "   "), True)
+          ba.blank_shadows_default("flux_guidance", "   "), True)
     check("a real value is not blank",
-          ba.blank_over_number("flux_guidance", "3.5"), False)
-    check("zero is not blank", ba.blank_over_number("padding_pct", 0), False)
-    check("blank + text default = left alone",
-          ba.blank_over_number("flux_controlnet", ""), False)
+          ba.blank_shadows_default("flux_guidance", "3.5"), False)
+    check("zero is not blank", ba.blank_shadows_default("padding_pct", 0), False)
+    check("blank + OPTIONAL text default = left alone",
+          ba.blank_shadows_default("flux_controlnet", ""), False)
+    check("blank + REQUIRED model = shadowed",
+          ba.blank_shadows_default("flux_vae", ""), True)
+    check("a real model name is not blank",
+          ba.blank_shadows_default("flux_vae", "ae.safetensors"), False)
     check("an unknown key is left alone",
-          ba.blank_over_number("not_a_setting", ""), False)
+          ba.blank_shadows_default("not_a_setting", ""), False)
 
 
 # --------------------------------------------------------------------------
@@ -157,11 +258,27 @@ def test_saving_a_blank_numeric_drops_the_key() -> None:
     u.apply_global_edit(cfg, "flux_guidance", "4.5")
     check("a typed float is stored as a float", cfg["flux_guidance"], 4.5)
 
-    # Text keys keep blank-means-blank on save, too.
+    # OPTIONAL text keys keep blank-means-blank on save, too.
     cfg2 = {"flux_controlnet": "some-cn.safetensors"}
     u.apply_global_edit(cfg2, "flux_controlnet", "")
-    check("a blank text key IS stored blank (disables the node)",
+    check("a blank OPTIONAL text key IS stored blank (disables the node)",
           cfg2, {"flux_controlnet": ""})
+    # A REQUIRED one is dropped so the default applies.
+    cfg3 = {"flux_vae": "ae.safetensors"}
+    u.apply_global_edit(cfg3, "flux_vae", "")
+    check("a blank REQUIRED model is dropped, not stored", cfg3, {})
+    check("so it reads as its default again",
+          load_with(cfg3)["flux_vae"], ba._DEFAULTS["flux_vae"])
+    # And the panel stops OFFERING a blank for a required field.
+    out = u._control_html("flux_vae", "text", "ae.safetensors",
+                          {("VAELoader", "vae_name"): ["ae.safetensors",
+                                                       "flux2-vae.safetensors"]})
+    check_not_in("no '(blank - none)' choice on a required model",
+                 "blank", out)
+    check_in("it offers the default instead", "(default: ae.safetensors)", out)
+    opt = u._control_html("flux_controlnet", "text", "",
+                          {("ControlNetLoader", "control_net_name"): ["a.pth"]})
+    check_in("an OPTIONAL model still offers a blank", "none", opt)
 
 
 def test_a_poisoned_config_heals_on_the_next_save() -> None:
@@ -180,7 +297,7 @@ def test_a_poisoned_config_heals_on_the_next_save() -> None:
 # --------------------------------------------------------------------------
 def test_every_numeric_field_has_a_numeric_default() -> None:
     """`apply_global_edit` decides 'numeric' from CONFIG_FIELDS, while
-    `blank_over_number` decides it from `_DEFAULTS`. If those two ever
+    `blank_shadows_default` decides it from `_DEFAULTS`. If those two ever
     disagree, a field is dropped on save and then has no default to fall back
     to — blank forever. Geometry keys live on the manifest, not the config."""
     mismatched = []
@@ -242,8 +359,10 @@ def test_an_empty_numeric_box_shows_its_default() -> None:
 if __name__ == "__main__":
     for fn in (test_the_poisoned_config_from_the_outage_renders_again,
                test_a_real_value_still_wins,
+               test_a_blank_required_model_falls_back_too,
+               test_a_graph_with_an_empty_model_name_is_never_submitted,
                test_blank_text_still_means_blank,
-               test_blank_over_number_is_precise,
+               test_blank_shadows_default_is_precise,
                test_saving_a_blank_numeric_drops_the_key,
                test_a_poisoned_config_heals_on_the_next_save,
                test_every_numeric_field_has_a_numeric_default,
