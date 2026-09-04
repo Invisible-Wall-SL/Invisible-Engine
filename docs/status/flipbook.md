@@ -195,8 +195,11 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 ## Blocked (owner / external)
 - **Delete the corrupt BiRefNet model folder on the Network Volume** (owner, 2026-09-04) — the
   actual blocker for every video render since 2026-09-03 22:39Z. On a pod terminal that mounts
-  the volume: `grep -rlP '\x00' /workspace/ComfyUI/models/RMBG --include='*.py'`, then
-  `rm -rf` the model folder it names (under `models/RMBG/`, e.g. `BiRefNet-general`); stop the
+  the volume: `grep -lP '\x00' /workspace/ComfyUI/models/RMBG/BiRefNet/*.py`. Every BiRefNet
+  variant shares that ONE folder — `birefnet.py`, `BiRefNet_config.py`, `config.json` beside
+  each `<model>.safetensors` (the node's `MODEL_CONFIG`, `cache_dir: "BiRefNet"`, fetched by
+  `hf_hub_download` on first use) — so one torn `.py` breaks toonout, general, all of them.
+  Delete the two `.py` and `config.json` (keep the weights) and the node re-fetches them; stop the
   session still re-rolling into it; re-run with **1 variation** so a single worker re-downloads
   cleanly before scaling back up.
 - **Point the serverless endpoint at the #586 image** (owner, 2026-09-04): RunPod → Serverless →
