@@ -41,6 +41,7 @@ import os
 import time as _time
 from typing import Callable, Iterable, Sequence
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 import batch_atlas
@@ -229,8 +230,33 @@ def catalog_url() -> str:
     COMFY_VOLUME_URL points at) or to reach one the RunPod API can't list.
 
     Read at call time (not import) so a Railway var takes effect on redeploy
-    without a code change."""
-    return (os.environ.get("COMFY_CATALOG_URL") or "").strip().rstrip("/")
+    without a code change.
+
+    A value that cannot be an HTTP base is IGNORED rather than probed, because
+    a bad one is silent: found live set to
+    `https://s3api-eu-ro-1.runpod.io s3://wvi855bwh8/` — the Network Volume's
+    S3 endpoint and bucket, pasted together, space and all. urlparse reads that
+    host as `s3api-eu-ro-1.runpod.io s3`, every request fails, and the panel
+    just says nothing answered. Ignoring it lets pod discovery take over, which
+    is what actually works."""
+    raw = (os.environ.get("COMFY_CATALOG_URL") or "").strip().rstrip("/")
+    if not raw:
+        return ""
+    if not _usable_http_base(raw):
+        print(f"[catalog] ignoring COMFY_CATALOG_URL={raw!r}: not an http(s) "
+              "base URL (a ComfyUI address like "
+              "https://<pod-id>-8188.proxy.runpod.net). Falling back to pod "
+              "discovery.", flush=True)
+        return ""
+    return raw
+
+
+def _usable_http_base(url: str) -> bool:
+    """An http(s) URL with a host and no embedded whitespace."""
+    if any(c.isspace() for c in url):
+        return False
+    parsed = urlparse(url)
+    return parsed.scheme in ("http", "https") and bool(parsed.hostname)
 
 
 def pod_candidates() -> list[tuple[str, str]]:

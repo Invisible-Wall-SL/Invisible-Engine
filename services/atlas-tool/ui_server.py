@@ -2429,8 +2429,14 @@ def run_render(names: list[str], variants: int = 1,
             _render_state.update(running=True, done=False, cur=0, total=total,
                                  log="\n".join(_warm) + "\n", diagnostics=[])
 
-    if chosen != "local":
-        runpod_control.ensure_pod_ready(comfy_env.get("COMFY_URL", ""), log=_wlog)
+    # Wake the on-demand pod only when this render will actually TALK to it.
+    # It used to fire for every non-local render, including serverless ones —
+    # where RunPod spins its own worker and a resumed GPU pod is billed for
+    # nothing. `targets_our_pod` ties the wake-up to the address the render is
+    # about to use, so it survives COMFY_URL being (correctly) the tunnel.
+    wake_url = comfy_env.get("COMFY_URL") or str(batch_atlas.COMFY_BASE)
+    if target == "local" and runpod_control.targets_our_pod(wake_url):
+        runpod_control.ensure_pod_ready(wake_url, log=_wlog)
     if target == "local":
         url = comfy_env.get("COMFY_URL") or str(batch_atlas.COMFY_BASE)
         # Before asking whether it answers: is it even the right machine? A
