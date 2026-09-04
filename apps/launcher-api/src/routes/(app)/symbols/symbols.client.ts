@@ -201,6 +201,38 @@ export interface BookVfxConfig {
 	foreground?: BookVfxLayer;
 }
 
+/** The kinds the explosion → intro transition can take: a Book-VFX layer's minus `sprite`, because
+ *  a transition has a duration and a frozen frame has none. A VALUE array (the `BOOK_VFX_KINDS`
+ *  precedent) so the kind toggle can't drift from a hand-copied union, checked against the book-VFX
+ *  kinds so the two lists can't diverge; the labels are the book-VFX ones, picked rather than
+ *  re-typed. Mirrors the server's `transitionSchema` `kind` enum in `$lib/server/symbolsStorage`. */
+export const TRANSITION_KINDS = [
+	'spine',
+	'flipbook',
+	'fx',
+] as const satisfies readonly BookVfxKind[];
+export type TransitionKind = (typeof TRANSITION_KINDS)[number];
+
+export const TRANSITION_KIND_LABELS: Record<TransitionKind, string> = {
+	spine: BOOK_VFX_KIND_LABELS.spine,
+	flipbook: BOOK_VFX_KIND_LABELS.flipbook,
+	fx: BOOK_VFX_KIND_LABELS.fx,
+};
+
+/** The explosion → intro transition: one kind-tagged binding carrying only the field its kind needs
+ *  (like a {@link BookVfxLayer}; the server `.refine()` enforces it) plus `delayMs` — ms after the
+ *  explosion fires before it mounts. Absent ⇒ 0, and an explicit 0 is pruned on save, so the page
+ *  omits it too or the signature would read a saved doc as dirty. Mirrors the server
+ *  `transitionSchema`. */
+export interface SymbolTransition {
+	kind: TransitionKind;
+	assetKey?: string;
+	animationName?: string;
+	clipId?: string;
+	effectId?: string;
+	delayMs?: number;
+}
+
 /** Win-line overlay style — the line drawn across paying symbols. All optional/sparse:
  *  unset fields fall through to the game's coded defaults. Colours are CSS hex strings;
  *  `width` is a multiple of the symbol size; `speed` is a draw-speed multiplier. */
@@ -446,6 +478,11 @@ export interface SymbolsDoc {
 	 *  the book symbol during free spins. Sparse: an absent config, or an absent slot, ships nothing
 	 *  and renders byte-identical. Passed through verbatim to `bundle.symbols.bookVfx`. */
 	bookVfx?: BookVfxConfig;
+	/** The explosion → intro transition — one project-global animation mounted at every exploding
+	 *  seat under the `emerge` swap style, `delayMs` after the pop fires, so the explosion's end and
+	 *  the intro's start overlap instead of cutting. Sparse: absent ⇒ nothing renders, nothing ships,
+	 *  byte-identical. Passed through verbatim to `bundle.symbols.transition`. */
+	transition?: SymbolTransition;
 	/** Reel-anticipation presentation FX (the escalating tease mode) — the editable twin of the coded
 	 *  `codedTierFx` ramp. Sparse: absent ⇒ the game keeps its coded per-tier FX + overlay spine
 	 *  (byte-parity with Phase 4). Passed through verbatim to `bundle.symbols.anticipation`. */
@@ -731,6 +768,22 @@ export function clearBookVfxLayer(doc: SymbolsDoc, slot: BookVfxSlot): SymbolsDo
 	const next = { ...doc };
 	if (Object.keys(bookVfx).length) next.bookVfx = bookVfx;
 	else delete next.bookVfx;
+	return next;
+}
+
+/** Set the explosion → intro transition, returning a NEW doc (immutable update). The caller passes
+ *  a binding already reduced to its kind's fields (the server `.refine()` rejects a half-authored
+ *  one) with a zero `delayMs` left OUT — the server prunes it, and the dirty signature must agree. */
+export function setTransition(doc: SymbolsDoc, transition: SymbolTransition): SymbolsDoc {
+	return { ...doc, transition };
+}
+
+/** Clear the explosion → intro transition, so an untouched/reset project ships nothing (sparse).
+ *  New doc. */
+export function clearTransition(doc: SymbolsDoc): SymbolsDoc {
+	if (!doc.transition) return doc;
+	const next = { ...doc };
+	delete next.transition;
 	return next;
 }
 
@@ -1237,6 +1290,18 @@ export function docSignature(doc: SymbolsDoc): string {
 				foreground: bookVfxLayer(doc.bookVfx.foreground),
 			}
 		: null;
+	// Listed here or binding the explosion transition never marks the page dirty and Save stays
+	// disabled — the same trap every sibling above carries a warning about.
+	const transition = doc.transition
+		? {
+				kind: doc.transition.kind,
+				assetKey: doc.transition.assetKey ?? null,
+				animationName: doc.transition.animationName ?? null,
+				clipId: doc.transition.clipId ?? null,
+				effectId: doc.transition.effectId ?? null,
+				delayMs: doc.transition.delayMs ?? null,
+			}
+		: null;
 	// Listed here or an edit to an anticipation tier / the overlay spine never marks the page dirty
 	// and Save stays disabled. Tier keys are sorted so the signature is stable.
 	const anticipation = doc.anticipation
@@ -1276,6 +1341,7 @@ export function docSignature(doc: SymbolsDoc): string {
 		stackedPictures,
 		winCycle,
 		bookVfx,
+		transition,
 		anticipation,
 	});
 }

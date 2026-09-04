@@ -92,6 +92,10 @@
 		SYMBOL_CELL_TYPE_LABELS,
 		BOOK_VFX_KINDS,
 		BOOK_VFX_KIND_LABELS,
+		TRANSITION_KINDS,
+		TRANSITION_KIND_LABELS,
+		setTransition,
+		clearTransition,
 		type AnticipationTier,
 		type AnticipationTierFx,
 		type BoardGlowConfig,
@@ -100,6 +104,8 @@
 		type BookVfxKind,
 		type BookVfxLayer,
 		type BookVfxSlot,
+		type SymbolTransition,
+		type TransitionKind,
 		type SymbolCell,
 		type StackedArtSlot,
 		type SymbolCellType,
@@ -956,6 +962,100 @@
 		bookVfxDraft.offset = next.x || next.y ? next : undefined;
 	}
 
+	// ── Explosion → intro transition (emerge boards only) ──────────────────────
+	// One project-global layer the game mounts at every exploding seat under the `emerge` swap
+	// style, `delayMs` after the pop fires, so the explosion's end and the intro's start overlap
+	// instead of cutting. The Book-VFX pickers minus Sprite (a transition has a duration), plus the
+	// delay. Sparse: unset writes nothing, and a zero delay is left OUT — the server prunes it, and
+	// the dirty signature must agree. The section shows for a project that emerges — the gate is
+	// resolved server-side (`data.reelBehaviour.emerge`), the way the `Intro` column's is — and
+	// for one that still carries a saved transition from when it did, because that binding still
+	// ships and a setting that ships must never be invisible in the tool.
+	let transitionEditing = $state(false);
+	let transitionDraft = $state<SymbolTransition | null>(null);
+	let transitionAnimations = $state<string[]>([]);
+
+	function openTransition(): void {
+		// `$state.snapshot` (NOT `structuredClone`) — `doc.transition` is a `$state` proxy (same trap
+		// as `openCell`/`openHighlight`/`openGlow`/`openBookVfx`).
+		const existing = doc.transition;
+		transitionDraft = existing
+			? ($state.snapshot(existing) as SymbolTransition)
+			: { kind: 'spine' };
+		transitionAnimations = [];
+		transitionEditing = true;
+	}
+
+	function closeTransition(): void {
+		transitionEditing = false;
+		transitionDraft = null;
+		transitionAnimations = [];
+	}
+
+	/** Switch the draft's kind, dropping every field the new kind doesn't use (keeping the delay) so
+	 *  a stale `animationName`/`clipId`/`effectId` can't 400 the save. */
+	function setTransitionKind(kind: TransitionKind): void {
+		if (!transitionDraft || transitionDraft.kind === kind) return;
+		transitionDraft = { kind, delayMs: transitionDraft.delayMs };
+		transitionAnimations = [];
+	}
+
+	/** Bind the draft to a clip: the clip supplies both `clipId` and its primary sheet `assetKey`. */
+	function setTransitionClip(clipId: string): void {
+		if (!transitionDraft) return;
+		const clip = clipsById.get(clipId);
+		transitionDraft.clipId = clipId || undefined;
+		transitionDraft.assetKey = clip?.assetKey ?? undefined;
+	}
+
+	/** Blank, zero, or not a number ⇒ no delay (absent) — what the server persists for "none". */
+	function setTransitionDelay(value: string): void {
+		if (!transitionDraft) return;
+		const ms = Math.floor(Number(value));
+		transitionDraft.delayMs = Number.isFinite(ms) && ms > 0 ? ms : undefined;
+	}
+
+	/** A draft is bindable once it has the field its kind requires (mirrors the server `.refine()`). */
+	const transitionBindable = $derived.by(() => {
+		const t = transitionDraft;
+		if (!t) return false;
+		switch (t.kind) {
+			case 'spine':
+				return !!t.assetKey && !!t.animationName;
+			case 'flipbook':
+				return !!t.clipId;
+			case 'fx':
+				return !!t.effectId;
+			default:
+				return false;
+		}
+	});
+
+	/** Rebuild field-by-field (a whitelist, like `applyBookVfx`): only the kind's own fields plus a
+	 *  non-zero delay reach the saved doc. */
+	function applyTransition(): void {
+		if (!transitionDraft || !transitionBindable) return;
+		const t = transitionDraft;
+		const transition: SymbolTransition = { kind: t.kind };
+		if (t.kind === 'spine') {
+			transition.assetKey = t.assetKey;
+			transition.animationName = t.animationName;
+		} else if (t.kind === 'flipbook') {
+			transition.clipId = t.clipId;
+			if (t.assetKey) transition.assetKey = t.assetKey;
+		} else {
+			transition.effectId = t.effectId;
+		}
+		if (t.delayMs && t.delayMs > 0) transition.delayMs = Math.floor(t.delayMs);
+		doc = setTransition(doc, transition);
+		closeTransition();
+	}
+
+	function resetTransition(): void {
+		doc = clearTransition(doc);
+		closeTransition();
+	}
+
 	// ── Win-line overlay: the LINE and the AMOUNT TEXT, two independent sections ──
 	// Pure config, no asset. The traced line and the stamped amount each own their switch, so a
 	// project can stamp the amount with no line under it (or draw the line and say nothing). The
@@ -1202,6 +1302,26 @@
 		doc = setSymbolName(doc, symbol, form, value);
 	}
 </script>
+
+<!-- At-a-glance thumbnail of ONE authored layer — a Book-VFX slot or the explosion transition, which
+     is structurally a layer without the sprite kind. -->
+{#snippet layerThumb(layer: BookVfxLayer, size: number)}
+	{#if layer.kind === 'sprite' && layer.assetKey}
+		<SymbolSpritePreview frame={layer.assetKey} index={spriteIndex} {size} />
+	{:else if layer.kind === 'spine' && layer.assetKey}
+		<SymbolSpinePreview
+			assetKey={layer.assetKey}
+			animationName={layer.animationName}
+			{size}
+			{reloadToken}
+		/>
+	{:else if layer.kind === 'flipbook' && layer.clipId}
+		{@const frame = clipFirstFrame(layer.clipId)}
+		{#if frame}<SymbolSpritePreview {frame} index={spriteIndex} {size} />{/if}
+	{:else if layer.kind === 'fx' && layer.effectId}
+		<SymbolFxPreview effectId={layer.effectId} {size} />
+	{/if}
+{/snippet}
 
 <!-- Repeat-or-hold for one symbol state. Shared by the spine and flipbook editors because the
      question is about the STATE, not about which renderer draws it — a sprite cell is a single
@@ -1718,6 +1838,209 @@
 					</div>
 				</section>
 
+				{#if data.reelBehaviour.emerge || doc.transition}
+					<section class="bookvfx">
+						<div class="hl-head">
+							<div class="hl-title">
+								<h2>Transition</h2>
+								<p class="hl-sub">
+									Plays at the seat when a symbol explodes, over the explosion's end and the intro's
+									start. Delay = ms after the explosion fires.
+								</p>
+							</div>
+							<div class="hl-actions">
+								{#if doc.transition}<span class="badge">set</span>{/if}
+								{#if transitionEditing}
+									<button type="button" class="ghost" onclick={closeTransition}>Cancel</button>
+								{:else}
+									<button type="button" class="hl-change" onclick={openTransition}>
+										{doc.transition ? 'Change' : 'Add'}
+									</button>
+									{#if doc.transition}
+										<button type="button" class="ghost" onclick={resetTransition}>↺ Clear</button>
+									{/if}
+								{/if}
+							</div>
+						</div>
+
+						<div class="bv-current">
+							{#if doc.transition}
+								<div class="bv-thumb">{@render layerThumb(doc.transition, 72)}</div>
+								<div class="bv-meta">
+									<span class="hl-label">{TRANSITION_KIND_LABELS[doc.transition.kind]}</span>
+									<span class="hl-chip">{bookVfxLabel(doc.transition)}</span>
+									<span class="hl-chip">delay {doc.transition.delayMs ?? 0} ms</span>
+								</div>
+							{:else}
+								<span class="hl-note">Off — the intro cuts in the moment the explosion ends.</span>
+							{/if}
+						</div>
+
+						{#if transitionEditing && transitionDraft}
+							<div class="bv-editor">
+								<div class="field">
+									<span class="label">Type</span>
+									<div class="seg">
+										{#each TRANSITION_KINDS as kind (kind)}
+											{@const noClips = kind === 'flipbook' && clips.length === 0}
+											{@const noFx = kind === 'fx' && effects.length === 0}
+											<button
+												type="button"
+												class:active={transitionDraft.kind === kind}
+												disabled={noClips || noFx}
+												title={noClips
+													? 'This project has no Flipbook clips yet'
+													: noFx
+														? 'This project has no FX effects yet'
+														: ''}
+												onclick={() => setTransitionKind(kind)}
+												>{TRANSITION_KIND_LABELS[kind]}</button
+											>
+										{/each}
+									</div>
+								</div>
+
+								{#if transitionDraft.kind === 'spine'}
+									<div class="field">
+										<span class="label">Spine bundle</span>
+										<select
+											value={transitionDraft.assetKey ?? ''}
+											onchange={(e) => {
+												if (!transitionDraft) return;
+												transitionDraft.assetKey = e.currentTarget.value || undefined;
+												transitionDraft.animationName = undefined;
+												transitionAnimations = [];
+											}}
+										>
+											<option value="">Pick a bundle…</option>
+											{#each spineBundles as b (b.key)}
+												<option value={b.key}>{b.name}</option>
+											{/each}
+										</select>
+									</div>
+									{#if transitionDraft.assetKey}
+										<div class="field">
+											<span class="label">Animation</span>
+											{#if transitionAnimations.length}
+												<select
+													value={transitionDraft.animationName ?? ''}
+													onchange={(e) => {
+														if (transitionDraft)
+															transitionDraft.animationName = e.currentTarget.value || undefined;
+													}}
+												>
+													<option value="">Pick an animation…</option>
+													{#each transitionAnimations as anim (anim)}
+														<option value={anim}>{anim}</option>
+													{/each}
+												</select>
+											{:else}
+												<input
+													type="text"
+													placeholder="animation name"
+													value={transitionDraft.animationName ?? ''}
+													oninput={(e) => {
+														if (transitionDraft)
+															transitionDraft.animationName = e.currentTarget.value || undefined;
+													}}
+												/>
+											{/if}
+										</div>
+										<div class="field">
+											<span class="label">Preview</span>
+											<div class="panel-preview">
+												<SymbolSpinePreview
+													assetKey={transitionDraft.assetKey}
+													animationName={transitionDraft.animationName}
+													size={110}
+													{reloadToken}
+													onAnimations={(names) => (transitionAnimations = names)}
+												/>
+											</div>
+										</div>
+									{/if}
+								{:else if transitionDraft.kind === 'flipbook'}
+									<div class="field">
+										<span class="label">Clip</span>
+										<select
+											value={transitionDraft.clipId ?? ''}
+											onchange={(e) => setTransitionClip(e.currentTarget.value)}
+										>
+											<option value="">Pick a clip…</option>
+											{#each clips as c (c.id)}
+												<option value={c.id}>{clipLabel(c.id)}</option>
+											{/each}
+										</select>
+									</div>
+									{#if transitionDraft.clipId}
+										{@const frame = clipFirstFrame(transitionDraft.clipId)}
+										<div class="field">
+											<span class="label">Preview</span>
+											<div class="panel-preview">
+												{#if frame}
+													<SymbolSpritePreview {frame} index={spriteIndex} size={110} />
+												{:else}
+													<span class="chip">no frames</span>
+												{/if}
+											</div>
+										</div>
+									{/if}
+								{:else}
+									<div class="field">
+										<span class="label">Effect</span>
+										<select
+											value={transitionDraft.effectId ?? ''}
+											onchange={(e) => {
+												if (transitionDraft)
+													transitionDraft.effectId = e.currentTarget.value || undefined;
+											}}
+										>
+											<option value="">Pick an effect…</option>
+											{#each effects as fx (fx.id)}
+												<option value={fx.id}>{fx.name}</option>
+											{/each}
+										</select>
+										<p class="hint">
+											The effect plays once from Invisible FX — open <a href="/fx">Invisible FX</a>
+											to edit it. It emits for its authored duration (or one explosion beat when it has
+											none) and then lets its particles die out.
+										</p>
+									</div>
+									{#if transitionDraft.effectId}
+										<div class="field">
+											<span class="label">Preview</span>
+											<div class="panel-preview">
+												<SymbolFxPreview effectId={transitionDraft.effectId} size={140} />
+											</div>
+										</div>
+									{/if}
+								{/if}
+
+								<div class="field">
+									<span class="label">Delay (ms)</span>
+									<input
+										type="number"
+										min="0"
+										step="1"
+										placeholder="0"
+										value={transitionDraft.delayMs ?? ''}
+										oninput={(e) => setTransitionDelay(e.currentTarget.value)}
+									/>
+								</div>
+
+								<button
+									type="button"
+									class="apply"
+									disabled={!transitionBindable}
+									onclick={applyTransition}
+								>
+									Apply transition
+								</button>
+							</div>
+						{/if}
+					</section>
+				{/if}
+
 				<section class="bookvfx">
 					<div class="hl-head">
 						<div class="hl-title">
@@ -1729,24 +2052,6 @@
 							</p>
 						</div>
 					</div>
-
-					{#snippet bookVfxThumb(layer: BookVfxLayer, size: number)}
-						{#if layer.kind === 'sprite' && layer.assetKey}
-							<SymbolSpritePreview frame={layer.assetKey} index={spriteIndex} {size} />
-						{:else if layer.kind === 'spine' && layer.assetKey}
-							<SymbolSpinePreview
-								assetKey={layer.assetKey}
-								animationName={layer.animationName}
-								{size}
-								{reloadToken}
-							/>
-						{:else if layer.kind === 'flipbook' && layer.clipId}
-							{@const frame = clipFirstFrame(layer.clipId)}
-							{#if frame}<SymbolSpritePreview {frame} index={spriteIndex} {size} />{/if}
-						{:else if layer.kind === 'fx' && layer.effectId}
-							<SymbolFxPreview effectId={layer.effectId} {size} />
-						{/if}
-					{/snippet}
 
 					<div class="bv-slots">
 						{#each BOOK_VFX_SLOT_META as meta (meta.slot)}
@@ -1781,7 +2086,7 @@
 
 								<div class="bv-current">
 									{#if layer}
-										<div class="bv-thumb">{@render bookVfxThumb(layer, 72)}</div>
+										<div class="bv-thumb">{@render layerThumb(layer, 72)}</div>
 										<div class="bv-meta">
 											<span class="hl-label">{BOOK_VFX_KIND_LABELS[layer.kind]}</span>
 											<span class="hl-chip">{bookVfxLabel(layer)}</span>

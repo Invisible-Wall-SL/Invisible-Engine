@@ -67,6 +67,21 @@ export type BookVfxLayer = {
 };
 
 /**
+ * The explosion → intro TRANSITION (Invisible Symbols State Machine output). Structurally a
+ * {@link BookVfxLayer} without the `sprite` kind (a transition has a duration; a frozen frame has
+ * none) and without fit hints, plus `delayMs`: how long after a seat's `tumbleExplosion` starts before
+ * this mounts there (absent ⇒ 0). Rendered by the same `SymbolLayer` the book VFX use, played ONCE.
+ */
+export type SymbolTransition = {
+	kind: 'spine' | 'flipbook' | 'fx';
+	assetKey?: string;
+	animationName?: string;
+	clipId?: string;
+	effectId?: string;
+	delayMs?: number;
+};
+
+/**
  * One reel-anticipation tier's FX override (Invisible Symbols State Machine output). The sparse twin
  * of one `codedTierFx` ramp step (`game/anticipationPresentation.ts`): every field optional so an
  * un-set one falls through to the coded value in `resolveTierFx`. `overlayTint` is a `#rrggbb` hex
@@ -279,6 +294,13 @@ type BakedBundle = {
 			background?: BookVfxLayer;
 			foreground?: BookVfxLayer;
 		};
+		/** The explosion → intro TRANSITION (Invisible Symbols State Machine output): one layer the
+		 * cascade overlay mounts at every exploding seat under the `emerge` swap style, `delayMs` after
+		 * the pop fires, so the explosion's end and the intro's start overlap. `components/TumbleBoard.svelte`
+		 * schedules and tears it down; a spine/flipbook asset rides `symbols.index` (registered by
+		 * {@link bakedSymbolTransitionAssets}), an `fx` rides {@link bakedEffects}. Absent ⇒ the hard cut,
+		 * byte-identical to before (parity). See {@link SymbolTransition}. */
+		transition?: SymbolTransition;
 		/** Reel-anticipation presentation FX (Invisible Symbols State Machine output) — the editable
 		 * twin of the coded FX ramp (`codedTierFx`, `game/anticipationPresentation.ts`). `spineKey`
 		 * optionally swaps the per-reel overlay spine (a full R2 bundle prefix registered via
@@ -848,6 +870,18 @@ export function bakedBookVfx(): NonNullable<BakedBundle['symbols']>['bookVfx'] |
 }
 
 /**
+ * The explosion → intro transition authored in the Invisible Symbols State Machine. When set,
+ * `components/TumbleBoard.svelte` mounts it at every exploding seat under the `emerge` swap style;
+ * the asset side is registered by {@link bakedSymbolTransitionAssets}. Mirrors `bakedBookVfx`'s
+ * runtime→baked→undefined resolution; undefined ⇒ the seam stays the hard cut it always was (parity).
+ */
+export function bakedSymbolTransition(): SymbolTransition | undefined {
+	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.transition;
+	if (!hasBakedDoc()) return undefined;
+	return bakedBundle.symbols?.transition;
+}
+
+/**
  * The reel-anticipation presentation FX authored in the Invisible Symbols State Machine — the
  * per-tier escalation overrides (keyed by config big-tier alias) + optional overlay spine key. When
  * set, `resolveTierFx` / `resolveAnticipationSpineKey` (`game/anticipationPresentation.ts`) merge it
@@ -1129,19 +1163,38 @@ export function bakedSymbolAssets(): Record<string, SymbolAssetEntry> {
  * no bookVfx (dev parity — `bakedBookVfx()` is undefined ⇒ this returns `{}`).
  */
 export function bakedBookVfxAssets(): Record<string, SymbolAssetEntry> {
-	const out: Record<string, SymbolAssetEntry> = {};
 	const vfx = bakedBookVfx();
-	if (!vfx) return out;
+	return vfx ? layerAssets([vfx.background, vfx.foreground]) : {};
+}
+
+/**
+ * The same guarantee for the explosion → intro transition ({@link bakedSymbolTransition}): its spine
+ * bundle / clip sheet reaches `symbols.index` through the exporter's `addLayerRefs`, so this too
+ * returns nothing in practice. Empty when un-baked / no transition (parity).
+ */
+export function bakedSymbolTransitionAssets(): Record<string, SymbolAssetEntry> {
+	const transition = bakedSymbolTransition();
+	return transition ? layerAssets([transition]) : {};
+}
+
+/** What {@link layerAssets} needs of a kind-tagged layer — a book-VFX layer or the transition. */
+type AssetLayer = { kind: BookVfxLayer['kind']; assetKey?: string };
+
+/** Asset entries for the sprite sheet / image / spine bundle the given layers name that
+ *  `bakedSymbolAssets()` did NOT already register. */
+function layerAssets(
+	layers: readonly (AssetLayer | undefined)[],
+): Record<string, SymbolAssetEntry> {
+	const out: Record<string, SymbolAssetEntry> = {};
 	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
 	const index = source?.symbols?.index;
 	if (!index) return out;
 	const already = bakedSymbolAssets();
 	const base = srcBase();
 
-	// The asset KEYS the bg/fg layers name directly (`assetKey`). A spine layer's key IS a spine
-	// bundle key / a standalone image key; a sprite/flipbook layer's key is a sheet FRAME key that
-	// lives inside a sheet (handled below).
-	const layers = [vfx.background, vfx.foreground];
+	// The asset KEYS the layers name directly (`assetKey`). A spine layer's key IS a spine bundle
+	// key / a standalone image key; a sprite/flipbook layer's key is a sheet FRAME key that lives
+	// inside a sheet (handled below).
 	const keys = new Set<string>();
 	for (const layer of layers) if (layer?.assetKey) keys.add(layer.assetKey);
 

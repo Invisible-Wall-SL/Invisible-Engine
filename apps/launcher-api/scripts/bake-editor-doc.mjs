@@ -343,6 +343,7 @@ async function main() {
 		winLine: undefined,
 		winCycle: undefined,
 		bookVfx: undefined,
+		transition: undefined,
 		anticipation: undefined,
 		stacked: undefined,
 	};
@@ -453,6 +454,14 @@ async function main() {
 				if (b.foreground && typeof b.foreground === 'object') out.foreground = b.foreground;
 				return Object.keys(out).length ? out : undefined;
 			})();
+			// The explosion → intro transition — one kind-tagged layer + `delayMs`, on the same defensive
+			// shape as a book-VFX layer. MUST reach BOTH bundle paths (this + the runtime
+			// `SymbolExportResult`, which passes `transition` verbatim): omit it here and the live game
+			// would bridge the seam while the baked one cut.
+			const transition =
+				s?.transition && typeof s.transition === 'object' && typeof s.transition.kind === 'string'
+					? s.transition
+					: undefined;
 			const names =
 				s?.names && typeof s.names === 'object' && Object.keys(s.names).length
 					? s.names
@@ -550,6 +559,7 @@ async function main() {
 				winLine,
 				winCycle,
 				bookVfx,
+				transition,
 				anticipation,
 				stacked,
 			};
@@ -951,16 +961,26 @@ async function main() {
 		for (const binds of Object.values(rigFx ?? {})) {
 			for (const b of binds) if (b?.effectId) rigBound.add(b.effectId);
 		}
-		// A Book-symbol VFX layer of kind 'fx' references an effect by `effectId` — that reference is a
-		// FOURTH reachability source (alongside placed / rig-bound / event-triggered), so the effect
-		// must NOT be pruned as an orphan. The runtime path does the same via `pruneUnreachableEffects`'s
-		// `extraReachable` arg (effectReachability.ts + runtimeBundle.ts) — keep the two keep-sets in sync.
-		const bookVfxBound = new Set();
+		// A Book-symbol VFX layer of kind 'fx' — and the explosion transition, when it is one — references
+		// an effect by `effectId`: a FOURTH reachability source (alongside placed / rig-bound /
+		// event-triggered), so the effect must NOT be pruned as an orphan. The runtime path does the same
+		// via `pruneUnreachableEffects`'s `extraReachable` arg (effectReachability.ts + runtimeBundle.ts)
+		// — keep the two keep-sets in sync.
+		const symbolDocBound = new Set();
 		for (const slot of ['background', 'foreground']) {
 			const layer = symbols.bookVfx?.[slot];
 			if (layer && layer.kind === 'fx' && typeof layer.effectId === 'string' && layer.effectId) {
-				bookVfxBound.add(layer.effectId);
+				symbolDocBound.add(layer.effectId);
 			}
+		}
+		const transitionLayer = symbols.transition;
+		if (
+			transitionLayer &&
+			transitionLayer.kind === 'fx' &&
+			typeof transitionLayer.effectId === 'string' &&
+			transitionLayer.effectId
+		) {
+			symbolDocBound.add(transitionLayer.effectId);
 		}
 		const isEventReachable = (d) =>
 			Array.isArray(d.layers) &&
@@ -968,7 +988,7 @@ async function main() {
 		const prunedIds = [];
 		effects = effects.filter((d) => {
 			const keep =
-				placed.has(d.id) || rigBound.has(d.id) || bookVfxBound.has(d.id) || isEventReachable(d);
+				placed.has(d.id) || rigBound.has(d.id) || symbolDocBound.has(d.id) || isEventReachable(d);
 			if (!keep) prunedIds.push(d.id);
 			return keep;
 		});

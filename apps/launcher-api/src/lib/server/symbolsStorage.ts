@@ -338,6 +338,30 @@ const offsetSchema = z.object({
 	y: z.number(),
 });
 
+/** Does a kind-tagged layer carry the ONE field its kind needs? Shared by every `.refine()` below so
+ *  the book-VFX layers and the explosion transition can never disagree about what "half-authored"
+ *  means. */
+function layerHasKindField(l: {
+	kind: 'sprite' | 'spine' | 'flipbook' | 'fx';
+	assetKey?: string;
+	animationName?: string;
+	clipId?: string;
+	effectId?: string;
+}): boolean {
+	switch (l.kind) {
+		case 'spine':
+			return !!l.assetKey && !!l.animationName;
+		case 'flipbook':
+			return !!l.clipId;
+		case 'sprite':
+			return !!l.assetKey;
+		case 'fx':
+			return !!l.effectId;
+		default:
+			return false;
+	}
+}
+
 const bookVfxLayerSchema = z
 	.object({
 		kind: z.enum(['sprite', 'spine', 'flipbook', 'fx']),
@@ -349,23 +373,9 @@ const bookVfxLayerSchema = z
 		offset: offsetSchema.optional(),
 	})
 	.strict()
-	.refine(
-		(l) => {
-			switch (l.kind) {
-				case 'spine':
-					return !!l.assetKey && !!l.animationName;
-				case 'flipbook':
-					return !!l.clipId;
-				case 'sprite':
-					return !!l.assetKey;
-				case 'fx':
-					return !!l.effectId;
-				default:
-					return false;
-			}
-		},
-		{ message: 'a book-vfx layer is missing the field its kind requires' },
-	);
+	.refine(layerHasKindField, {
+		message: 'a book-vfx layer is missing the field its kind requires',
+	});
 
 const bookVfxSchema = z
 	.object({
@@ -373,6 +383,35 @@ const bookVfxSchema = z
 		foreground: bookVfxLayerSchema.optional(),
 	})
 	.strict();
+
+/**
+ * The explosion → intro TRANSITION — one project-global animation the game mounts at every seat
+ * whose outgoing symbol starts `tumbleExplosion` under the `emerge` swap style, so the pop's end and
+ * the intro's start overlap instead of cutting (docs/design/perspective-board-mode.md §"The mode
+ * switch"). Optional + sparse like `bookVfx`: absent ⇒ nothing renders, nothing ships, byte-identical.
+ * Passed through VERBATIM to `bundle.symbols.transition`; the engine (`TumbleBoard.svelte`) owns
+ * when it fires and that it never gates the round.
+ *
+ * Three kinds, NOT four: a transition has a duration, and a `sprite` is one frozen frame. Same
+ * one-field-per-kind rule as a book-VFX layer, enforced by the shared `.refine()`.
+ *
+ * `delayMs` — ms after the explosion fires before the transition mounts (integer ≥ 0). `0` is the
+ * default and is PRUNED on save (`pruneTransition`), so a transition authored with no delay writes
+ * only its binding.
+ */
+const transitionSchema = z
+	.object({
+		kind: z.enum(['spine', 'flipbook', 'fx']),
+		assetKey: z.string().min(1).optional(),
+		animationName: z.string().min(1).optional(),
+		clipId: z.string().min(1).optional(),
+		effectId: z.string().min(1).optional(),
+		delayMs: z.number().int().min(0).optional(),
+	})
+	.strict()
+	.refine(layerHasKindField, {
+		message: 'the explosion transition is missing the field its kind requires',
+	});
 
 /**
  * Reel-anticipation presentation FX (Invisible Symbols State Machine → `docs/design/reel-anticipation.md`
@@ -442,6 +481,7 @@ export const symbolsDocSchema = z
 		stackedPictures: stackedPicturesSchema.optional(),
 		winCycle: winCycleSchema.optional(),
 		bookVfx: bookVfxSchema.optional(),
+		transition: transitionSchema.optional(),
 		anticipation: anticipationSchema.optional(),
 		updatedAt: z.string().optional(),
 	})
@@ -572,11 +612,25 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 		if (doc.bookVfx.foreground) bookVfx.foreground = doc.bookVfx.foreground;
 		if (Object.keys(bookVfx).length) next.bookVfx = bookVfx;
 	}
+	// Whitelisted like `bookVfx` (a field that passes Zod but isn't listed here is dropped on save),
+	// with its one default pruned — see `pruneTransition`.
+	const transition = pruneTransition(doc.transition);
+	if (transition) next.transition = transition;
 	// Sparse whitelist like `boardGlow`/`bookVfx`: drop an empty per-tier object and a now-empty
 	// `anticipation`, so a reset round-trips to no key and an un-authored project stays byte-identical.
 	const anticipation = pruneAnticipation(doc.anticipation);
 	if (anticipation) next.anticipation = anticipation;
 	return next;
+}
+
+/** Drop a `delayMs` of `0` — the default the engine applies when the field is absent — so a
+ *  transition authored with no delay persists only its binding and a reset-to-zero round-trips to
+ *  the same bytes as never having typed one. The binding itself already passed the `.refine()`. */
+function pruneTransition(transition: SymbolsDoc['transition']): SymbolsDoc['transition'] {
+	if (!transition) return undefined;
+	if (transition.delayMs === undefined || transition.delayMs > 0) return transition;
+	const { delayMs: _zero, ...binding } = transition;
+	return binding;
 }
 
 /** Drop each empty per-tier FX object and a now-empty `anticipation`, so a reset round-trips to

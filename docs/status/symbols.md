@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-symbols-state-machine.md](../design/invisible-symbols-state-machine.md) · Guide: [docs/tools/symbols-state-machine.md](../tools/symbols-state-machine.md) · Agent: _none yet — no `.claude/agents/symbols.md`; closest is `book-of-game` / `engine-pixi-svelte`_
 
-**One-line state:** _(2026-08-28)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. A flipbook cell now also carries **per-state playback overrides** (walk / mirror / speed), so one clip serves several states instead of being copied.
+**One-line state:** _(2026-09-03)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest global: an optional **explosion → intro Transition** (emerge boards only) that overlaps the pop's end and the intro's start at each seat — built and offline-verified, ⏳ owner visual-verify + a Borut `engine` submodule bump.
 
 ## Current state
 
@@ -193,6 +193,47 @@ Working on `main`:
     `.strict`/`.refine` rejections) + 3/3 over the real `pruneUnreachableEffects` (keep-set rescues the
     exact id only). ⏳ **Owner visual-verify** (auth-gated tool + needs a book into free spins with the
     special symbol on the board). **Book of Borut needs an `engine` submodule bump** to receive it.
+- **Explosion → intro Transition** (2026-09-03, default OFF ⇒ byte-parity). Doc-level global
+  `transition: { kind: 'spine' | 'flipbook' | 'fx', assetKey?, animationName?, clipId?, effectId?,
+  delayMs? }` — ONE project-wide animation the cascade overlay mounts at every seat whose outgoing
+  symbol starts `tumbleExplosion`, `delayMs` after the pop fires, so under `swapStyle: 'emerge'` the
+  explosion's end and the intro's start overlap at the same seat instead of hard-cutting. Covers BOTH
+  places that seam occurs: the reveal's clear step (`clearOutgoingSymbols`) and every cascade step —
+  both reach `TumbleBoard.svelte`'s `tumbleBoardExplode` handler, which is where it is scheduled.
+  FIRE-AND-FORGET: never awaited, never gates the explosion beat, never delays the intro or extends the
+  round; the intro starts exactly when it did. Gated on `boardSwapsInPlace() && boardSwapStyle() ===
+  'emerge'` (the check `bookEventHandlerMap` uses) — a sliding refill has no intro to bridge. Engine:
+  `TumbleBoard.svelte` owns a keyed per-seat overlay list on the ANIMATING layer (`zIndex` 1, seat
+  x/scale from `getSymbolSeat`, y = the symbol's resting `symbolY`); delay 0 mounts in the same flush
+  as the explosion state, > 0 via a timer; an entry is removed on its own completion (spine non-loop
+  `complete`; flipbook = one walked cycle, the `SymbolFlipbook` rule; FX = `forceEmit` + `emitFor`
+  sized off the effect's longest `trigger.duration` / `emitterLifetime` — one transit beat when
+  unbounded — plus its longest particle lifetime), with a 4 s leak cap (`WIN_BEAT_CAP_MS`-sized) for an
+  entry that never reports. `tumbleBoardReset` clears pending timers AND the list; `tumbleBoardHide`
+  unmounts the overlay, so a transition longer than the step is CUT there by design. Renderer: the
+  four-kind switch moved out of `BookVfx.svelte` into a shared `SymbolLayer.svelte` (BookVfx renders
+  through it, looping, with every behaviour prop `undefined` ⇒ byte-identical), which the transition
+  drives with `once`. NO sprite kind (a transition has a duration) and no size/offset hints: the box is
+  the plain cell × the row's perspective scale. Full chain per rule 8: `.strict` Zod + shared
+  `layerHasKindField` `.refine()` + `pruneTransition` (a `delayMs` of 0 is dropped) in
+  `symbolsStorage.ts` → client `TRANSITION_KINDS` (`satisfies` the book-VFX kinds) /
+  `SymbolTransition` / `setTransition` / `clearTransition` / `docSignature` → spread-PUT →
+  `symbolExport.ts` (`addLayerRefs`, generalised from the book-VFX helper, files a transition spine
+  into `refs.spineKeys` ⇒ `index.spines`; `collectSymbolRefs` exported for the check) →
+  `export-symbols` response → `bake-editor-doc.mjs` (`bundle.symbols.transition` + the effect keep-set,
+  now `symbolDocBound`) and `runtimeBundle.ts` (`symbolDocEffectIds` → `pruneUnreachableEffects`
+  `extraReachable`) → `BakedBundle.symbols.transition` → `bakedSymbolTransition()` +
+  `bakedSymbolTransitionAssets()` (spread in `stateApp.ts`). `gameProfile` gains an "Explosion
+  transition" chip. Tool: a **Transition** section between Free-spin board glow and Book symbol VFX,
+  shown for a project that emerges (`data.reelBehaviour.emerge`, resolved server-side like the
+  `Intro` column) or that still carries a saved transition: Spine / Flipbook / FX toggle on the Book-VFX pickers, **Delay (ms)**, `set` badge,
+  ↺ Clear, off-state copy "Off — the intro cuts in the moment the explosion ends"; the Book-VFX thumb
+  snippet became the top-level `layerThumb` both use. Offline: `pnpm --filter launcher-api
+  check:symbol-transition` — parity (no key when absent, verbatim round-trip, delay-0 pruned, fixed
+  point), rejection (half-authored, `sprite`, bad delay, unknown key), shipping (a spine bound ONLY as
+  the transition lands in `refs.spineKeys`), and the client dirty signature — all over the REAL
+  functions. ⏳ **Owner visual-verify** on an emerging project (auth-gated tool + a cascading/clearing
+  board). **Book of Borut needs an `engine` submodule bump** + a runtime release to receive it.
 - **Selectable anticipation animation SET** (2026-08-10, default unset ⇒ byte-parity). Adds an
   **Overlay animation** control to the `/symbols` Reel anticipation panel (between Overlay spine and
   Activation sound): a dropdown of the resolved overlay spine's COMPLETE sets (a base whose
@@ -334,6 +375,7 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+- 2026-09-03 — **Explosion → intro Transition.** New optional doc-global `transition` (spine / flipbook / fx + `delayMs`). Under the `emerge` swap style the pop and the intro hard-cut at every seat; now an authored animation mounts at the seat `delayMs` after the explosion fires, fire-and-forget (never joins a beat, never extends the round; cut if it outlives the step). Sparse and byte-identical when absent. Ships the full chain (schema → client → export refs → bake + runtime bundle incl. the effect keep-sets → `bakedSymbolTransition()`), `/symbols` gains a **Transition** section shown only for an emerging project, and `BookVfx.svelte`'s four-kind switch moved into the shared `SymbolLayer.svelte`. Plan note in [perspective-board-mode.md](../design/perspective-board-mode.md) §"The mode switch". Offline-verified (`check:symbol-transition`); ⏳ owner visual-verify; Borut submodule bump owed. Details in the Current-state bullet.
 - 2026-09-03 — **Spine cells no longer come up blank on a cold load.** Reported after the Bounds-box fix deployed: the grid drew every spine cell as its label chip, with `physics is undefined` thrown from `drawCell` every frame; a reload fixed it. The editor's spine loader (`spineRuntime.client.ts`) injected one vendored runtime PER LINE and let "the first to finish" own `window.spine` — a cold /symbols load requests 4.1 (the built-in Highlight/reelhouse previews) and 4.2 (a Rigger rig) at once, both scripts injected, and whichever finished last won, so 4.2 skeletons were posed with the 4.1 runtime's missing `Physics` token and drawn by its `SceneRenderer`. Now ONE runtime (4.2, the line the game runs) loaded once and captured at load; the 4.1 built-ins parse and pose under it (`pnpm --filter launcher-api run check:builtin-spines`). Details in [editor status](editor.md).
 - 2026-09-02 — **The grid and the cell preview fit a rig's box where its header puts it.** `measureSpineBounds` now returns the authored `skeleton.x/y` corner instead of assuming `-w/2, -h/2`, so a Rigger rig whose Bounds frame is not centred on its origin draws AT the frame — the same rule the game now applies via `<SpineProvider centreBox>`, so grid == board again for those rigs. Spine-editor rigs are unchanged. See [rigger status](rigger.md).
 - 2026-09-01 — **this stage's bound FX/clips were drawn MIRRORED, and an unsized rig drew at a

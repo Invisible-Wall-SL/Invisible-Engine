@@ -181,6 +181,12 @@ export interface SymbolExportResult {
 	 *  layer's clip ships via the editor-art clip walk (no ref here); an fx layer references an effect
 	 *  the effects export ships (kept reachable at bake). Absent → the game renders no book VFX. */
 	bookVfx?: SymbolsDoc['bookVfx'];
+	/** The explosion → intro transition (one project-global layer + `delayMs`), passed through
+	 *  VERBATIM. Its asset rides the SAME channels as a book-VFX layer: a spine's bundle ships via
+	 *  `refs` into `index.spines` under its own key, a flipbook's clip via the editor-art clip walk, an
+	 *  fx's effect via the effects export (kept reachable at bake). Absent → the intro cuts in the
+	 *  moment the explosion ends, exactly as before the field existed. */
+	transition?: SymbolsDoc['transition'];
 	/** The reel-anticipation presentation FX (per-tier escalation + optional overlay spine key),
 	 *  passed through VERBATIM. A swapped `spineKey` bundle rides `index.spines` under the same key
 	 *  (like `boardGlow`); the per-tier FX are pure config (no asset). Absent → the game keeps its
@@ -210,8 +216,10 @@ interface SymbolRefs {
 }
 
 /** Walk the (sparse) symbol map and split its cells into bare sprite frame names, scoped sprite
- *  atlases, and spine bundle keys. */
-function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
+ *  atlases, and spine bundle keys. Exported for `scripts/check-symbol-transition.ts`, which proves a
+ *  spine bound ONLY as the explosion transition still reaches `index.spines` — the shipping half of
+ *  rule 8, asserted offline rather than assumed. */
+export function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 	const refs: SymbolRefs = {
 		frameNames: new Set(),
 		spriteManifests: new Set(),
@@ -263,12 +271,15 @@ function collectSymbolRefs(doc: SymbolsDoc): SymbolRefs {
 	if (doc.anticipation?.spineKey && doc.anticipation.spineKey.includes('/')) {
 		refs.spineKeys.add(doc.anticipation.spineKey);
 	}
-	// Book-symbol VFX layers carry the same asset kinds as a per-cell binding, so route each layer's
-	// asset through the SAME refs — a spine layer's bundle + a sprite layer's sheet must ship or the
-	// game loads nothing under the key (rule 8). A flipbook layer's clip ships via the editor-art clip
-	// walk (like a flipbook cell, skipped here); an fx layer's effect ships via the effects export.
-	addBookVfxLayerRefs(doc.bookVfx?.background, refs);
-	addBookVfxLayerRefs(doc.bookVfx?.foreground, refs);
+	// Book-symbol VFX layers and the explosion transition carry the same asset kinds as a per-cell
+	// binding, so route each one's asset through the SAME refs — a spine's bundle + a sprite's sheet
+	// must ship or the game loads nothing under the key (rule 8). A flipbook's clip ships via the
+	// editor-art clip walk (like a flipbook cell, skipped here); an fx's effect ships via the effects
+	// export. A spine bound ONLY as the transition reaches `index.spines` through the third line and
+	// no other — `check-symbol-transition.ts` asserts it.
+	addLayerRefs(doc.bookVfx?.background, refs);
+	addLayerRefs(doc.bookVfx?.foreground, refs);
+	addLayerRefs(doc.transition, refs);
 	// Stacked-picture tall art — each stacked symbol's `art` is a sprite/spine/flipbook binding exactly
 	// like a grid cell, so route it through the SAME refs or the game would load nothing under the key
 	// (rule 8). Gated the same as the emitted `stacked` field (master toggle on) so a disabled project
@@ -312,11 +323,12 @@ function addCellRefs(cell: SymbolCell | undefined, refs: SymbolRefs): void {
 	}
 }
 
-/** Route one Book-VFX layer's asset into the shared `refs` — spine bundle or sprite sheet frame, the
- *  same split `collectSymbolRefs` applies to a per-cell sprite/spine binding. Flipbook + fx layers
- *  ship no asset through this exporter (clip art via editor-art; effect via the effects export). */
-function addBookVfxLayerRefs(
-	layer: NonNullable<SymbolsDoc['bookVfx']>[keyof NonNullable<SymbolsDoc['bookVfx']>] | undefined,
+/** Route one kind-tagged LAYER's asset (a Book-VFX layer, the explosion transition) into the shared
+ *  `refs` — spine bundle or sprite sheet frame, the same split `collectSymbolRefs` applies to a
+ *  per-cell sprite/spine binding. Flipbook + fx layers ship no asset through this exporter (clip art
+ *  via editor-art; effect via the effects export). */
+function addLayerRefs(
+	layer: { kind: 'sprite' | 'spine' | 'flipbook' | 'fx'; assetKey?: string } | undefined,
 	refs: SymbolRefs,
 ): void {
 	if (!layer) return;
@@ -601,6 +613,11 @@ export async function exportEditorSymbols(
 	// authored config, exactly like `boardGlow`. Absent → the game renders no book VFX.
 	const bookVfx = doc.bookVfx;
 
+	// The explosion → intro transition. Its asset already shipped via `refs` above (or a sibling
+	// export), so this is a verbatim pass-through of the sparse authored binding + delay, exactly like
+	// `bookVfx`. Absent → the seam stays a hard cut.
+	const transition = doc.transition;
+
 	// The reel-anticipation FX. Its optional `spineKey` bundle already shipped via `refs.spineKeys`
 	// into `index.spines` under this same key (like `boardGlow`); the per-tier FX are pure config, so
 	// this is a verbatim pass-through of the sparse authored doc (alias-keyed per-tier FX). Absent →
@@ -650,6 +667,7 @@ export async function exportEditorSymbols(
 		...(winLine ? { winLine } : {}),
 		...(winCycle ? { winCycle } : {}),
 		...(bookVfx ? { bookVfx } : {}),
+		...(transition ? { transition } : {}),
 		...(anticipation ? { anticipation } : {}),
 		...(stacked ? { stacked } : {}),
 	};

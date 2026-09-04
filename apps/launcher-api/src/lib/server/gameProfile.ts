@@ -348,6 +348,11 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 		text: (ctx) => (ctx.symbols.bookVfx ? 'Book-symbol VFX' : null),
 	},
 	{
+		id: 'transition',
+		title: 'An animation bridges each explosion into the next intro under the emerge swap style.',
+		text: (ctx) => (ctx.symbols.transition ? 'Explosion transition' : null),
+	},
+	{
 		id: 'anticipation',
 		title: 'Reel anticipation — the per-reel tease overlay and its per-tier escalation.',
 		text: (ctx) => (ctx.symbols.anticipation ? 'Reel anticipation' : null),
