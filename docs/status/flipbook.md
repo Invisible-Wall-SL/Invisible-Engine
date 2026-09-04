@@ -190,8 +190,21 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 3. **Add the clip reachability filter**, now that placements exist to be reachable FROM, so an orphan/scratch clip stops shipping (parity with the effects prune in `bake-editor-doc.mjs`). Note the walk must cover FOUR referrers, not one: scene `flipbook` nodes (incl. nested in containers + component defs), symbol cells' `clipId`, and — since 2026-08-31 — the `rigFlipbooks` manifest's `clipId`s, or the prune would delete clips that are genuinely in use. The rig referrer is the awkward one: it lives in the rig `.irig`, not in the layout doc, so the filter has to read the manifest the clips export now returns rather than walking the doc.
 4. **Rename-repair hint is unconfirmed** — `src` survives a rename, but `sheet_session.json` is one open sheet's working state, so per-sheet durable recovery of `src` must be verified before the tool promises "did you mean…".
 5. **The ＋ Blueprint modal flags an unexposed boolean gate: DONE** (2026-09-01, see Recent changes). What is NOT covered: an unexposed **numeric** knob that is equally load-bearing (the 1024 generation size on the same blueprint reached the render the same way a wrong boolean did). A boolean gating a switch is a clean signal with no false positives; "this int matters" is not, so it was deliberately left out rather than guessed at.
+6. **Pre-fetch the BiRefNet models blueprints use into the Network Volume** (`services/atlas-tool/runpod/provision.sh` clones `ComfyUI-RMBG` but fetches no weights), so a first use never downloads on demand from several workers at once. Item 1's open question — *do the weights resolve on a cold worker?* — is now answered the hard way: they download on demand into `models/RMBG/` on the SHARED volume, and on 2026-09-03 a concurrent first download left a `.py` beside the weights with NUL bytes in it, failing every cutout on every worker for 14 hours (see Recent changes). Until this lands, the first run of any new BiRefNet model should be **1 variation**.
 
 ## Blocked (owner / external)
+- **Delete the corrupt BiRefNet model folder on the Network Volume** (owner, 2026-09-04) — the
+  actual blocker for every video render since 2026-09-03 22:39Z. On a pod terminal that mounts
+  the volume: `grep -rlP '\x00' /workspace/ComfyUI/models/RMBG --include='*.py'`, then
+  `rm -rf` the model folder it names (under `models/RMBG/`, e.g. `BiRefNet-general`); stop the
+  session still re-rolling into it; re-run with **1 variation** so a single worker re-downloads
+  cleanly before scaling back up.
+- **Point the serverless endpoint at the #586 image** (owner, 2026-09-04): RunPod → Serverless →
+  endpoint → Edit → Container Image → `ghcr.io/invisible-wall-sl/atlas-comfy-worker:<sha>` where
+  `<sha>` is the FULL commit sha of `9862d46b` (`git rev-parse 9862d46b`; CI tags with the full
+  sha, and the pre-commit secret scanner rejects a 40-hex literal in a doc). CI built it
+  2026-09-04 ~11:05Z; a `:latest` endpoint caches by digest and will not roll.
+  Boot log then says `build 9862d46b`, and a failed tile names its node and exception.
 - **Re-publish the imported video blueprint with a pod running** (owner, 2026-09-04). The one
   imported before the contract reader landed carries no bounds or lists; ＋ Blueprint on the
   same API export bakes them in. No env var is needed any more: since #576 ⟳ (and this reader)
@@ -201,6 +214,22 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-04 — **Every video render since 2026-09-03 22:39Z failed on one corrupt file on the
+  Network Volume — diagnosed from the RunPod log, not from the tile.** The owner's endpoint log
+  export (level-filtered, LOCAL-time stamps) carries the one line the tile could not:
+  `!!! Exception during processing !!! Error in image processing: Error loading BiRefNet model:
+  source code string cannot contain null bytes` — 60 times, on 9 workers, first at 00:43 local
+  (= 22:43Z, variation 11 of session `20260903_221516_d6ff`, the first to fail). BiRefNet ships
+  its own Python beside its weights (`trust_remote_code`), a `.py` under `models/RMBG/` on the
+  SHARED volume holds NUL bytes, and every worker that reaches the cutout stage compiles it and
+  dies — which is why the failure was ~4 min in, hit every GPU tier, interleaved with successes
+  on other workers for one session, then became total and survived overnight. Nothing
+  pre-fetches BiRefNet, so the likely cause is three workers first-downloading it into the same
+  folder at once. What it was NOT, each ruled out by the per-variation clocks: the imported
+  blueprint (13/13 clean six times that afternoon), any deploy in the window (#575's variations
+  1–10 ran on its code and passed), the GPU tier, the container disk. Remediation + prevention:
+  Blocked + Open item 6. Live-verified the same hour: #585's sliders/dropdowns on the built-in
+  blueprint, and #587 (label stacked above the slider) after its rebuild.
 - 2026-09-04 — **A failed render now names the node and the exception — thirteen tiles read
   `job FAILED: comfy execution error` and nothing else.** Owner, right after the contract fix
   shipped: *"I still get job FAILED: comfy execution error"* — a DIFFERENT failure (ComfyUI
