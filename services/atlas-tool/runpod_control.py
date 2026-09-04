@@ -13,6 +13,7 @@ import json
 import os
 import threading
 import time
+import urllib.parse
 import urllib.request
 
 _GQL = "https://api.runpod.io/graphql"
@@ -63,6 +64,17 @@ def desired_status() -> str | None:
         return d["data"]["pod"]["desiredStatus"]
     except Exception:  # noqa: BLE001
         return None
+
+
+def targets_our_pod(url: str) -> bool:
+    """True when `url` addresses the pod `RUNPOD_POD_ID` names.
+
+    The wake-up exists to start the machine a render is ABOUT TO TALK TO. Under
+    the serverless transport there is no such machine — RunPod spins the worker
+    itself — and when COMFY_URL is the user's tunnel the pod is irrelevant.
+    Resuming in either case bills a GPU that the job never touches."""
+    pid = _pod()
+    return bool(pid) and pid in (urllib.parse.urlparse(url or "").hostname or "")
 
 
 def proxy_url(pod_id: str, port: int = 8188) -> str:

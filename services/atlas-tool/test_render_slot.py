@@ -26,6 +26,7 @@ cp1252 console.
 """
 from __future__ import annotations
 
+import os
 import sys
 
 import batch_atlas as ba
@@ -233,6 +234,57 @@ def test_the_contradiction_outranks_every_status_tier() -> None:
         ba.COMFY_BASE = real_base
 
 
+def test_the_pod_wake_follows_the_address_the_render_will_use() -> None:
+    """The wake-up exists to start the machine a render is ABOUT TO TALK TO.
+    It used to fire for every non-local render — including serverless ones,
+    where RunPod spins its own worker and a resumed GPU pod is billed for
+    nothing. Tying it to the address makes changing COMFY_URL safe."""
+    import runpod_control as rc
+    saved = os.environ.get("RUNPOD_POD_ID")
+    try:
+        os.environ["RUNPOD_POD_ID"] = "pdn5pxpkrchofk"
+        check("the pod we are about to use IS woken",
+              rc.targets_our_pod("https://pdn5pxpkrchofk-8188.proxy.runpod.net"),
+              True)
+        check("the tunnel does not wake a pod",
+              rc.targets_our_pod("https://comfy.invisiblewall.org"), False)
+        check("a DIFFERENT pod is not woken",
+              rc.targets_our_pod("https://other-8188.proxy.runpod.net"), False)
+        check("an empty url wakes nothing", rc.targets_our_pod(""), False)
+        os.environ.pop("RUNPOD_POD_ID")
+        check("no configured pod, nothing to wake",
+              rc.targets_our_pod("https://pdn5pxpkrchofk-8188.proxy.runpod.net"),
+              False)
+    finally:
+        if saved is None:
+            os.environ.pop("RUNPOD_POD_ID", None)
+        else:
+            os.environ["RUNPOD_POD_ID"] = saved
+
+
+def test_a_malformed_catalog_url_is_ignored_not_probed() -> None:
+    """Found live as `https://s3api-eu-ro-1.runpod.io s3://wvi855bwh8/` — the
+    Network Volume's S3 endpoint and bucket pasted together, space and all.
+    urlparse reads that host as `s3api-eu-ro-1.runpod.io s3`, so every probe
+    fails and the panel only says nothing answered."""
+    import comfy_catalog as cc
+    saved = os.environ.get("COMFY_CATALOG_URL")
+    try:
+        for bad in ["https://s3api-eu-ro-1.runpod.io s3://wvi855bwh8/",
+                    "s3://wvi855bwh8/", "not a url", "ftp://host/x"]:
+            os.environ["COMFY_CATALOG_URL"] = bad
+            check(f"ignored: {bad[:44]}", cc.catalog_url(), "")
+        for good in ["https://pdn5pxpkrchofk-8188.proxy.runpod.net",
+                     "http://volume-pod:8188"]:
+            os.environ["COMFY_CATALOG_URL"] = good + "/"
+            check(f"kept: {good[:44]}", cc.catalog_url(), good)
+    finally:
+        if saved is None:
+            os.environ.pop("COMFY_CATALOG_URL", None)
+        else:
+            os.environ["COMFY_CATALOG_URL"] = saved
+
+
 def test_stop_clears_the_slot_for_the_next_render() -> None:
     reset(running=True, proc=FakeProc(alive=False))
     u.claim_render_slot()                      # heals + claims
@@ -252,6 +304,8 @@ if __name__ == "__main__":
                    test_a_stale_flag_heals_instead_of_blocking_forever,
                    test_my_computer_pointed_at_runpod_is_called_out,
                    test_the_contradiction_outranks_every_status_tier,
+                   test_the_pod_wake_follows_the_address_the_render_will_use,
+                   test_a_malformed_catalog_url_is_ignored_not_probed,
                    test_stop_clears_the_slot_for_the_next_render):
             print(f"\n-- {fn.__name__}")
             fn()
