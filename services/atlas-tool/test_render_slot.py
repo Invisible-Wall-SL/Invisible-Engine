@@ -317,6 +317,78 @@ def test_a_malformed_catalog_url_is_ignored_not_probed() -> None:
             os.environ["COMFY_CATALOG_URL"] = saved
 
 
+def test_stop_cancels_the_remote_job_not_just_the_local_poller() -> None:
+    """Owner: "I pressed stop, and I expected all the jobs queued to be
+    canceled." Killing the subprocess only ended OUR side — a RunPod job kept
+    rendering and BILLING, and ComfyUI's pending queue was never cleared
+    (`/interrupt` aborts only what is executing right now).
+
+    The worker was always ready for this: handler.py polls RunPod every 5s via
+    `_job_cancelled` precisely so a cancelled job stops instead of running to
+    completion. Nobody was calling `/cancel`."""
+    cancelled: list[str] = []
+    posted: list[str] = []
+
+    real_cancel = ba.runpod_cancel
+    real_urlopen = u.urllib.request.urlopen
+    ba.runpod_cancel = lambda jid: (cancelled.append(jid) or "")  # type: ignore
+
+    def fake_urlopen(req, timeout=None):
+        posted.append(req.full_url)
+        class R:
+            def read(self): return b"{}"
+        return R()
+
+    u.urllib.request.urlopen = fake_urlopen    # type: ignore[assignment]
+    try:
+        reset(running=True, proc=FakeProc(alive=False))
+        u._render_state["runpodJob"] = "c0d8c00d-f9c3-46ff-9857-f30f7f5af7f1-e2"
+        msg = u.stop_render()
+        check("the remote job is cancelled",
+              cancelled, ["c0d8c00d-f9c3-46ff-9857-f30f7f5af7f1-e2"])
+        check_in("and Stop says so", "cancelled", msg)
+        check("ComfyUI is interrupted AND its queue cleared",
+              [p.rsplit("/", 1)[-1] for p in posted], ["interrupt", "queue"])
+        check("the job id is consumed, so a second Stop cannot re-cancel it",
+              u._render_state["runpodJob"], "")
+
+        # A local render has no RunPod job — Stop must not invent one.
+        cancelled.clear(); posted.clear()
+        reset(running=True, proc=FakeProc(alive=False))
+        u.stop_render()
+        check("no RunPod job, no cancel call", cancelled, [])
+        check("ComfyUI is still interrupted + cleared",
+              [p.rsplit("/", 1)[-1] for p in posted], ["interrupt", "queue"])
+
+        # A cancel that FAILS must not stop the rest of Stop.
+        cancelled.clear(); posted.clear()
+        ba.runpod_cancel = lambda jid: "HTTPError: 500"   # type: ignore
+        reset(running=True, proc=FakeProc(alive=False))
+        u._render_state["runpodJob"] = "bad-job"
+        msg = u.stop_render()
+        check_in("a failed cancel is reported, not swallowed",
+                 "could not cancel", msg)
+        check("and ComfyUI is still told to stop",
+              [p.rsplit("/", 1)[-1] for p in posted], ["interrupt", "queue"])
+    finally:
+        ba.runpod_cancel = real_cancel          # type: ignore[assignment]
+        u.urllib.request.urlopen = real_urlopen  # type: ignore[assignment]
+
+
+def test_the_job_id_reaches_the_ui_without_polluting_the_log() -> None:
+    """The UI process cannot know the job id any other way — it lives in the
+    subprocess. It rides a marker line, which must never show up as log noise."""
+    check("the marker is distinctive", ba.RUNPOD_JOB_MARK.startswith("@@"), True)
+    line = f"{ba.RUNPOD_JOB_MARK}abc123-e2\n"
+    check("a marker line is recognised", line.startswith(ba.RUNPOD_JOB_MARK),
+          True)
+    check("and yields a clean id",
+          line[len(ba.RUNPOD_JOB_MARK):].strip(), "abc123-e2")
+    check("an ordinary log line is not mistaken for one",
+          "   ... serverless job abc123-e2 IN_QUEUE (16s elapsed)\n".startswith(
+              ba.RUNPOD_JOB_MARK), False)
+
+
 def test_stop_clears_the_slot_for_the_next_render() -> None:
     reset(running=True, proc=FakeProc(alive=False))
     u.claim_render_slot()                      # heals + claims
@@ -339,6 +411,8 @@ if __name__ == "__main__":
                    test_the_contradiction_outranks_every_status_tier,
                    test_the_pod_wake_follows_the_address_the_render_will_use,
                    test_a_malformed_catalog_url_is_ignored_not_probed,
+                   test_stop_cancels_the_remote_job_not_just_the_local_poller,
+                   test_the_job_id_reaches_the_ui_without_polluting_the_log,
                    test_stop_clears_the_slot_for_the_next_render):
             print(f"\n-- {fn.__name__}")
             fn()
