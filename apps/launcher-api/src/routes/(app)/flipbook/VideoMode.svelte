@@ -50,12 +50,36 @@
 		 * second half) can only bind ONE to the `positive` role; the other reaches the author as a
 		 * setting, and a 90px input is not a place anyone can write a prompt. */
 		multiline?: boolean;
+		/** Where a `select`'s list is re-read LIVE (`comfy_specs.param_class_field`). */
+		options_from?: { class: string; field: string };
+		/** A saved or default value the LIVE list lacks — kept in `options` and marked, never
+		 * silently replaced. Set by the panel, never published. */
+		missingOption?: string;
 	}
 	interface Blueprint {
 		id: string;
 		name?: string;
 		description?: string;
 		params?: BlueprintParam[];
+	}
+	/** One node input's REAL contract, as `comfy_specs.normalize_input` shapes it. */
+	interface NodeSpec {
+		kind: 'int' | 'float' | 'bool' | 'text' | 'select';
+		default?: unknown;
+		min?: number;
+		max?: number;
+		step?: number;
+		options?: string[];
+		multiline?: boolean;
+	}
+	/** `nodespecs` answers by class (the importer's graph) or by param key (a blueprint). `ok`
+	 * false is the NORMAL "nothing answered" case, not an error; `note` says why in a sentence. */
+	interface NodeSpecs {
+		ok: boolean;
+		source: string;
+		note: string;
+		classes?: Record<string, Record<string, NodeSpec>>;
+		params?: Record<string, NodeSpec>;
 	}
 	interface Variation {
 		index: number;
@@ -143,7 +167,61 @@
 		session ? (blueprints.find((b) => b.id === session!.blueprint) ?? null) : null,
 	);
 
-	const params = $derived(blueprint?.params ?? []);
+	/** Each param's LIVE contract for the selected blueprint — what the ComfyUI answering
+	 * `nodespecs` declares today, so a model dropped on the pod's volume is in the dropdown with
+	 * no re-import. Empty until it lands and whenever nothing answers (a sleeping pod is the
+	 * normal case), in which case the baked declarations stand. */
+	let liveSpecs = $state<Record<string, NodeSpec>>({});
+	$effect(() => {
+		const id = blueprintId;
+		liveSpecs = {};
+		if (!id) return;
+		postJson<NodeSpecs>('nodespecs', { blueprint: id })
+			.then((r) => {
+				if (id === blueprintId && r.ok) liveSpecs = r.params ?? {};
+			})
+			.catch(() => {});
+	});
+	/** The declarations the panel draws: baked, with the live contract laid over where one
+	 * answered. A saved or default value the live list lacks is kept and marked rather than
+	 * silently replaced — a model uninstalled from the pod must not rewrite anyone's setting. */
+	const params = $derived.by(() =>
+		(blueprint?.params ?? []).map((p): BlueprintParam => {
+			const live = liveSpecs[p.key];
+			if (!live) return p;
+			if (p.type === 'select' && live.kind === 'select' && live.options?.length) {
+				const cur = String(overrides[p.key] ?? p.default ?? '');
+				const missing = cur && !live.options.includes(cur) ? cur : undefined;
+				return {
+					...p,
+					options: missing ? [...live.options, missing] : live.options,
+					missingOption: missing,
+				};
+			}
+			const numeric = p.type === 'int' || p.type === 'float';
+			if (numeric && (live.kind === 'int' || live.kind === 'float')) {
+				return {
+					...p,
+					min: live.min ?? p.min,
+					max: live.max ?? p.max,
+					step: live.step ?? p.step,
+				};
+			}
+			return p;
+		}),
+	);
+	/** A numeric param with BOTH bounds declared — the only kind a slider can honestly draw. */
+	const bounded = (p: BlueprintParam) =>
+		(p.type === 'int' || p.type === 'float') && Number.isFinite(p.min) && Number.isFinite(p.max);
+	/** Clamp a typed number into the param's declared domain. HTML `min`/`max` on a number input
+	 * only fail form validation — they never stopped a 50 being typed into a 0..1 field and sent,
+	 * which is how ComfyUI came to reject a whole prompt over one `sensitivity`. */
+	function clampTo(p: BlueprintParam, raw: string): number {
+		const n = Number(raw);
+		if (!Number.isFinite(n)) return Number(p.default ?? p.min ?? 0);
+		const c = Math.min(p.max ?? Infinity, Math.max(p.min ?? -Infinity, n));
+		return p.type === 'int' ? Math.round(c) : c;
+	}
 	const running = $derived(session?.status === 'running' || session?.status === 'queued');
 	/** Is ANY session holding the runner — the selected one or another in the list? Only the
 	 * button's wording depends on it (Generate vs Queue), so a stale `recent` costs nothing:
@@ -879,13 +957,48 @@ ${endScript}</body></html>`;
 		field: string;
 		def: string;
 		options: string;
+		/** Where a `select`'s list can be re-read LIVE: the node CLASS + input, which survives a
+		 * re-import that renumbers nodes. Set only when the list came off the node's contract. */
+		optionsFrom: { class: string; field: string } | null;
+		/** The node's declared domain, as strings so a box can be blank (= unbounded). */
+		min: string;
+		max: string;
+		step: string;
 		group: string;
 		multiline: boolean;
-		/** What `setParamTarget` last auto-filled, so re-pointing a row follows the
+		/** What `applySpecToRow` last auto-filled, so re-pointing a row follows the
 		 * new node while anything the author typed is left alone. Never published. */
 		autoKey: string;
 		autoLabel: string;
 		autoDef: string;
+		autoOptions: string;
+		autoMin: string;
+		autoMax: string;
+		autoStep: string;
+	}
+	function blankParamRow(type = 'int'): PubParam {
+		return {
+			key: '',
+			label: '',
+			type,
+			node: '',
+			field: '',
+			def: '',
+			options: '',
+			optionsFrom: null,
+			min: '',
+			max: '',
+			step: '',
+			group: '',
+			multiline: false,
+			autoKey: '',
+			autoLabel: '',
+			autoDef: '',
+			autoOptions: '',
+			autoMin: '',
+			autoMax: '',
+			autoStep: '',
+		};
 	}
 	/** A baked string that reads as PROSE rather than a token — long, or several
 	 * words. What separates a second prompt from `#222222` or `euler`, and so what
@@ -903,6 +1016,13 @@ ${endScript}</body></html>`;
 	let pubParams = $state<PubParam[]>([]);
 	let pubBusy = $state(false);
 	let pubMsg = $state('');
+	/** The graph's node contracts, by class then input — read off ComfyUI once per picked file.
+	 * `{}` when nothing answered; `pubSpecsNote` then says so, and each setting falls back to
+	 * being typed from the baked value, with no bounds and no list. */
+	let pubSpecs = $state<Record<string, Record<string, NodeSpec>>>({});
+	let pubSpecsNote = $state('');
+	/** Which picked file a contract read belongs to — a stale answer must not land on the next. */
+	let pubPick = 0;
 
 	/** The node's ComfyUI title when the author gave it one, else its class. The id
 	 * is always kept, so identically-titled nodes stay distinguishable. */
@@ -1088,23 +1208,7 @@ ${endScript}</body></html>`;
 	 * — comes from `setParamTarget` reading the graph, exactly as if the author had
 	 * picked that input from the dropdown themselves. */
 	function exposeGate(node: string, field: string): void {
-		pubParams = [
-			...pubParams,
-			{
-				key: '',
-				label: '',
-				type: 'bool',
-				node: '',
-				field: '',
-				def: '',
-				options: '',
-				group: '',
-				multiline: false,
-				autoKey: '',
-				autoLabel: '',
-				autoDef: '',
-			},
-		];
+		pubParams = [...pubParams, blankParamRow('bool')];
 		setParamTarget(pubParams.length - 1, `${node}::${field}`);
 	}
 
@@ -1149,15 +1253,31 @@ ${endScript}</body></html>`;
 		const p = pubParams[i];
 		p.node = node;
 		p.field = field;
+		applySpecToRow(i);
+	}
+
+	/** Read a row's type, domain and list off the graph and the node's contract, filling only
+	 * what the author has not touched — a field still holding exactly what we last put there.
+	 * `if (!p.key)` alone froze the key on the first target the row was ever given, so
+	 * re-pointing a row kept a name describing a different node; overwriting unconditionally
+	 * would instead throw away a name they had typed. Split from `setParamTarget` so rows made
+	 * before the contracts landed (the modal does not wait on a sleeping pod) get them after.
+	 *
+	 * The contract wins over the value: a baked `1.0` says "float" and nothing else — not that
+	 * the node declares 0..1, not that the input beside it is a COMBO over the twelve installed
+	 * BiRefNet models. That gap is how a `sensitivity` of 50 reached the GPU and was rejected
+	 * there. A `Primitive*` node's own domain is wide open and stays honestly unbounded. */
+	function applySpecToRow(i: number): void {
+		const p = pubParams[i];
+		const { node, field } = p;
 		const baked = pubGraph?.[node]?.inputs?.[field];
 		if (baked === undefined || Array.isArray(baked)) return;
-		p.type = inferParamType(baked, String(pubGraph?.[node]?.class_type ?? ''));
-		p.multiline = p.type === 'text' && looksLikeProse(baked);
-		// Re-fill only what the author has not touched — a field still holding
-		// exactly what we last put there. `if (!p.key)` alone froze the key on the
-		// first target the row was ever given, so re-pointing a row kept a name
-		// describing a different node; overwriting unconditionally would instead
-		// throw away a name they had typed.
+		const classType = String(pubGraph?.[node]?.class_type ?? '');
+		const spec = pubSpecs[classType]?.[field];
+		p.type = spec?.kind ?? inferParamType(baked, classType);
+		p.multiline = p.type === 'text' && (spec?.multiline === true || looksLikeProse(baked));
+		const auto = (cur: string, was: string, next: string) =>
+			cur === '' || cur === was ? next : cur;
 		if (p.key === '' || p.key === p.autoKey) {
 			p.key = suggestParamKey(node, field, i);
 			p.autoKey = p.key;
@@ -1170,6 +1290,33 @@ ${endScript}</body></html>`;
 			p.def = String(baked);
 			p.autoDef = p.def;
 		}
+		const options = spec?.kind === 'select' ? (spec.options ?? []).join(', ') : '';
+		p.options = auto(p.options, p.autoOptions, options);
+		p.autoOptions = options;
+		p.optionsFrom = spec?.kind === 'select' ? { class: classType, field } : null;
+		const bound = (v: number | undefined) => (v === undefined ? '' : String(v));
+		const numeric = spec && (spec.kind === 'int' || spec.kind === 'float');
+		const [min, max, step] = numeric
+			? [bound(spec.min), bound(spec.max), bound(spec.step)]
+			: ['', '', ''];
+		p.min = auto(p.min, p.autoMin, min);
+		p.autoMin = min;
+		p.max = auto(p.max, p.autoMax, max);
+		p.autoMax = max;
+		p.step = auto(p.step, p.autoStep, step);
+		p.autoStep = step;
+	}
+
+	/** `min`/`max`/`step` for a numeric row — only the boxes holding a number, so an unbounded
+	 * setting publishes without them rather than with `null`s the tool would carry as bounds. */
+	function numericBounds(p: PubParam): { min?: number; max?: number; step?: number } {
+		if (p.type !== 'int' && p.type !== 'float') return {};
+		const out: { min?: number; max?: number; step?: number } = {};
+		for (const k of ['min', 'max', 'step'] as const) {
+			const v = p[k].trim();
+			if (v !== '' && Number.isFinite(Number(v))) out[k] = Number(v);
+		}
+		return out;
 	}
 
 	/** The label follows the key until the author types a label of their own. The
@@ -1215,6 +1362,30 @@ ${endScript}</body></html>`;
 				}
 			}
 			pubBindings = next;
+			// The node contracts, read once per file. Not awaited before the modal shows the
+			// graph — a sleeping pod costs the read its whole timeout — so rows made in the
+			// meantime are revisited when it lands.
+			const mine = ++pubPick;
+			pubSpecs = {};
+			pubSpecsNote = '';
+			const classes = nodes
+				.map((n) => String(n.class_type ?? ''))
+				.filter((c, at, all) => c && all.indexOf(c) === at);
+			postJson<NodeSpecs>('nodespecs', { classes })
+				.then((r) => {
+					if (mine !== pubPick) return;
+					pubSpecs = r.classes ?? {};
+					pubSpecsNote = r.ok
+						? ''
+						: r.note ||
+							'ComfyUI did not answer, so bounds and option lists were not read — these settings will not be range-checked.';
+					pubParams.forEach((_, i) => applySpecToRow(i));
+				})
+				.catch(() => {
+					if (mine !== pubPick) return;
+					pubSpecsNote =
+						'ComfyUI could not be asked for node contracts — these settings will not be range-checked.';
+				});
 		} catch (err) {
 			pubGraph = null;
 			pubMsg = `Could not read that file: ${(err as Error).message}`;
@@ -1305,6 +1476,8 @@ ${endScript}</body></html>`;
 											.filter(Boolean),
 									}
 								: {}),
+							...(p.type === 'select' && p.optionsFrom ? { options_from: p.optionsFrom } : {}),
+							...numericBounds(p),
 							...(p.group.trim() ? { group: p.group.trim() } : {}),
 							...(p.type === 'text' && p.multiline ? { multiline: true } : {}),
 						})),
@@ -1726,7 +1899,7 @@ Overwrite it?`)
 				onchange={(e) => (bag[p.key] = e.currentTarget.value)}
 			>
 				{#each p.options ?? [] as o (o)}
-					<option value={o}>{o}</option>
+					<option value={o}>{o}{o === p.missingOption ? ' (not installed)' : ''}</option>
 				{/each}
 			</select>
 		{:else if p.type === 'text'}
@@ -1734,6 +1907,30 @@ Overwrite it?`)
 				value={String(bag[p.key] ?? p.default ?? '')}
 				onchange={(e) => (bag[p.key] = e.currentTarget.value)}
 			/>
+		{:else if bounded(p)}
+			<!-- Two views of one value; the number box clamps on change (see `clampTo`). -->
+			<span class="range">
+				<input
+					type="range"
+					min={p.min}
+					max={p.max}
+					step={p.step ?? (p.type === 'int' ? 1 : 0.01)}
+					value={Number(bag[p.key] ?? p.default ?? p.min)}
+					oninput={(e) => (bag[p.key] = clampTo(p, e.currentTarget.value))}
+				/>
+				<input
+					type="number"
+					min={p.min}
+					max={p.max}
+					step={p.step ?? (p.type === 'int' ? 1 : 0.01)}
+					value={Number(bag[p.key] ?? p.default ?? p.min)}
+					onchange={(e) => {
+						const v = clampTo(p, e.currentTarget.value);
+						e.currentTarget.value = String(v);
+						bag[p.key] = v;
+					}}
+				/>
+			</span>
 		{:else}
 			<input
 				type="number"
@@ -2364,24 +2561,7 @@ Overwrite it?`)
 					<button
 						class="sm"
 						disabled={pubBusy}
-						onclick={() =>
-							(pubParams = [
-								...pubParams,
-								{
-									key: '',
-									label: '',
-									type: 'int',
-									node: '',
-									field: '',
-									def: '',
-									options: '',
-									group: '',
-									multiline: false,
-									autoKey: '',
-									autoLabel: '',
-									autoDef: '',
-								},
-							])}>＋ Add</button
+						onclick={() => (pubParams = [...pubParams, blankParamRow()])}>＋ Add</button
 					>
 				</div>
 				{#if unexposedGates.length}
@@ -2409,11 +2589,12 @@ Overwrite it?`)
 						{/each}
 					</div>
 				{/if}
+				{#if pubSpecsNote}<p class="hint">{pubSpecsNote}</p>{/if}
 				{#if pubParams.length}
 					<p class="hint">
 						Pick the input first — the key, type and default are read off the graph's own baked
-						value. A blank default publishes as <b>0</b>, and the default is what runs on every
-						render nobody overrode.
+						value, and the bounds and option list off the node's own contract. A blank default
+						publishes as <b>0</b>, and the default is what runs on every render nobody overrode.
 					</p>
 				{/if}
 				{#each pubParams as prm, i (i)}
@@ -2458,10 +2639,33 @@ Overwrite it?`)
 							/>
 							<input placeholder="default" bind:value={prm.def} disabled={pubBusy} />
 							<input placeholder="group (optional)" bind:value={prm.group} disabled={pubBusy} />
+							{#if prm.type === 'int' || prm.type === 'float'}
+								<input
+									placeholder="min"
+									title="Lowest value the node accepts — read off ComfyUI; blank = unbounded"
+									bind:value={prm.min}
+									disabled={pubBusy}
+								/>
+								<input
+									placeholder="max"
+									title="Highest value the node accepts — read off ComfyUI; blank = unbounded"
+									bind:value={prm.max}
+									disabled={pubBusy}
+								/>
+								<input
+									placeholder="step"
+									title="Slider step — read off ComfyUI"
+									bind:value={prm.step}
+									disabled={pubBusy}
+								/>
+							{/if}
 							{#if prm.type === 'select'}
 								<input
 									class="wide"
 									placeholder="options, comma-separated"
+									title={prm.optionsFrom
+										? `Read off ${prm.optionsFrom.class} · ${prm.optionsFrom.field}, and re-read live each time the Generate panel opens — this list is the fallback for when ComfyUI is asleep`
+										: 'The choices the Generate panel offers'}
 									bind:value={prm.options}
 									disabled={pubBusy}
 								/>
@@ -2797,6 +3001,23 @@ Overwrite it?`)
 	.fld.sm input:not([type='checkbox']) {
 		width: 90px;
 		flex: none;
+	}
+	/* A bounded numeric: slider + number box in the 90px slot's row. The slider takes the room
+	   the label would otherwise leave empty — a 0..1 field wants more than 90px of travel. */
+	.fld.sm .range {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex: 1 1 60%;
+		min-width: 0;
+	}
+	.fld.sm .range input[type='range'] {
+		flex: 1 1 auto;
+		width: auto;
+		min-width: 50px;
+	}
+	.fld.sm .range input[type='number'] {
+		width: 62px;
 	}
 	input,
 	select,

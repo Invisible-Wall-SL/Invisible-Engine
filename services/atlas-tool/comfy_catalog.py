@@ -162,6 +162,19 @@ def options(node: str, field: str, *, target: str = "local",
     return stored_options(node, field, "local")
 
 
+def remember(node: str, field: str, values: Sequence[str], target: str = "local") -> None:
+    """Hand a list another reader saw LIVE (`comfy_specs`, the blueprint contract
+    reader) to the next `commit_live()`. Local only: the pod catalog is written
+    by ⟳ alone, and a live pod read there is already the answer the caller wanted.
+    The same content gate and cooldown apply, so a reader that saw nothing new
+    costs no PUT."""
+    if _target(target) != "local":
+        return
+    vals = [str(v) for v in values]
+    if vals:
+        _pending[field_key(node, field)] = vals
+
+
 def commit_live(*, now: Callable[[], float] = _time.time) -> bool:
     """Store the live LOCAL lists `options()` has seen — but only if they
     genuinely differ from what's already in R2, and at most once per cooldown.

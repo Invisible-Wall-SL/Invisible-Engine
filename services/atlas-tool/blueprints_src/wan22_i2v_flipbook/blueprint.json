@@ -182,6 +182,10 @@
         "BiRefNet_toonout",
         "Lucida"
       ],
+      "options_from": {
+        "class": "BiRefNetRMBG",
+        "field": "model"
+      },
       "node": "202",
       "field": "model",
       "group": "Cutout"
@@ -249,6 +253,10 @@
         "Alpha",
         "Color"
       ],
+      "options_from": {
+        "class": "BiRefNetRMBG",
+        "field": "background"
+      },
       "node": "202",
       "field": "background",
       "group": "Cutout"

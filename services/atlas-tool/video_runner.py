@@ -184,6 +184,14 @@ def build_video_workflow(
     # `width`/`height` are intentionally NOT filled here — see the module
     # docstring. A video blueprint exposes generation size as params instead.
 
+    # `_effective_param_value` is the second line of defence, and it only bites
+    # on a param that DECLARES a domain: an int/float outside `min`/`max` is
+    # clamped into range, a `select` outside `options` falls back to the default.
+    # Same reasoning as `ui_server.ADV_RANGES` — an out-of-range value makes
+    # ComfyUI reject the whole prompt (400), so the UI bounds the input and the
+    # server clamps. A param published with NO bounds is unclamped by
+    # construction, which is why the importer reads them off `/object_info`
+    # (`comfy_specs`) rather than guessing from the baked value.
     ov = overrides if isinstance(overrides, dict) else {}
     for p in (blueprint.get("params") or []):
         if not isinstance(p, dict):

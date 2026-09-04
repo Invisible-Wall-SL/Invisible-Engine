@@ -243,7 +243,7 @@ The left rail, top to bottom:
 | **Prompt** / **Negative** | What should happen in the animation, and what to avoid. |
 | **Source image** | The still to animate. **Pick…** opens a picker with **three** sources — see below. An image-to-video blueprint refuses to start without one. |
 | **Variations** | How many to generate. There is no ceiling — each is a separate render with its own seed, and each one is paid GPU time. |
-| **Settings groups** | Every knob the blueprint's author exposed, grouped as they named them — duration, fps, generation size, sampler settings, output size, background cutout. Each starts at the blueprint's own default; you only override what you touch. |
+| **Settings groups** | Every knob the blueprint's author exposed, grouped as they named them — duration, fps, generation size, sampler settings, output size, background cutout. Each starts at the blueprint's own default; you only override what you touch. A numeric knob with a declared range is a **slider + number box**, and a typed number is clamped into the range — ComfyUI rejects a whole render over one out-of-range value (a `sensitivity` of 50 on a 0..1 input), so the panel never lets one out. A **dropdown's list is re-read from ComfyUI every time the panel opens**: install a model on the pod, reopen the blueprint, it is in the list — no re-import. A saved choice the live list no longer has stays selected, marked *(not installed)*. When ComfyUI is asleep the list the blueprint was published with is shown instead. |
 
 Press **▶ Generate N**.
 
@@ -273,13 +273,21 @@ the `prompt` box, the `negative` box, the per-variation `seed`, the source still
   wall-clock blowup. Expose generation size as a **setting** instead.
 
 **Exposed settings** are the knobs the generate panel then shows. Pick the node input first:
-the key, the type and the default are read straight off the graph's own baked value, so a
-setting arrives already correct. The row's boxes are **key · label · default · group**: the key is
-the setting's id, the **label is what the Generate panel shows**, and it follows the key until you
-type a label of your own — so renaming the key to `bck model` is enough. Three things to know:
+the key and the default are read off the graph's own baked value, and the **type, range and
+option list off the node's own contract** — what ComfyUI declares that input to be. A `FLOAT`
+declared 0..1 arrives as a float with **min · max · step** filled in (and becomes a slider in the
+panel); a COMBO — a model name, an `Alpha`/`Color` mode — arrives as a `select` with the node's
+real list, not as a text box. The row's boxes are **key · label · default · group** plus those
+range boxes: the key is the setting's id, the **label is what the Generate panel shows**, and it
+follows the key until you type a label of your own — so renaming the key to `bck model` is
+enough. Four things to know:
 
 - **The default is what runs.** A render only sends the settings you actually changed, so
   everything else runs at the published default. A blank default publishes as `0`.
+- **If ComfyUI is asleep when you pick the file, the modal says so** — the settings then fall
+  back to being typed from the baked value alone, with no range and no list, and will not be
+  range-checked. Wake the pod and pick the file again, or fill the range boxes yourself. A
+  `Primitive*` node's own range is wide open either way; that setting stays unbounded.
 - **A node input can be driven by a role or by a setting, never both.** An input a role already
   holds is greyed out in the settings picker.
 - **`group` decides where a setting appears** — settings are shown bucketed under the group

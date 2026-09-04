@@ -192,9 +192,66 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 5. **The ＋ Blueprint modal flags an unexposed boolean gate: DONE** (2026-09-01, see Recent changes). What is NOT covered: an unexposed **numeric** knob that is equally load-bearing (the 1024 generation size on the same blueprint reached the render the same way a wrong boolean did). A boolean gating a switch is a clean signal with no false positives; "this int matters" is not, so it was deliberately left out rather than guessed at.
 
 ## Blocked (owner / external)
-- Nothing. (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
+- **Re-publish the imported video blueprint with a pod running** (owner, 2026-09-04). The one
+  imported before the contract reader landed carries no bounds or lists; ＋ Blueprint on the
+  same API export bakes them in. No env var is needed any more: since #576 ⟳ (and this reader)
+  find a running RunPod pod through the RunPod API, and `COMFY_CATALOG_URL` is only an optional
+  pin (`docs/INFRA.md`). Until the re-publish, the panel bounds that blueprint only while a pod
+  answers or ⟳ has cached its lists, and Bck Sensitivity stays in 0..1 by hand.
+- (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-03 — **A blueprint imported from a workflow carried no domain, so `sensitivity: 50`
+  reached the GPU.** Owner: *"/prompt rejected (400) … node 372 sensitivity: Value 50.0 bigger
+  than max of 1.0 — it started today, I have no problem in the atlas maker."*
+  - The ＋ Blueprint importer typed every setting from the value the graph baked in
+    (`inferParamType`): a baked `1.0` says "float" and nothing else. So an imported blueprint
+    published with no `min`/`max`, the panel had nothing to bound, and the runner's clamp
+    (`_effective_param_value`, which only bites on a DECLARED domain) had nothing to clamp to.
+    The hand-authored `wan22_i2v_flipbook` declares 0..1 and a 12-model list, which is why the
+    built-in path never showed it. The same gap put "Bck Model" in a free-text box and "Bck
+    Alpha" in a textarea: the importer could not know they were COMBOs.
+  - Fixed upstream of the clamp. `services/atlas-tool/comfy_specs.py` reads a node's REAL
+    contract from ComfyUI `/object_info` (`FLOAT`/`INT` → min/max/step, COMBO → the option list,
+    `BOOLEAN`, `STRING` multiline; ComfyUI's 1e308 "no limit" sentinels publish as unbounded),
+    served by `POST /video/nodespecs` (allow-listed in the launcher proxy). The importer prefers
+    it over the value guess (`applySpecToRow`), publishes `min`/`max`/`step`, and records
+    `options_from: {class, field}` on a select so the list can be re-read — keyed on the CLASS so
+    it survives a re-import that renumbers nodes. `blueprints._validate_params` whitelists
+    `options_from`; a key missing from that tuple is dropped silently on publish. The Atlas
+    Maker page's OWN ＋ Blueprint importer (vanilla JS in `ui_server.py`, `syncFromField`) got
+    the identical treatment — it had the identical guess — so the two importers stay in step.
+  - **Panels:** a numeric with both bounds is a slider + number box, clamped on change — HTML
+    `min`/`max` on a number input only fail form validation and never stopped the 50. Option
+    lists refresh LIVE on every panel open (the Generate rail here, 🎛 Blueprint settings on the
+    Atlas Maker page), and a saved value the live list lacks stays selected, marked "(not
+    installed)", rather than being rewritten. `specs_for_blueprint` resolves a param's class
+    through the blueprint's own graph, so a blueprint published BEFORE this gets live bounds and
+    lists in the panel with no re-publish — whenever a catalog ComfyUI answers.
+  - **Which ComfyUI answers is the point.** A contract must describe the machine that will RUN
+    the graph. Main's #573/#576 model (`run_on`: *RunPod* vs *My computer*, one catalog each) is
+    the rule, and `comfy_specs` asks `comfy_catalog._probe_sources` for that target: *RunPod* =
+    a pinned `COMFY_CATALOG_URL` or a running pod discovered through the RunPod API, never
+    `COMFY_URL` (still set in production, and it is the owner's LOCAL tunnel); *My computer* =
+    `COMFY_URL` only. The Atlas Maker's importer/panel follow the project's `run_on` (`surface:
+    "atlas"` on the request); a video render never consults `run_on` — it runs in-process on
+    the service default — so the Flipbook reads `_env_run_on()`, the pod in production.
+    Nothing answering is normal and never an error.
+  - Built ON #571–#580's `comfy_catalog`, not beside it: its source probe, HTTP client,
+    per-target catalogs and `COMFY_CATALOG_URL`. The contract reader adds `remember()` (a COMBO
+    list seen live on *My computer* joins the local catalog's next `commit_live`) and ⟳ Refresh
+    model lists now also caches every published blueprint's select lists (`options_from`, or
+    the node the param drives) for its target — so a blueprint's dropdown shows the last-seen
+    pod list while no pod is running, before the import-day bake. Also fixed on the way: #571
+    had committed the `/video/nodespecs` dispatch line without its handler (it read a working
+    tree that already held half of this), a latent 500 on `main` that the proxy never reached.
+  - Fixtures: `test_node_contracts_are_read_not_guessed`, `test_a_sleeping_pod_is_not_an_error`,
+    `test_the_catalog_is_the_machine_that_runs_the_graph`,
+    `test_options_from_survives_the_param_whitelist`, and
+    `test_a_param_with_no_declared_domain_cannot_be_clamped` — the 400 itself, reproduced.
+  - **The owner's existing blueprint:** re-publish it (＋ Blueprint on the same API export, with
+    a pod running) to bake the bounds and lists in; or rely on the live panel read whenever a
+    pod answers, and on ⟳ having cached its lists. Until either, keep Bck Sensitivity in 0..1.
 - 2026-09-03 — **A session did not exist anywhere until a worker touched it.** The destructive half
   of *"after a refresh most of my generations disappear, as if they were never registered"* — and
   the phrase was literally true.
