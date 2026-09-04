@@ -1068,6 +1068,38 @@ def _bust_comfy_caches() -> None:
     _comfy_alive_cache["ok"] = False
 
 
+# FLUX (and SD3) latents carry 16 channels; SD1.x/SDXL latents carry 4. A VAE
+# from the wrong family never decodes — it dies inside VAEDecode with
+# "expected input[1, 16, 128, 128] to have 4 channels, but got 16 channels
+# instead". That is the LAST node of the graph, so the sampler has already
+# burned the full step count on the GPU before anyone learns the VAE was wrong.
+_FLUX_LATENT_CHANNELS = 16
+
+# ComfyUI's built-in tiny autoencoders, by latent channels. These four are in
+# the VAELoader dropdown on every install (they ship with ComfyUI — there is no
+# file to add), which puts `taesdxl` one row away from `taef1` in the FLUX VAE
+# picker. They are also the only VAE names whose family is knowable from the
+# NAME alone: a user's own *.safetensors can be anything, and refusing unknown
+# names would block every legitimately-named FLUX VAE, so those stay ComfyUI's
+# call.
+_TAE_LATENT_CHANNELS = {
+    "taesd": 4,      # SD1.x / SD2.x
+    "taesdxl": 4,    # SDXL
+    "taesd3": 16,    # SD3
+    "taef1": 16,     # FLUX
+}
+
+
+def wrong_family_vae(vae_name: str,
+                     latent_channels: int = _FLUX_LATENT_CHANNELS) -> int | None:
+    """The latent-channel count of `vae_name` when it is a KNOWN mismatch for a
+    `latent_channels`-channel pipeline, else None (compatible, or a name whose
+    family we cannot know). Pure — no ComfyUI call — so the guard is testable
+    offline."""
+    got = _TAE_LATENT_CHANNELS.get(str(vae_name or "").strip().lower())
+    return None if got is None or got == latent_channels else got
+
+
 def preflight_models(regions: list[dict]) -> None:
     """Fail early with a readable message (not a raw HTTP 400 traceback) if a
     checkpoint / LoRA name isn't one ComfyUI actually has. ComfyUI only sees
@@ -1128,6 +1160,25 @@ def preflight_models(regions: list[dict]) -> None:
                     f"filename incl. extension, then restart ComfyUI via the "
                     f"Invisible Launcher (it only scans at startup). Note SDXL "
                     f"and FLUX models are not interchangeable.")
+    # Existence is not compatibility. `taesdxl` IS in the VAELoader enum, so
+    # every check above passes and ComfyUI queues the job happily — the SDXL
+    # decoder only meets the FLUX latent at VAEDecode, minutes of GPU later.
+    # The all-in-one checkpoint path is exempt: its VAE comes out of the
+    # checkpoint, so there is no name to get wrong.
+    if str(PIPELINE).lower() == "flux" and not FLUX_CHECKPOINT:
+        got = wrong_family_vae(FLUX_VAE)
+        if got is not None:
+            problems.append(
+                f"  {_FIELD_SETTING_LABEL['vae_name']} is '{FLUX_VAE}', a "
+                f"{got}-channel VAE, but FLUX latents carry "
+                f"{_FLUX_LATENT_CHANNELS} channels.\n"
+                f"    ComfyUI accepts the NAME, so the job would queue, sample "
+                f"for the full step count, then die at the final node with "
+                f"'expected input[1, {_FLUX_LATENT_CHANNELS}, ...] to have "
+                f"{got} channels'.\n"
+                f"    Fix: set it to 'ae.safetensors' (the FLUX autoencoder) "
+                f"or 'taef1' (ComfyUI's built-in tiny FLUX VAE - faster, "
+                f"softer). 'taesd' and 'taesdxl' are SD1.x/SDXL only.")
     if problems:
         print("\n=== Model preflight failed ===")
         print("\n".join(problems))
