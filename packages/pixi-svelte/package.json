@@ -52,6 +52,11 @@
 			"types": "./index.ts",
 			"svelte": "./index.ts",
 			"default": "./index.ts"
+		},
+		"./rigBoundContent": {
+			"types": "./src/lib/rigBoundContent.ts",
+			"svelte": "./src/lib/rigBoundContent.ts",
+			"default": "./src/lib/rigBoundContent.ts"
 		}
 	}
 }

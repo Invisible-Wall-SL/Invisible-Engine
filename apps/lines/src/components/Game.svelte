@@ -623,9 +623,10 @@
 	// `effectId` → doc at render (`registerEffects`/`resolveEffect`). No-op when un-baked / no
 	// effects (parity). `components/Effects.svelte` still auto-mounts bone + unplaced free effects.
 	registerEffects(bakedEffects());
-	// Register the rig-timeline direct FX bindings so a placed rig plays its bound effects on the
-	// beat of its own animation events (`registerRigFx`/`resolveRigFx`; `LayoutNodeView` mounts a
-	// `<RiggedEffect>` per binding). No-op when un-baked / no rig has a bound event (parity).
+	// Register the rig-timeline direct FX bindings so a rig plays its bound effects on the beat of
+	// its own animation events (`registerRigFx`/`resolveRigFx`; `<SpineProvider>` mounts a
+	// `<RiggedEffect>` per binding, for every rig wherever it is mounted — registering here is also
+	// what installs that seam). No-op when un-baked / no rig has a bound event (parity).
 	registerRigFx(bakedRigFx());
 	// Register the project's baked Invisible Flipbook clips so anything referencing one by `clipId`
 	// resolves it → its ordered frames at render (`registerFlipbooks`/`resolveFlipbook`). No-op when

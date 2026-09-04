@@ -30,8 +30,8 @@
 	// so we skip them here to avoid a double-mount. Bone effects (not scene-placeable in v1) + any
 	// unplaced free effect still auto-mount below.
 	const placed = placedEffectIds();
-	// Effects bound to a rig's timeline are mounted by `<RiggedEffect>` on their HOST rig (a layout
-	// spine via `LayoutNodeView`, or a SYMBOL spine via `SymbolSpineMain`), firing on the rig's own
+	// Effects bound to a rig's timeline are mounted by `<RiggedEffect>` on their HOST rig — by
+	// `<SpineProvider>` itself, so it happens wherever that rig is mounted — firing on the rig's own
 	// event at the bone. Skip them here too — otherwise a rig-bound effect whose doc layers are `free`
 	// would ALSO auto-mount as a scene-level ambient emitter at the stage origin (0,0), a phantom
 	// burst in the top-left corner (surfaced once the runtime bundle began shipping `rigFx`).
@@ -81,14 +81,18 @@
 			'[fxdebug] baked effects:',
 			effects.map((d) => ({ id: d.id, layers: d.layers.length, mount: bucketOf(d) })),
 		);
-		console.log('[fxdebug] rigFx manifest (rigKey → bound effectIds):',
+		console.log(
+			'[fxdebug] rigFx manifest (rigKey → bound effectIds):',
 			Object.fromEntries(Object.entries(rigFx).map(([k, b]) => [k, b.map((x) => x.effectId)])),
 		);
 		console.log('[fxdebug] placedEffectIds:', [...placed], '| rigFxEffectIds:', [...rigBound]);
 		console.log(
 			'[fxdebug] ORPHANS skipped (were the 0,0 bursts — delete or place/bind these):',
 			effects
-				.filter((d) => !placed.has(d.id) && !rigBound.has(d.id) && !placesOnBone(d) && !isEventReachable(d))
+				.filter(
+					(d) =>
+						!placed.has(d.id) && !rigBound.has(d.id) && !placesOnBone(d) && !isEventReachable(d),
+				)
 				.map((d) => d.id),
 		);
 	}

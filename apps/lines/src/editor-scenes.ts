@@ -638,9 +638,9 @@ export function bakedEffects(): EffectDoc[] {
 /**
  * The rig-timeline direct FX bindings baked for this project (`invisible-fx.md` "rig-timeline direct
  * FX binding"): a rig's OWN animation events → effects, keyed by the rig's runtime assetKey (its
- * bundle folder — the value `LayoutNodeView` passes to `<SpineProvider key=…>`). Registered at boot
- * via `registerRigFx(bakedRigFx())`; `LayoutNodeView` resolves `resolveRigFx(node.assetKey)` to mount
- * a `<RiggedEffect>` per binding. Mirrors `bakedEffects`'s runtime→baked→empty resolution. Empty when
+ * bundle folder — the value a mount passes to `<SpineProvider key=…>`). Registered at boot via
+ * `registerRigFx(bakedRigFx())`, which also installs the lookup `<SpineProvider>` reads to mount a
+ * `<RiggedEffect>` per binding. Mirrors `bakedEffects`'s runtime→baked→empty resolution. Empty when
  * un-baked / no rig has a bound event (dev parity — the checked-in placeholder has none).
  */
 export function bakedRigFx(): Record<string, RigFxBinding[]> {
@@ -666,9 +666,9 @@ export function bakedFlipbooks(): FlipbookClipEntry[] {
 /**
  * The rig-timeline direct FLIPBOOK bindings baked for this project — the frame-animation twin of
  * {@link bakedRigFx}: a rig's OWN animation events → clips, keyed by the rig's runtime assetKey.
- * Registered at boot via `registerRigFlipbooks(bakedRigFlipbooks())`; `LayoutNodeView` and
- * `SymbolSpineMain` resolve `resolveRigFlipbooks(assetKey)` to mount a `<RiggedFlipbook>` per
- * binding. Empty when un-baked / no rig has a bound clip (dev parity).
+ * Registered at boot via `registerRigFlipbooks(bakedRigFlipbooks())`; `<SpineProvider>` resolves
+ * `resolveRigFlipbooks(assetKey)` to mount a `<RiggedFlipbook>` per binding, for every rig wherever
+ * it is mounted. Empty when un-baked / no rig has a bound clip (dev parity).
  */
 export function bakedRigFlipbooks(): Record<string, RigFlipbookBinding[]> {
 	const source = hasRuntimeBundle() ? runtimeBundle! : hasBakedDoc() ? bakedBundle : null;
@@ -731,8 +731,8 @@ export function bakedWinPresentationParams(): Record<string, unknown> | undefine
 /**
  * The effect ids referenced by a rig-timeline FX binding ({@link bakedRigFx}). `components/Effects.svelte`
  * skips these when auto-mounting free effects: a rig-bound effect is already mounted by `<RiggedEffect>`
- * on its HOST rig (a placed layout spine via `LayoutNodeView`, or a symbol spine via `SymbolSpineMain`),
- * firing on that rig's own event at the bone. Without this exclusion such an effect ALSO auto-mounts as a
+ * on its HOST rig (by `<SpineProvider>`, so wherever that rig is mounted), firing on that rig's own
+ * event at the bone. Without this exclusion such an effect ALSO auto-mounts as a
  * scene-level ambient `<EffectPlayer>` at the stage origin (0,0) — a phantom burst in the top-left corner.
  * Mirrors {@link placedEffectIds}. Empty when un-baked / no rig has a bound event (parity).
  */

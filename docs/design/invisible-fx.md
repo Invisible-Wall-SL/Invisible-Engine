@@ -109,6 +109,15 @@ effect dimmer/slower/deeper without forking the doc.
   bound effects; spine-particle needs a follow-up auto-ship path (note it in the UI).
 
 ### Runtime
+> **Superseded (2026-09-04) — the join lives at `<SpineProvider>`, not at the mount site.** The plan
+> below wired the lookup into the `LayoutNodeView` spine branch, and `SymbolSpineMain` later
+> hand-copied the same block. That made a binding play only for a rig mounted by one of those two:
+> every other rig in the engine (the big-win rig via `WinAnimation`, backdrops, transitions,
+> free-spin visuals, cinematic actors) silently rendered nothing with the binding baked and correct.
+> `<SpineProvider>` — the one component every rig goes through — now resolves and mounts the bound
+> content itself, through the `pixi-svelte` `rigBoundContent` seam that `engine-layout` fills in.
+> Both hand-copies are gone. See [status/fx](../status/fx.md) for the detail.
+
 `LayoutNodeView` spine branch, inside the existing `<SpineProvider …>`: for each
 `resolveRigFx(node.assetKey)` entry, render a small new **`RiggedEffect`** that plays a bound effect
 on the beat:

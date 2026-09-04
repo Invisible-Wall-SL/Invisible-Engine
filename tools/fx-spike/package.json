@@ -16,7 +16,8 @@
 		"particle-kind": "tsx particleKind.ts",
 		"spine-particle": "tsx spineParticle.ts",
 		"spine-particle-behavior": "tsx spineParticleBehavior.ts",
-		"variation": "tsx variation.ts"
+		"variation": "tsx variation.ts",
+		"rig-bound": "tsx rigBound.ts"
 	},
 	"devDependencies": {
 		"tsx": "4.19.2",

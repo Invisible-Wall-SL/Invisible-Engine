@@ -25,6 +25,7 @@
 import type { FlipbookClipEntry, FlipbookPlaybackOverride } from './registerFlipbooks';
 import { readRigBeat, type RigBeat } from './rigBeat';
 import { bundleFolderOf } from './rigBundleKey';
+import { installRigBoundContent } from './rigBoundContentInstall';
 
 /**
  * The per-binding OVERRIDES an author sets on the keyframe, beside the clip itself. Every one is
@@ -166,6 +167,8 @@ const registry = new Map<string, RigFlipbookBinding[]>();
  */
 export function registerRigFlipbooks(map: Record<string, RigFlipbookBinding[]>): void {
 	if (!map || typeof map !== 'object') return;
+	// Same join as `registerRigFx` — see `rigBoundContentInstall.ts`. Idempotent.
+	installRigBoundContent();
 	for (const [rigKey, binds] of Object.entries(map)) {
 		if (!rigKey || !Array.isArray(binds)) continue;
 		const clean: RigFlipbookBinding[] = [];

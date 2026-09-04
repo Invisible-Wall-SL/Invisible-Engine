@@ -2,6 +2,13 @@
 // consumers that only need the contract (e.g. launcher-api) don't drag in
 // pixi-svelte. For the runtime `<LayoutScene>` component, use the
 // `engine-layout/svelte` subpath.
+//
+// ONE EXCEPTION, and it is deliberately narrow: `rigBoundContentInstall` (below) makes a runtime
+// value import of `pixi-svelte/rigBoundContent`. That subpath is a LEAF — two functions, a frozen
+// empty, and type-only imports — not the `pixi-svelte` barrel, so no component, no PixiJS and no
+// `webfontloader` is reachable through it. The distinction is load-bearing: importing the barrel
+// here crashed `apps/lines`' SSR route analysis (`webfontloader` touches `window` at import time).
+// Keep any future cross-package import from this entry to the same standard.
 export * from './types';
 export * from './symbolNames';
 export * from './symbolStates';
@@ -61,6 +68,9 @@ export * from './rigBeat';
 export * from './registerRigFx';
 export * from './registerFlipbooks';
 export * from './registerRigFlipbooks';
+// Joins the two rig-timeline registries above to `<SpineProvider>`, so EVERY rig plays its bound
+// effects/clips. Installed by those registries themselves — exported for tests that tear it down.
+export * from './rigBoundContentInstall';
 export * from './registerComponentValues';
 export * from './registerComponentActions';
 export * from './registerRepeaterSources';
