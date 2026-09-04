@@ -6,6 +6,7 @@ import {
 	bakedEditorArtAssets,
 	bakedFontCatalog,
 	bakedSymbolAssets,
+	bakedSymbolTransitionAssets,
 } from '../editor-scenes';
 import assets from './assets';
 
@@ -22,5 +23,6 @@ export const { stateApp } = createApp({
 		...bakedFontAssets(bakedFontCatalog()),
 		...bakedSymbolAssets(),
 		...bakedBookVfxAssets(),
+		...bakedSymbolTransitionAssets(),
 	},
 });

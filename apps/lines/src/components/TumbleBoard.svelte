@@ -119,6 +119,7 @@
 </script>
 
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { Tween } from 'svelte/motion';
 	import { backOut, cubicIn } from 'svelte/easing';
 
@@ -129,6 +130,8 @@
 	import TumbleBoardBase from './TumbleBoardBase.svelte';
 	import BoardTiles from './BoardTiles.svelte';
 	import BoardMask from './BoardMask.svelte';
+	import SymbolLayer from './SymbolLayer.svelte';
+	import { bakedSymbolTransition, type SymbolTransition } from '../editor-scenes';
 	import { getContext } from '../game/context';
 	import { awaitSymbolBeat, INTRO_BEAT_CAP_MS, TRANSIT_BEAT_CAP_MS } from '../game/symbolBeat';
 	import { getSymbolSeat, stateGameDerived } from '../game/stateGame.svelte';
@@ -288,6 +291,117 @@
 		show && !reelBoardShown ? stateGameDerived.boardTileArt() : undefined;
 	const tileArt = $derived(overlayTileArt());
 
+	/**
+	 * The explosion → intro TRANSITIONS in flight — one per exploding seat (Invisible Symbols State
+	 * Machine → Transition, {@link bakedSymbolTransition}), drawn on the animating layer above the
+	 * symbols so the pop's end and the intro's start overlap at the same seat instead of cutting.
+	 *
+	 * The list lives HERE and not in the symbol cell, because the cell does not outlive the seam it
+	 * bridges: `tumbleBoardRemoveExploded` filters the exploded symbol object out of `base` the moment
+	 * the beat ends, and the transition has to survive that removal AND the appear that follows.
+	 *
+	 * FIRE-AND-FORGET, and that is the whole contract. Nothing awaits an entry: it never gates the
+	 * explosion beat, never delays the intro, never extends the round — the intro still starts exactly
+	 * when it did before this existed (see `symbolBeat.ts` for why an awaited beat is the one way this
+	 * game freezes; a transition adds no beat at all). An entry leaves the list on its own completion,
+	 * `tumbleBoardReset` sweeps whatever is left (a slam or a skipped round leaves no stragglers), and
+	 * `tumbleBoardHide` unmounts the overlay it draws on — a transition longer than the step is CUT
+	 * there, by design, rather than the round waiting for it.
+	 */
+	type SeatTransition = {
+		key: string;
+		x: number;
+		y: number;
+		scale: number;
+		layer: SymbolTransition;
+	};
+	// `$state.raw`: an entry is only ever replaced whole, never mutated, and a deep proxy would wrap
+	// the baked `layer` object every seat shares.
+	let transitions = $state.raw<SeatTransition[]>([]);
+	/** Per seat, the ONE timer that currently owns the entry: its delay before it mounts, then the
+	 *  leak cap after. Sequential per key, so one slot is enough — and one map to sweep on reset. */
+	const transitionTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+	/** Above the symbols on the animating layer (default z 0) — the same non-zero-zIndex sort
+	 *  `BookVfx.svelte`'s foreground and `<BoardFrame>`'s glow rely on. */
+	const TRANSITION_Z_INDEX = 1;
+
+	/**
+	 * A RUNAWAY GUARD on an entry that never reports — a spine whose bound animation is not in the
+	 * skeleton fires no `complete`, and an entry that stayed would draw its last frame over every
+	 * later seat until the reset. Sized like `WIN_BEAT_CAP_MS` (double the longest reference
+	 * animation) and for the same reason: a real authored transition always finishes first, so this
+	 * never shapes one.
+	 */
+	const TRANSITION_LEAK_CAP_MS = 4_000;
+
+	const clearTransitionTimer = (key: string) => {
+		const timer = transitionTimers.get(key);
+		if (timer !== undefined) clearTimeout(timer);
+		transitionTimers.delete(key);
+	};
+
+	const removeTransition = (key: string) => {
+		clearTransitionTimer(key);
+		transitions = transitions.filter((entry) => entry.key !== key);
+	};
+
+	const mountTransition = (entry: SeatTransition) => {
+		// Replace rather than duplicate: a keyed `{#each}` throws on a repeated key. A guard, not a
+		// restart (Svelte reuses the instance), and unreachable in practice — the reset sweeps the
+		// list at the end of every step and a seat explodes once per step.
+		transitions = [...transitions.filter((t) => t.key !== entry.key), entry];
+		transitionTimers.set(
+			entry.key,
+			setTimeout(() => removeTransition(entry.key), TRANSITION_LEAK_CAP_MS),
+		);
+	};
+
+	/** Schedule the transition at ONE exploding seat, `delayMs` after the pop fires. */
+	const scheduleTransition = (
+		layer: SymbolTransition,
+		position: Position,
+		tumbleSymbol: TumbleSymbol,
+	) => {
+		// The row the symbol is DRAWN at, not `position.row` (its index in `base`): `TumbleSymbol`
+		// seats it by its COMBINED index, and the cascade splices the refills into the column before
+		// the pop. Under perspective x and scale contract per row, so the base row would put the
+		// cover beside the pop instead of over it. Looked up by identity so the two can never drift.
+		const drawnRow = tumbleBoardCombined()[position.reel]?.indexOf(tumbleSymbol) ?? -1;
+		const seat = getSymbolSeat(
+			position.reel,
+			(drawnRow >= 0 ? drawnRow : position.row) + PADDING_ROW,
+		);
+		const entry: SeatTransition = {
+			key: `${position.reel}:${position.row}`,
+			x: seat.x,
+			y: tumbleSymbol.symbolY.current,
+			scale: seat.scale,
+			layer,
+		};
+		clearTransitionTimer(entry.key);
+		const delayMs = layer.delayMs ?? 0;
+		// No delay mounts NOW, in the same flush as the explosion state, so the transition's first
+		// painted frame is the pop's first frame; a `setTimeout(…, 0)` would land a tick later.
+		if (delayMs <= 0) {
+			mountTransition(entry);
+			return;
+		}
+		transitionTimers.set(
+			entry.key,
+			setTimeout(() => mountTransition(entry), delayMs),
+		);
+	};
+
+	/** Every pending delay AND every mounted entry — the reset's sweep. */
+	const clearTransitions = () => {
+		for (const timer of transitionTimers.values()) clearTimeout(timer);
+		transitionTimers.clear();
+		transitions = [];
+	};
+
+	onDestroy(clearTransitions);
+
 	context.eventEmitter.subscribeOnMount({
 		tumbleBoardShow: () => (show = true),
 		tumbleBoardHide: () => (show = false),
@@ -313,7 +427,12 @@
 			);
 			stateTumble.base[reelIndex] = keepBase === false ? [] : initTumbleBoardBaseReel(reelIndex);
 		},
-		tumbleBoardReset: () => resetTumbleBoard(),
+		tumbleBoardReset: () => {
+			resetTumbleBoard();
+			// Pending delays and mounted entries alike — a slam or a skipped round leaves nothing
+			// behind to draw over the next step.
+			clearTransitions();
+		},
 		tumbleBoardExplode: async ({ explodingPositions }) => {
 			// Every winning cell plays its authored `tumbleExplosion` state at once, and the step is not
 			// done until the LAST one reports back — a cascade that removed symbols before their
@@ -333,6 +452,14 @@
 			// slowest cell. `playTumbleExplosionSound` stands down when this cue is the board CLEAR
 			// rather than a cascade — see `soundBindings`.
 			playTumbleExplosionSound();
+			// THE TRANSITION rides along, gated exactly as `bookEventHandlerMap`'s refill is: only a
+			// board that appears in place has an intro for it to bridge. Under a sliding refill the
+			// seat is filled by a fall, and a bridge into a fall is an effect in the wrong place. Read
+			// here rather than at mount — the live runtime bundle resolves after this component does.
+			const transition =
+				stateGameDerived.boardSwapsInPlace() && stateGameDerived.boardSwapStyle() === 'emerge'
+					? bakedSymbolTransition()
+					: undefined;
 			await Promise.all(
 				explodingPositions.map(async (position) => {
 					const tumbleSymbol = stateTumble.base[position.reel]?.[position.row];
@@ -342,6 +469,11 @@
 					// broadcasts nothing at all.
 					playSymbolTumbleExplosionSound(tumbleSymbol.rawSymbol.name);
 					tumbleSymbol.symbolState = 'tumbleExplosion';
+					// Scheduled, never awaited — see `transitions`. `symbolY.current` is the seat the
+					// symbol is resting on: `base` was seated where the reels left it.
+					if (transition) {
+						scheduleTransition(transition, position, tumbleSymbol);
+					}
 					await awaitBeat((resolve) => (tumbleSymbol.oncomplete = resolve));
 				}),
 			);
@@ -581,6 +713,20 @@
 	<BoardContext animate={true}>
 		<BoardContainer>
 			<TumbleBoardBase />
+			<!-- The explosion → intro transitions, above the symbols on the unmasked layer so a splash
+			     can overflow its cell the way a spine symbol can. Empty — and byte-identical — unless a
+			     transition is authored AND the board emerges; see `transitions`. -->
+			{#each transitions as transition (transition.key)}
+				<SymbolLayer
+					layer={transition.layer}
+					x={transition.x}
+					y={transition.y}
+					scale={transition.scale}
+					zIndex={TRANSITION_Z_INDEX}
+					once
+					oncomplete={() => removeTransition(transition.key)}
+				/>
+			{/each}
 		</BoardContainer>
 	</BoardContext>
 {/if}

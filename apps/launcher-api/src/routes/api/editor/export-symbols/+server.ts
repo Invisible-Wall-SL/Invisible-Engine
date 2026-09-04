@@ -29,7 +29,8 @@ export const POST: RequestHandler = async ({ url }) => {
 		// `SymbolExportResult`, carried them. Both bundle paths must agree (the "reach both" rule).
 		// `bookVfx` (the book-symbol VFX layers) is on this list for the SAME reason — omit it and the
 		// bake path would ship no book VFX while the runtime path did. `stacked` (the stacked-picture
-		// config) is here for the SAME reason — the bake reads it off this response.
+		// config) and `transition` (the explosion → intro transition) are here for the SAME reason — the
+		// bake reads them off this response.
 		const {
 			map,
 			index,
@@ -39,6 +40,7 @@ export const POST: RequestHandler = async ({ url }) => {
 			winLine,
 			winCycle,
 			bookVfx,
+			transition,
 			anticipation,
 			stacked,
 		} = await exportEditorSymbols(clientKey, projectKey);
@@ -53,6 +55,7 @@ export const POST: RequestHandler = async ({ url }) => {
 			winLine,
 			winCycle,
 			bookVfx,
+			transition,
 			anticipation,
 			stacked,
 		});

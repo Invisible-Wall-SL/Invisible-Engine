@@ -411,17 +411,20 @@ async function assembleRuntimeBundle(
 	const winText = Object.keys(winTextDoc).some((k) => k !== 'version' && k !== 'updatedAt')
 		? winTextDoc
 		: undefined;
-	// A Book-symbol VFX layer of kind 'fx' references an effect by `effectId` — a reachability source
-	// this module's scene/rig/event walk can't see, so collect those ids and hand them to the pruner as
-	// `extraReachable` or a book-symbol effect that isn't ALSO placed/rig-bound/event-triggered would be
-	// stripped from the runtime bundle. Keep in sync with the bake path's inline keep-set in
-	// `scripts/bake-editor-doc.mjs`.
-	const bookVfxEffectIds = new Set<string>();
+	// A Book-symbol VFX layer of kind 'fx' — and the explosion transition, when it is one — references
+	// an effect by `effectId`: a reachability source this module's scene/rig/event walk can't see, so
+	// collect those ids and hand them to the pruner as `extraReachable` or an effect that isn't ALSO
+	// placed/rig-bound/event-triggered would be stripped from the runtime bundle. Keep in sync with the
+	// bake path's inline keep-set in `scripts/bake-editor-doc.mjs`.
+	const symbolDocEffectIds = new Set<string>();
 	for (const slot of ['background', 'foreground'] as const) {
 		const layer = symbols.bookVfx?.[slot];
-		if (layer?.kind === 'fx' && layer.effectId) bookVfxEffectIds.add(layer.effectId);
+		if (layer?.kind === 'fx' && layer.effectId) symbolDocEffectIds.add(layer.effectId);
 	}
-	// Ship only REACHABLE effects (placed / rig-bound / event-triggered / book-VFX-referenced) — an
+	if (symbols.transition?.kind === 'fx' && symbols.transition.effectId) {
+		symbolDocEffectIds.add(symbols.transition.effectId);
+	}
+	// Ship only REACHABLE effects (placed / rig-bound / event-triggered / symbols-doc-referenced) — an
 	// orphan/scratch effect that nothing mounts must not reach the game (it would otherwise ride the
 	// bundle dead weight). The editor still reads ALL effects straight from R2, so authors keep managing
 	// orphans in the FX tool; only this embedded list is pruned. Matches `components/Effects.svelte`'s
@@ -431,7 +434,7 @@ async function assembleRuntimeBundle(
 		doc.scenes,
 		[...Object.values(componentDefs), ...componentVersions],
 		rigFx,
-		bookVfxEffectIds,
+		symbolDocEffectIds,
 	);
 	if (prunedIds.length) {
 		console.info(

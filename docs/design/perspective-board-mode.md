@@ -228,6 +228,15 @@ When `swapInPlace` is on, `apps/lines` wires a different set of defaults. Nothin
     on top of one that has not left yet. And the long `INTRO_BEAT_CAP_MS` must be spent only on art
     someone AUTHORED: an inherited `intro` reports nothing, so an un-authored board paid the whole
     cap on every arrival (2650 ms a cascade step against the shipped slide's 1500).
+
+    The seam itself — pop out, then intro in, at the same seat — is a hard cut by construction, and
+    an authored style will usually want something to cover it. That is the **Transition** (Invisible
+    Symbols → Transition, added 2026-09-03): one project-global spine / flipbook / FX the cascade
+    overlay mounts at every exploding seat `delayMs` after `tumbleExplosion` fires, drawn above the
+    symbols and torn down on its own completion. It is fire-and-forget on purpose — it never joins the
+    beat, so the intro starts exactly when it does without it and a slow effect can cost the round
+    nothing — and it is gated on this style, since a sliding refill has no intro to bridge. It ships as
+    a symbols-doc global (`bundle.symbols.transition`), so nothing new travels the layout doc.
 - **`intro` is a symbol state, not a presentation flag.** It joins `SYMBOL_STATES` in
   `engine-layout`, gets its own `/symbols` column (gated on the project actually emerging, the way
   `tumbleExplosion` is gated on cascading), and inherits `land` when unauthored — so switching the

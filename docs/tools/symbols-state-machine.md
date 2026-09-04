@@ -267,6 +267,37 @@ glow _entirely_ — your own layered art, not one spine — use the **Board glow
 screen in the Scene Editor instead; real content there suppresses the coded glow (and with
 it this section's override).
 
+### Transition (explosion → intro)
+
+Shown for a project whose `/config` → Reel behaviour → swap style is **Emerge** — the one
+style with an `Intro` to bridge — and for one that still has a transition saved from when it
+was, so a binding that ships is never hidden. Under it every seat does the same thing on a board clear and on
+every cascade step: the outgoing symbol plays its `Tumble explosion`, is removed, and the incoming
+one appears and plays its `Intro`. That seam is a hard cut. The **Transition** is one project-wide
+animation the game mounts **at each exploding seat**, a set number of milliseconds after the
+explosion fires, so it plays over the explosion's end and the intro's start.
+
+- **Add** opens an inline editor: pick **Spine** (bundle + animation), **Flipbook** (a clip), or
+  **FX** (an Invisible FX effect) — the same pickers the Book symbol VFX use. There is no Sprite
+  option: a transition has a duration, and a frame has none.
+- **Delay (ms)** — how long after the explosion fires the transition starts. `0` (the default)
+  starts it with the pop. Leave it blank for `0`; it is not written.
+- **Apply transition** records it; **↺ Clear** removes it. Unset reads _Off — the intro cuts in the
+  moment the explosion ends._
+
+What it does and does not do. It is **fire-and-forget**: the game never waits for it, so it cannot
+delay the intro, stretch a cascade step, or hang a round — the intro starts exactly when it does
+with the transition off. It plays **once** and unmounts itself when it finishes (a spine on its
+animation's end, a clip after one pass, an effect after its emit plus its particles' lifetime). A
+transition longer than the step is cut when the cascade overlay comes down — author it to the length
+of the seam, not the round. It draws **above the symbols**, centred on the seat and sized to the cell
+(and to the row's perspective scale); there is no size or offset knob.
+
+The binding is one optional top-level field, `transition: { kind, …, delayMs? }`; nothing is written
+unless you set it, so an untouched project is byte-identical. A spine or clip bound here travels the
+same export/bake chain as a per-symbol cell; an FX effect is kept reachable at bake like a Book-VFX
+effect. Reaches a standalone game (Book of Borut) only with an `engine` submodule bump.
+
 ### Stacked pictures
 
 A **Stacked pictures** section (above Win lines) with a master on/off toggle, **off by default**.
