@@ -35,12 +35,36 @@ FAILED: list[str] = []
 PASSED: list[str] = []
 
 
+def _say(text: str) -> None:
+    """Print through this console's encoding: a FAILING assertion may dump
+    panel HTML carrying glyphs cp1252 cannot encode, and the diagnostic must
+    not destroy the diagnosis."""
+    enc = sys.stdout.encoding or "utf-8"
+    print(text.encode(enc, errors="replace").decode(enc, errors="replace"))
+
+
 def check(label: str, got, want) -> None:
     ok = got == want
-    print(f"{'ok  ' if ok else 'FAIL'} {label}")
+    _say(f"{'ok  ' if ok else 'FAIL'} {label}")
     (PASSED if ok else FAILED).append(label)
     if not ok:
-        print(f"       got  {got!r}\n       want {want!r}")
+        _say(f"       got  {got!r}\n       want {want!r}")
+
+
+def check_in(label: str, needle: str, haystack: str) -> None:
+    ok = needle in haystack
+    _say(f"{'ok  ' if ok else 'FAIL'} {label}")
+    (PASSED if ok else FAILED).append(label)
+    if not ok:
+        _say(f"       {needle!r} not found in:\n       {haystack!r}")
+
+
+def check_not_in(label: str, needle: str, haystack: str) -> None:
+    ok = needle not in haystack
+    _say(f"{'ok  ' if ok else 'FAIL'} {label}")
+    (PASSED if ok else FAILED).append(label)
+    if not ok:
+        _say(f"       {needle!r} unexpectedly found in:\n       {haystack!r}")
 
 
 class FakeProc:
@@ -150,6 +174,65 @@ def test_a_stale_flag_heals_instead_of_blocking_forever() -> None:
     check("no subprocess at all also frees the slot", started, True)
 
 
+def test_my_computer_pointed_at_runpod_is_called_out() -> None:
+    """Reported as "why is it looking for that online when I need to render on
+    my computer?" — the panel said
+
+        My computer · Model lists unavailable — your ComfyUI has never answered
+        at https://pdn5pxpkrchofk-8188.proxy.runpod.net
+
+    which is true and useless: COMFY_URL (documented as the tunnel to the
+    user's OWN ComfyUI) had been pointed at a RunPod pod, so "My computer"
+    addressed a data centre and the message sent them off to restart a tunnel
+    that was never the problem."""
+    flagged = [
+        "https://pdn5pxpkrchofk-8188.proxy.runpod.net",   # the reported value
+        "https://abc-8188.proxy.runpod.net/",
+        "https://api.runpod.ai/v2/zygcn869ff2uyx",
+    ]
+    fine = [
+        "https://comfy.invisiblewall.org",                # the named tunnel
+        "https://random-words.trycloudflare.com",         # a quick tunnel
+        "http://127.0.0.1:8188",                          # straight local
+        "",                                               # unset: a different error
+    ]
+    for url in flagged:
+        check(f"flagged: {url}", bool(u.local_target_misconfigured(url)), True)
+    for url in fine:
+        check(f"allowed: {url or '(empty)'}",
+              u.local_target_misconfigured(url), "")
+    msg = u.local_target_misconfigured(flagged[0])
+    check_in("the message says it is a RunPod machine", "RunPod machine", msg)
+    check_in("and names the variable to change", "COMFY_URL", msg)
+    check_in("and gives the value to use", "comfy.invisiblewall.org", msg)
+    check_in("and offers the other way out", "choose RunPod", msg)
+
+
+def test_the_contradiction_outranks_every_status_tier() -> None:
+    """A RUNNING pod at that address would answer, and the strip would proudly
+    report 'live from your ComfyUI' while rendering on the wrong machine. The
+    contradiction has to win over reachability, not follow it."""
+    real_base = ba.COMFY_BASE
+    try:
+        ba.COMFY_BASE = "https://pdn5pxpkrchofk-8188.proxy.runpod.net"
+        out = u._model_status_html("local")
+        check_in("the strip leads with the contradiction",
+                 "pointing at RunPod, not your computer", out)
+        check_not_in("and never claims it is live", "live from your ComfyUI", out)
+        check_not_in("nor blames the tunnel", "start ComfyUI + the", out)
+        # The RunPod target is unaffected — that address is correct for it.
+        pod_out = u._model_status_html("pod")
+        check_not_in("the pod target is not flagged",
+                     "pointing at RunPod, not your computer", pod_out)
+        # A proper tunnel is left alone.
+        ba.COMFY_BASE = "https://comfy.invisiblewall.org"
+        out = u._model_status_html("local")
+        check_not_in("a real tunnel is not flagged",
+                     "pointing at RunPod, not your computer", out)
+    finally:
+        ba.COMFY_BASE = real_base
+
+
 def test_stop_clears_the_slot_for_the_next_render() -> None:
     reset(running=True, proc=FakeProc(alive=False))
     u.claim_render_slot()                      # heals + claims
@@ -167,6 +250,8 @@ if __name__ == "__main__":
                    test_an_idle_slot_is_claimed,
                    test_a_live_render_is_refused_out_loud,
                    test_a_stale_flag_heals_instead_of_blocking_forever,
+                   test_my_computer_pointed_at_runpod_is_called_out,
+                   test_the_contradiction_outranks_every_status_tier,
                    test_stop_clears_the_slot_for_the_next_render):
             print(f"\n-- {fn.__name__}")
             fn()

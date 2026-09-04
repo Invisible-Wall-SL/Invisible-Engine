@@ -895,6 +895,29 @@ def _rel_time(epoch: float) -> str:
     return "just now"
 
 
+# Hosts that are unmistakably NOT "my computer". `COMFY_URL` is documented as
+# the Cloudflare tunnel to the user's own ComfyUI — `iw_common.comfy.comfy_url`
+# literally says "the full ComfyUI tunnel base URL" — but nothing enforces it,
+# and it was at some point pointed at a RunPod pod. "My computer" then silently
+# addressed a machine in a data centre, and the panel said "your ComfyUI has
+# never answered at https://<pod>-8188.proxy.runpod.net": true, and baffling.
+_REMOTE_HOST_MARKERS = (".proxy.runpod.net", "runpod.ai", "runpod.io")
+
+
+def local_target_misconfigured(url: str) -> str:
+    """Why `url` cannot be the user's own machine, or "" if it's plausible.
+
+    Checked BEFORE reachability: a running pod at that address would answer
+    happily and render on the wrong machine, which is worse than not answering
+    at all."""
+    host = (urllib.parse.urlparse(url or "").hostname or "").lower()
+    if any(marker in host for marker in _REMOTE_HOST_MARKERS):
+        return (f"{url} is a RunPod machine, not your computer. Set COMFY_URL "
+                "on the atlas-tool service to your tunnel "
+                "(https://comfy.invisiblewall.org), or choose RunPod above.")
+    return ""
+
+
 def _model_status_html(target: str = "local") -> str:
     """The Settings panel's "where did these dropdowns come from" strip, for
     the machine the render will run on.
@@ -915,6 +938,16 @@ def _model_status_html(target: str = "local") -> str:
     pod = target == "pod"
     lead = f'<b>{"RunPod" if pod else "My computer"}</b> · '
     base = html.escape(str(batch_atlas.COMFY_BASE))
+    # A contradiction outranks every tier: if "My computer" is addressing a
+    # RunPod host, saying "not answering" (or worse, "live") describes the
+    # wrong machine and sends the user off to restart a tunnel that was never
+    # the problem.
+    if not pod:
+        mis = local_target_misconfigured(str(batch_atlas.COMFY_BASE))
+        if mis:
+            return (f'<div class="mdlstat bad"><span>{lead}<b>This is pointing '
+                    f'at RunPod, not your computer</b> — {html.escape(mis)}'
+                    f'</span>{btn}</div>')
     if st.get("live"):
         return (f'<div class="mdlstat ok"><span>{lead}Model lists: '
                 f'<b>live from your ComfyUI</b> ({base})</span>{btn}</div>')
@@ -2400,6 +2433,18 @@ def run_render(names: list[str], variants: int = 1,
         runpod_control.ensure_pod_ready(comfy_env.get("COMFY_URL", ""), log=_wlog)
     if target == "local":
         url = comfy_env.get("COMFY_URL") or str(batch_atlas.COMFY_BASE)
+        # Before asking whether it answers: is it even the right machine? A
+        # RUNNING pod at this address would answer and render remotely, which
+        # is exactly the outcome the user chose "My computer" to avoid.
+        mis = local_target_misconfigured(url)
+        if mis:
+            with _render_lock:
+                _render_state.update(
+                    running=False, done=True, cur=0, total=total, diagnostics=[],
+                    log=(f"✖ Run generation on = My computer, but the address "
+                         f"configured for it is not your computer.\n{mis}\n"
+                         "Nothing was submitted.\n"))
+            return
         if not _comfy_answers(url, comfy_env):
             with _render_lock:
                 _render_state.update(
