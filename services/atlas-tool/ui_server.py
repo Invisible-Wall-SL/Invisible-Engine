@@ -267,7 +267,8 @@ HOST = os.environ.get("ATLAS_BIND_HOST", "0.0.0.0")
 BUILD = "v15-extra-prompts"  # shown in the startup banner so you can verify the live code
 
 _render_state = {"running": False, "log": "", "done": False, "cur": 0,
-                 "total": 0, "diagnostics": [], "started": 0.0}
+                 "total": 0, "diagnostics": [], "started": 0.0,
+                 "runpodJob": ""}
 _render_lock = threading.Lock()
 _render_proc: subprocess.Popen | None = None
 _stopped = False
@@ -2229,10 +2230,25 @@ def rebuild_fx_layers(m: dict, base_names: set | None = None) -> list[str]:
 
 
 def stop_render() -> str:
-    """Terminate the running batch_atlas subprocess and best-effort interrupt
-    the in-flight ComfyUI generation."""
+    """Stop everything this render started — locally AND remotely.
+
+    Killing the subprocess only ends OUR side. Two things kept going:
+
+    * a RunPod job carried on rendering and BILLING. The worker is already
+      built to notice a cancel (`handler.py::_job_cancelled` polls RunPod
+      every 5s precisely so a cancelled job stops instead of running to
+      completion) — nobody was ever calling `/cancel`.
+    * ComfyUI's PENDING queue was never cleared. `/interrupt` aborts only the
+      job executing right now, so anything queued behind it starts next.
+
+    Every step is best-effort and independent: a failure in one must not stop
+    the others, and none of them may raise into the Stop button."""
     global _stopped
     _stopped = True
+    done: list[str] = []
+    with _render_lock:
+        job_id = str(_render_state.get("runpodJob") or "")
+        _render_state["runpodJob"] = ""
     proc = _render_proc
     if proc and proc.poll() is None:
         proc.terminate()
@@ -2240,14 +2256,24 @@ def stop_render() -> str:
             proc.wait(timeout=3)
         except subprocess.TimeoutExpired:
             proc.kill()
-    try:  # best effort: tell ComfyUI to abort the current job
-        req = urllib.request.Request(
-            f"{batch_atlas.COMFY_BASE}/interrupt", data=b"", method="POST",
-            headers=batch_atlas.CF_HEADERS)
-        urllib.request.urlopen(req, timeout=5).read()
-    except Exception:  # noqa: BLE001
-        pass
-    return "Stopping…"
+        done.append("render stopped")
+    if job_id:
+        why = batch_atlas.runpod_cancel(job_id)
+        done.append(f"RunPod job {job_id[:8]} cancelled" if not why
+                    else f"could not cancel RunPod job {job_id[:8]} ({why})")
+    for path, body, label in (
+            ("/interrupt", b"", "current job interrupted"),
+            ("/queue", json.dumps({"clear": True}).encode(), "queue cleared")):
+        try:
+            req = urllib.request.Request(
+                f"{batch_atlas.COMFY_BASE}{path}", data=body, method="POST",
+                headers={"Content-Type": "application/json",
+                         **batch_atlas.CF_HEADERS})
+            urllib.request.urlopen(req, timeout=5).read()
+            done.append(label)
+        except Exception:  # noqa: BLE001 — nothing listening is normal here
+            pass
+    return "Stopping… " + (", ".join(done) if done else "nothing was running")
 
 
 def _run_cmd(cmd: list[str], total: int, post_hook=None,
@@ -2285,6 +2311,14 @@ def _run_cmd(cmd: list[str], total: int, post_hook=None,
             with _render_lock:
                 if d is not None:
                     _render_state["diagnostics"].append(d)
+                    continue
+                # The in-flight RunPod job id, so Stop can cancel the REMOTE
+                # job. Kept out of the visible log — it is plumbing, and the
+                # readable "... serverless job <id> IN_QUEUE" line already
+                # tells the user what is running.
+                if line.startswith(batch_atlas.RUNPOD_JOB_MARK):
+                    _render_state["runpodJob"] = line[
+                        len(batch_atlas.RUNPOD_JOB_MARK):].strip()
                     continue
                 _render_state["log"] += line
                 mt = _PROG_RE.search(line)

@@ -2457,6 +2457,26 @@ def build_workflow_flux(region: dict, style: dict, atlas_path: str) -> dict:
 # and fed into the SAME _persist_variant path the http transport uses. See
 # docs/design/comfyui-serverless.md and services/atlas-serverless/handler.py.
 # --------------------------------------------------------------------------
+# Marker line carrying the in-flight RunPod job id to the UI process, which
+# cannot otherwise know it. `ui_server.stop_render` reads it so Stop can cancel
+# the REMOTE job, not just the local poller.
+RUNPOD_JOB_MARK = "@@RUNPOD_JOB@@"
+
+
+def runpod_cancel(job_id: str) -> str:
+    """Ask RunPod to cancel `job_id`. Returns "" on success, else a reason.
+
+    Called from the UI process on Stop. Best-effort by design: a cancel that
+    fails must not stop us terminating the local subprocess."""
+    if not (job_id or "").strip():
+        return "no job id"
+    try:
+        _runpod_post(f"/cancel/{job_id.strip()}", {})
+        return ""
+    except Exception as e:  # noqa: BLE001 - report, never raise into Stop
+        return f"{type(e).__name__}: {e}"
+
+
 def _runpod_endpoint_base() -> str:
     eid = (os.environ.get("RUNPOD_ENDPOINT_ID") or "").strip()
     if not eid:
@@ -2518,6 +2538,12 @@ def _runpod_run_and_wait(job: dict, region_name: str) -> dict:
     jid = resp.get("id")
     if not jid:
         raise RuntimeError(f"RunPod /run did not return a job id: {resp}")
+    # Announce the job id on a machine-readable line so the UI can CANCEL it if
+    # the user presses Stop. Killing this subprocess only stops the polling —
+    # the worker keeps rendering and billing unless RunPod is told. The worker
+    # is already built to notice (handler.py `_job_cancelled`); nobody was
+    # telling it.
+    print(f"{RUNPOD_JOB_MARK}{jid}", flush=True)
     deadline = time.time() + 1800  # 30 min cap — cold start + model load + gen
     started = time.time()
     last_tick = started
