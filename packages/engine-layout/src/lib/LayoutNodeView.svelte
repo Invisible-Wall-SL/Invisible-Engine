@@ -19,8 +19,6 @@
 		EffectPlayer,
 		Flipbook,
 		Rectangle,
-		RiggedEffect,
-		RiggedFlipbook,
 		Sprite,
 		SpineBoneAttach,
 		SpineProvider,
@@ -49,9 +47,6 @@
 	import { resolveComponent } from './registerComponents';
 	import { resolveEffect } from './registerEffects';
 	import { foldFlipbookPlayback, resolveFlipbook } from './registerFlipbooks';
-	import { resolveRigFx } from './registerRigFx';
-	import { rigBeatKey } from './rigBeat';
-	import { resolveRigFlipbooks } from './registerRigFlipbooks';
 	import { getComponentParams } from './componentParamsContext';
 	import { getComponentPress } from './componentActionsContext';
 	import { getComponentSignalAnims } from './componentSignalContext';
@@ -934,60 +929,6 @@
 					</SpineBoneAttach>
 				{/if}
 			{/if}
-			<!--
-				Rig-timeline direct FX binding: effects the Rigger bound DIRECTLY on this rig's
-				animation event keys (`event.fx`, baked into the `rigFx` manifest, keyed by this rig's
-				assetKey). Each plays a chosen effect on the beat of the rig's OWN event — no Scene-Editor
-				placement, no cue-string matching. Empty for a rig with no bindings (parity — nothing mounts).
-			-->
-			{@const rigBinds = resolveRigFx(spineAssetKey ?? node.assetKey)}
-			{#each rigBinds as b (rigBeatKey(b) + b.effectId + ':' + (b.bone ?? '') + ':' + (b.slot ?? ''))}
-				{@const d = resolveEffect(b.effectId)}
-				{#if d}
-					<RiggedEffect
-						doc={d}
-						event={b.event}
-						animation={b.animation}
-						time={b.time}
-						bone={b.bone}
-						drawSlot={b.slot}
-						alpha={b.alpha}
-						scale={b.scale}
-						delay={b.delay}
-						duration={b.duration}
-						speed={b.speed}
-						continuous={b.continuous}
-					/>
-				{/if}
-			{/each}
-
-			<!--
-				Rig-timeline direct FLIPBOOK binding — the frame-animation twin of the block above
-				(`event.flipbook`, baked into the `rigFlipbooks` manifest, keyed by this rig's assetKey).
-				The clip resolves from the boot-registered clips and the binding's PLAYBACK overrides are
-				folded into it here, through the SAME `foldFlipbookPlayback` a placed node and a symbol
-				cell use — so one authored clip walks the same way wherever it is bound. A dangling /
-				un-baked id ⇒ nothing mounts. Empty for a rig with no bindings (parity).
-			-->
-			{@const rigClips = resolveRigFlipbooks(spineAssetKey ?? node.assetKey)}
-			{#each rigClips as b (rigBeatKey(b) + b.clipId + ':' + (b.bone ?? '') + ':' + (b.slot ?? ''))}
-				{@const registered = resolveFlipbook(b.clipId)}
-				{#if registered}
-					<RiggedFlipbook
-						clip={foldFlipbookPlayback(registered, b)}
-						event={b.event}
-						animation={b.animation}
-						time={b.time}
-						bone={b.bone}
-						drawSlot={b.slot}
-						alpha={b.alpha}
-						scale={b.scale}
-						delay={b.delay}
-						duration={b.duration}
-						continuous={b.continuous}
-					/>
-				{/if}
-			{/each}
 		</SpineProvider>
 	{:else if node.kind === 'text'}
 		{#if numericValue !== undefined}

@@ -48,7 +48,8 @@
 	 * spine event named `event` fires, this (re)plays `doc` from t=0, hosted on `bone` (or the rig
 	 * origin when absent).
 	 *
-	 * Mounts INSIDE the rig's `<SpineProvider>` (via `LayoutNodeView` / `SymbolSpineMain`). Two things
+	 * Mounted INSIDE the rig's `<SpineProvider>`, by that component itself for every rig that has a
+	 * binding (see `rigBoundContent.ts`). Two things
 	 * this component OWNS that the generic mount does NOT give for free:
 	 *
 	 * 1. **Rig-scoped firing (no cross-talk).** We listen DIRECTLY to the host skeleton's own

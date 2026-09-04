@@ -201,6 +201,7 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-04 — **A rig-timeline `event.flipbook` binding now plays wherever the rig is mounted.** The clip half of the same two-mount-sites gap; `<SpineProvider>` resolves and mounts bound clips itself now. Detail in [fx status](fx.md).
 - 2026-09-04 — **A failed render now names the node and the exception — thirteen tiles read
   `job FAILED: comfy execution error` and nothing else.** Owner, right after the contract fix
   shipped: *"I still get job FAILED: comfy execution error"* — a DIFFERENT failure (ComfyUI

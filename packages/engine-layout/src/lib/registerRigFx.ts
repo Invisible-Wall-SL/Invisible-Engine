@@ -19,6 +19,7 @@
 
 import { readRigBeat, type RigBeat } from './rigBeat';
 import { bundleFolderOf } from './rigBundleKey';
+import { installRigBoundContent } from './rigBoundContentInstall';
 
 /**
  * The per-binding OVERRIDES an author sets on the keyframe, beside the effect itself. Every one is
@@ -144,6 +145,10 @@ const registry = new Map<string, RigFxBinding[]>();
  */
 export function registerRigFx(map: Record<string, RigFxBinding[]>): void {
 	if (!map || typeof map !== 'object') return;
+	// Join this registry to `<SpineProvider>`'s bound-content seam, so EVERY rig plays what the
+	// Rigger bound on its timeline — not just the two mount sites that used to hand-roll the
+	// lookup. Idempotent; see `rigBoundContentInstall.ts`.
+	installRigBoundContent();
 	for (const [rigKey, binds] of Object.entries(map)) {
 		if (!rigKey || !Array.isArray(binds)) continue;
 		const clean: RigFxBinding[] = [];

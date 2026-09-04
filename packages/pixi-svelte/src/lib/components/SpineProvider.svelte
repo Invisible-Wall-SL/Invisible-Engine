@@ -37,10 +37,13 @@
 	import { authoredSpineBox } from 'constants-shared/spine';
 
 	import BaseSpineProvider from './BaseSpineProvider.svelte';
+	import RiggedEffect from './RiggedEffect.svelte';
+	import RiggedFlipbook from './RiggedFlipbook.svelte';
 	import { anchorToPivot } from '../utils.svelte';
 	import { spineBoxPivot } from '../spineBox';
 	import { getContextApp, setContextSpineLoadScale } from '../context.svelte';
 	import { getSpineLoadScale } from '../spineLoadScale';
+	import { EMPTY_RIG_BOUND_CONTENT, resolveRigBoundContent } from '../rigBoundContent';
 	import { hasAssetKey, warnMissingAsset } from '../missingAsset';
 
 	const {
@@ -110,6 +113,25 @@
 		const centre = spineBoxPivot(box, getSpineLoadScale(resolved.assetKey));
 		return { x: base.x + centre.x, y: base.y + centre.y };
 	});
+
+	/**
+	 * Content the Rigger bound DIRECTLY on this rig's animation event keyframes — effects
+	 * (`event.fx`) and flipbook clips (`event.flipbook`) — mounted for EVERY rig, whatever mounted
+	 * the rig. This is the single join that used to be hand-copied into `LayoutNodeView`'s spine
+	 * branch and `SymbolSpineMain`, which is why a rig mounted by anything else (the big-win rig, a
+	 * backdrop, a transition, a cinematic actor) played nothing. See `rigBoundContent.ts`.
+	 *
+	 * Keyed by `resolved.assetKey` — the key the bundle is actually REGISTERED under, which is
+	 * already the plain bundle folder the manifests are keyed by, even when the caller passed the
+	 * full R2 prefix an editor doc stores. (`resolveRigFx` is folder-tolerant anyway; this just
+	 * hands it the resolved key rather than relying on that fallback.)
+	 *
+	 * A rig with no bindings — nearly all of them — gets the shared frozen empty, so this costs one
+	 * map lookup per rig mount and changes nothing about how it renders.
+	 */
+	const bound = $derived(
+		resolved ? resolveRigBoundContent(resolved.assetKey) : EMPTY_RIG_BOUND_CONTENT,
+	);
 </script>
 
 <!-- Load-aware diagnostic: a spine mounted by the (now generically mounted) game tree
@@ -127,6 +149,41 @@
 	{#if spineData}
 		<BaseSpineProvider {...baseSpineProps} {scale} {pivot} {spineData} anchorFallback={anchor}>
 			{@render children()}
+			<!-- Rig-timeline bound content, mounted AFTER the caller's children so it draws over them
+				 by default — the on-top mount a binding with no `slot` asks for. A binding that names a
+				 slot is re-parented into the skeleton's own draw order by `<RiggedEffect>` /
+				 `<RiggedFlipbook>` regardless of this order. -->
+			{#each bound.effects as b (b.key)}
+				<RiggedEffect
+					doc={b.doc}
+					event={b.event}
+					animation={b.animation}
+					time={b.time}
+					bone={b.bone}
+					drawSlot={b.drawSlot}
+					alpha={b.alpha}
+					scale={b.scale}
+					delay={b.delay}
+					duration={b.duration}
+					speed={b.speed}
+					continuous={b.continuous}
+				/>
+			{/each}
+			{#each bound.flipbooks as b (b.key)}
+				<RiggedFlipbook
+					clip={b.clip}
+					event={b.event}
+					animation={b.animation}
+					time={b.time}
+					bone={b.bone}
+					drawSlot={b.drawSlot}
+					alpha={b.alpha}
+					scale={b.scale}
+					delay={b.delay}
+					duration={b.duration}
+					continuous={b.continuous}
+				/>
+			{/each}
 		</BaseSpineProvider>
 	{/if}
 {/key}
