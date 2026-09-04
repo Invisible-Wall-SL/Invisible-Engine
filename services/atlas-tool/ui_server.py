@@ -5473,6 +5473,34 @@ async function poll(){{
   refreshCredits();   // a render/compose may have spent credits
  }}
 }}
+// The SERVER owns the render, not this tab. #log and #sbtn are display:none
+// until renderSel() reveals them, and poll() only ever starts from a click in
+// THIS tab — so a reload (or leaving the page and coming back) mid-render used
+// to show a fully idle page with a live render still going behind it: no Stop
+// button, no log, no diagnostics, and the progress bar back at "▶ Render
+// selected". The only surviving hint was /render refusing the NEXT click with
+// "a render is already running (2/2, started 2 minutes ago) — press Stop",
+// naming a Stop button that was no longer on the page. Ask /progress on load
+// and take the server's answer as the truth.
+async function adoptServerRender(){{
+ let j;
+ try{{ j=await (await fetch('/progress')).json(); }}catch(e){{ return; }}
+ // The log and diagnostics outlive the run that produced them — `_run_cmd`
+ // clears both when the NEXT render starts, so what is here belongs to the
+ // most recent one. Restore them whether or not something is still running:
+ // after a FAILED render they are the entire record of what went wrong, and
+ // a reload used to be enough to lose it.
+ renderDiagnostics(j.diagnostics||[]);
+ if(j.log){{
+  let lg=document.getElementById('log');
+  lg.style.display='block'; lg.textContent=j.log; lg.scrollTop=1e9;
+ }}
+ if(!j.running) return;
+ document.getElementById('rbtn').disabled=true;
+ document.getElementById('sbtn').style.display='inline-block';
+ document.getElementById('toast').style.display='none';
+ poll();   // takes over the progress bar, the label and the Stop lifecycle
+}}
 async function refreshCredits(){{
  let el=document.getElementById('credits'); if(!el)return;
  try{{
@@ -5563,6 +5591,7 @@ function fsPick(path){{
 document.addEventListener('keydown',e=>{{if(e.key==='Escape'){{closeModal();closeAdv();closeFs();closeNewAtlas();}}}});
 window.addEventListener('DOMContentLoaded',function(){{
  updateAllLocks(); refreshCredits(); setInterval(refreshCredits,60000);
+ adoptServerRender();
 }});
 // Editor deep-link: scroll to + briefly flash the targeted region's card.
 // {flash_region} is the region key's stem (server-resolved) or empty.
