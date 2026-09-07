@@ -236,6 +236,13 @@ def blueprint_wants_source_image(blueprint: dict) -> bool:
 # --------------------------------------------------------------------------
 # RunPod submit / poll (own loop: we need the job id while it is in flight)
 # --------------------------------------------------------------------------
+def _slot_prefix(session_id: str, index: int) -> str:
+    """The hand-off prefix for one variation. ONE definition of this shape: five
+    settle paths now derive slot keys from it, and a second spelling would send one
+    of them looking in the wrong place."""
+    return f"iwvid_{session_id}_{int(index):03d}"
+
+
 def _upload_slot_keys(prefix: str) -> list[str]:
     """Where this variation's hand-off objects live. ONE definition, called by both
     the submit path and the re-attach path.
@@ -526,7 +533,7 @@ def _pick_video_output(out: dict, filename_prefix: str,
     return name, base64.b64decode(b64)
 
 
-def _rescue_upload(keys: list | None) -> bytes | None:
+def _rescue_upload(keys: list | None, newer_than: float = 0.0) -> bytes | None:
     """The render sitting in a hand-off slot, when the job's own outcome was never
     read. `None` when there is nothing there.
 
@@ -550,8 +557,21 @@ def _rescue_upload(keys: list | None) -> bytes | None:
     Best-effort by construction: nothing here raises, because a slot that really is
     empty just means the variation failed the way it used to.
     """
+    keys = list(keys or [])
+    if keys and newer_than:
+        # Only slots written since this attempt began. The mtime is on the object,
+        # so one delimited listing of the shared prefix answers for all of them.
+        try:
+            common = os.path.commonprefix(keys)
+            fresh = {str(o.get("key")) for o in storage.list_keys(common)
+                     if float(o.get("mtime") or 0) >= newer_than}
+            keys = [k for k in keys if k in fresh]
+        except Exception as e:  # noqa: BLE001 — unlistable means unproven, so drop
+            print(f"[video] could not date the hand-off slots ({e}); "
+                  "not collecting from them", flush=True)
+            return None
     found: list[bytes] = []
-    for k in (keys or []):
+    for k in keys:
         for attempt in range(3):
             try:
                 blob = storage.get_strict(k)
@@ -681,10 +701,22 @@ def _run_session(session_id: str, ctx: tuple[str, str]) -> None:
                 print(f"[video] {session_id} runner died: {e}", flush=True)
                 with _LOCK:
                     session["error"] = str(e)[:400]
-                    for v in session["variations"]:
-                        if v["status"] in ("queued", "running"):
-                            v.update(status="failed", error=str(e)[:400],
-                                     finished=_now())
+                    dying = [v for v in session["variations"]
+                             if v["status"] in ("queued", "running")]
+                # The dispatcher falling over says nothing about the renders its
+                # variations may already have delivered, so look before failing
+                # them — the same rule `_run_variation` follows one level down.
+                # Outside the lock: this reads R2.
+                for v in dying:
+                    if _collect_stranded(
+                            session_id, v,
+                            _upload_slot_keys(_slot_prefix(session_id, v["index"])),
+                            "its session's runner died",
+                            newer_than=float(v.get("started") or 0)):
+                        continue
+                    with _LOCK:
+                        v.update(status="failed", error=str(e)[:400],
+                                 finished=_now())
             with _LOCK:
                 done = sum(1 for v in session["variations"] if v["status"] == "done")
                 # A collect-only pass left the untouched tail alone on purpose, so
@@ -782,6 +814,7 @@ def _run_variations(session_id: str, session: dict, ctx: tuple[str, str]) -> Non
                 _CV.notify_all()
 
     while True:
+        stopping: list[dict] = []
         with _CV:
             if session.get("cancel"):
                 for v in session["variations"]:
@@ -794,7 +827,7 @@ def _run_variations(session_id: str, session: dict, ctx: tuple[str, str]) -> Non
                     # session first" — after the session HAD been cancelled.
                     if v["status"] == "queued" or (
                             v["status"] == "running" and v["index"] not in in_flight):
-                        v.update(status="cancelled", finished=_now())
+                        stopping.append(v)
                 break
             # RE-PICKED every iteration rather than iterated once, so a slot armed
             # WHILE this pass is running — a re-roll of an earlier tile, or fresh
@@ -844,9 +877,27 @@ def _run_variations(session_id: str, session: dict, ctx: tuple[str, str]) -> Non
             # its claim has to be undone here or the drain below waits forever.
             with _CV:
                 in_flight.discard(var["index"])
-                var.update(status="failed", error=str(e)[:600], finished=_now())
-            print(f"[video] {session_id} v{var['index']:03d} could not start: {e}",
-                  flush=True)
+            if not _collect_stranded(
+                    session_id, var,
+                    _upload_slot_keys(_slot_prefix(session_id, var["index"])),
+                    "its worker thread could not start",
+                    newer_than=float(var.get("started") or 0)):
+                with _CV:
+                    var.update(status="failed", error=str(e)[:600],
+                               finished=_now())
+                print(f"[video] {session_id} v{var['index']:03d} could not "
+                      f"start: {e}", flush=True)
+    # A stop settles these, and an unclaimed `running` one is a resumed tile whose
+    # worker may already have PUT its render — so look before discarding it. Done
+    # outside `_CV` because it reads R2.
+    for v in stopping:
+        if not _collect_stranded(
+                session_id, v,
+                _upload_slot_keys(_slot_prefix(session_id, v["index"])),
+                "the session was stopped after the worker had uploaded",
+                newer_than=float(v.get("started") or 0)):
+            with _LOCK:
+                v.update(status="cancelled", finished=_now())
     # Drain. On cancel this is what actually stops the spend: each thread's
     # `should_stop` makes `_await_job` cancel its own job remotely on the way out.
     with _CV:
@@ -859,7 +910,14 @@ def _run_variation(session_id: str, session: dict, bp: dict, var: dict,
     """Run ONE claimed variation to a terminal status: submit (or re-attach),
     await, collect, persist. Never raises — a bad variation is recorded on the
     slot so the rest of the session carries on."""
-    prefix = f"iwvid_{session_id}_{var['index']:03d}"
+    prefix = _slot_prefix(session_id, var["index"])
+    # BOUND BEFORE THE TRY, because the failure arms read it. Everything that can
+    # go wrong before `_submit` returns — RunPod refusing `/run`, a missing ref
+    # image, a bad blueprint, an R2 hiccup on the first `_write_meta` — used to be
+    # recorded as a red tile with its reason; reading an unbound name in the
+    # handler instead raised out of a function whose contract is "never raises",
+    # leaving the tile spinning at `running` with no error and no way to re-roll it.
+    upload_keys: list = []
     try:
         if resume:
             # A variation already carrying a job id was submitted by a PREVIOUS
@@ -890,42 +948,83 @@ def _run_variation(session_id: str, session: dict, bp: dict, var: dict,
             # to a job that was already running (and already paid for) — the
             # session then sat at "running" forever with its result stranded.
             _write_meta(session_id, session)
-        try:
-            out = _await_job(job_id, var, should_stop, resumed=resume)
-            _, blob = _pick_video_output(out, prefix, upload_keys)
-        except _Unresolved as e:
-            # The outcome was unreadable, which says nothing about the RENDER. Look
-            # where the worker puts it before calling this variation failed: on
-            # 2026-09-07 three deploys orphaned five jobs whose finished renders
-            # were already in R2, and every one of them was reported as a failure.
-            blob = _rescue_upload(upload_keys)
-            if blob is None:
-                raise
-            # A record in `meta.json`, not something the page shows: the tile is
-            # `done` on the next line, and the UI only renders `remote_status`
-            # while a tile is running. It is here so the next person reading a
-            # session's doc can see which tiles came back this way.
-            with _LOCK:
-                var["remote_status"] = "RECOVERED"
-            print(f"[video] {session_id} v{var['index']:03d} collected its render "
-                  f"from R2 after the job itself became unreadable ({e})",
-                  flush=True)
-        fname = _persist(session_id, var["index"], blob)
-        # The hand-off slots are scratch. `_persist` has just written the real
-        # object, so leaving them would double every session's storage and put
-        # files under the session prefix that nothing references.
-        _clear_upload_slots(upload_keys)
-        with _LOCK:
-            var.update(status="done", file=fname, bytes=len(blob),
-                       finished=_now(), error="")
+        out = _await_job(job_id, var, should_stop, resumed=resume)
+        _, blob = _pick_video_output(out, prefix, upload_keys)
+        _keep(session_id, var, blob, upload_keys)
     except _Cancelled:
-        with _LOCK:
-            var.update(status="cancelled", finished=_now())
+        # A stop that lands after the worker has already PUT its result. The GPU
+        # time is spent either way, so take the render rather than throw it away —
+        # and note that a re-roll of this slot would DELETE it (`_submit` empties
+        # the slots), so "leave it there for later" is not a real option.
+        if not _collect_stranded(session_id, var, upload_keys,
+                                 "the stop landed after the worker had uploaded"):
+            with _LOCK:
+                var.update(status="cancelled", finished=_now())
     except Exception as e:  # noqa: BLE001 — one bad variation must not kill the rest
-        with _LOCK:
-            var.update(status="failed", error=str(e)[:600], finished=_now())
-        print(f"[video] {session_id} v{var['index']:03d} failed: {e}", flush=True)
+        # EVERY way of ending badly looks in the slot, not just the unreadable
+        # ones. `_Unresolved` was the only arm that did, which left a finished
+        # render stranded whenever RunPod reported FAILED/TIMED_OUT/CANCELLED
+        # after the worker's upload, or handed back an empty payload — the same
+        # "paid render, red tile" the rescue exists to prevent, one branch along.
+        if not _collect_stranded(session_id, var, upload_keys,
+                                 f"the job ended unusably ({str(e)[:160]})"):
+            with _LOCK:
+                var.update(status="failed", error=str(e)[:600], finished=_now())
+            print(f"[video] {session_id} v{var['index']:03d} failed: {e}", flush=True)
     _write_meta(session_id, session)
+
+
+def _keep(session_id: str, var: dict, blob: bytes, upload_keys: list | None) -> None:
+    """Persist a collected render and settle its variation as done."""
+    fname = _persist(session_id, var["index"], blob)
+    # The hand-off slots are scratch. `_persist` has just written the real
+    # object, so leaving them would double every session's storage and put
+    # files under the session prefix that nothing references.
+    _clear_upload_slots(upload_keys)
+    with _LOCK:
+        var.update(status="done", file=fname, bytes=len(blob),
+                   finished=_now(), error="")
+
+
+def _collect_stranded(session_id: str, var: dict, upload_keys: list | None,
+                      why: str, newer_than: float = 0.0) -> bool:
+    """Take the render out of the hand-off slot when the job itself ended badly.
+    True when there was one. The caller settles the variation only if this is False.
+
+    What stops it collecting the WRONG render is that `_submit` empties the slots
+    before the job runs, so whatever is in them belongs to this attempt. Two callers
+    do NOT go through `_submit` — `_adopt`'s lost-job-id arm, and a `queued`
+    variation caught by the runner-died sweep — so they pass `newer_than` (the
+    attempt's `started`) and a slot older than that is ignored. Without it, a tile
+    stopped and then re-rolled could come back green showing the CANCELLED
+    attempt's render under the new seed's recipe: wrong bytes, silently, which is
+    worse than the red tile it replaces.
+    """
+    try:
+        blob = _rescue_upload(upload_keys, newer_than=newer_than)
+        if blob is None:
+            return False
+        # `remote_status` is a record in `meta.json`, not something the page shows —
+        # the tile is `done` an instant later and the UI only renders it while a
+        # tile is running. It is here so the next person reading a session doc can
+        # see which tiles came back this way.
+        with _LOCK:
+            var["remote_status"] = "RECOVERED"
+        _keep(session_id, var, blob, upload_keys)
+    except Exception as e:  # noqa: BLE001 — a rescue that fails is just a miss
+        # NOTHING here may escape. These calls happen inside `except` arms, where a
+        # raise is not caught by a sibling handler: it escapes `_run_variation`,
+        # whose claim is already cleared by `run_one`'s `finally`, so the dispatcher
+        # re-picks the still-`running` tile as a resume candidate and spins on it —
+        # measured at ~500 re-attaches in six seconds, with `_ACTIVE` pinned and
+        # every later Generate refused. An R2 PUT wobble is enough to trigger it,
+        # which is precisely what `_rescue_upload` already retries for.
+        print(f"[video] {session_id} v{var['index']:03d} could not collect a "
+              f"stranded render ({e})", flush=True)
+        return False
+    print(f"[video] {session_id} v{var['index']:03d} collected its render from "
+          f"R2 — {why}", flush=True)
+    return True
 
 
 def start_session(req: dict, ctx: tuple[str, str], user: str = "") -> dict:
@@ -1390,19 +1489,42 @@ def _adopt(stored: dict, collect_only: bool = False) -> dict | None:
         stored["status"] = "cancelled"
         stored["finished"] = _now()
         for v in stored.get("variations", []):
-            if v.get("status") in ("running", "queued"):
-                v["status"] = "failed"
-                v["error"] = ("The blueprint this session used is no longer in "
-                              "the library, so it cannot be resumed.")
+            if v.get("status") not in ("running", "queued"):
+                continue
+            # A missing blueprint blocks RE-RUNNING the session. It says nothing
+            # about a render that already exists, so collect that first.
+            if _collect_stranded(
+                    sid, v, _upload_slot_keys(_slot_prefix(sid, v.get("index") or 0)),
+                    "its blueprint is gone, but the render was not",
+                    newer_than=float(v.get("started") or 0)):
+                continue
+            v["status"] = "failed"
+            v["error"] = ("The blueprint this session used is no longer in "
+                          "the library, so it cannot be resumed.")
         _write_meta(sid, stored)
         return stored
     for v in stored.get("variations", []):
         # Submitted-but-unrecorded: the id was lost with the process, so we
         # cannot re-attach and must not silently re-submit a paid job.
         if v.get("status") == "running" and not v.get("job_id"):
+            # But the RENDER may be here regardless. The slot keys come from the
+            # session id and the variation index, never from the job id — so this
+            # is the one lost-job case where the result is still addressable, and
+            # marking it failed without looking threw away a finished render.
+            if _collect_stranded(
+                    sid, v, _upload_slot_keys(_slot_prefix(sid, v.get("index") or 0)),
+                    "it lost its job id to a restart",
+                    newer_than=float(v.get("started") or 0)):
+                # PERSISTED HERE. `_keep` has already emptied the slot, so unlike a
+                # `failed` verdict this one is not re-derivable: a later read that
+                # found the doc still saying `running` would look in an empty slot,
+                # write `failed`, and orphan the render it had just rescued.
+                _write_meta(sid, stored)
+                continue
             v["status"] = "failed"
             v["error"] = ("Interrupted by a service restart before its job id was "
-                          "recorded — re-roll this variation.")
+                          "recorded, and nothing was uploaded — re-roll this "
+                          "variation.")
     ctx = (str(stored.get("client") or ""), str(stored.get("project") or ""))
     with _LOCK:
         # CHECK AND INSERT UNDER ONE LOCK. Every caller reads `_SESSIONS`, decides
@@ -1482,8 +1604,9 @@ def resume_orphans() -> list[str]:
     Adoption already existed — but only as something a READ triggers, and the
     reader is a person. On 2026-09-07 three Railway rollouts orphaned two sessions
     and nobody opened them for two and a half hours; by then RunPod had dropped
-    every job record (it keeps a finished one about half an hour) and eight
-    finished renders had to be recovered from their hand-off slots by hand. A
+    every job record (it keeps a finished one about half an hour) and five
+    finished renders had to be recovered from their hand-off slots by hand (eight
+    more, from earlier in the week, were found in the same sweep). A
     container that looks the moment it boots re-attaches within seconds, while the
     job is still readable and its result still collectable the ordinary way.
 
@@ -1580,11 +1703,23 @@ def cancel_session(session_id: str) -> dict:
             # visibly nothing, since the flag was not even persisted (see below).
             # Which is precisely the session anyone most wants to stop.
             settle = _ACTIVE != session_id
-            if settle:
-                for v in s["variations"]:
-                    if v["status"] in ("queued", "running"):
-                        v.update(status="cancelled", finished=_now())
-                s.update(status="cancelled", finished=_now())
+            stopping = [v for v in s["variations"]
+                        if settle and v["status"] in ("queued", "running")]
+    if s and stopping:
+        # Outside the lock: this reads R2. A `running` tile here carries a job id
+        # whose worker may already have PUT its render — the queued-orphan case
+        # reaches this arm just by opening two sessions after a redeploy.
+        for v in stopping:
+            if not _collect_stranded(
+                    session_id, v,
+                    _upload_slot_keys(_slot_prefix(session_id, v["index"])),
+                    "the session was stopped after the worker had uploaded",
+                    newer_than=float(v.get("started") or 0)):
+                with _LOCK:
+                    v.update(status="cancelled", finished=_now())
+    if s and settle:
+        with _LOCK:
+            s.update(status="cancelled", finished=_now())
     if s:
         failed = [jid for jid in in_flight if not _cancel_job(jid)]
         # ALWAYS persist. `cancel` used to be written only on the settling path, so
@@ -1615,6 +1750,14 @@ def cancel_session(session_id: str) -> dict:
         # has always filtered on `running`.
         if v.get("status") == "running" and v.get("job_id"):
             stopped.append(v["job_id"])
+        # The session someone most wants to stop is the orphaned one — which is
+        # also the one whose job has had the longest to finish and upload.
+        if _collect_stranded(
+                session_id, v,
+                _upload_slot_keys(_slot_prefix(session_id, v.get("index") or 0)),
+                "the session was stopped after the worker had uploaded",
+                newer_than=float(v.get("started") or 0)):
+            continue
         v["status"] = "cancelled"
         v["finished"] = _now()
     stored["cancel"] = True
@@ -1719,14 +1862,18 @@ def delete_session(session_id: str) -> dict:
         _SESSIONS.pop(session_id, None)
         if session_id in _QUEUE:
             _QUEUE.remove(session_id)
-    prefix = f"{_video_prefix()}/{session_id}/"
     removed = 0
-    try:
-        for obj in storage.list_keys(prefix):
-            storage.delete(obj["key"])
-            removed += 1
-    except Exception as e:  # noqa: BLE001
-        print(f"[video] delete failed for {session_id}: {e}", flush=True)
+    # The session's own objects AND its hand-off slots. The slots live under
+    # `video/_out/`, not under the session, so deleting only the session prefix
+    # leaked one file per stranded render — unreferenced, unreachable, and paid for.
+    for prefix in (f"{_video_prefix()}/{session_id}/",
+                   f"{_video_prefix()}/_out/{_slot_prefix(session_id, 0)[:-3]}"):
+        try:
+            for obj in storage.list_keys(prefix):
+                storage.delete(obj["key"])
+                removed += 1
+        except Exception as e:  # noqa: BLE001
+            print(f"[video] delete failed for {session_id}: {e}", flush=True)
     try:
         d = Path(project_paths.resolve()["staging_root"]) / "video" / session_id
         for f in sorted(d.glob("*")):

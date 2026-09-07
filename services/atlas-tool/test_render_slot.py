@@ -375,6 +375,118 @@ def test_stop_cancels_the_remote_job_not_just_the_local_poller() -> None:
         u.urllib.request.urlopen = real_urlopen  # type: ignore[assignment]
 
 
+def test_an_unreadable_poll_does_not_fail_a_running_still_render() -> None:
+    """The still path used to raise on the FIRST bad `/status` read, so one RunPod
+    500 — or a 404 for a job it had not indexed yet — killed a region whose render
+    was still going and still billing. The video path learned this in #540; this is
+    the same lesson on the transport every SDXL/FLUX region goes through.
+
+    Fixtured against the loop directly, because there is no hand-off slot on this
+    path: a job genuinely lost here is a lost render, so the grace IS the guard."""
+    real_get, real_post = ba._runpod_get, ba._runpod_post
+    real_cancel, real_sleep = ba.runpod_cancel, ba.time.sleep
+    real_grace = ba.STATUS_GRACE_SECONDS
+    cancelled: list = []
+    ba.time.sleep = lambda _s: None
+    ba._runpod_post = lambda path, payload: {"id": "job-still-1"}
+    ba.runpod_cancel = lambda jid: (cancelled.append(jid) or "")
+    try:
+        reads = {"n": 0}
+
+        def flaky(path):
+            reads["n"] += 1
+            if reads["n"] == 1:
+                return {"status": "IN_PROGRESS"}
+            if reads["n"] in (2, 3):
+                raise ba.RunPodHTTPError(500, "RunPod /status failed: HTTP 500")
+            return {"status": "COMPLETED", "output": {"images": [{"x": 1}]}}
+
+        ba._runpod_get = flaky
+        out = ba._runpod_run_and_wait({"input": {}}, "H1")
+        check("a blip mid-render does not fail the region",
+              out, {"images": [{"x": 1}]})
+        check("and nothing is cancelled over a read that merely failed",
+              cancelled, [])
+
+        cancelled.clear()
+        ba.STATUS_GRACE_SECONDS = 0.05
+
+        def always_500(path):
+            raise ba.RunPodHTTPError(500, "RunPod /status failed: HTTP 500")
+
+        ba._runpod_get = always_500
+        try:
+            ba._runpod_run_and_wait({"input": {}}, "H1")
+            check("a job we can no longer read is failed", False, True)
+        except RuntimeError as e:
+            check_in("the message says contact was lost", "lost contact", str(e))
+        check("and it is stopped so it stops burning", cancelled, ["job-still-1"])
+    finally:
+        ba._runpod_get, ba._runpod_post = real_get, real_post
+        ba.runpod_cancel, ba.time.sleep = real_cancel, real_sleep
+        ba.STATUS_GRACE_SECONDS = real_grace
+
+
+def test_a_purged_still_job_is_named_as_such_and_not_cancelled() -> None:
+    """A 404 after a successful read is an ANSWER — RunPod drops a finished job's
+    record after ~30 min — so it gives up on the short budget, does not pretend to
+    cancel a job that no longer exists, and does not blame the graph. A 404 BEFORE
+    any successful read is just a job not indexed yet, and keeps the long grace."""
+    real_get, real_post = ba._runpod_get, ba._runpod_post
+    real_cancel, real_sleep = ba.runpod_cancel, ba.time.sleep
+    real_short, real_long = ba.NOT_FOUND_GRACE_SECONDS, ba.STATUS_GRACE_SECONDS
+    real_emit = ba.emit
+    cancelled: list = []
+    diags: list = []
+    ba.time.sleep = lambda _s: None
+    ba._runpod_post = lambda path, payload: {"id": "job-still-2"}
+    ba.runpod_cancel = lambda jid: (cancelled.append(jid) or "")
+    ba.emit = lambda line: diags.append(str(line))
+    try:
+        reads = {"n": 0}
+
+        def read_then_gone(path):
+            reads["n"] += 1
+            if reads["n"] == 1:
+                return {"status": "IN_PROGRESS"}
+            raise ba.RunPodHTTPError(404, "RunPod /status: HTTP 404 Not Found")
+
+        ba._runpod_get = read_then_gone
+        ba.NOT_FOUND_GRACE_SECONDS = 0.05
+        ba.STATUS_GRACE_SECONDS = 30.0   # if this were used, the test would hang
+        try:
+            ba._runpod_run_and_wait({"input": {}}, "H1")
+            check("a purged job raises", False, True)
+        except RuntimeError as e:
+            check_in("named as an expired record, not a network fault",
+                     "no longer has a record", str(e))
+        check("nothing is cancelled that RunPod has no record of", cancelled, [])
+        check("the diagnostic points at RunPod, not the graph",
+              any("RUNPOD_STATUS_UNREADABLE" in d for d in diags), True)
+        check("COMFY_NODE_FAILED is NOT emitted for a transport failure",
+              any("COMFY_NODE_FAILED" in d for d in diags), False)
+
+        cancelled.clear()
+        diags.clear()
+        ba.STATUS_GRACE_SECONDS = 0.05
+
+        def always_404(path):
+            raise ba.RunPodHTTPError(404, "RunPod /status: HTTP 404 Not Found")
+
+        ba._runpod_get = always_404
+        try:
+            ba._runpod_run_and_wait({"input": {}}, "H1")
+        except RuntimeError as e:
+            check_in("a job never once read reads as lost contact",
+                     "lost contact", str(e))
+        check("and IS stopped, because it may be live", cancelled, ["job-still-2"])
+    finally:
+        ba._runpod_get, ba._runpod_post = real_get, real_post
+        ba.runpod_cancel, ba.time.sleep = real_cancel, real_sleep
+        ba.NOT_FOUND_GRACE_SECONDS, ba.STATUS_GRACE_SECONDS = real_short, real_long
+        ba.emit = real_emit
+
+
 def test_the_job_id_reaches_the_ui_without_polluting_the_log() -> None:
     """The UI process cannot know the job id any other way — it lives in the
     subprocess. It rides a marker line, which must never show up as log noise."""
@@ -412,6 +524,8 @@ if __name__ == "__main__":
                    test_the_pod_wake_follows_the_address_the_render_will_use,
                    test_a_malformed_catalog_url_is_ignored_not_probed,
                    test_stop_cancels_the_remote_job_not_just_the_local_poller,
+                   test_an_unreadable_poll_does_not_fail_a_running_still_render,
+                   test_a_purged_still_job_is_named_as_such_and_not_cancelled,
                    test_the_job_id_reaches_the_ui_without_polluting_the_log,
                    test_stop_clears_the_slot_for_the_next_render):
             print(f"\n-- {fn.__name__}")
