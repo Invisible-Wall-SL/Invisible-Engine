@@ -80,6 +80,11 @@ MAX_QUEUED_SESSIONS = 4
 # session anyone is waiting on — RunPod dropped its jobs long ago — so re-attaching
 # to it could only ever fail, slowly, once per container start.
 RESUME_WINDOW_HOURS = float(os.environ.get("VIDEO_RESUME_WINDOW_HOURS") or 12)
+# How often one project's hand-off prefix is swept off the back of a session
+# listing. The boot sweep covers a restart; this covers a container that keeps
+# running for days. 0 turns the listing-side sweep off (the boot one still runs).
+SLOT_SWEEP_MINUTES = float(os.environ.get("VIDEO_SLOT_SWEEP_MINUTES") or 60)
+_LAST_SWEEP: dict[tuple[str, str], float] = {}
 # Poll cadence + overall per-job cap. Wan 2.2 14B on a cold worker loads ~29 GB
 # of weights before it samples anything, so the cap is generous by necessity.
 POLL_SECONDS = 3.0
@@ -241,6 +246,11 @@ def _slot_prefix(session_id: str, index: int) -> str:
     settle paths now derive slot keys from it, and a second spelling would send one
     of them looking in the wrong place."""
     return f"iwvid_{session_id}_{int(index):03d}"
+
+
+# The reverse of `_slot_prefix` + `_upload_slot_keys`: what the sweeper reads a
+# session id and a variation index back OUT of a hand-off object's name.
+_SLOT_RE = re.compile(r"/_out/iwvid_([A-Za-z0-9_-]+?)_(\d{3})_\d+\.webp$")
 
 
 def _upload_slot_keys(prefix: str) -> list[str]:
@@ -1573,13 +1583,22 @@ def _meta_keys_since(cutoff: float) -> list[str]:
     it needs lives on the object, not in its name.
     """
     keys: list[str] = []
-    for client in storage.list_prefixes(""):
-        for project in storage.list_prefixes(client):
-            for o in storage.list_keys(f"{project}video/"):
-                k = str(o.get("key") or "")
-                if k.endswith("/meta.json") and float(o.get("mtime") or 0) >= cutoff:
-                    keys.append(k)
+    for pp in _project_prefixes():
+        for o in storage.list_keys(f"{pp}video/"):
+            k = str(o.get("key") or "")
+            if k.endswith("/meta.json") and float(o.get("mtime") or 0) >= cutoff:
+                keys.append(k)
     return keys
+
+
+def _project_prefixes() -> list[str]:
+    """Every `<client>/<project>/` in the bucket, from two DELIMITED listings —
+    folder names only, so finding which projects exist costs a handful of calls
+    rather than paging the whole asset repo."""
+    out: list[str] = []
+    for client in storage.list_prefixes(""):
+        out += storage.list_prefixes(client)
+    return out
 
 
 def _is_mid_render(doc: dict) -> bool:
@@ -1595,6 +1614,29 @@ def _is_mid_render(doc: dict) -> bool:
     return str(doc.get("status")) == "running" and any(
         v.get("status") == "running" and v.get("job_id")
         for v in doc.get("variations") or [])
+
+
+def boot_recovery() -> None:
+    """What a fresh container does about the one that went away: re-attach to the
+    jobs it left in flight, then sweep every project's hand-off prefix for renders
+    nothing is coming back for. In that order — a session adopted by the first pass
+    is live, and the sweep deliberately leaves live sessions alone."""
+    resume_orphans()
+    try:
+        prefixes = _project_prefixes()
+    except Exception as e:  # noqa: BLE001 — a sweep we cannot start is not an outage
+        print(f"[video] could not list projects to sweep ({e})", flush=True)
+        return
+    for pp in prefixes:
+        try:
+            client, project = pp.strip("/").split("/", 1)
+        except ValueError:
+            continue
+        # The context belongs to the PROJECT being swept: `_persist` and
+        # `_write_meta` resolve it, and without this a collected render would land
+        # in the env-default project.
+        project_paths.set_context(client, project)
+        sweep_stranded_slots(pp)
 
 
 def resume_orphans() -> list[str]:
@@ -1664,6 +1706,124 @@ def resume_orphans() -> list[str]:
         print(f"[video] resuming {len(adopted)} session(s) interrupted by the last "
               f"restart: {', '.join(adopted)}", flush=True)
     return adopted
+
+
+def _slot_owner(key: str) -> tuple[str, int] | None:
+    """`(session id, variation index)` for a hand-off object, or None if the name
+    is not one of ours. Reads the shape `_slot_prefix` writes."""
+    m = _SLOT_RE.search(key)
+    return (m.group(1), int(m.group(2))) if m else None
+
+
+def _maybe_sweep_slots() -> None:
+    """Kick a sweep of the CALLING thread's project, at most every
+    `SLOT_SWEEP_MINUTES`.
+
+    Off the back of a session listing because that is the moment someone is
+    actually looking at these sessions, and in a thread because a listing must
+    never wait on a bucket walk.
+    """
+    if SLOT_SWEEP_MINUTES <= 0:
+        return
+    ctx = (project_paths.client_name(), project_paths.project_name())
+    with _LOCK:
+        if _now() - _LAST_SWEEP.get(ctx, 0.0) < SLOT_SWEEP_MINUTES * 60:
+            return
+        _LAST_SWEEP[ctx] = _now()
+
+    def run() -> None:
+        # A new thread inherits no context, and the sweep writes files.
+        project_paths.set_context(*ctx)
+        sweep_stranded_slots()
+
+    threading.Thread(target=run, daemon=True, name="video-slot-sweep").start()
+
+
+def sweep_stranded_slots(project_prefix: str = "") -> dict:
+    """Re-home anything left in `video/_out/`, and delete what can never be homed.
+
+    Every terminal path collects from the hand-off slot now, so in principle a slot
+    is only ever occupied between a worker's PUT and its collect. This is what makes
+    that CHECKABLE rather than assumed: on 2026-09-07 thirteen finished renders sat
+    in `_out/` for up to five days and were found only because someone went looking,
+    and nothing but this would have said so.
+
+    Per slot object, decided from what the session doc says:
+      * variation not settled, slot written since the attempt began → COLLECT it
+      * variation already `done`, or gone, or the session doc is gone → DELETE it
+        (scratch a failed `_clear_upload_slots` left behind, or a re-roll's leavings)
+      * slot older than the attempt's `started` → DELETE it: `_submit` would have
+        cleared it, and it can never legitimately be collected as this attempt
+      * session still `running`/`queued`, or live in this process → LEAVE IT ALONE.
+        A job in flight may have uploaded seconds ago and its own poller is about to
+        collect; taking it first would leave that poller reporting "the worker said
+        it uploaded, but nothing is there".
+
+    Returns `{collected, deleted, left}`. Never raises: this runs beside a listing
+    and at container start, and a bucket it cannot sweep must cost the sweep only.
+    """
+    pp = project_prefix or f"{project_paths.resolve()['r2_project_prefix']}/"
+    out = {"collected": 0, "deleted": 0, "left": 0}
+    try:
+        objs = storage.list_keys(f"{pp}video/_out/")
+    except Exception as e:  # noqa: BLE001 — an unlistable prefix is not an outage
+        print(f"[video] could not sweep {pp}video/_out/ ({e})", flush=True)
+        return out
+    by_session: dict[str, list[tuple[int, str, float]]] = {}
+    for o in objs:
+        key = str(o.get("key") or "")
+        owner = _slot_owner(key)
+        if owner:
+            by_session.setdefault(owner[0], []).append(
+                (owner[1], key, float(o.get("mtime") or 0)))
+    for sid, slots in sorted(by_session.items()):
+        try:
+            out_one = _sweep_one_session(pp, sid, slots)
+        except Exception as e:  # noqa: BLE001 — one bad session must not stop the rest
+            print(f"[video] could not sweep {sid} ({e})", flush=True)
+            out["left"] += len(slots)
+            continue
+        for k in out:
+            out[k] += out_one[k]
+    if out["collected"] or out["deleted"]:
+        print(f"[video] slot sweep of {pp}: collected {out['collected']}, "
+              f"deleted {out['deleted']}, left {out['left']}", flush=True)
+    return out
+
+
+def _sweep_one_session(pp: str, sid: str,
+                       slots: list[tuple[int, str, float]]) -> dict:
+    """The sweep's verdict for one session's leftover slot objects."""
+    out = {"collected": 0, "deleted": 0, "left": 0}
+    doc = _read_session_doc(f"{pp}video/{sid}/meta.json") if valid_session_id(sid) \
+        else None
+    with _LOCK:
+        live = sid in _SESSIONS
+    if doc is not None and (live or doc.get("status") in ("running", "queued")):
+        out["left"] += len(slots)
+        return out
+    by_index = {v.get("index"): v for v in (doc or {}).get("variations", [])}
+    touched = False
+    for index, key, mtime in sorted(slots):
+        var = by_index.get(index)
+        started = float((var or {}).get("started") or 0)
+        if var is not None and var.get("status") != "done" and mtime >= started:
+            if _collect_stranded(sid, var, [key],
+                                 "it was found by the hand-off sweep",
+                                 newer_than=started):
+                out["collected"] += 1
+                touched = True
+                continue
+            out["left"] += 1
+            continue
+        # Nothing can ever collect this one: the tile is done, the variation or the
+        # whole session is gone, or the object predates the attempt it would be
+        # offered as. `_submit` deletes exactly these on the next attempt anyway.
+        storage.delete(key)
+        out["deleted"] += 1
+    if touched and doc is not None:
+        _write_meta(sid, doc)
+    return out
 
 
 def cancel_session(session_id: str) -> dict:
@@ -1847,6 +2007,7 @@ def list_sessions() -> list[dict]:
             if (s.get("project") == project_paths.project_name()
                     and s.get("client") == project_paths.client_name()):
                 out[sid] = _public(s)
+    _maybe_sweep_slots()
     return sorted(out.values(), key=lambda s: s.get("created", 0), reverse=True)
 
 

@@ -2068,6 +2068,125 @@ def test_deleting_a_session_takes_its_hand_off_slots_with_it() -> None:
     check("and so are its hand-off slots", slot in objects, False)
 
 
+def test_the_sweep_rehomes_a_render_nothing_is_coming_back_for() -> None:
+    """The backstop. Every terminal path collects now, so a hand-off slot should
+    only ever be occupied between a worker's PUT and its collect — but on
+    2026-09-07 thirteen finished renders sat in `_out/` for up to five days and
+    were found only because someone went looking. This is what makes the invariant
+    checkable instead of assumed."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("sweep me", variations=2),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    final = _await_session(sid)
+    check("the session settles first", final.get("status"), "finished")
+
+    # v001 is `done`; strand a render for v002 as if its collect never happened.
+    key = f"clientx/projecty/video/{sid}/meta.json"
+    meta = json.loads(objects[key])
+    meta["variations"][1].update(status="failed", file="", bytes=0,
+                                 error="job FAILED: worker fell over",
+                                 started=video_runner._now() - 60)
+    objects[key] = json.dumps(meta).encode()
+    slot = video_runner._upload_slot_keys(video_runner._slot_prefix(sid, 2))[0]
+    video_runner.storage.put(slot, b"NOBODY-IS-COMING-BACK-FOR-THIS")
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+
+    out = video_runner.sweep_stranded_slots("clientx/projecty/")
+    check("the sweep collects it", out["collected"], 1)
+    v = json.loads(objects[key])["variations"][1]
+    check("the tile is repaired in storage, not just in memory",
+          v.get("status"), "done")
+    check("with the stranded bytes", v.get("bytes"),
+          len(b"NOBODY-IS-COMING-BACK-FOR-THIS"))
+    check("and its error is cleared", v.get("error"), "")
+    check("the slot is emptied so the next sweep has nothing to do",
+          slot in objects, False)
+    check("a second sweep is a no-op",
+          video_runner.sweep_stranded_slots("clientx/projecty/"),
+          {"collected": 0, "deleted": 0, "left": 0})
+
+
+def test_the_sweep_deletes_what_can_never_be_collected() -> None:
+    """Scratch, not renders: a slot beside a tile that is already `done` (a
+    `_clear_upload_slots` delete that failed), one whose variation or whose whole
+    session is gone, and one that PREDATES the attempt it would be offered as —
+    which `_submit` would have deleted on the next attempt anyway. Leaving those
+    behind is what made "is anything stranded?" unanswerable."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("tidy up"), ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+
+    key = f"clientx/projecty/video/{sid}/meta.json"
+    meta = json.loads(objects[key])
+    meta["variations"][0]["started"] = video_runner._now()      # slot below is older
+    objects[key] = json.dumps(meta).encode()
+
+    done_slot = video_runner._upload_slot_keys(
+        video_runner._slot_prefix(sid, 1))[0]
+    gone_var = video_runner._upload_slot_keys(
+        video_runner._slot_prefix(sid, 9))[0]
+    gone_session = video_runner._upload_slot_keys(
+        video_runner._slot_prefix("20260101_000000_dead", 1))[0]
+    for k in (done_slot, gone_var, gone_session):
+        video_runner.storage.put(k, b"SCRATCH")
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+
+    # `_stub_world`'s listing stamps every object with `now`, so the done tile's
+    # slot is dated AFTER `started` — it is deleted for being beside a done tile.
+    out = video_runner.sweep_stranded_slots("clientx/projecty/")
+    check("all three are removed", out["deleted"], 3)
+    check("and nothing was collected", out["collected"], 0)
+    check("the done tile's leftover is gone", done_slot in objects, False)
+    check("the discarded variation's is gone", gone_var in objects, False)
+    check("the dead session's is gone", gone_session in objects, False)
+    check("the done tile is untouched",
+          json.loads(objects[key])["variations"][0]["status"], "done")
+
+
+def test_the_sweep_keeps_its_hands_off_a_live_session() -> None:
+    """A job in flight may have uploaded seconds ago with its own poller about to
+    collect. Taking it first would leave that poller reporting "the worker said it
+    uploaded, but nothing is there" — the sweep would become the thing it exists to
+    prevent."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("still going"),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+
+    key = f"clientx/projecty/video/{sid}/meta.json"
+    meta = json.loads(objects[key])
+    meta["status"] = "running"
+    meta["variations"][0].update(status="running", job_id="job-live", file="",
+                                 bytes=0, started=video_runner._now() - 5)
+    objects[key] = json.dumps(meta).encode()
+    slot = video_runner._upload_slot_keys(video_runner._slot_prefix(sid, 1))[0]
+    video_runner.storage.put(slot, b"MID-FLIGHT")
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+
+    out = video_runner.sweep_stranded_slots("clientx/projecty/")
+    check("a running session's slot is left alone", out,
+          {"collected": 0, "deleted": 0, "left": 1})
+    check("and the bytes are still there for its own poller", slot in objects, True)
+
+
+def test_a_slot_name_is_read_back_the_way_it_was_written() -> None:
+    """`_slot_prefix` writes the name and `_slot_owner` reads it — a second
+    spelling of that shape would send the sweep looking at the wrong session."""
+    sid = "20260907_134356_d3ed"
+    key = video_runner._upload_slot_keys(video_runner._slot_prefix(sid, 5))[2]
+    check("round trip", video_runner._slot_owner(key), (sid, 5))
+    check("a session object is not mistaken for a slot",
+          video_runner._slot_owner(f"clientx/projecty/video/{sid}/005.webp"), None)
+    check("nor is anything else in the bucket",
+          video_runner._slot_owner("clientx/projecty/atlas/H1.png"), None)
+
+
 def test_our_cap_sits_above_the_endpoints_own_timeout() -> None:
     """`JOB_TIMEOUT_SECONDS` is a backstop for a job RunPod never resolves, NOT a
     render budget: RunPod times a job from worker pickup, this counts from
@@ -2900,6 +3019,10 @@ if __name__ == "__main__":
     test_a_rescue_during_adoption_is_persisted()
     test_stopping_an_orphaned_session_keeps_what_it_delivered()
     test_deleting_a_session_takes_its_hand_off_slots_with_it()
+    test_the_sweep_rehomes_a_render_nothing_is_coming_back_for()
+    test_the_sweep_deletes_what_can_never_be_collected()
+    test_the_sweep_keeps_its_hands_off_a_live_session()
+    test_a_slot_name_is_read_back_the_way_it_was_written()
     test_our_cap_sits_above_the_endpoints_own_timeout()
     test_a_dead_worker_does_not_wedge_the_runner()
     test_regenerate_one_variation()
