@@ -156,6 +156,37 @@ class TestNormalize(unittest.TestCase):
         self.assertLess(woman.metadata.area_ratio, 0.5)
         self.assertGreater(woman.metadata.area_ratio, 0.2)
 
+    def test_flat_midtone_background_is_keyed_by_colour(self):
+        """The real Qwen case: a layer's empty area is a flat brown-grey, not black.
+
+        Luminance keying is blind to that (mid luma), so `auto` must fall through to
+        keying against the border COLOUR — otherwise the layer measures as full-frame
+        and every area/centrality signal goes flat.
+        """
+        brown = torch.zeros((1, H, W, 3))
+        brown[..., 0], brown[..., 1], brown[..., 2] = 0.42, 0.36, 0.30
+        brown[:, 16:48, 16:48, :] = torch.tensor([0.85, 0.20, 0.15])  # the "content"
+
+        layer_set, _m, report = normalize_mod.SemanticLayerNormalize().normalize(
+            images=brown, alpha_mode="auto", alpha_tolerance=0.04,
+            composite_layer="none", drop_composite=False, source_label="test",
+        )
+        layer = layer_set.layers[0]
+        self.assertEqual(layer.metadata.alpha_source, "border_key")
+        self.assertIsNotNone(layer.alpha)
+        # 32x32 of content in a 64x64 frame == a quarter of the pixels.
+        self.assertAlmostEqual(layer.metadata.area_ratio, 0.25, delta=0.05)
+        self.assertIn("border_key", report)
+
+    def test_varied_background_still_declines_to_guess(self):
+        """A layer that genuinely fills the frame must NOT get invented coverage."""
+        layer_set, _m, _r = normalize_mod.SemanticLayerNormalize().normalize(
+            images=gradient_backdrop(), alpha_mode="auto", alpha_tolerance=0.04,
+            composite_layer="none", drop_composite=False, source_label="test",
+        )
+        self.assertIsNone(layer_set.layers[0].alpha)
+        self.assertEqual(layer_set.layers[0].metadata.alpha_source, "none")
+
     def test_layer_ids_are_content_derived_and_order_independent(self):
         node = normalize_mod.SemanticLayerNormalize()
         forward, _m, _r = node.normalize(

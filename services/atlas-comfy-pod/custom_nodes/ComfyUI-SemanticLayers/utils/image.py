@@ -11,15 +11,20 @@ compositing, not a fact from the model — so every derivation records how it wa
 from __future__ import annotations
 
 import hashlib
+import math
 from typing import Iterable, Optional, Sequence
 
 import torch
 import torch.nn.functional as F
 
-ALPHA_MODES = ("auto", "from_image", "from_mask", "black_key", "white_key", "none")
+ALPHA_MODES = (
+    "auto", "from_image", "from_mask", "border_key", "black_key", "white_key", "none"
+)
 MERGE_MODES = ("alpha_over", "max", "mean", "batch", "first")
 
 _SOFT_RANGE = 0.05  # width of the soft edge when keying, in 0..1 luminance
+#: Mean absolute deviation below which a border counts as one flat colour.
+_UNIFORM_BORDER = 0.06
 
 
 class LayerShapeError(ValueError):
@@ -96,6 +101,14 @@ def _luma(rgb: torch.Tensor) -> torch.Tensor:
     return (0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2]).clamp(0.0, 1.0)
 
 
+def _border_pixels(rgb: torch.Tensor) -> torch.Tensor:
+    """The 1-px frame as [N, 3] — our only evidence of what "empty" looks like."""
+    t = rgb[0]
+    if t.shape[0] < 2 or t.shape[1] < 2:
+        return t.reshape(-1, 3)
+    return torch.cat([t[0, :, :], t[-1, :, :], t[:, 0, :], t[:, -1, :]], dim=0)
+
+
 def _border_luma(rgb: torch.Tensor) -> float:
     """Mean luminance of the 1-px frame — used to guess what the empty area looks like."""
     lum = _luma(rgb)[0]
@@ -103,6 +116,21 @@ def _border_luma(rgb: torch.Tensor) -> float:
         return 0.5
     edges = torch.cat([lum[0, :], lum[-1, :], lum[:, 0], lum[:, -1]])
     return float(edges.mean().item())
+
+
+def _border_colour(rgb: torch.Tensor) -> tuple[torch.Tensor, float]:
+    """(median border colour [3], how uniform the border is as a std).
+
+    Qwen-Image-Layered does not clear a layer's empty area to black or white — it comes
+    back a flat mid-tone (a brown-grey on the layers we measured). Luminance keying
+    cannot see that, so the empty region has to be identified by COLOUR instead.
+    """
+    px = _border_pixels(rgb)
+    if px.numel() == 0:
+        return torch.zeros(3, device=rgb.device, dtype=rgb.dtype), 1.0
+    median = px.median(dim=0).values
+    spread = float((px - median).abs().mean().item())
+    return median, spread
 
 
 def derive_alpha(
@@ -143,9 +171,26 @@ def derive_alpha(
         elif border >= 0.88:
             mode = "white_key"
         else:
-            # Non-uniform border: the layer probably fills the frame, or the empty
-            # colour is unknowable. Say so instead of guessing.
-            return None, "none"
+            # Not black or white — but if the border is a UNIFORM colour, that colour is
+            # the layer's "empty". This is the real Qwen-Image-Layered case: its cleared
+            # areas come back a flat mid-tone, which luminance keying is blind to.
+            _, spread = _border_colour(rgb)
+            if spread <= _UNIFORM_BORDER:
+                mode = "border_key"
+            else:
+                # A genuinely varied border means the layer fills the frame, or the
+                # empty colour is unknowable. Say so instead of guessing.
+                return None, "none"
+
+    if mode == "border_key":
+        median, spread = _border_colour(rgb)
+        # Distance in RGB from the empty colour, normalised to 0..1.
+        dist = ((rgb - median.view(1, 1, 1, 3)) ** 2).sum(dim=-1).sqrt() / math.sqrt(3.0)
+        # A noisier flat needs more distance before a pixel counts as content, so the
+        # threshold adapts rather than needing a hand-tuned tolerance per image.
+        threshold = tolerance + 2.0 * spread
+        alpha = (dist - threshold) / max(_SOFT_RANGE, 1e-5)
+        return alpha.clamp(0.0, 1.0), "border_key"
 
     lum = _luma(rgb)
     if mode == "black_key":
