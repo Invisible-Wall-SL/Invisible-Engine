@@ -58,21 +58,31 @@ class PrepareResult:
     ``ready`` is True only when nothing the blueprint declared is still missing.
     ``still_missing`` entries are dicts carrying enough to print a manual
     checklist: ``filename``, ``save_path``, ``base``, ``url``, ``reason``.
+
+    The two lists are NOT interchangeable, and the difference is the whole
+    contract: ``still_missing`` is REFUSAL-GRADE — the target's own inventory
+    said the file is not there, and the caller kills the run over it.
+    ``advisories`` never is. It carries the "could not be verified" rows (an
+    unmappable field, a target with no live inventory to ask), which are printed
+    so a human can act but must never set ``ready`` False — "we could not check"
+    laundered into "it is missing" blocks renders that would have worked.
     """
 
     ready: bool = True
     installed: list = field(default_factory=list)       # filenames newly queued+resolved
     still_missing: list = field(default_factory=list)   # [{filename, save_path, base, url, reason}]
+    advisories: list = field(default_factory=list)      # same shape; NEVER refusal-grade
     notes: list = field(default_factory=list)           # human log lines (also printed)
 
 
 # Signatures of the injected primitives:
 #   http_post(path, body_obj) -> (status_int, text)        ; raises HTTPNotFound on 404
 #   http_get(path) -> dict (parsed JSON)                   ; raises on transport error
-#   is_installed(field, filename) -> bool                  ; /object_info enum check
+#   is_installed(field, filename) -> bool | None           ; /object_info enum check,
+#       None = NO VERDICT (unmapped field, unreadable enum) — never "missing"
 HttpPost = Callable[[str, dict], "tuple[int, str]"]
 HttpGet = Callable[[str], dict]
-IsInstalled = Callable[[str, str], bool]
+IsInstalled = Callable[[str, str], "bool | None"]
 
 
 class ManagerAbsent(Exception):
@@ -97,13 +107,39 @@ def _is_installable(model: dict) -> bool:
 
 
 def _checklist_entry(model: dict, reason: str) -> dict:
-    return {
+    """The one constructor of every reported row.
+
+    It carries the model's PROVENANCE (`r2_key`/`sha256`/`size`) through as well
+    as its identity, because the caller's mirror-enrichment pass needs a stored
+    key to fall back on when the live manifest cannot be read — and dropping it
+    here is why a resolved key could never reach the human."""
+    entry = {
         "filename": model.get("filename") or "(unnamed)",
         "save_path": model.get("save_path") or model.get("dir") or "",
         "base": model.get("base") or "",
         "url": model.get("url") or model.get("source") or "",
         "reason": reason,
     }
+    for key in ("r2_key", "sha256", "size"):
+        if model.get(key) not in (None, ""):
+            entry[key] = model[key]
+    return entry
+
+
+def _report(result: PrepareResult, model: dict, verdict, reason: str) -> None:
+    """File one failed-delivery row, refusal-grade ONLY if the target answered.
+
+    Manager's 400/403, an absent Manager, a stalled download, an unreachable
+    ComfyUI mid-queue — every one of them says "I could not deliver this file",
+    never "it is not on the target". Refusing over one for a model whose
+    presence was never established (``verdict is None``: an unmappable field, an
+    unreadable enum) kills a render on a question nobody ever answered."""
+    entry = _checklist_entry(model, reason)
+    if verdict is None:
+        result.advisories.append(entry)
+    else:
+        result.still_missing.append(entry)
+        result.ready = False
 
 
 def _install_body(model: dict) -> dict:
@@ -166,12 +202,19 @@ def prepare_blueprint_models(
 
     # 1. Skip already-installed models (the /object_info enum check). Partition
     #    the MISSING into installable (full catalog keys) vs not (-> checklist).
-    to_queue: list[dict] = []
+    #    Each entry carries its PRESENCE VERDICT alongside the model, because
+    #    every later branch reports a DELIVERY failure and only the verdict says
+    #    whether the target ever claimed the file was absent.
+    to_queue: list[tuple[dict, "bool | None"]] = []
     for m in models:
+        # An empty `field` is legal (`_validate_models` normalises it to "" and
+        # the legacy {source, dir} shape predates the key), and it is exactly
+        # the "cannot check" case — so it goes THROUGH the primitive, which
+        # answers None, rather than being short-circuited to a flat False here.
         fld = str(m.get("field", "")).strip()
         fname = str(m.get("filename", "")).strip()
         try:
-            present = bool(fld and fname and is_installed(fld, fname))
+            present = is_installed(fld, fname) if fname else False
         except ComfyUnreachable:
             _log(result, "[prepare] ComfyUI unreachable — cannot check or install "
                          "models; listing them all as a manual checklist.")
@@ -182,13 +225,26 @@ def prepare_blueprint_models(
             return result
         except Exception as e:  # noqa: BLE001 — a flaky enum read shouldn't crash prepare
             _log(result, f"[prepare] install-check error for '{fname}': {e} "
-                         "(treating as missing)")
-            present = False
-        if present:
+                         "(no verdict)")
+            present = None
+        if present is True:
             _log(result, f"[prepare] already installed: {fname}")
             continue
+        if present is None and not _is_installable(m):
+            # No verdict and no way to install it either: the only honest report
+            # is "could not check". Calling it missing would refuse the render
+            # over a file that may well be sitting on the target.
+            _log(result, f"[prepare] could not verify '{fname or '(unnamed)'}' on "
+                         "this target — reporting it, not refusing over it.")
+            result.advisories.append(
+                _checklist_entry(m, "could not be verified on this target "
+                                    "(no readable inventory for this field)"))
+            continue
         if _is_installable(m):
-            to_queue.append(m)
+            if present is None:
+                _log(result, f"[prepare] cannot verify '{fname}' on this target; "
+                             "queueing the install anyway.")
+            to_queue.append((m, present))
         else:
             _log(result, f"[prepare] '{fname or '(unnamed)'}' is missing and not "
                          "in a catalog-installable shape (needs url+save_path+base+"
@@ -206,17 +262,15 @@ def prepare_blueprint_models(
     if not auto_install_enabled():
         _log(result, "[prepare] BLUEPRINT_AUTO_INSTALL_MODELS is disabled — "
                      "skipping auto-install/reboot; listing missing models.")
-        result.ready = False
-        for m in to_queue:
-            result.still_missing.append(
-                _checklist_entry(m, "auto-install disabled "
-                                    "(BLUEPRINT_AUTO_INSTALL_MODELS=off)"))
+        for m, present in to_queue:
+            _report(result, m, present, "auto-install disabled "
+                                        "(BLUEPRINT_AUTO_INSTALL_MODELS=off)")
         return result
 
     # 2. Queue each installable-missing model. Per-model 400/403 -> checklist
     #    (do NOT abort the others). 404 on /manager/* -> Manager absent.
-    queued: list[dict] = []
-    for m in to_queue:
+    queued: list[tuple[dict, "bool | None"]] = []
+    for m, present in to_queue:
         body = _install_body(m)
         try:
             # This POST only QUEUES the install (returns fast); the actual
@@ -226,50 +280,40 @@ def prepare_blueprint_models(
         except ManagerAbsent:
             _log(result, "[prepare] ComfyUI-Manager not installed "
                          "(/manager/queue/install_model -> 404).")
-            result.ready = False
-            for mm in to_queue:
-                result.still_missing.append(
-                    _checklist_entry(mm, "ComfyUI-Manager not installed — "
-                                        "install this model manually"))
+            for mm, pp in to_queue:
+                _report(result, mm, pp, "ComfyUI-Manager not installed — "
+                                        "install this model manually")
             return result
         except ComfyUnreachable:
             _log(result, "[prepare] ComfyUI unreachable while queueing installs.")
-            result.ready = False
-            for mm in to_queue:
-                result.still_missing.append(
-                    _checklist_entry(mm, "ComfyUI unreachable (install not queued)"))
+            for mm, pp in to_queue:
+                _report(result, mm, pp,
+                        "ComfyUI unreachable (install not queued)")
             return result
         except Exception as e:  # noqa: BLE001
             _log(result, f"[prepare] queue error for '{body['filename']}': {e}")
-            result.ready = False
-            result.still_missing.append(
-                _checklist_entry(m, f"install request failed: {e}"))
+            _report(result, m, present, f"install request failed: {e}")
             continue
         if status == 200:
             _log(result, f"[prepare] queued for download: {body['filename']}")
-            queued.append(m)
+            queued.append((m, present))
         elif status == 400:
             _log(result, f"[prepare] '{body['filename']}' not in ComfyUI-Manager's "
                          "curated model catalog (400) — can't auto-install.")
-            result.ready = False
-            result.still_missing.append(
-                _checklist_entry(m, "not in ComfyUI-Manager's curated catalog "
-                                    "(only catalog models auto-install) — install "
-                                    "manually"))
+            _report(result, m, present,
+                    "not in ComfyUI-Manager's curated catalog (only catalog "
+                    "models auto-install) — install manually")
         elif status == 403:
             _log(result, f"[prepare] '{body['filename']}' rejected (403): ComfyUI-"
                          "Manager security level is above 'middle'.")
-            result.ready = False
-            result.still_missing.append(
-                _checklist_entry(m, "ComfyUI-Manager security level blocks auto-"
-                                    "install (set it to 'middle' or below) — install "
-                                    "manually"))
+            _report(result, m, present,
+                    "ComfyUI-Manager security level blocks auto-install (set it "
+                    "to 'middle' or below) — install manually")
         else:
             _log(result, f"[prepare] '{body['filename']}' install_model returned "
                          f"HTTP {status}: {text[:200]}")
-            result.ready = False
-            result.still_missing.append(
-                _checklist_entry(m, f"install_model returned HTTP {status}"))
+            _report(result, m, present,
+                    f"install_model returned HTTP {status}")
 
     if not queued:
         return result  # nothing got queued; checklist already populated
@@ -280,17 +324,15 @@ def prepare_blueprint_models(
     except ManagerAbsent:
         _log(result, "[prepare] ComfyUI-Manager not installed (/manager/queue/start "
                      "-> 404).")
-        result.ready = False
-        for m in queued:
-            result.still_missing.append(
-                _checklist_entry(m, "ComfyUI-Manager not installed — install manually"))
+        for m, present in queued:
+            _report(result, m, present,
+                    "ComfyUI-Manager not installed — install manually")
         return result
     except Exception as e:  # noqa: BLE001
         _log(result, f"[prepare] queue/start failed: {e}")
-        result.ready = False
-        for m in queued:
-            result.still_missing.append(
-                _checklist_entry(m, f"could not start the install worker: {e}"))
+        for m, present in queued:
+            _report(result, m, present,
+                    f"could not start the install worker: {e}")
         return result
     # 200 normal, 201 = already in progress; both mean "worker running".
     _log(result, f"[prepare] install worker started (HTTP {start_status}); "
@@ -298,21 +340,19 @@ def prepare_blueprint_models(
 
     if not _poll_queue_done(result, http_get, status_timeout, poll_interval, sleep, now):
         # Timed out / errored: don't reboot into an unknown state — checklist.
-        result.ready = False
-        for m in queued:
-            result.still_missing.append(
-                _checklist_entry(m, "download did not finish in time — re-run prepare "
-                                    "or install manually"))
+        for m, present in queued:
+            _report(result, m, present,
+                    "download did not finish in time — re-run prepare or "
+                    "install manually")
         return result
 
     # 4. Reboot ONCE (batched) so ComfyUI rescans models/, then wait for it back.
     _reboot(result, http_post)
     if not _wait_comfy_back(result, http_get, reboot_timeout, poll_interval, sleep, now):
-        result.ready = False
-        for m in queued:
-            result.still_missing.append(
-                _checklist_entry(m, "ComfyUI did not come back after reboot — restart "
-                                    "it manually, then re-run"))
+        for m, present in queued:
+            _report(result, m, present,
+                    "ComfyUI did not come back after reboot — restart it "
+                    "manually, then re-run")
         return result
 
     # A reboot DID happen and ComfyUI is back: drop any pre-reboot cached
@@ -325,16 +365,25 @@ def prepare_blueprint_models(
             pass
 
     # 5. Re-check /object_info; anything still missing -> checklist.
-    for m in queued:
+    for m, _phase1 in queued:
         fld = str(m.get("field", "")).strip()
         fname = str(m.get("filename", "")).strip()
         try:
-            present = bool(fld and fname and is_installed(fld, fname))
+            present = is_installed(fld, fname) if fname else False
         except Exception:  # noqa: BLE001
-            present = False
-        if present:
+            present = None
+        if present is True:
             _log(result, f"[prepare] installed + verified: {fname}")
             result.installed.append(fname)
+        elif present is None:
+            # The download was paid for and the reboot done; a non-answer here
+            # must not turn that into a SystemExit. Same rule as phase 1.
+            _log(result, f"[prepare] installed '{fname}'; could not verify it on "
+                         "this target.")
+            result.installed.append(fname)
+            result.advisories.append(
+                _checklist_entry(m, "installed; could not be verified on this "
+                                    "target (no readable inventory for this field)"))
         else:
             _log(result, f"[prepare] '{fname}' still not visible after install + "
                          "reboot.")
@@ -459,6 +508,68 @@ def _wait_comfy_back(
     return False
 
 
+def survey_blueprint_models(models: list) -> PrepareResult:
+    """The read-only sibling of ``prepare_blueprint_models``, for a target we can
+    neither ask nor install onto (the RunPod Serverless worker: its inventory is
+    baked into an image, it holds no R2 credential, and nothing can restart it
+    mid-invocation).
+
+    Every declared model becomes ONE advisory and ``ready`` stays True. That is
+    deliberate: with no legitimate inventory to read, any refusal here would be
+    decided by something other than the target — which is how a pod render came
+    to be killed by whether the artist's unrelated desktop happened to be online.
+    Pure, no injected primitives, never raises."""
+    result = PrepareResult()
+    for m in models or []:
+        if not isinstance(m, dict):
+            continue
+        result.advisories.append(
+            _checklist_entry(m, "not verified — this target has no inventory to "
+                                "ask (the worker's models are fixed in its image)"))
+    return result
+
+
+def _mirror_lines(m: dict) -> list[str]:
+    """The mirror verdict + remedy an enrichment pass wrote onto a row, if any."""
+    lines: list[str] = []
+    # This renderer is the last thing between a refused render and a bare
+    # traceback, so a row shaped wrong must cost its own two lines, not the
+    # whole checklist.
+    mirror = m.get("mirror")
+    mirror = mirror if isinstance(mirror, dict) else {}
+    if mirror:
+        state = mirror.get("state")
+        if state in ("hit", "in_bucket_unindexed"):
+            size = mirror.get("size_human") or ""
+            lines.append(f"      mirror: {mirror.get('key')}"
+                         + (f"  ({size})" if size else ""))
+        elif state == "ambiguous":
+            lines.append("      mirror: several files with this name — "
+                         + ", ".join(str(c) for c in mirror.get("candidates", [])))
+        elif state == "miss":
+            lines.append("      mirror: not in the model mirror")
+        else:
+            lines.append("      mirror: could not be read")
+    if m.get("remedy"):
+        lines.append(f"      -> {m['remedy']}")
+    return lines
+
+
+def _row(m: dict) -> list[str]:
+    dest = m.get("save_path") or "(unknown folder)"
+    lines = [f"  - {m.get('filename')}  ->  models/{dest}/"]
+    mirror_lines = _mirror_lines(m)
+    # A mirror verdict already says where the bytes are; "(no source URL)" under
+    # it is noise, and a derived model never has one.
+    if not mirror_lines:
+        lines.append(f"      source: {m.get('url') or '(no source URL)'}")
+    elif m.get("url"):
+        lines.append(f"      source: {m['url']}")
+    lines.append(f"      reason: {m.get('reason')}")
+    lines.extend(mirror_lines)
+    return lines
+
+
 def format_checklist(result: PrepareResult) -> str:
     """Readable multi-line checklist of the still-missing models, in the same
     spirit as ``preflight_models``' error block. Empty string when ready."""
@@ -467,11 +578,21 @@ def format_checklist(result: PrepareResult) -> str:
     lines = ["The following model(s) could not be auto-installed and must be "
              "added to your local ComfyUI manually:"]
     for m in result.still_missing:
-        dest = m.get("save_path") or "(unknown folder)"
-        url = m.get("url") or "(no source URL)"
-        lines.append(f"  - {m.get('filename')}  ->  models/{dest}/")
-        lines.append(f"      source: {url}")
-        lines.append(f"      reason: {m.get('reason')}")
+        lines.extend(_row(m))
     lines.append("  Put each file in the named ComfyUI models/<folder>, then "
                  "restart ComfyUI (it only scans at startup) and retry.")
+    return "\n".join(lines)
+
+
+def format_advisories(result: PrepareResult) -> str:
+    """The advisories block — same layout as the checklist, opposite meaning.
+    Nothing here stopped the run; it is printed so a human can act BEFORE the
+    render fails somewhere further downstream. Empty string when there are
+    none."""
+    if not result.advisories:
+        return ""
+    lines = ["The following model(s) could not be verified on this target. This "
+             "is NOT evidence they are missing — the run continues:"]
+    for m in result.advisories:
+        lines.extend(_row(m))
     return "\n".join(lines)

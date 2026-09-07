@@ -9,6 +9,7 @@ from iw_common.storage import (  # noqa: F401
     ObjectUnreadable,
     get,
     get_strict,
+    head,
     human_bytes,
     list_keys,
     presign_put,

@@ -384,6 +384,178 @@ def test_j2_no_reboot_no_cache_bust():
     check(not fired["v"], "(j) on_rebooted NOT called when nothing rebooted")
 
 
+def test_k_no_verdict_is_not_missing():
+    """(k) `is_installed` -> None on a NON-installable model is an advisory, not
+    a refusal. Five of the fourteen fields in `blueprints.MODEL_FIELD_DIRS` have
+    no loader in `batch_atlas._MODEL_FIELD_NODES`, so they can never be read; a
+    derived declaration can never satisfy the catalog shape either. Reported as
+    "missing" that was an unclearable checklist line blocking a render that
+    would have worked."""
+    m = {"field": "pulid_file", "filename": "ip-adapter.bin"}  # no url/base
+    fm = FakeManager()
+    res = run([m], fm, is_installed=lambda f, n: None)
+    check(res.ready, "(k) ready — a non-answer never refuses the run")
+    check(len(res.still_missing) == 0, "(k) nothing refusal-grade")
+    check(len(res.advisories) == 1, "(k) one advisory instead")
+    check(res.advisories[0]["filename"] == "ip-adapter.bin", "(k) advisory names the file")
+    check(len(fm.install_posts()) == 0, "(k) nothing queued (not installable)")
+    check(not fm.rebooted(), "(k) no reboot")
+    check("could not be verified" in bm.format_advisories(res),
+          "(k) the advisories block says it could not be verified")
+
+
+def test_l_no_verdict_still_queues_an_installable_model():
+    """(l) `is_installed` -> None on an INSTALLABLE model must STILL be queued.
+    Manager's (save_path, base, filename) whitelist is the real gate and a
+    redundant install is a near no-op, so declining to try on 'cannot tell'
+    would silently remove the model's only automatic delivery path."""
+    fm = FakeManager()
+    seen = {"n": 0}
+
+    def is_installed(field, name):
+        # Never a verdict, before or after the reboot.
+        seen["n"] += 1
+        return None
+
+    res = run([catalog_model("q.safetensors")], fm, is_installed=is_installed)
+    check(len(fm.install_posts()) == 1, "(l) the install was queued anyway")
+    check(fm.install_posts()[0][1]["filename"] == "q.safetensors",
+          "(l) and it queued the right file")
+    check(res.ready, "(l) ready — the post-reboot non-answer is not fatal either")
+    check(len(res.still_missing) == 0, "(l) nothing refusal-grade")
+
+
+def test_m_phase5_no_verdict_is_an_advisory():
+    """(m) A None on the POST-REBOOT recheck is an advisory too. Otherwise a
+    hand-authored model on an unmapped field is queued, downloaded (multi-GB),
+    rebooted for, and THEN declared 'still not visible' — a SystemExit(2) after
+    paying the whole download."""
+    fm = FakeManager()
+
+    def is_installed(field, name):
+        # Definitely absent before the reboot; unreadable after it.
+        return None if fm.rebooted() else False
+
+    res = run([catalog_model("late.safetensors")], fm, is_installed=is_installed)
+    check(fm.rebooted(), "(m) the install ran and rebooted")
+    check(res.ready, "(m) ready — 'could not verify' after the reboot is not fatal")
+    check(len(res.still_missing) == 0, "(m) nothing refusal-grade")
+    check(any(e["filename"] == "late.safetensors" for e in res.advisories),
+          "(m) the file is on the advisories instead")
+    check("late.safetensors" in res.installed, "(m) and it counts as installed")
+
+
+def test_n_survey_installs_nothing():
+    """(n) The serverless path is a MESSAGE, not a gate. `survey_blueprint_models`
+    touches no primitive at all, so a pod render can neither install onto nor
+    reboot the artist's desktop — and it can never refuse."""
+    fm = FakeManager()
+    models = [catalog_model("a.safetensors"),
+              {"field": "pulid_file", "filename": "b.bin"}]
+    res = bm.survey_blueprint_models(models)
+    check(res.ready, "(n) survey can never refuse")
+    check(len(res.still_missing) == 0, "(n) nothing refusal-grade")
+    check(len(res.advisories) == 2, "(n) every declared model is reported")
+    check(fm.posts == [], "(n) not one POST was sent")
+    check(not fm.rebooted(), "(n) nobody's ComfyUI was rebooted")
+    check(bm.survey_blueprint_models([]).ready, "(n) an empty list is fine too")
+
+
+def test_o_provenance_reaches_the_checklist():
+    """(o) `_checklist_entry` must carry `r2_key`/`sha256`/`size` through. It is
+    the single constructor of every reported row, and the caller's mirror
+    enrichment falls back to a stored key when R2 cannot be read — which it
+    cannot do if the key was dropped here."""
+    m = {"field": "ckpt_name", "filename": "priv.safetensors",
+         "r2_key": "comfyui-models/checkpoints/priv.safetensors",
+         "sha256": "abc123", "size": 1234}
+    fm = FakeManager()
+    res = run([m], fm, is_installed=lambda f, n: False)
+    row = res.still_missing[0]
+    check(row.get("r2_key") == "comfyui-models/checkpoints/priv.safetensors",
+          "(o) r2_key survives onto the checklist row")
+    check(row.get("sha256") == "abc123", "(o) so does sha256")
+    check(row.get("size") == 1234, "(o) and size")
+
+
+def test_p_a_model_with_no_field_is_asked_about_anyway():
+    """(p) A `models[]` entry with no `field` is legal — `_validate_models`
+    normalises it to "" and the back-compat {source, dir} shape predates the key
+    — and it is the CANNOT-CHECK case, not the not-installed one. Guarding the
+    call with `if fld and fname` manufactured a hard False without asking
+    anything: a non-installable one was refused with zero presence evidence, and
+    an installable one was queued, downloaded, rebooted for, and THEN declared
+    still not visible."""
+    asked: list[tuple] = []
+
+    def is_installed(field, name):
+        asked.append((field, name))
+        return None
+
+    fm = FakeManager()
+    res = run([{"filename": "unfielded.bin"}], fm, is_installed=is_installed)
+    check(asked == [("", "unfielded.bin")], "(p) the primitive was actually asked")
+    check(res.ready, "(p) ready — nothing answered 'missing'")
+    check(len(res.still_missing) == 0, "(p) nothing refusal-grade")
+    check(len(res.advisories) == 1, "(p) one advisory instead")
+
+    # The installable half of the fork: it must survive the whole install +
+    # reboot round trip without the phase-5 recheck inventing a False either.
+    m = dict(catalog_model("nofield.safetensors"))
+    m.pop("field")
+    fm2 = FakeManager()
+    res2 = run([m], fm2, is_installed=is_installed)
+    check(len(fm2.install_posts()) == 1, "(p) the installable one was queued")
+    check(res2.ready, "(p) and the post-reboot non-answer is not fatal")
+    check(len(res2.still_missing) == 0, "(p) still nothing refusal-grade")
+
+
+def test_q_a_delivery_failure_is_not_a_presence_verdict():
+    """(q) Manager's 400 ("not in my curated catalog"), an absent Manager, a
+    disabled kill-switch, a stalled download — every one of them says "I could
+    not deliver this file", never "it is not on the target". Refusing over one
+    for a model whose presence was never established (a `pulid_file` with a
+    hand-added url is exactly that model) kills a render on a question nobody
+    answered. The same failure with a real False verdict behind it stays
+    refusal-grade."""
+    private = {"field": "pulid_file", "filename": "pulid_flux.safetensors",
+               "url": "https://example/pulid", "save_path": "pulid",
+               "base": "FLUX.1"}
+
+    for label, kw in (("400 not in the catalog",
+                       {"install_status": {"pulid_flux.safetensors": 400}}),
+                      ("403 security level",
+                       {"install_status": {"pulid_flux.safetensors": 403}}),
+                      ("Manager absent", {"manager_absent": True}),
+                      ("ComfyUI unreachable", {"unreachable": True})):
+        fm = FakeManager(**kw)
+        res = run([private], fm, is_installed=lambda f, n: None)
+        check(res.ready, f"(q) {label}: no verdict -> the run is not refused")
+        check(len(res.still_missing) == 0, f"(q) {label}: nothing refusal-grade")
+        check(len(res.advisories) == 1, f"(q) {label}: reported as an advisory")
+
+        known = FakeManager(**kw)
+        res2 = run([dict(private, field="ckpt_name")], known,
+                   is_installed=lambda f, n: False)
+        check(not res2.ready, f"(q) {label}: a real 'absent' still refuses")
+        check(len(res2.still_missing) == 1, f"(q) {label}: on the checklist")
+
+    fm = FakeManager()
+    off = run([private], fm, is_installed=lambda f, n: None,
+              env={"BLUEPRINT_AUTO_INSTALL_MODELS": "0"})
+    check(off.ready, "(q) kill-switch off: no verdict -> not refused")
+    check(len(off.advisories) == 1, "(q) kill-switch off: reported as an advisory")
+
+    stalled = FakeManager(status_seq=[{"total_count": 1, "done_count": 0,
+                                       "in_progress_count": 1,
+                                       "is_processing": True}])
+    slow = run([private], stalled, is_installed=lambda f, n: None,
+               status_timeout=5.0)
+    check(slow.ready, "(q) download timeout: no verdict -> not refused")
+    check(len(slow.still_missing) == 0, "(q) download timeout: nothing refused")
+    check(len(slow.advisories) == 1, "(q) download timeout: an advisory instead")
+
+
 def main() -> int:
     tests = [
         test_a_installable_post_body,
@@ -398,6 +570,13 @@ def main() -> int:
         test_i2_pure_premature_idle_blocked,
         test_j_post_reboot_recheck_uses_fresh_state,
         test_j2_no_reboot_no_cache_bust,
+        test_k_no_verdict_is_not_missing,
+        test_l_no_verdict_still_queues_an_installable_model,
+        test_m_phase5_no_verdict_is_an_advisory,
+        test_n_survey_installs_nothing,
+        test_o_provenance_reaches_the_checklist,
+        test_p_a_model_with_no_field_is_asked_about_anyway,
+        test_q_a_delivery_failure_is_not_a_presence_verdict,
     ]
     for t in tests:
         print(f"\n{t.__name__}: {t.__doc__.splitlines()[0]}")

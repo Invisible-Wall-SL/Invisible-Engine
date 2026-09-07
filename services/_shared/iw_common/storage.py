@@ -134,6 +134,32 @@ def exists(key: str) -> bool:
         return False
 
 
+def head(key: str) -> dict | None:
+    """`{size, etag, mtime}`, or `None` when the object genuinely is not there.
+
+    The strict twin of `exists`, which throws the head_object response away and
+    folds every exception into `False` — so a throttled or timed-out HEAD reads
+    as "the object is gone" and a caller accuses the bucket of losing a file
+    that is sitting in it. Classified exactly like `get_strict`: only a real
+    404/NoSuchKey is absence, everything else raises `ObjectUnreadable`.
+    """
+    try:
+        r = _client().head_object(Bucket=_bucket(), Key=key)
+    except Exception as e:  # noqa: BLE001 — classify, don't swallow
+        resp = getattr(e, "response", None)
+        if isinstance(resp, dict):
+            code = str(resp.get("Error", {}).get("Code") or "")
+            status = resp.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if code in ("NoSuchKey", "404", "NotFound") or status == 404:
+                return None
+        raise ObjectUnreadable(f"{key}: {type(e).__name__}: {e}") from e
+    return {
+        "size": int(r.get("ContentLength", 0) or 0),
+        "etag": str(r.get("ETag", "") or "").strip('"'),
+        "mtime": r["LastModified"].timestamp() if r.get("LastModified") else 0,
+    }
+
+
 def delete(key: str) -> None:
     try:
         _client().delete_object(Bucket=_bucket(), Key=key)
