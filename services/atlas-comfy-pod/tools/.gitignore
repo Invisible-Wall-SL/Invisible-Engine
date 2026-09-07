@@ -1,0 +1,6 @@
+# Copied in by .github/workflows/atlas-comfy-pod.yml at build time from
+# services/atlas-tool/runpod/ — Docker COPY cannot escape this context. Ignored so a
+# local `docker build` (which needs the same copy by hand) can never commit a second,
+# drifting copy of a file whose home is elsewhere.
+pull-models.py
+push-models.py

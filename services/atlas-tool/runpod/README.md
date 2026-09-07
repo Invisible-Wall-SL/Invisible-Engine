@@ -223,14 +223,23 @@ rewrites the manifest the launcher serves to every desktop, so it prints the pla
 touches nothing until you add `--apply`:
 
 ```bash
-python push-models.py --dir loras            # plan only
-python push-models.py --dir loras --apply    # do it
+python /push-models.py --dir loras            # plan only
+python /push-models.py --dir loras --apply    # do it
 ```
 
 Same `R2_*` env as `pull-models.py`. `--src` defaults to `/workspace/ComfyUI/models`.
-Unlike `fetch-models.py` this one is **not baked into the pod image** (it lives here,
-outside that image's Docker build context), so get it onto the pod the same way as
-`provision.sh` — paste it with method **A** above, or curl it with a token.
+
+**Both mirror scripts are BAKED at `/pull-models.py` and `/push-models.py`** (since
+2026-09-07) — nothing to paste, no token, none of the private-repo problem in the box
+above. They live here rather than in the image folder, so CI copies them into the build
+context on its way past, exactly as the worker build does with `nodes.json`; a *local*
+`docker build` needs that `cp` done by hand. **A pod predating this image won't have
+them** — rebuild + redeploy, or paste with method **A**.
+
+> Baked because the alternative was measured: on 2026-09-07 a pod terminal answered
+> `push-models.py: command not found`, then `python: can't open file '//push-models.py'`,
+> for a script that was sitting on `main` — with a trained LoRA stuck on the volume and
+> a render blocked on it. That is the same failure `fetch-models.py` was baked to end.
 
 - **Targets the small, private, irreplaceable file.** `--max-size-gb` defaults to **5**:
   a bigger file is skipped and named, and you opt in with `--include-large`. The

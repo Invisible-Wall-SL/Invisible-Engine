@@ -231,6 +231,14 @@ COPY tools/fetch-models.py /fetch-models.py
 # 40-line problem is a worse trade. Started by start.sh.
 COPY tools/port-forward.py /port-forward.py
 
+# The R2 model mirror, both directions, at the paths the runbook names. NOT in this
+# folder in git — CI copies them in from services/atlas-tool/runpod/ (see the workflow),
+# because Docker COPY cannot escape the build context and a second tracked copy is how a
+# vendored file drifts. `pull` fills a fresh volume from R2; `push` is the only way a
+# model BORN on a pod — a trained LoRA — ever reaches a desktop or the serverless worker.
+COPY tools/pull-models.py /pull-models.py
+COPY tools/push-models.py /push-models.py
+
 # --- Entrypoint -------------------------------------------------------------------
 WORKDIR /
 COPY extra_model_paths.yaml /ComfyUI/extra_model_paths.yaml

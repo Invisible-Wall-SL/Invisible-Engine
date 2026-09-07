@@ -10,6 +10,9 @@ on:
     branches: [main]
     paths:
       - services/atlas-comfy-pod/**
+      # Baked into the image below, so a change to either must rebuild it.
+      - services/atlas-tool/runpod/pull-models.py
+      - services/atlas-tool/runpod/push-models.py
       - .github/workflows/atlas-comfy-pod.yml
   workflow_dispatch: {}
 
@@ -43,6 +46,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The two R2 mirror arcs a HUMAN runs on a pod. They live with their sibling
+      # scripts under services/atlas-tool/runpod/, which Docker COPY cannot reach from
+      # this context — same reason the worker build copies nodes.json in. Baked because
+      # the runbook's curl 404s (private repo), which reads as "file missing" and cost
+      # a real session: `push-models.py: command not found` on the pod, with the file
+      # sitting on main. A local `docker build` needs this copy done by hand.
+      - name: Take the R2 mirror scripts into this build context
+        run: cp services/atlas-tool/runpod/pull-models.py services/atlas-tool/runpod/push-models.py services/atlas-comfy-pod/tools/
 
       - name: Build and push
         uses: docker/build-push-action@v6
