@@ -80,7 +80,7 @@
 
 	/**
 	 * A flipbook symbol state COMPLETES when its clip has played through ONCE — the frame-animation
-	 * analogue of a spine symbol firing `complete` at the end of its win animation (`SymbolSpine`),
+	 * analogue of a spine symbol firing `complete` at the end of its win animation (`SymbolSpineMain`),
 	 * NOT immediately on mount like `SymbolSprite` (a frozen frame with nothing to play).
 	 *
 	 * `Board.svelte`'s `boardWithAnimateSymbols` sets a winning cell to `win`, AWAITS `oncomplete`,

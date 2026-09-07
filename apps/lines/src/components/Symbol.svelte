@@ -1,7 +1,8 @@
 <script lang="ts">
 	import SymbolFlipbook from './SymbolFlipbook.svelte';
-	import SymbolSpine from './SymbolSpine.svelte';
+	import SymbolSpineMain from './SymbolSpineMain.svelte';
 	import SymbolSprite from './SymbolSprite.svelte';
+	import SymbolWinFrame from './SymbolWinFrame.svelte';
 	import { getSymbolInfo } from '../game/utils';
 	import type { SymbolState, RawSymbol } from '../game/types';
 	import { playWildExplodeSound } from '../game/soundBindings';
@@ -40,6 +41,17 @@
 	const loop = $derived(
 		props.loop ?? (symbolInfo.missingArt ? undefined : symbolInfo.loop) ?? true,
 	);
+	/**
+	 * The authored win-highlight frame is a property of the winning SYMBOL, not of one renderer, so
+	 * the decision lives here — beside the branch that picks the renderer — and the frame is drawn
+	 * over whichever arm won. It used to live inside the spine arm, which is why a symbol whose Win
+	 * cell was bound to a flipbook (or a sprite) paid with no frame while its spine-bound neighbour
+	 * on the same payline got one.
+	 *
+	 * A symbol with NO art draws nothing at all, frame included: a lone frame around empty space
+	 * reads as a rendering fault rather than as the missing binding it is.
+	 */
+	const showWinFrame = $derived(hasArt && props.state === 'win' && props.rawSymbol.name !== 'M');
 </script>
 
 {#if !hasArt}
@@ -49,13 +61,11 @@
 {:else if isSprite}
 	<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={props.oncomplete} />
 {:else}
-	<SymbolSpine
+	<SymbolSpineMain
 		{loop}
 		{symbolInfo}
 		x={props.x}
 		y={props.y}
-		showWinFrame={props.state === 'win' && props.rawSymbol.name !== 'M'}
-		winLineColor={props.winLineColor}
 		listener={{
 			complete: props.oncomplete,
 			event: (_, event) => {
@@ -63,6 +73,10 @@
 			},
 		}}
 	/>
+{/if}
+
+{#if showWinFrame}
+	<SymbolWinFrame x={props.x} y={props.y} winLineColor={props.winLineColor} />
 {/if}
 
 {#if props.rawSymbol.multiplier}

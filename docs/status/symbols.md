@@ -59,10 +59,10 @@ Working on `main`:
   config's `paylineColors` (resolved at win time, so no bake dependency). The `/symbols`
   highlight editor gained a "Tint" mode select + a colour picker (shown for `fixed`). Runtime:
   a new `tint?: number` prop on pixi-svelte `BaseSpineProvider`/`SpineProvider` applies it via
-  the spine `skeleton.color` (multiply, NOT sprite `.tint`); `SymbolSpine.svelte` resolves the
+  the spine `skeleton.color` (multiply, NOT sprite `.tint`); `SymbolWinFrame.svelte` resolves the
   number from `tintMode`. The per-win line colour is threaded to the frame through
   `animateSymbols({color})` → `boardWithAnimateSymbols.winLineColor` → the reel cell
-  (`utils-slots` `winLineColor`) → `ReelSymbol`/`Symbol` → `SymbolSpine` (coded `winInfo`, the
+  (`utils-slots` `winLineColor`) → `ReelSymbol`/`Symbol` → `SymbolWinFrame` (coded `winInfo`, the
   post-win replay, and the flow-v2 `animateWinSymbols` leaf all pass it). Threaded the full
   chain per rule 8: Zod (`.strict`) + client type/`setHighlight`/`docSignature`/PUT body →
   `SymbolExportHighlight` → `bake-editor-doc.mjs` whitelist → `BakedBundle.symbols.highlight`
@@ -71,8 +71,8 @@ Working on `main`:
   `lines`, and `launcher-api` all build clean. ⏳ owner visual-verify a tinted win frame + a
   `winLine`-tinted frame on a multi-colour-payline config. **Engine change — needs a Borut
   submodule bump + runtime release to reach the remake.**
-- **Doc-level globals** (design §S6): `highlight` (win-frame spine, sparse, spine-only,
-  default = built-in `payframe`) and `winLine` (payline overlay + line/text style, sparse
+- **Doc-level globals** (design §S6): `highlight` (win-frame spine, sparse, drawn over EVERY
+  winning symbol whatever its art is bound to, default = built-in `payframe`) and `winLine` (payline overlay + line/text style, sparse
   config, no asset — TWO switches since 2026-08-24: `enabled` is the line's, `text.enabled`
   the stamped amount's, the latter defaulting to the former). Both travel verbatim through `symbolExport.ts` →
   `bake-editor-doc.mjs` → `bundle.symbols.*`. The `winLine` renderer was ported into the
@@ -375,6 +375,7 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+- 2026-09-07 — **The Highlight (win frame) only drew on SPINE symbols.** Reported on a live project whose Win cells are flipbook clips: the authored highlight framed its spine-bound symbols and skipped the flipbook ones, so the feature read as half-broken rather than un-authored. The frame was mounted INSIDE `apps/lines/components/SymbolSpine.svelte`, the spine arm of `Symbol.svelte`'s renderer switch, so the sprite and flipbook arms could never draw it. It now lives in its own `SymbolWinFrame.svelte` that `Symbol.svelte` mounts AFTER the switch, over whichever arm won (`SymbolSpine` was left a pure pass-through to `SymbolSpineMain` and is deleted; the tint/`winLineColor` resolution moved verbatim). A symbol with no art bound still draws nothing, frame included. Verified in the running game via the Symbol-overlay debug grid: with a Win cell temporarily bound to a sprite/flipbook the frame was ABSENT before and PRESENT after, spine cells unchanged. **Engine change — needs a runtime release to reach the online games** (and a Borut submodule bump for the remake).
 - 2026-09-03 — **Explosion → intro Transition.** New optional doc-global `transition` (spine / flipbook / fx + `delayMs`). Under the `emerge` swap style the pop and the intro hard-cut at every seat; now an authored animation mounts at the seat `delayMs` after the explosion fires, fire-and-forget (never joins a beat, never extends the round; cut if it outlives the step). Sparse and byte-identical when absent. Ships the full chain (schema → client → export refs → bake + runtime bundle incl. the effect keep-sets → `bakedSymbolTransition()`), `/symbols` gains a **Transition** section shown only for an emerging project, and `BookVfx.svelte`'s four-kind switch moved into the shared `SymbolLayer.svelte`. Plan note in [perspective-board-mode.md](../design/perspective-board-mode.md) §"The mode switch". Offline-verified (`check:symbol-transition`); ⏳ owner visual-verify; Borut submodule bump owed. Details in the Current-state bullet.
 - 2026-09-03 — **Spine cells no longer come up blank on a cold load.** Reported after the Bounds-box fix deployed: the grid drew every spine cell as its label chip, with `physics is undefined` thrown from `drawCell` every frame; a reload fixed it. The editor's spine loader (`spineRuntime.client.ts`) injected one vendored runtime PER LINE and let "the first to finish" own `window.spine` — a cold /symbols load requests 4.1 (the built-in Highlight/reelhouse previews) and 4.2 (a Rigger rig) at once, both scripts injected, and whichever finished last won, so 4.2 skeletons were posed with the 4.1 runtime's missing `Physics` token and drawn by its `SceneRenderer`. Now ONE runtime (4.2, the line the game runs) loaded once and captured at load; the 4.1 built-ins parse and pose under it (`pnpm --filter launcher-api run check:builtin-spines`). Details in [editor status](editor.md).
 - 2026-09-02 — **The grid and the cell preview fit a rig's box where its header puts it.** `measureSpineBounds` now returns the authored `skeleton.x/y` corner instead of assuming `-w/2, -h/2`, so a Rigger rig whose Bounds frame is not centred on its origin draws AT the frame — the same rule the game now applies via `<SpineProvider centreBox>`, so grid == board again for those rigs. Spine-editor rigs are unchanged. See [rigger status](rigger.md).
