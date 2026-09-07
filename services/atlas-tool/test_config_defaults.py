@@ -427,12 +427,136 @@ def test_an_empty_numeric_box_shows_its_default() -> None:
     check("and it reaches the rendered input",
           'placeholder="default: 3.5"' in html_out, True)
 
+@contextlib.contextmanager
+def comfy_declaring(classes, *, transport: str = "http"):
+    """Stand in for a live ComfyUI that declares exactly `classes`.
+
+    `/object_info/<cls>` answers `{cls: {...}}` for a class it has and `{}` for
+    one it does not — the real shape, confirmed against a running 8188 (an
+    absent class returns `{}`, not a 404). `probed` records every class asked
+    for, so the caching claim is testable rather than asserted."""
+    probed: list[str] = []
+
+    def fake_get(path: str) -> dict:
+        cls = path.rsplit("/", 1)[-1]
+        probed.append(cls)
+        return {cls: {"input": {}}} if cls in set(classes) else {}
+
+    real_get, real_alive, real_tx = ba.comfy_get, ba._comfy_alive, ba.COMFY_TRANSPORT
+    ba.comfy_get = fake_get                    # type: ignore[assignment]
+    ba._comfy_alive = lambda: True             # type: ignore[assignment]
+    ba.COMFY_TRANSPORT = transport
+    ba._CLASS_PRESENT.clear()
+    try:
+        yield probed
+    finally:
+        ba.comfy_get, ba._comfy_alive = real_get, real_alive   # type: ignore[assignment]
+        ba.COMFY_TRANSPORT = real_tx
+        ba._CLASS_PRESENT.clear()
+
+
+def test_a_graph_whose_node_types_are_missing_is_never_submitted() -> None:
+    """2026-09-07: a blueprint authored on the R&D pod was run against the
+    artist's LOCAL ComfyUI, which has no PuLID pack. ComfyUI answered
+    `missing_node_type` for ONE class and stopped — so a three-node gap costs
+    three failed jobs to enumerate by hand. This guard asks /object_info per
+    distinct class first and names the whole gap in one message."""
+    graph = {
+        "1": {"class_type": "CheckpointLoaderSimple",
+              "inputs": {"ckpt_name": "sdxl.safetensors"}},
+        "12": {"class_type": "PulidModelLoader", "inputs": {}},
+        "13": {"class_type": "PulidEvaClipLoader", "inputs": {}},
+        "14": {"class_type": "ApplyPulid", "inputs": {"pulid": ["12", 0]}},
+        "22": {"class_type": "ApplyPulid", "inputs": {"pulid": ["12", 0]}},
+        "17": {"class_type": "SaveImage", "inputs": {"images": ["16", 0]}},
+    }
+    have = {"CheckpointLoaderSimple", "SaveImage"}
+
+    with comfy_declaring(have) as probed:
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                ba.assert_nodes_installed(graph)
+            msg = "(no error)"
+        except RuntimeError as e:
+            msg = str(e)
+        out = buf.getvalue()
+        check("a graph with missing node types is refused", msg != "(no error)", True)
+        for cls in ("PulidModelLoader", "PulidEvaClipLoader", "ApplyPulid"):
+            check_in(f"the message names {cls}", cls, msg)
+        check_in("the report names the graph nodes using the class",
+                 "(graph node 14, 22)", out)
+        check_in("and says nothing was submitted", "Nothing was submitted", out)
+        check_in("and offers the RunPod target", "RunPod", out)
+        check_in("and the sync script", "sync-local-nodes.py", out)
+        check_not_in("an INSTALLED class is never reported",
+                     "CheckpointLoaderSimple", msg)
+
+        # Cached: a second graph over the same classes must not re-probe. The
+        # per-region call site depends on this - only the first region pays.
+        before = len(probed)
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                ba.assert_nodes_installed(graph)
+        except RuntimeError:
+            pass
+        check("the second call re-probes nothing", len(probed), before)
+
+    # Everything present -> silent, and the graph goes through.
+    with comfy_declaring(have | {"PulidModelLoader", "PulidEvaClipLoader",
+                                 "ApplyPulid"}):
+        with contextlib.redirect_stdout(io.StringIO()):
+            ba.assert_nodes_installed(graph)
+        check("a fully installed graph passes", True, True)
+
+
+def test_the_node_guard_stays_silent_when_it_cannot_know() -> None:
+    """A guard that cries wolf gets ignored, which costs more than the failure
+    it was added to catch. Three ways this one must decline to have an opinion
+    rather than accuse a healthy install."""
+    graph = {"12": {"class_type": "PulidModelLoader", "inputs": {}},
+             "17": {"class_type": "SaveImage", "inputs": {}}}
+
+    # 1. The probe itself is broken (an edge answering 404/{} for everything):
+    #    the SaveImage sentinel reads absent, so no verdict is possible.
+    with comfy_declaring(set()):
+        with contextlib.redirect_stdout(io.StringIO()):
+            ba.assert_nodes_installed(graph)
+        check("a probe that denies even SaveImage raises nothing", True, True)
+
+    # 2. Serverless transport: there is no live ComfyUI to ask, and that
+    #    worker's node set is fixed in its own image.
+    with comfy_declaring({"SaveImage"}, transport="serverless") as probed:
+        with contextlib.redirect_stdout(io.StringIO()):
+            ba.assert_nodes_installed(graph)
+        check("serverless is not probed at all", probed, [])
+
+    # 3. A transport failure is NOT an absence: _class_installed returns None,
+    #    which is never a verdict.
+    def boom(_path: str) -> dict:
+        raise ConnectionError("tunnel down")
+
+    real_get, real_alive = ba.comfy_get, ba._comfy_alive
+    ba.comfy_get = boom                        # type: ignore[assignment]
+    ba._comfy_alive = lambda: True             # type: ignore[assignment]
+    ba._CLASS_PRESENT.clear()
+    try:
+        with contextlib.redirect_stdout(io.StringIO()):
+            ba.assert_nodes_installed(graph)
+        check("a dead tunnel accuses no node", True, True)
+    finally:
+        ba.comfy_get, ba._comfy_alive = real_get, real_alive   # type: ignore[assignment]
+        ba._CLASS_PRESENT.clear()
+
+
 
 if __name__ == "__main__":
     for fn in (test_the_poisoned_config_from_the_outage_renders_again,
                test_a_real_value_still_wins,
                test_a_blank_required_model_falls_back_too,
                test_a_graph_with_an_empty_model_name_is_never_submitted,
+               test_a_graph_whose_node_types_are_missing_is_never_submitted,
+               test_the_node_guard_stays_silent_when_it_cannot_know,
                test_a_wrong_family_vae_is_refused_before_the_gpu_runs,
                test_blank_text_still_means_blank,
                test_blank_shadows_default_is_precise,
