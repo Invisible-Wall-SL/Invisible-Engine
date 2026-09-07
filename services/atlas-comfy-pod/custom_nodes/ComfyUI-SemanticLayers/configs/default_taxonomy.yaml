@@ -1,0 +1,130 @@
+# Semantic taxonomy for ComfyUI-SemanticLayers.
+#
+# This file is the ONLY place category/role knowledge is declared. The nodes never
+# hard-code a keyword. Copy it, edit it, and point the "taxonomy_path" widget at your
+# copy to extend the taxonomy without touching Python.
+#
+# Matching model: every rule is scanned, the highest-priority keyword hit wins, ties
+# break on the longest matched keyword (so "smoke trail" beats "smoke"). A rule only
+# ever decides WHAT a layer is (its semantic_category). WHICH ROLE it gets in the
+# pipeline is decided later by the resolver + router.
+
+version: 1
+
+# Stable internal role identifiers. Extend this list to add roles; the router exposes
+# the seven fixed outputs below, and any extra role falls out on OTHER unless you also
+# add an output. UNRESOLVED is required and must stay last.
+roles:
+  - BACKGROUND
+  - MAIN_CHARACTER
+  - SECONDARY_CHARACTER
+  - ASSET
+  - ENVIRONMENT
+  - EFFECT
+  - OTHER
+  - UNRESOLVED
+
+# Categories answer "what is this?". The default_role is the role a layer gets when no
+# resolver has an opinion. Note that `character` defaults to SECONDARY_CHARACTER —
+# MAIN_CHARACTER is never assigned by classification alone, only by the subject
+# resolver (or an explicit override).
+categories:
+  background:
+    default_role: BACKGROUND
+    is_background: true
+    importance: 0.10
+  character:
+    default_role: SECONDARY_CHARACTER
+    is_character: true
+    importance: 1.00
+  asset:
+    default_role: ASSET
+    importance: 0.50
+  environment:
+    default_role: ENVIRONMENT
+    importance: 0.30
+  effect:
+    default_role: EFFECT
+    importance: 0.35
+  other:
+    default_role: OTHER
+    importance: 0.20
+  unknown:
+    default_role: UNRESOLVED
+    importance: 0.00
+
+# Keyword rules. `object_type` is the finer-grained label carried into metadata so
+# downstream nodes can filter assets by kind ("furniture", "vehicle", ...).
+rules:
+  # ---- effects: checked first, they often co-occur with whatever they sit on ------
+  - category: effect
+    object_type: particles
+    priority: 90
+    keywords:
+      [smoke, fire, flame, flames, spark, sparks, particle, particles, glow, haze,
+       mist, fog, steam, dust, embers, ash, lightning, explosion, blast, magic,
+       aura, light ray, light rays, god ray, god rays, sunbeam, lens flare, flare,
+       bokeh, rain, snow, splash, bubble, bubbles, shockwave, energy]
+
+  # ---- characters ---------------------------------------------------------------
+  - category: character
+    object_type: person
+    priority: 80
+    keywords:
+      [person, people, man, men, woman, women, boy, girl, child, children, human,
+       figure, portrait, face, lady, gentleman, soldier, knight, warrior, wizard,
+       character, adventurer, pirate, rider, dancer, worker, model, guy]
+  - category: character
+    object_type: creature
+    priority: 78
+    keywords:
+      [dog, cat, horse, bird, dragon, monster, creature, animal, wolf, bear, fox,
+       lion, tiger, raccoon, rabbit, deer, robot, android, alien, beast, fish]
+
+  # ---- assets / props -----------------------------------------------------------
+  - category: asset
+    object_type: furniture
+    priority: 60
+    keywords:
+      [chair, table, desk, sofa, couch, bench, stool, bed, cabinet, shelf, bookshelf,
+       wardrobe, dresser, lamp, mirror, rug, carpet, curtain, cushion, pillow]
+  - category: asset
+    object_type: vehicle
+    priority: 60
+    keywords:
+      [car, truck, bus, bicycle, bike, motorcycle, boat, ship, sailboat, plane,
+       aeroplane, airplane, helicopter, train, cart, wagon, spaceship, vehicle]
+  - category: asset
+    object_type: weapon
+    priority: 60
+    keywords:
+      [sword, axe, bow, arrow, gun, rifle, pistol, spear, shield, dagger, knife,
+       hammer, staff, wand, weapon]
+  - category: asset
+    object_type: prop
+    priority: 55
+    keywords:
+      [prop, object, item, box, crate, barrel, chest, bag, backpack, basket, bottle,
+       cup, mug, glass, plate, bowl, book, scroll, map, sign, banner, flag, torch,
+       lantern, candle, clock, statue, vase, pot, guitar, instrument, ball, toy,
+       coin, gem, key, food, fruit, flower, plant, potted plant]
+
+  # ---- environment: things that are scene, but not the far backdrop --------------
+  - category: environment
+    object_type: terrain
+    priority: 40
+    keywords:
+      [ground, floor, terrain, grass, sand, road, path, street, pavement, rock,
+       rocks, rocky, cliff, hill, hills, mountain, mountains, tree, trees, forest,
+       bush, bushes, foliage, field, meadow, river, lake, sea, ocean, water, shore,
+       coast, coastline, beach, snowfield, ruins, building, buildings, house, tower,
+       bridge, fence, stairs, pillar, column, architecture, interior, room]
+
+  # ---- background: the far backdrop --------------------------------------------
+  - category: background
+    object_type: backdrop
+    priority: 30
+    keywords:
+      [background, backdrop, sky, skies, cloud, clouds, sunset, sunrise, horizon,
+       gradient, wall, wallpaper, backdrop plate, distant, far away, empty scene,
+       plain background, studio backdrop, void, vignette, base layer, composite]

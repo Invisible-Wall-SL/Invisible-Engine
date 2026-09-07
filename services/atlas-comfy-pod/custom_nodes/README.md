@@ -35,3 +35,27 @@ throws is worse than one that quietly does less.
 
 Terminal-side equivalent for when the browser can't reach the pod at all:
 `node scripts/comfy-last-error.mjs <comfy-url>`.
+
+## `ComfyUI-SemanticLayers/` — ours, nodes-only
+
+Routes the output of an image-layer decomposition model onto a **fixed** semantic
+interface — `BACKGROUND`, `MAIN_CHARACTER`, `SECONDARY_CHARACTERS`, `ASSETS`,
+`ENVIRONMENT`, `EFFECTS`, `OTHER` — so a downstream graph never depends on how many
+layers the model emitted or in what order.
+
+The problem it solves is specific to Qwen-Image-Layered as ComfyUI actually ships it
+(core `EmptyQwenImageLayeredLatentImage` + `LatentCutToBatch(dim="t")` + `VAEDecode`):
+the layers arrive as **one IMAGE batch of `layers + 1` RGB frames with no alpha and no
+metadata whatsoever**. There is nothing to key on but the pixels, and layer order is not
+a contract. So layer ids are **content hashes**, every routing decision is a pure
+function of content + metadata, and the test suite asserts that shuffling the input
+leaves both the assignments and the composited pixels byte-identical.
+
+No pip dependencies — torch, PyYAML, numpy and Pillow all ship with ComfyUI. The
+optional Florence-2 analyzer imports `transformers` lazily, so its absence disables one
+dropdown entry rather than the extension. Taxonomy and keyword rules live in
+`configs/default_taxonomy.yaml`, never in Python.
+
+Full documentation, including exactly what was verified about the installed Qwen
+implementation, is in its own `README.md`. Tests:
+`"<ComfyUI>/python_embeded/python.exe" tests/run_tests.py` (45 tests).

@@ -1,0 +1,19 @@
+[project]
+name = "comfyui-semanticlayers"
+description = "Route the variable, unordered layer output of an image-decomposition model (Qwen-Image-Layered and friends) onto a fixed set of semantic outputs — BACKGROUND, MAIN_CHARACTER, SECONDARY_CHARACTERS, ASSETS, ENVIRONMENT, EFFECTS, OTHER — so downstream nodes never depend on layer count or ordering."
+version = "1.0.0"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+
+# No third-party requirements: torch, PyYAML, numpy and Pillow all ship with ComfyUI.
+# The optional florence2 analyzer uses `transformers`, which ComfyUI also ships; it is
+# imported lazily so its absence only disables that one dropdown entry.
+dependencies = []
+
+[project.urls]
+Repository = "https://github.com/Invisible-Wall-SL/Invisible-Engine"
+
+[tool.comfy]
+PublisherId = "invisiblewall"
+DisplayName = "ComfyUI-SemanticLayers"
+Icon = ""

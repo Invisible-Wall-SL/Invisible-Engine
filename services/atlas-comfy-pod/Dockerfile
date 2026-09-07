@@ -147,6 +147,9 @@ COPY custom_nodes/ComfyUI-PuLID-Flux /ComfyUI/custom_nodes/ComfyUI-PuLID-Flux
 # Ours, frontend-only (no nodes, no deps): re-surfaces a run's error on the failing node
 # when the /ws socket dropped before ComfyUI could report it. See its __init__.py.
 COPY custom_nodes/ComfyUI-Invisible-ErrorRecall /ComfyUI/custom_nodes/ComfyUI-Invisible-ErrorRecall
+# Ours, nodes-only (no deps beyond what ComfyUI already ships): routes a layered
+# decomposer's variable layer batch onto fixed semantic outputs. See its README.md.
+COPY custom_nodes/ComfyUI-SemanticLayers /ComfyUI/custom_nodes/ComfyUI-SemanticLayers
 
 # Install every node's Python deps (incl. the vendored PuLID folder + Manager).
 #
