@@ -2777,6 +2777,23 @@ def runpod_cancel(job_id: str) -> str:
         return f"{type(e).__name__}: {e}"
 
 
+class RunPodHTTPError(RuntimeError):
+    """RunPod answered with an HTTP error status, which is KEPT on the exception.
+
+    The code matters because 404 is not the same kind of answer as the rest. A 5xx
+    is a failure to answer — the job carries on and the next poll may well read it.
+    A 404 on `/status/<id>` is an answer: RunPod has no record of that job. It drops
+    a finished job's record about half an hour after it completes, so 404 usually
+    means the render finished while nothing was watching it, not that anything is
+    unreachable. Callers that must tell those apart read `.code`; the message is
+    unchanged, so callers that don't still behave exactly as before.
+    """
+
+    def __init__(self, code: int, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 def _runpod_endpoint_base() -> str:
     eid = (os.environ.get("RUNPOD_ENDPOINT_ID") or "").strip()
     if not eid:
@@ -2808,8 +2825,8 @@ def _runpod_post(path: str, payload: dict) -> dict:
             return json.loads(r.read())
     except HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
-        raise RuntimeError(
-            f"RunPod {path} failed: HTTP {e.code} {e.reason}: {body[:500]}")
+        raise RunPodHTTPError(
+            e.code, f"RunPod {path} failed: HTTP {e.code} {e.reason}: {body[:500]}")
     except (URLError, ConnectionError, OSError) as e:
         raise RuntimeError(f"Cannot reach RunPod endpoint at {base}{path}: {e}")
 
@@ -2822,8 +2839,8 @@ def _runpod_get(path: str) -> dict:
             return json.loads(r.read())
     except HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
-        raise RuntimeError(
-            f"RunPod {path} failed: HTTP {e.code} {e.reason}: {body[:500]}")
+        raise RunPodHTTPError(
+            e.code, f"RunPod {path} failed: HTTP {e.code} {e.reason}: {body[:500]}")
     except (URLError, ConnectionError, OSError) as e:
         raise RuntimeError(f"Cannot reach RunPod endpoint at {base}{path}: {e}")
 

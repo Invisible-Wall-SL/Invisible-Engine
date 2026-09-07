@@ -76,6 +76,10 @@ _META_LOCK = threading.Lock()
 # lines up five full sessions and walks away should be told, not surprised.
 # A waiting session has spent nothing, so cancelling one is free.
 MAX_QUEUED_SESSIONS = 4
+# How far back `resume_orphans` looks at boot. A doc older than this is not a
+# session anyone is waiting on — RunPod dropped its jobs long ago — so re-attaching
+# to it could only ever fail, slowly, once per container start.
+RESUME_WINDOW_HOURS = float(os.environ.get("VIDEO_RESUME_WINDOW_HOURS") or 12)
 # Poll cadence + overall per-job cap. Wan 2.2 14B on a cold worker loads ~29 GB
 # of weights before it samples anything, so the cap is generous by necessity.
 POLL_SECONDS = 3.0
@@ -107,6 +111,13 @@ PARALLEL_JOBS = max(1, int(os.environ.get("VIDEO_PARALLEL_JOBS") or 1))
 # Budgeted in TIME rather than tries: an API wobble lasts minutes, and at a 3s
 # cadence a retry COUNT would give up in seconds.
 STATUS_GRACE_SECONDS = 180.0
+# The same budget for a run of 404s, which is a much shorter one because a 404 is
+# an ANSWER, not a failure to answer: RunPod has no record of the job. Only one
+# reading of that is innocent — a job it has not indexed in the seconds after
+# submit — and it resolves in seconds. The other reading is a record already
+# dropped (RunPod keeps a finished job about half an hour), where waiting the full
+# three minutes only delays the collect from R2 that actually recovers the render.
+NOT_FOUND_GRACE_SECONDS = 15.0
 # Seeds are echoed into meta.json, which a browser parses — beyond 2^53 a JSON
 # number silently loses integer precision, so a "locked" seed would round to a
 # different one and stop reproducing its own render.
@@ -272,6 +283,12 @@ def _submit(wf: dict, prefix: str = "") -> tuple[str, dict, list[str]]:
     """Base64 the graph's refs, POST /run, return (job_id, workflow, upload_keys)."""
     images = batch_atlas._serverless_workflow_images(wf)
     urls, keys = _upload_slots(prefix) if prefix else ([], [])
+    # EMPTY THE SLOTS BEFORE THE JOB RUNS. Their keys are derived from the session
+    # id and the variation index, so a re-roll reuses the ones its own earlier
+    # attempt wrote into — and a leftover is normal, since the slots are only
+    # cleared on a successful collect. Without this, a re-roll that ends unreadable
+    # would rescue the PREVIOUS attempt's render and call it the new seed's.
+    _clear_upload_slots(keys)
     payload = {"workflow": wf, "images": images}
     if urls:
         # A worker that predates this ignores the key and base64s as before, so a
@@ -319,7 +336,7 @@ def _cancel_warning(failed: list) -> str:
             "be rendering and billing. Check the endpoint's Requests tab.")
 
 
-def _await_job(job_id: str, var: dict, should_stop) -> dict:
+def _await_job(job_id: str, var: dict, should_stop, resumed: bool = False) -> dict:
     """Poll one job to completion. Updates `var` in place with the live RunPod
     status so the UI can say "IN_QUEUE" vs "IN_PROGRESS" rather than a spinner.
     Raises on failure/timeout; returns the worker `output` on success.
@@ -330,10 +347,18 @@ def _await_job(job_id: str, var: dict, should_stop) -> dict:
     the variation — with the job left running, billing out the endpoint's whole
     timeout, its result collected by nobody. Reads are now tolerated for
     `STATUS_GRACE_SECONDS` of CONTINUOUS failure before the job is given up on.
+
+    Giving up raises `_Unresolved`, never a plain failure, because "we could not
+    read the outcome" is not "the render did not happen": the worker uploads to R2
+    itself, so the caller can still go and look. What it must NOT do is report a
+    finished render as a red tile, which is what a run of 404s did on 2026-09-07 —
+    five renders sat complete in their hand-off slots while their tiles read "lost
+    contact with RunPod".
     """
     deadline = _now() + JOB_TIMEOUT_SECONDS
     unreadable_since = 0.0
     last_read_error = ""
+    ever_read = False
     while _now() < deadline:
         if should_stop():
             _cancel_job(job_id)
@@ -353,21 +378,41 @@ def _await_job(job_id: str, var: dict, should_stop) -> dict:
             last_read_error = str(e)
             if not unreadable_since:
                 unreadable_since = _now()
-            if _now() - unreadable_since < STATUS_GRACE_SECONDS:
+                only_not_found = True
+            only_not_found = only_not_found and getattr(e, "code", None) == 404
+            # The short grace is for a record that is GONE, and the only way to know
+            # one ever existed is to have read it — or to have re-attached to a job
+            # an earlier process submitted, which is the case that actually meets
+            # these 404s. A job never read may simply not be INDEXED yet, and giving
+            # up on that in fifteen seconds abandons a live render, uncancelled, to
+            # bill out the endpoint's own timeout with nobody collecting it.
+            gone = only_not_found and (ever_read or resumed)
+            grace = NOT_FOUND_GRACE_SECONDS if gone else STATUS_GRACE_SECONDS
+            if _now() - unreadable_since < grace:
                 # Say so rather than freezing on the last status, so the author
                 # can see the tool is retrying and not that the job has stalled.
                 with _LOCK:
                     var["remote_status"] = "RECONNECTING"
                 continue
+            if gone:
+                # Not a broken connection — an answer. Cancelling a job RunPod has
+                # no record of would just be a second 404, so don't pretend to; the
+                # caller looks in the hand-off slot, which is where the render is.
+                raise _Unresolved(
+                    f"RunPod no longer has a record of job {job_id}. It drops a "
+                    "finished job about half an hour after it completes, so this "
+                    "usually means the render finished while nothing was watching "
+                    "it — a service restart.")
             # Genuinely out of contact. The job may well still be running, so
             # stop it rather than leave it burning to the endpoint's own timeout
             # with nobody left to collect what it produces.
             _cancel_job(job_id)
-            raise RuntimeError(
+            raise _Unresolved(
                 f"lost contact with RunPod for "
                 f"{int(_now() - unreadable_since)}s while job {job_id} was "
                 f"running, so it was stopped — {last_read_error[:300]}")
         unreadable_since = 0.0
+        ever_read = True
         status = str(st.get("status") or "").upper()
         with _LOCK:
             var["remote_status"] = status
@@ -383,12 +428,22 @@ def _await_job(job_id: str, var: dict, should_stop) -> dict:
             detail = st.get("error") or st.get("output") or st
             raise RuntimeError(f"job {status}: {str(detail)[:400]}")
     _cancel_job(job_id)
-    raise TimeoutError(
+    raise _Unresolved(
         f"job {job_id} timed out after {JOB_TIMEOUT_SECONDS // 60} min")
 
 
 class _Cancelled(Exception):
     """Session cancelled by the user — not an error to report as a failure."""
+
+
+class _Unresolved(RuntimeError):
+    """The job's OUTCOME could not be read — RunPod never said finished or failed.
+
+    Kept apart from an ordinary failure because the render may exist regardless:
+    the worker uploads straight to R2, so a result nobody was there to collect is
+    still sitting in its hand-off slot. Every raise of this is followed by a look
+    in that slot before the variation is called failed.
+    """
 
 
 def _pick_video_output(out: dict, filename_prefix: str,
@@ -469,6 +524,47 @@ def _pick_video_output(out: dict, filename_prefix: str,
         raise RuntimeError(
             f"output entry carried no data: {str(chosen)[:200]}")
     return name, base64.b64decode(b64)
+
+
+def _rescue_upload(keys: list | None) -> bytes | None:
+    """The render sitting in a hand-off slot, when the job's own outcome was never
+    read. `None` when there is nothing there.
+
+    This is the whole point of uploading to R2 rather than returning the file
+    through RunPod: the render outlives the process that ordered it. A deploy takes
+    the poller with it, the GPU finishes anyway and PUTs the result, and by the time
+    anyone looks again RunPod has dropped the job record — so the only surviving
+    handle on a paid render is the slot, whose key is derivable from the session id
+    and the variation index (`_upload_slot_keys`).
+
+    Reads through `get_strict`, RETRIED, because "the slot is empty" and "R2 could
+    not be asked" are different answers and `storage.get` returns None for both —
+    which would report a finished render as a failure over one flaky read, the very
+    bug this function exists to fix, one layer down.
+
+    Picks the same way `_pick_video_output` does rather than taking the first thing
+    it finds: a graph may emit a preview alongside the clip, and slot order is the
+    worker's output order, not a ranking. An animated WEBP is the one with an
+    `ANIM` chunk; failing that, the largest.
+
+    Best-effort by construction: nothing here raises, because a slot that really is
+    empty just means the variation failed the way it used to.
+    """
+    found: list[bytes] = []
+    for k in (keys or []):
+        for attempt in range(3):
+            try:
+                blob = storage.get_strict(k)
+            except storage.ObjectUnreadable:
+                time.sleep(0.15 * (attempt + 1))
+                continue
+            if blob:
+                found.append(blob)
+            break
+    if not found:
+        return None
+    animated = [b for b in found if b[:4] == b"RIFF" and b"ANIM" in b[:64]]
+    return max(animated or found, key=len)
 
 
 def _clear_upload_slots(keys: list | None) -> None:
@@ -591,11 +687,29 @@ def _run_session(session_id: str, ctx: tuple[str, str]) -> None:
                                      finished=_now())
             with _LOCK:
                 done = sum(1 for v in session["variations"] if v["status"] == "done")
-                session.update(
-                    status="cancelled" if session.get("cancel") and not done
-                    else "finished",
-                    finished=_now(), done_count=done)
+                # A collect-only pass left the untouched tail alone on purpose, so
+                # this session is not FINISHED — it is where it was, minus the
+                # renders just rescued. Say that, and then LET GO of it: the next
+                # read re-adopts it as an ordinary resume and starts what is left,
+                # which keeps "only a person starts a job" true without stranding
+                # the tail behind a status nothing would ever revisit.
+                handed_back = bool(
+                    session.get("_collect_only") and not session.get("cancel")
+                    and any(v["status"] == "queued" for v in session["variations"]))
+                if handed_back:
+                    session.update(status="running", done_count=done)
+                else:
+                    session.update(
+                        status="cancelled" if session.get("cancel") and not done
+                        else "finished",
+                        finished=_now(), done_count=done)
             _write_meta(session_id, session)
+            if handed_back:
+                with _LOCK:
+                    if _SESSIONS.get(session_id) is session:
+                        del _SESSIONS[session_id]
+                print(f"[video] {session_id} collected what was already running; "
+                      "its unstarted tiles wait for someone to open it", flush=True)
     finally:
         _release(session_id)
 
@@ -692,10 +806,17 @@ def _run_variations(session_id: str, session: dict, ctx: tuple[str, str]) -> Non
             # failed by `_adopt` and left for the author to re-roll deliberately,
             # never silently re-billed. Every exit from the worker is terminal
             # (and a claimed slot is excluded here), so this cannot spin.
+            #
+            # A `_collect_only` pass takes ONLY the re-attach half. It is the boot
+            # sweep's pass: nobody asked for anything at that moment, so finishing
+            # a grid's untouched tail would submit brand-new jobs unattended, hours
+            # after its author walked away, once per rollout that caught it. The
+            # tail stays `queued` and starts when a person opens the session.
             var = next((v for v in session["variations"]
                         if v["index"] not in in_flight
-                        and (v["status"] == "queued"
-                             or (v["status"] == "running" and v.get("job_id")))),
+                        and ((v["status"] == "running" and v.get("job_id"))
+                             or (v["status"] == "queued"
+                                 and not session.get("_collect_only")))),
                        None)
             if var is None:
                 if not in_flight:
@@ -769,8 +890,26 @@ def _run_variation(session_id: str, session: dict, bp: dict, var: dict,
             # to a job that was already running (and already paid for) — the
             # session then sat at "running" forever with its result stranded.
             _write_meta(session_id, session)
-        out = _await_job(job_id, var, should_stop)
-        _, blob = _pick_video_output(out, prefix, upload_keys)
+        try:
+            out = _await_job(job_id, var, should_stop, resumed=resume)
+            _, blob = _pick_video_output(out, prefix, upload_keys)
+        except _Unresolved as e:
+            # The outcome was unreadable, which says nothing about the RENDER. Look
+            # where the worker puts it before calling this variation failed: on
+            # 2026-09-07 three deploys orphaned five jobs whose finished renders
+            # were already in R2, and every one of them was reported as a failure.
+            blob = _rescue_upload(upload_keys)
+            if blob is None:
+                raise
+            # A record in `meta.json`, not something the page shows: the tile is
+            # `done` on the next line, and the UI only renders `remote_status`
+            # while a tile is running. It is here so the next person reading a
+            # session's doc can see which tiles came back this way.
+            with _LOCK:
+                var["remote_status"] = "RECOVERED"
+            print(f"[video] {session_id} v{var['index']:03d} collected its render "
+                  f"from R2 after the job itself became unreadable ({e})",
+                  flush=True)
         fname = _persist(session_id, var["index"], blob)
         # The hand-off slots are scratch. `_persist` has just written the real
         # object, so leaving them would double every session's storage and put
@@ -1232,9 +1371,13 @@ def get_session(session_id: str) -> dict | None:
     return stored
 
 
-def _adopt(stored: dict) -> dict | None:
+def _adopt(stored: dict, collect_only: bool = False) -> dict | None:
     """Take over an orphaned session: put it back in memory and restart its
-    worker, which resumes from each variation's recorded state."""
+    worker, which resumes from each variation's recorded state.
+
+    `collect_only` narrows that to the jobs RunPod is ALREADY holding — the boot
+    sweep's mode, where nobody asked for anything just now. See `resume_orphans`.
+    """
     global _ACTIVE
     sid = str(stored.get("id") or "")
     if not valid_session_id(sid):
@@ -1262,7 +1405,19 @@ def _adopt(stored: dict) -> dict | None:
                           "recorded — re-roll this variation.")
     ctx = (str(stored.get("client") or ""), str(stored.get("project") or ""))
     with _LOCK:
+        # CHECK AND INSERT UNDER ONE LOCK. Every caller reads `_SESSIONS`, decides
+        # the session is orphaned, and only then gets here — so two of them (a boot
+        # sweep and the browser reconnecting to the same session, which is exactly
+        # when both happen) could each install their OWN dict over the same id and
+        # start a second worker on it. Two workers keep separate `in_flight` sets,
+        # so neither excludes the other's claim: the same queued variation is
+        # submitted twice, one job id is overwritten and never collected, and the
+        # two dicts race each other's `meta.json` writes.
+        live = _SESSIONS.get(sid)
+        if live is not None:
+            return _public(live)
         stored["_blueprint"] = bp
+        stored["_collect_only"] = collect_only
         stored.setdefault("cancel", False)
         _SESSIONS[sid] = stored
         busy = (_ACTIVE and _ACTIVE != sid
@@ -1282,6 +1437,110 @@ def _adopt(stored: dict) -> dict | None:
     print(f"[video] adopted orphaned session {sid}", flush=True)
     threading.Thread(target=_run_session, args=(sid, ctx), daemon=True).start()
     return _public(stored)
+
+
+def _meta_keys_since(cutoff: float) -> list[str]:
+    """Every `<client>/<project>/video/<id>/meta.json` in the bucket written since
+    `cutoff`.
+
+    The client and project levels are DELIMITED listings — folder names only — so
+    finding which projects even have a `video/` costs a handful of calls instead of
+    paging the whole asset repo. Below that it does list every object under
+    `video/` and filter, which is the session `.webp`s too: a few hundred keys per
+    project, once per container start (~8s across the real bucket), and the mtime
+    it needs lives on the object, not in its name.
+    """
+    keys: list[str] = []
+    for client in storage.list_prefixes(""):
+        for project in storage.list_prefixes(client):
+            for o in storage.list_keys(f"{project}video/"):
+                k = str(o.get("key") or "")
+                if k.endswith("/meta.json") and float(o.get("mtime") or 0) >= cutoff:
+                    keys.append(k)
+    return keys
+
+
+def _is_mid_render(doc: dict) -> bool:
+    """True when this stored session has work RunPod is already holding: at least
+    one variation `running` with a job id.
+
+    Which SESSIONS the boot sweep will touch. What it then does inside one is the
+    other half of the same rule — `_adopt(collect_only=True)`, which re-attaches to
+    those jobs and leaves every `queued` slot alone. Both halves say the same
+    thing: a boot collects work already paid for and starts nothing, because
+    nobody asked for anything at that moment.
+    """
+    return str(doc.get("status")) == "running" and any(
+        v.get("status") == "running" and v.get("job_id")
+        for v in doc.get("variations") or [])
+
+
+def resume_orphans() -> list[str]:
+    """Re-attach, at startup, to every session the previous container left in
+    flight. Returns the session ids adopted.
+
+    Adoption already existed — but only as something a READ triggers, and the
+    reader is a person. On 2026-09-07 three Railway rollouts orphaned two sessions
+    and nobody opened them for two and a half hours; by then RunPod had dropped
+    every job record (it keeps a finished one about half an hour) and eight
+    finished renders had to be recovered from their hand-off slots by hand. A
+    container that looks the moment it boots re-attaches within seconds, while the
+    job is still readable and its result still collectable the ordinary way.
+
+    It COLLECTS; it does not start. A session qualifies only with a job already in
+    flight (`_is_mid_render`), and it is adopted `collect_only`, so the variations
+    its author had queued behind that job stay queued — finishing a grid unattended
+    hours later, once per rollout that caught it, is spending nobody asked for. The
+    session is handed back to storage still `running`, and opening it resumes the
+    rest the ordinary way, which is a person deciding to spend.
+
+    Never raises: this runs beside the server's own startup, and a bucket it cannot
+    sweep must cost the recovery, not the tool.
+    """
+    adopted: list[str] = []
+    try:
+        keys = _meta_keys_since(_now() - RESUME_WINDOW_HOURS * 3600)
+    except Exception as e:  # noqa: BLE001 — a sweep we cannot run is not an outage
+        print(f"[video] could not scan for interrupted sessions ({e})", flush=True)
+        return adopted
+    for key in keys:
+        try:
+            doc = _read_session_doc(key)
+            if not doc or not _is_mid_render(doc):
+                continue
+            sid = str(doc.get("id") or "")
+            with _LOCK:
+                if sid in _SESSIONS:
+                    continue
+            # WHERE THE DOC LIVES is what says which project it belongs to. Its own
+            # `client`/`project` fields are the same answer when all is well, but a
+            # missing or unslugged one falls back to the env default inside
+            # `set_context` — and then `_adopt`, `_persist` and `_write_meta` all
+            # land in the wrong project. The key cannot be wrong: it is the address
+            # the doc was read from.
+            client, project = key.split("/", 2)[:2]
+            doc["client"], doc["project"] = client, project
+            project_paths.set_context(client, project)
+            # One running session plus a full queue behind it is everything the
+            # runner can hold. Adopting past that would fill `_QUEUE` with sessions
+            # nobody asked for now and refuse the author's next Generate.
+            if len(adopted) >= 1 + MAX_QUEUED_SESSIONS:
+                print(f"[video] more interrupted sessions than the queue holds; "
+                      f"{key} stays for whoever opens it", flush=True)
+                continue
+            _adopt(doc, collect_only=True)
+            # Membership, not `_adopt`'s return value: it answers with the session
+            # either way, including the one case where it takes nothing on — a
+            # blueprint that no longer exists, which it settles and writes back.
+            with _LOCK:
+                if sid in _SESSIONS:
+                    adopted.append(sid)
+        except Exception as e:  # noqa: BLE001 — one bad doc must not stop the rest
+            print(f"[video] could not resume {key} ({e})", flush=True)
+    if adopted:
+        print(f"[video] resuming {len(adopted)} session(s) interrupted by the last "
+              f"restart: {', '.join(adopted)}", flush=True)
+    return adopted
 
 
 def cancel_session(session_id: str) -> dict:
@@ -1438,7 +1697,12 @@ def list_sessions() -> list[dict]:
             out[key[len(prefix):].split("/", 1)[0]] = doc
     with _LOCK:
         for sid, s in _SESSIONS.items():
-            if s.get("project") == project_paths.project_name():
+            # CLIENT AND project. Matching on the project alone was survivable while
+            # only requests put sessions in memory; the boot sweep loads every
+            # client's, so two clients sharing a project slug (`cloud`, the default,
+            # is the obvious pair) would each list the other's.
+            if (s.get("project") == project_paths.project_name()
+                    and s.get("client") == project_paths.client_name()):
                 out[sid] = _public(s)
     return sorted(out.values(), key=lambda s: s.get("created", 0), reverse=True)
 

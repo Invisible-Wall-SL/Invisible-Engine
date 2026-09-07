@@ -8821,6 +8821,14 @@ def main():
     # RunPod on-demand: auto-stop the pod after idle (no-op unless configured).
     runpod_control.start_idle_watchdog(
         is_rendering=lambda: bool(_render_state.get("running")))
+    # Every push to main redeploys this service, so a container swap routinely
+    # lands in the middle of a video session. Collect whatever the last container
+    # was rendering NOW rather than waiting for someone to open the page: RunPod
+    # keeps a finished job about half an hour, and after that a paid render is only
+    # recoverable by hand. In a thread because it sweeps the bucket, and the server
+    # has to answer while it does.
+    threading.Thread(target=video_runner.resume_orphans, daemon=True,
+                     name="video-resume").start()
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
 
 
