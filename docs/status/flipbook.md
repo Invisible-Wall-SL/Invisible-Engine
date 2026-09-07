@@ -201,6 +201,60 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-07 — **A deploy mid-render stopped costing the render.** Owner: *"lost contact with
+  RunPod for 182s … I had 3 computers generating, but no result were showing, also one of them
+  looked stuck."* RunPod never went away. Three Railway rollouts that day
+  (`326daa95`, `ff64e95c` — a docs-only commit — and `a3b2691c`; every push to `main` redeploys
+  this service, `docs/INFRA.md`) each swapped the container mid-session. The GPU finished the
+  orphaned jobs anyway and PUT each render into its presigned hand-off slot, but the process
+  that would have collected it was gone; two and a half hours later, when the sessions were
+  reopened, RunPod had dropped the job records (it keeps a finished job ~30 min) and answered
+  `404 job not found` — which `_await_job` spent its full three-minute grace on and then
+  reported as lost contact. **Thirteen finished renders were reported to the author as failures**
+  while sitting complete in R2 — five that day, and eight more going back to 2026-09-02, every
+  one of them carrying the same `lost contact with RunPod for 18Xs` on its tile: the sweep of
+  `video/_out/` that recovered them is what showed this had been happening all week, not once.
+  (All thirteen were moved back into their sessions by hand.) The orphaning also
+  broke the one-session-at-a-time rule — the adopted session ran beside the abandoned one's live
+  jobs — so six jobs contended for three workers: 46 min in queue, then a 100-minute job that
+  had to be cancelled.
+  - **The outcome and the render are now separate questions.** `_await_job` raises `_Unresolved`
+    (not a failure) whenever it could not read what happened, and `_run_variation` looks in the
+    hand-off slot before calling a variation failed — the keys are derivable, so any process can
+    collect any job's render (#559's fix, one step further along).
+  - **A 404 is an answer, not silence.** `batch_atlas.RunPodHTTPError` keeps the status code, and
+    a run of 404s gives up after `NOT_FOUND_GRACE_SECONDS` (15) instead of `STATUS_GRACE_SECONDS`
+    (180), cancels nothing (there is nothing there to cancel), and says the record is gone rather
+    than blaming the network.
+  - **The container re-attaches when it BOOTS** (`resume_orphans`, `ui_server.main`), instead of
+    waiting for a person to open the page — which is what let the jobs age past RunPod's record.
+    A delimited bucket sweep (`storage.list_prefixes`, ~8 s, `VIDEO_RESUME_WINDOW_HOURS` back)
+    finds sessions that are `running` with a `job_id` in flight. **A boot COLLECTS; it never
+    starts.** Both halves of that are enforced: `_is_mid_render` picks only sessions with a job
+    already paid for, and `_adopt(collect_only=True)` leaves every `queued` slot of that session
+    alone — finishing a grid's tail unattended, hours later and once per rollout, is spending
+    nobody asked for. The session is handed back to storage still `running` (and dropped from
+    memory), so opening it resumes the rest the ordinary way: a person deciding to spend.
+  - Two hazards the review caught on the way, both older than this change. **`_adopt` was not
+    idempotent** — check-then-insert across a released lock, so a boot sweep and a reconnecting
+    browser could each install their own dict for one session id and run two workers over it,
+    with separate `in_flight` sets claiming the same variation twice. It is one check-and-insert
+    under `_LOCK` now. And **the hand-off slots are emptied at submit**, not only on a successful
+    collect: their keys are derived from session id + index, so a re-roll inherits whatever its
+    own earlier attempt left there and could have rescued the previous seed's render as the new
+    one's. Also: the boot sweep takes a session's project from the KEY it was read under (a
+    doc's own field falls back to the env default when unslugged, which would write the session
+    into the wrong project), caps what it adopts at the queue depth, and `list_sessions` now
+    matches a live session on client AND project.
+  - Fixtures (319 checks): a purged job whose render is in the slot ends `done` on the short
+    grace with nothing cancelled; a purged job with an empty slot fails and names the cause; a
+    404 on a job never once read keeps the LONG grace and stops the job (RunPod also 404s a job
+    it has not indexed yet); a 404-then-500 run latches back to the long grace; a re-roll cannot
+    rescue the attempt before it; the rescue prefers the animated clip over a preview and retries
+    an unreadable slot; a boot collects the running job and leaves the queued tail, which only
+    opening the session starts; and two adopters cannot take one session twice. **The real fix
+    is Watch Paths on the Railway service** — this is what makes a swap survivable, not what
+    stops it.
 - 2026-09-04 — **A rig-timeline `event.flipbook` binding now plays wherever the rig is mounted.** The clip half of the same two-mount-sites gap; `<SpineProvider>` resolves and mounts bound clips itself now. Detail in [fx status](fx.md).
 - 2026-09-04 — **A failed render now names the node and the exception — thirteen tiles read
   `job FAILED: comfy execution error` and nothing else.** Owner, right after the contract fix
