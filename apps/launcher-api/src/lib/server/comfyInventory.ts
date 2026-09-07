@@ -329,7 +329,7 @@ async function build(): Promise<Inventory> {
 			reader: null,
 			models: [],
 			packs: [],
-			note: 'No pod is answering. Start one above — or configure an always-on volume pod (COMFY_VOLUME_POD_ID) to read the volume without billing a GPU.',
+			note: 'No pod is answering. Start one above to read what is installed.',
 			fetchedAt: Date.now(),
 		};
 	}

@@ -718,8 +718,9 @@ RunPod recreates the container, so anything ` +
 	onMount(() => {
 		if (!data.podControl) return;
 		void refresh();
-		// One read on load: an always-on volume pod answers even with the whole GPU fleet
-		// stopped, so this is usually a real listing rather than an empty panel.
+		// One read on load, server-cached for 60s. We run no always-on volume pod (a fixed
+		// monthly cost for this panel alone), so with the fleet stopped this lists nothing
+		// and says why — cheap enough that it is still worth asking before Refresh.
 		void loadInventory();
 		const poll = setInterval(() => void refresh(), 5000);
 		// The build state is read once on load and then only while something is actually
