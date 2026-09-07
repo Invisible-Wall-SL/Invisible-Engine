@@ -30,6 +30,7 @@ import sys
 import threading
 import time
 import uuid
+import difflib
 import urllib.parse
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -1335,7 +1336,11 @@ def assert_models_named(wf: dict) -> None:
 # machine's answer. Process-lifetime and no TTL on purpose: a generation run is
 # a subprocess, and a newly installed node is not loaded until ComfyUI restarts
 # anyway, so nothing can change under us within one run.
-_CLASS_PRESENT: dict[tuple[str, str], bool] = {}
+# Values: the class's `/object_info` entry (a dict) when the target has it, `False`
+# when the target answered "no such class", and no entry at all when the probe reached
+# no verdict. Storing the PAYLOAD rather than a bool is what lets the model check below
+# reuse the node check's requests instead of doubling them.
+_CLASS_PRESENT: dict[tuple[str, str], dict | bool] = {}
 
 # Cap on how many distinct classes one preflight probes. A blueprint graph is
 # tens of nodes; past this it is pathological, and a guard is not worth turning
@@ -1350,28 +1355,50 @@ _NODE_PROBE_CAP = 80
 _PROBE_SENTINEL = "SaveImage"
 
 
-def _class_installed(cls: str) -> bool | None:
-    """True / False, or None when the probe reached no verdict.
+def _class_info(cls: str) -> dict | bool | None:
+    """The class's `/object_info` entry, `False` when the target does not have
+    it, or None when the probe reached no verdict.
 
     `/object_info/<class>` answers `{"<class>": {…}}` for a registered class and
     `{}` for one it does not know (some builds 404 instead) — so ABSENCE is a
     real answer here, not a failure. Everything else (timeout, tunnel error,
-    unparseable body) is None, so the guard can never fire on a flaky
+    unparseable body) is None, so neither guard can fire on a flaky
     connection."""
     key = (COMFY_BASE, cls)
     if key in _CLASS_PRESENT:
         return _CLASS_PRESENT[key]
     try:
         info = comfy_get(f"/object_info/{urllib.parse.quote(cls)}")
-        present = isinstance(info, dict) and cls in info
+        entry = info.get(cls) if isinstance(info, dict) else None
+        found = entry if isinstance(entry, dict) else False
     except HTTPError as e:
         if e.code != 404:
             return None
-        present = False
+        found = False
     except (URLError, ConnectionError, TimeoutError, ValueError, OSError):
         return None
-    _CLASS_PRESENT[key] = present
-    return present
+    _CLASS_PRESENT[key] = found
+    return found
+
+
+def _class_installed(cls: str) -> bool | None:
+    """True / False / None — the presence question, over `_class_info`."""
+    info = _class_info(cls)
+    return None if info is None else info is not False
+
+
+def _probe_ready() -> bool:
+    """May a guard base a REFUSAL on what `/object_info` says here?
+
+    No on the serverless transport (there is no live ComfyUI to ask; that
+    worker's inventory is fixed in its own image), no when ComfyUI is not
+    answering (the run's own unreachable path says it better), and no when the
+    sentinel class reads absent — a probe that denies `SaveImage` is broken, and
+    a guard that cries wolf gets ignored, which costs more than the failure it
+    was added to catch."""
+    if COMFY_TRANSPORT == "serverless" or not _comfy_alive():
+        return False
+    return _class_installed(_PROBE_SENTINEL) is True
 
 
 def assert_nodes_installed(wf: dict) -> None:
@@ -1391,7 +1418,7 @@ def assert_nodes_installed(wf: dict) -> None:
     (no live ComfyUI to ask; that worker's node set is fixed elsewhere), when
     ComfyUI is not answering (the run's own unreachable path says it better),
     when the graph is implausibly large, and when the sentinel probe fails."""
-    if COMFY_TRANSPORT == "serverless" or not _comfy_alive():
+    if not _probe_ready():
         return
     used: dict[str, list[str]] = {}
     for node_id, node in (wf or {}).items():
@@ -1401,8 +1428,6 @@ def assert_nodes_installed(wf: dict) -> None:
         if cls:
             used.setdefault(cls, []).append(str(node_id))
     if not used or len(used) > _NODE_PROBE_CAP:
-        return
-    if _class_installed(_PROBE_SENTINEL) is not True:
         return
     missing = [c for c in sorted(used) if _class_installed(c) is False]
     if not missing:
@@ -1433,6 +1458,114 @@ def assert_nodes_installed(wf: dict) -> None:
         + ", ".join(missing)
         + ". Sync the node packs (see above) or switch the generation target "
           "to RunPod, then retry.")
+
+
+# A baked value ending in one of these is a FILE the target has to hold, which is what
+# makes it safe to check against the node's own enum. Every other combo (sampler_name,
+# scheduler, weight_dtype, a node's mode switch) is left alone on purpose: ComfyUI lets a
+# class override list validation with VALIDATE_INPUTS, `/object_info` does not say which
+# ones do, and a guard that refuses a legal graph is worse than the 400 it saves.
+_MODEL_VALUE_EXTS = (".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".sft",
+                     ".gguf", ".onnx")
+
+
+def _enum_options(entry: dict, field: str) -> list[str] | None:
+    """The option list ComfyUI declares for `field`, or None if that input is
+    not a combo. `/object_info` spells a combo as `[[opt, …], {…}]` and every
+    other type as `["INT", {…}]` — so a LIST in slot 0 is the whole test."""
+    inputs = (entry.get("input") or {}) if isinstance(entry, dict) else {}
+    for bucket in ("required", "optional"):
+        spec = (inputs.get(bucket) or {}).get(field)
+        if isinstance(spec, list) and spec and isinstance(spec[0], list):
+            opts = spec[0]
+            if all(isinstance(o, str) for o in opts):
+                return opts
+    return None
+
+
+def assert_graph_models_present(wf: dict) -> None:
+    """Refuse to SUBMIT a graph naming a model file the target does not have.
+
+    The third gate, and the one the other two leave open. `assert_models_named`
+    catches an EMPTY name; `assert_nodes_installed` catches a missing node TYPE;
+    neither looks at the model names a BLUEPRINT bakes into its graph. Nothing
+    did: `preflight_models` checks the names the SETTINGS panel produces for the
+    three built-in pipelines, and a blueprint is covered only by what it
+    declares in `models[]` — so a blueprint that declares nothing sails through
+    and dies on ComfyUI's `value_not_in_list`.
+
+    That is not hypothetical (2026-09-07): a blueprint authored on the R&D pod
+    asked the artist's local ComfyUI for `flux1-dev-fp8.safetensors` and
+    `comic-style-lora-000002.safetensors`, neither of which that machine has.
+    Which is the recurring shape — a graph carries the FILENAMES of the machine
+    it was built on, so a target switch is a model-inventory switch.
+
+    Unlike a missing node type, ComfyUI reports every bad name in one 400, so
+    the win here is narrower: one submitted job, which on the serverless path is
+    a queued RunPod job and a cold start. The check itself is free — it reads
+    the `/object_info` entries `assert_nodes_installed` already fetched.
+
+    Scoped to values that look like FILES (see `_MODEL_VALUE_EXTS`), so a prompt,
+    a `filename_prefix` or a sampler name can never be mistaken for one."""
+    if not _probe_ready():
+        return
+    bad: list[tuple[str, str, str, str, list[str]]] = []
+    for node_id, node in sorted((wf or {}).items()):
+        if not isinstance(node, dict):
+            continue
+        cls = str(node.get("class_type") or "").strip()
+        entry = _class_info(cls) if cls else None
+        # A class the target lacks has no enums to read, and is already the node
+        # guard's verdict — reporting it twice would only muddy that message.
+        if not isinstance(entry, dict):
+            continue
+        for field, value in sorted((node.get("inputs") or {}).items()):
+            # A list is a wire to another node, never a filename.
+            if not isinstance(value, str) or not value.strip():
+                continue
+            if not value.lower().endswith(_MODEL_VALUE_EXTS):
+                continue
+            opts = _enum_options(entry, str(field))
+            if opts is None or value in opts:
+                continue
+            bad.append((str(node_id), cls, str(field), value, opts))
+    if not bad:
+        return
+    print("\n=== A model this graph names is not on the target ===")
+    for node_id, cls, field, value, opts in bad:
+        print(f"  node {node_id} ({cls}).{field} = {value!r}")
+        # Rank on the STEM, not the whole filename: every candidate shares the
+        # extension, and that shared tail alone scores ~0.5, which is how
+        # `comic-style-lora-000002` once "matched" `gameIconInstitute3d_v10`.
+        stems = {}
+        for o in opts:
+            stems.setdefault(o.rsplit(".", 1)[0], o)
+        near = [stems[s] for s in difflib.get_close_matches(
+            value.rsplit(".", 1)[0], list(stems), n=2, cutoff=0.5)]
+        if near:
+            print(f"      closest it HAS: {', '.join(near)}")
+        elif opts:
+            shown = ", ".join(opts[:4]) + ("…" if len(opts) > 4 else "")
+            print(f"      it has: {shown}")
+        else:
+            print("      it has NOTHING in that folder")
+    print(f"\nNothing was submitted. {COMFY_BASE} would answer 400 "
+          "'value_not_in_list'; on the serverless path that costs a queued job "
+          "and a cold start to be told the same thing.")
+    print("A graph carries the filenames of the machine it was BUILT on, so "
+          "this is usually a target mismatch rather than a broken blueprint:")
+    print("  * If the blueprint was authored on the R&D pod, run it there — its "
+          "volume is where those files live.")
+    print("  * Otherwise put the named files in the matching models folder and "
+          "RESTART ComfyUI (it reads the folders once, at startup).")
+    print("  * Or point the blueprint's parameters at a file this target does "
+          "have, remembering a different LoRA is a different look.")
+    raise RuntimeError(
+        "Refusing to submit: "
+        + "; ".join(f"node {n} ({c}).{f} wants {v}" for n, c, f, v, _ in bad)
+        + f" — not present on {COMFY_BASE}. Run it on the machine that has them "
+          "(the pod, if that is where the blueprint was authored), or install "
+          "them there and retry.")
 
 
 def prepare_blueprint_models_for_run(models: list) -> blueprint_models.PrepareResult:
@@ -2837,6 +2970,9 @@ def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Im
     # …and that the graph's node TYPES exist on the target at all. One small
     # probe per distinct class, cached, so only the first region pays.
     assert_nodes_installed(wf)
+    # …and that the files those nodes NAME are on the target. Free: it reads the
+    # /object_info entries the call above already fetched.
+    assert_graph_models_present(wf)
     # Serverless transport: submit the SAME api-prompt graph as a RunPod job
     # (base64 refs in, base64 image out) instead of talking to a live ComfyUI.
     if COMFY_TRANSPORT == "serverless":

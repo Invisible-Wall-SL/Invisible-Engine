@@ -434,13 +434,19 @@ def comfy_declaring(classes, *, transport: str = "http"):
     `/object_info/<cls>` answers `{cls: {...}}` for a class it has and `{}` for
     one it does not — the real shape, confirmed against a running 8188 (an
     absent class returns `{}`, not a 404). `probed` records every class asked
-    for, so the caching claim is testable rather than asserted."""
+    for, so the caching claim is testable rather than asserted.
+
+    `classes` is either a bare collection of names (presence only) or a MAPPING
+    of name -> the class's `/object_info` entry, which is what the model guard
+    reads its enums out of."""
     probed: list[str] = []
+    catalog = (dict(classes) if isinstance(classes, dict)
+               else {c: {"input": {}} for c in classes})
 
     def fake_get(path: str) -> dict:
         cls = path.rsplit("/", 1)[-1]
         probed.append(cls)
-        return {cls: {"input": {}}} if cls in set(classes) else {}
+        return {cls: catalog[cls]} if cls in catalog else {}
 
     real_get, real_alive, real_tx = ba.comfy_get, ba._comfy_alive, ba.COMFY_TRANSPORT
     ba.comfy_get = fake_get                    # type: ignore[assignment]
@@ -549,6 +555,134 @@ def test_the_node_guard_stays_silent_when_it_cannot_know() -> None:
         ba._CLASS_PRESENT.clear()
 
 
+def combo(*options):
+    """One `/object_info` COMBO input: `[[opt, ...], {...}]`, the real shape."""
+    return [list(options), {}]
+
+
+# The catalog the artist's local ComfyUI actually presented on 2026-09-07: the FLUX
+# stack present, but the fp8 UNet and the trained LoRA absent.
+LOCAL_BOX = {
+    "SaveImage": {"input": {"required": {"filename_prefix": ["STRING", {}]}}},
+    "UNETLoader": {"input": {"required": {
+        "unet_name": combo("flux1-dev.safetensors"),
+        "weight_dtype": combo("default", "fp8_e4m3fn"),
+    }}},
+    "LoraLoaderModelOnly": {"input": {"required": {
+        "lora_name": combo("Y2K TYPEFACE FLUX.safetensors",
+                           "gameIconInstitute3d_v10.safetensors"),
+    }}},
+    "KSampler": {"input": {"required": {
+        "seed": ["INT", {}], "sampler_name": combo("euler", "dpmpp_2m"),
+        "model": ["MODEL", {}],
+    }}},
+    "CLIPTextEncode": {"input": {"required": {"text": ["STRING", {}]}}},
+}
+
+
+def test_a_graph_naming_a_model_the_target_lacks_is_never_submitted() -> None:
+    """2026-09-07, the real payload: with every node type finally installed, the
+    blueprint still died on ComfyUI's `value_not_in_list` for two files that
+    exist on the R&D pod and not on the local box. Nothing checked them —
+    `preflight_models` only validates the names the SETTINGS panel produces, and
+    a blueprint is covered solely by its declared `models[]`."""
+    graph = {
+        "2": {"class_type": "UNETLoader",
+              "inputs": {"unet_name": "flux1-dev-fp8.safetensors",
+                         "weight_dtype": "default"}},
+        "22": {"class_type": "LoraLoaderModelOnly",
+               "inputs": {"lora_name": "comic-style-lora-000002.safetensors"}},
+        "17": {"class_type": "SaveImage",
+               "inputs": {"filename_prefix": "invisible_wall/test7/batch/naty"}},
+    }
+    with comfy_declaring(LOCAL_BOX):
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                ba.assert_graph_models_present(graph)
+            msg = "(no error)"
+        except RuntimeError as e:
+            msg = str(e)
+        out = buf.getvalue()
+        check("the graph is refused", msg != "(no error)", True)
+        check_in("the message names the UNet the pod had", "flux1-dev-fp8.safetensors", msg)
+        check_in("and the trained LoRA", "comic-style-lora-000002.safetensors", msg)
+        check_in("the report names node and field", "node 2 (UNETLoader).unet_name", out)
+        check_in("and node 22 too", "node 22 (LoraLoaderModelOnly).lora_name", out)
+        check_in("it suggests the near miss it DOES have",
+                 "closest it HAS: flux1-dev.safetensors", out)
+        # Ranking is on the STEM: every candidate shares '.safetensors', and that
+        # tail alone scores ~0.5, which once made gameIconInstitute3d_v10 read as
+        # the "closest" thing to comic-style-lora-000002. An unrelated name must
+        # fall back to listing what is there instead of inventing a near miss.
+        check_in("an unrelated name lists the folder rather than guessing",
+                 "it has: Y2K TYPEFACE FLUX.safetensors", out)
+        check_not_in("and offers no bogus closest match",
+                     "closest it HAS: gameIconInstitute3d_v10", out)
+        check_in("and explains the real cause", "filenames of the machine it was BUILT on", out)
+        check_in("and says nothing was submitted", "Nothing was submitted", out)
+
+    # The same graph against the machine it was authored on: silent.
+    pod = json.loads(json.dumps(LOCAL_BOX))
+    pod["UNETLoader"]["input"]["required"]["unet_name"] = combo(
+        "flux1-dev.safetensors", "flux1-dev-fp8.safetensors")
+    pod["LoraLoaderModelOnly"]["input"]["required"]["lora_name"] = combo(
+        "comic-style-lora-000002.safetensors")
+    with comfy_declaring(pod):
+        with contextlib.redirect_stdout(io.StringIO()):
+            ba.assert_graph_models_present(graph)
+        check("on the machine that HAS them, it passes", True, True)
+
+
+def test_the_model_guard_only_judges_things_that_look_like_files() -> None:
+    """The false-positive surface, which is the whole risk: this guard REFUSES,
+    so anything it misreads blocks a legal render. A combo value that is not a
+    filename is left to ComfyUI, because a class may override list validation
+    with VALIDATE_INPUTS and `/object_info` never says which ones do."""
+    graph = {
+        # A prompt, a save prefix and a sampler are all strings; none is a file.
+        "17": {"class_type": "SaveImage",
+               "inputs": {"filename_prefix": "invisible_wall/test7/batch/naty"}},
+        "4": {"class_type": "CLIPTextEncode",
+              "inputs": {"text": "remove clothing, keep the same person"}},
+        "1": {"class_type": "KSampler",
+              "inputs": {"seed": 1899642439,
+                         # not in the enum, and deliberately NOT our business
+                         "sampler_name": "res_multistep",
+                         # a wire, never a name
+                         "model": ["138", 0]}},
+        # A class this target does not have at all: the node guard's verdict,
+        # and reporting it here too would only muddy that message.
+        "139": {"class_type": "PulidFluxModelLoader",
+                "inputs": {"pulid_file": "pulid_flux_v0.9.1.safetensors"}},
+    }
+    with comfy_declaring(LOCAL_BOX):
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                ba.assert_graph_models_present(graph)
+            msg = "(no error)"
+        except RuntimeError as e:
+            msg = str(e)
+        check("none of it is refused", msg, "(no error)")
+        check("and nothing is printed", buf.getvalue(), "")
+
+    # And the guard declines to judge at all when it cannot know.
+    with comfy_declaring(LOCAL_BOX, transport="serverless") as probed:
+        with contextlib.redirect_stdout(io.StringIO()):
+            ba.assert_graph_models_present({
+                "2": {"class_type": "UNETLoader",
+                      "inputs": {"unet_name": "nope.safetensors"}}})
+        check("serverless is not probed at all", probed, [])
+
+    with comfy_declaring(set()):
+        with contextlib.redirect_stdout(io.StringIO()):
+            ba.assert_graph_models_present({
+                "2": {"class_type": "UNETLoader",
+                      "inputs": {"unet_name": "nope.safetensors"}}})
+        check("a probe that denies even SaveImage accuses nothing", True, True)
+
+
 
 if __name__ == "__main__":
     for fn in (test_the_poisoned_config_from_the_outage_renders_again,
@@ -557,6 +691,8 @@ if __name__ == "__main__":
                test_a_graph_with_an_empty_model_name_is_never_submitted,
                test_a_graph_whose_node_types_are_missing_is_never_submitted,
                test_the_node_guard_stays_silent_when_it_cannot_know,
+               test_a_graph_naming_a_model_the_target_lacks_is_never_submitted,
+               test_the_model_guard_only_judges_things_that_look_like_files,
                test_a_wrong_family_vae_is_refused_before_the_gpu_runs,
                test_blank_text_still_means_blank,
                test_blank_shadows_default_is_precise,
