@@ -943,11 +943,18 @@ def comfy_post(path: str, payload: dict) -> dict:
             _title = str(_xi.get("node_title") or _ct)
             print("\n=== ComfyUI is missing a custom node ===")
             print(f"This blueprint uses '{_title}' ({_ct}), which is NOT "
-                  "installed in your local ComfyUI, so the graph was rejected.")
-            print("Fix: on the GPU machine, open ComfyUI-Manager → Install "
-                  f"Custom Nodes, find the pack that provides '{_ct}', install "
-                  "it (plus any models it needs), restart ComfyUI, then retry. "
-                  "The blueprint can't run without it.")
+                  "installed in the ComfyUI this run targets, so the graph was "
+                  "rejected. Validation stops at the FIRST unknown class, so "
+                  "there may be more behind it — assert_nodes_installed lists "
+                  "them all before a job is spent, and only stays quiet when "
+                  "the target could not be probed.")
+            print("Fix: switch the generation target to RunPod, where the packs "
+                  "pinned in services/atlas-comfy-pod/nodes.json are already "
+                  "baked — or make this ComfyUI match that image with "
+                  "services/atlas-comfy-pod/tools/sync-local-nodes.py, then "
+                  "restart it. Installing by hand from ComfyUI-Manager works "
+                  "too, but it pulls the pack's TIP, which is the drift those "
+                  "pins exist to prevent.")
             raise RuntimeError(f"ComfyUI is missing custom node '{_ct}'.")
         # Any other genuine ComfyUI rejection (bad prompt, node error): show the
         # body + payload so the graph can be fixed. Raise RuntimeError so main()
@@ -1321,6 +1328,111 @@ def assert_models_named(wf: dict) -> None:
         "Refusing to submit: "
         + "; ".join(b.strip() for b in bad)
         + ". Set them in Settings and retry.")
+
+
+# Does the ComfyUI we are about to submit to declare this class? Keyed by
+# (base, class) so switching target mid-process can never inherit the other
+# machine's answer. Process-lifetime and no TTL on purpose: a generation run is
+# a subprocess, and a newly installed node is not loaded until ComfyUI restarts
+# anyway, so nothing can change under us within one run.
+_CLASS_PRESENT: dict[tuple[str, str], bool] = {}
+
+# Cap on how many distinct classes one preflight probes. A blueprint graph is
+# tens of nodes; past this it is pathological, and a guard is not worth turning
+# into a stampede of tunnel round trips.
+_NODE_PROBE_CAP = 80
+
+# A core class every ComfyUI ships. Probed FIRST as a sentinel: if even this
+# reads absent, the probe is broken (a route that moved, an edge answering 404
+# for everything) and the guard must stay silent rather than accuse a healthy
+# install of missing every node in the graph. A guard that cries wolf gets
+# ignored, which costs more than the failure it was added to catch.
+_PROBE_SENTINEL = "SaveImage"
+
+
+def _class_installed(cls: str) -> bool | None:
+    """True / False, or None when the probe reached no verdict.
+
+    `/object_info/<class>` answers `{"<class>": {…}}` for a registered class and
+    `{}` for one it does not know (some builds 404 instead) — so ABSENCE is a
+    real answer here, not a failure. Everything else (timeout, tunnel error,
+    unparseable body) is None, so the guard can never fire on a flaky
+    connection."""
+    key = (COMFY_BASE, cls)
+    if key in _CLASS_PRESENT:
+        return _CLASS_PRESENT[key]
+    try:
+        info = comfy_get(f"/object_info/{urllib.parse.quote(cls)}")
+        present = isinstance(info, dict) and cls in info
+    except HTTPError as e:
+        if e.code != 404:
+            return None
+        present = False
+    except (URLError, ConnectionError, TimeoutError, ValueError, OSError):
+        return None
+    _CLASS_PRESENT[key] = present
+    return present
+
+
+def assert_nodes_installed(wf: dict) -> None:
+    """Refuse to SUBMIT a graph whose node TYPES the target does not have.
+
+    ComfyUI rejects such a graph with `missing_node_type`, but its validation
+    stops at the first unknown class — so a blueprint built against a pack the
+    target lacks gets enumerated one failed submission at a time. Asking
+    `/object_info` per distinct class costs a few small GETs, once (answers are
+    cached, so only the first region pays), and names the whole gap in one
+    message.
+
+    Sibling of assert_models_named: same gate, one layer down. That one checks
+    the graph NAMES a model; this one checks its nodes exist at all.
+
+    Silent — never a verdict — when it cannot know: on the serverless transport
+    (no live ComfyUI to ask; that worker's node set is fixed elsewhere), when
+    ComfyUI is not answering (the run's own unreachable path says it better),
+    when the graph is implausibly large, and when the sentinel probe fails."""
+    if COMFY_TRANSPORT == "serverless" or not _comfy_alive():
+        return
+    used: dict[str, list[str]] = {}
+    for node_id, node in (wf or {}).items():
+        if not isinstance(node, dict):
+            continue
+        cls = str(node.get("class_type") or "").strip()
+        if cls:
+            used.setdefault(cls, []).append(str(node_id))
+    if not used or len(used) > _NODE_PROBE_CAP:
+        return
+    if _class_installed(_PROBE_SENTINEL) is not True:
+        return
+    missing = [c for c in sorted(used) if _class_installed(c) is False]
+    if not missing:
+        return
+    print("\n=== ComfyUI is missing custom nodes ===")
+    print(f"This graph needs {len(missing)} node type(s) that {COMFY_BASE} "
+          f"does not have:")
+    for cls in missing:
+        ids = ", ".join(sorted(used[cls], key=lambda s: (len(s), s)))
+        print(f"  {cls}  (graph node {ids})")
+    print("\nNothing was submitted. ComfyUI's own rejection stops at the first "
+          "unknown class, so finding these by running costs one failed job "
+          "each.")
+    print("Fix, cheapest first:")
+    print("  * Switch the generation target to RunPod — the pod image and the "
+          "serverless worker carry the packs pinned in "
+          "services/atlas-comfy-pod/nodes.json.")
+    print("  * Or make this ComfyUI match that image, then RESTART it:")
+    print("      python services/atlas-comfy-pod/tools/sync-local-nodes.py "
+          "--comfy-root <your ComfyUI>")
+    print("  * A class no pinned pack provides has to be added to nodes.json "
+          "first (/comfyui -> Custom nodes -> Add), or it will fail on RunPod "
+          "too.")
+    print("Models stay a separate problem: a node loading is not its weights "
+          "being present.")
+    raise RuntimeError(
+        f"Refusing to submit: ComfyUI at {COMFY_BASE} is missing node type(s) "
+        + ", ".join(missing)
+        + ". Sync the node packs (see above) or switch the generation target "
+          "to RunPod, then retry.")
 
 
 def prepare_blueprint_models_for_run(models: list) -> blueprint_models.PrepareResult:
@@ -2722,6 +2834,9 @@ def run_region(region: dict, style: dict, atlas_path: str, client_id: str) -> Im
     # Last gate before the graph costs anything — covers the built-in pipelines
     # and blueprints alike, whatever produced the empty name.
     assert_models_named(wf)
+    # …and that the graph's node TYPES exist on the target at all. One small
+    # probe per distinct class, cached, so only the first region pays.
+    assert_nodes_installed(wf)
     # Serverless transport: submit the SAME api-prompt graph as a RunPod job
     # (base64 refs in, base64 image out) instead of talking to a live ComfyUI.
     if COMFY_TRANSPORT == "serverless":
