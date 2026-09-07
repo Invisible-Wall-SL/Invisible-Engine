@@ -35,6 +35,60 @@ MODELS = (
 TASKS = ("<CAPTION>", "<DETAILED_CAPTION>", "<MORE_DETAILED_CAPTION>")
 
 
+def _transformers_version() -> str:
+    try:
+        import transformers
+
+        return getattr(transformers, "__version__", "unknown")
+    except Exception:  # noqa: BLE001
+        return "not installed"
+
+
+#: Attributes Florence-2's remote modeling code reads off its config, which newer
+#: transformers releases no longer synthesise. Seeing any of these in the failure means
+#: version skew, not a download problem — and saying "download it again" wastes an hour.
+_CONFIG_SKEW_MARKERS = (
+    "forced_bos_token_id",
+    "Florence2LanguageConfig",
+    "Florence2Config",
+    "_supports_sdpa",
+)
+
+
+def _diagnose(exc: Exception, model_id: str) -> str:
+    """Turn a load failure into the sentence that actually names the cause."""
+    text = str(exc)
+    version = _transformers_version()
+
+    if any(marker in text for marker in _CONFIG_SKEW_MARKERS):
+        return (
+            f"Florence-2 ({model_id}) is INCOMPATIBLE with the transformers version "
+            f"installed here ({version}).\n"
+            f"  underlying error: {text}\n"
+            "This is not a download problem — the weights are irrelevant. Florence-2 "
+            "ships its own modeling code via trust_remote_code, and that code reads "
+            "config attributes newer transformers releases no longer provide.\n"
+            "Fix: switch the 'analyzer' widget to 'captions' and feed it a captioner "
+            "node's STRING output (or type the captions). That path loads no model and "
+            "is the recommended one. Pinning an older transformers to satisfy Florence-2 "
+            "would drag every other custom node backwards with it — don't."
+        )
+
+    lowered = text.lower()
+    if any(w in lowered for w in ("connection", "offline", "resolve", "timed out", "network")):
+        return (
+            f"could not download Florence-2 model {model_id!r}: {text}\n"
+            "First use fetches it from HuggingFace, so this fails without network access. "
+            "Pre-download the repo, or use the 'captions' analyzer instead."
+        )
+
+    return (
+        f"could not load Florence-2 model {model_id!r} (transformers {version}): {text}\n"
+        "Use the 'captions' analyzer with a captioner node you already have installed — "
+        "it loads no model and needs no weights."
+    )
+
+
 def _pick_device() -> tuple[Any, Any]:
     import torch
 
@@ -86,13 +140,8 @@ class Florence2Analyzer(BaseSemanticAnalyzer):
                 model_id, trust_remote_code=True, torch_dtype=self._dtype
             ).to(self._device).eval()
             self._loaded_id = model_id
-        except Exception as exc:  # noqa: BLE001 - offline, gated repo, bad revision…
-            raise AnalyzerUnavailable(
-                f"could not load Florence-2 model {model_id!r}: {exc}\n"
-                "First use downloads it from HuggingFace, so this fails offline. Either "
-                "pre-download the repo, or use the 'captions' analyzer with a captioner "
-                "node you already have installed."
-            ) from exc
+        except Exception as exc:  # noqa: BLE001 - offline, gated repo, version skew…
+            raise AnalyzerUnavailable(_diagnose(exc, model_id)) from exc
 
         context.note(f"florence2: {model_id} on {self._device} ({self._dtype})")
 

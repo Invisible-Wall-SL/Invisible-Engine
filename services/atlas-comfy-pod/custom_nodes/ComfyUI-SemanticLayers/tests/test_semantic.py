@@ -329,6 +329,45 @@ class TestOrderIndependence(unittest.TestCase):
         self.assertEqual(SubjectWeights().order, 0.0)
 
 
+class TestNauticalScene(unittest.TestCase):
+    """A real scene that the first version of the taxonomy could not classify.
+
+    "raft" matched no rule, so a wooden raft fell to UNRESOLVED — the gap that only
+    showed up the first time this ran against a real picture.
+    """
+
+    def test_pirate_on_a_raft_routes_three_ways(self):
+        plan = full_pipeline(
+            make_set(
+                make_meta("water", "deep blue ocean water with white foam", index=0, area=1.0),
+                make_meta(
+                    "pirate",
+                    "a pirate man in a tricorn hat holding a harpoon",
+                    index=1,
+                    area=0.28,
+                    centroid=(0.45, 0.35),
+                ),
+                make_meta(
+                    "raft", "a wooden raft made of broken planks", index=2, area=0.40,
+                    centroid=(0.55, 0.65),
+                ),
+            )
+        )
+        self.assertEqual(plan.ids_for(Role.ENVIRONMENT), ["water"])
+        self.assertEqual(plan.ids_for(Role.MAIN_CHARACTER), ["pirate"])
+        self.assertEqual(plan.ids_for(Role.ASSET), ["raft"])
+        self.assertEqual(plan.ids_for(Role.UNRESOLVED), [])
+
+    def test_vehicle_beats_prop_when_both_match(self):
+        """'raft' (vehicle, 60) must outrank 'plank' (prop, 55) in the same sentence."""
+        match = rules.classify_text("a wooden raft made of broken planks", TAX)
+        self.assertEqual(match.object_type, "vehicle")
+
+    def test_character_beats_the_weapon_they_hold(self):
+        match = rules.classify_text("a pirate holding a harpoon", TAX)
+        self.assertEqual(match.category, "character")
+
+
 class TestStableIds(unittest.TestCase):
     def test_duplicate_fingerprints_get_deterministic_suffixes(self):
         ids = schema.stable_layer_ids(["aaa", "bbb", "aaa", "aaa"])

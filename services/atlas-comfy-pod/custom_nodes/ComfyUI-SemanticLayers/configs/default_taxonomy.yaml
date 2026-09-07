@@ -93,13 +93,14 @@ rules:
     priority: 60
     keywords:
       [car, truck, bus, bicycle, bike, motorcycle, boat, ship, sailboat, plane,
-       aeroplane, airplane, helicopter, train, cart, wagon, spaceship, vehicle]
+       aeroplane, airplane, helicopter, train, cart, wagon, spaceship, vehicle,
+       raft, canoe, kayak, dinghy, rowboat, barge, gondola, submarine]
   - category: asset
     object_type: weapon
     priority: 60
     keywords:
       [sword, axe, bow, arrow, gun, rifle, pistol, spear, shield, dagger, knife,
-       hammer, staff, wand, weapon]
+       hammer, staff, wand, weapon, harpoon, trident, cutlass, sabre, musket, blade]
   - category: asset
     object_type: prop
     priority: 55
@@ -107,7 +108,9 @@ rules:
       [prop, object, item, box, crate, barrel, chest, bag, backpack, basket, bottle,
        cup, mug, glass, plate, bowl, book, scroll, map, sign, banner, flag, torch,
        lantern, candle, clock, statue, vase, pot, guitar, instrument, ball, toy,
-       coin, gem, key, food, fruit, flower, plant, potted plant]
+       coin, gem, key, food, fruit, flower, plant, potted plant,
+       plank, debris, wreckage, driftwood, timber, oar, paddle, sail, mast, anchor,
+       rope, fishing net, barrel hoop]
 
   # ---- environment: things that are scene, but not the far backdrop --------------
   - category: environment
@@ -118,7 +121,8 @@ rules:
        rocks, rocky, cliff, hill, hills, mountain, mountains, tree, trees, forest,
        bush, bushes, foliage, field, meadow, river, lake, sea, ocean, water, shore,
        coast, coastline, beach, snowfield, ruins, building, buildings, house, tower,
-       bridge, fence, stairs, pillar, column, architecture, interior, room]
+       bridge, fence, stairs, pillar, column, architecture, interior, room,
+       wave, foam, surf, seawater, whirlpool, reef, island, lagoon, current]
 
   # ---- background: the far backdrop --------------------------------------------
   - category: background
