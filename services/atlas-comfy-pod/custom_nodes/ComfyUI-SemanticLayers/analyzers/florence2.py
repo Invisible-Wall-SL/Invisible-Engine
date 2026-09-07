@@ -35,6 +35,27 @@ MODELS = (
 TASKS = ("<CAPTION>", "<DETAILED_CAPTION>", "<MORE_DETAILED_CAPTION>")
 
 
+#: transformers gained a first-party Florence-2 implementation in 4.51. At or above
+#: this, loading via trust_remote_code is not just unnecessary but actively wrong.
+NATIVE_SINCE = (4, 51)
+
+
+def use_native_loader(version: str) -> bool:
+    """Whether to use transformers' own Florence-2 instead of the model repo's code.
+
+    Compares numerically, not as strings — "4.9.0" sorts after "4.51.0" lexically, which
+    would pick the wrong loader on exactly the versions the split exists for.
+    """
+    head = version.split("+", 1)[0].split(".")[:2]
+    try:
+        parts = tuple(int(p) for p in head)
+    except ValueError:
+        return True  # unrecognised (dev build, "unknown") -> assume modern
+    if len(parts) < 2:
+        return True
+    return parts >= NATIVE_SINCE
+
+
 def _transformers_version() -> str:
     try:
         import transformers
@@ -62,16 +83,16 @@ def _diagnose(exc: Exception, model_id: str) -> str:
 
     if any(marker in text for marker in _CONFIG_SKEW_MARKERS):
         return (
-            f"Florence-2 ({model_id}) is INCOMPATIBLE with the transformers version "
-            f"installed here ({version}).\n"
+            f"Florence-2 ({model_id}) hit the legacy trust_remote_code path on "
+            f"transformers {version}, which should not happen.\n"
             f"  underlying error: {text}\n"
-            "This is not a download problem — the weights are irrelevant. Florence-2 "
-            "ships its own modeling code via trust_remote_code, and that code reads "
-            "config attributes newer transformers releases no longer provide.\n"
-            "Fix: switch the 'analyzer' widget to 'captions' and feed it a captioner "
-            "node's STRING output (or type the captions). That path loads no model and "
-            "is the recommended one. Pinning an older transformers to satisfy Florence-2 "
-            "would drag every other custom node backwards with it — don't."
+            "The weights are fine — this error comes from the MODEL REPO's own modeling "
+            "code reading config attributes modern transformers no longer synthesises. "
+            f"transformers >= {NATIVE_SINCE[0]}.{NATIVE_SINCE[1]} ships Florence-2 "
+            "natively and this analyzer is supposed to use that class instead. Seeing "
+            "this means the version check picked wrong — please report the version above. "
+            "Workaround meanwhile: use the 'captions' analyzer. Do NOT pin transformers "
+            "backwards; that drags every other custom node with it."
         )
 
     lowered = text.lower()
@@ -125,7 +146,8 @@ class Florence2Analyzer(BaseSemanticAnalyzer):
             return
 
         try:
-            from transformers import AutoModelForCausalLM, AutoProcessor
+            import transformers
+            from transformers import AutoProcessor
         except ImportError as exc:
             raise AnalyzerUnavailable(
                 "the 'florence2' analyzer needs the `transformers` package. Install it "
@@ -134,16 +156,57 @@ class Florence2Analyzer(BaseSemanticAnalyzer):
             ) from exc
 
         self._device, self._dtype = _pick_device()
+        native = use_native_loader(transformers.__version__)
         try:
-            self._processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
-            self._model = AutoModelForCausalLM.from_pretrained(
-                model_id, trust_remote_code=True, torch_dtype=self._dtype
-            ).to(self._device).eval()
+            if native:
+                # transformers >= 4.51 ships Florence-2 itself. Loading it through the
+                # legacy trust_remote_code path instead pulls the model repo's own stale
+                # modeling code, which reads config attributes modern transformers no
+                # longer synthesises — that is where 'forced_bos_token_id' comes from.
+                # The weights are fine; only the code path was wrong.
+                from transformers import Florence2ForConditionalGeneration
+
+                self._processor = AutoProcessor.from_pretrained(model_id)
+                self._model = (
+                    Florence2ForConditionalGeneration.from_pretrained(
+                        model_id, torch_dtype=self._dtype
+                    )
+                    .to(self._device)
+                    .eval()
+                )
+            else:
+                from unittest.mock import patch as _patch
+
+                from transformers import AutoModelForCausalLM
+                from transformers.dynamic_module_utils import get_imports
+
+                # Older transformers needs the remote code, whose import list names
+                # flash_attn even on machines that cannot build it.
+                def _drop_flash_attn(filename):
+                    return [i for i in get_imports(filename) if i != "flash_attn"]
+
+                with _patch(
+                    "transformers.dynamic_module_utils.get_imports", _drop_flash_attn
+                ):
+                    self._processor = AutoProcessor.from_pretrained(
+                        model_id, trust_remote_code=True
+                    )
+                    self._model = (
+                        AutoModelForCausalLM.from_pretrained(
+                            model_id, trust_remote_code=True, torch_dtype=self._dtype
+                        )
+                        .to(self._device)
+                        .eval()
+                    )
             self._loaded_id = model_id
         except Exception as exc:  # noqa: BLE001 - offline, gated repo, version skew…
             raise AnalyzerUnavailable(_diagnose(exc, model_id)) from exc
 
-        context.note(f"florence2: {model_id} on {self._device} ({self._dtype})")
+        context.note(
+            f"florence2: {model_id} on {self._device} ({self._dtype}) via the "
+            f"{'native transformers' if native else 'legacy trust_remote_code'} loader "
+            f"(transformers {transformers.__version__})"
+        )
 
     def analyze(self, layer: SemanticLayer, context: AnalysisContext) -> LayerObservation:
         return self.analyze_many([layer], context)[0]

@@ -368,6 +368,33 @@ class TestNauticalScene(unittest.TestCase):
         self.assertEqual(match.category, "character")
 
 
+class TestFlorenceLoaderSelection(unittest.TestCase):
+    """The bug that made Florence-2 look 'incompatible' was picking the wrong loader.
+
+    No weights needed — the branch itself is the thing that was wrong.
+    """
+
+    def setUp(self):
+        self.f = mod("analyzers.florence2")
+
+    def test_modern_transformers_uses_the_native_class(self):
+        for v in ("4.51.0", "4.57.1", "5.8.0", "5.0.0.dev0", "6.1.2+cu128"):
+            self.assertTrue(self.f.use_native_loader(v), v)
+
+    def test_old_transformers_uses_remote_code(self):
+        for v in ("4.50.3", "4.9.0", "4.44.2", "3.5.1"):
+            self.assertFalse(self.f.use_native_loader(v), v)
+
+    def test_version_compare_is_numeric_not_lexical(self):
+        """'4.9.0' sorts AFTER '4.51.0' as a string — the trap this guards."""
+        self.assertFalse(self.f.use_native_loader("4.9.0"))
+        self.assertTrue(self.f.use_native_loader("4.51.0"))
+
+    def test_unparseable_version_assumes_modern(self):
+        for v in ("unknown", "", "not-a-version"):
+            self.assertTrue(self.f.use_native_loader(v), v)
+
+
 class TestStableIds(unittest.TestCase):
     def test_duplicate_fingerprints_get_deterministic_suffixes(self):
         ids = schema.stable_layer_ids(["aaa", "bbb", "aaa", "aaa"])
