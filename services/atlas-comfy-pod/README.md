@@ -65,6 +65,7 @@ it on the volume, no rebuild. Only a genuinely new custom **node** needs a rebui
 | `start.sh` | **CMD** — starts ComfyUI in the background + `sleep infinity` (crash-safe) |
 | `extra_model_paths.yaml` | points ComfyUI at `/workspace/ComfyUI/models` on the volume |
 | `custom_nodes/ComfyUI-PuLID-Flux/` | the artist's vendored, modified PuLID-Flux node |
+| `tools/sync-local-nodes.py` | makes a **local** ComfyUI carry these same nodes at these same SHAs |
 
 ## Trying a node without a rebuild (the volume test lane)
 
@@ -89,6 +90,56 @@ blueprint built against it would fail somewhere else, later. `/comfyui` flags an
 that is not in [`nodes.json`](nodes.json) for exactly that reason. When one turns out to be a
 keeper, bake it: paste its URL into **Custom nodes → Add** on `/comfyui`, or add the entry here
 by hand.
+
+## Making a LOCAL ComfyUI match this image (`tools/sync-local-nodes.py`)
+
+The pod is not the only backend. The artist also runs ComfyUI on their own Windows box and
+drives it from the Atlas Maker over the Cloudflare tunnel (**⚙ Run generation on → my
+computer**), and that install drifts from this one — a blueprint authored against the pod
+came back `missing_node_type: PulidModelLoader` simply because the local box had no
+`PuLID_ComfyUI`. **Which backend you picked must not change which nodes exist.**
+
+[`tools/sync-local-nodes.py`](tools/sync-local-nodes.py) makes a local `custom_nodes` folder
+match [`nodes.json`](nodes.json) **at the same pinned SHAs** — stdlib only, so it runs under
+the portable `python_embeded` as happily as under a system python:
+
+```bash
+# always look first
+python services/atlas-comfy-pod/tools/sync-local-nodes.py --dry-run --comfy-root "C:\Invisible Wall SL\ComfyUI"
+
+# then apply, naming the interpreter that RUNS your ComfyUI
+python services/atlas-comfy-pod/tools/sync-local-nodes.py \
+    --comfy-root "C:\Invisible Wall SL\ComfyUI" \
+    --python "C:\Invisible Wall SL\ComfyUI\ComfyUI_windows_portable\python_embeded\python.exe"
+```
+
+`--comfy-root` finds `custom_nodes` case-insensitively and one or two levels down, because a
+`--base-directory` launch puts it at `…\Shared\Custom_Nodes`; `--custom-nodes` names the folder
+outright. `--only NAME` (repeatable), `--prod-only`, `--dry-run` and `--no-deps` narrow the run.
+
+Four things it deliberately does **not** do:
+
+- **Install at tip.** That is what ComfyUI-Manager's install button does, and tip is the exact
+  drift the SHA pins exist to prevent. This is the same list the image builds from, so
+  local == image is one command rather than one error message at a time.
+- **Destroy local work.** A pack that is not a git checkout of ours, has uncommitted changes,
+  or sits on a different remote is reported `skipped (dirty / not ours)` and left alone — no
+  `reset --hard`, no deletion. Vendored packs are copied only when absent, never over the top.
+- **Clone a second copy of a pack you already have.** Registry installs spell them differently
+  (`comfyui_ipadapter_plus` vs our `ComfyUI_IPAdapter_plus`), so names are matched normalized.
+  Two copies registering the same node classes is a worse failure than the missing one, and a
+  silent one.
+- **Apply this image's torch pin.** It generates a `PIP_CONSTRAINT` file from
+  [`constraints.txt`](constraints.txt) with `torch`/`torchvision`/`torchaudio` **removed** and
+  the `numpy` / `ml_dtypes` / `onnx` floors **kept**. Those torch lines are the pods' Blackwell
+  (`sm_120`) cu128 build; a laptop 4070 on a working cu130 install must not re-resolve 3 GB of
+  torch to add a node. The floors are the universal half — they are what stops a stale node pin
+  (`ml_dtypes==0.3.2`) taking the face stack down at import.
+
+**Restart ComfyUI afterwards** — custom nodes are imported once at startup, so a pack cloned
+just now does not exist to a running server. And **models are a separate problem**: the script
+installs no weights, so PuLID still needs its SDXL ip-adapter and the InsightFace `antelopev2`
+set by hand (`tools/fetch-models.py` covers the RunPod volume only).
 
 ## Build
 
