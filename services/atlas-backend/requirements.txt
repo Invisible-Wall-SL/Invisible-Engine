@@ -1,6 +1,10 @@
 # Runtime: Python 3.12 (pinned via Dockerfile). Versions left unpinned.
 fastapi
 uvicorn[standard]
-boto3
+# >=1.35.69: the first release whose S3 model carries `IfMatch` on put_object
+# (1.35.0 has neither precondition; 1.35.4-1.35.68 have IfNoneMatch only). A
+# resolver that picked a lower floor would ParamValidationError at RUNTIME, and
+# every catch site turns that into a silently wrong answer, not a crash.
+boto3>=1.35.69
 requests
 pillow

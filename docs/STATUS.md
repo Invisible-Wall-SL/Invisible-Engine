@@ -139,7 +139,7 @@ read-only gate across **all** authoring tools — editor + flow-v2 (2c-core, PR 
 auto-recovers a freed/expired lease, takeover always reachable, fails open on error), then
 symbols/win-text/config/localization (2c-rest-A, PR #215) and the per-ITEM fx/flipbook/components via
 `LeaseState.switchDoc` (2c-rest-B, PR #216). **Owner-verified live 2026-08-04** (two-profile test per
-tool; migration 0014 applied). Phase 3 (Python tools) is a separate later effort. · **Concurrency
+tool; migration 0014 applied). Phase 3 is **partly shipped** (3a, 2026-09-07: conditional writes in `iw_common/storage.py` + a CONTAINER lease for the Flipbook video runner, which is a documented departure from "leases live in Postgres" — see the design doc); the PERSON-level Python lease is still blocked on a real user id reaching those origins. · **Concurrency
 Phase 1 — COMPLETE + verified** (the conditional-write floor is
 live + REQUIRED across all 13 authoring surfaces; the last residuals — component ETag threaded
 load→editor→save, `saveComponentDefaults` guarded, and the fail-open closed via `writeGuard.ts` — PR

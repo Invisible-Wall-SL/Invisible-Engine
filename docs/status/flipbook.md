@@ -155,7 +155,7 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
   - **`blueprints_src/wan22_i2v_flipbook/`** — the owner's Wan 2.2 I2V graph, made serverless-safe. Its one unavailable node (`ImageResizeKJv2`, KJNodes, baked into neither the worker nor the pod image) is replaced by core `ImageScale`, pixel-identical at these settings; `BiRefNetRMBG` needed nothing because it comes from `1038lab/ComfyUI-RMBG`, which the worker already bakes. `ComfySwitchNode` + `ComfyMathExpression` were verified present in ComfyUI core at the pinned v0.33.1. The save node's `fps` is now WIRED to the generation fps node rather than copied, so the preview can never drift from the motion rate again.
   - **`width`/`height` are deliberately UNBOUND.** `build_workflow_blueprint` fills those roles from `GEN_WIDTH`/`GEN_HEIGHT`, whose config default is **1024** because they were sized for stills — injecting that into `WanImageToVideo` across an 81-frame batch is a VRAM/wall-clock blowup. Generation size is a param instead. This is the single easiest way to silently wreck a video blueprint; the fixture asserts it.
   - **`video_runner.py` + fifteen `/video/*` routes** — stateless, session-scoped, remote-cancelling; one session RUNS at a time and the rest QUEUE behind it, with at most `VIDEO_PARALLEL_JOBS` (default 1) of its variations in flight at once. Results land in `<C>/<P>/video/<id>/` and never enter `deploy/`.
-  - Fixtures: `PYTHONPATH="../_shared:." py test_video_runner.py` from `services/atlas-tool` (363 checks, RunPod/R2/paths stubbed; the PYTHONPATH is not optional — without it the suite dies on `No module named 'iw_common'`). **Count it, don't add to it** — the figure here was wrong twice, each time by doing arithmetic on the previous stale one: `grep -c '^ok'` over a run is the only honest source.
+  - Fixtures: `PYTHONPATH="../_shared:." py test_video_runner.py` from `services/atlas-tool` (404 checks, RunPod/R2/paths stubbed; the PYTHONPATH is not optional — without it the suite dies on `No module named 'iw_common'`). **Count it, don't add to it** — the figure here was wrong twice, each time by doing arithmetic on the previous stale one: `grep -c '^ok'` over a run is the only honest source.
   - **Step 2 — the 🎬 mode UI.** `/flipbook` switches surfaces with the canonical `<CanvasModeBar inline>` in the ToolTopBar's `meta` snippet; the mode itself is `VideoMode.svelte` (its own component — the clip editor is already 1300 lines and the two share nothing but the project). Blueprint picker, prompt, source-image picker, variation count, params rendered from the blueprint's own `params[]`, live progress, results grid.
     - **No `<video>` element** — an animated WEBP plays, loops and honours alpha in a plain `<img>`. The checkerboard behind each tile is load-bearing: it is how the author sees whether the cutout produced real alpha rather than a matte-coloured rectangle.
     - **`api/flipbook/video/[...path]` is an explicit ALLOW-LIST, not a pass-through** — a forwarding rest route would hand any flipbook user the whole atlas-tool surface (`/render`, `/deleteblueprint`, `/createatlas`) under a gate that never mentions them. Canonical `toolScope.gate` on `flipbook`; the tool secret never reaches the browser.
@@ -190,15 +190,13 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 3. **Add the clip reachability filter**, now that placements exist to be reachable FROM, so an orphan/scratch clip stops shipping (parity with the effects prune in `bake-editor-doc.mjs`). Note the walk must cover FOUR referrers, not one: scene `flipbook` nodes (incl. nested in containers + component defs), symbol cells' `clipId`, and — since 2026-08-31 — the `rigFlipbooks` manifest's `clipId`s, or the prune would delete clips that are genuinely in use. The rig referrer is the awkward one: it lives in the rig `.irig`, not in the layout doc, so the filter has to read the manifest the clips export now returns rather than walking the doc.
 4. **Rename-repair hint is unconfirmed** — `src` survives a rename, but `sheet_session.json` is one open sheet's working state, so per-sheet durable recovery of `src` must be verified before the tool promises "did you mean…".
 5. **The ＋ Blueprint modal flags an unexposed boolean gate: DONE** (2026-09-01, see Recent changes). What is NOT covered: an unexposed **numeric** knob that is equally load-bearing (the 1024 generation size on the same blueprint reached the render the same way a wrong boolean did). A boolean gating a switch is a clean signal with no false positives; "this int matters" is not, so it was deliberately left out rather than guessed at.
-6. **Three known holes the R2 rescue does NOT cover**, all found by adversarial review rather than
+6. **Two known holes the R2 rescue does NOT cover** (the third, the cross-container one, is closed — see Recent changes), all found by adversarial review rather than
    by a loss, and all narrower than what shipped:
-   - **Two containers can own one session.** `_adopt` is idempotent within a process (one
-     check-and-insert under `_LOCK`), but a Railway rolling deploy can overlap old and new. The old
-     one can collect, persist and clear the slots while the new one's re-attach 404s, finds an empty
-     slot and writes `failed`; `_write_meta` is per-process, so the loser's older snapshot can land
-     last and undo a `done`. The render survives at `<sid>/00N.webp`; the tile does not. Wants a
-     lease/owner field in `meta.json` — the same shape `docs/design/multi-user-concurrency.md`
-     describes, so do it there rather than inventing a second mechanism.
+   - ~~**Two containers can own one session.**~~ **DONE** — the CAS floor + the session lease
+     (see Recent changes). **The prescription written here was wrong** and is worth keeping as a
+     warning: it said "a lease/owner field in `meta.json`", which is the one shape
+     `docs/design/multi-user-concurrency.md` explicitly forbids — a lease inside the document is
+     clobbered by the very race it exists to prevent, so it would have "fixed" the bug with the bug.
    - **A 404 for a reason other than an expired record** — a rotated or mistyped
      `RUNPOD_ENDPOINT_ID`, a RunPod API incident — is given up on in 15 s **without** a cancel, so a
      live job keeps billing. Cheap mitigation: on that path, if the slot is empty, re-check it once
@@ -215,6 +213,65 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-07 — **Two containers can no longer both own one video session, and a stale one can no
+  longer undo a finished render.** The last structural hole from the 2026-09-07 incident: a Railway
+  rolling deploy overlaps the old container and the new one, and `_adopt`'s check-and-insert is
+  idempotent only WITHIN a process. So both could dispatch the same session — paying twice, and
+  worse, `_submit` empties the hand-off slots before its job runs, so the second submit **deletes
+  the render the first one's job already uploaded** — and `_write_meta` was a blind overwrite, so
+  the loser's older snapshot could land last and put a collected tile back to `failed` with
+  `00N.webp` sitting in R2 and nothing pointing at it.
+  - **The floor: `meta.json` is a compare-and-swap.** `iw_common/storage.py` `put` takes
+    keyword-only `if_match`/`if_none_match` and returns the new ETag; `get_with_etag` is the read
+    half, keeping the ETag verbatim (`head` strips the quotes, which makes its value the wrong thing
+    to build a precondition from); `Conflict` is 412-only, because R2's 409 is transient. This is
+    the design doc's Phase 3 touch item, unstarted until now, and **verified against the live bucket
+    before anything was built on it** — a stale `IfMatch` really is refused and the stale body
+    really does not land. A 412 never drops our write: `_merge_meta` folds our doc onto theirs and
+    re-CASes, because an abort here would lose a `done` exactly as loudly as the clobber it
+    replaced. **A finished render never loses a merge** — the variation carrying a `file` wins from
+    whichever side it came — `cancel` is sticky, and variations union by index so a concurrent
+    ＋ Add is not dropped by an older snapshot.
+  - **The lease: one owner per session, across processes.** `iw_common/lease.py` mirrors
+    `lease.ts` 1:1 (10 s heartbeat / 45 s TTL, the same 4-tuple key, pure `is_takeable` /
+    `is_same_holder`, `acquire`/`heartbeat`/`release`/`takeover`), so a later move onto the
+    `doc_leases` table is a transport swap. `_run_session` acquires before it dispatches and
+    releases in its `finally`; the dispatcher renews on its own loop (a timer would keep a dead
+    dispatcher's lease alive); `_run_variation` re-checks ownership **immediately before `_submit`**,
+    the one line that spends money, and re-queues the slot rather than paying twice; `_adopt`,
+    `resume_orphans` and the slot sweep all defer to a live holder; and **Cancel is the takeover** —
+    the session someone most wants to stop is the one another container is holding.
+  - **Where it lives is a documented departure**, recorded as a Phase 3a amendment in the design
+    doc: a lease belongs in Postgres, but these services hold no session and no DB credentials,
+    `holder_user_id` is a foreign key to a real user and a container is not one, and routing the
+    claim through the launcher would fail open during exactly the deploy it exists to survive. It is
+    a SEPARATE R2 object claimed by conditional write, not a flag inside the doc — the property the
+    rule protects (it cannot be clobbered by the race it prevents) holds by a different mechanism.
+  - Everything **fails open**: an unreadable or unwritable lease behaves as though there were none,
+    — with one honest caveat: the CAS is the floor for the DOC's state, and the destructive half of a
+    double-submit (a second `_submit` deleting the first job's uploaded render) has no precondition
+    behind it, so failing open re-accepts that risk for as long as R2 itself is unreachable.
+  - **The first cut of this was not shippable, and the review is why.** Five defects, four fatal to
+    the feature: the lease was never renewed during a render (the dispatcher blocked in an untimed
+    `_CV.wait()` for minutes while the lease lives 45 s, so it lapsed under us and the session read
+    as free to every other container); `release`/`takeover` were handed a different holder identity
+    from `acquire`, so a container did not recognise its own rows — every release was a no-op, and
+    Cancel's takeover made the dispatcher stand down **without settling its tiles**, quietly undoing
+    a previously-fixed bug; a container that stood down still wrote a terminal status over the new
+    owner's doc; and the CAS merge reached R2 but was never folded back into memory, so the very
+    next write undid the repair. The `boto3` floor was wrong too: `IfMatch` first appears in
+    **1.35.69**, not 1.35.0, and below it every call site turns a `ParamValidationError` into a
+    silently wrong answer — including `acquire`, which would have failed open forever and made the
+    whole mechanism inert while looking healthy. Each has a fixture that fails without its fix.
+  - Fixtures: 404 checks (was 363) — the merge rules on their own (a render never loses, a delete is
+    not resurrected, an ended session stays ended, both-done is deterministic); the reported bug end
+    to end AND the write after it; a held session is not adopted, submits nothing and keeps its
+    slot; the lease is renewed while a job runs; an expired lease is taken over and the tail runs
+    exactly once; Stop reaches a session this container does not own; the store failing leaves the
+    session running to completion; and the takeable boundary matches the SQL twin's. The dispatcher threads are
+    named (`video-session-<id>`) — worth it in a log, and it gives a fixture something honest to
+    wait on: a session's terminal STATUS is written before its dispatcher releases the runner and
+    the lease, so a test that mutated the doc the instant it saw `finished` was racing that tail.
 - 2026-09-07 — **`video/_out/` is swept, so "no render is ever stranded" is checkable instead of
   assumed.** Every terminal path collects from the hand-off slot now, which means a slot should only
   ever be occupied between a worker's PUT and its collect — but nothing proved it, and the thirteen
