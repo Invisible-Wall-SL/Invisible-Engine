@@ -22,6 +22,26 @@ py scripts/seed-comfyui-models.py
 It uploads `Shared/Models/**` → R2 `comfyui-models/<relpath>` and writes the
 manifest `tools/invisible-launcher/models-manifest.json`. Needs `R2_*` env set.
 
+### The mirror, in four arcs
+
+R2 is the hub; every script here is one arc through it, and they all agree on that
+one manifest (entries `{key, dir, name, size, sha256}` → a file at
+`ComfyUI/models/<dir>/<name>`):
+
+| Arc | Script | Direction |
+|---|---|---|
+| Seed | `scripts/seed-comfyui-models.py` | owner's desktop → R2 |
+| Pull | `runpod/pull-models.py` | R2 → pod Network Volume |
+| **Push** | **`runpod/push-models.py`** | **pod Network Volume → R2** |
+| Sync | launcher **Sync models** (`GET /api/launcher/models-manifest`, admin-only, 6-hour presigned URLs) | R2 → any desktop |
+
+**The push arc did not exist until recently, and its absence had teeth:** a LoRA
+*trained on the pod* had no way off the volume — not to the artist's desktop, not to
+the serverless worker, and not to a backup. A network volume is not durable storage;
+one deletion and that training run is gone. Same for anything `fetch-models.py` put
+on the volume: correct by its own argument (see 3b), but invisible to everything that
+reads the manifest. See §3c.
+
 ## 1. Create the Network Volume (do this FIRST)
 
 RunPod → Storage → **Network Volume**. Region = wherever you'll rent the GPU.
@@ -191,6 +211,46 @@ first run.
 
 > **Check free space first: `df -h /workspace`.** These sets are large and the volume was
 > sized for SDXL/FLUX.1 — klein + qwen + both Wan sets + turbo is roughly 145 GB.
+
+## 3c. Push a model from the volume back UP to R2
+
+`push-models.py` is the return arc of `pull-models.py` — the way a file that only
+exists on the volume (a **trained LoRA**, or anything `fetch-models.py` fetched)
+reaches R2, and from there every desktop and the serverless worker.
+
+**It is a DRY RUN by default.** It writes into a bucket the whole team shares and
+rewrites the manifest the launcher serves to every desktop, so it prints the plan and
+touches nothing until you add `--apply`:
+
+```bash
+python push-models.py --dir loras            # plan only
+python push-models.py --dir loras --apply    # do it
+```
+
+Same `R2_*` env as `pull-models.py`. `--src` defaults to `/workspace/ComfyUI/models`.
+Unlike `fetch-models.py` this one is **not baked into the pod image** (it lives here,
+outside that image's Docker build context), so get it onto the pod the same way as
+`provision.sh` — paste it with method **A** above, or curl it with a token.
+
+- **Targets the small, private, irreplaceable file.** `--max-size-gb` defaults to **5**:
+  a bigger file is skipped and named, and you opt in with `--include-large`. The
+  reasoning is 3b's, in reverse — pushing a 35 GB public checkpoint into R2 costs two
+  transfers and buys nothing when anyone can re-fetch it from Hugging Face. A 150 MB
+  LoRA you trained once at 3am is the opposite.
+- **Never deletes from R2, and MERGES the manifest** — add/update only what this run
+  uploaded, every other entry (and `base_prefix`/`version`) preserved. Replacing the
+  manifest would silently un-publish the desktop-seeded models from **Sync models**
+  while the files sat there in R2, and nothing would error.
+- Skips placeholders (`put_*_here`), partials (`*.part`/`*.tmp`/`*.download`),
+  dotfiles, `__pycache__` and non-model extensions, so nothing corrupt or pointless
+  gets published; skips anything already in R2 at the same size unless `--force`;
+  reuses the manifest's sha256 for unchanged files rather than re-hashing GBs on a pod.
+- A file already in R2 but **missing from the manifest** is re-indexed (hashed, entry
+  added, no transfer) — that is the state `fetch-models.py` leaves things in.
+
+Offline fixtures: `services/atlas-tool/test_push_models.py` (`py test_push_models.py`
+from `services/atlas-tool` — no network, no boto3; it stubs the S3 client and
+round-trips a manifest through `pull-models.py`'s own `main()`).
 
 ## 4. Start ComfyUI
 
