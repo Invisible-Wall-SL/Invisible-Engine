@@ -858,6 +858,25 @@ def _pipeline_options_html(current: str) -> str:
     return "".join(out)
 
 
+def _models_note(models: list, dropped: list) -> str:
+    """One human sentence about a blueprint's derived `models[]`, appended to the
+    upload/rescan reply. Names the files rather than counting them: the whole
+    point of declaring models is that somebody can SEE which ones a graph will
+    ask the target machine for, and "5 models" tells nobody whether the fp8 UNet
+    is among them. A dropped entry (in the old manifest, no longer in the graph)
+    is called out too, so a removal is never silent."""
+    if not models and not dropped:
+        return " Declares no models (nothing in the graph names a model file)."
+    parts = []
+    if models:
+        names = ", ".join(str(m.get("filename", "?")) for m in models)
+        parts.append(f" Declares {len(models)} model(s): {names}.")
+    if dropped:
+        gone = ", ".join(str(m.get("filename", "?")) for m in dropped)
+        parts.append(f" Dropped {len(dropped)} no longer in the graph: {gone}.")
+    return "".join(parts)
+
+
 def _options_for(key: str, cache: dict,
                  target: str = "local") -> tuple[list[str] | None, str]:
     """Dropdown values for a settings field, plus the marker `_opt_html` should
@@ -4500,11 +4519,32 @@ function renderBpManage(){{
   row.style.cssText='display:flex;align-items:center;gap:8px;border:1px solid #2a2a2e;border-radius:5px;padding:7px 9px';
   let nm=document.createElement('span'); nm.style.cssText='flex:1;color:#ddd';
   nm.textContent=bp.name+(bp.name!==bp.id?(' ('+bp.id+')'):'');
+  let n=bp.nmodels||0;
+  let cnt=document.createElement('span'); cnt.style.cssText='color:#888;font-size:11px';
+  cnt.textContent=n?(n+' model'+(n===1?'':'s')):'no models declared';
+  let scan=document.createElement('button'); scan.type='button'; scan.textContent='⟳ Rescan models';
+  scan.style.cssText='font-size:11px;padding:4px 9px';
+  scan.title='Re-read the stored graph and declare the model files it names.';
+  scan.onclick=()=>rescanBlueprintModels(bp.id);
   let del=document.createElement('button'); del.type='button'; del.textContent='🗑 Delete';
   del.style.cssText='font-size:11px;padding:4px 9px';
   del.onclick=()=>deleteBlueprint(bp.id,bp.name);
-  row.appendChild(nm); row.appendChild(del); box.appendChild(row);
+  row.appendChild(nm); row.appendChild(cnt); row.appendChild(scan);
+  row.appendChild(del); box.appendChild(row);
  }});
+}}
+// Blueprints authored before models[] was derived at import declare nothing, so
+// nothing can check or install what their graph asks for. This re-reads the
+// stored graph server-side; human-added url/r2_key/sha256 survive.
+async function rescanBlueprintModels(id){{
+ let st=document.getElementById('bpManageStat');
+ if(st) st.textContent='⟳ Rescanning …';
+ let msg;
+ try{{ let r=await fetch('/rescanblueprintmodels',{{method:'POST',body:JSON.stringify({{id:id}})}});
+  msg=(r.status===404)?'Endpoint missing — restart the service':await r.text();
+ }}catch(e){{ msg='Rescan failed: '+e; }}
+ if(st) st.textContent=msg;
+ if(msg.indexOf('✓')>=0) setTimeout(()=>location.reload(),2500);
 }}
 async function deleteBlueprint(id,name){{
  if(!confirm('Delete blueprint "'+(name||id)+'" from the SHARED library?\\n\\n'
@@ -6136,6 +6176,9 @@ class Handler(BaseHTTPRequestHandler):
         elif post_path == "/deleteblueprint":
             self._send(200, "text/plain",
                        self._deleteblueprint(json.loads(raw)).encode())
+        elif post_path == "/rescanblueprintmodels":
+            self._send(200, "text/plain",
+                       self._rescanblueprintmodels(json.loads(raw)).encode())
         elif post_path == "/refresh":
             self._send(200, "text/plain", self._refresh().encode())
         elif post_path == "/clearcache":
@@ -6629,9 +6672,21 @@ class Handler(BaseHTTPRequestHandler):
             return (f"✖ '{bp_id}' is a built-in pipeline id and can't be "
                     "overwritten. Pick a different name.")
         overwrite = bool(payload.get("overwrite", False))
-        if blueprints.get_blueprint(bp_id) is not None and not overwrite:
+        existing = blueprints.get_blueprint(bp_id)
+        if existing is not None and not overwrite:
             return (f"⚠ A blueprint '{bp_id}' already exists. Re-submit with "
                     "overwrite to replace it.")
+
+        # What this graph needs INSTALLED, read off the graph itself. Until this
+        # existed every uploaded blueprint declared `models: []`, which is why a
+        # graph naming two files the target machine didn't have reached the GPU
+        # (2026-09-07) — nothing declared them, so nothing could check or install
+        # them. On an overwrite the previous manifest's human-added provenance
+        # (`url`/`r2_key`/`sha256`/...) is folded back on; entries the graph no
+        # longer references are dropped and named in the reply.
+        models, dropped_models = blueprints.merge_model_provenance(
+            blueprints.derive_models_from_graph(graph),
+            (existing or {}).get("meta", {}).get("models"))
 
         manifest = {
             "version": 1,
@@ -6644,7 +6699,7 @@ class Handler(BaseHTTPRequestHandler):
             "kind": kind,
             "bindings": clean_bindings,
             "params": clean_params,
-            "models": [],
+            "models": models,
         }
         try:
             blueprints.validate_against_graph(bp_id, manifest, graph)
@@ -6677,7 +6732,8 @@ class Handler(BaseHTTPRequestHandler):
                     "bindings and try again.")
         verb = "Updated" if overwrite else "Published"
         return (f"✓ {verb} blueprint '{bp_id}' — select it in the pipeline "
-                "dropdown (reload to refresh the list).")
+                "dropdown (reload to refresh the list)."
+                + _models_note(manifest["models"], dropped_models))
 
     def _deleteblueprint(self, payload: dict) -> str:
         """Remove a blueprint from the shared library (R2 + staging). Gated on
@@ -6708,6 +6764,70 @@ class Handler(BaseHTTPRequestHandler):
         return (f"✓ Deleted blueprint '{res['id']}' ({res['deleted']} file(s) "
                 "removed). Any atlas still set to it will need a different "
                 "pipeline.")
+
+    def _rescanblueprintmodels(self, payload: dict) -> str:
+        """Re-derive an EXISTING blueprint's `models[]` from its stored graph and
+        save the manifest back (staging + R2), the same way an upload does.
+
+        Import-time derivation only helps blueprints imported from now on, and
+        every blueprint authored so far declares `models: []` — this is how those
+        catch up without re-uploading the graph by hand. Human-added provenance
+        on the old entries (`url`/`r2_key`/`sha256`/...) is folded onto the fresh
+        derivation; entries the graph no longer references are dropped and named
+        in the reply. Gated on `self.can_publish` exactly like upload/delete — it
+        writes to the SHARED library. Never raises; returns a readable string
+        (leading '✓' ⇒ the client reloads)."""
+        if not getattr(self, "can_publish", False):
+            return ("✖ You're not allowed to edit blueprints. Ask an admin "
+                    "for the 'Publish blueprints' permission.")
+        bp_id = str(payload.get("id", "")).strip()
+        if not bp_id:
+            return "✖ No blueprint id given."
+        if bp_id in PIPELINE_OPTIONS:
+            return (f"✖ '{bp_id}' is a built-in pipeline id, not an uploaded "
+                    "blueprint — its models come from the Settings panel.")
+        bp = blueprints.get_blueprint(bp_id)
+        if bp is None:
+            return (f"⚠ No readable blueprint '{bp_id}' in the library "
+                    "(missing, or its manifest doesn't load).")
+        bp_id = bp["id"]
+        graph = bp["graph"]
+        models, dropped = blueprints.merge_model_provenance(
+            blueprints.derive_models_from_graph(graph),
+            bp["meta"].get("models"))
+
+        # Rewrite the STORED manifest rather than re-serializing the loaded meta,
+        # so nothing outside `models` can be reshaped by a rescan.
+        dest = blueprints.BLUEPRINTS_STAGING / bp_id
+        man_path = dest / "blueprint.json"
+        try:
+            manifest = json.loads(man_path.read_text(encoding="utf-8"))
+            before = man_path.read_bytes()
+        except (OSError, ValueError) as e:
+            return f"✖ Could not read blueprint '{bp_id}': {e}"
+        manifest["models"] = models
+        try:
+            blueprints.validate_against_graph(bp_id, manifest, graph)
+        except ValueError as e:
+            return f"✖ {e}"
+        man_bytes = json.dumps(manifest, indent=2).encode("utf-8")
+        if man_bytes == before:
+            return (f"✓ '{bp_id}' is already up to date."
+                    + _models_note(manifest["models"], dropped))
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+            man_path.write_bytes(man_bytes)
+            storage.put(
+                f"{blueprints.SHARED_BLUEPRINTS_PREFIX}/{bp_id}/blueprint.json",
+                man_bytes)
+        except Exception as e:  # noqa: BLE001 — disk/R2 hiccup, not a crash
+            return f"✖ Could not save blueprint '{bp_id}': {e}"
+        try:
+            blueprints.hydrate(force=True)
+        except Exception:  # noqa: BLE001 — staging copy already written
+            pass
+        return (f"✓ Rescanned '{bp_id}'."
+                + _models_note(manifest["models"], dropped))
 
     def _publish_author(self) -> str:
         """Best-effort username to stamp on an uploaded blueprint. The launcher
@@ -7993,8 +8113,12 @@ class Handler(BaseHTTPRequestHandler):
                 _bid = str(_b.get("id", ""))
                 if _bid in PIPELINE_OPTIONS:
                     continue
+                # `nmodels` = how many model files this blueprint declares, so
+                # the manage list can show "no models declared" — the state every
+                # blueprint authored before import-time derivation is in.
                 bp_list.append({"id": _bid,
-                                "name": str(_b.get("name", "") or _bid)})
+                                "name": str(_b.get("name", "") or _bid),
+                                "nmodels": len(_b.get("models") or [])})
                 _full = blueprints.get_blueprint(_bid)
                 if _full:
                     bp_bound[_bid] = list((_full.get("bindings") or {}).keys())

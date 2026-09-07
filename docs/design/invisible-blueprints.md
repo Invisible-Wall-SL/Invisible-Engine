@@ -419,6 +419,32 @@ Phases 1–3 are the backbone; 4–5 make it usable; 6–7 make it self-serve an
 > HTTP API, never its `models/` dir. Real report that motivated this: a FLUX character
 > blueprint whose PuLID node + artist-tuned model both failed on the local box.
 
+> **Decision (2026-09-07, owner): private models live in the EXISTING mirror,
+> `comfyui-models/<save_path>/<filename>` — not in a second content-addressed store.**
+> When this section was written there was no way to get a file from a machine into R2 except
+> uploading it through the tool, so `_shared/models/<sha256>/` was as good a layout as any.
+> That changed the same day this decision was taken: `scripts/seed-comfyui-models.py`
+> (desktop→R2), `runpod/pull-models.py` (R2→volume), the launcher's **Sync models**
+> (R2→desktop) and now `runpod/push-models.py` (volume→R2) make **one** store that every
+> machine already reads and writes. A second store would mean two ways for a model to reach a
+> box, two things to keep current, and a file that is in R2 twice.
+>
+> **What this changes below:**
+> - **Storage** — `r2_key` points at `comfyui-models/<save_path>/<filename>`. `sha256` stays,
+>   but as the VERIFY field, not the key.
+> - **Dedup** — lost, and knowingly. Content-addressing gave one copy of a 6 GB checkpoint
+>   across blueprints; the mirror is keyed by ComfyUI's own folder layout, which is what every
+>   consumer already expects, and duplicate model FILENAMES across blueprints are the same
+>   file anyway. Cheap storage against a second mechanism is the trade taken.
+> - **The companion mostly dissolves — for models.** Its job was filesystem access the tunnel
+>   does not give. But a desktop already pulls the mirror through the launcher's **Sync
+>   models**, and a pod volume through `pull-models.py`, so "get this model onto the machine"
+>   has a supported path on both targets without a new local process. What remains for a
+>   companion is the case neither covers: writing to a box mid-run, unattended. Treat phase 3
+>   as **deferred, not required** — reach for it only when the pull paths prove insufficient.
+> - **Custom nodes** were never going through R2, and are now separately solved for a desktop
+>   by `services/atlas-comfy-pod/tools/sync-local-nodes.py` against the pinned `nodes.json`.
+
 ### Why a companion (not just Manager)
 Manager can install *catalog* models and git custom nodes, but **not an arbitrary uploaded
 model**. The companion is a tiny local process WITH filesystem access: it pulls model files
@@ -436,8 +462,11 @@ tunnel that already exists.
 - New `custom_nodes[]`: `{ name, url (git), commit? }` — each node repo the graph needs.
 
 ### Storage
-- Models: **`_shared/models/<sha256>/<filename>`** — global + **deduped** (one 6 GB checkpoint
-  shared by every blueprint that uses it). Mirrors the `_shared/blueprints/` precedent.
+- Models: ~~**`_shared/models/<sha256>/<filename>`** — global + **deduped** (one 6 GB checkpoint
+  shared by every blueprint that uses it). Mirrors the `_shared/blueprints/` precedent.~~
+  **Superseded 2026-09-07 (see the decision above): `comfyui-models/<save_path>/<filename>`,**
+  the mirror `seed-comfyui-models.py` / `push-models.py` write and that both the launcher's
+  **Sync models** and `pull-models.py` already read.
 - Custom nodes: git URLs in the manifest (not copied to R2 — cloned + pinned on the box).
 
 ### Upload (large files) — direct-to-R2, presigned multipart
@@ -462,9 +491,16 @@ unreachable / a download failure all degrade to the readable checklist (as today
 crash. Kill-switch env, like `BLUEPRINT_AUTO_INSTALL_MODELS`.
 
 ### Build plan (phased)
+0. **A blueprint must first DECLARE what it needs** *(2026-09-07 — the actual foundation)*.
+   Everything below assumes a populated `models[]`, and until now `ui_server`'s import wrote
+   `"models": []` unconditionally, so no uploaded blueprint has ever declared anything and the
+   whole §4 auto-install path was dead weight for them. `blueprints.derive_models_from_graph()`
+   reads the requirements out of the graph itself (any input whose value is a model FILENAME —
+   the same rule `batch_atlas.assert_graph_models_present` uses), and re-import merges rather
+   than overwrites so an artist's `r2_key`/`sha256` survives a graph tweak.
 1. **Manifest + storage schema** — `models[].r2_key`/`sha256`, `custom_nodes[]`, validation,
-   the `_shared/models/<sha256>/` layout. Additive + back-compat (old blueprints unaffected).
-   *(foundation, no runtime — the first increment.)*
+   the `comfyui-models/<save_path>/` layout (was `_shared/models/<sha256>/`). Additive +
+   back-compat (old blueprints unaffected). *(no runtime.)*
 2. **Model-upload UI** — presigned-multipart upload in the blueprint modal; attach an uploaded
    file (or a URL) per detected model field; declare custom nodes (name + git url + commit).
 3. **Companion agent** — the local HTTP service (`/ensure`), its download/clone/restart logic,

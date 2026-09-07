@@ -1465,8 +1465,12 @@ def assert_nodes_installed(wf: dict) -> None:
 # scheduler, weight_dtype, a node's mode switch) is left alone on purpose: ComfyUI lets a
 # class override list validation with VALIDATE_INPUTS, `/object_info` does not say which
 # ones do, and a guard that refuses a legal graph is worse than the 400 it saves.
-_MODEL_VALUE_EXTS = (".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".sft",
-                     ".gguf", ".onnx")
+#
+# ONE definition, in `blueprints` (which imports nothing from here, so this direction is
+# the only one that isn't a cycle): `blueprints.derive_models_from_graph` reads a graph
+# with this same rule at IMPORT time, and the two must never drift — a model the
+# declaration misses is a model this guard then refuses at submit time.
+_MODEL_VALUE_EXTS = blueprints.MODEL_FILE_EXTS
 
 
 def _enum_options(entry: dict, field: str) -> list[str] | None:

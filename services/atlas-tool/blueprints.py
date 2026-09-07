@@ -72,6 +72,77 @@ PARAM_TYPES = ("int", "float", "text", "bool", "select")
 BLUEPRINT_KINDS = ("image", "video")
 DEFAULT_BLUEPRINT_KIND = "image"
 
+# --------------------------------------------------------------------------
+# Model declaration (what the graph needs installed)
+# --------------------------------------------------------------------------
+# A baked input value ending in one of these is a FILE the target machine has to
+# hold — which is the ENTIRE test for "is this string a model?". Every other
+# combo value (sampler_name, scheduler, weight_dtype, a node's mode switch) is
+# left alone on purpose: ComfyUI lets a class override list validation with
+# VALIDATE_INPUTS, `/object_info` does not say which ones do, and treating a
+# non-file enum as a model would declare a "model" that can never be installed.
+#
+# `batch_atlas._MODEL_VALUE_EXTS` IS this tuple (it imports the name), so the
+# submit-time guard `assert_graph_models_present` and the import-time derivation
+# below can never disagree about what counts as a model. `batch_atlas` imports
+# this module, so the constant lives HERE (the dependency-free side) rather than
+# there — importing the other way round would be a cycle.
+MODEL_FILE_EXTS = (".safetensors", ".ckpt", ".pt", ".pth", ".bin", ".sft",
+                   ".gguf", ".onnx")
+
+# A loader input name -> the ComfyUI `models/<dir>` subfolder its file lives in.
+# This is the `save_path` ComfyUI-Manager needs to download into the right place
+# (`blueprint_models.CATALOG_KEYS`), and it is deliberately a SHORT, verified
+# list: every entry below was checked against the artist's real tree
+# (`ComfyUI/Shared/Models`) and against `folder_paths.folder_names_and_paths`.
+#
+# `unet` and `clip` are the LEGACY aliases of `diffusion_models` / `text_encoders`
+# — ComfyUI reads both, and the artist's tree has both, so a file landing there
+# is found either way.
+#
+# A field that is NOT here yields an EMPTY save_path, never a guess. An empty one
+# is only "not auto-installable, falls to the manual checklist"
+# (see `_validate_models`); a WRONG one downloads gigabytes into a folder no
+# loader reads. `model_name` is the standing example of why: UpscaleModelLoader,
+# AnimateDiff and RIFE all use it for three different folders.
+MODEL_FIELD_DIRS = {
+    "ckpt_name": "checkpoints",
+    "lora_name": "loras",
+    "vae_name": "vae",
+    "unet_name": "unet",
+    "control_net_name": "controlnet",
+    "clip_name": "clip",
+    "clip_name1": "clip",
+    "clip_name2": "clip",
+    "clip_name3": "clip",
+    "style_model_name": "style_models",
+    "pulid_file": "pulid",
+    "gligen_name": "gligen",
+    "hypernetwork_name": "hypernetworks",
+    "ipadapter_file": "ipadapter",
+}
+
+# The exceptions, keyed on (class_type, field), applied BEFORE `MODEL_FIELD_DIRS`.
+# `clip_name` is the one genuinely ambiguous input name in core ComfyUI: on
+# `CLIPLoader` it reads `text_encoders`/`clip`, on `CLIPVisionLoader` it reads
+# `clip_vision` — a different folder entirely. The field alone cannot tell them
+# apart, but a derived declaration always knows the node's class, so it should
+# use it. (`batch_atlas._MODEL_FIELD_NODES` maps bare `clip_name` to
+# `CLIPVisionLoader` for its installed-check, which is the same ambiguity seen
+# from the other end.)
+MODEL_CLASS_FIELD_DIRS = {
+    ("CLIPVisionLoader", "clip_name"): "clip_vision",
+    ("CLIPLoader", "clip_name"): "clip",
+}
+
+# Fields a HUMAN (or an upload) can put on a `models[]` entry that the graph
+# itself can never know: where to download it from, the R2 object an artist
+# uploaded, the hash that pins the version, the Manager catalog's `base`/`name`/
+# `type`/`size`. Re-deriving must carry these across or a re-import silently
+# breaks auto-install for a model somebody wired up by hand.
+MODEL_PROVENANCE_KEYS = ("url", "r2_key", "sha256", "base", "size", "name",
+                         "type")
+
 # Hydrate the shared tree once per process (cheap, incremental pull thereafter).
 _HYDRATED = False
 _HYDRATE_LOCK = threading.Lock()
@@ -373,6 +444,136 @@ def _validate_models(bp_id: str, manifest: dict) -> list:
         out.append(norm)
     manifest["models"] = out
     return out
+
+
+def _model_save_path(class_type: str, field: str) -> str:
+    """Which `models/<dir>` folder a `(class, input)` pair loads from, or "" when
+    we don't know. Class-specific answer first (the `clip_name` split), then the
+    field-wide one. Never a guess — see `MODEL_FIELD_DIRS`."""
+    cls = str(class_type or "").strip()
+    f = str(field or "").strip()
+    hit = MODEL_CLASS_FIELD_DIRS.get((cls, f))
+    if hit:
+        return hit
+    return MODEL_FIELD_DIRS.get(f, "")
+
+
+def derive_models_from_graph(graph: dict) -> list[dict]:
+    """Read a blueprint's own graph and return the `models[]` it implies.
+
+    Every model a graph needs is already written in that graph — a blueprint
+    that declares nothing is not a blueprint that needs nothing, it is a
+    blueprint nobody typed the list into. That was the state of every uploaded
+    blueprint until this existed, which cost a real render on 2026-09-07: a
+    graph authored on the R&D pod named `flux1-dev-fp8.safetensors` and
+    `comic-style-lora-000002.safetensors`, neither present on the machine it ran
+    on, with nothing anywhere declaring them.
+
+    The rule is the same one the submit-time guard uses (see `MODEL_FILE_EXTS`
+    and `batch_atlas.assert_graph_models_present`): a string input whose value
+    ends in a model extension is a model, and nothing else is. So a prompt, a
+    `filename_prefix`, a `sampler_name` and a wire (`["138", 0]`) are all left
+    alone.
+
+    Returns `[{field, filename, save_path}, ...]` — exactly the keys
+    `_validate_models` normalizes and `blueprint_models` consumes. `save_path`
+    is "" for an input we can't place, which means "not auto-installable, goes
+    on the manual checklist"; that is a correct outcome, a wrong folder is not.
+
+    Deduplicated by `(save_path, filename)` (a graph may load the same LoRA
+    twice) and sorted by the same pair, so re-importing an unchanged graph
+    produces a byte-identical manifest instead of churning the diff.
+
+    Pure: no HTTP, no ComfyUI, no R2. It is exactly as available as the graph.
+    """
+    if not isinstance(graph, dict):
+        return []
+    found: dict[tuple[str, str], dict] = {}
+    for _node_id, node in sorted(graph.items(), key=lambda kv: str(kv[0])):
+        if not isinstance(node, dict):
+            continue
+        cls = str(node.get("class_type") or "").strip()
+        inputs = node.get("inputs")
+        if not isinstance(inputs, dict):
+            continue
+        for field, value in sorted(inputs.items(), key=lambda kv: str(kv[0])):
+            # A list is a wire to another node, never a filename.
+            if not isinstance(value, str):
+                continue
+            filename = value.strip()
+            if not filename or not filename.lower().endswith(MODEL_FILE_EXTS):
+                continue
+            name = str(field)
+            entry = {"field": name, "filename": filename,
+                     "save_path": _model_save_path(cls, name)}
+            found.setdefault((entry["save_path"], entry["filename"]), entry)
+    return sorted(found.values(), key=lambda m: (m["save_path"], m["filename"]))
+
+
+def _prev_save_path(entry: dict) -> str:
+    """`save_path` off a stored entry, tolerating the legacy `dir` spelling that
+    `_validate_models` also accepts."""
+    return str(entry.get("save_path") or entry.get("dir") or "").strip()
+
+
+def merge_model_provenance(derived: list, previous: list | None) -> tuple:
+    """Fold the human-added half of an existing `models[]` onto a freshly
+    derived one. Returns `(models, dropped)`.
+
+    The graph is the truth about WHICH models are needed; a person is the truth
+    about where one comes from. Re-importing a tweaked graph must not throw away
+    the `r2_key` of a model an artist uploaded, or the catalog `url`/`base` that
+    makes another auto-installable — that would be a silent regression, visible
+    only as a failed install weeks later.
+
+    Matching is by `(save_path, filename)`, then by `filename` alone when the
+    stored entry has no `save_path` (older/hand-written entries often don't),
+    then by `filename` when the DERIVED entry has no `save_path` — in that last
+    case the stored `save_path` is adopted too, because a human placing a model
+    we can't map is knowledge the graph does not contain. Each stored entry is
+    consumed at most once.
+
+    Stored entries whose filename the graph no longer references are DROPPED
+    (the graph decides what is needed) and returned in `dropped` so the removal
+    is reportable rather than silent.
+    """
+    prev = [p for p in (previous or []) if isinstance(p, dict)]
+    used: set[int] = set()
+
+    def take(pred) -> dict | None:
+        for i, p in enumerate(prev):
+            if i in used or not pred(p):
+                continue
+            used.add(i)
+            return p
+        return None
+
+    merged: dict[tuple[str, str], dict] = {}
+    for d in derived:
+        filename = str(d.get("filename", "")).strip()
+        save_path = str(d.get("save_path", "")).strip()
+        same_name = (lambda p: str(p.get("filename", "")).strip() == filename)
+        old = take(lambda p: same_name(p) and _prev_save_path(p) == save_path)
+        if old is None:
+            old = take(lambda p: same_name(p) and not _prev_save_path(p))
+        if old is None and not save_path:
+            old = take(same_name)
+        entry = dict(d)
+        if old is not None:
+            if not entry.get("save_path"):
+                entry["save_path"] = _prev_save_path(old)
+            for key in MODEL_PROVENANCE_KEYS:
+                val = old.get(key)
+                if key == "url" and val in (None, ""):
+                    val = old.get("source")
+                if val in (None, ""):
+                    continue
+                entry[key] = val
+        merged.setdefault((entry["save_path"], entry["filename"]), entry)
+    models = sorted(merged.values(),
+                    key=lambda m: (m["save_path"], m["filename"]))
+    dropped = [p for i, p in enumerate(prev) if i not in used]
+    return models, dropped
 
 
 def _validate_options_from(bp_id: str, key: str, src) -> None:
