@@ -221,7 +221,7 @@ type BakedBundle = {
 		 * is the engine spine-asset key the bundle registers — the highlight spine bundle is
 		 * exported to `deploy/editor-symbols/` and registered via `index.spines` exactly like the
 		 * per-symbol spine cells, so it is already loadable under its `assetKey`. Absent →
-		 * `SymbolSpine.svelte` keeps the coded `anticipation`/`payframe` frame. `tintMode`/`tintColor`
+		 * `SymbolWinFrame.svelte` keeps the coded `anticipation`/`payframe` frame. `tintMode`/`tintColor`
 		 * (both optional) are the MULTIPLY tint the frame applies to the symbols it loops over:
 		 * `'fixed'` uses `tintColor`; `'winLine'` uses the paying line's authored colour, resolved at
 		 * win time. Both absent → no tint. */
@@ -818,7 +818,7 @@ export function bakedSoundBindings(): SoundBindings | undefined {
 
 /**
  * The GLOBAL win-highlight frame authored in the Invisible Symbols State Machine. When set,
- * `SymbolSpine.svelte` draws this spine/animation for the win frame instead of the coded
+ * `SymbolWinFrame.svelte` draws this spine/animation for the win frame instead of the coded
  * `anticipation`/`payframe`. Its spine bundle rides `symbols.index.spines` (registered like a
  * per-symbol spine cell), so the `assetKey` is already loadable. Mirrors `bakedSymbolMap`'s
  * runtime→baked→undefined resolution; undefined → the coded default frame.

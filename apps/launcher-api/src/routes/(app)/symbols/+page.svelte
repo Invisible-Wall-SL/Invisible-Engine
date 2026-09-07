@@ -667,7 +667,7 @@
 
 	// ── Global highlight (win frame) ──────────────────────────────────────────
 	// A single spine that loops over winning symbols. The game's built-in default is the
-	// engine's coded frame (`anticipation`/`payframe`, see SymbolSpine.svelte). That key
+	// engine's coded frame (`anticipation`/`payframe`, see SymbolWinFrame.svelte). That key
 	// ships as a LOCAL game asset, but most projects ALSO have the bundle in R2 — so when a
 	// matching R2 bundle exists we preview the real default; otherwise we fall back to a
 	// "Default (payframe)" label. The user can still OVERRIDE with any R2 spine.
