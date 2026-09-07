@@ -6,6 +6,7 @@
 	import PresenceBanner from '$lib/PresenceBanner.svelte';
 	import type { EffectDoc, EmitterConfigV3, EmitterLayer } from 'engine-fx';
 	import { onMount } from 'svelte';
+	import { replaceState } from '$app/navigation';
 	import FxStage, { type ResolvedArt } from './FxStage.svelte';
 	import {
 		applyPreset,
@@ -90,10 +91,24 @@
 	);
 	let playing = $state(true);
 
+	/**
+	 * The doc exactly as it was last loaded or saved — the baseline the dirty check compares
+	 * against. A value compare rather than a `markDirty()` at every mutation site: every edit
+	 * here reassigns the WHOLE doc (`doc = { ...doc, … }`) across dozens of call sites, and a
+	 * flag that has to be set at each of them is a flag that will eventually be missed. Only the
+	 * discard guards read it, so it costs one `stringify` per open / close, not per slider drag.
+	 */
+	const snapshot = (): string => JSON.stringify($state.snapshot(doc));
+	let baseline = snapshot();
+	const markSaved = (): void => void (baseline = snapshot());
+	const isDirty = (): boolean => snapshot() !== baseline;
+
 	// --- save / open state ------------------------------------------------------
 	/** Delete-flow spinner; `busy` (below) unions it with the save machine so every shared
 	 * `disabled={busy}` keeps its "either operation in flight" meaning. */
 	let deleting = $state(false);
+	/** Open-flow spinner — one R2 GET, but the picker must not fire a second open under it. */
+	let opening = $state(false);
 	let saveError = $state<string>('');
 	let savedNote = $state<string>('');
 	let pickerId = $state<string>(data.openedDoc?.id ?? '');
@@ -195,6 +210,9 @@
 				// re-saving the same effect; the acquire that matters is a NEW / saved-as effect).
 				leaseSwitch(leaseIdFor(out.id));
 				upsertEffect({ id: out.id, name: out.name });
+				// The stored effect is now what's on screen — re-baseline so the discard guards
+				// stop warning about edits that have just been persisted.
+				markSaved();
 				savedNote = `Saved "${out.name}" (${out.layers} layer${out.layers === 1 ? '' : 's'}).`;
 				return { ok: true, etag: out.etag };
 			} catch {
@@ -202,8 +220,8 @@
 			}
 		},
 	});
-	/** Union of the two in-flight flags — preserves every shared `disabled={busy}`. */
-	const busy = $derived(deleting || saveState.busy);
+	/** Union of the in-flight flags — preserves every shared `disabled={busy}`. */
+	const busy = $derived(deleting || opening || saveState.busy);
 
 	onMount(() => {
 		// A layer copied in a previous effect survives the navigation — surface it on the button.
@@ -211,9 +229,19 @@
 		// Acquire the lease for the initially-open effect (if any); inert for a fresh /fx.
 		void lease.switchDoc(leasedId);
 		const onUnload = () => lease.release();
+		// Opening an effect is now an in-page swap, so `confirmDiscard` guards it directly. A real
+		// unload — closing the tab, the top bar's project switch, a link out of the tool — is the
+		// one exit this page cannot intercept, and the browser's own prompt is what covers it.
+		const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+			if (!isDirty()) return;
+			e.preventDefault();
+			e.returnValue = '';
+		};
 		window.addEventListener('pagehide', onUnload);
+		window.addEventListener('beforeunload', onBeforeUnload);
 		return () => {
 			window.removeEventListener('pagehide', onUnload);
+			window.removeEventListener('beforeunload', onBeforeUnload);
 			lease.release();
 		};
 	});
@@ -308,6 +336,9 @@
 				selectedKey = fresh.layers[0]?.key ?? '';
 				// The open effect is gone → nothing to lease; go inert (freely editable).
 				leaseSwitch(null);
+				// …and nothing left to discard, so the guards must not warn about the blank effect
+				// that replaced it.
+				markSaved();
 			}
 			pickerId = '';
 		} catch {
@@ -317,14 +348,97 @@
 		}
 	}
 
-	function newEffect(): void {
-		// Navigate to a clean /fx (drops `?effect=`) so the loader seeds an empty doc.
-		window.location.href = '/fx';
+	// --- opening an effect ------------------------------------------------------
+	/**
+	 * Switching effects is an IN-MEMORY swap, not a navigation.
+	 *
+	 * It used to be `window.location.href = '/fx?effect=…'`, which re-ran the page loader to
+	 * fetch one small JSON doc. The loader's real cost is everything ELSE it derives:
+	 * `loadRegionSet` for EVERY manifest in the project (sequentially, several R2 round-trips
+	 * each), plus the LayoutDoc and the Flow v2 graph for the trigger vocabulary — none of which
+	 * depends on which effect is open. The full document load also tore down the stage's WebGL
+	 * context and threw away the `artCache`, so every atlas the new effect used was re-fetched
+	 * from cold. `/api/fx/effect` returns the doc, its sidecar and its ETag, which is all a swap
+	 * actually needs.
+	 *
+	 * `?effect=` is still kept in the address bar so the deep link is unchanged and shareable —
+	 * via `replaceState`, which updates the URL WITHOUT running a load. The loader therefore
+	 * stays the seeder for a cold open of that link; it simply stops being the seeder for a
+	 * switch made inside the tool.
+	 *
+	 * The Spine backdrop is deliberately NOT reset: it is a workspace aid, not part of the
+	 * effect, and pinning a series of effects onto the same rig is the normal way to author
+	 * them. The reload only cleared it as a side effect of destroying the page.
+	 */
+	/** Per-effect editor state that must NOT survive a swap. */
+	function resetPerEffectView(): void {
+		saveError = '';
+		savedNote = '';
+		presetId = '';
+		stage?.resetView();
 	}
 
-	function openEffect(id: string): void {
-		if (!id) return;
-		window.location.href = `/fx?effect=${encodeURIComponent(id)}`;
+	/** Ask before anything that would DISCARD unsaved edits. */
+	function confirmDiscard(action: string): boolean {
+		if (!isDirty()) return true;
+		return window.confirm(
+			`"${doc.name || 'This effect'}" has unsaved changes.\n\n` +
+				`${action} will discard them. Continue?`,
+		);
+	}
+
+	function newEffect(): void {
+		if (!confirmDiscard('Starting a new effect')) return;
+		const fresh = emptyEffectDoc();
+		doc = fresh;
+		selectedKey = fresh.layers[0]?.key ?? '';
+		pickerId = '';
+		playing = true;
+		// No stored doc behind a fresh effect ⇒ the next save takes the create path, and there is
+		// nothing to lease until it has a persisted key.
+		saveState.adoptEtag(null);
+		leaseSwitch(null);
+		resetPerEffectView();
+		markSaved();
+		replaceState('/fx', {});
+	}
+
+	async function openEffect(id: string): Promise<void> {
+		if (!id || opening) return;
+		if (id === doc.id && !isDirty()) return; // already open and untouched
+		const label = effects.find((e) => e.id === id)?.name ?? id;
+		if (!confirmDiscard(`Opening "${label}"`)) return;
+		opening = true;
+		saveError = '';
+		try {
+			const qs = new URLSearchParams({ id, project: data.projectKey });
+			const res = await fetch(`/api/fx/effect?${qs}`);
+			if (!res.ok) {
+				const out = (await res.json().catch(() => ({}))) as { message?: string };
+				saveError = out.message ?? `Could not open "${label}" (HTTP ${res.status}).`;
+				return;
+			}
+			const out = (await res.json()) as {
+				doc: EffectDoc;
+				meta: { selectedLayer?: string };
+				etag: string | null;
+			};
+			doc = out.doc;
+			// Same precedence the loader-seeded path uses: the sidecar's remembered layer, else
+			// the first one — so reopening restores the inspector focus exactly as before.
+			selectedKey = out.meta?.selectedLayer ?? out.doc.layers[0]?.key ?? '';
+			pickerId = out.doc.id;
+			playing = true;
+			saveState.adoptEtag(out.etag);
+			leaseSwitch(leaseIdFor(out.doc.id));
+			resetPerEffectView();
+			markSaved();
+			replaceState(`/fx?effect=${encodeURIComponent(out.doc.id)}`, {});
+		} catch {
+			saveError = `Could not open "${label}" (network error).`;
+		} finally {
+			opening = false;
+		}
 	}
 
 	const selected = $derived(doc.layers.find((l) => l.key === selectedKey));
@@ -780,7 +894,16 @@
 			class="open"
 			title="Open a saved effect"
 			value={pickerId}
-			onchange={(e) => openEffect((e.currentTarget as HTMLSelectElement).value)}
+			onchange={(e) => {
+				// The open can now be DECLINED (unsaved changes) or fail, and the page no longer
+				// navigates away — so snap the select back to whatever is actually open rather
+				// than leaving it displaying an effect that was never loaded. A successful open
+				// sets `pickerId` to that same id, making the restore a no-op.
+				const el = e.currentTarget as HTMLSelectElement;
+				void openEffect(el.value).finally(() => {
+					el.value = pickerId;
+				});
+			}}
 		>
 			<option value="">Open effect…</option>
 			{#each effects as eff (eff.id)}
