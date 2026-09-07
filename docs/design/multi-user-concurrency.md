@@ -629,18 +629,77 @@ What makes the tools usable for 2–3 people on a project.
   `docs/ui-inventory.md` for an existing surface rather than inventing one.
 
 ### Phase 3 — Python tools (Atlas / Sheet)
-**Blocked on a prerequisite, sequence last.** Per
-[atlas-per-user-session](atlas-per-user-session.md)`:34-39`, those services
-"literally cannot tell two users apart" — the launcher `session` cookie is
-httpOnly and scoped to the launcher origin, so identity never crosses to their
-separate Railway origins. They cannot hold a lease until that doc's **Phase 1
-(thread a stable `user` id launcher → tools)** lands. Do not duplicate that work
-here.
 
-- Once `user` is available: acquire/heartbeat the same lease from the Python side.
-- Add `IfMatch` to `iw_common/storage.py:59` `put` (boto3 `put_object` takes the
-  same precondition) and give the staging mirror a precondition instead of a blind
-  overwrite — which also blunts the startup-hydration staleness in §3.
+> **Phase 3a — SHIPPED 2026-09-07 (the CAS floor + a CONTAINER lease for the video
+> runner).** Two halves, and only the first is the one this phase's touch list named.
+>
+> - **The floor.** `iw_common/storage.py` `put` now takes keyword-only `if_match` /
+>   `if_none_match` and returns the new ETag; `get_with_etag` is the read half and
+>   keeps the ETag **verbatim** (`head` strips the quotes for display, which makes
+>   its value the wrong thing to build a precondition from). `Conflict` is raised on
+>   **412 only** — R2's 409 `ConditionalRequestConflict` is transient, retry, not
+>   "you lost to another author" — mirroring `r2.ts` `isPreconditionFailed`. Only a
+>   call that CARRIED a precondition can raise, so every existing blind write is
+>   byte-unchanged. Verified against the live bucket before anything was built on
+>   it: `IfNoneMatch:'*'` refuses an existing key 412, `IfMatch:<stale>` refuses 412,
+>   and the stale writer's body does not land. `boto3` floor raised to **1.35.69** in all
+>   three Python services — the first release whose S3 model actually carries
+>   `IfMatch` on `put_object` (1.35.0 has neither precondition; 1.35.4–1.35.68 have
+>   `IfNoneMatch` only). Below it every call site turns a `ParamValidationError` into
+>   a silently wrong answer rather than a crash, so the floor is the guard.
+> - **The lease** (`iw_common/lease.py`) — names, timings and semantics copied 1:1
+>   from `lease.ts` (`LEASE_HEARTBEAT_MS` 10s / `LEASE_TTL_MS` 45s, `LeaseKey`
+>   4-tuple, `LeaseHolder`, pure `is_takeable`/`is_same_holder`, `acquire`/
+>   `heartbeat`/`release`/`takeover`), so moving it onto `doc_leases` later is a
+>   transport swap rather than a rewrite.
+>
+> **⚠ A DELIBERATE DEPARTURE from the History note below, and the reason for it.**
+> That note says the lock does not live beside the doc, because *"a lease in Postgres
+> cannot be clobbered by the very race it exists to prevent"*. This lease is **not**
+> in the document it protects: it is its own R2 object (`<client>/<project>/_leases/
+> <toolId>/<docKey>.json`) claimed with `If-None-Match:'*'` and renewed with
+> `If-Match`, so **R2 adjudicates the claim atomically** and the property that rule
+> exists to guarantee holds by a different mechanism. Postgres was not available to
+> it for structural reasons rather than convenience: these services hold no launcher
+> session and no DB credentials; `doc_leases.holder_user_id` is a foreign key to a
+> real user and **a container is not a user** (the boot sweep has no user at all);
+> the tools only ever receive `r2Slug(users.id)`, not the id; and routing the claim
+> through `POST /api/lease` would make it **fail open during precisely the deploy it
+> exists to survive**. The collision being solved is also not the one Phase 2
+> solves — it is **two containers of one service overlapping during a rolling
+> deploy**, not two people. If the owner prefers the Postgres transport, `lease.py`'s four
+> operations are the bulk of the change — but not all of it: `holder_user_id` is a
+> NOT NULL foreign key to `users.id` and a container is not a user (so the column
+> needs relaxing or a synthetic row), the timestamps are epoch-ms here and
+> `timestamptz` there, and the two halves would then have to agree on the boundary
+> cases these predicates pin.
+>
+> Everything fails OPEN, exactly as `leaseState.svelte.ts` does: an unreadable or
+> unwritable lease behaves as though there were none. Be precise about what backs
+> that up, though — **the CAS is the floor for the DOC's state only.** The other half
+> of a double-submit is a second `_submit` clearing the hand-off slots and deleting a
+> render the first job already uploaded, and no precondition covers a plain delete of
+> a different key. Failing open therefore re-accepts the double-submit risk for as
+> long as R2 itself is unreachable, on the grounds that a tool which refuses to render
+> is the worse failure. See [flipbook status](../status/flipbook.md).
+
+**Partly shipped — see Phase 3a above.** What is left is the PERSON-level lease,
+and that is still blocked. Per [atlas-per-user-session](atlas-per-user-session.md)`:34-39`,
+those services "literally cannot tell two users apart" — the launcher `session`
+cookie is httpOnly and scoped to the launcher origin, so identity never crosses to
+their separate Railway origins. A partial prerequisite HAS since landed by another
+route (`per-user-comfyui-routing.md`: the launcher forwards `?user=<r2Slug(users.id)>`,
+which the tools parse), but a slug is not a `users.id` and so cannot satisfy
+`doc_leases.holder_user_id`'s foreign key. Do not duplicate that work here.
+
+- ~~Add `IfMatch` to `iw_common/storage.py` `put`~~ — **done in Phase 3a**, along
+  with `get_with_etag` and `Conflict`.
+- Still open: **give the staging mirror a precondition** instead of a blind
+  overwrite (`push_dir`/`push_file`), which also blunts the startup-hydration
+  staleness in §3 — a different bug with a different blast radius, deliberately not
+  bundled with 3a.
+- Still open: a PERSON-level lease from the Python side, once a real user id
+  (not the slug) reaches them.
 
 ### Phase 4 — Verify + document
 - Two-user test per tool (two browser profiles, same project): A and B both open
@@ -699,7 +758,9 @@ lands. Nothing here blocks the CRDT question, which stays open.
   ("last-write-wins + lock flag in the sidecar, or something with optimistic
   concurrency") — **both**: lease for coordination, `If-Match` for correctness.
   The lock flag does **not** live in the `.irig` sidecar; a lease in Postgres
-  cannot be clobbered by the very race it exists to prevent.
+  cannot be clobbered by the very race it exists to prevent. (Phase 3a takes the
+  one documented exception to "Postgres": a SEPARATE R2 object claimed by
+  conditional write, for a claimant that cannot hold a Postgres row — see above.)
 
 > Build status: see [docs/status/launcher.md](../status/launcher.md); per-tool progress in each
 > `docs/status/<tool>.md`; detailed log in [docs/history.md](../history.md).

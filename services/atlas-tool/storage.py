@@ -3,11 +3,13 @@
 Kept so the ~existing `import storage` call sites stay unchanged.
 """
 from iw_common.storage import (  # noqa: F401
+    Conflict,
     delete,
     dir_size,
     exists,
     ObjectUnreadable,
     get,
+    get_with_etag,
     get_strict,
     head,
     human_bytes,

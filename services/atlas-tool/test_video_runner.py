@@ -670,19 +670,57 @@ def _stub_world():
     objects: dict[str, bytes] = {}
 
     # Start from an idle runner. A test that leaves a session behind would
-    # otherwise QUEUE the next test's session instead of running it.
+    # otherwise QUEUE the next test's session instead of running it — and now that
+    # the dispatcher renews a lease on its own loop, its tail outlives the session's
+    # terminal status, so the previous test's worker has to be given the moment it
+    # needs to let go or it writes into THIS test's bucket.
+    _await_idle()
+    # A renew cadence a test can afford. In production this is 10s (a third of the
+    # TTL); here every dispatcher wait is bounded by it, so a long one would make
+    # every session-shaped fixture wait that long to wind down.
+    video_runner.LEASE_RENEW_SECONDS = 0.05
     video_runner._SESSIONS.clear()
     video_runner._QUEUE.clear()
+    video_runner._META_ETAGS.clear()
     video_runner._ACTIVE = None
     video_runner._cancel_job = REAL_CANCEL_JOB
 
-    video_runner.storage.put = lambda k, b, c=None: objects.__setitem__(k, b)
+    # An etag-aware double, because `_write_meta` is a compare-and-swap now: the
+    # whole point is that a stale writer is REFUSED, and a dict that accepts every
+    # put cannot tell the fix from the bug.
+    etags: dict[str, str] = {}
+    stamp = {"n": 0}
+
+    def _put(k, b, c=None, *, if_match=None, if_none_match=None):
+        if if_none_match == "*" and k in objects:
+            raise video_runner.storage.Conflict(k)
+        if if_match and etags.get(k) != if_match:
+            raise video_runner.storage.Conflict(k)
+        stamp["n"] += 1
+        objects[k] = b
+        etags[k] = f'"{stamp["n"]:08x}"'
+        return etags[k]
+
+    def _get_with_etag(k):
+        return (objects[k], etags.get(k, '"0"')) if k in objects else None
+
+    video_runner.storage.put = _put
+    video_runner.storage.get_with_etag = _get_with_etag
     video_runner.storage.get = lambda k: objects.get(k)
+    # The lease reads and writes through `iw_common.storage` DIRECTLY, while the
+    # tool's `storage` is a shim that re-exported those names at import — so
+    # patching one module leaves the other holding the real, credentialled client.
+    # Both get the double, or the lease quietly talks to R2 in a unit test.
+    from iw_common import storage as _shared_storage
+    _shared_storage.put = _put
+    _shared_storage.get_with_etag = _get_with_etag
     # The listing reads through `get_strict`, whose whole point is that a transport
     # failure is NOT the same answer as a missing object — so the double has to keep
     # them apart too, or the fixture cannot tell the bug from the fix.
     video_runner.storage.get_strict = lambda k: objects.get(k)
-    video_runner.storage.delete = lambda k: objects.pop(k, None)
+    _delete = lambda k: (objects.pop(k, None), etags.pop(k, None))[0]  # noqa: E731
+    video_runner.storage.delete = _delete
+    _shared_storage.delete = _delete
     # `mtime` is part of the real answer and the boot sweep filters on it, so the
     # double has to carry one or the sweep sees every session as ancient.
     video_runner.storage.list_keys = lambda p: [
@@ -733,6 +771,27 @@ def _stub_world():
     return tmp, objects
 
 
+def _await_idle(timeout: float = 10.0) -> None:
+    """Wait for every dispatcher to have LET GO — not just for `_ACTIVE` to clear.
+
+    `_run_session` settles the session's status first and releases the runner and
+    the lease last, so a check made the instant `_await_session` returns is racing
+    that tail. And `_ACTIVE` alone is not enough to watch: a fixture that clears it
+    by hand (simulating a restart) makes the runner look idle while the previous
+    dispatcher is still alive, still heartbeating, and still writing into the
+    bucket this fixture is about to make assertions on. The threads are named, so
+    wait for the real thing.
+    """
+    import time
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        alive = [t for t in threading.enumerate()
+                 if t.name.startswith("video-session-") and t.is_alive()]
+        if not alive and video_runner._ACTIVE is None:
+            return
+        time.sleep(0.02)
+
+
 def _await_session(sid: str, timeout: float = 15.0) -> dict:
     import time
     deadline = time.time() + timeout
@@ -740,7 +799,12 @@ def _await_session(sid: str, timeout: float = 15.0) -> dict:
     while time.time() < deadline:
         cur = video_runner.get_session(sid) or {}
         if cur.get("status") in ("finished", "cancelled"):
-            return cur
+            # A terminal STATUS is not the end of the dispatcher: it still has to
+            # write the doc, release the lease and hand the runner back. Callers
+            # invariably go on to mutate the very doc that tail is about to write,
+            # so waiting here is what every one of them actually means.
+            _await_idle()
+            return video_runner.get_session(sid) or cur
         time.sleep(0.02)
     return cur
 
@@ -1704,6 +1768,7 @@ def test_a_boot_collects_the_running_job_and_starts_nothing_else() -> None:
           settled.get("status"), "running")
     check("with no new job submitted by the boot",
           _job_ids_issued(objects, key), submits_before)
+    _await_idle()
     check("and the runner is free again", video_runner._ACTIVE, None)
 
     # A person opens it: THAT starts what is left.
@@ -1967,6 +2032,7 @@ def test_a_rescue_that_cannot_be_persisted_does_not_wedge_the_runner() -> None:
     check("the variation still reaches a terminal state", v.get("status"), "failed")
     check("the session finishes instead of spinning", final.get("status"),
           "finished")
+    _await_idle()
     check("and the runner is handed back", video_runner._ACTIVE, None)
 
 
@@ -2185,6 +2251,370 @@ def test_a_slot_name_is_read_back_the_way_it_was_written() -> None:
           video_runner._slot_owner(f"clientx/projecty/video/{sid}/005.webp"), None)
     check("nor is anything else in the bucket",
           video_runner._slot_owner("clientx/projecty/atlas/H1.png"), None)
+
+
+def _other_container(sid: str, user: str = "system", ttl_ms: int = 45_000) -> None:
+    """Make it look as though ANOTHER container holds this session's lease.
+
+    Waits for the runner to be idle first: a dispatcher whose session has already
+    reported `finished` is still winding down, and its drain heartbeats — so a
+    foreign row fabricated underneath it can be legitimately reclaimed a moment
+    later, which is the runner behaving correctly and the fixture racing it.
+    """
+    _await_idle()
+    from iw_common import lease as _lease
+    _lease.acquire(video_runner._lease_key(sid),
+                   _lease.LeaseHolder(user, "some-other-container"),
+                   ttl_ms=ttl_ms)
+
+
+def test_a_finished_render_never_loses_a_merge() -> None:
+    """`_merge_meta` is the whole of the fix for the reported bug, so it is tested on
+    its own: one container collected a render, persisted `00N.webp` and marked the
+    tile `done` while the other's older snapshot landed last and put it back to
+    `failed` — the render surviving in R2 with no tile pointing at it."""
+    ours = {"status": "running", "cancel": False, "variations": [
+        {"index": 1, "status": "failed", "error": "job FAILED", "file": ""},
+        {"index": 2, "status": "running"}]}
+    theirs = {"status": "running", "cancel": True, "variations": [
+        {"index": 1, "status": "done", "file": "001.webp", "bytes": 9},
+        {"index": 3, "status": "done", "file": "003.webp", "bytes": 4}]}
+    merged = video_runner._merge_meta(ours, theirs)
+    by = {v["index"]: v for v in merged["variations"]}
+    check("a done tile with a file beats our stale failure",
+          (by[1]["status"], by[1]["file"]), ("done", "001.webp"))
+    check("our own newer state is kept where theirs has no render",
+          by[2]["status"], "running")
+    check("a variation only THEY know about survives our older snapshot",
+          by[3]["file"], "003.webp")
+    check("a stop that landed anywhere is sticky", merged["cancel"], True)
+    check("and done_count is recounted, not inherited", merged["done_count"], 2)
+
+    # …and the rule is symmetric: ours wins when it is the one holding the render.
+    back = video_runner._merge_meta(theirs, ours)
+    check("whichever side has the render, the render wins",
+          {v["index"]: v.get("file", "") for v in back["variations"]}[1], "001.webp")
+
+
+def test_a_stale_container_cannot_undo_a_collected_render() -> None:
+    """The reported bug, end to end. A rolling deploy overlaps two containers; the
+    old one collects a render and marks the tile `done`; the new one writes the
+    snapshot it took before that and the tile goes back to `failed`, with
+    `00N.webp` sitting in R2 and nothing pointing at it. `_write_meta` is a
+    compare-and-swap now: the loser is REFUSED, re-reads, merges, and writes again."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("two containers", variations=2),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+    key = f"clientx/projecty/video/{sid}/meta.json"
+
+    # What OUR process still has in memory: v1 not finished.
+    stale = json.loads(objects[key])
+    stale["variations"][0].update(status="failed", file="", bytes=0,
+                                  error="job FAILED: worker fell over")
+
+    # Meanwhile the other container collects v1 and writes it — a different etag.
+    theirs = json.loads(objects[key])
+    theirs["variations"][0].update(status="done", file="001.webp", bytes=42,
+                                   error="")
+    video_runner.storage.put(key, json.dumps(theirs).encode(), "application/json")
+    video_runner._META_ETAGS.clear()          # our remembered etag is now stale
+
+    session = dict(stale)
+    session["_blueprint"] = load_blueprint()
+    with video_runner._LOCK:
+        video_runner._SESSIONS[sid] = session
+    video_runner._write_meta(sid, session)
+
+    v = json.loads(objects[key])["variations"][0]
+    check("the collected render is still recorded", v.get("status"), "done")
+    check("with its file", v.get("file"), "001.webp")
+    check("and the stale writer's error is not resurrected", v.get("error"), "")
+
+
+def test_a_session_another_container_holds_is_left_alone() -> None:
+    """Two dispatchers over one session is the double-submit: both claim the same
+    queued variation, both pay, and — because `_submit` empties the hand-off slots
+    before its job runs — the second one DELETES the render the first one's job had
+    already uploaded."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("mine, not yours", variations=2),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+
+    key = f"clientx/projecty/video/{sid}/meta.json"
+    meta = json.loads(objects[key])
+    meta["status"] = "running"
+    meta["variations"][0].update(status="running", job_id="job-theirs", file="",
+                                 bytes=0, started=video_runner._now() - 5)
+    meta["variations"][1].update(status="queued", job_id="", file="", bytes=0)
+    objects[key] = json.dumps(meta).encode()
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+    video_runner._META_ETAGS.clear()
+    _other_container(sid)
+
+    import batch_atlas
+    submits: list = []
+    passthrough = batch_atlas._runpod_post
+
+    def counting_post(path, payload):
+        if path == "/run":
+            submits.append(path)
+        return passthrough(path, payload)
+
+    batch_atlas._runpod_post = counting_post
+    slot = video_runner._upload_slot_keys(video_runner._slot_prefix(sid, 1))[0]
+    video_runner.storage.put(slot, b"THEIR-JOBS-RENDER")
+
+    video_runner.get_session(sid)                  # would adopt, if it were free
+    import time as _t
+    _t.sleep(0.3)
+    with video_runner._LOCK:
+        adopted = sid in video_runner._SESSIONS
+    check("we do not adopt a session another container holds", adopted, False)
+    check("so nothing is submitted a second time", submits, [])
+    check("and their job's render is still in its slot", slot in objects, True)
+
+    # The boot sweep is the least aggressive claimant of all: it defers too.
+    check("the boot sweep also leaves it", video_runner.resume_orphans(), [])
+    check("and so does the slot sweep",
+          video_runner.sweep_stranded_slots("clientx/projecty/")["left"], 1)
+
+
+def test_an_expired_lease_is_taken_over_and_the_tail_runs_once() -> None:
+    """The owner dying mid-render must cost one TTL, not the session. After that the
+    next read adopts and finishes the tail — exactly once."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("dead owner", variations=2),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+
+    key = f"clientx/projecty/video/{sid}/meta.json"
+    meta = json.loads(objects[key])
+    meta["status"] = "running"
+    meta["variations"][0].update(status="running", job_id="job-dead", file="",
+                                 bytes=0, started=video_runner._now() - 5)
+    objects[key] = json.dumps(meta).encode()
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+    video_runner._META_ETAGS.clear()
+    _other_container(sid, ttl_ms=-1)               # holder died; lease already stale
+
+    from iw_common import lease as _lease
+    check("a stale lease reads as nobody's",
+          _lease.held_by(video_runner._lease_key(sid)), None)
+    video_runner.get_session(sid)
+    final = _await_session(sid)
+    check("the session is finished by whoever picked it up",
+          final.get("status"), "finished")
+    check("every tile ends done",
+          [v["status"] for v in final["variations"]], ["done", "done"])
+
+
+def test_stop_reaches_a_session_this_container_does_not_own() -> None:
+    """Cancel is the takeover: it must never be blocked, because the session someone
+    most wants to stop is the one another container is holding after a restart."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("stop across the wire"),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+
+    key = f"clientx/projecty/video/{sid}/meta.json"
+    meta = json.loads(objects[key])
+    meta["status"] = "running"
+    meta["variations"][0].update(status="running", job_id="job-theirs", file="",
+                                 bytes=0, started=video_runner._now() - 5)
+    objects[key] = json.dumps(meta).encode()
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+    video_runner._META_ETAGS.clear()
+    _other_container(sid)
+
+    out = video_runner.cancel_session(sid)
+    check("the stop is accepted", out.get("ok"), True)
+    from iw_common import lease as _lease
+    row = _lease.held_by(video_runner._lease_key(sid))
+    check("and it took the lease, so the old owner stands down",
+          (row or {}).get("holderSessionId"), video_runner.INSTANCE_ID)
+    check("the session reads cancelled in storage",
+          json.loads(objects[key]).get("status"), "cancelled")
+
+
+def test_the_lease_fails_open() -> None:
+    """A lease that can wedge a render is worse than the race it prevents. With the
+    store unreadable and unwritable, everything behaves exactly as it did before the
+    lease existed — the compare-and-swap is the floor under that window."""
+    tmp, objects = _stub_world()
+    real_get, real_put = (video_runner.storage.get_with_etag,
+                          video_runner.storage.put)
+
+    def dead_get(k):
+        if "/_leases/" in k:
+            raise video_runner.storage.ObjectUnreadable(k)
+        return real_get(k)
+
+    def dead_put(k, b, c=None, **kw):
+        if "/_leases/" in k:
+            raise RuntimeError("lease store is down")
+        return real_put(k, b, c, **kw)
+
+    video_runner.storage.get_with_etag = dead_get
+    video_runner.storage.put = dead_put
+    try:
+        started = video_runner.start_session(_req("no lease store", variations=2),
+                                             ("clientx", "projecty"))
+        final = _await_session(started["id"], timeout=10.0)
+    finally:
+        video_runner.storage.get_with_etag = real_get
+        video_runner.storage.put = real_put
+
+    check("the session still runs and finishes", final.get("status"), "finished")
+    check("with both renders", [v["status"] for v in final["variations"]],
+          ["done", "done"])
+
+
+def test_the_lease_predicates_read_like_the_store_enforces_them() -> None:
+    """`is_takeable` / `is_same_holder` are pure so they can be fixtured on their
+    own, exactly as they are on the TypeScript side — they have to agree with the
+    condition the store applies, and that is only checkable in isolation."""
+    from iw_common import lease as _lease
+    mine = _lease.LeaseHolder("user-a", "container-1")
+    same_user_other_box = _lease.LeaseHolder("user-a", "container-2")
+    row = {"holderUserId": "user-a", "holderSessionId": "container-1",
+           "expiresAt": 10_000}
+    check("nothing held is takeable", _lease.is_takeable(None, mine, 0), True)
+    check("our own lease is takeable", _lease.is_takeable(row, mine, 0), True)
+    check("someone else's live lease is not",
+          _lease.is_takeable(row, same_user_other_box, 0), False)
+    check("…until it expires",
+          _lease.is_takeable(row, same_user_other_box, 10_001), True)
+    check("one user in two containers is two holders",
+          _lease.is_same_holder(row, same_user_other_box), False)
+    check("the timings match the TypeScript half",
+          (_lease.LEASE_HEARTBEAT_MS, _lease.LEASE_TTL_MS), (10_000, 45_000))
+
+
+def test_a_merge_survives_the_next_write() -> None:
+    """The repair has to reach MEMORY, not just R2. The conflict path merges and
+    re-CASes correctly, but the merged doc used to be a local variable: the next
+    write took the fast path on our freshly-cached etag, nobody else had written in
+    between, and our un-merged snapshot landed — undoing the collected render this
+    whole mechanism had just saved, one write later."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("merge must stick", variations=2),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+    key = f"clientx/projecty/video/{sid}/meta.json"
+
+    stale = json.loads(objects[key])
+    stale["variations"][0].update(status="failed", file="", bytes=0,
+                                  error="job FAILED: worker fell over")
+    session = dict(stale)
+    session["_blueprint"] = load_blueprint()
+    with video_runner._LOCK:
+        video_runner._SESSIONS[sid] = session
+    video_runner._META_ETAGS.clear()
+
+    theirs = json.loads(objects[key])
+    theirs["variations"][0].update(status="done", file="001.webp", bytes=42,
+                                   error="", finished=video_runner._now())
+    video_runner.storage.put(key, json.dumps(theirs).encode(), "application/json")
+
+    video_runner._write_meta(sid, session)          # 412 -> merge -> re-CAS
+    check("the conflicting write is repaired",
+          json.loads(objects[key])["variations"][0]["status"], "done")
+
+    video_runner._write_meta(sid, session)          # …and the NEXT write keeps it
+    v = json.loads(objects[key])["variations"][0]
+    check("and the write after it does not undo the repair", v["status"], "done")
+    check("with the file still recorded", v["file"], "001.webp")
+    with video_runner._LOCK:
+        live = video_runner._SESSIONS[sid]["variations"][0]
+    check("because the merge was folded back into memory", live["status"], "done")
+
+
+def test_the_merge_respects_a_delete_and_an_ended_session() -> None:
+    """Two rules the first cut got wrong in opposite directions: a stale snapshot
+    resurrecting a tile its author had explicitly discarded, and a container that
+    was still running putting a session the OTHER one had finished back to
+    `running` — which `resume_orphans` would then re-dispatch and the slot sweep
+    would refuse to tidy."""
+    ours = {"status": "running", "finished": 0, "variations": [
+        {"index": 1, "status": "deleted", "file": ""},
+        {"index": 2, "status": "done", "file": "002.webp", "finished": 10.0}]}
+    theirs = {"status": "finished", "finished": 99.0, "variations": [
+        {"index": 1, "status": "done", "file": "001.webp"},
+        {"index": 2, "status": "done", "file": "002b.webp", "finished": 20.0}]}
+    merged = video_runner._merge_meta(ours, theirs)
+    by = {v["index"]: v for v in merged["variations"]}
+    check("an explicit delete is not resurrected by a stale render",
+          by[1]["status"], "deleted")
+    check("a session the other side ended stays ended", merged["status"], "finished")
+    check("with its finish time", merged["finished"], 99.0)
+    check("and when both sides have a render the later one wins, deterministically",
+          by[2]["file"], "002b.webp")
+
+
+def test_the_lease_is_renewed_while_a_render_is_running() -> None:
+    """The dispatcher renews on its own loop — which means the loop has to come back
+    round. With untimed waits it blocked for the whole of a render (minutes) while
+    the lease lives 45 seconds, so our own lease lapsed under us and the session read
+    as free to every other container: the double-submit, from the inside."""
+    import batch_atlas
+
+    tmp, objects = _stub_world()
+    from iw_common import lease as _lease
+    real_renew = video_runner.LEASE_RENEW_SECONDS
+    video_runner.LEASE_RENEW_SECONDS = 0.02
+
+    polls = {"n": 0}
+    beats: list = []
+
+    def slow_job(path):
+        polls["n"] += 1
+        if polls["n"] < 12:                      # several dispatcher wait cycles
+            row = _lease.held_by(video_runner._lease_key(sid_box[0])) or {}
+            beats.append(row.get("heartbeatAt"))
+            return {"status": "IN_PROGRESS"}
+        return {"status": "COMPLETED", "output": {"images": [
+            {"filename": "out.webp",
+             "image": __import__("base64").b64encode(b"WEBP").decode()}]}}
+
+    sid_box = [""]
+    batch_atlas._runpod_get = slow_job
+    try:
+        started = video_runner.start_session(_req("long render", variations=2),
+                                             ("clientx", "projecty"))
+        sid_box[0] = started["id"]
+        final = _await_session(started["id"], timeout=15.0)
+    finally:
+        video_runner.LEASE_RENEW_SECONDS = real_renew
+
+    seen = [b for b in beats if b]
+    check("the session completes", final.get("status"), "finished")
+    check("the lease was held throughout the render", len(seen) > 0, True)
+    check("and it was renewed while the job ran, not just at the start",
+          len(set(seen)) > 1, True)
+
+
+def test_the_takeable_boundary_matches_the_sql() -> None:
+    """`expires_at < now()` in the SQL twin, so `<` here. One millisecond, but the
+    whole reason these predicates are pure is that they must read identically to the
+    condition the store enforces."""
+    from iw_common import lease as _lease
+    mine = _lease.LeaseHolder("atlas-tool", "container-2")
+    row = {"holderUserId": "atlas-tool", "holderSessionId": "container-1",
+           "expiresAt": 10_000}
+    check("at the instant it expires it is still held",
+          _lease.is_takeable(row, mine, 10_000), False)
+    check("a millisecond later it is takeable",
+          _lease.is_takeable(row, mine, 10_001), True)
 
 
 def test_our_cap_sits_above_the_endpoints_own_timeout() -> None:
@@ -3023,6 +3453,17 @@ if __name__ == "__main__":
     test_the_sweep_deletes_what_can_never_be_collected()
     test_the_sweep_keeps_its_hands_off_a_live_session()
     test_a_slot_name_is_read_back_the_way_it_was_written()
+    test_a_finished_render_never_loses_a_merge()
+    test_a_stale_container_cannot_undo_a_collected_render()
+    test_a_session_another_container_holds_is_left_alone()
+    test_an_expired_lease_is_taken_over_and_the_tail_runs_once()
+    test_stop_reaches_a_session_this_container_does_not_own()
+    test_the_lease_fails_open()
+    test_the_lease_predicates_read_like_the_store_enforces_them()
+    test_a_merge_survives_the_next_write()
+    test_the_merge_respects_a_delete_and_an_ended_session()
+    test_the_lease_is_renewed_while_a_render_is_running()
+    test_the_takeable_boundary_matches_the_sql()
     test_our_cap_sits_above_the_endpoints_own_timeout()
     test_a_dead_worker_does_not_wedge_the_runner()
     test_regenerate_one_variation()

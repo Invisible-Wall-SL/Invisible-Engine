@@ -56,10 +56,80 @@ def _ctype(key: str) -> str:
 
 # --- single-object ops -------------------------------------------------------
 
-def put(key: str, body: bytes, content_type: str | None = None) -> None:
-    _client().put_object(
-        Bucket=_bucket(), Key=key, Body=body, ContentType=content_type or _ctype(key)
-    )
+class Conflict(Exception):
+    """A write whose precondition R2 refused: somebody else wrote this key first.
+
+    412 ONLY. R2 also answers 409 `ConditionalRequestConflict` for a *concurrent*
+    conditional write, which is transient and should be retried — reporting that as
+    "you lost to another author" would send a caller into a merge it does not need.
+    The TypeScript twin draws the line in the same place (`r2.ts` `isPreconditionFailed`).
+    """
+
+
+def _is_precondition_failed(e: Exception) -> bool:
+    resp = getattr(e, "response", None)
+    if not isinstance(resp, dict):
+        return False
+    return (resp.get("ResponseMetadata", {}).get("HTTPStatusCode") == 412
+            or str(resp.get("Error", {}).get("Code") or "") == "PreconditionFailed")
+
+
+def put(key: str, body: bytes, content_type: str | None = None, *,
+        if_match: str | None = None, if_none_match: str | None = None) -> str | None:
+    """Write one object; returns its new ETag (verbatim, quotes and all).
+
+    The two keyword-only preconditions are the Python half of
+    `docs/design/multi-user-concurrency.md` Phase 3, and they mirror the shipped
+    TypeScript contract (`apps/launcher-api/src/lib/server/r2.ts`) exactly:
+
+      * `if_match="<etag>"` — compare-and-swap. The write lands only if the object
+        is still the one you read, so a read-modify-write cycle cannot silently
+        overwrite somebody else's.
+      * `if_none_match="*"` — create-only. The write lands only if nothing is there.
+
+    Both raise `Conflict` when R2 refuses (412). **Only a call that CARRIED a
+    precondition can raise it** — the default arguments leave today's blind
+    overwrite exactly as it was, so nothing else in the Python tools changes.
+    """
+    kw = {}
+    if if_match:
+        kw["IfMatch"] = if_match
+    if if_none_match:
+        kw["IfNoneMatch"] = if_none_match
+    try:
+        r = _client().put_object(
+            Bucket=_bucket(), Key=key, Body=body,
+            ContentType=content_type or _ctype(key), **kw)
+    except Exception as e:  # noqa: BLE001 — classify, don't swallow
+        if kw and _is_precondition_failed(e):
+            raise Conflict(key) from e
+        raise
+    return str(r.get("ETag") or "") or None
+
+
+def get_with_etag(key: str) -> tuple[bytes, str] | None:
+    """`(body, etag)`, or None when the object genuinely is not there — the read
+    half of a compare-and-swap.
+
+    The ETag comes back VERBATIM, quotes included, because that is what `If-Match`
+    has to send back. `head()` strips them for display, which makes its value the
+    wrong thing to build a precondition from.
+
+    Classified like `get_strict`: a transport failure raises `ObjectUnreadable`
+    rather than reading as absence, so a caller cannot mistake "could not ask" for
+    "nothing is there" and create-if-absent over the top of a live object.
+    """
+    try:
+        r = _client().get_object(Bucket=_bucket(), Key=key)
+    except Exception as e:  # noqa: BLE001 — classify, don't swallow
+        resp = getattr(e, "response", None)
+        if isinstance(resp, dict):
+            code = str(resp.get("Error", {}).get("Code") or "")
+            status = resp.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if code in ("NoSuchKey", "404", "NotFound") or status == 404:
+                return None
+        raise ObjectUnreadable(f"{key}: {type(e).__name__}: {e}") from e
+    return r["Body"].read(), str(r.get("ETag") or "")
 
 
 def presign_put(key: str, expires: int = 3600) -> str:

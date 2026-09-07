@@ -44,12 +44,22 @@ import random
 import re
 import threading
 import time
+import uuid
 from pathlib import Path
 
 import batch_atlas
 import blueprints
 import cloud_paths as project_paths
 import storage
+from iw_common import lease
+
+# WHICH CONTAINER THIS IS. A Railway rolling deploy overlaps the old container and
+# the new one, so "am I the owner of this session?" needs an answer that outlives a
+# process, and `_LOCK` cannot give one. Railway's own deployment id when it is
+# there, a random id when it is not; the commit prefix is for readable logs.
+INSTANCE_ID = ((os.environ.get("RAILWAY_REPLICA_ID")
+                or os.environ.get("RAILWAY_DEPLOYMENT_ID")
+                or uuid.uuid4().hex)[:24])
 
 # ONE session holds the runner at a time, process-wide — but a second one QUEUES
 # rather than being refused. Running sessions CONCURRENTLY is the spend hazard,
@@ -70,6 +80,9 @@ _CV = threading.Condition(_LOCK)
 # R2 put, and holding the session lock across a network call would stall every
 # status poll and every page read for its duration.
 _META_LOCK = threading.Lock()
+# The ETag of the last `meta.json` this process wrote, per key: the read half of the
+# compare-and-swap that keeps a stale snapshot from landing last.
+_META_ETAGS: dict[str, str] = {}
 
 # How many sessions may WAIT behind the running one. The queue is serial, so it
 # never raises the burn RATE — but it does extend the tail, and an author who
@@ -84,6 +97,10 @@ RESUME_WINDOW_HOURS = float(os.environ.get("VIDEO_RESUME_WINDOW_HOURS") or 12)
 # listing. The boot sweep covers a restart; this covers a container that keeps
 # running for days. 0 turns the listing-side sweep off (the boot one still runs).
 SLOT_SWEEP_MINUTES = float(os.environ.get("VIDEO_SLOT_SWEEP_MINUTES") or 60)
+# How long the dispatcher may sleep before it has to renew the session lease. Below
+# `LEASE_TTL_MS` with room to spare, so an ordinary wait cannot let our own lease
+# lapse under us and hand the session to a boot sweep that is standing by.
+LEASE_RENEW_SECONDS = lease.LEASE_HEARTBEAT_MS / 1000.0
 _LAST_SWEEP: dict[tuple[str, str], float] = {}
 # Poll cadence + overall per-job cap. Wan 2.2 14B on a cold worker loads ~29 GB
 # of weights before it samples anything, so the cap is generous by necessity.
@@ -615,6 +632,68 @@ def _persist(session_id: str, index: int, blob: bytes) -> str:
     return fname
 
 
+def _has_render(v: dict) -> bool:
+    return v.get("status") == "done" and bool(v.get("file"))
+
+
+def _win(mine: dict, theirs: dict | None) -> dict:
+    """Which of two versions of one variation survives a merge.
+
+    A deliberate removal outranks everything: `discard_variation` writes `deleted`,
+    and a stale snapshot that still remembers the render would otherwise resurrect a
+    tile its author had thrown away. Then a finished render beats one without,
+    whichever side it came from. When BOTH sides have a render — which the lease is
+    there to prevent, but which a fail-open window can still produce — the later one
+    wins, so at least the answer is deterministic rather than order-of-arrival.
+    """
+    if theirs is None:
+        return mine
+    if "deleted" in (mine.get("status"), theirs.get("status")):
+        return mine if mine.get("status") == "deleted" else theirs
+    if _has_render(mine) and _has_render(theirs):
+        return mine if float(mine.get("finished") or 0) >= \
+            float(theirs.get("finished") or 0) else theirs
+    if _has_render(theirs) and not _has_render(mine):
+        return theirs
+    return mine
+
+
+def _merge_meta(ours: dict, theirs: dict) -> dict:
+    """Our doc reconciled with the one that landed while we were writing it.
+
+    The rule that matters: **a finished render never loses.** The reported bug was
+    one container collecting a render, persisting `00N.webp` and marking the tile
+    `done`, while the other container's older snapshot landed last and put the tile
+    back to `failed` — the render surviving in R2 with no tile pointing at it. So a
+    variation that has a `file` beats one that does not, whichever side it came from.
+
+    `cancel` is sticky for the same reason in the other direction: a stop that
+    landed anywhere must not be un-asked by a writer that had not heard about it.
+    Variations are unioned by index, so a concurrent ＋ Add or ⧉ duplicate is not
+    dropped by a snapshot taken before it.
+    """
+    out = dict(theirs)
+    out.update({k: v for k, v in ours.items() if k != "variations"})
+    out["cancel"] = bool(ours.get("cancel") or theirs.get("cancel"))
+    # A SESSION THAT ENDED STAYS ENDED. Taking every scalar from ours put a session
+    # the other container had finished back to `running` — and a `running` doc is
+    # one `resume_orphans` re-dispatches and the slot sweep refuses to tidy.
+    if theirs.get("status") in ("finished", "cancelled") \
+            and ours.get("status") not in ("finished", "cancelled"):
+        out["status"] = theirs["status"]
+        out["finished"] = theirs.get("finished") or ours.get("finished") or 0
+    by_index: dict = {}
+    for v in (theirs.get("variations") or []):
+        by_index[v.get("index")] = v
+    for v in (ours.get("variations") or []):
+        i = v.get("index")
+        other = by_index.get(i)
+        by_index[i] = _win(v, other)
+    out["variations"] = [by_index[i] for i in sorted(by_index, key=lambda x: (x is None, x))]
+    out["done_count"] = sum(1 for v in out["variations"] if v.get("status") == "done")
+    return out
+
+
 def _write_meta(session_id: str, session: dict) -> None:
     """Mirror the session to `meta.json` so a page reload (or a restart) can
     recover it. Written after every variation, not just at the end — an
@@ -632,11 +711,67 @@ def _write_meta(session_id: str, session: dict) -> None:
             # `queue_position` is true only at this instant, so it is served, never
             # stored — a persisted one would still claim "3rd in line" a week later.
             doc = {k: v for k, v in _public(session).items() if k != "queue_position"}
-            body = json.dumps(doc, indent=2).encode("utf-8")
+        key = f"{_video_prefix()}/{session_id}/meta.json"
         try:
-            (_session_dir(session_id) / "meta.json").write_bytes(body)
-            storage.put(f"{_video_prefix()}/{session_id}/meta.json",
-                        body, "application/json")
+            merged = False
+            for attempt in range(3):
+                etag = _META_ETAGS.get(key)
+                if etag is None:
+                    # Nothing written by US yet, so we do not know what is there —
+                    # read it, and if something is, merge onto it rather than over it.
+                    got = storage.get_with_etag(key)
+                    if got is not None:
+                        try:
+                            doc = _merge_meta(doc, json.loads(got[0]))
+                            merged = True
+                        except ValueError:
+                            pass  # a corrupt doc is not worth preserving
+                        etag = got[1]
+                body = json.dumps(doc, indent=2).encode("utf-8")
+                try:
+                    (_session_dir(session_id) / "meta.json").write_bytes(body)
+                    new_etag = storage.put(
+                        key, body, "application/json",
+                        if_match=etag, if_none_match=None if etag else "*")
+                except storage.Conflict:
+                    # SOMEBODY ELSE WROTE FIRST. Never abort and never overwrite:
+                    # take their doc, fold ours into it, and try again. This is the
+                    # whole point — a 412 that dropped our write would lose a `done`
+                    # exactly as loudly as the clobber it replaced.
+                    _META_ETAGS.pop(key, None)
+                    got = storage.get_with_etag(key)
+                    if got is None:
+                        continue
+                    try:
+                        doc = _merge_meta(doc, json.loads(got[0]))
+                        merged = True
+                    except ValueError:
+                        pass
+                    _META_ETAGS[key] = got[1]
+                    continue
+                if new_etag:
+                    _META_ETAGS[key] = new_etag
+                else:
+                    _META_ETAGS.pop(key, None)
+                if merged:
+                    # FOLD IT BACK. The repair has to reach memory, not just R2:
+                    # the next write takes the fast path on our cached etag, and
+                    # would put our un-merged snapshot straight back over the top —
+                    # undoing the collected render this whole mechanism just saved.
+                    with _LOCK:
+                        live = _SESSIONS.get(session_id)
+                        if live is not None and live is session:
+                            live["variations"] = doc["variations"]
+                            for k in ("status", "finished", "cancel", "done_count"):
+                                if k in doc:
+                                    live[k] = doc[k]
+                return
+            # The cached etag is the etag of what WE last wrote; three failures
+            # mean we wrote none of them, so keeping it would send the next write
+            # down the fast path on a value that was never ours.
+            _META_ETAGS.pop(key, None)
+            print(f"[video] meta for {session_id} lost three races in a row; "
+                  "leaving the other writer's doc alone", flush=True)
         except Exception as e:  # noqa: BLE001 — a meta write must not kill a session
             print(f"[video] meta write failed for {session_id}: {e}", flush=True)
 
@@ -652,6 +787,55 @@ def _public(session: dict) -> dict:
     with _LOCK:
         out["queue_position"] = _QUEUE.index(sid) + 1 if sid in _QUEUE else 0
     return out
+
+
+def _lease_key(session_id: str) -> lease.LeaseKey:
+    """This session's lease. `toolId` is deliberately NOT `flipbook` — that is the
+    clip tool's id, and a clip id and a session id share one keyspace under it."""
+    prefix = _video_prefix()
+    client, project = prefix[: -len("/video")].split("/", 1)
+    return lease.LeaseKey("flipbookVideo", client, project, session_id)
+
+
+def _holder() -> lease.LeaseHolder:
+    """WHO IS CLAIMING: this container, and nothing about the person who started the
+    session. One process runs sessions for several users, so keying identity on the
+    session's user would give one container as many identities as it has users — and
+    `is_same_holder` compares both halves, so the container would not recognise its
+    OWN rows. Every release would be a no-op, and Cancel's takeover would look
+    foreign to the very dispatcher it is meant to reach."""
+    return lease.LeaseHolder("atlas-tool", INSTANCE_ID)
+
+
+def _held_elsewhere(session_id: str) -> dict | None:
+    """The row of ANOTHER container that holds this session, or None.
+
+    Read, never enforced: a caller uses it to defer, not to decide whether it is
+    allowed. Fails open — an unreadable lease reads as nobody's.
+    """
+    try:
+        row = lease.held_by(_lease_key(session_id))
+    except Exception:  # noqa: BLE001
+        return None
+    return None if row is None or lease.is_same_holder(row, _holder()) \
+        else row
+
+
+def _hold_is_ours(session_id: str, *, strict: bool = False) -> bool:
+    """Do we still own this session?
+
+    `strict` is for the ONE call site where "proceed" is not the conservative
+    answer: the check immediately before `_submit`. Everywhere else an unreadable
+    lease costs a deferral — a render collected slightly later. There it costs a
+    render outright, because `_submit` clears the hand-off slots and would delete
+    whatever the other container's job has already uploaded into them. The price of
+    failing closed there is one re-queue, which is the branch right below it.
+    """
+    try:
+        row = lease.held_by(_lease_key(session_id))
+    except Exception:  # noqa: BLE001
+        return not strict
+    return row is None or lease.is_same_holder(row, _holder())
 
 
 def _runner_busy() -> bool:
@@ -684,7 +868,8 @@ def _dispatch(session_id: str, ctx: tuple[str, str]) -> bool:
                 _QUEUE.append(session_id)
             return False
         _ACTIVE = session_id
-    threading.Thread(target=_run_session, args=(session_id, ctx), daemon=True).start()
+    threading.Thread(target=_run_session, args=(session_id, ctx), daemon=True,
+                     name=f"video-session-{session_id}").start()
     return True
 
 
@@ -704,6 +889,22 @@ def _run_session(session_id: str, ctx: tuple[str, str]) -> None:
         project_paths.set_context(*ctx)
         with _LOCK:
             session = _SESSIONS.get(session_id)
+        if session and not lease.acquire(_lease_key(session_id), _holder()):
+            # Another container is running this session. Do not touch it: its owner
+            # is submitting, collecting and settling, and a second dispatcher here
+            # would submit the same variations again — paying twice, and worse,
+            # `_submit` empties the hand-off slots, so the second submit would
+            # DELETE the render the first one's job had already uploaded.
+            print(f"[video] {session_id} is held by another container; leaving it",
+                  flush=True)
+            # DROPPED from memory, not just skipped. `get_session` short-circuits on
+            # `_SESSIONS`, so a session left installed here would be frozen at this
+            # snapshot for the life of the container: readers never see the other
+            # container's progress and `_adopt` — the only path that re-checks the
+            # lease — can never run for it again.
+            with _LOCK:
+                _SESSIONS.pop(session_id, None)
+            session = None
         if session:
             try:
                 _run_variations(session_id, session, ctx)
@@ -727,6 +928,17 @@ def _run_session(session_id: str, ctx: tuple[str, str]) -> None:
                     with _LOCK:
                         v.update(status="failed", error=str(e)[:400],
                                  finished=_now())
+            if session.pop("_lost_lease", False):
+                # Somebody else owns this session now. Write NOTHING terminal: a
+                # `finished` from a container that has just been told to stand down
+                # lands over a session the new owner is actively running, and the
+                # doc flaps between the two. Let go and let the owner settle it.
+                with _LOCK:
+                    _SESSIONS.pop(session_id, None)
+                    _META_ETAGS.pop(
+                        f"{_video_prefix()}/{session_id}/meta.json", None)
+                _release(session_id)
+                return
             with _LOCK:
                 done = sum(1 for v in session["variations"] if v["status"] == "done")
                 # A collect-only pass left the untouched tail alone on purpose, so
@@ -753,6 +965,10 @@ def _run_session(session_id: str, ctx: tuple[str, str]) -> None:
                 print(f"[video] {session_id} collected what was already running; "
                       "its unstarted tiles wait for someone to open it", flush=True)
     finally:
+        try:
+            lease.release(_lease_key(session_id), _holder())
+        except Exception:  # noqa: BLE001 — expiry is the backstop
+            pass
         _release(session_id)
 
 
@@ -779,7 +995,8 @@ def _release(session_id: str) -> None:
             nxt = (sid, (str(s.get("client") or ""), str(s.get("project") or "")))
             break
     if nxt:
-        threading.Thread(target=_run_session, args=nxt, daemon=True).start()
+        threading.Thread(target=_run_session, args=nxt, daemon=True,
+                         name=f"video-session-{nxt[0]}").start()
 
 
 def _run_variations(session_id: str, session: dict, ctx: tuple[str, str]) -> None:
@@ -825,6 +1042,21 @@ def _run_variations(session_id: str, session: dict, ctx: tuple[str, str]) -> Non
 
     while True:
         stopping: list[dict] = []
+        # RENEWED HERE, on the dispatcher's own loop, because this is where owning
+        # the session actually lives. A heartbeat on a timer would keep the lease
+        # alive for a dispatcher that had died; one on a variation thread would keep
+        # it alive for a session nothing was driving.
+        if not lease.heartbeat(_lease_key(session_id), _holder()):
+            with _CV:
+                if not in_flight:
+                    print(f"[video] {session_id} was taken over; standing down",
+                          flush=True)
+                    session["_lost_lease"] = True
+                    break
+                # Drain what is already paid for — those jobs are ours to collect,
+                # and their writes merge — but claim nothing further.
+                _CV.wait(LEASE_RENEW_SECONDS)
+                continue
         with _CV:
             if session.get("cancel"):
                 for v in session["variations"]:
@@ -864,10 +1096,14 @@ def _run_variations(session_id: str, session: dict, ctx: tuple[str, str]) -> Non
             if var is None:
                 if not in_flight:
                     break
-                _CV.wait()
+                # BOUNDED, so the loop comes back round to renew. An untimed wait
+                # here sleeps for the whole of a render — minutes — while the lease
+                # lives 45 seconds, so our own lease would lapse under us and the
+                # session would read as free to every other container.
+                _CV.wait(LEASE_RENEW_SECONDS)
                 continue
             if len(in_flight) >= PARALLEL_JOBS:
-                _CV.wait()
+                _CV.wait(LEASE_RENEW_SECONDS)
                 continue
             # CLAIMED under the lock, before the thread exists, so the next
             # iteration cannot hand the same slot to a second thread. Whether this
@@ -910,9 +1146,14 @@ def _run_variations(session_id: str, session: dict, ctx: tuple[str, str]) -> Non
                 v.update(status="cancelled", finished=_now())
     # Drain. On cancel this is what actually stops the spend: each thread's
     # `should_stop` makes `_await_job` cancel its own job remotely on the way out.
-    with _CV:
-        while in_flight:
-            _CV.wait()
+    # Bounded for the same reason as the waits above: the drain outlasts a render,
+    # and a lease nobody is renewing is a session everybody thinks is free.
+    while True:
+        with _CV:
+            if not in_flight:
+                break
+            _CV.wait(LEASE_RENEW_SECONDS)
+        lease.heartbeat(_lease_key(session_id), _holder())
 
 
 def _run_variation(session_id: str, session: dict, bp: dict, var: dict,
@@ -945,6 +1186,18 @@ def _run_variation(session_id: str, session: dict, bp: dict, var: dict,
             # one field along.
             upload_keys = _upload_slot_keys(prefix)
         else:
+            if not _hold_is_ours(session_id, strict=True):
+                # The last check before the only line that spends money. Put the
+                # slot back so whoever does own the session picks it up.
+                with _LOCK:
+                    # `started` is left ALONE: every rescue path dates a hand-off
+                    # slot against it (`newer_than=`), and zeroing it would let a
+                    # stale object from an earlier attempt be collected as this
+                    # variation's render — wrong bytes under a recorded recipe.
+                    var["status"] = "queued"
+                print(f"[video] {session_id} v{var['index']:03d} not submitted — "
+                      "another container owns this session now", flush=True)
+                return
             _write_meta(session_id, session)
             recipe = _variation_recipe(session, var)
             wf = build_video_workflow(
@@ -1535,6 +1788,13 @@ def _adopt(stored: dict, collect_only: bool = False) -> dict | None:
             v["error"] = ("Interrupted by a service restart before its job id was "
                           "recorded, and nothing was uploaded — re-roll this "
                           "variation.")
+    other = _held_elsewhere(sid)
+    if other is not None:
+        # A live owner in another container. Hand back what storage says and touch
+        # nothing: adopting would install a second dispatcher over the same session.
+        print(f"[video] {sid} is held by {other.get('holderSessionId')}; "
+              "not adopting", flush=True)
+        return _public(stored) if "_blueprint" in stored else stored
     ctx = (str(stored.get("client") or ""), str(stored.get("project") or ""))
     with _LOCK:
         # CHECK AND INSERT UNDER ONE LOCK. Every caller reads `_SESSIONS`, decides
@@ -1567,7 +1827,8 @@ def _adopt(stored: dict, collect_only: bool = False) -> dict | None:
         print(f"[video] queued orphaned session {sid}", flush=True)
         return _public(stored)
     print(f"[video] adopted orphaned session {sid}", flush=True)
-    threading.Thread(target=_run_session, args=(sid, ctx), daemon=True).start()
+    threading.Thread(target=_run_session, args=(sid, ctx), daemon=True,
+                     name=f"video-session-{sid}").start()
     return _public(stored)
 
 
@@ -1677,6 +1938,7 @@ def resume_orphans() -> list[str]:
             with _LOCK:
                 if sid in _SESSIONS:
                     continue
+
             # WHERE THE DOC LIVES is what says which project it belongs to. Its own
             # `client`/`project` fields are the same answer when all is well, but a
             # missing or unslugged one falls back to the env default inside
@@ -1686,6 +1948,15 @@ def resume_orphans() -> list[str]:
             client, project = key.split("/", 2)[:2]
             doc["client"], doc["project"] = client, project
             project_paths.set_context(client, project)
+            # AFTER the context is set, never before: the lease path is resolved
+            # from the calling thread's project, so a check made up here would read
+            # `<previous project>/_leases/...` — almost always absent, so it would
+            # answer "nobody holds it" for every session but one.
+            if _held_elsewhere(sid) is not None:
+                # The old container is still draining this one. A boot sweep is the
+                # least aggressive claimant in the system: when that container goes,
+                # the lease expires and the next read adopts.
+                continue
             # One running session plus a full queue behind it is everything the
             # runner can hold. Adopting past that would fill `_QUEUE` with sessions
             # nobody asked for now and refuse the author's next Generate.
@@ -1799,6 +2070,9 @@ def _sweep_one_session(pp: str, sid: str,
         else None
     with _LOCK:
         live = sid in _SESSIONS
+    if doc is not None and _held_elsewhere(sid) is not None:
+        out["left"] += len(slots)
+        return out
     if doc is not None and (live or doc.get("status") in ("running", "queued")):
         out["left"] += len(slots)
         return out
@@ -1837,6 +2111,14 @@ def cancel_session(session_id: str) -> dict:
     """
     if not valid_session_id(session_id):
         raise ValueError("Bad session id.")
+    # STOP IS THE TAKEOVER. It must reach a session whichever container owns it —
+    # "the session someone most wants to stop is the one a restart orphaned" — so it
+    # claims the lease rather than asking for it. The old owner's next write then
+    # loses its compare-and-swap and stands down instead of re-writing `running`.
+    try:
+        lease.takeover(_lease_key(session_id), _holder())
+    except Exception:  # noqa: BLE001 — a stop is never blocked by its own bookkeeping
+        pass
     with _LOCK:
         s = _SESSIONS.get(session_id)
         if s:
@@ -2027,6 +2309,12 @@ def delete_session(session_id: str) -> dict:
     # The session's own objects AND its hand-off slots. The slots live under
     # `video/_out/`, not under the session, so deleting only the session prefix
     # leaked one file per stranded render — unreferenced, unreachable, and paid for.
+    try:
+        lease.release(_lease_key(session_id), _holder())
+        storage.delete(_lease_key(session_id).path())
+    except Exception:  # noqa: BLE001 — a stale lease expires on its own
+        pass
+    _META_ETAGS.pop(f"{_video_prefix()}/{session_id}/meta.json", None)
     for prefix in (f"{_video_prefix()}/{session_id}/",
                    f"{_video_prefix()}/_out/{_slot_prefix(session_id, 0)[:-3]}"):
         try:
