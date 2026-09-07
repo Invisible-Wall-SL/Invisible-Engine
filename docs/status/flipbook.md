@@ -155,7 +155,7 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
   - **`blueprints_src/wan22_i2v_flipbook/`** — the owner's Wan 2.2 I2V graph, made serverless-safe. Its one unavailable node (`ImageResizeKJv2`, KJNodes, baked into neither the worker nor the pod image) is replaced by core `ImageScale`, pixel-identical at these settings; `BiRefNetRMBG` needed nothing because it comes from `1038lab/ComfyUI-RMBG`, which the worker already bakes. `ComfySwitchNode` + `ComfyMathExpression` were verified present in ComfyUI core at the pinned v0.33.1. The save node's `fps` is now WIRED to the generation fps node rather than copied, so the preview can never drift from the motion rate again.
   - **`width`/`height` are deliberately UNBOUND.** `build_workflow_blueprint` fills those roles from `GEN_WIDTH`/`GEN_HEIGHT`, whose config default is **1024** because they were sized for stills — injecting that into `WanImageToVideo` across an 81-frame batch is a VRAM/wall-clock blowup. Generation size is a param instead. This is the single easiest way to silently wreck a video blueprint; the fixture asserts it.
   - **`video_runner.py` + fifteen `/video/*` routes** — stateless, session-scoped, remote-cancelling; one session RUNS at a time and the rest QUEUE behind it, with at most `VIDEO_PARALLEL_JOBS` (default 1) of its variations in flight at once. Results land in `<C>/<P>/video/<id>/` and never enter `deploy/`.
-  - Fixtures: `PYTHONPATH="../_shared:." py test_video_runner.py` from `services/atlas-tool` (345 checks, RunPod/R2/paths stubbed; the PYTHONPATH is not optional — without it the suite dies on `No module named 'iw_common'`). **Count it, don't add to it** — the figure here was wrong twice, each time by doing arithmetic on the previous stale one: `grep -c '^ok'` over a run is the only honest source.
+  - Fixtures: `PYTHONPATH="../_shared:." py test_video_runner.py` from `services/atlas-tool` (363 checks, RunPod/R2/paths stubbed; the PYTHONPATH is not optional — without it the suite dies on `No module named 'iw_common'`). **Count it, don't add to it** — the figure here was wrong twice, each time by doing arithmetic on the previous stale one: `grep -c '^ok'` over a run is the only honest source.
   - **Step 2 — the 🎬 mode UI.** `/flipbook` switches surfaces with the canonical `<CanvasModeBar inline>` in the ToolTopBar's `meta` snippet; the mode itself is `VideoMode.svelte` (its own component — the clip editor is already 1300 lines and the two share nothing but the project). Blueprint picker, prompt, source-image picker, variation count, params rendered from the blueprint's own `params[]`, live progress, results grid.
     - **No `<video>` element** — an animated WEBP plays, loops and honours alpha in a plain `<img>`. The checkerboard behind each tile is load-bearing: it is how the author sees whether the cutout produced real alpha rather than a matte-coloured rectangle.
     - **`api/flipbook/video/[...path]` is an explicit ALLOW-LIST, not a pass-through** — a forwarding rest route would hand any flipbook user the whole atlas-tool surface (`/render`, `/deleteblueprint`, `/createatlas`) under a gate that never mentions them. Canonical `toolScope.gate` on `flipbook`; the tool secret never reaches the browser.
@@ -203,10 +203,7 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
      `RUNPOD_ENDPOINT_ID`, a RunPod API incident — is given up on in 15 s **without** a cancel, so a
      live job keeps billing. Cheap mitigation: on that path, if the slot is empty, re-check it once
      after a delay before settling the tile.
-   - **`video/_out/` has no sweeper.** Now that every terminal path collects, a slot should never be
-     left holding a render — but nothing proves that, and the thirteen recovered on 2026-09-07 were
-     found only because someone went looking. A periodic (or on-list) sweep that re-homes any
-     `_out/iwvid_<sid>_<NNN>_*.webp` whose variation is not `done` would make the guarantee visible.
+   - ~~**`video/_out/` has no sweeper.**~~ **DONE** — `sweep_stranded_slots` (see Recent changes).
 
 ## Blocked (owner / external)
 - **Re-publish the imported video blueprint with a pod running** (owner, 2026-09-04). The one
@@ -218,6 +215,32 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-07 — **`video/_out/` is swept, so "no render is ever stranded" is checkable instead of
+  assumed.** Every terminal path collects from the hand-off slot now, which means a slot should only
+  ever be occupied between a worker's PUT and its collect — but nothing proved it, and the thirteen
+  renders recovered earlier that day had sat there for up to five days, found only because someone
+  went looking. `sweep_stranded_slots` walks a project's `_out/` prefix and decides each object from
+  what the session doc says:
+  - a variation not settled, with a slot written since that attempt began → **collect it** (persist,
+    mark the tile `done`, empty the slot, write the doc back);
+  - a variation already `done`, or gone, or the whole session gone → **delete it**: scratch a failed
+    `_clear_upload_slots` left behind;
+  - a slot **older than the attempt's `started`** → delete it. `_submit` would have cleared it on the
+    next attempt, and it can never legitimately be offered as this attempt's render;
+  - a session still `running`/`queued`, or live in this process → **left alone**. A job in flight may
+    have uploaded seconds ago with its own poller about to collect it, and taking it first would
+    leave that poller reporting "the worker said it uploaded, but nothing is there" — the sweep
+    becoming the thing it exists to prevent.
+  It runs from two places: **at container boot** (`boot_recovery` — re-attach first, then sweep, in
+  that order, since an adopted session is live and the sweep skips live ones), and **off the back of
+  a session listing**, throttled to once per project per `VIDEO_SLOT_SWEEP_MINUTES` (default 60, 0
+  disables) and on a thread, so a listing never waits on a bucket walk and a long-running container
+  does not have to be restarted for the guarantee to hold. `_slot_owner` reads a session id and
+  variation index back out of a slot name — the reverse of `_slot_prefix`, kept beside it so the two
+  spellings cannot drift. Fixtures: 363 checks (was 345) — a strand is re-homed and a second sweep
+  is a no-op; scratch beside a `done` tile, a discarded variation and a dead session are all deleted;
+  a live session's slot is untouched; and the name round-trips while session objects and ordinary
+  assets are not mistaken for slots.
 - 2026-09-07 — **The R2 rescue now covers every way a variation can end, not just the unreadable
   ones.** An adversarial re-read of what had just shipped found the guard was one branch narrower
   than its own docs claimed: the collect hung off `except _Unresolved`, so a finished render sitting

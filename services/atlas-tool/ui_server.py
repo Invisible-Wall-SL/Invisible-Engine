@@ -8884,7 +8884,7 @@ def main():
     # keeps a finished job about half an hour, and after that a paid render is only
     # recoverable by hand. In a thread because it sweeps the bucket, and the server
     # has to answer while it does.
-    threading.Thread(target=video_runner.resume_orphans, daemon=True,
+    threading.Thread(target=video_runner.boot_recovery, daemon=True,
                      name="video-resume").start()
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
 

@@ -356,6 +356,11 @@ These were needed to get the artist's FLUX/PuLID blueprint running on a hand-bui
 > workers (the owner's is 3), never above** — the surplus just sits IN_QUEUE, and each extra
 > worker is its own cold start and its own share of the burn rate.
 >
+> Also `VIDEO_SLOT_SWEEP_MINUTES` (default 60, 0 disables) — how often one project's `video/_out/`
+> hand-off prefix is swept for renders nothing is coming back for, off the back of a session
+> listing. The boot sweep runs regardless; this is what keeps a container that stays up for days
+> from accumulating them.
+>
 > Also `VIDEO_RESUME_WINDOW_HOURS` (default 12) — how far back the boot sweep looks for a
 > session the previous container was mid-render on. A doc older than this has no collectable
 > job left (RunPod dropped it long ago), so re-attaching to one could only fail slowly, once
