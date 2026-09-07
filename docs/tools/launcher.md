@@ -71,6 +71,25 @@ the launcher itself.
   boot mark**, ComfyUI pod fleet, edge cache).
 - **Sign out** — header form posting to `/auth/logout`.
 
+### Admin → Games
+
+One row per game card, four columns (labelled in the header row): the **key**,
+the **game name** (Rename), the **launch URL** (Save URL), and the **project
+scope** (Save scope).
+
+The scope dropdown lists **projects**, and each entry is the *project's* name —
+not the game's. The two are separate records and one project usually hosts more
+than one game card, so renaming a game never changes what that dropdown reads;
+rename the project on the **Projects** tab if the project's own name is stale.
+The scope decides where the card shows up: a game scoped to a project appears on
+the home Games grid only while that project (or its client) is selected;
+`Global (all projects)` shows it on every selection.
+
+Leave the URL blank when creating and it auto-fills the standard test-server URL
+for the key, including the `runtime=1` flag the shared engine bundle needs to
+read the project's live authoring data. The game still has to be published to
+that path to actually load.
+
 ### Admin → Settings → Engine boot mark
 
 The spine that opens **every** game — the engine's own logo, shown before the

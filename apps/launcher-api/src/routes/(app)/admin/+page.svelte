@@ -950,9 +950,18 @@
 				test-server URL for the key (<code
 					>{data.gamesBaseUrl}/&lt;key&gt;/?sessionID=demo&amp;rgs_url=…/api/&lt;key&gt;&amp;lang=en</code
 				>); enter a URL only for games hosted elsewhere. The game still has to be published to that
-				path to actually load.
+				path to actually load. The last dropdown shows the <strong>project</strong> the game is
+				scoped to — that is the project's own name, not the game's, so renaming a game here never
+				changes it (rename the project on the <em>Projects</em> tab).
 			</p>
 			<div class="projects">
+				<div class="project-row col-heads">
+					<span class="key">key</span>
+					<span class="rename">Game name</span>
+					<span class="rename">Launch URL</span>
+					<span class="rename">Project scope</span>
+					<span class="del-head"></span>
+				</div>
 				{#each data.games as g (g.key)}
 					<div class="project-row">
 						<span class="mono key">{g.key}</span>
@@ -974,10 +983,14 @@
 						</form>
 						<form method="POST" action="?/setGameProject" use:enhance class="rename">
 							<input type="hidden" name="key" value={g.key} />
-							<select name="project">
-								<option value="" selected={!g.projectKey}>Global (all projects)</option>
+							<select
+								name="project"
+								value={g.projectKey ?? ''}
+								title="Project this game is scoped to (a project name, not the game's)"
+							>
+								<option value="">Global (all projects)</option>
 								{#each data.projects as p (p.key)}
-									<option value={p.key} selected={g.projectKey === p.key}>{p.name}</option>
+									<option value={p.key}>{p.name}</option>
 								{/each}
 							</select>
 							<button type="submit">Save scope</button>
@@ -1005,10 +1018,10 @@
 						placeholder="https://… (blank = auto test-server URL)"
 						autocomplete="off"
 					/>
-					<select name="project">
+					<select name="project" value={data.activeProjectKey ?? ''}>
 						<option value="">Global (all projects)</option>
 						{#each data.projects as p (p.key)}
-							<option value={p.key} selected={p.key === data.activeProjectKey}>{p.name}</option>
+							<option value={p.key}>{p.name}</option>
 						{/each}
 					</select>
 					<button type="submit">Create game</button>
@@ -2304,6 +2317,15 @@
 	}
 	.rename input {
 		flex: 1;
+	}
+	.col-heads {
+		font-size: 11px;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: #6f6f80;
+	}
+	.col-heads .del-head {
+		width: 62px;
 	}
 	.assign select {
 		min-width: 160px;
