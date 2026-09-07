@@ -131,10 +131,11 @@ The panel reads once when the page loads and again when you press **Refresh** (p
 right after installing something — the server caches the answer for a minute). It never
 starts or stops a pod.
 
-**It works with the whole GPU fleet stopped**, provided an always-on **volume pod** is
-configured — a cheap CPU pod that mounts the same Network Volume and serves ComfyUI's
-HTTP API. Without one, the panel can only read from a GPU pod that happens to be
-running, and otherwise says so. See *Managing the fleet* below.
+**It needs a running pod.** The panel reads the volume through whichever pod answers, so
+with the whole fleet stopped it lists nothing and tells you to start one. That is
+deliberate: it *could* keep answering via an always-on **volume pod** (a cheap CPU pod on
+the same Network Volume), but that is a fixed monthly cost for this one convenience, so
+we don't run one. See *Managing the fleet* below.
 
 ### Managing the fleet (admins)
 
@@ -155,7 +156,9 @@ is stopped is set in the launcher environment, not the admin UI: `COMFY_VOLUME_P
 (a RunPod pod id — its ComfyUI URL is derived like any other pod) or `COMFY_VOLUME_URL`
 (an explicit base URL). Point it at an always-on CPU pod that mounts the same Network
 Volume and runs ComfyUI in CPU mode; it only ever has to answer HTTP, never generate.
-Leave both empty and the panel falls back to any running GPU pod.
+Leave both empty and the panel falls back to any running GPU pod. **Both are empty by
+choice** — an always-on pod bills every hour of the month whether anyone opens the panel
+or not — so don't treat this as a setup step left undone.
 
 ### Cost control (please read)
 
