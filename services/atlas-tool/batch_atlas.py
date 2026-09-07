@@ -2777,6 +2777,13 @@ def build_workflow_flux(region: dict, style: dict, atlas_path: str) -> dict:
 # cannot otherwise know it. `ui_server.stop_render` reads it so Stop can cancel
 # the REMOTE job, not just the local poller.
 RUNPOD_JOB_MARK = "@@RUNPOD_JOB@@"
+# How long a run of UNREADABLE status polls is tolerated before a job is given
+# up on, and the shorter budget for a run of 404s — a job RunPod has no record of,
+# which is an ANSWER rather than a failure to answer. Same values and the same
+# reasoning as the video runner's (`video_runner.py`), restated here because that
+# module imports THIS one, not the other way round.
+STATUS_GRACE_SECONDS = 180.0
+NOT_FOUND_GRACE_SECONDS = 15.0
 
 
 def runpod_cancel(job_id: str) -> str:
@@ -2791,6 +2798,23 @@ def runpod_cancel(job_id: str) -> str:
         return ""
     except Exception as e:  # noqa: BLE001 - report, never raise into Stop
         return f"{type(e).__name__}: {e}"
+
+
+class RunPodHTTPError(RuntimeError):
+    """RunPod answered with an HTTP error status, which is KEPT on the exception.
+
+    The code matters because 404 is not the same kind of answer as the rest. A 5xx
+    is a failure to answer — the job carries on and the next poll may well read it.
+    A 404 on `/status/<id>` is an answer: RunPod has no record of that job. It drops
+    a finished job's record about half an hour after it completes, so 404 usually
+    means the render finished while nothing was watching it, not that anything is
+    unreachable. Callers that must tell those apart read `.code`; the message is
+    unchanged, so callers that don't still behave exactly as before.
+    """
+
+    def __init__(self, code: int, message: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 def _runpod_endpoint_base() -> str:
@@ -2824,8 +2848,8 @@ def _runpod_post(path: str, payload: dict) -> dict:
             return json.loads(r.read())
     except HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
-        raise RuntimeError(
-            f"RunPod {path} failed: HTTP {e.code} {e.reason}: {body[:500]}")
+        raise RunPodHTTPError(
+            e.code, f"RunPod {path} failed: HTTP {e.code} {e.reason}: {body[:500]}")
     except (URLError, ConnectionError, OSError) as e:
         raise RuntimeError(f"Cannot reach RunPod endpoint at {base}{path}: {e}")
 
@@ -2838,8 +2862,8 @@ def _runpod_get(path: str) -> dict:
             return json.loads(r.read())
     except HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
-        raise RuntimeError(
-            f"RunPod {path} failed: HTTP {e.code} {e.reason}: {body[:500]}")
+        raise RunPodHTTPError(
+            e.code, f"RunPod {path} failed: HTTP {e.code} {e.reason}: {body[:500]}")
     except (URLError, ConnectionError, OSError) as e:
         raise RuntimeError(f"Cannot reach RunPod endpoint at {base}{path}: {e}")
 
@@ -2849,7 +2873,15 @@ def _runpod_run_and_wait(job: dict, region_name: str) -> dict:
     worker's `output` on COMPLETED; raises a clear RuntimeError on
     FAILED/CANCELLED/TIMED_OUT (with any error detail) and TimeoutError on the
     overall cap. IN_QUEUE / IN_PROGRESS mean keep waiting (cold starts load
-    models to VRAM, so allow ~30 min)."""
+    models to VRAM, so allow ~30 min).
+
+    An unreadable poll is not a failed job — the same lesson the video path had to
+    learn twice. RunPod's status API returns the odd 500, and a job it has not
+    indexed yet 404s for a beat, and BOTH used to raise straight out of this loop
+    and fail a region whose render was still going (and still billing). Reads are
+    tolerated for `STATUS_GRACE_SECONDS` of continuous failure. There is no
+    hand-off slot to rescue from on the still path — this transport returns its
+    image through RunPod — so a genuinely lost job is still a lost render here."""
     resp = _runpod_post("/run", job)
     jid = resp.get("id")
     if not jid:
@@ -2863,10 +2895,54 @@ def _runpod_run_and_wait(job: dict, region_name: str) -> dict:
     deadline = time.time() + 1800  # 30 min cap — cold start + model load + gen
     started = time.time()
     last_tick = started
+    unreadable_since = 0.0
+    last_read_error = ""
+    ever_read = False
+    only_not_found = True
     while time.time() < deadline:
         time.sleep(2.0)
         now = time.time()
-        st = _runpod_get(f"/status/{jid}")
+        try:
+            st = _runpod_get(f"/status/{jid}")
+        except Exception as e:  # noqa: BLE001 — a bad READ is not a bad job
+            last_read_error = str(e)
+            if not unreadable_since:
+                unreadable_since = now
+                only_not_found = True
+            only_not_found = only_not_found and getattr(e, "code", None) == 404
+            # A 404 on a job we HAVE read is an answer: RunPod drops a finished
+            # job's record after ~30 min, so there is nothing left to wait for. A
+            # 404 before any successful read is just a job not indexed yet, and a
+            # run that stops being 404-only is an unreadable API again — so the
+            # latch, and the fall back to the long grace, both matter.
+            gone = only_not_found and ever_read
+            grace = NOT_FOUND_GRACE_SECONDS if gone else STATUS_GRACE_SECONDS
+            if now - unreadable_since < grace:
+                if now - last_tick >= 15:
+                    print(f"   ... serverless job {jid} unreadable, retrying "
+                          f"({int(now - unreadable_since)}s)")
+                    last_tick = now
+                continue
+            if gone:
+                # No cancel: asking RunPod to stop a job it has no record of is
+                # just a second 404 (`video_runner._await_job` says the same).
+                emit(diag("RUNPOD_STATUS_UNREADABLE", CATALOG, name=region_name,
+                          msg="the job record has expired"))
+                raise RuntimeError(
+                    f"RunPod no longer has a record of job {jid} for region "
+                    f"'{region_name}', so its result is gone (a finished job is "
+                    f"dropped after about half an hour)")
+            why = runpod_cancel(jid)
+            emit(diag("RUNPOD_STATUS_UNREADABLE", CATALOG, name=region_name,
+                      msg=last_read_error[:300]))
+            raise RuntimeError(
+                f"RunPod job {jid} for region '{region_name}': lost contact for "
+                f"{int(now - unreadable_since)}s, so it was stopped — "
+                f"{last_read_error[:300]}"
+                + (f" (and RunPod would not cancel it: {why} — it may still be "
+                   f"running and billing)" if why else ""))
+        unreadable_since = 0.0
+        ever_read = True
         status = str(st.get("status") or "").upper()
         if status == "COMPLETED":
             return st.get("output") or {}

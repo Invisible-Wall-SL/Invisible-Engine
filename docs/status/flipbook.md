@@ -154,8 +154,8 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - **Video mode, steps 0–1** ([design](../design/invisible-flipbook-video.md)) — a `/flipbook` mode that generates video from a blueprint and turns the picked result into a clip. Landed so far, **none of it exercised on a real GPU**:
   - **`blueprints_src/wan22_i2v_flipbook/`** — the owner's Wan 2.2 I2V graph, made serverless-safe. Its one unavailable node (`ImageResizeKJv2`, KJNodes, baked into neither the worker nor the pod image) is replaced by core `ImageScale`, pixel-identical at these settings; `BiRefNetRMBG` needed nothing because it comes from `1038lab/ComfyUI-RMBG`, which the worker already bakes. `ComfySwitchNode` + `ComfyMathExpression` were verified present in ComfyUI core at the pinned v0.33.1. The save node's `fps` is now WIRED to the generation fps node rather than copied, so the preview can never drift from the motion rate again.
   - **`width`/`height` are deliberately UNBOUND.** `build_workflow_blueprint` fills those roles from `GEN_WIDTH`/`GEN_HEIGHT`, whose config default is **1024** because they were sized for stills — injecting that into `WanImageToVideo` across an 81-frame batch is a VRAM/wall-clock blowup. Generation size is a param instead. This is the single easiest way to silently wreck a video blueprint; the fixture asserts it.
-  - **`video_runner.py` + seven `/video/*` routes** — stateless, session-scoped, remote-cancelling; one session RUNS at a time and the rest QUEUE behind it, with at most `VIDEO_PARALLEL_JOBS` (default 1) of its variations in flight at once. Results land in `<C>/<P>/video/<id>/` and never enter `deploy/`.
-  - Fixtures: `py test_video_runner.py` (245 checks, RunPod/R2/paths stubbed). **Count it, don't add to it** — the figure here was wrong twice, each time by doing arithmetic on the previous stale one: `grep -c '^ok'` over a run is the only honest source.
+  - **`video_runner.py` + fifteen `/video/*` routes** — stateless, session-scoped, remote-cancelling; one session RUNS at a time and the rest QUEUE behind it, with at most `VIDEO_PARALLEL_JOBS` (default 1) of its variations in flight at once. Results land in `<C>/<P>/video/<id>/` and never enter `deploy/`.
+  - Fixtures: `PYTHONPATH="../_shared:." py test_video_runner.py` from `services/atlas-tool` (345 checks, RunPod/R2/paths stubbed; the PYTHONPATH is not optional — without it the suite dies on `No module named 'iw_common'`). **Count it, don't add to it** — the figure here was wrong twice, each time by doing arithmetic on the previous stale one: `grep -c '^ok'` over a run is the only honest source.
   - **Step 2 — the 🎬 mode UI.** `/flipbook` switches surfaces with the canonical `<CanvasModeBar inline>` in the ToolTopBar's `meta` snippet; the mode itself is `VideoMode.svelte` (its own component — the clip editor is already 1300 lines and the two share nothing but the project). Blueprint picker, prompt, source-image picker, variation count, params rendered from the blueprint's own `params[]`, live progress, results grid.
     - **No `<video>` element** — an animated WEBP plays, loops and honours alpha in a plain `<img>`. The checkerboard behind each tile is load-bearing: it is how the author sees whether the cutout produced real alpha rather than a matte-coloured rectangle.
     - **`api/flipbook/video/[...path]` is an explicit ALLOW-LIST, not a pass-through** — a forwarding rest route would hand any flipbook user the whole atlas-tool surface (`/render`, `/deleteblueprint`, `/createatlas`) under a gate that never mentions them. Canonical `toolScope.gate` on `flipbook`; the tool secret never reaches the browser.
@@ -190,6 +190,23 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 3. **Add the clip reachability filter**, now that placements exist to be reachable FROM, so an orphan/scratch clip stops shipping (parity with the effects prune in `bake-editor-doc.mjs`). Note the walk must cover FOUR referrers, not one: scene `flipbook` nodes (incl. nested in containers + component defs), symbol cells' `clipId`, and — since 2026-08-31 — the `rigFlipbooks` manifest's `clipId`s, or the prune would delete clips that are genuinely in use. The rig referrer is the awkward one: it lives in the rig `.irig`, not in the layout doc, so the filter has to read the manifest the clips export now returns rather than walking the doc.
 4. **Rename-repair hint is unconfirmed** — `src` survives a rename, but `sheet_session.json` is one open sheet's working state, so per-sheet durable recovery of `src` must be verified before the tool promises "did you mean…".
 5. **The ＋ Blueprint modal flags an unexposed boolean gate: DONE** (2026-09-01, see Recent changes). What is NOT covered: an unexposed **numeric** knob that is equally load-bearing (the 1024 generation size on the same blueprint reached the render the same way a wrong boolean did). A boolean gating a switch is a clean signal with no false positives; "this int matters" is not, so it was deliberately left out rather than guessed at.
+6. **Three known holes the R2 rescue does NOT cover**, all found by adversarial review rather than
+   by a loss, and all narrower than what shipped:
+   - **Two containers can own one session.** `_adopt` is idempotent within a process (one
+     check-and-insert under `_LOCK`), but a Railway rolling deploy can overlap old and new. The old
+     one can collect, persist and clear the slots while the new one's re-attach 404s, finds an empty
+     slot and writes `failed`; `_write_meta` is per-process, so the loser's older snapshot can land
+     last and undo a `done`. The render survives at `<sid>/00N.webp`; the tile does not. Wants a
+     lease/owner field in `meta.json` — the same shape `docs/design/multi-user-concurrency.md`
+     describes, so do it there rather than inventing a second mechanism.
+   - **A 404 for a reason other than an expired record** — a rotated or mistyped
+     `RUNPOD_ENDPOINT_ID`, a RunPod API incident — is given up on in 15 s **without** a cancel, so a
+     live job keeps billing. Cheap mitigation: on that path, if the slot is empty, re-check it once
+     after a delay before settling the tile.
+   - **`video/_out/` has no sweeper.** Now that every terminal path collects, a slot should never be
+     left holding a render — but nothing proves that, and the thirteen recovered on 2026-09-07 were
+     found only because someone went looking. A periodic (or on-list) sweep that re-homes any
+     `_out/iwvid_<sid>_<NNN>_*.webp` whose variation is not `done` would make the guarantee visible.
 
 ## Blocked (owner / external)
 - **Re-publish the imported video blueprint with a pod running** (owner, 2026-09-04). The one
@@ -201,6 +218,118 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-07 — **The R2 rescue now covers every way a variation can end, not just the unreadable
+  ones.** An adversarial re-read of what had just shipped found the guard was one branch narrower
+  than its own docs claimed: the collect hung off `except _Unresolved`, so a finished render sitting
+  in its hand-off slot was still thrown away whenever RunPod reported **FAILED/TIMED_OUT** after the
+  worker's upload, handed back an **empty payload**, or the author's **Stop** landed a moment late —
+  and `_adopt`'s one irrecoverable case (a variation interrupted before its job id reached storage)
+  never looked either, though the slot keys come from the session id and the variation index and
+  never from the job id. A second review pass then found four more settle-without-looking arms one
+  level up — the dispatcher's cancel sweep, BOTH of `cancel_session`'s arms (including the
+  orphaned-session one, the stop people reach for most), `_adopt`'s blueprint-gone verdict and the
+  thread-start failure — plus `delete_session`, which walked only the session prefix and so leaked
+  every stranded slot object forever. All of them go through `_collect_stranded` now, and
+  `_slot_prefix` gives that key shape ONE definition. Each was the same "paid render, red tile" the
+  rescue exists to prevent. The clear-at-submit invariant is what makes the wide version safe: whatever is in the
+  slot belongs to *this* attempt, so `_collect_stranded` can run from the generic failure arm
+  without ever resurrecting a stale render. It also had to be wide, not just wider: with the slots
+  cleared at submit, a tile stranded by one of those paths loses its render the moment its author
+  re-rolls it.
+  - **`_runpod_run_and_wait` (the still-image path) got the same read tolerance** it had never had:
+    one 500 or one not-yet-indexed 404 used to raise straight out of the poll loop and fail a region
+    whose render was still going. It now tolerates `STATUS_GRACE_SECONDS` of continuous failure,
+    treats a 404 *after* a successful read as "the record is gone", and cancels on the way out.
+    There is no hand-off slot on that transport, so a genuinely lost job is still a lost render
+    there — the fix is the grace, not a rescue.
+  - **Docs corrected against the shipped code** (they had drifted within hours): the fixture count
+    here said 245 and the suite is 329; this file still called Watch Paths the fix "still owed"
+    while `INFRA.md` recorded them as set; the 404 bullet stated the short grace unconditionally
+    where the code requires the job to have been read or re-attached; INFRA's "count FOUR successes"
+    deploy recipe predated the Watch Paths that make the count path-dependent; and INFRA claimed a
+    rollout "cannot spend money on your behalf", which is true of the boot sweep but not of a
+    browser tab left open on a running session — a *read* adopts the ordinary way and resumes the
+    queued tail — on the first poll after the collected job finishes and the session is handed back, not within seconds of the container answering.
+  - **Two regressions the same review caught before they shipped**, both introduced by the widening
+    itself: `upload_keys` was read by the new failure arm but bound INSIDE the `try`, so any failure
+    before `_submit` returned (RunPod refusing `/run` is the ordinary one) raised `UnboundLocalError`
+    out of a function whose contract is "never raises" — the tile then spun at `running` with no
+    error, un-re-rollable, while the session reported `finished`. And `_collect_stranded` could
+    itself raise from inside an `except` arm, escaping the same way: with the claim already released,
+    the dispatcher re-picked the still-`running` tile and spun (~500 re-attaches in six seconds,
+    `_ACTIVE` pinned, every later Generate refused). An R2 PUT wobble was enough. Both are fixtured.
+  - **A slot is trusted only when it is not stale.** The safety argument for collecting broadly is
+    that `_submit` empties the slots first — true for the paths that go through it, false for
+    `_adopt`'s lost-id arm and for a `queued` tile caught by a sweep, which never do. Those pass
+    `newer_than=<the attempt's started>` and ignore an older object, so a tile stopped and then
+    re-rolled can never come back green showing the cancelled attempt's render under the new seed's
+    recipe — wrong bytes under a recorded recipe, which is worse than the red tile it replaces.
+  - Fixtures: 345 checks here (was 319), plus 10 in `test_render_slot.py` (73, was 63) for the
+    still-image poll loop, which had none at all. They cover a FAILED job whose render landed, an
+    empty payload with a full slot, a stop after the upload, a lost job id with and without a render
+    in R2, a submit refused before any job exists, a rescue that cannot be persisted, a stale slot,
+    a rescue during adoption being written back, stopping an orphaned session, and a delete taking
+    its slots with it.
+- 2026-09-07 — **A deploy mid-render stopped costing the render.** Owner: *"lost contact with
+  RunPod for 182s … I had 3 computers generating, but no result were showing, also one of them
+  looked stuck."* RunPod never went away. Three Railway rollouts that day
+  (`326daa95`, `ff64e95c` — a docs-only commit — and `a3b2691c`; at the time every push to
+  `main` redeployed this service — Watch Paths, set the same day, now scope that to pushes
+  under `services/atlas-tool/**` or `services/_shared/**`, `docs/INFRA.md`) each swapped the container mid-session. The GPU finished the
+  orphaned jobs anyway and PUT each render into its presigned hand-off slot, but the process
+  that would have collected it was gone; two and a half hours later, when the sessions were
+  reopened, RunPod had dropped the job records (it keeps a finished job ~30 min) and answered
+  `404 job not found` — which `_await_job` spent its full three-minute grace on and then
+  reported as lost contact. **Thirteen finished renders were reported to the author as failures**
+  while sitting complete in R2 — five that day, and eight more going back to 2026-09-02, every
+  one of them carrying the same `lost contact with RunPod for 18Xs` on its tile: the sweep of
+  `video/_out/` that recovered them is what showed this had been happening all week, not once.
+  (All thirteen were moved back into their sessions by hand.) The orphaning also
+  broke the one-session-at-a-time rule — the adopted session ran beside the abandoned one's live
+  jobs — so six jobs contended for three workers: 46 min in queue, then a 100-minute job that
+  had to be cancelled.
+  - **The outcome and the render are now separate questions.** `_await_job` raises `_Unresolved`
+    (not a failure) whenever it could not read what happened, and `_run_variation` looks in the
+    hand-off slot before calling a variation failed — the keys are derivable, so any process can
+    collect any job's render (#559's fix, one step further along).
+  - **A 404 is an answer, not silence.** `batch_atlas.RunPodHTTPError` keeps the status code, and
+    a run of 404s **on a job we have already read, or re-attached to** gives up after
+    `NOT_FOUND_GRACE_SECONDS` (15) instead of `STATUS_GRACE_SECONDS` (180), cancels nothing (there
+    is nothing there to cancel), and says the record is gone rather than blaming the network. A 404
+    on a job never once read keeps the long grace and still cancels — RunPod also 404s a job it has
+    not indexed yet, and giving up on that in fifteen seconds would abandon a live, billing render.
+  - **The container re-attaches when it BOOTS** (`resume_orphans`, `ui_server.main`), instead of
+    waiting for a person to open the page — which is what let the jobs age past RunPod's record.
+    A delimited bucket sweep (`storage.list_prefixes`, ~8 s, `VIDEO_RESUME_WINDOW_HOURS` back)
+    finds sessions that are `running` with a `job_id` in flight. **A boot COLLECTS; it never
+    starts.** Both halves of that are enforced: `_is_mid_render` picks only sessions with a job
+    already paid for, and `_adopt(collect_only=True)` leaves every `queued` slot of that session
+    alone — finishing a grid's tail unattended, hours later and once per rollout, is spending
+    nobody asked for. The session is handed back to storage still `running` (and dropped from
+    memory), so opening it resumes the rest the ordinary way: a person deciding to spend.
+  - Two hazards the review caught on the way, both older than this change. **`_adopt` was not
+    idempotent** — check-then-insert across a released lock, so a boot sweep and a reconnecting
+    browser could each install their own dict for one session id and run two workers over it,
+    with separate `in_flight` sets claiming the same variation twice. It is one check-and-insert
+    under `_LOCK` now. And **the hand-off slots are emptied at submit**, not only on a successful
+    collect: their keys are derived from session id + index, so a re-roll inherits whatever its
+    own earlier attempt left there and could have rescued the previous seed's render as the new
+    one's. Also: the boot sweep takes a session's project from the KEY it was read under (a
+    doc's own field falls back to the env default when unslugged, which would write the session
+    into the wrong project), caps what it adopts at the queue depth, and `list_sessions` now
+    matches a live session on client AND project.
+  - Fixtures (319 checks): a purged job whose render is in the slot ends `done` on the short
+    grace with nothing cancelled; a purged job with an empty slot fails and names the cause; a
+    404 on a job never once read keeps the LONG grace and stops the job (RunPod also 404s a job
+    it has not indexed yet); a 404-then-500 run latches back to the long grace; a re-roll cannot
+    rescue the attempt before it; the rescue prefers the animated clip over a preview and retries
+    an unreadable slot; a boot collects the running job and leaves the queued tail, which only
+    opening the session starts; and two adopters cannot take one session twice. **The real fix was Watch Paths on the Railway
+    services** — set the same day on all four repo-root services (`docs/INFRA.md`), and
+    proved live the same evening: #602 (atlas-tool only) was *Skipped* by atlas-backend,
+    sheet-tool and the test-server, while #601 (which also touches `services/_shared/**`)
+    was correctly built by the two services that vendor it. This change is what makes a
+    swap survivable; that setting is what stops most swaps happening at all.
 - 2026-09-04 — **A rig-timeline `event.flipbook` binding now plays wherever the rig is mounted.** The clip half of the same two-mount-sites gap; `<SpineProvider>` resolves and mounts bound clips itself now. Detail in [fx status](fx.md).
 - 2026-09-04 — **A failed render now names the node and the exception — thirteen tiles read
   `job FAILED: comfy execution error` and nothing else.** Owner, right after the contract fix

@@ -323,6 +323,19 @@ CATALOG = {
             "retry. The full message is above."
         ),
     },
+    "RUNPOD_STATUS_UNREADABLE": {
+        "severity": "error",
+        "title": "Lost track of the GPU job for '{name}'",
+        "explain": (
+            "RunPod's status API could not be read for region '{name}': {msg}. "
+            "This says nothing about the graph — the job may well have rendered."
+        ),
+        "fix": (
+            "Check the endpoint's Requests tab: the job may still be running (and "
+            "billing), or may have finished after we stopped listening. Retry the "
+            "region once RunPod answers again."
+        ),
+    },
     "COMFY_TIMEOUT": {
         "severity": "error",
         "title": "ComfyUI timed out on '{name}'",

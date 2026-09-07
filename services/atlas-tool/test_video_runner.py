@@ -662,6 +662,7 @@ def _stub_world():
     transitions) can be exercised with no GPU, no network and no credentials."""
     import base64 as _b64
     import tempfile
+    import time as _time
 
     import batch_atlas
 
@@ -682,8 +683,13 @@ def _stub_world():
     # them apart too, or the fixture cannot tell the bug from the fix.
     video_runner.storage.get_strict = lambda k: objects.get(k)
     video_runner.storage.delete = lambda k: objects.pop(k, None)
+    # `mtime` is part of the real answer and the boot sweep filters on it, so the
+    # double has to carry one or the sweep sees every session as ancient.
     video_runner.storage.list_keys = lambda p: [
-        {"key": k} for k in list(objects) if k.startswith(p)]
+        {"key": k, "mtime": _time.time()} for k in list(objects) if k.startswith(p)]
+    video_runner.storage.list_prefixes = lambda p: sorted({
+        k[:len(p) + k[len(p):].index("/") + 1]
+        for k in list(objects) if k.startswith(p) and "/" in k[len(p):]})
 
     video_runner.project_paths.resolve = lambda: {
         "r2_project_prefix": "clientx/projecty", "staging_root": tmp}
@@ -691,6 +697,10 @@ def _stub_world():
     video_runner.project_paths.set_context = (
         lambda *a, **k: SET_CONTEXT_CALLS.append((threading.get_ident(), a)) or True)
     video_runner.project_paths.project_name = lambda: "projecty"
+    # The listing matches a live session on BOTH keys, so the double has to answer
+    # both — with only the project stubbed it would compare "clientx" against the
+    # env default and hide every in-memory session.
+    video_runner.project_paths.client_name = lambda: "clientx"
 
     bp = load_blueprint()
     video_runner.blueprints.get_blueprint = lambda i: bp
@@ -1305,6 +1315,757 @@ def test_contact_lost_for_good_stops_the_job() -> None:
     check("the message says contact was lost, not that the job failed",
           "lost contact" in final["variations"][0]["error"], True)
     check("and it is stopped so it stops burning", cancelled, ["job1"])
+
+
+def _job_not_found(path):
+    """RunPod's answer for a job it no longer has — the literal body from the
+    2026-09-07 incident."""
+    import batch_atlas
+    raise batch_atlas.RunPodHTTPError(
+        404, f"RunPod {path} failed: HTTP 404 Not Found: "
+             '{"status":404,"title":"Not Found","detail":"job not found"}')
+
+
+def _worker_that_uploads(blob: bytes):
+    """`(_upload_slots, _submit)` doubles for a worker that delivers its render to
+    R2 rather than through RunPod.
+
+    The slots have to be handed out by hand because the stub world has no R2 to
+    presign against, and the render has to land AFTER `_submit` — which empties the
+    slots on the way past, so that a re-roll can never rescue the attempt before
+    it."""
+    real_submit = video_runner._submit
+
+    def slots(prefix):
+        keys = video_runner._upload_slot_keys(prefix)
+        return [f"https://r2.invalid/{k}" for k in keys], keys
+
+    def submit(wf, prefix=""):
+        jid, wf_out, keys = real_submit(wf, prefix)
+        if keys:
+            video_runner.storage.put(keys[0], blob)
+        return jid, wf_out, keys
+    return slots, submit
+
+
+def _interrupted(objects: dict, sid: str, index: int = 1) -> str:
+    """Rewrite a session's stored doc the way a container swap leaves it: the
+    variation is back to `running` with its job id persisted, and memory is empty.
+    Returns the meta key."""
+    key = f"clientx/projecty/video/{sid}/meta.json"
+    meta = json.loads(objects[key])
+    meta["status"] = "running"
+    for v in meta["variations"]:
+        if v["index"] == index:
+            v.update(status="running", file="", bytes=0)
+    objects[key] = json.dumps(meta).encode()
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+    return key
+
+
+def _cancel_tracker(cancelled: list):
+    import batch_atlas
+    passthrough = batch_atlas._runpod_post
+
+    def tracking_post(path, payload):
+        if path.startswith("/cancel/"):
+            cancelled.append(path.rsplit("/", 1)[-1])
+            return {}
+        return passthrough(path, payload)
+    return tracking_post
+
+
+def test_a_purged_job_collects_the_render_it_left_in_r2() -> None:
+    """The 2026-09-07 loss, end to end. A Railway rollout takes the poller with it;
+    the GPU finishes anyway and PUTs the render into its hand-off slot; the next
+    container re-attaches by the persisted job id — and RunPod, which keeps a
+    finished job about half an hour, answers 404 "job not found". Five renders were
+    reported to the author as "lost contact with RunPod" while sitting complete in
+    R2, and had to be moved back into their sessions by hand.
+
+    A 404 is an ANSWER, not a failure to answer, so a RE-ATTACHED job — one this
+    process never submitted and RunPod no longer admits to — must not burn the
+    three-minute grace budgeted for an unreadable API, and the collect must go
+    where the render actually is."""
+    import batch_atlas
+
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("purged mid-render"),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+    _interrupted(objects, sid)
+    # What the GPU delivered while the poller was already gone.
+    video_runner.storage.put(
+        video_runner._upload_slot_keys(f"iwvid_{sid}_001")[0], b"THE-RENDER-THAT-RAN")
+
+    cancelled: list[str] = []
+    batch_atlas._runpod_get = _job_not_found
+    batch_atlas._runpod_post = _cancel_tracker(cancelled)
+    long_grace, short_grace = (video_runner.STATUS_GRACE_SECONDS,
+                               video_runner.NOT_FOUND_GRACE_SECONDS)
+    # The long grace stays LONG: if a 404 on a re-attach fell through to it, the
+    # session would still be running when this test gives up waiting, and that is
+    # the assertion.
+    video_runner.STATUS_GRACE_SECONDS = 30.0
+    video_runner.NOT_FOUND_GRACE_SECONDS = 0.05
+    try:
+        video_runner.get_session(sid)  # someone opens it: re-attach
+        final = _await_session(sid, timeout=8.0)
+    finally:
+        video_runner.STATUS_GRACE_SECONDS = long_grace
+        video_runner.NOT_FOUND_GRACE_SECONDS = short_grace
+
+    v = (final.get("variations") or [{}])[0]
+    check("a job RunPod has forgotten is not a lost render", v.get("status"), "done")
+    check("the bytes are the ones the worker uploaded",
+          v.get("bytes"), len(b"THE-RENDER-THAT-RAN"))
+    check("and the tile carries no error", v.get("error"), "")
+    check("nothing is 'cancelled' that RunPod has no record of", cancelled, [])
+
+
+def test_a_purged_job_with_nothing_to_collect_says_what_happened() -> None:
+    """The other half: 404 and an EMPTY slot really is a lost variation — and the
+    message must name the cause. "lost contact with RunPod for 182s" sent the owner
+    looking for a network fault; the job record had simply expired because nothing
+    had watched it for two and a half hours."""
+    import batch_atlas
+
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("nothing to collect"),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+    _interrupted(objects, sid)
+
+    cancelled: list[str] = []
+    batch_atlas._runpod_get = _job_not_found
+    batch_atlas._runpod_post = _cancel_tracker(cancelled)
+    short_grace = video_runner.NOT_FOUND_GRACE_SECONDS
+    video_runner.NOT_FOUND_GRACE_SECONDS = 0.05
+    try:
+        video_runner.get_session(sid)
+        final = _await_session(sid, timeout=8.0)
+    finally:
+        video_runner.NOT_FOUND_GRACE_SECONDS = short_grace
+
+    v = (final.get("variations") or [{}])[0]
+    check("with an empty slot the variation does fail", v.get("status"), "failed")
+    check("and it says the record is gone, not that contact was lost",
+          "no longer has a record" in v.get("error", ""), True)
+    check("still nothing to cancel", cancelled, [])
+
+
+def test_an_unreadable_job_still_collects_a_render_that_landed() -> None:
+    """The rescue is not 404-only. Any outcome we could not read leaves the render
+    question open, so the slot is checked whatever made the status unreadable —
+    including the 500 run that `test_contact_lost_for_good_stops_the_job` covers,
+    where the job is stopped first because it may still be burning."""
+    import batch_atlas
+
+    _stub_world()
+
+    def always_500(path):
+        raise RuntimeError(f"RunPod {path} failed: HTTP 500 Internal Server Error")
+
+    cancelled: list[str] = []
+    batch_atlas._runpod_get = always_500
+    batch_atlas._runpod_post = _cancel_tracker(cancelled)
+    real_slots, real_submit = video_runner._upload_slots, video_runner._submit
+    grace = video_runner.STATUS_GRACE_SECONDS
+    video_runner._upload_slots, video_runner._submit = _worker_that_uploads(
+        b"LANDED-ANYWAY")
+    video_runner.STATUS_GRACE_SECONDS = 0.05
+    try:
+        started = video_runner.start_session(_req("unreadable but landed"),
+                                             ("clientx", "projecty"))
+        final = _await_session(started["id"], timeout=8.0)
+    finally:
+        video_runner._upload_slots, video_runner._submit = real_slots, real_submit
+        video_runner.STATUS_GRACE_SECONDS = grace
+
+    v = (final.get("variations") or [{}])[0]
+    check("an unreadable job whose render landed is done", v.get("status"), "done")
+    check("the job is still stopped, because it might have been running",
+          cancelled, ["job1"])
+
+
+def test_a_job_runpod_calls_failed_still_hands_back_its_render() -> None:
+    """The rescue used to hang off `_Unresolved` alone, so it only fired when the
+    OUTCOME was unreadable. Every other way of ending badly walked straight past a
+    finished render sitting in R2: RunPod reporting FAILED or TIMED_OUT after the
+    worker's upload, a COMPLETED job whose payload came back empty, a stop landing
+    a moment late. Same "paid render, red tile", one branch along."""
+    import batch_atlas
+
+    _stub_world()
+    real_slots, real_submit = video_runner._upload_slots, video_runner._submit
+    video_runner._upload_slots, video_runner._submit = _worker_that_uploads(
+        b"UPLOADED-THEN-THE-JOB-DIED")
+
+    def failed_after_upload(path):
+        return {"status": "FAILED", "error": "worker fell over after saving"}
+
+    batch_atlas._runpod_get = failed_after_upload
+    try:
+        started = video_runner.start_session(_req("failed but delivered"),
+                                             ("clientx", "projecty"))
+        final = _await_session(started["id"], timeout=8.0)
+    finally:
+        video_runner._upload_slots, video_runner._submit = real_slots, real_submit
+
+    v = (final.get("variations") or [{}])[0]
+    check("a FAILED job whose render landed is collected, not reported as failed",
+          v.get("status"), "done")
+    check("with the uploaded bytes", v.get("bytes"),
+          len(b"UPLOADED-THEN-THE-JOB-DIED"))
+    check("and no error on the tile", v.get("error"), "")
+
+
+def test_an_empty_payload_is_not_a_lost_render_when_the_slot_has_one() -> None:
+    """`COMPLETED` with nothing in it means the result was lost between the worker
+    and us — which is exactly when the slot is worth reading before giving up."""
+    import batch_atlas
+
+    _stub_world()
+    real_slots, real_submit = video_runner._upload_slots, video_runner._submit
+    video_runner._upload_slots, video_runner._submit = _worker_that_uploads(
+        b"TOO-BIG-TO-RETURN-BUT-IN-R2")
+    batch_atlas._runpod_get = lambda path: {"status": "COMPLETED", "output": {}}
+    try:
+        started = video_runner.start_session(_req("empty payload"),
+                                             ("clientx", "projecty"))
+        final = _await_session(started["id"], timeout=8.0)
+    finally:
+        video_runner._upload_slots, video_runner._submit = real_slots, real_submit
+
+    check("the render comes from the slot instead of the empty payload",
+          (final.get("variations") or [{}])[0].get("status"), "done")
+
+
+def test_a_stop_after_the_upload_keeps_the_render() -> None:
+    """Cancel stops the SPEND. The GPU time behind a render already in R2 is spent
+    either way, and a re-roll of that slot would delete it (`_submit` empties the
+    slots), so "leave it for later" is not an option — take it."""
+    import batch_atlas
+
+    tmp, objects = _stub_world()
+    real_slots, real_submit = video_runner._upload_slots, video_runner._submit
+    video_runner._upload_slots, video_runner._submit = _worker_that_uploads(
+        b"DELIVERED-JUST-BEFORE-THE-STOP")
+
+    started = video_runner.start_session(_req("stop me"), ("clientx", "projecty"))
+    sid = started["id"]
+
+    def never_settles(path):
+        return {"status": "IN_PROGRESS"}
+
+    batch_atlas._runpod_get = never_settles
+    try:
+        import time as _t
+        deadline = _t.time() + 5
+        while _t.time() < deadline:
+            live = video_runner.get_session(sid) or {}
+            if (live.get("variations") or [{}])[0].get("job_id"):
+                break
+            _t.sleep(0.02)
+        video_runner.cancel_session(sid)
+        final = _await_session(sid, timeout=8.0)
+    finally:
+        video_runner._upload_slots, video_runner._submit = real_slots, real_submit
+
+    v = (final.get("variations") or [{}])[0]
+    check("a stop that lands after the upload keeps the render",
+          v.get("status"), "done")
+    check("and the file is persisted under the session",
+          f"clientx/projecty/video/{sid}/001.webp" in objects, True)
+
+
+def test_a_lost_job_id_does_not_lose_the_render_too() -> None:
+    """`_adopt`'s one irrecoverable case — a variation interrupted before its job
+    id reached storage — is only irrecoverable for the JOB. The slot keys come from
+    the session id and the variation index, never from the job id, so the render is
+    still addressable; marking the tile failed without looking threw it away."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("id lost, render kept", variations=2),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+
+    key = f"clientx/projecty/video/{sid}/meta.json"
+    meta = json.loads(objects[key])
+    meta["status"] = "running"
+    meta["variations"][0].update(status="running", job_id="", file="", bytes=0)
+    objects[key] = json.dumps(meta).encode()
+    video_runner.storage.put(
+        video_runner._upload_slot_keys(f"iwvid_{sid}_001")[0], b"ORPHANED-BUT-HERE")
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+
+    out = video_runner.get_session(sid) or {}
+    v = (out.get("variations") or [{}])[0]
+    check("the render is collected instead of the tile being failed",
+          v.get("status"), "done")
+    check("with the bytes that were in the slot", v.get("bytes"),
+          len(b"ORPHANED-BUT-HERE"))
+    _await_session(sid)
+
+    # …and with an EMPTY slot it still refuses to re-bill a job it cannot re-attach.
+    meta = json.loads(objects[key])
+    meta["status"] = "running"
+    meta["variations"][0].update(status="running", job_id="", file="", bytes=0)
+    objects[key] = json.dumps(meta).encode()
+    video_runner.storage.delete(video_runner._upload_slot_keys(f"iwvid_{sid}_001")[0])
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+    v = ((video_runner.get_session(sid) or {}).get("variations") or [{}])[0]
+    check("an unrecorded job with nothing uploaded is still failed, not re-billed",
+          v.get("status"), "failed")
+    check("and says nothing was uploaded",
+          "nothing was uploaded" in v.get("error", ""), True)
+
+
+def test_a_restart_reattaches_before_anyone_opens_the_page() -> None:
+    """Adoption existed, but only a READ triggered it — and the reader is a person.
+    On 2026-09-07 two sessions sat orphaned for two and a half hours because nobody
+    opened them, which is precisely how their jobs aged past RunPod's record.
+
+    So the container sweeps for interrupted sessions when it BOOTS. Narrowly: only
+    work already submitted (a `running` variation with a job id) is re-attached — a
+    session whose variations are merely queued has spent nothing, and starting one
+    from a stored doc would bill a GPU nobody asked to start."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("orphaned by a deploy", variations=2),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+
+    key = f"clientx/projecty/video/{sid}/meta.json"
+    interrupted = json.loads(objects[key])
+    interrupted["status"] = "running"
+    interrupted["variations"][0].update(status="running", file="", bytes=0)
+    objects[key] = json.dumps(interrupted).encode()
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+
+    check("the boot sweep finds the session the last container was rendering",
+          video_runner.resume_orphans(), [sid])
+    final = _await_session(sid)
+    check("and finishes it with nobody having opened the page",
+          final.get("status"), "finished")
+    check("collecting the job that was already paid for",
+          [v["status"] for v in final["variations"]], ["done", "done"])
+
+    # Nothing submitted => nothing to collect => not ours to start.
+    queued = json.loads(objects[key])
+    queued["status"] = "running"
+    queued["variations"][0].update(status="queued", job_id="", file="", bytes=0)
+    objects[key] = json.dumps(queued).encode()
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+    check("a session with nothing paid for is left for its author to open",
+          video_runner.resume_orphans(), [])
+
+
+def test_a_boot_collects_the_running_job_and_starts_nothing_else() -> None:
+    """The sharp edge of the same rule, inside ONE session. A grid interrupted at
+    variation 1 of 3 has two slots its author queued and nothing has spent — so a
+    boot that "resumed" it would submit those two unattended, hours after they
+    walked away, once per rollout that caught the session.
+
+    The boot collects the job RunPod is already holding, leaves the tail queued,
+    and hands the session back to storage still `running`. Opening it is what
+    starts the rest, which is a person deciding to spend."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("collect, don't start", variations=3),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+
+    key = f"clientx/projecty/video/{sid}/meta.json"
+    meta = json.loads(objects[key])
+    meta["status"] = "running"
+    meta["variations"][0].update(status="running", file="", bytes=0)
+    for v in meta["variations"][1:]:
+        v.update(status="queued", job_id="", file="", bytes=0)
+    objects[key] = json.dumps(meta).encode()
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+
+    submits_before = _job_ids_issued(objects, key)
+    check("the boot sweep takes it on", video_runner.resume_orphans(), [sid])
+    settled = _await_handed_back(objects, key, sid)
+    check("the job already paid for is collected",
+          settled["variations"][0]["status"], "done")
+    check("and the tail it never started is still queued",
+          [v["status"] for v in settled["variations"][1:]], ["queued", "queued"])
+    check("so the session is still running, not falsely finished",
+          settled.get("status"), "running")
+    check("with no new job submitted by the boot",
+          _job_ids_issued(objects, key), submits_before)
+    check("and the runner is free again", video_runner._ACTIVE, None)
+
+    # A person opens it: THAT starts what is left.
+    video_runner.get_session(sid)
+    final = _await_session(sid)
+    check("opening the session finishes the tail", final.get("status"), "finished")
+    check("every tile done", [v["status"] for v in final["variations"]],
+          ["done", "done", "done"])
+
+
+def _job_ids_issued(objects: dict, key: str) -> list[str]:
+    return [v.get("job_id") for v in json.loads(objects[key])["variations"]]
+
+
+def _await_handed_back(objects: dict, key: str, sid: str,
+                       timeout: float = 15.0) -> dict:
+    """Wait for a collect-only pass to finish: it settles nothing, so what marks the
+    end is the session leaving memory for whoever opens it next."""
+    import time
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        with video_runner._LOCK:
+            live = sid in video_runner._SESSIONS
+        if not live:
+            break
+        time.sleep(0.02)
+    return json.loads(objects[key])
+
+
+def test_two_adopters_cannot_take_the_same_session_twice() -> None:
+    """A boot sweep and a reconnecting browser are two adopters, and they arrive at
+    the same moment by construction — the sweep runs because the container just
+    restarted, which is when the page reconnects.
+
+    Adoption used to read `_SESSIONS`, decide the session was orphaned, and only
+    then install its own copy: two of them would each install a dict and start a
+    worker over it, and with separate `in_flight` sets neither claim excluded the
+    other — the same queued variation submitted twice, one job id overwritten and
+    never collected, and two dicts racing each other's `meta.json`."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("one owner only", variations=2),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+
+    key = f"clientx/projecty/video/{sid}/meta.json"
+    meta = json.loads(objects[key])
+    meta["status"] = "running"
+    meta["variations"][0].update(status="running", file="", bytes=0)
+    objects[key] = json.dumps(meta).encode()
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+
+    video_runner.get_session(sid)                      # the page reconnects
+    with video_runner._LOCK:
+        live = video_runner._SESSIONS.get(sid)
+    second = video_runner._adopt(json.loads(objects[key]), collect_only=True)
+    with video_runner._LOCK:
+        check("the second adopter does not install a copy of its own",
+              video_runner._SESSIONS.get(sid) is live, True)
+    check("it answers with the session that is already live",
+          (second or {}).get("id"), sid)
+    final = _await_session(sid)
+    check("and the session still finishes exactly once",
+          [v["status"] for v in final["variations"]], ["done", "done"])
+
+
+def test_a_404_before_the_job_is_ever_read_keeps_the_long_grace() -> None:
+    """The short grace is for a record that is GONE, and a 404 only means that if
+    the job was ever known to exist. RunPod also 404s a job it has not INDEXED yet,
+    seconds after submit — giving up on that one in fifteen seconds would abandon a
+    live render, uncancelled, to bill out the endpoint's own timeout.
+
+    So a first-poll 404 on a job this process submitted waits the full window and
+    then stops the job, exactly as an unreadable API does."""
+    import batch_atlas
+
+    _stub_world()
+    cancelled: list[str] = []
+    batch_atlas._runpod_get = _job_not_found
+    batch_atlas._runpod_post = _cancel_tracker(cancelled)
+    long_grace, short_grace = (video_runner.STATUS_GRACE_SECONDS,
+                               video_runner.NOT_FOUND_GRACE_SECONDS)
+    video_runner.STATUS_GRACE_SECONDS = 0.05
+    video_runner.NOT_FOUND_GRACE_SECONDS = 0.05
+    try:
+        started = video_runner.start_session(_req("never indexed"),
+                                             ("clientx", "projecty"))
+        final = _await_session(started["id"], timeout=8.0)
+    finally:
+        video_runner.STATUS_GRACE_SECONDS = long_grace
+        video_runner.NOT_FOUND_GRACE_SECONDS = short_grace
+
+    v = (final.get("variations") or [{}])[0]
+    check("a job we never once read is treated as unreachable, not as gone",
+          "lost contact" in v.get("error", ""), True)
+    check("so it is stopped rather than left to bill", cancelled, ["job1"])
+
+
+def test_a_mixed_run_of_bad_reads_takes_the_long_grace() -> None:
+    """404 then 500 is not a record that vanished — it is an API we cannot read, and
+    it must widen back to the full window rather than giving up on the short one."""
+    import batch_atlas
+
+    _stub_world()
+    reads = {"n": 0}
+
+    def flaky(path):
+        reads["n"] += 1
+        if reads["n"] == 1:
+            return {"status": "IN_PROGRESS"}      # seen once: the record exists
+        if reads["n"] == 2:
+            _job_not_found(path)                  # …and now it 404s
+        raise RuntimeError(f"RunPod {path} failed: HTTP 500 Internal Server Error")
+
+    cancelled: list[str] = []
+    batch_atlas._runpod_get = flaky
+    batch_atlas._runpod_post = _cancel_tracker(cancelled)
+    long_grace, short_grace = (video_runner.STATUS_GRACE_SECONDS,
+                               video_runner.NOT_FOUND_GRACE_SECONDS)
+    video_runner.STATUS_GRACE_SECONDS = 1.5
+    video_runner.NOT_FOUND_GRACE_SECONDS = 0.05
+    try:
+        started = video_runner.start_session(_req("mixed failures"),
+                                             ("clientx", "projecty"))
+        final = _await_session(started["id"], timeout=8.0)
+    finally:
+        video_runner.STATUS_GRACE_SECONDS = long_grace
+        video_runner.NOT_FOUND_GRACE_SECONDS = short_grace
+
+    v = (final.get("variations") or [{}])[0]
+    check("a run that stops being 404-only latches back to the long grace",
+          "lost contact" in v.get("error", ""), True)
+    check("and takes more than the zero-length 404 window to get there",
+          reads["n"] > 2, True)
+
+
+def test_a_reroll_cannot_rescue_the_attempt_before_it() -> None:
+    """The slot keys are derived from the session id and the variation index, so a
+    re-roll reuses the ones its own earlier attempt wrote into — and the slots are
+    only cleared on a successful collect. Without emptying them at submit, a re-roll
+    that ended unreadable would rescue the PREVIOUS attempt's render and show it as
+    the new seed's."""
+    _stub_world()
+    prefix = "iwvid_20260907_134356_d3ed_005"
+    keys = video_runner._upload_slot_keys(prefix)
+    video_runner.storage.put(keys[0], b"THE-ATTEMPT-BEFORE")
+    check("a stale render can be sitting in the slot",
+          video_runner._rescue_upload(keys), b"THE-ATTEMPT-BEFORE")
+
+    real_slots = video_runner._upload_slots
+    video_runner._upload_slots, _ = _worker_that_uploads(b"")
+    try:
+        video_runner._submit({"1": {"class_type": "X", "inputs": {}}}, prefix)
+    finally:
+        video_runner._upload_slots = real_slots
+    check("submitting the next attempt empties it first",
+          video_runner._rescue_upload(keys), None)
+
+
+def test_the_rescue_prefers_the_clip_over_a_preview() -> None:
+    """Slot order is the worker's output order, not a ranking, and a graph may emit
+    a preview beside the clip — the same reason `_pick_video_output` exists. Taking
+    whatever is in the lowest slot would hand back the preview."""
+    _stub_world()
+    keys = video_runner._upload_slot_keys("iwvid_test_002")
+    preview = b"RIFF" + b"\x00" * 60 + b"a still frame, no ANIM chunk, and bigger" * 4
+    clip = b"RIFF" + b"\x00" * 8 + b"WEBPVP8X" + b"\x00" * 8 + b"ANIM" + b"frames"
+    video_runner.storage.put(keys[0], preview)
+    video_runner.storage.put(keys[1], clip)
+    check("the animated one wins even from the higher slot",
+          video_runner._rescue_upload(keys), clip)
+
+
+def test_an_unreadable_slot_is_not_an_empty_one() -> None:
+    """`storage.get` answers a flaky read and a missing object identically, so
+    rescuing through it would report a finished render as a failure over one bad
+    read — the bug being fixed, one layer down."""
+    _stub_world()
+    keys = video_runner._upload_slot_keys("iwvid_test_003")
+    video_runner.storage.put(keys[0], b"THE-RENDER")
+    tries = {"n": 0}
+    real = video_runner.storage.get_strict
+
+    def flaky_strict(k):
+        tries["n"] += 1
+        if tries["n"] < 3:
+            raise video_runner.storage.ObjectUnreadable(f"R2 hiccup on {k}")
+        return real(k)
+
+    video_runner.storage.get_strict = flaky_strict
+    try:
+        check("the rescue retries a transport failure instead of calling it empty",
+              video_runner._rescue_upload(keys), b"THE-RENDER")
+    finally:
+        video_runner.storage.get_strict = real
+
+
+def test_a_failure_before_the_job_exists_still_settles_the_tile() -> None:
+    """The widened failure arm reads `upload_keys`, which is bound INSIDE the try —
+    so every way of dying before `_submit` returns (RunPod refusing `/run`, a
+    missing ref image, a bad blueprint, an R2 wobble on the first meta write) hit
+    the handler with the name unbound, raised out of a function whose contract is
+    "never raises", and left the tile spinning at `running` with no error and no
+    way to re-roll it. The most ordinary failure of all, turned into the exact
+    symptom this work exists to remove."""
+    import batch_atlas
+
+    _stub_world()
+    passthrough = batch_atlas._runpod_post
+
+    def refuse_run(path, payload):
+        if path == "/run":
+            raise RuntimeError(
+                "RunPod /run failed: HTTP 500 Internal Server Error")
+        return passthrough(path, payload)
+
+    batch_atlas._runpod_post = refuse_run
+    started = video_runner.start_session(_req("submit refused"),
+                                         ("clientx", "projecty"))
+    final = _await_session(started["id"], timeout=8.0)
+
+    v = (final.get("variations") or [{}])[0]
+    check("a refused submit settles the tile", v.get("status"), "failed")
+    check("and says why", "HTTP 500" in v.get("error", ""), True)
+    check("the session does not sit there claiming to run",
+          final.get("status"), "finished")
+
+
+def test_a_rescue_that_cannot_be_persisted_does_not_wedge_the_runner() -> None:
+    """`_collect_stranded` runs inside `except` arms, where a raise is not caught by
+    a sibling handler — it escapes `_run_variation`, whose claim `run_one`'s
+    `finally` has already released, so the dispatcher re-picks the still-`running`
+    tile as a resume candidate and spins on it (measured at ~500 re-attaches in six
+    seconds, with `_ACTIVE` pinned and every later Generate refused). An R2 PUT
+    wobble is enough to trigger it."""
+    import batch_atlas
+
+    _stub_world()
+    real_slots, real_submit = video_runner._upload_slots, video_runner._submit
+    video_runner._upload_slots, video_runner._submit = _worker_that_uploads(
+        b"LANDED-BUT-UNSAVEABLE")
+    real_put = video_runner.storage.put
+
+    def put_that_fails_on_the_render(key, body, ctype=None):
+        if key.endswith(".webp") and "/_out/" not in key:
+            raise RuntimeError("R2 PUT wobble")
+        return real_put(key, body, ctype)
+
+    batch_atlas._runpod_get = lambda path: {"status": "FAILED", "error": "died"}
+    video_runner.storage.put = put_that_fails_on_the_render
+    try:
+        started = video_runner.start_session(_req("unsaveable rescue"),
+                                             ("clientx", "projecty"))
+        final = _await_session(started["id"], timeout=10.0)
+    finally:
+        video_runner.storage.put = real_put
+        video_runner._upload_slots, video_runner._submit = real_slots, real_submit
+
+    v = (final.get("variations") or [{}])[0]
+    check("the variation still reaches a terminal state", v.get("status"), "failed")
+    check("the session finishes instead of spinning", final.get("status"),
+          "finished")
+    check("and the runner is handed back", video_runner._ACTIVE, None)
+
+
+def test_a_stale_slot_is_not_offered_as_this_attempt_s_render() -> None:
+    """The paths that do NOT go through `_submit` — `_adopt`'s lost-job-id arm, a
+    `queued` tile caught by a sweep — cannot rely on the submit-time clear, so they
+    date the slot against the attempt's `started`. Without that, a tile stopped and
+    then re-rolled could come back green showing the CANCELLED attempt's render
+    under the new seed's recipe: wrong bytes, silently, which is worse than the red
+    tile it replaces."""
+    _stub_world()
+    keys = video_runner._upload_slot_keys(
+        video_runner._slot_prefix("20260907_120000_abcd", 1))
+    video_runner.storage.put(keys[0], b"AN-OLDER-ATTEMPT")
+    check("undated, the slot is collected as before",
+          video_runner._rescue_upload(keys), b"AN-OLDER-ATTEMPT")
+    check("dated against a LATER attempt, it is ignored",
+          video_runner._rescue_upload(keys, newer_than=video_runner._now() + 60),
+          None)
+    check("dated against an EARLIER attempt, it is still collected",
+          video_runner._rescue_upload(keys, newer_than=video_runner._now() - 60),
+          b"AN-OLDER-ATTEMPT")
+
+
+def test_a_rescue_during_adoption_is_persisted() -> None:
+    """`_keep` empties the slot, so unlike a `failed` verdict a rescued `done` is
+    NOT re-derivable: a later read that found the doc still saying `running` would
+    look in an empty slot, write `failed`, and orphan the render just rescued."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("persist my rescue", variations=2),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+
+    key = f"clientx/projecty/video/{sid}/meta.json"
+    meta = json.loads(objects[key])
+    meta["status"] = "running"
+    meta["variations"][0].update(status="running", job_id="", file="", bytes=0,
+                                 started=video_runner._now() - 5)
+    objects[key] = json.dumps(meta).encode()
+    video_runner.storage.put(
+        video_runner._upload_slot_keys(video_runner._slot_prefix(sid, 1))[0],
+        b"RESCUED-DURING-ADOPTION")
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+
+    video_runner.get_session(sid)
+    stored = json.loads(objects[key])
+    v = stored["variations"][0]
+    check("the rescue is written back to storage, not just to memory",
+          v.get("status"), "done")
+    check("with the file recorded", v.get("file"), "001.webp")
+    _await_session(sid)
+
+
+def test_stopping_an_orphaned_session_keeps_what_it_delivered() -> None:
+    """The session someone most wants to stop is the orphaned one — which is also
+    the one whose job has had the longest to finish and upload. That arm settled
+    every tile `cancelled` in the stored doc without ever looking in the slot."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("stop the orphan"),
+                                         ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+
+    key = f"clientx/projecty/video/{sid}/meta.json"
+    meta = json.loads(objects[key])
+    meta["status"] = "running"
+    meta["variations"][0].update(status="running", job_id="job-orphan", file="",
+                                 bytes=0, started=video_runner._now() - 5)
+    objects[key] = json.dumps(meta).encode()
+    video_runner.storage.put(
+        video_runner._upload_slot_keys(video_runner._slot_prefix(sid, 1))[0],
+        b"PAID-AND-DELIVERED")
+    video_runner._SESSIONS.clear()
+    video_runner._ACTIVE = None
+
+    video_runner.cancel_session(sid)
+    v = json.loads(objects[key])["variations"][0]
+    check("a stop does not discard a render already in R2", v.get("status"), "done")
+    check("with its bytes", v.get("bytes"), len(b"PAID-AND-DELIVERED"))
+
+
+def test_deleting_a_session_takes_its_hand_off_slots_with_it() -> None:
+    """The slots live under `video/_out/`, not under the session, so a delete that
+    walked only the session prefix leaked one object per stranded render — paid
+    for, unreferenced and unreachable."""
+    tmp, objects = _stub_world()
+    started = video_runner.start_session(_req("delete me"), ("clientx", "projecty"))
+    sid = started["id"]
+    _await_session(sid)
+    slot = video_runner._upload_slot_keys(video_runner._slot_prefix(sid, 7))[0]
+    video_runner.storage.put(slot, b"LEFTOVER")
+    check("a slot object exists before the delete", slot in objects, True)
+
+    video_runner.delete_session(sid)
+    check("the session's objects are gone",
+          [k for k in objects if f"/video/{sid}/" in k], [])
+    check("and so are its hand-off slots", slot in objects, False)
 
 
 def test_our_cap_sits_above_the_endpoints_own_timeout() -> None:
@@ -2118,6 +2879,27 @@ if __name__ == "__main__":
     test_cancelling_a_session_no_worker_owns()
     test_a_transient_status_blip_does_not_lose_a_job()
     test_contact_lost_for_good_stops_the_job()
+    test_a_purged_job_collects_the_render_it_left_in_r2()
+    test_a_purged_job_with_nothing_to_collect_says_what_happened()
+    test_an_unreadable_job_still_collects_a_render_that_landed()
+    test_a_404_before_the_job_is_ever_read_keeps_the_long_grace()
+    test_a_mixed_run_of_bad_reads_takes_the_long_grace()
+    test_a_reroll_cannot_rescue_the_attempt_before_it()
+    test_the_rescue_prefers_the_clip_over_a_preview()
+    test_an_unreadable_slot_is_not_an_empty_one()
+    test_a_job_runpod_calls_failed_still_hands_back_its_render()
+    test_an_empty_payload_is_not_a_lost_render_when_the_slot_has_one()
+    test_a_stop_after_the_upload_keeps_the_render()
+    test_a_lost_job_id_does_not_lose_the_render_too()
+    test_a_restart_reattaches_before_anyone_opens_the_page()
+    test_a_boot_collects_the_running_job_and_starts_nothing_else()
+    test_two_adopters_cannot_take_the_same_session_twice()
+    test_a_failure_before_the_job_exists_still_settles_the_tile()
+    test_a_rescue_that_cannot_be_persisted_does_not_wedge_the_runner()
+    test_a_stale_slot_is_not_offered_as_this_attempt_s_render()
+    test_a_rescue_during_adoption_is_persisted()
+    test_stopping_an_orphaned_session_keeps_what_it_delivered()
+    test_deleting_a_session_takes_its_hand_off_slots_with_it()
     test_our_cap_sits_above_the_endpoints_own_timeout()
     test_a_dead_worker_does_not_wedge_the_runner()
     test_regenerate_one_variation()

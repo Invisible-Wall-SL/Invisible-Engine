@@ -167,6 +167,32 @@ def delete(key: str) -> None:
         pass
 
 
+def list_prefixes(prefix: str) -> list[str]:
+    """The immediate "subfolders" of `prefix` → ["<prefix><name>/", …].
+
+    A delimited listing, so it reads ONE level and never walks the objects below
+    it. That is what makes a whole-bucket sweep affordable: the alternative,
+    listing every key to find which `<client>/<project>` pairs exist, pages
+    through tens of thousands of assets to answer a question about a handful of
+    prefixes.
+    """
+    out: list[str] = []
+    token: str | None = None
+    cli = _client()
+    while True:
+        kw = {"Bucket": _bucket(), "Prefix": prefix, "Delimiter": "/"}
+        if token:
+            kw["ContinuationToken"] = token
+        resp = cli.list_objects_v2(**kw)
+        out += [p["Prefix"] for p in resp.get("CommonPrefixes", []) if p.get("Prefix")]
+        # A truncated page with no cursor would re-request page one for ever. That
+        # is a spin nobody would see here — this runs in a background thread at
+        # container start — so it stops instead.
+        token = resp.get("NextContinuationToken") if resp.get("IsTruncated") else None
+        if not token:
+            return out
+
+
 def list_keys(prefix: str) -> list[dict]:
     """List objects under a prefix → [{key, size, mtime(epoch)}]."""
     out: list[dict] = []
