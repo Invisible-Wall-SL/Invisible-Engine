@@ -11,6 +11,7 @@
 	 * a still-frame flipbook would buy nothing.
 	 */
 	import { onMount } from 'svelte';
+	import { replaceState } from '$app/navigation';
 	import ToolTopBar from '$lib/ToolTopBar.svelte';
 	import CanvasModeBar from '$lib/CanvasModeBar.svelte';
 	import VideoMode from './VideoMode.svelte';
@@ -68,10 +69,24 @@
 	// reopened clip (`?clip=<id>` → `data.openedClip`) or a fresh empty one.
 	let clip = $state<FlipbookClip>(data.openedClip ?? emptyClip());
 
+	/**
+	 * The clip exactly as it was last loaded or saved — the baseline the dirty check compares
+	 * against. A value compare rather than a `markDirty()` at every mutation site: every edit
+	 * here reassigns the WHOLE clip (`clip = { ...clip, … }`) across dozens of call sites, and a
+	 * flag that has to be set at each of them is a flag that will eventually be missed. Only the
+	 * discard guards read it, so it costs one `stringify` per open / close, not per keystroke.
+	 */
+	const snapshot = (): string => JSON.stringify($state.snapshot(clip));
+	let baseline = snapshot();
+	const markSaved = (): void => void (baseline = snapshot());
+	const isDirty = (): boolean => snapshot() !== baseline;
+
 	// --- save / open state ------------------------------------------------------
 	/** Delete-flow spinner; `busy` (below) unions it with the save machine so every shared
 	 * `disabled={busy}` keeps its "either operation in flight" meaning. */
 	let deleting = $state(false);
+	/** Open-flow spinner — one R2 GET, but the rail must not fire a second open under it. */
+	let opening = $state(false);
 	let saveError = $state('');
 	let savedNote = $state('');
 	let pickerId = $state<string>(data.openedClip?.id ?? '');
@@ -167,6 +182,9 @@
 				// re-saving the same clip; the acquire that matters is a NEW / saved-as clip).
 				leaseSwitch(leaseIdFor(out.id));
 				upsertClip({ id: out.id, name: out.name, frames: out.frames });
+				// The stored clip is now what's on screen — re-baseline so the discard guards stop
+				// warning about edits that have just been persisted.
+				markSaved();
 				savedNote = `Saved "${out.name}" (${out.frames} frame${out.frames === 1 ? '' : 's'}).`;
 				return { ok: true, etag: out.etag };
 			} catch {
@@ -174,16 +192,26 @@
 			}
 		},
 	});
-	/** Union of the two in-flight flags — preserves every shared `disabled={busy}`. */
-	const busy = $derived(deleting || saveState.busy);
+	/** Union of the in-flight flags — preserves every shared `disabled={busy}`. */
+	const busy = $derived(deleting || opening || saveState.busy);
 
 	onMount(() => {
 		// Acquire the lease for the initially-open clip (if any); inert for a fresh /flipbook.
 		void lease.switchDoc(leasedId);
 		const onUnload = () => lease.release();
+		// Opening a clip is now an in-page swap, so `confirmDiscard` guards it directly. A real
+		// unload — closing the tab, the top bar's project switch, a link out of the tool — is the
+		// one exit this page cannot intercept, and the browser's own prompt is what covers it.
+		const onBeforeUnload = (e: BeforeUnloadEvent): void => {
+			if (!isDirty()) return;
+			e.preventDefault();
+			e.returnValue = '';
+		};
 		window.addEventListener('pagehide', onUnload);
+		window.addEventListener('beforeunload', onBeforeUnload);
 		return () => {
 			window.removeEventListener('pagehide', onUnload);
+			window.removeEventListener('beforeunload', onBeforeUnload);
 			lease.release();
 		};
 	});
@@ -258,6 +286,9 @@
 				clip = emptyClip();
 				// The open clip is gone → nothing to lease; go inert (freely editable).
 				leaseSwitch(null);
+				// …and nothing left to discard, so the guards must not warn about the blank clip
+				// that replaced it.
+				markSaved();
 			}
 			pickerId = '';
 		} catch {
@@ -267,11 +298,91 @@
 		}
 	}
 
-	// Navigating (rather than swapping in memory) keeps the loader the single seeder of both the
-	// clip and its ETag — the same choice `/fx` makes.
-	const newClip = (): void => void (window.location.href = '/flipbook');
-	const openClip = (id: string): void =>
-		void (window.location.href = `/flipbook?clip=${encodeURIComponent(id)}`);
+	// --- opening a clip ---------------------------------------------------------
+	/**
+	 * Switching clips is an IN-MEMORY swap, not a navigation.
+	 *
+	 * It used to be `window.location.href = '/flipbook?clip=…'`, which re-ran the page loader to
+	 * fetch one small JSON doc. The loader's real cost is the atlas list: `loadRegionSet` for
+	 * EVERY manifest in the project, sequentially, each several R2 round-trips — and none of it
+	 * depends on which clip is open. The full document load also discarded the parsed bundle and
+	 * the `regionSets` cache, so every sheet the new clip touched was re-fetched from cold.
+	 * `/api/flipbook/clip` returns the doc and its ETag, which is all a swap actually needs.
+	 *
+	 * `?clip=` is still kept in the address bar so the deep link is unchanged and shareable —
+	 * via `replaceState`, which updates the URL WITHOUT running a load. The loader therefore
+	 * stays the seeder for a cold open of that link; it simply stops being the seeder for a
+	 * switch made inside the tool.
+	 */
+	/** Per-clip editor state that must NOT survive a swap — the playhead, transient notes, and
+	 *  a pan/zoom that was framed around a different clip's art. */
+	function resetPerClipView(): void {
+		playing = false;
+		step = 0;
+		saveError = '';
+		savedNote = '';
+		importNote = '';
+		importError = '';
+		fitView();
+	}
+
+	/** Ask before anything that would DISCARD unsaved edits. */
+	function confirmDiscard(action: string): boolean {
+		if (!isDirty()) return true;
+		return window.confirm(
+			`"${clip.name || 'This clip'}" has unsaved changes.\n\n` +
+				`${action} will discard them. Continue?`,
+		);
+	}
+
+	function newClip(): void {
+		if (!confirmDiscard('Starting a new clip')) return;
+		const fresh = emptyClip();
+		clip = fresh;
+		sheetKey = fresh.assetKey || data.atlases[0]?.manifestKey || '';
+		pickerId = '';
+		// No stored doc behind a fresh clip ⇒ the next save takes the create path, and there is
+		// nothing to lease until it has a persisted key.
+		saveState.adoptEtag(null);
+		leaseSwitch(null);
+		resetPerClipView();
+		markSaved();
+		replaceState('/flipbook', {});
+	}
+
+	async function openClip(id: string): Promise<void> {
+		if (!id || opening) return;
+		if (id === clip.id && !isDirty()) return; // already open and untouched
+		const label = clips.find((c) => c.id === id)?.name ?? id;
+		if (!confirmDiscard(`Opening "${label}"`)) return;
+		opening = true;
+		saveError = '';
+		try {
+			const qs = new URLSearchParams({ id, project: data.projectKey });
+			const res = await fetch(`/api/flipbook/clip?${qs}`);
+			if (!res.ok) {
+				const out = (await res.json().catch(() => ({}))) as { message?: string };
+				saveError = out.message ?? `Could not open "${label}" (HTTP ${res.status}).`;
+				return;
+			}
+			const out = (await res.json()) as { clip: FlipbookClip; etag: string | null };
+			clip = out.clip;
+			// The clip's own sheet becomes the picker's, so its frames' thumbnails resolve; the
+			// `$effect` over `clipSheetKeys` fetches any OTHER sheet a multi-sheet clip names, and
+			// skips every sheet already in `regionSets` — the cache the reload used to throw away.
+			sheetKey = out.clip.assetKey || sheetKey;
+			pickerId = out.clip.id;
+			saveState.adoptEtag(out.etag);
+			leaseSwitch(leaseIdFor(out.clip.id));
+			resetPerClipView();
+			markSaved();
+			replaceState(`/flipbook?clip=${encodeURIComponent(out.clip.id)}`, {});
+		} catch {
+			saveError = `Could not open "${label}" (network error).`;
+		} finally {
+			opening = false;
+		}
+	}
 
 	// --- animation plist import / export ----------------------------------------
 	// The cocos2d ANIMATION plist is the file that actually STATES an animation — an ordered
@@ -994,7 +1105,7 @@
 				<ul class="cliplist">
 					{#each clips as row (row.id)}
 						<li>
-							<button class:active={row.id === pickerId} onclick={() => openClip(row.id)}>
+							<button class:active={row.id === pickerId} onclick={() => void openClip(row.id)}>
 								<span class="nm">{row.name}</span>
 								<span class="ct">{row.frames}f</span>
 							</button>
