@@ -44,6 +44,7 @@ import pack  # noqa: E402  (MaxRects bin packer for from-scratch auto-pack atlas
 import runpod_control  # noqa: E402  (RunPod on-demand pod resume/idle-stop)
 import video_runner  # noqa: E402  (Flipbook video sessions — blueprint -> animated WEBP)
 import video_to_clip  # noqa: E402  (Flipbook video -> packed sheet -> clip frames)
+import model_mirror  # noqa: E402  (R2 model mirror — where a declared model file lives)
 
 # Self-contained tool folder (Tools/<Tool Name>/). All code, config and
 # manifests live here together; per-game ComfyUI dirs come from project_paths.
@@ -875,6 +876,54 @@ def _models_note(models: list, dropped: list) -> str:
         gone = ", ".join(str(m.get("filename", "?")) for m in dropped)
         parts.append(f" Dropped {len(dropped)} no longer in the graph: {gone}.")
     return "".join(parts)
+
+
+def _annotate_from_mirror(models: list, author: str | None) -> tuple[list, str]:
+    """Stamp `r2_key`/`sha256`/`size` onto the declarations the shared model
+    mirror can place, and return them plus one sentence for the reply.
+
+    Best-effort by construction — it returns `models` untouched and says why on
+    every failure, because an annotation is a convenience and a blueprint write
+    is not. Three guards:
+
+      * a BUNDLED blueprint (`author: iw-builtin`) is never annotated.
+        `blueprints._sync_bundled` restores the repo copy over R2 AND staging
+        whenever a bundled manifest's bytes differ, and both writers call
+        `hydrate(force=True)` right after their own put — so annotating one
+        writes bytes the very next hydrate reverts, and the tool would report
+        success while behaving as if it had failed. `wan22_i2v_flipbook` is the
+        live case: bundled, rescannable, and declaring real multi-GB models.
+      * an index that is not 'ready' writes nothing. Persisting an empty
+        annotation because R2 hiccuped would strip provenance and keep it
+        stripped.
+      * any exception at all is a skip, never a failed save.
+    """
+    if not models:
+        return models, ""
+    if str(author or "").strip() == blueprints.BUNDLED_AUTHOR:
+        return models, (" Model-mirror keys not written: this is a bundled "
+                        "blueprint, and the next hydrate restores the repo copy "
+                        "over anything written here.")
+    try:
+        index = model_mirror.load_index()
+        if index.get("state") != "ready":
+            return models, (" Model-mirror keys not written: the mirror is "
+                            f"{index.get('state')} ({index.get('reason')}).")
+        annotated, changed = model_mirror.annotate(models, index)
+        misses = [str(m.get("filename") or "?") for m in annotated
+                  if model_mirror.resolve(m, index).get("state") != "hit"]
+    except Exception as e:  # noqa: BLE001 — never turn a lookup into a failed save
+        return models, f" Model-mirror keys not written ({e})."
+    hits = len(annotated) - len(misses)
+    note = f" {hits} of {len(annotated)} resolve in the model mirror"
+    if misses:
+        verb = "does" if len(misses) == 1 else "do"
+        note += f"; {', '.join(misses)} {verb} not."
+    else:
+        note += "."
+    if changed:
+        note += f" Wrote keys for {changed}."
+    return annotated, note
 
 
 def _options_for(key: str, cache: dict,
@@ -6687,13 +6736,18 @@ class Handler(BaseHTTPRequestHandler):
         models, dropped_models = blueprints.merge_model_provenance(
             blueprints.derive_models_from_graph(graph),
             (existing or {}).get("meta", {}).get("models"))
+        author = self._publish_author()
+        # Where each of those files lives in the shared model mirror, recorded
+        # now so the render path can name a key and a size instead of only a
+        # filename. Best-effort: never blocks the publish.
+        models, mirror_note = _annotate_from_mirror(models, author)
 
         manifest = {
             "version": 1,
             "id": bp_id,
             "name": name,
             "description": description,
-            "author": self._publish_author(),
+            "author": author,
             "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "base": base,
             "kind": kind,
@@ -6733,7 +6787,7 @@ class Handler(BaseHTTPRequestHandler):
         verb = "Updated" if overwrite else "Published"
         return (f"✓ {verb} blueprint '{bp_id}' — select it in the pipeline "
                 "dropdown (reload to refresh the list)."
-                + _models_note(manifest["models"], dropped_models))
+                + _models_note(manifest["models"], dropped_models) + mirror_note)
 
     def _deleteblueprint(self, payload: dict) -> str:
         """Remove a blueprint from the shared library (R2 + staging). Gated on
@@ -6805,6 +6859,9 @@ class Handler(BaseHTTPRequestHandler):
             before = man_path.read_bytes()
         except (OSError, ValueError) as e:
             return f"✖ Could not read blueprint '{bp_id}': {e}"
+        # Annotated against the STORED author, so a bundled blueprint is skipped
+        # here and not written back for the next hydrate to revert.
+        models, mirror_note = _annotate_from_mirror(models, manifest.get("author"))
         manifest["models"] = models
         try:
             blueprints.validate_against_graph(bp_id, manifest, graph)
@@ -6813,7 +6870,7 @@ class Handler(BaseHTTPRequestHandler):
         man_bytes = json.dumps(manifest, indent=2).encode("utf-8")
         if man_bytes == before:
             return (f"✓ '{bp_id}' is already up to date."
-                    + _models_note(manifest["models"], dropped))
+                    + _models_note(manifest["models"], dropped) + mirror_note)
         try:
             dest.mkdir(parents=True, exist_ok=True)
             man_path.write_bytes(man_bytes)
@@ -6827,7 +6884,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:  # noqa: BLE001 — staging copy already written
             pass
         return (f"✓ Rescanned '{bp_id}'."
-                + _models_note(manifest["models"], dropped))
+                + _models_note(manifest["models"], dropped) + mirror_note)
 
     def _publish_author(self) -> str:
         """Best-effort username to stamp on an uploaded blueprint. The launcher

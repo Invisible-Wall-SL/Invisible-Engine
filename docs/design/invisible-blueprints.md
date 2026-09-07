@@ -484,6 +484,8 @@ PUTs the parts and reports the SHA-256, the tool completes the multipart + recor
   still_missing[]}` — the SAME contract as `prepare_blueprint_models` so the caller is uniform.
 - Idempotent + fast: a warm box is a near-instant no-op (presence-by-hash short-circuits).
 
+> **Partially built, differently (2026-09-07).** The prepare step is now mirror-AWARE without a companion: `model_mirror.enrich()` runs as one pass over `PrepareResult.still_missing` + `advisories` at the single consumer (`batch_atlas._prepare_blueprint_models_or_fail`), so `blueprint_models` stays network-free and offline-testable. It explains where a missing model can be got; it never delivers one, and it can never refuse a render. See [status/atlas-maker](../status/atlas-maker.md).
+
 ### Prepare-step integration
 `_prepare_blueprint_models_or_fail` (already runs before generate) additionally calls the
 companion's `/ensure` for the active blueprint. Fail-safe everywhere: companion absent /

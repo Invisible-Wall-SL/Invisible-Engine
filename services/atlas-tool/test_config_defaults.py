@@ -42,6 +42,7 @@ import tempfile
 from pathlib import Path
 
 import batch_atlas as ba
+import blueprint_models as bp
 import ui_server as u
 
 FAILED: list[str] = []
@@ -276,6 +277,97 @@ def test_a_wrong_family_vae_is_refused_before_the_gpu_runs() -> None:
         (ba.PIPELINE, ba.FLUX_VAE,
          ba.FLUX_CHECKPOINT, ba._available) = saved_ck
     check("the all-in-one checkpoint path is exempt", raised, False)
+
+
+def test_the_desktops_enums_never_judge_a_pod_render() -> None:
+    """`preflight_models` reads COMFY_BASE — the ARTIST'S desktop over the
+    tunnel. On the serverless transport the render runs on a RunPod worker whose
+    inventory is fixed in its own image, so that read could only ever produce a
+    wrong answer: with the tunnel up it refused pod renders because the DESKTOP
+    lacked the checkpoint.
+
+    The gate covers the ENUM reads only. `wrong_family_vae` asks no target
+    anything (a configured name against a literal channel table), and on a pod
+    the mistake it catches costs a queued job, a cold start and a full sampling
+    run instead of 117 local seconds — so it is worth MORE there, not less."""
+    saved = {k: getattr(ba, k) for k in
+             ("PIPELINE", "FLUX_VAE", "FLUX_CHECKPOINT", "_available",
+              "COMFY_TRANSPORT")}
+    probed: list[tuple[str, str]] = []
+
+    def record(node: str, field: str):
+        probed.append((node, field))
+        return ["something-else.safetensors"]   # a live enum, name absent
+
+    def preflight() -> object:
+        buf = io.StringIO()
+        try:
+            with contextlib.redirect_stdout(buf):
+                ba.preflight_models([{"name": "naty"}])
+            return "(no exit)", buf.getvalue()
+        except SystemExit as e:
+            return e.code, buf.getvalue()
+
+    try:
+        ba.PIPELINE, ba.FLUX_CHECKPOINT, ba._available = "flux", "", record
+        ba.FLUX_VAE = "ae.safetensors"          # a compatible VAE: only the
+        ba.COMFY_TRANSPORT = "http"             # enum check can speak
+        code, out = preflight()
+        check("on the desktop transport a missing model still stops it", code, 2)
+        check_in("naming the file", "something-else.safetensors", out)
+        check("and the desktop WAS probed", len(probed) > 0, True)
+
+        probed.clear()
+        ba.COMFY_TRANSPORT = "serverless"
+        code, _ = preflight()
+        check("the same render is not refused on serverless", code, "(no exit)")
+        check("serverless is not probed at all", probed, [])
+
+        # ...and the target-independent guard survives the gate.
+        ba.FLUX_VAE = "taesdxl"
+        code, out = preflight()
+        check("but a wrong-family VAE still stops it before the pod bills",
+              code, 2)
+        check_in("naming the SETTING to fix", "flux_vae", out)
+        check("with still nothing asked of the desktop", probed, [])
+    finally:
+        for key, value in saved.items():
+            setattr(ba, key, value)
+
+
+def test_the_installed_check_answers_no_verdict_not_missing() -> None:
+    """`_model_installed` is the ONE oracle allowed to refuse a render, so a
+    non-answer must not read as a negative. Five of the fourteen fields in
+    `blueprints.MODEL_FIELD_DIRS` (clip_name3, gligen_name, hypernetwork_name,
+    ipadapter_file, pulid_file) have no loader in `_MODEL_FIELD_NODES` and can
+    never be read at all; a flat False made them a checklist line no amount of
+    syncing could clear, because a DERIVED declaration carries no url/base and
+    so cannot be auto-installed out of it either.
+
+    `is` comparisons throughout: False and None are both falsy, so `==` would
+    let the regression back in silently."""
+    saved = (ba._comfy_alive, ba._available)
+    try:
+        ba._comfy_alive = lambda: True
+        ba._available = lambda node, field: ["a.safetensors"]
+        check("an unmapped field gets no verdict",
+              ba._model_installed("pulid_file", "a.safetensors") is None, True)
+        check("a name the enum lists is present",
+              ba._model_installed("ckpt_name", "a.safetensors") is True, True)
+        check("a name the enum lacks is genuinely absent",
+              ba._model_installed("ckpt_name", "b.safetensors") is False, True)
+        ba._available = lambda node, field: None
+        check("an unreadable enum gets no verdict either",
+              ba._model_installed("ckpt_name", "a.safetensors") is None, True)
+        ba._comfy_alive = lambda: False
+        try:
+            ba._model_installed("ckpt_name", "a.safetensors")
+            raised = False
+        except bp.ComfyUnreachable:
+            raised = True
+        check("a dead ComfyUI is still an exception, not a verdict", raised, True)
+    finally:
+        ba._comfy_alive, ba._available = saved
 
 
 def test_blank_text_still_means_blank() -> None:
@@ -694,6 +786,8 @@ if __name__ == "__main__":
                test_a_graph_naming_a_model_the_target_lacks_is_never_submitted,
                test_the_model_guard_only_judges_things_that_look_like_files,
                test_a_wrong_family_vae_is_refused_before_the_gpu_runs,
+               test_the_desktops_enums_never_judge_a_pod_render,
+               test_the_installed_check_answers_no_verdict_not_missing,
                test_blank_text_still_means_blank,
                test_blank_shadows_default_is_precise,
                test_saving_a_blank_numeric_drops_the_key,

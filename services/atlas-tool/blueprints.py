@@ -435,9 +435,13 @@ def _validate_models(bp_id: str, manifest: dict) -> list:
             "url": url,
         }
         # Optional verify/progress metadata + catalog niceties, passed through.
-        # `r2_key` = an ARTIST-UPLOADED model file at `_shared/models/<sha256>/…`
-        # (B?? §10) — the companion pulls this into `models/<save_path>/` when the
-        # model isn't a public/catalog download. `sha256` pins the exact version.
+        # `r2_key` = this file's object in the SHARED MODEL MIRROR,
+        # `comfyui-models/<save_path>/<filename>` — the same store the launcher's
+        # "Sync models" and `runpod/pull-models.py` both pull from. `model_mirror`
+        # reads it, and treats a stored value as a CACHE it re-verifies against
+        # the live manifest, never as a source of truth: a live answer always
+        # wins, and the stored key is used only when R2 could not be asked.
+        # `sha256` pins the exact version.
         for opt in ("sha256", "size", "name", "type", "r2_key"):
             if m.get(opt) not in (None, ""):
                 norm[opt] = m[opt]

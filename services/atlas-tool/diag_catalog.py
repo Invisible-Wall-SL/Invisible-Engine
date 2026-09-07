@@ -247,6 +247,40 @@ CATALOG = {
         ),
     },
 
+    # --- Blueprint models ---------------------------------------------------
+    # `explain` renders inside `.diag-explain`, which is `white-space: pre-wrap`,
+    # so the newline-separated `{files}` list survives as a list in one card.
+    # Deliberately short: the banner two lines below prints the full checklist.
+    "BLUEPRINT_MODEL_MISSING": {
+        "severity": "error",
+        "title": "Blueprint '{bp}' needs model files {where} does not have",
+        "explain": (
+            "The render stopped before queueing anything. {where} was asked "
+            "for these and does not have them:\n{files}"
+        ),
+        "fix": (
+            "If a file is in the model mirror, pull it (Sync models in the "
+            "Invisible Launcher, then restart ComfyUI — it only scans models/ "
+            "at startup). If it is not, add it with "
+            "scripts/seed-comfyui-models.py from the machine that has it."
+        ),
+    },
+    "BLUEPRINT_MODEL_UNVERIFIED": {
+        "severity": "warn",
+        "title": "Blueprint '{bp}': some models could not be verified",
+        "explain": (
+            "The render is CONTINUING. Nothing said these files are missing — "
+            "{where} has no inventory that could answer for them, so the "
+            "question went unanswered:\n{files}"
+        ),
+        "fix": (
+            "Nothing is required. To be sure a RunPod worker has them, run "
+            "python services/atlas-tool/runpod/pull-models.py --dest "
+            "/workspace/ComfyUI/models on a pod with the network volume "
+            "mounted, then start a fresh worker (a running one keeps its old "
+            "file list)."
+        ),
+    },
     # --- External service (ComfyUI / paid APIs / R2) ------------------------
     "COMFY_AUTH": {
         "severity": "error",

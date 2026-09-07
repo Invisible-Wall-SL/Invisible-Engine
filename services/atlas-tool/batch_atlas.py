@@ -247,6 +247,7 @@ import storage  # noqa: E402
 import shine  # noqa: E402
 import blueprints  # noqa: E402
 import blueprint_models  # noqa: E402
+import model_mirror  # noqa: E402
 from iw_common.diagnostics import diag, emit  # noqa: E402
 from diag_catalog import CATALOG  # noqa: E402
 
@@ -1151,6 +1152,17 @@ def preflight_models(regions: list[dict]) -> None:
              {region.get("checkpoint", CHECKPOINT) for region in regions}),
             ("LoraLoader", "lora_name", "LoRA", {LORA}),
         ]
+    # The enum loop below reads COMFY_BASE — the ARTIST'S desktop over the
+    # tunnel. On the serverless transport the render runs on a RunPod worker
+    # whose inventory is fixed in its own image, so a desktop enum can only
+    # produce a wrong answer: with the tunnel up this refused pod renders
+    # because the DESKTOP lacked the checkpoint. Same reasoning as
+    # `_probe_ready`. Only the enum reads are dropped — the VAE-family guard
+    # further down asks no target anything, and skipping it on serverless would
+    # pay a cold start plus a full sampling run for a mistake that is free to
+    # catch here.
+    if COMFY_TRANSPORT == "serverless":
+        checks = []
     problems: list[str] = []
     for node, field, label, wanted in checks:
         avail = _available(node, field)
@@ -1238,21 +1250,25 @@ def _manager_get(path: str) -> dict:
         raise blueprint_models.ComfyUnreachable(str(e))
 
 
-def _model_installed(field: str, filename: str) -> bool:
+def _model_installed(field: str, filename: str) -> bool | None:
     """Is `filename` already a valid value for `field` in some loader's
-    /object_info enum? Reuses the cached `_available` reader. `field` is the
-    enum field name (ckpt_name/lora_name/vae_name/…); we map it to the loader
-    node that exposes it. Unknown field → unverifiable → treat as not installed
-    (the prepare step then tries to install, and a redundant install on an
-    already-present file is a near no-op for Manager)."""
+    /object_info enum? True / False / None — the same three-valued discipline
+    `_class_info` uses.
+
+    `None` means NO VERDICT, not "missing": the field has no entry in
+    `_MODEL_FIELD_NODES` (five of `blueprints.MODEL_FIELD_DIRS`' fourteen do
+    not), or the enum could not be read at all. Reporting those as `False` made
+    them a permanent checklist line no amount of syncing could clear, because a
+    DERIVED declaration carries no url/base and so can never be auto-installed
+    out of it either."""
     if not _comfy_alive():
         raise blueprint_models.ComfyUnreachable("ComfyUI not answering")
     node = _MODEL_FIELD_NODES.get(field)
     if not node:
-        return False
+        return None
     avail = _available(node, field)
     if avail is None:
-        return False
+        return None
     return filename in avail
 
 
@@ -3480,7 +3496,22 @@ def _prepare_blueprint_models_or_fail(gen_regions: list[dict]) -> None:
 
     Built-in pipelines (sdxl/flux/gpt_image) are skipped — their models are
     handled by preflight_models. Only blueprints with a non-empty `models[]`
-    trigger any work; a blueprint with no declared models is a no-op."""
+    trigger any work; a blueprint with no declared models is a no-op.
+
+    TRANSPORT-AWARE, and it has to be: the prepare step's whole apparatus —
+    `_model_installed`, the Manager install queue, `POST /manager/reboot` — talks
+    to COMFY_BASE, the ARTIST'S desktop over the tunnel. A serverless render runs
+    somewhere else entirely, so pointing this at the desktop had two bad
+    outcomes and no good one: with the tunnel up it installed onto and REBOOTED
+    someone else's machine mid-work, and with the tunnel down `ComfyUnreachable`
+    put every declared model on the checklist and killed a pod render whose
+    volume had the files. The serverless target gets a survey — a message, never
+    a gate. Same reasoning `_probe_ready` already encodes for the graph guards.
+
+    The mirror lookup happens HERE, once per blueprint and only after a result
+    exists, so a run where everything is installed makes no R2 calls — and every
+    reported row gets a verdict, including the ComfyUnreachable short-circuit and
+    the Manager-400 branch a private model actually lands on."""
     # Distinct blueprint ids in play (region override else global PIPELINE),
     # excluding the three built-ins.
     bp_ids: list[str] = []
@@ -3493,6 +3524,10 @@ def _prepare_blueprint_models_or_fail(gen_regions: list[dict]) -> None:
     if not bp_ids:
         return
 
+    serverless = COMFY_TRANSPORT == "serverless"
+    target = "serverless" if serverless else "local"
+    where = "the RunPod worker" if serverless else "your ComfyUI"
+
     failures: list[str] = []
     for bp_id in bp_ids:
         bp = blueprints.get_blueprint(bp_id)
@@ -3502,18 +3537,36 @@ def _prepare_blueprint_models_or_fail(gen_regions: list[dict]) -> None:
         if not models:
             continue  # blueprint declares no models → nothing to prepare
         print(f"\n=== Preparing models for blueprint '{bp_id}' "
-              f"({len(models)} declared) ===", flush=True)
-        result = prepare_blueprint_models_for_run(models)
+              f"({len(models)} declared, target: {target}) ===", flush=True)
+        if serverless:
+            result = blueprint_models.survey_blueprint_models(models)
+        else:
+            result = prepare_blueprint_models_for_run(models)
         if result.installed:
             print(f"[prepare] '{bp_id}': installed "
                   f"{', '.join(result.installed)}", flush=True)
+        model_mirror.enrich(result.still_missing + result.advisories, target)
+        if result.advisories:
+            print(blueprint_models.format_advisories(result), flush=True)
+            emit(diag("BLUEPRINT_MODEL_UNVERIFIED", CATALOG, bp=bp_id,
+                      where=where,
+                      files="\n".join(
+                          f"  {m.get('filename')} — "
+                          f"{model_mirror.short_status(m.get('mirror'))}"
+                          for m in result.advisories)))
         if not result.ready:
             checklist = blueprint_models.format_checklist(result)
             failures.append(f"Blueprint '{bp_id}':\n{checklist}")
+            emit(diag("BLUEPRINT_MODEL_MISSING", CATALOG, bp=bp_id, where=where,
+                      files="\n".join(
+                          f"  {m.get('filename')} -> models/"
+                          f"{m.get('save_path') or '?'}/ — "
+                          f"{model_mirror.short_status(m.get('mirror'))}"
+                          for m in result.still_missing)))
 
     if failures:
         bar = "=" * 64
-        print(f"\n{bar}\n  BLUEPRINT MODELS MISSING\n", flush=True)
+        print(f"\n{bar}\n  BLUEPRINT MODELS MISSING ({where})\n", flush=True)
         print("\n\n".join(failures), flush=True)
         print(bar, flush=True)
         raise SystemExit(2)
