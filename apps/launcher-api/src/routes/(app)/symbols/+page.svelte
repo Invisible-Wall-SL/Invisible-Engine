@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import ColorField from '$lib/ColorField.svelte';
 	import {
 		BUILTIN_SHEETS,
@@ -96,6 +96,18 @@
 		TRANSITION_KIND_LABELS,
 		setTransition,
 		clearTransition,
+		setTumblePattern,
+		setTumbleStepMs,
+		tumblePatternName,
+		tumbleStepMs,
+		TUMBLE_PATTERN_HINTS,
+		TUMBLE_PATTERN_LABELS,
+		TUMBLE_PATTERNS,
+		TUMBLE_PATTERNS_PER_SEAT,
+		TUMBLE_STEP_MS_DEFAULT,
+		TUMBLE_STEP_MS_MAX,
+		isTumblePattern,
+		tumbleExplosionDelays,
 		type AnticipationTier,
 		type AnticipationTierFx,
 		type BoardGlowConfig,
@@ -181,6 +193,70 @@
 			clears: data.reelBehaviour.clears,
 		}),
 	);
+
+	// ── Explosion pattern ──────────────────────────────────────────────────────
+	// The order the winning seats pop in. Shown on exactly the projects that have an explosion step
+	// to order — the SAME gate the `Tumble explosion` grid column uses, and for the same two reasons:
+	// a cascade removes the winning symbols, and a swap-in-place board CLEARS itself before the new
+	// symbols arrive. Both run through `tumbleBoardExplode`, so both are patterned by this one pick.
+	const explodesSeats = $derived(Boolean(data.cascade || data.reelBehaviour.clears));
+	const tumblePattern = $derived(tumblePatternName(doc));
+	const tumbleStep = $derived(tumbleStepMs(doc));
+	const tumblePerSeat = $derived(TUMBLE_PATTERNS_PER_SEAT.includes(tumblePattern));
+
+	/** The preview board — a plain 5×3, not the project's real grid. The point is to read the SHAPE
+	 *  of the wave, and a fixed board makes every pattern comparable while you flick through them. */
+	const PATTERN_PREVIEW_BOUNDS = { reels: 5, rows: 3 };
+	const patternPreviewSeats = Array.from({ length: PATTERN_PREVIEW_BOUNDS.rows }, (_, row) =>
+		Array.from({ length: PATTERN_PREVIEW_BOUNDS.reels }, (_, reel) => ({ reel, row })),
+	).flat();
+	/** Bumped when a preview run finishes, so `random` re-rolls its shuffle on every loop instead of
+	 *  replaying one frozen order — the `$derived` below reads it purely as a dependency. */
+	let patternPlayToken = $state(0);
+	/** The wave currently reached, `-1` before the run starts. A seat is lit once its own wave has
+	 *  been reached, and stays lit until the loop restarts — a board coming apart, not a chase. */
+	let patternWave = $state(-1);
+	/** The WAVE INDEX per seat, straight from the engine's own ordering. Asked for with a 1 ms step so
+	 *  the returned delay IS the wave number — the preview then can't drift from what the game plays,
+	 *  because it is the same function answering. */
+	const patternPreviewWaves = $derived.by(() => {
+		void patternPlayToken;
+		return tumbleExplosionDelays(
+			patternPreviewSeats,
+			{ pattern: tumblePattern, stepMs: 1 },
+			PATTERN_PREVIEW_BOUNDS,
+		);
+	});
+
+	$effect(() => {
+		// The panel is not rendered at all for a project with no explosion step to order, and neither
+		// is this loop then: an ungated effect would keep a `setTimeout` chain alive writing
+		// `patternWave` for the lifetime of every lines/book-of tab, driving nothing.
+		if (!explodesSeats) return;
+		const waves = patternPreviewWaves;
+		// The authored gap is the preview's pace, floored only so a 0 ms step still shows something
+		// rather than resolving in one frame. Read UNTRACKED: tracking it would restart the run from
+		// wave -1 on every `input` event, so the preview would stutter for as long as the slider is
+		// being dragged. The loop re-reads it when it comes round again, which is soon enough.
+		const stepMs = Math.max(
+			untrack(() => tumbleStep),
+			16,
+		);
+		const last = waves.reduce((max, wave) => Math.max(max, wave), 0);
+		let wave = 0;
+		let timer: ReturnType<typeof setTimeout>;
+		const tick = () => {
+			patternWave = wave;
+			wave += 1;
+			// The pause before the loop restarts — long enough to read the finished board, which is
+			// what a pattern is judged on.
+			timer =
+				wave <= last ? setTimeout(tick, stepMs) : setTimeout(() => (patternPlayToken += 1), 900);
+		};
+		patternWave = -1;
+		timer = setTimeout(tick, 250);
+		return () => clearTimeout(timer);
+	});
 
 	/**
 	 * Cells whose EFFECTIVE binding is a SPINE left on `(first animation)`.
@@ -1837,6 +1913,96 @@
 						{/if}
 					</div>
 				</section>
+
+				{#if explodesSeats}
+					<section class="winline tumblepattern" class:expanded={tumblePattern !== 'all'}>
+						<div class="wl-head">
+							<div class="wl-text">
+								<h2>Explosion pattern</h2>
+								<p class="wl-sub">
+									The order the winning symbols blow up in. By default the whole board explodes in
+									one frame; pick a pattern and it comes apart in waves instead — column by column,
+									row by row, out from the middle — with a gap between each wave. Purely how it
+									looks: the same symbols explode, pay the same, and are replaced the same way. The
+									board-clear step of a swap-in-place board follows this too.
+								</p>
+							</div>
+							<label class="field tp-pick">
+								<span class="label">Pattern</span>
+								<select
+									value={tumblePattern}
+									onchange={(e) => {
+										// Narrowed, not cast: a launcher type error compiles and ships green (see
+										// `apps/launcher-api/CLAUDE.md`), so the one guard on a DOM string is a runtime one.
+										const picked = e.currentTarget.value;
+										if (isTumblePattern(picked)) doc = setTumblePattern(doc, picked);
+									}}
+								>
+									{#each TUMBLE_PATTERNS as name (name)}
+										<option value={name}>{TUMBLE_PATTERN_LABELS[name]}</option>
+									{/each}
+								</select>
+							</label>
+						</div>
+
+						<div class="wl-config">
+							<div class="wl-group">
+								<div class="tp-preview">
+									<div
+										class="tp-grid"
+										style="--tp-reels: {PATTERN_PREVIEW_BOUNDS.reels}"
+										aria-hidden="true"
+									>
+										{#each patternPreviewSeats as seat, index (`${seat.reel}:${seat.row}`)}
+											<span class="tp-cell" class:lit={patternWave >= patternPreviewWaves[index]}>
+												{patternPreviewWaves[index] + 1}
+											</span>
+										{/each}
+									</div>
+									<div class="tp-legend">
+										<p class="wl-note">{TUMBLE_PATTERN_HINTS[tumblePattern]}</p>
+										<p class="wl-note">
+											The number in each cell is the wave it pops on, replayed here on a 5×3 board
+											at the gap you picked. Your game's own grid drives the real thing, and the
+											waves are counted over the symbols that actually won — a win on three reels
+											pops in three waves, never with two empty ones in front of it.
+										</p>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						{#if tumblePattern !== 'all'}
+							<div class="wl-config">
+								<div class="wl-group">
+									<div class="wl-fields">
+										<label class="field">
+											<span class="label">Gap between waves {tumbleStep} ms</span>
+											<input
+												type="range"
+												min="0"
+												max={TUMBLE_STEP_MS_MAX}
+												step="10"
+												value={tumbleStep}
+												oninput={(e) => (doc = setTumbleStepMs(doc, Number(e.currentTarget.value)))}
+											/>
+										</label>
+									</div>
+									<p class="wl-note">
+										Default {TUMBLE_STEP_MS_DEFAULT} ms. The gap is added to the explosion step the player
+										waits through on every cascading spin, so the whole step grows by the gap times one
+										less than the number of waves — a 5-column sweep at 80 ms costs 320 ms.
+										{#if tumblePerSeat}
+											<strong> This pattern pops one symbol at a time,</strong>
+											so its cost grows with the size of the win rather than with the board: a 15-symbol
+											win at {tumbleStep} ms adds {14 * tumbleStep} ms. Keep the gap short.
+										{/if}
+									</p>
+								</div>
+							</div>
+						{/if}
+					</section>
+				{/if}
 
 				{#if data.reelBehaviour.emerge || doc.transition}
 					<section class="bookvfx">
@@ -4481,6 +4647,55 @@
 	}
 	.wl-reset {
 		align-self: flex-start;
+	}
+	/* ── Explosion pattern ─────────────────────────────────────────────────── */
+	.tp-pick {
+		flex: 0 0 auto;
+		min-width: 220px;
+	}
+	.tp-preview {
+		display: flex;
+		align-items: flex-start;
+		gap: 18px;
+		flex-wrap: wrap;
+	}
+	.tp-grid {
+		display: grid;
+		grid-template-columns: repeat(var(--tp-reels), 26px);
+		gap: 4px;
+		padding: 8px;
+		background: #0b0b11;
+		border: 1px solid #24242e;
+		border-radius: 8px;
+	}
+	.tp-cell {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		height: 26px;
+		border-radius: 5px;
+		background: #1c1c26;
+		color: #55555f;
+		font-size: 10px;
+		font-variant-numeric: tabular-nums;
+		/* Only the un-lit direction is eased: a symbol POPS on its wave and then fades back as the
+		   loop resets, which is the asymmetry the real explosion has. */
+		transition:
+			background 260ms ease,
+			color 260ms ease;
+	}
+	.tp-cell.lit {
+		background: #4d6bd8;
+		color: #f2f4ff;
+		transition: none;
+	}
+	.tp-legend {
+		flex: 1 1 320px;
+		min-width: 260px;
+	}
+	.tp-legend .wl-note:first-child {
+		margin-top: 0;
+		color: #9a9aa6;
 	}
 	.wl-text h2 {
 		margin: 0;

@@ -267,6 +267,60 @@ glow _entirely_ — your own layered art, not one spine — use the **Board glow
 screen in the Scene Editor instead; real content there suppresses the coded glow (and with
 it this section's override).
 
+### Explosion pattern
+
+Shown for a project that has an explosion step to order — one that **cascades**, or one whose
+swap-in-place board **clears** itself before the new symbols arrive. Both run through the same beat,
+so both are ordered by this one pick. (Same gate as the `Tumble explosion` grid column.)
+
+By default the whole board explodes in the **same frame**. Pick a pattern and it comes apart in
+**waves** instead, with a gap between each:
+
+| Pattern                         | What it looks like                                                       |
+| ------------------------------- | ------------------------------------------------------------------------ |
+| `All at once`                   | Every winning symbol in one frame — the default, and what it always did. |
+| `Columns · left to right`       | The leftmost winning column pops first, sweeping rightwards.             |
+| `Columns · right to left`       | The same sweep pointed the other way.                                    |
+| `Columns · centre outwards`     | The middle column first, the wave spreading to both edges together.      |
+| `Columns · edges inwards`       | Both outer columns first, closing in on the middle.                      |
+| `Rows · top to bottom`          | The top winning row first, then each row below it.                       |
+| `Rows · bottom to top`          | Bottom up.                                                               |
+| `Diagonal · from the top-left`  | A diagonal wave off the top-left corner.                                 |
+| `Diagonal · from the top-right` | The same off the top-right.                                              |
+| `Radial · centre outwards`      | Rings spreading out from the middle of the board.                        |
+| `Random · one at a time`        | A shuffled order, re-rolled every step — never the same twice.           |
+| `One at a time · reading order` | Left to right, top to bottom, one symbol per wave.                       |
+
+- **Gap between waves** — milliseconds between one wave and the next (0–500, default **80**). Only
+  shown once a pattern is picked; `All at once` has nothing to space out.
+- The panel plays the pattern **live** on a 5×3 board, each cell numbered with the wave it pops on,
+  so you can compare shapes without spinning.
+
+**The waves are counted over the symbols that actually won**, not over the board. A win on three
+reels pops in three waves — it never waits through two empty ones first — so a pattern reads the
+same on a small win as on a full board. The exception is deliberate: `Radial`, `Columns · centre
+outwards` and `Columns · edges inwards` measure from the middle of the **board**, so an off-centre
+win is seen to be off-centre.
+
+**It costs time.** The gap is added to a step the player waits through on every cascading spin: the
+step grows by the gap times one less than the number of waves, so a 5-column sweep at 80 ms costs
+320 ms. The two **one-at-a-time** patterns scale with the size of the win rather than the board — a
+15-symbol cluster at 80 ms adds over a second — so keep their gap short. There is a hard ceiling of
+**2 s on the whole spread**: past that the gap is tightened to fit rather than the round being held
+up, so a one-at-a-time pattern at a large gap will play faster than the slider says on a big win.
+Everything a pattern plausibly wants is under the ceiling and plays exactly as set.
+
+It is purely how it looks: the same symbols explode, pay the same, and are replaced the same way,
+and the step still ends when the last symbol's animation does. If you also use a **Transition**
+(below), it keeps working: each seat's bridge waits for the last wave, so it still lands on the
+intro rather than playing early into nothing. The step's explosion **sound** fires
+once with the first wave, as it always has; a symbol's own per-symbol cue (Invisible Sound →
+Per-symbol cues) now lands with **that symbol's** pop rather than with the step.
+
+Stored as one optional top-level field, `tumblePattern: { pattern, stepMs? }`. Nothing is written
+for `All at once` or for the default gap, so an untouched project is byte-identical. Reaches a
+standalone game (Book of Borut) only with an `engine` submodule bump.
+
 ### Transition (explosion → intro)
 
 Shown for a project whose `/config` → Reel behaviour → swap style is **Emerge** — the one

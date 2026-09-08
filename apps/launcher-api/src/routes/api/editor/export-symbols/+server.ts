@@ -30,7 +30,7 @@ export const POST: RequestHandler = async ({ url }) => {
 		// `bookVfx` (the book-symbol VFX layers) is on this list for the SAME reason — omit it and the
 		// bake path would ship no book VFX while the runtime path did. `stacked` (the stacked-picture
 		// config) and `transition` (the explosion → intro transition) are here for the SAME reason — the
-		// bake reads them off this response.
+		// bake reads them off this response. `tumblePattern` (the cascade explosion order) likewise.
 		const {
 			map,
 			index,
@@ -41,6 +41,7 @@ export const POST: RequestHandler = async ({ url }) => {
 			winCycle,
 			bookVfx,
 			transition,
+			tumblePattern,
 			anticipation,
 			stacked,
 		} = await exportEditorSymbols(clientKey, projectKey);
@@ -56,6 +57,7 @@ export const POST: RequestHandler = async ({ url }) => {
 			winCycle,
 			bookVfx,
 			transition,
+			tumblePattern,
 			anticipation,
 			stacked,
 		});

@@ -2,7 +2,7 @@
 
 > Design: [docs/design/invisible-symbols-state-machine.md](../design/invisible-symbols-state-machine.md) · Guide: [docs/tools/symbols-state-machine.md](../tools/symbols-state-machine.md) · Agent: _none yet — no `.claude/agents/symbols.md`; closest is `book-of-game` / `engine-pixi-svelte`_
 
-**One-line state:** _(2026-09-03)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest global: an optional **explosion → intro Transition** (emerge boards only) that overlaps the pop's end and the intro's start at each seat — built and offline-verified, ⏳ owner visual-verify + a Borut `engine` submodule bump.
+**One-line state:** _(2026-09-08)_ Shipped — S1–S4 (engine contract, doc schema + endpoints, `/symbols` tool page, export→bake→pull chain) are on `main`; S5 (prove the full round-trip end-to-end on Book of Borut) is still the open piece. Newest global: an authorable **Explosion pattern** — the cascade comes apart in waves (by column, by row, out from the middle, …) instead of in one frame — built and offline-verified, ⏳ owner visual-verify + a runtime release / Borut `engine` submodule bump.
 
 ## Current state
 
@@ -193,6 +193,43 @@ Working on `main`:
     `.strict`/`.refine` rejections) + 3/3 over the real `pruneUnreachableEffects` (keep-set rescues the
     exact id only). ⏳ **Owner visual-verify** (auth-gated tool + needs a book into free spins with the
     special symbol on the board). **Book of Borut needs an `engine` submodule bump** to receive it.
+- **Explosion pattern** (2026-09-08, default `all` ⇒ byte-parity). Doc-level global
+  `tumblePattern: { pattern, stepMs? }` — the ORDER the winning seats pop in and the gap between two
+  waves. Twelve patterns (`all`, four column sweeps, two row sweeps, two diagonals, `radial`,
+  `random`, `sequential`), gap 0–500 ms, default 80. Like the Transition below it, it covers BOTH
+  moments that reach `tumbleBoardExplode`: every cascade step and the swap-in-place board CLEAR.
+  The order lives in ONE place both halves import — `engine-layout/tumblePattern`'s
+  `tumbleExplosionDelays(seats, config, bounds)` — so the tool's live preview and the game cannot
+  disagree; the tool asks for it with `stepMs: 1` so the returned delay IS the wave number.
+  DENSE RANKING over the exploding seats, not the board: a win on three reels pops in three waves
+  rather than waiting through the empty ones, which is what keeps a pattern reading the same on a
+  small win. The exception is deliberate — `radial` / `columnsOut` / `columnsIn` take their centre
+  from the BOARD (the live `stateTumble.base` extents), so an off-centre win reads as off-centre.
+  Engine: `TumbleBoard.svelte` computes the delays once per step and each seat `waitForTimeout`s its
+  own before setting `tumbleExplosion`; the step's `Promise.all` contract is untouched, so it still
+  ends on the LAST beat and simply lasts `(waves - 1) × stepMs` longer. A seat whose symbol has left
+  `stateTumble.base[reel]` by the time its wave fires is DROPPED (identity check, not index) —
+  a slam, `tumbleBoardReset` or a refill splicing the column would otherwise leave the beat waiting
+  on a symbol with no renderer to report `oncomplete`, stalling behind `TRANSIT_BEAT_CAP_MS`.
+  TWO CEILINGS: `stepMs` caps one gap at 500 ms, and `TUMBLE_SPREAD_MS_MAX` (2 s) caps the WHOLE
+  spread by scaling the step down while every seat keeps its wave — because a per-seat pattern's
+  wave count grows with the win (`sequential` × 15 seats × 500 ms = 7 s) and a swap-in-place board
+  with "clear the board" explodes every seat on every spin, on a step nothing races against the
+  round-skip token. An UNKNOWN pattern name answers all-zero rather than throwing: Zod stops one at
+  save, but the launcher deploys from `main` while a shipped game pins the engine submodule, so a
+  newly added pattern can reach an older engine — and a throw there would take `broadcastAsync`, the
+  `tumbleBoard` book event and the round with it. TRANSITION INTERACTION: the pop is per seat and
+  staggered while the intro it bridges is one board-wide beat, so `scheduleTransition` takes a
+  `catchUpMs` (`lastDelay - thisDelay`) and every seat's bridge lands at the same absolute moment —
+  the authored `delayMs` after the LAST wave. Zero without a pattern, so that seam is byte-identical.
+  Sound: the step-wide
+  `playTumbleExplosionSound` still fires ONCE with the first wave; `playSymbolTumbleExplosionSound`
+  moved behind the delay so a symbol's own cue lands with its own pop. Both defaults are pruned on
+  save (`all`, and a step equal to the default) on the SERVER and in the client setter — they have to
+  agree or the page would be permanently dirty. Ships the full chain (schema → client → export →
+  `/api/editor/export-symbols` → bake whitelist + runtime bundle → `bakedTumblePattern()`), plus a
+  `gameProfile` row. Verified offline: `node scripts/verify-tumble-pattern.mjs` (40 checks) and
+  `pnpm --filter launcher-api check:tumble-pattern` (34).
 - **Explosion → intro Transition** (2026-09-03, default OFF ⇒ byte-parity). Doc-level global
   `transition: { kind: 'spine' | 'flipbook' | 'fx', assetKey?, animationName?, clipId?, effectId?,
   delayMs? }` — ONE project-wide animation the cascade overlay mounts at every seat whose outgoing
@@ -375,6 +412,13 @@ Working on `main`:
   `/symbols` / `/rigger` / game; the win-line drawing on a real win).
 
 ## Recent changes
+- 2026-09-08 — **The cascade explodes in WAVES, if you ask it to.** Owner report: clicking spin blew the whole board up in one frame, with no way to say otherwise per game. New optional doc-global `tumblePattern: { pattern, stepMs? }` and a **/symbols → Explosion pattern** panel (shown for a project that cascades OR clears its board, the same gate as the `Tumble explosion` column). Twelve patterns — `all` (the default, unchanged), columns L→R / R→L / centre-out / edges-in, rows top-down / bottom-up, two diagonals, radial, random and reading-order — with a 0–500 ms gap (default 80) and a live 5×3 preview numbering each seat's wave.
+  - **The waves are dense over the WINNING seats, not over the board.** A win on reels 2–4 pops on waves 0,1,2 rather than 2,3,4 with two waves of dead air first, so a pattern reads the same on a three-symbol line as on a full board. The three centre-relative patterns are the deliberate exception: they measure from the board's middle, so an off-centre win looks off-centre.
+  - **One home for the order:** `packages/engine-layout/src/lib/tumblePattern.ts` (`TUMBLE_PATTERNS` + `tumbleExplosionDelays`), read by the game's `TumbleBoard` and by the tool's preview — the same reason `symbolStates` lives there. Sparse and byte-identical when absent (`all` and a 0 gap both resolve to the single frame before any sort runs).
+  - **A pending wave is dropped when the board is swept** (slam / skipped round / `tumbleBoardReset`) or when a refill splices its column: a symbol off its column can never report `oncomplete`, so popping it would stall the beat behind its cap.
+  - **Two guards found in review and closed:** the whole SPREAD is capped at 2 s (the per-wave 500 ms cap bounds nothing for a pattern whose wave count grows with the win, and a board-clear board explodes every seat every spin), and an unknown pattern name degrades to one frame instead of throwing inside the explode step — which matters because the launcher can ship a pattern a submodule-pinned game's engine does not know.
+  - **A symbol's own explosion cue now lands with its own pop** rather than with the step; the step-wide `tumble_win_*` cue still fires once, with the first wave.
+  - Full chain shipped (schema + prune → client setters + dirty signature → `symbolExport` → `/api/editor/export-symbols` → **bake whitelist** → runtime bundle → `bakedTumblePattern()`), plus a `gameProfile` row. Offline-verified: `node scripts/verify-tumble-pattern.mjs` (57 checks — every pattern's wave grid, the spread ceiling and the unknown-name degradation, and the REAL `tumbleBoardExplode` driven on a virtual clock incl. the sweep/splice guards and the transition catch-up) and `pnpm --filter launcher-api check:tumble-pattern` (34 checks — prune, rejection, both bundle paths, the client half). **Engine change — needs a runtime release to reach the online games**, and a Borut submodule bump for the remake. ⏳ owner visual-verify.
 - 2026-09-07 — **The Highlight (win frame) only drew on SPINE symbols.** Reported on a live project whose Win cells are flipbook clips: the authored highlight framed its spine-bound symbols and skipped the flipbook ones, so the feature read as half-broken rather than un-authored. The frame was mounted INSIDE `apps/lines/components/SymbolSpine.svelte`, the spine arm of `Symbol.svelte`'s renderer switch, so the sprite and flipbook arms could never draw it. It now lives in its own `SymbolWinFrame.svelte` that `Symbol.svelte` mounts AFTER the switch, over whichever arm won (`SymbolSpine` was left a pure pass-through to `SymbolSpineMain` and is deleted; the tint/`winLineColor` resolution moved verbatim). A symbol with no art bound still draws nothing, frame included. Verified in the running game via the Symbol-overlay debug grid: with a Win cell temporarily bound to a sprite/flipbook the frame was ABSENT before and PRESENT after, spine cells unchanged. **Engine change — needs a runtime release to reach the online games** (and a Borut submodule bump for the remake).
 - 2026-09-03 — **Explosion → intro Transition.** New optional doc-global `transition` (spine / flipbook / fx + `delayMs`). Under the `emerge` swap style the pop and the intro hard-cut at every seat; now an authored animation mounts at the seat `delayMs` after the explosion fires, fire-and-forget (never joins a beat, never extends the round; cut if it outlives the step). Sparse and byte-identical when absent. Ships the full chain (schema → client → export refs → bake + runtime bundle incl. the effect keep-sets → `bakedSymbolTransition()`), `/symbols` gains a **Transition** section shown only for an emerging project, and `BookVfx.svelte`'s four-kind switch moved into the shared `SymbolLayer.svelte`. Plan note in [perspective-board-mode.md](../design/perspective-board-mode.md) §"The mode switch". Offline-verified (`check:symbol-transition`); ⏳ owner visual-verify; Borut submodule bump owed. Details in the Current-state bullet.
 - 2026-09-03 — **Spine cells no longer come up blank on a cold load.** Reported after the Bounds-box fix deployed: the grid drew every spine cell as its label chip, with `physics is undefined` thrown from `drawCell` every frame; a reload fixed it. The editor's spine loader (`spineRuntime.client.ts`) injected one vendored runtime PER LINE and let "the first to finish" own `window.spine` — a cold /symbols load requests 4.1 (the built-in Highlight/reelhouse previews) and 4.2 (a Rigger rig) at once, both scripts injected, and whichever finished last won, so 4.2 skeletons were posed with the 4.1 runtime's missing `Physics` token and drawn by its `SceneRenderer`. Now ONE runtime (4.2, the line the game runs) loaded once and captured at load; the 4.1 built-ins parse and pose under it (`pnpm --filter launcher-api run check:builtin-spines`). Details in [editor status](editor.md).

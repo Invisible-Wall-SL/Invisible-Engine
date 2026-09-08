@@ -126,12 +126,18 @@
 	import { BoardContext } from 'components-shared';
 
 	import { BoardContainer } from 'engine-game';
+	import { tumbleExplosionDelays } from 'engine-layout';
+	import { waitForTimeout } from 'utils-shared/wait';
 
 	import TumbleBoardBase from './TumbleBoardBase.svelte';
 	import BoardTiles from './BoardTiles.svelte';
 	import BoardMask from './BoardMask.svelte';
 	import SymbolLayer from './SymbolLayer.svelte';
-	import { bakedSymbolTransition, type SymbolTransition } from '../editor-scenes';
+	import {
+		bakedSymbolTransition,
+		bakedTumblePattern,
+		type SymbolTransition,
+	} from '../editor-scenes';
 	import { getContext } from '../game/context';
 	import { awaitSymbolBeat, INTRO_BEAT_CAP_MS, TRANSIT_BEAT_CAP_MS } from '../game/symbolBeat';
 	import { getSymbolSeat, stateGameDerived } from '../game/stateGame.svelte';
@@ -396,11 +402,26 @@
 		);
 	};
 
-	/** Schedule the transition at ONE exploding seat, `delayMs` after the pop fires. */
+	/**
+	 * Schedule the transition at ONE exploding seat, `delayMs` after the pop fires.
+	 *
+	 * `catchUpMs` is what a PATTERN adds: the ms remaining between this seat's own wave and the LAST
+	 * one. Zero without a pattern (every seat pops in the same frame), so this is byte-identical to
+	 * before patterns existed — and load-bearing with one.
+	 *
+	 * The reason it cannot simply ride the seat's own pop is that the two ends of the seam are not
+	 * the same shape. The explosion is PER SEAT and now staggered; the intro it bridges into is ONE
+	 * BOARD-WIDE beat (`tumbleBoardAppear`), fired after the whole explode step resolves. Left on its
+	 * own pop, wave 0's bridge would mount a full spread before the intro it exists to cover, play to
+	 * nobody, and be swept by {@link TRANSITION_LEAK_CAP_MS}. Adding the catch-up lands every seat's
+	 * bridge at the same absolute moment — `delayMs` after the LAST wave — which is where the seam
+	 * actually is.
+	 */
 	const scheduleTransition = (
 		layer: SymbolTransition,
 		position: Position,
 		tumbleSymbol: TumbleSymbol,
+		catchUpMs: number,
 	) => {
 		// The row the symbol is DRAWN at, not `position.row` (its index in `base`): `TumbleSymbol`
 		// seats it by its COMBINED index, and the cascade splices the refills into the column before
@@ -419,7 +440,7 @@
 			layer,
 		};
 		clearTransitionTimer(entry.key);
-		const delayMs = layer.delayMs ?? 0;
+		const delayMs = (layer.delayMs ?? 0) + catchUpMs;
 		// No delay mounts NOW, in the same flush as the explosion state, so the transition's first
 		// painted frame is the pop's first frame; a `setTimeout(…, 0)` would land a tick later.
 		if (delayMs <= 0) {
@@ -499,19 +520,54 @@
 				stateGameDerived.boardSwapsInPlace() && stateGameDerived.boardSwapStyle() === 'emerge'
 					? bakedSymbolTransition()
 					: undefined;
+			// THE PATTERN — the order the seats pop in (Invisible Symbols State Machine → Explosion
+			// pattern, `engine-layout/tumblePattern`). Un-authored it answers all-zero, which is the
+			// single `Promise.all` frame this step has always been; a pattern spreads the same set of
+			// seats over waves without changing WHICH of them explode or what the step means.
+			//
+			// Bounds come from the LIVE base board, not from the exploding set, because the three
+			// centre-relative patterns measure from the middle of the BOARD — a win on reels 3-4 of a
+			// 5-reel board is off-centre, and saying so is the whole point of `radial`. Measured only
+			// when a pattern will read them: the un-authored path is the one every cascading spin runs
+			// and it should stay a lookup, not a scan of every column.
+			const tumblePattern = bakedTumblePattern();
+			const delays = tumbleExplosionDelays(
+				explodingPositions,
+				tumblePattern,
+				tumblePattern && {
+					reels: stateTumble.base.length,
+					rows: stateTumble.base.reduce((max, reel) => Math.max(max, reel.length), 0),
+				},
+			);
+			// The last wave's offset — what a seat's transition has to WAIT OUT so its bridge lands on
+			// the board-wide intro rather than on its own pop. `0` without a pattern (see
+			// `scheduleTransition`), so nothing about the un-patterned seam changes.
+			const lastDelayMs = delays.reduce((max, delay) => Math.max(max, delay), 0);
 			await Promise.all(
-				explodingPositions.map(async (position) => {
+				explodingPositions.map(async (position, index) => {
 					const tumbleSymbol = stateTumble.base[position.reel]?.[position.row];
 					if (!tumbleSymbol) return;
+					const delayMs = delays[index] ?? 0;
+					if (delayMs > 0) {
+						await waitForTimeout(delayMs);
+						// The board can be swept out from under a wave that has not fired yet — a slam, a
+						// skipped round, `tumbleBoardReset`. A symbol no longer on its column is no longer on
+						// screen, so popping it would hang this beat on a completion nothing can report (it
+						// would cost `TRANSIT_BEAT_CAP_MS`, not forever — but a bounded stall is still a stall
+						// on the one step every cascading spin runs). Identity, not index: the column is
+						// spliced by the refill.
+						if (!stateTumble.base[position.reel]?.includes(tumbleSymbol)) return;
+					}
 					// A symbol may also carry its OWN pop (Invisible Symbols → per-symbol sound), heard
 					// alongside the step's cue rather than instead of it. Unbound — the normal case — this
-					// broadcasts nothing at all.
+					// broadcasts nothing at all. Fired HERE rather than with the step's cue so that under a
+					// pattern it lands with this seat's own explosion.
 					playSymbolTumbleExplosionSound(tumbleSymbol.rawSymbol.name);
 					tumbleSymbol.symbolState = 'tumbleExplosion';
 					// Scheduled, never awaited — see `transitions`. `symbolY.current` is the seat the
 					// symbol is resting on: `base` was seated where the reels left it.
 					if (transition) {
-						scheduleTransition(transition, position, tumbleSymbol);
+						scheduleTransition(transition, position, tumbleSymbol, lastDelayMs - delayMs);
 					}
 					await awaitBeat((resolve) => (tumbleSymbol.oncomplete = resolve));
 				}),

@@ -344,6 +344,7 @@ async function main() {
 		winCycle: undefined,
 		bookVfx: undefined,
 		transition: undefined,
+		tumblePattern: undefined,
 		anticipation: undefined,
 		stacked: undefined,
 	};
@@ -462,6 +463,27 @@ async function main() {
 				s?.transition && typeof s.transition === 'object' && typeof s.transition.kind === 'string'
 					? s.transition
 					: undefined;
+			// The cascade EXPLOSION PATTERN — a pattern name + a millisecond gap, assetless. MUST reach
+			// BOTH bundle paths for the same reason the transition above must: omit it here and a
+			// project would explode in waves on the live runtime bundle and in one frame on the baked
+			// one. Rebuilt field-by-field rather than forwarded whole so a hand-edited doc cannot
+			// smuggle a non-numeric step into a `setTimeout`; the server already pruned the defaults, so
+			// a project on "all at once" arrives here as `undefined` and bakes no field at all.
+			//
+			// The NAME is checked for shape, not membership, and deliberately: this script imports
+			// nothing from the workspace (it runs standalone inside a game build), so an allowlist here
+			// would be a hand-copied `TUMBLE_PATTERNS` — the drift trap the rest of this feature avoids
+			// by having exactly one list. Membership is enforced where that list lives: Zod on save,
+			// and `tumbleExplosionDelays`, which answers "one frame" for a name it does not know rather
+			// than throwing inside the explode step.
+			const tumblePattern = (() => {
+				const t = s?.tumblePattern;
+				if (!t || typeof t !== 'object') return undefined;
+				if (typeof t.pattern !== 'string' || t.pattern === 'all') return undefined;
+				const out = { pattern: t.pattern };
+				if (Number.isFinite(t.stepMs)) out.stepMs = t.stepMs;
+				return out;
+			})();
 			const names =
 				s?.names && typeof s.names === 'object' && Object.keys(s.names).length
 					? s.names
@@ -560,6 +582,7 @@ async function main() {
 				winCycle,
 				bookVfx,
 				transition,
+				tumblePattern,
 				anticipation,
 				stacked,
 			};

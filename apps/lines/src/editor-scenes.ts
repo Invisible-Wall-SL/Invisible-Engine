@@ -14,6 +14,7 @@ import type {
 	SoundBindings,
 	SoundCatalog,
 	SymbolNameMap,
+	TumblePatternConfig,
 	WinTextDoc,
 	CinematicDoc,
 } from 'engine-layout';
@@ -301,6 +302,12 @@ type BakedBundle = {
 		 * {@link bakedSymbolTransitionAssets}), an `fx` rides {@link bakedEffects}. Absent ⇒ the hard cut,
 		 * byte-identical to before (parity). See {@link SymbolTransition}. */
 		transition?: SymbolTransition;
+		/** The cascade EXPLOSION PATTERN (Invisible Symbols State Machine output) — the order the
+		 * winning seats pop in and the millisecond gap between two waves of them.
+		 * `components/TumbleBoard.svelte` reads it once per explode step and staggers the seats;
+		 * `engine-layout/tumblePattern` owns the pattern list + the ordering both halves share.
+		 * Assetless. Absent ⇒ every seat pops in the same frame, byte-identical to before (parity). */
+		tumblePattern?: TumblePatternConfig;
 		/** Reel-anticipation presentation FX (Invisible Symbols State Machine output) — the editable
 		 * twin of the coded FX ramp (`codedTierFx`, `game/anticipationPresentation.ts`). `spineKey`
 		 * optionally swaps the per-reel overlay spine (a full R2 bundle prefix registered via
@@ -879,6 +886,19 @@ export function bakedSymbolTransition(): SymbolTransition | undefined {
 	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.transition;
 	if (!hasBakedDoc()) return undefined;
 	return bakedBundle.symbols?.transition;
+}
+
+/**
+ * The cascade explosion PATTERN authored in the Invisible Symbols State Machine — the order the
+ * winning seats pop in and the gap between two waves. `components/TumbleBoard.svelte` hands it to
+ * `tumbleExplosionDelays` on every explode step. Mirrors `bakedBookVfx`'s runtime→baked→undefined
+ * resolution; undefined ⇒ `tumbleExplosionDelays` answers all-zero and the whole board pops in one
+ * frame, exactly as it always did (parity).
+ */
+export function bakedTumblePattern(): TumblePatternConfig | undefined {
+	if (hasRuntimeBundle()) return runtimeBundle!.symbols?.tumblePattern;
+	if (!hasBakedDoc()) return undefined;
+	return bakedBundle.symbols?.tumblePattern;
 }
 
 /**
