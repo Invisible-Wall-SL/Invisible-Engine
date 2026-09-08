@@ -1157,15 +1157,40 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	 * strip to buy reel 0 its overhang. So a staggered or anticipated stop spends the overflow when
 	 * the last reel lands — which is also the first moment the board is showing a result at all.
 	 *
-	 * The cascade overlay does not read this (`TumbleBoard` mounts `BoardMask` without the flag): a
-	 * cascade's symbols cross the same window edge on their way in, so it has a spin's problem, not
-	 * a settled board's.
+	 * SETTLED IS `!rolling`, NOT `motion === 'stopped'` — that distinction is the whole correctness of
+	 * the gate and it is not obvious. `preSpinSlideDownLoop` assigns `motion = 'spinning'` only AFTER
+	 * awaiting its first slide (it shares that statement with the flip to `spin` art, which must not
+	 * move), so the opening ~300 ms of every spin streams a full reel-length through the window while
+	 * `motion` still reads `'stopped'`. Gated on motion the mask was therefore WIDE OPEN for exactly
+	 * the most-watched moment of the spin. `rolling` is set before the pre-spin strip is even built
+	 * and cleared beside `motion = 'stopped'`, so it covers the whole roll.
+	 *
+	 * The cascade overlay cannot use this at all, and that is not an oversight: `reelState.motion`
+	 * (and `rolling`) are written ONLY by the reel's own spin loop, so on a swap-in-place board — which
+	 * never spins — every reel reads settled for the entire life of the overlay, mid-fall included.
+	 * The overlay answers the same question about itself instead (`TumbleBoard`'s transit counter) and
+	 * passes its own allowance in.
 	 */
 	const boardOverflow = () => {
 		const { overflowXLocal, overflowYLocal } = boardGeometry();
 		if (overflowXLocal === 0 && overflowYLocal === 0) return NO_BOARD_OVERFLOW;
-		const settled = stateGame.board.every((reel) => reel.reelState.motion === 'stopped');
+		const settled = stateGame.board.every((reel) => !reel.reelState.rolling);
 		if (!settled) return NO_BOARD_OVERFLOW;
+		return { x: overflowXLocal, y: overflowYLocal };
+	};
+
+	/**
+	 * The authored spill with NO "is it safe yet" gate — for a board that owns its own answer to that
+	 * question. The cascade overlay is the only such board: its symbols are not carried by a reel, so
+	 * the reel-motion gate above is blind to them, and it tracks its own transiting columns instead.
+	 *
+	 * Split out rather than parameterising `boardOverflow` because the two callers are asking genuinely
+	 * different questions, and a boolean argument would let a future caller pass the wrong one and
+	 * silently uncover a rolling strip.
+	 */
+	const boardOverflowAuthored = () => {
+		const { overflowXLocal, overflowYLocal } = boardGeometry();
+		if (overflowXLocal === 0 && overflowYLocal === 0) return NO_BOARD_OVERFLOW;
 		return { x: overflowXLocal, y: overflowYLocal };
 	};
 
@@ -1201,6 +1226,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		boardWindowForReel,
 		boardMaskColumns,
 		boardOverflow,
+		boardOverflowAuthored,
 		boardRaw,
 		scatterLandIndex,
 		enhancedBoard,

@@ -48,6 +48,8 @@ const MASK_SRC = readLF('apps/lines/src/components/BoardMask.svelte');
 const EDITOR_CANVAS_SRC = readLF('apps/launcher-api/src/routes/(app)/editor/EditorCanvas.svelte');
 const BOARD_SRC = readLF('apps/lines/src/components/Board.svelte');
 const TUMBLE_SRC = readLF('apps/lines/src/components/TumbleBoard.svelte');
+const REEL_SRC = readLF('packages/utils-slots/src/createReelForSpinning.svelte.ts');
+const PIXI_UTILS_SRC = readLF('packages/pixi-svelte/src/lib/utils.svelte.ts');
 
 const readConst = (src, name, where) => {
 	const match = src.match(new RegExp(`const ${name} = ([\\d.]+);`));
@@ -109,7 +111,15 @@ const overflowBlock = sliceBlock(
 	'\n\t};\n',
 	'boardOverflow in gameState.svelte.ts',
 );
-const engineBlock = (seatBlock + overflowBlock)
+// The overlay's ungated twin — sliced separately because the two are deliberately NOT one function
+// with a flag (see its doc), so a fixture that tested only one would miss half the contract.
+const authoredBlock = sliceBlock(
+	ENGINE_SRC,
+	'\tconst boardOverflowAuthored = () => {',
+	'\n\t};\n',
+	'boardOverflowAuthored in gameState.svelte.ts',
+);
+const engineBlock = (seatBlock + overflowBlock + authoredBlock)
 	.replace(/: number/g, '')
 	.replace(/: BoardPerspective/g, '');
 
@@ -123,7 +133,7 @@ const buildEngine = new Function(
 	'stateGame',
 	'deps',
 	`${engineBlock}
-return { boardGeometry, boardOverflow, boardMaskColumns };`,
+return { boardGeometry, boardOverflow, boardOverflowAuthored, boardMaskColumns };`,
 );
 
 /** The engine's own shared zero, read back out of the source so this fixture cannot assert against
@@ -136,10 +146,14 @@ const NO_BOARD_OVERFLOW = (() => {
 
 /**
  * @param node the raw `reelGrid` node (or null = "no doc", the coded constants)
- * @param motions one reel-motion string per reel — the live board this `boardOverflow` reads
+ * @param rolling one boolean per reel — is that reel's strip moving. This, NOT `motion`, is what
+ *   `boardOverflow` reads: `preSpinSlideDownLoop` slides a full reel-length before it assigns
+ *   `motion = 'spinning'`, so a motion-based gate is open for the opening ~300 ms of every spin.
+ * @param motions one reel-motion string per reel — carried alongside so the fixture can express the
+ *   states that made the old gate wrong (notably `stopped` WHILE rolling: the pre-spin).
  * @param rowsPerReel `{ rows, align }` for a STEPPED grid; absent ⇒ uniform
  */
-const engineFor = (node, { dims = { reels: 5, rows: 3 }, motions, rowsPerReel } = {}) =>
+const engineFor = (node, { dims = { reels: 5, rows: 3 }, rolling, motions, rowsPerReel } = {}) =>
 	buildEngine(
 		SYMBOL_SIZE,
 		REEL_PADDING,
@@ -148,8 +162,11 @@ const engineFor = (node, { dims = { reels: 5, rows: 3 }, motions, rowsPerReel } 
 		(n) => n?.perspective,
 		{ node },
 		{
-			board: (motions ?? Array.from({ length: dims.reels }, () => 'stopped')).map((motion) => ({
-				reelState: { motion },
+			board: Array.from({ length: dims.reels }, (_u, i) => ({
+				reelState: {
+					motion: motions?.[i] ?? 'stopped',
+					rolling: rolling?.[i] ?? false,
+				},
 			})),
 		},
 		{
@@ -343,9 +360,10 @@ for (const [gridLabel, grid] of GRIDS) {
 		same(`${where} :: mask x`, rect.x, -SYMBOL_SIZE);
 		same(`${where} :: mask width`, rect.width, 1000 + SYMBOL_SIZE * 2);
 		same(`${where} :: mask height`, rect.height, 360);
-		// `y` is left UNSET rather than assigned a 0 — `pixi-svelte` skips undefined props, so an
-		// un-authored board's mask container is touched by exactly the props it always was.
-		same(`${where} :: mask y is unset`, rect.y, undefined);
+		// `y` must be a NUMBER, never undefined. See the round-trip section at the bottom for the bug
+		// this pins: `propsSyncEffect` SKIPS an undefined prop, so undefined means "keep the previous
+		// value" and the mask latched at its grown y for the rest of the session.
+		same(`${where} :: mask y is 0, not undefined`, rect.y, 0);
 	}
 
 	// A STEPPED board's compound ring is float-identical with no overflow to the call that predates
@@ -365,26 +383,52 @@ for (const [gridLabel, grid] of GRIDS) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// 2. THE GATE — the overflow is spent only when EVERY reel has stopped.
+// 2. THE GATE — the overflow is spent only when NO reel's strip is moving.
+//
+//    The subtle case, and the one that shipped broken: THE PRE-SPIN. `preSpinSlideDownLoop` awaits
+//    its first `slideY` — a full reel-length through both window bounds — BEFORE assigning
+//    `motion = 'spinning'`, because that same statement flips every symbol to its `spin` art and
+//    moving it would change what every game draws during the opening slide. So `motion === 'stopped'`
+//    is TRUE while the strip streams past the edge, and a gate built on it was wide open for the
+//    most-watched moment of the spin. `rolling` is the honest signal.
 // ---------------------------------------------------------------------------------------------
 {
 	const node = nodeOf({ overflowX: 30, overflowY: 45 });
 	const local = { x: 30 / boardScaleOf(node), y: 45 / boardScaleOf(node) };
-	const MOVING = ['spinning', 'bouncing'];
 
-	for (const motion of MOVING) {
+	// THE REGRESSION CASE: motion says 'stopped' on every reel, yet reel 0 is mid-pre-spin.
+	for (let reel = 0; reel < 5; reel += 1) {
+		const rolling = Array.from({ length: 5 }, () => false);
+		rolling[reel] = true;
+		const preSpin = engineFor(node, {
+			rolling,
+			motions: Array.from({ length: 5 }, () => 'stopped'),
+		});
+		same(
+			`gate :: reel ${reel} mid PRE-SPIN while every motion still reads 'stopped'`,
+			preSpin.boardOverflow(),
+			NO_BOARD_OVERFLOW,
+		);
+	}
+
+	for (const motion of ['spinning', 'bouncing']) {
 		// Every reel moving…
-		const all = engineFor(node, { motions: Array.from({ length: 5 }, () => motion) });
+		const all = engineFor(node, {
+			rolling: Array.from({ length: 5 }, () => true),
+			motions: Array.from({ length: 5 }, () => motion),
+		});
 		same(`gate :: all reels ${motion}`, all.boardOverflow(), NO_BOARD_OVERFLOW);
 		// …and every single-reel case, because the mask is ONE rectangle over all five columns:
 		// growing it while any reel still rolls uncovers THAT reel's strip.
 		for (let reel = 0; reel < 5; reel += 1) {
+			const rolling = Array.from({ length: 5 }, () => false);
 			const motions = Array.from({ length: 5 }, () => 'stopped');
+			rolling[reel] = true;
 			motions[reel] = motion;
-			const one = engineFor(node, { motions });
+			const one = engineFor(node, { rolling, motions });
 			same(
 				`gate :: reel ${reel} still ${motion} (a staggered / anticipated stop)`,
-				engineFor(node, { motions }).boardOverflow(),
+				one.boardOverflow(),
 				NO_BOARD_OVERFLOW,
 			);
 			ok(
@@ -397,6 +441,24 @@ for (const [gridLabel, grid] of GRIDS) {
 	const settled = engineFor(node).boardOverflow();
 	near('gate :: settled spends the authored x', settled.x, local.x);
 	near('gate :: settled spends the authored y', settled.y, local.y);
+
+	// The overlay's accessor is deliberately UNGATED — the cascade owns its own transit answer.
+	const authored = engineFor(node, { rolling: Array.from({ length: 5 }, () => true) });
+	near(
+		'overlay :: boardOverflowAuthored ignores reel motion (x)',
+		authored.boardOverflowAuthored().x,
+		local.x,
+	);
+	near(
+		'overlay :: boardOverflowAuthored ignores reel motion (y)',
+		authored.boardOverflowAuthored().y,
+		local.y,
+	);
+	same(
+		'overlay :: an un-authored board still gets the frozen zero',
+		engineFor(nodeOf({})).boardOverflowAuthored(),
+		NO_BOARD_OVERFLOW,
+	);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -529,14 +591,46 @@ ok(
 	/<BoardMask\s+allowOverflow\s*\/>/.test(BOARD_SRC),
 );
 ok(
-	// A cascade's symbols cross the same window edge a rolling strip does, so the overlay keeps the
-	// tight window: it has a spin's problem, not a settled board's.
-	'TumbleBoard.svelte mounts its mask WITHOUT allowOverflow',
-	/<BoardMask\s*\/>/.test(TUMBLE_SRC) && !/<BoardMask[^/]*allowOverflow/.test(TUMBLE_SRC),
+	// The overlay must NOT take the reel-motion gate — it is blind to a swap board, which never spins.
+	// It answers for itself, with its own transit counter.
+	'TumbleBoard.svelte mounts its mask with overlaySettled, never allowOverflow',
+	/<BoardMask\s+\{overlaySettled\}\s*\/>/.test(TUMBLE_SRC) &&
+		!/<BoardMask[^/]*allowOverflow/.test(TUMBLE_SRC),
 );
 ok(
-	'BoardMask only reads boardOverflow() when the mount asked for it',
-	/props\.allowOverflow\s*\?\s*context\.stateGameDerived\.boardOverflow\(\)\s*:\s*NO_OVERFLOW/.test(
+	// Exactly THREE call sites — drain, the slide-down fall, and the appear's survivor-vacate phase.
+	// A fourth would mean an in-place beat got counted (and so kept its art clipped); a missing one
+	// would mean a travelling symbol is drawn outside the window.
+	'the overlay counts the three travelling beats, no more and no fewer',
+	/const overlaySettled = \$derived\(show && transiting === 0\)/.test(TUMBLE_SRC) &&
+		(TUMBLE_SRC.match(/\bawait inTransit\(/g) ?? []).length === 3,
+);
+ok(
+	// The counter must be released on a throw, or one interrupted cascade withholds the overflow for
+	// the rest of the session.
+	'the transit counter is released in a finally',
+	/const inTransit = async[\s\S]{0,400}?finally \{[\s\S]{0,120}?transiting = Math\.max\(0, transiting - 1\)/.test(
+		TUMBLE_SRC,
+	),
+);
+ok(
+	// The reel gate must read `rolling`, not `motion` — the pre-spin slide runs with motion 'stopped'.
+	'boardOverflow gates on rolling, not on motion',
+	/const settled = stateGame\.board\.every\(\(reel\) => !reel\.reelState\.rolling\)/.test(
+		ENGINE_SRC,
+	),
+);
+ok(
+	'the reel marks itself rolling before the pre-spin strip is built, and clears it with motion',
+	/isPreSpinning = true;[\s\S]{0,400}?reelState\.rolling = true;[\s\S]{0,200}?await preSpinPadding/.test(
+		REEL_SRC,
+	) && /reelState\.motion = 'stopped';[\s\S]{0,300}?reelState\.rolling = false;/.test(REEL_SRC),
+);
+ok(
+	// The two gates are asked in order and never combined: the reel board owns the motion gate, the
+	// overlay owns its transit counter, and a mount that asks for neither gets the tight window.
+	'BoardMask routes the reel board to the gated accessor and the overlay to the ungated one',
+	/props\.allowOverflow[\s\S]{0,80}?boardOverflow\(\)[\s\S]{0,120}?props\.overlaySettled[\s\S]{0,120}?boardOverflowAuthored\(\)[\s\S]{0,60}?NO_OVERFLOW/.test(
 		MASK_SRC,
 	),
 );
@@ -567,6 +661,109 @@ ok(
 		'the editor draws the overflow band so the author can see the room it bought',
 		/geo\.overflowX > 0 \|\| geo\.overflowY > 0/.test(draw) && /setLineDash/.test(draw),
 	);
+}
+
+// ---------------------------------------------------------------------------------------------
+// 6. THE LATCH — the regression this fixture could not see, and now can.
+//
+//    The first release of this feature wrote `y={overflow.y === 0 ? undefined : -overflow.y}` on the
+//    theory that skipping the prop was the parity-safe way to leave an un-authored board alone. It is
+//    the opposite: `propsSyncEffect` applies a prop only `if (props[key] !== undefined)`, so undefined
+//    means KEEP THE PREVIOUS VALUE. An authored board therefore latched — the first settle wrote
+//    `y = -overflowY` and nothing ever wrote it back, so on the next spin `height` shrank to the tight
+//    window while `y` stayed high and the mask sat wholly `overflowY` px too high: that much cut off
+//    the bottom of the reels, and an equal strip uncovered above the top.
+//
+//    THE OLD SECTIONS COULD NOT CATCH IT, and that is the lesson worth keeping. They read the four
+//    prop expressions as VALUES, and `y: undefined` compares equal to "no y prop" — parity, seemingly.
+//    A prop is not a value; it is an ASSIGNMENT with its own skip rule. So this section replays a real
+//    round — settle, spin, settle — through the shipped `propsSyncEffect` semantics, read back out of
+//    `pixi-svelte` rather than described here, and asserts the mask lands where it should EVERY time.
+// ---------------------------------------------------------------------------------------------
+{
+	// The rule, taken from the real source so this cannot drift from what ships.
+	const skipsUndefined = /if \(props\[key\] !== undefined\) \{/.test(PIXI_UTILS_SRC);
+	ok(
+		'propsSyncEffect still skips undefined props (the rule this section is built on)',
+		skipsUndefined,
+	);
+
+	/** Apply one render's props the way `propsSyncEffect` does: undefined = leave the previous value. */
+	const applyProps = (container, props) => {
+		for (const [key, value] of Object.entries(props)) {
+			if (value !== undefined) container[key] = value;
+		}
+		return container;
+	};
+
+	const WINDOW_W = 1000;
+	const WINDOW_H = 360;
+
+	for (const [gridLabel, grid] of GRIDS) {
+		for (const [authoredLabel, authored] of AUTHORED) {
+			if (authored.overflowY === 0) continue; // the latch is a y-axis bug
+			const where = `latch :: ${gridLabel} | ${authoredLabel}`;
+			const node = nodeOf({ ...grid, ...authored });
+			// ONE Pixi container, reused across the whole round — which is the entire point: a fresh
+			// object per render would hide a latch by construction.
+			const graphics = { x: 0, y: 0, width: 0, height: 0 };
+
+			const renderAt = (rolling) => {
+				const overflow = engineFor(node, {
+					rolling: Array.from({ length: 5 }, () => rolling),
+				}).boardOverflow();
+				return applyProps(graphics, maskRect(WINDOW_W, WINDOW_H, overflow));
+			};
+
+			// Settle → the window is grown.
+			const settledOverflow = engineFor(node).boardOverflow();
+			renderAt(false);
+			near(`${where} :: settled top edge`, graphics.y, -settledOverflow.y);
+			near(
+				`${where} :: settled bottom edge`,
+				graphics.y + graphics.height,
+				WINDOW_H + settledOverflow.y,
+			);
+
+			// Spin → the window must return to EXACTLY the tight rect. This is the assertion that was
+			// missing: with the undefined prop, `y` stayed at `-overflowY` here.
+			renderAt(true);
+			same(`${where} :: rolling top edge is the window top`, graphics.y, 0);
+			same(
+				`${where} :: rolling bottom edge is the window bottom`,
+				graphics.y + graphics.height,
+				WINDOW_H,
+			);
+			same(`${where} :: rolling height is the tight window`, graphics.height, WINDOW_H);
+
+			// Settle again → grown again, and identically. A latch in the other direction would show here.
+			renderAt(false);
+			near(`${where} :: re-settled top edge`, graphics.y, -settledOverflow.y);
+			near(
+				`${where} :: re-settled bottom edge`,
+				graphics.y + graphics.height,
+				WINDOW_H + settledOverflow.y,
+			);
+
+			// And a second full round, because a latch that needs two cycles to appear is still a latch.
+			renderAt(true);
+			same(`${where} :: second spin returns to the tight window`, graphics.y, 0);
+		}
+	}
+
+	// An UN-AUTHORED board never moves its mask, through any number of rounds.
+	for (const [gridLabel, grid] of GRIDS) {
+		const graphics = { x: 0, y: 0, width: 0, height: 0 };
+		const node = nodeOf({ ...grid });
+		for (const rolling of [false, true, false, true, false]) {
+			const overflow = engineFor(node, {
+				rolling: Array.from({ length: 5 }, () => rolling),
+			}).boardOverflow();
+			applyProps(graphics, maskRect(1000, 360, overflow));
+			same(`latch :: ${gridLabel} | un-authored y never moves`, graphics.y, 0);
+			same(`latch :: ${gridLabel} | un-authored height never moves`, graphics.height, 360);
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------------------------

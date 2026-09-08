@@ -97,6 +97,24 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 	const reelState = $state({
 		symbols: createReelSymbols(reelOptions.initialSymbols),
 		motion: 'stopped' as SpinningReelMotion,
+		/**
+		 * Is this reel's strip MOVING — including the pre-spin slide, which {@link motion} does not
+		 * cover.
+		 *
+		 * `motion` cannot answer this and must not be changed to: `preSpinSlideDownLoop` deliberately
+		 * awaits its FIRST `slideY` before assigning `motion = 'spinning'`, because that same statement
+		 * flips every symbol to its `spin` art and doing it earlier would change the art a symbol shows
+		 * during the opening slide for every game. So for the first ~300 ms of every spin a full
+		 * reel-length streams through the board window while `motion` still reads `'stopped'`.
+		 *
+		 * Anything that has to know "is it safe to show something outside the reel window right now"
+		 * has to read THIS instead — see `boardOverflow` in `engine-game`, which grows the board mask.
+		 * Gated on it, the mask stays tight for the whole roll including the opening slide.
+		 *
+		 * Additive and default `false`, and nothing that existed before reads it, so a game that never
+		 * authors a symbol overflow is byte-identical.
+		 */
+		rolling: false,
 		spinType: 'normal' as SpinType,
 		// Client-computed reel ANTICIPATION (docs/design/reel-anticipation.md). `anticipationLevel` is
 		// the stack count (0 = not armed); `anticipationTier` the coarse intensity. Driven by the arming
@@ -249,6 +267,10 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		const preSpinPaddingRawReel = preSpinPaddingReel;
 
 		isPreSpinning = true;
+		// Set BEFORE `preSpinPadding`, not before the slide: that call doubles the strip and
+		// `placeY`s it a whole reel-length above home, so the strip has already left its seats by the
+		// time anything slides. Everything from here to the bounce-back is "moving".
+		reelState.rolling = true;
 		reelState.spinType = isTurboBeforeAll ? 'fast' : 'normal';
 		await preSpinPadding({ preSpinPaddingRawReel });
 		if (!isTurboBeforeAll) await delaySpinByReelIndex();
@@ -290,6 +312,9 @@ export function createReelForSpinning<TRawSymbol extends object, TSymbolState ex
 		onSpinFinishing();
 		await removePaddingAndBounceBack();
 		reelState.motion = 'stopped';
+		// The strip has come to rest on its seats — cleared alongside `motion`, and never before it,
+		// so the two can only disagree about the pre-spin slide (which is the whole reason it exists).
+		reelState.rolling = false;
 		updateAllReelSymbolState('land');
 	};
 

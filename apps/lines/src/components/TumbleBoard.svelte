@@ -171,6 +171,41 @@
 	let show = $state(false);
 
 	/**
+	 * How many symbol MOVEMENTS are in flight on this overlay — the overlay's own answer to the one
+	 * question the board mask needs before it may let art spill past the reel window.
+	 *
+	 * It needs its own, because the reel board's answer is meaningless here: `reelState.motion` and
+	 * `rolling` are written only by a reel's spin loop, and a swap-in-place board never spins, so
+	 * every reel reads "settled" for this overlay's entire life — mid-fall included.
+	 *
+	 * A COUNTER, not a boolean, because the beats overlap by design: `columnCascade` runs one drain +
+	 * slide per column on independent staggered timers, so two columns are routinely moving at once
+	 * and a boolean would be cleared by whichever finished first.
+	 *
+	 * Only the three beats where a symbol actually TRAVELS are counted — drain, slide-down, and the
+	 * appear's survivor-vacate phase. The beats the owner reported clipped are deliberately NOT
+	 * counted, because nothing travels in them: `tumbleExplosion` is set on symbols already resting on
+	 * their seats, and `intro` is set immediately before a `symbolY.set(…, { duration: 0 })` whose own
+	 * comment is "Nothing travels; the arrival is the animation, not the movement."
+	 */
+	let transiting = $state(0);
+
+	/** Run one movement, counted. `finally` so a thrown/interrupted beat cannot leave the overlay
+	 *  permanently "in transit" and silently withhold the overflow for the rest of the session. */
+	const inTransit = async (run: () => Promise<unknown>) => {
+		transiting += 1;
+		try {
+			await run();
+		} finally {
+			transiting = Math.max(0, transiting - 1);
+		}
+	};
+
+	/** Every symbol is resting on its seat, so authored `intro` / `explosion` art may spill exactly as
+	 *  a landed reel symbol's does. Gated on `show` too, so a hidden overlay never widens anything. */
+	const overlaySettled = $derived(show && transiting === 0);
+
+	/**
 	 * Is the REEL board on screen? Tracked here — off the same `boardShow`/`boardHide` cues
 	 * `Board.svelte` binds, which the emitter delivers to every subscriber — purely so the ground
 	 * tile layer below can never draw twice. Initialised `true` because that is what `Board.svelte`
@@ -519,11 +554,13 @@
 		tumbleBoardDrain: async ({ reelIndex }) => {
 			const draining = stateTumble.base[reelIndex] ?? [];
 			const dropRows = draining.length;
-			await Promise.all(
-				draining.map((tumbleSymbol, symbolIndex) =>
-					tumbleSymbol.symbolY.set(
-						getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW + dropRows).y,
-						{ duration: COLUMN_DRAIN_MS, easing: cubicIn },
+			await inTransit(() =>
+				Promise.all(
+					draining.map((tumbleSymbol, symbolIndex) =>
+						tumbleSymbol.symbolY.set(
+							getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW + dropRows).y,
+							{ duration: COLUMN_DRAIN_MS, easing: cubicIn },
+						),
 					),
 				),
 			);
@@ -541,7 +578,12 @@
 								const targetY = getSymbolSeat(reelIndex, symbolIndex + PADDING_ROW).y;
 								if (targetY === tumbleSymbol.symbolY.current) return;
 
-								await tumbleSymbol.symbolY.set(targetY, { duration: 200, easing: backOut });
+								// Counted: this is the fall itself. The land beat below stays OUTSIDE the count, so a
+								// cascade symbol that has arrived spends the overflow for its landing animation
+								// exactly as a landed reel symbol does.
+								await inTransit(() =>
+									tumbleSymbol.symbolY.set(targetY, { duration: 200, easing: backOut }),
+								);
 
 								// Only the VISIBLE rows play their land state — the padding rows top and bottom are
 								// off-screen buffer, and landing them would fire land sounds for symbols nobody sees.
@@ -618,12 +660,17 @@
 			// the slide is still running drops the new symbol on top of a symbol that has not left yet,
 			// and it reads exactly as broken as it sounds. A reveal has no survivors, so this phase is
 			// empty there and the arrival below is reached in the same tick as before.
-			await Promise.all(
-				cells
-					.filter((cell) => cell.moved)
-					.map((cell) =>
-						cell.tumbleSymbol.symbolY.set(cell.seatY, { duration: 200, easing: backOut }),
-					),
+			// Counted: the survivors are the only thing that travels in an emerge. Phase 2 below places
+			// its arrivals with `duration: 0` and is deliberately NOT counted — that instant placement
+			// IS the style, and its `intro` art is precisely what has to be allowed to spill.
+			await inTransit(() =>
+				Promise.all(
+					cells
+						.filter((cell) => cell.moved)
+						.map((cell) =>
+							cell.tumbleSymbol.symbolY.set(cell.seatY, { duration: 200, easing: backOut }),
+						),
+				),
 			);
 
 			// PHASE 2 — the seats are clear, so the new symbols surface. The survivors play their own
@@ -694,7 +741,11 @@
 	     flat, spine symbols draw on the animating layer so they can overflow their cell. -->
 	<BoardContext animate={false}>
 		<BoardContainer>
-			<BoardMask />
+			<!-- `overlaySettled`, not `allowOverflow`: the reel-motion gate is blind to this overlay (a
+			     swap-in-place board never spins, so every reel reads settled even mid-fall), so it
+			     answers for itself with its own transit counter. Nothing authored ⇒ no spill either
+			     way. -->
+			<BoardMask {overlaySettled} />
 			<!--
 				GROUND TILES — the SAME layer, in the same place in the same container, as
 				`Board.svelte` mounts: first painted child after the mask, so the whole ground sits
