@@ -2576,8 +2576,12 @@ Overwrite it?`)
 			{/if}
 
 			<div class="actions">
+				<!-- `rel="external"`: this points at a `+server.ts` endpoint, not an app route, so the
+				     SvelteKit router must hand it to the browser as a real navigation for the download
+				     to happen. -->
 				<a
 					class="dl"
+					rel="external"
 					href={api(
 						'file',
 						`session=${encodeURIComponent(session.id)}&v=${encodeURIComponent(downloading.file)}`,
