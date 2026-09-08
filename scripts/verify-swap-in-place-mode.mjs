@@ -82,12 +82,20 @@
 //     and that the reel board consumes it is the shipped `Board.svelte` subscriber, unchanged.
 //   * The reel path is asserted only negatively (the mode reads off, so the spin branch is the one
 //     taken). That the spin still rolls is covered by the untouched `lines` build and its e2e.
+//   * NO EXPLOSION → INTRO TRANSITION IS AUTHORED in any run here (`bakedSymbolTransition` answers
+//     `undefined`, which is what it answers for a project that has not drawn one). That is the
+//     shipped default and the case every claim below is about; what an authored one looks like is a
+//     drawing question, and it is fire-and-forget by construction, so nothing here would see it.
 //
 // Everything under test is SLICED OUT OF THE SHIPPED SOURCE — the modules are runes/Svelte and
 // cannot be imported from Node — so a rename or a reordering fails loudly here rather than leaving
-// the fixture quietly asserting nothing.
+// the fixture quietly asserting nothing. The TYPE removal that makes a slice runnable is Node's own
+// `stripTypeScriptTypes`, NOT this file's idea of what an annotation looks like: hand-written
+// strippers made "the component grew an annotation" a failure mode of its own, and one of those
+// failures is what kept parts 3-10 from running at all for the length of a feature.
 
 import { readFileSync } from 'node:fs';
+import { stripTypeScriptTypes } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveGrid } from '../packages/game-config/src/grid.ts';
@@ -121,6 +129,43 @@ const sliceBetween = (source, what, from, to) => {
 	const end = source.indexOf(to, start);
 	if (end < 0) throw new Error(`${what}: could not find "${to}" after it`);
 	return source.slice(start, end + to.length);
+};
+
+// `stripTypeScriptTypes` is flagged experimental, and the warning Node prints for it would be the
+// loudest line in a passing run. Silenced narrowly — anything else Node has to say still gets through.
+const emitWarning = process.emitWarning.bind(process);
+process.emitWarning = (warning, ...rest) => {
+	const type = typeof rest[0] === 'string' ? rest[0] : rest[0]?.type;
+	if (type === 'ExperimentalWarning' && String(warning).includes('stripTypeScriptTypes')) return;
+	emitWarning(warning, ...rest);
+};
+
+/**
+ * A source slice, as JavaScript this fixture can evaluate.
+ *
+ * Every slice below is TypeScript, and the removal used to be hand-written regexes — one per
+ * annotation the sliced code happened to contain, plus a guard that threw when an unknown one got
+ * through. That guard is why this file stopped running: the explosion → intro TRANSITION feature
+ * added `type SeatTransition = { … }`, a `scheduleTransition` signature, `$state.raw<SeatTransition[]>`
+ * and `new Map<string, ReturnType<typeof setTimeout>>()` to the TumbleBoard helper slice, and parts
+ * 3, 4 and 5 went dark behind "grew a type annotation this fixture cannot strip". Node's own stripper
+ * knows the whole language, so growing an annotation is no longer an event.
+ */
+const stripTypes = (what, source) => {
+	let js;
+	try {
+		js = stripTypeScriptTypes(source, { mode: 'strip' });
+	} catch (error) {
+		throw new Error(`${what}: the slice is not strippable TypeScript — ${error.message}`);
+	}
+	// Runes are Svelte's, not TypeScript's, so the stripper leaves them — and here each one reduces to
+	// the identity its VALUE semantics have outside a component. `.raw` first: the bare `$state(`
+	// pattern would not match it, but stripping leaves the type argument's whitespace behind, so both
+	// patterns have to tolerate the gap.
+	return js
+		.replace(/\$state\.raw\s*\(/g, '(')
+		.replace(/\$state\s*\(/g, '(')
+		.replace(/\$derived\s*\(/g, '(');
 };
 
 // `boardPerspective` … `getSymbolSeat` — the same contiguous block `verify-symbol-seat.mjs` takes,
@@ -593,8 +638,7 @@ const layoutHelpers = [
 	),
 ]
 	.join('')
-	.replace(/export const /g, 'const ')
-	.replace('<T>(baseReel: T[], addingReel: T[]): T[] =>', '(baseReel, addingReel) =>');
+	.replace(/export const /g, 'const ');
 
 // The beat CAP the cascade races against is no longer declared in the component. It used to be
 // `CASCADE_BEAT_CAP_MS`, sliced from `TumbleBoard.svelte` right here; #442 moved both the race and
@@ -636,40 +680,41 @@ const beatHelpers = [
 	),
 ]
 	.join('')
-	.replace(/export const /g, 'const ')
-	.replace('(arm: (resolve: () => void) => void, capMs: number)', '(arm, capMs)');
+	.replace(/export const /g, 'const ');
 
 // The real cascade board's helpers + cue handlers, sliced out of `TumbleBoard.svelte`. Only the
 // module's TYPE annotations are removed; the bodies are the shipped ones.
 const tumbleComponent = read('apps/lines/src/components/TumbleBoard.svelte');
 const componentScript = tumbleComponent.slice(tumbleComponent.lastIndexOf('<script lang="ts">'));
-const helpers = (
-	layoutHelpers +
-	beatHelpers +
-	sliceBetween(componentScript, 'PADDING_ROW', '\tconst PADDING_ROW =', ';\n') +
-	sliceBetween(
-		componentScript,
-		'the TumbleBoard helpers',
-		'\tconst awaitBeat =',
-		'\tcontext.eventEmitter.subscribeOnMount({',
+const helpers = stripTypes(
+	'the TumbleBoard helper slice',
+	(
+		layoutHelpers +
+		beatHelpers +
+		sliceBetween(
+			componentScript,
+			'the overlay transit counter',
+			'\tlet transiting =',
+			'\tconst overlaySettled =',
+		) +
+		sliceBetween(componentScript, 'PADDING_ROW', '\tconst PADDING_ROW =', ';\n') +
+		sliceBetween(
+			componentScript,
+			'the TumbleBoard helpers',
+			'\tconst awaitBeat =',
+			'\tcontext.eventEmitter.subscribeOnMount({',
+		)
 	)
-)
-	.replace('\tcontext.eventEmitter.subscribeOnMount({', '')
-	.replace(/\(arm: \(resolve: \(\) => void\) => void\)/, '(arm)')
-	.replace(/\}: \{[\s\S]*?\}\): TumbleSymbol => \{/, '}) => {')
-	.replace(/\}: \{ addingBoard: AddingBoard \}\)/, '})')
-	.replace(/\(\): TumbleSymbol\[\]\[\] =>/g, '() =>')
-	.replace(/\(reelIndex: number, addingReel: RawSymbol\[\]\)/g, '(reelIndex, addingReel)')
-	.replace(/\(reelIndex: number\)/g, '(reelIndex)')
-	.replace(/ as const/g, '')
-	.replace(/\$state\(/g, '(')
-	.replace(/\$derived\(/g, '(');
+		.replace('\tconst overlaySettled =', '')
+		.replace('\tcontext.eventEmitter.subscribeOnMount({', ''),
+);
 for (const name of [
 	'PAD_ROWS_ABOVE',
 	'combineTumbleReel',
 	'awaitSymbolBeat',
 	'TRANSIT_BEAT_CAP_MS',
 	'awaitBeat',
+	'inTransit',
 	'initTumbleBoardAddingReel',
 	'initTumbleBoardAdding',
 	'initTumbleBoardNoBase',
@@ -680,11 +725,6 @@ for (const name of [
 	if (!helpers.includes(`const ${name} = `)) {
 		throw new Error(`the TumbleBoard slice no longer declares ${name}`);
 	}
-}
-// The strippers above are hand-written, so an annotation this fixture does not know about would be
-// evaluated as JavaScript and throw somewhere unhelpful. Fail on the annotation instead.
-if (/:\s*(number|RawSymbol|TumbleSymbol|AddingBoard|T)\b/.test(helpers)) {
-	throw new Error('the TumbleBoard helper slice grew a type annotation this fixture cannot strip');
 }
 
 /** The `subscribeOnMount({ … })` argument, by brace balance. */
@@ -702,57 +742,54 @@ const handlersSource = (() => {
 	}
 	throw new Error('could not find the end of the TumbleBoard cue handlers');
 })();
+/** The same block as a DECLARATION, stripped — what the runtime below evaluates. `handlersSource`
+ *  itself stays raw, because part 9 asserts against it as source text. */
+const handlersDecl = stripTypes(
+	'the TumbleBoard cue handlers',
+	`const handlers = ${handlersSource};`,
+);
 
 // The cascade board's own state, sliced too — `tumbleBoardCombined` is the function that decides
 // what the drop-in settles on, so it must be the real one.
 const tumbleState = read('apps/lines/src/game/stateTumble.svelte.ts');
-const tumbleStateSource = [
+const tumbleStateRaw = [
 	sliceBetween(tumbleState, 'stateTumble', 'export const stateTumble = ', '});\n'),
 	sliceBetween(tumbleState, 'tumbleBoardCombined', 'export const tumbleBoardCombined = ', ';\n'),
 	sliceBetween(tumbleState, 'resetTumbleBoard', 'export const resetTumbleBoard = ', '\n};\n'),
 ]
 	.join('\n')
-	.replace(/export const /g, 'const ')
-	.replace(/\$state\(/g, '(')
-	.replace(/ as TumbleSymbol\[\]\[\]/g, '')
-	.replace(/\(\): TumbleSymbol\[\]\[\] =>/g, '() =>');
+	.replace(/export const /g, 'const ');
+const tumbleStateSource = stripTypes('the stateTumble slice', tumbleStateRaw);
 
 // The reveal presentation itself, sliced out of the shared module both drivers now call.
 const flowEffects = read('apps/lines/src/game/flowEffects.ts');
 // The CLEAR step lives beside it and is the drop-in's only branch, so it is sliced too — asserting
 // the sequence against a hand-written stand-in would prove the fixture, not the game. Prepended to
 // the drop-in slice below, because the drop-in calls it by name.
-const clearSource = [
-	sliceBetween(
-		flowEffects,
-		'visibleColumnPositions',
-		'const visibleColumnPositions = (',
-		';\n',
-	).replace(/\(reelIndex: number, strip: readonly unknown\[\]\)/, '(reelIndex, strip)'),
-	sliceBetween(
-		flowEffects,
-		'clearOutgoingSymbols',
-		'const clearOutgoingSymbols = async (',
-		'\n};\n',
-	).replace('(reelIndex?: number)', '(reelIndex)'),
-].join('\n');
+const clearSource = stripTypes(
+	'the clearOutgoingSymbols slice',
+	[
+		sliceBetween(flowEffects, 'visibleColumnPositions', 'const visibleColumnPositions = (', ';\n'),
+		sliceBetween(
+			flowEffects,
+			'clearOutgoingSymbols',
+			'const clearOutgoingSymbols = async (',
+			'\n};\n',
+		),
+	].join('\n'),
+);
 if (!clearSource.includes('tumbleBoardExplode') || !clearSource.includes('RemoveExploded')) {
 	throw new Error('clearOutgoingSymbols no longer runs the explode + remove pair');
-}
-if (/:\s*(number|readonly)/.test(clearSource)) {
-	throw new Error('the clear slice grew a type annotation this fixture cannot strip');
 }
 // The per-column removal MUST name its column. A cascade runs its columns concurrently on an
 // absolute stagger, so an unscoped filter would take a neighbour's symbols mid-explosion.
 if (!clearSource.includes("type: 'tumbleBoardRemoveExploded', reelIndex")) {
 	throw new Error('the per-column clear no longer scopes its removal to the column');
 }
-const dropInSource = sliceBetween(
-	flowEffects,
-	'dropInRevealBoard',
-	'const dropInRevealBoard = async (',
-	'\n};\n',
-).replace(": BookEventOfType<'reveal'>", '');
+const dropInSource = stripTypes(
+	'the dropInRevealBoard slice',
+	sliceBetween(flowEffects, 'dropInRevealBoard', 'const dropInRevealBoard = async (', '\n};\n'),
+);
 // A reveal has nothing to explode of its OWN — nothing has won yet. The explode/remove pair reaches
 // a round only through the authored clear step above, which is a separate claim with its own run
 // below; leaked back into the drop-in body it would fire on every project, authored or not.
@@ -815,12 +852,15 @@ check(
 
 // The COLUMN CASCADE presentation, sliced out of the same module — plus its default stagger, so the
 // fixture asserts the number the game actually ships rather than a copy of it.
-const columnCascadeSource = sliceBetween(
-	flowEffects,
-	'columnCascadeRevealBoard',
-	'const columnCascadeRevealBoard = async (',
-	'\n};\n',
-).replace(": BookEventOfType<'reveal'>", '');
+const columnCascadeSource = stripTypes(
+	'the columnCascadeRevealBoard slice',
+	sliceBetween(
+		flowEffects,
+		'columnCascadeRevealBoard',
+		'const columnCascadeRevealBoard = async (',
+		'\n};\n',
+	),
+);
 /** What the fixture EVALUATES for a cascade run. The body references `clearOutgoingSymbols` on its
  *  clearing branch, so the helper is in scope for every run; `columnCascadeSource` stays pure so the
  *  "a reveal explodes nothing of its own" guard below still has something to guard. */
@@ -947,8 +987,21 @@ const boardOf = (prefix) =>
  * helper block the slice takes — with the SAME initial values the component gives them (`false` and
  * `true`), which is load-bearing for the tile guard: `Board.svelte` mounts showing, so the overlay
  * must start out believing the reels own the screen.
+ *
+ * The transit counter lives above that block too and is SLICED anyway (see `helpers`), because
+ * unlike those two it has behaviour: `inTransit` awaits the movement it wraps, and a stand-in that
+ * forgot to would silently un-order every beat measured below.
  */
-const buildTumbleRuntime = ({ clock, previousBoard, tileArt, onLand, onSound, moves, authoredIntro }) => {
+const buildTumbleRuntime = ({
+	clock,
+	previousBoard,
+	tileArt,
+	onLand,
+	onSound,
+	moves,
+	authoredIntro,
+	swapStyle,
+}) => {
 	const build = new Function(
 		'Tween',
 		'backOut',
@@ -969,11 +1022,20 @@ const buildTumbleRuntime = ({ clock, previousBoard, tileArt, onLand, onSound, mo
 		// point of the predicate is that the two answers cost different amounts of time, and a
 		// fixture that could only exercise one of them would not be testing the rule at all.
 		'hasAuthoredSymbolState',
+		// THE EXPLOSION → INTRO TRANSITION, unauthored — which is what `bakedSymbolTransition()`
+		// returns for every project that has not drawn one, and therefore the behaviour every claim
+		// below is about. What a transition DOES is not in scope here (nothing in a fixture draws);
+		// what is in scope is that the explode handler asks, and that an unauthored answer changes no
+		// step, no order and no beat — it is fire-and-forget by construction (see `transitions`).
+		'bakedSymbolTransition',
 		`${tumbleStateSource}
 let show = false;
 let reelBoardShown = true;
+// Svelte's, and the helper slice hands it the transition sweep. Nothing unmounts a component in a
+// fixture, so the callback never runs — what has to hold is that registering it does not throw.
+const onDestroy = () => {};
 ${helpers}
-const handlers = ${handlersSource};
+${handlersDecl}
 return {
 	handlers,
 	stateTumble,
@@ -1000,6 +1062,12 @@ return {
 			boardRaw: () => previousBoard,
 			boardTileArt: () => tileArt,
 			onSymbolLand: ({ rawSymbol: landedSymbol }) => onLand?.(landedSymbol.name),
+			// Every board this fixture drives IS a swap-in-place one — that is the mode under test —
+			// and the STYLE is whichever presentation the caller is driving. The explode handler reads
+			// both to decide whether a transition bridges the pop into the intro, a question only the
+			// emerge style answers yes to.
+			boardSwapsInPlace: () => true,
+			boardSwapStyle: () => swapStyle,
 		},
 		() => onSound?.('tumbleExplosion'),
 		(symbolName) => onSound?.(`symbol:tumbleExplosion:${symbolName}`),
@@ -1007,6 +1075,7 @@ return {
 		// Default: NOTHING is authored. That is the state every project is in the day the style
 		// ships, and it is the case that regressed — so it is the one the fixture runs by default.
 		(symbolName, state) => Boolean(authoredIntro?.(symbolName, state)),
+		() => undefined,
 	);
 };
 
@@ -1030,6 +1099,14 @@ const runReveal = async ({
 	revealedBoard = boardOf('new'),
 }) => {
 	const clock = createClock();
+	/** The authored style this run IS, read off the presentation being driven — the same answer the
+	 *  engine's `boardSwapStyle()` hands the component in a game configured for it. */
+	const swapStyle = {
+		dropInRevealBoard: 'dropIn',
+		columnCascadeRevealBoard: 'columnCascade',
+		emergeRevealBoard: 'emerge',
+	}[name];
+	if (swapStyle === undefined) throw new Error(`no swap style for the presentation "${name}"`);
 	const landed = [];
 	const sounded = [];
 	const moves = [];
@@ -1044,6 +1121,7 @@ const runReveal = async ({
 		onSound: (cue) => sounded.push(cue),
 		moves,
 		authoredIntro,
+		swapStyle,
 	});
 
 	const logEvent = (event) => {
@@ -1936,12 +2014,10 @@ console.log('--- 8. a column cascade can CLEAR each column instead of draining i
 
 console.log('--- 9. the emerge style - nothing travels ---');
 
-const emergeSource = sliceBetween(
-	flowEffects,
-	'emergeRevealBoard',
-	'const emergeRevealBoard = async (',
-	'\n};\n',
-).replace(": BookEventOfType<'reveal'>", '');
+const emergeSource = stripTypes(
+	'the emergeRevealBoard slice',
+	sliceBetween(flowEffects, 'emergeRevealBoard', 'const emergeRevealBoard = async (', '\n};\n'),
+);
 /** Same shape as the cascade's: the body reaches `clearOutgoingSymbols` on its clearing branch, so
  *  the helper is in scope for every run while the slice itself stays pure. */
 const emergePresentation = `${clearSource}\n${emergeSource}`;
@@ -2234,6 +2310,8 @@ console.log('--- 10. the cascade arrives the same way the spin does ---');
 		onLand: (name) => landed.push(name),
 		onSound: (cue) => sounded.push(cue),
 		moves,
+		// The step ends in an APPEAR, which is the emerge style's motion.
+		swapStyle: 'emerge',
 	});
 	// One replacement per exploded cell, which is the contract a real `tumbleBoard` event holds to.
 	const addingBoard = Array.from({ length: REELS }, (_u, reel) => [rawSymbol(`new${reel}`)]);
@@ -2325,6 +2403,8 @@ console.log('--- 10. the cascade arrives the same way the spin does ---');
 			onSound: () => {},
 			moves,
 			authoredIntro,
+			// The style IS which motion the step ends in — the two this block compares.
+			swapStyle: slide ? 'dropIn' : 'emerge',
 		});
 		const addingBoard = Array.from({ length: REELS }, (_u, reel) => [rawSymbol(`new${reel}`)]);
 		const explodingPositions = Array.from({ length: REELS }, (_u, reel) => ({ reel, row: ROWS }));
