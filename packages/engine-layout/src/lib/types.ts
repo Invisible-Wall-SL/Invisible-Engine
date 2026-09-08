@@ -565,6 +565,29 @@ export interface ReelGridNode extends BaseNode {
 	boardNudgeX?: number;
 	boardNudgeY?: number;
 	/**
+	 * SYMBOL OVERFLOW — how far past the reel window a LANDED symbol's art may spill, in px
+	 * (the same units as the cell size). The board is clipped to its window so a rolling strip
+	 * cannot be seen above or below the reels; the cost is that art drawn larger than its cell —
+	 * a tall creature, a symbol on a rock — is cut off at the window edge. This grows the CLIP
+	 * only, never the lattice: no cell moves, no seat moves, the board keeps its size.
+	 *
+	 * IT APPLIES ONLY WHILE THE BOARD IS SETTLED (`boardOverflow` in `gameState.svelte.ts`). A
+	 * spinning strip is exactly what the window exists to hide — its symbols are culled at the
+	 * window edge, so a clip that reached past it would pop half a symbol into view every time
+	 * one crossed the boundary. So the clip grows the moment the last reel stops and shrinks back
+	 * the moment the next spin starts, which is what makes "only the pictures that landed" the
+	 * literal behaviour rather than an approximation.
+	 *
+	 * Absent / 0 ⇒ the window is the board, byte-identical to before this existed — and that
+	 * matters because `apps/lines` is the shared runtime bundle every online game runs.
+	 *
+	 * The X axis is the smaller knob in practice: the mask already over-extends horizontally by a
+	 * whole cell on each side (see `BoardMask`), so side art has that much room before this is
+	 * needed at all.
+	 */
+	overflowX?: number;
+	overflowY?: number;
+	/**
 	 * Spin-FEEL tuning (animation, not layout): optional per-field overrides of the
 	 * game's coded `SPIN_OPTIONS_*`, applied by the game's `spinOptions` getter.
 	 * Absent / empty ⇒ the coded constants are used unchanged (parity).

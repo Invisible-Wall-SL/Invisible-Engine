@@ -2660,9 +2660,24 @@
 			// at the window edge here exactly as it does live.
 			ctx.save();
 			ctx.beginPath();
+			// The window, GROWN by the authored symbol overflow — the same growth the game applies to
+			// its mask once the board settles (`boardOverflow`). Absent ⇒ `0` on both axes ⇒ the two
+			// rects below are the ones that were always drawn.
 			const clip = geo.clip;
-			if (clip) ctx.rect(clip.x, clip.y, clip.w, clip.h);
-			else ctx.rect(left, top, w, h);
+			if (clip)
+				ctx.rect(
+					clip.x - geo.overflowX,
+					clip.y - geo.overflowY,
+					clip.w + geo.overflowX * 2,
+					clip.h + geo.overflowY * 2,
+				);
+			else
+				ctx.rect(
+					left - geo.overflowX,
+					top - geo.overflowY,
+					w + geo.overflowX * 2,
+					h + geo.overflowY * 2,
+				);
 			ctx.clip();
 			ctx.translate(cx, cy);
 			const symTransform: import('engine-layout').ResolvedTransform = {
@@ -2697,6 +2712,23 @@
 			ctx.stroke();
 		} else {
 			ctx.strokeRect(left, top, w, h);
+		}
+
+		// SYMBOL OVERFLOW: the extra room a settled symbol's art may spill into, dashed so it reads as
+		// a clip boundary rather than a second board. Drawn only when authored, so an ordinary board's
+		// preview is untouched — and drawn LAST so it sits over the board outline it grows from.
+		if (geo.overflowX > 0 || geo.overflowY > 0) {
+			const box = geo.clip ?? { x: left, y: top, w, h };
+			ctx.lineWidth = 1;
+			ctx.strokeStyle = 'rgba(93, 176, 255, 0.55)';
+			ctx.setLineDash([6 / zoom, 5 / zoom]);
+			ctx.strokeRect(
+				box.x - geo.overflowX,
+				box.y - geo.overflowY,
+				box.w + geo.overflowX * 2,
+				box.h + geo.overflowY * 2,
+			);
+			ctx.setLineDash([]);
 		}
 	}
 

@@ -3714,6 +3714,45 @@
 					/>
 				</label>
 			</div>
+			<p class="muted small">
+				<strong>Symbol overflow</strong> — extra px of room outside the reels, so art drawn bigger
+				than its cell isn't cut off at the board edge. It grows the clip only: no cell moves and the
+				board keeps its size. In game it applies
+				<strong>only once every reel has stopped</strong> — a spinning strip still ends at the board
+				edge. Blank = 0 = no spill (today's behaviour).
+			</p>
+			<div class="row">
+				<label class="field">
+					<span>overflow X</span>
+					<input
+						type="number"
+						step="1"
+						min="0"
+						placeholder="0"
+						value={node.overflowX ?? ''}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							node.overflowX = Number.isFinite(v) && v > 0 ? v : undefined;
+							markDirty();
+						}}
+					/>
+				</label>
+				<label class="field">
+					<span>overflow Y</span>
+					<input
+						type="number"
+						step="1"
+						min="0"
+						placeholder="0"
+						value={node.overflowY ?? ''}
+						oninput={(e) => {
+							const v = e.currentTarget.valueAsNumber;
+							node.overflowY = Number.isFinite(v) && v > 0 ? v : undefined;
+							markDirty();
+						}}
+					/>
+				</label>
+			</div>
 			<details class="spin-tuning">
 				<summary>Spin tuning (advanced)</summary>
 				<p class="muted small">
