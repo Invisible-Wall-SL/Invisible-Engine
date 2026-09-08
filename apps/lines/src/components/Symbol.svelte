@@ -21,10 +21,11 @@
 		 * themselves (the Book expand/reveal riders, which loop only their `bookIdle`). Omit and the
 		 * cell authored in the Symbols State Machine decides. */
 		loop?: boolean;
-		/** Draw a FLIPBOOK-bound state as its first frame, held — a clip rendered as a still picture.
-		 * Sprite and spine states ignore it: a sprite is already one frame, and a spine has no frame
-		 * list to stop on. Used by the inline message symbol, where a looping icon inside a line of
-		 * text reads as a glitch rather than as art. */
+		/** Hold this state on its FIRST frame instead of animating it — the symbol drawn as a still
+		 * picture, whatever it is bound to. A flipbook stops on frame 0 of its playback walk; a spine
+		 * holds the pose its animation opens on; a sprite is already one frame and is unaffected. Used
+		 * by the inline message symbol, where a moving icon inside a line of text pulls the eye off
+		 * the sentence it illustrates. */
 		frozen?: boolean;
 	};
 
@@ -76,6 +77,7 @@
 	<SymbolSpineMain
 		{loop}
 		{symbolInfo}
+		frozen={props.frozen}
 		x={props.x}
 		y={props.y}
 		listener={{

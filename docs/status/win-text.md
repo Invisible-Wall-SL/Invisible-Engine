@@ -295,9 +295,12 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
   bound to Invisible Flipbook clips the toast played the clip — a looping animation where the sentence
   asked for the symbol's NAME. `<Symbol>`/`<SymbolFlipbook>` gained a `frozen` prop (passes
   `play={false}` to `<Flipbook>` ⇒ `gotoAndStop(0)`), set by `MessageSymbol` only; every board state
-  is untouched, so a game whose symbols are sprites or spines is byte-identical. Spine symbols still
-  animate inline — a skeleton has no frame list to stop on. Files: `Symbol.svelte`,
-  `SymbolFlipbook.svelte`, `MessageSymbol.svelte`, `/win-text` toggle copy. `apps/lines` builds clean.
+  is untouched, so a game whose symbols are sprites is byte-identical. **Extended the same day to
+  SPINE symbols**, which animated inline for the same reason: `SymbolSpineMain` takes `frozen` too and
+  passes `timeScale={0}` to its `SpineTrack`, holding the pose `SpineTrack`'s existing `spine.update(0)`
+  already establishes at the animation's first frame (not the setup pose, which is a different
+  picture). Files: `Symbol.svelte`, `SymbolFlipbook.svelte`, `SymbolSpineMain.svelte`,
+  `MessageSymbol.svelte`, `/win-text` toggle copy. `apps/lines` builds clean.
   ⏳ owner visual-verify the toast on a flipbook-bound symbol — **engine change, so the remake needs a
   Borut `engine` submodule bump + runtime release.**
 - 2026-08-18 — **an inline symbol no longer shrinks the message it sits in.** The symbol is sized from
