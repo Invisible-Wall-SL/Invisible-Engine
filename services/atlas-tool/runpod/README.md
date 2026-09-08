@@ -229,8 +229,13 @@ python /push-models.py --dir loras --apply    # do it
 
 Same `R2_*` env as `pull-models.py`. `--src` defaults to `/workspace/ComfyUI/models`.
 
-**Both mirror scripts are BAKED at `/pull-models.py` and `/push-models.py`** (since
-2026-09-07) — nothing to paste, no token, none of the private-repo problem in the box
+`--src` is only a path walk, so this runs on a DESKTOP too — point it at
+`…\ComfyUI\Shared\Models` to push something that was born there. It is the narrower
+tool for that than `seed-comfyui-models.py`, which walks the whole tree: `--dir loras`
+scopes it, and the default dry run shows the plan before anything moves.
+
+**Both mirror scripts are BAKED at `/pull-models.py` and `/push-models.py`, with
+`boto3` alongside them** (since 2026-09-07) — nothing to paste, no token, none of the private-repo problem in the box
 above. They live here rather than in the image folder, so CI copies them into the build
 context on its way past, exactly as the worker build does with `nodes.json`; a *local*
 `docker build` needs that `cp` done by hand. **A pod predating this image won't have
