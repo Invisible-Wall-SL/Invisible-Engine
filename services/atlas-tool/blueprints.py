@@ -25,6 +25,7 @@ No secrets here: R2 creds come from env via `storage` / `iw_common.storage`.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import threading
@@ -274,12 +275,20 @@ def library_status() -> dict:
     hydrate()
     out: dict = {"in_r2": [], "on_disk": [], "loaded": [], "skipped": [],
                  "r2_error": "", "prefix": SHARED_BLUEPRINTS_PREFIX}
+    r2_mtime: dict[str, float] = {}
     try:
         ids = set()
         for obj in storage.list_keys(SHARED_BLUEPRINTS_PREFIX + "/"):
             rest = str(obj.get("key", ""))[len(SHARED_BLUEPRINTS_PREFIX) + 1:]
             if "/" in rest:
-                ids.add(rest.split("/", 1)[0])
+                bid = rest.split("/", 1)[0]
+                ids.add(bid)
+                # Newest object under the id — the moment it was last published.
+                # Staging mtime would be the moment it was PULLED, which is a
+                # different fact and the wrong one to show next to a digest.
+                mt = float(obj.get("mtime") or 0)
+                if mt > r2_mtime.get(bid, 0):
+                    r2_mtime[bid] = mt
         out["in_r2"] = sorted(ids)
     except Exception as e:  # noqa: BLE001 — an unreachable bucket IS the finding
         out["r2_error"] = str(e)[:300]
@@ -296,6 +305,9 @@ def library_status() -> dict:
                 "id": bp["id"],
                 "kind": str(meta.get("kind") or DEFAULT_BLUEPRINT_KIND),
                 "name": str(meta.get("name") or bp["id"]),
+                "graph_sha": bp.get("graph_sha", ""),
+                "map_sha": bp.get("map_sha", ""),
+                "updated_at": r2_mtime.get(bp["id"], 0),
             })
         else:
             out["skipped"].append({"id": name, "why": _rejection_reason(name)})
@@ -742,6 +754,38 @@ def validate_against_graph(bp_id: str, manifest: dict, graph: dict) -> dict:
     return manifest
 
 
+# Length of the digests surfaced in the UI. Twelve hex chars is 48 bits — far
+# more than enough to tell "did my upload land?" apart from "this is last week's
+# file", and short enough to read off a screen and compare by eye.
+DIGEST_CHARS = 12
+
+
+def canonical_digest(obj, chars: int = DIGEST_CHARS) -> str:
+    """A stable sha256 over a parsed JSON value, independent of formatting.
+
+    Hashing the FILE BYTES would be useless here: `_uploadblueprint` re-writes
+    the graph as `json.dumps(graph, indent=2)`, so the stored bytes never equal
+    the bytes the author picked in the modal, and every comparison would fail
+    for a file that landed perfectly. Hashing the canonical form (sorted keys,
+    no whitespace) makes the digest a property of the CONTENT, so an author can
+    recompute it from their local file and get the same answer:
+
+        python -c "import json,hashlib;print(hashlib.sha256(json.dumps(
+            json.load(open('workflow.json')),sort_keys=True,
+            separators=(',',':')).encode()).hexdigest()[:12])"
+
+    Returns "" for anything unserialisable rather than raising — a digest is a
+    convenience, and no listing should ever fail because one could not be taken.
+    """
+    try:
+        blob = json.dumps(obj, sort_keys=True, separators=(",", ":"),
+                          ensure_ascii=False).encode("utf-8")
+    except (TypeError, ValueError):
+        return ""
+    full = hashlib.sha256(blob).hexdigest()
+    return full[:chars] if chars else full
+
+
 def _read_blueprint_dir(d: Path) -> dict | None:
     """Load one blueprint directory -> {id, graph, bindings, meta} or None if it
     isn't a usable blueprint (missing/unreadable files, invalid manifest)."""
@@ -774,8 +818,17 @@ def _read_blueprint_dir(d: Path) -> dict | None:
     # the companion prepare step (B?? §10).
     meta = {k: v for k, v in manifest.items() if k != "bindings"}
     meta.setdefault("id", bp_id)
+    # Content digests, so "is the library holding the file I just published?"
+    # is answerable at a glance. ASSIGNED, never setdefault: an authored value
+    # in the manifest must not be able to impersonate the real content.
+    # `graph_sha` is the one to compare against a local file; `map_sha` covers
+    # the bindings/params and is taken AFTER validation, so it reflects the
+    # normalised manifest the runner actually reads.
+    meta["graph_sha"] = canonical_digest(graph)
+    meta["map_sha"] = canonical_digest(manifest)
     return {"id": bp_id, "graph": graph, "bindings": bindings,
-            "params": params, "custom_nodes": custom_nodes, "meta": meta}
+            "params": params, "custom_nodes": custom_nodes, "meta": meta,
+            "graph_sha": meta["graph_sha"], "map_sha": meta["map_sha"]}
 
 
 def list_blueprints(kind: str | None = None) -> list[dict]:

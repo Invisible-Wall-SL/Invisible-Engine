@@ -392,6 +392,21 @@ Check the one thing you just changed is actually in it. Thirty seconds there
 saves the loop of *edit → publish → render → same failure*, which is how an
 afternoon disappears.
 
+**The quick version: compare the digest.** 🗑 Manage blueprints shows a 12-char
+`graph_sha` beside each entry — the sha256 of the graph the library actually
+holds. Recompute it from the file you meant to publish and the two must match:
+
+```bash
+python -c "import json,hashlib;print(hashlib.sha256(json.dumps(json.load(open('workflow.json')),sort_keys=True,separators=(',',':')).encode()).hexdigest()[:12])"
+```
+
+It is a CANONICAL digest (sorted keys, no whitespace), not a hash of the file
+bytes — publishing re-serialises the graph as `json.dumps(graph, indent=2)`, so
+a byte hash would differ for a file that landed perfectly. Formatting and key
+order are therefore irrelevant; content is all that counts. `library_status`
+carries `graph_sha`, `map_sha` and `updated_at` (the R2 publish time, not the
+staging pull time) for scripted checks.
+
 ### Troubleshooting
 
 | Symptom | What it means | Fix |
