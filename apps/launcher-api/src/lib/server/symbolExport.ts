@@ -187,6 +187,11 @@ export interface SymbolExportResult {
 	 *  fx's effect via the effects export (kept reachable at bake). Absent → the intro cuts in the
 	 *  moment the explosion ends, exactly as before the field existed. */
 	transition?: SymbolsDoc['transition'];
+	/** The cascade EXPLOSION PATTERN — the order the winning seats pop in and the gap between two
+	 *  waves of them. Pure config, no asset of any kind, so it is a verbatim pass-through like
+	 *  `winCycle`. Absent → the whole board explodes in one frame, exactly as before the field
+	 *  existed. */
+	tumblePattern?: SymbolsDoc['tumblePattern'];
 	/** The reel-anticipation presentation FX (per-tier escalation + optional overlay spine key),
 	 *  passed through VERBATIM. A swapped `spineKey` bundle rides `index.spines` under the same key
 	 *  (like `boardGlow`); the per-tier FX are pure config (no asset). Absent → the game keeps its
@@ -618,6 +623,11 @@ export async function exportEditorSymbols(
 	// `bookVfx`. Absent → the seam stays a hard cut.
 	const transition = doc.transition;
 
+	// The cascade explosion pattern. Assetless (a pattern name + a millisecond gap), so a verbatim
+	// pass-through of the already-pruned doc field — `normalizeSymbolsDoc` has dropped it entirely
+	// for a project left on "all at once", which is what keeps that project's bundle byte-identical.
+	const tumblePattern = doc.tumblePattern;
+
 	// The reel-anticipation FX. Its optional `spineKey` bundle already shipped via `refs.spineKeys`
 	// into `index.spines` under this same key (like `boardGlow`); the per-tier FX are pure config, so
 	// this is a verbatim pass-through of the sparse authored doc (alias-keyed per-tier FX). Absent →
@@ -668,6 +678,7 @@ export async function exportEditorSymbols(
 		...(winCycle ? { winCycle } : {}),
 		...(bookVfx ? { bookVfx } : {}),
 		...(transition ? { transition } : {}),
+		...(tumblePattern ? { tumblePattern } : {}),
 		...(anticipation ? { anticipation } : {}),
 		...(stacked ? { stacked } : {}),
 	};

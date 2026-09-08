@@ -13,14 +13,40 @@ import {
 	SWAP_SYMBOL_STATES,
 	SYMBOL_STATE_LABELS,
 	SYMBOL_STATES,
+	TUMBLE_PATTERN_HINTS,
+	TUMBLE_PATTERN_LABELS,
+	TUMBLE_PATTERNS,
+	TUMBLE_PATTERNS_PER_SEAT,
+	TUMBLE_STEP_MS_DEFAULT,
+	TUMBLE_STEP_MS_MAX,
+	isTumblePattern,
+	tumbleExplosionDelays,
 	type SymbolNameEntry,
 	type SymbolStateName,
+	type TumblePatternConfig,
+	type TumblePatternName,
 } from 'engine-layout';
 
 export type { SymbolNameEntry };
 
 export { SYMBOL_STATES };
 export type SymbolState = SymbolStateName;
+
+/** The cascade EXPLOSION PATTERN vocabulary — re-exported from its ONE home in `engine-layout`, the
+ *  same module the game's `TumbleBoard` orders its seats with. Re-exported rather than re-declared
+ *  for the reason `SYMBOL_STATES` is: this page and the engine must offer the same list, and a
+ *  hand-copied one drifts silently here (the launcher build transpiles TS without checking it). */
+export {
+	TUMBLE_PATTERN_HINTS,
+	TUMBLE_PATTERN_LABELS,
+	TUMBLE_PATTERNS,
+	TUMBLE_PATTERNS_PER_SEAT,
+	TUMBLE_STEP_MS_DEFAULT,
+	TUMBLE_STEP_MS_MAX,
+	isTumblePattern,
+	tumbleExplosionDelays,
+};
+export type { TumblePatternConfig, TumblePatternName };
 
 /** The book-only states. They mirror new engine states and are valid in the doc for
  *  every game (the schema accepts them), but the grid only SHOWS their columns for a
@@ -487,6 +513,11 @@ export interface SymbolsDoc {
 	 *  `codedTierFx` ramp. Sparse: absent ⇒ the game keeps its coded per-tier FX + overlay spine
 	 *  (byte-parity with Phase 4). Passed through verbatim to `bundle.symbols.anticipation`. */
 	anticipation?: AnticipationConfig;
+	/** The cascade EXPLOSION PATTERN — the order the winning seats pop in (`pattern`) and the gap in
+	 *  ms between two waves (`stepMs`). Sparse: absent — and `all` — ⇒ the whole board explodes in
+	 *  one frame, nothing ships, byte-identical. Passed through verbatim to
+	 *  `bundle.symbols.tumblePattern`. */
+	tumblePattern?: TumblePatternConfig;
 	updatedAt?: string;
 }
 
@@ -784,6 +815,56 @@ export function clearTransition(doc: SymbolsDoc): SymbolsDoc {
 	if (!doc.transition) return doc;
 	const next = { ...doc };
 	delete next.transition;
+	return next;
+}
+
+/** The effective explosion pattern = the doc's value ?? `all`, which is what the cascade has always
+ *  done (every winning seat in one frame). */
+export function tumblePatternName(doc: SymbolsDoc): TumblePatternName {
+	return doc.tumblePattern?.pattern ?? 'all';
+}
+
+/** The effective gap between two waves, ms. Only meaningful once a pattern other than `all` is
+ *  picked — the engine short-circuits before it reads this. */
+export function tumbleStepMs(doc: SymbolsDoc): number {
+	return doc.tumblePattern?.stepMs ?? TUMBLE_STEP_MS_DEFAULT;
+}
+
+/** Pick the explosion pattern, returning a NEW doc. `all` DROPS the whole section rather than
+ *  storing the default — the same sparse round-trip rule the server's `pruneTumblePattern` applies,
+ *  so the page and the saved doc agree on what "untouched" looks like and a project that tries a
+ *  pattern and changes its mind saves the bytes it started with. */
+export function setTumblePattern(doc: SymbolsDoc, pattern: TumblePatternName): SymbolsDoc {
+	if (pattern === 'all') return clearTumblePattern(doc);
+	return { ...doc, tumblePattern: { ...doc.tumblePattern, pattern } };
+}
+
+/**
+ * Set the gap between two waves (ms), clamped to the shared ceiling and floored to an integer.
+ *
+ * A NO-OP while the pattern is `all`: storing a step under it would persist a section the engine
+ * never reads, which is exactly the "authored" ghost the sparse rule exists to prevent.
+ *
+ * The DEFAULT gap drops the field rather than storing it, mirroring the server's
+ * `pruneTumblePattern`. Both halves have to agree or the page is permanently dirty: it would sign a
+ * `stepMs` the server strips on save, so Save would light up again the instant it finished.
+ */
+export function setTumbleStepMs(doc: SymbolsDoc, stepMs: number): SymbolsDoc {
+	const pattern = doc.tumblePattern?.pattern;
+	if (!pattern || pattern === 'all') return doc;
+	if (!Number.isFinite(stepMs)) return doc;
+	const clamped = Math.min(Math.max(Math.floor(stepMs), 0), TUMBLE_STEP_MS_MAX);
+	return {
+		...doc,
+		tumblePattern: clamped === TUMBLE_STEP_MS_DEFAULT ? { pattern } : { pattern, stepMs: clamped },
+	};
+}
+
+/** Back to "all at once" — no key at all, so an untouched/reset project ships nothing. New doc. */
+export function clearTumblePattern(doc: SymbolsDoc): SymbolsDoc {
+	if (!doc.tumblePattern) return doc;
+	const next = { ...doc };
+	delete next.tumblePattern;
 	return next;
 }
 
@@ -1331,6 +1412,14 @@ export function docSignature(doc: SymbolsDoc): string {
 		for (const state of SYMBOL_STATES) if (states[state]) ordered[state] = states[state];
 		symbolSounds[symbol] = ordered;
 	}
+	// Listed here or picking an explosion pattern never marks the page dirty and Save stays disabled —
+	// the same trap every sibling above carries a warning about.
+	const tumblePattern = doc.tumblePattern
+		? {
+				pattern: doc.tumblePattern.pattern ?? null,
+				stepMs: doc.tumblePattern.stepMs ?? null,
+			}
+		: null;
 	return JSON.stringify({
 		symbols,
 		names,
@@ -1342,6 +1431,7 @@ export function docSignature(doc: SymbolsDoc): string {
 		winCycle,
 		bookVfx,
 		transition,
+		tumblePattern,
 		anticipation,
 	});
 }

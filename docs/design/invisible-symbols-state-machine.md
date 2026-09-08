@@ -169,6 +169,71 @@ to also carry line + text **style**. It is still **pure config — no asset, no 
   bundle draws it** (default-on: `enabled ?? true`), so a project that authors win-line style
   online sees it in game with no per-game code.
 
+## Explosion pattern — added 2026-09-08
+
+**The problem.** The cascade blew the whole board up in one frame, and that was not a decision
+anyone had made — it was the shape of a `Promise.all` over `explodingPositions`. A game that wanted
+its board to come apart column by column had nowhere to say so.
+
+**The shape.** One optional doc-global, a SIBLING of `transition` rather than a field inside it (the
+transition covers the seam at one seat; this is the order the seats are reached in, and a project
+routinely wants one without the other):
+
+```ts
+tumblePattern?: { pattern: TumblePatternName; stepMs?: number }
+```
+
+**Where the order lives.** `packages/engine-layout/src/lib/tumblePattern.ts` — a pure, dependency-
+free `tumbleExplosionDelays(seats, config, bounds)` plus the pattern list and its labels. In
+`engine-layout` for the same reason `symbolStates` is: the authoring tool and the game both depend on
+that package, and a list re-declared on each side drifts silently (the launcher build transpiles TS
+without checking it). The tool's live preview calls the same function the game does, with
+`stepMs: 1`, so the delay it gets back IS the wave number.
+
+**Three rules the ordering holds to**, because each is invisible when it is wrong:
+
+1. **Dense ranking over the exploding seats, not the board.** The waves are numbered `0…n-1` across
+   the seats that actually won, so a win on three reels pops in three waves rather than waiting
+   through the empty ones in front of it. A pattern therefore reads the same on a small win as on a
+   full board.
+2. **The centre is the BOARD's.** `radial` / `columnsOut` / `columnsIn` measure from the middle of
+   the board (the live column extents), so an off-centre win is seen to be off-centre. Every other
+   pattern is monotonic, so the dense ranking cancels the origin out and the bounds do not matter.
+3. **`all` and a zero gap both mean one frame**, and both short-circuit before any sort runs — the
+   parity path, which is every project that never opens the panel.
+
+**What it must not change.** The step's contract: it still ends when the LAST seat's animation
+reports, so a pattern lengthens it by exactly `(waves - 1) × stepMs` and nothing else. Which seats
+explode, what they pay, and how they are refilled are all untouched. A wave that has not fired when
+the board is swept (slam, skipped round, `tumbleBoardReset`) or has its column spliced under it is
+DROPPED rather than popped — an off-board symbol has no renderer and can never report `oncomplete`.
+
+**Two ceilings, and only the second one bounds the round.** `stepMs` is capped at 500, but that caps
+ONE GAP, which caps nothing for a pattern whose wave count grows with the win: `sequential` pops one
+seat per wave, so a 15-symbol cluster at 500 ms would spread over 7 seconds — and a swap-in-place
+board with "clear the board" ticked explodes the whole board on EVERY spin, on a step that is not
+raced against the round-skip token. So the whole SPREAD is capped too (`TUMBLE_SPREAD_MS_MAX`,
+2 s), by scaling the step down to fit while every seat keeps the wave the pattern gave it. It is a
+guard, not a shaper: a 5-column sweep at the maximum gap is exactly 2 s and passes through untouched.
+
+**An unknown pattern name explodes in one frame — it never throws.** Zod stops one at save, so this
+is not about a malformed doc; it is about the version skew this repo ships by design. The launcher
+deploys from `main` on its own cadence while a shipped game vendors the engine as a submodule pinned
+to an older commit, so a thirteenth pattern added today can reach a game whose `switch` has no case
+for it. A throw would land inside `tumbleBoardExplode`, whose rejection takes `broadcastAsync` → the
+`tumbleBoard` book event → the round with it, on the one step every cascading spin runs.
+
+**The one thing downstream a pattern does move** is the explosion → intro transition, and it is
+handled at the transition rather than here. The pop is per seat and now staggered; the intro it
+bridges is one board-wide beat (`tumbleBoardAppear`) fired after the whole step resolves. Left on its
+own pop, wave 0's bridge would mount a full spread early and play to nobody. Each seat's bridge
+therefore waits out the remaining waves (`scheduleTransition`'s `catchUpMs`), landing every one of
+them at the same absolute moment — the authored `delayMs` after the LAST wave, which is where the
+seam actually is. Zero without a pattern, so the un-patterned seam is byte-identical.
+
+**Where it applies.** Both moments that reach `tumbleBoardExplode`: every cascade step, and the
+swap-in-place board CLEAR. Same gate as the `Tumble explosion` grid column, for the same reason.
+
 ## "Spine export" demystified
 
 A spine asset is a **bundle of sibling files that travel together**, e.g. for `H1`

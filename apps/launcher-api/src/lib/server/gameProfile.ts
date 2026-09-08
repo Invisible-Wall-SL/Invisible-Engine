@@ -40,6 +40,7 @@ import {
 	type ResolvedWinTier,
 	type WinModel,
 } from 'game-config';
+import { TUMBLE_PATTERN_LABELS } from 'engine-layout';
 import type { GameConfigSource } from './gameConfigDefaults';
 import type { SymbolsDoc } from './symbolsStorage';
 import type { MockProtocol } from './testServerManifest';
@@ -364,6 +365,17 @@ const FEATURE_DETECTORS: readonly ChipSource[] = [
 			ctx.states.has('explosion') || ctx.states.has('tumbleExplosion')
 				? 'Explosion animations'
 				: null,
+	},
+	{
+		id: 'tumblePattern',
+		title:
+			'The winning symbols explode in waves — by column, by row, out from the middle — rather than all in the same frame.',
+		text: (ctx) => {
+			const pattern = ctx.symbols.tumblePattern?.pattern;
+			return pattern && pattern !== 'all'
+				? `Explosion pattern: ${TUMBLE_PATTERN_LABELS[pattern]}`
+				: null;
+		},
 	},
 	{
 		id: 'symbolNames',

@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { isManifestAssetKey, SYMBOL_STATES } from 'engine-layout';
+import {
+	isManifestAssetKey,
+	SYMBOL_STATES,
+	TUMBLE_PATTERNS,
+	TUMBLE_STEP_MS_DEFAULT,
+	TUMBLE_STEP_MS_MAX,
+} from 'engine-layout';
 import { createAtlasRefResolver } from './manifestBasename';
 import { symbolsDocKey } from './projectPaths';
 import { getObjectTextWithEtag, precondition, putObjectText } from './r2';
@@ -414,6 +420,26 @@ const transitionSchema = z
 	});
 
 /**
+ * THE CASCADE EXPLOSION PATTERN — the order the winning seats pop in (`pattern`) and the gap
+ * between two waves of them (`stepMs`, milliseconds).
+ *
+ * A SIBLING of `transition`, not a field inside it: the transition is what covers the seam at ONE
+ * seat, this is the order the seats are reached in, and a project routinely wants one without the
+ * other (the transition is `emerge`-only; a pattern applies to every cascading board).
+ *
+ * Both fields are optional and both defaults are pruned on save (see `pruneTumblePattern`), so a
+ * project that never picks a pattern persists no key and its board keeps exploding in one frame.
+ * The pattern list + the step ceiling come from `engine-layout/tumblePattern`, the one home the
+ * game's `TumbleBoard` reads them from too.
+ */
+const tumblePatternSchema = z
+	.object({
+		pattern: z.enum(TUMBLE_PATTERNS).optional(),
+		stepMs: z.number().int().min(0).max(TUMBLE_STEP_MS_MAX).optional(),
+	})
+	.strict();
+
+/**
  * Reel-anticipation presentation FX (Invisible Symbols State Machine → `docs/design/reel-anticipation.md`
  * Phase 5). The editable twin of the coded `codedTierFx` ramp in
  * `apps/lines/src/game/anticipationPresentation.ts` — the per-tier escalation the client-computed tease
@@ -482,6 +508,7 @@ export const symbolsDocSchema = z
 		winCycle: winCycleSchema.optional(),
 		bookVfx: bookVfxSchema.optional(),
 		transition: transitionSchema.optional(),
+		tumblePattern: tumblePatternSchema.optional(),
 		anticipation: anticipationSchema.optional(),
 		updatedAt: z.string().optional(),
 	})
@@ -616,6 +643,10 @@ export function normalizeSymbolsDoc(input: unknown): SymbolsDoc {
 	// with its one default pruned — see `pruneTransition`.
 	const transition = pruneTransition(doc.transition);
 	if (transition) next.transition = transition;
+	// Whitelisted + defaults pruned, so a project left on "All at once" round-trips to no key at all
+	// and its cascade keeps exploding in one frame — see `pruneTumblePattern`.
+	const tumblePattern = pruneTumblePattern(doc.tumblePattern);
+	if (tumblePattern) next.tumblePattern = tumblePattern;
 	// Sparse whitelist like `boardGlow`/`bookVfx`: drop an empty per-tier object and a now-empty
 	// `anticipation`, so a reset round-trips to no key and an un-authored project stays byte-identical.
 	const anticipation = pruneAnticipation(doc.anticipation);
@@ -631,6 +662,28 @@ function pruneTransition(transition: SymbolsDoc['transition']): SymbolsDoc['tran
 	if (transition.delayMs === undefined || transition.delayMs > 0) return transition;
 	const { delayMs: _zero, ...binding } = transition;
 	return binding;
+}
+
+/**
+ * Drop the two defaults, so only a DELIBERATE pattern persists.
+ *
+ * `all` is what the cascade has always done, and a `stepMs` on top of it means nothing (the engine
+ * short-circuits the pattern before it reads the step), so an author who picks a pattern and then
+ * picks `all` again must round-trip to the same bytes as never having opened the panel. The step is
+ * dropped only when it EQUALS the default — an author who deliberately re-picks 80 ms is storing the
+ * same number the engine would have applied anyway.
+ */
+function pruneTumblePattern(
+	tumblePattern: SymbolsDoc['tumblePattern'],
+): SymbolsDoc['tumblePattern'] {
+	if (!tumblePattern) return undefined;
+	const pattern = tumblePattern.pattern;
+	if (!pattern || pattern === 'all') return undefined;
+	const next: NonNullable<SymbolsDoc['tumblePattern']> = { pattern };
+	if (tumblePattern.stepMs !== undefined && tumblePattern.stepMs !== TUMBLE_STEP_MS_DEFAULT) {
+		next.stepMs = tumblePattern.stepMs;
+	}
+	return next;
 }
 
 /** Drop each empty per-tier FX object and a now-empty `anticipation`, so a reset round-trips to
