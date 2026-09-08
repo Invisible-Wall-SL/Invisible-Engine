@@ -362,8 +362,30 @@ can keep it beside the grid, or open a second variation next to the first and co
 the same tile again reuses that variation's window instead of stacking another copy.
 
 Per tile: the **seed** button copies that render's seed (it reproduces that exact result),
-**🎞 Make flipbook** starts the conversion, **↻** re-rolls just that one, **⧉** duplicates it with
-new settings, and **🗑** deletes it.
+**🎞 Make flipbook** starts the conversion, **⤓** downloads it, **↻** re-rolls just that one,
+**⧉** duplicates it with new settings, and **🗑** deletes it.
+
+**⤓ downloads one render to your computer**, in either of two forms — the panel names the
+shape of what you are taking first (`frames · W×H · fps`, and whether it has transparency):
+
+- **Animated WEBP** — the file exactly as it was generated: one looping animation, alpha
+  intact. It is a plain link, so it saves instantly.
+- **PNG frame sequence (.zip)** — every frame as its own full-resolution PNG,
+  `frame_0000.png`, `frame_0001.png`, …, **untrimmed and unscaled**. This is the interchange
+  export, for taking the animation into After Effects or another sprite tool; it is *not* what
+  🎞 Make flipbook packs, which crops each frame to its ink to save atlas space. The zip is
+  built when you ask for it, so a long render takes a moment.
+
+The zip also carries an **`info.json`** with the frame count, the size and the **frame rate**.
+Take it seriously: nothing inside a folder of PNGs says how fast to play them, and the rate is
+the whole reason this animation is a clip rather than a pile of pictures.
+
+Very long renders are refused rather than truncated — a short zip looks exactly like a
+complete one once it is on your disk. If you hit that, take the WEBP, or use 🎞 Make
+flipbook, which can stride and trim the range before it packs.
+
+Only a finished render can be downloaded; the button is greyed out on a queued, running,
+failed or cancelled tile.
 
 **↻ re-rolls one tile in place** — same session, same slot number, a new render replacing the
 old one. It opens with that tile's prompt and seed already filled in, and the two are

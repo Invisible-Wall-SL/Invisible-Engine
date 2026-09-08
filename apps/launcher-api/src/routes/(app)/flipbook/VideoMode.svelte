@@ -895,6 +895,78 @@ ${endScript}</body></html>`;
 		}
 	}
 
+	// --- download one render ----------------------------------------------------
+	// Two artifacts, and the difference decides how each is fetched. The animated
+	// WEBP is the stored file verbatim, same-origin, so a plain `<a download>` is
+	// the whole implementation. The PNG sequence is BUILT on demand in the tool and
+	// can legitimately refuse (too many frames, past the memory budget) — and a
+	// browser saves whatever an anchor gets under the name it was asked for, so a
+	// bare href would put an error JSON on disk called `….zip`. Hence `fetch`.
+	let downloading = $state<Variation | null>(null);
+	let dlProbe = $state<Probe | null>(null);
+	let dlErr = $state('');
+	let dlBusy = $state(false);
+
+	/** A name that identifies the render away from the page that made it — the stored
+	 * file is `003.webp`, which says nothing about which session or seed it came from. */
+	function dlFileName(v: Variation, suffix: string): string {
+		const clean = (raw: string) => raw.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
+		const base = clean(session?.blueprint_name ?? session?.blueprint ?? '') || 'video';
+		return `${base}-${String(v.index).padStart(3, '0')}-seed${clean(String(v.seed))}${suffix}`;
+	}
+
+	async function openDownload(v: Variation): Promise<void> {
+		if (!session) return;
+		downloading = v;
+		dlProbe = null;
+		dlErr = '';
+		dlBusy = false;
+		try {
+			const p = await getJson<Probe>(
+				'probe',
+				`session=${encodeURIComponent(session.id)}&v=${v.index}`,
+			);
+			// Matched on INDEX, not identity: a status poll replaces the whole session
+			// object, so the tile that is open is an equal variation, not the same one.
+			// The shape line is a courtesy either way — a failed or superseded probe just
+			// leaves it off, because both downloads are valid without it.
+			if (downloading?.index === v.index && !p.error) dlProbe = p;
+		} catch {
+			dlProbe = null;
+		}
+	}
+
+	async function downloadZip(): Promise<void> {
+		const v = downloading;
+		if (!v || !session) return;
+		dlBusy = true;
+		dlErr = '';
+		tileBusy = v.index;
+		try {
+			const res = await fetch(api('zip', `session=${encodeURIComponent(session.id)}&v=${v.index}`));
+			if (!res.ok) {
+				const out = (await res.json().catch(() => ({}))) as { error?: string };
+				dlErr = out.error ?? `The frame sequence could not be built (${res.status}).`;
+				return;
+			}
+			const url = URL.createObjectURL(await res.blob());
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = dlFileName(v, '-frames.zip');
+			document.body.appendChild(a);
+			a.click();
+			a.remove();
+			// Revoked on the next tick, not inline: some browsers read the blob AFTER the
+			// synchronous click handler returns, and a revoke in between kills the save.
+			setTimeout(() => URL.revokeObjectURL(url), 0);
+		} catch (e) {
+			dlErr = (e as Error).message;
+		} finally {
+			dlBusy = false;
+			tileBusy = 0;
+		}
+	}
+
 	// --- publish a video blueprint ---------------------------------------------
 	// The Atlas Maker has its own New-blueprint modal, but this one is the VIDEO
 	// tool's: it omits the `width`/`height` roles entirely. Binding those on a video
@@ -2219,6 +2291,14 @@ Overwrite it?`)
 								</button>
 								<button
 									class="tico"
+									disabled={v.status !== 'done' || tileBusy === v.index}
+									title={v.status === 'done'
+										? 'Download this render — the animated WEBP, or its frames as a PNG sequence'
+										: 'Only a finished render can be downloaded'}
+									onclick={() => openDownload(v)}>⤓</button
+								>
+								<button
+									class="tico"
 									disabled={v.status === 'running' || tileBusy === v.index}
 									title={v.status === 'running'
 										? 'Still rendering — cancel the session first'
@@ -2473,6 +2553,51 @@ Overwrite it?`)
 					</button>
 				</div>
 			{/if}
+		</div>
+	{/if}
+
+	{#if downloading && session}
+		<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+		<div class="backdrop" onclick={() => (downloading = null)}></div>
+		<div class="picker">
+			<header>
+				<strong>Download #{String(downloading.index).padStart(3, '0')}</strong>
+				<button onclick={() => (downloading = null)}>✕</button>
+			</header>
+
+			{#if dlErr}
+				<p class="pill err">{dlErr}</p>
+			{/if}
+			{#if dlProbe}
+				<p class="hint">
+					{dlProbe.frames} frames · {dlProbe.width}×{dlProbe.height} · {dlProbe.fps} fps ·
+					{dlProbe.has_alpha ? 'transparent background' : 'opaque — no transparency'}
+				</p>
+			{/if}
+
+			<div class="actions">
+				<a
+					class="dl"
+					href={api(
+						'file',
+						`session=${encodeURIComponent(session.id)}&v=${encodeURIComponent(downloading.file)}`,
+					)}
+					download={dlFileName(downloading, '.webp')}
+				>
+					⤓ Animated WEBP
+				</a>
+				<p class="hint">The render exactly as generated: one looping file, alpha intact.</p>
+
+				<button class="dl" disabled={dlBusy} onclick={downloadZip}>
+					{dlBusy ? 'Building the frame sequence…' : '⤓ PNG frame sequence (.zip)'}
+				</button>
+				<p class="hint">
+					Every frame at full resolution and <b>untrimmed</b> — this is the interchange export, not
+					the packer, so nothing is cropped or downscaled. An <code>info.json</code> rides along carrying
+					the frame rate, which is the one thing a folder of stills cannot. Built on demand, so a long
+					render takes a moment.
+				</p>
+			</div>
 		</div>
 	{/if}
 
@@ -3090,6 +3215,30 @@ Overwrite it?`)
 		border-color: #166534;
 		color: #86efac;
 		padding: 8px;
+	}
+	/* The two downloads are one pair and have to read as one, but only one of them can
+	   be a button: the WEBP is a plain same-origin link, and an <a> inherits none of the
+	   `button` styling above. So the look lives here and both wear it. */
+	.dl {
+		display: block;
+		width: 100%;
+		box-sizing: border-box;
+		text-align: center;
+		background: #16202c;
+		border: 1px solid #2a3646;
+		border-radius: 6px;
+		color: #cbd5e1;
+		padding: 8px;
+		font-size: 12px;
+		font-family: inherit;
+		text-decoration: none;
+		cursor: pointer;
+	}
+	.dl:hover:not(:disabled) {
+		background: #27364a;
+	}
+	.actions .hint {
+		margin: -2px 0 4px;
 	}
 	.danger {
 		color: #fca5a5;

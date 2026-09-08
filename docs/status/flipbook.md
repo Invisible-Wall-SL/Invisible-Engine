@@ -2,7 +2,11 @@
 
 > Design: [docs/design/invisible-flipbook.md](../design/invisible-flipbook.md) · Guide: [docs/tools/flipbook.md](../tools/flipbook.md) · Agent: `.claude/agents/invisible-flipbook.md`
 
-**One-line state:** _(2026-09-01)_ **Any ComfyUI video graph can be published now, not just one
+**One-line state:** _(2026-09-08)_ **A video render can be taken off the tool.** ⤓ on a finished
+tile downloads it two ways — the animated WEBP verbatim, or every frame as a full-resolution,
+untrimmed PNG sequence in a zip with an `info.json` carrying the fps. The interchange export, so an
+author can take a generation into After Effects instead of only into a packed sheet. Was
+_(2026-09-01)_ **Any ComfyUI video graph can be published now, not just one
 shaped like the reference.** The ＋ Blueprint dialog follows a wire back to the `Primitive` node
 that actually holds a prompt/seed, ranks candidates instead of filtering them (every node input
 stays listed), pre-fills a role only when the best answer is unique, and reads a setting's key,
@@ -213,6 +217,58 @@ Live on `main` (steps 1–8 of the design doc's build plan; step 6's FX half is 
 - (Earlier in this work `pnpm --filter launcher-api build` was genuinely RED — `symbols/+page.svelte` imported `builtinSpineKey` / `hasBuiltinSpine` which `editorSpine.client.ts` did not export, a Rollup *resolve* failure, not a stripped type error. Both are now exported at `editorSpine.client.ts:89-91` and the build is green; verified 2026-07-20.)
 
 ## Recent changes
+- 2026-09-08 — **A video card can be downloaded** (owner ask: *"a download option so I can
+  download each video / image sequence locally"*). ⤓ on a **done** tile opens a small panel
+  offering two artifacts, and the split is the design:
+  - **The animated WEBP is a plain `<a download>`** — same-origin, no server work, the stored
+    file verbatim.
+  - **The PNG sequence is `fetch`ed, never linked.** `GET /video/zip` builds the zip on demand and
+    can legitimately refuse; a browser saves whatever an anchor is handed under the name it asked
+    for, so a bare `href` would put an error JSON on someone's disk called `….zip`. The panel reads
+    the JSON `error` and says it instead, with the tile marked busy through `tileBusy`.
+  - **`video_to_clip.frame_zip` is deliberately NOT the packer path.** No trim, no `max_size`, no
+    stride: `_extract`'s cropping exists to make atlas space cheap, and a sequence going into After
+    Effects has to be what was actually rendered. Full-resolution RGBA PNGs, `frame_0000.png`…,
+    `ZIP_STORED` (a PNG is already a deflate stream, so DEFLATE buys ~nothing for a second pass
+    over every pixel).
+  - **`info.json` rides along because a folder of stills loses TIME** — frames/size/**fps**/
+    duration/alpha. Frame rate is the one fact this tool owns and the one nothing in a PNG carries.
+  - **Over budget RAISES; it never truncates.** `ZIP_MAX_FRAMES` (600) and `ZIP_MAX_BYTES`
+    (250 MB, checked as the zip is written on a shared Railway container) each answer **400 + a
+    JSON `error` naming why and what to do instead** — same rule as the session listing: a short
+    zip is indistinguishable from a complete one once it is on a disk.
+  - **The proxy gained exactly ONE route** (`zip: '/video/zip'`) and no pass-through. It now
+    forwards `Content-Disposition` when the tool sends one, so the file is named sanely even if it
+    is ever fetched outside the page; `Cache-Control` stays `no-store` for it **on purpose** and
+    says so — a hundreds-of-MB body saved once would only evict the thumbnails the grid re-reads.
+  - The panel calls the existing `probe` when it opens to show `frames · W×H · fps` and whether
+    the frames carry alpha (an author opening opaque frames in AE wants to know first). **A failed
+    probe just omits the line** — it must never block a download that is perfectly valid without it.
+  - Filenames identify the render away from the page that made it —
+    `<blueprint>-<###>-seed<seed>.webp` / `-frames.zip`, sanitised to `[A-Za-z0-9_-]`; the stored
+    file is `003.webp`, which says nothing about which session or seed it came from.
+  - Fixtures: `PYTHONPATH="../_shared:." py test_video_to_clip.py` — 78 checks (was 54). A real
+    multi-frame WEBP in → the right PNG names in order, full canvas size (not the packer's trimmed
+    rect), the last frame really being the last, STORED members, a readable `info.json` whose fps
+    is read rather than defaulted, an unfinished/unknown variation refused, and BOTH ceilings
+    raising rather than truncating.
+  - **`test_zip_route` pins the ROUTE, not just `frame_zip`** — the real `do_GET` dispatch over a
+    captured response. `frame_zip` being correct is not the same as the export arriving: a dispatch
+    string that never matches, `v` read as a filename instead of an index, a missing
+    `Content-Disposition`, and above all a refusal served as a **200**, which is exactly how an
+    error JSON ends up on someone's disk named `….zip`.
+  - Verified: the fixtures above, `pnpm --filter launcher-api build` green, and `svelte-check`
+    reporting **zero errors** in the two touched launcher files (62 pre-existing errors elsewhere;
+    the one warning on `VideoMode.svelte` is the pre-existing `figcaption` a11y note, unchanged).
+    **Browser-verified on a standalone harness** carrying the panel's real CSS and its transcribed
+    `downloadZip`: the `<a>` and the `<button>` come out the same 460px (the point of the shared
+    `.dl` class), the panel overflows in neither axis, a success fires exactly ONE anchor click
+    named `<blueprint>-003-seed<seed>-frames.zip` and revokes the object URL once on the next tick,
+    and a refusal renders the tool's own sentence in the panel with **nothing saved** — the whole
+    reason the zip is fetched rather than linked.
+  - **Not verified:** the end-to-end path against a real GPU session — no finished render existed
+    to click ⤓ on, so the launcher proxy → atlas-tool hop and the memory behaviour of a full
+    81-frame 1024² zip on a Railway container are both unproven in practice.
 - 2026-09-07 — **Two containers can no longer both own one video session, and a stale one can no
   longer undo a finished render.** The last structural hole from the 2026-09-07 incident: a Railway
   rolling deploy overlaps the old container and the new one, and `_adopt`'s check-and-insert is

@@ -22,6 +22,7 @@ import io
 import json
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 
 from PIL import Image
@@ -242,6 +243,72 @@ def test_range_stride_and_resize() -> None:
                  "no frames")
 
 
+def test_frame_zip() -> None:
+    """The interchange export. It is NOT the packer path: every frame comes out
+    at full canvas size, untrimmed, in order — and the fps rides along, because
+    a folder of PNGs is exactly the thing that loses it."""
+    n = 6
+    stub_world(make_webp(make_frames(n)), n)
+    fname, blob = video_to_clip.frame_zip("sess1", 1)
+
+    check("the zip is named for the session and variation",
+          fname, "sess1_001_frames.zip")
+    zf = zipfile.ZipFile(io.BytesIO(blob))
+    names = zf.namelist()
+    check("one PNG per source frame, zero-padded and in order",
+          [x for x in names if x.endswith(".png")],
+          [f"frame_{i:04d}.png" for i in range(n)])
+    check("info.json rides along", "info.json" in names, True)
+
+    info = json.loads(zf.read("info.json").decode())
+    check("info reports the frame count", info["frames"], n)
+    check("info reports the untouched canvas size",
+          (info["width"], info["height"]), (CANVAS, CANVAS))
+    # The whole reason info.json exists: nothing in a PNG says how fast to play
+    # it, and this tool is the only owner of frame TIME.
+    check_near("info carries the real fps, not the default", info["fps"], 10.0)
+    check("the fps is read, not defaulted",
+          info["fps"] != video_to_clip.DEFAULT_FPS, True)
+    check("info reports alpha", info["has_alpha"], True)
+
+    first = Image.open(io.BytesIO(zf.read("frame_0000.png")))
+    check("a frame is full-resolution RGBA, NOT trimmed like the packer's",
+          (first.mode, first.width, first.height), ("RGBA", CANVAS, CANVAS))
+    check("the frame's pixels are the render's", first.getpixel((12, 22)), (255, 40, 40, 255))
+    last = Image.open(io.BytesIO(zf.read(f"frame_{n - 1:04d}.png")))
+    check("the last frame is the LAST frame, not a repeat of the first",
+          last.getpixel((12, 22))[3], 0)
+
+    # PNG is already a deflate stream; re-compressing costs a second pass over
+    # every pixel and buys ~nothing, so the members are stored.
+    check("members are STORED, not deflated",
+          {i.compress_type for i in zf.infolist()}, {zipfile.ZIP_STORED})
+
+    check_raises("an unfinished variation is refused",
+                 lambda: video_to_clip.frame_zip("sess1", 2), "not finished")
+    check_raises("an unknown variation is refused",
+                 lambda: video_to_clip.frame_zip("sess1", 9), "no variation")
+
+    # Over budget RAISES rather than truncating. A short zip is indistinguishable
+    # from a complete one once it is on someone's disk.
+    stub_world(make_webp(make_frames(4)), 4)
+    real = video_to_clip.ZIP_MAX_BYTES
+    try:
+        video_to_clip.ZIP_MAX_BYTES = 1024
+        check_raises("a sequence past the byte budget raises rather than truncating",
+                     lambda: video_to_clip.frame_zip("sess1", 1), "nothing was downloaded")
+    finally:
+        video_to_clip.ZIP_MAX_BYTES = real
+
+    real_frames = video_to_clip.ZIP_MAX_FRAMES
+    try:
+        video_to_clip.ZIP_MAX_FRAMES = 3
+        check_raises("a sequence past the frame ceiling raises before any work",
+                     lambda: video_to_clip.frame_zip("sess1", 1), "past the 3")
+    finally:
+        video_to_clip.ZIP_MAX_FRAMES = real_frames
+
+
 def test_multipage_split() -> None:
     """Frames that cannot share a 2048 page spill onto more pages, and the clip
     still plays in order across them."""
@@ -271,6 +338,66 @@ def test_multipage_split() -> None:
     check("assetKey is one of them", res["assetKey"] in sheets, True)
 
 
+def test_zip_route() -> None:
+    """The ROUTE, not just `frame_zip`. Everything below is a way the export can
+    be correct and still arrive broken: a dispatch string that never matches, a
+    `v` read as a filename instead of an index, a missing Content-Disposition —
+    and, worst of all, a refusal served as a 200, because a browser saves
+    whatever an anchor hands it under the name it asked for, so an error JSON
+    lands on disk as a `.zip` that will not open and says nothing about why."""
+    import ui_server
+
+    class FakeHandler(ui_server.Handler):
+        """The real dispatch over a captured response — no socket, no gate."""
+
+        def __init__(self, path: str) -> None:
+            self.path = path
+            self.sent: dict = {}
+            self._set_cookie = None
+
+        def _send(self, code, ctype, body, extra_headers=None):
+            self.sent = {"code": code, "ctype": ctype, "body": body,
+                         "headers": dict(extra_headers or {})}
+
+        def _gate(self):
+            return (True, None)
+
+        def _resolve_context(self):
+            pass
+
+        def _resolve_publish(self):
+            pass
+
+    n = 6
+    stub_world(make_webp(make_frames(n)), n)
+
+    ok = FakeHandler("/video/zip?session=sess1&v=1")
+    ok.do_GET()
+    check("the route answers 200", ok.sent["code"], 200)
+    check("as a zip", ok.sent["ctype"], "application/zip")
+    disp = ok.sent["headers"].get("Content-Disposition", "")
+    check("named as an attachment, so it is sane fetched outside the page",
+          disp, 'attachment; filename="sess1_001_frames.zip"')
+    zf = zipfile.ZipFile(io.BytesIO(ok.sent["body"]))
+    check("carrying the frames the fixture above packed",
+          [x for x in zf.namelist() if x.endswith(".png")],
+          [f"frame_{i:04d}.png" for i in range(n)])
+
+    # `v` is the variation INDEX on this route (as on /video/probe), NOT the
+    # stored filename /video/file takes — the route has to refuse an unfinished
+    # variation, and only the session doc knows which those are.
+    busy = FakeHandler("/video/zip?session=sess1&v=2")
+    busy.do_GET()
+    check("an unfinished variation is refused", busy.sent["code"], 400)
+    check("...as JSON, never as a broken zip", busy.sent["ctype"], "application/json")
+    check("...saying why",
+          "not finished" in json.loads(busy.sent["body"])["error"].lower(), True)
+
+    gone = FakeHandler("/video/zip?session=sess1&v=99")
+    gone.do_GET()
+    check("an unknown variation is refused", gone.sent["code"], 400)
+
+
 if __name__ == "__main__":
     test_probe()
     test_build_and_trim()
@@ -278,6 +405,8 @@ if __name__ == "__main__":
     test_blank_frame_placeholder()
     test_range_stride_and_resize()
     test_multipage_split()
+    test_frame_zip()
+    test_zip_route()
     print()
     if FAILED:
         print(f"{len(FAILED)} FAILED: {', '.join(FAILED)}")

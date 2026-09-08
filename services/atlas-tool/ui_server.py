@@ -6127,6 +6127,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, "text/plain", b"not found")
             else:
                 self._send(200, "image/webp", blob)
+        elif path == "/video/zip":
+            # The interchange export: one variation's frames as PNGs. `v` is the
+            # variation INDEX here, as it is for /video/probe — not the stored
+            # filename /video/file takes — because this route has to refuse a
+            # variation that has not finished, which only the session doc knows.
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            self._video_zip(qs.get("session", [""])[0], qs.get("v", [""])[0])
         elif path.startswith("/regionadv/"):
             self._send(200, "application/json", self._regionadv(path.rsplit("/", 1)[-1]))
         elif path == "/atlasimg":
@@ -6399,6 +6406,25 @@ class Handler(BaseHTTPRequestHandler):
             return json.dumps({"error": str(e)}).encode()
         except Exception as e:  # noqa: BLE001 — never 500 into the tool UI
             return json.dumps({"error": f"{type(e).__name__}: {e}"}).encode()
+
+    def _video_zip(self, session: str, variation: str) -> None:
+        """One variation's frames as a PNG sequence in a ZIP.
+
+        Answers with an ERROR STATUS + JSON on refusal, never with a broken zip:
+        a browser saves whatever it is given under the name it was asked for, so
+        a 200 carrying `{"error": …}` becomes a `.zip` that will not open and
+        says nothing about why."""
+        try:
+            fname, blob = video_to_clip.frame_zip(session, int(variation or 0))
+        except ValueError as e:
+            self._send(400, "application/json", json.dumps({"error": str(e)}).encode())
+            return
+        except Exception as e:  # noqa: BLE001 — never 500 into the tool UI
+            self._send(500, "application/json",
+                       json.dumps({"error": f"{type(e).__name__}: {e}"}).encode())
+            return
+        self._send(200, "application/zip", blob,
+                   {"Content-Disposition": f'attachment; filename="{fname}"'})
 
     def _latest(self, path: str) -> Path | None:
         name = urllib.parse.urlparse(path).path.rsplit("/", 1)[-1]

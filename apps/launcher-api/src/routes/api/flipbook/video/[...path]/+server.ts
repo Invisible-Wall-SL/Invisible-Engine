@@ -37,6 +37,10 @@ const GET_ROUTES: Record<string, string> = {
 	// Frame count / size / fps / has-alpha for one variation, so the trim panel can
 	// show a cost (and warn about opaque frames) before anything is packed.
 	probe: '/video/probe',
+	// The counterpart of `/video/file`: the same render as a ZIP of full-resolution
+	// PNG frames — the interchange export, for an author taking the sequence into
+	// After Effects or another sprite tool rather than into a clip.
+	zip: '/video/zip',
 	// Diagnostic for the empty-list case — see `library_status` in blueprints.py.
 	library: '/video/library',
 };
@@ -143,17 +147,25 @@ async function forward(
 		throw error(502, `Could not reach the Atlas Maker service: ${(e as Error).message}`);
 	}
 
-	// Stream the body through untouched: `/video/file` returns image/webp bytes, everything
-	// else JSON. Re-encoding either would be pure loss.
-	return new Response(res.body, {
-		status: res.status,
-		headers: {
-			'Content-Type': res.headers.get('Content-Type') ?? 'application/json',
-			// Variations are immutable once written (a re-roll is a new index), so let the grid
-			// keep them; a session's JSON must never be cached or the poll sees a stale status.
-			'Cache-Control': target === '/video/file' ? 'private, max-age=300' : 'no-store',
-		},
+	// Variations are immutable once written (a re-roll is a new index), so let the grid keep
+	// the WEBPs; a session's JSON must never be cached or the poll sees a stale status.
+	// `/video/zip` is immutable too and still `no-store` ON PURPOSE — it is a hundreds-of-MB
+	// body that is saved to disk once and never re-requested, so caching it would only
+	// evict the thumbnails the grid actually re-reads.
+	const cacheable = target === '/video/file';
+
+	const headers = new Headers({
+		'Content-Type': res.headers.get('Content-Type') ?? 'application/json',
+		'Cache-Control': cacheable ? 'private, max-age=300' : 'no-store',
 	});
+	// The zip names itself upstream, so the file lands with a sane name even when it is
+	// fetched outside the page. Only forwarded when the tool sent one.
+	const disposition = res.headers.get('Content-Disposition');
+	if (disposition) headers.set('Content-Disposition', disposition);
+
+	// Stream the body through untouched: `/video/file` returns image/webp bytes, `/video/zip`
+	// application/zip, everything else JSON. Re-encoding any of them would be pure loss.
+	return new Response(res.body, { status: res.status, headers });
 }
 
 export const GET: RequestHandler = async ({ params, url, locals, cookies }) =>
