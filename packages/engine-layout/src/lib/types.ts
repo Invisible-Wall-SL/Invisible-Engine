@@ -122,6 +122,34 @@ interface BaseNode {
 	 */
 	coverFit?: boolean;
 	/**
+	 * The cover BOX of a `componentInstance` that cover-fits a `background`-space screen —
+	 * the union extent of the component's expanded content, in the instance's own local
+	 * (pre-scale) space, BAKED by the Scene Editor on save.
+	 *
+	 * It exists because the two surfaces cannot measure that union the same way. The editor
+	 * measures live art it has already rendered — a spine's setup-pose bounds from the WebGL
+	 * overlay, a text node's rendered glyph box, a clip's frame rect, a nested instance's own
+	 * union — and never skips a child (an unsizable one still contributes a placeholder box).
+	 * The runtime has none of that: `componentDesignSize` is fed an `intrinsic` that can only
+	 * size a SPRITE, so every spine / text / flipbook / nested-instance child is SKIPPED. A
+	 * spine-and-text overlay therefore measured much smaller in the game than in the editor —
+	 * or, with no sprite child at all, measured `null`, at which point `bgComponent` gave up
+	 * and the instance rendered at its raw authored x/y with NO cover. Editor and game framed
+	 * the same overlay at two different scales and two different centres.
+	 *
+	 * So the editor bakes the number instead of asking the runtime to re-derive it. Lives on
+	 * the INSTANCE, not the {@link ComponentDef}: params change what a component draws (text
+	 * length, the chosen spine), so two instances of one def legitimately have two different
+	 * unions and a single def-level size would be wrong for one of them. Re-baked on every
+	 * save, so editing the def refreshes it.
+	 *
+	 * `minX`/`minY` are the union's top-left in that local space (the content is NOT
+	 * anchor-centred), which is what places the union's CENTRE on the cover target. Absent ⇒
+	 * the runtime falls back to its own `componentDesignSize` walk — today's behaviour,
+	 * byte-identical for every node that has never been re-saved (parity).
+	 */
+	coverBox?: { minX: number; minY: number; width: number; height: number };
+	/**
 	 * Editor-only: when true the editor disables selection/drag/transform of this
 	 * node. The engine ignores it (purely an authoring affordance).
 	 */
