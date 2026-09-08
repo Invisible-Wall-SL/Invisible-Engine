@@ -99,6 +99,7 @@ import { stripTypeScriptTypes } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveGrid } from '../packages/game-config/src/grid.ts';
+import { tumbleExplosionDelays } from '../packages/engine-layout/src/lib/tumblePattern.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // The repo checks out CRLF on Windows; every slice marker below is written with `\n`.
@@ -1028,6 +1029,18 @@ const buildTumbleRuntime = ({
 		// what is in scope is that the explode handler asks, and that an unauthored answer changes no
 		// step, no order and no beat — it is fire-and-forget by construction (see `transitions`).
 		'bakedSymbolTransition',
+		// THE EXPLOSION PATTERN, and the ordering function that reads it. Both are free identifiers in
+		// the explode handler, so the slice needs them or it throws before a single claim below is
+		// tested — which is exactly what happened when the pattern and this fixture's repair landed in
+		// the same hour, each green on its own branch and broken together on `main`.
+		//
+		// `bakedTumblePattern` answers UNAUTHORED, like `bakedSymbolTransition` above and for the same
+		// reason: every claim in this file is about a board with no pattern picked, and that answer is
+		// what makes the explode step the single frame those claims assume. The ORDERING function is
+		// the real one rather than a stub, so if the un-authored path ever stopped resolving to
+		// all-zero, every order asserted below would move and say so.
+		'bakedTumblePattern',
+		'tumbleExplosionDelays',
 		`${tumbleStateSource}
 let show = false;
 let reelBoardShown = true;
@@ -1076,6 +1089,8 @@ return {
 		// ships, and it is the case that regressed — so it is the one the fixture runs by default.
 		(symbolName, state) => Boolean(authoredIntro?.(symbolName, state)),
 		() => undefined,
+		() => undefined,
+		tumbleExplosionDelays,
 	);
 };
 
