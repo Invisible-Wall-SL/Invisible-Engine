@@ -21,6 +21,11 @@
 		/** Per-STATE loop from the authored cell. Overrides the clip’s own `loop`, so one clip used by
 		 * two states can repeat in one and hold in the other. Absent ⇒ the clip decides (as before). */
 		loop?: boolean;
+		/** Hold the clip's FIRST playback frame and never advance it — the authored clip drawn as a
+		 * still picture. For the surfaces where the animation is noise rather than presentation (the
+		 * inline symbol inside a message), so they reuse the clip already bound to the state instead
+		 * of needing a second, sprite-bound copy of the same art kept in sync by hand. */
+		frozen?: boolean;
 	};
 
 	const props: Props = $props();
@@ -135,6 +140,7 @@
 	<Flipbook
 		{clip}
 		loop={props.loop}
+		play={!props.frozen}
 		x={props.x}
 		y={props.y}
 		anchor={0.5}

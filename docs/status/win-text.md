@@ -290,6 +290,16 @@ of a kind"` on the amount-only branch. `toast.full`/`amountOnly`/`countOnly` map
 
 ## Recent changes
 
+- 2026-09-08 — **the inline symbol image holds its first frame instead of animating.** "Show the
+  symbol as an image" renders through the `<Symbol>` state machine, so on a project whose symbols are
+  bound to Invisible Flipbook clips the toast played the clip — a looping animation where the sentence
+  asked for the symbol's NAME. `<Symbol>`/`<SymbolFlipbook>` gained a `frozen` prop (passes
+  `play={false}` to `<Flipbook>` ⇒ `gotoAndStop(0)`), set by `MessageSymbol` only; every board state
+  is untouched, so a game whose symbols are sprites or spines is byte-identical. Spine symbols still
+  animate inline — a skeleton has no frame list to stop on. Files: `Symbol.svelte`,
+  `SymbolFlipbook.svelte`, `MessageSymbol.svelte`, `/win-text` toggle copy. `apps/lines` builds clean.
+  ⏳ owner visual-verify the toast on a flipbook-bound symbol — **engine change, so the remake needs a
+  Borut `engine` submodule bump + runtime release.**
 - 2026-08-18 — **an inline symbol no longer shrinks the message it sits in.** The symbol is sized from
   the font, but its height was also fed back into the row auto-fit, so a boxed bar shrank itself to fit
   its own picture — dramatic with the bitmap HUD fonts, whose line box is well under 1em against a

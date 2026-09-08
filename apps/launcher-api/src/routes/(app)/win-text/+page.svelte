@@ -441,8 +441,10 @@
 				/>
 				<span
 					>Show the symbol as an <strong>image</strong> instead of its name — the
-					<code>{'{symbolName}'}</code> in the toast is drawn as the symbol's sprite, sized to the text.
-					Falls back to the name if a symbol has no sprite art.</span
+					<code>{'{symbolName}'}</code> in the toast is drawn as the symbol itself, sized to the text.
+					A symbol bound to a flipbook shows its first frame, held: the token stands in for a NAME, and
+					a clip looping inside a sentence pulls the eye off the words. Falls back to the name if a symbol
+					has no art.</span
 				>
 			</label>
 		</section>

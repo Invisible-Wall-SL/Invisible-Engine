@@ -23,6 +23,13 @@
 	 * cell drew the symbol at `size × cell / 120`. The `static` (resting) state = a clean icon, no
 	 * win frame.
 	 *
+	 * FROZEN, so a flipbook-bound symbol shows its first frame and stops. The toggle asks for a
+	 * picture of the symbol in place of its NAME, and a name does not move: a clip looping inside a
+	 * line of text pulls the eye off the sentence it was meant to illustrate, and the toast is on
+	 * screen for a couple of seconds anyway, so the animation would only ever be seen part-played.
+	 * Spine symbols still animate — a skeleton has no frame list to stop on, and its resting state
+	 * is usually an idle rather than a pose.
+	 *
 	 * Centred on (x, y): `<Symbol>` centres its art at its own (0,0), so the wrapping scaled
 	 * `<Container>` at (x, y) puts the symbol centre there — the same convention `InlineImageText`
 	 * positions a text run's baseline with.
@@ -45,5 +52,5 @@
 </script>
 
 <Container x={props.x ?? 0} y={props.y ?? 0} scale={{ x: scale, y: scale }}>
-	<Symbol state="static" rawSymbol={{ name: props.symbol as SymbolName }} x={0} y={0} />
+	<Symbol state="static" frozen rawSymbol={{ name: props.symbol as SymbolName }} x={0} y={0} />
 </Container>
