@@ -21,6 +21,11 @@
 		 * themselves (the Book expand/reveal riders, which loop only their `bookIdle`). Omit and the
 		 * cell authored in the Symbols State Machine decides. */
 		loop?: boolean;
+		/** Draw a FLIPBOOK-bound state as its first frame, held — a clip rendered as a still picture.
+		 * Sprite and spine states ignore it: a sprite is already one frame, and a spine has no frame
+		 * list to stop on. Used by the inline message symbol, where a looping icon inside a line of
+		 * text reads as a glitch rather than as art. */
+		frozen?: boolean;
 	};
 
 	const props: Props = $props();
@@ -57,7 +62,14 @@
 {#if !hasArt}
 	<!-- nothing to draw -->
 {:else if isFlipbook}
-	<SymbolFlipbook {symbolInfo} {loop} x={props.x} y={props.y} oncomplete={props.oncomplete} />
+	<SymbolFlipbook
+		{symbolInfo}
+		{loop}
+		frozen={props.frozen}
+		x={props.x}
+		y={props.y}
+		oncomplete={props.oncomplete}
+	/>
 {:else if isSprite}
 	<SymbolSprite {symbolInfo} x={props.x} y={props.y} oncomplete={props.oncomplete} />
 {:else}
