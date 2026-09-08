@@ -296,9 +296,14 @@ def pod_candidates() -> list[tuple[str, str]]:
         out.append((base, f"{base} (COMFY_CATALOG_URL)"))
     try:
         for pod in runpod_control.running_pods():
-            url = str(pod.get("url") or "")
-            if url and url not in [u for u, _ in out]:
-                out.append((url, f"{pod.get('name')} ({pod.get('id')})"))
+            # Every port the pod might answer on, not just one: "HTTP 8189 + TCP
+            # 8188" is the documented config, and a pod set up that way serves
+            # NOTHING on the 8188 proxy. Probing in order costs one extra request
+            # against a pod that predates the forwarder and nothing otherwise.
+            for url in (pod.get("urls") or [pod.get("url")]):
+                url = str(url or "")
+                if url and url not in [u for u, _ in out]:
+                    out.append((url, f"{pod.get('name')} ({pod.get('id')})"))
     except Exception:  # noqa: BLE001 — discovery is a convenience, never fatal
         pass
     return out
