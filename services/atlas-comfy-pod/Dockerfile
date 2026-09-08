@@ -106,6 +106,12 @@ RUN pip install -r /ComfyUI/requirements.txt
 # requirements loop (see that file for what those two floors are protecting against).
 RUN pip install insightface onnxruntime-gpu facexlib timm ftfy open-clip-torch safetensors
 
+# boto3 for the two R2 mirror scripts baked below. They are useless without it — a pod
+# answered `ModuleNotFoundError: No module named 'boto3'` the same day they were baked,
+# which is a tool shipped without its one dependency. Its own layer, above the volatile
+# node tail: it is small, it never changes, and a node edit must not reinstall it.
+RUN pip install boto3
+
 # --- Custom nodes (THE VOLATILE TAIL — everything above must stay cached) ----------
 # Baked so a recreated container already has them (the whole point of this image).
 # Stock nodes cloned from GitHub; the artist's MODIFIED PuLID-Flux is COPY'd from the
