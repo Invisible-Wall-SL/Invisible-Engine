@@ -273,12 +273,15 @@ CATALOG = {
             "{where} has no inventory that could answer for them, so the "
             "question went unanswered:\n{files}"
         ),
+        # The advice has to name the target the render actually used. This text
+        # was hardcoded to the RunPod remedy while `explain` was already
+        # transport-aware, so a LOCAL render was told "your ComfyUI has no
+        # inventory" and then, in the next breath, to go pull files onto a pod
+        # volume it does not have. Noise in a diagnostic is how people learn to
+        # stop reading diagnostics, so the caller passes `assurance`.
         "fix": (
-            "Nothing is required. To be sure a RunPod worker has them, run "
-            "python services/atlas-tool/runpod/pull-models.py --dest "
-            "/workspace/ComfyUI/models on a pod with the network volume "
-            "mounted, then start a fresh worker (a running one keeps its old "
-            "file list)."
+            "Nothing is required — a question that went unanswered is not a "
+            "missing file. {assurance}"
         ),
     },
     # --- External service (ComfyUI / paid APIs / R2) ------------------------

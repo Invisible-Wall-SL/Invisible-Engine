@@ -488,6 +488,53 @@ def apply_manifest_settings(manifest: dict) -> dict:
     return applied
 
 
+# Config keys whose module global is NOT the raw config value — the same
+# normalisation the import-time `X = CFG["x"]` derivations above apply. Kept as
+# a map so `refresh_config_globals` can never drift from them; add an entry here
+# whenever one of those lines grows a coercion.
+_CONFIG_GLOBAL_NORMALIZERS = {
+    "rembg": lambda v: str(v).strip().lower() not in ("0", "false", "no", "off"),
+}
+
+
+def refresh_config_globals() -> dict:
+    """Re-derive the CFG-backed module globals from the CURRENT config. Returns
+    {config key: value} for everything reset.
+
+    `CFG` and every `X = CFG["x"]` global above are evaluated ONCE, at import.
+    In the render subprocess that is correct — it imports, runs one job, exits.
+    In the long-lived UI process it is not, and in two compounding ways:
+    `_config_paths()` resolves `atlas_config.json` under the ACTIVE (client,
+    project) staging root, so the import-time snapshot is pinned both to the
+    moment that worker booted (before any ⚙ Save settings) AND to whichever
+    project it happened to resolve then. An in-process reader therefore sees
+    another era's — or another project's — settings, while the render
+    subprocess it claims to be describing reads the current ones.
+
+    `resolve_blueprint_workflow` is the one such reader today, and it was wrong
+    in exactly that way: it refused a live `characterdesignertest3` render as
+    "pipeline 'flux' is a built-in" and reported the gen size as 1969x1222 while
+    the config said 1024x1024 — an export whose whole purpose is to state what
+    a real run sends.
+
+    Scoped to `_SETTINGS_GLOBALS`, which is precisely the set callers snapshot
+    and restore around the window they refresh in, so a refresh can never
+    outlive it. Deliberately does NOT rebind the `CFG` global: every read of it
+    is an import-time derivation (none at runtime), so rebinding would change
+    nothing and would make `CFG` mean two different things.
+    """
+    cfg = load_config()
+    reset: dict = {}
+    for key, gname in _SETTINGS_GLOBALS.items():
+        if key not in cfg:
+            continue
+        normalize = _CONFIG_GLOBAL_NORMALIZERS.get(key)
+        value = normalize(cfg[key]) if normalize else cfg[key]
+        globals()[gname] = value
+        reset[key] = value
+    return reset
+
+
 # Active manifest["atlas"], set in main(). Lets fit_to_region fall back to a
 # per-atlas default cell size (atlas.cell_width/cell_height) — and ultimately
 # the full atlas — when a region omits its own w/h/x/y. A region with explicit
@@ -2272,9 +2319,14 @@ def resolve_blueprint_workflow(
     the pipeline set differently from (or in addition to) the baked blueprint
     graph. Wired links (array-valued inputs) are skipped.
 
-    Faithful gen size + settings: a real run calls `apply_manifest_settings`,
-    overlaying `manifest["settings"]` onto the module globals the runner reads
-    (GEN_WIDTH/GEN_HEIGHT/MOCKUP_IMAGE/PIPELINE/…). We replicate that here under
+    Faithful gen size + settings: a real run is a FRESH subprocess import (so
+    its CFG-derived globals are current) that then calls
+    `apply_manifest_settings`, overlaying `manifest["settings"]` onto the module
+    globals the runner reads (GEN_WIDTH/GEN_HEIGHT/MOCKUP_IMAGE/PIPELINE/…). We
+    replicate BOTH halves here, in that order — `refresh_config_globals()` stands
+    in for the fresh import, then the manifest overlay goes on top, because this
+    process imported once and its snapshot belongs to another era and possibly
+    another project (see that function). Under
     `_RESOLVE_GLOBALS_LOCK`, snapshotting EVERY settings-driven global (plus
     ATLAS_META, used by other resolvers) and restoring them in `finally` — so a
     concurrent request never sees a half-applied state and the export reflects
@@ -2297,6 +2349,7 @@ def resolve_blueprint_workflow(
         try:
             ATLAS_META.clear()
             ATLAS_META.update(manifest.get("atlas") or {})
+            refresh_config_globals()
             apply_manifest_settings(manifest)
 
             # The region list a real run would build (atlas-bound vs creative).
@@ -3527,6 +3580,18 @@ def _prepare_blueprint_models_or_fail(gen_regions: list[dict]) -> None:
     serverless = COMFY_TRANSPORT == "serverless"
     target = "serverless" if serverless else "local"
     where = "the RunPod worker" if serverless else "your ComfyUI"
+    # Paired with `where`, from the SAME boolean, so the explanation and the
+    # remedy can never disagree about which machine ran the job.
+    assurance = (
+        "To be sure a RunPod worker has them, run python "
+        "services/atlas-tool/runpod/pull-models.py --dest "
+        "/workspace/ComfyUI/models on a pod with the network volume mounted, "
+        "then start a fresh worker (a running one keeps its old file list)."
+        if serverless else
+        "To be sure your ComfyUI has them, check its models/ folder on that "
+        "machine — it only scans models/ at startup, so a file added since the "
+        "last start stays invisible until you restart it."
+    )
 
     failures: list[str] = []
     for bp_id in bp_ids:
@@ -3549,7 +3614,7 @@ def _prepare_blueprint_models_or_fail(gen_regions: list[dict]) -> None:
         if result.advisories:
             print(blueprint_models.format_advisories(result), flush=True)
             emit(diag("BLUEPRINT_MODEL_UNVERIFIED", CATALOG, bp=bp_id,
-                      where=where,
+                      where=where, assurance=assurance,
                       files="\n".join(
                           f"  {m.get('filename')} — "
                           f"{model_mirror.short_status(m.get('mirror'))}"

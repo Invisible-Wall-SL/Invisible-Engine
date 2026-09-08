@@ -4571,6 +4571,17 @@ function renderBpManage(){{
   let n=bp.nmodels||0;
   let cnt=document.createElement('span'); cnt.style.cssText='color:#888;font-size:11px';
   cnt.textContent=n?(n+' model'+(n===1?'':'s')):'no models declared';
+  // The digest of the graph the library actually holds. A publish reports
+  // PRESENCE, never CONTENT, so re-uploading the wrong file used to be
+  // indistinguishable from success — compare this to your local file.
+  let sha=document.createElement('code');
+  sha.style.cssText='color:#7aa2c8;font-size:11px;letter-spacing:.3px';
+  sha.textContent=bp.sha||'--';
+  sha.title='sha256 of the stored graph (canonical JSON, first 12 chars).\n'
+    +'Recompute from your file:\n'
+    +'python -c "import json,hashlib;print(hashlib.sha256(json.dumps('
+    +'json.load(open(\'workflow.json\')),sort_keys=True,'
+    +'separators=(\',\',\':\')).encode()).hexdigest()[:12])"';
   let scan=document.createElement('button'); scan.type='button'; scan.textContent='⟳ Rescan models';
   scan.style.cssText='font-size:11px;padding:4px 9px';
   scan.title='Re-read the stored graph and declare the model files it names.';
@@ -4578,8 +4589,8 @@ function renderBpManage(){{
   let del=document.createElement('button'); del.type='button'; del.textContent='🗑 Delete';
   del.style.cssText='font-size:11px;padding:4px 9px';
   del.onclick=()=>deleteBlueprint(bp.id,bp.name);
-  row.appendChild(nm); row.appendChild(cnt); row.appendChild(scan);
-  row.appendChild(del); box.appendChild(row);
+  row.appendChild(nm); row.appendChild(sha); row.appendChild(cnt);
+  row.appendChild(scan); row.appendChild(del); box.appendChild(row);
  }});
 }}
 // Blueprints authored before models[] was derived at import declare nothing, so
@@ -8201,7 +8212,8 @@ class Handler(BaseHTTPRequestHandler):
                 # blueprint authored before import-time derivation is in.
                 bp_list.append({"id": _bid,
                                 "name": str(_b.get("name", "") or _bid),
-                                "nmodels": len(_b.get("models") or [])})
+                                "nmodels": len(_b.get("models") or []),
+                                "sha": str(_b.get("graph_sha", ""))})
                 _full = blueprints.get_blueprint(_bid)
                 if _full:
                     bp_bound[_bid] = list((_full.get("bindings") or {}).keys())

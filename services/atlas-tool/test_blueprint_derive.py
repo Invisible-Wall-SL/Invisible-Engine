@@ -421,6 +421,106 @@ def test_the_derived_entry_shape_is_what_validate_models_normalises() -> None:
           bm._is_installable(merged[0]), True)
 
 
+# --------------------------------------------------------------------------
+# Content digests: telling a real publish apart from a no-op
+#
+# `library_status` reported PRESENCE only — in_r2 / on_disk / loaded — so a
+# blueprint whose bytes were last week's looked identical to one that had just
+# landed. On 2026-09-08 that cost most of a session: a corrected graph was
+# published, the render kept failing on the thing that had been fixed, and
+# nothing anywhere could say which version the library held.
+#
+# The digest has to be CANONICAL, not a hash of the file bytes: `_uploadblueprint`
+# stores `json.dumps(graph, indent=2)`, so the stored bytes never equal the bytes
+# the author picked, and a byte hash would mismatch for a file that landed
+# perfectly. That is the property these tests are really pinning.
+# --------------------------------------------------------------------------
+import hashlib
+import json
+import tempfile
+from pathlib import Path
+
+_GRAPH = {
+    "11": {"class_type": "ImageScaleToTotalPixels",
+           "inputs": {"image": ["10", 0], "upscale_method": "lanczos",
+                      "megapixels": 1.0}},
+    "10": {"class_type": "LoadImage", "inputs": {"image": "ref.png"}},
+}
+
+
+def _oneliner(obj) -> str:
+    """The command the tooltip and the docs tell an author to run. If this ever
+    stops agreeing with `canonical_digest`, the advice is a lie."""
+    return hashlib.sha256(
+        json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()[:12]
+
+
+def test_the_digest_ignores_formatting_because_the_upload_reserialises() -> None:
+    """The whole point. The author's file and the stored file differ in bytes
+    (indent=2, key order) and MUST still agree."""
+    as_author_saved = json.loads(json.dumps(_GRAPH, indent=4))
+    as_tool_stored = json.loads(json.dumps(_GRAPH, indent=2, sort_keys=True))
+    check("indentation does not move the digest",
+          bp.canonical_digest(as_author_saved),
+          bp.canonical_digest(as_tool_stored))
+    check("and neither does key order",
+          bp.canonical_digest({"a": 1, "b": 2}),
+          bp.canonical_digest({"b": 2, "a": 1}))
+
+
+def test_the_documented_command_reproduces_it_exactly() -> None:
+    """An author compares the UI's digest to one they compute themselves. The
+    two must be the same number, not merely 'a hash of the same thing'."""
+    check("the one-liner in the tooltip/docs agrees",
+          bp.canonical_digest(_GRAPH), _oneliner(_GRAPH))
+    check("it is 12 hex chars", len(bp.canonical_digest(_GRAPH)), 12)
+
+
+def test_the_real_change_from_that_session_moves_the_digest() -> None:
+    """The exact edit that kept 'not landing': one added input on node 11."""
+    fixed = json.loads(json.dumps(_GRAPH))
+    fixed["11"]["inputs"]["resolution_steps"] = 64
+    check_not_in("adding resolution_steps changes the digest",
+                 bp.canonical_digest(fixed), [bp.canonical_digest(_GRAPH)])
+    check("a value change is caught too, not just a new key",
+          bp.canonical_digest({"x": 1}) == bp.canonical_digest({"x": 2}), False)
+
+
+def test_an_authored_digest_cannot_impersonate_the_real_content() -> None:
+    """`graph_sha` is ASSIGNED, never setdefault — otherwise a manifest could
+    carry a hand-written value and the one field whose job is to be trustworthy
+    would report whatever the file claimed."""
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td) / "fake_bp"
+        d.mkdir()
+        (d / "workflow.json").write_text(json.dumps(_GRAPH), encoding="utf-8")
+        (d / "blueprint.json").write_text(json.dumps({
+            "version": 1, "id": "fake_bp", "name": "Fake",
+            "graph_sha": "deadbeefcafe",          # a lie, in the file
+            "bindings": {"positive": {"node": "10", "field": "image"},
+                         "seed": {"node": "11", "field": "megapixels"},
+                         "output": {"node": "11"}},
+        }), encoding="utf-8")
+        loaded = bp._read_blueprint_dir(d)
+        check("the blueprint still loads", bool(loaded), True)
+        check("the digest is the real one, not the authored one",
+              loaded["graph_sha"], bp.canonical_digest(_GRAPH))
+        check("and meta carries the real one too",
+              loaded["meta"]["graph_sha"], bp.canonical_digest(_GRAPH))
+        check_not_in("the lie does not survive", "deadbeefcafe",
+                     [loaded["graph_sha"], loaded["meta"]["graph_sha"]])
+
+
+def test_a_digest_never_breaks_a_listing() -> None:
+    """A digest is a convenience. Nothing unserialisable should be able to stop
+    `library_status` or the manage list from rendering."""
+    class Unserialisable:
+        pass
+    check("an unhashable value yields empty, not an exception",
+          bp.canonical_digest({"bad": Unserialisable()}), "")
+
+
 if __name__ == "__main__":
     for fn in (test_the_rejected_graph_now_declares_what_it_needs,
                test_nothing_that_is_not_a_file_is_ever_declared,
@@ -436,7 +536,12 @@ if __name__ == "__main__":
                test_the_legacy_source_and_dir_spellings_still_merge,
                test_merging_is_idempotent,
                test_an_empty_or_absent_previous_is_fine,
-               test_the_derived_entry_shape_is_what_validate_models_normalises):
+               test_the_derived_entry_shape_is_what_validate_models_normalises,
+               test_the_digest_ignores_formatting_because_the_upload_reserialises,
+               test_the_documented_command_reproduces_it_exactly,
+               test_the_real_change_from_that_session_moves_the_digest,
+               test_an_authored_digest_cannot_impersonate_the_real_content,
+               test_a_digest_never_breaks_a_listing):
         print(f"\n-- {fn.__name__}")
         fn()
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
