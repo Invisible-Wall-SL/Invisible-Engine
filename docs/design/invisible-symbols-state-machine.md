@@ -231,8 +231,21 @@ therefore waits out the remaining waves (`scheduleTransition`'s `catchUpMs`), la
 them at the same absolute moment — the authored `delayMs` after the LAST wave, which is where the
 seam actually is. Zero without a pattern, so the un-patterned seam is byte-identical.
 
-**Where it applies.** Both moments that reach `tumbleBoardExplode`: every cascade step, and the
-swap-in-place board CLEAR. Same gate as the `Tumble explosion` grid column, for the same reason.
+**Where it applies, and the two ORDERING SCOPES that needs.** Both moments reach
+`tumbleBoardExplode`: every cascade step, and the swap-in-place board CLEAR. Same gate as the
+`Tumble explosion` grid column, for the same reason — but they hand the cue different things, and
+one ranking rule cannot serve both.
+
+- The CASCADE passes the whole winning set in one call, so it is DENSE-ranked (rule 1 above).
+- The board CLEAR is fanned out ONE COLUMN PER CALL (`clearOutgoingSymbols(reelIndex)`, driven
+  concurrently by `emergeRevealBoard` / `columnCascadeRevealBoard`). Dense-ranked, one column's
+  seats share a column key and every column answers "wave 0" — so a column pattern did nothing at
+  all on the beat a swap-in-place player watches on EVERY spin, which is precisely the
+  whole-board-at-once this feature exists to break up. That call therefore sets
+  `patternScope: 'board'` and the ordering ranks the column against the whole board instead.
+
+Row/diagonal/radial patterns always worked on the clear (their keys vary WITHIN a column); only the
+four column patterns were inert. Found on a live project, 2026-09-09.
 
 ## "Spine export" demystified
 

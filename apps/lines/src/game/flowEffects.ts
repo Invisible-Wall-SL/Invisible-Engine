@@ -639,9 +639,18 @@ const clearOutgoingSymbols = async (reelIndex?: number) => {
 	}
 	// The cascade has already seeded `base` with the whole resting board, so this column needs no
 	// init of its own — only its own cells exploded, and only its own survivors filtered.
+	//
+	// `patternScope: 'board'` because THIS CALL IS ONE COLUMN OF A BOARD-WIDE EVENT. The authored
+	// explosion pattern orders seats by dense-ranking them among themselves, which is right when the
+	// caller hands over the whole exploding set — and wrong here, where it would see one column's
+	// worth of identical column keys, answer "all wave 0", and hand every column the same instant.
+	// With every column also launched together (`columnStaggerMs` defaults to 0 under `emerge`), that
+	// made the whole board pop in one frame no matter which pattern was picked — on the one beat a
+	// swap-in-place player watches on EVERY spin.
 	await eventEmitter.broadcastAsync({
 		type: 'tumbleBoardExplode',
 		explodingPositions: visibleColumnPositions(reelIndex, board[reelIndex] ?? []),
+		patternScope: 'board',
 	});
 	eventEmitter.broadcast({ type: 'tumbleBoardRemoveExploded', reelIndex });
 };

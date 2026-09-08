@@ -47,7 +47,25 @@
 				reelIndex?: number;
 		  }
 		| { type: 'tumbleBoardReset' }
-		| { type: 'tumbleBoardExplode'; explodingPositions: ExplodingPositions }
+		| {
+				type: 'tumbleBoardExplode';
+				explodingPositions: ExplodingPositions;
+				/**
+				 * Order these seats against the WHOLE BOARD rather than among themselves (Invisible
+				 * Symbols State Machine → Explosion pattern).
+				 *
+				 * Set by the swap-in-place board CLEAR, and only by it. That beat is fanned out one
+				 * COLUMN PER CALL (`clearOutgoingSymbols(reelIndex)`), so the default dense ranking —
+				 * "where do these seats sit among themselves" — saw one column's worth of identical
+				 * column keys and answered "all wave 0". Every column therefore popped in the same
+				 * frame, which is exactly the board-explodes-at-once the pattern exists to break up,
+				 * on the beat the player watches every single spin.
+				 *
+				 * Absent ⇒ dense ranking, which is right for the cascade: it passes the whole winning
+				 * set in one call, and a win on reels 2-4 must not wait through two empty waves.
+				 */
+				patternScope?: 'board';
+		  }
 		| {
 				type: 'tumbleBoardRemoveExploded';
 				/**
@@ -493,7 +511,7 @@
 			// behind to draw over the next step.
 			clearTransitions();
 		},
-		tumbleBoardExplode: async ({ explodingPositions }) => {
+		tumbleBoardExplode: async ({ explodingPositions, patternScope }) => {
 			// Every winning cell plays its authored `tumbleExplosion` state at once, and the step is not
 			// done until the LAST one reports back — a cascade that removed symbols before their
 			// explosion finished would eat the animation the Symbols tool exists to author.
@@ -537,6 +555,9 @@
 				tumblePattern && {
 					reels: stateTumble.base.length,
 					rows: stateTumble.base.reduce((max, reel) => Math.max(max, reel.length), 0),
+					// The board CLEAR arrives one column at a time and must be ordered against the board;
+					// the cascade arrives whole and must be dense-ranked. See the cue's own doc above.
+					rankAgainstBoard: patternScope === 'board',
 				},
 			);
 			// The last wave's offset — what a seat's transition has to WAIT OUT so its bridge lands on

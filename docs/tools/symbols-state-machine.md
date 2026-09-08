@@ -273,6 +273,11 @@ Shown for a project that has an explosion step to order — one that **cascades*
 swap-in-place board **clears** itself before the new symbols arrive. Both run through the same beat,
 so both are ordered by this one pick. (Same gate as the `Tumble explosion` grid column.)
 
+On a **board clear** the sweep is measured across the whole board, so `Columns · left to right` empties
+it column by column even though the game clears each column on its own beat. Note this is separate
+from `/config` → Reel behaviour → **column stagger**, which also spaces the columns out; if you set
+both, they add up.
+
 By default the whole board explodes in the **same frame**. Pick a pattern and it comes apart in
 **waves** instead, with a gap between each:
 

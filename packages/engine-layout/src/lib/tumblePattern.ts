@@ -122,11 +122,25 @@ export type TumblePatternConfig = {
  *  callers pass their own seats through untouched. */
 type Seat = { reel: number; row: number };
 
-/** The board the centre-relative patterns measure against. Absent ⇒ measured against the exploding
- *  seats' own extents, which is right for a full-board cascade and only matters for `columnsOut` /
- *  `columnsIn` / `radial` (every other pattern is monotonic, so the origin cancels out in the
- *  dense-ranking below). */
-export type TumbleBoardBounds = { reels: number; rows: number };
+/**
+ * The board the centre-relative patterns measure against. Absent ⇒ measured against the exploding
+ * seats' own extents, which is right for a full-board cascade and only matters for `columnsOut` /
+ * `columnsIn` / `radial` (every other pattern is monotonic, so the origin cancels out in the
+ * dense-ranking below).
+ *
+ * `rankAgainstBoard` switches OFF the dense ranking, and exists for the one caller that cannot
+ * dense-rank correctly: the swap-in-place board CLEAR, which is fanned out ONE COLUMN PER CALL
+ * (`clearOutgoingSymbols(reelIndex)` in `apps/lines/src/game/flowEffects.ts`, driven concurrently by
+ * `emergeRevealBoard` / `columnCascadeRevealBoard`). Dense ranking asks "where do these seats sit
+ * among THEMSELVES", and one column's seats all share a column key — so every column answered "wave
+ * 0" and a column pattern collapsed to no stagger at all on the very beat that shows the whole board
+ * blowing up. Ranking against the BOARD asks "where does this column sit among all six", which is
+ * the question a per-column call has to answer.
+ *
+ * Dense ranking stays the default because it is right for the cascade, where the caller passes the
+ * whole winning set at once and a win on reels 2-4 must not wait through two empty waves.
+ */
+export type TumbleBoardBounds = { reels: number; rows: number; rankAgainstBoard?: boolean };
 
 export function isTumblePattern(value: unknown): value is TumblePatternName {
 	return typeof value === 'string' && (TUMBLE_PATTERNS as readonly string[]).includes(value);
@@ -170,13 +184,23 @@ export function tumbleExplosionDelays(
 	// and a map to arrive at the same array of zeroes.
 	if (stepMs === 0) return seats.map(() => 0);
 
-	const keys = patternKeys(pattern, seats, bounds, random);
-	const ordered = [...new Set(keys)].sort((a, b) => a - b);
+	// BOARD-RANKED (the per-column clear) vs DENSE (everything else) — see `rankAgainstBoard`. The
+	// board form keys EVERY seat of the board once and looks this call's seats up in that map, rather
+	// than re-deriving their keys: `random` would otherwise draw a second, different shuffle and the
+	// columns of one clear would disagree about the order they are in.
+	const boardRanked = bounds?.rankAgainstBoard === true;
+	const ranked = boardRanked ? everySeatOf(bounds) : seats;
+	const rankedKeys = patternKeys(pattern, ranked, bounds, random);
+	const keys = boardRanked ? lookUpKeys(seats, ranked, rankedKeys) : rankedKeys;
+	const ordered = [...new Set(rankedKeys)].sort((a, b) => a - b);
 	const wave = new Map(ordered.map((key, index) => [key, index]));
 	// The whole spread, bounded — see {@link TUMBLE_SPREAD_MS_MAX}. Scaling the STEP keeps every seat
 	// on the wave the pattern gave it; only the pace tightens. `lastWave` is 0 for a one-wave step
 	// (a single-column win on a column pattern), where there is no spread to bound and no divisor.
 	const lastWave = ordered.length - 1;
+	// NOTE the cap is measured over the RANKED set, so a board-ranked call bounds the spread of the
+	// whole clear rather than of the one column it was handed — otherwise six columns would each
+	// think they had the whole 2 s budget.
 	const step =
 		lastWave > 0 && lastWave * stepMs > TUMBLE_SPREAD_MS_MAX
 			? Math.floor(TUMBLE_SPREAD_MS_MAX / lastWave)
@@ -235,6 +259,29 @@ function patternKeys(
 /** Wider than any board a reel grid can express, so `row * stride + reel` can never collide across
  *  two rows. Not a board dimension — purely the packing base for the reading-order key. */
 const COLUMN_STRIDE = 1_000;
+
+/** Every seat of the board, reading order — the ranking universe for a board-ranked call. */
+function everySeatOf(bounds: TumbleBoardBounds): Seat[] {
+	const seats: Seat[] = [];
+	for (let row = 0; row < bounds.rows; row += 1) {
+		for (let reel = 0; reel < bounds.reels; reel += 1) seats.push({ reel, row });
+	}
+	return seats;
+}
+
+/** This call's seats, keyed by their position in the board-wide ranking. A seat outside the bounds
+ *  (a padded buffer row, a mis-sized board) falls back to the first wave rather than throwing. */
+function lookUpKeys(
+	seats: readonly Seat[],
+	ranked: readonly Seat[],
+	rankedKeys: number[],
+): number[] {
+	const bySeat = new Map(
+		ranked.map((seat, index) => [`${seat.reel}:${seat.row}`, rankedKeys[index]!]),
+	);
+	const first = rankedKeys.length ? Math.min(...rankedKeys) : 0;
+	return seats.map((seat) => bySeat.get(`${seat.reel}:${seat.row}`) ?? first);
+}
 
 const extent = (seats: readonly Seat[], pick: (seat: Seat) => number) =>
 	seats.reduce((max, seat) => Math.max(max, pick(seat) + 1), 1);

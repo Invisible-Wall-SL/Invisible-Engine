@@ -309,6 +309,121 @@ check(
 	[],
 );
 
+{
+	// THE PER-COLUMN CLEAR — the beat a swap-in-place player watches on EVERY spin, and the one this
+	// pattern silently did nothing for until 2026-09-09.
+	//
+	// `clearOutgoingSymbols(reelIndex)` fans the board clear out ONE COLUMN PER CALL, so the seats
+	// handed to the ordering function all share a column. Dense-ranked, they share ONE key and answer
+	// "wave 0" — every column popped in the same frame however the pattern was authored. Board-ranked,
+	// the column is placed among all the board's columns, which is the question a per-column call has
+	// to answer.
+	const ROWS_IN_COLUMN = 5;
+	const REELS_ON_BOARD = 6;
+	const column = (reel) =>
+		Array.from({ length: ROWS_IN_COLUMN }, (_unused, row) => ({ reel, row }));
+	const boardBounds = { reels: REELS_ON_BOARD, rows: ROWS_IN_COLUMN, rankAgainstBoard: true };
+
+	check(
+		'DENSE-ranked, one column of a columnsLeft clear collapses to a single wave — the bug',
+		tumbleExplosionDelays(
+			column(3),
+			{ pattern: 'columnsLeft', stepMs: 220 },
+			{
+				reels: REELS_ON_BOARD,
+				rows: ROWS_IN_COLUMN,
+			},
+		),
+		[0, 0, 0, 0, 0],
+	);
+	check(
+		'BOARD-ranked, that column pops on its own wave — reel 3 of 6 waits three gaps',
+		tumbleExplosionDelays(column(3), { pattern: 'columnsLeft', stepMs: 220 }, boardBounds),
+		[660, 660, 660, 660, 660],
+	);
+	check(
+		'...and the whole sweep is left-to-right across every column',
+		Array.from(
+			{ length: REELS_ON_BOARD },
+			(_u, reel) =>
+				tumbleExplosionDelays(
+					column(reel),
+					{ pattern: 'columnsLeft', stepMs: 220 },
+					boardBounds,
+				)[0],
+		),
+		[0, 220, 440, 660, 880, 1100],
+	);
+	check(
+		'...reversed for columnsRight',
+		Array.from(
+			{ length: REELS_ON_BOARD },
+			(_u, reel) =>
+				tumbleExplosionDelays(
+					column(reel),
+					{ pattern: 'columnsRight', stepMs: 220 },
+					boardBounds,
+				)[0],
+		),
+		[1100, 880, 660, 440, 220, 0],
+	);
+	check(
+		'a ROW pattern still sweeps WITHIN each column, and identically in every column',
+		tumbleExplosionDelays(column(4), { pattern: 'rowsTop', stepMs: 100 }, boardBounds),
+		tumbleExplosionDelays(column(0), { pattern: 'rowsTop', stepMs: 100 }, boardBounds),
+	);
+	check(
+		'...top to bottom',
+		tumbleExplosionDelays(column(0), { pattern: 'rowsTop', stepMs: 100 }, boardBounds),
+		[0, 100, 200, 300, 400],
+	);
+	check(
+		'`all` is still one frame under board ranking (parity)',
+		tumbleExplosionDelays(column(2), { pattern: 'all', stepMs: 220 }, boardBounds),
+		[0, 0, 0, 0, 0],
+	);
+	check(
+		'the spread ceiling is measured over the BOARD, not over the one column handed in',
+		Math.max(
+			...Array.from(
+				{ length: REELS_ON_BOARD },
+				(_u, reel) =>
+					tumbleExplosionDelays(
+						column(reel),
+						{ pattern: 'columnsLeft', stepMs: TUMBLE_STEP_MS_MAX },
+						boardBounds,
+					)[0],
+			),
+		) <= TUMBLE_SPREAD_MS_MAX,
+		true,
+	);
+	// `random` must agree ACROSS the six independent calls one clear makes, or the columns would each
+	// draw their own shuffle and the "order" would be incoherent. Seeded so the claim is exact.
+	const shuffledFirstSeat = (reel) =>
+		tumbleExplosionDelays(
+			column(reel),
+			{ pattern: 'random', stepMs: 10 },
+			boardBounds,
+			() => 0.42,
+		)[0];
+	const twice = [shuffledFirstSeat(2), shuffledFirstSeat(2)];
+	check('a board-ranked random shuffle is stable for the same column', twice[0], twice[1]);
+	check(
+		'...and every board seat still gets its own wave across the whole clear',
+		new Set(
+			Array.from({ length: REELS_ON_BOARD }, (_u, reel) =>
+				tumbleExplosionDelays(
+					column(reel),
+					{ pattern: 'random', stepMs: 10 },
+					boardBounds,
+					() => 0.42,
+				),
+			).flat(),
+		).size,
+		REELS_ON_BOARD * ROWS_IN_COLUMN,
+	);
+}
+
 console.log('--- 2. the real explode step, on a virtual clock ---');
 
 /**
@@ -321,10 +436,14 @@ console.log('--- 2. the real explode step, on a virtual clock ---');
 const explodeHandlerSource = (() => {
 	const component = read('apps/lines/src/components/TumbleBoard.svelte');
 	const script = component.slice(component.lastIndexOf('<script lang="ts">'));
-	const marker = 'tumbleBoardExplode: async ({ explodingPositions }) => {';
+	// Matched on the handler NAME, not on its full destructuring line: the parameter list grows
+	// (`patternScope` joined it when the board clear needed its own ordering scope), and a marker that
+	// spelled the whole signature out turned every such addition into a fixture crash.
+	const marker = 'tumbleBoardExplode: async (';
 	const start = script.indexOf(marker);
 	if (start < 0) throw new Error('TumbleBoard.svelte no longer declares tumbleBoardExplode');
-	const open = start + marker.length - 1;
+	const open = script.indexOf('{', script.indexOf('=>', start));
+	if (open < 0) throw new Error('could not find the body of tumbleBoardExplode');
 	let depth = 0;
 	for (let i = open; i < script.length; i += 1) {
 		if (script[i] === '{') depth += 1;
@@ -384,7 +503,15 @@ const createClock = () => {
  *  step that resolved on the last POP rather than on the last BEAT would be caught. */
 const BEAT_MS = 500;
 
-const runExplode = async ({ pattern, stepMs, seats, sweepAfter, spliceAfter, emerge }) => {
+const runExplode = async ({
+	pattern,
+	stepMs,
+	seats,
+	sweepAfter,
+	spliceAfter,
+	emerge,
+	patternScope,
+}) => {
 	const clock = createClock();
 	const pops = [];
 	// One symbol object per seat, keyed the way the board keys them: `base[reel][row]`.
@@ -426,7 +553,7 @@ const runExplode = async ({ pattern, stepMs, seats, sweepAfter, spliceAfter, eme
 	};
 	const handler = buildExplode(env);
 	const settledAt = await clock.run(async () => {
-		const running = handler({ explodingPositions: seats });
+		const running = handler({ explodingPositions: seats, patternScope });
 		if (sweepAfter !== undefined) {
 			// The slam: the board is emptied part-way through the pattern, exactly as
 			// `tumbleBoardReset` empties it.
@@ -550,6 +677,31 @@ console.log('--- 3. the pending-wave guard ---');
 		[],
 	);
 	check('...leaving exactly the twelve seats that did pop', run.exploded.length, 12);
+}
+
+{
+	// DRIVEN, through the real handler: one column of a board clear, ordered against the board.
+	// Every seat of reel 3 must pop together, three gaps into the sweep — not at 0 like every other
+	// column, which is what the whole board doing it at once looked like.
+	const columnSeats = Array.from({ length: ROWS }, (_unused, row) => ({ reel: 3, row }));
+	const clear = await runExplode({
+		seats: columnSeats,
+		pattern: 'columnsLeft',
+		stepMs: 220,
+		patternScope: 'board',
+	});
+	check(
+		'a board-scoped column clear pops its whole column on ONE wave, three gaps in',
+		[...new Set(clear.popped)],
+		[660],
+	);
+	check('...every seat of that column', clear.popped.length, ROWS);
+	const dense = await runExplode({ seats: columnSeats, pattern: 'columnsLeft', stepMs: 220 });
+	check(
+		'...while the same column WITHOUT the board scope still pops at 0 (the cascade contract)',
+		[...new Set(dense.popped)],
+		[0],
+	);
 }
 
 console.log('--- 4. the explosion → intro transition under a pattern ---');
