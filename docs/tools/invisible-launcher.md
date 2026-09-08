@@ -81,7 +81,42 @@ new version:** bump `LAUNCHER_VERSION`, then run the build with `--upload`.
 (Self-update only runs from the frozen `.exe`; from source it tells you to
 `git pull` instead.)
 
+## Projects — build & publish a standalone game
+
+The **Projects** tab lists the projects your account can reach. **↻ Sync from
+cloud** pulls them from the portal, clones the ones that have a repo, and pulls
+their shared assets; **☁ Publish** on a card then does the whole build in one
+press — fetch + hard-reset to `origin/main`, advance the engine submodule to its
+branch tip, `pnpm install && pnpm build` (assets pull live from R2), upload the
+bundle, register the game card, verify it's live.
+
+**You don't pick a template for an existing project.** A project's **game kind**
+(Lines, Book of, Ways, Cluster, Scatter, or a custom kind) is authored online —
+in Invisible Game Maker or the editor's kind picker — and the portal sends it
+down with every Sync. The launcher derives the build command, the mock RGS
+protocol and the RGS env from it, so Edit shows a read-only **"Game kind —
+authored in the portal"** row rather than a picker: a local change would be
+reverted by the next Sync, and until then the two ends would disagree about which
+mock the game is dealt. Change the kind where it's authored.
+
+- **Custom build** — tick *Use a custom build for this project* on that row when a
+  game's build genuinely differs (a non-standard command, cwd or output dir). The
+  Advanced boxes then win and nothing rewrites them.
+- **🎮 New Project** still asks for the kind, because a project being created here
+  doesn't have one yet. It scaffolds a real repo (engine submodule + build wiring),
+  registers it, and shares the setup so every machine gets it on Sync.
+- **"Build folder is EMPTY"** on ☁ Publish means the project exists online but has
+  no standalone repo yet — it's a data-only project that Game Maker publishes
+  through the shared runtime, with no local build. Use 🎮 New Project to scaffold
+  one, or point *Game root folder* at an existing clone and press **⬆ Setup**.
+
+> Online publish and desktop publish are different products and deliberately
+> refuse to overwrite each other's game card. Keep the keys distinct — `<game>`
+> for the desktop build, `<game>remake` for the online one.
+
 ## Related
 
 - [ComfyUI](comfyui.md) — what the launcher installs + starts.
+- [Invisible Game Maker](game-maker.md) — where a project's game kind is authored,
+  and where a data-only project is published without any local build.
 - `docs/INFRA.md` — the tunnel, Cloudflare Access, R2.

@@ -25,28 +25,11 @@
 import { resolveWinModel, symbolsInPlay, type GameConfigDoc, type PaytableRow } from 'game-config';
 import { linesMapping, mapSymbol } from 'rgs-translator-eagaming/game-mappings';
 import { loadGameConfigDoc } from './gameConfigStorage';
+import { protocolFor } from './mockProtocol';
 import { UNASSIGNED_CLIENT } from './projectPaths';
 import { projectClientKey, projectGameType } from './projects';
 import { loadSymbolsDoc } from './symbolsStorage';
 import type { MockProtocol, TestServerGameEntry } from './testServerManifest';
-
-/**
- * Map an authored game kind to its mock RGS protocol. Book-of games use the `book` mock
- * (buy-feature + free spins); `ways` uses the lines mock with its ways win evaluator (Phase D of
- * `docs/design/game-type-templates.md`); everything else uses the plain `lines` mock.
- */
-function protocolFor(gameType: string): MockProtocol {
-	if (gameType === 'bookOf') return 'book';
-	if (gameType === 'ways') return 'ways';
-	// `cluster` reuses the lines mock too, swapping only how wins are DECIDED (a flood fill instead of
-	// a payline walk). It is TEST infrastructure — the mock's paytable is keyed by payline run lengths,
-	// so a cluster's payout is approximated; see `evaluateClusters`.
-	if (gameType === 'cluster') return 'cluster';
-	// `scatter` likewise — a count-anywhere evaluator. Its pricing is by COUNT rather than run length,
-	// which is why the project's own paytable (shipped for every model) matters most here.
-	if (gameType === 'scatter') return 'scatter';
-	return 'lines';
-}
 
 /** Flatten a symbol's `[{ '5': 20 }, { '3': 5 }]` paytable rows to an `{ occurs: multiplier }` map. */
 function paytableToOccursMap(rows: PaytableRow[]): Record<string, number> {
