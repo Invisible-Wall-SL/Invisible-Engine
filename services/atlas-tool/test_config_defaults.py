@@ -960,6 +960,93 @@ def test_a_per_atlas_override_still_beats_the_refreshed_config() -> None:
               (768, 768))
 
 
+# --------------------------------------------------------------------------
+# A diagnostic's REMEDY has to name the target the render actually used
+#
+# `BLUEPRINT_MODEL_UNVERIFIED` had a transport-aware `explain` ("{where} has no
+# inventory...") and a `fix` hardcoded to the RunPod remedy. Observed on a LOCAL
+# render 2026-09-08: the tool said "your ComfyUI has no inventory that could
+# answer for them" and then told the author to run pull-models.py onto a pod
+# network volume they were not using. Both halves now come off the same
+# `serverless` boolean.
+#
+# The second risk is subtler and is why the token test exists: `_safe_format`
+# falls back to the RAW TEMPLATE on a missing key, so a catalog entry that grows
+# a `{token}` the call site does not pass renders a literal "{assurance}" to the
+# user rather than raising anywhere a test would notice.
+# --------------------------------------------------------------------------
+import re as _re
+
+from iw_common.diagnostics import diag as _diag
+from diag_catalog import CATALOG as _CATALOG
+
+
+def _unverified(serverless: bool) -> dict:
+    """Rebuild the diag exactly as `preflight_models` does for one target."""
+    where = "the RunPod worker" if serverless else "your ComfyUI"
+    assurance = (
+        "To be sure a RunPod worker has them, run python "
+        "services/atlas-tool/runpod/pull-models.py --dest "
+        "/workspace/ComfyUI/models on a pod with the network volume mounted, "
+        "then start a fresh worker (a running one keeps its old file list)."
+        if serverless else
+        "To be sure your ComfyUI has them, check its models/ folder on that "
+        "machine — it only scans models/ at startup, so a file added since the "
+        "last start stays invisible until you restart it."
+    )
+    return _diag("BLUEPRINT_MODEL_UNVERIFIED", _CATALOG, bp="img2img",
+                 where=where, assurance=assurance,
+                 files="  pulid_flux_v0.9.1.safetensors")
+
+
+def test_a_local_render_is_not_told_to_go_fix_a_runpod_volume() -> None:
+    d = _unverified(serverless=False)
+    check_in("the explanation names the local box", "your ComfyUI", d["explain"])
+    check_in("and so does the remedy", "your ComfyUI", d["fix"])
+    check_not_in("the remedy does not mention RunPod", "RunPod", d["fix"])
+    check_not_in("nor the pod-only script", "pull-models.py", d["fix"])
+    check_not_in("nor the pod's volume path", "/workspace/", d["fix"])
+    check_in("it says what WOULD settle the question locally",
+             "models/", d["fix"])
+    check("it is still only a warning", d["severity"], "warn")
+
+
+def test_a_pod_render_still_gets_the_pod_remedy() -> None:
+    d = _unverified(serverless=True)
+    check_in("the explanation names the worker", "the RunPod worker",
+             d["explain"])
+    check_in("the remedy keeps the pull-models step", "pull-models.py",
+             d["fix"])
+    check_in("and the fresh-worker caveat", "fresh worker", d["fix"])
+    check_not_in("it does not talk about the local box", "your ComfyUI",
+                 d["fix"])
+
+
+def test_neither_target_leaks_an_unsubstituted_token() -> None:
+    """`_safe_format` returns the RAW template when a key is missing, so a
+    forgotten token reaches the USER as literal '{assurance}' instead of
+    failing anywhere. Pin every rendered field for both targets."""
+    for serverless in (False, True):
+        d = _unverified(serverless)
+        for field in ("title", "explain", "fix"):
+            left = _re.findall(r"\{[a-z_]+\}", d[field])
+            check("no unsubstituted token in %s (serverless=%s)"
+                  % (field, serverless), left, [])
+
+
+def test_the_render_is_never_blocked_by_this_diagnostic() -> None:
+    """The whole point of the advisory: an unanswered question is not a missing
+    file. If this ever becomes an error, a private model nobody can verify
+    (pulid_file has no loader in _MODEL_FIELD_NODES) would stop every render."""
+    check("severity stays warn, not error",
+          _CATALOG["BLUEPRINT_MODEL_UNVERIFIED"]["severity"], "warn")
+    check_in("and the text says so out loud", "render is CONTINUING",
+             _CATALOG["BLUEPRINT_MODEL_UNVERIFIED"]["explain"])
+    check("pulid_file genuinely has no loader to ask",
+          ba._model_installed("pulid_file", "pulid_flux_v0.9.1.safetensors"),
+          None)
+
+
 if __name__ == "__main__":
     for fn in (test_the_poisoned_config_from_the_outage_renders_again,
                test_a_real_value_still_wins,
@@ -985,7 +1072,11 @@ if __name__ == "__main__":
                test_every_name_the_settings_map_claims_actually_exists,
                test_the_resolved_export_no_longer_answers_for_a_stale_pipeline,
                test_the_refresh_does_not_outlive_the_locked_window,
-               test_a_per_atlas_override_still_beats_the_refreshed_config):
+               test_a_per_atlas_override_still_beats_the_refreshed_config,
+               test_a_local_render_is_not_told_to_go_fix_a_runpod_volume,
+               test_a_pod_render_still_gets_the_pod_remedy,
+               test_neither_target_leaks_an_unsubstituted_token,
+               test_the_render_is_never_blocked_by_this_diagnostic):
         print(f"\n-- {fn.__name__}")
         fn()
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")

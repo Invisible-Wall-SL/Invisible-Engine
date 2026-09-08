@@ -3580,6 +3580,18 @@ def _prepare_blueprint_models_or_fail(gen_regions: list[dict]) -> None:
     serverless = COMFY_TRANSPORT == "serverless"
     target = "serverless" if serverless else "local"
     where = "the RunPod worker" if serverless else "your ComfyUI"
+    # Paired with `where`, from the SAME boolean, so the explanation and the
+    # remedy can never disagree about which machine ran the job.
+    assurance = (
+        "To be sure a RunPod worker has them, run python "
+        "services/atlas-tool/runpod/pull-models.py --dest "
+        "/workspace/ComfyUI/models on a pod with the network volume mounted, "
+        "then start a fresh worker (a running one keeps its old file list)."
+        if serverless else
+        "To be sure your ComfyUI has them, check its models/ folder on that "
+        "machine — it only scans models/ at startup, so a file added since the "
+        "last start stays invisible until you restart it."
+    )
 
     failures: list[str] = []
     for bp_id in bp_ids:
@@ -3602,7 +3614,7 @@ def _prepare_blueprint_models_or_fail(gen_regions: list[dict]) -> None:
         if result.advisories:
             print(blueprint_models.format_advisories(result), flush=True)
             emit(diag("BLUEPRINT_MODEL_UNVERIFIED", CATALOG, bp=bp_id,
-                      where=where,
+                      where=where, assurance=assurance,
                       files="\n".join(
                           f"  {m.get('filename')} — "
                           f"{model_mirror.short_status(m.get('mirror'))}"
