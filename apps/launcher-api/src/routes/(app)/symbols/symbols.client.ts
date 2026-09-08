@@ -1335,6 +1335,7 @@ export function docSignature(doc: SymbolsDoc): string {
 				showText: doc.winCycle.showText ?? null,
 				showMessage: doc.winCycle.showMessage ?? null,
 				dimNonWinning: doc.winCycle.dimNonWinning ?? null,
+				holdAfterBigWin: doc.winCycle.holdAfterBigWin ?? null,
 			}
 		: null;
 	// Listed here or an edit never marks the page dirty and Save stays disabled.
