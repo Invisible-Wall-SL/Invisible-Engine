@@ -102,13 +102,33 @@ mock the game is dealt. Change the kind where it's authored.
 - **Custom build** — tick *Use a custom build for this project* on that row when a
   game's build genuinely differs (a non-standard command, cwd or output dir). The
   Advanced boxes then win and nothing rewrites them.
-- **🎮 New Project** still asks for the kind, because a project being created here
-  doesn't have one yet. It scaffolds a real repo (engine submodule + build wiring),
-  registers it, and shares the setup so every machine gets it on Sync.
-- **"Build folder is EMPTY"** on ☁ Publish means the project exists online but has
-  no standalone repo yet — it's a data-only project that Game Maker publishes
-  through the shared runtime, with no local build. Use 🎮 New Project to scaffold
-  one, or point *Game root folder* at an existing clone and press **⬆ Setup**.
+
+### 🏗 Scaffold — give an online project a standalone build
+
+A project authored in the portal is **data-only** by design: Invisible Game Maker
+ships it through the shared runtime bundle, so it has no repo and no build. Sync
+leaves an empty placeholder folder for it, and ☁ Publish can only report that the
+folder is empty.
+
+**🏗 Scaffold** on the project's card closes that gap in one press: it creates the
+game repo (engine submodule + build wiring), makes the first commit, pushes a
+private GitHub repo if the `gh` CLI is signed in, and shares the setup so every
+other machine clones it on the next Sync. Then ☁ Publish works like any other
+game. Nothing is typed — the folder, the cloud key and the build all follow the
+project it's scaffolding for.
+
+- It appears **only on a project that has no repo**, and disappears once used.
+- Needs *Engine dir* set in Settings (it drives the engine's own scaffolder) and,
+  for the sharing step, the owner account.
+- **Your cloud authoring data is untouched.** The scaffolded build pulls art,
+  fonts, scenes and sounds live from R2 at build time — scaffolding adds a repo
+  and changes nothing else.
+- If the game was **already published online**, publish the desktop build under a
+  different key: the two publish paths refuse to overwrite each other's card.
+
+> **🎮 New Project** is the other direction — for a game that does *not* exist in
+> the portal yet. It creates the portal project too. For a repo you already have,
+> point *Game root folder* at the clone and press **⬆ Setup**.
 
 > Online publish and desktop publish are different products and deliberately
 > refuse to overwrite each other's game card. Keep the keys distinct — `<game>`
