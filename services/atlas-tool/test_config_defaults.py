@@ -776,6 +776,190 @@ def test_the_model_guard_only_judges_things_that_look_like_files() -> None:
 
 
 
+# --------------------------------------------------------------------------
+# The import-time config snapshot vs. the long-lived UI process
+#
+# `CFG` and every `X = CFG["x"]` global are evaluated ONCE, at import. A render
+# is a fresh subprocess so that is correct there; the ui_server worker imports
+# once and lives for days, and `_config_paths()` resolves the config under the
+# ACTIVE (client, project) staging root -- so its snapshot is pinned to the era
+# AND the project of whatever it resolved at boot.
+#
+# Observed 2026-09-08 on the live tool: `/blueprintresolved` refused a
+# `characterdesignertest3` render as "pipeline 'flux' is a built-in" and put
+# 1969x1222 in the exported EmptyLatentImage, while the project's config said
+# `characterdesignertest3` at 1024x1024. That endpoint exists to state exactly
+# what a real run sends, so a stale answer is worse than no answer.
+# --------------------------------------------------------------------------
+_STALE = {"PIPELINE": "flux", "GEN_WIDTH": 1969, "GEN_HEIGHT": 1222}
+
+
+@contextlib.contextmanager
+def config_on_disk(doc: dict):
+    """Point `batch_atlas.load_config()` at a config holding `doc` for a whole
+    BLOCK -- `load_with` only covers one call, and these tests need the config
+    to stay readable across a refresh plus a full resolve."""
+    real = ba._config_paths
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td) / "atlas_config.json"
+        p.write_text(json.dumps(doc), encoding="utf-8")
+        ba._config_paths = lambda: [p]        # type: ignore[assignment]
+        try:
+            yield p
+        finally:
+            ba._config_paths = real           # type: ignore[assignment]
+
+
+@contextlib.contextmanager
+def stale_snapshot(**overrides):
+    """Fake the boot-time snapshot of a worker that has since gone stale, and
+    put every touched global back afterwards so tests stay independent."""
+    names = set(ba._SETTINGS_GLOBALS.values()) | set(overrides)
+    saved = {n: getattr(ba, n) for n in names}
+    try:
+        for n, v in overrides.items():
+            setattr(ba, n, v)
+        yield
+    finally:
+        for n, v in saved.items():
+            setattr(ba, n, v)
+
+
+_BP = {
+    "id": "mybp",
+    "graph": {
+        "1": {"class_type": "KSampler", "inputs": {"seed": 1, "steps": 20}},
+        "4": {"class_type": "CLIPTextEncode", "inputs": {"text": "baked"}},
+        "8": {"class_type": "EmptyLatentImage",
+              "inputs": {"width": 512, "height": 512, "batch_size": 1}},
+        "11": {"class_type": "SaveImage",
+               "inputs": {"filename_prefix": "ComfyUI"}},
+    },
+    "bindings": {
+        "positive": {"node": "4", "field": "text"},
+        "seed": {"node": "1", "field": "seed"},
+        "width": {"node": "8", "field": "width"},
+        "height": {"node": "8", "field": "height"},
+        "output": {"node": "11", "field": "filename_prefix"},
+    },
+}
+
+
+@contextlib.contextmanager
+def blueprint_library(bp_doc: dict):
+    real = ba.blueprints.get_blueprint
+    ba.blueprints.get_blueprint = (                    # type: ignore[assignment]
+        lambda bid: bp_doc if bid == bp_doc["id"] else None)
+    try:
+        yield
+    finally:
+        ba.blueprints.get_blueprint = real             # type: ignore[assignment]
+
+
+def _manifest(settings: dict | None = None) -> dict:
+    m = {"atlas": {}, "regions": [{"name": "r1", "prompt": "hello"}]}
+    if settings:
+        m["settings"] = settings
+    return m
+
+
+def test_a_stale_import_snapshot_is_refreshed_from_the_live_config() -> None:
+    with stale_snapshot(**_STALE):
+        with config_on_disk({"pipeline": "mybp",
+                             "gen_width": 1024, "gen_height": 1024}):
+            reset = ba.refresh_config_globals()
+        check("the pipeline comes from the config, not the boot snapshot",
+              ba.PIPELINE, "mybp")
+        check("gen width likewise", ba.GEN_WIDTH, 1024)
+        check("gen height likewise", ba.GEN_HEIGHT, 1024)
+        check("and the refresh reports what it reset",
+              (reset["pipeline"], reset["gen_width"]), ("mybp", 1024))
+
+
+def test_a_key_absent_from_the_file_refreshes_to_its_default() -> None:
+    """`load_config` merges `_DEFAULTS` first, so a config predating a field
+    must refresh to that field's default -- NOT keep the stale global. Same
+    shape as the outage this suite is named for."""
+    with stale_snapshot(**_STALE):
+        with config_on_disk({"pipeline": "mybp"}):   # no gen_* at all
+            ba.refresh_config_globals()
+        check("an unmentioned numeric lands on its default, not the stale one",
+              ba.GEN_WIDTH, ba._DEFAULTS["gen_width"])
+
+
+def test_the_refresh_normalizes_exactly_like_the_import_does() -> None:
+    """`REMBG` is the one global that is not its raw config value -- import
+    coerces "on"/"off" to a real bool. A refresh that skipped that would hand
+    the runner the string "off", which is TRUTHY."""
+    with stale_snapshot(REMBG=True):
+        with config_on_disk({"rembg": "off"}):
+            ba.refresh_config_globals()
+        check("'off' becomes False", ba.REMBG, False)
+        check("and it is a bool, not the raw string",
+              isinstance(ba.REMBG, bool), True)
+        with config_on_disk({"rembg": "on"}):
+            ba.refresh_config_globals()
+        check("'on' becomes True", ba.REMBG, True)
+
+
+def test_every_name_the_settings_map_claims_actually_exists() -> None:
+    """`_SETTINGS_GLOBALS` is the map the refresh, the manifest overlay and the
+    resolve snapshot all drive off. A typo'd global name there would silently
+    create a NEW module attribute instead of updating the real one."""
+    missing = [g for g in ba._SETTINGS_GLOBALS.values() if not hasattr(ba, g)]
+    check("no settings key names a global that does not exist", missing, [])
+    with stale_snapshot():
+        with config_on_disk({}):
+            reset = ba.refresh_config_globals()
+        check("and a default config refreshes every one of them",
+              sorted(reset), sorted(ba._SETTINGS_GLOBALS))
+
+
+def test_the_resolved_export_no_longer_answers_for_a_stale_pipeline() -> None:
+    """The live bug, end to end: a worker whose snapshot says 'flux' must not
+    refuse a blueprint the config has since selected."""
+    with stale_snapshot(**_STALE), blueprint_library(_BP):
+        with config_on_disk({"pipeline": "mybp",
+                             "gen_width": 1024, "gen_height": 1024}):
+            wf, out_node, changes = ba.resolve_blueprint_workflow(_manifest())
+        check("it resolves instead of raising 'is a built-in'", out_node, "11")
+        check("the exported latent is the config's gen size",
+              (wf["8"]["inputs"]["width"], wf["8"]["inputs"]["height"]),
+              (1024, 1024))
+        widths = [c for c in changes
+                  if c["node"] == "8" and c["field"] == "width"]
+        check("and the diff reports it as a width injection",
+              (widths[0]["baked"], widths[0]["resolved"], widths[0]["source"]),
+              (512, 1024, "width"))
+
+
+def test_the_refresh_does_not_outlive_the_locked_window() -> None:
+    """The resolve snapshots BEFORE the refresh and restores in `finally`, so
+    an export must leave the process exactly as it found it -- otherwise one
+    debug call would silently repoint every other in-process reader."""
+    with stale_snapshot(**_STALE), blueprint_library(_BP):
+        with config_on_disk({"pipeline": "mybp",
+                             "gen_width": 1024, "gen_height": 1024}):
+            ba.resolve_blueprint_workflow(_manifest())
+        check("PIPELINE is back to what the caller had",
+              ba.PIPELINE, _STALE["PIPELINE"])
+        check("GEN_WIDTH too", ba.GEN_WIDTH, _STALE["GEN_WIDTH"])
+
+
+def test_a_per_atlas_override_still_beats_the_refreshed_config() -> None:
+    """Order matters: refresh stands in for the subprocess import, THEN the
+    manifest overlay goes on top -- never the other way round, or a per-atlas
+    gen size would be erased by the shared default."""
+    with stale_snapshot(**_STALE), blueprint_library(_BP):
+        with config_on_disk({"pipeline": "mybp",
+                             "gen_width": 1024, "gen_height": 1024}):
+            wf, _, _ = ba.resolve_blueprint_workflow(
+                _manifest({"gen_width": 768, "gen_height": 768}))
+        check("the manifest's per-atlas gen size wins",
+              (wf["8"]["inputs"]["width"], wf["8"]["inputs"]["height"]),
+              (768, 768))
+
+
 if __name__ == "__main__":
     for fn in (test_the_poisoned_config_from_the_outage_renders_again,
                test_a_real_value_still_wins,
@@ -794,7 +978,14 @@ if __name__ == "__main__":
                test_a_poisoned_config_heals_on_the_next_save,
                test_every_numeric_field_has_a_numeric_default,
                test_per_atlas_inherit_label_names_the_real_global,
-               test_an_empty_numeric_box_shows_its_default):
+               test_an_empty_numeric_box_shows_its_default,
+               test_a_stale_import_snapshot_is_refreshed_from_the_live_config,
+               test_a_key_absent_from_the_file_refreshes_to_its_default,
+               test_the_refresh_normalizes_exactly_like_the_import_does,
+               test_every_name_the_settings_map_claims_actually_exists,
+               test_the_resolved_export_no_longer_answers_for_a_stale_pipeline,
+               test_the_refresh_does_not_outlive_the_locked_window,
+               test_a_per_atlas_override_still_beats_the_refreshed_config):
         print(f"\n-- {fn.__name__}")
         fn()
     print(f"\n{len(PASSED)} passed, {len(FAILED)} failed")
