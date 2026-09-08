@@ -116,7 +116,11 @@
 {#if show}
 	<BoardContext animate={false}>
 		<BoardContainer>
-			<BoardMask />
+			<!-- `allowOverflow`: once every reel has stopped, the window may grow by the `reelGrid`
+			     node's authored symbol overflow, so a landed symbol drawn bigger than its cell is not
+			     cut off at the board edge. Nothing authored / any reel still moving ⇒ the same window
+			     as always (`boardOverflow`). -->
+			<BoardMask allowOverflow />
 			<!--
 				GROUND TILES (docs/design/perspective-board-mode.md §"The tiles") — the FIRST painted
 				child, so the whole layer sits behind every symbol. Two reasons it is one flat layer

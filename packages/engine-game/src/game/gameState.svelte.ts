@@ -108,6 +108,14 @@ type BoardPerspective = {
 	vanishX: number;
 };
 
+/**
+ * "No spill" — the answer `boardOverflow` gives for every board that authored none and for every
+ * board that is not settled. One shared frozen object rather than a fresh literal per call, so the
+ * overwhelmingly common answer costs no allocation and reads as an unchanged reference to the
+ * `$derived` that consumes it.
+ */
+const NO_BOARD_OVERFLOW = Object.freeze({ x: 0, y: 0 });
+
 export function createGameState<TGameType extends string>(deps: GameStateDeps<TGameType>) {
 	/**
 	 * Editor doc's `reelGrid` node (LAYOUT ONLY) bridged in by `Game.svelte` once the
@@ -159,6 +167,8 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 				symbolAlignY: 0.5,
 				boardNudgeX: 0,
 				boardNudgeY: 0,
+				overflowXLocal: 0,
+				overflowYLocal: 0,
 			};
 		const scale = override.cellSize / SYMBOL_SIZE;
 		const columnExtraLocal = (override.cellWidth - override.cellSize + override.gapX) / scale;
@@ -176,6 +186,11 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 			symbolAlignY: override.symbolAlignY,
 			boardNudgeX: override.boardNudgeX,
 			boardNudgeY: override.boardNudgeY,
+			// Authored in the same on-screen px as the cell edges, so it converts to board-local the
+			// same way they do — divided by the container scale. `boardOverflow` is what decides WHEN
+			// this is spent; here it is only put in the space the mask is drawn in.
+			overflowXLocal: override.overflowX / scale,
+			overflowYLocal: override.overflowY / scale,
 		};
 	};
 
@@ -471,8 +486,20 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 	 * vanishing point with depth, by the same `perspectiveRowScale` its symbols do. That is what keeps
 	 * the tiling exact at every depth — axis-aligned rectangles sized off the front row would be too
 	 * wide at the back, and the notches would leak again.
+	 *
+	 * SYMBOL OVERFLOW (`boardOverflow`) grows each column's ring outward — vertically at the two row
+	 * boundaries that are this column's own top and bottom edge, horizontally only at the board's two
+	 * OUTER sides. It is passed IN rather than read here because the caller owns the one thing this
+	 * geometry must not decide: whether the board is settled. Defaulted to nothing, so the cascade
+	 * overlay's mask (which never spends it) draws the same ring it always has.
+	 *
+	 * Note what is deliberately NOT grown: the boundaries BETWEEN columns. Those are the tiling that
+	 * makes the union mean "the visible board" — widening them would let two neighbours' rings overlap
+	 * and cover the notch beside a short column, which is the leak the exact tiling exists to close.
+	 * A tall symbol may therefore still be clipped where it overhangs into a notch, and that is the
+	 * correct answer: the board genuinely ends there.
 	 */
-	const boardMaskColumns = () => {
+	const boardMaskColumns = (overflowX = 0, overflowY = 0) => {
 		const grid = deps.activeGrid();
 		if (!grid.stepped) return undefined;
 		const model = boardPerspective();
@@ -485,8 +512,8 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		const pitch = reels > 1 ? centre(1) - centre(0) : SYMBOL_SIZE;
 		/** The left edge of column `reel` — and, at `reel === reels`, the board's right edge. */
 		const boundary = (reel: number) => {
-			if (reel <= 0) return centre(0) - pitch / 2 - SYMBOL_SIZE;
-			if (reel >= reels) return centre(reels - 1) + pitch / 2 + SYMBOL_SIZE;
+			if (reel <= 0) return centre(0) - pitch / 2 - SYMBOL_SIZE - overflowX;
+			if (reel >= reels) return centre(reels - 1) + pitch / 2 + SYMBOL_SIZE + overflowX;
 			return (centre(reel - 1) + centre(reel)) / 2;
 		};
 		const contract = (x: number, scale: number) =>
@@ -513,9 +540,22 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 			 * code path — there is no parity to protect here, since a uniform board never reaches this
 			 * function at all.
 			 */
+			/**
+			 * How far this vertex's row boundary moves for the SYMBOL OVERFLOW — outward at the
+			 * column's own top and bottom edge, and nothing at the boundaries in between, so the ring
+			 * grows without changing shape. `edgeAt` is only ever called across this column's own rows,
+			 * so the two comparisons name exactly its two outer edges.
+			 */
+			const padY = (row: number) => {
+				if (overflowY === 0) return 0;
+				if (row <= offsetRows) return -overflowY;
+				if (row >= offsetRows + rowsHere) return overflowY;
+				return 0;
+			};
 			const edgeAt = (row: number, x: number) => ({
 				x: contract(x, model ? perspectiveRowScale(model, row) : 1),
-				y: model ? rowPitchLocal * perspectiveRowSum(model, row) : row * rowPitchLocal,
+				y:
+					(model ? rowPitchLocal * perspectiveRowSum(model, row) : row * rowPitchLocal) + padY(row),
 			});
 			// Down the left edge, then back up the right. No local annotation: this block is SLICED and
 			// type-stripped by `verify-symbol-seat.mjs`, where only parameter annotations survive.
@@ -1099,6 +1139,36 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		};
 	};
 
+	/**
+	 * SYMBOL OVERFLOW, in board-local px — how far past the reel window the mask may reach RIGHT NOW.
+	 * `{ x: 0, y: 0 }` unless a `reelGrid` node authored one AND the board is settled, which is the
+	 * whole feature: the authored value says how much art may spill, this says when.
+	 *
+	 * WHY IT IS GATED ON MOTION rather than simply widening the mask. The board window is what hides
+	 * a rolling strip, and `SymbolWrap` culls a symbol the moment its CENTRE leaves that window — so
+	 * a cell entering from above is drawn only once it is already half inside, and the mask is what
+	 * clips away the half that is still outside. Widen the mask while a reel rolls and that clipped
+	 * half becomes visible: half a symbol blinks into existence above the board on every cell that
+	 * enters, at every reel, for the length of the spin. Landed art has no such boundary to cross,
+	 * so the spill is exactly as safe at rest as it is wrong in motion.
+	 *
+	 * SETTLED MEANS EVERY REEL, not each reel for itself, because the uniform board is masked by ONE
+	 * rectangle spanning all of them: growing it while reel 4 still rolls would uncover reel 4's
+	 * strip to buy reel 0 its overhang. So a staggered or anticipated stop spends the overflow when
+	 * the last reel lands — which is also the first moment the board is showing a result at all.
+	 *
+	 * The cascade overlay does not read this (`TumbleBoard` mounts `BoardMask` without the flag): a
+	 * cascade's symbols cross the same window edge on their way in, so it has a spin's problem, not
+	 * a settled board's.
+	 */
+	const boardOverflow = () => {
+		const { overflowXLocal, overflowYLocal } = boardGeometry();
+		if (overflowXLocal === 0 && overflowYLocal === 0) return NO_BOARD_OVERFLOW;
+		const settled = stateGame.board.every((reel) => reel.reelState.motion === 'stopped');
+		if (!settled) return NO_BOARD_OVERFLOW;
+		return { x: overflowXLocal, y: overflowYLocal };
+	};
+
 	const boardRaw = () =>
 		stateGame.board.map((reel) => reel.reelState.symbols.map((reelSymbol) => reelSymbol.rawSymbol));
 
@@ -1130,6 +1200,7 @@ export function createGameState<TGameType extends string>(deps: GameStateDeps<TG
 		boardWindowHeight,
 		boardWindowForReel,
 		boardMaskColumns,
+		boardOverflow,
 		boardRaw,
 		scatterLandIndex,
 		enhancedBoard,

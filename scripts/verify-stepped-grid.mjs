@@ -389,10 +389,13 @@ const dealOnce = async (opts) => {
 		'apps/lines/src/components/BoardMask.svelte',
 		/\{#if maskColumns\}[\s\S]{0,400}?<Graphics[\s\S]{0,300}?isMask/,
 	);
+	// …and a uniform board still takes ONE rectangle. Its x now carries the settled board's symbol
+	// overflow (`-SYMBOL_SIZE - overflow.x`), which is `-SYMBOL_SIZE` verbatim for every board that
+	// authored none — the branch is what this pins, not the arithmetic.
 	has(
 		'BoardMask keeps the single Rectangle for a uniform board',
 		'apps/lines/src/components/BoardMask.svelte',
-		/\{:else\}[\s\S]{0,200}?<Rectangle isMask x=\{-SYMBOL_SIZE\}/,
+		/\{:else\}[\s\S]{0,400}?<Rectangle\s+isMask\s+x=\{-SYMBOL_SIZE/,
 	);
 	// ANTICIPATION reads the reveal PER COLUMN. A reveal arrives padded one row top and bottom, and
 	// slicing every column to the BOUNDING BOX leaves a short column carrying its bottom padding row

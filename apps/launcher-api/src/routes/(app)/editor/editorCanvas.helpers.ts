@@ -759,6 +759,23 @@ export interface ReelGridGeometry {
 	 * the back of the board that the live game shows.
 	 */
 	clip?: { x: number; y: number; w: number; h: number };
+	/**
+	 * SYMBOL OVERFLOW — how far past the board window a SETTLED symbol's art may spill, in this
+	 * node's own px, on each axis. `0`/`0` unless authored, which is every board that predates the
+	 * knob.
+	 *
+	 * The preview spends it on the CLIP and nowhere else, exactly as the game does: no cell moves and
+	 * no seat moves, so a board gains room for its art without gaining size. It is handed back rather
+	 * than folded into {@link clip} because the flat board has no `clip` to fold into — the caller
+	 * builds that rect from `left`/`top`/`width`/`height`, and both paths have to grow the same way.
+	 *
+	 * WHAT THE PREVIEW CANNOT SHOW is the gating: live, the spill only appears once every reel has
+	 * stopped (`boardOverflow` in `gameState.svelte.ts`). A static preview IS the settled board, so
+	 * drawing it always is the honest reading — but it means the editor shows the most generous
+	 * moment of the spin, not every moment of it.
+	 */
+	overflowX: number;
+	overflowY: number;
 }
 
 /**
@@ -818,6 +835,17 @@ export function reelGridGeometry(
 	const height = rows * cellH + (rows - 1) * gapY;
 	const nudgeX = Number.isFinite(node.boardNudgeX) ? (node.boardNudgeX as number) : 0;
 	const nudgeY = Number.isFinite(node.boardNudgeY) ? (node.boardNudgeY as number) : 0;
+	// Clip-only, so it is read here and never enters `left`/`top`/`width`/`height` or a seat. Read
+	// through the SAME "finite and positive" gate the engine's resolver uses — a negative would
+	// shrink the window rather than grow it, and the preview must reject exactly what the game does.
+	const overflowX =
+		Number.isFinite(node.overflowX) && (node.overflowX as number) > 0
+			? (node.overflowX as number)
+			: 0;
+	const overflowY =
+		Number.isFinite(node.overflowY) && (node.overflowY as number) > 0
+			? (node.overflowY as number)
+			: 0;
 	const left = -width * (anchor?.x ?? 0.5) + nudgeX;
 	const top = -height * (anchor?.y ?? 0.5) + nudgeY;
 
@@ -856,7 +884,19 @@ export function reelGridGeometry(
 			});
 		}
 	}
-	const flat: ReelGridGeometry = { reels, rows, cellW, cellH, left, top, width, height, seats };
+	const flat: ReelGridGeometry = {
+		reels,
+		rows,
+		cellW,
+		cellH,
+		left,
+		top,
+		width,
+		height,
+		seats,
+		overflowX,
+		overflowY,
+	};
 
 	// ---- PERSPECTIVE (docs/design/perspective-board-mode.md) ------------------------------------
 	// The mode's ON switch, read + guarded EXACTLY as the engine's `boardPerspective` reads it:

@@ -296,6 +296,33 @@ game on the normal scene bake — no separate asset step. Resizing the reel cell
 itself (`cellSize`) scales the grid _and_ the symbols together; this control
 changes only the symbol's size _within_ its cell.
 
+#### Symbol overflow — room for art that spills past the reel
+
+The board is **clipped to its reel window**, which is what stops a spinning strip from
+being seen above and below the reels. The cost is that a symbol drawn bigger than its
+cell — a creature with tentacles, a character standing on a rock — gets **cut off at the
+board edge**. With the **reel grid** node selected, **overflow X** and **overflow Y**
+(px, blank = 0) buy that art extra room outside the window.
+
+- It grows the **clip only**. No cell moves, no symbol moves, the board keeps its size —
+  the window it is drawn through just reaches further out.
+- **In game it applies only once every reel has stopped.** A rolling strip still ends at
+  the board edge, so you never see the reel continue into the padding; the extra room
+  appears the moment the last reel lands and is gone again on the next spin. That is why
+  the reels stagger-stop first and the art "opens up" at the settle rather than per reel.
+- On the canvas the extra room is drawn as a **dashed outline** outside the board box,
+  and symbol art is previewed clipped to it — the preview is the settled board, which is
+  the generous moment, so check a spin in the live game if you dial a large value.
+- **X is the smaller knob.** The board already tolerates about a full cell of horizontal
+  spill on each side, so side art usually has room without it; the cut people actually
+  hit is top and bottom, which is **overflow Y**.
+- Blank / `0` is the old behaviour exactly, and a negative is ignored (it would shrink
+  the window rather than grow it). Resizing the board scales the overflow with it.
+
+> Reach for **Art bounds** first when a symbol looks wrong *inside* its cell — that
+> declares the box the art is sized by. Overflow is for art that is sized right and is
+> *meant* to hang outside the reel.
+
 #### Perspective (advanced)
 
 With the **reel grid** node selected, a **"Perspective (advanced)"** section sits
