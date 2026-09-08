@@ -185,25 +185,25 @@ the library can never override work a project owns. Shared bundles travel the ex
 It is seeded with the engine's own set — the animation `apps/lines` ships — so a new
 project has something to place before it has commissioned anything:
 
-| Bundle | Animations |
-| --- | --- |
-| `engine-loader` | `title_screen` |
-| `engine-transition` | `animation` |
-| `engine-bigwin` | `big_win` / `super_win` / `mega_win` / `epic_win` / `max_win`, each `_intro` `_idle` `_exit` |
-| `engine-anticipation` | `anticipation[1-4]_intro` `_loop` `_out`, plus `payframe` (the win frame) |
-| `engine-reelhouse-glow` | `reelhouse_glow_start` `_idle` `_exit` |
-| `engine-foreground` · `engine-foreground-feature` | `idle`, `dust` |
-| `engine-buy-button` | `buy_button_default` `_hover` `_click` `_disabled`, `_active_intro` `_idle` `_exit` |
-| `engine-fs-screen` · `engine-fs-screen-number` · `engine-fs-total-number` | `intro`, `idle` |
-| `engine-global-multiplier` | `static`, `increment`, `win`, `reset` |
-| `engine-cluster-pay` | `win`, `multiwin` |
-| `engine-tumble-win` · `engine-tumble-multiplier` | `explosion`, `idle` / `static`, `explosion_mobile` |
-| `engine-win-meter-explosion` | `explosion` |
-| `engine-symbol-h1`…`h5`, `engine-symbol-l1`…`l4` | `<id>`, `<id>_static` |
-| `engine-symbol-m` | the multiplier set (`2x`…`10x` × `_land` `_static`, `low`/`mid`/`high_multiplier_*`) |
-| `engine-symbol-s` | `scatter_static` `_spin` `_land` `_win` |
-| `engine-symbol-w` | `wild_dynamite` `_static` `_land` `_exploded_static` |
-| `engine-explosion` | `explosion` — the Symbols tool's Explosion default ([why](symbols-state-machine.md#the-shared-spine-library)) |
+| Bundle                                                                    | Animations                                                                                                    |
+| ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `engine-loader`                                                           | `title_screen`                                                                                                |
+| `engine-transition`                                                       | `animation`                                                                                                   |
+| `engine-bigwin`                                                           | `big_win` / `super_win` / `mega_win` / `epic_win` / `max_win`, each `_intro` `_idle` `_exit`                  |
+| `engine-anticipation`                                                     | `anticipation[1-4]_intro` `_loop` `_out`, plus `payframe` (the win frame)                                     |
+| `engine-reelhouse-glow`                                                   | `reelhouse_glow_start` `_idle` `_exit`                                                                        |
+| `engine-foreground` · `engine-foreground-feature`                         | `idle`, `dust`                                                                                                |
+| `engine-buy-button`                                                       | `buy_button_default` `_hover` `_click` `_disabled`, `_active_intro` `_idle` `_exit`                           |
+| `engine-fs-screen` · `engine-fs-screen-number` · `engine-fs-total-number` | `intro`, `idle`                                                                                               |
+| `engine-global-multiplier`                                                | `static`, `increment`, `win`, `reset`                                                                         |
+| `engine-cluster-pay`                                                      | `win`, `multiwin`                                                                                             |
+| `engine-tumble-win` · `engine-tumble-multiplier`                          | `explosion`, `idle` / `static`, `explosion_mobile`                                                            |
+| `engine-win-meter-explosion`                                              | `explosion`                                                                                                   |
+| `engine-symbol-h1`…`h5`, `engine-symbol-l1`…`l4`                          | `<id>`, `<id>_static`                                                                                         |
+| `engine-symbol-m`                                                         | the multiplier set (`2x`…`10x` × `_land` `_static`, `low`/`mid`/`high_multiplier_*`)                          |
+| `engine-symbol-s`                                                         | `scatter_static` `_spin` `_land` `_win`                                                                       |
+| `engine-symbol-w`                                                         | `wild_dynamite` `_static` `_land` `_exploded_static`                                                          |
+| `engine-explosion`                                                        | `explosion` — the Symbols tool's Explosion default ([why](symbols-state-machine.md#the-shared-spine-library)) |
 
 **One bundle per skeleton, by design.** Upstream packs several skeletons behind one
 shared atlas (`symbols/` holds h1…l4). The editor addresses a bundle by FOLDER plus an
@@ -262,8 +262,8 @@ and **Edit as component** (materialise a container into the Component Editor).
 
 Select a **sprite** node and the Properties panel shows an **Art bounds** section: a
 small preview of the region with a draggable box over it. This is the sprite twin of the
-Rigger's **Bounds** and of an Invisible Flipbook clip's box — it declares *the space this
-piece of art occupies*, and everything that draws the region sizes, anchors and
+Rigger's **Bounds** and of an Invisible Flipbook clip's box — it declares _the space this
+piece of art occupies_, and everything that draws the region sizes, anchors and
 cover-fits by that box instead of by whatever rectangle the packer produced.
 
 - **⊙ Fit** boxes the region's art, **⌖ Centre** re-centres it, **✕ Clear** removes it.
@@ -306,10 +306,16 @@ board edge**. With the **reel grid** node selected, **overflow X** and **overflo
 
 - It grows the **clip only**. No cell moves, no symbol moves, the board keeps its size —
   the window it is drawn through just reaches further out.
-- **In game it applies only once every reel has stopped.** A rolling strip still ends at
-  the board edge, so you never see the reel continue into the padding; the extra room
-  appears the moment the last reel lands and is gone again on the next spin. That is why
-  the reels stagger-stop first and the art "opens up" at the settle rather than per reel.
+- **In game it applies whenever nothing is travelling.** A rolling strip still ends at the
+  board edge, so you never see the reel continue into the padding; the extra room appears
+  the moment the last reel lands and is gone again on the next spin. That is why the reels
+  stagger-stop first and the art "opens up" at the settle rather than per reel.
+- **Animated states get it too, as long as they animate in place.** A symbol's **Land**,
+  **Win**, **Explosion** and **Intro** art can spill, because those play with the symbol
+  sitting on its seat. On a swap-in-place board that includes the whole **emerge** arrival
+  and the outgoing **explosion** — the two the padding is usually bought for. What stays
+  clipped is genuine travel: the spin itself, and a cascade's fall and drain, where a
+  symbol crosses the board edge on its way in and the window is the only thing hiding it.
 - On the canvas the extra room is drawn as a **dashed outline** outside the board box,
   and symbol art is previewed clipped to it — the preview is the settled board, which is
   the generous moment, so check a spin in the live game if you dial a large value.
@@ -319,9 +325,9 @@ board edge**. With the **reel grid** node selected, **overflow X** and **overflo
 - Blank / `0` is the old behaviour exactly, and a negative is ignored (it would shrink
   the window rather than grow it). Resizing the board scales the overflow with it.
 
-> Reach for **Art bounds** first when a symbol looks wrong *inside* its cell — that
+> Reach for **Art bounds** first when a symbol looks wrong _inside_ its cell — that
 > declares the box the art is sized by. Overflow is for art that is sized right and is
-> *meant* to hang outside the reel.
+> _meant_ to hang outside the reel.
 
 #### Perspective (advanced)
 

@@ -391,11 +391,13 @@ const dealOnce = async (opts) => {
 	);
 	// …and a uniform board still takes ONE rectangle. Its x now carries the settled board's symbol
 	// overflow (`-SYMBOL_SIZE - overflow.x`), which is `-SYMBOL_SIZE` verbatim for every board that
-	// authored none — the branch is what this pins, not the arithmetic.
+	// authored none — the branch is what this pins, not the arithmetic. No distance bound between the
+	// `{:else}` and the element: the comment above it documents the latch bug and is long, and a
+	// character budget that fails when someone explains themselves is a bad guard.
 	has(
 		'BoardMask keeps the single Rectangle for a uniform board',
 		'apps/lines/src/components/BoardMask.svelte',
-		/\{:else\}[\s\S]{0,400}?<Rectangle\s+isMask\s+x=\{-SYMBOL_SIZE/,
+		/\{:else\}[\s\S]*?<Rectangle\s+isMask\s+x=\{-SYMBOL_SIZE/,
 	);
 	// ANTICIPATION reads the reveal PER COLUMN. A reveal arrives padded one row top and bottom, and
 	// slicing every column to the BOUNDING BOX leaves a short column carrying its bottom padding row

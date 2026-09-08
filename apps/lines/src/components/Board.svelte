@@ -116,10 +116,14 @@
 {#if show}
 	<BoardContext animate={false}>
 		<BoardContainer>
-			<!-- `allowOverflow`: once every reel has stopped, the window may grow by the `reelGrid`
+			<!-- `allowOverflow`: once no reel's strip is moving, the window may grow by the `reelGrid`
 			     node's authored symbol overflow, so a landed symbol drawn bigger than its cell is not
-			     cut off at the board edge. Nothing authored / any reel still moving ⇒ the same window
-			     as always (`boardOverflow`). -->
+			     cut off at the board edge. Nothing authored / any reel still rolling ⇒ the same window
+			     as always (`boardOverflow`).
+
+			     "Rolling", not `motion === 'stopped'`: the pre-spin slides a whole reel-length through
+			     the window before `motion` ever says 'spinning'. The cascade overlay cannot use this
+			     gate at all and passes its own — see `TumbleBoard`. -->
 			<BoardMask allowOverflow />
 			<!--
 				GROUND TILES (docs/design/perspective-board-mode.md §"The tiles") — the FIRST painted
