@@ -662,6 +662,20 @@ const helpers = (
 	.replace(/\(reelIndex: number, addingReel: RawSymbol\[\]\)/g, '(reelIndex, addingReel)')
 	.replace(/\(reelIndex: number\)/g, '(reelIndex)')
 	.replace(/ as const/g, '')
+	// The seat-TRANSITION block (#577) landed INSIDE this helper range — a `type` alias, two
+	// generic call sites and four annotated helpers — and the explode handler below calls into it,
+	// so it is stripped rather than sliced around: the shipped `scheduleTransition` is what runs.
+	// Explicit, like every annotation above, so a changed signature reaches the guard instead of
+	// being quietly reshaped into something that still evaluates.
+	.replace(/\n\ttype SeatTransition = \{[\s\S]*?\n\t\};/, '')
+	.replace(/\$state\.raw<[^>]*>\(/g, '(')
+	.replace(/new Map<[^;]*?>\(\)/g, 'new Map()')
+	.replace(/\((key|entry): (?:string|SeatTransition)\)/g, '($1)')
+	.replace(
+		/\(\n\t\tlayer: SymbolTransition,\n\t\tposition: Position,\n\t\ttumbleSymbol: TumbleSymbol,\n\t\)/,
+		'(layer, position, tumbleSymbol)',
+	)
+	.replace(/const entry: SeatTransition = \{/, 'const entry = {')
 	.replace(/\$state\(/g, '(')
 	.replace(/\$derived\(/g, '(');
 for (const name of [
@@ -676,6 +690,13 @@ for (const name of [
 	'initTumbleBoardBaseReel',
 	'initTumbleBoardBase',
 	'overlayTileArt',
+	// The transition helpers the explode handler names. Listed for the same reason as the rest: a
+	// rename must fail here, not with an `undefined is not a function` five hundred lines down.
+	'clearTransitionTimer',
+	'removeTransition',
+	'mountTransition',
+	'scheduleTransition',
+	'clearTransitions',
 ]) {
 	if (!helpers.includes(`const ${name} = `)) {
 		throw new Error(`the TumbleBoard slice no longer declares ${name}`);
@@ -683,7 +704,11 @@ for (const name of [
 }
 // The strippers above are hand-written, so an annotation this fixture does not know about would be
 // evaluated as JavaScript and throw somewhere unhelpful. Fail on the annotation instead.
-if (/:\s*(number|RawSymbol|TumbleSymbol|AddingBoard|T)\b/.test(helpers)) {
+if (
+	/:\s*(number|string|RawSymbol|TumbleSymbol|AddingBoard|SeatTransition|SymbolTransition|Position|T)\b/.test(
+		helpers,
+	)
+) {
 	throw new Error('the TumbleBoard helper slice grew a type annotation this fixture cannot strip');
 }
 
@@ -969,6 +994,11 @@ const buildTumbleRuntime = ({ clock, previousBoard, tileArt, onLand, onSound, mo
 		// point of the predicate is that the two answers cost different amounts of time, and a
 		// fixture that could only exercise one of them would not be testing the rule at all.
 		'hasAuthoredSymbolState',
+		// The seat TRANSITION the explode handler bridges with (#577). Two more names the helper
+		// block reaches for once it is sliced whole: the component's unmount hook, and the baked
+		// layer the emerge style hands to `scheduleTransition`.
+		'onDestroy',
+		'bakedSymbolTransition',
 		`${tumbleStateSource}
 let show = false;
 let reelBoardShown = true;
@@ -1000,6 +1030,13 @@ return {
 			boardRaw: () => previousBoard,
 			boardTileArt: () => tileArt,
 			onSymbolLand: ({ rawSymbol: landedSymbol }) => onLand?.(landedSymbol.name),
+			// Read by the explode handler to decide whether a transition bridges the pop. The
+			// TRANSITION is not what this fixture asserts — it is fire-and-forget by construction and
+			// adds no beat — but the branch that reads these is on the shipped path, so the stub
+			// answers rather than throws. `dropIn` is the shipped default, and it is the answer that
+			// keeps every timing assertion below measuring the cascade and nothing else.
+			boardSwapsInPlace: () => false,
+			boardSwapStyle: () => 'dropIn',
 		},
 		() => onSound?.('tumbleExplosion'),
 		(symbolName) => onSound?.(`symbol:tumbleExplosion:${symbolName}`),
@@ -1007,6 +1044,12 @@ return {
 		// Default: NOTHING is authored. That is the state every project is in the day the style
 		// ships, and it is the case that regressed — so it is the one the fixture runs by default.
 		(symbolName, state) => Boolean(authoredIntro?.(symbolName, state)),
+		// Nothing is mounted, so nothing is destroyed — the sweep the component registers here is
+		// reached through `tumbleBoardReset` instead, which every run below does drive.
+		() => {},
+		// Nothing is AUTHORED, the same default the intro predicate above takes. Unreachable while
+		// the mode stub answers `dropIn`, and in scope so the shipped branch evaluates as written.
+		() => undefined,
 	);
 };
 
