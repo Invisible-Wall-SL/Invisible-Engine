@@ -4577,11 +4577,7 @@ function renderBpManage(){{
   let sha=document.createElement('code');
   sha.style.cssText='color:#7aa2c8;font-size:11px;letter-spacing:.3px';
   sha.textContent=bp.sha||'--';
-  sha.title='sha256 of the stored graph (canonical JSON, first 12 chars).\n'
-    +'Recompute from your file:\n'
-    +'python -c "import json,hashlib;print(hashlib.sha256(json.dumps('
-    +'json.load(open(\'workflow.json\')),sort_keys=True,'
-    +'separators=(\',\',\':\')).encode()).hexdigest()[:12])"';
+  sha.title='sha256 of the stored graph (canonical JSON, first 12 chars). Recompute it from your own file with the one-liner in docs/tools/atlas-maker.md and compare.';
   let scan=document.createElement('button'); scan.type='button'; scan.textContent='⟳ Rescan models';
   scan.style.cssText='font-size:11px;padding:4px 9px';
   scan.title='Re-read the stored graph and declare the model files it names.';
