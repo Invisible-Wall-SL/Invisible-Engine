@@ -434,8 +434,18 @@
 			// keeps editor == game.
 			return { ...t, ...anchoredPosition(t, space, frameWidth, frameHeight) };
 		}
-		if (space === 'background' && (isCoverFitKind(node) || node.kind === 'componentInstance')) {
-			return backgroundTransform(node, t);
+		if (space === 'background') {
+			if (isCoverFitKind(node) || node.kind === 'componentInstance') {
+				return backgroundTransform(node, t);
+			}
+			// Everything ELSE on a background screen (a text label, a rect, a bare container) does
+			// NOT cover — and the game draws it at RAW WINDOW pixels: `LayoutScene` wraps only
+			// `game`/`standard` in a `<MainContainer>`, and `anchoredPosition` returns x/y verbatim
+			// for this space. Without this branch such a node fell through to the game-space
+			// mapping below, so the editor drew it main-box-mapped (a different spot AND a
+			// different scale) while the game shipped it at its raw coords — the same drift that
+			// was already fixed for `canvas` space, in the same function, for the same reason.
+			return { ...t, ...anchoredPosition(t, space, frameWidth, frameHeight) };
 		}
 		// game space: map the node's main-box coords into the fixed window the way
 		// `<MainContainer>` does — centre the main box + scale it by `mainScale`.
@@ -3957,6 +3967,60 @@
 		// effects call `draw()` synchronously).
 		void artBoundsVersion();
 		schedule();
+	});
+
+	/**
+	 * Bake each background-space `componentInstance`'s measured union onto the node
+	 * (`coverBox`), so the GAME covers it by the box the editor actually previewed.
+	 *
+	 * The game cannot re-derive this box. Its `componentDesignSize` walk is fed an `intrinsic`
+	 * that sizes only a SPRITE, so a spine / text / flipbook / nested-instance child is skipped
+	 * outright — an overlay built from those measured far smaller there than here, and one with
+	 * no sprite child at all measured nothing, lost its cover, and rendered at its raw authored
+	 * x/y. The editor is the only surface that HAS the measurements (spine setup-pose bounds
+	 * from the WebGL overlay, rendered glyph boxes, clip frame rects), so it writes the number
+	 * down rather than asking the runtime to guess it.
+	 *
+	 * BASE bucket only: a per-ratio child override makes the union bucket-dependent, and the
+	 * runtime reads one `coverBox` — so authoring in Portrait must not silently re-bake the
+	 * value every bucket shares. Written silently (no `onDirty`): it rides along on the next
+	 * save rather than making a bucket switch look like an edit.
+	 */
+	$effect(() => {
+		void scenes;
+		void componentMap;
+		// The measurement maps this union is built from — reassigned wholesale when a spine's
+		// bounds or a text node's glyph box lands, so the bake re-runs once the art is real.
+		void spineNaturalSizes;
+		void textMeasured;
+		if (layoutType !== baseLayoutType) return;
+		const r3 = (n: number) => Math.round(n * 1000) / 1000;
+		for (const sc of scenes) {
+			if (sc.space !== 'background') continue;
+			for (const n of sc.nodes) {
+				if (n.kind !== 'componentInstance') continue;
+				const box = boxOf(n, resolveTransform(n, layoutType));
+				// `nodeBox`'s generic 160x100 is "could not measure", not a real union — baking it
+				// would pin the overlay to a wrong box FOREVER, which is worse than the fallback.
+				if (!(box.w > 0) || !(box.h > 0) || (box.w === 160 && box.h === 100)) continue;
+				const next = {
+					minX: r3(-box.ax * box.w),
+					minY: r3(-box.ay * box.h),
+					width: r3(box.w),
+					height: r3(box.h),
+				};
+				const prev = n.coverBox;
+				if (
+					prev &&
+					prev.minX === next.minX &&
+					prev.minY === next.minY &&
+					prev.width === next.width &&
+					prev.height === next.height
+				)
+					continue;
+				n.coverBox = next;
+			}
+		}
 	});
 
 	function fitView(): void {

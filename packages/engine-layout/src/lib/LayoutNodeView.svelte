@@ -267,6 +267,35 @@
 		return { x: c.width / 2, y: c.height / 2 };
 	});
 
+	// Place a component-instance union box as a cover on the canvas. Shared by the BAKED box and
+	// the measured-walk fallback so the two can never frame the same overlay differently.
+	// `cover.x/y` is the canvas CENTRE; the container's children draw at their local coords, so
+	// the container is offset until the union's local centre lands on it:
+	// worldCentre = containerPos + unionLocalCentre * coverScale.
+	const coverBoxTransform = (box: {
+		minX: number;
+		minY: number;
+		width: number;
+		height: number;
+	}) => {
+		const canvasBox = layoutContext.stateLayoutDerived.canvasSizes();
+		const cover = coverTransform({
+			artWidth: box.width,
+			artHeight: box.height,
+			targetWidth: canvasBox.width,
+			targetHeight: canvasBox.height,
+			coverScale: bgCoverScale,
+			stretchX: bgStretch.x,
+			stretchY: bgStretch.y,
+			fit: bgFit,
+		});
+		return {
+			x: cover.x - (box.minX + box.width / 2) * cover.scaleX,
+			y: cover.y - (box.minY + box.height / 2) * cover.scaleY,
+			scale: { x: cover.scaleX, y: cover.scaleY },
+		};
+	};
+
 	// A background COMPONENT INSTANCE covers the canvas as ONE composed unit: a
 	// `componentInstance` placed in a `background`-space scene (e.g. a backdrop +
 	// tumbleweed + windmill grouped in one prefab) cover-fits the window exactly like a
@@ -283,6 +312,14 @@
 	// authored transform byte-identically.
 	const bgComponent = $derived.by(() => {
 		if (!isBackground || node.kind !== 'componentInstance') return undefined;
+		// The editor's BAKED union (`node.coverBox`) is preferred over the walk below, because
+		// the walk CANNOT see most of what the editor measured: its `intrinsic` sizes only a
+		// sprite, so every spine / text / flipbook / nested-instance child is skipped, and a
+		// component built from those alone measured `null` here and lost its cover entirely.
+		// Baked box absent (a doc not re-saved since the bake shipped) ⇒ the walk, exactly as
+		// before (parity).
+		const baked = node.coverBox;
+		if (baked && baked.width > 0 && baked.height > 0) return coverBoxTransform(baked);
 		const def = resolveComponent(node.componentId, node.componentVersion).def;
 		if (!def) return undefined;
 		const assets = appContext.stateApp.loadedAssets;
@@ -315,25 +352,7 @@
 			undefined,
 		);
 		if (!box) return undefined;
-		const canvasBox = layoutContext.stateLayoutDerived.canvasSizes();
-		const cover = coverTransform({
-			artWidth: box.width,
-			artHeight: box.height,
-			targetWidth: canvasBox.width,
-			targetHeight: canvasBox.height,
-			coverScale: bgCoverScale,
-			stretchX: bgStretch.x,
-			stretchY: bgStretch.y,
-			fit: bgFit,
-		});
-		// `cover.x/y` is the canvas CENTRE; the container's children draw at local coords,
-		// so offset the container so the union's local centre (`box.min + size/2`) maps
-		// onto it: worldCentre = containerPos + unionLocalCentre * coverScale.
-		return {
-			x: cover.x - (box.minX + box.width / 2) * cover.scaleX,
-			y: cover.y - (box.minY + box.height / 2) * cover.scaleY,
-			scale: { x: cover.scaleX, y: cover.scaleY },
-		};
+		return coverBoxTransform(box);
 	});
 
 	// Param threading (§13.2 / Phase B1) — TEXT branch only. When this text node
