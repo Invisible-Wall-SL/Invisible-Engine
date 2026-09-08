@@ -12,6 +12,12 @@
 		y?: number;
 		listener: SpineTrackProps['listener'];
 		loop?: boolean;
+		/** Hold the animation's FIRST pose instead of playing it — the spine answer to a frozen
+		 * flipbook frame. `SpineTrack` already calls `spine.update(0)` right after `setAnimation` to
+		 * pose the skeleton before the first render (so a landing symbol can't flash its setup pose),
+		 * so a zero `timeScale` simply never advances off that pose — no setup-pose fallback, which
+		 * would be a DIFFERENT picture from the one the animation opens on. */
+		frozen?: boolean;
 	};
 
 	const props: Props = $props();
@@ -49,7 +55,7 @@
 		loop={props.loop}
 		trackIndex={0}
 		animationName={props.symbolInfo.animationName}
-		timeScale={stateBetDerived.timeScale()}
+		timeScale={props.frozen ? 0 : stateBetDerived.timeScale()}
 		listener={props.listener}
 	/>
 </SpineProvider>

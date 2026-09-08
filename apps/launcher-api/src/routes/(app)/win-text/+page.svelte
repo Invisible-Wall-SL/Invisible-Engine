@@ -442,9 +442,9 @@
 				<span
 					>Show the symbol as an <strong>image</strong> instead of its name — the
 					<code>{'{symbolName}'}</code> in the toast is drawn as the symbol itself, sized to the text.
-					A symbol bound to a flipbook shows its first frame, held: the token stands in for a NAME, and
-					a clip looping inside a sentence pulls the eye off the words. Falls back to the name if a symbol
-					has no art.</span
+					An animated symbol — flipbook or spine — is held on its first frame: the token stands in for
+					a NAME, and something moving inside a sentence pulls the eye off the words. Falls back to the
+					name if a symbol has no art.</span
 				>
 			</label>
 		</section>
