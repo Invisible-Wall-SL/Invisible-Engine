@@ -312,6 +312,97 @@ a model dropped on the pod's volume shows up without re-publishing the blueprint
 choice the live list lacks stays selected, marked *(not installed)*. With ComfyUI asleep, the
 list the blueprint was published with is shown.
 
+## Blueprints: authoring one yourself, end to end
+
+The section above describes the modal. This one is the **runbook** — the loop to
+work in, and the checks that stop a mistake costing a render. Everything here
+was learned the expensive way on 2026-09-08 building a FLUX img2img blueprint.
+
+### The whole model, in one paragraph
+
+A blueprint is **two files**: `workflow.json` is the graph ComfyUI runs, and
+`blueprint.json` is a *map* telling the Atlas Maker where to poke values into
+it. The map has two kinds of entry. **Bindings** cover the eight fixed roles the
+tool always needs (`positive`, `negative`, `seed`, `width`, `height`,
+`style_ref`, `shape_ref`, `output`). **Params** are every other knob you want to
+turn from ⚙ Blueprint settings. Both are the same shape: *node + field*.
+
+**The node numbers in the modal's dropdowns are literally the top-level keys of
+`workflow.json`.** `"43": { "class_type": "FluxGuidance", … }` is the entry that
+shows as `FLUX guidance — FluxGuidance (#43)`. Open the file next to the modal
+and the dropdown stops being a mystery — you are picking a JSON key and one of
+its `inputs`.
+
+### 1. Get the graph right in ComfyUI first
+
+**Every widget you see on a node in the ComfyUI canvas is a required input in
+the API JSON.** That is the rule that prevents the most common rejection. If the
+node shows `megapixels` *and* `resolution_steps`, both must be present in the
+JSON — a hand-edited graph missing one is refused with:
+
+```
+HTTP 400  prompt_outputs_failed_validation
+node_errors: { "11": { "errors": [{ "type": "required_input_missing",
+                                    "details": "resolution_steps" }] } }
+```
+
+That message is precise: it names the node id, the class and the missing input.
+Add it and re-publish. Nothing is wrong with your bindings when you see this.
+
+The same node class can differ between ComfyUI versions, so a graph that ran on
+another machine is not proof. To read an input's real contract — type, default,
+min/max, option list — without guessing, the tool asks the running ComfyUI, and
+so can you from the browser console on the tool page:
+
+```js
+await (await fetch('/video/nodespecs', {method:'POST',
+  body: JSON.stringify({classes:['ImageScaleToTotalPixels'], surface:'atlas'})
+})).json()
+```
+
+### 2. Publish, and mind the two traps
+
+Fill the roles, add the params (`+ Add` under **Exposed settings**), publish.
+Two traps, both of which produce a *silently wrong render* rather than an error:
+
+- **`shape_ref` is not a spare `style_ref`.** If your graph has one `LoadImage`
+  and you bind both roles to it, `shape_ref` is applied **second and wins**, so
+  the node receives the normalised grayscale silhouette instead of the
+  photograph. Worse, `normalize_shape_ref` scales that silhouette to
+  **Shape-ref fill %** of a black 1024² canvas — and at `0` that is a **single
+  pixel**. A graph with one image input wants `style_ref` (the raw file) and
+  `shape_ref` set to **(not used)**.
+- **Most of ⚙ Settings does nothing on a blueprint pipeline.** The runner
+  injects only the bound roles, the gen size, and your declared params.
+  *ControlNet strength*, *ControlNet end %* and *Shape-ref fill %* still render
+  as editable per-atlas fields and are ignored. Put anything you need to turn in
+  `params`, not in those boxes.
+
+### 3. Verify BEFORE you spend a render
+
+**This is the step that is worth the most and gets skipped.** A publish reports
+*presence*, never *content*: `/video/library` will happily show your blueprint
+in `in_r2`, `on_disk` and `loaded` while the bytes are last week's. Uploading
+the wrong file — easy, when two downloads share a name — looks identical to
+success.
+
+So after publishing, open **⤓ Resolved workflow** and read the graph back. It
+force-hydrates from R2 first, so it is ground truth for what a render will send.
+Check the one thing you just changed is actually in it. Thirty seconds there
+saves the loop of *edit → publish → render → same failure*, which is how an
+afternoon disappears.
+
+### Troubleshooting
+
+| Symptom | What it means | Fix |
+| --- | --- | --- |
+| `required_input_missing`, names an input | the graph omits a widget that node requires | add it to that node's `inputs` in `workflow.json` |
+| `value_not_in_list` | a model name the target does not have | check the file is on that machine, or switch **Run generation on** |
+| the fix you just published has no effect | the library still holds the old bytes | ⤓ Resolved workflow and confirm; re-upload the right file |
+| a knob in ⚙ Settings does nothing | it is not injected for blueprint pipelines | expose it as a param instead |
+| the render ignores your reference photo | `shape_ref` bound alongside `style_ref` | set `shape_ref` to **(not used)** |
+| `some models could not be verified` | no loader class maps that field, so the question cannot be asked (`pulid_file`, `ipadapter_file`, `clip_name3`, `gligen_name`, `hypernetwork_name`) | nothing — it is a permanent advisory and never blocks a render |
+
 ## Blueprints: resolved-workflow export (debugging)
 
 When the active pipeline is a **blueprint** (a shareable ComfyUI graph + role
