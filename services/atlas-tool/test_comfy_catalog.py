@@ -425,7 +425,18 @@ def test_a_running_pod_is_found_without_any_env_var() -> None:
           st.doc(POD)["fields"][CKPT_KEY], ["volume-model.safetensors"])
     check("RunPod was asked exactly once", fake.calls, 1)
     check("the id-derived URL matches the launcher's shape",
-          real.proxy_url("abc123"), "https://abc123-8188.proxy.runpod.net")
+          real.proxy_url("abc123"), "https://abc123-8189.proxy.runpod.net")
+    # 8189 FIRST and 8188 still offered: "HTTP 8189 + TCP 8188" is the documented
+    # pod config, under which the 8188 proxy answers nothing, but a pod predating
+    # the port forwarder still serves there. Ordered, so the common case is one
+    # request. Lockstep with PROXY_PORTS in apps/launcher-api/.../runpod.ts.
+    check("both proxy ports are offered, 8189 first",
+          real.proxy_urls("abc123"),
+          ["https://abc123-8189.proxy.runpod.net",
+           "https://abc123-8188.proxy.runpod.net"])
+    check("proxy_url still takes an explicit port",
+          real.proxy_url("abc123", 8188),
+          "https://abc123-8188.proxy.runpod.net")
 
 
 def test_a_pinned_url_still_wins_and_no_pods_is_explained() -> None:

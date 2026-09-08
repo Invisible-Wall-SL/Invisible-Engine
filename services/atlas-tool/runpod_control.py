@@ -77,11 +77,33 @@ def targets_our_pod(url: str) -> bool:
     return bool(pid) and pid in (urllib.parse.urlparse(url or "").hostname or "")
 
 
-def proxy_url(pod_id: str, port: int = 8188) -> str:
-    """A pod's ComfyUI URL, derived from its id exactly the way the launcher
-    derives it (`apps/launcher-api/src/lib/server/runpod.ts`). No per-pod URL is
-    stored anywhere — the id IS the address."""
+# A pod cannot expose ONE container port as both HTTP and TCP, and the fleet needs
+# both: TCP 8188 for a link a human can click, HTTP for the hostname a server probes.
+# The pod image forwards 8189 -> 8188 and the documented configuration is "HTTP 8189 +
+# TCP 8188" (`services/atlas-comfy-pod/tools/port-forward.py`), so on a current pod the
+# HTTP proxy answers on 8189 and 8188 answers NOTHING — exposing it as TCP removes its
+# HTTP proxy. 8188 stays in the list because a pod predating that image still serves
+# there. Kept in lockstep with `PROXY_PORTS` in
+# `apps/launcher-api/src/lib/server/runpod.ts`, which learned this first: this module
+# claimed to derive the URL "exactly the way the launcher derives it" while hardcoding
+# the port the launcher had already stopped trying first, so ⟳ Refresh model lists
+# could not read a pod that was running and healthy.
+PROXY_PORTS = (8189, 8188)
+
+
+def proxy_url(pod_id: str, port: int = PROXY_PORTS[0]) -> str:
+    """A pod's ComfyUI URL, derived from its id the way the launcher derives it
+    (`apps/launcher-api/src/lib/server/runpod.ts`). No per-pod URL is stored
+    anywhere — the id IS the address."""
     return f"https://{pod_id}-{port}.proxy.runpod.net"
+
+
+def proxy_urls(pod_id: str) -> list[str]:
+    """Every address this pod's ComfyUI might answer on, best first. Which one is
+    right depends on how the pod's ports were configured, so callers probe in
+    order rather than assuming — the same contract as the launcher's
+    `resolveProxyUrl`."""
+    return [proxy_url(pod_id, p) for p in PROXY_PORTS]
 
 
 def running_pods() -> list[dict]:
@@ -112,7 +134,10 @@ def running_pods() -> list[dict]:
             pid = str(p.get("id") or "").strip()
             if pid:
                 out.append({"id": pid, "name": str(p.get("name") or pid),
-                            "url": proxy_url(pid)})
+                            # `url` is the best guess; `urls` is every port worth
+                            # trying, because only a probe can settle which.
+                            "url": proxy_url(pid),
+                            "urls": proxy_urls(pid)})
         except Exception:  # noqa: BLE001
             continue
     return out
