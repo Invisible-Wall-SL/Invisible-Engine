@@ -3745,10 +3745,20 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  .xbtn:hover{{background:#c24b4b}}
  .modal{{display:none;position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:100;align-items:center;justify-content:center}}
  .modal.open{{display:flex}}
- .modalbox{{background:#26262c;border:1px solid #444;border-radius:10px;width:min(1100px,92vw);max-height:88vh;display:flex;flex-direction:column}}
- .modalhdr{{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #3a3a42;font-size:15px;font-weight:600}}
+ .modalbox{{background:#26262c;border:1px solid #444;border-radius:10px;width:min(1100px,92vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden}}
+ .modalhdr{{flex:none;display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #3a3a42;font-size:15px;font-weight:600}}
  .modalhdr button{{background:#444;padding:6px 12px}}
- .modalgrid{{overflow:auto;padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}}
+ /* The one scrolling region of a modal. `min-height:0` is the load-bearing half:
+    a flex item defaults to `min-height:auto`, which refuses to shrink below its
+    content, so a body that outgrows the 88vh box spills PAST it -- and .modal is a
+    fixed full-viewport flexbox, so that overflow lands off-screen with nothing to
+    scroll. Every modal body wants this class; a form that GROWS (the New-blueprint
+    modal's + Add) is the one that breaks without it. */
+ .modalbody{{flex:1 1 auto;min-height:0;overflow:auto}}
+ /* Actions pinned under the scroll, so Publish cannot be pushed out of reach by the
+    rows the author just added. */
+ .modalfoot{{flex:none;display:flex;align-items:center;gap:10px;padding:12px 18px;border-top:1px solid #3a3a42}}
+ .modalgrid{{flex:1 1 auto;min-height:0;overflow:auto;padding:16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}}
  .mv{{position:relative;cursor:pointer;border:3px solid transparent;border-radius:6px;text-align:center;background:#1a1a1e;padding:6px}}
  .mv:hover{{border-color:#4f8aae}} .mv.sel{{border-color:#e0a030}}
  .mv img{{width:100%;height:160px;object-fit:contain;display:block}}
@@ -3877,7 +3887,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <div id="namodal" class="modal" onclick="if(event.target===this)closeNewAtlas()">
  <div class="modalbox" style="width:min(440px,92vw)" onkeydown="onNewAtlasKey(event)">
   <div class="modalhdr"><span>New atlas</span><button onclick="closeNewAtlas()">✕ close</button></div>
-  <div style="padding:14px 18px 18px;display:flex;flex-direction:column;gap:10px">
+  <div class="modalbody" style="padding:14px 18px 18px;display:flex;flex-direction:column;gap:10px">
    <label style="font-size:13px;display:flex;align-items:center;gap:8px">Atlas name <input id="nanamein" type="text" placeholder="e.g. symbols_hd" autocomplete="off" spellcheck="false" style="flex:1;width:auto" oninput="onNewAtlasName()"></label>
    <div id="nawarn" style="font-size:12px;color:#e0a030;min-height:16px;line-height:1.35"></div>
    <div style="display:flex;justify-content:flex-end;gap:8px"><button class="alt" onclick="closeNewAtlas()">Cancel</button><button onclick="confirmNewAtlas()">Create</button></div>
@@ -3887,30 +3897,30 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <div id="advmodal" class="modal" onclick="if(event.target===this)closeAdv()">
  <div class="modalbox" style="width:min(480px,92vw)">
   <div class="modalhdr"><span id="advtitle">Advanced</span><button onclick="closeAdv()">✕ close</button></div>
-  <div id="advform" style="padding:18px;display:flex;flex-direction:column;gap:12px"></div>
-  <div style="padding:0 18px 18px">
+  <div id="advform" class="modalbody" style="padding:18px;display:flex;flex-direction:column;gap:12px"></div>
+  <div class="modalfoot">
    <button onclick="saveAdv()">Save overrides</button>
-   <span style="color:#888;font-size:12px;margin-left:10px">empty field = use global setting</span>
+   <span style="color:#888;font-size:12px">empty field = use global setting</span>
   </div>
  </div>
 </div>
 <div id="fsmodal" class="modal" onclick="if(event.target===this)closeFs()">
  <div class="modalbox" style="width:min(680px,94vw)">
   <div class="modalhdr"><span id="fstitle">Pick a file</span><button onclick="closeFs()">✕ close</button></div>
-  <div style="padding:14px 18px 0;display:flex;gap:6px">
+  <div style="flex:none;padding:14px 18px 0;display:flex;gap:6px">
    <input id="fspath" placeholder="paste a path, \\\\server\\share, or http(s):// URL" style="flex:1;background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:8px;font-size:13px">
    <button class="mini" onclick="fsGo()">Go</button>
    <button class="mini" onclick="fsUseTyped()" title="Use exactly what's typed (a UNC path or a URL)">Use this</button>
    <button class="mini" id="fspickdir" onclick="fsUseCurDir()" title="Use the folder currently shown above" style="display:none;background:#629432">✓ Use this folder</button>
   </div>
-  <div id="fscur" style="padding:8px 18px 0;color:#888;font-size:12px;word-break:break-all"></div>
-  <div id="fslist" style="padding:10px 18px 18px;max-height:55vh;overflow:auto;font-size:13px"></div>
+  <div id="fscur" style="flex:none;padding:8px 18px 0;color:#888;font-size:12px;word-break:break-all"></div>
+  <div id="fslist" class="modalbody" style="padding:10px 18px 18px;font-size:13px"></div>
  </div>
 </div>
 <div id="bpmodal" class="modal" onclick="if(event.target===this)closeBp()">
  <div class="modalbox" style="width:min(620px,94vw)">
   <div class="modalhdr"><span id="bptitle">New blueprint</span><button onclick="closeBp()">✕ close</button></div>
-  <div style="padding:14px 18px 18px;display:flex;flex-direction:column;gap:11px;font-size:13px">
+  <div class="modalbody" style="padding:14px 18px 18px;display:flex;flex-direction:column;gap:11px;font-size:13px">
    <div style="color:#888;font-size:12px">Pick a ComfyUI <b>API-format</b> workflow.json (Settings → "Save (API Format)"), then map each role onto a node in your graph. positive / seed / output are required.</div>
    <label style="display:flex;flex-direction:column;gap:3px;color:#aaa">Workflow file (API format)
     <input type="file" id="bpFile" accept=".json,application/json" onchange="onBpFilePicked()" style="background:#1a1a1e;color:#ddd;border:1px solid #333;border-radius:4px;padding:7px">
@@ -3943,17 +3953,17 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
     <p id="bpSpecsNote" style="display:none;color:#999;font-size:11px;margin:0 0 6px"></p>
     <div id="bpParams" style="display:flex;flex-direction:column;gap:10px"></div>
    </div>
-   <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
-    <button id="bpSave" onclick="saveBlueprint()" style="display:none">Publish blueprint</button>
-    <span id="bpstat" style="color:#999"></span>
-   </div>
+  </div>
+  <div id="bpfoot" class="modalfoot" style="display:none">
+   <button id="bpSave" onclick="saveBlueprint()" style="display:none">Publish blueprint</button>
+   <span id="bpstat" style="color:#999"></span>
   </div>
  </div>
 </div>
 <div id="bpManageModal" class="modal" onclick="if(event.target===this)closeManageBp()">
  <div class="modalbox" style="width:min(560px,94vw)">
   <div class="modalhdr"><span>Manage blueprints</span><button onclick="closeManageBp()">✕ close</button></div>
-  <div style="padding:14px 18px 18px;display:flex;flex-direction:column;gap:11px;font-size:13px">
+  <div class="modalbody" style="padding:14px 18px 18px;display:flex;flex-direction:column;gap:11px;font-size:13px">
    <div style="color:#888;font-size:12px">Shared blueprints in the library. Deleting one removes it for everyone; any atlas whose pipeline is set to it will need a different pipeline.</div>
    <div id="bpManageList" style="display:flex;flex-direction:column;gap:6px"></div>
    <span id="bpManageStat" style="color:#999"></span>
@@ -4541,7 +4551,7 @@ function openNewBlueprint(){{
  document.getElementById('bpSave').style.display='none';
  document.getElementById('bpName').value='';
  document.getElementById('bpDesc').value='';
- document.getElementById('bpstat').textContent='';
+ bpStat('');
  let pw=document.getElementById('bpParams'); if(pw)pw.innerHTML='';
  let gw=document.getElementById('bpGates');
  if(gw){{ gw.innerHTML=''; gw.style.display='none'; }}
@@ -4577,11 +4587,11 @@ function renderBpManage(){{
   let sha=document.createElement('code');
   sha.style.cssText='color:#7aa2c8;font-size:11px;letter-spacing:.3px';
   sha.textContent=bp.sha||'--';
-  sha.title='sha256 of the stored graph (canonical JSON, first 12 chars).\n'
-    +'Recompute from your file:\n'
+  sha.title='sha256 of the stored graph (canonical JSON, first 12 chars).\\n'
+    +'Recompute from your file:\\n'
     +'python -c "import json,hashlib;print(hashlib.sha256(json.dumps('
-    +'json.load(open(\'workflow.json\')),sort_keys=True,'
-    +'separators=(\',\',\':\')).encode()).hexdigest()[:12])"';
+    +'json.load(open(\\'workflow.json\\')),sort_keys=True,'
+    +'separators=(\\',\\',\\':\\')).encode()).hexdigest()[:12])"';
   let scan=document.createElement('button'); scan.type='button'; scan.textContent='⟳ Rescan models';
   scan.style.cssText='font-size:11px;padding:4px 9px';
   scan.title='Re-read the stored graph and declare the model files it names.';
@@ -4619,19 +4629,32 @@ async function deleteBlueprint(id,name){{
  if(msg.indexOf('✓')>=0) setTimeout(()=>location.reload(),1200);
 }}
 function closeBp(){{document.getElementById('bpmodal').classList.remove('open');}}
+// The footer holds the ONLY publish button, pinned under the scrolling body so a
+// long settings list cannot push it off-screen. It stays hidden until it has
+// something to carry -- an empty action bar under a two-field dialog reads as a
+// rendering bug -- which is why every status write goes through bpStat().
+function bpStat(msg){{
+ document.getElementById('bpstat').textContent=msg||'';
+ bpFootSync();
+}}
+function bpFootSync(){{
+ let f=document.getElementById('bpfoot'); if(!f) return;
+ f.style.display=(document.getElementById('bpSave').style.display!=='none'
+  || document.getElementById('bpstat').textContent!=='') ? 'flex' : 'none';
+}}
 function onBpFilePicked(){{
  let f=document.getElementById('bpFile').files[0]; if(!f)return;
  let rd=new FileReader();
  rd.onload=()=>{{
   let g;
   try{{ g=JSON.parse(rd.result); }}
-  catch(e){{ document.getElementById('bpstat').textContent='✖ Not valid JSON: '+e; return; }}
+  catch(e){{ bpStat('✖ Not valid JSON: '+e); return; }}
   if(!g||typeof g!=='object'||Array.isArray(g)){{
-   document.getElementById('bpstat').textContent='✖ Not an API-format node dict.'; return; }}
+   bpStat('✖ Not an API-format node dict.'); return; }}
   // Heuristic API-format check: every value is a node with a class_type.
   let bad=Object.keys(g).find(k=>!g[k]||typeof g[k]!=='object'||!('class_type' in g[k]));
   if(bad!==undefined){{
-   document.getElementById('bpstat').textContent='✖ Node "'+bad+'" has no class_type — export in API format, not the editor format.';
+   bpStat('✖ Node "'+bad+'" has no class_type — export in API format, not the editor format.');
    return; }}
   _bpGraph=g;
   // Not awaited: a sleeping pod would hold the modal for the read's whole timeout,
@@ -4653,7 +4676,7 @@ function onBpFilePicked(){{
   buildBpBindings();
   document.getElementById('bpmeta').style.display='flex';
   document.getElementById('bpSave').style.display='';
-  document.getElementById('bpstat').textContent='';
+  bpStat('');
   bpGateWarn();
  }};
  rd.readAsText(f);
@@ -5007,6 +5030,11 @@ function addBpParam(){{
  row.appendChild(r1); row.appendChild(r2); row.appendChild(opts);
  wrap.appendChild(row);
  refreshFields();
+ // The list grows downward inside the scrolling body: without this, + Add appends a
+ // row below the fold and the author has to go looking for what they just added.
+ // Instant, not smooth: a smooth scroll is a silent no-op while the document is
+ // hidden, and there is nothing worth animating about a one-row jump.
+ row.scrollIntoView({{block:'nearest'}});
 }}
 function collectBpParams(){{
  let out=[];
@@ -5057,7 +5085,7 @@ function bpKindChanged(){{
 }}
 async function saveBlueprint(overwrite){{
  if(!_bpGraph) return;
- let st=document.getElementById('bpstat'); st.textContent='⬆ Publishing…';
+ bpStat('⬆ Publishing…');
  let bindings={{}};
  document.querySelectorAll('#bpBindings [data-bprole]').forEach(sel=>{{
   let role=sel.dataset.bprole, v=sel.value;
@@ -5068,7 +5096,7 @@ async function saveBlueprint(overwrite){{
   bindings[role]={{node:v.slice(0,i), field:v.slice(i+2)}};
  }});
  let missing=BP_ROLES.filter(r=>r[1]&&!bindings[r[0]]).map(r=>r[0]);
- if(missing.length){{ st.textContent='Bind '+missing.join(', ')+' first.'; return; }}
+ if(missing.length){{ bpStat('Bind '+missing.join(', ')+' first.'); return; }}
  let body={{name:document.getElementById('bpName').value,
   description:document.getElementById('bpDesc').value,
   kind:document.getElementById('bpKind').value,
@@ -5081,11 +5109,11 @@ async function saveBlueprint(overwrite){{
  }}catch(e){{ msg='Publish failed: '+e; }}
  // A pre-existing id prompts to overwrite (mirror the .atlas confirm style).
  if(msg.indexOf('⚠')===0 && msg.indexOf('already exists')>=0 && !overwrite){{
-  st.textContent=msg;
+  bpStat(msg);
   if(confirm(msg.replace('⚠ ','')+'\\n\\nOverwrite it?')) return saveBlueprint(true);
   return;
  }}
- st.textContent=msg;
+ bpStat(msg);
  if(msg.indexOf('✓')===0) setTimeout(()=>location.reload(),1600);
 }}
 async function sliceAtlas(){{
