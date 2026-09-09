@@ -281,6 +281,15 @@ editor's own `workflow.json` is the wrong file) and publishes it to the shared l
 point each **role** at a node input: `positive`, `negative`, `seed`, `width`/`height`, the
 reference images (`style_ref` / `shape_ref`), and `output` (the save node).
 
+**Only `output` is required** — it names the node the image is read from, so nothing can be
+published without it. Every other role is optional, because a **processing** blueprint (an
+upscale, a relight, a matting network) has no sampler and no text encoder and so has
+nothing to bind `seed` or `positive` to. Requiring them used to make that whole class of
+blueprint impossible to publish. A role you leave unbound is simply not written at render
+time — the graph keeps whatever value your export baked in. If your graph *does* have a
+seed or a prompt and you leave the role unbound, the modal says so and what it will cost
+(every region identical, or the card prompts ignored) — a warning, not a refusal.
+
 - **Suggested is a ranking, not a shortlist.** Every input in the graph is listed under **All node
   inputs** beneath it, so a role is never cornered by a heuristic that did not anticipate your
   network. Wired inputs are listed too, marked `(wired)`.

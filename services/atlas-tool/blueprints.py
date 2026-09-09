@@ -41,14 +41,30 @@ from iw_common.context import r2_slug
 SHARED_BLUEPRINTS_PREFIX = "_shared/blueprints"
 BLUEPRINTS_STAGING = STAGING_BASE / "_shared" / "blueprints"
 
-# Roles a blueprint MUST map for the generic runner to drive its graph. `output`
-# is required (where the bytes come from); `positive`/`seed` are required so the
-# prompt + per-render cache-busting seed always have a home. The ref roles
-# (`style_ref`/`shape_ref`) and size roles are OPTIONAL — a graph may bake its
-# own size or take no style reference (the runner skips an absent role).
-REQUIRED_ROLES = ("positive", "seed", "output")
-OPTIONAL_ROLES = ("negative", "width", "height", "style_ref", "shape_ref")
-KNOWN_ROLES = REQUIRED_ROLES + OPTIONAL_ROLES
+# `output` is the one STRUCTURAL role: it is where the bytes come from, so a
+# blueprint without it cannot produce a region at all and publishing one is
+# refused here.
+#
+# `positive` and `seed` were required too, on the reasoning that the prompt and a
+# per-render cache-busting seed "always have a home". That holds for a GENERATION
+# graph and is false for a PROCESSING one — an upscale, relight or matting network
+# has no sampler and no text encoder, so neither role has anything to bind and the
+# publish was unreachable: the modal demanded a seed the graph could not offer.
+#
+# Nothing downstream needs them. Every role is injected through
+# `batch_atlas._set_node_input`, which is a documented no-op for an absent binding,
+# and the seed read-back (`_seed_in_png`) already returns None for a graph with no
+# sampler. An unbound role is simply not written.
+#
+# The useful warning — "your graph HAS a seed input and you left it unbound, so
+# every render and every new variant will come out identical" — needs the graph AND
+# the author, so it lives in the publish modal (`bpRoleWarn`). This validator only
+# sees a missing key and cannot tell that apart from a graph that has no seed, so it
+# does not guess.
+STRUCTURAL_ROLES = ("output",)
+INJECTED_ROLES = ("positive", "negative", "seed", "width", "height",
+                  "style_ref", "shape_ref")
+KNOWN_ROLES = STRUCTURAL_ROLES + INJECTED_ROLES
 
 # Exposed-parameter ("general settings") types a blueprint author may declare.
 # A param carries a baked DEFAULT (the "general setting") and renders as an
@@ -342,7 +358,7 @@ def _validate_manifest(bp_id: str, manifest: dict) -> dict:
     bindings = manifest.get("bindings")
     if not isinstance(bindings, dict):
         raise ValueError(f"blueprint '{bp_id}': missing 'bindings' object")
-    for role in REQUIRED_ROLES:
+    for role in STRUCTURAL_ROLES:
         b = bindings.get(role)
         if not isinstance(b, dict) or not str(b.get("node", "")).strip():
             raise ValueError(
