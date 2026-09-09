@@ -223,6 +223,25 @@ without checking it). The tool's live preview calls the same function the game d
 3. **`all` and a zero gap both mean one frame**, and both short-circuit before any sort runs — the
    parity path, which is every project that never opens the panel.
 
+**A seat stops being DRAWN when its own pop ends, which is not when it is removed.** Removal is
+board-wide — `tumbleBoardRemoveExploded` runs once, after the whole step settles — and it has to
+stay that way, because `TumbleBoardBase` seats a symbol by its index within its column, so taking
+one out mid-step would shift everything below it and jump survivors that have not moved. A pattern
+pulls those two moments apart by the length of the spread, and the symbol left in between kept
+animating: a cell's `loop` is ABSENT by default and absent means loop, so a wave-0 seat re-played
+its explosion two or three times over while the columns to its right were still popping. It is now
+undrawn the moment its own animation reports (`TumbleSymbol.exploded`), which moves no index — so
+the board genuinely comes apart in waves instead of coming apart and then sitting there half-dead.
+
+The flag is set inside the ARMED callback, never after the `await`, and that placement is the guard.
+The beat is raced against `TRANSIT_BEAT_CAP_MS` (650 ms), so settling after the await would fire on
+the cap too and cut off any pop an artist authored longer than that — truncation, the failure this
+codebase treats as worse than a blown guard because it looks like art. Armed instead, the two ends
+of the race separate on their own: a long pop still reports late, into an already-settled promise,
+and vanishes on its own last frame; one that can never report (no art, a spine animation missing
+from the skeleton) is simply left for the board-wide removal, exactly as before. Owner report on
+Waves/test6, 2026-09-09.
+
 **What it must not change.** The step's contract: it still ends when the LAST seat's animation
 reports, so a pattern lengthens it by exactly `(waves - 1) × stepMs` and nothing else. Which seats
 explode, what they pay, and how they are refilled are all untouched. A wave that has not fired when

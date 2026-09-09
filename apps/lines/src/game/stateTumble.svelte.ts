@@ -29,6 +29,23 @@ export type TumbleSymbol = {
 	rawSymbol: RawSymbol;
 	symbolState: SymbolState;
 	oncomplete: () => void;
+	/**
+	 * This symbol's `tumbleExplosion` has PLAYED OUT — nothing draws it any more, even though it is
+	 * still in `base` until the step's board-wide `tumbleBoardRemoveExploded`.
+	 *
+	 * Those two moments used to be one, because the whole board popped in a single frame. An
+	 * Explosion pattern separates them by the length of the spread: a seat in wave 0 finishes its
+	 * animation and then waits out every later wave. It cannot simply be REMOVED at that point —
+	 * `TumbleBoardBase` seats a symbol by its index within its column, so taking one out mid-step
+	 * would shift everything below it and jump survivors that have not moved yet. Removal is
+	 * board-wide for that reason and stays so; this is the presentation half, and being merely
+	 * undrawn moves no index.
+	 *
+	 * Without it a finished symbol kept animating — and because a cell's `loop` is ABSENT by default
+	 * and absent means loop, it kept RE-playing its explosion two or three times over while the
+	 * columns to its right were still popping.
+	 */
+	exploded: boolean;
 };
 
 /**

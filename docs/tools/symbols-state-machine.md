@@ -316,7 +316,10 @@ up, so a one-at-a-time pattern at a large gap will play faster than the slider s
 Everything a pattern plausibly wants is under the ceiling and plays exactly as set.
 
 It is purely how it looks: the same symbols explode, pay the same, and are replaced the same way,
-and the step still ends when the last symbol's animation does. If you also use a **Transition**
+and the step still ends when the last symbol's animation does. Each symbol **goes as its own
+explosion finishes**, so the board empties in the same waves it pops in instead of holding the
+already-exploded columns on screen — and looping explosion art does not sit there re-playing itself
+while the columns to its right catch up. If you also use a **Transition**
 (below), it keeps working and it keeps its meaning: each seat's bridge plays the authored delay
 after **that seat's** explosion, so the bridges sweep across the board with the waves. The step's
 explosion **sound** fires

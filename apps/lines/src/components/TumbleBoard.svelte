@@ -258,6 +258,34 @@
 	const awaitBeat = (arm: (resolve: () => void) => void) =>
 		awaitSymbolBeat(arm, TRANSIT_BEAT_CAP_MS);
 
+	/**
+	 * ONE SEAT'S POP: await it, and take the symbol off the screen the moment its own animation
+	 * reports — see {@link TumbleSymbol.exploded} for why undrawn and removed are two different
+	 * things here.
+	 *
+	 * The flag is set INSIDE the armed callback rather than after the `await`, and that placement is
+	 * the whole of the guard. `awaitSymbolBeat` races the report against {@link
+	 * TRANSIT_BEAT_CAP_MS}, so settling after the await would fire on the CAP too — and the cap is
+	 * 650 ms, shorter than an explosion a project is perfectly entitled to author. That would cut a
+	 * long pop off mid-frame, which is the invisible failure this file's beat helper is at pains
+	 * about: truncation looks like art, not like a bug.
+	 *
+	 * Armed here instead, the two cases separate on their own. A symbol that reports LATE still
+	 * reports — the armed callback survives the lost race and fires into an already-settled promise
+	 * (`symbolBeat.ts` says so) — so a long explosion plays out in full and then vanishes on its own
+	 * last frame. A symbol that can never report at all (no art, a spine animation missing from the
+	 * skeleton) never sets it, and simply stays until the board-wide removal, exactly as it did
+	 * before this existed.
+	 */
+	const awaitExplosion = (tumbleSymbol: TumbleSymbol) =>
+		awaitBeat(
+			(resolve) =>
+				(tumbleSymbol.oncomplete = () => {
+					tumbleSymbol.exploded = true;
+					resolve();
+				}),
+		);
+
 	const createTumbleSymbol = ({
 		initY,
 		rawSymbol,
@@ -271,6 +299,7 @@
 			rawSymbol,
 			symbolState: 'static' as const,
 			oncomplete: () => {},
+			exploded: false,
 		});
 		return tumbleSymbol;
 	};
@@ -596,7 +625,7 @@
 					if (transition) {
 						scheduleTransition(transition, position, tumbleSymbol);
 					}
-					await awaitBeat((resolve) => (tumbleSymbol.oncomplete = resolve));
+					await awaitExplosion(tumbleSymbol);
 				}),
 			);
 		},
